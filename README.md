@@ -5,14 +5,14 @@
 <h1>Trina AX</h1>
 
 <b>The AI your whole team shares.</b><br>
-Trina AX puts your team's files, skills and tools on one server. Everyone's AI starts from them,<br>and every file it opens is checked as the person who asked.
+Trina AX puts your team's files, skills and tools on one server. Everyone's AI starts from them.<br>Pick up a teammate's AI session where they left off. Every file it opens is checked as the person who asked.
 
 <a href="https://ax.trina.app/download"><img src="docs/images/readme/v4/download-mac-en.png" height="40" alt="Download for Mac"></a>&nbsp;&nbsp;<a href="https://ax.trina.app/download"><img src="docs/images/readme/v4/download-windows-en.png" height="40" alt="Download for Windows"></a>&nbsp;&nbsp;<a href="https://apps.apple.com/app/trina-ax/id6829192435"><img src="docs/images/readme/v3/badge-app-store.svg" height="40" alt="Download on the App Store"></a>&nbsp;&nbsp;<a href="https://play.google.com/store/apps/details?id=app.trina.ax"><img src="docs/images/readme/v3/badge-google-play.png" height="40" alt="Get it on Google Play"></a><br>
 <sub>Linux: .deb and AppImage (x64, arm64) on the <a href="https://ax.trina.app/download">download page</a></sub>
 
 [Website](https://ax.trina.app) · [Docs](docs/README.md) · [Pricing](https://ax.trina.app/pricing) · [Discord](https://discord.gg/zUVfSR8MVk)
 
-English · [한국어](README.ko.md) · [日本語](README.ja.md) · [Español](README.es.md) · [简体中文](README.zh-CN.md) · [繁體中文](README.zh-TW.md) · [Português](README.pt-BR.md) · [Français](README.fr.md) · [Deutsch](README.de.md) · [Italiano](README.it.md) · [Русский](README.ru.md) · [Türkçe](README.tr.md) · [Tiếng Việt](README.vi.md) · [Bahasa Indonesia](README.id.md)
+English · [한국어](README.ko.md) · [日本語](README.ja.md) · [Español](README.es.md) · [简体中文](README.zh-CN.md) · [Bahasa Indonesia](README.id.md)
 
 </div>
 
@@ -58,6 +58,10 @@ One person sets things up on the team server. Everyone's AI has it from their fi
 
 ## What everyone does with it
 
+**Pick up where a teammate left off.** Open a teammate's AI session in a team project and keep going: the whole conversation and every answer so far are there, and each new answer runs with the access of the person who asked. Share any other session with people or groups, like a file in Google Drive.
+
+<img src="docs/images/readme/v4/shared-sessions.gif" width="100%" alt="Mina opens Sam's project session and keeps editing the card news; her turns run with her access.">
+
 **Ask beside any room, send in one click.** A side chat only you see; one click sends Trina's answer into the room.
 
 <img src="docs/images/readme/v4/room-share.gif" width="100%" alt="In the Expo booth crew room, Mina asks Trina in a side chat only she sees to turn the exhibitor rules into a checklist, then sends it to the room.">
@@ -65,10 +69,6 @@ One person sets things up on the team server. Everyone's AI has it from their fi
 **Each person's AI sees only what they may open.** Mina can't open Finance, so neither can her AI. [How permissions work](docs/PERMISSIONS.md)
 
 <img src="docs/images/readme/v4/folder-access.gif" width="100%" alt="An admin changes who can open the Sales folder, then checks what Mina can open: Finance is not on her list.">
-
-**Pick up a teammate's session in a team project.** Sessions in a team project are shared with its members: open a teammate's and keep going, with your own access. Any other session you can share with people or groups, like a file in Google Drive.
-
-<img src="docs/images/readme/v4/shared-sessions.gif" width="100%" alt="Mina opens Sam's project session and keeps editing the card news; her turns run with her access.">
 
 **Files found by what they are.** Every night the team's AI reads new and changed files in shared, group and project folders and keeps one line per file saying what it is, so a scan named `temp.pdf` or a photo named `IMG_2031.jpg` is found by its content. It uses the team's AI account and never reads personal folders. In a test with 2,238 made-up files, Claude Code found the right file for 181 of 184 questions with these lines, and for 172 without them.
 
@@ -99,6 +99,7 @@ One person sets things up on the team server. Everyone's AI has it from their fi
 
 ## Get started
 
+- **Try it in your browser:** nothing to install; a fictional team with the AI off. [Open the demo](https://ax.trina.app/demo/)
 - **Trina hosting:** no server to run. 14-day free trial, then a monthly plan. [Pricing](https://ax.trina.app/pricing)
 - **Apps:** [Mac, Windows, Linux, iPhone, Android](https://ax.trina.app/download), or any browser.
 - **Self-host:** your own Linux server, Docker or an office Mac. Free. [Linux](docs/INSTALL-LINUX.en.md) · [Docker](docs/INSTALL-DOCKER.md) · [Office Mac](docs/OFFICE.en.md) · [Install with your AI agent](docs/INSTALL-LINUX.en.md#install-with-your-ai-agent)
