@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-21 03:55
 - Branch: `fix/aside-read-tools-no-card`
-- Status: in progress
+- Status: done
 - Where: server (`server/src/integrations/connections/`) and the shared preset list (`shared/src/api/local-apps.ts`).
   Why: the read mark of a connection's tools is decided on the server; the listed Aside preset lives in shared.
 - Version impact: patch (a card that should not come no longer comes; no new feature, no API change)
@@ -65,4 +65,6 @@ Out:
 
 ## Result
 
-(filled in at the end)
+Built as planned. Unit test `tests/unit/c-local-apps-aside-reads.test.ts` (fails without the fix). QA on a private
+copy of the local QA team with real Aside 1.26.1115 driven by the desktop app's own manager: before, listing profiles
+showed the "send" card with `{}`; after, it ran with no card; `repl` still showed its card.
