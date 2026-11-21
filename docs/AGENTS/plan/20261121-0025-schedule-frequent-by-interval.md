@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-21 00:25
 - Branch: `fix/schedule-frequent-by-interval`
-- Status: in progress
+- Status: done
 - Where: trina-ax server (`server/src/chat/schedules.ts`), two unit tests.
 - Version impact: patch. A wrong chat choice is fixed; no API or data change.
 
