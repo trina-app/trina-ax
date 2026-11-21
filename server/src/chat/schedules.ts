@@ -53,11 +53,14 @@ export const SCHEDULES_PER_PERSON = 50
 /** Scheduled runs of one person queued or running at once (security review of #1353, M2): the next waits for one */
 export const RUNS_AT_ONCE = 2
 
-/** Does this task run again within the hour after this occurrence (every N minutes, a cron schedule by the minute)? */
+/** Does this task run more often than hourly (every N minutes under 60, a cron schedule by the minute)? It depends on the
+ * schedule's interval only, never on the time of day: the gap between the next two occurrences after `dueAt`, not
+ * between `dueAt` and the next one ("Run now" at 08:30 on a daily 09:00 task is 30 minutes before its next run, and
+ * that does not make it frequent). A task with fewer than two more occurrences (a one-time task) is not frequent. */
 export function isFrequent(s: TimingSource, dueAt: string, tz: string): boolean {
-  const due = new Date(dueAt)
-  const next = nextRun(s, due, tz)
-  return !!next && next.getTime() - due.getTime() < 3_600_000
+  const first = nextRun(s, new Date(dueAt), tz)
+  const second = first && nextRun(s, first, tz)
+  return !!first && !!second && second.getTime() - first.getTime() < 3_600_000
 }
 /** a run refused because the queue was full is tried again this much later */
 export const QUEUE_FULL_RETRY_MS = 60_000

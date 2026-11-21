@@ -1,0 +1,1 @@
+- **Run now** on a daily, weekly or monthly scheduled task in the hour before its time no longer reuses the last chat. Only a task that runs more often than hourly keeps one chat for its runs.
