@@ -215,6 +215,7 @@ const KOREAN_ALLOWED: Record<string, { why: string; also?: RegExp }> = {
   'shared/src/api/rooms.ts': { why: 'the AI\'s Korean name that calls it in a room ("@트리나"; matched in messages, not screen text)', also: /^(export )?const AI_OWN_NAMES = \['트리나', / },
   'server/src/demo/guard.ts': { why: 'demo mode refusals (ko next to en/id/ja/es)' },
   'server/src/demo/free-roam.ts': { why: 'free-roam demo answer errors (ko next to en/id/ja/es/zh)' },
+  'server/src/demo/fakes/gmail.ts': { why: 'Korean honorifics and particles the demo Gmail search drops from a name ("크리스님" → "크리스", TC-6712): data, not screen text', also: /^(?:const KO_ENDINGS = \[|\s+'에게서', )/ },
   'server/src/integrations/google-drive/callback-page.ts': { why: 'the Google sign-in return page\'s words (ko first in t(ko, en, id, ja, es, zh); a long one\'s Korean on its own line)', also: /^ {4}'[^']*',$/ },
   'server/src/promo-video/tool.ts': { why: 'the promo video\'s style names and player words (ko next to en/id/ja/es)', also: /^\s*ko: \{ (ink|play): / },
   'server/src/promo-video/spec.ts': { why: 'the Korean brand folder names (브랜드/이미지) named in the problems the AI gets back (not screen text)', also: /…\/브랜드\/이미지\// },

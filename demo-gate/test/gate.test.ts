@@ -56,6 +56,9 @@ describe.skipIf(skip)('gate: pages, start, routing', () => {
     expect(await ko.text()).toContain('<html lang="ko">')
     const byBrowser = await get(g, visitor(), '/', { headers: { 'accept-language': 'ko-KR,ko;q=0.9' } })
     expect(await byBrowser.text()).toContain('<html lang="ko">')
+    // a language the live config does not run (pool.locales en, ko here) shows the English page
+    const ja = await get(g, visitor(), '/?lang=ja', { headers: { 'accept-language': 'ja-JP' } })
+    expect(await ja.text()).toContain('<html lang="en">')
   })
 
   test('start needs a passed Turnstile from this host and our own origin', async () => {
@@ -236,6 +239,25 @@ describe.skipIf(skip)('gate: pages, start, routing', () => {
       const secret = instanceUpstream(g, d).split('.').pop()!
       expect(log).not.toContain(secret)
     }
+  })
+})
+
+describe.skipIf(skip)('gate: the six languages', () => {
+  let g: Gate
+  beforeAll(async () => { g = await startGate({ upstream: upstream.url, turnstile: turnstile.url, locales: ['en', 'ko', 'ja', 'zh', 'es', 'id'] }); await warm(g, 1, 'ja') })
+  afterAll(() => g?.stop())
+
+  test('each live language gets its own page, by ?lang= and by the browser', async () => {
+    for (const l of ['en', 'ko', 'ja', 'zh', 'es', 'id']) {
+      const r = await get(g, visitor(), `/?lang=${l}`, { headers: { 'accept-language': 'en-US' } })
+      expect(await r.text(), l).toContain(`<html lang="${l}">`)
+    }
+    const ja = await (await get(g, visitor(), '/', { headers: { 'accept-language': 'ja-JP,ja;q=0.9' } })).text()
+    expect(ja).toContain('<html lang="ja">')
+    expect(ja).toContain('トリナには8回ほど質問できます')
+    expect(ja).toContain('name="lang" value="ja"')
+    const id = await (await get(g, visitor(), '/?lang=xx', { headers: { 'accept-language': 'id-ID' } })).text()
+    expect(id).toContain('<html lang="id">')
   })
 })
 

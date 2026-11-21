@@ -4,13 +4,13 @@ import { describe, expect, test } from 'bun:test'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { ConfigError, DEFAULT_MODELS, instanceUserProblem, parseConfig } from '../src/config.ts'
+import { ConfigError, DEFAULT_MODELS, LOCALES, instanceUserProblem, parseConfig } from '../src/config.ts'
 import { createLog } from '../src/log.ts'
 import {
   BUSY_TEXT, NEUTRAL_HEADERS, NEUTRAL_STATUS, OAUTH_BETA, SseRewriter, allowedResponseHeaders, betaFor, budgetError,
   isPromptTooLong, modelAllowed, neutralError, pinModel, weighted,
 } from '../src/model.ts'
-import { localeOf, renderPage } from '../src/pages.ts'
+import { WORDS, localeOf, renderPage } from '../src/pages.ts'
 import { asInstanceUser, groupsBelow, ownsGroup, runMode, sudoStartArgv } from '../src/pool.ts'
 import { cookiesForInstance, pathVerdict, secureCookie, visitorAddress, withNoTransform } from '../src/public.ts'
 import { GateState } from '../src/state.ts'
@@ -178,9 +178,28 @@ describe('pages', () => {
     expect(localeOf(null, 'ko-KR,ko;q=0.9')).toBe('ko')
     expect(localeOf('xx', 'fr, en;q=0.5')).toBe('en')
     expect(localeOf(null, undefined)).toBe('en')
+    for (const l of LOCALES) expect(localeOf(l, 'en-US')).toBe(l)
+    expect(localeOf(null, 'ja-JP,ja;q=0.9')).toBe('ja')
+    expect(localeOf(null, 'zh-CN,zh;q=0.9')).toBe('zh')
+    expect(localeOf(null, 'es-MX')).toBe('es')
+    expect(localeOf(null, 'id-ID,en;q=0.8')).toBe('id')
   })
-  test('every page renders in both languages; links are the configured ones', () => {
-    for (const l of ['en', 'ko'] as const) for (const k of ['landing', 'busy', 'ended', 'limit', 'check', 'error'] as const) {
+  test('only the live languages (pool.locales): anything else falls back to en', () => {
+    const live = ['en', 'ko'] as const
+    expect(localeOf('ja', 'ja-JP', live)).toBe('en')
+    expect(localeOf(null, 'zh-CN,ko;q=0.8', live)).toBe('ko')
+    expect(localeOf('ko', undefined, live)).toBe('ko')
+    expect(localeOf('xx', 'fr', ['ja'])).toBe('ja')
+  })
+  test('every page renders in all six languages; links are the configured ones', () => {
+    expect(LOCALES).toEqual(['en', 'ko', 'ja', 'zh', 'es', 'id'])
+    const keys = Object.keys(WORDS.en).sort()
+    for (const l of LOCALES) {
+      expect(Object.keys(WORDS[l]).sort(), l).toEqual(keys)
+      for (const [k, v] of Object.entries(WORDS[l])) expect(v.trim(), `${l} ${k}`).not.toBe('')
+      if (l !== 'en') for (const k of ['landingP', 'note', 'busyP', 'endedP', 'limitP'] as const) expect(WORDS[l][k], `${l} ${k}`).not.toBe(WORDS.en[k])
+    }
+    for (const l of LOCALES) for (const k of ['landing', 'busy', 'ended', 'limit', 'check', 'error'] as const) {
       const html = renderPage(k, l, { siteKey: 'k"<', links: { scriptedDemo: 'https://ax.trina.app/demo', pricing: 'https://ax.trina.app/pricing' } })
       expect(html).toContain(`<html lang="${l}">`)
       expect(html).not.toContain('k"<')
@@ -194,9 +213,24 @@ describe('pages', () => {
     const ko = renderPage('landing', 'ko', { siteKey: 'k', links })
     expect(en).toContain('<p class="note">You can ask Trina about 8 questions. Your copy stays for 24 hours.</p>')
     expect(ko).toContain('<p class="note">트리나에게 8번 정도 물어볼 수 있어요. 사본은 24시간 동안 남아 있어요.</p>')
-    for (const html of [en, ko]) {
+    // under it, that Gmail, Drive and Higgsfield are practice copies (the owner: say it up front), in every language
+    expect(en).toContain('<p class="note practice">Gmail, Google Drive and Higgsfield here are practice copies: mail is never really sent, and new pictures come from a prepared set.</p>')
+    expect(ko).toContain('<p class="note practice">여기 Gmail·Google Drive·Higgsfield는 연습용이에요. 메일은 실제로 보내지 않고, 새 사진은 준비된 사진 중에서 골라요.</p>')
+    for (const l of LOCALES) {
+      const html = renderPage('landing', l, { siteKey: 'k', links })
+      expect(html.indexOf('class="note practice"'), l).toBeGreaterThan(html.indexOf('class="note"'))
+      for (const name of ['Gmail', 'Higgsfield']) expect(WORDS[l].practice, l).toContain(name)
+    }
+    for (const k of ['busy', 'ended', 'limit'] as const) expect(renderPage(k, 'en', { siteKey: 'k', links })).not.toContain('practice copies')
+    // every language says about 8 questions and 24 hours, never tokens
+    for (const l of LOCALES) {
+      expect(WORDS[l].note, l).toContain('8')
+      expect(WORDS[l].note, l).toContain('24')
+    }
+    const others = (['ja', 'zh', 'es', 'id'] as const).map((l) => renderPage('landing', l, { siteKey: 'k', links }))
+    for (const html of [en, ko, ...others]) {
       expect(html.indexOf('class="note"')).toBeGreaterThan(html.indexOf('type="submit"'))
-      expect(html).not.toMatch(/token|토큰/i)
+      expect(html).not.toMatch(/token|토큰|トークン|令牌/i)
     }
   })
 })

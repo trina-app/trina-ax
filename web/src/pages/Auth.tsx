@@ -10,7 +10,7 @@ import { type InviteInfo, type Locale, type PasswordResetInfo, type TeamLinkInfo
 import { api, API, errorText, isApiError } from '../lib/api'
 import { formatDateTime } from '../lib/format'
 import { browserLocale, loadLocale, LOCALES, storedLocale, storeLocale, translate, useLocale, useLocaleStore, useT, type MessageKey } from '../i18n'
-import { removedFrom, removedHow, useMe, useSession } from '../store/session'
+import { removedFrom, removedHow, teamDefaultLocale, useMe, useSession } from '../store/session'
 import { toast } from '../store/ui'
 import { clientKind, desktop } from '../lib/desktop'
 import { mobileApp } from '../lib/mobile'
@@ -34,7 +34,7 @@ import { browserTimeZone } from '../lib/time-zones'
 import { signedOutLine } from '../lib/signedOut'
 import { DemoStart, useDemoInfo } from '../components/demo/Demo'
 import { FreeRoamStart } from '../components/demo/FreeRoam'
-import { FREE_ROAM_LOCALES } from '../lib/freeRoam'
+import { freeRoamSignInLocales } from '../lib/freeRoam'
 import { useFreeRoam } from '../store/demo'
 
 /** The password rule's minimum (server: server/src/auth/passwords.ts, the same 8 everywhere). */
@@ -85,12 +85,13 @@ export function LanguageSwitcher() {
   const t = useT()
   const locale = useLocale()
   const pick = useSession((s) => s.pickLocale)
-  // a free-roam demo: only the languages its company is written in (lib/freeRoam.ts FREE_ROAM_LOCALES)
+  // a free-roam demo: only the instance's own language and English (lib/freeRoam.ts freeRoamSignInLocales)
   const freeRoam = useFreeRoam()
+  const own = useMe()?.team.defaultLocale ?? teamDefaultLocale()
   return (
     <label className="mt-6 flex items-center justify-center gap-2 text-xs text-faint">
       {t('settings.language')}
-      <LanguageSelect compact value={locale} testId="auth-locale" onChange={(l) => pick(l)} only={freeRoam ? FREE_ROAM_LOCALES : undefined} />
+      <LanguageSelect compact value={locale} testId="auth-locale" onChange={(l) => pick(l)} only={freeRoam ? freeRoamSignInLocales(own) : undefined} />
     </label>
   )
 }

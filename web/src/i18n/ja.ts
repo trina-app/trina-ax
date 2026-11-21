@@ -4277,6 +4277,8 @@ export const ja: Record<MessageKey, string> = {
   "demo.signIn.title": "架空の会社 {company} のデモ",
   "demo.free.bar": "架空の会社{company}の{name}として入っています。何でも試してみてください。",
   "demo.free.tryLabel": "試してみること",
+  "demo.free.practice": "練習用の連携",
+  "demo.free.practiceTip": "ここのGmail・Googleドライブ・Higgsfieldは練習用です。メールは実際には送信されず、新しい画像は用意された画像の中から選ばれます。",
   "demo.free.chip.posts": "来週のSNS投稿を作って",
   "demo.free.chip.reply": "クリスからの返信を確認して",
   "demo.free.chip.assets": "ブランド素材フォルダには何がある？",

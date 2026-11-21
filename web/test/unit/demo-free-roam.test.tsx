@@ -19,7 +19,8 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { AvailableSkillsList } from '../../src/components/AvailableSkills'
 import { AccountMenu } from '../../src/components/nav/AccountMenu'
 import { LanguageSelect } from '../../src/components/LanguageSelect'
-import { FREE_ROAM_LOCALES } from '../../src/lib/freeRoam'
+import { FREE_ROAM_LOCALES, freeRoamSignInLocales } from '../../src/lib/freeRoam'
+import { LanguageSwitcher } from '../../src/pages/Auth'
 import { useTeamSwitchWay } from '../../src/lib/teamSwitch'
 
 const INFO: DemoInfo = {
@@ -160,13 +161,34 @@ describe('the bar', () => {
     const m = await mount(<MemoryRouter><DemoBar /></MemoryRouter>)
     try {
       await m.until(() => m.find('free-roam-bar'), 'the bar')
-      expect(m.get('free-roam-who').textContent).toBe("You're Mina at Steepling, a made-up company. Try anything. About 8 questions left")
+      expect(m.get('free-roam-who').textContent).toBe("You're Mina at Steepling, a made-up company. Try anything. About 8 questions left Practice connections")
       expect(m.get('free-roam-left').textContent).toBe('About 8 questions left')
       expect(m.get('free-roam-chips').querySelectorAll('button').length).toBe(3)
       expect(m.find('free-roam-meter')).toBeNull()
       expect(m.find('demo-switch')).toBeNull()
       expect(m.find('demo-bar')).toBeNull()
     } finally { await m.unmount() }
+  })
+
+  test('Gmail, Drive and Higgsfield are said to be practice copies: a short label, the whole sentence in its tooltip, in every language', async () => {
+    const m = await mount(<MemoryRouter><DemoBar /></MemoryRouter>)
+    try {
+      await m.until(() => m.find('free-roam-practice'), 'the label')
+      const label = m.get('free-roam-practice')
+      expect(label.textContent).toBe('Practice connections')
+      expect(label.getAttribute('tabindex')).toBe('0')
+      // no card, no banner: one quiet span inside the bar's first line
+      expect(m.get('free-roam-who').contains(label)).toBe(true)
+    } finally { await m.unmount() }
+    expect(translate('en', 'demo.free.practiceTip')).toBe('Gmail, Google Drive and Higgsfield here are practice copies: mail is never really sent, and new pictures come from a prepared set.')
+    expect(translate('ko', 'demo.free.practice')).toBe('연습용 연결')
+    expect(translate('ko', 'demo.free.practiceTip')).toBe('여기 Gmail·Google Drive·Higgsfield는 연습용이에요. 메일은 실제로 보내지 않고, 새 사진은 준비된 사진 중에서 골라요.')
+    for (const l of ['en', 'ko', 'ja', 'zh', 'es', 'id'] as const) {
+      // short enough for a 390px bar; the tooltip names every practice service
+      expect(translate(l, 'demo.free.practice').length, l).toBeLessThanOrEqual(24)
+      for (const name of ['Gmail', 'Google', 'Higgsfield']) expect(translate(l, 'demo.free.practiceTip'), l).toContain(name)
+      if (l !== 'en') expect(translate(l, 'demo.free.practiceTip'), l).not.toBe(translate('en', 'demo.free.practiceTip'))
+    }
   })
 
   test('the questions left follow what is used', async () => {
@@ -432,9 +454,32 @@ describe('what a free-roam visitor is not offered', () => {
   test('the sign-in page\'s languages: only the demo\'s own (QA TC-5621), the current one kept; every one elsewhere', () => {
     const langs = (only?: readonly Locale[], value: Locale = 'en') =>
       [...renderToStaticMarkup(<LanguageSelect value={value} onChange={() => {}} only={only} />).matchAll(/<option value="([a-z]+)"/g)].map((x) => x[1])
-    expect(FREE_ROAM_LOCALES).toEqual(['en', 'ko'])
-    expect(langs(FREE_ROAM_LOCALES)).toEqual(['en', 'ko'])
-    expect(langs(FREE_ROAM_LOCALES, 'ja').sort()).toEqual(['en', 'ja', 'ko'])
+    expect(FREE_ROAM_LOCALES).toEqual(['en', 'ko', 'ja', 'zh', 'es', 'id'])
+    expect(langs(FREE_ROAM_LOCALES).sort()).toEqual([...FREE_ROAM_LOCALES].sort())
+    expect(langs(['en', 'ko'], 'ja').sort()).toEqual(['en', 'ja', 'ko'])
     expect(langs().length).toBeGreaterThan(2)
+  })
+
+  test('one instance offers its own language and English, not all six (demo-gate runs only some live)', async () => {
+    expect(freeRoamSignInLocales('ko')).toEqual(['en', 'ko'])
+    expect(freeRoamSignInLocales('ja')).toEqual(['en', 'ja'])
+    expect(freeRoamSignInLocales('en')).toEqual(['en'])
+    expect(freeRoamSignInLocales(null)).toEqual(['en'])
+    expect(freeRoamSignInLocales(undefined)).toEqual(['en'])
+    for (const l of FREE_ROAM_LOCALES) for (const x of freeRoamSignInLocales(l)) expect(FREE_ROAM_LOCALES).toContain(x)
+
+    // the switcher itself, on a live ko instance: no ja, zh, es or id screens offered; a normal server keeps every one
+    const options = async () => {
+      const m = await mount(<LanguageSwitcher />)
+      try { return [...m.html().matchAll(/<option value="([a-z]+)"/g)].map((x) => x[1]).sort() } finally { await m.unmount() }
+    }
+    useSession.setState({ status: { kind: 'signed-in', me: { ...me({ features: FEATURES_OFF }), team: { name: 'Steepling', defaultLocale: 'ko' } } } } as never)
+    useLocaleStore.getState().setLocale('ko')
+    try {
+      asFreeRoam(true)
+      expect(await options()).toEqual(['en', 'ko'])
+      asFreeRoam(false)
+      expect((await options()).length).toBeGreaterThan(2)
+    } finally { useLocaleStore.getState().setLocale('en') }
   })
 })

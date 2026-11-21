@@ -109,7 +109,7 @@ export const id: Strings = {
     captions: [
       'Baru, edisi musim dingin: Yuzu Jahe 🍋 Celupkan satu kantong ke air dingin sebelum tidur, paginya tinggal nikmati yang segar. Diskon 20% selama dua minggu pertama.',
       'yuzu + jahe. udah. gitu doang postingannya. (oke deh, minggu ini juga lagi diskon 20%)',
-      'Diam-diam tim kami sudah minum ini sejak Agustus. Mulai Senin, giliran kamu.',
+      'Diam-diam tim kami sudah minum ini berbulan-bulan. Mulai Senin, giliran kamu.',
     ],
     captionsTitle: 'Caption: peluncuran Yuzu Jahe',
     deliverables: {

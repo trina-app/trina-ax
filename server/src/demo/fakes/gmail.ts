@@ -79,6 +79,173 @@ function dateOf(d: string, start: number): string {
   return new Date(Number.isFinite(ms) ? ms : start).toUTCString()
 }
 
+/** one search word: `key:value`, a plain word, or a "phrase" */
+interface Term { key: string; value: string }
+type Query = { t: 'term'; term: Term } | { t: 'and' | 'or'; of: Query[] } | { t: 'not'; of: Query }
+type Tok = { k: '(' | ')' | '{' | '}' | 'or' | '-' } | { k: 'key'; key: string } | { k: 'word'; key: string; value: string }
+
+/** Gmail's query words → a tree. Lenient: an unclosed bracket ends at the end, a stray one is skipped. */
+export function parseQuery(query: string): Query {
+  const toks: Tok[] = []
+  const s = query.normalize('NFC')
+  let i = 0
+  while (i < s.length) {
+    const c = s[i]!
+    if (/\s/.test(c)) { i++; continue }
+    if ('(){}'.includes(c)) { toks.push({ k: c as '(' }); i++; continue }
+    if (c === '-' && i + 1 < s.length && !/\s/.test(s[i + 1]!)) { toks.push({ k: '-' }); i++; continue }
+    if (c === '"') {
+      const end = s.indexOf('"', i + 1)
+      toks.push({ k: 'word', key: '', value: s.slice(i + 1, end < 0 ? s.length : end) })
+      i = end < 0 ? s.length : end + 1
+      continue
+    }
+    let j = i
+    while (j < s.length && !/[\s(){}"]/.test(s[j]!)) j++
+    const raw = s.slice(i, j)
+    const key = /^([a-z_]+):(.*)$/i.exec(raw)
+    if (key && key[2] === '' && j < s.length && '({"'.includes(s[j]!)) {
+      toks.push({ k: 'key', key: key[1]!.toLowerCase() })
+      if (s[j] === '"') {
+        const end = s.indexOf('"', j + 1)
+        toks.push({ k: 'word', key: '', value: s.slice(j + 1, end < 0 ? s.length : end) })
+        j = end < 0 ? s.length : end + 1
+      }
+    } else if (raw === 'OR' || raw === '|') toks.push({ k: 'or' })
+    else if (key) toks.push({ k: 'word', key: key[1]!.toLowerCase(), value: key[2]! })
+    else toks.push({ k: 'word', key: '', value: raw })
+    i = j
+  }
+  let p = 0
+  // a run of items until `end`: AND of OR-chains (OR binds tighter, as in Gmail); in braces, every item is OR
+  const seq = (ctx: string, end: ')' | '}' | null): Query => {
+    const items: Query[] = []
+    let orNext = false
+    while (p < toks.length) {
+      const t = toks[p]!
+      if (t.k === end) { p++; break }
+      if (t.k === ')' || t.k === '}') { p++; continue }
+      if (t.k === 'or') { p++; orNext = items.length > 0; continue }
+      const q = unary(ctx)
+      if (!q) continue
+      const last = items[items.length - 1]
+      if (orNext && last) items[items.length - 1] = last.t === 'or' ? { t: 'or', of: [...last.of, q] } : { t: 'or', of: [last, q] }
+      else items.push(q)
+      orNext = false
+    }
+    return { t: end === '}' ? 'or' : 'and', of: items }
+  }
+  const unary = (ctx: string): Query | null => {
+    const t = toks[p]
+    if (!t) return null
+    if (t.k === '-') { p++; const q = unary(ctx); return q ? { t: 'not', of: q } : null }
+    if (t.k === 'key') { p++; return unary(t.key) }
+    if (t.k === '(') { p++; return seq(ctx, ')') }
+    if (t.k === '{') { p++; return seq(ctx, '}') }
+    if (t.k === 'word') { p++; return { t: 'term', term: { key: t.key || ctx, value: t.value } } }
+    p++
+    return null
+  }
+  return seq('', null)
+}
+
+/** Gmail's keys and values the demo mailbox does not keep (dates, sizes, categories, Drive links, snoozed …) */
+const UNTRACKED_KEYS = new Set(['newer_than', 'older_than', 'after', 'before', 'newer', 'older', 'category', 'filename', 'list', 'size', 'larger', 'smaller', 'deliveredto', 'rfc822msgid'])
+const TRACKED: Record<string, readonly string[]> = { is: ['unread', 'read', 'starred', 'important'], has: ['attachment'] }
+/** `in:` values that are no label: drafts picks the list to search (FakeGmail.search), anywhere means every mail */
+const IN_NOT_LABEL = ['anywhere', 'drafts', 'draft', 'snoozed', 'chats']
+const tracked = ({ key, value }: Term) => {
+  const v = value.toLowerCase()
+  if (UNTRACKED_KEYS.has(key)) return false
+  if (key === 'in') return !IN_NOT_LABEL.includes(v)
+  return TRACKED[key] ? TRACKED[key]!.includes(v) : true
+}
+
+/**
+ * The query without the words the demo does not keep, so they neither narrow nor (negated) remove every mail:
+ * `-category:promotions`, `a OR older_than:30d` → `a`. null: nothing left to check (matches every mail). An empty
+ * `{}` the visitor typed stays (it matches nothing, as in Gmail).
+ */
+export function pruneQuery(q: Query): Query | null {
+  switch (q.t) {
+    case 'term': return tracked(q.term) ? q : null
+    case 'not': { const of = pruneQuery(q.of); return of ? { t: 'not', of } : null }
+    case 'and': case 'or': {
+      if (q.of.length === 0) return q
+      const of = q.of.map(pruneQuery).filter((x): x is Query => x !== null)
+      return of.length ? { t: q.t, of } : null
+    }
+  }
+}
+
+/** `in:drafts` asked for, and not under a - (`-in:drafts` is the other mail) */
+function wantsDrafts(q: Query): boolean {
+  switch (q.t) {
+    case 'term': return q.term.key === 'in' && /^drafts?$/i.test(q.term.value)
+    case 'not': return false
+    case 'and': case 'or': return q.of.some(wantsDrafts)
+  }
+}
+
+function evalQuery(q: Query, term: (t: Term) => boolean): boolean {
+  switch (q.t) {
+    case 'term': return term(q.term)
+    case 'not': return !evalQuery(q.of, term)
+    // an empty `{}` matches nothing in Gmail; an empty query or `()` matches everything
+    case 'or': return q.of.length === 0 ? false : q.of.some((x) => evalQuery(x, term))
+    case 'and': return q.of.every((x) => evalQuery(x, term))
+  }
+}
+
+/** lowercase words, punctuation of names and addresses ("<", ".", "@") as spaces */
+const words = (s?: string) => ` ${(s ?? '').normalize('NFC').toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim()} `
+const HANGUL = /\p{Script=Hangul}/u
+/** Korean honorifics and particles at the end of a name, longest first ("크리스님이" → "크리스") */
+const KO_ENDINGS = ['님에게서', '님한테서', '님께서', '님에게', '님한테', '님이랑', '님하고', '님이', '님은', '님의', '님을', '님도', '님께', '님', '씨가', '씨는', '씨의', '씨',
+  '에게서', '한테서', '께서', '에게', '한테', '이랑', '하고', '이', '가', '은', '는', '을', '를', '의', '께', '도', '랑', '과', '와']
+
+const JAPANESE = /[\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Han}]/u
+/** Japanese honorifics at the end of a name, then the same with から / に / の … after them ("クリスさんから" → "クリス") */
+const JA_HONORIFICS = ['さん', '様', 'さま', '氏', 'くん', '君', 'ちゃん']
+const JA_ENDINGS = [...JA_HONORIFICS.flatMap((h) => ['から', 'より', 'に', 'へ', 'の', 'は', 'が', 'と', 'も'].map((p) => h + p)), ...JA_HONORIFICS, 'から', 'より']
+  .sort((a, b) => b.length - a.length)
+
+/** `w` without one of `endings`, if what is left is found in `text` (at least 2 letters, or 1 kanji: 林様 → 林) */
+const withoutEnding = (text: string, w: string, endings: readonly string[]) => endings.some((e) => {
+  if (!w.endsWith(e)) return false
+  const rest = w.slice(0, -e.length)
+  return (rest.length >= 2 || (rest.length === 1 && /\p{Script=Han}/u.test(rest))) && text.includes(rest)
+})
+
+/** `value` in `text` (both as words): the whole run of words, else each word, a Hangul or Japanese word also without its ending */
+function found(text: string, value: string): boolean {
+  const v = words(value).trim()
+  if (!v || text.includes(v)) return true
+  const ko = HANGUL.test(v)
+  const ja = JAPANESE.test(v)
+  if (!ko && !ja) return false
+  return v.split(' ').every((w) => text.includes(w) || (ko && withoutEnding(text, w, KO_ENDINGS)) || (ja && withoutEnding(text, w, JA_ENDINGS)))
+}
+
+function matchTerm(m: StoredMail, { key, value }: Term, me: string): boolean {
+  const v = value.toLowerCase()
+  const person = (s?: string) => found(words(s), v === 'me' ? me : value)
+  switch (key) {
+    case 'from': return person(m.from)
+    case 'to': return person(m.to) || person(m.cc) || person(m.bcc)
+    case 'cc': return person(m.cc)
+    case 'bcc': return person(m.bcc)
+    case 'subject': return found(words(m.subject), value)
+    // (keys and values the demo does not keep never get here: pruneQuery drops them)
+    case 'in': case 'label': return m.labels.some((l) => l.toLowerCase() === v)
+    case 'is': return v === 'read' ? !m.labels.includes('UNREAD') : m.labels.includes(v.toUpperCase())
+    case 'has': return !!m.attachments?.length
+    case '': return found(words([m.from, m.to, m.cc, m.subject, m.body].join(' ')), value)
+    // not a key ("Re:banner"): the whole word
+    default: return found(words([m.from, m.to, m.cc, m.subject, m.body].join(' ')), `${key}:${value}`)
+  }
+}
+
 export class FakeGmail {
   private seeded: StoredMail[]
   readonly me: { name: string; email: string }
@@ -102,26 +269,21 @@ export class FakeGmail {
   drafts(): StoredMail[] { return this.state.get().drafts }
   private find(id: string): StoredMail | undefined { return this.messages().find((m) => m.id === id) ?? this.drafts().find((m) => m.id === id) }
 
-  /** Gmail's search words, the common ones: from: to: subject: in: is: label: has:attachment, and plain words */
+  /**
+   * Gmail's search, the common part: from: to: cc: subject: in: is: label: has:attachment and plain words or "phrases",
+   * joined by AND, OR / |, ( ), { } (any of) and - (not), also after a key (`from:(a OR b)`). Names and addresses are
+   * compared word by word, as Gmail does, so `from:Chris`, `from:"Chris Walker"`, `from:크리스` and the address all
+   * find "크리스 워커 <chris.walker@fieldnote.example>"; a Hangul word that is not found is tried again without a
+   * Korean honorific or particle at its end ("크리스님" → "크리스", QA TC-6712), a Japanese word without さん, 様, 氏,
+   * くん or ちゃん ("クリスさん" → "クリス"). Keys and values the demo does not keep (dates, categories, Drive links,
+   * snoozed …) are left out of the query, also after a -, so they never remove mail. `me` is the mailbox's own address.
+   */
   search(query: string): StoredMail[] {
-    const terms = query.match(/(?:[a-z]+:)?(?:"[^"]*"|\S+)/gi) ?? []
-    const drafts = /\bin:drafts?\b/i.test(query)
-    return (drafts ? this.drafts() : this.messages()).filter((m) => terms.every((raw) => {
-      const t = raw.replace(/"/g, '').toLowerCase()
-      const [k, v = ''] = t.includes(':') ? [t.slice(0, t.indexOf(':')), t.slice(t.indexOf(':') + 1)] : ['', t]
-      const has = (s?: string) => (s ?? '').toLowerCase().includes(v)
-      switch (k) {
-        case 'from': return has(m.from)
-        case 'to': return has(m.to) || has(m.cc)
-        case 'subject': return has(m.subject)
-        case 'in': return v === 'anywhere' || v === 'drafts' || v === 'draft' || m.labels.some((l) => l.toLowerCase() === v)
-        case 'label': return m.labels.some((l) => l.toLowerCase() === v)
-        case 'is': return v === 'unread' ? m.labels.includes('UNREAD') : v === 'read' ? !m.labels.includes('UNREAD') : v === 'starred' ? m.labels.includes('STARRED') : v === 'important' ? m.labels.includes('IMPORTANT') : true
-        case 'has': return v === 'attachment' ? !!m.attachments?.length : true
-        case 'newer_than': case 'older_than': case 'after': case 'before': case 'category': return true
-        default: return has(m.from) || has(m.to) || has(m.subject) || has(m.body) || has(m.cc)
-      }
-    }))
+    const parsed = parseQuery(query)
+    const q = pruneQuery(parsed)
+    const me = this.me.email
+    const all = wantsDrafts(parsed) ? this.drafts() : this.messages()
+    return q ? all.filter((m) => evalQuery(q, (t) => matchTerm(m, t, me))) : all
   }
 
   private show(m: StoredMail): string {

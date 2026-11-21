@@ -90,6 +90,12 @@ Copyright (c) 1991-2026 Unicode, Inc.). The web build keeps a trimmed copy
 (web/scripts/emoji-data.ts). See resources/notices/unicode-emoji/; web builds
 carry it in licenses/unicode-emoji/.
 
+The free-roam demo's banner kit (scripts/demo/steepling/assets/banner/fonts/) bundles subsets of Fraunces
+(Copyright 2018 The Fraunces Project Authors), Noto Serif KR (Copyright 2012 Google Inc.) and Noto Sans KR
+(Copyright 2014-2021 Adobe, with Reserved Font Name 'Source'), each SIL Open Font License 1.1: fixed weights cut from
+the variable fonts and trimmed to Latin and the 2,350 common Hangul syllables, family names unchanged. Their licences
+are beside them (OFL-*.txt).
+
 HWP previews use rhwp 0.8.7 (MIT) and unchanged Noto Sans KR Regular (OFL-1.1).
 Exact pins, upstream notices and source-offer details: resources/hwp/.
 Release distributions preserve these in licenses/hwp/.
