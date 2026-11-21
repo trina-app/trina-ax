@@ -187,10 +187,16 @@ Google vincula un inicio de sesión a la app que lo hizo.
 ## Opcional: marcar la app como de confianza en la Admin console
 
 Si su empresa limita qué apps pueden usar las cuentas de Google, un superadministrador de Google Workspace marca la app
-como de confianza. En la [Admin console](https://admin.google.com/), abra **Security › Access and data control › API
-controls** y después **Manage Third-Party App Access** › **Configure new app**. Busque el ID de cliente (está en el
-archivo descargado), elíjalo y marque **Trusted**. Sin esto, las personas pueden ver `admin_policy_enforced` al
-conectar.
+como de confianza. Sin esto, las personas pueden ver `admin_policy_enforced` al conectar.
+
+1. Busque el ID de cliente de la app. Está en el archivo JSON que descargó, después de `"client_id":`, y en la página
+   del cliente en [Clients](https://console.cloud.google.com/auth/clients). Termina en `.apps.googleusercontent.com`.
+2. Inicie sesión en la [Admin console](https://admin.google.com/) como superadministrador.
+3. En el menú de la izquierda, abra **Security**, después **Access and data control** y después **API controls**.
+4. Elija **Manage Third-Party App Access** y después **Configure new app**.
+5. Pegue el ID de cliente en el cuadro de búsqueda y elija su app en la lista.
+6. Elija a quién se aplica (normalmente a toda la organización), marque **Trusted** y termine con **Configure** (el
+   último botón de Google; su nombre puede variar un poco).
 
 ## Lo que guarda Trina AX
 

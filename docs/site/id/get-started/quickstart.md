@@ -42,7 +42,12 @@ Buka http://127.0.0.1:19760 dan masuk sebagai `alice` dengan `teamax-demo-1`. Ak
 ![Halaman masuk Trina AX dengan kolom Username dan Password serta tombol Sign in](../../images/quickstart/sign-in.webp "Halaman masuk")
 
 #### Periksa izin folder
-Buka **File → Seluruh perusahaan → 팀-용어집.md**. Lalu masuk sebagai `bob` di jendela pribadi (private window). Bob melihat grup keuangan, tetapi tidak melihat grup pemasaran.
+1. Di bilah kiri, pilih **File**, lalu folder **Seluruh perusahaan**, lalu **팀-용어집.md** (glosarium tim demo).
+   File itu terbuka di panel samping.
+2. Buka jendela pribadi (private window; di Chrome, ⌘⇧N di Mac atau Ctrl+Shift+N di Linux), buka alamat yang sama, lalu
+   masuk sebagai `bob`.
+3. Pilih **File** lagi. Bob melihat folder grup keuangan, tetapi tidak melihat folder grup pemasaran. Seperti di Google
+   Drive, folder yang tidak boleh Anda buka tidak tampil abu-abu: folder itu sama sekali tidak ada.
 
 ![File: folder tim tercantum di samping bilah kiri, folder bersama terbuka dan file glosarium tampil di panel samping](../../images/quickstart/files-glossary.webp "File glosarium, terbuka di File")
 :::

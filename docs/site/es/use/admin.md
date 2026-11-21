@@ -3,10 +3,22 @@ title: Administración
 description: Qué gestionan los propietarios y los administradores, y dónde está cada ajuste.
 ---
 
-**Administración** es para el propietario y los administradores. En un ordenador está en el menú del equipo, debajo del logotipo de su equipo en la parte superior de la barra de la izquierda, y ⌘K la encuentra; en el teléfono está en la pestaña **Yo**. Cada página de esta sección es para todo el equipo: el título del menú es el nombre y el logotipo de su
-equipo ("Administración de Acme"), y cada página dice "Se aplica a todos en Acme" encima de su título. Las páginas
-tienen los mismos nombres que en Configuración. Administración › Apps conectadas son las conexiones del equipo; las suyas están en **Configuración › Conectores**. Se abre en
-**Inicio**, que enumera primero lo que requiere atención.
+**Administración** es para el propietario y los administradores. Cada página de esta sección es para todo el equipo:
+el título del menú es el nombre y el logotipo de su equipo ("Administración de Acme"), y cada página dice "Se aplica a
+todos en Acme" encima de su título. Su propia configuración sigue en **Configuración**, con los mismos nombres de
+página: Administración › Apps conectadas son las conexiones del equipo; las suyas están en
+**Configuración › Conectores**.
+
+Para abrir Administración en un ordenador:
+
+1. Elija el logotipo de su equipo, en la parte superior de la barra de la izquierda. Se abre el menú del equipo: la
+   dirección del equipo, **Invitar a personas**, **Administración** y **Cambiar de equipo**. (Los miembros ven solo la
+   dirección y **Cambiar de equipo**.)
+2. Elija **Administración**. Se abre en **Inicio**, que enumera primero lo que requiere atención.
+
+⌘K (Ctrl+K en Windows) y "Administración" también la encuentran. En un teléfono, abra la pestaña **Yo** y luego
+**Administración**.
+
 Para el propietario, Inicio también enumera los primeros pasos de configuración que aún faltan: comprobar la conexión de IA, configurar los
 permisos de carpetas, invitar a su equipo, preparar una habilidad del equipo, hacer la primera copia de seguridad. Un paso terminado sale de la lista.
 
@@ -48,7 +60,16 @@ autorizada de Claude u OpenAI. Cada fila muestra si ese motor está listo.
 ![Administración › Proveedores de IA: Claude Code, Codex y el motor API, cada uno con su logotipo, su estado y un interruptor de activado/desactivado](../../images/admin/engines.webp "Proveedores de IA")
 
 #### Invite al equipo
-Empiece con un grupo piloto pequeño y después confirme los roles y el acceso a las carpetas. **Miembros e invitaciones** también enumera a los [invitados](#invitados) del equipo.
+Empiece con un grupo piloto pequeño y después confirme los roles y el acceso a las carpetas.
+
+1. Elija el logotipo de su equipo y luego **Invitar a personas**.
+2. Deje **Miembro del equipo** (**Invitado** es para alguien de fuera del equipo) y elija **Crear enlace de invitación**.
+3. Elija **Copiar mensaje** y péguelo en Slack, Teams o un correo electrónico. Termina con el enlace. Quienes lo abren
+   crean su cuenta y entran en el equipo.
+
+![El diálogo Invitar a personas (Invite people): Miembro del equipo e Invitado arriba, una línea que pide enviar el mensaje con el enlace del equipo, y Crear enlace de invitación](../../images/admin/invite.webp "Invitar a personas")
+
+**Miembros e invitaciones** también enumera a los [invitados](#invitados) del equipo.
 Debajo de la lista, **Enlaces de invitación** muestra solo los enlaces que aún funcionan: el enlace de invitación del equipo y los enlaces de
 invitación que nadie ha usado todavía. Un enlace usado o vencido, o un enlace de invitado cuyo canal privado, chat de grupo o proyecto ya no existe, sale de la lista; quién se unió aparece en la lista de miembros y en el [Registro de actividad](#registro-de-actividad).
 

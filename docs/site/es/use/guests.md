@@ -5,7 +5,8 @@ description: Traiga a alguien de fuera del equipo a un canal privado o chat de g
 
 Un **invitado** es alguien de fuera de su equipo, como un cliente, un socio o un profesional independiente. Un invitado
 está como máximo en un canal privado o chat de grupo, y en un proyecto, y no ve nada más del equipo: ni otros chats, ni archivos del
-equipo, ni otros proyectos, ni habilidades del equipo. No ocupa una plaza de su plan.
+equipo, ni otros proyectos, ni habilidades del equipo. No ocupa una plaza de su plan. Si conoce Slack, es como un invitado al que se invita a un solo
+canal.
 
 | | Un miembro del equipo | Un invitado |
 |---|---|---|

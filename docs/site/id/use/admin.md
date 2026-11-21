@@ -3,8 +3,19 @@ title: Admin
 description: Apa saja yang dikelola owner dan admin, dan di mana setiap pengaturan berada.
 ---
 
-**Admin** untuk owner dan admin. Di komputer, Admin ada di menu tim di bawah logo tim Anda di bagian atas bilah kiri, dan ⌘K bisa menemukannya; di ponsel, Admin ada di tab **Saya**. Setiap halaman di dalamnya berlaku untuk seluruh tim: judul menunya adalah nama dan logo tim Anda ("Admin Acme"), dan setiap halaman menampilkan "Berlaku untuk semua orang di Acme" di atas judulnya. Nama halamannya sama dengan di Pengaturan. Admin › Aplikasi terhubung berisi koneksi tim; koneksi Anda sendiri ada di **Pengaturan › Konektor**. Admin terbuka di
-**Beranda**, yang mencantumkan apa yang perlu diperhatikan lebih dulu.
+**Admin** untuk owner dan admin. Setiap halaman di dalamnya berlaku untuk seluruh tim: judul menunya adalah nama dan
+logo tim Anda ("Admin Acme"), dan setiap halaman menampilkan "Berlaku untuk semua orang di Acme" di atas judulnya.
+Pengaturan Anda sendiri tetap di **Pengaturan**, dengan nama halaman yang sama: Admin › Aplikasi terhubung berisi
+koneksi tim, koneksi Anda sendiri ada di **Pengaturan › Konektor**.
+
+Untuk membuka Admin di komputer:
+
+1. Pilih logo tim Anda, di bagian atas bilah kiri. Menu tim terbuka: alamat tim, **Undang orang**, **Admin**, dan
+   **Ganti tim**. (Anggota hanya melihat alamat dan **Ganti tim**.)
+2. Pilih **Admin**. Admin terbuka di **Beranda**, yang mencantumkan apa yang perlu diperhatikan lebih dulu.
+
+⌘K (Ctrl+K di Windows) dengan "Admin" juga menemukannya. Di ponsel, buka tab **Saya**, lalu **Admin**.
+
 Untuk owner, Beranda juga mencantumkan langkah penyiapan awal yang belum dikerjakan: cek koneksi AI, atur izin
 folder, undang anggota tim, siapkan skill tim, buat backup pertama. Langkah yang sudah selesai hilang dari daftar.
 
@@ -45,7 +56,16 @@ Claude atau OpenAI yang berwenang. Setiap baris menunjukkan apakah mesin itu sud
 ![Admin › Penyedia AI: Claude Code, Codex, dan mesin API, masing-masing dengan logo, status, dan sakelar nyala/mati](../../images/admin/engines.webp "Penyedia AI")
 
 #### Undang tim
-Mulailah dengan kelompok uji coba kecil, lalu pastikan peran dan akses folder sudah benar. **Anggota & undangan** juga mencantumkan [tamu](#tamu) tim.
+Mulailah dengan kelompok uji coba kecil, lalu pastikan peran dan akses folder sudah benar.
+
+1. Pilih logo tim Anda, lalu **Undang orang**.
+2. Biarkan **Anggota tim** terpilih (**Tamu** untuk orang dari luar tim) dan pilih **Buat tautan undangan**.
+3. Pilih **Salin pesan** dan tempelkan ke Slack, Teams, atau e-mail. Pesan itu diakhiri dengan tautannya. Orang yang
+   membukanya membuat akun dan langsung masuk ke tim.
+
+![Dialog Invite people: Team member dan Guest di bagian atas, satu baris yang meminta mengirim pesan berisi tautan tim, dan Make invite link](../../images/admin/invite.webp "Undang orang")
+
+**Anggota & undangan** juga mencantumkan [tamu](#tamu) tim.
 Di bawah daftar, **Link undangan** hanya menampilkan tautan yang masih berlaku: tautan undangan tim dan tautan undangan
 yang belum dipakai siapa pun. Tautan yang sudah dipakai atau kedaluwarsa, atau tautan tamu yang saluran privat, obrolan grup, atau proyeknya sudah tidak ada, hilang dari daftar; siapa yang bergabung tercatat di daftar anggota dan di [Log aktivitas](#log-aktivitas).
 
