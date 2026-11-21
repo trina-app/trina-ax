@@ -52,6 +52,7 @@ import { appendText, imageTokens, isScannedPage, isVisionImage, layerText, model
   visionTools, type VisionBlock, type VisionTools } from './vision'
 import { visionText } from './vision-text'
 import { normalizeForModel } from './vision'
+import { deckPdf, deckPdfUnavailable, pagesOnlyText, SLIDE_IMAGE_EXT, slidesFailedText, slidesHead, slidesNotes, slidesUnavailableText, type DrawnDeck } from './deck-pdf'
 import { listPage, TOOL_TEXT_BUDGET } from './tool-budget'
 import { openChecked } from '../team-files/place'
 import { JobFailure } from '../jobs/service'
@@ -736,7 +737,9 @@ export class FileService {
     const e = ext(a.file_path)
     const kind = mediaKind(a.file_path)
     if (a.raw) return this.readRaw(ctx, a, !!kind || isVisionImage(a.file_path) || e === 'pdf' || isOffice(a.file_path) || SHEET_EXT.has(e) || e === 'hwp' || e === 'hwpx')
-    if ((a.pages !== undefined || a.as_images) && e !== 'pdf') throw new ToolError('pages and as_images are only for PDF files', 'bad_pages')
+    // a PowerPoint deck's slides as pictures (files/deck-pdf.ts); a plain read of a deck stays its text
+    if ((a.pages !== undefined || a.as_images) && SLIDE_IMAGE_EXT.has(e)) return this.readDeck(ctx, a)
+    if ((a.pages !== undefined || a.as_images) && e !== 'pdf') throw new ToolError(pagesOnlyText(e), 'bad_pages')
     if ((a.sheet !== undefined || a.range !== undefined) && !SHEET_EXT.has(e)) throw new ToolError('sheet and range are only for spreadsheets (.xlsx, .xls, .ods)', 'bad_range')
     if (a.pretty !== undefined && !prettyAllowed(a.file_path)) throw new ToolError('pretty is only for .json and .jsonl files', 'bad_pretty')
     if ((a.time !== undefined || a.frames !== undefined || a.transcript !== undefined) && !kind) throw new ToolError('time, frames and transcript are only for video and audio files', 'bad_media_args')
@@ -993,6 +996,38 @@ export class FileService {
   }
 
   /**
+   * A PowerPoint deck's slides as pictures, like a PDF's pages with as_images (pages = slide numbers, at most
+   * PDF_PAGES_PER_READ, required over PDF_PAGES_WITHOUT_RANGE slides): the deck drawn as a PDF with every slide, hidden
+   * ones too (files/deck-pdf.ts: the office worker and the isolated browser, cached by the deck's hash), then each page's
+   * text and picture as pdfPagesForModel gives them. Where slides cannot be drawn, a plain refusal pointing to the text.
+   */
+  private async readDeck(ctx: ToolCtx, a: ReadArgs): Promise<ToolOutput> {
+    const r = this.readAuth(ctx, ctx.user, a.file_path)
+    if (r.st!.isDirectory()) throw new ToolError(`'${r.rel}' is a folder; use list`, 'is_folder')
+    const why = deckPdfUnavailable()
+    if (why) throw new ToolError(slidesUnavailableText(`'${r.rel}'`, why), 'slides_unavailable')
+    const src = this.boundSource(ctx, r, readMaxBytes())
+    let drawn: DrawnDeck
+    try { drawn = await deckPdf(src.bytes, { user: ctx.user.id, workBase: this.cfg.dataDir, withHidden: true, signal: ctx.signal }) } catch (e) {
+      ctx.signal?.throwIfAborted()
+      throw new ToolError(slidesFailedText(`'${src.rel}'`, e), 'slides_failed')
+    }
+    const layers = await pdfLayer(drawn.pdf, this.visionTools(), ctx.signal)
+    const n = layers.length
+    const pages = pagesToRead(a.pages, n)
+    if (!pages) throw new ToolError(`'${src.rel}' has ${n} slides: give pages (slide numbers, for example pages: "1-${PDF_PAGES_WITHOUT_RANGE}"; at most ${PDF_PAGES_PER_READ} per call), or read it without pages for its text.`, 'pages_required')
+    const { content, notes, images } = await this.pdfPagesForModel(ctx, { label: src.rel, bytes: drawn.pdf, layers }, pages, { asImages: true, head: slidesHead(src.rel, n, pages, pageList) })
+    for (const t of [...notes, ...slidesNotes(drawn, pages, pageList)]) appendText(content, t)
+    const beforeDelivery = images ? () => this.recheckSource(ctx, src) : undefined
+    beforeDelivery?.()
+    ctx.files.readHashes.set(src.rel, src.hash)
+    ctx.files.readPaths.add(src.rel)
+    ctx.files.sources.note(src.rel, 'read', { agent: ctx.files.agent, sha256: src.hash, locs: pages.slice(0, SOURCE_LOCS_MAX).map((page) => ({ kind: 'page' as const, page })) })
+    const plain = content.map((c) => (c.type === 'text' ? c.text : '[slide image]')).join('\n\n')
+    return { text: plain, content, beforeDelivery, summary: `read ${src.rel} -> slides ${pageList(pages)} of ${n}, ${images} image${images === 1 ? '' : 's'}` }
+  }
+
+  /**
    * After a PDF's text (a read by lines, a room file's text): the pages without a text layer and how to see them, in
    * the person's language: with `pages` as page images; on a Mac when no pixels may go, with `pages` as Apple Vision
    * text (pdfPagesForModel recognizes them then); otherwise why they cannot be shown. null: every page has text.
@@ -1017,7 +1052,7 @@ export class FileService {
    * `fileText`: how text from the file itself is put in the result (a room file neutralises our block tags). The caller
    * re-checks access before delivery when `images` > 0 and puts `notes` after the pages.
    */
-  async pdfPagesForModel(ctx: ToolCtx, doc: { label: string; bytes: Uint8Array; layers: string[] }, pages: number[], o: { asImages?: boolean; reserve?: number; fileText?: (t: string) => string } = {}): Promise<{ content: McpContent[]; notes: string[]; images: number }> {
+  async pdfPagesForModel(ctx: ToolCtx, doc: { label: string; bytes: Uint8Array; layers: string[] }, pages: number[], o: { asImages?: boolean; reserve?: number; fileText?: (t: string) => string; head?: string } = {}): Promise<{ content: McpContent[]; notes: string[]; images: number }> {
     const { bytes, layers } = doc
     const n = layers.length
     const tools = this.visionTools()
@@ -1034,7 +1069,7 @@ export class FileService {
       tokens += textTokens(t) + 1
       appendText(content, t)
     }
-    text(`PDF ${doc.label}: ${n} page${n === 1 ? '' : 's'}; ${pages.length === n ? 'all pages' : `pages ${pageList(pages)}`} below.`)
+    text(o.head ?? `PDF ${doc.label}: ${n} page${n === 1 ? '' : 's'}; ${pages.length === n ? 'all pages' : `pages ${pageList(pages)}`} below.`)
     let chars = 0
     let images = 0
     const blocked: number[] = []
