@@ -15,6 +15,7 @@ import { chatFilesOf, UNSENT_CHAT_FILE_MS } from '../../server/src/chat/chat-fil
 import { madeFilesOf } from '../../server/src/chat/chat-files-share'
 import { labelledTranscript } from '../../server/src/chat/shared'
 import { getChatRuntime } from '../../server/src/chat/runtime'
+import { setAnswerReads } from '../../server/src/chat/shared-answers'
 
 setDefaultTimeout(60_000)
 const fake = (...ds: unknown[]) => ds.map((d) => '@fake ' + JSON.stringify(d)).join('\n')
@@ -25,7 +26,7 @@ let h: Harness
 const ws: Record<string, TestSocket> = {}
 beforeAll(async () => {
   h = await startHarness({ name: 'b-share-chat-files', askUserTimeoutMs: 2500, stallTimeoutMs: 60_000 })
-  for (const u of ['alice', 'bob']) { ws[u] = await h.ws(u); await ws[u]!.next('hello') }
+  for (const u of ['alice', 'bob', 'erin']) { ws[u] = await h.ws(u); await ws[u]!.next('hello') }
 })
 afterAll(async () => { for (const s of Object.values(ws)) s.close(); await h.close() })
 
@@ -115,9 +116,10 @@ describe('the Share step lists the files the chat made in my own folder', () => 
     // the originals are where they were, unchanged, and still alice's alone
     expect(fs.readFileSync(team(`${c.dir}/quote.md`), 'utf8')).toBe('# Quote\npen 6,000')
     expect((await h.req('bob', `/api/files/download?path=${encodeURIComponent(`${c.dir}/quote.md`)}`)).status).toBe(404)
-    // audited with counts only
     const audit = db().query("SELECT detail FROM audit_log WHERE action = 'chat.files_added' AND target = ? ORDER BY id DESC LIMIT 1").get(c.id) as { detail: string }
-    expect(JSON.parse(audit.detail)).toEqual({ count: 2, via: 'share' })
+    // counts and the chat file ids only: no path, no name
+    expect(JSON.parse(audit.detail)).toEqual({ count: 2, via: 'share', files: expect.arrayContaining(copies.map((a) => a.id)) })
+    expect(audit.detail).not.toContain(c.dir)
     // already shared, nothing new: the audience offers no files, and a save with files has nothing to copy
     const aud = await h.api('alice').call(API.getChatAudience, { params: { id: c.id } })
     expect(aud.madeFiles).toBeUndefined()
@@ -270,5 +272,45 @@ describe('the panel: a file link that does not open, and the ask', () => {
     expect(pending()).toBe(2)
     expect((await put('alice', c.id, [])).status).toBe('saved')
     expect(pending()).toBe(0)
+  })
+})
+
+describe('an answer hidden from someone in the chat (review M1)', () => {
+  const erin: Sub = { subjectType: 'user', subjectId: 'erin' }
+  /** the answer's record says only alice and bob may see it (an x group: material nobody could check for others) */
+  const hideFromOthers = (chatId: string, answer: string) => setAnswerReads(db(), chatId, answer, [{ c: ['alice', 'bob'], s: [], x: 1 }])
+
+  test('a file of an answer hidden from someone being added is not listed and not copied', async () => {
+    const c = await madeChat({ 'secret-quote.md': 'only for alice and bob' })
+    await put('alice', c.id, [bob], { confirmKey: (await preview(c.id, [bob])).previewKey })
+    hideFromOthers(c.id, c.answer)
+    // the chat as it is (alice and bob): still offered
+    expect((await h.api('alice').call(API.getChatAudience, { params: { id: c.id } })).madeFiles?.map((f) => f.name)).toEqual(['secret-quote.md'])
+    // adding erin, from whom the answer is hidden: not offered, and a save with files copies nothing
+    const p = await preview(c.id, [bob, erin])
+    expect(p.check.madeFiles).toBeUndefined()
+    const r = await put('alice', c.id, [bob, erin], { confirmKey: p.previewKey, withFiles: true })
+    expect(r.status).toBe('saved')
+    if (r.status === 'saved') expect(r.filesAdded).toBeUndefined()
+    expect(copiesOf(c.id)).toHaveLength(0)
+    // now erin is in it: the audience offers nothing more, and her file-access is the generic 'no'
+    expect((await h.api('alice').call(API.getChatAudience, { params: { id: c.id } })).madeFiles).toBeUndefined()
+    expect(await access('erin', c.id, `${c.dir}/secret-quote.md`)).toEqual({ status: 200, body: { status: 'no' } })
+  })
+
+  test('an existing copy on an answer hidden from someone who joins later: not opened by them, nor by their AI', async () => {
+    const c = await madeChat({ 'plan.md': 'alice and bob only' })
+    await shareWithFiles(c.id)
+    const [copy] = copiesOf(c.id)
+    await put('alice', c.id, [bob, erin], { confirmKey: (await preview(c.id, [bob, erin])).previewKey })
+    hideFromOthers(c.id, c.answer)
+    expect(await fileStatus('bob', c.id, copy!.id)).toBe(200)
+    expect(await fileStatus('erin', c.id, copy!.id)).toBe(404)
+    expect(await fileStatus('erin', c.id, `${copy!.id}?download=1`)).toBe(404)
+    expect(await access('erin', c.id, `${c.dir}/plan.md`)).toEqual({ status: 200, body: { status: 'no' } })
+    expect((await askFor('erin', c.id, `${c.dir}/plan.md`)).status).toBe(404)
+    // the attachment thumbnail route and erin's AI (chat_file) go through the same open
+    const r = await ask('erin', c.id, `${fake({ tool: 'chat_file', args: { file: copy!.id }, sayResult: true })}`)
+    expect(r.done.content).not.toContain('alice and bob only')
   })
 })

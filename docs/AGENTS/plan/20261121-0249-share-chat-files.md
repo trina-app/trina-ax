@@ -103,6 +103,22 @@ The owner's rules: sharing a chat is for working together, so there is **no view
 | M2 re-check at the press | 1, key binds (path, sha256), bytes hashed from the descriptor |
 | M3 leaving cancels waiting asks | 2, closed in the audience save |
 | M5 two copies of one file | 1, the chat's copy wins in links |
+| L3 (plan review) a copy outliving what its answer may show | fixed with the security review's M1 below: a copy on an answer hidden from someone is not theirs to open |
+| M4, M6 (plan review) | out of scope for this first version: they belong to the parts left out above (projects, routing asks beyond the creator, versions and in-place editing) and come back with those follow-ups |
+
+### Security review of PR #207 (2026-11-21), fixed on this branch
+
+- **M1:** a file made by an answer hidden from someone in the chat (an x or k group, an older hidden answer) was
+  offered, copied and then opened by that person. Now (a) `madeFilesOf` leaves out any file whose making answer is
+  hidden from anyone who sees the chat or is being added (`hiddenAnswers`; a first share records every answer for the
+  people it adds, so nothing is hidden from them there), and (b) `ChatFiles.open` (the file, its thumbnail, `chat_file`)
+  refuses a file carried only by answers hidden from the viewer, and `file-access` answers the generic `no` for a
+  copy or a made file on such an answer. (b) also covers people who join later.
+- **L1:** the storage check runs on the sum of the file sizes before anything is streamed.
+- **L2:** a throw while reading removes the temp files already written.
+- **L4:** `tests/security/share-chat-files.test.ts`: a guest, a removed member and a member of another chat on a
+  people-shared chat get the chat's 404, leave no ask and never open the copy.
+- **Info:** `chat.files_added` audits the chat file ids too (still no path or name).
 
 ## Steps
 

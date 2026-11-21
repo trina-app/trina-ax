@@ -193,7 +193,7 @@ export class AccessRequests {
   private askerOpens(q: Pick<RequestRow, 'kind' | 'target_id' | 'requester_id' | 'message'>): boolean {
     // a file ask: the chat has the file now (and the asker still sees the chat)
     const file = fileAskOf(q)
-    if (file) return !!copyOf(this.ctx, file.chatId, file.path) && this.chatOpens(q.requester_id, file.chatId)
+    if (file) return !!copyOf(this.ctx, file.chatId, file.path, q.requester_id) && this.chatOpens(q.requester_id, file.chatId)
     const p = loadPrincipal(this.db, q.requester_id)
     return !!p && this.opens(p, q.kind, q.target_id)
   }
@@ -291,7 +291,8 @@ export class AccessRequests {
     const creator = loadPrincipal(this.db, r.user_id)
     if (!creator || creator.role === 'guest') return null
     const rel = relOf(path)
-    const copy = copyOf(this.ctx, chatId, rel)
+    // a copy on an answer hidden from me, or a file such an answer made: the one 'no' (review M1)
+    const copy = copyOf(this.ctx, chatId, rel, userId)
     if (copy) return { r, rel, creator, copy, made: null }
     const made = madeFilesOf(this.ctx, r, { only: rel })[0]
     return made ? { r, rel, creator, copy: null, made } : null

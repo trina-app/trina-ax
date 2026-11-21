@@ -45,6 +45,8 @@ export type StoredAttachment = Attachment & { fromSha256?: string }
 /** (the client's view of a copy: chat/store.ts copyForViewer) */
 export { copyForViewer } from './store'
 import { madeInChat } from './shared-actions'
+import { isPeopleRow, peopleAudience } from './chat-audience'
+import { chatNodes, withheldAmong, withheldFrom } from './shared-answers'
 
 /** A file the chat made in its creator's own folder that can be copied into the chat now. */
 export interface MadeFile {
@@ -67,30 +69,47 @@ const badOf = (ctx: AppContext) => badBytes.get(ctx) ?? badBytes.set(ctx, new Se
 /** At most this many paths a chat's turns made are looked at (the newest first). */
 const MADE_SCAN_MAX = 200
 
-/** Copies already in the chat, as `${from}\0${fromSha256}`. */
-function copiesIn(ctx: AppContext, chatId: string): Map<string, StoredAttachment> {
-  const out = new Map<string, StoredAttachment>()
-  const rows = ctx.db.query("SELECT attachments FROM messages WHERE chat_id = ? AND role = 'assistant' AND attachments LIKE '%shared-copy%' ORDER BY created_at, id").all(chatId) as { attachments: string }[]
+/** Copies already in the chat, as `${from}\0${fromSha256}`, with the answer that carries each. */
+function copiesIn(ctx: AppContext, chatId: string): Map<string, { att: StoredAttachment; messageId: string }> {
+  const out = new Map<string, { att: StoredAttachment; messageId: string }>()
+  const rows = ctx.db.query("SELECT id, attachments FROM messages WHERE chat_id = ? AND role = 'assistant' AND attachments LIKE '%shared-copy%' ORDER BY created_at, id").all(chatId) as { id: string; attachments: string }[]
   for (const r of rows) {
     try {
-      for (const a of JSON.parse(r.attachments) as StoredAttachment[]) if (a.source === 'chat' && a.origin === 'shared-copy' && a.from) out.set(`${a.from}\0${a.fromSha256 ?? ''}`, a)
+      for (const a of JSON.parse(r.attachments) as StoredAttachment[]) if (a.source === 'chat' && a.origin === 'shared-copy' && a.from) out.set(`${a.from}\0${a.fromSha256 ?? ''}`, { att: a, messageId: r.id })
     } catch { /* none */ }
   }
   return out
 }
 
-/** The newest copy in this chat of the team path `rel` (any sha256), or null. */
-export function copyOf(ctx: AppContext, chatId: string, rel: string): Attachment | null {
-  let found: Attachment | null = null
-  for (const [k, a] of copiesIn(ctx, chatId)) if (k.slice(0, k.indexOf('\0')) === rel) found = a
-  return found
+/** The newest copy in this chat of the team path `rel` (any sha256) that `viewer` may see: one on an answer hidden from
+ * them (chat/shared-answers.ts) is not theirs to open (review M1). null: none. */
+export function copyOf(ctx: AppContext, chatId: string, rel: string, viewer: string): Attachment | null {
+  let found: { att: Attachment; messageId: string } | null = null
+  for (const [k, c] of copiesIn(ctx, chatId)) if (k.slice(0, k.indexOf('\0')) === rel) found = c
+  if (!found) return null
+  return withheldFrom(ctx.db, ctx.files.rules(), chatId, viewer).has(found.messageId) ? null : found.att
+}
+
+/** The answers of a chat shared with people that are hidden from anyone among its people now and `extra` (people about
+ * to be added): a file such an answer made is never offered or copied, or the copy would show what the answer hides
+ * (review M1). A chat not shared with people yet has no records: its first share records every answer for exactly the
+ * people it adds, so nothing is hidden from them (chat/people-share.ts). */
+function hiddenAnswers(ctx: AppContext, chatId: string, extra: readonly string[]): Set<string> {
+  const db = ctx.db
+  const row = db.query('SELECT id, user_id, people_shared_at, project_id FROM chats WHERE id = ?').get(chatId) as { id: string; user_id: string; people_shared_at: string | null; project_id: string | null } | null
+  const out = new Set<string>()
+  if (!row || !isPeopleRow(row)) return out
+  const nodes = chatNodes(db, chatId)
+  const rules = ctx.files.rules()
+  for (const p of new Set([...peopleAudience(db, row), ...extra])) for (const id of withheldAmong(db, rules, nodes, p)) out.add(id)
+  return out
 }
 
 /**
  * The files the chat `chat` made in its creator's own folder that are not in the chat yet (see the head of this file).
  * `only`: that one path (the side panel's ask). Fails closed: a file that cannot be checked is not listed.
  */
-export function madeFilesOf(ctx: AppContext, chat: { id: string; user_id: string }, o: { only?: string } = {}): MadeFile[] {
+export function madeFilesOf(ctx: AppContext, chat: { id: string; user_id: string }, o: { only?: string; audience?: readonly string[] } = {}): MadeFile[] {
   const db = ctx.db
   const creator = loadPrincipal(db, chat.user_id)
   if (!creator || creator.role === 'guest') return []
@@ -100,6 +119,8 @@ export function madeFilesOf(ctx: AppContext, chat: { id: string; user_id: string
         AND e.turn_id IN (SELECT id FROM turns WHERE chat_id = ? AND user_id = ?) GROUP BY e.path ORDER BY last DESC LIMIT ${MADE_SCAN_MAX}`).all(creator.id, chat.id, creator.id) as { path: string }[]).map((r) => r.path)
   const copies = copiesIn(ctx, chat.id)
   const rules = ctx.files.rules()
+  // made by an answer hidden from anyone who sees the chat (or is being added): never offered
+  const hidden = hiddenAnswers(ctx, chat.id, o.audience ?? [])
   const out: MadeFile[] = []
   for (const rel of paths) {
     try {
@@ -111,7 +132,7 @@ export function madeFilesOf(ctx: AppContext, chat: { id: string; user_id: string
       const made = db.query("SELECT turn_id FROM file_events WHERE path = ? AND action = 'create' ORDER BY id DESC LIMIT 1").get(rel) as { turn_id: string | null } | null
       const msg = made?.turn_id ? db.query(`SELECT m.id FROM turns t JOIN messages m ON m.id = t.message_id
         WHERE t.id = ? AND t.chat_id = ? AND m.chat_id = ? AND m.role = 'assistant'`).get(made.turn_id, chat.id, chat.id) as { id: string } | null : null
-      if (!msg) continue
+      if (!msg || hidden.has(msg.id)) continue
       const src = authorize(ctx.files.fx, rules, creator, rel, 'read')
       if (!src.exists || !src.st?.isFile() || src.st.nlink > 1) continue
       if (src.st.size > CHAT_COPY_MAX || (last.size !== null && last.size !== src.st.size)) continue
@@ -161,7 +182,7 @@ async function streamCopy(fd: number, size: number, dst: string): Promise<string
  * new one): nothing is copied and the caller asks again. `notCopied`: pictures whose metadata cannot be cut out, or a
  * picture over CHAT_FILE_MAX (cleaned in memory): they stay the creator's alone.
  */
-export async function readVerified(ctx: AppContext, chat: { id: string; user_id: string }, seen: readonly MadeFile[], o: { only?: string } = {}): Promise<{ files: VerifiedFile[]; notCopied: number } | null> {
+export async function readVerified(ctx: AppContext, chat: { id: string; user_id: string }, seen: readonly MadeFile[], o: { only?: string; audience?: readonly string[] } = {}): Promise<{ files: VerifiedFile[]; notCopied: number } | null> {
   const now = madeFilesOf(ctx, chat, o)
   if (!sameState(now, seen)) return null
   const creator = loadPrincipal(ctx.db, chat.user_id)
@@ -173,10 +194,16 @@ export async function readVerified(ctx: AppContext, chat: { id: string; user_id:
   let notCopied = 0
   let total = 0
   const fail = () => { discardVerified({ files }); return null }
+  // the storage check first, before anything is written (review L1)
+  assertStorageRoom(now.reduce((n, f) => n + f.size, 0))
+  // anything thrown on the way (a file gone, a read error): the temp files written so far go too (review L2)
+  let current: string | null = null
+  try {
   for (const f of now) {
     const src = authorize(ctx.files.fx, rules, creator, f.path, 'read')
     if (!src.st?.isFile() || src.st.nlink > 1) return fail()
     const tmp = path.join(work, `chat-copy-${randomUUID()}`)
+    current = tmp
     const { fd, st } = openChecked(src.abs, src.st)
     let sha: string | null = null
     try {
@@ -206,6 +233,7 @@ export async function readVerified(ctx: AppContext, chat: { id: string; user_id:
     }
     files.push({ file: f, tmp, bytes: null, kind: named })
   }
+  } catch (e) { if (current) fs.rmSync(current, { force: true }); discardVerified({ files }); throw e }
   try { assertStorageRoom(total) } catch (e) { discardVerified({ files }); throw e }
   return { files, notCopied }
 }
@@ -238,7 +266,7 @@ export async function copyMade(ctx: AppContext, chat: { id: string; user_id: str
     }
   })()
   // a copy whose answer went meanwhile, or one attached by the other press: not sent, so the sweep takes it
-  audit(db, { actor: chat.user_id, action: 'chat.files_added', target: chat.id, detail: { count: kept.length, via } })
+  audit(db, { actor: chat.user_id, action: 'chat.files_added', target: chat.id, detail: { count: kept.length, via, files: kept.map((k) => k.att.id) } })
   return kept.length
 }
 

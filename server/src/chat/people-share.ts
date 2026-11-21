@@ -203,7 +203,8 @@ async function findingsFor(ctx: AppContext, viewer: Principal, chat: ChatRow, ne
     // a first share also shows them the creator's earlier computer uploads (copied: chat/chat-files.ts)
     const earlierFiles = isPeopleRow(chat) ? 0 : await chatFilesOf(ctx).earlierUploads(chat.id)
     // the files the chat made in my own folder (the Share step), for its creator only
-    const made = viewer.id === chat.user_id ? madeFilesOf(ctx, chat) : []
+    // (never a file of an answer hidden from anyone in it or being added: chat/chat-files-share.ts hiddenAnswers)
+    const made = viewer.id === chat.user_id ? madeFilesOf(ctx, chat, { audience: newPeople }) : []
     return { f, earlierFiles, made }
   }
   if (!o.cache) return compute()
@@ -401,7 +402,7 @@ export async function putChatAudience(ctx: AppContext, rt: ChatRuntime, userId: 
     // different from what the key was made over: nothing is saved or copied, the step is asked again
     let verified: Awaited<ReturnType<typeof readVerified>> = null
     if (body.withFiles && madeSeen.length) {
-      verified = await readVerified(ctx, r, madeSeen)
+      verified = await readVerified(ctx, r, madeSeen, { audience: newPeople })
       if (!verified) {
         if (newPeople.length) continue
         const again = madeFilesOf(ctx, r)

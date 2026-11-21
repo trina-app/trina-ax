@@ -24,6 +24,9 @@
   never held in memory (a picture, whose metadata is cut out in memory, at most 50 MB). Nothing is written into anyone's own folder, no folder rule or per-file grant changes, and the
   original stays in My files. The copies are the chat's: everyone in it opens them, someone taken out loses them with
   the chat, and they go when the chat is deleted for good. A file leaves its owner's folder only by its owner's press.
+- **Rule 2b, a hidden answer's file stays hidden:** a file whose making answer is hidden from anyone who sees the chat
+  or is being added (chat/shared-answers.ts) is never offered or copied, and a copy carried only by answers hidden from
+  someone is not theirs to open (the file, its thumbnail, `chat_file`, `file-access`), also for people who join later.
 - **Rule 3, the chat's copy wins in links:** inside that chat a link to the original's path opens the chat's copy, for
   everyone, the creator included, so nobody works on two different files by accident: the creator's page maps the path
   to the copy; for everyone else the link's panel asks the server (`file-access`), which answers with the copy, so
@@ -45,5 +48,5 @@
   `fix/ai-sees-and-saves-workspace-output`); version chains and people editing a chat file in place; asks routed to
   admins or to a file owner outside the chat; team projects (copies into the project folder); per-file checkboxes and
   "used here" files.
-- **Tests:** tests/unit/b-share-chat-files.test.ts; web/test/e2e/share-chat-files.spec.ts (1440 and 390).
+- **Tests:** tests/unit/b-share-chat-files.test.ts; tests/security/share-chat-files.test.ts; web/test/e2e/share-chat-files.spec.ts (1440 and 390).
 - **Version impact:** minor (new optional API fields and the `file-access` routes; no migration).

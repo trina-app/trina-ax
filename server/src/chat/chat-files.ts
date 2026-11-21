@@ -39,6 +39,7 @@ import { fileError } from '../team-files/errors'
 import { personLocale } from '../files/media-text'
 import { tr } from './i18n'
 import { seesChatFiles } from './chat-files-access'
+import { withheldFrom } from './shared-answers'
 
 /** An upload not sent in a message within a day is removed (as a room's). */
 export const UNSENT_CHAT_FILE_MS = 24 * 3600_000
@@ -114,6 +115,14 @@ export class ChatFiles {
   /** Was the file sent in a message of its chat (any branch)? Until then it is its sender's alone. */
   sent(f: Pick<ChatFileRow, 'id' | 'chat_id'>): boolean {
     return !!this.ctx.db.query("SELECT 1 FROM messages m, json_each(m.attachments) j WHERE m.chat_id = ? AND json_valid(m.attachments) AND json_extract(j.value, '$.id') = ? LIMIT 1").get(f.chat_id, f.id)
+  }
+
+  /** Every message of its chat that carries the file is an answer hidden from `userId` (a question never is). */
+  private onlyOnHidden(userId: string, f: Pick<ChatFileRow, 'id' | 'chat_id'>): boolean {
+    const carriers = (this.ctx.db.query("SELECT DISTINCT m.id FROM messages m, json_each(m.attachments) j WHERE m.chat_id = ? AND json_valid(m.attachments) AND json_extract(j.value, '$.id') = ?").all(f.chat_id, f.id) as { id: string }[]).map((m) => m.id)
+    if (!carriers.length) return false
+    const hidden = withheldFrom(this.ctx.db, this.ctx.files.rules(), f.chat_id, userId)
+    return carriers.every((id) => hidden.has(id))
   }
 
   /** Does `userId` see the chat of a chat file now: one shared with people they are in (not in the trash, unless it is
@@ -220,6 +229,9 @@ export class ChatFiles {
     const f = this.ctx.db.query('SELECT * FROM chat_files WHERE id = ? AND chat_id = ?').get(fileId, chatId) as ChatFileRow | null
     if (!f) return fail('not_found')
     if (f.user_id !== userId && !this.sent(f)) fail('not_found')
+    // a file carried only by answers hidden from this person (chat/shared-answers.ts: a copy of a file such an answer
+    // made, docs/decisions/20261121-share-chat-files.md): not theirs to open, as the answer is not (review M1)
+    if (f.user_id !== userId && this.onlyOnHidden(userId, f)) fail('not_found')
     const quarantined = this.ctx.files.quarantine.hasHash(f.sha256)
     if (thumb) {
       if (f.thumb === 'jpg' || f.thumb === 'png') {
