@@ -878,6 +878,7 @@ export const ja: Record<MessageKey, string> = {
   "connect.wait.timedOut": "サインインが完了しなかったため、待機を終了しました。準備ができたらもう一度接続してください。",
   "connect.wait.limit": "{n, plural, one {# 分} other {# 分}}たつと自動で待機を終了します。",
   "connect.wait.google": "Googleで「このアプリは使えません」と表示されたら（例：会社のアカウント専用）、Googleのウィンドウを閉じて「再試行」を押し、会社のアカウントを選んでください。{n, plural, one {# 分} other {# 分}}たつと自動で待機を終了します。",
+  "connect.wait.googleDesktop": "Googleで終わったら、ブラウザーで「アプリに戻る」を押してここで完了してください。Googleで「このアプリは使えません」と表示されたら、そのウィンドウを閉じて「再試行」を押し、会社のアカウントを選んでください。{n, plural, one {# 分} other {# 分}}たつと自動で待機を終了します。",
   'connect.noKey': "キーは不要です。{host}に接続します。",
   'connect.kindMcp': "MCPサーバー",
   'connect.kindHttp': "HTTP API",

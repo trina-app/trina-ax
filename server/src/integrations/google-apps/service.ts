@@ -43,7 +43,8 @@ import { APIS, APP_IDS, APP_NAMES, APP_SLUGS, catalog, placeholderUrl } from './
 import { clientFromBody, clientSettingKey, driveAppAvailable, redirectUriOf, safeAppsDir, appsSecretsDir, readAppClient, setupOf, writeClientFile, type AppSetup } from './config'
 import { googleTransport, isGoogleAppSecret, setGoogleFetch, tokensOf, type GoogleAppSecret } from './tokens'
 import { workspaceLibraryOf } from './library'
-import type { CallbackOutcome } from '../google-drive/callback-page'
+import type { AppClient, CallbackOutcome } from '../google-drive/callback-page'
+import { CLAIM_MS, newToken, tokenHash, tokenMatches } from '../google-drive/app-return'
 
 /** The key of a Google app connection the demo's snapshot builder makes (routes/demo-builder.ts): no Google app made it. */
 export const DEMO_GOOGLE_KEY = 'demo'
@@ -62,9 +63,14 @@ interface FlowRow {
   expires_at: string; created_at: string
 }
 interface Account { subject: string; name: string | null; email: string | null }
-interface FlowSecret { verifier: string; tokens?: { accessToken: string; refreshToken: string; expiresAt: number | null }; account?: Account; scope?: string }
+/** `claim`: a result Google answered in a browser without a session, for a desktop session's flow: kept sealed and still
+ * "waiting" until the app on that computer brings this one-time code (google-drive/app-return.ts) */
+interface FlowSecret { verifier: string; tokens?: { accessToken: string; refreshToken: string; expiresAt: number | null }; account?: Account; scope?: string; claim?: { hash: string; until: number } }
 
 const TTL = 10 * 60_000
+/** how long a return waits for another return of the same sign-in that is still talking to Google (a reload, a second
+ * request) before it says how that one ended */
+export const SETTLE_MS = 15_000
 const FLOWS_PER_HOUR = 20
 /** how long a card says "not available yet" after the hosting service refused the app (then it is tried again) */
 const LIMITED_MS = 10 * 60_000
@@ -291,7 +297,17 @@ export class GoogleApps {
     const f = this.ownFlow(user, session, app, id, scope)
     let account: GoogleAppFlow['account'] = null
     try { if (f.account) { const a = JSON.parse(f.account) as Account; account = { name: a.name ?? null, email: a.email ?? null } } } catch {}
-    return { flowId: f.id, state: f.state, account, expiresAt: f.expires_at, reason: f.reason }
+    // a result waiting for the desktop app's code: plain "pending" to its owner until then (no account shown)
+    return { flowId: f.id, state: this.held(f) ? 'pending' : f.state, account, expiresAt: f.expires_at, reason: f.reason }
+  }
+  private held(f: FlowRow): boolean {
+    if (f.state !== 'exchanging' || !f.secret_enc) return false
+    try { return !!this.box.open<FlowSecret>(flowAad(f), f.secret_enc, f.key_version).claim } catch { return false }
+  }
+  /** The kind of app whose session started a flow, when it is an app (the return page sends the person back to it) */
+  private appOf(sessionId: string): AppClient | null {
+    const c = (this.db.query('SELECT client FROM sessions WHERE id=?').get(sessionId) as { client: string } | null)?.client
+    return c === 'desktop' || c === 'mobile' ? c : null
   }
   cancel(user: string, session: string, app: GoogleAppId, id: string, scope: Scope = 'personal') {
     this.ownFlow(user, session, app, id, scope)
@@ -303,19 +319,32 @@ export class GoogleApps {
   async callback(input: { state?: string; code?: string; error?: string; handoff?: string }, browser?: { userId: string; sessionId: string }): Promise<boolean> {
     return (await this.callbackOutcome(input, browser)).ok
   }
-  /** The same, with why it did not work for the return page (routes/google-apps.ts, google-drive/callback-page.ts). */
+  /** The same, with why it did not work for the return page (routes/google-apps.ts, google-drive/callback-page.ts).
+   * A browser without a session, for a flow the desktop app started, finishes it only as far as a one-time code for the
+   * app on this computer (as Google Drive's, google-drive/app-return.ts): the system browser the desktop app opens has
+   * no session, and the page always said "This browser can't finish it" (owner 2026-11-21). A return to a sign-in that
+   * is already answered says how it ended, never "expired or already used" for one that worked (answered()). */
   async callbackOutcome(input: { state?: string; code?: string; error?: string; handoff?: string }, browser?: { userId: string; sessionId: string }): Promise<CallbackOutcome> {
     this.sweep()
-    const no = (reason: string): CallbackOutcome => ({ ok: false, reason })
+    const no = (reason: string, app?: AppClient | null): CallbackOutcome => ({ ok: false, reason, ...(app ? { app } : {}) })
     if (!input.state || !/^[A-Za-z0-9_-]{43}$/.test(input.state)) return no('invalid_flow')
     const f = this.db.query('SELECT * FROM google_app_flows WHERE state_hash=?').get(hash(input.state)) as FlowRow | null
-    if (!f || f.state !== 'pending') return no('invalid_flow')
-    if (!browser || browser.userId !== f.user_id) return no('browser_session_required')
-    try { this.session(browser.userId, browser.sessionId); this.session(f.user_id, f.session_id, f.scope ?? 'personal') } catch { return no('invalid_flow') }
+    if (!f) return no('invalid_flow')
+    const app = this.appOf(f.session_id)
+    if (f.state !== 'pending') return this.answered(f, app, browser)
+    // A leaked sign-in address must not attach someone else's Google consent: a browser signed in as someone else is
+    // refused; one without a session gets only the desktop app's code (claim), which only the starter's session redeems.
+    const held = !browser && app === 'desktop'
+    if (!held && (!browser || browser.userId !== f.user_id)) return no('browser_session_required', app)
+    try { if (browser) this.session(browser.userId, browser.sessionId); this.session(f.user_id, f.session_id, f.scope ?? 'personal') } catch { return no('invalid_flow', app) }
     const setup = setupOf(this.ctx, f.app)
-    if (setup.key !== f.config_key || setup.mode === 'off') return no('invalid_flow')
-    if (!this.db.query("UPDATE google_app_flows SET state='exchanging' WHERE id=? AND state='pending'").run(f.id).changes) return no('invalid_flow')
-    const failed = (reason: string) => { this.db.query("UPDATE google_app_flows SET state='failed', reason=?, secret_enc=NULL, account=NULL WHERE id=? AND state='exchanging'").run(reason, f.id); return no(reason) }
+    if (setup.key !== f.config_key || setup.mode === 'off') return no('invalid_flow', app)
+    if (!this.db.query("UPDATE google_app_flows SET state='exchanging' WHERE id=? AND state='pending'").run(f.id).changes) {
+      // another return of this sign-in took it a moment ago: say how that one ends
+      const now = this.db.query('SELECT * FROM google_app_flows WHERE id=?').get(f.id) as FlowRow | null
+      return now ? this.answered(now, app, browser) : no('invalid_flow', app)
+    }
+    const failed = (reason: string) => { this.db.query("UPDATE google_app_flows SET state='failed', reason=?, secret_enc=NULL, account=NULL WHERE id=? AND state='exchanging'").run(reason, f.id); return no(reason, app) }
     try {
       if (input.error) return failed(input.error === 'provider_error' ? 'provider_unavailable' : setup.mode === 'broker' ? 'consent_denied_service' : 'consent_denied')
       const broker = setup.mode === 'broker'
@@ -335,12 +364,86 @@ export class GoogleApps {
       const account: Account = { subject: me.sub, name: clean(me.name, 200), email: clean(me.email, 320) }
       const cur = this.db.query('SELECT state, expires_at FROM google_app_flows WHERE id=?').get(f.id) as { state: string; expires_at: string } | null
       if (!cur || cur.state !== 'exchanging' || cur.expires_at <= new Date(this.now()).toISOString()) return failed('invalid_flow')
-      const sealed = this.box.seal(flowAad(f), { verifier: '', tokens: { ...tokens, refreshToken: tokens.refreshToken! }, account, scope: granted.join(' ') } satisfies FlowSecret)
+      const result: FlowSecret = { verifier: '', tokens: { ...tokens, refreshToken: tokens.refreshToken! }, account, scope: granted.join(' ') }
+      if (held) return this.hold(f, result, cur.expires_at)
+      const sealed = this.box.seal(flowAad(f), result)
       this.db.query("UPDATE google_app_flows SET state='ready', secret_enc=?, key_version=?, account=? WHERE id=? AND state='exchanging'").run(sealed.enc, sealed.keyVersion, JSON.stringify(account), f.id)
-      return { ok: true }
+      return { ok: true, ...(app ? { app } : {}) }
     } catch (e) {
       return failed(e instanceof DriveError && e.reason === 'needs_reconnect' ? 'exchange' : e instanceof DriveError ? e.reason : 'provider_unavailable')
     }
+  }
+  /** Keep a result sealed and "waiting" (state exchanging, no account shown) with a new one-time code for the desktop
+   * app; a code given before stops working. Its time never grows past the first code's (or the flow's). */
+  private hold(f: FlowRow, result: FlowSecret, expiresAt: string, until?: number): CallbackOutcome {
+    const code = newToken(), end = until ?? Math.min(this.now() + CLAIM_MS, Date.parse(expiresAt))
+    const sealed = this.box.seal(flowAad(f), { ...result, claim: { hash: tokenHash(code), until: end } } satisfies FlowSecret)
+    if (!this.db.query("UPDATE google_app_flows SET secret_enc=?, key_version=? WHERE id=? AND state='exchanging'").run(sealed.enc, sealed.keyVersion, f.id).changes) return { ok: false, reason: 'invalid_flow', app: 'desktop' }
+    const who = this.db.query('SELECT name, username FROM users WHERE id=?').get(f.user_id) as { name: string; username: string } | null
+    return { ok: true, app: 'desktop', code, who: who ?? { name: '', username: '' }, google: result.account?.email ?? result.account?.name ?? '' }
+  }
+  /** A return to a sign-in that is no longer waiting for Google: how it went. Another return still talking to Google is
+   * waited for (SETTLE_MS). Answered and waiting for the person's confirm: ok ('ready'); confirmed: Connected
+   * ('completed'); held for the desktop app: a fresh code, to a browser without a session or signed in as the same
+   * person (one signed in as someone else gets nothing); replaced by a later try of the same person and app that is
+   * connected now: Connected. Anything else: "expired or already used", as before. The state is the flow's secret: nothing here tells
+   * anyone without it anything. */
+  private async answered(f: FlowRow, app: AppClient | null, browser?: { userId: string; sessionId: string }): Promise<CallbackOutcome> {
+    const no = (reason: string): CallbackOutcome => ({ ok: false, reason, ...(app ? { app } : {}) })
+    const deadline = Date.now() + SETTLE_MS
+    let r: FlowRow | null = f
+    while (r && r.state === 'exchanging' && !this.held(r) && Date.now() < deadline) {
+      await Bun.sleep(100)
+      r = this.db.query('SELECT * FROM google_app_flows WHERE id=?').get(f.id) as FlowRow | null
+    }
+    if (!r) return no('invalid_flow')
+    if (r.state === 'ready') return { ok: true, done: 'ready', ...(app ? { app } : {}) }
+    if (r.state === 'completed') return { ok: true, done: 'completed', ...(app ? { app } : {}) }
+    if (r.state === 'exchanging') {
+      let s: FlowSecret
+      try { s = this.box.open<FlowSecret>(flowAad(r), r.secret_enc, r.key_version) } catch { return no('invalid_flow') }
+      if (!s.claim) return no('provider_unavailable') // still talking to Google after SETTLE_MS
+      if (this.now() > s.claim.until) return no('expired')
+      if (browser && browser.userId !== r.user_id) return no('browser_session_required')
+      if (browser) {
+        // signed in as the person now (after "Sign in and connect here"): finished here, as a first return would be
+        try { this.session(browser.userId, browser.sessionId) } catch { return no('invalid_flow') }
+        const { claim: _unused, ...rest } = s
+        const sealed = this.box.seal(flowAad(r), rest satisfies FlowSecret)
+        if (!this.db.query("UPDATE google_app_flows SET state='ready', secret_enc=?, key_version=?, account=? WHERE id=? AND state='exchanging'").run(sealed.enc, sealed.keyVersion, JSON.stringify(s.account), r.id).changes) return no('invalid_flow')
+        return { ok: true, ...(app ? { app } : {}) }
+      }
+      return this.hold(r, s, r.expires_at, s.claim.until)
+    }
+    if (r.state === 'failed' && r.reason === 'superseded' && this.connectedSince(r)) return { ok: true, done: 'completed', ...(app ? { app } : {}) }
+    // ended otherwise (cancelled in the app, timed out, replaced, refused): "expired or already used", as before
+    return no('invalid_flow')
+  }
+  /** a later sign-in of the same person, app and scope was confirmed: what this replaced one was for is done */
+  private connectedSince(f: FlowRow): boolean {
+    return !!this.db.query("SELECT 1 FROM google_app_flows WHERE user_id=? AND app=? AND scope=? AND state='completed' AND created_at>=? AND id!=?").get(f.user_id, f.app, f.scope ?? 'personal', f.created_at, f.id)
+  }
+  /** The desktop app brings the one-time code of a sign-in Google answered in a browser without a session (the same
+   * claim address as Google Drive's: routes/drive.ts tries Drive, then this). Only a flow of THIS session: it turns
+   * "ready" and the person confirms the account as always; the code is used up. Another session's, a used, unknown or
+   * late code: refused (a late one ends its flow). */
+  claim(user: string, session: string, code: string): GoogleAppFlow {
+    this.sweep()
+    const rows = this.db.query("SELECT * FROM google_app_flows WHERE user_id=? AND session_id=? AND state='exchanging' AND secret_enc IS NOT NULL").all(user, session) as FlowRow[]
+    for (const f of rows) {
+      let s: FlowSecret
+      try { s = this.box.open<FlowSecret>(flowAad(f), f.secret_enc, f.key_version) } catch { continue }
+      if (!s.claim || !tokenMatches(code, s.claim.hash)) continue
+      if (this.now() > s.claim.until || setupOf(this.ctx, f.app).key !== f.config_key) {
+        this.db.query("UPDATE google_app_flows SET state='failed', reason='expired', secret_enc=NULL, account=NULL WHERE id=? AND state='exchanging'").run(f.id)
+        throw new DriveError('expired', 400)
+      }
+      const { claim: _used, ...rest } = s
+      const sealed = this.box.seal(flowAad(f), rest satisfies FlowSecret)
+      if (!this.db.query("UPDATE google_app_flows SET state='ready', secret_enc=?, key_version=?, account=? WHERE id=? AND state='exchanging'").run(sealed.enc, sealed.keyVersion, JSON.stringify(s.account), f.id).changes) break
+      return this.flow(user, session, f.app, f.id, f.scope ?? 'personal')
+    }
+    throw new DriveError('invalid_code', 400)
   }
 
   /** A flow that Google answered, for the app as set up now: its sealed tokens and account. */

@@ -878,6 +878,7 @@ export const es: Record<MessageKey, string> = {
   "connect.wait.timedOut": "El inicio de sesión no terminó, así que se dejó de esperar. Vuelva a conectar cuando quiera.",
   "connect.wait.limit": "Esto se detiene solo después de {n, plural, one {# minuto} other {# minutos}}.",
   "connect.wait.google": "Si Google indica que no puede usar esta app (por ejemplo, es solo para las cuentas de su empresa), cierre la ventana de Google, pulse «Volver a intentar» y elija su cuenta de trabajo. Esto se detiene solo después de {n, plural, one {# minuto} other {# minutos}}.",
+  "connect.wait.googleDesktop": "Cuando termine en Google, pulse «Volver a la aplicación» en el navegador para terminar aquí. Si Google indica que no puede usar esta app, cierre esa ventana, pulse «Volver a intentar» y elija su cuenta de trabajo. Esto se detiene solo después de {n, plural, one {# minuto} other {# minutos}}.",
   'connect.noKey': "No hace falta una clave. Se conecta a {host}.",
   'connect.kindMcp': "Servidor MCP",
   'connect.kindHttp': "API HTTP",

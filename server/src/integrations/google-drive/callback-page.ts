@@ -9,8 +9,10 @@
 // that browser on to the web app. It says to go back to the app (where the account is confirmed), with a button that
 // opens the desktop app (`<linkScheme>://open?url=<this team>/`), and the tab may be closed. Google's answer in a
 // browser without a session, for a desktop flow, waits for the app: the button carries the one-time code in the
-// link's fragment (app-return.ts). A browser not signed in otherwise gets a way on: sign in and connect here, or go
-// back to the app.
+// link's fragment (app-return.ts), and the page opens that link by itself. A browser not signed in otherwise gets a way
+// on: sign in and connect here, or go back to the app. A return to a sign-in that is already answered (a reload, a
+// second request, another window) says it worked, or "Connected" once confirmed: never a failure page for a sign-in
+// that worked (docs/decisions/20261121-google-return-already-answered.md).
 import crypto from 'node:crypto'
 import { PRODUCT } from '@mycel/shared'
 import type { Locale } from '@mycel/shared/api'
@@ -19,21 +21,31 @@ import { appLink } from './app-return'
 export type AppClient = 'desktop' | 'mobile'
 
 /** What the page says: the sign-in came back (confirm it in the app), or why it did not. */
-export type GoogleReturn = 'ok' | 'cancelled' | 'denied_service' | 'scope' | 'expired' | 'signed_out' | 'other_account' | 'failed'
+export type GoogleReturn = 'ok' | 'done' | 'cancelled' | 'denied_service' | 'scope' | 'expired' | 'signed_out' | 'other_account' | 'failed'
 
 /** How a sign-in ended, as the Drive and Google apps services report it: ok, or the flow's reason code. */
 /** `app`: the app whose session started the sign-in; `code`: the one-time code for the desktop app that finishes a
- * sign-in Google answered in a browser without a session (app-return.ts). */
-export type CallbackOutcome = { ok: true; app?: AppClient | null; code?: string; who?: { name: string; username: string }; google?: string } | { ok: false; reason: string; app?: AppClient | null }
+ * sign-in Google answered in a browser without a session (app-return.ts). `done`: this return found the sign-in
+ * already answered by an earlier one (a reload, a second request, another window): 'ready', the account waits to be
+ * confirmed in the app; 'completed', it is connected. Never a failure page for a sign-in that worked (owner 2026-11-21). */
+export type CallbackOutcome = { ok: true; app?: AppClient | null; code?: string; who?: { name: string; username: string }; google?: string; done?: 'ready' | 'completed' } | { ok: false; reason: string; app?: AppClient | null }
 
 type T = Record<Locale, string>
 const t = (ko: string, en: string, id: string, ja: string, es: string, zh: string): T => ({ ko, en, id, ja, es, zh })
 
-type Extra = 'title' | 'login' | 'okApp' | 'okCode' | 'heldWho' | 'heldGoogle' | 'heldOwnApp' | 'signedOutApp' | 'backToApp' | 'loginAgain' | 'hOk' | 'hOkApp' | 'hNot' | 'hSignedOut'
+type Extra = 'title' | 'login' | 'okApp' | 'okCode' | 'heldWho' | 'heldGoogle' | 'heldOwnApp' | 'signedOutApp' | 'backToApp' | 'loginAgain' | 'hOk' | 'hOkApp' | 'hNot' | 'hSignedOut' | 'hBack'
 const TEXT: Record<GoogleReturn | Extra, T> = {
   title: t('Google 로그인', 'Google sign-in', 'Login Google', 'Google ログイン', 'Inicio de sesión de Google', 'Google 登录'),
   hOk: t('거의 다 됐어요', 'Almost done', 'Hampir selesai', 'あと少しです', 'Casi listo', '快完成了'),
   hOkApp: t('연결됐어요', 'Connected', 'Terhubung', '接続しました', 'Conectado', '已连接'),
+  hBack: t('{product} 앱으로 돌아가서 마치세요', 'Go back to {product} to finish', 'Kembali ke {product} untuk menyelesaikan', '{product} に戻って完了してください', 'Vuelva a {product} para terminar', '回到 {product} 完成连接'),
+  done: t(
+    '{product}에 이미 연결됐어요. 이 창은 닫아도 돼요.',
+    'It is already connected in {product}. You can close this window.',
+    'Sudah terhubung di {product}. Jendela ini boleh ditutup.',
+    '{product} ですでに接続されています。このウィンドウは閉じてかまいません。',
+    'Ya está conectado en {product}. Puede cerrar esta ventana.',
+    '已经在 {product} 中连接好了。这个窗口可以关闭。'),
   hNot: t('연결하지 못했어요', 'Not connected', 'Tidak terhubung', '接続できませんでした', 'No se conectó', '未连接'),
   hSignedOut: t('이 브라우저에서는 마칠 수 없어요', 'This browser can’t finish it', 'Browser ini tidak bisa menyelesaikannya', 'このブラウザーでは完了できません', 'Este navegador no puede terminarlo', '这个浏览器无法完成'),
   okApp: t(
@@ -145,7 +157,7 @@ const esc = (s: string) => s.replace(/[&<>"']/g, (ch) => `&#${ch.charCodeAt(0)};
 /** The page for a reason code. `browserSignedIn`: this browser has a session (of someone else when the reason says the
  * browser must be the person's own). */
 export function googleReturnOf(outcome: CallbackOutcome, browserSignedIn: boolean): GoogleReturn {
-  if (outcome.ok) return 'ok'
+  if (outcome.ok) return outcome.done === 'completed' ? 'done' : 'ok'
   switch (outcome.reason) {
     case 'consent_denied': case 'cancelled': return 'cancelled'
     case 'consent_denied_service': return 'denied_service'
@@ -181,10 +193,13 @@ export function googleReturnPage(r: GoogleReturn, locale: Locale, o: ReturnPageO
   const origin = o.origin && /^https?:\/\/[^/?#\s]+$/.test(o.origin) ? o.origin : null
   const appButton = o.app === 'desktop' && origin ? `<a class="cta" href="${esc(appLink(origin))}">${esc(say('backToApp', locale))}</a>` : ''
   const login = `/login?${new URLSearchParams({ next: o.connector ?? '/settings/connectors' })}`
-  let title: string, text: string, actions = ''
+  let title: string, text: string, actions = '', head = ''
   if (r === 'ok' && o.code && origin) {
-    // the app on this computer finishes it with its own session: the code only in the link's fragment
-    title = say('hOk', locale); text = say('okCode', locale)
+    // the app on this computer finishes it with its own session: the code only in the link's fragment. The page opens
+    // that link by itself too (the browser asks first): people go back to the app without the button and the result
+    // waited unclaimed until Try again ended it (qa.trina.app 2026-11-21, drive flows of 04:10 and 04:11)
+    title = say('hBack', locale); text = say('okCode', locale)
+    head = `<meta http-equiv="refresh" content="0;url=${esc(appLink(origin, o.code))}">`
     // whose Trina account and which Google account, so a person who did not start it sees it is not theirs
     const facts = [
       o.who?.username ? say('heldWho', locale).replace('{name}', () => o.who!.name).replace('{username}', () => o.who!.username) : '',
@@ -193,6 +208,8 @@ export function googleReturnPage(r: GoogleReturn, locale: Locale, o: ReturnPageO
     actions = (facts.length ? `<ul class="facts" data-testid="held-facts">${facts.map((f) => `<li>${esc(f)}</li>`).join('')}</ul>` : '')
       + `<a class="cta" href="${esc(appLink(origin, o.code))}">${esc(say('backToApp', locale))}</a>`
       + `<p class="note" data-testid="held-own-app">${esc(say('heldOwnApp', locale))}</p>`
+  } else if (r === 'done') {
+    title = say('hOkApp', locale); text = say('done', locale); actions = inApp ? appButton : ''
   } else if (r === 'ok' && inApp) {
     title = say('hOkApp', locale); text = say('okApp', locale); actions = appButton
   } else if (r === 'ok') {
@@ -210,9 +227,9 @@ export function googleReturnPage(r: GoogleReturn, locale: Locale, o: ReturnPageO
     title = say('hNot', locale); text = say(r, locale); actions = inApp ? appButton : ''
   }
   return {
-    html: `<!doctype html><html lang="${locale}"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(say('title', locale))}</title><style>${STYLE}</style>`
+    html: `<!doctype html><html lang="${locale}"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(say('title', locale))}</title>${head}<style>${STYLE}</style>`
       + `<main><h1>${esc(title)}</h1><p role="status">${esc(text)}</p>${actions}</main>`,
-    status: r === 'ok' ? 200 : 400,
+    status: r === 'ok' || r === 'done' ? 200 : 400,
   }
 }
 

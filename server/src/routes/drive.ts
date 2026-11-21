@@ -13,6 +13,7 @@ import { listShares, setMembersCanConnect, shareFolders, stopShare, updateShare 
 import { shareView } from '../integrations/google-drive/shares'
 import { DriveError } from '../integrations/google-drive/store'
 import { afterServiceSetup } from '../integrations/service-requests'
+import { googleAppsOf } from '../integrations/google-apps/service'
 
 async function safe<T>(fn: () => T | Promise<T>, locale?: Locale): Promise<T> {
   try { return await fn() } catch (e) {
@@ -29,8 +30,15 @@ export function registerDriveRoutes(kit: RouteKit, ctx: AppContext) {
   kit.handle(API.authorizeDrive, ({ auth }) => safe(() => googleDriveOf(ctx).begin(auth.user.id, auth.session.id, undefined, auth.session.client)))
   kit.handle(API.driveFlow, ({ auth, params }) => safe(() => googleDriveOf(ctx).flow(auth.user.id, auth.session.id, params.id)))
   kit.handle(API.completeDriveFlow, ({ auth, params, body }) => safe(() => googleDriveOf(ctx).complete(auth.user.id, auth.session.id, params.id)))
-  // the desktop app's one-time code for a sign-in Google answered in a browser without a session: this session's flow only
-  kit.handle(API.claimDriveFlow, ({ c, auth, body }) => safe(() => googleDriveOf(ctx).claim(auth.user.id, auth.session.id, body.code), c.get('locale')))
+  // the desktop app's one-time code for a sign-in Google answered in a browser without a session: this session's flow
+  // only. The desktop app posts every such code here, so a Gmail, Calendar, Docs or Sheets sign-in's code is tried next
+  // (google-apps/service.ts claim); a code neither knows is the same refusal.
+  kit.handle(API.claimDriveFlow, ({ c, auth, body }) => safe(() => {
+    try { return googleDriveOf(ctx).claim(auth.user.id, auth.session.id, body.code) } catch (e) {
+      if (!(e instanceof DriveError) || e.reason !== 'invalid_code') throw e
+      return googleAppsOf(ctx).claim(auth.user.id, auth.session.id, body.code)
+    }
+  }, c.get('locale')))
   kit.handle(API.cancelDriveFlow, ({ auth, params }) => safe(() => googleDriveOf(ctx).cancel(auth.user.id, auth.session.id, params.id)))
   kit.handle(API.disconnectDrive, ({ auth }) => safe(() => googleDriveOf(ctx).disconnect(auth.user.id)))
   // Admin › App connectors: set up Google Drive here instead of in the installer (integrations/google-drive/admin-setup.ts)

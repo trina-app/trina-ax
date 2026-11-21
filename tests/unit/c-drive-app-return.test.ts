@@ -67,8 +67,10 @@ test('the desktop app: the page before Google names the person; Google answered 
   expect(page.status).toBe(200)
   const code = codeOf(html)!
   expect(code).toBeTruthy()
-  // the code never in a query string, nor anywhere but the link's fragment
-  expect(html.split(code).length - 1).toBe(1)
+  // the code never in a query string, nor anywhere but the app link's fragment: the button and the page's own opening
+  // of that same link (it opens the app without the button)
+  expect(html.split(code).length - 1).toBe(2)
+  expect(html).toMatch(new RegExp(`<meta http-equiv="refresh" content="0;url=trina-ax://open\\?url=[^"#]+#code=${code}">`))
   expect(html).not.toMatch(new RegExp(`[?&]code=${code}`))
   expect(html).toContain('앱으로 돌아가기')
   // whose Trina account and which Google account, and keep the link to yourself

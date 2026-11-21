@@ -1,0 +1,247 @@
+// A Google sign-in that worked never ends on a failure page (owner 2026-11-21: "This browser can't finish it" and
+// "Not connected: this sign-in has expired or was already used" after connecting Google Drive or Gmail, and back in
+// the app it was sometimes connected anyway; qa.trina.app flows and the broker log of that morning). Covered, for
+// Google Drive and the Google apps:
+//  - a second return of one sign-in (a reload, a duplicate request while the first still talks to Google): one
+//    exchange, and both pages say it worked; after the confirm, "Connected";
+//  - a window of an earlier try that comes back after a later try connected: "Connected";
+//  - the desktop app's sign-in of Gmail, Calendar, Docs or Sheets: the system browser has no session, so the result
+//    waits for the app's one-time code (as Drive's since #98), which the Drive claim address the desktop app already
+//    calls now redeems too, for the starter's session only (the phishing case of #98's review fails as for Drive);
+//  - a held page reloaded: a fresh code, the old one stops working; signed in as the person: finished at once.
+// Fake Google only.
+import { afterAll, afterEach, beforeAll, beforeEach, expect, setDefaultTimeout, test } from 'bun:test'
+import { harness, withOwner, addMember, OWNER_PW, type Harness, type Client } from './a-lib'
+import { googleDriveOf } from '../../server/src/integrations/google-drive/oauth'
+import { googleAppsOf } from '../../server/src/integrations/google-apps/service'
+import { googleReturnOf, googleReturnPage } from '../../server/src/integrations/google-drive/callback-page'
+import { GOOGLE_TOKEN, type DriveFetch } from '../../server/src/integrations/google-drive/client'
+import { FakeGoogleDrive, DRIVE_CONFIG, membersMayConnect } from '../lib/fake-google-drive'
+import { APP_CLIENT, FakeGoogle, FakeLibrary } from '../lib/fake-google-apps'
+import { LOCALE_ORDER as LOCALES } from '../../shared/src/api'
+
+setDefaultTimeout(30_000)
+
+let h: Harness, owner: Client, bob: Client, fake: FakeGoogleDrive, google: FakeGoogle, lib: FakeLibrary, seq = 0
+/** a gate on Google's token exchange: a return that reaches it waits until the test opens it */
+let gate: Promise<void> | null = null
+const BOB_PW = 'river stone lamp 7'
+const drive = '/api/integrations/google-drive'
+const gmail = '/api/integrations/google-apps/gmail'
+const gated = (f: DriveFetch): DriveFetch => async (url, init) => { if (url === GOOGLE_TOKEN && gate) await gate; return f(url, init) }
+
+beforeAll(() => { lib = new FakeLibrary().start(); process.env.MYCEL_GOOGLE_APPS_LIBRARY_URL = lib.url })
+afterAll(() => { lib.stop(); delete process.env.MYCEL_GOOGLE_APPS_LIBRARY_URL })
+beforeEach(async () => {
+  gate = null
+  h = await harness('google-connect-finish-' + ++seq); owner = await withOwner(h)
+  ;(h.ctx.config as any).tunnel = { host: 'team.example.test' }
+  await addMember(h, owner, { username: 'bob', password: BOB_PW })
+  bob = await login('bob', BOB_PW, 'web')
+  fake = new FakeGoogleDrive(); googleDriveOf(h.ctx, { config: DRIVE_CONFIG, fetch: gated(fake.fetch), now: () => fake.now }); membersMayConnect(h.ctx.db)
+  google = new FakeGoogle(lib); googleAppsOf(h.ctx, { fetch: gated(google.fetch) })
+})
+afterEach(async () => { await h?.close() })
+
+async function login(username: string, password: string, client: 'desktop' | 'web') {
+  const c = h.client()
+  await c.call('POST', '/api/auth/login', { username, password, client, tokenMode: 'cookie' })
+  return c
+}
+/** a system browser with no session at all */
+const bare = (path: string) => h.fetch(path, { ip: '10.0.0.9' })
+const cb = (base: string, q: { state: string; code: string }) => `${base}/callback?${new URLSearchParams(q)}`
+const gmailReturn = (q: { state: string; code: string }) => `/api/integrations/google-apps/callback?${new URLSearchParams(q)}`
+function codeOf(html: string): string | null {
+  const m = /href="trina-ax:\/\/open\?url=[^"#]+#code=([A-Za-z0-9_-]{43})"/.exec(html)
+  return m ? m[1]! : null
+}
+const claim = (c: Client, code: string) => c.try('POST', drive + '/claim', { code })
+const exchanges = () => fake.calls.filter((c) => c.url === GOOGLE_TOKEN).length
+async function setUpGmail() {
+  const r = await owner.try('PUT', '/api/admin/google-apps/gmail/client', { clientId: APP_CLIENT.clientId, clientSecret: APP_CLIENT.clientSecret })
+  expect(r.status).toBe(200)
+}
+const EXPIRED = '시간이 지났거나 이미 사용됐어요'
+const CONNECTED = '이미 연결됐어요'
+
+test('Drive: the return page loaded again after it worked says so, then "Connected" after the confirm; never "expired or already used"', async () => {
+  const f = await owner.call('POST', drive + '/authorize', {})
+  const url = cb(drive, fake.authorize(f.authorizationUrl))
+  const first = await owner.raw('GET', url)
+  expect(first.status).toBe(200); expect(await first.text()).toContain('거의 다 됐어요')
+  // a reload (or the browser opening the address again): the same answer, and nothing is exchanged again
+  const n = exchanges()
+  const again = await owner.raw('GET', url)
+  const html = await again.text()
+  expect(again.status).toBe(200); expect(html).toContain('거의 다 됐어요'); expect(html).not.toContain(EXPIRED)
+  expect(exchanges()).toBe(n)
+  expect((await owner.call('GET', `${drive}/flows/${f.flowId}`)).state).toBe('ready')
+  expect((await owner.call('POST', `${drive}/flows/${f.flowId}/complete`, {})).status).toBe('connected')
+  // after the confirm: Connected, close this window
+  const done = await owner.raw('GET', url)
+  expect(done.status).toBe(200); expect(await done.text()).toContain(CONNECTED)
+})
+
+test('Drive: two returns of one sign-in at the same time: Google is asked once, both pages say it worked', async () => {
+  const f = await owner.call('POST', drive + '/authorize', {})
+  const url = cb(drive, fake.authorize(f.authorizationUrl))
+  let open!: () => void
+  gate = new Promise((r) => { open = r })
+  const a = owner.raw('GET', url)
+  await Bun.sleep(50)
+  const b = owner.raw('GET', url) // the second arrives while the first still waits for Google
+  await Bun.sleep(300)
+  open()
+  const pages = await Promise.all([a, b].map(async (p) => { const r = await p; return { status: r.status, html: await r.text() } }))
+  for (const p of pages) { expect(p.status).toBe(200); expect(p.html).not.toContain(EXPIRED) }
+  expect(exchanges()).toBe(1)
+  expect((await owner.call('GET', `${drive}/flows/${f.flowId}`)).state).toBe('ready')
+})
+
+test('Drive: a window of an earlier try that comes back after a later try connected says Connected; one that did not, expired', async () => {
+  let f1 = await owner.call('POST', drive + '/authorize', {})
+  let old = cb(drive, fake.authorize(f1.authorizationUrl))
+  // Try again: a new sign-in replaces the first; nothing connected yet, so the first window's return is "expired"
+  let f2 = await owner.call('POST', drive + '/authorize', {})
+  let p = await owner.raw('GET', old)
+  expect(p.status).toBe(400); expect(await p.text()).toContain(EXPIRED)
+  // the later try connects, then the earlier window comes back: Connected
+  f1 = await owner.call('POST', drive + '/authorize', {})
+  old = cb(drive, fake.authorize(f1.authorizationUrl))
+  f2 = await owner.call('POST', drive + '/authorize', {})
+  await owner.raw('GET', cb(drive, fake.authorize(f2.authorizationUrl)))
+  expect((await owner.call('POST', `${drive}/flows/${f2.flowId}/complete`, {})).status).toBe('connected')
+  p = await owner.raw('GET', old)
+  expect(p.status).toBe(200); expect(await p.text()).toContain(CONNECTED)
+  // and it did not reopen the replaced flow
+  expect((await owner.call('GET', `${drive}/flows/${f1.flowId}`)).state).toBe('failed')
+})
+
+test('Drive desktop: the held page loaded again gives a fresh code (the first stops working); signed in as the person it finishes at once; someone else gets nothing', async () => {
+  const desk = await login('olga', OWNER_PW, 'desktop')
+  let f = await desk.call('POST', drive + '/authorize', {})
+  let url = cb(drive, fake.authorize(f.authorizationUrl))
+  const p1 = await (await bare(url)).text()
+  const c1 = codeOf(p1)!
+  expect(c1).toBeTruthy()
+  expect(p1).toContain('Trina AX 앱으로 돌아가서 마치세요')
+  const n = exchanges()
+  const p2 = await bare(url)
+  const c2 = codeOf(await p2.text())!
+  expect(p2.status).toBe(200); expect(c2).toBeTruthy(); expect(c2).not.toBe(c1)
+  expect(exchanges()).toBe(n)
+  // still plain "waiting" to the app until the code comes
+  expect((await desk.call('GET', `${drive}/flows/${f.flowId}`)).state).toBe('pending')
+  expect((await claim(desk, c1)).status).toBe(400)
+  const r = await claim(desk, c2)
+  expect(r.status).toBe(200); expect(r.body.state).toBe('ready')
+  // a browser signed in as someone else: nothing, no code
+  f = await desk.call('POST', drive + '/authorize', {})
+  url = cb(drive, fake.authorize(f.authorizationUrl))
+  expect(codeOf(await (await bare(url)).text())).toBeTruthy()
+  const other = await bob.raw('GET', url)
+  const oh = await other.text()
+  expect(other.status).toBe(400); expect(codeOf(oh)).toBeNull(); expect(oh).not.toContain('#code=')
+  expect((await desk.call('GET', `${drive}/flows/${f.flowId}`)).state).toBe('pending')
+  // the person signs this browser in ("Sign in and connect here") and opens the address again: finished here
+  const mine = await owner.raw('GET', url)
+  expect(mine.status).toBe(200); expect(codeOf(await mine.text())).toBeNull()
+  expect((await desk.call('GET', `${drive}/flows/${f.flowId}`)).state).toBe('ready')
+})
+
+test('Gmail from the desktop app: the system browser without a session gets the app link with a one-time code; the app\'s own session finishes it', async () => {
+  await setUpGmail()
+  const desk = await login('olga', OWNER_PW, 'desktop')
+  const f = await desk.call('POST', gmail + '/authorize', {})
+  const url = gmailReturn(google.authorize(f.authorizationUrl, 'olga'))
+  // before: "This browser can't finish it" (no session), and the flow waited for a browser that never came
+  const page = await bare(url)
+  const html = await page.text()
+  expect(page.status).toBe(200)
+  expect(html).not.toContain('이 브라우저에서는 마칠 수 없어요')
+  expect(html).toContain('Trina AX 앱으로 돌아가서 마치세요')
+  expect(html).toContain('연결할 Trina AX 계정: Olga Owner (@olga)')
+  const code = codeOf(html)!
+  expect(code).toBeTruthy()
+  expect(html).not.toMatch(new RegExp(`[?&]code=${code}`))
+  // plain "pending" to the app, no account until the code comes back
+  let flow = await desk.call('GET', `${gmail}/flows/${f.flowId}`)
+  expect(flow.state).toBe('pending'); expect(flow.account).toBeNull()
+  // another session of the same person cannot use it
+  const desk2 = await login('olga', OWNER_PW, 'desktop')
+  expect((await claim(desk2, code)).status).toBe(400)
+  // the desktop app posts every code to the Drive claim address: it finishes this Gmail sign-in
+  const r = await claim(desk, code)
+  expect(r.status).toBe(200); expect(r.body.state).toBe('ready'); expect(r.body.account.email).toBe('olga@acme.example')
+  expect((await claim(desk, code)).status).toBe(400)
+  flow = await desk.call('GET', `${gmail}/flows/${f.flowId}`)
+  expect(flow.state).toBe('ready')
+  expect((await desk.call('POST', `${gmail}/flows/${f.flowId}/complete`, {})).status).toBe('connected')
+  // the page again after the confirm: Connected
+  const done = await bare(url)
+  expect(done.status).toBe(200); expect(await done.text()).toContain(CONNECTED)
+})
+
+test('ATTACK: a "desktop" login made with curl phishes a victim into Gmail\'s consent: nothing connects to the attacker', async () => {
+  await setUpGmail()
+  const attacker = await login('bob', BOB_PW, 'desktop')
+  const f = await attacker.call('POST', gmail + '/authorize', {})
+  const html = await (await bare(gmailReturn(google.authorize(f.authorizationUrl, 'olga')))).text()
+  const code = codeOf(html)!
+  // the page says it joins bob's account
+  expect(html).toContain('(@bob)')
+  // the attacker sees only "waiting"
+  const seen = await attacker.call('GET', `${gmail}/flows/${f.flowId}`)
+  expect(seen.state).toBe('pending'); expect(seen.account).toBeNull()
+  // the code goes to the victim's own computer, whose app has the victim's session
+  const victimApp = await login('olga', OWNER_PW, 'desktop')
+  expect((await claim(victimApp, code)).status).toBe(400)
+  expect((await claim(attacker, 'B'.repeat(43))).status).toBe(400)
+  expect((await attacker.try('POST', `${gmail}/flows/${f.flowId}/complete`, {})).status).toBe(409)
+  // signed in as the victim in that browser: refused as before, no code
+  const f2 = await attacker.call('POST', gmail + '/authorize', {})
+  const p = await owner.raw('GET', gmailReturn(google.authorize(f2.authorizationUrl, 'olga')))
+  const ph = await p.text()
+  expect(p.status).toBe(400); expect(codeOf(ph)).toBeNull()
+  expect((await attacker.call('GET', `${gmail}/flows/${f2.flowId}`)).state).toBe('pending')
+})
+
+test('Gmail: two returns of one sign-in at the same time and a reload: one exchange, no failure page', async () => {
+  await setUpGmail()
+  const f = await owner.call('POST', gmail + '/authorize', {})
+  const url = gmailReturn(google.authorize(f.authorizationUrl, 'olga'))
+  let open!: () => void
+  gate = new Promise((r) => { open = r })
+  const a = owner.raw('GET', url)
+  await Bun.sleep(50)
+  const b = owner.raw('GET', url)
+  await Bun.sleep(300)
+  open()
+  for (const p of await Promise.all([a, b])) { expect(p.status).toBe(200); expect(await p.text()).not.toContain(EXPIRED) }
+  expect(google.tokenCalls.filter((c) => c.get('grant_type') === 'authorization_code')).toHaveLength(1)
+  expect((await owner.call('GET', `${gmail}/flows/${f.flowId}`)).state).toBe('ready')
+  // a web sign-in that is cancelled stays "expired or already used" on a reload (no new meaning for a failed one)
+  const g = await owner.call('POST', gmail + '/authorize', {})
+  const q = google.authorize(g.authorizationUrl, 'olga')
+  await owner.call('DELETE', `${gmail}/flows/${g.flowId}`)
+  const late = await owner.raw('GET', gmailReturn(q))
+  expect(late.status).toBe(400); expect(await late.text()).toContain(EXPIRED)
+})
+
+test('the "Connected" page and the held page in every language', () => {
+  expect(googleReturnOf({ ok: true, done: 'completed' }, true)).toBe('done')
+  expect(googleReturnOf({ ok: true, done: 'ready' }, true)).toBe('ok')
+  const t = 'Q'.repeat(43)
+  for (const L of LOCALES) {
+    const d = googleReturnPage('done', L, { app: 'desktop', origin: 'https://acme.trina.app' })
+    expect(d.status).toBe(200); expect(d.html).not.toContain('{product}'); expect(d.html).not.toContain('#code=')
+    expect(d.html).toContain('trina-ax://open?url=')
+    const held = googleReturnPage('ok', L, { app: 'desktop', origin: 'https://acme.trina.app', code: t })
+    expect(held.html).toContain(`<meta http-equiv="refresh" content="0;url=trina-ax://open?url=https%3A%2F%2Facme.trina.app%2F#code=${t}">`)
+    expect(held.html).not.toContain('{product}')
+    if (L !== 'en') expect(d.html).not.toBe(googleReturnPage('done', 'en', { app: 'desktop', origin: 'https://acme.trina.app' }).html)
+  }
+  // a plain browser's "Connected": no app button
+  expect(googleReturnPage('done', 'en').html).not.toContain('trina-ax://')
+})
