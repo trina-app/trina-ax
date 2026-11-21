@@ -18,7 +18,7 @@
 
 https://github.com/user-attachments/assets/d1191660-ce1a-413f-b78c-938c94ea327f
 
-<p align="center"><sub>신입의 AI가 첫날 할 수 있는 일. 80초 이야기예요.</sub><br>오픈소스(AGPL-3.0) · 직접 설치는 무료, 인원 제한 없음<br><br><a href="https://github.com/trina-app/trina-ax?tab=readme-ov-file"><img src="docs/images/readme/v4/star-ko.png" height="44" alt="GitHub에서 트리나 AX에 별 눌러 주기"></a><br><sub>버튼을 누른 뒤 페이지 맨 위의 ☆ Star를 눌러 주세요. 별 하나가 더 많은 팀이 트리나 AX를 찾게 도와줘요.</sub></p>
+<p align="center"><sub>신입의 AI가 첫날 할 수 있는 일. 80초 이야기예요.</sub><br>오픈소스(AGPL-3.0) · 직접 설치는 무료, 인원 제한 없음<br><br><a href="https://github.com/trina-app/trina-ax?tab=readme-ov-file"><img src="docs/images/readme/v4/star-ko.png" height="44" alt="GitHub에서 트리나 AX에 Star 누르기"></a><br><sub>버튼을 누른 뒤 페이지 맨 위의 ☆ Star를 눌러 주세요. Star가 많을수록 더 많은 팀이 트리나 AX를 알게 돼요.</sub></p>
 
 <br>
 
@@ -156,7 +156,7 @@ Bun 1.3.12와 Go 1.27 이상이 필요해요. 실제 운영용 설치는 아니�
 
 ## 커뮤니티
 
-트리나 AX가 팀에 도움이 됐다면 ⭐를 눌러 주세요. 다른 팀이 트리나 AX를 찾는 데 도움이 돼요.
+트리나 AX가 팀에 도움이 됐다면 GitHub에서 ⭐ Star를 눌러 주세요. 더 많은 팀이 트리나 AX를 알게 돼요.
 
 [Discord](https://discord.gg/zUVfSR8MVk) · [X](https://x.com/trina_ax) · [릴리스](https://github.com/trina-app/trina-ax/releases/latest) · [변경 기록](CHANGELOG.md) · [도움 받기](SUPPORT.md) · [기여하기](CONTRIBUTING.md) · [보안 신고](SECURITY.md) · [개발](docs/DEVELOPMENT.md) · [설정](docs/CONFIGURATION.md) · [llms.txt](llms.txt)
 
