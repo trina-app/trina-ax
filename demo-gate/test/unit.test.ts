@@ -14,6 +14,7 @@ import { localeOf, renderPage } from '../src/pages.ts'
 import { asInstanceUser, groupsBelow, ownsGroup, runMode, sudoStartArgv } from '../src/pool.ts'
 import { cookiesForInstance, pathVerdict, secureCookie, visitorAddress, withNoTransform } from '../src/public.ts'
 import { GateState } from '../src/state.ts'
+import { parseUnifiedLimits } from '../src/upstream.ts'
 // the instance's own reading of upstream answers: the gate's answers must never mark its AI connection
 import { accountRefusal } from '../../server/src/proxy/anthropic-refusal.ts'
 import { classifyError } from '../../server/src/engine/claude-parse.ts'
@@ -26,6 +27,38 @@ describe('response headers', () => {
       server: 'cloudflare', via: '1.1', 'x-envoy-upstream-service-time': '3',
     })
     expect(out).toEqual({ 'content-type': 'text/event-stream', 'cache-control': 'no-cache' })
+  })
+})
+
+describe('unified rate-limit headers', () => {
+  const now = Date.parse('2026-11-21T00:00:00Z')
+  test('5h/7d utilization, status, reset and other windows; numbers and status words only', () => {
+    const l = parseUnifiedLimits(new Headers({
+      'anthropic-ratelimit-unified-status': 'allowed', 'anthropic-ratelimit-unified-reset': '1795000000',
+      'anthropic-ratelimit-unified-5h-utilization': '0.42', 'anthropic-ratelimit-unified-5h-status': 'allowed',
+      'anthropic-ratelimit-unified-7d-utilization': '0.07', 'anthropic-ratelimit-unified-7d-reset': '1795500000',
+      'anthropic-ratelimit-unified-7d_opus-status': 'Allowed_Warning', 'anthropic-ratelimit-unified-overage-status': 'rejected',
+      'anthropic-ratelimit-unified-representative-claim': 'five_hour', 'anthropic-ratelimit-unified-fallback-percentage': '0.5',
+      'request-id': 'req_1', 'anthropic-organization-id': 'org-1', authorization: 'Bearer x',
+    }), now)!
+    expect(l).toEqual({
+      utilization5h: 0.42, utilization7d: 0.07, status: 'allowed', resetAt: new Date(1795000000 * 1000).toISOString(),
+      windows: {
+        '5h': { utilization: 0.42, status: 'allowed' },
+        '7d': { utilization: 0.07, resetAt: new Date(1795500000 * 1000).toISOString() },
+        '7d_opus': { status: 'allowed_warning' },
+        overage: { status: 'rejected' },
+      },
+      seenAt: '2026-11-21T00:00:00.000Z',
+    })
+    const text = JSON.stringify(l)
+    for (const bad of ['req_1', 'org-1', 'Bearer', 'five_hour']) expect(text).not.toContain(bad)
+  })
+  test('junk values are dropped; no unified header means nothing seen', () => {
+    expect(parseUnifiedLimits(new Headers({ 'request-id': 'r', 'anthropic-ratelimit-tokens-remaining': '5' }))).toBeNull()
+    expect(parseUnifiedLimits({ 'anthropic-ratelimit-unified-5h-utilization': 'org-1', 'anthropic-ratelimit-unified-status': 'sk-ant-xyz' })).toBeNull()
+    const l = parseUnifiedLimits({ 'anthropic-ratelimit-unified-5h-utilization': '1e9', 'anthropic-ratelimit-unified-7d-utilization': '0.9', 'anthropic-ratelimit-unified-reset': 'tomorrow' }, now)!
+    expect(l).toMatchObject({ utilization5h: null, utilization7d: 0.9, status: null, resetAt: null })
   })
 })
 
