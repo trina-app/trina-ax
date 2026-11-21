@@ -221,6 +221,40 @@ y haga clic en **✕** (o elija **Quitar vista previa** en el menú del mensaje)
 
 ![Chats en un teléfono: Menciones e hilos, canales, un chat de grupo y un mensaje directo, con las cinco pestañas abajo](../../images/chats/rooms-phone.webp "Chats en un teléfono")
 
+### Dónde aparecen sus conversaciones
+
+La lista de Chats tiene el mismo orden en un ordenador y en un teléfono: **Fijados**, luego sus propias secciones, luego
+**Canales**, **Proyectos** y **Mensajes directos**.
+
+- **Proyectos** reúne la conversación de cada proyecto del equipo, por nombre, con un icono de carpeta. Aparece
+  cuando alguien escribe en ella; hasta entonces se abre desde el proyecto. No tiene **+**: los proyectos se crean en la
+  página Proyectos o desde una conversación (vea [Convertir una conversación en proyecto](#convertir-una-conversación-en-proyecto)).
+- Una conversación aparece en un solo lugar. Una conversación de proyecto que fija o arrastra a una de sus secciones sale de
+  Proyectos. Arrástrela al encabezado **Proyectos** para devolverla.
+- Cuando un proyecto va a la papelera, su conversación sale de la lista. Al restaurar el proyecto, vuelve.
+
+### El canal de un departamento y su carpeta
+
+Cada departamento (un grupo en **Administración › Grupos**) tiene su propio canal. Cuando el departamento tiene una
+carpeta que usted puede abrir, arriba en su canal aparece un botón de carpeta con el nombre del departamento: abre esa
+carpeta en Archivos.
+
+- **Un archivo que envía allí va a la carpeta Adjuntos del chat de la carpeta del departamento**, así que los archivos
+  del departamento están en un solo lugar. Junto al archivo, el chat dice dónde quedó, por ejemplo "Ventas › Adjuntos
+  del chat".
+- Un archivo se queda solo en la conversación, marcado **Solo en esta conversación**, cuando más personas que el
+  departamento pueden abrir la carpeta, cuando alguien del canal no puede abrir Adjuntos del chat o cuando usted solo
+  puede ver la carpeta. El canal tiene entonces también **Archivos**, que muestra esos archivos.
+- **Eliminar un mensaje elimina solo el mensaje.** Un archivo en la carpeta del departamento se queda allí, y la
+  confirmación dice dónde; elimínelo en Archivos si quiere que desaparezca.
+- Los administradores pueden abrir todas las carpetas del equipo, así que también pueden abrir estos archivos en
+  Archivos aunque no estén en el departamento. No ven la conversación.
+- Quienes entran después en el departamento pueden abrir todos los archivos que ya están en su Adjuntos del chat, pero
+  no los mensajes anteriores, como en un proyecto.
+- Cuando la carpeta del departamento está dentro de un proyecto, los archivos enviados en el canal se quedan en la
+  conversación.
+- Los archivos enviados antes de este cambio se quedan en el canal, en su lista **Archivos**.
+
 ### Invitados
 
 Una persona de fuera del equipo, como una agencia o un cliente, puede unirse a un canal privado, a un chat de grupo o a un proyecto como
@@ -301,7 +335,7 @@ archivos son los del proyecto: una sola lista de personas y un solo lugar para l
   primera vez se crea con el nombre del proyecto. Un pequeño icono de chat en la fila del proyecto en **Proyectos** (con
   un punto si hay algo sin leer) y **Conversación** arriba en los chats de IA del proyecto también la abren.
 - Arriba en la conversación, el botón de carpeta con el nombre del proyecto abre la página del proyecto: sus archivos y sus
-  chats de IA. La conversación aparece en **Canales**, con un icono de carpeta, cuando alguien escribe en ella.
+  chats de IA. La conversación aparece en **Proyectos** en la lista de Chats, con un icono de carpeta, cuando alguien escribe en ella.
 - **Quién está en ella sigue al proyecto.** Añadir a alguien al proyecto lo añade a la conversación, y ve todo su historial;
   sacarlo del proyecto lo saca de la conversación. El diálogo de miembros lo dice antes de añadir a nadie. Para cambiarlo, abra
   el nombre de la conversación arriba y luego **Gestionar personas** (para quien puede cambiar las personas del proyecto).
@@ -312,6 +346,38 @@ archivos son los del proyecto: una sola lista de personas y un solo lugar para l
   Archivos si quiere que desaparezca.
 - Trina en el chat lateral de la conversación guarda los documentos nuevos en la carpeta del proyecto, y los chats de IA del
   proyecto pueden leer la conversación. Ambos los ven las mismas personas, así que no se pregunta quién puede verlo.
+- El chat lateral **✦** de la conversación es solo suyo. Cuando está vacío, lo dice y enlaza a la página del proyecto, donde las
+  personas del proyecto preguntan a Trina juntas.
+- Cuando las personas del proyecto son exactamente las de un departamento, el inicio de la conversación y su información dicen
+  "Las mismas personas que #Ventas. Hablen de Atlas aquí.", con un enlace al canal del departamento.
+
+### Convertir una conversación en proyecto
+
+Un canal privado o un chat de grupo que se convierte en trabajo real puede pasar a ser un proyecto, con su historial.
+
+1. Abra el **⋯** de la conversación (arriba, en su fila de la lista, o manteniendo pulsada la fila en un teléfono) y
+   elija **Convertir en proyecto**. Lo ve si puede crear proyectos del equipo; en un equipo donde solo los
+   administradores los crean, un miembro no lo ve.
+2. Revise el nombre. Empieza con el nombre de la conversación (en un chat de grupo sin nombre, los nombres de sus
+   personas). Si otro proyecto ya tiene ese nombre, la carpeta nueva lleva "-2", y el diálogo lo dice.
+3. Lea lo que pasa y elija **Crear proyecto**:
+   - Todas las personas de la conversación pasan a ser personas del proyecto.
+   - Los archivos enviados en la conversación pasan a la carpeta **Adjuntos del chat** del proyecto. Un archivo que no
+     todos en la conversación podían ver (por ejemplo, uno enviado antes de que alguien entrara) se queda en la
+     conversación, y el diálogo dice cuántos.
+   - Quienes se añadan al proyecto después verán los mensajes desde entonces y podrán abrir los archivos movidos.
+
+La conversación sigue abierta y ahora es la conversación del proyecto, con el botón de carpeta del proyecto arriba y una
+línea que dice quién la convirtió en proyecto. Mientras se mueven los archivos, arriba dice **Moviendo archivos…**; una
+segunda línea dice cuántos se movieron y cuántos se quedaron. Un archivo que se quedó lleva **Solo en esta
+conversación**, y la conversación conserva una lista **Archivos** con esos archivos.
+
+Sus fijados, secciones, notificaciones y lugar de lectura no cambian. Si alguien entra o sale mientras el diálogo está
+abierto, dice **Las personas cambiaron** y muestra el nuevo número. Un invitado que ya tiene un proyecto lo impide: un
+administrador lo convierte primero en miembro del equipo.
+
+En un mensaje directo, el **⋯** tiene en su lugar **Nuevo proyecto con** y el nombre de la persona. Crea un proyecto
+nuevo para los dos, con su propia conversación. El mensaje directo queda como está.
 
 ## Encontrar cualquier cosa
 

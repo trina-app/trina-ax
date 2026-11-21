@@ -23,6 +23,13 @@ export const isPrivateChannel = (room: Pick<Room, 'kind' | 'name'>): boolean => 
  * project's, and its files go to the project: no Add people, Remove, Rename, Leave or guest invites in it. */
 export const isProjectRoom = (room: Partial<Pick<Room, 'project' | 'projectRoom'>>): boolean => !!room.projectRoom || !!room.project?.room
 
+/** The room's Files button in its header (docs/decisions/20261121-department-room-files.md): a room whose files go to a
+ * team folder (a project's room, by projectRoom even for a member who cannot open the project; a department's team
+ * room with a folder I can open) shows it only while it holds files of its own (Room.roomFiles); every other room
+ * always. The server answers 404 for a project room's list. */
+export const roomFilesButtonShown = (room: Partial<Pick<Room, 'project' | 'projectRoom' | 'kind' | 'groupFolder' | 'roomFiles'>>): boolean =>
+  isProjectRoom(room) || (room.kind === 'team' && !!room.groupFolder) ? !!room.roomFiles : true
+
 /** A project room's project, as I can open it now; null for every other room (and for a member who cannot open it). */
 export const projectRoomOf = (room: Partial<Pick<Room, 'project'>>): NonNullable<Room['project']> | null => (room.project?.room ? room.project : null)
 
@@ -48,8 +55,10 @@ export function roomTitle(room: Pick<Room, 'kind' | 'name' | 'peers'> & Partial<
 /** The words of an event line (lib, not React: the component passes t). `person` puts a language's honorific after a
  * name ("{name}님"), `quote` puts a room name in the language's quotes. */
 export interface EventWords {
-  t: (key: 'rooms.event.invited' | 'rooms.event.invitedMore' | 'rooms.event.renamed' | 'rooms.event.renamedBack' | 'rooms.event.left' | 'rooms.event.joined' | 'rooms.event.removed' | 'rooms.event.unknown' | 'rooms.event.projectLinked' | 'rooms.event.projectLinkedNamed' | 'rooms.event.projectUnlinked' | 'rooms.event.projectUnlinkedNamed' | 'rooms.event.projectRoom' | 'rooms.event.projectRoomNamed' | 'rooms.event.person' | 'rooms.event.quoted' | 'rooms.nameSep', params?: Record<string, string | number>) => string
+  t: (key: 'rooms.event.invited' | 'rooms.event.invitedMore' | 'rooms.event.renamed' | 'rooms.event.renamedBack' | 'rooms.event.left' | 'rooms.event.joined' | 'rooms.event.removed' | 'rooms.event.unknown' | 'rooms.event.projectLinked' | 'rooms.event.projectLinkedNamed' | 'rooms.event.projectUnlinked' | 'rooms.event.projectUnlinkedNamed' | 'rooms.event.projectRoom' | 'rooms.event.projectRoomNamed' | 'rooms.event.projectMade' | 'rooms.event.projectMadeUnnamed' | 'rooms.event.filesMoved' | 'rooms.event.filesMovedUnnamed' | 'rooms.event.filesMovedKept' | 'rooms.event.filesMovedKeptUnnamed' | 'rooms.event.person' | 'rooms.event.quoted' | 'rooms.nameSep', params?: Record<string, string | number>) => string
   nameOf: (u: UserRef | null) => string
+  /** the Chat attachments folder's name in the team's language (CHAT_FILES_FOLDER), for the files' move line */
+  folder?: string
 }
 /** "가나님이 다라님, 마바님을 초대했어요": every name but the last gets the language's honorific here, the last one the
  * text's own (so a name that ends with 님 already gets no second one, and the particle after it fits); past TITLE_NAMES
@@ -83,6 +92,17 @@ export function eventText(e: RoomEventLine, author: UserRef | null, w: EventWord
     // written by the server, so no actor
     case 'project_room':
       return e.project ? w.t('rooms.event.projectRoomNamed', { name: e.project.name }) : w.t('rooms.event.projectRoom')
+    // a conversation made a project by the author (docs/decisions/20261121-make-project-from-room.md): the project's
+    // name for a viewer who can open it, as for project_room
+    case 'project_made':
+      return e.project ? w.t('rooms.event.projectMade', { actor, name: e.project.name }) : w.t('rooms.event.projectMadeUnnamed', { actor })
+    // its files' move ended (written by the server): how many went to the project's Chat attachments, and only when
+    // some stayed, how many stayed in the conversation
+    case 'project_files_moved': {
+      const folder = w.folder ?? 'Chat attachments'
+      if (e.kept > 0) return e.project ? w.t('rooms.event.filesMovedKept', { n: e.moved, m: e.kept, name: e.project.name, folder }) : w.t('rooms.event.filesMovedKeptUnnamed', { n: e.moved, m: e.kept, folder })
+      return e.project ? w.t('rooms.event.filesMoved', { n: e.moved, name: e.project.name, folder }) : w.t('rooms.event.filesMovedUnnamed', { n: e.moved, folder })
+    }
     case 'unknown':
       return w.t('rooms.event.unknown')
   }

@@ -1,7 +1,8 @@
 # Every conversation has a Files list; a group's folder is its first row
 
 - Date: 2026-11-21
-- Status: proposed
+- Status: accepted (the Files list shipped; its group-folder part, the folder as the list's first row, is superseded by
+  [A department's room puts its uploads in the department's folder](20261121-department-room-files.md))
 - Supersedes: the header button of [20261116-room-group-folder-button.md](20261116-room-group-folder-button.md) (its
   rule of who sees the folder stays)
 - Branch: feat/room-files-list (plan [20261120-1136-project-is-room.md](../AGENTS/plan/20261120-1136-project-is-room.md)

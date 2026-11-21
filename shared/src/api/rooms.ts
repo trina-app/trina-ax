@@ -39,7 +39,7 @@ import { NAME_FORBIDDEN, NAME_FORBIDDEN_FIELD } from '../name-chars'
 import { isStatusEmoji } from '../status-message'
 import { IsoTime, PageQuery, QueryBool, RelPath, SMALL_UPLOAD_MAX, page, type Locale } from './common'
 import { empty, endpoint, multipart, stream } from './endpoint'
-import { Attachment, UserRef } from './entities'
+import { Attachment, Project, UserRef } from './entities'
 import { RoomAlertSettings, RoomNotifyLevel } from './room-alerts'
 import { RoomAppCard, RoomAppRef } from './room-apps'
 
@@ -297,6 +297,10 @@ export const RoomFile = z.object({
    * deleted in Files ("File deleted"; a restore brings it back), 'unavailable' this viewer cannot open it now (moved
    * where they cannot read it, a narrowed folder, access taken away) */
   state: z.enum(['deleted', 'unavailable']).optional(),
+  /** a file kept in room storage in a room whose files otherwise go to a team folder (a project's chat room, a
+   * department's team room with a folder): "Only in this conversation" (docs/AGENTS/plan/20261121-0619-structure-polish.md
+   * A and B). Never with teamFile. Absent: any other file, older servers. */
+  roomOnly: z.literal(true).optional(),
 })
 export type RoomFile = z.infer<typeof RoomFile>
 
@@ -371,6 +375,14 @@ export const RoomEventLine = z.discriminatedUnion('type', [
    * being the project's people (docs/decisions/20261120-project-is-room.md D7); written by the server (author null).
    * `project` as for project_linked */
   z.object({ type: z.literal('project_room'), project: z.object({ id: Uuid7, name: z.string() }).nullable() }),
+  /** the author made this conversation (a group chat) the team project `project` (POST /api/rooms/:id/make-project,
+   * docs/decisions/20261121-make-project-from-room.md). `project` as for project_linked */
+  z.object({ type: z.literal('project_made'), project: z.object({ id: Uuid7, name: z.string() }).nullable() }),
+  /** written by the server (author null) when the files of a conversation made a project finished moving: `moved` went
+   * to the project's Chat attachments, `kept` stayed in this conversation (labelled roomOnly). `project` as for
+   * project_linked */
+  z.object({ type: z.literal('project_files_moved'), project: z.object({ id: Uuid7, name: z.string() }).nullable(),
+    moved: z.number().int().nonnegative(), kept: z.number().int().nonnegative() }),
   /** a line this build cannot read (a newer build's, or a damaged one): said neutrally, without who did it */
   z.object({ type: z.literal('unknown') }),
 ])
@@ -613,11 +625,22 @@ export const Room = z.object({
     attach: z.enum(['ok', 'read_only', 'folder']).optional(),
     /** a project's chat room: may I leave the project ('yes'), or am I its last person ('last': add someone first);
      * absent: older servers, or not a project one leaves */
-    leave: z.enum(['yes', 'last']).optional() }).optional(),
+    leave: z.enum(['yes', 'last']).optional(),
+    /** a project's chat room whose active members are exactly the members of a department's live team room, told only
+     * to a viewer who is in that team room (they all are, by definition): the room's start and its info say "Same
+     * people as #{name}". Absent: no such department, older servers. */
+    sameAsGroup: z.object({ groupId: Uuid7, name: z.string(), roomId: Uuid7 }).optional() }).optional(),
   /** this is a team project's own chat room (docs/decisions/20261120-project-is-room.md), told to every member whether
    * or not they can open the project now (Room.project needs that): its people are the project's, so no Add people,
    * Remove, Rename, Leave or guest invites here. Absent: any other room, older servers. */
   projectRoom: z.literal(true).optional(),
+  /** a project's chat room or a department's team room that still holds files of its own (room storage: older files,
+   * files that did not move, uploads that fell back): its Files list shows only those, after the 📁 button. Absent:
+   * none (the 📁 button alone), any other kind (they always have their Files list), older servers. */
+  roomFiles: z.literal(true).optional(),
+  /** a conversation made a project whose files are still moving to the project's Chat attachments: the header's quiet
+   * "Moving files…" line. Absent: nothing moving, older servers. */
+  filesMoving: z.literal(true).optional(),
   memberCount: z.number().int().nonnegative(),
   /** up to 4 other members, for the avatars; a DM: the other person */
   peers: z.array(UserRef),
@@ -896,6 +919,32 @@ export const RoomSaveBody = z.object({ fileIds: z.array(Uuid7).min(1).max(ROOM_S
 export const RoomSaveUndoBody = z.object({ token: z.string().min(16).max(128) }).strict()
 export const RoomSaveUndoResult = z.object({ removed: z.literal(true) })
 export type RoomSaveUndoResult = z.infer<typeof RoomSaveUndoResult>
+/** GET /api/rooms/:id/make-project?name=…: what "Make it a project" will do (docs/decisions/
+ * 20261121-make-project-from-room.md). `name`: the name typed so far (default the room's name). */
+export const MakeProjectQuery = z.object({ name: z.string().max(200).optional() })
+export const MakeProjectInfo = z.object({
+  /** the conversation's name, or for an unnamed group chat the names its row shows: the name field's first value */
+  suggestedName: z.string(),
+  /** the active members, who become the project's people (memberCount = members.length) */
+  members: z.array(UserRef),
+  /** guests among them who already hold another place: the button is disabled ("Make {guest} a team member first") */
+  guestsBlocked: z.array(UserRef),
+  /** files that will move to {name} › Chat attachments, and those that stay in the conversation only */
+  filesMoving: z.number().int().nonnegative(),
+  filesStaying: z.number().int().nonnegative(),
+  /** the hash of the member ids above: sent back with the POST, which answers 409 members_changed when it differs */
+  membersHash: z.string().min(1),
+  /** for `name` (or the suggestion): its folder under projects/ ("Name-2" when a project already has the name), and
+   * whether another project already has the name; `nameError`: a name a new project may not have (empty, too long, an
+   * instruction file's name), with the same message as POST /api/projects */
+  folderName: z.string(),
+  nameTaken: z.boolean(),
+  nameError: z.string().optional(),
+})
+export type MakeProjectInfo = z.infer<typeof MakeProjectInfo>
+export const MakeProjectBody = z.object({ name: z.string().min(1).max(200), membersHash: z.string().min(1) }).strict()
+export const MakeProjectResult = z.object({ project: Project, room: Room })
+export type MakeProjectResult = z.infer<typeof MakeProjectResult>
 /** link this private channel to a team project (PUT /api/rooms/:id/project; also the project page's Link a channel) */
 export const LinkRoomProjectBody = z.object({ projectId: Uuid7, /** where it was linked from (the audit row's via; default the channel) */ via: z.enum(['channel', 'project']).optional() }).strict()
 /** DELETE /api/rooms/:id/project?via=project: unlinked from the project page (the audit row's via; default the channel) */
@@ -999,10 +1048,12 @@ export const ROOMS = {
   uploadRoomFile: endpoint({ method: 'POST', path: '/api/rooms/:id/files', auth: 'user', owner: 'B', status: 201, body: multipart(RoomFileUploadFields, SMALL_UPLOAD_MAX), response: RoomFile, summary: 'Upload a file (≤ 50 MB) to send in a room I am in; stored outside the team folder, readable by the room\'s members once sent. A larger file (up to 1 GB): an upload session with target room (POST /api/upload-sessions).' }),
   attachRoomTeamFile: endpoint({ method: 'POST', path: '/api/rooms/:id/team-file', auth: 'user', owner: 'B', status: 201, body: RoomTeamFileBody, response: RoomTeamFile, summary: 'Copy a team-folder file I may read now (not a folder, a link or a quarantined file: 404 like a missing one; ≤ 50 MB) as my upload to send in a room I am in, readable by the room\'s members once sent; with how many other members cannot open the team file (a count). The same unchanged file again before sending: that copy again; past 200 MB of my unsent copies: 409 team_copies_full. Audited when sent (room.team_file).' }),
   roomFile: endpoint({ method: 'GET', path: '/api/rooms/:id/files/:fileId', auth: 'user', owner: 'B', query: RoomFileQuery, response: stream(true), summary: 'A file sent in a room I am in (membership checked on every read); thumb=1 for an image preview, download=1 as an attachment. Inline, a page or script type is sent as text/plain with a sandbox CSP: never a page of the app. A file on the safety check\'s download-only list is sent only with download=1 (503 quarantined otherwise).' }),
-  listRoomFiles: endpoint({ method: 'GET', path: '/api/rooms/:id/files', auth: 'user', owner: 'B', query: RoomFilesQuery, response: RoomFilesPage, summary: 'The files sent in a channel, 1:1 or group chat I am in, only those of messages I can see now, newest first, with who sent each and when (the room\'s Files list). A project\'s chat room has no list of its own (its files are the project\'s): 404, as for a room I am not in.' }),
+  listRoomFiles: endpoint({ method: 'GET', path: '/api/rooms/:id/files', auth: 'user', owner: 'B', query: RoomFilesQuery, response: RoomFilesPage, summary: 'The files sent in a channel, 1:1 or group chat I am in, only those of messages I can see now, newest first, with who sent each and when (the room\'s Files list). A project\'s chat room lists only the files it still keeps itself (room storage, labelled roomOnly: files that stayed when a conversation was made a project) and has no list while it keeps none (its files are the project\'s): 404, as for a room I am not in.' }),
   roomSavedFiles: endpoint({ method: 'GET', path: '/api/rooms/:id/saved-files', auth: 'user', owner: 'B', response: RoomSavedFiles, summary: 'Files of a room I am in that were saved to the team folder and that I can open there now: the place still holds the same bytes and my access allows reading it. Not for guests.' }),
   roomSavePlan: endpoint({ method: 'POST', path: '/api/rooms/:id/save-plan', auth: 'user', owner: 'B', body: RoomSavePlanBody, response: RoomSavePlan, summary: 'What the "Save to team folder" sheet shows for files of a room I can see: each file (where it is saved already, whether it looks like a personal document, whether it is the same bytes as an earlier one), one folder I can write to pre-select for the files that look ordinary (matched by name, no AI, only when it fits every one of them; else a recent folder; none when every file looks personal) or, with folder, that folder checked; how many people outside the conversation can see it (a count). Rate limited like the Move picker\'s suggestions. Not for guests.' }),
   saveRoomFilesToTeam: endpoint({ method: 'POST', path: '/api/rooms/:id/save-to-team', auth: 'user', owner: 'B', body: RoomSaveBody, response: RoomSaveResult, summary: 'Copy files of a room I can see into a team folder I may write, byte for byte (each ≤ 50 MB, not on the download-only list, never into skills/ or as an instruction file). Never overwrites: the same bytes there already (from this file or any room file with those bytes, an identical file of the same save included) count as saved; a different file of that name stays and the copy goes next to it. Recorded in the file history. Not for guests.' }),
+  makeProjectInfo: endpoint({ method: 'GET', path: '/api/rooms/:id/make-project', auth: 'user', owner: 'B', query: MakeProjectQuery, response: MakeProjectInfo, summary: 'What "Make it a project" will do to a group chat I am in: its members (the project\'s people), the guests who block it, how many files move and stay, the folder name for a name, and the members hash to send back. Anyone not in it (admins included): 404; guests: 403 (never open to them). Not a group chat, archived or already a project room: 409 not_convertible.' }),
+  makeProject: endpoint({ method: 'POST', path: '/api/rooms/:id/make-project', auth: 'user', owner: 'B', status: 201, body: MakeProjectBody, response: MakeProjectResult, summary: 'Make a group chat I am in (a named private channel or an unnamed group chat) a new team project: its active members become the project\'s people, the room becomes the project\'s chat room (renamed to it; each member keeps their start; people added later see messages from now on), and the files every member can see move to the project\'s Chat attachments in the background. Not in it and admins outside: 404; guests: 403 (never open to them). Not convertible: 409 not_convertible; members changed since the read: 409 members_changed; a guest in another place: 409 guest_one_place (params.guestId); no right to make team projects: 403; safe operations: 409 safe_ops. Audited (project.create via room).' }),
   openProjectRoom: endpoint({ method: 'POST', path: '/api/projects/:id/room', auth: 'user', owner: 'B', response: Room, summary: 'The chat room of a team project in projects/<name> I read (docs/decisions/20261120-project-is-room.md), made the first time it is opened: a private channel named after the project whose members are the project\'s people (followed from then on: added, removed, renamed with the project). Anyone who cannot read the project (the owner and admins outside it included): 404 as for a missing project. A personal or older project: 409 project_not_linkable. Its making is audited (project.room).' }),
   undoRoomSave: endpoint({ method: 'POST', path: '/api/rooms/:id/save-undo', auth: 'user', owner: 'B', body: RoomSaveUndoBody, response: RoomSaveUndoResult, summary: 'Undo of the one-click Save to project. Retired in 0.5.22 with the project link (docs/decisions/20261120-project-is-room.md): 410 gone for everyone, naming nothing.' }),
   linkRoomProject: endpoint({ method: 'PUT', path: '/api/rooms/:id/project', auth: 'user', owner: 'B', body: LinkRoomProjectBody, response: Room, summary: 'Link a private channel to a team project. Retired in 0.5.22 with the project link (docs/decisions/20261120-project-is-room.md): 410 gone for everyone, naming nothing.' }),
