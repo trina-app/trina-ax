@@ -72,7 +72,7 @@ import { instructionFile } from '../team-files/ai-trash'
 import { FileError, httpError } from '../team-files/errors'
 import { componentC } from '../team-files/component'
 
-/** How a room file was made (room_files.origin, migration 432): from the computer, a phone's team pick, a copy of a team
+/** How a room file was made (room_files.origin, migration 433): from the computer, a phone's team pick, a copy of a team
  * file an AI answer attached. NULL on older rows. */
 export type RoomFileOrigin = 'upload' | 'team_copy' | 'answer_copy'
 /** A name a room file never takes in a team folder (a project's Chat attachments): an instruction file's (CLAUDE.md,

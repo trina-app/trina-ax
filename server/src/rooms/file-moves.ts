@@ -1,5 +1,5 @@
 // The files of a conversation made a project (POST /api/rooms/:id/make-project, rooms/make-project.ts) move into the
-// project's Chat attachments after the conversion (docs/AGENTS/plan/20261121-0619-structure-polish.md A, migration 432
+// project's Chat attachments after the conversion (docs/AGENTS/plan/20261121-0619-structure-polish.md A, migration 433
 // room_file_moves). The conversion only writes one row per file that moves (planInTx); this mover does the bytes, at
 // start and on the rooms' one-minute tick (routes/rooms.ts), one file at a time within a time budget, and right after a
 // conversion (kick). The request never waits for bytes.
