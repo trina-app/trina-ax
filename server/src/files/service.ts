@@ -415,6 +415,9 @@ export interface ToolCtx {
   /** checked right before a produced file is placed (tools/make-file.ts placeProduced): a scheduled run's save its task's
    * card covered is checked again there, after a long conversion (chat/schedule-cover.ts); throws to refuse */
   beforePlace?: () => void
+  /** the chat's places for this call (files/place-output.ts, chat/place-ctx.ts): the main AI of a chat turn only; a
+   * produce tool's `output: chat:files/<name>` attaches through it, a `chat:` source or picture is read through it */
+  places?: import('./place-output').ChatPlaces
 }
 /** how long a work-folder read keeps its copy for the checks before delivery (FileService.readWork) */
 const WORK_COPY_KEEP_MS = 5 * 60_000

@@ -9,7 +9,7 @@ import { placeName } from '../../shared/src/step-labels'
 import { placeArg } from '../../server/src/files/service'
 import { isTeamFilePath, SourceLog } from '../../server/src/files/sources'
 import { namesWorkFolder, workRel } from '../../server/src/devenv/work-files'
-import { placeRefusal } from '../../server/src/chat/tools'
+import { PLACE_PRODUCE_TOOLS, placeRefusal } from '../../server/src/chat/tools'
 import { PATH_ARGS, WRITE_TARGET_ARGS } from '../../server/src/rooms/ai-tools'
 import { mayAttachChatFile, PLACE_WORDS, resolvePlace } from '../../server/src/files/places'
 
@@ -84,6 +84,10 @@ describe('fail closed: a chat place in any path argument of a tool that does not
         if (tool === 'save_work_file' && key === 'path') continue
         // P2: copy_files' sources and target and query_data's inputs take chat:files/ and chat:work/ (chat/places-copy.ts)
         if (!/^(room|chat:nope)/.test(place) && ((tool === 'copy_files' && (key === 'paths' || key === 'to_folder')) || (tool === 'query_data' && key === 'paths'))) { expect(no, `${tool}.${key}`).toBeNull(); continue }
+        // P3: a produce tool's output and make_file's source and template go to the tool's own place check
+        // (files/place-output.ts; tests/unit/places-produce.test.ts); a reserved form is refused here still
+        const p3 = (PLACE_PRODUCE_TOOLS.has(tool) && (key === 'output' || key === 'output_folder')) || (tool === 'make_file' && (key === 'source' || key === 'template'))
+        if (p3 && /^chat:(files|work)\//.test(place)) { expect(no, `${tool}.${key}`).toBeNull(); continue }
         expect(no, `${tool}.${key}`).toBeString()
       }
     })

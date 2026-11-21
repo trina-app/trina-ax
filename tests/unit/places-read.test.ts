@@ -185,7 +185,8 @@ describe('refusals', () => {
   })
   test('a registered tool that does not take a chat place yet: refused before any card', async () => {
     const { chat, file } = await sent('src.md', '# x')
-    const r = await run('bob', chat, `${fake({ tool: 'make_file', args: { source: chatFilePath(file, 'src.md'), output: 'users/bob/out.pdf' }, sayResult: true })}`)
+    // (make_file's source takes one since P3: tests/unit/places-produce.test.ts; merge_pdfs' files do not)
+    const r = await run('bob', chat, `${fake({ tool: 'merge_pdfs', args: { files: [chatFilePath(file, 'src.md')], output: 'users/bob/out.pdf' }, sayResult: true })}`)
     expect(r.cards).toHaveLength(0)
     expect(r.content).toContain('does not take a chat file')
     expect(fs.existsSync(path.join(h.team, 'users/bob/out.pdf'))).toBe(false)

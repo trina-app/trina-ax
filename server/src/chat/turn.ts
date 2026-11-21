@@ -122,6 +122,8 @@ import { makeHandler } from '../mcp/protocol'
 import { hasCredentialFor, resolveCredential, SOON_MS, type CredEngine } from '../credentials/resolve'
 import { connectionRoute } from '../credentials/access'
 import { isGuestUser } from '../credentials/guest-ai'
+import { resolvePlace } from '../files/places'
+import { chatPlaces } from './place-ctx'
 import { situationOf } from './situation'
 import { appMapView } from './app-map'
 import { isFreeRoam, isManaged } from '../app-config'
@@ -3840,7 +3842,7 @@ export class TurnExec {
   }
 
   /** confirmSharedRead's decision: null to go on, or why it was refused. */
-  private async sharedReadRefusal(tool: string, input: unknown, o: { step?: boolean } = {}, kind: { save: boolean } = { save: false }): Promise<SharedNo | null> {
+  private async sharedReadRefusal(tool: string, input: unknown, o: { step?: boolean; sources?: readonly ReadSource[] } = {}, kind: { save: boolean } = { save: false }): Promise<SharedNo | null> {
     if (!this.shared) return null
     // the call's step says so (a call's own step only: an attachment or a "/name" skill has none)
     const refuse = (why: SharedNo) => { if (o.step !== false) this.skipStep(tool, kind.save); return why }
@@ -3853,7 +3855,8 @@ export class TurnExec {
     const named = saves ? namedPaths(tool, input) : []
     kind.save = named.length > 0 && named.every((p) => WRITE_TARGET_ARGS[tool]!.includes(p.key))
     try {
-      sources = this.sharedSources(tool, input, { writes })
+      // (a produce tool's chat output: what goes into the new chat file, worked out by the tool: confirmChatTarget)
+      sources = o.sources ? [...o.sources] : this.sharedSources(tool, input, { writes })
       audience = this.sharedAudience()
       const rules = this.rt.files.rules()
       missing = missingReaders(this.rt.db, rules, sources, audience).map((m) => ({ key: sourceKey(m.source), ...m }))
@@ -4139,12 +4142,40 @@ export class TurnExec {
     addSources(this.rt.db, this.spec.chatId, add)
   }
 
+  /** A chat place's readers for the read scope and the cards (files/places.ts resolvePlace): the chat's people, or the
+   * person alone for a personal chat's work folder; none when the place is refused here (the tool says why). */
+  placeViewers(input: string, use: 'read' | 'write'): ReadSource[] {
+    try { return resolvePlace(input, chatPlaces(this, this.files).ctx, use).viewers } catch { return [] }
+  }
+
+  /**
+   * A produce tool's new chat file (output: chat:files/<name>): its sources (team files, chat places) are weighed against
+   * the people who see this chat now, as a read would be: none hidden from them, they join the answer's record; else
+   * the shared read card asks first. Outside a chat shared with people the resolver refused the output already.
+   */
+  private async confirmChatTarget(sources: readonly string[], read: readonly ReadSource[], tool: string): Promise<string | null> {
+    if (this.shared?.kind !== 'people') return refusal({ done: 'Nothing was attached.', why: { kind: 'failed', what: 'this chat\'s files' }, next: 'save it in a team folder instead' })
+    const rules = this.rt.files.rules()
+    let me: Principal
+    try { me = this.livePrincipal() } catch { return 'Access denied: this account is disabled.' }
+    const list: ReadSource[] = [...read]
+    for (const p of sources) {
+      if (isReservedPlace(p)) { list.push(...this.placeViewers(p, 'read')); continue }
+      try { list.push(sourceOf(this.rt.db, rules, authorize(this.rt.files.fx, rules, me, p, 'read').rel)) } catch { /* the tool reports it */ }
+    }
+    const no = await this.sharedReadRefusal(tool, null, { step: false, sources: list })
+    return no ? this.sharedReadText(`Not attached (${tool}): nothing was attached to this answer.`, no) : null
+  }
+
   /**
    * Before the AI saves at `target`: when more people can read the target than can read what this chat read (plus
    * `extraSources`, files a tool copies from), the server asks the person (never left to the AI's own ask_user).
    * Returns the refusal text for the tool, or null to go ahead. Paths the policy refuses are left to the tool.
    */
   async confirmWidening(target: string, extraSources: string[] = [], binding?: string, call?: { tool: string; args: unknown; main?: boolean }, read: readonly ReadSource[] = []): Promise<string | null> {
+    // a new file of this chat (chat:files/<name>, files/place-output.ts): exactly the chat's people see it, so what goes
+    // in is weighed as a read here: a source some of them cannot open asks on the shared read card first
+    if (isReservedPlace(target)) return this.confirmChatTarget(extraSources, read, call?.tool ?? 'make_file')
     const need = this.widenNeed(target, extraSources, binding, read)
     if (!need) return null
     // a scheduled run: its task's card may have said yes to saving there (chat/schedule-cover.ts); `call` is the tool call
@@ -4185,6 +4216,8 @@ export class TurnExec {
     try { segs = authorize(fs_.fx, rules, me, target, 'write', { createDirs: true }).segs } catch { return null }
     const extra: ReadSource[] = [...read]
     for (const p of extraSources) {
+      // a chat place's file (a picture from chat:work/): its place's readers
+      if (isReservedPlace(p)) { extra.push(...this.placeViewers(p, 'read')); continue }
       try { extra.push(sourceOf(this.rt.db, rules, authorize(fs_.fx, rules, me, p, 'read').rel)) } catch { /* the tool reports it */ }
     }
     const w = widening(this.rt.db, this.spec.chatId, segs, extra)
