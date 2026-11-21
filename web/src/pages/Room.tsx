@@ -734,7 +734,6 @@ function RoomView({ roomId, threadId, badThread }: { roomId: string; threadId: s
         members={members}
         meId={meId}
         above={peerId ? <StatusDmLine userId={peerId} name={room ? title(room) : ''} /> : undefined}
-        empty={!!timeline && !timeline.loading && !timeline.error && !messages.length && !pending.length}
         onSent={() => {
           stick.current = true
           // from a window around an older message the send goes back to the newest (store/rooms.ts send)
