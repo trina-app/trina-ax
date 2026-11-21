@@ -123,8 +123,8 @@ function attachFor(rules: RuleSet, who: Principal, folder: string): 'ok' | 'read
 
 /** How an event line names a project to one viewer (eventProjectsFor). */
 export type EventProjectView =
-  /** they can open it now: its name now and a link */
-  | { state: 'open'; id: string; name: string }
+  /** they can open it now: its name now and a link (and its folder's name when it is not the name) */
+  | { state: 'open'; id: string; name: string; folder?: string }
   /** in the trash, for one of its people (read on its folder by its own rules, as if it were back): its name now, plain text, no link */
   | { state: 'trash'; name: string }
   /** deleted for good: "a deleted project", told to everyone in the room */
@@ -148,7 +148,8 @@ export function eventProjectsFor(db: Database, projectIds: readonly string[], us
     const r = rows.get(id)
     if (!r) { out.set(id, { state: 'deleted' }); continue }
     const segs = r.folder_path.split('/')
-    if (r.trashed_with === null) { out.set(id, atLeast(rules.access(who, segs), 'read') ? { state: 'open', id: r.id, name: r.name } : { state: 'hidden' }); continue }
+    const folder = segs[segs.length - 1]
+    if (r.trashed_with === null) { out.set(id, atLeast(rules.access(who, segs), 'read') ? { state: 'open', id: r.id, name: r.name, ...(folder && folder !== r.name ? { folder } : {}) } : { state: 'hidden' }); continue }
     // in the trash: its name only for one of its people, by its folder's own rules as if it were back, while the folder
     // is still in the files trash (chat/shared.ts memberWhileTrashed: "A team project in the trash: its members keep its
     // card"); a purged folder or a personal project: nobody

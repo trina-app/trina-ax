@@ -418,7 +418,9 @@ export function ComposerFileList({ files, onRemove, className }: { files: Pendin
         return (
           <li
             key={f.id}
-            className={clsx('inline-flex max-w-full items-center gap-2 rounded-xl border py-1.5 pr-2 pl-2.5 text-xs', f.status === 'failed' ? 'border-danger/40 bg-danger-soft' : f.source === 'team' ? 'border-accent/30 bg-accent-soft' : 'border-line bg-subtle')}
+            // a failed chip on a phone takes the row's width, so its reason wraps inside the box and ✕ stays in sight (an
+            // oversize file's chip ran past the box with no ✕: QA 2026-11-22 F21)
+            className={clsx('inline-flex max-w-full items-center gap-2 rounded-xl border py-1.5 pr-2 pl-2.5 text-xs', f.status === 'failed' ? 'border-danger/40 bg-danger-soft max-md:w-full' : f.source === 'team' ? 'border-accent/30 bg-accent-soft' : 'border-line bg-subtle')}
             title={f.source === 'team' ? t('composer.teamFile', { path: f.attachment?.path ?? f.path ?? '' }) : undefined}
             data-testid="attachment-chip"
             data-source={f.source}
@@ -443,7 +445,7 @@ export function ComposerFileList({ files, onRemove, className }: { files: Pendin
               {f.source === 'team' && <span className="max-w-[180px] truncate text-micro leading-tight text-faint" data-testid="chip-folder">{words.path(guest ? folderOf(f.attachment?.path ?? f.path ?? '').replace(/^projects\//, '') : folderOf(f.attachment?.path ?? f.path ?? '')) || t(guest ? 'picker.guestRoot' : 'files.root')}</span>}
             </span>
             {/* both stay through the whole upload, so a screen reader hears each change */}
-            <span className="flex items-center">
+            <span className="flex min-w-0 items-center">
               <span className="flex items-center gap-1 text-faint" role="status">
                 {f.status === 'uploading' && (
                   <>

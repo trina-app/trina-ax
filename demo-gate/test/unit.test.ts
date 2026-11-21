@@ -203,6 +203,69 @@ describe('pages', () => {
     expect(localeOf('ko', undefined, live)).toBe('ko')
     expect(localeOf('xx', 'fr', ['ja'])).toBe('ja')
   })
+  test('the mycel_locale cookie (the language used in the app) comes after ?lang= and before the browser', () => {
+    expect(localeOf(null, 'en', LOCALES, 'ja')).toBe('ja')
+    expect(localeOf('ko', 'en', LOCALES, 'ja')).toBe('ko')
+    expect(localeOf(null, 'ko-KR', LOCALES, 'es')).toBe('es')
+    expect(localeOf(null, 'ko-KR', LOCALES, null)).toBe('ko')
+    // checked like ?lang=: only one of the live languages, never raw input
+    expect(localeOf(null, 'en', LOCALES, '"><script>')).toBe('en')
+    expect(localeOf(null, 'ko-KR', LOCALES, 'xx')).toBe('ko')
+    expect(localeOf(null, 'ko-KR', ['en', 'ko'], 'ja')).toBe('ko')
+    expect(localeOf(null, undefined, LOCALES, 'JA')).toBe('en')
+  })
+  test('the landing says what Trina AX is, in one line above the heading, in every language', () => {
+    const links = { scriptedDemo: 'https://ax.trina.app/demo', pricing: 'https://ax.trina.app/pricing' }
+    expect(WORDS.en.lead).toBe('Trina AX is an AI workspace for your team: one place for files, chats and an AI that does the work.')
+    expect(WORDS.ko.lead).toBe('트리나 AX는 팀을 위한 AI 업무 공간이에요. 파일, 대화, 일을 대신해 주는 AI가 한곳에 있어요.')
+    for (const l of LOCALES) {
+      const html = renderPage('landing', l, { siteKey: 'k', links })
+      expect(html, l).toContain(`<p class="lead">${WORDS[l].lead}</p>`)
+      expect(html.indexOf('class="lead"'), l).toBeLessThan(html.indexOf('<h1>'))
+      expect(WORDS[l].lead, l).toMatch(/AX/)
+      for (const k of ['busy', 'ended', 'limit', 'check', 'error'] as const) expect(renderPage(k, l, { siteKey: 'k', links }), `${l} ${k}`).not.toContain('class="lead"')
+    }
+  })
+  test('busy and error pages have a Try again link to /; the limit page does not', () => {
+    const links = { scriptedDemo: 'https://ax.trina.app/demo', pricing: 'https://ax.trina.app/pricing' }
+    expect(WORDS.en.retry).toBe('Try again')
+    expect(WORDS.ko.retry).toBe('다시 해 보기')
+    for (const l of LOCALES) {
+      for (const k of ['busy', 'error'] as const) {
+        const html = renderPage(k, l, { siteKey: 'k', links })
+        expect(html, `${l} ${k}`).toContain(`<a class="secondary" href="/">${WORDS[l].retry}</a>`)
+        expect(html, `${l} ${k}`).toContain('https://ax.trina.app/demo')
+      }
+      expect(renderPage('limit', l, { siteKey: 'k', links, limit: 'hour' })).not.toContain('href="/"')
+    }
+  })
+  test('the limit page says "about an hour" only for the per-hour limit; the day and live-copy limits say tomorrow', () => {
+    const links = { scriptedDemo: 'https://ax.trina.app/demo', pricing: 'https://ax.trina.app/pricing' }
+    expect(WORDS.en.limitP).toBe('You can start again in about an hour. Meanwhile, you can watch the guided demo.')
+    expect(WORDS.en.limitLaterP).toBe('You can start again tomorrow. Meanwhile, you can watch the guided demo.')
+    expect(WORDS.ko.limitP).toBe('한 시간쯤 뒤에 다시 시작할 수 있어요. 그동안 안내 데모를 볼 수 있어요.')
+    expect(WORDS.ko.limitLaterP).toBe('내일 다시 시작할 수 있어요. 그동안 안내 데모를 볼 수 있어요.')
+    for (const l of LOCALES) {
+      expect(renderPage('limit', l, { siteKey: 'k', links, limit: 'hour' }), l).toContain(WORDS[l].limitP)
+      for (const r of ['day', 'ip_live'] as const) {
+        const html = renderPage('limit', l, { siteKey: 'k', links, limit: r })
+        expect(html, `${l} ${r}`).toContain(WORDS[l].limitLaterP)
+        expect(html, `${l} ${r}`).not.toContain(WORDS[l].limitP)
+      }
+      expect(WORDS[l].limitLaterP, l).not.toBe(WORDS[l].limitP)
+      if (l !== 'en') expect(WORDS[l].limitLaterP, l).not.toBe(WORDS.en.limitLaterP)
+    }
+    // no reason given: never promise the shorter wait
+    expect(renderPage('limit', 'en', { siteKey: 'k', links })).toContain(WORDS.en.limitLaterP)
+    // ko says it plainly, no imperative
+    expect(WORDS.ko.limitP).not.toContain('보세요')
+  })
+  test('word-break: keep-all only for Korean (Japanese and Chinese wrap normally)', () => {
+    const links = { scriptedDemo: 'https://ax.trina.app/demo', pricing: 'https://ax.trina.app/pricing' }
+    const html = renderPage('landing', 'ja', { siteKey: 'k', links })
+    expect(html).toContain('html[lang="ko"] .note')
+    expect(html).not.toMatch(/\.note \{[^}]*keep-all/)
+  })
   test('every page renders in all six languages; links are the configured ones', () => {
     expect(LOCALES).toEqual(['en', 'ko', 'ja', 'zh', 'es', 'id'])
     const keys = Object.keys(WORDS.en).sort()
@@ -223,8 +286,8 @@ describe('pages', () => {
     const links = { scriptedDemo: 'https://ax.trina.app/demo', pricing: 'https://ax.trina.app/pricing' }
     const en = renderPage('landing', 'en', { siteKey: 'k', links })
     const ko = renderPage('landing', 'ko', { siteKey: 'k', links })
-    expect(en).toContain('<p class="note">You can ask Trina about 8 questions. Your copy stays for 24 hours.</p>')
-    expect(ko).toContain('<p class="note">트리나에게 8번 정도 물어볼 수 있어요. 사본은 24시간 동안 남아 있어요.</p>')
+    expect(en).toContain('<p class="note">You can ask Trina about 8 questions (bigger tasks count a little more). Your copy stays for 24 hours.</p>')
+    expect(ko).toContain('<p class="note">트리나에게 8번 정도 물어볼 수 있어요(큰 작업은 질문 여러 번으로 칠 수 있어요). 사본은 24시간 동안 남아 있어요.</p>')
     // under it, that Gmail, Drive and Higgsfield are practice copies (the owner: say it up front), in every language
     expect(en).toContain('<p class="note practice">Gmail, Google Drive and Higgsfield here are practice copies: mail is never really sent, and new pictures come from a prepared set.</p>')
     expect(ko).toContain('<p class="note practice">여기 Gmail·Google Drive·Higgsfield는 연습용이에요. 메일은 실제로 보내지 않고, 새 사진은 준비된 사진 중에서 골라요.</p>')

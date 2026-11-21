@@ -33,6 +33,8 @@ export function backoff(ms: number, signal: AbortSignal): Promise<void> {
  * demo/fakes/index.ts; null everywhere else. */
 let demoGoogle: DriveFetch | null = null
 export function setDemoGoogleFetch(f: DriveFetch | null) { demoGoogle = f }
+/** Whether the demo's fake Google answers (read.ts: its files have no real web address, so no drive.google.com link) */
+export const demoGoogleOn = () => demoGoogle !== null
 
 /** No provider body, request URL, headers or exception message is ever surfaced or logged. */
 export class GoogleTransport {

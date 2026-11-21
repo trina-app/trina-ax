@@ -149,12 +149,12 @@ test.describe('on a 390px phone', () => {
 })
 
 // the tab bar's labels in the languages with the longest words (QA TC-255; the tabs 트리나 · 대화 · 프로젝트 · 파일 · 나), at the largest
-// step (140 %) on a 360 px phone: each on one line inside its tab (cut with "…" if it must be), the whole word still
-// the tab's name, nothing past the screen's edge
+// step (140 %) on a 360 px phone: each inside its tab on up to two lines (never cut with "…": QA 2026-11-22 F15), the
+// whole word still the tab's name, nothing past the screen's edge
 test.describe('the tab labels on a 360px phone at 140 %', () => {
   test.use({ viewport: { width: 360, height: 780 }, hasTouch: true, isMobile: true })
   for (const locale of ['ja', 'es'] as const) {
-    test(`${locale}: five labels, each on one line inside its tab`, async ({ page }) => {
+    test(`${locale}: five labels, each inside its tab on up to two lines`, async ({ page }) => {
       const t = DICTS[locale]
       await reset(page, { teamLocale: locale, usersFollowTeam: true })
       await page.addInitScript(() => localStorage.setItem('mycel.textSize', 'largest'))
@@ -172,10 +172,10 @@ test.describe('the tab labels on a 360px phone at 140 %', () => {
           const r = el.getBoundingClientRect()
           const tab = el.closest('a')!.getBoundingClientRect()
           const s = getComputedStyle(el)
-          return { lines: Math.round(r.height / parseFloat(s.lineHeight)), wrap: s.whiteSpace, left: r.left, right: r.right, tabLeft: tab.left, tabRight: tab.right, W: window.innerWidth }
+          return { lines: Math.round(r.height / parseFloat(s.lineHeight)), left: r.left, right: r.right, tabLeft: tab.left, tabRight: tab.right, W: window.innerWidth }
         })
-        expect(m.lines, `${locale} ${id}`).toBe(1)
-        expect(m.wrap).toBe('nowrap')
+        // up to two lines, never an ellipsis (QA 2026-11-22 F15)
+        expect(m.lines, `${locale} ${id}`).toBeLessThanOrEqual(2)
         expect(m.left, `${locale} ${id}`).toBeGreaterThanOrEqual(m.tabLeft - 0.5)
         expect(m.right, `${locale} ${id}`).toBeLessThanOrEqual(m.tabRight + 0.5)
         expect(m.tabRight).toBeLessThanOrEqual(m.W + 0.5)

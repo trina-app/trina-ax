@@ -94,7 +94,7 @@ removed by the sweeper (once they are an hour old).
 | path | |
 |---|---|
 | `GET /` | the visitor's instance (by the `__Host-tdg` cookie), else landing, busy (full or paused) or "session ended" |
-| `POST /__demo/start` | form `lang`, `cf-turnstile-response`; our Origin only; limits, Turnstile, a warm instance, `POST /api/demo/persona {key:"newHire"}` on it (server to server, `Origin: <publicOrigin>`), its Set-Cookie (`__Host-sid`) with Secure forced, no Domain and, for a `__Host-` cookie, Path=/, 303 to `/` |
+| `POST /__demo/start` | form `lang`, `cf-turnstile-response`; our Origin only; limits, Turnstile, a warm instance, `POST /api/demo/persona {key:"newHire"}` on it (server to server, `Origin: <publicOrigin>`), its Set-Cookie (`__Host-sid`) with Secure forced, no Domain and, for a `__Host-` cookie, Path=/, plus `mycel_locale=<lang>` and `Clear-Site-Data: "storage"` (exactly that: never `"cookies"`, which in Chrome clears all of trina.app), 303 to `/?fresh=1` (the web app clears the tab's own storage there: Safari ignores Clear-Site-Data on the redirect) |
 | `POST /__demo/resume` | our Origin only; a visitor with a live instance (by the gate cookie) is signed in as the new hire again on that instance, the same persona call as start, 303 to `/`. "Continue as Mina" after signing out: sign-in with a password is fenced in the demo, so this is the only way back |
 | `GET /__demo/status` | `{available}` for the scripted demo's button |
 | `GET /__demo/health` | pool, live, streams, daily tokens, snapshot age, upstream state (with `upstream.limits`: the account's unified 5h/7d utilization as fractions, status, reset, seenAt); loopback peers without the tunnel's client IP header only |

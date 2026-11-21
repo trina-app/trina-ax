@@ -8,15 +8,16 @@
 //     libraryRequest (the library's MCP calls); google-apps/tokens.ts refreshGoogleApp (answered here, never expires)
 //   - Google's token, revoke and userinfo addresses and Drive v3: google-drive/client.ts GoogleTransport
 //   - Higgsfield: connections/net.ts NetOptions.answer (set by connections/service.ts) and tools/download.ts
+//   - the banner maker (banners.ts): no service at all, the server's own change_banner_text (tools/demo-banner.ts)
 //
 // One server process serves one demo instance, so the fakes are one per process (the active one), kept per context for
 // the code that has a context, and gone when the context closes.
 //   <content>/gmail.json      the mailbox (gmail.ts GmailContent; default: a built-in fictional one)
 //   <content>/drive.json      the Drive file tree and texts (drive.ts DriveContent)
 //   <content>/higgsfield/     canned pictures, picked by the words of their file names
-//   <content>/higgsfield/banner/   the banner kit make_banner draws from (banner.ts)
+//   <content>/higgsfield/banner/   the banner kit change_banner_text draws from (banner.ts)
 //   <dataDir>/demo-fakes/state.json   what the visitor sent, drafted, labelled and generated (state.ts)
-//   <dataDir>/demo-fakes/banners/     the banners make_banner drew
+//   <dataDir>/demo-fakes/banners/     the banners change_banner_text drew
 import path from 'node:path'
 import type { AppContext } from '../../context'
 import { setDemoGoogleFetch } from '../../integrations/google-drive/client'
@@ -26,6 +27,7 @@ import { FakeGmail, loadGmail } from './gmail'
 import { FakeGoogleDrive, loadDrive } from './drive'
 import { FakeHiggsfield, HIGGSFIELD_HOSTS, loadPictures } from './higgsfield'
 import { loadBannerKit } from './banner'
+import { DemoBanners } from './banners'
 import { FakeState } from './state'
 import { installOfflineGuard } from './offline'
 
@@ -49,6 +51,8 @@ export class DemoFakes {
   readonly gmail: FakeGmail
   readonly google: FakeGoogleDrive
   readonly higgsfield: FakeHiggsfield
+  /** the banner maker (change_banner_text): local, never a Higgsfield tool */
+  readonly banners: DemoBanners
   /** the Google Workspace library as the Gmail fake: always ready */
   readonly library: WorkspaceLibrary = {
     state: (): LibraryState => 'ready',
@@ -62,7 +66,8 @@ export class DemoFakes {
     this.state = new FakeState(o.dataDir, warn)
     this.gmail = new FakeGmail(loadGmail(o.content, warn), this.state)
     this.google = new FakeGoogleDrive(loadDrive(o.content, warn))
-    this.higgsfield = new FakeHiggsfield(loadPictures(o.content), this.state, loadBannerKit(o.content, warn))
+    this.higgsfield = new FakeHiggsfield(loadPictures(o.content), this.state)
+    this.banners = new DemoBanners(this.state, loadBannerKit(o.content, warn))
   }
 
   /** connections/net.ts NetOptions.answer: a Higgsfield address, else null (then refused: the fence is on) */

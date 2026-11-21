@@ -312,15 +312,16 @@ async function convert(cmd: string, args: string[], input: Uint8Array, name: str
  * Claude Code's `pages` value: "3", "1-5", or a list "1-3,7". Pages are 1-based, at most PDF_PAGES_PER_READ per call.
  * Errors say what to do instead (the AI reads them).
  */
-export function parsePages(spec: string, count: number): number[] {
+export function parsePages(spec: string, count: number, unit: 'page' | 'slide' = 'page'): number[] {
   const s = spec.replace(/\s+/g, '')
-  if (!/^\d+(-\d+)?(,\d+(-\d+)?)*$/.test(s)) throw new ToolError(`pages must look like "3", "1-5" or "1-3,7" (pages start at 1); got "${spec.slice(0, 40)}"`, 'bad_pages')
+  if (!/^\d+(-\d+)?(,\d+(-\d+)?)*$/.test(s)) throw new ToolError(`pages must look like "3", "1-5" or "1-3,7" (${unit}s start at 1); got "${spec.slice(0, 40)}"`, 'bad_pages')
   const out: number[] = []
   for (const part of s.split(',')) {
     const [a, b] = part.split('-').map(Number) as [number, number | undefined]
     const end = b ?? a
-    if (a < 1 || end < a) throw new ToolError(`pages "${part}" is not a range of pages (pages start at 1)`, 'bad_pages')
-    if (a > count) throw new ToolError(`page ${a} is past the end: this PDF has ${count} page${count === 1 ? '' : 's'}`, 'bad_pages')
+    if (a < 1 || end < a) throw new ToolError(`pages "${part}" is not a range of ${unit}s (${unit}s start at 1)`, 'bad_pages')
+    // a deck is drawn as a PDF to read it, but the person knows slides: "this deck has 3 slides" (QA TC-6941)
+    if (a > count) throw new ToolError(`${unit} ${a} is past the end: this ${unit === 'slide' ? 'deck' : 'PDF'} has ${count} ${unit}${count === 1 ? '' : 's'}`, 'bad_pages')
     // a range that runs past the end stops at the last page, like a text read past the end of its lines
     for (let p = a; p <= Math.min(end, count); p++) {
       if (!out.includes(p)) out.push(p)
@@ -332,8 +333,8 @@ export function parsePages(spec: string, count: number): number[] {
 
 /** The pages a PDF read gives: `pages` parsed (parsePages), or every page of a PDF of up to PDF_PAGES_WITHOUT_RANGE
  * pages; null: a longer PDF without `pages` (the caller says how to read it in parts). */
-export function pagesToRead(spec: string | undefined, count: number): number[] | null {
-  if (spec !== undefined) return parsePages(spec, count)
+export function pagesToRead(spec: string | undefined, count: number, unit: 'page' | 'slide' = 'page'): number[] | null {
+  if (spec !== undefined) return parsePages(spec, count, unit)
   return count > PDF_PAGES_WITHOUT_RANGE ? null : Array.from({ length: count }, (_, i) => i + 1)
 }
 

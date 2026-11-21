@@ -40,7 +40,9 @@ test('outsiders, an admin outside it and someone who left get no name, id or tra
 
   expect((await mia.client.try('PATCH', `/api/projects/${p.id}`, { name: CANARY })).status).toBe(200)
   expect(await page(nora.client)).toContain(CANARY)
-  expect(await page(nora.client)).not.toContain(OLD)
+  // its people get the name now; the old name only as its folder's name (#291 EventProject.folder, QA TC-6953): a
+  // rename keeps the folder, which they open in Files anyway. Outsiders get neither (nothingOf checks OLD too)
+  for (const e of await events(nora.client)) expect(e.project).toEqual({ id: p.id, name: CANARY, folder: OLD })
   await nothingOf(otto.client, 'outsider after rename')
   await nothingOf(ada.client, 'admin outside it after rename')
 

@@ -34,7 +34,8 @@ async function setup(name: string) {
 test('renamed: its people see the name now with a link; an outsider and someone who left see "a project", never the new name', async () => {
   const { mia, nora, otto, launch, lines } = await setup('b-event-project-rename')
   expect((await mia.client.try('PATCH', `/api/projects/${launch.id}`, { name: 'Launch v2' })).status).toBe(200)
-  const now = { id: launch.id, name: 'Launch v2' }
+  // a rename keeps the folder: its name comes along for the lines that say where files went (#291, QA TC-6953)
+  const now = { id: launch.id, name: 'Launch v2', folder: 'Launch site' }
   expect(await lines(mia.client)).toEqual([{ type: 'project_linked', project: now }, { type: 'project_room', project: now }])
   expect(await lines(nora.client)).toEqual([{ type: 'project_linked', project: now }, { type: 'project_room', project: now }])
   const none = [{ type: 'project_linked', project: null }, { type: 'project_room', project: null }]

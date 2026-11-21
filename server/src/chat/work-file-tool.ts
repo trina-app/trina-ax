@@ -28,7 +28,7 @@ import { authorize } from '../policy/authorize'
 import { Denied, ToolError } from '../policy/errors'
 import { inSkills } from '../skills/guard'
 import { freeName } from '../team-files/place'
-import { shownWorkPath, workRel, type WorkFolder } from '../devenv/work-files'
+import { noWorkText, shownWorkPath, workRel, type WorkFolder } from '../devenv/work-files'
 import { workToChat, workToTeam } from './places-copy'
 import type { ReadSource } from './read-scope'
 import type { Tool } from './tools'
@@ -60,7 +60,7 @@ export function saveWorkFileTool(exec: TurnExec, where: () => WorkFolder | null,
   /** The file's path in the work folder, or why not. */
   function fileOf(a: Args): Refusal | { rel: string } {
     const wf = where()
-    if (!wf) return { text: 'This chat has no work folder to save from now (no command ran in it yet, or the dev environment is off for you).', summary: `${SAVE_WORK_FILE_TOOL} -> no work folder` }
+    if (!wf) return { text: `Not saved: ${noWorkText(exec.files.workWhy?.())}`, summary: `${SAVE_WORK_FILE_TOOL} -> no work folder` }
     let rel: string | null
     try { rel = workRel(a.path.startsWith('/') || a.path.startsWith('$') ? a.path : `$TRINA_WORK/${a.path}`, wf) } catch (e) { return { text: `Not saved: ${(e as Error).message}.`, summary: `${SAVE_WORK_FILE_TOOL} -> refused: bad path` } }
     if (!rel) return { text: `Not saved: '${a.path}' is not a file in this chat's work folder ($TRINA_WORK/…).`, summary: `${SAVE_WORK_FILE_TOOL} -> refused: not in the work folder` }

@@ -15,6 +15,7 @@ import { answerWithFiles } from '../../server/src/chat/shared'
 import type { Attachment } from '@mycel/shared/api'
 import { PATH_ARGS, WRITE_TARGET_ARGS } from '../../server/src/rooms/ai-tools'
 import { mayAttachChatFile, PLACE_WORDS, resolvePlace } from '../../server/src/files/places'
+import { NO_WORK_WORDS } from '../../server/src/devenv/work-files'
 
 const ID = '019a8b2c-1d2e-7f30-8a4b-5c6d7e8f9a0b'
 
@@ -61,7 +62,7 @@ describe('parsePlace', () => {
 describe('words and bookkeeping', () => {
   test('step lines say the place in words, never the id', () => {
     expect(placeName(`chat:files/${ID}/deck.pptx`, 'en')).toBe('This chat › deck.pptx')
-    expect(placeName(`chat:files/${ID}/deck.pptx`, 'ko')).toBe('이 대화 › deck.pptx')
+    expect(placeName(`chat:files/${ID}/deck.pptx`, 'ko')).toBe('이 채팅 › deck.pptx')
     expect(placeName('chat:work/out/frame.png', 'en')).toBe('Work folder › out › frame.png')
     expect(placeName('chat:work/out/frame.png', 'ko')).toBe('작업 폴더 › out › frame.png')
     for (const l of ['id', 'ja', 'es', 'zh'] as const) expect(placeName('chat:files/a.txt', l)).toMatch(/ › a\.txt$/)
@@ -127,7 +128,11 @@ describe('resolvePlace (server/src/files/places.ts): looks up, never opens', () 
     expect(resolvePlace('chat:files/a', { ...base, chatId: null }, 'read').refused).toBe(PLACE_WORDS.noChat)
     expect(resolvePlace('chat:files/a', { ...base, main: false }, 'read').refused).toBe(PLACE_WORDS.noChat)
     expect(resolvePlace('chat:files/a', { ...base, live: () => false }, 'read').refused).toContain('disabled')
-    expect(resolvePlace('chat:work/a.png', { ...base, workFolder: () => null }, 'read').refused).toBe(PLACE_WORDS.noWork)
+    expect(resolvePlace('chat:work/a.png', { ...base, workFolder: () => null }, 'read').refused).toBe(NO_WORK_WORDS.elsewhere)
+    // the reason the turn knows (TC-6936): the people changed, commands off, none ran yet; never a list of guesses
+    expect(resolvePlace('chat:work/a.png', { ...base, workFolder: () => null, workWhy: () => 'changed' }, 'read').refused).toBe(NO_WORK_WORDS.changed)
+    expect(resolvePlace('chat:work/a.png', { ...base, workFolder: () => null, workWhy: () => 'none' }, 'read').refused).toBe(NO_WORK_WORDS.none)
+    for (const w of Object.values(NO_WORK_WORDS)) expect(w).not.toMatch(/dev environment|sub-agent|main assistant|<attachments>|users\/</)
   })
   test('the work folder: the chat\'s people in a shared chat, the person in a personal one; read only so far', () => {
     const folder = { real: '/w', path: '/w' }

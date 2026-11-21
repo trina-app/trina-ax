@@ -375,10 +375,6 @@ export function IntegrationDialog({ scope, existing, template, connector, choice
               <p className="text-muted">{t('integrations.field.url')}: <span className="font-medium break-all text-ink">{existing.url}</span></p>
               <p className="text-xs text-faint">{t('integrations.template.memberNote')}</p>
             </div>
-          ) : conn ? (
-            <p className="text-xs break-all text-faint" data-testid="connector-summary">
-              {t('connectors.addressLine', { address: conn.url })}
-            </p>
           ) : null}
           {(rows || f.method === 'key') && (
             <div className="divide-y divide-line [&>*:first-child]:pt-0 [&>*:last-child]:pb-0">
@@ -457,6 +453,12 @@ export function IntegrationDialog({ scope, existing, template, connector, choice
               {t('integrations.advanced')}
             </button>
             <div id={advancedId} hidden={!advanced} className="mt-2 divide-y divide-line border-t border-line [&>*:last-child]:pb-0">
+              {/* a listed service's address is the catalog's: kept here, not up front (QA TC-6928) */}
+              {conn && !fromTeam && (
+                <p className="py-4 text-xs break-all text-faint" data-testid="connector-summary">
+                  {t('connectors.addressLine', { address: conn.url })}
+                </p>
+              )}
               {team && !existing && !template && (
                 <SelectRow<Who> id={ids.who} label={t('integrations.who')} hint={t('integrations.who.short')} value={who} testId="integration-who"
                   onChange={(w) => {

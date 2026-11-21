@@ -4,6 +4,10 @@ import { CHAT_ERROR_MESSAGES, PRODUCT_NAMED_AFTER_AI, type ApiErrorBody, type Ch
 import { STEP_TEXT } from '@mycel/shared'
 import { fillPlurals } from '@mycel/shared/plural'
 import { dropDoubleHonorifics } from '@mycel/shared/honorific'
+import { KO_PARTICLE_PATTERN, koParticle } from '@mycel/shared/ko-particle'
+
+/** a value, a closing quote or bracket after it, and a Korean particle mark (web/src/i18n format's PARTICLE_AFTER) */
+const PARTICLE_AFTER = new RegExp(`\\{(\\w+)\\}(['"’”」』)\\]]?)(${KO_PARTICLE_PATTERN})`, 'g')
 
 type T = Record<Locale, string>
 const t = (ko: string, en: string, id: string, ja: string, es: string, zh: string): T => ({ ko, en, id, ja, es, zh })
@@ -227,6 +231,10 @@ export const TEXT = {
   roomNotConvertible: t('이 대화방은 프로젝트로 만들 수 없어요. 비공개 채널과 그룹 대화만 프로젝트가 될 수 있어요.', "This conversation can't become a project. Only private channels and group chats can.", 'Percakapan ini tidak bisa dijadikan proyek. Hanya saluran privat dan obrolan grup yang bisa.', 'このトークはプロジェクトにできません。プロジェクトにできるのはプライベートチャンネルとグループトークだけです。', 'Esta conversación no puede convertirse en un proyecto. Solo pueden hacerlo los canales privados y los chats de grupo.', '这个对话不能变成项目。只有私密频道和群聊可以。'),
   roomAlreadyProject: t('이 대화방은 방금 프로젝트가 되었어요.', 'This conversation just became a project.', 'Percakapan ini baru saja menjadi proyek.', 'このトークはたった今プロジェクトになりました。', 'Esta conversación acaba de convertirse en un proyecto.', '这个对话刚刚变成了项目。'),
   roomMembersChanged: t('이 대화방의 사람이 바뀌었어요. 다시 확인하고 만들어 주세요.', 'The people in this conversation changed. Check again, then make the project.', 'Orang di percakapan ini berubah. Periksa lagi, lalu buat proyeknya.', 'このトークのメンバーが変わりました。もう一度確認してからプロジェクトを作成してください。', 'Las personas de esta conversación cambiaron. Revíselo de nuevo y luego cree el proyecto.', '这个对话的成员有变化。请重新确认后再创建项目。'),
+  // "Make it a project" in a team where only admins make team projects (QA TC-6960): a conversation has no personal option
+  projectsAdminsOnlyRoom: t('이 팀에서는 관리자만 팀 프로젝트를 만들 수 있어요.', 'Only admins can make team projects in this team.', 'Di tim ini hanya admin yang bisa membuat proyek tim.', 'このチームでは、チームプロジェクトを作成できるのは管理者のみです。', 'En este equipo solo los administradores pueden crear proyectos del equipo.', '在这个团队里只有管理员可以创建团队项目。'),
+  // the name field's first value for an unnamed group chat (QA TC-6955): selected, so typing replaces it
+  makeProjectDefaultName: t('새 프로젝트', 'New project', 'Proyek baru', '新しいプロジェクト', 'Proyecto nuevo', '新项目'),
   makeProjectNameEmpty: t('프로젝트 이름을 입력해 주세요.', 'Give the project a name.', 'Beri nama proyeknya.', 'プロジェクトの名前を入力してください。', 'Ponga un nombre al proyecto.', '请为项目命名。'),
   makeProjectNameLong: t('프로젝트 이름은 {n}자까지 쓸 수 있어요.', 'A project name can be at most {n} characters.', 'Nama proyek paling banyak {n} karakter.', 'プロジェクト名は{n}文字までです。', 'El nombre de un proyecto puede tener como máximo {n} caracteres.', '项目名称最多{n}个字符。'),
   makeProjectNameReserved: t('이 이름은 AI 지침 파일 이름이라 쓸 수 없어요. 다른 이름을 골라 주세요.', "That name is an AI instructions file's name. Pick another name.", 'Nama itu adalah nama berkas instruksi AI. Pilih nama lain.', 'その名前はAIの指示ファイルの名前なので使えません。別の名前にしてください。', 'Ese nombre es el de un archivo de instrucciones de la IA. Elija otro nombre.', '这个名称是 AI 指令文件的名称，不能使用。请换一个名称。'),
@@ -470,6 +478,8 @@ export const TEXT = {
   chatShareNeedsPeople: t('이 채팅을 공유할 사람이나 부서를 하나 이상 골라 주세요.', 'Choose at least one person or group to share this chat with.', 'Pilih setidaknya satu orang atau grup untuk berbagi obrolan ini.', "このチャットを共有する人またはグループを1つ以上選んでください。", "Elija al menos una persona o un grupo con quien compartir este chat.", '请至少选择一位成员或一个小组来共享这个对话。'),
   chatShareAudienceFull: t('채팅은 사람과 부서를 합쳐 100개까지만 공유할 수 있어요. 먼저 몇 개를 빼 주세요.', 'A chat can be shared with at most 100 people and groups. Remove some first.', 'Obrolan bisa dibagikan dengan paling banyak 100 orang dan grup. Hapus beberapa dulu.', "チャットを共有できるのは人とグループを合わせて100件までです。先にいくつか外してください。", "Un chat se puede compartir con 100 personas y grupos como máximo. Quite algunos primero.", '一个对话最多可以与 100 位成员和小组共享。请先移除一些。'),
   chatShareCreatorOnly: t('이 채팅을 볼 사람은 채팅을 시작한 사람만 바꿀 수 있어요.', 'Only the person who started this chat can change who sees it.', 'Hanya orang yang memulai obrolan ini yang bisa mengubah siapa yang melihatnya.', "このチャットを見られる人を変更できるのは、チャットを始めた人だけです。", "Solo quien empezó este chat puede cambiar quién lo ve.", '只有发起这个对话的人可以更改谁能看到它。'),
+  // a guest picked for a chat shared with people (QA TC-6961): by design their one place is a project or a conversation
+  chatShareGuest: t('게스트는 공유 채팅에 추가할 수 없어요. 게스트는 초대받은 프로젝트나 대화에서만 함께해요.', "Guests can't be added to a shared chat. A guest works only in the project or conversation they were invited to.", 'Tamu tidak bisa ditambahkan ke chat bersama. Tamu hanya bekerja di proyek atau percakapan tempat mereka diundang.', 'ゲストは共有チャットに追加できません。ゲストは招待されたプロジェクトまたは会話でのみ参加できます。', 'Los invitados no se pueden agregar a un chat compartido. Un invitado solo trabaja en el proyecto o la conversación a la que lo invitaron.', '访客无法添加到共享对话中。访客只能在受邀加入的项目或会话中协作。'),
   chatShareUnknownPerson: t('고른 사람 중 팀에 없는 사람이 있거나, 고를 수 없는 부서가 있어요. 다시 골라 주세요.', "Someone you chose is no longer on the team, or a group can't be picked. Choose again.", 'Seseorang yang Anda pilih sudah tidak ada di tim, atau ada grup yang tidak bisa dipilih. Pilih lagi.', "選んだ人の中にチームにいない人がいるか、選べないグループがあります。もう一度選んでください。", "Alguien que eligió ya no está en el equipo, o hay un grupo que no se puede elegir. Vuelva a elegir.", '你选择的某人已不在团队中，或有无法选择的小组。请重新选择。'),
   chatShareMovePeople: t('공유한 채팅은 프로젝트로 옮길 수 없어요. 프로젝트에서 새 채팅을 시작해 주세요.', "A shared chat can't be moved into a project. Start a new chat in the project instead.", 'Obrolan yang dibagikan tidak bisa dipindahkan ke proyek. Mulai obrolan baru di proyek itu.', "共有したチャットはプロジェクトに移動できません。プロジェクトで新しいチャットを始めてください。", "Un chat compartido no se puede mover a un proyecto. Empiece un chat nuevo en el proyecto.", '已共享的对话不能移入项目。请在项目中开始一个新对话。'),
   chatHideCreator: t('직접 시작한 채팅은 목록에서 숨길 수 없어요. 필요 없으면 삭제해 주세요.', "A chat you started can't be hidden from your list. Delete it if you no longer need it.", 'Obrolan yang Anda mulai tidak bisa disembunyikan dari daftar. Hapus jika tidak diperlukan lagi.', "自分で始めたチャットはリストから非表示にできません。不要なら削除してください。", "Un chat que usted empezó no se puede ocultar de su lista. Elimínelo si ya no lo necesita.", '你发起的对话不能从列表中隐藏。如果不再需要，请删除它。'),
@@ -492,6 +502,23 @@ export const TEXT = {
     'AI ingin memakai skill di {sources}. {m} dari {n} orang yang melihat obrolan ini tidak bisa memakainya. Jika dipakai, apa yang dibawanya tetap ada di obrolan ini untuk semua orang yang melihatnya, termasuk orang yang mendapat akses nanti.',
     "AIが{sources}のスキルを使おうとしています。このチャットを見る{n}人のうち{m}人はこのスキルを使えません。使うと、持ち込んだ内容はこのチャットに残り、あとからアクセスできるようになる人も含め、このチャットを見る全員が見ることになります。",
     "La IA quiere usar una habilidad de {sources}. {m} de {n, plural, one {la # persona} other {las # personas}} que ven este chat no pueden usarla. Si la usa, lo que aporte se queda en este chat para todos los que lo ven, incluidas las personas que tengan acceso más adelante.", 'AI想使用{sources}中的技能。能看到这个对话的{n, plural, one {#人} other {#人}}中，有{m}人不能使用它。如果使用，它带来的内容会留在这个对话里，所有能看到这个对话的人都会看到，包括之后获得权限的人。'),
+  // the read card for copy_files into this chat's work folder or its files (QA TC-6939): which files, and that the place
+  // they go is seen by everyone in the chat. Its yes is for reading that place in this answer, as every read card's (so it
+  // says "read files in"). The names come last, so no particle follows a file name
+  sharedCopyWorkConfirm: t('AI가 {sources}에서 파일을 읽어 이 채팅의 작업 폴더로 복사하려고 해요: {files}. 작업 폴더는 나중에 볼 수 있게 되는 사람을 포함해 이 채팅을 보는 모두가 볼 수 있어요. 이 채팅을 보는 {n}명 중 {m}명은 원래 있던 곳을 열 수 없어요.',
+    "The AI wants to read files in {sources} and copy them into this chat's work folder: {files}. Everyone who sees this chat can see that folder, including people who get access later. {m} of the {n, plural, one {# person} other {# people}} who see this chat can't open where they are now.",
+    'AI ingin membaca berkas di {sources} dan menyalinnya ke folder kerja obrolan ini: {files}. Semua orang yang melihat obrolan ini bisa melihat folder itu, termasuk orang yang mendapat akses nanti. {m} dari {n} orang yang melihat obrolan ini tidak bisa membuka tempat asalnya.',
+    "AIが{sources}のファイルを読んで、このチャットの作業フォルダーにコピーしようとしています：{files}。作業フォルダーは、あとからアクセスできるようになる人も含め、このチャットを見る全員が見られます。このチャットを見る{n}人のうち{m}人は元の場所を開けません。",
+    "La IA quiere leer archivos de {sources} y copiarlos a la carpeta de trabajo de este chat: {files}. Todos los que ven este chat pueden ver esa carpeta, incluidas las personas que tengan acceso más adelante. {m} de {n, plural, one {la # persona} other {las # personas}} que ven este chat no pueden abrir el lugar donde están ahora.",
+    'AI想读取{sources}中的文件并复制到这个对话的工作文件夹：{files}。所有能看到这个对话的人都能看到这个文件夹，包括之后获得权限的人。能看到这个对话的{n, plural, one {#人} other {#人}}中，有{m}人打不开它们原来的位置。'),
+  sharedCopyChatConfirm: t('AI가 {sources}에서 파일을 읽어 이 채팅으로 복사하려고 해요: {files}. 나중에 볼 수 있게 되는 사람을 포함해 이 채팅을 보는 모두가 열 수 있어요. 이 채팅을 보는 {n}명 중 {m}명은 원래 있던 곳을 열 수 없어요.',
+    "The AI wants to read files in {sources} and copy them into this chat: {files}. Everyone who sees this chat can open them, including people who get access later. {m} of the {n, plural, one {# person} other {# people}} who see this chat can't open where they are now.",
+    'AI ingin membaca berkas di {sources} dan menyalinnya ke obrolan ini: {files}. Semua orang yang melihat obrolan ini bisa membukanya, termasuk orang yang mendapat akses nanti. {m} dari {n} orang yang melihat obrolan ini tidak bisa membuka tempat asalnya.',
+    "AIが{sources}のファイルを読んで、このチャットにコピーしようとしています：{files}。あとからアクセスできるようになる人も含め、このチャットを見る全員が開けます。このチャットを見る{n}人のうち{m}人は元の場所を開けません。",
+    "La IA quiere leer archivos de {sources} y copiarlos a este chat: {files}. Todos los que ven este chat podrán abrirlos, incluidas las personas que tengan acceso más adelante. {m} de {n, plural, one {la # persona} other {las # personas}} que ven este chat no pueden abrir el lugar donde están ahora.",
+    'AI想读取{sources}中的文件并复制到这个对话：{files}。所有能看到这个对话的人都能打开它们，包括之后获得权限的人。能看到这个对话的{n, plural, one {#人} other {#人}}中，有{m}人打不开它们原来的位置。'),
+  /** ...more than three files: how many */
+  sharedCopyCount: t('파일 {n}개', '{n, plural, one {# file} other {# files}}', '{n} berkas', '{n}件のファイル', '{n, plural, one {# archivo} other {# archivos}}', '{n}个文件'),
   // the widening list (POST /api/sharing/widening-answers, chat/widening.ts)
   wideningNotAllowed: t('이 프로젝트의 멤버를 바꿀 수 있는 사람만 볼 수 있어요.', 'Only someone who can change this project\'s members can see this.', 'Hanya orang yang bisa mengubah anggota proyek ini yang bisa melihat ini.', 'このプロジェクトのメンバーを変更できる人だけが見られます。', 'Solo quien puede cambiar los miembros de este proyecto puede ver esto.', '只有能更改这个项目成员的人才能看到这里。'),
   wideningChanged: t('그사이 무언가 바뀌었어요. 목록을 다시 불러와 주세요.', 'Something changed meanwhile. Load the list again.', 'Ada yang berubah sementara itu. Muat ulang daftarnya.', 'その間に何かが変わりました。一覧を読み込み直してください。', 'Algo cambió mientras tanto. Vuelva a cargar la lista.', '在此期间有内容发生了变化。请重新加载列表。'),
@@ -554,6 +581,9 @@ export function tr(key: keyof typeof TEXT, locale: Locale, vars: Record<string, 
   // a count first ("{n, plural, one {# person} other {# people}}", shared/src/plural.ts), no second honorific after a
   // name that has one ("{by} 님" with 대표님, shared/src/honorific.ts), then the plain values
   let s = dropDoubleHonorifics(fillPlurals(TEXT[key][locale] ?? TEXT[key].en, vars, locale), vars)
+  // a Korean particle mark right after a value ("{sources}을(를)") in the form the value takes when read aloud, as the
+  // web app's format does (shared/src/ko-particle.ts): "내 개인 폴더를", never "폴더을(를)" (QA TC-6940)
+  if (locale === 'ko') s = s.replace(PARTICLE_AFTER, (all, k: string, close: string, mark: string) => (vars[k] === undefined ? all : `{${k}}${close}${koParticle(vars[k]!, mark)}`))
   for (const [k, v] of Object.entries(vars)) s = s.split(`{${k}}`).join(v)
   return s
 }

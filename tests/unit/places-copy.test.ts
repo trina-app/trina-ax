@@ -301,7 +301,7 @@ describe('chat:files/', () => {
     const chat = await h.api('alice').call(API.createChat, { body: { projectId: p.id } })
     for (const to of ['chat:files/', 'chat:work/in/']) {
       const r = await run('alice', chat.id, copy(['users/alice/proposal/proposal.html'], to))
-      expect(r.content).toContain('save files in the project folder')
+      expect(r.content).toContain("files are saved in the project's folder")
       expect(r.attachments ?? []).toHaveLength(0)
     }
   })
@@ -309,7 +309,10 @@ describe('chat:files/', () => {
   test('a personal chat: chat:files/ is no save place there', async () => {
     const chat = await personal()
     const r = await run('alice', chat, copy(['users/alice/proposal/proposal.html'], 'chat:files/'))
-    expect(r.content).toContain('save files in your own folder')
+    expect(r.content).toContain('save it in My files')
+    // a chat made private again (QA TC-6959): the refusal says nothing is attached here and a file there is just linked
+    expect(r.content).toContain('files are not attached to the chat')
+    expect(r.content).toContain('link it in the answer; a file already there needs nothing more')
   })
 })
 

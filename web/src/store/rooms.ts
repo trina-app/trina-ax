@@ -699,6 +699,8 @@ export function onDeviceChange(key: string | null, value: string | null) {
 const asked = new Map<string, number>()
 /** rooms I am leaving from this window: their "removed" event is no news here */
 const leaving = new Set<string>()
+/** rooms whose "Make it a project" answer is on its way: the last room.updated heard for each meanwhile (makeProject) */
+const making = new Map<string, { room: Room | null }>()
 /** I am leaving this room another way (a project's chat room: leaving its project): its "removed" is no news here */
 export function markLeaving(roomId: string) {
   leaving.add(roomId)
@@ -1347,8 +1349,15 @@ export const useRooms = create<RoomsState>((set, get) => {
     },
 
     async makeProject(roomId, name, membersHash) {
-      const r = await api.call(API.makeProject, { params: { id: roomId }, body: { name, membersHash } })
-      set((s) => withRoom(s, keepPending(s, r.room)))
+      // the room's own word heard while the answer is on its way (QA TC-6946): the answer's room was read before the
+      // file moves ran, and a small move can settle (room.updated without filesMoving) before the answer arrives
+      const heard: { room: Room | null } = { room: null }
+      making.set(roomId, heard)
+      let r: MakeProjectResult
+      try { r = await api.call(API.makeProject, { params: { id: roomId }, body: { name, membersHash } }) } finally { if (making.get(roomId) === heard) making.delete(roomId) }
+      // a project room's word that nothing moves any more is the newer one (filesMoving only ever goes from true to off)
+      const room = heard.room?.projectRoom && !heard.room.filesMoving ? heard.room : r.room
+      set((s) => withRoom(s, keepPending(s, room)))
       return r
     },
 
@@ -1517,6 +1526,8 @@ export const useRooms = create<RoomsState>((set, get) => {
             return
           }
           set((s) => withRoom(s, keepPending(s, room)))
+          const h = making.get(roomId)
+          if (h) h.room = room
           if (change === 'members') {
             memberReads.delete(roomId)
             // (kept after leaving it, it is read again as the first time: the events do not say whose reactions went)
@@ -1537,6 +1548,7 @@ export const useRooms = create<RoomsState>((set, get) => {
 
     reset() {
       asked.clear()
+      making.clear()
       threadSnaps.clear()
       leaving.clear()
       unsure.clear()

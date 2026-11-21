@@ -413,9 +413,11 @@ describe('the tools that refuse after a room read', () => {
     expect(trashed.cards).toHaveLength(1)
     expect(exists(gone)).toBe(false)
     // after a room read: [이번만] for the team folder, then a group's skills, the trashed path again, and a delete
+    // (a file the AI made in this turn is its own to delete without a card, so the delete targets one that was there before)
+    put(`${dir}/old.md`, 'old\n')
     const chat = await sideChat('alice', roomId)
     let n = 0
-    const r = await run('alice', chat, fake(roomRead(roomId), write(`${dir}/a.md`), write(`${dir}/b.md`), write(`groups/marketing/skills/planted-${tag}/SKILL.md`, '---\nname: planted\ndescription: x\n---\nx\n'), write(gone, 'planted\n'), { tool: 'delete_files', args: { paths: [`${dir}/a.md`] } }, { say: 'done' }), () => (n++ === 0 ? 'allow' : 'skip'))
+    const r = await run('alice', chat, fake(roomRead(roomId), write(`${dir}/a.md`), write(`${dir}/b.md`), write(`groups/marketing/skills/planted-${tag}/SKILL.md`, '---\nname: planted\ndescription: x\n---\nx\n'), write(gone, 'planted\n'), { tool: 'delete_files', args: { paths: [`${dir}/old.md`] } }, { say: 'done' }), () => (n++ === 0 ? 'allow' : 'skip'))
     expect(r.cards.map((c) => c.question.includes(`${W(dir)}: a.md`) ? 'team' : c.question.includes('skills/planted') ? 'skill' : c.question.includes(gone) ? 'trashed' : c.question.includes('to the trash') ? 'delete' : 'other')).toEqual(['team', 'skill', 'trashed', 'delete'])
     expect(read(`${dir}/b.md`)).toBe('made by the AI\n')
     expect(exists(`groups/marketing/skills/planted-${tag}`)).toBe(false)
@@ -424,7 +426,7 @@ describe('the tools that refuse after a room read', () => {
     expect(r.cards.at(-1)!.question.startsWith("Messages from your conversations (other people's words) came in here")).toBe(true)
     const del = (h.ctx.db.query("SELECT ok, summary FROM tool_events WHERE turn_id = ? AND tool = 'delete_files'").get(r.turnId) as { ok: number; summary: string })
     expect(del.ok).toBe(0)
-    expect(exists(`${dir}/a.md`)).toBe(true)
+    expect(exists(`${dir}/old.md`)).toBe(true)
   })
 })
 

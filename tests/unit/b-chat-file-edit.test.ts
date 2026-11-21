@@ -81,6 +81,10 @@ describe('edit a chat file from the web', () => {
     // saved from version 1 while version 2 is the head: both kept
     const late = (await (await save('alice', c.chatId, c.rootId, '# alice from v1', list.items[0]!.id)).json()) as ChatFileSaved
     expect(late).toMatchObject({ beside: true, version: { version: 3, by: 'alice' } })
+    // the version saved in between is named, so the notice says whose it is and opens it (QA TC-6956)
+    expect(late.besideOf).toMatchObject({ version: 2, by: 'bob', byName: expect.any(String) })
+    expect(late.besideOf!.head).toBeUndefined()
+    expect(late.pruned).toBeUndefined()
     // restore version 1: a new head with its bytes, nothing deleted
     const back = (await (await restore('bob', c.chatId, c.rootId, 1)).json()) as ChatFileSaved
     expect(back.version.version).toBe(4)
@@ -186,6 +190,23 @@ describe('the save route\'s limits (S2 review L1, L3)', () => {
     expect(((await limited!.json()) as { error: { retryAfter?: number } }).error.retryAfter).toBeGreaterThan(0)
     // bob is not limited by erin's
     expect((await save('bob', c.chatId, c.rootId, 'bob')).status).toBe(200)
+  })
+})
+
+describe('the 20 versions kept (QA TC-6949)', () => {
+  test('a restore at the cap says which version went to keep 20; below the cap nothing is pruned', async () => {
+    const c = await sharedCopy('cap.md', 'v1')
+    // 20 rows: the root and versions 2..20, saved directly (the route's per-minute limit is not what this is about)
+    for (let i = 2; i <= 20; i++) await chatFilesOf(h.ctx).putVersion('alice', c.chatId, c.rootId, { bytes: new TextEncoder().encode(`v${i}`) })
+    const list = (await (await versions('alice', c.chatId, c.rootId)).json()) as ChatFileVersions
+    expect(list.items.map((v) => v.version)).toEqual(Array.from({ length: 20 }, (_, i) => i + 1))
+    const back = (await (await restore('bob', c.chatId, c.rootId, 5)).json()) as ChatFileSaved
+    expect(back.version.version).toBe(21)
+    // the oldest after the first goes; the first stays
+    expect(back.pruned).toEqual([2])
+    const after = (await (await versions('alice', c.chatId, c.rootId)).json()) as ChatFileVersions
+    expect(after.items.map((v) => v.version)).toEqual([1, ...Array.from({ length: 19 }, (_, i) => i + 3)])
+    expect(await (await read('alice', c.chatId, c.rootId)).text()).toBe('v5')
   })
 })
 

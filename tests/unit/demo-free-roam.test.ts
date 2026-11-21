@@ -117,7 +117,7 @@ describe('the snapshot of Steepling (en)', () => {
     const drive = JSON.parse(fs.readFileSync(path.join(L.fakes, 'drive.json'), 'utf8'))
     expect(drive.files.length).toBeGreaterThan(1)
     expect(fs.readdirSync(path.join(L.fakes, 'higgsfield')).map((n) => n.normalize('NFC')).sort()).toEqual([HIGGSFIELD_PICTURE, ...Object.values(SCENE_PICTURES), 'banner'].map((n) => n.normalize('NFC')).sort())
-    // the banner kit (make_banner: text-free photos + words) came through whole
+    // the banner kit (change_banner_text: text-free photos + words) came through whole
     expect(JSON.parse(fs.readFileSync(path.join(L.fakes, 'higgsfield', 'banner', 'kit.json'), 'utf8')).scenes.length).toBe(4)
     expect(fs.existsSync(path.join(L.fakes, 'higgsfield', 'banner', 'fonts', 'Fraunces-SemiBold.ttf'))).toBe(true)
     // the team's Higgsfield keeps the fake's tool list, so the AI has its image tool (QA TC-5559)

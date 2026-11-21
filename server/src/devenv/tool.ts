@@ -40,6 +40,7 @@ import { addTicket, armTicket, commandWaitFor, FULL_MESSAGE, releaseCommand, wai
 import { newId } from '../db'
 import { inOthersSkills } from '../skills/script-copies'
 import { hideProxyLogin } from './srt/proxy-login'
+import { auditBulk, BULK_FILES, bulkFolders, mb, moveToScratch, newBulkState, overBulk, type BulkAsk, type BulkState } from './bulk'
 
 export const BOX_SHELL_TOOL = 'box_shell'
 
@@ -85,7 +86,9 @@ export const srtShellDescription = (preview: boolean) => 'Run a shell command in
   + 'A folder in users/<id> that the person shares with other people is read-only in a command too: write the file somewhere else, then move it in with move_files, which asks the person first. '
   + 'Team folders are under $TRINA_TEAM, with the same paths as in the file tools. '
   + 'In a project chat the command starts in the project folder, and changes there are shared with the team and recorded with your name. '
-  + 'In a chat with no project it starts in the chat\'s own work folder ($TRINA_WORK), which only this chat uses: in the file tools it is chat:work/ (chat:work/out/frame.png is $TRINA_WORK/out/frame.png in a command). Bring a team file or folder in with copy_files (to_folder "chat:work/in/"); open a picture, a video, a PDF or any file made there with read (chat:work/out/frame.png, or the absolute path a command prints) to see it yourself; list, glob and grep take chat:work/ too; hand a finished file over with copy_files (paths ["chat:work/out/promo.mp4"], to_folder a team folder, the person\'s own folder users/<id>/ by default), then link it. Do not start a dev server to show a finished file: Preview is for a web app. '
+  + 'It also has this chat\'s own work folder $TRINA_WORK, which only this chat uses and which is not a team folder (chat:work/ in the file tools). '
+  + PROJECT_SCRATCH_TEXT
+  + 'In a chat with no project it starts in the chat\'s own work folder ($TRINA_WORK), which only this chat uses: in the file tools it is chat:work/ (chat:work/out/frame.png is $TRINA_WORK/out/frame.png in a command). Bring a team file or folder in with copy_files (to_folder "chat:work/in/"); open a picture, a video, a PDF or any file made there with read (chat:work/out/frame.png, or the absolute path a command prints) to see it yourself; list, glob and grep take chat:work/ too; hand a finished file over with copy_files (paths ["chat:work/out/promo.mp4"], to_folder a team folder, the person\'s own folder users/<id>/ by default), then link it. write and edit do not change the work folder: make a text file there with a command (cat > report.txt <<\'EOF\' … EOF). Do not start a dev server to show a finished file: Preview is for a web app. '
   + 'node_modules, .venv and build output are in that folder and use team disk. '
   + 'The network reaches only allowed sites (npm, PyPI, GitHub, the team\'s sites and the sites this person allowed), or nothing (the team setting No network). '
   + 'A blocked site answers HTTP 403 (curl: "CONNECT tunnel failed, response 403"). If the command needs that site, call box_shell again with the same command and request_sites set to its host name: the person is asked to allow it, and the command runs when they do. Never ask for an IP address, localhost or the team server; those stay blocked. '
@@ -94,7 +97,7 @@ export const srtShellDescription = (preview: boolean) => 'Run a shell command in
   + devServerText(preview)
   + 'For a long command (a render, a large build) use job=true: the call returns at once; if other jobs of the team run, it waits in a queue. '
   + 'Read its log with tail -n 20 $TRINA_LOGS/<log_name>.log and do not wait for it in a loop. When a job ends the person gets a notice, and your next box_shell call in this chat gives you its exit code and the end of its log. '
-  + '/tmp and $TMPDIR can be the command\'s own and gone when it ends, and read cannot open them: make a result in the folder the command starts in. '
+  + '/tmp and $TMPDIR can be the command\'s own and gone when it ends, and read cannot open them: make a result in $TRINA_WORK. '
   + 'One command at a time per folder; default time limit 120 s; a long stdout or stderr comes back as its first and its last 16 KiB (the middle is left out, and the result says so): to search all of a long output, send it to a file (cmd > $TRINA_LOGS/out.log 2>&1) and grep or tail that. '
   + 'When the dev environment of the team is full, a command waits for a free slot (at most 5 minutes) and then runs; the person sees its place in line.'
 /** The tool text in a shared chat (docs/decisions/20261118-devenv-shared-chats.md): everyone in the chat sees the
@@ -104,8 +107,9 @@ export const sharedShellDescription = (project: boolean) => 'Run a shell command
   + boxLibsText()
   + 'This is a shared chat: everyone in it sees the command and its output, so the command sees only the team folders that EVERYONE in this chat may open. No personal folder (users/...) is there, not even the person\'s own, and no other chat\'s files. '
   + (project
-    ? 'It starts in the project folder and sees only the parts of it that everyone here may open (a folder some of them cannot open is not there); it can write only in the project folder, where the person may write. Changes there are shared with the team and recorded with your name. To use a file from somewhere else, the person must copy it into the project folder first. '
-    : 'It starts in the chat\'s own work folder ($TRINA_WORK), which it can write: in the file tools it is chat:work/ (chat:work/out/frame.png is $TRINA_WORK/out/frame.png in a command). A file from a place not everyone here may open (the person\'s own folder) comes in only with copy_files (to_folder "chat:work/in/"; a whole folder too, an HTML file with its images folder): the person is asked first. Open a picture, a video, a PDF or any file made there with read (chat:work/out/frame.png) to see it yourself; list, glob and grep take chat:work/ too; hand a finished file over with copy_files to "chat:files/": it is attached to your answer for everyone here. It can read the team folders that everyone in this chat may open, under $TRINA_TEAM with the same paths as in the file tools, and write none of them. Do not start a dev server to show a finished file: Preview is for a web app. ')
+    ? 'It starts in the project folder and sees only the parts of it that everyone here may open (a folder some of them cannot open is not there); it can write only in the project folder, where the person may write, and in this chat\'s own work folder $TRINA_WORK (chat:work/ in the file tools; not a team folder, and everyone in this chat sees what is there). Changes in the project folder are shared with the team and recorded with your name. To use a file from somewhere else, the person must copy it into the project folder first. '
+      + PROJECT_SCRATCH_TEXT
+    : 'It starts in the chat\'s own work folder ($TRINA_WORK), which it can write: in the file tools it is chat:work/ (chat:work/out/frame.png is $TRINA_WORK/out/frame.png in a command). A file from a place not everyone here may open (the person\'s own folder) comes in only with copy_files (to_folder "chat:work/in/"; a whole folder too, an HTML file with its images folder): the person is asked first. Open a picture, a video, a PDF or any file made there with read (chat:work/out/frame.png) to see it yourself; list, glob and grep take chat:work/ too; hand a finished file over with copy_files to "chat:files/": it is attached to your answer for everyone here. write and edit do not change the work folder: make a text file there with a command (cat > report.txt <<\'EOF\' … EOF), then copy_files it to "chat:files/"; never save it in someone\'s own folder first. It can read the team folders that everyone in this chat may open, under $TRINA_TEAM with the same paths as in the file tools, and write none of them. Do not start a dev server to show a finished file: Preview is for a web app. ')
   + 'The network reaches only allowed sites (npm, PyPI, GitHub, the team\'s sites and the sites this person allowed), or nothing (the team setting No network). '
   + 'A blocked site answers HTTP 403 (curl: "CONNECT tunnel failed, response 403"). If the command needs that site, call box_shell again with the same command and request_sites set to its host name: the person is asked to allow it, and the command runs when they do. Never ask for an IP address, localhost or the team server; those stay blocked. '
   + 'There are NO credentials, and commands that need a login (git push, npm publish, ssh ...) are refused here: tell the person to do them on their own computer. '
@@ -114,9 +118,15 @@ export const sharedShellDescription = (project: boolean) => 'Run a shell command
   + devServerText(previewReady())
   + 'For a long command (a render, a large build) use job=true: the call returns at once; if other jobs of the team run, it waits in a queue. '
   + 'Read its log with tail -n 20 $TRINA_LOGS/<log_name>.log and do not wait for it in a loop. When a job ends, the next box_shell call in this chat gives you its exit code and the end of its log. '
-  + '/tmp and $TMPDIR can be the command\'s own and gone when it ends, and read cannot open them: make a result in the folder the command starts in. '
+  + '/tmp and $TMPDIR can be the command\'s own and gone when it ends, and read cannot open them: make a result in $TRINA_WORK. '
   + 'One command at a time per folder; default time limit 120 s; a long stdout or stderr comes back as its first and its last 16 KiB (the middle is left out, and the result says so): to search all of a long output, send it to a file (cmd > $TRINA_LOGS/out.log 2>&1) and grep or tail that. '
   + 'When the dev environment of the team is full, a command waits for a free slot (at most 5 minutes) and then runs; the person sees its place in line.'
+
+/** Where a project chat's scratch goes (docs/decisions/20261121-ai-scratch-files.md): a project chat's commands have
+ * $TRINA_WORK next to the project folder; only finished files go into the team's folder. */
+export const PROJECT_SCRATCH_TEXT = 'Put downloads, git clones, tools and their installs (a venv, node_modules), previews and every other scratch file in $TRINA_WORK, and run downloaded code from there. '
+  + 'Put only the finished files the person asked for (the deck, the PDF) in the project folder, for example cp $TRINA_WORK/out/deck.pptx ./; never a downloaded repository or tool, and nothing into the team\'s skills or another team folder, unless the person asks for exactly that. Say where third-party code came from and its licence. '
+  + 'A download or clone as a job (job=true) goes in $TRINA_WORK too: cd $TRINA_WORK first. When one answer adds many new files to the project folder, the person is asked whether to keep them there or move them to $TRINA_WORK. '
 
 /** this server shows previews: a preview origin is set and the runner can forward a port (systemd scopes) */
 export const previewReady = () => !!previewBase() && previewSupported()
@@ -198,6 +208,11 @@ export interface BoxShellHost {
   helper?: boolean
   /** the sub-agent's key (its Agent call id, '?' when not known) on a helper's call: in the audit line */
   agent?: string
+  /** the bulk card (devenv/bulk.ts): keep this command's many new files in the project folder? true: keep (also the
+   * person's "Always allow", kind bulk_files); false or null: move them to the chat's scratch folder */
+  keepBulk?(ask: BulkAsk): Promise<boolean | null>
+  /** what this answer's commands added to project folders so far (boxShellTool keeps one per turn) */
+  bulk?: BulkState
   redact(s: string): string
 }
 
@@ -266,12 +281,19 @@ async function srtShell(h: BoxShellHost, input: BoxShellInput, o: { space: Space
   }
   let w: Window & { value: Out }
   if (o.tracked) {
-    w = await withChangeWindow(ctx, o.tracked, { userId: h.userId, turnId: h.turnId }, { command: input.command.slice(0, 500) }, run).finally(() => slot?.release())
+    const tracked = o.tracked
+    w = await withChangeWindow(ctx, tracked, { userId: h.userId, turnId: h.turnId }, { command: input.command.slice(0, 500) }, run, {
+      bulk: (changes, startedMs, present) => bulkGuard(h, { space, project: tracked, changes, startedMs, present, notes }),
+    }).finally(() => slot?.release())
     // a sub-agent's command does not use up the main AI's "changed by other people" note or the login card's check
     // (both are the main AI's; the helper never sees the card)
     if (!h.helper) markSeen(ctx, o.tracked.id, h.userId)
   } else w = { ...NO_WINDOW, value: await run() }
   notes.push(...await o.jobNotes())
+  // a job or dev server that added many files to the project folder since the last command (not guarded: moving a
+  // running job's files would break it): the AI is told where such output belongs
+  const bgNew = o.tracked ? w.background.filter((c) => c.action === 'create').length : 0
+  if (bgNew > BULK_FILES) notes.push(`A job or dev server of this project added ${bgNew} new files to the project folder since the last command. Downloads, clones and other scratch belong in $TRINA_WORK: tell the person, and use $TRINA_WORK for such jobs from now on.`)
   const out = w.value
   const result = !out.r.ok ? { error: out.r.message.slice(0, 300) }
     : out.kind === 'exit' && out.r.ok ? { code: out.r.value.code, signal: out.r.value.signal, ms: out.r.value.ms }
@@ -325,6 +347,42 @@ async function srtShell(h: BoxShellHost, input: BoxShellInput, o: { space: Space
     : `Exit code ${e.code}.`
   if (e.code !== 0 && networkNow(ctx) === 'open' && (BLOCKED_SITE.test(e.stderr) || BLOCKED_SITE.test(e.stdout))) notes.push(blockedHint({ full: personNetNow(ctx, h.userId).full }))
   return answer(h, { notes, head, started, exit: e, w, background: false, what })
+}
+
+/**
+ * The bulk guard after a command in a project folder (devenv/bulk.ts): this answer's new files there over the line ask
+ * the person whether to keep them; no answer or "move" moves the command's new files to the chat's scratch folder.
+ * Returns the team paths that went (the window does not record them). The AI gets a note either way.
+ */
+async function bulkGuard(h: BoxShellHost, o: { space: Space; project: ProjectRef; changes: Change[]; startedMs: number; present: readonly string[]; notes: string[] }): Promise<Set<string>> {
+  const st = h.bulk ?? newBulkState()
+  const created = o.changes.filter((c) => c.action === 'create')
+  const bytes = created.reduce((n, c) => n + (c.size ?? 0), 0)
+  const none = new Set<string>()
+  if (!overBulk(st, created.length, bytes)) { st.files += created.length; st.bytes += bytes; return none }
+  const base = { userId: h.userId, turnId: h.turnId, chatId: h.chatId ?? null, projectId: o.project.id, files: created.length, bytes }
+  // a sub-agent and a run nobody watches cannot ask: the files move (keeping them needs the person's yes or their
+  // "Always allow", which keepBulk answers without a card)
+  const ask: BulkAsk = { files: created.length, bytes, folders: bulkFolders(o.project.folderPath, created), project: o.project.folderPath }
+  const keep = !h.helper && h.keepBulk ? await h.keepBulk(ask).catch(() => null) : null
+  if (keep === true) {
+    st.kept = true; st.files += created.length; st.bytes += bytes
+    auditBulk(h.ctx, { ...base, decision: 'keep', asked: true })
+    o.notes.push(`The person chose to keep the ${created.length} new files (${mb(bytes)} MB) of this command in the project folder.`)
+    return none
+  }
+  const r = await moveToScratch(h.ctx, { space: o.space, project: o.project.folderPath, created, startedMs: o.startedMs, present: o.present, signal: h.signal })
+  const left = created.filter((c) => !r.moved.has(c.path))
+  st.files += left.length; st.bytes += left.reduce((n, c) => n + (c.size ?? 0), 0)
+  if ('error' in r) {
+    auditBulk(h.ctx, { ...base, decision: 'move_failed', asked: !h.helper && !!h.keepBulk })
+    o.notes.push(`This command added ${created.length} new files (${mb(bytes)} MB) to the project folder, more than one answer may add without the person's yes, and they could not be moved to $TRINA_WORK (${r.error}). They stay in the project folder: tell the person, and put scratch files in $TRINA_WORK from now on.`)
+    return r.moved
+  }
+  auditBulk(h.ctx, { ...base, decision: 'move', asked: !h.helper && !!h.keepBulk, moved: r.moved.size, dest: r.dest })
+  const why = h.helper ? 'a sub-agent cannot ask the person to keep them' : keep === false ? 'the person chose to move them' : 'the person did not say to keep them'
+  o.notes.push(`This command added ${created.length} new files (${mb(bytes)} MB) to the project folder. That is more than one answer may add there without the person's yes, and ${why}, so ${r.moved.size} of them were moved out of the project folder to $TRINA_WORK/${r.dest}/ (chat:work/${r.dest}/ in the file tools), with their folders. Use them from there, keep downloads, tools and previews in $TRINA_WORK, and copy only finished files into the project folder.`)
+  return r.moved
 }
 
 /** A foreground command takes a slot of the team's queue (srt/queue.ts): at once when one is free and nobody is ahead,
@@ -555,6 +613,8 @@ export function boxShellTool(h: BoxShellHost) {
   const once = new Set<string>()
   /** the sites the person did not allow in this turn (or nobody could answer): no second card for them */
   const denied = new Set<string>()
+  /** what this answer's commands added to project folders (devenv/bulk.ts), shared by the main AI and its sub-agents */
+  const bulk = h.bulk ?? newBulkState()
   return {
     name: BOX_SHELL_TOOL,
     description: h.shared ? sharedShellDescription(h.shared.within !== null) : srtShellDescription(previewReady()),
@@ -567,7 +627,7 @@ export function boxShellTool(h: BoxShellHost) {
       const first = !called.has(who.key)
       called.add(who.key)
       // a sub-agent's call: no step patch (patchToolStep's FIFO is the main AI's; chat/subagents.ts PARENT_ONLY_TOOLS)
-      const host: BoxShellHost = who.helper ? { ...h, helper: true, agent: who.key, queueStep: undefined } : h
+      const host: BoxShellHost = who.helper ? { ...h, bulk, helper: true, agent: who.key, queueStep: undefined } : { ...h, bulk }
       return srtCall(host, a.data, what + (who.helper ? ' (sub-agent)' : ''), first, once, denied)
     },
   }

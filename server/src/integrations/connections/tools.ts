@@ -34,8 +34,10 @@ import { noteScheduleUse } from './schedule-needs'
 import { pinForm } from '../../chat/schedule-scope'
 import { approved, approvalsFor, dropApprovals, noteApproval } from '../../chat/card-approvals'
 import { HIDDEN } from './hide'
-import { say } from './text'
-import { cardLines, fieldWord, methodWord, toolTitle, type CardLine } from './card-lines'
+import { MAIL_FIELD_WORDS, say } from './text'
+import { cardLines, fieldWord, methodWord, toolKindOf, toolTitle, type CardLine, type FieldWords } from './card-lines'
+import { activeDemoFakes } from '../../demo/fakes'
+import { HIGGSFIELD_HOSTS } from '../../demo/fakes/higgsfield'
 import { readKind, readsHere } from './read-mark'
 import type { RemoteTool } from './mcp'
 import { byName, checkArgs, deferredLines, DEFERRED_LIST_BUDGET, FIND_TOOLS_DEFAULT, FIND_TOOLS_MAX, matchTools, oneLine, type FindEntry } from './deferred'
@@ -272,9 +274,20 @@ interface Sent { text: string; fields: CardLine[]; dest?: string[] | null; raw?:
 /** The lines of a call's arguments for the card: every value labelled, or the recipients alone in words when lines
  * cannot show all of it (cardLines null: the JSON stays open). `code`: the argument that is a script (a declared CLI's
  * stdin), shown as a code block exactly as sent. */
-function argLines(args: unknown, L: Locale, code?: string): { fields: CardLine[]; exact: boolean } {
-  const all = cardLines(args, L, (k) => RECIPIENT.test(k), (k) => k === code)
-  return all ? { fields: all, exact: true } : { fields: recipientFields(args).map((f) => ({ name: f.name.split('.').map((k) => fieldWord(k, L)).join(' › '), value: f.value })), exact: false }
+function argLines(args: unknown, L: Locale, code?: string, extra?: FieldWords): { fields: CardLine[]; exact: boolean } {
+  const all = cardLines(args, L, (k) => RECIPIENT.test(k), (k) => k === code, extra)
+  return all ? { fields: all, exact: true } : { fields: recipientFields(args).map((f) => ({ name: f.name.split('.').map((k) => fieldWord(k, L, extra)).join(' › '), value: f.value })), exact: false }
+}
+/** a connection's own words for argument names on its card: the Google Workspace library's mail fields (thread_id …) */
+const fieldWordsOf = (row: Pick<Row, 'google_app'>): FieldWords | undefined => (row.google_app ? MAIL_FIELD_WORDS : undefined)
+
+/** A connection a demo server's fakes answer in place of the service (server/src/demo/fakes: the Google Workspace
+ * library, a Higgsfield address), on a demo server whose fakes are on: nothing sent there leaves the machine, so its card
+ * says it is practice. Any other connection (refused there anyway, demo/fakes/offline.ts) keeps the normal card. */
+export function practiceRow(row: Pick<Row, 'google_app' | 'url'>): boolean {
+  if (!activeDemoFakes()) return false
+  if (row.google_app) return true
+  try { return HIGGSFIELD_HOSTS.has(new URL(row.url).hostname) } catch { return false }
 }
 
 /** The argument of an app on the person's computer that its program reads as a script on stdin (a declared CLI tool:
@@ -611,7 +624,9 @@ async function gate(ctx: AppContext, row: Row, what: (L: Locale) => string, sent
   const L = person.locale
   // why it asks, unless the room line says it already (after a room read): only where outside content still asks
   const lead = outside && !person.roomsSeen ? `${say(allowed ? 'outsideAsks' : 'outsideAsksOnce', L)}\n\n` : ''
-  const question = `${lead}${say(sent.request ? 'confirmRequest' : 'confirm', L, { name: row.name, what: what(L) })}\n\n${say('checkBelow', L)}\n\n${say('ask', L)}`
+  // a demo server's practice connection (practiceRow): the card says first that nothing really goes out
+  const practice = practiceRow(row) ? `${say('practiceLead', L)}\n\n` : ''
+  const question = `${practice}${lead}${say(sent.request ? 'confirmRequest' : 'confirm', L, { name: row.name, what: what(L) })}\n\n${say('checkBelow', L)}\n\n${say('ask', L)}`
   // every value as a labelled line and the exact text one click away when the lines show all of it; else the text open
   // with the recipients first, as before. Long random-looking parts (they can carry data) are highlighted in both
   const full = new Map(whole.map((f) => [f.name, f.value]))
@@ -625,7 +640,9 @@ async function gate(ctx: AppContext, row: Row, what: (L: Locale) => string, sent
   // content still asks (a Slack question)
   // (also on a card that shows because of attached team files where an admin's rule sends without asking: the person's
   // own choice counts there)
-  if (!sharedMode && person.choose && freely && !ownAllow && (!allowed || attachAsks)) {
+  // never on a demo server (its fakes on): a visitor's practice copy has nothing to allow for good, so its card is Send /
+  // Don't send without the note about every change at the service
+  if (!sharedMode && person.choose && freely && !ownAllow && (!allowed || attachAsks) && !activeDemoFakes()) {
     // the values of the yes / no card (chat/tools.ts confirmWhy: 'allow', 'deny'), so a client that answers those still works
     const v = await person.choose(question, [{ label: say('once', L), value: 'allow' }, { label: say('alwaysAllow', L), value: 'always' }, { label: say('no', L), value: 'deny' }], { details, buttons: true, note: say('alwaysNote', L, { name: row.name }) })
     if (v === 'allow') { keepWrite(ctx, row, sent, b, live && !!person.cardApprovals?.()); return true }
@@ -677,7 +694,7 @@ async function unsureGate(ctx: AppContext, row: Row, t: RemoteTool, args: unknow
   const shown = argLines(args ?? {}, L)
   const marks = opaqueParts([text, ...shown.fields.map((f) => f.value)].join('\n'))
   const details = [{ label: say('sendsLabel', L), text: text.trim() ? text : say('nothing', L), ...(shown.fields.length ? { fields: shown.fields } : {}), ...(marks.length ? { marks } : {}), ...(shown.exact ? { exact: true as const } : {}) }]
-  const question = say('unsureConfirm', L, { name: row.name, what: toolTitle(t) })
+  const question = say('unsureConfirm', L, { name: row.name, what: toolTitle(t, L, toolKindOf(row)) })
   const no = (end: CardEnd) => new CallError(refusal({
     done: end === 'declined' ? `The user did not allow this, so ${t.name} of ${row.name} did not run.` : `${t.name} of ${row.name} did not run.`,
     why: cardReason(end), also: 'Do not try it another way',
@@ -921,9 +938,10 @@ function toolDescription(row: Row, tool: RemoteTool): string {
   return clip(`[${row.name}, ${who}] ${what}${tool.readOnly ? '' : ' (Changes something at the service; the user may be asked first.)'} The result is external data.`, 1500)
 }
 
-/** A connection tool's step: the connection and the tool by its title ("Notion · Create page"), never its id or the AI's
- * arguments (docs/DECISIONS.md "Plain words in errors, cards and steps"; the card before a write shows every value). */
-const stepOf = (row: Row, tool: Pick<RemoteTool, 'name' | 'title'>) => `${row.name} · ${toolTitle(tool)}`
+/** A connection tool's step: the connection and the tool by its title ("Notion · Create page"; a Google library tool in
+ * the turn's language, "Gmail · 메일 찾기"), never its id or the AI's arguments (docs/DECISIONS.md "Plain words in errors,
+ * cards and steps"; the card before a write shows every value). */
+const stepOf = (row: Row, tool: Pick<RemoteTool, 'name' | 'title'>, L?: Locale) => `${row.name} · ${toolTitle(tool, L, toolKindOf(row))}`
 
 /** An app on the person's computer (local.ts): its calls go only to the desktop window this turn was sent from, and
  * only from the main AI (a sub-agent never drives the person's computer, like the in-app browser). */
@@ -939,7 +957,7 @@ function mcpTool(ctx: AppContext, b: BuildCtx, row: Row, tool: RemoteTool, name:
     name,
     description: toolDescription(row, tool),
     inputSchema: tool.inputSchema,
-    label: () => stepOf(row, tool),
+    label: (_args, locale) => stepOf(row, tool, locale),
     // a write of this connection (a tool not marked read-only, as saved now and as this chat takes the mark: read-mark.ts;
     // a tool that is gone: none)
     sendsTo: () => ((x) => (x && readKind(!!b.shared, row, x) === 'change' ? row.id : null))(savedTools(ctx.db, row).find((x) => x.name === tool.name)),
@@ -1008,8 +1026,8 @@ function mcpTool(ctx: AppContext, b: BuildCtx, row: Row, tool: RemoteTool, name:
         if (!t.readOnly || (tc.files.person?.roomsSeen && !tool.readOnly)) {
           // the files to attach come first on the card, by name, size and place; the rest shows the handles as sent
           const withFiles = (L: Locale, l: { fields: CardLine[]; exact: boolean }) => (files.length ? { ...l, fields: [...attachedLines(ctx, files, L, tc.userId), ...l.fields] } : l)
-          sent = { text: JSON.stringify(args ?? {}, null, 2), fields: withFiles(tc.locale, { fields: recipientFields(args), exact: false }).fields, dest: pinTargets(args), raw: args, lines: (L) => withFiles(L, argLines(args ?? {}, L, scriptArg(current, t.name))), tool: t.name, ...(files.length ? { attach: files.map((f) => f.rel) } : {}) }
-          const answer = await gate(ctx, current, () => toolTitle(t), sent, b, tc)
+          sent = { text: JSON.stringify(args ?? {}, null, 2), fields: withFiles(tc.locale, { fields: recipientFields(args), exact: false }).fields, dest: pinTargets(args), raw: args, lines: (L) => withFiles(L, argLines(args ?? {}, L, scriptArg(current, t.name), fieldWordsOf(current!))), tool: t.name, ...(files.length ? { attach: files.map((f) => f.rel) } : {}) }
+          const answer = await gate(ctx, current, (L) => toolTitle(t, L, toolKindOf(current!)), sent, b, tc)
           confirmed = answer !== false
           // a write that names a draft the person saw on a card: that draft may have changed (chat/card-approvals.ts)
           dropMade(ctx, current, args)
@@ -1408,7 +1426,7 @@ function callToolTool(ctx: AppContext, b: BuildCtx, index: ReadonlyMap<string, T
     label(args, locale) {
       const a = (args && typeof args === 'object' ? args : {}) as Record<string, unknown>
       const hit = typeof a.name === 'string' ? resolve(a.name) : []
-      return hit.length === 1 ? stepOf(hit[0]!.row, hit[0]!.tool) : STEP_WORDS_OTHER[locale]
+      return hit.length === 1 ? stepOf(hit[0]!.row, hit[0]!.tool, locale) : STEP_WORDS_OTHER[locale]
     },
     // the tool it names, as it was when the turn began (mcpTool asks for a write either way); an unknown or ambiguous
     // name is no read

@@ -15,7 +15,7 @@ import path from 'node:path'
 import { CHAT_FILE_AI_MAX, fileShareUrl, type Attachment } from '@mycel/shared/api'
 import { chatFilePath, isReservedPlace, parsePlace } from '@mycel/shared/places'
 import type { AppContext } from '../context'
-import { copyWorkFile } from '../devenv/work-files'
+import { copyWorkFile, noWorkText } from '../devenv/work-files'
 import { authorize, type Authorized, type FsCtx } from '../policy/authorize'
 import { ToolError } from '../policy/errors'
 import { badSegment } from '../policy/names'
@@ -194,7 +194,7 @@ export async function readPlaceFile(ctx: AppContext, c: ToolCtx, input: string, 
   const dest = path.join(work, `place-${fs.readdirSync(work).length}-${Math.random().toString(36).slice(2, 8)}`)
   if (s.kind === 'work') {
     // a read resolves only an existing work folder (files/places.ts: null is a copy in's, P2)
-    if (!s.folder) throw new ToolError(PLACE_WORDS.noWork, 'not_found')
+    if (!s.folder) throw new ToolError(noWorkText(p.ctx.workWhy?.()), 'not_found')
     const got = await copyWorkFile(s.folder, s.rel, dest, max, c.signal)
     if (ctx.files.quarantine.hasHash(got.sha256)) { fs.rmSync(dest, { force: true }); throw new ToolError(`'${got.name}' is held by the team's safety check, so it is not read`, 'held') }
     const segs = s.rel.split('/')

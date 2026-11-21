@@ -6,7 +6,7 @@
 import { readableToolName } from '@mycel/shared'
 import type { Locale } from '@mycel/shared/api'
 import { opaqueParts } from '../../tools/url-gate'
-import { FIELD_WORDS, say, type TextKey } from './text'
+import { FIELD_WORDS, googleToolWord, say, type TextKey } from './text'
 
 /** more values than this, nested deeper, or more characters in all: no lines, the JSON open */
 export const CARD_LINES_MAX = 40
@@ -36,11 +36,21 @@ const NAME_MAX = 40
 
 const clip = (s: string, n: number) => (s.length > n ? s.slice(0, n - 1) + '…' : s)
 
-/** A service tool as the card and the step name it: its title from the service (MCP `title`, on one line, at most 80
- * characters, invisible and direction-changing characters out), else its id in words ("create_task" -> "Create task").
- * The title is the service's words like its id: a service that would mislead with it could also mark the tool read-only
- * and never be asked about at all (mcp.ts toolOf). */
-export function toolTitle(tool: { name: string; title?: string | null }): string {
+/** what kind of connection a tool belongs to, for its words: the Google Workspace library (Gmail, Calendar, Docs, Sheets) */
+export type ToolKind = 'google-apps'
+/** A connection row's ToolKind (Row.google_app set: the Google Workspace library) */
+export const toolKindOf = (row: { google_app?: string | null }): ToolKind | undefined => (row.google_app ? 'google-apps' : undefined)
+
+/** A service tool as the card and the step name it: on a Google Workspace library connection with a locale, Trina's own
+ * words for the tool in that language (text.ts GOOGLE_TOOL_WORDS); else its title from the service (MCP
+ * `title`, on one line, at most 80 characters, invisible and direction-changing characters out), else its id in words
+ * ("create_task" -> "Create task"). The title is the service's words like its id: a service that would mislead with it
+ * could also mark the tool read-only and never be asked about at all (mcp.ts toolOf). */
+export function toolTitle(tool: { name: string; title?: string | null }, L?: Locale, kind?: ToolKind): string {
+  if (L && kind === 'google-apps') {
+    const own = googleToolWord(tool.name, L)
+    if (own) return own
+  }
   const title = (tool.title ?? '').slice(0, 1000).normalize('NFKC').replace(/[\s\p{Zl}\p{Zp}]+/gu, ' ').replace(INVISIBLE_ALL, '').replace(/ {2,}/g, ' ').trim()
   return clip(title, TITLE_MAX) || readableToolName(tool.name) || tool.name
 }
@@ -52,23 +62,27 @@ export function methodWord(method: string, L: Locale): string {
   return METHOD_WORDS.has(m) ? say(`method${m}` as TextKey, L) : m
 }
 
-/** One argument name in words: a known name's word in `L` (FIELD_WORDS), else its own words ("page_id" -> "Page id"),
- * else as it is. A name with a long random-looking part is shown as it is, so the card's highlight finds it. */
-export function fieldWord(name: string, L: Locale): string {
+/** One argument name in words: a known name's word in `L` (`extra`, the connection's own words such as text.ts
+ * MAIL_FIELD_WORDS, then FIELD_WORDS), else its own words ("page_id" -> "Page id"), else as it is. A name with a long
+ * random-looking part is shown as it is, so the card's highlight finds it. */
+export function fieldWord(name: string, L: Locale, extra?: FieldWords): string {
   const key = name.toLowerCase().replace(/[\s_.-]+/g, '')
-  const known = Object.hasOwn(FIELD_WORDS, key) ? FIELD_WORDS[key] : undefined
+  const known = extra && Object.hasOwn(extra, key) ? extra[key] : Object.hasOwn(FIELD_WORDS, key) ? FIELD_WORDS[key] : undefined
   if (known) return known[L] ?? known.en
   if (name.length > NAME_MAX || opaqueParts(name).length || !/^[A-Za-z][A-Za-z0-9]*(?:[ _.-][A-Za-z0-9]+)*$/.test(name)) return name
   return readableToolName(name) || name
 }
 
+/** words for argument names by their letters alone (text.ts FIELD_WORDS' form) */
+export type FieldWords = Record<string, Partial<Record<Locale, string>> & { en: string }>
+
 type Seg = string | number
 /** A value's place in the call in words: "받는 사람", "Parent › Page id", "Children 2 › Paragraph". */
-function label(path: Seg[], L: Locale): string {
+function label(path: Seg[], L: Locale, extra?: FieldWords): string {
   const parts: string[] = []
   for (const s of path) {
     if (typeof s === 'number') parts.push(`${parts.pop() ?? ''} ${s + 1}`.trim())
-    else parts.push(fieldWord(s, L))
+    else parts.push(fieldWord(s, L, extra))
   }
   return parts.join(' › ')
 }
@@ -83,8 +97,9 @@ function label(path: Seg[], L: Locale): string {
  * Two values whose names read the same get their names as sent after the words ("내용 (html)"). A text value at the top
  * whose name `isCode` picks (a program's script: a declared CLI's stdin) is a code line (`code`): byte for byte as sent,
  * for a code block, its indentation and runs of spaces allowed (CODE_ODD_SPACE instead of ODD_SPACE), never trimmed.
+ * `extra`: the connection's own words for names (fieldWord).
  */
-export function cardLines(args: unknown, L: Locale, isRecipient: (name: string) => boolean, isCode: (name: string) => boolean = () => false): CardLine[] | null {
+export function cardLines(args: unknown, L: Locale, isRecipient: (name: string) => boolean, isCode: (name: string) => boolean = () => false, extra?: FieldWords): CardLine[] | null {
   if (!args || typeof args !== 'object' || Array.isArray(args)) return null
   const lines: { name: string; raw: string; value: string; first: boolean; code: boolean }[] = []
   let chars = 0
@@ -105,7 +120,7 @@ export function cardLines(args: unknown, L: Locale, isRecipient: (name: string) 
   const add = (path: Seg[], value: string, first: boolean, code = false) => {
     chars += value.length
     if (lines.length >= CARD_LINES_MAX || chars > CARD_LINES_CHARS) { bad = true; return }
-    lines.push({ name: label(path, L), raw: path.map((x) => (typeof x === 'number' ? `[${x}]` : x)).join('.'), value, first, code })
+    lines.push({ name: label(path, L, extra), raw: path.map((x) => (typeof x === 'number' ? `[${x}]` : x)).join('.'), value, first, code })
   }
   const walk = (v: unknown, path: Seg[], first: boolean) => {
     if (bad) return

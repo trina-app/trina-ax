@@ -29,6 +29,7 @@ import { Denied, ToolError } from '../policy/errors'
 import { badSegment } from '../policy/names'
 import { inSkills } from '../skills/guard'
 import { isReservedPlace } from '@mycel/shared/places'
+import { PLACE_WORDS } from '../files/places'
 import { inProcessParseMax, readMaxBytes } from '../system/limits'
 import { checkRegular, openChecked } from '../team-files/place'
 import type { TeamFiles } from '../team-files/service'
@@ -220,7 +221,7 @@ export async function queryData(ctx: AppContext, files: TeamFiles, c: ToolCtx, a
   try {
     for (const [i, p] of a.paths.entries()) {
       if (!isReservedPlace(p) || placed.has(p)) continue
-      if (!c.files.placeInput) throw new ToolError(`'${p}' is a chat place, and chat places exist only inside a Trina chat, for its main assistant`, 'not_found')
+      if (!c.files.placeInput) throw new ToolError(`'${p}': ${PLACE_WORDS.noChat}`, 'not_found')
       const e = ext(p)
       const max = SHEET_EXT.has(e) ? Math.min(readMaxBytes(), inProcessParseMax()) : readMaxBytes()
       const dest = path.join(stage!, `place-${i + 1}.${DATA_EXT.has(e) ? e : 'bin'}`)

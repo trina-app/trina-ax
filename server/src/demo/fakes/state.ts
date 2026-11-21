@@ -35,7 +35,7 @@ const Generation = z.object({
   picture: z.string().max(300),
   mime: z.string().max(100),
   createdAt: z.string().max(64),
-  /** a banner make_banner drew: its size, scene and words (the next make_banner starts from them) */
+  /** a banner change_banner_text drew (banners.ts): its size, scene and words (the next one starts from them) */
   banner: z.object({
     size: z.string().max(20),
     scene: z.string().max(40),

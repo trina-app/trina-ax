@@ -29,6 +29,7 @@ import { egressOf, egressSettled } from './egress'
 import { registerCommentDocx } from './comment-docx'
 import { registerEditOffice } from './edit-office'
 import { registerHiggsfield } from './higgsfield'
+import { DEMO_BANNER_TOOL, registerDemoBanner } from './demo-banner'
 import { registerPromoVideo } from '../promo-video/tool'
 import { registerIntroDeck } from '../intro-deck/tool'
 import { registerScheduleTools, SCHEDULE_TOOL_NAMES } from './schedules'
@@ -411,4 +412,7 @@ export function registerCTools(ctx: AppContext, o: { fetch?: FetchOptions; saveU
   exposeToTurns('intro_deck')
   // Higgsfield video (tools/higgsfield.ts): only when an admin put the team's key in <data>/secrets/higgsfield.key
   if (registerHiggsfield(ctx, reg)) exposeToTurns('generate_video')
+  // the free-roam demo's banner words (tools/demo-banner.ts): a local tool, offered only on a demo with a banner kit
+  registerDemoBanner(ctx, reg)
+  exposeToTurns(DEMO_BANNER_TOOL)
 }

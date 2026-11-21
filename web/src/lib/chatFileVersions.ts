@@ -8,6 +8,9 @@ import { formatRelative } from './format'
 import { extOf } from './paths'
 import { aiName } from './tabs'
 
+/** The versions a chain keeps (the server's CHAT_FILE_VERSIONS_KEPT): the first and the newest */
+export const CHAT_FILE_VERSIONS_KEPT = 20
+
 /** Names the panel edits as text (the server's chat/chat-file-edit.ts editableName): binary files have no pencil */
 const TEXT_EXTS = ['md', 'markdown', 'txt', 'csv', 'html', 'htm', 'json']
 export const chatTextEditable = (name: string | null | undefined): boolean => !!name && TEXT_EXTS.includes(extOf(name))

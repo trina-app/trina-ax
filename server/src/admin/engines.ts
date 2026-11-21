@@ -65,7 +65,8 @@ export async function runCli(cmd: string, args: string[], o: { timeoutMs?: numbe
 export const T: Record<string, Record<Locale, string>> = {
   notInstalled: { ko: '서버 맥에 설치되어 있지 않아요.', en: 'Not installed on the server Mac.', id: 'Belum terpasang di Mac server.', ja: "サーバーのMacにインストールされていません。", es: "No está instalado en el Mac del servidor.", zh: "服务器Mac上没有安装。" },
   apiNotSet: { ko: '아직 설정하지 않았어요. 아래에서 API 주소·모델·키를 넣어 주세요.', en: 'Not set up yet. Enter the API address, model and key below.', id: 'Belum diatur. Masukkan alamat API, model, dan kunci di bawah.', ja: "未設定です。下にAPIアドレス、モデル、キーを入力してください。", es: "Aún no está configurado. Introduzca abajo la dirección de la API, el modelo y la clave.", zh: "还没有设置。请在下面填写API地址、模型和密钥。" },
-  apiKey: { ko: 'API 키가 맞지 않아요(401/403).', en: 'The API key was refused (401/403).', id: 'Kunci API ditolak (401/403).', ja: "APIキーが拒否されました（401/403）。", es: "Se rechazó la clave de API (401/403).", zh: "API密钥被拒绝（401/403）。" },
+  // plain words, no status code: the code is in the server's log (QA TC-6925)
+  apiKey: { ko: '제공자가 이 API 키를 받지 않았어요. 키를 확인하거나 새로 만들어 다시 저장해 주세요.', en: "The provider didn't accept this API key. Check the key, or make a new one, and save it again.", id: 'Penyedia tidak menerima kunci API ini. Periksa kuncinya, atau buat yang baru, lalu simpan lagi.', ja: "プロバイダーがこのAPIキーを受け付けませんでした。キーを確認するか、新しく作って保存し直してください。", es: "El proveedor no aceptó esta clave de API. Revise la clave o cree una nueva y vuelva a guardarla.", zh: "服务商不接受这个API密钥。请检查密钥，或新建一个后重新保存。" },
   apiModel: { ko: '이 제공자에 모델 "{model}"이 없어요. 모델 이름을 확인해 주세요.', en: 'The provider has no model "{model}". Check the model name.', id: 'Penyedia tidak punya model "{model}". Periksa nama model.', ja: "プロバイダーにモデル\"{model}\"がありません。モデル名を確認してください。", es: "El proveedor no tiene el modelo \"{model}\". Revise el nombre del modelo.", zh: "服务商没有模型“{model}”。请检查模型名称。" },
   apiModelUnchecked: { ko: '주소와 키는 맞아요. 제공자가 모델 목록을 주지 않아서 모델 이름은 확인하지 못했어요.', en: 'The address and key work. The provider gives no model list, so the model name was not checked.', id: 'Alamat dan kunci berfungsi. Penyedia tidak memberi daftar model, jadi nama model belum diperiksa.', ja: "アドレスとキーは有効です。プロバイダーがモデル一覧を提供していないため、モデル名は確認していません。", es: "La dirección y la clave funcionan. El proveedor no ofrece una lista de modelos, por lo que no se comprobó el nombre del modelo.", zh: "地址和密钥可以用。服务商不提供模型列表，所以没有检查模型名称。" },
   apiKeyUnchecked: { ko: '주소와 모델은 맞아요. 제공자가 키 확인 주소를 주지 않아서 키는 확인하지 못했어요.', en: 'The address and model work. The provider has no key check address, so the key was not checked.', id: 'Alamat dan model berfungsi. Penyedia tidak punya alamat pemeriksaan kunci, jadi kunci belum diperiksa.', ja: "アドレスとモデルは有効です。プロバイダーにキー確認用アドレスがないため、キーは確認していません。", es: "La dirección y el modelo funcionan. El proveedor no ofrece una dirección para verificar la clave, por lo que no se comprobó.", zh: "地址和模型可以用。服务商没有检查密钥的地址，所以没有检查密钥。" },
@@ -205,6 +206,8 @@ export interface EngineEnv {
   base?: string
   /** Claude Code's models (claudeModels); absent = the aliases */
   claudeModels?: { id: string; label: string }[]
+  /** the server's log: a refused API key's HTTP status goes here, never on the card (QA TC-6925) */
+  log?: import('../log').Logger
 }
 
 export function engineEnv(ctx: AppContext): EngineEnv {
@@ -230,6 +233,7 @@ export function engineEnv(ctx: AppContext): EngineEnv {
     db: ctx.db,
     host: hostKind(ctx.config), base: resolveLayout(ctx.config).base,
     claudeModels: claudeModels(ctx.config),
+    log: ctx.log,
   }
 }
 
@@ -355,10 +359,15 @@ async function checkApiEngine(env: EngineEnv, enabled: boolean, locale: Locale):
   const conf = readApiEngine(env.dataDir)
   let provider: string | undefined
   try { provider = conf ? new URL(conf.baseUrl).host : undefined } catch {}
-  const base = { id: 'api' as const, label: conf ? `${conf.label} (API)` : ENGINE_LABELS.api, enabled, authMode: 'api-key' as const, ...(provider ? { provider } : {}), checkedAt: new Date().toISOString(), version: null,
+  const keyless = !!conf && !conf.key && isLocalApiAddress(conf.baseUrl)
+  const base = { id: 'api' as const, label: conf ? `${conf.label} (API)` : ENGINE_LABELS.api, enabled, authMode: 'api-key' as const, ...(provider ? { provider } : {}), ...(keyless ? { keyless } : {}), checkedAt: new Date().toISOString(), version: null,
     models: conf ? [{ id: conf.model, label: conf.label }] : [] }
   if (!conf) return { ...base, installed: false, status: 'not_installed', detail: t('apiNotSet', locale) }
-  const out = (status: EngineStatus['status'], detail: string | null, errorDetail?: string): EngineStatus => ({ ...base, installed: true, status, detail, ...(errorDetail ? { errorDetail } : {}) })
+  // "No key needed" never next to a refused key (a gateway on the network that does want one)
+  const out = (status: EngineStatus['status'], detail: string | null, errorDetail?: string): EngineStatus => {
+    const { keyless: _k, ...rest } = base as typeof base & { keyless?: boolean }
+    return { ...(status === 'not_logged_in' ? rest : base), installed: true, status, detail, ...(errorDetail ? { errorDetail } : {}) }
+  }
   try {
     // Anthropic's model list wants x-api-key (its OpenAI-compatible chat endpoint takes the Bearer header): a refused
     // list would leave a working Claude API engine out of the composer (admin/engine-choice.ts readyEngines)
@@ -370,12 +379,18 @@ async function checkApiEngine(env: EngineEnv, enabled: boolean, locale: Locale):
     let keyUnchecked = false
     if (openrouter) {
       const k = await openRouterKey(get)
-      if (k === 'refused') return out('not_logged_in', t('apiKey', locale))
+      if (k === 'refused') {
+        env.log?.warn('api engine: key refused', { provider, check: 'key' })
+        return out('not_logged_in', t('apiKey', locale))
+      }
       keyUnchecked = k === 'unchecked'
     }
     // Anthropic's list comes in pages (20 by default)
     const r = await get(anthropic ? '/models?limit=1000' : '/models')
-    if (r.status === 401 || r.status === 403) return out('not_logged_in', t('apiKey', locale))
+    if (r.status === 401 || r.status === 403) {
+      env.log?.warn('api engine: key refused', { provider, status: r.status })
+      return out('not_logged_in', t('apiKey', locale))
+    }
     // no list here (404, 405): the address and key are not proven wrong, the model is not checked
     if (r.status === 404 || r.status === 405) return out('ok', t('apiModelUnchecked', locale))
     if (!r.ok) return out('error', t('apiHttp', locale, { status: String(r.status) }))

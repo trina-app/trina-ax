@@ -9,7 +9,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { API, DEV_ENV_DEFAULT_LIMITS, type ProjectParticipant } from '@mycel/shared/api'
 import { startHarness, type Harness, type TestSocket } from '../lib/b-harness'
-import { _active, setSrtSystem, sharedWorkOf, type SharedRun } from '../../server/src/devenv/srt/runner'
+import { _active, inOldWorkFolder, setSrtSystem, sharedWorkOf, workFolderChange, type SharedRun } from '../../server/src/devenv/srt/runner'
 import { chatHome, chatLogs, chatWork, personHome, personLogs, sharedWork, sharedWorkKey, unitName } from '../../server/src/devenv/srt/config'
 import { peopleAudience } from '../../server/src/chat/chat-audience'
 import type { SpawnSpec, SrtSystem, UnitInfo } from '../../server/src/devenv/srt/system'
@@ -391,6 +391,25 @@ describe('a chat shared with people and groups', () => {
     expect(fs.readdirSync(both)).toEqual([])
     await shell('alice', sharedRun(['bob', 'alice'], null), c).call({ command: 'echo 3' })
     expect(last().spec.cwd).toBe(both)
+  })
+
+  // QA TC-6936: why a work folder is missing or empty, the same for every spelling of its path
+  test('the people changed: fresh before the new folder is made, after once it is; an old folder\'s path is known, never opened', async () => {
+    const c = (await h.api('alice').call(API.createChat, { body: {} })).id
+    const alone = sharedRun(['alice'], null), both = sharedRun(['alice', 'bob'], null)
+    expect(workFolderChange(h.ctx, { userId: 'alice', chatId: c, shared: alone })).toBeNull()
+    await shell('alice', alone, c).call({ command: 'echo 1' })
+    const first = last().spec.cwd
+    expect(workFolderChange(h.ctx, { userId: 'alice', chatId: c, shared: alone })).toBeNull()
+    // bob joined: an earlier folder is there, the new one not yet
+    expect(workFolderChange(h.ctx, { userId: 'alice', chatId: c, shared: both })).toBe('fresh')
+    expect(inOldWorkFolder(h.ctx, { userId: 'alice', chatId: c, shared: both }, path.join(first, 'in', 'proposal.html'))).toBe(true)
+    expect(inOldWorkFolder(h.ctx, { userId: 'alice', chatId: c, shared: alone }, path.join(first, 'in', 'proposal.html'))).toBe(false)
+    expect(inOldWorkFolder(h.ctx, { userId: 'alice', chatId: c, shared: both }, '/etc/passwd')).toBe(false)
+    await shell('alice', both, c).call({ command: 'echo 2' })
+    expect(workFolderChange(h.ctx, { userId: 'alice', chatId: c, shared: both })).toBe('after')
+    // a personal chat never says the people changed
+    expect(workFolderChange(h.ctx, { userId: 'alice', chatId: c })).toBeNull()
   })
 
   // re-review A: the same people, but someone's access narrowed: what a run copied while they could read it stays away

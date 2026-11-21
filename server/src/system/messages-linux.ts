@@ -12,7 +12,7 @@ type MT = typeof M
 
 /** Support line for the hosted cloud messages ("tell us"). */
 const SUPPORT: T = { ko: '호스팅 지원팀에 알려 주세요.', en: 'Contact the hosting support team.', id: 'Hubungi tim dukungan layanan.', ja: "ホスティングのサポート担当にお問い合わせください。", es: "Contacte con el soporte del alojamiento.", zh: "请联系托管服务支持团队。" }
-const withSupport = (t: T): T => ({ ko: `${t.ko} ${SUPPORT.ko}`, en: `${t.en} ${SUPPORT.en}`, id: `${t.id} ${SUPPORT.id}`, ja: `${t.ja} ${SUPPORT.ja}`, es: `${t.es} ${SUPPORT.es}`, zh: `${t.zh}${SUPPORT.zh}` })
+export const withSupport = (t: T): T => ({ ko: `${t.ko} ${SUPPORT.ko}`, en: `${t.en} ${SUPPORT.en}`, id: `${t.id} ${SUPPORT.id}`, ja: `${t.ja} ${SUPPORT.ja}`, es: `${t.es} ${SUPPORT.es}`, zh: `${t.zh}${SUPPORT.zh}` })
 
 /** The Linux replacements; `id` = the install id (systemd unit prefix), `base` = the install folder. */
 export function linuxMessages(id: string, base: string): Partial<MT> {

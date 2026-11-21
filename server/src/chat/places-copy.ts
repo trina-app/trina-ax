@@ -43,7 +43,7 @@ import { confidentialChat } from '../safe-ops/confidential'
 import { isGuestUser } from '../credentials/guest-ai'
 import { mayUseDevEnv } from '../devenv/setting'
 import { noteSharedReads, runsInWorkFolder, spaceOf } from '../devenv/srt/runner'
-import { copyWorkFile, type WorkFolder } from '../devenv/work-files'
+import { copyWorkFile, noWorkText, workUnavailableText, type WorkFolder } from '../devenv/work-files'
 import { assertStorageRoomForAI } from '../system/storage'
 import { copiedInOf, writeIntoWork, type WorkSource, type WorkTarget } from '../devenv/work-write'
 import { addSources, sourceKey, type ReadSource } from './read-scope'
@@ -89,7 +89,7 @@ export function resolveCtxOf(exec: TurnExec, files: TurnFiles): ResolveCtx {
     : spec.clientKind === 'schedule' ? 'scheduled' : exec.shared?.kind === 'people' ? 'people' : exec.shared?.kind === 'project' ? 'project' : 'personal'
   return {
     db: rt.db, userId: spec.userId, chatId: spec.chatId, main: files === exec.files, chatKind: kind, hiddenGroup: exec.hiddenFromLater,
-    workFolder: files.workFolder, workCopyIn: () => files === exec.files && workCopyInHere(exec),
+    workFolder: files.workFolder, workWhy: files.workWhy, workCopyIn: () => files === exec.files && workCopyInHere(exec),
     live: () => { try { exec.livePrincipal(); return true } catch { return false } },
   }
 }
@@ -143,10 +143,14 @@ function workSources(exec: TurnExec, wf: WorkFolder | null): ReadSource[] {
 
 /** A shared chat's work folder is about to be read for a copy out: what a run there may read and what was copied in
  * join this answer (runner noteSharedReads, which records the copied-in groups again). False: not recorded. */
+/** The work folder could not be recorded for this answer: the reason when the turn knows it, else "try again" */
+const workUnavailable = (files: TurnFiles): string => workUnavailableText(files.workWhy?.())
+
 function noteWorkRead(exec: TurnExec): boolean {
   const d = exec.devEnv
   if (!d?.shared) return true
-  const space = spaceOf(exec.rt.ctx, { userId: exec.spec.userId, chatId: exec.spec.chatId, project: null, shared: d.shared })
+  // a shared project chat: its runs' space (the project folder) with its scratch folder (srt/runner.ts scratchOf)
+  const space = spaceOf(exec.rt.ctx, { userId: exec.spec.userId, chatId: exec.spec.chatId, project: d.project ? { id: d.project.id, folderPath: d.project.folderPath } : null, shared: d.shared })
   if (!space || !noteSharedReads(exec.rt.ctx, space)) return false
   addSources(exec.rt.db, exec.spec.chatId, [{ type: 'chat', id: exec.spec.chatId }])
   return true
@@ -165,7 +169,7 @@ export async function workToTeam(exec: TurnExec, files: TurnFiles, o: { rel: str
   // the card may have waited: the work folder looked up again, with every check of the open
   const wf = o.where()
   if (!wf) return { ok: false, text: 'Not saved: the work folder of this chat is not available now.', summary: `${tool} -> no work folder` }
-  if (!noteWorkRead(exec)) return { ok: false, text: 'Not saved: the people of this chat changed, or the dev environment is off. Run the command again.', summary: `${tool} -> refused: not recorded` }
+  if (!noteWorkRead(exec)) return { ok: false, text: `Not saved: ${workUnavailable(files)}`, summary: `${tool} -> refused: not recorded` }
   const work = tempDir(exec, 'work-file-')
   try {
     const max = turnWriteLimits(rt.ctx.engineConfig, rt.db, spec.userId)
@@ -196,7 +200,7 @@ export async function workToChat(exec: TurnExec, files: TurnFiles, o: { rel: str
   if (!first || !exec.devEnv?.shared) return { ok: false, text: 'Not attached: the work folder of this chat is not available now.', summary: `${tool} -> no work folder` }
   // what a run there may read joins this answer's record with who sees the chat now (as a command does), so the
   // newcomer warning counts this answer and its file
-  if (!noteWorkRead(exec)) return { ok: false, text: 'Not attached: the people of this chat changed, or the dev environment is off. Run the command again.', summary: `${tool} -> refused: not recorded` }
+  if (!noteWorkRead(exec)) return { ok: false, text: `Not attached: ${workUnavailable(files)}`, summary: `${tool} -> refused: not recorded` }
   // from here until the file is on the answer, no connection's answer hidden from later people joins it (a call
   // running beside this one is refused), and one recorded before is seen by the check right after
   const release = exec.beginAttach()
@@ -388,7 +392,7 @@ async function copyOne(exec: TurnExec, files: TurnFiles, from: string, toFolder:
   if (dest?.kind === 'work') {
     if (src?.kind === 'work') return fail('it is in the work folder already: copy it there with a box_shell command (cp).')
     const target = workTarget(exec, files)
-    if (!target) return fail(PLACE_WORDS.noWork)
+    if (!target) return fail(noWorkText(files.workWhy?.()))
     let source: WorkSource
     let sources: ReadSource[]
     if (src?.kind === 'chatFiles') {
@@ -442,7 +446,7 @@ async function copyOne(exec: TurnExec, files: TurnFiles, from: string, toFolder:
   if (src?.kind === 'work') {
     if (!src.rel) return fail('this is the work folder itself; name a file in it.')
     const wf = files.workFolder?.() ?? null
-    if (!wf) return fail(PLACE_WORDS.noWork)
+    if (!wf) return fail(noWorkText(files.workWhy?.()))
     let st: fs.Stats | null = null
     try { st = fs.lstatSync(path.join(wf.real, src.rel)) } catch { st = null }
     if (st?.isDirectory()) return fail('a folder of the work folder is not copied out; zip it with a box_shell command first and copy the zip.')
@@ -598,8 +602,8 @@ export async function stagePlaceInput(exec: TurnExec, files: TurnFiles, value: s
     return { name: f.name, ...got }
   }
   const wf = files.workFolder?.() ?? null
-  if (!wf || files !== exec.files) throw new ToolError(PLACE_WORDS.noWork, 'not_found')
-  if (!noteWorkRead(exec)) throw new ToolError('the work folder of this chat cannot be opened now (the people of this chat changed, or the dev environment is off)', 'not_recorded')
+  if (!wf || files !== exec.files) throw new ToolError(noWorkText(files === exec.files ? files.workWhy?.() : 'helper'), 'not_found')
+  if (!noteWorkRead(exec)) throw new ToolError(workUnavailable(files), 'not_recorded')
   const got = await copyWorkFile(wf, place.rel, dest, max, signal)
   if (!exec.devEnv?.shared) addSources(rt.db, spec.chatId, [{ type: 'user', id: spec.userId }])
   return got

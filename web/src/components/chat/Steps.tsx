@@ -21,12 +21,12 @@
 // A post the AI made to a room (post_to_room, Step.posted) has 보기, like the button's sent line: the room at the message
 // or the thread at the reply. A side chat gives its own way there (StepPostView: its column, a phone's panel).
 import clsx from 'clsx'
-import { AudioLines, Brain, Check, ChevronDown, ChevronRight, CircleAlert, CircleDashed, CircleMinus, CirclePause, CircleStop, Clock, FileSearch, Film, Globe, Info, Loader2, MessageCircleQuestion, Monitor, Shapes, Workflow, Wrench } from 'lucide-react'
+import { AudioLines, Brain, Check, ChevronDown, ChevronRight, CircleAlert, CircleDashed, CircleMinus, CirclePause, CircleStop, Clock, FileSearch, Film, Globe, Info, Loader2, MessageCircleQuestion, Monitor, Presentation, Shapes, Workflow, Wrench } from 'lucide-react'
 import { createContext, useContext, useState } from 'react'
 import { api, API, ApiError, errorText } from '../../lib/api'
 import { refreshQueue, useQueuePlace } from '../../lib/devEnvQueue'
 import { toast } from '../../store/ui'
-import { localizeStep, mediaStepKind, READ_ONLY_TOOLS, REMOVED_READ_ONLY_TOOLS, stepPlace, unansweredStep } from '@mycel/shared'
+import { localizeStep, mediaStepKind, READ_ONLY_TOOLS, REMOVED_READ_ONLY_TOOLS, slidesStep, stepPlace, unansweredStep } from '@mycel/shared'
 import type { Message, Step } from '@mycel/shared/api'
 import { useSkillTitle } from '../../lib/skillTitles'
 import { useLocale, useT } from '../../i18n'
@@ -56,7 +56,7 @@ export function subtaskStats(sub: Step['subtask'], t: TFunction): string {
  * its failure changed nothing. */
 const lookedUp = (s: Step) => s.kind === 'web_search' || s.kind === 'thinking' || (s.kind === 'tool' && !!s.tool && (READ_ONLY_TOOLS.has(s.tool) || REMOVED_READ_ONLY_TOOLS.has(s.tool)))
 /** Tools that save a file: one that worked makes up for another that failed. */
-const SAVE_TOOLS = new Set(['write', 'edit', 'edit_files', 'make_file', 'edit_hwp', 'edit_office', 'stamp_pdf', 'edit_pdf', 'merge_pdfs', 'split_pdf', 'resize_images', 'unzip_file', 'make_zip', 'query_data'])
+const SAVE_TOOLS = new Set(['write', 'edit', 'edit_files', 'make_file', 'edit_hwp', 'edit_office', 'stamp_pdf', 'edit_pdf', 'merge_pdfs', 'split_pdf', 'resize_images', 'unzip_file', 'make_zip', 'query_data', 'change_banner_text'])
 /** What a later step must have done to make up for a failed one that changed something: the same tool (a save tool for a
  * save, a browser step for a browser step). */
 const family = (s: Step) => (s.tool && SAVE_TOOLS.has(s.tool) ? 'save' : s.kind !== 'tool' ? `kind:${s.kind}` : `tool:${s.tool ?? ''}`)
@@ -197,7 +197,8 @@ function StepRow({ step, live, marks, kids = [] }: { step: Step; live: boolean; 
   const thinking = step.kind === 'thinking'
   // a read of a video or an audio file ("Watch video · …") shows a film / sound icon
   const media = step.kind === 'tool' ? mediaStepKind(step) : null
-  const Icon = subtask ? Workflow : media === 'video' ? Film : media === 'audio' ? AudioLines : step.kind === 'tool' && step.tool && FILE_TOOLS.has(step.tool) ? FileSearch : ICON[step.kind] ?? Wrench
+  // a look at a deck's slides ("View slides 3–5 · …") a slide icon
+  const Icon = subtask ? Workflow : media === 'video' ? Film : media === 'audio' ? AudioLines : step.kind === 'tool' && slidesStep(step) ? Presentation : step.kind === 'tool' && step.tool && FILE_TOOLS.has(step.tool) ? FileSearch : ICON[step.kind] ?? Wrench
   const hidden = step.subtask?.hidden ?? 0
   const mark = stepMark(step, { live, ...marks })
   // a card that ran out: "답하지 않음" is said beside the line, so the row does not open just to say it again

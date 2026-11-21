@@ -1,10 +1,11 @@
 // The demo's Higgsfield (demo/fakes/index.ts): the Higgsfield MCP connection (shared/src/service-catalog.ts) answered in
-// this process through the connections/net.ts answer hook. A small tool list: generate_image, make_banner,
-// generate_video, job_display, show_generations, balance. make_banner draws a banner from the content folder's banner
-// kit (banner.ts: a text-free photo made in advance under real type), so a visitor can change a banner's words. generate_image answers at once with a canned picture picked by the words of
+// this process through the connections/net.ts answer hook. A small tool list: generate_image, generate_video,
+// job_display, show_generations, balance. A banner's words are not changed here: that is the server's own
+// change_banner_text (banners.ts, tools/demo-banner.ts), since nothing goes to Higgsfield for it (owner, 11-22).
+// generate_image answers at once with a canned picture picked by the words of
 // the prompt from the content folder's higgsfield/ pictures (their file names are the keywords: "yuzu-ginger-window.jpg"),
-// else a built-in one; the picture comes inline (connections/media.ts keeps it for save_connector_file) and at a
-// download address only this fake answers (tools/download.ts). A video is refused. No credits are ever used.
+// no picture when none matches, a built-in one when the folder has none; the picture comes inline (connections/media.ts
+// keeps it for save_connector_file) and at a download address only this fake answers (tools/download.ts). A video is refused. No credits are ever used.
 import fs from 'node:fs'
 import path from 'node:path'
 import zlib from 'node:zlib'
@@ -12,7 +13,6 @@ import type { RemoteTool } from '../../integrations/connections/mcp'
 import type { NetRequest } from '../../integrations/connections/net'
 import type { FakeState, Generation } from './state'
 import { answerMcp, str, text, type FakeTool, type McpResult } from './mcp'
-import { BannerError, BANNER_SIZES, matchScene, pickScene, renderBanner, sizeOf, type BannerKit, type BannerSize, type BannerWords } from './banner'
 
 /** the hosts of the Higgsfield MCP connection this fake answers */
 export const HIGGSFIELD_HOSTS = new Set(['mcp.higgsfield.ai'])
@@ -23,8 +23,6 @@ export const VIDEO_REFUSED = 'Video isn\'t available in the demo'
 /** Said in every picture's result, where the AI reads it as it answers (QA TC-6792: the system prompt alone did not make
  * it say so): one short sentence, the photo's origin. */
 export const PREPARED_PHOTO = "This photo is one of the demo's prepared photos: no new photo was made."
-/** a banner's photo is a prepared one too; only its words were drawn */
-export const PREPARED_BANNER = "The photo under the words is one of the demo's prepared photos: only the words were drawn new."
 /** what the AI does with a picture next (QA TC-6791: the banner showed nowhere and was saved only when asked again):
  * saved into the team folder and named as a Markdown image, which is how a picture appears in the chat */
 export const SAVE_NEXT = 'Save it now with save_connector_file (the mcp-file handle below) into the project\'s folder, then show it in the answer as a Markdown image.'
@@ -54,16 +52,28 @@ export function loadPictures(content: string | null): Picture[] {
 
 const words = (s: string) => s.toLowerCase().split(/[^\p{L}\p{N}]+/u).filter((w) => w.length > 1)
 
-/** the picture whose name shares the most words with the prompt (the first on a tie or no match), or null */
+/** The picture whose name shares the most words with the prompt (the first on a tie), or null when none shares a word.
+ * Before 11-22 no match gave the first picture: asked for a scene the demo does not have, the visitor got the same
+ * prepared photo twice and two copies of it in their files (QA A4). */
 export function pickPicture(pictures: readonly Picture[], prompt: string): Picture | null {
-  if (!pictures.length) return null
   const want = new Set(words(prompt))
-  let best = pictures[0]!, score = -1
+  let best: Picture | null = null, score = 0
   for (const p of pictures) {
     const s = p.words.filter((w) => want.has(w)).length
     if (s > score) { best = p; score = s }
   }
   return best
+}
+
+/** a picture in a few readable words: its name's Latin words ("yuzu ginger tea pouch iced glass") */
+const sceneWords = (p: Picture) => p.words.filter((w) => /^[a-z]+$/.test(w)).slice(0, 8).join(' ') || p.name
+/** what generate_image says when no prepared photo matches: nothing was made, so nothing is saved */
+export function noPictureText(prompt: string, pictures: readonly Picture[]): string {
+  return `No prepared photo matches '${prompt.replace(/\s+/g, ' ').slice(0, 200)}'. Nothing was made. Prepared scenes: ${pictures.map(sceneWords).join('; ')}. For a banner on one of them, use change_banner_text with scene.`
+}
+/** what generate_image says when the closest photo is the one it gave last time: nothing new, nothing to save again */
+export function samePictureText(prompt: string, job: string, pictures: readonly Picture[]): string {
+  return `The closest prepared photo for '${prompt.replace(/\s+/g, ' ').slice(0, 200)}' is the one already given as job ${job}. Nothing new was made; do not save it again. Prepared scenes: ${pictures.map(sceneWords).join('; ')}.`
 }
 
 // ---- the built-in picture: a small soft gradient PNG, made once ----
@@ -98,22 +108,8 @@ export function builtInPicture(): Buffer {
 /** The fake's tool list (what tools/list answers). Also what the snapshot's Higgsfield connection keeps as its saved
  * tools (routes/demo-builder.ts, integrations.tools_json): with none saved the AI had no image tool (QA TC-5559). */
 export const HIGGSFIELD_TOOLS = [
-  { name: 'generate_image', title: 'Generate image', readOnly: false, description: 'Generate an image from a text prompt. In the demo it picks the closest of the demo\'s prepared photos (no new photo is made). Returns the finished job with the picture: save it with save_connector_file right away and show it in the answer. The picture has no words in it: put words on it with make_banner.',
+  { name: 'generate_image', title: 'Generate image', readOnly: false, description: 'Generate an image from a text prompt. In the demo it picks the closest of the demo\'s prepared photos (no new photo is made). Returns the finished job with the picture: save it with save_connector_file right away and show it in the answer. The picture has no words in it. Use it for a new background, photo or scene; to change a banner\'s words use the built-in change_banner_text instead (it runs on this server, nothing is sent to Higgsfield).',
     inputSchema: { type: 'object', properties: { prompt: { type: 'string', description: 'what the picture shows' }, aspect_ratio: { type: 'string', enum: ['1:1', '16:9', '9:16', '4:3', '3:4'] }, model: { type: 'string' }, count: { type: 'integer', minimum: 1, maximum: 4 } }, required: ['prompt'] } },
-  { name: 'make_banner', title: 'Make banner', readOnly: false,
-    description: 'Make a finished ad banner: a text-free product photo with real type on it in the brand\'s fonts and colours (headline, the line under it, the offer badge, the button). ' +
-      'Use it to make a banner and to CHANGE A BANNER\'S WORDS: call it again with only the words that change (e.g. only `headline`); every word you leave out, and the photo, stay as on the last banner make_banner made (the launch banner at first). ' +
-      'The words are a layer of their own, so nothing has to be generated again; the photo is one of the demo\'s prepared photos. Returns the finished job with the picture (PNG): save it with save_connector_file right away and show it in the answer.',
-    inputSchema: { type: 'object', properties: {
-      size: { type: 'string', enum: ['1200x628', '1080x1080', '1080x1920'], description: 'web banner 1200x628 (default), Instagram square 1080x1080, story 1080x1920' },
-      scene: { type: 'string', description: 'which photo, in a few words: one glass by the window (default), two glasses, the pouch close up, a café table' },
-      headline: { type: 'string', description: 'the headline; "\\n" breaks the line; *a word* in stars is italic (Latin letters)' },
-      subline: { type: 'string', description: 'the line under the headline' },
-      eyebrow: { type: 'string', description: 'the small line above the headline ("" for none)' },
-      badge: { type: 'string', description: 'the offer badge, e.g. "20% off" ("" for none)' },
-      badge_note: { type: 'string', description: 'beside the badge, e.g. "2 weeks only"' },
-      button: { type: 'string', description: 'the button\'s words ("" for none)' },
-    } } },
   { name: 'generate_video', title: 'Generate video', readOnly: false, description: 'Generate a video from a text prompt.',
     inputSchema: { type: 'object', properties: { prompt: { type: 'string' }, duration: { type: 'integer' } }, required: ['prompt'] } },
   { name: 'job_display', title: 'Get job', readOnly: true, description: 'Show one generation job by its id: status and results.',
@@ -131,22 +127,15 @@ export function higgsfieldSavedTools(): RemoteTool[] {
 }
 
 const extOf = (mime: string) => (mime === 'image/png' ? 'png' : mime === 'image/webp' ? 'webp' : 'jpg')
-/** a banner make_banner drew: kept in the state folder (`<dataDir>/demo-fakes/banners/<id>.png`), its Generation's
- * picture is `banners/<id>.png` */
-export const BANNERS_DIR = 'banners'
-/** the banners whose pictures are kept (the newest); an older one's picture is deleted */
-export const BANNERS_KEPT = 30
-const BANNER_PICTURE = /^banners\/([A-Za-z0-9_-]{1,64})\.png$/
+/** the old tool's name: a saved tool list from before 11-22 may still offer it */
+export const MAKE_BANNER_MOVED = "make_banner isn't a Higgsfield tool: a banner's words are changed with the built-in change_banner_text, which runs on this server (nothing is sent to Higgsfield)."
+/** Higgsfield's own pictures: never a banner the server's change_banner_text drew (banners.ts) */
+const ownJob = (g: Generation) => !g.banner
 
 export class FakeHiggsfield {
-  constructor(private pictures: Picture[], private state: FakeState, private kit: BannerKit | null = null, private typst?: string | null) {}
-  /** make_banner has a banner kit to draw from */
-  get hasBanner(): boolean { return !!this.kit }
+  constructor(private pictures: Picture[], private state: FakeState) {}
 
   private bytesOf(g: Generation): { bytes: Buffer; mime: string } {
-    if (BANNER_PICTURE.test(g.picture)) {
-      try { return { bytes: fs.readFileSync(path.join(path.dirname(this.state.file), g.picture)), mime: 'image/png' } } catch { /* gone: the built-in one */ }
-    }
     const p = this.pictures.find((x) => x.name === g.picture)
     if (p) { try { return { bytes: p.read(), mime: p.mime } } catch { /* gone: the built-in one */ } }
     return { bytes: builtInPicture(), mime: 'image/png' }
@@ -160,7 +149,7 @@ export class FakeHiggsfield {
     try { u = new URL(url) } catch { return null }
     if (u.hostname !== MEDIA_HOST) return null
     const id = /^\/([A-Za-z0-9_-]{1,64})\.(png|jpg|webp)$/.exec(u.pathname)?.[1]
-    const g = id ? this.state.get().generations.find((x) => x.id === id) : undefined
+    const g = id ? this.state.get().generations.find((x) => x.id === id && ownJob(x)) : undefined
     if (!g) return null
     const b = this.bytesOf(g)
     return { bytes: b.bytes, contentType: b.mime }
@@ -169,76 +158,32 @@ export class FakeHiggsfield {
   private generate(a: Record<string, any>): McpResult {
     const prompt = str(a.prompt, 4000)
     if (prompt.length < 3) return text('Describe the picture in a few words (prompt).', true)
+    // the content folder's pictures: one must match (else nothing is made, no job is kept, nothing gets saved); none at
+    // all (the built-in data): the built-in picture
     const pick = pickPicture(this.pictures, prompt)
+    if (this.pictures.length && !pick) return text(noPictureText(prompt, this.pictures), true)
+    // the same prepared photo as the last one Higgsfield gave: no second copy (QA A4: the AI asked again and the visitor
+    // got the same photo twice, saved twice)
+    const lastOwn = [...this.state.get().generations].reverse().find(ownJob)
+    if (pick && lastOwn?.picture === pick.name) return text(samePictureText(prompt, lastOwn.id, this.pictures), true)
     const g: Generation = { id: this.state.nextId('job'), prompt, model: str(a.model, 100) || 'demo-image', picture: pick?.name ?? 'built-in', mime: pick?.mime ?? 'image/png', createdAt: new Date().toISOString() }
     this.state.update((d) => { d.generations.push(g) })
     const b = this.bytesOf(g)
     return { content: [{ type: 'text', text: JSON.stringify({ ...this.view(g), photo: PREPARED_PHOTO, next: SAVE_NEXT }) }, ...(b.bytes.length <= INLINE_MAX ? [{ type: 'image' as const, data: b.bytes.toString('base64'), mimeType: b.mime }] : [])] }
   }
 
-  /** make_banner: the kit's photo for this size and scene under the words. Words not given, and the photo, are the last
-   * banner's (the launch banner's at first); a new headline whose words name a scene ("두 잔") picks that scene. */
-  private async banner(a: Record<string, any>): Promise<McpResult> {
-    const kit = this.kit
-    if (!kit) return text('Banners are not set up in this demo: use generate_image for a picture.', true)
-    const last = [...this.state.get().generations].reverse().find((g) => g.banner)?.banner
-    const size: BannerSize = a.size === undefined && last && (BANNER_SIZES as readonly string[]).includes(last.size) ? last.size as BannerSize : sizeOf(a.size)
-    const base: BannerWords = last?.words ?? kit.words
-    const given = (k: string, max: number): string | undefined => (typeof a[k] === 'string' ? str(a[k], max).replace(/\\n/g, '\n') : undefined)
-    const headline = given('headline', 300)
-    const words: BannerWords = {
-      headline: headline ?? base.headline,
-      subline: given('subline', 400) ?? base.subline,
-      eyebrow: given('eyebrow', 200) ?? base.eyebrow,
-      badge: given('badge', 80) ?? base.badge,
-      badgeNote: given('badge_note', 80) ?? base.badgeNote,
-      cta: given('button', 80) ?? base.cta,
-    }
-    // the photo: the scene asked for; else one the new headline names ("두 잔", "two cups"); else the last banner's
-    const asked = typeof a.scene === 'string' && a.scene.trim() ? str(a.scene, 300) : ''
-    const byHeadline = headline !== undefined || !last ? matchScene(kit, size, words.headline) : null
-    const lastScene = last ? kit.scenes.find((s) => s.id === last.scene && s.photos[size]) : undefined
-    const scene = asked ? pickScene(kit, size, asked) : byHeadline && byHeadline.score > 0 ? byHeadline.scene : lastScene ?? pickScene(kit, size, words.headline)
-    if (!scene) return text(`No photo for ${size} in this demo.`, true)
-    let png: Buffer
-    try { png = await renderBanner(kit, size, scene, words, this.typst === undefined ? undefined : this.typst) } catch (e) {
-      return text(e instanceof BannerError ? e.message : 'The banner could not be made.', true)
-    }
-    const id = this.state.nextId('job')
-    const rel = `${BANNERS_DIR}/${id}.png`
-    const dir = path.join(path.dirname(this.state.file), BANNERS_DIR)
-    fs.mkdirSync(dir, { recursive: true, mode: 0o700 })
-    fs.writeFileSync(path.join(dir, `${id}.png`), png, { mode: 0o600 })
-    const prompt = `Banner ${size}, ${scene.id}: ${words.headline.replace(/\n/g, ' / ')}`.slice(0, 4000)
-    const g: Generation = { id, prompt, model: 'banner', picture: rel, mime: 'image/png', createdAt: new Date().toISOString(), banner: { size, scene: scene.id, words } }
-    this.state.update((d) => { d.generations.push(g) })
-    this.pruneBanners(dir)
-    const view = { ...this.view(g), banner: { size, scene: scene.id, words: { headline: words.headline, subline: words.subline, eyebrow: words.eyebrow, badge: words.badge, badge_note: words.badgeNote, button: words.cta } }, photo: PREPARED_BANNER, next: SAVE_NEXT }
-    return { content: [{ type: 'text', text: JSON.stringify(view) }, ...(png.length <= INLINE_MAX ? [{ type: 'image' as const, data: png.toString('base64'), mimeType: 'image/png' }] : [])] }
-  }
-
-  /** keep the pictures of the newest BANNERS_KEPT banners still in the state; delete every other file in the folder
-   * (older banners, and those whose job the state trimmed) */
-  private pruneBanners(dir: string) {
-    const keep = new Set(this.state.get().generations.filter((g) => BANNER_PICTURE.test(g.picture)).slice(-BANNERS_KEPT).map((g) => path.basename(g.picture)))
-    let names: string[] = []
-    try { names = fs.readdirSync(dir) } catch { return }
-    for (const n of names) if (!keep.has(n)) { try { fs.rmSync(path.join(dir, n), { force: true }) } catch { /* next time */ } }
-  }
-
   private readonly calls: Record<HiggsfieldToolName, FakeTool['call']> = {
     generate_image: (a) => this.generate(a),
-    make_banner: (a) => this.banner(a),
     generate_video: () => text(`${VIDEO_REFUSED}. Pictures work: use generate_image.`, true),
-    job_display: (a) => { const g = this.state.get().generations.find((x) => x.id === str(a.job_id, 64)); return g ? text(JSON.stringify(this.view(g))) : text(`No job ${str(a.job_id, 64)}.`, true) },
-    show_generations: (a) => { const n = Math.max(1, Math.min(50, Number(a.limit) || 10)); return text(JSON.stringify({ generations: [...this.state.get().generations].reverse().slice(0, n).map((g) => this.view(g)) })) },
+    job_display: (a) => { const g = this.state.get().generations.find((x) => x.id === str(a.job_id, 64) && ownJob(x)); return g ? text(JSON.stringify(this.view(g))) : text(`No job ${str(a.job_id, 64)}.`, true) },
+    show_generations: (a) => { const n = Math.max(1, Math.min(50, Number(a.limit) || 10)); return text(JSON.stringify({ generations: this.state.get().generations.filter(ownJob).reverse().slice(0, n).map((g) => this.view(g)) })) },
     balance: () => text(JSON.stringify({ credits: 1000, plan: 'demo', note: 'Generations in the demo use no credits.' })),
   }
   readonly tools: FakeTool[] = HIGGSFIELD_TOOLS.map((t) => ({ ...t, call: this.calls[t.name] }))
 
   /** one request to a Higgsfield address: the MCP endpoint, a token refresh, anything else 404 */
   async answer(url: URL, r: NetRequest): Promise<{ status: number; headers?: Record<string, string>; body?: string | Buffer }> {
-    if (url.pathname === '/mcp' || url.pathname === '/mcp/') return answerMcp('higgsfield', this.tools, r, { unavailable: (t) => `${t} isn't available in the demo. generate_image, make_banner, job_display, show_generations and balance work here.` })
+    if (url.pathname === '/mcp' || url.pathname === '/mcp/') return answerMcp('higgsfield', this.tools, r, { unavailable: (t) => (t === 'make_banner' ? MAKE_BANNER_MOVED : `${t} isn't available in the demo. generate_image, job_display, show_generations and balance work here.`) })
     if (r.method === 'POST' && /\/token$/.test(url.pathname)) {
       return { status: 200, headers: { 'content-type': 'application/json' }, body: JSON.stringify({ access_token: `demo-hf-${this.state.nextId('t')}`, token_type: 'Bearer', expires_in: 31_536_000 }) }
     }

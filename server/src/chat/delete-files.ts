@@ -33,13 +33,15 @@ import { readRooms } from './read-rooms'
 import type { Tool } from './tools'
 import type { TurnExec } from './turn'
 import { alwaysHere, withAlways } from './always-allow'
+import { ownHistory, ownMade, OWN_TRASH_MAX_ENTRIES } from './own-files'
 
 export const DELETE_FILES_TOOL = 'delete_files'
 
-export const DELETE_FILES_DESCRIPTION = 'Move files or folders of the team drive to the team trash, only when the user asked you to delete them. ' +
+export const DELETE_FILES_DESCRIPTION = 'Move files or folders of the team drive to the team trash, only when the user asked you to delete them, or to clean up files you made yourself in this chat (downloads, tools, previews that should not have gone into a team folder). ' +
+  'Files you made yourself in this chat, which nobody else changed, go to the trash without a card, in a shared chat too, up to 50,000 files and folders per call. ' +
   'Give their full paths, all of them in one call when several go: one card lists them all. The user confirms on a card that lists every item, how many files each folder holds, whose files they are, ' +
   'who loses them and until when they can be restored. Nothing is deleted for good: the trash keeps them for the team\'s set number of days. ' +
-  'Not for top-level folders, group, project or rule folders, skill folders, other people\'s folders or chat attachments; at most 200 files and folders per call, counted inside folders.'
+  'Not for top-level folders, group, project or rule folders, skill folders, other people\'s folders or chat attachments; at most 200 files and folders per call, counted inside folders, for anything else.'
 
 const t = (ko: string, en: string, id: string, ja: string, es: string, zh: string): Record<Locale, string> => ({ ko, en, id, ja, es, zh })
 export const DELETE_TEXT = {
@@ -88,6 +90,9 @@ export const DELETE_REFUSAL = {
   busy: `${NONE}: another card is waiting for the user's answer, and a delete card is asked only when nothing else is open. Wait for that answer, then ask again with one call.`,
 } as const
 export type DeleteRefusal = keyof typeof DELETE_REFUSAL
+/** The refusals the AI's own files of this chat go past (chat/own-files.ts): who could ask and who is there to confirm.
+ * A restricted, template or confidential chat, a sub-agent, a declined or busy card keep theirs. */
+export const OWN_OVERRIDES: ReadonlySet<DeleteRefusal> = new Set(['shared', 'others', 'scheduled', 'roomsSeen', 'sharedFile', 'slack'])
 
 /** What delete_files needs of the chat turn (chat/turn.ts TurnExec): narrow, so the rules here are tested on their own. */
 export type DeleteExec = Pick<TurnExec, 'spec' | 'shared' | 'restricted' | 'templateRun' | 'roomsSeen' | 'otherAuthors' | 'fromSlack' | 'files' | 'rt' | 'waitForPerson' | 'openRequests' | 'livePrincipal'> & Partial<Pick<TurnExec, 'alwaysPlace' | 'callNow'>>
@@ -168,6 +173,8 @@ export function deleteCard(plan: AiTrashPlan, L: Locale, timeZone: string, now =
 
 export function deleteFilesTool(exec: DeleteExec): Tool {
   const { rt, spec } = exec
+  /** the last own-files plan (ownPlan), kept a moment between the up-front check and the call */
+  let lastOwn: { key: string; at: number; plan: AiTrashPlan | null } | null = null
   // a guest (credentials/guest-ai.ts): the card, the result and the refusals say what a guest can reach
   const guest = isGuestUser(rt.db, spec.userId)
   const state = (): CardState => { let s = cardStates.get(exec); if (!s) cardStates.set(exec, s = { declined: false, open: false }); return s }
@@ -196,6 +203,8 @@ export function deleteFilesTool(exec: DeleteExec): Tool {
       const why = deleteFilesRefusal(exec)
       if (!why) return null
       const a = DeleteFilesInput.safeParse(args)
+      // the AI's own files of this chat (chat/own-files.ts): checked again in call()
+      if (a.success && OWN_OVERRIDES.has(why) && ownPlan(a.data.paths)) return null
       const r = refusedBy(auditor(), why, a.success ? a.data.paths : [])
       return { text: r.content[0]!.text, summary: r.summary }
     },
@@ -209,6 +218,55 @@ export function deleteFilesTool(exec: DeleteExec): Tool {
     },
   }
 
+  /** The AI's own files go to the trash at once (the moves check the plan again: TeamFiles.trashAiPlan). */
+  function trashOwn(plan: AiTrashPlan, auditCall: Audit) {
+    lastOwn = null
+    const svc = componentC(rt.ctx).files
+    const user = exec.livePrincipal()
+    // the history again right before the move: the plan was made a moment ago, a teammate may have saved since
+    if (!ownMade(rt.db, rt.files.fx.root, { userId: user.id, chatId: spec.chatId }, plan).own) return result(`${NONE}: these files changed since; ask again with one call.`, 'changed')
+    const base = { paths: plan.items.map((i) => i.rel), entries: plan.entries, lost: plan.lost, noRestore: plan.noRestore, retentionDays: plan.retentionDays, others: plan.others.length, requestId: null, own: true }
+    const target = plan.items[0]!.rel
+    let done
+    try { done = svc.trashAiPlan(user.id, plan, spec.turnId) } catch (e) {
+      auditCall({ ...base, outcome: 'failed', trashIds: [] }, target)
+      return result(`${NONE}: ${e instanceof ToolError ? e.message : 'internal error'}.`, 'failed')
+    }
+    const moved = done.trashed.length + done.stranded.length
+    const outcome = moved === plan.items.length && !done.stranded.length ? 'trashed' : moved ? 'partial' : done.changed.length ? 'changed' : 'failed'
+    auditCall({ ...base, outcome, trashIds: done.trashed.map((x) => x.trashId), changed: done.changed, failed: done.failed.map((f) => f.path), stranded: done.stranded }, target)
+    if (!moved) return result(`${NONE}: ${done.changed.length ? `${done.changed.map(neutralizeTags).join(', ')} changed while it was checked. Ask again with one call` : done.failed.map((f) => `${neutralizeTags(f.path)}: ${neutralizeTags(f.error)}`).join('; ')}.`, done.changed.length ? 'changed' : 'failed')
+    const timeZone = teamTimeZone(rt.db)
+    const until = done.trashed[0] && restoreUntilDay(done.trashed[0].purgeAt, timeZone)
+    const text = [
+      `These were files you made yourself in this chat (nobody else changed them), so no card was shown. Moved to the team trash (${done.trashed.length}, ${plan.entries} files and folders in all):\n${done.trashed.map((x) => `- ${neutralizeTags(x.path)}`).join('\n')}`,
+      until ? `They can be restored until ${until} (in the team's time zone, ${timeZone}) on the Files screen › Trash (in the app: ${DELETE_TEXT.where[spec.locale]}). Tell the user what went.` : '',
+      done.stranded.length ? `Moved out of its place but not listed in the trash (the server log says where): ${done.stranded.map((x) => neutralizeTags(x.path)).join(', ')}. Tell the user an admin can recover it.` : '',
+      done.changed.length ? `Not moved, changed while it was checked (left where it was): ${done.changed.map(neutralizeTags).join(', ')}.` : '',
+      done.failed.length ? `Not moved:\n${done.failed.map((f) => `- ${neutralizeTags(f.path)}: ${neutralizeTags(f.error)}`).join('\n')}` : '',
+    ].filter(Boolean).join('\n\n')
+    return { content: [{ type: 'text' as const, text }], summary: `${DELETE_FILES_TOOL} -> ${done.trashed.length}/${plan.items.length} of the AI's own files to the trash (${plan.entries} entries, no card)` }
+  }
+
+  /** The plan of these paths when every item is the AI's own in this chat (chat/own-files.ts), else null. The history
+   * is checked first (cheap), and only then is anything walked; the plan is kept a moment for the call right after the
+   * up-front check (refuse, then call) and made again after that. */
+  function ownPlan(paths: readonly string[]): AiTrashPlan | null {
+    const key = JSON.stringify(paths)
+    if (lastOwn && lastOwn.key === key && Date.now() - lastOwn.at < 5_000) return lastOwn.plan
+    let plan: AiTrashPlan | null = null
+    try {
+      const user = exec.livePrincipal()
+      const who = { userId: user.id, chatId: spec.chatId }
+      if (paths.every((p) => ownHistory(rt.db, who, p.replace(/^\/+|\/+$/g, '')).own)) {
+        const planned = componentC(rt.ctx).files.planAiTrash(user.id, paths, { maxEntries: OWN_TRASH_MAX_ENTRIES, noHistory: true })
+        if (!('refused' in planned) && ownMade(rt.db, rt.files.fx.root, who, planned.plan).own) plan = planned.plan
+      }
+    } catch { plan = null }
+    lastOwn = { key, at: Date.now(), plan }
+    return plan
+  }
+
   async function run(args: unknown, files: unknown, auditCall: Audit) {
     const refused = (why: DeleteRefusal, paths: string[]) => refusedBy(auditCall, why, paths)
     const a = DeleteFilesInput.safeParse(args)
@@ -220,8 +278,15 @@ export function deleteFilesTool(exec: DeleteExec): Tool {
     // the main AI only (subagents.ts PARENT_ONLY_TOOLS): a sub-agent's call comes with its own turn state
     if (files !== exec.files) return refused('subagent', paths)
     const mode = deleteFilesRefusal(exec)
-    if (mode) return refused(mode, paths)
     const s = state()
+    // the AI's own files of this chat: no card, also where deletes are refused otherwise (a shared project chat, other
+    // people's words, a scheduled run, Slack); never in a restricted, template or confidential chat, never after the
+    // person said no to a delete in this answer
+    if ((!mode || OWN_OVERRIDES.has(mode)) && !s.declined) {
+      const own = ownPlan(paths)
+      if (own) return trashOwn(own, auditCall)
+    }
+    if (mode) return refused(mode, paths)
     if (s.declined) return refused('declined', paths)
     // "Always allow" for deletes (chat/always-allow.ts; the owner, 2026-11-13): no card, also after a room read or a
     // shared file (the person's choice is final, docs/decisions/20261116-always-allow-final-rule-a.md); a card that does

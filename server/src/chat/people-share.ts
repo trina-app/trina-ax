@@ -72,9 +72,10 @@ const filesKeyOf = (ctx: AppContext, userId: string, chatId: string, files: read
  * person; a group that exists and, for a member, one of their own (admins any). Else 400 unknown_subject. */
 export function checkNewSubjects(ctx: AppContext, me: Principal, added: readonly AudienceSubject[], locale: Locale): void {
   for (const s of added) {
-    const ok = s.type === 'user'
-      // a guest is never shared a chat with (their one place is a room or a project): the same answer as an unknown person
-      ? !!ctx.db.query("SELECT 1 FROM users WHERE id = ? AND status = 'active' AND deleted_at IS NULL AND guest = 0").get(s.id)
+    const u = s.type === 'user' ? ctx.db.query("SELECT guest FROM users WHERE id = ? AND status = 'active' AND deleted_at IS NULL").get(s.id) as { guest: number } | null : null
+    // a guest is never shared a chat with (their one place is a room or a project): said so plainly (QA TC-6961)
+    if (u?.guest) fail('validation', tr('chatShareGuest', locale), { params: { reason: 'unknown_subject' } })
+    const ok = s.type === 'user' ? !!u
       : !!ctx.db.query('SELECT 1 FROM groups WHERE id = ?').get(s.id) && (isAdmin(me.role) || me.groups.includes(s.id))
     if (!ok) fail('validation', tr('chatShareUnknownPerson', locale), { params: { reason: 'unknown_subject' } })
   }

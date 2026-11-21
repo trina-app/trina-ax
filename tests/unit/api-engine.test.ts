@@ -241,7 +241,7 @@ describe('B-API-4 / B-API-6: the Admin status check of the API engine', () => {
     expect(s.detail).toContain('deepseek/no-such')
   })
   test('refused key, HTTP error, no list, closed port: each its own status and words', async () => {
-    expect(await check('m', new Response('no', { status: 401 }))).toMatchObject({ status: 'not_logged_in', detail: expect.stringContaining('refused') })
+    expect(await check('m', new Response('no', { status: 401 }))).toMatchObject({ status: 'not_logged_in', detail: expect.stringContaining("didn't accept this API key") })
     expect(await check('m', new Response('down', { status: 500 }))).toMatchObject({ status: 'error', detail: expect.stringContaining('HTTP 500') })
     expect(await check('m', new Response('nope', { status: 404 }))).toMatchObject({ status: 'ok', detail: expect.stringContaining('not checked') })
     expect(await check('m', Response.json({ data: [] }))).toMatchObject({ status: 'ok', detail: expect.stringContaining('not checked') })
@@ -252,6 +252,35 @@ describe('B-API-4 / B-API-6: the Admin status check of the API engine', () => {
     // a closed port on this computer: nothing runs there (QA TC-4827)
     expect(s).toMatchObject({ status: 'error', detail: expect.stringContaining('Nothing answers at this address') })
     expect(String(s.detail).includes('sk-test-12345678')).toBe(false)
+  })
+  test('a refused key: plain words on the card, the HTTP status only in the server log (QA TC-6925)', async () => {
+    for (const status of [401, 403]) {
+      reply = { models: new Response('no', { status }) }
+      const dir = fs.mkdtempSync(path.join(require('node:os').tmpdir(), 'mycel-api-refused-'))
+      writeApiEngine(dir, { baseUrl: `http://127.0.0.1:${srv.port}/v1`, model: 'm', label: 'M', key: 'sk-test-12345678' })
+      const logged: { msg: string; fields?: Record<string, unknown> }[] = []
+      const log = { warn: (msg: string, fields?: Record<string, unknown>) => logged.push({ msg, fields }) } as unknown as NonNullable<EngineEnv['log']>
+      for (const locale of ['en', 'ko', 'id', 'ja', 'es', 'zh'] as const) {
+        const s = await checkEngine('api', { dataDir: dir, log } as EngineEnv, true, locale)
+        expect(s.status).toBe('not_logged_in')
+        expect(String(s.detail)).not.toMatch(/40[13]/)
+      }
+      expect(logged[0]).toMatchObject({ msg: 'api engine: key refused', fields: { status } })
+      // a key-less gateway on this computer that refuses: never "No key needed" beside the refusal
+      const open = fs.mkdtempSync(path.join(require('node:os').tmpdir(), 'mycel-api-refused-open-'))
+      writeApiEngine(open, { baseUrl: `http://127.0.0.1:${srv.port}/v1`, model: 'm', label: 'M' })
+      reply = { models: new Response('no', { status }) }
+      expect((await checkEngine('api', { dataDir: open, log } as EngineEnv, true, 'en')).keyless).toBeUndefined()
+      expect(JSON.stringify(logged)).not.toContain('sk-test-12345678')
+    }
+  })
+  test('a key-less engine on this computer is marked keyless (the card says "No key needed", QA TC-6924); one with a key is not', async () => {
+    reply = { models: Response.json({ data: [{ id: 'llama3.2' }] }) }
+    const dir = fs.mkdtempSync(path.join(require('node:os').tmpdir(), 'mycel-api-keyless-'))
+    writeApiEngine(dir, { baseUrl: `http://127.0.0.1:${srv.port}/v1`, model: 'llama3.2', label: 'Llama' })
+    expect(await checkEngine('api', { dataDir: dir } as EngineEnv, true, 'en')).toMatchObject({ status: 'ok', keyless: true })
+    const withKey = await check('m', Response.json({ data: [{ id: 'm' }] }))
+    expect(withKey.keyless).toBeUndefined()
   })
   test('OpenRouter (public model list): a refused key is found by GET /key; no key check address is said', async () => {
     const real = globalThis.fetch

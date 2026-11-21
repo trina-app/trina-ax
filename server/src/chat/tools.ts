@@ -59,7 +59,8 @@ import { cleanAiTitle, graphemes, setAiTitle, titleToolOffered } from './title'
 import { recordSent } from '../tools/connection-urls'
 import { BOX_SHELL_TOOL, boxShellTool, callerOf } from '../devenv/tool'
 import { mayUseDevEnv } from '../devenv/setting'
-import { noteSharedReads, runsInWorkFolder, spaceOf, workFolderAt } from '../devenv/srt/runner'
+import { inOldWorkFolder, noteSharedReads, runsInWorkFolder, spaceOf, workFolderAt, workFolderChange } from '../devenv/srt/runner'
+import { NO_WORK_WORDS, workUnavailableText } from '../devenv/work-files'
 import { saveWorkFileTool } from './work-file-tool'
 import { COPY_FILES_TOOL, stagePlaceInput, withPlaces } from './places-copy'
 import { connectService } from './connect-service'
@@ -83,6 +84,8 @@ import { SHARE_JUDGE_REFUSAL } from '../skills/share-judge'
 import { FILE_RANK_REFUSAL } from '../onboarding/file-rank'
 import { mergeTargets, SHARE_MERGE_REFUSAL } from '../skills/share-merge'
 import { deleteFilesTool } from './delete-files'
+import { BULK_CARD_MS, bulkCard } from '../devenv/bulk'
+import { placeWords } from './place-words'
 import { projectMembersTool } from './project-members'
 import { folderAccessOff, folderAccessTool } from './folder-access-tool'
 import { readRooms } from './read-rooms'
@@ -315,6 +318,13 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
       caller: (files) => callerOf(files, exec.files),
       redact: (s) => exec.redact(s),
       unattended: person.unattended,
+      // the bulk card (devenv/bulk.ts): keep many new files in the project folder? "Always allow" keeps them from then
+      // on (kind bulk_files); a scheduled run asks nobody (false unless that choice was made)
+      keepBulk: async (ask) => {
+        const card = bulkCard(ask, exec.spec.locale, (p) => placeWords(exec.rt.db, p, exec.spec.locale, exec.spec.userId))
+        // a short wait: the project's other commands wait while the card is open (no answer: the files move)
+        return person.confirm(card.question, card.keep, card.move, { always: 'bulk_files', details: card.details, timeoutMs: BULK_CARD_MS })
+      },
       confirm: async (question, options, details) => (person.choose
         ? person.choose(question, options, { details: [{ label: 'Changes', text: details.join('\n') }] })
         : (await person.confirm(question, options[0]!.label, options[1]!.label, { details: [{ label: 'Changes', text: details.join('\n') }] })) ? options[0]!.value : null),
@@ -337,6 +347,18 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
       return workFolderAt(exec.rt.ctx, { userId: exec.spec.userId, chatId: exec.spec.chatId, project: d.project ? { id: d.project.id, folderPath: d.project.folderPath } : null, ...(d.shared ? { shared: d.shared } : {}) })
     }
     exec.files.workFolder = where
+    // why there is none now, the same words for every spelling of its path (devenv/work-files.ts NO_WORK_WORDS)
+    const at0 = { userId: exec.spec.userId, chatId: exec.spec.chatId, ...(d.shared ? { shared: d.shared } : {}) }
+    const change = () => { try { return workFolderChange(exec.rt.ctx, at0) } catch { return null } }
+    exec.files.workWhy = () => {
+      if (!mayUseDevEnv(exec.rt.db, exec.rt.files, exec.spec.userId)) return 'off'
+      let here = false
+      try { here = runsInWorkFolder(exec.rt.ctx, { ...at0, project: d.project ? { id: d.project.id, folderPath: d.project.folderPath } : null }) } catch { here = false }
+      if (!here) return 'elsewhere'
+      return change() === 'fresh' ? 'changed' : 'none'
+    }
+    exec.files.workRenewed = () => change() === 'after'
+    exec.files.workOldPath = (p) => { try { return inOldWorkFolder(exec.rt.ctx, at0, p) } catch { return false } }
     // the hand-over: only where the commands run in a work folder (not a project folder, which is a team folder
     // already); a personal chat saves into the team folder, a chat shared with people attaches it to the answer
     const at = { userId: exec.spec.userId, chatId: exec.spec.chatId, project: d.project ? { id: d.project.id, folderPath: d.project.folderPath } : null, ...(d.shared ? { shared: d.shared } : {}) }
@@ -609,10 +631,11 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
       const work = exec.workRead(name, args)
       // (no work folder yet: the read itself refuses, and nothing is made here)
       if (work && exec.shared && exec.files.workFolder?.()) {
-        if (!(caller ? caller.files === exec.files : true)) return { refusal: 'Only the main assistant opens the work folder.', summary: `${name} -> refused: work folder (sub-agent)` }
+        if (!(caller ? caller.files === exec.files : true)) return { refusal: NO_WORK_WORDS.helper, summary: `${name} -> refused: work folder (sub-agent)` }
         const d = exec.devEnv
-        const space = d?.shared ? spaceOf(exec.rt.ctx, { userId: exec.spec.userId, chatId: exec.spec.chatId, project: null, shared: d.shared }) : null
-        if (!space || !noteSharedReads(exec.rt.ctx, space)) return { refusal: 'The work folder of this chat cannot be opened now (the people of this chat changed, or the dev environment is off).', summary: `${name} -> refused: work folder not recorded (shared chat)` }
+        // a shared project chat: its runs' space (the project folder) with its scratch folder (srt/runner.ts scratchOf)
+        const space = d?.shared ? spaceOf(exec.rt.ctx, { userId: exec.spec.userId, chatId: exec.spec.chatId, project: d.project ? { id: d.project.id, folderPath: d.project.folderPath } : null, shared: d.shared }) : null
+        if (!space || !noteSharedReads(exec.rt.ctx, space)) return { refusal: workUnavailableText(exec.files.workWhy?.()), summary: `${name} -> refused: work folder not recorded (shared chat)` }
         addSources(exec.rt.db, exec.spec.chatId, [{ type: 'chat', id: exec.spec.chatId }])
       }
       if (exec.shared && !work) {
@@ -760,13 +783,14 @@ const LIVE_CLIENTS: ReadonlySet<string> = new Set(['web', 'desktop', 'mobile'])
 export function turnPerson(exec: TurnExec): TurnPerson {
   // the value picked (one of the card's own answers, never free text), or null with why there was none
   const pick = async (question: string, options: { label: string; value: string }[], extra?: ConfirmExtra): Promise<{ value: string | null; missing: CardAnswer['missing'] }> => {
+    const wait = extra?.timeoutMs ? Math.min(extra.timeoutMs, exec.rt.askUserTimeoutMs()) : exec.rt.askUserTimeoutMs()
     const { value: answer, missing } = await exec.askPerson({
       kind: 'ask_user', origin: 'server', requestId: uuidv7(), question, options,
-      multiple: false, allowText: false, expiresAt: new Date(Date.now() + exec.rt.askUserTimeoutMs()).toISOString(),
+      multiple: false, allowText: false, expiresAt: new Date(Date.now() + wait).toISOString(),
       ...(extra?.details?.length ? { details: extra.details } : {}),
       ...(extra?.buttons && options.length === 3 ? { buttons: true as const } : {}),
       ...(extra?.note ? { note: extra.note } : {}),
-    } as TurnRequest, { timeoutMs: exec.rt.askUserTimeoutMs() })
+    } as TurnRequest, { timeoutMs: wait })
     const v = Array.isArray(answer) && answer.length === 1 ? answer[0] : answer
     return { value: typeof v === 'string' && options.some((o) => o.value === v) ? v : null, missing }
   }

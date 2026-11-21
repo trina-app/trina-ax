@@ -85,7 +85,7 @@ describe('API engine: tool rounds per answer', () => {
       rounds(GUEST_ANSWER_STEP_LIMIT + 5, 'never said')
       const left = script.length
       const { done, lists } = await answer('go through them', 'erin', erin)
-      expect(done.error).toMatchObject({ params: { reason: 'no_credential' } })
+      expect(done.error).toMatchObject({ params: { reason: 'guest_no_ai' } })
       expect(lists).toBe(0)
       expect(script.length).toBe(left)
     } finally { clear(); script.length = 0 }

@@ -134,8 +134,8 @@ function TabLink({ to, active, icon, label, testId, onClick, children }: { to: s
         {icon}
         {children}
       </span>
-      {/* one line: cut at the tab's width, never wrapped */}
-      <span className="block max-w-full truncate whitespace-nowrap" data-testid="bottom-tab-label">{label}</span>
+      {/* up to two lines at the tab's width, never an ellipsis (ja "アクティビティ": QA 2026-11-22 F15) */}
+      <span className="line-clamp-2 max-w-full text-center leading-tight [overflow-wrap:anywhere]" data-testid="bottom-tab-label">{label}</span>
     </Link>
   )
 }

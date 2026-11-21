@@ -148,11 +148,12 @@ describe('the tab bar', () => {
       expect(new RegExp(`<a [^>]*data-testid="${id}"[^>]*>`).exec(html)?.[0]).toContain(`href="${to}"`)
     }
     expect(html).toContain(`>${aiName(ko)}</span></a>`)
-    // each label on one line, cut at the tab's width (QA TC-255)
+    // each label within the tab's width (QA TC-255), on up to two lines, never an ellipsis (ja "アクティビティ" was cut:
+    // QA 2026-11-22 F15)
     const labels = [...html.matchAll(/<span class="([^"]*)" data-testid="bottom-tab-label">([^<]*)</g)]
     expect(labels.map((m) => m[2])).toEqual([aiName(ko), ko('tabs.chats'), ko('projects.title'), ko('sidebar.files'), ko('tabs.me')])
-    for (const m of labels) expect(m[1]).toContain('whitespace-nowrap')
-    for (const m of labels) expect(m[1]).toContain('truncate')
+    for (const m of labels) expect(m[1]).toContain('line-clamp-2')
+    for (const m of labels) expect(m[1]).not.toContain('truncate')
   })
 
   test('트리나\'s icon: Trina\'s own orange star (the room header\'s ✦) where the product is named after its AI, dimmed off its tab; the sparkle elsewhere', async () => {

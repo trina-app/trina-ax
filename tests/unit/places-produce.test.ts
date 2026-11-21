@@ -13,6 +13,7 @@ import { startHarness, type Harness, type TestSocket } from '../lib/b-harness'
 import { makePng } from '../lib/images'
 import { _active, setSrtSystem } from '../../server/src/devenv/srt/runner'
 import { devenvPaths } from '../../server/src/devenv/srt/config'
+import { NO_WORK_WORDS } from '../../server/src/devenv/work-files'
 import type { SrtSystem, UnitInfo } from '../../server/src/devenv/srt/system'
 import type { DevEnvPlan } from '../../server/src/devenv/srt/plan'
 import { newConsent, saveTeamSetting, teamSetting } from '../../server/src/devenv/setting'
@@ -236,7 +237,7 @@ describe('who may attach', () => {
   })
 
   test('chat:work/ outputs wait for P2; an existing chat file by id waits for P4; other forms are refused', () => {
-    expect(why(() => chatOutput(ctxWith(placesFor('people')), 'chat:work/out/a.pptx'))).toBe(PLACE_WORDS.noWork)
+    expect(why(() => chatOutput(ctxWith(placesFor('people')), 'chat:work/out/a.pptx'))).toBe(NO_WORK_WORDS.elsewhere)
     expect(why(() => chatOutput(ctxWith(placesFor('people')), 'chat:files/01a1fc0c-bb3a-74b5-a134-7fcbe2e1b208/a.pptx'))).toBe(PLACE_WORDS.inPlace)
     expect(why(() => chatOutput(ctxWith(placesFor('people')), 'chat:files/'))).toContain('name the new file')
     expect(why(() => chatOutput(ctxWith(placesFor('people')), 'room:files/a.pptx'))).toContain('room files are not paths yet')

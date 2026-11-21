@@ -46,6 +46,7 @@ import { getChatRuntime } from '../chat/runtime'
 import { egressSettled, egressStatus, EXIT_ADDRESS_URL, exitAddressCheckOff } from '../tools/egress'
 import { diskStat, unknownChanged } from './disk-stat'
 import { notifyStorageFilling } from '../notifications/service'
+import { PUSH_SECRETS_TEXT, pushSecretsProblem } from '../notifications/push-secrets'
 
 /** the bootstrap's history detail of a version kept although the AI engine could not start on this server
  * (native/cmd/mycel-bootstrap/enginecheck.go engineHostDetail; the same words) */
@@ -469,6 +470,10 @@ export class OpsService {
     // plan.json / notices.json that did not parse: the previous values stay in force (system/limits.ts, managed.ts)
     const managedBad = [['plan.json', planFileProblem()], ['notices.json', noticesFileProblem()]] as const
     for (const [file, p] of managedBad) if (p) add(`managed.${file.split('.')[0]}`, 'server', t(ML.managedFiles), 'warn', t(ML.managedFileBad(file, p.error.slice(0, 120), host === 'hosted')))
+    // the push secrets' folder (notifications/push-secrets.ts): open to other accounts, no phone or browser can register
+    // for notifications, and a member's phone says only that the server is unavailable (QA TC-6929). Shown when wrong
+    const pushDir = pushSecretsProblem({ dataDir: this.ctx.config.dataDir, teamRoot: this.ctx.config.teamRoot, secrets: path.join(this.ctx.config.dataDir, 'secrets', 'push') })
+    if (pushDir) add('push_secrets', 'server', t(PUSH_SECRETS_TEXT.label), 'warn', t(PUSH_SECRETS_TEXT.problem(pushDir, host === 'hosted')))
 
     // connection. Without the relay the line says what the server knows: a public address set up (tunnel.host, the
     // server's own domain; never the relay's team address) or the office network only (QA: a Linux server behind a

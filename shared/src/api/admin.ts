@@ -494,6 +494,9 @@ export const EngineStatus = z.object({
   authMode: z.enum(['local-login', 'proxy', 'agent-own', 'managed', 'api-key']),
   /** api-key (the API engine): the provider's host, e.g. openrouter.ai */
   provider: z.string().optional(),
+  /** api-key: no key is stored and the address is on the server's computer or its network (Ollama, LM Studio), which
+   * needs none: the card says "No key needed" in place of "API key" (QA TC-6924) */
+  keyless: z.boolean().optional(),
   installed: z.boolean(),
   version: z.string().nullable(),
   status: z.enum(['ok', 'limited', 'not_installed', 'not_logged_in', 'version_unsupported', 'lockdown_failed', 'error', 'unknown']),

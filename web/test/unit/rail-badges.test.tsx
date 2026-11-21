@@ -108,6 +108,24 @@ describe('Rail', () => {
     return m
   }
 
+  test('ja labels in full on up to two lines, never an ellipsis (プロジ…, アクテ…: QA 2026-11-22 F15)', async () => {
+    useLocaleStore.setState({ locale: 'ja' })
+    const m = await draw('owner', '/rooms')
+    try {
+      const labels = m.container.querySelectorAll('[data-testid="rail-label"]')
+      expect(labels.length).toBe(5)
+      expect(labels.map((l) => l.textContent)).toContain(translate('ja', 'projects.title'))
+      expect(labels.map((l) => l.textContent)).toContain(translate('ja', 'inbox.title'))
+      for (const l of labels) {
+        expect(l.getAttribute('class')).toContain('line-clamp-2')
+        expect(l.getAttribute('class')).not.toContain('truncate')
+      }
+    } finally {
+      await m.unmount()
+      useLocaleStore.setState({ locale: 'ko' })
+    }
+  })
+
   test('five places in the phone tabs\' order, each with its name; the page\'s place lit; 대화 and 활동 counted once each', async () => {
     const m = await draw('owner', '/rooms')
     try {

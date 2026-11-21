@@ -199,7 +199,8 @@ export function AttachmentView({ a, align = 'end', chatId }: { a: Attachment; al
         {team && a.changed && <span className="text-warn">{t('attach.changed')}</span>}
         {team && a.moved && !a.changed && <span>{t('attach.moved')}</span>}
         {/* a chat's file changed since it was sent (a new version): who, and when */}
-        {updated && <span className="basis-full truncate" data-testid="attachment-updated">{updatedLine(t, locale, updated)}</span>}
+        {/* wraps rather than cutting the name ("Trina for Q…": QA TC-6952) */}
+        {updated && <span className="basis-full [overflow-wrap:anywhere]" title={updatedLine(t, locale, updated)} data-testid="attachment-updated">{updatedLine(t, locale, updated)}</span>}
       </span>
     </>
   )

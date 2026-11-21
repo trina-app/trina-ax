@@ -65,8 +65,34 @@ describe.skipIf(skip)('gate: pages, start, routing', () => {
     const v = visitor()
     expect((await startVisit(g, v, { token: 'nope' })).status).toBe(400)
     expect((await startVisit(g, v, { token: 'elsewhere' })).status).toBe(400)
-    expect((await startVisit(g, v, { origin: 'https://evil.example' })).status).toBe(403)
+    const evil = await startVisit(g, v, { origin: 'https://evil.example' })
+    expect(evil.status).toBe(403)
     expect(v.cookies.size).toBe(0)
+    // a refused start clears nothing in the browser
+    expect(evil.headers.get('clear-site-data')).toBeNull()
+    expect((await startVisit(g, v, { token: 'nope' })).headers.get('clear-site-data')).toBeNull()
+  })
+
+  test('the language the visitor used in the app (mycel_locale) picks the ended and landing pages over the browser', async () => {
+    const ended = visitor()
+    ended.cookies.set('__Host-tdg', 'gone')
+    ended.cookies.set('mycel_locale', 'ko')
+    const r = await get(g, ended, '/', { headers: { 'accept-language': 'en-US' } })
+    const html = await r.text()
+    expect(html).toContain('<html lang="ko">')
+    expect(html).toContain('데모 시간이 끝났어요')
+    const fresh = visitor()
+    fresh.cookies.set('mycel_locale', 'ko')
+    expect(await (await get(g, fresh, '/', { headers: { 'accept-language': 'en-US' } })).text()).toContain('<html lang="ko">')
+    // ?lang= still wins; a language the gate does not run, or junk, is ignored
+    expect(await (await get(g, fresh, '/?lang=en', { headers: { 'accept-language': 'ko-KR' } })).text()).toContain('<html lang="en">')
+    for (const bad of ['ja', '%22%3E%3Cscript%3E']) {
+      const o = visitor()
+      o.cookies.set('mycel_locale', bad)
+      const t = await (await get(g, o, '/', { headers: { 'accept-language': 'en-US' } })).text()
+      expect(t).toContain('<html lang="en">')
+      expect(t).not.toContain('<script>')
+    }
   })
 
   test('start: 303 to /, a Secure visitor cookie and the instance session cookie with Secure forced', async () => {
@@ -74,7 +100,8 @@ describe.skipIf(skip)('gate: pages, start, routing', () => {
     await warm(g, 1, 'ko')
     const r = await startVisit(g, v, { lang: 'ko' })
     expect(r.status).toBe(303)
-    expect(r.headers.get('location')).toBe('/')
+    // a new start lands on /?fresh=1 (the web app clears the tab's storage: Safari ignores Clear-Site-Data here)
+    expect(r.headers.get('location')).toBe('/?fresh=1')
     const set = r.headers.getSetCookie()
     const gate = set.find((c) => c.startsWith('__Host-tdg='))!
     expect(gate).toMatch(/HttpOnly/)
@@ -87,9 +114,19 @@ describe.skipIf(skip)('gate: pages, start, routing', () => {
     expect(sid.split('; ').filter((x) => x === 'Secure')).toHaveLength(1)
     expect(sid).toContain('; Path=/;')
     expect(sid).not.toMatch(/domain=/i)
+    // the language goes with the visitor (the gate's later pages read it); readable by the web app, which writes it too
+    expect(set).toContain('mycel_locale=ko; Path=/; Max-Age=31536000; SameSite=Lax; Secure')
+    // the last visitor's drafts in this browser go: storage only (cookies stay, so the new session survives), exactly
+    expect(r.headers.get('clear-site-data')).toBe('"storage"')
+    // starting again while the copy is live goes back to it and clears nothing
+    const again = await startVisit(g, v, { lang: 'ko' })
+    expect(again.status).toBe(303)
+    expect(again.headers.get('location')).toBe('/')
+    expect(again.headers.get('clear-site-data')).toBeNull()
     // routed by the cookie to a ko instance; the instance never sees the gate cookie or the edge headers
     const e = await (await get(g, v, '/echo')).json() as { headers: Record<string, string>; dir: string; config: any; env: Record<string, string> }
-    expect(e.headers.cookie).toStartWith('__Host-sid=')
+    // the instance gets its session and the language cookie (the web app writes that one on the instance too)
+    expect(e.headers.cookie.split('; ').map((c) => c.split('=')[0]).sort()).toEqual(['__Host-sid', 'mycel_locale'])
     expect(e.headers.cookie).not.toContain('__Host-tdg')
     expect(e.headers['cf-connecting-ip']).toBeUndefined()
     expect(e.headers.host).toBe(`127.0.0.1:${e.config.listen.port}`)
@@ -107,6 +144,8 @@ describe.skipIf(skip)('gate: pages, start, routing', () => {
     const r = await get(g, v, '/__demo/resume', { method: 'POST', headers: { origin: 'https://demo.trina.app' } })
     expect(r.status).toBe(303)
     expect(r.headers.get('location')).toBe('/')
+    // the same visitor's own copy: their drafts stay
+    expect(r.headers.get('clear-site-data')).toBeNull()
     const sid = r.headers.getSetCookie().find((c) => c.startsWith('__Host-sid='))!
     expect(sid).toMatch(/; Secure$/)
     expect(v.cookies.get('__Host-sid')).not.toBe(first)
@@ -177,7 +216,7 @@ describe.skipIf(skip)('gate: pages, start, routing', () => {
     const payload = Buffer.from([0x81, 0x85, 1, 2, 3, 4, 0x69, 0x67, 0x6f, 0x68, 0x6e])
     const r = await wsEcho(port, '/ws/events', cookie, payload)
     expect(r.head).toStartWith('HTTP/1.1 101')
-    expect(r.head).toContain('X-Seen-Cookie: __Host-sid=')
+    expect(r.head).toMatch(/X-Seen-Cookie: (mycel_locale=en; )?__Host-sid=/)
     expect(r.head).not.toContain('__Host-tdg')
     expect(r.echo.equals(payload)).toBe(true)
     // without a session: no upgrade
@@ -650,9 +689,11 @@ describe.skipIf(skip)('gate: pool', () => {
       const v2 = visitor('198.51.100.2')
       const r = await startVisit(g, v2)
       expect(r.status).toBe(503)
+      expect(r.headers.get('clear-site-data')).toBeNull()
       const html = await r.text()
       expect(html).toContain('https://ax.trina.app/demo')
       expect(html).toContain('https://ax.trina.app/pricing')
+      expect(html).toContain('<a class="secondary" href="/">Try again</a>')
       const landing = await get(g, v2, '/')
       expect(await landing.text()).not.toContain('cf-turnstile')
     } finally { await g.stop() }
@@ -683,7 +724,12 @@ describe.skipIf(skip)('gate: pool', () => {
       expect((await startVisit(g, visitor(ip))).status).toBe(303)
       const third = await startVisit(g, visitor(ip))
       expect(third.status).toBe(429) // two live already
-      expect(await third.text()).toContain('a few times')
+      expect(third.headers.get('clear-site-data')).toBeNull()
+      const thirdHtml = await third.text()
+      expect(thirdHtml).toContain('a few times')
+      // copies live 24 hours: never "about an hour" for this one
+      expect(thirdHtml).toContain('You can start again tomorrow.')
+      expect(thirdHtml).not.toContain('about an hour')
       // another address is not held back by the first one's live copies
       const other = '192.0.2.11'
       for (let i = 0; i < 2; i++) { await warm(g, 1); expect((await startVisit(g, visitor(other))).status).toBe(303) }
@@ -698,7 +744,24 @@ describe.skipIf(skip)('gate: pool', () => {
       await warm(g, 2)
       const ip = '192.0.2.20'
       for (let i = 0; i < 3; i++) { await warm(g, 1); expect((await startVisit(g, visitor(ip))).status).toBe(303) }
-      expect((await startVisit(g, visitor(ip))).status).toBe(429)
+      const r = await startVisit(g, visitor(ip))
+      expect(r.status).toBe(429)
+      expect(r.headers.get('clear-site-data')).toBeNull()
+      expect(await r.text()).toContain('You can start again in about an hour.')
+    } finally { await g.stop() }
+  })
+
+  test('starts per day: the limit page says tomorrow', async () => {
+    const g = await startGate({ upstream: upstream.url, turnstile: turnstile.url, locales: ['en'], pool: { warmPerLocale: 2 }, limits: { startsPerHour: 10, startsPerDay: 2, livePerIp: 10 } })
+    try {
+      await warm(g, 2)
+      const ip = '192.0.2.30'
+      for (let i = 0; i < 2; i++) { await warm(g, 1); expect((await startVisit(g, visitor(ip))).status).toBe(303) }
+      const r = await startVisit(g, visitor(ip))
+      expect(r.status).toBe(429)
+      const html = await r.text()
+      expect(html).toContain('You can start again tomorrow.')
+      expect(html).not.toContain('about an hour')
     } finally { await g.stop() }
   })
 
@@ -712,6 +775,8 @@ describe.skipIf(skip)('gate: pool', () => {
       const r = await startVisit(g, v)
       expect(r.status).toBe(502)
       expect(v.cookies.has('__Host-tdg')).toBe(false)
+      expect(r.headers.get('clear-site-data')).toBeNull()
+      expect(await r.text()).toContain('<a class="secondary" href="/">Try again</a>')
       await until(() => !fs.existsSync(path.join(g.instancesDir, id)), 8000, 'removed')
     } finally { await g.stop() }
   })

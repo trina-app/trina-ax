@@ -1,5 +1,4 @@
 import crypto from 'node:crypto'
-import fs from 'node:fs'
 import path from 'node:path'
 import type { z } from 'zod'
 import type { Database } from 'bun:sqlite'
@@ -25,6 +24,7 @@ import { chatThreadWanted } from '../chat/threads'
 import { readPushConfig, pushConfigKey, type PushConfig } from './push-config'
 import { bounded, createPushTransport, pushFailure, validatePushSubscription, type PushSubscription, type PushTransport } from './push-transport'
 import { pushBadge } from './push-badge'
+import { pushSecretsLogLine, pushSecretsProblem } from './push-secrets'
 import { readNativePushConfig } from './push-gateway-setting'
 import { decidePhone, type PhoneDecision } from './away'
 import { createNativeTransport, labelCode, nativeConfigKey, validNativeDevice, type NativeDevice, type NativePushConfig, type NativeTransport } from './push-native'
@@ -118,14 +118,14 @@ export class PushService {
   }
   /** No usable Web Push key, or an unsafe folder for push secrets: an admin's matter, said apart from a passing outage. */
   private keyMissing(){return new HttpError('unavailable',undefined,{params:{reason:PUSH_KEY_REASON}})}
+  /** the last folder problem written to the log: said once, again only when it changes or after it was fixed */
+  private secretsLogged:string|null=null
   private safeSecrets(create=false){
-    const realData=fs.realpathSync(this.ctx.config.dataDir),team=fs.realpathSync(this.ctx.config.teamRoot)
-    if(realData===team||realData.startsWith(team+path.sep))throw this.keyMissing()
-    for(const dir of [this.ctx.config.dataDir,path.dirname(this.secrets),this.secrets]){
-      if(create&&!fs.existsSync(dir))fs.mkdirSync(dir,{mode:0o700})
-      const st=fs.lstatSync(dir)
-      if(st.isSymbolicLink()||!st.isDirectory()||(st.mode&0o077)||(process.getuid&&st.uid!==process.getuid()))throw this.keyMissing()
-    }
+    const problem=pushSecretsProblem({dataDir:this.ctx.config.dataDir,teamRoot:this.ctx.config.teamRoot,secrets:this.secrets,create})
+    // the member's phone hears only "unavailable" (push_key); the cause is the server log's and Admin › System's (QA TC-6929)
+    const line=problem?pushSecretsLogLine(problem):null
+    if(line!==this.secretsLogged){this.secretsLogged=line;if(line)this.ctx.log.warn(line,{reason:PUSH_KEY_REASON})}
+    if(problem)throw this.keyMissing()
   }
   subscribe(userId:string,sessionId:string,input:z.infer<typeof PushSubscriptionInput>){
     this.requireSession(userId,sessionId);if(input.consent!==true)throw new HttpError('validation')

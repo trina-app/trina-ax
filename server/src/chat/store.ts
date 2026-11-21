@@ -501,13 +501,19 @@ export class ChatStore {
 }
 
 /** A file summary as `view` may see it: only the paths the viewer may see (no count of the others). */
-function viewFiles(f: FileChangeSummary, view: MessageView): FileChangeSummary | null {
+export function viewFiles(f: FileChangeSummary, view: MessageView): FileChangeSummary | null {
   const out: FileChangeSummary = {
     saved: f.saved.filter((x) => view.canList(x.path)),
     conflicts: f.conflicts.filter((x) => view.canList(x.path) && view.canList(x.copyPath)),
     rejected: f.rejected.filter((x) => view.canList(x.path)),
   }
-  return out.saved.length || out.conflicts.length || out.rejected.length ? out : null
+  // the rest of a long list: only the folders whose files the viewer may read (the files sit right in them), by count
+  if (f.more) {
+    const folders = f.more.folders.filter((x) => view.canRead(x.path))
+    const count = folders.reduce((n, x) => n + x.count, 0)
+    if (count) out.more = { count, folders }
+  }
+  return out.saved.length || out.conflicts.length || out.rejected.length || out.more ? out : null
 }
 
 /** messages.stop_reason / turns.stop_reason: a known per-answer limit, else null */

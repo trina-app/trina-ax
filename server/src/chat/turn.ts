@@ -20,6 +20,7 @@ import { CLAUDE_AGENT_TOOL_NAMES, FILE_STEP_VERB, FILE_TOOLS, isUuid7, readableT
 import { recordSent, webEcho } from '../tools/connection-urls'
 import { carriesAddress, normUrl, rememberUrls } from '../tools/url-gate'
 import { GUEST_ANSWER_STEP_LIMIT, UNATTENDED_ANSWER_STEP_LIMIT } from '@mycel/shared/api'
+import { FILE_SUMMARY_LIST_MAX } from '@mycel/shared/api'
 import type { ApiErrorBody, Attachment, ConfirmDetail as ConfirmDetailT, EngineId, FileChange, FileChangeSummary, Locale, MessageStatus, OpenTurnRequest, Step, TurnRequest, TurnStopReason } from '@mycel/shared/api'
 import { buildClaudeLaunch, SUBSCRIPTION_DEFAULT_MODEL, type ClaudeConf } from '../engine/claude'
 import { buildCodexLaunch, CODEX_VERSION, prepareCodexTurn, type CodexConf } from '../engine/codex'
@@ -788,7 +789,7 @@ export class TurnExec {
     // server's own sign-in (a self-hosted install without AI connections): "no AI connection", before anything starts
     if (isGuestUser(rt.db, spec.userId)) {
       const managedHere = spec.engine === 'claude-code' ? confs.claude?.authMode === 'managed' && !!confs.claude.modelProxy : spec.engine === 'codex' ? confs.codex?.auth === 'managed' : false
-      if (!managedHere) { this.error = engineError('no_credential', spec.locale); return }
+      if (!managedHere) { this.error = engineError('guest_no_ai', spec.locale); return }
     }
     const route = this.route(confs)
     const engine: EngineId = route === 'claude-code' || route === 'codex' ? route : spec.engine
@@ -1072,7 +1073,7 @@ export class TurnExec {
       // a guest: their places and who invited them (prompt.ts guestSection), no team-wide text
       guest: guestPrompt,
       devEnvDown: this.devEnvDown,
-      demo: freeRoam ? { company: rt.ctx.config.demo!.company, fakes: !!rt.ctx.config.demo!.fakes, banner: !!demoFakesOf(rt.ctx)?.higgsfield.hasBanner } : null,
+      demo: freeRoam ? { company: rt.ctx.config.demo!.company, fakes: !!rt.ctx.config.demo!.fakes, banner: !!demoFakesOf(rt.ctx)?.banners.ready } : null,
     })
     // what a general-purpose sub-agent may use, and the instructions every sub-agent gets (memories and history never)
     let turnTools = [...Object.keys(FILE_TOOLS), ...extraTools]
@@ -2871,9 +2872,10 @@ export class TurnExec {
   /** a read call that names the chat's work folder (devenv/work-files.ts), by its variable or its absolute path */
   workRead(tool: string, input: unknown): boolean {
     // list, glob and grep take chat:work/ too (P2): a listing or a search there brings in what commands made
-    if (tool === 'list' || tool === 'glob' || tool === 'grep') return namesWorkFolder((input && typeof input === 'object' ? (input as { path?: unknown }).path : undefined))
-    if (tool !== 'read') return false
-    const p = (input && typeof input === 'object' ? (input as { file_path?: unknown }).file_path : undefined)
+    // (every spelling, as the file tools take them: the variable, chat:work/ and the folder's absolute path, QA TC-6936)
+    const list = tool === 'list' || tool === 'glob' || tool === 'grep'
+    if (!list && tool !== 'read') return false
+    const p = input && typeof input === 'object' ? (list ? (input as { path?: unknown }).path : (input as { file_path?: unknown }).file_path) : undefined
     if (namesWorkFolder(p)) return true
     try { return isWorkPath(p, this.files.workFolder?.() ?? null) } catch { return true }
   }
@@ -3619,8 +3621,11 @@ export class TurnExec {
   private noteSharedReads(sources: readonly ReadSource[], audience: readonly string[], yes = false, kept = false): boolean {
     if (!this.shared || !sources.length) return true
     // an answer that already attached a file for everyone here (attachToAnswer), or is attaching one now (beginAttach),
-    // never becomes one hidden from people added later (a k group): that connection's answer is not read into it (fails closed, the call is refused)
-    if (kept && this.attachedFiles + this.attaching > 0) return false
+    // never becomes one hidden from people added later (a k group): that connection's answer is not read into it (fails closed, the call is refused).
+    // Nor one that saved a version of a chat file (TurnFiles.chatVersionsMade, set in the same synchronous step as the
+    // version's row, whose gate refuses a k answer): that version is opened through its chain's root by everyone who
+    // sees the root, so the answer that wrote it must stay one they may see (QA TC-6962 / TC-6835)
+    if (kept && this.attachedFiles + this.attaching + (this.files?.chatVersionsMade.size ?? 0) > 0) return false
     const c = [...new Set(audience)].sort()
     const k = `${yes ? 'y' : ''}${kept ? 'k' : ''}|${c.join(',')}`
     let g = this.sharedReads.get(k)
@@ -3903,7 +3908,7 @@ export class TurnExec {
     const pendingKey = [...keys].sort().join('\u0000')
     let pending = this.sharedPending.get(pendingKey)
     if (!pending) {
-      pending = this.askSharedRead(tool, missing, audience.length, skillUse, kind.save).finally(() => this.sharedPending.delete(pendingKey))
+      pending = this.askSharedRead(tool, missing, audience.length, skillUse, kind.save, input).finally(() => this.sharedPending.delete(pendingKey))
       this.sharedPending.set(pendingKey, pending)
     }
     const decision = await pending
@@ -3915,17 +3920,22 @@ export class TurnExec {
   }
 
   /** The card itself and its audit row: 'shared' = "읽고 공유하기" (a save card: "저장하기"), else why not. */
-  private async askSharedRead(tool: string, missing: { source: ReadSource; missing: string[] }[], audience: number, skillUse = false, save = false): Promise<SharedDecision> {
+  private async askSharedRead(tool: string, missing: { source: ReadSource; missing: string[] }[], audience: number, skillUse = false, save = false, input: unknown = null): Promise<SharedDecision> {
     const L = this.spec.locale
     const labels = { mine: tr('sharedScopeMine', L), root: tr('scopeRoot', L), room: tr('scopeRoom', L), chat: tr('scopeChatFiles', L) }
     const places = [...new Set(missing.map((m) => sourceLabel(this.rt.db, m.source, this.spec.userId, labels, { ownNames: true, place: (p) => this.place(p) })))]
     const who = new Set(missing.flatMap((m) => m.missing))
+    const copy = !skillUse && !save ? copyCardFiles(tool, input, L) : null
     const scheduled = this.spec.clientKind === 'schedule'
     const { value: answer, missing: none } = await this.askAlways(save ? 'shared_save' : 'shared_read', {
       kind: 'ask_user', origin: 'server', requestId: crypto.randomUUID(),
       // a group's skill some of them may not use (not in the group): "…cannot use this skill" (they may see the place);
       // a save into a place that is there already: "…wants to save a file in" (nothing is read from it)
-      question: tr(skillUse ? 'sharedSkillConfirm' : save ? (SAVE_CARD_TOOLS[tool] === 'many' ? 'sharedSaveManyConfirm' : 'sharedSaveConfirm') : 'sharedReadConfirm', L, { sources: places.join(', '), n: String(audience), m: String(who.size) }),
+      // a copy into this chat's work folder or its files: which files, and that everyone in the chat sees them there
+      // (QA TC-6939: "wants to read your personal folder" read as the whole folder)
+      question: copy
+        ? tr(copy.to === 'work' ? 'sharedCopyWorkConfirm' : 'sharedCopyChatConfirm', L, { sources: places.join(', '), files: copy.files, n: String(audience), m: String(who.size) })
+        : tr(skillUse ? 'sharedSkillConfirm' : save ? (SAVE_CARD_TOOLS[tool] === 'many' ? 'sharedSaveManyConfirm' : 'sharedSaveConfirm') : 'sharedReadConfirm', L, { sources: places.join(', '), n: String(audience), m: String(who.size) }),
       options: [{ label: tr(save ? 'sharedSaveYes' : 'sharedReadYes', L), value: 'share' }, { label: tr(save ? 'sharedSaveNo' : 'sharedReadNo', L), value: 'skip' }], multiple: false, allowText: false,
       expiresAt: new Date(Date.now() + this.rt.askUserTimeoutMs()).toISOString(),
     } as TurnRequest & { options: { label: string; value: string }[] }, 'share')
@@ -3960,6 +3970,9 @@ export class TurnExec {
    */
   async confirmSharedConnection(c: { id: string; key: string; name: string; sources: ReadSource[] }): Promise<string | null> {
     if (!this.shared) return null
+    // this answer saved a version of a chat file (everyone who sees the file opens it), so it never becomes one hidden
+    // from people added later (noteSharedReads): said as it is, never "could not check" (QA TC-6962)
+    if ((this.files?.chatVersionsMade.size ?? 0) > 0) return `Nothing was fetched from ${neutralizeTags(c.name)}: this answer already saved a new version of a file of this chat, which everyone in it opens, so what a connected service returns cannot join this answer. Answer without it; the user can ask for it in a new message. Next time, use connected services before you change a chat file.`
     const failed = () => this.sharedConnText(c.name, 'failed')
     // at most a few rounds: a card answered while more people came to see the chat asks once more for them
     for (let round = 0; round < 3; round++) {
@@ -5407,7 +5420,18 @@ export function fileSummaryOf(rows: readonly FileEventRow[]): FileChangeSummary 
     else if (r.action === 'rejected') rejected.push({ path: r.path.slice(0, 1024), reason: String(d.reason ?? 'denied').slice(0, 300) })
   }
   if (!saved.size && !conflicts.length && !rejected.length) return null
-  return { saved: [...saved.values()], conflicts, rejected }
+  // many files (a download or a build in a project folder): the list keeps the first ones, the rest are counted by
+  // their folder, so the card says the real number without carrying (or drawing) thousands of rows
+  const all = [...saved.values()]
+  if (all.length <= FILE_SUMMARY_LIST_MAX) return { saved: all, conflicts, rejected }
+  const byFolder = new Map<string, number>()
+  for (const s of all.slice(FILE_SUMMARY_LIST_MAX)) {
+    const dir = s.path.includes('/') ? s.path.slice(0, s.path.lastIndexOf('/')) : ''
+    if (dir) byFolder.set(dir, (byFolder.get(dir) ?? 0) + 1)
+  }
+  const folders = [...byFolder.entries()].sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : 1)).slice(0, 2000).map(([path, count]) => ({ path, count }))
+  const count = folders.reduce((n, f) => n + f.count, 0)
+  return { saved: all.slice(0, FILE_SUMMARY_LIST_MAX), conflicts, rejected, ...(count ? { more: { count, folders } } : {}) }
 }
 
 function parseJson(s: string | null): Record<string, unknown> {
@@ -5701,4 +5725,21 @@ export function skillFolderOf(rel: string): string | null {
   const segs = rel.split('/')
   const depth = root.kind === 'team' ? 1 : 3
   return segs.length > depth + 1 && segs[depth] ? segs.slice(0, depth + 1).join('/') : null
+}
+
+/** copy_files into this chat's work folder or its files, for the shared read card (QA TC-6939): where to, and the files
+ * by name (at most three, each its last part, cut at 60 characters) or how many. null for any other call. */
+export function copyCardFiles(tool: string, input: unknown, locale: Locale): { to: 'work' | 'chat'; files: string } | null {
+  if (tool !== 'copy_files' || !input || typeof input !== 'object') return null
+  const a = input as { paths?: unknown; to_folder?: unknown }
+  const place = parsePlace(a.to_folder)
+  const to = place?.kind === 'work' ? 'work' : place?.kind === 'chatFiles' ? 'chat' : null
+  if (!to || !Array.isArray(a.paths)) return null
+  const names = [...new Set(a.paths.flatMap((p) => {
+    if (typeof p !== 'string') return []
+    const n = p.replace(/\/+$/, '').split('/').pop()?.replace(/[\u0000-\u001f\u007f<>]+/g, ' ').trim() ?? ''
+    return n ? [n.length > 60 ? n.slice(0, 59) + '…' : n] : []
+  }))]
+  if (!names.length) return null
+  return { to, files: names.length <= 3 ? names.join(', ') : tr('sharedCopyCount', locale, { n: String(names.length) }) }
 }

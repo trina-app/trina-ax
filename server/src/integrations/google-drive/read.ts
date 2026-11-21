@@ -5,7 +5,7 @@ import { extractText, looksScanned, type Tools } from '../../files/extract'
 import { readMaxBytes } from '../../system/limits'
 import type { DriveConn } from './oauth'
 import { DriveError } from './store'
-import { checkAbort } from './client'
+import { checkAbort, demoGoogleOn } from './client'
 
 const Item = z.object({
   id: DriveId, name: z.string().max(4096), mimeType: z.string().max(256), modifiedTime: z.string().max(100).optional(),
@@ -20,7 +20,10 @@ const escapeQ = (s: string) => s.replace(/\\/g, '\\\\').replace(/'/g, "\\'")
 function parse<T>(bytes: Uint8Array, schema: z.ZodType<T>): T {
   try { return schema.parse(JSON.parse(new TextDecoder().decode(bytes))) } catch { throw new DriveError('invalid_provider_response', 502) }
 }
-const publicItem = (v: z.infer<typeof Item>) => ({ id: v.id, name: clean(v.name), mimeType: v.mimeType, ...(v.modifiedTime ? { modifiedTime: v.modifiedTime } : {}), webViewLink: `https://drive.google.com/file/d/${v.id}/view` })
+/** a file's Google web address; none while the demo's fake Google answers (client.ts demoGoogleOn): its ids ("tracker")
+ * are made up, so a drive.google.com link would open Google's "file does not exist" page */
+const webLink = (link: string) => (demoGoogleOn() ? {} : { webViewLink: link })
+const publicItem = (v: z.infer<typeof Item>) => ({ id: v.id, name: clean(v.name), mimeType: v.mimeType, ...(v.modifiedTime ? { modifiedTime: v.modifiedTime } : {}), ...webLink(`https://drive.google.com/file/d/${v.id}/view`) }) as { id: string; name: string; mimeType: string; modifiedTime?: string; webViewLink?: string }
 
 /** The folders a team share gives access to (shares.ts), everything below them included, or its whole Drive. Decided
  * here on the server for every listing, search result and read; nothing the model or the browser sends widens it. */
@@ -72,7 +75,7 @@ export class Ancestry {
     return false
   }
 }
-const rootItem = (f: DriveShareFolder) => ({ id: f.id, name: clean(f.name), mimeType: FOLDER, webViewLink: `https://drive.google.com/drive/folders/${f.id}` })
+const rootItem = (f: DriveShareFolder) => ({ id: f.id, name: clean(f.name), mimeType: FOLDER, ...webLink(`https://drive.google.com/drive/folders/${f.id}`) }) as { id: string; name: string; mimeType: string; webViewLink?: string }
 
 /** Search or list. With a scope (a team share): a list of the shared folders at the top, a folder only when it is
  * inside, a shared drive only when it is one of the share's, and only results inside. */

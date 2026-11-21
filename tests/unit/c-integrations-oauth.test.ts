@@ -68,7 +68,7 @@ test('sign-in: PKCE S256 and the resource; only the same person\'s live browser 
   expect(res.status).toBe(200)
   expect(res.headers.get('cache-control')).toBe('no-store')
   expect(res.headers.get('referrer-policy')).toBe('no-referrer')
-  expect(res.headers.get('content-security-policy')).toMatch(/^default-src 'none'; script-src 'sha256-[A-Za-z0-9+/=]+'; frame-ancestors 'none'$/)
+  expect(res.headers.get('content-security-policy')).toMatch(/^default-src 'none'; style-src 'sha256-[A-Za-z0-9+/=]+'; img-src 'self'; script-src 'sha256-[A-Za-z0-9+/=]+'; frame-ancestors 'none'$/)
   const page = await res.text()
   expect(page).not.toContain(cb.code)
   expect(page).toContain('이 창을 닫고') // the person's language: they can close the window

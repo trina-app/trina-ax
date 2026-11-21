@@ -1,17 +1,23 @@
-// The demo's banner kit (server/src/demo/fakes/banner.ts, the fake Higgsfield's make_banner): a banner is a text-free
-// photo made in advance plus its words, so "change the headline to … two cups" gives a new banner back (owner, 11-21:
-// the AI said the words were baked into the picture). Covered: Steepling's kit in en and ko (scripts/demo/steepling/
-// banner/kit.ts) draws every scene and size; new words give a new picture and only the words given change; the words go
-// into typst as strings (markup and code in them stay words); the scene follows the words ("두 잔" → two glasses); end
-// to end on a demo server, the Higgsfield connection's make_banner answers with the picture and save_connector_file
-// saves it into the team folder; and the AI's demo note says the fakes are practice copies. typst is needed to draw
-// (the server's PDF converter); without it the drawing tests are skipped. Fake data only.
+// The demo's banner kit (server/src/demo/fakes/banner.ts, banners.ts) and its local tool change_banner_text
+// (server/src/tools/demo-banner.ts): a banner is a text-free photo made in advance plus its words, so "change the
+// headline to … two cups" gives a new banner back (owner, 11-21: the AI said the words were baked into the picture).
+// Since 11-22 the words are the server's own tool, never Higgsfield's: the owner got Higgsfield's send card ("AI가
+// Higgsfield에 이 내용을 보내려고 해요") and a literal "\n" for "작지 않아 큰 햇살이야!". Covered: Steepling's kit in en
+// and ko (scripts/demo/steepling/banner/kit.ts) draws every scene and size; new words give a new picture and only the
+// words given change; a "\n" the AI writes as two letters is a real line break, never a backslash on the banner; the
+// words go into typst as strings (markup and code in them stay words); the scene follows `scene` ("두 잔" → two
+// glasses), never the headline's words, so a words-only change keeps the launch photo, the headline keeps its size while
+// it fits, and no word is left alone on a last line (QA 11-22 A3); end to end on a demo server, change_banner_text saves the banner into the chat's project folder with no card
+// and a step that names no Higgsfield, and the fake Higgsfield no longer offers make_banner; and the AI's demo note says
+// words → change_banner_text, a new background → generate_image, and a short phrase after a banner is applied at once.
+// typst is needed to draw (the server's PDF converter); without it the drawing tests are skipped. Fake data only.
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from 'bun:test'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { bannerTypst, BANNER_SIZES, findTypst, loadBannerKit, pickScene, renderBanner, sizeOf, typstString, type BannerKit } from '../../server/src/demo/fakes/banner'
-import { BANNERS_DIR, BANNERS_KEPT, FakeHiggsfield, MEDIA_HOST, PREPARED_BANNER, PREPARED_PHOTO, SAVE_NEXT } from '../../server/src/demo/fakes/higgsfield'
+import { bannerTypst, BANNER_SIZES, findTypst, headlineLines, headlineScale, loadBannerKit, NBSP, pickScene, renderBanner, sizeOf, typstString, unbrokenPieces, type BannerKit } from '../../server/src/demo/fakes/banner'
+import { BANNERS_DIR, BANNERS_KEPT, DemoBanners, PREPARED_BANNER, withLineBreaks } from '../../server/src/demo/fakes/banners'
+import { HIGGSFIELD_TOOLS, MAKE_BANNER_MOVED, PREPARED_PHOTO, SAVE_NEXT } from '../../server/src/demo/fakes/higgsfield'
 import { FakeState } from '../../server/src/demo/fakes/state'
 import { demoFakesOf } from '../../server/src/demo/fakes'
 import { DEMO_BANNER_NOTE, DEMO_FAKES_NOTE, demoRule } from '../../server/src/chat/prompt'
@@ -19,8 +25,10 @@ import { writeSteepling } from '../../scripts/demo/steepling/make'
 import { makeCApp, type CApp } from '../lib/c-app'
 import { integrationsOf } from '../../server/src/integrations/connections/service'
 import { integrationToolProvider } from '../../server/src/integrations/connections/tools'
+import { CHANGE_BANNER_TEXT_DESCRIPTION, ChangeBannerTextInput, DEMO_BANNER_TOOL } from '../../server/src/tools/demo-banner'
 import { toolRegistry } from '../../server/src/tools/registry'
 import { TurnFiles } from '../../server/src/files/service'
+import { stepLabel } from '../../shared/src/step-labels'
 import type { TurnTool, TurnToolContext } from '../../server/src/services'
 
 setDefaultTimeout(120_000)
@@ -93,45 +101,62 @@ describe("Steepling's banner kit", () => {
     }
   })
 
-  drawing('make_banner draws new words into a new picture (en and ko); the rest stay the launch banner\'s', async () => {
+  drawing('new words draw a new picture (en and ko); the rest stay the launch banner\'s', async () => {
     for (const [l, headline, want] of [['ko', '흐린 아침에,\\n작은 햇살 두 잔.', '흐린 아침에,\n작은 햇살 두 잔.'], ['en', 'A little sun\\nfor *two cups.*', 'A little sun\nfor *two cups.*']] as const) {
       const data = fs.mkdtempSync(path.join(tmp, 'data-'))
-      const hf = new FakeHiggsfield([], new FakeState(data), kits[l], typst)
-      const call = (a: Record<string, unknown>) => hf.tools.find((t) => t.name === 'make_banner')!.call(a)
-      const before = await call({})
-      const after = await call({ headline })
-      for (const r of [before, after]) expect(r.isError, JSON.stringify(r.content[0])).toBeFalsy()
-      const view = JSON.parse((after.content[0] as { text: string }).text)
-      expect(view.banner.words.headline).toBe(want)
-      expect(view.banner.words.badge).toBe(kits[l].words.badge)
-      expect(view.banner.words.button).toBe(kits[l].words.cta)
-      expect(view.banner.scene).toBe('two-cups')
-      expect(view.results[0].url).toContain(MEDIA_HOST)
-      // QA TC-6792 / TC-6791: the photo's origin, and the next step (save it, show it)
-      expect(view.photo).toBe(PREPARED_BANNER)
-      expect(view.next).toBe(SAVE_NEXT)
-      const img = (r: typeof after) => Buffer.from((r.content.find((c) => c.type === 'image') as { data: string }).data, 'base64')
-      expect(isPng(img(after))).toBe(true)
-      expect(img(after).equals(img(before))).toBe(false)
-      // the download address gives the same picture (tools/download.ts → the fake)
-      const d = hf.download(view.results[0].url)!
-      expect(d.contentType).toBe('image/png')
-      expect(d.bytes.equals(img(after))).toBe(true)
-      // the same words again: the same picture (only the words changed it)
-      const again = await call({ headline })
-      expect(img(again).equals(img(after))).toBe(true)
+      const b = new DemoBanners(new FakeState(data), kits[l], typst)
+      const before = await b.make({})
+      const after = await b.make({ headline, scene: 'two glasses' })
+      expect(after.words.headline).toBe(want)
+      expect(after.words.badge).toBe(kits[l].words.badge)
+      expect(after.words.cta).toBe(kits[l].words.cta)
+      expect(after.scene).toBe('two-cups')
+      expect(isPng(after.png)).toBe(true)
+      expect(after.png.equals(before.png)).toBe(false)
+      // the same words again: the same picture (only the words changed it); the photo stays without `scene`
+      const again = await b.make({ headline })
+      expect(again.png.equals(after.png)).toBe(true)
     }
+  })
+
+  test('a line break the AI writes as the two letters "\\n" (or "\\r\\n", <br>) is a real one', () => {
+    expect(withLineBreaks('작지 않아\\n큰 햇살이야!')).toBe('작지 않아\n큰 햇살이야!')
+    expect(withLineBreaks('작지 않아\\\\n큰 햇살이야!')).toBe('작지 않아\n큰 햇살이야!')
+    expect(withLineBreaks('a\\r\\nb')).toBe('a\nb')
+    expect(withLineBreaks('a\r\nb<br/>c<BR>d')).toBe('a\nb\nc\nd')
+    expect(withLineBreaks('작지 않아\n큰 햇살이야!')).toBe('작지 않아\n큰 햇살이야!')
+    // typst gets two lines with a line break between them, never a backslash and an n
+    const doc = bannerTypst(kits.ko, '1200x628', { label: null }, { ...kits.ko.words, headline: withLineBreaks('작지 않아\\n큰 햇살이야!') }, 'bg.jpg')
+    // Korean breaks only between words: each word is a box (QA 11-22 A3)
+    expect(doc).toContain(`#box(${typstString('작지')}) #box(${typstString('않아')})#linebreak()#box(${typstString('큰')}) #box(${typstString('햇살이야!')})`)
+    expect(doc).not.toContain('작지 않아\\\\n')
+    expect(doc).not.toContain('작지 않아\\n')
+  })
+
+  drawing('"작지 않아\\n큰 햇살이야!" is drawn on two lines with no backslash', async () => {
+    const pdftotext = Bun.which('pdftotext')
+    const work = fs.mkdtempSync(path.join(tmp, 'lines-'))
+    const photo = kits.ko.scenes[0]!.photos['1200x628']!
+    fs.copyFileSync(path.join(kits.ko.dir, photo.file), path.join(work, 'bg.jpg'))
+    const b = new DemoBanners(new FakeState(fs.mkdtempSync(path.join(tmp, 'lines-data-'))), kits.ko, typst)
+    const made = await b.make({ headline: '작지 않아\\n큰 햇살이야!' })
+    expect(made.words.headline).toBe('작지 않아\n큰 햇살이야!')
+    fs.writeFileSync(path.join(work, 'b.typ'), bannerTypst(kits.ko, '1200x628', photo, made.words, 'bg.jpg'))
+    const r = Bun.spawnSync([typst!, 'compile', '--font-path', path.join(kits.ko.dir, 'fonts'), '--root', work, 'b.typ', 'b.pdf'], { cwd: work })
+    expect(r.exitCode, r.stderr.toString()).toBe(0)
+    if (!pdftotext) return
+    const got = Bun.spawnSync([pdftotext, path.join(work, 'b.pdf'), '-']).stdout.toString()
+    expect(got).not.toContain('\\')
+    const lines = got.split('\n').map((x) => x.trim())
+    expect(lines).toContain('작지 않아')
+    expect(lines).toContain('큰 햇살이야!')
   })
 
   drawing('words not given, and the photo, stay as on the last banner; a 400-letter headline is cut to 300', async () => {
     const data = fs.mkdtempSync(path.join(tmp, 'last-'))
-    const hf = new FakeHiggsfield([], new FakeState(data), kits.ko, typst)
-    const call = async (a: Record<string, unknown>) => {
-      const r = await hf.tools.find((t) => t.name === 'make_banner')!.call(a)
-      expect(r.isError, JSON.stringify(r.content[0])).toBeFalsy()
-      return JSON.parse((r.content[0] as { text: string }).text).banner
-    }
-    const first = await call({ headline: '흐린 아침에,\n작은 햇살 두 잔.' })
+    const b = new DemoBanners(new FakeState(data), kits.ko, typst)
+    const call = async (a: Record<string, string>) => { const m = await b.make(a); return { size: m.size, scene: m.scene, words: m.words } }
+    const first = await call({ headline: '흐린 아침에,\n작은 햇살 두 잔.', scene: '두 잔' })
     expect(first.scene).toBe('two-cups')
     const second = await call({ badge: '30% 할인' })
     expect(second.words.headline).toBe('흐린 아침에,\n작은 햇살 두 잔.')
@@ -139,11 +164,77 @@ describe("Steepling's banner kit", () => {
     expect(second.scene).toBe('two-cups')
     const square = await call({ size: '1080x1080' })
     expect([square.size, square.scene, square.words.badge]).toEqual(['1080x1080', 'two-cups', '30% 할인'])
-    // a new headline with no scene words keeps the photo; one that names a scene takes it
+    // a new headline keeps the photo, even one whose words name a scene; only `scene` changes it (QA 11-22 A3)
     expect((await call({ headline: '작은 햇살, 큰 기쁨.' })).scene).toBe('two-cups')
-    expect((await call({ headline: '카페 테이블 위의 햇살', size: '1200x628' })).scene).toBe('cafe')
+    expect((await call({ headline: '카페 테이블 위의 햇살', size: '1200x628' })).scene).toBe('two-cups')
+    expect((await call({ scene: '카페 테이블' })).scene).toBe('cafe')
     const long = await call({ headline: '가'.repeat(400) })
     expect(long.words.headline.length).toBe(300)
+  })
+
+  drawing('a words-only change of the launch banner keeps its photo, the launch scene (QA 11-22 A3)', async () => {
+    expect(kits.ko.defaultScene).toBe('one-cup')
+    expect(kits.en.defaultScene).toBe('one-cup')
+    for (const [l, headline] of [['ko', '흐린 아침에,\n작은 햇살 두 잔.'], ['ko', '카페에서 만나는\n작은 햇살.'], ['en', 'A little sun\nfor two cups.']] as const) {
+      const b = new DemoBanners(new FakeState(fs.mkdtempSync(path.join(tmp, 'keep-'))), kits[l], typst)
+      const made = await b.make({ headline })
+      expect(made.scene, `${l} ${headline}`).toBe(kits[l].defaultScene!)
+      expect((await b.make({ subline: 'x y z' })).scene).toBe(kits[l].defaultScene!)
+    }
+  })
+
+  test('the headline keeps the layout\'s size while it fits; only overflowing words get smaller type', () => {
+    const h1Of = (kit: BannerKit, size: (typeof BANNER_SIZES)[number], headline: string) => Number(/text\(size: (\d+)pt, font: \([^)]*\), weight: 600, tracking: [^,]+, fill: deep/.exec(bannerTypst(kit, size, { label: null }, { ...kit.words, headline }, 'bg.jpg'))![1])
+    for (const size of BANNER_SIZES) {
+      const ko = h1Of(kits.ko, size, kits.ko.words.headline), en = h1Of(kits.en, size, kits.en.words.headline)
+      // a bit longer than the launch headline: the same size (before 11-22 it shrank, QA A3)
+      expect(h1Of(kits.ko, size, '추운 아침에,\n따뜻한 햇살 한 잔 했어요.'), size).toBe(ko)
+      if (size === '1200x628') expect(h1Of(kits.en, size, 'A little sun\nfor the grey winter mornings.'), size).toBe(en)
+      // the launch headline itself: the layout's size
+      expect([ko, en], size).toEqual(size === '1200x628' ? [56, 68] : size === '1080x1080' ? [78, 92] : [96, 118])
+      // far longer: smaller, so it stays on the banner
+      expect(h1Of(kits.ko, size, '추운 아침에 마시는 따뜻한 햇살 한 잔, 유자와 생강이 만나 하루를 깨우는 작은 기쁨이 되어 드려요.'), size).toBeLessThan(ko)
+      expect(h1Of(kits.en, size, 'A little sun for grey mornings, bright yuzu and a warm kick of ginger in every single cup we make.'), size).toBeLessThan(en)
+    }
+    expect(headlineScale(kits.ko.words.headline, 'ko', 56, 520)).toBe(1)
+    expect(headlineLines(kits.ko.words.headline, 'ko', 56, 520)).toBe(2)
+    // a piece that never breaks and is wider than the block is never drawn off the banner
+    expect(headlineLines('Supercalifragilisticexpialidocious', 'en', 68, 520)).toBe(Infinity)
+    expect(headlineScale('Supercalifragilisticexpialidocious', 'en', 68, 520)).toBeLessThan(1)
+  })
+
+  test('no word alone on a last line: the last two words stay together, Korean breaks only between words (QA 11-22 A3)', () => {
+    const ko = bannerTypst(kits.ko, '1200x628', { label: null }, { ...kits.ko.words, headline: '추운 아침에 마시는 작은 햇살 했어요.', subline: '유자 진저 콜드브루. 상큼한 유자에 생강의 따뜻함을 더했어요.' }, 'bg.jpg')
+    expect(ko).toContain('#set text(costs: (runt: 500%, orphan: 300%, widow: 300%))')
+    expect(ko).toContain('#set par(linebreaks: "optimized")')
+    expect(ko).toContain(`#box(${typstString('추운')}) #box(${typstString('아침에')}) #box(${typstString('마시는')}) #box(${typstString('작은')}) #box(${typstString('햇살 했어요.')})`)
+    expect(ko).toContain(`#box(${typstString('따뜻함을 더했어요.')})`)
+    expect(unbrokenPieces('작지 않아', 'ko')).toEqual(['작지', '않아'])
+    const en = bannerTypst(kits.en, '1200x628', { label: null }, { ...kits.en.words, subline: 'Bright yuzu and a warm kick of ginger in every cup.' }, 'bg.jpg')
+    expect(en).toContain(typstString(`Bright yuzu and a warm kick of ginger in every${NBSP}cup.`))
+    expect(unbrokenPieces('a b c', 'en')).toEqual(['a', `b${NBSP}c`])
+    // Japanese and Chinese break anywhere, as they are written
+    expect(unbrokenPieces('小さな 陽だまり', 'ja')).toEqual([])
+  })
+
+  drawing('drawn: no line holds only the last word, and no Korean word is cut in two', async () => {
+    const pdftotext = Bun.which('pdftotext')
+    if (!pdftotext) return
+    const work = fs.mkdtempSync(path.join(tmp, 'runt-'))
+    for (const size of BANNER_SIZES) {
+      const photo = kits.ko.scenes[0]!.photos[size]!
+      fs.copyFileSync(path.join(kits.ko.dir, photo.file), path.join(work, 'bg.jpg'))
+      const words = { ...kits.ko.words, headline: '추운 아침에 마시는 작은 햇살 했어요.', subline: '유자 진저 콜드브루. 상큼한 유자에 생강의 따뜻함을 듬뿍 더해 만들었어요.' }
+      fs.writeFileSync(path.join(work, 'b.typ'), bannerTypst(kits.ko, size, photo, words, 'bg.jpg'))
+      const r = Bun.spawnSync([typst!, 'compile', '--font-path', path.join(kits.ko.dir, 'fonts'), '--root', work, 'b.typ', 'b.pdf'], { cwd: work })
+      expect(r.exitCode, r.stderr.toString()).toBe(0)
+      const lines = Bun.spawnSync([pdftotext, path.join(work, 'b.pdf'), '-']).stdout.toString().split('\n').map((x) => x.trim()).filter(Boolean)
+      expect(lines, size).not.toContain('했어요.')
+      expect(lines, size).not.toContain('만들었어요.')
+      // every word of the headline and the line under it is whole on one line
+      const all = lines.join(' ')
+      for (const w of [...words.headline.split(' '), ...words.subline.split(' ')]) expect(all, `${size} ${w}`).toContain(w)
+    }
   })
 
   drawing('hostile words in every field are drawn as they are, never run', async () => {
@@ -174,7 +265,7 @@ describe("Steepling's banner kit", () => {
       expect(flat(got), `${field}: ${bad}`).toContain(flat(want))
       expect(got).not.toContain('root:')
     }
-  })
+  }, 300_000) // 120 typst runs: about 1.5 s each on a busy Mac
 
   test('the banners folder keeps the newest pictures only', () => {
     const data = fs.mkdtempSync(path.join(tmp, 'prune-'))
@@ -189,16 +280,16 @@ describe("Steepling's banner kit", () => {
       }
     })
     fs.writeFileSync(path.join(dir, 'trimmed-long-ago.png'), 'x')
-    ;(new FakeHiggsfield([], state, kits.en) as unknown as { pruneBanners(d: string): void }).pruneBanners(dir)
+    ;(new DemoBanners(state, kits.en) as unknown as { pruneBanners(d: string): void }).pruneBanners(dir)
     const left = fs.readdirSync(dir).sort()
     expect(left.length).toBe(BANNERS_KEPT)
     expect(left[0]).toBe('old010.png')
   })
 
-  test('without a kit, make_banner says so (the built-in data)', async () => {
-    const hf = new FakeHiggsfield([], new FakeState(fs.mkdtempSync(path.join(tmp, 'none-'))), null)
-    const r = await hf.tools.find((t) => t.name === 'make_banner')!.call({ headline: 'x' })
-    expect(r.isError).toBe(true)
+  test('without a kit there is no banner maker (the built-in data)', async () => {
+    const b = new DemoBanners(new FakeState(fs.mkdtempSync(path.join(tmp, 'none-'))), null)
+    expect(b.ready).toBe(false)
+    await expect(b.make({ headline: 'x' })).rejects.toThrow('not set up')
   })
 })
 
@@ -208,10 +299,33 @@ describe('the AI knows the demo\'s services are practice copies', () => {
     expect(demoRule('Steepling')).not.toContain(DEMO_FAKES_NOTE)
     expect(DEMO_FAKES_NOTE).toContain('prepared set of photos')
     expect(DEMO_FAKES_NOTE).toContain('never really sent')
-    expect(demoRule('Steepling', true)).not.toContain('make_banner')
+    expect(demoRule('Steepling', true)).not.toContain(DEMO_BANNER_TOOL)
     expect(demoRule('Steepling', true, true)).toContain(DEMO_BANNER_NOTE)
     expect(demoRule('Steepling', false, true)).not.toContain(DEMO_BANNER_NOTE)
-    expect(DEMO_BANNER_NOTE).toContain('make_banner')
+  })
+
+  test('words → the local change_banner_text, a new background → Higgsfield generate_image; never make_banner', () => {
+    expect(DEMO_BANNER_NOTE).toContain('call change_banner_text')
+    expect(DEMO_BANNER_NOTE).toContain('nothing is sent to Higgsfield')
+    expect(DEMO_BANNER_NOTE).toContain("Use Higgsfield's generate_image only for a new background, photo or scene")
+    expect(DEMO_BANNER_NOTE).not.toContain('make_banner')
+    expect(CHANGE_BANNER_TEXT_DESCRIPTION).toContain('nothing is generated or sent anywhere')
+    expect(CHANGE_BANNER_TEXT_DESCRIPTION).toContain("For a new background, photo or scene use Higgsfield's generate_image instead")
+    const gen = HIGGSFIELD_TOOLS.find((t) => t.name === 'generate_image')!.description
+    expect(gen).toContain('Use it for a new background, photo or scene')
+    expect(gen).toContain('change_banner_text')
+    expect(HIGGSFIELD_TOOLS.map((t) => t.name as string)).not.toContain('make_banner')
+  })
+
+  test('practice Drive files get no drive.google.com link; a scene with no prepared photo gets one line, no retry (QA 11-22 B3, A4)', () => {
+    expect(DEMO_FAKES_NOTE).toContain('Practice Drive files have no web address: name the file and its folder, never write a drive.google.com link.')
+    expect(DEMO_FAKES_NOTE).toContain('When a new scene is not among the prepared photos, say so in one line and offer the prepared ones; do not try again.')
+    expect(DEMO_BANNER_NOTE).toContain('give scene only when the user asks for another of the prepared photos')
+    expect(ChangeBannerTextInput.shape.scene.description).toContain('words alone never change the photo')
+  })
+
+  test('a short phrase right after a banner is its new headline: applied at once, undo offered after (owner, 11-22)', () => {
+    expect(DEMO_BANNER_NOTE).toContain('A short phrase sent right after a banner is its new headline: apply it at once without asking, then offer to undo.')
   })
 
   test('say the photo is a prepared one, in one short sentence; save and show every picture without being asked (QA TC-6791, TC-6792)', () => {
@@ -221,10 +335,22 @@ describe('the AI knows the demo\'s services are practice copies', () => {
     expect(DEMO_FAKES_NOTE).toContain('save_connector_file')
     // the Markdown image the web draws inline (web/src/lib/markdown.ts classifyImage: /api/files/download?path=)
     expect(DEMO_FAKES_NOTE).toContain('![<name>](/api/files/download?path=')
-    expect(DEMO_BANNER_NOTE).toContain('save and show the new banner')
+    expect(DEMO_BANNER_NOTE).toContain('change_banner_text saves the banner; show it with the Markdown image its result gives')
     expect(DEMO_BANNER_NOTE).toContain("demo's prepared photos")
     // one sentence each in the result, no nagging
     for (const line of [PREPARED_PHOTO, PREPARED_BANNER, SAVE_NEXT]) expect(line.length).toBeLessThan(160)
+  })
+
+  test('the step says "배너 글자 바꾸기", never Higgsfield, and the headline on one line', () => {
+    const ko = stepLabel(DEMO_BANNER_TOOL, { headline: '작지 않아\\n큰 햇살이야!' }, 'ko', new Set())
+    expect(ko).toBe('배너 글자 바꾸기 · 작지 않아 큰 햇살이야!')
+    expect(stepLabel(DEMO_BANNER_TOOL, { headline: 'A little sun\nfor *two cups.*' }, 'en', new Set())).toBe('Change banner text · A little sun for *two cups.*')
+    expect(stepLabel(DEMO_BANNER_TOOL, { badge: '30% 할인' }, 'ko', new Set())).toBe('배너 글자 바꾸기')
+    for (const l of ['ko', 'en', 'id', 'ja', 'es', 'zh'] as const) {
+      const s = stepLabel(DEMO_BANNER_TOOL, { headline: '작지 않아\\n큰 햇살이야!' }, l, new Set())
+      expect(s, l).not.toMatch(/higgsfield/i)
+      expect(s, l).not.toContain('\\')
+    }
   })
 })
 
@@ -238,31 +364,59 @@ describe('end to end on a demo server', () => {
   })
   afterAll(async () => { await A?.close() })
 
-  drawing('"change the headline to … two cups": make_banner answers with the new banner and it is saved into the team folder', async () => {
+  test('the Higgsfield connection no longer offers make_banner; an old saved list that calls it is pointed to change_banner_text', async () => {
     const r = await A.json('/api/admin/integrations', { method: 'POST', as: 'carol', headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ kind: 'mcp', name: 'Higgsfield', url: 'https://mcp.higgsfield.ai/mcp', auth: 'none', access: { everyone: true, groups: [], users: [] } }) })
     expect(r.body.status).toBe('connected')
     const chat = A.chat('alice'), turnId = A.turn('alice', chat)
     const built = integrationToolProvider(A.ctx).build({ userId: 'alice', chatId: chat, turnId, browser: false, scheduled: false })
+    const names = built.tools.map((t) => t.name)
+    expect(names).toContain('team_higgsfield__generate_image')
+    expect(names.filter((n) => /banner/.test(n))).toEqual([])
+    const res = await demoFakesOf(A.ctx)!.higgsfield.answer(new URL('https://mcp.higgsfield.ai/mcp'), { method: 'POST', headers: [], body: Buffer.from(JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'make_banner', arguments: { headline: 'x' } } })) } as any)
+    const body = JSON.parse(Buffer.from(res.body as Buffer).toString('utf8'))
+    expect(body.result.isError).toBe(true)
+    expect(body.result.content[0].text).toBe(MAKE_BANNER_MOVED)
+  })
+
+  drawing('"작지 않아\\n큰 햇살이야!": change_banner_text saves the banner into the project folder, with no card and no Higgsfield', async () => {
+    expect(toolRegistry(A.ctx.files).available(DEMO_BANNER_TOOL)).toBe(true)
+    const chat = A.chat('alice'), turnId = A.turn('alice', chat)
+    A.ctx.db.query("INSERT INTO projects (id, name, folder_path) VALUES ('yuzu', '유자 진저', 'users/alice/유자 진저')").run()
+    A.ctx.db.query("UPDATE chats SET project_id = 'yuzu' WHERE id = ?").run(chat)
+    // every card the turn could raise is recorded: none may come up (nothing leaves the server)
+    const asked: string[] = []
     const files = { user: A.ctx.files.principal('alice'), turnId, files: new TurnFiles() } as TurnToolContext['files']
-    // the visitor answers the product's card for a change at Higgsfield (as for generate_image)
-    files.person = { locale: 'ko', async confirm() { return true }, async choose(_q, options) { return options.some((x) => x.value === 'allow') ? 'allow' : options[0]!.value }, *turnUrls() {}, allSitesHere: () => true }
+    files.person = { locale: 'ko', async confirm(q) { asked.push(q); return false }, async choose(q) { asked.push(q); return null }, *turnUrls() {}, allSitesHere: () => true }
     const tc: TurnToolContext = { turnId, chatId: chat, userId: 'alice', messageId: 'm', locale: 'ko', signal: new AbortController().signal, files }
-    const tool = built.tools.find((t) => t.name === 'team_higgsfield__make_banner') as TurnTool
+    const tool = (A.ctx.services.turnTools ?? []).find((t) => t.name === DEMO_BANNER_TOOL) as TurnTool
     expect(tool).toBeTruthy()
-    const out = await tool.call({ headline: '흐린 아침에,\n작은 햇살 두 잔.' }, tc)
+    expect(tool.description).toBe(CHANGE_BANNER_TEXT_DESCRIPTION)
+    // a local tool: no connection's read-only flag, so no send card for it (chat/tools.ts connections)
+    expect(tool.readOnly).toBeUndefined()
+    const out = await tool.call({ headline: '작지 않아\\n큰 햇살이야!' }, tc)
     const text = out.content.map((c) => (c.type === 'text' ? c.text : '')).join('')
     expect(out.isError, text).toBeFalsy()
-    expect(text).toContain('작은 햇살 두 잔.')
+    expect(asked).toEqual([])
+    expect(text).not.toMatch(/higgsfield/i)
     expect(text).toContain(PREPARED_BANNER)
-    expect(text).toContain(SAVE_NEXT)
-    const handle = /(mcp-file:[A-Za-z0-9_-]{22})/.exec(text)?.[1]
-    expect(handle, text).toBeTruthy()
-    const saved = await toolRegistry(A.ctx.files).call('save_connector_file', { file: handle, save_as: 'users/alice/campaign-banner-two-cups.png' }, A.toolCtx('alice', turnId))
-    expect(saved.isError, JSON.stringify(saved.content)).not.toBe(true)
-    const savedPath = (saved.structured as { path: string }).path
-    const bytes = fs.readFileSync(path.join(A.team, ...savedPath.split('/')))
+    const view = JSON.parse(text.split('\n')[0]!)
+    expect(view.words.headline).toBe('작지 않아\n큰 햇살이야!')
+    expect(view.words.badge).toBe(kits.ko.words.badge)
+    expect(view.saved.startsWith('users/alice/유자 진저/banner-1200x628-')).toBe(true)
+    // shown inline right away (the Markdown image the web draws) and handed to the AI as a picture
+    expect(text).toContain(`](/api/files/download?path=${encodeURIComponent(view.saved)})`)
+    const img = out.content.find((c) => c.type === 'image') as { data: string } | undefined
+    expect(img).toBeTruthy()
+    const bytes = fs.readFileSync(path.join(A.team, ...view.saved.split('/')))
     expect(isPng(bytes)).toBe(true)
     expect(pngSize(bytes)).toEqual({ w: 1200, h: 628 })
+    expect(Buffer.from(img!.data, 'base64').equals(bytes)).toBe(true)
+    // the next change starts from this banner: only the badge changes
+    const out2 = await tool.call({ badge: '30% 할인' }, tc)
+    const view2 = JSON.parse(out2.content.map((c) => (c.type === 'text' ? c.text : '')).join('').split('\n')[0]!)
+    expect([view2.words.headline, view2.words.badge]).toEqual(['작지 않아\n큰 햇살이야!', '30% 할인'])
+    expect(view2.saved).not.toBe(view.saved)
+    expect(asked).toEqual([])
   })
 })

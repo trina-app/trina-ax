@@ -237,7 +237,7 @@ describe('translations', () => {
     expect(translate('ja', 'accessView.summaryNone', { name: '山田' })).toBe('山田 さんとその AI が見られるチームフォルダーはありません。')
     // English, Spanish and Indonesian add no honorific of their own: the name stays as it is
     expect(translate('en', 'home.greeting', { name: '대표님' })).toBe('How can I help you, 대표님?')
-    expect(translate('id', 'home.greeting', { name: 'Bapak Budi' })).toBe('Halo Bapak Budi, ada yang bisa aku bantu?')
+    expect(translate('id', 'home.greeting', { name: 'Bapak Budi' })).toBe('Halo Bapak Budi, ada yang bisa saya bantu?')
     expect(translate('es', 'home.greeting', { name: 'Sra. García' })).toBe('¿En qué puedo ayudarle, Sra. García?')
   })
   test('no Korean screen text outside the Korean dictionary (comments aside)', () => {

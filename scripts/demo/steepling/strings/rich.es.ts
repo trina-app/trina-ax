@@ -76,7 +76,7 @@ export const richEs = {
   'mkt.quotes-yes': 'Nadia se lo está preguntando ahora 👍',
   'mkt.track': 'Una pregunta rápida: ¿vamos bien para el lunes del lanzamiento?',
   'mkt.track-yes': 'Sí. Brief pronto, luego el borrador del banner, y Chris ya tiene las fechas.',
-  'mkt.numbers': 'Posts de las últimas seis semanas: las fotos de clientes reales consiguieron más del doble de guardados que las de producto. Las cifras están en el calendario de redes.',
+  'mkt.numbers': 'Publicaciones de las últimas seis semanas: las fotos de clientes reales consiguieron más del doble de guardados que las de producto. Las cifras están en el calendario de redes.',
   'mkt.media': 'Fieldnote confirmó el plan de medios. Banner web y cuadrado desde el lunes, la historia durante la primera semana.',
   'mkt.away': 'Lunes y martes libres, vuelvo el miércoles para preparar el lanzamiento.',
   'mkt.font': 'El borrador del banner va por la mitad. Peleándome con la tipografía del titular 😅',
@@ -644,7 +644,7 @@ export const richEs = {
     '**Esta semana**',
     '1. Yuzu y Jengibre sale el **lunes**: banner a las 7:00, newsletter a las 8:00, anuncios a las 9:00.',
     '2. Su set de lanzamiento va a Chris, de Fieldnote.',
-    '3. Posts de la próxima semana: hay dos huecos vacíos en el calendario de redes.',
+    '3. Publicaciones de la próxima semana: hay dos huecos vacíos en el calendario de redes.',
     '4. Carta de invierno de Harbour Beans: un borrador a principios de la semana que viene.',
   ].join('\n'),
 

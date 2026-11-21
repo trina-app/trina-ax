@@ -179,7 +179,7 @@ export function googleReturnOf(outcome: CallbackOutcome, browserSignedIn: boolea
 }
 
 /** The page's look: one card, light or dark as the system is. Inline, allowed by its hash (GOOGLE_RETURN_CSP). */
-const STYLE = ':root{color-scheme:light dark;--bg:#fcfbf8;--card:#fff;--fg:#1c1917;--muted:#57534e;--line:#e7e5e4;--cta:#ea580c;--cta-fg:#fff}'
+export const RETURN_STYLE = ':root{color-scheme:light dark;--bg:#fcfbf8;--card:#fff;--fg:#1c1917;--muted:#57534e;--line:#e7e5e4;--cta:#ea580c;--cta-fg:#fff}'
   + '@media (prefers-color-scheme:dark){:root{--bg:#0e0c0b;--card:#181513;--fg:#f5f5f4;--muted:#a8a29e;--line:#2e2a27;--cta:#f97316;--cta-fg:#1c1917}}'
   + '*{box-sizing:border-box}body{margin:0;min-height:100vh;display:grid;place-items:start center;background:var(--bg);color:var(--fg);'
   + 'font:16px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI","Apple SD Gothic Neo","Noto Sans KR",sans-serif;padding:72px 16px}'
@@ -188,9 +188,11 @@ const STYLE = ':root{color-scheme:light dark;--bg:#fcfbf8;--card:#fff;--fg:#1c19
   + '.cta{display:block;text-align:center;background:var(--cta);color:var(--cta-fg);font-weight:600;text-decoration:none;border-radius:10px;padding:12px 16px}'
   + '.alt{display:inline-block;margin-top:16px;color:var(--fg);text-underline-offset:4px}:lang(ko) h1,:lang(ko) p,:lang(ko) li{word-break:keep-all}'
   + '.facts{list-style:none;margin:0 0 20px;padding:12px 14px;border:1px solid var(--line);border-radius:10px;color:var(--fg);font-size:15px}.facts li+li{margin-top:4px}'
-  + '.note{margin:16px 0 0;font-size:14px}'
+  + '.note{margin:16px 0 0;font-size:14px}.logo{display:block;width:40px;height:40px;margin:0 0 20px}'
+/** the style's CSP source (also the app connections' return page, routes/integrations.ts) */
+export const RETURN_STYLE_SRC = `'sha256-${crypto.createHash('sha256').update(RETURN_STYLE).digest('base64')}'`
 /** The Content-Security-Policy of the return page: nothing loads, only its own style runs (routes/drive.ts, google-apps.ts) */
-export const GOOGLE_RETURN_CSP = `default-src 'none'; style-src 'sha256-${crypto.createHash('sha256').update(STYLE).digest('base64')}'; frame-ancestors 'none'`
+export const GOOGLE_RETURN_CSP = `default-src 'none'; style-src 'sha256-${crypto.createHash('sha256').update(RETURN_STYLE).digest('base64')}'; frame-ancestors 'none'`
 
 /** Where the page may send the person: `origin`, this team's address (the desktop app's button opens it in the app);
  * `connector`, the page of this connector in Settings (sign in here, then connect in this browser). */
@@ -240,7 +242,7 @@ export function googleReturnPage(r: GoogleReturn, locale: Locale, o: ReturnPageO
     title = say('hNot', locale); text = say(r, locale); actions = inApp ? appButton : ''
   }
   return {
-    html: `<!doctype html><html lang="${locale}"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(say('title', locale))}</title>${head}<style>${STYLE}</style>`
+    html: `<!doctype html><html lang="${locale}"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(say('title', locale))}</title>${head}<style>${RETURN_STYLE}</style>`
       + `<main><h1>${esc(title)}</h1><p role="status">${esc(text)}</p>${actions}</main>`,
     status: r === 'ok' || r === 'done' ? 200 : 400,
   }
@@ -269,6 +271,6 @@ const GO: Record<'title' | 'lead' | 'notYou' | 'next', T> = {
 export function drivePreGooglePage(locale: Locale, o: { name: string; username: string; url: string }): string {
   const g = (k: keyof typeof GO) => (GO[k][locale] ?? GO[k].en).replace(/\{product\}/g, PRODUCT.displayName)
   const lead = g('lead').replace('{name}', () => o.name).replace('{username}', () => o.username)
-  return `<!doctype html><html lang="${locale}"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(g('title'))}</title><style>${STYLE}</style>`
+  return `<!doctype html><html lang="${locale}"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(g('title'))}</title><style>${RETURN_STYLE}</style>`
     + `<main><h1>${esc(g('title'))}</h1><p data-testid="drive-go-person">${esc(lead)}</p><p>${esc(g('notYou'))}</p><a class="cta" href="${esc(o.url)}" rel="noopener noreferrer">${esc(g('next'))}</a></main>`
 }

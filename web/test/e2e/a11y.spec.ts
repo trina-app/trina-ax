@@ -309,9 +309,14 @@ async function auditIntegrations(page: Page, where: string) {
   // Popular is on the same page, under the connected apps
   await expect(page.getByTestId('connector-list')).toBeVisible()
   await audit(page, `settings/integrations discover${where}`)
+  // a listed service's + is one click (QA TC-6928): the new connection's page, its sign-in in a new window
+  const signIn = page.context().waitForEvent('page')
   await page.getByRole('button', { name: 'Notion 추가' }).click()
-  await audit(page, `add from discover${where}`)
-  await page.keyboard.press('Escape')
+  await (await signIn).close()
+  await expect(page).toHaveURL(/\/connectors\/mcp\//)
+  await audit(page, `added from discover${where}`)
+  await page.goto('/connectors')
+  await expect(page.getByTestId('connected-apps')).toBeVisible()
   await page.getByTestId('integration-add').click()
   await choose(page, 'integration-write-deny')
   await page.getByTestId('integration-save').click() // shows the field errors

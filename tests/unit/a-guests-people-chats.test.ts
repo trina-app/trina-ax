@@ -5,6 +5,7 @@ import { afterEach, expect, setDefaultTimeout, test } from 'bun:test'
 import { addMember, harness, withOwner, type Harness } from './a-lib'
 import { addGuest, groupChat } from './guest-lib'
 import { peopleAudience } from '../../server/src/chat/chat-audience'
+import { tr } from '../../server/src/chat/i18n'
 
 setDefaultTimeout(60_000)
 let h: Harness
@@ -27,6 +28,10 @@ test('a member cannot share a chat with a guest; a guest named in the table stil
   const refused = await put(guest)
   expect(refused.status).toBe(400)
   expect(refused.body.error.params.reason).toBe('unknown_subject')
+  // said plainly: a guest can't join a shared chat, never "no longer on the team" (QA TC-6961; the harness speaks Korean)
+  expect(refused.body.error.message).toBe(tr('chatShareGuest', 'ko'))
+  expect(refused.body.error.message).not.toBe(tr('chatShareUnknownPerson', 'ko'))
+  expect(tr('chatShareGuest', 'en')).toBe("Guests can't be added to a shared chat. A guest works only in the project or conversation they were invited to.")
   const refusedPreview = await preview(guest)
   expect(refusedPreview.status).toBe(400)
   expect(refusedPreview.body.error.params.reason).toBe('unknown_subject')
