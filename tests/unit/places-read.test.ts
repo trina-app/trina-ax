@@ -179,8 +179,9 @@ describe('refusals', () => {
     expect(room.content).toContain('room files are not paths yet')
     const other = await run('bob', chat, `${fake({ tool: 'read', args: { file_path: 'chat:other/a' }, sayResult: true })}`)
     expect(other.content).toContain('the only chat places')
+    // (P2: list takes chat:work/; this chat has no work folder)
     const work = await run('bob', chat, `${fake({ tool: 'list', args: { path: 'chat:work/' }, sayResult: true })}`)
-    expect(work.content).toContain('box_shell')
+    expect(work.content).toContain('no work folder')
   })
   test('a registered tool that does not take a chat place yet: refused before any card', async () => {
     const { chat, file } = await sent('src.md', '# x')

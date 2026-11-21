@@ -82,6 +82,8 @@ describe('fail closed: a chat place in any path argument of a tool that does not
       for (const tool of tools) for (const key of PATH_ARGS) {
         const no = placeRefusal(tool, { [key]: place })
         if (tool === 'save_work_file' && key === 'path') continue
+        // P2: copy_files' sources and target and query_data's inputs take chat:files/ and chat:work/ (chat/places-copy.ts)
+        if (!/^(room|chat:nope)/.test(place) && ((tool === 'copy_files' && (key === 'paths' || key === 'to_folder')) || (tool === 'query_data' && key === 'paths'))) { expect(no, `${tool}.${key}`).toBeNull(); continue }
         expect(no, `${tool}.${key}`).toBeString()
       }
     })
