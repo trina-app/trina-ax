@@ -142,7 +142,8 @@ test('a project in the trash leaves the list and the page\'s cards; 휴지통 at
     const row = list.getByTestId('projects-trash-row')
     await expect(row).toContainText(t['projectsPanel.trash'])
     await expect(row.getByTestId('projects-trash-count')).toHaveText('1')
-    await expect(row).toHaveAttribute('aria-label', translate('ko', 'projectsPanel.trashLabel', { n: 1 }))
+    // a screen reader hears the count with its noun ("휴지통, 프로젝트 1개"); the number alone is hidden from it
+    await expect(row).toHaveAccessibleName(new RegExp(`^${t['projectsPanel.trash']}\\s?, ${translate('ko', 'projectsPanel.trashCount', { n: 1 })}$`))
     await row.click()
     const dialog = page.getByRole('dialog')
     await expect(dialog).toContainText(t['projectsPanel.trashTitle'])

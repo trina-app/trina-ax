@@ -43,12 +43,13 @@ export function ProjectsTrash({ managed }: { managed: readonly Project[] | null 
             type="button"
             onClick={() => setOpen(true)}
             className={clsx(panelRow, 'text-muted')}
-            aria-label={t('projectsPanel.trashLabel', { n: trashed.length })}
             data-testid="projects-trash-row"
           >
             <ListIcon><Trash2 /></ListIcon>
             <span className="min-w-0 flex-1 truncate">{t('projectsPanel.trash')}</span>
-            <span className="shrink-0 text-meta text-faint tabular-nums" data-testid="projects-trash-count">{trashed.length}</span>
+            {/* the number on screen; a screen reader hears "Trash, 3 projects" */}
+            <span aria-hidden className="shrink-0 text-meta text-faint tabular-nums" data-testid="projects-trash-count">{trashed.length}</span>
+            <span className="sr-only">, {t('projectsPanel.trashCount', { n: trashed.length })}</span>
           </button>
         </div>
       )}

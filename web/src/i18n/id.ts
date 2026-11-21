@@ -6083,7 +6083,7 @@ export const id: Record<MessageKey, string> = {
   "projectsPanel.mine": "Proyek saya",
   // the Trash row at the bottom of the Projects list and its dialog (components/panels/ProjectsTrash.tsx)
   "projectsPanel.trash": "Sampah",
-  "projectsPanel.trashLabel": "Sampah, {n} proyek",
+  "projectsPanel.trashCount": "{n} proyek",
   "projectsPanel.trashTitle": "Proyek di Sampah",
   "projectsPanel.trashEmpty": "Tidak ada proyek di Sampah",
   "projects.meta.me": "Hanya saya",

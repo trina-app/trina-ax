@@ -6039,7 +6039,7 @@ export const es: Record<MessageKey, string> = {
   "projectsPanel.mine": "Mis proyectos",
   // the Trash row at the bottom of the Projects list and its dialog (components/panels/ProjectsTrash.tsx)
   "projectsPanel.trash": "Papelera",
-  "projectsPanel.trashLabel": "Papelera, {n, plural, one {# proyecto} other {# proyectos}}",
+  "projectsPanel.trashCount": "{n, plural, one {# proyecto} other {# proyectos}}",
   "projectsPanel.trashTitle": "Proyectos en la papelera",
   "projectsPanel.trashEmpty": "No hay proyectos en la papelera",
   "projects.meta.me": "Solo yo",

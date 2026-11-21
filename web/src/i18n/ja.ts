@@ -6039,7 +6039,7 @@ export const ja: Record<MessageKey, string> = {
   "projectsPanel.mine": "自分のプロジェクト",
   // the Trash row at the bottom of the Projects list and its dialog (components/panels/ProjectsTrash.tsx)
   "projectsPanel.trash": "ゴミ箱",
-  "projectsPanel.trashLabel": "ゴミ箱、{n, plural, one {#件のプロジェクト} other {#件のプロジェクト}}",
+  "projectsPanel.trashCount": "{n, plural, one {#件のプロジェクト} other {#件のプロジェクト}}",
   "projectsPanel.trashTitle": "ゴミ箱内のプロジェクト",
   "projectsPanel.trashEmpty": "ゴミ箱にプロジェクトはありません",
   "projects.meta.me": "自分だけ",

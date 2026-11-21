@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-21 04:38
 - Branch: `fix/projects-trash-out-of-list`
-- Status: in progress
+- Status: done
 - Where: trina-ax core, `web/` (the Projects panel, the phone's Projects tab, the Projects page). Why: the project list
   and its trash are core UI (docs/REPOSITORY-RULES.md).
 - Version impact: patch. A list shows fewer rows and gets a Trash row; no API, permission or data change.
@@ -54,4 +54,10 @@ web e2e projects-panel and the related project specs.
 
 ## Result
 
-(at the end)
+Built as planned, web only (`web/src/components/panels/ProjectsTrash.tsx`, `ProjectsPanel.tsx`, `pages/Projects.tsx`).
+Two things found on the way: a project restored from the dialog must come back into its group before the plain list is
+read again (the panel now takes every non-trashed project of the manage=1 list that the person reads), and the Trash
+component sits in one place in the tree so its dialog stays open while a restored project comes back. The count's
+screen-reader words are their own key (`projectsPanel.trashCount`) so the button's name matches what is on screen
+(axe `label-content-name-mismatch`). Tests that asserted the old in-list card were updated
+(`project-list-menu.test.tsx`, `optimistic-projects-files.test.tsx`, `project-trash-members.spec.ts`).

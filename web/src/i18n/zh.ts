@@ -6010,7 +6010,7 @@ export const zh: Record<MessageKey, string> = {
   "projectsPanel.mine": "我的项目",
   // the Trash row at the bottom of the Projects list and its dialog (components/panels/ProjectsTrash.tsx)
   "projectsPanel.trash": "回收站",
-  "projectsPanel.trashLabel": "回收站，{n, plural, one {#个项目} other {#个项目}}",
+  "projectsPanel.trashCount": "{n, plural, one {#个项目} other {#个项目}}",
   "projectsPanel.trashTitle": "回收站中的项目",
   "projectsPanel.trashEmpty": "回收站中没有项目",
   "projects.meta.me": "仅自己",

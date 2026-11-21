@@ -6084,7 +6084,7 @@ export const en: Record<MessageKey, string> = {
   "projectsPanel.mine": "My projects",
   // the Trash row at the bottom of the Projects list and its dialog (components/panels/ProjectsTrash.tsx)
   "projectsPanel.trash": "Trash",
-  "projectsPanel.trashLabel": "Trash, {n, plural, one {# project} other {# projects}}",
+  "projectsPanel.trashCount": "{n, plural, one {# project} other {# projects}}",
   "projectsPanel.trashTitle": "Projects in the trash",
   "projectsPanel.trashEmpty": "No projects in the trash",
   "projects.meta.me": "Only me",
