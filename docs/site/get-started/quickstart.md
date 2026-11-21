@@ -42,7 +42,12 @@ Open http://127.0.0.1:19760 and sign in as `alice` with `teamax-demo-1`. The oth
 ![The Trina AX sign-in page with Username and Password fields and a Sign in button](../images/quickstart/sign-in.webp "The sign-in page")
 
 #### Check folder permissions
-Open **Files → Company-wide → 팀-용어집.md**. Then sign in as `bob` in a private window. Bob sees the finance group, but not the marketing group.
+1. In the bar on the left, choose **Files**, then the **Company-wide** folder, then **팀-용어집.md** (the demo team's
+   glossary). It opens in the side panel.
+2. Open a private window (in Chrome, ⌘⇧N on a Mac or Ctrl+Shift+N on Linux), open the same address and sign in as
+   `bob`.
+3. Choose **Files** again. Bob sees the finance group's folder, but not the marketing group's. As in Google Drive, a
+   folder you may not open is not greyed out: it is not there at all.
 
 ![Files: the team's folders listed beside the bar on the left, the shared folder open and the glossary file shown in the side panel](../images/quickstart/files-glossary.webp "The glossary file, open in Files")
 :::

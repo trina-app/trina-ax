@@ -25,7 +25,25 @@ The skills Trina AX prepared, each with **Example**: Company slide deck, Promo c
 **Choose a folder** with company documents. The AI suggests the ones the team can use from the file names, folders and dates only, and you tick what goes up. Nothing is uploaded until you press the button. Afterwards the AI can read them and offer folders to sort them into (**Sort them like this?**). One line says who will see the files.
 
 #### Team tools
-**Tools for your team** is one list. Connect a tool once for the whole team (**Connect for the team**: Notion, or Slack on its own page; the whole team shares that connection), or **Ask everyone to connect their own** account (the switch on Notion's row and on the Google rows). Google Drive and Gmail offer both: **Connect for the team** shares one Google account (the same dialog as Admin › Connected apps), and the switch asks each person to connect their own. Tools everyone is asked to connect come first in everyone's connector list, marked **Team asks you to connect**, and gate nothing. **Other tools** opens the full list, where each tool's page has the same switch. Nobody signs in with their own account on this step. On a phone this step is skipped.
+**Tools for your team** is one list: Notion, Slack and, where your server can connect them, Google Drive and Gmail.
+Each row offers one or both of two ways:
+
+- **Connect for the team** (the button on the right). You sign in once with one account, and the whole team uses
+  that one connection, like a shared mailbox everyone in a team can open. Notion opens Notion's own sign-in page in a
+  new window. Slack opens its page in Admin › Connected apps ([Slack](../use/slack.md)). Google Drive and Gmail open
+  the dialog Admin › Connected apps uses: **Continue with Google**, sign in with the shared Google account (such as
+  `sales@acme.com`), then pick who may use it.
+- **Ask everyone to connect their own** (the switch under Notion's and the Google rows' line). Nothing is connected
+  now. The tool comes first in everyone's **Settings › Connectors**, marked **Team asks you to connect**, and each
+  person signs in with their own account, the way each person adds their own Gmail on their own phone. It blocks
+  nothing: anyone may still connect any tool, or none.
+
+![The Tools for your team step: Notion, Slack and Gmail, each with Connect for the team on the right; Notion and Gmail also have the switch Ask everyone to connect their own; Other tools and Do this later at the bottom](../images/setup/tools-step.webp "Tools for your team")
+
+After a team connection, the row says **Connected** (a Google row also names the shared account and who uses it).
+**Other tools** opens the full list, where each tool's page has the same switch. You change all of this later: team
+connections in **Admin › Connected apps**, the switch on each tool's page in **Settings › Connectors**. Nobody signs
+in with their own account on this step. On a phone this step is skipped.
 
 #### Invite
 Copy the ready-made message. It names one skill. People who join land on Home, where a welcome card says who invited them and what to do first; the skill is in **Team skills**. When each person signs in to their own AI, the message says so. The invite page offers the language of the person's browser. If someone else is already signed in on that computer, the page says "You're already in <team name>" and offers **Sign out to join**, which signs out and opens the same link.

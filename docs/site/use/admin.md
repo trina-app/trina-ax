@@ -3,10 +3,20 @@ title: Admin
 description: What owners and admins manage, and where each setting lives.
 ---
 
-**Admin** is for the owner and admins. On a computer it is in the team menu under your team's logo at the top of the bar on the left, and ⌘K finds it; on a phone it is in the **Me** tab. Every page in it is for the whole team: the menu's title is your
-team's name and logo ("Acme admin"), and every page says "Applies to everyone in Acme" above its title. The pages keep
-the same names as in Settings. Admin › Connected apps is the team's connections; yours are in **Settings › Connectors**. It opens on
-**Home**, which lists what needs attention first.
+**Admin** is for the owner and admins. Every page in it is for the whole team: the menu's title is your team's name
+and logo ("Acme admin"), and every page says "Applies to everyone in Acme" above its title. Your own settings stay in
+**Settings**, with the same page names: Admin › Connected apps is the team's connections, yours are in
+**Settings › Connectors**.
+
+To open Admin on a computer:
+
+1. Choose your team's logo, at the top of the bar on the left. The team menu opens: the team's address, **Invite
+   people** and **Admin**. (For members the menu has
+   neither.)
+2. Choose **Admin**. It opens on **Home**, which lists what needs attention first.
+
+⌘K (Ctrl+K on Windows) and "Admin" finds it too. On a phone, open the **Me** tab, then **Admin**.
+
 For the owner, Home also lists the first setup steps that are still to do: check the AI connection, set folder
 permissions, invite your team, prepare a team skill, make the first backup. A finished step leaves the list.
 
@@ -47,7 +57,16 @@ Claude or OpenAI account. Each row shows whether that engine is ready.
 ![Admin › AI providers: Claude Code, Codex and the API engine, each with its logo, its state and an on/off switch](../images/admin/engines.webp "AI providers")
 
 #### Invite the team
-Start with a small pilot group, then confirm roles and folder access. **Members & invites** also lists the team's [guests](#guests).
+Start with a small pilot group, then confirm roles and folder access.
+
+1. Choose your team's logo, then **Invite people**.
+2. Keep **Team member** (**Guest** is for someone from outside the team) and choose **Make invite link**.
+3. Choose **Copy message** and paste it into Slack, Teams or an e-mail. It ends with the link. People who open it make
+   their account and land in the team.
+
+![The Invite people dialog: Team member and Guest at the top, a line saying to send the message with the team link, and Make invite link](../images/admin/invite.webp "Invite people")
+
+**Members & invites** also lists the team's [guests](#guests).
 Under the list, **Invite links** shows only the links that still work: the team invite link and invite links nobody
 has used yet. A used or expired link, or a guest link whose private channel, group chat or project is gone, leaves the list; who joined is in the member list and in the [Activity log](#activity-log).
 
