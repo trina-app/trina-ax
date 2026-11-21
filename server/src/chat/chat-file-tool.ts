@@ -363,7 +363,8 @@ export function visibleChatFiles(ctx: TurnExec['rt']['ctx'], userId: string, cha
   if (!seesChatFiles(ctx.db, userId, chatId)) return []
   const store = chatFilesOf(ctx)
   const rows = ctx.db.query('SELECT * FROM chat_files WHERE chat_id = ? ORDER BY created_at DESC, id DESC').all(chatId) as ChatFileRow[]
-  return rows.filter((r) => { try { store.open(userId, chatId, r.id, false); return true } catch { return false } })
+  // a file read refuses (carried by a hidden answer: readChatFile) is not listed, globbed or searched either
+  return rows.filter((r) => { try { store.open(userId, chatId, r.id, false) } catch { return false } return !carriedByHiddenAnswer(ctx.db, chatId, r.id) })
 }
 
 /** Is every message of the chat that carries this file an answer with a k group (chat/shared-answers.ts: a connection's

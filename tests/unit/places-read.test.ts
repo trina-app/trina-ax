@@ -240,6 +240,21 @@ describe('review fixes (adversarial review of P1)', () => {
       expect(r.content).toContain(c.says)
     }
   })
+
+  test('a file carried only by a hidden answer (k) is not listed, globbed or searched either', async () => {
+    const { chat, file } = await sent('k2.txt', 'K2 SECRET')
+    const ans = db().query("SELECT id FROM messages WHERE chat_id = ? AND role = 'assistant' ORDER BY created_at DESC LIMIT 1").get(chat) as { id: string }
+    const att = db().query("SELECT attachments FROM messages WHERE chat_id = ? AND role = 'user' AND attachments LIKE ?").get(chat, `%${file}%`) as { attachments: string }
+    db().query('UPDATE messages SET attachments = ? WHERE id = ?').run(att.attachments, ans.id)
+    db().query("UPDATE messages SET attachments = '[]' WHERE chat_id = ? AND role = 'user' AND attachments LIKE ?").run(chat, `%${file}%`)
+    setAnswerReads(db(), chat, ans.id, [{ c: ['alice', 'bob', 'erin'], s: [{ type: 'integration', id: 'x' }], k: 1 }])
+    const l = await run('alice', chat, `${fake({ tool: 'list', args: { path: 'chat:files/' }, sayResult: true })}`)
+    expect(l.content).not.toContain('k2.txt')
+    const g = await run('alice', chat, `${fake({ tool: 'glob', args: { pattern: '*.txt', path: 'chat:files/' }, sayResult: true })}`)
+    expect(g.content).not.toContain('k2.txt')
+    const s = await run('alice', chat, `${fake({ tool: 'grep', args: { pattern: 'K2', path: 'chat:files/', output_mode: 'content' }, sayResult: true })}`)
+    expect(s.content).not.toContain('K2 SECRET')
+  })
 })
 
 describe('one way to open a chat file', () => {
