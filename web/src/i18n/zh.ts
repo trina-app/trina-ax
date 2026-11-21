@@ -7140,7 +7140,7 @@ export const zh: Record<MessageKey, string> = {
   "rooms.makeProject.body": "{n, plural, one {这 # 位成员} other {这 # 位成员}}将成为项目的成员。在这里发送的文件会移到 {name} › {folder}。之后加入的人会看到从现在开始的消息。",
   "rooms.makeProject.laterFiles": "之后加入项目的人也能打开这些文件。",
   "rooms.makeProject.nameTaken": "已有名为「{name}」的项目，这个项目在文件中会是「{folder}」。",
-  "rooms.makeProject.nameLong": "项目名称最多{n}个字符。",
+  "rooms.makeProject.nameLong": "项目名称最多{n, plural, one {#个字符} other {#个字符}}。",
   "rooms.makeProject.nameReserved": "这个名称是 AI 指令文件的名称，不能使用。请换一个名称。",
   "rooms.makeProject.staying": "{n, plural, one {# 个文件只留在这个聊天中，因为这里不是每个人都能看到它。} other {# 个文件只留在这个聊天中，因为这里不是每个人都能看到它们。}}",
   "rooms.makeProject.confirm": "创建项目",
