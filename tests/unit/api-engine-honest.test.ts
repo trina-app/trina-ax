@@ -279,6 +279,13 @@ describe('TC-4829: a failed step the answer does not mention', () => {
     expect(h.tools()).toEqual(['stamp_pdf'])
     h.note('make_file', { source: 'x', output: './shared/contract.pdf' }, true)
     expect(h.tools()).toEqual([])
+    // an edit into `output`: settled by that output made, not by its source made again
+    const o = new FailedSteps()
+    o.note('edit_pdf', { file_path: 'shared/a.pdf', operations: [], output: 'shared/b.pdf' }, false)
+    o.note('make_file', { source: 'x', output: 'users/me/b.pdf' }, true)
+    expect(o.tools()).toEqual(['edit_pdf'])
+    o.note('make_file', { source: 'x', output: 'shared/b.pdf' }, true)
+    expect(o.tools()).toEqual([])
     // a failed copy that nothing replaced stays (flow 5: the file was not attached)
     const k = new FailedSteps()
     k.note('write', { file_path: 'projects/A/summary.md', content: 'x' }, true)
@@ -308,6 +315,18 @@ describe('TC-4829: a failed step the answer does not mention', () => {
     h.note('read', { file_path: 'shared/notes.md' }, true)
     expect(h.tools()).toEqual(['chat_file'])
     expect(failedStepsNote(h.tools(), 'Done.', 'en')).toBe("One step didn't work: Read chat file.")
+    // another chat file of the same name (another id) does not settle a read by id either
+    const i = new FailedSteps()
+    i.note('read', { file_path: 'chat:files/0198ae/notes.md', pages: '99' }, false)
+    i.note('read', { file_path: 'chat:files/0198af/notes.md' }, true)
+    expect(i.tools()).toEqual(['read'])
+    // chat_file with no file is settled by a read of a chat file, not by a read of a team file
+    const j = new FailedSteps()
+    j.note('chat_file', {}, false)
+    j.note('read', { file_path: 'shared/x.md' }, true)
+    expect(j.tools()).toEqual(['chat_file'])
+    j.note('chat_file', { file: 'notes.md' }, true)
+    expect(j.tools()).toEqual([])
   })
 
   test('TC-7045: the line is in the answer\'s language, with plain step words', () => {

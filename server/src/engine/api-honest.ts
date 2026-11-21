@@ -138,55 +138,76 @@ function madeFiles(tool: string, args: unknown): string[] {
   return out
 }
 
-/** The id and the name of a chat file a read names: chat_file's `file` (an id or a name) or a chat:files/<id>/<name>
- * path; null for a read of anything else. */
-function chatFileIds(tool: string, target: string): string[] | null {
-  if (tool === 'chat_file') return target ? [target.toLowerCase()] : null
+/** A chat file as a read names it: chat_file's `file` (an id or a name: `token`) or a chat:files/<id>/<name> path (or
+ * chat:files/<name>); null for a read of anything else. */
+type ChatFileRef = { id?: string; name?: string; token?: string }
+function chatFileRef(tool: string, target: string): ChatFileRef | null {
+  if (tool === 'chat_file') return target ? { token: target.toLowerCase() } : null
   if (!/^chat:files\//i.test(target)) return null
-  return target.split('/').slice(1).map((s) => s.toLowerCase())
+  const segs = target.split('/').slice(1).map((s) => s.toLowerCase())
+  if (!segs.length) return null
+  return segs.length >= 2 ? { id: segs[0]!, name: segs[segs.length - 1]! } : { name: segs[0]! }
+}
+
+/** Two reads name the same chat file: both ids when both have one, else a token against the other's id or name, else
+ * the names. */
+function sameChatFile(a: ChatFileRef, b: ChatFileRef): boolean {
+  if (a.id && b.id) return a.id === b.id
+  if (a.token || b.token) {
+    const ka = [a.id, a.name, a.token].filter(Boolean), kb = [b.id, b.name, b.token].filter(Boolean)
+    return ka.some((x) => kb.includes(x))
+  }
+  return !!a.name && a.name === b.name
 }
 
 /** The answer's tool calls that failed and were not done again with success afterwards (same tool or a change of the
  * same file, same target), nor superseded by a later call that got the same outcome another way: a chat place's file
  * made elsewhere, a file-edit tool's file made again, a chat file read another way. */
 export class FailedSteps {
-  private readonly open = new Map<string, string>()
+  /** step key -> the failed tool and, for a file-edit tool, the file it was to make (`output`) */
+  private readonly open = new Map<string, { tool: string; output: string | null }>()
 
   note(tool: string, args: unknown, ok: boolean) {
     const key = stepKey(tool, args)
+    const kind = key.slice(0, key.indexOf('|'))
+    const target = key.slice(kind.length + 1)
     if (ok) {
       this.open.delete(key)
       const made = madeFiles(tool, args)
       if (made.length) {
         const names = made.map(fileName)
-        for (const [k, failedTool] of [...this.open]) {
-          const target = k.slice(k.indexOf('|') + 1)
-          if (!target || !(k.startsWith('change|') || EDITS_FILE.has(failedTool))) continue
-          // a chat place: the same name anywhere (CHAT_PLACE); a team file's failed file-edit tool: made at that path
-          if (CHAT_PLACE.test(target) ? names.includes(fileName(target)) : EDITS_FILE.has(failedTool) && made.includes(target)) this.open.delete(k)
+        for (const [k, f] of [...this.open]) {
+          const t = k.slice(k.indexOf('|') + 1)
+          if (!t || !(k.startsWith('change|') || EDITS_FILE.has(f.tool))) continue
+          // a chat place: the same name anywhere (CHAT_PLACE); a team file's failed file-edit tool: its file or the file
+          // it was to make, made at that very path
+          const paths = [t, f.output].filter((p): p is string => !!p)
+          const settled = paths.some((p) => CHAT_PLACE.test(p) ? names.includes(fileName(p)) : EDITS_FILE.has(f.tool) && made.includes(p))
+          if (settled) this.open.delete(k)
         }
       }
-      if (key.startsWith('read|')) {
+      const ref = kind === 'read' ? chatFileRef(tool, target) : null
+      if (ref) for (const [k, f] of [...this.open]) {
         // the same chat file read another way: chat_file by id or name, read by chat:files/<id>/<name> (TC-7052)
-        const ids = chatFileIds(tool, key.slice('read|'.length))
-        if (ids) for (const [k, failedTool] of [...this.open]) {
-          if (!k.startsWith('read|')) continue
-          const other = chatFileIds(failedTool, k.slice('read|'.length))
-          if (other && other.some((x) => ids.includes(x))) this.open.delete(k)
-        }
+        const other = k.startsWith('read|') ? chatFileRef(f.tool, k.slice('read|'.length)) : null
+        if (other && sameChatFile(ref, other)) this.open.delete(k)
       }
-      // a call with a target also settles the same tool's earlier failure that had none (bad arguments the first time)
-      this.open.delete(`${key.slice(0, key.indexOf('|'))}|`)
+      // a call with a target also settles the same tool's earlier failure that had none (bad arguments the first time);
+      // a read with none is settled by a read of the same tool, or by a read of a chat file (chat_file {} then read of
+      // chat:files/…, TC-7052), not by a read of any team file
+      const bare = this.open.get(`${kind}|`)
+      if (target && bare && (kind !== 'read' || bare.tool === tool || (ref && bare.tool === 'chat_file'))) this.open.delete(`${kind}|`)
       // a file made or changed after a read that failed (often "not found" before it was created) settles the read
-      if (key.startsWith('change|') && key !== 'change|') this.open.delete(`read|${key.slice('change|'.length)}`)
+      if (kind === 'change' && target) this.open.delete(`read|${target}`)
     } else {
+      const a = (args && typeof args === 'object' ? args : {}) as Record<string, unknown>
       this.open.delete(key)
-      this.open.set(key, tool)
+      this.open.set(key, { tool, output: EDITS_FILE.has(tool) ? samePath(a.output) : null })
     }
   }
 
   /** The failed steps' tools, one per step still open, in the order they failed (a tool can be there twice: two files). */
-  tools(): string[] { return [...this.open.values()] }
+  tools(): string[] { return [...this.open.values()].map((f) => f.tool) }
 }
 
 /** Words that say a step did not work, in the six languages of the app. The answer that holds one already tells the
