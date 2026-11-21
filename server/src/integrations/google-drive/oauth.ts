@@ -28,6 +28,9 @@ export interface DriveConn {
  * gone), so nothing from an old connection is delivered. */
 interface Holder { id: string; op: string; fence(): void; load(): Tokens; save(t: Tokens): void; invalidate(): void }
 const TTL = 10 * 60_000
+/** how long a return waits for another return of the same sign-in that is still talking to Google before it says how
+ * that one ended (google-apps/service.ts has the same) */
+const SETTLE_MS = 15_000
 /** how often a server signing in through the broker asks the hosting service whether its Google sign-in serves this team (broker.ts) */
 const BROKER_CHECK_MS = 10 * 60_000, BROKER_RETRY_MS = 60_000
 const challengeOf = (verifier: string) => crypto.createHash('sha256').update(verifier).digest('base64url')
@@ -60,6 +63,8 @@ export class GoogleDrive {
   readonly now: () => number
   private refreshes = new Map<string, Promise<Tokens>>()
   private operations = new Map<string, Set<AbortController>>()
+  /** flows a return is waiting on now (answered(): one waiter each) */
+  private waiting = new Set<string>()
   private revoking = new Set<string>()
   constructor(readonly ctx: AppContext, deps: DriveDeps = {}) {
     this.now = deps.now ?? Date.now
@@ -182,9 +187,16 @@ export class GoogleDrive {
    * claimed, cancelled, replaced or late). Before the row loses its secret; a failure changes nothing here. */
   private dropTokens(rows: FlowRow[]) {
     for (const r of rows) {
-      let token: string | undefined
-      try { token = this.store.open<FlowSecret>(r).tokens?.refreshToken } catch { continue }
-      if (token) void this.revoke(token).catch(() => 'unavailable')
+      let s: FlowSecret
+      try { s = this.store.open<FlowSecret>(r) } catch { continue }
+      const token = s.tokens?.refreshToken
+      if (!token) continue
+      // Google revokes a whole grant: not while the person keeps another Google sign-in here, or anyone keeps one with
+      // the same Google account (the rule of disconnect, below), else a dropped result would end a live connection
+      const db = this.ctx.db, u = r.user_id
+      if (this.store.connection(u) || db.query('SELECT 1 FROM integrations WHERE owner_user_id=? AND google_app IS NOT NULL AND secret_enc IS NOT NULL LIMIT 1').get(u)
+        || ownsLiveDriveShare(db, u) || signsTeamGoogleApp(db, u) || googleAccountInUse(db, s.account?.email?.toLowerCase() ?? null)) continue
+      void this.revoke(token).catch(() => 'unavailable')
     }
   }
   /** The flow row both ways share: who, which session, the state's hash and the sealed PKCE verifier. */
@@ -253,15 +265,56 @@ export class GoogleDrive {
    * refusal before it started: an expired or used link, a browser not signed in as the same person). `app`: the app
    * whose session started the flow; `code`: the one-time completion code for that app (app-return.ts). */
   async callbackOutcome(input: { state?: string; code?: string; error?: string; handoff?: string }, browser?: { userId: string; sessionId: string }): Promise<CallbackOutcome> {
-    const row = input.state && /^[A-Za-z0-9_-]{43}$/.test(input.state) ? this.ctx.db.query('SELECT session_id FROM drive_oauth_flows WHERE state_hash=?').get(hash(input.state)) as { session_id: string } | null : null
+    const valid = !!input.state && /^[A-Za-z0-9_-]{43}$/.test(input.state)
+    const row = valid ? this.ctx.db.query('SELECT session_id FROM drive_oauth_flows WHERE state_hash=?').get(hash(input.state!)) as { session_id: string } | null : null
     const client = row ? this.clientOf(row.session_id) : null
     const app = client === 'desktop' || client === 'mobile' ? { app: client } as const : {}
+    // a sign-in an earlier return (a reload, a second request, another window) already answered: how it went, never
+    // "expired or already used" for one that worked (owner 2026-11-21)
+    const before = valid ? await this.answered(input.state!, app, browser) : null
+    if (before) return before
     try {
       const done = await this.callback(input, browser)
       if (done) return { ok: true, ...app, ...(typeof done === 'object' ? done : {}) }
-    } catch (e) { return { ok: false, reason: e instanceof DriveError ? e.reason : 'provider_unavailable', ...app } }
+    } catch (e) {
+      // lost the race to a return of the same sign-in that began a moment ago: say how that one ends
+      const later = valid && e instanceof DriveError && e.reason === 'invalid_flow' ? await this.answered(input.state!, app, browser) : null
+      return later ?? { ok: false, reason: e instanceof DriveError ? e.reason : 'provider_unavailable', ...app }
+    }
     const r = this.ctx.db.query('SELECT reason FROM drive_oauth_flows WHERE state_hash=?').get(hash(input.state!)) as { reason: string | null } | null
     return { ok: false, reason: r?.reason ?? 'provider_unavailable', ...app }
+  }
+  /** A return to a sign-in that is no longer waiting for Google (null while it is, or for an unknown state): another
+   * return still talking to Google is waited for (SETTLE_MS); answered and waiting for the person's confirm: ok
+   * ('ready'); confirmed: Connected ('completed'); held for the desktop app: 'held' (go back to the app; no code,
+   * nothing finished); replaced by a later sign-in of the same person (and the same share) that is connected now:
+   * Connected. Anything else: "expired or already used". Only the outcome of the starter's own flow is told (the
+   * starter can poll it anyway). */
+  private async answered(state: string, app: { app?: 'desktop' | 'mobile' }, browser?: { userId: string; sessionId: string }): Promise<CallbackOutcome | null> {
+    const read = () => this.ctx.db.query('SELECT * FROM drive_oauth_flows WHERE state_hash=?').get(hash(state)) as FlowRow | null
+    this.store.sweep()
+    let r = read()
+    if (!r || r.state === 'pending') return null
+    // one waiter per flow: any other return gets the state as it is now, at once (a flood of reloads holds no requests)
+    const id = r.id, deadline = this.waiting.has(id) ? 0 : Date.now() + SETTLE_MS
+    if (deadline) this.waiting.add(id)
+    try { while (r && r.state === 'exchanging' && !this.held(r) && Date.now() < deadline) { await Bun.sleep(100); r = read() } }
+    finally { if (deadline) this.waiting.delete(id) }
+    const no = (reason: string): CallbackOutcome => ({ ok: false, reason, ...app })
+    if (!r) return no('invalid_flow')
+    if (r.state === 'ready') return { ok: true, done: 'ready', ...app }
+    if (r.state === 'completed') return { ok: true, done: 'completed', ...app }
+    if (r.state === 'exchanging') {
+      // still talking to Google: another return waits on it (this one is not the waiter), or SETTLE_MS ran out
+      if (!this.held(r)) return no(deadline ? 'provider_unavailable' : 'in_progress')
+      // Held for the desktop app: never a new code, never finished here. The starter has the state too (it is in the
+      // Google address the app was given): a code or a finish for whoever brings the state again would hand a phished
+      // victim's consent to the starter. The first page's code is the only one.
+      return no(this.now() > this.store.open<FlowSecret>(r).claim!.until ? 'expired' : 'held')
+    }
+    if (r.state === 'failed' && r.reason === 'superseded' && this.ctx.db.query("SELECT 1 FROM drive_oauth_flows WHERE user_id=? AND purpose=? AND share_id IS ? AND state='completed' AND created_at>=? AND id!=?").get(r.user_id, r.purpose, r.share_id, r.created_at ?? '', r.id) && (r.purpose === 'share' || this.store.connection(r.user_id)?.status === 'connected')) return { ok: true, done: 'completed', ...app }
+    // ended otherwise (cancelled in the app, timed out, replaced, refused): "expired or already used", as before
+    return no('invalid_flow')
   }
   /** Google's (direct) or the hosting service's (broker: `handoff` instead of `code`) return to this server. */
   async callback(input: { state?: string; code?: string; error?: string; handoff?: string }, browser?: { userId: string; sessionId: string }): Promise<boolean | { code: string; who: { name: string; username: string }; google: string }> {
