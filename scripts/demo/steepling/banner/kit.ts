@@ -15,6 +15,10 @@ const COPY = path.join(import.meta.dir, '..', '..', 'mina', 'source', 'banners')
 /** copy.<locale>.json's HTML (<br>, <em>) as change_banner_text's words ("\n", *italic*) */
 export const plainWords = (html: string) => html.replace(/<br\s*\/?>/gi, '\n').replace(/<em>([\s\S]*?)<\/em>/gi, '*$1*').replace(/<[^>]+>/g, '').replace(/&amp;/g, '&')
 
+/** The scene of the story's launch banner (scripts/demo/mina/assets/campaign-banner.<locale>.jpg is this photo under
+ * the same words and layout): change_banner_text's first banner uses it, so a words-only change keeps the photo. */
+export const LAUNCH_SCENE = 'one-cup'
+
 /** the other scenes' photos as generate_image pictures: `10-`… so the story's `00-` photo stays the default */
 export const SCENE_PICTURES: Record<string, string> = {
   'two-cups': '10-two-glasses-iced-yuzu-ginger-tea-pouch-two-cups-pair-두-잔-두잔-유리잔-파우치.jpg',
@@ -25,6 +29,7 @@ export const SCENE_PICTURES: Record<string, string> = {
 export function bannerKit(locale: string): BannerKitFile {
   const copy = JSON.parse(fs.readFileSync(path.join(COPY, `copy.${locale}.json`), 'utf8')) as Record<string, string>
   const { scenes } = JSON.parse(fs.readFileSync(path.join(OWN, 'scenes.json'), 'utf8')) as { scenes: BannerKitFile['scenes'] }
+  if (!scenes.some((s) => s.id === LAUNCH_SCENE)) throw new Error(`banner kit: no scene ${LAUNCH_SCENE} in scenes.json`)
   return BannerKitFile.parse({
     lang: locale,
     brand: copy.brand,
@@ -34,6 +39,7 @@ export function bannerKit(locale: string): BannerKitFile {
       eyebrow: plainWords(copy.eyebrow!), headline: plainWords(copy.headline!), subline: plainWords(copy.productLine!),
       badge: plainWords(copy.badge!), badgeNote: plainWords(copy.badgeDates!), cta: plainWords(copy.cta!),
     },
+    defaultScene: LAUNCH_SCENE,
     scenes,
   })
 }

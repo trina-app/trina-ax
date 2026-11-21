@@ -8,7 +8,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import type { FakeState, Generation } from './state'
-import { BannerError, BANNER_SIZES, matchScene, pickScene, renderBanner, sizeOf, type BannerKit, type BannerSize, type BannerWords } from './banner'
+import { BannerError, BANNER_SIZES, pickScene, renderBanner, sizeOf, type BannerKit, type BannerSize, type BannerWords } from './banner'
 
 /** a banner's photo is a prepared one; only its words were drawn */
 export const PREPARED_BANNER = "The photo under the words is one of the demo's prepared photos: only the words were drawn new."
@@ -37,7 +37,8 @@ export class DemoBanners {
   get ready(): boolean { return !!this.kit }
 
   /** The kit's photo for this size and scene under the words. Words not given, and the photo, are the last banner's
-   * (the launch banner's at first); a new headline whose words name a scene ("두 잔") picks that scene. */
+   * (the launch banner's words and scene at first). Only `scene` changes the photo: a headline whose words happen to
+   * name a scene ("한 잔", "두 잔") keeps it (QA 11-22 A3: changing only the headline also changed the photo). */
   async make(a: BannerArgs): Promise<MadeBanner> {
     const kit = this.kit
     if (!kit) throw new BannerError('Banners are not set up in this demo.')
@@ -53,11 +54,12 @@ export class DemoBanners {
       badgeNote: cut(a.badge_note, 80) ?? base.badgeNote,
       cta: cut(a.button, 80) ?? base.cta,
     }
-    // the photo: the scene asked for; else one the new headline names ("두 잔", "two cups"); else the last banner's
+    // the photo: the scene asked for; else the last banner's (the launch banner's at first); else, when that scene has
+    // no photo in this size, the closest one that has
     const asked = typeof a.scene === 'string' && a.scene.trim() ? a.scene.trim().slice(0, 300) : ''
-    const byHeadline = headline !== undefined || !last ? matchScene(kit, size, words.headline) : null
-    const lastScene = last ? kit.scenes.find((s) => s.id === last.scene && s.photos[size]) : undefined
-    const scene = asked ? pickScene(kit, size, asked) : byHeadline && byHeadline.score > 0 ? byHeadline.scene : lastScene ?? pickScene(kit, size, words.headline)
+    const keep = last ? last.scene : kit.defaultScene ?? kit.scenes[0]!.id
+    const kept = kit.scenes.find((s) => s.id === keep && s.photos[size])
+    const scene = asked ? pickScene(kit, size, asked) : kept ?? pickScene(kit, size, words.headline)
     if (!scene) throw new BannerError(`No photo for ${size} in this demo.`)
     const png = await renderBanner(kit, size, scene, words, this.typst === undefined ? undefined : this.typst)
     const id = this.state.nextId('banner')

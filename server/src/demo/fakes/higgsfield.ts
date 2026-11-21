@@ -4,7 +4,7 @@
 // change_banner_text (banners.ts, tools/demo-banner.ts), since nothing goes to Higgsfield for it (owner, 11-22).
 // generate_image answers at once with a canned picture picked by the words of
 // the prompt from the content folder's higgsfield/ pictures (their file names are the keywords: "yuzu-ginger-window.jpg"),
-// else a built-in one; the picture comes inline (connections/media.ts keeps it for save_connector_file) and at a
+// no picture when none matches, a built-in one when the folder has none; the picture comes inline (connections/media.ts keeps it for save_connector_file) and at a
 // download address only this fake answers (tools/download.ts). A video is refused. No credits are ever used.
 import fs from 'node:fs'
 import path from 'node:path'
@@ -52,16 +52,28 @@ export function loadPictures(content: string | null): Picture[] {
 
 const words = (s: string) => s.toLowerCase().split(/[^\p{L}\p{N}]+/u).filter((w) => w.length > 1)
 
-/** the picture whose name shares the most words with the prompt (the first on a tie or no match), or null */
+/** The picture whose name shares the most words with the prompt (the first on a tie), or null when none shares a word.
+ * Before 11-22 no match gave the first picture: asked for a scene the demo does not have, the visitor got the same
+ * prepared photo twice and two copies of it in their files (QA A4). */
 export function pickPicture(pictures: readonly Picture[], prompt: string): Picture | null {
-  if (!pictures.length) return null
   const want = new Set(words(prompt))
-  let best = pictures[0]!, score = -1
+  let best: Picture | null = null, score = 0
   for (const p of pictures) {
     const s = p.words.filter((w) => want.has(w)).length
     if (s > score) { best = p; score = s }
   }
   return best
+}
+
+/** a picture in a few readable words: its name's Latin words ("yuzu ginger tea pouch iced glass") */
+const sceneWords = (p: Picture) => p.words.filter((w) => /^[a-z]+$/.test(w)).slice(0, 8).join(' ') || p.name
+/** what generate_image says when no prepared photo matches: nothing was made, so nothing is saved */
+export function noPictureText(prompt: string, pictures: readonly Picture[]): string {
+  return `No prepared photo matches '${prompt.replace(/\s+/g, ' ').slice(0, 200)}'. Nothing was made. Prepared scenes: ${pictures.map(sceneWords).join('; ')}. For a banner on one of them, use change_banner_text with scene.`
+}
+/** what generate_image says when the closest photo is the one it gave last time: nothing new, nothing to save again */
+export function samePictureText(prompt: string, job: string, pictures: readonly Picture[]): string {
+  return `The closest prepared photo for '${prompt.replace(/\s+/g, ' ').slice(0, 200)}' is the one already given as job ${job}. Nothing new was made; do not save it again. Prepared scenes: ${pictures.map(sceneWords).join('; ')}.`
 }
 
 // ---- the built-in picture: a small soft gradient PNG, made once ----
@@ -146,7 +158,14 @@ export class FakeHiggsfield {
   private generate(a: Record<string, any>): McpResult {
     const prompt = str(a.prompt, 4000)
     if (prompt.length < 3) return text('Describe the picture in a few words (prompt).', true)
+    // the content folder's pictures: one must match (else nothing is made, no job is kept, nothing gets saved); none at
+    // all (the built-in data): the built-in picture
     const pick = pickPicture(this.pictures, prompt)
+    if (this.pictures.length && !pick) return text(noPictureText(prompt, this.pictures), true)
+    // the same prepared photo as the last one Higgsfield gave: no second copy (QA A4: the AI asked again and the visitor
+    // got the same photo twice, saved twice)
+    const lastOwn = [...this.state.get().generations].reverse().find(ownJob)
+    if (pick && lastOwn?.picture === pick.name) return text(samePictureText(prompt, lastOwn.id, this.pictures), true)
     const g: Generation = { id: this.state.nextId('job'), prompt, model: str(a.model, 100) || 'demo-image', picture: pick?.name ?? 'built-in', mime: pick?.mime ?? 'image/png', createdAt: new Date().toISOString() }
     this.state.update((d) => { d.generations.push(g) })
     const b = this.bytesOf(g)

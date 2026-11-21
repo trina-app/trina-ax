@@ -5,8 +5,9 @@
 // Higgsfield에 이 내용을 보내려고 해요") and a literal "\n" for "작지 않아 큰 햇살이야!". Covered: Steepling's kit in en
 // and ko (scripts/demo/steepling/banner/kit.ts) draws every scene and size; new words give a new picture and only the
 // words given change; a "\n" the AI writes as two letters is a real line break, never a backslash on the banner; the
-// words go into typst as strings (markup and code in them stay words); the scene follows the words ("두 잔" → two
-// glasses); end to end on a demo server, change_banner_text saves the banner into the chat's project folder with no card
+// words go into typst as strings (markup and code in them stay words); the scene follows `scene` ("두 잔" → two
+// glasses), never the headline's words, so a words-only change keeps the launch photo, the headline keeps its size while
+// it fits, and no word is left alone on a last line (QA 11-22 A3); end to end on a demo server, change_banner_text saves the banner into the chat's project folder with no card
 // and a step that names no Higgsfield, and the fake Higgsfield no longer offers make_banner; and the AI's demo note says
 // words → change_banner_text, a new background → generate_image, and a short phrase after a banner is applied at once.
 // typst is needed to draw (the server's PDF converter); without it the drawing tests are skipped. Fake data only.
@@ -14,7 +15,7 @@ import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from '
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { bannerTypst, BANNER_SIZES, findTypst, loadBannerKit, pickScene, renderBanner, sizeOf, typstString, type BannerKit } from '../../server/src/demo/fakes/banner'
+import { bannerTypst, BANNER_SIZES, findTypst, headlineLines, headlineScale, loadBannerKit, NBSP, pickScene, renderBanner, sizeOf, typstString, unbrokenPieces, type BannerKit } from '../../server/src/demo/fakes/banner'
 import { BANNERS_DIR, BANNERS_KEPT, DemoBanners, PREPARED_BANNER, withLineBreaks } from '../../server/src/demo/fakes/banners'
 import { HIGGSFIELD_TOOLS, MAKE_BANNER_MOVED, PREPARED_PHOTO, SAVE_NEXT } from '../../server/src/demo/fakes/higgsfield'
 import { FakeState } from '../../server/src/demo/fakes/state'
@@ -24,7 +25,7 @@ import { writeSteepling } from '../../scripts/demo/steepling/make'
 import { makeCApp, type CApp } from '../lib/c-app'
 import { integrationsOf } from '../../server/src/integrations/connections/service'
 import { integrationToolProvider } from '../../server/src/integrations/connections/tools'
-import { CHANGE_BANNER_TEXT_DESCRIPTION, DEMO_BANNER_TOOL } from '../../server/src/tools/demo-banner'
+import { CHANGE_BANNER_TEXT_DESCRIPTION, ChangeBannerTextInput, DEMO_BANNER_TOOL } from '../../server/src/tools/demo-banner'
 import { toolRegistry } from '../../server/src/tools/registry'
 import { TurnFiles } from '../../server/src/files/service'
 import { stepLabel } from '../../shared/src/step-labels'
@@ -105,14 +106,14 @@ describe("Steepling's banner kit", () => {
       const data = fs.mkdtempSync(path.join(tmp, 'data-'))
       const b = new DemoBanners(new FakeState(data), kits[l], typst)
       const before = await b.make({})
-      const after = await b.make({ headline })
+      const after = await b.make({ headline, scene: 'two glasses' })
       expect(after.words.headline).toBe(want)
       expect(after.words.badge).toBe(kits[l].words.badge)
       expect(after.words.cta).toBe(kits[l].words.cta)
       expect(after.scene).toBe('two-cups')
       expect(isPng(after.png)).toBe(true)
       expect(after.png.equals(before.png)).toBe(false)
-      // the same words again: the same picture (only the words changed it)
+      // the same words again: the same picture (only the words changed it); the photo stays without `scene`
       const again = await b.make({ headline })
       expect(again.png.equals(after.png)).toBe(true)
     }
@@ -126,7 +127,8 @@ describe("Steepling's banner kit", () => {
     expect(withLineBreaks('작지 않아\n큰 햇살이야!')).toBe('작지 않아\n큰 햇살이야!')
     // typst gets two lines with a line break between them, never a backslash and an n
     const doc = bannerTypst(kits.ko, '1200x628', { label: null }, { ...kits.ko.words, headline: withLineBreaks('작지 않아\\n큰 햇살이야!') }, 'bg.jpg')
-    expect(doc).toContain(`#{${typstString('작지 않아')}}#linebreak()#{${typstString('큰 햇살이야!')}}`)
+    // Korean breaks only between words: each word is a box (QA 11-22 A3)
+    expect(doc).toContain(`#box(${typstString('작지')}) #box(${typstString('않아')})#linebreak()#box(${typstString('큰')}) #box(${typstString('햇살이야!')})`)
     expect(doc).not.toContain('작지 않아\\\\n')
     expect(doc).not.toContain('작지 않아\\n')
   })
@@ -154,7 +156,7 @@ describe("Steepling's banner kit", () => {
     const data = fs.mkdtempSync(path.join(tmp, 'last-'))
     const b = new DemoBanners(new FakeState(data), kits.ko, typst)
     const call = async (a: Record<string, string>) => { const m = await b.make(a); return { size: m.size, scene: m.scene, words: m.words } }
-    const first = await call({ headline: '흐린 아침에,\n작은 햇살 두 잔.' })
+    const first = await call({ headline: '흐린 아침에,\n작은 햇살 두 잔.', scene: '두 잔' })
     expect(first.scene).toBe('two-cups')
     const second = await call({ badge: '30% 할인' })
     expect(second.words.headline).toBe('흐린 아침에,\n작은 햇살 두 잔.')
@@ -162,11 +164,77 @@ describe("Steepling's banner kit", () => {
     expect(second.scene).toBe('two-cups')
     const square = await call({ size: '1080x1080' })
     expect([square.size, square.scene, square.words.badge]).toEqual(['1080x1080', 'two-cups', '30% 할인'])
-    // a new headline with no scene words keeps the photo; one that names a scene takes it
+    // a new headline keeps the photo, even one whose words name a scene; only `scene` changes it (QA 11-22 A3)
     expect((await call({ headline: '작은 햇살, 큰 기쁨.' })).scene).toBe('two-cups')
-    expect((await call({ headline: '카페 테이블 위의 햇살', size: '1200x628' })).scene).toBe('cafe')
+    expect((await call({ headline: '카페 테이블 위의 햇살', size: '1200x628' })).scene).toBe('two-cups')
+    expect((await call({ scene: '카페 테이블' })).scene).toBe('cafe')
     const long = await call({ headline: '가'.repeat(400) })
     expect(long.words.headline.length).toBe(300)
+  })
+
+  drawing('a words-only change of the launch banner keeps its photo, the launch scene (QA 11-22 A3)', async () => {
+    expect(kits.ko.defaultScene).toBe('one-cup')
+    expect(kits.en.defaultScene).toBe('one-cup')
+    for (const [l, headline] of [['ko', '흐린 아침에,\n작은 햇살 두 잔.'], ['ko', '카페에서 만나는\n작은 햇살.'], ['en', 'A little sun\nfor two cups.']] as const) {
+      const b = new DemoBanners(new FakeState(fs.mkdtempSync(path.join(tmp, 'keep-'))), kits[l], typst)
+      const made = await b.make({ headline })
+      expect(made.scene, `${l} ${headline}`).toBe(kits[l].defaultScene!)
+      expect((await b.make({ subline: 'x y z' })).scene).toBe(kits[l].defaultScene!)
+    }
+  })
+
+  test('the headline keeps the layout\'s size while it fits; only overflowing words get smaller type', () => {
+    const h1Of = (kit: BannerKit, size: (typeof BANNER_SIZES)[number], headline: string) => Number(/text\(size: (\d+)pt, font: \([^)]*\), weight: 600, tracking: [^,]+, fill: deep/.exec(bannerTypst(kit, size, { label: null }, { ...kit.words, headline }, 'bg.jpg'))![1])
+    for (const size of BANNER_SIZES) {
+      const ko = h1Of(kits.ko, size, kits.ko.words.headline), en = h1Of(kits.en, size, kits.en.words.headline)
+      // a bit longer than the launch headline: the same size (before 11-22 it shrank, QA A3)
+      expect(h1Of(kits.ko, size, '추운 아침에,\n따뜻한 햇살 한 잔 했어요.'), size).toBe(ko)
+      if (size === '1200x628') expect(h1Of(kits.en, size, 'A little sun\nfor the grey winter mornings.'), size).toBe(en)
+      // the launch headline itself: the layout's size
+      expect([ko, en], size).toEqual(size === '1200x628' ? [56, 68] : size === '1080x1080' ? [78, 92] : [96, 118])
+      // far longer: smaller, so it stays on the banner
+      expect(h1Of(kits.ko, size, '추운 아침에 마시는 따뜻한 햇살 한 잔, 유자와 생강이 만나 하루를 깨우는 작은 기쁨이 되어 드려요.'), size).toBeLessThan(ko)
+      expect(h1Of(kits.en, size, 'A little sun for grey mornings, bright yuzu and a warm kick of ginger in every single cup we make.'), size).toBeLessThan(en)
+    }
+    expect(headlineScale(kits.ko.words.headline, 'ko', 56, 520)).toBe(1)
+    expect(headlineLines(kits.ko.words.headline, 'ko', 56, 520)).toBe(2)
+    // a piece that never breaks and is wider than the block is never drawn off the banner
+    expect(headlineLines('Supercalifragilisticexpialidocious', 'en', 68, 520)).toBe(Infinity)
+    expect(headlineScale('Supercalifragilisticexpialidocious', 'en', 68, 520)).toBeLessThan(1)
+  })
+
+  test('no word alone on a last line: the last two words stay together, Korean breaks only between words (QA 11-22 A3)', () => {
+    const ko = bannerTypst(kits.ko, '1200x628', { label: null }, { ...kits.ko.words, headline: '추운 아침에 마시는 작은 햇살 했어요.', subline: '유자 진저 콜드브루. 상큼한 유자에 생강의 따뜻함을 더했어요.' }, 'bg.jpg')
+    expect(ko).toContain('#set text(costs: (runt: 500%, orphan: 300%, widow: 300%))')
+    expect(ko).toContain('#set par(linebreaks: "optimized")')
+    expect(ko).toContain(`#box(${typstString('추운')}) #box(${typstString('아침에')}) #box(${typstString('마시는')}) #box(${typstString('작은')}) #box(${typstString('햇살 했어요.')})`)
+    expect(ko).toContain(`#box(${typstString('따뜻함을 더했어요.')})`)
+    expect(unbrokenPieces('작지 않아', 'ko')).toEqual(['작지', '않아'])
+    const en = bannerTypst(kits.en, '1200x628', { label: null }, { ...kits.en.words, subline: 'Bright yuzu and a warm kick of ginger in every cup.' }, 'bg.jpg')
+    expect(en).toContain(typstString(`Bright yuzu and a warm kick of ginger in every${NBSP}cup.`))
+    expect(unbrokenPieces('a b c', 'en')).toEqual(['a', `b${NBSP}c`])
+    // Japanese and Chinese break anywhere, as they are written
+    expect(unbrokenPieces('小さな 陽だまり', 'ja')).toEqual([])
+  })
+
+  drawing('drawn: no line holds only the last word, and no Korean word is cut in two', async () => {
+    const pdftotext = Bun.which('pdftotext')
+    if (!pdftotext) return
+    const work = fs.mkdtempSync(path.join(tmp, 'runt-'))
+    for (const size of BANNER_SIZES) {
+      const photo = kits.ko.scenes[0]!.photos[size]!
+      fs.copyFileSync(path.join(kits.ko.dir, photo.file), path.join(work, 'bg.jpg'))
+      const words = { ...kits.ko.words, headline: '추운 아침에 마시는 작은 햇살 했어요.', subline: '유자 진저 콜드브루. 상큼한 유자에 생강의 따뜻함을 듬뿍 더해 만들었어요.' }
+      fs.writeFileSync(path.join(work, 'b.typ'), bannerTypst(kits.ko, size, photo, words, 'bg.jpg'))
+      const r = Bun.spawnSync([typst!, 'compile', '--font-path', path.join(kits.ko.dir, 'fonts'), '--root', work, 'b.typ', 'b.pdf'], { cwd: work })
+      expect(r.exitCode, r.stderr.toString()).toBe(0)
+      const lines = Bun.spawnSync([pdftotext, path.join(work, 'b.pdf'), '-']).stdout.toString().split('\n').map((x) => x.trim()).filter(Boolean)
+      expect(lines, size).not.toContain('했어요.')
+      expect(lines, size).not.toContain('만들었어요.')
+      // every word of the headline and the line under it is whole on one line
+      const all = lines.join(' ')
+      for (const w of [...words.headline.split(' '), ...words.subline.split(' ')]) expect(all, `${size} ${w}`).toContain(w)
+    }
   })
 
   drawing('hostile words in every field are drawn as they are, never run', async () => {
@@ -197,7 +265,7 @@ describe("Steepling's banner kit", () => {
       expect(flat(got), `${field}: ${bad}`).toContain(flat(want))
       expect(got).not.toContain('root:')
     }
-  })
+  }, 300_000) // 120 typst runs: about 1.5 s each on a busy Mac
 
   test('the banners folder keeps the newest pictures only', () => {
     const data = fs.mkdtempSync(path.join(tmp, 'prune-'))
@@ -247,6 +315,13 @@ describe('the AI knows the demo\'s services are practice copies', () => {
     expect(gen).toContain('Use it for a new background, photo or scene')
     expect(gen).toContain('change_banner_text')
     expect(HIGGSFIELD_TOOLS.map((t) => t.name as string)).not.toContain('make_banner')
+  })
+
+  test('practice Drive files get no drive.google.com link; a scene with no prepared photo gets one line, no retry (QA 11-22 B3, A4)', () => {
+    expect(DEMO_FAKES_NOTE).toContain('Practice Drive files have no web address: name the file and its folder, never write a drive.google.com link.')
+    expect(DEMO_FAKES_NOTE).toContain('When a new scene is not among the prepared photos, say so in one line and offer the prepared ones; do not try again.')
+    expect(DEMO_BANNER_NOTE).toContain('give scene only when the user asks for another of the prepared photos')
+    expect(ChangeBannerTextInput.shape.scene.description).toContain('words alone never change the photo')
   })
 
   test('a short phrase right after a banner is its new headline: applied at once, undo offered after (owner, 11-22)', () => {

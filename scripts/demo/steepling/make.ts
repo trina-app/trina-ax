@@ -69,8 +69,8 @@ const PEOPLE = ['mina', 'sara', 'leo', 'tom', 'aiko', 'omar'] as const
 export const STEEPLING_SKILLS = ['brand-guide', 'social-posts', 'press-release', 'competitor-roundup', 'handover', 'review-digest'] as const
 const englishName = (id: keyof Strings['people'] | Who) => (id in NEW_PEOPLE ? richEn[`${id as keyof typeof NEW_PEOPLE}.name`] : minaEn.people[id as keyof Strings['people']].name)
 const email = (id: keyof Strings['people'] | Who) => `${englishName(id).toLowerCase().replace(/\s+/g, '.')}@${id === 'chris' ? 'fieldnote' : 'steepling'}.example`
-/** the fake Higgsfield's one picture: `00-` first, so it stays the default for a prompt that matches no name (the picker
- * takes the first on a tie), with the story's words in English and Korean */
+/** the fake Higgsfield's story picture: `00-` first, so it wins a tie (the picker takes the first), with the story's
+ * words in English and Korean. A prompt that shares no word with any picture's name gets no picture (QA 11-22 A4). */
 export const HIGGSFIELD_PICTURE = '00-yuzu-ginger-tea-pouch-iced-glass-frosted-window-morning-light-유자-진저-파우치-아이스-창가-아침-햇살.jpg'
 
 /** minutes before the build: the story happened this morning, the rest in the days before */

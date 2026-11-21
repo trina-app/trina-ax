@@ -33,7 +33,7 @@ export const ChangeBannerTextInput = z.object({
   badge_note: word('beside the badge, e.g. "2 weeks only"', 80),
   button: word('the button\'s words ("" for none)', 80),
   size: z.enum(['1200x628', '1080x1080', '1080x1920']).optional().describe('web banner 1200x628, Instagram square 1080x1080, story 1080x1920 (default: the last banner\'s)'),
-  scene: z.string().max(300).optional().describe('which of the prepared text-free photos, in a few words: one glass by the window, two glasses, the pouch close up, a café table (default: the last banner\'s)'),
+  scene: z.string().max(300).optional().describe('which of the prepared text-free photos, in a few words: one glass by the window, two glasses, the pouch close up, a café table. Give it when the user asks for another of these photos (e.g. a headline about two glasses with the two glasses); words alone never change the photo (default: the last banner\'s)'),
   save_as: z.string().max(500).optional().describe('team folder (ending in "/") or .png path to save into (default: this chat\'s project folder, else the user\'s own folder)'),
 })
 
