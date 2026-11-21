@@ -29,6 +29,7 @@ import { componentC } from '../team-files/component'
 import { freeName } from '../team-files/place'
 import { placeProduced } from '../tools/make-file'
 import { turnWriteLimits } from '../files/turn-write-limits'
+import { assertStorageRoomForAI } from '../system/storage'
 import { copyWorkFile, shownWorkPath, workRel, type WorkFolder } from '../devenv/work-files'
 import type { ReadSource } from './read-scope'
 import type { Tool } from './tools'
@@ -139,7 +140,8 @@ export function saveWorkFileTool(exec: TurnExec, where: () => WorkFolder | null)
       const max = turnWriteLimits(rt.ctx.engineConfig, rt.db, me)
       const left = Math.max(0, max.bytes - files.bytesWritten)
       const tmp = path.join(work, 'file')
-      const got = await copyWorkFile(wf, rel, tmp, left, exec.abort.signal).catch((e) => {
+      // the team disk near full: refused before the copy is made (placeProduced checks again)
+      const got = await copyWorkFile(wf, rel, tmp, left, exec.abort.signal, { beforeCopy: assertStorageRoomForAI }).catch((e) => {
         if (e instanceof ToolError && e.code === 'too_large') throw new ToolError(`${shown} is larger than what one answer may still save (${(left / 1024 ** 2).toFixed(0)} MB left of ${(max.bytes / 1024 ** 2).toFixed(0)} MB). Make it smaller (a lower bitrate or a shorter cut), or save it in the next answer.`, 'too_large')
         throw e
       })

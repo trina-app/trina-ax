@@ -56,11 +56,18 @@ export const shownWorkPath = (rel: string) => (rel ? `$TRINA_WORK/${rel}` : '$TR
 
 /** Stream the work-folder file `rel` into `dest` (a new file, 0600) from one descriptor opened as above; its size, its
  * sha256 and its name. ToolError/Denied with plain words for the AI. `max`: refused above this many bytes, before any
- * copy. */
-export async function copyWorkFile(wf: WorkFolder, rel: string, dest: string, max: number, signal?: AbortSignal): Promise<{ size: number; sha256: string; name: string }> {
+ * copy; `beforeCopy`: the caller's own check of the size (the team disk), also before any copy. */
+export async function copyWorkFile(wf: WorkFolder, rel: string, dest: string, max: number, signal?: AbortSignal, o: { beforeCopy?: (size: number) => void } = {}): Promise<{ size: number; sha256: string; name: string }> {
   if (!rel) throw new ToolError('this is the work folder itself; name a file in it', 'is_folder')
   const shown = shownWorkPath(rel)
   const abs = path.join(wf.real, rel)
+  const inside = (p: string) => p.startsWith(wf.real.replace(/\/+$/, '') + '/')
+  // a folder on the way that is a link out of the work folder now (to /dev, a server folder): refused before anything
+  // is opened there (opening a device can do something by itself). Not the check itself: the box can swap a folder
+  // between this and the open, which the open file's kernel path below catches
+  let parent: string | null = null
+  try { parent = fs.realpathSync(path.dirname(abs)) } catch { parent = null }
+  if (parent !== null && parent !== wf.real.replace(/\/+$/, '') && !inside(parent)) throw new Denied(`'${shown}' is not inside this chat's work folder (a link on the way is not followed)`)
   let fd: number
   try { fd = fs.openSync(abs, C.O_RDONLY | C.O_NOFOLLOW | (C.O_NONBLOCK ?? 0)) } catch (e) {
     const code = (e as NodeJS.ErrnoException).code
@@ -77,19 +84,22 @@ export async function copyWorkFile(wf: WorkFolder, rel: string, dest: string, ma
     if (st.nlink > 1) throw new Denied(`'${shown}' is a hard-linked file; those are refused`)
     let real: string | null = null
     try { real = openFilePath(fd) } catch { real = null }
-    if (!real || !real.startsWith(wf.real.replace(/\/+$/, '') + '/')) throw new Denied(`'${shown}' is not inside this chat's work folder (a link on the way is not followed)`)
+    if (!real || !inside(real)) throw new Denied(`'${shown}' is not inside this chat's work folder (a link on the way is not followed)`)
     if (st.size > max) throw new ToolError(`'${shown}' is too large (${(st.size / 1024 ** 2).toFixed(0)} MB; at most ${(max / 1024 ** 2).toFixed(0)} MB here)`, 'too_large')
+    o.beforeCopy?.(st.size)
     out = fs.openSync(dest, C.O_WRONLY | C.O_CREAT | C.O_EXCL | C.O_NOFOLLOW, 0o600)
     const hash = crypto.createHash('sha256')
     const buf = Buffer.allocUnsafe(Math.min(4 * 1024 * 1024, Math.max(1, st.size)))
     let pos = 0
+    // asynchronous reads and writes on the one checked descriptor: a large file (a 1 GB video) never holds the
+    // server's event loop, and a stopped answer stops the copy between two pieces
     while (pos < st.size) {
       signal?.throwIfAborted()
-      const n = fs.readSync(fd, buf, 0, Math.min(buf.length, st.size - pos), pos)
+      const n = await readAt(fd, buf, Math.min(buf.length, st.size - pos), pos)
       if (n <= 0) break
       const piece = buf.subarray(0, n)
       hash.update(piece)
-      fs.writeSync(out, piece)
+      await writeAll(out, piece)
       pos += n
       if (pos > max) throw new ToolError(`'${shown}' is too large`, 'too_large')
     }
@@ -98,4 +108,11 @@ export async function copyWorkFile(wf: WorkFolder, rel: string, dest: string, ma
     fs.closeSync(fd)
     if (out !== null) fs.closeSync(out)
   }
+}
+
+const readAt = (fd: number, buf: Buffer, length: number, position: number) =>
+  new Promise<number>((resolve, reject) => fs.read(fd, buf, 0, length, position, (e, n) => (e ? reject(e) : resolve(n))))
+async function writeAll(fd: number, piece: Buffer) {
+  let off = 0
+  while (off < piece.length) off += await new Promise<number>((resolve, reject) => fs.write(fd, piece, off, piece.length - off, null, (e, n) => (e ? reject(e) : resolve(n))))
 }

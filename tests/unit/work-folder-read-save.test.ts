@@ -6,7 +6,7 @@
 // another chat's folder, no folder yet: none made), the chat marked as after box_shell and the person as the source, the
 // save into the own folder with no card and "name (2)" on a clash, a wider folder behind the card, skills/ refused, the
 // turn write limit, the gate (no box_shell: no work folder; a sub-agent's view: none), and copyWorkFile's own checks.
-import { afterAll, beforeAll, beforeEach, describe, expect, setDefaultTimeout, test } from 'bun:test'
+import { afterAll, beforeAll, beforeEach, describe, expect, setDefaultTimeout, spyOn, test } from 'bun:test'
 import crypto from 'node:crypto'
 import fs from 'node:fs'
 import os from 'node:os'
@@ -275,5 +275,68 @@ describe('the words and the helpers', () => {
     expect(() => workRel('$TRINA_WORK/x/../../y', wf)).toThrow()
     expect(workRel('/somewhere/else', wf)).toBeNull()
     fs.rmSync(root, { recursive: true, force: true }); fs.rmSync(outside, { recursive: true, force: true })
+  })
+})
+
+describe('review findings (QA TC-6201 … TC-6204)', () => {
+  test('copyWorkFile copies a large file without holding the event loop, and a stopped answer stops it between pieces (TC-6201)', async () => {
+    const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'wf-y-')))
+    const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-yo-'))
+    const big = crypto.randomBytes(13 * 1024 * 1024)
+    fs.writeFileSync(path.join(root, 'big.bin'), big)
+    const wf = { real: root, path: root }
+    let ticks = 0
+    const iv = setInterval(() => { ticks++ }, 0)
+    let immediate = false
+    const p = copyWorkFile(wf, 'big.bin', path.join(outside, 'd1'), big.length + 1)
+    setImmediate(() => { immediate = true })
+    const got = await p
+    clearInterval(iv)
+    expect(got.size).toBe(big.length)
+    expect(got.sha256).toBe(crypto.createHash('sha256').update(big).digest('hex'))
+    expect(fs.readFileSync(path.join(outside, 'd1')).equals(big)).toBe(true)
+    // other work ran while the copy went on (a synchronous copy would finish before either)
+    expect(immediate).toBe(true)
+    void ticks
+    const stop = new AbortController()
+    const q = copyWorkFile(wf, 'big.bin', path.join(outside, 'd2'), big.length + 1, stop.signal)
+    setImmediate(() => stop.abort())
+    await expect(q).rejects.toThrow()
+    expect(fs.statSync(path.join(outside, 'd2')).size).toBeLessThan(big.length)
+    fs.rmSync(root, { recursive: true, force: true }); fs.rmSync(outside, { recursive: true, force: true })
+  })
+
+  test('save_work_file\'s disk check runs before any copy is made: a full disk leaves no copy behind (TC-6202)', async () => {
+    const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'wf-s-')))
+    const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-so-'))
+    fs.writeFileSync(path.join(root, 'v.mp4'), new Uint8Array(2048))
+    const seen: number[] = []
+    const full = (n: number) => { seen.push(n); throw new Error('storage full') }
+    await expect(copyWorkFile({ real: root, path: root }, 'v.mp4', path.join(outside, 'd'), 1 << 20, undefined, { beforeCopy: full })).rejects.toThrow(/storage full/)
+    expect(seen).toEqual([2048])
+    expect(fs.existsSync(path.join(outside, 'd'))).toBe(false)
+    // the tool passes the team disk check (system/storage.ts) as that hook
+    expect(fs.readFileSync(path.join(import.meta.dir, '../../server/src/chat/work-file-tool.ts'), 'utf8')).toContain('beforeCopy: assertStorageRoomForAI')
+    fs.rmSync(root, { recursive: true, force: true }); fs.rmSync(outside, { recursive: true, force: true })
+  })
+
+  test('a folder on the way that links out (to /dev) is refused before anything is opened there (TC-6204)', async () => {
+    const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'wf-d-')))
+    fs.symlinkSync('/dev', path.join(root, 'dev'))
+    const open = spyOn(fs, 'openSync')
+    try {
+      await expect(copyWorkFile({ real: root, path: root }, 'dev/null', path.join(root, 'dest'), 1024)).rejects.toThrow(/not inside/)
+      expect(open.mock.calls.some((c) => String(c[0]).includes(`${root}/dev/`))).toBe(false)
+    } finally { open.mockRestore() }
+    fs.rmSync(root, { recursive: true, force: true })
+  })
+
+  test('box_shell links only the changed files the person can open now (TC-6203)', () => {
+    const mine = { path: 'projects/QA P/out/kickoff.mp4', action: 'create' as const, before: null, after: 'x', size: 1 }
+    const hidden = { ...mine, path: 'projects/QA P/limited/plan.pdf' }
+    const out = changeLines([mine, hidden], 30, (rel) => !rel.includes('/limited/'))
+    expect(out).toContain('[kickoff.mp4](/files/view?path=')
+    expect(out).toContain('created projects/QA P/limited/plan.pdf')
+    expect(out).not.toContain('[plan.pdf]')
   })
 })

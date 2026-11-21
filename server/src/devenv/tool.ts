@@ -20,6 +20,7 @@ import type { AppContext } from '../context'
 import type { McpContent } from '../turns'
 import { audit } from '../admin/audit'
 import { ToolError } from '../policy/errors'
+import { authorize } from '../policy/authorize'
 import { assertStorageRoomForAI } from '../system/storage'
 import { newJobName, pendingShared, pollSrt, runResultsForAI } from './jobs'
 import { mayUseDevEnv, teamSetting, type ProjectRef } from './setting'
@@ -127,9 +128,11 @@ export function boxCwd(cwd: string | undefined): string | null {
  * engine's link guard (engine/api-links.ts) lets a link through only when a tool result holds it */
 const fileLink = (p: string) => `[${p.split('/').pop()}](${FILE_VIEW_PATH}?path=${encodeURIComponent(p)})`
 
-export function changeLines(changes: Change[], max = 30, links = false): string {
+/** `links`: a link for each new or changed file, or only for those this predicate takes (the ones the person can open) */
+export function changeLines(changes: Change[], max = 30, links: boolean | ((rel: string) => boolean) = false): string {
   const verb = { create: 'created', update: 'changed', delete: 'deleted' } as const
-  const lines = changes.slice(0, max).map((c) => `  ${verb[c.action]} ${c.path}${links && c.action !== 'delete' ? ` (link: ${fileLink(c.path)})` : ''}`)
+  const linked = (c: Change) => c.action !== 'delete' && (typeof links === 'function' ? links(c.path) : links)
+  const lines = changes.slice(0, max).map((c) => `  ${verb[c.action]} ${c.path}${linked(c) ? ` (link: ${fileLink(c.path)})` : ''}`)
   if (changes.length > max) lines.push(`  ... and ${changes.length - max} more`)
   return lines.join('\n')
 }
@@ -195,6 +198,15 @@ export const lockedTopsNote = (folders: readonly string[]) => `Note: in this sha
 
 type Window = { changes: Change[]; background: Change[]; conflicts: string[] }
 
+/** May the person of this call open the team file `rel` now (their own read access; false when it cannot be told)? */
+function personCanOpen(h: Pick<BoxShellHost, 'ctx' | 'userId'>, rel: string): boolean {
+  try {
+    const f = h.ctx.files
+    authorize(f.fx, f.rules(), f.principal(h.userId), rel, 'read')
+    return true
+  } catch { return false }
+}
+
 /** The answer to the AI after a command ran. */
 function answer(h: BoxShellHost, o: { notes: string[]; head: string; started: number; exit: RunExit; w: Window; background: boolean; what: string }) {
   const { notes, head, started, exit: e, w, background, what } = o
@@ -206,7 +218,9 @@ ${clip(h.redact(hideProxyLogin(e.stdout)))}` : '--- stdout: empty ---')
   if (e.stderr) parts.push(`--- stderr ---
 ${clip(h.redact(hideProxyLogin(e.stderr)))}`)
   if (e.truncated) parts.push('(output cut)')
-  if (w.changes.length) parts.push(`Files changed by this command (${w.changes.length}):\n${changeLines(w.changes, 30, true)}`)
+  // a link only for a file the person can open now: the project folder's changes may include a file a teammate's run
+  // saved in a sub-folder this person cannot open (a dead link in the answer otherwise)
+  if (w.changes.length) parts.push(`Files changed by this command (${w.changes.length}):\n${changeLines(w.changes, 30, (rel) => personCanOpen(h, rel))}`)
   if (w.background.length) parts.push(`Files changed in the background since the last command (${w.background.length}):\n${changeLines(w.background)}`)
   if (w.conflicts.length) parts.push(`Someone saved some of these files while the command ran; their version is kept as: ${w.conflicts.join(', ')}`)
   const failed = e.code !== 0 || (e.signal !== '' && !background)
