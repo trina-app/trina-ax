@@ -305,11 +305,12 @@ describe('limits and search', () => {
   })
 
   test('search: a typing mistake in any word finds close spellings, said as such, with the same rooms and filters', async () => {
-    const roomId = await groupChat('alice', ['erin', 'carol'], 'near check')
+    // made by carol: alice's hourly budget of new chats is spent by the tests that follow
+    const roomId = await groupChat('carol', ['alice', 'erin'], 'near check')
     put(roomId, 'erin', 'Quarterly report budget is ready', { at: '2026-10-02T09:00:00.000Z' })
     put(roomId, 'carol', '견적서 Sincere 보냈습니다', { at: '2026-10-03T09:00:00.000Z' })
     put(roomId, null, 'quarterly report budget private preview of erin', { ai: { askedBy: 'erin', privateTo: 'erin' } })
-    const other = await groupChat('carol', ['bob'], 'not alice')
+    const other = await dm('carol', 'bob')
     put(other, 'bob', 'Quarterly report budget of bob and carol')
     for (const query of ['qaurterly report budget', 'quarterly reprot budget', 'quarterly report budgte']) {
       const r = searchRooms(h.ctx.db, 'alice', TZ, { query })
