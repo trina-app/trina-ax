@@ -152,6 +152,11 @@ describe('deny list', () => {
   })
 })
 
+test('the sign-in page\'s language: GET /api/setup stays denied, GET /api/demo, which says it, passes (QA TC-6790)', () => {
+  expect(pathVerdict('/api/setup')).toBe('deny')
+  expect(pathVerdict('/api/demo')).toBe('ok')
+})
+
 describe('cookies', () => {
   test('instance cookies are host-only and Secure', () => {
     expect(secureCookie('mycel-dev-sid=abc; Path=/; HttpOnly; SameSite=Lax')).toBe('mycel-dev-sid=abc; Path=/; HttpOnly; SameSite=Lax; Secure')

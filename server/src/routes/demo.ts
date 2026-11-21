@@ -22,6 +22,7 @@ import { authOf } from '../auth/service'
 import { getUserByUsername } from '../auth/users'
 import type { RouteModule } from './module'
 import { demoLimitState } from '../admin/budgets'
+import { getTeamSettings } from '../admin/settings'
 import { demoLimitOf, startFreeRoam } from '../demo/free-roam'
 import { registerDemoBuilder } from './demo-builder'
 
@@ -42,7 +43,9 @@ function info(ctx: AppContext, demo: DemoFile, username: string | null): DemoInf
   })
   const host = ctx.config.listen.host
   const network = !(host === 'localhost' || isLoopback(host)) || !!ctx.config.tls
-  const base = { company: demo.company, sameQuestion: demo.sameQuestion ?? null, current, network, personas,
+  // the team default language: the sign-in page's language on a free-roam instance, whose gate denies GET /api/setup
+  // (QA TC-6790: a ja instance's sign-in page offered English only)
+  const base = { company: demo.company, sameQuestion: demo.sameQuestion ?? null, current, network, personas, locale: getTeamSettings(ctx.db).defaultLocale,
     ...(demo.freeRoam ? { freeRoam: { suggestions: demo.freeRoam.suggestions } } : {}), ...(demo.builder ? { builder: true as const } : {}) }
   if (demo.kind !== 'freeRoam') return { ...base, kind: 'scripted' }
   // a free-roam demo: what the visitor's answers used of the demo limit (admin/budgets.ts demoLimitState), for the

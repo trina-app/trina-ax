@@ -15,7 +15,7 @@ import { demoLimitState, demoUsed, setDemoLimit } from '../../server/src/admin/b
 import { createBroker } from '../../server/src/credentials/broker'
 import { credentialsOf, getRow, listRows } from '../../server/src/credentials/store'
 import { SHARED_SUBSCRIPTIONS_KEY } from '../../server/src/credentials/policy'
-import { setSetting } from '../../server/src/admin/settings'
+import { setSetting, updateTeamSettings } from '../../server/src/admin/settings'
 import { DEMO_AI_LABEL, demoRestError, freeRoamDenyRead, freeRoamTurnError, startFreeRoam } from '../../server/src/demo/free-roam'
 import { DEMO_GATE_DIR, demoDenyReadDirs, sandboxProfile, setDemoDenyRead } from '../../server/src/tools/isolate'
 import { FREE_ROAM_REFUSED_TOOLS, freeRoamFenceOf } from '../../server/src/demo/guard'
@@ -120,6 +120,13 @@ describe('a free-roam demo server', () => {
     expect(info).toMatchObject({ company: 'Steepling', current: 'newHire', kind: 'freeRoam', used: 0, cap: 5000, signupUrl: 'https://example.com/start' })
     // what demo-gate checks before an instance is warm (demo-gate/src/pool.ts checkFenced): freeRoam, no builder
     expect(info.builder).toBeUndefined()
+    // QA TC-6790: the team default language, also signed out: the gate denies GET /api/setup, so the sign-in page reads
+    // the instance's language here
+    updateTeamSettings(h.ctx.db, { defaultLocale: 'ja' })
+    try {
+      expect((await mina.call('GET', API.demoInfo.path)).locale).toBe('ja')
+      expect((await h.client().call('GET', API.demoInfo.path)).locale).toBe('ja')
+    } finally { updateTeamSettings(h.ctx.db, { defaultLocale: info.locale }) }
     expect(JSON.stringify(info)).not.toContain(PW)
     // QA TC-5578 / review finding 2 on #105: the session cookie is __Host-sid on the instance's plain http too, never
     // the plain-http "mycel-dev-sid" nor a bare "sid"; it was read back (me above) over that http

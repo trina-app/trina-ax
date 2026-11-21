@@ -345,6 +345,9 @@ export const DemoInfo = z.object({
   /** freeRoam only: weighted tokens used so far on this instance, and the demo limit */
   used: z.number().nonnegative().optional(),
   cap: z.number().int().positive().optional(),
+  /** the team default language (team settings' defaultLocale): what a free-roam instance's sign-in page is in and offers
+   * next to English, since demo-gate denies GET /api/setup (QA TC-6790). Absent from a server before it. */
+  locale: Locale.optional(),
   /** freeRoam only: where "Start free" goes (null: none set) */
   signupUrl: z.string().nullable().optional(),
   /** free-roam demo: its bar's suggestion chips, in the demo's language (DemoFile.freeRoam); absent elsewhere */
