@@ -256,6 +256,19 @@ describe('review fixes (adversarial review of P1)', () => {
     const s = await run('alice', chat, `${fake({ tool: 'grep', args: { pattern: 'K2', path: 'chat:files/', output_mode: 'content' }, sayResult: true })}`)
     expect(s.content).not.toContain('K2 SECRET')
   })
+
+  test('the Share check does not count an answer that read a chat file as one using files a newcomer cannot open', async () => {
+    for (const how of ['chat_file', 'read']) {
+      const { chat, file } = await sent('n.txt', 'N TEXT')
+      const call = how === 'read' ? { tool: 'read', args: { file_path: chatFilePath(file, 'n.txt') } } : { tool: 'chat_file', args: { file } }
+      const r = await run('bob', chat, `${fake({ ...call, sayResult: true })}`)
+      expect(r.content).toContain('N TEXT')
+      expect(readScope(db(), chat)).toContainEqual({ type: 'chat', id: chat })
+      const res = await put('alice', chat, [{ subjectType: 'user', subjectId: 'bob' }, { subjectType: 'group', subjectId: 'marketing' }, { subjectType: 'user', subjectId: 'carol' }])
+      expect(res.status).toBe('confirm')
+      if (res.status === 'confirm') expect(res.check.fileAnswers).toBe(0)
+    }
+  })
 })
 
 describe('one way to open a chat file', () => {
