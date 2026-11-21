@@ -14,7 +14,9 @@
 //   <content>/gmail.json      the mailbox (gmail.ts GmailContent; default: a built-in fictional one)
 //   <content>/drive.json      the Drive file tree and texts (drive.ts DriveContent)
 //   <content>/higgsfield/     canned pictures, picked by the words of their file names
+//   <content>/higgsfield/banner/   the banner kit make_banner draws from (banner.ts)
 //   <dataDir>/demo-fakes/state.json   what the visitor sent, drafted, labelled and generated (state.ts)
+//   <dataDir>/demo-fakes/banners/     the banners make_banner drew
 import path from 'node:path'
 import type { AppContext } from '../../context'
 import { setDemoGoogleFetch } from '../../integrations/google-drive/client'
@@ -23,6 +25,7 @@ import type { LibraryState, WorkspaceLibrary } from '../../integrations/google-a
 import { FakeGmail, loadGmail } from './gmail'
 import { FakeGoogleDrive, loadDrive } from './drive'
 import { FakeHiggsfield, HIGGSFIELD_HOSTS, loadPictures } from './higgsfield'
+import { loadBannerKit } from './banner'
 import { FakeState } from './state'
 import { installOfflineGuard } from './offline'
 
@@ -59,7 +62,7 @@ export class DemoFakes {
     this.state = new FakeState(o.dataDir, warn)
     this.gmail = new FakeGmail(loadGmail(o.content, warn), this.state)
     this.google = new FakeGoogleDrive(loadDrive(o.content, warn))
-    this.higgsfield = new FakeHiggsfield(loadPictures(o.content), this.state)
+    this.higgsfield = new FakeHiggsfield(loadPictures(o.content), this.state, loadBannerKit(o.content, warn))
   }
 
   /** connections/net.ts NetOptions.answer: a Higgsfield address, else null (then refused: the fence is on) */

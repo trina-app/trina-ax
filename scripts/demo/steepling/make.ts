@@ -30,6 +30,7 @@ import { richId } from './strings/rich.id'
 import { richJa } from './strings/rich.ja'
 import { richKo } from './strings/rich.ko'
 import { richZh } from './strings/rich.zh'
+import { writeBannerKit } from './banner/kit'
 import { CHATS, CONTACTS, DRIVE, DRIVE_FOLDERS, EVERYONE, FILES, LAUNCH_DAY_ADD, MAIL, MESSAGES, NEW_PEOPLE, OWN_SKILLS, PROJECTS, ROOMS, type ChatId, type DriveId, type FileId, type MailId, type MessageId, type Msg, type NewPerson, type ProjectId, type RichWords, type RoomSlug, type TurnId, type Who } from './rich'
 
 const MINA = path.resolve(import.meta.dir, '..', 'mina')
@@ -397,6 +398,8 @@ export function writeSteepling(locale: SteeplingLocale, out: string): string {
   put('fakes/drive.json', JSON.stringify(st.drive, null, 2) + '\n')
   for (const [name, asset] of Object.entries(st.pictures)) put(`fakes/higgsfield/${name}`, fs.readFileSync(path.join(ASSETS, asset)))
   for (const [u, asset] of Object.entries(st.avatars)) put(`avatars/${u}.jpg`, fs.readFileSync(path.join(ASSETS, asset)))
+  // the launch banner as layers (text-free photos + words) for the fake Higgsfield's make_banner (banner/kit.ts)
+  writeBannerKit(locale, out)
   put('README.md', `# Steepling (${locale}), made by scripts/demo/steepling/make.ts\n\nA fictional company at the end of the scripted story "Mina's first day". Do not edit: run make.ts again. Every person, file and address is made up.\n`)
   return out
 }
