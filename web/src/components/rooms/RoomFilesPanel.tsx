@@ -3,14 +3,14 @@
 // whole screen on a phone, as the thread and the side chat are. The files sent in a channel, a 1:1 or a group chat that
 // I can see now (GET /api/rooms/:id/files: newest first, in pages), each a row with its name, who sent it, when and its
 // size; a row opens it in the file viewer as its chip in the message does (lib/imageViewer.ts roomFileItem: ← → walks
-// the list), and the viewer's bar says who sent it and when. Read again when a new message comes. A team room of a
-// group with a folder I can open has that folder's link at the top (the header's own folder button became this one).
-// A project's chat room has no Files list: its header has the project's button (its files are the project's, in Files).
-import { ChevronLeft, File as FileIcon, Files, Folder, Image as ImageIcon, X } from 'lucide-react'
+// the list), and the viewer's bar says who sent it and when. Read again when a new message comes.
+// A project's chat room and a department's room with a folder have the folder's button first in their header
+// (docs/decisions/20261121-department-room-files.md): their Files list is there only while they hold files of their own
+// (Room.roomFiles), and lists only those, each "Only in this conversation" (RoomFile.roomOnly).
+import { ChevronLeft, File as FileIcon, Files, Image as ImageIcon, X } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Link } from 'react-router-dom'
 import type { RoomFileSearchHit, RoomFilesPage } from '@mycel/shared/api'
-import { api, API, errorText } from '../../lib/api'
+import { api, API, ApiError, errorText } from '../../lib/api'
 import { formatSize, listTime } from '../../lib/format'
 import { roomFileItem, type ViewerMetaValue } from '../../lib/imageViewer'
 import { useLocale, useT } from '../../i18n'
@@ -21,9 +21,8 @@ import { ImageGroup, useViewerItem, ViewerMeta } from '../ImageViewer'
 import { ListRow } from '../list/List'
 import { Button, EmptyState, ErrorNote, IconButton, Skeleton } from '../ui'
 
-/** `refresh`: changes when the room has a new message (its newest message's id): the first page is read again.
- * `groupFolder`: a team room's group folder I can open (Room.groupFolder). */
-export function RoomFilesPanel({ roomId, refresh, groupFolder, onClose }: { roomId: string; refresh?: string | null; groupFolder?: string | null; onClose: () => void }) {
+/** `refresh`: changes when the room has a new message (its newest message's id): the first page is read again. */
+export function RoomFilesPanel({ roomId, refresh, onClose }: { roomId: string; refresh?: string | null; onClose: () => void }) {
   const t = useT()
   const locale = useLocale()
   const [items, setItems] = useState<RoomFileSearchHit[] | null>(null)
@@ -42,7 +41,10 @@ export function RoomFilesPanel({ roomId, refresh, groupFolder, onClose }: { room
       const p = await api.call(API.listRoomFiles, { params: { id: roomId }, query: {} })
       if (n === life.current) take(p, false)
     } catch (e) {
-      if (n === life.current) setError(errorText(e, locale, t('error.network')))
+      // 404: no list for me here (a project room's or a department room's files are in its folder): an empty list,
+      // not a load error
+      if (n === life.current && e instanceof ApiError && e.status === 404) take({ items: [], nextCursor: null }, false)
+      else if (n === life.current) setError(errorText(e, locale, t('error.network')))
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [roomId])
@@ -65,7 +67,6 @@ export function RoomFilesPanel({ roomId, refresh, groupFolder, onClose }: { room
       setMore(false)
     }
   }
-  const folderName = groupFolder?.split('/').pop() ?? groupFolder
   return (
     <div className="flex min-h-0 flex-1 flex-col" data-testid="room-files">
       <div className="flex h-12 shrink-0 items-center gap-1 border-b border-line px-2 max-md:pl-0.5 md:px-4">
@@ -78,12 +79,6 @@ export function RoomFilesPanel({ roomId, refresh, groupFolder, onClose }: { room
         </IconButton>
       </div>
       <div className="scroll-thin min-h-0 flex-1 overflow-y-auto px-2 py-2 md:px-3">
-        {groupFolder && (
-          <Link to={`/files?path=${encodeURIComponent(groupFolder)}`} className="mb-1 flex min-h-11 items-center gap-2.5 rounded-lg px-3 text-sm text-muted hover:bg-hover hover:text-ink md:min-h-9" data-testid="room-files-folder">
-            <Folder size={16} className="shrink-0" aria-hidden />
-            <span className="truncate">{t('rooms.groupFilesTip', { name: folderName ?? '' })}</span>
-          </Link>
-        )}
         {error && <div className="px-1 pt-2"><ErrorNote onRetry={() => void load()}>{t('rooms.files.loadError')}</ErrorNote></div>}
         {!items && !error && <Skeleton lines={4} className="px-1 pt-2" />}
         {/* nothing listed: the plain words, also when a page came back empty with more after it (rows the checks left
@@ -135,7 +130,7 @@ function FileRowBody({ roomId, hit }: { roomId: string; hit: RoomFileSearchHit }
       nameTitle={f.name}
       // who sent it is shortened first; when and the size stay whole
       meta={hit.author?.name ?? t('rooms.goneUser')}
-      metaKeep={[listTime(hit.createdAt, locale, t('sidebar.yesterday')), formatSize(f.size, locale)].filter(Boolean).join(' · ')}
+      metaKeep={[listTime(hit.createdAt, locale, t('sidebar.yesterday')), formatSize(f.size, locale), f.roomOnly ? t('rooms.file.roomOnly') : ''].filter(Boolean).join(' · ')}
       metaTestId="room-files-meta"
       li={{ 'data-testid': 'room-files-row', 'data-file-name': f.name }}
     />

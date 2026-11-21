@@ -9,7 +9,7 @@
 // name the project only to a viewer who can open it. Audit rows name the project only, never the room (store.ts
 // roomAuditRef: a group room by its kind).
 import type { Database } from 'bun:sqlite'
-import type { Room } from '@mycel/shared/api'
+import { Uuid7, type Room } from '@mycel/shared/api'
 import { CHAT_FILES_FOLDER } from '@mycel/shared'
 import { atLeast, inPlace, inProjectZone, loadPrincipal, RuleSet, type Principal } from '../policy/access'
 import { isPersonalFolder } from '../chat/projects'
@@ -73,7 +73,44 @@ export function projectForViewer(db: Database, room: Pick<RoomRow, 'id' | 'kind'
   if (!s.opens) return undefined
   // its members are the project's people (the sync keeps them so): the last one cannot leave (chat/project-leave.ts)
   const n = memberCount ?? (db.query('SELECT COUNT(*) n FROM room_members WHERE room_id = ?').get(room.id) as { n: number }).n
-  return { id: p.id, name: p.name, folderPath: p.folder_path, canSave: s.writes, room: true, attach: attachFor(set, who, p.folder_path), leave: n > 1 ? 'yes' : 'last' }
+  const same = sameAsGroupFor(db, room.id, userId, rules)
+  return { id: p.id, name: p.name, folderPath: p.folder_path, canSave: s.writes, room: true, attach: attachFor(set, who, p.folder_path), leave: n > 1 ? 'yes' : 'last', ...(same ? { sameAsGroup: same } : {}) }
+}
+
+type SameAsGroup = NonNullable<NonNullable<Room['project']>['sameAsGroup']>
+/** sameAsGroupOf per pass: a list of rooms or a room.updated fan-out hands every roomOut the same `rules` closure
+ * (store.ts rulesOnce), so the match is worked out once per room in it, not again for each member. */
+const samePass = new WeakMap<object, Map<string, SameAsGroup | null>>()
+
+/** Room.project.sameAsGroup for one viewer: the department whose live team room has exactly this project room's active
+ * members, told only to a viewer who is in that team room (they all are, by definition). */
+export function sameAsGroupFor(db: Database, roomId: string, userId: string, pass?: object): SameAsGroup | undefined {
+  let cache = pass ? samePass.get(pass) : undefined
+  if (pass && !cache) { cache = new Map(); samePass.set(pass, cache) }
+  let same = cache?.get(roomId)
+  if (same === undefined) { same = sameAsGroupOf(db, roomId); cache?.set(roomId, same) }
+  if (!same) return undefined
+  return db.query('SELECT 1 FROM room_members WHERE room_id = ? AND user_id = ?').get(same.roomId, userId) ? same : undefined
+}
+
+const ACTIVE_MEMBERS = (a: string) => `SELECT ${a}.user_id FROM room_members ${a} JOIN users u ON u.id = ${a}.user_id AND u.status = 'active' AND u.deleted_at IS NULL WHERE ${a}.room_id = ?`
+
+/** The department (a group with a live team room) whose room's active members are exactly this room's, or null. Only
+ * team rooms with the same number of active members are compared (one query for the candidates, one per candidate);
+ * several: the first by name. */
+export function sameAsGroupOf(db: Database, roomId: string): SameAsGroup | null {
+  const n = (db.query(`SELECT COUNT(*) n FROM (${ACTIVE_MEMBERS('m')})`).get(roomId) as { n: number }).n
+  if (!n) return null
+  const candidates = db.query(`SELECT r.id room_id, g.id group_id, g.name FROM rooms r JOIN groups g ON g.id = r.group_id
+    WHERE r.kind = 'team' AND r.archived_at IS NULL AND (SELECT COUNT(*) FROM room_members t JOIN users u ON u.id = t.user_id AND u.status = 'active' AND u.deleted_at IS NULL WHERE t.room_id = r.id) = ?
+    ORDER BY g.name, g.id`).all(n) as { room_id: string; group_id: string; name: string }[]
+  const shared = db.query(`SELECT COUNT(*) n FROM (${ACTIVE_MEMBERS('a')}) x WHERE x.user_id IN (${ACTIVE_MEMBERS('b')})`)
+  for (const c of candidates) {
+    // (ids the API cannot carry, a hand-made or test row: never a 500 for the whole room)
+    if (!Uuid7.safeParse(c.group_id).success || !Uuid7.safeParse(c.room_id).success) continue
+    if ((shared.get(roomId, c.room_id) as { n: number }).n === n) return { groupId: c.group_id, name: c.name, roomId: c.room_id }
+  }
+  return null
 }
 
 /** Room.project.attach: write on the project folder and on its Chat attachments folder by any language's name (the

@@ -19,8 +19,12 @@ import { answerError, errorCode, postPinned, PushSendError, type PushLookup } fr
  * choice in Settings › Notifications, else the edition default (push-gateway-setting.ts readNativePushConfig). */
 export interface NativePushConfig { url: string }
 export interface NativeDevice { platform: PushPlatform; token: string; environment: PushEnvironment }
-/** badge: the recipient's count for the app icon (push-badge.ts), a number only */
-export interface NativePayload { notificationId: string; code: PushEventType; locale: PushLocale; tag?: string; path?: string; badge?: number }
+/** badge: the recipient's count for the app icon (push-badge.ts), a number only. label: an Android app that names who and
+ * where builds this push itself (room codes and chat.shared only; the contract's "Label") */
+export interface NativePayload { notificationId: string; code: PushEventType; locale: PushLocale; tag?: string; path?: string; badge?: number; label?: true }
+
+/** The codes the phone app may name (who and where): room notices and a chat shared by name. */
+export const labelCode = (code: string) => code.startsWith('room.') || code === 'chat.shared'
 export interface NativeSend { device: NativeDevice; payload: NativePayload; config: NativePushConfig; signal: AbortSignal; beforeSend: () => boolean; ttlSeconds: number }
 /** error: the gateway's error code of a 400 answer (its answers carry nothing else) */
 export type NativeTransport = (input: NativeSend) => Promise<{ statusCode: number; error?: string }>
@@ -59,14 +63,14 @@ export function signedGatewayRequest(send: PushGatewaySend, key: KeyObject, publ
 /** The team key (Ed25519): the relay's <data>/relay/team-key.pem, created on first use exactly like the relay does. */
 function teamKey(dataDir: string) { const { key, publicKey } = loadOrCreateKey(dataDir); return { key, publicKey } }
 
-/** A gateway from before `badge` refuses the key (400 invalid_body: its body schema is strict). The push then goes again
- * without it, and that gateway gets none for this long before the next try with it (a gateway updated meanwhile). Any
- * other answer, another 400 included, is the answer of this push as before. */
+/** A gateway from before `badge` (or `label`) refuses the key (400 invalid_body: its body schema is strict). The push
+ * then goes again without it, and that gateway gets none for this long before the next try with it (a gateway updated
+ * meanwhile). Any other answer, another 400 included, is the answer of this push as before. */
 export const NO_BADGE_RETRY_MS = 60 * 60_000
 
 export function createNativeTransport(o: { dataDir: string; lookup?: PushLookup; request?: typeof https.request; loopbackRequest?: typeof http.request; now?: () => number }): NativeTransport {
-  // gateway address -> until when it gets no badge
-  const noBadge = new Map<string, number>()
+  // gateway address -> until when it gets no badge / no label
+  const noBadge = new Map<string, number>(), noLabel = new Map<string, number>()
   const now = () => (o.now ?? Date.now)()
   return async input => {
     const url = validGatewayUrl(input.config.url)
@@ -80,11 +84,14 @@ export function createNativeTransport(o: { dataDir: string; lookup?: PushLookup;
       ttlSeconds: Math.max(0, Math.min(PUSH_GATEWAY_MAX_TTL_SECONDS, Math.floor(input.ttlSeconds))),
     }
     const badge = validPushBadge(input.payload.badge) && (noBadge.get(url) ?? 0) <= now() ? input.payload.badge : undefined
-    if (badge === undefined) return post(url, send, input)
-    const first = await post(url, { ...send, badge }, input)
+    const label = input.payload.label === true && device.platform === 'android' && labelCode(input.payload.code) && (noLabel.get(url) ?? 0) <= now()
+    if (badge === undefined && !label) return post(url, send, input)
+    const first = await post(url, { ...send, ...(badge !== undefined ? { badge } : {}), ...(label ? { label: true } : {}) }, input)
     if (first.statusCode !== 400 || first.error !== 'invalid_body') return first
-    // an older gateway: the same push without the number (the app sets it itself when it opens)
-    noBadge.set(url, now() + NO_BADGE_RETRY_MS)
+    // an older gateway: the same push without the number (the app sets it itself when it opens) or the label (the
+    // gateway's generic line, as before)
+    if (badge !== undefined) noBadge.set(url, now() + NO_BADGE_RETRY_MS)
+    if (label) noLabel.set(url, now() + NO_BADGE_RETRY_MS)
     return post(url, send, input)
   }
   async function post(url: string, send: PushGatewaySend, input: NativeSend): Promise<{ statusCode: number; error?: string }> {

@@ -1359,11 +1359,14 @@ export class TeamFiles {
    * changed between the two checks goes back where it was (`AiTrashChanged`); one that cannot go back (something took
    * its place meanwhile) stays in the trash with its row, nothing lost, and `changed` says so.
    */
-  remove(userId: string, rel: string, turnId: string | null = null, o: { projectFolder?: boolean; manager?: true; ai?: { item: AiTrashItem; retentionDays: number } } = {}): { trashId: string; purgeAt: string; changed?: true } {
+  remove(userId: string, rel: string, turnId: string | null = null, o: { projectFolder?: boolean; manager?: true; system?: true; ai?: { item: AiTrashItem; retentionDays: number } } = {}): { trashId: string; purgeAt: string; changed?: true } {
     // `manager`: a team project's own folder, put in the trash by whoever manages the project without reading it (the
     // owner or an admin who is not a member: routes/chats.ts deleteProject checked mayManageProject and that `rel` is
     // exactly its projects/<name>). The checks run as the system; the trash row and the events name the person.
-    const user = o.manager && o.projectFolder && turnId === null && rel.split('/').length === 2 && inProjectZone(rel.split('/')) ? SYSTEM_PRINCIPAL : this.principal(userId)
+    // `system`: the server's own clean-up of a file it put there itself (rooms/file-moves.ts: the moved file of a
+    // deleted message when neither its sender nor the actor may write there now); never a folder, never by an AI turn
+    const sys = !!o.system && turnId === null
+    const user = sys || (o.manager && o.projectFolder && turnId === null && rel.split('/').length === 2 && inProjectZone(rel.split('/'))) ? SYSTEM_PRINCIPAL : this.principal(userId)
     const rules = this.rules()
     const r = authorize(this.fx, rules, user, rel, 'write', { mustExist: true })
     this.assertMovable(r.segs)
@@ -1382,6 +1385,7 @@ export class TeamFiles {
     // another project's folder) stays admin-only, as for any other trash (review: another project went to the trash)
     else if (user.role !== 'owner' && user.role !== 'admin' && this.managedBelow(rules, r.rel)) fileError('forbidden', 'ruleFolder')
     const isDir = r.st!.isDirectory()
+    if (sys && isDir) throw new Denied('the server\'s own clean-up removes single files only')
     let size: number
     if (isDir) { this.assertSubtreeWritable(user, rules, r.segs); size = treeSize(r.abs).bytes }
     else size = checkRegular(r.abs).size

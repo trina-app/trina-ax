@@ -205,13 +205,45 @@ test('a stale device: push off, the session ended, the gateway moved, no label k
   // the session ended (sign-out removes the device with it; an expired one stays until the next sweep)
   h.ctx.db.query('UPDATE sessions SET expires_at=? WHERE id=?').run(new Date(w.clock.now - 1000).toISOString(), (h.ctx.db.query('SELECT session_id FROM push_subscriptions WHERE id=?').get(w.device.id) as { session_id: string }).session_id)
   expect(w.ask(id)).toEqual({})
-  // no label key: registered without a hash, or an Android phone (whose hash is not kept)
+  // no label key: registered without a hash
   const sid = sessionOf(w.mia.id)
   const plain = p.registerDevice(w.mia.id, sid, iosDevice())
   expect(h.ctx.db.query('SELECT label_hash FROM push_subscriptions WHERE id=?').get(plain.id)).toEqual({ label_hash: null })
+})
+
+const androidDevice = (labelHash?: string) => ({ consent: true as const, platform: 'android' as const, environment: 'production' as const, token: 'fcm:' + crypto.randomBytes(70).toString('hex'), ...(labelHash ? { labelHash } : {}) })
+
+test('Android: a phone with a label key gets room pushes as label (the app builds them) and the same answer as an iPhone; without a key, the gateway\'s line', async () => {
+  const w = await world()
+  // otto's Android app (push-label-v1) registered with a label key; mia's Android app without one (an older app)
   const k = newKey()
-  const android = p.registerDevice(w.otto.id, sessionOf(w.otto.id), { consent: true, platform: 'android', environment: 'production', token: 'fcm:' + 'A'.repeat(140), labelHash: hashOf(k) })
-  expect(h.ctx.db.query('SELECT label_hash FROM push_subscriptions WHERE id=?').get(android.id)).toEqual({ label_hash: null })
+  const otto = p.registerDevice(w.otto.id, sessionOf(w.otto.id), androidDevice(hashOf(k)))
+  expect(h.ctx.db.query('SELECT label_hash FROM push_subscriptions WHERE id=?').get(otto.id)).toEqual({ label_hash: hashOf(k) })
+  const miaPhone = p.registerDevice(w.mia.id, sessionOf(w.mia.id), androidDevice())
+  const dm = await w.mia.client.call('POST', '/api/rooms', { kind: 'dm', userId: w.otto.id })
+  const hello = await w.send(w.mia.client, dm.id, 'hello otto')
+  const notice = await (async () => { w.clock.now = Math.max(w.clock.now + 5, Date.now()); await p.tick(); return w.noticeOf(hello.id, w.otto.id)! })()
+  const toOtto = w.sent.find(s => s.payload.notificationId === notice)!
+  expect(toOtto.device.platform).toBe('android')
+  expect(toOtto.payload.label).toBe(true)
+  // the same answer as the iPhone's extension gets
+  savePreferences(h.ctx.db, w.otto.id, { messagePreview: false })
+  expect(p.label(otto.id, { key: k, notificationId: notice })).toEqual({ title: 'MIA', body: TEXT['room.dm'].ko, roomId: dm.id })
+  expect(p.label(otto.id, { key: newKey(), notificationId: notice })).toEqual({})
+
+  // otto writes back: mia's phone has no label key, so the push is the gateway's line as before
+  const back = await w.send(w.otto.client, dm.id, 'hi mia')
+  w.clock.now = Math.max(w.clock.now + 5, Date.now()); await p.tick()
+  const toMia = w.sent.find(s => s.payload.notificationId === w.noticeOf(back.id, w.mia.id))!
+  expect(toMia.payload.label).toBeUndefined()
+  expect(miaPhone.id).toBeTruthy()
+
+  // an iPhone with a label key never gets label (its extension names the APNs push): nora's
+  const toNora = await w.send(w.mia.client, (await w.mia.client.call('POST', '/api/rooms', { kind: 'dm', userId: w.nora.id })).id, 'hi nora')
+  await w.pushed(toNora.id)
+  const ios = w.sent.filter(x => x.device.platform === 'ios')
+  expect(ios.length).toBeGreaterThan(0)
+  for (const s of ios) expect(s.payload.label).toBeUndefined()
 })
 
 test('the label key is the app\'s: registering again with it changes nothing; without it the key is gone', async () => {

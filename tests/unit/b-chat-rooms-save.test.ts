@@ -50,6 +50,9 @@ let groups = 0
 /** a team room of its own: a new group of these people (made by the owner) */
 async function teamRoom(memberIds: string[], name = `leads-${++groups}-${uuidv7().slice(-4)}`): Promise<string> {
   const g = await h.api('dana').call(API.createGroup, { body: { name, memberIds } })
+  // these cases are about room-stored files: a group without its folder keeps its room's uploads in room storage (a
+  // department room with one puts them in the folder: tests/unit/b-group-room-folder-files.test.ts)
+  h.ctx.db.query('UPDATE groups SET folder_id = NULL WHERE id = ?').run(g.id)
   const r = (await h.api(memberIds[0]!).call(API.listRooms)).items.find((x) => x.kind === 'team' && x.groupId === g.id)
   if (!r) throw new Error('no team room')
   return r.id

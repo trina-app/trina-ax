@@ -453,6 +453,9 @@ export function useMeStrict(): Me {
 
 export const isAdmin = (me: Me | null) => me?.user.role === 'admin' || me?.user.role === 'owner'
 export const isOwner = (me: Me | null) => me?.user.role === 'owner'
+/** may make team projects (projects/<name>): the owner and admins always, members when the team lets them
+ * (Me.team.projectCreators, Admin › Team settings), never a guest. The server's mayCreateTeamProject decides anyway. */
+export const mayMakeTeamProject = (me: Me | null) => !!me?.user && me.user.role !== 'guest' && (isAdmin(me) || me.team?.projectCreators === 'members')
 /** may pick the AI engine / model (composer picker, "retry with another model", own default): owner and admins always,
  * others when Admin > AI providers allows them. The server enforces it; an older server without the field: admins only. */
 // a free-roam demo's visitor never picks or sees which AI answers (docs/decisions/20261119-demo-free-roam-web.md): its

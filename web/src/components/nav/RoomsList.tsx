@@ -8,7 +8,7 @@ import { NavLink } from 'react-router-dom'
 import type { Room } from '@mycel/shared/api'
 import { useT } from '../../i18n'
 import { uploadingIn, useRoomUploads } from '../../store/roomUploads'
-import { isPrivateChannel, pinnedRooms, roomBadge, roomCounts } from '../../lib/rooms'
+import { isPrivateChannel, isProjectRoom, pinnedRooms, roomBadge, roomCounts } from '../../lib/rooms'
 import { RoomIcon, RoomName, useRoomTitle } from '../rooms/RoomIcon'
 import { RoomMenu, useRowMenu } from '../rooms/RoomMenu'
 import { CountPill } from '../CountPill'
@@ -21,12 +21,16 @@ import { isGuestMe } from '../../lib/guests'
 import { rowBox, rowName } from '../list/List'
 
 /** The kinds' sections of the 대화 list, in this order: channels (전체, the groups' rooms and the named group rooms, which
- * are private channels), then direct messages (1:1s and the unnamed group rooms, as Slack lists group DMs:
+ * are private channels), then projects (each team project's own chat room: docs/decisions/20261121-sidebar-projects-group.md),
+ * then direct messages (1:1s and the unnamed group rooms, as Slack lists group DMs:
  * docs/decisions/20261116-sidebar-channels-dms.md, docs/decisions/20261117-named-groups-private-channels.md). */
-export const ROOM_SECTIONS = ['team', 'dm'] as const
+export const ROOM_SECTIONS = ['team', 'project', 'dm'] as const
 export type RoomSection = (typeof ROOM_SECTIONS)[number]
-export const SECTION_WORD = { team: 'rooms.section.team', dm: 'rooms.section.dm' } as const
-const sectionOf = (room: Pick<Room, 'kind'> & Partial<Pick<Room, 'name'>>): RoomSection => (room.kind === 'all' || room.kind === 'team' || isPrivateChannel({ kind: room.kind, name: room.name ?? null }) ? 'team' : 'dm')
+export const SECTION_WORD = { team: 'rooms.section.team', project: 'rooms.section.project', dm: 'rooms.section.dm' } as const
+/** A project's room by its flag (Room.projectRoom, told to every member: one who cannot open the project's folder now has
+ * no Room.project and would land under Channels otherwise). */
+const sectionOf = (room: Pick<Room, 'kind'> & Partial<Pick<Room, 'name' | 'project' | 'projectRoom'>>): RoomSection =>
+  isProjectRoom(room) ? 'project' : room.kind === 'all' || room.kind === 'team' || isPrivateChannel({ kind: room.kind, name: room.name ?? null }) ? 'team' : 'dm'
 
 /** A kind section's "+" (as Slack has it). Channels': a small menu, Create a channel (a name is required: a private
  * channel) and New section (docs/decisions/20261121-personal-sidebar-sections.md); a guest, who makes no channel, gets
@@ -36,6 +40,8 @@ export function RoomSectionAction({ section }: { section: RoomSection }) {
   const t = useT()
   const guest = isGuestMe(useMe())
   const [open, setOpen] = useState(false)
+  // Projects has no "+": projects are made on the Projects page and from a conversation's "⋯" (Make it a project)
+  if (section === 'project') return null
   if (section === 'team')
     return (
       <>
@@ -55,13 +61,13 @@ export function RoomSectionAction({ section }: { section: RoomSection }) {
 /** The rooms not pinned or in a section (`rest`, by latest activity, as the store has them), by kind
  * (docs/DECISIONS.md "Conversations by kind under Show more"): in each section any pins first (the
  * most recently pinned first), then channels with 전체 first and the others (private channels among them) by the name their row shows (`titleOf`,
- * compared in the app's language, numbers by their value), direct messages (1:1s and unnamed group rooms mixed) by latest
- * activity. A section with no room is left out. */
-export function roomSections<R extends Pick<Room, 'id' | 'kind'> & Partial<Pick<Room, 'pinnedAt' | 'name'>>>(rest: R[], titleOf: (room: R) => string, locale: string): { section: RoomSection; rooms: R[] }[] {
+ * compared in the app's language, numbers by their value), projects' rooms by name the same way, direct messages (1:1s
+ * and unnamed group rooms mixed) by latest activity. A section with no room is left out. */
+export function roomSections<R extends Pick<Room, 'id' | 'kind'> & Partial<Pick<Room, 'pinnedAt' | 'name' | 'project' | 'projectRoom'>>>(rest: R[], titleOf: (room: R) => string, locale: string): { section: RoomSection; rooms: R[] }[] {
   return ROOM_SECTIONS.map((section) => {
     const of = rest.filter((r) => sectionOf(r) === section)
     const others = of.filter((r) => !r.pinnedAt)
-    if (section === 'team') {
+    if (section === 'team' || section === 'project') {
       // each name worked out once, and one collator for the sort (the order of String.localeCompare in this language,
       // numbers by their value: "팀 2" before "팀 10")
       const titles = new Map(others.map((r) => [r.id, titleOf(r)]))
