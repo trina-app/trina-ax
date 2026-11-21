@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-21 14:43
 - Branch: `fix/demo-ko-chris-reply`
-- Status: in progress
+- Status: done
 - Where: `server/src/demo/fakes/gmail.ts`. Why: the free-roam demo's fake Gmail answers the AI's searches
   (docs/decisions/20261119-demo-fakes.md)
 - Version impact: patch, a fix to the demo's fake mailbox search; no product behaviour changes
@@ -54,4 +54,7 @@ nothing and that AND still narrows.
 
 ## Result
 
-Filled in at the end.
+Built as planned. The search in `gmail.ts` now parses the query (`parseQuery`) and matches terms word by word with the
+Korean-ending fallback; unknown `key:` words are searched as plain text, Gmail keys the demo does not keep (filename:,
+size:, ...) do not narrow. `tests/unit/demo-gmail-search.test.ts` runs 47 cases on the en and ko seeds; before the fix
+`from:크리스님`, `from:"Chris Walker"` (ko), OR, brackets, braces and `to:me` found nothing.
