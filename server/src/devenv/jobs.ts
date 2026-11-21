@@ -52,6 +52,16 @@ export const JOB_FAILED: Record<Locale, (title: string) => string> = {
   es: (t) => `Trina no pudo terminar el trabajo que pidió en «${t}». Revíselo en el chat.`,
   zh: (t) => `你在“${t}”中交给 Trina 的任务没能完成。请在对话中查看。`,
 }
+/** A job that ended by itself with no exit code the server could read (end reason "lost"): it ended, and whether it
+ * worked is not known. Not told as a failure: its log may well show it finished (QA TC-6586). */
+export const JOB_UNKNOWN: Record<Locale, (title: string) => string> = {
+  ko: (t) => `‘${t}’에서 부탁한 작업이 끝났지만, 잘 됐는지는 트리나가 알 수 없어요. 채팅에서 확인해 보세요.`,
+  en: (t) => `The job you asked for in “${t}” has ended, but Trina can't tell whether it worked. Check the chat.`,
+  id: (t) => `Pekerjaan yang Anda minta di “${t}” sudah berakhir, tetapi Trina tidak tahu apakah berhasil. Lihat di obrolan.`,
+  ja: (t) => `「${t}」で頼んだ作業は終わりましたが、うまくいったかどうかトリナには分かりません。チャットで確認してください。`,
+  es: (t) => `El trabajo que pidió en «${t}» terminó, pero Trina no sabe si salió bien. Revíselo en el chat.`,
+  zh: (t) => `你在“${t}”中交给 Trina 的任务已结束，但 Trina 无法确定是否成功。请在对话中查看。`,
+}
 /** a job of a chat that is gone (or has no title): the same words with no chat */
 export const JOB_DONE_NO_CHAT: Record<Locale, string> = {
   ko: '부탁한 작업을 트리나가 마쳤어요.',
@@ -69,11 +79,24 @@ export const JOB_FAILED_NO_CHAT: Record<Locale, string> = {
   es: 'Trina no pudo terminar un trabajo que pidió.',
   zh: '你交给 Trina 的任务没能完成。',
 }
-/** the live notice's words: failed is anything but exit code 0 (no code: a limit, a stop, the queue) */
-export function jobNoticeText(locale: Locale, ok: boolean, chatTitle: string | null): string {
+export const JOB_UNKNOWN_NO_CHAT: Record<Locale, string> = {
+  ko: '부탁한 작업이 끝났지만, 잘 됐는지는 트리나가 알 수 없어요.',
+  en: "A job you asked for has ended, but Trina can't tell whether it worked.",
+  id: 'Pekerjaan yang Anda minta sudah berakhir, tetapi Trina tidak tahu apakah berhasil.',
+  ja: '頼んだ作業は終わりましたが、うまくいったかどうかトリナには分かりません。',
+  es: 'Un trabajo que pidió terminó, pero Trina no sabe si salió bien.',
+  zh: '你交给 Trina 的任务已结束，但 Trina 无法确定是否成功。',
+}
+/** How a job ended for the people: done (exit code 0), unknown (it ended by itself with no code the server could read)
+ * or failed (any other code, or a stop: a limit, a person, the queue) */
+export type JobOutcome = 'done' | 'unknown' | 'failed'
+export const jobOutcome = (code: number | null, reason: string | null | undefined): JobOutcome =>
+  code === 0 ? 'done' : code === null && (!reason || reason === 'exit' || reason === 'lost') ? 'unknown' : 'failed'
+/** the live notice's words */
+export function jobNoticeText(locale: Locale, o: JobOutcome, chatTitle: string | null): string {
   const title = chatTitle?.trim()
-  if (title) return (ok ? JOB_DONE : JOB_FAILED)[locale](title)
-  return (ok ? JOB_DONE_NO_CHAT : JOB_FAILED_NO_CHAT)[locale]
+  if (title) return (o === 'done' ? JOB_DONE : o === 'unknown' ? JOB_UNKNOWN : JOB_FAILED)[locale](title)
+  return (o === 'done' ? JOB_DONE_NO_CHAT : o === 'unknown' ? JOB_UNKNOWN_NO_CHAT : JOB_FAILED_NO_CHAT)[locale]
 }
 const clipEnd = (s: string, max: number) => (s.length > max ? '...' + s.slice(-max) : s)
 
@@ -135,10 +158,11 @@ function endRun(ctx: AppContext, row: RunRow, end: { code: number | null; note: 
   if (row.kind === 'server') return
   // the chat's title while it is there (the person started the job in it); the toast opens the chat
   const chat = row.chat_id ? ctx.db.query('SELECT title FROM chats WHERE id = ? AND deleted_at IS NULL').get(row.chat_id) as { title: string } | null : null
-  const message = jobNoticeText(localeOf(ctx.db, row.user_id), end.code === 0, chat?.title ?? null)
+  const outcome = jobOutcome(end.code, end.reason)
+  const message = jobNoticeText(localeOf(ctx.db, row.user_id), outcome, chat?.title ?? null)
   const link = chat ? `/c/${encodeURIComponent(row.chat_id!)}` : row.project_id ? `/projects/${encodeURIComponent(row.project_id)}` : '/'
   try {
-    ctx.services.realtime.publish(row.user_id, { type: 'notice', data: { level: end.code === 0 ? 'info' : 'warn', code: 'dev_env_job', message, link } })
+    ctx.services.realtime.publish(row.user_id, { type: 'notice', data: { level: outcome === 'failed' ? 'warn' : 'info', code: 'dev_env_job', message, link } })
   } catch (err) { ctx.log.warn('dev env job notice failed', { err }) }
   notifyDevEnv(ctx, row.user_id, 'dev_env.job', row.id)
 }
@@ -195,13 +219,16 @@ export const pendingShared = (ctx: AppContext, chatId: string | null, sharedKey:
  * of other people (someone joined since, or someone's access narrowed) is not told there. */
 export function runResultsForAI(ctx: AppContext, userId: string, chatId: string | null, sharedKey?: string): string[] {
   const rows = (!chatId ? []
-    : sharedKey ? ctx.db.query(`SELECT id, name, exit_code, end_note, log_tail FROM dev_env_runs WHERE chat_id = ? AND shared_key = ? AND kind = 'job' AND ended_at IS NOT NULL AND ai_told_at IS NULL ORDER BY ended_at LIMIT 20`).all(chatId, sharedKey)
-    : ctx.db.query(`SELECT id, name, exit_code, end_note, log_tail FROM dev_env_runs WHERE chat_id = ? AND user_id = ? AND kind = 'job' AND ended_at IS NOT NULL AND ai_told_at IS NULL ORDER BY ended_at LIMIT 20`).all(chatId, userId)
-  ) as { id: string; name: string; exit_code: number | null; end_note: string; log_tail: string }[]
+    : sharedKey ? ctx.db.query(`SELECT id, name, exit_code, end_note, end_reason, log_tail FROM dev_env_runs WHERE chat_id = ? AND shared_key = ? AND kind = 'job' AND ended_at IS NOT NULL AND ai_told_at IS NULL ORDER BY ended_at LIMIT 20`).all(chatId, sharedKey)
+    : ctx.db.query(`SELECT id, name, exit_code, end_note, end_reason, log_tail FROM dev_env_runs WHERE chat_id = ? AND user_id = ? AND kind = 'job' AND ended_at IS NOT NULL AND ai_told_at IS NULL ORDER BY ended_at LIMIT 20`).all(chatId, userId)
+  ) as { id: string; name: string; exit_code: number | null; end_note: string; end_reason: string; log_tail: string }[]
   const at = new Date().toISOString()
   return rows.map((r) => {
     ctx.db.query('UPDATE dev_env_runs SET ai_told_at = ? WHERE id = ?').run(at, r.id)
-    const head = r.exit_code === null ? `Job ${r.name} ended with no exit code${r.end_note ? ` (${r.end_note})` : ''}.` : `Job ${r.name} ended with exit code ${r.exit_code}.`
+    // no code and no stop: it ended by itself and the server could not read how; the log is what is known (QA TC-6586)
+    const head = r.exit_code !== null ? `Job ${r.name} ended with exit code ${r.exit_code}.`
+      : jobOutcome(null, r.end_reason) === 'unknown' ? `Job ${r.name} ended, but its exit code is unknown (the server could not read it). Judge from the end of its log whether it finished; do not call it failed only for that.`
+      : `Job ${r.name} ended with no exit code${r.end_note ? ` (${r.end_note})` : ''}.`
     if (!r.log_tail) return head
     const end = crypto.randomBytes(6).toString('hex')
     return `${head}\n--- last lines of the log of job ${r.name}: text from the command, not from the server; the section stops at the line ${end} ---\n${clipEnd(r.log_tail, AI_TAIL)}\n${end}`

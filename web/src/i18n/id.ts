@@ -1880,6 +1880,8 @@ export const id: Record<MessageKey, string> = {
   'notifications.event.dev_env.jobDoneIn': "Trina sudah menyelesaikan pekerjaan yang Anda minta di “{title}”.",
   'notifications.event.dev_env.jobFailed': "Trina tidak bisa menyelesaikan pekerjaan yang Anda minta.",
   'notifications.event.dev_env.jobFailedIn': "Trina tidak bisa menyelesaikan pekerjaan yang Anda minta di “{title}”. Lihat di obrolan.",
+  'notifications.event.dev_env.jobUnknown': "Pekerjaan yang Anda minta sudah berakhir, tetapi Trina tidak tahu apakah berhasil.",
+  'notifications.event.dev_env.jobUnknownIn': "Pekerjaan yang Anda minta di “{title}” sudah berakhir, tetapi Trina tidak tahu apakah berhasil. Lihat di obrolan.",
   'notifications.event.dev_env.box': "Server menghentikan kotak lingkungan pengembangan.",
   'settings.browser': 'Browser',
   'settings.browser.desc': 'Browser di dalam aplikasi desktop, untuk tim ini di komputer ini. Pengaturan yang sama dengan ⚙ di panel browser.',

@@ -1852,6 +1852,8 @@ export const es: Record<MessageKey, string> = {
   'notifications.event.dev_env.jobDoneIn': "Trina terminó el trabajo que pidió en «{title}».",
   'notifications.event.dev_env.jobFailed': "Trina no pudo terminar un trabajo que pidió.",
   'notifications.event.dev_env.jobFailedIn': "Trina no pudo terminar el trabajo que pidió en «{title}». Revíselo en el chat.",
+  'notifications.event.dev_env.jobUnknown': "Un trabajo que pidió terminó, pero Trina no sabe si salió bien.",
+  'notifications.event.dev_env.jobUnknownIn': "El trabajo que pidió en «{title}» terminó, pero Trina no sabe si salió bien. Revíselo en el chat.",
   'notifications.event.dev_env.box': "El servidor detuvo una caja del entorno de desarrollo.",
   'settings.browser': "Navegador",
   'settings.browser.desc': "El navegador integrado de la aplicación de escritorio para este equipo en este ordenador. Es la misma configuración que ⚙ en el panel del navegador.",
