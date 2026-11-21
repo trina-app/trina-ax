@@ -465,7 +465,7 @@ export function placeName(path: string, locale: Locale): string | null {
 }
 
 /** box_shell's spelling of the work folder: $TRINA_WORK, ${TRINA_WORK} */
-const WORK_VAR = /^\$\{?TRINA_WORK\}?(?=\/|$)/i
+const WORK_VAR = /^(?:\$TRINA_WORK|\$\{TRINA_WORK\})(?=\/|$)/i
 
 /**
  * A command line with the work folder in words (QA TC-6937): the leading `cd "$TRINA_WORK" &&` goes (a command starts
@@ -474,8 +474,8 @@ const WORK_VAR = /^\$\{?TRINA_WORK\}?(?=\/|$)/i
 export function shellWorkWords(command: string, locale: Locale): string {
   const w = STEP_PLACE.work[locale] ?? STEP_PLACE.work.en
   return command
-    .replace(/^\s*cd\s+(["']?)\$\{?TRINA_WORK\}?\/?\1\s*(?:&&|;)\s*/i, '')
-    .replace(/\$\{?TRINA_WORK\}?((?:\/[^\s"'`;|&<>()]*)?)/gi, (_all, rest: string) => [w, ...rest.split('/').filter(Boolean)].join(' › '))
+    .replace(/^\s*cd\s+(["']?)(?:\$TRINA_WORK|\$\{TRINA_WORK\})(?![\w])\/?\1\s*(?:&&|;)\s*/i, '')
+    .replace(/(?:\$TRINA_WORK|\$\{TRINA_WORK\})(?![\w])((?:\/[^\s"'`;|&<>()]*)?)/gi, (_all, rest: string) => [w, ...rest.split('/').filter(Boolean)].join(' › '))
 }
 
 /** Tools whose step line ends in a team path ("<verb> · <path>"; edit_files adds "+N", hwp_render "#page"). */

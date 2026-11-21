@@ -487,19 +487,20 @@ export const TEXT = {
     "AIが{sources}のスキルを使おうとしています。このチャットを見る{n}人のうち{m}人はこのスキルを使えません。使うと、持ち込んだ内容はこのチャットに残り、あとからアクセスできるようになる人も含め、このチャットを見る全員が見ることになります。",
     "La IA quiere usar una habilidad de {sources}. {m} de {n, plural, one {la # persona} other {las # personas}} que ven este chat no pueden usarla. Si la usa, lo que aporte se queda en este chat para todos los que lo ven, incluidas las personas que tengan acceso más adelante.", 'AI想使用{sources}中的技能。能看到这个对话的{n, plural, one {#人} other {#人}}中，有{m}人不能使用它。如果使用，它带来的内容会留在这个对话里，所有能看到这个对话的人都会看到，包括之后获得权限的人。'),
   // the read card for copy_files into this chat's work folder or its files (QA TC-6939): which files, and that the place
-  // they go is seen by everyone in the chat. The names come last, so no particle follows a file name
-  sharedCopyWorkConfirm: t('AI가 {sources}에서 이 채팅의 작업 폴더로 복사하려고 해요: {files}. 작업 폴더는 나중에 볼 수 있게 되는 사람을 포함해 이 채팅을 보는 모두가 볼 수 있어요. 이 채팅을 보는 {n}명 중 {m}명은 원래 있던 곳을 열 수 없어요.',
-    "The AI wants to copy files from {sources} into this chat's work folder: {files}. Everyone who sees this chat can see that folder, including people who get access later. {m} of the {n, plural, one {# person} other {# people}} who see this chat can't open where they are now.",
-    'AI ingin menyalin berkas dari {sources} ke folder kerja obrolan ini: {files}. Semua orang yang melihat obrolan ini bisa melihat folder itu, termasuk orang yang mendapat akses nanti. {m} dari {n} orang yang melihat obrolan ini tidak bisa membuka tempat asalnya.',
-    "AIが{sources}からこのチャットの作業フォルダーにコピーしようとしています：{files}。作業フォルダーは、あとからアクセスできるようになる人も含め、このチャットを見る全員が見られます。このチャットを見る{n}人のうち{m}人は元の場所を開けません。",
-    "La IA quiere copiar archivos de {sources} a la carpeta de trabajo de este chat: {files}. Todos los que ven este chat pueden ver esa carpeta, incluidas las personas que tengan acceso más adelante. {m} de {n, plural, one {la # persona} other {las # personas}} que ven este chat no pueden abrir el lugar donde están ahora.",
-    'AI想把文件从{sources}复制到这个对话的工作文件夹：{files}。所有能看到这个对话的人都能看到这个文件夹，包括之后获得权限的人。能看到这个对话的{n, plural, one {#人} other {#人}}中，有{m}人打不开它们原来的位置。'),
-  sharedCopyChatConfirm: t('AI가 {sources}에서 이 채팅으로 복사하려고 해요: {files}. 나중에 볼 수 있게 되는 사람을 포함해 이 채팅을 보는 모두가 열 수 있어요. 이 채팅을 보는 {n}명 중 {m}명은 원래 있던 곳을 열 수 없어요.',
-    "The AI wants to copy files from {sources} into this chat: {files}. Everyone who sees this chat can open them, including people who get access later. {m} of the {n, plural, one {# person} other {# people}} who see this chat can't open where they are now.",
-    'AI ingin menyalin berkas dari {sources} ke obrolan ini: {files}. Semua orang yang melihat obrolan ini bisa membukanya, termasuk orang yang mendapat akses nanti. {m} dari {n} orang yang melihat obrolan ini tidak bisa membuka tempat asalnya.',
-    "AIが{sources}からこのチャットにコピーしようとしています：{files}。あとからアクセスできるようになる人も含め、このチャットを見る全員が開けます。このチャットを見る{n}人のうち{m}人は元の場所を開けません。",
-    "La IA quiere copiar archivos de {sources} a este chat: {files}. Todos los que ven este chat podrán abrirlos, incluidas las personas que tengan acceso más adelante. {m} de {n, plural, one {la # persona} other {las # personas}} que ven este chat no pueden abrir el lugar donde están ahora.",
-    'AI想把文件从{sources}复制到这个对话：{files}。所有能看到这个对话的人都能打开它们，包括之后获得权限的人。能看到这个对话的{n, plural, one {#人} other {#人}}中，有{m}人打不开它们原来的位置。'),
+  // they go is seen by everyone in the chat. Its yes is for reading that place in this answer, as every read card's (so it
+  // says "read files in"). The names come last, so no particle follows a file name
+  sharedCopyWorkConfirm: t('AI가 {sources}에서 파일을 읽어 이 채팅의 작업 폴더로 복사하려고 해요: {files}. 작업 폴더는 나중에 볼 수 있게 되는 사람을 포함해 이 채팅을 보는 모두가 볼 수 있어요. 이 채팅을 보는 {n}명 중 {m}명은 원래 있던 곳을 열 수 없어요.',
+    "The AI wants to read files in {sources} and copy them into this chat's work folder: {files}. Everyone who sees this chat can see that folder, including people who get access later. {m} of the {n, plural, one {# person} other {# people}} who see this chat can't open where they are now.",
+    'AI ingin membaca berkas di {sources} dan menyalinnya ke folder kerja obrolan ini: {files}. Semua orang yang melihat obrolan ini bisa melihat folder itu, termasuk orang yang mendapat akses nanti. {m} dari {n} orang yang melihat obrolan ini tidak bisa membuka tempat asalnya.',
+    "AIが{sources}のファイルを読んで、このチャットの作業フォルダーにコピーしようとしています：{files}。作業フォルダーは、あとからアクセスできるようになる人も含め、このチャットを見る全員が見られます。このチャットを見る{n}人のうち{m}人は元の場所を開けません。",
+    "La IA quiere leer archivos de {sources} y copiarlos a la carpeta de trabajo de este chat: {files}. Todos los que ven este chat pueden ver esa carpeta, incluidas las personas que tengan acceso más adelante. {m} de {n, plural, one {la # persona} other {las # personas}} que ven este chat no pueden abrir el lugar donde están ahora.",
+    'AI想读取{sources}中的文件并复制到这个对话的工作文件夹：{files}。所有能看到这个对话的人都能看到这个文件夹，包括之后获得权限的人。能看到这个对话的{n, plural, one {#人} other {#人}}中，有{m}人打不开它们原来的位置。'),
+  sharedCopyChatConfirm: t('AI가 {sources}에서 파일을 읽어 이 채팅으로 복사하려고 해요: {files}. 나중에 볼 수 있게 되는 사람을 포함해 이 채팅을 보는 모두가 열 수 있어요. 이 채팅을 보는 {n}명 중 {m}명은 원래 있던 곳을 열 수 없어요.',
+    "The AI wants to read files in {sources} and copy them into this chat: {files}. Everyone who sees this chat can open them, including people who get access later. {m} of the {n, plural, one {# person} other {# people}} who see this chat can't open where they are now.",
+    'AI ingin membaca berkas di {sources} dan menyalinnya ke obrolan ini: {files}. Semua orang yang melihat obrolan ini bisa membukanya, termasuk orang yang mendapat akses nanti. {m} dari {n} orang yang melihat obrolan ini tidak bisa membuka tempat asalnya.',
+    "AIが{sources}のファイルを読んで、このチャットにコピーしようとしています：{files}。あとからアクセスできるようになる人も含め、このチャットを見る全員が開けます。このチャットを見る{n}人のうち{m}人は元の場所を開けません。",
+    "La IA quiere leer archivos de {sources} y copiarlos a este chat: {files}. Todos los que ven este chat podrán abrirlos, incluidas las personas que tengan acceso más adelante. {m} de {n, plural, one {la # persona} other {las # personas}} que ven este chat no pueden abrir el lugar donde están ahora.",
+    'AI想读取{sources}中的文件并复制到这个对话：{files}。所有能看到这个对话的人都能打开它们，包括之后获得权限的人。能看到这个对话的{n, plural, one {#人} other {#人}}中，有{m}人打不开它们原来的位置。'),
   /** ...more than three files: how many */
   sharedCopyCount: t('파일 {n}개', '{n, plural, one {# file} other {# files}}', '{n} berkas', '{n}件のファイル', '{n, plural, one {# archivo} other {# archivos}}', '{n}个文件'),
   // the widening list (POST /api/sharing/widening-answers, chat/widening.ts)

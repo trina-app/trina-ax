@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-21 19:50
 - Branch: `fix/chat-places-qa-a`
-- Status: in progress
+- Status: done
 - Where: server (file tools, work folder, cards, refusals, guest error), shared (step lines, error words), web (chat
   file link, Word preview, error words). Why: the findings are in the AI's core file tools and their words
   (docs/REPOSITORY-RULES.md)
@@ -73,4 +73,10 @@ words) and "Plain words in errors, cards and steps" (docs/DECISIONS.md).
 
 ## Result
 
-(filled in at the end)
+All ten findings fixed as in Scope, plus the review's points: absolute work-folder paths of list/glob/grep are
+recorded in a shared chat like the other spellings, the copy card says it reads that place (its yes covers the place
+for the answer), "the people changed" is said only when the folder is new or was made after the change (conditional
+line), project chats check where commands run first, room_file decks say slides, the shell-variable match stops at
+the name's end, the "didn't work" exemption covers only refused work-folder saves made later by name, and the link
+effect runs once per link. Visual check on a private QA-Acme copy (port 19851) at 1440/390, light and dark; the Word
+page also checked merged with #265 (call `defaultDocxPages` before `docxPageWidth` when the two meet).

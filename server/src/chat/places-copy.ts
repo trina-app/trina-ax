@@ -43,7 +43,7 @@ import { confidentialChat } from '../safe-ops/confidential'
 import { isGuestUser } from '../credentials/guest-ai'
 import { mayUseDevEnv } from '../devenv/setting'
 import { noteSharedReads, runsInWorkFolder, spaceOf } from '../devenv/srt/runner'
-import { copyWorkFile, NO_WORK_WORDS, noWorkText, type WorkFolder } from '../devenv/work-files'
+import { copyWorkFile, noWorkText, workUnavailableText, type WorkFolder } from '../devenv/work-files'
 import { assertStorageRoomForAI } from '../system/storage'
 import { copiedInOf, writeIntoWork, type WorkSource, type WorkTarget } from '../devenv/work-write'
 import { addSources, sourceKey, type ReadSource } from './read-scope'
@@ -144,10 +144,7 @@ function workSources(exec: TurnExec, wf: WorkFolder | null): ReadSource[] {
 /** A shared chat's work folder is about to be read for a copy out: what a run there may read and what was copied in
  * join this answer (runner noteSharedReads, which records the copied-in groups again). False: not recorded. */
 /** The work folder could not be recorded for this answer: the reason when the turn knows it, else "try again" */
-function workUnavailable(files: TurnFiles): string {
-  const why = files.workWhy?.()
-  return why === 'changed' || why === 'off' ? NO_WORK_WORDS[why] : "This chat's work folder cannot be opened right now. Try again."
-}
+const workUnavailable = (files: TurnFiles): string => workUnavailableText(files.workWhy?.())
 
 function noteWorkRead(exec: TurnExec): boolean {
   const d = exec.devEnv

@@ -465,18 +465,28 @@ function sharedWorkTop(chatId: string | null): string | null {
   try { return path.dirname(sharedWork(srtConfig().base, chatId, 'k')) } catch { return null }
 }
 
-/** A chat shared with people whose commands now start in another work folder than before (its people, or what they may
- * open, changed: sharedWorkOf's key), so a work folder made for earlier people is there and this one is new (QA
- * TC-6936). False for a personal chat and when nothing is there yet. Nothing is opened in the old folders. */
-export function workPeopleChanged(ctx: AppContext, o: { userId: string; chatId: string | null; shared?: SharedRun }): boolean {
-  if (!o.shared || !o.chatId) return false
+/** How a shared chat's work folder relates to the ones made for its earlier people (QA TC-6936): its commands start in a
+ * folder keyed by who sees the chat and what they may open (sharedWorkOf), so a change of people starts a new one.
+ *   fresh  an earlier folder is there and the one for the people now is not made yet: the files made before are not here
+ *   after  the folder now was made after the earlier ones were last changed (a file asked for may have been made before)
+ *   null   a personal chat, nothing earlier, or the earlier folder is the newer one (the people changed back)
+ * Only names and times of the folders are looked at; nothing in them is opened. */
+export function workFolderChange(ctx: AppContext, o: { userId: string; chatId: string | null; shared?: SharedRun }): 'fresh' | 'after' | null {
+  if (!o.shared || !o.chatId) return null
   const top = sharedWorkTop(o.chatId)
-  if (!top) return false
+  if (!top) return null
   let names: string[]
-  try { names = fs.readdirSync(top) } catch { return false }
+  try { names = fs.readdirSync(top) } catch { return null }
   const now = sharedWorkOf(ctx, o.chatId, o.userId, o.shared)
   const mine = now ? path.basename(now) : null
-  return names.some((n) => n !== mine)
+  const old = names.filter((n) => n !== mine)
+  if (!old.length) return null
+  let born: number | null = null
+  try { if (now) { const st = fs.lstatSync(now); born = st.isDirectory() ? (st.birthtimeMs || st.ctimeMs) : null } } catch { born = null }
+  if (born === null) return 'fresh'
+  let last = 0
+  for (const n of old) { try { last = Math.max(last, fs.lstatSync(path.join(top, n)).mtimeMs) } catch {} }
+  return born >= last ? 'after' : null
 }
 
 /** Is `p` an absolute path inside an earlier work folder of this shared chat (not the one its commands use now)? */

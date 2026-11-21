@@ -129,7 +129,9 @@ describe('read opens the work folder', () => {
   test('no folder yet: the read says so and makes none', async () => {
     const c = await h.api('alice').call(API.createChat, { body: {} })
     const r = await run('alice', c.id, fake({ tool: 'read', args: { file_path: '$TRINA_WORK/x.png' }, sayResult: true }))
-    expect(r.content).toContain('no work folder')
+    // the one reason, plain (QA TC-6936): no command ran here yet; never "dev environment off, or a sub-agent"
+    expect(r.content).toContain('no command has run here')
+    expect(r.content).not.toMatch(/sub-agent|dev environment is off/)
     expect(fs.existsSync(chatWork(base, c.id))).toBe(false)
   })
 

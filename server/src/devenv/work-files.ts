@@ -77,6 +77,13 @@ export const NO_WORK_WORDS: Record<NoWorkWhy, string> = {
  * copy in the person's own folder that nobody asked for) */
 export const WORK_WRITE_WORDS = "write and edit do not change the work folder. Make a file there with a box_shell command (it starts in the work folder: cat > report.txt <<'EOF' … EOF), or bring a team file in with copy_files (to_folder \"chat:work/\"). To hand a finished file over, copy_files it from chat:work/… to chat:files/ in a chat shared with people (in a chat only the person sees: to their own folder). Do not save an extra copy anywhere the person did not ask for."
 
+/** After a not-found in a work folder made after the people of the chat changed: it may have been made before */
+export const WORK_RENEWED_WORDS = "If it was made or copied before the people in this chat (or what they may open) changed, it is not here: commands now use a new work folder. Copy it in again (copy_files to_folder \"chat:work/\") or make it again."
+
+/** The work folder could not be recorded for this answer (shared chats): the reason when the turn knows it, else "try
+ * again" */
+export const workUnavailableText = (why: NoWorkWhy | null | undefined) => (why === 'changed' || why === 'off' ? NO_WORK_WORDS[why] : "This chat's work folder cannot be opened right now. Try again.")
+
 /** The refusal for this reason */
 export const noWorkText = (why: NoWorkWhy | null | undefined) => NO_WORK_WORDS[why ?? 'elsewhere']
 

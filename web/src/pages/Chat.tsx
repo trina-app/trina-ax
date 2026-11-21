@@ -157,29 +157,39 @@ function ChatView({ chatId, threadRoot }: { chatId: string; threadRoot: string |
   // chat that does not open keeps its own notice alone (a viewer opened from before closes), a file that does not open
   // gets one plain line and no viewer, never "This format can't be previewed" with a Download that cannot work
   const fileStep = chatFileLinkStep({ file: fileParam, loading, loadError, name: fileName })
+  // once per chat and link: older messages loaded later, or the language changed, never reopen a viewer the person closed
+  const fileLinkDone = useRef<string | null>(null)
+  const notFoundText = useRef('')
+  notFoundText.current = t('preview.notFound')
   useEffect(() => {
     if (loadError) {
       const p = getSidePanel()
       if (p?.kind === 'file' && p.file.source === 'chat' && p.file.chatId === chatId) closeSidePanel()
       return
     }
-    if (!fileParam) return
+    if (!fileParam || (fileStep !== 'open' && fileStep !== 'look')) return
+    const key = `${chatId}:${fileParam}`
+    if (fileLinkDone.current === key) return
+    fileLinkDone.current = key
     if (fileStep === 'open') return void openFilePreview({ source: 'chat', chatId, fileId: fileParam, name: fileName! })
-    if (fileStep !== 'look') return
     let live = true
+    let settled = false
     api.call(API.chatFileVersions, { params: { id: chatId, fileId: fileParam } }).then(
       (v) => {
         if (!live) return
+        settled = true
         const name = chatFileName(v)
         if (name) openFilePreview({ source: 'chat', chatId, fileId: fileParam, name })
-        else toast({ level: 'info', text: t('preview.notFound') })
+        else toast({ level: 'info', text: notFoundText.current })
       },
-      () => live && toast({ level: 'info', text: t('preview.notFound') }),
+      () => { if (live) { settled = true; toast({ level: 'info', text: notFoundText.current }) } },
     )
     return () => {
+      // (left before the answer came: the next run asks again)
+      if (!settled && fileLinkDone.current === key) fileLinkDone.current = null
       live = false
     }
-  }, [fileStep, chatId, fileParam, fileName, loadError, t])
+  }, [fileStep, chatId, fileParam, fileName, loadError])
   // diagrams, images and code highlighting grow the page after the text arrived, and a phone's keyboard shrinks the
   // list: stay at the bottom if we were there (lib/stickToBottom.ts)
   const list = useStickToBottom()

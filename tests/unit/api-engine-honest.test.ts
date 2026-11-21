@@ -214,9 +214,21 @@ describe('TC-4829: a failed step the answer does not mention', () => {
     h.note('read', { file_path: 'chat:work/report.txt' }, true)
     h.note('box_shell', { command: 'ls > old-report.txt.bak' }, true)
     expect(h.tools()).toEqual(['write'])
-    // a failed box_shell does not settle it either
+    // a failed box_shell does not settle it either, nor a command that only reads the file
     h.note('box_shell', { command: 'echo > report.txt' }, false)
     expect(h.tools()).toEqual(['write', 'box_shell'])
+    // (a later command that works settles the failed command, as before, but only reads report.txt: the save stays)
+    h.note('box_shell', { command: 'cat report.txt && rm -f report.txt' }, true)
+    expect(h.tools()).toEqual(['write'])
+    // cp into the work folder keeps the name
+    h.note('box_shell', { command: 'cp /tmp/report.txt "$TRINA_WORK/"' }, true)
+    expect(h.tools()).toEqual([])
+    // a refused save of a team file stays a failure, whatever else made a file of that name
+    const k = new FailedSteps()
+    k.note('edit', { file_path: 'projects/A/budget.xlsx' }, false)
+    k.note('write', { file_path: 'users/me/budget.xlsx', content: 'x' }, true)
+    k.note('box_shell', { command: 'python3 make.py -o budget.xlsx' }, true)
+    expect(k.tools()).toEqual(['edit'])
   })
 
   test('the line: server words only, nothing when the answer already says something failed', () => {

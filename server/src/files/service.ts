@@ -34,7 +34,7 @@ import type { VirtualFile, VirtualFiles } from './virtual'
 import { SOURCE_LOCS_MAX, SourceLog } from './sources'
 import { apart } from './apart'
 import { CHAT_FILES_NONE } from './places'
-import { copyWorkFile, isWorkPath, namesWorkFolder, noWorkText, readWorkSmall, shownWorkPath, walkWork, workAliasRel, workEntries, workRel, NO_WORK_WORDS, WORK_GREP_TOTAL_MAX, WORK_WRITE_WORDS, WORK_WALK_MAX, type NoWorkWhy, type WorkFolder } from '../devenv/work-files'
+import { copyWorkFile, isWorkPath, namesWorkFolder, noWorkText, readWorkSmall, shownWorkPath, walkWork, workAliasRel, workEntries, workRel, NO_WORK_WORDS, WORK_GREP_TOTAL_MAX, WORK_RENEWED_WORDS, WORK_WRITE_WORDS, WORK_WALK_MAX, type NoWorkWhy, type WorkFolder } from '../devenv/work-files'
 import { locsOfRange } from './locations'
 import type { SourceLoc } from '@mycel/shared/api'
 import { atomicWrite, conflictCopyName, fileEvent, moveToTrash, readHead, readRegular, recordConflictCopy, saveVersion, sha256 } from './store'
@@ -275,6 +275,8 @@ export class TurnFiles {
   workWhy: (() => NoWorkWhy) | null = null
   /** is this an absolute path into one of this chat's earlier work folders (its people changed since: TC-6936)? */
   workOldPath: ((p: string) => boolean) | null = null
+  /** was the work folder now made after the people of the chat changed (srt/runner.ts workFolderChange 'after')? */
+  workRenewed: (() => boolean) | null = null
   /** this chat's files as the chat place chat:files/ (ChatPlaceHooks), set by a chat turn for its main AI where the chat
    * holds chat files or is shared with people (chat/tools.ts); null everywhere else (a sub-agent's view, remote MCP) */
   chatPlace: ChatPlaceHooks | null = null
@@ -394,8 +396,8 @@ export class TurnFiles {
     return new Proxy(this, {
       // a sub-agent (or a call whose agent is not known) never opens the chat's work folder or its files (chat:files/): the
       // main AI looks at results
-      get: (t, k) => (k === 'readHashes' ? own : k === 'agent' ? agent : k === 'agentView' ? true : k === 'carried' ? sub() : k === 'workWhy' ? helperWhy : k === 'workFolder' || k === 'workOldPath' || k === 'chatPlace' || k === 'placeInput' ? null : Reflect.get(t, k, t)),
-      set: (t, k, v) => (k === 'readHashes' || k === 'agent' || k === 'agentView' || k === 'carried' || k === 'workFolder' || k === 'workWhy' || k === 'workOldPath' || k === 'chatPlace' || k === 'placeInput' ? false : Reflect.set(t, k, v, t)),
+      get: (t, k) => (k === 'readHashes' ? own : k === 'agent' ? agent : k === 'agentView' ? true : k === 'carried' ? sub() : k === 'workWhy' ? helperWhy : k === 'workFolder' || k === 'workOldPath' || k === 'workRenewed' || k === 'chatPlace' || k === 'placeInput' ? null : Reflect.get(t, k, t)),
+      set: (t, k, v) => (k === 'readHashes' || k === 'agent' || k === 'agentView' || k === 'carried' || k === 'workFolder' || k === 'workWhy' || k === 'workOldPath' || k === 'workRenewed' || k === 'chatPlace' || k === 'placeInput' ? false : Reflect.set(t, k, v, t)),
     })
   }
 }
@@ -1003,7 +1005,7 @@ export class FileService {
       const copy = path.join(dir, own)
       try { await copyWorkFile(wf, rel, copy, max, ctx.signal) } catch (e) {
         // not there because the people changed and the work folder is a new one: that reason, not only "not found"
-        if (e instanceof ToolError && e.code === 'not_found' && ctx.files.workWhy?.() === 'changed') throw new ToolError(`${e.message}. ${NO_WORK_WORDS.changed}`, e.code)
+        if (e instanceof ToolError && e.code === 'not_found' && ctx.files.workRenewed?.()) throw new ToolError(`${e.message}. ${WORK_RENEWED_WORDS}`, e.code)
         throw e
       }
       const inner = `.system/work-files/${path.basename(dir)}/${own}`

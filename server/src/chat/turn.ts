@@ -2871,9 +2871,10 @@ export class TurnExec {
   /** a read call that names the chat's work folder (devenv/work-files.ts), by its variable or its absolute path */
   workRead(tool: string, input: unknown): boolean {
     // list, glob and grep take chat:work/ too (P2): a listing or a search there brings in what commands made
-    if (tool === 'list' || tool === 'glob' || tool === 'grep') return namesWorkFolder((input && typeof input === 'object' ? (input as { path?: unknown }).path : undefined))
-    if (tool !== 'read') return false
-    const p = (input && typeof input === 'object' ? (input as { file_path?: unknown }).file_path : undefined)
+    // (every spelling, as the file tools take them: the variable, chat:work/ and the folder's absolute path, QA TC-6936)
+    const list = tool === 'list' || tool === 'glob' || tool === 'grep'
+    if (!list && tool !== 'read') return false
+    const p = input && typeof input === 'object' ? (list ? (input as { path?: unknown }).path : (input as { file_path?: unknown }).file_path) : undefined
     if (namesWorkFolder(p)) return true
     try { return isWorkPath(p, this.files.workFolder?.() ?? null) } catch { return true }
   }

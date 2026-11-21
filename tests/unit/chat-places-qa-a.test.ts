@@ -31,6 +31,8 @@ describe('TC-6937: the work folder in words in every step line', () => {
     expect(shellWorkWords('cd $TRINA_WORK; ls', 'en')).toBe('ls')
     expect(shellWorkWords('cp a.png ${TRINA_WORK}/out/', 'ko')).toBe('cp a.png 작업 폴더 › out')
     expect(shellWorkWords('ls -la', 'en')).toBe('ls -la')
+    // another variable that starts the same, or a brace left open, stays as written
+    expect(shellWorkWords('echo $TRINA_WORKSPACE $TRINA_WORK_DIR ${TRINA_WORK', 'en')).toBe('echo $TRINA_WORKSPACE $TRINA_WORK_DIR ${TRINA_WORK')
     const label = stepLabel('box_shell', { command: 'cd "$TRINA_WORK" && python3 make.py' }, 'en', none)
     expect(label).toBe('Dev environment command · python3 make.py')
     // a line saved before (the raw variable) reads the same on screen
@@ -95,7 +97,7 @@ describe('TC-6939 / TC-6940: the shared read card for a copy names the files and
   })
   test('the card says the work folder is seen by everyone in the chat', () => {
     const en = tr('sharedCopyWorkConfirm', 'en', { sources: 'your personal folder', files: 'proposal.html, images', n: '2', m: '1' })
-    expect(en).toBe("The AI wants to copy files from your personal folder into this chat's work folder: proposal.html, images. Everyone who sees this chat can see that folder, including people who get access later. 1 of the 2 people who see this chat can't open where they are now.")
+    expect(en).toBe("The AI wants to read files in your personal folder and copy them into this chat's work folder: proposal.html, images. Everyone who sees this chat can see that folder, including people who get access later. 1 of the 2 people who see this chat can't open where they are now.")
     for (const l of LOCALES) for (const k of ['sharedCopyWorkConfirm', 'sharedCopyChatConfirm'] as const) {
       const s = tr(k, l, { sources: 'S', files: 'proposal.html', n: '2', m: '1' })
       expect(s).toContain('proposal.html')
