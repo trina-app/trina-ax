@@ -45,7 +45,7 @@ import type { CardAnswer, TurnExec, WidenOf } from './turn'
 import { inProjectOnly, SKIP_OWN, wholeTeamPath } from './search-path'
 import type { StoredStep } from './store'
 import { cardEndShort, endOfText, projectNotFoundNote, readOnlyNote, readOnlySkillLine, type CardOutcome } from '../policy/refusal'
-import type { TurnFiles } from '../files/service'
+import { placeArg, placeWriteRefusal, type TurnFiles } from '../files/service'
 import { extractUrls, gateUrl, type ConfirmExtra, type TurnPerson } from '../tools/url-gate'
 import { ToolError } from '../policy/errors'
 import { callKey } from './schedule-cover'
@@ -538,6 +538,11 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
     },
     // edit_files (mcp/protocol.ts): after a room read one card for the whole batch, before its first file
     beforeBatch: async (name, args) => {
+      // a chat place among its files: no file tool edits one (files/service.ts placeWriteRefusal), so the batch is refused
+      // before its card asks the person (one room card for the whole batch)
+      const paths = (args as { file_paths?: unknown } | null)?.file_paths
+      const place = Array.isArray(paths) ? paths.map((p) => placeArg('edit', { file_path: p })).find(Boolean) : null
+      if (place) return { refusal: `Not done (${name}): ${placeWriteRefusal(place)} Leave it out of file_paths; nothing was changed.`, summary: `${name} -> refused: chat place` }
       const no = await exec.confirmRoomChange(name, args)
       return no ? { refusal: no, summary: `${name} -> ${roomShort(no)} (after a room read)` } : null
     },
@@ -562,6 +567,10 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
       // a read of the chat's work folder (devenv/work-files.ts) names no team path: in a shared chat what a run there may
       // read joins the answer's record first, with who sees the chat now (as a command does), and the chat is its
       // source; no read card (everyone here sees that folder's people's view)
+      // write or edit of a chat place (chat:files/…, chat:work/…): the file tool refuses it (files/service.ts callPlace),
+      // so it is refused here, before any card asks the person about it (a room card, a skill card, the widening card)
+      const writePlace = name === 'write' || name === 'edit' ? placeArg(name, args) : null
+      if (writePlace) return { refusal: `Not done (${name}): ${placeWriteRefusal(writePlace)}`, summary: `${name} -> refused: chat place` }
       const work = exec.workRead(name, args)
       // (no work folder yet: the read itself refuses, and nothing is made here)
       if (work && exec.shared && exec.files.workFolder?.()) {
