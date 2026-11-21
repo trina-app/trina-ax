@@ -4262,6 +4262,7 @@ export const ja: Record<MessageKey, string> = {
   "demo.free.chip.reply": "クリスからの返信を確認して",
   "demo.free.chip.assets": "ブランド素材フォルダには何がある？",
   "demo.free.meter": "デモのAIの残りは約{pct}%です",
+  "demo.free.left": "あと{n, plural, one {#回} other {#回}}ほど質問できます",
   "demo.free.limit.title": "このデモのAIを使い切りました",
   "demo.free.limit.body": "作ったものはすべてここに残っています。自由に見て回れます。",
   "demo.free.limit.start": "無料で始める",

@@ -104,6 +104,13 @@ export type DemoFile = z.infer<typeof DemoFile>
 
 /** freeRoam's demo limit when the demo file names none (weighted tokens, see DemoFile.limitTokens) */
 export const DEMO_LIMIT_DEFAULT = 300_000
+/**
+ * freeRoam: what one question to the AI costs in the demo limit on average (weighted tokens), so the screen can say
+ * "about N questions" and never "tokens". Measured on demo.trina.app (11-20): a warm question 27k-38k, the very first
+ * one on a cold cache about 90k; 35k is the warm middle, so DEMO_LIMIT_DEFAULT reads as about 8 questions. demo-gate's
+ * landing says "about 8" in its own words (demo-gate/src/pages.ts, no shared imports there): change both together.
+ */
+export const DEMO_QUESTION_TOKENS = 35_000
 /** freeRoam: the weight of a cache read in the demo limit */
 export const DEMO_CACHE_READ_WEIGHT = 0.1
 /** freeRoam: one upload's largest file, and all uploads of an instance together */

@@ -4262,6 +4262,7 @@ export const es: Record<MessageKey, string> = {
   "demo.free.chip.reply": "Revisa la respuesta de Chris",
   "demo.free.chip.assets": "¿Qué hay en nuestra carpeta Brand assets?",
   "demo.free.meter": "Le queda alrededor del {pct}% de la IA de la demostración",
+  "demo.free.left": "{n, plural, one {Le queda más o menos # pregunta} other {Le quedan unas # preguntas}}",
   "demo.free.limit.title": "Ha usado la IA de esta demostración",
   "demo.free.limit.body": "Todo lo que hizo sigue aquí para que lo explore.",
   "demo.free.limit.start": "Empezar gratis",
