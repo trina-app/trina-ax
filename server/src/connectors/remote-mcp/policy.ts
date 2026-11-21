@@ -11,8 +11,9 @@ export const ADMIN_SCOPE = 'mcp:admin'
 export const ROOMS_SCOPE = 'mcp:rooms', ROOMS_WRITE_SCOPE = 'mcp:rooms.write'
 /**
  * What the person chooses on the consent page, whatever the app asked for: MCP clients ask for what the 401 header
- * names (mcp:read), so an asked-for list would never offer more. mcp:read is always granted; offline_access only when
- * asked; mcp:admin by role, not by a box.
+ * names (mcp:read), so an asked-for list would never offer more. mcp:read and offline_access are always granted
+ * (a connection stays until disconnected, docs/decisions/20261121-mcp-refresh-without-offline-access.md); mcp:admin
+ * by role, not by a box.
  */
 export const OPTIONAL_SCOPES = ['mcp:write', ROOMS_SCOPE, ROOMS_WRITE_SCOPE] as const
 /**

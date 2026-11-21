@@ -22,7 +22,7 @@ import { roomNotifyOut } from './alerts'
 import { parseStored, unescapeMarkdown } from './apps/card'
 import { iconsOf } from './apps/icon'
 import { linkPreviewsFor, prepareLinkPreviews, type LinkPrep } from './link-previews'
-import { eventProjectsFor, projectForViewer } from './project-link'
+import { eventProjectsFor, projectForViewer, type EventProjectView } from './project-link'
 import { isProjectRoom, NOT_HELD_SQL } from './project-room'
 import { answerFilePaths, RoomEventLine, ROOM_QUOTE_EXCERPT_MAX, ROOM_REACTION_NAMES, type Room, type RoomFile, type RoomKind, type RoomLastMessage, type RoomMember, type RoomMessage, type RoomQuote, type RoomReaction, type RoomThreadSummary, type UserRef, RoomAppKind, RoomAppPreset, type RoomAppRef } from '@mycel/shared/api'
 
@@ -192,9 +192,18 @@ export function parseEvent(s: string | null): EventData | null {
   return null
 }
 const eventUserIds = (e: EventData | null): string[] => (!e ? [] : e.type === 'created' || e.type === 'added' ? e.userIds : e.type === 'removed' ? [e.userId] : [])
+/** A project line's project for one viewer, from the one resolver (rooms/project-link.ts eventProjectsFor): named and
+ * linked only while they can open it; in the trash or deleted said so (RoomEventLine's EventProject). */
+function projectOut(v: EventProjectView | undefined): Pick<Extract<RoomEventLine, { type: 'project_linked' }>, 'project' | 'projectGone'> {
+  if (v?.state === 'open') return { project: { id: v.id, name: v.name } }
+  if (v?.state === 'trash') return { project: null, projectGone: { state: 'trash', name: v.name } }
+  if (v?.state === 'deleted') return { project: null, projectGone: { state: 'deleted' } }
+  return { project: null }
+}
+
 /** The event line as the app gets it: the people by name as they are now (an account that is gone is left out); a
- * project by name only when this viewer can open it now (`projects`, rooms/project-link.ts eventProjectsFor). */
-function eventOut(e: EventData, people: Map<string, UserRef>, projects: Map<string, { id: string; name: string }> = new Map()): RoomEventLine {
+ * project as it is now for this viewer (`projects`, rooms/project-link.ts eventProjectsFor). */
+function eventOut(e: EventData, people: Map<string, UserRef>, projects: Map<string, EventProjectView> = new Map()): RoomEventLine {
   const refs = (ids: string[]) => ids.map((id) => people.get(id)).filter((x): x is UserRef => !!x)
   switch (e.type) {
     case 'created': return { type: 'created', users: refs(e.userIds) }
@@ -203,7 +212,7 @@ function eventOut(e: EventData, people: Map<string, UserRef>, projects: Map<stri
     case 'left': return { type: 'left' }
     case 'joined': return { type: 'joined' }
     case 'removed': return { type: 'removed', user: people.get(e.userId) ?? null }
-    case 'project_linked': case 'project_unlinked': case 'project_room': return { type: e.type, project: projects.get(e.projectId) ?? null }
+    case 'project_linked': case 'project_unlinked': case 'project_room': return { type: e.type, ...projectOut(projects.get(e.projectId)) }
   }
 }
 
@@ -302,7 +311,7 @@ function shownOut(db: Database, rows: readonly MessageRow[], viewer: MemberRow, 
   const replyRoots = [...new Set(rows.map((r) => r.thread_root_id).filter((x): x is string => !!x))]
   const followed = new Set(replyRoots.length ? (db.query(`SELECT root_id FROM room_thread_follows WHERE user_id = ? AND root_id IN (${replyRoots.map(() => '?').join(',')})`).all(viewer.user_id, ...replyRoots) as { root_id: string }[]).map((r) => r.root_id) : [])
   const people = refsOf(db, [...rows.flatMap((r) => [r.author_id, r.asked_by]), ...[...quotes.values()].map((q) => q.author_id), ...[...events.values()].flatMap(eventUserIds)])
-  // the projects the page's link lines name, for this viewer (only those they can open now)
+  // the projects the page's project lines name, as they are now for this viewer (one resolver: eventProjectsFor)
   const linkIds = [...events.values()].flatMap((e) => (e.type === 'project_linked' || e.type === 'project_unlinked' || e.type === 'project_room' ? [e.projectId] : []))
   const projects = linkIds.length ? eventProjectsFor(db, linkIds, viewer.user_id) : undefined
   // answers people sent from their own AI chat with files attached: which of the answer's links each copy stands for

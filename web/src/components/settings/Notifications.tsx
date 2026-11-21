@@ -69,9 +69,10 @@ export const integrationsLink = (item: Pick<InboxNotification, 'sourceId' | 'tem
 const devEnvText = (item: InboxNotification, t: ReturnType<typeof useT>, locale: Locale): ReactNode => {
   const job = item.devEnv?.job
   if (!job) return t(`notifications.event.${item.code as 'dev_env.job' | 'dev_env.box'}`)
-  const ok = job.exitCode === 0
-  if (job.chatTitle) return isolate(locale, ok ? 'notifications.event.dev_env.jobDoneIn' : 'notifications.event.dev_env.jobFailedIn', { title: job.chatTitle }, ['title'])
-  return t(ok ? 'notifications.event.dev_env.jobDone' : 'notifications.event.dev_env.jobFailed')
+  // done: exit code 0; unknown: it ended by itself with no code the server could read (QA TC-6586); failed: the rest
+  const o = job.exitCode === 0 ? 'Done' : job.exitCode === null && (!job.reason || job.reason === 'lost') ? 'Unknown' : 'Failed'
+  if (job.chatTitle) return isolate(locale, `notifications.event.dev_env.job${o}In`, { title: job.chatTitle }, ['title'])
+  return t(`notifications.event.dev_env.job${o}`)
 }
 
 type T = ReturnType<typeof useT>

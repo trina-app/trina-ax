@@ -340,4 +340,23 @@ describe('the delete confirm and the lists', () => {
     expect(html).toContain('data-testid="room-event-project"')
     expect(html).toContain('>Launch site</a>')
   })
+
+  test('a project line links only a project I can open now: in the trash, deleted or out of reach it is plain text', () => {
+    const r = room({ kind: 'group', name: 'Plan' })
+    const lines = [
+      message({ roomId: r.id, seq: 1, author: BEN, body: '', event: { type: 'project_linked', project: null, projectGone: { state: 'trash', name: 'Launch v2' } } }),
+      message({ roomId: r.id, seq: 2, author: null, body: '', event: { type: 'project_room', project: null, projectGone: { state: 'deleted' } } }),
+      message({ roomId: r.id, seq: 3, author: BEN, body: '', event: { type: 'project_unlinked', project: null } }),
+      message({ roomId: r.id, seq: 4, author: null, body: '', event: { type: 'project_room', project: { id: PID, name: 'Launch v2' } } }),
+    ]
+    const html = renderToStaticMarkup(<MemoryRouter><RoomMessages roomId={r.id} messages={lines} pending={[]} meId={ME.id} members={[ME, BEN]} onThread={() => {}} /></MemoryRouter>)
+    expect(html).toContain(en('rooms.event.projectLinkedTrash', { actor: 'Ben', name: 'Launch v2' }))
+    expect(html).toContain(en('rooms.event.projectRoomDeleted'))
+    expect(html).toContain(en('rooms.event.projectUnlinked', { actor: 'Ben' }))
+    for (const s of ['trash', 'deleted', 'hidden', 'open']) expect(html).toContain(`data-project="${s}"`)
+    // one link only: the open project room line's name
+    expect(html.split('data-testid="room-event-project"').length - 1).toBe(1)
+    expect(html).toContain(`href="/projects/${PID}"`)
+    expect(html).toContain('>Launch v2</a>')
+  })
 })

@@ -303,6 +303,33 @@ describe('limits and search', () => {
     expect(everywhere.text).toContain('read the newest messages of the room where they would have said it with room_read (not every room).')
     expect(searchRooms(h.ctx.db, 'alice', TZ, { person: 'Erin Yoo님', room: roomId }).text).not.toContain('Only messages with')
   })
+
+  test('search: a typing mistake in any word finds close spellings, said as such, with the same rooms and filters', async () => {
+    // made by carol: alice's hourly budget of new chats is spent by the tests that follow
+    const roomId = await groupChat('carol', ['alice', 'erin'], 'near check')
+    put(roomId, 'erin', 'Quarterly report budget is ready', { at: '2026-10-02T09:00:00.000Z' })
+    put(roomId, 'carol', '견적서 Sincere 보냈습니다', { at: '2026-10-03T09:00:00.000Z' })
+    put(roomId, null, 'quarterly report budget private preview of erin', { ai: { askedBy: 'erin', privateTo: 'erin' } })
+    const other = await dm('carol', 'bob')
+    put(other, 'bob', 'Quarterly report budget of bob and carol')
+    for (const query of ['qaurterly report budget', 'quarterly reprot budget', 'quarterly report budgte']) {
+      const r = searchRooms(h.ctx.db, 'alice', TZ, { query })
+      expect(r.count, query).toBe(1)
+      expect(r.text).toContain('Quarterly report budget is ready')
+      expect(r.text).toContain('close spellings')
+      expect(r.text).not.toContain('private preview')
+      expect(r.text).not.toContain('bob and carol')
+    }
+    expect(searchRooms(h.ctx.db, 'alice', TZ, { query: '견젹서 sincre', room: roomId }).count).toBe(1)
+    // the filters still hold: a person, a time
+    expect(searchRooms(h.ctx.db, 'alice', TZ, { query: 'quarterly reprot', person: 'Carol', room: roomId }).count).toBe(0)
+    expect(searchRooms(h.ctx.db, 'alice', TZ, { query: 'quarterly reprot', since: '2026-10-03', room: roomId }).count).toBe(0)
+    // as written: no close spellings line; nothing close: the usual answer
+    expect(searchRooms(h.ctx.db, 'alice', TZ, { query: 'quarterly report', room: roomId }).text).not.toContain('close spellings')
+    const none = searchRooms(h.ctx.db, 'alice', TZ, { query: 'quarterly reprot banana', room: roomId })
+    expect(none.count).toBe(0)
+    expect(none.text).toContain('No messages the user can see')
+  })
 })
 
 describe('in a chat', () => {
