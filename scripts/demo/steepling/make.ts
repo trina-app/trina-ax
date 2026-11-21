@@ -398,7 +398,7 @@ export function writeSteepling(locale: SteeplingLocale, out: string): string {
   put('fakes/drive.json', JSON.stringify(st.drive, null, 2) + '\n')
   for (const [name, asset] of Object.entries(st.pictures)) put(`fakes/higgsfield/${name}`, fs.readFileSync(path.join(ASSETS, asset)))
   for (const [u, asset] of Object.entries(st.avatars)) put(`avatars/${u}.jpg`, fs.readFileSync(path.join(ASSETS, asset)))
-  // the launch banner as layers (text-free photos + words) for the fake Higgsfield's make_banner (banner/kit.ts)
+  // the launch banner as layers (text-free photos + words) for the server's change_banner_text (banner/kit.ts)
   writeBannerKit(locale, out)
   put('README.md', `# Steepling (${locale}), made by scripts/demo/steepling/make.ts\n\nA fictional company at the end of the scripted story "Mina's first day". Do not edit: run make.ts again. Every person, file and address is made up.\n`)
   return out

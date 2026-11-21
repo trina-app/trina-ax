@@ -7,7 +7,7 @@
 //                 (INBOX, SENT, UNREAD …; default INBOX, or SENT for mail from `me`); attachments by file name
 //   drive.json    { me: { name, email }, files: [{ id, name, mimeType?, parent?, text?, modifiedTime? }] }
 //   higgsfield/   pictures (png, jpg, webp), picked by the words of their file names
-//   higgsfield/banner/   optional: the banner kit (kit.json, text-free photos, fonts) the fake's make_banner draws
+//   higgsfield/banner/   optional: the banner kit (kit.json, text-free photos, fonts) change_banner_text draws (never Higgsfield)
 //                 banners from (server/src/demo/fakes/banner.ts); copied whole
 //
 // These schemas check the same shapes here (the server's own are server/src/demo/fakes/gmail.ts and drive.ts and win

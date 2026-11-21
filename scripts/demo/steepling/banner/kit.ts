@@ -1,7 +1,7 @@
-// Steepling's banner kit for the fake Higgsfield's make_banner (server/src/demo/fakes/banner.ts): the launch banner as
+// Steepling's banner kit for the server's change_banner_text (server/src/demo/fakes/banner.ts): the launch banner as
 // layers, a text-free photo per scene and size (../assets/banner/, made by make-backgrounds.py) plus its words, taken
 // from the scripted story's own banner words (scripts/demo/mina/source/banners/copy.<locale>.json) so the first banner
-// make_banner draws is the story's. Written into the content folder by make.ts:
+// change_banner_text draws is the story's. Written into the content folder by make.ts:
 //
 //   fakes/higgsfield/banner/   kit.json, bg-<scene>-<size>.jpg, fonts/
 //   fakes/higgsfield/<name>.jpg  the other scenes' web-size photos, for generate_image (picked by their names' words)
@@ -12,7 +12,7 @@ import { BannerKitFile } from '../../../../server/src/demo/fakes/banner'
 const OWN = path.join(import.meta.dir, '..', 'assets', 'banner')
 const COPY = path.join(import.meta.dir, '..', '..', 'mina', 'source', 'banners')
 
-/** copy.<locale>.json's HTML (<br>, <em>) as make_banner's words ("\n", *italic*) */
+/** copy.<locale>.json's HTML (<br>, <em>) as change_banner_text's words ("\n", *italic*) */
 export const plainWords = (html: string) => html.replace(/<br\s*\/?>/gi, '\n').replace(/<em>([\s\S]*?)<\/em>/gi, '*$1*').replace(/<[^>]+>/g, '').replace(/&amp;/g, '&')
 
 /** the other scenes' photos as generate_image pictures: `10-`… so the story's `00-` photo stays the default */

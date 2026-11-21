@@ -1,4 +1,4 @@
-// The demo's banner kit (the fake Higgsfield's make_banner, higgsfield.ts): a banner is two layers, a text-free product
+// The demo's banner kit (the server's own change_banner_text, banners.ts and tools/demo-banner.ts): a banner is two layers, a text-free product
 // photo made in advance and its words (headline, the line under it, the offer badge, the button), so a visitor who asks
 // to change the words gets a new banner back instead of "the text is baked into the picture" (owner, 11-21).
 //

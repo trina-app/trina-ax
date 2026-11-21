@@ -151,6 +151,7 @@ const REVIEWED: Record<string, { n: Counts; why: string }> = {
   "server/src/tools/unzip.ts": { n: {"readersOf": 2, "import:readersOf": 1}, why: "groups the folders a zip goes into by who can read there and who can read the zip (readersOf = readersAt: folder rules and folder shares), only to ask the wider-audience card once per audience and to notice a change after a card; every group is still checked by confirmSources" },
   "server/src/tools/save-url.ts": { n: {"privateToMe": 1, "users/": 2, "import:privateToMe": 1}, why: "own() is privateToMe" },
   "server/src/tools/save-connector-file.ts": { n: {"privateToMe": 1, "users/": 2, "import:privateToMe": 1}, why: "as save_url: the default folder is the person's own downloads (the wider-audience card still asks), and without a chat turn's check only a users/<me>/ place that privateToMe says nobody else reads" },
+  "server/src/tools/demo-banner.ts": { n: {"users/": 1}, why: "the demo banner's fallback folder is the person's own (users/<me>), only a place to save; make_file's wider-audience check (confirmSources) still decides, and nothing counts readers by it" },
   "server/src/tools/schedules.ts": { n: {"import:cardSources": 1}, why: "cardSources (readersOf from ai-grants)" },
 }
 

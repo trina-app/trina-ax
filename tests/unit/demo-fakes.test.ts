@@ -224,7 +224,10 @@ describe('Higgsfield', () => {
     expect(r.body.status).toBe('connected')
     carolHiggsfield = r.body.id
     const t = turn('alice', { person: asker('yes') })
-    expect([...t.tools.keys()].filter((n) => n.startsWith('team_higgsfield__')).sort()).toEqual(['team_higgsfield__balance', 'team_higgsfield__generate_image', 'team_higgsfield__generate_video', 'team_higgsfield__job_display', 'team_higgsfield__make_banner', 'team_higgsfield__show_generations'])
+    expect([...t.tools.keys()].filter((n) => n.startsWith('team_higgsfield__')).sort()).toEqual(['team_higgsfield__balance', 'team_higgsfield__generate_image', 'team_higgsfield__generate_video', 'team_higgsfield__job_display', 'team_higgsfield__show_generations'])
+    // a banner's words are the server's own change_banner_text (tools/demo-banner.ts), never a Higgsfield tool; with the
+    // built-in data (no banner kit) it is not offered at all
+    expect(toolRegistry(A.ctx.files).available('change_banner_text')).toBe(false)
     expect((await t.call('team_higgsfield__balance', {})).text).toContain('credits')
     const g = await t.call('team_higgsfield__generate_image', { prompt: 'a pouch of yuzu ginger tea by a frosted window' })
     expect(g.isError).toBe(false)
@@ -232,11 +235,10 @@ describe('Higgsfield', () => {
     // QA TC-6792 / TC-6791: the result says the photo is a prepared one, and that it is saved and shown next
     expect(g.text).toContain(PREPARED_PHOTO)
     expect(g.text).toContain(SAVE_NEXT)
-    for (const n of ['generate_image', 'make_banner']) {
-      const d = HIGGSFIELD_TOOLS.find((x) => x.name === n)!.description
-      expect(d, n).toContain("demo's prepared photos")
-      expect(d, n).toContain('save_connector_file right away')
-    }
+    const desc = HIGGSFIELD_TOOLS.find((x) => x.name === 'generate_image')!.description
+    expect(desc).toContain("demo's prepared photos")
+    expect(desc).toContain('save_connector_file right away')
+    expect(desc).toContain('change_banner_text')
     expect(g.text).toMatch(/mcp-file:[A-Za-z0-9_-]{22}/)
     const job = /"job_id":"(job[a-z0-9]+)"/.exec(g.text)?.[1]
     expect(job).toBeTruthy()
