@@ -71,9 +71,16 @@ Jendela baru terbuka di halaman aplikasi itu sendiri (Notion, Linear …). Masuk
 masuk.** Aplikasinya naik ke **Konektor Anda** dengan status **Terhubung**.
 :::
 
-Untuk tim, admin melakukan hal yang sama di **Admin › Aplikasi terhubung**: buka aplikasinya lalu pilih **Hubungkan untuk
-tim**. Panah di sampingnya menawarkan **Sebagai templat: tiap anggota menghubungkan**. Lalu pilih siapa yang boleh
-memakainya.
+Untuk tim, admin melakukan hal yang sama di **Admin › Aplikasi terhubung**:
+
+1. Pilih logo tim Anda di bagian atas bilah kiri, lalu **Admin › Aplikasi terhubung**, dan buka aplikasinya di bawah
+   **Jelajahi**.
+2. Pilih **Hubungkan untuk tim**. (Panah di sampingnya menawarkan **Sebagai templat: tiap anggota menghubungkan** sebagai
+   gantinya: lihat [Templat](#templat-tiap-anggota-memakai-kuncinya-sendiri).)
+3. Dialog menampilkan alamat aplikasi dan baris **Untuk: Semua orang di tim**. Untuk memilih grup atau orang tertentu,
+   pilih **Ubah** di baris itu.
+4. Pilih **Simpan dan masuk**, lalu masuk di halaman aplikasi dengan akun yang akan dipakai bersama oleh tim dan izinkan
+   aksesnya, seperti di atas. Aplikasinya naik ke **Terhubung**.
 
 ![Halaman Notion di Admin › Aplikasi terhubung: Connect for the team dengan panah untuk pilihan lain, dan Connect Notion for the team with one shared key, or as a template each member connects with their own.](../../images/connect/admin-notion.webp "Notion untuk tim")
 

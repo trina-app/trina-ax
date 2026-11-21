@@ -13,12 +13,35 @@ From 0.4.0, scheduled tasks have their own **Scheduled** page: a row near the to
 
 ## Create a task
 
-Choose **New task**. There are two ways:
+Open **Scheduled** near the top of your Trina list and press **New task** at the top right. A small menu offers two
+ways:
 
 ![The New task menu with Describe it in a chat and From a template](../images/scheduled/new-task.webp "New task")
 
-- **Describe it in a chat.** For example: "Every Monday at 9:00, summarize last week's notes in shared/sales." The AI creates the schedule and shows it.
-- **From a template.** Pick a template, fill in its folders and time, and save.
+### Describe it in a chat
+
+1. Choose **Describe it in a chat**. A new chat opens with "Every weekday at 9:00, " already in the message box.
+2. Finish the sentence in your own words and send it. For example: "Every Monday at 9:00, summarize last week's notes in
+   shared/sales."
+3. The AI shows a card with the task's name, when it repeats and the whole instruction. Check it, then press **Create**.
+   (When the task could send something to a team connection, the card offers **Create, may send to those services** and
+   **Create, never send to connected services** instead.) **Don't create** makes nothing.
+
+The chat says the task was created, and it is now on the **Scheduled** page with its next run.
+
+### From a template
+
+1. Choose **From a template**. The **Create a scheduled task** window opens.
+2. Under **Task**, pick what it does: **Daily file index and organization suggestions** or **Weekly summary**.
+3. Press **Choose a folder** under **Folder to read** and pick the folder it should read.
+4. Check **My report folder** (where the report is saved, in your own folder) and set **Run time** (and **Weekday** for
+   the weekly one). The time is in the team's time zone, shown under it.
+5. Press **Create scheduled task**.
+
+A message says "Scheduled task created.", and the task is in the list. Creating it does not run the AI yet; each run
+uses your AI connection and your usage limit.
+
+![Create a scheduled task: Task, Folder to read with Choose a folder, My report folder, Run time with the time zone under it, and Create scheduled task](../images/scheduled/template.webp "From a template")
 
 ## What a run can do
 

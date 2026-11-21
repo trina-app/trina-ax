@@ -27,8 +27,11 @@ You need someone who knows the system (its admin or developer) for the values be
 
 :::steps
 #### Open the dialog
-In **Admin › Connected apps**, choose **Add one by its address** under Discover. Open **Advanced** and set **Type** to
-**API** and **Sign-in method** to **API key**.
+1. Choose your team's logo at the top of the bar on the left, then **Admin › Connected apps**.
+2. Scroll to the end of **Discover**. Under the list, next to "Not listed?", choose **Add one by its address**. The
+   dialog **Add an app for the team** opens.
+3. Near the bottom of the dialog, open **Advanced** (it is folded). Set **Type** to **API** and **Sign-in method** to
+   **API key**. The dialog then shows the fields below.
 
 #### Fill in the fields
 - **Name**: the name people see in chats, such as "AI PM".
@@ -75,10 +78,11 @@ Usually you add it as a **template**, so each member signs in with their own acc
 
 :::steps
 #### Open the dialog in Trina AX first
-In **Admin › Connected apps**, choose **Add one by its address**, open **Advanced**, set **Who connects** to
-**Each member's own**, **Type** to **API** (or **MCP server**), and **Sign-in method** to
-**Sign in (OAuth)**. For an MCP server, also turn on **Sign in with my own app**. The dialog now shows **Redirect
-address to register in your app at the service** with a copy button. Copy it.
+1. In **Admin › Connected apps**, choose **Add one by its address** (under the **Discover** list).
+2. Open **Advanced** and set **Who connects** to **Each member's own**, **Type** to **API** (or **MCP server**), and
+   **Sign-in method** to **Sign in (OAuth)**. For an MCP server, also turn on **Sign in with my own app**.
+3. The dialog now shows **Redirect address to register in your app at the service**, with a copy button. Copy it with
+   that button, not by selecting the text, and keep the dialog open.
 
 #### Make the app at the service
 In the service's developer console, make an app (it may be called an "OAuth app", "client" or "integration"). Paste

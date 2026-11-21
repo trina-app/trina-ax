@@ -69,8 +69,16 @@ A new window opens on the app's own page (Notion, Linear …). Sign in if it ask
 The app moves up to **Your connectors** with **Connected**.
 :::
 
-For the team, an admin does the same in **Admin › Connected apps**: open the app and choose **Connect for the team**.
-The arrow beside it offers **As a template: each member connects**. Then choose who may use it.
+For the team, an admin does the same in **Admin › Connected apps**:
+
+1. Choose your team's logo at the top of the bar on the left, then **Admin › Connected apps**, and open the app under
+   **Discover**.
+2. Choose **Connect for the team**. (The arrow beside it offers **As a template: each member connects** instead: see
+   [Templates](#templates-each-member-uses-their-own-key).)
+3. The dialog shows the app's address and a line **For: Everyone in the team**. To pick groups or people instead,
+   choose **Change** on that line.
+4. Choose **Save and sign in**, then sign in on the app's page with the account the team will share and allow access,
+   as above. The app moves up to **Connected**.
 
 ![Notion's page in Admin › Connected apps: Connect for the team with an arrow for more choices, and Connect Notion for the team with one shared key, or as a template each member connects with their own.](../images/connect/admin-notion.webp "Notion for the team")
 

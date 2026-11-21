@@ -20,6 +20,17 @@ Trina AX adalah ruang kerja AI untuk perusahaan. Anda menyiapkan Claude Code sat
 
 ![Aplikasi di komputer: bilah kiri dengan Trina, Chats, Projects, Files dan Activity, daftar Trina di sebelahnya, dan Beranda](../images/overview/app.webp "Trina AX di komputer")
 
+## Memakai Trina AX di tempat kerja
+
+Bukan developer? Mulai di sini. Setiap halaman punya langkah bernomor dengan nama tombol yang persis dan gambar layarnya.
+
+:::cards cols=2
+- icon=message-square | [Chat dan proyek](use/chats-and-projects.md) | Bertanya ke AI, bagikan chat seperti file Google Drive, dan simpan satu pekerjaan di sebuah proyek.
+- icon=folder-lock | [File dan izin](use/files-and-permissions.md) | Bagikan file atau folder, dan simpan folder untuk lebih sedikit orang.
+- icon=bell | [Pengaturan dan pencarian](use/settings-and-search.md) | Profil, bahasa, dan notifikasi Anda, serta pencarian ⌘K.
+- icon=clock | [Tugas terjadwal](use/scheduled-tasks.md) | Biarkan AI mengerjakan hal yang sama setiap Senin, dengan beberapa klik.
+:::
+
 ## Jalur yang disarankan untuk pengembang baru
 
 :::steps

@@ -222,6 +222,15 @@ const SHOTS: Shot[] = [
     await blur(p)
   }, crop: DIALOG },
   { file: 'chats/rooms-phone', set: 'acme', path: '/rooms', phone: true, as: JORDAN },
+  // the Channels header's + (Create a channel, New section): your own sections in Chats (docs: Your sections)
+  { file: 'chats/channels-add', set: 'acme', path: '/rooms', as: JORDAN, prepare: click('[data-testid="rooms-channels-add"]'), clip: { x: 0, y: 0, width: 360, height: 520 } },
+  // a conversation's bell at the top right: Notify me about, with Default, All messages, Mentions only and Off
+  { file: 'settings/room-notify', set: 'acme', path: '/rooms', as: JORDAN, prepare: async (p) => {
+    await openRoom('Marketing')(p)
+    // the "ask Trina about this conversation" hint strip under the header would sit behind the menu
+    await p.evaluate((s) => document.querySelector(s)?.remove(), '[data-testid="room-ask-hint"]')
+    await p.locator('[data-testid="room-notify"]').first().click(); await p.waitForTimeout(500)
+  }, clip: { x: 1040, y: 0, width: 400, height: 230 } },
   { file: 'chats/projects-panel', set: 'acme', path: '/projects', as: JORDAN },
   { file: 'chats/project', set: 'acme', path: '/projects', as: JORDAN, prepare: async (p) => { await p.locator('[data-testid="project-card"]').first().click(); await p.waitForTimeout(1200); await restMouse(p) }, crop: 'main', maxHeight: 440 },
   // Share (the brand-voice chat is shared with Priya; the campaign summary is not, and adding Priya shows the check in place)
@@ -243,6 +252,22 @@ const SHOTS: Shot[] = [
     await p.locator('[data-testid="folders-share"]').nth(2).click(); await p.waitForTimeout(1500)
     await blur(p)
   }, crop: DIALOG },
+  // a file's own Share (Files › the file's ⋯ › Share), as the owner: Add people or groups, People with access
+  { file: 'files/file-share', set: 'acme', path: '/files?path=shared', prepare: async (p) => {
+    await p.locator('[data-testid="file-row"]').filter({ hasText: /onboarding/i }).first().locator('[data-testid="file-menu"]').first().click(); await p.waitForTimeout(400)
+    await p.locator('[data-testid="file-share"]').first().click(); await p.waitForTimeout(1200)
+    // the demo runs at 127.0.0.1, so the dialog adds the "this computer only" note under Copy link: people never see it
+    await p.evaluate((s) => document.querySelector(s)?.remove(), '[data-testid="local-link-note"]')
+    await blur(p)
+  }, crop: DIALOG },
+  // a folder's Share with Settings › Limit access turned on: who loses access, before anything is saved
+  { file: 'files/limit-access', set: 'acme', path: '/files?path=shared', prepare: async (p) => {
+    await p.locator('[data-testid="file-row"]').filter({ hasText: /handbook/i }).first().locator('[data-testid="file-menu"]').first().click(); await p.waitForTimeout(400)
+    await p.locator('[data-testid="folder-access-menu"]').first().click(); await p.waitForTimeout(1500)
+    // the switch's own input is visually hidden (a label draws it): pressed as a person's click would
+    await p.evaluate((s) => (document.querySelector(s) as HTMLElement | null)?.click(), '[data-testid="sharing-limit"]'); await p.waitForTimeout(1800)
+    await blur(p)
+  }, crop: DIALOG },
   { file: 'files/by-person', set: 'acme', path: '/admin/folders', prepare: async (p) => {
     await p.getByText(T('folders.tabPerson'), { exact: true }).first().click(); await p.waitForTimeout(800)
     await p.locator('main').getByText('Jordan Lee', { exact: true }).first().click(); await p.waitForTimeout(1000)
@@ -261,10 +286,24 @@ const SHOTS: Shot[] = [
   { file: 'scheduled/list', set: 'acme', path: '/scheduled', as: JORDAN },
   { file: 'scheduled/task', set: 'acme', path: '/scheduled', as: JORDAN, prepare: async (p) => { await p.locator('main a[href^="/scheduled/"]').first().click(); await p.waitForTimeout(1000) }, crop: 'main', maxHeight: 560 },
   { file: 'scheduled/new-task', set: 'acme', path: '/scheduled', as: JORDAN, prepare: async (p) => { await p.getByRole('button', { name: new RegExp(T('scheduled.newTask')) }).first().click(); await p.waitForTimeout(500) }, crop: 'main', maxHeight: 260 },
+  // New task › From a template: the Create a scheduled task dialog
+  { file: 'scheduled/template', set: 'acme', path: '/scheduled', as: JORDAN, prepare: async (p) => {
+    await p.locator('[data-testid="new-task"]').first().click(); await p.waitForTimeout(400)
+    await p.locator('[data-testid="new-task-template"]').first().click(); await p.waitForTimeout(900)
+    // Chromium draws a time field in the computer's region format (on a Mac set to Indonesia: "09.00"), not the page's
+    // language, and no launch option changes that: the field shows its value as plain text instead, as most regions write it
+    await p.evaluate((s) => { for (const el of document.querySelectorAll<HTMLInputElement>(s)) { const v = el.value; el.type = 'text'; el.value = v } }, 'input[type="time"]'); await p.waitForTimeout(300)
+    await blur(p)
+  }, crop: DIALOG },
   { file: 'scheduled/list-phone', set: 'acme', path: '/scheduled', phone: true, as: JORDAN },
   // Usage
   { file: 'usage/mine', set: 'acme', path: '/settings/usage', as: JORDAN, prepare: blur, crop: '[data-testid="settings-dialog"]' },
   { file: 'usage/team', set: 'acme', path: '/admin/usage', crop: 'main' },
+  // Admin › Team settings › Usage limits › Add limit: Applies to, Period, Token limit, Spending limit, When exceeded
+  { file: 'usage/limit-dialog', set: 'acme', path: '/admin/settings#ai-limits', prepare: async (p) => {
+    await p.locator('[data-testid="budget-new"]').first().click(); await p.waitForTimeout(700)
+    await blur(p)
+  }, crop: DIALOG },
   // Admin (the owner)
   { file: 'admin/team-menu', set: 'acme', path: '/', prepare: click('[data-testid="sidebar-team"]'), crop: '[data-testid="team-dropdown"]' },
   { file: 'admin/home', set: 'acme', path: '/admin' },
@@ -306,6 +345,42 @@ const SHOTS: Shot[] = [
   }, crop: '[data-testid="team-settings"]' },
   { file: 'google-own-app/member-reconnect', set: 'mock', path: '/settings/connectors/gmail', as: BOB, crop: '[data-testid="settings-dialog"]', prepare: blur, mock: { googleOwnApp: GOOGLE_OWN, googleApps: [{ app: 'gmail', connect: { userId: 'bob', name: 'Bob', email: 'bob@acme.example.com', status: 'needs_reconnect' } }] } },
   { file: 'google-own-app/row-company-phone', set: 'mock', path: '/admin/connectors/gmail', phone: true, mock: { googleOwnApp: GOOGLE_OWN }, prepare: ownAppRow, crop: '[data-testid="gsign-row"]' },
+  // the hard steps of the set-up and connection pages (docs/site/get-started/team-setup.md, use/google-apps.md,
+  // use/slack.md, use/ai-accounts.md, use/admin.md), from the mock server: Gmail set up with a Google app first
+  { file: 'connect/google-member-connect', set: 'mock', path: '/settings/connectors/gmail', as: BOB, crop: '[data-testid="settings-dialog"]', prepare: blur, mock: { googleApps: [{ app: 'gmail', client: 'app' }] } },
+  { file: 'connect/google-member-connected', set: 'mock', path: '/settings/connectors/gmail', as: BOB, crop: '[data-testid="settings-dialog"]', prepare: blur, mock: { googleApps: [{ app: 'gmail', client: 'app', connect: { userId: 'bob', name: 'Bob', email: 'bob@acme.example.com', status: 'connected' } }] } },
+  { file: 'connect/google-team-row', set: 'mock', path: '/admin/connectors/gmail', mock: { googleApps: [{ app: 'gmail', client: 'app' }] }, prepare: scrollTo('[data-testid="gapp-team-row"]'), crop: '[data-testid="team-settings"]' },
+  { file: 'connect/google-team-dialog', set: 'mock', path: '/admin/connectors/gmail', mock: { googleApps: [{ app: 'gmail', client: 'app' }] }, prepare: async (p) => {
+    await scrollTo('[data-testid="gapp-team-row"]')(p); await p.locator('[data-testid="gapp-team-connect"]').click(); await p.waitForTimeout(600); await blur(p)
+  }, crop: DIALOG },
+  { file: 'setup/tools-step', set: 'mock', path: '/welcome', mock: { slack: { admin: SLACK_NEW }, googleApps: [{ app: 'gmail', client: 'app' }] }, prepare: async (p) => {
+    // 회사 소개, 스킬 and 팀 파일 put off, as the owner would on the way to the Tools step
+    await p.locator('[data-testid="welcome-profile"]').locator('button').filter({ hasText: T('welcome.later') }).first().click(); await p.waitForTimeout(700)
+    await p.locator('[data-testid="skills-later"]').click(); await p.waitForTimeout(700)
+    await p.locator('[data-testid="welcome-later"]').click(); await p.waitForTimeout(1200)
+    await restMouse(p)
+  }, crop: '[data-testid="welcome-tools"]', pad: 16 },
+  { file: 'slack/link-page', set: 'mock', path: `/slack/link?t=${'A'.repeat(43)}`, as: BOB, before: async (p) => {
+    await p.route(/\/api\/slack\/link\/preview$/, (r) => r.fulfill({ contentType: 'application/json', body: JSON.stringify({
+      workspace: 'Acme', slack: { userId: 'U0BOB', name: 'Bob', realName: 'Bob', handle: 'bob' }, me: { name: 'Bob', username: 'bob' },
+      expiresAt: '2099-01-01T00:00:00.000Z', linkedElsewhere: false, emailCheck: 'match', signIn: true, email: 'bob@acme.example.com',
+    }) }))
+  }, crop: '[data-testid="slack-link"]', pad: 8 },
+  { file: 'connect/ai-claude-code', set: 'mock', path: '/admin/engines', prepare: async (p) => {
+    // the team's subscriptions may be shared (Admin › Team settings › Members' own accounts), as the page's notice asks
+    await p.evaluate(async () => { await fetch('/api/admin/credential-settings', { method: 'PATCH', headers: { 'content-type': 'application/json', 'x-mycel-csrf': '1' }, body: JSON.stringify({ sharedSubscriptions: true, acknowledgedSharedSubscriptionRisk: true }) }) }, '')
+    await p.evaluate(() => location.reload(), ''); await p.waitForTimeout(1500)
+    await p.locator('[data-testid="provider-add-claude"]').click(); await p.waitForTimeout(500)
+    await p.locator('[data-testid="kind-anthropic-oauth"]').click(); await p.waitForTimeout(300)
+    await p.locator('[data-testid="credential-label"]').fill('Olga Claude Max')
+    await p.locator('[data-testid="plan-notice-ack"]').first().click()
+    await p.locator('[data-testid="credential-submit"]').click()
+    await p.locator('[data-testid="claude-code"]').waitFor({ timeout: 5000 }); await p.waitForTimeout(400); await blur(p)
+  }, crop: DIALOG },
+  { file: 'admin/invite', set: 'mock', path: '/', prepare: async (p) => {
+    await p.locator('[data-testid="team-menu"]').click(); await p.waitForTimeout(400)
+    await p.locator('[data-testid="team-menu-invite"]').click(); await p.waitForTimeout(900); await blur(p)
+  }, crop: DIALOG },
   // Guests (docs/site/use/guests.md), from the mock server (--mock): the owner Olga, the member Bob, the guests Alex
   // Rivera (the room "Quote prep") and Sam Park (the project "Launch plan")
   { file: 'guests/add-people', path: `/rooms/${QUOTE_ROOM}`, set: 'mock', mock: {}, guests: true, before: quoteMessages, prepare: roomAddList, crop: DIALOG },

@@ -61,14 +61,21 @@ workspace.
 
 ### Mengundang aplikasi ke kanal
 
-Slack hanya memberi tahu Trina AX tentang kanal tempat aplikasi itu berada. Di setiap kanal tempat orang akan bertanya,
-ketik:
+Slack hanya memberi tahu Trina AX tentang kanal tempat aplikasi itu berada, sama seperti untuk aplikasi Slack mana pun. Di
+setiap kanal tempat orang akan bertanya:
+
+1. Buka kanal itu di Slack.
+2. Di kotak pesan, ketik `/invite @trina-ax` lalu tekan Enter. (Slack mungkin menyarankan aplikasinya saat Anda mengetik:
+   pilih aplikasi itu.)
+3. Slack memasang satu baris di kanal yang menyebut aplikasinya sudah ditambahkan. Sejak itu, siapa pun di kanal bisa
+   menyebutnya.
 
 ```
 /invite @trina-ax
 ```
 
-Pesan langsung tidak memerlukan undangan.
+Pesan langsung tidak memerlukan undangan: cari **Trina AX** di bawah **Apps** di bilah samping Slack lalu tulis pesan
+kepadanya.
 
 ## Menautkan akun Anda dan bertanya (semua orang)
 
@@ -82,10 +89,18 @@ catatan minggu lalu di shared/sales".
 
 #### Hubungkan akun Anda pertama kali
 Pertama kali, Trina AX hanya menjawab Anda: "Untuk bertanya ke Trina AX di sini, hubungkan dulu akun Trina AX Anda.
-Tautan ini berlaku sekali, selama 10 menit, dan hanya untuk Anda." Pilih **Hubungkan akun Trina AX**. Trina AX terbuka
-(masuk jika diminta) dan menampilkan kedua akun. **Tautkan** menautkan keduanya jika akun Slack Anda memakai e-mail yang
-sama dengan akun Trina AX Anda. Jika tidak, halaman menjelaskan alasannya dan menawarkan **Masuk dengan Slack untuk
-menautkan** sebagai gantinya.
+Tautan ini berlaku sekali, selama 10 menit, dan hanya untuk Anda."
+
+1. Pilih **Hubungkan akun Trina AX** di pesan itu.
+2. Trina AX terbuka di browser Anda (masuk jika diminta). Halaman **Tautkan akun Slack Anda** menampilkan kedua akun: nama
+   Slack Anda, serta nama dan e-mail Trina AX Anda.
+3. Pastikan akun Slack itu milik Anda lalu pilih **Tautkan**. Halaman menampilkan "Tertaut. Kembali ke Slack dan tanyakan
+   lagi."
+
+**Tautkan** tersedia jika akun Slack Anda memakai e-mail yang sama dengan akun Trina AX Anda. Jika tidak, halaman
+menjelaskan alasannya dan menawarkan **Masuk dengan Slack untuk menautkan** sebagai gantinya.
+
+![Halaman Link your Slack account: Slack: Bob (@bob), Your account: Bob · bob@acme.example.com, peringatan agar hanya menautkan akun Slack Anda sendiri, serta tombol Link dan Cancel](../../images/slack/link-page.webp "Tautkan akun Slack Anda")
 
 #### Atau tautkan dari Trina AX
 **Pengaturan › Konektor** memiliki baris **Slack**: "Masuk dengan akun Slack Anda di … untuk menautkannya." **Tautkan**

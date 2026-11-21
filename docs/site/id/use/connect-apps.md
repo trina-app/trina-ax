@@ -32,8 +32,15 @@ ditampilkan di halaman atau di gambar.
 | Membuat AI bisa memakai sistem milik perusahaan Anda (sebuah API) atau aplikasi yang memerlukan aplikasi masuk Anda sendiri, seperti NAVER WORKS | Admin | **Admin › Aplikasi terhubung** › **Tambahkan lewat alamatnya** | [API perusahaan Anda](api-connections.md) |
 | Memakai file Trina AX Anda dari Claude atau ChatGPT | Anda | **Pengaturan › Trina AX MCP** | [Konektor Trina AX MCP](../../agents/mcp-connector.md) (bahasa Inggris) |
 
-Untuk membuka **Pengaturan**, pilih foto Anda di bagian bawah bilah kiri, lalu **Pengaturan** (di ponsel, tab **Saya**).
-**Admin** ada di menu yang sama untuk owner dan admin.
+### Letak Pengaturan dan Admin
+
+- **Pengaturan** (koneksi Anda sendiri): pilih foto Anda di bagian bawah bilah kiri, lalu **Pengaturan**. Di ponsel,
+  buka tab **Saya**. Pengaturan terbuka di atas halaman, dengan **Konektor** dan **Penyedia AI** di daftarnya di bawah
+  **Koneksi**.
+- **Admin** (koneksi tim, untuk owner dan admin): pilih logo tim Anda di bagian atas bilah kiri, lalu **Admin**. Lihat
+  [Admin](admin.md).
+
+![Menu di bawah foto Anda: nama dan peran Anda, Show me as away, Set your status, Settings, dan Sign out](../../images/settings/account-menu.webp "Menu di bawah foto Anda")
 
 ![Pengaturan › Konektor untuk anggota Acme: Discover (Jelajahi) mencantumkan Google Drive, Notion, Linear, dan aplikasi lain, masing-masing dengan tombol +, dan "Not listed? Ask an admin to add it." di bawah daftar](../../images/connect/member-connectors.webp "Pengaturan › Konektor")
 
