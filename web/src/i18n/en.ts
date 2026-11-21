@@ -1030,7 +1030,7 @@ export const en: Record<MessageKey, string> = {
   "chatFile.restore": "Restore this version",
   "chatFile.viewing": "Version {n} · {by} · {when}",
   "chatFile.backToNewest": "Back to newest",
-  "chatFile.restored": "Version {n} is the newest again. Nothing was deleted.",
+  "chatFile.restored": "Version {n} restored as the newest. Nothing was deleted.",
   "chatFile.savedBeside": "Saved. Someone else saved while you were editing; their version is kept in Versions.",
   'preview.savePdf': 'Save as PDF',
   'preview.savingPdf': 'Making the PDF…',

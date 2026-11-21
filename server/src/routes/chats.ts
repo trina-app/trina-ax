@@ -776,15 +776,14 @@ export const chatsRoutes: RouteModule = {
     // a chat's file edited in place, with versions (chat/chat-file-edit.ts over ChatFiles: the chain's root carriers,
     // seesChat; anyone who may not open it gets the 404 of a missing file). The chat's own files follow the people-shared
     // rule (seesChat), as the read above
-    const keptChat = (c: Context<AppEnv>, auth: AuthInfo, id: string) => {
-      const a = chatOf(rt, c, auth, id, 'view')
+    const keptChat = (auth: AuthInfo, a: ChatAccess) => {
       if (!chatFilesOf(ctx).seesChat(auth.user.id, a.row.id)) fail('not_found')
       return a.row
     }
-    kit.handle(API.chatFileVersions, ({ c, params, auth }) => editState(rt, auth.user.id, keptChat(c, auth, params.id), params.fileId))
-    kit.handle(API.saveChatFile, ({ c, params, body, auth }) => saveText(rt, auth.user.id, keptChat(c, auth, params.id), params.fileId, body.content, body.baseVersion))
+    kit.handle(API.chatFileVersions, ({ c, params, auth }) => editState(rt, auth.user.id, keptChat(auth, chatOf(rt, c, auth, params.id, 'view')), params.fileId))
+    kit.handle(API.saveChatFile, ({ c, params, body, auth }) => saveText(rt, auth.user.id, keptChat(auth, chatOf(rt, c, auth, params.id, 'view')), params.fileId, body.content, body.baseVersion))
     kit.handle(API.restoreChatFileVersion, ({ c, params, auth }) => {
-      const row = keptChat(c, auth, params.id)
+      const row = keptChat(auth, chatOf(rt, c, auth, params.id, 'view'))
       const n = /^[1-9]\d{0,6}$/.test(params.version) ? Number(params.version) : fail('not_found')
       return restoreTo(rt, auth.user.id, row, params.fileId, n)
     })

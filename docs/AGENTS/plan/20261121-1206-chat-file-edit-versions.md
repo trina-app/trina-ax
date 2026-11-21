@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-21 12:06
 - Branch: `feat/chat-file-edit-versions` (on #230's head `4bf6f1a9e`; rebased onto `dev` once #230 merges)
-- Status: in progress
+- Status: done
 - Where: web (FilePanel, the chat's file tiles, the mock), shared API, and thin routes in `server/src/routes/chats.ts`.
   Why: the owner's rule: sharing a chat is for working together, so there is no view-only; people in a chat shared with
   people edit its files together.
@@ -67,4 +67,10 @@ share-chat-files, permission-matrix), the new server test, `web` unit tests, the
 
 ## Result
 
-(at the end)
+Built as planned on #230's head. Thin routes `chatFileVersions`, `saveChatFile`, `restoreChatFileVersion` and
+`?version=` on `chatFile` (routes/chats.ts over `chat/chat-file-edit.ts`); every check is ChatFiles' (root carriers).
+After a save or restore, `tellChat` sends `message.attachments` to each person in the chat with a window open, never
+to someone the chain is hidden from. Re-share in `chat-files-share.ts copyMade`: a copy of the same `from` path gets a
+`putVersion` (audit `chat.files_updated`) and its stored `fromSha256` moves on. Web: FilePanel pencil/editor for chat
+text files, a history row ("Updated by … · Versions (n)"), the list with Open / Restore, the earlier-version bar; the
+tile line in AttachmentView. Not done (P4's side): the AI's own `putVersion` in a turn tells no other window.
