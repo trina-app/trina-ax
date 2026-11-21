@@ -3753,6 +3753,11 @@ export class TurnExec {
         const k = fold(f)
         if (bases.some((b) => b === '' || k.startsWith(b + '/')) && readable(f.split('/'))) out.push(sourceOf(this.rt.db, rules, f))
       }
+      // the person's own folder is no rule folder: a folder above it ("users", the team root) takes it in too, as a
+      // search there does (review of P2: copy_files ["users"] into a shared chat's chat:work/ copied users/<me>/ with no
+      // card and recorded only the name "users")
+      const mine = fold(`users/${me.id}`)
+      if (bases.some((b) => b === '' || b === 'users' || mine.startsWith(b + '/'))) out.push({ type: 'user', id: me.id })
     }
     // a listing or a search of a chat place: the chat's (pushed above), never the team root's readers
     if ((SEARCH_TOOLS.has(tool) || tool === 'list') && isReservedPlace(a.path)) return done()

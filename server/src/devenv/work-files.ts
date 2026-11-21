@@ -129,6 +129,8 @@ export interface WorkEntry { rel: string; kind: 'file' | 'folder' | 'link' | 'ot
 export const WORK_WALK_MAX = 5000
 /** a grep opens text files of at most this size */
 export const WORK_GREP_FILE_MAX = 4 * 1024 * 1024
+/** a grep searches at most this much text in all (the files are copied for ripgrep first) */
+export const WORK_GREP_TOTAL_MAX = 64 * 1024 * 1024
 
 /** The entries directly in `rel` ('' for the folder itself), sorted by name; ToolError for a missing or non-folder. */
 export function workEntries(wf: WorkFolder, rel: string): WorkEntry[] {
