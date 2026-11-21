@@ -194,7 +194,7 @@ test('each fallback keeps the file in room storage, labelled roomOnly; the Files
   expect(await placed('ok-6.txt')).toBe('folder')
   h.ctx.db.query('UPDATE groups SET folder_id = NULL WHERE id = ?').run(group.id)
   expect(await placed('no-folder.txt')).toBe('room')
-  expect(roomHasTeamPlace(h.ctx.db, { kind: 'team', group_id: group.id })).toBe(false)
+  expect(roomHasTeamPlace(h.ctx.db, { id: roomId, kind: 'team', group_id: group.id })).toBe(false)
   h.ctx.db.query('UPDATE groups SET folder_id = ? WHERE id = ?').run(folder.id, group.id)
   void chatName
 

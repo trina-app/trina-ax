@@ -91,9 +91,9 @@ Setiap chat di daftar chat Trina Anda menampilkan paling banyak satu tanda, di u
 | Lingkaran abu-abu | AI sedang menjawab, atau jawabannya sedang menunggu giliran. |
 | Titik, judul tebal | Jawaban baru yang belum Anda buka. |
 
-Membuka chat menghapus titiknya, juga **?** dari jawaban yang gagal atau berhenti, di semua perangkat. Bagian yang dilipat tetap menampilkan tanda terkuat dari chat di dalamnya. Ruang obrolan menampilkan **?** menggantikan jumlahnya selama AI menunggu jawaban Anda di sana.
+Membuka chat menghapus titiknya, juga **?** dari jawaban yang gagal atau berhenti, di semua perangkat. Bagian yang dilipat tetap menampilkan tanda terkuat dari chat di dalamnya. Percakapan menampilkan **?** menggantikan jumlahnya selama AI menunggu jawaban Anda di sana.
 
-Saat tab browser berada di latar belakang, judulnya menghitung chat dan ruang obrolan yang memerlukan Anda, misalnya "(2) Trina". Aplikasi desktop menampilkan angka yang sama di Dock pada Mac, dan sebuah notifikasi ketika kartu muncul atau ketika jawaban yang berjalan lebih dari satu menit selesai saat Anda sedang melihat ke tempat lain; mengekliknya membuka chat itu. Tugas terjadwal hanya mendapat tanda; pertanyaan yang diajukan dari Slack dijawab di sana, sehingga chatnya tidak mendapat titik. **Trina** di bilah kiri (di ponsel, tab **Trina**) menampilkan **?** atau titik ketika ada chat yang memerlukan Anda, **Obrolan** menampilkan **?** selama AI menunggu jawaban Anda di ruang obrolan, dan di ponsel muncul pesan singkat dengan **Buka** di dalam aplikasi.
+Saat tab browser berada di latar belakang, judulnya menghitung chat dan percakapan yang memerlukan Anda, misalnya "(2) Trina". Aplikasi desktop menampilkan angka yang sama di Dock pada Mac, dan sebuah notifikasi ketika kartu muncul atau ketika jawaban yang berjalan lebih dari satu menit selesai saat Anda sedang melihat ke tempat lain; mengekliknya membuka chat itu. Tugas terjadwal hanya mendapat tanda; pertanyaan yang diajukan dari Slack dijawab di sana, sehingga chatnya tidak mendapat titik. **Trina** di bilah kiri (di ponsel, tab **Trina**) menampilkan **?** atau titik ketika ada chat yang memerlukan Anda, **Obrolan** menampilkan **?** selama AI menunggu jawaban Anda di percakapan, dan di ponsel muncul pesan singkat dengan **Buka** di dalam aplikasi.
 
 ## Membagikan chat
 
@@ -188,15 +188,15 @@ Untuk mengajak orang dari luar tim, pilih **Undang tamu** saat Anda menambahkan 
 
 ![Daftar Obrolan: Mentions & threads, Saluran dengan Everyone dan Marketing, lalu Pesan langsung dengan satu obrolan grup dan satu pesan langsung](../../images/chats/rooms-list.webp "Daftar Obrolan")
 
-#### Bertanya ke Trina di samping ruang obrolan
+#### Bertanya ke Trina di samping percakapan
 
-Tombol **✦** di bagian atas ruang obrolan membuka chat samping dengan Trina di sebelahnya. Hanya Anda yang melihat chat ini, dan AI
-menjawab dengan apa yang boleh Anda buka. Jika sebuah jawaban layak dibagikan, **Kirim ke ruang** di bawahnya menaruhnya di ruang obrolan sebagai pesan
-Anda (**Kirim ke utas** jika Anda bertanya tentang satu pesan). Jika sebagian orang di ruang obrolan tidak bisa membuka file yang dipakai
+Tombol **✦** di bagian atas percakapan membuka chat samping dengan Trina di sebelahnya. Hanya Anda yang melihat chat ini, dan AI
+menjawab dengan apa yang boleh Anda buka. Jika sebuah jawaban layak dibagikan, **Kirim** di bawahnya menaruhnya di percakapan sebagai pesan
+Anda (**Kirim ke utas** jika Anda bertanya tentang satu pesan). Jika sebagian orang di percakapan tidak bisa membuka file yang dipakai
 jawaban itu, aplikasi memberi tahu Anda dulu dan menunggu persetujuan Anda.
 
 Saat sebuah utas terbuka, **✦** membuka chat samping di sebelah utas itu, dan keduanya tetap terlihat (di jendela kecil,
-ruang obrolan memberi tempat untuk keduanya). Kotak chat samping lalu bertuliskan **Melihat utas ini**: pertanyaan Anda
+percakapan memberi tempat untuk keduanya). Kotak chat samping lalu bertuliskan **Melihat utas ini**: pertanyaan Anda
 adalah tentang utas itu, dan jawabannya bisa langsung dikirim ke sana. Tekan **✕** di baris itu untuk bertanya tentang
 seluruh percakapan.
 
@@ -204,10 +204,10 @@ seluruh percakapan.
 
 #### Membalas di utas
 
-**Balas di utas** pada sebuah pesan menyimpan percakapan sampingan di bawahnya, sehingga ruang obrolan tetap mudah dibaca. Ruang obrolan menampilkan
-berapa balasan yang ada di sebuah utas; **Kirim juga ke ruang obrolan** menaruh balasan di ruang obrolan juga.
+**Balas di utas** pada sebuah pesan menyimpan diskusi terpisah di bawahnya, sehingga percakapan tetap mudah dibaca. Percakapan menampilkan
+berapa balasan yang ada di sebuah utas; **Kirim juga ke percakapan** menaruh balasan di percakapan juga.
 
-![Utas terbuka di samping ruang obrolan: pesan pertama dan balasannya, dengan kotak untuk membalas](../../images/chats/thread.webp "Sebuah utas")
+![Utas terbuka di samping percakapan: pesan pertama dan balasannya, dengan kotak untuk membalas](../../images/chats/thread.webp "Sebuah utas")
 
 #### Menautkan ke sebuah pesan
 
@@ -294,25 +294,25 @@ Mulai chat dari halaman proyek, atau pindahkan chat ke dalamnya dengan **Pindahk
   bisa membukanya, dan sebuah baris di bawahnya menyebutkan hal itu. Anda memerlukan akses tulis ke folder proyek (tanpanya, **+**
   hanya menawarkan file tim); **✕** sebelum mengirim memindahkan file itu ke sampah.
 
-### Ruang obrolan proyek
+### Percakapan proyek
 
-Setiap proyek tim punya ruang obrolannya sendiri. Orang-orang proyek adalah orang-orang ruang itu, dan filenya adalah
+Setiap proyek tim punya percakapannya sendiri. Orang di percakapan itu adalah orang di proyek, dan filenya adalah
 file proyek: satu daftar orang, satu tempat untuk file.
 
-- **Ruang obrolan** di halaman proyek (di ponsel, baris di bawah nama proyek) membuka ruangnya. Pertama kali, ruang itu
+- **Percakapan** di halaman proyek (di ponsel, baris di bawah nama proyek) membuka percakapannya. Pertama kali, percakapan itu
   dibuat dan diberi nama proyek. Ikon obrolan kecil di baris proyek pada **Proyek** (dengan titik saat ada yang belum
-  dibaca) dan **Ruang obrolan** di atas chat AI proyek juga membukanya.
-- Di atas ruang, tombol folder dengan nama proyek membuka halaman proyek: file dan chat AI-nya. Ruang muncul di
+  dibaca) dan **Percakapan** di atas chat AI proyek juga membukanya.
+- Di atas percakapan, tombol folder dengan nama proyek membuka halaman proyek: file dan chat AI-nya. Percakapan muncul di
   **Saluran**, dengan ikon folder, setelah seseorang menulis di sana.
-- **Siapa yang ada di dalamnya mengikuti proyek.** Menambahkan orang ke proyek menambahkannya ke ruang, dan ia melihat
-  seluruh riwayatnya; mengeluarkan orang dari proyek mengeluarkannya dari ruang. Dialog anggota mengatakannya sebelum
-  Anda menambahkan siapa pun. Untuk mengubahnya, buka nama ruang di atas, lalu **Kelola orang** (bagi yang boleh
-  mengubah orang-orang proyek). **Bisukan** membuat ruang tenang; **Keluar dari proyek** keluar dari proyek dan ruangnya.
+- **Siapa yang ada di dalamnya mengikuti proyek.** Menambahkan orang ke proyek menambahkannya ke percakapan, dan ia melihat
+  seluruh riwayatnya; mengeluarkan orang dari proyek mengeluarkannya dari percakapan. Dialog anggota mengatakannya sebelum
+  Anda menambahkan siapa pun. Untuk mengubahnya, buka nama percakapan di atas, lalu **Kelola orang** (bagi yang boleh
+  mengubah orang-orang proyek). **Bisukan** mematikan notifikasinya; **Keluar dari proyek** keluar dari proyek dan percakapannya.
 - **File yang Anda kirim di sana masuk ke folder Lampiran obrolan proyek**, tempat orang-orang proyek menemukannya di
   halaman File. Orang yang hanya bisa melihat proyek bisa menulis pesan, tetapi tidak bisa menambahkan file.
 - **Menghapus pesan hanya menghapus pesan.** Filenya tetap di Lampiran obrolan proyek; hapus di File jika ingin
   menghilangkannya.
-- Trina di obrolan samping ruang menyimpan dokumen baru di folder proyek, dan chat AI proyek bisa membaca ruang itu.
+- Trina di obrolan samping percakapan menyimpan dokumen baru di folder proyek, dan chat AI proyek bisa membaca percakapan itu.
   Keduanya dilihat orang yang sama, jadi tidak ada pertanyaan soal siapa yang bisa melihat.
 
 ## Menemukan apa saja

@@ -52,7 +52,6 @@ import {
   type EventData, type MemberRow, type MessageRow, type RoomRow,
 } from './store'
 import { roomFilesOf } from './files'
-import { hasRoomStoredFiles, roomHasTeamPlace } from './team-place'
 import { roomFileRefsOf } from './file-refs'
 import { historyRoom, openHistories } from './history'
 import { countedUnreadIn } from './inbox'
@@ -65,6 +64,7 @@ import { activePeople, isHeld, isProjectRoom, followNames, linkedRows, NOT_HELD_
 import { claimGuestRoom, guestsAmong, isGuest, sharesPlace } from '../auth/guests'
 import { afterGuestsLeft, dmPairOk } from './guest-reach'
 import { authorize, visiblePath } from '../policy/authorize'
+import { hasRoomStoredFiles, roomHasTeamPlace } from './team-place'
 
 const services = new WeakMap<AppContext, Rooms>()
 /** Sending: a burst of SEND_BURST messages, then SEND_PER_SECOND a second (per person, all rooms together). More than
@@ -631,6 +631,18 @@ export class Rooms {
     return this.get(userId, roomId)
   }
 
+  /** POST /api/rooms/:id/make-project (rooms/make-project.ts), inside its write: the disabled and deleted accounts still
+   * in this group chat leave it first (the sync's gone-account step, for this room only), so the conversion compares
+   * the people who are there. Returns what to tell afterwards (afterGoneDropped). */
+  dropGoneInTx(roomId: string): { users: string[]; r: { lines: string[]; archived: boolean } } | null {
+    const users = (this.db.query(`SELECT m.user_id FROM room_members m JOIN users u ON u.id = m.user_id WHERE m.room_id = ? AND (u.status <> 'active' OR u.deleted_at IS NOT NULL) ORDER BY m.joined_at, m.user_id`).all(roomId) as { user_id: string }[]).map((r) => r.user_id)
+    if (!users.length) return null
+    return { users, r: this.dropMembers(roomId, users.map((u) => ({ userId: u, actor: u, event: { type: 'left' as const } })), true) }
+  }
+  afterGoneDropped(roomId: string, x: ReturnType<Rooms['dropGoneInTx']>) {
+    if (x) this.afterDrop(roomId, x.users, x.r)
+  }
+
   /** After the 0.5.21 links were settled (rooms/project-room.ts settleLinkedInTx): each member gets the room as they see
    * it now (a project room, or a plain channel without its project), and a converted room its line. */
   private afterSettled(settled: readonly (ReturnType<typeof settleLinkedInTx>)[]) {
@@ -721,15 +733,14 @@ export class Rooms {
   }
 
   /** A room's Files list (rooms/search.ts listRoomFiles): a room of mine (mine(): its history opened first, as on
-   * read), never a project's chat room (its files are the project's, in Files: 404, as for a room I am not in). A
-   * department room whose files go to its folder (rooms/team-place.ts): only the files it still holds itself, and 404
-   * while it holds none (Room.roomFiles). */
+   * read). A room whose files go to a team folder (rooms/team-place.ts: a project's chat room) lists only the files it
+   * still keeps itself (room storage: a conversation's files that stayed when it was made a project), and has no list
+   * while it keeps none (404, as for a room I am not in: its files are the project's, in Files). */
   listFiles(userId: string, roomId: string, o: { cursor?: string; limit?: number }): RoomFilesPage {
     const { room } = this.mine(userId, roomId)
-    if (room.kind === 'group' && isProjectRoom(this.db, room.id)) return fail('not_found')
     if (roomHasTeamPlace(this.db, room)) {
-      if (!hasRoomStoredFiles(this.db, room.id)) return fail('not_found')
-      return listRoomFiles(this.db, userId, roomId, { ...o, roomStoredOnly: true })
+      if (!hasRoomStoredFiles(this.db, room)) return fail('not_found')
+      return listRoomFiles(this.db, userId, roomId, o, { roomStoredOnly: true })
     }
     return listRoomFiles(this.db, userId, roomId, o)
   }

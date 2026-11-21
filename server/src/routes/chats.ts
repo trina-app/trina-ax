@@ -62,6 +62,7 @@ import { safeOpsEnabled } from '../safe-ops/runner'
 import { deleteProjectForGood } from '../chat/project-delete'
 import { dropLinksInTx } from '../rooms/project-link'
 import { roomForViewer } from '../rooms/project-room'
+import { makeProject, makeProjectInfo } from '../rooms/make-project'
 import { dropChatPins, dropUnseenPins, pin, pinsOf, unpin } from '../chat/pins'
 import { chatFoldersChanged, dropChatFolderItems, folderChatFilter } from '../chat/nav-folders'
 import { chatGroups, otherChats } from '../chat/chat-groups'
@@ -1032,6 +1033,21 @@ export const chatsRoutes: RouteModule = {
       markTeamShares(db, auth.user.id, 'created', [id])
       afterAccessChange(ctx, before, { actor: auth.user.id, target: made.path, created: [made.path] })
       return projectOut(rt.store.projectRow(id)!, p, true, auth.user.id)
+    })
+
+    // "Make it a project" on a conversation (rooms/make-project.ts; shared/src/api/rooms.ts): what the confirm shows, and
+    // the conversion itself, answered with the new project and the room as the caller sees them. Anyone not in the room
+    // (admins included) and guests: 404; not a group chat, archived or a project room already: 409 not_convertible
+    kit.handle(API.makeProjectInfo, ({ c, params, query, auth }) => {
+      c.header('Cache-Control', 'no-store')
+      // asked again as the name is typed: the dry run's limit per person (QA TC-1408's rule), a burst beyond it 429
+      previewLimit(ctx, auth.user.id)
+      return makeProjectInfo(ctx, principal(ctx, auth), params.id, query.name, c.get('locale'))
+    })
+    kit.handle(API.makeProject, ({ c, params, body, auth }) => {
+      const p = principal(ctx, auth)
+      const { projectId } = makeProject(ctx, p, params.id, body, c.get('locale'))
+      return { project: projectOut(rt.store.projectRow(projectId)!, p, true, auth.user.id), room: roomsOf(ctx).get(auth.user.id, params.id) }
     })
 
     // the dry run of who would see a project (chat/project-access.ts): a new one (whoever may make team projects), or a

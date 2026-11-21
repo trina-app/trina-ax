@@ -1,10 +1,17 @@
-// Where a file sent from the computer in a room goes (docs/AGENTS/plan/20261121-0619-structure-polish.md B): a
-// project's chat room puts it in the project's Chat attachments folder (docs/decisions/20261120-project-is-room.md D3),
-// and a department's team room (kind 'team', group_id) in `<group folder>/Chat attachments/`, both with a
-// room_file_refs row (rooms/files.ts createInTeamFolder). Any other room, and a team room whose folder is not a fit,
-// keeps it in room storage (.system/rooms), as before. A team room never refuses a file for its folder: it falls back.
+// Does a room keep its files in a team folder (docs/AGENTS/plan/20261121-0619-structure-polish.md A and B)? A file
+// sent there from the computer goes to that folder's Chat attachments (a room_file_refs row), and a file that stays in
+// room storage there is the exception: "Only in this conversation" (RoomFile.roomOnly), listed in the room's Files list
+// (Room.roomFiles), which otherwise has no list of its own. The one place this is decided:
+//   - a project's chat room (rooms/project-room.ts): yes;
+//   - a department's team room: while its group has a folder that is not in the trash (groupFolderOf);
+//   - every other room: no, its files are the room's own.
+// Open moves (rooms/file-moves.ts): a file still moving to the project's folder is neither "only in this conversation"
+// nor in the room's Files list; it is on its way.
 //
-// A team room's upload stays in room storage (teamPlaceFor answers null) when
+// Where a file sent from the computer in such a room goes (teamPlaceFor, rooms/files.ts createInTeamFolder): a
+// project's chat room puts it in the project's Chat attachments folder (docs/decisions/20261120-project-is-room.md D3),
+// a department's team room (kind 'team', group_id) in `<group folder>/Chat attachments/`. A team room never refuses a
+// file for its folder: its upload stays in room storage (teamPlaceFor answers null) when
 //   - the group has no folder, its folder is not there (deleted, in the trash: its row is parked under .system/), or
 //     safe operations are on;
 //   - the uploader may not write the Chat attachments folder (or make it): a read-only person rule;
@@ -12,31 +19,71 @@
 //     above, another group with an active member outside the room, a person outside the room. Only the rules on the
 //     walk from Chat attachments up to the nearest limited folder (the root, `groups/`, the group folder) are read,
 //     never every account; the owner and admins read every folder outside users/ and are not counted (accepted by the
-//     owner on 2026-11-21: they can open a department room's new uploads in Files);
+//     owner on 2026-11-21: they can open a department room's new uploads in Files). The same spirit as the file mover's
+//     'wider' (rooms/file-moves.ts: Chat attachments read by nobody beyond the project's people);
 //   - Chat attachments was narrowed: a room member cannot read it;
 //   - the bytes are on the download-only list (the caller: they never become a team file).
 // A copy fromTeamFile makes (answer-share, a phone's team pick) is room storage by its caller (o.roomStorage).
 import type { Database } from 'bun:sqlite'
 import { PRODUCT } from '@mycel/shared'
-import { isFileListName } from '@mycel/shared/api'
 import type { AppContext } from '../context'
 import { personLocale } from '../files/media-text'
 import { atLeast, type Principal, type RuleSet } from '../policy/access'
-import { instructionFile } from '../team-files/ai-trash'
 import { FileError, httpError } from '../team-files/errors'
 import { chatAttachmentsPlace, sharedUploadPlace, type SharedUploadPlace, type UploadFiles } from '../uploads/shared-chat'
-import { projectRoomLink } from './project-room'
+import { isProjectRoom, projectRoomLink } from './project-room'
 import type { RoomRow } from './store'
+
+/** Does this room keep its files in a team folder (so a room-stored file there is the exception)? */
+export function roomHasTeamPlace(db: Database, room: Pick<RoomRow, 'id' | 'kind'> & { group_id?: string | null }): boolean {
+  if (room.kind === 'group') return isProjectRoom(db, room.id)
+  if (room.kind !== 'team') return false
+  const groupId = room.group_id !== undefined ? room.group_id : (db.query('SELECT group_id FROM rooms WHERE id = ?').get(room.id) as { group_id: string | null } | null)?.group_id ?? null
+  return groupFolderOf(db, { kind: 'team', group_id: groupId }) !== null
+}
+
+/** SQL on room_files `f`: no open move of the file (rooms/file-moves.ts OPEN_STATES). */
+export const NOT_MOVING_SQL = "NOT EXISTS (SELECT 1 FROM room_file_moves mv WHERE mv.room_file_id = f.id AND mv.state IN ('pending', 'placing', 'cleanup'))"
+/** SQL on room_files `f`: kept in room storage (no room_file_refs row). */
+export const ROOM_STORED_SQL = 'NOT EXISTS (SELECT 1 FROM room_file_refs rr WHERE rr.room_file_id = f.id)'
+
+/** Room.roomFiles: a room with a team place that still holds sent files of its own (room storage, on a message that is
+ * not deleted and is for the whole room, and not on its way to the team folder). */
+export function hasRoomStoredFiles(db: Database, room: Pick<RoomRow, 'id' | 'kind'>): boolean {
+  if (!roomHasTeamPlace(db, room)) return false
+  return !!db.query(`SELECT 1 FROM room_files f INDEXED BY room_files_by_room JOIN room_messages m ON m.id = f.message_id AND m.room_id = f.room_id
+    WHERE f.room_id = ? AND f.message_id IS NOT NULL AND m.deleted_at IS NULL AND m.event IS NULL AND m.visibility = 'room' AND ${ROOM_STORED_SQL} AND ${NOT_MOVING_SQL} LIMIT 1`).get(room.id)
+}
+
+/** Room.filesMoving: the room has files still moving to its project's Chat attachments. */
+export function filesMovingIn(db: Database, roomId: string): boolean {
+  return !!db.query("SELECT 1 FROM room_file_moves WHERE room_id = ? AND state IN ('pending', 'placing', 'cleanup') LIMIT 1").get(roomId)
+}
+
+/** The room-stored files among `ids` that are "Only in this conversation" in their room (RoomFile.roomOnly): not on
+ * their way. `roomOf`: each id's room. */
+export function roomOnlyAmong(db: Database, rows: readonly { id: string; room_id: string }[], kindOf: (roomId: string) => RoomRow['kind'] | null): Set<string> {
+  const out = new Set<string>()
+  const placed = new Map<string, boolean>()
+  const want: string[] = []
+  for (const r of rows) {
+    let yes = placed.get(r.room_id)
+    if (yes === undefined) { const k = kindOf(r.room_id); yes = !!k && roomHasTeamPlace(db, { id: r.room_id, kind: k }); placed.set(r.room_id, yes) }
+    if (yes) want.push(r.id)
+  }
+  if (!want.length) return out
+  for (let i = 0; i < want.length; i += 500) {
+    const part = want.slice(i, i + 500)
+    const moving = new Set((db.query(`SELECT room_file_id FROM room_file_moves WHERE state IN ('pending', 'placing', 'cleanup') AND room_file_id IN (${part.map(() => '?').join(',')})`).all(...part) as { room_file_id: string }[]).map((x) => x.room_file_id))
+    for (const id of part) if (!moving.has(id)) out.add(id)
+  }
+  return out
+}
 
 /** Where an upload in this room goes: the Chat attachments folder (team-relative) and whether it is there yet. */
 export interface TeamPlace extends SharedUploadPlace { via: 'project' | 'group' }
 
 const filesOf = (ctx: AppContext): UploadFiles => ({ fx: ctx.files.fx, rules: () => ctx.files.rules(), principal: (id) => ctx.files.principal(id) })
-
-/** A name a file placed by a room upload never takes: an instruction file's (CLAUDE.md, AGENTS.md, GEMINI.md, SKILL.md)
- * or the file list's (_FILES.md), in any case; placeUpload gives the next free one ("CLAUDE (2).md"). */
-export const reservedUploadName = (name: string): boolean =>
-  instructionFile(name) || isFileListName(name.split('/').at(-1) ?? '')
 
 /** A team room's group folder path while the group has one that is not in the trash (a trashed folder's row is parked
  * under .system/); else null. The database only: teamPlaceFor checks the disk. */
@@ -45,20 +92,6 @@ export function groupFolderOf(db: Database, room: Pick<RoomRow, 'kind' | 'group_
   const p = (db.query('SELECT f.path FROM groups g JOIN folders f ON f.id = g.folder_id WHERE g.id = ?').get(room.group_id) as { path: string } | null)?.path
   if (!p || p.split('/')[0] === PRODUCT.systemDir) return null
   return p
-}
-
-/** Does this room's computer upload normally go to a team folder (a team room whose group has a folder): its
- * room-stored files are then "Only in this conversation" (RoomFile.roomOnly), its Files list shows only those
- * (Room.roomFiles). A project's chat room: rooms/project-room.ts (PR 1 of the plan). */
-export function roomHasTeamPlace(db: Database, room: Pick<RoomRow, 'kind' | 'group_id'>): boolean {
-  return groupFolderOf(db, room) !== null
-}
-
-/** The room still holds files of its own: a sent file (its message not deleted) in room storage. */
-export function hasRoomStoredFiles(db: Database, roomId: string): boolean {
-  return !!db.query(`SELECT 1 FROM room_files f JOIN room_messages m ON m.id = f.message_id AND m.room_id = f.room_id
-    WHERE f.room_id = ? AND f.message_id IS NOT NULL AND m.deleted_at IS NULL AND m.event IS NULL
-      AND NOT EXISTS (SELECT 1 FROM room_file_refs rr WHERE rr.room_file_id = f.id) LIMIT 1`).get(roomId)
 }
 
 /**
