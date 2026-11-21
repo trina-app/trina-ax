@@ -23,7 +23,7 @@ import { copyWorkFile, workRel } from '../../server/src/devenv/work-files'
 import { readScope } from '../../server/src/chat/read-scope'
 import { TurnFiles } from '../../server/src/files/service'
 import { LOOK_AND_HAND_OVER_RULE } from '../../server/src/chat/prompt'
-import { srtShellDescription } from '../../server/src/devenv/tool'
+import { changeLines, srtShellDescription } from '../../server/src/devenv/tool'
 
 setDefaultTimeout(90_000)
 const PLAN: DevEnvPlan = { format: 1, plan: 'team', maxRunning: 3, cpus: 1, memoryMiB: 1024, pids: 256, diskGiB: 4, network: 'open' }
@@ -244,6 +244,14 @@ describe('the words and the helpers', () => {
     expect(d).toContain('with read')
     expect(d).toContain('save_work_file')
     expect(d).not.toContain('copy a result the person needs into their own folder')
+  })
+
+  test('a project command\'s new file comes with its app link (so the answer can link it; the API engine keeps only links a tool gave); /tmp is said to be the command\'s own', () => {
+    const c = { path: 'projects/QA P/out/kickoff.mp4', action: 'create' as const, before: null, after: 'x', size: 1 }
+    expect(changeLines([c], 30, true)).toContain('[kickoff.mp4](/files/view?path=projects%2FQA%20P%2Fout%2Fkickoff.mp4)')
+    expect(changeLines([{ ...c, action: 'delete' }], 30, true)).not.toContain('/files/view')
+    expect(changeLines([c])).not.toContain('/files/view')
+    expect(srtShellDescription(false)).toContain('/tmp and $TMPDIR can be the command')
   })
 
   test('copyWorkFile: a folder on the way swapped for a link, a hard link and a file over the limit are refused; a plain file is streamed with its hash', async () => {

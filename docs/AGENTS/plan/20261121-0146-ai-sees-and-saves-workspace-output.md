@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-21 01:46 (revised after review, same day)
 - Branch: `fix/ai-sees-and-saves-workspace-output`
-- Status: in progress (PR1 of 2; reviewed twice, owner OK)
+- Status: PR1 done (PR2 next)
 - Where: server (file read, one new chat tool, chat files, dev environment tool text, prompt). Why: the AI's own tools
   (docs/REPOSITORY-RULES.md)
 - Version impact: minor. `read` takes a new kind of path, and there is one new tool (`save_work_file`)
@@ -219,4 +219,7 @@ card, a wider one) in a personal chat, and as a file of the chat in a shared cha
 
 ## Result
 
-(at the end)
+PR1 built as in "After the second review". Two additions from QA in a shared project chat: box_shell's result gives
+each file a command made in the project folder its app link (the API engine's link guard keeps only links a tool
+gave, so the answer could not link a file the command made), and the tool text says /tmp and $TMPDIR can be the
+command's own (the AI rendered to /tmp, then could neither copy nor read it). PR2 (shared-chat attach) follows.

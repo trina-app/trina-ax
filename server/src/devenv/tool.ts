@@ -26,6 +26,7 @@ import { mayUseDevEnv, teamSetting, type ProjectRef } from './setting'
 import { networkNow, noteSharedReads, othersInProject, personNetNow, reachSupported, reachTargets, runCommand, runNameInUse, sharedLockedTops, sharedLogKey, sharedVisible, spaceOf, startServer, submitJob, teamHosts, type SharedRun, type Space } from './srt/runner'
 import { grantUserSite, siteAllowed } from './sites'
 import { DEV_ENV_MAX_USER_SITES, siteFromInput, userSiteProblem } from '@mycel/shared'
+import { FILE_VIEW_PATH } from '@mycel/shared/api'
 import path from 'node:path'
 import { changesByOthers, markSeen, withChangeWindow, type ForeignChange } from './track'
 import type { Change } from './snapshot'
@@ -84,6 +85,7 @@ export const srtShellDescription = (preview: boolean) => 'Run a shell command in
   + devServerText(preview)
   + 'For a long command (a render, a large build) use job=true: the call returns at once; if other jobs of the team run, it waits in a queue. '
   + 'Read its log with tail -n 20 $TRINA_LOGS/<log_name>.log and do not wait for it in a loop. When a job ends the person gets a notice, and your next box_shell call in this chat gives you its exit code and the end of its log. '
+  + '/tmp and $TMPDIR can be the command\'s own and gone when it ends, and read cannot open them: make a result in the folder the command starts in. '
   + 'One command at a time per folder; default time limit 120 s; a long stdout or stderr comes back as its first and its last 16 KiB (the middle is left out, and the result says so): to search all of a long output, send it to a file (cmd > $TRINA_LOGS/out.log 2>&1) and grep or tail that. '
   + 'When the dev environment of the team is full, a command waits for a free slot (at most 5 minutes) and then runs; the person sees its place in line.'
 /** The tool text in a shared chat (docs/decisions/20261118-devenv-shared-chats.md): everyone in the chat sees the
@@ -102,6 +104,7 @@ export const sharedShellDescription = (project: boolean) => 'Run a shell command
   + devServerText(previewReady())
   + 'For a long command (a render, a large build) use job=true: the call returns at once; if other jobs of the team run, it waits in a queue. '
   + 'Read its log with tail -n 20 $TRINA_LOGS/<log_name>.log and do not wait for it in a loop. When a job ends, the next box_shell call in this chat gives you its exit code and the end of its log. '
+  + '/tmp and $TMPDIR can be the command\'s own and gone when it ends, and read cannot open them: make a result in the folder the command starts in. '
   + 'One command at a time per folder; default time limit 120 s; a long stdout or stderr comes back as its first and its last 16 KiB (the middle is left out, and the result says so): to search all of a long output, send it to a file (cmd > $TRINA_LOGS/out.log 2>&1) and grep or tail that. '
   + 'When the dev environment of the team is full, a command waits for a free slot (at most 5 minutes) and then runs; the person sees its place in line.'
 
@@ -120,9 +123,13 @@ export function boxCwd(cwd: string | undefined): string | null {
   return c
 }
 
-export function changeLines(changes: Change[], max = 30): string {
+/** a team file's link in the app (chat/prompt.ts SOURCE_LINK_RULE's form): the AI links what a command made, and the API
+ * engine's link guard (engine/api-links.ts) lets a link through only when a tool result holds it */
+const fileLink = (p: string) => `[${p.split('/').pop()}](${FILE_VIEW_PATH}?path=${encodeURIComponent(p)})`
+
+export function changeLines(changes: Change[], max = 30, links = false): string {
   const verb = { create: 'created', update: 'changed', delete: 'deleted' } as const
-  const lines = changes.slice(0, max).map((c) => `  ${verb[c.action]} ${c.path}`)
+  const lines = changes.slice(0, max).map((c) => `  ${verb[c.action]} ${c.path}${links && c.action !== 'delete' ? ` (link: ${fileLink(c.path)})` : ''}`)
   if (changes.length > max) lines.push(`  ... and ${changes.length - max} more`)
   return lines.join('\n')
 }
@@ -199,7 +206,7 @@ ${clip(h.redact(hideProxyLogin(e.stdout)))}` : '--- stdout: empty ---')
   if (e.stderr) parts.push(`--- stderr ---
 ${clip(h.redact(hideProxyLogin(e.stderr)))}`)
   if (e.truncated) parts.push('(output cut)')
-  if (w.changes.length) parts.push(`Files changed by this command (${w.changes.length}):\n${changeLines(w.changes)}`)
+  if (w.changes.length) parts.push(`Files changed by this command (${w.changes.length}):\n${changeLines(w.changes, 30, true)}`)
   if (w.background.length) parts.push(`Files changed in the background since the last command (${w.background.length}):\n${changeLines(w.background)}`)
   if (w.conflicts.length) parts.push(`Someone saved some of these files while the command ran; their version is kept as: ${w.conflicts.join(', ')}`)
   const failed = e.code !== 0 || (e.signal !== '' && !background)
