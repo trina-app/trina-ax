@@ -232,8 +232,9 @@ function ProjectRow({ project: p, selected, meta, onMembers, onGone, fold, menti
   )
 }
 
-/** A round count of unread mentions of me ("1", "2"), who mentioned me on hover and for a screen reader */
-function MentionPill({ mention: m, testId }: { mention: ChatMention; testId: string }) {
+/** A round count of unread mentions of me ("1", "2"), who mentioned me on hover and for a screen reader; also on a
+ * project page's chat rows (pages/Projects.tsx ProjectChatRow), the same count */
+export function MentionPill({ mention: m, testId }: { mention: ChatMention; testId: string }) {
   const t = useT()
   const by = m.names.length ? t('projectsPanel.fold.by', { names: m.names.slice(0, 3).join(', ') }) : ''
   const label = [t('projectsPanel.fold.mentions', { n: m.count }), by].filter(Boolean).join('. ')
