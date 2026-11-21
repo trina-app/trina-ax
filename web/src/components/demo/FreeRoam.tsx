@@ -6,6 +6,7 @@
 //   Mina at Steepling, a made-up company. Try anything." with "About 8 questions left" (lib/freeRoam.ts
 //   demoQuestionsLeft) and 2-3 suggestions; a tap SENDS one as a new chat, as the
 //   scripted demo's questions on Home do (DemoQuestions), since the bar is on every screen and a box to fill may not be.
+//   A quiet "Practice connections" label (the full sentence in its tooltip) says Gmail, Drive and Higgsfield are the demo's.
 //   From 80 % of the limit one quiet line "About 20% of your demo AI left"; at the limit the suggestions go.
 // - DemoLimitDialog: "You've used this demo's AI", the app's own Modal (a bottom sheet on phones), Start free / Look around.
 // - DemoLimitNotice: under an AI message box once the limit is used up (the box does not send): one line and Start free.
@@ -23,6 +24,7 @@ import { useChats } from '../../store/chats'
 import { useDemo } from '../../store/demo'
 import { useMe } from '../../store/session'
 import { CalmNotice } from '../LoadError'
+import { Tooltip } from '../Tooltip'
 import { Button, LinkButton, Modal } from '../ui'
 
 /** the demo's one person (the gate signs the visitor in as them) */
@@ -59,6 +61,14 @@ export function FreeRoamBar({ info }: { info: DemoInfo }) {
           // how much they can still ask, in questions (never tokens): for visitors who skipped the gate's landing too
           <>{' '}<span className="ml-0.5 whitespace-nowrap font-normal text-muted" data-testid="free-roam-left">{t('demo.free.left', { n: left })}</span></>
         )}
+        {/* Gmail, Drive and Higgsfield are the demo's fakes: said up front, quietly (a short label, the whole sentence on hover and
+            focus and to screen readers), never a card */}
+        {' '}
+        <Tooltip label={t('demo.free.practiceTip')} description>
+          <span tabIndex={0} className="ml-0.5 whitespace-nowrap rounded font-normal text-muted underline decoration-dotted underline-offset-2 outline-none focus-visible:ring-2 focus-visible:ring-accent" data-testid="free-roam-practice">
+            {t('demo.free.practice')}
+          </span>
+        </Tooltip>
       </span>
       {chips.length > 0 && (
         // the chips wrap, on phones too: at most three (lib/freeRoam.ts SUGGESTIONS_MAX), so two short rows at most. A row

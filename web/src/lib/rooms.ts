@@ -33,10 +33,11 @@ export const roomFilesButtonShown = (room: Partial<Pick<Room, 'project' | 'proje
 /** A project room's project, as I can open it now; null for every other room (and for a member who cannot open it). */
 export const projectRoomOf = (room: Partial<Pick<Room, 'project'>>): NonNullable<Room['project']> | null => (room.project?.room ? room.project : null)
 
-/** Shown in the 대화 lists: a project's chat room only once it has a message (until then it is reached from the
- * project), or while it is the room on screen. */
-export const listedRoom = (room: Partial<Pick<Room, 'project' | 'projectRoom' | 'lastMessage' | 'id'>>, openId: string | null = null): boolean =>
-  !isProjectRoom(room) || !!room.lastMessage || room.id === openId
+/** Shown in the 대화 lists: a project's chat room once it has a message (until then it is reached from the project), or
+ * at once when it was made on purpose (Room.listed: a conversation made a project, "New project with"), or while it is
+ * the room on screen. */
+export const listedRoom = (room: Partial<Pick<Room, 'project' | 'projectRoom' | 'lastMessage' | 'listed' | 'id'>>, openId: string | null = null): boolean =>
+  !isProjectRoom(room) || !!room.lastMessage || !!room.listed || room.id === openId
 
 /** The room's own name when it has one; else team: the group's name; all: the app's word for everyone; dm: the other
  * person (peers[0]); group: the other members (the first TITLE_NAMES of peers, then how many more). */
@@ -331,7 +332,7 @@ export function totalUnread(rooms: (CountedRoomFields & Partial<Pick<Room, 'hidd
 
 /** The rooms my lists show: the ones I did not hide (a project's chat room once it has a message: listedRoom), and the
  * room on screen whatever it is. */
-export const shownInLists = <R extends Pick<Room, 'id'> & Partial<Pick<Room, 'hidden' | 'project' | 'projectRoom' | 'lastMessage'>>>(rooms: R[], openId: string | null = null): R[] =>
+export const shownInLists = <R extends Pick<Room, 'id'> & Partial<Pick<Room, 'hidden' | 'project' | 'projectRoom' | 'lastMessage' | 'listed'>>>(rooms: R[], openId: string | null = null): R[] =>
   rooms.filter((r) => (!r.hidden || r.id === openId) && listedRoom(r, openId))
 
 type Pinnable = Pick<Room, 'id'> & Partial<Pick<Room, 'pinnedAt'>>

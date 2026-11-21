@@ -148,7 +148,10 @@ export function availableMemoryMiB(): number | null {
 /** one answer's expected memory: the plan's per-turn high mark, else TURN_MEMORY_ESTIMATE_MIB */
 export function turnMemoryEstimateMiB(): number {
   const p = currentPlan()
-  return p ? planLimits(p).turnHighMiB : TURN_MEMORY_ESTIMATE_MIB
+  const high = p ? planLimits(p).turnHighMiB : TURN_MEMORY_ESTIMATE_MIB
+  // a plan without its memory figures (an older or partial plan record) gives NaN: then the estimate, never an
+  // admission of NaN, which would keep every answer queued on Linux
+  return Number.isFinite(high) && high > 0 ? high : TURN_MEMORY_ESTIMATE_MIB
 }
 /** How many answers may run now, given `running` already do and the concurrency `limit`: fewer than the limit when
  * the memory left would not hold another answer. Never below the ones running (lowering never stops a turn), and one

@@ -23,7 +23,7 @@ import { parseStored, unescapeMarkdown } from './apps/card'
 import { iconsOf } from './apps/icon'
 import { linkPreviewsFor, prepareLinkPreviews, type LinkPrep } from './link-previews'
 import { eventProjectsFor, projectForViewer, type EventProjectView } from './project-link'
-import { isProjectRoom, NOT_HELD_SQL } from './project-room'
+import { isListedProjectRoom, isProjectRoom, NOT_HELD_SQL } from './project-room'
 import { filesMovingIn, hasRoomStoredFiles, roomOnlyAmong } from './team-place'
 import { answerFilePaths, RoomEventLine, ROOM_QUOTE_EXCERPT_MAX, ROOM_REACTION_NAMES, type Room, type RoomFile, type RoomKind, type RoomLastMessage, type RoomMember, type RoomMessage, type RoomQuote, type RoomReaction, type RoomThreadSummary, type UserRef, RoomAppKind, RoomAppPreset, type RoomAppRef } from '@mycel/shared/api'
 
@@ -664,6 +664,7 @@ export function roomOut(db: Database, room: RoomRow, viewer: MemberRow, prefs: P
   // project are still moving (rooms/file-moves.ts)
   const roomFiles = (projectRoom || room.kind === 'team') && hasRoomStoredFiles(db, room)
   const filesMoving = projectRoom && filesMovingIn(db, room.id)
+  const listed = projectRoom && isListedProjectRoom(db, room.id)
   return {
     id: room.id, kind: room.kind, name, canRename: !projectRoom && mayRename(db, room, viewer.user_id), managerId: projectRoom ? null : managerOf(db, room), canManageApps: mayManageApps(db, room, viewer.user_id), groupId: room.kind === 'team' ? room.group_id : null, memberCount,
     peers,
@@ -681,6 +682,7 @@ export function roomOut(db: Database, room: RoomRow, viewer: MemberRow, prefs: P
     ...(projectRoom ? { projectRoom: true as const } : {}),
     ...(roomFiles ? { roomFiles: true as const } : {}),
     ...(filesMoving ? { filesMoving: true as const } : {}),
+    ...(listed ? { listed: true as const } : {}),
   }
 }
 

@@ -15,6 +15,7 @@
 // and name above it, and edit, regenerate and "대화방에 보내기" are only on what I asked myself. An answer hidden from me
 // there (Message.withheld: it used something I cannot open, and I did not see the chat then) is one faint line in its
 // place, the rooms' words ("볼 수 없는 자료를 참고한 답이라 가려졌어요"), with only its branch switch.
+import { tileUpdated, updatedLine } from '../../lib/chatFileVersions'
 import clsx from 'clsx'
 import { AlertTriangle, BookmarkPlus, Check, ChevronDown, ChevronLeft, ChevronRight, CirclePause, Copy, History, Info, Loader2, MessageSquareReply, MessageSquareShare, MessagesSquare, Paperclip, Pencil, Play, RotateCcw, Shapes, Square } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
@@ -187,6 +188,7 @@ export function AttachmentView({ a, align = 'end', chatId }: { a: Attachment; al
       </>
     )
   const ext = typeOf(a.name)
+  const updated = kept ? tileUpdated(a) : null
   const body = (
     <>
       <span className="line-clamp-2 font-medium [overflow-wrap:anywhere]">{a.name}</span>
@@ -196,6 +198,8 @@ export function AttachmentView({ a, align = 'end', chatId }: { a: Attachment; al
         {formatSize(a.size, locale)}
         {team && a.changed && <span className="text-warn">{t('attach.changed')}</span>}
         {team && a.moved && !a.changed && <span>{t('attach.moved')}</span>}
+        {/* a chat's file changed since it was sent (a new version): who, and when */}
+        {updated && <span className="basis-full truncate" data-testid="attachment-updated">{updatedLine(t, locale, updated)}</span>}
       </span>
     </>
   )

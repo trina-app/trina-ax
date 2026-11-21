@@ -6,6 +6,7 @@
 //   agreement, saw it could not change it, and asked "shall I make a Word copy?" instead of making it (EDIT-07).
 // Each note once a turn, so a batch of edits (edit_files runs each file as an edit) does not repeat it.
 import type { Locale } from '@mycel/shared/api'
+import { isReservedPlace } from '@mycel/shared/places'
 import { SCREEN } from '../policy/refusal'
 
 export type FileNoteKind = 'version' | 'hangul'
@@ -22,6 +23,8 @@ export const hangulReadNote = () =>
 export function fileNote(o: { name: string; isError: boolean; args: unknown; text?: string; hangulOff: () => boolean; makeFile: boolean }): FileNoteKind | null {
   if (o.isError) return null
   const filePath = (o.args as { file_path?: unknown } | null)?.file_path
+  // a chat file's new version says where its versions are itself (chat/chat-file-write.ts): not the Files screen's
+  if (typeof filePath === 'string' && isReservedPlace(filePath)) return null
   if (o.name === 'edit' && o.text?.startsWith('Edited ')) return 'version'
   if (o.name === 'write' && o.text?.startsWith('Updated ')) return 'version'
   if (o.name === 'read' && o.makeFile && typeof filePath === 'string' && /\.hwpx?$/i.test(filePath.trim()) && o.hangulOff()) return 'hangul'

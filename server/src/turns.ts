@@ -37,6 +37,9 @@ export interface TurnToolSet {
   hiddenFolders?(): import('./policy/access').HiddenFolders | null
   /** before a batch tool's first file (edit_files): a refusal stops the whole batch */
   beforeBatch?(name: string, args: unknown, caller?: ToolCaller): Promise<{ refusal: string; summary: string } | null>
+  /** edit_files: the one name of the file a path argument names when the turn knows it better than the team path rules
+   * (a chat file by its id, a version's id or its name: its chain's path), so a file named twice runs once; else null */
+  batchKey?(path: string): string | null
 }
 export interface Turn {
   id: string; userId: string; chatId: string; tokenHash: string

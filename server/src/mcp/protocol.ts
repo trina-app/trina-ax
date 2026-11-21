@@ -136,6 +136,8 @@ export function makeHandler(files: FileService, db: Database, ctx: ToolCtx, extr
     const me = loadPrincipal(db, ctx.user.id)
     const rules = files.rules()
     const fileOf = (p: string) => {
+      // a chat file under two spellings (its id, an older version's id, its name) is one file: its chain's path
+      try { const k = extra?.batchKey?.(p); if (k) return k } catch {}
       try { if (me) return authorize(files.fx, rules, me, p, 'read').rel } catch {}
       return p.split('/').filter((s) => s !== '' && s !== '.').join('/')
     }

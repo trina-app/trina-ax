@@ -686,7 +686,8 @@ function ChatView({ chatId, threadRoot }: { chatId: string; threadRoot: string |
           it is the only bar (Layout drops its own here): ‹ back (where I came from, else the 트리나 tab: lib/back.ts,
           whose box is the new chat), the name and Share. No ✦: this already is a chat with Trina, and a computer's
           header never had one; ✦ in a header is a room's side chat (docs/decisions/20261118-phone-trina-button-in-ai-chats.md). */}
-      <div className="flex h-12 shrink-0 items-center gap-2 border-b border-line px-4 max-md:gap-1 max-md:px-1" data-testid="chat-bar">
+      {/* 48px; 56px on a phone with the "Shared by" line under the title, so the two lines and the border have room */}
+      <div className={clsx('flex shrink-0 items-center gap-2 border-b border-line px-4 max-md:gap-1 max-md:px-1', sharedBy && phone ? 'h-14' : 'h-12')} data-testid="chat-bar">
         <Tooltip label={t('tabs.back')}>
           <Link to="/" replace onClick={backLink} aria-label={t('tabs.back')} className="inline-flex items-center justify-center rounded-md p-3 text-muted hover:bg-hover hover:text-ink md:hidden" data-testid="chat-back">
             <ChevronLeft size={20} aria-hidden />
@@ -700,6 +701,7 @@ function ChatView({ chatId, threadRoot }: { chatId: string; threadRoot: string |
             <ChatTitleMenu
               chat={chat}
               title={title}
+              compact={!!sharedBy && phone}
               // 상단에 고정 / 고정 해제, as the row's "···" (anyone who sees the chat; the server checks it)
               onPin={() => void actions.togglePin(chat, setChat)}
               onRename={rights.creator ? () => void actions.rename(chat, setChat) : undefined}

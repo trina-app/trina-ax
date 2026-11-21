@@ -80,17 +80,37 @@ export const PLACE_WORDS = {
   hiddenTurn: 'This answer used a connection whose results some people who may join this chat cannot see, so it cannot attach files to the chat.',
   lockedSave: 'Files are not attached in a confidential chat.',
   workWrite: 'Files come into the work folder only with copy_files (to_folder "chat:work/…") or your box_shell commands, in a chat whose commands run in a work folder; write and edit do not change it.',
-  inPlace: 'A chat file is not changed in place yet: read it, then save a changed copy into a team folder.',
+  inPlace: 'This tool does not change a chat file in place: write, edit and edit_office (without output) save a new version of it; this tool makes a new file (output chat:files/<new name>, or a team folder).',
+  projectReadOnly: "In a project chat the chat's files are read-only: save a changed copy in the project folder (its path in projects/), where its people find it.",
+  hiddenVersion: "This answer used a connection whose results some people who may join this chat cannot see, so it cannot change this chat's files.",
+  versionNotHere: "A chat file is not changed here (a confidential chat, a scheduled run or a guest's chat): read it, and save a changed copy in a team folder.",
+  noContinue: 'You cannot continue this chat now (it is in the trash, read-only, or no longer shared with you), so its files are not changed.',
 } as const
+
+/**
+ * May this turn save a new version of an existing chat file (P4: ChatFiles.putVersion with origin 'ai')? The main AI of
+ * a chat shared with people, or of a personal chat (a chat made private again keeps its chat files for its creator:
+ * the caller finds the file), in an answer with no k group: putVersion itself does not know the turn, so this is the
+ * check. A project chat's files are read-only (its project folder is its save place: owner, 2026-11-21). The chat being
+ * continued by the person (chatFor 'continue') and the file itself are the caller's (chat/place-ctx.ts version).
+ */
+export function mayWriteChatVersion(c: ResolveCtx): true | string {
+  if (!c.chatId || !c.main) return PLACE_WORDS.noChat
+  if (!c.live()) return 'Access denied: this account is disabled.'
+  if (c.chatKind === 'project') return PLACE_WORDS.projectReadOnly
+  if (c.chatKind !== 'people' && c.chatKind !== 'personal') return PLACE_WORDS.versionNotHere
+  if (c.hiddenGroup) return PLACE_WORDS.hiddenVersion
+  return true
+}
 
 /** Who may write a chat file here: the chat kinds where an attach is a place of its own (plan section 2's table) */
 function chatFileWritable(c: ResolveCtx, existing: boolean): true | string {
+  // a new version of an existing chat file (P4)
+  if (existing) return mayWriteChatVersion(c)
   if (c.chatKind === 'project') return PLACE_WORDS.projectSave
   if (c.chatKind === 'personal') return PLACE_WORDS.personalSave
   if (c.chatKind !== 'people') return PLACE_WORDS.lockedSave
   if (c.hiddenGroup) return PLACE_WORDS.hiddenTurn
-  // a new version of an existing chat file: P4 (ChatFiles.putVersion)
-  if (existing) return PLACE_WORDS.inPlace
   return true
 }
 

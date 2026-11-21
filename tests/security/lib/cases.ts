@@ -28,6 +28,14 @@ import { FILE_SHARE_SPECS } from './file-share-cases'
 import { ACCESS_REQUEST_SPECS } from './access-request-cases'
 import { LINK_NAME_SPECS } from './link-names-cases'
 import { inviterOnlyByName, MISC_LAST_SPECS, MISC_SPECS } from './misc-cases'
+/** A chat file's versions, a save, a restore (chat/chat-file-edit.ts over ChatFiles) on alice's real chain: hers alone;
+ * everyone else gets the 404 of a missing chat first and never a byte or a name of it */
+const chatFileChain = (r: { status: number; text: string }, who: string) => {
+  if (who === 'memberIn') return
+  if (r.status < 300) throw new Error(`${who} reached alice's chat file`)
+  if (r.text.includes('notes v') || r.text.includes('Alice Kim')) throw new Error(`${who} learned of alice's chat file`)
+  if (who !== 'anon' && who !== 'pwchange' && r.status !== 404) throw new Error(`${who} learned more than "not found": ${r.status}`)
+}
 
 type Build = (c: Client, w: World) => Promise<Resp>
 /** scope decides the allow/deny beyond the auth level for a signed-in, password-ok caller */
@@ -536,6 +544,16 @@ export const SPECS: Record<string, Spec> = {
       if (r.status < 300) throw new Error(`${who} opened an upload's id as a chat file`)
       if (who !== 'anon' && who !== 'pwchange' && r.status !== 404) throw new Error(`${who} learned more than "not found": ${r.status}`)
     } },
+  // a chat file's versions, a save and a restore (chat/chat-file-edit.ts over ChatFiles): the same rule as the read
+  // above; an upload's id is never a chat file, and everyone else gets the 404 of a missing chat first
+  // a real chat-file chain (alice's chat shared with frank: two versions): alice reads, saves and restores; everyone
+  // else gets the 404 of a missing chat, the owner and admins included (S2 review I2)
+  chatFileVersions: { build: (c, w) => c.get(`/api/chats/${w.ids.peopleChat}/files/${w.ids.chatFile}/versions`), scope: 'own-alice-chat',
+    check: (r, _w, who) => chatFileChain(r, who) },
+  saveChatFile: { build: (c, w) => c.put(`/api/chats/${w.ids.peopleChat}/files/${w.ids.chatFile}/content`, { content: 'saved by the matrix\n' }), scope: 'own-alice-chat',
+    check: (r, _w, who) => chatFileChain(r, who) },
+  restoreChatFileVersion: { build: (c, w) => c.post(`/api/chats/${w.ids.peopleChat}/files/${w.ids.chatFile}/versions/1/restore`), scope: 'own-alice-chat',
+    check: (r, _w, who) => chatFileChain(r, who) },
   // team files attached by reference (the composer's "Add from team files") and the picker's listings: each persona
   // makes an own chat and aims at a file NAME inside users/alice/ (only alice may read it; owner and admin included
   // are refused with the plain 404). find / recent list only readable files: the canary check covers every name.

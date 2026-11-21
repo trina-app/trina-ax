@@ -5,6 +5,22 @@ This file summarizes user-visible changes; it is not a list of every commit.
 
 ## Unreleased
 
+## 0.7.0 — 2026-11-21
+
+- Admin notes: servers on 0.6.0 update themselves. No root files changed since 0.6.0, so it is an app-only update with no `sudo mycel-ctl update` needed. A server still on 0.5.x also takes 0.6.0's root update (the update timer in its update window, or `sudo mycel-ctl update`), and it needs the backup first, as 0.6.0's notes say (database reader level 9).
+- Admin notes, going back: going back to 0.6.0 needs no backup. Migration 434 only adds a column that 0.6.0 does not read, and the reader level stays 9. On 0.6.0, a project just made from a conversation with no message yet shows in the Chats list only after its first message. Going back to 0.5.x still needs the backup taken before 0.6.0.
+- In a chat shared with people, everyone in the chat can now fix its text files (Markdown, text, CSV, HTML, JSON) right in the file panel. Each save is a new version, so nothing is overwritten: the file shows "Updated by <name>" (or "Updated by Trina for <name>"), and **Versions** lists who saved each one and when, opens an earlier one and restores it as the newest. The last 20 versions are kept. Sharing a chat again after its file changed adds the change as a new version of the same file instead of a second copy. A project chat's files stay read-only there: its project folder is where they are saved.
+- The free-roam demo can now run in all six languages (English, Korean, Japanese, Chinese, Spanish, Indonesian): its start, busy, session-ended and limit pages, its demo company and its sign-in page. Which languages demo.trina.app offers stays a setting of the live demo; one demo copy's sign-in page offers its own language and English.
+- The free-roam demo now says up front that Gmail, Google Drive and Higgsfield there are practice copies (mail is never really sent, new pictures come from a prepared set): one line on the start page and a small "Practice connections" label in the demo bar.
+- Free-roam demo: asked to change a banner's words ("작은 햇살 두 잔."), Trina now makes the new banner. The demo's Higgsfield keeps each banner as a text-free photo plus its words and draws it again with the new words, in the brand's fonts, in every banner size; asking for two glasses, the pouch close up or a café table picks a matching photo. Trina also says plainly that the demo's pictures come from a prepared set and that its mail is never really sent.
+- Demo: in the Korean free-roam demo, "크리스 답장 왔어?" now finds Chris's reply. The demo mailbox's search reads Gmail's OR, brackets and "-", matches a name in either script or the address word by word, and ignores a Korean honorific like "님" or a Japanese one like "さん". A filter the demo mailbox does not keep (a date, a category, `has:drive`) no longer hides every mail when negated.
+- A conversation you just made a project, and a new project made from a direct message, now stay in your Chats list before the first message, for everyone in it. "Hidden conversations" no longer counts them.
+- "Moving files…" in a project room's header goes away as soon as the files have moved, without a reload.
+- If two people make the same conversation a project at the same moment, the second one is told "This conversation just became a project", with a link to it.
+- A file's folder link in a department room keeps "Chat attachments" readable and cuts the department's name first.
+- In a chat shared with people, Trina can now change a file attached to the chat (fix a date in a quote, a line in a note, a cell in a workbook). Each change is saved as a new version of the same file: everyone in the chat opens the new one from the same attachment, and the earlier versions stay. Project chats keep their files read-only; save a changed copy in the project folder. Several changes Trina makes to one file in one answer are saved as one version.
+- On a phone, the header of a chat someone shared with you is a little taller, so the title and "Shared by {name}" under it no longer crowd each other or the line below the header.
+
 ## 0.6.0 — 2026-11-21
 
 - Admin notes: **take a backup before this update** (Admin › System › Backups › Back up now). Its database can't be read by older versions (migration 432 keeps every saved version of a chat's files; reader level 9), so going back to 0.5.x needs the backup taken before the update. Without it there is no way back. Migration 433 records the files moved when a conversation becomes a project.

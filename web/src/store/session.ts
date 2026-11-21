@@ -112,6 +112,8 @@ let pendingPick: Locale | null = null
 let pickedBeforeSignIn = false
 /** team default as last seen, for the sign-in screen after a sign-out */
 let lastTeamDefault: Locale | null = null
+/** the team default as last seen (GET /api/setup before sign-in, the account after); null while not known */
+export const teamDefaultLocale = (): Locale | null => lastTeamDefault
 /** GET /api/setup's ownerRecoveryUrl as last seen (null: none, or not asked yet), kept for the sign-in screen */
 let lastOwnerRecovery: string | null = null
 /** a signed-out status with the hosted team's owner-recovery page, when the server named one */

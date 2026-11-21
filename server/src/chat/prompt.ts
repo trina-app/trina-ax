@@ -137,7 +137,7 @@ export interface PromptInput {
   devEnvDown?: 'staff' | 'member' | null
   /** a free-roam demo (docs/decisions/20261119-demo-free-roam-a.md): its fictional company's name; the AI is told what
    * the demo leaves out (demoRule) */
-  demo?: { company: string } | null
+  demo?: { company: string; fakes?: boolean; banner?: boolean } | null
   now?: Date
   /** the API engine (docs/decisions/20261120-api-engine-stable-prompt.md): the time line is left out here and goes, to
    * the minute, in a <turn_context> in front of the message (apiTimeContext), so the instructions stay the same from
@@ -193,7 +193,7 @@ export function sharedSection(sh: SharedPrompt, locale: Locale = 'en', post = fa
     guest ? '' : `- Connected services work here as listed in "Connected services": ${name}'s own and the team's. A team connection everyone in this chat may use works as usual. For ${name}'s own connections (and a team one some people here may not use), the server asks ${name} on a card only they see whether what the service returns may be shown to everyone here, before anything is fetched: just call the tool, do not ask first in your own words. If the tool says nothing was fetched, answer without it and do not try another way. Each person's turn uses only their own connections, never another person's. When a guest is in this chat the team's connections are off (guests have no connected services): say so plainly if asked.`,
     // H1 of the chat places plan (docs/decisions/20261121-shared-chat-output-to-chat-files.md): a file made for the people
     // here goes to the chat itself, attached to the answer; a team folder only when the user names one
-    sh.project === null && !guest ? `- Files you make for the people here go to this chat: give make_file (and edit_office, the PDF tools, resize_images, make_zip) \`output: "chat:files/<name>"\`, and the file is attached to your answer, where everyone in this chat opens it. Save in a team folder only when ${name} names one. A document's pictures come from where the document is: for a source in chat:work/ or chat:files/, from that same place.` : '',
+    sh.project === null && !guest ? `- Files you make for the people here go to this chat: give make_file (and the PDF tools, resize_images, make_zip) \`output: "chat:files/<name>"\`, and the file is attached to your answer, where everyone in this chat opens it. Save in a team folder only when ${name} names one. A document's pictures come from where the document is: for a source in chat:work/ or chat:files/, from that same place. To change a file of this chat (one attached to a message), read it, then edit or write it (text) or edit_office it without output (Word, Excel, PowerPoint) at its chat:files/ path: that saves a new version everyone here opens, and the earlier one stays.` : '',
     // scheduled tasks and videos here (docs/decisions/20261118-shared-schedules-any-frequency.md)
     guest ? '' : `- Scheduled tasks and videos work here. A scheduled task made here runs as ${name}, with ${name}'s access, and posts each run's result in this chat for everyone who sees it; a run skips places some people here cannot open (nobody answers the card then). schedule_list and schedule_delete here see only the tasks made in this chat. A video is saved like any file you make.`,
     // a member who may not change who is in the project: who may, instead of a private chat that refuses them too
@@ -862,7 +862,7 @@ function personLines(files: FileService, i: PromptInput, subagent = false): stri
     i.tools.includes('delete_files') ? '' : i.guest ? GUEST_NO_DELETE_RULE : deleteRule(i.locale),
     i.confidential ? confidentialRule(i.confidential) : '',
     !subagent && i.devEnvDown ? devEnvDownRule(i.devEnvDown, i.locale) : '',
-    !subagent && i.demo ? demoRule(i.demo.company) : '',
+    !subagent && i.demo ? demoRule(i.demo.company, !!i.demo.fakes, !!i.demo.banner) : '',
     i.timeInMessage ? '' : timeLine(now, i.timeZone, i.personTimeZone),
     answerLanguageLine(i.locale, subagent),
     // last, after the time line (it changes every minute): the instructions before that line stay as they were
@@ -1113,13 +1113,22 @@ export function teamNameLine(teamName: string | null | undefined): string {
 
 /** A free-roam demo instance (docs/decisions/20261119-demo-free-roam-a.md): what it leaves out, said once and plainly (the demo file's company, e.g. Steepling). The
  * server refuses those tools and endpoints whatever the AI says (demo/guard.ts); this keeps the answer honest. */
-export function demoRule(company: string): string {
+export function demoRule(company: string, fakes = false, banner = false): string {
   // QA TC-5572: asked how to delete the account or see usage, the AI pointed to "Profile › Delete account" and
   // "Settings › Usage", pages this demo does not have; QA TC-5745: asked to change the name, it sent them to Settings ›
   // Profile, whose name and e-mail the demo keeps (demo/guard.ts freeRoamBody)
   return `This is a public demo of a fictional company (${company}). The dev environment, scheduled tasks, connecting new services and inviting people aren't available in the demo: say so in one sentence and do what you can. ` +
-    'Changing or deleting the account, changing their name or email address on their profile, changing the password, usage, costs and billing, and the AI providers (which AI answers, its account or plan) are not available in the demo either: when asked about any of them, say in one sentence that it is not available in the demo, and never point to a page or setting for it (there is no such page here).'
+    'Changing or deleting the account, changing their name or email address on their profile, changing the password, usage, costs and billing, and the AI providers (which AI answers, its account or plan) are not available in the demo either: when asked about any of them, say in one sentence that it is not available in the demo, and never point to a page or setting for it (there is no such page here).' +
+    (fakes ? ` ${DEMO_FAKES_NOTE}` : '') + (fakes && banner ? ` ${DEMO_BANNER_NOTE}` : '')
 }
+/** A demo whose Gmail, Google Drive and Higgsfield are the practice fakes (demo/fakes/; the demo file's `fakes`): the owner
+ * found the AI saying it had "shot a new photo with Higgsfield", and then refusing to change a banner's words. Said in
+ * the visitor's language like every answer. */
+export const DEMO_FAKES_NOTE = 'Gmail, Google Drive and Higgsfield here are practice copies with made-up data. ' +
+  "Higgsfield's generate_image picks the closest of a prepared set of photos (no new photo is made): say you picked a prepared photo, never that you shot or generated a new one. " +
+  'Mail is never really sent: after sending, say it went to the practice mailbox.'
+/** with the demo's banner kit (demo/fakes/banner.ts): banner words are a layer the AI can change */
+export const DEMO_BANNER_NOTE = "Banner words are a separate text layer: to change a banner's headline, line, badge or button, call Higgsfield's make_banner with the words that change (the others and the photo stay as on the last banner it made) and save the new picture; just do it, never say the words cannot be changed."
 
 /** The dev environment is on but broken (QA TC-4924: box_shell was offered, failed every call, and the AI said "try
  * again in a few minutes"). Said once, in plain words; the reason itself is for an admin, on the dev environment page. */
