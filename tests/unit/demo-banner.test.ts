@@ -11,7 +11,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { bannerTypst, BANNER_SIZES, findTypst, loadBannerKit, pickScene, renderBanner, sizeOf, typstString, type BannerKit } from '../../server/src/demo/fakes/banner'
-import { BANNERS_DIR, BANNERS_KEPT, FakeHiggsfield, MEDIA_HOST } from '../../server/src/demo/fakes/higgsfield'
+import { BANNERS_DIR, BANNERS_KEPT, FakeHiggsfield, MEDIA_HOST, PREPARED_BANNER, PREPARED_PHOTO, SAVE_NEXT } from '../../server/src/demo/fakes/higgsfield'
 import { FakeState } from '../../server/src/demo/fakes/state'
 import { demoFakesOf } from '../../server/src/demo/fakes'
 import { DEMO_BANNER_NOTE, DEMO_FAKES_NOTE, demoRule } from '../../server/src/chat/prompt'
@@ -107,6 +107,9 @@ describe("Steepling's banner kit", () => {
       expect(view.banner.words.button).toBe(kits[l].words.cta)
       expect(view.banner.scene).toBe('two-cups')
       expect(view.results[0].url).toContain(MEDIA_HOST)
+      // QA TC-6792 / TC-6791: the photo's origin, and the next step (save it, show it)
+      expect(view.photo).toBe(PREPARED_BANNER)
+      expect(view.next).toBe(SAVE_NEXT)
       const img = (r: typeof after) => Buffer.from((r.content.find((c) => c.type === 'image') as { data: string }).data, 'base64')
       expect(isPng(img(after))).toBe(true)
       expect(img(after).equals(img(before))).toBe(false)
@@ -210,6 +213,19 @@ describe('the AI knows the demo\'s services are practice copies', () => {
     expect(demoRule('Steepling', false, true)).not.toContain(DEMO_BANNER_NOTE)
     expect(DEMO_BANNER_NOTE).toContain('make_banner')
   })
+
+  test('say the photo is a prepared one, in one short sentence; save and show every picture without being asked (QA TC-6791, TC-6792)', () => {
+    expect(DEMO_FAKES_NOTE).toContain("the photo comes from the demo's prepared photos")
+    expect(DEMO_FAKES_NOTE).toContain('one short sentence')
+    expect(DEMO_FAKES_NOTE).toContain('without being asked')
+    expect(DEMO_FAKES_NOTE).toContain('save_connector_file')
+    // the Markdown image the web draws inline (web/src/lib/markdown.ts classifyImage: /api/files/download?path=)
+    expect(DEMO_FAKES_NOTE).toContain('![<name>](/api/files/download?path=')
+    expect(DEMO_BANNER_NOTE).toContain('save and show the new banner')
+    expect(DEMO_BANNER_NOTE).toContain("demo's prepared photos")
+    // one sentence each in the result, no nagging
+    for (const line of [PREPARED_PHOTO, PREPARED_BANNER, SAVE_NEXT]) expect(line.length).toBeLessThan(160)
+  })
 })
 
 describe('end to end on a demo server', () => {
@@ -238,6 +254,8 @@ describe('end to end on a demo server', () => {
     const text = out.content.map((c) => (c.type === 'text' ? c.text : '')).join('')
     expect(out.isError, text).toBeFalsy()
     expect(text).toContain('작은 햇살 두 잔.')
+    expect(text).toContain(PREPARED_BANNER)
+    expect(text).toContain(SAVE_NEXT)
     const handle = /(mcp-file:[A-Za-z0-9_-]{22})/.exec(text)?.[1]
     expect(handle, text).toBeTruthy()
     const saved = await toolRegistry(A.ctx.files).call('save_connector_file', { file: handle, save_as: 'users/alice/campaign-banner-two-cups.png' }, A.toolCtx('alice', turnId))
