@@ -429,6 +429,9 @@ export interface ChatPlaceHooks {
   list(ctx: ToolCtx, a: { path?: string; offset?: number }): ToolOutput
   glob(ctx: ToolCtx, a: { pattern: string; path?: string }): ToolOutput
   grep(ctx: ToolCtx, a: ReturnType<typeof GrepInput.parse>): ToolOutput | Promise<ToolOutput>
+  /** write and edit of an existing chat file: a new version of it (chat/chat-file-write.ts, P4) */
+  write?(ctx: ToolCtx, a: ReturnType<typeof WriteInput.parse>, place: Extract<Place, { kind: 'chatFiles' }>): Promise<ToolOutput>
+  edit?(ctx: ToolCtx, a: ReturnType<typeof EditInput.parse>, place: Extract<Place, { kind: 'chatFiles' }>): Promise<ToolOutput>
 }
 
 /** The refusal of chat:files/ where no chat files are reachable */
@@ -441,17 +444,22 @@ export function placeArg(tool: string, rawArgs: unknown): Place | null {
   return parsePlace(v)
 }
 
-/** Why write or edit may not take this chat place (none takes one yet): the words for the AI. The file tools refuse with
- * them (FileService.callPlace) and a chat turn refuses with them before any card (chat/tools.ts beforeFileTool). */
+/** Why write or edit may not take this chat place: the words for the AI. The file tools refuse with them
+ * (FileService.callPlace) and a chat turn refuses with them before any card (chat/tools.ts beforeFileTool). Only an
+ * existing chat file, by the main AI of its chat, is changed (a new version: ChatPlaceHooks.write / edit, P4). */
 export function placeWriteRefusal(place: Place): string {
   if (place.kind === 'reserved') return `${place.why}.`
   if (place.kind === 'work') return 'The work folder is changed by your box_shell commands, and files come into it with copy_files (to_folder "chat:work/…"); write and edit do not change it.'
-  return 'A chat file is not changed in place yet: read it, then save a changed copy into a team folder (write, or copy_files for its bytes).'
+  if (!place.id && !place.name) return 'chat:files/ is the list of this chat\'s files: name one of them (chat:files/<file_id>/<name>) to save a new version of it; a new file is made with make_file (output chat:files/<name>).'
+  return 'A chat file is changed only by the main assistant of its Trina chat (each save is a new version). Here, read it, then save a changed copy into a team folder (write, or copy_files for its bytes).'
 }
+
+/** Does this write or edit go to an existing chat file's new version (the turn's chatPlace hook decides the rest)? */
+export const chatVersionPlace = (place: Place | null): place is Extract<Place, { kind: 'chatFiles' }> => place?.kind === 'chatFiles' && !!(place.id || place.name)
 
 export interface ToolOutput { images?: { type: 'image'; mimeType: 'image/png' | 'image/jpeg'; data: string }[]; text: string; content?: McpContent[]; beforeDelivery?: () => void; isError?: boolean; summary: string }
 
-const BINARY_WRITE = new Set(['hwp', 'hwpx', 'docx', 'pptx', 'xlsx', 'xls', 'pdf', 'odt', 'ods', 'zip', 'png', 'jpg', 'jpeg', 'gif'])
+export const BINARY_WRITE = new Set(['hwp', 'hwpx', 'docx', 'pptx', 'xlsx', 'xls', 'pdf', 'odt', 'ods', 'zip', 'png', 'jpg', 'jpeg', 'gif'])
 
 /** Files shared with a person one by one, for the read tools (files/shares.ts). */
 export interface SharedReads {
@@ -605,7 +613,13 @@ export class FileService {
    * refused in plain words. null: go on as a team path (a chat:work/ read: read() resolves it).
    */
   private async callPlace(tool: string, rawArgs: unknown, ctx: ToolCtx, place: Place): Promise<ToolOutput | null> {
-    if (tool === 'write' || tool === 'edit') throw new ToolError(placeWriteRefusal(place), place.kind === 'chatFiles' ? 'read_only' : 'bad_path')
+    if (tool === 'write' || tool === 'edit') {
+      // an existing chat file, by the main AI of its chat turn: a new version (chat/chat-file-write.ts); a sub-agent's
+      // view and remote MCP have no hook, so they get the refusal below
+      const hook = ctx.sharedChild ? null : ctx.files.chatPlace
+      if (chatVersionPlace(place) && hook?.write && hook.edit) return tool === 'write' ? hook.write(ctx, WriteInput.parse(rawArgs), place) : hook.edit(ctx, EditInput.parse(rawArgs), place)
+      throw new ToolError(placeWriteRefusal(place), place.kind === 'chatFiles' ? 'read_only' : 'bad_path')
+    }
     if (place.kind === 'reserved') throw new ToolError(`${place.why}.`, 'bad_path')
     if (place.kind === 'work') {
       if (tool === 'read') return null

@@ -2,8 +2,9 @@ import { confidentialChat, localTool } from "../safe-ops/confidential"
 // The tools of one turn besides the six file tools: B's remember / forget / ask_user / connect_service / set_title and the browser pane tools
 // (desktop window only), plus whatever other components registered in ctx.services.turnTools (C: make_file,
 // share_file, artifact, web_fetch). Served over the same MCP connection as the file tools (mcp__team__<name>).
-import { isReservedPlace, parsePlace } from '@mycel/shared/places'
+import { isReservedPlace, parsePlace, type Place } from '@mycel/shared/places'
 import { chatPlaces } from './place-ctx'
+import { PLACE_WORDS } from '../files/places'
 import { PLACE_PRODUCE_TOOLS } from '../files/place-output'
 import { isFreeRoam } from '../app-config'
 import { freeRoamToolCallRefused, freeRoamToolFenced } from '../demo/guard'
@@ -45,7 +46,7 @@ import type { CardAnswer, TurnExec, WidenOf } from './turn'
 import { inProjectOnly, SKIP_OWN, wholeTeamPath } from './search-path'
 import type { StoredStep } from './store'
 import { cardEndShort, endOfText, projectNotFoundNote, readOnlyNote, readOnlySkillLine, type CardOutcome } from '../policy/refusal'
-import { placeArg, placeWriteRefusal, type TurnFiles } from '../files/service'
+import { chatVersionPlace, mayReplace, placeArg, placeWriteRefusal, type TurnFiles } from '../files/service'
 import { extractUrls, gateUrl, type ConfirmExtra, type TurnPerson } from '../tools/url-gate'
 import { ToolError } from '../policy/errors'
 import { callKey } from './schedule-cover'
@@ -223,6 +224,9 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
     // docs/decisions/20261118-shared-chat-connections.md)
     // (and a project's shared chat reads its own chat room: projectRoomTools, scoped to that one room)
     if (exec.shared && !SHARED_TOOLS.has(t.name) && !o.connection && !o.projectRoom) return false
+    // edit_office in a shared chat changes only the chat's own files (a new version); a project chat's chat files are
+    // read-only and its team files are not changed from a shared chat, so there it could do nothing
+    if (t.name === 'edit_office' && exec.shared?.kind === 'project') return false
     if (t.name in FILE_TOOLS || tools.has(t.name)) { exec.rt.log.warn('turn tool name taken, skipped', { tool: t.name }); return false }
     tools.set(t.name, t)
     if (t.label) labels.set(t.name, t.label.bind(t))
@@ -433,6 +437,15 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
       // as a team path or a web address (docs/decisions/20261121-chat-places-as-paths.md)
       const placeNo = placeRefusal(name, args)
       if (placeNo) return { ...text(placeNo, true), summary: `${name} -> refused: chat place` }
+      // edit_office on a chat file without output saves a new version of it (P4): who may, checked before any card
+      const versionAt = name === 'edit_office' ? officeVersionPlace(args) : null
+      // a shared chat offers edit_office for its own chat files only (a team Office file is not changed from here yet:
+      // docs/decisions/20261121-ai-edits-chat-files.md)
+      if (name === 'edit_office' && exec.shared && !versionAt) return { ...text(`Not done (${name}): in a shared chat edit_office changes only this chat's own files (file_path chat:files/<file_id>/<name>, without output), as a new version. A team Office file is not changed from here: make a changed copy with make_file, or ask again in a chat only you see.`, true), summary: `${name} -> refused: team file in a shared chat` }
+      if (versionAt) {
+        const no = chatVersionRefusal(exec, files, versionAt)
+        if (no) return { ...text(`Not done (${name}): ${no}`, true), summary: `${name} -> refused: chat file not changed here` }
+      }
       const t = tools.get(name)!
       // a call the tool refuses anyway asks nobody first and counts as nothing read (save_room_file without a file id,
       // into skills/, …)
@@ -548,11 +561,19 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
     beforeBatch: async (name, args) => {
       // a chat place among its files: no file tool edits one (files/service.ts placeWriteRefusal), so the batch is refused
       // before its card asks the person (one room card for the whole batch)
+      // (an existing chat file goes on: each file runs as its own edit, which saves a new version of it: P4)
       const paths = (args as { file_paths?: unknown } | null)?.file_paths
-      const place = Array.isArray(paths) ? paths.map((p) => placeArg('edit', { file_path: p })).find(Boolean) : null
+      const place = Array.isArray(paths) ? paths.map((p) => placeArg('edit', { file_path: p })).find((pl) => pl && !chatVersionPlace(pl)) : null
       if (place) return { refusal: `Not done (${name}): ${placeWriteRefusal(place)} Leave it out of file_paths; nothing was changed.`, summary: `${name} -> refused: chat place` }
       const no = await exec.confirmRoomChange(name, args)
       return no ? { refusal: no, summary: `${name} -> ${roomShort(no)} (after a room read)` } : null
+    },
+    // edit_files names a chat file once however it is spelled (chat:files/<id>/…, an older version's id, its name):
+    // an edit run twice would apply a replacement whose new text holds the old one again
+    batchKey: (p) => {
+      const place = placeArg('edit', { file_path: p })
+      if (!chatVersionPlace(place)) return null
+      try { return chatPlaces(exec, exec.files).head(place.id, place.name ?? '').path } catch { return null }
     },
     // a shared project chat: its sub-folders some of its people may not open are not there in any call (QA TC-4945)
     hiddenFolders: () => exec.sharedHiddenScope(),
@@ -577,8 +598,14 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
       // source; no read card (everyone here sees that folder's people's view)
       // write or edit of a chat place (chat:files/…, chat:work/…): the file tool refuses it (files/service.ts callPlace),
       // so it is refused here, before any card asks the person about it (a room card, a skill card, the widening card)
+      // An existing chat file is the exception (P4, chat/chat-file-write.ts): a new version of it, after the same checks
+      // here before any card (who may change it in this turn, the file itself), and the cards below as for any save.
       const writePlace = name === 'write' || name === 'edit' ? placeArg(name, args) : null
-      if (writePlace) return { refusal: `Not done (${name}): ${placeWriteRefusal(writePlace)}`, summary: `${name} -> refused: chat place` }
+      if (writePlace && !chatVersionPlace(writePlace)) return { refusal: `Not done (${name}): ${placeWriteRefusal(writePlace)}`, summary: `${name} -> refused: chat place` }
+      if (writePlace) {
+        const no = chatVersionRefusal(exec, caller?.files ?? exec.files, writePlace, name === 'write' ? 'write' : 'edit')
+        if (no) return { refusal: `Not done (${name}): ${no}`, summary: `${name} -> refused: chat file not changed here` }
+      }
       const work = exec.workRead(name, args)
       // (no work folder yet: the read itself refuses, and nothing is made here)
       if (work && exec.shared && exec.files.workFolder?.()) {
@@ -1409,10 +1436,40 @@ export function placeRefusal(name: string, args: unknown): string | null {
     // attach, chat:work/ outputs not yet, a chat file by id not changed in place yet)
     if (PLACE_PRODUCE_TOOLS.has(name) && (key === 'output' || key === 'output_folder')) continue
     if (name === 'make_file' && (key === 'source' || key === 'template')) continue
+    // edit_office's document may be a chat file (P4): changed in place (a new version), or a new file made from it
+    if (name === 'edit_office' && key === 'file_path' && place?.kind === 'chatFiles') continue
     if (name === 'move_files' || name === 'rename_file' || name === 'rename_files') return `Not done (${name}): chat files and work-folder files keep their names and places; copy one with copy_files (paths ["${value}"], to_folder a team folder, "chat:files/" or "chat:work/…") instead.`
     return place?.kind === 'work'
       ? `Not done (${name}): this tool does not take a work-folder path (${value}) yet. Read it with read, or copy it into a team folder with copy_files first (to_folder a team folder), then use that copy.`
       : `Not done (${name}): this tool does not take a chat file (${value}) yet. Copy it into a team folder with copy_files first (paths ["${value}"], to_folder a team folder), then use that copy.`
   }
   return null
+}
+
+/** edit_office's chat file changed in place (a new version, P4): its file_path when it names one and no output is given */
+export function officeVersionPlace(args: unknown): Extract<Place, { kind: 'chatFiles' }> | null {
+  const a = args && typeof args === 'object' ? args as { file_path?: unknown; output?: unknown } : {}
+  if (a.output !== undefined) return null
+  const p = parsePlace(a.file_path)
+  return chatVersionPlace(p) ? p : null
+}
+
+/**
+ * May this call save a new version of that chat file (P4)? The main AI only (a sub-agent: no chat place), and the
+ * turn's chat places' own rule (chat/place-ctx.ts head: mayWriteChatVersion, the person continuing the chat, the file
+ * there and not carried by a hidden answer). The words for the AI, or null. Checked here before any card, and again by
+ * the save itself.
+ */
+export function chatVersionRefusal(exec: TurnExec, files: TurnFiles, place: Extract<Place, { kind: 'chatFiles' }>, tool?: 'write' | 'edit'): string | null {
+  if (files !== exec.files) return PLACE_WORDS.noChat
+  try {
+    const h = chatPlaces(exec, files).head(place.id, place.name ?? '')
+    // a save that would need a read first asks nobody anything (the tool says the same: chat/chat-file-write.ts)
+    if (tool === 'write' && !mayReplace(files, h.path)) return `read '${h.path}' first (with read) before overwriting it`
+    if (tool === 'edit' && !files.readHashes.has(h.path)) return `read '${h.path}' first (with read) before editing it`
+    return null
+  } catch (e) {
+    if (e instanceof ToolError) return e.message
+    return 'The chat file could not be checked, so nothing was changed. Try again.'
+  }
 }

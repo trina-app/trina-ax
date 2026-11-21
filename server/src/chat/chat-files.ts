@@ -86,6 +86,10 @@ export interface PutVersionOptions {
   expectHead?: string
   /** audit action ('chat.file_version', or 'chat.file_restore') */
   action?: string
+  /** the caller's own gate (a chat shared with people or personal, not a project chat, not a k turn, the person may
+   * continue the chat), called synchronously right before the row is inserted: the bytes took time, and the chat may
+   * have changed meanwhile. A throw refuses the save; the written bytes are removed. */
+  recheck?: () => void
 }
 
 /** A chain's id for a row (the root's file_id) */
@@ -632,7 +636,7 @@ export class ChatFiles {
         if (pic.changed) { await fs.promises.writeFile(dst, pic.bytes); sha = createHash('sha256').update(pic.bytes).digest('hex') }
       }
       const before = this.headOf(root.id)
-      const check = () => { if (this.writable(userId, chatId, root.id).id !== root.id) fail('not_found') }
+      const check = () => { if (this.writable(userId, chatId, root.id).id !== root.id) fail('not_found'); opts.recheck?.() }
       const row = await this.record(userId, chatId, id, root.name, dst, sha, null, kind, null, { rootId: root.id, origin: opts.origin ?? null, check })
       const replaced = (row.replaces ? this.row(row.replaces) : null) ?? before ?? root
       this.prune(root.id)

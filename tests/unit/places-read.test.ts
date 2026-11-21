@@ -174,8 +174,9 @@ describe('refusals', () => {
   })
   test('write and edit of a chat file, list of a chat file, room:, chat:other: plain words, nothing done', async () => {
     const { chat, file } = await sent('w.txt', 'W')
+    // (P4: a write of an existing chat file is a new version, after a read: tests/unit/places-ai-versions.test.ts)
     const w = await run('bob', chat, `${fake({ tool: 'write', args: { file_path: chatFilePath(file, 'w.txt'), content: 'X' }, sayResult: true })}`)
-    expect(w.content).toContain('not changed in place')
+    expect(w.content).toContain('first (with read)')
     const room = await run('bob', chat, `${fake({ tool: 'read', args: { file_path: 'room:files/a.png' }, sayResult: true })}`)
     expect(room.content).toContain('room files are not paths yet')
     const other = await run('bob', chat, `${fake({ tool: 'read', args: { file_path: 'chat:other/a' }, sayResult: true })}`)
@@ -233,11 +234,11 @@ describe('review fixes (adversarial review of P1)', () => {
     const { chat, file } = await sent('w2.txt', 'W')
     db().query('UPDATE chats SET rooms_seen = 1 WHERE id = ?').run(chat)
     for (const c of [
-      { tool: 'write', args: { file_path: 'chat:files/new.txt', content: 'X' }, says: 'not changed in place' },
-      { tool: 'edit', args: { file_path: chatFilePath(file, 'w2.txt'), old_string: 'W', new_string: 'X' }, says: 'not changed in place' },
+      { tool: 'write', args: { file_path: 'chat:files/new.txt', content: 'X' }, says: 'No file' },
+      { tool: 'edit', args: { file_path: chatFilePath(file, 'w2.txt'), old_string: 'W', new_string: 'X' }, says: 'first (with read)' },
       { tool: 'write', args: { file_path: 'chat:work/a.txt', content: 'X' }, says: 'box_shell' },
       { tool: 'edit', args: { file_path: 'room:files/a.txt', old_string: 'a', new_string: 'b' }, says: 'room files are not paths yet' },
-      { tool: 'edit_files', args: { file_paths: ['shared/none.md', 'chat:files/w2.txt'], old_string: 'W', new_string: 'X' }, says: 'Leave it out of file_paths' },
+      { tool: 'edit_files', args: { file_paths: ['shared/none.md', 'chat:work/w2.txt'], old_string: 'W', new_string: 'X' }, says: 'Leave it out of file_paths' },
     ]) {
       const r = await run('bob', chat, `${fake({ tool: c.tool, args: c.args, sayResult: true })}`)
       expect(r.cards).toHaveLength(0)
