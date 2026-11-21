@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-21 23:36
 - Branch: `fix/honest-superseded-steps`
-- Status: in progress
+- Status: done
 - Where: server (`engine/api-honest.ts`, `engine/api-agent.ts`, `auth/messages.ts`). Why: the API engine's honesty
   rules and the claim route's words live there (see docs/REPOSITORY-RULES.md)
 - Version impact: patch. Fewer wrong "didn't work" lines and corrected words; no API change.

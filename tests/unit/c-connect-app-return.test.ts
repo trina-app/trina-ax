@@ -14,6 +14,7 @@ import { FakeServices } from '../lib/fake-services'
 import { integrationsOf } from '../../server/src/integrations/connections/service'
 import { createLogger } from '../../server/src/log'
 import { say } from '../../server/src/integrations/connections/text'
+import { msg } from '../../server/src/auth/messages'
 
 setDefaultTimeout(30_000)
 
@@ -116,7 +117,14 @@ test('cancel in the app ends a held result: the code is refused afterwards and i
   const { id, flow, cb } = await start(desk)
   const code = codeOf(await (await bare(callback(cb))).text())!
   await desk.call('DELETE', `/api/integrations/flows/${flow.flowId}`)
-  expect((await claim(desk, code)).status).toBe(400)
+  const r = await claim(desk, code)
+  expect(r.status).toBe(400)
+  // QA TC-7053: the one claim address serves every connector, so its words name none ("Start the Drive connection
+  // again" for an MCP connector)
+  const words = (['ko', 'en', 'id', 'ja', 'es', 'zh'] as const).map((l) => msg('claimGone', l))
+  expect(words).toContain(JSON.stringify(r.body).match(/"message":"([^"]*)"/)?.[1] ?? '')
+  for (const w of words) expect(w).not.toMatch(/Drive/)
+  expect(msg('claimGone', 'en')).toBe('This sign-in link has expired or was already used. Start the connection again from the app.')
   expect(await statusOf(olga, id)).toMatchObject({ hasSecret: false })
   await Bun.sleep(50)
   expect(fake.revoked.length).toBeGreaterThan(0)
