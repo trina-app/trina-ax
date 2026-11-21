@@ -2,8 +2,9 @@
 // - the step order AI 연결 (only without AI) → 회사 소개 → 내 스킬 → 팀 파일 → 도구 연결 → 팀원 초대 → 준비 끝, n/5;
 // - 팀이 쓸 도구 (docs/decisions/20261120-team-vs-personal-onboarding.md): one list: Notion as a team connection
 //   ([팀으로 연결], one team connection everyone may use, signed in for the team), Google Drive (where this server has it)
-//   as [팀 추천], saved at once, never a personal sign-in; the one "다른 도구 보기" line (Settings › Connectors over the
-//   step: its close, Esc and Back come back to the step; a tool's page has the same 팀 추천 switch); recommended tools
+//   with a [각자 연결하도록 권하기] switch, saved at once, never a personal sign-in, and [팀으로 연결] (the shared Google
+//   account dialog of Admin › Connectors) where the server can make one; the one "다른 도구 보기" line (Settings ›
+//   Connectors over the step: its close, Esc and Back come back to the step; a tool's page has the same switch); those tools
 //   first in a member's list; 나중에 하기 / 다음 and ← 이전;
 // - after the setup the one way back is Settings › 커넥터: the Drive card's owner/admin button names both effects;
 // - 준비 끝: the five steps summed up (✓ and a fact, or 나중에 하기로 했어요 with 지금 하기), "내 설정 시작" to Home.
@@ -58,7 +59,7 @@ async function toTools(page: Page) {
   await expect(page.getByTestId('welcome-tools')).toBeVisible()
 }
 
-test('팀이 쓸 도구 with Drive: the step order (n/5); one list (Notion for the team, Drive 팀 추천); 팀 추천 saves the team\'s list, no Google window; 다음: 팀원 초대; ← 이전 both ways', async ({ page }) => {
+test('팀이 쓸 도구 with Drive: the step order (n/5); one list (Notion for the team, Drive 각자 연결하도록 권하기); the switch saves the team\'s list, no Google window; 다음: 팀원 초대; ← 이전 both ways', async ({ page }) => {
   const errors = watchConsole(page)
   await reset(page)
   const drive = await fakeDrive(page)
@@ -71,23 +72,26 @@ test('팀이 쓸 도구 with Drive: the step order (n/5); one list (Notion for t
   await expect(bar.locator('[aria-current="step"]')).toContainText('4/5 팀 도구')
   const tools = page.getByTestId('welcome-tools')
   await expect(tools.getByRole('heading', { name: '팀이 쓸 도구' })).toBeVisible()
-  await expect(tools).toContainText('팀이 같이 쓸 도구는 여기서 한 번 연결하고, 각자 자기 계정으로 쓰는 도구는 추천해 두세요. 팀 연결은 관리자 › 커넥터, 추천은 각 도구 페이지에서 바꿀 수 있어요.')
+  await expect(tools).toContainText('팀이 같이 쓸 도구는 여기서 한 번 연결하고, 각자 자기 계정으로 쓸 도구는 연결하도록 권해 두세요. 팀 연결은 관리자 › 연결한 서비스에서, 권하기는 커넥터의 각 도구 페이지에서 바꿀 수 있어요.')
   const notion = page.locator('[data-testid="welcome-tools-service"][data-id="notion"]')
   await expect(notion).toHaveAttribute('data-kind', 'team')
   await expect(notion).toContainText('팀 전체가 이 연결을 같이 써요')
   await expect(notion.getByTestId('welcome-tools-team-connect')).toHaveText('팀으로 연결')
   const drv = page.locator('[data-testid="welcome-tools-service"][data-id="google-drive"]')
-  await expect(drv).toHaveAttribute('data-kind', 'recommend')
+  await expect(drv).toHaveAttribute('data-kind', 'google')
+  // no shared Google account can be made on this mock (no admin Google reads): no 팀으로 연결 on the row
+  await expect(drv).toHaveAttribute('data-team', 'none')
+  await expect(drv.getByTestId('welcome-tools-team-connect')).toHaveCount(0)
   await expect(drv).toContainText('각자 자기 계정으로 연결해요')
   await expect(page.getByTestId('welcome-tools-mcp-add')).toHaveText('다른 도구 보기')
   // nothing done: no primary, 나중에 하기 only; Higgsfield is not offered
   await expect(page.getByTestId('welcome-tools-next')).toHaveCount(0)
   await expect(page.getByTestId('welcome-later')).toBeVisible()
   await expect(tools).not.toContainText(/Higgsfield|힉스필드/)
-  // 팀 추천 on Drive: saved for the team at once, no Google sign-in (the switch's label takes the press, its checkbox
+  // 각자 연결하도록 권하기 on Drive: saved for the team at once, no Google sign-in (the switch's label takes the press, its checkbox
   // sits under the track, as in admin-engines.spec.ts)
   await drv.locator('label').click()
-  await expect(drv.getByRole('checkbox', { name: '팀 추천' })).toBeChecked()
+  await expect(drv.getByRole('checkbox', { name: '각자 연결하도록 권하기' })).toBeChecked()
   await expect(drv).toHaveAttribute('data-state', 'recommended')
   await expect.poll(() => recommended(page)).toEqual(['google-drive'])
   expect(drive.authorized).toBe(0)
@@ -109,6 +113,37 @@ test('팀이 쓸 도구 with Drive: the step order (n/5); one list (Notion for t
   // nothing was connected on the way
   expect((await (await page.request.get('/api/integrations')).json()).items).toEqual([])
   expect(drive.completed).toEqual([])
+  expect(realErrors(errors)).toEqual([])
+})
+
+test('Google Drive and Gmail both ways: [팀으로 연결] opens the shared Google account dialog Admin › Connected apps uses; a connected team Gmail says which account, 연결됨, and makes the primary', async ({ page }) => {
+  const errors = watchConsole(page)
+  await reset(page)
+  await fakeDrive(page)
+  // a server where the team can share a Google account (the mock has no Google client): the admin Google reads
+  await page.route('**/api/admin/google-drive', (r) => r.fulfill({ json: { configured: true, source: 'service', canSetUp: false, blocked: 'hosted', redirectUri: null, connectedMembers: 0, sharesOn: 0 } }))
+  await page.route('**/api/admin/google-drive/shares', (r) => r.fulfill({ json: { items: [] } }))
+  await page.route('**/api/integrations/google-apps', (r) => r.fulfill({ json: { apps: [{ id: 'gmail', available: true, reason: null, status: 'disconnected', account: null, writePolicy: 'ask', serviceDown: false, tools: [] }] } }))
+  await page.route('**/api/admin/google-apps', (r) => r.fulfill({ json: { apps: [{ id: 'gmail', configured: true, source: 'service', canSetUp: false, blocked: 'hosted', redirectUri: null, driveAppAvailable: false, apis: [], membersCanConnect: true, connectedMembers: 0,
+    team: { id: 'gt-1', status: 'connected', account: { name: 'Acme Ops', email: 'ops@acme.example' }, access: { everyone: true, groups: [], users: [] }, usedBy: 3, connectedBy: null, connectedAt: '2026-11-20T00:00:00.000Z' } }] } }))
+  await signIn(page)
+  await toTools(page)
+  const drv = page.locator('[data-testid="welcome-tools-service"][data-id="google-drive"]')
+  const gm = page.locator('[data-testid="welcome-tools-service"][data-id="gmail"]')
+  await expect(drv).toHaveAttribute('data-team', 'available')
+  await expect(drv.getByTestId('welcome-tools-service-line')).toHaveText('팀으로 연결하면 공유 Google 계정 하나의 파일을 모두가 같이 써요. 각자 연결하면 자기 계정을 써요.')
+  await expect(drv.getByTestId('welcome-tools-team-connect')).toHaveText('팀으로 연결')
+  await expect(drv.getByRole('checkbox', { name: '각자 연결하도록 권하기' })).not.toBeChecked()
+  await expect(gm).toHaveAttribute('data-team', 'connected')
+  await expect(gm.getByTestId('welcome-tools-service-line')).toHaveText('공유 계정 ops@acme.example · 3명이 사용')
+  await expect(gm.getByTestId('welcome-tools-team-on')).toContainText('연결됨')
+  await expect(page.getByTestId('welcome-tools-next')).toHaveText('다음: 팀원 초대')
+  await drv.getByTestId('welcome-tools-team-connect').click()
+  const dialog = page.getByTestId('drive-share-dialog')
+  await expect(dialog).toHaveAttribute('data-step', 'connect')
+  await page.keyboard.press('Escape')
+  await expect(dialog).toHaveCount(0)
+  await expect(page.getByTestId('welcome-tools')).toBeVisible()
   expect(realErrors(errors)).toEqual([])
 })
 
@@ -148,7 +183,7 @@ test('Notion [팀으로 연결]: ONE team connection everyone may use (never the
   expect(realErrors(errors)).toEqual([])
 })
 
-test('no Drive on this server: Notion and "다른 도구 보기"; that line opens Settings › Connectors over the step, and its close, Esc and Back come back to it; 팀 추천 on a tool\'s page there counts', async ({ page }) => {
+test('no Drive on this server: Notion and "다른 도구 보기"; that line opens Settings › Connectors over the step, and its close, Esc and Back come back to it; 각자 연결하도록 권하기 on a tool\'s page there counts', async ({ page }) => {
   const errors = watchConsole(page)
   await reset(page)
   await signIn(page)
@@ -181,14 +216,14 @@ test('no Drive on this server: Notion and "다른 도구 보기"; that line open
   await page.keyboard.press('Escape')
   await expect(settings).toHaveCount(0)
   await expect(page.getByTestId('welcome-tools')).toBeVisible()
-  // Linear's page in the list: the owner's "팀에 추천하기" (no sign-in); it counts here once Settings closes
+  // Linear's page in the list: the owner's "각자 연결하도록 권하기" (no sign-in); it counts here once Settings closes
   await page.getByTestId('welcome-tools-mcp-add').click()
   await settings.locator('[data-testid="connector-card"][data-id="linear"]').getByTestId('connector-open').click()
   const row = settings.getByTestId('team-recommend')
-  await expect(row).toContainText('팀에 추천하기')
+  await expect(row).toContainText('각자 연결하도록 권하기')
   await expect(row).toContainText('모두의 목록 맨 위에 보여요. 연결은 각자 자기 계정으로 해요.')
   await row.locator('label').last().click()
-  await expect(row.getByRole('checkbox', { name: '팀에 추천하기' })).toBeChecked()
+  await expect(row.getByRole('checkbox', { name: '각자 연결하도록 권하기' })).toBeChecked()
   await expect.poll(() => recommended(page)).toEqual(['linear'])
   await settings.getByTestId('settings-close').click()
   await expect(settings).toHaveCount(0)
@@ -253,7 +288,7 @@ test('"Set up" in the list opened from the step (Google Drive on a server withou
   expect(realErrors(errors)).toEqual([])
 })
 
-test('a member\'s list: the team\'s picks first, marked 팀 추천; nothing gated (every other tool still there); no 팀 추천 switch for a member', async ({ page }) => {
+test('a member\'s list: the team\'s picks first, marked 팀이 연결을 권해요; nothing gated (every other tool still there); no 각자 연결하도록 권하기 switch for a member', async ({ page }) => {
   const errors = watchConsole(page)
   await reset(page)
   await signIn(page)
@@ -266,8 +301,8 @@ test('a member\'s list: the team\'s picks first, marked 팀 추천; nothing gate
   const cards = settings.locator('[data-testid="connector-card"]')
   await expect(cards.nth(0)).toHaveAttribute('data-id', 'linear')
   await expect(cards.nth(1)).toHaveAttribute('data-id', 'figma')
-  await expect(cards.nth(0)).toContainText('팀 추천 ·')
-  await expect(cards.nth(2)).not.toContainText('팀 추천')
+  await expect(cards.nth(0)).toContainText('팀이 연결을 권해요 ·')
+  await expect(cards.nth(2)).not.toContainText('팀이 연결을 권해요')
   expect(await cards.count()).toBeGreaterThan(2)
   // a tool's page: Connect as ever, no team switch for a member
   await cards.nth(1).getByTestId('connector-open').click()

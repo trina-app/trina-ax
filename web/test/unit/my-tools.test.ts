@@ -38,5 +38,8 @@ describe('which tools, in which order', () => {
     })
     expect(ids(f)).toEqual(['google-drive:mine', 'gmail:team', 'calendar:mine', 'notion:team'])
     expect(myTools(facts({ listedMine: new Set(['notion']), listedTeam: new Set(['notion']) })).find((x) => x.id === 'notion')!.state).toBe('mine')
+    // a Drive an admin shares with them counts as the team's, like a Google app's shared account; their own still wins
+    expect(myTools(facts({ drive: { configured: true, mine: false, team: true } })).find((x) => x.id === 'google-drive')!.state).toBe('team')
+    expect(myTools(facts({ drive: { configured: true, mine: true, team: true } })).find((x) => x.id === 'google-drive')!.state).toBe('mine')
   })
 })
