@@ -19,20 +19,29 @@ There is nothing to copy or paste: you sign in at Google.
 
 :::steps
 #### Open the app in Connectors
-Choose your photo at the bottom of the bar on the left, then **Settings › Connectors**, and pick the app (Gmail, for
-example) under **Discover**. Its page says what the AI can do and lists every tool.
+1. Choose your photo at the bottom of the bar on the left, then **Settings**.
+2. In the list on the left, choose **Connectors**.
+3. Under **Discover**, choose the app, **Gmail** for example. (Type its name in **Search apps** if you don't see it.)
+
+The app's page opens. It says what the AI can do there and lists every tool; a pencil marks the tools that change
+something. **Connect** is at the top right.
+
+![Gmail's page in Settings › Connectors for a member: Just for you, Connectors › Gmail, the Connect button at the top right, what the AI does with Gmail, and its tools](../images/connect/google-member-connect.webp "Gmail, before you connect")
 
 #### Choose Connect
-Google's own sign-in page opens (in the desktop app, in your browser). Pick your account.
+Google's own sign-in page opens in a new window (in the desktop app, in your browser). If you are signed in to more
+than one Google account, Google asks which one: pick the one you mean.
 
 #### Keep every box ticked
-Google lists what Trina AX may do, such as "Read, compose and send emails". Keep **every** box ticked and choose
-**Continue**. A sign-in with a box unticked is refused: "Some permissions were not ticked. Connect again and keep
-every box ticked."
+Google shows a page that names Trina AX and lists what it may do, one line per permission, such as "Read, compose and
+send emails". Some lines have a box. Keep **every** box ticked and choose **Continue**. A sign-in with a box unticked
+is refused: "Some permissions were not ticked. Connect again and keep every box ticked."
 
 #### Confirm the account
-Back in Trina AX, check the account shown ("Connect this account?") and choose **Connect this account**. The page says
-**Connected as** your address.
+Back in Trina AX, check the account shown ("Connect this account?") and choose **Connect this account**. The page now
+says **Connected** at the top right and **Connected as** your address under the name.
+
+![Gmail's page after connecting: Connected at the top right with a ⋯ menu, and Connected as bob@acme.example.com under the name](../images/connect/google-member-connected.webp "Gmail, connected")
 :::
 
 Reading is free. Before the AI sends a mail, adds an event or edits a document, it shows a card with everything it will
@@ -48,10 +57,32 @@ hear back when you can connect.
 
 ## A shared Google account for the team (admins)
 
-A shared mailbox or calendar, such as `sales@acme.com`, can be connected once for the people who need it. In **Admin ›
-Connected apps**, open the Google app, and under **Team settings › Shared Google account** choose **Connect for the
-team**. Sign in with the shared account, then choose who uses it. Google Drive has **Shared with the team** in
-the same place.
+A shared mailbox or calendar, such as `sales@acme.com`, can be connected once for the people who need it, like a
+shared mailbox in Gmail that several people open. They use it in their chats without connecting their own.
+
+:::steps
+#### Open the Google app in Admin
+Choose your team's logo at the top of the bar on the left, then **Admin › Connected apps**, and choose the Google app
+(Gmail, for example). Scroll down to **Team settings**. The row **Shared Google account** has **Connect for the team**
+on its right.
+
+![Gmail's Team settings in Admin › Connected apps: Who can use it, then Shared Google account with the Connect for the team button, then Google APIs](../images/connect/google-team-row.webp "Team settings › Shared Google account")
+
+#### Sign in with the shared account
+Choose **Connect for the team**. The dialog **Share a Gmail account with the team** opens. Choose **Continue with
+Google** and sign in at Google with the shared account, not your own. Keep every box ticked, as above, then check the
+account and choose **Connect this account**.
+
+![The Share a Gmail account with the team dialog: sign in with the Google account the team will use, the Continue with Google button, and Cancel](../images/connect/google-team-dialog.webp "Share a Gmail account with the team")
+
+#### Choose who uses it and save
+Under **Who can use it**, pick everyone, groups or people, and choose **Save**. Nobody uses it until you save; closing
+the dialog before that removes it again. The row then shows the account, who uses it and who connected it, with a
+**⋯** menu: **Change people**, **Reconnect** and **Remove**.
+:::
+
+Google Drive has **Shared with the team** in the same place: **Share a Google Drive with the team** connects one
+Google account and lets you choose its folders; the people you pick use them in their chats.
 
 ## Set up the Google apps (admins of a server you run yourself)
 

@@ -19,20 +19,30 @@ Tidak ada yang perlu disalin atau ditempel: Anda masuk di Google.
 
 :::steps
 #### Buka aplikasinya di Konektor
-Pilih foto Anda di bagian bawah bilah kiri, lalu **Pengaturan › Konektor**, dan pilih aplikasinya (misalnya Gmail) di
-bawah **Jelajahi**. Halamannya menjelaskan apa yang bisa dilakukan AI dan mencantumkan setiap alat.
+1. Pilih foto Anda di bagian bawah bilah kiri, lalu **Pengaturan**.
+2. Di daftar sebelah kiri, pilih **Konektor**.
+3. Di bawah **Jelajahi**, pilih aplikasinya, misalnya **Gmail**. (Ketik namanya di **Cari aplikasi** jika tidak terlihat.)
+
+Halaman aplikasi itu terbuka. Halaman itu menjelaskan apa yang bisa dilakukan AI di sana dan mencantumkan setiap alat;
+ikon pensil menandai alat yang mengubah sesuatu. **Hubungkan** ada di kanan atas.
+
+![Halaman Gmail di Pengaturan › Konektor untuk anggota: Just for you, Connectors › Gmail, tombol Connect di kanan atas, apa yang dilakukan AI dengan Gmail, dan alat-alatnya](../../images/connect/google-member-connect.webp "Gmail, sebelum dihubungkan")
 
 #### Pilih Hubungkan
-Halaman masuk Google sendiri terbuka (di aplikasi desktop, di browser Anda). Pilih akun Anda.
+Halaman masuk Google sendiri terbuka di jendela baru (di aplikasi desktop, di browser Anda). Jika Anda masuk ke lebih
+dari satu akun Google, Google menanyakan akun yang mana: pilih akun yang Anda maksud.
 
 #### Biarkan semua kotak tetap dicentang
-Google mencantumkan apa saja yang boleh dilakukan Trina AX, misalnya "Read, compose and send emails". Biarkan **semua**
-kotak tetap dicentang dan pilih **Continue**. Proses masuk dengan kotak yang tidak dicentang akan ditolak: "Beberapa izin
+Google menampilkan halaman yang menyebut Trina AX dan mencantumkan apa saja yang boleh dilakukannya, satu baris per izin,
+misalnya "Read, compose and send emails". Sebagian baris punya kotak. Biarkan **semua** kotak tetap dicentang dan pilih
+**Continue**. Proses masuk dengan kotak yang tidak dicentang akan ditolak: "Beberapa izin
 tidak dicentang. Hubungkan lagi dan biarkan semua kotak tetap dicentang."
 
 #### Konfirmasi akunnya
 Kembali di Trina AX, periksa akun yang ditampilkan ("Hubungkan akun ini?") lalu pilih **Hubungkan akun ini**. Halaman
-menampilkan **Terhubung sebagai** dengan alamat Anda.
+sekarang menampilkan **Terhubung** di kanan atas dan **Terhubung sebagai** dengan alamat Anda di bawah namanya.
+
+![Halaman Gmail setelah dihubungkan: Connected di kanan atas dengan menu ⋯, dan Connected as bob@acme.example.com di bawah namanya](../../images/connect/google-member-connected.webp "Gmail, terhubung")
 :::
 
 Membaca tidak perlu persetujuan. Sebelum AI mengirim email, menambahkan acara, atau mengedit dokumen, AI menampilkan kartu berisi
@@ -50,9 +60,33 @@ dan Anda akan diberi tahu saat sudah bisa menghubungkannya.
 ## Akun Google bersama untuk tim (admin)
 
 Kotak surat atau kalender bersama, seperti `sales@acme.com`, bisa dihubungkan sekali untuk orang-orang yang
-memerlukannya. Di **Admin › Aplikasi terhubung**, buka aplikasi Google-nya, lalu di bawah **Pengaturan tim › Akun Google
-bersama** pilih **Hubungkan untuk tim**. Masuk dengan akun bersama itu, lalu pilih siapa yang memakainya. Google Drive
-memiliki **Dibagikan dengan tim** di tempat yang sama.
+memerlukannya, seperti kotak surat bersama di Gmail yang dibuka beberapa orang. Mereka memakainya di chat tanpa
+menghubungkan akun sendiri.
+
+:::steps
+#### Buka aplikasi Google di Admin
+Pilih logo tim Anda di bagian atas bilah kiri, lalu **Admin › Aplikasi terhubung**, dan pilih aplikasi Google-nya
+(misalnya Gmail). Gulir ke bawah ke **Pengaturan tim**. Baris **Akun Google bersama** punya **Hubungkan untuk tim** di
+sebelah kanannya.
+
+![Team settings Gmail di Admin › Aplikasi terhubung: Who can use it, lalu Shared Google account dengan tombol Connect for the team, lalu Google APIs](../../images/connect/google-team-row.webp "Pengaturan tim › Akun Google bersama")
+
+#### Masuk dengan akun bersama
+Pilih **Hubungkan untuk tim**. Dialog **Bagikan akun Gmail dengan tim** terbuka. Pilih **Lanjutkan di Google** lalu
+masuk di Google dengan akun bersama itu, bukan akun Anda sendiri. Biarkan semua kotak tetap dicentang, seperti di atas,
+lalu periksa akunnya dan pilih **Hubungkan akun ini**.
+
+![Dialog Share a Gmail account with the team: masuk dengan akun Google yang akan dipakai tim, tombol Continue with Google, dan Cancel](../../images/connect/google-team-dialog.webp "Bagikan akun Gmail dengan tim")
+
+#### Pilih siapa yang memakainya, lalu simpan
+Di bawah **Siapa yang bisa memakainya**, pilih semua orang, grup, atau orang tertentu, lalu pilih **Simpan**. Tidak ada
+yang memakainya sebelum Anda menyimpan; menutup dialog sebelum itu menghapusnya lagi. Baris itu lalu menampilkan akunnya,
+siapa yang memakainya, dan siapa yang menghubungkannya, dengan menu **⋯**: **Ubah orang**, **Hubungkan kembali**, dan
+**Hapus**.
+:::
+
+Google Drive memiliki **Dibagikan dengan tim** di tempat yang sama: **Bagikan Google Drive dengan tim** menghubungkan satu
+akun Google dan membiarkan Anda memilih foldernya; orang yang Anda pilih memakainya di chat.
 
 ## Menyiapkan aplikasi Google (admin server yang Anda kelola sendiri)
 

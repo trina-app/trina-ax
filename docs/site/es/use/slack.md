@@ -60,14 +60,21 @@ otra vez del espacio de trabajo.
 
 ### Invitar la app a los canales
 
-Slack solo informa a Trina AX de los canales en los que está. En cada canal donde las personas vayan a preguntar,
-escriba:
+Slack solo informa a Trina AX de los canales en los que está, igual que con cualquier app de Slack. En cada canal donde
+las personas vayan a preguntar:
+
+1. Abra el canal en Slack.
+2. En el cuadro de mensaje, escriba `/invite @trina-ax` y pulse Intro. (Slack puede sugerir la app mientras escribe:
+   elíjala).
+3. Slack publica una línea en el canal que dice que se añadió la app. A partir de entonces, cualquiera en el canal puede
+   mencionarla.
 
 ```
 /invite @trina-ax
 ```
 
-Los mensajes directos no necesitan invitación.
+Los mensajes directos no necesitan invitación: busque **Trina AX** en **Apps**, en la barra lateral de Slack, y
+escríbale.
 
 ## Vincular su cuenta y preguntar (todos)
 
@@ -81,10 +88,18 @@ resume las notas de la semana pasada en shared/sales".
 
 #### Conecte su cuenta la primera vez
 La primera vez, Trina AX responde solo a usted: "Para preguntar a Trina AX aquí, conecte primero su cuenta de Trina AX.
-El enlace funciona una vez, durante 10 minutos, y solo para usted." Elija **Conectar cuenta de Trina AX**. Se abre
-Trina AX (inicie sesión si se lo pide) y muestra las dos cuentas. **Vincular** las vincula cuando su cuenta de Slack
-tiene el mismo correo que su cuenta de Trina AX. Si no es así, la página explica por qué y ofrece en su lugar **Iniciar
-sesión con Slack para vincular**.
+El enlace funciona una vez, durante 10 minutos, y solo para usted."
+
+1. Elija **Conectar cuenta de Trina AX** en ese mensaje.
+2. Trina AX se abre en su navegador (inicie sesión si se lo pide). La página **Vincular su cuenta de Slack** muestra las
+   dos cuentas: su nombre de Slack, y su nombre y su correo de Trina AX.
+3. Compruebe que la cuenta de Slack es suya y elija **Vincular**. La página dice "Vinculada. Vuelva a Slack y pregunte
+   de nuevo."
+
+**Vincular** aparece cuando su cuenta de Slack tiene el mismo correo que su cuenta de Trina AX. Si no es así, la página
+explica por qué y ofrece en su lugar **Iniciar sesión con Slack para vincular**.
+
+![La página Vincular su cuenta de Slack: Slack: Bob (@bob), Su cuenta: Bob · bob@acme.example.com, un aviso de vincular solo su propia cuenta de Slack, y los botones Vincular y Cancelar](../../images/slack/link-page.webp "Vincular su cuenta de Slack")
 
 #### O vincule desde Trina AX
 **Configuración › Conectores** tiene una línea **Slack**: "Inicie sesión con su cuenta de Slack de … para vincularla."

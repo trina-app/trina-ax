@@ -67,7 +67,8 @@ Windows では、確認はこれだけです。アプリはすぐに探し始め
 
 ![macOS の確認：“Trina AX” would like to access files in your Documents folder. Looks for work files here. File contents stay on this Mac until you choose to add them. Don't Allow（許可しない）、Allow（許可）](../../images/find-work-files/macos-question.webp "macOS がフォルダーごとに確認します")
 
-macOS は答えを覚えているため、確認はフォルダーごとに 1 回だけです。
+macOS は答えを覚えているため、確認はフォルダーごとに 1 回だけです。iPhone で、アプリに写真を見せる前に一度だけ
+確認が出るのと同じです。
 
 ## ファイルを選ぶ
 

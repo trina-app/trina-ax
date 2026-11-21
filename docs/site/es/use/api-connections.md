@@ -31,8 +31,12 @@ requiere código.
 
 :::steps
 #### Abra el cuadro
-En **Administración › Apps conectadas**, elija **Añadir por su dirección** debajo de Descubrir. Abra **Avanzado** y ponga
-**Tipo** en **API** y **Método de inicio de sesión** en **Clave de API**.
+1. Elija el logotipo de su equipo en la parte superior de la barra de la izquierda y luego **Administración › Apps
+   conectadas**.
+2. Desplácese hasta el final de **Descubrir**. Debajo de la lista, junto a "¿No aparece?", elija **Añadir por su
+   dirección**. Se abre el cuadro **Añadir una app para el equipo**.
+3. Cerca de la parte inferior del cuadro, abra **Avanzado** (está plegado). Ponga **Tipo** en **API** y **Método de
+   inicio de sesión** en **Clave de API**. El cuadro muestra entonces los campos de abajo.
 
 #### Rellene los campos
 - **Nombre**: el nombre que las personas ven en los chats, como "AI PM".
@@ -81,10 +85,12 @@ cada miembro inicie sesión con su propia cuenta.
 
 :::steps
 #### Abra primero el cuadro en Trina AX
-En **Administración › Apps conectadas**, elija **Añadir por su dirección**, abra **Avanzado** y ponga **Quién conecta**
-en **Cada miembro la suya**, **Tipo** en **API** (o **Servidor MCP**) y **Método de inicio de sesión** en **Iniciar
-sesión (OAuth)**. Para un servidor MCP, active también **Iniciar sesión con mi propia aplicación**. El cuadro muestra
-ahora **Dirección de redirección que debe registrar en su aplicación del servicio** con un botón de copiar. Cópiela.
+1. En **Administración › Apps conectadas**, elija **Añadir por su dirección** (debajo de la lista **Descubrir**).
+2. Abra **Avanzado** y ponga **Quién conecta** en **Cada miembro la suya**, **Tipo** en **API** (o **Servidor MCP**) y
+   **Método de inicio de sesión** en **Iniciar sesión (OAuth)**. Para un servidor MCP, active también **Iniciar sesión
+   con mi propia aplicación**.
+3. El cuadro muestra ahora **Dirección de redirección que debe registrar en su aplicación del servicio**, con un botón
+   de copiar. Cópiela con ese botón, no seleccionando el texto, y deje el cuadro abierto.
 
 #### Cree la app en el servicio
 En la consola para desarrolladores del servicio, cree una app (puede llamarse "OAuth app", "client" o "integration").

@@ -31,8 +31,15 @@ in a picture.
 | Let the AI use your company's own system (an API) or an app that needs your own sign-in app, such as NAVER WORKS | An admin | **Admin › Connected apps** › **Add one by its address** | [Your company's API](api-connections.md) |
 | Use your Trina AX files from Claude or ChatGPT | You | **Settings › Trina AX MCP** | [Trina AX MCP connector](../agents/mcp-connector.md) |
 
-To open **Settings**, choose your photo at the bottom of the bar on the left, then **Settings** (on a phone, the **Me**
-tab). **Admin** is in the same menu for the owner and admins.
+### Where Settings and Admin are
+
+- **Settings** (your own connections): choose your photo at the bottom of the bar on the left, then **Settings**. On
+  a phone, open the **Me** tab. Settings opens over the page, with **Connectors** and **AI providers** in its list
+  under **Connections**.
+- **Admin** (the team's connections, for the owner and admins): choose your team's logo at the top of the bar on the
+  left, then **Admin**. See [Admin](admin.md).
+
+![The menu under your photo: your name and role, Show me as away, Set your status, Settings and Sign out](../images/settings/account-menu.webp "The menu under your photo")
 
 ![Settings › Connectors for a member of Acme: Discover lists Google Drive, Notion, Linear and other apps, each with a + button, and "Not listed? Ask an admin to add it." under the list](../images/connect/member-connectors.webp "Settings › Connectors")
 

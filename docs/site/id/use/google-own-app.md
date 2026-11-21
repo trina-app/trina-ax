@@ -187,9 +187,16 @@ proses masuk ke aplikasi yang membuatnya.
 ## Opsional: memercayai aplikasi di Admin console
 
 Jika perusahaan Anda membatasi aplikasi mana yang boleh memakai akun Google, super admin Google Workspace menandai
-aplikasi ini sebagai tepercaya. Di [Admin console](https://admin.google.com/), buka **Security › Access and data control
-› API controls**, lalu **Manage Third-Party App Access** › **Configure new app**. Cari client ID-nya (ada di file yang
-diunduh), pilih, lalu atur ke **Trusted**. Tanpa ini, orang mungkin melihat `admin_policy_enforced` saat menghubungkan.
+aplikasi ini sebagai tepercaya. Tanpa ini, orang mungkin melihat `admin_policy_enforced` saat menghubungkan.
+
+1. Cari client ID aplikasinya. Client ID ada di file JSON yang Anda unduh, setelah `"client_id":`, dan di halaman client
+   itu di [Clients](https://console.cloud.google.com/auth/clients). Akhirannya `.apps.googleusercontent.com`.
+2. Masuk ke [Admin console](https://admin.google.com/) sebagai super admin.
+3. Di menu sebelah kiri, buka **Security**, lalu **Access and data control**, lalu **API controls**.
+4. Pilih **Manage Third-Party App Access**, lalu **Configure new app**.
+5. Tempel client ID ke kotak pencarian dan pilih aplikasi Anda di daftar.
+6. Pilih untuk siapa pengaturan ini berlaku (biasanya seluruh organisasi), atur ke **Trusted**, lalu selesaikan dengan
+   **Configure** (tombol terakhir Google; namanya bisa sedikit berbeda).
 
 ## Yang disimpan Trina AX
 

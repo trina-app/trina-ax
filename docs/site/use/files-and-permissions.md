@@ -54,7 +54,24 @@ The dialog names who will gain or lose access. Nothing changes until you save. G
 
 Access adds up, as in Google Drive: what a folder gives comes on top of what the folders above give. A role lower than that cannot be picked; the row says where the higher one comes from ("Editor from "Company-wide"").
 
-To give a folder less than the folders above, turn on **Settings › Limit access**. Then only the people and groups added there open it. **Access removed** lists the people who can open the folder above but not this one; **Add** brings one back as Viewer. Turning the limit off again raises any role lower than the folders above to that level.
+### Give a folder less access than the folder above
+
+Normally a folder lets in everyone the folder above it lets in. To keep a folder for fewer people (for example a
+`handbook` folder inside `Company-wide`), limit it:
+
+1. Open the folder's **Share** dialog (**Files**, then the folder's **⋯** › **Share**).
+2. At the bottom, under **Settings**, turn on the **Limit access** switch.
+3. Read the line above **Save**. It names who will no longer be able to open the folder, for example "Alex Kim, Dana
+   Brooks, Jordan Lee and 3 others will no longer be able to open it". Nothing has changed yet.
+4. Add the people and groups who should keep access in **Add people and groups**.
+5. Press **Save**.
+
+Now only the people and groups listed open the folder, plus the owner and admins. In **Admin › Folder permissions** the
+folder is marked **Limited**, and **Access removed** in its dialog lists the people who can open the folder above but not
+this one; **Add** brings one back as Viewer. Turning the limit off again raises any role lower than the folders above to
+that level.
+
+![The Share dialog of the handbook folder with Limit access turned on: General access Restricted, and above Save a line that Alex Kim, Dana Brooks, Jordan Lee and 3 others will no longer be able to open it](../images/files/limit-access.webp "Limit access, before saving")
 
 The owner and admins can always open team folders, except projects they are not a member of. They show as one **Manager** row.
 
@@ -78,7 +95,18 @@ After the update that made access add up, some folders list their people by name
 
 ## Share a file
 
-You can share a file you own with chosen people, without changing who can open its folder: **Files › a file's ⋯ › Share**. Add people or groups and press **Share**. They can view the file and download it; they don't see the rest of the folder. Each person you add sees it in **Activity**.
+You can share a file you own with chosen people, without changing who can open its folder, like sharing one file from
+Google Drive. They can view the file and download it; they don't see the rest of the folder.
+
+1. Open **Files** and find the file.
+2. Point at its row and press **⋯** at the end of it (or right-click the row), then choose **Share**.
+3. Type a name in **Add people or groups** and pick the person or group. You can add several.
+4. Press **Share**. (Before you add anyone, the button reads **Done**.)
+
+The people you added now show under **People with access** with **Can view**. Each of them gets a notice in
+**Activity**, and the file shows in their **Files › Shared with me**.
+
+![A file's Share dialog: Add people or groups, People with access with the owner, a line that people who can open the folder can open this file too, Copy link and Done](../images/files/file-share.webp "Share one file")
 
 - **Everyone on the team** is the first choice in **Add people or groups**. Before you press **Share**, a line says
   that everyone on the team will be able to open the file, also people who join later. Guests never can. It counts as
@@ -164,7 +192,10 @@ is forgotten, and a confidential chat is never reported.
 
 - **Upload** files or whole folders from the Files screen.
 - **Download**: in the desktop app a file you download goes straight into your computer's Downloads folder, and a notice offers **Show in folder**. A file with the same name is kept: the new one is saved as "name (1)". In a browser, the browser decides where downloads go.
-- **History**: every change keeps a version you can open or restore.
+- **History**: every change keeps a version you can open or restore, as in Google Docs' version history. To go back to an
+  earlier version: on the file's row choose **⋯** › **Version history**, find the version you want, press **Restore** and
+  confirm with **Restore**. A message says "Restored v3." (the version's number). The content you had before is kept as a
+  new version, so you can always come back to it.
 - **Trash**: **Files › Trash** lists what you could restore, by name and the place it was in ("price-sheet.xlsx · Company-wide › Sales"). A file deleted more than once is one row with its copies: **Restore** brings back the latest, and opening the row restores any other copy. If the list has other people's deletes, **Deleted by me** shows only yours. Items are removed for good after the team's retention period (Admin › Team settings, 30 days by default); each row says when.
 - **Formats**: the AI reads text from PDF, Office and HWP/HWPX files, and sees photos and scanned pages as images (admins can turn that off). Linux servers run no OCR.
 - **Confirmation**: when the AI would write restricted content somewhere more people can see, the server asks first.

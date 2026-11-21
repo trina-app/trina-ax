@@ -11,7 +11,9 @@ status line changes as things move on.
 
 ## Add an app
 
-1. Open the conversation, then **⋯ › Add an app**.
+1. Open the conversation and press **⋯** at the top right (next to the bell), then choose **Add an app**. If you don't
+   see it, you can't add apps here: in a channel only its owners and admins can (see below). Once the conversation has
+   an app, the item reads **Integrations · 1** (the number of apps) and opens the list, with **Add an App**.
 2. Pick a service. They are grouped: **Forms** (Google Forms, Typeform, Tally, Jotform), **Payments & orders**
    (Stripe, Shopify), **Work** (Notion, Zendesk, Jira, HubSpot) and **For developers** (GitHub, Sentry). **Show more
    services** opens a few more (Toss Payments, Channel Talk, PortOne). **Other app**, last, takes anything else. A service that needs a plan or a role says so on its row (for example *Needs: a paid Notion plan*).
