@@ -9,7 +9,7 @@ import type { ChatPlaces } from '../files/place-output'
 import { PLACE_WORDS, type ResolveCtx } from '../files/places'
 import { ToolError } from '../policy/errors'
 import { confidentialChat } from '../safe-ops/confidential'
-import { chatFilesOf, type ChatFileRow } from './chat-files'
+import { chainIdOf, chatFilesOf, type ChatFileRow } from './chat-files'
 import { seesChatFiles } from './chat-files-access'
 import { carriedByHiddenAnswer } from './chat-file-tool'
 import { addSources } from './read-scope'
@@ -41,8 +41,9 @@ export function chatPlaces(exec: TurnExec, files: TurnFiles): ChatPlaces {
     workFolder: files.workFolder,
     live: () => { try { exec.livePrincipal(); return true } catch { return false } },
   }
-  /** this chat's files the person may open now, newest first (ChatFiles.open decides each) */
-  const rows = (): ChatFileRow[] => rt.db.query('SELECT * FROM chat_files WHERE chat_id = ? ORDER BY created_at DESC, id DESC').all(chatId) as ChatFileRow[]
+  /** this chat's files the person may open now, one per chain (its newest version), newest change first
+   * (ChatFiles.visibleTo, the one filtered list) */
+  const rows = (): ChatFileRow[] => store.visibleTo(me, chatId).map((v) => v.head)
   return {
     ctx,
     async attach(name, src, sha256): Promise<Attachment & { sha256: string }> {
@@ -58,8 +59,9 @@ export function chatPlaces(exec: TurnExec, files: TurnFiles): ChatPlaces {
       return { ...att, sha256: kept }
     },
     open(id, name) {
-      // TODO(P4, feat/chat-file-versions): root → head through ChatFiles.visibleTo
-      const ids = id ? [id] : rows().filter((r) => r.name.normalize('NFC') === name.normalize('NFC')).map((r) => r.id)
+      // root → head (P4): any id of a chain opens its newest version (ChatFiles.open), and a name is looked up in
+      // ChatFiles.visibleTo's heads; the id given back is the chain's (its root's), the one a place path keeps
+      const ids = id ? [chainIdOf({ id, root_id: store.row(id)?.root_id ?? null })] : rows().filter((r) => r.name.normalize('NFC') === name.normalize('NFC')).map((r) => chainIdOf(r))
       for (const i of ids) {
         // a file carried only by an answer hidden from people who join later (k) is never read into another file: the
         // same "not found" as P1's read (chat-file-tool.ts readChatFile)

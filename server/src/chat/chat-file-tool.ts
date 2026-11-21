@@ -30,7 +30,7 @@ import { visionBlock } from '../files/vision'
 import { authorize, type Authorized } from '../policy/authorize'
 import { Denied, ToolError } from '../policy/errors'
 import { inSkills } from '../skills/guard'
-import { CHAT_FILE_MAX, chatFilesOf, seesChatFiles, type ChatFileRow } from './chat-files'
+import { CHAT_FILE_MAX, chainIdOf, chatFilesOf, seesChatFiles, type ChatFileRow } from './chat-files'
 import { neutralizeTags } from './prompt'
 import { answerRecord } from './shared-answers'
 import { addSources, type ReadSource } from './read-scope'
@@ -109,7 +109,7 @@ async function readChatFile(exec: TurnExec, files: TurnFiles, a: ChatFileReadArg
     // such file is made today: an attach is refused in such a turn, a share-time copy never takes one)
     if (carriedByHiddenAnswer(rt.db, chatId, file.id)) return { ...text(`The file "${oneLine(file.name, 120)}" came with an answer that is kept from some people who may join this chat, so it is not read here.`, true), summary: `${tool} -> refused: carried by a hidden answer` }
     addSources(rt.db, chatId, [{ type: 'chat', id: chatId }])
-    const head = `The file "${neutralizeTags(oneLine(file.name, 200))}" (${file.mime.split(';')[0]}, ${file.size} bytes, file_id=${file.id}), sent in this chat. ${FILE_NOTE}`
+    const head = `The file "${neutralizeTags(oneLine(file.name, 200))}" (${file.mime.split(';')[0]}, ${file.size} bytes, file_id=${chainIdOf(file)}), sent in this chat. ${FILE_NOTE}`
     if (rt.ctx.files.quarantine.hasHash(file.sha256)) return { ...text(`${head}\nThis file is held by the team's safety check, so it cannot be read here.`, true), summary: `${tool} -> held` }
     const rel = readName(chatId, file)
     const shown = `"${oneLine(file.name, 200)}"`
@@ -126,7 +126,7 @@ async function readChatFile(exec: TurnExec, files: TurnFiles, a: ChatFileReadArg
       const segs = rel.split('/')
       return { segs, rel, abs: o.abs, exists: true, existing: segs.length, st }
     }
-    const child: SharedChild = { rel, link: shown, id: file.id, open }
+    const child: SharedChild = { rel, link: shown, id: chainIdOf(file), open }
     /** the read's words name the file as the person sees it, never the inner path */
     const swap = (t: string) => t.split(`'${rel}'`).join(shown).split(rel).join(shown)
     const recheck = (pixels: boolean) => {
@@ -168,18 +168,12 @@ async function readChatFile(exec: TurnExec, files: TurnFiles, a: ChatFileReadArg
 /** A file sent in this turn's chat that the person may open (sent in a message, or their own upload not sent yet): by
  * its id, or (`byName`) its exact name, the newest of that name. */
 export function findChatFile(exec: TurnExec, ref: string, byName: boolean): ChatFileRow | null {
-  const { rt, spec } = exec
   // its chat place path too (chat:files/<id>/<name> or chat:files/<name>, shared/src/places.ts)
   const place = parsePlace(ref)
   const want = place?.kind === 'chatFiles' ? (place.id ?? place.name) : ref.trim().replace(/^file_id=/, '')
   if (!want) return null
-  const rows = (byName
-    ? rt.db.query('SELECT * FROM chat_files WHERE chat_id = ? AND (id = ? OR name = ?) ORDER BY created_at DESC').all(spec.chatId, want, want.normalize('NFC'))
-    : rt.db.query('SELECT * FROM chat_files WHERE chat_id = ? AND id = ?').all(spec.chatId, want)) as ChatFileRow[]
-  for (const r of rows) {
-    try { chatFilesOf(rt.ctx).open(spec.userId, spec.chatId, r.id, false); return r } catch { /* not sent, or someone else's unsent one */ }
-  }
-  return null
+  // through the one filtered list (ChatFiles.visibleTo): a chain's newest version, never a name only hidden answers carry
+  return chatFilesOf(exec.rt.ctx).find(exec.spec.userId, exec.spec.chatId, want, byName)?.head ?? null
 }
 
 /** The calls that only take a file's bytes, by the argument that names the file (chatFileCopyOf): plain content reads
@@ -326,21 +320,21 @@ export function saveChatFileTool(exec: TurnExec): Tool {
 }
 
 /**
- * The files of this chat that `userId` may open now, newest first: each one through ChatFiles.open (sent in a message or
- * their own upload not sent yet, and every other check open() makes), so a name the person may not open never shows.
- * P4 (feat/chat-file-versions) adds ChatFiles.visibleTo with root → head resolution; this then calls it.
+ * The files of this chat that `userId` may open now, newest change first: one per chain, its newest version, through
+ * ChatFiles.visibleTo (the one filtered list: sent in a message or their own upload not sent yet, never a chain only
+ * hidden answers carry), so a name the person may not open never shows.
  */
 export function visibleChatFiles(ctx: TurnExec['rt']['ctx'], userId: string, chatId: string): ChatFileRow[] {
-  if (!seesChatFiles(ctx.db, userId, chatId)) return []
-  const store = chatFilesOf(ctx)
-  const rows = ctx.db.query('SELECT * FROM chat_files WHERE chat_id = ? ORDER BY created_at DESC, id DESC').all(chatId) as ChatFileRow[]
-  return rows.filter((r) => { try { store.open(userId, chatId, r.id, false); return true } catch { return false } })
+  return chatFilesOf(ctx).visibleTo(userId, chatId).map((v) => v.head)
 }
 
 /** Is every message of the chat that carries this file an answer with a k group (chat/shared-answers.ts: a connection's
  * answer, hidden from people who join later and may not use that connection)? */
 export function carriedByHiddenAnswer(db: TurnExec['rt']['db'], chatId: string, fileId: string): boolean {
-  const carriers = db.query("SELECT DISTINCT m.id, m.role FROM messages m, json_each(m.attachments) j WHERE m.chat_id = ? AND json_valid(m.attachments) AND json_extract(j.value, '$.id') = ?").all(chatId, fileId) as { id: string; role: string }[]
+  // a message carries a chain by its root's id, never a version's (chat/chat-files.ts putVersion): a version is checked
+  // as its chain
+  const root = (db.query('SELECT root_id FROM chat_files WHERE id = ? AND chat_id = ?').get(fileId, chatId) as { root_id: string | null } | null)?.root_id ?? fileId
+  const carriers = db.query("SELECT DISTINCT m.id, m.role FROM messages m, json_each(m.attachments) j WHERE m.chat_id = ? AND json_valid(m.attachments) AND json_extract(j.value, '$.id') = ?").all(chatId, root) as { id: string; role: string }[]
   if (!carriers.length) return false
   return carriers.some((m) => m.role !== 'user' && (answerRecord(db, m.id)?.reads ?? []).some((g) => g.k))
 }
@@ -364,7 +358,7 @@ export function chatPlaceHooks(exec: TurnExec): ChatPlaceHooks {
     return seesChatFiles(rt.db, spec.userId, spec.chatId) ? null : NO_CHAT_PLACE
   }
   const visible = () => visibleChatFiles(rt.ctx, spec.userId, spec.chatId)
-  const line = (f: ChatFileRow) => `${chatFilePath(f.id, f.name)} (${f.mime.split(';')[0]}, ${f.size} bytes, ${f.created_at.slice(0, 10)})`
+  const line = (f: ChatFileRow) => `${chatFilePath(chainIdOf(f), f.name)} (${f.mime.split(';')[0]}, ${f.size} bytes, ${f.created_at.slice(0, 10)})`
   const seen = () => addSources(rt.db, spec.chatId, [{ type: 'chat', id: spec.chatId }])
   const fail = (t: string, summary: string): ToolOutput => ({ text: t, isError: true, summary })
   return {
@@ -412,13 +406,13 @@ export function chatPlaceHooks(exec: TurnExec): ChatPlaceHooks {
         const e = path.extname(f.name).slice(1).toLowerCase()
         if (only && !only.match(f.name)) continue
         if (a.type && a.type !== e) continue
-        if (!GREP_TEXT.has(e) || f.size > GREP_FILE_MAX) { skipped.push(chatFilePath(f.id, f.name)); continue }
+        if (!GREP_TEXT.has(e) || f.size > GREP_FILE_MAX) { skipped.push(chatFilePath(chainIdOf(f), f.name)); continue }
         let o: ReturnType<typeof store.open>
         try { o = store.open(spec.userId, spec.chatId, f.id, false) } catch { continue }
         if (o.quarantined) continue
         let lines: string[]
         try { lines = readRegular(o.abs, GREP_FILE_MAX).bytes.toString('utf8').split(/\r?\n/) } catch { continue }
-        const p = chatFilePath(f.id, f.name)
+        const p = chatFilePath(chainIdOf(f), f.name)
         const at = lines.flatMap((l, i) => (re.test(l) ? [i] : []))
         if (!at.length) continue
         if (mode === 'files_with_matches') { out.push(p); continue }

@@ -169,7 +169,7 @@ export async function readPlaceFile(ctx: AppContext, c: ToolCtx, input: string, 
     return { local: dest, name: got.name, size: got.size, sha256: got.sha256, place: `chat:work/${s.rel}`, base: { kind: 'work', dir: segs.slice(0, -1) } }
   }
   if (s.kind !== 'chatFile') throw new ToolError('this is the list of the chat\'s files; name a file in it (chat:files/<name>)', 'is_folder')
-  // TODO(P4, feat/chat-file-versions): the name and id go root → head through ChatFiles.visibleTo
+  // the name and id go root → head through ChatFiles.visibleTo (chat/place-ctx.ts open)
   let f: ReturnType<ChatPlaces['open']>
   try { f = p.open(s.id, s.name) } catch { throw new ToolError(`'${input}' was not found in this chat's files`, 'not_found') }
   if (f.quarantined) throw new ToolError(`'${f.name}' is held by the team's safety check, so it is not read`, 'held')
