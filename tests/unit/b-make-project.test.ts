@@ -91,7 +91,21 @@ test('a named channel converts: people = members, renamed, floor set, starts kep
   expect(seen.some((m) => m.body === 'before' || m.body === 'after otto')).toBe(false)
   expect(seen.some((m) => m.event?.type === 'project_made')).toBe(true)
   // converting again: not convertible
-  expect(await status(make(mia.client, roomId, 'Again', i.membersHash))).toMatchObject({ status: 409, reason: 'already_project' })
+  const again = await status(make(mia.client, roomId, 'Again', i.membersHash))
+  expect(again).toMatchObject({ status: 409, reason: 'already_project' })
+  expect(again.body.error.params.projectId).toBe(r.project.id)
+  // permission first: a member who may not make projects is refused as such, before anything about the room or project
+  updateTeamSettings(h.ctx.db, { projectCreators: 'admins' })
+  for (const x of [await status(info(nora.client, roomId)), await status(make(nora.client, roomId, 'Again', i.membersHash))]) {
+    expect(x).toMatchObject({ status: 403, reason: 'projects_admins_only' })
+    expect(JSON.stringify(x.body)).not.toContain(r.project.id)
+  }
+  updateTeamSettings(h.ctx.db, { projectCreators: 'members' })
+  // a member of the room who no longer reads the project (narrowed, the sync not yet run): the plain not_convertible
+  h.ctx.db.transaction(() => writeFolderAccess(h.ctx.db, folder.id, { rules: [{ subjectType: 'user', subjectId: mia.id, access: 'write' }], limited: true }, mia.id))()
+  const hidden = await status(make(nora.client, roomId, 'Again', i.membersHash))
+  expect(hidden).toMatchObject({ status: 409, reason: 'not_convertible' })
+  expect(JSON.stringify(hidden.body)).not.toContain(r.project.id)
 })
 
 test('an unnamed group chat converts with the names its row shows; a DM, team room, everyone room, project room and archived room are refused', async () => {
@@ -117,9 +131,12 @@ test('an unnamed group chat converts with the names its row shows; a DM, team ro
     expect(await status(info(mia.client, id))).toMatchObject({ status: 409, reason: 'not_convertible' })
     expect(await status(make(mia.client, id, 'X', 'x'))).toMatchObject({ status: 409, reason: 'not_convertible' })
   }
-  // a project's own room already is one (TC-6731): its own reason, with the project
-  expect(await status(info(mia.client, projRoom))).toMatchObject({ status: 409, reason: 'already_project' })
-  expect(await status(make(mia.client, projRoom, 'X', 'x'))).toMatchObject({ status: 409, reason: 'already_project' })
+  // a project's own room (made by the project page, never a conversation): not_convertible, naming nothing; only a
+  // conversation that became a project says already_project (TC-6731, the race below)
+  for (const r of [await status(info(mia.client, projRoom)), await status(make(mia.client, projRoom, 'X', 'x'))]) {
+    expect(r).toMatchObject({ status: 409, reason: 'not_convertible' })
+    expect(r.body?.error?.params?.projectId).toBeUndefined()
+  }
   // archived: not in it any more, the same 404 as any room one is not in
   expect((await status(make(mia.client, left, 'X', 'x'))).status).toBe(404)
 })

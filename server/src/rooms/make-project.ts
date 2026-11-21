@@ -63,13 +63,20 @@ export const membersHash = (ids: readonly string[]): string => createHash('sha25
 function convertible(db: Database, room: Pick<RoomRow, 'id' | 'kind' | 'archived_at'>): boolean {
   return room.kind === 'group' && !room.archived_at && !db.query('SELECT 1 FROM room_project_links WHERE room_id = ?').get(room.id)
 }
-/** 409 for a room that cannot become a project. A room that already is one (someone else made it a project a moment ago)
- * says so: reason already_project, with projectId when the caller reads that project (TC-6731); else not_convertible. */
+/**
+ * 409 for a room that cannot become a project. Called only after the caller's own checks passed (a member who is not a
+ * guest, roomFor; one who may make team projects, assertMayCreateTeamProject), so it is never a probe for anyone else.
+ * The loser of a simultaneous conversion (TC-6731) is told it just became a project, with its id: reason already_project,
+ * only for a room a conversation became (its 'project_made' line, the one file-moves.ts closeLine also looks for) and
+ * only for a caller who reads that project. Every other case (a room made as a project's own room, a project the caller
+ * cannot read, a DM, a team room) is the same not_convertible as before, naming nothing.
+ */
 function notConvertible(ctx: AppContext, p: Principal, roomId: string, locale: Locale): never {
-  const link = ctx.db.query("SELECT l.project_id, pr.folder_path FROM room_project_links l JOIN projects pr ON pr.id = l.project_id WHERE l.room_id = ? AND l.mode = 'room'").get(roomId) as { project_id: string; folder_path: string } | null
-  if (!link) return fail('conflict', tr('roomNotConvertible', locale), { params: { reason: 'not_convertible' } })
-  const mine = canRead(ctx.files, p, link.folder_path)
-  return fail('conflict', tr('roomAlreadyProject', locale), { params: { reason: 'already_project', ...(mine ? { projectId: link.project_id } : {}) } })
+  const db = ctx.db
+  const link = db.query("SELECT l.project_id, l.history_floor_seq, pr.folder_path FROM room_project_links l JOIN projects pr ON pr.id = l.project_id WHERE l.room_id = ? AND l.mode = 'room'").get(roomId) as { project_id: string; history_floor_seq: number; folder_path: string } | null
+  const made = !!link && !!db.query("SELECT 1 FROM room_messages WHERE room_id = ? AND seq > ? AND event IS NOT NULL AND json_extract(event, '$.type') = 'project_made' AND json_extract(event, '$.projectId') = ? LIMIT 1").get(roomId, link.history_floor_seq, link.project_id)
+  if (!link || !made || !canRead(ctx.files, p, link.folder_path)) return fail('conflict', tr('roomNotConvertible', locale), { params: { reason: 'not_convertible' } })
+  return fail('conflict', tr('roomAlreadyProject', locale), { params: { reason: 'already_project', projectId: link.project_id } })
 }
 const membersChanged = (locale: Locale): never => fail('conflict', tr('roomMembersChanged', locale), { params: { reason: 'members_changed' } })
 
@@ -105,8 +112,9 @@ function suggestedName(db: Database, room: RoomRow, members: readonly Member[], 
 export function makeProjectInfo(ctx: AppContext, p: Principal, roomId: string, typed: string | undefined, locale: Locale): MakeProjectInfo {
   const db = ctx.db
   const room = roomFor(ctx, p, roomId)
-  if (!convertible(db, room)) notConvertible(ctx, p, room.id, locale)
+  // permission first: who may not make a project is refused as such, before anything is said about the room
   assertMayCreateTeamProject(db, p, locale)
+  if (!convertible(db, room)) notConvertible(ctx, p, room.id, locale)
   const members = activeMembers(db, room.id)
   const suggested = suggestedName(db, room, members, p.id)
   const name = (typed ?? suggested).normalize('NFC').trim()
@@ -130,8 +138,9 @@ export function makeProject(ctx: AppContext, p: Principal, roomId: string, body:
   const db = ctx.db
   const rooms = roomsOf(ctx)
   const room = roomFor(ctx, p, roomId)
-  if (!convertible(db, room)) notConvertible(ctx, p, room.id, locale)
+  // permission first: who may not make a project is refused as such, before anything is said about the room
   assertMayCreateTeamProject(db, p, locale)
+  if (!convertible(db, room)) notConvertible(ctx, p, room.id, locale)
   if (safeOpsEnabled()) fail('conflict', tr('sharedChatSafeOps', locale), { params: { reason: 'safe_ops' } })
   const name = body.name.normalize('NFC').trim()
   const bad = nameError(name, locale)

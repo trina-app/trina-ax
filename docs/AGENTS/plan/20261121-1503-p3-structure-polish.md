@@ -13,8 +13,9 @@
 1. **TC-6730** The room header keeps "Moving files…" after the move finishes, until a reload. The mover now sends
    `room.updated` to every member when a room's moves settle (also when no closing line is written).
 2. **TC-6731** Two people convert one conversation at the same time: the loser read "can't become a project". The
-   server answers 409 `already_project` (with `projectId` when the caller can read it); the dialog says "This
-   conversation just became a project." with a link to it.
+   server answers 409 `already_project` with its `projectId`, after the caller's own checks (a member who may make
+   projects) and only for a room a conversation became and a caller who reads the project; every other case stays
+   `not_convertible`. The dialog says "This conversation just became a project." with a link to it.
 3. **TC-6732** In a department room the file chip's folder link read "QA-Team3 › Cha…". The last folder
    ("Chat attachments") stays whole; the group's name is the part that is cut.
 4. **TC-6733** A project room made by "Make it a project" or "New project with" vanished from the list on reload
