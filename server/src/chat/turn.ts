@@ -2041,7 +2041,7 @@ export class TurnExec {
         // a read of the work folder shows $TRINA_WORK/…, never the server's absolute path, and names no team path
         const work = this.workRead(tool, e.input) ? this.workShown(e.input) : null
         const label = kind === 'web_search' ? (queryOf(e.input) ? tr('webSearch', this.spec.locale, { q: queryOf(e.input) }) : tr('webSearchRunning', this.spec.locale))
-          : work !== null ? stepLabel(tool, { ...(e.input as object), file_path: work }, this.spec.locale, BROWSER_TOOL_NAMES)
+          : work !== null ? stepLabel(tool, { ...(e.input as object), ...(tool === 'read' ? { file_path: work } : { path: work }) }, this.spec.locale, BROWSER_TOOL_NAMES)
           : this.toolSet?.stepLabel(tool, e.input, this.spec.locale) ?? stepLabel(tool, e.input, this.spec.locale, BROWSER_TOOL_NAMES)
         if (kind === 'web_search') { const q = (e.input as { query?: unknown } | null)?.query; this.searchQueries.set(e.id, typeof q === 'string' ? q : '') }
         // a sub-agent's step goes under its sub-task (parentId); the tools that patch their step are the main AI's only
@@ -2852,12 +2852,15 @@ export class TurnExec {
   }
   /** how a work-folder read's path shows ($TRINA_WORK/…): never the server's absolute path */
   private workShown(input: unknown): string {
-    const p = String((input as { file_path?: unknown } | null)?.file_path ?? '')
+    const a = input as { file_path?: unknown; path?: unknown } | null
+    const p = String(a?.file_path ?? a?.path ?? '')
     const wf = this.files.workFolder?.() ?? null
     try { const rel = wf ? workRel(p, wf) : namesWorkFolder(p) ? p.trim().replace(/^(?:\$\{?TRINA_WORK\}?|chat:work)\/*/i, '') : null; return rel === null ? '$TRINA_WORK/…' : shownWorkPath(rel) } catch { return '$TRINA_WORK/…' }
   }
   /** a read call that names the chat's work folder (devenv/work-files.ts), by its variable or its absolute path */
   workRead(tool: string, input: unknown): boolean {
+    // list, glob and grep take chat:work/ too (P2): a listing or a search there brings in what commands made
+    if (tool === 'list' || tool === 'glob' || tool === 'grep') return namesWorkFolder((input && typeof input === 'object' ? (input as { path?: unknown }).path : undefined))
     if (tool !== 'read') return false
     const p = (input && typeof input === 'object' ? (input as { file_path?: unknown }).file_path : undefined)
     if (namesWorkFolder(p)) return true
@@ -3732,9 +3735,11 @@ export class TurnExec {
     }
     // a zip of a folder shows the names of everything under it (tools/make-zip.ts): like a search, every folder with
     // its own rules below each named folder that the person may read joins the sources (a restricted sub-folder too)
-    if (tool === 'make_zip' && Array.isArray(a.paths)) {
+    // ...and so does a folder copied into the chat's work folder (copy_files, chat/places-copy.ts): every file the person
+    // may read under it goes in
+    if ((tool === 'make_zip' || tool === 'copy_files') && Array.isArray(a.paths)) {
       const fold = (p: string) => { const n = p.normalize('NFC'); return fx.caseInsensitive ? n.toLowerCase() : n }
-      const bases = [...new Set(a.paths.filter((p): p is string => typeof p === 'string').flatMap((p) => this.roomNames(p)).map((p) => fold(p.split('/').filter(Boolean).join('/'))))]
+      const bases = [...new Set(a.paths.filter((p): p is string => typeof p === 'string' && !isReservedPlace(p)).flatMap((p) => this.roomNames(p)).map((p) => fold(p.split('/').filter(Boolean).join('/'))))]
       for (const f of rules.boundaryFolders()) {
         const k = fold(f)
         if (bases.some((b) => b === '' || k.startsWith(b + '/')) && readable(f.split('/'))) out.push(sourceOf(this.rt.db, rules, f))

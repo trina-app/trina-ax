@@ -238,11 +238,12 @@ describe('save_work_file', () => {
 })
 
 describe('the words and the helpers', () => {
-  test('one general prompt line; the tool text names read and save_work_file and no "cp into users/<id>"', () => {
+  test('one general prompt line; the tool text names read and copy_files (P2: the one way in and out) and no "cp into users/<id>"', () => {
     expect(LOOK_AND_HAND_OVER_RULE).toBe('Look at what you make before you report; save the finished file and link it.')
     const d = srtShellDescription(false)
     expect(d).toContain('with read')
-    expect(d).toContain('save_work_file')
+    expect(d).toContain('copy_files (paths ["chat:work/')
+    expect(d).toContain('to_folder "chat:work/in/"')
     expect(d).not.toContain('copy a result the person needs into their own folder')
   })
 

@@ -340,8 +340,8 @@ export const MoveFilesInput = z.strictObject({
 })
 export const MoveFilesOutput = z.object({ moved: z.array(z.object({ from: z.string(), to: z.string() })), failed: z.array(z.object({ path: z.string(), error: z.string() })) })
 export const CopyFilesInput = z.strictObject({
-  paths: pathBatch.describe('Files to copy (1-50; not folders). The originals stay where they are.'),
-  to_folder: relPath.describe('The folder to copy them into; a folder that does not exist yet is made. Names are kept; " (2)" is added when a name is taken.'),
+  paths: pathBatch.describe('Files to copy (1-50; not folders, except a team folder copied into chat:work/). Team paths, chat:files/<file_id>/<name> or chat:work/<path>. The originals stay where they are.'),
+  to_folder: relPath.describe('The folder to copy them into: a team folder (one that does not exist yet is made), "chat:work/…" (this chat\'s work folder) or "chat:files/" (attached to your answer). Names are kept; " (2)" is added when a name is taken.'),
 })
 export const CopyFilesOutput = z.object({ copied: z.array(z.object({ from: z.string(), to: z.string() })), failed: z.array(z.object({ path: z.string(), error: z.string() })) })
 export const RenameFileInput = z.strictObject({

@@ -23,27 +23,20 @@ import { FILE_STEP_VERB, SaveWorkFileInput } from '@mycel/shared'
 import type { Locale } from '@mycel/shared/api'
 import { z } from 'zod'
 import type { McpContent } from '../turns'
-import type { ToolCtx, TurnFiles } from '../files/service'
+import type { TurnFiles } from '../files/service'
 import { authorize } from '../policy/authorize'
 import { Denied, ToolError } from '../policy/errors'
-import { cardEndShort, endOfText } from '../policy/refusal'
 import { inSkills } from '../skills/guard'
-import { componentC } from '../team-files/component'
 import { freeName } from '../team-files/place'
-import { placeProduced } from '../tools/make-file'
-import { turnWriteLimits } from '../files/turn-write-limits'
-import { assertStorageRoomForAI } from '../system/storage'
-import { copyWorkFile, shownWorkPath, workRel, type WorkFolder } from '../devenv/work-files'
-import { addSources, type ReadSource } from './read-scope'
-import { chatFilesOf } from './chat-files'
-import { noteSharedReads, spaceOf } from '../devenv/srt/runner'
-import { CHAT_FILE_AI_MAX } from '@mycel/shared/api'
+import { shownWorkPath, workRel, type WorkFolder } from '../devenv/work-files'
+import { workToChat, workToTeam } from './places-copy'
+import type { ReadSource } from './read-scope'
 import type { Tool } from './tools'
 import { instructionLike, type TurnExec, type WidenOf } from './turn'
 
 export const SAVE_WORK_FILE_TOOL = 'save_work_file'
-export const SAVE_WORK_FILE_CHAT_DESCRIPTION = 'Hand over a finished file that your box_shell commands made in this chat\'s work folder ($TRINA_WORK): it is attached to your answer byte for byte (a video, a picture, a PDF, any file up to 1 GB), and everyone in this chat opens or plays it there. path: the file ("$TRINA_WORK/out/promo.mp4"). There is no save_as here: anyone in the chat can put it into a team folder later with save_chat_file. Say in your answer that it is attached to this answer.'
-export const SAVE_WORK_FILE_DESCRIPTION = 'Hand over a finished file that your box_shell commands made in this chat\'s work folder ($TRINA_WORK): a copy goes into the team folder byte for byte (a video, a picture, a PDF, a zip, any file), where the user opens or plays it in Trina. path: the file ("$TRINA_WORK/out/promo.mp4"); save_as: a team path, or a folder ending in "/" that keeps the file\'s name; without save_as it goes to the user\'s own folder (users/<id>/). A place more people can see asks the user on a card first. Then link the saved file in your answer.'
+export const SAVE_WORK_FILE_CHAT_DESCRIPTION = 'The same as copy_files with paths ["chat:work/<path>"] and to_folder "chat:files/" (prefer copy_files). Hand over a finished file that your box_shell commands made in this chat\'s work folder ($TRINA_WORK): it is attached to your answer byte for byte (a video, a picture, a PDF, any file up to 1 GB), and everyone in this chat opens or plays it there. path: the file ("$TRINA_WORK/out/promo.mp4"). There is no save_as here: anyone in the chat can put it into a team folder later with save_chat_file. Say in your answer that it is attached to this answer.'
+export const SAVE_WORK_FILE_DESCRIPTION = 'The same as copy_files with paths ["chat:work/<path>"] and a team folder (prefer copy_files). Hand over a finished file that your box_shell commands made in this chat\'s work folder ($TRINA_WORK): a copy goes into the team folder byte for byte (a video, a picture, a PDF, a zip, any file), where the user opens or plays it in Trina. path: the file ("$TRINA_WORK/out/promo.mp4"); save_as: a team path, or a folder ending in "/" that keeps the file\'s name; without save_as it goes to the user\'s own folder (users/<id>/). A place more people can see asks the user on a card first. Then link the saved file in your answer.'
 
 const schema = (s: z.ZodType) => { const j = z.toJSONSchema(s, { target: 'draft-7' }) as Record<string, unknown>; delete j.$schema; return j }
 const text = (t: string, isError = false) => ({ content: [{ type: 'text' as const, text: t }] as McpContent[], ...(isError ? { isError: true } : {}) })
@@ -53,8 +46,6 @@ type Args = z.output<typeof SaveWorkFileInput>
 type Refusal = { text: string; summary: string }
 type Found = { rel: string; target: string }
 
-/** a link the app opens (the same form the prompt asks for: SOURCE_LINK_RULE) */
-const fileLink = (p: string) => `[${p.split('/').pop()}](/files/view?path=${encodeURIComponent(p)})`
 
 export function saveWorkFileTool(exec: TurnExec, where: () => WorkFolder | null, mode: 'folder' | 'chat' = 'folder'): Tool {
   const { rt, spec } = exec
@@ -145,52 +136,14 @@ export function saveWorkFileTool(exec: TurnExec, where: () => WorkFolder | null,
     },
   }
 
+  // the routes are copy_files' own (chat/places-copy.ts): this tool is its alias for the old arguments, so the card, the
+  // step line and the audit row are the same as copy_files' for the same copy
   async function attach(files: TurnFiles, a: Args) {
     try { exec.livePrincipal() } catch { return { ...text('Access denied: this account is disabled.', true), summary: `${SAVE_WORK_FILE_TOOL} -> denied: account disabled` } }
     const checked = chatTarget(a)
     if ('text' in checked) return { ...text(checked.text, true), summary: checked.summary }
-    const shown = shownWorkPath(checked.rel)
-    const first = where()
-    const d = exec.devEnv
-    if (!first || !d?.shared) return { ...text('Not attached: the work folder of this chat is not available now.', true), summary: `${SAVE_WORK_FILE_TOOL} -> no work folder` }
-    // what a run there may read joins this answer's record with who sees the chat now (as a command does), so the
-    // newcomer warning counts this answer and its file
-    const space = spaceOf(rt.ctx, { userId: me, chatId: spec.chatId, project: null, shared: d.shared })
-    if (!space || !noteSharedReads(rt.ctx, space)) return { ...text('Not attached: the people of this chat changed, or the dev environment is off. Run the command again.', true), summary: `${SAVE_WORK_FILE_TOOL} -> refused: not recorded` }
-    addSources(rt.db, spec.chatId, [{ type: 'chat', id: spec.chatId }])
-    // from here until the file is on the answer, no connection's answer hidden from later people joins it (a call
-    // running beside this one is refused), and one recorded before is seen by the check right after
-    const release = exec.beginAttach()
-    if (exec.hiddenFromLater) { release(); return { ...text('Not attached: this answer now holds a connected service\'s answer that people added later may not see.', true), summary: `${SAVE_WORK_FILE_TOOL} -> refused: answer hidden from later people` } }
-    const base = path.join(rt.ctx.engineConfig.dataDir, 'work')
-    fs.mkdirSync(base, { recursive: true, mode: 0o700 })
-    const work = fs.mkdtempSync(path.join(base, 'work-file-'))
-    try {
-      const max = turnWriteLimits(rt.ctx.engineConfig, rt.db, me)
-      const left = Math.min(CHAT_FILE_AI_MAX, Math.max(0, max.bytes - files.bytesWritten))
-      if (files.filesWritten.size >= max.files) throw new ToolError(`this answer saved its most files already (${max.files}); attach it in the next answer`, 'too_many')
-      const tmp = path.join(work, 'file')
-      // the team disk near full: refused before the copy is made (createFromAi checks again)
-      const got = await copyWorkFile(first, checked.rel, tmp, left, exec.abort.signal, { beforeCopy: assertStorageRoomForAI }).catch((e) => {
-        if (e instanceof ToolError && e.code === 'too_large') throw new ToolError(`${shown} is larger than what can be attached now (at most ${(left / 1024 ** 2).toFixed(0)} MB in this answer; a file attached to an answer is at most ${CHAT_FILE_AI_MAX / 1024 ** 3} GB). Make it smaller (a lower bitrate or a shorter cut)`, 'too_large')
-        throw e
-      })
-      if (rt.files.quarantine.hasHash(got.sha256)) return { ...text('Not attached: the team\'s safety check holds this file.', true), summary: `${SAVE_WORK_FILE_TOOL} -> held` }
-      // right before the hand-off: still the work folder of the chat's people now, and still no hidden part in the answer
-      const now = where()
-      if (!now || now.real !== first.real) return { ...text('Not attached: the people of this chat changed while the file was copied. Make it again for the people here now.', true), summary: `${SAVE_WORK_FILE_TOOL} -> refused: people changed` }
-      if (exec.hiddenFromLater) return { ...text('Not attached: this answer now holds a connected service\'s answer that people added later may not see.', true), summary: `${SAVE_WORK_FILE_TOOL} -> refused: answer hidden from later people` }
-      const att = await chatFilesOf(rt.ctx).createFromAi(me, spec.chatId, got.name, tmp, got.sha256)
-      files.bytesWritten += att.size
-      files.filesWritten.add(`chat-file:${att.id}`)
-      exec.attachToAnswer(att)
-      const mb = (att.size / 1024 ** 2).toFixed(1)
-      return { ...text(`Attached ${shown} to your answer as "${att.name}" (${mb} MB, file_id=${att.id}). Everyone in this chat opens or plays it under your answer: say it is attached to this answer (it has no folder link). Anyone here can put it into a team folder with save_chat_file.`), summary: `${SAVE_WORK_FILE_TOOL} -> attached to the answer (${att.size} B)` }
-    } catch (e) {
-      exec.abort.signal.throwIfAborted()
-      if (e instanceof ToolError || e instanceof Denied) return { ...text(`Not attached: ${e.message}`, true), summary: `${SAVE_WORK_FILE_TOOL} -> refused: ${e instanceof Denied ? 'access denied' : e.code}` }
-      throw e
-    } finally { release(); fs.rmSync(work, { recursive: true, force: true }) }
+    const r = await workToChat(exec, files, { rel: checked.rel, where, tool: SAVE_WORK_FILE_TOOL, shown: shownWorkPath(checked.rel) })
+    return { ...text(r.text, !r.ok), summary: r.summary }
   }
 
   async function save(files: TurnFiles, a: Args, plannedTarget: string | undefined, args: unknown) {
@@ -198,37 +151,8 @@ export function saveWorkFileTool(exec: TurnExec, where: () => WorkFolder | null,
     const checked = target(a)
     if ('text' in checked) return { ...text(checked.text, true), summary: checked.summary }
     const { rel, target: to } = checked
-    const shown = shownWorkPath(rel)
     if (plannedTarget !== undefined && plannedTarget !== to && !plannedTarget.startsWith(own + '/')) return { ...text(`Not saved: where the copy would go changed while the user was asked ('${plannedTarget}' is now '${to}'). Ask the user again.`, true), summary: `${SAVE_WORK_FILE_TOOL} -> refused: place changed` }
-    const call = { tool: SAVE_WORK_FILE_TOOL, args }
-    const refusal = await exec.confirmWidening(to, [], undefined, call, source)
-    if (refusal) { const e = endOfText(refusal); return { ...text(refusal, true), summary: `${SAVE_WORK_FILE_TOOL} -> ${e === 'failed' ? 'the check failed' : cardEndShort(e)} (wider audience)` } }
-    exec.abort.signal.throwIfAborted()
-    // the card may have waited: the work folder looked up again, with every check of the open
-    const wf = where()
-    if (!wf) return { ...text('Not saved: the work folder of this chat is not available now.', true), summary: `${SAVE_WORK_FILE_TOOL} -> no work folder` }
-    const base = path.join(rt.ctx.engineConfig.dataDir, 'work')
-    fs.mkdirSync(base, { recursive: true, mode: 0o700 })
-    const work = fs.mkdtempSync(path.join(base, 'work-file-'))
-    try {
-      const max = turnWriteLimits(rt.ctx.engineConfig, rt.db, me)
-      const left = Math.max(0, max.bytes - files.bytesWritten)
-      const tmp = path.join(work, 'file')
-      // the team disk near full: refused before the copy is made (placeProduced checks again)
-      const got = await copyWorkFile(wf, rel, tmp, left, exec.abort.signal, { beforeCopy: assertStorageRoomForAI }).catch((e) => {
-        if (e instanceof ToolError && e.code === 'too_large') throw new ToolError(`${shown} is larger than what one answer may still save (${(left / 1024 ** 2).toFixed(0)} MB left of ${(max.bytes / 1024 ** 2).toFixed(0)} MB). Make it smaller (a lower bitrate or a shorter cut), or save it in the next answer.`, 'too_large')
-        throw e
-      })
-      if (rt.files.quarantine.hasHash(got.sha256)) return { ...text('Not saved: the team\'s safety check holds this file.', true), summary: `${SAVE_WORK_FILE_TOOL} -> held` }
-      const c: ToolCtx = { user: exec.livePrincipal(), turnId: spec.turnId, files, signal: exec.abort.signal, confirmWidening: (t, s, b) => exec.confirmWidening(t, s, b, call, source) }
-      const made = await placeProduced(rt.ctx, componentC(rt.ctx).files, c, to.split('/').filter(Boolean), tmp, SAVE_WORK_FILE_TOOL, undefined, { thisAnswerOnly: true, detail: { from: 'work folder' } })
-      const mb = (made.size / 1024 ** 2).toFixed(1)
-      const note = made.conflictCopyOf ? ` ${made.conflictCopyOf} already existed and was not read in this answer, so this was saved next to it; the original is unchanged.` : ''
-      return { ...text(`Saved ${shown} as ${made.path} (${mb} MB).${note} Link it in your answer: ${fileLink(made.path)}`), summary: `${SAVE_WORK_FILE_TOOL} -> ${made.path} (${made.size} B)` }
-    } catch (e) {
-      exec.abort.signal.throwIfAborted()
-      if (e instanceof ToolError || e instanceof Denied) return { ...text(`Not saved: ${e.message}`, true), summary: `${SAVE_WORK_FILE_TOOL} -> refused: ${e instanceof Denied ? 'access denied' : e.code}` }
-      throw e
-    } finally { fs.rmSync(work, { recursive: true, force: true }) }
+    const r = await workToTeam(exec, files, { rel, target: to, where, tool: SAVE_WORK_FILE_TOOL, args, shown: shownWorkPath(rel) })
+    return { ...text(r.text, !r.ok), summary: r.summary }
   }
 }

@@ -38,6 +38,9 @@ export interface ResolveCtx {
   hiddenGroup?: boolean
   /** the chat's work folder now, looked up without creating it (TurnFiles.workFolder); null: none here */
   workFolder?: (() => WorkFolder | null) | null
+  /** may a copy go into the work folder here (box_shell's commands of this person run in a work folder, made or not
+   * yet: devenv/srt/runner.ts runsInWorkFolder)? The copy itself makes the folder (devenv/work-write.ts writeIntoWork) */
+  workCopyIn?: (() => boolean) | null
   /** is the person's account active now (TurnExec.livePrincipal not throwing) */
   live: () => boolean
   /** a team path as the read scope records it (chat/read-scope.ts sourceOf with the team's rules) */
@@ -51,8 +54,9 @@ export type PlaceStorage =
   | { kind: 'chatFile'; chatId: string; id: string | null; name: string }
   /** the chat's file list */
   | { kind: 'chatFiles'; chatId: string }
-  /** a path inside the work folder ('' for the folder itself) */
-  | { kind: 'work'; folder: WorkFolder; rel: string }
+  /** a path inside the work folder ('' for the folder itself); `folder` null only for a write (a copy in) before the
+   * first command made it */
+  | { kind: 'work'; folder: WorkFolder | null; rel: string }
 
 export interface Resolved {
   /** the parsed place; `{ kind: 'team' }` for a team path */
@@ -75,7 +79,7 @@ export const PLACE_WORDS = {
   personalSave: 'In a chat only you see, save files in your own folder (users/<your id>/).',
   hiddenTurn: 'This answer used a connection whose results some people who may join this chat cannot see, so it cannot attach files to the chat.',
   lockedSave: 'Files are not attached in a confidential chat.',
-  workWrite: 'The work folder is changed by your box_shell commands; the file tools only read it so far.',
+  workWrite: 'Files come into the work folder only with copy_files (to_folder "chat:work/…") or your box_shell commands, in a chat whose commands run in a work folder; write and edit do not change it.',
   inPlace: 'A chat file is not changed in place yet: read it, then save a changed copy into a team folder.',
 } as const
 
@@ -107,10 +111,12 @@ export function resolvePlace(input: string, c: ResolveCtx, use: PlaceUse): Resol
   const chat: ReadSource = { type: 'chat', id: c.chatId }
   if (place.kind === 'work') {
     const folder = c.workFolder?.() ?? null
-    if (!folder) return refuse(PLACE_WORDS.noWork)
+    // a copy in (P2) may make the folder; a read, a list or a search never does
+    const copyIn = use === 'write' && (c.chatKind === 'people' || c.chatKind === 'personal') && !!c.workCopyIn?.()
+    if (!folder && !copyIn) return refuse(PLACE_WORDS.noWork)
     // a shared chat's work folder is its people's (sharedWorkOf); a personal chat's is the person's own
     const viewers: ReadSource[] = c.chatKind === 'people' ? [chat] : [{ type: 'user', id: c.userId }]
-    return { place, storage: { kind: 'work', folder, rel: place.rel }, viewers, writable: use === 'write' ? PLACE_WORDS.workWrite : true }
+    return { place, storage: { kind: 'work', folder, rel: place.rel }, viewers, writable: use === 'write' ? (copyIn ? true : PLACE_WORDS.workWrite) : true }
   }
   if (!seesChatFiles(c.db, c.userId, c.chatId)) return refuse(PLACE_WORDS.notSeen)
   if (!place.id && !place.name) return { place, storage: { kind: 'chatFiles', chatId: c.chatId }, viewers: [chat], writable: use === 'write' ? 'chat:files/ is the list of this chat\'s files; name a file in it.' : true }

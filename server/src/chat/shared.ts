@@ -637,7 +637,7 @@ export function answerWithFiles(content: string, atts: readonly Attachment[]): s
   // the AI's own files; a shared copy (#207) is named by sharedCopiesNote instead, never twice
   const files = atts.filter((a) => a.source === 'chat' && a.origin !== 'shared-copy' && !a.unavailable)
   if (!files.length) return content
-  const list = files.map((a) => `- "${a.name.replace(/[\r\n"<>]+/g, ' ').slice(0, 200)}" (${a.mime}, ${a.size} bytes; path ${chatFilePath(a.id, a.name)}: read, list and grep take it; file_id=${a.id}: save it into a folder with save_chat_file)`).join('\n')
+  const list = files.map((a) => `- "${a.name.replace(/[\r\n"<>]+/g, ' ').slice(0, 200)}" (${a.mime}, ${a.size} bytes; path ${chatFilePath(a.id, a.name)}: read, list, grep and copy_files take it; file_id=${a.id})`).join('\n')
   return `${content}\n\n<attachments>\nThis answer attached these files for everyone in the chat:\n${list}\n</attachments>`
 }
 
