@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-21 02:22
 - Branch: `fix/ko-daehwabang-wording`
-- Status: in progress
+- Status: done
 - Where: web/src/i18n/ko.ts, server/src/chat/i18n.ts (ko), docs/site/ko/use/chats-and-projects.md, Microsoft Store ko listing, one unit test.
 - Version impact: patch (Korean wording only, no keys or English changed)
 
