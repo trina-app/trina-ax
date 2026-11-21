@@ -4,7 +4,7 @@
 // pictures are the scripted demo's by construction, plus the end of the story and a few lived-in rooms, chats and files
 // (strings/<locale>.ts). The folder it writes is plain data in the format of scripts/demo/company/README.md.
 //
-//   bun scripts/demo/steepling/make.ts --locale en|ko --out <dir>
+//   bun scripts/demo/steepling/make.ts --locale en|ko|ja|zh|es|id --out <dir>
 //
 // Every person, company, number, address and file is fictional; every address is a reserved `.example` one.
 import fs from 'node:fs'
@@ -13,19 +13,54 @@ import type { DemoContentCompany } from '../../../shared/src/api'
 import type { FakeDrive, FakeGmail } from '../company/fakes'
 import { TEMPLATES_FOLDER } from '../../../shared/src/folder-labels'
 import { en as minaEn, type Strings } from '../mina/strings/en'
+import { es as minaEs } from '../mina/strings/es'
+import { id as minaId } from '../mina/strings/id'
+import { ja as minaJa } from '../mina/strings/ja'
 import { ko as minaKo } from '../mina/strings/ko'
+import { zh as minaZh } from '../mina/strings/zh'
 import { en, type FreeRoamStrings } from './strings/en'
+import { es } from './strings/es'
+import { id } from './strings/id'
+import { ja } from './strings/ja'
 import { ko } from './strings/ko'
+import { zh } from './strings/zh'
 import { richEn } from './strings/rich.en'
+import { richEs } from './strings/rich.es'
+import { richId } from './strings/rich.id'
+import { richJa } from './strings/rich.ja'
 import { richKo } from './strings/rich.ko'
+import { richZh } from './strings/rich.zh'
 import { CHATS, CONTACTS, DRIVE, DRIVE_FOLDERS, EVERYONE, FILES, LAUNCH_DAY_ADD, MAIL, MESSAGES, NEW_PEOPLE, OWN_SKILLS, PROJECTS, ROOMS, type ChatId, type DriveId, type FileId, type MailId, type MessageId, type Msg, type NewPerson, type ProjectId, type RichWords, type RoomSlug, type TurnId, type Who } from './rich'
 
 const MINA = path.resolve(import.meta.dir, '..', 'mina')
 const ASSETS = path.join(MINA, 'assets')
 
-export const STEEPLING_LOCALES = ['en', 'ko'] as const
+/** the languages Steepling is written in: one snapshot each (demo-gate's pool.locales picks the live ones), and the
+ * free-roam sign-in page's languages (web/src/lib/freeRoam.ts FREE_ROAM_LOCALES, kept equal by a unit test; one instance offers its own and English) */
+export const STEEPLING_LOCALES = ['en', 'ko', 'ja', 'zh', 'es', 'id'] as const
 export type SteeplingLocale = (typeof STEEPLING_LOCALES)[number]
-const WORDS: Record<SteeplingLocale, { story: Strings; more: FreeRoamStrings; rich: RichWords }> = { en: { story: minaEn, more: en, rich: richEn }, ko: { story: minaKo, more: ko, rich: richKo } }
+export interface SteeplingWords { story: Strings; more: FreeRoamStrings; rich: RichWords }
+/** every language's words in one map: a language without its strings files is a type error here, not a silent gap */
+const WORDS: Record<SteeplingLocale, SteeplingWords> = {
+  en: { story: minaEn, more: en, rich: richEn },
+  ko: { story: minaKo, more: ko, rich: richKo },
+  ja: { story: minaJa, more: ja, rich: richJa },
+  zh: { story: minaZh, more: zh, rich: richZh },
+  es: { story: minaEs, more: es, rich: richEs },
+  id: { story: minaId, more: id, rich: richId },
+}
+/** one language's words (the scripted story's, the free roam's, the richer team's) */
+export function steeplingWords(locale: SteeplingLocale): SteeplingWords {
+  const w = WORDS[locale]
+  if (!w) throw new Error(`Steepling has ${STEEPLING_LOCALES.join(', ')}, not ${locale}`)
+  return w
+}
+/** the story's company answer says 12 people; the richer team is 10 (each language's own words) */
+const TEAM_SIZE: Record<SteeplingLocale, [from: string, to: string]> = {
+  en: ['12 of us', '10 of us'], ko: ['12명이', '10명이'], ja: ['12人で', '10人で'], zh: ['12 个人', '10 个人'], es: ['Somos 12', 'Somos 10'], id: ['12 orang', '10 orang'],
+}
+/** the team's time zone where one language has one (English and Spanish are spoken across many) */
+const TIME_ZONE: Partial<Record<SteeplingLocale, string>> = { ko: 'Asia/Seoul', ja: 'Asia/Tokyo', zh: 'Asia/Shanghai', id: 'Asia/Jakarta' }
 const OWN_ASSETS = path.join(import.meta.dir, 'assets')
 
 /** the story's people (scripts/demo/mina/story.ts), as accounts; Daniel, the CEO, owns the team */
@@ -64,7 +99,7 @@ export function skillWithTitle(md: string, title: string): string {
 
 /** The content of one language (what writeSteepling puts on disk). */
 export function steepling(locale: SteeplingLocale): Steepling {
-  const { story: s, more: x, rich: w } = WORDS[locale]
+  const { story: s, more: x, rich: w } = steeplingWords(locale)
   const a = s.answers, m = s.mail, ev = s.events, pp = s.people
   const MKT = s.marketingGroup
   const P = s.project.name
@@ -116,7 +151,7 @@ export function steepling(locale: SteeplingLocale): Steepling {
 
   // ---- the AI answers of the story, as they ended (the team is 10 people: the story's company answer says 12)
   const sized = (text: string) => {
-    const out = text.replace(locale === 'ko' ? '12명이' : '12 of us', locale === 'ko' ? '10명이' : '10 of us')
+    const out = text.replace(...TEAM_SIZE[locale])
     if (out === text) throw new Error(`steepling ${locale}: the company answer no longer says the team's size`)
     return out
   }
@@ -187,7 +222,7 @@ export function steepling(locale: SteeplingLocale): Steepling {
     ],
     defaultUploader: 'daniel',
     packSkills: [],
-    settings: { aiSubagents: false, ...(locale === 'ko' ? { timeZone: 'Asia/Seoul' } : {}) },
+    settings: { aiSubagents: false, ...(TIME_ZONE[locale] ? { timeZone: TIME_ZONE[locale] } : {}) },
     // saved on her first morning (QA TC-5743: it said the build's time)
     memories: [{ username: 'mina', text: x.memory, minutesAgo: T.everyoneWelcome }],
     profile: { website: 'https://steepling.example', name: s.company, oneLine: x.profile.oneLine, products: x.profile.products, audience: x.profile.audience, tone: x.profile.tone, avoid: x.profile.avoid, sources: [] },
@@ -375,7 +410,7 @@ if (import.meta.main) {
   const locale = (arg('locale') ?? 'en') as SteeplingLocale
   const out = arg('out')
   if (!STEEPLING_LOCALES.includes(locale) || !out) {
-    console.error('Usage: bun scripts/demo/steepling/make.ts --locale en|ko --out <dir>')
+    console.error(`Usage: bun scripts/demo/steepling/make.ts --locale ${STEEPLING_LOCALES.join('|')} --out <dir>`)
     process.exit(1)
   }
   console.log(`[steepling] ${writeSteepling(locale, path.resolve(out))}`)

@@ -109,7 +109,7 @@ export const es: Strings = {
     captions: [
       'Novedad de invierno: Yuzu y Jengibre 🍋 Deja una bolsita en agua fría antes de dormir y despierta con algo que te alegra la mañana. 20% de descuento durante las dos primeras semanas.',
       'yuzu + jengibre. y ya. ese es el post. (ok, también tiene un 20% de descuento esta semana)',
-      'Confesión: en el equipo lo bebemos a escondidas desde agosto. Desde el lunes, es todo tuyo.',
+      'Confesión: en el equipo llevamos meses bebiéndolo a escondidas. Desde el lunes, es todo tuyo.',
     ],
     captionsTitle: 'Textos: lanzamiento de Yuzu y Jengibre',
     deliverables: {

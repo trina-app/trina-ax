@@ -5,7 +5,7 @@ instance must hold the story's END state, so this folder makes a demo content fo
 [`scripts/demo/company/README.md`](../company/README.md)) from the story's own words and pictures:
 
 ```bash
-bun scripts/demo/steepling/make.ts --locale en|ko --out <dir>           # the content folder
+bun scripts/demo/steepling/make.ts --locale en|ko|ja|zh|es|id --out <dir>  # the content folder
 bun scripts/demo/free-roam/build-snapshot.ts --content steepling --locale en --out <snapshots dir>
 ```
 
@@ -15,9 +15,9 @@ bun scripts/demo/free-roam/build-snapshot.ts --content steepling --locale en --o
 | Path | What |
 |---|---|
 | `make.ts` | `steepling(locale)` / `writeSteepling(locale, dir)`: company.json, files/, avatars/, fakes/ |
-| `strings/en.ts`, `strings/ko.ts` | the words beyond the story: lived-in rooms and chats, the other teams, the CEO's folder, the fake Gmail and Drive, the bar's suggestions |
+| `strings/<locale>.ts` (en, ko, ja, zh, es, id) | the words beyond the story: lived-in rooms and chats, the other teams, the CEO's folder, the fake Gmail and Drive, the bar's suggestions |
 | `rich.ts` | the richer team, with no words: the three new people, three more projects and their channels, every new message and thread reply (sender, time, reactions, files, unread for Mina), the new chats, files, mail and Drive items, and the snapshot's floors (`FLOORS`) |
-| `strings/rich.en.ts`, `strings/rich.ko.ts` | its words, one flat record per language keyed by `rich.ts`'s ids (`satisfies RichWords`: a missing or extra line fails to compile). Korean is written fresh, not translated: 해요체 in chats, 개조식 in documents |
+| `strings/rich.<locale>.ts` | its words, one flat record per language keyed by `rich.ts`'s ids (`satisfies RichWords`: a missing or extra line fails to compile). Korean is written fresh, not translated: 해요체 in chats, 개조식 in documents |
 | `assets/skill-*.<locale>.md` | Steepling's own versions of four team skills (social-posts, competitor-roundup, handover, review-digest); brand-guide and press-release are the story's |
 
 The cast, names, company, project, skills, files and pictures come from `scripts/demo/mina/strings/<locale>.ts` and
@@ -49,7 +49,7 @@ The cast, names, company, project, skills, files and pictures come from `scripts
   the same in Korean).
 - **Dates**: no calendar dates and no launch-month names, not even for the launch (it is "Monday", the offer runs
   "two weeks"): the banners travel as files, so a date in them goes stale. Everything else is relative ("today", "last
-  week"), so a snapshot built on another day still reads right. `tests/unit/demo-story-no-dates.test.ts` checks it.
+  week"), so a snapshot built on another day still reads right. No day of the month either ("the 23rd", 23일, 23日). `tests/unit/demo-story-no-dates.test.ts` checks it.
 
 ## Fake Gmail, Drive and Higgsfield
 

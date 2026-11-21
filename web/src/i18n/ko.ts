@@ -4306,6 +4306,8 @@ export const ko = {
   "demo.signIn.title": "가상 회사 {company} 데모",
   "demo.free.bar": "가상 회사 {company}의 {name}님으로 들어왔어요. 뭐든 해 보세요.",
   "demo.free.tryLabel": "해 볼 만한 것",
+  "demo.free.practice": "연습용 연결",
+  "demo.free.practiceTip": "여기 Gmail·Google Drive·Higgsfield는 연습용이에요. 메일은 실제로 보내지 않고, 새 사진은 준비된 사진 중에서 골라요.",
   "demo.free.chip.posts": "다음 주 SNS 게시물 만들어 줘",
   "demo.free.chip.reply": "크리스 답장 확인해 줘",
   "demo.free.chip.assets": "브랜드 자료 폴더에 뭐가 있어?",

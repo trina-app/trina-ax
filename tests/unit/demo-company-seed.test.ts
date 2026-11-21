@@ -16,13 +16,9 @@ import { CONTENT_ENV, contentDir, DEFAULT_CONTENT, loadContent, type DemoContent
 import { dataHome, demoEnv, lanAddresses, NETWORK_WARNING, options, PRIVATE_CONTENT, resolveContent } from '../../scripts/demo/company/start'
 import { harness, SETUP_TOKEN, type Harness } from './a-lib'
 import { seedStoryState } from '../../scripts/demo/company/story-state'
-import { STEEPLING_LOCALES, STEEPLING_SKILLS, writeSteepling } from '../../scripts/demo/steepling/make'
-import { en as minaEn } from '../../scripts/demo/mina/strings/en'
-import { ko as minaKo } from '../../scripts/demo/mina/strings/ko'
+import { STEEPLING_LOCALES, STEEPLING_SKILLS, steeplingWords, writeSteepling } from '../../scripts/demo/steepling/make'
 import { en as steeplingEn } from '../../scripts/demo/steepling/strings/en'
-import { ko as steeplingKo } from '../../scripts/demo/steepling/strings/ko'
-import { richEn } from '../../scripts/demo/steepling/strings/rich.en'
-import { richKo } from '../../scripts/demo/steepling/strings/rich.ko'
+import { FREE_ROAM_LOCALES } from '../../web/src/lib/freeRoam'
 import { FLOORS, MESSAGES, NEW_PEOPLE } from '../../scripts/demo/steepling/rich'
 
 const OWNER_PASSWORD = 'a random owner password for tests 1'
@@ -129,7 +125,7 @@ for (const locale of STEEPLING_LOCALES) {
   describe(`Steepling at the end of the story (${locale})`, () => {
     const tmp = fs.mkdtempSync(path.join(os.tmpdir(), `steepling-${locale}-`))
     const c = loadContent(writeSteepling(locale, path.join(tmp, 'content')))
-    const story = locale === 'en' ? minaEn : minaKo
+    const { story, more, rich } = steeplingWords(locale)
     let h: Harness
     const appFetch = ((url: string | URL | Request, init?: RequestInit) => h.app.fetch(new Request(url, init), { ip: '127.0.0.1', via: 'test' })) as typeof fetch
     const as = async (username: string) => {
@@ -143,7 +139,6 @@ for (const locale of STEEPLING_LOCALES) {
       expect(c.company.teamName).toBe(story.company)
       expect(c.company.locale).toBe(locale)
       const names = [c.company.owner.name, ...c.company.people.map((p) => p.name)].sort()
-      const rich = locale === 'ko' ? richKo : richEn
       expect(names).toEqual([...(['daniel', 'mina', 'sara', 'leo', 'tom', 'aiko', 'omar'] as const).map((id) => story.people[id].name), ...(Object.keys(NEW_PEOPLE) as (keyof typeof NEW_PEOPLE)[]).map((id) => rich[`${id}.name`])].sort())
       expect(c.company.owner).toMatchObject({ username: 'daniel', group: story.marketingGroup })
       expect(c.company.projects.map((p) => p.name)).toEqual([story.project.name, rich['p3.name'], rich['p4.name'], rich['p5.name']])
@@ -164,12 +159,12 @@ for (const locale of STEEPLING_LOCALES) {
         // the language's own title, never the folder name (QA TC-5553: the ko team skill showed "social-posts")
         const slug = rel.split('/')[1]! as keyof typeof steeplingEn.skillTitles
         expect(parsed.ok && parsed.title, rel).not.toBe(slug)
-        expect(parsed.ok && parsed.title, rel).toBe((locale === 'ko' ? steeplingKo : steeplingEn).skillTitles[slug])
+        expect(parsed.ok && parsed.title, rel).toBe(more.skillTitles[slug])
       }
       if (locale === 'ko') expect(fs.readFileSync(path.join(c.filesDir, 'skills/social-posts/SKILL.md'), 'utf8')).toContain('\n  title: SNS 글 쓰기\n')
     })
 
-    // the server seed runs for English only (CI time: it is the slow part); Korean has the same structure, checked
+    // the server seed runs for English only (CI time: it is the slow part); every other language has the same structure, checked
     // without a server below ("the richer Steepling, without a server": the same ids, people, rooms, messages, threads,
     // chats, files and fakes), and its own words, skills and paths here and there
     if (locale !== 'en') return
@@ -266,9 +261,12 @@ describe('the richer Steepling, without a server', () => {
     files: c.files.length, gmail: c.fakes.gmail?.messages.map((m) => [m.threadId, m.labels]), drive: c.fakes.drive?.files.length,
   })
 
-  test('en and ko have the same structure; no empty line or TODO in either', () => {
-    expect(shape(made.ko)).toEqual(shape(made.en))
-    for (const rich of [richEn, richKo]) for (const [k, v] of Object.entries(rich)) {
+  test('every language has the structure of en; no empty line or TODO in any', () => {
+    expect(STEEPLING_LOCALES).toEqual(['en', 'ko', 'ja', 'zh', 'es', 'id'])
+    for (const l of STEEPLING_LOCALES) expect(shape(made[l]), l).toEqual(shape(made.en))
+    // the free-roam sign-in page offers the languages a snapshot can be in
+    expect([...FREE_ROAM_LOCALES]).toEqual([...STEEPLING_LOCALES])
+    for (const l of STEEPLING_LOCALES) for (const [k, v] of Object.entries(steeplingWords(l).rich)) {
       expect(v.trim(), k).not.toBe('')
       expect(v, k).not.toMatch(/\bTODO\b/)
     }
@@ -279,9 +277,9 @@ describe('the richer Steepling, without a server', () => {
   test('short enough to be cheap to read: messages, answers, files', () => {
     for (const l of STEEPLING_LOCALES) {
       const c = made[l]
-      const words = Object.keys(MESSAGES).map((id) => (l === 'ko' ? richKo : richEn)[id as keyof typeof MESSAGES])
+      const words = Object.keys(MESSAGES).map((id) => steeplingWords(l).rich[id as keyof typeof MESSAGES])
       for (const t of words) expect(t.length, t).toBeLessThanOrEqual(300)
-      for (const id of ['c.p3.1', 'c.p4.1', 'c.p5.1', 'c.p5.2', 'c.who.1'] as const) expect((l === 'ko' ? richKo : richEn)[`${id}.answer`].length, id).toBeLessThanOrEqual(1500)
+      for (const id of ['c.p3.1', 'c.p4.1', 'c.p5.1', 'c.p5.2', 'c.who.1'] as const) expect(steeplingWords(l).rich[`${id}.answer`].length, `${l} ${id}`).toBeLessThanOrEqual(1500)
       for (const f of c.files.filter((x) => /\.(md|csv)$/.test(x))) expect(fs.statSync(path.join(c.filesDir, f)).size, `${l} ${f}`).toBeLessThanOrEqual(4096)
     }
   })

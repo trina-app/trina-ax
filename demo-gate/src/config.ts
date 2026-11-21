@@ -6,8 +6,11 @@ import path from 'node:path'
 /** ONE setting picks how the real credential goes upstream (the plan: an API key may replace the subscription later). */
 export type AiMode = 'claude-subscription' | 'anthropic-api-key'
 export const AI_MODES: readonly AiMode[] = ['claude-subscription', 'anthropic-api-key']
-export type Locale = 'en' | 'ko'
-export const LOCALES: readonly Locale[] = ['en', 'ko']
+/** every language the gate's pages speak and a snapshot can be in (scripts/demo/steepling/make.ts STEEPLING_LOCALES);
+ * `pool.locales` picks the live ones (default en and ko) */
+export type Locale = 'en' | 'ko' | 'ja' | 'zh' | 'es' | 'id'
+export const LOCALES: readonly Locale[] = ['en', 'ko', 'ja', 'zh', 'es', 'id']
+export const isLocale = (x: unknown): x is Locale => typeof x === 'string' && (LOCALES as readonly string[]).includes(x)
 
 export interface GateConfig {
   /** the visitors' address, e.g. https://demo.trina.app: the instances' only public origin, the persona call's Origin */

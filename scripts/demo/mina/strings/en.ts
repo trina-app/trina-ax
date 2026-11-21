@@ -114,7 +114,7 @@ export const en = {
     captions: [
       'New for winter: Yuzu Ginger 🍋 Drop a bag in cold water before bed, wake up to something bright. 20% off for the first two weeks.',
       'yuzu + ginger. that\'s it. that\'s the post. (ok fine, it\'s also 20% off this week)',
-      'Our team has been quietly drinking this since August. It\'s yours from Monday.',
+      'Our team has been quietly drinking this for months. It\'s yours from Monday.',
     ],
     captionsTitle: 'Captions: Yuzu Ginger launch',
     deliverables: {

@@ -4308,6 +4308,8 @@ export const en: Record<MessageKey, string> = {
   "demo.signIn.title": "Demo of the fictional company {company}",
   "demo.free.bar": "You're {name} at {company}, a made-up company. Try anything.",
   "demo.free.tryLabel": "Things to try",
+  "demo.free.practice": "Practice connections",
+  "demo.free.practiceTip": "Gmail, Google Drive and Higgsfield here are practice copies: mail is never really sent, and new pictures come from a prepared set.",
   "demo.free.chip.posts": "Make next week's social posts",
   "demo.free.chip.reply": "Check Chris's reply",
   "demo.free.chip.assets": "What's in our Brand assets folder?",

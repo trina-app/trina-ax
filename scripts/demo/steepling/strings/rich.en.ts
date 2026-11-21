@@ -74,7 +74,7 @@ export const richEn = {
   'mkt.quotes': 'Nadia shared the October reviews. Two lines we could use: "tastes like summer in a bottle" and "finally tea without the kettle".',
   'mkt.quotes-ask': 'Can we ask those customers if we may quote them by first name?',
   'mkt.quotes-yes': 'Nadia is asking them now 👍',
-  'mkt.track': 'Quick check: are we on track for the 23rd?',
+  'mkt.track': 'Quick check: are we on track for Monday?',
   'mkt.track-yes': 'Yes. Brief soon, banner draft after that, and Chris has the dates.',
   'mkt.numbers': 'Last six weeks of posts: real-customer photos got more than twice the saves of product shots. Numbers are in the social calendar.',
   'mkt.media': 'Fieldnote confirmed the media plan. Web banner and square from Monday, the story for the first week.',
