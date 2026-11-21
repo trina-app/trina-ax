@@ -288,6 +288,26 @@ describe.skipIf(skip)('gate: model upstream', () => {
     await r.text()
   })
 
+  test('the unified limit headers reach health and the usage log line, never the visitor', async () => {
+    upstream.set(() => SSE([{ type: 'message_start', message: { usage: { input_tokens: 10, output_tokens: 1 } } }, { type: 'message_delta', usage: { output_tokens: 20 } }, { type: 'message_stop' }], {
+      'request-id': 'req_lim', 'anthropic-organization-id': 'org-lim', 'anthropic-ratelimit-unified-status': 'allowed',
+      'anthropic-ratelimit-unified-reset': '1795000000', 'anthropic-ratelimit-unified-5h-utilization': '0.31',
+      'anthropic-ratelimit-unified-7d-utilization': '0.05', 'anthropic-ratelimit-unified-7d-status': 'allowed',
+    }))
+    const r = await msg(a)
+    expect(r.status).toBe(200)
+    r.headers.forEach((_v, k) => expect(k.startsWith('anthropic-')).toBe(false))
+    expect(r.headers.get('request-id')).toBeNull()
+    await r.text()
+    const ida = /\/i\/([0-9a-f]{8})\./.exec(a)![1]!
+    const lim = (await until(async () => { const h = await g.health(); return h.upstream.limits.utilization5h === 0.31 ? h : null }, 3000, 'limits')).upstream.limits
+    expect(lim).toMatchObject({ utilization5h: 0.31, utilization7d: 0.05, status: 'allowed', resetAt: new Date(1795000000 * 1000).toISOString() })
+    expect(Number.isFinite(Date.parse(lim.seenAt))).toBe(true)
+    const line = await until(async () => g.log().split('\n').find((l) => l.includes('"upstream usage"') && l.includes(ida) && l.includes('"u5h":0.31')) ?? null, 3000, 'usage line')
+    expect(JSON.parse(line)).toMatchObject({ ev: 'upstream usage', instance: ida, tokens: 30, u5h: 0.31, u7d: 0.05 })
+    for (const bad of ['req_lim', 'org-lim', 'ratelimit']) expect(g.log()).not.toContain(bad)
+  })
+
   test('error rewrite: 401/403/402/400/404/500/502/529 all become the neutral 503', async () => {
     for (const status of [401, 403, 402, 400, 404, 500, 502, 529]) {
       upstream.set(() => Response.json({ type: 'error', error: { type: status === 401 ? 'authentication_error' : 'overloaded_error', message: 'OAuth token has been revoked, organization disabled' } }, { status, headers: { 'request-id': 'req_9', 'retry-after': '9999' } }))

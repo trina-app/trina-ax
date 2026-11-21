@@ -96,7 +96,7 @@ removed by the sweeper (once they are an hour old).
 | `POST /__demo/start` | form `lang`, `cf-turnstile-response`; our Origin only; limits, Turnstile, a warm instance, `POST /api/demo/persona {key:"newHire"}` on it (server to server, `Origin: <publicOrigin>`), its Set-Cookie (`__Host-sid`) with Secure forced, no Domain and, for a `__Host-` cookie, Path=/, 303 to `/` |
 | `POST /__demo/resume` | our Origin only; a visitor with a live instance (by the gate cookie) is signed in as the new hire again on that instance, the same persona call as start, 303 to `/`. "Continue as Mina" after signing out: sign-in with a password is fenced in the demo, so this is the only way back |
 | `GET /__demo/status` | `{available}` for the scripted demo's button |
-| `GET /__demo/health` | pool, live, streams, daily tokens, snapshot age, upstream state; loopback peers without the tunnel's client IP header only |
+| `GET /__demo/health` | pool, live, streams, daily tokens, snapshot age, upstream state (with `upstream.limits`: the account's unified 5h/7d utilization as fractions, status, reset, seenAt); loopback peers without the tunnel's client IP header only |
 | everything else | proxied to the visitor's instance (HTTP and WebSocket); refused first: `/api/admin*`, `/api/setup*`, `/api/credential*`, `/api/me/credential*`, invites, guest invites, team links, password resets, `/api/auth/password`, `/api/demo/persona`, integration OAuth callbacks, `/oauth*`, `/mcp`, `/connector-uploads`, `/connector-downloads`, and the web pages `/invite`, `/join`, `/reset-password`, `/setup` |
 
 ## The model upstream
