@@ -14,15 +14,15 @@ const n = (id: string, chatId: string | null, o: { name?: string | null; mention
 describe('mentionsByChat', () => {
   test('counts the unread mentions of each chat, each name once, the newest first', () => {
     const m = mentionsByChat([n('1', 'a', { name: 'Dana' }), n('2', 'a'), n('3', 'a', { name: 'Dana' }), n('4', 'b')])
-    expect(m.get('a')).toEqual({ chatId: 'a', count: 3, names: ['Dana', 'Bob'] })
-    expect(m.get('b')).toEqual({ chatId: 'b', count: 1, names: ['Bob'] })
+    expect(m.get('a')).toEqual({ chatId: 'a', count: 3, names: ['Dana', 'Bob'], ids: ['1', '2', '3'] })
+    expect(m.get('b')).toEqual({ chatId: 'b', count: 1, names: ['Bob'], ids: ['4'] })
   })
   test('leaves out read ones, replies that are not mentions, gone threads and other notices', () => {
     const m = mentionsByChat([n('1', 'a', { readAt: '2026-11-20T00:00:00.000Z' }), n('2', 'a', { mention: false }), n('3', 'a', { gone: true }), n('4', 'a', { code: 'room.mention' }), n('5', null)])
     expect(m.size).toBe(0)
   })
   test('a mention whose replier is gone still counts, with no name', () => {
-    expect(mentionsByChat([n('1', 'a', { name: null })]).get('a')).toEqual({ chatId: 'a', count: 1, names: [] })
+    expect(mentionsByChat([n('1', 'a', { name: null })]).get('a')).toEqual({ chatId: 'a', count: 1, names: [], ids: ['1'] })
   })
 })
 
