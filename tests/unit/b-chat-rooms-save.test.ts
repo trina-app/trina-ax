@@ -181,10 +181,11 @@ describe('saving a room file from my own chat', () => {
     expect(r.cards).toHaveLength(1)
     const c = r.cards[0]!
     expect(c.options?.map((o) => o.value)).toEqual(['save', '__always', 'skip'])
-    expect(c.question).toStartWith(`Save to ${W(`shared/company/${file.name}`)} (`)
+    // the place by a short name, the whole place on hover (docs/decisions/20261122-widening-card-wording.md)
+    expect(c.question).toStartWith(`Save ${file.name} to Company-wide, where `)
+    expect((c as { placeTip?: unknown }).placeTip).toEqual({ text: file.name, title: W(`shared/company/${file.name}`) })
     expect(c.note).toStartWith('Messages from your conversations (other people\'s words) came in here, so changes are asked first.')
     expect(c.question).toContain(`messages of the conversation '${name}'`)
-    expect(c.question).toContain(W(`shared/company/${file.name}`))
     const fields = c.details?.[0]?.fields ?? []
     // (not a whole file written: the Action row stays, so the card says what the call does; review of #1240)
     expect(fields.map((f) => f.name)).toEqual(['Action', 'File', 'Save as'])
@@ -364,7 +365,7 @@ describe('saving a room file from my own chat', () => {
     const chat = await newChat('alice')
     const r = await run('alice', chat, `방 요약해줘\n${fake({ tool: 'room_read', args: { room: roomId }, followResult: true }, { say: 'summary' })}`)
     expect(r.cards).toHaveLength(1)
-    expect(r.cards[0]!.question).toContain(W(`shared/${file.name}`))
+    expect(r.cards[0]!.question).toContain(`${file.name} to Company-wide`)
     expect(fs.existsSync(at(`shared/${file.name}`))).toBe(false)
     expect(ws.erin!.frames.some((f) => f.type === 'turn.request' && f.data.turnId === r.turnId)).toBe(false)
   })

@@ -163,25 +163,32 @@ export const TEXT = {
   connectConnected: STEP_TEXT.connectConnected,
   connectNotConnected: STEP_TEXT.connectNotConnected,
   browserSite: t('사내망 주소 {host}를 열어도 될까요?', 'May the AI open the office-network address {host}?', 'Bolehkan AI membuka alamat jaringan kantor {host}?', "AIが社内ネットワークのアドレス{host}を開いてもよろしいですか？", "¿Puede la IA abrir la dirección de red interna {host}?", "允许AI打开办公网络地址{host}吗？"),
-  /** the wider-audience card's question, one plain line (docs/decisions/20261117-save-card-plain.md, QA TC-4815): the
-   * place and how many people can see it there; widenBlind / widenBlindChat follow with how many of them cannot see
-   * where it came from, and widenSource on its own line names each source with its count (widenFrom / widenFromYou).
-   * Before (PR #1232): "This came from {sources}. Save it to {target} ({n} people, {m} of them can't see where it came
-   * from)?", after the room card's reason line */
-  widenConfirm: t('{target}({n}명)에 저장할까요?',
-    'Save to {target} ({n, plural, one {# person} other {# people}})?',
-    'Simpan ke {target} ({n} orang)?', "{target}（{n}人）に保存しますか？", "¿Guardar en {target} ({n, plural, one {# persona} other {# personas}})?", "要保存到{target}（{n, plural, one {#人} other {#人}}）吗？"),
-  /** ...how many of the place's people cannot see at least one source (missingReaders); said whenever it is not 0, so
-   * an overlap ("3 people" from, "3 people" at the place) never reads as safe */
-  widenBlind: t('그중 {m}명은 원래 있던 곳을 못 봐요.',
-    '{m} of them can’t see where it came from.',
-    '{m} di antaranya tidak bisa melihat asalnya.', "うち{m}人は元の場所を見られません。", "{m, plural, one {# de ellas no puede} other {# de ellas no pueden}} ver de dónde viene.", "其中{m}人看不到内容的来源。"),
+  /** the wider-audience card (docs/decisions/20261122-widening-card-wording.md; before: 20261117-save-card-plain.md):
+   * the question first, with the place as a short name ({file}: the file's name, {area}: its project, group, "My
+   * files", someone's folder or a top folder; the full place shows on hover, `placeTip`) and how many people can see it
+   * there. The owner on 2026-11-22 read "Save to Projects › … › 06_contact.svg (2 people)? 1 of them can't see where it
+   * came from. It came from a place someone else opened in this chat." and asked what it asks */
+  widenConfirm: t('{area}에 {file} 저장할까요? {n}명이 볼 수 있는 곳이에요.',
+    'Save {file} to {area}, where {n, plural, one {# person} other {# people}} can see it?',
+    'Simpan {file} ke {area}, yang bisa dilihat {n} orang?', "{file}を{area}に保存しますか？{n}人が見られる場所です。", "¿Guardar {file} en {area}, donde {n, plural, one {lo puede ver # persona} other {lo pueden ver # personas}}?", "要把{file}保存到{area}吗？那里有{n}人可以看到。"),
+  /** ...then one line why: what Trina made it from, and how many of the place's people cannot open that
+   * (missingReaders; said whenever it is not 0). {sources}: only places the person answering can see by name
+   * (widenSourceHidden for the others) */
+  widenWhy: t('트리나가 {sources}에서 가져와 만들었는데, 그중 {m}명은 그곳을 열 수 없어요.',
+    'Trina made it from {sources}, which {m} of them can’t open.',
+    'Trina membuatnya dari {sources}, yang tidak bisa dibuka oleh {m} di antaranya.', "トリナは{sources}の内容をもとに作りましたが、うち{m}人はそこを開けません。", "Trina lo hizo con {sources}, que {m, plural, one {# de ellas no puede} other {# de ellas no pueden}} abrir.", "Trina是根据{sources}的内容做的，其中{m}人打不开那里。"),
   /** ...the same when every source is a conversation (a room, a chat, a Slack conversation) */
-  widenBlindChat: t('그중 {m}명은 원래 대화를 못 봐요.',
-    '{m} of them can’t see the chat it came from.',
-    '{m} di antaranya tidak bisa melihat percakapan asalnya.', "うち{m}人は元のトークを見られません。", "{m, plural, one {# de ellas no puede} other {# de ellas no pueden}} ver la conversación de donde viene.", "其中{m}人看不到原来的聊天。"),
-  /** ...the second line: each source with how many people can see it now */
-  widenSource: t('{sources}에서 가져온 내용이에요.', 'It came from {sources}.', 'Isinya berasal dari {sources}.', "{sources}から来た内容です。", "Viene de {sources}.", "内容来自{sources}。"),
+  widenWhyChat: t('트리나가 {sources}에서 가져와 만들었는데, 그중 {m}명은 그 대화를 볼 수 없어요.',
+    'Trina made it from {sources}, which {m} of them can’t see.',
+    'Trina membuatnya dari {sources}, yang tidak bisa dilihat oleh {m} di antaranya.', "トリナは{sources}の内容をもとに作りましたが、うち{m}人はそのトークを見られません。", "Trina lo hizo con {sources}, que {m, plural, one {# de ellas no puede} other {# de ellas no pueden}} ver.", "Trina是根据{sources}的内容做的，其中{m}人看不到那段聊天。"),
+  /** ...when the person answering cannot see any source (someone else opened it in a shared chat): no name, no path */
+  widenWhyHidden: t('트리나가 그중 {m}명은 열 수 없는 곳에서 가져와 만들었어요.',
+    'Trina made it from a place {m} of them can’t open.',
+    'Trina membuatnya dari tempat yang tidak bisa dibuka oleh {m} di antaranya.', "トリナは、うち{m}人が開けない場所の内容をもとに作りました。", "Trina lo hizo con algo de un lugar que {m, plural, one {# de ellas no puede} other {# de ellas no pueden}} abrir.", "Trina是根据其中{m}人打不开的地方的内容做的。"),
+  /** ...when everyone there can open each source (the card still asks: the place has other people than the sources) */
+  widenWhyAll: t('트리나가 {sources}에서 가져와 만들었어요.', 'Trina made it from {sources}.', 'Trina membuatnya dari {sources}.', "トリナは{sources}の内容をもとに作りました。", "Trina lo hizo con {sources}.", "Trina是根据{sources}的内容做的。"),
+  /** a source the person answering cannot see, on that line (never its name or path) */
+  widenSourceHidden: t('여기서 일부만 열 수 있는 곳', 'a place only some people here can open', 'tempat yang hanya bisa dibuka sebagian orang di sini', "ここの一部の人だけが開ける場所", "un lugar que solo algunas personas de aquí pueden abrir", "只有这里部分人能打开的地方"),
   /** a source on the wider-audience card with how many people can see it now (read-scope.ts sourceViewerCount) */
   widenFrom: t('{source}({n}명)', '{source} ({n, plural, one {# person} other {# people}})', '{source} ({n} orang)', "{source}（{n}人）", "{source} ({n, plural, one {# persona} other {# personas}})", "{source}（{n, plural, one {#人} other {#人}}）"),
   /** ...when only the person can see it */
@@ -270,6 +277,9 @@ export const TEXT = {
   /** the skill-save card's own wording of it (owner 2026-11-16, docs/decisions/20261116-shared-chat-skill-edits.md) */
   cardAlwaysSkills: t('내가 요청한 스킬 수정은 항상 허용', 'Always allow skill edits I ask for', 'Selalu izinkan perubahan skill yang saya minta', "自分が頼んだスキルの変更は常に許可", "Permitir siempre los cambios de habilidades que pido", "始终允许我要求的技能修改"),
   cardAlwaysNote: t('항상 허용하면 웹페이지나 파일을 읽은 뒤에도 이런 확인은 다시 묻지 않아요. 설정 › 트리나에게 허용한 것에서 되돌릴 수 있어요.', "With Always allow, Trina won't ask about this kind of change again, even after reading web pages or files. Undo it in Settings › Allowed for Trina.", 'Dengan Selalu izinkan, Trina tidak akan menanyakan perubahan seperti ini lagi, bahkan setelah membaca halaman web atau file. Batalkan di Pengaturan › Diizinkan untuk Trina.', "常に許可すると、Webページやファイルを読んだ後でも、この種類の確認は二度と聞きません。設定 › トリナに許可したこと で元に戻せます。", "Con Permitir siempre, Trina no volverá a preguntar por este tipo de cambio, ni siquiera tras leer páginas web o archivos. Puede deshacerlo en Configuración › Permisos para Trina.", "选择始终允许后，即使读过网页或文件，Trina也不会再就这类修改询问你。可以在设置 › 允许Trina做的事中撤销。"),
+  /** cardAlwaysNote for the wider-audience card (save_wider), shorter (docs/decisions/20261122-widening-card-wording.md);
+   * it still says that it holds after reading files or web pages */
+  cardAlwaysNoteSaveWider: t('항상 허용하면 파일이나 웹페이지를 읽은 뒤에도 묻지 않고 저장해요. 설정 › 트리나에게 허용한 것에서 되돌릴 수 있어요.', 'Always allow: Trina saves like this without asking, even after reading files or web pages. Undo in Settings › Allowed for Trina.', 'Selalu izinkan: Trina menyimpan seperti ini tanpa bertanya, bahkan setelah membaca file atau halaman web. Batalkan di Pengaturan › Diizinkan untuk Trina.', "常に許可にすると、ファイルやWebページを読んだ後でも確認せずに保存します。設定 › トリナに許可したこと で元に戻せます。", "Con Permitir siempre, Trina guarda así sin preguntar, incluso tras leer archivos o páginas web. Puede deshacerlo en Configuración › Permisos para Trina.", "选择始终允许后，即使读过文件或网页，Trina也会直接这样保存。可以在设置 › 允许Trina做的事中撤销。"),
   /** cardAlwaysNote for the two folder cards (the owner's 11-13 rule "Always allow on every card"; docs/decisions/
    * 20261116-sharing-all-integration.md): the risk in plain words */
   cardAlwaysNoteShareFolder: t('항상 허용하면 이제부터 트리나가 묻지 않고 내 폴더를 공유해요. 파일이나 메시지가 시켜도 마찬가지예요. 설정 › 트리나에게 허용한 것에서 되돌릴 수 있어요.', 'From now on Trina shares your folders without asking, even when a file or message tells it to. Undo it in Settings › Allowed for Trina.', 'Mulai sekarang Trina membagikan folder Anda tanpa bertanya, bahkan saat file atau pesan menyuruhnya. Batalkan di Pengaturan › Diizinkan untuk Trina.', "今後トリナは確認せずにあなたのフォルダを共有します。ファイルやメッセージに指示された場合も同じです。設定 › トリナに許可したこと で元に戻せます。", "A partir de ahora Trina comparte sus carpetas sin preguntar, incluso cuando un archivo o un mensaje se lo pide. Puede deshacerlo en Configuración › Permisos para Trina.", "从现在起，Trina会不经询问就共享你的文件夹，即使是文件或消息让它这样做。可以在设置 › 允许Trina做的事中撤销。"),
