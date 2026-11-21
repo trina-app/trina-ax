@@ -19,7 +19,11 @@ import type { Database } from 'bun:sqlite'
 import { parsePlace, type Place } from '@mycel/shared/places'
 import { seesChatFiles } from '../chat/chat-files-access'
 import type { ReadSource } from '../chat/read-scope'
-import type { WorkFolder } from '../devenv/work-files'
+import { noWorkText, type NoWorkWhy, type WorkFolder } from '../devenv/work-files'
+
+/** chat:files/ where no chat files are reachable (the file tools and the resolver say the same): plain words first, so
+ * what the AI passes on is "no files in this chat" (QA TC-6941), then where an attached file is read from */
+export const CHAT_FILES_NONE = "This chat has no files of its own. A file someone attached to a message is read by the path shown with it in the conversation."
 
 export type PlaceUse = 'read' | 'list' | 'write'
 
@@ -38,6 +42,8 @@ export interface ResolveCtx {
   hiddenGroup?: boolean
   /** the chat's work folder now, looked up without creating it (TurnFiles.workFolder); null: none here */
   workFolder?: (() => WorkFolder | null) | null
+  /** why there is no work folder now (TurnFiles.workWhy); absent: this chat has none */
+  workWhy?: (() => NoWorkWhy) | null
   /** may a copy go into the work folder here (box_shell's commands of this person run in a work folder, made or not
    * yet: devenv/srt/runner.ts runsInWorkFolder)? The copy itself makes the folder (devenv/work-write.ts writeIntoWork) */
   workCopyIn?: (() => boolean) | null
@@ -72,11 +78,10 @@ export interface Resolved {
 }
 
 export const PLACE_WORDS = {
-  noChat: 'chat:files/ and chat:work/ exist only inside a Trina chat, for its main assistant.',
-  notSeen: "chat:files/ holds the files sent in this chat when it is shared with people; there are none here, or this is not a Trina chat's main assistant. A file someone attached to a message is listed in its <attachments> with its own path: read that path.",
-  noWork: "This chat has no work folder here (no command ran in it yet, the dev environment is off, the people of the chat changed, or this is a sub-agent).",
-  projectSave: 'In a project chat, save files in the project folder (its path in projects/): that is where its people find them.',
-  personalSave: 'In a chat only you see, save files in your own folder (users/<your id>/).',
+  noChat: "A chat's own files and work folder open only inside that Trina chat.",
+  notSeen: CHAT_FILES_NONE,
+  projectSave: "In a project chat, files are saved in the project's folder, where its people find them: save it there.",
+  personalSave: 'In a chat only the person sees, files are not attached to the chat: save it in My files (their own folder) and link it in the answer; a file already there needs nothing more.',
   hiddenTurn: 'This answer used a connection whose results some people who may join this chat cannot see, so it cannot attach files to the chat.',
   lockedSave: 'Files are not attached in a confidential chat.',
   workWrite: 'Files come into the work folder only with copy_files (to_folder "chat:work/…") or your box_shell commands, in a chat whose commands run in a work folder; write and edit do not change it.',
@@ -133,7 +138,7 @@ export function resolvePlace(input: string, c: ResolveCtx, use: PlaceUse): Resol
     const folder = c.workFolder?.() ?? null
     // a copy in (P2) may make the folder; a read, a list or a search never does
     const copyIn = use === 'write' && (c.chatKind === 'people' || c.chatKind === 'personal') && !!c.workCopyIn?.()
-    if (!folder && !copyIn) return refuse(PLACE_WORDS.noWork)
+    if (!folder && !copyIn) return refuse(noWorkText(c.workWhy?.()))
     // a shared chat's work folder is its people's (sharedWorkOf); a personal chat's is the person's own
     const viewers: ReadSource[] = c.chatKind === 'people' ? [chat] : [{ type: 'user', id: c.userId }]
     return { place, storage: { kind: 'work', folder, rel: place.rel }, viewers, writable: use === 'write' ? (copyIn ? true : PLACE_WORDS.workWrite) : true }

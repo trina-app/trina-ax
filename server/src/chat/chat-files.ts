@@ -73,7 +73,7 @@ export interface ChatFileRow {
 export interface VisibleChatFile { id: string; root: ChatFileRow; head: ChatFileRow; versions: number }
 /** What a version save tells its caller: the new head, the head it was written over, and `beside` when that head is not
  * the one the caller read (someone saved in between: the new one is a version beside theirs, nothing is lost) */
-export interface PutVersionResult { row: ChatFileRow; replaced: ChatFileRow; beside: boolean }
+export interface PutVersionResult { row: ChatFileRow; replaced: ChatFileRow; beside: boolean; pruned: number[] }
 /** putVersion's bytes: in memory, or a descriptor the caller opened and checked (team-files/place.ts openChecked), read
  * from offset 0 to st.size and never closed here */
 export type VersionSource = { bytes: Uint8Array } | { fd: number; st: Pick<fs.Stats, 'size'> }
@@ -660,11 +660,11 @@ export class ChatFiles {
       const chain: { rootId: string; origin: 'ai' | null; check: () => void; coalesce?: string; coalesced?: ChatFileRow; made?: Map<string, string> } = { rootId: root.id, origin: opts.origin ?? null, check, ...(made ? { made } : {}), ...(made?.has(root.id) ? { coalesce: made.get(root.id)! } : {}) }
       const row = await this.record(userId, chatId, id, root.name, dst, sha, null, kind, null, chain)
       const replaced = (row.replaces ? this.row(row.replaces) : null) ?? before ?? root
-      this.prune(root.id)
+      const pruned = this.prune(root.id)
       audit(this.ctx.db, { actor: userId, action: opts.action ?? 'chat.file_version', target: chatId, detail: { size: row.size, version: row.version, ...(opts.origin ? { origin: opts.origin } : {}), ...(chain.coalesced ? { sameAnswer: true } : {}) } })
       // a save over this answer's own head is beside nothing when that head is the one the caller read
       const read = chain.coalesced ? chain.coalesced.id : replaced.id
-      return { row, replaced, beside: !!opts.expectHead && opts.expectHead !== read }
+      return { row, replaced, beside: !!opts.expectHead && opts.expectHead !== read, pruned }
     } catch (e) {
       this.removeFiles({ chat_id: chatId, id })
       if (turn && counted) { turn.bytesWritten -= counted.bytes; if (counted.key) turn.filesWritten.delete(key) }
@@ -696,17 +696,19 @@ export class ChatFiles {
   }
 
   /** A chain keeps CHAT_FILE_VERSIONS_KEPT rows: its root (the chain's id) and the newest; the head is never removed.
-   * Older versions go, rows and bytes. The rest go with the chat. */
-  private prune(rootId: string) {
+   * Older versions go, rows and bytes. The rest go with the chat. Their version numbers, oldest first (the restore's
+   * notice says which went, QA TC-6949). */
+  private prune(rootId: string): number[] {
     const rows = this.chain(rootId)
     const over = rows.length - CHAT_FILE_VERSIONS_KEPT
-    if (over <= 0) return
+    if (over <= 0) return []
     const head = rows[rows.length - 1]!
     const drop = rows.filter((r) => r.id !== rootId && r.id !== head.id).slice(0, over)
     for (const r of drop) {
       this.ctx.db.query('DELETE FROM chat_files WHERE id = ? AND root_id = ?').run(r.id, rootId)
       this.removeFiles(r)
     }
+    return drop.map((r) => r.version ?? 1)
   }
 
   /** The versions of a chain `userId` may open, oldest first (read {versions}, the web's history panel); [] when they

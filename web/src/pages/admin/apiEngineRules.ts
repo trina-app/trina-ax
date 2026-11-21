@@ -11,6 +11,29 @@ export const API_PRESETS = [
   { id: 'ollama', label: 'Ollama (this Mac)', baseUrl: 'http://127.0.0.1:11434/v1', model: 'qwen3:8b', keys: null },
 ] as const
 
+/** Words that name a provider in a display name ("QA OpenRouter", "Claude via API") */
+const PRESET_NAMES: Record<string, readonly string[]> = {
+  // the provider's own word first: OpenRouter serves the others' models, so only that one counts after picking it
+  openai: ['openai', 'gpt', 'chatgpt'],
+  anthropic: ['anthropic', 'claude'],
+  gemini: ['google', 'gemini'],
+  openrouter: ['openrouter'],
+  ollama: ['ollama'],
+}
+
+/** The Display name after the provider changes from `from` to `to` (QA TC-6924): emptied (the server then names the
+ * engine after its model, and the field shows the new model as its placeholder) when it was the default (empty or the
+ * old model), a provider's own name, or a name that mentions another provider ("QA OpenRouter" after picking Ollama).
+ * A name the admin chose that names no provider ("Office AI") is kept. */
+export function presetLabel(current: string, o: { model: string; from: string; to: string }): string {
+  const typed = current.trim()
+  if (!typed || o.from === o.to) return current
+  const lower = typed.toLowerCase()
+  const stale = typed === o.model.trim() || API_PRESETS.some((p) => p.label.toLowerCase() === lower)
+    || Object.entries(PRESET_NAMES).some(([id, words]) => id !== o.to && (o.to === 'openrouter' ? words.slice(0, 1) : words).some((w) => new RegExp(`(^|[^a-z])${w}([^a-z]|$)`).test(lower)))
+  return stale ? '' : current
+}
+
 /** The body of a save. No new key typed and a new address whose provider needs no key (Ollama): the old key goes
  * (QA TC-4826; the server never sends a stored key to a new address, and a newcomer would not guess "Remove key"). */
 export function apiSaveKey(o: { typed: string; savedBaseUrl: string | null; baseUrl: string; hasKey: boolean }): string | null | undefined {

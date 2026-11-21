@@ -300,6 +300,17 @@ describe('security review of #1276', () => {
     expect(await t.confirmSharedConnection(conn)).toContain('Nothing was fetched from Alice Mail')
     expect(asked).toBe(0)
   })
+
+  test('an answer that already saved a chat file version: no card, nothing fetched, and the words say why (QA TC-6962)', async () => {
+    let asked = 0
+    const t = standIn({ audience: () => ['alice', 'bob'], ask: async () => { asked++; return 'shared' } })
+    Object.defineProperty(t, 'files', { value: { chatVersionsMade: new Map([['root', 'v2']]) }, configurable: true })
+    const said = await t.confirmSharedConnection(conn)
+    expect(said).toContain('Nothing was fetched from Alice Mail: this answer already saved a new version of a file of this chat')
+    expect(said).not.toContain('who in this shared chat may see')
+    expect(asked).toBe(0)
+    expect(t.recorded).toEqual([])
+  })
 })
 
 describe('the instructions and the provider in a shared chat', () => {

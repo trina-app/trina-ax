@@ -487,7 +487,7 @@ async function roomPdf(r: RoomFileReader, file: FileRow, bytes: Buffer, a: RoomF
     }
   }
   let pages: number[] | null
-  try { pages = pagesToRead(a.pages, n) } catch (e) {
+  try { pages = pagesToRead(a.pages, n, deck ? 'slide' : 'page') } catch (e) {
     if (e instanceof ToolError) return { ...text(`${head}\n${e.message}`, true), summary: `room_file -> refused: ${e.code}` }
     throw e
   }

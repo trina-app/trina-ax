@@ -207,7 +207,7 @@ const eventUserIds = (e: EventData | null): string[] => (!e ? [] : e.type === 'c
 /** A project line's project for one viewer, from the one resolver (rooms/project-link.ts eventProjectsFor): named and
  * linked only while they can open it; in the trash or deleted said so (RoomEventLine's EventProject). */
 function projectOut(v: EventProjectView | undefined): Pick<Extract<RoomEventLine, { type: 'project_linked' }>, 'project' | 'projectGone'> {
-  if (v?.state === 'open') return { project: { id: v.id, name: v.name } }
+  if (v?.state === 'open') return { project: { id: v.id, name: v.name, ...(v.folder ? { folder: v.folder } : {}) } }
   if (v?.state === 'trash') return { project: null, projectGone: { state: 'trash', name: v.name } }
   if (v?.state === 'deleted') return { project: null, projectGone: { state: 'deleted' } }
   return { project: null }

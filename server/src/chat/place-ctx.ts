@@ -41,6 +41,7 @@ export function chatPlaces(exec: TurnExec, files: TurnFiles): ChatPlaces {
     // read at every check: a connection's answer may join this answer while a conversion runs
     get hiddenGroup() { return exec.hiddenFromLater },
     workFolder: files.workFolder,
+    workWhy: files.workWhy,
     live: () => { try { exec.livePrincipal(); return true } catch { return false } },
   }
   /** this chat's files the person may open now, one per chain (its newest version), newest change first

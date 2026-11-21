@@ -103,7 +103,8 @@ export function eventText(e: RoomEventLine, author: UserRef | null, w: EventWord
     case 'project_files_moved': {
       const folder = w.folder ?? 'Chat attachments'
       const name = eventProjectOf(e)
-      const n = name.state === 'open' ? name.name : null
+      // the folder the files are in: the "-2" one when another project had the name (QA TC-6953)
+      const n = name.state === 'open' ? (e.project?.folder ?? name.name) : null
       if (e.kept > 0) return n ? w.t('rooms.event.filesMovedKept', { n: e.moved, m: e.kept, name: n, folder }) : w.t('rooms.event.filesMovedKeptUnnamed', { n: e.moved, m: e.kept, folder })
       return n ? w.t('rooms.event.filesMoved', { n: e.moved, name: n, folder }) : w.t('rooms.event.filesMovedUnnamed', { n: e.moved, folder })
     }
@@ -411,6 +412,14 @@ export function highlightNow(seen: Set<string>, highlight: string | null, navKey
   if (seen.has(k)) return false
   seen.add(k)
   return true
+}
+/** An address's query without the message a link picked out (?m=), the rest kept as it was: "" when nothing is left. */
+export function withoutTarget(search: string): string {
+  const q = new URLSearchParams(search)
+  if (!q.has('m')) return search
+  q.delete('m')
+  const rest = q.toString()
+  return rest ? `?${rest}` : ''
 }
 /** Closing it: one step back when the room is that step, else to the room in place of the thread. */
 export const threadClosing = (roomId: string, fromRoom: boolean): -1 | { path: string; replace: true } => (fromRoom ? -1 : { path: `/rooms/${roomId}`, replace: true })

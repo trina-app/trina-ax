@@ -108,13 +108,14 @@ test('a named channel converts: people = members, renamed, floor set, starts kep
   expect(JSON.stringify(hidden.body)).not.toContain(r.project.id)
 })
 
-test('an unnamed group chat converts with the names its row shows; a DM, team room, everyone room, project room and archived room are refused', async () => {
+test('an unnamed group chat converts as "New project" (never the people\'s names: QA TC-6955); a DM, team room, everyone room, project room and archived room are refused', async () => {
   const { owner, mia, nora, otto } = await setup('b-make-project-kinds')
   const group = await channel(mia.client, [nora.id, otto.id], null)
   const i = await info(mia.client, group)
-  expect(i.suggestedName).toBe('NORA, OTTO')
+  // (the harness speaks Korean: "New project" in the caller's language)
+  expect(i.suggestedName).toBe('새 프로젝트')
   const r = await make(mia.client, group, i.suggestedName, i.membersHash)
-  expect(r.room).toMatchObject({ name: 'NORA, OTTO', projectRoom: true })
+  expect(r.room).toMatchObject({ name: '새 프로젝트', projectRoom: true })
   const dm = (await mia.client.call('POST', '/api/rooms', { kind: 'dm', userId: nora.id })).id
   const g = await owner.call('POST', '/api/admin/groups', { name: 'Sales' })
   await owner.call('PATCH', `/api/admin/users/${mia.id}`, { groupIds: [g.id] })
@@ -157,7 +158,10 @@ test('outsiders, admins outside and the owner get 404; members changed since the
   updateTeamSettings(h.ctx.db, { projectCreators: 'admins' })
   // the confirm's read and the conversion alike
   expect(await status(info(mia.client, roomId))).toMatchObject({ status: 403, reason: 'projects_admins_only' })
-  expect(await status(make(mia.client, roomId, 'Launch', j.membersHash))).toMatchObject({ status: 403, reason: 'projects_admins_only' })
+  const no = await status(make(mia.client, roomId, 'Launch', j.membersHash))
+  expect(no).toMatchObject({ status: 403, reason: 'projects_admins_only' })
+  // a conversation has no personal option: the words say only who may (QA TC-6960)
+  expect(no.body.error.message).toBe('이 팀에서는 관리자만 팀 프로젝트를 만들 수 있어요.')
   // the name is checked as a new project's
   updateTeamSettings(h.ctx.db, { projectCreators: 'members' })
   for (const [n, bad] of [['   ', true], ['x'.repeat(101), true], ['CLAUDE.md', true], ['_FILES.md', true], ['Fine name', false]] as const) {
@@ -171,6 +175,9 @@ test('outsiders, admins outside and the owner get 404; members changed since the
   expect(k).toMatchObject({ nameTaken: true, folderName: 'Launch-2' })
   const r = await make(mia.client, roomId, 'Launch', k.membersHash)
   expect(r.project).toMatchObject({ name: 'Launch', folderPath: 'projects/Launch-2' })
+  // the lines name the folder the files go to, the "-2" one (QA TC-6953)
+  const made = ((await mia.client.call('GET', `/api/rooms/${roomId}/messages`)).items as any[]).find((m) => m.event?.type === 'project_made')
+  expect(made.event.project).toEqual({ id: r.project.id, name: 'Launch', folder: 'Launch-2' })
 })
 
 test('two conversions at the same moment: one project, one 409, the loser\'s folder unmade; a failure in the write leaves nothing', async () => {

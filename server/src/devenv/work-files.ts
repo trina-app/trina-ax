@@ -54,6 +54,50 @@ export function isWorkPath(input: unknown, wf: WorkFolder | null): boolean {
 /** How the AI and the person see a work-folder path: never the server's absolute path */
 export const shownWorkPath = (rel: string) => (rel ? `$TRINA_WORK/${rel}` : '$TRINA_WORK')
 
+/** Why a chat has no work folder to open now (QA TC-6936): one reason for every spelling of the path ($TRINA_WORK/…,
+ * ${TRINA_WORK}/…, the folder's absolute path, chat:work/…) and every tool (read, list, glob, grep, copy_files,
+ * save_work_file). The turn knows which (chat/tools.ts TurnFiles.workWhy):
+ *   none      the commands run in a work folder here, and none ran yet (or it was emptied)
+ *   changed   a chat shared with people whose people (or what they may open) changed: its commands start in a new folder
+ *   off       the person may not run commands now
+ *   elsewhere this chat has no work folder (a project chat's commands run in the project folder; no box_shell here)
+ *   helper    a sub-agent: only the chat's main AI opens it */
+export type NoWorkWhy = 'none' | 'changed' | 'off' | 'elsewhere' | 'helper'
+
+/** The words for the AI, plain enough to pass on: no "sub-agent" or "dev environment" unless that is the reason */
+export const NO_WORK_WORDS: Record<NoWorkWhy, string> = {
+  none: "This chat's work folder has nothing in it yet: no command has run here. Make the file with a box_shell command first, or bring a team file in with copy_files (to_folder \"chat:work/\").",
+  changed: "The people in this chat (or what they may open) changed, so its commands now start in a new, empty work folder: the files made or copied there before are not in it. Copy them in again (copy_files to_folder \"chat:work/\") or make them again, and tell the person why in these plain words.",
+  off: 'Commands are turned off for this person now, so this chat\'s work folder cannot be opened.',
+  elsewhere: "This chat has no work folder: its commands do not run in one (in a project chat they run in the project folder; read files there by their team path).",
+  helper: "Only the chat's own assistant opens its work folder: say in your report which file in it to look at.",
+}
+
+/** write and edit of a work-folder path (any spelling): what to do instead (QA TC-6938, where the AI then saved an extra
+ * copy in the person's own folder that nobody asked for) */
+export const WORK_WRITE_WORDS = "write and edit do not change the work folder. Make a file there with a box_shell command (it starts in the work folder: cat > report.txt <<'EOF' … EOF), or bring a team file in with copy_files (to_folder \"chat:work/\"). To hand a finished file over, copy_files it from chat:work/… to chat:files/ in a chat shared with people (in a chat only the person sees: to their own folder). Do not save an extra copy anywhere the person did not ask for."
+
+/** After a not-found in a work folder made after the people of the chat changed: it may have been made before */
+export const WORK_RENEWED_WORDS = "If it was made or copied before the people in this chat (or what they may open) changed, it is not here: commands now use a new work folder. Copy it in again (copy_files to_folder \"chat:work/\") or make it again."
+
+/** The work folder could not be recorded for this answer (shared chats): the reason when the turn knows it, else "try
+ * again" */
+export const workUnavailableText = (why: NoWorkWhy | null | undefined) => (why === 'changed' || why === 'off' ? NO_WORK_WORDS[why] : "This chat's work folder cannot be opened right now. Try again.")
+
+/** The refusal for this reason */
+export const noWorkText = (why: NoWorkWhy | null | undefined) => NO_WORK_WORDS[why ?? 'elsewhere']
+
+/** The path in the work folder that a $TRINA_WORK / ${TRINA_WORK} / chat:work spelling names, without the folder
+ * itself ('' for the folder), or null for any other spelling. The same checks as workRel. */
+export function workAliasRel(input: string): string | null {
+  const p = input.trim().replace(/\\/g, '/')
+  if (!PREFIX.test(p)) return null
+  const segs = p.replace(PREFIX, '').replace(/^\/+/, '').split('/').filter((s) => s !== '.')
+  if (segs.length === 1 && segs[0] === '') return ''
+  if (segs.some((s) => s === '' || s === '..' || s.includes('\u0000'))) throw new ToolError('a path in the work folder has no "..", "//" or other folders around it', 'bad_path')
+  return segs.join('/')
+}
+
 /** Stream the work-folder file `rel` into `dest` (a new file, 0600) from one descriptor opened as above; its size, its
  * sha256 and its name. ToolError/Denied with plain words for the AI. `max`: refused above this many bytes, before any
  * copy; `beforeCopy`: the caller's own check of the size (the team disk), also before any copy. */

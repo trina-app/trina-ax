@@ -359,7 +359,9 @@ export type RoomQuote = z.infer<typeof RoomQuote>
  * as plain text; 'deleted', deleted for good ("a deleted project"). Neither: "a project" (they cannot open it). Older
  * servers never send `projectGone`. */
 const EventProject = {
-  project: z.object({ id: Uuid7, name: z.string() }).nullable(),
+  /** `folder`: its folder's name in Files when that is not its name (another project had the name: "Offsite-2", QA
+   * TC-6953), for the lines that say where files went. Absent: the same as the name, older servers. */
+  project: z.object({ id: Uuid7, name: z.string(), folder: z.string().optional() }).nullable(),
   projectGone: z.discriminatedUnion('state', [
     z.object({ state: z.literal('trash'), name: z.string().nullable() }),
     z.object({ state: z.literal('deleted') }),
@@ -943,7 +945,8 @@ export type RoomSaveUndoResult = z.infer<typeof RoomSaveUndoResult>
 export const OpenProjectRoomQuery = z.object({ listed: z.literal('1').optional() })
 export const MakeProjectQuery = z.object({ name: z.string().max(200).optional() })
 export const MakeProjectInfo = z.object({
-  /** the conversation's name, or for an unnamed group chat the names its row shows: the name field's first value */
+  /** the conversation's name, or for an unnamed group chat "New project" in the caller's language: the name field's
+   * first value */
   suggestedName: z.string(),
   /** the active members, who become the project's people (memberCount = members.length) */
   members: z.array(UserRef),
