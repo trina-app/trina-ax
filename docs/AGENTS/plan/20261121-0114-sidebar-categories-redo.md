@@ -1,283 +1,389 @@
-# Chat categories that are as easy as Slack's sidebar sections
+# Sidebar sections: each person sorts their own Chats list, as in Slack
 
-- Date (UTC): 2026-11-21 01:14
-- Branch: `plan/sidebar-categories-redo` (this plan only); the work goes on `feat/sidebar-categories-easy` (PR 1) and
-  `feat/sidebar-categories-drag` (PR 2)
+- Date (UTC): 2026-11-21 01:14 (revised 01:29 after the owner's call: per person, named Sections)
+- Branch: `plan/sidebar-categories-redo` (this plan only); the work goes on `feat/sidebar-sections-server` (PR 1),
+  `feat/sidebar-sections` (PR 2) and `feat/sidebar-sections-drag` (PR 3)
 - Status: draft
-- Where: web/ (Chats list, room menus, phone Chats tab). No server change is needed. Why: the owner made a category and
-  could not find out how to put a conversation in it (see docs/REPOSITORY-RULES.md)
-- Version impact: minor. Categories shipped in 0.5.23, and this adds new ways to use them (drag and drop, Add channels,
-  Move to category on the phone). No API or data change.
+- Where: server/ (one migration, the nav-folders API, a one-time conversion), web/ (Chats list, room menus, phone
+  Chats tab). Why: the owner made a category and could not tell how to put a conversation in it, then decided the
+  feature must work like Slack's sidebar sections (see docs/REPOSITORY-RULES.md)
+- Version impact: minor. Personal sections are a new feature on top of the existing nav-folders API, which gains an
+  optional `sort` field. The team-category endpoints stay in place, read-only and empty, so nothing that calls them
+  breaks.
+- Decision: [docs/decisions/20261121-personal-sidebar-sections.md](../../decisions/20261121-personal-sidebar-sections.md)
+  (supersedes [20261120-shared-chat-categories](../../decisions/20261120-shared-chat-categories.md))
 
 ## Goal
 
-What the owner reported (2026-11-21, screenshot): they made a category "Bots". It showed "아직 채널이 없어요" (no
-channels yet) with no hint on how to add one. They could not work out how to put conversations in it. In Slack you
-make a section and drag channels in. The small folder+ button next to 채널 was hard to see. Their words: "한번
-기획다시 해봐야할 것 같은데?"
+What the owner reported on 2026-11-21, with a screenshot:
+- They made a category called "Bots". It showed "아직 채널이 없어요" with no hint on how to add channels.
+- They could not tell how to put conversations into it.
+- The small folder+ button next to 채널 was hard to see.
 
-The goal is a category flow that someone who knows Slack's sidebar sections uses without being told. You make a
-category where you expect to. You fill it right away, and you can drag channels in. An empty category says how to fill
-it. The phone can do the same things without drag.
+The owner then decided (2026-11-21): "사람마다 자기 사이드바를 따로 정리하는 기능이어야해. 슬랙이랑 똑같이 가야해 우리는"
+("It should be a feature where each person organizes their own sidebar. We have to go the same way as Slack.")
 
-The rule of the 2026-11-20 decision stays as it is: one team-wide list, made by admins and the owner, holding channels
-only ([docs/decisions/20261120-shared-chat-categories.md](../decisions/20261120-shared-chat-categories.md)). This plan
-changes how people reach and use it, not who sees what.
+The goal: everyone sorts their own Chats list into **sections**, and nobody else sees them, as in Slack.
+- Any member can create a section where they expect to.
+- They can fill it right away, by dragging or from any conversation's menu.
+- An empty section says how to fill it.
+- A phone can do all of this without dragging.
+
+Channels, DMs and group DMs can all go in a section.
 
 ## Today (origin/dev df8816549, tried hands-on)
 
-Tried on a local copy of the QA-Acme test team (port 19949, a copy of its data; the shared 19787 server was not
-touched), as qa-owner and qa-member, at 1440 and 390. Code: `web/src/components/nav/RoomCategories.tsx`,
-`web/src/components/panels/RoomsByKind.tsx`, `web/src/pages/Rooms.tsx`, `web/src/store/roomCategories.ts`,
-`server/src/rooms/categories.ts`, `shared/src/api/room-categories.ts`.
+I tried this on a local copy of the QA-Acme test team (port 19949, a copy of its data). The shared 19787 server was not
+touched. I used qa-owner and qa-member at 1440 and 390.
+
+Code: `web/src/components/nav/RoomCategories.tsx`, `web/src/components/panels/RoomsByKind.tsx`,
+`web/src/pages/Rooms.tsx`, `web/src/store/roomCategories.ts`, `server/src/rooms/categories.ts`,
+`shared/src/api/room-categories.ts`.
 
 | Area | Today |
 |---|---|
-| Who | Admins and the owner create, rename, reorder, delete and fill categories. Everyone sees the same list. A member sees a category only when it holds a channel they are in. |
-| What goes in | Channels only (Everyone, team rooms, named private channels). A 1:1 or an unnamed group chat is refused (409 `room_category_personal`). |
-| Create (computer) | A 14 px folder+ icon on the left of the Channels "+" (`NewCategoryButton`). A quiet "New category" row at the end of the list while there is no category yet (`NewCategoryRow`). "New category" in a category's "⋯". "New category" at the end of the Move-to-category picker. |
-| Fill | Only from a channel row's hover "⋯" › **Move to category**, which opens a second menu with the categories. There is no drag. There is no Move to category in the channel's own header menu (`pages/Room.tsx`). |
-| Empty category | "No channels yet" / "아직 채널이 없어요", with no action. Only admins see an empty one. |
-| Take out | Row "⋯" › Take out of category. |
-| Rename, reorder, delete | Category "⋯" › Rename · Move up · Move down · Delete category. Deleting sends the channels back to Channels for everyone. |
-| Collapse | Every section folds. Folds are kept per person, on the account (2026-11-16 decision). |
-| Sort inside | By name (A to Z). It cannot be changed. |
-| Phone | The category "⋯" sheet works. The long-press sheet of a channel row has **no** Move to category (`pages/Rooms.tsx` does not pass `folders` to `RoomMenu`). The Channels header has only "+", so a phone **cannot create a category or fill one** unless one already exists and is filled from a computer. |
+| Who | Team-wide categories (migration 429). Admins and the owner create, rename, reorder, delete and fill them. Everyone sees the same list. |
+| What goes in | Channels only. A 1:1 or an unnamed group chat gets 409 `room_category_personal`. |
+| Create (computer) | A 14 px folder+ icon next to the Channels "+". A quiet "New category" row at the end of the list. "New category" in each category's "⋯". "New category" in the Move-to-category picker. |
+| Fill | Only through a channel row's hover "⋯" › Move to category › a second menu. There is no drag, and the channel's header menu has no Move. |
+| Empty | "No channels yet" / "아직 채널이 없어요", with nothing to click. |
+| Rename, reorder, delete | Category "⋯" › Rename · Move up · Move down · Delete category. On delete, the channels go back to Channels. |
+| Collapse | Every section folds, and the fold is kept per person (2026-11-16 decision). |
+| Sort inside | A to Z. You cannot change it. |
+| Phone | The category "⋯" sheet works. The long-press sheet of a channel has **no** Move to category, and the Channels header has only "+". So a phone **cannot create or fill** a category. |
+| Old personal folders | Hidden on 11-20, not deleted. Migration 289 tables `nav_folders` / `nav_folder_items` (kind `rooms`), `PUT /api/rooms/:id/folder`, `Room.folderId` (per member), `navFolders.changed`, and the web parts in `NavFolders.tsx` / `store/navFolders.ts` (including drag: `dragRow`, `useDropTarget`) are all still on dev. Kind `chats` is still in use in the Trina list. |
 
 ### The problems, each with a screenshot
 
-1. **The create button is hard to find.** A 14 px faint folder+ icon sits next to the Channels "+". It looks like the
-   "+" and you only learn what it does from its tooltip.
+1. **The create button is hard to find.** It is a 14 px faint folder+ icon beside the Channels "+", and it looks like
+   the "+".
    ![](20261121-0114-sidebar-categories-redo/p1-create-button-1440.png)
-2. **A new category is a dead end.** After you make it, "Bots" says "No channels yet" with no hint and no button. The
-   dialog closes and nothing offers to fill it.
+2. **A new category is a dead end.** It shows "No channels yet" with no hint and no button. Nothing offers to fill it.
    ![](20261121-0114-sidebar-categories-redo/p2-empty-category-1440.png)
-3. **Drag does nothing.** You drag "QA-UXF Room" onto "Bots" and the list stays as it was. This is the first thing a
-   Slack user tries. The old personal folders had drag (`NavFolders.tsx` `dragRow` / `useDropTarget`); the categories
-   did not keep it.
+3. **Drag does nothing.** Dragging "QA-UXF Room" onto "Bots" leaves the list as it was. This is the first thing a
+   Slack user tries.
    ![](20261121-0114-sidebar-categories-redo/p3-drag-does-nothing-1440.png)
-4. **The only way in is two menus deep, behind a hover.** It is row hover › "⋯" › Move to category (6th of 7 items) ›
-   a second menu.
+4. **The only way in is two menus deep, behind a hover.** Move to category is the 6th of 7 items, and then a second
+   menu opens.
    ![](20261121-0114-sidebar-categories-redo/p4-row-menu-1440.png)
    ![](20261121-0114-sidebar-categories-redo/p5-move-picker-1440.png)
-5. **"New category" is in four places**: the folder+ icon, the quiet row, each category's "⋯", and the picker. The same
-   action appears four times, and none of them is where people look.
+5. **"New category" is in four places**, and none of them is where people look.
    ![](20261121-0114-sidebar-categories-redo/p6-category-menu-1440.png)
-6. **The phone cannot create or fill.** The Channels header has only "+". The long-press sheet of a channel has no Move
-   to category.
+6. **The phone cannot create or fill one.**
    ![](20261121-0114-sidebar-categories-redo/p7-phone-no-create-390.png)
    ![](20261121-0114-sidebar-categories-redo/p8-phone-row-menu-390.png)
    ![](20261121-0114-sidebar-categories-redo/p9-phone-category-menu-390.png)
+7. **It is the wrong model.** The owner wants each person's own sidebar, holding DMs too. Today's categories are the
+   team's and hold channels only.
 
 ## How Slack does it (help centre, read 2026-11-21)
 
-Sources: [Organize your sidebar with custom sections](https://slack.com/help/articles/360043207674-Organize-your-sidebar-with-custom-sections),
-and the 2026-11-16 reading of Slack's web app in
-[collapsible-chat-sections](../decisions/20261116-collapsible-chat-sections.md).
+Source: [Organize your sidebar with custom sections](https://slack.com/help/articles/360043207674-Organize-your-sidebar-with-custom-sections).
+The folding behaviour comes from the 2026-11-16 reading of Slack's web app, in
+[collapsible-chat-sections](../../decisions/20261116-collapsible-chat-sections.md).
 
-- **Create.** On a computer you hover the Channels header › "⋯" › create a section, then give a name (an emoji is
-  optional). From a conversation, the star in its header › pick a section or create a new one. On a phone you go to
-  the conversation header › Star / Move › New section.
-- **Fill.** You drag any conversation from the sidebar into a section. You can also use a conversation's header star /
-  Move, or bulk manage (tick several conversations › Move to…). The help centre does not document a right-click Move,
-  but third-party guides describe one.
+- **Personal.** Sections are visible only to you. They can hold channels, DMs and apps.
+- **Create (computer).** Hover over the Channels header, open its "⋯", and choose to create a section. Give it a name
+  or pick a suggestion; an emoji is optional.
+- **Create (phone).** In a conversation, tap the header, then Star or Move, then New section.
+- **Fill.** Drag a conversation from the sidebar into a section. Or use the conversation header's star or Move to pick
+  a section or make a new one. Or use bulk manage: tick several conversations, then Move to….
+- **Take out.** The conversation goes back to Channels or Direct messages.
+- **Rename and delete.** Use the section's "⋯".
+- **Sort and filter, per section.** The section's "⋯" › Sort offers **A to Z, Recency or Priority**. There is also a
+  Filter, whose default is "Active only" (it hides conversations with no activity in 30 days).
+- **Phone.** You move a conversation from its header (Move › a section or New section). There is no drag. You can
+  rename and delete a section from its "⋯".
 - **Empty section.** The help centre does not say what an empty section shows.
-- **Sort.** Each section has its own "⋯" › Sort: A to Z, Recency or Priority, plus a filter.
-- **Rename and delete.** You use the section's "⋯". Taking a conversation out sends it back to Channels or Direct
-  messages.
-- **Phone.** You move a conversation from its header (Move › section or New section), and rename or delete from the
-  section's "⋯". There is no drag.
-- **Who.** Sections are personal and can hold DMs. Admins can share a set of sections with new members.
 
-We keep Slack's ideas (create from the Channels header, drag in, Move from the conversation itself, pick several at
-once) but use our own words, in English first (memory: english-first-not-a-slack-copy). We do not copy its
-per-section sort or filter: the owner prefers a lean UI.
+We copy the behaviour, not the words. English comes first (memory: english-first-not-a-slack-copy). We use Slack's
+term "Sections" ("섹션"), as the owner asked. We leave out Priority (Slack ranks it with its own signals), the Active-only
+filter and emoji (see the open questions).
 
-## Scope
+## The data: revive the personal folders, convert the team categories
 
-In:
-- One clear place to create a category, on a computer and on a phone.
-- Filling it right after you make it ("Add channels" with a list of tick boxes).
-- Drag and drop on a computer, in and out.
-- Move to category in every channel menu: the row "⋯", the phone long-press sheet, and the channel's header menu.
-- An empty-category hint that says how to fill it, with a button.
-- A delete confirmation that says what happens to the channels.
-- The removals below.
+**Revive `nav_folders` kind `rooms` as sections. Build no new tables.** Everything a section needs already exists and
+is tested:
+- per-person rows, hidden from everyone else (404 for anyone else's);
+- channels, DMs and group DMs alike;
+- `Room.folderId` on each member's copy of a room;
+- unique names per person in any letter case;
+- order, rename and delete, with delete sending the items back;
+- leaving a room drops its row (`rooms/service.ts`);
+- hidden and archived rooms filtered on read;
+- realtime `navFolders.changed` to my other windows;
+- limits of 30 sections per person and 500 conversations per section.
 
-Out:
-- Personal sections and DMs in categories (see the open questions).
-- Per-category sort and filter.
-- Dragging categories to reorder them (Move up / Move down stays).
-- Emoji on categories.
-- Server or API changes.
+Missing pieces: a per-section sort, and the conversion of the team categories.
+
+**Team categories become personal sections, then team categories go.** A one-time step at server start
+(`server/src/rooms/categories-to-sections.ts`) runs in one transaction, and only while `room_categories` has rows. For
+each category, in the team's order:
+1. **Who gets a section:** every member (guests too) of at least one non-archived room with that `category_id`, plus
+   the category's `created_by`. The maker gets it even when it is empty, so the owner keeps "Bots". Other admins, who
+   saw empty ones only to fill them, do not get the empty ones.
+2. **The section:** a `nav_folders` row (kind `rooms`, the same name, a new UUIDv7 from `newId()`). It goes before that
+   person's older sections, in the team's order. If the person already has a section with the same name (any letter
+   case), the step uses that one.
+3. **Its conversations:** a `nav_folder_items` row for each room of the category that the person is in. If the room is
+   already in one of their older folders, the category's placement wins, because it is what they see today.
+4. **Clean up:** set `rooms.category_id` to NULL, and delete the `room_categories` rows. That deletion is the "done"
+   mark, so the step never runs twice.
+5. **Limits:** the step ignores the 30-section limit. Someone who ends up over it can still use, rename and delete
+   their sections, but cannot add more until they are under it.
+
+**No table or column is dropped.** The repo rule is that migrations are additive, so a downgrade still opens the
+database. `room_categories` and `rooms.category_id` stay empty and unused until a later cleanup, as `nav_folders` kind
+`rooms` did after 11-20. If someone downgrades to 0.5.23, they see no categories; the sections are kept for when they
+come back.
+
+**The old hidden personal folders come back** as sections, with what was in them. They are the person's own work and
+were hidden for one day. See open question 2.
+
+### Server work (PR 1)
+
+- **Migration `431_b_sidebar_section_sort.sql`.** Check the highest B number on `dev` when you start; 430 is the
+  highest today. It adds `ALTER TABLE nav_folders ADD COLUMN sort TEXT CHECK (sort IN ('name','recent'))`, where NULL
+  means A to Z. It is additive, with no `min_compatible_reader` bump.
+- **API (`shared/src/api/nav-folders.ts`).**
+  - `NavFolder.sort` (`'name' | 'recent'`, rooms kind only).
+  - `UpdateNavFolderBody` takes `name` and/or `sort`; a body must have at least one.
+  - `NAV_FOLDERS_MAX` stays 30.
+  - Docs: `bun run docs:api`.
+- **The conversion step** above, called once at start after migrations, inside a try/catch so a failure is logged and
+  does not stop the server.
+- **Team-category endpoints are deprecated, not removed.**
+  - `GET /api/room-categories` returns `{ items: [] }`.
+  - Create, rename, order, delete and `PUT /api/rooms/:id/category` answer 410 `room_categories_removed`.
+  - `Room.categoryId` is no longer sent.
+  - Removing them for good happens in a later cleanup, with the tables.
+- **`setRoomFolder` on a hidden room** answers 409 `room_hidden` today. That stays: a hidden room is not in the list
+  to file.
+- **Tests:**
+  - `tests/unit/b-sidebar-sections.test.ts`: conversion cases (members, maker-empty, name merge, older-folder clash,
+    archived, left, guest, idempotent) and sort round trip.
+  - Keep `b-nav-folders` green.
+  - Rewrite `b-room-categories.test.ts` for the deprecated answers.
 
 ## Target flows
 
-### 1. Create a category (admins and the owner)
+### 1. Create a section (everyone, guests too)
 
-- **Entry point (computer and phone):** the Channels header "+" becomes a small menu for admins with two items:
-  **Create a channel** and **New category**. Members and guests keep today's "+", which opens Create a channel
-  directly. The folder+ icon goes. This is Slack's place (the Channels header), behind the button people already
-  click.
-- The Channels header is always drawn for anyone who can create a channel, even when every channel is in a category,
-  so the entry point never goes away. This replaces "New category" in each category's "⋯".
-- **The dialog:** a name box (as today, with the same checks) and one line under it: "Everyone on the team sees it.
-  Only admins can change it." Button: **Create**.
-- **Right after Create:** the same dialog turns into **Add channels to "Bots"**. It lists the channels I am in that can
-  go in a category, as rows with tick boxes and their current category in grey ("in Clients"). A search box appears
-  when there are more than 8. The buttons are **Add** (n) and **Skip**. Adding moves the ticked channels, then the
-  category opens with them inside and a toast with Undo.
+- **Main entry, computer and phone.** The Channels header "+" becomes a small menu with **Create a channel** and
+  **New section**. A guest, who cannot create channels, gets "+" that opens New section directly.
+- **The Channels and Direct messages headers always show**, even when every conversation is in a section, so the entry
+  never goes away.
+- **Also from any conversation:** Move to section › **New section…** (flow 2).
+- **The dialog:** a name box (the nav-folder name rules) with one line under it: "Only you see your sections." The
+  button is **Create**.
+- **Right after Create:** the dialog turns into **Add conversations to "Bots"**.
+  - It lists every channel, DM and group DM I have, with tick boxes and their current section in grey ("in Clients").
+  - A search box appears past 8 conversations.
+  - The buttons are **Add n** and **Skip**.
+  - Adding moves the ticked conversations, opens the section and shows a toast with Undo.
 
-### 2. Put channels in a category (three ways, the same on every screen where they apply)
+### 2. Put conversations in a section
 
-- **Drag (computer, mouse):** you drag a channel row onto a category's header or its rows. The category gets a
-  highlight ring and an outline row, "Move here". Dropping moves it for everyone and shows a toast "Moved to 'Bots'"
-  with Undo. Dragging onto the Channels header takes it out. A DM row cannot be dragged onto a category: the target
-  does not light up, and a tooltip on hover says "Direct messages stay in your own list". Only admins can drag
-  channels. For a member the row does not start a drag, as today.
-- **Move to category (menus):** the item moves up to the second place in the channel row's "⋯", under Pin. It is also
-  added to the phone's long-press sheet and to the channel's own header "⋯" (`pages/Room.tsx`), like Slack's
-  "from the conversation". The second step lists the categories, a check on the current one, then "New category…",
-  and "Take out of category" when it is in one.
-- **Add channels (from the category):** a category's "⋯" gets **Add channels** first. It opens the same tick-box list
-  as after Create. This is the bulk way and the phone's main way.
+These three ways work for every conversation: channel, DM or group DM.
+- **Drag (computer, mouse).** Drag a row onto a section's header or rows. The section shows a highlight ring and a
+  "Move here" row; drop it, and a toast says "Moved to 'Bots'" with Undo. Dropping on the Channels or Direct messages
+  header takes it out of its section; it goes back to its own default list whichever header gets the drop. You can
+  also drag between sections.
+- **Move to section (menus).** This is the second item, under Pin, in:
+  - the row "⋯" on a computer;
+  - the phone's long-press sheet (`pages/Rooms.tsx` gets `folders`);
+  - the conversation header "⋯" (`pages/Room.tsx`).
 
-### 3. Empty category (only admins see one)
+  It opens a list of my sections, with a check on the current one, then **New section…**, which makes a section and
+  moves the conversation into it. **Remove from section** appears when the conversation is in one.
+- **Add conversations (from the section).** The section's "⋯" › **Add conversations** opens the tick-box list from
+  flow 1. This is the bulk way and the phone's easiest way.
 
-- One line plus a button inside the section:
-  - computer: "Drag a channel here, or use **Add channels**." + [Add channels]
-  - phone: "Nothing here yet." + [Add channels]
-- During a drag, the empty category shows the drop row "Move here".
+### 3. Empty section
 
-### 4. Manage
+- **Computer:** "Drag a conversation here, or use Add conversations." with a button: [Add conversations].
+- **Phone:** "Nothing here yet." with [Add conversations].
+- **During a drag:** the empty section shows the "Move here" row.
 
-- **Take out:** drag it to the Channels header, or use the row "⋯" › Take out of category. Both show a toast with Undo.
-- **Rename:** category "⋯" › Rename (as today).
-- **Reorder:** category "⋯" › Move up / Move down (as today; shown only when it can move).
-- **Delete:** category "⋯" › Delete category. The confirmation names what happens: "'Bots' goes away for everyone.
-  Its 3 channels go back to Channels. No one leaves a channel." Button: Delete.
-- **Collapse:** as today (the chevron, kept per person on the account, the unread pill while folded).
-- **Order inside:** A to Z by name, as today. There is no sort menu.
+### 4. Manage (the section's "⋯")
+
+- **Add conversations**
+- **Sort** › A to Z (default) · Recent activity. This is per section and kept on the account. A to Z sorts by the name
+  the row shows; Recent activity uses the latest message first, as Direct messages does today.
+- **Rename**
+- **Move up / Move down**, shown only when the section can move.
+- **Delete section.** A confirmation appears only when the section has something in it: "Its 3 conversations go back
+  to Channels and Direct messages. Only your sidebar changes."
+- **Collapse:** the chevron, as today. The fold is kept on the account, and a folded section shows the unread pill.
+- **Order of the list:** Mentions & threads › Pinned › my sections › Channels › Direct messages. A conversation shows
+  in one place only: pinned › its section › its kind. Pinned stays where it is (see open question 4).
 
 ### 5. Phone (no drag)
 
-- Create: Channels "+" › New category (admins), then Add channels with tick boxes.
-- Fill: a channel's long-press sheet › Move to category; the channel header "⋯" › Move to category; or the category
-  "⋯" › Add channels.
-- There is no drag and no long-press reorder. Move up / Move down stays in the category "⋯".
+- **Create:** Channels "+" › New section, then Add conversations.
+- **Fill:** long-press a row › Move to section (with New section…). Or use the conversation header "⋯" › Move to
+  section, or the section "⋯" › Add conversations.
+- **Manage:** the section "⋯" sheet: Add conversations, Sort, Rename, Move up / Move down, Delete.
 
-### 6. Per person or team: keep team-wide (recommended)
+### 6. Per person (decided)
 
-The owner asked for team categories made by admins on 2026-11-20 ("admin can create the category and it's showed for
-all users"). This plan keeps that rule and fixes the flow. Personal sections, the Slack model, would bring back what
-that decision removed: every person sorting the same channels alone, and a different sidebar for each teammate. See
-open question 1.
+Sections are personal, as in Slack: nobody else, owners and admins included, sees, lists or counts them. A section
+never changes who is in a conversation.
 
 ## What gets removed
 
-- The folder+ icon next to the Channels "+" (`NewCategoryButton`). Its job moves into the "+" menu.
-- The quiet "New category" row at the end of the list (`NewCategoryRow`).
-- "New category" in each category's "⋯". Add channels takes its place there.
-- The grey footer "Everyone on the team sees the same categories." under the Move-to-category picker. The line is said
-  once, in the create dialog.
-- The tag icon before each category name. A category header looks like Channels and Direct messages, as in Slack.
-- "No channels yet" with nothing to do. The hint with a button replaces it.
+- **The team categories:**
+  - `RoomCategories.tsx` and `store/roomCategories.ts`;
+  - the admin-only category menus;
+  - `roomCategories.changed`;
+  - the API writes (410), `Room.categoryId` in responses;
+  - the rule "only admins sort the sidebar".
 
-Net change: two buttons and one row go; one menu item (Add channels) and one hint come in.
+  The tables stay, empty, until a later cleanup.
+- **The folder+ icon** next to the Channels "+" (`NewCategoryButton`).
+- **The quiet "New category" row** at the end of the list (`NewCategoryRow`).
+- **"New category" in each category's "⋯"**, replaced by Add conversations.
+- **The "Everyone on the team sees the same categories." footer.** The create dialog says "Only you see your sections"
+  once instead.
+- **The tag icon and the folder icon** before section names. A section header looks like Channels.
+- **The old "Conversation folders" words** in the rooms list: "폴더로 옮기기", the "대화 폴더" heading, the
+  `navFolders.separateRooms` line. Sections use their own words. Folders stay only in the Trina AI-chat list, which is
+  unchanged.
+- **"No channels yet" with nothing to do**, replaced by the hint with a button.
+
+The result is one name (Section), one main entry (the "+" menu), and one menu item, Move to section, that is the same
+everywhere.
 
 ## Wording (en is the source; ko follows; es, id, ja and zh are translated in the same PR)
 
+Keys move to `sidebarSections.*`.
+
 | Key (proposed) | en | ko |
 |---|---|---|
-| `rooms.section.addMenu` (the "+" label for admins) | Add to Channels | 채널에 추가 |
 | `rooms.section.newChannel` (as today) | Create a channel | 채널 만들기 |
-| `roomCategories.new` (as today) | New category | 새 카테고리 |
-| `roomCategories.newHint` | Everyone on the team sees it. Only admins can change it. | 팀 모두에게 보여요. 관리자만 바꿀 수 있어요. |
-| `roomCategories.make` | Create | 만들기 |
-| `roomCategories.addTitle` | Add channels to '{name}' | '{name}'에 채널 넣기 |
-| `roomCategories.addButton` | Add {n, plural, one {# channel} other {# channels}} | 채널 {n}개 넣기 |
-| `roomCategories.skip` | Skip | 건너뛰기 |
-| `roomCategories.inOther` | in {name} | {name}에 있음 |
-| `roomCategories.add` (category "⋯") | Add channels | 채널 넣기 |
-| `roomCategories.emptyComputer` | Drag a channel here, or use Add channels. | 채널을 여기로 끌어 놓거나 '채널 넣기'를 눌러요. |
-| `roomCategories.emptyPhone` | Nothing here yet. | 아직 비어 있어요. |
-| `roomCategories.dropHere` | Move here | 여기로 옮기기 |
-| `roomCategories.dmStays` | Direct messages stay in your own list | 다이렉트 메시지는 내 목록에만 있어요 |
-| `roomCategories.moveTo` (as today) | Move to category | 카테고리로 옮기기 |
-| `roomCategories.moved` (as today) + Undo | Moved to '{name}' · Undo | '{name}'(으)로 옮겼어요 · 되돌리기 |
-| `roomCategories.movedMany` | Moved {n, plural, one {# channel} other {# channels}} to '{name}' | 채널 {n}개를 '{name}'(으)로 옮겼어요 |
-| `roomCategories.deleteTitle` (as today) | Delete the category '{name}'? | '{name}' 카테고리를 지울까요? |
-| `roomCategories.deleteBody` | '{name}' goes away for everyone. {n, plural, =0 {} one {Its channel goes back to Channels. } other {Its # channels go back to Channels. }}No one leaves a channel. | 모두의 목록에서 '{name}'이(가) 사라져요. 안에 있던 채널 {n}개는 채널 목록으로 돌아가요. 채널에서 나가는 사람은 없어요. |
+| `sidebarSections.addMenu` (the "+" label) | Add | 추가 |
+| `sidebarSections.new` | New section | 새 섹션 |
+| `sidebarSections.newFromMove` | New section… | 새 섹션… |
+| `sidebarSections.nameLabel` | Section name | 섹션 이름 |
+| `sidebarSections.onlyYou` | Only you see your sections. | 섹션은 나에게만 보여요. |
+| `sidebarSections.create` | Create | 만들기 |
+| `sidebarSections.addTitle` | Add conversations to '{name}' | '{name}'에 대화 넣기 |
+| `sidebarSections.addButton` | Add {n, plural, one {# conversation} other {# conversations}} | 대화 {n}개 넣기 |
+| `sidebarSections.skip` | Skip | 건너뛰기 |
+| `sidebarSections.inOther` | in {name} | {name}에 있음 |
+| `sidebarSections.add` (section "⋯") | Add conversations | 대화 넣기 |
+| `sidebarSections.emptyComputer` | Drag a conversation here, or use Add conversations. | 대화를 여기로 끌어 놓거나 '대화 넣기'를 눌러요. |
+| `sidebarSections.emptyPhone` | Nothing here yet. | 아직 비어 있어요. |
+| `sidebarSections.dropHere` | Move here | 여기로 옮기기 |
+| `sidebarSections.moveTo` | Move to section | 섹션으로 옮기기 |
+| `sidebarSections.remove` | Remove from section | 섹션에서 빼기 |
+| `sidebarSections.moved` + Undo | Moved to '{name}' · Undo | '{name}'(으)로 옮겼어요 · 되돌리기 |
+| `sidebarSections.movedMany` | Moved {n, plural, one {# conversation} other {# conversations}} to '{name}' | 대화 {n}개를 '{name}'(으)로 옮겼어요 |
+| `sidebarSections.removed` | Removed from '{name}' | '{name}'에서 뺐어요 |
+| `sidebarSections.sort` | Sort | 정렬 |
+| `sidebarSections.sortName` | A to Z | 가나다순 |
+| `sidebarSections.sortRecent` | Recent activity | 최근 활동순 |
+| `sidebarSections.rename` | Rename | 이름 바꾸기 |
+| `sidebarSections.delete` | Delete section | 섹션 지우기 |
+| `sidebarSections.deleteTitle` | Delete the section '{name}'? | '{name}' 섹션을 지울까요? |
+| `sidebarSections.deleteBody` | {n, plural, one {Its conversation goes} other {Its # conversations go}} back to Channels and Direct messages. Only your sidebar changes. | 안에 있던 대화 {n}개는 채널과 다이렉트 메시지로 돌아가요. 내 사이드바만 바뀌어요. |
+| `sidebarSections.nameTaken` | You already have a section with this name. | 같은 이름의 섹션이 이미 있어요. |
+| `sidebarSections.full` (server, 409) | You can have up to {n} sections. | 섹션은 {n}개까지 만들 수 있어요. |
 
-Removed keys: `roomCategories.everyoneSees`, `roomCategories.empty` (after its last use).
+Removed keys: every `roomCategories.*` key, and `navFolders.separateRooms`.
 
-## Steps
+## Steps and size
 
-PR 1, `feat/sidebar-categories-easy` (web only; about 400 lines plus tests):
-1. Channels "+" menu for admins (`RoomSectionAction`, `RoomsByKind.tsx`, `pages/Rooms.tsx`). Keep the Channels header
-   while a category holds every channel.
-2. Create dialog with its hint, then the **Add channels** step: a new `AddChannelsDialog` with tick boxes, current
-   category, search past 8, and a loop of `PUT /api/rooms/:id/category`. Use the room list the client already has.
-   It lists only channels I am in, because the server returns 404 for a room I am not in.
-3. Category "⋯": Add channels first; remove New category.
-4. Move to category second in the row "⋯"; add it to `pages/Rooms.tsx` (phone sheet) and `pages/Room.tsx` (channel
-   header).
-5. Empty hint with its button (computer and phone wording).
-6. Delete confirmation with the channel count. Undo on the moved / taken-out toasts (the toast sets the old category
-   back).
-7. Removals: `NewCategoryButton`, `NewCategoryRow`, the picker footer, the tag icon. i18n in all five languages.
+PR 1 and PR 2 ship in one batch (the team's batch rule). On its own, PR 1 would make the categories disappear before
+the sections show.
 
-PR 2, `feat/sidebar-categories-drag` (web only; about 250 lines plus e2e):
-8. Draggable channel rows for admins (pointer-fine only), with a drag type for channels so a target knows what it
-   takes. Bring back `dragRow` / `useDropTarget` from `NavFolders.tsx` as a shared helper.
-9. Drop targets: each category section (header and rows) and the Channels header (take out). Highlight ring, a
-   "Move here" outline row in an empty or folded category, Undo toast. Use the keyboard and screen-reader path
-   through the menus (Move to category) as now, since drag has no keyboard path.
-10. DM rows: no drag type, so no target lights up.
+**PR 1, `feat/sidebar-sections-server` (server, component B; about 300 lines plus tests).**
+1. Migration 431 (`nav_folders.sort`); `NavFolder.sort`; `UpdateNavFolderBody` with name and/or sort; API docs.
+2. `categories-to-sections.ts`, the one-time conversion, called at start; unit tests.
+3. Deprecate the team-category endpoints (empty GET, 410 writes); stop sending `Room.categoryId`.
+
+**PR 2, `feat/sidebar-sections` (web; about 600 lines plus tests).**
+4. Chats list: draw my `rooms` folders as sections between Pinned and Channels. This brings back the pre-11-20 code in
+   `RoomsByKind.tsx` and `pages/Rooms.tsx`, which `d4b05530b` replaced. Order inside each section follows its `sort`.
+   Remove the categories UI.
+5. Channels "+" menu (New section for everyone; a guest's "+" opens it directly); headers always drawn.
+6. Create dialog with "Only you see your sections", then the new `AddConversationsDialog` (tick boxes, current
+   section, search past 8, a loop of `PUT /api/rooms/:id/folder`).
+7. Move to section second in the row "⋯", the phone long-press sheet and the conversation header "⋯", with New
+   section… and Remove from section.
+8. Section "⋯": Add conversations · Sort · Rename · Move up / Move down · Delete section (confirm only when not
+   empty).
+9. Empty hint with its button; Undo on the moved and removed toasts.
+10. The removals; i18n in all six languages; the decision file (written with this plan).
+
+**PR 3, `feat/sidebar-sections-drag` (web; about 250 lines plus e2e).**
+11. Draggable rows (pointer-fine only), using `dragRow` / `useDropTarget` from `NavFolders.tsx`, with one drag type for
+    any conversation.
+12. Drop targets: each section (header and rows), and the Channels and Direct messages headers (take out). Highlight
+    ring, "Move here" row in an empty or folded section, Undo toast, and the panel scrolls itself near its edges during
+    a drag.
 
 ## Decisions
 
-A new file, `docs/decisions/<date>-category-flow-like-sections.md`, written with PR 1. It covers the entry point in the
-Channels "+" menu, three ways in (drag, Move to category in every channel menu, Add channels), the empty hint with an
-action, and the removals. It extends [20261120-shared-chat-categories](../decisions/20261120-shared-chat-categories.md)
-and does not supersede its rule.
+[docs/decisions/20261121-personal-sidebar-sections.md](../../decisions/20261121-personal-sidebar-sections.md). It
+supersedes [20261120-shared-chat-categories](../../decisions/20261120-shared-chat-categories.md), whose Status line now
+points to it. It keeps the 2026-11-16 rule that every section folds and the fold is kept on the account.
 
 ## Risks
 
-- No migration or API change. The bulk add sends one request per channel. That is fine for a team's channel count
-  (tens); each sends `room.updated` to the members.
-- Drag and the row's link: a drag must not open the room, and a click must not start a drag (use a 4 px threshold, as
-  NavFolders did).
-- `content-visibility` on sections: a drop target off screen during a long drag. Auto-scroll the panel near its edges.
-- Touch screens: drag stays off (`pointer-coarse`), so the long press keeps opening the sheet.
-- The five app languages: new keys in en, ko, es, id, ja and zh (`bun run check:i18n`).
-- Admin-only actions stay admin-only on the server (`auth: 'admin'`). The UI only hides them.
+- **Migration number:** 431 must still be free on `dev` when PR 1 starts (430 is the highest B today; two files with
+  one number stop the server).
+- **The conversion runs on live teams' data at start.**
+  - It runs in one transaction and only while `room_categories` has rows.
+  - The unit tests cover a team with categories, old folders and guests.
+  - Rehearse it on a copy of QA-Acme with "Bots" and a filled category before the batch.
+- **The old folders coming back** surprises nobody who did not make one. For someone who did, they return as they left
+  them on 11-20.
+- **Privacy:** sections stay mine only. Every nav-folder route already answers 404 for anyone else's. Keep a test that
+  an admin cannot list another person's sections.
+- **Drag and the row link:** a drag must not open the room, and a click must not start a drag (a 4 px threshold, as
+  NavFolders did). Touch screens never drag; long press opens the sheet.
+- **`content-visibility` on sections** during a long drag: scroll the panel itself near its edges.
+- **Languages:** all six app languages get the new keys (`bun run check:i18n`).
 
 ## Tests
 
-- `bun run typecheck`, `bun run check:i18n`, `bun run check:docs`, `bun run check:prepush`.
-- Unit tests: `web/test/unit/nav-folders.test.tsx` (the categories part), a new `add-channels-dialog.test.tsx`, and
-  `tests/unit/b-room-categories.test.ts` (unchanged, still green).
-- Web e2e (the categories spec): create from "+", then Add channels with 2 ticked; drag in and out; Move to category
-  from the phone sheet at 390 and from the channel header; the empty hint; delete with its count; a member sees no
-  "+" menu and cannot drag.
-- QA screenshots at 1440 and 390, light and dark, as qa-owner and qa-member, on a copy of QA-Acme.
+- `bun run typecheck`, `bun run check:i18n`, `bun run check:docs`, `bun run check:prepush`, `bun run docs:api`.
+- Unit (server): `tests/unit/b-sidebar-sections.test.ts`, `b-nav-folders`, and `b-room-categories` (deprecated answers).
+- Unit (web): `web/test/unit/nav-folders.test.tsx` (sections in the rooms list), and a new
+  `add-conversations-dialog.test.tsx`.
+- Web e2e:
+  - a member creates from "+", adds 2 channels and 1 DM;
+  - drags in, between sections and out;
+  - Move to section › New section… from the phone sheet at 390 and from the conversation header;
+  - sort A to Z / Recent activity;
+  - the empty hint;
+  - delete with its count;
+  - another member does not see the section.
+- QA on a QA-Acme copy, 1440 and 390, light and dark, as qa-owner, qa-member and a guest. Include the conversion of a
+  pre-made "Bots" (empty, owner-made) and of a filled category.
 
 ## Open questions (each with one recommendation)
 
-1. **Per person or team?** Slack's sections are personal and hold DMs. **Recommend: stay team-wide and admin-made** (the
-   owner's 2026-11-20 call), and fix the flow only. Revisit personal sections only if members ask to sort DMs.
-2. **What did the owner want in "Bots"?** If it is the app bots or AI DMs, those are DMs and cannot go in a category
-   today. **Recommend: ask the owner in one line with the screenshot. Until then, keep channels only**, so the empty
-   hint and the picker never offer something that will be refused.
-3. **Should members be able to make categories?** **Recommend: no.** Members see the result. Admins already get the
-   requests through Ask an admin.
-4. **Drag to reorder the categories themselves?** **Recommend: not now.** Move up / Move down is enough for a handful of
-   categories. Add it in a later PR if the owner drags a header and expects it to move.
-5. **Sort inside a category (A to Z or by recent activity)?** **Recommend: A to Z only**, the same as Channels. No
-   per-category sort menu (lean UI).
-6. **Can an admin file a private channel they are not in?** Today they cannot (404). **Recommend: keep it.** An admin
-   who is not in a channel should not be placing it; the picker lists only channels they are in.
+1. **Are the team categories converted or dropped?** **Recommend: convert** each one into a personal section for every
+   member who sees it (plus the maker, so the owner keeps "Bots"), then empty the team tables. Nobody loses the order
+   they see today.
+2. **Do the old personal room folders (hidden since 11-20) come back as sections?** **Recommend: yes, with their
+   contents.** They are the person's own work. Anyone who does not want one deletes it in two clicks.
+3. **Where does New section live besides the Channels "+"?** **Recommend: also "New section…" in every Move to section
+   menu, and nowhere else.** That is the same two places as Slack (the Channels header and the conversation's Move).
+   The Direct messages "+" keeps opening New message directly.
+4. **Does Pinned stay a separate section above my sections?** (Slack's Starred is just another section.) **Recommend:
+   keep Pinned as it is.** It already works on every list and the phone, and the owner did not ask to change it.
+5. **Slack's Priority sort and Active-only filter?** **Recommend: not now.** A to Z and Recent activity cover what
+   people sort by. Priority needs Slack's own ranking, and the filter hides conversations, which surprises people. Add
+   them later if someone asks.
+6. **Emoji on a section, as Slack allows?** **Recommend: not now.** A name can already start with an emoji typed by
+   hand, since names accept emoji.
+7. **Drag a section header to reorder sections?** **Recommend: in PR 3 if it stays small; otherwise later.** Move up /
+   Move down works on every screen and stays either way.
+8. **Can admins share a starter set of sections with new members** (Slack has this)? **Recommend: not now.** That was
+   the reason for team categories, and the owner chose personal sections.
 
 ## Result
 
