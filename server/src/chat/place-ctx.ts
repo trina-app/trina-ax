@@ -99,7 +99,9 @@ export function chatPlaces(exec: TurnExec, files: TurnFiles): ChatPlaces {
   /** who may write a version now: the turn's rule (mayWriteChatVersion) and the chat as it is in the database now
    * (continued by the person; a chat moved into a project since the turn began is a project chat: read-only) */
   function gate(): void {
-    const may = mayWriteChatVersion(ctx)
+    // the chat's kind as it is now, not as it was when this call began (an edit_office conversion takes seconds; a
+    // personal chat locked meanwhile, chatFor 'continue' below does not see that for a chat that is not shared)
+    const may = mayWriteChatVersion({ ...ctx, chatKind: chatKindOf(exec) })
     if (may !== true) throw new ToolError(may, 'not_here')
     let kind: string | null
     try { kind = chatFor(rt, me, chatId, 'continue').kind } catch { throw new ToolError(PLACE_WORDS.noContinue, 'not_here') }

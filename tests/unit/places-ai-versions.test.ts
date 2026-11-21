@@ -24,6 +24,7 @@ import { FileService, TurnFiles } from '../../server/src/files/service'
 import { configureStorageGuard } from '../../server/src/system/storage'
 import { setLimitsPlatformForTests, setPlanForTests } from '../../server/src/system/limits'
 import type { TurnExec } from '../../server/src/chat/turn'
+import { sharedSection } from '../../server/src/chat/prompt'
 
 setDefaultTimeout(90_000)
 const fake = (...ds: unknown[]) => ds.map((d) => '@fake ' + JSON.stringify(d)).join('\n')
@@ -405,5 +406,56 @@ describe('edit_files and the old refusals', () => {
       expect(r.cards).toHaveLength(0)
       expect(r.content).toContain(c.says)
     }
+  })
+})
+
+describe('independent review (PR #252)', () => {
+  test('a personal chat locked while the bytes are written: the save is refused, the bytes removed (the kind is read again at the insert)', async () => {
+    const c = await h.api('bob').call(API.createChat, { body: {} })
+    await run('bob', c.id, fake({ say: 'hi' }))
+    const tmp = `${h.ctx.config.dataDir}/work/pl-${crypto.randomUUID()}`
+    await Bun.write(tmp, 'L1')
+    const att = await store().create('bob', c.id, 'mine.txt', tmp, new Bun.CryptoHasher('sha256').update('L1').digest('hex'))
+    const files = new TurnFiles()
+    const exec = { rt: getChatRuntime(h.ctx), spec: { userId: 'bob', chatId: c.id, clientKind: 'web' }, files, shared: null, hiddenFromLater: false, livePrincipal: () => ({}) } as unknown as TurnExec
+    const p = chatPlaces(exec, files)
+    const h1 = p.head(att.id, 'mine.txt')
+    const before = fs.readdirSync(path.join(store().root(), c.id)).length
+    const save = p.version(h1.id, { bytes: enc('L2') }, h1.sha256, files)
+    db().query('INSERT INTO safe_ops_chats (chat_id, material) VALUES (?, 1)').run(c.id)
+    try {
+      await expect(save).rejects.toThrow(PLACE_WORDS.versionNotHere)
+    } finally { db().query('DELETE FROM safe_ops_chats WHERE chat_id = ?').run(c.id) }
+    expect(versionsOf(c.id, att.id)).toBe(1)
+    expect(fs.readdirSync(path.join(store().root(), c.id)).length).toBe(before)
+    // unlocked again: the same save goes
+    await p.version(h1.id, { bytes: enc('L2') }, h1.sha256, files)
+    expect(versionsOf(c.id, att.id)).toBe(2)
+  })
+
+  test('edit_files naming one chat file twice (by id and by name) edits it once', async () => {
+    const { chat, file, path: p } = await sent('twice.md', 'release v1\n')
+    const r = await run('bob', chat, fake({ tool: 'read', args: { file_path: p } }, { tool: 'edit_files', args: { file_paths: [p, 'chat:files/twice.md'], old_string: 'v1', new_string: 'v1.1' }, sayResult: true }))
+    expect(r.content).toContain('handled once')
+    expect(await fileText('erin', chat, file)).toBe('release v1.1\n')
+    expect(versionsOf(chat, file)).toBe(2)
+  })
+
+  test('edit_office is offered in a chat shared with people, not in a project chat (nothing it could change there)', async () => {
+    const chat = await sharedChat()
+    const people = await run('bob', chat, fake({ echo: 'tools' }))
+    expect(people.content.split(',')).toContain('edit_office')
+    const pr = await h.api('alice').call(API.createProject, { body: { name: 'P4 review tools', instructions: '', participants: [{ subjectType: 'group', subjectId: 'marketing' }] } })
+    const pc = await h.api('alice').call(API.createChat, { body: { projectId: pr.id } })
+    const proj = await run('alice', pc.id, fake({ echo: 'tools' }))
+    expect(proj.content.split(',')).toContain('make_file')
+    expect(proj.content.split(',')).not.toContain('edit_office')
+  })
+
+  test('the shared chat prompt does not send edit_office output to chat:files/ (refused there: it changes only a chat file in place)', () => {
+    const t = sharedSection({ project: null, audience: 3, asker: 'Alice' } as never, 'en', false)
+    expect(t).toContain('Files you make for the people here go to this chat')
+    expect(t).not.toMatch(/and edit_office, the PDF tools/)
+    expect(t).toContain('edit_office it without output')
   })
 })

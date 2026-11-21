@@ -224,6 +224,9 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
     // docs/decisions/20261118-shared-chat-connections.md)
     // (and a project's shared chat reads its own chat room: projectRoomTools, scoped to that one room)
     if (exec.shared && !SHARED_TOOLS.has(t.name) && !o.connection && !o.projectRoom) return false
+    // edit_office in a shared chat changes only the chat's own files (a new version); a project chat's chat files are
+    // read-only and its team files are not changed from a shared chat, so there it could do nothing
+    if (t.name === 'edit_office' && exec.shared?.kind === 'project') return false
     if (t.name in FILE_TOOLS || tools.has(t.name)) { exec.rt.log.warn('turn tool name taken, skipped', { tool: t.name }); return false }
     tools.set(t.name, t)
     if (t.label) labels.set(t.name, t.label.bind(t))
@@ -563,6 +566,13 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
       if (place) return { refusal: `Not done (${name}): ${placeWriteRefusal(place)} Leave it out of file_paths; nothing was changed.`, summary: `${name} -> refused: chat place` }
       const no = await exec.confirmRoomChange(name, args)
       return no ? { refusal: no, summary: `${name} -> ${roomShort(no)} (after a room read)` } : null
+    },
+    // edit_files names a chat file once however it is spelled (chat:files/<id>/…, an older version's id, its name):
+    // an edit run twice would apply a replacement whose new text holds the old one again
+    batchKey: (p) => {
+      const place = placeArg('edit', { file_path: p })
+      if (!chatVersionPlace(place)) return null
+      try { return chatPlaces(exec, exec.files).head(place.id, place.name ?? '').path } catch { return null }
     },
     // a shared project chat: its sub-folders some of its people may not open are not there in any call (QA TC-4945)
     hiddenFolders: () => exec.sharedHiddenScope(),
