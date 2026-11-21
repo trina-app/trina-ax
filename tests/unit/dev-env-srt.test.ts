@@ -529,6 +529,8 @@ describe('the srt settings file', () => {
     // the git wrapper and node first, then the box's Python (python3 there); the user site stays off (planted .pth files)
     expect(e.PATH).toBe(`${BASE}/devenv/bin:/opt/trina/node/bin:${BOX_PYTHON_BIN}:/usr/local/bin:/usr/bin:/bin`)
     expect(e.PYTHONNOUSERSITE).toBe('1')
+    // and pip install --user has nowhere to write (PEP 668 does not stop it in a venv)
+    expect(e.PYTHONUSERBASE).toBe('/dev/null/python-user')
     expect(e.NODE_PATH).toBe(BOX_NODE_LIBS)
     // a server without them (an older install, --minimal): the system's python3 and no NODE_PATH
     const none = runEnv({ ...o, boxPython: null, nodeLibs: null })
@@ -552,6 +554,7 @@ describe('the srt settings file', () => {
     for (const n of [...BOX_PYTHON_LIBS, ...BOX_NODE_LIB_NAMES]) expect(boxLibsText('linux')).toContain(n)
     for (const n of BOX_NODE_LIB_NAMES) expect(boxLibsText('darwin')).toContain(n)
     expect(boxLibsText('darwin')).not.toContain('pandas') // a Mac team server's Python has none of them yet
+    expect(boxLibsText('darwin')).not.toContain('so pip install') // Trina's python3 there is read-only too: a venv
     for (const t of [boxLibsText('linux'), boxLibsText('darwin')]) expect(t).toContain('python3 -m venv .venv')
     expect(srtShellDescription(false)).toContain(boxLibsText())
     expect(sharedShellDescription(false)).toContain(boxLibsText())

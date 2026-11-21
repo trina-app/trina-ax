@@ -24,15 +24,16 @@
   - Another package from PyPI goes into a venv of the folder (`python3 -m venv .venv && .venv/bin/pip install X`), as
     on any Debian machine; the tool text says so. A plain `pip install X` still cannot write (the box's venv is
     read-only, and the user site stays off: `PYTHONNOUSERSITE`, QA TC-4939, a planted .pth file in a home must not run
-    in a person's other runs). Same reach as before: PyPI only through srt's proxy, a team with No network has none. No
-    new network policy.
+    in a person's other runs). `pip install --user X` cannot write either: PEP 668 does not stop it inside a venv, so a
+    run's `PYTHONUSERBASE` is `/dev/null/python-user`, a path nothing can create (review of #241). Same reach as
+    before: PyPI only through srt's proxy, a team with No network has none. No new network policy.
   - Node: pptxgenjs 4.0.1 and docx 9.15.3 from scripts/dev-env/srt/node-libs.package-lock.json (npm ci
     --ignore-scripts) in /opt/trina/node-libs/<lock sha12>, on `NODE_PATH` of a run, Linux and Mac.
   - box_shell's tool text names what is installed in one line, so the AI does not find out by trial.
   - Without them (an older install, `--minimal`, a failed download) a run works as before; the install says so.
 - **Size.** Linux: apt +~90 MiB (Debian 13), the venv ~90 MiB on disk (~17 MiB download), Node ~31 MiB.
-- **Left out.** The Python libraries on a Mac team server (/opt/trina/python3 has none; pip install works there). Debian's
-  scipy and sympy. A pip or npm mirror.
+- **Left out.** The Python libraries on a Mac team server (/opt/trina/python3 has none and is read-only in a run: a
+  folder venv there too). Debian's scipy and sympy. A pip or npm mirror.
 - **Tests.** tests/unit/system-packages.test.ts (systemSite, the venv flag), tests/unit/dev-env-srt.test.ts (PATH,
   NODE_PATH, tool text), tests/linux/srt-attack.ts LIB1-LIB3 (every library loads inside srt, a deck with a chart, a
   PyPI package into a folder's venv, a shared chat's fresh home).
