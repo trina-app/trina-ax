@@ -272,6 +272,14 @@ export function parseWhen(s: string | undefined, tz: string, end = false): strin
 const SIZE = (n: number) => (n >= 1024 * 1024 ? `${(n / 1024 / 1024).toFixed(1)} MB` : n >= 1024 ? `${Math.round(n / 1024)} KB` : `${n} B`)
 const listNames = (names: string[]) => names.map((n) => attr(n, 80)).join(', ') || 'someone no longer here'
 
+/** The project a line names, as the person may see it now: its name, "(in the trash)", deleted, or just "a project". */
+function projectWords(e: Extract<NonNullable<RoomMessage['event']>, { type: 'project_linked' | 'project_unlinked' | 'project_room' }>): string {
+  if (e.project) return `the project "${attr(e.project.name, 80)}"`
+  if (e.projectGone?.state === 'trash' && e.projectGone.name) return `the project "${attr(e.projectGone.name, 80)}" (in the trash)`
+  if (e.projectGone?.state === 'deleted') return 'a deleted project'
+  return 'a project'
+}
+
 /** An event line as a short notice (names as they are now). */
 function eventText(m: RoomMessage): string {
   const who = m.author ? attr(m.author.name, 80) : 'Someone'
@@ -283,6 +291,10 @@ function eventText(m: RoomMessage): string {
     case 'left': return `${who} left`
     case 'joined': return `${who} joined the team`
     case 'removed': return `${who} removed ${e.user ? attr(e.user.name, 80) : 'someone'}`
+    // the project as it is now for this person (rooms/project-link.ts eventProjectsFor, the one resolver)
+    case 'project_linked': return `${who} linked this channel to ${projectWords(e)}`
+    case 'project_unlinked': return `${who} unlinked this channel from ${projectWords(e)}`
+    case 'project_room': return `This channel became the chat room of ${projectWords(e)}`
     default: return "The room's details changed"
   }
 }

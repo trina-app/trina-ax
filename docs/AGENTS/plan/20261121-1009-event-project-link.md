@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-21 10:09
 - Branch: `fix/event-project-link`
-- Status: in progress
+- Status: done
 - Where: server/src/rooms (the resolver), shared/src/api/rooms.ts (an optional field), web/src/lib/rooms.ts and
   web/src/components/rooms/RoomMessages.tsx (the line). Why: a room's project event line showed a dead or misleading
   project link (a follow-up from 2026-11-20).
@@ -62,4 +62,14 @@ for the line, tests/security rooms cases.
 
 ## Result
 
-(filled in at the end)
+- Found: the only stored lines that name a project are the room event lines `project_linked`, `project_unlinked` and
+  `project_room` (by id; the name was already read at render time). Before: a project in the trash or deleted for good
+  read "a project" to everyone, the same as one the viewer cannot open, and the `project_room` line never linked.
+  Activity rows (project.joined, access.*, dev_env) already read the project when listed; the AI chat's "Moved to Y"
+  is a toast; pasted project links are named per viewer (link-names). None of those changed.
+- Built as planned: one resolver `eventProjectsFor` (open, trash for its people by its parked rules as
+  chat/shared.ts memberWhileTrashed does, hidden, deleted), `projectGone` on the line, `eventProjectOf` and
+  `projectEventKey` on the web, 6 new keys in 6 languages. Also: the room AI reader (rooms/reader.ts) now says the
+  project lines in words (they read "The room's details changed" before), from the same resolved line.
+- Tests: tests/unit/b-event-project-link.test.ts, tests/security/event-project-name.test.ts, web unit
+  (rooms-lib, project-room), web/test/e2e/event-project-link.spec.ts at 1440 and 390.
