@@ -1,1 +1,0 @@
-- Hosted team servers: the hosting service can now give a running server its GitHub App with the new tenant command `github-app-set`, so the GitHub connector works there without anyone placing a file by hand. The server account writes the file (mode 0600, folder 0700); sending the same values again changes nothing, and nothing restarts. Self-installed servers are not affected.
