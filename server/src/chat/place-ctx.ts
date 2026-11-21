@@ -11,6 +11,7 @@ import { ToolError } from '../policy/errors'
 import { confidentialChat } from '../safe-ops/confidential'
 import { chatFilesOf, type ChatFileRow } from './chat-files'
 import { seesChatFiles } from './chat-files-access'
+import { carriedByHiddenAnswer } from './chat-file-tool'
 import { addSources } from './read-scope'
 import type { TurnExec } from './turn'
 
@@ -57,9 +58,12 @@ export function chatPlaces(exec: TurnExec, files: TurnFiles): ChatPlaces {
       return { ...att, sha256: kept }
     },
     open(id, name) {
-      // TODO(P4, feat/chat-file-versions): root → head and the hidden-answer check through ChatFiles.visibleTo
+      // TODO(P4, feat/chat-file-versions): root → head through ChatFiles.visibleTo
       const ids = id ? [id] : rows().filter((r) => r.name.normalize('NFC') === name.normalize('NFC')).map((r) => r.id)
       for (const i of ids) {
+        // a file carried only by an answer hidden from people who join later (k) is never read into another file: the
+        // same "not found" as P1's read (chat-file-tool.ts readChatFile)
+        if (carriedByHiddenAnswer(rt.db, chatId, i)) continue
         try { const o = store.open(me, chatId, i, false); return { abs: o.abs, name: o.name, quarantined: o.quarantined, sha256: o.sha256, id: i } } catch { /* the next of that name */ }
       }
       throw new ToolError('not found in this chat\'s files', 'not_found')

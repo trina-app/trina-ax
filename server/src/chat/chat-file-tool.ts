@@ -367,7 +367,7 @@ export function visibleChatFiles(ctx: TurnExec['rt']['ctx'], userId: string, cha
 
 /** Is every message of the chat that carries this file an answer with a k group (chat/shared-answers.ts: a connection's
  * answer, hidden from people who join later and may not use that connection)? */
-function carriedByHiddenAnswer(db: TurnExec['rt']['db'], chatId: string, fileId: string): boolean {
+export function carriedByHiddenAnswer(db: TurnExec['rt']['db'], chatId: string, fileId: string): boolean {
   const carriers = db.query("SELECT DISTINCT m.id, m.role FROM messages m, json_each(m.attachments) j WHERE m.chat_id = ? AND json_valid(m.attachments) AND json_extract(j.value, '$.id') = ?").all(chatId, fileId) as { id: string; role: string }[]
   if (!carriers.length) return false
   return carriers.some((m) => m.role !== 'user' && (answerRecord(db, m.id)?.reads ?? []).some((g) => g.k))
