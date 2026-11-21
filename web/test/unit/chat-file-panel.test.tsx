@@ -160,3 +160,36 @@ test('"Updated by" wraps with its whole text as the title, never cut at the name
     expect(line.getAttribute('class')).not.toContain('truncate')
   } finally { await m.unmount() }
 })
+
+test('a deck (not text): Restore on an earlier version and on the opened one when the server says canRestore; none without it (TC-7040)', async () => {
+  const deck: PreviewFile = { source: 'chat', chatId: CHAT, fileId: FILE, name: 'deck.pptx' }
+  const items = [v(1, { name: 'deck.pptx', mime: 'application/vnd.openxmlformats-officedocument.presentationml.presentation' }), v(2, { head: true, ai: true, name: 'deck.pptx' })]
+  let restored = 0
+  // the deck's viewer watches its links (no MutationObserver in this DOM)
+  const g = globalThis as Record<string, unknown>
+  const realMO = g.MutationObserver
+  g.MutationObserver ??= class { observe() {} disconnect() {} takeRecords() { return [] } }
+  try {
+    for (const [versions, shows] of [[{ canEdit: false, canRestore: true, items }, true], [{ canEdit: false, canRestore: false, items }, false], [{ canEdit: false, items }, false]] as const) {
+      withRoutes(versions as ChatFileVersions, { [`POST ${BASE}/versions/1/restore`]: () => { restored++; return json({ version: v(3, { head: true }), beside: false } satisfies ChatFileSaved) } })
+      const m = await mount(<MemoryRouter><FilePanel file={deck} onClose={() => {}} /></MemoryRouter>)
+      try {
+        await m.click(await m.until(() => m.find('file-versions-toggle'), 'Versions'))
+        const row = await m.until(() => m.container.querySelectorAll('[data-testid="file-version-row"]').find((r) => r.getAttribute('data-version') === '1'), 'version 1')
+        expect(!!row.querySelector('[data-testid="file-version-open"]')).toBe(true)
+        expect(!!row.querySelector('[data-testid="file-version-restore"]')).toBe(shows)
+        // no pencil for a deck either way
+        expect(m.container.querySelector('[data-testid="file-edit"]')).toBeNull()
+        await m.click(row.querySelector('[data-testid="file-version-open"]')!)
+        await m.until(() => m.find('file-version-shown'), 'the opened version')
+        expect(!!m.container.querySelector('[data-testid="file-version-restore-shown"]')).toBe(shows)
+        if (shows) {
+          await m.click('file-version-restore-shown')
+          await m.until(() => useUi.getState().toasts.length > 0, 'the toast')
+          expect(useUi.getState().toasts.at(-1)!.text).toBe(en('chatFile.restored', { n: 1 }))
+        }
+      } finally { await m.unmount(); useUi.setState({ toasts: [] }) }
+    }
+  } finally { g.MutationObserver = realMO }
+  expect(restored).toBe(1)
+})

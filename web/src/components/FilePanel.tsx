@@ -10,7 +10,8 @@
 // A chat's own file (a chat shared with people: source 'chat') is edited the same way by whoever may open it
 // (docs/AGENTS/plan/20261121-1206-chat-file-edit-versions.md): a save is a new version (PUT
 // /api/chats/:id/files/:fileId/content), nothing is overwritten. The server says whether the person may edit now
-// (GET …/versions canEdit: not a project chat, not text, the trash, safe operations); the panel lists the versions under
+// (GET …/versions canEdit: not a project chat, not text, the trash, safe operations; canRestore: the same for any file
+// type, QA TC-7040); the panel lists the versions under
 // "Updated by <name> · <time>", opens one and restores it (a new newest version with its bytes).
 // An .html file has "PDF로 저장" where the server can print HTML (Me.server.htmlPdf): the server's headless browser
 // prints the page as a browser does and saves "<name>.pdf" next to it (POST /api/files/html-pdf); a folder the person
@@ -550,6 +551,8 @@ function ChatFileHistory({ versions, shown, open, setOpen, restoring, onOpen, on
   const who = headUpdated(versions.items)
   if (!who) return null
   const old = shown ? versions.items.find((v) => v.version === shown) : null
+  // Restore for every file type (a version's own bytes, QA TC-7040); an older server only says canEdit
+  const mayRestore = versions.canRestore ?? versions.canEdit
   // newest first in the list
   const rows = [...versions.items].reverse()
   // the newest kept besides the first, when the cap pruned the ones between (0: no gap)
@@ -567,7 +570,7 @@ function ChatFileHistory({ versions, shown, open, setOpen, restoring, onOpen, on
       {old && (
         <div className="flex flex-wrap items-center gap-2 border-t border-line bg-accent-soft/40 px-3 py-1.5" data-testid="file-version-shown">
           <span className="min-w-0 flex-1 text-ink">{t('chatFile.viewing', { n: old.version, by: versionBy(t, old), when: formatRelative(old.createdAt, locale) })}</span>
-          {versions.canEdit && (
+          {mayRestore && (
             <Button size="sm" variant="primary" busy={restoring === old.version} onClick={() => onRestore(old.version)} data-testid="file-version-restore-shown">
               <RotateCcw size={13} aria-hidden /> {t('chatFile.restore')}
             </Button>
@@ -590,7 +593,7 @@ function ChatFileHistory({ versions, shown, open, setOpen, restoring, onOpen, on
               {!v.head && (
                 <span className="flex shrink-0 gap-1">
                   <Button size="sm" variant="ghost" onClick={() => onOpen(v.version)} aria-describedby={`file-version-${v.id}`} data-testid="file-version-open">{t('chatFile.open')}</Button>
-                  {versions.canEdit && (
+                  {mayRestore && (
                     <Button size="sm" variant="secondary" busy={restoring === v.version} onClick={() => onRestore(v.version)} aria-describedby={`file-version-${v.id}`} data-testid="file-version-restore">{t('chatFile.restore')}</Button>
                   )}
                 </span>

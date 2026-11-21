@@ -3,9 +3,10 @@
 // ROOT carriers, seesChat, the chat in the trash, safe operations, the storage, the 20 versions kept). Sharing a chat
 // is for working together: whoever may open the file edits it (no view-only).
 //
-//   editState   may this person save a new version of this chain now (the panel's pencil and Restore): a text name, a
+//   editState   may this person save a new version of this chain now: canEdit (the panel's pencil) a text name, a
 //               chat shared with people (a project chat's save place is its project folder: read-only here), not in
-//               the trash, safe operations off, not on the download-only list, at most CHAT_FILE_EDIT_MAX
+//               the trash, safe operations off, not on the download-only list, at most CHAT_FILE_EDIT_MAX; canRestore
+//               (Restore) the same without the text name and size (any file type, QA TC-7040)
 //   saveText    a person's save: the whole text as putVersion's bytes; `beside` when someone saved after baseVersion
 //   restoreTo   version n's bytes as a new head (ChatFiles.restore); at the cap the oldest after the first goes (pruned)
 //   tellChat    the carrying messages' tiles again, to each person with a window open, as they may see them (never an
@@ -33,23 +34,26 @@ export const editableName = (name: string): boolean => {
 
 type ChatRowLike = { id: string; deleted_at: string | null; people_shared_at: string | null; project_id: string | null }
 
-/** Why this chain is not editable here now, or null. The caller checked the person may open it (404 first). */
-function readOnlyWhy(rt: ChatRuntime, chat: ChatRowLike, root: ChatFileRow, head: ChatFileRow): 'read_only' | 'safe_ops' | null {
+/** Why this chain is not editable here now, or null. The caller checked the person may open it (404 first). `use`:
+ * 'edit' (a save of the whole text: a text name, at most CHAT_FILE_EDIT_MAX) or 'restore' (an earlier version's own
+ * bytes as a new head: any file type and size, QA TC-7040; ChatFiles.restore takes a version up to its own size). */
+function readOnlyWhy(rt: ChatRuntime, chat: ChatRowLike, root: ChatFileRow, head: ChatFileRow, use: 'edit' | 'restore' = 'edit'): 'read_only' | 'safe_ops' | null {
   if (!isPeopleRow(chat) || chat.deleted_at) return 'read_only'
-  if (!editableName(root.name)) return 'read_only'
+  if (use === 'edit' && !editableName(root.name)) return 'read_only'
   if (rt.files.quarantine.hasHash(head.sha256)) return 'read_only'
-  if (head.size > CHAT_FILE_EDIT_MAX) return 'read_only'
+  if (use === 'edit' && head.size > CHAT_FILE_EDIT_MAX) return 'read_only'
   if (safeOpsEnabled()) return 'safe_ops'
   return null
 }
 
-/** The versions list and whether the person may edit now; the 404 of a missing file for anyone who may not open it */
+/** The versions list and whether the person may edit (text) and restore (any file) now; the 404 of a missing file for
+ * anyone who may not open it */
 export function editState(rt: ChatRuntime, userId: string, chat: ChatRowLike, fileId: string): ChatFileVersions {
   const files = chatFilesOf(rt.ctx)
   const items = files.versions(userId, chat.id, fileId)
   if (!items.length) return fail('not_found')
   const o = files.open(userId, chat.id, fileId, false)
-  return { items, canEdit: readOnlyWhy(rt, chat, o.root, o.row) === null }
+  return { items, canEdit: readOnlyWhy(rt, chat, o.root, o.row) === null, canRestore: readOnlyWhy(rt, chat, o.root, o.row, 'restore') === null }
 }
 
 /** At most this many saves and restores per person a minute (429 with retryAfter), counted only once the person may
@@ -72,11 +76,11 @@ function saveLimit(rt: ChatRuntime, userId: string, at = Date.now()): void {
  * place to save (S2 review I1) */
 const chatNow = (rt: ChatRuntime, chatId: string): ChatRowLike => (rt.store.chatRow(chatId) as ChatRow | null) ?? fail('not_found')
 
-function assertEditable(rt: ChatRuntime, userId: string, chatIn: ChatRowLike, fileId: string): ChatFileRow {
+function assertEditable(rt: ChatRuntime, userId: string, chatIn: ChatRowLike, fileId: string, use: 'edit' | 'restore' = 'edit'): ChatFileRow {
   // may not open it: the 404 of a missing file, before anything says what it is
   const o = chatFilesOf(rt.ctx).open(userId, chatIn.id, fileId, false)
   const chat = chatNow(rt, chatIn.id)
-  const why = readOnlyWhy(rt, chat, o.root, o.row)
+  const why = readOnlyWhy(rt, chat, o.root, o.row, use)
   const locale = personLocale(rt.db, userId)
   if (why === 'safe_ops') fail('conflict', tr('sharedChatSafeOps', locale), { params: { reason: 'safe_ops' } })
   if (why) fail('conflict', tr('chatFileReadOnly', locale), { params: { reason: 'chat_file_read_only' } })
@@ -113,7 +117,7 @@ export async function saveText(rt: ChatRuntime, userId: string, chat: ChatRowLik
 
 /** Restore version `n`: a new head with its bytes */
 export async function restoreTo(rt: ChatRuntime, userId: string, chat: ChatRowLike, fileId: string, n: number): Promise<ChatFileSaved> {
-  const root = assertEditable(rt, userId, chat, fileId)
+  const root = assertEditable(rt, userId, chat, fileId, 'restore')
   stillPeopleChat(rt, userId, chat.id)
   const r = await chatFilesOf(rt.ctx).restore(userId, chat.id, root.id, n, { recheck: () => stillPeopleChat(rt, userId, chat.id) })
   tellChat(rt, chat.id, root.id)

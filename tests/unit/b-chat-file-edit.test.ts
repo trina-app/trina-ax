@@ -11,7 +11,7 @@ import path from 'node:path'
 import { chatFilePath } from '@mycel/shared/places'
 import { API, type Attachment, type ChatFileSaved, type ChatFileVersions, type PutChatAudienceResult } from '@mycel/shared/api'
 import { startHarness, type Harness, type TestSocket } from '../lib/b-harness'
-import { chatFilesOf } from '../../server/src/chat/chat-files'
+import { CHAT_FILE_MAX, chatFilesOf } from '../../server/src/chat/chat-files'
 import { CHAT_FILE_SAVES_PER_MINUTE } from '../../server/src/chat/chat-file-edit'
 import { setAnswerReads } from '../../server/src/chat/shared-answers'
 
@@ -117,7 +117,12 @@ describe('edit a chat file from the web', () => {
     const r = await save('bob', bin.chatId, bin.rootId, 'x')
     expect(r.status).toBe(409)
     expect(await reason(r)).toBe('chat_file_read_only')
-    expect(await reason(await restore('bob', bin.chatId, bin.rootId, 1))).toBe('chat_file_read_only')
+    // ...but any file restores (QA TC-7040): a version's own bytes as the new newest
+    expect(((await (await versions('bob', bin.chatId, bin.rootId)).json()) as ChatFileVersions).canRestore).toBe(true)
+    const back = await restore('bob', bin.chatId, bin.rootId, 1)
+    expect(back.status).toBe(200)
+    expect(((await back.json()) as ChatFileSaved).version.version).toBe(2)
+    expect(await (await read('bob', bin.chatId, bin.rootId)).text()).toBe('not text')
 
     const c = await sharedCopy('plan.md', 'v1')
     const prev = process.env.MYCEL_SAFE_OPS_1A
@@ -129,9 +134,31 @@ describe('edit a chat file from the web', () => {
     } finally { if (prev === undefined) delete process.env.MYCEL_SAFE_OPS_1A; else process.env.MYCEL_SAFE_OPS_1A = prev }
     // made alice's alone again (its files stay hers to see, as a project chat's: not a place to save)
     db().query('UPDATE chats SET people_shared_at = NULL WHERE id = ?').run(c.chatId)
-    expect(((await (await versions('alice', c.chatId, c.rootId)).json()) as ChatFileVersions).canEdit).toBe(false)
+    const gone = (await (await versions('alice', c.chatId, c.rootId)).json()) as ChatFileVersions
+    expect([gone.canEdit, gone.canRestore]).toEqual([false, false])
     expect(await reason(await save('alice', c.chatId, c.rootId, 'x'))).toBe('chat_file_read_only')
+    expect(await reason(await restore('alice', c.chatId, c.rootId, 1))).toBe('chat_file_read_only')
     expect((await save('bob', c.chatId, c.rootId, 'x')).status).toBe(404)
+  })
+})
+
+describe('restore of any file (QA TC-7040)', () => {
+  test('a person restores a deck version the AI saved over 50 MB (the person\'s upload cap is not the restore\'s)', async () => {
+    // (write makes no .pptx from text: a binary name stands for the deck)
+    const c = await sharedCopy('deck.key', 'v1 deck', [bob, erin])
+    const store = chatFilesOf(h.ctx)
+    const big = new Uint8Array(CHAT_FILE_MAX + 1024).fill(7)
+    await store.putVersion('bob', c.chatId, c.rootId, { bytes: big }, { origin: 'ai' })
+    await store.putVersion('erin', c.chatId, c.rootId, { bytes: new TextEncoder().encode('v3 deck') })
+    const list = (await (await versions('erin', c.chatId, c.rootId)).json()) as ChatFileVersions
+    expect([list.canEdit, list.canRestore, list.items.length]).toEqual([false, true, 3])
+    const r = await restore('erin', c.chatId, c.rootId, 2)
+    expect(r.status).toBe(200)
+    const saved = (await r.json()) as ChatFileSaved
+    expect([saved.version.version, saved.version.size]).toEqual([4, big.byteLength])
+    const back = await restore('bob', c.chatId, c.rootId, 1)
+    expect(back.status).toBe(200)
+    expect(await (await read('alice', c.chatId, c.rootId)).text()).toBe('v1 deck')
   })
 })
 
