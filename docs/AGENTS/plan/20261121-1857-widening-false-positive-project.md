@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-21 18:57
 - Branch: `fix/widening-false-positive-project`
-- Status: in progress
+- Status: done
 - Where: server/src/chat/turn.ts (the widening card's source labels). Why: the label rule lives with the card
   (see docs/REPOSITORY-RULES.md)
 - Version impact: patch: a card names the right place; what asks and what is saved is unchanged
@@ -58,4 +58,7 @@ part of the room), never to anyone else. No migration.
 
 ## Result
 
-(filled in at the end)
+Built as planned: `seesSource` takes `viewersOf` for the four kinds; the owner's card reproduced exactly before the fix
+("It came from a place someone else opened in this chat.") and now reads "It came from Deck Images (only you)." with the
+same "(2 people)? 1 of them can't see where it came from". `tests/unit/c-reader-counters.test.ts` lists the new
+`viewersOf` call. The other member's save after that read keeps the unnamed label. PR: see the branch's pull request.
