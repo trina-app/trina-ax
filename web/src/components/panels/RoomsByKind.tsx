@@ -67,7 +67,8 @@ export function RoomsByKind() {
   const { pathname } = useLocation()
   const openId = /^\/rooms\/([^/]+)/.exec(pathname)?.[1] ?? null
   const rooms = shownInLists(everyRoom, openId)
-  const hidden = everyRoom.length - rooms.length
+  // only the conversations I hid (not a project room still waiting for its first message), the page's own count
+  const hidden = everyRoom.filter((r) => r.hidden && r.id !== openId).length
   const folders = useSections()
   const { folds } = useFolds()
   // the kind sections stay even when empty (their "+" is where New section and Create a channel are)

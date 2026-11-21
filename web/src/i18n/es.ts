@@ -7230,6 +7230,8 @@ export const es: Record<MessageKey, string> = {
   "rooms.makeProject.guestAsk": "Pida a un administrador que primero convierta a {guest} en miembro del equipo.",
   "rooms.makeProject.guestOpen": "Abrir en Administración › Miembros e invitaciones",
   "rooms.makeProject.changed": "Las personas cambiaron",
+  "rooms.makeProject.already": "Esta conversación acaba de convertirse en un proyecto.",
+  "rooms.makeProject.alreadyOpen": "Abrir el proyecto",
   "rooms.makeProject.dmBody": "Usted y {name} pasan a ser las personas del proyecto. Tendrá su propia conversación.",
   "rooms.makeProject.made": "{name} ahora es un proyecto.",
   "rooms.filesMoving": "Moviendo archivos…",

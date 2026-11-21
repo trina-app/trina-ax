@@ -16,6 +16,7 @@ import { translate, useLocaleStore } from '../../src/i18n'
 import { foldOf, roomsByKind, RoomsByKind, withKinds } from '../../src/components/panels/RoomsByKind'
 import { roomMenuActions } from '../../src/components/rooms/RoomMenu'
 import { DmProjectDialog, MakeProjectDialog, projectNameProblem } from '../../src/components/rooms/MakeProjectDialog'
+import { InTeamLink } from '../../src/components/rooms/RoomMessages'
 import { SameAsGroupLine } from '../../src/components/rooms/MembersDialog'
 import { ProjectSideHint } from '../../src/components/rooms/SideChatPanel'
 import { eventText, roomFilesButtonShown, shownInLists } from '../../src/lib/rooms'
@@ -451,6 +452,97 @@ describe('D: the two hints', () => {
       expect(m.get('room-same-as-group').textContent).toBe('Same people as #Sales. Keep Atlas talk here.')
       expect(m.get('room-same-as-group-link').getAttribute('href')).toBe(`/rooms/${g.roomId}`)
       expect(m.find('none')).toBeNull()
+    } finally { await m.unmount() }
+  })
+})
+
+// P3 polish (docs/AGENTS/plan/20261121-p3-structure-polish.md; QA TC-6731 to TC-6733)
+describe('P3: the loser of two conversions (TC-6731)', () => {
+  const RID = '01900000-0000-7000-8000-0000000005e2'
+  const info: MakeProjectInfo = { suggestedName: 'Launch', members: [ME, BEN, CY], guestsBlocked: [], filesMoving: 0, filesStaying: 0, membersHash: 'h1', folderName: 'Launch', nameTaken: false }
+  const already = (more: Record<string, string> = {}) => json({ error: { code: 'conflict', message: 'This conversation just became a project.', params: { reason: 'already_project', ...more } } }, 409)
+  test('409 already_project: "just became a project" with a link to it, not the cannot-become line', async () => {
+    signIn()
+    routes = { [`GET /api/rooms/${RID}/make-project`]: () => json(info), [`POST /api/rooms/${RID}/make-project`]: () => already({ projectId: PID }) }
+    const m = await mount(<MemoryRouter><MakeProjectDialog roomId={RID} onClose={() => {}} /></MemoryRouter>)
+    try {
+      await m.until(() => m.find('make-project-body'), 'the body')
+      await m.click('make-project-confirm')
+      await m.until(() => m.find('make-project-already'), 'the line')
+      expect(m.get('make-project-already').textContent).toContain(en('rooms.makeProject.already'))
+      expect(m.get('make-project-already-link').getAttribute('href')).toBe(`/projects/${PID}`)
+      expect(m.find('make-project-error')).toBeNull()
+      expect(m.get('make-project-confirm').hasAttribute('disabled')).toBe(true)
+    } finally { await m.unmount() }
+  })
+  test('without a project id (one I cannot read) the line stands alone; the read says it too', async () => {
+    signIn()
+    routes = { [`GET /api/rooms/${RID}/make-project`]: () => already() }
+    const m = await mount(<MemoryRouter><MakeProjectDialog roomId={RID} onClose={() => {}} /></MemoryRouter>)
+    try {
+      await m.until(() => m.find('make-project-already'), 'the line')
+      expect(m.find('make-project-already-link')).toBeNull()
+    } finally { await m.unmount() }
+  })
+})
+
+describe('P3: a project room made on purpose stays listed (TC-6733)', () => {
+  test('Room.listed: listed before its first message; the project page\'s room is not', () => {
+    const made = proj('made', 'Made', { lastMessage: null, listed: true })
+    const lazy = proj('lazy', 'Lazy', { lastMessage: null })
+    expect(shownInLists([made, lazy, plain('ch')]).map((r) => r.id)).toEqual(['made', 'ch'])
+    // the room on screen is always shown
+    expect(shownInLists([lazy], 'lazy').map((r) => r.id)).toEqual(['lazy'])
+  })
+  test('"Hidden conversations" counts only what I hid, not a project room waiting for its first message', async () => {
+    signIn()
+    const lazy = projRoom('01900000-0000-7000-8000-0000000005f1', 'Lazy', { lastMessage: null })
+    const made = projRoom('01900000-0000-7000-8000-0000000005f2', 'Made', { lastMessage: null, listed: true })
+    const hid = room({ id: '01900000-0000-7000-8000-0000000005f3', name: 'old', hidden: true, lastMessage: msg(uuidv7()) })
+    useRooms.setState({ rooms: [lazy, made, hid], loaded: true })
+    useNavFolders.setState({ folders: [] })
+    routes = { 'GET /api/nav-folders': () => json({ items: [] }) }
+    const m = await mount(<MemoryRouter initialEntries={['/']}><RoomsByKind /></MemoryRouter>)
+    try {
+      await m.until(() => m.find('chats-panel-hidden'), 'the hidden link')
+      expect(m.get('chats-panel-hidden').textContent).toContain(en('rooms.hidden.title', { n: 1 }))
+      expect(m.container.textContent).toContain('Made')
+      expect(m.container.textContent).not.toContain('Lazy')
+    } finally { await m.unmount() }
+  })
+  test('"New project with" opens its room with ?listed=1', async () => {
+    signIn()
+    setNavigator(() => {})
+    routes = {
+      'POST /api/projects': () => json({ id: PID, name: 'Ben', folderPath: 'projects/Ben', instructions: '', createdBy: ME, createdAt: at(0), canEdit: true }, 201),
+      [`POST /api/projects/${PID}/room`]: () => json({ error: { code: 'internal', message: 'x' } }, 500),
+    }
+    const m = await mount(<MemoryRouter><DmProjectDialog peer={{ id: BEN.id, name: BEN.name }} onClose={() => {}} /></MemoryRouter>)
+    try {
+      await m.click('make-project-confirm')
+      await m.until(() => asked.some((a) => a.key === `POST /api/projects/${PID}/room`), 'the room asked', 3000)
+      expect(asked.find((a) => a.key === `POST /api/projects/${PID}/room`)!.url).toContain('listed=1')
+    } finally { await m.unmount(); setNavigator(null) }
+  })
+})
+
+describe('P3: the file chip\'s folder link in a department room (TC-6732)', () => {
+  test('"Chat attachments" is whole: the group\'s name is the part that is cut', async () => {
+    signIn()
+    const m = await mount(<InTeamLink path="groups/QA-Team3/Chat attachments/zq-dept.txt" onOpen={() => {}} place="QA-Team3 › Chat attachments" />)
+    try {
+      expect(m.get('room-file-in-team-head').textContent).toBe('QA-Team3')
+      expect(m.get('room-file-in-team-head').getAttribute('class')).toContain('truncate')
+      expect(m.get('room-file-in-team-tail').textContent).toBe(' › Chat attachments')
+      expect(m.get('room-file-in-team-tail').getAttribute('class')).toContain('shrink-0')
+    } finally { await m.unmount() }
+  })
+  test('a one-folder place stays one truncating name', async () => {
+    signIn()
+    const m = await mount(<InTeamLink path="shared/Quotes/a.txt" onOpen={() => {}} />)
+    try {
+      expect(m.find('room-file-in-team-place')).toBeNull()
+      expect(m.get('room-file-in-team').textContent).toContain('Quotes')
     } finally { await m.unmount() }
   })
 })

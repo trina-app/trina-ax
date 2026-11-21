@@ -45,6 +45,9 @@ export function MakeProjectHost() {
 
 /** The reason of a 409 (ApiError params.reason), or its code. */
 const conflictOf = (e: unknown): string | null => (e instanceof ApiError && e.status === 409 ? String(e.body.params?.reason ?? e.code) : null)
+/** 409 already_project: someone made the conversation a project a moment ago; their project's id when I read it */
+const alreadyOf = (e: unknown): { projectId: string | null } | null =>
+  conflictOf(e) === 'already_project' && e instanceof ApiError ? { projectId: typeof e.body.params?.projectId === 'string' ? e.body.params.projectId : null } : null
 
 /** A name as the server checks it (NFC, trimmed). */
 const clean = (name: string) => name.normalize('NFC').trim()
@@ -80,6 +83,8 @@ export function MakeProjectDialog({ roomId, onClose }: { roomId: string; onClose
   const [changed, setChanged] = useState(false)
   // 409 not_convertible: it is not a group chat any more (archived, made a project elsewhere): nothing to make
   const [gone, setGone] = useState(false)
+  // 409 already_project: another person just made it a project (TC-6731): said so, with a link to the project
+  const [already, setAlready] = useState<{ projectId: string | null } | null>(null)
   const input = useRef<HTMLInputElement>(null)
   const hintId = useId()
   // each read in turn: an older answer never replaces a newer one
@@ -99,6 +104,8 @@ export function MakeProjectDialog({ roomId, onClose }: { roomId: string; onClose
     } catch (e) {
       if (n !== life.current) return null
       if (conflictOf(e) === 'not_convertible') setGone(true)
+      const a = alreadyOf(e)
+      if (a) { setAlready(a); setGone(true); return null }
       setError(errorText(e, locale, t('error.network')))
       return null
     }
@@ -144,7 +151,8 @@ export function MakeProjectDialog({ roomId, onClose }: { roomId: string; onClose
         if (why === 'guest_one_place' && x && !x.guestsBlocked.length) setError(errorText(e, locale, t('error.network')))
       } else {
         if (why === 'not_convertible') setGone(true)
-        setError(errorText(e, locale, t('error.network')))
+        const a = alreadyOf(e)
+        if (a) { setAlready(a); setGone(true) } else setError(errorText(e, locale, t('error.network')))
       }
       setBusy(false)
     }
@@ -192,6 +200,19 @@ export function MakeProjectDialog({ roomId, onClose }: { roomId: string; onClose
           ))}
         </form>
       )}
+      {already && (
+        <p role="alert" className="mt-2 text-sm text-ink" data-testid="make-project-already">
+          {t('rooms.makeProject.already')}
+          {already.projectId && (
+            <>
+              {' '}
+              <Link to={`/projects/${already.projectId}`} onClick={onClose} className="font-medium text-accent-text underline-offset-2 hover:underline" data-testid="make-project-already-link">
+                {t('rooms.makeProject.alreadyOpen')}
+              </Link>
+            </>
+          )}
+        </p>
+      )}
       {error && (
         <p role="alert" className="mt-2 text-sm text-danger" data-testid="make-project-error">
           {error}
@@ -235,7 +256,7 @@ export function DmProjectDialog({ peer, onClose }: { peer: UserRef; onClose: () 
     // the project is made: its room opens, or, when that fails, the project page (whose Chat room opens it); never a
     // second try that would make a second project
     try {
-      const room = await useRooms.getState().openProjectRoom(p.id)
+      const room = await useRooms.getState().openProjectRoom(p.id, true)
       navigateTo(`/rooms/${room.id}`)
     } catch {
       navigateTo(`/projects/${p.id}`)

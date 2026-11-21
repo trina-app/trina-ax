@@ -44,6 +44,9 @@ export function NOT_HELD_SQL(a: string): string { return `NOT EXISTS (SELECT 1 F
 export function projectRoomLink(db: Database, roomId: string): { project_id: string; history_floor_seq: number } | null {
   return db.query("SELECT project_id, history_floor_seq FROM room_project_links WHERE room_id = ? AND mode = 'room'").get(roomId) as { project_id: string; history_floor_seq: number } | null
 }
+/** Is this project room listed before its first message (made on purpose: a conversion, "New project with")? */
+export const isListedProjectRoom = (db: Database, roomId: string): boolean =>
+  !!db.query("SELECT 1 FROM room_project_links WHERE room_id = ? AND mode = 'room' AND listed = 1").get(roomId)
 /** Is this room a project's chat room (a mode 'room' link)? */
 export const isProjectRoom = (db: Database, roomId: string): boolean => !!projectRoomLink(db, roomId)
 /** A project room whose project is in the trash: kept as it is, hidden and refused until the project is back. */
@@ -154,7 +157,7 @@ export function plan(db: Database, scope: ProjectRoomScope, rules: RuleSet, peop
  * 409 project_not_linkable. A 'linked' row of this project is settled first (D7). The room is named after the project,
  * its members the project's readers, everyone seeing it from its first line. Audited when made (project.room 'created').
  */
-export function openInTx(db: Database, userId: string, projectId: string, locale: Locale): { roomId: string; created: boolean; settled: ReturnType<typeof settleLinkedInTx> } {
+export function openInTx(db: Database, userId: string, projectId: string, locale: Locale, listed = false): { roomId: string; created: boolean; settled: ReturnType<typeof settleLinkedInTx>; listedNow?: boolean } {
   const p = projectRow(db, projectId)
   const who = loadPrincipal(db, userId)
   const rules = RuleSet.load(db)
@@ -164,12 +167,17 @@ export function openInTx(db: Database, userId: string, projectId: string, locale
   const linked = db.query("SELECT room_id FROM room_project_links WHERE project_id = ? AND mode = 'linked'").get(p.id) as { room_id: string } | null
   const settled = linked ? settleLinkedInTx(db, linked.room_id, rules, people) : null
   const found = db.query("SELECT l.room_id, r.archived_at FROM room_project_links l JOIN rooms r ON r.id = l.room_id WHERE l.project_id = ? AND l.mode = 'room'").get(p.id) as { room_id: string; archived_at: string | null } | null
-  if (found && !found.archived_at) return { roomId: found.room_id, created: false, settled }
+  // opened on purpose ("New project with"): listed from the start, also a room the project page made first
+  if (found && !found.archived_at) {
+    // (listedNow: it was unlisted: every member's list is told)
+    const flipped = listed && db.query("UPDATE room_project_links SET listed = 1 WHERE room_id = ? AND listed = 0").run(found.room_id).changes > 0
+    return { roomId: found.room_id, created: false, settled, ...(flipped ? { listedNow: true } : {}) }
+  }
   // an archived room's row never blocks a new one
   if (found) db.query('DELETE FROM room_project_links WHERE room_id = ?').run(found.room_id)
   const id = newId(), now = nowIso()
   db.query("INSERT INTO rooms (id, kind, created_by, created_at, activity_at, name) VALUES (?, 'group', NULL, ?, ?, ?)").run(id, now, now, p.name)
-  db.query("INSERT INTO room_project_links (room_id, project_id, linked_by, linked_at, mode, history_floor_seq) VALUES (?, ?, ?, ?, 'room', 0)").run(id, p.id, userId, now)
+  db.query("INSERT INTO room_project_links (room_id, project_id, linked_by, linked_at, mode, history_floor_seq, listed) VALUES (?, ?, ?, ?, 'room', 0, ?)").run(id, p.id, userId, now, listed ? 1 : 0)
   const add = db.query('INSERT INTO room_members (room_id, user_id, joined_at, history_from_seq) VALUES (?, ?, ?, 0)')
   const readers = readersOf(rules, people, p)
   readers.add(userId)

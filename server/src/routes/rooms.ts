@@ -91,7 +91,7 @@ export const roomsRoutes: RouteModule = {
     // admin in it, takes someone out
     // a team project's own chat room (rooms/project-room.ts; docs/decisions/20261120-project-is-room.md): made the first
     // time it is opened, for someone who reads the project
-    kit.handle(API.openProjectRoom, ({ c, auth, params }) => rooms.openProjectRoom(auth.user.id, params.id, c.get('locale')))
+    kit.handle(API.openProjectRoom, ({ c, auth, params, query }) => rooms.openProjectRoom(auth.user.id, params.id, c.get('locale'), query.listed === '1'))
     // the 0.5.21 project link's endpoints are retired (one release): 410 for everyone, before any check, naming nothing
     kit.handle(API.undoRoomSave, () => fail('gone'))
     kit.handle(API.linkRoomProject, () => fail('gone'))

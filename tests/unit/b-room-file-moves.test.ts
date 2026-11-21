@@ -598,3 +598,25 @@ test('R3: a placed file taken back out of Chat attachments gets a delete in its 
   expect(ev).toEqual({ user_id: mia.id, action: 'delete', moved_back: moveOf(f.id).id })
   expect(changed.some((p) => p.includes(`${chat}/deck.pdf`))).toBe(true)
 })
+
+// TC-6730: the header's "Moving files…" (Room.filesMoving) goes at once when the mover settles: every member gets
+// room.updated, also when no closing line is written (the only file's message was deleted: nothing moved, nothing kept).
+test('when the moves settle every member is told the room changed, with or without a closing line', async () => {
+  const { mia, nora, roomId } = await setup('b-room-file-moves-settled-event')
+  const f = await up(mia.id, roomId, 'only.txt', 'only')
+  const msg = await send(mia.client, roomId, [f.id])
+  await convert(mia.client, roomId)
+  expect((await nora.client.call('GET', `/api/rooms/${roomId}`)).filesMoving).toBe(true)
+  // every window open: the hub is asked for each person, and what it would send is kept
+  const sent: { to: string; ev: any }[] = []
+  h.ctx.services.realtime.publishEach = (build) => {
+    for (const r of h.ctx.db.query('SELECT id FROM users').all() as { id: string }[]) { const ev = build(r.id); if (ev) sent.push({ to: r.id, ev }) }
+  }
+  await mia.client.call('DELETE', `/api/rooms/${roomId}/messages/${msg.id}`)
+  await roomFileMovesOf(h.ctx).run()
+  expect((await nora.client.call('GET', `/api/rooms/${roomId}`)).filesMoving).toBeUndefined()
+  const told = (id: string) => sent.some((e) => e.to === id && e.ev.type === 'room.updated' && e.ev.data.roomId === roomId && !e.ev.data.room.filesMoving)
+  expect(told(nora.id) && told(mia.id)).toBe(true)
+  // no closing line: nothing moved and nothing stays
+  expect((h.ctx.db.query("SELECT COUNT(*) n FROM room_messages WHERE room_id = ? AND json_extract(event, '$.type') = 'project_files_moved'").get(roomId) as { n: number }).n).toBe(0)
+})
