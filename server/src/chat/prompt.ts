@@ -1140,7 +1140,7 @@ export const PARENT_ONLY_WORDS: Readonly<Record<string, string>> = {
   schedule_create: 'schedules', schedule_list: 'schedules', schedule_delete: 'schedules',
   generate_video: 'videos', promo_video: 'videos', save_promo_video: 'videos', box_shell: 'running commands in the dev environment',
   rooms: 'team chat rooms', room_read: 'team chat rooms', room_file: 'team chat rooms', save_room_file: 'team chat rooms', post_to_room: 'posting to a room',
-  chat_file: 'files attached to this chat', save_chat_file: 'files attached to this chat', share_with_person: 'sharing with people', stop_sharing: 'sharing with people', share_folder: 'sharing with people',
+  chat_file: 'files attached to this chat', save_chat_file: 'files attached to this chat', save_work_file: 'running commands in the dev environment', share_with_person: 'sharing with people', stop_sharing: 'sharing with people', share_folder: 'sharing with people',
   who_can_open: 'checking who can open something', shared_with_me: 'files shared with the user', looking_at: 'what the user has open',
   answer_comments: 'comments on answers',
 }
@@ -1261,6 +1261,8 @@ export const UNZIP_FILE_RULE = 'To unzip a .zip file ("unzip it", "extract it", 
 export const EDIT_HWP_RULE = 'To fill in or change an existing Hangul document (.hwp or .hwpx: a form, a template with blanks), read it, then use edit_hwp; it keeps everything you do not change exactly as it was and saves the same format.'
 
 /** save_url, like Claude Code's `curl -o`, and the one thing about previews the AI cannot see for itself */
+/** With the dev environment (docs/decisions/20261121-ai-sees-and-saves-workspace-output.md): one general line, no recipe */
+export const LOOK_AND_HAND_OVER_RULE = 'Look at what you make before you report; save the finished file and link it.'
 export const SAVE_URL_RULE = 'To keep a file from the web or one a connected service made (an image, PDF, video, audio, Office, CSV or ZIP file), save it into the team folder with save_url, right away (result links expire). Previews of pages (HTML files, artifacts) show only team files, never web addresses: save each outside image with save_url next to the page and reference it by a relative path (<img src="images/hero.png">). Libraries too (Three.js, Chart.js, D3): a CDN <script> does not run there; save each .js file with save_url next to the page, also every file a module imports (Three.js: three.module.js and three.core.js), and reference them by relative paths (<script src="lib/chart.umd.js">, or an import map {"imports":{"three":"./lib/three.module.js"}} with a <script type="module">); never fall back to "open the file elsewhere".'
 
 /** connect_service (docs/INTEGRATIONS.md "Connecting from a chat"): the key goes into the card, never into the chat. The
@@ -1400,6 +1402,7 @@ export function turnPromptSections(files: FileService, i: PromptInput): Section[
     tools.has('change_folder_access') ? FOLDER_ACCESS_RULE : '',
     tools.has('artifact') ? 'For things the user will look at or reuse (a web page, a diagram, a document draft, code), use the artifact tool instead of pasting long code in the answer.' : '',
     tools.has('save_url') ? SAVE_URL_RULE : '',
+    tools.has('box_shell') ? LOOK_AND_HAND_OVER_RULE : '',
     tools.has('ask_user') ? ASK_USER_RULE : '',
     tools.has('connect_service') ? CONNECT_RULE : '',
     tools.has('remember') ? `Use remember only for lasting facts or preferences the user wants you to keep (one line, under ${MEMORY_ITEM_MAX} characters). Use forget with the id when asked to forget.` : '',

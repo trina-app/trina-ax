@@ -20,12 +20,14 @@ import type { AppContext } from '../context'
 import type { McpContent } from '../turns'
 import { audit } from '../admin/audit'
 import { ToolError } from '../policy/errors'
+import { authorize } from '../policy/authorize'
 import { assertStorageRoomForAI } from '../system/storage'
 import { newJobName, pendingShared, pollSrt, runResultsForAI } from './jobs'
 import { mayUseDevEnv, teamSetting, type ProjectRef } from './setting'
 import { networkNow, noteSharedReads, othersInProject, personNetNow, reachSupported, reachTargets, runCommand, runNameInUse, sharedLockedTops, sharedLogKey, sharedVisible, spaceOf, startServer, submitJob, teamHosts, type SharedRun, type Space } from './srt/runner'
 import { grantUserSite, siteAllowed } from './sites'
 import { DEV_ENV_MAX_USER_SITES, siteFromInput, userSiteProblem } from '@mycel/shared'
+import { FILE_VIEW_PATH } from '@mycel/shared/api'
 import path from 'node:path'
 import { changesByOthers, markSeen, withChangeWindow, type ForeignChange } from './track'
 import type { Change } from './snapshot'
@@ -71,11 +73,11 @@ const devServerText = (preview: boolean, reach: boolean = reachSupported()) => r
  * gets the folder access of the person of this chat. */
 export const srtShellDescription = (preview: boolean) => 'Run a shell command in the dev environment (bash, git, node, npm, python3, pip, ffmpeg, chromium) on the team server. '
   + 'The command can read the team folders that the person of this chat may open; other folders are not there. '
-  + 'It can write only the folder it starts in and the person\'s own folder users/<id>: every other team folder is read-only in a command, also where the person may write. To save a file in another team folder, use the file tools. '
+  + 'It can write only the folder it starts in and the person\'s own folder users/<id>: every other team folder is read-only in a command, also where the person may write. To put a file in another team folder, use copy_files for a file in a team folder and save_work_file for one in $TRINA_WORK. '
   + 'A folder in users/<id> that the person shares with other people is read-only in a command too: write the file somewhere else, then move it in with move_files, which asks the person first. '
   + 'Team folders are under $TRINA_TEAM, with the same paths as in the file tools. '
   + 'In a project chat the command starts in the project folder, and changes there are shared with the team and recorded with your name. '
-  + 'In a chat with no project it starts in the chat\'s own work folder ($TRINA_WORK), which only this chat uses and which the file tools do not show: copy a result the person needs into their own folder users/<id>, or into another team folder they can write with the file tools. '
+  + 'In a chat with no project it starts in the chat\'s own work folder ($TRINA_WORK), which only this chat uses: open a picture, a video, a PDF or any file made there with read and its path ($TRINA_WORK/out/frame.png, or the absolute path a command prints) to see it yourself, and hand a finished file over with save_work_file (it goes into the team folder, the person\'s own folder by default), then link it. Do not start a dev server to show a finished file: Preview is for a web app. '
   + 'node_modules, .venv and build output are in that folder and use team disk. '
   + 'The network reaches only allowed sites (npm, PyPI, GitHub, the team\'s sites and the sites this person allowed), or nothing (the team setting No network). '
   + 'A blocked site answers HTTP 403 (curl: "CONNECT tunnel failed, response 403"). If the command needs that site, call box_shell again with the same command and request_sites set to its host name: the person is asked to allow it, and the command runs when they do. Never ask for an IP address, localhost or the team server; those stay blocked. '
@@ -84,6 +86,7 @@ export const srtShellDescription = (preview: boolean) => 'Run a shell command in
   + devServerText(preview)
   + 'For a long command (a render, a large build) use job=true: the call returns at once; if other jobs of the team run, it waits in a queue. '
   + 'Read its log with tail -n 20 $TRINA_LOGS/<log_name>.log and do not wait for it in a loop. When a job ends the person gets a notice, and your next box_shell call in this chat gives you its exit code and the end of its log. '
+  + '/tmp and $TMPDIR can be the command\'s own and gone when it ends, and read cannot open them: make a result in the folder the command starts in. '
   + 'One command at a time per folder; default time limit 120 s; a long stdout or stderr comes back as its first and its last 16 KiB (the middle is left out, and the result says so): to search all of a long output, send it to a file (cmd > $TRINA_LOGS/out.log 2>&1) and grep or tail that. '
   + 'When the dev environment of the team is full, a command waits for a free slot (at most 5 minutes) and then runs; the person sees its place in line.'
 /** The tool text in a shared chat (docs/decisions/20261118-devenv-shared-chats.md): everyone in the chat sees the
@@ -93,7 +96,7 @@ export const sharedShellDescription = (project: boolean) => 'Run a shell command
   + 'This is a shared chat: everyone in it sees the command and its output, so the command sees only the team folders that EVERYONE in this chat may open. No personal folder (users/...) is there, not even the person\'s own, and no other chat\'s files. '
   + (project
     ? 'It starts in the project folder and sees only the parts of it that everyone here may open (a folder some of them cannot open is not there); it can write only in the project folder, where the person may write. Changes there are shared with the team and recorded with your name. To use a file from somewhere else, the person must copy it into the project folder first. '
-    : 'It starts in the chat\'s own work folder ($TRINA_WORK), which it can write and which the file tools do not show. It can read the team folders that everyone in this chat may open, under $TRINA_TEAM with the same paths as in the file tools, and write none of them: save a result for the people here with the file tools. ')
+    : 'It starts in the chat\'s own work folder ($TRINA_WORK), which it can write: open a picture, a video, a PDF or any file made there with read and its path ($TRINA_WORK/out/frame.png) to see it yourself. It can read the team folders that everyone in this chat may open, under $TRINA_TEAM with the same paths as in the file tools, and write none of them. Do not start a dev server to show a finished file: Preview is for a web app. ')
   + 'The network reaches only allowed sites (npm, PyPI, GitHub, the team\'s sites and the sites this person allowed), or nothing (the team setting No network). '
   + 'A blocked site answers HTTP 403 (curl: "CONNECT tunnel failed, response 403"). If the command needs that site, call box_shell again with the same command and request_sites set to its host name: the person is asked to allow it, and the command runs when they do. Never ask for an IP address, localhost or the team server; those stay blocked. '
   + 'There are NO credentials, and commands that need a login (git push, npm publish, ssh ...) are refused here: tell the person to do them on their own computer. '
@@ -102,6 +105,7 @@ export const sharedShellDescription = (project: boolean) => 'Run a shell command
   + devServerText(previewReady())
   + 'For a long command (a render, a large build) use job=true: the call returns at once; if other jobs of the team run, it waits in a queue. '
   + 'Read its log with tail -n 20 $TRINA_LOGS/<log_name>.log and do not wait for it in a loop. When a job ends, the next box_shell call in this chat gives you its exit code and the end of its log. '
+  + '/tmp and $TMPDIR can be the command\'s own and gone when it ends, and read cannot open them: make a result in the folder the command starts in. '
   + 'One command at a time per folder; default time limit 120 s; a long stdout or stderr comes back as its first and its last 16 KiB (the middle is left out, and the result says so): to search all of a long output, send it to a file (cmd > $TRINA_LOGS/out.log 2>&1) and grep or tail that. '
   + 'When the dev environment of the team is full, a command waits for a free slot (at most 5 minutes) and then runs; the person sees its place in line.'
 
@@ -120,9 +124,15 @@ export function boxCwd(cwd: string | undefined): string | null {
   return c
 }
 
-export function changeLines(changes: Change[], max = 30): string {
+/** a team file's link in the app (chat/prompt.ts SOURCE_LINK_RULE's form): the AI links what a command made, and the API
+ * engine's link guard (engine/api-links.ts) lets a link through only when a tool result holds it */
+const fileLink = (p: string) => `[${p.split('/').pop()}](${FILE_VIEW_PATH}?path=${encodeURIComponent(p)})`
+
+/** `links`: a link for each new or changed file, or only for those this predicate takes (the ones the person can open) */
+export function changeLines(changes: Change[], max = 30, links: boolean | ((rel: string) => boolean) = false): string {
   const verb = { create: 'created', update: 'changed', delete: 'deleted' } as const
-  const lines = changes.slice(0, max).map((c) => `  ${verb[c.action]} ${c.path}`)
+  const linked = (c: Change) => c.action !== 'delete' && (typeof links === 'function' ? links(c.path) : links)
+  const lines = changes.slice(0, max).map((c) => `  ${verb[c.action]} ${c.path}${linked(c) ? ` (link: ${fileLink(c.path)})` : ''}`)
   if (changes.length > max) lines.push(`  ... and ${changes.length - max} more`)
   return lines.join('\n')
 }
@@ -188,6 +198,15 @@ export const lockedTopsNote = (folders: readonly string[]) => `Note: in this sha
 
 type Window = { changes: Change[]; background: Change[]; conflicts: string[] }
 
+/** May the person of this call open the team file `rel` now (their own read access; false when it cannot be told)? */
+function personCanOpen(h: Pick<BoxShellHost, 'ctx' | 'userId'>, rel: string): boolean {
+  try {
+    const f = h.ctx.files
+    authorize(f.fx, f.rules(), f.principal(h.userId), rel, 'read')
+    return true
+  } catch { return false }
+}
+
 /** The answer to the AI after a command ran. */
 function answer(h: BoxShellHost, o: { notes: string[]; head: string; started: number; exit: RunExit; w: Window; background: boolean; what: string }) {
   const { notes, head, started, exit: e, w, background, what } = o
@@ -199,7 +218,9 @@ ${clip(h.redact(hideProxyLogin(e.stdout)))}` : '--- stdout: empty ---')
   if (e.stderr) parts.push(`--- stderr ---
 ${clip(h.redact(hideProxyLogin(e.stderr)))}`)
   if (e.truncated) parts.push('(output cut)')
-  if (w.changes.length) parts.push(`Files changed by this command (${w.changes.length}):\n${changeLines(w.changes)}`)
+  // a link only for a file the person can open now: the project folder's changes may include a file a teammate's run
+  // saved in a sub-folder this person cannot open (a dead link in the answer otherwise)
+  if (w.changes.length) parts.push(`Files changed by this command (${w.changes.length}):\n${changeLines(w.changes, 30, (rel) => personCanOpen(h, rel))}`)
   if (w.background.length) parts.push(`Files changed in the background since the last command (${w.background.length}):\n${changeLines(w.background)}`)
   if (w.conflicts.length) parts.push(`Someone saved some of these files while the command ran; their version is kept as: ${w.conflicts.join(', ')}`)
   const failed = e.code !== 0 || (e.signal !== '' && !background)

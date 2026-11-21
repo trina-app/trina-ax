@@ -84,6 +84,8 @@ export const FILE_STEP_VERB: Record<string, T> = {
   chat_file: t('채팅 파일 읽기', 'Read chat file', 'Baca berkas obrolan', 'チャットのファイルを読む', 'Leer archivo del chat', '读取对话文件'),
   save_room_file: t('대화 파일 저장', 'Save conversation file', 'Simpan berkas percakapan', "トークのファイルを保存", "Guardar archivo de conversación", "保存聊天文件"),
   save_chat_file: t('채팅 파일 저장', 'Save chat file', 'Simpan berkas obrolan', 'チャットのファイルを保存', 'Guardar archivo del chat', '保存对话文件'),
+  // a finished file from the chat's work folder into the team folder (server/src/chat/work-file-tool.ts)
+  save_work_file: t('작업 결과 저장', 'Save work file', 'Simpan berkas kerja', '作業ファイルを保存', 'Guardar archivo de trabajo', '保存工作文件'),
   // the AI posts to one of the person's rooms after their yes on its card (server/src/chat/post-to-room.ts): "대화방에
   // 보내기 · #영업팀", the room named by the server once found (the button's words: shared rooms.ts SIDE_CHAT_SEND)
   post_to_room: t('대화에 보내기', 'Send to conversation', 'Kirim ke percakapan', 'トークに送る', 'Enviar a la conversación', "发送到聊天"),
@@ -356,6 +358,8 @@ export function stepLabel(tool: string, input: unknown, locale: Locale, browserT
     case 'change_folder_access': { const f = typeof a.folder === 'string' ? a.folder.replace(/\/+$/, '').split('/').pop() : ''; return f ? `${verb} · ${clip(f, 60)}` : verb! }
     case 'save_room_file': { const w = roomWord(a.file); return w ? `${verb} · ${clip(w, 60)}${a.save_as ? ` → ${clip(a.save_as, 60)}` : ''}` : verb! }
     case 'save_chat_file': return a.save_as ? `${verb} → ${clip(a.save_as, 60)}` : verb!
+    // the file by its own name (never a server path), and where it goes
+    case 'save_work_file': { const n = clip(String(a.path ?? '').split('/').pop(), 60); return a.save_as ? `${verb} · ${n} → ${clip(a.save_as, 60)}` : `${verb} · ${n}` }
     case 'box_shell': return `${verb} · ${clip(String(a.command ?? '').split('\n')[0], 80)}${a.job ? ` (${STEP_TEXT.jobSuffix[locale]})` : a.background ? ` (${STEP_TEXT.backgroundSuffix[locale]})` : ''}`
     case 'ask_user': return stepText('asked', locale, { q: clip(a.question, 120) })
     case 'remember': return stepText('remembered', locale, { text: clip(a.text, 120) })
