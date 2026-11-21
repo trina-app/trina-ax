@@ -56,7 +56,7 @@ disiapkan.
 | Slack (tim yang di-hosting) | Tidak ada: **Tambahkan ke Slack** | Admin workspace Slack mengizinkannya |
 | Slack (aplikasi Slack Anda sendiri) | **Bot User OAuth Token** (`xoxb-`), **App-Level Token** (`xapp-`), **Client ID**, **Client Secret** | api.slack.com › aplikasi Anda |
 | Notion, Linear, Atlassian, Figma, Canva, dan aplikasi lain di Jelajahi | Tidak ada: Anda masuk di halaman aplikasi itu sendiri | Akun Anda di aplikasi itu |
-| GitHub | **Alamat** `https://api.githubcopilot.com/mcp/` dan **Kunci** (personal access token) | [GitHub › Settings › Developer settings › Personal access tokens](https://github.com/settings/personal-access-tokens/new) |
+| GitHub | Tidak ada: Anda masuk di GitHub | Akun GitHub Anda |
 | Aplikasi lain yang memberikan kunci | **Alamat** dan **Kunci** (kadang **Nama header**) | Halaman bantuan aplikasi itu ("MCP server", "API keys") |
 | API perusahaan Anda | **Alamat**, **Kunci**, **Catatan pemakaian** | Orang yang mengelola sistem itu |
 | NAVER WORKS dan aplikasi lain yang masuk dengan aplikasi Anda sendiri | **Client ID**, **Client secret**, **Alamat login**, **Alamat token**, **Cakupan (scope)** | Konsol pengembang aplikasi itu |

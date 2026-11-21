@@ -17,7 +17,7 @@ una forma habitual de que las apps ofrezcan herramientas a una IA; no necesita s
 | App | Qué necesita | Guía |
 |---|---|---|
 | Notion, Linear, Atlassian (Jira, Confluence), Figma, Canva, Stripe, Supabase, Cloudflare, Higgsfield y las demás apps de **Descubrir** | Su cuenta en esa app. Nada que copiar | [Iniciar sesión en una app de Descubrir](#iniciar-sesión-en-una-app-de-descubrir) |
-| GitHub | Un token de acceso personal | [GitHub](#github) |
+| GitHub | Su cuenta de GitHub. Nada que copiar | [GitHub](#github) |
 | Otra app que publica una dirección de "MCP server" | La dirección, y una clave si la app la pide | [Añadir una app por su dirección](#añadir-una-app-por-su-dirección) |
 | El sistema propio de su empresa (una API) | Una dirección, una clave y notas | [La API de su empresa](api-connections.md) |
 | Google Drive, Gmail, Calendar, Docs, Sheets | Su cuenta de Google | [Apps de Google](google-apps.md) |
@@ -82,40 +82,26 @@ también funciona en su teléfono.
 
 ## GitHub
 
-GitHub no deja que otras apps inicien sesión por su cuenta, así que se conecta con un token de acceso personal. Solo los
-propietarios y los administradores pueden añadir una app por su dirección; un miembro se lo pide a un administrador, que
-puede crear una [plantilla](#plantillas-cada-miembro-usa-su-propia-clave) para que cada persona use su propio token.
+GitHub se conecta iniciando sesión, como las otras apps de Descubrir: no hay ningún token que crear ni copiar. Usa la GitHub App que tiene el servidor, así que cada persona inicia sesión en GitHub con su propia cuenta y elige qué repositorios puede ver la IA. En un equipo alojado por Trina ya está listo. En un servidor que usted mismo administra, quien lo opera añade antes la GitHub App; hasta entonces la página de GitHub dice "GitHub aún no está configurado en este servidor".
 
 :::tip
 **Qué necesita**
 
-- **Dirección**: `https://api.githubcopilot.com/mcp/` (el servidor MCP de GitHub).
-- **Clave**: un token de acceso personal de GitHub, que empieza por `github_pat_`.
+- Su cuenta de GitHub, con la sesión iniciada en el navegador.
 :::
 
 :::steps
-#### Cree un token en GitHub
-Abra [GitHub › Settings › Developer settings › Personal access tokens › Fine-grained tokens](https://github.com/settings/personal-access-tokens/new)
-y elija **Generate new token**. Póngale un nombre ("Trina AX"), una fecha de caducidad, los repositorios que puede abrir
-(**Only select repositories** es lo más seguro) y los permisos que necesita la IA, como **Contents**, **Issues** y
-**Pull requests** en **Read-only**, o **Read and write** si la IA puede cambiarlos. Elija **Generate token** y cópielo:
-GitHub lo muestra una sola vez. Detalles: [la guía de GitHub](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/managing-your-personal-access-tokens).
+#### Elija Conectar
+Abra GitHub en **Descubrir** y elija **Conectar**. Se abre la página de GitHub (en la app de escritorio, en su navegador).
 
-#### Añádalo en Trina AX
-En **Administración › Apps conectadas**, elija **Añadir por su dirección** (debajo de Descubrir) o **Añadir**. Rellene:
+#### Elija los repositorios
+GitHub pregunta qué repositorios puede abrir la app. Elija solo los que la IA necesita: solo verá esos.
 
-- **Nombre**: `GitHub`
-- **Dirección**: `https://api.githubcopilot.com/mcp/`
-- Abra **Avanzado** y ponga **Método de inicio de sesión** en **Clave de API**.
-- **Encabezado para la clave**: deje **Authorization: Bearer (predeterminado)**.
-- **Clave**: pegue el token.
-
-![Añadir una app para el equipo, rellenado para GitHub: la dirección https://api.githubcopilot.com/mcp/, Encabezado para la clave Authorization: Bearer (predeterminado), la Clave y, en Avanzado: para el equipo (una clave), Servidor MCP, Clave de API, Preguntar cada vez](../../images/connect/add-by-address-key.webp "GitHub con un token")
-
-#### Guarde
-Elija **Guardar**. Trina AX comprueba el token con GitHub y enumera las herramientas que ofrece. La línea muestra
-**Conectado**.
+#### Terminar
+De vuelta en Trina AX, la línea muestra **Conectado**. La IA pregunta antes de cambiar algo, y puede elegir **Permitir siempre**.
 :::
+
+Para todo el equipo, un administrador conecta GitHub para el equipo y elige quién puede usarlo, o crea una [plantilla](#plantillas-cada-miembro-usa-su-propia-clave) para que cada persona inicie sesión con su cuenta.
 
 ## Añadir una app por su dirección
 

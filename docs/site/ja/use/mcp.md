@@ -14,7 +14,7 @@ AI は Trina AX の外にあるアプリをあなたの代わりに使えます�
 | アプリ | 必要なもの | ガイド |
 |---|---|---|
 | Notion、Linear、Atlassian（Jira、Confluence）、Figma、Canva、Stripe、Supabase、Cloudflare、Higgsfield など **見つける** にあるアプリ | そのアプリのあなたのアカウント。コピーするものはありません | [「見つける」のアプリにログインする](#見つけるのアプリにログインする) |
-| GitHub | 個人用アクセストークン | [GitHub](#github) |
+| GitHub | 自分の GitHub アカウント。コピーするものはなし | [GitHub](#github) |
 | 「MCP server」のアドレスを公開しているその他のアプリ | そのアドレスと、アプリが求める場合はキー | [アドレスでアプリを追加する](#アドレスでアプリを追加する) |
 | 会社独自のシステム（API） | アドレス、キー、メモ | [会社の API](api-connections.md) |
 | Google Drive、Gmail、カレンダー、ドキュメント、スプレッドシート | あなたの Google アカウント | [Google アプリ](google-apps.md) |
@@ -68,33 +68,26 @@ AI は Trina AX の外にあるアプリをあなたの代わりに使えます�
 
 ## GitHub
 
-GitHub は他のアプリが独自にログインすることを認めていないため、個人用アクセストークンでつなぎます。アドレスでアプリを追加できるのはオーナーと管理者だけです。メンバーは管理者に頼みます。管理者は、各自が自分のトークンを使えるよう [テンプレート](#テンプレートメンバーが各自のキーを使う) を作れます。
+GitHub は、一覧にある他のアプリと同じようにサインインでつなぎます。作ったりコピーしたりするトークンはありません。サーバーが持つ GitHub App でサインインするので、各自が自分の GitHub アカウントでサインインし、AI が見てよいリポジトリを選びます。Trina がホスティングするチームではすぐ使えます。自分で運用するサーバーでは、運用者が先に GitHub App を追加します。それまでは GitHub のページに「このサーバーでは GitHub がまだ設定されていません」と表示されます。
 
 :::tip
 **必要なもの**
 
-- **アドレス**：`https://api.githubcopilot.com/mcp/`（GitHub の MCP サーバー）。
-- **キー**：GitHub の個人用アクセストークン。`github_pat_` で始まります。
+- ブラウザでサインインした自分の GitHub アカウント
 :::
 
 :::steps
-#### GitHub でトークンを作る
-[GitHub › Settings › Developer settings › Personal access tokens › Fine-grained tokens](https://github.com/settings/personal-access-tokens/new) を開き、**Generate new token** を選びます。名前（「Trina AX」）、有効期限、開けるリポジトリ（**Only select repositories** がいちばん安全です）、AI に必要な権限を設定します。たとえば **Contents**、**Issues**、**Pull requests** を **Read-only** に、AI に変更させてよいなら **Read and write** にします。**Generate token** を選んでコピーします。トークンは一度しか表示されません。詳しくは [GitHub のガイド](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/managing-your-personal-access-tokens) を見てください。
+#### 接続を選ぶ
+**見つける** で GitHub を開き、**接続** を選びます。GitHub のページが開きます（デスクトップアプリではブラウザで）。
 
-#### Trina AX に追加する
-**管理 › 連携サービス** で、**アドレスで追加**（見つけるの下）または **追加** を選びます。次のように入力します。
+#### リポジトリを選ぶ
+GitHub が、アプリが開いてよいリポジトリを尋ねます。AI に必要なものだけを選ぶと、AI はそれだけを見ます。
 
-- **名前**：`GitHub`
-- **アドレス**：`https://api.githubcopilot.com/mcp/`
-- **詳細設定** を開き、**ログイン方法** を **APIキー** にします。
-- **キーを送るヘッダー**：**Authorization: Bearer（既定）** のままにします。
-- **キー**：トークンを貼り付けます。
-
-![GitHub 用に入力したチーム用アプリの追加画面：アドレス https://api.githubcopilot.com/mcp/、キーを送るヘッダー Authorization: Bearer（既定）、キー、詳細設定にチーム用（キー 1 つ）、MCPサーバー、APIキー、毎回確認](../../images/connect/add-by-address-key.webp "トークンでつなぐ GitHub")
-
-#### 保存する
-**保存** を選びます。Trina AX が GitHub にトークンを確認し、提供されるツールを一覧にします。行に **接続済み** と表示されます。
+#### 完了
+Trina AX に戻ると、行に **接続済み** と表示されます。AI は何かを変更する前に確認し、**常に許可** を選ぶこともできます。
 :::
+
+チーム全体では、管理者が GitHub をチーム用に接続して使える人を決めるか、各自が自分のアカウントでサインインする [テンプレート](#テンプレートメンバーが各自のキーを使う) を作ります。
 
 ## アドレスでアプリを追加する
 

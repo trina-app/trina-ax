@@ -49,7 +49,7 @@ Trina AX がつなぐものは 2 種類あります。
 | Slack（ホスト型のチーム） | なし：**Slackに追加** | Slack ワークスペースの管理者が許可します |
 | Slack（自分たちの Slack アプリ） | **Bot User OAuth Token**（`xoxb-`）、**App-Level Token**（`xapp-`）、**Client ID**、**Client Secret** | api.slack.com › あなたのアプリ |
 | Notion、Linear、Atlassian、Figma、Canva など「見つける」にあるアプリ | なし：アプリ自身のページでログインします | そのアプリのあなたのアカウント |
-| GitHub | **アドレス** `https://api.githubcopilot.com/mcp/` と **キー**（個人用アクセストークン） | [GitHub › Settings › Developer settings › Personal access tokens](https://github.com/settings/personal-access-tokens/new) |
+| GitHub | なし：GitHub でサインインします | 自分の GitHub アカウント |
 | キーを発行するその他のアプリ | **アドレス** と **キー**（**ヘッダー名** が必要な場合もあります） | アプリのヘルプページ（「MCP server」「API keys」） |
 | 会社の API | **アドレス**、**キー**、**使用上の注意** | そのシステムの担当者 |
 | NAVER WORKS など、独自のアプリでログインするサービス | **クライアントID**、**クライアントシークレット**、**ログインアドレス**、**トークンアドレス**、**スコープ** | そのアプリの開発者コンソール |

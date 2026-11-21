@@ -17,7 +17,7 @@ menyediakan alat bagi AI; Anda tidak perlu tahu lebih jauh untuk memakainya.
 | Aplikasi | Yang Anda perlukan | Panduan |
 |---|---|---|
 | Notion, Linear, Atlassian (Jira, Confluence), Figma, Canva, Stripe, Supabase, Cloudflare, Higgsfield, dan aplikasi lain di **Jelajahi** | Akun Anda di aplikasi itu. Tidak ada yang perlu disalin | [Masuk ke aplikasi di Jelajahi](#masuk-ke-aplikasi-di-jelajahi) |
-| GitHub | Personal access token | [GitHub](#github) |
+| GitHub | Akun GitHub Anda. Tidak ada yang disalin | [GitHub](#github) |
 | Aplikasi lain yang menyediakan alamat "MCP server" | Alamatnya, dan kunci jika aplikasi memintanya | [Menambahkan aplikasi lewat alamatnya](#menambahkan-aplikasi-lewat-alamatnya) |
 | Sistem milik perusahaan Anda (sebuah API) | Alamat, kunci, dan catatan | [API perusahaan Anda](api-connections.md) |
 | Google Drive, Gmail, Calendar, Docs, Sheets | Akun Google Anda | [Aplikasi Google](google-apps.md) |
@@ -82,40 +82,26 @@ berfungsi di ponsel Anda.
 
 ## GitHub
 
-GitHub tidak mengizinkan aplikasi lain masuk dengan sendirinya, jadi Anda menghubungkannya dengan personal access token.
-Hanya owner dan admin yang bisa menambahkan aplikasi lewat alamatnya; anggota meminta kepada admin, yang bisa membuat
-[templat](#templat-tiap-anggota-memakai-kuncinya-sendiri) agar setiap orang memakai tokennya sendiri.
+GitHub terhubung dengan masuk (sign in), seperti aplikasi lain di Discover: tidak ada token yang perlu dibuat atau disalin. GitHub memakai GitHub App milik server, jadi setiap orang masuk ke GitHub dengan akunnya sendiri dan memilih repositori yang boleh dilihat AI. Di tim yang dihosting Trina, ini sudah siap. Di server yang Anda jalankan sendiri, operator server menambahkan GitHub App lebih dulu; sebelum itu halaman GitHub menampilkan "GitHub belum disiapkan di server ini."
 
 :::tip
 **Yang Anda perlukan**
 
-- **Alamat**: `https://api.githubcopilot.com/mcp/` (MCP server milik GitHub).
-- **Kunci**: personal access token dari GitHub, diawali `github_pat_`.
+- Akun GitHub Anda, sudah masuk di browser.
 :::
 
 :::steps
-#### Buat token di GitHub
-Buka [GitHub › Settings › Developer settings › Personal access tokens › Fine-grained tokens](https://github.com/settings/personal-access-tokens/new)
-lalu pilih **Generate new token**. Beri nama ("Trina AX"), tanggal kedaluwarsa, repositori yang boleh dibukanya
-(**Only select repositories** paling aman), dan izin yang diperlukan AI, misalnya **Contents**, **Issues**, dan
-**Pull requests** diatur ke **Read-only**, atau **Read and write** jika AI boleh mengubahnya. Pilih **Generate token** lalu
-salin: GitHub hanya menampilkannya sekali. Detail: [panduan GitHub](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/managing-your-personal-access-tokens).
+#### Pilih Hubungkan
+Buka GitHub di **Jelajahi** lalu pilih **Hubungkan**. Halaman GitHub terbuka (di aplikasi desktop, di browser Anda).
 
-#### Tambahkan di Trina AX
-Di **Admin › Aplikasi terhubung**, pilih **Tambahkan lewat alamatnya** (di bawah Jelajahi) atau **Tambah**. Isi:
+#### Pilih repositori
+GitHub menanyakan repositori mana yang boleh dibuka aplikasi. Pilih yang dibutuhkan AI saja: AI hanya melihat yang itu.
 
-- **Nama**: `GitHub`
-- **Alamat**: `https://api.githubcopilot.com/mcp/`
-- Buka **Lanjutan** dan atur **Cara masuk** ke **Kunci API**.
-- **Header untuk kunci**: biarkan **Authorization: Bearer (bawaan)**.
-- **Kunci**: tempel tokennya.
-
-![Add an app for the team, diisi untuk GitHub: alamat https://api.githubcopilot.com/mcp/, Header for the key Authorization: Bearer (default), Key, dan di bawah Advanced: For the team (one key), MCP server, API key, Ask every time](../../images/connect/add-by-address-key.webp "GitHub dengan token")
-
-#### Simpan
-Pilih **Simpan**. Trina AX memeriksa token itu ke GitHub dan mencantumkan alat yang tersedia. Barisnya menampilkan
-**Terhubung**.
+#### Selesai
+Kembali di Trina AX, baris menampilkan **Terhubung**. AI bertanya sebelum mengubah apa pun, dan Anda bisa memilih **Selalu izinkan**.
 :::
+
+Untuk seluruh tim, admin menghubungkan GitHub untuk tim dan memilih siapa yang boleh memakainya, atau membuat [template](#templat-tiap-anggota-memakai-kuncinya-sendiri) agar tiap orang masuk dengan akunnya sendiri.
 
 ## Menambahkan aplikasi lewat alamatnya
 

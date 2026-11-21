@@ -54,7 +54,7 @@ You never need all of these. Find the app you are connecting; the rest of the ro
 | Slack (hosted teams) | Nothing: **Add to Slack** | A Slack workspace admin allows it |
 | Slack (your own Slack app) | **Bot User OAuth Token** (`xoxb-`), **App-Level Token** (`xapp-`), **Client ID**, **Client Secret** | api.slack.com › your app |
 | Notion, Linear, Atlassian, Figma, Canva and the other apps in Discover | Nothing: you sign in on the app's own page | Your account at that app |
-| GitHub | **Address** `https://api.githubcopilot.com/mcp/` and a **Key** (a personal access token) | [GitHub › Settings › Developer settings › Personal access tokens](https://github.com/settings/personal-access-tokens/new) |
+| GitHub | Nothing: you sign in at GitHub | Your GitHub account |
 | Any other app that gives a key | **Address** and **Key** (sometimes **Header name**) | The app's help pages ("MCP server", "API keys") |
 | Your company's API | **Address**, **Key**, **Usage notes** | Whoever runs that system |
 | NAVER WORKS and other apps that sign in with your own app | **Client ID**, **Client secret**, **Sign-in address**, **Token address**, **Scopes** | The app's developer console |

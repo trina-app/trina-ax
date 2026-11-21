@@ -5,16 +5,16 @@ it in the same PR**. Built from the code on `dev` (2026-11-21); file:line points
 
 Words: **Team** = one connection the owner or an admin makes once, used by the people the admin picks. **Personal** =
 each person signs in with their own account. **Team pick** = the admin recommends a personal tool; it only sorts the
-list (`shared/src/api/team-tools.ts:13`), nothing is gated.
+list (`shared/src/api/team-tools.ts:9-20`), nothing is gated.
 
 ## The table
 
 | Tool | Team connection | Personal | Team pick | Offered where |
 |---|---|---|---|---|
-| Google Drive | Yes, "Shared with the team": an admin shares chosen folders or a whole Drive (`shared/src/api/drive.ts:84-89`, `web/src/components/integrations/DriveShares.tsx`) | Yes (`oauth.ts:132`) | Yes | Welcome tools step: Team pick only. Admin › Connected apps. Settings › Connectors. My setup card: personal only. Chat: card (`server/src/chat/connect-service.ts:245`) |
-| Gmail, Calendar, Docs, Sheets | Yes, "Shared Google account": one account for the app (`shared/src/api/google-apps.ts:67,160-165`, `GoogleAppTeam.tsx`) | Yes | Yes (`team-tools.ts:19`) | Welcome tools step: Gmail Team pick only; Calendar, Docs, Sheets not offered. Admin › Connected apps. Settings › Connectors. My setup card (shows "team" state, `web/src/lib/myTools.ts:43`). Chat: no card, tells the person which page (`server/src/chat/connect-google-app.ts`) |
+| Google Drive | Yes, "Shared with the team": an admin shares chosen folders or a whole Drive (`shared/src/api/drive.ts:84-89`, `web/src/components/integrations/DriveShares.tsx`) | Yes (`shared/src/api/drive.ts:74`) | Yes | Welcome tools step: Team pick only. Admin › Connected apps. Settings › Connectors. My setup card: personal only. Chat: card (`server/src/chat/connect-service.ts:245`) |
+| Gmail, Calendar, Docs, Sheets | Yes, "Shared Google account": one account for the app (`shared/src/api/google-apps.ts:67,160-165`, `GoogleAppTeam.tsx`) | Yes | Yes (`team-tools.ts:20`) | Welcome tools step: Gmail Team pick only; Calendar, Docs, Sheets not offered. Admin › Connected apps. Settings › Connectors. My setup card (shows "team" state, `web/src/lib/myTools.ts:43`). Chat: no card, tells the person which page (`server/src/chat/connect-google-app.ts`) |
 | Notion | Yes, MCP team connection (`shared/src/api/integrations.ts:406`) | Yes | No, excluded (`team-tools.ts:15`) | Welcome tools step: Connect for the team (`ToolsStep.tsx:36`). Admin › Connected apps. Settings › Connectors. My setup card. Chat card (personal; team only for admins, `connect-service.ts:269`) |
-| Slack | Yes, its own page: the team's Slack app, "Add to Slack" (hosted) or own app tokens (owner only) (`shared/src/api/slack.ts:129,138`) | Link-only: each person links their Slack account (`slack.ts:132-136`) | No, excluded | Welcome tools step: Connect for the team. Admin › Connected apps › Slack. Settings › Connectors › Slack line (`SlackAccount.tsx`) |
+| Slack | Yes, its own page: the team's Slack app, "Add to Slack" (hosted) or own app tokens (owner only) (`shared/src/api/slack.ts:129-138`) | Link-only: each person links their Slack account (`slack.ts:132-136`) | No, excluded | Welcome tools step: Connect for the team. Admin › Connected apps › Slack. Settings › Connectors › Slack line (`web/src/components/settings/SlackAccount.tsx`) |
 | GitHub | Yes, MCP team connection | Yes, signs in through the server's GitHub App (`shared/src/service-catalog.ts`, `server/src/integrations/github/app.ts`) | Yes (listed service) | Admin › Connected apps. Settings › Connectors. Chat card. Not on the welcome steps |
 | Higgsfield and every other listed service (about 40: Linear, Atlassian, Figma, Canva, Stripe, Supabase, Vercel …) | Yes, MCP team connection | Yes | Yes | Admin › Connected apps. Settings › Connectors (Discover). Chat card. My setup card shows only Notion by default (`myTools.ts:14`) |
 | Any MCP server or API by address | Yes, team connection, or a template each member connects with their own key (`integrations.ts:405,416`) | Yes (admin may turn personal off, `server/src/admin/settings.ts:28`) | No | Admin › Connected apps › Add one by its address. Settings › Connectors › Add custom connector (members see "Ask an admin to add it" for what is not listed) |
@@ -57,10 +57,10 @@ Ranked by how visible they are.
    `en.ts:5533` says "Admin › Connectors". Settings' label is "Connectors". The same word names two places.
 4. **Team pick has three names.** The tag is "Team pick" (`en.ts:5755`), the switch on a tool's page is "Recommend to
    the team" (`en.ts:5757`), the welcome switch is "Team pick" (`en.ts:5537`), the Korean is "팀 추천".
-5. **GitHub docs are out of date.** `docs/site/use/mcp.md:20` and `connect-apps.md` say GitHub needs a personal access
+5. **GitHub docs were out of date (fixed in this PR).** `docs/site/use/mcp.md:20` and `connect-apps.md` say GitHub needs a personal access
    token and an address; the code signs in through the server's GitHub App and lists GitHub in Discover
    (`service-catalog.ts`, `en.ts:3420`).
-6. **Docs site pages disagree with the step.** `docs/site/get-started/team-setup.md:28` says "Connect for the team"
+6. **Docs site pages disagreed with the step (the Google team account is now mentioned, fixed in this PR).** `docs/site/get-started/team-setup.md:28` says "Connect for the team"
    covers Notion or Slack and Team pick covers Drive and Gmail, but never says a team Google account exists there or
    that Calendar, Docs and Sheets cannot be picked on that step. `google-apps.md` says the team account is under
    "Admin › Connected apps", which matches the label.
@@ -69,4 +69,4 @@ Ranked by how visible they are.
    (shown as "team", no button, correct), but an admin cannot recommend it for people who want their own.
 8. **Chat cards cover team scope only for MCP services**; Google apps and Drive never get a team option from a chat
    (`connect-google-app.ts`, `connect-service.ts:134,161`).
-9. **Stale comment:** `SlackAccount.tsx:1` says "Settings › App connectors"; the label is "Connectors".
+9. **Stale comment (fixed in this PR):** `web/src/components/settings/SlackAccount.tsx:1` says "Settings › App connectors"; the label is "Connectors".

@@ -17,7 +17,7 @@ tools to an AI; you don't need to know more about it to use them.
 | App | What you need | Guide |
 |---|---|---|
 | Notion, Linear, Atlassian (Jira, Confluence), Figma, Canva, Stripe, Supabase, Cloudflare, Higgsfield, and the other apps in **Discover** | Your account at that app. Nothing to copy | [Sign in to an app in Discover](#sign-in-to-an-app-in-discover) |
-| GitHub | A personal access token | [GitHub](#github) |
+| GitHub | Your GitHub account. Nothing to copy | [GitHub](#github) |
 | Another app that publishes an "MCP server" address | The address, and a key if the app asks for one | [Add an app by its address](#add-an-app-by-its-address) |
 | Your company's own system (an API) | An address, a key and notes | [Your company's API](api-connections.md) |
 | Google Drive, Gmail, Calendar, Docs, Sheets | Your Google account | [Google apps](google-apps.md) |
@@ -78,39 +78,30 @@ Sign-in has to happen on a computer, in a browser or the desktop app. Once conne
 
 ## GitHub
 
-GitHub doesn't let other apps sign in on their own, so you connect it with a personal access token. Only owners and
-admins can add an app by its address; a member asks an admin, who can make a
-[template](#templates-each-member-uses-their-own-key) so each person uses their own token.
+GitHub signs in like the other apps in Discover: there is no token to make or copy. It uses the GitHub App your server
+holds, so each person signs in at GitHub with their own account and chooses which repositories the AI may see. On a team
+hosted by Trina it is ready. On a server you run yourself, the server's operator adds the GitHub App first; until then
+GitHub's page says "GitHub isn't set up on this server yet."
 
 :::tip
 **What you need**
 
-- **Address**: `https://api.githubcopilot.com/mcp/` (GitHub's MCP server).
-- **Key**: a personal access token from GitHub, starting with `github_pat_`.
+- Your GitHub account, signed in in your browser.
 :::
 
 :::steps
-#### Make a token at GitHub
-Open [GitHub › Settings › Developer settings › Personal access tokens › Fine-grained tokens](https://github.com/settings/personal-access-tokens/new)
-and choose **Generate new token**. Give it a name ("Trina AX"), an expiry date, the repositories it may open
-(**Only select repositories** is safest) and the permissions the AI needs, such as **Contents**, **Issues** and
-**Pull requests** set to **Read-only**, or **Read and write** if the AI may change them. Choose **Generate token** and
-copy it: GitHub shows it only once. Details: [GitHub's guide](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/managing-your-personal-access-tokens).
+#### Choose Connect
+Open GitHub in **Discover** and choose **Connect**. GitHub's own page opens (in the desktop app, in your browser).
 
-#### Add it in Trina AX
-In **Admin › Connected apps**, choose **Add one by its address** (under Discover) or **Add**. Fill in:
+#### Choose the repositories
+GitHub asks which repositories the app may open. Pick the ones the AI needs: it sees only those.
 
-- **Name**: `GitHub`
-- **Address**: `https://api.githubcopilot.com/mcp/`
-- Open **Advanced** and set **Sign-in method** to **API key**.
-- **Header for the key**: keep **Authorization: Bearer (default)**.
-- **Key**: paste the token.
-
-![Add an app for the team, filled in for GitHub: the address https://api.githubcopilot.com/mcp/, Header for the key Authorization: Bearer (default), the Key, and under Advanced: For the team (one key), MCP server, API key, Ask every time](../images/connect/add-by-address-key.webp "GitHub with a token")
-
-#### Save
-Choose **Save**. Trina AX checks the token with GitHub and lists the tools it offers. The line shows **Connected**.
+#### Finish
+Back in Trina AX the line shows **Connected**. The AI asks before it changes anything, and you can choose **Always allow**.
 :::
+
+For the whole team, an admin connects GitHub for the team and chooses who may use it, or makes a
+[template](#templates-each-member-uses-their-own-key) so each person signs in with their own account.
 
 ## Add an app by its address
 
