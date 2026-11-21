@@ -96,6 +96,8 @@ for (const size of [{ width: 1440, height: 900 }, { width: 390, height: 844 }]) 
     const answer = page.locator(`[data-message-id="${first}"]`)
     await expect(answer).toHaveAttribute('data-focused', '')
     await expect(answer).toBeInViewport()
+    // only the place: no box, outline or tint around the answer (owner 2026-11-21)
+    expect(await answer.evaluate((el) => { const s = getComputedStyle(el); return [s.backgroundColor, s.boxShadow, s.outlineStyle] })).toEqual(['rgba(0, 0, 0, 0)', 'none', 'none'])
     await expect(page.locator(`[data-message-id="${last}"]`)).not.toBeInViewport()
     // the chat open at its newest, then a phone's tap (the app's mycel:open: the router, no reload): the same
     await page.goto(`/c/${chatId}`)
