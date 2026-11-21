@@ -2,12 +2,13 @@ import { confidentialChat, localTool } from "../safe-ops/confidential"
 // The tools of one turn besides the six file tools: B's remember / forget / ask_user / connect_service / set_title and the browser pane tools
 // (desktop window only), plus whatever other components registered in ctx.services.turnTools (C: make_file,
 // share_file, artifact, web_fetch). Served over the same MCP connection as the file tools (mcp__team__<name>).
+import { isReservedPlace, parsePlace } from '@mycel/shared/places'
 import { isFreeRoam } from '../app-config'
 import { freeRoamToolCallRefused, freeRoamToolFenced } from '../demo/guard'
 import { stampOutputOf } from '../tools/stamp-pdf'
 import { commentDocxOutput } from '../tools/comment-docx'
 import { editOfficeOutput } from '../tools/edit-office'
-import { chatFileOffered, chatFileTool, saveChatFileTool } from './chat-file-tool'
+import { chatFileOffered, chatFileTool, chatPlaceHooks, saveChatFileTool } from './chat-file-tool'
 import { answerCommentsOff, answerCommentsTool } from './answer-comments'
 import path from 'node:path'
 import { z } from 'zod'
@@ -251,7 +252,12 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
   // a file sent from the computer in a chat shared with people (chat/chat-file-tool.ts): read as this person while they
   // see the chat; only where the chat holds such files or is shared with people. save_chat_file copies one into the team
   // folder behind the wider-audience card (docs/decisions/20261118-chat-files-full-read-and-save.md)
-  if (chatFileOffered(exec)) { add(chatFileTool(exec)); add(saveChatFileTool(exec)) }
+  if (chatFileOffered(exec)) {
+    add(chatFileTool(exec)); add(saveChatFileTool(exec))
+    // the same files as the chat place chat:files/ of read, list, glob and grep (shared/src/places.ts): the main AI
+    // only (a sub-agent's view of the turn has no chatPlace)
+    exec.files.chatPlace = chatPlaceHooks(exec)
+  }
   // the comments under answers in this chat, read as this person while they see the chat (chat/answer-comments.ts):
   // a shared chat or one that still holds replies; never a scheduled run, Slack, a confidential, template or restricted
   // run, nor a sub-agent (PARENT_ONLY_TOOLS)
@@ -413,6 +419,10 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
         // after it was turned off during this turn, is refused before anyone is asked anything (the tool refuses it too)
         return { ...text(hwpWritingOffText(exec.spec.locale), true), summary: `${name} -> refused: Hangul writing is off (HWP plugin)` }
       }
+      // a chat place (chat:files/…, chat:work/…) in a tool that does not take one yet: refused before any card, never taken
+      // as a team path or a web address (docs/decisions/20261121-chat-places-as-paths.md)
+      const placeNo = placeRefusal(name, args)
+      if (placeNo) return { ...text(placeNo, true), summary: `${name} -> refused: chat place` }
       const t = tools.get(name)!
       // a call the tool refuses anyway asks nobody first and counts as nothing read (save_room_file without a file id,
       // into skills/, …)
@@ -1351,4 +1361,23 @@ function saveScreenshot(exec: TurnExec, b64: string, mime: string): string | nul
     exec.rt.log.warn('saving a shared screenshot failed', { err: e })
     return null
   }
+}
+
+/**
+ * A call of a registered tool (not read, list, glob or grep: files/service.ts callPlace takes those) that names a chat
+ * place (shared/src/places.ts) where this build does not take one: the words for the AI, or null. Only save_work_file's
+ * `path` (a work-folder file) takes one so far; the copy, the produce tools and in-place edits follow (plan
+ * 20261121-0615-chat-places-as-paths.md P2-P4).
+ */
+export function placeRefusal(name: string, args: unknown): string | null {
+  for (const { key, value } of namedPaths(name, args)) {
+    if (!isReservedPlace(value)) continue
+    const place = parsePlace(value)
+    if (name === 'save_work_file' && key === 'path' && place?.kind === 'work') continue
+    if (place?.kind === 'reserved') return `Not done (${name}): ${place.why}.`
+    return place?.kind === 'work'
+      ? `Not done (${name}): this tool does not take a work-folder path (${value}) yet. Read it with read, or hand it over with save_work_file first.`
+      : `Not done (${name}): this tool does not take a chat file (${value}) yet. Copy it into a team folder with save_chat_file first, then use that copy.`
+  }
+  return null
 }
