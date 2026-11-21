@@ -119,9 +119,9 @@ describe('the card on Home', () => {
       // the rooms are one line under the title now, a link to Chats (docs/decisions/20261120-my-setup-card.md)
       expect(text(m, 'member-welcome-line')).toBe("Alex Kim invited you · 6 people are here · You're in Everyone and # Sales")
       expect(m.get('member-welcome-rooms').getAttribute('href')).toBe('/rooms')
-      expect(text(m, 'member-welcome-progress')).toBe('Get started · 0 of 3')
+      expect(text(m, 'member-welcome-progress')).toBe('Get started · 0 of 3 required')
       // the rows, in order: tools first; no rooms row any more
-      expect([...m.get('member-welcome-rows').children].map((li) => li.getAttribute('data-testid'))).toEqual(['member-welcome-tools', 'member-welcome-hi', 'member-welcome-photo', 'member-welcome-ask'])
+      expect([...m.get('member-welcome-rows').children].map((li) => li.getAttribute('data-testid'))).toEqual(['member-welcome-tools', 'member-welcome-hi', 'member-welcome-ask', 'member-welcome-photo'])
       expect(text(m, 'member-welcome-tools')).toContain('Connect your tools')
       expect(m.get('member-welcome-tools').getAttribute('data-optional')).toBeNull()
       expect(m.get('member-welcome-hi').getAttribute('data-done')).toBeNull()
@@ -136,6 +136,28 @@ describe('the card on Home', () => {
       // the card sits above the greeting on a computer
       expect(m.get('home-top').querySelector('[data-testid="member-welcome"]')).not.toBeNull()
       expect(m.get('home-top').nextSibling).toBe(m.get('home-head'))
+    } finally { await m.unmount() }
+  })
+
+  test('Hide sits on the title\'s line (it closes the whole card); the count line is a plain label', async () => {
+    signIn()
+    const m = await home()
+    try {
+      await m.until(() => m.find('member-welcome'), 'the card')
+      const hide = m.get('member-welcome-hide')
+      expect(hide.parentElement).toBe(m.get('member-welcome-title').parentElement)
+      expect(m.get('member-welcome-progress').querySelector('button')).toBeNull()
+    } finally { await m.unmount() }
+  })
+
+  test('a demo (scripted, free roam): no tools row and no files row; the count is hi and ask only', async () => {
+    signIn()
+    welcome = card({ demo: true, steps: { rooms: true, hi: true, photo: false, asked: false, tools: true } })
+    const m = await home()
+    try {
+      await m.until(() => m.find('member-welcome'), 'the card')
+      expect([...m.get('member-welcome-rows').children].map((li) => li.getAttribute('data-testid'))).toEqual(['member-welcome-hi', 'member-welcome-ask', 'member-welcome-photo'])
+      expect(text(m, 'member-welcome-progress')).toBe('Get started · 1 of 2 required')
     } finally { await m.unmount() }
   })
 
@@ -186,7 +208,7 @@ describe('the card on Home', () => {
       await m.until(() => m.find('member-welcome-hi-open'), 'done')
       expect(called(`POST /api/rooms/${EVERYONE}/messages`).map((c) => c.body.body)).toEqual(["👋 Hi, I'm Mina Park"])
       expect(m.get('member-welcome-hi').getAttribute('data-done')).toBe('true')
-      expect(text(m, 'member-welcome-progress')).toBe('Get started · 1 of 3')
+      expect(text(m, 'member-welcome-progress')).toBe('Get started · 1 of 3 required')
       expect(m.get('member-welcome-hi-open').getAttribute('href')).toBe(`/rooms/${EVERYONE}`)
     } finally { await m.unmount() }
   })
@@ -227,7 +249,7 @@ describe('the card on Home', () => {
       await m.until(() => m.find('member-welcome'), 'the card')
       expect(m.get('member-welcome-photo').getAttribute('data-done')).toBe('true')
       expect(m.find('member-welcome-photo-button')).toBeNull()
-      expect(text(m, 'member-welcome-progress')).toBe('Get started · 2 of 3')
+      expect(text(m, 'member-welcome-progress')).toBe('Get started · 2 of 3 required')
     } finally { await m.unmount() }
     useMemberWelcome.getState().reset()
     welcome = card({ steps: { rooms: true, hi: true, photo: false, asked: true }, allSet: true })
@@ -380,7 +402,7 @@ describe('"Connect your tools" (docs/decisions/20261120-my-setup-card.md)', () =
       expect(called('POST /api/integrations').map((c) => c.body)).toEqual([{ kind: 'mcp', name: 'Notion', url: 'https://mcp.notion.com/mcp', auth: 'oauth', writePolicy: 'ask' }])
       await m.until(() => item(m, 'notion')?.getAttribute('data-state') === 'mine' || null, 'connected', 6000)
       await m.until(() => m.get('member-welcome-tools').getAttribute('data-done') === 'true' || null, 'the row done')
-      expect(text(m, 'member-welcome-progress')).toBe('Get started · 1 of 3')
+      expect(text(m, 'member-welcome-progress')).toBe('Get started · 1 of 3 required')
     } finally { await m.unmount() }
   }, 20_000)
 })
@@ -450,7 +472,7 @@ describe('the desktop app\'s files row (optional, not counted)', () => {
     try {
       await m.until(() => m.find('member-welcome'), 'the card')
       expect(m.find('member-welcome-files')).toBeNull()
-      expect(text(m, 'member-welcome-progress')).toBe('Get started · 0 of 3')
+      expect(text(m, 'member-welcome-progress')).toBe('Get started · 0 of 3 required')
     } finally { await m.unmount() }
   })
 
@@ -478,7 +500,7 @@ describe('the desktop app\'s files row (optional, not counted)', () => {
       expect(text(m, 'member-welcome-files')).toContain('Bring work files from this computer')
       expect(text(m, 'member-welcome-files')).toContain('only you see them, in My files › From this computer')
       expect(text(m, 'member-welcome-files-button')).toBe('Find files')
-      expect(text(m, 'member-welcome-progress')).toBe('Get started · 0 of 3')
+      expect(text(m, 'member-welcome-progress')).toBe('Get started · 0 of 3 required')
     } finally { await m.unmount() }
     useMemberWelcome.getState().reset()
     phoneWidth()
@@ -486,7 +508,7 @@ describe('the desktop app\'s files row (optional, not counted)', () => {
     try {
       await p.until(() => p.find('member-welcome'), 'the card')
       expect(p.find('member-welcome-files')).toBeNull()
-      expect(text(p, 'member-welcome-progress')).toBe('Get started · 0 of 3')
+      expect(text(p, 'member-welcome-progress')).toBe('Get started · 0 of 3 required')
     } finally { await p.unmount() }
   })
 
@@ -500,7 +522,7 @@ describe('the desktop app\'s files row (optional, not counted)', () => {
       expect(m.get('member-welcome-files').getAttribute('data-done')).toBe('true')
       expect(m.find('member-welcome-files-button')).toBeNull()
       expect(m.get('member-welcome-files-open').getAttribute('href')).toBe('/files?path=users%2Fmina%2FFrom%20this%20computer')
-      expect(text(m, 'member-welcome-progress')).toBe('Get started · 1 of 3')
+      expect(text(m, 'member-welcome-progress')).toBe('Get started · 1 of 3 required')
     } finally { await m.unmount() }
   })
 
@@ -580,7 +602,7 @@ describe('no AI for the person', () => {
       await act(async () => { await useAiAccess.getState().load(true) })
       await m.until(() => m.find('member-welcome-ask-button'), 'the question')
       expect(m.get('member-welcome-ask').getAttribute('data-done')).toBeNull()
-      expect(text(m, 'member-welcome-progress')).toBe('Get started · 0 of 3')
+      expect(text(m, 'member-welcome-progress')).toBe('Get started · 0 of 3 required')
     } finally { await m.unmount() }
   })
 })

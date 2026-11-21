@@ -5930,7 +5930,7 @@ export const zh: Record<MessageKey, string> = {
   "memberWelcome.title": "{name}，欢迎加入{team}",
   "memberWelcome.invited": "{inviter}邀请了你 · {n, plural, one {这里有#人} other {这里有#人}}",
   "memberWelcome.people": "{n, plural, one {这里有#人} other {这里有#人}}",
-  "memberWelcome.progress": "开始使用 · {done}/{total}",
+  "memberWelcome.progress": "开始使用 · 必做 {done}/{total}",
   "memberWelcome.hideLabel": "隐藏我的设置",
   "memberWelcome.rooms": "你已加入{rooms}",
   "memberWelcome.roomsOpen": "打开",

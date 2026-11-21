@@ -6004,7 +6004,7 @@ export const en: Record<MessageKey, string> = {
   "memberWelcome.title": "Welcome to {team}, {name}",
   "memberWelcome.invited": "{inviter} invited you · {n, plural, one {# person is here} other {# people are here}}",
   "memberWelcome.people": "{n, plural, one {# person is here} other {# people are here}}",
-  "memberWelcome.progress": "Get started · {done} of {total}",
+  "memberWelcome.progress": "Get started · {done} of {total} required",
   "memberWelcome.hideLabel": "Hide my setup",
   "memberWelcome.rooms": "You're in {rooms}",
   "memberWelcome.roomsOpen": "Open",

@@ -6003,7 +6003,7 @@ export const id: Record<MessageKey, string> = {
   "memberWelcome.title": "Selamat datang di {team}, {name}",
   "memberWelcome.invited": "{inviter} mengundang Anda · {n} orang ada di sini",
   "memberWelcome.people": "{n} orang ada di sini",
-  "memberWelcome.progress": "Mulai · {done} dari {total}",
+  "memberWelcome.progress": "Mulai · {done} dari {total} wajib",
   "memberWelcome.hideLabel": "Sembunyikan pengaturan saya",
   "memberWelcome.rooms": "Anda ada di {rooms}",
   "memberWelcome.roomsOpen": "Buka",
