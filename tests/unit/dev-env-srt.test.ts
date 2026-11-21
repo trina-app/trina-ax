@@ -19,7 +19,7 @@ import { effectiveLimits, parsePlan, sliceValues, type DevEnvPlan } from '../../
 import { _active, newRunId, readExit, setSrtSystem, teamHosts, WAIT_MAX_MS } from '../../server/src/devenv/srt/runner'
 import { _held, _heldSkills, holdPlaceholders, holdSkillFolders, SRT_DENY_DIRS, SRT_DENY_FILES } from '../../server/src/devenv/srt/placeholders'
 import { cgroupDir, slicePath, type SpawnSpec, type SrtSystem, type UnitInfo } from '../../server/src/devenv/srt/system'
-import { pollSrt, runResultsForAI } from '../../server/src/devenv/jobs'
+import { JOB_DONE, JOB_FAILED, JOB_FAILED_NO_CHAT, pollSrt, runResultsForAI } from '../../server/src/devenv/jobs'
 import { mayUseDevEnv, newConsent, saveTeamSetting, teamInForce, teamSetting } from '../../server/src/devenv/setting'
 import { boxShellTool } from '../../server/src/devenv/tool'
 import { _resetUpdateWait, beginUpdateWait, endUpdateWait } from '../../server/src/system/update-wait'
@@ -1329,7 +1329,9 @@ describe('jobs and the queue (per team)', () => {
     r.state = 'failed'; r.result = 'oom-kill'; r.resolve({ code: null, signal: 'SIGKILL' })
     await pollSrt(h.ctx)
     expect(rows()[0]).toMatchObject({ state: 'ended', end_reason: 'oom', exit_code: null })
-    expect(publish.find((p) => p.frame.data.code === 'dev_env_job')!.frame.data.message).toContain('ran out of memory')
+    // the person hears that it did not finish, in plain words (the reason stays in the row, for the AI)
+    const bigTitle = (h.ctx.db.query('SELECT title FROM chats WHERE id = ?').get(chatPlain) as { title: string }).title.trim()
+    expect(bigTitle ? Object.values(JOB_FAILED).map((f) => f(bigTitle)) : Object.values(JOB_FAILED_NO_CHAT)).toContain(publish.find((p) => p.frame.data.code === 'dev_env_job')!.frame.data.message!)
     // the inbox has the job of a chat with no project, with a link to the chat
     const inbox = (await h.api('alice').call(API.listNotifications, { query: {} })).items.find((i) => i.devEnv?.job?.name === 'big')
     expect(inbox).toMatchObject({ link: 'chat', chatId: chatPlain, devEnv: { projectId: '', job: { exitCode: null, reason: 'oom' } } })
@@ -1337,6 +1339,43 @@ describe('jobs and the queue (per team)', () => {
     runs.get(runIdOfRow(rows()[1]!))!.state = 'gone'
     await pollSrt(h.ctx)
     expect(rows()[1]).toMatchObject({ state: 'ended', end_reason: 'lost' })
+  })
+  test('a finished job tells the person the result in plain words: no log, exit code or job name, and it opens the chat', async () => {
+    const title = 'Launch video for Mina'
+    h.ctx.db.query('UPDATE chats SET title = ? WHERE id = ?').run(title, chatPlain)
+    const log = '@hf-progress {"code":"encode","done":815,"total":900}\n89% Encoding frame 822/900\nrender.mp4 written\n'
+    const plainWords = (m: string) => {
+      for (const bad of ['@hf-progress', 'Encoding', '822/900', 'render', 'exit code', '종료 코드', '(0)', '/tmp', '$TRINA_LOGS']) expect(m).not.toContain(bad)
+    }
+    try {
+      await alice({ project: null, chat: chatPlain }).call({ command: 'sleep', job: true, log_name: 'render' })
+      finish(runIdOfRow(rows()[0]!), 0, log)
+      await pollSrt(h.ctx)
+      // the live notice: one plain line about the result, in the person's language, with the chat's title; it opens the chat
+      const live = publish.filter((p) => p.frame.data.code === 'dev_env_job')
+      expect(live).toHaveLength(1)
+      expect(live[0]).toMatchObject({ user: 'alice', frame: { data: { link: `/c/${chatPlain}` } } })
+      expect(Object.values(JOB_DONE).map((f) => f(title))).toContain(live[0]!.frame.data.message!)
+      plainWords(live[0]!.frame.data.message!)
+      // Activity: a link to the chat with its title, and none of the log or the English end note
+      const item = (await h.api('alice').call(API.listNotifications, { query: {} })).items.find((i) => i.code === 'dev_env.job')!
+      expect(item).toMatchObject({ link: 'chat', chatId: chatPlain, devEnv: { job: { exitCode: 0, chatTitle: title } } })
+      expect(item.devEnv!.job!.tail).toBeUndefined()
+      expect(item.devEnv!.job!.note).toBeUndefined()
+      for (const bad of ['@hf-progress', 'Encoding', '822/900']) expect(JSON.stringify(item)).not.toContain(bad)
+      // the log stays for the AI of that chat
+      expect(runResultsForAI(h.ctx, 'alice', chatPlain).join('\n')).toContain('Encoding frame 822/900')
+      // a job that failed says so, with no code and no log
+      publish.length = 0
+      await alice({ project: null, chat: chatPlain }).call({ command: 'sleep', job: true, log_name: 'render2' })
+      finish(runIdOfRow(rows()[1]!), 2, 'Error: ffmpeg exited with code 1\n    at encode (render.js:12)\n')
+      await pollSrt(h.ctx)
+      const failed = publish.find((p) => p.frame.data.code === 'dev_env_job')!.frame.data.message!
+      expect(Object.values(JOB_FAILED).map((f) => f(title))).toContain(failed)
+      plainWords(failed)
+      expect(failed).not.toContain('ffmpeg')
+      expect(runResultsForAI(h.ctx, 'alice', chatPlain).join('\n')).toContain('ffmpeg exited')
+    } finally { h.ctx.db.query("UPDATE chats SET title = '' WHERE id = ?").run(chatPlain) }
   })
   test('a person stops their own run; others cannot, except on the project page with access, and admins', async () => {
     await alice({ project: null, chat: chatPlain }).call({ command: 'sleep', job: true, log_name: 'run' })

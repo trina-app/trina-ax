@@ -6426,13 +6426,6 @@ export class MockServer {
       if ('guests' in body) this.guestCap = typeof body.guests === 'number' ? body.guests : null
       if ('seatsFull' in body) this.seatsFull = body.seatsFull === true
     }
-    else if (p === '/__test/room-category') {
-      // a team category as an admin made it (rooms/categories.ts), for a member's test
-      const x = { id: uuidv7(), name: String(body.name), position: this.roomCategories.length }
-      this.roomCategories.push(x)
-      this.publish({ type: 'roomCategories.changed', data: {} })
-      return Response.json(x)
-    }
     else if (p === '/__test/rooms') {
       // session markers (docs/DECISIONS.md): rooms as GET /api/rooms lists them (unread counts, "@", the AI waiting on
       // me); each one is sent like the server's room.updated
@@ -6534,11 +6527,6 @@ export class MockServer {
   /** `${userId}:${chat or room id}` → the folder it is in, for that person */
   navItems = new Map<string, string>()
   readonly navFoldersInstalled = this.installNavFolders()
-
-  // ---------------- conversation categories (server/src/rooms/categories.ts) ----------------
-  /** the team's categories: the same list for everyone; admins and the owner change them */
-  roomCategories: { id: string; name: string; position: number }[] = []
-  readonly roomCategoriesInstalled = this.installRoomCategories()
 
   // ---------------- a team project's own chat room (server/src/rooms/project-room.ts, short) ----------------
   // POST /api/projects/:id/room makes it the first time (named after the project); its members are the project's readers
@@ -7859,72 +7847,6 @@ export class MockServer {
       const n = c.body.limit ?? 20
       return { total: all.length, totalCapped: false, items: all.slice(at, at + n), nextCursor: at + n < all.length ? String(at + n) : null }
     })
-  }
-
-  private installRoomCategories() {
-    const h = this.handlers
-    const baseReset = this.reset.bind(this)
-    this.reset = (o) => {
-      this.roomCategories = []
-      baseReset(o)
-    }
-    const admin = (c: Ctx) => { if (c.user.role !== 'admin' && c.user.role !== 'owner') fail('forbidden', 403) }
-    const list = () => [...this.roomCategories].sort((a, b) => a.position - b.position)
-    const one = (id: string) => this.roomCategories.find((x) => x.id === id) ?? fail('not_found', 404)
-    const changed = () => this.publish({ type: 'roomCategories.changed', data: {} })
-    const roomChanged = (r: Room) => this.publish({ type: 'room.updated', data: { roomId: r.id, change: 'updated', room: r } })
-    const nameKey = (s: string) => s.normalize('NFC').trim().toLowerCase()
-    const checkName = (name: string, except?: string) => {
-      const n = String(name ?? '').normalize('NFC').trim()
-      if (!n || [...n].length > 40) fail('validation', 400, undefined, { 'body.name': 'invalid' })
-      if (this.roomCategories.some((x) => x.id !== except && nameKey(x.name) === nameKey(n))) fail('conflict', 409, '같은 이름의 카테고리가 이미 있어요.', { 'body.name': 'room_category_name_taken' }, { reason: 'room_category_name_taken' })
-      return n
-    }
-    const without = (r: Room): Room => { const { categoryId: _, ...rest } = r; return rest as Room }
-    h.listRoomCategories = () => ({ items: list() })
-    h.createRoomCategory = (c) => {
-      admin(c)
-      const x = { id: uuidv7(), name: checkName(c.body.name), position: this.roomCategories.length }
-      this.roomCategories.push(x)
-      changed()
-      return { status: 201, body: x }
-    }
-    h.updateRoomCategory = (c) => {
-      admin(c)
-      const x = one(c.params.id!)
-      x.name = checkName(c.body.name, x.id)
-      changed()
-      return x
-    }
-    h.deleteRoomCategory = (c) => {
-      admin(c)
-      const x = one(c.params.id!)
-      this.roomCategories = this.roomCategories.filter((y) => y !== x)
-      list().forEach((y, i) => (y.position = i))
-      this.rooms = this.rooms.map((r) => (r.categoryId === x.id ? without(r) : r))
-      for (const r of this.rooms) roomChanged(r)
-      changed()
-      return { status: 204, body: null }
-    }
-    h.orderRoomCategories = (c) => {
-      admin(c)
-      const now = list()
-      const ids = (c.body.ids as string[]).filter((id) => now.some((x) => x.id === id))
-      ;[...ids.map((id) => now.find((x) => x.id === id)!), ...now.filter((x) => !ids.includes(x.id))].forEach((x, i) => (x.position = i))
-      changed()
-      return { items: list() }
-    }
-    h.setRoomCategory = (c) => {
-      admin(c)
-      const room = this.rooms.find((r) => r.id === c.params.id) ?? fail('not_found', 404)
-      if (room.kind === 'dm' || (room.kind === 'group' && !room.name)) fail('conflict', 409, undefined, undefined, { reason: 'room_category_personal' })
-      const to = c.body.categoryId as string | null
-      if (to) one(to)
-      const next = to ? { ...room, categoryId: to } : without(room)
-      this.rooms = this.rooms.map((r) => (r.id === room.id ? next : r))
-      roomChanged(next)
-      return next
-    }
   }
 
   private installNavFolders() {

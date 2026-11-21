@@ -647,7 +647,7 @@ export class Notifications {
    * project it is shown while the person can see the project; with none, projectId and projectName are ''. */
   private devEnvRunOut(row: Row, base: InboxNotification): InboxNotification {
     const db = this.ctx.db
-    const run = db.query('SELECT project_id,name,chat_id,exit_code,end_note,log_tail,end_reason FROM dev_env_runs WHERE id=? AND user_id=?').get(row.source_id, row.user_id) as { project_id: string | null; name: string; chat_id: string | null; exit_code: number | null; end_note: string; log_tail: string; end_reason: string } | null
+    const run = db.query('SELECT project_id,name,chat_id,exit_code,end_reason FROM dev_env_runs WHERE id=? AND user_id=?').get(row.source_id, row.user_id) as { project_id: string | null; name: string; chat_id: string | null; exit_code: number | null; end_reason: string } | null
     if (!run) return base
     const project = run.project_id ? db.query('SELECT name,folder_path,trashed_with FROM projects WHERE id=?').get(run.project_id) as { name: string; folder_path: string; trashed_with: string | null } | null : null
     if (project) {
@@ -656,8 +656,10 @@ export class Notifications {
         authorize(this.ctx.files.fx, this.ctx.files.rules(), this.ctx.files.principal(row.user_id), project.folder_path, 'read')
       } catch { return base }
     }
-    const chat = run.chat_id ? db.query('SELECT id FROM chats WHERE id=? AND user_id=? AND deleted_at IS NULL').get(run.chat_id, row.user_id) as { id: string } | null : null
-    const job = { name: run.name, exitCode: run.exit_code, note: run.end_note, tail: run.log_tail, ...(run.end_reason && run.end_reason !== 'exit' ? { reason: run.end_reason } : {}) }
+    const chat = run.chat_id ? db.query('SELECT id,title FROM chats WHERE id=? AND user_id=? AND deleted_at IS NULL').get(run.chat_id, row.user_id) as { id: string; title: string } | null : null
+    // the result in plain words (done or not, in which chat): never the log or the English end note, which stay in the
+    // job's row for the AI of that chat (the people reading Activity are not developers)
+    const job = { name: run.name, exitCode: run.exit_code, ...(run.end_reason && run.end_reason !== 'exit' ? { reason: run.end_reason } : {}), ...(chat?.title ? { chatTitle: chat.title } : {}) }
     return { ...base, chatId: chat?.id ?? null, link: chat ? 'chat' : project ? 'project' : null, devEnv: { projectId: project ? run.project_id! : '', projectName: project?.name ?? '', job } }
   }
   /** `rows`: the Inbox's list, whose room notices are rows (roomRows) with the first line of their newest message; a

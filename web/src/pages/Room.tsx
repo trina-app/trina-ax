@@ -656,19 +656,24 @@ function RoomView({ roomId, threadId, badThread }: { roomId: string; threadId: s
         {/* the room's one setting, right here: the bell shows how it is now and opens its four levels; then the room's
             "⋯" (its 알림 설정 opens the bell's menu). A phone: no bell (its menu stays, as a sheet from ⋯ › 알림 설정) */}
         {room && <RoomNotifyMenu room={room} openRequest={notifyRequest} bare={!wide} className={wide ? undefined : 'contents'} focusBack={() => moreRef.current?.focus()} />}
+        {/* a box of its own around the "⋯", so its Move to section list opens under the button (it is drawn beside it,
+            from the box's bottom right), not at the bottom of the conversation's column */}
         {room && (
-          <RoomMenu
-            room={room}
-            onNotify={() => setNotifyRequest((n) => n + 1)}
-            onInvite={invitePeople}
-            onSearch={() => useUi.getState().setSearchOpen(true, undefined, room.id)}
-            className="shrink-0"
-            buttonClassName="touch-hit"
-            buttonRef={moreRef}
-            phone={wide ? undefined : { first: nextThread ? [{ label: threadsLabel, icon: <MessagesSquare size={14} aria-hidden />, onSelect: () => openThread(nextThread), testId: 'room-menu-next-thread' }] : [] }}
-            dot={!wide && !!nextThread}
-            label={!wide && nextThread ? `${t('rooms.menu.label')}, ${threadsLabel}` : undefined}
-          />
+          <div className="relative flex shrink-0" data-testid="room-menu-box">
+            <RoomMenu
+              room={room}
+              onNotify={() => setNotifyRequest((n) => n + 1)}
+              onInvite={invitePeople}
+              onSearch={() => useUi.getState().setSearchOpen(true, undefined, room.id)}
+              className="shrink-0"
+              buttonClassName="touch-hit"
+              buttonRef={moreRef}
+              phone={wide ? undefined : { first: nextThread ? [{ label: threadsLabel, icon: <MessagesSquare size={14} aria-hidden />, onSelect: () => openThread(nextThread), testId: 'room-menu-next-thread' }] : [] }}
+              dot={!wide && !!nextThread}
+              label={!wide && nextThread ? `${t('rooms.menu.label')}, ${threadsLabel}` : undefined}
+              folders
+            />
+          </div>
         )}
       </div>
       {room && askHint.show && !guestNoAi && <RoomAskHint onAsk={() => setSideOpen(true)} onClose={askHint.seen} />}

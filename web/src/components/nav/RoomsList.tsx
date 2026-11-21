@@ -13,7 +13,8 @@ import { RoomIcon, RoomName, useRoomTitle } from '../rooms/RoomIcon'
 import { RoomMenu, useRowMenu } from '../rooms/RoomMenu'
 import { CountPill } from '../CountPill'
 import { PresenceText } from '../Presence'
-import { SectionAddButton } from './NavFolders'
+import { dragRow, SectionAddButton } from './NavFolders'
+import { ChannelsAddMenu } from './SidebarSections'
 import { PeoplePicker } from '../rooms/PeoplePicker'
 import { useMe } from '../../store/session'
 import { isGuestMe } from '../../lib/guests'
@@ -27,24 +28,31 @@ export type RoomSection = (typeof ROOM_SECTIONS)[number]
 export const SECTION_WORD = { team: 'rooms.section.team', dm: 'rooms.section.dm' } as const
 const sectionOf = (room: Pick<Room, 'kind'> & Partial<Pick<Room, 'name'>>): RoomSection => (room.kind === 'all' || room.kind === 'team' || isPrivateChannel({ kind: room.kind, name: room.name ?? null }) ? 'team' : 'dm')
 
-/** A kind section's "+" (as Slack has it): Channels' Create a channel (a name is required: a private channel), Direct
- * messages' New message (one person: the DM; more: their group DM). Not for a guest, who makes neither
+/** A kind section's "+" (as Slack has it). Channels': a small menu, Create a channel (a name is required: a private
+ * channel) and New section (docs/decisions/20261121-personal-sidebar-sections.md); a guest, who makes no channel, gets
+ * New section itself. Direct messages': New message (one person: the DM; more: their group DM), none for a guest
  * (docs/decisions/20261117-named-groups-private-channels.md). */
 export function RoomSectionAction({ section }: { section: RoomSection }) {
   const t = useT()
   const guest = isGuestMe(useMe())
   const [open, setOpen] = useState(false)
+  if (section === 'team')
+    return (
+      <>
+        <ChannelsAddMenu canMakeChannel={!guest} onNewChannel={() => setOpen(true)} />
+        {!guest && <PeoplePicker open={open} onClose={() => setOpen(false)} mode={{ kind: 'channel' }} />}
+      </>
+    )
   if (guest) return null
-  const channel = section === 'team'
   return (
     <>
-      <SectionAddButton label={t(channel ? 'rooms.section.newChannel' : 'rooms.newChat')} onClick={() => setOpen(true)} testId={channel ? 'rooms-new-channel' : 'rooms-new-message'} />
-      <PeoplePicker open={open} onClose={() => setOpen(false)} mode={channel ? { kind: 'channel' } : { kind: 'new' }} />
+      <SectionAddButton label={t('rooms.newChat')} onClick={() => setOpen(true)} testId="rooms-new-message" />
+      <PeoplePicker open={open} onClose={() => setOpen(false)} mode={{ kind: 'new' }} />
     </>
   )
 }
 
-/** The rooms not pinned or in a category (`rest`, by latest activity, as the store has them), by kind
+/** The rooms not pinned or in a section (`rest`, by latest activity, as the store has them), by kind
  * (docs/DECISIONS.md "Conversations by kind under Show more"): in each section any pins first (the
  * most recently pinned first), then channels with 전체 first and the others (private channels among them) by the name their row shows (`titleOf`,
  * compared in the app's language, numbers by their value), direct messages (1:1s and unnamed group rooms mixed) by latest
@@ -98,13 +106,14 @@ export const ROW_MENU_SHOWN = 'pointer-fine:group-hover:opacity-0 group-has-[:fo
 export const ROW_MENU_BUTTON = 'opacity-0 pointer-coarse:hidden group-hover:opacity-100 group-has-[:focus-visible]:opacity-100 aria-expanded:opacity-100 focus-visible:opacity-100'
 
 /** `section`: the section of the 대화 list it is in */
-export function RoomRow({ room, onNavigate, section }: { room: Room; onNavigate: () => void; section?: RoomSection | 'pinned' | 'folder' | 'category' }) {
+export function RoomRow({ room, onNavigate, section }: { room: Room; onNavigate: () => void; section?: RoomSection | 'pinned' | 'folder' }) {
   const t = useT()
   const title = useRoomTitle()(room)
   const { bold } = roomCounts(room)
   const menu = useRowMenu()
+  // a conversation may go in one of my sections (its "⋯", or dragged onto the section with a mouse)
   return (
-    <li className="group relative" {...menu.row} data-testid="sidebar-room-row" data-section={section}>
+    <li className="group relative" {...menu.row} {...dragRow('rooms', room.id, !room.hidden)} data-testid="sidebar-room-row" data-section={section}>
       <NavLink
         to={`/rooms/${room.id}`}
         onClick={(e) => {
