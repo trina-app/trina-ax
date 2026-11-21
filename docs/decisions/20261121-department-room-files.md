@@ -31,6 +31,13 @@
     files and uploads that stayed) and lists only those. A file in the folder shows "{group} › Chat attachments" beside
     its name. Deleting a message deletes only the message, and the confirm adds "The file stays in {group} › Chat
     attachments." for a file in the folder; a room-stored file goes with the message as before.
+  - **Later joiners.** People who join the department later can open every earlier upload in its Chat attachments
+    folder, but not the messages from before they joined. This is the same as a project.
+  - **Before it is sent.** An upload sits in Chat attachments, readable by the department and admins, from the moment
+    it is added until it is sent, discarded (✕), or cleared after 24 hours.
+  - **A department folder inside a project** keeps the room's uploads in room storage, not in the folder.
+  - **A person turned back on.** If someone who can open the folder is disabled and later turned back on, they can open
+    the uploads made in the meantime. This is the same as the folder being widened later.
   - Old files of department rooms stay in room storage (in that Files list, room search and ⌘K recent).
 - **Why:** one place for a team's files, the same model as a project's room.
 - **Left out:** moving the old room-stored files; the Everyone room (no folder) and the welcome steps' team group (no

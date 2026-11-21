@@ -7,5 +7,7 @@
   department's Chat attachments.
 - Admins can open a department room's new uploads in its folder, as they can open every team folder, even when they are
   not in the department. They still don't see the conversation.
+- People who join a department later can open its earlier files in Chat attachments, but not its earlier messages, as
+  in a project. When a department's folder is inside a project, files sent in its channel stay in the channel.
 - Admin notes, going back to an older version: files sent to a department folder after this update stay there and open
   in Files; in the channel, the older version shows them as unavailable.

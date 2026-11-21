@@ -249,6 +249,9 @@ bagian atas salurannya menampilkan tombol folder dengan nama departemen: tombol 
   tempatnya; hapus di File jika ingin menghilangkannya.
 - Admin bisa membuka semua folder tim, jadi mereka juga bisa membuka file ini di File meskipun tidak ada di departemen
   itu. Mereka tidak melihat percakapannya.
+- Orang yang bergabung ke departemen nanti bisa membuka semua file yang sudah ada di Lampiran obrolan-nya, tetapi tidak
+  pesan-pesan sebelumnya, sama seperti proyek.
+- Jika folder departemen ada di dalam proyek, file yang dikirim di saluran tetap di percakapan.
 - File yang dikirim sebelum perubahan ini tetap di saluran, di daftar **File**-nya.
 
 ### Tamu

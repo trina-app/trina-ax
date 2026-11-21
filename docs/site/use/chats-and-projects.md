@@ -251,6 +251,9 @@ top of its channel shows a folder button with the department's name: it opens th
   where; delete it in Files if you want it gone.
 - Admins can open every team folder, so they can open these files in Files too, even when they are not in the
   department. They do not see the conversation.
+- People who join the department later can open every file already in its Chat attachments folder, but not the
+  earlier messages, as in a project.
+- When the department's folder is inside a project, files sent in the channel stay in the conversation.
 - Files sent before this change stay in the channel, in its **Files** list.
 
 ### Guests

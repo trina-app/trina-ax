@@ -249,6 +249,10 @@ carpeta en Archivos.
   confirmación dice dónde; elimínelo en Archivos si quiere que desaparezca.
 - Los administradores pueden abrir todas las carpetas del equipo, así que también pueden abrir estos archivos en
   Archivos aunque no estén en el departamento. No ven la conversación.
+- Quienes entran después en el departamento pueden abrir todos los archivos que ya están en su Adjuntos del chat, pero
+  no los mensajes anteriores, como en un proyecto.
+- Cuando la carpeta del departamento está dentro de un proyecto, los archivos enviados en el canal se quedan en la
+  conversación.
 - Los archivos enviados antes de este cambio se quedan en el canal, en su lista **Archivos**.
 
 ### Invitados
