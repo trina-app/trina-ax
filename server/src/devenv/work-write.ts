@@ -40,10 +40,10 @@ const STAGE_STALE_MS = 3600_000
 const C = fs.constants
 const CONTROL = /[\u0000-\u001f\u007f]/
 
-/** What to copy. A team file: `abs` and `seen`, the lstat of its permission check (policy/authorize.ts), as every team
- * read. A folder: walked here; `include` is the caller's permission check for each entry (its path in the folder,
- * '/'-separated): false leaves it out (and a folder's whole content). Server-owned files (a chat file's copy) without
- * `seen`. */
+/** What to copy. Every `abs` is a real path (no folder on the way a link; one that is refuses the copy). A team file:
+ * `abs` and `seen`, the lstat of its permission check (policy/authorize.ts), as every team read. A folder: walked
+ * here; `include` is the caller's permission check for each entry (its path in the folder, '/'-separated): false leaves
+ * it out (and a folder's whole content). Server-owned files (a chat file's copy) without `seen`. */
 export type WorkSource =
   | { kind: 'file'; abs: string; seen?: fs.Stats; name?: string }
   | { kind: 'folder'; abs: string; include?: (rel: string, kind: 'file' | 'folder') => boolean }
@@ -162,6 +162,15 @@ function openExact(abs: string, expected: string): { fd: number; st: fs.Stats } 
   } catch (e) { try { fs.closeSync(fd) } catch {} throw e }
 }
 
+/** `real` (fs.realpathSync of `given`) must be `given` itself: no folder on the way is a link. (macOS: one file for
+ * every Unicode form of its name, and the system's path has the form on disk: a Korean name made in Finder is NFD, a
+ * path typed is NFC.) */
+function realOrRefuse(real: string, given: string, name: string) {
+  const want = path.resolve(given)
+  if (process.platform === 'darwin' ? real.normalize('NFC') === want.normalize('NFC') : real === want) return
+  throw new Denied(`a folder on the way to '${name}' is a link (or it changed while it was copied); links are not followed, and nothing was copied`)
+}
+
 /** Stage the source in `item` (a new path in the stage folder). Every limit and check is done here, before the box
  * command runs. */
 async function stage(ctx: AppContext, source: WorkSource, item: string, o: WorkWriteOptions): Promise<{ plan: Plan; skipped: WorkWriteResult['skipped'] }> {
@@ -176,6 +185,9 @@ async function stage(ctx: AppContext, source: WorkSource, item: string, o: WorkW
     else {
       let realDir: string
       try { realDir = fs.realpathSync(path.dirname(source.abs)) } catch { throw new ToolError(`'${name}' was not found`, 'not_found') }
+      // the same rule as a folder's (realOrRefuse): a folder on the way that is a link (a work folder's, which every
+      // command may make) would lead the open where it points; the caller passes the real path
+      realOrRefuse(realDir, path.dirname(source.abs), name)
       const r = openExact(source.abs, path.join(realDir, path.basename(source.abs)))
       if ('skip' in r) throw new Denied(`'${name}' is ${r.skip === 'link' ? 'a link; links are not copied' : r.skip === 'hard link' ? 'a hard-linked file; those are refused' : 'not a regular file'}`)
       opened = r
@@ -192,7 +204,11 @@ async function stage(ctx: AppContext, source: WorkSource, item: string, o: WorkW
   try { st = fs.lstatSync(source.abs) } catch { throw new ToolError(`'${path.basename(source.abs)}' was not found`, 'not_found') }
   if (st.isSymbolicLink()) throw new Denied(`'${path.basename(source.abs)}' is a link; links are not copied`)
   if (!st.isDirectory()) throw new ToolError(`'${path.basename(source.abs)}' is not a folder`, 'not_folder')
+  // the caller's path is the real one (a team path: the team folder's real path plus the names on disk, as every
+  // team read; policy/authorize.ts). A folder on the way that is a link (made by a command of the person, before or after
+  // the caller's check) would lead the whole walk where it points, and every file there would pass its check below
   const realRoot = fs.realpathSync(source.abs)
+  realOrRefuse(realRoot, source.abs, path.basename(source.abs))
   // first the plan: every entry and the limits by lstat, so a copy over a limit stages nothing at all
   type E = { rel: string; kind: 'file' | 'folder' }
   const entries: E[] = []
@@ -268,9 +284,13 @@ export function copyInScript(stageItem: string, parent: string, leaf: string, is
     `B=${shellQuote(base)}`,
     `E=${shellQuote(ext)}`,
     'mkdir -p -- "$P" 2>/dev/null; [ -d "$P" ] || { echo "TRINA-COPY:parent" >&2; exit 21; }',
+    // the name is taken atomically (mkdir, or an O_EXCL create with noclobber) before anything is copied: two copies to
+    // one name at once (parallel tool calls, two people's turns) each get their own, and a folder never lands inside
+    // another copy that took the name a moment earlier
+    isFolder ? 'take() { mkdir -- "$T" 2>/dev/null; }' : 'take() { [ ! -e "$T" ] && [ ! -L "$T" ] && (set -C; : > "$T") 2>/dev/null; }',
     'T="$P/$B$E"; i=2',
-    'while [ -e "$T" ] || [ -L "$T" ]; do [ "$i" -gt 999 ] && { echo "TRINA-COPY:names" >&2; exit 22; }; T="$P/$B ($i)$E"; i=$((i+1)); done',
-    'cp -R -P -- "$S" "$T" || { rm -rf -- "$T"; echo "TRINA-COPY:cp" >&2; exit 23; }',
+    'until take; do { [ -e "$T" ] || [ -L "$T" ]; } || { echo "TRINA-COPY:cp" >&2; exit 23; }; [ "$i" -gt 999 ] && { echo "TRINA-COPY:names" >&2; exit 22; }; T="$P/$B ($i)$E"; i=$((i+1)); done',
+    `cp -R -P -- ${isFolder ? '"$S/."' : '"$S"'} "$T" || { rm -rf -- "$T"; echo "TRINA-COPY:cp" >&2; exit 23; }`,
     'printf "TRINA-WROTE:%s\\n" "$T"',
   ].join('\n')
 }
