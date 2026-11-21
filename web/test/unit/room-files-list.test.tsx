@@ -2,7 +2,8 @@
 // - the header's Files (a channel, a 1:1, a group chat; never a project's chat room, which has the project's button)
 //   opens the list on the room's right in the side chat's place, and closes it again;
 // - the list: each file's name, who sent it, when and its size, newest first; Load more for the next page; a row opens
-//   the file viewer; plain words when there is none yet; a team room's group folder link at its top;
+//   the file viewer; plain words when there is none yet; a team room with a group folder has 📁 {group} in its header
+//   first and its list only while it holds files of its own (Room.roomFiles), as a project's room does;
 // - ⌘K before anything is typed: "Recent files" (at most five), a row opening the file viewer.
 import { afterAll, afterEach, beforeAll, describe, expect, setDefaultTimeout, test } from 'bun:test'
 import { act } from 'react'
@@ -117,18 +118,44 @@ describe('the room\'s Files list', () => {
     } finally { await m.unmount() }
   })
 
-  test('no files yet: plain words; a team room with a folder: its link at the top of the list, not in the header', async () => {
-    const r = room({ name: 'design', groupFolder: 'groups/design' })
+  test('no files yet: plain words', async () => {
+    const r = room({ kind: 'group', name: 'design', groupId: null })
     serveRoom(r, () => json({ items: [], nextCursor: null }))
     const m = await roomPage(r.id)
     try {
       await m.until(() => m.find('room-files-button'), 'the Files button', 3000)
-      expect(m.find('room-group-files')).toBeNull()
       await m.click('room-files-button')
       await m.until(() => m.find('room-files') && m.get('room-files').textContent?.includes(en('rooms.files.empty')), 'the empty state', 3000)
       expect(m.get('room-files').textContent).toContain(en('rooms.files.emptyHint'))
-      expect(m.get('room-files-folder').getAttribute('href')).toBe(`/files?path=${encodeURIComponent('groups/design')}`)
-      expect(m.get('room-files-folder').textContent).toBe(en('rooms.groupFilesTip', { name: 'design' }))
+      // the group folder's row of the list is gone (docs/decisions/20261121-department-room-files.md: the header has it)
+      expect(m.find('room-files-folder')).toBeNull()
+    } finally { await m.unmount() }
+  })
+
+  // docs/decisions/20261121-department-room-files.md: a department's room with a folder I can open has 📁 {group} first
+  // in its header; its Files list only while it holds files of its own (Room.roomFiles), each "Only in this conversation"
+  test('a team room with a folder: 📁 {group} first; no Files list until it holds files of its own, which it lists alone', async () => {
+    let r = room({ name: 'design', groupFolder: 'groups/design' })
+    serveRoom(r, () => json({ items: [{ ...hit(r.id, 'old-brief.pdf'), file: { ...hit(r.id, 'old-brief.pdf').file, roomOnly: true } }], nextCursor: null }))
+    let m = await roomPage(r.id)
+    try {
+      await m.until(() => m.find('room-group-folder'), 'the folder button', 3000)
+      expect(m.get('room-group-folder').getAttribute('href')).toBe(`/files?path=${encodeURIComponent('groups/design')}`)
+      expect(m.get('room-group-folder').getAttribute('aria-label')).toBe(en('rooms.groupFilesTip', { name: 'design' }))
+      expect(m.get('room-group-folder').textContent).toBe('design')
+      expect(m.find('room-files-button')).toBeNull()
+    } finally { await m.unmount() }
+    r = room({ name: 'design', groupFolder: 'groups/design', roomFiles: true })
+    serveRoom(r, () => json({ items: [{ ...hit(r.id, 'old-brief.pdf'), file: { ...hit(r.id, 'old-brief.pdf').file, roomOnly: true } }], nextCursor: null }))
+    m = await roomPage(r.id)
+    try {
+      await m.until(() => m.find('room-files-button'), 'the Files button', 3000)
+      // the folder first, then Files
+      const header = m.get('room-header').innerHTML
+      expect(header.indexOf('room-group-folder')).toBeLessThan(header.indexOf('room-files-button'))
+      await m.click('room-files-button')
+      await m.until(() => m.find('room-files-row'), 'the row', 3000)
+      expect(m.get('room-files-meta').parentNode!.textContent).toContain(en('rooms.file.roomOnly'))
     } finally { await m.unmount() }
   })
 
@@ -145,7 +172,7 @@ describe('the room\'s Files list', () => {
     } finally { await m.unmount() }
   })
 
-  test('a project\'s chat room has no Files button (its files are the project\'s)', async () => {
+  test('a project\'s chat room has no Files button while it holds no files of its own (its files are the project\'s)', async () => {
     const r = room({ kind: 'group', name: 'Launch site', groupId: null, project: { id: uuidv7(), name: 'Launch site', folderPath: 'projects/Launch site', canSave: true, room: true } })
     serveRoom(r, () => json({ error: { code: 'not_found', message: 'x' } }, 404))
     const m = await roomPage(r.id)

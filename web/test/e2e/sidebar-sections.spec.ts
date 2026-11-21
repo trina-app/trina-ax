@@ -198,3 +198,44 @@ test('a computer (1440): Undo never undoes a later move; a pinned one says it st
   expect(l!.y).toBeGreaterThan(b!.y)
   await expect(list.getByRole('menuitemradio', { name: 'B' })).toHaveAttribute('aria-checked', 'true')
 })
+
+// docs/decisions/20261121-sidebar-projects-group.md (QA TC-6309, TC-6310): each team project's own chat room is under
+// the built-in Projects group, between Channels and Direct messages, by name; a project room goes in a section of mine
+// and back out onto the Projects header, as onto the other kind headers; the header stays while it is in a section.
+const projectRoom = (name: string, o: Record<string, unknown> = {}) => room(name, {
+  kind: 'group', groupId: null, projectRoom: true, project: { id: uuidv7(), name, folderPath: `projects/${name}`, canSave: true, room: true },
+  lastMessage: { id: uuidv7(), seq: 1, author: { id: 'bob', name: 'Bob' }, excerpt: 'hi', fileCount: 0, deleted: false, createdAt: ago(5) }, ...o,
+})
+test('a computer (1440): Projects between Channels and Direct messages, by name; a project room into a section and back out onto the Projects header', async ({ page }) => {
+  await start(page, 1440, [room('디자인', { activityAt: ago(1) }), projectRoom('Website 10', { activityAt: ago(2) }), projectRoom('Website 2', { activityAt: ago(3) }), dm('Bob', { activityAt: ago(4) })])
+  await page.getByTestId('rail-chats').click()
+  await expect.poll(() => cp(page).locator('[data-testid="chats-panel-section"]').evaluateAll((els) => els.map((e) => e.getAttribute('data-section')))).toEqual(['team', 'project', 'dm'])
+  const projects = panelSection(page, 'project')
+  await expect(projects.getByTestId('panel-section-name')).toHaveText(t['rooms.section.project'])
+  await expect(names(projects)).toHaveText(['Website 2', 'Website 10'])
+  // no "+" on Projects
+  await expect(projects.getByTestId('rooms-channels-add')).toHaveCount(0)
+  await expect(projects.getByTestId('rooms-new-message')).toHaveCount(0)
+
+  await newSection(page, panelSection(page, 'team'), 'Clients')
+  await page.getByTestId('add-conversations-skip').click()
+  const clients = panelSection(page, 'folder')
+  await projects.getByTestId('sidebar-room-row').filter({ hasText: 'Website 2' }).locator('a').dragTo(clients.getByTestId('chats-panel-label'))
+  await expect(names(clients)).toHaveText(['Website 2'])
+  await expect(names(projects)).toHaveText(['Website 10'])
+  // both in sections: the header stays, so it can be dropped back
+  await projects.getByTestId('sidebar-room-row').filter({ hasText: 'Website 10' }).locator('a').dragTo(clients.getByTestId('chats-panel-label'))
+  await expect(projects.getByTestId('sidebar-room-row')).toHaveCount(0)
+  await expect(projects).toBeVisible()
+  await clients.getByTestId('sidebar-room-row').filter({ hasText: 'Website 2' }).locator('a').dragTo(projects.getByTestId('chats-panel-label'))
+  await expect(names(projects)).toHaveText(['Website 2'])
+  await expect(page.getByTestId('toast').filter({ hasText: t['sidebarSections.removed'].replace('{name}', 'Clients') })).toBeVisible()
+})
+
+test('a phone (390): the Conversations tab has Projects too, in the same place', async ({ page }) => {
+  await start(page, 390, [room('디자인', { activityAt: ago(1) }), projectRoom('Website', { activityAt: ago(2) }), dm('Bob', { activityAt: ago(3) })])
+  await page.goto('/rooms')
+  await expect.poll(() => page.getByTestId('rooms-page').locator('[data-testid="rooms-section"]').evaluateAll((els) => els.map((e) => e.getAttribute('data-section')))).toEqual(['team', 'project', 'dm'])
+  await expect(phoneSection(page, 'project').getByTestId('rooms-row')).toHaveCount(1)
+  await expect(phoneSection(page, 'project')).toContainText(t['rooms.section.project'])
+})
