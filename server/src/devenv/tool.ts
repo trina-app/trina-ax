@@ -33,6 +33,7 @@ import { changesByOthers, markSeen, withChangeWindow, type ForeignChange } from 
 import type { Change } from './snapshot'
 import type { Step } from '@mycel/shared/api'
 import type { RunExit } from './srt/types'
+import { BOX_NODE_LIB_NAMES, BOX_PYTHON_LIBS, type DevPlatform } from './srt/config'
 import { placeInLine, projectBusy, waitProjectFree, previewPortProblem, previewSupported, runPlatform, runProblem, startWaiting } from './srt/runner'
 import { previewBase } from './preview'
 import { addTicket, armTicket, commandWaitFor, FULL_MESSAGE, releaseCommand, waitTicket } from './srt/queue'
@@ -69,9 +70,16 @@ const devServerText = (preview: boolean, reach: boolean = reachSupported()) => r
   : reach ? 'For a dev server use background=true and set port to the port it listens on. There is no preview link on this server. ' + reachText
   : 'For a dev server use background=true. There is no preview link on this server, and a later command cannot reach the dev server: to test it, start it, call it and stop it in one command, for example: npm run dev & sleep 5; curl -s localhost:3000; kill %1. '
 
+/** What a command has without installing (docs/decisions/20261121-box-python-libs.md), in one line: Linux has the
+ * Python libraries of the list (apt and the python-pptx venv); a Mac team server has Trina's bare Python 3 so far. */
+export const boxLibsText = (platform: DevPlatform = runPlatform()) => (platform === 'darwin'
+  ? `Already installed: node with ${BOX_NODE_LIB_NAMES.join(' and ')} (require them); python3 has no extra libraries yet, so pip install what you need. `
+  : `Already installed: python3 with ${BOX_PYTHON_LIBS.join(', ')}; node with ${BOX_NODE_LIB_NAMES.join(' and ')} (require them). `)
+  + 'pip install and npm install work for anything else (pip install puts it in the command\'s home; a folder\'s own .venv or node_modules works too). '
 /** The tool text (docs/research/srt-dev-env.md section 7). The dev environment is not locked to a project: the command
  * gets the folder access of the person of this chat. */
 export const srtShellDescription = (preview: boolean) => 'Run a shell command in the dev environment (bash, git, node, npm, python3, pip, ffmpeg, chromium) on the team server. '
+  + boxLibsText()
   + 'The command can read the team folders that the person of this chat may open; other folders are not there. '
   + 'It can write only the folder it starts in and the person\'s own folder users/<id>: every other team folder is read-only in a command, also where the person may write. To put a file in another team folder, use copy_files for a file in a team folder and save_work_file for one in $TRINA_WORK. '
   + 'A folder in users/<id> that the person shares with other people is read-only in a command too: write the file somewhere else, then move it in with move_files, which asks the person first. '
@@ -93,6 +101,7 @@ export const srtShellDescription = (preview: boolean) => 'Run a shell command in
  * command and its output, so it sees only what all of them may open; no login. Jobs and dev servers too, with the same
  * folders (docs/decisions/20261118-devenv-shared-jobs-mac-localhost.md). */
 export const sharedShellDescription = (project: boolean) => 'Run a shell command in the dev environment (bash, git, node, npm, python3, pip, ffmpeg, chromium) on the team server. '
+  + boxLibsText()
   + 'This is a shared chat: everyone in it sees the command and its output, so the command sees only the team folders that EVERYONE in this chat may open. No personal folder (users/...) is there, not even the person\'s own, and no other chat\'s files. '
   + (project
     ? 'It starts in the project folder and sees only the parts of it that everyone here may open (a folder some of them cannot open is not there); it can write only in the project folder, where the person may write. Changes there are shared with the team and recorded with your name. To use a file from somewhere else, the person must copy it into the project folder first. '

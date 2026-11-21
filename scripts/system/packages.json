@@ -70,7 +70,7 @@
     },
     "devenv": {
       "install": "default",
-      "for": "the dev environment's commands and srt (socat, ripgrep); python3-openpyxl and python3-docx fill a team's Excel and Word forms (a form skill, server/src/onboarding/form-skill.ts). Installing them turns nothing on: install-srt.sh does",
+      "for": "the dev environment's commands and srt (socat, ripgrep); python3-openpyxl and python3-docx fill a team's Excel and Word forms (a form skill, server/src/onboarding/form-skill.ts); the python3-* libraries and the Python program python-pptx are what a run's python3 has without pip install (docs/decisions/20261121-box-python-libs.md): Debian's builds for what Debian has, pinned wheels for python-pptx and matplotlib (Debian's matplotlib pulls scipy, sympy and tk, +180 to +640 MiB). Installing them turns nothing on: install-srt.sh does",
       "packages": {
         "socat": "",
         "ripgrep": "",
@@ -83,9 +83,19 @@
         "python3-pip": "",
         "python3-openpyxl": "",
         "python3-docx": "",
+        "python3-lxml": "",
+        "python3-pil": "",
+        "python3-xlsxwriter": "",
+        "python3-numpy": "",
+        "python3-pandas": "",
+        "python3-dateutil": "",
+        "python3-packaging": "",
+        "python3-reportlab": "",
+        "python3-pypdf": "",
         "build-essential": "",
         "chromium": { "on": ["debian-12", "debian-13"] }
-      }
+      },
+      "python": ["python-pptx"]
     },
     "browser": {
       "install": "default",
@@ -264,6 +274,23 @@
     }
   },
   "python": {
+    "python-pptx": {
+      "version": "1.0.2",
+      "for": "the dev environment's Python (server/src/devenv/srt/config.ts boxPythonBin): a venv with the system's site-packages, first on a run's PATH, so python3 there has apt's libraries (the devenv group) plus python-pptx and matplotlib, and pip install X goes into the run's home. Resolved with uv against Debian 12's numpy 1.24.2, Pillow 9.4.0, lxml 4.9.2, XlsxWriter 3.0.2, python-dateutil 2.8.2 and packaging 23.0 (the oldest of the list's systems), which come from apt and are not pinned here",
+      "python": ">=3.11",
+      "program": "python",
+      "systemSite": true,
+      "requirements": {
+        "python-pptx==1.0.2": "160838e0b8565a8b1f67947675886e9fea18aa5e795db7ae531606d68e785cba",
+        "contourpy==1.3.2": "106fab697af11456fcba3e352ad50effe493a90f893fca6c2ca5c033820cea92 3859783aefa2b8355697f16642695a5b9792e7a46ab86da1118a4a23a51a33d7 434f0adf84911c924519d2b08fc10491dd282b20bdd3fa8f60fd816ea0b48841 71e2bd4a1c4188f5c2b8d274da78faab884b59df20df63c34f74aa1813c4427c d6658ccc7251a4433eebd89ed2672c2ed96fba367fd25ca9512aa92a4b46c4f1 f26b383144cf2d2c29f01a1e8170f50dacf0eac02d64139dcd709a8ac4eb3cfe",
+        "cycler==0.12.1": "85cef7cff222d8644161529808465972e51340599459b8ac3ccbac5a854e0d30",
+        "fonttools==4.68.0": "04a4868dcfcc23f00bb033147d5afc1a118a992842644c3eb9da55467ab4fd74 08851f7d2b983412f490b73a7c56f17cbda1d4d85d2ad3f857564bf15b5d9475 3edce69ecdefa73ab1041901ca22eefed6ebb93a77bc77e889d940479f25bf7d 4b9c89b5876f1a74b1341632dfaf4c4c2be565d76c060445df401ebe7a4ceefa 53f2387d7e3816763f30e08d14263be18e28ead53d4dc20a82f9280d0c99d88a b41e71b2657c9843b2327b4e3c116db1757dc8cd05d978cd47cb5061272d4997 d76f8fdcb6936f5e1045a0c9dd721a4bf11112e60d1e243bfa1d39f06a8b3104",
+        "kiwisolver==1.5.1": "21e46b23a2da695c364124817bc01d970effd5483147f8d66a6a7167e3f6b851 34633ecf50d16187ab8e5528b7a2530f2feb4e23f300db4672538b51cfc5cd38 719a35fa1156db3640555f95ebb94f60a444e64d1c69626b0edef5df78eba225 74ad5c3dad54a4641b4c28cd15ded70899d04459c6c7aeacafea716be97cce6d 95a02752aa032eef4aed01cda6d9b687c669bd0396bf4519eef8bba22a286720 d27c2123977cb9269c30a49ba45f03a4323017ef693e19db4ec9dbe1299a3002",
+        "matplotlib==3.10.9": "56fc0bd271b00025c6edfdc7c2dcd247372c8e1544971d62e1dc7c17367e8bf9 6c63ebcd8b4b169eb2f5c200552ae6b8be8999a005b6b507ed76fb8d7d674fe2 7a8d66a55def891c33147ba3ba9bfcabf0b526a43764c818acbb4525e5ed0838 8e436d155fa8a3399dc62683f8f5d0e2e50d25d0144a73edd73f82eec8f4abfb 8f3bcac1ca5ed000a6f4337d47ba67dfddf37ed6a46c15fd7f014997f7bf865f ae20801130378b82d647ff5047c07316295b68dc054ca6b3c13519d0ea624285",
+        "pyparsing==3.3.3": "ece8c00a69cf01b45d0b1dedabb469c90d8caf996d4fda40f147627a122849a4",
+        "typing-extensions==4.16.0": "481caa481374e813c1b176ada14e97f1f67a4539ce9cfeb3f350d78d6370c2e8"
+      }
+    },
     "workspace-mcp": {
       "version": "2.4.1",
       "for": "github.com/taylorwilsdon/google_workspace_mcp (MIT): Gmail, Calendar, Docs and Sheets tools over MCP. Pinned from the uv.lock of the tag v2.4.1 (commit d94a6a7e693ce97c633f744b55249616b3806e9c); the wheel of workspace-mcp itself from PyPI",

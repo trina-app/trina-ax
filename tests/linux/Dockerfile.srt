@@ -25,6 +25,11 @@ RUN cd /opt/trina/srt/0.0.81 && PATH=/opt/trina/node/bin:$PATH npm ci --ignore-s
  && test "$(/opt/trina/node/bin/node cli.js --version)" = 0.0.81
 COPY scripts/dev-env/srt/srt-full.mjs /opt/trina/srt/0.0.81/full.mjs
 COPY scripts/dev-env/srt/run-wrap /opt/trina/devenv/run-wrap
+# the libraries a run has without pip or npm install, from the list (tests/linux/box-libs-install.sh; attacks L1-L3)
+COPY scripts/system/packages.sh scripts/system/packages.json /tmp/box-libs/system/
+COPY scripts/dev-env/srt/node-libs.package.json scripts/dev-env/srt/node-libs.package-lock.json /tmp/box-libs/srt/
+COPY tests/linux/box-libs-install.sh /tmp/box-libs/
+RUN bash /tmp/box-libs/box-libs-install.sh /tmp/box-libs && rm -rf /tmp/box-libs
 RUN chmod 755 /opt/trina/devenv/run-wrap && chmod -R go-w /opt/trina \
  && useradd --system -m -U -s /usr/sbin/nologin axserver && chmod 700 /home/axserver
 COPY package.json bun.lock /opt/mycel/
