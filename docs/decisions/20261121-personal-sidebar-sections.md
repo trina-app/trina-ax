@@ -1,4 +1,4 @@
-# Each person sorts their own Chats list into sections, as in Slack; team categories go
+# Each person sorts their own Chats list into sections, as in Slack; team categories leave the UI
 
 - Date: 2026-11-21
 - Status: accepted
@@ -8,42 +8,35 @@
 Plan: docs/AGENTS/plan/20261121-0114-sidebar-categories-redo.md.
 
 - **Ask (owner, 2026-11-21):**
-  - The report: a new category "Bots" said "아직 채널이 없어요" with no way to fill it, and the create button was hard
-    to see.
-  - Then the decision: "사람마다 자기 사이드바를 따로 정리하는 기능이어야해. 슬랙이랑 똑같이 가야해 우리는" ("It should be a
-    feature where each person organizes their own sidebar. We have to go the same way as Slack.")
-- **Rule (who and what):**
-  - Everyone (guests too) sorts their own Chats list into **sections** ("섹션"). Nobody else, owners and admins
-    included, sees, lists or counts them.
-  - Channels, DMs and group DMs can all go in one. A conversation is in at most one of my sections.
-  - A section never changes who is in a conversation.
-- **Rule (making and filling):**
-  - New section is in the Channels "+" menu and in every Move to section menu.
-  - Right after creating a section, you can add conversations to it.
-  - A conversation goes in by dragging (a computer with a mouse), or by Move to section. That item is in the row
-    "⋯", the phone's long-press sheet and the conversation header "⋯". You can also use a section's Add conversations.
-  - An empty section says how to fill it and has an Add conversations button.
-- **Rule (managing):**
-  - A section's "⋯" has Add conversations, Sort (A to Z, Recent activity), Rename, Move up / Move down and Delete.
-  - Deleting a section sends its conversations back to Channels and Direct messages.
-  - Sections fold like every other section (20261116-collapsible-chat-sections).
-  - The list order is Pinned › my sections › Channels › Direct messages.
-- **Data:**
-  - Sections are the personal list folders of kind `rooms` (migration 289, hidden on 11-20), brought back. Migration
-    431 adds `nav_folders.sort`.
-  - At start, a one-time step turns each team category into a section for every member of one of its rooms, and for
-    its maker even when it is empty. Then it empties `room_categories` and `rooms.category_id`.
-  - The team-category API stays as a deprecated stub (an empty list; writes answer 410) until a later cleanup. No table
-    is dropped (migrations stay additive).
+  - After a team category "Bots" said "아직 채널이 없어요" with no way to fill it: "사람마다 자기 사이드바를 따로 정리하는
+    기능이어야해. 슬랙이랑 똑같이 가야해 우리는" (each person organizes their own sidebar, the same way as Slack).
+  - Then: "그냥 라카꺼를 빼고 UI만 바꾸면 될 것 같은데?" (take out the team categories and change only the UI).
+- **Rule:**
+  - Everyone, guests too, sorts their own Chats list into **sections** ("섹션"). These are the personal conversation
+    folders (kind `rooms`, migration 289), shown again. Nobody else, owners and admins included, sees them.
+  - Channels, DMs and group DMs can go in. A section never changes who is in a conversation.
+  - **Create:** New section is in the Channels "+" menu, and New section… is in every Move to section menu. You can add
+    conversations right after creating a section.
+  - **Fill:** a conversation goes in by dragging with a mouse (in, between sections, and out onto the Channels or Direct
+    messages header). It also goes in by Move to section in the row "⋯", the phone long-press sheet and the
+    conversation header "⋯", or by the section's Add conversations.
+  - **Empty:** an empty section says how to fill it and has a button.
+  - **Manage:** a section's "⋯" has Add conversations, Rename, Move up / Move down and Delete. Delete sends its
+    conversations back to Channels and Direct messages.
+  - **Layout:** each section is a top-level header between Pinned and Channels, and folds like the others
+    (20261116-collapsible-chat-sections).
+- **Team categories:**
+  - Removed from the web, with no conversion: an existing category is made again as a section.
+  - The server keeps their routes and tables unused until a later cleanup (migrations stay additive).
 - **Why:**
-  - Team categories made one admin sort everyone's sidebar, and a member had no way to sort their own.
-  - The flow was hidden: a small icon, no drag, nothing on the phone.
-  - People who know Slack expect personal sections.
+  - People expect Slack's personal sections.
+  - The team categories needed an admin, hid the way to fill them, had no drag and did nothing on a phone.
+  - The personal folders already worked per person on the server.
 - **Left out:**
-  - Slack's Priority sort and Active-only filter.
-  - Emoji on sections.
-  - Admins sharing a starter set of sections.
+  - Sort per section (it needs a migration; later, if asked).
+  - Emoji.
+  - Admin-shared starter sections.
   - The Trina AI-chat folders, which are unchanged.
-- **Tests:** tests/unit/b-sidebar-sections.test.ts, tests/unit/b-nav-folders.test.ts, web/test/unit/nav-folders.test.tsx,
-  the web e2e for sections.
-- **Version impact:** minor (a new feature, and an additive API field; the old endpoints are kept as stubs).
+- **Tests:** web/test/unit/nav-folders.test.tsx, the web e2e nav-folders.spec.ts, tests/unit/b-nav-folders.test.ts
+  (unchanged).
+- **Version impact:** minor (a feature comes back with new ways to use it; no API change).
