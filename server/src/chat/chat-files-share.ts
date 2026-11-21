@@ -135,15 +135,24 @@ export function madeFilesOf(ctx: AppContext, chat: { id: string; user_id: string
       if (!madeInChat(db, chat.id, creator.id, rel)) continue
       const last = db.query("SELECT sha256, size FROM file_events WHERE path = ? AND action IN ('create', 'update') ORDER BY id DESC LIMIT 1").get(rel) as { sha256: string | null; size: number | null } | null
       if (!last?.sha256 || !/^[0-9a-f]{64}$/.test(last.sha256)) continue
-      const made = db.query("SELECT turn_id FROM file_events WHERE path = ? AND action = 'create' ORDER BY id DESC LIMIT 1").get(rel) as { turn_id: string | null } | null
-      const msg = made?.turn_id ? db.query(`SELECT m.id FROM turns t JOIN messages m ON m.id = t.message_id
-        WHERE t.id = ? AND t.chat_id = ? AND m.chat_id = ? AND m.role = 'assistant'`).get(made.turn_id, chat.id, chat.id) as { id: string } | null : null
+      const made = db.query("SELECT id, turn_id FROM file_events WHERE path = ? AND action = 'create' ORDER BY id DESC LIMIT 1").get(rel) as { id: number; turn_id: string | null } | null
+      const answerOf = (turnId: string | null) => turnId ? db.query(`SELECT m.id FROM turns t JOIN messages m ON m.id = t.message_id
+        WHERE t.id = ? AND t.chat_id = ? AND m.chat_id = ? AND m.role = 'assistant'`).get(turnId, chat.id, chat.id) as { id: string } | null : null
+      const msg = answerOf(made?.turn_id ?? null)
       if (!msg || hidden.has(msg.id)) continue
+      // the bytes now are the last writer's: every answer that wrote the path since its create (madeInChat counts the
+      // chat's own later updates) must be one nobody here is kept from, or its content would ride on the visible
+      // creating answer (S2 review M1). An update whose answer cannot be found: not offered
+      const writers = db.query("SELECT turn_id FROM file_events WHERE path = ? AND id > ? AND action = 'update'").all(rel, made!.id) as { turn_id: string | null }[]
+      if (writers.some((w) => { const m = answerOf(w.turn_id); return !m || hidden.has(m.id) })) continue
       const src = authorize(ctx.files.fx, rules, creator, rel, 'read')
       if (!src.exists || !src.st?.isFile() || src.st.nlink > 1) continue
       if (src.st.size > CHAT_COPY_MAX || (last.size !== null && last.size !== src.st.size)) continue
       if (ctx.files.quarantine.hasHash(last.sha256)) continue
       if (copies.has(`${rel}\0${last.sha256}`) || badOf(ctx).has(`${rel}\0${last.sha256}`)) continue
+      // copied before and changed since: it goes in as a new version of that copy (copyMade), and a version is at most
+      // CHAT_FILE_MAX (ChatFiles.putVersion), so a larger one stays its creator's alone (S2 review L2)
+      if (src.st.size > CHAT_FILE_MAX && [...copies.keys()].some((k) => k.slice(0, k.indexOf('\0')) === rel)) continue
       out.push({ path: rel, name: rel.slice(rel.lastIndexOf('/') + 1), size: src.st.size, sha256: last.sha256, messageId: msg.id })
     } catch { /* not listed */ }
   }
@@ -252,13 +261,58 @@ export async function copyMade(ctx: AppContext, chat: { id: string; user_id: str
   const db = ctx.db
   const store = chatFilesOf(ctx)
   const kept: { file: MadeFile; att: StoredAttachment }[] = []
+  // a file copied before whose original changed since (re-share): a new version of that copy's chain (putVersion, as
+  // its creator; "Updated by" them), never a second copy. Its stored fromSha256 then names the new bytes, so it is not
+  // offered again (docs/AGENTS/plan/20261121-1206-chat-file-edit-versions.md)
+  const versioned: { file: MadeFile; rootId: string; messageId: string }[] = []
+  const earlier = copiesIn(ctx, chat.id)
+  const copyOfPath = (rel: string) => {
+    let found: { att: StoredAttachment; messageId: string } | null = null
+    for (const [k, c] of earlier) if (k.slice(0, k.indexOf('\0')) === rel && store.row(c.att.id)) found = c
+    return found
+  }
+  let notVersioned = 0
+  let lastError: unknown = null
   try {
     for (const v of files) {
-      const row = await store.keepCopy(chat.user_id, chat.id, v.file.name, v.tmp ? { file: v.tmp } : { bytes: v.bytes! }, v.kind)
-      kept.push({ file: v.file, att: { ...chatFileAttachment(row), origin: 'shared-copy', from: v.file.path, fromSha256: v.file.sha256 } })
+      const before = copyOfPath(v.file.path)
+      if (before) {
+        // a version is at most CHAT_FILE_MAX (a copy may be up to CHAT_COPY_MAX): a larger one is left out, never a
+        // second copy (madeFilesOf does not offer it either). One that fails is left out too; the others go on, so
+        // every copy kept here is attached below (nothing is left unattached for the sweep)
+        const size = v.tmp ? fs.statSync(v.tmp).size : v.bytes!.byteLength
+        if (size > CHAT_FILE_MAX) { notVersioned++; ctx.log.info('a changed file of a shared chat is too large for a new version', { chat: chat.id }); continue }
+        try {
+          if (v.tmp) {
+            const fd = fs.openSync(v.tmp, fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW ?? 0))
+            try { await store.putVersion(chat.user_id, chat.id, before.att.id, { fd, st: { size: fs.fstatSync(fd).size } }, { action: 'chat.file_version' }) } finally { fs.closeSync(fd) }
+          } else await store.putVersion(chat.user_id, chat.id, before.att.id, { bytes: v.bytes! }, { action: 'chat.file_version' })
+        } catch (e) { notVersioned++; ctx.log.warn('a changed file of a shared chat was not added as a new version', { err: e, chat: chat.id }); continue }
+        versioned.push({ file: v.file, rootId: before.att.id, messageId: before.messageId })
+        continue
+      }
+      // one that fails (storage, a read error) is left out and the rest go on: every copy kept is attached below
+      try {
+        const row = await store.keepCopy(chat.user_id, chat.id, v.file.name, v.tmp ? { file: v.tmp } : { bytes: v.bytes! }, v.kind)
+        kept.push({ file: v.file, att: { ...chatFileAttachment(row), origin: 'shared-copy', from: v.file.path, fromSha256: v.file.sha256 } })
+      } catch (e) { lastError = e; ctx.log.warn('a file of a shared chat was not added', { err: e, chat: chat.id }) }
     }
   } finally { discardVerified({ files }) }
-  if (!kept.length) return 0
+  if (versioned.length) {
+    db.transaction(() => {
+      for (const k of versioned) {
+        const m = db.query("SELECT attachments FROM messages WHERE id = ? AND chat_id = ? AND role = 'assistant'").get(k.messageId, chat.id) as { attachments: string } | null
+        if (!m) continue
+        let atts: StoredAttachment[] = []
+        try { const v = JSON.parse(m.attachments); if (Array.isArray(v)) atts = v } catch { continue }
+        db.query('UPDATE messages SET attachments = ? WHERE id = ?').run(JSON.stringify(atts.map((a) => (a.id === k.rootId && a.origin === 'shared-copy' && a.from === k.file.path ? { ...a, fromSha256: k.file.sha256 } : a))), k.messageId)
+      }
+    })()
+  }
+  if (versioned.length || notVersioned) audit(db, { actor: chat.user_id, action: 'chat.files_updated', target: chat.id, detail: { count: versioned.length, via, files: versioned.map((k) => k.rootId), ...(notVersioned ? { notVersioned } : {}) } })
+  // nothing went at all because of an error: the caller counts the files as not added, as before
+  if (!kept.length && !versioned.length && lastError) throw lastError
+  if (!kept.length) return versioned.length
   db.transaction(() => {
     for (const k of kept) {
       const m = db.query("SELECT attachments FROM messages WHERE id = ? AND chat_id = ? AND role = 'assistant'").get(k.file.messageId, chat.id) as { attachments: string } | null
@@ -273,7 +327,7 @@ export async function copyMade(ctx: AppContext, chat: { id: string; user_id: str
   })()
   // a copy whose answer went meanwhile, or one attached by the other press: not sent, so the sweep takes it
   audit(db, { actor: chat.user_id, action: 'chat.files_added', target: chat.id, detail: { count: kept.length, via, files: kept.map((k) => k.att.id) } })
-  return kept.length
+  return kept.length + versioned.length
 }
 
 /** The target of an ask to add one file of a chat (chat/access-requests.ts: access_requests kind 'chat'): the chat id,

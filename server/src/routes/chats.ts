@@ -8,7 +8,7 @@ import { markTeamShares } from '../chat/team-shares'
 import { redactorFor } from '../integrations/connections/redact'
 import { searchForms, searchWords } from '@mycel/shared'
 import { formsWhere } from '../search-forms'
-import { ACCESS_TARGET_ID, API, WINDOW_HEADER, type Attachment, type Chat, type EngineId, type Locale, type Message, type UserRef } from '@mycel/shared/api'
+import { ACCESS_TARGET_ID, API, CHAT_FILE_EDIT_MAX, WINDOW_HEADER, type Attachment, type Chat, type EngineId, type Locale, type Message, type UserRef } from '@mycel/shared/api'
 import type { Context } from 'hono'
 import type { RouteModule } from './module'
 import type { AppContext } from '../context'
@@ -55,6 +55,7 @@ import { refuseSkillDraftAttachments } from '../onboarding/skill-draft'
 import { refuseShareJudgeAttachments } from '../skills/share-judge'
 import { isPeopleRow } from '../chat/chat-audience'
 import { chatFilesOf } from '../chat/chat-files'
+import { editState, restoreTo, saveText, tellChatOnAiVersions } from '../chat/chat-file-edit'
 import { streamFile } from '../team-files/download'
 import { SAFE_OPS_TEXT } from '../safe-ops/strings'
 import { Audiences, accountSeesProject, chatFor, memberWhileTrashed, chatPeople, chatView, isSharedRow, messageFor, messageView, projectCanShare, projectShare, rulesInPlace, severalAuthors, sharesNewChats, type ChatAccess, type ChatPeople } from '../chat/shared'
@@ -774,10 +775,26 @@ export const chatsRoutes: RouteModule = {
       // the chat's own files follow the people-shared rule, never another audience the chat got later (a chat made
       // private again and then shared with a project: its creator alone)
       if (!chatFilesOf(ctx).seesChat(auth.user.id, a.row.id)) fail('not_found')
-      const f = chatFilesOf(ctx).open(auth.user.id, a.row.id, params.fileId, !!query.thumb)
+      const f = chatFilesOf(ctx).open(auth.user.id, a.row.id, params.fileId, !!query.thumb, query.version === undefined ? {} : { version: query.version })
       const dest = c.req.raw.headers.get('sec-fetch-dest')
       if (f.quarantined && (query.thumb || !query.download || (dest && dest !== 'document' && dest !== 'empty'))) fail('unavailable', SAFE_OPS_TEXT.quarantined[c.get('locale')], { params: { reason: 'quarantined' } })
       return streamFile({ abs: f.abs, name: f.name, req: c.req.raw, disposition: query.download ? 'attachment' : 'inline', via: c.get('info')?.via })
+    })
+    // a chat's file edited in place, with versions (chat/chat-file-edit.ts over ChatFiles: the chain's root carriers,
+    // seesChat; anyone who may not open it gets the 404 of a missing file). The chat's own files follow the people-shared
+    // rule (seesChat), as the read above
+    // a version the AI saved reaches the open windows as a person's save does
+    tellChatOnAiVersions(rt)
+    const keptChat = (auth: AuthInfo, a: ChatAccess) => {
+      if (!chatFilesOf(ctx).seesChat(auth.user.id, a.row.id)) fail('not_found')
+      return a.row
+    }
+    kit.handle(API.chatFileVersions, ({ c, params, auth }) => editState(rt, auth.user.id, keptChat(auth, chatOf(rt, c, auth, params.id, 'view')), params.fileId))
+    kit.handle(API.saveChatFile, ({ c, params, body, auth }) => saveText(rt, auth.user.id, keptChat(auth, chatOf(rt, c, auth, params.id, 'view')), params.fileId, body.content, body.baseVersion), { jsonLimit: 4 * CHAT_FILE_EDIT_MAX + 64 * 1024 })
+    kit.handle(API.restoreChatFileVersion, ({ c, params, auth }) => {
+      const row = keptChat(auth, chatOf(rt, c, auth, params.id, 'view'))
+      const n = /^[1-9]\d{0,6}$/.test(params.version) ? Number(params.version) : fail('not_found')
+      return restoreTo(rt, auth.user.id, row, params.fileId, n)
     })
     kit.handle(API.unhideChat, ({ c, params, auth }) => hidden(c, auth, chatOf(rt, c, auth, params.id, 'view'), false))
 

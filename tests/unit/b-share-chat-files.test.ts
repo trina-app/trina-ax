@@ -320,6 +320,27 @@ describe('an answer hidden from someone in the chat (review M1)', () => {
     expect((await h.api('alice').call(API.getChatAudience, { params: { id: c.id } })).madeFiles).toBeUndefined()
   })
 
+  test('a file a hidden later answer changed: never offered or copied (nor as a new version) to whom it is hidden from (S2 review M1)', async () => {
+    const c = await madeChat({ 'quote.md': 'price 100' })
+    const first = await shareWithFiles(c.id)
+    expect(first.r.status).toBe('saved')
+    const [copy] = copiesOf(c.id)
+    expect(copy).toBeDefined()
+    expect((await put('alice', c.id, [])).status).toBe('saved')
+    // a later answer of the chat changes the file with what only alice and bob may see
+    const a2 = await ask('alice', c.id, `change it\n${fake({ tool: 'read', args: { file_path: `${c.dir}/quote.md` } }, { tool: 'edit', args: { file_path: `${c.dir}/quote.md`, old_string: 'price 100', new_string: 'SECRET from a hidden answer' } }, { say: 'changed' })}`)
+    hideFromOthers(c.id, a2.started.assistantMessage.id)
+    // shared again with bob and erin: the creating answer is visible, the changing one is hidden from erin
+    const p = await preview(c.id, [bob, erin])
+    expect(p.check.madeFiles).toBeUndefined()
+    const r = await put('alice', c.id, [bob, erin], { confirmKey: p.previewKey, withFiles: true })
+    expect(r.status).toBe('saved')
+    if (r.status === 'saved') expect(r.filesAdded).toBeUndefined()
+    expect(await fileText('erin', c.id, copy!.id)).toBe('price 100')
+    expect(chatFilesOf(h.ctx).versions('erin', c.id, copy!.id)).toHaveLength(1)
+    expect(madeFilesOf(h.ctx, { id: c.id, user_id: 'alice' })).toEqual([])
+  })
+
   test('an existing copy on an answer hidden from someone who joins later: not opened by them, nor by their AI', async () => {
     const c = await madeChat({ 'plan.md': 'alice and bob only' })
     await shareWithFiles(c.id)
