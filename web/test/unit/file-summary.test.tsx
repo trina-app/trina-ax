@@ -50,3 +50,20 @@ describe('file summary: moved files (QA TC-018)', () => {
     })
   }
 })
+
+// docs/decisions/20261121-ai-scratch-files.md: a long list keeps its first files; the rest come as a count per folder
+describe('file summary: many files', () => {
+  test('the header counts every file; the rest of the list is a line with the busiest folders', () => {
+    setLocale('en')
+    const f: FileChangeSummary = {
+      saved: Array.from({ length: 100 }, (_, i) => ({ path: `projects/p/_tools/f${i}.txt`, action: 'create' as const })),
+      conflicts: [], rejected: [],
+      more: { count: 13081, folders: [{ path: 'projects/p/_tools/icons', count: 13000 }, { path: 'projects/p/_tools/x', count: 81 }] },
+    }
+    const html = render(f)
+    expect(html).toContain(esc(translate('en', 'files.summary.saved', { n: 13181 })))
+    expect(html).toContain('data-testid="file-summary-more"')
+    expect(html).toContain(esc(translate('en', 'files.summary.more', { n: 13081, folders: 2 })))
+    expect((html.match(/<li class="flex items-center gap-2">/g) ?? []).length).toBe(100)
+  })
+})

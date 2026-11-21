@@ -555,8 +555,16 @@ export const FileChangeSummary = z.object({
   saved: z.array(z.object({ path: RelPath, action: z.enum(['create', 'update']), moved: z.literal(true).optional() })),
   conflicts: z.array(z.object({ path: RelPath, copyPath: RelPath })),
   rejected: z.array(z.object({ path: z.string(), reason: z.string() })),
+  /** an answer that saved more files than the list keeps (FILE_SUMMARY_LIST_MAX): the rest, as a count per folder
+   * (the files' parent folders; `count` is their sum). An app without this field shows the list's length. */
+  more: z.object({
+    count: z.number().int().nonnegative(),
+    folders: z.array(z.object({ path: RelPath, count: z.number().int().positive() })).max(2000),
+  }).optional(),
 })
 export type FileChangeSummary = z.infer<typeof FileChangeSummary>
+/** files an answer's summary lists one by one; the rest are counted by folder (FileChangeSummary.more) */
+export const FILE_SUMMARY_LIST_MAX = 100
 
 /**
  * Where in a file a passage is (docs/DECISIONS.md "Sources under each answer"): a PDF page (1-based, as a PDF viewer
