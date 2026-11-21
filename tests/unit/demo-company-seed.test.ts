@@ -313,6 +313,27 @@ describe('the richer Steepling, without a server', () => {
       expect(unread.sort()).toEqual(['customer-voice', 'dm-omar', 'social-calendar thread'])
     }
   })
+
+  // the bar's chips are what a visitor would type: short, no file names, no "skill" (QA 2026-11-22 F13)
+  test('the suggestion prompts are short plain requests in every language', () => {
+    for (const l of STEEPLING_LOCALES) {
+      const list = made[l].company.freeRoam?.suggestions ?? []
+      expect(list.length).toBeGreaterThanOrEqual(2)
+      for (const s of list) {
+        expect(s.prompt.length).toBeLessThanOrEqual(80)
+        expect(s.prompt).not.toMatch(/\.(md|csv|xlsx)\b/i)
+        expect(s.prompt).not.toMatch(/스킬|skill|スキル|技能|habilidad|keahlian/i)
+      }
+    }
+  })
+
+  test('the English strings use US spelling', () => {
+    expect(JSON.stringify(made.en)).not.toMatch(/summaris|finalis|flavour|favourite/i)
+  })
+
+  test('es calls the posts "Publicaciones", not "Posts", in the chip label', () => {
+    for (const s of made.es.company.freeRoam?.suggestions ?? []) expect(s.label).not.toMatch(/\bposts?\b/i)
+  })
 })
 
 describe('the builder\'s routes are not there without the demo file\'s builder: true', () => {
