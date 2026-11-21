@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-21 06:52
 - Branch: `feat/places-outputs` (on `feat/places-resolver-read` 4ed781728, P1's interface; rebased onto P1's final head)
-- Status: in progress
+- Status: done (PR open, not enqueued; goes to dev in a batch with P1, P2, P4)
 - Where: server (make_file and the produce tools that place through `placeProduced`, the turn's cards, the API
   engine's link guard, the shared-chat prompt), web (answer links). Why: the AI's core file tools are core
   (docs/REPOSITORY-RULES.md)
@@ -80,4 +80,17 @@ shared save card and link guard tests, tests/security, web unit tests. QA on a p
 
 ## Result
 
-(filled in at the end)
+Built as planned on P1's final head (a9689a5fd), with these differences:
+- P1's `placeRefusal` (chat/tools.ts) now lets through what P3 takes (`PLACE_PRODUCE_TOOLS`' `output`/`output_folder`,
+  make_file's `source`/`template`); P1's fail-closed tests carve those out and still refuse every other key.
+- P1's `sharedSources` line for a chat place is the one kept (the chat as the source); P3 adds the chat target to
+  `confirmWidening` (`confirmChatTarget`: the shared read card over what goes in) and chat-place sources to `widenNeed`.
+- The chat-file link: tool texts are rewritten once in tools/index.ts (`chatLinksInText`) instead of in every tool's text
+  function. `html-pdf.ts`'s `asset()` may answer later; one read per file stays (a pending map).
+- A chat file carried only by a hidden (k) answer is never read into a new file (P1's `carriedByHiddenAnswer`).
+- QA (TC-6460, real engine, local copy merged with dev): a model wrote the logo as `/files/view?path=chat:files/…`; that
+  form is now read as the place, and make_file's text names chat pictures. The work-folder case was not run here: this
+  Mac has no dev slot accounts, so no box_shell (unit tests cover chat:work/ sources with a fake run system).
+- Left for later: `chat:work/` outputs (P2's writeIntoWork; refused with the resolver's words, tested), a new version
+  of an existing chat file (P4), chat-place inputs of edit_office, the PDF tools and the others (refused by P1's
+  `placeRefusal`).
