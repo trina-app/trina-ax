@@ -367,16 +367,21 @@ export class RemoteOAuth {
     return { ...g, expires_at: end }
   }
   /** `parent`: the sha256 of the refresh token these come from (remote_mcp_token_links), none for a code exchange.
-   * Always a refresh token too, whether the app asked for offline_access or not (ChatGPT and apps that ask for the 401
+   * A refresh token too whenever the grant holds offline_access, which every grant decide() makes does, whether the app asked for it or not (ChatGPT and apps that ask for the 401
    * header's scope do not): the person's connection stays until they disconnect it or lose access, with the rotation,
    * retry window and replay revocation of token() (docs/decisions/20261121-mcp-refresh-without-offline-access.md). */
   private issue(g: Grant, selected: string[], parent: string | null = null) {
-    const access = secret('tax_mcp_a_'), end = Math.min(g.expires_at, this.now() + ACCESS_MS), refresh = secret('tax_mcp_r_')
+    const access = secret('tax_mcp_a_'), end = Math.min(g.expires_at, this.now() + ACCESS_MS)
     this.db.query('INSERT INTO remote_mcp_tokens VALUES(?,\'access\',?,?,NULL)').run(hash(access), g.id, end)
-    this.db.query('INSERT INTO remote_mcp_tokens VALUES(?,\'refresh\',?,?,NULL)').run(hash(refresh), g.id, g.expires_at)
-    if (parent) for (const t of [access, refresh]) this.db.query('INSERT INTO remote_mcp_token_links (hash, parent) VALUES (?, ?)').run(hash(t), parent)
+    // every grant decide() makes holds offline_access; a grant stored by an older build without it stays access-only
+    let refresh: string | undefined
+    if (selected.includes('offline_access')) {
+      refresh = secret('tax_mcp_r_')
+      this.db.query('INSERT INTO remote_mcp_tokens VALUES(?,\'refresh\',?,?,NULL)').run(hash(refresh), g.id, g.expires_at)
+    }
+    if (parent) for (const t of [access, refresh]) if (t) this.db.query('INSERT INTO remote_mcp_token_links (hash, parent) VALUES (?, ?)').run(hash(t), parent)
     this.db.query('UPDATE remote_mcp_clients SET last_used_at=? WHERE id=?').run(this.now(), g.client_id)
-    return { access_token: access, token_type: 'Bearer', expires_in: Math.floor((end - this.now()) / 1000), scope: selected.join(' '), refresh_token: refresh }
+    return { access_token: access, token_type: 'Bearer', expires_in: Math.floor((end - this.now()) / 1000), scope: selected.join(' '), ...(refresh ? { refresh_token: refresh } : {}) }
   }
   /** `live`: liveCredential(body) was true (the app's token bucket is skipped). */
   token(body: Record<string, unknown>, live = false) {

@@ -359,8 +359,8 @@ test('an app that does not ask for offline_access (ChatGPT, apps that ask for th
   const grant = f.svc.authenticate(first.access_token)
   expect(JSON.parse(grant.scopes)).toEqual(['mcp:read', 'mcp:admin', 'offline_access'])
   // stored hashed only
-  expect(f.h.ctx.db.query('SELECT count(*) AS n FROM remote_mcp_tokens WHERE hash=?').get(first.refresh_token) as { n: number }).toEqual({ n: 0 })
-  expect(f.h.ctx.db.query('SELECT kind FROM remote_mcp_tokens WHERE hash=?').get(hash(first.refresh_token))).toEqual({ kind: 'refresh' })
+  expect(f.h.ctx.db.query('SELECT count(*) AS n FROM remote_mcp_tokens WHERE hash=?').get(first.refresh_token!) as { n: number }).toEqual({ n: 0 })
+  expect(f.h.ctx.db.query('SELECT kind FROM remote_mcp_tokens WHERE hash=?').get(hash(first.refresh_token!))).toEqual({ kind: 'refresh' })
   const refresh = { client_id: f.client.client_id, grant_type: 'refresh_token', resource: origin + '/mcp' }
   // after the hour, the app refreshes instead of sending the person to the browser
   const start = Date.now(); f.svc.now = () => start + 3600_001
@@ -404,4 +404,15 @@ test('an app that does not ask for offline_access (ChatGPT, apps that ask for th
   f.svc.revoke({ client_id: f.client.client_id, token: third.refresh_token })
   expect(() => f.svc.authenticate(third.access_token)).toThrow()
   expect(() => f.svc.token({ ...refresh, refresh_token: third.refresh_token })).toThrow('invalid_grant')
+})
+
+test('a grant stored by an older build without offline_access stays access-only: no refresh token', async () => {
+  const f = await fixture('old-grant'), code = f.code('mcp:read')
+  // as an older build stored it: the app did not ask, so the grant has no offline_access
+  f.h.ctx.db.query("UPDATE remote_mcp_grants SET scopes=? WHERE id=(SELECT grant_id FROM remote_mcp_codes WHERE hash=?)").run(JSON.stringify(['mcp:read', 'mcp:admin']), hash(code))
+  const tokens = f.exchange(code)
+  expect(tokens.scope).toBe('mcp:read mcp:admin')
+  expect(tokens.refresh_token).toBeUndefined()
+  const grant = f.svc.authenticate(tokens.access_token)
+  expect(f.h.ctx.db.query("SELECT count(*) AS n FROM remote_mcp_tokens WHERE grant_id=? AND kind='refresh'").get(grant.id)).toEqual({ n: 0 })
 })
