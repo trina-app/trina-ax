@@ -377,7 +377,9 @@ describe('in a chat', () => {
     // why it asks: the small line under the buttons (this chat is not the room's side chat), not the question
     expect((card.data.request as { note?: string }).note).toContain('Messages from your conversations')
     expect((card.data.request as { question: string }).question).not.toContain('Messages from your conversations')
-    expect((card.data.request as { question: string }).question).toContain(W(target))
+    // the place by a short name, the whole place on hover (docs/decisions/20261122-widening-card-wording.md)
+    expect((card.data.request as { question: string }).question).toContain('rooms-read-target.md to Company-wide')
+    expect((card.data.request as { placeTip?: unknown }).placeTip).toEqual({ text: 'rooms-read-target.md', title: W(target) })
     await h.api('alice').call(API.answerTurn, { params: { id: turnId }, body: { kind: 'ask_user', requestId: card.data.request.requestId, answer: 'skip' } })
     await ws.alice!.next('message.done', (f) => f.data.message.turnId === turnId, 30_000)
     expect(fs.readFileSync(abs(), 'utf8')).toBe('before the room\n')
@@ -385,7 +387,7 @@ describe('in a chat', () => {
     const third = await h.api('alice').call(API.sendMessage, { params: { id: chat }, body: { content: fake({ tool: 'read', args: { file_path: target } }, { tool: 'write', args: { file_path: target, content: 'with a yes\n' } }, { say: 'saved' }), clientMessageId: cm(), attachmentIds: [] } })
     // the room is in the chat's read scope: saving where more people can see (shared/) is the one card, naming the room
     const card3 = await ws.alice!.next('turn.request', (f) => f.data.turnId === third.turnId && f.data.request.kind === 'ask_user', 15_000)
-    expect((card3.data.request as { question: string }).question).toMatch(/^Save to .+ \(\d+ (person|people)\)\? \d+ of them can’t see the chat it came from\.\nIt came from .+ \(\d+ (person|people)\)\./)
+    expect((card3.data.request as { question: string }).question).toMatch(/^Save rooms-read-target\.md to Company-wide, where \d+ (person|people) can see it\?\nTrina made it from .+, which \d+ of them can’t see\./)
     await h.api('alice').call(API.answerTurn, { params: { id: third.turnId }, body: { kind: 'ask_user', requestId: card3.data.request.requestId, answer: 'save' } })
     await ws.alice!.next('message.done', (f) => f.data.message.turnId === third.turnId, 30_000)
     expect(fs.readFileSync(abs(), 'utf8')).toBe('with a yes\n')

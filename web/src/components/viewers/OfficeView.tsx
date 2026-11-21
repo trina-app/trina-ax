@@ -1,9 +1,9 @@
 // Word / PowerPoint / Excel previews rendered in the page (no server conversion): docx-preview,
 // @aiden0z/pptx-renderer (Apache-2.0), SheetJS. Ported from Saram web/src/components/viewers/OfficeView.tsx.
 import { fixRenderedBullets } from '../../lib/docxBullets'
-import { fitDocxPages } from '../../lib/officeFit'
+import { docxFitZoom, docxPageWidth } from '../../lib/docxFit'
 import clsx from 'clsx'
-import { useEffect, useRef, useState, type RefObject } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState, type RefObject } from 'react'
 import type { CellObject } from 'xlsx'
 import { useLocale, useT } from '../../i18n'
 import { guardLinks } from '../../lib/safeLinks'
@@ -61,16 +61,29 @@ function Status({ busy, error, what }: { busy: boolean; error: string | null; wh
   return null
 }
 
-export function DocxView({ blob }: { blob: Blob }) {
+/** `width`: the width the preview is shown in (the panel's, the file viewer's column); a page wider than it is scaled
+ * down to fit (lib/docxFit.ts), never up. */
+export function DocxView({ blob, width }: { blob: Blob; width: number }) {
   const t = useT()
+  // the widest page at scale 1, measured once after each render: a new object each time, so a next file whose pages
+  // are as wide as the last one's still gets its zoom (renderAsync draws a new wrapper)
+  const [page, setPage] = useState<{ w: number }>({ w: 0 })
   const { ref, error, busy } = useRender(async (el) => {
     const { renderAsync } = await import('docx-preview')
     // no external resources: docx-preview renders embedded images from the file itself
     await renderAsync(blob, el, undefined, { inWrapper: true, ignoreLastRenderedPageBreak: true, renderComments: false, renderAltChunks: false, useBase64URL: true })
     fixRenderedBullets(el)
-    // a page wider than the panel (a phone) is scaled down to its width, never up (lib/officeFit.ts)
-    return fitDocxPages(el)
+    const wrapper = el.querySelector<HTMLElement>('.docx-wrapper')
+    setPage({ w: wrapper ? docxPageWidth(wrapper) : 0 })
   }, [blob])
+  // CSS zoom (not a transform): the scroll height follows the smaller pages
+  useLayoutEffect(() => {
+    const wrapper = ref.current?.querySelector<HTMLElement>('.docx-wrapper')
+    if (!wrapper) return
+    const z = docxFitZoom(width, page.w)
+    if (z < 1) wrapper.style.setProperty('zoom', String(z))
+    else wrapper.style.removeProperty('zoom')
+  }, [ref, width, page])
   return (
     <div className="relative min-h-full">
       <Status busy={busy} error={error} what={t('preview.kind.docx')} />

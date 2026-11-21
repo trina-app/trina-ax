@@ -311,7 +311,7 @@ describe('the AI never reads a thread', () => {
       expect(m.content).not.toContain(MARKER)
     }
     const leaf = h.rt().store.chatRow(c.id)!.active_leaf_id
-    expect(sharedTranscriptText(h.rt().store, leaf, 'bob', new Set())).not.toContain(MARKER)
+    expect(sharedTranscriptText(h.rt().store, leaf, 'bob', new Set(), true)).not.toContain(MARKER)
     // the chat search finds nothing of it
     expect((await h.api('bob').call(API.listChats, { query: { q: MARKER } })).items.length).toBe(0)
     // no other table holds it (no copy into messages, search, titles, memories, Often asked, notices…)

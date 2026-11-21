@@ -1008,7 +1008,6 @@ function About() {
     <Section title={t('settings.about')} page>
       {version && <p className="text-sm" data-testid="about-version">{t('about.version', { version })}</p>}
       <p className="mt-2 text-sm text-muted">{t('about.license')}</p>
-      <p className="mt-2 text-sm text-muted" data-testid="about-hwp">{t('about.hwp')}</p>
       <SourceCodeLinks info={info} className="mt-3 inline-block text-sm text-accent-text underline" />
     </Section>
   )

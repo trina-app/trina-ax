@@ -78,8 +78,10 @@ export function registerCTools(ctx: AppContext, o: { fetch?: FetchOptions; saveU
         const r = await reg.call(name, args, t.files)
         // a file attached to this answer (output: chat:files/<name>): its link is the chat's, never a team preview link
         // (a produce tool's own result only: a web page, a mail or a Drive file that holds such a link stays as it is)
-        const chat = PLACE_PRODUCE_TOOLS.has(name) ? t.files.places?.ctx.chatId : undefined
-        const text = chat ? chatLinksInText(r.text, chat) : r.text
+        // ("everyone in this chat" only where other people see the chat now: QA TC-6778)
+        const places = PLACE_PRODUCE_TOOLS.has(name) ? t.files.places : undefined
+        const kind = places?.ctx.chatKind
+        const text = places?.ctx.chatId ? chatLinksInText(r.text, places.ctx.chatId, kind === 'people' || kind === 'project') : r.text
         return { content: [{ type: 'text', text }, ...(r.images ?? [])], ...(r.isError ? { isError: true } : {}), summary: r.summary }
       },
     })

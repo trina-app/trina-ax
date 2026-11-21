@@ -60,7 +60,7 @@ describe('the AI saves what it read', () => {
       { tool: 'write', args: { file_path: 'shared/leak.md', content: 'CANARY-FIN-7731' }, sayResult: true },
     ), 'skip')
     expect(r.card!.question).toContain('부서 › finance')
-    expect(r.card!.question).toContain('전사 공유 › leak.md')
+    expect(r.card!.question).toContain('전사 공유에 leak.md 저장할까요?')
     expect(r.card!.origin).toBe('server') // shown as the server's safety check, not as a question from the AI
     expect(r.content).toContain('did not allow saving')
     expect(fs.existsSync(path.join(h.team, 'shared/leak.md'))).toBe(false)

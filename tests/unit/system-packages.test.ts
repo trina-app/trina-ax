@@ -421,6 +421,23 @@ pk_fetch https://example.com/x "" "" "${d}/x" || echo no-hash-refused`, { PK_BUN
     fs.rmSync(d, { recursive: true, force: true })
   })
 
+  test('a direct apt run suspends needrestart (install-srt.sh inside mycel-ctl update must not restart the guest agent)', () => {
+    // 0.6.0 on hosted teams: install-srt.sh's apt ran inside `mycel-ctl update`, whose replaced binary made needrestart
+    // (restart = 'a' on the image) restart mycel-link.service, and its cgroup took the update down before the sync
+    const d = fs.mkdtempSync(path.join(os.tmpdir(), 'pk-nr-'))
+    const bin = path.join(d, 'bin'); fs.mkdirSync(bin)
+    fs.writeFileSync(path.join(bin, 'apt-get'), `#!/bin/sh\necho "$1 NEEDRESTART_SUSPEND=\${NEEDRESTART_SUSPEND:-unset}" >> "${d}/direct"\n`, { mode: 0o755 })
+    const env = { PATH: `${bin}:${PATH}`, PK_SYSTEMD_DIR: path.join(d, 'none') }
+    expect(lib('pk_apt_install -- unzip', env).code).toBe(0)
+    const lines = fs.readFileSync(path.join(d, 'direct'), 'utf8').trim().split('\n')
+    for (const op of ['update', 'install', 'clean']) expect(lines).toContain(`${op} NEEDRESTART_SUSPEND=1`)
+    // the caller's environment stays as it was (only apt-get sees it)
+    expect(lib('pk_apt_install -- unzip; echo "after=${NEEDRESTART_SUSPEND:-unset}"', env).out).toContain('after=unset')
+    // the sync's own unit (outside the guest agent's cgroup, after the update) does not suspend it: restarts happen there
+    expect(read('scripts/system/packages.sh')).not.toMatch(/systemd-run[^\n]*NEEDRESTART_SUSPEND/)
+    fs.rmSync(d, { recursive: true, force: true })
+  })
+
   test('results: a full disk and an administrator\'s step are blocked, a failed download incomplete, the worse wins', () => {
     const r = lib(['ok ok', 'ok incomplete', 'incomplete ok', 'incomplete blocked', 'blocked incomplete', 'blocked ok'].map((x) => `pk_worse ${x}`).join('\n'))
     expect(r.out.trim().split('\n')).toEqual(['ok', 'incomplete', 'incomplete', 'blocked', 'blocked', 'blocked'])
