@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-21 18:45
 - Branch: `fix/widening-card-wording`
-- Status: in progress
+- Status: done
 - Where: server/src/chat (card words), shared/src/api/ws.ts + web/src/components/chat/AskCard.tsx (a tooltip on the place). Why: the card's words are the server's (docs/REPOSITORY-RULES.md)
 - Version impact: patch (the same card, when it shows and what its buttons do unchanged; only its words)
 
@@ -22,7 +22,9 @@ In: the wider-audience card (`askWidening`, kind `save_wider`):
 - one reason line: "Trina made it from <source>, which 1 of them can't open." A source the person answering cannot see
   is never named: "a place only some of them can open" (all hidden: "Trina made it from a place 1 of them can't open.");
 - a shorter Always allow note for this card only (`cardAlwaysNoteSaveWider`);
-- six languages, tests that assert the old words.
+- six languages, tests that assert the old words;
+- (coordinator, same PR) server/src/policy/refusal.ts names the ✦ side-panel button by its label since PR #276
+  ("트리나에게 묻기 (나만 봐요)" / "Ask Trina (only you see it)") in all six languages.
 
 Out: when the card shows, its facts, its buttons and Always allow kinds (docs/decisions/20261117-save-card-plain.md,
 20261116-folder-share-widening.md); the skill card's `skillWiden` line; the room card's own lines.
@@ -50,3 +52,8 @@ Leaking a hidden source's name: the hidden check (`seesSource`) is unchanged and
 
 ## Result
 
+Built as planned. The question reads "Save 06_contact.svg to 테스트 프로젝트, where 2 people can see it?" (ko "테스트
+프로젝트에 06_contact.svg 저장할까요? 2명이 볼 수 있는 곳이에요."), then one line why; the whole place shows on hover over
+the file name (`placeTip`). The shorter Always allow line is this card's own (kind `save_wider`); the combined room card
+keeps the general line, since its Always allow also covers room changes. The mock has a `widenask` card for the e2e
+test and screenshots. Also: the refusal text names the ✦ button "Ask Trina (only you see it)" (coordinator's addition).

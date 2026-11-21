@@ -36,7 +36,7 @@ beforeAll(async () => {
 })
 afterAll(async () => { for (const s of Object.values(ws)) s.close(); await h.close() })
 
-type Card = { requestId: string; question: string; note?: string; options?: { value: string }[]; details?: { label: string; text: string; fields?: { name: string; value: string }[]; noSize?: boolean; markdown?: true }[] }
+type Card = { requestId: string; question: string; note?: string; placeTip?: { text: string; title: string }; options?: { value: string }[]; details?: { label: string; text: string; fields?: { name: string; value: string }[]; noSize?: boolean; markdown?: true }[] }
 async function run(user: string, chatId: string, content: string, answer: (c: Card) => string = () => 'skip') {
   const r = await h.api(user).call(API.sendMessage, { params: { id: chatId }, body: { content, clientMessageId: cm(), attachmentIds: [] } })
   const cards: Card[] = []
@@ -102,8 +102,10 @@ describe('a place the person names', () => {
     expect(no.cards).toHaveLength(1)
     expect(fs.existsSync(at('shared/Meeting notes/sunday-no.md'))).toBe(false)
     const q = no.cards[0]!.question
-    // one plain question, the source on its own line (QA TC-4815)
-    expect(q).toBe(`Save to ${W('shared/Meeting notes/sunday-no.md')} (${n} people)? ${n - 2} of them can’t see the chat it came from.\nIt came from messages of the conversation 'leads-${rooms}' (2 people).`)
+    // the question first with a short place, then one line why (docs/decisions/20261122-widening-card-wording.md)
+    expect(q).toBe(`Save sunday-no.md to Company-wide, where ${n} people can see it?\nTrina made it from messages of the conversation 'leads-${rooms}', which ${n - 2} of them can’t see.`)
+    // the whole place shows on hover
+    expect(no.cards[0]!.placeTip).toEqual({ text: 'sunday-no.md', title: W('shared/Meeting notes/sunday-no.md') })
     expect(q).not.toContain('read content fewer people can see')
     // her own chat read the room: why it asks is the small line under the buttons
     expect(no.cards[0]!.note).toContain("Messages from your conversations (other people's words) came in here, so changes are asked first.")
@@ -123,32 +125,33 @@ describe('a place the person names', () => {
     const r = await run('alice', await newChat('alice'), `Save it in the ${dir} folder\n${fake({ tool: 'room_read', args: { room: roomId } }, write(`${dir}/overlap.md`))}`, () => 'skip')
     expect(r.cards).toHaveLength(1)
     // the place: alice, erin and the owners/admins who read every group folder; all but alice miss the room
-    expect(r.cards[0]!.question).toMatch(/^Save to .+ \((\d+) people\)\? (\d+) of them can’t see the chat it came from\.\n/)
-    const [, n, m] = r.cards[0]!.question.match(/\((\d+) people\)\? (\d+) of them/)!
+    expect(r.cards[0]!.question).toMatch(/^Save overlap\.md to overlap-\d+, where (\d+) people can see it\?\nTrina made it from .+, which (\d+) of them can’t see\.$/)
+    const [, n, m] = r.cards[0]!.question.match(/where (\d+) people can see it\?\n.+, which (\d+) of them/)!
     expect(Number(m)).toBe(Number(n) - 1)
     expect(Number(n)).toBeGreaterThanOrEqual(2)
     expect(fs.existsSync(at(`${dir}/overlap.md`))).toBe(false)
   })
 
-  test('the card in the other languages keeps the facts: source with its count, place with its count', () => {
-    const from = tr('widenFrom', 'ko', { source: "'leads' 대화의 메시지", n: '3' })
-    expect(from).toBe("'leads' 대화의 메시지(3명)")
-    // QA TC-4815: the question, how many there cannot see the source, and the source on its own line
-    expect(tr('widenConfirm', 'ko', { target: '부서 › 영업 › 회의록 › x.md', n: '4' })).toBe('부서 › 영업 › 회의록 › x.md(4명)에 저장할까요?')
-    expect(tr('widenBlindChat', 'ko', { m: '1' })).toBe('그중 1명은 원래 대화를 못 봐요.')
-    expect(tr('widenBlind', 'ko', { m: '1' })).toBe('그중 1명은 원래 있던 곳을 못 봐요.')
-    expect(tr('widenSource', 'ko', { sources: from })).toBe("'leads' 대화의 메시지(3명)에서 가져온 내용이에요.")
-    expect(tr('widenConfirm', 'en', { target: 'Sales › Meeting notes › x.md', n: '4' })).toBe('Save to Sales › Meeting notes › x.md (4 people)?')
-    expect(tr('widenBlindChat', 'en', { m: '1' })).toBe('1 of them can’t see the chat it came from.')
-    expect(tr('widenBlind', 'en', { m: '7' })).toBe('7 of them can’t see where it came from.')
-    expect(tr('widenSource', 'en', { sources: 'x (3 people)' })).toBe('It came from x (3 people).')
-    expect(tr('widenConfirm', 'id', { target: 'Company-wide', n: '10' })).toBe('Simpan ke Company-wide (10 orang)?')
-    expect(tr('widenBlind', 'id', { m: '7' })).toBe('7 di antaranya tidak bisa melihat asalnya.')
-    expect(tr('widenConfirm', 'es', { target: 'y', n: '10' })).toBe('¿Guardar en y (10 personas)?')
-    expect(tr('widenBlind', 'es', { m: '7' })).toContain('7 de ellas no pueden ver')
-    expect(tr('widenConfirm', 'ja', { target: 'y', n: '10' })).toBe('y（10人）に保存しますか？')
-    expect(tr('widenBlind', 'ja', { m: '7' })).toBe('うち7人は元の場所を見られません。')
-    expect(tr('widenBlind', 'zh', { m: '7' })).toBe('其中7人看不到内容的来源。')
+  test('the card in the other languages keeps the facts: the place with its count, the source and who cannot open it', () => {
+    // docs/decisions/20261122-widening-card-wording.md: the question first, then one line why
+    expect(tr('widenConfirm', 'ko', { file: 'x.md', area: '영업', n: '4' })).toBe('영업에 x.md 저장할까요? 4명이 볼 수 있는 곳이에요.')
+    expect(tr('widenWhyChat', 'ko', { sources: "'leads' 대화의 메시지", m: '1' })).toBe("트리나가 'leads' 대화의 메시지에서 가져와 만들었는데, 그중 1명은 그 대화를 볼 수 없어요.")
+    expect(tr('widenWhy', 'ko', { sources: '내 파일', m: '1' })).toBe('트리나가 내 파일에서 가져와 만들었는데, 그중 1명은 그곳을 열 수 없어요.')
+    expect(tr('widenWhyHidden', 'ko', { m: '1' })).toBe('트리나가 그중 1명은 열 수 없는 곳에서 가져와 만들었어요.')
+    expect(tr('widenConfirm', 'en', { file: 'x.md', area: 'Sales', n: '4' })).toBe('Save x.md to Sales, where 4 people can see it?')
+    expect(tr('widenWhyChat', 'en', { sources: 'x', m: '1' })).toBe('Trina made it from x, which 1 of them can’t see.')
+    expect(tr('widenWhy', 'en', { sources: 'x', m: '7' })).toBe('Trina made it from x, which 7 of them can’t open.')
+    expect(tr('widenWhyHidden', 'en', { m: '1' })).toBe('Trina made it from a place 1 of them can’t open.')
+    expect(tr('widenWhyAll', 'en', { sources: 'x' })).toBe('Trina made it from x.')
+    expect(tr('widenSourceHidden', 'en')).toBe('a place only some people here can open')
+    expect(tr('widenConfirm', 'id', { file: 'x.md', area: 'Company-wide', n: '10' })).toBe('Simpan x.md ke Company-wide, yang bisa dilihat 10 orang?')
+    expect(tr('widenWhy', 'id', { sources: 'x', m: '7' })).toBe('Trina membuatnya dari x, yang tidak bisa dibuka oleh 7 di antaranya.')
+    expect(tr('widenConfirm', 'es', { file: 'x.md', area: 'y', n: '10' })).toBe('¿Guardar x.md en y, donde lo pueden ver 10 personas?')
+    expect(tr('widenWhy', 'es', { sources: 'x', m: '7' })).toBe('Trina lo hizo con x, que 7 de ellas no pueden abrir.')
+    expect(tr('widenConfirm', 'ja', { file: 'x.md', area: 'y', n: '10' })).toBe('x.mdをyに保存しますか？10人が見られる場所です。')
+    expect(tr('widenWhyHidden', 'ja', { m: '7' })).toBe('トリナは、うち7人が開けない場所の内容をもとに作りました。')
+    expect(tr('widenConfirm', 'zh', { file: 'x.md', area: 'y', n: '10' })).toBe('要把x.md保存到y吗？那里有10人可以看到。')
+    expect(tr('widenWhy', 'zh', { sources: 'x', m: '7' })).toBe('Trina是根据x的内容做的，其中7人打不开那里。')
     expect(tr('widenFromYou', 'es', { source: 'su carpeta personal' })).toBe('su carpeta personal (solo usted)')
     expect(tr('widenFromYou', 'id', { source: 'folder pribadi Anda' })).toBe('folder pribadi Anda (hanya Anda)')
   })
@@ -164,7 +167,7 @@ describe('the card in fewer words (QA TC-4815)', () => {
     expect(r.cards).toHaveLength(1)
     expect(fs.existsSync(at('shared/side-same.md'))).toBe(false)
     const c = r.cards[0]!
-    expect(c.question).toBe(`Save to ${W('shared/side-same.md')} (${n} people)? ${n - 2} of them can’t see the chat it came from.\nIt came from messages of the conversation 'leads-${rooms}' (2 people).`)
+    expect(c.question).toBe(`Save side-same.md to Company-wide, where ${n} people can see it?\nTrina made it from messages of the conversation 'leads-${rooms}', which ${n - 2} of them can’t see.`)
     expect(c.question).not.toContain(reason)
     expect(c.note ?? '').not.toContain(reason)
     // the buttons and Always allow are as before
@@ -235,7 +238,7 @@ describe('the card in fewer words (QA TC-4815)', () => {
     const ins = await run('alice', await newChat('alice', { sideRoomId: roomId }), `Save it in Company-wide\n${fake({ tool: 'room_read', args: { room: roomId } }, write('shared/side-rules/CLAUDE.md', '# Rules\n\n**Always** answer in English.\n'))}`, answerAll)
     const c = ins.cards.find((x) => x.options?.some((o) => o.value === 'save'))!
     expect(c.details![0]!.markdown).toBeUndefined()
-    expect(c.question).toEndWith(`(2 people).\n${tr('roomAiConfirmInstruction', 'en')}`)
+    expect(c.question).toEndWith(`can’t see.\n${tr('roomAiConfirmInstruction', 'en')}`)
     fs.mkdirSync(at('shared/side-edit'), { recursive: true })
     fs.writeFileSync(at('shared/side-edit/notes.md'), '# Notes\n\nold price\n')
     const ed = await run('alice', await newChat('alice', { sideRoomId: roomId }), `Fix the price in Company-wide\n${fake({ tool: 'room_read', args: { room: roomId } }, { tool: 'read', args: { file_path: 'shared/side-edit/notes.md' } }, { tool: 'edit', args: { file_path: 'shared/side-edit/notes.md', old_string: 'old price', new_string: '**new** price' }, sayResult: true })}`, answerAll)
