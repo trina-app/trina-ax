@@ -70,6 +70,11 @@ export async function routeRoom(page: Page, o: { members: { id: string; name: st
     if (method === 'GET' && path === `/api/rooms/${ROOM_ID}`) return route.fulfill(json(room))
     if (method === 'GET' && path === `/api/rooms/${ROOM_ID}/messages`) return route.fulfill(json({ items: messages, nextCursor: null }))
     if (method === 'GET' && path === `/api/rooms/${ROOM_ID}/members`) return route.fulfill(json({ items: members.map((user) => ({ user, joinedAt: at(-60) })) }))
+    // the room's Files list (server/src/rooms/search.ts listRoomFiles): the files of its messages, newest first
+    if (method === 'GET' && path === `/api/rooms/${ROOM_ID}/files`) {
+      const items = [...all].reverse().filter((m) => !m.deletedAt).flatMap((m) => ((m.files as Record<string, unknown>[] | undefined) ?? []).map((file) => ({ file, messageId: m.id, roomId: ROOM_ID, threadRootId: (m.threadRootId as string | undefined) ?? null, author: m.author, createdAt: m.createdAt })))
+      return route.fulfill(json({ items, nextCursor: null }))
+    }
     if (method === 'POST' && path === `/api/rooms/${ROOM_ID}/read`) return route.fulfill(json({ lastReadSeq: room.lastSeq, unreadCount: 0, mentioned: false }))
     if (method === 'PATCH' && path === `/api/rooms/${ROOM_ID}`) {
       const b = req.postDataJSON() as { notifyLevel?: string | null }
@@ -195,7 +200,7 @@ export async function routeRooms(page: Page, specs: MockRoomSpec[]): Promise<Moc
     const path = new URL(req.url()).pathname
     const method = req.method()
     if (method === 'GET' && path === '/api/rooms') return route.fulfill(json({ items: all(), alerts: { threadReplies: true, quietHours: { on: false, start: '22:00', end: '08:00', weekends: false }, timeZone: 'Asia/Seoul' } }))
-    const m = /^\/api\/rooms\/([^/]+)(?:\/(messages|members|ai|read|hidden|leave|pin))?$/.exec(path)
+    const m = /^\/api\/rooms\/([^/]+)(?:\/(messages|members|ai|read|hidden|leave|pin|files))?$/.exec(path)
     const s = m && live.get(m[1]!)
     if (!m || !s) return route.fulfill(json({ error: { code: 'not_found', message: 'not in this mock' } }, 404))
     const i = specs.findIndex((x) => x.id === s.id)
@@ -207,6 +212,8 @@ export async function routeRooms(page: Page, specs: MockRoomSpec[]): Promise<Moc
     }
     if (method === 'GET' && what === 'members') return route.fulfill(json({ items: [{ id: 'olga', name: 'Olga' }, ...s.peers].map((user) => ({ user, joinedAt: when(600) })) }))
     if (method === 'GET' && what === 'ai') return route.fulfill(json({ answering: 0, mine: [] }))
+    // the room's Files list: its one message has no file
+    if (method === 'GET' && what === 'files') return route.fulfill(json({ items: [], nextCursor: null }))
     if (method === 'POST' && what === 'read') return route.fulfill(json({ lastReadSeq: 3, unreadCount: 0, mentioned: false }))
     if (method === 'PUT' && what === 'hidden') {
       const b = req.postDataJSON() as { hidden: boolean }

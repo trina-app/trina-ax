@@ -56,6 +56,76 @@ async function projectRoomCases(w: World, roomId: string) {
     if (!may && tf.text.includes('project room security file')) throw new Error(`${who}: the team file leaked`)
   }
 }
+/**
+ * Once, for a room's Files list and ⌘K's recent files (rooms/search.ts listRoomFiles, recentRoomFiles; D8), each on
+ * rooms of its own so the world stays as it was:
+ *   - a former member: bob in a group chat with alice and erin sees its file in both, and after leaving gets the list's
+ *     404 (as for a room he was never in) and no longer finds it in recent;
+ *   - a member when the folder is narrowed: a file alice sent in Team plan's chat room (a project file, a ref row) is in
+ *     erin's recent while she reads it, and gone (never "unavailable", never its name) once its folder is narrowed to
+ *     alice; the project room has no list of its own (404) for either. The narrowing is taken off again;
+ *   - a guest of a group chat: their room's list and recent, never alice's DM with erin (404, nothing named).
+ */
+let roomFilesChecked = false
+async function roomFilesCases(w: World) {
+  if (roomFilesChecked) return
+  roomFilesChecked = true
+  const db = w.inst.ctx.db
+  const alice = w.as.memberIn, erin = w.as.other, bob = w.as.memberOut
+  const sendFile = async (roomId: string, name: string) => {
+    const f = new FormData()
+    f.set('file', new File([new TextEncoder().encode(`room files list ${name}`)], name, { type: 'text/plain' }))
+    const up = await alice.ok('POST', `/api/rooms/${roomId}/files`, undefined, { form: f })
+    await alice.ok('POST', `/api/rooms/${roomId}/messages`, { body: '', clientMessageId: cm(), fileIds: [up.id] })
+    return up as { id: string; teamPath?: string }
+  }
+  const has = async (c: typeof alice, p: string, name: string) => { const r = await c.get(p); return { status: r.status, text: r.text, found: r.text.includes(name) } }
+  // a former member
+  const left = (await alice.ok('POST', '/api/rooms', { kind: 'group', userIds: ['erin', 'bob'] })).id as string
+  const leftName = 'SEC-FILES-LEFT-4c1.txt'
+  await sendFile(left, leftName)
+  if (!(await has(bob, `/api/rooms/${left}/files`, leftName)).found || !(await has(bob, '/api/room-files/recent', leftName)).found) throw new Error('bob, a member, does not see the group chat\'s file')
+  await bob.ok('POST', `/api/rooms/${left}/leave`)
+  const gone = await has(bob, `/api/rooms/${left}/files`, leftName)
+  if (gone.status !== 404 || gone.found) throw new Error(`a former member's list answered ${gone.status} ${gone.text.slice(0, 200)}`)
+  if ((await has(bob, '/api/room-files/recent', leftName)).found) throw new Error('a former member still finds the file in recent')
+  // a member when the folder is narrowed (a project room's ref row)
+  const room = (await alice.ok('POST', `/api/projects/${w.ids.projTeam}/room`)).id as string
+  const refName = 'SEC-FILES-REF-7e3.txt'
+  const up = await sendFile(room, refName)
+  if (!up.teamPath) throw new Error('the project room file is not a project file')
+  if (!(await has(erin, '/api/room-files/recent', refName)).found) throw new Error('erin, a reader, does not find the project room file in recent')
+  for (const c of [alice, erin]) {
+    const r = await c.get(`/api/rooms/${room}/files`)
+    if (r.status !== 404 || r.text.includes(refName)) throw new Error(`a project room's list answered ${r.status} ${r.text.slice(0, 200)}`)
+  }
+  const fid = 'f_' + crypto.randomUUID()
+  const folder = up.teamPath.split('/').slice(0, -1).join('/')
+  db.query('INSERT INTO folders (id, path, limited) VALUES (?, ?, 1)').run(fid, folder)
+  db.query("INSERT INTO folder_rules (id, folder_id, subject_type, subject_id, access) VALUES (?, ?, 'user', 'alice', 'write')").run(crypto.randomUUID(), fid)
+  try {
+    const narrowed = await erin.get('/api/room-files/recent')
+    if (narrowed.status !== 200 || narrowed.text.includes(refName) || narrowed.text.includes('"unavailable"') || narrowed.text.includes(folder)) throw new Error(`erin's recent after the narrowing: ${narrowed.text.slice(0, 300)}`)
+    if (!(await has(alice, '/api/room-files/recent', refName)).found) throw new Error('alice lost her own readable project file from recent')
+  } finally {
+    db.query('DELETE FROM folder_rules WHERE folder_id = ?').run(fid)
+    db.query('DELETE FROM folders WHERE id = ?').run(fid)
+  }
+  // a guest of a group chat
+  const chat = (await alice.ok('POST', '/api/rooms', { kind: 'group', userIds: ['erin', 'bob'], name: 'SEC-FILES-GUEST-ROOM' })).id as string
+  const inv = await alice.ok('POST', '/api/guest-invites', { place: { kind: 'room', id: chat } })
+  const guest = w.inst.client('room-files-guest')
+  await guest.ok('POST', `/api/invites/${String(inv.url).split('/invite/')[1]}/accept`, { username: 'secfilesguest', name: 'Files Guest', password: 'guest river lamp 77' })
+  const guestName = 'SEC-FILES-GUEST-9a0.txt'
+  await sendFile(chat, guestName)
+  if (!(await has(guest, `/api/rooms/${chat}/files`, guestName)).found) throw new Error('the guest does not see their room\'s file')
+  const dm = await guest.get(`/api/rooms/${w.ids.dmRoom}/files`)
+  if (dm.status !== 404 || leaks('pwchange', dm.text).length || dm.text.includes(C.dmFileName)) throw new Error(`a guest's list of the DM answered ${dm.status} ${dm.text.slice(0, 200)}`)
+  const rec = await guest.get('/api/room-files/recent')
+  if (rec.status !== 200 || !rec.text.includes(guestName)) throw new Error(`a guest's recent: ${rec.status} ${rec.text.slice(0, 200)}`)
+  for (const x of [C.dmFileName, leftName, refName]) if (rec.text.includes(x)) throw new Error(`a guest's recent names ${x}`)
+  if ((rec.json?.rooms as { id: string }[]).some((r) => r.id !== chat)) throw new Error('a guest\'s recent names another room')
+}
 const form = () => { const f = new FormData(); f.set('file', new File([PNG], 'room.png', { type: 'image/png' })); return f }
 export const ROOM_SPECS: Record<string, Spec> = {
   listRooms: { build: (c) => c.get('/api/rooms'), scope: 'self' },
@@ -274,6 +344,20 @@ export const ROOM_SPECS: Record<string, Spec> = {
   // "Save to team folder" (rooms/save-to-team.ts): the DM's two people only, the owner and the admin outside it get 404
   // like a room they are not in. The copy goes to shared/ (both may write it): the first caller copies, the second finds
   // the same bytes there; either way the team file holds the DM picture's bytes and the saved list names it
+  // a room's Files list (D8): the DM's two people, with its file; everyone else, the owner and the admin included, the
+  // room's 404. Then, once, a former member, a narrowed project folder and a guest (roomFilesCases)
+  listRoomFiles: {
+    build: (c, w) => c.get(`/api/rooms/${w.ids.dmRoom}/files`), scope: 'room-dm',
+    check: async (r, w, who) => {
+      if ((who === 'memberIn' || who === 'other') && (r.status !== 200 || !r.text.includes(C.dmFileName))) throw new Error(`${who}: the DM's list answered ${r.status} without its file`)
+      if (who === 'memberIn') await roomFilesCases(w)
+    },
+  },
+  // ⌘K's recent files: each person's own rooms; the DM's file only for its two people (the canary check for the rest)
+  recentRoomFiles: {
+    build: (c) => c.get('/api/room-files/recent'), scope: 'self',
+    check: (r, _w, who) => { if (r.status === 200 && (who === 'memberIn' || who === 'other') && !r.json?.rooms) throw new Error(`${who}: recent without its rooms`) },
+  },
   roomSavedFiles: { build: (c, w) => c.get(`/api/rooms/${w.ids.dmRoom}/saved-files`), scope: 'room-dm' },
   roomSavePlan: {
     build: (c, w) => c.post(`/api/rooms/${w.ids.dmRoom}/save-plan`, { fileIds: [w.ids.dmFile] }), scope: 'room-dm',

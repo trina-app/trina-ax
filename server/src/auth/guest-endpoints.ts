@@ -62,6 +62,9 @@ export const GUEST_ENDPOINTS: ReadonlySet<Endpoint> = new Set<Endpoint>([
   API.searchRoomMessages,
   API.searchRoomFiles,
   API.listMyRoomFiles,
+  // their rooms' Files lists and ⌘K's recent files: only rooms they are in (rooms/search.ts myRooms)
+  API.listRoomFiles,
+  API.recentRoomFiles,
   API.sendRoomMessage,
   API.listRoomThread,
   API.markRoomThreadRead,

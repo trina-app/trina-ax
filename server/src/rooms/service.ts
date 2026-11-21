@@ -32,7 +32,7 @@
 // room_messages (author_kind 'ai', asked_by = who asked); an unposted private preview (visibility 'private') is filtered
 // everywhere (canSee / SEE_SQL) and makes no notice (notify()).
 import type { Database } from 'bun:sqlite'
-import { DEFAULT_LOCALE, inQuietHours, roomAlert, roomLevel, ROOM_GROUP_MAX, ROOM_REACTION_EMOJI_MAX, type Locale, type RoomAlertSettings, type RoomNotifyLevel, type Room, type RoomMember, type RoomMessage, type RoomMessagesPage, type RoomReaction, type RoomReactionEmoji, type RoomReadState, type RoomFileSearchPage, type MyRoomFilesPage, type RoomSearchPage, type RoomThreadPage, type RoomThreadReadState, type ServerEventInput, type MessageLinkAudience } from '@mycel/shared/api'
+import { DEFAULT_LOCALE, inQuietHours, roomAlert, roomLevel, ROOM_GROUP_MAX, ROOM_REACTION_EMOJI_MAX, type Locale, type RoomAlertSettings, type RoomNotifyLevel, type Room, type RoomMember, type RoomMessage, type RoomMessagesPage, type RoomReaction, type RoomReactionEmoji, type RoomReadState, type RoomFileSearchPage, type MyRoomFilesPage, type RecentRoomFiles, type RoomFilesPage, type RoomSearchPage, type RoomThreadPage, type RoomThreadReadState, type ServerEventInput, type MessageLinkAudience } from '@mycel/shared/api'
 import { cardLinks, keptAfterEdit, snapshotOf, snapshotOut, prepareLinkPreviews, readStored, seesLinked, snapshotAllowed, snapshotsAtSend, wipeSnapshotsOf, writeStored } from './link-previews'
 import { decodeCursor, encodeCursor } from '../chat/store'
 import type { AppContext } from '../context'
@@ -55,7 +55,7 @@ import { roomFilesOf } from './files'
 import { roomFileRefsOf } from './file-refs'
 import { historyRoom, openHistories } from './history'
 import { countedUnreadIn } from './inbox'
-import { searchRoomFiles, searchRoomMessages, type SearchInput, listMyRoomFiles } from './search'
+import { searchRoomFiles, searchRoomMessages, type SearchInput, listMyRoomFiles, listRoomFiles, recentRoomFiles } from './search'
 import { tr } from '../chat/i18n'
 import { roomMentionAllIn } from '@mycel/shared/api'
 import { loadPrincipal, RuleSet, type Principal } from '../policy/access'
@@ -717,6 +717,20 @@ export class Rooms {
   listMyFiles(userId: string, o: { cursor?: string; limit?: number }): MyRoomFilesPage {
     this.syncFor(userId)
     return listMyRoomFiles(this.db, userId, o)
+  }
+
+  /** A room's Files list (rooms/search.ts listRoomFiles): a room of mine (mine(): its history opened first, as on
+   * read), never a project's chat room (its files are the project's, in Files: 404, as for a room I am not in). */
+  listFiles(userId: string, roomId: string, o: { cursor?: string; limit?: number }): RoomFilesPage {
+    const { room } = this.mine(userId, roomId)
+    if (room.kind === 'group' && isProjectRoom(this.db, room.id)) return fail('not_found')
+    return listRoomFiles(this.db, userId, roomId, o)
+  }
+  /** ⌘K before anything is typed: the newest files of my rooms (rooms/search.ts recentRoomFiles), my team rooms'
+   * histories opened first, as for the search. */
+  recentFiles(userId: string): RecentRoomFiles {
+    this.syncFor(userId)
+    return recentRoomFiles(this.db, userId)
   }
 
   /** Team files a person copied in with a phone's attach sheet (rooms/files.ts teamCopy), now sent in message

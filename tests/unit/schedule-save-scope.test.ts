@@ -35,6 +35,10 @@ const fake = (...ds: unknown[]) => ds.map((d) => '@fake ' + JSON.stringify(d)).j
 const SAVE = 'shared/주간보고'.normalize('NFC')
 const MINE: ScopeSource = { type: 'user', id: 'alice' }
 
+/** A daily task's time 12 hours from now in Seoul: whatever hour the test runs in, "Run now" is never close to it, so the
+ * test does not depend on the wall clock (isFrequent is covered at a pinned clock in schedule-timing.test.ts). */
+const farTime = () => new Intl.DateTimeFormat('en-GB', { timeZone: 'Asia/Seoul', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(new Date(Date.now() + 12 * 3_600_000))
+
 let h: Harness, svc: FakeServices
 let notes: { id: string; slug: string }
 beforeAll(async () => {
@@ -56,7 +60,7 @@ const audits = (action: string, target: string) => (db().query('SELECT detail FR
 /** a confirmed task of alice's whose card allowed `o` (by default the save folder, with her own folder as a place) */
 function task(prompt: string, o: { save?: string | null; sources?: ScopeSource[]; sends?: PersonalSend[]; writeConnections?: string[] } = {}): ScheduleRow {
   const save = o.save === null ? null : resolveSaveFolder(h.ctx, 'alice', o.save ?? SAVE)
-  return h.rt().schedules.create('alice', { title: 'Weekly report', prompt, repeat: 'daily', time: '09:00' }, undefined,
+  return h.rt().schedules.create('alice', { title: 'Weekly report', prompt, repeat: 'daily', time: farTime() }, undefined,
     { allowedUrls: [], writeConnections: o.writeConnections ?? [], save, sources: withRules(db(), h.ctx.files.rules(), o.sources ?? [MINE]), personalSends: o.sends ?? [] })
 }
 type Event = { tool: string; summary: string; ok: number }

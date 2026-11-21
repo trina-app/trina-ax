@@ -33,7 +33,7 @@
 // (tests/unit/b-rooms-file-search.test.ts times 20,000). The cursor is below the page's last hit (a file they see).
 import type { Database } from 'bun:sqlite'
 import { nameMatch, nearBudget, nearMatch, parseSearch, particleNext, type SearchParts } from '@mycel/shared'
-import { ROOM_REF_RE, ROOM_SEARCH_PAGE_MAX, ROOM_SEARCH_SNIPPET_MAX, type MyRoomFilesPage, type RoomFileSearchHit, type RoomFileSearchPage, type RoomSearchFilters, type RoomSearchHit, type RoomSearchPage, type RoomSearchRoom, type RoomSearchSort, type UserRef } from '@mycel/shared/api'
+import { RECENT_ROOM_FILES_MAX, ROOM_REF_RE, ROOM_SEARCH_PAGE_MAX, ROOM_SEARCH_SNIPPET_MAX, type MyRoomFilesPage, type RecentRoomFiles, type RoomFilesPage, type RoomFileSearchHit, type RoomFileSearchPage, type RoomSearchFilters, type RoomSearchHit, type RoomSearchPage, type RoomSearchRoom, type RoomSearchSort, type UserRef } from '@mycel/shared/api'
 import { decodeCursor, encodeCursor } from '../chat/store'
 import { fail } from '../http/errors'
 import { reachFilter } from '../auth/guests'
@@ -300,12 +300,12 @@ function nearRows(db: Database, parts: SearchParts, f: Filters): (MessageRow & {
  * `authors`, the person twice when `mentions` (mentions:me: the message the file was sent with mentions them), each
  * term's LIKE, the cursor's file rowid when `after`, the LIMIT). CROSS JOIN keeps SQLite on room_files,
  * newest first by rowid: no sort, and a page stops when it is full (a plain JOIN walked every message of the person's
- * rooms and sorted: seconds on a million messages, the independent review measured). Exported for the test that reads
- * its plan. */
+ * rooms and sorted: seconds on a million messages, the independent review measured; `+f.room_id` keeps one room's index,
+ * room_files_by_room, out of it for the same reason). Exported for the test that reads its plan. */
 export const roomFilesSql = (words: number, after: boolean, authors = 0, mentions = false) => `SELECT f.rowid AS fr, f.id AS file_id, ${COLS} FROM room_files f
     CROSS JOIN room_messages m ON m.id = f.message_id AND m.room_id = f.room_id
     CROSS JOIN room_members mm ON mm.room_id = m.room_id AND mm.user_id = ?
-    WHERE f.message_id IS NOT NULL AND f.room_id IN (SELECT value FROM json_each(?)) AND m.deleted_at IS NULL AND m.event IS NULL
+    WHERE f.message_id IS NOT NULL AND +f.room_id IN (SELECT value FROM json_each(?)) AND m.deleted_at IS NULL AND m.event IS NULL
       AND ${SEE_MEMBER_SQL}${authors ? ` AND m.author_kind = 'user' AND m.author_id IN (${Array.from({ length: authors }, () => '?').join(',')})` : ''}${mentions ? ` AND ${MENTIONS_SQL}` : ''}${Array.from({ length: words }, () => " AND f.name LIKE ? ESCAPE '\\'").join('')}${after ? ' AND f.rowid < ?' : ''} ORDER BY f.rowid DESC LIMIT ?`
 
 /** Files sent in my rooms by name: every term of the text (parseSearch: a word without its particle or ending, a
@@ -385,6 +385,58 @@ export function listMyRoomFiles(db: Database, userId: string, o: { cursor?: stri
   // the total with the first page only (a later page answers 0: the app keeps the first one's)
   const total = cur ? 0 : (db.query(`SELECT COALESCE(SUM(f.size), 0) AS n FROM ${MINE_FROM} WHERE ${MINE_WHERE()}`).get(userId, ids) as { n: number }).n
   return { ...fileHits(db, userId, mine, page), nextCursor, totalBytes: total }
+}
+
+/** One room's sent files query (parameters: the person, the room, the cursor's file rowid when `after`, the LIMIT): by
+ * the index room_files_by_room, newest first by rowid with no sort. Exported for the test that reads its plan. */
+export const roomFileListSql = (after: boolean) => `SELECT f.rowid AS fr, f.id AS file_id, ${COLS} FROM room_files f INDEXED BY room_files_by_room
+    CROSS JOIN room_messages m ON m.id = f.message_id AND m.room_id = f.room_id
+    CROSS JOIN room_members mm ON mm.room_id = m.room_id AND mm.user_id = ?
+    WHERE f.room_id = ? AND f.message_id IS NOT NULL AND m.deleted_at IS NULL AND m.event IS NULL AND ${SEE_MEMBER_SQL}${after ? ' AND f.rowid < ?' : ''} ORDER BY f.rowid DESC LIMIT ?`
+
+/** A room's Files list (docs/decisions/20261120-project-is-room.md D8): the files sent in one of my rooms with a message
+ * I see now, newest first by rowid (as the search), by the index room_files_by_room (migration 431); the cursor is the
+ * last row's rowid. The same checks as the search on each row (SEE_MEMBER_SQL in the query, then fileHits: canSee, a
+ * hidden answer or its thread, a file kept in the team folder only while I read it there, otherwise left out). The room
+ * must be one of mine (myRooms: not archived, not a trashed project's, a guest's as the guest rules give them): else 404.
+ * The caller (Rooms.listFiles) refuses a project's room first. */
+export function listRoomFiles(db: Database, userId: string, roomId: string, o: { cursor?: string; limit?: number }): RoomFilesPage {
+  const cur = decodeCursor(o.cursor, ['f'])
+  if (o.cursor && (!cur || !/^\d{1,18}$/.test(cur.f))) fail('validation', undefined, { fields: { 'query.cursor': 'invalid cursor' } })
+  const limit = Math.min(ROOM_SEARCH_PAGE_MAX, Math.max(1, o.limit ?? ROOM_SEARCH_DEFAULT))
+  const m = myRooms(db, userId).find((x) => x.room.id === roomId)
+  if (!m) return fail('not_found')
+  const rows = db.query(roomFileListSql(!!cur)).all(userId, roomId, ...(cur ? [Number(cur.f)] : []), limit + 1) as (MessageRow & { fr: number; file_id: string })[]
+  const page = rows.slice(0, limit)
+  const last = page.at(-1)
+  const nextCursor = rows.length > limit && last ? encodeCursor({ f: String(last.fr) }) : null
+  return { items: fileHits(db, userId, new Map([[roomId, m]]), page).items, nextCursor }
+}
+
+/** candidates read per walk of recentRoomFiles, and walks at most (rows a check leaves out are walked past) */
+const RECENT_POOL = 25
+const RECENT_WALKS = 4
+
+/** ⌘K before anything is typed (D8): the newest files of all my rooms with the search's own query and checks
+ * (searchRoomFiles with no words: roomFilesSql, then fileHits), at most RECENT_ROOM_FILES_MAX. A project room's file kept
+ * in the team folder is in it only while I can open it there (filesOutFor: one I cannot is left out, never shown as
+ * unavailable). Rows the checks leave out are walked past, a bounded number of times. */
+export function recentRoomFiles(db: Database, userId: string): RecentRoomFiles {
+  const mine = new Map(myRooms(db, userId).map((m) => [m.room.id, m]))
+  if (!mine.size) return { items: [], rooms: [] }
+  const ids = JSON.stringify([...mine.keys()])
+  const items: RoomFileSearchHit[] = []
+  let before: number | null = null
+  for (let walk = 0; walk < RECENT_WALKS && items.length < RECENT_ROOM_FILES_MAX; walk++) {
+    const rows = db.query(roomFilesSql(0, before !== null)).all(userId, ids, ...(before !== null ? [before] : []), RECENT_POOL) as (MessageRow & { fr: number; file_id: string })[]
+    if (!rows.length) break
+    items.push(...fileHits(db, userId, mine, rows).items)
+    if (rows.length < RECENT_POOL) break
+    before = rows.at(-1)!.fr
+  }
+  const kept = items.slice(0, RECENT_ROOM_FILES_MAX)
+  const rooms: RoomSearchRoom[] = [...new Set(kept.map((i) => i.roomId))].map((id) => { const m = mine.get(id)!; return { id, kind: m.room.kind, ...roomNaming(db, m.room, userId) } })
+  return { items: kept, rooms }
 }
 
 /** The text around the first match (the word found first, `q` a word or the words), on one line: room links as
