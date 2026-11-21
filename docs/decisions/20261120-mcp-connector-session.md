@@ -55,7 +55,8 @@
   belongs to the same person, and every way a person loses access still ends the connection. The reuse window keeps the
   stolen-token defence for anything replayed later than a retry.
 - **Left out:** refresh tokens for apps that do not ask for `offline_access` (ChatGPT may not; they sign in again every
-  hour), tracked as before.
+  hour), tracked as before. Closed by [20261121-mcp-refresh-without-offline-access.md](20261121-mcp-refresh-without-offline-access.md):
+  every connection gets one now.
 - **Tests:** `tests/unit/remote-mcp-lifetime.test.ts` (refresh after sign-out and after the sign-in expired and was
   swept, not a device, 90-day slide, expired refresh refused, live tokens bounded, two processes resolve to one chain,
   every revocation,

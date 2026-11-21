@@ -163,8 +163,8 @@ export async function openExternal(url: string, options: { purpose: 'google-oaut
 }
 /** The phone's APNs/FCM device token (push-token-v1). The app shows the OS permission prompt here if the person has not
  * answered yet, so this is only called for a signed-in session. Rejects with push_denied / push_unavailable. labelHash:
- * an iPhone app that shows who and where in a room push (push-label-v1) made a label key for its notification extension
- * and gives only its hash, which the page registers with the token. */
+ * a phone app that shows who and where in a room push (push-label-v1; the iPhone's notification extension, Android's
+ * messaging service in Android builds from 1.0.11 on) made a label key and gives only its hash, which the page registers with the token. */
 export async function requestPushToken(): Promise<PushToken & { labelHash?: string }> {
   const turn = epoch
   await barrier
@@ -176,7 +176,7 @@ export async function requestPushToken(): Promise<PushToken & { labelHash?: stri
   if (turn !== epoch) throw cancelled()
   if (!validPushToken(reply.push)) throw new Error('push_unavailable')
   const { platform, token, environment } = reply.push
-  const labelHash = config.capabilities.includes(PUSH_LABEL_CAPABILITY) && platform === 'ios' && typeof reply.labelHash === 'string' && /^[0-9a-f]{64}$/.test(reply.labelHash) ? reply.labelHash : undefined
+  const labelHash = config.capabilities.includes(PUSH_LABEL_CAPABILITY) && typeof reply.labelHash === 'string' && /^[0-9a-f]{64}$/.test(reply.labelHash) ? reply.labelHash : undefined
   return { platform, token, environment, ...(labelHash ? { labelHash } : {}) }
 }
 /** Tells the app which device id this team gave it (taps from other teams are ignored) and the removal key the app

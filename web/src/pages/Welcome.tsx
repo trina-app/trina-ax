@@ -35,6 +35,7 @@ import { setupSite } from '../lib/setupLink'
 import { uploadFile, type UploadProgress } from '../lib/upload'
 import { APP_CONNECTORS, CONNECTORS } from '../lib/connectors'
 import { useFolderWords } from '../lib/folderLabels'
+import { builtInName } from '../lib/googleApps'
 import { countedSteps, inviteSkill, markStepsSeen, needsAi, nextStep, offeredHere, phoneSkips, prevStep, putOffSteps, resumeStep, setupReturnStep, skillNameOf, stepDone, stepPosition, wantsTeam } from '../lib/welcome'
 import { useLocale, useT, type MessageKey } from '../i18n'
 import { useAiAccess } from '../store/aiAccess'
@@ -832,14 +833,17 @@ function useDoneFacts(progress: WelcomeProgress, unshown: ReadonlySet<WelcomeSte
       countFiles(home, new Set([g.notesFolder, g.brandFolder].filter((x): x is string => !!x)))
         .then((n) => put('files', n ? t('welcome.done.fact.files', { files: n }) : null), () => {})
     }
-    // 팀이 쓸 도구: the team's connections that work (Slack too), and the tools recommended
+    // 팀이 쓸 도구: the team's connections that work (Slack and the shared Google accounts too), and the tools everyone
+    // is asked to connect
     if (done('tools')) {
       void Promise.all([
         api.call(API.listTeamIntegrations).then((r) => r.items.filter((i) => i.status === 'connected').map((i) => i.name), () => null),
         api.call(SLACK.slackAdmin).then((x) => (x.state === 'connected' ? ['Slack'] : []), () => []),
+        api.call(API.driveAdminStatus).then((d) => (d.sharesOn ? [builtInName('google-drive')] : []), () => []),
+        api.call(API.googleAppsAdminStatus).then((r) => r.apps.filter((a) => a.team?.status === 'connected').map((a) => builtInName(a.id)), () => []),
         api.call(API.settings).then((r) => (r.recommendedTools ?? []).map(toolName), () => null),
-      ]).then(([team, slack, rec]) => {
-        const on = [...(team ?? []), ...slack]
+      ]).then(([team, slack, drive, gapps, rec]) => {
+        const on = [...(team ?? []), ...slack, ...drive, ...gapps]
         const parts = [on.length ? t('welcome.done.fact.toolsTeam', { names: on.join(', ') }) : null, rec?.length ? t('welcome.done.fact.toolsRecommended', { names: rec.join(', ') }) : null].filter(Boolean)
         put('tools', parts.join(' · '))
       })

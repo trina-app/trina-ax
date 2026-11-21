@@ -28,6 +28,7 @@ import { authorize } from '../policy/authorize'
 import { Denied, ToolError } from '../policy/errors'
 import { badSegment } from '../policy/names'
 import { inSkills } from '../skills/guard'
+import { isReservedPlace } from '@mycel/shared/places'
 import { inProcessParseMax, readMaxBytes } from '../system/limits'
 import { checkRegular, openChecked } from '../team-files/place'
 import type { TeamFiles } from '../team-files/service'
@@ -144,16 +145,28 @@ const readAt = (fd: number, buf: Buffer, pos: number) => new Promise<{ bytesRead
 
 // ---------------------------------------------------------------- inputs and outputs
 
-interface Input { rel: string; abs: string; ext: string; table: string; size: number; max: number; st: fs.Stats }
+/** `place`: a chat place input (chat:files/…, chat:work/…), copied into the call's own folder first (Placed) */
+interface Input { rel: string; abs: string; ext: string; table: string; size: number; max: number; st: fs.Stats; place?: boolean }
+/** a chat place's copy for this call, by the path the AI gave (files/service.ts TurnFiles.placeInput) */
+type Placed = Map<string, { abs: string; st: fs.Stats }>
 
 /** each input as authorize resolves it for this person now (read access; a folder, another format or a size over the
- * limits refused before any work) */
-function resolveInputs(files: TeamFiles, c: ToolCtx, paths: string[]): Input[] {
+ * limits refused before any work); a chat place as its copy (`placed`) */
+function resolveInputs(files: TeamFiles, c: ToolCtx, paths: string[], placed: Placed = new Map()): Input[] {
   const fx = files.fx
   const rules = files.rules()
   const out: Input[] = []
   const seen = new Set<string>()
   for (const [i, p] of paths.entries()) {
+    const pl = placed.get(p)
+    if (pl) {
+      const e = ext(p)
+      if (seen.has(p)) throw new ToolError(`'${p}' is given twice; give each file once`)
+      seen.add(p)
+      if (!DATA_EXT.has(e)) throw new ToolError(`'${p}' is not a data file this can calculate over (CSV, TSV, .xlsx, .xls, .ods, JSON, JSONL)`)
+      out.push({ rel: p, abs: pl.abs, ext: e === 'txt' ? 'csv' : e, table: paths.length === 1 ? 'data' : `t${i + 1}`, size: pl.st.size, max: Math.max(pl.st.size, 1), st: pl.st, place: true })
+      continue
+    }
     const r = authorize(fx, rules, c.user, p, 'read')
     if (r.st!.isDirectory()) throw new ToolError(`'${r.rel}' is a folder; give the data files in it (list or glob finds them)`, 'is_folder')
     if (seen.has(r.rel)) throw new ToolError(`'${r.rel}' is given twice; give each file once`)
@@ -199,10 +212,30 @@ const sameFile = (a: string, b: string) => a.normalize('NFC').toLowerCase() === 
 // ---------------------------------------------------------------- the tool
 
 export async function queryData(ctx: AppContext, files: TeamFiles, c: ToolCtx, a: QueryIn): Promise<QueryDataResult> {
+  const guest = files.rules().isGuest(c.user)
+  // a chat file or a work-folder file (chat:files/…, chat:work/…; QA: the AI tried a chat file and was refused): copied
+  // into a folder of this call first, through the chat turn's own checks (chat/places-copy.ts stagePlaceInput)
+  const placed: Placed = new Map()
+  const stage = a.paths.some(isReservedPlace) ? makeWorkDir(path.join(ctx.config.dataDir, 'work')) : null
+  try {
+    for (const [i, p] of a.paths.entries()) {
+      if (!isReservedPlace(p) || placed.has(p)) continue
+      if (!c.files.placeInput) throw new ToolError(`'${p}' is a chat place, and chat places exist only inside a Trina chat, for its main assistant`, 'not_found')
+      const e = ext(p)
+      const max = SHEET_EXT.has(e) ? Math.min(readMaxBytes(), inProcessParseMax()) : readMaxBytes()
+      const dest = path.join(stage!, `place-${i + 1}.${DATA_EXT.has(e) ? e : 'bin'}`)
+      const got = await c.files.placeInput(p, dest, max, c.signal)
+      if (ctx.files.quarantine.hasHash(got.sha256)) throw new ToolError('Generated output is download-only; indexing, text extraction and in-app previews are disabled.', 'safe_ops_quarantined')
+      placed.set(p, { abs: dest, st: fs.lstatSync(dest) })
+    }
+    return await queryDataOf(ctx, files, c, a, placed, guest)
+  } finally { if (stage) fs.rmSync(stage, { recursive: true, force: true }) }
+}
+
+async function queryDataOf(ctx: AppContext, files: TeamFiles, c: ToolCtx, a: QueryIn, placed: Placed, guest: boolean): Promise<QueryDataResult> {
   const fx = files.fx
   const rules = files.rules()
-  const guest = rules.isGuest(c.user)
-  const inputs = resolveInputs(files, c, a.paths)
+  const inputs = resolveInputs(files, c, a.paths, placed)
 
   // the place for the result, checked before any work (a read-only place stops the call here)
   let saveAs: string | null = null
@@ -241,7 +274,7 @@ export async function queryData(ctx: AppContext, files: TeamFiles, c: ToolCtx, a
     try {
       // the inputs again, as the file layer resolves them now (a card may have been open for minutes), copied into the
       // work folder one by one: the worker sees only these copies
-      const now = resolveInputs(files, c, a.paths)
+      const now = resolveInputs(files, c, a.paths, placed)
       const req: DataQueryRequest = {
         inputs: [], ...(a.sql !== undefined ? { sql: a.sql } : {}), ...(a.sheet !== undefined ? { sheet: a.sheet } : {}),
         ...(a.header_row !== undefined ? { headerRow: a.header_row } : {}), show: a.show_rows ?? DATA_LIMITS.showRows,
@@ -253,10 +286,13 @@ export async function queryData(ctx: AppContext, files: TeamFiles, c: ToolCtx, a
         // streamed and hashed on the way (a 200 MB file never sits whole in the server's memory or blocks it)
         const { sha256: hash } = await copyIn(x.abs, x.st, x.max, path.join(work, file), c.signal)
         if (ctx.files.quarantine.hasHash(hash)) throw new ToolError('Generated output is download-only; indexing, text extraction and in-app previews are disabled.', 'safe_ops_quarantined')
-        // its content reaches the model through the result: read like a read (scope, hashes, the answer's sources)
-        c.files.readHashes.set(x.rel, hash)
-        c.files.readPaths.add(x.rel)
-        c.files.sources.note(x.rel, 'read', { agent: c.files.agent, sha256: hash })
+        // its content reaches the model through the result: read like a read (scope, hashes, the answer's sources); a
+        // chat place's source was recorded when it was copied (it is no team file)
+        if (!x.place) {
+          c.files.readHashes.set(x.rel, hash)
+          c.files.readPaths.add(x.rel)
+          c.files.sources.note(x.rel, 'read', { agent: c.files.agent, sha256: hash })
+        }
         req.inputs.push({ file, name: x.rel, ext: x.ext, table: x.table })
       }
       const inBytes = now.reduce((n, x) => n + x.size, 0)

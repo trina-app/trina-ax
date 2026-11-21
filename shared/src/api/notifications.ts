@@ -285,6 +285,9 @@ export const InboxNotification = z.object({
     note: z.string().optional(), requestId: z.string().optional(),
     state: z.enum(['pending', 'approved', 'declined', 'closed']).optional(),
     canAnswer: z.literal(true).optional(), gone: z.literal(true).optional(),
+    /** a chat ask for one of its files (docs/decisions/20261121-share-chat-files.md): its name as the chat recorded it.
+     * The answer [Add to the chat] copies it into the chat; on 'access.answered', approved: it was added */
+    file: z.object({ name: z.string() }).optional(),
   }).optional(),
   /** 'skill.suggested' for a batch of skill folders a member sent (docs/DECISIONS.md "MC"; for the owners and admins):
    * who sent it, while their account is there, and how many skills it held. "민준 님이 스킬 2개를 팀에 올리자고 했어요";
@@ -365,7 +368,8 @@ export const InboxNotification = z.object({
    * (Settings › Scheduled tasks, "다시 확인"); older servers omit it */
   review: z.boolean().optional(),
   /** 'dev_env.job' only, while the person can see the project. The text stays in the job's own row, not in the inbox:
-   * the notice says the result in plain words (done when exitCode is 0, else not), never the log. reason: why the job
+   * the notice says the result in plain words (done when exitCode is 0; ended with the result unknown when it has no
+   * exitCode and reason is lost or absent; else not done), never the log. reason: why the job
    * ended (timeout, oom, stopped, disk, setting, expired, lost; older rows omit it). chatTitle: the title of the chat it
    * was started in, while the person can open it. note and tail: older servers only (the English end note and the log
    * tail); the web shows neither. A job from a chat with no project has projectId and projectName ''. 'dev_env.box' (a

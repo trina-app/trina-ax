@@ -8,15 +8,16 @@
 // complete yet (an open `[...](...` or the last word); flush() gives back the rest at the end of each completion.
 import { FILE_VIEW_PATH } from '@mycel/shared/api'
 
-// (a file's link /f/<id> too: docs/DECISIONS.md "A member shares their own files")
-const ROUTE = new RegExp(`^(?:${FILE_VIEW_PATH.replace(/\//g, '\\/')}(?:$|[?#])|\\/api\\/files\\/|\\/f\\/[A-Za-z0-9_-]+$)`)
+// (a file's link /f/<id> too: docs/DECISIONS.md "A member shares their own files"; a chat file's /c/<chat>?file=<id>:
+// docs/AGENTS/plan/20261121-0652-places-outputs.md)
+const ROUTE = new RegExp(`^(?:${FILE_VIEW_PATH.replace(/\//g, '\\/')}(?:$|[?#])|\\/api\\/files\\/|\\/f\\/[A-Za-z0-9_-]+$|\\/c\\/[A-Za-z0-9_-]+$)`)
 // URL characters with balanced parentheses (CommonMark): file names such as 'Report (final).pptx' or a conflict copy
 // 'name (conflict copy - person date).ext' keep their '(' and ')' when a model decodes or retypes the link. An
 // unbalanced ')' ends the URL, so '(see /files/view?path=a)' does not take the closing parenthesis.
 const urlChars = (c: string) => `(?:${c}|\\(${c}*\\))`
 const FREE = `[^\\s<>()\\[\\]"'\`]`
 // a URL in free text: absolute http(s), or a relative team-route path (not part of a longer path or word)
-const URL_SRC = `(?:https?:\\/\\/${urlChars(FREE)}+|(?<![\\w.\\/])\\/(?:files\\/view|api\\/files\\/|f\\/[A-Za-z0-9_-])${urlChars(FREE)}*)`
+const URL_SRC = `(?:https?:\\/\\/${urlChars(FREE)}+|(?<![\\w.\\/])\\/(?:files\\/view|api\\/files\\/|f\\/[A-Za-z0-9_-]|c\\/[A-Za-z0-9_-])${urlChars(FREE)}*)`
 const URL_RE = new RegExp(URL_SRC, 'g')
 // a Markdown link or image: [label](url "title"), or a bare URL (also <url>)
 const LINK_RE = new RegExp(`(!?)\\[([^\\]\\n]*)\\]\\(\\s*<?(${urlChars('[^\\s()<>]')}+)>?(?:\\s+"[^"\\n]*")?\\s*\\)|<?(${URL_SRC})>?`, 'g')
@@ -41,6 +42,11 @@ export class LinkGuard {
     let u: URL
     try { u = new URL(url, 'http://team.invalid') } catch { return null }
     if (!relative && !this.origins.has(u.origin)) return null
+    // a chat's page is guarded only as a chat file's link, by the file it opens (/c/<chat>?file=<id>); a link to a chat
+    // alone goes through as before. Any spelling the app's router opens the same way (it ignores letter case and a
+    // closing slash: /C/<chat>/?file=<id>) is the same link
+    const chat = /^\/c\/([A-Za-z0-9_-]+)\/?$/i.exec(u.pathname)
+    if (chat) { const f = u.searchParams.get('file'); return f ? `/c/${chat[1]}|file=${f}` : null }
     if (!ROUTE.test(u.pathname)) return null
     return `${u.pathname}|${u.searchParams.get('path') ?? ''}`
   }

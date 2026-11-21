@@ -133,6 +133,14 @@ sign in while they are in their other place. Out of every place, they can no lon
 removed. A project in the trash stays theirs: while it is there they can't join another project. Moving a project with guests to the trash says so before you confirm. If their project comes back from the trash, they can sign in again by themselves, unless an owner or
 admin switched them on or off in the meantime. Renaming the private channel or project changes nothing for them.
 
+### When their group chat becomes a project
+
+When someone makes a guest's private channel or group chat a project (**⋯ › Make it a project**), the guest becomes one
+of the project's people. A guest who has no project yet takes this one as their project: they see the project and its
+room, and their group chat place is free again. A guest who already has another project can't be in a second one, so
+the conversation can't become a project until an owner or admin makes them a team member ([Make team
+member](#manage-guests-owners-and-admins)). The dialog says so before anything changes.
+
 ## A guest's AI
 
 | Choice | What it means | Who can pick it |

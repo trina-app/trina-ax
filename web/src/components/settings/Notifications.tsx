@@ -69,9 +69,10 @@ export const integrationsLink = (item: Pick<InboxNotification, 'sourceId' | 'tem
 const devEnvText = (item: InboxNotification, t: ReturnType<typeof useT>, locale: Locale): ReactNode => {
   const job = item.devEnv?.job
   if (!job) return t(`notifications.event.${item.code as 'dev_env.job' | 'dev_env.box'}`)
-  const ok = job.exitCode === 0
-  if (job.chatTitle) return isolate(locale, ok ? 'notifications.event.dev_env.jobDoneIn' : 'notifications.event.dev_env.jobFailedIn', { title: job.chatTitle }, ['title'])
-  return t(ok ? 'notifications.event.dev_env.jobDone' : 'notifications.event.dev_env.jobFailed')
+  // done: exit code 0; unknown: it ended by itself with no code the server could read (QA TC-6586); failed: the rest
+  const o = job.exitCode === 0 ? 'Done' : job.exitCode === null && (!job.reason || job.reason === 'lost') ? 'Unknown' : 'Failed'
+  if (job.chatTitle) return isolate(locale, `notifications.event.dev_env.job${o}In`, { title: job.chatTitle }, ['title'])
+  return t(`notifications.event.dev_env.job${o}`)
 }
 
 type T = ReturnType<typeof useT>
@@ -243,11 +244,13 @@ function fileGoneText(f: InboxNotification['fileShare'], t: T): string {
 export function accessRequestText(item: InboxNotification, t: T): string {
   const a = item.accessRequest
   if (item.code === 'access.answered') {
+    if (a?.state === 'approved' && a.file) return a.name && !a.gone ? t('notifications.event.access.fileAdded', { file: a.file.name, name: a.name }) : t('notifications.event.access.fileAddedUntitled', { file: a.file.name })
     if (a?.state !== 'approved') return t('notifications.event.access.answered')
     return a.name && !a.gone ? t('notifications.event.access.addedToProject', { name: a.name }) : t('notifications.event.access.addedToProjectGone')
   }
   if (!a || a.gone || !a.by) return t('notifications.event.access.requested')
   if (a.kind === 'project' && a.name) return t('notifications.event.access.requestedProject', { by: a.by, name: a.name })
+  if (a.kind === 'chat' && a.file) return a.name ? t('notifications.event.access.requestedChatFile', { by: a.by, file: a.file.name, name: a.name }) : t('notifications.event.access.requestedChatFileUntitled', { by: a.by, file: a.file.name })
   if (a.kind === 'chat') return a.name ? t('notifications.event.access.requestedChat', { by: a.by, name: a.name }) : t('notifications.event.access.requestedChatUntitled', { by: a.by })
   return t('notifications.event.access.requested')
 }

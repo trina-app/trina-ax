@@ -101,6 +101,11 @@ for (const { branch, byGuide } of runs) {
     // ① Home: the app's welcome card, its question ringed
     await expect(page.getByTestId('member-welcome-title')).toHaveText(script.home.title)
     await expect(ring(page)).toBeVisible()
+    // a demo's card (the server's `demo`): no "Connect your tools" and no desktop app row, neither can be done here;
+    // the count is hi (done) and ask; Hide on the title's line
+    expect(await page.getByTestId('member-welcome-rows').locator(':scope > li').evaluateAll((els) => els.map((e) => e.getAttribute('data-testid')))).toEqual(['member-welcome-hi', 'member-welcome-ask', 'member-welcome-photo'])
+    await expect(page.getByTestId('member-welcome-progress')).toContainText(/1\D+2|2\D+1/)
+    await expect(page.getByTestId('member-welcome-hide')).toBeVisible()
     await shot(page, `${branch}-1-home`)
     if (byGuide) await follow(page, step('ask').text)
     else await page.getByTestId('member-welcome-ask-button').click()

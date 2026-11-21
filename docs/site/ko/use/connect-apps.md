@@ -52,7 +52,7 @@ Trina AX에는 두 가지를 연결해요.
 | Slack (Trina가 운영하는 팀) | 없어요. **Slack에 추가**만 누르면 돼요 | Slack 워크스페이스 관리자가 허용해요 |
 | Slack (우리 팀의 Slack 앱) | **Bot User OAuth Token** (`xoxb-`), **App-Level Token** (`xapp-`), **Client ID**, **Client Secret** | api.slack.com › 내 앱 |
 | Notion, Linear, Atlassian, Figma, Canva와 둘러보기에 있는 다른 앱 | 없어요. 그 앱 페이지에서 로그인해요 | 그 앱의 내 계정 |
-| GitHub | **주소** `https://api.githubcopilot.com/mcp/`와 **키** (개인 액세스 토큰) | [GitHub › Settings › Developer settings › Personal access tokens](https://github.com/settings/personal-access-tokens/new) |
+| GitHub | 없음: GitHub에서 로그인해요 | 내 GitHub 계정 |
 | 키를 주는 다른 앱 | **주소**와 **키** (가끔 **헤더 이름**도) | 그 앱의 도움말 ("MCP server", "API keys") |
 | 회사 API | **주소**, **키**, **사용법 메모** | 그 시스템을 맡은 사람 |
 | NAVER WORKS처럼 내 앱으로 로그인하는 서비스 | **Client ID**, **Client Secret**, **로그인 주소**, **토큰 주소**, **권한 범위(scope)** | 그 서비스의 개발자 콘솔 |

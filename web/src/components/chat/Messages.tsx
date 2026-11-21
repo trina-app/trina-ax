@@ -715,6 +715,8 @@ export function AssistantMessage({
   const t = useT()
   const locale = useLocale()
   const streaming = m.status === 'streaming'
+  // a chat file the AI attached (never a blank tile for one this person may not open: the server leaves it out)
+  const answerAttachments = (m.attachments ?? []).filter((a) => a.source === 'chat' && !a.unavailable)
   const queuePos = useQueuePosition(streaming ? m.id : undefined)
   const providerBusy = useProviderBusy(streaming ? m.id : undefined)
   const requests = useChats(useShallow((s) => Object.values(s.requests).filter((r) => r.messageId === m.id)))
@@ -857,6 +859,15 @@ export function AssistantMessage({
         {requests.map((r) => (r.request.kind === 'connect_service' ? <ConnectCard key={r.request.requestId} request={r.request} /> : <AskCard key={r.request.requestId} req={r} />))}
         {/* the server's next steps for this answer (Step.fixes): "3 people can't open it yet. [Let them view]" */}
         <StepFixes steps={m.steps} />
+        {/* files the AI attached to this answer for the chat's people (a chat shared with people: server
+            chat/work-file-tool.ts), the same tiles as a message's own attachments */}
+        {answerAttachments.length > 0 && (
+          <div className="mt-3 flex flex-wrap items-end gap-2" data-testid="answer-attachments">
+            {answerAttachments.map((a) => (
+              <AttachmentView key={a.id} a={a} align="start" chatId={chatId} />
+            ))}
+          </div>
+        )}
         {m.files && <FileSummary files={m.files} onAskOwnFolder={onAskOwnFolder} disabled={busy} />}
         {!streaming && m.sourceCount ? <SourcesList chatId={chatId} messageId={m.id} count={m.sourceCount} /> : null}
         {atLimit && (

@@ -14,14 +14,14 @@ import { legacyProjectFolder, oldProject } from '../lib/legacy-project'
 import { CANARIES, EXPECTED } from '../lib/fixtures'
 import { RuleSet, type Access, type Principal } from '../../server/src/policy/access'
 import { folderView, runMayWrite, runSkillFolders, viewAccess, type FolderView } from '../../server/src/devenv/srt/access'
-import { DENIED_NAMES, DENIED_RANGES, DENIED_SYSTEM_PATHS, ETC_SECRETS, RUN_ID_RE, SYSTEM_READ_PATHS, isFull, SRT_PATHS, SRT_VERSION, TEMPLATE_UNIT_RE, UNIT_RE, chatWork, personHome, personLogs, projectHome, runEnv, runIdOfUnit, scopeArgv, serverFilesOutsideBase, settingsProblems, srtArgv, srtSettings, unitArgs, unitLimits, unitName } from '../../server/src/devenv/srt/config'
+import { BOX_NODE_LIBS, BOX_NODE_LIB_NAMES, BOX_PYTHON_BIN, BOX_PYTHON_LIBS, DENIED_NAMES, DENIED_RANGES, DENIED_SYSTEM_PATHS, ETC_SECRETS, RUN_ID_RE, SYSTEM_READ_PATHS, isFull, SRT_PATHS, SRT_VERSION, TEMPLATE_UNIT_RE, UNIT_RE, chatWork, personHome, personLogs, projectHome, runEnv, runIdOfUnit, scopeArgv, serverFilesOutsideBase, settingsProblems, srtArgv, srtSettings, unitArgs, unitLimits, unitName } from '../../server/src/devenv/srt/config'
 import { effectiveLimits, parsePlan, sliceValues, type DevEnvPlan } from '../../server/src/devenv/srt/plan'
 import { _active, newRunId, readExit, setSrtSystem, teamHosts, WAIT_MAX_MS } from '../../server/src/devenv/srt/runner'
 import { _held, _heldSkills, holdPlaceholders, holdSkillFolders, SRT_DENY_DIRS, SRT_DENY_FILES } from '../../server/src/devenv/srt/placeholders'
 import { cgroupDir, slicePath, type SpawnSpec, type SrtSystem, type UnitInfo } from '../../server/src/devenv/srt/system'
-import { JOB_DONE, JOB_FAILED, JOB_FAILED_NO_CHAT, pollSrt, runResultsForAI } from '../../server/src/devenv/jobs'
+import { JOB_DONE, JOB_DONE_NO_CHAT, JOB_FAILED, JOB_FAILED_NO_CHAT, JOB_UNKNOWN, pollSrt, runResultsForAI } from '../../server/src/devenv/jobs'
 import { mayUseDevEnv, newConsent, saveTeamSetting, teamInForce, teamSetting } from '../../server/src/devenv/setting'
-import { boxShellTool } from '../../server/src/devenv/tool'
+import { boxLibsText, boxShellTool, sharedShellDescription, srtShellDescription } from '../../server/src/devenv/tool'
 import { _resetUpdateWait, beginUpdateWait, endUpdateWait } from '../../server/src/system/update-wait'
 import { fullInternet, grantUserSite, setFullInternet, userSites } from '../../server/src/devenv/sites'
 import { configureStorageGuard } from '../../server/src/system/storage'
@@ -523,6 +523,42 @@ describe('the srt settings file', () => {
     expect(runEnv({ base: BASE, userId: 'alice', teamRoot: TEAM, work: chatWork(BASE, 'c1') }).TRINA_WORK).toBe(`${BASE}/devenv/work/c1`)
     expect(() => personHome(BASE, '../bob')).toThrow()
   })
+  test('the box\'s libraries (docs/decisions/20261121-box-python-libs.md): the Python venv first on PATH, NODE_PATH', () => {
+    const o = { base: BASE, userId: 'alice', teamRoot: TEAM, work: null, platform: 'linux' as const }
+    const e = runEnv({ ...o, boxPython: BOX_PYTHON_BIN, nodeLibs: BOX_NODE_LIBS })
+    // the git wrapper and node first, then the box's Python (python3 there); the user site stays off (planted .pth files)
+    expect(e.PATH).toBe(`${BASE}/devenv/bin:/opt/trina/node/bin:${BOX_PYTHON_BIN}:/usr/local/bin:/usr/bin:/bin`)
+    expect(e.PYTHONNOUSERSITE).toBe('1')
+    // and pip install --user has nowhere to write (PEP 668 does not stop it in a venv)
+    expect(e.PYTHONUSERBASE).toBe('/dev/null/python-user')
+    expect(e.NODE_PATH).toBe(BOX_NODE_LIBS)
+    // a server without them (an older install, --minimal): the system's python3 and no NODE_PATH
+    const none = runEnv({ ...o, boxPython: null, nodeLibs: null })
+    expect(none.PATH).toBe(`${BASE}/devenv/bin:/opt/trina/node/bin:/usr/local/bin:/usr/bin:/bin`)
+    expect(none.NODE_PATH).toBeUndefined()
+    // the paths are what the list and install-srt.sh make, and readable in a run (SYSTEM_READ_PATHS has /opt/trina)
+    const list = JSON.parse(fs.readFileSync(path.join(REPO, 'scripts/system/packages.json'), 'utf8'))
+    expect(BOX_PYTHON_BIN).toBe('/opt/trina/python/python-pptx/current/bin')
+    expect(list.python['python-pptx'].systemSite).toBe(true)
+    expect(list.groups.devenv.python).toEqual(['python-pptx'])
+    expect(SYSTEM_READ_PATHS).toContain('/opt/trina')
+    const srt = fs.readFileSync(path.join(REPO, 'scripts/dev-env/srt/install-srt.sh'), 'utf8')
+    expect(srt).toContain('for PY in $(pk_pythons devenv); do')
+    expect(srt).toContain('ln -sfn "$NL_KEY" "$OPT/node-libs/current"')
+    expect(fs.readFileSync(path.join(REPO, 'scripts/dev-env/srt/install-srt-mac.sh'), 'utf8')).toContain('ln -sfn "$NL_KEY" "$OPT/node-libs/current"')
+    // the node libraries' lock pins what the tool text names, from npm's registry only
+    const lock = JSON.parse(fs.readFileSync(path.join(REPO, 'scripts/dev-env/srt/node-libs.package-lock.json'), 'utf8'))
+    for (const n of BOX_NODE_LIB_NAMES) expect(lock.packages[`node_modules/${n}`]?.integrity).toMatch(/^sha512-/)
+    for (const [k, v] of Object.entries(lock.packages as Record<string, { resolved?: string }>)) if (k) expect(v.resolved).toStartWith('https://registry.npmjs.org/')
+    // the tool text names every library, in one line
+    for (const n of [...BOX_PYTHON_LIBS, ...BOX_NODE_LIB_NAMES]) expect(boxLibsText('linux')).toContain(n)
+    for (const n of BOX_NODE_LIB_NAMES) expect(boxLibsText('darwin')).toContain(n)
+    expect(boxLibsText('darwin')).not.toContain('pandas') // a Mac team server's Python has none of them yet
+    expect(boxLibsText('darwin')).not.toContain('so pip install') // Trina's python3 there is read-only too: a venv
+    for (const t of [boxLibsText('linux'), boxLibsText('darwin')]) expect(t).toContain('python3 -m venv .venv')
+    expect(srtShellDescription(false)).toContain(boxLibsText())
+    expect(sharedShellDescription(false)).toContain(boxLibsText())
+  })
 })
 
 describe('the argv of a run', () => {
@@ -732,7 +768,7 @@ describe('the srt attack image builds from what it copies (tests/linux/Dockerfil
     const copied = ['shared', 'server/src', 'server/migrations', 'server/assets', 'resources', 'tests/lib']
     for (const d of copied) expect(docker).toContain(`COPY ${d} /opt/mycel/${d}`)
     // and the suites' own files, sweep-as.ts too (the hook sweep as the server account, srt-attack.ts)
-    expect(docker).toContain('COPY tests/linux/srt-attack.ts tests/linux/srt-subagent.ts tests/linux/sweep-as.ts /opt/mycel/tests/linux/')
+    expect(docker).toContain('COPY tests/linux/srt-attack.ts tests/linux/srt-subagent.ts tests/linux/srt-work-write.ts tests/linux/sweep-as.ts /opt/mycel/tests/linux/')
     // and the package files the image copies one by one (bun install)
     const files = ['package.json', 'server/package.json', 'tests/package.json']
     for (const f of files) expect(docker).toMatch(new RegExp(`COPY (\\S+ )*${f.replace('.', '\\.')}( |$)`, 'm'))
@@ -1339,6 +1375,69 @@ describe('jobs and the queue (per team)', () => {
     runs.get(runIdOfRow(rows()[1]!))!.state = 'gone'
     await pollSrt(h.ctx)
     expect(rows()[1]).toMatchObject({ state: 'ended', end_reason: 'lost' })
+  })
+  test('a job that ended by itself keeps its exit code when the person\'s skills placeholder goes with it (QA TC-6586)', async () => {
+    // qa.trina.app 2026-11-21: `sleep 40 && echo done` wrote "done", but the row had no exit code and end_reason
+    // "setting". The person had no skills folder: each run holds an empty one (holdSkillFolders) and the run's access
+    // hash is made while it is there; when the last run ends it goes, and the next poll's hash differs. That check came
+    // before the exit file, so a run that had ended by itself was "stopped" and its exit file thrown away.
+    const skills = path.join(h.team, 'users', 'erin', 'skills')
+    fs.rmSync(skills, { recursive: true, force: true })
+    fs.mkdirSync(path.dirname(skills), { recursive: true })
+    for (const [code, log] of [[0, 'done\n'], [3, 'bad\n']] as const) {
+      publish.length = 0
+      await shell('erin', null, chatErin).call({ command: 'sleep', job: true, log_name: `j${code}` })
+      const row = rows().at(-1)!
+      expect(row).toMatchObject({ state: 'running' })
+      // the placeholder is there while the run lives, and the poll keeps it running
+      expect(fs.existsSync(skills)).toBe(true)
+      await pollSrt(h.ctx)
+      expect(rows().at(-1)).toMatchObject({ state: 'running' })
+      // the run ends by itself (run-wrap wrote its exit file); its end takes the placeholder away before the next poll
+      finish(runIdOfRow(row), code, log)
+      await new Promise((r) => setTimeout(r, 0))
+      expect(fs.existsSync(skills)).toBe(false)
+      await pollSrt(h.ctx)
+      expect(rows().at(-1)).toMatchObject({ state: 'ended', exit_code: code, end_reason: 'exit', end_note: '' })
+      expect(stops).not.toContain(runIdOfRow(row))
+      const notice = publish.find((p) => p.frame.data.code === 'dev_env_job')!.frame.data.message!
+      const title = (h.ctx.db.query('SELECT title FROM chats WHERE id = ?').get(chatErin) as { title: string }).title.trim()
+      const said = (done: typeof JOB_DONE, none: typeof JOB_DONE_NO_CHAT) => title ? Object.values(done).map((f) => f(title)) : Object.values(none)
+      expect(code === 0 ? said(JOB_DONE, JOB_DONE_NO_CHAT) : said(JOB_FAILED, JOB_FAILED_NO_CHAT)).toContain(notice)
+      expect(runResultsForAI(h.ctx, 'erin', chatErin).join('\n')).toContain(`Job j${code} ended with exit code ${code}.`)
+    }
+  })
+  test('a run that ends between the read of its exit file and the unit\'s state keeps its code; a code that is truly unknown is "result unknown", not a failure', async () => {
+    const title = 'Nightly export'
+    h.ctx.db.query('UPDATE chats SET title = ? WHERE id = ?').run(title, chatPlain)
+    try {
+      await alice({ project: null, chat: chatPlain }).call({ command: 'sleep', job: true, log_name: 'late' })
+      const row = rows()[0]!, runId = runIdOfRow(row)
+      // the exit file appears only once the poll has read it (as when run-wrap writes it a moment later), and the unit is
+      // gone when systemd is asked
+      const unit = fake.unit
+      fake.unit = async (id) => { if (id === runId) finish(runId, 0, 'done\n'); return unit(id) }
+      try { await pollSrt(h.ctx) } finally { fake.unit = unit }
+      expect(rows()[0]).toMatchObject({ state: 'ended', exit_code: 0, end_reason: 'exit' })
+      expect(Object.values(JOB_DONE).map((f) => f(title))).toContain(publish.find((p) => p.frame.data.code === 'dev_env_job')!.frame.data.message!)
+      // a run that is gone with no exit file and that nobody stopped: the result is not known, and it says so
+      publish.length = 0
+      await alice({ project: null, chat: chatPlain }).call({ command: 'sleep', job: true, log_name: 'gone' })
+      const gone = runs.get(runIdOfRow(rows()[1]!))!
+      fs.appendFileSync(gone.spec.stdoutFile, 'done\n')
+      gone.state = 'gone'
+      await pollSrt(h.ctx)
+      expect(rows()[1]).toMatchObject({ state: 'ended', exit_code: null, end_reason: 'lost' })
+      const live = publish.find((p) => p.frame.data.code === 'dev_env_job')!
+      expect(Object.values(JOB_UNKNOWN).map((f) => f(title))).toContain(live.frame.data.message!)
+      expect(Object.values(JOB_FAILED).map((f) => f(title))).not.toContain(live.frame.data.message!)
+      expect(live.frame.data).toMatchObject({ level: 'info' })
+      const ai = runResultsForAI(h.ctx, 'alice', chatPlain).join('\n')
+      expect(ai).toContain('Job gone ended, but its exit code is unknown')
+      expect(ai).toContain('done')
+      const item = (await h.api('alice').call(API.listNotifications, { query: {} })).items.find((i) => i.devEnv?.job?.name === 'gone')
+      expect(item).toMatchObject({ devEnv: { job: { exitCode: null, reason: 'lost' } } })
+    } finally { h.ctx.db.query("UPDATE chats SET title = '' WHERE id = ?").run(chatPlain) }
   })
   test('a finished job tells the person the result in plain words: no log, exit code or job name, and it opens the chat', async () => {
     const title = 'Launch video for Mina'

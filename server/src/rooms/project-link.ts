@@ -9,9 +9,10 @@
 // name the project only to a viewer who can open it. Audit rows name the project only, never the room (store.ts
 // roomAuditRef: a group room by its kind).
 import type { Database } from 'bun:sqlite'
-import type { Room } from '@mycel/shared/api'
+import { Uuid7, type Room } from '@mycel/shared/api'
 import { CHAT_FILES_FOLDER } from '@mycel/shared'
-import { atLeast, inProjectZone, loadPrincipal, RuleSet, type Principal } from '../policy/access'
+import { atLeast, inPlace, inProjectZone, loadPrincipal, RuleSet, type Principal } from '../policy/access'
+import { isPersonalFolder } from '../chat/projects'
 import { audit } from '../admin/audit'
 import { roomAuditRef, type RoomRow } from './store'
 
@@ -72,7 +73,44 @@ export function projectForViewer(db: Database, room: Pick<RoomRow, 'id' | 'kind'
   if (!s.opens) return undefined
   // its members are the project's people (the sync keeps them so): the last one cannot leave (chat/project-leave.ts)
   const n = memberCount ?? (db.query('SELECT COUNT(*) n FROM room_members WHERE room_id = ?').get(room.id) as { n: number }).n
-  return { id: p.id, name: p.name, folderPath: p.folder_path, canSave: s.writes, room: true, attach: attachFor(set, who, p.folder_path), leave: n > 1 ? 'yes' : 'last' }
+  const same = sameAsGroupFor(db, room.id, userId, rules)
+  return { id: p.id, name: p.name, folderPath: p.folder_path, canSave: s.writes, room: true, attach: attachFor(set, who, p.folder_path), leave: n > 1 ? 'yes' : 'last', ...(same ? { sameAsGroup: same } : {}) }
+}
+
+type SameAsGroup = NonNullable<NonNullable<Room['project']>['sameAsGroup']>
+/** sameAsGroupOf per pass: a list of rooms or a room.updated fan-out hands every roomOut the same `rules` closure
+ * (store.ts rulesOnce), so the match is worked out once per room in it, not again for each member. */
+const samePass = new WeakMap<object, Map<string, SameAsGroup | null>>()
+
+/** Room.project.sameAsGroup for one viewer: the department whose live team room has exactly this project room's active
+ * members, told only to a viewer who is in that team room (they all are, by definition). */
+export function sameAsGroupFor(db: Database, roomId: string, userId: string, pass?: object): SameAsGroup | undefined {
+  let cache = pass ? samePass.get(pass) : undefined
+  if (pass && !cache) { cache = new Map(); samePass.set(pass, cache) }
+  let same = cache?.get(roomId)
+  if (same === undefined) { same = sameAsGroupOf(db, roomId); cache?.set(roomId, same) }
+  if (!same) return undefined
+  return db.query('SELECT 1 FROM room_members WHERE room_id = ? AND user_id = ?').get(same.roomId, userId) ? same : undefined
+}
+
+const ACTIVE_MEMBERS = (a: string) => `SELECT ${a}.user_id FROM room_members ${a} JOIN users u ON u.id = ${a}.user_id AND u.status = 'active' AND u.deleted_at IS NULL WHERE ${a}.room_id = ?`
+
+/** The department (a group with a live team room) whose room's active members are exactly this room's, or null. Only
+ * team rooms with the same number of active members are compared (one query for the candidates, one per candidate);
+ * several: the first by name. */
+export function sameAsGroupOf(db: Database, roomId: string): SameAsGroup | null {
+  const n = (db.query(`SELECT COUNT(*) n FROM (${ACTIVE_MEMBERS('m')})`).get(roomId) as { n: number }).n
+  if (!n) return null
+  const candidates = db.query(`SELECT r.id room_id, g.id group_id, g.name FROM rooms r JOIN groups g ON g.id = r.group_id
+    WHERE r.kind = 'team' AND r.archived_at IS NULL AND (SELECT COUNT(*) FROM room_members t JOIN users u ON u.id = t.user_id AND u.status = 'active' AND u.deleted_at IS NULL WHERE t.room_id = r.id) = ?
+    ORDER BY g.name, g.id`).all(n) as { room_id: string; group_id: string; name: string }[]
+  const shared = db.query(`SELECT COUNT(*) n FROM (${ACTIVE_MEMBERS('a')}) x WHERE x.user_id IN (${ACTIVE_MEMBERS('b')})`)
+  for (const c of candidates) {
+    // (ids the API cannot carry, a hand-made or test row: never a 500 for the whole room)
+    if (!Uuid7.safeParse(c.group_id).success || !Uuid7.safeParse(c.room_id).success) continue
+    if ((shared.get(roomId, c.room_id) as { n: number }).n === n) return { groupId: c.group_id, name: c.name, roomId: c.room_id }
+  }
+  return null
 }
 
 /** Room.project.attach: write on the project folder and on its Chat attachments folder by any language's name (the
@@ -83,20 +121,49 @@ function attachFor(rules: RuleSet, who: Principal, folder: string): 'ok' | 'read
   return Object.values(CHAT_FILES_FOLDER).every((name) => atLeast(rules.access(who, [...segs, name]), 'write')) ? 'ok' : 'folder'
 }
 
-/** The project's name as an event line shows it to one viewer: only when they can open it now. One RuleSet for a page. */
-export function eventProjectsFor(db: Database, projectIds: readonly string[], userId: string): Map<string, { id: string; name: string }> {
-  const out = new Map<string, { id: string; name: string }>()
+/** How an event line names a project to one viewer (eventProjectsFor). */
+export type EventProjectView =
+  /** they can open it now: its name now and a link */
+  | { state: 'open'; id: string; name: string }
+  /** in the trash, for one of its people (read on its folder by its own rules, as if it were back): its name now, plain text, no link */
+  | { state: 'trash'; name: string }
+  /** deleted for good: "a deleted project", told to everyone in the room */
+  | { state: 'deleted' }
+  /** they cannot open it (never could, or no longer can): "a project", never its name, never a later rename */
+  | { state: 'hidden' }
+
+/** The one resolver of the project an event line names (rooms/store.ts eventOut, every project line kind), read at
+ * render time for one viewer: the project's name as it is now, and only to someone who may see it. An outsider cannot
+ * tell a project in the trash from one they cannot open. One RuleSet for a page. */
+export function eventProjectsFor(db: Database, projectIds: readonly string[], userId: string): Map<string, EventProjectView> {
+  const out = new Map<string, EventProjectView>()
   const ids = [...new Set(projectIds)]
   if (!ids.length || !userId) return out
   const who = loadPrincipal(db, userId)
-  if (!who) return out
+  // an inactive account sees nothing (the room refuses them first; this is the fallback)
+  if (!who) { for (const id of ids) out.set(id, { state: 'hidden' }); return out }
   const rules = RuleSet.load(db)
-  for (const r of db.query(`SELECT id, name, folder_path, trashed_with FROM projects WHERE id IN (${ids.map(() => '?').join(',')})`).all(...ids) as LinkedProjectRow[]) {
-    if (r.trashed_with !== null) continue
+  const rows = new Map((db.query(`SELECT id, name, folder_path, trashed_with FROM projects WHERE id IN (${ids.map(() => '?').join(',')})`).all(...ids) as LinkedProjectRow[]).map((r) => [r.id, r]))
+  for (const id of ids) {
+    const r = rows.get(id)
+    if (!r) { out.set(id, { state: 'deleted' }); continue }
     const segs = r.folder_path.split('/')
-    if (atLeast(rules.access(who, segs), 'read')) out.set(r.id, { id: r.id, name: r.name })
+    if (r.trashed_with === null) { out.set(id, atLeast(rules.access(who, segs), 'read') ? { state: 'open', id: r.id, name: r.name } : { state: 'hidden' }); continue }
+    // in the trash: its name only for one of its people, by its folder's own rules as if it were back, while the folder
+    // is still in the files trash (chat/shared.ts memberWhileTrashed: "A team project in the trash: its members keep its
+    // card"); a purged folder or a personal project: nobody
+    out.set(id, trashedReader(db, r, who, segs) ? { state: 'trash', name: r.name } : { state: 'hidden' })
   }
   return out
+}
+
+/** One of a trashed project's people (chat/shared.ts memberWhileTrashed, without the chat runtime): read on its folder
+ * by the rules parked with it in the files trash, put back at its old path. */
+function trashedReader(db: Database, r: LinkedProjectRow, who: Principal, segs: string[]): boolean {
+  if (isPersonalFolder(r.folder_path)) return false
+  const t = db.query('SELECT original_path, storage_path FROM trash_items WHERE id = ? AND restored_at IS NULL').get(r.trashed_with) as { original_path: string; storage_path: string } | null
+  if (!t) return false
+  return atLeast(RuleSet.fromDb(db, { mapPath: inPlace(t.storage_path, t.original_path) }).access(who, segs), 'read')
 }
 
 /** Inside the caller's transaction: the link of a room that is archived (its last person left), or of a project deleted

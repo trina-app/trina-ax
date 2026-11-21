@@ -36,6 +36,7 @@ import { roomsOf } from '../rooms/service'
 import { filesOrganized } from './files-organize'
 import { DISMISS_HOLD_MS, readWelcome, welcomeOpened } from './welcome'
 import { startMySetup } from './my-setup'
+import { freeRoamOf } from '../demo/free-roam'
 
 export type JoinVia = 'team_link' | 'invite' | 'admin'
 const DAY_MS = 86_400_000
@@ -154,10 +155,12 @@ export function welcomeOf(ctx: AppContext, userId: string, now = Date.now()): Me
   const c = cardRow(db, userId, now)
   if (!c || c.row.hidden_at) return null
   const r = c.row
+  // a free-roam demo: nothing to connect there (the card leaves the row out), so tools never holds the card back
+  const demo = !!freeRoamOf(ctx)
   const steps = { rooms: true as const, hi: saidHi(db, userId), photo: !!profileOf(db, userId).avatarVersion, asked: !!r.asked_at, files: fromComputerHasFile(ctx, userId),
     // a team that lets nobody connect their own (personalIntegrations off), or every tool the row offers connected by
     // the team for everyone (tools_at, the card says so): nothing here to do, not held back by it
-    tools: hasOwnTool(db, userId) || getTeamSettings(db).personalIntegrations === false || !!r.tools_at }
+    tools: demo || hasOwnTool(db, userId) || getTeamSettings(db).personalIntegrations === false || !!r.tools_at }
   const allSet = countedDone(c.kind, steps)
   if (allSet && !r.done_at) db.query('UPDATE member_welcome SET done_at = ? WHERE user_id = ? AND done_at IS NULL').run(new Date(now).toISOString(), userId)
   const ref = (id: string | null) => id ? db.query('SELECT id, name FROM users WHERE id = ? AND deleted_at IS NULL').get(id) as { id: string; name: string } | null : null
@@ -172,6 +175,7 @@ export function welcomeOf(ctx: AppContext, userId: string, now = Date.now()): Me
     owner,
     steps,
     allSet,
+    ...(demo ? { demo: true as const } : {}),
   }
 }
 

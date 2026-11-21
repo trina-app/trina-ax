@@ -212,6 +212,7 @@ function ProjectRoomInfo({ room, project: rp, onGo }: { room: Room; project: Non
     <div data-testid="room-info-project">
       <p className="px-5 py-3 text-sm break-words text-muted max-sm:px-4" data-testid="room-info-project-line">
         {!rp ? t('rooms.project.infoUnnamed') : parts.length === 2 ? <>{parts[0]}<Link to={`/projects/${rp.id}`} onClick={onGo} className="font-medium text-ink hover:underline" data-testid="room-info-project-name">{rp.name}</Link>{parts[1]}</> : t('rooms.project.info', { name: rp.name })}
+        {rp?.sameAsGroup && <SameAsGroupLine project={rp} onGo={onGo} className="mt-2 block" testId="room-info-same-as-group" />}
       </p>
       <ul className="px-2 pb-1 max-sm:px-1">
         {p?.membersEditable && <ListRow onClick={() => setManaging(true)} face icon={<Users />} name={<span className="text-ink">{t('rooms.project.manage')}</span>} testId="room-info-manage" />}
@@ -237,5 +238,23 @@ function ProjectRoomInfo({ room, project: rp, onGo }: { room: Room; project: Non
       </ul>
       {managing && p && <ProjectMembersDialog project={p} onClose={() => setManaging(false)} onSaved={(x) => { setP(x); useProjects.getState().put(x) }} />}
     </div>
+  )
+}
+
+/** A project's chat room whose people are exactly a department's (Room.project.sameAsGroup, told only to people in that
+ * department's room): "Same people as #{group}. Keep {project} talk here.", #{group} a link to the department's room. In
+ * the room's start and its info; no banner, nothing to dismiss (docs/decisions/20261121-sidebar-projects-group.md). */
+export function SameAsGroupLine({ project, onGo, className, testId = 'room-same-as-group' }: { project: Pick<NonNullable<Room['project']>, 'name' | 'sameAsGroup'>; onGo?: () => void; className?: string; testId?: string }) {
+  const t = useT()
+  const g = project.sameAsGroup
+  if (!g) return null
+  const tag = `#${g.name}`
+  const text = t('rooms.project.sameAsGroup', { group: tag, project: project.name })
+  const at = text.indexOf(tag)
+  const link = <Link to={`/rooms/${g.roomId}`} onClick={onGo} className="font-medium text-ink hover:underline" data-testid={`${testId}-link`}>{tag}</Link>
+  return (
+    <span className={className} data-testid={testId}>
+      {at < 0 ? text : <>{text.slice(0, at)}{link}{text.slice(at + tag.length)}</>}
+    </span>
   )
 }

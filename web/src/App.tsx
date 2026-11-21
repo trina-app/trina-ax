@@ -69,6 +69,7 @@ import { toast } from './store/ui'
 import { afterSetupTarget, clearAfterSetup, LANDING_STATE } from './lib/welcome'
 import { RoomAppsHost } from './components/rooms/apps/AppsHost'
 import { AddConversationsHost } from './components/nav/SidebarSections'
+import { MakeProjectHost } from './components/rooms/MakeProjectDialog'
 
 const ChatPage = lazy(() => import('./pages/Chat'))
 const Files = lazy(() => import('./pages/Files'))
@@ -491,6 +492,7 @@ export default function App() {
         <Gate />
         <DialogHost />
         <AddConversationsHost />
+        <MakeProjectHost />
         <RoomAppsHost />
         <ShareChatHost />
         <ChatShareHost />

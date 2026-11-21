@@ -1,23 +1,29 @@
 // 팀이 쓸 도구, the welcome steps' step between 팀 파일 and 팀원 초대 (docs/decisions/20261120-team-vs-personal-onboarding.md,
-// which supersedes docs/DECISIONS.md "Onboarding's Tools step: Drive, Notion and the full list"): a team setting like
-// the other steps. One list, two kinds of rows:
+// with docs/decisions/20261121-onboarding-google-team-or-own.md for the Google rows and the switch's name): a team
+// setting like the other steps. One list:
 //  - a team connection, for a tool the team connects once (Notion, a team-scope connection everyone may use; Slack,
-//    its own page in Admin): [팀으로 연결], "팀 전체가 이 연결을 같이 써요". The sign-in is the team account's, at the
-//    service, in the window reserved during the click; never the owner's own connection. Slack shows 연결됨 only while
-//    it is connected (else [다시 연결] once added, [팀으로 연결] before).
-//  - a tool each person connects with their own account (Google Drive where this server has it, Gmail where it can be
-//    connected): a [팀 추천] switch (TeamSettings.recommendedTools, shared/src/api/team-tools.ts). Recommended tools come
-//    first in everyone's Settings › Connectors; nothing is gated, anyone may still connect anything. Saved at once; a
-//    failure puts it back and says why on its row.
-// Then one quiet "다른 도구 보기" line: Settings › Connectors, the full list (a tool's page there has the same 팀 추천
+//    its own page in Admin › Connected apps): [팀으로 연결], "팀 전체가 이 연결을 같이 써요". The sign-in is the team
+//    account's, at the service, in the window reserved during the click; never the owner's own connection. Slack shows
+//    연결됨 only while it is connected (else [다시 연결] once added, [팀으로 연결] before).
+//  - a Google tool (Google Drive where this server has it, Gmail where it can be connected; Calendar, Docs and Sheets
+//    stay in "다른 도구 보기" and Admin, to keep the step lean): both ways, on one row (owner, 11-21: "a Google account is added as a team account AND as a
+//    personal account"). [팀으로 연결] on its right opens the very dialog Admin › Connected apps uses
+//    (DriveShares.tsx DriveShareDialog for Drive, GoogleAppTeam.tsx GoogleAppTeamDialog for a Google app: one shared
+//    Google account, then who may use it), where this server can do that (Drive set up; the app set up and the server
+//    sends its team account); once connected the row says which account and who uses it, with 연결됨 like Notion.
+//  - under the line of every row a person can also connect on their own (the Google rows and Notion; not Slack, which
+//    has no own connection) a small switch "각자 연결하도록 권하기" (TeamSettings.recommendedTools,
+//    shared/src/api/team-tools.ts): those tools come first in everyone's Settings › Connectors; nothing is gated, anyone
+//    may still connect anything. Saved at once; a failure puts it back and says why on its row.
+// Then one quiet "다른 도구 보기" line: Settings › Connectors, the full list (a tool's page there has the same "각자 연결하도록 권하기"
 // switch for an owner or admin). Settings is a dialog over this step (App.tsx useSettingsOverlay), so its close comes
 // back here, which reads everything again; it opens with the step's way back in its history state (SetupReturn.tsx).
-// Never blocking: once something is done (a team connection connected, Slack connected, a tool recommended) the primary is the next
-// step; until then only "나중에 하기". A phone walks past the step (pages/Welcome.tsx), as before.
+// Never blocking: once something is done (a team connection connected, Slack connected, a team Google account
+// connected, a tool asked for) the primary is the next step; until then only "나중에 하기". A phone walks past the step (pages/Welcome.tsx), as before.
 import { Check, Plus } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { API, SLACK, type Integration } from '@mycel/shared/api'
+import { API, SLACK, type DriveShare, type GoogleAppAdminStatus, type Integration } from '@mycel/shared/api'
 import { api, errorText } from '../../lib/api'
 import { APP_CONNECTORS, appConnectorLogo, connectorLogo, CONNECTORS, CONNECTORS_HOME, servesAt, SLACK_ADMIN_PATH, SLACK_APP, slackLogo, type Connector } from '../../lib/connectors'
 import { lineKey, type BuiltInId } from '../../lib/googleApps'
@@ -30,12 +36,17 @@ import { Button, Switch, WaitLine } from '../ui'
 import { SIGN_IN_WAIT_MINUTES } from '../../lib/signInWait'
 import { LogoTile } from '../integrations/ConnectorsView'
 import { reserveSignInWindow, useSignIn } from '../integrations/IntegrationRow'
+import { DriveShareDialog } from '../integrations/DriveShares'
+import { GoogleAppTeamDialog } from '../integrations/GoogleAppTeam'
+import { isEmptyAccess } from '../../lib/integrations'
+import { useAdminGroups, useAdminUsers } from '../../store/adminPeople'
 
 const quietLink = 'font-medium text-ink underline decoration-line-strong underline-offset-4 hover:decoration-ink disabled:opacity-50'
 /** the listed services the step connects for the team (Notion; the full list is one click away) */
 export const WELCOME_SERVICES = ['notion'] as const
-/** the tools the step offers to recommend, where this server can connect them */
+/** the Google tools the step offers (for the team, or each person's own), where this server can connect them */
 const RECOMMEND: BuiltInId[] = ['google-drive', 'gmail']
+type GoogleRowId = BuiltInId
 const rowCls = 'flex items-center gap-3 py-3'
 const logoCls = 'size-10 rounded-xl p-2'
 const WAITING = new Set(['starting', 'pending', 'exchanging'])
@@ -54,18 +65,20 @@ export function ToolsStep({ busy, done, nextLabel, onDone, onSkip }: {
   const rec = useRecommendedTools()
   const avail = useRecommendable()
   const team = useTeamConnections()
+  const google = useGoogleTeam()
+  const [dialog, setDialog] = useState<GoogleRowId | null>(null)
   // back from Settings (a dialog over this step): read everything again
   const real = useRealPath()
   const was = useRef(real)
   useEffect(() => {
-    if (was.current !== real && real === '/welcome') { void rec.reload(); avail.reload(); team.reload() }
+    if (was.current !== real && real === '/welcome') { void rec.reload(); avail.reload(); team.reload(); google.reload() }
     was.current = real
   }, [real]) // eslint-disable-line react-hooks/exhaustive-deps
   const recommendRows = RECOMMEND.filter((id) => avail.ids.includes(id)).map((id) => {
     const a = APP_CONNECTORS.find((x) => x.id === id)!
     return { id, name: a.name, logo: appConnectorLogo(a), line: t(lineKey(id)) }
   })
-  const next = done || !!rec.tools?.length || team.anyOn
+  const next = done || !!rec.tools?.length || team.anyOn || google.anyOn
   return (
     <div className="space-y-5" data-testid="welcome-tools">
       <div className="space-y-1">
@@ -74,23 +87,35 @@ export function ToolsStep({ busy, done, nextLabel, onDone, onSkip }: {
       </div>
       <div className="space-y-4">
         <ul className="divide-y divide-line border-y border-line" data-testid="welcome-tools-cards">
-          <TeamRows team={team} />
+          <TeamRows team={team} rec={rec} />
           {rec.tools !== undefined && recommendRows.map((r) => {
             const error = rec.error?.id === r.id ? rec.error.text : null
+            const g = google.of(r.id)
+            const teamState = !g ? 'none' : g.account ? (g.ok ? 'connected' : 'needs-sign-in') : 'available'
+            const line = error ?? (!g ? t('welcome.tools.ownLine', { line: r.line })
+              : g.account ? t('welcome.tools.googleTeamOn', { account: g.account, who: g.who })
+                : t('welcome.tools.googleLine'))
             return (
-              <li key={r.id} className={rowCls} data-testid="welcome-tools-service" data-id={r.id} data-kind="recommend" data-state={rec.on(r.id) ? 'recommended' : 'off'}>
+              <li key={r.id} className={rowCls} data-testid="welcome-tools-service" data-id={r.id} data-kind="google" data-team={teamState} data-state={rec.on(r.id) ? 'recommended' : 'off'}>
                 <LogoTile src={r.logo} className={logoCls} />
-                <div className="min-w-0 flex-1 space-y-0.5">
+                <div className="min-w-0 flex-1 space-y-1">
                   <p className="text-sm font-medium text-ink">{r.name}</p>
-                  <p className={`text-sm break-words ${error ? 'text-warn' : 'text-muted'}`} role={error ? 'alert' : undefined} data-testid="welcome-tools-service-line">{error ?? t('welcome.tools.ownLine', { line: r.line })}</p>
+                  <p className={`text-sm break-words ${error || teamState === 'needs-sign-in' ? 'text-warn' : 'text-muted'}`} role={error ? 'alert' : undefined} data-testid="welcome-tools-service-line">{line}</p>
+                  <AskSwitch rec={rec} id={r.id} />
                 </div>
-                <Switch checked={rec.on(r.id)} disabled={rec.saving !== null} onChange={(v) => void rec.set(r.id, v)} label={t('welcome.tools.recommend')} testId="welcome-tools-recommend" />
+                {g && (teamState === 'connected' ? connectedMark(t) : (
+                  <Button size="sm" variant="secondary" className="shrink-0" onClick={() => setDialog(r.id)}
+                    aria-label={`${t(g.account ? 'welcome.tools.reconnect' : 'welcome.tools.teamConnect')}: ${r.name}`} data-testid="welcome-tools-team-connect">
+                    {t(g.account ? 'welcome.tools.reconnect' : 'welcome.tools.teamConnect')}
+                  </Button>
+                ))}
               </li>
             )
           })}
         </ul>
         <OtherTools />
       </div>
+      {dialog && <GoogleTeamDialog app={dialog} google={google} onClose={() => { setDialog(null); google.reload() }} />}
       <div className="flex flex-wrap items-center justify-between gap-3">
         {next ? (
           <Button variant="primary" className="max-sm:w-full" disabled={busy || rec.saving !== null} onClick={onDone} data-testid="welcome-tools-next">{nextLabel}</Button>
@@ -105,7 +130,7 @@ export function ToolsStep({ busy, done, nextLabel, onDone, onSkip }: {
 }
 
 /** The tools of RECOMMEND this server can connect: Google Drive where it has it (a hosted team's first minutes: read
- * again a little later and when the window comes back), Gmail where it can be connected. A failed read: no row. */
+ * again a little later and when the window comes back), a Google app where it can be connected. A failed read: no row. */
 function useRecommendable() {
   const [ids, setIds] = useState<string[]>([])
   const [driveWaits, setDriveWaits] = useState(false)
@@ -140,8 +165,8 @@ function useTeamConnections() {
 }
 
 /** The team rows: each listed service of WELCOME_SERVICES as one team connection everyone may use, made from the list
- * (its address and sign-in: nothing to type) and signed in at once; then Slack, its own page in Admin › Connectors. */
-function TeamRows({ team }: { team: ReturnType<typeof useTeamConnections> }) {
+ * (its address and sign-in: nothing to type) and signed in at once; then Slack, its own page in Admin › Connected apps. */
+function TeamRows({ team, rec }: { team: ReturnType<typeof useTeamConnections>; rec: ReturnType<typeof useRecommendedTools> }) {
   const t = useT()
   const locale = useLocale()
   const navigate = useNavigate()
@@ -168,11 +193,7 @@ function TeamRows({ team }: { team: ReturnType<typeof useTeamConnections> }) {
       setErrors((x) => ({ ...x, [c.id]: errorText(e, locale, t('error.network')) }))
     } finally { setBusy(null) }
   }
-  const connected = (
-    <span className="flex shrink-0 items-center gap-1 pt-0.5 text-xs text-muted" data-testid="welcome-tools-team-on">
-      <Check size={14} className="text-ok" aria-hidden /> {t('drive.status.connected')}
-    </span>
-  )
+  const connected = connectedMark(t)
   return (
     <>
       {services.map((c) => {
@@ -182,15 +203,17 @@ function TeamRows({ team }: { team: ReturnType<typeof useTeamConnections> }) {
         const on = isOn(i) && !flow
         const line = waiting ? (flow.away ? t('integrations.signIn.notFinished') : t('welcome.tools.signingIn', { name: c.name }))
           : flow ? flow.reason || t('welcome.tools.signInFailed', { name: c.name })
-            : errors[c.id] || t('welcome.tools.teamLine')
+            : errors[c.id] || (rec.error?.id === c.id ? rec.error.text : '') || t('welcome.tools.teamLine')
         return (
           <li key={c.id} className={rowCls} data-testid="welcome-tools-service" data-id={c.id} data-kind="team" data-state={on ? 'connected' : waiting ? 'signing-in' : i ? 'needs-sign-in' : 'available'}>
             <LogoTile src={connectorLogo(c)} className={logoCls} />
             <div className="min-w-0 flex-1 space-y-0.5">
               <p className="text-sm font-medium text-ink">{c.name}</p>
               {waiting ? <WaitLine className="text-sm text-muted" text={line} hint={t('connect.wait.limit', { n: SIGN_IN_WAIT_MINUTES })} testId="welcome-tools-service-line" />
-                : <p className={`text-sm break-words ${flow || errors[c.id] ? 'text-warn' : 'text-muted'}`} data-testid="welcome-tools-service-line">{line}</p>}
+                : <p className={`text-sm break-words ${flow || errors[c.id] || rec.error?.id === c.id ? 'text-warn' : 'text-muted'}`} data-testid="welcome-tools-service-line">{line}</p>}
               {waiting && flow.url && <a href={flow.url} target="_blank" rel="noopener noreferrer" className={`${quietLink} text-sm`}>{t('integrations.signIn.open')}</a>}
+              {/* each person may connect their own too (a listed service): the same switch as the Google rows */}
+              {rec.tools !== undefined && <AskSwitch rec={rec} id={c.id} />}
             </div>
             {on ? connected : waiting ? (
               <div className="flex shrink-0 gap-1">
@@ -223,6 +246,71 @@ function TeamRows({ team }: { team: ReturnType<typeof useTeamConnections> }) {
       )}
     </>
   )
+}
+
+/** "각자 연결하도록 권하기": the tool comes first in everyone's Settings › Connectors (TeamSettings.recommendedTools),
+ * each connecting their own; saved at once. */
+function AskSwitch({ rec, id }: { rec: ReturnType<typeof useRecommendedTools>; id: string }) {
+  const t = useT()
+  return (
+    <div className="pt-0.5 text-muted">
+      <Switch checked={rec.on(id)} disabled={rec.saving !== null} onChange={(v) => void rec.set(id, v)} label={t('welcome.tools.recommend')} testId="welcome-tools-recommend" />
+    </div>
+  )
+}
+
+/** 연결됨 on the right of a team row. */
+function connectedMark(t: ReturnType<typeof useT>) {
+  return (
+    <span className="flex shrink-0 items-center gap-1 pt-0.5 text-xs text-muted" data-testid="welcome-tools-team-on">
+      <Check size={14} className="text-ok" aria-hidden /> {t('drive.status.connected')}
+    </span>
+  )
+}
+
+/** The team's shared Google accounts, as Admin › Connected apps reads them (owners and admins): Google Drive's shares
+ * (GET /api/admin/google-drive, then its shares once it is set up) and each Google app's team account
+ * (GET /api/admin/google-apps). `of(id)`: null where the team way cannot be offered here (not set up, an older server,
+ * a failed read); else the account shown (the first share that works, else the first) and who uses it. */
+function useGoogleTeam() {
+  const t = useT()
+  const [shares, setShares] = useState<DriveShare[] | null>(null)
+  const [apps, setApps] = useState<GoogleAppAdminStatus[]>([])
+  const reload = useCallback(() => {
+    api.call(API.driveAdminStatus).then((d) => d.configured ? api.call(API.listDriveShares).then((r) => setShares(r.items)) : setShares(null))
+      .catch(() => setShares(null))
+    api.call(API.googleAppsAdminStatus).then((r) => setApps(r.apps), () => setApps([]))
+  }, [])
+  useEffect(reload, [reload])
+  const share = shares?.find((x) => x.status === 'connected') ?? shares?.[0] ?? null
+  const app = (id: string) => apps.find((a) => a.id === id)
+  const who = (x: { access: DriveShare['access']; usedBy: number }) => (isEmptyAccess(x.access) ? t('driveShare.nobody') : t('driveShare.usedBy', { count: x.usedBy }))
+  const email = (a: DriveShare['account']) => a.email ?? a.name ?? ''
+  const of = (id: GoogleRowId) => {
+    if (id === 'google-drive') return shares === null ? null : { account: share ? email(share.account) : null, ok: share?.status === 'connected', who: share ? who(share) : '' }
+    const a = app(id)
+    if (!a?.configured || a.team === undefined) return null
+    return { account: a.team ? email(a.team.account) : null, ok: a.team?.status === 'connected', who: a.team ? who(a.team) : '' }
+  }
+  const setApp = (st: GoogleAppAdminStatus) => setApps((xs) => xs.map((a) => (a.id === st.id ? st : a)))
+  return { of, share, app, setApp, reload, anyOn: share?.status === 'connected' || apps.some((a) => a.team?.status === 'connected') }
+}
+
+/** The dialog Admin › Connected apps opens for a shared Google account: Drive's share (sign in, folders, who), or a Google
+ * app's team account (Gmail, Calendar, Docs, Sheets: sign in, who); a new sign-in for one that needs it. */
+function GoogleTeamDialog({ app, google, onClose }: { app: GoogleRowId; google: ReturnType<typeof useGoogleTeam>; onClose: () => void }) {
+  const groups = useAdminGroups()
+  const users = useAdminUsers()
+  // what there was when the dialog opened, kept while it is open (as Admin does): a sign-in made here sets the app's
+  // team account at once (onStatus), and the dialog must still treat it as new, so its Cancel or ✕ removes it again
+  const [share] = useState(() => google.share)
+  const [isNew] = useState(() => !google.app(app)?.team)
+  if (app === 'google-drive') {
+    return <DriveShareDialog share={share ?? undefined} reconnect={!!share} groups={groups.data ?? []} users={users.data ?? []} onClose={onClose} onSaved={onClose} />
+  }
+  const st = google.app(app)
+  if (!st) return null
+  return <GoogleAppTeamDialog app={st.id} team={st.team ?? null} step="connect" isNew={isNew} onStatus={google.setApp} onClose={onClose} />
 }
 
 /** "다른 도구 보기": Settings › Connectors, the full list (Settings is a dialog over the step; its close comes back). */

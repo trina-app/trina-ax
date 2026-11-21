@@ -28,7 +28,7 @@ import AiAccessBanner from '../components/chat/AiAccessBanner'
 import { isNoAiReason } from '../lib/aiAccess'
 import { ResultSuggestion } from '../components/onboarding/ResultSuggestion'
 import { ArrowDown, ChevronLeft, Globe, Loader2, RotateCcw, Trash2 } from 'lucide-react'
-import { Fragment, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { chatErrorReason, uuidv7, type Attachment, type Chat, type EngineId, type Project } from '@mycel/shared/api'
 import { api, API, errorText, isApiError } from '../lib/api'
@@ -49,6 +49,7 @@ import { useLocale, useT } from '../i18n'
 import { chatEnd, chatPlace, keepChatPlace, showThrough, useChats } from '../store/chats'
 import { freshDraft, useWideningDraft } from '../store/wideningDraft'
 import { useSessionMarkers } from '../store/sessionMarkers'
+import { readChatMentions } from '../store/chatMentions'
 import { useEngines } from '../store/engines'
 import { canChooseEngine, isAdmin, useMeStrict } from '../store/session'
 import { useRooms } from '../store/rooms'
@@ -65,7 +66,7 @@ import QueuedMessages from '../components/chat/QueuedMessages'
 import { ChatProjectCrumb, MoveToProjectDialog } from '../components/chat/ChatProject'
 import type { EnginePick } from '../components/chat/EngineMenu'
 import { ChatTitleMenu } from '../components/chat/ChatTitleMenu'
-import { PrivateChatMark, SharedChatMark, SharedReadOnly } from '../components/chat/SharedChat'
+import { PrivateChatMark, SharedByLine, SharedChatMark, SharedReadOnly, sharedByOf } from '../components/chat/SharedChat'
 import { WhoSeesLine } from '../components/chat/WhoSees'
 import { askPrivately, askPrivatelyHome, lastOwnQuestion } from '../components/chat/privateAsk'
 import { openChatShare, startShare, useSharedWithNames } from '../components/chat/ChatShareDialog'
@@ -82,7 +83,8 @@ import { FileDropZone } from '../components/FileDropZone'
 import { isolate } from '../components/handover/isolate'
 import { RoomSideColumn } from '../components/rooms/RoomSideColumn'
 import { ChatThreadPanel } from '../components/chat/ChatThreadPanel'
-import { closeSidePanel, useSidePanel } from '../lib/sidePanel'
+import { closeSidePanel, openFilePreview, useSidePanel, type PreviewFile } from '../lib/sidePanel'
+import { ChatLinks } from '../components/Markdown'
 import { useFolderWords } from '../lib/folderLabels'
 
 /** Where a link goes inside a translated sentence ({projects} in chat.notFoundManage): split there. */
@@ -110,6 +112,15 @@ function ChatView({ chatId, threadRoot }: { chatId: string; threadRoot: string |
     return id
   })
   useEffect(() => () => showThrough(chatId, null), [chatId])
+  // ?file=<id>: a chat file's link (an answer's attached file, /c/<chat>?file=<id>): its viewer opens beside the chat,
+  // named as the chat's messages name it (the bytes and every check stay behind the chat's file route)
+  const fileParam = params.get('file')
+  const fileName = useChats((s) => {
+    if (!fileParam) return null
+    for (const m of s.threads[chatId]?.messages ?? []) for (const a of (m as { attachments?: { id: string; name: string }[] }).attachments ?? []) if (a.id === fileParam) return a.name
+    return null
+  })
+  useEffect(() => { if (fileParam && /^[A-Za-z0-9_-]+$/.test(fileParam)) openFilePreview({ source: 'chat', chatId, fileId: fileParam, name: fileName ?? 'file' }) }, [chatId, fileParam, fileName])
   const t = useT()
   const locale = useLocale()
   const me = useMeStrict()
@@ -125,6 +136,9 @@ function ChatView({ chatId, threadRoot }: { chatId: string; threadRoot: string |
       if (useSessionMarkers.getState().onScreen === chatId) useSessionMarkers.getState().setOnScreen(null)
     }
   }, [chatId])
+  // my unread mentions in this chat's threads (the counts on its row in the 프로젝트 panel and on its project's page) count
+  // as read once it is open, in both places (store/chatMentions.ts)
+  useEffect(() => void readChatMentions(chatId), [chatId])
   const announce = useAnnounce()
   const navigate = useNavigate()
   const backLink = useBackLink()
@@ -190,6 +204,7 @@ function ChatView({ chatId, threadRoot }: { chatId: string; threadRoot: string |
   // a chat shared with people and groups (docs/DECISIONS.md "Chats shared with people and groups"): its creator's line
   // opens the Share dialog; to someone not told how many see it (a group in it), the names it is shared with
   const people = isPeopleShared(chat)
+  const sharedBy = sharedByOf(chat, me.user.id)
   const sharedNames = useSharedWithNames(people && !!shared?.audienceHidden ? chatId : null, shared?.by, me.user.id)
   // someone else's chat shared with me that nobody else sees now (its creator's account is off): it is still theirs,
   // shared with me, never "Only you can see this chat" (QA TC-2263)
@@ -267,6 +282,15 @@ function ChatView({ chatId, threadRoot }: { chatId: string; threadRoot: string |
   }, [chatId, chatFromList])
 
   const messages = thread.messages
+  // a chat shared with people: the files its creator added as copies (docs/decisions/20261121-share-chat-files.md) open
+  // for every link to their old place, for everyone (one file, not two); a link that does not open for me offers to ask
+  // the creator to add it (components/ChatFileAsk.tsx)
+  const peopleChat = isPeopleShared(chat)
+  const chatLinks = useMemo(() => {
+    const copies = new Map<string, PreviewFile>()
+    for (const m of messages) for (const a of m.role === 'assistant' ? m.attachments : []) if (a.source === 'chat' && a.origin === 'shared-copy' && a.from) copies.set(a.from, { source: 'chat', chatId, fileId: a.id, name: a.name })
+    return copies.size || peopleChat ? { chatId, copies, ask: peopleChat && shared?.by.id !== me.user.id } : null
+  }, [messages, chatId, peopleChat, shared?.by.id, me.user.id])
   const running = runningMessage(messages)
 
   // ?answer=: scroll to it and mark it (`data-focused`, no look: only the place) for a moment, once it is read; gone (or
@@ -668,7 +692,9 @@ function ChatView({ chatId, threadRoot }: { chatId: string; threadRoot: string |
             <ChevronLeft size={20} aria-hidden />
           </Link>
         </Tooltip>
-        <div className="flex min-w-0 flex-1 items-center justify-center gap-1 text-sm md:justify-start">
+        {/* someone else's chat shared with me by name or group: who shared it, after the title (a phone: under it) */}
+        <div className={clsx('flex min-w-0 flex-1 justify-center', sharedBy && phone ? 'flex-col items-center' : 'items-center')}>
+        <div className={clsx('flex min-w-0 items-center justify-center gap-1 text-sm md:justify-start', sharedBy && phone ? 'max-w-full' : 'flex-1')}>
           <ChatProjectCrumb projectId={projectId} />
           {chat && !chat.deletedAt ? (
             <ChatTitleMenu
@@ -692,6 +718,9 @@ function ChatView({ chatId, threadRoot }: { chatId: string; threadRoot: string |
           {shared && <SharedChatMark audience={shared.audience} hidden={!!shared.audienceHidden} />}
           {/* a chat only I see in a team project: its lock, where a shared one has its people (QA TC-1068) */}
           {!shared && chat && privateInTeamProject(chat, project) && <PrivateChatMark />}
+          {sharedBy && !phone && <SharedByLine by={sharedBy} />}
+        </div>
+        {sharedBy && phone && <SharedByLine by={sharedBy} line />}
         </div>
         {/* a chat of a team project: the project's chat room, one tap away (docs/decisions/20261120-project-is-room.md D5;
             a phone: its icon, a dot while something is unread) */}
@@ -711,6 +740,7 @@ function ChatView({ chatId, threadRoot }: { chatId: string; threadRoot: string |
               these; each says who sent it and when */}
           {/* the message box below answers the AI's open question (not when it is not shown: a trashed or read-only chat) */}
           <BoxAnswers.Provider value={chat?.deletedAt || readOnly ? null : (question?.request.requestId ?? null)}>
+          <ChatLinks.Provider value={chatLinks}>
           <ImageGroup>
             {messages.map((m, i) => {
               if (m.role === 'user')
@@ -728,6 +758,7 @@ function ChatView({ chatId, threadRoot }: { chatId: string; threadRoot: string |
               )
             })}
           </ImageGroup>
+          </ChatLinks.Provider>
           </BoxAnswers.Provider>
           {!chat?.deletedAt && <QueuedMessages chatId={chatId} onFocusComposer={() => composer.current?.focus()} shared={shared && !readOnly ? { audience: shared.audience, kind: shared.kind, othersWaiting: shared.waiting ?? 0 } : undefined} />}
         </div>

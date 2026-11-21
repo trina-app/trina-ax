@@ -146,6 +146,13 @@ describe('a free-roam demo server', () => {
     expect(readToken(req(`__Host-sid=${tok}`))).toBeNull()
   })
 
+  test('the My setup card says demo: no tools row to do, so tools is sent done (QA TC-6473)', async () => {
+    const { welcome } = await mina.call('GET', API.getMemberWelcome.path)
+    expect(welcome).not.toBeNull()
+    expect(welcome.demo).toBe(true)
+    expect(welcome.steps.tools).toBe(true)
+  })
+
   test('usage, cost, engine and model reads are refused in the visitor\'s words (QA TC-5578)', async () => {
     for (const p of [`${API.myUsage.path}?period=month`, API.chatEngines.path]) {
       const r = await mina.try('GET', p)

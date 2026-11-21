@@ -41,19 +41,31 @@ const KNOWN = new Set(Object.values(CHAT_FILES_FOLDER).map(fold))
 /**
  * The folder a computer upload into this shared chat goes to, checked for `userId` (who sees the chat), or the refusal:
  * 409 safe_ops while safe operations are on, 404 when its project or project folder is not there, 403
- * shared_upload_read_only when they may not write there. Read-only: nothing is made.
+ * shared_upload_read_only when they may not write there. Read-only: nothing is made. (chatAttachmentsPlace for the
+ * project's folder.)
  */
 export function sharedUploadPlace(db: Database, files: UploadFiles, userId: string, chat: Pick<ChatRow, 'project_id'>): SharedUploadPlace {
   if (safeOpsEnabled()) fileError('conflict', 'sharedChatSafeOps', undefined, { reason: 'safe_ops' })
   const p = chat.project_id ? db.query('SELECT folder_path, trashed_with FROM projects WHERE id = ?').get(chat.project_id) as { folder_path: string; trashed_with: string | null } | null : null
   if (!p || p.trashed_with !== null || !p.folder_path) fileError('not_found', 'notChat')
+  return chatAttachmentsPlace(db, files, p.folder_path, userId)
+}
+
+/**
+ * The Chat attachments folder inside `folderPath` (a project's folder, a department's group folder: docs/AGENTS/plan/
+ * 20261121-0619-structure-polish.md B), checked for `userId`: the same answers as sharedUploadPlace (409 safe_ops, 404
+ * notChat when `folderPath` is not there or is not a folder they read, 403 shared_upload_read_only when they may not
+ * write the Chat attachments folder or make it). Read-only: nothing is made.
+ */
+export function chatAttachmentsPlace(db: Database, files: UploadFiles, folderPath: string, userId: string): SharedUploadPlace {
+  if (safeOpsEnabled()) fileError('conflict', 'sharedChatSafeOps', undefined, { reason: 'safe_ops' })
   const user = files.principal(userId)
   const rules = files.rules()
-  // the project folder itself must be there (one in the trash is never made again here); the person reads it, or they
-  // would not see the chat
+  // the folder itself must be there (one in the trash is never made again here); the person reads it, or they would
+  // not see the chat
   let base: { rel: string; abs: string }
   try {
-    const r = authorize(files.fx, rules, user, p.folder_path, 'read')
+    const r = authorize(files.fx, rules, user, folderPath, 'read')
     if (!r.st?.isDirectory()) throw new Error('not a folder')
     base = r
   } catch { return fileError('not_found', 'notChat') }

@@ -1,0 +1,177 @@
+# Share a chat's files with the people in it (first version: people-shared chats)
+
+- Date (UTC): 2026-11-21 02:49 (scoped to the first version after review, same day)
+- Branch: `feat/share-chat-files` (the plan was reviewed on `plan/share-chat-files`, c4a02ef0a)
+- Status: done (first version; follow-ups listed above)
+- Where: Team AX core (`server/src/chat`, `web/src/components`). Why: sharing and chat files are core
+  (docs/REPOSITORY-RULES.md).
+- Version impact: **minor**. New optional API fields and one new chat route pair (`file-access`); no migration; no
+  existing behaviour is narrowed.
+
+## Goal
+
+The owner's case (2026-11-21): the owner shared an existing Trina chat with one person. Earlier in that chat Trina had
+made `견적서_Sincere_마케팅에이전트.pdf` and its HTML in the owner's own folder (`users/<id>/견적/Sincere`). The other person
+clicks the file in the chat and the side panel says "The file can't be found, or you don't have access to it." There is
+nothing they can do.
+
+The owner's rules: sharing a chat is for working together, so there is **no view-only tier**; **ask at share time**
+(as Gmail asks "share these Drive files?"); files made later in the chat just work (that part is session e6's, below).
+
+## Today (origin/dev df07c450b)
+
+1. A personal chat writes its files in the person's own folder `users/<id>/…`. That folder is private by path to
+   everyone, admins too.
+2. Share… (`PUT /api/chats/:id/audience`) says nothing about those files.
+3. A file link in an answer opens the panel through the folder rules: someone else gets a 404 (`preview.notFound`),
+   with no button and no way to ask.
+4. Chat files (`chat_files`, migration 400) already belong to a people-shared chat: whoever sees the chat opens them.
+   A row that no message names is an unsent upload: only its sender opens it, and the sweep removes it after a day.
+
+## Scope of this version (the reviewer's smallest first version; no migrations)
+
+### 1. The Share step (people-shared chat)
+
+- When the creator opens Share… and the chat has **made-here files**, the dialog shows
+  "Share the files from this chat too?" / "이 대화의 파일도 공유할까요?" with the list and two buttons,
+  [Share without files] [Share with files] / [파일 없이 공유] [파일과 함께 공유].
+- **Made-here files** (`chat/chat-files-share.ts` madeFilesOf), only from the server's own records:
+  - `madeInChat` (chat/shared-actions.ts) accepts the path for the chat's creator: this chat's turns made it with
+    write/edit/make_file/edit_hwp/stamp_pdf, nothing relocated, nothing else touched it since;
+  - in the creator's own folder (`users/<creator>/`), not in a dot folder (`.attachments`), not a skill or an
+    instruction file;
+  - a plain file (one link) of at most `CHAT_COPY_MAX` (1 GB), not on the download-only list, whose newest file event's
+    sha256 is known;
+  - not already in the chat as a copy of the same path and sha256 (dedupe: sharing again makes no second copy).
+  - "Used here" files and the team-file line of the reviewed plan are dropped.
+- The step also shows when Share is opened on an **already-shared** chat that still has such files, with the line
+  "n files from this chat are only in your files" (review H4: the owner's chat is already shared).
+- **Share with files** copies each file as a chat file (the `copyEarlier` way: read from one descriptor that follows
+  no link, a picture's metadata cut out) and **attaches it to the answer that made it** (H2: the turn of the path's
+  `create` event, its `turns.message_id`). Attached, the row counts as sent, so migration 400's sweep leaves it and
+  everyone in the chat opens it. The source is a mark in the attachment JSON, as agreed with session e6:
+  `origin: 'shared-copy'` (e6: `'ai'`), with `from: <path>` and `fromSha256` for the server's re-check. No new columns.
+  A client never gets `fromSha256`, and `from` only the creator (L2). Copies have their own cap, `CHAT_COPY_MAX`
+  (1 GB within team storage, to be unified with e6 PR2's cap), streamed through a temp file; uploads keep 50 MB.
+- **The chat's copy wins in links** (M5): inside that chat, a link to the source path opens the chat's copy for
+  everyone, the creator included, so nobody edits two different files by accident. The AI of whoever runs a turn
+  there is told the same in the transcript (the copy's file_id; read it with `chat_file`).
+- **Re-check at the press** (M2): the confirm key binds every listed (path, sha256). At the press the server runs
+  madeFilesOf again, reads each file from its open descriptor, hashes the bytes it read and compares them with the
+  sha256 in the key. Anything different (a file changed, moved, gone, a new one): nothing is saved or copied, and the
+  answer is the step again ("confirm", reason `changed`). New bytes are never copied silently.
+- The step says the chat's copies go when the chat is deleted, and the originals stay in My files.
+
+### 2. The panel's dead end becomes an ask (people-shared chat, H4)
+
+- In a people-shared chat, a viewer who clicks a file link they cannot open gets, in the panel,
+  "Only <creator> can add this file to the chat" with [Ask to add it] / [추가 요청].
+- `GET /api/chats/:id/file-access?path=` answers `ask` (the creator's name and the name recorded in the chat), `asked`
+  (the date), `copy` (the chat already has it: the panel opens the copy) or `no`. It answers `ask` only for a path
+  madeFilesOf lists for this chat. Every other case (not in the chat's records, someone else's file, a team folder,
+  gone, too large, a guest, the creator) is the one generic `no`, shown as today's "can't open" text. It never says
+  that a path exists, whose it is or what folder it is in (M1, L1, L2). 60 reads a minute per person.
+- `POST /api/chats/:id/file-access` sends the ask: an `access_requests` row (kind `chat`, target
+  `<chat id>/<sha256 of the path, 32 hex>`, the path and name in `message` as JSON) and the creator's
+  `access.requested` Activity row. The limits are the access requests' own (one waiting per person and file,
+  FILE_REQUESTS_PER_OWNER_DAY a day to one owner, FILE_REQUESTS_PER_HOUR an hour in all).
+- The request is untrusted (H3). On [Add to the chat] in Activity the server runs **the same check as the share
+  step** (madeFilesOf for the path, own file, the sha256 of the bytes read against the newest file event) and copies
+  only then. It answers from server records (file_events, the copies' marks), never from links in answer text. The
+  notice names the file by the name recorded in the chat, never the current path.
+- When someone leaves the chat (taken out of the audience, or the chat made private again), their waiting asks there
+  are closed (M3). An ask whose asker no longer sees the chat, or whose file no longer qualifies, closes when read.
+- The asker hears the answer in Activity: added (a link to the chat) or "wasn't approved" (no name), as today.
+
+### Not in this version (follow-ups)
+
+- **H1: new AI output in people-shared chats** attached as chat files, and AI edits of chat files saved as new chat
+  files: session e6 (`fix/ai-sees-and-saves-workspace-output`, its PR2/PR2b).
+- Version chains of chat files and people editing a chat file in place.
+- Routing an ask to admins or to a file owner outside the chat.
+- Team projects (the project folder copy at share time and when people are added).
+- Per-file checkboxes, and "used here" files.
+
+## Review findings this version answers
+
+| Finding | Where |
+|---|---|
+| H2 copies must be attached or the sweep removes them | 1, "attaches it to the answer that made it" |
+| H3 a request is untrusted input | 2, the same check at [Add to the chat] |
+| H4 the owner's chat is already shared | 1 (already-shared step) and 2 (panel ask) |
+| M1, L1, L2 no probe, no names, no folders | 2, one generic `no` |
+| M2 re-check at the press | 1, key binds (path, sha256), bytes hashed from the descriptor |
+| M3 leaving cancels waiting asks | 2, closed in the audience save |
+| M5 two copies of one file | 1, the chat's copy wins in links |
+| L3 (plan review) a copy outliving what its answer may show | fixed with the security review's M1 below: a copy on an answer hidden from someone is not theirs to open |
+| M4, M6 (plan review) | out of scope for this first version: they belong to the parts left out above (projects, routing asks beyond the creator, versions and in-place editing) and come back with those follow-ups |
+
+### Security review of PR #207 (2026-11-21), fixed on this branch
+
+- **M1:** a file made by an answer hidden from someone in the chat (an x or k group, an older hidden answer) was
+  offered, copied and then opened by that person. Now (a) `madeFilesOf` leaves out any file whose making answer is
+  hidden from anyone who sees the chat or is being added (`hiddenAnswers`; a first share records every answer for the
+  people it adds, so nothing is hidden from them there), and (b) `ChatFiles.open` (the file, its thumbnail, `chat_file`)
+  refuses a file carried only by answers hidden from the viewer, and `file-access` answers the generic `no` for a
+  copy or a made file on such an answer. (b) also covers people who join later.
+- **L1:** the storage check runs on the sum of the file sizes before anything is streamed.
+- **L2:** a throw while reading removes the temp files already written.
+- **L4:** `tests/security/share-chat-files.test.ts`: a guest, a removed member and a member of another chat on a
+  people-shared chat get the chat's 404, leave no ask and never open the copy.
+- **Info:** `chat.files_added` audits the chat file ids too (still no path or name).
+- **Re-review (Low):** a chat shared before and made private keeps its answer records, so a re-share must count them:
+  `hiddenAnswers` now runs for the people being added on any chat with records (not only one shared with people now),
+  counting only answers that already have a record (one without is recorded for them by the share). A chat that was a
+  project's shared chat and was moved out goes the same way (its records stay); its own test is a follow-up.
+
+## Steps
+
+1. This plan, first commit.
+2. Server: `chat/chat-files-share.ts` (madeFilesOf, readVerified, copyMade, fileTarget helpers), a small public
+   `keepCopy` in `chat/chat-files.ts`, the made files in the Share check and key and `withFiles` in
+   `chat/people-share.ts`, the file asks in `chat/access-requests.ts`, the routes in `routes/chats.ts`, the copies in
+   the shared transcript (`chat/shared.ts`).
+3. Shared API: `ShareCheck.madeFiles`, `ChatAudience.madeFiles` / `madeFilesKey`, `PutChatAudienceBody.withFiles`,
+   `filesAdded`, `Attachment.origin` / `from` / `fromSha256`, `ChatFileAccess`, `accessRequest.file`.
+4. Web: the step in `ChatShareDialog.tsx`, the copy map and the chat for links (`Markdown.tsx` ChatLinks, provided in
+   `pages/Chat.tsx`), the panel ask (`ChatFileAsk.tsx` from `FileBody.tsx`), the Activity row, i18n in 6 languages.
+5. `docs/decisions/20261121-share-chat-files.md`, `changes/share-chat-files.md`.
+6. Tests (below), screenshots, PR into dev (not queued). Merge after e6.
+
+## Coordination
+
+- Session e6 edits `server/src/chat/chat-files.ts`, `chat-file-tool.ts`, `turn.ts` composeMessage and web
+  `Messages.tsx` AssistantMessage, and merges first. This branch adds one small method to `chat-files.ts`, touches
+  none of the others, and puts its link handling in `Markdown.tsx` / `pages/Chat.tsx`. e6's `origin: 'ai'` and this
+  branch's `origin: 'shared-copy'` share one optional field of `Attachment`.
+
+## Tests
+
+`bun run typecheck`, `check:prepush`, full `tests/unit` and `tests/security`, web unit and e2e.
+
+- Unit (`tests/unit/b-share-chat-files.test.ts`): the eligibility list (made here, own file, not relocated, not too
+  large, dedupe), the re-check at the press (changed bytes, a new file → confirm again, nothing copied), the sweep
+  leaves attached copies, a probe gets the generic answer, the ask and [Add to the chat], waiting asks closed when
+  someone leaves.
+- Web e2e (`web/test/e2e/share-chat-files.spec.ts`, mocked server, 1440 and 390): owner shares → step → member opens
+  the copy and their AI reads it; already-shared → step; blocked → ask → add.
+
+## Result
+
+- Built as planned, no migration. Server: `chat/chat-files-share.ts` (madeFilesOf, readVerified, copyMade, the file
+  ask target, closeFileAsks), `ChatFiles.keepCopy`, the step and `withFiles` in `people-share.ts`, the file asks in
+  `access-requests.ts` (the same `access_requests` table: kind `chat`, target `<chat>/<32 hex>`), the routes, and the
+  copies in the shared transcript (`shared.ts` sharedCopiesNote). Web: the step in `ChatShareDialog.tsx`,
+  `ChatLinks` in `Markdown.tsx` (provided by `pages/Chat.tsx`), `ChatFileAsk.tsx` from `FileBody.tsx`, the Activity
+  row, 6 languages.
+- After coordination with e6: copies are capped by `CHAT_COPY_MAX` (1 GB, defined in `chat-files-share.ts` until e6
+  PR2 exports the shared cap) and streamed; `from` reaches only the creator's client, `fromSha256` no client; for
+  others the link's panel gets the copy from `file-access`.
+- One change from the plan: a save with `withFiles` whose key no longer fits always answers "confirm" again, also when
+  nothing is left to copy (the dialog then shows the plain Share again), so a press never copies silently.
+- Files whose bytes on disk differ from their newest file event at a press are left out of the list after that press
+  (in memory), so the step asked again does not offer them forever.
+- e6 overlap: one new method in `chat-files.ts`; none of `chat-file-tool.ts`, `turn.ts`, `Messages.tsx`. The shared
+  `Attachment.origin` enum holds both `'ai'` and `'shared-copy'`. A dry merge with e6's #198 has no conflict.
+- Tests: tests/unit/b-share-chat-files.test.ts (10), web/test/e2e/share-chat-files.spec.ts (3 × 1440/390), the
+  security matrix cases for both routes.

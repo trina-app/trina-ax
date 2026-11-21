@@ -52,11 +52,12 @@ func (f *fakeTenant) install(t *testing.T) {
 		}
 		tn.sleep = func(time.Duration) {}
 		// the server-account half runs in this process (the test's uid plays both accounts)
-		tn.asServerFn = func(stdin []byte, args ...string) error {
+		tn.asServerFn = func(stdin []byte, args ...string) ([]byte, error) {
 			e := newEnv()
-			e.stdin, e.stdout, e.stderr = bytes.NewReader(stdin), &bytes.Buffer{}, &bytes.Buffer{}
+			out := &bytes.Buffer{}
+			e.stdin, e.stdout, e.stderr = bytes.NewReader(stdin), out, &bytes.Buffer{}
 			_, err := map[string]func(*env, []string) (int, error){"server-write": cmdServerWrite, "server-config-merge": cmdServerConfigMerge}[args[0]](e, append(args[1:], "--base", tn.e.base))
-			return err
+			return out.Bytes(), err
 		}
 	}
 	t.Cleanup(func() { tenantTestHook = nil })
@@ -181,6 +182,159 @@ func TestTenantRelayRegistrationSet(t *testing.T) {
 	e.stdin, e.stdout, e.stderr = strings.NewReader("x"), &bytes.Buffer{}, &bytes.Buffer{}
 	if code, _ := cmdServerWrite(e, []string{"--file", "config/server.json", "--base", tb.base}); code != 2 {
 		t.Fatal("server-write wrote a file that is not on its list")
+	}
+}
+
+// github-app-set: the server account writes secrets/integrations/github/app.json (0600, folder 0700) from a checked
+// stdin; the same values again write nothing; a refused shape writes and prints nothing; the secret is never printed.
+func TestTenantGitHubAppSet(t *testing.T) {
+	skipAsRoot(t)
+	tb := newTestBase(t, "0.3.0")
+	f := &fakeTenant{}
+	f.install(t)
+	const secret = "0123456789abcdef0123456789abcdef01234567"
+	app := `{"clientId":"Iv23liTestOnly","clientSecret":"` + secret + `","slug":"example-app"}`
+	p := filepath.Join(tb.base, "secrets/integrations/github/app.json")
+	// an existing folder with a wider mode is narrowed
+	must(t, os.MkdirAll(filepath.Dir(p), 0o755))
+	must(t, os.Chmod(filepath.Dir(p), 0o755))
+	code, out, errs := tb.tctl(app, "github-app-set", "--json")
+	if code != 0 || strings.TrimSpace(out) != `{"ok":true,"changed":true}` || f.restarts != 0 || strings.Contains(out+errs, secret) {
+		t.Fatalf("%d %q %s restarts=%d", code, out, errs, f.restarts)
+	}
+	b, _ := os.ReadFile(p)
+	st, _ := os.Lstat(p)
+	dst, _ := os.Lstat(filepath.Dir(p))
+	if string(b) != app+"\n" || st.Mode().Perm() != 0o600 || !st.Mode().IsRegular() || dst.Mode().Perm() != 0o700 {
+		t.Fatalf("app.json %q %v, folder %v", b, st.Mode(), dst.Mode())
+	}
+	// the same values: nothing written
+	before := st.ModTime()
+	time.Sleep(10 * time.Millisecond)
+	if code, out, _ := tb.tctl(app, "github-app-set", "--json"); code != 0 || strings.TrimSpace(out) != `{"ok":true,"changed":false}` {
+		t.Fatalf("resend %d %q", code, out)
+	}
+	if st2, _ := os.Lstat(p); !st2.ModTime().Equal(before) {
+		t.Fatal("the same values wrote the file again")
+	}
+	// a wider mode or a second link is replaced by a fresh 0600 file
+	must(t, os.Chmod(p, 0o644))
+	if code, out, _ := tb.tctl(app, "github-app-set", "--json"); code != 0 || strings.TrimSpace(out) != `{"ok":true,"changed":true}` {
+		t.Fatalf("mode %d %q", code, out)
+	}
+	if st2, _ := os.Lstat(p); st2.Mode().Perm() != 0o600 {
+		t.Fatalf("mode %v", st2.Mode())
+	}
+	other := filepath.Join(tb.base, "elsewhere.json")
+	must(t, os.WriteFile(other, []byte("keep"), 0o600))
+	must(t, os.Remove(p))
+	must(t, os.Symlink(other, p))
+	if code, _, _ := tb.tctl(app, "github-app-set", "--json"); code != 0 {
+		t.Fatal("a link at the file's name")
+	}
+	if b, _ := os.ReadFile(other); string(b) != "keep" {
+		t.Fatal("wrote through a link")
+	}
+	if st2, _ := os.Lstat(p); !st2.Mode().IsRegular() {
+		t.Fatal("the link is still there")
+	}
+	// without a slug
+	if code, out, _ := tb.tctl(`{"clientId":"Iv1.abc","clientSecret":"s3cr3t!"}`, "github-app-set", "--json"); code != 0 || strings.TrimSpace(out) != `{"ok":true,"changed":true}` {
+		t.Fatalf("no slug %d %q", code, out)
+	}
+	if b, _ := os.ReadFile(p); string(b) != `{"clientId":"Iv1.abc","clientSecret":"s3cr3t!"}`+"\n" {
+		t.Fatalf("no slug: %q", b)
+	}
+	good, _ := os.ReadFile(p)
+	for _, bad := range []string{
+		`{"clientId":"Iv1.abc"}`,
+		`{"clientSecret":"` + secret + `"}`,
+		`{"clientId":"Iv1.abc","clientSecret":""}`,
+		`{"clientId":"Iv1.abc","clientSecret":"two ` + secret + `"}`,
+		`{"clientId":"Iv1.abc","clientSecret":"line\n` + secret + `"}`,
+		`{"clientId":"Iv1.abc","clientSecret":"` + strings.Repeat("x", 4097) + `"}`,
+		`{"clientId":"Iv1.abc","clientSecret":"caf\u00e9` + secret + `"}`,
+		`{"clientId":"../../etc","clientSecret":"` + secret + `"}`,
+		`{"clientId":"Iv1.abc","clientSecret":"` + secret + `","slug":"Example App"}`,
+		`{"clientId":"Iv1.abc","clientSecret":"` + secret + `","slug":null}`,
+		`{"clientId":"Iv1.abc","clientSecret":"` + secret + `","path":"/etc/shadow"}`,
+		`{"clientId":"Iv1.abc","clientSecret":12}`,
+		`["` + secret + `"]`, `not json ` + secret, ``,
+	} {
+		code, out, errs := tb.tctl(bad, "github-app-set", "--json")
+		if code == 0 || out != "" || strings.Contains(errs, secret) {
+			t.Fatalf("accepted or printed %.60s: %d %q %q", bad, code, out, errs)
+		}
+	}
+	if b, _ := os.ReadFile(p); !bytes.Equal(b, good) {
+		t.Fatal("a refused app replaced the file")
+	}
+	// the secret is never an argument
+	if code, out, _ := tb.tctl(app, "github-app-set", "--json", "--client-secret", secret); code == 0 || out != "" {
+		t.Fatal("took the secret as an argument")
+	}
+}
+
+// github-app-set: Go's rules take every app the contract's vectors take and refuse every one they refuse; the
+// largest app the contract takes fits stdin and gives a file app.ts reads (below 16 KiB).
+func TestTenantGitHubAppVectors(t *testing.T) {
+	skipAsRoot(t)
+	b, err := os.ReadFile("../../../shared/src/cloud-protocol/vectors/vectors.json")
+	must(t, err)
+	var v struct {
+		TenantCommands struct {
+			Allowed []struct {
+				Command string          `json:"command"`
+				Stdin   json.RawMessage `json:"stdin"`
+			} `json:"allowed"`
+			Refused []struct {
+				Command string          `json:"command"`
+				Args    map[string]any  `json:"args"`
+				Stdin   json.RawMessage `json:"stdin"`
+				Why     string          `json:"why"`
+			} `json:"refused"`
+		} `json:"tenantCommands"`
+	}
+	must(t, json.Unmarshal(b, &v))
+	tb := newTestBase(t, "0.3.0")
+	f := &fakeTenant{}
+	f.install(t)
+	n := 0
+	for _, a := range v.TenantCommands.Allowed {
+		if a.Command == "github-app-set" {
+			n++
+			if code, out, errs := tb.tctl(string(a.Stdin), "github-app-set", "--json"); code != 0 || !strings.Contains(out, `"ok":true`) {
+				t.Fatalf("refused an allowed vector: %d %q %s", code, out, errs)
+			}
+			got, _ := os.ReadFile(filepath.Join(tb.base, githubAppFile))
+			var want, have map[string]any
+			_ = json.Unmarshal(a.Stdin, &want)
+			if json.Unmarshal(got, &have) != nil || fmt.Sprint(have) != fmt.Sprint(want) {
+				t.Fatalf("file %q for %s", got, a.Stdin)
+			}
+		}
+	}
+	for _, r := range v.TenantCommands.Refused {
+		if r.Command != "github-app-set" || len(r.Args) > 0 {
+			continue
+		}
+		n++
+		if code, out, _ := tb.tctl(string(r.Stdin), "github-app-set", "--json"); code == 0 || out != "" {
+			t.Fatalf("took a refused vector (%s): %q", r.Why, out)
+		}
+	}
+	if n < 10 {
+		t.Fatalf("only %d github-app-set vectors", n)
+	}
+	for _, c := range []string{`"`, `\`, `<`, `&`} {
+		bb, _ := json.Marshal(map[string]string{"clientId": strings.Repeat("x", 128), "clientSecret": strings.Repeat(c, 4096), "slug": strings.Repeat("a", 100)})
+		big := string(bb)
+		if code, out, errs := tb.tctl(big, "github-app-set", "--json"); code != 0 || !strings.Contains(out, `"ok":true`) {
+			t.Fatalf("the largest app (%s): %d %q %s", c, code, out, errs)
+		}
+		if st, _ := os.Stat(filepath.Join(tb.base, githubAppFile)); st.Size() >= 16384 {
+			t.Fatalf("file of %d bytes for %s", st.Size(), c)
+		}
 	}
 }
 

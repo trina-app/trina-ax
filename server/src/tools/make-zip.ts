@@ -15,6 +15,7 @@
 //   after the wider-audience card for the zipped files (confirmSources with the folders they came from).
 // - A .tar or .tar.gz / .tgz instead (QA TC-5057, docs/decisions/20261118-tar-archives.md): `format`, or the ending of
 //   `output`; written by files/tar.ts TarStream the same way (same walk, same checks, same limits), the tool name stays.
+import { authorizeOutput } from '../files/place-output'
 import fs from 'node:fs'
 import path from 'node:path'
 import type { z } from 'zod'
@@ -131,7 +132,7 @@ export async function makeZip(ctx: AppContext, files: TeamFiles, c: ToolCtx, a: 
     out = [...parent, fs.existsSync(path.join(fx.root, ...parent)) ? freeName(path.join(fx.root, ...parent), name) : name].join('/')
   }
   if (inSkills(out)) throw new ToolError('a zip cannot be saved in a skills folder (skills/, a group\'s or a project\'s: skills and rules people\'s AI follows); pick another folder')
-  const target = authorize(fx, rules, c.user, out, 'write', { mustExist: false, createDirs: true })
+  const target = authorizeOutput(fx, rules, c, out, { mustExist: false, createDirs: true })
   if (target.exists && target.st!.isDirectory()) throw new ToolError(`'${target.rel}' is a folder; give a file name ending in ${dotExt}`)
 
   // what goes in, as list and read show it to this person

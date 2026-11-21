@@ -12,6 +12,7 @@
 //   compressed bytes (read here from the central directory without expanding anything), only parts of the kinds an
 //   edit may touch changed, and a fresh worker reads the old and the new file: every changed XML part is well-formed,
 //   and the text reads as before except what the changes report (paragraphs; every cell of every sheet).
+import { authorizeOutput } from '../files/place-output'
 import fs from 'node:fs'
 import path from 'node:path'
 import { z } from 'zod'
@@ -170,7 +171,7 @@ export async function editOffice(ctx: AppContext, c: ToolCtx, a: Input): Promise
   if (seen !== sha256(bytes)) throw new ToolError(`'${src.rel}' was changed after you read it; read it again and give the changes for what it says now`, 'conflict')
   const outRel = a.output === undefined ? src.rel : editOfficeOutput(a.output, src.rel)
   if (inSkills(outRel)) throw new ToolError('Office files cannot be saved in a skills folder (skills/: skills and rules people\'s AI follow); give another output')
-  const out = authorize(fx, files.rules(), c.user, outRel, 'write', { mustExist: a.output === undefined, createDirs: true })
+  const out = authorizeOutput(fx, files.rules(), c, outRel, { mustExist: a.output === undefined, createDirs: true })
   if (out.exists && out.st!.isDirectory()) throw new ToolError(`'${out.rel}' is a folder`, 'is_folder')
   const inPlace = out.rel === src.rel
 

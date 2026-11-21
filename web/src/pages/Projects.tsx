@@ -83,7 +83,8 @@ import { onWindowFocus } from '../lib/attention'
 import { ProjectForm } from '../components/ProjectForm'
 import { NewProjectDialog } from '../components/NewProjectDialog'
 import { onlyMine } from '../components/panels/ProjectsPanel'
-import { NewProjectRow, ProjectsList } from '../components/panels/ProjectsPanel'
+import { MentionPill, NewProjectRow, ProjectsList } from '../components/panels/ProjectsPanel'
+import { useMentions, type ChatMention } from '../store/chatMentions'
 import { ProjectMembersDialog, chosenOf, confirmAddMe } from '../components/ProjectMembersDialog'
 import { hasPeopleList, PeopleStack, useProjectPeople } from '../components/ProjectPeople'
 import { IncludesGuests } from '../components/GuestTag'
@@ -252,9 +253,10 @@ export function ProjectList() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [phone])
-  // a team project in the trash: its card stays for its members, "In trash" (Project.wasMember, QA TC-1060); the owner
-  // and admins who are not members restore it from Files › Trash, so no card of it for them here (QA TC-1061)
-  const shown = useMemo(() => items?.filter((p) => !p.inTrash || !!p.wasMember) ?? null, [items])
+  // a team project in the trash: no card (the owner, 2026-11-21: "지운 게 저렇게 보여야해?"); the Projects list beside
+  // the page has it under its Trash row (panels/ProjectsTrash.tsx, docs/decisions/20261121-projects-trash-out-of-list.md),
+  // and a link to it still opens its in-the-trash note
+  const shown = useMemo(() => items?.filter((p) => !p.inTrash) ?? null, [items])
   const renamed = (r: Project) => setItems((xs) => xs.map((x) => (x.id === r.id ? { ...x, ...r } : x)))
   const onDeleted = (p: Project, i: number) => (d: Exclude<Deleted, null>) => {
     // in the trash: the card stays, saying so
@@ -299,9 +301,9 @@ export function ProjectList() {
             projects the owner or an admin only manages (not a member: their name and members only) */}
         {(() => {
           const groups: { key: string; label: string; list: Project[]; quiet?: boolean }[] = [
-            { key: 'team', label: t('projectsPanel.team'), list: (shown ?? []).filter((p) => (p.member !== false || p.inTrash) && !onlyMine(p)) },
+            { key: 'team', label: t('projectsPanel.team'), list: (shown ?? []).filter((p) => p.member !== false && !onlyMine(p)) },
             { key: 'mine', label: t('projectsPanel.mine'), list: (shown ?? []).filter((p) => p.member !== false && onlyMine(p)) },
-            { key: 'other', label: t('projects.otherTeam'), list: (shown ?? []).filter((p) => p.member === false && !p.inTrash), quiet: true },
+            { key: 'other', label: t('projects.otherTeam'), list: (shown ?? []).filter((p) => p.member === false), quiet: true },
           ]
           return groups.filter((g) => g.list.length).map((g) => (
             <section key={g.key} aria-labelledby={`projects-${g.key}`} className="mt-6 first:mt-0" data-testid={`projects-section-${g.key}`}>
@@ -364,9 +366,11 @@ function ProjectRowEnd({ at, children }: { at: string; children?: ReactNode }) {
 /** A chat on a project's page: its title and when it last changed. A shared chat has the faces of the others who wrote
  * in it before the time (ChatFaces: one person with the name; docs/DECISIONS.md "Faces in every chat list"), or, while
  * nobody else wrote, the people icon after the title; a chat of mine has neither. The title gives way first: the faces
- * and the time keep their room. Its "···" holds the history row's items by the same rules
+ * and the time keep their room. `mention`: my unread mentions there, the 프로젝트 panel's count (panels/ProjectsPanel.tsx
+ * MentionPill) before the time and the title bold, as on that panel's chat row; opening the chat reads them (pages/Chat.tsx).
+ * Its "···" holds the history row's items by the same rules
  * (components/chat/chatMenuItems.tsx): pin, 링크 복사, rename, move, delete; a bottom sheet on a phone. */
-export function ProjectChatRow({ chat: c, project, onMove, onChanged, onRemoved }: { chat: Chat; project?: Project | null; onMove?: (c: Chat) => void; onChanged?: (c: Chat) => void; onRemoved?: (c: Chat) => void }) {
+export function ProjectChatRow({ chat: c, project, mention, onMove, onChanged, onRemoved }: { chat: Chat; project?: Project | null; mention?: ChatMention; onMove?: (c: Chat) => void; onChanged?: (c: Chat) => void; onRemoved?: (c: Chat) => void }) {
   const t = useT()
   // the row's keyboard focus shows the names on the faces (they take no focus of their own inside the link)
   const row = useRef<HTMLAnchorElement>(null)
@@ -381,6 +385,7 @@ export function ProjectChatRow({ chat: c, project, onMove, onChanged, onRemoved 
       to={`/c/${c.id}`}
       state={{ [RAIL_STATE_KEY]: 'projects', chat: c }}
       rowRef={row}
+      unread={!!mention}
       name={projectRowName(
         name,
         <>
@@ -392,6 +397,7 @@ export function ProjectChatRow({ chat: c, project, onMove, onChanged, onRemoved 
       )}
       end={
         <ProjectRowEnd at={c.updatedAt}>
+          {mention && <MentionPill mention={mention} testId="project-chat-mentions" />}
           {faces && (
             <>
               <ChatFaces shared={c.shared!} focusFrom={row} page />
@@ -487,6 +493,8 @@ function ProjectPage() {
   const [chats, setChats] = useState<Chat[] | null>(() => keptPage(projectId).chats)
   const shownChats = useRef(chats)
   shownChats.current = chats
+  // my unread mentions by chat: the same counts as the 프로젝트 panel's chat rows (store/chatMentions.ts)
+  const { byChat: mentions } = useMentions()
   // failed: the folder could not be read (a network error); the line then says no count rather than a wrong one
   const [files, setFiles] = useState<PageFiles | null>(() => keptPage(projectId).files)
   const [editing, setEditing] = useState(false)
@@ -1131,7 +1139,7 @@ function ProjectPage() {
             <ul className="divide-y divide-line">
               {/* the runs of one scheduled task started here: one row of this list that opens the task (nav/TaskRunsRow.tsx) */}
               {chats && foldRuns(chats, (c) => (
-                <ProjectChatRow chat={c} project={p} onMove={setMoving} onChanged={chatHere} onRemoved={(x) => changeChats((cur) => cur.filter((y) => y.id !== x.id))} />
+                <ProjectChatRow chat={c} project={p} mention={mentions.get(c.id)} onMove={setMoving} onChanged={chatHere} onRemoved={(x) => changeChats((cur) => cur.filter((y) => y.id !== x.id))} />
               ), { task: (runs) => <ProjectTaskRow runs={runs} /> })}
             </ul>
           </section>

@@ -41,7 +41,7 @@ team app changes them only after its own confirmation, which an outside model ca
 읽고 쓰기").
 
 - Consent: the person chooses, whatever the app asked (MCP clients ask for the 401 header's `mcp:read` only). Reading
-  is always granted, `offline_access` when asked; **파일 쓰기** (`mcp:write`) is a checkbox for everyone, ticked at the
+  and `offline_access` (a refresh token, so the connection stays until disconnected) are always granted, asked or not; **파일 쓰기** (`mcp:write`) is a checkbox for everyone, ticked at the
   start only when the app asked for it; **대화 읽기** (`mcp:rooms`) is ticked at the start, **대화 쓰기**
   (`mcp:rooms.write`) unticked and only with reading (a page without these boxes grants neither); `mcp:admin` comes
   with every new connection of an active owner or admin (no
@@ -661,6 +661,8 @@ or paste ([decision](decisions/20261120-github-connector.md)).
   server account (regular, one link, mode 0600, outside the team folder; `server/src/integrations/github/app.ts`),
   `{ "clientId": "Iv23…", "clientSecret": "…", "slug": "<the app's name in github.com/apps/<slug>>" }`. Read each
   time (no restart). No answer, log line or audit entry carries it; the list says only `github: { ready, installUrl }`.
+  On a hosted team server the hosting service writes it with the tenant command `github-app-set` (stdin only; the
+  server account writes the file 0600 in a 0700 folder; the same values again change nothing), from 0.6.0 on.
 - **Which connections use it.** Only one at GitHub's exact official address (`serverAppAt`: https, that host and path,
   no port, query or fragment) without an own app of its own or its template's: personal ones, team ones (an admin
   signs in) and a template's members (each with their own GitHub account). The sign-in and token addresses are GitHub's

@@ -2,12 +2,15 @@ import { confidentialChat, localTool } from "../safe-ops/confidential"
 // The tools of one turn besides the six file tools: B's remember / forget / ask_user / connect_service / set_title and the browser pane tools
 // (desktop window only), plus whatever other components registered in ctx.services.turnTools (C: make_file,
 // share_file, artifact, web_fetch). Served over the same MCP connection as the file tools (mcp__team__<name>).
+import { isReservedPlace, parsePlace } from '@mycel/shared/places'
+import { chatPlaces } from './place-ctx'
+import { PLACE_PRODUCE_TOOLS } from '../files/place-output'
 import { isFreeRoam } from '../app-config'
 import { freeRoamToolCallRefused, freeRoamToolFenced } from '../demo/guard'
 import { stampOutputOf } from '../tools/stamp-pdf'
 import { commentDocxOutput } from '../tools/comment-docx'
 import { editOfficeOutput } from '../tools/edit-office'
-import { chatFileOffered, chatFileTool, saveChatFileTool } from './chat-file-tool'
+import { chatFileOffered, chatFileTool, chatPlaceHooks, saveChatFileTool } from './chat-file-tool'
 import { answerCommentsOff, answerCommentsTool } from './answer-comments'
 import path from 'node:path'
 import { z } from 'zod'
@@ -42,7 +45,7 @@ import type { CardAnswer, TurnExec, WidenOf } from './turn'
 import { inProjectOnly, SKIP_OWN, wholeTeamPath } from './search-path'
 import type { StoredStep } from './store'
 import { cardEndShort, endOfText, projectNotFoundNote, readOnlyNote, readOnlySkillLine, type CardOutcome } from '../policy/refusal'
-import type { TurnFiles } from '../files/service'
+import { placeArg, placeWriteRefusal, type TurnFiles } from '../files/service'
 import { extractUrls, gateUrl, type ConfirmExtra, type TurnPerson } from '../tools/url-gate'
 import { ToolError } from '../policy/errors'
 import { callKey } from './schedule-cover'
@@ -55,8 +58,9 @@ import { cleanAiTitle, graphemes, setAiTitle, titleToolOffered } from './title'
 import { recordSent } from '../tools/connection-urls'
 import { BOX_SHELL_TOOL, boxShellTool, callerOf } from '../devenv/tool'
 import { mayUseDevEnv } from '../devenv/setting'
-import { noteSharedReads, spaceOf, workFolderAt } from '../devenv/srt/runner'
+import { noteSharedReads, runsInWorkFolder, spaceOf, workFolderAt } from '../devenv/srt/runner'
 import { saveWorkFileTool } from './work-file-tool'
+import { COPY_FILES_TOOL, stagePlaceInput, withPlaces } from './places-copy'
 import { connectService } from './connect-service'
 import { DRAFT_FILE_REFUSAL, draftToolRefusal, draftUrlRefusal } from '../onboarding/draft'
 import { namedPaths, SEARCH_TOOLS, SHARED_TOOLS, WRITE_TARGET_ARGS } from '../rooms/ai-tools'
@@ -251,7 +255,12 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
   // a file sent from the computer in a chat shared with people (chat/chat-file-tool.ts): read as this person while they
   // see the chat; only where the chat holds such files or is shared with people. save_chat_file copies one into the team
   // folder behind the wider-audience card (docs/decisions/20261118-chat-files-full-read-and-save.md)
-  if (chatFileOffered(exec)) { add(chatFileTool(exec)); add(saveChatFileTool(exec)) }
+  if (chatFileOffered(exec)) {
+    add(chatFileTool(exec)); add(saveChatFileTool(exec))
+    // the same files as the chat place chat:files/ of read, list, glob and grep (shared/src/places.ts): the main AI
+    // only (a sub-agent's view of the turn has no chatPlace)
+    exec.files.chatPlace = chatPlaceHooks(exec)
+  }
   // the comments under answers in this chat, read as this person while they see the chat (chat/answer-comments.ts):
   // a shared chat or one that still holds replies; never a scheduled run, Slack, a confidential, template or restricted
   // run, nor a sub-agent (PARENT_ONLY_TOOLS)
@@ -285,6 +294,13 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
     try { if (t.available && !t.available({ userId: exec.spec.userId, chatId: exec.spec.chatId, browser: exec.browser })) continue } catch { continue }
     add(wrapRegistered(exec, t))
   }
+  // copy_files between the team folder, this chat's files (chat:files/) and its work folder (chat:work/): a call that
+  // names a chat place runs the places copy (chat/places-copy.ts); any other the team copy, unchanged
+  const teamCopy = tools.get(COPY_FILES_TOOL)
+  if (teamCopy) tools.set(COPY_FILES_TOOL, withPlaces(exec, teamCopy, (files, call) => toolContext(exec, files, call).files.person))
+  // a chat place as an input file of a registered tool (query_data): the main AI only (a sub-agent's view has none)
+  // (a tool set built for a listing only, as tests and the tool-list check do, has no turn files)
+  if (exec.files) exec.files.placeInput = (value, dest, max, signal) => stagePlaceInput(exec, exec.files, value, dest, max, signal)
   if (exec.devEnv) {
     const person = turnPerson(exec)
     add(boxShellTool({
@@ -317,7 +333,13 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
       return workFolderAt(exec.rt.ctx, { userId: exec.spec.userId, chatId: exec.spec.chatId, project: d.project ? { id: d.project.id, folderPath: d.project.folderPath } : null, ...(d.shared ? { shared: d.shared } : {}) })
     }
     exec.files.workFolder = where
-    if (!d.shared) add(saveWorkFileTool(exec, where))
+    // the hand-over: only where the commands run in a work folder (not a project folder, which is a team folder
+    // already); a personal chat saves into the team folder, a chat shared with people attaches it to the answer
+    const at = { userId: exec.spec.userId, chatId: exec.spec.chatId, project: d.project ? { id: d.project.id, folderPath: d.project.folderPath } : null, ...(d.shared ? { shared: d.shared } : {}) }
+    let work = false
+    try { work = runsInWorkFolder(exec.rt.ctx, at) } catch { work = false }
+    if (work && !d.shared) add(saveWorkFileTool(exec, where, 'folder'))
+    else if (work && exec.shared?.kind === 'people') add(saveWorkFileTool(exec, where, 'chat'))
   }
   if (exec.browser) for (const t of PANE_TOOLS) add(browserTool(exec, t.name as BrowserToolName, t.description, t.inputSchema as unknown as Record<string, unknown>))
   // per-person tools (external-service connections), built from saved data at the start of the turn
@@ -407,6 +429,10 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
         // after it was turned off during this turn, is refused before anyone is asked anything (the tool refuses it too)
         return { ...text(hwpWritingOffText(exec.spec.locale), true), summary: `${name} -> refused: Hangul writing is off (HWP plugin)` }
       }
+      // a chat place (chat:files/…, chat:work/…) in a tool that does not take one yet: refused before any card, never taken
+      // as a team path or a web address (docs/decisions/20261121-chat-places-as-paths.md)
+      const placeNo = placeRefusal(name, args)
+      if (placeNo) return { ...text(placeNo, true), summary: `${name} -> refused: chat place` }
       const t = tools.get(name)!
       // a call the tool refuses anyway asks nobody first and counts as nothing read (save_room_file without a file id,
       // into skills/, …)
@@ -520,6 +546,11 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
     },
     // edit_files (mcp/protocol.ts): after a room read one card for the whole batch, before its first file
     beforeBatch: async (name, args) => {
+      // a chat place among its files: no file tool edits one (files/service.ts placeWriteRefusal), so the batch is refused
+      // before its card asks the person (one room card for the whole batch)
+      const paths = (args as { file_paths?: unknown } | null)?.file_paths
+      const place = Array.isArray(paths) ? paths.map((p) => placeArg('edit', { file_path: p })).find(Boolean) : null
+      if (place) return { refusal: `Not done (${name}): ${placeWriteRefusal(place)} Leave it out of file_paths; nothing was changed.`, summary: `${name} -> refused: chat place` }
       const no = await exec.confirmRoomChange(name, args)
       return no ? { refusal: no, summary: `${name} -> ${roomShort(no)} (after a room read)` } : null
     },
@@ -544,6 +575,10 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
       // a read of the chat's work folder (devenv/work-files.ts) names no team path: in a shared chat what a run there may
       // read joins the answer's record first, with who sees the chat now (as a command does), and the chat is its
       // source; no read card (everyone here sees that folder's people's view)
+      // write or edit of a chat place (chat:files/…, chat:work/…): the file tool refuses it (files/service.ts callPlace),
+      // so it is refused here, before any card asks the person about it (a room card, a skill card, the widening card)
+      const writePlace = name === 'write' || name === 'edit' ? placeArg(name, args) : null
+      if (writePlace) return { refusal: `Not done (${name}): ${placeWriteRefusal(writePlace)}`, summary: `${name} -> refused: chat place` }
       const work = exec.workRead(name, args)
       // (no work folder yet: the read itself refuses, and nothing is made here)
       if (work && exec.shared && exec.files.workFolder?.()) {
@@ -768,7 +803,7 @@ function roomLinePerson(exec: TurnExec, p: TurnPerson, call: { tool: string; arg
 
 /** `call`: the tool call this context is for: a room call a grant or [이번만] let through is checked again after the
  * tool's own wider-audience card (it may have waited: make_file's pictures and template) */
-function toolContext(exec: TurnExec, files: TurnFiles, call?: { tool: string; args: unknown }): TurnToolContext {
+export function toolContext(exec: TurnExec, files: TurnFiles, call?: { tool: string; args: unknown }): TurnToolContext {
   return {
     turnId: exec.spec.turnId, chatId: exec.spec.chatId, userId: exec.spec.userId, messageId: exec.spec.assistantId, locale: exec.spec.locale,
     signal: exec.abort.signal,
@@ -779,6 +814,8 @@ function toolContext(exec: TurnExec, files: TurnFiles, call?: { tool: string; ar
       // files a tool copies bytes from (make_file's embedded images and template), checked before the new file is placed
       // a save a scheduled task's card covered: checked again right before the file is placed (after a conversion)
       ...(call ? { beforePlace: () => { const no = exec.scheduleCover?.recheck(callKey(call.tool, call.args)); if (no) throw new ToolError(no) } } : {}),
+      // this chat's places (chat:files/, chat:work/): a produce tool's output attaches through it (files/place-output.ts)
+      places: chatPlaces(exec, files),
       confirmWidening: async (target, sources, binding) => {
         const no = await exec.confirmWidening(target, sources, binding, call ? { tool: call.tool, args: call.args, main: files === exec.files } : undefined)
         if (no || !call) return no
@@ -1345,4 +1382,37 @@ function saveScreenshot(exec: TurnExec, b64: string, mime: string): string | nul
     exec.rt.log.warn('saving a shared screenshot failed', { err: e })
     return null
   }
+}
+
+/** The arguments that take a chat place (shared/src/places.ts) in tools other than the file tools (files/service.ts
+ * callPlace takes read, list, glob and grep): copy_files' sources and target (chat/places-copy.ts), query_data's inputs
+ * (tools/query-data.ts), and the old save_work_file's path. Every other path argument refuses one. */
+const PLACE_ARGS: Readonly<Record<string, readonly string[]>> = { copy_files: ['paths', 'to_folder'], query_data: ['paths'], save_work_file: ['path'] }
+
+/** The produce tools whose output may be chat:files/<name> (attached to the answer: files/place-output.ts) */
+export { PLACE_PRODUCE_TOOLS }
+
+/**
+ * A call of a registered tool (not read, list, glob or grep: files/service.ts callPlace takes those) that names a chat
+ * place (shared/src/places.ts) where this build does not take one: the words for the AI, or null. copy_files and
+ * query_data take them (P2); the produce tools and in-place edits follow (plan 20261121-0615-chat-places-as-paths.md
+ * P3-P4).
+ */
+export function placeRefusal(name: string, args: unknown): string | null {
+  for (const { key, value } of namedPaths(name, args)) {
+    if (!isReservedPlace(value)) continue
+    const place = parsePlace(value)
+    if (place?.kind === 'reserved') return `Not done (${name}): ${place.why}.`
+    if ((PLACE_ARGS[name] ?? []).includes(key) && !(name === 'save_work_file' && place?.kind !== 'work')) continue
+    // P3 (docs/AGENTS/plan/20261121-0652-places-outputs.md): a produce tool's output (or split_pdf's and resize_images'
+    // folder) and make_file's source and template; the tool's own place check decides (files/place-output.ts: who may
+    // attach, chat:work/ outputs not yet, a chat file by id not changed in place yet)
+    if (PLACE_PRODUCE_TOOLS.has(name) && (key === 'output' || key === 'output_folder')) continue
+    if (name === 'make_file' && (key === 'source' || key === 'template')) continue
+    if (name === 'move_files' || name === 'rename_file' || name === 'rename_files') return `Not done (${name}): chat files and work-folder files keep their names and places; copy one with copy_files (paths ["${value}"], to_folder a team folder, "chat:files/" or "chat:work/…") instead.`
+    return place?.kind === 'work'
+      ? `Not done (${name}): this tool does not take a work-folder path (${value}) yet. Read it with read, or copy it into a team folder with copy_files first (to_folder a team folder), then use that copy.`
+      : `Not done (${name}): this tool does not take a chat file (${value}) yet. Copy it into a team folder with copy_files first (paths ["${value}"], to_folder a team folder), then use that copy.`
+  }
+  return null
 }

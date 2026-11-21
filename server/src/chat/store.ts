@@ -79,7 +79,41 @@ export function parseError(s: string | null): ApiErrorBody | null {
   return { code: 'internal', message: s }
 }
 
+/** A message's attachment as a client gets it: never a `fromSha256` (the server's own re-check of a chat's copy of its
+ * creator's file, chat/chat-files-share.ts), and `from` (a path in the creator's own folder) only on such a copy and only
+ * for the creator; on anything else (a version's attachment too) neither. Anything else as it is. */
+export function copyForViewer(a: Attachment & { fromSha256?: string }, creator: boolean): Attachment {
+  if (!('fromSha256' in a) && !('from' in a)) return a
+  const { fromSha256: _s, from, ...rest } = a
+  return a.origin === 'shared-copy' && creator && from ? { ...rest, from } : rest
+}
+
+type HeadRow = { root_id: string; user_id: string; size: number; mime: string; width: number | null; height: number | null; version: number | null; origin: string | null; created_at: string; by_name: string | null }
+/** A message's chat files (source 'chat', carried by their chain's root id: chat/chat-files.ts putVersion) as their
+ * newest version: its size, type and picture size, and who changed it (Attachment.updated). The id stays the root's,
+ * so the chip and every link open the chain, which opens its head. */
+export function chatFilesAsHeads(db: Database, chatId: string, atts: Attachment[]): Attachment[] {
+  const ids = atts.filter((a) => a.source === 'chat' && !a.unavailable).map((a) => a.id)
+  if (!ids.length) return atts
+  // the message's own chat only (a chain is never another chat's)
+  const rows = db.query(`SELECT c.root_id, c.user_id, c.size, c.mime, c.width, c.height, c.version, c.origin, c.created_at, u.name AS by_name FROM chat_files c LEFT JOIN users u ON u.id = c.user_id
+    WHERE c.chat_id = ? AND c.root_id IN (${ids.map(() => '?').join(',')}) ORDER BY c.version DESC, c.rowid DESC`).all(chatId, ...ids) as HeadRow[]
+  if (!rows.length) return atts
+  const heads = new Map<string, HeadRow>()
+  for (const r of rows) if (!heads.has(r.root_id)) heads.set(r.root_id, r)
+  return atts.map((a) => {
+    const h = a.source === 'chat' ? heads.get(a.id) : undefined
+    if (!h) return a
+    const { width: _w, height: _h, receivedSize: _r, ...rest } = a
+    return {
+      ...rest, size: h.size, mime: h.mime, ...(h.width ? { width: h.width } : {}), ...(h.height ? { height: h.height } : {}),
+      updated: { by: h.user_id, byName: h.by_name ?? '', at: h.created_at, version: h.version ?? 1, ...(h.origin === 'ai' ? { ai: true as const } : {}) },
+    }
+  })
+}
+
 /** A team-file reference with everything about the file blanked (deleted, or not readable for the viewer). */
+
 export const blankTeamAttachment = (a: Pick<Attachment, 'id'>): Attachment => ({ id: a.id, name: '', path: '', size: 0, mime: 'application/octet-stream', kind: 'other', source: 'team', unavailable: true })
 
 /**
@@ -132,7 +166,15 @@ export class ChatStore {
 
   /** A message's attachments for the chat's owner (the only person who sees its messages), team references re-checked. */
   attachmentsOf(r: Pick<MessageRow, 'chat_id' | 'attachments'> & { author_id?: string | null }, viewer?: string): Attachment[] {
-    const atts = json<Attachment[]>(r.attachments, [])
+    let atts = json<Attachment[]>(r.attachments, [])
+    // a chat's copy of its creator's file (chat/chat-files-share.ts): its sha256 is the server's alone, and the path it
+    // came from (in the creator's own folder) only for the creator (review L2)
+    if (atts.some((a) => 'fromSha256' in a || 'from' in a)) {
+      const creator = (this.db.query('SELECT user_id FROM chats WHERE id = ?').get(r.chat_id) as { user_id: string } | null)?.user_id
+      atts = atts.map((a) => copyForViewer(a, viewer === undefined || viewer === creator))
+    }
+    // a chat file changed since it was sent: its newest version (chat/chat-files.ts putVersion)
+    if (atts.some((a) => a.source === 'chat')) atts = chatFilesAsHeads(this.db, r.chat_id, atts)
     // a shared chat (chat/shared.ts): as this viewer may see them, whoever attached them. A file kept with a chat shared
     // with people (chat/chat-files.ts) only for whoever sees it by that rule (not a project's people the chat got later)
     if (viewer !== undefined) {

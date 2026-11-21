@@ -10,6 +10,8 @@ Instructions for coding agents that work in this repository.
   [docs/DECISIONS.md](docs/DECISIONS.md); file ownership by area is in [docs/WORKPLAN.md](docs/WORKPLAN.md).
 - Do not commit secrets, customer data, real customer addresses or personal paths.
 - Licence: AGPL-3.0-only, except `shared/src/cloud-protocol/` (MIT). Keep LICENSE, NOTICE and dependency notices.
+- A change to a connection mode (team, personal, Team pick) or to a surface that offers one updates
+  [docs/CONNECTIONS.md](docs/CONNECTIONS.md) in the same PR.
 - Checks: `bun run typecheck` and `bun run test:unit`.
 - A feature that needs a system package or a downloaded program (an apt package, a font, a browser, node) adds it to
   the one list `scripts/system/packages.json` (a downloaded program with its version and a sha256 per platform), never

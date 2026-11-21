@@ -43,7 +43,8 @@ function useToolFacts() {
       // the team's recommended tools (TeamSettings.recommendedTools, shared/src/api/team-tools.ts); a server without
       // them leaves it out: the usual tools alone
       recommended: list.recommendedTools,
-      drive: drive ? { configured: drive.configured, mine: drive.status === 'connected' } : null,
+      // a Drive an admin shares with this person counts as the team's, like a Google app's shared account
+      drive: drive ? { configured: drive.configured, mine: drive.status === 'connected', team: !!drive.teamShares?.length } : null,
       google: (google?.apps ?? []).map((a) => ({ id: a.id, available: a.available, mine: a.status === 'connected', team: a.shared?.status === 'connected' })),
       listedAllowed: list.personalAllowed,
       listedMine: listed('personal'),

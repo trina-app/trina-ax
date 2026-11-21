@@ -442,16 +442,17 @@ describe('projects', () => {
     }
   })
 
-  test('to the trash from the list (a member): the card says "in the trash" after the confirm, before the server (its members keep it, QA TC-1060); refused, it is back as it was', async () => {
+  // a project in the trash has no card (docs/decisions/20261121-projects-trash-out-of-list.md: the list's Trash row has it)
+  test('to the trash from the list (a member): the card goes after the confirm, before the server; refused, it is back as it was', async () => {
     const m = await listPage()
     try {
       await m.until(() => cards(m).length === 1, 'the card')
       holdRe = /^DELETE \/api\/projects\//
       await cardAction(m, 'project-card-delete')
       await confirm(m)
-      await m.until(() => m.find('project-card-state'), 'in the trash at once')
+      await m.until(() => cards(m).length === 0, 'out of the list at once')
       ;(await take(/^DELETE \/api\/projects\//)).answer(json(403, { error: { code: 'forbidden', message: 'Only an admin can delete it.' } }))
-      await m.until(() => !m.find('project-card-state'), 'the card back as it was')
+      await m.until(() => cards(m).length === 1, 'the card back as it was')
       expect(cards(m)).toHaveLength(1)
       expect(errors().map((x) => x.text)).toEqual(['Only an admin can delete it.'])
     } finally {
@@ -466,9 +467,8 @@ describe('projects', () => {
       holdRe = /^DELETE \/api\/projects\//
       await cardAction(m, 'project-card-delete')
       await confirm(m)
-      await m.until(() => m.find('project-card-state'), 'in the trash at once')
+      await m.until(() => cards(m).length === 0, 'out of the list at once')
       ;(await take(/^DELETE \/api\/projects\//)).answer(json(404, { error: { code: 'not_found', message: 'not found' } }))
-      await m.until(() => cards(m).length === 0, 'the card gone')
       await m.settle(50)
       expect(cards(m)).toHaveLength(0)
       expect(errors()).toEqual([])
@@ -478,7 +478,7 @@ describe('projects', () => {
     }
   })
 
-  test('to the trash from the list (an admin who is a member): the card says "in the trash" at once and the server copy settles it', async () => {
+  test('to the trash from the list (an admin who is a member): the card goes at once and the server copy settles it', async () => {
     useSession.setState({ status: { kind: 'signed-in', me: meAs('admin') } } as never)
     const m = await listPage()
     try {
@@ -486,12 +486,12 @@ describe('projects', () => {
       holdRe = /^DELETE \/api\/projects\//
       await cardAction(m, 'project-card-delete')
       await confirm(m)
-      await m.until(() => m.find('project-card-state'), 'in the trash at once')
+      await m.until(() => cards(m).length === 0, 'out of the list at once')
       projects = [project({ inTrash: true, member: false, wasMember: true })]
       ;(await take(/^DELETE \/api\/projects\//)).answer(new Response(null, { status: 204 }))
       await m.settle(50)
-      expect(cards(m)).toHaveLength(1)
-      expect(m.find('project-card-state')).not.toBeNull()
+      expect(cards(m)).toHaveLength(0)
+      expect(useProjects.getState().byId[P1]?.inTrash).toBe(true)
       expect(useProjects.getState().byId[P1]?.member).toBe(false)
       expect(errors()).toEqual([])
     } finally {

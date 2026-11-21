@@ -51,6 +51,9 @@ export const SHARED_TOOLS: ReadonlySet<string> = new Set([
   // a file sent from the computer in a chat shared with people (chat/chat-file-tool.ts), and its copy into the team
   // folder behind the wider-audience card
   'chat_file', 'save_chat_file',
+  // a command's finished file attached to the answer for everyone here (chat/work-file-tool.ts, chat mode): offered
+  // only in a chat shared with people whose commands run in its own work folder
+  'save_work_file',
   // "send these to bob" (chat/post-to-room.ts): as the turn's own person, behind their card
   'post_to_room',
   // "share these photos with bob" (chat/share-with-person.ts): the turn's own person's files, behind their card
@@ -129,7 +132,11 @@ export const WRITE_TARGET_NOT_SAVES: ReadonlySet<string> = new Set(['edit', 'mov
 export function namedPaths(tool: string, input: unknown): { key: string; value: string }[] {
   const a = input && typeof input === 'object' && !Array.isArray(input) ? input as Record<string, unknown> : {}
   const out: { key: string; value: string }[] = []
-  for (const k of PATH_ARGS) for (const v of Array.isArray(a[k]) ? a[k] as unknown[] : [a[k]]) if (typeof v === 'string') out.push({ key: k, value: v })
+  // save_work_file's `path` is in the chat's work folder (chat/work-file-tool.ts), never a team path: no read card for it
+  for (const k of PATH_ARGS) {
+    if (tool === 'save_work_file' && k === 'path') continue
+    for (const v of Array.isArray(a[k]) ? a[k] as unknown[] : [a[k]]) if (typeof v === 'string') out.push({ key: k, value: v })
+  }
   if (tool === 'edit_pdf' && Array.isArray(a.operations)) {
     for (const op of a.operations as Record<string, unknown>[]) {
       const ins = op?.insert_pdf as { file?: unknown } | undefined

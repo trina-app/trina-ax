@@ -391,8 +391,39 @@ export const Attachment = z.object({
    * picture's place and camera cut out after it arrived whole: a file kept with a chat shared with people). The sender
    * checks the file arrived whole against this, `size` is what everyone opens (QA TC-2023) */
   receivedSize: z.number().int().nonnegative().optional(),
+  /** a chat file (source 'chat') the chat got without anyone sending it from their computer: 'shared-copy' is a copy of
+   * a file the chat made in its creator's own folder, added by the creator's own press when the chat was shared
+   * (docs/decisions/20261121-share-chat-files.md), attached to the answer that made it; 'ai' is the AI's own output
+   * attached to its answer (server/src/chat/work-file-tool.ts). Absent: someone's upload */
+  origin: z.enum(['ai', 'shared-copy']).optional(),
+  /** 'shared-copy', for the chat's creator only (a path in their own folder): the team path it was copied from, so
+   * their own link to it opens this copy. Everyone else reaches the copy through the link's panel (file-access 'copy').
+   * The server keeps the original's sha256 beside it for its own re-check; that is never sent */
+  from: RelPath.optional(),
+  /** a chat file (source 'chat') changed since it was sent (server chat/chat-files.ts putVersion): the newest version,
+   * which every open and link of this id gives. `by` / `byName` saved it ("Updated by <name>"), `ai` when the AI did it
+   * for them ("Trina for <name>"); `version` its number (the first file is 1). `size`, `mime`, `width`, `height` of the
+   * attachment are the newest version's. Absent: never changed */
+  updated: z.object({ by: z.string(), byName: z.string(), at: IsoTime, version: z.number().int().positive(), ai: z.literal(true).optional() }).optional(),
 })
 export type Attachment = z.infer<typeof Attachment>
+/** One version of a chat file (server ChatFiles.versions: read {versions}, the web's history). Never a hash or a path. */
+export const ChatFileVersion = z.object({
+  id: Uuid7,
+  /** 1 for the first file, then 2, 3 … (kept when older versions are pruned) */
+  version: z.number().int().positive(),
+  name: z.string(),
+  size: z.number().int().nonnegative(),
+  mime: z.string(),
+  createdAt: IsoTime,
+  /** who saved it (user id) and their name now; `ai` when the AI saved it for them */
+  by: z.string(),
+  byName: z.string(),
+  ai: z.literal(true).optional(),
+  /** the newest version (what the chip and every link open) */
+  head: z.literal(true).optional(),
+})
+export type ChatFileVersion = z.infer<typeof ChatFileVersion>
 /** At most this many attachments (uploads and team files together) per message: 100, what one model request may hold
  * in pictures (a person attaches 60 photos and asks about all of them, docs/decisions/20261118-limits-images.md). */
 export const MESSAGE_ATTACHMENTS_MAX = 100

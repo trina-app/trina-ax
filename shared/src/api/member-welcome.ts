@@ -41,6 +41,9 @@ export const MemberWelcome = z.object({
   steps: z.object({ rooms: z.literal(true), hi: z.boolean(), photo: z.boolean(), asked: z.boolean(), files: z.boolean().optional(), tools: z.boolean().optional() }),
   /** older servers only: an admin's "팀 파일 정리하기" row, now on Admin › Home (MemberWelcomeResponse.organizeFiles) */
   organizeFiles: z.boolean().optional(),
+  /** a demo (the scripted demo build, web/demo/server.ts; a free-roam instance): no "Connect your tools" and no
+   * "Open the desktop app" / files row (neither can be done there), and tools is not counted (sent done) */
+  demo: z.literal(true).optional(),
   /** every counted row is done: the card says "You're all set" (for a few minutes, then it is gone for good) */
   allSet: z.boolean(),
 })

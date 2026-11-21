@@ -71,15 +71,16 @@ export function GoogleAppTeamRow({ status, onStatus }: { status: GoogleAppAdminS
           </div>
         ) : undefined} />
       {dialog && (
-        <TeamDialog app={app} team={team} step={dialog.step} isNew={dialog.isNew}
+        <GoogleAppTeamDialog app={app} team={team} step={dialog.step} isNew={dialog.isNew}
           onStatus={onStatus} onClose={() => { setDialog(null); void refresh() }} />
       )}
     </div>
   )
 }
 
-/** Sign in (new or again), then who may use it; or only who may use it. */
-function TeamDialog({ app, team, step: first, isNew, onStatus, onClose }: {
+/** Sign in (new or again), then who may use it; or only who may use it. Also opened from the welcome steps' Tools step
+ * (onboarding/ToolsStep.tsx). */
+export function GoogleAppTeamDialog({ app, team, step: first, isNew, onStatus, onClose }: {
   app: GoogleAppId; team: GoogleAppTeam | null; step: 'connect' | 'people'; isNew: boolean
   onStatus: (s: GoogleAppAdminStatus) => void; onClose: () => void
 }) {

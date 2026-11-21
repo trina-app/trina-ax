@@ -6,7 +6,8 @@ import { registerChatAccountCleanup } from '../chat/account-cleanup'
 import { accessRequestsOf } from '../chat/access-requests'
 import { markTeamShares } from '../chat/team-shares'
 import { redactorFor } from '../integrations/connections/redact'
-import { searchWords } from '@mycel/shared'
+import { searchForms, searchWords } from '@mycel/shared'
+import { formsWhere } from '../search-forms'
 import { ACCESS_TARGET_ID, API, WINDOW_HEADER, type Attachment, type Chat, type EngineId, type Locale, type Message, type UserRef } from '@mycel/shared/api'
 import type { Context } from 'hono'
 import type { RouteModule } from './module'
@@ -62,6 +63,7 @@ import { safeOpsEnabled } from '../safe-ops/runner'
 import { deleteProjectForGood } from '../chat/project-delete'
 import { dropLinksInTx } from '../rooms/project-link'
 import { roomForViewer } from '../rooms/project-room'
+import { makeProject, makeProjectInfo } from '../rooms/make-project'
 import { dropChatPins, dropUnseenPins, pin, pinsOf, unpin } from '../chat/pins'
 import { chatFoldersChanged, dropChatFolderItems, folderChatFilter } from '../chat/nav-folders'
 import { chatGroups, otherChats } from '../chat/chat-groups'
@@ -76,7 +78,6 @@ const WINDOW_RE = /^[A-Za-z0-9_-]{8,64}$/
  * may differ from the server's). */
 export const turnZone = (z: string | undefined) => canonicalTimeZone(z) ?? undefined
 export const windowOf = (c: Context<AppEnv>) => { const w = c.req.header(WINDOW_HEADER); return w && WINDOW_RE.test(w) ? w : null }
-const likeEscape = (s: string) => s.replace(/[\\%_]/g, (m) => '\\' + m)
 
 /** The chat for this request (chat/shared.ts chatFor): the caller's own, or a shared project chat they see, with the
  * access `mode` needs. */
@@ -385,7 +386,9 @@ export const chatsRoutes: RouteModule = {
       // measured a pass over messages_fts at seconds for a common word). That only narrows the query below; whether an
       // answer counts for me is decided in found() (it may be hidden from me)
       const q = query.q?.trim()
-      const words = q ? searchWords(q).map((w) => `%${likeEscape(w)}%`) : []
+      // each word any of its forms (searchForms: without a Korean particle or an English ending, a Korean verb's other
+      // forms: "보고서를" finds "보고서가", "작성했어요" finds "작성했습니다"), as ⌘K's room messages
+      const words = q ? searchWords(q).map((w) => searchForms(w)) : []
       // shared chats of projects I do not see now are never shown (visible() below): the pass leaves them out from the
       // start (a project's page: all of them; my list and my trash: those of the projects I do not see)
       const aud = new Audiences(ctx.db, ctx.files)
@@ -403,10 +406,12 @@ export const chatsRoutes: RouteModule = {
           if (aud.isGuest(me)) { where.push('(shared_at IS NULL OR user_id = ?)'); args.push(me) }
         }
         let ids: string[] | null = null
-        for (const like of [...words].sort((a, b) => b.length - a.length)) {
+        const shortest = (fs: string[]) => Math.min(...fs.map((l) => l.length))
+        for (const fs of [...words].sort((a, b) => shortest(b) - shortest(a))) {
+          const title = formsWhere('title', fs), content = formsWhere('m.content', fs)
           ids = (ctx.db.query(`SELECT id FROM chats WHERE ${where.join(' AND ')}${ids ? ' AND id IN (SELECT value FROM json_each(?))' : ''}
-            AND (title LIKE ? ESCAPE '\\' OR EXISTS (SELECT 1 FROM messages m WHERE m.chat_id = chats.id AND m.status <> 'streaming' AND m.content LIKE ? ESCAPE '\\'))`)
-            .values(...args, ...(ids ? [JSON.stringify(ids)] : []), like, like) as [string][]).map((r) => r[0])
+            AND (${title.sql} OR EXISTS (SELECT 1 FROM messages m WHERE m.chat_id = chats.id AND m.status <> 'streaming' AND ${content.sql}))`)
+            .values(...args, ...(ids ? [JSON.stringify(ids)] : []), ...title.args, ...content.args) as [string][]).map((r) => r[0])
           if (!ids.length) break
         }
         where.push('id IN (SELECT value FROM json_each(?))')
@@ -433,9 +438,11 @@ export const chatsRoutes: RouteModule = {
         const want = chatIds.filter((id) => !hitsOf.has(id))
         if (!words.length || !want.length) return
         for (const id of want) hitsOf.set(id, words.map(() => ({ question: false, answers: [] })))
-        const rows = ctx.db.query(`SELECT chat_id, id, role, ${words.map((_, i) => `w${i}`).join(', ')} FROM (SELECT chat_id, id, role, ${words.map((_, i) => `(content LIKE ? ESCAPE '\\') AS w${i}`).join(', ')}
-          FROM messages WHERE chat_id IN (SELECT value FROM json_each(?)) AND status <> 'streaming' AND (${words.map(() => "content LIKE ? ESCAPE '\\'").join(' OR ')}))`)
-          .values(...words, JSON.stringify(want), ...words) as unknown[][]
+        // a word: any of its forms (search-forms.ts formsWhere)
+        const conds = words.map((fs) => formsWhere('content', fs))
+        const rows = ctx.db.query(`SELECT chat_id, id, role, ${words.map((_, i) => `w${i}`).join(', ')} FROM (SELECT chat_id, id, role, ${conds.map((c, i) => `${c.sql} AS w${i}`).join(', ')}
+          FROM messages WHERE chat_id IN (SELECT value FROM json_each(?)) AND status <> 'streaming' AND (${conds.map((c) => c.sql).join(' OR ')}))`)
+          .values(...conds.flatMap((c) => c.args), JSON.stringify(want), ...conds.flatMap((c) => c.args)) as unknown[][]
         for (const row of rows) {
           const hs = hitsOf.get(row[0] as string)!
           for (let i = 0; i < words.length; i++) {
@@ -450,8 +457,9 @@ export const chatsRoutes: RouteModule = {
         return hitsOf.get(chatId)!
       }
       // every word through the title, a person's message, or an answer not hidden from me
-      const found = (r: ChatRow) => words.every((like, i) => {
-        if (ctx.db.query("SELECT 1 FROM chats WHERE id = ? AND title LIKE ? ESCAPE '\\'").get(r.id, like)) return true
+      const found = (r: ChatRow) => words.every((fs, i) => {
+        const title = formsWhere('title', fs)
+        if (ctx.db.query(`SELECT 1 FROM chats WHERE id = ? AND ${title.sql}`).get(r.id, ...title.args)) return true
         const hit = chatHits(r.id)[i]!
         if (hit.question) return true
         if (!hit.answers.length) return false
@@ -737,6 +745,16 @@ export const chatsRoutes: RouteModule = {
     kit.handle(API.linkAccess, ({ c, params, auth }) => access.view(auth.user.id, accessKind(params.kind, params.id), params.id, c.get('locale')))
     kit.handle(API.requestLinkAccess, ({ c, params, body, auth }) => access.request(auth.user.id, accessKind(params.kind, params.id), params.id, body.message, c.get('locale')))
     kit.handle(API.answerAccessRequest, ({ c, params, body, auth }) => access.answer(auth.user.id, params.id, body.answer, body.confirmKey, c.get('locale')))
+    // a file link of a chat shared with people that does not open for me (docs/decisions/20261121-share-chat-files.md):
+    // what I can do (ask its creator to add it), and the ask. Anyone who cannot see the chat: its 404 first
+    kit.handle(API.chatFileAccess, ({ c, params, query, auth }) => {
+      chatOf(rt, c, auth, params.id, 'view')
+      return access.fileView(auth.user.id, params.id, query.path)
+    })
+    kit.handle(API.requestChatFile, ({ c, params, body, auth }) => {
+      chatOf(rt, c, auth, params.id, 'view')
+      return access.fileRequest(auth.user.id, params.id, body.path, c.get('locale'))
+    })
     kit.handle(API.putChatAudience, ({ c, params, body, auth }) => putChatAudience(ctx, rt, auth.user.id, chatOf(rt, c, auth, params.id, 'view'), body, c.get('locale')))
     const hidden = (c: Context<AppEnv>, auth: AuthInfo, a: ChatAccess, hide: boolean): Chat => {
       hideChat(ctx, auth.user.id, a, hide, c.get('locale'))
@@ -1032,6 +1050,21 @@ export const chatsRoutes: RouteModule = {
       markTeamShares(db, auth.user.id, 'created', [id])
       afterAccessChange(ctx, before, { actor: auth.user.id, target: made.path, created: [made.path] })
       return projectOut(rt.store.projectRow(id)!, p, true, auth.user.id)
+    })
+
+    // "Make it a project" on a conversation (rooms/make-project.ts; shared/src/api/rooms.ts): what the confirm shows, and
+    // the conversion itself, answered with the new project and the room as the caller sees them. Anyone not in the room
+    // (admins outside included): 404; guests: 403 (the guest gate, http/route.ts); not a group chat, archived or a project room already: 409 not_convertible
+    kit.handle(API.makeProjectInfo, ({ c, params, query, auth }) => {
+      c.header('Cache-Control', 'no-store')
+      // asked again as the name is typed: the dry run's limit per person (QA TC-1408's rule), a burst beyond it 429
+      previewLimit(ctx, auth.user.id)
+      return makeProjectInfo(ctx, principal(ctx, auth), params.id, query.name, c.get('locale'))
+    })
+    kit.handle(API.makeProject, ({ c, params, body, auth }) => {
+      const p = principal(ctx, auth)
+      const { projectId } = makeProject(ctx, p, params.id, body, c.get('locale'))
+      return { project: projectOut(rt.store.projectRow(projectId)!, p, true, auth.user.id), room: roomsOf(ctx).get(auth.user.id, params.id) }
     })
 
     // the dry run of who would see a project (chat/project-access.ts): a new one (whoever may make team projects), or a

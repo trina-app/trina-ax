@@ -41,6 +41,7 @@ import { acceptLanguage, precheckTarget, webFetch, wrapExternal, type FetchOptio
 import { teamDefaultLocale } from '../admin/settings'
 import { SAVE_URL_DESCRIPTION, saveUrl, type SaveUrlOptions } from './save-url'
 import { safeOpsEnabled } from '../safe-ops/runner'
+import { chatLinksInText, PLACE_PRODUCE_TOOLS } from '../files/place-output'
 
 export const C_TOOL_NAMES = ['hwp_render', 'make_file', 'edit_hwp', 'stamp_pdf', 'edit_pdf', 'merge_pdfs', 'split_pdf', 'resize_images', 'unzip_file', 'make_zip', 'query_data', 'share_file', 'artifact', 'web_fetch', 'save_url'] as const
 
@@ -74,7 +75,11 @@ export function registerCTools(ctx: AppContext, o: { fetch?: FetchOptions; saveU
       available: () => reg.available(name),
       async call(args, t) {
         const r = await reg.call(name, args, t.files)
-        return { content: [{ type: 'text', text: r.text }, ...(r.images ?? [])], ...(r.isError ? { isError: true } : {}), summary: r.summary }
+        // a file attached to this answer (output: chat:files/<name>): its link is the chat's, never a team preview link
+        // (a produce tool's own result only: a web page, a mail or a Drive file that holds such a link stays as it is)
+        const chat = PLACE_PRODUCE_TOOLS.has(name) ? t.files.places?.ctx.chatId : undefined
+        const text = chat ? chatLinksInText(r.text, chat) : r.text
+        return { content: [{ type: 'text', text }, ...(r.images ?? [])], ...(r.isError ? { isError: true } : {}), summary: r.summary }
       },
     })
   }
@@ -98,7 +103,7 @@ export function registerCTools(ctx: AppContext, o: { fetch?: FetchOptions; saveU
       'and its preview show numbers; any other formula is calculated by Excel or LibreOffice when the file opens. Never tell the person the ' +
       'file holds only formulas or that numbers appear only after opening it in Excel; the result text says how many results are stored. ' +
       'xlsx `charts` adds real Excel charts (column, bar, line, pie) over a range of one of the sheets, so never say Excel charts cannot be made. ' +
-      RICH_OFFICE_HINT + OFFICE_PICTURE_HINT + `Images must be team-folder files referenced by relative path. If \`output\` exists, it is replaced (its old version stays in its history) when you read it in this chat; otherwise a conflict copy is saved next to it instead. \`template\`: a ${hangul ? '.docx/.pptx/.hwpx' : '.docx/.pptx'} the person can read (their own earlier document, or a team template under skills/) whose styles the new file takes. ` +
+      RICH_OFFICE_HINT + OFFICE_PICTURE_HINT + `Images must be team-folder files referenced by relative path; in a chat, a picture of the chat is ![](chat:files/<file_id>/<name>) and one in its work folder ![](chat:work/<path>) (never a link such as /files/view?path=…). \`source\` and \`template\` may be such a chat path too; a source's pictures come from its own place. In a chat shared with people, \`output: "chat:files/<name>"\` attaches the new file to your answer for everyone there. If \`output\` exists, it is replaced (its old version stays in its history) when you read it in this chat; otherwise a conflict copy is saved next to it instead. \`template\`: a ${hangul ? '.docx/.pptx/.hwpx' : '.docx/.pptx'} the person can read (their own earlier document, or a team template under skills/) whose styles the new file takes. ` +
       (hangul ? 'hwpx (Hangul): # to ###### headings become Hangul outline levels 1-6; also paragraphs, **bold**, *italic*, bullet and numbered lists (up to 6 levels), ' +
         'simple tables (no merged cells, plain text in cells) and page breaks (a line with only \\newpage). Nothing else: images, links, footnotes, code, ' +
         'block quotes, horizontal rules, HTML, math and YAML metadata are refused and nothing is saved, so write those as plain text (a link as "text (address)"). ' +

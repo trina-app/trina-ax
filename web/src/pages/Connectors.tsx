@@ -280,7 +280,7 @@ function ConnectorsHome() {
     ...(desk ? {} : { offLine: t('localApps.status.desktopOnly') }),
     onOpen: () => navigate(connectorHref(a.id)), onAdd: () => { navigate(connectorHref(a.id)); local.connect(a) },
   })) : []
-  // "팀 추천" (shared/src/api/team-tools.ts): the tools the team recommends come first, with the words on their line;
+  // "각자 연결하도록 권하기" (was "팀 추천") (shared/src/api/team-tools.ts): the tools the team recommends come first, with the words on their line;
   // nothing is hidden or gated (docs/decisions/20261120-team-vs-personal-onboarding.md)
   const recommended = list.data?.recommendedTools
   const tag = (c: Card): Card => (isRecommended(recommended, c.id) ? { ...c, line: `${t('connectors.recommendedTag')} · ${c.line}` } : c)
@@ -405,12 +405,12 @@ function ConnectorPage() {
   const { id = '' } = useParams()
   const { admin } = useConnectors()
   const page = <ConnectorPageBody id={id} />
-  // an owner or admin: "팀 추천", under the page of a tool each person connects (never Notion's or Slack's, connected
-  // for the team in the welcome steps) (docs/decisions/20261120-team-vs-personal-onboarding.md)
+  // an owner or admin: "각자 연결하도록 권하기" (was "팀 추천"), under the page of a tool each person can connect (never Slack's,
+  // which is only the team's) (docs/decisions/20261121-onboarding-google-team-or-own.md)
   return admin && isRecommendable(id) ? <>{page}<RecommendRow id={id} /></> : page
 }
 
-/** "팀 추천": an owner or admin recommends this tool to the team (TeamSettings.recommendedTools), as in the welcome
+/** "각자 연결하도록 권하기" (was "팀 추천"): an owner or admin asks everyone to connect this tool (TeamSettings.recommendedTools), as in the welcome
  * steps' 팀이 쓸 도구: it comes first in everyone's list. Each person still connects their own account. */
 function RecommendRow({ id }: { id: string }) {
   const t = useT()

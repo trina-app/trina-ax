@@ -16,7 +16,7 @@ AI 可以替你使用 Trina AX 以外的应用：搜索你的 Notion 页面、�
 | 应用 | 你需要什么 | 指南 |
 |---|---|---|
 | Notion、Linear、Atlassian（Jira、Confluence）、Figma、Canva、Stripe、Supabase、Cloudflare、Higgsfield，以及**发现**中的其他应用 | 你在那个应用中的账号。不需要复制任何东西 | [登录“发现”中的应用](#登录发现中的应用) |
-| GitHub | 一个个人访问令牌 | [GitHub](#github) |
+| GitHub | 你自己的 GitHub 账号。无需复制任何内容 | [GitHub](#github) |
 | 其他公布了“MCP server”地址的应用 | 地址，以及应用要求时的密钥 | [通过地址添加应用](#通过地址添加应用) |
 | 公司自己的系统（API） | 地址、密钥和使用说明 | [公司自己的 API](api-connections.md) |
 | Google Drive、Gmail、日历、文档、表格 | 你的 Google 账号 | [Google 应用](google-apps.md) |
@@ -74,37 +74,26 @@ Notion 页面、自己的 GitHub 权限），请改为创建[模板](#模板每�
 
 ## GitHub
 
-GitHub 不允许其他应用自己完成登录，所以要用个人访问令牌连接。只有所有者和管理员可以通过地址添加应用；成员请找管理员，管理员可以创建
-[模板](#模板每位成员使用自己的密钥)，让每个人使用自己的令牌。
+GitHub 和列表里的其他应用一样用登录来连接，不需要创建或复制令牌。它使用服务器持有的 GitHub App，所以每个人用自己的 GitHub 账号登录，并选择 AI 可以看到的仓库。由 Trina 托管的团队开箱即用。自己运行的服务器需要运维人员先添加 GitHub App；在此之前，GitHub 页面会显示“此服务器尚未设置 GitHub”。
 
 :::tip
-**你需要准备的**
+**你需要**
 
-- **地址**：`https://api.githubcopilot.com/mcp/`（GitHub 的 MCP 服务器）。
-- **密钥**：GitHub 的个人访问令牌，以 `github_pat_` 开头。
+- 在浏览器中登录的自己的 GitHub 账号
 :::
 
 :::steps
-#### 在 GitHub 创建令牌
-打开 [GitHub › Settings › Developer settings › Personal access tokens › Fine-grained tokens](https://github.com/settings/personal-access-tokens/new)，
-选择 **Generate new token**。填写名称（“Trina AX”）、到期日期、它可以打开的仓库（选 **Only select repositories** 最安全），以及
-AI 需要的权限，例如把 **Contents**、**Issues** 和 **Pull requests** 设为 **Read-only**；如果允许 AI 修改，就设为 **Read and write**。
-选择 **Generate token** 并复制它：GitHub 只显示一次。详情见 [GitHub 的指南](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/managing-your-personal-access-tokens)（英文）。
+#### 选择连接
+在 **发现** 中打开 GitHub，选择 **连接**。会打开 GitHub 自己的页面（桌面应用里在浏览器中打开）。
 
-#### 在 Trina AX 中添加
-在**管理 › 已连接的应用**中，选择**通过地址添加**（在“发现”下）或**添加**。填写：
+#### 选择仓库
+GitHub 会问这个应用可以打开哪些仓库。只选 AI 需要的，AI 只能看到这些。
 
-- **名称**：`GitHub`
-- **地址**：`https://api.githubcopilot.com/mcp/`
-- 打开**高级**，把**登录方式**设为 **API密钥**。
-- **密钥使用的请求头**：保留 **Authorization: Bearer（默认）**。
-- **密钥**：粘贴令牌。
-
-![为团队添加应用对话框，按 GitHub 填写：地址 https://api.githubcopilot.com/mcp/、密钥使用的请求头 Authorization: Bearer（默认）、密钥，以及高级下的供团队使用（一个密钥）、MCP服务器、API密钥、每次都询问](../../images/connect/add-by-address-key.webp "用令牌连接 GitHub")
-
-#### 保存
-选择**保存**。Trina AX 会向 GitHub 核对令牌，并列出它提供的工具。这一行会显示**已连接**。
+#### 完成
+回到 Trina AX，这一行显示 **已连接**。AI 在更改任何内容之前都会先询问，你也可以选择 **始终允许**。
 :::
+
+要给整个团队用，管理员可以为团队连接 GitHub 并选择谁可以使用，或创建一个让每个人用自己账号登录的 [模板](#模板每位成员使用自己的密钥)。
 
 ## 通过地址添加应用
 
@@ -120,6 +109,8 @@ AI 需要的权限，例如把 **Contents**、**Issues** 和 **Pull requests** �
 - 如果用密钥：**密钥**，在应用的设置中（“API keys”“Tokens”“Developer”）获取；如果应用的帮助写了请求头名称，例如
   `X-API-Key`，还需要**请求头名称**。
 :::
+
+![为团队添加应用对话框，按 GitHub 填写：地址 https://api.githubcopilot.com/mcp/、密钥使用的请求头 Authorization: Bearer（默认）、密钥，以及高级下的供团队使用（一个密钥）、MCP服务器、API密钥、每次都询问](../../images/connect/add-by-address-key.webp "用令牌连接 GitHub")
 
 对话框中的各项：
 

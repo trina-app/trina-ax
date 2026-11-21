@@ -91,9 +91,9 @@ Setiap chat di daftar chat Trina Anda menampilkan paling banyak satu tanda, di u
 | Lingkaran abu-abu | AI sedang menjawab, atau jawabannya sedang menunggu giliran. |
 | Titik, judul tebal | Jawaban baru yang belum Anda buka. |
 
-Membuka chat menghapus titiknya, juga **?** dari jawaban yang gagal atau berhenti, di semua perangkat. Bagian yang dilipat tetap menampilkan tanda terkuat dari chat di dalamnya. Ruang obrolan menampilkan **?** menggantikan jumlahnya selama AI menunggu jawaban Anda di sana.
+Membuka chat menghapus titiknya, juga **?** dari jawaban yang gagal atau berhenti, di semua perangkat. Bagian yang dilipat tetap menampilkan tanda terkuat dari chat di dalamnya. Percakapan menampilkan **?** menggantikan jumlahnya selama AI menunggu jawaban Anda di sana.
 
-Saat tab browser berada di latar belakang, judulnya menghitung chat dan ruang obrolan yang memerlukan Anda, misalnya "(2) Trina". Aplikasi desktop menampilkan angka yang sama di Dock pada Mac, dan sebuah notifikasi ketika kartu muncul atau ketika jawaban yang berjalan lebih dari satu menit selesai saat Anda sedang melihat ke tempat lain; mengekliknya membuka chat itu. Tugas terjadwal hanya mendapat tanda; pertanyaan yang diajukan dari Slack dijawab di sana, sehingga chatnya tidak mendapat titik. **Trina** di bilah kiri (di ponsel, tab **Trina**) menampilkan **?** atau titik ketika ada chat yang memerlukan Anda, **Obrolan** menampilkan **?** selama AI menunggu jawaban Anda di ruang obrolan, dan di ponsel muncul pesan singkat dengan **Buka** di dalam aplikasi.
+Saat tab browser berada di latar belakang, judulnya menghitung chat dan percakapan yang memerlukan Anda, misalnya "(2) Trina". Aplikasi desktop menampilkan angka yang sama di Dock pada Mac, dan sebuah notifikasi ketika kartu muncul atau ketika jawaban yang berjalan lebih dari satu menit selesai saat Anda sedang melihat ke tempat lain; mengekliknya membuka chat itu. Tugas terjadwal hanya mendapat tanda; pertanyaan yang diajukan dari Slack dijawab di sana, sehingga chatnya tidak mendapat titik. **Trina** di bilah kiri (di ponsel, tab **Trina**) menampilkan **?** atau titik ketika ada chat yang memerlukan Anda, **Obrolan** menampilkan **?** selama AI menunggu jawaban Anda di percakapan, dan di ponsel muncul pesan singkat dengan **Buka** di dalam aplikasi.
 
 ## Membagikan chat
 
@@ -188,15 +188,15 @@ Untuk mengajak orang dari luar tim, pilih **Undang tamu** saat Anda menambahkan 
 
 ![Daftar Obrolan: Mentions & threads, Saluran dengan Everyone dan Marketing, lalu Pesan langsung dengan satu obrolan grup dan satu pesan langsung](../../images/chats/rooms-list.webp "Daftar Obrolan")
 
-#### Bertanya ke Trina di samping ruang obrolan
+#### Bertanya ke Trina di samping percakapan
 
-Tombol **✦** di bagian atas ruang obrolan membuka chat samping dengan Trina di sebelahnya. Hanya Anda yang melihat chat ini, dan AI
-menjawab dengan apa yang boleh Anda buka. Jika sebuah jawaban layak dibagikan, **Kirim ke ruang** di bawahnya menaruhnya di ruang obrolan sebagai pesan
-Anda (**Kirim ke utas** jika Anda bertanya tentang satu pesan). Jika sebagian orang di ruang obrolan tidak bisa membuka file yang dipakai
+Tombol **✦** di bagian atas percakapan membuka chat samping dengan Trina di sebelahnya. Hanya Anda yang melihat chat ini, dan AI
+menjawab dengan apa yang boleh Anda buka. Jika sebuah jawaban layak dibagikan, **Kirim** di bawahnya menaruhnya di percakapan sebagai pesan
+Anda (**Kirim ke utas** jika Anda bertanya tentang satu pesan). Jika sebagian orang di percakapan tidak bisa membuka file yang dipakai
 jawaban itu, aplikasi memberi tahu Anda dulu dan menunggu persetujuan Anda.
 
 Saat sebuah utas terbuka, **✦** membuka chat samping di sebelah utas itu, dan keduanya tetap terlihat (di jendela kecil,
-ruang obrolan memberi tempat untuk keduanya). Kotak chat samping lalu bertuliskan **Melihat utas ini**: pertanyaan Anda
+percakapan memberi tempat untuk keduanya). Kotak chat samping lalu bertuliskan **Melihat utas ini**: pertanyaan Anda
 adalah tentang utas itu, dan jawabannya bisa langsung dikirim ke sana. Tekan **✕** di baris itu untuk bertanya tentang
 seluruh percakapan.
 
@@ -204,10 +204,10 @@ seluruh percakapan.
 
 #### Membalas di utas
 
-**Balas di utas** pada sebuah pesan menyimpan percakapan sampingan di bawahnya, sehingga ruang obrolan tetap mudah dibaca. Ruang obrolan menampilkan
-berapa balasan yang ada di sebuah utas; **Kirim juga ke ruang obrolan** menaruh balasan di ruang obrolan juga.
+**Balas di utas** pada sebuah pesan menyimpan diskusi terpisah di bawahnya, sehingga percakapan tetap mudah dibaca. Percakapan menampilkan
+berapa balasan yang ada di sebuah utas; **Kirim juga ke percakapan** menaruh balasan di percakapan juga.
 
-![Utas terbuka di samping ruang obrolan: pesan pertama dan balasannya, dengan kotak untuk membalas](../../images/chats/thread.webp "Sebuah utas")
+![Utas terbuka di samping percakapan: pesan pertama dan balasannya, dengan kotak untuk membalas](../../images/chats/thread.webp "Sebuah utas")
 
 #### Menautkan ke sebuah pesan
 
@@ -222,6 +222,37 @@ dengan tanda bahwa Anda yang membagikannya. Salinan hilang jika pesan aslinya di
 lalu klik **✕** (atau pilih **Hapus pratinjau** di menu pesan).
 
 ![Obrolan di ponsel: Mentions & threads, saluran, obrolan grup, dan pesan langsung, dengan lima tab di bagian bawah](../../images/chats/rooms-phone.webp "Obrolan di ponsel")
+
+### Tempat percakapan Anda tercantum
+
+Daftar Obrolan punya urutan yang sama di komputer dan di ponsel: **Disematkan**, lalu bagian Anda sendiri, lalu
+**Saluran**, **Proyek**, dan **Pesan langsung**.
+
+- **Proyek** berisi percakapan setiap proyek tim, menurut nama, dengan ikon folder. Percakapan proyek muncul setelah
+  seseorang menulis di sana; sebelum itu Anda membukanya dari proyek. Tidak ada **+**: proyek dibuat di halaman Proyek
+  atau dari percakapan (lihat [Jadikan percakapan proyek](#jadikan-percakapan-proyek)).
+- Percakapan hanya muncul di satu tempat. Percakapan proyek yang Anda sematkan atau seret ke salah satu bagian Anda keluar
+  dari Proyek. Seret ke judul **Proyek** untuk mengembalikannya.
+- Saat proyek dipindahkan ke sampah, percakapannya keluar dari daftar. Memulihkan proyek mengembalikannya.
+
+### Saluran departemen dan foldernya
+
+Setiap departemen (grup di **Admin › Grup**) punya salurannya sendiri. Jika departemen punya folder yang bisa Anda buka,
+bagian atas salurannya menampilkan tombol folder dengan nama departemen: tombol itu membuka folder tersebut di File.
+
+- **File yang Anda kirim di sana masuk ke folder Lampiran obrolan di folder departemen**, jadi file departemen ada di
+  satu tempat. Di samping file, obrolan menunjukkan ke mana file itu masuk, misalnya "Penjualan › Lampiran obrolan".
+- File tetap hanya di percakapan, ditandai **Hanya di percakapan ini**, jika lebih banyak orang daripada departemen
+  bisa membuka folder itu, jika seseorang di saluran tidak bisa membuka Lampiran obrolan, atau jika Anda hanya bisa
+  melihat folder itu. Saluran lalu juga punya **File** yang mencantumkan file-file tersebut.
+- **Menghapus pesan hanya menghapus pesan.** File di folder departemen tetap di sana, dan konfirmasinya menyebut
+  tempatnya; hapus di File jika ingin menghilangkannya.
+- Admin bisa membuka semua folder tim, jadi mereka juga bisa membuka file ini di File meskipun tidak ada di departemen
+  itu. Mereka tidak melihat percakapannya.
+- Orang yang bergabung ke departemen nanti bisa membuka semua file yang sudah ada di Lampiran obrolan-nya, tetapi tidak
+  pesan-pesan sebelumnya, sama seperti proyek.
+- Jika folder departemen ada di dalam proyek, file yang dikirim di saluran tetap di percakapan.
+- File yang dikirim sebelum perubahan ini tetap di saluran, di daftar **File**-nya.
 
 ### Tamu
 
@@ -294,26 +325,58 @@ Mulai chat dari halaman proyek, atau pindahkan chat ke dalamnya dengan **Pindahk
   bisa membukanya, dan sebuah baris di bawahnya menyebutkan hal itu. Anda memerlukan akses tulis ke folder proyek (tanpanya, **+**
   hanya menawarkan file tim); **✕** sebelum mengirim memindahkan file itu ke sampah.
 
-### Ruang obrolan proyek
+### Percakapan proyek
 
-Setiap proyek tim punya ruang obrolannya sendiri. Orang-orang proyek adalah orang-orang ruang itu, dan filenya adalah
+Setiap proyek tim punya percakapannya sendiri. Orang di percakapan itu adalah orang di proyek, dan filenya adalah
 file proyek: satu daftar orang, satu tempat untuk file.
 
-- **Ruang obrolan** di halaman proyek (di ponsel, baris di bawah nama proyek) membuka ruangnya. Pertama kali, ruang itu
+- **Percakapan** di halaman proyek (di ponsel, baris di bawah nama proyek) membuka percakapannya. Pertama kali, percakapan itu
   dibuat dan diberi nama proyek. Ikon obrolan kecil di baris proyek pada **Proyek** (dengan titik saat ada yang belum
-  dibaca) dan **Ruang obrolan** di atas chat AI proyek juga membukanya.
-- Di atas ruang, tombol folder dengan nama proyek membuka halaman proyek: file dan chat AI-nya. Ruang muncul di
-  **Saluran**, dengan ikon folder, setelah seseorang menulis di sana.
-- **Siapa yang ada di dalamnya mengikuti proyek.** Menambahkan orang ke proyek menambahkannya ke ruang, dan ia melihat
-  seluruh riwayatnya; mengeluarkan orang dari proyek mengeluarkannya dari ruang. Dialog anggota mengatakannya sebelum
-  Anda menambahkan siapa pun. Untuk mengubahnya, buka nama ruang di atas, lalu **Kelola orang** (bagi yang boleh
-  mengubah orang-orang proyek). **Bisukan** membuat ruang tenang; **Keluar dari proyek** keluar dari proyek dan ruangnya.
+  dibaca) dan **Percakapan** di atas chat AI proyek juga membukanya.
+- Di atas percakapan, tombol folder dengan nama proyek membuka halaman proyek: file dan chat AI-nya. Percakapan muncul di
+  **Proyek** pada daftar Obrolan, dengan ikon folder, setelah seseorang menulis di sana.
+- **Siapa yang ada di dalamnya mengikuti proyek.** Menambahkan orang ke proyek menambahkannya ke percakapan, dan ia melihat
+  seluruh riwayatnya; mengeluarkan orang dari proyek mengeluarkannya dari percakapan. Dialog anggota mengatakannya sebelum
+  Anda menambahkan siapa pun. Untuk mengubahnya, buka nama percakapan di atas, lalu **Kelola orang** (bagi yang boleh
+  mengubah orang-orang proyek). **Bisukan** mematikan notifikasinya; **Keluar dari proyek** keluar dari proyek dan percakapannya.
 - **File yang Anda kirim di sana masuk ke folder Lampiran obrolan proyek**, tempat orang-orang proyek menemukannya di
   halaman File. Orang yang hanya bisa melihat proyek bisa menulis pesan, tetapi tidak bisa menambahkan file.
 - **Menghapus pesan hanya menghapus pesan.** Filenya tetap di Lampiran obrolan proyek; hapus di File jika ingin
   menghilangkannya.
-- Trina di obrolan samping ruang menyimpan dokumen baru di folder proyek, dan chat AI proyek bisa membaca ruang itu.
+- Trina di obrolan samping percakapan menyimpan dokumen baru di folder proyek, dan chat AI proyek bisa membaca percakapan itu.
   Keduanya dilihat orang yang sama, jadi tidak ada pertanyaan soal siapa yang bisa melihat.
+- Obrolan samping **✦** di percakapan tetap pribadi untuk Anda. Saat kosong, obrolan itu mengatakannya dan menautkan ke
+  halaman proyek, tempat orang-orang proyek bertanya kepada Trina bersama.
+- Jika orang-orang proyek sama persis dengan orang-orang satu departemen, awal percakapan dan info percakapan menampilkan "Orangnya
+  sama dengan #Penjualan. Bicarakan Atlas di sini.", dengan tautan ke saluran departemen.
+
+### Jadikan percakapan proyek
+
+Saluran pribadi atau obrolan grup yang berubah menjadi pekerjaan nyata bisa dijadikan proyek, beserta riwayatnya.
+
+1. Buka **⋯** percakapan (di atas, di barisnya dalam daftar, atau dengan menekan lama barisnya di ponsel) dan pilih
+   **Jadikan proyek**. Anda melihatnya jika boleh membuat proyek tim; di tim tempat hanya admin yang membuatnya, anggota
+   tidak melihatnya.
+2. Periksa namanya. Awalnya nama percakapan (untuk obrolan grup tanpa nama, nama orang-orangnya). Jika proyek lain sudah
+   memakai nama itu, folder baru mendapat "-2", dan dialognya memberi tahu.
+3. Baca apa yang akan terjadi, lalu pilih **Buat proyek**:
+   - Semua orang di percakapan menjadi orang-orang proyek.
+   - File yang dikirim di percakapan dipindahkan ke folder **Lampiran obrolan** proyek. File yang tidak bisa dilihat
+     semua orang di percakapan (misalnya yang dikirim sebelum seseorang bergabung) tetap di percakapan, dan dialognya
+     menyebut berapa banyak.
+   - Orang yang ditambahkan ke proyek nanti melihat pesan sejak saat itu, dan bisa membuka file yang dipindahkan.
+
+Percakapan tetap terbuka dan kini menjadi percakapan proyek, dengan tombol folder proyek di atas dan satu baris yang
+menyebut siapa yang menjadikannya proyek. Selama file dipindahkan, bagian atas menampilkan **Memindahkan file…**; baris
+kedua menyebut berapa yang dipindahkan dan berapa yang tetap. File yang tetap ditandai **Hanya di percakapan ini**, dan
+percakapan itu tetap punya daftar **File** untuk file-file tersebut.
+
+Sematan, bagian, notifikasi, dan posisi baca Anda tetap seperti semula. Jika seseorang bergabung atau keluar saat dialog
+terbuka, dialog menampilkan **Orangnya berubah** dan jumlah yang baru. Tamu yang sudah punya proyek menghalanginya: admin
+menjadikannya anggota tim terlebih dahulu.
+
+Di pesan langsung, **⋯** berisi **Proyek baru dengan** dan nama orang itu. Pilihan itu membuat proyek baru untuk Anda
+berdua, dengan percakapannya sendiri. Pesan langsungnya tetap seperti semula.
 
 ## Menemukan apa saja
 

@@ -153,6 +153,21 @@ export type ErrorReportsInput = z.infer<typeof ErrorReportsInput>
 export const ErrorReportsResult = z.object({ ok: z.literal(true), changed: z.boolean(), restarted: z.boolean() })
 export type ErrorReportsResult = z.infer<typeof ErrorReportsResult>
 
+/** github-app-set's stdin: the GitHub App the team server's GitHub connector signs in through (trina-ax
+ * server/src/integrations/github/app.ts reads it from <secrets>/integrations/github/app.json; its rules are at least
+ * this wide). slug: the app's name in github.com/apps/<slug>. The secret is printable ASCII without spaces. It is only
+ * ever on stdin: never an argument, never in the answer. */
+export const GitHubAppFile = z.strictObject({
+  clientId: z.string().regex(/^[A-Za-z0-9._-]{1,128}$/),
+  clientSecret: z.string().regex(/^[!-~]{1,4096}$/),
+  slug: z.string().regex(/^[a-z0-9][a-z0-9-]{0,99}$/).optional(),
+})
+export type GitHubAppFile = z.infer<typeof GitHubAppFile>
+/** github-app-set's answer. changed: the file changed (false when it already held these values, so the same input may
+ * be sent again at any time). The server reads the file at each request: no restart. */
+export const GitHubAppResult = z.object({ ok: z.literal(true), changed: z.boolean() })
+export type GitHubAppResult = z.infer<typeof GitHubAppResult>
+
 export const BackupKindArg = z.enum(['daily', 'manual', 'pre-update', 'final'])
 
 /** backup-prepare's answer (admin.js cloud-backup prepare) */
@@ -258,6 +273,8 @@ export const TENANT_COMMANDS = {
   /** the hosting service's error report key (ErrorReportsInput, ErrorReportsResult). Idempotent: send it again when
    * unsure (a reimage or restore writes the environment file anew). It waits up to 60 s for running answers. */
   'error-reports-set': { args: NoArgs, stdin: ErrorReportsInput, output: ErrorReportsResult, timeoutSec: 120 },
+  /** the hosting service's GitHub App (GitHubAppFile, GitHubAppResult). Idempotent: send it again when unsure. */
+  'github-app-set': { args: NoArgs, stdin: GitHubAppFile, output: GitHubAppResult, timeoutSec: 30 },
   'setup-token-rotate': { args: NoArgs, stdin: null, output: z.object({ setupToken: z.string().regex(/^[A-Za-z0-9_-]{24,128}$/) }), timeoutSec: 120 },
   /** keyAge decrypts to the key file's line: "<base64 32 bytes>" for version 1, "credentials.key.<N> <base64>" for a
    * later version (after credentials-rekey). The control plane keeps it as is and hands it back in

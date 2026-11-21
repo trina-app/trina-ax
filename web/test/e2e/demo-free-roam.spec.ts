@@ -104,6 +104,8 @@ for (const width of [1440, 390] as const) {
         await page.goto('/')
         const bar = page.getByTestId('free-roam-bar')
         await expect(bar).toContainText("You're Mina at Steepling, a made-up company. Try anything.")
+        // how much they can still ask, in questions: floor((300k - 1k) / 35k)
+        await expect(page.getByTestId('free-roam-left')).toHaveText('About 8 questions left')
         if (width === 1440) await expect(page.getByTestId('sidebar-team')).toHaveText('Steepling')
         // no mic in the box (voice is fenced), though the team's voice input is on
         await expect(page.getByTestId('voice-button')).toHaveCount(0)
@@ -137,7 +139,49 @@ for (const width of [1440, 390] as const) {
         used.now = 250_000
         await page.reload()
         await expect(page.getByTestId('free-roam-meter')).toHaveText('About 20% of your demo AI left')
+        // one count at a time: the meter takes over from the questions left
+        await expect(page.getByTestId('free-roam-left')).toHaveCount(0)
         await shot(page, `${at}-3-meter`)
+      })
+
+      test('Home shows no My setup card, even when the server has one (QA TC-6473)', async ({ page }) => {
+        for (const locale of ['en', 'ko'] as const) {
+          if (locale !== 'en') await reset(page, { teamLocale: locale, usersFollowTeam: true })
+          await freeRoam(page, { now: 1_000 })
+          // what a free-roam server sends (server/src/onboarding/member-welcome.ts): demo, tools sent done
+          const seeded = await page.request.post('/__test/member-welcome', { headers: { 'x-mycel-csrf': '1' }, data: { welcome: {
+            kind: 'member', team: 'Steepling', inviter: { id: 'olga', name: 'Sara Lee' }, people: 6, rooms: [{ id: '01900000-0000-7000-8000-0000000000a1', kind: 'all', name: null }],
+            owner: { id: 'olga', name: 'Sara Lee' }, steps: { rooms: true, hi: true, photo: false, asked: false, tools: true }, allSet: false, demo: true,
+          } } })
+          expect(seeded.ok()).toBeTruthy()
+          await signInAsMina(page)
+          await page.goto('/')
+          await expect(page.getByTestId('free-roam-bar')).toBeVisible()
+          await expect(page.getByTestId('composer-input')).toBeVisible()
+          // a demo's Home keeps its own top (pages/Home.tsx `extras`): no card, so no "Connect your tools" and no
+          // desktop app row
+          await expect(page.getByTestId('member-welcome')).toHaveCount(0)
+          await expect(page.getByTestId('member-welcome-tools')).toHaveCount(0)
+          await expect(page.getByTestId('member-welcome-open-app')).toHaveCount(0)
+          await shot(page, `${at}-${locale}-home-no-welcome-card`)
+        }
+      })
+
+      test('the bar in Korean: the questions left, within the width', async ({ page }) => {
+        await reset(page, { teamLocale: 'ko', usersFollowTeam: true })
+        await freeRoam(page, { now: 1_000 })
+        await signInAsMina(page)
+        await page.goto('/')
+        const bar = page.getByTestId('free-roam-bar')
+        await expect(page.getByTestId('free-roam-left')).toHaveText('질문 8번 정도 남았어요')
+        const b = (await bar.boundingBox())!
+        expect(b.x + b.width).toBeLessThanOrEqual(width + 0.5)
+        expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width)
+        for (const c of await page.getByTestId('free-roam-chip').all()) {
+          const r = (await c.boundingBox())!
+          expect(r.x + r.width).toBeLessThanOrEqual(width + 0.5)
+        }
+        await shot(page, `${at}-2-bar-ko`)
       })
 
       test('a suggestion is sent as a new chat', async ({ page }) => {

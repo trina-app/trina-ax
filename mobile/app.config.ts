@@ -108,6 +108,8 @@ export default ({ config, projectRoot }: ConfigContext): ExpoConfig => {
       // local end-to-end tests only: trust MYCEL_MOBILE_TEST_CA for https://localhost (refused by the release scripts)
       './plugins/test-ca.js',
       // the iPhone notification service extension and the keychain group the app shares with it
+      // Android: who and where in a room push (modules/push-label's FCM service replaces expo-notifications' own)
+      './plugins/push-label.js',
       ...(labels ? [['./plugins/notification-service.js', { ...labels, teamId: product.appleTeamId, version: VERSION, build }] as [string, unknown]] : []),
     ],
     extra: { teamAxEdition: product, teamAxService: service, pushEnabled: { ios: true, android: !!googleServices }, pushLabels: labels },

@@ -1,0 +1,10 @@
+{
+  "name": "trina-box-node-libs",
+  "private": true,
+  "description": "Node libraries a dev environment run has without npm install (NODE_PATH): PowerPoint and Word files. install-srt.sh and install-srt-mac.sh install them with npm ci --ignore-scripts into /opt/trina/node-libs/<lock sha12>.",
+  "license": "AGPL-3.0-only",
+  "dependencies": {
+    "docx": "9.15.3",
+    "pptxgenjs": "4.0.1"
+  }
+}

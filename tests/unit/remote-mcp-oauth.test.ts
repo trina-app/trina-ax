@@ -88,12 +88,12 @@ test('write is the person\'s choice and group management the owner\'s role, what
   expect(f.svc.token({ ...refresh, refresh_token: narrow.refresh_token }).scope).toBe('mcp:read offline_access')
   // write unticked: no write, even when the app asked for it; admin: false changes nothing for an owner
   expect(decided(f.request('mcp:read mcp:write mcp:admin offline_access'), { write: false, admin: false }).scope).toBe('mcp:read mcp:admin offline_access')
-  // offline_access only when asked: neither the box nor the role adds it, and then there is no refresh token
+  // offline_access whether asked or not (docs/decisions/20261121-mcp-refresh-without-offline-access.md): a refresh token
   const bare = decided(f.request('mcp:read'), { write: true })
-  expect(bare.scope).toBe('mcp:read mcp:write mcp:admin'); expect(bare.refresh_token).toBeUndefined()
+  expect(bare.scope).toBe('mcp:read mcp:write mcp:admin offline_access'); expect(bare.refresh_token).toMatch(/^tax_mcp_r_/)
   // a body without the box (the page before this change): write follows the app's ask
-  expect(decided(f.request('mcp:read mcp:write mcp:admin'), {}).scope).toBe('mcp:read mcp:write mcp:admin')
-  expect(decided(f.request('mcp:read'), {}).scope).toBe('mcp:read mcp:admin')
+  expect(decided(f.request('mcp:read mcp:write mcp:admin'), {}).scope).toBe('mcp:read mcp:write mcp:admin offline_access')
+  expect(decided(f.request('mcp:read'), {}).scope).toBe('mcp:read mcp:admin offline_access')
   const connected = f.h.ctx.db.query("SELECT detail FROM audit_log WHERE action='remote_mcp.connected' ORDER BY id").all() as { detail: string }[]
   // the app's name, so the activity log names the app, not the grant's id (QA TC-204)
   expect(JSON.parse(connected[0]!.detail)).toEqual({ scopes: ['mcp:read', 'mcp:write', 'mcp:admin', 'offline_access'], asked: ['mcp:read', 'offline_access'], app: 'Test connector' })
@@ -115,13 +115,13 @@ test('authorization code replay revokes its issued family; disconnect stops acce
   expect(f.svc.token({ client_id: f.client.client_id, grant_type: 'refresh_token', resource: origin + '/mcp', refresh_token: third.refresh_token }).refresh_token).toBeDefined()
 })
 
-test('read-only default has no refresh; denial issues no code; active user and expiry checked per call', async () => {
+test('read-only default still gets a refresh token; denial issues no code; active user and expiry checked per call', async () => {
   const f = await fixture('expiry')
   const denied = new URL(f.svc.decide(f.request(), f.auth, false).redirectUrl)
   expect(denied.searchParams.get('error')).toBe('access_denied')
   expect(denied.searchParams.has('code')).toBe(false)
   const first = f.exchange(f.code('mcp:read'))
-  expect(first.refresh_token).toBeUndefined()
+  expect(first.refresh_token).toMatch(/^tax_mcp_r_/)
   f.h.ctx.db.query('UPDATE users SET must_change_password=1 WHERE id=?').run(f.auth.user.id)
   expect(() => f.svc.authenticate(first.access_token)).toThrow()
   f.h.ctx.db.query('UPDATE users SET must_change_password=0 WHERE id=?').run(f.auth.user.id)
@@ -348,3 +348,71 @@ test('busy minute, real limits: one host cannot use up its /32\'s share before t
   expect(rowCount(h)).toBe(rows)
   expect(admitted(() => svc.ingress('register', '2a02:1234:5678:9::50'))).toBe(true)
 }, 300_000)
+
+test('an app that does not ask for offline_access (ChatGPT, apps that ask for the 401 scope): refresh token, rotation, retry window, replay revocation, disconnect', async () => {
+  const f = await fixture('no-offline-access')
+  // what the consent page shows: the app asked for mcp:read alone
+  expect(f.svc.consent(f.request('mcp:read'), f.auth).scopes).toEqual(['mcp:read'])
+  const first = f.exchange(f.code('mcp:read'))
+  expect(first.scope).toBe('mcp:read mcp:admin offline_access')
+  expect(first.refresh_token).toMatch(/^tax_mcp_r_[A-Za-z0-9_-]{43}$/)
+  const grant = f.svc.authenticate(first.access_token)
+  expect(JSON.parse(grant.scopes)).toEqual(['mcp:read', 'mcp:admin', 'offline_access'])
+  // stored hashed only
+  expect(f.h.ctx.db.query('SELECT count(*) AS n FROM remote_mcp_tokens WHERE hash=?').get(first.refresh_token!) as { n: number }).toEqual({ n: 0 })
+  expect(f.h.ctx.db.query('SELECT kind FROM remote_mcp_tokens WHERE hash=?').get(hash(first.refresh_token!))).toEqual({ kind: 'refresh' })
+  const refresh = { client_id: f.client.client_id, grant_type: 'refresh_token', resource: origin + '/mcp' }
+  // after the hour, the app refreshes instead of sending the person to the browser
+  const start = Date.now(); f.svc.now = () => start + 3600_001
+  expect(() => f.svc.authenticate(first.access_token)).toThrow()
+  const second = f.svc.token({ ...refresh, refresh_token: first.refresh_token })
+  expect(second.refresh_token).not.toBe(first.refresh_token)
+  expect(f.svc.authenticate(second.access_token).id).toBe(grant.id)
+  // a narrowing refresh that leaves offline_access out still keeps the connection renewable
+  const narrow = f.svc.token({ ...refresh, refresh_token: second.refresh_token, scope: 'mcp:read' })
+  expect(narrow.scope).toBe('mcp:read offline_access'); expect(narrow.refresh_token).toMatch(/^tax_mcp_r_/)
+  expect(() => f.svc.token({ ...refresh, refresh_token: narrow.refresh_token, scope: 'mcp:read mcp:admin' })).toThrow('invalid_scope')
+  // the 90-day end slides with each refresh
+  expect(f.svc.authenticate(narrow.access_token).expires_at).toBe(start + 3600_001 + 90 * 86400_000)
+  // a retry before the new pair was used (an answer lost on the network) replaces it, one chain stays
+  const lost = f.svc.token({ ...refresh, refresh_token: narrow.refresh_token })
+  const retry = f.svc.token({ ...refresh, refresh_token: narrow.refresh_token })
+  expect(() => f.svc.authenticate(lost.access_token)).toThrow()
+  expect(() => f.svc.token({ ...refresh, refresh_token: lost.refresh_token })).toThrow('invalid_grant')
+  f.svc.authenticate(retry.access_token)
+  // once that pair is used, the same token again is a replay inside the window too: the connection ends
+  const reuse = f.exchange(f.code('mcp:read')), r1 = f.svc.token({ ...refresh, refresh_token: reuse.refresh_token })
+  f.svc.authenticate(r1.access_token)
+  expect(() => f.svc.token({ ...refresh, refresh_token: reuse.refresh_token })).toThrow('invalid_grant')
+  expect(() => f.svc.authenticate(r1.access_token)).toThrow()
+  // another app cannot use this app's refresh token
+  const other = f.svc.register({ client_name: 'Other', redirect_uris: [redirect] })
+  expect(() => f.svc.token({ ...refresh, client_id: other.client_id, refresh_token: retry.refresh_token })).toThrow('invalid_grant')
+  // a replay of a spent token after its pair was used ends the whole connection
+  expect(() => f.svc.token({ ...refresh, refresh_token: first.refresh_token })).toThrow('invalid_grant')
+  expect(() => f.svc.authenticate(retry.access_token)).toThrow()
+  expect(() => f.svc.token({ ...refresh, refresh_token: retry.refresh_token })).toThrow('invalid_grant')
+  // disconnect in Settings ends every token of a connection that never asked for offline_access
+  const again = f.exchange(f.code('mcp:read')), g2 = f.svc.authenticate(again.access_token)
+  const next = f.svc.token({ ...refresh, refresh_token: again.refresh_token })
+  f.svc.disconnect(g2.id, f.auth)
+  expect(() => f.svc.authenticate(next.access_token)).toThrow()
+  expect(() => f.svc.token({ ...refresh, refresh_token: next.refresh_token })).toThrow('invalid_grant')
+  expect(() => f.svc.token({ ...refresh, refresh_token: again.refresh_token })).toThrow('invalid_grant')
+  // the client's own /oauth/revoke with its refresh token ends it too
+  const third = f.exchange(f.code('mcp:read'))
+  f.svc.revoke({ client_id: f.client.client_id, token: third.refresh_token })
+  expect(() => f.svc.authenticate(third.access_token)).toThrow()
+  expect(() => f.svc.token({ ...refresh, refresh_token: third.refresh_token })).toThrow('invalid_grant')
+})
+
+test('a grant stored by an older build without offline_access stays access-only: no refresh token', async () => {
+  const f = await fixture('old-grant'), code = f.code('mcp:read')
+  // as an older build stored it: the app did not ask, so the grant has no offline_access
+  f.h.ctx.db.query("UPDATE remote_mcp_grants SET scopes=? WHERE id=(SELECT grant_id FROM remote_mcp_codes WHERE hash=?)").run(JSON.stringify(['mcp:read', 'mcp:admin']), hash(code))
+  const tokens = f.exchange(code)
+  expect(tokens.scope).toBe('mcp:read mcp:admin')
+  expect(tokens.refresh_token).toBeUndefined()
+  const grant = f.svc.authenticate(tokens.access_token)
+  expect(f.h.ctx.db.query("SELECT count(*) AS n FROM remote_mcp_tokens WHERE grant_id=? AND kind='refresh'").get(grant.id)).toEqual({ n: 0 })
+})
