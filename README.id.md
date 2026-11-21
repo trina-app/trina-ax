@@ -16,7 +16,7 @@ Trina AX menyatukan file, skill, dan alat tim Anda di satu server. AI setiap ora
 
 </div>
 
-https://github.com/user-attachments/assets/0131c666-23a3-4419-9562-261d2c362fa5
+https://github.com/user-attachments/assets/b1837bf4-0ea6-442c-8404-a72e9962057b
 
 <p align="center"><sub>80 detik: apa yang bisa dilakukan AI karyawan baru di hari pertama.</sub><br>Open source (AGPL-3.0) · Pasang sendiri gratis, tanpa batas jumlah pengguna<br><br><a href="https://github.com/trina-app/trina-ax?tab=readme-ov-file"><img src="docs/images/readme/v4/star-id.png" height="44" alt="Beri bintang Trina AX di GitHub"></a><br><sub>Lalu tekan ☆ Star di bagian atas halaman. Bintang dari Anda membantu lebih banyak tim menemukan Trina AX.</sub></p>
 
