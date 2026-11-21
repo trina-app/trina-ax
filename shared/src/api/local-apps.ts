@@ -114,9 +114,14 @@ export function splitCommand(line: string): string[] | null {
   return out.length ? out : null
 }
 
-/** Known tools, picked in Settings › Connectors › Add › An app on your computer (or the person types a command). */
-export const LOCAL_APP_PRESETS: readonly { id: string; name: string; spec: LocalAppSpec }[] = [
-  { id: 'aside', name: 'Aside', spec: { adapter: 'mcp', command: 'aside', args: ['mcp'], env: [] } },
+/** Known tools, picked in Settings › Connectors › Add › An app on your computer (or the person types a command).
+ * `reads`: an MCP preset's tools that only read, Trina's own list for a program that marks none of its tools
+ * (MCP readOnlyHint): Aside 1.26 gives no annotations, so without it listing profiles asked on the "send" card
+ * (docs/decisions/20261118-local-app-connectors.md "Aside's reads"). Only for the exact listed command (presetReads). */
+export const LOCAL_APP_PRESETS: readonly { id: string; name: string; spec: LocalAppSpec; reads?: readonly string[] }[] = [
+  // browser_profiles lists profile ids, labels and whether each is connected; memory_search searches the person's own
+  // Aside notes. repl (JavaScript in the logged-in browser) and exec (Aside's browser agent) are not here: they ask.
+  { id: 'aside', name: 'Aside', spec: { adapter: 'mcp', command: 'aside', args: ['mcp'], env: [] }, reads: ['browser_profiles', 'memory_search'] },
   {
     id: 'ego-lite', name: 'ego lite', spec: {
       adapter: 'cli', command: 'ego-browser', env: [], tools: [
@@ -129,6 +134,16 @@ export const LOCAL_APP_PRESETS: readonly { id: string; name: string; spec: Local
     },
   },
 ]
+
+/** The tools Trina takes as reads for this spec: a listed preset's `reads` when the spec is exactly that preset's
+ * command (localCommandKey), never for a command the person typed, even one that starts the same program. */
+export function presetReads(spec: LocalAppSpec | null): ReadonlySet<string> {
+  if (!spec) return NO_READS
+  const key = localCommandKey(spec)
+  const p = LOCAL_APP_PRESETS.find((x) => x.reads && localCommandKey(x.spec) === key)
+  return p?.reads ? new Set(p.reads) : NO_READS
+}
+const NO_READS: ReadonlySet<string> = new Set()
 
 /** why a call did not reach the program (the server turns each into words for the person and the AI) */
 export const LocalFailure = z.enum([

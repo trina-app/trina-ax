@@ -17,7 +17,7 @@ import { UserId, Uuid7 } from '../ids'
 import { ApiErrorBody, ErrorCode, RelPath } from './common'
 import { BrowserCall, BrowserResult } from './browser'
 import { LocalCall, LocalResult } from './local-apps'
-import { ArtifactSummary, ArtifactType, Chat, ChatThreadReply, ChatThreadSummary, Job, JobKind, Memory, Message, MessageStatus, Step, UserRef } from './entities'
+import { ArtifactSummary, ArtifactType, Attachment, Chat, ChatThreadReply, ChatThreadSummary, Job, JobKind, Memory, Message, MessageStatus, Step, UserRef } from './entities'
 import { CredentialLogin } from './credentials'
 import { IntegrationAuth, IntegrationScope, RemoteIntegrationKind } from './integrations'
 import { SkillProblem } from './skills'
@@ -266,6 +266,9 @@ export const ServerEvent = z.discriminatedUnion('type', [
   ev('message.step', z.object({ chatId: Uuid7, messageId: Uuid7, step: Step })),
   /** finished: done / error / stopped; the full final message (content, steps, file summary, usage) */
   ev('message.done', z.object({ chatId: Uuid7, messageId: Uuid7, status: MessageStatus, message: Message })),
+  /** an answer's attached files changed while it runs (the AI attached a file: server/src/chat/work-file-tool.ts), as
+   * this person may see them; message.done carries them too. An older page ignores it */
+  ev('message.attachments', z.object({ chatId: Uuid7, messageId: Uuid7, attachments: z.array(Attachment) })),
   /** the AI provider is busy (a short 429 or a 529) and the engine is trying again: busy true; false when the provider
    * answers again. The web app also clears it when text or a step of that answer arrives, or the answer ends. */
   ev('turn.busy', z.object({ chatId: Uuid7, messageId: Uuid7, turnId: Uuid7, busy: z.boolean() })),

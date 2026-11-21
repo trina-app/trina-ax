@@ -28,7 +28,7 @@ import AiAccessBanner from '../components/chat/AiAccessBanner'
 import { isNoAiReason } from '../lib/aiAccess'
 import { ResultSuggestion } from '../components/onboarding/ResultSuggestion'
 import { ArrowDown, ChevronLeft, Globe, Loader2, RotateCcw, Trash2 } from 'lucide-react'
-import { Fragment, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { chatErrorReason, uuidv7, type Attachment, type Chat, type EngineId, type Project } from '@mycel/shared/api'
 import { api, API, errorText, isApiError } from '../lib/api'
@@ -83,7 +83,8 @@ import { FileDropZone } from '../components/FileDropZone'
 import { isolate } from '../components/handover/isolate'
 import { RoomSideColumn } from '../components/rooms/RoomSideColumn'
 import { ChatThreadPanel } from '../components/chat/ChatThreadPanel'
-import { closeSidePanel, useSidePanel } from '../lib/sidePanel'
+import { closeSidePanel, useSidePanel, type PreviewFile } from '../lib/sidePanel'
+import { ChatLinks } from '../components/Markdown'
 import { useFolderWords } from '../lib/folderLabels'
 
 /** Where a link goes inside a translated sentence ({projects} in chat.notFoundManage): split there. */
@@ -272,6 +273,15 @@ function ChatView({ chatId, threadRoot }: { chatId: string; threadRoot: string |
   }, [chatId, chatFromList])
 
   const messages = thread.messages
+  // a chat shared with people: the files its creator added as copies (docs/decisions/20261121-share-chat-files.md) open
+  // for every link to their old place, for everyone (one file, not two); a link that does not open for me offers to ask
+  // the creator to add it (components/ChatFileAsk.tsx)
+  const peopleChat = isPeopleShared(chat)
+  const chatLinks = useMemo(() => {
+    const copies = new Map<string, PreviewFile>()
+    for (const m of messages) for (const a of m.role === 'assistant' ? m.attachments : []) if (a.source === 'chat' && a.origin === 'shared-copy' && a.from) copies.set(a.from, { source: 'chat', chatId, fileId: a.id, name: a.name })
+    return copies.size || peopleChat ? { chatId, copies, ask: peopleChat && shared?.by.id !== me.user.id } : null
+  }, [messages, chatId, peopleChat, shared?.by.id, me.user.id])
   const running = runningMessage(messages)
 
   // ?answer=: scroll to it and mark it (`data-focused`, no look: only the place) for a moment, once it is read; gone (or
@@ -721,6 +731,7 @@ function ChatView({ chatId, threadRoot }: { chatId: string; threadRoot: string |
               these; each says who sent it and when */}
           {/* the message box below answers the AI's open question (not when it is not shown: a trashed or read-only chat) */}
           <BoxAnswers.Provider value={chat?.deletedAt || readOnly ? null : (question?.request.requestId ?? null)}>
+          <ChatLinks.Provider value={chatLinks}>
           <ImageGroup>
             {messages.map((m, i) => {
               if (m.role === 'user')
@@ -738,6 +749,7 @@ function ChatView({ chatId, threadRoot }: { chatId: string; threadRoot: string |
               )
             })}
           </ImageGroup>
+          </ChatLinks.Provider>
           </BoxAnswers.Provider>
           {!chat?.deletedAt && <QueuedMessages chatId={chatId} onFocusComposer={() => composer.current?.focus()} shared={shared && !readOnly ? { audience: shared.audience, kind: shared.kind, othersWaiting: shared.waiting ?? 0 } : undefined} />}
         </div>

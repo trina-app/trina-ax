@@ -281,7 +281,19 @@ const AttachedCopies = createContext<ReadonlyMap<string, PreviewFile> | null>(nu
 /** Text from outside the team folder (a room file, a file picked on this computer): a team picture it names is a link to
  * open, never loaded by itself, so another person's file cannot put the viewer's own pictures into its page. */
 const TeamImagesAsLinks = createContext(false)
-const useLinkTarget = (path: string) => teamLinkTarget(path, useContext(OpenableFiles), useContext(AttachedCopies))
+/** A chat's own copies of files (docs/decisions/20261121-share-chat-files.md: files the chat made in its creator's own
+ * folder, added to a chat shared with people), by the team path they were copied from, and the chat for an ask. Inside
+ * that chat a link to such a path opens the chat's copy for everyone, the creator included (one file, not two). `ask`:
+ * a link that does not open for me offers to ask the creator to add it (the side panel, components/ChatFileAsk.tsx). */
+export const ChatLinks = createContext<{ chatId: string; copies: ReadonlyMap<string, PreviewFile>; ask: boolean } | null>(null)
+function useLinkTarget(path: string) {
+  const chat = useContext(ChatLinks)
+  const roomTarget = teamLinkTarget(path, useContext(OpenableFiles), useContext(AttachedCopies))
+  const copy = chat?.copies.get(path.replace(/^\/+|\/+$/g, ''))
+  return copy ? { kind: 'copy' as const, copy } : roomTarget
+}
+/** The chat a team link opens from, when the panel may offer an ask there. */
+const useAskChat = () => { const c = useContext(ChatLinks); return c?.ask ? c.chatId : null }
 
 /** A file the AI made or mentioned: a link in the sentence, with a small file icon at the text's height, that opens the
  *  preview panel (which has the download; a file without a viewer shows the "can't be previewed" notice and a
@@ -290,13 +302,14 @@ const useLinkTarget = (path: string) => teamLinkTarget(path, useContext(Openable
 function TeamFileLink({ path, at, children }: { path: string; at?: SourceLoc; children: ReactNode }) {
   const t = useT()
   const target = useLinkTarget(path)
+  const askChat = useAskChat()
   if (target.kind === 'locked') return <LockedFile path={path}>{children}</LockedFile>
   const copy = target.kind === 'copy' ? target.copy : null
   const canPreview = previewKind(copy?.name ?? path) !== null
   return (
     <button
       type="button"
-      onClick={() => (copy ? openFilePreview(copy) : openTeamFile(path, at))}
+      onClick={() => (copy ? openFilePreview(copy) : openTeamFile(path, at, askChat))}
       className="not-prose inline rounded-sm text-left font-medium text-accent-text underline decoration-accent-text/40 underline-offset-2 [overflow-wrap:anywhere] hover:decoration-accent-text"
       title={copy ? t('rooms.fileAttachedCopy') : canPreview ? t('common.preview') : t('preview.unsupportedShort')}
       data-testid="team-file-chip"
@@ -357,6 +370,7 @@ export function TeamImage({ path, alt, className }: { path: string; alt?: string
   const t = useT()
   const [failed, setFailed] = useState(false)
   const target = useLinkTarget(path)
+  const askChat = useAskChat()
   const asLink = useContext(TeamImagesAsLinks)
   const drawn = target.kind === 'team' && !asLink && isDisplayableImagePath(path) && !failed
   const viewer = useViewerItem(drawn ? (meta) => teamImageItem(path, alt || baseName(path) || t('md.image'), meta) : null)
@@ -365,7 +379,7 @@ export function TeamImage({ path, alt, className }: { path: string; alt?: string
   if (asLink) return <TeamFileLink path={path}>{alt || baseName(path) || t('md.image')}</TeamFileLink>
   if (!isDisplayableImagePath(path) || failed)
     return (
-      <button type="button" className="not-prose inline-flex items-center gap-1.5 rounded-lg border border-line px-2 py-1 text-xs text-muted" onClick={() => openTeamFile(path)}>
+      <button type="button" className="not-prose inline-flex items-center gap-1.5 rounded-lg border border-line px-2 py-1 text-xs text-muted" onClick={() => openTeamFile(path, null, askChat)}>
         <ImageOff size={14} aria-hidden /> {alt || baseName(path) || t('md.image')}
       </button>
     )

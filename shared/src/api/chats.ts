@@ -86,6 +86,10 @@ export const ShareChatBody = z.object({
    * share); without it a chat with nothing to ask about is shared at once (the move dialog's switch) */
   ask: z.boolean().optional(),
 }).strict()
+/** A file the chat made in its creator's own folder, as the Share step lists it to the creator: its name, the folder in
+ * the Files screen's words ("My files › 견적 › Sincere") and its size. Never sent to anyone else. */
+export const ChatMadeFile = z.object({ name: z.string(), place: z.string(), size: z.number().int().nonnegative() })
+export type ChatMadeFile = z.infer<typeof ChatMadeFile>
 /** What the people who would start to see a chat would see that they could not before (docs/DECISIONS.md "Share in one
  * press", QA TC-3092): counts of answers and places, never who. `added`: how many people start to see it;
  * `memoryAnswers`: answers that may have used my personal memories; `fileAnswers`: answers that used files (or recorded
@@ -104,6 +108,9 @@ export const ShareCheck = z.object({
   roomsUnseen: z.boolean(),
   unchecked: z.number().int().nonnegative(),
   earlierFiles: z.number().int().positive().optional(),
+  /** files this chat made in my own folder that the people in it can't open (docs/decisions/
+   * 20261121-share-chat-files.md): the Share step "Share the files from this chat too?". Only for me, its creator */
+  madeFiles: z.array(ChatMadeFile).optional(),
 })
 export type ShareCheck = z.infer<typeof ShareCheck>
 
@@ -403,6 +410,10 @@ export const ChatAudience = z.object({
   subjects: z.array(ChatAudienceRow),
   /** how many people see it now, its creator included (with a group in it: for the creator and admins only) */
   count: z.number().int().nonnegative().optional(),
+  /** a chat already shared with people, for its creator: the files it made in my own folder that are not in the chat
+   * yet ("2 files from this chat are only in your files"), and the key a save with `withFiles` carries for exactly these */
+  madeFiles: z.array(ChatMadeFile).optional(),
+  madeFilesKey: z.string().optional(),
 })
 export type ChatAudience = z.infer<typeof ChatAudience>
 export const PutChatAudienceBody = z.object({
@@ -410,12 +421,17 @@ export const PutChatAudienceBody = z.object({
   subjects: z.array(ProjectParticipant).max(CHAT_AUDIENCE_MAX + 1),
   /** the last "confirm"'s key: I saw that state and said yes */
   confirmKey: z.string().min(1).max(200).optional(),
+  /** "Share with files": copy the files the chat made in my own folder (the check's or the audience's madeFiles) into
+   * the chat. The key must cover exactly those files and their bytes; anything changed answers "confirm" again */
+  withFiles: z.boolean().optional(),
 }).strict()
 export const PutChatAudienceResult = z.discriminatedUnion('status', [
   /** saved: the chat as I see it and its audience now. `filesNotCopied`: at a first share, how many of my earlier
    * computer uploads in it could not be shared with it (too large, no storage room, changed since): still mine alone */
   z.object({
     status: z.literal('saved'), chat: Chat, audience: ChatAudience, filesNotCopied: z.number().int().positive().optional(),
+    /** "Share with files": how many files were added to the chat as copies */
+    filesAdded: z.number().int().positive().optional(),
     /** people taken out by name who still see it through a group listed (QA TC-2264): their name and those groups' names.
      * Only through groups I am in (admins any); someone kept only through other groups is not listed */
     keptThrough: z.array(z.object({ name: z.string(), groups: z.array(z.string()).min(1) })).optional(),

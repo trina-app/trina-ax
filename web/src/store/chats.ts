@@ -788,6 +788,16 @@ export const useChats = create<ChatsState>((set, get) => {
           }
           return
         }
+        case 'message.attachments': {
+          // the AI attached a file to a running answer (a chat shared with people): its tiles show at once; a message not
+          // loaded here gets them with message.done or the next load
+          const { chatId, messageId, attachments } = ev.data
+          if (held(chatId, ev) || !get().threads[chatId]) return
+          const msgs = thread(chatId).messages
+          if (!msgs.some((x) => x.id === messageId)) return
+          setThread(chatId, (t) => ({ ...t, messages: t.messages.map((x) => (x.id === messageId ? { ...x, attachments } : x)) }))
+          return
+        }
         case 'message.done': {
           const { chatId, message } = ev.data
           clearQueue(message.id)

@@ -31,6 +31,11 @@ export const API_PREFIX = '/api'
 
 /** Small uploads (POST /api/files/upload, /api/uploads, /api/transcribe): one file up to 50 MB. */
 export const SMALL_UPLOAD_MAX = 50 * 1024 * 1024
+/** The most a file the AI attaches to its answer in a chat shared with people may be (server/src/chat/chat-files.ts
+ * createFromAi; docs/decisions/20261121-shared-chat-attach-work-file.md): 1 GB, as a room file
+ * (docs/decisions/20261116-room-file-limit-1gb.md), within the team's storage and the turn's write limits. An upload
+ * keeps SMALL_UPLOAD_MAX (CHAT_FILE_MAX). */
+export const CHAT_FILE_AI_MAX = 1024 * 1024 * 1024
 /** Chunked uploads: 8 MB chunks (Cloudflare's 100 MB body limit on the relay path is far away). */
 export const UPLOAD_CHUNK_SIZE = 8 * 1024 * 1024
 /** Largest file accepted through an upload session. */
