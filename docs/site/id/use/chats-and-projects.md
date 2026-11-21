@@ -223,6 +223,37 @@ lalu klik **✕** (atau pilih **Hapus pratinjau** di menu pesan).
 
 ![Obrolan di ponsel: Mentions & threads, saluran, obrolan grup, dan pesan langsung, dengan lima tab di bagian bawah](../../images/chats/rooms-phone.webp "Obrolan di ponsel")
 
+### Tempat percakapan Anda tercantum
+
+Daftar Obrolan punya urutan yang sama di komputer dan di ponsel: **Disematkan**, lalu bagian Anda sendiri, lalu
+**Saluran**, **Proyek**, dan **Pesan langsung**.
+
+- **Proyek** berisi percakapan setiap proyek tim, menurut nama, dengan ikon folder. Percakapan proyek muncul setelah
+  seseorang menulis di sana; sebelum itu Anda membukanya dari proyek. Tidak ada **+**: proyek dibuat di halaman Proyek
+  atau dari percakapan (lihat [Jadikan percakapan proyek](#jadikan-percakapan-proyek)).
+- Percakapan hanya muncul di satu tempat. Percakapan proyek yang Anda sematkan atau seret ke salah satu bagian Anda keluar
+  dari Proyek. Seret ke judul **Proyek** untuk mengembalikannya.
+- Saat proyek dipindahkan ke sampah, percakapannya keluar dari daftar. Memulihkan proyek mengembalikannya.
+
+### Saluran departemen dan foldernya
+
+Setiap departemen (grup di **Admin › Grup**) punya salurannya sendiri. Jika departemen punya folder yang bisa Anda buka,
+bagian atas salurannya menampilkan tombol folder dengan nama departemen: tombol itu membuka folder tersebut di File.
+
+- **File yang Anda kirim di sana masuk ke folder Lampiran obrolan di folder departemen**, jadi file departemen ada di
+  satu tempat. Di samping file, obrolan menunjukkan ke mana file itu masuk, misalnya "Penjualan › Lampiran obrolan".
+- File tetap hanya di percakapan, ditandai **Hanya di percakapan ini**, jika lebih banyak orang daripada departemen
+  bisa membuka folder itu, jika seseorang di saluran tidak bisa membuka Lampiran obrolan, atau jika Anda hanya bisa
+  melihat folder itu. Saluran lalu juga punya **File** yang mencantumkan file-file tersebut.
+- **Menghapus pesan hanya menghapus pesan.** File di folder departemen tetap di sana, dan konfirmasinya menyebut
+  tempatnya; hapus di File jika ingin menghilangkannya.
+- Admin bisa membuka semua folder tim, jadi mereka juga bisa membuka file ini di File meskipun tidak ada di departemen
+  itu. Mereka tidak melihat percakapannya.
+- Orang yang bergabung ke departemen nanti bisa membuka semua file yang sudah ada di Lampiran obrolan-nya, tetapi tidak
+  pesan-pesan sebelumnya, sama seperti proyek.
+- Jika folder departemen ada di dalam proyek, file yang dikirim di saluran tetap di percakapan.
+- File yang dikirim sebelum perubahan ini tetap di saluran, di daftar **File**-nya.
+
 ### Tamu
 
 Orang dari luar tim, misalnya agensi atau klien, bisa bergabung ke saluran privat, obrolan grup, atau proyek sebagai
@@ -303,7 +334,7 @@ file proyek: satu daftar orang, satu tempat untuk file.
   dibuat dan diberi nama proyek. Ikon obrolan kecil di baris proyek pada **Proyek** (dengan titik saat ada yang belum
   dibaca) dan **Percakapan** di atas chat AI proyek juga membukanya.
 - Di atas percakapan, tombol folder dengan nama proyek membuka halaman proyek: file dan chat AI-nya. Percakapan muncul di
-  **Saluran**, dengan ikon folder, setelah seseorang menulis di sana.
+  **Proyek** pada daftar Obrolan, dengan ikon folder, setelah seseorang menulis di sana.
 - **Siapa yang ada di dalamnya mengikuti proyek.** Menambahkan orang ke proyek menambahkannya ke percakapan, dan ia melihat
   seluruh riwayatnya; mengeluarkan orang dari proyek mengeluarkannya dari percakapan. Dialog anggota mengatakannya sebelum
   Anda menambahkan siapa pun. Untuk mengubahnya, buka nama percakapan di atas, lalu **Kelola orang** (bagi yang boleh
@@ -314,6 +345,38 @@ file proyek: satu daftar orang, satu tempat untuk file.
   menghilangkannya.
 - Trina di obrolan samping percakapan menyimpan dokumen baru di folder proyek, dan chat AI proyek bisa membaca percakapan itu.
   Keduanya dilihat orang yang sama, jadi tidak ada pertanyaan soal siapa yang bisa melihat.
+- Obrolan samping **✦** di percakapan tetap pribadi untuk Anda. Saat kosong, obrolan itu mengatakannya dan menautkan ke
+  halaman proyek, tempat orang-orang proyek bertanya kepada Trina bersama.
+- Jika orang-orang proyek sama persis dengan orang-orang satu departemen, awal percakapan dan info percakapan menampilkan "Orangnya
+  sama dengan #Penjualan. Bicarakan Atlas di sini.", dengan tautan ke saluran departemen.
+
+### Jadikan percakapan proyek
+
+Saluran pribadi atau obrolan grup yang berubah menjadi pekerjaan nyata bisa dijadikan proyek, beserta riwayatnya.
+
+1. Buka **⋯** percakapan (di atas, di barisnya dalam daftar, atau dengan menekan lama barisnya di ponsel) dan pilih
+   **Jadikan proyek**. Anda melihatnya jika boleh membuat proyek tim; di tim tempat hanya admin yang membuatnya, anggota
+   tidak melihatnya.
+2. Periksa namanya. Awalnya nama percakapan (untuk obrolan grup tanpa nama, nama orang-orangnya). Jika proyek lain sudah
+   memakai nama itu, folder baru mendapat "-2", dan dialognya memberi tahu.
+3. Baca apa yang akan terjadi, lalu pilih **Buat proyek**:
+   - Semua orang di percakapan menjadi orang-orang proyek.
+   - File yang dikirim di percakapan dipindahkan ke folder **Lampiran obrolan** proyek. File yang tidak bisa dilihat
+     semua orang di percakapan (misalnya yang dikirim sebelum seseorang bergabung) tetap di percakapan, dan dialognya
+     menyebut berapa banyak.
+   - Orang yang ditambahkan ke proyek nanti melihat pesan sejak saat itu, dan bisa membuka file yang dipindahkan.
+
+Percakapan tetap terbuka dan kini menjadi percakapan proyek, dengan tombol folder proyek di atas dan satu baris yang
+menyebut siapa yang menjadikannya proyek. Selama file dipindahkan, bagian atas menampilkan **Memindahkan file…**; baris
+kedua menyebut berapa yang dipindahkan dan berapa yang tetap. File yang tetap ditandai **Hanya di percakapan ini**, dan
+percakapan itu tetap punya daftar **File** untuk file-file tersebut.
+
+Sematan, bagian, notifikasi, dan posisi baca Anda tetap seperti semula. Jika seseorang bergabung atau keluar saat dialog
+terbuka, dialog menampilkan **Orangnya berubah** dan jumlah yang baru. Tamu yang sudah punya proyek menghalanginya: admin
+menjadikannya anggota tim terlebih dahulu.
+
+Di pesan langsung, **⋯** berisi **Proyek baru dengan** dan nama orang itu. Pilihan itu membuat proyek baru untuk Anda
+berdua, dengan percakapannya sendiri. Pesan langsungnya tetap seperti semula.
 
 ## Menemukan apa saja
 

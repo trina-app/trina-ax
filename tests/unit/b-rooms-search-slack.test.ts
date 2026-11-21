@@ -192,11 +192,14 @@ describe('what is found', () => {
     const p = await search('erin', `${T} 보낸`)
     expect(p.items.map((i) => i.snippet)).toEqual([`${T} 견적서 보냈어요`])
     expect(parseSearch('보낸').forms[0]).toContain('보냈')
-    // files by name, and the AI's search of the rooms (rooms tool)
+    // files by name, and the AI's search of the rooms (rooms tool). Sent in a DM: a file sent in a department's
+    // room goes to its folder's Chat attachments (rooms/team-place.ts), and the rooms tool does not match the names of
+    // files kept in the team folder (rooms/reader.ts wordWhere)
+    const chat = await dm('alice', 'erin')
     const fd = new FormData()
     fd.append('file', new File(['x'], 'VERBCANARY_작성한_보고서.pdf', { type: 'application/pdf' }))
-    const fid = ((await (await h.req('alice', `/api/rooms/${room}/files`, { method: 'POST', body: fd })).json()) as { id: string }).id
-    await send('alice', room, `${T} 파일`, { fileIds: [fid] })
+    const fid = ((await (await h.req('alice', `/api/rooms/${chat}/files`, { method: 'POST', body: fd })).json()) as { id: string }).id
+    await send('alice', chat, `${T} 파일`, { fileIds: [fid] })
     expect(searchRoomFiles(h.ctx.db, 'erin', { q: 'VERBCANARY 작성했어요' }).items.map((i) => i.file.name)).toEqual(['VERBCANARY_작성한_보고서.pdf'])
     expect(searchRoomFiles(h.ctx.db, 'bob', { q: 'VERBCANARY 작성했어요' }).items).toEqual([])
     const ai = searchRooms(h.ctx.db, 'erin', 'UTC', { query: `${T} 만든` })

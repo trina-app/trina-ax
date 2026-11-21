@@ -25,6 +25,16 @@ One permission function on the server decides every access. The OS stops the AI 
 - Changes apply **at once**. The AI reads permissions again on every tool call.
 - Removing access does not erase earlier answers that quoted a file.
 
+### Chat attachments in group folders
+
+A file sent in a department's channel goes into that group folder's **Chat attachments** folder (named in the team's
+language), as a project room's files go into the project's. Everyone who can open the group folder can open it there,
+and owners and admins can too, because they can always open team folders: they see the channel's new uploads in Files
+even when they are not in the department, though not the conversation. When the group folder is shared wider than the
+department, uploads stay in the channel instead, marked **Only in this conversation**. If a group folder is shared wider
+later, the files already in its Chat attachments follow the folder's new sharing. [Read about department
+channels](chats-and-projects.md#a-departments-room-and-its-folder).
+
 ## Share a folder
 
 Owners and admins share a folder like in Google Drive: **Files › a folder's ⋯ › Share**, or **Admin › Folder permissions › Share**. Both open the same dialog.

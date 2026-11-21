@@ -1187,6 +1187,20 @@ cases:
       - { type: no_file_created, file: "**" }
   why: docs/decisions/20261120-project-is-room.md; the room side chat's own save into the project's folder is covered by tests/unit/b-linked-project-no-card.test.ts.
 
+- id: PRJ-07
+  title: Turn a conversation into a project
+  features: [rooms.make-project]
+  lang: ko
+  context: personal
+  as: sora
+  prompt: 지금 대화방에서 하던 이야기가 일이 됐는데, 이 대화방을 그대로 프로젝트로 바꿀 수 있어?
+  expect:
+    outcome: explain
+    good: "Says a private channel or group chat can be made a project from the conversation's ⋯ menu (Make it a project): its members become the project's people, the room becomes the project's chat room with its history, and files everyone there could see move to the project's Chat attachments. Says the AI does not do it itself; no invented steps."
+    checks:
+      - { type: no_file_created, file: "**" }
+  why: docs/AGENTS/plan/20261121-0619-structure-polish.md A (the web's menu item is PR 3 of the plan).
+
 - id: PRJ-05
   title: Commands in a project (dev environment)
   features: [projects.dev-env, projects.dev-env-sites]

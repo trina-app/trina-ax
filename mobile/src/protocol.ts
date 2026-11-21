@@ -20,10 +20,10 @@ export const PUSH_PERMISSION_CAPABILITY = 'push-permission-v1'
  * (env(safe-area-inset-*), and the --app-inset-* CSS variables the app sets before the page loads, for WebViews that
  * do not report the insets). */
 export const APPEARANCE_CAPABILITY = 'appearance-v1'
-/** Optional, versioned: the iPhone app shows who and where in a room push (its notification service extension asks
- * the team for the title with a label key the app made and keeps in the keychain). The `push-token` reply then also has
- * `labelHash` (sha256 hex of that key), which the page registers with the token. Only iPhone builds with the extension
- * offer it (1.0.1 on); Android stays generic. */
+/** Optional, versioned: the app shows who and where in a room push. The iPhone's notification service extension (1.0.1
+ * on) and Android's messaging service (Android builds from 1.0.11 on, plugins/push-label.js) ask the team for the title with a label key the
+ * app made and keeps on the phone. The `push-token` reply then also has `labelHash` (sha256 hex of that key), which the
+ * page registers with the token. On Android that registration also makes room pushes data-only, so the app builds them. */
 export const PUSH_LABEL_CAPABILITY = 'push-label-v1'
 /** Optional, versioned: `share-text` opens the phone's own share sheet with a text the page made (the team invite
  * message: KakaoTalk, Slack, a text message). Android's WebView has no navigator.share; on the iPhone the app's sheet is

@@ -19,14 +19,17 @@
 // search with "This conversation" on, as ⌘F there; the way to it on a phone and with a mouse.
 // A project's chat room (docs/decisions/20261120-project-is-room.md D5) ends with 프로젝트 나가기 in place of 대화방 나가기
 // and has no 초대하기: its people are the project's (the room's info has Manage people).
-import { Bell, Blocks, Eye, EyeOff, Link2, Lock, LogOut, Pencil, Pin, PinOff, Search, UserPlus } from 'lucide-react'
+// Before 링크 복사, for whoever may make team projects (not a guest; members when the team lets them): a group chat that
+// is no project's room yet has 프로젝트로 만들기 and a 1:1 has "New project with {name}" (MakeProjectDialog.tsx;
+// docs/decisions/20261121-make-project-from-room.md).
+import { Bell, Blocks, Eye, EyeOff, FolderPlus, Link2, Lock, LogOut, Pencil, Pin, PinOff, Search, UserPlus } from 'lucide-react'
 import { useRef, useState, type RefObject } from 'react'
 import { ROOM_NAME_MAX, type Project, type Room } from '@mycel/shared/api'
 import { errorText } from '../../lib/api'
 import { useLocale, useT } from '../../i18n'
 import { markLeaving, useRooms } from '../../store/rooms'
 import { mayManageApps, useRoomApps } from '../../store/roomApps'
-import { useMe } from '../../store/session'
+import { mayMakeTeamProject, useMe } from '../../store/session'
 import { isGuestMe } from '../../lib/guests'
 import { isPrivateChannel, isProjectRoom, projectRoomOf } from '../../lib/rooms'
 import { useLeaveProject } from '../LeaveProject'
@@ -38,19 +41,24 @@ import { useNameFallback } from './RoomIcon'
 import { MenuButton, type MenuItem } from './MenuButton'
 import { RoomNotifyMenu, roomNotify } from './RoomNotifyMenu'
 import { canSection, useSectionRowItems } from '../nav/SidebarSections'
+import { openDmProject, openMakeProject } from './MakeProjectDialog'
 
 /** What a room's "⋯" holds for me, in order (a pure list of what each kind offers; the words and actions are the
  * component's). */
-export type RoomMenuAction = 'pin' | 'unpin' | 'notify' | 'rename' | 'apps' | 'copyLink' | 'leave' | 'leaveProject' | 'hide' | 'show'
+export type RoomMenuAction = 'pin' | 'unpin' | 'notify' | 'rename' | 'apps' | 'makeProject' | 'dmProject' | 'copyLink' | 'leave' | 'leaveProject' | 'hide' | 'show'
 /** `apps`: I manage the room's apps ("Add an app" / "Apps posting here", docs/DECISIONS.md "Apps posting in rooms"): in
- * a team room or the everyone room its owners and admins, in a 1:1 or a group chat its members (store/roomApps.ts) */
-export function roomMenuActions(room: Pick<Room, 'kind'> & Partial<Pick<Room, 'hidden' | 'canRename' | 'pinnedAt' | 'project' | 'projectRoom'>>, apps = false): RoomMenuAction[] {
+ * a team room or the everyone room its owners and admins, in a 1:1 or a group chat its members (store/roomApps.ts).
+ * `projects`: I may make team projects (store/session.ts mayMakeTeamProject: not a guest, and the team lets me): a group
+ * chat that is not a project's room yet offers Make it a project, a 1:1 New project with {name}
+ * (docs/decisions/20261121-make-project-from-room.md), before Copy link. */
+export function roomMenuActions(room: Pick<Room, 'kind'> & Partial<Pick<Room, 'name' | 'hidden' | 'canRename' | 'pinnedAt' | 'project' | 'projectRoom' | 'gone'>>, apps = false, projects = false): RoomMenuAction[] {
   const hidden = room.kind !== 'group' && !!room.hidden
   // a project's chat room: Leave project when the server says I may (Room.project.leave; the last person sees it off),
   // else nothing (a member who cannot open the project now)
   const last: RoomMenuAction[] = isProjectRoom(room) ? (room.project?.leave ? ['leaveProject'] : []) : [room.kind === 'group' ? 'leave' : hidden ? 'show' : 'hide']
   const pin: RoomMenuAction[] = hidden ? [] : [room.pinnedAt ? 'unpin' : 'pin']
-  return [...pin, 'notify', ...(room.canRename ? (['rename'] as const) : []), ...(apps ? (['apps'] as const) : []), 'copyLink', ...last]
+  const project: RoomMenuAction[] = !projects || room.gone || isProjectRoom(room) ? [] : room.kind === 'group' ? ['makeProject'] : room.kind === 'dm' && !hidden ? ['dmProject'] : []
+  return [...pin, 'notify', ...(room.canRename ? (['rename'] as const) : []), ...(apps ? (['apps'] as const) : []), ...project, 'copyLink', ...last]
 }
 
 /** The address of a room as people in it open it (the app's own route; anyone else gets "not found"). */
@@ -133,13 +141,16 @@ export function useRoomMenuItems(room: Room, onNotify: () => void, phone?: Phone
   const me = useMe()
   const apps = mayManageApps(room, me)
   const appCount = useRoomApps((s) => s.lists[room.id]?.items.length ?? 0)
-  const items = roomMenuActions(room, apps).filter((a) => !(phone && a === 'rename')).map((a): MenuItem => {
+  const peer = room.peers[0]
+  const items = roomMenuActions(room, apps, mayMakeTeamProject(me)).filter((a) => !(phone && a === 'rename')).map((a): MenuItem => {
     switch (a) {
       case 'pin': return { label: t('chat.pin'), icon: <Pin size={14} aria-hidden />, onSelect: () => setPinned(true), testId: 'room-menu-pin' }
       case 'unpin': return { label: t('chat.unpin'), icon: <PinOff size={14} aria-hidden />, onSelect: () => setPinned(false), testId: 'room-menu-unpin' }
       case 'notify': return { label: t('rooms.menu.notify'), ...(level ? { hint: `· ${level}` } : {}), icon: <Bell size={14} aria-hidden />, onSelect: onNotify, testId: 'room-menu-notify' }
       case 'rename': return { label: t(room.kind === 'group' && !locked ? 'rooms.menu.makePrivate' : 'rooms.info.rename'), icon: room.kind === 'group' && !locked ? <Lock size={14} aria-hidden /> : <Pencil size={14} aria-hidden />, onSelect: () => void rename(), testId: 'room-menu-rename' }
       case 'apps': return { label: appCount ? t('roomApps.menuList', { count: appCount }) : t('roomApps.menuAdd'), icon: <Blocks size={14} aria-hidden />, onSelect: () => useRoomApps.getState().open(room.id), testId: 'room-menu-apps' }
+      case 'makeProject': return { label: t('rooms.makeProject.menu'), icon: <FolderPlus size={14} aria-hidden />, onSelect: () => openMakeProject(room.id), testId: 'room-menu-make-project' }
+      case 'dmProject': return { label: t('rooms.makeProject.dmMenu', { name: peer?.name ?? '' }), icon: <FolderPlus size={14} aria-hidden />, onSelect: () => peer && openDmProject(peer), testId: 'room-menu-dm-project' }
       case 'copyLink': return { label: t('rooms.menu.copyLink'), icon: <Link2 size={14} aria-hidden />, onSelect: () => void copyLink(), testId: 'room-menu-link' }
       case 'leave': return { label: t(locked ? 'rooms.info.leavePrivate' : 'rooms.info.leave'), icon: <LogOut size={14} aria-hidden />, danger: true, onSelect: () => void leave(), testId: 'room-menu-leave' }
       case 'leaveProject': return { label: t('projects.leave'), icon: <LogOut size={14} aria-hidden />, danger: true, onSelect: () => void leaveTheProject(), testId: 'room-menu-leave-project', ...(project?.leave === 'last' ? { disabled: true, hint: t('projects.leaveLast') } : {}) }

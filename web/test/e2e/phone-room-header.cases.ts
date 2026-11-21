@@ -132,7 +132,7 @@ export function roomHeaderCases() {
     await shot(page, 'tc257-1-menu')
     const items = menu.getByRole('menuitem')
     const ids = await items.evaluateAll((els) => els.map((e) => (e as HTMLElement).dataset.testid))
-    expect(ids).toEqual(['room-menu-next-thread', 'room-menu-search', 'room-menu-pin', 'row-section-move', 'room-menu-invite', 'room-menu-notify', 'room-menu-apps', 'room-menu-link', 'room-menu-leave'])
+    expect(ids).toEqual(['room-menu-next-thread', 'room-menu-search', 'room-menu-pin', 'row-section-move', 'room-menu-invite', 'room-menu-notify', 'room-menu-apps', 'room-menu-make-project', 'room-menu-link', 'room-menu-leave'])
     const labels = await items.allInnerTexts()
     expect(new Set(labels).size).toBe(labels.length)
     await expect(page.getByTestId('room-menu-rename')).toHaveCount(0)

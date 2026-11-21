@@ -1,0 +1,43 @@
+// The app's own Expo module for Android (mobile/modules/push-label, linked by Expo's autolinking from mobile/modules):
+// who and where in a room push (docs/decisions/20261121-android-push-who-where.md). LabelMessagingService
+// replaces expo-notifications' FCM service (plugins/push-label.js removes that one from the app's manifest).
+plugins {
+  id 'com.android.library'
+  id 'expo-module-gradle-plugin'
+}
+
+group = 'app.teamax'
+version = '1.0.0'
+
+android {
+  namespace "expo.modules.pushlabel"
+  defaultConfig {
+    versionCode 1
+    versionName '1.0.0'
+  }
+}
+
+dependencies {
+  // the service extends expo-notifications' own FCM service and delegate (plugins/push-label.js checks their shape).
+  // Expo's autolinking uses expo-notifications' prebuilt AAR (its local-maven-repo, added to every project) and has no
+  // ':expo-notifications' project then; built from source it is a project.
+  def notifications = rootProject.findProject(':expo-notifications')
+  if (notifications != null) {
+    implementation notifications
+  } else {
+    implementation "host.exp.exponent:expo.modules.notifications:${expoNotificationsVersion()}"
+  }
+  // the same version expo-notifications 58 declares (as `implementation`, so it is not on this module's classpath)
+  implementation 'com.google.firebase:firebase-messaging:25.0.1'
+  // NotificationCompat for the lock screen's public version (LabelNotificationsService), the version expo-notifications 58 uses
+  implementation 'androidx.core:core:1.17.0'
+}
+
+/** The installed expo-notifications' version (the prebuilt AAR's version is the package's). */
+def expoNotificationsVersion() {
+  def json = providers.exec {
+    workingDir(projectDir)
+    commandLine('node', '--print', "require.resolve('expo-notifications/package.json')")
+  }.standardOutput.asText.get().trim()
+  return new groovy.json.JsonSlurper().parse(new File(json)).version
+}
