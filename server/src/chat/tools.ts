@@ -54,12 +54,15 @@ import { templateToolRefusal } from './schedule-templates'
 import { cleanAiTitle, graphemes, setAiTitle, titleToolOffered } from './title'
 import { recordSent } from '../tools/connection-urls'
 import { BOX_SHELL_TOOL, boxShellTool, callerOf } from '../devenv/tool'
+import { mayUseDevEnv } from '../devenv/setting'
+import { noteSharedReads, spaceOf, workFolderAt } from '../devenv/srt/runner'
+import { saveWorkFileTool } from './work-file-tool'
 import { connectService } from './connect-service'
 import { DRAFT_FILE_REFUSAL, draftToolRefusal, draftUrlRefusal } from '../onboarding/draft'
 import { namedPaths, SEARCH_TOOLS, SHARED_TOOLS, WRITE_TARGET_ARGS } from '../rooms/ai-tools'
 import { steerableWriteRefusal } from './shared-run'
 import { SKILL_DRAFT_FILE_REFUSAL } from '../onboarding/skill-draft'
-import { roomReadTools } from './room-tools'
+import { projectRoomOfChat, projectRoomTools, roomReadTools } from './room-tools'
 import { hintsHere, roomHint } from './room-hint'
 import { fileNote, fileNoteOnce } from './file-notes'
 import { skillFilesTool } from './skill-files'
@@ -187,7 +190,7 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
   const cards = new Map<string, NonNullable<TurnTool['card']>>()
   const templateWrites = new Set<string>()
   /** a room session's connection tools: the asker's own Google apps (integrations/connections/tools.ts) */
-  const add = (t: Tool, o: { connection?: boolean } = {}): boolean => {
+  const add = (t: Tool, o: { connection?: boolean; projectRoom?: boolean } = {}): boolean => {
     // a company profile draft (onboarding/draft.ts): web_fetch is its only tool besides the refused file tools, and a
     // draft from pasted text has none
     if (exec.profileDraft && (t.name !== 'web_fetch' || exec.profileDraft.scope.source !== 'website')) return false
@@ -214,7 +217,8 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
     // a shared project chat (chat/shared.ts): its allowlist (rooms/ai-tools.ts), and the connection tools built for it
     // (each call behind the asker's card where some people here could not see the answer:
     // docs/decisions/20261118-shared-chat-connections.md)
-    if (exec.shared && !SHARED_TOOLS.has(t.name) && !o.connection) return false
+    // (and a project's shared chat reads its own chat room: projectRoomTools, scoped to that one room)
+    if (exec.shared && !SHARED_TOOLS.has(t.name) && !o.connection && !o.projectRoom) return false
     if (t.name in FILE_TOOLS || tools.has(t.name)) { exec.rt.log.warn('turn tool name taken, skipped', { tool: t.name }); return false }
     tools.set(t.name, t)
     if (t.label) labels.set(t.name, t.label.bind(t))
@@ -237,6 +241,13 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
   // keeps those to their own tools) nor in an approved scheduled template's run (its scope is fixed; it would refuse
   // them anyway)
   if (!exec.templateRun && !exec.shared) for (const t of roomReadTools(exec)) add(t)
+  // a project's shared chat reads that project's own chat room, and no other (chat/room-tools.ts projectRoomTools:
+  // room_read and room_file for its one room id, only what everyone who sees the chat sees there; no rooms list, no
+  // save; docs/decisions/20261120-project-is-room.md D4)
+  else if (!exec.templateRun && exec.shared?.kind === 'project') {
+    const roomId = projectRoomOfChat(exec)
+    if (roomId) for (const t of projectRoomTools(exec, roomId)) add(t, { projectRoom: true })
+  }
   // a file sent from the computer in a chat shared with people (chat/chat-file-tool.ts): read as this person while they
   // see the chat; only where the chat holds such files or is shared with people. save_chat_file copies one into the team
   // folder behind the wider-audience card (docs/decisions/20261118-chat-files-full-read-and-save.md)
@@ -294,6 +305,19 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
         return answer === 'once' || answer === 'always' || answer === 'deny' ? answer : null
       },
     }))
+  }
+  // the chat's work folder (devenv/work-files.ts): read opens what box_shell's commands made there, and
+  // save_work_file hands a finished file over. Only where box_shell itself was offered (not a confidential chat, where
+  // it is dropped as a non-local tool though exec.devEnv is set) and the commands run in a work folder (a project chat's
+  // run in the project folder, which read reaches already); looked up again at every call, never made by a read
+  if (exec.devEnv && tools.has(BOX_SHELL_TOOL)) {
+    const d = exec.devEnv
+    const where = () => {
+      if (!mayUseDevEnv(exec.rt.db, exec.rt.files, exec.spec.userId)) return null
+      return workFolderAt(exec.rt.ctx, { userId: exec.spec.userId, chatId: exec.spec.chatId, project: d.project ? { id: d.project.id, folderPath: d.project.folderPath } : null, ...(d.shared ? { shared: d.shared } : {}) })
+    }
+    exec.files.workFolder = where
+    if (!d.shared) add(saveWorkFileTool(exec, where))
   }
   if (exec.browser) for (const t of PANE_TOOLS) add(browserTool(exec, t.name as BrowserToolName, t.description, t.inputSchema as unknown as Record<string, unknown>))
   // per-person tools (external-service connections), built from saved data at the start of the turn
@@ -402,7 +426,7 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
         if (sharedNo) return { ...text(sharedNo, true), summary: `${name} -> not read: ${sharedShort(sharedNo)} (shared chat)` }
       }
       exec.noteTaint(name, args)
-      exec.noteRoomTool(name)
+      exec.noteRoomTool(name, args)
       // after a room read: anything that may change something waits for the person's yes (rooms/ai-tools.ts); a call
       // that also needs the wider-audience card below gets that one card (widenOf, or the tool's own widen: where it
       // saves, what it copies, where its bytes come from)
@@ -463,7 +487,7 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
       // a path (chat/schedule-cover.ts)
       exec.dropSkillApproval(name, args)
       exec.releaseScheduleCover(name, args)
-      exec.noteTaint(name, args); exec.noteRoomTool(name); exec.noteReads(); exec.afterTool()
+      exec.noteTaint(name, args); exec.noteRoomTool(name, args); exec.noteReads(); exec.afterTool()
       const filePath = (args as { file_path?: unknown } | null)?.file_path
       if (!isError && name === 'read' && typeof filePath === 'string')
         recordSkillRead(exec.rt.db, exec.rt.files, exec.livePrincipal(), exec.id, filePath)
@@ -517,7 +541,19 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
       // a shared project chat: grep and glob without a path look in the project folder (the call's own arguments are
       // changed: the file tool reads these); what the call would read that some of the chat's people cannot read waits
       // for the person's yes (chat/turn.ts confirmSharedRead)
-      if (exec.shared) {
+      // a read of the chat's work folder (devenv/work-files.ts) names no team path: in a shared chat what a run there may
+      // read joins the answer's record first, with who sees the chat now (as a command does), and the chat is its
+      // source; no read card (everyone here sees that folder's people's view)
+      const work = exec.workRead(name, args)
+      // (no work folder yet: the read itself refuses, and nothing is made here)
+      if (work && exec.shared && exec.files.workFolder?.()) {
+        if (!(caller ? caller.files === exec.files : true)) return { refusal: 'Only the main assistant opens the work folder.', summary: `${name} -> refused: work folder (sub-agent)` }
+        const d = exec.devEnv
+        const space = d?.shared ? spaceOf(exec.rt.ctx, { userId: exec.spec.userId, chatId: exec.spec.chatId, project: null, shared: d.shared }) : null
+        if (!space || !noteSharedReads(exec.rt.ctx, space)) return { refusal: 'The work folder of this chat cannot be opened now (the people of this chat changed, or the dev environment is off).', summary: `${name} -> refused: work folder not recorded (shared chat)` }
+        addSources(exec.rt.db, exec.spec.chatId, [{ type: 'chat', id: exec.spec.chatId }])
+      }
+      if (exec.shared && !work) {
         const noPlace = exec.sharedSearchRefusal(name, args)
         if (noPlace) return { refusal: noPlace, summary: `${name} -> not searched: no folder everyone in the shared chat reads` }
         if (SEARCH_TOOLS.has(name) && args && typeof args === 'object') {

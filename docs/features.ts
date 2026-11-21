@@ -52,8 +52,8 @@ export const FEATURES: Feature[] = [
   // ---------------- AI chat ----------------
   { id: 'chat.conversation', name: 'Chat with the AI: send, stream, stop', area: 'AI chat', endpoints: ['createChat', 'getChat', 'listMessages', 'sendMessage', 'putChatWaiting', 'stop', 'getChatQueue', 'markChatSeen'], screens: ['/c/:chatId'] },
   { id: 'chat.list', name: 'Chat history: rename, pin, delete, restore', area: 'AI chat', endpoints: ['listChats', 'listChatGroups', 'updateChat', 'deleteChat', 'restoreChat', 'pinChat', 'unpinChat'], screens: ['/trash'] },
-  { id: 'chat.list-folders', name: 'List folders: my own folders for AI chats and conversations', area: 'AI chat', endpoints: ['*NavFolder*', 'setChatFolder', 'setRoomFolder'] },
-  { id: 'rooms.categories', name: 'Conversation categories: the team\'s own, made by admins, for the Chats list', area: 'AI chat', endpoints: ['*RoomCategor*', 'setRoomCategory'] },
+  { id: 'chat.list-folders', name: 'List folders: my own folders for AI chats, and my sidebar sections for conversations', area: 'AI chat', endpoints: ['*NavFolder*', 'setChatFolder', 'setRoomFolder'] },
+  { id: 'rooms.categories', name: 'Conversation categories (team-wide, made by admins): no longer shown in the app since sidebar sections; kept on the server until a cleanup', area: 'AI chat', endpoints: ['*RoomCategor*', 'setRoomCategory'] },
   { id: 'chat.edit-regenerate', name: 'Edit a question, regenerate, answer branches', area: 'AI chat', endpoints: ['editMessage', 'regenerate', 'selectBranch'] },
   { id: 'chat.cards', name: 'AI questions, confirmations and connect cards in a turn', area: 'AI chat', endpoints: ['listTurnRequests', 'answerTurn', 'connectTurn', 'turnRequestDetail'] },
   { id: 'chat.sources', name: 'Answer sources', area: 'AI chat', endpoints: ['messageSources'] },
@@ -104,9 +104,11 @@ export const FEATURES: Feature[] = [
   { id: 'rooms.members', name: 'Room members: invite, remove, leave, rename', area: 'Rooms', endpoints: ['updateRoom', 'listRoomMembers', 'inviteRoomMembers', 'removeRoomMember', 'leaveRoom'] },
   { id: 'rooms.hide-pin', name: 'Hide and pin conversations', area: 'Rooms', endpoints: ['setRoomHidden', 'pinRoom', 'unpinRoom'] },
   { id: 'rooms.files', name: 'Files in a room', area: 'Rooms', endpoints: ['uploadRoomFile', 'attachRoomTeamFile', 'roomFile', 'roomFileHwpPreview', 'roomSavedFiles', 'roomSavePlan', 'saveRoomFilesToTeam'] },
-  { id: 'rooms.project-link', name: 'A private channel linked to a team project (Files button, Save to project, Create a channel)', area: 'Rooms', endpoints: ['linkRoomProject', 'unlinkRoomProject', 'createProjectChannel', 'undoRoomSave'] },
+  { id: 'rooms.project-link', name: 'A private channel linked to a team project (retired in 0.5.22: the endpoints answer 410)', area: 'Rooms', endpoints: ['linkRoomProject', 'unlinkRoomProject', 'createProjectChannel', 'undoRoomSave'] },
+  { id: 'rooms.project-room', name: 'A team project\'s own chat room (its people are the project\'s people)', area: 'Rooms', endpoints: ['openProjectRoom'] },
   { id: 'rooms.search', name: 'Search messages and files of rooms', area: 'Rooms', endpoints: ['searchRoomMessages', 'searchRoomFiles'] },
   { id: 'rooms.sent-files', name: 'Files you sent: my own files in rooms, largest first, delete', area: 'Rooms', endpoints: ['listMyRoomFiles'], screens: ['/sent-files'] },
+  { id: 'rooms.files-list', name: 'A room\'s Files list, and recent room files in search', area: 'Rooms', endpoints: ['listRoomFiles', 'recentRoomFiles'] },
   { id: 'rooms.activity', name: 'Activity: mentions and thread replies', area: 'Rooms', screens: ['/activity', '/activity/:noticeId'] },
   { id: 'rooms.apps', name: 'Apps posting in rooms (Sentry, GitHub, Google Forms, Notion, Typeform, Tally, Jotform, Stripe, Shopify, Zendesk, Jira, HubSpot; more services: Toss Payments, Channel Talk, PortOne; other services in Slack, Discord or JANDI format; added from a conversation menu or from "Add to a conversation" in Connectors)', area: 'Rooms', endpoints: ['listRoomApps', 'createRoomApp', 'getRoomAppAddress', 'updateRoomApp', 'setRoomAppSecret', 'rotateRoomApp', 'resumeRoomApp', 'exampleRoomApp', 'deleteRoomApp', 'putRoomAppIcon', 'setRoomAppEmoji', 'deleteRoomAppIcon', 'roomAppIcon'], screens: ['/rooms/:roomId'] },
 

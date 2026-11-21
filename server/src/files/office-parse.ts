@@ -18,7 +18,7 @@ import { hwpEditRequest, hwpVerifyRequest } from './hwp-edit'
 import { HWP_EDIT_MODE, HWP_VERIFY_MODE, HWPX_EDIT_MODE, HWPX_VERIFY_MODE, HWPX_WRITE_MODE } from './hwpx-check'
 import { PDF_STAMP_MODE, stampPdfRequest } from './pdf-stamp'
 import { PDF_PAGES_MODE, pdfPagesRequest } from './pdf-pages'
-import { PPTX_HTML_MODE, pptxHtmlRequest } from './pptx-html'
+import { PPTX_HTML_MODE, PPTX_SLIDES_MODE, pptxHtmlRequest } from './pptx-html'
 import { OFFICE_EDIT_MODE, OFFICE_VERIFY_MODE, officeEditRequest, officeVerifyRequest } from './office-edit'
 // the three editors register themselves with office-edit.ts
 import './docx-edit'
@@ -33,7 +33,7 @@ export const EXTRA_MODES = new Set(['docx-extra', 'pptx-extra'])
 /** worker modes that make a file: stdin is the request, stdout the file's bytes (make_file's .hwpx, hwpx-write.ts; edit_hwp's
  * changed .hwpx or .hwp with its report and the checks run again on it, hwpx-edit.ts and hwp-edit.ts; make_file's PDF of a
  * .pptx: the deck drawn as a page per slide, pptx-html.ts) */
-export const WRITE_MODES = new Set([HWPX_WRITE_MODE, HWPX_EDIT_MODE, HWPX_VERIFY_MODE, HWP_EDIT_MODE, HWP_VERIFY_MODE, PDF_STAMP_MODE, PDF_PAGES_MODE, PPTX_HTML_MODE])
+export const WRITE_MODES = new Set([HWPX_WRITE_MODE, HWPX_EDIT_MODE, HWPX_VERIFY_MODE, HWP_EDIT_MODE, HWP_VERIFY_MODE, PDF_STAMP_MODE, PDF_PAGES_MODE, PPTX_HTML_MODE, PPTX_SLIDES_MODE])
 /** the worker's exit code when stderr holds a ToolError message (office-worker.ts) */
 export const TOOL_ERROR_EXIT = 3
 /** UTF-8 bytes of text out of one file (the worker's stdout cap in extract.ts is a little larger; hwp.ts keeps its
@@ -348,5 +348,6 @@ export function officeWrite(mode: string, input: Uint8Array): Uint8Array | Promi
   if (mode === HWP_EDIT_MODE) return hwpEditRequest(input)
   if (mode === HWP_VERIFY_MODE) return hwpVerifyRequest(input)
   if (mode === PPTX_HTML_MODE) return pptxHtmlRequest(input)
+  if (mode === PPTX_SLIDES_MODE) return pptxHtmlRequest(input, { withHidden: true })
   throw new ToolError(`not a mode of the office worker: ${mode}`)
 }

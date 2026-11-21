@@ -1,10 +1,10 @@
 // Scheduled tasks at any frequency (server/src/chat/schedule-timing.ts, docs/decisions/20261118-shared-schedules-any-
 // frequency.md): every N minutes, several weekdays, day 29–31 and the last day of the month, cron; how they are stored
 // so an older build after a rollback never runs them more often; and the runner keeping such a task on after a run.
-import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from 'bun:test'
+import { afterAll, beforeAll, describe, expect, setDefaultTimeout, setSystemTime, test } from 'bun:test'
 import { API } from '@mycel/shared/api'
 import { CronError, describeTiming, nextOf, parseCron, STORED_PAST, storedTiming, timingOf, type Timing } from '../../server/src/chat/schedule-timing'
-import { inputTiming, ScheduleInput } from '../../server/src/chat/schedules'
+import { inputTiming, isFrequent, ScheduleInput } from '../../server/src/chat/schedules'
 import { scheduleWhen } from '../../server/src/tools/schedules'
 import { startHarness, type Harness } from '../lib/b-harness'
 import { CONFIRMED } from '../lib/schedule-card'
@@ -157,5 +157,27 @@ describe('the runner and the Scheduled page', () => {
     const bad = await h.api('alice').call(API.scheduleEditCard, { params: { id: made.id }, body: { ...cronBody, cron: '0 18 L *' } }).then(() => null, (e: { body: { fields?: Record<string, string> } }) => e)
     expect(Object.keys(bad!.body.fields ?? {})).toEqual(['body.cron'])
     rt.schedules.delete('alice', made.id)
+  })
+})
+
+describe('isFrequent: the interval of the schedule, never the time of day', () => {
+  const daily = t({ repeat: 'daily', time: '09:00' })
+  const at = (d: string) => isFrequent(daily, d, SEOUL)
+  test('a daily 09:00 task is not frequent at any hour, the hour before its time included ("Run now" at 08:30)', () => {
+    // 23:32Z is 08:32 in Seoul: the next run is 28 minutes away, but the task is daily
+    for (const d of ['2026-11-20T23:32:00Z', '2026-11-20T23:00:01Z', '2026-11-21T00:30:00Z', '2026-11-21T12:00:00Z']) expect(at(d)).toBe(false)
+  })
+  test('with the clock pinned inside the hour before the daily time', () => {
+    setSystemTime(new Date('2026-11-20T23:32:00Z'))
+    try { expect(isFrequent(daily, new Date().toISOString(), SEOUL)).toBe(false) } finally { setSystemTime() }
+  })
+  test('weekdays, weekly, monthly, once and hourly-or-slower are never frequent; an interval or cron under an hour is, at any time', () => {
+    const slow = [t({ repeat: 'weekdays' }), t({ repeat: 'weekly', weekdays: [1] }), t({ repeat: 'monthly', day: 1 }),
+      t({ repeat: 'once', date: '2026-11-21' }), t({ repeat: 'interval', everyMinutes: 60, date: '2026-11-01' }), t({ repeat: 'cron', cron: '0 * * * *' }), t({ repeat: 'cron', cron: '0 9 * * *' })]
+    const fast = [t({ repeat: 'interval', everyMinutes: 15, date: '2026-11-01' }), t({ repeat: 'interval', everyMinutes: 59, date: '2026-11-01' }), t({ repeat: 'cron', cron: '*/10 * * * *' })]
+    for (const d of ['2026-11-20T23:32:00Z', '2026-11-21T00:30:00Z', '2026-11-21T03:07:00Z']) {
+      for (const x of slow) expect(isFrequent(x, d, SEOUL)).toBe(false)
+      for (const x of fast) expect(isFrequent(x, d, SEOUL)).toBe(true)
+    }
   })
 })

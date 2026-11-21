@@ -89,13 +89,12 @@ describe('settings rows: one component, the lists’ sizes', () => {
     expect(phone).toMatch(/--spacing-list-glyph: 1\.125rem;/)
     expect(phone).toMatch(/--spacing-list-face: 2rem;/)
     expect(phone).not.toMatch(/--text-meta:/)
-    // the Trina history's rows: 36px and 14px on a computer, the phone list rows' sizes on a phone; the other lists'
-    // rows keep --spacing-row-min (30px)
+    // the Trina history's rows: every list's 30px rows (--spacing-row-min, as a room's row; no height of their own) with
+    // 14px names on a computer, the phone list rows' sizes on a phone (docs/decisions/20261121-trina-history-like-rooms.md)
     expect(computer).toMatch(/--spacing-row-min: 1\.875rem;/)
-    expect(computer).toMatch(/--spacing-row-history: 2\.25rem;/)
+    expect(css).not.toMatch(/--spacing-row-history/)
     expect(computer).toMatch(/--text-row-history: 0\.875rem;/)
     expect(computer).toMatch(/--text-row-history--line-height: 1\.25rem;/)
-    expect(phone).toMatch(/--spacing-row-history: var\(--spacing-row-min\);/)
     expect(phone).toMatch(/--text-row-history: var\(--text-row\);/)
     expect(phone).toMatch(/--text-row-history--line-height: var\(--text-row--line-height\);/)
     // a ListRow's tap target stays 44px or more on a phone (48px rows)

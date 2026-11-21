@@ -12,7 +12,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { LOCAL_APP_PRESETS, type LocalAppSpec, type LocalCall } from '@mycel/shared/api'
 import { t } from '../../desktop/src/common/i18n'
-import { ASIDE_PROFILES_DESCRIPTION, ASIDE_SIGNED_OUT, asideAccountList, asideProfilesIn, asideSessionId, asideToolsList, asideNotRunning, egoDown, EGO_BUNDLE_ID, isListedEgo, notOpenWords, withAsideSignedOut, asideAccountMismatch, asideAccountsWithProfiles, asideSuggestedAccount, isListedAside, CLI_OUTPUT_MAX, cliArgv, cliOutputText, cliTools, commandHash, defaultSearchPath, hideValues, HIDDEN_VALUE, LocalApps, resolveProgram, SlotError } from '../../desktop/src/common/local-apps'
+import { ASIDE_PROFILES_DESCRIPTION, ASIDE_SIGNED_OUT, asideAccountList, asideProfilesIn, asideSessionId, asideToolsList, asideNotRunning, egoDown, EGO_BUNDLE_ID, isListedEgo, notOpenWords, withAsideSignedOut, asideAccountMismatch, asideAccountsWithProfiles, asideAccountLines, asideSuggestedAccount, isListedAside, CLI_OUTPUT_MAX, cliArgv, cliOutputText, cliTools, commandHash, defaultSearchPath, hideValues, HIDDEN_VALUE, LocalApps, resolveProgram, SlotError } from '../../desktop/src/common/local-apps'
 
 setDefaultTimeout(30_000)
 const FAKE = path.join(import.meta.dir, '..', 'fixtures', 'local-apps', 'fake-mcp.ts')
@@ -378,6 +378,44 @@ describe('Aside with several accounts, each with its own profiles', () => {
     } finally { h.done() }
   })
 
+  test('an older Aside CLI without `account list --json`, its current account without profiles: every account\'s profiles, not "signed out"', async () => {
+    // like a Mac with Aside CLI 1.26.1023 (2026-11-21): `account list --json` fails ("unknown option '--json'"), Aside's
+    // current account u1 has no profile, and the others have theirs (signed-in Google ones and signed-out local ones)
+    const accounts = {
+      u1: [],
+      u2: [{ profileId: 'prof-w', label: 'Profile 1' }],
+      u4: [{ profileId: 'prof-x', label: 'Profile 3' }],
+      u5: [{ profileId: 'prof-y', label: 'Profile 7' }, { profileId: 'prof-z', label: 'Profile 8' }],
+    }
+    const h = multi({ FAKE_ASIDE_PROFILES: JSON.stringify(accounts), FAKE_ASIDE_CURRENT: 'u1', FAKE_ASIDE_NO_LIST_JSON: '1', FAKE_ASIDE_SIGNED_IN: 'u2,u5' })
+    try {
+      await h.init()
+      const r = h.texts(await h.tool('browser_profiles'))
+      expect(r).not.toContain(ASIDE_SIGNED_OUT)
+      const profiles = JSON.parse(r[0]!).profiles as { profileId: string; account: string }[]
+      expect(profiles.map((p) => [p.profileId, p.account])).toEqual([['prof-w', 'u2'], ['prof-x', 'u4'], ['prof-y', 'u5'], ['prof-z', 'u5']])
+      // the --json list failed, so the plain lines were read; the main process went to a signed-in account with profiles
+      expect(h.spawned).toContainEqual(['account', 'list', '--json'])
+      expect(h.spawned).toContainEqual(['account', 'list'])
+      expect(h.mcpRuns()).toEqual([['mcp'], ['mcp', '--account', 'u2']])
+      // a signed-out local account's profile works in its own aside mcp
+      expect(h.texts(await h.tool('repl', { title: 't', code: '1', profile_id: 'prof-x' }))).toEqual(['ok as u4 in prof-x'])
+    } finally { h.done() }
+  })
+
+  test('reading the plain lines of `aside account list` (an Aside CLI without --json)', () => {
+    const lines = '* u1  Local Account  signed out  profiles: none\n  u2  someone@example.com  signed in  profiles: Profile 1, Profile 2\n  provider: google\n  u4  Local Account  signed out  profiles: Profile 3\n'
+    expect(asideAccountList(lines)).toEqual({ current: 'u1', accounts: [
+      { id: 'u1', signedIn: false, profileIds: [], hasProfiles: false },
+      { id: 'u2', signedIn: true, profileIds: [], hasProfiles: true },
+      { id: 'u4', signedIn: false, profileIds: [], hasProfiles: true },
+    ] })
+    expect(asideAccountsWithProfiles(lines)).toEqual(['u2', 'u4'])
+    expect(asideAccountsWithProfiles(lines, 'u2')).toEqual(['u4'])
+    expect(asideAccountLines("error: unknown option '--json'")).toBeNull()
+    expect(asideAccountsWithProfiles('')).toEqual([])
+  })
+
   test('a profile id no account has is not looked for again on every call', async () => {
     const h = multi()
     try {
@@ -474,7 +512,7 @@ describe('Aside with several accounts, each with its own profiles', () => {
   })
 
   test('reading Aside\'s account list, profile lists and exec answers', () => {
-    expect(asideAccountList('{"currentAccountId":2,"accounts":[{"id":0,"hasSession":true,"profileBindings":[{"profileId":"a"},{"profileId":"b"}]},{"id":2,"profileBindings":[]},{"id":"x"}]}')).toEqual({ current: 'u2', accounts: [{ id: 'u0', signedIn: true, profileIds: ['a', 'b'] }, { id: 'u2', signedIn: false, profileIds: [] }] })
+    expect(asideAccountList('{"currentAccountId":2,"accounts":[{"id":0,"hasSession":true,"profileBindings":[{"profileId":"a"},{"profileId":"b"}]},{"id":2,"profileBindings":[]},{"id":"x"}]}')).toEqual({ current: 'u2', accounts: [{ id: 'u0', signedIn: true, profileIds: ['a', 'b'], hasProfiles: true }, { id: 'u2', signedIn: false, profileIds: [], hasProfiles: false }] })
     expect(asideAccountList('nope')).toEqual({ current: null, accounts: [] })
     expect(asideProfilesIn('{"host":"local","profiles":[{"profileId":"a","label":"Work","connected":true},{"id":"old"}]}')).toEqual([{ profileId: 'a', label: 'Work', connected: true }])
     expect(asideProfilesIn('{"profiles":"x"}')).toBeNull()

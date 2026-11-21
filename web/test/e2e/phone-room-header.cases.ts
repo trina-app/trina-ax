@@ -1,5 +1,5 @@
 // QA TC-257 on a phone (390×844, touch): a room's header and the file viewer's bars. The steps are the QA row's:
-// 1. a room with a long name: ‹, the name with the member count under it, ✦ and ⋯ only; the bell's choices inside ⋯
+// 1. a room with a long name: ‹, the name with the member count under it, its Files, ✦ and ⋯ only; the bell's choices inside ⋯
 //    (알림 설정, the level after it), the threads with new replies as ⋯'s first entry, no 이름 바꾸기 there (the name
 //    opens the room's info, where it is changed), no entry twice;
 // 2. an image, then a PDF from the room: the name (whole, two lines where long) and who sent it on top, the actions in a
@@ -95,17 +95,19 @@ export function roomHeaderCases() {
     const header = page.getByTestId('room-header')
     await expect(page.getByTestId('room-title')).toHaveText(LONG_NAME)
     await shot(page, 'tc257-1-header')
-    // ‹, the name, ✦ and ⋯ only: no bell, no thread button
-    expect(await visibleControls(header)).toEqual(['room-back', 'room-members-button', 'room-side-chat-button', 'room-menu'])
+    // ‹, the name, the room's Files (docs/decisions/20261120-project-is-room.md D6), ✦ and ⋯ only: no bell, no thread button
+    expect(await visibleControls(header)).toEqual(['room-back', 'room-members-button', 'room-files-button', 'room-side-chat-button', 'room-menu'])
     await expect(page.getByTestId('room-notify')).toHaveCount(0)
     await expect(page.getByTestId('room-next-thread')).toHaveCount(0)
-    // the name has the width: everything between ‹ and ✦; the count under it, in the 48 px header
+    // the name has the width: everything between ‹ and the Files icon (beside ✦); the count under it, in the 48 px header
     const title = await box(page.getByTestId('room-title'))
     const count = await box(page.getByTestId('room-member-count'))
     const ask = await box(page.getByTestId('room-side-chat-button'))
+    const filesBox = await box(page.getByTestId('room-files-button'))
     const backBox = await box(page.getByTestId('room-back'))
-    expect(title.width).toBeGreaterThan(200)
-    expect(ask.x - (title.x + title.width)).toBeLessThan(16)
+    expect(title.width).toBeGreaterThan(160)
+    expect(filesBox.x - (title.x + title.width)).toBeLessThan(16)
+    expect(ask.x - (filesBox.x + filesBox.width)).toBeLessThan(8)
     // the room's small mark (this private channel's lock) sits between ‹ and the name, partly in ‹'s padding (#1196)
     const mark = await box(page.getByTestId('room-header-icon'))
     expect(mark.width).toBeLessThanOrEqual(16)
@@ -117,7 +119,7 @@ export function roomHeaderCases() {
     const head = await box(header)
     expect(count.y + count.height).toBeLessThanOrEqual(head.y + head.height)
     // 44 px targets
-    for (const b of [backBox, ask, await box(page.getByTestId('room-menu'))]) {
+    for (const b of [backBox, filesBox, ask, await box(page.getByTestId('room-menu'))]) {
       expect(b.width).toBeGreaterThanOrEqual(44)
       expect(b.height).toBeGreaterThanOrEqual(44)
     }
@@ -130,7 +132,7 @@ export function roomHeaderCases() {
     await shot(page, 'tc257-1-menu')
     const items = menu.getByRole('menuitem')
     const ids = await items.evaluateAll((els) => els.map((e) => (e as HTMLElement).dataset.testid))
-    expect(ids).toEqual(['room-menu-next-thread', 'room-menu-search', 'room-menu-pin', 'room-menu-invite', 'room-menu-notify', 'room-menu-apps', 'room-menu-link', 'room-menu-leave'])
+    expect(ids).toEqual(['room-menu-next-thread', 'room-menu-search', 'room-menu-pin', 'row-section-move', 'room-menu-invite', 'room-menu-notify', 'room-menu-apps', 'room-menu-link', 'room-menu-leave'])
     const labels = await items.allInnerTexts()
     expect(new Set(labels).size).toBe(labels.length)
     await expect(page.getByTestId('room-menu-rename')).toHaveCount(0)

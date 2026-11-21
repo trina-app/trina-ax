@@ -3,7 +3,7 @@
 // folder that is not one of mine is ignored; a folded room folder keeps one pill, the strongest ("?" › "@" › how many
 // rooms are unread, muted ones left out); a name already used is found in any letter case.
 import { describe, expect, test } from 'bun:test'
-import type { Chat, NavFolder, Room, RoomCategory } from '@mycel/shared/api'
+import type { Chat, NavFolder, Room } from '@mycel/shared/api'
 import { translate } from '../../src/i18n'
 import { folderKindName, roomFolderPill } from '../../src/components/nav/NavFolders'
 import { waitingChats } from '../../src/store/sessionMarkers'
@@ -13,18 +13,14 @@ import { foldersOf, nameTaken } from '../../src/store/navFolders'
 const room = (id: string, o: Partial<Room> = {}) => ({ id, kind: 'team', name: id, unreadCount: 0, threadsUnread: 0, mentioned: false, muted: false, activityAt: '2026-11-13T00:00:00.000Z', ...o }) as Room
 const folder = (id: string, name: string, position: number, kind: 'chats' | 'rooms' = 'rooms'): NavFolder => ({ id, kind, name, position, count: 0, top: [] })
 
-describe('team categories in 대화', () => {
-  const cat = (id: string, name: string, position: number): RoomCategory => ({ id, name, position })
-  test('one place per room: pinned › its category › its kind; a DM never filed; an unknown category is ignored; empty ones only for admins', () => {
-    const rooms = [room('a', { categoryId: 'c1' }), room('b', { categoryId: 'c1', pinnedAt: '2026-11-13T00:00:00.000Z' }), room('c', { categoryId: 'gone' }), room('d', { kind: 'dm', categoryId: 'c1' })]
-    const cats = [cat('c1', '모니터링', 0), cat('c2', '빈 카테고리', 1)]
-    const s = roomsByKind(rooms, (r) => r.name ?? '', 'ko', cats)
-    expect(s.map((x) => (x.category ? `category:${x.category.name}` : x.key))).toEqual(['pinned', 'category:모니터링', 'team', 'dm'])
-    expect(s.map((x) => x.rooms.map((r) => r.id))).toEqual([['b'], ['a'], ['c'], ['d']])
-    const admin = roomsByKind(rooms, (r) => r.name ?? '', 'ko', cats, true)
-    expect(admin.map((x) => (x.category ? `category:${x.category.name}` : x.key))).toEqual(['pinned', 'category:모니터링', 'category:빈 카테고리', 'team', 'dm'])
+describe('room folders in 대화', () => {
+  test('one place per room: pinned › its folder › its kind; empty folders show; an unknown folder is ignored', () => {
+    const rooms = [room('a', { folderId: 'f1' }), room('b', { folderId: 'f1', pinnedAt: '2026-11-13T00:00:00.000Z' }), room('c', { folderId: 'gone' }), room('d', { kind: 'dm' })]
+    const s = roomsByKind(rooms, (r) => r.name ?? '', 'ko', [folder('f1', '우리 팀', 0), folder('f2', '빈 폴더', 1)])
+    expect(s.map((x) => (x.folder ? `folder:${x.folder.name}` : x.key))).toEqual(['pinned', 'folder:우리 팀', 'folder:빈 폴더', 'team', 'dm'])
+    expect(s.map((x) => x.rooms.map((r) => r.id))).toEqual([['b'], ['a'], [], ['c'], ['d']])
   })
-  test('no categories: as before', () => {
+  test('no folders: as before', () => {
     expect(roomsByKind([room('a')], (r) => r.name ?? '', 'ko').map((x) => x.key)).toEqual(['team'])
   })
 })

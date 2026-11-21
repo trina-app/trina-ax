@@ -7,7 +7,7 @@ We make **cold-brew tea bags**: drop one in a bottle of cold water and it's read
 
 ## What we sell
 - **Steepling Cold Brew Tea**, 6 flavours: barley, green tea, rooibos, hibiscus, peppermint, Earl Grey ($9.90 for 10 bags)
-- **New in November**: the winter-only **Yuzu Ginger** blend (out Monday, November 23, $11.90 for 10 bags)
+- **New this season**: the winter-only **Yuzu Ginger** blend (out Monday, $11.90 for 10 bags)
 - Where it sells: our online shop (60%), cafés and offices (40%)
 
 ## People (12 of us)
@@ -21,6 +21,6 @@ We make **cold-brew tea bags**: drop one in a bottle of cold water and it's read
 
 ## How we work
 - Company news goes in **#Everyone**, marketing work in **#Marketing**.
-- Campaign files live in a team project (for example "November launch campaign").
+- Campaign files live in a team project (for example "Yuzu Ginger launch campaign").
 - Before you design anything, use the **Brand guide** team skill (Trina uses it for you).
 - Design agency: Chris Walker at Fieldnote Studio (runs our banners and ads).

@@ -30,7 +30,10 @@
 // the account menu) and the files by "팀 폴더" (docs/AGENTS/plan/20261112-1839-nav-rail.md §2.1 "⌘K aliases").
 // Files sent in rooms (전체 and 파일 tabs, after the team files' names, 4 file rows in all on 전체): searched on the server
 // by name (GET /api/room-files), only those of messages I see; a row is the name, then who sent it, where and when;
-// it opens its message in the room, as a message found does.
+// it opens its message in the room, as a message found does. Before anything is typed, 전체 and 파일 show "Recent files":
+// the newest five files of my rooms (GET /api/room-files/recent: the same checks as the search, a project room's file
+// only while I can open it), each opening in the file viewer as its chip in the room does (lib/imageViewer.ts
+// roomFileItem), with who sent it, where and when.
 // Chips (docs/decisions/20261120-search-shortcuts-slack.md), between the box and the types on 전체, 대화 and 파일: "This
 // conversation" (only when search was opened in a room, a DM or a thread: ⌘F there, or the room menu's Search in this
 // conversation; store/ui.ts searchHere) sends room= and searches that room's messages and files only, and with no text
@@ -46,7 +49,7 @@ import { Bell, BookMarked, Paperclip, Cable, CalendarClock, CalendarPlus, Check,
 import { useEffect, useMemo, useRef, useState, type ComponentType, type ReactNode } from 'react'
 import { matchPath, useLocation, useNavigate } from 'react-router-dom'
 import { nameMatch, parseSearch, searchWords } from '@mycel/shared'
-import { skillTitle, type Chat, type FileEntry, type Integration, type Person, type Project, type Room, type RoomFileSearchHit, type RoomSearchFilters, type RoomSearchHit, type RoomSearchRoom, type RoomSearchSort, type Schedule } from '@mycel/shared/api'
+import { skillTitle, type Chat, type FileEntry, type Integration, type Person, type Project, type RecentRoomFiles, type Room, type RoomFileSearchHit, type RoomSearchFilters, type RoomSearchHit, type RoomSearchRoom, type RoomSearchSort, type Schedule } from '@mycel/shared/api'
 import { api, API, errorText } from '../lib/api'
 import { connectionHref, CONNECTORS_HOME } from '../lib/connectors'
 import { formatRelative, listTime } from '../lib/format'
@@ -62,6 +65,7 @@ import { isAdmin, useMe } from '../store/session'
 import { useFreeRoam } from '../store/demo'
 import { useGuestAiOff, useGuestFolderHref } from './GuestView'
 import { openTeamFile } from '../lib/sidePanel'
+import { openImageViewer, roomFileItem } from '../lib/imageViewer'
 import { isGuestMe, meGuest } from '../lib/guests'
 import { useUi } from '../store/ui'
 import { useEdgeFade, useFocusTrap, useMediaQuery } from './ui'
@@ -80,7 +84,7 @@ import { useAvatarOf, usePeopleList } from '../store/people'
 import { useRooms } from '../store/rooms'
 import { useChats } from '../store/chats'
 import { useInboxUnread } from '../store/inbox'
-import { readIntegrations, readSchedules, readSkillList, SHARED, useCachedRead } from '../store/listCache'
+import { readIntegrations, readSchedules, readSkillList, RECENT_ROOM_FILES, SHARED, useCachedRead } from '../store/listCache'
 import { useProjects } from '../store/projects'
 import { cardChats, cardQuestion, reasonText, useSessionMarkers } from '../store/sessionMarkers'
 import { SessionMarker } from './chat/ChatState'
@@ -257,6 +261,7 @@ function useList<T>(key: string, load: () => Promise<T>, o: { always?: boolean }
   return data !== undefined ? data : failed ? 'error' : null
 }
 const readRecent = () => api.call(API.listChats, { query: { limit: 30 } }).then((p) => p.items)
+const readRecentRoomFiles = () => api.call(API.recentRoomFiles)
 const readProjects = () => api.call(API.listProjects).then((r) => r.items)
 const ok = <T,>(v: T | null | 'error'): T | null => (v === 'error' ? null : v)
 
@@ -353,6 +358,12 @@ function SearchBox({ scope, here, onClose, onPerson }: { scope: 'rooms' | null; 
   useFocusTrap(ref, true, () => (menu ? closeMenu() : onClose()))
 
   const recent = useList('search:recent', readRecent)
+  // the newest files of my rooms, read on every open (a file sent a moment ago is the one looked for). What was kept
+  // shows while it is read, never once that read failed (the kept rows may be of a room I am no longer in), and only the
+  // rows of rooms in my list now (a room I left or was taken out of: store/rooms.ts drops its rows too)
+  const recentRead = useCachedRead<RecentRoomFiles>(RECENT_ROOM_FILES, readRecentRoomFiles)
+  const recentFiles = recentRead.failed ? null : recentRead.data ?? null
+  const me = useMe()
   // the project list as Search last read it, with each project's name as this window knows it now (a rename here)
   const projectsRead = useList('search:projects', readProjects)
   const projectsById = useProjects((s) => s.byId)
@@ -373,6 +384,7 @@ function SearchBox({ scope, here, onClose, onPerson }: { scope: 'rooms' | null; 
   const meId = useMe()?.user.id
   // rooms & people: my rooms list and the team's people, as the app has them (read now if no screen has yet)
   const myRooms = useRooms((s) => s.rooms)
+  const roomsLoaded = useRooms((s) => s.loaded)
   useEffect(() => {
     if (!useRooms.getState().loaded) void useRooms.getState().loadRooms()
   }, [])
@@ -604,6 +616,15 @@ function SearchBox({ scope, here, onClose, onPerson }: { scope: 'rooms' | null; 
     key: `roomfile:${h.file.id}`, kind: 'file', icon: h.file.kind === 'image' ? ImageIcon : FileIcon, title: h.file.name, href: roomFileHref(h), match: true,
     roomFile: { hit: h, room: roomFilesNow?.rooms.get(h.roomId) },
   })
+  /** a recent file of my rooms (before anything is typed): it opens in the file viewer, as its chip in the room does */
+  const recentFileRow = (h: RoomFileSearchHit, rooms: readonly RoomSearchRoom[]): Row => ({
+    key: `recentfile:${h.file.id}`, kind: 'file', icon: h.file.kind === 'image' ? ImageIcon : FileIcon, title: h.file.name, href: '',
+    roomFile: { hit: h, room: rooms.find((r) => r.id === h.roomId) },
+    after: () => {
+      const item = roomFileItem(h.roomId, h.file, me, { ...(h.author ? { sender: { kind: 'user' as const, user: h.author } } : {}), at: h.createdAt, messageId: h.messageId, rootId: h.threadRootId ?? h.messageId })
+      openImageViewer({ group: null, entry: { item, el: null }, opener: null, openerKey: item.key })
+    },
+  })
 
   const actions: Row[] = useMemo(() => {
     const list: Row[] = [
@@ -651,6 +672,11 @@ function SearchBox({ scope, here, onClose, onPerson }: { scope: 'rooms' | null; 
     const allMcp = ok(mcp)?.items ?? []
     const out: Section[] = []
     const push = (id: string, label: string, rows: Row[]) => rows.length && out.push({ id, label, rows })
+    const recentFileRows = () => {
+      if (!recentFiles) return []
+      const mine = roomsLoaded ? new Set(myRooms.map((r) => r.id)) : null
+      return recentFiles.items.filter((h) => !mine || mine.has(h.roomId)).map((h) => recentFileRow(h, recentFiles.rooms))
+    }
     // the messages found: "Close matches" when nothing matched as typed; what from: and in: were read as
     const pushMessages = () => {
       if (!hitsNow) return
@@ -691,6 +717,7 @@ function SearchBox({ scope, here, onClose, onPerson }: { scope: 'rooms' | null; 
           .slice(0, 6)
           .map((x) => x.row)
         push('recents', t('search.recents'), mixed)
+        push('recentFiles', t('search.recentFiles'), recentFileRows())
         push('actions', t('search.actions'), actions.filter((a) => !a.typed))
       } else if (tab === 'chats') {
         // opened in a project: its chats first (once they are here), then the rest of my list
@@ -703,7 +730,10 @@ function SearchBox({ scope, here, onClose, onPerson }: { scope: 'rooms' | null; 
       else if (tab === 'skills') push('skills', typeLabel('skills'), allSkills.map(skillRow))
       else if (tab === 'scheduled') push('scheduled', typeLabel('scheduled'), allSchedules.map((s) => scheduleRow(s)))
       else if (tab === 'mcp') push('mcp', typeLabel('mcp'), allMcp.map((i) => mcpRow(i)))
-      else if (tab === 'files') push('files', typeLabel('files'), actions.filter((a) => a.key === 'act:files' || a.key === 'act:sentFiles'))
+      else if (tab === 'files') {
+        push('recentFiles', t('search.recentFiles'), recentFileRows())
+        push('files', typeLabel('files'), actions.filter((a) => a.key === 'act:files' || a.key === 'act:sentFiles'))
+      }
       // 대화: my rooms as the 대화 list has them (pinned first), to jump to one
       else if (tab === 'rooms') push('rooms', typeLabel('rooms'), pinnedFirst(shownInLists(myRooms)).slice(0, ROOMS_FEW).map((r) => roomRow(r, roomTitle(r))))
       return out
@@ -741,7 +771,7 @@ function SearchBox({ scope, here, onClose, onPerson }: { scope: 'rooms' | null; 
     if (tab === 'all') push('actions', t('search.actions'), actions.filter((a) => has(query, a.title, a.terms)))
     return out
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [query, sent, room, chips, chipsShown, parts, tab, recent, projects, skills, schedules, mcp, foundNow, namesNow, hitsNow, roomFilesNow, hitsShown, hitsMore, actions, locale, myRooms, people, meId, roomTitle, listed, listLoaded, requests, onScreen, projectFirst, guestFolder, guest, filtered, where, freeRoam])
+  }, [query, sent, room, chips, chipsShown, parts, tab, recent, projects, skills, schedules, mcp, foundNow, namesNow, hitsNow, roomFilesNow, hitsShown, hitsMore, actions, locale, myRooms, people, meId, roomTitle, listed, listLoaded, requests, onScreen, projectFirst, guestFolder, guest, filtered, where, freeRoam, recentFiles, roomsLoaded, me])
 
   const rows = useMemo(() => sections.flatMap((s) => s.rows), [sections])
   const chosen = sel.key === null ? -1 : rows.findIndex((r) => r.key === sel.key)

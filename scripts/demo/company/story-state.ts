@@ -9,7 +9,7 @@
 //   connections  a person's Gmail or Google Drive, the team's Higgsfield, with made-up secrets (the demo's fakes answer)
 //   welcome      who invited a person (their welcome card on Home)
 //   people       each person's job title and e-mail on their profile (set by them)
-//   projects     a project's channel (a private channel of the rooms, linked by the project's maker)
+//   projects     a project with `channel` gets its own chat room, opened by the project's maker (the channel stays as it is)
 //   threads      replies under a shared chat's last answer, with @mentions (the answer's asker gets the notice)
 //   fileTimes    when the files were changed in the story (on disk and in Files › Recent); recentHidden: the seed's
 //                own changes kept out of Recent (team skills, company profile)
@@ -20,7 +20,7 @@
 // server whose demo file says `builder: true`.
 import crypto from 'node:crypto'
 import fs from 'node:fs'
-import { API, ApiClient, ApiError, type Room } from '../../../shared/src/api'
+import { API, ApiClient, ApiError, COMPANY_PROFILE_PATH, type Room } from '../../../shared/src/api'
 import type { Fakes } from './fakes'
 import { DEMO_PASSWORD } from '../seed'
 import type { ContentCompany, DemoContent } from './content'
@@ -288,11 +288,11 @@ export async function seedStoryState(o: { baseUrl: string; content: DemoContent;
       if (!room) throw new Error(`room ${r.slug}: not on the server`)
       rooms.set(r.slug, room)
     }
-    // a project's channel, linked by the project's maker from the project (before the messages: the link's line in the
-    // channel then dates to just before its first message)
+    // a project with a channel: its own chat room, opened by the project's maker (docs/decisions/20261120-project-is-room.md;
+    // the 0.5.21 link of a channel to a project is retired). The channel itself stays the group chat it was
     for (const p of c.projects.filter((x) => x.channel)) {
-      await (await as(p.by ?? c.owner.username)).call(API.linkRoomProject, { params: { id: rooms.get(p.channel!)!.id }, body: { projectId: projects.get(nfc(p.name))!, via: 'project' } })
-      log(`project ${p.name}: channel ${p.channel}`)
+      await (await as(p.by ?? c.owner.username)).call(API.openProjectRoom, { params: { id: projects.get(nfc(p.name))! } })
+      log(`project ${p.name}: its chat room`)
     }
 
     // 3. the past AI chats: made by their person, answered by the builder (plain finished messages, at their times)
@@ -390,7 +390,8 @@ export async function seedStoryState(o: { baseUrl: string; content: DemoContent;
     // 4b. the files' times in the story, and the seed's own changes out of Files › Recent (the free-roam audit, QA TC-5618)
     const memoryTimes = c.memories.filter((m) => m.minutesAgo !== undefined).map((m) => ({ userId: idOf(m.username), text: m.text, at: atOf(m.minutesAgo!) }))
     if (c.fileTimes?.length || c.recentHidden?.length || memoryTimes.length) {
-      const files = o.content.files
+      // the company profile the seed saved is dated with the team skills' folder too (QA TC-5935)
+      const files = [...o.content.files, ...(c.profile ? [COMPANY_PROFILE_PATH] : [])]
       const times: { path: string; at: string }[] = []
       for (const f of files) {
         const hit = (c.fileTimes ?? []).find((t) => nfc(f) === nfc(t.path) || nfc(f).startsWith(nfc(t.path) + '/'))

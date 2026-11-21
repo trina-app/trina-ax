@@ -16,6 +16,9 @@ import { attr, parts, rels, slideOrder, tags, unescapeXml, xmlOf, type Parts } f
 import { tooComplex } from './zip-guard'
 
 export const PPTX_HTML_MODE = 'pptx-html'
+/** every slide, hidden ones too, so page N is slide N: for the AI to look at a deck (read with pages / as_images,
+ * files/deck-pdf.ts) */
+export const PPTX_SLIDES_MODE = 'pptx-slides'
 /** slides in one PDF (html-pdf.ts prints at most 200 pages) */
 export const PPTX_PDF_SLIDES_MAX = 200
 /** pictures and their bytes handed to the print: inside HTML_PDF_LIMITS.maxAssets / maxAssetBytes, and, as base64 in
@@ -33,6 +36,8 @@ export interface SlidesHtml {
   media: Record<string, string>
   slides: number
   hidden: number
+  /** with `withHidden`: the numbers of the slides that are hidden in the deck (drawn, as PowerPoint's editor shows them) */
+  hiddenSlides?: number[]
   /** what was not drawn: charts, SmartArt diagrams, other embedded objects, pictures in a format a browser cannot show or over the limits */
   notDrawn: { charts: number; diagrams: number; objects: number; pictures: number }
 }
@@ -508,8 +513,9 @@ const layerOf = (p: Parts, part: string | undefined, count: { n: number }): Laye
 }
 const relOfType = (p: Parts, part: string, type: string) => [...rels(p, part).values()].find((r) => r.type.endsWith(type))?.target
 
-/** The deck as one HTML page, a page per shown slide. Throws ToolError for a file that is not a deck or is too large. */
-export function pptxSlidesHtml(bytes: Uint8Array): SlidesHtml {
+/** The deck as one HTML page, a page per shown slide (`withHidden`: per slide, hidden ones too). Throws ToolError for a
+ * file that is not a deck or is too large. */
+export function pptxSlidesHtml(bytes: Uint8Array, o: { withHidden?: boolean } = {}): SlidesHtml {
   const p = parts(bytes, 'presentation')
   const count = { n: 0 }
   const pres = xmlOf(p, 'ppt/presentation.xml')
@@ -526,11 +532,16 @@ export function pptxSlidesHtml(bytes: Uint8Array): SlidesHtml {
   const x: Ctx = { p, theme: { colors: new Map(), major: null, minor: null }, map: new Map(), count, media: new Map(), mediaOut: {}, mediaBytes: 0, notDrawn, slideNo: 0, rels: new Map() }
   const pages: string[] = []
   let hidden = 0
+  const hiddenSlides: number[] = []
   for (const [i, part] of order.entries()) {
     const slide = cached(part)
     if (!slide) continue
     const root = slide.tree.kids.find((k) => k.name === 'p:sld')
-    if (no(at(root, 'show'))) { hidden++; continue }
+    if (no(at(root, 'show'))) {
+      hidden++
+      if (!o.withHidden) continue
+      hiddenSlides.push(pages.length + 1)
+    }
     if (pages.length >= PPTX_PDF_SLIDES_MAX) throw new ToolError(`the deck has more than ${PPTX_PDF_SLIDES_MAX} slides to show; a PDF of it cannot be made here`)
     const layout = cached(relOfType(p, part, '/slideLayout'))
     const master = layout ? cached(relOfType(p, layout.part, '/slideMaster')) : null
@@ -556,8 +567,8 @@ export function pptxSlidesHtml(bytes: Uint8Array): SlidesHtml {
     '.sh{position:absolute;box-sizing:border-box;display:flex;flex-direction:column;overflow:visible;line-height:1.15;overflow-wrap:break-word}' +
     'p{margin:0;white-space:pre-wrap}[data-nowrap] p{white-space:pre}table{border-collapse:collapse;width:100%;table-layout:fixed}td{border:0.75pt solid #9ca3af;padding:0.05in 0.08in}' +
     `</style></head><body>${pages.join('')}</body></html>`
-  return { html, media: x.mediaOut, slides: pages.length, hidden, notDrawn }
+  return { html, media: x.mediaOut, slides: pages.length, hidden, notDrawn, ...(o.withHidden ? { hiddenSlides } : {}) }
 }
 
 /** The office worker's answer: the page and its pictures as JSON (UTF-8). */
-export const pptxHtmlRequest = (bytes: Uint8Array): Uint8Array => new TextEncoder().encode(JSON.stringify(pptxSlidesHtml(bytes)))
+export const pptxHtmlRequest = (bytes: Uint8Array, o: { withHidden?: boolean } = {}): Uint8Array => new TextEncoder().encode(JSON.stringify(pptxSlidesHtml(bytes, o)))

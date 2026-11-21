@@ -35,7 +35,7 @@
 //   @fake {"sessionNow": true}               write the session file now with the message and no answer (Claude Code's
 //                                            file when a run is stopped mid-answer)
 //   @fake {"loseSession": true}              on --resume: answer "No conversation found" (the stash went bad)
-//   @fake {"echo": "system" | "message" | "tools" | "toolDescriptions" | "model" | "history" | "resume"}
+//   @fake {"echo": "system" | "message" | "tools" | "toolDescriptions" | "toolSchemas" | "model" | "history" | "resume"}
 //   @fake {"model": "prompt"}               call the model like Claude Code in subscription mode: the per-turn token
 //                                            from the inherited fd (CLAUDE_CODE_OAUTH_TOKEN_FILE_DESCRIPTOR), POST
 //                                            $ANTHROPIC_BASE_URL/v1/messages?beta=true with stream, say the text deltas;
@@ -687,6 +687,11 @@ for (const d of directives) {
     await startBridge()
     const l = br ? await rpc('tools/list', {}) : { result: { tools: [] } }
     await sayEcho(JSON.stringify(Object.fromEntries((l.result?.tools ?? []).map((t: any) => [t.name, String(t.description ?? '')]))))
+  } else if (d.echo === 'toolSchemas') {
+    // the whole tool list as the engine gets it, in its order (tests/unit/engine-prompt-pin.test.ts)
+    await startBridge()
+    const l = br ? await rpc('tools/list', {}) : { result: { tools: [] } }
+    await sayEcho(JSON.stringify(l.result?.tools ?? []))
   }
 }
 finish()

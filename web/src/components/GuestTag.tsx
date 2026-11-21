@@ -39,15 +39,15 @@ export function GuestTagFor({ userId, className }: { userId: string | null | und
   return useIsGuest(userId) ? <GuestTag className={className} /> : null
 }
 
-/** "Includes 1 guest" (nothing without one), for a header's member line. */
-export function IncludesGuests({ ids, className, prefix = '' }: { ids: readonly string[] | null | undefined; className?: string; prefix?: string }) {
+/** "Includes 1 guest" (nothing without one), for a header's member line; `short`: "1 guest", for a phone's one-line header. */
+export function IncludesGuests({ ids, className, prefix = '', short = false }: { ids: readonly string[] | null | undefined; className?: string; prefix?: string; short?: boolean }) {
   const t = useT()
   const n = useGuestCount(ids)
   if (!n) return null
   return (
     <span className={className} data-testid="includes-guests">
       {prefix}
-      {t('guest.includes', { n })}
+      {t(short ? 'guest.includesShort' : 'guest.includes', { n })}
     </span>
   )
 }

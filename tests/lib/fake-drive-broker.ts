@@ -23,6 +23,12 @@ export class FakeDriveBroker {
   handoffs = new Map<string, { challenge: string; who: string; app?: string }>()
   /** false: an older control plane that refuses the `app` field (invalid_request) */
   appsSupported = true
+  /** false: a control plane that takes an app only with purpose "personal" (before team app sign-ins, invalid_request) */
+  shareAppsSupported = true
+  /** apps the control plane knows but has closed: a start for one answers app_unavailable */
+  appsClosed: string[] = []
+  /** the redeem's answer instead of the token: a control plane error, or Cloudflare's own page for an origin 502 */
+  redeemFails: { code: string; status: number } | 'cloudflare-502' | null = null
   /** the `app` field of each refresh (undefined: Drive) */
   refreshApps: (string | undefined)[] = []
   /** a stand-in for the library: told about each access token handed out (Gmail, Calendar, Docs, Sheets tests) */
@@ -82,7 +88,8 @@ export class FakeDriveBroker {
     if (path === DRIVE_BROKER_PATHS.status) return parseDriveBrokerStatus(json) ? Response.json({ ok: true }) : err('invalid_request', 400)
     if (path === DRIVE_BROKER_PATHS.start) {
       const b = parseDriveBrokerStart(json)
-      if (!b || (b.app && !this.appsSupported)) return err('invalid_request', 400)
+      if (!b || (b.app && !this.appsSupported) || (b.app && b.purpose !== 'personal' && !this.shareAppsSupported)) return err('invalid_request', 400)
+      if (b.app && this.appsClosed.includes(b.app)) return err('app_unavailable', 409)
       const state = crypto.randomBytes(32).toString('base64url')
       this.starts.set(state, { returnState: b.returnState, challenge: b.codeChallenge, purpose: b.purpose, ...(b.app ? { app: b.app } : {}) })
       const u = new URL(this.authorizeBase)
@@ -96,6 +103,8 @@ export class FakeDriveBroker {
       const h = this.handoffs.get(b.handoff)
       this.handoffs.delete(b.handoff)
       if (!h || crypto.createHash('sha256').update(b.codeVerifier).digest('base64url') !== h.challenge) return err('invalid_handoff', 400)
+      if (this.redeemFails === 'cloudflare-502') return new Response('<!DOCTYPE html><title>502 Bad gateway</title>', { status: 502, headers: { 'content-type': 'text/html' } })
+      if (this.redeemFails) return err(this.redeemFails.code, this.redeemFails.status)
       return Response.json(this.token(h.who, true, h.app))
     }
     if (path === DRIVE_BROKER_PATHS.refresh) {

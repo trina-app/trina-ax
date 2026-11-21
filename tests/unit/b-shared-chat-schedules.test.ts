@@ -24,6 +24,10 @@ const cm = () => 'cm-' + crypto.randomUUID()
 const BRIEF = 'groups/marketing/campaign-brief.md'
 const CANARY = 'Autumn Upgrade'
 
+/** A daily task's time 12 hours from now in Seoul: whatever hour the test runs in, "Run now" is never close to it, so the
+ * test does not depend on the wall clock (isFrequent is covered at a pinned clock in schedule-timing.test.ts). */
+const farTime = () => new Intl.DateTimeFormat('en-GB', { timeZone: 'Asia/Seoul', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(new Date(Date.now() + 12 * 3_600_000))
+
 let h: Harness
 const ws: Record<string, TestSocket> = {}
 let projectId: string
@@ -191,7 +195,7 @@ async function chatBobWroteIn(text = 'Read groups/marketing/campaign-brief.md an
   return id
 }
 const task = (chatId: string | null, prompt: string, o: { title?: string } = {}) =>
-  h.rt().schedules.create('alice', { title: o.title ?? 'T ' + crypto.randomUUID().slice(0, 6), prompt, repeat: 'daily', time: '09:00', projectId }, undefined, CONFIRMED, { chatId })
+  h.rt().schedules.create('alice', { title: o.title ?? 'T ' + crypto.randomUUID().slice(0, 6), prompt, repeat: 'daily', time: farTime(), projectId }, undefined, CONFIRMED, { chatId })
 const events = (tool: string, since: number) => (db().query('SELECT ok, summary FROM tool_events WHERE tool = ? AND rowid > ? ORDER BY rowid').all(tool, since) as { ok: number; summary: string }[])
 const lastEvent = () => (db().query('SELECT max(rowid) AS n FROM tool_events').get() as { n: number | null }).n ?? 0
 

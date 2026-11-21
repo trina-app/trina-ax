@@ -3089,6 +3089,25 @@ export class MockServer {
       const rooms = [...new Set(items.map((x) => x.room))].map((r) => ({ id: r.id, kind: r.kind, name: r.name, peers: r.peers, memberCount: r.memberCount }))
       return { items: items.map(({ m, file }) => ({ file, messageId: m.id, roomId: m.roomId, threadRootId: m.threadRootId ?? null, author: m.authorKind === 'ai' ? null : m.author, createdAt: m.createdAt })), rooms, nextCursor: null }
     },
+    // like server/src/rooms/search.ts listRoomFiles: one room's files, newest first, in pages of `limit` (the cursor is
+    // the next one's place); a project's chat room has none (404)
+    listRoomFiles: (c) => {
+      const room = this.rooms.find((r) => r.id === c.params.id) ?? fail('not_found', 404)
+      if (this.projectOfRoom(room.id)) fail('not_found', 404)
+      const all = (this.roomMessages.get(room.id) ?? []).filter((m) => !m.deletedAt && !m.event && m.visibility === 'room').flatMap((m) => m.files.filter((f) => !f.state).map((file) => ({ m, file })))
+        .sort((a, b) => b.m.createdAt.localeCompare(a.m.createdAt) || b.m.seq - a.m.seq)
+      const at = Number(c.query.cursor ?? 0) || 0
+      const limit = Number(c.query.limit ?? 20)
+      const page = all.slice(at, at + limit)
+      return { items: page.map(({ m, file }) => ({ file, messageId: m.id, roomId: m.roomId, threadRootId: m.threadRootId ?? null, author: m.authorKind === 'ai' ? null : m.author, createdAt: m.createdAt })), nextCursor: at + limit < all.length ? String(at + limit) : null }
+    },
+    // like server/src/rooms/search.ts recentRoomFiles: the newest five of all my rooms
+    recentRoomFiles: (c) => {
+      const items = this.rooms.filter((room) => this.projectRoomFor(room, c.user)).flatMap((room) => (this.roomMessages.get(room.id) ?? []).filter((m) => !m.deletedAt && !m.event && m.visibility === 'room').flatMap((m) => m.files.filter((f) => !f.state).map((file) => ({ m, room, file }))))
+        .sort((a, b) => b.m.createdAt.localeCompare(a.m.createdAt) || b.m.seq - a.m.seq).slice(0, 5)
+      const rooms = [...new Set(items.map((x) => x.room))].map((r) => ({ id: r.id, kind: r.kind, name: r.name, peers: r.peers, memberCount: r.memberCount }))
+      return { items: items.map(({ m, file }) => ({ file, messageId: m.id, roomId: m.roomId, threadRootId: m.threadRootId ?? null, author: m.authorKind === 'ai' ? null : m.author, createdAt: m.createdAt })), rooms }
+    },
     // like server/src/auth/accounts.ts createGuestInvite (short): a member of the group chat (the rooms of POST /__test/rooms
     // are the caller's), or a project's creator, the owner or an admin; team AI only from the owner or an admin; the cap
     createGuestInvite: (c) => {
@@ -6407,13 +6426,6 @@ export class MockServer {
       if ('guests' in body) this.guestCap = typeof body.guests === 'number' ? body.guests : null
       if ('seatsFull' in body) this.seatsFull = body.seatsFull === true
     }
-    else if (p === '/__test/room-category') {
-      // a team category as an admin made it (rooms/categories.ts), for a member's test
-      const x = { id: uuidv7(), name: String(body.name), position: this.roomCategories.length }
-      this.roomCategories.push(x)
-      this.publish({ type: 'roomCategories.changed', data: {} })
-      return Response.json(x)
-    }
     else if (p === '/__test/rooms') {
       // session markers (docs/DECISIONS.md): rooms as GET /api/rooms lists them (unread counts, "@", the AI waiting on
       // me); each one is sent like the server's room.updated
@@ -6516,10 +6528,172 @@ export class MockServer {
   navItems = new Map<string, string>()
   readonly navFoldersInstalled = this.installNavFolders()
 
-  // ---------------- conversation categories (server/src/rooms/categories.ts) ----------------
-  /** the team's categories: the same list for everyone; admins and the owner change them */
-  roomCategories: { id: string; name: string; position: number }[] = []
-  readonly roomCategoriesInstalled = this.installRoomCategories()
+  // ---------------- a team project's own chat room (server/src/rooms/project-room.ts, short) ----------------
+  // POST /api/projects/:id/room makes it the first time (named after the project); its members are the project's readers
+  // (sharedAudience), worked out on every read, so adding or removing someone on the project changes the room; each
+  // viewer's Room.project (canSave: write on the folder, not a guest) and Project.room. A file sent there lands in the
+  // project's Chat attachments folder (the uploads below, PR 2's rule: server/src/uploads/shared-chat.ts); deleting its
+  // message leaves the file there. Inside it Add people / Remove / Rename / Leave answer 403 project_room.
+  /** project id → its room's id */
+  projectRooms = new Map<string, string>()
+  /** a room file's team path in a project room (room file id → path) */
+  projectRoomFiles = new Map<string, string>()
+  readonly projectRoomsInstalled = this.installProjectRooms()
+  /** the project of a project room */
+  projectOfRoom(roomId: string): Project | null {
+    for (const [pid, rid] of this.projectRooms) if (rid === roomId) return this.projects.find((p) => p.id === pid) ?? null
+    return null
+  }
+  /** a project room as `u` sees it, or null when they are not one of its people (or its project is in the trash) */
+  projectRoomFor(base: Room, u: User): Room | null {
+    const p = this.projectOfRoom(base.id)
+    if (!p) return base
+    const people = this.sharedAudience(p)
+    if (!people.some((x) => x.id === u.id)) return null
+    return Room.parse({ ...base, name: p.name, canRename: false, managerId: null, memberCount: people.length, peers: people.filter((x) => x.id !== u.id).slice(0, 4).map((x) => ({ id: x.id, name: x.name })),
+      projectRoom: true,
+      project: { id: p.id, name: p.name, folderPath: p.folderPath, canSave: u.role !== 'guest' && this.access(p.folderPath, u) === 'write', room: true,
+        attach: this.access(p.folderPath, u) !== 'write' ? 'read_only' : this.access(`${p.folderPath}/${CHAT_FILES_FOLDER[this.settings.defaultLocale as Locale] ?? CHAT_FILES_FOLDER.en}`, u) === 'write' ? 'ok' : 'folder',
+        leave: people.length > 1 ? 'yes' : 'last' } })
+  }
+  private installProjectRooms() {
+    const h = this.handlers
+    const over = (name: ApiName, fn: (c: Ctx, base: Handler) => unknown) => {
+      const base = h[name]!
+      h[name] = (c) => fn(c, base)
+    }
+    const baseReset = this.reset.bind(this)
+    this.reset = (o) => {
+      this.projectRooms = new Map()
+      this.projectRoomFiles = new Map()
+      return baseReset(o)
+    }
+    const roomOf = (c: Ctx) => {
+      const r = this.rooms.find((x) => x.id === c.params.id)
+      const mine = r && this.projectRoomFor(r, c.user)
+      return mine ?? fail('not_found', 404)
+    }
+    // what these four were before this layer
+    const previous = { uploadRoomFile: h.uploadRoomFile, sendRoomMessage: h.sendRoomMessage, deleteRoomMessage: h.deleteRoomMessage, roomFile: h.roomFile }
+    const inProjectRoom = (c: Ctx) => { if (this.projectOfRoom(c.params.id)) fail('forbidden', 403, undefined, undefined, { reason: 'project_room' }) }
+    h.openProjectRoom = (c) => {
+      const p = this.projects.find((x) => x.id === c.params.id && !x.inTrash)
+      if (!p || !this.projectSees(p, c.user)) fail('not_found', 404)
+      const segs = p!.folderPath.split('/')
+      if (segs.length !== 2 || segs[0] !== 'projects') fail('conflict', 409, undefined, undefined, { reason: 'project_not_linkable' })
+      let id = this.projectRooms.get(p!.id)
+      if (!id) {
+        id = uuidv7()
+        this.projectRooms.set(p!.id, id)
+        this.rooms.push(Room.parse({ id, kind: 'group', name: p!.name, canRename: false, managerId: null, groupId: null, memberCount: 0, peers: [], lastSeq: 0, unreadCount: 0, threadsUnread: 0, nextThreadId: null, mentioned: false, lastReadSeq: 0, lastMessage: null, muted: false, notify: { own: null, byDefault: 'mentions', level: 'mentions' }, createdAt: now(), activityAt: now() }))
+      }
+      return this.projectRoomFor(this.rooms.find((r) => r.id === id)!, c.user)
+    }
+    over('listRooms', (c, base) => {
+      const r = base(c) as { items: Room[] }
+      return { ...r, items: r.items.flatMap((x) => this.projectRoomFor(x, c.user) ?? []) }
+    })
+    over('getRoom', (c, base) => this.projectRoomFor(base(c) as Room, c.user) ?? fail('not_found', 404))
+    over('listRoomMembers', (c, base) => {
+      const p = this.projectOfRoom(c.params.id)
+      if (!p) return base(c)
+      const r = roomOf(c)
+      return { items: this.sharedAudience(p).map((u) => ({ user: { id: u.id, name: u.name }, joinedAt: r.createdAt })) }
+    })
+    // a project room's files as the server shows them now (rooms/file-refs.ts): in the team folder where they are, or
+    // "deleted" while not there (in the trash; a restore brings them back)
+    const fileNow = (f: RoomFile, u: User): RoomFile => {
+      const path = this.projectRoomFiles.get(f.id)
+      if (!path) return f
+      if (!this.files.has(path)) return { ...f, name: '', size: 0, teamFile: true, state: 'deleted' }
+      return this.access(path, u) === 'none' ? { ...f, name: '', size: 0, teamFile: true, state: 'unavailable' } : { ...f, teamFile: true, teamPath: path }
+    }
+    over('listRoomMessages', (c, base) => {
+      if (!this.projectOfRoom(c.params.id)) return base(c)
+      roomOf(c)
+      const r = base(c) as { items: RoomMessage[] }
+      return { ...r, items: r.items.map((m) => ({ ...m, files: m.files.map((f) => fileNow(f, c.user)) })) }
+    })
+    over('getProject', (c, base) => {
+      const p = base(c) as Project
+      const id = this.projectRooms.get(p.id)
+      const r = id ? this.rooms.find((x) => x.id === id) : null
+      return r && p.member !== false && !p.inTrash ? { ...p, room: { id: r.id, unread: 0 } } : p
+    })
+    over('listProjects', (c, base) => {
+      const out = base(c) as { items: Project[] }
+      return { ...out, items: out.items.map((p) => { const id = this.projectRooms.get(p.id); return id && p.member !== false && !p.inTrash ? { ...p, room: { id, unread: 0 } } : p }) }
+    })
+    const sentFiles = new Map<string, RoomFile>()
+    // a plain room's file's bytes (kept with the room: GET /api/rooms/:id/files/:fileId reads them)
+    const sentBytes = new Map<string, { data: Uint8Array; mime: string }>()
+    // a file sent in a project room: into the project's Chat attachments folder (a read-only person: 403)
+    h.uploadRoomFile = async (c) => {
+      const r = roomOf(c)
+      const p = this.projectOfRoom(r.id)
+      const data = new Uint8Array(await c.file!.arrayBuffer())
+      const name = c.body.name ?? c.file!.name
+      const id = uuidv7()
+      if (p) {
+        const folder = `${p.folderPath}/${CHAT_FILES_FOLDER[this.settings.defaultLocale as Locale] ?? CHAT_FILES_FOLDER.en}`
+        if (this.access(folder, c.user) !== 'write') fail('forbidden', 403, undefined, undefined, { reason: 'shared_upload_read_only' })
+        if (!this.files.has(folder)) this.files.set(folder, { type: 'folder', mtime: now() })
+        const dot = name.lastIndexOf('.')
+        let path = `${folder}/${name}`
+        for (let n = 2; this.files.has(path); n++) path = `${folder}/${dot > 0 ? `${name.slice(0, dot)} (${n})${name.slice(dot)}` : `${name} (${n})`}`
+        this.putFile(path, data)
+        this.projectRoomFiles.set(id, path)
+      }
+      const mime = c.file!.type || mimeOf(name) || 'application/octet-stream'
+      const file: RoomFile = { id, name, size: data.byteLength, mime, kind: mime.startsWith('image/') ? 'image' : 'document', thumb: false }
+      sentFiles.set(id, file)
+      if (!p) sentBytes.set(id, { data, mime })
+      return { status: 201, body: file }
+    }
+    h.sendRoomMessage = (c) => {
+      const room = this.rooms.find((x) => x.id === c.params.id) ?? fail('not_found', 404)
+      if (!this.projectRoomFor(room, c.user)) fail('not_found', 404)
+      const list = this.roomMessages.get(room.id) ?? []
+      const seq = Math.max(room.lastSeq, 0, ...list.map((x) => x.seq)) + 1
+      const files = (c.body.fileIds as string[]).map((id) => sentFiles.get(id) ?? fail('validation', 400))
+      const message = RoomMessage.parse({ id: uuidv7(), roomId: room.id, seq, authorKind: 'user', author: { id: c.user.id, name: c.user.name }, askedBy: null, visibility: 'room', body: c.body.body, replyTo: null, mentions: c.body.mentions ?? [], files, createdAt: now(), editedAt: null, deletedAt: null })
+      list.push(message)
+      this.roomMessages.set(room.id, list)
+      Object.assign(room, { lastSeq: seq, lastReadSeq: seq, activityAt: message.createdAt, lastMessage: { id: message.id, seq, author: message.author, excerpt: message.body.slice(0, 120), fileCount: files.length, deleted: false, createdAt: message.createdAt } })
+      this.publish({ type: 'room.message', data: { roomId: room.id, message: { ...message, files: message.files.map((f) => fileNow(f, c.user)) } } })
+      return { status: 201, body: { ...message, files: message.files.map((f) => fileNow(f, c.user)) } }
+    }
+    // the message goes for everyone; in a project room its files stay in Chat attachments (D3)
+    h.deleteRoomMessage = (c) => {
+      const room = this.rooms.find((x) => x.id === c.params.id) ?? fail('not_found', 404)
+      const list = this.roomMessages.get(room.id) ?? []
+      const m = list.find((x) => x.id === c.params.messageId && x.author?.id === c.user.id) ?? fail('not_found', 404)
+      const gone = RoomMessage.parse({ ...m, body: '', files: [], deletedAt: now() })
+      this.roomMessages.set(room.id, list.map((x) => (x.id === m.id ? gone : x)))
+      this.publish({ type: 'room.message', data: { roomId: room.id, message: gone } })
+      return { status: 204, body: null }
+    }
+    h.roomFile = (c) => {
+      const kept = sentBytes.get(c.params.fileId)
+      if (kept) return new Response(kept.data as unknown as BodyInit, { headers: { 'content-type': kept.mime } })
+      const path = this.projectRoomFiles.get(c.params.fileId)
+      const n = path ? this.files.get(path) : undefined
+      if (!n || n.type !== 'file') fail('not_found', 404)
+      return new Response(n!.data! as unknown as BodyInit, { headers: { 'content-type': mimeOf(path!) ?? 'application/octet-stream' } })
+    }
+    // the four above answer project rooms; any other room falls through to what was there, and where there was nothing
+    // they answer it too (a plain room's file is kept with the room: the room Files list spec sends and opens them;
+    // most specs answer rooms through page.route, which never reaches here)
+    for (const name of ['uploadRoomFile', 'sendRoomMessage', 'deleteRoomMessage', 'roomFile'] as const) {
+      const mine = h[name]!
+      const before = previous[name]
+      h[name] = (c) => (this.projectOfRoom(c.params.id) ? mine(c) : before ? before(c) : mine(c))
+    }
+    for (const name of ['inviteRoomMembers', 'removeRoomMember', 'leaveRoom'] as const) {
+      const base = h[name]
+      h[name] = (c) => { inProjectRoom(c); return base ? base(c) : fail('not_found', 404) }
+    }
+  }
 
   // ---------------- chats shared with people and groups (server/src/chat/people-share.ts, short) ----------------
   // A chat outside projects its creator shares with chosen people and groups: it rides on the shared chats' layer above
@@ -7673,72 +7847,6 @@ export class MockServer {
       const n = c.body.limit ?? 20
       return { total: all.length, totalCapped: false, items: all.slice(at, at + n), nextCursor: at + n < all.length ? String(at + n) : null }
     })
-  }
-
-  private installRoomCategories() {
-    const h = this.handlers
-    const baseReset = this.reset.bind(this)
-    this.reset = (o) => {
-      this.roomCategories = []
-      baseReset(o)
-    }
-    const admin = (c: Ctx) => { if (c.user.role !== 'admin' && c.user.role !== 'owner') fail('forbidden', 403) }
-    const list = () => [...this.roomCategories].sort((a, b) => a.position - b.position)
-    const one = (id: string) => this.roomCategories.find((x) => x.id === id) ?? fail('not_found', 404)
-    const changed = () => this.publish({ type: 'roomCategories.changed', data: {} })
-    const roomChanged = (r: Room) => this.publish({ type: 'room.updated', data: { roomId: r.id, change: 'updated', room: r } })
-    const nameKey = (s: string) => s.normalize('NFC').trim().toLowerCase()
-    const checkName = (name: string, except?: string) => {
-      const n = String(name ?? '').normalize('NFC').trim()
-      if (!n || [...n].length > 40) fail('validation', 400, undefined, { 'body.name': 'invalid' })
-      if (this.roomCategories.some((x) => x.id !== except && nameKey(x.name) === nameKey(n))) fail('conflict', 409, '같은 이름의 카테고리가 이미 있어요.', { 'body.name': 'room_category_name_taken' }, { reason: 'room_category_name_taken' })
-      return n
-    }
-    const without = (r: Room): Room => { const { categoryId: _, ...rest } = r; return rest as Room }
-    h.listRoomCategories = () => ({ items: list() })
-    h.createRoomCategory = (c) => {
-      admin(c)
-      const x = { id: uuidv7(), name: checkName(c.body.name), position: this.roomCategories.length }
-      this.roomCategories.push(x)
-      changed()
-      return { status: 201, body: x }
-    }
-    h.updateRoomCategory = (c) => {
-      admin(c)
-      const x = one(c.params.id!)
-      x.name = checkName(c.body.name, x.id)
-      changed()
-      return x
-    }
-    h.deleteRoomCategory = (c) => {
-      admin(c)
-      const x = one(c.params.id!)
-      this.roomCategories = this.roomCategories.filter((y) => y !== x)
-      list().forEach((y, i) => (y.position = i))
-      this.rooms = this.rooms.map((r) => (r.categoryId === x.id ? without(r) : r))
-      for (const r of this.rooms) roomChanged(r)
-      changed()
-      return { status: 204, body: null }
-    }
-    h.orderRoomCategories = (c) => {
-      admin(c)
-      const now = list()
-      const ids = (c.body.ids as string[]).filter((id) => now.some((x) => x.id === id))
-      ;[...ids.map((id) => now.find((x) => x.id === id)!), ...now.filter((x) => !ids.includes(x.id))].forEach((x, i) => (x.position = i))
-      changed()
-      return { items: list() }
-    }
-    h.setRoomCategory = (c) => {
-      admin(c)
-      const room = this.rooms.find((r) => r.id === c.params.id) ?? fail('not_found', 404)
-      if (room.kind === 'dm' || (room.kind === 'group' && !room.name)) fail('conflict', 409, undefined, undefined, { reason: 'room_category_personal' })
-      const to = c.body.categoryId as string | null
-      if (to) one(to)
-      const next = to ? { ...room, categoryId: to } : without(room)
-      this.rooms = this.rooms.map((r) => (r.id === room.id ? next : r))
-      roomChanged(next)
-      return next
-    }
   }
 
   private installNavFolders() {

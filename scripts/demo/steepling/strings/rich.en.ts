@@ -1,7 +1,8 @@
 // The richer Steepling's words in English (the source language), one line per id of ../rich.ts. Plain words, a small
 // team that knows each other. `@{mina}` mentions a person, `{file:<id>}` links a file, `{project:<id>}` a project.
 // Everything is made up: people, cafés, numbers, addresses (.example only). No dates that follow the build day: say
-// "today", "last week"; the story's own launch dates (Monday Nov 23 to Dec 6) stay as they are.
+// "today", "last week". No calendar dates for the launch either: it is "Monday", the offer runs "two weeks"
+// (tests/unit/demo-story-no-dates.test.ts).
 import type { RichWords } from '../rich'
 
 const csv = (rows: string[][]) => rows.map((r) => r.map((c) => (/[",]/.test(c) ? `"${c.replaceAll('"', '""')}"` : c)).join(',')).join('\n') + '\n'
@@ -34,7 +35,7 @@ export const richEn = {
   'all.pouch': 'New pouch samples arrived from the second supplier. Stronger seams, same green. Ops is testing them this week.',
   'all.pouch.r1': 'Good timing. Most of the torn-bag reviews came from the first batch.',
   'all.pouch.r2': 'That\'s why we switched. Results by Friday.',
-  'all.price': 'Decision: Yuzu Ginger launches Monday Nov 23 at $11.90 for 10 bags, 20% off for two weeks. Thanks Sara and Tom for the numbers.',
+  'all.price': 'Decision: Yuzu Ginger launches Monday at $11.90 for 10 bags, 20% off for two weeks. Thanks Sara and Tom for the numbers.',
   'all.news': 'Two bits of team news: Leo moves to Sales from the launch week, and Mina Lee joins Marketing just before it 🎉',
   'all.news.r1': 'Leo in Sales! Finally someone who knows what the cafés post 😄',
   'all.news.r2': 'Ha. I\'ll still sneak into #Marketing for the snacks.',
@@ -56,7 +57,7 @@ export const richEn = {
   'mkt.retro-notes.r1': 'Agree on the discount. Let\'s not go above 20% again.',
   'mkt.retro-notes.r2': 'Noted for the winter blend.',
   'mkt.retro-notes.r3': 'And I\'ll keep crops of every real photo ready, so we can post them fast.',
-  'mkt.kickoff': 'Kickoff for the winter blend: Yuzu Ginger 🍋 Tom says the first batch is ready mid-November. Notes in our folder.',
+  'mkt.kickoff': 'Kickoff for the winter blend: Yuzu Ginger 🍋 Tom says the first batch is ready two weeks before launch. Notes in our folder.',
   'mkt.mood': 'Mood board idea: frosted windows, morning light, the green pouch. No text inside the photos.',
   'mkt.plan': 'Love it. I\'ll plan the posts around grey mornings.',
   'mkt.shoot': 'Photo shoot quote is in. I said yes to one half-day with Ella plus our own phone shots.',
@@ -114,16 +115,16 @@ export const richEn = {
   'cv.quote-ok': 'She said yes, first name only (Hannah). The file has a "Quote OK" column now.',
   'cv.courier': 'Shipping was slow in mid-October because the courier changed routes. Fixed now.',
   'cv.refunds': 'Refunds for the torn bags are done: 6 orders, $59.40 in total.',
-  'cv.november': 'November so far: 7 reviews, no torn bags 🎉 Peppermint still leads.',
+  'cv.november': 'This month so far: 7 reviews, no torn bags 🎉 Peppermint still leads.',
   'cv.works': 'New pouch works. Good.',
-  'cv.file': 'Reviews file updated, 30 rows now (October and November).',
+  'cv.file': 'Reviews file updated, 30 rows now (last month and this month).',
   'cv.faq': 'Shop FAQ gets a "how long does it steep?" answer. It\'s the top question by far.',
   'cv.mina': '@{mina} welcome! The three quotes we may use are in the October summary. Could one go in next week\'s posts?',
 
   // ---- Café partners
   'cp.start': 'This room is for our 12 partner cafés: reorders, visits, and what they ask Marketing for.',
   'cp.asks': 'Handy. Most of their asks are menu cards and table tents.',
-  'cp.harbour': 'Harbour Beans wants Yuzu Ginger on their winter menu. They need a menu card before December.',
+  'cp.harbour': 'Harbour Beans wants Yuzu Ginger on their winter menu. They need a menu card by the end of next week.',
   'cp.card': 'Yes! Leo, can you sketch it? Mina can finish it once she\'s in.',
   'cp.card.r1': 'Sketch next week. Same look as the launch banner.',
   'cp.card.r2': 'Perfect. They print on A5.',
@@ -222,7 +223,7 @@ export const richEn = {
     '',
     '## What we sell',
     '- **Steepling Cold Brew Tea**, 6 flavours: barley, green tea, rooibos, hibiscus, peppermint, Earl Grey ($9.90 for 10 bags)',
-    '- **New in November**: the winter-only **Yuzu Ginger** blend (out Monday, November 23, $11.90 for 10 bags)',
+    '- **New this season**: the winter-only **Yuzu Ginger** blend (out Monday, $11.90 for 10 bags)',
     '- Where it sells: our online shop (60%), 12 partner cafés and a few offices (40%)',
     '',
     '## People (10 of us)',
@@ -238,7 +239,7 @@ export const richEn = {
     '',
     '## How we work',
     '- Company news goes in **#Everyone**, marketing work in **#Marketing**.',
-    '- Campaign files live in team projects: "November launch campaign", "Social calendar", "Customer voice", "Café partners".',
+    '- Campaign files live in team projects: "Yuzu Ginger launch campaign", "Social calendar", "Customer voice", "Café partners".',
     '- Before you design anything, use the **Brand guide** team skill (Trina uses it for you).',
     '- Design agency: Chris Walker at Fieldnote Studio (runs our banners and ads).',
     '',
@@ -275,7 +276,7 @@ export const richEn = {
     'Sample content for the demo. Who: Sara, Leo, Ben, Tom, Daniel.',
     '',
     '## Decided',
-    '- Launch: Monday, November 23, winter only',
+    '- Launch: Monday, winter only',
     '- Price and offer: from the summer retro, at most 20% off for two weeks (Daniel confirms the price)',
     '- Look: frosted window, morning light, the green pouch, no text inside photos',
     '- Stock: Tom plans 1,800 packs for the first two weeks',
@@ -299,7 +300,7 @@ export const richEn = {
     '## Moves to Mina',
     '| Work | Where it stands | Files |',
     '|---|---|---|',
-    '| Launch banner, square and story | Leo\'s first draft; final set due before Monday | project "November launch campaign" |',
+    '| Launch banner, square and story | Leo\'s first draft; final set due before Monday | project "Yuzu Ginger launch campaign" |',
     '| Social calendar | launch Monday planned; Wed and Fri of launch week and the week after empty | project "Social calendar" |',
     '| Harbour Beans winter menu card | Leo\'s sketch, copy rough; Aiko promised a draft early next week | project "Café partners" |',
     '| Fieldnote (ads) | Chris has the dates and sizes; send him the final banner | mail from Chris |',
@@ -419,13 +420,13 @@ export const richEn = {
     'Sample content for the demo. One page for the posts skill: the calendar, brief, rules and reviews it needs.',
     '',
     '## Empty slots',
-    '- Wed, Nov 25, 8:00: post, a shoot photo or crop',
-    '- Fri, Nov 27, 8:00: post, a shoot photo or crop',
+    '- Wed, 8:00: post, a shoot photo or crop',
+    '- Fri, 8:00: post, a shoot photo or crop',
     '- Monday\'s launch post and the daily story are ready.',
     '',
     '## Offer (launch brief)',
     '- Yuzu Ginger cold brew: bright yuzu, a warm kick of ginger. $11.90 for 10 bags.',
-    '- 20% off for launch, Nov 23 – Dec 6. Headline: "A little sun for grey mornings."',
+    '- 20% off for the first two weeks. Headline: "A little sun for grey mornings."',
     '',
     '## Tags and rules',
     '- #coldbrewtea #steepling #teawithoutthekettle #yuzuginger (5 tags at most)',
@@ -529,7 +530,7 @@ export const richEn = {
   'mina.notes.text': [
     '# My first week',
     '',
-    '- Monday: laptop from Tom, Sara walked me through the November launch.',
+    '- Monday: laptop from Tom, Sara walked me through the Yuzu Ginger launch.',
     '- Banner sizes: 1200×628, 1080×1080, story 1080×1920. Send to Chris at Fieldnote.',
     '- Ask Leo how he does the weekly posts.',
     '- Read the brand guide before writing anything.',
@@ -622,7 +623,7 @@ export const richEn = {
   'c.p5.2.answer': [
     'The week after the launch:',
     '- **Mon** and **Wed**: empty, with Ben\'s two crops ready for them',
-    '- **Fri**: only an idea so far, "Last days of 20% off" (the offer ends December 6)',
+    '- **Fri**: only an idea so far, "Last days of 20% off" (the offer ends that Sunday)',
     '',
     'So five posts are open in all: Wed and Fri of launch week, and Mon, Wed and Fri of the week after.',
   ].join('\n'),
@@ -653,7 +654,7 @@ export const richEn = {
   'gm.weekly.subject': 'Weekly report: launch prep',
   'gm.weekly.body': 'Hi team,\n\nQuick update before the launch:\n\n- Ad budget is booked for the two launch weeks.\n- The web banner and the square go live Monday at 9:00, the story for the first week.\n- Please send the final banner by Sunday.\n\nBest,\nChris\nFieldnote Studio',
   'gm.menu-ask.subject': 'Winter menu card for Yuzu Ginger',
-  'gm.menu-ask.body': 'Hi Aiko,\n\nWe\'d love Yuzu Ginger on our winter menu. Could you send us a menu card, A5, before December? We\'ll print it here.\n\nThanks,\nSam\nHarbour Beans',
+  'gm.menu-ask.body': 'Hi Aiko,\n\nWe\'d love Yuzu Ginger on our winter menu. Could you send us a menu card, A5, by the end of next week? We\'ll print it here.\n\nThanks,\nSam\nHarbour Beans',
   'gm.menu-reply.subject': 'Re: Winter menu card for Yuzu Ginger',
   'gm.menu-reply.body': 'Hi Sam,\n\nGreat news, thank you! Mina from our Marketing team will send you a draft early next week.\n\nAiko',
   'gm.fan.subject': 'Fwd: Love the peppermint!',

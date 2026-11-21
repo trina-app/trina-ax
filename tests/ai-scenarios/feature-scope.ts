@@ -77,11 +77,13 @@ export const FEATURE_SCOPE: Record<string, Scope> = {
   'rooms.message-links': { reach: 'explains' },
   'rooms.app-link-names': { reach: 'none', why: 'how a pasted link reads (a chip with the name, for who may open it); nothing to set or ask the AI to do' },
   'rooms.sent-files': { reach: 'none', why: 'a page of a person\'s own sent files in rooms, not asked of the AI' },
+  'rooms.files-list': { reach: 'none', why: 'a room\'s Files list and search\'s recent files are screens, not asked of the AI (the AI finds room files with room_file)' },
   'rooms.members': { reach: 'explains' },
   'rooms.hide-pin': { reach: 'explains' },
   'rooms.files': { reach: 'acts', tools: ['room_file', 'save_room_file'] },
-  // the person links, unlinks and makes the channel on screens; the side chat's save into the linked project's folder is rooms.files' save (tests/unit/b-linked-project-no-card.test.ts)
-  'rooms.project-link': { reach: 'explains' },
+  'rooms.project-link': { reach: 'none', why: 'retired in 0.5.22 (its endpoints answer 410): a project has its own chat room, rooms.project-room' },
+  // the person opens the project's room on screens; the side chat's save into the project's folder is rooms.files' save (tests/unit/b-linked-project-no-card.test.ts)
+  'rooms.project-room': { reach: 'explains' },
   'rooms.search': { reach: 'acts', tools: ['room_read', 'rooms'] },
   'rooms.activity': { reach: 'explains' },
   'rooms.apps': { reach: 'explains' },

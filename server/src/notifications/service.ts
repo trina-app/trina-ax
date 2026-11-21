@@ -176,19 +176,24 @@ export class Notifications {
     this.record(userId, event, suggestionId, createdAt)
   }
   /** A DM message, an @mention or a reply in a followed thread in a room (rooms/service.ts notify). The source is the
-   * message id only, never its text. No second notice of the same kind while one of that room's timeline (or, for a
-   * reply, of that thread: `threadRootId`) is still unread (one per unread run: a burst of messages or mentions is one
-   * notice and one push); reading the room, or the thread, marks them read. Whether there is a notice at all is the
-   * room's level for the person (Rooms.notify). `quiet`: made inside their quiet hours (docs/DECISIONS.md "대화방 알림
-   * 설정"): kept, never pushed (room_notices.quiet), and it does not hold back the room's next notice once the quiet
-   * hours are over (that one pushes); while they last, any unread notice of the run holds the next one back. True when
-   * a notice that may ring was recorded now (not a quiet one): the room.message to the person says so, and the desktop
-   * app tells the same ones (docs/DECISIONS.md "Session markers"). A notice that holds a message back records it as the
-   * newest of its run (`seq`; last_seq / last_at): the Inbox's row shows the run and sits where it ends (rooms/inbox.ts). */
-  roomNotice(userId: string, event: RoomNoticeEvent, messageId: string, roomId: string, at = new Date().toISOString(), threadRootId: string | null = null, quiet = false, seq?: number): boolean {
+   * message id only, never its text. Every message that alerts the person is a notice of its own and so a push of its
+   * own, as in Slack and KakaoTalk (docs/decisions/20261120-push-every-message.md: before, a burst of messages or
+   * mentions was one notice and one push, and the phone stayed silent for the rest); the iPhone groups them under the
+   * room (the notification's thread). Reading the room, or the thread, marks them read; the Inbox makes one row of a
+   * place's unread notices (rooms/inbox.ts). Whether there is a notice at all is the room's level for the person
+   * (Rooms.notify). `quiet`: made inside their quiet hours (docs/DECISIONS.md "대화방 알림 설정"): kept, never pushed
+   * (room_notices.quiet), one per unread run (any unread notice of the place holds the next quiet one back, which is
+   * recorded as the newest of its run: `seq`; last_seq / last_at, so the Inbox's row sits where the run ends); it never
+   * holds back a notice made once the quiet hours are over (that one pushes). True when a notice that may ring was
+   * recorded now (not a quiet one): the room.message to the person says so, and the desktop app tells the same ones
+   * (docs/DECISIONS.md "Session markers"). `run`: an app's message (rooms/apps; an app may post a burst of 30, then one a
+   * second) stays one per unread run as before, as a quiet one does, so an app cannot ring a phone 30 times in a row or
+   * run into the gateway's 20 a minute per device (review of #108, finding 2); only an unread notice that may ring holds
+   * it back. */
+  roomNotice(userId: string, event: RoomNoticeEvent, messageId: string, roomId: string, at = new Date().toISOString(), threadRootId: string | null = null, quiet = false, seq?: number, run = false): boolean {
     if (!this.active(userId) || at < this.cutoff()) return false
-    const open = this.ctx.db.query(`SELECT n.id FROM room_notices n JOIN room_messages m ON m.id=n.source_id WHERE n.user_id=? AND n.room_id=? AND n.event_type=? AND n.read_at IS NULL AND n.suppressed=0 AND n.created_at>=?
-      AND m.thread_root_id IS ? AND (n.quiet=0 OR ?=1) AND ${NOT_SKIPPED('room_push_deliveries')} ORDER BY n.created_at DESC, n.id DESC LIMIT 1`).get(userId, roomId, event, this.cutoff(), threadRootId, quiet ? 1 : 0) as { id: string } | null
+    const open = quiet || run ? this.ctx.db.query(`SELECT n.id FROM room_notices n JOIN room_messages m ON m.id=n.source_id WHERE n.user_id=? AND n.room_id=? AND n.event_type=? AND n.read_at IS NULL AND n.suppressed=0 AND n.created_at>=?
+      AND m.thread_root_id IS ? AND (n.quiet=0 OR ?=1) AND ${NOT_SKIPPED('room_push_deliveries')} ORDER BY n.created_at DESC, n.id DESC LIMIT 1`).get(userId, roomId, event, this.cutoff(), threadRootId, quiet ? 1 : 0) as { id: string } | null : null
     if (open) {
       // only for the kinds the Inbox lists (a mention, a reply: rooms/inbox.ts; a DM's message is no row). No signal: the
       // Inbox's count is the same, and an open Inbox reads its rows again as the rooms change
@@ -642,7 +647,7 @@ export class Notifications {
    * project it is shown while the person can see the project; with none, projectId and projectName are ''. */
   private devEnvRunOut(row: Row, base: InboxNotification): InboxNotification {
     const db = this.ctx.db
-    const run = db.query('SELECT project_id,name,chat_id,exit_code,end_note,log_tail,end_reason FROM dev_env_runs WHERE id=? AND user_id=?').get(row.source_id, row.user_id) as { project_id: string | null; name: string; chat_id: string | null; exit_code: number | null; end_note: string; log_tail: string; end_reason: string } | null
+    const run = db.query('SELECT project_id,name,chat_id,exit_code,end_reason FROM dev_env_runs WHERE id=? AND user_id=?').get(row.source_id, row.user_id) as { project_id: string | null; name: string; chat_id: string | null; exit_code: number | null; end_reason: string } | null
     if (!run) return base
     const project = run.project_id ? db.query('SELECT name,folder_path,trashed_with FROM projects WHERE id=?').get(run.project_id) as { name: string; folder_path: string; trashed_with: string | null } | null : null
     if (project) {
@@ -651,8 +656,10 @@ export class Notifications {
         authorize(this.ctx.files.fx, this.ctx.files.rules(), this.ctx.files.principal(row.user_id), project.folder_path, 'read')
       } catch { return base }
     }
-    const chat = run.chat_id ? db.query('SELECT id FROM chats WHERE id=? AND user_id=? AND deleted_at IS NULL').get(run.chat_id, row.user_id) as { id: string } | null : null
-    const job = { name: run.name, exitCode: run.exit_code, note: run.end_note, tail: run.log_tail, ...(run.end_reason && run.end_reason !== 'exit' ? { reason: run.end_reason } : {}) }
+    const chat = run.chat_id ? db.query('SELECT id,title FROM chats WHERE id=? AND user_id=? AND deleted_at IS NULL').get(run.chat_id, row.user_id) as { id: string; title: string } | null : null
+    // the result in plain words (done or not, in which chat): never the log or the English end note, which stay in the
+    // job's row for the AI of that chat (the people reading Activity are not developers)
+    const job = { name: run.name, exitCode: run.exit_code, ...(run.end_reason && run.end_reason !== 'exit' ? { reason: run.end_reason } : {}), ...(chat?.title ? { chatTitle: chat.title } : {}) }
     return { ...base, chatId: chat?.id ?? null, link: chat ? 'chat' : project ? 'project' : null, devEnv: { projectId: project ? run.project_id! : '', projectName: project?.name ?? '', job } }
   }
   /** `rows`: the Inbox's list, whose room notices are rows (roomRows) with the first line of their newest message; a

@@ -60,7 +60,8 @@ import { Audiences, accountSeesProject, chatFor, memberWhileTrashed, chatPeople,
 import { AnswerSight, type ChatHit } from '../chat/shared-answers'
 import { safeOpsEnabled } from '../safe-ops/runner'
 import { deleteProjectForGood } from '../chat/project-delete'
-import { channelForViewer, dropLinksInTx } from '../rooms/project-link'
+import { dropLinksInTx } from '../rooms/project-link'
+import { roomForViewer } from '../rooms/project-room'
 import { dropChatPins, dropUnseenPins, pin, pinsOf, unpin } from '../chat/pins'
 import { chatFoldersChanged, dropChatFolderItems, folderChatFilter } from '../chat/nav-folders'
 import { chatGroups, otherChats } from '../chat/chat-groups'
@@ -315,8 +316,8 @@ export const chatsRoutes: RouteModule = {
         const out = rt.store.toProject(r, false, { audience: aud.of(r).length, ...shared })
         return { ...out, instructions: '', member: false as const, canManage, canDelete, ...inTrash, ...membersView(ctx, r, p, canManage, creators, aud, { member: false }) }
       }
-      // its private channel (rooms/project-link.ts): for someone who reads it, never a guest outside the channel
-      return { ...rt.store.toProject(r, canEdit, projectShare(ctx.db, ctx.files, r, aud, viewer)), canManage, canDelete, ...membersView(ctx, r, p, canManage, creators, aud), ...leaveState(ctx, r, p, aud), ...channelForViewer(ctx.db, r, viewer, rulesOfList(aud)) }
+      // its own chat room (rooms/project-room.ts): for someone who reads it
+      return { ...rt.store.toProject(r, canEdit, projectShare(ctx.db, ctx.files, r, aud, viewer)), canManage, canDelete, ...membersView(ctx, r, p, canManage, creators, aud), ...leaveState(ctx, r, p, aud), ...roomForViewer(ctx.db, r, viewer) }
     }
     /** the folder rules once per list of projects (one Audiences per list) */
     const listRules = new WeakMap<Audiences, ReturnType<typeof ctx.files.rules>>()

@@ -27,6 +27,8 @@ import { diskStat } from '../system/disk-stat'
 import { roomFilesOf } from '../rooms/files'
 import { assertGuestUploadSize } from './guest-limit'
 import { roomsOf } from '../rooms/service'
+import { assertRoomUpload } from '../rooms/project-room'
+import { personLocale } from '../files/media-text'
 
 /** idle expiry: every accepted chunk moves expires_at to now + this */
 export const SESSION_TTL_MS = 24 * 3600_000
@@ -124,6 +126,8 @@ export class UploadSessions {
       // in the room now, a name that can be kept, at most 1 GB: refused here, before a byte is sent (rooms/files.ts)
       // the room as the person may use it now (rooms/service.ts: a DM closed since answers like one that is not there)
       roomsOf(this.ctx).get(userId, t.roomId)
+      // a project's room: only someone who may add files to the project (rooms/project-room.ts)
+      assertRoomUpload(this.ctx, userId, t.roomId, personLocale(this.ctx.db, userId))
       roomFilesOf(this.ctx).assertUpload(userId, t.roomId, t.name, size ?? 0)
     } else if (isGuestUser(this.ctx.db, userId)) {
       // a guest: no speech to text (a team cost outside the guest's own limit; POST /api/transcribe is off their list too)
@@ -232,6 +236,7 @@ export class UploadSessions {
       // checked again (create: in the room now); the part file is moved into the room's folder, never read whole
       try {
         roomsOf(this.ctx).get(userId, target.roomId)
+        assertRoomUpload(this.ctx, userId, target.roomId, personLocale(this.ctx.db, userId))
         result = { kind: 'room', file: await roomFilesOf(this.ctx).create(userId, target.roomId, target.name, this.part(id), sha) }
       } catch (e) {
         // refused for good (the room left or closed meanwhile, a photo that cannot be read, its bytes taken away): this

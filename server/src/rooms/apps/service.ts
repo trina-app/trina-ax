@@ -10,6 +10,7 @@
 // (canSee; people who join a team room later too: rooms/history.ts never hides one), it counts as unread and alerts by
 // the room's level like any message (never a mention: mentions '[]'), and a reply in its thread notifies who replied
 // there. Quiet ones (app_quiet) count nowhere: no unread, no notice, not the rooms list's line, no activity bump.
+import { NOT_HELD_SQL } from '../project-room'
 import crypto from 'node:crypto'
 import type { Database } from 'bun:sqlite'
 import {
@@ -146,7 +147,7 @@ export class RoomApps {
    * (routes/room-apps.ts). Idempotent: one notice per person and address (the table's UNIQUE). Returns how many apps had
    * a leaver. */
   leaverSweep(): number {
-    const rows = this.db.query(`SELECT a.* FROM room_apps a JOIN rooms r ON r.id = a.room_id AND r.archived_at IS NULL
+    const rows = this.db.query(`SELECT a.* FROM room_apps a JOIN rooms r ON r.id = a.room_id AND r.archived_at IS NULL AND ${NOT_HELD_SQL('r')}
       WHERE EXISTS (SELECT 1 FROM room_app_viewers v WHERE v.app_id = a.id)`).all() as AppRow[]
     const n = notificationsOf(this.ctx)
     let found = 0

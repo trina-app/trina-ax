@@ -64,9 +64,10 @@ describe('the snapshot of Steepling (en)', () => {
       expect(notice?.read_at).toBeNull()
       expect(notice?.mention_id).not.toBeNull()
       expect(Date.parse(notice!.created_at)).toBeLessThan(Date.parse(manifest.createdAt) - 60 * 60_000)
-      // job titles and .example e-mails (QA TC-5619); the launch project's channel (QA TC-5620)
+      // job titles and .example e-mails (QA TC-5619); the launch project's own chat room (QA TC-5620, now the project room)
       for (const u of db.query('SELECT u.username, u.email FROM users u').all() as { username: string; email: string | null }[]) expect(u.email ?? '', u.username).toMatch(/@[a-z]+\.example$/)
-      expect((db.query("SELECT r.name FROM room_project_links l JOIN rooms r ON r.id = l.room_id").all() as { name: string }[]).map((r) => r.name).sort()).toEqual(['Café partners', 'Customer voice', 'Launch day', 'Social calendar'])
+      // each project with a channel has its own chat room, named after it (the channels stay group chats)
+      expect(db.query("SELECT COUNT(*) n, SUM(l.mode = 'room' AND r.name = p.name) rooms FROM room_project_links l JOIN rooms r ON r.id = l.room_id JOIN projects p ON p.id = l.project_id").get()).toEqual({ n: 4, rooms: 4 })
       // room notices and thread follows carry the story's times, never the build's (the review of the richer Steepling)
       for (const t of ['room_notices', 'room_thread_follows']) expect((db.query(`SELECT count(*) n FROM ${t} WHERE created_at > ?`).get(manifest.createdAt) as { n: number }).n, t).toBe(0)
       expect((db.query('SELECT count(*) n FROM room_notices WHERE last_at > ?').get(manifest.createdAt) as { n: number }).n).toBe(0)
@@ -93,6 +94,13 @@ describe('the snapshot of Steepling (en)', () => {
       // the folders with nothing dated in them are not later than the story either: people's own, the team skills', the
       // team folder (QA TC-5743)
       for (const d of ['.', 'users', `users/${minaId}`, 'users/sara', 'skills']) expect(fs.statSync(path.join(L.team, d)).mtimeMs, d).toBeLessThan(hourBefore)
+      // Team skills › company-profile.json: the story's time (the skills', 30 days back), on disk and in its updatedAt,
+      // never the build's (QA TC-5935)
+      const profileAt = fs.statSync(path.join(L.team, 'skills', 'company-profile.json')).mtimeMs
+      expect(profileAt).toBeLessThan(hourBefore)
+      expect(Math.abs(profileAt - (Date.parse(manifest.createdAt) - 30 * 1440 * 60_000))).toBeLessThan(10 * 60_000)
+      const profileJson = JSON.parse(fs.readFileSync(path.join(L.team, 'skills', 'company-profile.json'), 'utf8')) as { updatedAt?: string }
+      expect(Math.abs(Date.parse(profileJson.updatedAt ?? '') - profileAt)).toBeLessThan(1000)
       // a file in a room message is an attachment or a named link, never a bare download address (QA TC-5884)
       const bare = db.query("SELECT body FROM room_messages WHERE body LIKE '%/api/files/download%'").all() as { body: string }[]
       expect(bare.filter((m) => /(^|[^(])\/api\/files\/download/.test(m.body))).toEqual([])

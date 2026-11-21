@@ -33,13 +33,13 @@
 // (tests/unit/b-rooms-file-search.test.ts times 20,000). The cursor is below the page's last hit (a file they see).
 import type { Database } from 'bun:sqlite'
 import { nameMatch, nearBudget, nearMatch, parseSearch, particleNext, type SearchParts } from '@mycel/shared'
-import { ROOM_REF_RE, ROOM_SEARCH_PAGE_MAX, ROOM_SEARCH_SNIPPET_MAX, type MyRoomFilesPage, type RoomFileSearchHit, type RoomFileSearchPage, type RoomSearchFilters, type RoomSearchHit, type RoomSearchPage, type RoomSearchRoom, type RoomSearchSort, type UserRef } from '@mycel/shared/api'
+import { RECENT_ROOM_FILES_MAX, ROOM_REF_RE, ROOM_SEARCH_PAGE_MAX, ROOM_SEARCH_SNIPPET_MAX, type MyRoomFilesPage, type RecentRoomFiles, type RoomFilesPage, type RoomFileSearchHit, type RoomFileSearchPage, type RoomSearchFilters, type RoomSearchHit, type RoomSearchPage, type RoomSearchRoom, type RoomSearchSort, type UserRef } from '@mycel/shared/api'
 import { decodeCursor, encodeCursor } from '../chat/store'
 import { fail } from '../http/errors'
 import { reachFilter } from '../auth/guests'
 import { myRooms, ROOM_EVERYONE_WORDS, titleOf, type Mine } from './reader'
 import { unescapeMarkdown } from './apps/card'
-import { canSee, fileOut, hiddenAmong, MENTIONS_SQL, messagesOut, MSG_COLS, refsOf, roomNaming, SEE_MEMBER_SQL, type FileRow, type MessageRow } from './store'
+import { canSee, filesOutFor, hiddenAmong, MENTIONS_SQL, messagesOut, MSG_COLS, refsOf, roomNaming, SEE_MEMBER_SQL, type FileRow, type MessageRow } from './store'
 
 /** hits a page gives by default */
 export const ROOM_SEARCH_DEFAULT = 20
@@ -300,12 +300,12 @@ function nearRows(db: Database, parts: SearchParts, f: Filters): (MessageRow & {
  * `authors`, the person twice when `mentions` (mentions:me: the message the file was sent with mentions them), each
  * term's LIKE, the cursor's file rowid when `after`, the LIMIT). CROSS JOIN keeps SQLite on room_files,
  * newest first by rowid: no sort, and a page stops when it is full (a plain JOIN walked every message of the person's
- * rooms and sorted: seconds on a million messages, the independent review measured). Exported for the test that reads
- * its plan. */
+ * rooms and sorted: seconds on a million messages, the independent review measured; `+f.room_id` keeps one room's index,
+ * room_files_by_room, out of it for the same reason). Exported for the test that reads its plan. */
 export const roomFilesSql = (words: number, after: boolean, authors = 0, mentions = false) => `SELECT f.rowid AS fr, f.id AS file_id, ${COLS} FROM room_files f
     CROSS JOIN room_messages m ON m.id = f.message_id AND m.room_id = f.room_id
     CROSS JOIN room_members mm ON mm.room_id = m.room_id AND mm.user_id = ?
-    WHERE f.message_id IS NOT NULL AND f.room_id IN (SELECT value FROM json_each(?)) AND m.deleted_at IS NULL AND m.event IS NULL
+    WHERE f.message_id IS NOT NULL AND +f.room_id IN (SELECT value FROM json_each(?)) AND m.deleted_at IS NULL AND m.event IS NULL
       AND ${SEE_MEMBER_SQL}${authors ? ` AND m.author_kind = 'user' AND m.author_id IN (${Array.from({ length: authors }, () => '?').join(',')})` : ''}${mentions ? ` AND ${MENTIONS_SQL}` : ''}${Array.from({ length: words }, () => " AND f.name LIKE ? ESCAPE '\\'").join('')}${after ? ' AND f.rowid < ?' : ''} ORDER BY f.rowid DESC LIMIT ?`
 
 /** Files sent in my rooms by name: every term of the text (parseSearch: a word without its particle or ending, a
@@ -344,20 +344,26 @@ function fileHits(db: Database, userId: string, mine: Map<string, Mine>, page: (
   const files = new Map(kept.length ? (db.query(`SELECT * FROM room_files WHERE id IN (${kept.map(() => '?').join(',')})`).all(...kept.map((h) => h.file_id)) as FileRow[]).map((f) => [f.id, f]) : [])
   const people = refsOf(db, kept.map((h) => (h.author_kind === 'ai' ? null : h.author_id)))
   const items: RoomFileSearchHit[] = []
-  for (const h of kept) {
-    const f = files.get(h.file_id)
-    if (!f || f.message_id !== h.id || f.room_id !== h.room_id) continue
-    items.push({ file: fileOut(f), messageId: h.id, roomId: h.room_id, threadRootId: h.thread_root_id ?? null, author: h.author_kind === 'ai' || !h.author_id ? null : people.get(h.author_id) ?? null, createdAt: h.created_at })
+  // a project room's file (kept in the team folder): only while this person reads it now, as it is now
+  const hits = kept.filter((h) => { const f = files.get(h.file_id); return !!f && f.message_id === h.id && f.room_id === h.room_id })
+  const shown = filesOutFor(db, hits.map((h) => files.get(h.file_id)!), userId)
+  for (const [i, h] of hits.entries()) {
+    const file = shown[i]!
+    if (file.state) continue
+    items.push({ file, messageId: h.id, roomId: h.room_id, threadRootId: h.thread_root_id ?? null, author: h.author_kind === 'ai' || !h.author_id ? null : people.get(h.author_id) ?? null, createdAt: h.created_at })
   }
   const rooms: RoomSearchRoom[] = [...new Set(items.map((i) => i.roomId))].map((id) => { const m = mine.get(id)!; return { id, kind: m.room.kind, ...roomNaming(db, m.room, userId) } })
   return { items, rooms }
 }
 
 /** Mine only: the rows of the rooms I am in now, of a message of mine that is sent, not deleted and that I see. */
-const MINE_WHERE = `f.user_id = ? AND f.message_id IS NOT NULL AND m.author_kind = 'user' AND m.author_id = f.user_id
-  AND f.room_id IN (SELECT value FROM json_each(?)) AND m.deleted_at IS NULL AND m.event IS NULL AND ${SEE_MEMBER_SQL}`
+const MINE_WHERE = () => `f.user_id = ? AND f.message_id IS NOT NULL AND m.author_kind = 'user' AND m.author_id = f.user_id
+  AND f.room_id IN (SELECT value FROM json_each(?)) AND m.deleted_at IS NULL AND m.event IS NULL AND ${SEE_MEMBER_SQL} AND ${NOT_REF_SQL}`
 const MINE_FROM = `room_files f CROSS JOIN room_messages m ON m.id = f.message_id AND m.room_id = f.room_id
     CROSS JOIN room_members mm ON mm.room_id = m.room_id AND mm.user_id = f.user_id`
+/** ...and never a file kept in the team folder (a project room's: it is a project file, managed in Files; deleting it
+ * here would not free room storage, docs/decisions/20261120-project-is-room.md D3) */
+const NOT_REF_SQL = 'NOT EXISTS (SELECT 1 FROM room_file_refs rr WHERE rr.room_file_id = f.id)'
 
 /** "Files you sent" (docs/decisions/20261116-room-files-cleanup.md): my files in the rooms I am in now, of my messages
  * I still see, largest first (equal sizes oldest first: the index's own order), by the index room_files_by_sender
@@ -371,14 +377,66 @@ export function listMyRoomFiles(db: Database, userId: string, o: { cursor?: stri
   if (!mine.size) return { items: [], rooms: [], nextCursor: null, totalBytes: 0 }
   const ids = JSON.stringify([...mine.keys()])
   const rows = db.query(`SELECT f.rowid AS fr, f.size AS fsize, f.id AS file_id, ${COLS} FROM ${MINE_FROM}
-    WHERE ${MINE_WHERE}${cur ? ' AND (f.size < ? OR (f.size = ? AND f.rowid > ?))' : ''} ORDER BY f.size DESC, f.rowid LIMIT ?`)
+    WHERE ${MINE_WHERE()}${cur ? ' AND (f.size < ? OR (f.size = ? AND f.rowid > ?))' : ''} ORDER BY f.size DESC, f.rowid LIMIT ?`)
     .all(userId, ids, ...(cur ? [Number(cur.s), Number(cur.s), Number(cur.f)] : []), limit + 1) as (MessageRow & { fr: number; fsize: number; file_id: string })[]
   const page = rows.slice(0, limit)
   const last = page.at(-1)
   const nextCursor = rows.length > limit && last ? encodeCursor({ s: String(last.fsize), f: String(last.fr) }) : null
   // the total with the first page only (a later page answers 0: the app keeps the first one's)
-  const total = cur ? 0 : (db.query(`SELECT COALESCE(SUM(f.size), 0) AS n FROM ${MINE_FROM} WHERE ${MINE_WHERE}`).get(userId, ids) as { n: number }).n
+  const total = cur ? 0 : (db.query(`SELECT COALESCE(SUM(f.size), 0) AS n FROM ${MINE_FROM} WHERE ${MINE_WHERE()}`).get(userId, ids) as { n: number }).n
   return { ...fileHits(db, userId, mine, page), nextCursor, totalBytes: total }
+}
+
+/** One room's sent files query (parameters: the person, the room, the cursor's file rowid when `after`, the LIMIT): by
+ * the index room_files_by_room, newest first by rowid with no sort. Exported for the test that reads its plan. */
+export const roomFileListSql = (after: boolean) => `SELECT f.rowid AS fr, f.id AS file_id, ${COLS} FROM room_files f INDEXED BY room_files_by_room
+    CROSS JOIN room_messages m ON m.id = f.message_id AND m.room_id = f.room_id
+    CROSS JOIN room_members mm ON mm.room_id = m.room_id AND mm.user_id = ?
+    WHERE f.room_id = ? AND f.message_id IS NOT NULL AND m.deleted_at IS NULL AND m.event IS NULL AND ${SEE_MEMBER_SQL}${after ? ' AND f.rowid < ?' : ''} ORDER BY f.rowid DESC LIMIT ?`
+
+/** A room's Files list (docs/decisions/20261120-project-is-room.md D8): the files sent in one of my rooms with a message
+ * I see now, newest first by rowid (as the search), by the index room_files_by_room (migration 431); the cursor is the
+ * last row's rowid. The same checks as the search on each row (SEE_MEMBER_SQL in the query, then fileHits: canSee, a
+ * hidden answer or its thread, a file kept in the team folder only while I read it there, otherwise left out). The room
+ * must be one of mine (myRooms: not archived, not a trashed project's, a guest's as the guest rules give them): else 404.
+ * The caller (Rooms.listFiles) refuses a project's room first. */
+export function listRoomFiles(db: Database, userId: string, roomId: string, o: { cursor?: string; limit?: number }): RoomFilesPage {
+  const cur = decodeCursor(o.cursor, ['f'])
+  if (o.cursor && (!cur || !/^\d{1,18}$/.test(cur.f))) fail('validation', undefined, { fields: { 'query.cursor': 'invalid cursor' } })
+  const limit = Math.min(ROOM_SEARCH_PAGE_MAX, Math.max(1, o.limit ?? ROOM_SEARCH_DEFAULT))
+  const m = myRooms(db, userId).find((x) => x.room.id === roomId)
+  if (!m) return fail('not_found')
+  const rows = db.query(roomFileListSql(!!cur)).all(userId, roomId, ...(cur ? [Number(cur.f)] : []), limit + 1) as (MessageRow & { fr: number; file_id: string })[]
+  const page = rows.slice(0, limit)
+  const last = page.at(-1)
+  const nextCursor = rows.length > limit && last ? encodeCursor({ f: String(last.fr) }) : null
+  return { items: fileHits(db, userId, new Map([[roomId, m]]), page).items, nextCursor }
+}
+
+/** candidates read per walk of recentRoomFiles, and walks at most (rows a check leaves out are walked past) */
+const RECENT_POOL = 25
+const RECENT_WALKS = 4
+
+/** ⌘K before anything is typed (D8): the newest files of all my rooms with the search's own query and checks
+ * (searchRoomFiles with no words: roomFilesSql, then fileHits), at most RECENT_ROOM_FILES_MAX. A project room's file kept
+ * in the team folder is in it only while I can open it there (filesOutFor: one I cannot is left out, never shown as
+ * unavailable). Rows the checks leave out are walked past, a bounded number of times. */
+export function recentRoomFiles(db: Database, userId: string): RecentRoomFiles {
+  const mine = new Map(myRooms(db, userId).map((m) => [m.room.id, m]))
+  if (!mine.size) return { items: [], rooms: [] }
+  const ids = JSON.stringify([...mine.keys()])
+  const items: RoomFileSearchHit[] = []
+  let before: number | null = null
+  for (let walk = 0; walk < RECENT_WALKS && items.length < RECENT_ROOM_FILES_MAX; walk++) {
+    const rows = db.query(roomFilesSql(0, before !== null)).all(userId, ids, ...(before !== null ? [before] : []), RECENT_POOL) as (MessageRow & { fr: number; file_id: string })[]
+    if (!rows.length) break
+    items.push(...fileHits(db, userId, mine, rows).items)
+    if (rows.length < RECENT_POOL) break
+    before = rows.at(-1)!.fr
+  }
+  const kept = items.slice(0, RECENT_ROOM_FILES_MAX)
+  const rooms: RoomSearchRoom[] = [...new Set(kept.map((i) => i.roomId))].map((id) => { const m = mine.get(id)!; return { id, kind: m.room.kind, ...roomNaming(db, m.room, userId) } })
+  return { items: kept, rooms }
 }
 
 /** The text around the first match (the word found first, `q` a word or the words), on one line: room links as

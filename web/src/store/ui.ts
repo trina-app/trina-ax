@@ -16,8 +16,6 @@ export interface Toast {
   image?: string
   /** `primary`: the toast's one main action as a button (else an underlined link like Undo) */
   action?: { label: string; run: () => void; primary?: boolean }
-  /** a second link before `action` (Save to project's Open · Undo) */
-  more?: { label: string; run: () => void }
 }
 
 interface UiState {

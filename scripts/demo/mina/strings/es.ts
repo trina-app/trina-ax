@@ -22,13 +22,13 @@ export const es: Strings = {
     chris: { name: 'Chris Walker', title: 'Director de cuentas', org: 'Fieldnote' },
   },
   marketingGroup: 'Marketing',
-  project: { name: 'Campaña de lanzamiento de noviembre', description: 'Lanzamiento de Yuzu y Jengibre de invierno, lunes 23 de noviembre' },
+  project: { name: 'Campaña de lanzamiento de Yuzu y Jengibre', description: 'Lanzamiento de Yuzu y Jengibre de invierno, el lunes' },
 
   brandSkill: 'brand-guide',
 
   paths: {
     companyIntro: 'shared/Presentación de la empresa.md',
-    brief: 'Brief de lanzamiento de noviembre.md',
+    brief: 'Brief de lanzamiento de Yuzu y Jengibre.md',
     leoBanner: 'banner-lanzamiento-leo-v1.png',
     banner: 'banner-lanzamiento-nuevo.jpg',
     square: 'instagram-cuadrado.jpg',
@@ -71,7 +71,7 @@ export const es: Strings = {
 
   leoChat: {
     title: 'Banner de lanzamiento, primer borrador',
-    ask: 'Haz un banner de lanzamiento para la mezcla Yuzu y Jengibre. 20% de descuento, del 23/11 al 6/12',
+    ask: 'Haz un banner de lanzamiento para la mezcla Yuzu y Jengibre. 20% de descuento las dos primeras semanas',
     answer: 'Aquí tienes un primer borrador del banner.',
   },
 
@@ -107,7 +107,7 @@ export const es: Strings = {
       after: 'El borrador de Leo sigue intacto.',
     },
     captions: [
-      'Novedad de invierno: Yuzu y Jengibre 🍋 Deja una bolsita en agua fría antes de dormir y despierta con algo que te alegra la mañana. 20% de descuento hasta el 6 de diciembre.',
+      'Novedad de invierno: Yuzu y Jengibre 🍋 Deja una bolsita en agua fría antes de dormir y despierta con algo que te alegra la mañana. 20% de descuento durante las dos primeras semanas.',
       'yuzu + jengibre. y ya. ese es el post. (ok, también tiene un 20% de descuento esta semana)',
       'Confesión: en el equipo lo bebemos a escondidas desde agosto. Desde el lunes, es todo tuyo.',
     ],
@@ -138,20 +138,20 @@ export const es: Strings = {
         '',
         'Soy Mina, acabo de entrar en Marketing en Steepling. A partir de ahora seré tu contacto para los banners.',
         '',
-        'Te adjunto el banner final del lanzamiento (1200×628) y el post cuadrado de Instagram. Daniel ya les dio el visto bueno. ¿Puedes publicarlos a partir del lunes 23 de noviembre?',
+        'Te adjunto el banner final del lanzamiento (1200×628) y el post cuadrado de Instagram. Daniel ya les dio el visto bueno. ¿Puedes publicarlos a partir del lunes?',
         '',
         '¡Gracias!',
         'Mina',
       ],
     },
     formal: {
-      subject: 'Campaña de lanzamiento de Steepling: banner final para el lunes 23 de noviembre',
+      subject: 'Campaña de lanzamiento de Steepling: archivos finales del banner',
       body: [
         'Estimado Chris:',
         '',
         'Espero que se encuentre bien. Mi nombre es Mina Lee y acabo de incorporarme al equipo de Marketing de Steepling.',
         '',
-        'Le adjunto el banner final de la campaña de lanzamiento (1200×628) y la versión cuadrada para Instagram. Ambos cuentan con la aprobación de nuestro CEO. ¿Sería tan amable de publicarlos a partir del lunes 23 de noviembre?',
+        'Le adjunto el banner final de la campaña de lanzamiento (1200×628) y la versión cuadrada para Instagram. Ambos cuentan con la aprobación de nuestro CEO. ¿Sería tan amable de publicarlos a partir del lunes, día del lanzamiento?',
         '',
         'Muchas gracias. Será un placer trabajar con usted.',
         '',

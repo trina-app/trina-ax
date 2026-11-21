@@ -40,12 +40,13 @@ import { nameFromUrl } from '../tools/save-url'
 import { instructionLike, patternName, teamSegs, type RenameAt } from '../tools/rename-pattern'
 import { badSegment, hiddenEntry } from '../policy/names'
 import { isRunPlaceholder } from '../devenv/srt/placeholders'
+import { isWorkPath, namesWorkFolder, shownWorkPath, workRel } from '../devenv/work-files'
 import { mayReplace, TurnFiles } from '../files/service'
 import { saveSources } from '../files/sources'
 import { fileSharesOf } from '../files/shares'
 import { SERVER_OWN_FOLDERS } from '../files/own-folders'
 import { CONTEXT_RECOVER_MAX, contextRecoverBlock } from './context-recover'
-import { buildSubagentPrompt, buildTurnContext, buildTurnPrompt, continuationBlock, contextTokensFor, stoppedAnswerBlock, historyTrimmed, instructionFiles, neutralizeTags, promptBudget, skillBlock, skillHintsBlock, type PromptInput } from './prompt'
+import { apiTimeContext, buildSubagentPrompt, buildTurnContext, buildTurnPrompt, continuationBlock, contextTokensFor, stoppedAnswerBlock, historyTrimmed, instructionFiles, neutralizeTags, promptBudget, skillBlock, skillHintsBlock, type PromptInput } from './prompt'
 import { sessionPicturesKept, setApiVisionTurn, textTokens, turnImageCaps } from '../files/vision'
 import { sideRoomOf } from './side-room'
 import { activeProjectOf } from '../rooms/project-link'
@@ -82,6 +83,7 @@ import type { ChatRuntime } from './runtime'
 import { blankTeamAttachment, stopReasonOf, type MessageRow } from './store'
 import { BROWSER_TOOL_NAMES } from '../realtime/browser-tools'
 import { buildToolSet, widenOf, type ChatToolSet } from './tools'
+import { projectRoomOfChat } from './room-tools'
 import { noSearchPath, PROJECT_SEARCH_NOTE, SKIP_OWN, wholeTeamPath } from './search-path'
 import type { SharedConnections, ToolCard } from '../services'
 import { ConnectOutcome, type ConnectCard } from './connect-service'
@@ -106,10 +108,11 @@ import { budgetBlock } from '../admin/budgets'
 import { ENGINE_LABELS } from '../admin/engines'
 import { canChooseEngine, limitFallbackOn } from '../admin/engine-choice'
 import { API_GROUNDING_RULES, apiToolsOf, runApiAgent } from '../engine/api-agent'
+import { apiOfferedTools, deferredOf, moreToolsNote } from '../engine/api-tools-defer'
 import { foldCardDetails } from './card-fold'
 import { apiSeesImages } from '../engine/api-vision'
 import { apiContextSize, blindGuess, noteContextRefusal } from '../engine/api-context'
-import { fitApiTools, toolsLeftOutNote } from '../engine/api-tools-fit'
+import { fitApiTools, toolsLeftOutNote, toolTokens } from '../engine/api-tools-fit'
 import { historyFit, toolBudgetFor } from './history-fit'
 import { HISTORY_MAX_TOKENS } from './prompt'
 import { listedTools } from '../mcp/protocol'
@@ -275,7 +278,7 @@ const EMPTY_SHA256 = sha256(new Uint8Array(0))
 /** Tools that patch their own step exactly once per call (chat/room-tools.ts label): a cover's step words go with it. */
 const SELF_LABELLED_TOOLS = new Set(['save_room_file', 'save_chat_file'])
 /** Tools that copy a file kept outside the team folder (a room's, a chat's): only their widen hook knows the target */
-const WIDEN_TARGET_TOOLS = new Set(['save_room_file', 'save_chat_file'])
+const WIDEN_TARGET_TOOLS = new Set(['save_room_file', 'save_chat_file', 'save_work_file'])
 
 /** how many times one answer goes on after a connect (each needs another card the person finished) */
 export const CONTINUE_MAX = 2
@@ -963,6 +966,8 @@ export class TurnExec {
     const sharedProject = this.shared?.kind === 'project' ? this.shared.project : null
     const shared = this.shared ? {
       project: sharedProject ? sharedProject.name : null, audience: this.sharedAudience().length, asker: this.principal.name,
+      // the project's own chat room, which this chat reads (chat/room-tools.ts projectRoomTools)
+      projectRoom: sharedProject && !this.templateScope ? projectRoomOfChat(this) : null,
       members: sharedProject ? projectMembersBy(rt.db, sharedProject, membersView(rt.ctx, sharedProject, this.principal, mayManageProject(rt.files, this.principal, sharedProject))) : null,
     } : null
     // a chat opened from a room's side panel (✦ Trina): the room, while the person is still in it and it is not archived
@@ -1074,8 +1079,9 @@ export class TurnExec {
     // claudeAttempt: the prompt is for a Claude attempt (the Agent rule when it has sub-agents); the Codex fallback gets none
     // fresh instructions that start a Claude session (`sessionId`) list the skills as they are now: what a later resumed
     // turn of that session is compared with (skill-list.ts). Codex and the API engine start fresh every turn.
-    const prompt = (fresh: boolean, claudeAttempt = true, sessionId: string | null = null) => {
-      const input = { ...promptInput(fresh), subagents: subagents && claudeAttempt }
+    // `api`: the API engine's instructions, without the time line (it goes with the message: apiTimeContext)
+    const prompt = (fresh: boolean, claudeAttempt = true, sessionId: string | null = null, api = false) => {
+      const input = { ...promptInput(fresh), subagents: subagents && claudeAttempt, ...(api ? { timeInMessage: true } : {}) }
       this.historyTrimmed = fresh ? historyTrimmed(input.history, input.historySummary, historyBudget) : before?.role === 'assistant' && before.history_trimmed === 1
       // cut only because the model's context is small: the default window would have held it (the chat says so)
       this.historySmallModel = fresh ? this.historyTrimmed && historyBudget !== undefined && !historyTrimmed(input.history, input.historySummary) : before?.role === 'assistant' && before.history_small_model === 1
@@ -1180,11 +1186,18 @@ export class TurnExec {
     // instructions alone overflow ends the turn with a plain error, when its size is known for sure (a guess or a
     // refusal's number only shrinks the window); Ollama would cut the start of the prompt without a word
     let apiToolBudget: number | undefined
+    // the API engine's time, to the minute, with the message instead of in the instructions (chat/prompt.ts apiTimeContext)
+    const apiTime = apiTimeContext(new Date(), rt.timeZone, spec.timeZone)
     /** the instructions without the history, the tool list and the message, fitted to a model of `contextTokens` */
-    const apiFit = (contextTokens: number, toolBudget: number | undefined) => {
-      const tools = fitApiTools(apiToolsOf(listedTools(rt.files, toolSet)), toolBudget)
-      const instructions = [buildTurnPrompt(rt.files, { ...promptInput(false), subagents: false }), API_GROUNDING_RULES, toolsLeftOutNote(tools.left)].filter(Boolean).join('\n\n')
-      return { tools, fit: historyFit({ contextTokens, instructions, tools: JSON.stringify(tools.tools), message }) }
+    // `whole`: every tool sent, as before tools on demand (the blind-guess check below keeps its old meaning)
+    const apiFit = (contextTokens: number, toolBudget: number | undefined, whole = false) => {
+      // as runApiAgent sends them: on a model with room, the tools on demand listed and not sent
+      // (engine/api-tools-defer.ts); a small model's list is fitted as before (engine/api-tools-fit.ts)
+      const all = apiToolsOf(listedTools(rt.files, toolSet))
+      const onDemand = !whole && (toolBudget === undefined || toolTokens(all) <= toolBudget)
+      const tools = fitApiTools(onDemand ? apiOfferedTools(all).tools : all, toolBudget)
+      const instructions = [buildTurnPrompt(rt.files, { ...promptInput(false), subagents: false, timeInMessage: true }), API_GROUNDING_RULES, toolsLeftOutNote(tools.left), onDemand ? moreToolsNote(deferredOf(all)) : ''].filter(Boolean).join('\n\n')
+      return { tools, fit: historyFit({ contextTokens, instructions, tools: JSON.stringify(tools.tools), message: `${apiTime}\n\n${message}` }) }
     }
     this.apiFixedLeavesNoRoom = (contextTokens) => apiFit(contextTokens, apiToolBudget).fit.budget === 0
     if (api && !replay && !this.restricted) {
@@ -1196,7 +1209,7 @@ export class TurnExec {
         // Ollama's or LM Studio's own guess (a model not loaded yet) cuts it, or Ollama cuts the prompt (QA TC-5087). A wrong refusal number is forgotten with the next
         // answer that used more tokens (engine/api-context.ts)
         const guess = blindGuess(size, api.baseUrl)
-        if (!guess) apiToolBudget = toolBudgetFor({ contextTokens: size.tokens, instructions: `${buildTurnPrompt(rt.files, { ...promptInput(false), subagents: false })}\n\n${API_GROUNDING_RULES}`, message })
+        if (!guess) apiToolBudget = toolBudgetFor({ contextTokens: size.tokens, instructions: `${buildTurnPrompt(rt.files, { ...promptInput(false), subagents: false, timeInMessage: true })}\n\n${API_GROUNDING_RULES}`, message })
         const { tools, fit } = apiFit(size.tokens, apiToolBudget)
         if (fit.overflows && size.exact) {
           rt.log.warn('API model context too small for the instructions', { turn: this.id, contextTokens: size.tokens, source: size.source })
@@ -1205,7 +1218,7 @@ export class TurnExec {
         }
         // a blind guess that the instructions and the whole tool list alone overflow tells nothing (a proxy in front
         // of a large model): the default window, as for an unknown model
-        if (guess && fit.overflows) rt.log.info('API model context: guessed size ignored', { turn: this.id, contextTokens: size.tokens, source: size.source })
+        if (guess && apiFit(size.tokens, apiToolBudget, true).fit.overflows) rt.log.info('API model context: guessed size ignored', { turn: this.id, contextTokens: size.tokens, source: size.source })
         else if (fit.limited) {
           historyBudget = fit.budget
           rt.log.info('API model context: history fitted', { turn: this.id, contextTokens: size.tokens, exact: size.exact, source: size.source, historyTokens: fit.budget, toolsLeftOut: tools.left.length })
@@ -1510,7 +1523,7 @@ export class TurnExec {
       try {
         // the answer's tool rounds, capped as Claude Code's --max-turns is (guests, unattended runs; limits audit 1 #31:
         // it was a fixed 30)
-        await runApiAgent({ conf: api, systemPrompt: prompt(true), message, rpc: handler, emit: (e) => this.onEvent(e, errors), signal: this.abort.signal, publicOrigins: rt.ctx.config.publicOrigins, locale: spec.locale,
+        await runApiAgent({ conf: api, systemPrompt: prompt(true, true, null, true), message: `${apiTime}\n\n${message}`, rpc: handler, emit: (e) => this.onEvent(e, errors), signal: this.abort.signal, publicOrigins: rt.ctx.config.publicOrigins, locale: spec.locale,
           maxSteps: answerStepCap(rt.maxEngineTurns, { guest: isGuestUser(rt.db, spec.userId), unattended: spec.clientKind === 'schedule' || this.slackChat }),
           beforeRound: () => this.checkBudget(), toolsChanged: () => this.toolsChanged(), activity: () => this.sign(), toolBudget: apiToolBudget,
           images, onImagesRefused: () => setApiVisionTurn(spec.turnId, false) })
@@ -2022,16 +2035,19 @@ export class TurnExec {
         if (HIDDEN_STEP_TOOLS.has(tool)) return
         const kind = ENGINE_TEXT_STEP_KIND(tool)
         // a search whose query is not known yet (Codex names it at the end) shows as running, not as "Web search: "
+        // a read of the work folder shows $TRINA_WORK/…, never the server's absolute path, and names no team path
+        const work = this.workRead(tool, e.input) ? this.workShown(e.input) : null
         const label = kind === 'web_search' ? (queryOf(e.input) ? tr('webSearch', this.spec.locale, { q: queryOf(e.input) }) : tr('webSearchRunning', this.spec.locale))
+          : work !== null ? stepLabel(tool, { ...(e.input as object), file_path: work }, this.spec.locale, BROWSER_TOOL_NAMES)
           : this.toolSet?.stepLabel(tool, e.input, this.spec.locale) ?? stepLabel(tool, e.input, this.spec.locale, BROWSER_TOOL_NAMES)
         if (kind === 'web_search') { const q = (e.input as { query?: unknown } | null)?.query; this.searchQueries.set(e.id, typeof q === 'string' ? q : '') }
         // a sub-agent's step goes under its sub-task (parentId); the tools that patch their step are the main AI's only
         // a shared chat: a line that names team paths keeps them aside (sharedStep; shown to whoever may see them)
-        const step = this.addStep({ id: e.id, kind, tool, ...this.sharedStep(tool, e.input, label), status: 'running', ...(e.parentId ? { parentId: e.parentId } : {}) })
+        const step = this.addStep({ id: e.id, kind, tool, ...(work !== null ? { label } : this.sharedStep(tool, e.input, label)), status: 'running', ...(e.parentId ? { parentId: e.parentId } : {}) })
         const waiting = e.parentId ? undefined : this.pendingPatches.get(tool)?.shift()
         if (waiting) { this.patched.add(step.id); this.updateStep(step.id, waiting(step)) }
         this.noteTaint(tool, e.input)
-        this.noteRoomTool(tool)
+        this.noteRoomTool(tool, e.input)
         return
       }
       case 'tool_end': {
@@ -2768,6 +2784,13 @@ export class TurnExec {
   }
   /** web results, browser pages, files outside the person's own folder = content someone else wrote */
   noteTaint(tool: string, input: unknown) {
+    // a read of the chat's work folder brings in what commands made there (pages they fetched too): as box_shell
+    if (this.workRead(tool, input)) {
+      // ...and its content is the person's (a work folder may hold anything they can read; a shared chat's: what all
+      // its people may read, recorded as the chat in chat/tools.ts): a later save where more people read asks first
+      if (!this.shared) addSources(this.rt.db, this.spec.chatId, [{ type: 'user', id: this.spec.userId }])
+      tool = 'box_shell'
+    }
     this.noteOthersTool(tool)
     // what the in-app browser showed (pages the person is signed in to) counts as seen by this person only (tab 7)
     if (BROWSER_TOOL_NAMES.has(tool)) addSources(this.rt.db, this.spec.chatId, [{ type: 'user', id: this.spec.userId, via: 'browser' }])
@@ -2784,8 +2807,22 @@ export class TurnExec {
   /** A tool outside the team's own words (rooms/ai-tools.ts OWN_CHAT_TEAM_TOOLS: the engine's web search, a page, a
    * connection, the browser, anything unknown) marks the chat as having used something from outside for the rest of
    * its session; then no room card is skipped there. */
-  noteRoomTool(tool: string) {
+  noteRoomTool(tool: string, input?: unknown) {
+    if (this.workRead(tool, input)) tool = 'box_shell'
     if (!OWN_CHAT_TEAM_TOOLS.has(tool)) this.markOutside()
+  }
+  /** how a work-folder read's path shows ($TRINA_WORK/…): never the server's absolute path */
+  private workShown(input: unknown): string {
+    const p = String((input as { file_path?: unknown } | null)?.file_path ?? '')
+    const wf = this.files.workFolder?.() ?? null
+    try { const rel = wf ? workRel(p, wf) : namesWorkFolder(p) ? p.trim().replace(/^\$\{?TRINA_WORK\}?\/*/, '') : null; return rel === null ? '$TRINA_WORK/…' : shownWorkPath(rel) } catch { return '$TRINA_WORK/…' }
+  }
+  /** a read call that names the chat's work folder (devenv/work-files.ts), by its variable or its absolute path */
+  workRead(tool: string, input: unknown): boolean {
+    if (tool !== 'read') return false
+    const p = (input && typeof input === 'object' ? (input as { file_path?: unknown }).file_path : undefined)
+    if (namesWorkFolder(p)) return true
+    try { return isWorkPath(p, this.files.workFolder?.() ?? null) } catch { return true }
   }
 
   /**
@@ -3437,7 +3474,8 @@ export class TurnExec {
   // ---------------- shared project chats (chat/shared.ts) ----------------
   /** The people who see this shared chat now: its project's audience (who can read the project folder), or for a chat
    * shared with people and groups its creator and the active people in it (chat/chat-audience.ts). */
-  private sharedAudience(): string[] {
+  /** Who sees this shared chat now (its project's audience, or the people it is shared with); [] for a chat of one person */
+  sharedAudience(): string[] {
     if (!this.shared) return []
     if (this.shared.kind === 'people') return peopleAudience(this.rt.db, this.shared.chat)
     const p = this.rt.store.projectRow(this.shared.project.id)
@@ -4051,8 +4089,8 @@ export class TurnExec {
    * `extraSources`, files a tool copies from), the server asks the person (never left to the AI's own ask_user).
    * Returns the refusal text for the tool, or null to go ahead. Paths the policy refuses are left to the tool.
    */
-  async confirmWidening(target: string, extraSources: string[] = [], binding?: string, call?: { tool: string; args: unknown; main?: boolean }): Promise<string | null> {
-    const need = this.widenNeed(target, extraSources, binding)
+  async confirmWidening(target: string, extraSources: string[] = [], binding?: string, call?: { tool: string; args: unknown; main?: boolean }, read: readonly ReadSource[] = []): Promise<string | null> {
+    const need = this.widenNeed(target, extraSources, binding, read)
     if (!need) return null
     // a scheduled run: its task's card may have said yes to saving there (chat/schedule-cover.ts); `call` is the tool call
     // that saves (its claim on an absent path, its step); only the tools a card may cover (never save_url, a video or
@@ -5362,6 +5400,13 @@ export function roomChangeWrites(tool: string, input: unknown, tree: (p: string)
       const want = str(a.save_as).trim()
       const folder = !want ? `users/${me}/downloads/` : want.endsWith('/') ? want : null
       return { targets: folder === null ? [want] : [`${folder}${str(a.file)}`], shown: false }
+    }
+    case 'save_work_file': {
+      // a work-folder file (chat/work-file-tool.ts): its own name for a folder or none (the person's own folder)
+      const want = str(a.save_as).trim()
+      const name = str(a.path).split('/').pop() ?? ''
+      const folder = !want ? `users/${me}/` : want.endsWith('/') ? want : null
+      return { targets: folder === null ? [want] : [`${folder}${name}`], shown: false }
     }
     case 'move_files': case 'copy_files': {
       const to = teamSegs(a.to_folder) ?? []

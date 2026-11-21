@@ -20,6 +20,7 @@
 // gave (`seen`; a list of rooms gives none) to its read scope.
 import { dmPairOk } from './guest-reach'
 import type { Database } from 'bun:sqlite'
+import { NOT_HELD_SQL } from './project-room'
 import { reachFilter } from '../auth/guests'
 import { isStatusEmoji } from '@mycel/shared'
 import { isUuid7, ROOM_MENTIONS_MAX, ROOM_REF_RE, type Room, type RoomKind, type RoomMessage } from '@mycel/shared/api'
@@ -99,17 +100,20 @@ function wordWhere(w: string, types = true): { sql: string; args: string[] } {
   if (t?.any) fileCond.push('1')
   if (t?.image) fileCond.push("f.kind = 'image'")
   for (const e of t?.ext ?? []) { fileCond.push("f.name LIKE ? ESCAPE '\\'"); args.push(`%.${e}`) }
-  return { sql: `(m.body LIKE ? ESCAPE '\\' OR EXISTS (SELECT 1 FROM room_files f WHERE f.message_id = m.id AND f.room_id = m.room_id AND (${fileCond.join(' OR ')})))`, args }
+  // (a project room's file kept in the team folder is not found by the name it was sent with: it may have been
+  // renamed, or be one the person cannot open now)
+  return { sql: `(m.body LIKE ? ESCAPE '\\' OR EXISTS (SELECT 1 FROM room_files f WHERE f.message_id = m.id AND f.room_id = m.room_id AND NOT EXISTS (SELECT 1 FROM room_file_refs rr WHERE rr.room_file_id = f.id) AND (${fileCond.join(' OR ')})))`, args }
 }
 /** A message that came with at least one file */
 const HAS_FILE_SQL = 'EXISTS (SELECT 1 FROM room_files f WHERE f.message_id = m.id AND f.room_id = m.room_id)'
 
-/** The rooms I am in now (not archived), the most recent activity first. */
+/** The rooms I am in now (not archived, not a project's room held while the project is in the trash), the most recent
+ * activity first. */
 export function myRooms(db: Database, userId: string): Mine[] {
   const rows = db.query(`SELECT r.id, r.kind, r.group_id, r.dm_key, r.created_by, r.created_at, r.last_seq, r.activity_at, r.archived_at, r.name,
       m.room_id, m.user_id, m.joined_at, m.last_read_seq, m.visible_from_seq, m.history_from_seq, m.muted, m.hidden_at,
       EXISTS (SELECT 1 FROM room_hidden_answers h WHERE h.room_id = m.room_id AND h.user_id = m.user_id) has_hidden
-    FROM rooms r JOIN room_members m ON m.room_id = r.id WHERE m.user_id = ? AND r.archived_at IS NULL ORDER BY r.activity_at DESC, r.id`).all(userId) as (RoomRow & MemberRow)[]
+    FROM rooms r JOIN room_members m ON m.room_id = r.id WHERE m.user_id = ? AND r.archived_at IS NULL AND ${NOT_HELD_SQL('r')} ORDER BY r.activity_at DESC, r.id`).all(userId) as (RoomRow & MemberRow)[]
   // a DM whose two no longer share a guest's place is closed to both (docs/DECISIONS.md "Guests: only what they were
   // invited to"; rooms/guest-reach.ts dmPairOk): not listed, not searched, not read
   return rows.filter((r) => dmPairOk(db, r.kind, r.dm_key)).map((r) => ({
@@ -149,11 +153,12 @@ type Found = ({ one: Mine & { view: Room } } | { many: (Mine & { view: Room })[]
  * that holds it. Several equally good matches: all of them (the AI asks). None: null, for an id of a room I am not in
  * exactly as for one that does not exist.
  */
-export function findRoom(db: Database, userId: string, ref: string): Found {
+export function findRoom(db: Database, userId: string, ref: string, only?: string): Found {
   const raw = ref.trim()
   const token = new RegExp(ROOM_REF_RE.source).exec(raw)
   const id = token ? token[2]! : raw.replace(/^#/, '').replace(/^room:/, '')
-  const mine = myRooms(db, userId)
+  // `only`: a project's shared AI chat reads its own chat room and no other (chat/room-tools.ts projectRoomTools)
+  const mine = myRooms(db, userId).filter((m) => only === undefined || m.room.id === only)
   if (isUuid7(id)) {
     const hit = mine.find((m) => m.room.id === id)
     return hit ? { one: { ...hit, view: roomOut(db, hit.room, hit.me) }, exact: true } : null
@@ -283,11 +288,14 @@ function eventText(m: RoomMessage): string {
 }
 
 /** One message (or event line) as the AI reads it. */
-function messageText(m: RoomMessage, userId: string, tz: string, o: { room?: string; roomId?: string } = {}): string {
+function messageText(m: RoomMessage, userId: string, tz: string, o: { room?: string; roomId?: string; threadCounts?: boolean } = {}): string {
   const at = localTime(m.createdAt, tz)
   const where = o.room !== undefined ? ` room="${attr(o.room)}" room_id="${o.roomId}"` : ''
   if (m.event) return `<room_event${where} at="${at}">${neutralizeTags(eventText(m))}</room_event>`
-  const thread = m.thread
+  // (for an audience, a shared AI chat: the counts are one person's view of the thread, so only that there is one)
+  const thread = m.thread && o.threadCounts === false
+    ? `\n[thread: read it with room_read thread="${m.id}"]`
+    : m.thread
     ? `\n[thread: ${m.thread.replyCount} ${m.thread.replyCount === 1 ? 'reply' : 'replies'}${m.thread.lastReplyAt ? `, the last ${localTime(m.thread.lastReplyAt, tz)}` : ''}: read it with room_read thread="${m.id}"]`
     : ''
   if (m.deletedAt) return `<room_message${where} id="${m.id}" deleted="yes" at="${at}">\n(a deleted message; its thread stays)${thread}\n</room_message>`
@@ -303,7 +311,8 @@ function messageText(m: RoomMessage, userId: string, tz: string, o: { room?: str
     : (m.author?.id === userId ? 'your user (an earlier message of theirs)' : 'another member') + (m.sharedAnswer ? ', sharing an answer of their own AI chat' : '')
   const body = m.sharedAnswer ? sharedAnswerText(m.body, m.sharedAnswer.at) : m.body
   const reply = m.threadRootId ? ` thread_reply_of="${m.threadRootId}"${m.alsoInRoom ? ' also_in_room="yes"' : ''}` : ''
-  const files = m.files.length ? `\n[files: ${m.files.map((f) => `${neutralizeTags(attr(f.name, 200))} (${f.mime.split(';')[0]}, ${SIZE(f.size)}, file_id=${f.id})`).join('; ')}]` : ''
+  // a project room's file kept in the team folder that is gone or out of reach: said as such, nothing about it
+  const files = m.files.length ? `\n[files: ${m.files.map((f) => (f.state ? `(a file that is ${f.state === 'deleted' ? 'deleted' : 'not available here'}, file_id=${f.id})` : `${neutralizeTags(attr(f.name, 200))} (${f.mime.split(';')[0]}, ${SIZE(f.size)}, file_id=${f.id})`)).join('; ')}]` : ''
   // reactions: one emoji each (the route checks it); only such a string is written here, so a reaction never brings
   // the AI words, markup or invisible letters
   const reacted = (m.reactions ?? []).filter((r) => isStatusEmoji(r.emoji))
@@ -542,17 +551,54 @@ function several(ref: string, many: (Mine & { view: Room })[], tz: string): stri
 }
 
 // ---------------- room_read ----------------
-export interface ReadOptions { room: string; thread?: string; since?: string; until?: string; limit?: number; /** the members with their user_id (an AI app that may send: room_send mentions) */ memberIds?: boolean }
+export interface ReadOptions {
+  room: string; thread?: string; since?: string; until?: string; limit?: number
+  /** the members with their user_id (an AI app that may send: room_send mentions) */ memberIds?: boolean
+  /** only this room (a project's shared AI chat: its own chat room) */ only?: string
+  /** what every one of an audience sees (a shared AI chat: everyone who sees it reads the answer): audienceView */
+  audience?: AudienceView
+  /** a file of a message as the audience may see it (a project room's team file someone of it cannot open: unavailable) */
+  fileCheck?: (f: RoomMessage['files'][number]) => RoomMessage['files'][number]
+}
+
+/** What every member of an audience sees of a room (docs/decisions/20261120-project-is-room.md D4): from the latest
+ * start of all of them, and none of the old answers hidden from any of them. `missing`: some of them are not in the
+ * room now (then nothing is visible to all). */
+export interface AudienceView { floor: number; hidden: Set<string>; missing: number }
+
+/** audienceView for `people` (the audience of a shared AI chat) in the room `roomId`. */
+export function audienceView(db: Database, roomId: string, people: readonly string[]): AudienceView {
+  const want = new Set(people)
+  const rows = (db.query('SELECT user_id, visible_from_seq, history_from_seq FROM room_members WHERE room_id = ?').all(roomId) as Pick<MemberRow, 'user_id' | 'visible_from_seq' | 'history_from_seq'>[]).filter((m) => want.has(m.user_id))
+  const floor = rows.reduce((n, m) => Math.max(n, seesFrom(m)), 0)
+  const hidden = new Set<string>()
+  const ids = [...want]
+  for (let i = 0; i < ids.length; i += 500) {
+    const part = ids.slice(i, i + 500)
+    for (const h of db.query(`SELECT message_id FROM room_hidden_answers WHERE room_id = ? AND user_id IN (${part.map(() => '?').join(',')})`).all(roomId, ...part) as { message_id: string }[]) hidden.add(h.message_id)
+  }
+  return { floor, hidden, missing: want.size - rows.length }
+}
+/** The note a cut read says (the shared AI chat answers everyone who sees it) */
+export const AUDIENCE_CUT_EARLIER = 'Earlier messages are left out because not everyone here can see them.'
+export const AUDIENCE_CUT_SOME = 'Some messages are left out because not everyone here can see them.'
+const AUDIENCE_MISSING = 'Not everyone who sees this chat is in this project\'s chat room yet, so nothing of it can be read here now. Say so plainly; they can ask again in a moment.'
 
 /** A room's messages (the timeline), or one thread's, as I see them: the newest `limit`, oldest first. */
 export function readRoom(db: Database, userId: string, tz: string, o: ReadOptions): ReadResult {
   const since = parseWhen(o.since, tz), until = parseWhen(o.until, tz, true)
   if (since === null || until === null) return { text: 'Invalid since or until: give a date ("2026-11-01") or a date and time ("2026-11-01T09:00").', seen: [], ok: false }
-  const f = findRoom(db, userId, o.room)
+  const f = findRoom(db, userId, o.room, o.only)
   if (!f) return { text: NO_ROOM(o.room), seen: [], ok: true, count: 0 }
   if ('many' in f) return { text: several(o.room, f.many, tz), seen: [], ok: true, count: 0 }
-  const { room, me, view } = f.one
+  const { room, view } = f.one
   const title = titleOf(view)
+  const aud = o.audience
+  if (aud?.missing) return { text: AUDIENCE_MISSING, seen: [], ok: true, title, count: 0 }
+  // for an audience: from the latest start of all of them (the person's own hidden answers stay hidden as always)
+  const own = f.one.me
+  const me: MemberRow = aud && aud.floor > seesFrom(own) ? { ...own, history_from_seq: aud.floor } : own
+  const hiddenForSome = (m: Pick<MessageRow, 'id' | 'thread_root_id'>) => !!aud && (aud.hidden.has(m.id) || (!!m.thread_root_id && aud.hidden.has(m.thread_root_id)))
   const limit = Math.min(ROOM_READ_MAX, Math.max(1, o.limit ?? ROOM_READ_DEFAULT))
   const time = [since ? 'm.created_at >= ?' : '', until ? 'm.created_at < ?' : ''].filter(Boolean)
   const timeArgs = [since, until].filter((x): x is string => !!x)
@@ -564,16 +610,21 @@ export function readRoom(db: Database, userId: string, tz: string, o: ReadOption
     const id = o.thread.trim()
     root = isUuid7(id) ? messageRow(db, room.id, id) : null
     // a thread follows its root: one I cannot see (a later member, someone else's preview) is no thread to me
-    if (!root || !canSee(db, root, me) || !threadable(root)) return { text: `No thread "${attr(id)}" in that room that the user can see. Read the room to find a message with a thread.`, seen: [], ok: true, count: 0 }
+    if (!root || !canSee(db, root, me) || !threadable(root) || hiddenForSome(root)) return { text: `No thread "${attr(id)}" in that room that the user can see. Read the room to find a message with a thread.`, seen: [], ok: true, count: 0 }
     rows = db.query(`SELECT ${MSG_COLS} FROM room_messages m WHERE m.room_id = ? AND m.thread_root_id = ? AND ${SEE_SQL} AND m.deleted_at IS NULL${time.map((x) => ` AND ${x}`).join('')} ORDER BY m.seq DESC LIMIT ?`)
       .all(room.id, root.id, ...seeArgs(me), ...timeArgs, limit + 1) as MessageRow[]
   } else {
     rows = db.query(`SELECT ${MSG_COLS} FROM room_messages m WHERE m.room_id = ? AND ${SEE_SQL} AND ${TIMELINE_SQL} AND (${kept})${time.map((x) => ` AND ${x}`).join('')} ORDER BY m.seq DESC LIMIT ?`)
       .all(room.id, ...seeArgs(me), ...timeArgs, limit + 1) as MessageRow[]
   }
+  // an answer hidden from someone of the audience (or in its thread): left out, and said
+  const before = rows.length
+  if (aud) rows = rows.filter((m) => !hiddenForSome(m))
+  const cutSome = rows.length < before
+  const cutEarlier = !!aud && me !== own && !!db.query(`SELECT 1 FROM room_messages m WHERE m.room_id = ? AND ${SEE_SQL} AND COALESCE(m.thread_root_seq, m.seq) <= ? LIMIT 1`).get(room.id, ...seeArgs(own), aud.floor)
   const more = rows.length > limit
   const page = rows.slice(0, limit)
-  const out = messagesOut(db, page, me, false)
+  const out = messagesOut(db, page, own, false).map((m) => (o.fileCheck && m.files.length ? { ...m, files: m.files.map(o.fileCheck) } : m))
   // newest first until the result is full; a deleted root whose replies I cannot see is nothing to me
   const parts: string[] = []
   const used: MessageRow[] = []
@@ -581,14 +632,15 @@ export function readRoom(db: Database, userId: string, tz: string, o: ReadOption
   for (let i = 0; i < out.length; i++) {
     const m = out[i]!
     if (m.deletedAt && !m.thread && !m.event) continue
-    const t = messageText(m, userId, tz)
+    const t = messageText(m, userId, tz, aud ? { threadCounts: false } : {})
     if (total + t.length > ROOM_READ_CHARS) { full = true; break }
     parts.push(t)
     used.push(page[i]!)
     total += t.length
   }
   parts.reverse()
-  const rootText = root ? messageText(messagesOut(db, [root], me, false)[0]!, userId, tz) : ''
+  const rootOut = root ? messagesOut(db, [root], own, false)[0]! : null
+  const rootText = rootOut ? messageText(o.fileCheck && rootOut.files.length ? { ...rootOut, files: rootOut.files.map(o.fileCheck) } : rootOut, userId, tz, aud ? { threadCounts: false } : {}) : ''
   const oldest = used.at(-1)
   const what = root ? 'the first message of a thread and its replies' : 'messages'
   const range = [since ? `from ${localTime(since, tz)}` : '', until ? `before ${localTime(until, tz)}` : '', since || until ? `(${tz})` : ''].filter(Boolean).join(' ')
@@ -609,6 +661,8 @@ export function readRoom(db: Database, userId: string, tz: string, o: ReadOption
       ...parts,
       '</room_messages>',
       tail,
+      cutEarlier ? AUDIENCE_CUT_EARLIER : '',
+      cutSome ? AUDIENCE_CUT_SOME : '',
     ].filter(Boolean).join('\n'),
     seen: [{ roomId: room.id, ...(seqs.length ? { fromSeq: Math.min(...seqs) } : {}) }], ok: true, title, count: used.length,
     ...([...used, ...(root ? [root] : [])].some((m) => !!m.app_card) ? { outside: true } : {}),
@@ -620,11 +674,15 @@ export type FileFound = { file: FileRow; message: MessageRow; room: RoomRow; tit
 
 /** A file sent in one of my rooms with a message I can see (not deleted), by its id or its exact name (the newest of
  * that name). Anything else (no such file, a message I cannot see, an upload not sent yet) answers the same. */
-export function findRoomFile(db: Database, userId: string, roomRef: string, fileRef: string, tz: string): FileFound {
-  const f = findRoom(db, userId, roomRef)
+export function findRoomFile(db: Database, userId: string, roomRef: string, fileRef: string, tz: string, o: { only?: string; audience?: AudienceView } = {}): FileFound {
+  const f = findRoom(db, userId, roomRef, o.only)
   if (!f) return { text: NO_ROOM(roomRef) }
   if ('many' in f) return { text: several(roomRef, f.many, tz) }
-  const { room, me, view } = f.one
+  const { room, view } = f.one
+  const aud = o.audience
+  if (aud?.missing) return { text: AUDIENCE_MISSING }
+  // for an audience: a message every one of them sees (the latest start, no answer hidden from any of them)
+  const me: MemberRow = aud && aud.floor > seesFrom(f.one.me) ? { ...f.one.me, history_from_seq: aud.floor } : f.one.me
   const ref: string = fileRef.trim().replace(/^file_id=/, '')
   const byName = ref.normalize('NFC')
   const sql = `SELECT f.* FROM room_files f JOIN room_messages m ON m.id = f.message_id WHERE f.room_id = ? AND m.room_id = ? AND ${SEE_SQL} AND m.deleted_at IS NULL`
@@ -632,7 +690,7 @@ export function findRoomFile(db: Database, userId: string, roomRef: string, file
   const named = byId ? [] : db.query(`${sql} AND f.name = ? ORDER BY m.seq DESC LIMIT 1`).all(room.id, room.id, ...seeArgs(me), byName) as FileRow[]
   const row = (byId ? db.query(`${sql} AND f.id = ?`).get(room.id, room.id, ...seeArgs(me), ref) : named[0] ?? null) as FileRow | null
   const message = row?.message_id ? messageRow(db, room.id, row.message_id) : null
-  if (!row || !message || message.deleted_at || !canSee(db, message, me)) return { text: `No file "${attr(fileRef)}" in that room that the user can see. Read the room for its files and their file_id.` }
+  if (!row || !message || message.deleted_at || !canSee(db, message, me) || (aud && (aud.hidden.has(message.id) || (!!message.thread_root_id && aud.hidden.has(message.thread_root_id))))) return { text: `No file "${attr(fileRef)}" in that room that the user can see. Read the room for its files and their file_id.` }
   const author = message.author_id ? (db.query('SELECT name FROM users WHERE id = ?').get(message.author_id) as { name: string } | null)?.name ?? null : null
   return { file: row, message, room, title: titleOf(view), author }
 }

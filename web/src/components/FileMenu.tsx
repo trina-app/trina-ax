@@ -51,11 +51,6 @@ export function useFileMenuItems(target: FileMenuTarget | null): MenuItem[] {
     download: () => ({ label: t('common.download'), icon: icon(Download), onSelect: () => target.download!(), testId: 'file-menu-download' }),
     saveToTeam: () => {
       const team = target.team!
-      // a linked channel (docs/decisions/20261119-channel-project-link.md): Save to <project> first, then the sheet
-      if (team.project && !team.saved) return [
-        { label: team.project.label, icon: icon(FolderInput), onSelect: () => team.project!.run(), testId: 'file-menu-save-project' },
-        { label: t('rooms.save.another'), icon: icon(FolderInput), onSelect: () => team.run(), testId: 'file-menu-save-team' },
-      ]
       return { label: t(team.saved ? 'rooms.save.open' : 'rooms.save.action'), icon: icon(team.saved ? FolderCheck : FolderInput), onSelect: () => team.run(), testId: team.saved ? 'file-menu-open-team' : 'file-menu-save-team' }
     },
     ask: () => ({ label: t('sideChat.askAboutFile'), icon: <AiMark place="menu" />, onSelect: () => target.ask!(), testId: 'file-menu-ask' }),

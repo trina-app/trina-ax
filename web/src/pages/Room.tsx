@@ -29,7 +29,7 @@
 // choices are ⋯ › 알림 설정 (the level now after it; a crossed-out bell after the name when it is off), the threads with
 // new replies are ⋯'s first entry (a dot on ⋯), and ⋯ has no 이름 바꾸기 (the name opens the room's info, where it is
 // changed).
-import { ArrowDown, BellOff, ChevronLeft, Folder, Loader2, MessagesSquare } from 'lucide-react'
+import { ArrowDown, BellOff, ChevronLeft, Files, Folder, Loader2, MessagesSquare } from 'lucide-react'
 import clsx from 'clsx'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { Link, Navigate, useLocation, useNavigate, useNavigationType, useParams, type NavigationType } from 'react-router-dom'
@@ -64,6 +64,7 @@ import { RoomNotifyMenu, roomNotify } from '../components/rooms/RoomNotifyMenu'
 import { ThreadPanel } from '../components/rooms/ThreadPanel'
 import { handOffDone, handOffToThread, roomLeft, SideChatPanel, sideChatComesBack, threadClosedOn, type SideSeed, type SideThread } from '../components/rooms/SideChatPanel'
 import { RoomSideColumn } from '../components/rooms/RoomSideColumn'
+import { RoomFilesPanel } from '../components/rooms/RoomFilesPanel'
 import { RoomAskHint, useRoomAskHint } from '../components/rooms/RoomAskHint'
 import { AiMark } from '../components/rooms/AiFace'
 import { aiName } from '../lib/tabs'
@@ -75,7 +76,7 @@ import { Tooltip } from '../components/Tooltip'
 import { PresenceDot, PresenceText } from '../components/Presence'
 import { StatusDmLine } from '../components/StatusMessage'
 import { usePresenceOf } from '../store/presence'
-import { IncludesGuests } from '../components/GuestTag'
+import { IncludesGuests, useGuestCount } from '../components/GuestTag'
 import { useGuestAiOff } from '../components/GuestView'
 
 /** Was the room opened by a choice (a tap, a link, a notice: a room I hid is shown again), not by the history's back or
@@ -147,6 +148,8 @@ function RoomView({ roomId, threadId, badThread }: { roomId: string; threadId: s
   const guestNoAi = useGuestAiOff()
   const members = useMemo(() => (roomMembers ?? []).map((m) => m.user), [roomMembers])
   const memberIds = useMemo(() => (roomMembers ?? []).map((m) => m.user.id), [roomMembers])
+  // the header's count line is cut short on a phone: its full text stays on hover (QA TC-6127)
+  const headerGuests = useGuestCount(memberIds)
   // someone who joined while the room is open: the directory says whether they are a guest (the tag, "Includes 1 guest")
   useReadPeopleFor(memberIds)
   const [missing, setMissing] = useState(false)
@@ -154,6 +157,10 @@ function RoomView({ roomId, threadId, badThread }: { roomId: string; threadId: s
   // ✦ Trina: my private side chat beside the room (components/rooms/SideChatPanel.tsx), beside a thread when one is
   // open. In the store (side), gone when the page leaves the room
   const sideOpen = useRooms((s) => s.side[roomId] === 'trina')
+  // the room's Files list (components/rooms/RoomFilesPanel.tsx) in the side chat's place: one of the two at a time, laid
+  // out as the side chat is (beside a thread, over it, a sheet). `rightOpen`: either of them
+  const filesOpen = useRooms((s) => s.side[roomId] === 'files')
+  const rightOpen = sideOpen || filesOpen
   // (opened by the person: a hand-off to a thread, 보기, is over: SideChatPanel.tsx handOffDone)
   const setSideOpen = useCallback((on: boolean) => {
     if (on) handOffDone(roomId)
@@ -181,7 +188,7 @@ function RoomView({ roomId, threadId, badThread }: { roomId: string; threadId: s
   }, [])
   // (drawn again whenever the row changes size: a window resize, the list folding, a file preview beside the page)
   useElementWidth(page)
-  const both = !!threadId && sideOpen
+  const both = !!threadId && rightOpen
   const columns = both ? roomColumns(rowForBoth()) : null
   const pair = columns === 'pair'
   /** the side chat over the thread */
@@ -206,7 +213,7 @@ function RoomView({ roomId, threadId, badThread }: { roomId: string; threadId: s
   useEffect(() => {
     const was = lastThread.current
     lastThread.current = threadId
-    if (threadId && !was && useRooms.getState().side[roomId] === 'trina' && !fitsThree()) setSideOpen(false)
+    if (threadId && !was && useRooms.getState().side[roomId] && !fitsThree()) useRooms.getState().setSide(roomId, null)
     if (was && !threadId) threadClosedOn(roomId)
     // the box's "Looking at this thread" chip, taken off for the thread that was open: back for the next one, and for
     // this one opened again
@@ -217,6 +224,15 @@ function RoomView({ roomId, threadId, badThread }: { roomId: string; threadId: s
     useSideChats.getState().close(roomId)
     setSideOpen(false)
   }, [roomId, setSideOpen])
+  const closeFiles = useCallback(() => useRooms.getState().setSide(roomId, null), [roomId])
+  /** the Files list on or off; on in place of the side chat, which closes as its ✕ closes it */
+  const toggleFiles = useCallback(() => {
+    if (useRooms.getState().side[roomId] === 'files') return closeFiles()
+    if (useRooms.getState().side[roomId] === 'trina') { handOffDone(roomId); useSideChats.getState().close(roomId) }
+    useRooms.getState().setSide(roomId, 'files')
+  }, [roomId, closeFiles])
+  /** the panel on the right that is open (the side chat or the Files list) closes */
+  const closeRight = filesOpen ? closeFiles : closeSide
   // the side chat comes back by itself (QA TC-4963, SideChatPanel.tsx sideChatComesBack): after a reload when it was open
   // in this tab, and on a computer when messages of mine wait in it. Asked once per room page, once the room is known;
   // never for a guest whose invite gives them no AI (no ✦ either)
@@ -237,6 +253,7 @@ function RoomView({ roomId, threadId, badThread }: { roomId: string; threadId: s
   // on a phone the side chat fills the screen: Android's Back closes it and the room stays (QA TC-080), or the thread
   // it is over
   useOverlayEntry(sideOpen, closeSide)
+  useOverlayEntry(filesOpen, closeFiles)
   // "Ask Trina about this" on a message (the timeline's or a thread's): the side chat opens with it quoted
   const [sideSeed, setSideSeed] = useState<SideSeed | null>(null)
   // `ask`: a question that goes at once with the message quoted (an app's thread: "Summarise this thread")
@@ -319,7 +336,7 @@ function RoomView({ roomId, threadId, badThread }: { roomId: string; threadId: s
   // in the room; Esc closes one panel a press: the one the keyboard is in, else the side chat first, then the thread
   // (not while a menu or dialog of its own is open, nor while an input method composes). Beside the room, as columns,
   // Esc closes nothing: there it belongs to the mention list, an edit, a menu
-  const covering = wide && ((sheet && !!(threadId || sideOpen)) || pair || over)
+  const covering = wide && ((sheet && !!(threadId || rightOpen)) || pair || over)
   // a room under panels is out of sight: nothing in it is read (tryRead)
   const covered = useRef(covering)
   covered.current = covering
@@ -328,7 +345,7 @@ function RoomView({ roomId, threadId, badThread }: { roomId: string; threadId: s
     const before = document.activeElement instanceof HTMLElement ? document.activeElement : null
     return () => {
       requestAnimationFrame(() => {
-        const panels = '[data-testid="room-thread"], [data-testid="room-side-chat"]'
+        const panels = '[data-testid="room-thread"], [data-testid="room-side-chat"], [data-testid="room-files-panel"]'
         if (document.activeElement?.closest(panels)) return
         // a panel stays beside the room (the other one closed): the keyboard goes on in it
         const box = document.querySelector<HTMLElement>(panels)?.querySelector<HTMLElement>('textarea')
@@ -353,8 +370,8 @@ function RoomView({ roomId, threadId, badThread }: { roomId: string; threadId: s
       if (e.key !== 'Escape' || e.defaultPrevented || e.isComposing || e.keyCode === 229 || preview || document.querySelector('[role="menu"], [role="dialog"]:not([data-sheet])')) return
       e.preventDefault()
       const inThread = pair && !!document.activeElement?.closest('[data-testid="room-thread"]')
-      if (threadId && (inThread || !sideOpen)) closeThread()
-      else closeSide()
+      if (threadId && (inThread || !rightOpen)) closeThread()
+      else closeRight()
     }
     window.addEventListener('keydown', onKeyFirst, true)
     window.addEventListener('keydown', onKey)
@@ -362,10 +379,10 @@ function RoomView({ roomId, threadId, badThread }: { roomId: string; threadId: s
       window.removeEventListener('keydown', onKeyFirst, true)
       window.removeEventListener('keydown', onKey)
     }
-  }, [covering, pair, threadId, sideOpen, closeThread, closeSide])
+  }, [covering, pair, threadId, rightOpen, closeThread, closeRight])
   usePeopleList()
-  // a private channel: its project link (Room.project) is read again when the window comes back, so a link made, gone,
-  // renamed or a folder lost elsewhere shows without a reload (D4 client refetch)
+  // a private channel: its project (Room.project) is read again when the window comes back, so a project renamed or
+  // one I can no longer open shows without a reload
   const channelHere = !!room && isPrivateChannel(room)
   useEffect(() => {
     if (!channelHere) return
@@ -501,7 +518,7 @@ function RoomView({ roomId, threadId, badThread }: { roomId: string; threadId: s
   // on a phone closing: after the list has drawn it)
   useEffect(() => {
     tryRead()
-  }, [tryRead, last?.seq, messages[0]?.seq, timeline?.loading, timeline?.error, detached, room?.lastReadSeq, room?.unreadCount, threadId, sideOpen, covering])
+  }, [tryRead, last?.seq, messages[0]?.seq, timeline?.loading, timeline?.error, detached, room?.lastReadSeq, room?.unreadCount, threadId, rightOpen, covering])
   useEffect(() => {
     window.addEventListener('focus', tryRead)
     document.addEventListener('visibilitychange', tryRead)
@@ -546,7 +563,7 @@ function RoomView({ roomId, threadId, badThread }: { roomId: string; threadId: s
   return (
     <div ref={page} className="relative flex h-full" data-columns={columns ?? undefined} data-testid="room-page">
     {/* a file dropped anywhere on the room's column (not on the thread or side chat beside it) goes into its box */}
-    <FileDropZone className={clsx('flex h-full min-w-0 flex-1 flex-col', (threadId || sideOpen) && 'max-md:hidden')} inert={covering || undefined} data-testid="room">
+    <FileDropZone className={clsx('flex h-full min-w-0 flex-1 flex-col', (threadId || rightOpen) && 'max-md:hidden')} inert={covering || undefined} data-testid="room">
       <div className="flex h-12 shrink-0 items-center gap-2 border-b border-line px-2 max-md:gap-1 max-md:pl-0.5 sm:px-4" data-testid="room-header">
         <Tooltip label={t('tabs.back')}>
           <Link to="/rooms" replace onClick={backLink} aria-label={t('tabs.back')} className="inline-flex items-center justify-center rounded-md p-3 text-muted hover:bg-hover hover:text-ink md:hidden" data-testid="room-back">
@@ -583,32 +600,36 @@ function RoomView({ roomId, threadId, badThread }: { roomId: string; threadId: s
               {peerId && <PresenceText userId={peerId} offline />}
               {!wide && muted && <BellOff size={13} className="shrink-0 self-center text-faint" role="img" aria-label={t('rooms.notify.button', { level: t('rooms.notify.off') })} data-testid="room-muted" />}
               {room && room.kind !== 'dm' && (
-                <span className="shrink-0 text-xs font-normal text-faint max-md:basis-full max-md:leading-4" data-testid="room-member-count">
+                <span className="shrink-0 text-xs font-normal text-faint max-md:min-w-0 max-md:shrink max-md:basis-full max-md:truncate max-md:leading-4" title={t('rooms.members', { n: room.memberCount }) + (headerGuests ? ` · ${t('guest.includes', { n: headerGuests })}` : '')} data-testid="room-member-count">
                   {t('rooms.members', { n: room.memberCount })}
                   {/* "· Includes 1 guest" (components/GuestTag.tsx): people from outside the team are in it */}
-                  <IncludesGuests ids={roomMembers?.map((m) => m.user.id)} prefix=" · " />
+                  <IncludesGuests ids={roomMembers?.map((m) => m.user.id)} prefix=" · " short={!wide} />
                 </span>
               )}
             </button>
           </h1>
-          {/* a team room of a group with a folder I can open: its Files, one click away (Room.groupFolder; a phone: the
-              folder alone, at the end of the line beside ✦, with its name as the label) */}
-          {room?.groupFolder && (
-            <Tooltip label={t('rooms.groupFilesTip', { name: room.groupFolder.split('/').pop() ?? room.groupFolder })}>
-              <Link to={`/files?path=${encodeURIComponent(room.groupFolder)}`} aria-label={t('rooms.groupFiles')} className={buttonClass({ variant: 'ghost', size: 'sm', className: 'touch-hit shrink-0 max-md:ml-auto max-md:px-0' })} data-testid="room-group-files">
-                <Folder size={15} aria-hidden />
+          {/* Files: the room's Files list on its right (components/rooms/RoomFilesPanel.tsx; docs/decisions/
+              20261120-project-is-room.md D8), for a channel, a 1:1 and a group chat (a project's chat room has the
+              project's button in this place instead). A team room of a group with a folder I can open has that folder's
+              link at the top of the list (Room.groupFolder). A phone: the icon alone, at the end of the line beside ✦ */}
+          {room && !room.project?.room && (
+            <Tooltip label={t('rooms.files.open')}>
+              <button type="button" onClick={toggleFiles} aria-pressed={filesOpen} aria-label={t('rooms.files.open')} className={buttonClass({ variant: 'ghost', size: 'sm', className: clsx('touch-hit shrink-0 max-md:ml-auto max-md:px-0', filesOpen && 'bg-hover') })} data-testid="room-files-button">
+                <Files size={15} aria-hidden />
                 <span className="max-md:hidden">{t('rooms.groupFiles')}</span>
-              </Link>
+              </button>
             </Tooltip>
           )}
-          {/* a private channel linked to a project I can open: the project's folder, the same button in the same place
-              (Room.project; docs/decisions/20261119-channel-project-link.md). Its tap reads the room again too: a
-              link gone meanwhile hides the button */}
-          {room?.project && !room.groupFolder && (
-            <Tooltip label={t('rooms.projectFilesTip', { name: room.project.name })}>
-              <Link to={`/files?path=${encodeURIComponent(room.project.folderPath)}`} onClick={() => void useRooms.getState().fetchRoom(roomId).catch(() => {})} aria-label={t('rooms.projectFilesTip', { name: room.project.name })} className={buttonClass({ variant: 'ghost', size: 'sm', className: 'touch-hit shrink-0 max-md:ml-auto max-md:px-0' })} data-testid="room-project-files">
-                <Folder size={15} aria-hidden />
-                <span className="max-md:hidden">{t('rooms.groupFiles')}</span>
+          {/* a project's own chat room (Room.project.room; docs/decisions/20261120-project-is-room.md D5): in the Files
+              button's place, Open project (its folder icon and the words; the project's name in the tooltip: the room's
+              name above is the project's already), which opens the project page (its folder, Chat attachments included,
+              and its AI chats); no Files button of its own: its files are the project's. A phone: the folder icon alone,
+              at the end of the line beside ✦ */}
+          {room?.project?.room && !room.groupFolder && (
+            <Tooltip label={t('rooms.project.openTip', { name: room.project.name })}>
+              <Link to={`/projects/${room.project.id}`} aria-label={t('rooms.project.open')} className={buttonClass({ variant: 'ghost', size: 'sm', className: 'touch-hit shrink-0 max-md:ml-auto max-md:px-0' })} data-testid="room-project">
+                <Folder size={15} className="shrink-0" aria-hidden />
+                <span className="max-md:hidden" data-testid="room-project-label">{t('rooms.project.open')}</span>
               </Link>
             </Tooltip>
           )}
@@ -635,19 +656,24 @@ function RoomView({ roomId, threadId, badThread }: { roomId: string; threadId: s
         {/* the room's one setting, right here: the bell shows how it is now and opens its four levels; then the room's
             "⋯" (its 알림 설정 opens the bell's menu). A phone: no bell (its menu stays, as a sheet from ⋯ › 알림 설정) */}
         {room && <RoomNotifyMenu room={room} openRequest={notifyRequest} bare={!wide} className={wide ? undefined : 'contents'} focusBack={() => moreRef.current?.focus()} />}
+        {/* a box of its own around the "⋯", so its Move to section list opens under the button (it is drawn beside it,
+            from the box's bottom right), not at the bottom of the conversation's column */}
         {room && (
-          <RoomMenu
-            room={room}
-            onNotify={() => setNotifyRequest((n) => n + 1)}
-            onInvite={invitePeople}
-            onSearch={() => useUi.getState().setSearchOpen(true, undefined, room.id)}
-            className="shrink-0"
-            buttonClassName="touch-hit"
-            buttonRef={moreRef}
-            phone={wide ? undefined : { first: nextThread ? [{ label: threadsLabel, icon: <MessagesSquare size={14} aria-hidden />, onSelect: () => openThread(nextThread), testId: 'room-menu-next-thread' }] : [] }}
-            dot={!wide && !!nextThread}
-            label={!wide && nextThread ? `${t('rooms.menu.label')}, ${threadsLabel}` : undefined}
-          />
+          <div className="relative flex shrink-0" data-testid="room-menu-box">
+            <RoomMenu
+              room={room}
+              onNotify={() => setNotifyRequest((n) => n + 1)}
+              onInvite={invitePeople}
+              onSearch={() => useUi.getState().setSearchOpen(true, undefined, room.id)}
+              className="shrink-0"
+              buttonClassName="touch-hit"
+              buttonRef={moreRef}
+              phone={wide ? undefined : { first: nextThread ? [{ label: threadsLabel, icon: <MessagesSquare size={14} aria-hidden />, onSelect: () => openThread(nextThread), testId: 'room-menu-next-thread' }] : [] }}
+              dot={!wide && !!nextThread}
+              label={!wide && nextThread ? `${t('rooms.menu.label')}, ${threadsLabel}` : undefined}
+              folders
+            />
+          </div>
         )}
       </div>
       {room && askHint.show && !guestNoAi && <RoomAskHint onAsk={() => setSideOpen(true)} onClose={askHint.seen} />}
@@ -713,6 +739,12 @@ function RoomView({ roomId, threadId, badThread }: { roomId: string; threadId: s
       <RoomSideColumn label={t('rooms.thread')} testId="room-thread" divider={sheet || columns === 'pair' || columns === 'three' ? undefined : 'thread'} shared={columns === 'three'}
         className={pair ? PAIR_THREAD : sheet ? SHEET : undefined} modal={sheet && !pair} data-sheet={sheet || pair ? '' : undefined} inert={over}>
         <ThreadPanel frame={false} key={threadId} roomId={roomId} rootId={threadId} roomTitle={room ? title(room) : ''} members={members} meId={meId} onClose={closeThread} onAskTrina={askTrina} focusBox={focusThread} highlight={target} covered={over} />
+      </RoomSideColumn>
+    )}
+    {filesOpen && (
+      <RoomSideColumn label={t('rooms.files.title')} testId="room-files-panel" divider={both || sheet ? undefined : 'side-chat'} shared={columns === 'three'}
+        className={pair ? PAIR_SIDE : sheet || over ? SHEET : undefined} modal={sheet && !pair} data-sheet={sheet || pair || over ? '' : undefined}>
+        <RoomFilesPanel key={roomId} roomId={roomId} refresh={last?.id ?? null} groupFolder={room?.groupFolder ?? null} onClose={closeFiles} />
       </RoomSideColumn>
     )}
     {sideOpen && (

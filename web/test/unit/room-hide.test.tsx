@@ -246,7 +246,7 @@ describe('hidden rooms count nowhere', () => {
     expect(totalUnread([hiddenDm, shown])).toBe(2)
     expect(roomWantsMe(hiddenDm)).toBe(false)
     expect(roomWantsMe(shown)).toBe(true)
-    expect(attentionCount([], [hiddenDm, shown]).n).toBe(1)
+    expect(attentionCount([], [hiddenDm, shown]).n).toBe(2)
     expect(shownInLists([hiddenDm, shown]).map((r) => r.id)).toEqual([shown.id])
     // the room on screen stays in the lists, hidden or not
     expect(shownInLists([hiddenDm, shown], hiddenDm.id)).toHaveLength(2)
@@ -277,10 +277,10 @@ describe('hidden rooms count nowhere', () => {
       const e = new FakeEvent('contextmenu', { bubbles: true, cancelable: true })
       await m.settle(0)
       row.querySelector('[data-testid="sidebar-room"]')!.dispatchEvent(e)
-      await m.until(() => menuItems(m).length === 4, 'the menu')
+      await m.until(() => menuItems(m).length === 5, 'the menu')
       expect(e.defaultPrevented).toBe(true)
-      // a member: no category items (only admins move channels into the team's categories); no personal folders any more
-      expect(menuItems(m)).toEqual([ko('chat.pin'), ko('rooms.menu.notify'), ko('rooms.menu.copyLink'), ko('rooms.menu.hide')])
+      // Move to section second, under Pin (docs/decisions/20261121-personal-sidebar-sections.md)
+      expect(menuItems(m)).toEqual([ko('chat.pin'), ko('sidebarSections.moveTo'), ko('rooms.menu.notify'), ko('rooms.menu.copyLink'), ko('rooms.menu.hide')])
     } finally {
       await m.unmount()
     }
@@ -353,8 +353,9 @@ describe('the conversations page', () => {
       press('pointerdown')
       await m.settle(600)
       press('pointerup')
-      await m.until(() => menuItems(m).length === 4, 'the sheet')
-      expect(menuItems(m)).toEqual([ko('chat.pin'), ko('rooms.menu.notify'), ko('rooms.menu.copyLink'), ko('rooms.menu.hide')])
+      await m.until(() => menuItems(m).length === 5, 'the sheet')
+      // the phone's sheet has Move to section too, second (the computer's row "⋯" has it in the same place)
+      expect(menuItems(m)).toEqual([ko('chat.pin'), ko('sidebarSections.moveTo'), ko('rooms.menu.notify'), ko('rooms.menu.copyLink'), ko('rooms.menu.hide')])
       expect(m.get('menu-sheet-title').textContent).toBe('개발팀')
       // the click that follows the finger lifting is no tap on the row
       await m.click(row)

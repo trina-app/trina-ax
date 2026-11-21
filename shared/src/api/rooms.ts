@@ -287,6 +287,16 @@ export const RoomFile = z.object({
   width: z.number().int().positive().optional(),
   height: z.number().int().positive().optional(),
   thumb: z.boolean(),
+  /** a file kept in the team folder, not in the room (a project room's file: sent from the computer into the project's
+   * Chat attachments folder, or a team file attached from Files): deleting its message leaves the file where it is.
+   * Its name and size are the file's now, as this viewer may see it (docs/decisions/20261120-project-is-room.md D3) */
+  teamFile: z.literal(true).optional(),
+  /** with teamFile: where the file is now in the team folder, for a viewer who may open it there */
+  teamPath: z.string().optional(),
+  /** with teamFile, in place of the file (its name, path and size blanked): 'deleted' the file was put in the trash or
+   * deleted in Files ("File deleted"; a restore brings it back), 'unavailable' this viewer cannot open it now (moved
+   * where they cannot read it, a narrowed folder, access taken away) */
+  state: z.enum(['deleted', 'unavailable']).optional(),
 })
 export type RoomFile = z.infer<typeof RoomFile>
 
@@ -357,6 +367,10 @@ export const RoomEventLine = z.discriminatedUnion('type', [
    * says "a project") */
   z.object({ type: z.literal('project_linked'), project: z.object({ id: Uuid7, name: z.string() }).nullable() }),
   z.object({ type: z.literal('project_unlinked'), project: z.object({ id: Uuid7, name: z.string() }).nullable() }),
+  /** a private channel linked to a team project in 0.5.21 became the project's chat room at the upgrade, its people
+   * being the project's people (docs/decisions/20261120-project-is-room.md D7); written by the server (author null).
+   * `project` as for project_linked */
+  z.object({ type: z.literal('project_room'), project: z.object({ id: Uuid7, name: z.string() }).nullable() }),
   /** a line this build cannot read (a newer build's, or a damaged one): said neutrally, without who did it */
   z.object({ type: z.literal('unknown') }),
 ])
@@ -588,10 +602,22 @@ export const Room = z.object({
    * open that project now: the header's Files button opens `folderPath`; `canSave`: Save to project (not a guest, and
    * write on the folder). Absent: not linked, a link that is not active (the project in the trash, outside projects/),
    * a viewer who cannot open the project, and older servers. */
-  project: z.object({ id: Uuid7, name: z.string(), folderPath: z.string().min(1), canSave: z.boolean() }).optional(),
-  /** I may link this private channel to a project (a non-guest member, a private channel, no active link I cannot see):
-   * the room info's Project row offers Link to a project. Absent: no. */
-  canLinkProject: z.literal(true).optional(),
+  project: z.object({ id: Uuid7, name: z.string(), folderPath: z.string().min(1), canSave: z.boolean(),
+    /** this room is the project's own chat room (docs/decisions/20261120-project-is-room.md): its members are the
+     * project's people, it is named after the project, and its people are managed on the project (no Add people,
+     * Remove, Rename or Leave here). Absent: older servers. */
+    room: z.literal(true).optional(),
+    /** a project's chat room: may I send files from the computer there (they go into the project's Chat attachments
+     * folder, so write there is needed, guests included): 'ok'; 'read_only' I may only read the project; 'folder' only its
+     * Chat attachments folder is closed to me. Absent: older servers (canSave decides). */
+    attach: z.enum(['ok', 'read_only', 'folder']).optional(),
+    /** a project's chat room: may I leave the project ('yes'), or am I its last person ('last': add someone first);
+     * absent: older servers, or not a project one leaves */
+    leave: z.enum(['yes', 'last']).optional() }).optional(),
+  /** this is a team project's own chat room (docs/decisions/20261120-project-is-room.md), told to every member whether
+   * or not they can open the project now (Room.project needs that): its people are the project's, so no Add people,
+   * Remove, Rename, Leave or guest invites here. Absent: any other room, older servers. */
+  projectRoom: z.literal(true).optional(),
   memberCount: z.number().int().nonnegative(),
   /** up to 4 other members, for the avatars; a DM: the other person */
   peers: z.array(UserRef),
@@ -755,6 +781,17 @@ export const MyRoomFilesQuery = z.object({ cursor: z.string().max(500).optional(
 /** a page of them; `totalBytes`: all of them together, not only this page (sent with the first page; 0 on the next ones) */
 export const MyRoomFilesPage = RoomFileSearchPage.extend({ totalBytes: z.number().nonnegative() })
 export type MyRoomFilesPage = z.infer<typeof MyRoomFilesPage>
+/** A room's own Files list (docs/decisions/20261120-project-is-room.md D8): the files sent in a channel, a 1:1 or a group
+ * chat I am in, with messages I can see now, newest first (`cursor` from the last page). A project's chat room has none:
+ * its files are the project's, in Files. */
+export const RoomFilesQuery = MyRoomFilesQuery
+export const RoomFilesPage = z.object({ items: z.array(RoomFileSearchHit), nextCursor: z.string().nullable() })
+export type RoomFilesPage = z.infer<typeof RoomFilesPage>
+/** ⌘K before anything is typed: at most this many recent files of my rooms */
+export const RECENT_ROOM_FILES_MAX = 5
+/** the newest files sent in the rooms I am in, with messages I can see now, and their rooms (for the names) */
+export const RecentRoomFiles = z.object({ items: z.array(RoomFileSearchHit).max(RECENT_ROOM_FILES_MAX), rooms: z.array(RoomSearchRoom) })
+export type RecentRoomFiles = z.infer<typeof RecentRoomFiles>
 
 export const SendRoomMessageBody = z.object({
   body: z.string().max(ROOM_MESSAGE_MAX),
@@ -854,9 +891,7 @@ export const RoomSavePlan = z.object({
   folder: SaveFolder.optional(),
 })
 export type RoomSavePlan = z.infer<typeof RoomSavePlan>
-/** `oneClick`: Save to project in a linked channel, without the sheet: every file must be a document or media kind by its
- * name (shared/src/files/plain-kinds.ts), else 409 needs_sheet and nothing is saved */
-export const RoomSaveBody = z.object({ fileIds: z.array(Uuid7).min(1).max(ROOM_SAVE_FILES_MAX), folder: RelPath, oneClick: z.literal(true).optional() }).strict()
+export const RoomSaveBody = z.object({ fileIds: z.array(Uuid7).min(1).max(ROOM_SAVE_FILES_MAX), folder: RelPath }).strict()
 /** Undo of a Save to project: the token its save gave for a copy it made (RoomSaveResult.saved[].undo) */
 export const RoomSaveUndoBody = z.object({ token: z.string().min(16).max(128) }).strict()
 export const RoomSaveUndoResult = z.object({ removed: z.literal(true) })
@@ -939,11 +974,12 @@ export const ROOMS = {
   listRooms: endpoint({ method: 'GET', path: '/api/rooms', auth: 'user', owner: 'B', response: z.object({ items: z.array(Room), alerts: RoomAlertSettings.optional() }), summary: 'The rooms I am in (my team rooms, everyone, DMs, group chats), most recent activity first, with my unread count, the last message, my notification level, my pin (pinnedAt; the app lists my pinned rooms first) and whether I may add apps there (canManageApps, the same rule as the apps routes); alerts: what else decides whether a message rings (thread replies, quiet hours, the team time zone).' }),
   createRoom: endpoint({ method: 'POST', path: '/api/rooms', auth: 'user', owner: 'B', status: 201, body: CreateRoomBody, response: Room, summary: 'Open the DM with a person (the existing one when there is one), or make a group chat with two or more people. Not audited: admins do not learn who talks to whom.' }),
   getRoom: endpoint({ method: 'GET', path: '/api/rooms/:id', auth: 'user', owner: 'B', response: Room, summary: 'One room I am in (404 for anyone else, admins included).' }),
-  updateRoom: endpoint({ method: 'PATCH', path: '/api/rooms/:id', auth: 'user', owner: 'B', body: UpdateRoomBody, response: Room, summary: 'Set my notification level for a room (all, mentions, off, or my default), or rename it (group chats: any member, and a private channel, a group chat with a name, cannot be left without one; team and everyone rooms: owner or admin members; never a DM).' }),
+  updateRoom: endpoint({ method: 'PATCH', path: '/api/rooms/:id', auth: 'user', owner: 'B', body: UpdateRoomBody, response: Room, summary: 'Set my notification level for a room (all, mentions, off, or my default), or rename it (group chats: any member, and a private channel, a group chat with a name, cannot be left without one; team and everyone rooms: owner or admin members; never a DM, nor a project\'s chat room: it follows the project\'s name).' }),
   listRoomMessages: endpoint({ method: 'GET', path: '/api/rooms/:id/messages', auth: 'user', owner: 'B', query: ListRoomMessagesQuery, response: RoomMessagesPage, summary: 'The timeline of a room I am in from my join on (thread replies only when sent to the room too), newest page first, oldest first within it. With around: the page around that message, and newerCursor for the newer ones.' }),
   searchRoomMessages: endpoint({ method: 'GET', path: '/api/room-messages', auth: 'user', owner: 'B', query: RoomSearchQuery, response: RoomSearchPage, summary: 'Search the messages I can see in the rooms, 1:1 and group chats I am in now (q: every word, in any order and any case, a Korean word without its particle and an English one without its ending; "quoted phrases"; from:person, in:room and mentions:me narrow it, and room= to one room of mine), newest first or the best match first (sort), near matches when nothing matched as typed, with the text around the first word found and the rooms of the hits.' }),
   searchRoomFiles: endpoint({ method: 'GET', path: '/api/room-files', auth: 'user', owner: 'B', query: RoomSearchQuery, response: RoomFileSearchPage, summary: 'Search the files sent in the rooms, 1:1 and group chats I am in now by name (q: every word, any case; from:, in:, mentions:me and room= as for messages), only those of messages I can see, newest first, with the message each was sent with and the rooms of the hits.' }),
   listMyRoomFiles: endpoint({ method: 'GET', path: '/api/room-files/mine', auth: 'user', owner: 'B', query: MyRoomFilesQuery, response: MyRoomFilesPage, summary: 'The files I sent in the rooms, 1:1 and group chats I am in now, with a message that is not deleted, largest first, with the room of each and how much space they take together ("Files you sent"). Only my own; deleting one is deleting its message.' }),
+  recentRoomFiles: endpoint({ method: 'GET', path: '/api/room-files/recent', auth: 'user', owner: 'B', response: RecentRoomFiles, summary: 'The newest files (at most 5) sent in the rooms, 1:1 and group chats I am in now, only those of messages I can see and, for a project room\'s file kept in the team folder, only while I can open it there; with the room of each (⌘K before anything is typed).' }),
   sendRoomMessage: endpoint({ method: 'POST', path: '/api/rooms/:id/messages', auth: 'user', owner: 'B', status: 201, body: SendRoomMessageBody, response: RoomMessage, summary: 'Send a message as myself (never another author), or a reply in a thread, with @mentions (or @everyone, written as the everyone room word of each language: mentionsAll; in the everyone room owners and admins only) and files; DMs, group chats, mentions and followed threads notify.' }),
   listRoomThread: endpoint({ method: 'GET', path: '/api/rooms/:id/messages/:messageId/thread', auth: 'user', owner: 'B', query: ListRoomMessagesQuery, response: RoomThreadPage, summary: 'A thread in a room I am in: its root and the replies I can see (none of it when I cannot see the root).' }),
   markRoomThreadRead: endpoint({ method: 'POST', path: '/api/rooms/:id/messages/:messageId/thread/read', auth: 'user', owner: 'B', body: MarkRoomReadBody, response: RoomThreadReadState, summary: 'Move my read position in a thread I follow forward to seq; its notices count as read.' }),
@@ -954,22 +990,24 @@ export const ROOMS = {
   deleteRoomMessage: endpoint({ method: 'DELETE', path: '/api/rooms/:id/messages/:messageId', auth: 'user', owner: 'B', status: 204, response: empty, summary: 'Delete my own message (its text and files are removed; "deleted" stays in its place).' }),
   markRoomRead: endpoint({ method: 'POST', path: '/api/rooms/:id/read', auth: 'user', owner: 'B', body: MarkRoomReadBody, response: RoomReadState, summary: 'Move my read position forward to seq (never back); nobody else is told.' }),
   listRoomMembers: endpoint({ method: 'GET', path: '/api/rooms/:id/members', auth: 'user', owner: 'B', response: z.object({ items: z.array(RoomMember) }), summary: 'Who is in a room I am in (names only; nobody\'s read position).' }),
-  inviteRoomMembers: endpoint({ method: 'POST', path: '/api/rooms/:id/members', auth: 'user', owner: 'B', body: InviteRoomBody, response: Room, summary: 'Add people to a group chat I am in (any member; active people only). They see it from now on. Not audited.' }),
-  removeRoomMember: endpoint({ method: 'DELETE', path: '/api/rooms/:id/members/:userId', auth: 'user', owner: 'B', status: 204, response: empty, summary: 'Take someone out of a group chat I am in: its manager, or an owner or admin in it (never myself: leave instead). Not audited.' }),
+  inviteRoomMembers: endpoint({ method: 'POST', path: '/api/rooms/:id/members', auth: 'user', owner: 'B', body: InviteRoomBody, response: Room, summary: 'Add people to a group chat I am in (any member; active people only). They see it from now on. Not audited. A project\'s chat room: 403 project_room (its people are the project\'s).' }),
+  removeRoomMember: endpoint({ method: 'DELETE', path: '/api/rooms/:id/members/:userId', auth: 'user', owner: 'B', status: 204, response: empty, summary: 'Take someone out of a group chat I am in: its manager, or an owner or admin in it (never myself: leave instead). Not audited. A project\'s chat room: 403 project_room.' }),
   setRoomHidden: endpoint({ method: 'PUT', path: '/api/rooms/:id/hidden', auth: 'user', owner: 'B', body: SetRoomHiddenBody, response: Room, summary: 'Hide a DM, a team room or the everyone room from my own lists, or show it again (nobody else is told; a group chat is left instead). Hiding unpins it. It comes back by itself when something for me arrives.' }),
   pinRoom: endpoint({ method: 'POST', path: '/api/rooms/:id/pin', auth: 'user', owner: 'B', response: Room, summary: 'Pin a room I am in to the top of my own conversation list ("Pin to top"; nobody else is told). Pinned already: unchanged. A hidden room: 409 room_hidden (hiding unpins it). At most 50 pins (409 room_pins_full). My other windows hear it (room.updated).' }),
   unpinRoom: endpoint({ method: 'DELETE', path: '/api/rooms/:id/pin', auth: 'user', owner: 'B', response: Room, summary: 'Unpin a room ("Unpin"); not pinned: unchanged. My other windows hear it (room.updated).' }),
-  leaveRoom: endpoint({ method: 'POST', path: '/api/rooms/:id/leave', auth: 'user', owner: 'B', status: 204, response: empty, summary: 'Leave a group chat; the last one to leave closes it. Not audited.' }),
+  leaveRoom: endpoint({ method: 'POST', path: '/api/rooms/:id/leave', auth: 'user', owner: 'B', status: 204, response: empty, summary: 'Leave a group chat; the last one to leave closes it. Not audited. A project\'s chat room: 403 project_room (leave the project instead: POST /api/projects/:id/leave).' }),
   uploadRoomFile: endpoint({ method: 'POST', path: '/api/rooms/:id/files', auth: 'user', owner: 'B', status: 201, body: multipart(RoomFileUploadFields, SMALL_UPLOAD_MAX), response: RoomFile, summary: 'Upload a file (≤ 50 MB) to send in a room I am in; stored outside the team folder, readable by the room\'s members once sent. A larger file (up to 1 GB): an upload session with target room (POST /api/upload-sessions).' }),
   attachRoomTeamFile: endpoint({ method: 'POST', path: '/api/rooms/:id/team-file', auth: 'user', owner: 'B', status: 201, body: RoomTeamFileBody, response: RoomTeamFile, summary: 'Copy a team-folder file I may read now (not a folder, a link or a quarantined file: 404 like a missing one; ≤ 50 MB) as my upload to send in a room I am in, readable by the room\'s members once sent; with how many other members cannot open the team file (a count). The same unchanged file again before sending: that copy again; past 200 MB of my unsent copies: 409 team_copies_full. Audited when sent (room.team_file).' }),
   roomFile: endpoint({ method: 'GET', path: '/api/rooms/:id/files/:fileId', auth: 'user', owner: 'B', query: RoomFileQuery, response: stream(true), summary: 'A file sent in a room I am in (membership checked on every read); thumb=1 for an image preview, download=1 as an attachment. Inline, a page or script type is sent as text/plain with a sandbox CSP: never a page of the app. A file on the safety check\'s download-only list is sent only with download=1 (503 quarantined otherwise).' }),
+  listRoomFiles: endpoint({ method: 'GET', path: '/api/rooms/:id/files', auth: 'user', owner: 'B', query: RoomFilesQuery, response: RoomFilesPage, summary: 'The files sent in a channel, 1:1 or group chat I am in, only those of messages I can see now, newest first, with who sent each and when (the room\'s Files list). A project\'s chat room has no list of its own (its files are the project\'s): 404, as for a room I am not in.' }),
   roomSavedFiles: endpoint({ method: 'GET', path: '/api/rooms/:id/saved-files', auth: 'user', owner: 'B', response: RoomSavedFiles, summary: 'Files of a room I am in that were saved to the team folder and that I can open there now: the place still holds the same bytes and my access allows reading it. Not for guests.' }),
   roomSavePlan: endpoint({ method: 'POST', path: '/api/rooms/:id/save-plan', auth: 'user', owner: 'B', body: RoomSavePlanBody, response: RoomSavePlan, summary: 'What the "Save to team folder" sheet shows for files of a room I can see: each file (where it is saved already, whether it looks like a personal document, whether it is the same bytes as an earlier one), one folder I can write to pre-select for the files that look ordinary (matched by name, no AI, only when it fits every one of them; else a recent folder; none when every file looks personal) or, with folder, that folder checked; how many people outside the conversation can see it (a count). Rate limited like the Move picker\'s suggestions. Not for guests.' }),
   saveRoomFilesToTeam: endpoint({ method: 'POST', path: '/api/rooms/:id/save-to-team', auth: 'user', owner: 'B', body: RoomSaveBody, response: RoomSaveResult, summary: 'Copy files of a room I can see into a team folder I may write, byte for byte (each ≤ 50 MB, not on the download-only list, never into skills/ or as an instruction file). Never overwrites: the same bytes there already (from this file or any room file with those bytes, an identical file of the same save included) count as saved; a different file of that name stays and the copy goes next to it. Recorded in the file history. Not for guests.' }),
-  undoRoomSave: endpoint({ method: 'POST', path: '/api/rooms/:id/save-undo', auth: 'user', owner: 'B', body: RoomSaveUndoBody, response: RoomSaveUndoResult, summary: 'Undo of Save to project, with the token its save gave (for a copy that save made, about 30 seconds, once): the copy goes to the trash only for the same person, while it is the same file on disk with the room file\'s own bytes. Any other case (expired, used, another person, changed, replaced, gone, no access) is the same 404 and nothing changes.' }),
-  linkRoomProject: endpoint({ method: 'PUT', path: '/api/rooms/:id/project', auth: 'user', owner: 'B', body: LinkRoomProjectBody, response: Room, summary: 'Link a private channel I am in to a team project in projects/<name> that I read and may write (one project per channel, one channel per project). The same project again: unchanged. Errors in this order, each revealing nothing the caller could not see: guest 403 forbidden; room not mine 404; not a private channel 409 not_private_channel; project missing, unreadable or in the trash 404; personal or older project 409 project_not_linkable; no write 403 project_write_needed; the channel linked to another project 409 channel_linked; the project has a channel 409 project_has_channel (never naming it). An event line in the channel; audited by the project only.' }),
-  unlinkRoomProject: endpoint({ method: 'DELETE', path: '/api/rooms/:id/project', auth: 'user', owner: 'B', status: 204, query: UnlinkRoomProjectQuery, response: empty, summary: 'Unlink a private channel from its project: a non-guest member who reads and writes the project. No active link: 204 (nothing to do). Saved files stay in the project; files sent in the channel stay there. An event line; audited by the project only.' }),
-  createProjectChannel: endpoint({ method: 'POST', path: '/api/projects/:id/channel', auth: 'user', owner: 'B', status: 201, body: CreateProjectChannelBody, response: Room, summary: 'Make a private channel for a team project I read and write, with the people I picked, linked to it in the same step (a copy of who is in it at creation, never a sync). The project\'s errors as for linking; rate limited like any new channel.' }),
+  openProjectRoom: endpoint({ method: 'POST', path: '/api/projects/:id/room', auth: 'user', owner: 'B', response: Room, summary: 'The chat room of a team project in projects/<name> I read (docs/decisions/20261120-project-is-room.md), made the first time it is opened: a private channel named after the project whose members are the project\'s people (followed from then on: added, removed, renamed with the project). Anyone who cannot read the project (the owner and admins outside it included): 404 as for a missing project. A personal or older project: 409 project_not_linkable. Its making is audited (project.room).' }),
+  undoRoomSave: endpoint({ method: 'POST', path: '/api/rooms/:id/save-undo', auth: 'user', owner: 'B', body: RoomSaveUndoBody, response: RoomSaveUndoResult, summary: 'Undo of the one-click Save to project. Retired in 0.5.22 with the project link (docs/decisions/20261120-project-is-room.md): 410 gone for everyone, naming nothing.' }),
+  linkRoomProject: endpoint({ method: 'PUT', path: '/api/rooms/:id/project', auth: 'user', owner: 'B', body: LinkRoomProjectBody, response: Room, summary: 'Link a private channel to a team project. Retired in 0.5.22 with the project link (docs/decisions/20261120-project-is-room.md): 410 gone for everyone, naming nothing.' }),
+  unlinkRoomProject: endpoint({ method: 'DELETE', path: '/api/rooms/:id/project', auth: 'user', owner: 'B', status: 204, query: UnlinkRoomProjectQuery, response: empty, summary: 'Unlink a private channel from its project. Retired in 0.5.22 with the project link (docs/decisions/20261120-project-is-room.md): 410 gone for everyone, naming nothing.' }),
+  createProjectChannel: endpoint({ method: 'POST', path: '/api/projects/:id/channel', auth: 'user', owner: 'B', status: 201, body: CreateProjectChannelBody, response: Room, summary: 'Make a private channel for a team project. Retired in 0.5.22 with the project link (docs/decisions/20261120-project-is-room.md): 410 gone for everyone, naming nothing. A project\'s chat room: POST /api/projects/:id/room.' }),
   roomFileHwpPreview: endpoint({ method: 'GET', path: '/api/rooms/:id/files/:fileId/hwp-preview', auth: 'user', owner: 'B', query: HwpPreviewQuery, response: HwpPreviewPage, summary: 'One page of a Hangul file (HWP, HWPX) sent in a room I am in, as a PNG from the HWP Preview plugin: the team file preview\'s renderer, limits and cache. Checked on every request as reading the file inline is: a member, the message visible to me and not deleted (404 otherwise), not on the download-only list (503 quarantined). The plugin off or not usable here: 503 unavailable with params.reason disabled, as for a team file. Pages are 1-based.' }),
 } as const
 

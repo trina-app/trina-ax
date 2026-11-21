@@ -120,7 +120,7 @@ afterAll(() => {
   useLocaleStore.setState({ locale })
 })
 
-test('the Inbox: a run is one link with its task, time and dot that reads it; no link, 읽음 표시; a job log under the link', async () => {
+test('the Inbox: a run is one link with its task, time and dot that reads it; no link, 읽음 표시; a job log is never shown', async () => {
   useSession.setState({ status: { kind: 'signed-in', me } } as never)
   const run = notice({ schedule: { title: '주간 보고' } })
   const read = notice({ readAt: '2026-11-07T01:30:00.000Z' })
@@ -150,10 +150,10 @@ test('the Inbox: a run is one link with its task, time and dot that reads it; no
     // nowhere to go: no link, 읽음 표시 instead of the dot
     expect(rows[2]!.querySelector('a')).toBeNull()
     expect(rows[2]!.querySelector('button')!.textContent).toBe(ko('notifications.markRead'))
-    // a job: the row opens its chat; the log is under the link, not in it (to be selected)
-    const jobLink = rows[3]!.querySelector('a')!
-    expect(jobLink.querySelector('[data-testid="notification-job-tail"]')).toBeNull()
-    expect(rows[3]!.querySelector('[data-testid="notification-job-tail"]')!.textContent).toBe('npm ERR! missing script')
+    // a job: the row opens its chat; it says the result in plain words and never shows the log (older servers still send it)
+    expect(rows[3]!.querySelector('a')).not.toBeNull()
+    expect(rows[3]!.querySelector('[data-testid="notification-job-tail"]')).toBeNull()
+    expect(rows[3]!.textContent).not.toContain('npm ERR!')
     // the click reads the notice
     await m.click(link)
     await m.until(() => reads.length > 0, 'the read')
