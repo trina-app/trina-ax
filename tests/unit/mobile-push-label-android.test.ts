@@ -38,6 +38,11 @@ test('the manifest: expo-notifications\' service removed at the merge, once; the
   expect(own).toContain('android:name="expo.modules.pushlabel.LabelMessagingService"')
   expect(own).toContain('android:exported="false"')
   expect(own).toContain('com.google.firebase.MESSAGING_EVENT')
+  // Expo links expo-notifications as a prebuilt AAR (no ':expo-notifications' project): the module takes the AAR then
+  // (a plain project(':expo-notifications') failed the first real Gradle build, 2026-11-21)
+  const gradle = fs.readFileSync(path.join(mobileRoot, 'modules/push-label/android/build.gradle'), 'utf8')
+  expect(gradle).toContain("rootProject.findProject(':expo-notifications')")
+  expect(gradle).toContain('host.exp.exponent:expo.modules.notifications:')
 })
 
 // needs the phone app's own install (npm ci --prefix mobile): the root unit shards in CI do not have it

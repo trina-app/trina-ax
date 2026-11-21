@@ -52,8 +52,10 @@
   unchanged), `tests/unit/push-label-gateway.test.ts` (the team server's key and the older-gateway fallback),
   `tests/unit/push-label.test.ts` (an Android device with a key: `label` on the push, the same answer),
   `tests/unit/mobile-labels.test.ts` (the hash on Android), `tests/unit/mobile-push-label-android.test.ts` (the plugin,
-  the manifest, the Kotlin's rules). No CI job builds Android: the first full compile is a
-  release build (`mobile/scripts/android-release.sh`). At the PR, `Label.kt`, `LabelStore.kt` and
+  the manifest, the Kotlin's rules). No CI job builds Android. On 2026-11-21 a local `expo prebuild` and `./gradlew :push-label:compileDebugKotlin
+  :app:processDebugMainManifest` compiled the module and merged the manifest (our service is the only FCM entry besides
+  Firebase's own base service; expo-notifications' is removed). It found that expo-notifications is linked as a prebuilt
+  AAR, not a Gradle project, so `project(':expo-notifications')` failed; build.gradle now takes the AAR then. At the PR, `Label.kt`, `LabelStore.kt` and
   `LabelMessagingService.kt` were compiled with kotlinc against stubs of the expo-notifications and Firebase
   signatures they use, and the pure helpers (plain, teamOrigin, named, title) were run on the JVM;
   `PushLabelModule.kt`, the manifest merge and `assembleDebug` were not (they need NDK 27.1).

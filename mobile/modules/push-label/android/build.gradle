@@ -18,8 +18,24 @@ android {
 }
 
 dependencies {
-  // the service extends expo-notifications' own FCM service and delegate (plugins/push-label.js checks their shape)
-  implementation project(':expo-notifications')
+  // the service extends expo-notifications' own FCM service and delegate (plugins/push-label.js checks their shape).
+  // Expo's autolinking uses expo-notifications' prebuilt AAR (its local-maven-repo, added to every project) and has no
+  // ':expo-notifications' project then; built from source it is a project.
+  def notifications = rootProject.findProject(':expo-notifications')
+  if (notifications != null) {
+    implementation notifications
+  } else {
+    implementation "host.exp.exponent:expo.modules.notifications:${expoNotificationsVersion()}"
+  }
   // the same version expo-notifications 58 declares (as `implementation`, so it is not on this module's classpath)
   implementation 'com.google.firebase:firebase-messaging:25.0.1'
+}
+
+/** The installed expo-notifications' version (the prebuilt AAR's version is the package's). */
+def expoNotificationsVersion() {
+  def json = providers.exec {
+    workingDir(projectDir)
+    commandLine('node', '--print', "require.resolve('expo-notifications/package.json')")
+  }.standardOutput.asText.get().trim()
+  return new groovy.json.JsonSlurper().parse(new File(json)).version
 }
