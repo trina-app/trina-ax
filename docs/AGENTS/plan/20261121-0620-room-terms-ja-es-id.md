@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-21 06:20
 - Branch: `fix/room-terms-ja-es-id`
-- Status: in progress
+- Status: done
 - Where: web/src/i18n/{ja,es,id}.ts, server/src/chat/i18n.ts and server/src/onboarding/form-skill.ts (ja/es/id),
   docs/site/{ja,es,id}/use/chats-and-projects.md (the project-room section).
 - Version impact: patch (wording only; no keys, no English, no behaviour)
