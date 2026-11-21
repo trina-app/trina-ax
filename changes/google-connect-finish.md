@@ -5,3 +5,5 @@
   sign-in worked. If you reload it, open it twice, or it is from an older try and the connection was made since, it
   says the sign-in worked or "Connected. You can close this window". For a sign-in from the desktop app, the page
   opens the app by itself, and the app's wait line says to press "Back to the app" if it does not.
+- When you confirm a Google account to connect, a highlighted line says so if that Google account is not your sign-in
+  email.

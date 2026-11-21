@@ -63,6 +63,8 @@ export class GoogleDrive {
   readonly now: () => number
   private refreshes = new Map<string, Promise<Tokens>>()
   private operations = new Map<string, Set<AbortController>>()
+  /** flows a return is waiting on now (answered(): one waiter each) */
+  private waiting = new Set<string>()
   private revoking = new Set<string>()
   constructor(readonly ctx: AppContext, deps: DriveDeps = {}) {
     this.now = deps.now ?? Date.now
@@ -185,9 +187,16 @@ export class GoogleDrive {
    * claimed, cancelled, replaced or late). Before the row loses its secret; a failure changes nothing here. */
   private dropTokens(rows: FlowRow[]) {
     for (const r of rows) {
-      let token: string | undefined
-      try { token = this.store.open<FlowSecret>(r).tokens?.refreshToken } catch { continue }
-      if (token) void this.revoke(token).catch(() => 'unavailable')
+      let s: FlowSecret
+      try { s = this.store.open<FlowSecret>(r) } catch { continue }
+      const token = s.tokens?.refreshToken
+      if (!token) continue
+      // Google revokes a whole grant: not while the person keeps another Google sign-in here, or anyone keeps one with
+      // the same Google account (the rule of disconnect, below), else a dropped result would end a live connection
+      const db = this.ctx.db, u = r.user_id
+      if (this.store.connection(u) || db.query('SELECT 1 FROM integrations WHERE owner_user_id=? AND google_app IS NOT NULL AND secret_enc IS NOT NULL LIMIT 1').get(u)
+        || ownsLiveDriveShare(db, u) || signsTeamGoogleApp(db, u) || googleAccountInUse(db, s.account?.email?.toLowerCase() ?? null)) continue
+      void this.revoke(token).catch(() => 'unavailable')
     }
   }
   /** The flow row both ways share: who, which session, the state's hash and the sealed PKCE verifier. */
@@ -286,14 +295,18 @@ export class GoogleDrive {
     this.store.sweep()
     let r = read()
     if (!r || r.state === 'pending') return null
-    const deadline = Date.now() + SETTLE_MS
-    while (r && r.state === 'exchanging' && !this.held(r) && Date.now() < deadline) { await Bun.sleep(100); r = read() }
+    // one waiter per flow: any other return gets the state as it is now, at once (a flood of reloads holds no requests)
+    const id = r.id, deadline = this.waiting.has(id) ? 0 : Date.now() + SETTLE_MS
+    if (deadline) this.waiting.add(id)
+    try { while (r && r.state === 'exchanging' && !this.held(r) && Date.now() < deadline) { await Bun.sleep(100); r = read() } }
+    finally { if (deadline) this.waiting.delete(id) }
     const no = (reason: string): CallbackOutcome => ({ ok: false, reason, ...app })
     if (!r) return no('invalid_flow')
     if (r.state === 'ready') return { ok: true, done: 'ready', ...app }
     if (r.state === 'completed') return { ok: true, done: 'completed', ...app }
     if (r.state === 'exchanging') {
-      if (!this.held(r)) return no('provider_unavailable') // still talking to Google after SETTLE_MS
+      // still talking to Google: another return waits on it (this one is not the waiter), or SETTLE_MS ran out
+      if (!this.held(r)) return no(deadline ? 'provider_unavailable' : 'in_progress')
       // Held for the desktop app: never a new code, never finished here. The starter has the state too (it is in the
       // Google address the app was given): a code or a finish for whoever brings the state again would hand a phished
       // victim's consent to the starter. The first page's code is the only one.

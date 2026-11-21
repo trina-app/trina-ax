@@ -487,6 +487,7 @@ export const zh: Record<MessageKey, string> = {
   "drive.confirm": "连接此账号",
   "drive.confirmTeamAccount": "将此账号连接为团队账号？",
   "drive.otherAccount": "使用其他账号登录",
+  "drive.notYourEmail": "这个 Google 账号不是你的登录邮箱：{email}。只有在你亲自选择了这个 Google 账号时才连接。",
   "drive.cardDesc": "搜索和读取你的 Drive 文件",
   "drive.setUpFirst": "此服务器尚未设置 Google Drive。请在“管理 › 已连接的应用”中设置。",
   "drive.notReadyHosted": "此团队暂时还不能使用 Google Drive。它会自动开启；如果一直未开启，请联系 Trina 支持。",

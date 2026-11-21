@@ -170,6 +170,8 @@ export function googleReturnOf(outcome: CallbackOutcome, browserSignedIn: boolea
     case 'consent_denied_service': return 'denied_service'
     case 'scope_denied': return 'scope'
     case 'held': return 'handed'
+    // another return of this sign-in is finishing it right now: the "almost done" page (the app shows how it ends)
+    case 'in_progress': return 'ok'
     case 'invalid_flow': case 'expired': case 'superseded': case 'flow_not_ready': return 'expired'
     case 'browser_session_required': return browserSignedIn ? 'other_account' : 'signed_out'
     default: return 'failed'

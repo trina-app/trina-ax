@@ -487,6 +487,7 @@ export const es: Record<MessageKey, string> = {
   'drive.confirm': "Conectar esta cuenta",
   'drive.confirmTeamAccount': "¿Conectar esta cuenta para el equipo?",
   'drive.otherAccount': "Iniciar sesión con otra cuenta",
+  "drive.notYourEmail": "Esta cuenta de Google no es su correo de inicio de sesión: {email}. Conéctela solo si eligió usted mismo esta cuenta de Google.",
   'drive.cardDesc': 'Busque y lea sus archivos de Drive',
   'drive.setUpFirst': "Google Drive aún no está configurado en este servidor. Configúrelo en Administración › Apps conectadas.",
   'drive.notReadyHosted': "Google Drive aún no está listo para este equipo. Se activa solo; si sigue desactivado, contacte con el soporte de Trina.",

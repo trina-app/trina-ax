@@ -487,6 +487,7 @@ export const ja: Record<MessageKey, string> = {
   'drive.confirm': 'このアカウントを接続',
   'drive.confirmTeamAccount': 'このアカウントをチームのアカウントとして接続しますか？',
   'drive.otherAccount': '別のアカウントでログイン',
+  "drive.notYourEmail": "この Google アカウントはログインに使っているメールではありません：{email}。この Google アカウントを自分で選んだ場合だけ接続してください。",
   'drive.cardDesc': 'Driveのファイルを検索して読む',
   'drive.setUpFirst': "このサーバーではまだGoogle Driveを設定していません。管理 › 連携サービスで設定します。",
   'drive.notReadyHosted': "このチームではまだGoogle Driveを使えません。自動でオンになります。オフのままの場合はTrinaのサポートにお問い合わせください。",

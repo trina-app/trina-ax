@@ -500,6 +500,7 @@ export const id: Record<MessageKey, string> = {
   'drive.confirm': "Hubungkan akun ini",
   'drive.confirmTeamAccount': "Hubungkan akun ini untuk tim?",
   'drive.otherAccount': "Masuk dengan akun lain",
+  "drive.notYourEmail": "Akun Google ini bukan email login Anda: {email}. Hubungkan hanya jika Anda sendiri yang memilih akun Google ini.",
   'drive.cardDesc': 'Cari dan baca file Drive Anda',
   'drive.setUpFirst': "Google Drive belum disiapkan di server ini. Siapkan di Admin › Aplikasi terhubung.",
   'drive.notReadyHosted': "Google Drive belum siap untuk tim ini. Ini akan aktif sendiri; kalau tetap mati, hubungi dukungan Trina.",

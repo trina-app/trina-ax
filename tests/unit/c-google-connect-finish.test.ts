@@ -8,6 +8,8 @@
 //  - the desktop app's sign-in of Gmail, Calendar, Docs or Sheets: the system browser has no session, so the result
 //    waits for the app's one-time code (as Drive's since #98), which the Drive claim address the desktop app already
 //    calls now redeems too, for the starter's session only (the phishing case of #98's review fails as for Drive);
+//  - a refusal at the claim address (a Google app's), one waiter per sign-in, results never used revoked at Google
+//    (unless that ends a live sign-in), and the confirm step's line for a Google account that is not the person's own;
 //  - a held page opened again: "go back to the app", never a second code and never finished there (the starter has
 //    the state too: it is in the Google address; review of this change).
 // Fake Google only.
@@ -20,6 +22,7 @@ import { GOOGLE_TOKEN, type DriveFetch } from '../../server/src/integrations/goo
 import { FakeGoogleDrive, DRIVE_CONFIG, membersMayConnect } from '../lib/fake-google-drive'
 import { APP_CLIENT, FakeGoogle, FakeLibrary } from '../lib/fake-google-apps'
 import { LOCALE_ORDER as LOCALES } from '../../shared/src/api'
+import { notOwnEmail } from '../../web/src/lib/googleAccount'
 
 setDefaultTimeout(30_000)
 
@@ -254,4 +257,92 @@ test('the "Connected" page and the held page in every language', () => {
   }
   // a plain browser's "Connected": no app button
   expect(googleReturnPage('done', 'en').html).not.toContain('trina-ax://')
+})
+
+test('a Google app\'s refusal at the claim address is a plain refusal, never a 500, and ends the held result (an admin who is no longer one)', async () => {
+  await setUpGmail()
+  const ADAM_PW = 'harbor kite violet 9'
+  await addMember(h, owner, { username: 'adam', role: 'admin', password: ADAM_PW })
+  const adminApp = await login('adam', ADAM_PW, 'desktop')
+  const f = await adminApp.call('POST', '/api/admin/google-apps/gmail/team/authorize', {})
+  const code = codeOf(await (await bare(gmailReturn(google.authorize(f.authorizationUrl, 'adam')))).text())!
+  expect(code).toBeTruthy()
+  h.ctx.db.query("UPDATE users SET role='member' WHERE username='adam'").run()
+  const r = await claim(adminApp, code)
+  expect(r.status).toBe(403); expect(r.body.error.params.reason).toBe('access_denied')
+  const row = h.ctx.db.query('SELECT state, secret_enc FROM google_app_flows WHERE id=?').get(f.flowId) as { state: string; secret_enc: string | null }
+  expect(row).toEqual({ state: 'failed', secret_enc: null })
+  // the code is gone with it
+  expect((await claim(adminApp, code)).status).toBe(400)
+})
+
+test('one waiter per sign-in: a third return while another waits gets the "almost done" page at once', async () => {
+  await setUpGmail()
+  const f = await owner.call('POST', gmail + '/authorize', {})
+  const url = gmailReturn(google.authorize(f.authorizationUrl, 'olga'))
+  let open!: () => void
+  gate = new Promise((r) => { open = r })
+  const first = owner.raw('GET', url) // takes the sign-in, waits for Google
+  await Bun.sleep(50)
+  const waiter = owner.raw('GET', url) // waits for the first
+  await Bun.sleep(50)
+  const t0 = Date.now()
+  const third = await owner.raw('GET', url) // answered at once, while Google still has not answered
+  expect(Date.now() - t0).toBeLessThan(1000)
+  expect(third.status).toBe(200); expect(await third.text()).not.toContain(EXPIRED)
+  open()
+  for (const p of await Promise.all([first, waiter])) expect(p.status).toBe(200)
+  expect((await owner.call('GET', `${gmail}/flows/${f.flowId}`)).state).toBe('ready')
+})
+
+test('results that will never be used are revoked at Google (cancelled, replaced, run out), unless that would end a live sign-in', async () => {
+  await setUpGmail()
+  const desk = await login('olga', OWNER_PW, 'desktop')
+  const held = async () => {
+    const f = await desk.call('POST', gmail + '/authorize', {})
+    expect(codeOf(await (await bare(gmailReturn(google.authorize(f.authorizationUrl, 'olga')))).text())).toBeTruthy()
+    return f
+  }
+  const tick = () => Bun.sleep(30)
+  // cancelled in the app
+  let f = await held(), before = google.revoked.length
+  await desk.call('DELETE', `${gmail}/flows/${f.flowId}`)
+  await tick(); expect(google.revoked.length).toBe(before + 1)
+  // replaced by Try again
+  f = await held(); before = google.revoked.length
+  await desk.call('POST', gmail + '/authorize', {})
+  await tick(); expect(google.revoked.length).toBe(before + 1)
+  // run out
+  f = await held(); before = google.revoked.length
+  h.ctx.db.query("UPDATE google_app_flows SET expires_at='2000-01-01T00:00:00.000Z' WHERE id=?").run(f.flowId)
+  googleAppsOf(h.ctx).sweep()
+  await tick(); expect(google.revoked.length).toBe(before + 1)
+  // the person keeps a Google sign-in here (Gmail connected): a dropped result is not revoked (Google ends a whole grant)
+  f = await desk.call('POST', gmail + '/authorize', {})
+  await owner.raw('GET', gmailReturn(google.authorize(f.authorizationUrl, 'olga')))
+  expect((await desk.call('POST', `${gmail}/flows/${f.flowId}/complete`, {})).status).toBe('connected')
+  f = await held(); before = google.revoked.length
+  await desk.call('DELETE', `${gmail}/flows/${f.flowId}`)
+  await tick(); expect(google.revoked.length).toBe(before)
+})
+
+test('Drive: a dropped result is not revoked while the person keeps a live Drive connection', async () => {
+  const desk = await login('olga', OWNER_PW, 'desktop')
+  let f = await desk.call('POST', drive + '/authorize', {})
+  await desk.raw('GET', cb(drive, fake.authorize(f.authorizationUrl)))
+  expect((await desk.call('POST', `${drive}/flows/${f.flowId}/complete`, {})).status).toBe('connected')
+  f = await desk.call('POST', drive + '/authorize', {})
+  expect(codeOf(await (await bare(cb(drive, fake.authorize(f.authorizationUrl)))).text())).toBeTruthy()
+  fake.revoked = false
+  await desk.call('DELETE', `${drive}/flows/${f.flowId}`)
+  await Bun.sleep(30)
+  expect(fake.revoked).toBe(false)
+  expect((await desk.call('GET', drive)).status).toBe('connected')
+})
+
+test('the confirm step marks a Google account that is not the person\'s own sign-in email', () => {
+  expect(notOwnEmail('Mallory@Evil.test', 'olga@acme.test')).toBe(true)
+  expect(notOwnEmail(' OLGA@acme.test', 'olga@acme.test')).toBe(false)
+  expect(notOwnEmail('olga@gmail.com', null)).toBe(false)
+  expect(notOwnEmail(null, 'olga@acme.test')).toBe(false)
 })

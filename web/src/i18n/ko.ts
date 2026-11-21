@@ -499,6 +499,7 @@ export const ko = {
   'drive.confirm': '이 계정 연결',
   'drive.confirmTeamAccount': '이 계정을 팀 계정으로 연결할까요?',
   'drive.otherAccount': '다른 계정으로 로그인',
+  "drive.notYourEmail": "이 Google 계정은 내 로그인 이메일이 아니에요: {email}. 이 Google 계정을 직접 골랐을 때만 연결하세요.",
   'drive.cardDesc': '내 Drive 파일을 찾고 읽어요',
   'drive.setUpFirst': "Google Drive를 아직 설정하지 않았어요. 관리자 › 연결한 서비스에서 설정해요.",
   'drive.notReadyHosted': "이 팀은 아직 Google Drive를 쓸 수 없어요. 곧 저절로 켜져요. 계속 꺼져 있으면 Trina 지원팀에 문의해 주세요.",

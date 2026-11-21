@@ -500,6 +500,7 @@ export const en: Record<MessageKey, string> = {
   'drive.confirm': 'Connect this account',
   'drive.confirmTeamAccount': 'Connect this account for the team?',
   'drive.otherAccount': 'Sign in with another account',
+  "drive.notYourEmail": "This Google account is not your sign-in email: {email}. Connect it only if you chose this Google account yourself.",
   'drive.cardDesc': 'Search and read your Drive files',
   'drive.setUpFirst': "Google Drive isn't set up on this server yet. Set it up in Admin › Connected apps.",
   'drive.notReadyHosted': "Google Drive isn't ready for this team yet. It turns on by itself; if it stays off, contact Trina support.",

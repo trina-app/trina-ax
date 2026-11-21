@@ -3,25 +3,34 @@
 // on a neutral circle (Google sends no picture here), the name on one line and the email below it in muted text. Each
 // line is cut with … and keeps the whole text in its tooltip, so a long email never breaks mid-word (owner, 11-20).
 // `onOther`: sign in again to pick another Google account (the same as the waiting line's Try again: a new sign-in).
+// A Google address that is not the person's own sign-in email gets a highlighted line: someone else may have consented
+// with their account on this person's sign-in (a link passed on, the desktop hand-off's code;
+// docs/decisions/20261121-google-return-already-answered.md).
 import type { DriveFlow } from '@mycel/shared/api'
 
 type Account = DriveFlow['account']
 import { firstLetter } from '../../lib/appTone'
 import { useT } from '../../i18n'
 import { Button } from '../ui'
+import { useMe } from '../../store/session'
+import { notOwnEmail } from '../../lib/googleAccount'
 
 export function GoogleAccountBlock({ account, testId, onOther, busy }: { account: Account | undefined; testId: string; onOther?: () => void; busy?: boolean }) {
   const t = useT()
   const name = account?.name?.trim() || null
   const email = account?.email?.trim() || null
   const main = name ?? email ?? ''
+  const other = notOwnEmail(email, useMe()?.user.email)
   const block = (
+    <div className="space-y-1.5">
     <div className="flex items-center gap-3 rounded-xl border border-line px-3 py-2.5" data-testid={testId}>
       <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-hover text-sm font-semibold text-muted" aria-hidden>{firstLetter(main)}</span>
       <div className="min-w-0 flex-1">
         <p className="truncate text-sm font-medium text-ink" title={main}>{main}</p>
         {name && email && <p className="truncate text-xs text-muted" title={email}>{email}</p>}
       </div>
+    </div>
+    {other && <p className="rounded-lg bg-warn-soft px-3 py-2 text-xs font-medium text-warn" role="note" data-testid={`${testId}-not-own`}>{t('drive.notYourEmail', { email: email! })}</p>}
     </div>
   )
   if (!onOther) return block

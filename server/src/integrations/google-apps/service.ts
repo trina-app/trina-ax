@@ -104,6 +104,8 @@ export class GoogleApps {
   private limited = new Map<GoogleAppId, number>()
   /** connections whose tool list is being read now (one check at a time each) */
   private checking = new Set<string>()
+  /** flows a return is waiting on now (answered(): one waiter each) */
+  private waiting = new Set<string>()
   private wanted: string | null | undefined = undefined
   constructor(readonly ctx: AppContext, deps: GoogleAppsDeps = {}) {
     this.now = deps.now ?? Date.now
@@ -135,6 +137,7 @@ export class GoogleApps {
    * once the library is up. */
   sweep() {
     const now = new Date(this.now()).toISOString()
+    this.dropTokens(this.db.query("SELECT * FROM google_app_flows WHERE expires_at<=? AND state IN ('exchanging','ready') AND secret_enc IS NOT NULL").all(now) as FlowRow[])
     this.db.query("UPDATE google_app_flows SET state='expired', secret_enc=NULL WHERE expires_at<=? AND state IN ('pending','exchanging','ready')").run(now)
     this.db.query('DELETE FROM google_app_flows WHERE expires_at<?').run(new Date(this.now() - 86_400_000).toISOString())
     if (this.library().state() !== 'ready') return
@@ -243,6 +246,8 @@ export class GoogleApps {
     let sealed
     try { sealed = this.box.seal(flowAad({ id, user_id: user }), { verifier } satisfies FlowSecret) } catch { throw new GoogleAppError('key_unsafe', 503) }
     const expiresAt = new Date(now + TTL).toISOString()
+    // a waiting result of the flow this one replaces is never used: revoked at Google where that is safe (dropTokens)
+    this.dropTokens(this.db.query("SELECT * FROM google_app_flows WHERE user_id=? AND app=? AND scope=? AND state IN ('exchanging','ready') AND secret_enc IS NOT NULL").all(user, app, scope) as FlowRow[])
     this.db.transaction(() => {
       this.db.query("UPDATE google_app_flows SET state='failed', reason='superseded', secret_enc=NULL, account=NULL WHERE user_id=? AND app=? AND scope=? AND state IN ('pending','exchanging','ready')").run(user, app, scope)
       this.db.query(`INSERT INTO google_app_flows (id, app, scope, user_id, session_id, state_hash, config_key, state, secret_enc, key_version, expires_at, created_at)
@@ -310,7 +315,8 @@ export class GoogleApps {
     return c === 'desktop' || c === 'mobile' ? c : null
   }
   cancel(user: string, session: string, app: GoogleAppId, id: string, scope: Scope = 'personal') {
-    this.ownFlow(user, session, app, id, scope)
+    const f = this.ownFlow(user, session, app, id, scope)
+    if ((f.state === 'ready' || f.state === 'exchanging') && f.secret_enc) this.dropTokens([f])
     this.db.query("UPDATE google_app_flows SET state='failed', reason='cancelled', secret_enc=NULL, account=NULL WHERE id=? AND state!='completed'").run(id)
   }
 
@@ -388,19 +394,24 @@ export class GoogleApps {
    * before. Only the outcome of the starter's own flow is told (the starter can poll it anyway). */
   private async answered(f: FlowRow, app: AppClient | null, browser?: { userId: string; sessionId: string }): Promise<CallbackOutcome> {
     const no = (reason: string): CallbackOutcome => ({ ok: false, reason, ...(app ? { app } : {}) })
-    const deadline = Date.now() + SETTLE_MS
+    // one waiter per flow: any other return gets the state as it is now, at once (a flood of reloads holds no requests)
+    const deadline = this.waiting.has(f.id) ? 0 : Date.now() + SETTLE_MS
     let r: FlowRow | null = f
-    while (r && r.state === 'exchanging' && !this.held(r) && Date.now() < deadline) {
-      await Bun.sleep(100)
-      r = this.db.query('SELECT * FROM google_app_flows WHERE id=?').get(f.id) as FlowRow | null
-    }
+    if (deadline) this.waiting.add(f.id)
+    try {
+      while (r && r.state === 'exchanging' && !this.held(r) && Date.now() < deadline) {
+        await Bun.sleep(100)
+        r = this.db.query('SELECT * FROM google_app_flows WHERE id=?').get(f.id) as FlowRow | null
+      }
+    } finally { if (deadline) this.waiting.delete(f.id) }
     if (!r) return no('invalid_flow')
     if (r.state === 'ready') return { ok: true, done: 'ready', ...(app ? { app } : {}) }
     if (r.state === 'completed') return { ok: true, done: 'completed', ...(app ? { app } : {}) }
     if (r.state === 'exchanging') {
       let s: FlowSecret
       try { s = this.box.open<FlowSecret>(flowAad(r), r.secret_enc, r.key_version) } catch { return no('invalid_flow') }
-      if (!s.claim) return no('provider_unavailable') // still talking to Google after SETTLE_MS
+      // still talking to Google: another return waits on it (this one is not the waiter), or SETTLE_MS ran out
+      if (!s.claim) return no(deadline ? 'provider_unavailable' : 'in_progress')
       // Held for the desktop app: never a new code, never finished here. The starter has the state too (it is in the
       // Google address the app was given): a code or a finish for whoever brings the state again would hand a phished
       // victim's consent to the starter (review of this change). The first page's code is the only one.
@@ -427,10 +438,16 @@ export class GoogleApps {
       let s: FlowSecret
       try { s = this.box.open<FlowSecret>(flowAad(f), f.secret_enc, f.key_version) } catch { continue }
       if (!s.claim || !tokenMatches(code, s.claim.hash)) continue
-      // the same checks as a return in a signed-in browser: an active person (an owner or admin for the team's) and session
-      this.session(user, session, f.scope ?? 'personal')
+      // the same checks as a return in a signed-in browser: an active person (an owner or admin for the team's) and
+      // session. A refusal ends the held result (its tokens dropped) and says why (routes/drive.ts maps it).
+      try { this.session(user, session, f.scope ?? 'personal') } catch (e) {
+        this.dropTokens([f])
+        this.db.query("UPDATE google_app_flows SET state='failed', reason=?, secret_enc=NULL, account=NULL WHERE id=? AND state='exchanging'").run(e instanceof GoogleAppError ? e.reason : 'access_denied', f.id)
+        throw e
+      }
       const setup = setupOf(this.ctx, f.app)
       if (this.now() > s.claim.until || setup.key !== f.config_key || setup.mode === 'off') {
+        this.dropTokens([f])
         this.db.query("UPDATE google_app_flows SET state='failed', reason='expired', secret_enc=NULL, account=NULL WHERE id=? AND state='exchanging'").run(f.id)
         throw new DriveError('expired', 400)
       }
@@ -538,6 +555,20 @@ export class GoogleApps {
     if (this.otherSignIns(user) || googleAccountInUse(this.db, googleEmailOf(row?.account), { integration: row?.id })) return { disconnected: true, revocation: 'not_needed' }
     return { disconnected: true, revocation: await this.revoke(secret!, token) }
   }
+  /** Best effort: revoke at Google the tokens of sign-ins that will never be used (a held or answered result that runs
+   * out, is replaced, cancelled or refused), by the same rule as a disconnect: only when no other Google sign-in of the
+   * person and no sign-in here with the same Google account is left (Google revokes a whole grant). Called before the
+   * row loses its secret; a failure changes nothing here. */
+  private dropTokens(rows: FlowRow[]) {
+    for (const f of rows) {
+      let s: FlowSecret
+      try { s = this.box.open<FlowSecret>(flowAad(f), f.secret_enc, f.key_version) } catch { continue }
+      const token = s.tokens?.refreshToken
+      if (!token) continue
+      if (this.otherSignIns(f.user_id) || googleAccountInUse(this.db, s.account?.email?.toLowerCase() ?? null)) continue
+      void this.revokeToken(setupOf(this.ctx, f.app).mode === 'broker', token).catch(() => 'unavailable')
+    }
+  }
   /** Another Google sign-in of this person is left here (their own apps, their Drive, a Drive they share with the team, an
    * app's account they connected for the team): Google revokes a whole grant, so it is not asked. */
   private otherSignIns(user: string, exceptTeamRow?: string): boolean {
@@ -547,8 +578,11 @@ export class GoogleApps {
       || signsTeamGoogleApp(this.db, user, exceptTeamRow)
   }
   private async revoke(secret: GoogleAppSecret, token: string): Promise<'revoked' | 'unavailable'> {
+    return this.revokeToken(secret.google.mode === 'broker', token)
+  }
+  private async revokeToken(viaBroker: boolean, token: string): Promise<'revoked' | 'unavailable'> {
     // a token the hosting service sealed is revoked there: this server cannot open it
-    if (secret.google.mode === 'broker' || token.startsWith('ev1.')) {
+    if (viaBroker || token.startsWith('ev1.')) {
       const b = googleDriveOf(this.ctx).broker
       return b ? b.revoke(token) : 'unavailable'
     }

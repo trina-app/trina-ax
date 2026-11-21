@@ -67,4 +67,6 @@ Built as planned, with one change from review: a held page opened again first ga
 signed-in starter). The reviewer showed the starter has the state, so that would hand a phished victim's consent to
 the starter. It now says "go back to the app" with no code. Review also tightened "connected since" (the same share;
 a live connection) and the Google-app claim (it repeats the session and admin checks). No trina-cloud change: the
-broker log shows every handoff redeemed once. PR: see the branch fix/google-connect-finish.
+broker log shows every handoff redeemed once. PR: #205. After the second security review: a Google app's refusal at the claim address is a plain 401/403 and ends
+the held result; one waiter per sign-in; results never used are revoked at Google (by the disconnect rule); the confirm
+step marks a Google account that is not the person's sign-in email.
