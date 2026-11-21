@@ -75,7 +75,9 @@ const devServerText = (preview: boolean, reach: boolean = reachSupported()) => r
  * Python libraries of the list (apt and the python-pptx venv); a Mac team server has Trina's bare Python 3 so far. */
 export const boxLibsText = (platform: DevPlatform = runPlatform()) => (platform === 'darwin'
   ? `Already installed: node with ${BOX_NODE_LIB_NAMES.join(' and ')} (require them); python3 has no extra libraries yet. `
-  : `Already installed: python3 with ${BOX_PYTHON_LIBS.join(', ')}; node with ${BOX_NODE_LIB_NAMES.join(' and ')} (require them). `)
+  : `Already installed: python3 with ${BOX_PYTHON_LIBS.join(', ')}; node with ${BOX_NODE_LIB_NAMES.join(' and ')} (require them). `
+    // the box's default fonts (srt/config.ts BOX_FONTS_CONF, QA TC-7043)
+    + 'Text a command draws (ffmpeg drawtext, matplotlib, LibreOffice) uses Noto Sans CJK by default, which has Korean, Japanese and Chinese letters; a font file you name yourself must have them too. ')
   + 'For anything else use the folder: npm install, or a venv (python3 -m venv .venv && .venv/bin/pip install <package>); a plain pip install has nowhere to write. '
 /** The tool text (docs/research/srt-dev-env.md section 7). The dev environment is not locked to a project: the command
  * gets the folder access of the person of this chat. */

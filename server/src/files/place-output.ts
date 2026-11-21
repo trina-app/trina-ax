@@ -67,7 +67,9 @@ export function versionText(m: ChatVersionMade, how: string): string {
   const beside = m.beside
     ? ` Someone saved a version of it after you read it: yours is saved as the newest version, theirs stays as the one before it (nothing was lost). Tell the user, and read it again before a next change.`
     : ''
-  return `${how} ${m.path}: saved as version ${m.version} (${m.size} bytes). The earlier versions stay (read it with versions: true to list them, version: n to read one). ${m.everyone ? 'Everyone in this chat opens the new version' : 'The new version opens'} from the same file under its message. Link for the user: ${link}${beside}`
+  // how people undo it: Restore in the file's Versions list, offered in a chat shared with people (QA TC-7039, TC-7040)
+  const undo = m.everyone ? ' If it is not what was asked for, say exactly what changed: anyone here can restore an earlier version from the file\'s Versions list.' : ''
+  return `${how} ${m.path}: saved as version ${m.version} (${m.size} bytes). The earlier versions stay (read it with versions: true to list them, version: n to read one). ${m.everyone ? 'Everyone in this chat opens the new version' : 'The new version opens'} from the same file under its message. Link for the user: ${link}${beside}${undo}`
 }
 
 /** The made file as a chat file: its id, name and the link the app opens (/c/<chat>?file=<id>) */

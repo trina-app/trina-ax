@@ -14,7 +14,7 @@ import { legacyProjectFolder, oldProject } from '../lib/legacy-project'
 import { CANARIES, EXPECTED } from '../lib/fixtures'
 import { RuleSet, type Access, type Principal } from '../../server/src/policy/access'
 import { folderView, runMayWrite, runSkillFolders, viewAccess, type FolderView } from '../../server/src/devenv/srt/access'
-import { BOX_NODE_LIBS, BOX_NODE_LIB_NAMES, BOX_PYTHON_BIN, BOX_PYTHON_LIBS, DENIED_NAMES, DENIED_RANGES, DENIED_SYSTEM_PATHS, ETC_SECRETS, RUN_ID_RE, SYSTEM_READ_PATHS, isFull, SRT_PATHS, SRT_VERSION, TEMPLATE_UNIT_RE, UNIT_RE, chatWork, personHome, personLogs, projectHome, runEnv, runIdOfUnit, scopeArgv, serverFilesOutsideBase, settingsProblems, srtArgv, srtSettings, unitArgs, unitLimits, unitName } from '../../server/src/devenv/srt/config'
+import { BOX_FONTS_CONF, BOX_MATPLOTLIBRC, boxFontsDir, BOX_NODE_LIBS, BOX_NODE_LIB_NAMES, BOX_PYTHON_BIN, BOX_PYTHON_LIBS, DENIED_NAMES, DENIED_RANGES, DENIED_SYSTEM_PATHS, ETC_SECRETS, RUN_ID_RE, SYSTEM_READ_PATHS, isFull, SRT_PATHS, SRT_VERSION, TEMPLATE_UNIT_RE, UNIT_RE, chatWork, personHome, personLogs, projectHome, runEnv, runIdOfUnit, scopeArgv, serverFilesOutsideBase, settingsProblems, srtArgv, srtSettings, unitArgs, unitLimits, unitName } from '../../server/src/devenv/srt/config'
 import { effectiveLimits, parsePlan, sliceValues, type DevEnvPlan } from '../../server/src/devenv/srt/plan'
 import { _active, newRunId, readExit, setSrtSystem, teamHosts, WAIT_MAX_MS } from '../../server/src/devenv/srt/runner'
 import { _held, _heldSkills, holdPlaceholders, holdSkillFolders, SRT_DENY_DIRS, SRT_DENY_FILES } from '../../server/src/devenv/srt/placeholders'
@@ -522,6 +522,29 @@ describe('the srt settings file', () => {
     expect(e.TRINA_TEAM).toBe(TEAM)
     expect(runEnv({ base: BASE, userId: 'alice', teamRoot: TEAM, work: chatWork(BASE, 'c1') }).TRINA_WORK).toBe(`${BASE}/devenv/work/c1`)
     expect(() => personHome(BASE, '../bob')).toThrow()
+  })
+  test('the box\'s default fonts (QA TC-7043): Noto CJK first for sans-serif, serif and monospace, before the system rules; Linux only', () => {
+    const o = { base: BASE, userId: 'alice', teamRoot: TEAM, work: null }
+    const dir = boxFontsDir(BASE)
+    expect(dir).toBe(`${BASE}/devenv/bin/fonts`)
+    const e = runEnv({ ...o, platform: 'linux', fonts: dir })
+    expect(e.FONTCONFIG_FILE).toBe(`${dir}/fonts.conf`)
+    expect(e.MATPLOTLIBRC).toBe(`${dir}/matplotlibrc`)
+    // read in a run: the server's bin folder is (srtSettings allowRead), never writable
+    expect(runEnv({ ...o, platform: 'linux', fonts: null }).FONTCONFIG_FILE).toBeUndefined()
+    // a Mac's tools find Apple's fonts: nothing set by default
+    expect(runEnv({ ...o, platform: 'darwin' }).FONTCONFIG_FILE).toBeUndefined()
+    // the preferences come before the system's rules (a <prefer> added first stays first), then the system's file
+    const prefer = BOX_FONTS_CONF.indexOf('<prefer><family>Noto Sans CJK KR'), include = BOX_FONTS_CONF.indexOf('<include')
+    expect(prefer).toBeGreaterThan(0)
+    expect(prefer).toBeLessThan(include)
+    expect(BOX_FONTS_CONF).toContain('<include ignore_missing="yes">/etc/fonts/fonts.conf</include>')
+    for (const g of ['sans-serif', 'serif', 'monospace']) expect(BOX_FONTS_CONF).toContain(`<family>${g}</family><prefer>`)
+    expect(BOX_MATPLOTLIBRC).toContain('font.sans-serif: Noto Sans CJK KR')
+    // the fonts come from the one list (scripts/system/packages.json, group fonts: image and default installs)
+    const list = JSON.parse(fs.readFileSync(path.join(REPO, 'scripts/system/packages.json'), 'utf8'))
+    expect(Object.keys(list.groups.fonts.packages)).toContain('fonts-noto-cjk')
+    expect(list.groups.fonts.install).toBe('default')
   })
   test('the box\'s libraries (docs/decisions/20261121-box-python-libs.md): the Python venv first on PATH, NODE_PATH', () => {
     const o = { base: BASE, userId: 'alice', teamRoot: TEAM, work: null, platform: 'linux' as const }

@@ -453,7 +453,31 @@ export const BOX_NODE_LIBS = '/opt/trina/node-libs/current/node_modules'
 export const BOX_PYTHON_LIBS = ['python-pptx', 'python-docx', 'openpyxl', 'lxml', 'Pillow', 'XlsxWriter', 'numpy', 'pandas', 'matplotlib', 'reportlab', 'pypdf'] as const
 export const BOX_NODE_LIB_NAMES = ['pptxgenjs', 'docx'] as const
 
+/** The fonts a run's tools pick by default (QA TC-7043: ffmpeg drawtext took DejaVu, which has no Hangul, and drew
+ * boxes): a fontconfig file and a matplotlibrc the server writes next to its git wrapper (read-only in a run), Linux
+ * only. fonts.conf prefers Noto CJK (fonts-noto-cjk, packages.json group fonts: Korean, Japanese, Chinese and Latin) for
+ * sans-serif, serif and monospace before the system's own rules (a <prefer> put first stays first), then reads the
+ * system's /etc/fonts/fonts.conf; a server without Noto CJK falls back to the system's choice. */
+export const boxFontsDir = (base: string) => path.join(devenvPaths(base).bin, 'fonts')
+export const BOX_FONTS_CONF = `<?xml version="1.0"?>
+<!DOCTYPE fontconfig SYSTEM "urn:fontconfig:fonts.dtd">
+<!-- Written by the Trina server for the dev environment's commands (server/src/devenv/srt/config.ts). -->
+<fontconfig>
+${[['sans-serif', 'Noto Sans CJK KR'], ['sans', 'Noto Sans CJK KR'], ['serif', 'Noto Serif CJK KR'], ['monospace', 'Noto Sans Mono CJK KR']]
+    .map(([g, f]) => `  <alias binding="strong"><family>${g}</family><prefer><family>${f}</family><family>Noto Sans CJK KR</family></prefer></alias>`).join('\n')}
+  <include ignore_missing="yes">/etc/fonts/fonts.conf</include>
+</fontconfig>
+`
+export const BOX_MATPLOTLIBRC = `# Written by the Trina server for the dev environment's commands (server/src/devenv/srt/config.ts)
+font.family: sans-serif
+font.sans-serif: Noto Sans CJK KR, Noto Sans CJK JP, DejaVu Sans
+axes.unicode_minus: False
+`
+const isFile = (p: string) => { try { return fs.statSync(p).isFile() } catch { return false } }
+
 export interface EnvInput { base: string; userId: string; teamRoot: string; work: string | null; nodeBin?: string; platform?: DevPlatform; sharedChat?: string | null; runId?: string; projectFolder?: string | null; logKey?: string | null
+  /** the box's fonts folder (default boxFontsDir on Linux when its fonts.conf is there; null: none) */
+  fonts?: string | null
   /** the box's Python bin (default BOX_PYTHON_BIN on Linux when it is there; null: none) */
   boxPython?: string | null
   /** the Node libraries folder (default BOX_NODE_LIBS when it is there; null: none) */
@@ -469,6 +493,7 @@ export function runEnv(i: EnvInput): Record<string, string> {
   const node = path.dirname(i.nodeBin ?? SRT_PATHS.node)
   const boxPython = i.boxPython !== undefined ? i.boxPython : !mac && there(BOX_PYTHON_BIN) ? BOX_PYTHON_BIN : null
   const nodeLibs = i.nodeLibs !== undefined ? i.nodeLibs : there(BOX_NODE_LIBS) ? BOX_NODE_LIBS : null
+  const fonts = i.fonts !== undefined ? i.fonts : !mac && isFile(path.join(boxFontsDir(i.base), 'fonts.conf')) ? boxFontsDir(i.base) : null
   return {
     // macOS: Trina's Python 3 (install-srt-mac.sh), git and make of the Command Line Tools directly (the /usr/bin stubs
     // run xcrun, which needs the developer folder that xcode-select names), Homebrew's programs when the Mac has them
@@ -476,6 +501,8 @@ export function runEnv(i: EnvInput): Record<string, string> {
     // the git wrapper first (git-guard.ts): every git call checks the repository's settings
     PATH: mac ? `${devenvPaths(i.base).bin}:${node}:/opt/trina/python3/bin:/Library/Developer/CommandLineTools/usr/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin` : `${devenvPaths(i.base).bin}:${node}:${boxPython ? `${boxPython}:` : ''}/usr/local/bin:/usr/bin:/bin`,
     ...(nodeLibs ? { NODE_PATH: nodeLibs } : {}),
+    // Korean, Japanese and Chinese in what a command draws (ffmpeg drawtext, matplotlib, LibreOffice): QA TC-7043
+    ...(fonts ? { FONTCONFIG_FILE: path.join(fonts, 'fonts.conf'), MATPLOTLIBRC: path.join(fonts, 'matplotlibrc') } : {}),
     HOME: home,
     // srt's own temp files (proxy sockets) land here too. A server-only TMPDIR for the srt process was tried (S7,
     // 2026-11-04, Docker suite): srt then binds that folder into the sandbox writable and the allowed-site proxy broke

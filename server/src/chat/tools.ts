@@ -4,6 +4,7 @@ import { confidentialChat, localTool } from "../safe-ops/confidential"
 // share_file, artifact, web_fetch). Served over the same MCP connection as the file tools (mcp__team__<name>).
 import { isReservedPlace, parsePlace, type Place } from '@mycel/shared/places'
 import { chatPlaces } from './place-ctx'
+import { chatFilesOf } from './chat-files'
 import { PLACE_WORDS } from '../files/places'
 import { PLACE_PRODUCE_TOOLS } from '../files/place-output'
 import { isFreeRoam } from '../app-config'
@@ -186,7 +187,7 @@ function boxShellQueueStep(exec: TurnExec): (run: NonNullable<Step['devEnvRun']>
 /** What steerableWriteRefusal weighs (chat/shared-run.ts): the write targets of each tool, and the tools that change in
  * place the files they name (Office edits, Word comments; save_promo_video's save_as) */
 const RUN_WRITES = { writeArgs: { ...WRITE_TARGET_ARGS, edit_hwp: ['output'], save_promo_video: ['save_as'], generate_video: ['save_as'] }, named: namedPaths,
-  inPlace: new Set(['edit_office', 'comment_docx', 'edit_hwp', 'edit_files']) } as const
+  inPlace: new Set(['edit_office', 'comment_docx', 'edit_hwp', 'edit_files', 'edit_pdf']) } as const
 
 export function buildToolSet(exec: TurnExec): ChatToolSet {
   const confidential=confidentialChat(exec.rt.db,exec.spec.chatId)
@@ -409,6 +410,116 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
   }
   /** this turn's searches that a shared project chat kept in the project folder (beforeFileTool, read by afterFileTool) */
   const projectOnly = new WeakSet<object>()
+  /** one call of a tool of this set (TurnToolSet.call, which adds the state of a chat file a refused in-place change
+   * names) */
+  const callTool = async (name: string, args: unknown, caller: Parameters<ChatToolSet['call']>[2]): ReturnType<ChatToolSet['call']> => {
+    const files = caller?.files ?? exec.files
+    // a profile draft: the same site and at most 4 pages per answer, counted before the call starts
+    if (exec.skillDraft) return { ...text(SKILL_DRAFT_FILE_REFUSAL, true), summary: `${name} -> refused: team skill draft (no tools)` }
+    if (exec.shareJudge) return { ...text(SHARE_JUDGE_REFUSAL, true), summary: `${name} -> refused: skill share judgement (no tools)` }
+    if (exec.fileRank) return { ...text(FILE_RANK_REFUSAL, true), summary: `${name} -> refused: team file picks (no tools)` }
+    if (exec.shareMerge) return { ...text(SHARE_MERGE_REFUSAL, true), summary: `${name} -> refused: skill share merge (no tools)` }
+    const draftNo = exec.profileDraft ? draftToolRefusal(exec.profileDraft, name, args) : null
+    if (draftNo) return { ...text(draftNo, true), summary: `${name} -> refused: company profile draft (${draftNo.slice(0, 80)})` }
+    const refusal = templateToolRefusal(exec.rt.ctx, exec.spec.userId, exec.id, name, args, templateWrites)
+    if (refusal) return { ...text(refusal, true), summary: 'scheduled template scope refused' }
+    // a scheduled run in a shared chat others wrote in: writes only in its save folder or the maker's own folder
+    const runWrite = steerableWriteRefusal(exec.rt.db, exec.spec.turnId, name, args, RUN_WRITES)
+    if (runWrite) return { ...text(runWrite, true), summary: `${name} -> refused: scheduled run in a shared chat writes only in its own places` }
+    if (writesHangul(name, args) && !hwpWritingOn(exec.rt.ctx)) {
+      // Hangul writing comes with the HWP plugin (tools/hwp-writing.ts): make_file .hwpx while it is off, or edit_hwp
+      // after it was turned off during this turn, is refused before anyone is asked anything (the tool refuses it too)
+      return { ...text(hwpWritingOffText(exec.spec.locale), true), summary: `${name} -> refused: Hangul writing is off (HWP plugin)` }
+    }
+    // a chat place (chat:files/…, chat:work/…) in a tool that does not take one yet: refused before any card, never taken
+    // as a team path or a web address (docs/decisions/20261121-chat-places-as-paths.md)
+    const placeNo = placeRefusal(name, args)
+    if (placeNo) return { ...text(placeNo, true), summary: `${name} -> refused: chat place` }
+    // edit_office or edit_pdf on a chat file without output saves a new version of it (P4, QA TC-7044): who may,
+    // checked before any card
+    const versionAt = name === 'edit_office' || name === 'edit_pdf' ? officeVersionPlace(args) : null
+    // a shared chat offers edit_office for its own chat files only (a team Office file is not changed from here yet:
+    // docs/decisions/20261121-ai-edits-chat-files.md)
+    if (name === 'edit_office' && exec.shared && !versionAt) return { ...text(`Not done (${name}): in a shared chat edit_office changes only this chat's own files (file_path chat:files/<file_id>/<name>, without output), as a new version. A team Office file is not changed from here: make a changed copy with make_file, or ask again in a chat only you see.`, true), summary: `${name} -> refused: team file in a shared chat` }
+    if (versionAt) {
+      const no = chatVersionRefusal(exec, files, versionAt)
+      if (no) return { ...text(`Not done (${name}): ${no}`, true), summary: `${name} -> refused: chat file not changed here` }
+    }
+    const t = tools.get(name)!
+    // a call the tool refuses anyway asks nobody first and counts as nothing read (save_room_file without a file id,
+    // into skills/, …)
+    const early = t.refuse?.(args, files)
+    if (early) return { ...text(early.text, true), summary: early.summary }
+    // a shared project chat: a search without a path looks in the project folder; then what the call would read that
+    // some of the chat's people cannot read waits for the person's yes (chat/turn.ts confirmSharedRead)
+    // (a connection's tool names no team path: its own card comes from the tool, integrations/connections/tools.ts
+    // sharedGate, before anything is fetched)
+    if (exec.shared && !outside.has(name)) {
+      // a chat shared with people and groups: a search without a path only where everyone in it may read, else refused
+      const noPlace = exec.sharedSearchRefusal(name, args)
+      if (noPlace) return { ...text(noPlace, true), summary: `${name} -> not searched: no folder everyone in the shared chat reads` }
+      args = exec.sharedArgs(name, args)
+      // the neutral step line only for the main AI's own call (a sub-agent's step is matched by its id, not here)
+      const sharedNo = await exec.confirmSharedRead(name, args, { step: files === exec.files })
+      if (sharedNo) return { ...text(sharedNo, true), summary: `${name} -> not read: ${sharedShort(sharedNo)} (shared chat)` }
+    }
+    exec.noteTaint(name, args)
+    exec.noteRoomTool(name, args)
+    // after a room read: anything that may change something waits for the person's yes (rooms/ai-tools.ts); a call
+    // that also needs the wider-audience card below gets that one card (widenOf, or the tool's own widen: where it
+    // saves, what it copies, where its bytes come from)
+    const roomNo = await exec.confirmRoomChange(name, args, { widen: t.widen ? t.widen(args) : widenOf(name, args, (x) => exec.hwpTarget(x)), main: files === exec.files, send: t.sendsTo?.(args) ?? null })
+    if (roomNo) return { ...text(roomNo, true), summary: `${name} -> ${roomShort(roomNo)} (after a room read)` }
+    // what the AI sends leaves marks, so an address that a connection repeats back is not taken as the service's own
+    // (tools/connection-urls.ts; before the call: its own answer is checked against them)
+    recordSent(exec.rt.db, exec.spec.chatId, args)
+    if (name === 'make_file' || name === 'edit_hwp') {
+      // under skills/: the person confirms first (the file layer refuses the save otherwise)
+      const no = await exec.confirmSkillWrite(name, args, files)
+      if (no) return { content: [{ type: 'text', text: no.refusal }], isError: true, summary: no.summary }
+    }
+    if (name === 'make_file' && args && typeof args === 'object') {
+      // the new file carries what the chat read, and the `source` file it is made from: asked before converting.
+      // The images it embeds and its template are only known after parsing; make_file asks again for those
+      // (ToolCtx.confirmWidening) before the file is placed.
+      const a = args as { output?: unknown; source?: unknown }
+      const refusal = typeof a.output === 'string' ? await exec.confirmWidening(a.output, typeof a.source === 'string' ? [a.source] : [], undefined, { tool: name, args, main: files === exec.files }) : null
+      if (refusal) return { content: [{ type: 'text', text: refusal }], isError: true, summary: `make_file -> ${roomShort(refusal)} (wider audience)` }
+    }
+    if (name === 'edit_hwp' && args && typeof args === 'object') {
+      // like write and edit: what the chat read may go where more people see it (asked before the worker runs); a new
+      // file also carries the document it is made from
+      const a = args as { output?: unknown; file_path?: unknown }
+      // where the tool writes, as it decides it (the document's extension as the file layer resolves it: turn.ts hwpTarget)
+      const target = exec.hwpTarget(a)
+      const refusal = typeof target === 'string' ? await exec.confirmWidening(target, typeof a.output === 'string' && typeof a.file_path === 'string' ? [a.file_path] : [], undefined, { tool: name, args, main: files === exec.files }) : null
+      if (refusal) return { content: [{ type: 'text', text: refusal }], isError: true, summary: `edit_hwp -> ${roomShort(refusal)} (wider audience)` }
+    }
+    // a call a room grant or [이번만] let through: checked again now that any card above has waited (chat/turn.ts)
+    const again = await exec.recheckRoomCover(name, args, { main: files === exec.files })
+    if (again) return { ...text(again, true), summary: `${name} -> ${roomShort(again)} (room)` }
+    const out = await t.call(args, files)
+    // a read-only refusal of a registered tool (make_file, edit_hwp, save_url…): who can give write access (B2)
+    const roText = out.isError ? out.content.map((c) => (c.type === 'text' ? c.text : '')).join('\n') : ''
+    const ro = readOnlyFor(exec, roText)
+    if (ro) out.content = [...out.content, { type: 'text', text: ro }]
+    // what the call read (search passages, make_file's sources) counts now, as the file tools' reads do (afterFileTool):
+    // a file of the person's own folder may carry outside content (turn.ts noteOwnReads) before the next card or memory
+    exec.noteReads()
+    exec.afterTool()
+    // a new file left loose at the top of shared/, a group's folder or the team root: the server's note (chat/file-placement.ts)
+    const placed = exec.placementNote(tools.has('move_files'))
+    // a skill saved in a shared chat (make_file, edit_hwp into a skill folder): one quiet line in the answer
+    const skillNote = name === 'make_file' || name === 'edit_hwp' ? exec.sharedSkillNote(name, args, !!out.isError) : null
+    // who can open what it saved, from the real folder (chat/save-audience.ts); the main AI's own call, not a guest's,
+    // and only where who_can_open is offered (no confidential chat, scheduled run, Slack question or template run)
+    const audience = exec.audienceNote(files === exec.files && !guest && !whoCanOpenOff(exec))
+    const note = [placed, skillNote, audience].filter(Boolean).join('\n')
+    // the audit line (tool_events) never repeats a stored connection secret (integrations/connections/redact.ts), and
+    // in a chat that read team chat rooms keeps of an address only its site (tools/audit-url.ts): admins read it
+    const summary = exec.redact(out.summary ?? `${name} -> ${out.isError ? 'error' : 'ok'}`)
+    return { content: note ? [...out.content, { type: 'text', text: note }] : out.content, isError: out.isError, summary: exec.roomsSeen ? hideUrls(summary) : summary, ...(out.beforeDelivery ? { beforeDelivery: out.beforeDelivery } : {}) }
+  }
   const set: ChatToolSet = {
     prompt,
     seen,
@@ -437,111 +548,13 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
       return hideKeysInArgs(name, args, exec.redactor(), (p) => exec.rt.files.textNow(exec.livePrincipal(), p))
     },
     async call(name, args, caller) {
-      const files = caller?.files ?? exec.files
-      // a profile draft: the same site and at most 4 pages per answer, counted before the call starts
-      if (exec.skillDraft) return { ...text(SKILL_DRAFT_FILE_REFUSAL, true), summary: `${name} -> refused: team skill draft (no tools)` }
-      if (exec.shareJudge) return { ...text(SHARE_JUDGE_REFUSAL, true), summary: `${name} -> refused: skill share judgement (no tools)` }
-      if (exec.fileRank) return { ...text(FILE_RANK_REFUSAL, true), summary: `${name} -> refused: team file picks (no tools)` }
-      if (exec.shareMerge) return { ...text(SHARE_MERGE_REFUSAL, true), summary: `${name} -> refused: skill share merge (no tools)` }
-      const draftNo = exec.profileDraft ? draftToolRefusal(exec.profileDraft, name, args) : null
-      if (draftNo) return { ...text(draftNo, true), summary: `${name} -> refused: company profile draft (${draftNo.slice(0, 80)})` }
-      const refusal = templateToolRefusal(exec.rt.ctx, exec.spec.userId, exec.id, name, args, templateWrites)
-      if (refusal) return { ...text(refusal, true), summary: 'scheduled template scope refused' }
-      // a scheduled run in a shared chat others wrote in: writes only in its save folder or the maker's own folder
-      const runWrite = steerableWriteRefusal(exec.rt.db, exec.spec.turnId, name, args, RUN_WRITES)
-      if (runWrite) return { ...text(runWrite, true), summary: `${name} -> refused: scheduled run in a shared chat writes only in its own places` }
-      if (writesHangul(name, args) && !hwpWritingOn(exec.rt.ctx)) {
-        // Hangul writing comes with the HWP plugin (tools/hwp-writing.ts): make_file .hwpx while it is off, or edit_hwp
-        // after it was turned off during this turn, is refused before anyone is asked anything (the tool refuses it too)
-        return { ...text(hwpWritingOffText(exec.spec.locale), true), summary: `${name} -> refused: Hangul writing is off (HWP plugin)` }
-      }
-      // a chat place (chat:files/…, chat:work/…) in a tool that does not take one yet: refused before any card, never taken
-      // as a team path or a web address (docs/decisions/20261121-chat-places-as-paths.md)
-      const placeNo = placeRefusal(name, args)
-      if (placeNo) return { ...text(placeNo, true), summary: `${name} -> refused: chat place` }
-      // edit_office on a chat file without output saves a new version of it (P4): who may, checked before any card
-      const versionAt = name === 'edit_office' ? officeVersionPlace(args) : null
-      // a shared chat offers edit_office for its own chat files only (a team Office file is not changed from here yet:
-      // docs/decisions/20261121-ai-edits-chat-files.md)
-      if (name === 'edit_office' && exec.shared && !versionAt) return { ...text(`Not done (${name}): in a shared chat edit_office changes only this chat's own files (file_path chat:files/<file_id>/<name>, without output), as a new version. A team Office file is not changed from here: make a changed copy with make_file, or ask again in a chat only you see.`, true), summary: `${name} -> refused: team file in a shared chat` }
-      if (versionAt) {
-        const no = chatVersionRefusal(exec, files, versionAt)
-        if (no) return { ...text(`Not done (${name}): ${no}`, true), summary: `${name} -> refused: chat file not changed here` }
-      }
-      const t = tools.get(name)!
-      // a call the tool refuses anyway asks nobody first and counts as nothing read (save_room_file without a file id,
-      // into skills/, …)
-      const early = t.refuse?.(args, files)
-      if (early) return { ...text(early.text, true), summary: early.summary }
-      // a shared project chat: a search without a path looks in the project folder; then what the call would read that
-      // some of the chat's people cannot read waits for the person's yes (chat/turn.ts confirmSharedRead)
-      // (a connection's tool names no team path: its own card comes from the tool, integrations/connections/tools.ts
-      // sharedGate, before anything is fetched)
-      if (exec.shared && !outside.has(name)) {
-        // a chat shared with people and groups: a search without a path only where everyone in it may read, else refused
-        const noPlace = exec.sharedSearchRefusal(name, args)
-        if (noPlace) return { ...text(noPlace, true), summary: `${name} -> not searched: no folder everyone in the shared chat reads` }
-        args = exec.sharedArgs(name, args)
-        // the neutral step line only for the main AI's own call (a sub-agent's step is matched by its id, not here)
-        const sharedNo = await exec.confirmSharedRead(name, args, { step: files === exec.files })
-        if (sharedNo) return { ...text(sharedNo, true), summary: `${name} -> not read: ${sharedShort(sharedNo)} (shared chat)` }
-      }
-      exec.noteTaint(name, args)
-      exec.noteRoomTool(name, args)
-      // after a room read: anything that may change something waits for the person's yes (rooms/ai-tools.ts); a call
-      // that also needs the wider-audience card below gets that one card (widenOf, or the tool's own widen: where it
-      // saves, what it copies, where its bytes come from)
-      const roomNo = await exec.confirmRoomChange(name, args, { widen: t.widen ? t.widen(args) : widenOf(name, args, (x) => exec.hwpTarget(x)), main: files === exec.files, send: t.sendsTo?.(args) ?? null })
-      if (roomNo) return { ...text(roomNo, true), summary: `${name} -> ${roomShort(roomNo)} (after a room read)` }
-      // what the AI sends leaves marks, so an address that a connection repeats back is not taken as the service's own
-      // (tools/connection-urls.ts; before the call: its own answer is checked against them)
-      recordSent(exec.rt.db, exec.spec.chatId, args)
-      if (name === 'make_file' || name === 'edit_hwp') {
-        // under skills/: the person confirms first (the file layer refuses the save otherwise)
-        const no = await exec.confirmSkillWrite(name, args, files)
-        if (no) return { content: [{ type: 'text', text: no.refusal }], isError: true, summary: no.summary }
-      }
-      if (name === 'make_file' && args && typeof args === 'object') {
-        // the new file carries what the chat read, and the `source` file it is made from: asked before converting.
-        // The images it embeds and its template are only known after parsing; make_file asks again for those
-        // (ToolCtx.confirmWidening) before the file is placed.
-        const a = args as { output?: unknown; source?: unknown }
-        const refusal = typeof a.output === 'string' ? await exec.confirmWidening(a.output, typeof a.source === 'string' ? [a.source] : [], undefined, { tool: name, args, main: files === exec.files }) : null
-        if (refusal) return { content: [{ type: 'text', text: refusal }], isError: true, summary: `make_file -> ${roomShort(refusal)} (wider audience)` }
-      }
-      if (name === 'edit_hwp' && args && typeof args === 'object') {
-        // like write and edit: what the chat read may go where more people see it (asked before the worker runs); a new
-        // file also carries the document it is made from
-        const a = args as { output?: unknown; file_path?: unknown }
-        // where the tool writes, as it decides it (the document's extension as the file layer resolves it: turn.ts hwpTarget)
-        const target = exec.hwpTarget(a)
-        const refusal = typeof target === 'string' ? await exec.confirmWidening(target, typeof a.output === 'string' && typeof a.file_path === 'string' ? [a.file_path] : [], undefined, { tool: name, args, main: files === exec.files }) : null
-        if (refusal) return { content: [{ type: 'text', text: refusal }], isError: true, summary: `edit_hwp -> ${roomShort(refusal)} (wider audience)` }
-      }
-      // a call a room grant or [이번만] let through: checked again now that any card above has waited (chat/turn.ts)
-      const again = await exec.recheckRoomCover(name, args, { main: files === exec.files })
-      if (again) return { ...text(again, true), summary: `${name} -> ${roomShort(again)} (room)` }
-      const out = await t.call(args, files)
-      // a read-only refusal of a registered tool (make_file, edit_hwp, save_url…): who can give write access (B2)
-      const roText = out.isError ? out.content.map((c) => (c.type === 'text' ? c.text : '')).join('\n') : ''
-      const ro = readOnlyFor(exec, roText)
-      if (ro) out.content = [...out.content, { type: 'text', text: ro }]
-      // what the call read (search passages, make_file's sources) counts now, as the file tools' reads do (afterFileTool):
-      // a file of the person's own folder may carry outside content (turn.ts noteOwnReads) before the next card or memory
-      exec.noteReads()
-      exec.afterTool()
-      // a new file left loose at the top of shared/, a group's folder or the team root: the server's note (chat/file-placement.ts)
-      const placed = exec.placementNote(tools.has('move_files'))
-      // a skill saved in a shared chat (make_file, edit_hwp into a skill folder): one quiet line in the answer
-      const skillNote = name === 'make_file' || name === 'edit_hwp' ? exec.sharedSkillNote(name, args, !!out.isError) : null
-      // who can open what it saved, from the real folder (chat/save-audience.ts); the main AI's own call, not a guest's,
-      // and only where who_can_open is offered (no confidential chat, scheduled run, Slack question or template run)
-      const audience = exec.audienceNote(files === exec.files && !guest && !whoCanOpenOff(exec))
-      const note = [placed, skillNote, audience].filter(Boolean).join('\n')
-      // the audit line (tool_events) never repeats a stored connection secret (integrations/connections/redact.ts), and
-      // in a chat that read team chat rooms keeps of an address only its site (tools/audit-url.ts): admins read it
-      const summary = exec.redact(out.summary ?? `${name} -> ${out.isError ? 'error' : 'ok'}`)
-      return { content: note ? [...out.content, { type: 'text', text: note }] : out.content, isError: out.isError, summary: exec.roomsSeen ? hideUrls(summary) : summary, ...(out.beforeDelivery ? { beforeDelivery: out.beforeDelivery } : {}) }
+      const out = await callTool(name, args, caller)
+      // an in-place change of a chat file (edit_office, edit_pdf without output) that did not go through: the result says
+      // what the file is now, whichever check refused it (QA TC-7039: the AI told people a test slide was "the original")
+      if (!out.isError || (name !== 'edit_office' && name !== 'edit_pdf')) return out
+      const at = officeVersionPlace(args)
+      const state = at ? chatFileState(exec, caller?.files ?? exec.files, at) : null
+      return state ? { ...out, content: [...out.content, { type: 'text', text: state }] } : out
     },
     afterFileTool: (name, isError, args, text, caller) => {
       // a skill save's approval is for that call only, saved or not (skills/guard.ts); so is a scheduled run's claim on
@@ -720,6 +733,16 @@ export function widenOf(name: string, args: unknown, hwpTarget?: (args: unknown)
   if (name === 'edit_office' && typeof a.file_path === 'string') {
     const pics = Array.isArray(a.changes) ? a.changes.flatMap((c) => { const img = (c as { replace_picture?: { image?: unknown } })?.replace_picture?.image; return typeof img === 'string' ? [img] : [] }) : []
     return typeof a.output === 'string' ? { target: editOfficeOutput(a.output, a.file_path), extra: [a.file_path, ...pics] } : { target: a.file_path, extra: pics }
+  }
+  // edit_pdf (tools/pdf-tools.ts) on a file of this chat without output: a new version of it, carrying what it inserts
+  // (another PDF, a picture). A team PDF's result is a new name only the tool knows: its own card
+  if (name === 'edit_pdf' && typeof a.file_path === 'string' && officeVersionPlace(a)) {
+    const extra = Array.isArray(a.operations) ? a.operations.flatMap((o) => {
+      const op = o as { insert_pdf?: { file?: unknown }; stamp_image?: { image?: unknown } }
+      const f = op?.insert_pdf?.file ?? op?.stamp_image?.image
+      return typeof f === 'string' ? [f] : []
+    }) : []
+    return { target: a.file_path, extra }
   }
   return undefined
 }
@@ -1460,8 +1483,9 @@ export function placeRefusal(name: string, args: unknown): string | null {
     // attach, chat:work/ outputs not yet, a chat file by id not changed in place yet)
     if (PLACE_PRODUCE_TOOLS.has(name) && (key === 'output' || key === 'output_folder')) continue
     if (name === 'make_file' && (key === 'source' || key === 'template')) continue
-    // edit_office's document may be a chat file (P4): changed in place (a new version), or a new file made from it
-    if (name === 'edit_office' && key === 'file_path' && place?.kind === 'chatFiles') continue
+    // edit_office's and edit_pdf's document may be a chat file (P4, QA TC-7044): changed in place (a new version), or a
+    // new file made from it
+    if ((name === 'edit_office' || name === 'edit_pdf') && key === 'file_path' && place?.kind === 'chatFiles') continue
     if (name === 'move_files' || name === 'rename_file' || name === 'rename_files') return `Not done (${name}): chat files and work-folder files keep their names and places; copy one with copy_files (paths ["${value}"], to_folder a team folder, "chat:files/" or "chat:work/…") instead.`
     return place?.kind === 'work'
       ? `Not done (${name}): this tool does not take a work-folder path (${value}) yet. Read it with read, or copy it into a team folder with copy_files first (to_folder a team folder), then use that copy.`
@@ -1470,12 +1494,33 @@ export function placeRefusal(name: string, args: unknown): string | null {
   return null
 }
 
-/** edit_office's chat file changed in place (a new version, P4): its file_path when it names one and no output is given */
+/** edit_office's or edit_pdf's chat file changed in place (a new version, P4): its file_path when it names one and no
+ * output is given */
 export function officeVersionPlace(args: unknown): Extract<Place, { kind: 'chatFiles' }> | null {
   const a = args && typeof args === 'object' ? args as { file_path?: unknown; output?: unknown } : {}
-  if (a.output !== undefined) return null
+  if (a.output !== undefined && !(typeof a.output === 'string' && a.output.trim() === '')) return null
   const p = parsePlace(a.file_path)
   return chatVersionPlace(p) ? p : null
+}
+
+/**
+ * What a chat file is now, for the result of an in-place change of it that did not go through (QA TC-7039): nothing was
+ * saved by that call, its version number now and, when this same answer saved that version, that it is the AI's own
+ * (one version per answer: an earlier call's change is in it). Read from the database, never assumed; null when the
+ * person cannot see such a file here (the refusal said why).
+ */
+export function chatFileState(exec: TurnExec, files: TurnFiles, place: Extract<Place, { kind: 'chatFiles' }>): string | null {
+  try {
+    const store = chatFilesOf(exec.rt.ctx)
+    const v = store.find(exec.spec.userId, exec.spec.chatId, place.id ?? place.name ?? '', !place.id)
+    if (!v || store.kCarried(v.root)) return null
+    const n = v.head.version ?? 1
+    const name = v.root.name
+    const mine = n > 1 && files.chatVersionsMade.get(v.id) === v.head.id
+    return `Nothing was saved by this call: "${name}" is still version ${n}, as it was before this call.` + (mine
+      ? ` Version ${n} is your own save from earlier in this answer, with the changes of that earlier call; tell the user exactly what it changed${exec.shared?.kind === 'people' ? ', and that anyone here can restore an earlier version from the file\'s Versions list' : ''}.`
+      : ' Tell the user plainly that the file was not changed.')
+  } catch { return null }
 }
 
 /**

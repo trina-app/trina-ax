@@ -45,7 +45,7 @@ import { projectZoneFolders } from '../../policy/zone'
 import { othersSkillRoots } from '../../skills/script-copies'
 import type { Principal } from '../../policy/access'
 import { folderView, runSkillFolders, sharedFolderView, sharedPathAccess, sharedReadable, viewAccess, viewHash, type FolderView, type RunWrites } from './access'
-import { RUN_ID_RE, SRT_PATHS, realGit, runGuard, chatHome, chatLogs, chatWork, sharedLogs, sharedWork, sharedWorkKey, runTmp, devPlatform, type DevPlatform, devenvPaths, isFull, personLogs, resolveRunCwd, runHome, runLogs, runEnv, runIdOfUnit, settingsProblems, srtSettings, unitName } from './config'
+import { RUN_ID_RE, SRT_PATHS, realGit, runGuard, chatHome, chatLogs, chatWork, sharedLogs, sharedWork, sharedWorkKey, runTmp, devPlatform, type DevPlatform, devenvPaths, boxFontsDir, BOX_FONTS_CONF, BOX_MATPLOTLIBRC, isFull, personLogs, resolveRunCwd, runHome, runLogs, runEnv, runIdOfUnit, settingsProblems, srtSettings, unitName } from './config'
 import { formatOnce, netNarrowed, netSnapshot, parseOnce, parseSnapshot, personNet, type NetSnapshot } from '../sites'
 import { effectiveLimits, loadPlan, NO_PLAN_MAX_RUNNING, type DevEnvPlan, type PlanState } from './plan'
 import { holdPlaceholders, holdSkillFolders, isSkillPlaceholder } from './placeholders'
@@ -582,6 +582,21 @@ function writeGitWrapper(c: SrtConfig, platform: ReturnType<typeof runPlatform>)
   fs.renameSync(tmp, file)
 }
 
+/** The box's default fonts (config.ts BOX_FONTS_CONF, BOX_MATPLOTLIBRC) at <base>/devenv/bin/fonts/, written when
+ * missing or different; Linux only (a Mac's tools find Apple's fonts). Server-owned and read-only in a run. */
+function writeBoxFonts(c: SrtConfig, platform: ReturnType<typeof runPlatform>) {
+  if (platform === 'darwin') return
+  const dir = boxFontsDir(c.base)
+  for (const [name, src] of [['fonts.conf', BOX_FONTS_CONF], ['matplotlibrc', BOX_MATPLOTLIBRC]] as const) {
+    const file = path.join(dir, name)
+    try { if (fs.readFileSync(file, 'utf8') === src) continue } catch {}
+    fs.mkdirSync(dir, { recursive: true, mode: 0o755 })
+    const tmp = `${file}.${process.pid}.${Date.now()}`
+    fs.writeFileSync(tmp, src, { mode: 0o644 })
+    fs.renameSync(tmp, file)
+  }
+}
+
 /** A shared chat's command, job or dev server ended: its own home and temp folder go (nothing of it reaches a later
  * run). Its logs folder is the chat's for its people (sharedLogs): its output files are removed one by one, a job's log
  * stays for the same people's next commands. */
@@ -603,6 +618,7 @@ function prepare(c: SrtConfig, space: Pick<Space, 'userId' | 'chatId' | 'shared'
   const p = devenvPaths(c.base)
   for (const d of [p.root, p.run, p.home, p.logs, p.homeProject]) fs.mkdirSync(d, { recursive: true, mode: 0o700 })
   writeGitWrapper(c, runPlatform())
+  writeBoxFonts(c, runPlatform())
   // a shared chat's runs: a home and logs of their own per command (nothing of the person's, nothing of an earlier
   // command: docs/decisions/20261118-devenv-shared-chats.md)
   const o = runOwner(space, runId, teamRoot)
