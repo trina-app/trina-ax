@@ -396,10 +396,10 @@ export const Attachment = z.object({
    * (docs/decisions/20261121-share-chat-files.md), attached to the answer that made it; 'ai' is the AI's own output
    * attached to its answer (session e6). Absent: someone's upload */
   origin: z.enum(['ai', 'shared-copy']).optional(),
-  /** 'shared-copy': the team path it was copied from. Inside its chat a link to that path opens this copy, for everyone */
+  /** 'shared-copy', for the chat's creator only (a path in their own folder): the team path it was copied from, so
+   * their own link to it opens this copy. Everyone else reaches the copy through the link's panel (file-access 'copy').
+   * The server keeps the original's sha256 beside it for its own re-check; that is never sent */
   from: RelPath.optional(),
-  /** 'shared-copy': the sha256 of the original's bytes when copied (sharing again makes no second copy of the same) */
-  fromSha256: z.string().regex(/^[0-9a-f]{64}$/).optional(),
 })
 export type Attachment = z.infer<typeof Attachment>
 /** At most this many attachments (uploads and team files together) per message: 100, what one model request may hold

@@ -16,12 +16,18 @@
   asks "Share the files from this chat too?" with the list, [Share without files] [Share with files]. Nothing is
   ticked one by one in this version: the made-here files go together.
 - **Rule 2, copy by the owner's press, never a grant:** "Share with files" copies each file into the chat as a chat
-  file (`chat_files`), attached to the answer that made it, marked in the attachment JSON (`origin: 'shared-copy'`,
-  `from`, `fromSha256`). Nothing is written into anyone's own folder, no folder rule or per-file grant changes, and the
+  file (`chat_files`), attached to the answer that made it. `origin: 'shared-copy'` in the attachment JSON is the one
+  provenance mark (session e6 uses `'ai'` in the same field); the source path and sha256 for the server's re-check sit
+  beside it in the same JSON. A client never gets the sha256, and the path (in the creator's own folder) only the
+  creator. A copy may be up to 1 GB within the team's storage (`CHAT_COPY_MAX`, to be one constant with e6's cap for
+  the AI's attached files); people's uploads keep 50 MB. It is streamed from the checked descriptor into a temp file,
+  never held in memory (a picture, whose metadata is cut out in memory, at most 50 MB). Nothing is written into anyone's own folder, no folder rule or per-file grant changes, and the
   original stays in My files. The copies are the chat's: everyone in it opens them, someone taken out loses them with
   the chat, and they go when the chat is deleted for good. A file leaves its owner's folder only by its owner's press.
 - **Rule 3, the chat's copy wins in links:** inside that chat a link to the original's path opens the chat's copy, for
-  everyone, the creator included, so nobody works on two different files by accident. The AI of whoever runs a turn
+  everyone, the creator included, so nobody works on two different files by accident: the creator's page maps the path
+  to the copy; for everyone else the link's panel asks the server (`file-access`), which answers with the copy, so
+  nobody else learns where the original is. The AI of whoever runs a turn
   there is told the copy's file_id in the transcript (`chat_file`).
 - **Rule 4, checked at the press:** the confirm key binds every (path, sha256). At the press the server lists the
   files again, reads each from one descriptor and hashes the bytes it read. Anything different (changed, moved, gone,

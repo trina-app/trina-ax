@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-21 02:49 (scoped to the first version after review, same day)
 - Branch: `feat/share-chat-files` (the plan was reviewed on `plan/share-chat-files`, c4a02ef0a)
-- Status: in progress
+- Status: done (first version; follow-ups listed above)
 - Where: Team AX core (`server/src/chat`, `web/src/components`). Why: sharing and chat files are core
   (docs/REPOSITORY-RULES.md).
 - Version impact: **minor**. New optional API fields and one new chat route pair (`file-access`); no migration; no
@@ -40,7 +40,7 @@ The owner's rules: sharing a chat is for working together, so there is **no view
     write/edit/make_file/edit_hwp/stamp_pdf, nothing relocated, nothing else touched it since;
   - in the creator's own folder (`users/<creator>/`), not in a dot folder (`.attachments`), not a skill or an
     instruction file;
-  - a plain file (one link) of at most `CHAT_FILE_MAX`, not on the download-only list, whose newest file event's
+  - a plain file (one link) of at most `CHAT_COPY_MAX` (1 GB), not on the download-only list, whose newest file event's
     sha256 is known;
   - not already in the chat as a copy of the same path and sha256 (dedupe: sharing again makes no second copy).
   - "Used here" files and the team-file line of the reviewed plan are dropped.
@@ -50,7 +50,9 @@ The owner's rules: sharing a chat is for working together, so there is **no view
   no link, a picture's metadata cut out) and **attaches it to the answer that made it** (H2: the turn of the path's
   `create` event, its `turns.message_id`). Attached, the row counts as sent, so migration 400's sweep leaves it and
   everyone in the chat opens it. The source is a mark in the attachment JSON, as agreed with session e6:
-  `origin: 'shared-copy'`, `from: <path>`, `fromSha256: <sha256>`. No new columns.
+  `origin: 'shared-copy'` (e6: `'ai'`), with `from: <path>` and `fromSha256` for the server's re-check. No new columns.
+  A client never gets `fromSha256`, and `from` only the creator (L2). Copies have their own cap, `CHAT_COPY_MAX`
+  (1 GB within team storage, to be unified with e6 PR2's cap), streamed through a temp file; uploads keep 50 MB.
 - **The chat's copy wins in links** (M5): inside that chat, a link to the source path opens the chat's copy for
   everyone, the creator included, so nobody edits two different files by accident. The AI of whoever runs a turn
   there is told the same in the transcript (the copy's file_id; read it with `chat_file`).
@@ -136,4 +138,20 @@ The owner's rules: sharing a chat is for working together, so there is **no view
 
 ## Result
 
-(filled in at the end)
+- Built as planned, no migration. Server: `chat/chat-files-share.ts` (madeFilesOf, readVerified, copyMade, the file
+  ask target, closeFileAsks), `ChatFiles.keepCopy`, the step and `withFiles` in `people-share.ts`, the file asks in
+  `access-requests.ts` (the same `access_requests` table: kind `chat`, target `<chat>/<32 hex>`), the routes, and the
+  copies in the shared transcript (`shared.ts` sharedCopiesNote). Web: the step in `ChatShareDialog.tsx`,
+  `ChatLinks` in `Markdown.tsx` (provided by `pages/Chat.tsx`), `ChatFileAsk.tsx` from `FileBody.tsx`, the Activity
+  row, 6 languages.
+- After coordination with e6: copies are capped by `CHAT_COPY_MAX` (1 GB, defined in `chat-files-share.ts` until e6
+  PR2 exports the shared cap) and streamed; `from` reaches only the creator's client, `fromSha256` no client; for
+  others the link's panel gets the copy from `file-access`.
+- One change from the plan: a save with `withFiles` whose key no longer fits always answers "confirm" again, also when
+  nothing is left to copy (the dialog then shows the plain Share again), so a press never copies silently.
+- Files whose bytes on disk differ from their newest file event at a press are left out of the list after that press
+  (in memory), so the step asked again does not offer them forever.
+- e6 overlap: one new method in `chat-files.ts`; none of `chat-file-tool.ts`, `turn.ts`, `Messages.tsx`. The shared
+  `Attachment.origin` enum holds both `'ai'` and `'shared-copy'`. A dry merge with e6's #198 has no conflict.
+- Tests: tests/unit/b-share-chat-files.test.ts (10), web/test/e2e/share-chat-files.spec.ts (3 × 1440/390), the
+  security matrix cases for both routes.

@@ -2,7 +2,8 @@
 // chat made a quote PDF and its HTML in her own folder (My files › 견적 › Sincere) and links them in the answer.
 //   1. She shares it with Bob: the Share dialog's step lists the two files with their folder, says the originals stay,
 //      and offers [파일 없이 공유] [파일과 함께 공유]; with files, the toast counts them, her own link opens the chat's
-//      copy, and Bob opens the copy from the same link and goes on in the chat.
+//      copy, and Bob opens the copy from the same link (through the panel: he never gets the original's path) and goes
+//      on in the chat.
 //   2. Shared before without the files (the owner's case): Share again shows the step on its own, "2 files from this
 //      chat are only in your files"; with files adds them, and the step is gone after.
 //   3. Bob's link does not open: the panel says only Olga can add it, [추가 요청] sends the ask; Olga's Activity row
@@ -100,10 +101,10 @@ for (const vp of [{ name: '1440', use: { viewport: { width: 1440, height: 900 },
       await expect(page.getByRole('dialog')).toHaveCount(0)
       // her own link opens the chat's copy now (one file, not two)
       await expect(fileLink(page, PDF)).toHaveAttribute('data-copy', '')
-      // Bob: the same link opens the copy, nothing to ask
+      // Bob: the same link opens the copy (he is never told where the original is: the panel asks the server, which
+      // answers with the chat's copy), nothing to ask
       const bob = await as(browser, BOB)
       await openChat(bob, chatId)
-      await expect(fileLink(bob, HTML)).toHaveAttribute('data-copy', '')
       await fileLink(bob, PDF).click()
       await expect(panel(bob).getByTestId('file-panel-title')).toContainText(PDF)
       await expect(panel(bob).getByTestId('chat-file-ask')).toHaveCount(0)
@@ -150,7 +151,6 @@ for (const vp of [{ name: '1440', use: { viewport: { width: 1440, height: 900 },
       await shareWithoutFiles(page, chatId)
       const bob = await as(browser, BOB)
       await openChat(bob, chatId)
-      await expect(fileLink(bob, PDF)).not.toHaveAttribute('data-copy', '')
       await fileLink(bob, PDF).click()
       const ask = panel(bob).getByTestId('chat-file-ask')
       await expect(ask).toBeVisible()
@@ -171,7 +171,6 @@ for (const vp of [{ name: '1440', use: { viewport: { width: 1440, height: 900 },
       await expect(notice.getByTestId('access-request-done')).toHaveText('대화에 추가했어요')
       // Bob's link opens the copy now
       await openChat(bob, chatId)
-      await expect(fileLink(bob, PDF)).toHaveAttribute('data-copy', '')
       await fileLink(bob, PDF).click()
       await expect(panel(bob).getByTestId('file-panel-title')).toContainText(PDF)
       await expect(panel(bob).getByTestId('chat-file-ask')).toHaveCount(0)

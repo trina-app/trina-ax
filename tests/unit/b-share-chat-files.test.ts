@@ -59,9 +59,10 @@ const askFor = async (user: string, chatId: string, p: string) => {
 }
 const fileStatus = async (user: string, chatId: string, id: string) => (await h.req(user, `/api/chats/${chatId}/files/${id}`)).status
 const fileText = async (user: string, chatId: string, id: string) => (await h.req(user, `/api/chats/${chatId}/files/${id}`)).text()
-const copiesOf = (chatId: string): (Attachment & { messageId: string })[] =>
+/** the copies as the messages table stores them (fromSha256 is the server's alone) */
+const copiesOf = (chatId: string): (Attachment & { fromSha256?: string; messageId: string })[] =>
   (db().query("SELECT id, attachments FROM messages WHERE chat_id = ? AND role = 'assistant'").all(chatId) as { id: string; attachments: string }[])
-    .flatMap((m) => (JSON.parse(m.attachments) as Attachment[]).filter((a) => a.origin === 'shared-copy').map((a) => ({ ...a, messageId: m.id })))
+    .flatMap((m) => (JSON.parse(m.attachments) as (Attachment & { fromSha256?: string })[]).filter((a) => a.origin === 'shared-copy').map((a) => ({ ...a, messageId: m.id })))
 /** Share with bob and the files, through the preview's key */
 async function shareWithFiles(chatId: string) {
   const p = await preview(chatId, [bob])
@@ -101,9 +102,16 @@ describe('the Share step lists the files the chat made in my own folder', () => 
       for (const u of ['carol', 'dana']) expect(await fileStatus(u, c.id, a.id)).toBe(404)
     }
     expect(await fileText('bob', c.id, copies.find((a) => a.name === 'quote.md')!.id)).toBe('# Quote\npen 6,000')
-    // bob sees the copies on the answer
-    const msgs = await h.api('bob').call(API.listMessages, { params: { id: c.id } })
-    expect(msgs.items.find((m) => m.id === c.answer)!.attachments.filter((a) => a.origin === 'shared-copy')).toHaveLength(2)
+    // bob sees the copies on the answer, without where they came from (review L2); alice, whose folder it is, gets the
+    // path (her own link opens the copy); nobody gets the sha256
+    const seen = async (u: string) => (await (await h.req(u, `/api/chats/${c.id}/messages`)).json()).items.find((m: { id: string }) => m.id === c.answer).attachments.filter((a: Attachment) => a.origin === 'shared-copy') as Record<string, unknown>[]
+    const bobs = await seen('bob')
+    expect(bobs).toHaveLength(2)
+    for (const a of bobs) { expect(a.from).toBeUndefined(); expect(a.fromSha256).toBeUndefined() }
+    expect(JSON.stringify(bobs)).not.toContain(c.dir)
+    for (const a of await seen('alice')) { expect(String(a.from)).toStartWith(c.dir); expect(a.fromSha256).toBeUndefined() }
+    // the temp files of the press are gone
+    expect(fs.readdirSync(path.join(h.ctx.config.dataDir, 'work')).filter((f) => f.startsWith('chat-copy-'))).toEqual([])
     // the originals are where they were, unchanged, and still alice's alone
     expect(fs.readFileSync(team(`${c.dir}/quote.md`), 'utf8')).toBe('# Quote\npen 6,000')
     expect((await h.req('bob', `/api/files/download?path=${encodeURIComponent(`${c.dir}/quote.md`)}`)).status).toBe(404)

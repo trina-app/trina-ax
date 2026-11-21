@@ -153,13 +153,26 @@ export class ChatFiles {
 
   /** A copy of a file the chat made in its creator's own folder (chat/chat-files-share.ts copyMade: its bytes read and
    * checked there), kept as a file of this chat sent by `userId`; the caller attaches it to the answer that made it. */
-  async keepCopy(userId: string, chatId: string, name: string, bytes: Uint8Array, kind: Attachment['kind']): Promise<ChatFileRow> {
+  async keepCopy(userId: string, chatId: string, name: string, src: { file: string } | { bytes: Uint8Array }, kind: Attachment['kind']): Promise<ChatFileRow> {
     const id = newId()
     await fs.promises.mkdir(this.dir(chatId), { recursive: true, mode: 0o700 })
     const dst = this.abs({ chat_id: chatId, id })
     try {
-      await fs.promises.writeFile(dst, bytes, { flag: 'wx', mode: 0o600 })
-      return await this.record(userId, chatId, id, name, dst, createHash('sha256').update(bytes).digest('hex'), null, kind)
+      let sha: string
+      if ('bytes' in src) {
+        await fs.promises.writeFile(dst, src.bytes, { flag: 'wx', mode: 0o600 })
+        sha = createHash('sha256').update(src.bytes).digest('hex')
+      } else {
+        // a checked temp file (up to the copy cap): moved into place, hashed by streaming
+        try { await fs.promises.rename(src.file, dst) } catch { await fs.promises.copyFile(src.file, dst, fs.constants.COPYFILE_EXCL) }
+        await fs.promises.chmod(dst, 0o600)
+        const t = new Date()
+        await fs.promises.utimes(dst, t, t)
+        const h = createHash('sha256')
+        for await (const chunk of fs.createReadStream(dst)) h.update(chunk as Buffer)
+        sha = h.digest('hex')
+      }
+      return await this.record(userId, chatId, id, name, dst, sha, null, kind)
     } catch (e) { this.removeFiles({ chat_id: chatId, id }); throw e }
   }
 

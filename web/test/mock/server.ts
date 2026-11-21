@@ -6801,7 +6801,7 @@ export class MockServer {
   private installShareChatFiles() {
     const h = this.handlers
     const ownerOf = (chatId: string) => this.sharedChats.get(chatId)?.by.id ?? this.chatOwners.get(chatId) ?? null
-    const copies = (chatId: string) => this.messages.filter((m) => m.chatId === chatId && m.role === 'assistant').flatMap((m) => m.attachments.filter((a) => a.origin === 'shared-copy'))
+    const copies = (chatId: string) => this.messages.filter((m) => m.chatId === chatId && m.role === 'assistant').flatMap((m) => m.attachments.filter((a) => a.origin === 'shared-copy') as (Attachment & { fromSha256?: string })[])
     const pending = (chatId: string) => (this.chatMade.get(chatId)?.files ?? []).filter((f) => this.files.has(f.path) && !copies(chatId).some((a) => a.from === f.path && a.fromSha256 === sha(f)))
     const sha = (f: { path: string; v: number }) => (f.v.toString(16) + '0'.repeat(64)).slice(0, 64)
     const out = (fs: { path: string }[]) => fs.map((f) => ({ name: f.path.slice(f.path.lastIndexOf('/') + 1), place: ['내 파일', ...f.path.split('/').slice(2, -1)].join(' › '), size: this.files.get(f.path)?.data?.byteLength ?? 0 }))
@@ -6814,7 +6814,7 @@ export class MockServer {
         const n = this.files.get(f.path)!
         const name = f.path.slice(f.path.lastIndexOf('/') + 1)
         const mime = mimeOf(name) ?? 'application/octet-stream'
-        const a: Attachment & { data: Uint8Array } = { id: uuidv7(), name, path: '', size: n.data!.byteLength, mime, kind: /\.pdf$/i.test(name) ? 'pdf' : /\.(html?|md|txt)$/i.test(name) ? 'text' : 'other', source: 'chat', origin: 'shared-copy', from: f.path, fromSha256: sha(f), data: n.data! }
+        const a: Attachment & { data: Uint8Array } = { id: uuidv7(), name, path: '', size: n.data!.byteLength, mime, kind: /\.pdf$/i.test(name) ? 'pdf' : /\.(html?|md|txt)$/i.test(name) ? 'text' : 'other', source: 'chat', origin: 'shared-copy', from: f.path, fromSha256: sha(f), data: n.data! } as Attachment & { fromSha256: string; data: Uint8Array }
         this.attachments.set(a.id, a)
         const { data: _d, ...shown } = a
         m.attachments = [...m.attachments, shown]
@@ -6842,6 +6842,12 @@ export class MockServer {
       const base = h[name]!
       h[name] = (c) => fn(c, base)
     }
+    // a copy's source path only for the chat's creator (server/src/chat/store.ts copyForViewer); never its sha256
+    over('listMessages', async (c, base) => {
+      const r = (await base(c)) as { items: Message[] }
+      const creator = ownerOf(c.params.id!) === c.user.id
+      return { ...r, items: r.items.map((m) => ({ ...m, attachments: m.attachments.map((a) => (a.origin === 'shared-copy' ? (({ fromSha256: _s, from, ...rest }) => (creator ? { ...rest, from } : rest))(a as Attachment & { fromSha256?: string }) : a)) })) }
+    })
     over('getChatAudience', async (c, base) => {
       const a = (await base(c)) as ChatAudience
       const left = pending(c.params.id!)

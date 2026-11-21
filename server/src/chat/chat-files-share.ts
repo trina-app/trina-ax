@@ -7,18 +7,22 @@
 //
 //   madeFilesOf  the files a chat made in its creator's own folder, from the server's own records only (file_events,
 //                madeInChat; never links in answer text): in users/<creator>/ (no dot folder, no skill or instruction
-//                file), a plain file of at most CHAT_FILE_MAX, not on the download-only list, its newest event's sha256
+//                file), a plain file of at most CHAT_COPY_MAX, not on the download-only list, its newest event's sha256
 //                and size those of the file now, made by an answer that is still there, and not in the chat yet as a
 //                copy of the same path and sha256 (sharing again makes no second copy)
-//   readVerified the press: the list again, each file read from one descriptor that follows no link, the bytes read
-//                hashed and compared with the sha256 the creator saw (the confirm key). Anything different: nothing
+//   readVerified the press: the list again, each file streamed from one descriptor that follows no link into a
+//                server-only temp file, the bytes read hashed as they go and compared with the sha256 the creator saw
+//                (the confirm key). Anything different: nothing
 //   copyMade     each verified file kept as a chat file (a picture's metadata cut out, as an upload here) and attached
-//                to its answer: `origin: 'shared-copy'`, `from` (the path), `fromSha256`. An attached chat file counts as
-//                sent, so the sweep of unsent uploads (migration 400) leaves it and everyone in the chat opens it
+//                to its answer: `origin: 'shared-copy'` (the one provenance mark, shared with session e6's 'ai'), and
+//                for the server's own re-check `from` (the path) and `fromSha256`. A client never gets `fromSha256`, and
+//                `from` only the chat's creator, whose own path it is (copyForViewer; review L2). An attached chat file
+//                counts as sent, so the sweep of unsent uploads (migration 400) leaves it and everyone in the chat opens it
 //
 // The asks of the side panel (chat/access-requests.ts) run the same madeFilesOf for one path.
 import fs from 'node:fs'
-import { createHash } from 'node:crypto'
+import path from 'node:path'
+import { createHash, randomUUID } from 'node:crypto'
 import type { Attachment } from '@mycel/shared/api'
 import type { AppContext } from '../context'
 import { audit } from '../admin/audit'
@@ -27,7 +31,19 @@ import { loadPrincipal } from '../policy/access'
 import { openChecked } from '../team-files/place'
 import { assertStorageRoom } from '../system/storage'
 import { instructionLike } from '../tools/rename-pattern'
+import { attachmentKind } from '../uploads/attachments'
 import { CHAT_FILE_MAX, chatFileAttachment, chatFilesOf, cleanPicture } from './chat-files'
+
+/** At most this big a copy of a chat's own file (within the team's storage). People's uploads keep CHAT_FILE_MAX
+ * (50 MB); a copy, like the AI's attached output, has its own cap. TODO: one constant with session e6's PR2 (the AI's
+ * attached files), exported from there once it merges. */
+export const CHAT_COPY_MAX = 1024 * 1024 * 1024
+
+/** A copy as the messages table stores it: `fromSha256` is the server's alone (never in the API's Attachment). */
+export type StoredAttachment = Attachment & { fromSha256?: string }
+
+/** (the client's view of a copy: chat/store.ts copyForViewer) */
+export { copyForViewer } from './store'
 import { madeInChat } from './shared-actions'
 
 /** A file the chat made in its creator's own folder that can be copied into the chat now. */
@@ -52,12 +68,12 @@ const badOf = (ctx: AppContext) => badBytes.get(ctx) ?? badBytes.set(ctx, new Se
 const MADE_SCAN_MAX = 200
 
 /** Copies already in the chat, as `${from}\0${fromSha256}`. */
-function copiesIn(ctx: AppContext, chatId: string): Map<string, Attachment> {
-  const out = new Map<string, Attachment>()
+function copiesIn(ctx: AppContext, chatId: string): Map<string, StoredAttachment> {
+  const out = new Map<string, StoredAttachment>()
   const rows = ctx.db.query("SELECT attachments FROM messages WHERE chat_id = ? AND role = 'assistant' AND attachments LIKE '%shared-copy%' ORDER BY created_at, id").all(chatId) as { attachments: string }[]
   for (const r of rows) {
     try {
-      for (const a of JSON.parse(r.attachments) as Attachment[]) if (a.source === 'chat' && a.origin === 'shared-copy' && a.from) out.set(`${a.from}\0${a.fromSha256 ?? ''}`, a)
+      for (const a of JSON.parse(r.attachments) as StoredAttachment[]) if (a.source === 'chat' && a.origin === 'shared-copy' && a.from) out.set(`${a.from}\0${a.fromSha256 ?? ''}`, a)
     } catch { /* none */ }
   }
   return out
@@ -98,7 +114,7 @@ export function madeFilesOf(ctx: AppContext, chat: { id: string; user_id: string
       if (!msg) continue
       const src = authorize(ctx.files.fx, rules, creator, rel, 'read')
       if (!src.exists || !src.st?.isFile() || src.st.nlink > 1) continue
-      if (src.st.size > CHAT_FILE_MAX || (last.size !== null && last.size !== src.st.size)) continue
+      if (src.st.size > CHAT_COPY_MAX || (last.size !== null && last.size !== src.st.size)) continue
       if (ctx.files.quarantine.hasHash(last.sha256)) continue
       if (copies.has(`${rel}\0${last.sha256}`) || badOf(ctx).has(`${rel}\0${last.sha256}`)) continue
       out.push({ path: rel, name: rel.slice(rel.lastIndexOf('/') + 1), size: src.st.size, sha256: last.sha256, messageId: msg.id })
@@ -111,14 +127,39 @@ export function madeFilesOf(ctx: AppContext, chat: { id: string; user_id: string
 export const madeState = (files: readonly MadeFile[]): string[][] => files.map((f) => [f.path, f.sha256]).sort((a, b) => (a[0]! < b[0]! ? -1 : a[0]! > b[0]! ? 1 : 0))
 const sameState = (a: readonly MadeFile[], b: readonly MadeFile[]) => JSON.stringify(madeState(a)) === JSON.stringify(madeState(b))
 
-/** A file read and checked at the press: the bytes to keep (a picture's metadata cut out) and its kind. */
-export interface VerifiedFile { file: MadeFile; bytes: Uint8Array; kind: Attachment['kind'] }
+/** A file read and checked at the press: its bytes in a server-only temp file (or, a picture, its cleaned bytes), and its
+ * kind. discardVerified removes the temp files of a press that does not go on. */
+export interface VerifiedFile { file: MadeFile; tmp: string | null; bytes: Uint8Array | null; kind: Attachment['kind'] }
+
+/** The temp files of a press that does not go on. */
+export function discardVerified(v: { files: readonly VerifiedFile[] } | null): void {
+  for (const f of v?.files ?? []) if (f.tmp) fs.rmSync(f.tmp, { force: true })
+}
+
+/** Stream `fd` (`size` bytes) into a new 0600 temp file, hashing as it goes. null: it ended early. */
+async function streamCopy(fd: number, size: number, dst: string): Promise<string | null> {
+  const hash = createHash('sha256')
+  const out = await fs.promises.open(dst, 'wx', 0o600)
+  try {
+    const buf = Buffer.alloc(Math.min(size, 1024 * 1024) || 1)
+    let off = 0
+    while (off < size) {
+      const n = await new Promise<number>((res, rej) => fs.read(fd, buf, 0, Math.min(buf.length, size - off), off, (err, k) => (err ? rej(err) : res(k))))
+      if (!n) return null
+      hash.update(buf.subarray(0, n))
+      await out.write(buf, 0, n)
+      off += n
+    }
+  } finally { await out.close() }
+  return hash.digest('hex')
+}
 
 /**
  * The press of "Share with files" or [Add to the chat]: the list again (madeFilesOf), which must be exactly `seen` (what
- * the creator was shown), and each file read from one descriptor that follows no link, its bytes hashed and compared
- * with the sha256 in `seen`. null: anything changed (a file changed, moved, gone, a new one): nothing is copied and the
- * caller asks again. `notCopied`: pictures whose metadata cannot be cut out (they stay the creator's alone).
+ * the creator was shown), and each file streamed from one descriptor that follows no link into a server-only temp file,
+ * the bytes read hashed and compared with the sha256 in `seen`. null: anything changed (a file changed, moved, gone, a
+ * new one): nothing is copied and the caller asks again. `notCopied`: pictures whose metadata cannot be cut out, or a
+ * picture over CHAT_FILE_MAX (cleaned in memory): they stay the creator's alone.
  */
 export async function readVerified(ctx: AppContext, chat: { id: string; user_id: string }, seen: readonly MadeFile[], o: { only?: string } = {}): Promise<{ files: VerifiedFile[]; notCopied: number } | null> {
   const now = madeFilesOf(ctx, chat, o)
@@ -126,60 +167,69 @@ export async function readVerified(ctx: AppContext, chat: { id: string; user_id:
   const creator = loadPrincipal(ctx.db, chat.user_id)
   if (!creator) return null
   const rules = ctx.files.rules()
+  const work = path.join(ctx.config.dataDir, 'work')
+  await fs.promises.mkdir(work, { recursive: true, mode: 0o700 })
   const files: VerifiedFile[] = []
   let notCopied = 0
   let total = 0
+  const fail = () => { discardVerified({ files }); return null }
   for (const f of now) {
     const src = authorize(ctx.files.fx, rules, creator, f.path, 'read')
-    if (!src.st?.isFile() || src.st.nlink > 1) return null
-    let bytes: Uint8Array
+    if (!src.st?.isFile() || src.st.nlink > 1) return fail()
+    const tmp = path.join(work, `chat-copy-${randomUUID()}`)
     const { fd, st } = openChecked(src.abs, src.st)
+    let sha: string | null = null
     try {
-      if (st.size > CHAT_FILE_MAX) return null
-      const buf = Buffer.alloc(st.size)
-      let off = 0
-      while (off < buf.length) {
-        const n = await new Promise<number>((res, rej) => fs.read(fd, buf, off, buf.length - off, off, (err, k) => (err ? rej(err) : res(k))))
-        if (!n) break
-        off += n
-      }
-      if (off !== st.size) return null
-      bytes = new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength)
-    } finally { fs.closeSync(fd) }
+      if (st.size > CHAT_COPY_MAX) { fs.rmSync(tmp, { force: true }); return fail() }
+      sha = await streamCopy(fd, st.size, tmp)
+    } catch { sha = null } finally { fs.closeSync(fd) }
     // the bytes actually read, never the record alone
-    if (createHash('sha256').update(bytes).digest('hex') !== f.sha256) {
-      const bad = badOf(ctx)
-      if (bad.size > 1000) bad.clear()
-      bad.add(`${f.path}\0${f.sha256}`)
-      return null
+    if (sha !== f.sha256) {
+      fs.rmSync(tmp, { force: true })
+      if (sha) {
+        const bad = badOf(ctx)
+        if (bad.size > 1000) bad.clear()
+        bad.add(`${f.path}\0${f.sha256}`)
+      }
+      return fail()
     }
-    const pic = cleanPicture(f.name, bytes, ctx.files.quarantine.hasHash(f.sha256))
-    if (!pic) { notCopied++; continue }
-    total += pic.bytes.byteLength
-    files.push({ file: f, bytes: pic.bytes, kind: pic.kind })
+    total += st.size
+    // a picture: its place and camera cut out, as an upload here (in memory, so at most CHAT_FILE_MAX)
+    const named = attachmentKind(f.name)
+    if (named === 'image') {
+      if (st.size > CHAT_FILE_MAX) { fs.rmSync(tmp, { force: true }); notCopied++; continue }
+      const pic = cleanPicture(f.name, new Uint8Array(await fs.promises.readFile(tmp)), ctx.files.quarantine.hasHash(f.sha256))
+      fs.rmSync(tmp, { force: true })
+      if (!pic) { notCopied++; continue }
+      files.push({ file: f, tmp: null, bytes: pic.bytes, kind: pic.kind })
+      continue
+    }
+    files.push({ file: f, tmp, bytes: null, kind: named })
   }
-  assertStorageRoom(total)
+  try { assertStorageRoom(total) } catch (e) { discardVerified({ files }); throw e }
   return { files, notCopied }
 }
 
 /**
  * Keep each verified file as a chat file of `chat` (sent by its creator) and attach it to the answer that made it.
- * Audited (chat.files_added: how many, and via the share or an ask). Returns how many were added.
+ * Audited (chat.files_added: how many, and via the share or an ask). Returns how many were added. The temp files go.
  */
 export async function copyMade(ctx: AppContext, chat: { id: string; user_id: string }, files: readonly VerifiedFile[], via: 'share' | 'request'): Promise<number> {
   const db = ctx.db
   const store = chatFilesOf(ctx)
-  const kept: { file: MadeFile; att: Attachment }[] = []
-  for (const v of files) {
-    const row = await store.keepCopy(chat.user_id, chat.id, v.file.name, v.bytes, v.kind)
-    kept.push({ file: v.file, att: { ...chatFileAttachment(row), origin: 'shared-copy', from: v.file.path, fromSha256: v.file.sha256 } })
-  }
+  const kept: { file: MadeFile; att: StoredAttachment }[] = []
+  try {
+    for (const v of files) {
+      const row = await store.keepCopy(chat.user_id, chat.id, v.file.name, v.tmp ? { file: v.tmp } : { bytes: v.bytes! }, v.kind)
+      kept.push({ file: v.file, att: { ...chatFileAttachment(row), origin: 'shared-copy', from: v.file.path, fromSha256: v.file.sha256 } })
+    }
+  } finally { discardVerified({ files }) }
   if (!kept.length) return 0
   db.transaction(() => {
     for (const k of kept) {
       const m = db.query("SELECT attachments FROM messages WHERE id = ? AND chat_id = ? AND role = 'assistant'").get(k.file.messageId, chat.id) as { attachments: string } | null
       if (!m) continue
-      let atts: Attachment[] = []
+      let atts: StoredAttachment[] = []
       try { const v = JSON.parse(m.attachments); if (Array.isArray(v)) atts = v } catch { /* none */ }
       // (a press twice at once: the same file and bytes are attached once)
       if (atts.some((a) => a.origin === 'shared-copy' && a.from === k.file.path && a.fromSha256 === k.file.sha256)) continue

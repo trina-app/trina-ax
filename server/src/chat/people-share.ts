@@ -57,7 +57,7 @@ import { chatFilesOf } from './chat-files'
 import { pollSrt } from '../devenv/jobs'
 import { devEnvFlag } from '../devenv/setting'
 import { personLocale } from '../files/media-text'
-import { closeFileAsks, copyMade, madeFilesOf, madeState, readVerified, type MadeFile } from './chat-files-share'
+import { closeFileAsks, copyMade, discardVerified, madeFilesOf, madeState, readVerified, type MadeFile, type VerifiedFile } from './chat-files-share'
 
 const isAdmin = (role: string | undefined) => role === 'owner' || role === 'admin'
 const subjectKey = (s: AudienceSubject) => `${s.type}:${s.id}`
@@ -361,7 +361,7 @@ export async function putChatAudience(ctx: AppContext, rt: ChatRuntime, userId: 
         const made = madeFilesOf(ctx, r)
         const key = filesKeyOf(ctx, userId, r.id, made)
         if (body.confirmKey !== key) return { status: 'confirm', check: filesCheck(ctx, made, locale, userId), confirmKey: key, reason: body.confirmKey === undefined ? 'unchecked' : 'changed' }
-        const v = made.length ? await readVerified(ctx, r, made) : { files: [], notCopied: 0 }
+        const v = made.length ? await readVerified(ctx, r, made) : { files: [] as VerifiedFile[], notCopied: 0 }
         if (!v) { const again = madeFilesOf(ctx, r); return { status: 'confirm', check: filesCheck(ctx, again, locale, userId), confirmKey: filesKeyOf(ctx, userId, r.id, again), reason: 'changed' } }
         const filesAdded = await copyMade(ctx, r, v.files, 'share')
         if (filesAdded) rt.publishChat(userId, r.id, 'updated')
@@ -407,7 +407,7 @@ export async function putChatAudience(ctx: AppContext, rt: ChatRuntime, userId: 
         const again = madeFilesOf(ctx, r)
         return { status: 'confirm', check: filesCheck(ctx, again, locale, userId), confirmKey: filesKeyOf(ctx, userId, r.id, again), reason: 'changed' }
       }
-      if (!same(stateOf(ctx, rt.store.chatRow(r.id) ?? fail('not_found')), before)) continue
+      if (!same(stateOf(ctx, rt.store.chatRow(r.id) ?? fail('not_found')), before)) { discardVerified(verified); continue }
     }
 
     // S7: the people who lose it stop first (their running or queued turn there would go on with their access and its
@@ -417,7 +417,7 @@ export async function putChatAudience(ctx: AppContext, rt: ChatRuntime, userId: 
     const first = !before.shared && after.length > 0
     const everyone = after.length === 0
     let auditId = 0
-    db.transaction(() => {
+    try { db.transaction(() => {
       // nothing changed since the check (synchronously: no turn can start in between)
       if (!same(stateOf(ctx, rt.store.chatRow(r.id) ?? fail('not_found')), before)) fail('conflict', tr('chatShareBusy', locale), { params: { reason: 'chat_busy' } })
       if (first) {
@@ -457,7 +457,7 @@ export async function putChatAudience(ctx: AppContext, rt: ChatRuntime, userId: 
         removed: { people: removed.filter((s) => s.type === 'user').length, groups: removed.filter((s) => s.type === 'group').length },
         newPeople: newPeople.length, lost: lost.length, ...(everyone ? { private: true } : {}), confirmed: body.confirmKey !== undefined,
       } })
-    })()
+    })() } catch (e) { discardVerified(verified); throw e }
     // a command running in this chat now is checked against its new people at once, not at the next poll
     // (devenv/srt/runner.ts: any change of a shared chat's people stops its running command)
     if (devEnvFlag()) void pollSrt(ctx, { chatId: r.id }).catch(() => {})
@@ -471,6 +471,7 @@ export async function putChatAudience(ctx: AppContext, rt: ChatRuntime, userId: 
     if (first) { try { filesNotCopied = (await chatFilesOf(ctx).copyEarlier(r.id)).notCopied } catch (e) { ctx.log.warn('earlier uploads of a shared chat not copied', { err: e }) } }
     // "Share with files": the files checked at the press, into the chat (attached to the answers that made them)
     let filesAdded = 0
+    if (verified && everyone) discardVerified(verified)
     if (verified && !everyone) {
       try { filesAdded = await copyMade(ctx, r, verified.files, 'share'); filesNotCopied += verified.notCopied } catch (e) { ctx.log.warn('files of a shared chat not added', { err: e }); filesNotCopied += verified.files.length + verified.notCopied }
     }
