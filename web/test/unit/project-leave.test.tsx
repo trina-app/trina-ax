@@ -105,7 +105,7 @@ describe('Leave project on a card', () => {
       await m.click(within(card(m, 'Acme team'), 'project-card-leave')!)
       const dialog = await m.until(() => m.container.ownerDocument!.body.querySelector('[role="dialog"]'), 'the confirm')
       expect(dialog.textContent).toContain(en('projects.leaveTitle', { name: 'Acme team' }))
-      expect(dialog.textContent).toContain("You won't see this project or its shared chats anymore. Your private chats in it move to your own chats.")
+      expect(dialog.textContent).toContain(en('projects.leaveBody'))
       // cancelled: nothing sent
       await m.click(([...dialog.querySelectorAll('button')] as unknown as FakeElement[]).find((b) => b.textContent === en('common.cancel'))!)
       await m.settle(50)

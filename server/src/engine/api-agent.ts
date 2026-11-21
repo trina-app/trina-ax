@@ -17,7 +17,8 @@ import { claudeCost, claudePrice, openaiCost, openaiPrice } from '../credentials
 import { LinkGuard } from './api-links'
 import { dropEmptyLinks, FailedSteps, failedStepsNote, ReadLog } from './api-honest'
 import { VISION_TEXT } from '../files/vision-text'
-import { fitApiTools, toolsLeftOutNote, type ApiTool } from './api-tools-fit'
+import { fitApiTools, toolsLeftOutNote, toolTokens, type ApiTool } from './api-tools-fit'
+import { apiOfferedTools, deferredOf, LOAD_TOOLS, loadTools, moreToolsNote } from './api-tools-defer'
 import { isPatientApiAddress, noteContextUsage } from './api-context'
 import { TOOL_OUTPUT_MAX } from './api-output'
 
@@ -186,15 +187,58 @@ export function usageEvent(model: string, u: any, requestId: string | undefined)
   return listed === null ? { ...base, costUnknown: true } : { ...base, costUsd: listed }
 }
 
-/** How long a provider may take to start answering (response headers); the stream itself has no limit here.
+/** How long a provider may take to start answering (response headers); the stream itself has no limit here. 10
+ * minutes, Claude Code's own API timeout (API_TIMEOUT_MS): a large model reading a long prompt, or a busy provider
+ * that holds the request, must not end a first answer early (QA TC-4822: 90 s cut it). A refused connection or an
+ * unknown host still fails at once.
  * Not for an address on this computer, the private network or Tailscale (Ollama, LM Studio …; isPatientApiAddress): a small model on a busy CPU can
  * read a long prompt for minutes, and the server is alive the whole time. That wait ends only at Stop, a refused
  * connection, or the turn's stall guard (chat/turn.ts STALL_TIMEOUT_MS), as Claude Code does not cut local work. */
-export const HEADERS_TIMEOUT_MS = 90_000
+export const HEADERS_TIMEOUT_MS = 600_000
+
+/** The instructions as two parts: what stays the same from chat to chat (rules, tools, lists) and the chat's history
+ * after it (chat/prompt.ts historyBlock, the last part of the instructions). */
+export function splitHistory(systemPrompt: string): { fixed: string; history: string } {
+  // the block's own first line (historyBlock): the history's words come after it
+  const i = systemPrompt.indexOf('\n\n<previous_conversation>\nThe conversation so far in this chat')
+  return i < 0 ? { fixed: systemPrompt, history: '' } : { fixed: systemPrompt.slice(0, i), history: systemPrompt.slice(i + 2) }
+}
+
+/** OpenRouter caches a Claude model's prompt only where the request marks it (cache_control on a content part);
+ * OpenAI, DeepSeek, Gemini and Grok models cache a repeated start by themselves (docs/decisions/20261120-api-engine-stable-prompt.md). */
+export function marksCache(conf: Pick<ApiEngineConf, 'baseUrl' | 'model'>): boolean {
+  return /^https:\/\/openrouter\.ai\//.test(conf.baseUrl + '/') && /^anthropic\//.test(conf.model)
+}
+
+type Part = { type: 'text'; text: string; cache_control?: { type: 'ephemeral' } } | (ImagePart & { cache_control?: { type: 'ephemeral' } })
+const EPHEMERAL = { type: 'ephemeral' as const }
+/** a message with a cache mark on its last part (a text message becomes one text part) */
+function marked(m: ChatMessage): unknown {
+  if (m.role === 'assistant') return m
+  const parts: Part[] = typeof m.content === 'string' ? [{ type: 'text', text: m.content }] : m.content.map((c) => ({ ...c }))
+  if (!parts.length) return m
+  parts[parts.length - 1] = { ...parts[parts.length - 1]!, cache_control: EPHEMERAL }
+  return { ...m, content: parts }
+}
+
+/**
+ * The messages of one request. The instructions are the fixed part, then the history; with `cache` (marksCache) they
+ * go as two parts, the first marked, and the last message and the one that was last in the round before are marked
+ * too, so each round reads the earlier rounds from the cache (at most 3 of the 4 marks a request may carry).
+ */
+export function requestMessages(messages: readonly ChatMessage[], system: { fixed: string; history: string }, o: { cache: boolean; prevLast: number }): unknown[] {
+  const rest = messages.slice(1)
+  if (!o.cache) return [{ role: 'system', content: system.history ? `${system.fixed}\n\n${system.history}` : system.fixed }, ...rest]
+  const sys = { role: 'system', content: [{ type: 'text', text: system.fixed, cache_control: EPHEMERAL }, ...(system.history ? [{ type: 'text', text: system.history }] : [])] }
+  const last = messages.length - 1
+  return [sys, ...rest.map((m, j) => (j + 1 === last || (j + 1 === o.prevLast && o.prevLast > 0) ? marked(m) : m))]
+}
 
 /** `round`: the completion's text so far and whether it asked for a tool, kept by the caller, so the text of a round
  * that ends in an error or a Stop can still be shown */
 interface Send { fetchFn: typeof fetch; headersTimeoutMs: number; activity?: () => void; round: { text: string; calls: boolean }
+  /** the instructions in their two parts and the cache marks (requestMessages) */
+  system: { fixed: string; history: string }; cache: { on: boolean; prevLast: number }
   /** the request holds pictures: a refusal of pictures comes back as 'no_images' (no error event), so the round goes
    * again without them */
   images?: boolean }
@@ -209,7 +253,7 @@ async function complete(conf: ApiEngineConf, messages: ChatMessage[], tools: unk
   const key = conf.key
   // OpenRouter reports the request's cost in the usage only when asked (other providers refuse unknown fields)
   const openrouter = /^https:\/\/openrouter\.ai\//.test(conf.baseUrl + '/')
-  const body = JSON.stringify({ model: conf.model, messages, tools: tools.length ? tools : undefined, stream: true, stream_options: { include_usage: true }, ...(openrouter ? { usage: { include: true } } : {}) })
+  const body = JSON.stringify({ model: conf.model, messages: requestMessages(messages, o.system, { cache: o.cache.on, prevLast: o.cache.prevLast }), tools: tools.length ? tools : undefined, stream: true, stream_options: { include_usage: true }, ...(openrouter ? { usage: { include: true } } : {}) })
   // an address that never answers fails after headersTimeoutMs instead of at the turn's stall guard
   const hdr = new AbortController()
   const timer = isPatientApiAddress(conf.baseUrl) ? null : setTimeout(() => hdr.abort(new Error(`no answer within ${Math.round(headersTimeoutMs / 1000)} s`)), headersTimeoutMs)
@@ -219,7 +263,11 @@ async function complete(conf: ApiEngineConf, messages: ChatMessage[], tools: unk
       method: 'POST', signal: AbortSignal.any([signal, hdr.signal]),
       headers: { 'Content-Type': 'application/json', ...(key ? { Authorization: `Bearer ${key}` } : {}) },
       body,
-    })
+      // Bun's fetch gives up on its own after 300 s without a byte (an idle socket): that cut the 10-minute wait above
+      // at 5 minutes, and a local model's unlimited one too. Off here: headersTimeoutMs, Stop and the turn's stall
+      // guard (chat/turn.ts STALL_TIMEOUT_MS) are the limits (review finding 1 on #181)
+      timeout: false,
+    } as RequestInit)
   } finally { if (timer) clearTimeout(timer) }
   if (!res.ok || !res.body) {
     const text = await res.text().catch(() => '')
@@ -388,15 +436,31 @@ export async function runApiAgent(o: { conf: ApiEngineConf; systemPrompt: string
   const fetchFn = apiEngineFetch(o.fetchFn ?? fetch, { publicCheck: o.conf.setBy === 'admin' })
   // the tools left out for a small model, named in the instructions (engine/api-tools-fit.ts)
   let left: string[] = []
-  const listTools = async () => {
-    const listed = await o.rpc({ jsonrpc: '2.0', id: 'l', method: 'tools/list', params: {} })
-    const fit = fitApiTools(apiToolsOf(listed?.result?.tools ?? []), o.toolBudget)
+  // the turn's whole tool list, and the tools on demand loaded in this answer (engine/api-tools-defer.ts)
+  let all: ApiTool[] = []
+  const loaded = new Set<string>()
+  // a model with a small context (toolBudget) gets its list fitted as before, every tool in it: tools on demand are
+  // for a model with room, whose whole list would be sent again every round
+  // (one whose whole list does not fit its share: engine/api-tools-fit.ts)
+  let onDemand = true
+  const offer = () => {
+    onDemand = o.toolBudget === undefined || toolTokens(all) <= o.toolBudget
+    const fit = fitApiTools(onDemand ? apiOfferedTools(all, loaded).tools : all, o.toolBudget)
     left = fit.left
     return fit.tools
   }
+  const listTools = async () => {
+    const listed = await o.rpc({ jsonrpc: '2.0', id: 'l', method: 'tools/list', params: {} })
+    all = apiToolsOf(listed?.result?.tools ?? [])
+    return offer()
+  }
   let tools = await listTools()
-  const instructions = () => [o.systemPrompt, `${API_GROUNDING_RULES}${o.images ? `\n${API_IMAGE_RULE}` : ''}`, toolsLeftOutNote(left)].filter(Boolean).join('\n\n')
-  const systemPrompt = instructions()
+  // the instructions: what stays the same from chat to chat first, the chat's history last (the provider's prompt
+  // cache reuses the start: docs/decisions/20261120-api-engine-stable-prompt.md)
+  const split = splitHistory(o.systemPrompt)
+  const instructions = () => ({ fixed: [split.fixed, `${API_GROUNDING_RULES}${o.images ? `\n${API_IMAGE_RULE}` : ''}`, toolsLeftOutNote(left), onDemand ? moreToolsNote(deferredOf(all)) : ''].filter(Boolean).join('\n\n'), history: split.history })
+  let system = instructions()
+  const cache = { on: marksCache(o.conf), prevLast: 0 }
   const guard = new LinkGuard(o.publicOrigins)
   // links that earlier answers of this chat showed (history in the instructions or the message) stay allowed
   guard.allow(o.systemPrompt)
@@ -421,7 +485,8 @@ export async function runApiAgent(o: { conf: ApiEngineConf; systemPrompt: string
   const round = { text: '', calls: false }
   /** a round that ended early (a provider error, a cut stream, Stop): what it wrote stays, unless it asked for a tool */
   const showCut = () => { if (!round.calls && round.text.trim()) show(round.text) }
-  const messages: ChatMessage[] = [{ role: 'system', content: systemPrompt }, { role: 'user', content: o.message }]
+  // messages[0] stands for the instructions (`system`, sent by requestMessages)
+  const messages: ChatMessage[] = [{ role: 'system', content: '' }, { role: 'user', content: o.message }]
   // a "too long" answer from the provider is held here: the round is tried again with room made (shrinkToolResults)
   const held: { tooLong: Extract<EngineEvent, { type: 'error' }> | null } = { tooLong: null }
   let shrunk = 0
@@ -432,9 +497,9 @@ export async function runApiAgent(o: { conf: ApiEngineConf; systemPrompt: string
     if (step > 0 && !held.tooLong) o.beforeRound?.()
     held.tooLong = null
     if (o.signal.aborted) return
-    if (step > 0 && o.toolsChanged?.()) { tools = await listTools(); messages[0] = { role: 'system', content: instructions() } }
+    if (step > 0 && o.toolsChanged?.()) { tools = await listTools(); system = instructions() }
     let r: Awaited<ReturnType<typeof complete>>
-    try { r = await complete(o.conf, messages, tools, roundEmit, o.signal, { fetchFn, headersTimeoutMs: o.headersTimeoutMs ?? HEADERS_TIMEOUT_MS, activity: o.activity, round, images: pictures }) } catch (e) {
+    try { r = await complete(o.conf, messages, tools, roundEmit, o.signal, { fetchFn, headersTimeoutMs: o.headersTimeoutMs ?? HEADERS_TIMEOUT_MS, activity: o.activity, round, images: pictures, system, cache }) } catch (e) {
       showCut()
       if (o.signal.aborted) return
       // refused connection, unknown host, no answer in time, a cut stream, an address the cloud does not allow
@@ -457,6 +522,7 @@ export async function runApiAgent(o: { conf: ApiEngineConf; systemPrompt: string
       if (shrunk < CONTEXT_SHRINK_MAX && !o.signal.aborted && shrinkToolResults(messages)) { shrunk++; step--; continue }
       o.emit(held.tooLong)
     }
+    cache.prevLast = messages.length - 1
     if (!r) { showCut(); return }
     if (!r.calls.length) { finish(r.text); o.emit({ type: 'done' }); return }
     if (r.text.trim()) lastText = r.text
@@ -466,9 +532,20 @@ export async function runApiAgent(o: { conf: ApiEngineConf; systemPrompt: string
     // the pictures this round's tools gave, for one user message after all of its results (a tool message carries text
     // only in the Chat Completions API)
     const shown: { call: string; tool: string; parts: ImagePart[] }[] = []
+    let more = false
     for (const c of r.calls) {
       let args: unknown = {}
       try { args = c.args ? JSON.parse(c.args) : {} } catch { args = null }
+      // load_tools: answered here, not a step the person sees (engine/api-tools-defer.ts)
+      if (c.name === LOAD_TOOLS && onDemand) {
+        const res = loadTools(args, all, loaded)
+        more = more || res.ok
+        messages.push({ role: 'tool', tool_call_id: c.id, content: res.text })
+        continue
+      }
+      // a tool on demand called without loading it: the handler checks the call as always, and its schema comes
+      // with the next round
+      if (onDemand && deferredOf(all).some((t) => t.function.name === c.name) && !loaded.has(c.name)) { loaded.add(c.name); more = true }
       o.emit({ type: 'tool_start', id: c.id, name: c.name, summary: c.name, input: args ?? {} })
       let out = ''
       let ok = false
@@ -501,6 +578,7 @@ export async function runApiAgent(o: { conf: ApiEngineConf; systemPrompt: string
       messages.push({ role: 'user', content: [{ type: 'text', text: imagesLabel(shown) }, ...shown.flatMap((x) => x.parts)] })
       pictures = true
     }
+    if (more) tools = offer()
   }
   // the per-answer limit of tool rounds: the turn records it (stopReason 'tool_limit') and the chat offers "continue"
   finish('')

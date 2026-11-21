@@ -9,7 +9,7 @@
 //   connections  a person's Gmail or Google Drive, the team's Higgsfield, with made-up secrets (the demo's fakes answer)
 //   welcome      who invited a person (their welcome card on Home)
 //   people       each person's job title and e-mail on their profile (set by them)
-//   projects     a project's channel (a private channel of the rooms, linked by the project's maker)
+//   projects     a project with `channel` gets its own chat room, opened by the project's maker (the channel stays as it is)
 //   threads      replies under a shared chat's last answer, with @mentions (the answer's asker gets the notice)
 //   fileTimes    when the files were changed in the story (on disk and in Files › Recent); recentHidden: the seed's
 //                own changes kept out of Recent (team skills, company profile)
@@ -288,11 +288,11 @@ export async function seedStoryState(o: { baseUrl: string; content: DemoContent;
       if (!room) throw new Error(`room ${r.slug}: not on the server`)
       rooms.set(r.slug, room)
     }
-    // a project's channel, linked by the project's maker from the project (before the messages: the link's line in the
-    // channel then dates to just before its first message)
+    // a project with a channel: its own chat room, opened by the project's maker (docs/decisions/20261120-project-is-room.md;
+    // the 0.5.21 link of a channel to a project is retired). The channel itself stays the group chat it was
     for (const p of c.projects.filter((x) => x.channel)) {
-      await (await as(p.by ?? c.owner.username)).call(API.linkRoomProject, { params: { id: rooms.get(p.channel!)!.id }, body: { projectId: projects.get(nfc(p.name))!, via: 'project' } })
-      log(`project ${p.name}: channel ${p.channel}`)
+      await (await as(p.by ?? c.owner.username)).call(API.openProjectRoom, { params: { id: projects.get(nfc(p.name))! } })
+      log(`project ${p.name}: its chat room`)
     }
 
     // 3. the past AI chats: made by their person, answered by the builder (plain finished messages, at their times)

@@ -33,12 +33,12 @@ beforeAll(async () => {
   roomsOf(h.ctx).clock = () => (clock += 10_000)
   sock = await h.ws('alice')
   await sock.next('hello')
-  // a team project of alice with bob (finance) and erin (marketing), and a private channel of the three linked to it
+  // a team project of alice with bob (finance) and erin (marketing), and its own chat room (the three of them)
   const project = await h.api('alice').call(API.createProject, { body: { name: 'Lumanesis', participants: [{ subjectType: 'user', subjectId: 'bob' }, { subjectType: 'user', subjectId: 'erin' }], instructions: '' } })
   projectFolder = (h.ctx.db.query('SELECT folder_path FROM projects WHERE id = ?').get(project.id) as { folder_path: string }).folder_path
-  room = await h.api('alice').call(API.createRoom, { body: { kind: 'group', userIds: ['bob', 'erin'], name: '루마네시스템' } })
-  const linked = await h.req('alice', `/api/rooms/${room.id}/project`, { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ projectId: project.id }) })
-  expect(linked.status).toBe(200)
+  room = await h.api('alice').call(API.openProjectRoom, { params: { id: project.id } })
+  expect(room.project?.room).toBe(true)
+  expect(room.memberCount).toBe(3)
   // the room's own talk: bob asks
   await h.api('bob').call(API.sendRoomMessage, { params: { id: room.id }, body: { body: '루마네 보증 기간이 어떻게 되죠?', mentions: [], fileIds: [], clientMessageId: cm() } })
   // files: the project's warranty sheet, written by bob (someone else's words, and every member opens it); alice's own

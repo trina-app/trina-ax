@@ -72,7 +72,7 @@ import { confidentialChat } from '../safe-ops/confidential'
 import { fileOpener, roomsOf } from '../rooms/service'
 import { roomFilesOf } from '../rooms/files'
 import { messagesOut, MSG_COLS, roomRow, type MemberRow as RoomMemberRow, type MessageRow as RoomMessageRow, type RoomRow } from '../rooms/store'
-import { historyKinds, openHistories } from '../rooms/history'
+import { HISTORY_ROOM_SQL, historyRoom, openHistories } from '../rooms/history'
 import { hashFile } from '../team-files/place'
 import { missingReaders, scopeWithListing, sourceKey, sourceOf, viewersByHistory, type ReadSource } from './read-scope'
 import { confirmMac, confirmSecret } from './confirm-key'
@@ -367,7 +367,7 @@ export async function answerCheck(ctx: AppContext, userId: string, to: string | 
   // a team room or the everyone room: the members whose history is not worked out yet get it first (rooms/history.ts),
   // for at most DECIDE_HISTORY_MS; one still waiting makes it unsendable (`hidden` below)
   const target = roomId ? roomRow(db, roomId) : null
-  if (roomId && target && historyKinds(target.kind)) try { openHistories(ctx, { roomId, budgetMs: DECIDE_HISTORY_MS, within: true }) } catch (e) { ctx.log.warn('room history not opened', { err: e }) }
+  if (roomId && target && historyRoom(db, target)) try { openHistories(ctx, { roomId, budgetMs: DECIDE_HISTORY_MS, within: true }) } catch (e) { ctx.log.warn('room history not opened', { err: e }) }
   // a disabled or deleted account still in the room reads nothing now: it misses every source and every file. A 1:1
   // chat not made yet (post_to_room to a teammate): the other person is the audience
   const audience = typeof to === 'string'
@@ -471,7 +471,7 @@ export type Check = Awaited<ReturnType<typeof answerCheck>>
  * worked out yet (rooms/history.ts)? */
 function hiddenAnywhere(db: Database, userId: string): boolean {
   return !!db.query('SELECT 1 FROM room_hidden_answers WHERE user_id = ? LIMIT 1').get(userId)
-    || !!db.query(`SELECT 1 FROM room_members m JOIN rooms r ON r.id = m.room_id WHERE m.user_id = ? AND r.kind IN ('team', 'all') AND r.archived_at IS NULL
+    || !!db.query(`SELECT 1 FROM room_members m JOIN rooms r ON r.id = m.room_id WHERE m.user_id = ? AND ${HISTORY_ROOM_SQL('r')} AND r.archived_at IS NULL
       AND m.history_from_seq IS NULL AND m.visible_from_seq > 0 LIMIT 1`).get(userId)
 }
 

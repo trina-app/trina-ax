@@ -42,7 +42,7 @@ import { useBackLink } from '../lib/back'
 import { aiName } from '../lib/tabs'
 import { formatDate } from '../lib/format'
 import { chatPurgeAt, chatTrashDays } from '../lib/chat-trash'
-import { linkedAnswer, linkedStep } from '../lib/linkedAnswer'
+import { focusInPlace, linkedAnswer, linkedStep } from '../lib/linkedAnswer'
 import { CHAT_ROW, farFromBottom, holdPlace, listPlace, restorePlace, useStickToBottom } from '../lib/stickToBottom'
 import { useWaitingMerge } from '../lib/mergeStart'
 import { useLocale, useT } from '../i18n'
@@ -70,6 +70,7 @@ import { WhoSeesLine } from '../components/chat/WhoSees'
 import { askPrivately, askPrivatelyHome, lastOwnQuestion } from '../components/chat/privateAsk'
 import { openChatShare, startShare, useSharedWithNames } from '../components/chat/ChatShareDialog'
 import { HeaderShare, WhoSeesWords } from '../components/HeaderShare'
+import { ProjectRoomButton } from '../components/rooms/ProjectRoomButton'
 import { PeopleStack, useProjectPeople } from '../components/ProjectPeople'
 import { ProjectMembersDialog } from '../components/ProjectMembersDialog'
 import { useProjects } from '../store/projects'
@@ -525,7 +526,7 @@ function ChatView({ chatId, threadRoot }: { chatId: string; threadRoot: string |
     requestAnimationFrame(() => {
       const row = scroller.current?.querySelector(`[data-message-id="${CSS.escape(was)}"]`)
       const pick = (id: string) => row?.querySelector<HTMLElement>(`[data-testid="${id}"]`) ?? null
-      ;(button ? pick('reply-in-thread') ?? pick('chat-thread-line') : pick('chat-thread-line') ?? pick('reply-in-thread'))?.focus()
+      focusInPlace(button ? pick('reply-in-thread') ?? pick('chat-thread-line') : pick('chat-thread-line') ?? pick('reply-in-thread'))
     })
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [threadRoot])
@@ -690,6 +691,9 @@ function ChatView({ chatId, threadRoot }: { chatId: string; threadRoot: string |
           {/* a chat only I see in a team project: its lock, where a shared one has its people (QA TC-1068) */}
           {!shared && chat && privateInTeamProject(chat, project) && <PrivateChatMark />}
         </div>
+        {/* a chat of a team project: the project's chat room, one tap away (docs/decisions/20261120-project-is-room.md D5;
+            a phone: its icon, a dot while something is unread) */}
+        {chat && !chat.deletedAt && <ProjectRoomButton project={project} look={phone ? 'icon' : 'button'} testId="chat-project-room" />}
         {/* who sees it and Share (components/HeaderShare.tsx); a phone: the Share icon only */}
         {chat && !phone && <HeaderShare who={headerWho} onShare={onShare} testId="chat-share" />}
         {isDesktop() && <BrowserToggle />}

@@ -25,6 +25,7 @@
 //      posts it with its delivery row (a retry posts once). 200 "ok" (Slack-style senders look for it).
 // No network I/O and no AI on this path. A refusal is written to the app's status line at most once a minute, never the
 // body.
+import { NOT_HELD_SQL } from '../project-room'
 import { ROOM_APP_BODY_MAX, ROOM_APP_BODY_SECONDS, ROOM_APP_DAILY_RECEIVED, ROOM_APP_GITHUB_BODY_MAX, ROOM_APP_TOKEN_RE, type RoomAppKind } from '@mycel/shared/api'
 import type { AppContext } from '../../context'
 import { teamDefaultLocale, teamTimeZone } from '../../admin/settings'
@@ -111,7 +112,7 @@ export async function roomAppInbound(ctx: AppContext, req: Request, token: strin
   const db = ctx.db
   // 1. the token first
   const row = ROOM_APP_TOKEN_RE.test(token)
-    ? db.query('SELECT a.* FROM room_apps a JOIN rooms r ON r.id = a.room_id WHERE a.token_hash = ? AND r.archived_at IS NULL').get(sha256(token)) as AppRow | null
+    ? db.query(`SELECT a.* FROM room_apps a JOIN rooms r ON r.id = a.room_id WHERE a.token_hash = ? AND r.archived_at IS NULL AND ${NOT_HELD_SQL('r')}`).get(sha256(token)) as AppRow | null
     : null
   if (!row) return apps.limits.unknownOk(info.ip, info.strict) ? NOT_FOUND() : answer(429, 'slow_down', { 'retry-after': '60' })
   // 2. never from a web page in a visitor's browser

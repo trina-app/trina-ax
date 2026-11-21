@@ -438,6 +438,14 @@ export function menuOpener(): HTMLElement | null {
 }
 
 /** `cancel`: the words of the button that keeps things as they are (Cancel by default; "Keep editing" for a discard). */
+/** Close the dialog on screen as cancelled (a link in its body that goes elsewhere: the dialog goes with it). */
+export function cancelDialog() {
+  const { req, set } = useDialogs.getState()
+  if (!req) return
+  set(null)
+  if (req.kind === 'confirm') req.resolve(false)
+  else req.resolve(null)
+}
 export function confirmDialog(o: { title: string; body?: ReactNode; confirm: string; cancel?: string; danger?: boolean }): Promise<boolean> {
   const returnTo = menuOpener()
   return new Promise((resolve) => useDialogs.getState().set({ kind: 'confirm', ...o, returnTo, resolve }))
@@ -589,19 +597,6 @@ export function Toaster() {
             {x.text}
             {x.detail && <span className="block text-xs text-faint">{x.detail}</span>}
           </span>
-          {x.more && (
-            <button
-              type="button"
-              className="shrink-0 rounded-md px-2 py-0.5 font-medium underline underline-offset-2"
-              onClick={() => {
-                x.more!.run()
-                dismiss(x.id)
-              }}
-              data-testid="toast-more"
-            >
-              {x.more.label}
-            </button>
-          )}
           {x.action?.primary ? (
             <Button
               size="sm"

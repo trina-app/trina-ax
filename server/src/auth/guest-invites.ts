@@ -46,9 +46,11 @@ export function teamCredentialOk(db: Database, credentialId: string): boolean {
   return !!db.query('SELECT 1 FROM engine_credentials WHERE id = ? AND owner_user_id IS NULL').get(credentialId)
 }
 
-/** The place exists and is open: a live group chat, or a live project. */
+/** The place exists and is open: a live group chat, or a live project. A project's chat room is never a guest's place
+ * (rooms/project-room.ts: its people are the project's; a guest gets into it through the project), also for an invite
+ * made before its channel became one: create, accept and the pending count all read this. */
 export function placeAlive(db: Database, place: GuestPlace): boolean {
-  if (place.kind === 'room') return !!db.query("SELECT 1 FROM rooms WHERE id = ? AND kind = 'group' AND archived_at IS NULL").get(place.id)
+  if (place.kind === 'room') return !!db.query("SELECT 1 FROM rooms r WHERE r.id = ? AND r.kind = 'group' AND r.archived_at IS NULL AND NOT EXISTS (SELECT 1 FROM room_project_links pl WHERE pl.room_id = r.id AND pl.mode = 'room')").get(place.id)
   return projectFolder(db, place.id) !== null
 }
 
