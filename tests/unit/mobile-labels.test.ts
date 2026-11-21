@@ -121,7 +121,7 @@ test('push-label-v1: the token reply carries the label key\'s hash, only with th
   expect((await without.receive(msg({ type: 'push-token' }), ORIGIN))!.labelHash).toBeUndefined()
   const android = new MobileReceiver(ORIGIN, { ...base, platform: 'android', capabilities: [...base.capabilities, PUSH_LABEL_CAPABILITY] }, new FileTransfers(io), async () => {},
     bridge({ platform: 'android', token: 'fcm:' + 'A'.repeat(140), environment: 'production' }, async () => hash))
-  // Android's messaging service (builds after 1.0.7) names who and where too
+  // Android's messaging service (builds from 1.0.11 on) names who and where too
   expect((await android.receive(msg({ type: 'push-token' }), ORIGIN))!.labelHash).toBe(hash)
   // a keychain that refuses, or something that is no hash: the token still goes, without a hash
   for (const failing of [async () => { throw new Error('keychain') }, async () => null, async () => 'not-a-hash']) {

@@ -164,7 +164,7 @@ export async function openExternal(url: string, options: { purpose: 'google-oaut
 /** The phone's APNs/FCM device token (push-token-v1). The app shows the OS permission prompt here if the person has not
  * answered yet, so this is only called for a signed-in session. Rejects with push_denied / push_unavailable. labelHash:
  * a phone app that shows who and where in a room push (push-label-v1; the iPhone's notification extension, Android's
- * messaging service in Android builds after 1.0.7) made a label key and gives only its hash, which the page registers with the token. */
+ * messaging service in Android builds from 1.0.11 on) made a label key and gives only its hash, which the page registers with the token. */
 export async function requestPushToken(): Promise<PushToken & { labelHash?: string }> {
   const turn = epoch
   await barrier

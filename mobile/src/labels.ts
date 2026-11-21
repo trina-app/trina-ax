@@ -1,4 +1,4 @@
-// Who and where in a room push (docs/DECISIONS.md "아이폰 알림의 이름", "Android notifications name who and where").
+// Who and where in a room push (docs/DECISIONS.md "아이폰 알림의 이름", docs/decisions/20261121-android-push-who-where.md).
 // The iPhone app's notification service extension (plugins/notification-service/) and the Android app's messaging
 // service (modules/push-label) ask the current team for a room push's title. What they need is one item: on the iPhone a
 // keychain item in a group only the app and the extension share, on Android the app's own Keystore-encrypted item

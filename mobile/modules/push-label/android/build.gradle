@@ -1,5 +1,5 @@
 // The app's own Expo module for Android (mobile/modules/push-label, linked by Expo's autolinking from mobile/modules):
-// who and where in a room push (docs/DECISIONS.md "Android notifications name who and where"). LabelMessagingService
+// who and where in a room push (docs/decisions/20261121-android-push-who-where.md). LabelMessagingService
 // replaces expo-notifications' FCM service (plugins/push-label.js removes that one from the app's manifest).
 plugins {
   id 'com.android.library'

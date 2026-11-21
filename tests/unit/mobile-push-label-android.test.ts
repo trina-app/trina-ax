@@ -1,4 +1,4 @@
-// Android: who and where in a room push (docs/DECISIONS.md "Android notifications name who and where"). The app's own
+// Android: who and where in a room push (docs/decisions/20261121-android-push-who-where.md). The app's own
 // module (mobile/modules/push-label) replaces expo-notifications' FCM service; plugins/push-label.js removes that service
 // from the app's manifest and stops the prebuild when expo-notifications changes what the module builds on. The Kotlin
 // cannot run here, so its rules are checked in the source: the title only, never the team's body (the message's text
@@ -40,7 +40,10 @@ test('the manifest: expo-notifications\' service removed at the merge, once; the
   expect(own).toContain('com.google.firebase.MESSAGING_EVENT')
 })
 
-test('the prebuild stops when expo-notifications no longer has what the service overrides', () => {
+// needs the phone app's own install (npm ci --prefix mobile): the root unit shards in CI do not have it
+const expoNotifications = fs.existsSync(path.join(mobileRoot, 'node_modules/expo-notifications/package.json'))
+if (!expoNotifications) console.warn('mobile-push-label-android: skipping the expo-notifications check (no mobile/node_modules; run npm ci --prefix mobile)')
+test.skipIf(!expoNotifications)('the prebuild stops when expo-notifications no longer has what the service overrides', () => {
   expect(() => plugin.checkExpoNotifications(mobileRoot)).not.toThrow()
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'push-label-'))
   try {

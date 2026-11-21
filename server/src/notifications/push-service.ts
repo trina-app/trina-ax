@@ -335,7 +335,7 @@ export class PushService {
             // gateway sends none to Android: launchers count the notifications there)
             const badge=device.platform==='ios'?this.o.badge(allowed.sub.user_id):null
             // label: an Android app that registered a label key builds a room push itself (data-only FCM) and names who
-            // and where (docs/DECISIONS.md "Android notifications name who and where"); an older app gets the gateway's line
+            // and where (docs/decisions/20261121-android-push-who-where.md); an older app gets the gateway's line
             const label=device.platform==='android'&&!!allowed.sub.label_hash&&labelCode(allowed.event)
             status=(await bounded(this.o.nativeTransport({device,payload:{notificationId:r.notification_id,code:allowed.event,locale,tag:r.subscription_id,...(path?{path}:{}),...(badge!==null?{badge}:{}),...(label?{label:true as const}:{})},config:native,signal:abort.signal,beforeSend,ttlSeconds}),abort.signal,timeout)).statusCode
           }else{

@@ -20,7 +20,7 @@
   other message, and every message without the key, is exactly as before.
 - **Who gets `label`.** The team server sends it only to an Android device row with a label key hash (`label_hash`,
   migration 263, now also kept for Android). Only an Android app that offers `push-label-v1` sends a hash, so the
-  installed 1.0.3 and every Android build before this change never get a data-only push and keep the gateway's line.
+  installed Android builds up to 1.0.10 and every Android build before this change never get a data-only push and keep the gateway's line.
 - **Compatibility.** An older gateway refuses the key (400 `invalid_body`, its schema is strict): the team server sends
   the same push again without it and sends no `label` to that gateway for an hour (the `badge` rule,
   `NO_BADGE_RETRY_MS`). An older team server never sends the key: it accepts `labelHash` from an Android page but does

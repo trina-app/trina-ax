@@ -21,7 +21,7 @@ export const PUSH_PERMISSION_CAPABILITY = 'push-permission-v1'
  * do not report the insets). */
 export const APPEARANCE_CAPABILITY = 'appearance-v1'
 /** Optional, versioned: the app shows who and where in a room push. The iPhone's notification service extension (1.0.1
- * on) and Android's messaging service (Android builds after 1.0.7, plugins/push-label.js) ask the team for the title with a label key the
+ * on) and Android's messaging service (Android builds from 1.0.11 on, plugins/push-label.js) ask the team for the title with a label key the
  * app made and keeps on the phone. The `push-token` reply then also has `labelHash` (sha256 hex of that key), which the
  * page registers with the token. On Android that registration also makes room pushes data-only, so the app builds them. */
 export const PUSH_LABEL_CAPABILITY = 'push-label-v1'

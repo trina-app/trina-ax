@@ -1,4 +1,4 @@
-// Who and where in a room push on Android (docs/DECISIONS.md "Android notifications name who and where"), the same rules
+// Who and where in a room push on Android (docs/decisions/20261121-android-push-who-where.md), the same rules
 // as the iPhone's notification service extension (plugins/notification-service/NotificationService.swift). A room push
 // (code room.*) or a chat shared by name (chat.shared) comes data-only with the gateway's generic words in `data`. The
 // app asks its own team, with the label key it keeps on this phone (LabelStore), for the title: who and where ("민준 ·

@@ -26,7 +26,7 @@
 //           only: APNs `aps.badge`; not sent to FCM (Android launchers add up each notification's count). A gateway from before it refuses the
 //           key (invalid_body); the team server then sends the same push without it.
 // Label:    `label: true` (optional, Android only, room codes and `chat.shared` only) says the app builds this
-//           notification itself (docs/DECISIONS.md "Android notifications name who and where"): the FCM message is
+//           notification itself (docs/decisions/20261121-android-push-who-where.md): the FCM message is
 //           data-only (no `notification` block), so the app runs even when it is closed, asks its own team server for
 //           who and where and shows that title over the generic line. The generic title and line are in `data` as
 //           `title` and `message` (expo-notifications shows them when the app cannot ask). The team server sends it only
