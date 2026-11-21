@@ -346,7 +346,7 @@ describe('the open example, Acme', () => {
   test('has none of the end-of-story sections', () => {
     expect([c.company.projects, c.company.rooms, c.company.chats, c.company.connections, c.company.welcome]).toEqual([[], [], [], [], []])
     expect(c.company.freeRoam).toBeUndefined()
-    expect(c.fakes).toEqual({ gmail: null, drive: null, pictures: [] })
+    expect(c.fakes).toEqual({ gmail: null, drive: null, pictures: [], banner: false })
     expect(c.avatars).toEqual([])
   })
   test('is small, plain English, every person and file fictional, and the default', () => {

@@ -7,6 +7,8 @@
 //                 (INBOX, SENT, UNREAD …; default INBOX, or SENT for mail from `me`); attachments by file name
 //   drive.json    { me: { name, email }, files: [{ id, name, mimeType?, parent?, text?, modifiedTime? }] }
 //   higgsfield/   pictures (png, jpg, webp), picked by the words of their file names
+//   higgsfield/banner/   optional: the banner kit (kit.json, text-free photos, fonts) the fake's make_banner draws
+//                 banners from (server/src/demo/fakes/banner.ts); copied whole
 //
 // These schemas check the same shapes here (the server's own are server/src/demo/fakes/gmail.ts and drive.ts and win
 // where they differ), plus what the demo's content promises: every address a reserved `.example` one. The snapshot
@@ -22,8 +24,9 @@ export const FAKES_DIR = 'fakes'
 export const FAKE_GMAIL_FILE = 'gmail.json'
 export const FAKE_DRIVE_FILE = 'drive.json'
 export const FAKE_PICTURES_DIR = 'higgsfield'
+export const FAKE_BANNER_DIR = 'banner'
 
-export interface Fakes { gmail: FakeGmail | null; drive: FakeDrive | null; pictures: string[] }
+export interface Fakes { gmail: FakeGmail | null; drive: FakeDrive | null; pictures: string[]; banner: boolean }
 
 /** a relative time ("-90m") as an ISO time `now` minus that; an ISO time stays */
 export function absoluteTime(d: string, now: number): string {
@@ -45,9 +48,12 @@ export function readFakes(contentDir: string, problems: string[]): Fakes {
     return r.data
   }
   const pics = path.join(dir, FAKE_PICTURES_DIR)
-  const pictures = fs.existsSync(pics) ? fs.readdirSync(pics).filter((n) => !n.startsWith('.')).sort() : []
+  const pictures = fs.existsSync(pics) ? fs.readdirSync(pics).filter((n) => !n.startsWith('.') && n !== FAKE_BANNER_DIR).sort() : []
   for (const n of pictures) if (!/\.(png|jpe?g|webp)$/i.test(n)) problems.push(`${FAKES_DIR}/${FAKE_PICTURES_DIR}/${n}: a png, jpg or webp picture`)
-  return { gmail: json(FAKE_GMAIL_FILE, FakeGmail), drive: json(FAKE_DRIVE_FILE, FakeDrive), pictures }
+  const bannerDir = path.join(pics, FAKE_BANNER_DIR)
+  const banner = fs.existsSync(bannerDir)
+  if (banner && !fs.existsSync(path.join(bannerDir, 'kit.json'))) problems.push(`${FAKES_DIR}/${FAKE_PICTURES_DIR}/${FAKE_BANNER_DIR}: no kit.json`)
+  return { gmail: json(FAKE_GMAIL_FILE, FakeGmail), drive: json(FAKE_DRIVE_FILE, FakeDrive), pictures, banner }
 }
 
 /** Copy <content>/fakes/ to `to`, relative times made absolute (the snapshot's <base>/fakes/). */
@@ -65,4 +71,5 @@ export function writeFakesAt(contentDir: string, fakes: Fakes, to: string, now: 
     fs.mkdirSync(path.join(to, FAKE_PICTURES_DIR), { recursive: true, mode: 0o700 })
     for (const n of fakes.pictures) fs.copyFileSync(path.join(contentDir, FAKES_DIR, FAKE_PICTURES_DIR, n), path.join(to, FAKE_PICTURES_DIR, n))
   }
+  if (fakes.banner) fs.cpSync(path.join(contentDir, FAKES_DIR, FAKE_PICTURES_DIR, FAKE_BANNER_DIR), path.join(to, FAKE_PICTURES_DIR, FAKE_BANNER_DIR), { recursive: true })
 }

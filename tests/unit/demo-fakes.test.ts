@@ -224,7 +224,7 @@ describe('Higgsfield', () => {
     expect(r.body.status).toBe('connected')
     carolHiggsfield = r.body.id
     const t = turn('alice', { person: asker('yes') })
-    expect([...t.tools.keys()].filter((n) => n.startsWith('team_higgsfield__')).sort()).toEqual(['team_higgsfield__balance', 'team_higgsfield__generate_image', 'team_higgsfield__generate_video', 'team_higgsfield__job_display', 'team_higgsfield__show_generations'])
+    expect([...t.tools.keys()].filter((n) => n.startsWith('team_higgsfield__')).sort()).toEqual(['team_higgsfield__balance', 'team_higgsfield__generate_image', 'team_higgsfield__generate_video', 'team_higgsfield__job_display', 'team_higgsfield__make_banner', 'team_higgsfield__show_generations'])
     expect((await t.call('team_higgsfield__balance', {})).text).toContain('credits')
     const g = await t.call('team_higgsfield__generate_image', { prompt: 'a pouch of yuzu ginger tea by a frosted window' })
     expect(g.isError).toBe(false)

@@ -12,6 +12,7 @@ import { buildSnapshot, gateLikeConfig, hygieneProblems, SIGN_IN_TABLES, SNAPSHO
 import { LEAK_PROMPTS, PUBLIC_PAGES, askLeakPrompts, maskAllowed, readSealed, scan, scanPublicPages, sealedIn } from '../../scripts/demo/free-roam/canary'
 import { HIGGSFIELD_TOOLS } from '../../server/src/demo/fakes/higgsfield'
 import { HIGGSFIELD_PICTURE, steepling } from '../../scripts/demo/steepling/make'
+import { SCENE_PICTURES } from '../../scripts/demo/steepling/banner/kit'
 import { baseLayout, cloneBase, shortTemp, startInstance } from '../../scripts/demo/free-roam/instance'
 
 const tmp = shortTemp('frt')
@@ -115,7 +116,10 @@ describe('the snapshot of Steepling (en)', () => {
     expect(gmail.messages.find((m: { labels?: string[] }) => m.labels?.includes('SENT')).attachments).toEqual(['launch-banner-new.jpg', 'instagram-square.jpg'])
     const drive = JSON.parse(fs.readFileSync(path.join(L.fakes, 'drive.json'), 'utf8'))
     expect(drive.files.length).toBeGreaterThan(1)
-    expect(fs.readdirSync(path.join(L.fakes, 'higgsfield')).map((n) => n.normalize('NFC'))).toEqual([HIGGSFIELD_PICTURE.normalize('NFC')])
+    expect(fs.readdirSync(path.join(L.fakes, 'higgsfield')).map((n) => n.normalize('NFC')).sort()).toEqual([HIGGSFIELD_PICTURE, ...Object.values(SCENE_PICTURES), 'banner'].map((n) => n.normalize('NFC')).sort())
+    // the banner kit (make_banner: text-free photos + words) came through whole
+    expect(JSON.parse(fs.readFileSync(path.join(L.fakes, 'higgsfield', 'banner', 'kit.json'), 'utf8')).scenes.length).toBe(4)
+    expect(fs.existsSync(path.join(L.fakes, 'higgsfield', 'banner', 'fonts', 'Fraunces-SemiBold.ttf'))).toBe(true)
     // the team's Higgsfield keeps the fake's tool list, so the AI has its image tool (QA TC-5559)
     const hf = new Database(path.join(L.data, 'app.db'), { readonly: true })
     try {

@@ -1067,7 +1067,7 @@ export class TurnExec {
       // a guest: their places and who invited them (prompt.ts guestSection), no team-wide text
       guest: guestPrompt,
       devEnvDown: this.devEnvDown,
-      demo: freeRoam ? { company: rt.ctx.config.demo!.company } : null,
+      demo: freeRoam ? { company: rt.ctx.config.demo!.company, fakes: !!rt.ctx.config.demo!.fakes } : null,
     })
     // what a general-purpose sub-agent may use, and the instructions every sub-agent gets (memories and history never)
     let turnTools = [...Object.keys(FILE_TOOLS), ...extraTools]
