@@ -3619,8 +3619,11 @@ export class TurnExec {
   private noteSharedReads(sources: readonly ReadSource[], audience: readonly string[], yes = false, kept = false): boolean {
     if (!this.shared || !sources.length) return true
     // an answer that already attached a file for everyone here (attachToAnswer), or is attaching one now (beginAttach),
-    // never becomes one hidden from people added later (a k group): that connection's answer is not read into it (fails closed, the call is refused)
-    if (kept && this.attachedFiles + this.attaching > 0) return false
+    // never becomes one hidden from people added later (a k group): that connection's answer is not read into it (fails closed, the call is refused).
+    // Nor one that saved a version of a chat file (TurnFiles.chatVersionsMade, set in the same synchronous step as the
+    // version's row, whose gate refuses a k answer): that version is opened through its chain's root by everyone who
+    // sees the root, so the answer that wrote it must stay one they may see (QA TC-6962 / TC-6835)
+    if (kept && this.attachedFiles + this.attaching + (this.files?.chatVersionsMade.size ?? 0) > 0) return false
     const c = [...new Set(audience)].sort()
     const k = `${yes ? 'y' : ''}${kept ? 'k' : ''}|${c.join(',')}`
     let g = this.sharedReads.get(k)
@@ -3960,6 +3963,9 @@ export class TurnExec {
    */
   async confirmSharedConnection(c: { id: string; key: string; name: string; sources: ReadSource[] }): Promise<string | null> {
     if (!this.shared) return null
+    // this answer saved a version of a chat file (everyone who sees the file opens it), so it never becomes one hidden
+    // from people added later (noteSharedReads): said as it is, never "could not check" (QA TC-6962)
+    if ((this.files?.chatVersionsMade.size ?? 0) > 0) return `Nothing was fetched from ${neutralizeTags(c.name)}: this answer already saved a new version of a file of this chat, which everyone in it opens, so what a connected service returns cannot join this answer. Answer without it; the user can ask for it in a new message. Next time, use connected services before you change a chat file.`
     const failed = () => this.sharedConnText(c.name, 'failed')
     // at most a few rounds: a card answered while more people came to see the chat asks once more for them
     for (let round = 0; round < 3; round++) {

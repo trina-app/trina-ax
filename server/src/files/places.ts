@@ -76,7 +76,7 @@ export const PLACE_WORDS = {
   notSeen: "chat:files/ holds the files sent in this chat when it is shared with people; there are none here, or this is not a Trina chat's main assistant. A file someone attached to a message is listed in its <attachments> with its own path: read that path.",
   noWork: "This chat has no work folder here (no command ran in it yet, the dev environment is off, the people of the chat changed, or this is a sub-agent).",
   projectSave: 'In a project chat, save files in the project folder (its path in projects/): that is where its people find them.',
-  personalSave: 'In a chat only you see, save files in your own folder (users/<your id>/).',
+  personalSave: 'A chat only you see attaches no files. Save files in your own folder (users/<your id>/) and link them in your answer; a file already there needs nothing more.',
   hiddenTurn: 'This answer used a connection whose results some people who may join this chat cannot see, so it cannot attach files to the chat.',
   lockedSave: 'Files are not attached in a confidential chat.',
   workWrite: 'Files come into the work folder only with copy_files (to_folder "chat:work/…") or your box_shell commands, in a chat whose commands run in a work folder; write and edit do not change it.',

@@ -309,7 +309,10 @@ describe('chat:files/', () => {
   test('a personal chat: chat:files/ is no save place there', async () => {
     const chat = await personal()
     const r = await run('alice', chat, copy(['users/alice/proposal/proposal.html'], 'chat:files/'))
-    expect(r.content).toContain('save files in your own folder')
+    expect(r.content).toContain('Save files in your own folder')
+    // a chat made private again (QA TC-6959): the refusal says nothing is attached here and a file there is just linked
+    expect(r.content).toContain('A chat only you see attaches no files')
+    expect(r.content).toContain('link them in your answer; a file already there needs nothing more')
   })
 })
 
