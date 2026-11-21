@@ -3,7 +3,7 @@
 // proxy never picks a connection from anything the engine sends (headers, account ids): token -> row -> connection.
 // Every request reads the connection again, so switching it off or removing it stops the next request (T15), and its
 // 401 / long 429 state belongs to that connection only (one subscription at its limit does not stop the others).
-import { DEMO_CACHE_READ_WEIGHT, type CredentialKind } from '@mycel/shared/api'
+import { DEMO_CACHE_READ_WEIGHT, DEMO_CACHE_WRITE_WEIGHT, type CredentialKind } from '@mycel/shared/api'
 import { audit } from '../admin/audit'
 import { anthropicGateway, isFreeRoam, type AnthropicGatewayConf, type ModelUpstreams } from '../app-config'
 import type { ProxyTurnEvent } from '../proxy/model-proxy'
@@ -164,10 +164,13 @@ export function createBroker(cc: CredCtx): CredentialBroker {
       let input: number, output: number
       if (familyOfKind(row.kind) === 'anthropic') {
         const u = usage as ClaudeUsage
-        // a free-roam demo's limit weighs a cache read at DEMO_CACHE_READ_WEIGHT (admin/budgets.ts demoLimitState): what
-        // the demo counts is what the visitor's answers really cost, not the instructions read again from the cache
-        const cacheRead = freeRoam ? Math.round(n(u.cache_read_input_tokens) * DEMO_CACHE_READ_WEIGHT) : n(u.cache_read_input_tokens)
-        input = n(u.input_tokens) + cacheRead + n(u.cache_creation_input_tokens)
+        // a free-roam demo's limit weighs a cache read at DEMO_CACHE_READ_WEIGHT and a cache write at
+        // DEMO_CACHE_WRITE_WEIGHT (admin/budgets.ts demoLimitState): what the demo counts is the visitor's questions, not
+        // the instructions read again from the cache nor a fresh copy's system prompt and tools written to it (its
+        // first question). demo-gate's daily cap still counts cache writes fully.
+        const cacheRead = freeRoam ? n(u.cache_read_input_tokens) * DEMO_CACHE_READ_WEIGHT : n(u.cache_read_input_tokens)
+        const cacheWrite = freeRoam ? n(u.cache_creation_input_tokens) * DEMO_CACHE_WRITE_WEIGHT : n(u.cache_creation_input_tokens)
+        input = Math.round(n(u.input_tokens) + cacheRead + cacheWrite)
         output = n(u.output_tokens)
       } else {
         const u = usage as OpenAiUsage
