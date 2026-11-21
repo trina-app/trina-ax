@@ -205,7 +205,7 @@ export const TEXT = {
   placeOther: t('{name}님의 폴더', "{name}'s folder", 'Folder {name}', "{name}さんのフォルダー", "Carpeta de {name}", "{name}的文件夹"),
   scopeRoom: t("'{name}' 대화의 메시지", "messages of the conversation '{name}'", "pesan di percakapan '{name}'", "トーク「{name}」のメッセージ", "mensajes de la conversación «{name}»", "聊天“{name}”的消息"),
   scopeChatFiles: t('공유 채팅의 파일이나 답글', 'files or comments in a shared chat', 'berkas atau balasan di obrolan bersama', '共有チャットのファイルや返信', 'archivos o respuestas de un chat compartido', '共享对话中的文件或回复'),
-  roomMentionAll: t('전체 대화방에서는 팀장과 관리자만 @전체를 쓸 수 있어요.', 'In the everyone room, only the owner and admins can use @everyone.', 'Di ruang Semua, hanya owner dan admin yang bisa memakai @semua.', "全員のトークで@全員を使えるのはオーナーと管理者だけです。", "En la sala Todos, solo el propietario y los administradores pueden usar @todos.", "在所有人群聊中，只有所有者和管理员可以使用@everyone。"),
+  roomMentionAll: t('전체 대화방에서는 팀장과 관리자만 @전체를 쓸 수 있어요.', 'In the everyone room, only the owner and admins can use @everyone.', 'Di percakapan Semua, hanya owner dan admin yang bisa memakai @semua.', "全員のトークで@全員を使えるのはオーナーと管理者だけです。", "En la conversación Todos, solo el propietario y los administradores pueden usar @todos.", "在所有人群聊中，只有所有者和管理员可以使用@everyone。"),
   /** the same hourly limit, when the room being made has a name (a private channel); it counts both kinds */
   // a private channel linked to a project (rooms/project-link.ts; docs/decisions/20261119-channel-project-link.md)
   roomNotPrivateChannel: t('비공개 채널만 프로젝트에 연결할 수 있어요.', 'Only a private channel can be linked to a project.', 'Hanya saluran privat yang bisa ditautkan ke proyek.', 'プロジェクトにつなげられるのはプライベートチャンネルだけです。', 'Solo un canal privado se puede vincular a un proyecto.', '只有私密频道可以关联到项目。'),
@@ -214,8 +214,8 @@ export const TEXT = {
   channelLinked: t('이 채널은 이미 다른 프로젝트에 연결돼 있어요. 먼저 연결을 해제해 주세요.', 'This channel is already linked to another project. Unlink it first.', 'Saluran ini sudah ditautkan ke proyek lain. Lepaskan tautannya dulu.', 'このチャンネルはすでに別のプロジェクトにつながっています。先に解除してください。', 'Este canal ya está vinculado a otro proyecto. Desvincúlelo primero.', '这个频道已经关联了另一个项目。请先解除关联。'),
   projectHasChannel: t('이 프로젝트에는 이미 채널이 있어요.', 'This project already has a channel.', 'Proyek ini sudah punya saluran.', 'このプロジェクトにはもうチャンネルがあります。', 'Este proyecto ya tiene un canal.', '这个项目已经有频道了。'),
   // a team project's own chat room (rooms/project-room.ts)
-  projectRoomTeamOnly: t('팀 프로젝트에만 대화방이 있어요.', 'Only a team project has a chat room.', 'Hanya proyek tim yang punya ruang obrolan.', 'チャットルームがあるのはチームのプロジェクトだけです。', 'Solo un proyecto del equipo tiene sala de chat.', '只有团队项目才有聊天室。'),
-  projectRoomPeople: t('이 대화방의 사람은 프로젝트의 사람이에요. 프로젝트에서 사람을 관리해 주세요.', "This chat room's people are the project's people. Manage them on the project.", 'Orang di ruang obrolan ini adalah orang di proyeknya. Kelola mereka di proyek.', 'このチャットルームのメンバーはプロジェクトのメンバーです。プロジェクトで管理してください。', 'Las personas de esta sala son las del proyecto. Gestiónelas en el proyecto.', '这个聊天室的成员就是项目的成员。请在项目中管理成员。'),
+  projectRoomTeamOnly: t('팀 프로젝트에만 대화방이 있어요.', 'Only a team project has a chat room.', 'Hanya proyek tim yang punya percakapan sendiri.', '専用のトークがあるのはチームのプロジェクトだけです。', 'Solo un proyecto del equipo tiene su propia conversación.', '只有团队项目才有聊天室。'),
+  projectRoomPeople: t('이 대화방의 사람은 프로젝트의 사람이에요. 프로젝트에서 사람을 관리해 주세요.', "This chat room's people are the project's people. Manage them on the project.", 'Orang di percakapan ini adalah orang di proyeknya. Kelola mereka di proyek.', 'このトークのメンバーはプロジェクトのメンバーです。プロジェクトで管理してください。', 'Las personas de esta conversación son las del proyecto. Gestiónelas en el proyecto.', '这个聊天室的成员就是项目的成员。请在项目中管理成员。'),
   roomChannelLimit: t('새 비공개 채널과 그룹 대화는 한 시간에 합쳐서 {n}개까지 만들 수 있어요. {minutes}분 뒤에 다시 만들어 주세요.', 'You can make up to {n} new private channels and group chats an hour. Try again in {minutes} min.', 'Anda bisa membuat hingga {n} saluran privat dan obrolan grup baru per jam. Coba lagi dalam {minutes} menit.', "新しいプライベートチャンネルとグループトークは、合わせて1時間に{n}件まで作成できます。{minutes}分後にもう一度お試しください。", "Puede crear hasta {n} canales privados y chats de grupo nuevos por hora. Inténtelo de nuevo en {minutes} min.", "每小时最多可以新建{n}个私密频道和群聊（合计）。请在{minutes}分钟后重试。"),
   roomGroupLimit: t('새 그룹 대화는 한 시간에 {n}개까지 만들 수 있어요. {minutes}분 뒤에 다시 만들어 주세요.', 'You can make up to {n} new group chats an hour. Try again in {minutes} min.', 'Anda bisa membuat hingga {n} obrolan grup baru per jam. Coba lagi dalam {minutes} menit.', "新しいグループトークは1時間に{n}件まで作成できます。{minutes}分後にもう一度お試しください。", "Puede crear hasta {n} chats de grupo nuevos por hora. Inténtelo de nuevo en {minutes} min.", "每小时最多可以新建{n}个群聊。请在{minutes}分钟后重试。"),
   /** a room's change card for a new file ({folder}: where, {file}: its name) and for a file this answer made */
@@ -311,7 +311,7 @@ export const TEXT = {
   postRoomAskNewDm: t('{name}님과의 새 1:1 대화로 보낼까요?', 'Send to {name} in a new 1:1 chat?', 'Kirim ke {name} di obrolan 1:1 baru?', '{name}さんとの新しい1:1で送りますか？', '¿Enviar a {name} en un chat 1:1 nuevo?', '要在新的私信中发送给{name}吗？'),
   postRoomOwnWords: t('내 메시지', 'Your message', 'Pesan Anda', 'あなたのメッセージ', 'Su mensaje', '你的消息'),
   postRoomMentions: t('알림 받을 사람 (멘션)', 'Mentions (they get a notice)', 'Disebut (mendapat pemberitahuan)', 'メンション（通知が届きます）', 'Menciones (reciben un aviso)', '提及（会收到通知）'),
-  postRoomMentionsAll: t('이 방의 모든 사람 ({word})', 'Everyone in this room ({word})', 'Semua orang di ruang ini ({word})', 'このルームの全員（{word}）', 'Todos en esta sala ({word})', '此聊天室的所有人（{word}）'),
+  postRoomMentionsAll: t('이 방의 모든 사람 ({word})', 'Everyone in this room ({word})', 'Semua orang di percakapan ini ({word})', 'このトークの全員（{word}）', 'Todos en esta conversación ({word})', '此聊天室的所有人（{word}）'),
   postRoomNote: t('내 이름으로 보일 한마디', 'Your note, shown under your name', 'Catatan Anda, tampil atas nama Anda', 'あなたの名前で表示されるひとこと', 'Su nota, que aparece con su nombre', '你的备注，显示在你的名下'),
   postRoomFilesToSend: t('함께 보낼 파일', 'Files sent with it', 'Berkas yang ikut dikirim', '一緒に送るファイル', 'Archivos que se envían', '一起发送的文件'),
   postRoomText: t('보낼 내용', 'What will be sent', 'Yang akan dikirim', '送る内容', 'Lo que se enviará', '将要发送的内容'),
@@ -336,7 +336,7 @@ export const TEXT = {
   postRoomSend: t('보내기', 'Send', 'Kirim', '送る', 'Enviar', '发送'),
   postRoomDont: t('보내지 않기', "Don't send", 'Jangan kirim', '送らない', 'No enviar', '不发送'),
   // a shared chat: several rooms or people match the name; the asker picks on this card (the AI never gets the list)
-  postRoomPick: t("'{ref}'에 맞는 곳이 여러 개예요. 어디로 보낼까요?", "Several rooms or people match '{ref}'. Where should it go?", "Beberapa ruang atau orang cocok dengan '{ref}'. Kirim ke mana?", '「{ref}」に当てはまる送り先が複数あります。どこに送りますか？', "Varias salas o personas coinciden con '{ref}'. ¿Adónde lo envío?", '有多个群聊或人与“{ref}”匹配。要发送到哪里？'),
+  postRoomPick: t("'{ref}'에 맞는 곳이 여러 개예요. 어디로 보낼까요?", "Several rooms or people match '{ref}'. Where should it go?", "Beberapa percakapan atau orang cocok dengan '{ref}'. Kirim ke mana?", '「{ref}」に当てはまる送り先が複数あります。どこに送りますか？', "Varias conversaciones o personas coinciden con '{ref}'. ¿Adónde lo envío?", '有多个群聊或人与“{ref}”匹配。要发送到哪里？'),
   postRoomNotSent: t('보내지 않았어요', 'Not sent', 'Tidak dikirim', '送っていません', 'No se envió', '未发送'),
   // share_with_person's card (chat/share-with-person.ts): the asker's own files for teammates, view only
   fileShareAsk: t('{who}님에게 파일 {n}개를 공유할까요?', 'Share {n, plural, one {# file} other {# files}} with {who}?', 'Bagikan {n} berkas dengan {who}?', '{who}さんにファイルを{n}件共有しますか？', '¿Compartir {n, plural, one {# archivo} other {# archivos}} con {who}?', '要与{who}共享{n}个文件吗？'),

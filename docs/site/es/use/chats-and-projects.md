@@ -292,26 +292,26 @@ Empiece un chat desde la página del proyecto, o lleve un chat a él con **Mover
   pueden abrirlo, y una línea debajo lo indica. Necesita permiso de escritura en la carpeta del proyecto (sin él, **+**
   solo ofrece archivos del equipo); **✕** antes de enviar mueve el archivo a la papelera.
 
-### La sala de chat del proyecto
+### La conversación del proyecto
 
-Cada proyecto del equipo tiene su propia sala de chat. Las personas del proyecto son las personas de la sala, y sus
+Cada proyecto del equipo tiene su propia conversación. Las personas del proyecto son las personas de la conversación, y sus
 archivos son los del proyecto: una sola lista de personas y un solo lugar para los archivos.
 
-- **Sala de chat** en la página del proyecto (en un teléfono, una fila bajo el nombre del proyecto) abre la sala. La
+- **Conversación** en la página del proyecto (en un teléfono, una fila bajo el nombre del proyecto) abre la conversación. La
   primera vez se crea con el nombre del proyecto. Un pequeño icono de chat en la fila del proyecto en **Proyectos** (con
-  un punto si hay algo sin leer) y **Sala de chat** arriba en los chats de IA del proyecto también la abren.
-- Arriba en la sala, el botón de carpeta con el nombre del proyecto abre la página del proyecto: sus archivos y sus
-  chats de IA. La sala aparece en **Canales**, con un icono de carpeta, cuando alguien escribe en ella.
-- **Quién está en ella sigue al proyecto.** Añadir a alguien al proyecto lo añade a la sala, y ve todo su historial;
-  sacarlo del proyecto lo saca de la sala. El diálogo de miembros lo dice antes de añadir a nadie. Para cambiarlo, abra
-  el nombre de la sala arriba y luego **Gestionar personas** (para quien puede cambiar las personas del proyecto).
-  **Silenciar** deja la sala en silencio; **Salir del proyecto** sale del proyecto y de su sala.
+  un punto si hay algo sin leer) y **Conversación** arriba en los chats de IA del proyecto también la abren.
+- Arriba en la conversación, el botón de carpeta con el nombre del proyecto abre la página del proyecto: sus archivos y sus
+  chats de IA. La conversación aparece en **Canales**, con un icono de carpeta, cuando alguien escribe en ella.
+- **Quién está en ella sigue al proyecto.** Añadir a alguien al proyecto lo añade a la conversación, y ve todo su historial;
+  sacarlo del proyecto lo saca de la conversación. El diálogo de miembros lo dice antes de añadir a nadie. Para cambiarlo, abra
+  el nombre de la conversación arriba y luego **Gestionar personas** (para quien puede cambiar las personas del proyecto).
+  **Silenciar** deja la conversación en silencio; **Salir del proyecto** sale del proyecto y de su conversación.
 - **Un archivo que envía allí va a la carpeta Adjuntos del chat del proyecto**, donde las personas del proyecto lo
   encuentran en Archivos. Quien solo puede ver el proyecto puede escribir mensajes, pero no añadir archivos.
 - **Eliminar un mensaje elimina solo el mensaje.** Su archivo se queda en Adjuntos del chat del proyecto; elimínelo en
   Archivos si quiere que desaparezca.
-- Trina en el chat lateral de la sala guarda los documentos nuevos en la carpeta del proyecto, y los chats de IA del
-  proyecto pueden leer la sala. Ambos los ven las mismas personas, así que no se pregunta quién puede verlo.
+- Trina en el chat lateral de la conversación guarda los documentos nuevos en la carpeta del proyecto, y los chats de IA del
+  proyecto pueden leer la conversación. Ambos los ven las mismas personas, así que no se pregunta quién puede verlo.
 
 ## Encontrar cualquier cosa
 
