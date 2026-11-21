@@ -3,18 +3,21 @@
 // signupUrl) while `me.server.dev` is false; here: who is asked, the bar and its suggestions, the meter from 80 %, the
 // limit (dialog once, the message boxes stop), the neutral words, the hidden AI-account sections, the sign-in page.
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from 'bun:test'
+import { act } from 'react'
 import { MemoryRouter } from 'react-router-dom'
 import type { DemoInfo, Locale, Me } from '@mycel/shared/api'
 import { translate, useLocaleStore } from '../../src/i18n'
 import { DemoBar, useDemoInfo } from '../../src/components/demo/Demo'
-import { DemoLimitDialog, DemoLimitNotice, FreeRoamStart } from '../../src/components/demo/FreeRoam'
+import { DemoLimitDialog, DemoLimitNotice, FreeRoamChips, FreeRoamStart, FreeRoamUnavailable } from '../../src/components/demo/FreeRoam'
 import { api, API, ApiError, errorText } from '../../src/lib/api'
 import { demoAnswerKey, demoMeter, demoQuestionsLeft, demoReason, FREE_ROAM_HIDDEN_PAGES, freeRoamSuggestions, mayBeDemoServer, resumeFreeRoam } from '../../src/lib/freeRoam'
 import { micState } from '../../src/lib/voice'
 import { settingsTabs } from '../../src/pages/settingsTabs'
-import { demoAnswerEnded, freeRoamNow, useDemo } from '../../src/store/demo'
+import { demoAnswerEnded, freeRoamNow, freshStart, useDemo } from '../../src/store/demo'
+import { takeFreshStart } from '../../src/lib/freeRoam'
+import { cjkTight, formatRelative } from '../../src/lib/format'
 import { canChooseEngine, teamDefaultLocale, useSession } from '../../src/store/session'
-import { installDom, mount, removeDom } from './dom-host'
+import { FakeEvent, installDom, mount, removeDom } from './dom-host'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { AvailableSkillsList } from '../../src/components/AvailableSkills'
 import { AccountMenu } from '../../src/components/nav/AccountMenu'
@@ -105,28 +108,25 @@ describe('which server is asked', () => {
   })
 })
 
-describe('the meter', () => {
-  test('quiet until 80 %, then "about N% left" in steps of 5, and out at the limit', () => {
-    expect(demoMeter(0, 300_000)).toEqual({ out: false, low: false, leftPct: 20 })
-    expect(demoMeter(239_999, 300_000).low).toBe(false)
-    expect(demoMeter(240_000, 300_000)).toEqual({ out: false, low: true, leftPct: 20 })
-    expect(demoMeter(279_000, 300_000)).toEqual({ out: false, low: true, leftPct: 10 })
-    expect(demoMeter(299_000, 300_000)).toEqual({ out: false, low: true, leftPct: 5 })
-    expect(demoMeter(300_000, 300_000)).toEqual({ out: true, low: true, leftPct: 0 })
-    expect(demoMeter(400_000, 300_000).out).toBe(true)
-    // nothing known: nothing said
-    expect(demoMeter(undefined, undefined)).toEqual({ out: false, low: false, leftPct: 100 })
+describe('the counter', () => {
+  test('out only at the limit; nothing known, not out (no % meter: QA 2026-11-22 F12)', () => {
+    expect(demoMeter(0, 300_000)).toEqual({ out: false })
+    expect(demoMeter(299_999, 300_000)).toEqual({ out: false })
+    expect(demoMeter(300_000, 300_000)).toEqual({ out: true })
+    expect(demoMeter(400_000, 300_000)).toEqual({ out: true })
+    expect(demoMeter(undefined, undefined)).toEqual({ out: false })
   })
-  test('questions left: floor(remaining / 35k) until the meter takes over at 80 %; nothing known, nothing said', () => {
+  test('questions left: floor(remaining / 35k) right to the end, 0 before out; nothing known or out, nothing said', () => {
     expect(demoQuestionsLeft(0, 300_000)).toBe(8)
     expect(demoQuestionsLeft(1_000, 300_000)).toBe(8)
     expect(demoQuestionsLeft(90_000, 300_000)).toBe(6)
     expect(demoQuestionsLeft(235_000, 300_000)).toBe(1)
-    expect(demoQuestionsLeft(239_999, 300_000)).toBe(1)
-    expect(demoQuestionsLeft(240_000, 300_000)).toBeNull()
+    // 85 % used: still a count, no longer a share
+    expect(demoQuestionsLeft(255_000, 300_000)).toBe(1)
+    // 99 %: 0 while the AI still answers ("Almost out of questions")
+    expect(demoQuestionsLeft(297_000, 300_000)).toBe(0)
     expect(demoQuestionsLeft(300_000, 300_000)).toBeNull()
     expect(demoQuestionsLeft(-5, 300_000)).toBe(8)
-    // a small limit: never below 0
     expect(demoQuestionsLeft(0, 20_000)).toBe(0)
     expect(demoQuestionsLeft(undefined, 300_000)).toBeNull()
     expect(demoQuestionsLeft(0, undefined)).toBeNull()
@@ -137,7 +137,22 @@ describe('the meter', () => {
     expect(en('demo.free.left', { n: 1 })).toBe('About 1 question left')
     expect(translate('ko', 'demo.free.left', { n: 8 })).toBe('질문 8번 정도 남았어요')
     for (const l of ['en', 'ko', 'id', 'ja', 'es', 'zh'] as const) expect(translate(l, 'demo.free.left', { n: 8 })).not.toMatch(/token|토큰|トークン|令牌/i)
+    // zh: a space between the number and the words around it
+    expect(translate('zh', 'demo.free.left', { n: 8 })).toBe('还能问大约 8 个问题')
   })
+  test('the end words say the questions are used up, and promise nothing about people (the teammates are made up)', () => {
+    expect(en('demo.free.almostOut')).toBe('Almost out of questions')
+    expect(translate('ko', 'demo.free.almostOut')).toBe('질문을 거의 다 썼어요')
+    expect(en('demo.free.limit.title')).toBe("You've used all your questions")
+    expect(translate('ko', 'demo.free.limit.title')).toBe('질문을 다 썼어요')
+    expect(en('demo.free.out')).toBe("You've used all your questions. You can still look around everything here.")
+    expect(translate('ko', 'demo.free.out')).toBe('질문을 다 썼어요. 둘러보기는 계속할 수 있어요.')
+    for (const l of ['en', 'ko', 'ja', 'zh', 'es', 'id'] as const) {
+      for (const k of ['demo.free.almostOut', 'demo.free.limit.title', 'demo.free.out', 'demo.free.left'] as const) expect(translate(l, k, { n: 3 }), `${l} ${k}`).not.toMatch(/%|\bAI\b/)
+      if (l !== 'en') for (const k of ['demo.free.almostOut', 'demo.free.out', 'demo.free.backHome'] as const) expect(translate(l, k), `${l} ${k}`).not.toBe(en(k))
+    }
+  })
+
 })
 
 describe('the suggestions', () => {
@@ -157,38 +172,96 @@ describe('the suggestions', () => {
 describe('the bar', () => {
   beforeEach(() => useSession.setState({ status: { kind: 'signed-in', me: me({ features: FEATURES_OFF }) } } as never))
 
-  test('who you are, "Try anything", and three suggestions; no meter below 80 %; no person switcher', async () => {
+  test('who you are, the questions left, the practice label and Start free; no chips (they are on Home); no person switcher', async () => {
     const m = await mount(<MemoryRouter><DemoBar /></MemoryRouter>)
     try {
       await m.until(() => m.find('free-roam-bar'), 'the bar')
-      expect(m.get('free-roam-who').textContent).toBe("You're Mina at Steepling, a made-up company. Try anything. About 8 questions left Practice connections")
+      expect(m.get('free-roam-who').textContent).toBe("You're Mina at Steepling, a made-up company.")
       expect(m.get('free-roam-left').textContent).toBe('About 8 questions left')
-      expect(m.get('free-roam-chips').querySelectorAll('button').length).toBe(3)
-      expect(m.find('free-roam-meter')).toBeNull()
+      expect(m.get('free-roam-practice').textContent).toBe('Gmail, Drive, Higgsfield: practice only')
+      // the chips moved under Home's box (owner, QA 2026-11-22 F9)
+      expect(m.find('free-roam-chips')).toBeNull()
+      expect(m.find('free-roam-chip')).toBeNull()
+      expect(m.html()).not.toContain('%')
       expect(m.find('demo-switch')).toBeNull()
       expect(m.find('demo-bar')).toBeNull()
     } finally { await m.unmount() }
   })
 
-  test('Gmail, Drive and Higgsfield are said to be practice copies: a short label, the whole sentence in its tooltip, in every language', async () => {
+  test('one quiet Start free at the end, to the sign-up address in a new tab; none without one, none once out', async () => {
+    let m = await mount(<MemoryRouter><DemoBar /></MemoryRouter>)
+    try {
+      await m.until(() => m.find('free-roam-bar-start-free'), 'Start free')
+      const a = m.get('free-roam-bar-start-free')
+      expect(a.textContent).toBe('Start free')
+      expect(a.getAttribute('href')).toBe('https://example.com/pricing')
+      expect(a.getAttribute('target')).toBe('_blank')
+      expect(a.getAttribute('rel')).toContain('noopener')
+      // a text link, not a button: no button look (no border, no fill)
+      expect(a.getAttribute('class')).not.toContain('bg-accent ')
+      expect(a.getAttribute('class')).toContain('ml-auto')
+    } finally { await m.unmount() }
+    useDemo.setState({ loaded: false, info: null, out: false })
+    demoAnswer = { ...INFO, signupUrl: undefined }
+    m = await mount(<MemoryRouter><DemoBar /></MemoryRouter>)
+    try {
+      await m.until(() => m.find('free-roam-bar'), 'the bar')
+      expect(m.find('free-roam-bar-start-free')).toBeNull()
+    } finally { await m.unmount() }
+    useDemo.setState({ loaded: false, info: null, out: false })
+    demoAnswer = { ...INFO, used: 300_000 }
+    m = await mount(<MemoryRouter><DemoBar /></MemoryRouter>)
+    try {
+      await m.until(() => m.find('free-roam-bar'), 'the bar')
+      // out: the limit dialog and the line under the box have their own Start free
+      expect(m.find('free-roam-bar-start-free')).toBeNull()
+      expect(m.find('free-roam-left')).toBeNull()
+    } finally { await m.unmount() }
+  })
+
+  test('Gmail, Drive and Higgsfield are practice: the label says it; a tap opens the whole sentence, Esc or a tap outside closes it', async () => {
     const m = await mount(<MemoryRouter><DemoBar /></MemoryRouter>)
     try {
       await m.until(() => m.find('free-roam-practice'), 'the label')
       const label = m.get('free-roam-practice')
-      expect(label.textContent).toBe('Practice connections')
-      expect(label.getAttribute('tabindex')).toBe('0')
-      // no card, no banner: one quiet span inside the bar's first line
-      expect(m.get('free-roam-who').contains(label)).toBe(true)
+      // a real button (a touch screen never shows a tooltip: QA 2026-11-22 F3)
+      expect(label.tagName.toLowerCase()).toBe('button')
+      expect(label.getAttribute('aria-expanded')).toBe('false')
+      expect(m.find('free-roam-practice-tip')).toBeNull()
+      expect(m.get('free-roam-bar').contains(label)).toBe(true)
+      // a tap (a click in the browser after a touch)
+      await m.click('free-roam-practice')
+      expect(m.get('free-roam-practice').getAttribute('aria-expanded')).toBe('true')
+      expect(m.get('free-roam-practice-tip').textContent).toBe(en('demo.free.practiceTip'))
+      expect(m.get('free-roam-practice').getAttribute('aria-controls')).toBe(m.get('free-roam-practice-tip').getAttribute('id'))
+      // Esc closes it
+      await act(() => { document.dispatchEvent(new FakeEvent('keydown', { key: 'Escape', bubbles: true }) as never) })
+      expect(m.find('free-roam-practice-tip')).toBeNull()
+      // a tap again opens; a tap outside closes
+      await m.click('free-roam-practice')
+      expect(m.find('free-roam-practice-tip')).not.toBeNull()
+      await act(() => { m.get('free-roam-who').dispatchEvent(new FakeEvent('pointerdown', { bubbles: true }) as never) })
+      expect(m.find('free-roam-practice-tip')).toBeNull()
+      // a second tap on the label closes it too
+      await m.click('free-roam-practice')
+      await m.click('free-roam-practice')
+      expect(m.find('free-roam-practice-tip')).toBeNull()
     } finally { await m.unmount() }
+    expect(translate('en', 'demo.free.practice')).toBe('Gmail, Drive, Higgsfield: practice only')
+    expect(translate('ko', 'demo.free.practice')).toBe('Gmail·Drive·Higgsfield는 연습용')
     expect(translate('en', 'demo.free.practiceTip')).toBe('Gmail, Google Drive and Higgsfield here are practice copies: mail is never really sent, and new pictures come from a prepared set.')
-    expect(translate('ko', 'demo.free.practice')).toBe('연습용 연결')
     expect(translate('ko', 'demo.free.practiceTip')).toBe('여기 Gmail·Google Drive·Higgsfield는 연습용이에요. 메일은 실제로 보내지 않고, 새 사진은 준비된 사진 중에서 골라요.')
     for (const l of ['en', 'ko', 'ja', 'zh', 'es', 'id'] as const) {
-      // short enough for a 390px bar; the tooltip names every practice service
-      expect(translate(l, 'demo.free.practice').length, l).toBeLessThanOrEqual(24)
+      // the label names the three services in every language; the sentence too
+      for (const name of ['Gmail', 'Drive', 'Higgsfield']) expect(translate(l, 'demo.free.practice'), l).toContain(name)
+      expect(translate(l, 'demo.free.practice').length, l).toBeLessThanOrEqual(42)
       for (const name of ['Gmail', 'Google', 'Higgsfield']) expect(translate(l, 'demo.free.practiceTip'), l).toContain(name)
       if (l !== 'en') expect(translate(l, 'demo.free.practiceTip'), l).not.toBe(translate('en', 'demo.free.practiceTip'))
+      // who you are: never without the made-up company
+      expect(translate(l, 'demo.free.bar', { name: 'Mina', company: 'Steepling' }), l).toContain('Steepling')
     }
+    expect(translate('en', 'demo.free.bar', { name: 'Mina', company: 'Steepling' })).toBe("You're Mina at Steepling, a made-up company.")
+    expect(translate('ja', 'demo.free.bar', { name: 'Mina', company: 'Steepling' })).toBe('いまは架空の会社SteeplingのMinaさんです。')
   })
 
   test('the questions left follow what is used', async () => {
@@ -201,24 +274,119 @@ describe('the bar', () => {
     } finally { await m.unmount() }
   })
 
-  test('from 80 %: one quiet line with what is left; at the limit the suggestions go', async () => {
-    demoAnswer = { ...INFO, used: 241_000 }
+  test('to the end in questions: 85 % "About 1 question left", 99 % "Almost out of questions"; never a %', async () => {
+    demoAnswer = { ...INFO, used: 255_000 }
     const m = await mount(<MemoryRouter><DemoBar /></MemoryRouter>)
     try {
-      await m.until(() => m.find('free-roam-meter'), 'the meter')
-      expect(m.get('free-roam-meter').textContent).toBe('About 20% of your demo AI left')
-      expect(m.get('free-roam-meter').textContent).not.toMatch(/token/i)
-      // one count at a time: the questions left give way to the meter
-      expect(m.find('free-roam-left')).toBeNull()
+      await m.until(() => m.find('free-roam-left'), 'the count')
+      expect(m.get('free-roam-left').textContent).toBe('About 1 question left')
+      expect(m.get('free-roam-bar').textContent).not.toContain('%')
     } finally { await m.unmount() }
     useDemo.setState({ loaded: false, info: null, out: false })
-    demoAnswer = { ...INFO, used: 300_000 }
+    demoAnswer = { ...INFO, used: 297_000 }
     const n = await mount(<MemoryRouter><DemoBar /></MemoryRouter>)
     try {
-      await n.until(() => n.find('free-roam-bar'), 'the bar')
-      expect(n.find('free-roam-chips')).toBeNull()
-      expect(n.find('free-roam-meter')).toBeNull()
+      await n.until(() => n.find('free-roam-left'), 'the count')
+      expect(n.get('free-roam-left').textContent).toBe('Almost out of questions')
+      expect(n.get('free-roam-bar').textContent).not.toContain('%')
     } finally { await n.unmount() }
+  })
+})
+
+describe('Home\'s suggestions', () => {
+  beforeEach(() => useSession.setState({ status: { kind: 'signed-in', me: me({ features: FEATURES_OFF }) } } as never))
+
+  test('three round chips; none once the questions are used up', async () => {
+    await useDemo.getState().load()
+    const m = await mount(<MemoryRouter><FreeRoamChips info={INFO} /></MemoryRouter>)
+    try {
+      expect(m.get('free-roam-chips').querySelectorAll('button').length).toBe(3)
+      expect(m.get('free-roam-chips').getAttribute('aria-label')).toBe('Things to try')
+      expect(m.find('free-roam-chip-busy')).toBeNull()
+    } finally { await m.unmount() }
+    useDemo.setState({ out: true })
+    const n = await mount(<MemoryRouter><FreeRoamChips info={INFO} /></MemoryRouter>)
+    try { expect(n.find('free-roam-chips')).toBeNull() } finally { await n.unmount() }
+  })
+
+  test('the tapped chip spins while its chat is made; the others dim', async () => {
+    await useDemo.getState().load()
+    let release: () => void = () => {}
+    const { useChats } = await import('../../src/store/chats')
+    const send = useChats.getState().send
+    useChats.setState({ send: (() => new Promise((_, reject) => { release = () => reject(new Error('stop')) })) as never })
+    const m = await mount(<MemoryRouter><FreeRoamChips info={INFO} /></MemoryRouter>)
+    try {
+      const chips = () => [...m.get('free-roam-chips').querySelectorAll('button')]
+      await m.click(chips()[1]! as never)
+      expect(chips()[1]!.getAttribute('aria-busy')).toBe('true')
+      expect(chips()[1]!.querySelector('[data-testid="free-roam-chip-busy"]')).not.toBeNull()
+      expect(chips()[0]!.getAttribute('class')).toContain('opacity-50')
+      expect(chips()[0]!.hasAttribute('disabled')).toBe(true)
+      await act(async () => { release(); await new Promise((r) => setTimeout(r, 10)) })
+      expect(m.find('free-roam-chip-busy')).toBeNull()
+    } finally {
+      await m.unmount()
+      useChats.setState({ send })
+    }
+  })
+})
+
+describe('a new visitor (?fresh=1)', () => {
+  test('the gate\'s new start: drafts, queued sends and the tab\'s keys go; the parameter leaves the address', () => {
+    localStorage.setItem('mycel.draft:mina:new', 'the last visitor\'s words')
+    localStorage.setItem('mycel.queue:mina:01900000-0000-7000-8000-0000000000c1', '{"items":[]}')
+    localStorage.setItem('mycel.locale', 'ko')
+    sessionStorage.setItem('mycel.chips:mina:new', '[{"name":"brief.pdf"}]')
+    sessionStorage.setItem('mycel.draftChat:mina:new', 'c1')
+    sessionStorage.setItem('mycel.demo.limitSeen', '1')
+    const replaced: unknown[][] = []
+    const history = { state: { usr: null, key: 'k1', idx: 0 }, replaceState: (...a: unknown[]) => { replaced.push(a) } }
+    expect(freshStart({ loc: { href: 'https://demo.trina.app/?fresh=1&x=2#top' }, history })).toBe(true)
+    expect(localStorage.getItem('mycel.draft:mina:new')).toBeNull()
+    expect(localStorage.getItem('mycel.queue:mina:01900000-0000-7000-8000-0000000000c1')).toBeNull()
+    // the browser's own choices stay (the language)
+    expect(localStorage.getItem('mycel.locale')).toBe('ko')
+    expect(sessionStorage.getItem('mycel.chips:mina:new')).toBeNull()
+    expect(sessionStorage.getItem('mycel.draftChat:mina:new')).toBeNull()
+    expect(sessionStorage.getItem('mycel.demo.limitSeen')).toBeNull()
+    // the router's state kept, the other parameters and the hash too
+    expect(replaced).toEqual([[{ usr: null, key: 'k1', idx: 0 }, '', '/?x=2#top']])
+    localStorage.removeItem('mycel.locale')
+  })
+
+  test('without the parameter (a reload, any later page): nothing is touched', () => {
+    localStorage.setItem('mycel.draft:mina:new', 'mine')
+    const replaced: unknown[] = []
+    const history = { state: null, replaceState: (...a: unknown[]) => { replaced.push(a) } }
+    for (const href of ['https://demo.trina.app/', 'https://demo.trina.app/?fresh=0', 'https://demo.trina.app/c/1?freshness=1']) {
+      expect(freshStart({ loc: { href }, history })).toBe(false)
+    }
+    expect(localStorage.getItem('mycel.draft:mina:new')).toBe('mine')
+    expect(replaced).toEqual([])
+    expect(takeFreshStart(undefined, history)).toBe(false)
+    localStorage.removeItem('mycel.draft:mina:new')
+  })
+
+  test('only a free-roam instance runs it, when the demo info is read', async () => {
+    const before = (globalThis as { location?: unknown }).location
+    const prevHistory = (globalThis as { history?: unknown }).history
+    const replaced: string[] = []
+    Object.assign(globalThis, { location: { href: 'https://demo.trina.app/?fresh=1' }, history: { state: null, replaceState: (_s: unknown, _t: string, u: string) => { replaced.push(u) } } })
+    try {
+      localStorage.setItem('mycel.draft:mina:new', 'the last visitor\'s words')
+      demoAnswer = { ...INFO, kind: 'scripted', used: undefined, cap: undefined }
+      await useDemo.getState().load()
+      expect(localStorage.getItem('mycel.draft:mina:new')).not.toBeNull()
+      expect(replaced).toEqual([])
+      useDemo.setState({ loaded: false, info: null })
+      demoAnswer = INFO
+      await useDemo.getState().load()
+      expect(localStorage.getItem('mycel.draft:mina:new')).toBeNull()
+      expect(replaced).toEqual(['/'])
+    } finally {
+      Object.assign(globalThis, { location: before, history: prevHistory })
+    }
   })
 })
 
@@ -232,7 +400,7 @@ describe('the limit', () => {
     expect(useDemo.getState().limitOpen).toBe(true)
     const m = await mount(<DemoLimitDialog />)
     try {
-      expect(m.html()).toContain("You've used this demo's AI")
+      expect(m.html()).toContain("You've used all your questions")
       expect(m.get('free-roam-limit').textContent).toBe('Everything you made stays here to look around.')
       expect(m.get('free-roam-start-free').getAttribute('href')).toBe('https://example.com/pricing')
       expect(m.get('free-roam-start-free').textContent).toBe('Start free')
@@ -320,7 +488,7 @@ describe('the limit', () => {
     await useDemo.getState().load()
     const m = await mount(<DemoLimitNotice />)
     try {
-      expect(m.get('free-roam-out').textContent).toContain("You've used this demo's AI. Conversations with people still work.")
+      expect(m.get('free-roam-out').textContent).toContain("You've used all your questions. You can still look around everything here.")
       expect(m.get('free-roam-start-free').getAttribute('href')).toBe('https://example.com/pricing')
     } finally { await m.unmount() }
   })
@@ -356,7 +524,7 @@ describe('words and hidden surfaces', () => {
     expect(demoReason({ params: { reason: 'usage_used_up' } })).toBeNull()
     expect(en(demoAnswerKey({ params: { reason: 'demo_rest' } })!)).toBe('The live demo is resting, try again later.')
     expect(en(demoAnswerKey({ params: { reason: 'demo_busy' } })!)).toBe('The demo is busy, try again in a bit.')
-    expect(en(demoAnswerKey({ params: { reason: 'demo_limit' } })!)).toBe("You've used this demo's AI")
+    expect(en(demoAnswerKey({ params: { reason: 'demo_limit' } })!)).toBe("You've used all your questions")
   })
 
   test('a fenced action says "Not available in the demo" instead of the server\'s error', () => {
@@ -511,5 +679,43 @@ describe('what a free-roam visitor is not offered', () => {
       useSession.getState().reset()
       useLocaleStore.getState().setLocale('en')
     }
+  })
+})
+
+describe('the admin pages\' one line', () => {
+  test('one line and Back to Home (no dead end: QA 2026-11-22 F20)', async () => {
+    const m = await mount(<MemoryRouter><FreeRoamUnavailable /></MemoryRouter>)
+    try {
+      expect(m.get('free-roam-unavailable').textContent).toBe('Not available in the demo')
+      expect(m.get('free-roam-back-home').textContent).toBe('Back to Home')
+      expect(m.get('free-roam-back-home').getAttribute('href')).toBe('/')
+    } finally { await m.unmount() }
+    expect(translate('ko', 'demo.free.backHome')).toBe('홈으로 돌아가기')
+  })
+})
+
+describe('web strings of the QA pass', () => {
+  test('the thread title is quoted; es and id stay formal', () => {
+    expect(en('notifications.event.chat.thread_mentionNamed', { name: 'Ana', title: 'Launch' })).toBe('Ana mentioned you in a thread in “Launch”.')
+    expect(translate('ko', 'notifications.event.chat.thread_mentionNamed', { name: '아나', title: '런칭' })).toBe('아나님이 ‘런칭’ 스레드에서 나를 언급했어요.')
+    expect(translate('ja', 'notifications.event.chat.thread_mentionNamed', { name: 'Ana', title: 'Launch' })).toBe('Anaさんが「Launch」のスレッドであなたをメンションしました。')
+    expect(translate('zh', 'notifications.event.chat.thread_mentionNamed', { name: 'Ana', title: 'Launch' })).toBe('Ana在“Launch”的话题中提到了你。')
+    for (const l of ['es', 'id'] as const) expect(translate(l, 'notifications.event.chat.thread_mentionNamed', { name: 'Ana', title: 'Launch' })).toContain('“Launch”')
+    expect(translate('id', 'home.greeting', { name: 'Mina' })).toBe('Halo Mina, ada yang bisa saya bantu?')
+    expect(translate('id', 'feed.chats')).toBe('Sebutan & utas')
+    expect(translate('id', 'activity.inChats')).toBe('Sebutan & utas ada di Obrolan')
+    expect(translate('es', 'projectsPanel.fold.by', { names: 'Ana' })).toBe('Mención de Ana')
+    for (const k of ['feed.chats', 'activity.inChats'] as const) expect(translate('id', k)).not.toMatch(/Mention|thread/)
+  })
+
+  test('ja and zh relative time: no space between the number and its word', () => {
+    expect(cjkTight('3 時間前', 'ja')).toBe('3時間前')
+    expect(cjkTight('3\u202f時間前', 'ja')).toBe('3時間前')
+    expect(cjkTight('3 hours ago', 'en')).toBe('3 hours ago')
+    expect(cjkTight('3 시간 전', 'ko')).toBe('3 시간 전')
+    const now = Date.parse('2026-11-22T12:00:00Z')
+    expect(formatRelative('2026-11-22T09:00:00Z', 'ja', now)).toBe('3時間前')
+    expect(formatRelative('2026-11-22T09:00:00Z', 'zh', now)).not.toMatch(/\d\s/)
+    expect(formatRelative('2026-11-22T09:00:00Z', 'en', now)).toBe('3 hours ago')
   })
 })

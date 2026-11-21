@@ -1,11 +1,13 @@
 // A free-roam demo on screen (docs/decisions/20261119-demo-free-roam-web.md): the mock server is no demo server, so here
 // GET /api/demo answers like a free-roam instance (kind "freeRoam", used, cap, signupUrl) and GET /api/me like one too:
 // `server.dev` false and the feature row all off (server/src/system/deployment.ts FREE_ROAM_OFF), so the app finds the
-// demo without the dev flag. At 1440 and 390, light and dark: the sign-in page's one action, the bar and its
-// suggestions (in the page's flow, never over the message box; on a phone the row's edge fades while more is past it),
-// the meter from 80 %, the limit dialog (a bottom sheet on a phone, opened on Start free) and the message box that stops
-// after it, the hidden sections (AI accounts, Security & devices, Apps, push, Scheduled, invites), the read-only profile
-// and connectors, no mic, and the admin pages' one line. The visitor reads as the snapshot's: Mina at Steepling (the
+// demo without the dev flag. At 1440 and 390, light and dark: the sign-in page's one action, the bar (in the page's flow,
+// never over the message box; at most two lines on a 390 px phone in every language), its quiet Start free and its
+// practice label (a tap opens the whole sentence), the suggestions under Home's box (not in the bar), the count in
+// questions to the end, the limit dialog (a bottom sheet on a phone, opened on Start free) and the message box that
+// stops after it, a new visitor's `?fresh=1` (the previous visitor's drafts go), the hidden sections (AI accounts,
+// Security & devices, Apps, push, Scheduled, invites), the read-only profile and connectors, no mic, and the admin
+// pages' one line with Back to Home (QA 2026-11-22). The visitor reads as the snapshot's: Mina at Steepling (the
 // mock's Bob and its team are renamed here, so the screenshots say what a visitor sees).
 // FREE_ROAM_SHOTS=<folder> saves a screenshot of each state there.
 import fs from 'node:fs'
@@ -97,15 +99,21 @@ for (const width of [1440, 390] as const) {
         expect(resumed).toEqual(['POST'])
       })
 
-      test('the bar: who you are and the suggestions, above the message box; the meter from 80 %', async ({ page }) => {
+      test('the bar: who you are, the questions left, practice, Start free; the suggestions under Home\'s box', async ({ page }) => {
         const used = { now: 1_000 }
         await freeRoam(page, used)
         await signInAsMina(page)
         await page.goto('/')
         const bar = page.getByTestId('free-roam-bar')
-        await expect(bar).toContainText("You're Mina at Steepling, a made-up company. Try anything.")
+        await expect(page.getByTestId('free-roam-who')).toHaveText("You're Mina at Steepling, a made-up company.")
         // how much they can still ask, in questions: floor((300k - 1k) / 35k)
         await expect(page.getByTestId('free-roam-left')).toHaveText('About 8 questions left')
+        await expect(page.getByTestId('free-roam-practice')).toHaveText('Gmail, Drive, Higgsfield: practice only')
+        // one quiet Start free, a link to the sign-up address in a new tab (owner, QA 2026-11-22 F8)
+        const start = page.getByTestId('free-roam-bar-start-free')
+        await expect(start).toHaveText('Start free')
+        await expect(start).toHaveAttribute('href', 'https://example.com/pricing')
+        await expect(start).toHaveAttribute('target', '_blank')
         if (width === 1440) await expect(page.getByTestId('sidebar-team')).toHaveText('Steepling')
         // no mic in the box (voice is fenced), though the team's voice input is on
         await expect(page.getByTestId('voice-button')).toHaveCount(0)
@@ -114,8 +122,9 @@ for (const width of [1440, 390] as const) {
           await expect(page.getByTestId('trina-panel').getByTestId('nav-skills')).toBeVisible()
           await expect(page.getByTestId('nav-scheduled')).toHaveCount(0)
         }
+        // the suggestions: on Home, not in the bar (owner, QA 2026-11-22 F9)
         await expect(page.getByTestId('free-roam-chip')).toHaveCount(3)
-        await expect(page.getByTestId('free-roam-meter')).toHaveCount(0)
+        await expect(bar.getByTestId('free-roam-chip')).toHaveCount(0)
         // no DEV banner, no person switcher
         await expect(page.getByTestId('dev-banner')).toHaveCount(0)
         await expect(page.getByTestId('demo-switch')).toHaveCount(0)
@@ -126,22 +135,59 @@ for (const width of [1440, 390] as const) {
         const box = (await page.getByTestId('composer-input').boundingBox())!
         expect(b.y + b.height).toBeLessThanOrEqual(box.y)
         expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width)
-        // a chip: tall enough to tap on a phone
-        if (width === 390) expect((await page.getByTestId('free-roam-chip').first().boundingBox())!.height).toBeGreaterThanOrEqual(32)
-        // every chip whole inside the width, on a phone too: the chips wrap, none is cut at the edge (QA TC-5622)
-        for (const c of await page.getByTestId('free-roam-chip').all()) {
+        // one line on a computer, 56 px at most on a phone (it was 120 to 145 px with the chips)
+        expect(b.height).toBeLessThanOrEqual(width === 1440 ? 24 : 56)
+        // Start free at the end of its line
+        const s = (await start.boundingBox())!
+        expect(s.x + s.width).toBeGreaterThan(b.x + b.width - 24)
+        // the chips: under the box on a computer (a phone docks the box at the bottom, the suggestions over it, as Home's
+        // other suggestions); each whole inside the width, tall enough to tap on a phone
+        const chips = await page.getByTestId('free-roam-chip').all()
+        for (const c of chips) {
           const r = (await c.boundingBox())!
           expect(r.x).toBeGreaterThanOrEqual(0)
           expect(r.x + r.width).toBeLessThanOrEqual(width + 0.5)
+          if (width === 1440) expect(r.y).toBeGreaterThan(box.y + box.height - 1)
+          else expect(r.height).toBeGreaterThanOrEqual(32)
         }
         await shot(page, `${at}-2-bar`)
+        // another screen: no chips there
+        await page.goto('/files')
+        await expect(page.getByTestId('free-roam-bar')).toBeVisible()
+        await expect(page.getByTestId('free-roam-chip')).toHaveCount(0)
 
-        used.now = 250_000
+        // in questions right to the end, never a %
+        used.now = 255_000
+        await page.goto('/')
+        await expect(page.getByTestId('free-roam-left')).toHaveText('About 1 question left')
+        used.now = 297_000
         await page.reload()
-        await expect(page.getByTestId('free-roam-meter')).toHaveText('About 20% of your demo AI left')
-        // one count at a time: the meter takes over from the questions left
-        await expect(page.getByTestId('free-roam-left')).toHaveCount(0)
-        await shot(page, `${at}-3-meter`)
+        await expect(page.getByTestId('free-roam-left')).toHaveText('Almost out of questions')
+        await expect(bar).not.toContainText('%')
+        await shot(page, `${at}-3-almost-out`)
+      })
+
+      test('the practice label: a tap or click opens the whole sentence, a tap outside or Esc closes it', async ({ page }) => {
+        await freeRoam(page, { now: 1_000 })
+        await signInAsMina(page)
+        await page.goto('/')
+        const label = page.getByTestId('free-roam-practice')
+        await expect(label).toHaveAttribute('aria-expanded', 'false')
+        await label.click()
+        const tip = page.getByTestId('free-roam-practice-tip')
+        await expect(tip).toHaveText('Gmail, Google Drive and Higgsfield here are practice copies: mail is never really sent, and new pictures come from a prepared set.')
+        // inside the screen, over the page (not pushing the bar taller)
+        const r = (await tip.boundingBox())!
+        expect(r.x).toBeGreaterThanOrEqual(0)
+        expect(r.x + r.width).toBeLessThanOrEqual(width + 0.5)
+        await shot(page, `${at}-2b-practice`)
+        await page.keyboard.press('Escape')
+        await expect(tip).toHaveCount(0)
+        await expect(label).toBeFocused()
+        await label.click()
+        await expect(tip).toBeVisible()
+        await page.getByTestId('composer-input').click()
+        await expect(tip).toHaveCount(0)
       })
 
       test('Home shows no My setup card, even when the server has one (QA TC-6473)', async ({ page }) => {
@@ -201,7 +247,7 @@ for (const width of [1440, 390] as const) {
         await signInAsMina(page)
         await page.goto('/')
         const dialog = page.getByRole('dialog')
-        await expect(dialog).toContainText("You've used this demo's AI")
+        await expect(dialog).toContainText("You've used all your questions")
         await expect(dialog).toContainText('Everything you made stays here to look around.')
         await expect(dialog.getByTestId('free-roam-start-free')).toHaveAttribute('href', 'https://example.com/pricing')
         if (width === 390) {
@@ -215,7 +261,10 @@ for (const width of [1440, 390] as const) {
         await shot(page, `${at}-4-limit`)
         await dialog.getByTestId('free-roam-look-around').click()
         await expect(page.getByRole('dialog')).toHaveCount(0)
-        await expect(page.getByTestId('free-roam-out')).toContainText("You've used this demo's AI.")
+        await expect(page.getByTestId('free-roam-out')).toContainText("You've used all your questions. You can still look around everything here.")
+        // out: no count and no second Start free in the bar (the line under the box has its own)
+        await expect(page.getByTestId('free-roam-left')).toHaveCount(0)
+        await expect(page.getByTestId('free-roam-bar-start-free')).toHaveCount(0)
         // the box takes no more words for the AI, and send looks and is off
         const input = page.getByTestId('composer-input')
         await expect(input).toHaveAttribute('readonly', '')
@@ -250,6 +299,10 @@ for (const width of [1440, 390] as const) {
         await page.goto('/admin')
         await expect(page.getByTestId('free-roam-unavailable')).toHaveText('Not available in the demo')
         await shot(page, `${at}-7-admin`)
+        // never a dead end (QA 2026-11-22 F20)
+        await page.getByTestId('free-roam-back-home').click()
+        await expect(page).toHaveURL(/\/$/)
+        await expect(page.getByTestId('composer-input')).toBeVisible()
       })
 
       test('Settings: the profile to read, no account deletion, no push; Security, Apps and Scheduled stay away by address too', async ({ page }) => {
@@ -299,6 +352,77 @@ for (const width of [1440, 390] as const) {
         await page.goto('/settings/connectors/google-drive')
         await expect(page).toHaveURL(/\/settings\/connectors$/)
       })
+
+      test('a new visitor (?fresh=1): the previous visitor\'s drafts and queued sends go before anything shows; the address loses it', async ({ page }) => {
+        await freeRoam(page, { now: 1_000 })
+        await signInAsMina(page)
+        await page.goto('/')
+        await expect(page.getByTestId('composer-input')).toBeVisible()
+        // the previous visitor of this browser: the same user id on every copy
+        const id = await page.evaluate(async () => (await (await fetch('/api/me', { credentials: 'same-origin' })).json()).user.id as string)
+        await page.getByTestId('composer-input').fill('the last visitor\'s unsent words')
+        await page.evaluate((uid) => {
+          localStorage.setItem(`mycel.queue:${uid}:01900000-0000-7000-8000-0000000000c1`, '{"items":[]}')
+          sessionStorage.setItem(`mycel.chips:${uid}:new`, '[]')
+          sessionStorage.setItem('mycel.demo.limitSeen', '1')
+        }, id)
+        await expect.poll(() => page.evaluate(() => Object.keys(localStorage).filter((k) => k.startsWith('mycel.draft:')).length)).toBeGreaterThan(0)
+        // a reload alone keeps them (the same visitor)
+        await page.reload()
+        await expect(page.getByTestId('composer-input')).toHaveValue('the last visitor\'s unsent words')
+        // the gate's new start
+        await page.goto('/?fresh=1')
+        await expect(page.getByTestId('composer-input')).toBeVisible()
+        await expect(page.getByTestId('composer-input')).toHaveValue('')
+        expect(new URL(page.url()).search).toBe('')
+        const left = await page.evaluate(() => [...Object.keys(localStorage), ...Object.keys(sessionStorage)].filter((k) => /^mycel\.(draft|queue|chips|demo)/.test(k)))
+        expect(left).toEqual([])
+      })
     })
   }
 }
+
+// The bar on a 390 px phone in every language of the demo (QA 2026-11-22 M6): 56 px at most, measured in the browser.
+// Two rows cannot hold who you are, the count, the practice label and Start free in es and id (who you are alone is
+// 316-323 px of the 366 px), and ", a made-up company" is never cut, so three short rows: who you are; the count and
+// Start free; the practice label. A touch screen opens the practice sentence with a tap.
+test.describe('390 px phone, every language', () => {
+  test.use({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true })
+  const MADE_UP: Record<string, string> = { en: 'a made-up company', ko: '가상 회사', ja: '架空の会社', zh: '虚构公司', es: 'una empresa inventada', id: 'perusahaan rekaan' }
+  for (const locale of ['en', 'ko', 'ja', 'zh', 'es', 'id'] as const) {
+    test(`${locale}: the bar is 56 px at most, three short rows; a tap opens the practice sentence`, async ({ page }) => {
+      await reset(page, { teamLocale: locale, usersFollowTeam: true })
+      await freeRoam(page, { now: 1_000 })
+      await signInAsMina(page)
+      await page.goto('/')
+      const bar = page.getByTestId('free-roam-bar')
+      await expect(page.getByTestId('free-roam-left')).toBeVisible()
+      await expect(page.getByTestId('free-roam-who')).toContainText(MADE_UP[locale]!)
+      const b = (await bar.boundingBox())!
+      expect(b.height, `${locale} bar ${b.height}px`).toBeLessThanOrEqual(56)
+      expect(b.x + b.width).toBeLessThanOrEqual(390.5)
+      expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390)
+      // who you are on one row of its own; the count and Start free share the next; the practice label the last
+      const who = (await page.getByTestId('free-roam-who').boundingBox())!
+      expect(who.height, `${locale} who`).toBeLessThanOrEqual(17)
+      const left = (await page.getByTestId('free-roam-left').boundingBox())!
+      const start = (await page.getByTestId('free-roam-bar-start-free').boundingBox())!
+      const practice = (await page.getByTestId('free-roam-practice').boundingBox())!
+      expect(left.y, locale).toBeGreaterThan(who.y + 8)
+      expect(Math.abs((start.y + start.height / 2) - (left.y + left.height / 2)), locale).toBeLessThan(6)
+      expect(start.x + start.width, locale).toBeGreaterThan(390 - 24)
+      expect(practice.y, locale).toBeGreaterThan(left.y + 8)
+      expect(practice.height, `${locale} practice`).toBeLessThanOrEqual(17)
+      if (shots && (locale === 'en' || locale === 'ko')) await shot(page, `390-touch-${locale}-bar`)
+      await page.getByTestId('free-roam-practice').tap()
+      await expect(page.getByTestId('free-roam-practice-tip')).toBeVisible()
+      const tip = (await page.getByTestId('free-roam-practice-tip').boundingBox())!
+      expect(tip.x).toBeGreaterThanOrEqual(0)
+      expect(tip.x + tip.width).toBeLessThanOrEqual(390.5)
+      if (shots && (locale === 'en' || locale === 'ko')) await shot(page, `390-touch-${locale}-practice`)
+      // a tap outside closes it
+      await page.getByTestId('composer-input').tap()
+      await expect(page.getByTestId('free-roam-practice-tip')).toHaveCount(0)
+    })
+  }
+})
