@@ -42,7 +42,7 @@ import { useBackLink } from '../lib/back'
 import { aiName } from '../lib/tabs'
 import { formatDate } from '../lib/format'
 import { chatPurgeAt, chatTrashDays } from '../lib/chat-trash'
-import { linkedAnswer, linkedStep } from '../lib/linkedAnswer'
+import { focusInPlace, linkedAnswer, linkedStep } from '../lib/linkedAnswer'
 import { CHAT_ROW, farFromBottom, holdPlace, listPlace, restorePlace, useStickToBottom } from '../lib/stickToBottom'
 import { useWaitingMerge } from '../lib/mergeStart'
 import { useLocale, useT } from '../i18n'
@@ -526,7 +526,7 @@ function ChatView({ chatId, threadRoot }: { chatId: string; threadRoot: string |
     requestAnimationFrame(() => {
       const row = scroller.current?.querySelector(`[data-message-id="${CSS.escape(was)}"]`)
       const pick = (id: string) => row?.querySelector<HTMLElement>(`[data-testid="${id}"]`) ?? null
-      ;(button ? pick('reply-in-thread') ?? pick('chat-thread-line') : pick('chat-thread-line') ?? pick('reply-in-thread'))?.focus()
+      focusInPlace(button ? pick('reply-in-thread') ?? pick('chat-thread-line') : pick('chat-thread-line') ?? pick('reply-in-thread'))
     })
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [threadRoot])

@@ -249,7 +249,8 @@ describe('B-API-4 / B-API-6: the Admin status check of the API engine', () => {
     const port = closed.port
     closed.stop(true)
     const s = await check('m', Response.json({ data: [] }), `http://127.0.0.1:${port}/v1`)
-    expect(s).toMatchObject({ status: 'error', detail: expect.stringContaining('could not be reached') })
+    // a closed port on this computer: nothing runs there (QA TC-4827)
+    expect(s).toMatchObject({ status: 'error', detail: expect.stringContaining('Nothing answers at this address') })
     expect(String(s.detail).includes('sk-test-12345678')).toBe(false)
   })
   test('OpenRouter (public model list): a refused key is found by GET /key; no key check address is said', async () => {
