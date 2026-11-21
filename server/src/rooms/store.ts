@@ -24,6 +24,7 @@ import { iconsOf } from './apps/icon'
 import { linkPreviewsFor, prepareLinkPreviews, type LinkPrep } from './link-previews'
 import { eventProjectsFor, projectForViewer } from './project-link'
 import { isProjectRoom, NOT_HELD_SQL } from './project-room'
+import { filesMovingIn, hasRoomStoredFiles, roomOnlyAmong } from './team-place'
 import { answerFilePaths, RoomEventLine, ROOM_QUOTE_EXCERPT_MAX, ROOM_REACTION_NAMES, type Room, type RoomFile, type RoomKind, type RoomLastMessage, type RoomMember, type RoomMessage, type RoomQuote, type RoomReaction, type RoomThreadSummary, type UserRef, RoomAppKind, RoomAppPreset, type RoomAppRef } from '@mycel/shared/api'
 
 export const MAX_UNREAD = 999
@@ -74,6 +75,11 @@ export type EventData =
   | { type: 'project_unlinked'; projectId: string }
   /** a linked channel became the project's chat room at the upgrade (rooms/project-room.ts settleLinked): by the system */
   | { type: 'project_room'; projectId: string }
+  /** the author made this conversation the project (POST /api/rooms/:id/make-project, rooms/make-project.ts); `by` the
+   * same person, kept in the line itself */
+  | { type: 'project_made'; projectId: string; by: string | null }
+  /** its files finished moving to the project's Chat attachments (rooms/file-moves.ts): by the system */
+  | { type: 'project_files_moved'; projectId: string; moved: number; kept: number }
 export interface FileRow { id: string; room_id: string; user_id: string | null; message_id: string | null; name: string; size: number; mime: string; kind: RoomFile['kind']; width: number | null; height: number | null; sha256: string; thumb: number; created_at: string; team_path?: string | null; team_stamp?: string | null }
 
 export const MSG_COLS = 'id, room_id, seq, author_kind, author_id, asked_by, visibility, visible_to, body, reply_to_id, mentions, client_id, created_at, edited_at, deleted_at, event, thread_root_id, thread_root_seq, also_in_room, mentions_all, answer_at, answer_cut, app_id, app_card, app_quiet, link_previews'
@@ -187,6 +193,12 @@ export function parseEvent(s: string | null): EventData | null {
       case 'joined': return { type: 'joined' }
       case 'removed': return typeof v.userId === 'string' ? { type: 'removed', userId: v.userId } : null
       case 'project_linked': case 'project_unlinked': case 'project_room': return typeof v.projectId === 'string' ? { type: v.type, projectId: v.projectId } : null
+      case 'project_made': return typeof v.projectId === 'string' ? { type: 'project_made', projectId: v.projectId, by: typeof v.by === 'string' ? v.by : null } : null
+      case 'project_files_moved': {
+        const n = (x: unknown) => (typeof x === 'number' && Number.isInteger(x) && x >= 0 ? x : null)
+        const moved = n(v.moved), kept = n(v.kept)
+        return typeof v.projectId === 'string' && moved !== null && kept !== null ? { type: 'project_files_moved', projectId: v.projectId, moved, kept } : null
+      }
     }
   } catch { /* not an event this build reads */ }
   return null
@@ -203,7 +215,8 @@ function eventOut(e: EventData, people: Map<string, UserRef>, projects: Map<stri
     case 'left': return { type: 'left' }
     case 'joined': return { type: 'joined' }
     case 'removed': return { type: 'removed', user: people.get(e.userId) ?? null }
-    case 'project_linked': case 'project_unlinked': case 'project_room': return { type: e.type, project: projects.get(e.projectId) ?? null }
+    case 'project_linked': case 'project_unlinked': case 'project_room': case 'project_made': return { type: e.type, project: projects.get(e.projectId) ?? null }
+    case 'project_files_moved': return { type: 'project_files_moved', project: projects.get(e.projectId) ?? null, moved: e.moved, kept: e.kept }
   }
 }
 
@@ -226,9 +239,15 @@ export function filesOutFor(db: Database, rows: readonly FileRow[], viewerId: st
     const part = rows.slice(i, i + 500)
     for (const r of db.query(`SELECT room_file_id FROM room_file_refs WHERE room_file_id IN (${part.map(() => '?').join(',')})`).all(...part.map((f) => f.id)) as { room_file_id: string }[]) refs.add(r.room_file_id)
   }
-  if (!refs.size) return rows.map(fileOut)
+  // a room-stored file of a room whose files otherwise go to a team folder (rooms/team-place.ts): "Only in this
+  // conversation", unless it is on its way there
+  const kinds = new Map<string, RoomRow['kind'] | null>()
+  const kindOf = (id: string) => { if (!kinds.has(id)) kinds.set(id, (db.query('SELECT kind FROM rooms WHERE id = ?').get(id) as { kind: RoomRow['kind'] } | null)?.kind ?? null); return kinds.get(id)! }
+  const only = roomOnlyAmong(db, rows.filter((f) => !refs.has(f.id) && !!f.message_id), kindOf)
+  const stored = (f: FileRow): RoomFile => (only.has(f.id) ? { ...fileOut(f), roomOnly: true } : fileOut(f))
+  if (!refs.size) return rows.map(stored)
   const view = refViews.get(db)?.(viewerId)
-  return rows.map((f) => (!refs.has(f.id) ? fileOut(f) : view ? view(f) : { id: f.id, name: '', size: 0, mime: 'application/octet-stream', kind: 'other', thumb: false, teamFile: true, state: 'unavailable' }))
+  return rows.map((f) => (!refs.has(f.id) ? stored(f) : view ? view(f) : { id: f.id, name: '', size: 0, mime: 'application/octet-stream', kind: 'other', thumb: false, teamFile: true, state: 'unavailable' }))
 }
 
 /** The rows of a list that are hidden from `viewer` (one of their hidden old answers, or in its thread). */
@@ -303,7 +322,7 @@ function shownOut(db: Database, rows: readonly MessageRow[], viewer: MemberRow, 
   const followed = new Set(replyRoots.length ? (db.query(`SELECT root_id FROM room_thread_follows WHERE user_id = ? AND root_id IN (${replyRoots.map(() => '?').join(',')})`).all(viewer.user_id, ...replyRoots) as { root_id: string }[]).map((r) => r.root_id) : [])
   const people = refsOf(db, [...rows.flatMap((r) => [r.author_id, r.asked_by]), ...[...quotes.values()].map((q) => q.author_id), ...[...events.values()].flatMap(eventUserIds)])
   // the projects the page's link lines name, for this viewer (only those they can open now)
-  const linkIds = [...events.values()].flatMap((e) => (e.type === 'project_linked' || e.type === 'project_unlinked' || e.type === 'project_room' ? [e.projectId] : []))
+  const linkIds = [...events.values()].flatMap((e) => ('projectId' in e ? [e.projectId] : []))
   const projects = linkIds.length ? eventProjectsFor(db, linkIds, viewer.user_id) : undefined
   // answers people sent from their own AI chat with files attached: which of the answer's links each copy stands for
   const attached = attachedLinksOn(db, rows.filter((r) => sharedAnswerOf(r) && files.has(r.id)), files)
@@ -630,6 +649,10 @@ export function roomOut(db: Database, room: RoomRow, viewer: MemberRow, prefs: P
   // alert default follow the project
   const projectRoom = room.kind === 'group' && isProjectRoom(db, room.id)
   const project = projectRoom ? projectForViewer(db, room, viewer.user_id, rules, memberCount) : undefined
+  // a room whose files go to a team folder (rooms/team-place.ts): whether it still holds files of its own (its Files
+  // list), and whether files of a conversation made a project are still moving (rooms/file-moves.ts)
+  const roomFiles = projectRoom && hasRoomStoredFiles(db, room)
+  const filesMoving = projectRoom && filesMovingIn(db, room.id)
   return {
     id: room.id, kind: room.kind, name, canRename: !projectRoom && mayRename(db, room, viewer.user_id), managerId: projectRoom ? null : managerOf(db, room), canManageApps: mayManageApps(db, room, viewer.user_id), groupId: room.kind === 'team' ? room.group_id : null, memberCount,
     peers,
@@ -645,6 +668,8 @@ export function roomOut(db: Database, room: RoomRow, viewer: MemberRow, prefs: P
     ...(groupFolder ? { groupFolder } : {}),
     ...(project ? { project } : {}),
     ...(projectRoom ? { projectRoom: true as const } : {}),
+    ...(roomFiles ? { roomFiles: true as const } : {}),
+    ...(filesMoving ? { filesMoving: true as const } : {}),
   }
 }
 

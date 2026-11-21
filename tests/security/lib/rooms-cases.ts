@@ -57,6 +57,33 @@ async function projectRoomCases(w: World, roomId: string) {
   }
 }
 /**
+ * Once, for "Make it a project" (rooms/make-project.ts), nothing made: alice's DM with erin, her team room, the everyone
+ * room and a project's chat room are refused with 409 not_convertible (the read and the conversion alike); a group chat
+ * that was archived (its people left) is a room she is not in (404). No project is made by any of it.
+ */
+let makeProjectChecked = false
+async function makeProjectCases(w: World) {
+  if (makeProjectChecked) return
+  makeProjectChecked = true
+  const db = w.inst.ctx.db
+  const alice = w.as.memberIn
+  const before = (db.query('SELECT COUNT(*) n FROM projects').get() as { n: number }).n
+  const team = (db.query("SELECT r.id FROM rooms r JOIN room_members m ON m.room_id = r.id JOIN users u ON u.id = m.user_id WHERE r.kind = 'team' AND r.archived_at IS NULL AND u.username = 'alice' LIMIT 1").get() as { id: string } | null)?.id
+  if (!team) throw new Error('alice has no team room')
+  const projRoom = (await alice.ok('POST', `/api/projects/${w.ids.projTeam}/room`)).id as string
+  for (const [what, id] of [['the DM', w.ids.dmRoom], ['a team room', team], ['the everyone room', w.ids.allRoom], ['a project room', projRoom]] as const) {
+    const info = await alice.get(`/api/rooms/${id}/make-project`)
+    const make = await alice.post(`/api/rooms/${id}/make-project`, { name: 'Never made', membersHash: 'x' })
+    for (const r of [info, make]) if (r.status !== 409 || r.json?.error?.params?.reason !== 'not_convertible') throw new Error(`${what}: make-project answered ${r.status} ${r.text.slice(0, 200)}`)
+  }
+  const gone = (await alice.ok('POST', '/api/rooms', { kind: 'group', userIds: ['erin'], name: 'Archived talk' })).id as string
+  await alice.ok('POST', `/api/rooms/${gone}/leave`)
+  await w.as.other.ok('POST', `/api/rooms/${gone}/leave`)
+  const archived = await alice.post(`/api/rooms/${gone}/make-project`, { name: 'Never made', membersHash: 'x' })
+  if (archived.status !== 404) throw new Error(`an archived room: make-project answered ${archived.status}`)
+  if ((db.query('SELECT COUNT(*) n FROM projects').get() as { n: number }).n !== before) throw new Error('a refused make-project made a project')
+}
+/**
  * Once, for a room's Files list and ⌘K's recent files (rooms/search.ts listRoomFiles, recentRoomFiles; D8), each on
  * rooms of its own so the world stays as it was:
  *   - a former member: bob in a group chat with alice and erin sees its file in both, and after leaving gets the list's
@@ -409,6 +436,35 @@ export const ROOM_SPECS: Record<string, Spec> = {
       if (who === 'memberIn' || who === 'other') throw new Error(`${who}: openProjectRoom answered ${r.status} ${r.text.slice(0, 200)}`)
       if ((who === 'owner' || who === 'admin' || who === 'memberOut') && r.status !== 404) throw new Error(`${who}: openProjectRoom answered ${r.status}, not 404`)
       if (r.text.includes('Team plan')) throw new Error(`${who}: a refusal names the project: ${r.text.slice(0, 200)}`)
+    },
+  },
+  // "Make it a project" (rooms/make-project.ts): what the confirm shows, for the group chat's members alice and erin
+  // only; the owner, the admin and bob outside it get the room's 404, which names nothing (frank still has to change
+  // his password)
+  makeProjectInfo: {
+    build: (c, w) => c.get(`/api/rooms/${w.ids.groupRoom}/make-project`), scope: 'room-group',
+    check: (r, w, who) => {
+      if (who === 'memberIn' || who === 'other') {
+        if (r.status !== 200 || typeof r.json?.membersHash !== 'string' || r.json?.suggestedName !== C.groupName) throw new Error(`${who}: the confirm's read answered ${r.status} ${r.text.slice(0, 200)}`)
+        return
+      }
+      if ((who === 'owner' || who === 'admin' || who === 'memberOut') && r.status !== 404) throw new Error(`${who}: the confirm's read answered ${r.status}, not 404`)
+      if (r.text.includes(C.groupName) || r.text.includes('membersHash')) throw new Error(`${who}: a refusal names the room: ${r.text.slice(0, 200)}`)
+    },
+  },
+  // the conversion itself, sent with a stale members hash so the world stays as it is: alice and erin pass every check
+  // up to the hash (409 members_changed), everyone else gets the room's 404. Then, once, every kind that is refused
+  // (makeProjectCases)
+  makeProject: {
+    build: (c, w) => c.post(`/api/rooms/${w.ids.groupRoom}/make-project`, { name: 'Plan work', membersHash: 'stale-members-hash' }), scope: 'nobody',
+    check: async (r, w, who) => {
+      if (who === 'anon' || who === 'pwchange') return
+      if (who === 'memberIn' || who === 'other') {
+        if (r.status !== 409 || r.json?.error?.params?.reason !== 'members_changed') throw new Error(`${who}: a stale hash answered ${r.status} ${r.text.slice(0, 200)}`)
+        if (who === 'memberIn') await makeProjectCases(w)
+        return
+      }
+      if (r.status !== 404 || r.text.includes(C.groupName)) throw new Error(`${who}: make-project answered ${r.status} ${r.text.slice(0, 200)}`)
     },
   },
   // the 0.5.21 project link's endpoints are retired: 410 gone for everyone who passes the auth level, before any check,

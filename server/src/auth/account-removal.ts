@@ -75,7 +75,7 @@ export const REMOVED_BY_REMOVE_ACCOUNT: readonly string[] = [
 
 /** Columns that hold a person's id without a foreign key to users(id) (the coverage test reads them with the ones that
  * have one, so they are decided too). */
-export const USER_COLUMNS_WITHOUT_FK: readonly string[] = ['room_app_viewers.user_id', 'chat_thread_replies.author_id', 'chat_thread_notices.by_user', 'access_requests.owner_id', 'access_requests.decided_by', 'storage_notices.by_user', 'room_message_mentions.user_id']
+export const USER_COLUMNS_WITHOUT_FK: readonly string[] = ['room_app_viewers.user_id', 'chat_thread_replies.author_id', 'chat_thread_notices.by_user', 'access_requests.owner_id', 'access_requests.decided_by', 'storage_notices.by_user', 'room_message_mentions.user_id', 'room_file_moves.actor', 'room_file_moves.sender']
 
 /**
  * Columns that point at users(id) and stay after the account is deleted, with the reason (the coverage test checks
@@ -96,6 +96,8 @@ export const KEPT_WITH_ACCOUNT: Record<string, string> = {
   'plugin_packages.installed_by': 'who installed a team plugin; team history',
   'projects.created_by': 'cleared when private chats go (auth/sweeper.ts); a team project stays for its people',
   'room_files.user_id': 'files they sent in shared rooms stay for the room, under the tombstone name',
+  'room_file_moves.actor': 'who made a conversation a project: the record of each file it moved to the project (never shown or sent; rooms/file-moves.ts), kept with the moved file as the room\'s file row is',
+  'room_file_moves.sender': 'as room_files.user_id: who sent a file that moved to the project (its uploader in the file history); never shown or sent',
   'room_messages.author_id': 'messages they sent in shared rooms stay, under the tombstone name (the delete page says so)',
   'room_messages.asked_by': 'as author_id',
   'room_message_mentions.user_id': 'where a message mentions them, kept by triggers from room_messages.mentions (which keeps their id like author_id): goes when the message is deleted, its mentions cleared or the room goes',
