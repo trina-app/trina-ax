@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-21 10:13
 - Branch: `fix/ko-search-forms`
-- Status: in progress
+- Status: done
 - Where: trina-ax `shared/src/search-text.ts` (the one reading of a search's words, server and app), the searches
   that use it (`server/src/rooms/search.ts`, `server/src/rooms/reader.ts`, `server/src/routes/chats.ts`,
   `server/src/team-files/find.ts`) and the marks in `web/src/components/SearchDialog.tsx`. Why: the follow-up of
@@ -63,4 +63,10 @@ decides who sees what are not touched.
 
 ## Result
 
-(at the end)
+Built as planned: `shared/src/search-ko.ts` (koVerbForms), `searchForms` / `searchTerm` / `findForm` and
+`SearchParts.forms` in `shared/src/search-text.ts`, `server/src/search-forms.ts` (forms as a few GLOBs, the last
+syllables as a class), used by room messages and files, the AI's rooms search, the chat records' search, team file
+names and the app's marks. One change from the plan: the first version sent every form as its own LIKE, which made a
+scan of 100,000 messages take seconds; grouping the forms into GLOBs brought the slowest case back near its old cost
+(decision file, "Speed"). A word of only short forms now scans room_messages newest first instead of the trigram
+LIKE. Korean query → text table: 6 of 27 found before, 27 of 27 after; 10 must-not-find pairs and English unchanged.
