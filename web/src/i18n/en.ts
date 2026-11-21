@@ -2803,6 +2803,7 @@ export const en: Record<MessageKey, string> = {
   'audit.act.dev_env.command': "Dev environment command",
   'audit.act.dev_env.preview': "Dev environment preview link",
   'audit.act.dev_env.stop': "Dev environment runs stopped",
+  'audit.act.dev_env.bulk_files': "Many new files kept in a project folder, or moved to the work folder",
   'audit.act.dev_env.restart': "Dev environment box restarted",
   'audit.act.dev_env.job': "Dev environment job ended",
   'audit.act.dev_env.box_stopped': "Server stopped dev environment runs",

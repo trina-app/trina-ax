@@ -2802,6 +2802,7 @@ export const id: Record<MessageKey, string> = {
   'audit.act.dev_env.command': "Perintah lingkungan pengembangan",
   'audit.act.dev_env.preview': "Tautan pratinjau lingkungan pengembangan",
   'audit.act.dev_env.stop': "Proses lingkungan pengembangan dihentikan",
+  'audit.act.dev_env.bulk_files': "Banyak file baru dibiarkan di folder proyek atau dipindahkan ke folder kerja",
   'audit.act.dev_env.restart': "Kotak lingkungan pengembangan dimulai ulang",
   'audit.act.dev_env.job': "Pekerjaan lingkungan pengembangan selesai",
   'audit.act.dev_env.box_stopped': "Server menghentikan proses lingkungan pengembangan",

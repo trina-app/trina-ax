@@ -2764,6 +2764,7 @@ export const es: Record<MessageKey, string> = {
   'audit.act.dev_env.command': "Comando del entorno de desarrollo",
   'audit.act.dev_env.preview': "Enlace de vista previa del entorno de desarrollo",
   'audit.act.dev_env.stop': "Ejecuciones del entorno de desarrollo detenidas",
+  'audit.act.dev_env.bulk_files': "Muchos archivos nuevos dejados en una carpeta de proyecto o movidos a la carpeta de trabajo",
   'audit.act.dev_env.restart': "Caja del entorno de desarrollo reiniciada",
   'audit.act.dev_env.job': "Trabajo del entorno de desarrollo terminado",
   'audit.act.dev_env.box_stopped': "El servidor detuvo las ejecuciones del entorno de desarrollo",

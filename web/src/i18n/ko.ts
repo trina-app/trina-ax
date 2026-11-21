@@ -2801,6 +2801,7 @@ export const ko = {
   'audit.act.dev_env.command': "개발 환경 명령",
   'audit.act.dev_env.preview': "개발 환경 미리보기 링크",
   'audit.act.dev_env.stop': "개발 환경 실행 멈춤",
+  'audit.act.dev_env.bulk_files': "프로젝트 폴더의 새 파일 많이 둠 또는 작업 폴더로 옮김",
   'audit.act.dev_env.restart': "개발 환경 상자 다시 시작",
   'audit.act.dev_env.job': "개발 환경 작업 끝남",
   'audit.act.dev_env.box_stopped': "서버가 개발 환경 실행을 멈춤",

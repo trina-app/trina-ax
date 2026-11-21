@@ -2764,6 +2764,7 @@ export const ja: Record<MessageKey, string> = {
   'audit.act.dev_env.command': "開発環境のコマンド",
   'audit.act.dev_env.preview': "開発環境のプレビューリンク",
   'audit.act.dev_env.stop': "開発環境の実行を停止",
+  'audit.act.dev_env.bulk_files': "プロジェクトフォルダーの多数の新しいファイルを残す、または作業フォルダーへ移動",
   'audit.act.dev_env.restart': "開発環境のボックスを再起動",
   'audit.act.dev_env.job': "開発環境のジョブが終了",
   'audit.act.dev_env.box_stopped': "サーバーが開発環境の実行を停止",

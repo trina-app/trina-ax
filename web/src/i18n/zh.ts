@@ -2759,6 +2759,7 @@ export const zh: Record<MessageKey, string> = {
   "audit.act.dev_env.command": "开发环境命令",
   "audit.act.dev_env.preview": "开发环境预览链接",
   "audit.act.dev_env.stop": "开发环境运行已停止",
+  "audit.act.dev_env.bulk_files": "项目文件夹中的大量新文件被保留或移到工作文件夹",
   "audit.act.dev_env.restart": "开发环境容器已重启",
   "audit.act.dev_env.job": "开发环境任务已结束",
   "audit.act.dev_env.box_stopped": "服务器停止了开发环境运行",
