@@ -82,7 +82,7 @@ import { FileDropZone } from '../components/FileDropZone'
 import { isolate } from '../components/handover/isolate'
 import { RoomSideColumn } from '../components/rooms/RoomSideColumn'
 import { ChatThreadPanel } from '../components/chat/ChatThreadPanel'
-import { closeSidePanel, useSidePanel } from '../lib/sidePanel'
+import { closeSidePanel, openFilePreview, useSidePanel } from '../lib/sidePanel'
 import { useFolderWords } from '../lib/folderLabels'
 
 /** Where a link goes inside a translated sentence ({projects} in chat.notFoundManage): split there. */
@@ -110,6 +110,15 @@ function ChatView({ chatId, threadRoot }: { chatId: string; threadRoot: string |
     return id
   })
   useEffect(() => () => showThrough(chatId, null), [chatId])
+  // ?file=<id>: a chat file's link (an answer's attached file, /c/<chat>?file=<id>): its viewer opens beside the chat,
+  // named as the chat's messages name it (the bytes and every check stay behind the chat's file route)
+  const fileParam = params.get('file')
+  const fileName = useChats((s) => {
+    if (!fileParam) return null
+    for (const m of s.threads[chatId]?.messages ?? []) for (const a of (m as { attachments?: { id: string; name: string }[] }).attachments ?? []) if (a.id === fileParam) return a.name
+    return null
+  })
+  useEffect(() => { if (fileParam && /^[A-Za-z0-9_-]+$/.test(fileParam)) openFilePreview({ source: 'chat', chatId, fileId: fileParam, name: fileName ?? 'file' }) }, [chatId, fileParam, fileName])
   const t = useT()
   const locale = useLocale()
   const me = useMeStrict()

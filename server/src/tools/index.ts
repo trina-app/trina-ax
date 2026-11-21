@@ -41,6 +41,7 @@ import { acceptLanguage, precheckTarget, webFetch, wrapExternal, type FetchOptio
 import { teamDefaultLocale } from '../admin/settings'
 import { SAVE_URL_DESCRIPTION, saveUrl, type SaveUrlOptions } from './save-url'
 import { safeOpsEnabled } from '../safe-ops/runner'
+import { chatLinksInText } from '../files/place-output'
 
 export const C_TOOL_NAMES = ['hwp_render', 'make_file', 'edit_hwp', 'stamp_pdf', 'edit_pdf', 'merge_pdfs', 'split_pdf', 'resize_images', 'unzip_file', 'make_zip', 'query_data', 'share_file', 'artifact', 'web_fetch', 'save_url'] as const
 
@@ -74,7 +75,10 @@ export function registerCTools(ctx: AppContext, o: { fetch?: FetchOptions; saveU
       available: () => reg.available(name),
       async call(args, t) {
         const r = await reg.call(name, args, t.files)
-        return { content: [{ type: 'text', text: r.text }, ...(r.images ?? [])], ...(r.isError ? { isError: true } : {}), summary: r.summary }
+        // a file attached to this answer (output: chat:files/<name>): its link is the chat's, never a team preview link
+        const chat = t.files.places?.ctx.chatId
+        const text = chat ? chatLinksInText(r.text, chat) : r.text
+        return { content: [{ type: 'text', text }, ...(r.images ?? [])], ...(r.isError ? { isError: true } : {}), summary: r.summary }
       },
     })
   }

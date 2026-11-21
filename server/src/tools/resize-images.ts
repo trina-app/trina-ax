@@ -14,6 +14,7 @@
 // after its declared size is checked; the copy is a JPEG). The rest is refused in plain words naming the file.
 // The copies keep the photo's details (time taken, camera, location) unless the person asks to remove the location or
 // all of them (remove_details; the owner, 2026-11-17: "왜 위치 정보를 빼?").
+import { authorizeOutput } from '../files/place-output'
 import fs from 'node:fs'
 import path from 'node:path'
 import type { z } from 'zod'
@@ -161,7 +162,7 @@ export async function resizeImages(ctx: AppContext, files: TeamFiles, c: ToolCtx
     return `${dir ? dir + '/' : ''}${ph.name.replace(/\.[^.]+$/, '')}-${word}.${e}`
   }
   const allowed = (rel: string, ph: Photo) => {
-    const out = authorize(fx, rules, c.user, rel, 'write', { mustExist: replace, createDirs: !replace })
+    const out = authorizeOutput(fx, rules, c, rel, { mustExist: replace, createDirs: !replace })
     if (out.exists && out.st!.isDirectory()) throw new ToolError(`'${out.rel}' is a folder; give a file name ending in .jpg or .png`, 'is_folder')
     if (skillRootOf(out.rel)) throw new ToolError('a photo copy is not saved in a skill folder; save it in a project or the person\'s own folder')
     if (!replace && out.rel === ph.rel) throw new ToolError(`output is the original '${ph.rel}'; to replace it use replace: true, only when the user asked for that`)

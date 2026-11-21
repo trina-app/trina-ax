@@ -10,6 +10,7 @@
 // - read back before anything is placed: the comments must read back through the normal reader (docx-extra) on the
 //   paragraphs they were put on; the worker checked that every paragraph's text is unchanged;
 // - not under skills/ (no skill-save card covers this tool; a skill is Markdown, not a Word file).
+import { authorizeOutput } from '../files/place-output'
 import fs from 'node:fs'
 import path from 'node:path'
 import { z } from 'zod'
@@ -63,7 +64,7 @@ export async function commentDocx(ctx: AppContext, c: ToolCtx, a: z.output<typeo
   if (seen !== sha256(bytes)) throw new ToolError(`'${src.rel}' was changed after you read it; read it again first`, 'conflict')
   const outRel = a.output === undefined ? src.rel : commentDocxOutput(a.output)
   if (inSkills(outRel)) throw new ToolError('Word comments cannot be saved in a skills folder (skills/: skills and rules people\'s AI follow); give another output')
-  const out = authorize(fx, files.rules(), c.user, outRel, 'write', { mustExist: a.output === undefined, createDirs: true })
+  const out = authorizeOutput(fx, files.rules(), c, outRel, { mustExist: a.output === undefined, createDirs: true })
   if (out.exists && out.st!.isDirectory()) throw new ToolError(`'${out.rel}' is a folder`, 'is_folder')
   const inPlace = out.rel === src.rel
   // what the chat read (and, for a new file, the document) may go where more people see it: asked before the worker

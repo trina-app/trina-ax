@@ -3,6 +3,7 @@ import { confidentialChat, localTool } from "../safe-ops/confidential"
 // (desktop window only), plus whatever other components registered in ctx.services.turnTools (C: make_file,
 // share_file, artifact, web_fetch). Served over the same MCP connection as the file tools (mcp__team__<name>).
 import { isReservedPlace, parsePlace } from '@mycel/shared/places'
+import { chatPlaces } from './place-ctx'
 import { isFreeRoam } from '../app-config'
 import { freeRoamToolCallRefused, freeRoamToolFenced } from '../demo/guard'
 import { stampOutputOf } from '../tools/stamp-pdf'
@@ -795,6 +796,8 @@ function toolContext(exec: TurnExec, files: TurnFiles, call?: { tool: string; ar
       // files a tool copies bytes from (make_file's embedded images and template), checked before the new file is placed
       // a save a scheduled task's card covered: checked again right before the file is placed (after a conversion)
       ...(call ? { beforePlace: () => { const no = exec.scheduleCover?.recheck(callKey(call.tool, call.args)); if (no) throw new ToolError(no) } } : {}),
+      // this chat's places (chat:files/, chat:work/): a produce tool's output attaches through it (files/place-output.ts)
+      places: chatPlaces(exec, files),
       confirmWidening: async (target, sources, binding) => {
         const no = await exec.confirmWidening(target, sources, binding, call ? { tool: call.tool, args: call.args, main: files === exec.files } : undefined)
         if (no || !call) return no
@@ -1363,6 +1366,9 @@ function saveScreenshot(exec: TurnExec, b64: string, mime: string): string | nul
   }
 }
 
+/** The produce tools whose output may be chat:files/<name> (attached to the answer: files/place-output.ts) */
+export const PLACE_PRODUCE_TOOLS: ReadonlySet<string> = new Set(['make_file', 'edit_office', 'edit_pdf', 'merge_pdfs', 'split_pdf', 'stamp_pdf', 'comment_docx', 'resize_images', 'make_zip'])
+
 /**
  * A call of a registered tool (not read, list, glob or grep: files/service.ts callPlace takes those) that names a chat
  * place (shared/src/places.ts) where this build does not take one: the words for the AI, or null. Only save_work_file's
@@ -1375,6 +1381,11 @@ export function placeRefusal(name: string, args: unknown): string | null {
     const place = parsePlace(value)
     if (name === 'save_work_file' && key === 'path' && place?.kind === 'work') continue
     if (place?.kind === 'reserved') return `Not done (${name}): ${place.why}.`
+    // P3 (docs/AGENTS/plan/20261121-0652-places-outputs.md): a produce tool's output (or split_pdf's and resize_images'
+    // folder) and make_file's source and template; the tool's own place check decides (files/place-output.ts: who may
+    // attach, chat:work/ outputs not yet, a chat file by id not changed in place yet)
+    if (PLACE_PRODUCE_TOOLS.has(name) && (key === 'output' || key === 'output_folder')) continue
+    if (name === 'make_file' && (key === 'source' || key === 'template')) continue
     return place?.kind === 'work'
       ? `Not done (${name}): this tool does not take a work-folder path (${value}) yet. Read it with read, or hand it over with save_work_file first.`
       : `Not done (${name}): this tool does not take a chat file (${value}) yet. Copy it into a team folder with save_chat_file first, then use that copy.`

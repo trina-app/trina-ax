@@ -337,7 +337,7 @@ export interface HtmlPdfRequest {
   page: string
   /** A team file the page refers to (its team path, decoded and normalized), or null when it may not be used: the
    * caller's authorize path for the person, plus its own rules. Only called for image, stylesheet and font paths. */
-  asset: (teamPath: string, maxBytes: number) => Buffer | null
+  asset: (teamPath: string, maxBytes: number) => Buffer | null | Promise<Buffer | null>
   /** font folders the browser may use besides the system's (Linux: given to fontconfig; read-only in the isolation) */
   fonts?: string[]
   /** where the work folder is made (the server's data folder) */
@@ -645,7 +645,7 @@ async function printPage(cdp: Cdp, race: <T>(x: Promise<T>) => Promise<T>, req: 
         a = null
         if (assets.size < L.maxAssets) {
           let bytes: Buffer | null = null
-          try { bytes = req.asset(team, L.maxAssetBytes) } catch { bytes = null }
+          try { bytes = await req.asset(team, L.maxAssetBytes) } catch { bytes = null }
           if (bytes && bytes.length <= L.maxAssetBytes && assetBytes + bytes.length <= L.maxAssetsBytes) { assetBytes += bytes.length; a = { b64: bytes.toString('base64'), mime } }
         }
         assets.set(team, a)

@@ -80,11 +80,14 @@ import { preparePresentation } from '../safe-ops/presentation'
 import { snapshot, type SourceSnapshot } from '../safe-ops/source'
 import { safeText } from '../safe-ops/strings'
 import { turnWriteLimits } from '../files/turn-write-limits'
+import { attachProduced, authorizeOutput, isChatTarget, placeRef, readPlaceFile, type ChatMade, type PlaceBase, type PlaceFile } from '../files/place-output'
+import { isReservedPlace, parsePlace } from '@mycel/shared/places'
+import { PLACE_WORDS } from '../files/places'
 
 type Input = z.output<typeof MakeFileInput>
 /** a PDF printed from HTML: its pages, what the page referred to but did not get, and whether it has scripts (off) */
 export interface FromHtml { pages: number; blocked: string[]; blockedCount: number; scripts: boolean }
-export interface MadeFile { path: string; size: number; sha256: string; conflictCopyOf?: string; deck?: Deck; formulas?: number; stored?: number; charts?: number; html?: FromHtml; conditional?: number; svgPictures?: number; csvSheet?: string; linksRemoved?: string[] }
+export interface MadeFile { path: string; size: number; sha256: string; conflictCopyOf?: string; chatFile?: ChatMade; deck?: Deck; formulas?: number; stored?: number; charts?: number; html?: FromHtml; conditional?: number; svgPictures?: number; csvSheet?: string; linksRemoved?: string[] }
 /** the sources make_file prints as a page (format pdf only) */
 export const HTML_SOURCE_EXT = new Set(['html', 'htm'])
 
@@ -291,6 +294,9 @@ export class MakeFile {
   constructor(private ctx: AppContext, private files: TeamFiles, private conv: Converters) {}
 
   async run(c: ToolCtx, a: Input): Promise<MadeFile> {
+    // a source in this chat's work folder or its files (chat:work/…, chat:files/…): read through its place, and every
+    // picture, stylesheet or font it refers to comes from that same place, never from the team folder
+    if (a.source !== undefined && isReservedPlace(a.source)) return this.fromPlace(c, a)
     // an HTML page is printed, never converted through Markdown (its design would be lost)
     if (a.source !== undefined && HTML_SOURCE_EXT.has(ext(a.source))) return this.fromHtml(c, a)
     // a deck is drawn slide by slide, never converted through Markdown
@@ -299,12 +305,33 @@ export class MakeFile {
     if(a.expected_layouts) throw new ToolError(safeText(this.ctx.db,c.user.id,'unavailable'))
     // a picture drawn as SVG saved as a PNG (svg-png.ts)
     if (a.format === 'png') return this.png(c, a)
+    return this.document(c, a)
+  }
+
+  /** make_file with a `source` in a chat place: read into a server-only copy first, then the same paths as a team source */
+  private async fromPlace(c: ToolCtx, a: Input): Promise<MadeFile> {
+    const x = ext(a.source!)
+    if (a.format === 'pptx' && safeOpsEnabled()) throw new ToolError('with safe operations on, a deck is made from a team file; copy the source into a team folder first', 'safe_ops_source')
+    const pre = makeWorkDir(path.join(this.ctx.config.dataDir, 'work'))
+    try {
+      const max = HTML_SOURCE_EXT.has(x) ? HTML_PDF_LIMITS.maxHtmlBytes : x === 'pptx' ? MAX_DECK : x === 'svg' ? SVG_MAX : MAX_SOURCE
+      const placed = await readPlaceFile(this.ctx, c, a.source!, max, pre)
+      if (HTML_SOURCE_EXT.has(x)) return await this.fromHtml(c, a, placed)
+      if (x === 'pptx') return await this.fromDeck(c, a, placed)
+      if (a.format === 'png') return await this.png(c, a, placed)
+      return await this.document(c, a, placed)
+    } finally { fs.rmSync(pre, { recursive: true, force: true }) }
+  }
+
+  /** Markdown, CSV or text into docx, pptx, xlsx, pdf or hwpx; `placed`: the source read out of a chat place */
+  private async document(c: ToolCtx, a: Input, placed?: PlaceFile): Promise<MadeFile> {
     const fx = this.files.fx
     const rules = this.files.rules()
     // ---- input
     let text: string
     let kind: 'markdown' | 'csv' | 'tsv'
-    let baseDir: string[] = []
+    /** where the document's pictures resolve: its own place (a team folder, the work folder, the chat's files) */
+    let base: PlaceBase = { kind: 'team', dir: [] }
     /** xlsx from a CSV source with `content` too: the CSV's sheet (named after the file) comes first, then the Markdown
      * tables of `content` as more sheets (a summary with formulas over the data; QA TC-4914: the AI retyped 999 of
      * 50,000 rows because a CSV source could not get a second sheet) */
@@ -318,26 +345,35 @@ export class MakeFile {
       if (!hasPipeRow(a.content)) throw new ToolError('with a CSV source, content must be Markdown | pipe | tables (the sheets after the CSV\'s); nothing was saved')
     }
     if (a.source !== undefined) {
-      const r = authorize(fx, rules, c.user, a.source, 'read')
-      if (r.st!.isDirectory()) throw new ToolError(`'${r.rel}' is a folder`)
-      const x = ext(r.rel)
+      let rel: string, bytes: Buffer
+      if (placed) {
+        rel = placed.name
+        bytes = readRegular(placed.local, MAX_SOURCE).bytes
+        base = placed.base
+        sources.push(placed.place)
+      } else {
+        const r = authorize(fx, rules, c.user, a.source, 'read')
+        if (r.st!.isDirectory()) throw new ToolError(`'${r.rel}' is a folder`)
+        rel = r.rel
+        bytes = readRegular(r.abs, MAX_SOURCE, r.st).bytes
+        base = { kind: 'team', dir: r.segs.slice(0, -1) }
+        sources.push(r.rel)
+      }
+      const x = ext(rel)
       if (!['md', 'markdown', 'txt', 'csv', 'tsv'].includes(x)) throw new ToolError('source must be a .md, .txt, .csv or .tsv file (or an .html or .pptx file for format "pdf", an .svg file for format "png")')
-      const { bytes } = readRegular(r.abs, MAX_SOURCE, r.st)
       // one cap for the CSV and the sheets added to it
       if (a.content !== undefined && bytes.length + Buffer.byteLength(a.content) > MAX_SOURCE) throw new ToolError('the CSV and content are too large together (max 10 MB); nothing was saved')
       text = bytes.toString('utf8')
       kind = x === 'csv' ? 'csv' : x === 'tsv' ? 'tsv' : 'markdown'
-      baseDir = r.segs.slice(0, -1)
-      sources.push(r.rel)
-      if (a.content !== undefined) first = { name: path.basename(r.rel).replace(/\.[^.]+$/, '') }
+      if (a.content !== undefined) first = { name: path.basename(rel).replace(/\.[^.]+$/, '') }
     } else {
       text = a.content!
       if (Buffer.byteLength(text) > MAX_SOURCE) throw new ToolError('content is too large (max 10 MB)')
       kind = a.format === 'xlsx' && !hasPipeRow(text) ? (text.includes('\t') && !text.includes(',') ? 'tsv' : 'csv') : 'markdown'
     }
-    // ---- output path (extension follows the format)
+    // ---- output path (extension follows the format); chat:files/<name> attaches it to this answer
     const outRel = makeFileOutputPath(a.output, a.format)
-    const out = authorize(fx, rules, c.user, outRel, 'write', { mustExist: false, createDirs: true })
+    const out = authorizeOutput(fx, rules, c, outRel, { mustExist: false, createDirs: true })
     if (out.exists && out.st!.isDirectory()) throw new ToolError(`'${out.rel}' is a folder`)
     // before any work: a file read earlier that changed since, or that this session does not hold, asks for a new read
     if (out.exists) readForMakeFile(c.files, out.rel)
@@ -383,7 +419,7 @@ export class MakeFile {
           checkRawMarkup(ast)
           // a link to anything but a web page, a mail address or a place in the document becomes its text (TC-4949)
           linksRemoved = stripUnsafeLinks(ast)
-          images = this.copyImages(c, ast, baseDir, work)
+          images = await this.copyImages(c, ast, base, work)
           sources.push(...images)
           // Word and PowerPoint: an SVG picture (a chart the AI drew) goes in as a PNG, which every reader shows
           if (a.format === 'docx' || a.format === 'pptx') svgPictures = await this.svgPictures(c, ast, work, text)
@@ -455,16 +491,16 @@ export class MakeFile {
    * pictures, stylesheets and fonts read with the person's own access. The page and those files are the PDF's sources
    * (the wider-audience card, as for images); then the PDF is placed like every make_file output.
    */
-  private async fromHtml(c: ToolCtx, a: Input): Promise<MadeFile> {
+  private async fromHtml(c: ToolCtx, a: Input, placed?: PlaceFile): Promise<MadeFile> {
     if (a.format !== 'pdf') throw new ToolError(`an .html source can only be printed to PDF: give format "pdf" (for ${a.format}, write the document as Markdown)`)
     if (a.template) throw new ToolError('a PDF printed from HTML takes no template: the page\'s own CSS is its design')
     const fx = this.files.fx
     const outRel = makeFileOutputPath(a.output, 'pdf')
-    const out = authorize(fx, this.files.rules(), c.user, outRel, 'write', { mustExist: false, createDirs: true })
+    const out = authorizeOutput(fx, this.files.rules(), c, outRel, { mustExist: false, createDirs: true })
     if (out.exists && out.st!.isDirectory()) throw new ToolError(`'${out.rel}' is a folder`)
     // before any work: a file read earlier that changed since, or that this session does not hold, asks for a new read
     if (out.exists) readForMakeFile(c.files, out.rel)
-    const printed = await printTeamHtml(this.ctx, this.files, c.user, a.source!, { signal: c.signal })
+    const printed = placed ? await printPlaceHtml(this.ctx, c, placed) : await printTeamHtml(this.ctx, this.files, c.user, a.source!, { signal: c.signal })
     const work = makeWorkDir(path.join(this.ctx.config.dataDir, 'work'))
     try {
       const produced = path.join(work, 'out.pdf')
@@ -482,15 +518,16 @@ export class MakeFile {
    * by name (never a team file). The deck is the PDF's only source (the wider-audience card); then the PDF is placed
    * like every make_file output.
    */
-  private async fromDeck(c: ToolCtx, a: Input): Promise<MadeFile> {
+  private async fromDeck(c: ToolCtx, a: Input, placed?: PlaceFile): Promise<MadeFile> {
     if (a.format !== 'pdf') throw new ToolError(`a .pptx source can only be saved as a PDF: give format "pdf" (for ${a.format}, write the document as Markdown)`)
     if (a.template) throw new ToolError('a PDF of a deck takes no template: the deck\'s own design is used')
     const fx = this.files.fx
     const rules = this.files.rules()
-    const src = authorize(fx, rules, c.user, a.source!, 'read')
-    if (src.st!.isDirectory()) throw new ToolError(`'${src.rel}' is a folder`)
+    // a deck in a chat place: its bytes from the checked copy; the page is named after it (its pictures are the deck's own)
+    const src = placed ? { rel: placed.place, segs: [placed.name], abs: placed.local, st: undefined } : authorize(fx, rules, c.user, a.source!, 'read')
+    if (src.st?.isDirectory()) throw new ToolError(`'${src.rel}' is a folder`)
     const outRel = makeFileOutputPath(a.output, 'pdf')
-    const out = authorize(fx, rules, c.user, outRel, 'write', { mustExist: false, createDirs: true })
+    const out = authorizeOutput(fx, rules, c, outRel, { mustExist: false, createDirs: true })
     if (out.exists && out.st!.isDirectory()) throw new ToolError(`'${out.rel}' is a folder`)
     // before any work: a file read earlier that changed since, or that this session does not hold, asks for a new read
     if (out.exists) readForMakeFile(c.files, out.rel)
@@ -540,6 +577,7 @@ export class MakeFile {
       snapshots.push(s); text=s.bytes.toString('utf8'); base=s.path.split('/').slice(0,-1)
     }
     const output=makeFileOutputPath(a.output,'pptx')
+    if(isReservedPlace(output)) throw new ToolError('with safe operations on, a deck is saved in a team folder (it is published there); save it in a folder and link it','safe_ops_output')
     c.user=this.ctx.files.principal(c.user.id)
     const out=authorize(this.files.fx,this.files.rules(),c.user,output,'write',{mustExist:false,download:true})
     const {bytes,deck}=await preparePresentation(this.ctx.files,c,this.conv.pandoc,text,base,{slides:a.expected_slides,notes:a.expected_notes,layouts:a.expected_layouts},snapshots)
@@ -549,26 +587,51 @@ export class MakeFile {
   }
 
   /**
-   * Images: only files in the team folder the person may read, by relative path (to the source file, or to the
-   * team root), are copied into the work folder; the Image nodes of the document tree then point at the copies.
-   * Anything else (web addresses, data: URLs, absolute paths, hidden or missing files) stops the conversion.
+   * Images: only files the person may read in the document's own place are copied into the work folder; the Image nodes
+   * of the document tree then point at the copies. A team source's pictures are team files by a relative path (to the
+   * source file, or to the team root); a source in the chat's work folder takes its pictures from the work folder only
+   * (relative to it), one in the chat's files from the chat's files only, and a `chat:work/…` or `chat:files/…` reference
+   * goes through the resolver (plan 20261121-0615-chat-places-as-paths.md review fix 4: a work-folder HTML or Markdown
+   * never pulls a team file). Anything else (web addresses, data: URLs, absolute paths, hidden or missing files) stops
+   * the conversion. Returns the sources: team paths and place paths.
    */
-  private copyImages(c: ToolCtx, ast: unknown, baseDir: string[], work: string): string[] {
+  private async copyImages(c: ToolCtx, ast: unknown, base: PlaceBase, work: string): Promise<string[]> {
     let n = 0
     const rels: string[] = []
     let bytes = 0
     const fx = this.files.fx
     const rules = this.files.rules()
-    const bad = (target: string, why: string): never => { throw new ToolError(`image '${target.slice(0, 200)}': ${why}. Images must be files in the team folder you can read, given by a relative path (no web addresses or absolute paths).`) }
-    const local = (target: string): string => {
-      if (/^[a-z][a-z0-9+.-]*:/i.test(target) || target.startsWith('//')) bad(target, 'web addresses are not fetched')
-      if (target.startsWith('/') || target.startsWith('~') || target.startsWith('\\')) bad(target, 'absolute paths are not allowed')
+    const where = base.kind === 'work' ? 'files in this chat\'s work folder (chat:work/), given by a path relative to the document' : base.kind === 'chatFiles' ? 'files of this chat (chat:files/<name>)' : 'files in the team folder you can read, given by a relative path (no web addresses or absolute paths)'
+    const bad = (target: string, why: string): never => { throw new ToolError(`image '${target.slice(0, 200)}': ${why}. Images must be ${where}.`) }
+    /** a picture of a chat place, copied through its one safe open */
+    const fromPlace = async (target: string, place: string, x: string): Promise<string> => {
+      let got: Awaited<ReturnType<typeof readPlaceFile>>
+      try { got = await readPlaceFile(this.ctx, c, place, MAX_IMAGE, work) } catch (e) {
+        if (e instanceof ToolError && e.code === 'too_large') return bad(target, 'larger than 20 MB')
+        return bad(target, e instanceof ToolError || e instanceof Denied ? e.message.replace(/\.$/, '') : 'not found or no access')
+      }
+      if ((bytes += got.size) > MAX_IMAGES_BYTES) bad(target, 'the images together are larger than 100 MB')
+      const name = freshName(work, `img-${n}`, x)
+      fs.renameSync(got.local, path.join(work, name))
+      rels.push(got.place)
+      return name
+    }
+    const local = async (target: string): Promise<string> => {
       let decoded = target
       try { decoded = decodeURIComponent(target) } catch { /* keep */ }
+      const named = isReservedPlace(decoded) ? parsePlace(decoded) : null
+      if (!named && (/^[a-z][a-z0-9+.-]*:/i.test(target) || target.startsWith('//'))) bad(target, 'web addresses are not fetched')
+      if (target.startsWith('/') || target.startsWith('~') || target.startsWith('\\')) bad(target, 'absolute paths are not allowed')
       const x = ext(decoded)
       if (!IMAGE_EXT.has(x)) bad(target, 'not an image file')
       if (++n > MAX_IMAGES) bad(target, `more than ${MAX_IMAGES} images`)
-      const candidates = [path.posix.normalize([...baseDir, decoded].join('/')), path.posix.normalize(decoded)]
+      // a chat place named outright, or a relative reference of a document that is in one: through the resolver only
+      if (named) return fromPlace(target, decoded, x)
+      if (base.kind !== 'team') {
+        const p = placeRef(base, decoded)
+        return p ? fromPlace(target, p, x) : bad(target, 'it leaves the document\'s place')
+      }
+      const candidates = [path.posix.normalize([...base.dir, decoded].join('/')), path.posix.normalize(decoded)]
       for (const rel of candidates) {
         if (rel.startsWith('..')) continue
         let abs: string, size: number, found: string
@@ -587,7 +650,8 @@ export class MakeFile {
       }
       return bad(target, 'not found or no access')
     }
-    // iterative walk (a deeply nested document must not overflow the stack)
+    // iterative walk (a deeply nested document must not overflow the stack); the pictures in document order after it
+    const targets: string[][] = []
     const stack: unknown[] = [ast]
     while (stack.length) {
       const v = stack.pop()
@@ -595,10 +659,11 @@ export class MakeFile {
       if (!v || typeof v !== 'object') continue
       const node = v as { t?: unknown; c?: unknown }
       if (node.t === 'Image' && Array.isArray(node.c) && Array.isArray(node.c[2]) && typeof node.c[2][0] === 'string') {
-        node.c[2][0] = local(node.c[2][0])
+        targets.push(node.c[2] as string[])
       }
       for (const x of Object.values(node)) if (x && typeof x === 'object') stack.push(x)
     }
+    for (const t of targets) t[0] = await local(t[0]!)
     return rels
   }
 
@@ -645,13 +710,17 @@ export class MakeFile {
    * file in the team folder (then that file is the PNG's source). Drawn by typst (svg-png.ts), then placed like every
    * make_file output.
    */
-  private async png(c: ToolCtx, a: Input): Promise<MadeFile> {
+  private async png(c: ToolCtx, a: Input, placed?: PlaceFile): Promise<MadeFile> {
     if (a.template) throw new ToolError('a PNG takes no template')
     const fx = this.files.fx
     const rules = this.files.rules()
     let svg: Uint8Array
     const sources: string[] = []
-    if (a.source !== undefined) {
+    if (placed) {
+      if (ext(placed.name) !== 'svg') throw new ToolError('for format "png" the source must be an .svg file (or give the SVG as `content`)')
+      svg = new Uint8Array(readRegular(placed.local, SVG_MAX).bytes)
+      sources.push(placed.place)
+    } else if (a.source !== undefined) {
       const r = authorize(fx, rules, c.user, a.source, 'read')
       if (r.st!.isDirectory()) throw new ToolError(`'${r.rel}' is a folder`)
       if (ext(r.rel) !== 'svg') throw new ToolError('for format "png" the source must be an .svg file (or give the SVG as `content`)')
@@ -663,7 +732,7 @@ export class MakeFile {
     }
     if (!/<svg\b/i.test(new TextDecoder().decode(svg.subarray(0, 64 * 1024)))) throw new ToolError('for format "png" give an SVG picture (an <svg> element) as `content` or an .svg `source`; nothing was saved')
     const outRel = makeFileOutputPath(a.output, 'png')
-    const out = authorize(fx, rules, c.user, outRel, 'write', { mustExist: false, createDirs: true })
+    const out = authorizeOutput(fx, rules, c, outRel, { mustExist: false, createDirs: true })
     if (out.exists && out.st!.isDirectory()) throw new ToolError(`'${out.rel}' is a folder`)
     const work = makeWorkDir(path.join(this.ctx.config.dataDir, 'work'))
     try {
@@ -686,10 +755,12 @@ export class MakeFile {
   }
 
   private async template(c: ToolCtx, tpl: string, format: string, work: string): Promise<{ local: string; rel: string }> {
-    // any file the person can read (not only skills/): it is a source of the output, so the wider-audience check covers it
-    const r = authorize(this.files.fx, this.files.rules(), c.user, tpl, 'read')
-    if (r.st!.isDirectory()) throw new ToolError(`'${r.rel}' is a folder; give a .${format} file as the template`, 'is_folder')
-    if (ext(r.rel) !== format) throw new ToolError(`the template must be a .${format} file`)
+    // any file the person can read (not only skills/): it is a source of the output, so the wider-audience check covers it;
+    // one in a chat place (chat:work/…, chat:files/…) through its place
+    const placed = isReservedPlace(tpl) ? await readPlaceFile(this.ctx, c, tpl, 50 * 1024 * 1024, work) : null
+    const r = placed ? { rel: placed.place, abs: placed.local, st: undefined } : authorize(this.files.fx, this.files.rules(), c.user, tpl, 'read')
+    if (r.st?.isDirectory()) throw new ToolError(`'${r.rel}' is a folder; give a .${format} file as the template`, 'is_folder')
+    if (ext(placed ? placed.name : r.rel) !== format) throw new ToolError(`the template must be a .${format} file`)
     const st = checkRegular(r.abs)
     if (st.size > 50 * 1024 * 1024) throw new ToolError('template is too large')
     // pandoc copies the template's headers, footers, settings, masters and layouts as they are: a field that runs or
@@ -731,6 +802,7 @@ export class MakeFile {
    * Only its header's style lists and its first section's page setup are used, never its text (so no field or link
    * in it reaches the new file); scripts, OLE objects and addresses or paths in what is kept are refused there. */
   private hwpxTemplate(c: ToolCtx, tpl: string): { bytes: Uint8Array; rel: string } {
+    if (isReservedPlace(tpl)) throw new ToolError('a .hwpx template must be a team file; copy it into a team folder first', 'bad_place')
     const r = authorize(this.files.fx, this.files.rules(), c.user, tpl, 'read')
     if (r.st!.isDirectory()) throw new ToolError(`'${r.rel}' is a folder; give a .hwpx file as the template`, 'is_folder')
     if (ext(r.rel) !== 'hwpx') throw new ToolError('the template must be a .hwpx file (a .hwp can be saved as .hwpx in Hangul)')
@@ -828,7 +900,8 @@ export class MakeFile {
  * placed.
  */
 export async function confirmSources(ctx: AppContext, files: TeamFiles, c: ToolCtx, target: string, targetSegs: string[], sources: string[], binding?: string) {
-  for (const p of sources) c.files.readPaths.add(p)
+  // a chat place's file (chat:work/…, chat:files/…) is not a team path: the turn weighs it by its place's readers
+  for (const p of sources) if (!isReservedPlace(p)) c.files.readPaths.add(p)
   if (c.confirmWidening) {
     const refusal = await c.confirmWidening(target, sources, binding)
     if (refusal) throw new Denied(refusal)
@@ -838,9 +911,55 @@ export async function confirmSources(ctx: AppContext, files: TeamFiles, c: ToolC
   const rules = files.rules()
   const chatId = c.turnId ? (db.query('SELECT chat_id FROM turns WHERE id = ?').get(c.turnId) as { chat_id: string } | null)?.chat_id ?? null : null
   // the target as the file layer resolves it (letter case, look-alike spellings): "WIDE/x" is wide/x
+  if (isReservedPlace(target) || sources.some(isReservedPlace)) throw new Denied(`${PLACE_WORDS.noChat} Nothing was saved.`)
   const at = authorize(files.fx, rules, c.user, target, 'write', { mustExist: false, createDirs: true }).segs
   const w = widening(db, chatId, at, sources.map((p) => sourceOf(db, rules, p)))
   if (w) throw new Denied(`more people can read '${target}' than the files it is made from; nothing was saved. Save it in a folder that only the people who can read those files can see, or ask the user where to put it.`)
+}
+
+/**
+ * Print an HTML page read out of a chat place (files/place-output.ts readPlaceFile) to PDF: its pictures, stylesheets and
+ * fonts come from that same place only (relative to the page inside the work folder, or among the chat's files), each
+ * through the place's one safe open; a reference that leaves the place, or names the team folder, gets nothing. The page
+ * and those files are the PDF's sources (place paths).
+ */
+export async function printPlaceHtml(ctx: AppContext, c: ToolCtx, placed: PlaceFile): Promise<PrintedHtml> {
+  if (!HTML_SOURCE_EXT.has(ext(placed.name))) throw new ToolError('only an .html file can be printed to PDF')
+  const max = HTML_PDF_LIMITS.maxHtmlBytes
+  if (placed.size > max) { const e = new HtmlPdfError('html_too_large', `the HTML file is larger than ${max / 1024 / 1024} MB`); throw new ToolError(htmlPdfErrorText(e), `html_pdf_${e.code}`) }
+  const why = htmlPdfUnavailable()
+  const browser = findPdfBrowser()
+  if (why || !browser) throw new ToolError(`${why ?? 'no headless browser is installed on this server'}; nothing was saved. Tell the user so; never rewrite the HTML as Markdown instead without saying that its design (colours, backgrounds, merged cells, page layout) would be lost`, 'html_pdf_unavailable')
+  const bytes = readRegular(placed.local, max).bytes
+  ctx.files.quarantine.assertBytes(bytes)
+  // the page's own path inside its place: the browser resolves its references against it (never a team path)
+  const page = placed.base.kind === 'work' ? [...placed.base.dir, placed.name].join('/') : placed.name
+  const used = new Map<string, string>()
+  const toTool = (e: unknown) => (e instanceof HtmlPdfError ? new ToolError(htmlPdfErrorText(e), `html_pdf_${e.code}`) : e)
+  const tmp = makeWorkDir(path.join(ctx.config.dataDir, 'work'))
+  let release: () => void
+  try { release = await renderSlot(c.user.id, c.signal) } catch (e) { fs.rmSync(tmp, { recursive: true, force: true }); throw toTool(e) }
+  try {
+    const r = await renderHtmlPdf({
+      browser, html: bytes, page, workBase: ctx.config.dataDir, fonts: serverFontDirs(), signal: c.signal,
+      asset: async (p, maxBytes) => {
+        if (p === page) return null
+        const at = placed.base.kind === 'work' ? placeRef({ kind: 'work', dir: [] }, p) : placeRef(placed.base, p)
+        if (!at) return null
+        try {
+          const got = await readPlaceFile(ctx, c, at, maxBytes, tmp)
+          const b = readRegular(got.local, maxBytes).bytes
+          fs.rmSync(got.local, { force: true })
+          if (ctx.files.quarantine.hasBytes(b)) return null
+          used.set(p, got.place)
+          return b
+        } catch { return null }
+      },
+    })
+    return { pdf: r.pdf, pages: r.pages, blocked: r.blocked, blockedCount: r.blockedCount, scripts: r.scripts, source: placed.place, sources: [placed.place, ...r.assets.map((p) => used.get(p) ?? p)] }
+  } catch (e) {
+    throw toTool(e)
+  } finally { release(); fs.rmSync(tmp, { recursive: true, force: true }) }
 }
 
 /** An HTML page of the team folder printed to PDF (files/html-pdf.ts), and every team file whose bytes are in it. */
@@ -913,6 +1032,8 @@ const MADE_BY = new Set(['make_file', 'edit_pdf', 'merge_pdfs', 'split_pdf', 'st
 export interface PlaceOptions { turnBytes?: boolean; turnFiles?: boolean; detail?: Record<string, unknown>; thisAnswerOnly?: boolean }
 
 export async function placeProduced(ctx: AppContext, files: TeamFiles, c: ToolCtx, segs: string[], produced: string, tool = 'make_file', guard?: () => void, po: PlaceOptions = {}): Promise<MadeFile> {
+  // `chat:files/<name>` (files/place-output.ts authorizeOutput): attached to this answer, never a team file
+  if (isChatTarget(segs)) { guard?.(); return attachProduced(ctx, c, segs, produced, { turnBytes: po.turnBytes, turnFiles: po.turnFiles }) }
   // a guest has the smaller pair (files/turn-write-limits.ts)
   const max = turnWriteLimits(ctx.engineConfig, ctx.db, c.user.id)
   // lstat, never the size of what a link left by a converter points at (hashFile below refuses such a link anyway)
