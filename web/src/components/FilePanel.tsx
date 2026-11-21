@@ -138,6 +138,10 @@ export default function FilePanel({ file, onClose }: { file: PreviewFile; onClos
   const viewed: PreviewFile = useMemo(() => (file.source === 'chat' && shownVersion ? { ...file, version: shownVersion } : file), [file, shownVersion])
   const loaded = useFileBlob(viewed, rev)
   const { kind, error, downloadOnly } = loaded
+  // the file does not open for me: the server answers 'not_found' alike for gone and not mine (the "only its creator can
+  // add it to the chat" ask, components/ChatFileAsk.tsx, and the "can't be found, or you don't have access" line). The
+  // header keeps the name and Close only: no file action that needs the file, nothing about where it is.
+  const noAccess = error?.kind === 'missing'
   const [editing, setEditing] = useState<{ base: string; text: string; draft: string } | null>(null)
   const [saving, setSaving] = useState(false)
   const [loadingEdit, setLoadingEdit] = useState(false)
@@ -361,7 +365,7 @@ export default function FilePanel({ file, onClose }: { file: PreviewFile; onClos
   // the folder shows beside the panel: a big panel goes back side by side
   // a guest has no 파일 screen: their project's files screen, or no button (their own folder has no screen)
   const guestFolder = useGuestFolderHref()
-  const filesHref = teamPath === null ? null
+  const filesHref = teamPath === null || noAccess ? null
     : guestFolder ? guestFolder(parentPath(teamPath), teamPath)
     : `/files?path=${encodeURIComponent(parentPath(teamPath))}&select=${encodeURIComponent(file.name)}`
   const openInFiles = () => {
@@ -369,7 +373,7 @@ export default function FilePanel({ file, onClose }: { file: PreviewFile; onClos
     setPanelExpanded(false)
     navigate(filesHref)
   }
-  const canDownload = error?.kind !== 'missing'
+  const canDownload = !noAccess
   // an .html team file the server can print (never a button that cannot work), not while editing or after an error
   const canPdf = file.source === 'team' && kind === 'html' && !!me?.server.htmlPdf && !error && !editing
   // the app's "…" menu (rooms/MenuButton.tsx): arrow keys, Home / End, Esc back to the button; a bottom sheet on phones
@@ -379,7 +383,7 @@ export default function FilePanel({ file, onClose }: { file: PreviewFile; onClos
     ...(addToChat ? [{ label: addToChat.title ? t('files.addToChatNamed', { title: addToChat.title }) : t('files.addToCurrentChat'), icon: <Paperclip size={15} className="shrink-0" aria-hidden />, onSelect: addToChat.add, testId: 'file-more-add-to-chat' }] : []),
     ...(filesHref ? [{ label: t('preview.openInFiles'), icon: <FolderOpen size={15} className="shrink-0" aria-hidden />, onSelect: openInFiles, testId: 'file-more-open-in-files' }] : []),
     // a team file shared with chosen people (QA TC-3093; components/FileShareDialog.tsx)
-    ...(file.source === 'team' && !isGuestMe(me) ? [{ label: t('folderAccess.menu'), icon: <UserPlus size={15} className="shrink-0" aria-hidden />, onSelect: () => openFileShare(file.path), testId: 'file-more-share' }] : []),
+    ...(file.source === 'team' && !isGuestMe(me) && !noAccess ? [{ label: t('folderAccess.menu'), icon: <UserPlus size={15} className="shrink-0" aria-hidden />, onSelect: () => openFileShare(file.path), testId: 'file-more-share' }] : []),
     ...(canDownload ? [{ label: t('common.download'), icon: <Download size={15} className="shrink-0" aria-hidden />, onSelect: download, testId: 'file-more-download' }] : []),
   ]
 
@@ -389,11 +393,11 @@ export default function FilePanel({ file, onClose }: { file: PreviewFile; onClos
       <header className="@container flex items-center gap-2 border-b border-line px-3 py-2">
         <FileText size={16} className="shrink-0 text-muted" aria-hidden />
         <h2
-          className={clsx('min-w-0 truncate text-sm font-semibold', file.source === 'team' && 'cursor-grab')}
-          title={file.source === 'team' ? `${file.path}\n${t('files.dragToChat')}` : file.name}
-          draggable={file.source === 'team'}
+          className={clsx('min-w-0 truncate text-sm font-semibold', file.source === 'team' && !noAccess && 'cursor-grab')}
+          title={file.source === 'team' && !noAccess ? `${file.path}\n${t('files.dragToChat')}` : file.name}
+          draggable={file.source === 'team' && !noAccess}
           onDragStart={(e) => {
-            if (file.source !== 'team') return
+            if (file.source !== 'team' || noAccess) return
             e.dataTransfer.setData(TEAM_FILE_DRAG_TYPE, file.path)
             e.dataTransfer.setData('text/plain', file.path)
             e.dataTransfer.effectAllowed = 'copy'
@@ -411,7 +415,7 @@ export default function FilePanel({ file, onClose }: { file: PreviewFile; onClos
               </button>
             </Tooltip>
           )}
-          {file.source === 'room' && (
+          {file.source === 'room' && !noAccess && (
             <Tooltip label={t('sideChat.askAboutFile')}>
               <button type="button" onClick={() => askTrinaInRoom(file.roomId, fileSeed(file.fileId, file.name))}
                 className="touch-hit mr-1 inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-accent-text hover:bg-accent-soft max-md:p-1.5 max-sm:p-2" data-testid="file-ask-trina">
@@ -447,7 +451,7 @@ export default function FilePanel({ file, onClose }: { file: PreviewFile; onClos
             </IconButton>
           )}
           {more.length > 0 && <MenuButton label={t('files.actionsFor', { name: file.name })} items={more} className="md:hidden" muted testId="file-panel-more" />}
-          <PanelExpandButton />
+          {!noAccess && <PanelExpandButton />}
           <IconButton label={t('common.close')} onClick={onClose}>
             <X size={16} />
           </IconButton>
