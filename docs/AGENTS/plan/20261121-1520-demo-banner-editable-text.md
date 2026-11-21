@@ -27,15 +27,16 @@ After: the visitor asks for new words and gets a new banner back, with real-look
 In:
 - The fake Higgsfield gets `make_banner` (size, scene, headline, subline, eyebrow, badge, badge_note, button): a
   text-free photo made in advance + the words as their own layer, drawn by typst (already on every server that makes
-  PDFs) in the converters' isolation. Words left out stay the launch banner's. The picture comes back inline and at the
+  PDFs) in the converters' isolation. Words left out, and the photo, stay as on the last banner make_banner made (the launch banner's at first); the newest
+  30 pictures are kept, one render at a time per process, typst `--jobs` as make_file. The picture comes back inline and at the
   fake's download address, like generate_image, so save_connector_file saves it.
 - The banner kit in the seed: 4 scenes (one glass by the window = the story's photos, two glasses, the pouch close up,
   a café table) × 1200×628 / 1080×1080 / 1080×1920 (the pouch close-up has no square), the pouch label printed by the
   template, the brand guide's fonts (Fraunces, Noto Serif KR, Noto Sans KR: SIL OFL 1.1, subset). The scene follows the
   words ("두 잔" → two glasses). The other scenes are generate_image pictures too.
 - The demo rule (prompt.ts demoRule) tells the AI, on a demo with fakes: the services are practice copies; generate_image
-  picks a prepared photo (say so, never "shot a new one"); banner words are a layer, change them with make_banner;
-  mail is never really sent.
+  picks a prepared photo (say so, never "shot a new one"); mail is never really sent; and, only when the demo has a
+  banner kit, banner words are a layer, change them with make_banner.
 
 Out: real image generation in the demo; editing other pictures' text; the visible notice on the landing page and the
 bar (another PR).

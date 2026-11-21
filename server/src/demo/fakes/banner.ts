@@ -15,6 +15,7 @@ import path from 'node:path'
 import { z } from 'zod'
 import { which } from '../../config'
 import { dirBytes, makeWorkDir, readOutput, runIsolated } from '../../tools/isolate'
+import { typstJobs } from '../../system/limits'
 
 export const BANNER_DIR = 'banner'
 export const KIT_FILE = 'kit.json'
@@ -58,20 +59,22 @@ export function loadBannerKit(content: string | null, warn: (m: string) => void 
 
 const wordsOf = (s: string) => s.toLowerCase().split(/[^\p{L}\p{N}]+/u).filter(Boolean)
 
-/** the scene with a photo in this size whose words share the most with `text` (the first such scene on a tie) */
-export function pickScene(kit: BannerKitFile, size: BannerSize, text: string): BannerKitFile['scenes'][number] | null {
+/** the scene with a photo in this size whose words share the most with `text` (the first such scene on a tie), and
+ * how many words it shared */
+export function matchScene(kit: BannerKitFile, size: BannerSize, text: string): { scene: BannerKitFile['scenes'][number]; score: number } | null {
   const want = new Set(wordsOf(text))
   // Korean writes "두 잔" and "두잔": both count
   const joined = wordsOf(text).map((w, i, a) => w + (a[i + 1] ?? ''))
   for (const j of joined) want.add(j)
-  let best: BannerKitFile['scenes'][number] | null = null, score = -1
+  let best: { scene: BannerKitFile['scenes'][number]; score: number } | null = null
   for (const s of kit.scenes) {
     if (!s.photos[size]) continue
     const n = s.words.filter((w) => want.has(w.toLowerCase())).length
-    if (n > score) { best = s; score = n }
+    if (!best || n > best.score) best = { scene: s, score: n }
   }
   return best
 }
+export const pickScene = (kit: BannerKitFile, size: BannerSize, text: string) => matchScene(kit, size, text)?.scene ?? null
 
 /** an AI's size words ("1:1", "square", "story", "1080x1920") → a banner size (default: the web banner) */
 export function sizeOf(v: unknown): BannerSize {
@@ -86,7 +89,7 @@ export function sizeOf(v: unknown): BannerSize {
 /** a typst string literal: the words stay words (no markup, no code) */
 export function typstString(s: string): string {
   // eslint-disable-next-line no-control-regex
-  return '"' + s.replace(/[\u0000-\u0009\u000b-\u001f\u007f]/g, ' ').replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\n/g, '\\n') + '"'
+  return '"' + s.replace(/[\u0000-\u0009\u000b-\u001f\u007f-\u009f\u2028\u2029]/g, ' ').replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\n/g, '\\n') + '"'
 }
 
 const SERIF: Record<BannerKitFile['lang'], string[]> = {
@@ -120,6 +123,11 @@ function headlineContent(text: string, lang: string): string {
     return parts.map((p) => `#{${p}}`).join('')
   }).join('#linebreak()')
 }
+
+/** a text's width in Latin letters: a CJK letter counts two */
+const visualLength = (t: string) => [...t.trim()].reduce((n, c) => n + (/[\u1100-\u11ff\u2e80-\u9fff\uac00-\ud7a3\uf900-\ufaff\uff00-\uffef]/.test(c) ? 2 : 1), 0)
+/** the type scale for a text longer than its layout was made for (`limit` Latin letters): area-preserving, at least `min` */
+const fit = (t: string, limit: number, min: number) => { const n = visualLength(t); return n <= limit ? 1 : Math.max(min, Math.sqrt(limit / n)) }
 
 interface Layout {
   wash: { dir: 'ltr' | 'ttb'; stops: [number, number][] }
@@ -180,7 +188,9 @@ export function bannerTypst(kit: BannerKitFile, size: BannerSize, photo: { label
     ? `#place(top + center, dy: ${L.logo.y}pt)[#${logo}]`
     : `#place(top + left, dx: ${L.logo.x}pt, dy: ${L.logo.y}pt)[#${logo}]`)
   // the copy: eyebrow, headline, the line under it
-  const h1 = isLatin ? L.h1 : L.h1Ko
+  // long words get smaller type, so every word stays on the banner (the layout is made for the launch banner's)
+  const h1 = Math.round((isLatin ? L.h1 : L.h1Ko) * fit(words.headline, 40, 0.3))
+  const sub = Math.round(L.sub * fit(words.subline, 90, 0.4) * 10) / 10
   const h1Font = isLatin ? `font: ${serif}, weight: 600, tracking: -0.018em` : `font: ${serif}, weight: 600, tracking: ${lang === 'ko' ? '-0.035em' : '0.01em'}`
   // CSS line boxes: .98 (Latin, Fraunces) and 1.2 (CJK) of the size, the glyphs inside them
   const edges = isLatin ? 'top-edge: 0.76em, bottom-edge: -0.2em' : 'top-edge: 0.9em, bottom-edge: -0.14em'
@@ -188,9 +198,12 @@ export function bannerTypst(kit: BannerKitFile, size: BannerSize, photo: { label
   const parts: string[] = []
   if (words.eyebrow.trim()) parts.push(`text(size: ${L.eyebrow}pt, weight: 700, tracking: ${isLatin ? '0.2em' : '0.12em'}, fill: green.transparentize(15%), upper(${typstString(words.eyebrow.trim())}))`, `v(${L.h1Gap}pt)`)
   if (words.headline.trim()) parts.push(`block(par(leading: ${lead}em, text(size: ${h1}pt, ${h1Font}, fill: deep, ${edges}, [${headlineContent(words.headline, lang)}])))`)
-  if (words.subline.trim()) parts.push(`v(${L.subGap + 4}pt)`, `block(width: ${L.subW}pt, par(leading: 0.55em, text(size: ${L.sub}pt, weight: 500, fill: ink.transparentize(18%), ${typstString(words.subline.trim())})))`)
+  if (words.subline.trim()) parts.push(`v(${L.subGap + 4}pt)`, `block(width: ${L.subW}pt, par(leading: 0.55em, text(size: ${sub}pt, weight: 500, fill: ink.transparentize(18%), ${typstString(words.subline.trim())})))`)
   // the badge and the button
-  const r = L.row
+  const r0 = L.row
+  const pillLen = visualLength(words.badge + words.badgeNote + words.cta)
+  const pillScale = pillLen > 44 ? Math.max(0.3, 44 / pillLen) : 1
+  const r = { ...r0, size: Math.round(r0.size * pillScale * 10) / 10, padX: Math.round(r0.padX * pillScale), padY: Math.round(r0.padY * pillScale) }
   const pill = (fill: string, body: string) => `box(fill: ${fill}, radius: 999pt, inset: (x: ${r.padX}pt, y: ${r.padY}pt), ${body})`
   const pills: string[] = []
   if (words.badge.trim()) pills.push(pill('yuzu', `[#text(size: ${r.size}pt, weight: 700, fill: ink, ${typstString(words.badge.trim())})${words.badgeNote.trim() ? `#h(0.55em)#text(size: ${r.size}pt, weight: 500, fill: ink.transparentize(25%), ${typstString(words.badgeNote.trim())})` : ''}]`))
@@ -210,8 +223,17 @@ export const findTypst = (): string | null => process.env.MYCEL_TYPST_BIN ?? whi
 
 export class BannerError extends Error {}
 
-/** One banner as a PNG: the scene's photo in this size under the words. */
-export async function renderBanner(kit: BannerKit, size: BannerSize, scene: BannerKitFile['scenes'][number], words: BannerWords, typst: string | null = findTypst()): Promise<Buffer> {
+/** one render at a time in this process (a demo Mac serves many visitors); the others wait their turn */
+let rendering: Promise<unknown> = Promise.resolve()
+
+/** One banner as a PNG: the scene's photo in this size under the words. Renders one at a time per process. */
+export function renderBanner(kit: BannerKit, size: BannerSize, scene: BannerKitFile['scenes'][number], words: BannerWords, typst: string | null = findTypst()): Promise<Buffer> {
+  const run = rendering.then(() => renderOne(kit, size, scene, words, typst))
+  rendering = run.catch(() => {})
+  return run
+}
+
+async function renderOne(kit: BannerKit, size: BannerSize, scene: BannerKitFile['scenes'][number], words: BannerWords, typst: string | null): Promise<Buffer> {
   if (!typst) throw new BannerError('the banner maker is not set up on this demo server (no typst)')
   const photo = scene.photos[size]
   if (!photo) throw new BannerError(`no ${size} photo for ${scene.id}`)
@@ -225,7 +247,7 @@ export async function renderBanner(kit: BannerKit, size: BannerSize, scene: Bann
     const hasFonts = fs.existsSync(fonts)
     const r = await runIsolated({
       cmd: typst,
-      args: ['compile', ...(hasFonts ? ['--font-path', fonts] : []), '--root', work, '--format', 'png', '--ppi', '72', 'banner.typ', 'banner.png'],
+      args: ['compile', ...(typstJobs() ? ['--jobs', String(typstJobs())] : []), ...(hasFonts ? ['--font-path', fonts] : []), '--root', work, '--format', 'png', '--ppi', '72', 'banner.typ', 'banner.png'],
       workDir: work, readPaths: hasFonts ? [fs.realpathSync(fonts)] : [], timeoutMs: BANNER_TIMEOUT_MS, maxRssMiB: 1024,
       maxWorkBytes: dirBytes(work) + PNG_MAX,
     })

@@ -106,8 +106,9 @@ matches, with the story's words in English and Korean; `10-`, `20-`, `30-` the b
 - a text-free photo per scene and size (`bg-<scene>-<size>.jpg`; `assets/banner/`, cut by
   `banner/make-backgrounds.py` from Higgsfield photos made once: one glass by the window = the story's photos, two
   glasses, the pouch close up (no square), a café table; the pouch's blank label is printed by the template);
-- the words, `kit.json`: the story's banner words (`scripts/demo/mina/source/banners/copy.<locale>.json`), which every
-  word make_banner is not given keeps, and each scene's words for picking it ("two cups", "두 잔" → two glasses);
+- the words, `kit.json`: the story's banner words (`scripts/demo/mina/source/banners/copy.<locale>.json`), the first
+  banner's; after that a word make_banner is not given, and the photo, stay as on the last banner it made (the state
+  keeps the newest 30 pictures). Each scene's words pick it ("two cups", "두 잔" → two glasses);
 - `fonts/`: Fraunces, Noto Serif KR and Noto Sans KR (SIL Open Font License 1.1, licences beside them), subset to Latin
   and the 2,350 common Hangul syllables; other letters fall back to the server's fonts.
 

@@ -142,6 +142,7 @@ import { shareJudgeOf, shareJudgeSystemPrompt, type ShareJudgeScope } from '../s
 import { fileRankOf, fileRankSystemPrompt, type FileRankScope } from '../onboarding/file-rank'
 import { shareMergeOf, shareMergeSystemPrompt, type ShareMergeScope } from '../skills/share-merge'
 import { backdateChat, DEMO_REPLAY_TOOL, demoReplayFor, runReplay } from '../demo/replay'
+import { demoFakesOf } from '../demo/fakes'
 import { getUser } from '../auth/users'
 import { findRoomFile, localTime } from '../rooms/reader'
 import { namedPaths, OWN_CHAT_TEAM_TOOLS, OWN_WORDS_TOOLS, ROOMS_SEEN_BROWSER_READ_TOOLS, ROOMS_SEEN_OWN_CARD_TOOLS, ROOMS_SEEN_READ_ONLY_TOOLS } from '../rooms/ai-tools'
@@ -1067,7 +1068,7 @@ export class TurnExec {
       // a guest: their places and who invited them (prompt.ts guestSection), no team-wide text
       guest: guestPrompt,
       devEnvDown: this.devEnvDown,
-      demo: freeRoam ? { company: rt.ctx.config.demo!.company, fakes: !!rt.ctx.config.demo!.fakes } : null,
+      demo: freeRoam ? { company: rt.ctx.config.demo!.company, fakes: !!rt.ctx.config.demo!.fakes, banner: !!demoFakesOf(rt.ctx)?.higgsfield.hasBanner } : null,
     })
     // what a general-purpose sub-agent may use, and the instructions every sub-agent gets (memories and history never)
     let turnTools = [...Object.keys(FILE_TOOLS), ...extraTools]

@@ -11,10 +11,10 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { bannerTypst, BANNER_SIZES, findTypst, loadBannerKit, pickScene, renderBanner, sizeOf, typstString, type BannerKit } from '../../server/src/demo/fakes/banner'
-import { FakeHiggsfield, MEDIA_HOST } from '../../server/src/demo/fakes/higgsfield'
+import { BANNERS_DIR, BANNERS_KEPT, FakeHiggsfield, MEDIA_HOST } from '../../server/src/demo/fakes/higgsfield'
 import { FakeState } from '../../server/src/demo/fakes/state'
 import { demoFakesOf } from '../../server/src/demo/fakes'
-import { DEMO_FAKES_NOTE, demoRule } from '../../server/src/chat/prompt'
+import { DEMO_BANNER_NOTE, DEMO_FAKES_NOTE, demoRule } from '../../server/src/chat/prompt'
 import { writeSteepling } from '../../scripts/demo/steepling/make'
 import { makeCApp, type CApp } from '../lib/c-app'
 import { integrationsOf } from '../../server/src/integrations/connections/service'
@@ -120,6 +120,78 @@ describe("Steepling's banner kit", () => {
     }
   })
 
+  drawing('words not given, and the photo, stay as on the last banner; a 400-letter headline is cut to 300', async () => {
+    const data = fs.mkdtempSync(path.join(tmp, 'last-'))
+    const hf = new FakeHiggsfield([], new FakeState(data), kits.ko, typst)
+    const call = async (a: Record<string, unknown>) => {
+      const r = await hf.tools.find((t) => t.name === 'make_banner')!.call(a)
+      expect(r.isError, JSON.stringify(r.content[0])).toBeFalsy()
+      return JSON.parse((r.content[0] as { text: string }).text).banner
+    }
+    const first = await call({ headline: '흐린 아침에,\n작은 햇살 두 잔.' })
+    expect(first.scene).toBe('two-cups')
+    const second = await call({ badge: '30% 할인' })
+    expect(second.words.headline).toBe('흐린 아침에,\n작은 햇살 두 잔.')
+    expect(second.words.badge).toBe('30% 할인')
+    expect(second.scene).toBe('two-cups')
+    const square = await call({ size: '1080x1080' })
+    expect([square.size, square.scene, square.words.badge]).toEqual(['1080x1080', 'two-cups', '30% 할인'])
+    // a new headline with no scene words keeps the photo; one that names a scene takes it
+    expect((await call({ headline: '작은 햇살, 큰 기쁨.' })).scene).toBe('two-cups')
+    expect((await call({ headline: '카페 테이블 위의 햇살', size: '1200x628' })).scene).toBe('cafe')
+    const long = await call({ headline: '가'.repeat(400) })
+    expect(long.words.headline.length).toBe(300)
+  })
+
+  drawing('hostile words in every field are drawn as they are, never run', async () => {
+    const pdftotext = Bun.which('pdftotext')
+    const HOSTILE = [
+      'x")#read("/etc/passwd")#("', 'ends with a backslash \\', '\\u{22}#read("/etc/passwd")', 'bell\u0007 tab\t sep\u2028 end',
+      '#import "@preview/cetz:0.3.0": *', ']#read("/etc/passwd")[', '$x^2$ _u_ @ref <lbl> // c /* d */', '`raw` = - + 1. #set text(red)',
+      `${'long '.repeat(60)}`.slice(0, 300),
+    ]
+    const FIELDS = ['eyebrow', 'headline', 'subline', 'badge', 'badgeNote', 'cta'] as const
+    const MAX = { eyebrow: 200, headline: 300, subline: 400, badge: 80, badgeNote: 80, cta: 80 }
+    const work = fs.mkdtempSync(path.join(tmp, 'hostile-'))
+    const photo = kits.en.scenes[0]!.photos['1200x628']!
+    fs.copyFileSync(path.join(kits.en.dir, photo.file), path.join(work, 'bg.jpg'))
+    const flat = (t: string) => t.toLowerCase().replace(/\s+/g, '')
+    for (const field of FIELDS) for (const bad of [...HOSTILE, '*he said "hi" \\ ]#read("/x")[*']) {
+      const words = { ...kits.en.words, [field]: bad.slice(0, MAX[field]) }
+      fs.writeFileSync(path.join(work, 'b.typ'), bannerTypst(kits.en, '1200x628', photo, words, 'bg.jpg'))
+      for (const out of ['b.png', 'b.pdf']) {
+        const r = Bun.spawnSync([typst!, 'compile', '--font-path', path.join(kits.en.dir, 'fonts'), '--root', work, 'b.typ', out], { cwd: work })
+        expect(r.exitCode, `${field} ${bad}: ${r.stderr.toString()}`).toBe(0)
+      }
+      if (!pdftotext) continue
+      const got = Bun.spawnSync([pdftotext, path.join(work, 'b.pdf'), '-']).stdout.toString()
+      // what the banner shows: the words, control letters as spaces, the stars around an italic headline word dropped
+      const shown = words[field].replace(/[\u0000-\u001f\u2028]/g, ' ')
+      const want = field === 'headline' ? shown.replace(/\*/g, '') : shown
+      expect(flat(got), `${field}: ${bad}`).toContain(flat(want))
+      expect(got).not.toContain('root:')
+    }
+  })
+
+  test('the banners folder keeps the newest pictures only', () => {
+    const data = fs.mkdtempSync(path.join(tmp, 'prune-'))
+    const state = new FakeState(data)
+    const dir = path.join(data, 'demo-fakes', BANNERS_DIR)
+    fs.mkdirSync(dir, { recursive: true })
+    state.update((d) => {
+      for (let i = 0; i < BANNERS_KEPT + 10; i++) {
+        const id = `old${String(i).padStart(3, '0')}`
+        d.generations.push({ id, prompt: 'p', model: 'banner', picture: `${BANNERS_DIR}/${id}.png`, mime: 'image/png', createdAt: new Date().toISOString() })
+        fs.writeFileSync(path.join(dir, `${id}.png`), 'x')
+      }
+    })
+    fs.writeFileSync(path.join(dir, 'trimmed-long-ago.png'), 'x')
+    ;(new FakeHiggsfield([], state, kits.en) as unknown as { pruneBanners(d: string): void }).pruneBanners(dir)
+    const left = fs.readdirSync(dir).sort()
+    expect(left.length).toBe(BANNERS_KEPT)
+    expect(left[0]).toBe('old010.png')
+  })
+
   test('without a kit, make_banner says so (the built-in data)', async () => {
     const hf = new FakeHiggsfield([], new FakeState(fs.mkdtempSync(path.join(tmp, 'none-'))), null)
     const r = await hf.tools.find((t) => t.name === 'make_banner')!.call({ headline: 'x' })
@@ -128,12 +200,15 @@ describe("Steepling's banner kit", () => {
 })
 
 describe('the AI knows the demo\'s services are practice copies', () => {
-  test('the demo rule carries the note when the demo has fakes, and only then', () => {
+  test('the demo rule carries the note when the demo has fakes, and the banner line only with a banner kit', () => {
     expect(demoRule('Steepling', true)).toContain(DEMO_FAKES_NOTE)
     expect(demoRule('Steepling')).not.toContain(DEMO_FAKES_NOTE)
     expect(DEMO_FAKES_NOTE).toContain('prepared set of photos')
-    expect(DEMO_FAKES_NOTE).toContain('make_banner')
     expect(DEMO_FAKES_NOTE).toContain('never really sent')
+    expect(demoRule('Steepling', true)).not.toContain('make_banner')
+    expect(demoRule('Steepling', true, true)).toContain(DEMO_BANNER_NOTE)
+    expect(demoRule('Steepling', false, true)).not.toContain(DEMO_BANNER_NOTE)
+    expect(DEMO_BANNER_NOTE).toContain('make_banner')
   })
 })
 

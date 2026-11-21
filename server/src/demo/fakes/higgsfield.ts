@@ -12,7 +12,7 @@ import type { RemoteTool } from '../../integrations/connections/mcp'
 import type { NetRequest } from '../../integrations/connections/net'
 import type { FakeState, Generation } from './state'
 import { answerMcp, str, text, type FakeTool, type McpResult } from './mcp'
-import { BannerError, pickScene, renderBanner, sizeOf, type BannerKit, type BannerWords } from './banner'
+import { BannerError, BANNER_SIZES, matchScene, pickScene, renderBanner, sizeOf, type BannerKit, type BannerSize, type BannerWords } from './banner'
 
 /** the hosts of the Higgsfield MCP connection this fake answers */
 export const HIGGSFIELD_HOSTS = new Set(['mcp.higgsfield.ai'])
@@ -94,7 +94,7 @@ export const HIGGSFIELD_TOOLS = [
     inputSchema: { type: 'object', properties: { prompt: { type: 'string', description: 'what the picture shows' }, aspect_ratio: { type: 'string', enum: ['1:1', '16:9', '9:16', '4:3', '3:4'] }, model: { type: 'string' }, count: { type: 'integer', minimum: 1, maximum: 4 } }, required: ['prompt'] } },
   { name: 'make_banner', title: 'Make banner', readOnly: false,
     description: 'Make a finished ad banner: a text-free product photo with real type on it in the brand\'s fonts and colours (headline, the line under it, the offer badge, the button). ' +
-      'Use it to make a banner and to CHANGE A BANNER\'S WORDS: call it again with the new words (e.g. only `headline`); every word you leave out stays as on the launch banner. ' +
+      'Use it to make a banner and to CHANGE A BANNER\'S WORDS: call it again with only the words that change (e.g. only `headline`); every word you leave out, and the photo, stay as on the last banner make_banner made (the launch banner at first). ' +
       'The words are a layer of their own, so nothing has to be generated again. Returns the finished job with the picture (PNG).',
     inputSchema: { type: 'object', properties: {
       size: { type: 'string', enum: ['1200x628', '1080x1080', '1080x1920'], description: 'web banner 1200x628 (default), Instagram square 1080x1080, story 1080x1920' },
@@ -126,10 +126,14 @@ const extOf = (mime: string) => (mime === 'image/png' ? 'png' : mime === 'image/
 /** a banner make_banner drew: kept in the state folder (`<dataDir>/demo-fakes/banners/<id>.png`), its Generation's
  * picture is `banners/<id>.png` */
 export const BANNERS_DIR = 'banners'
+/** the banners whose pictures are kept (the newest); an older one's picture is deleted */
+export const BANNERS_KEPT = 30
 const BANNER_PICTURE = /^banners\/([A-Za-z0-9_-]{1,64})\.png$/
 
 export class FakeHiggsfield {
   constructor(private pictures: Picture[], private state: FakeState, private kit: BannerKit | null = null, private typst?: string | null) {}
+  /** make_banner has a banner kit to draw from */
+  get hasBanner(): boolean { return !!this.kit }
 
   private bytesOf(g: Generation): { bytes: Buffer; mime: string } {
     if (BANNER_PICTURE.test(g.picture)) {
@@ -164,22 +168,29 @@ export class FakeHiggsfield {
     return { content: [{ type: 'text', text: JSON.stringify(this.view(g)) }, ...(b.bytes.length <= INLINE_MAX ? [{ type: 'image' as const, data: b.bytes.toString('base64'), mimeType: b.mime }] : [])] }
   }
 
-  /** make_banner: the kit's photo for this size and scene under the words (the launch banner's for every word not given) */
+  /** make_banner: the kit's photo for this size and scene under the words. Words not given, and the photo, are the last
+   * banner's (the launch banner's at first); a new headline whose words name a scene ("두 잔") picks that scene. */
   private async banner(a: Record<string, any>): Promise<McpResult> {
     const kit = this.kit
     if (!kit) return text('Banners are not set up in this demo: use generate_image for a picture.', true)
-    const size = sizeOf(a.size)
+    const last = [...this.state.get().generations].reverse().find((g) => g.banner)?.banner
+    const size: BannerSize = a.size === undefined && last && (BANNER_SIZES as readonly string[]).includes(last.size) ? last.size as BannerSize : sizeOf(a.size)
+    const base: BannerWords = last?.words ?? kit.words
     const given = (k: string, max: number): string | undefined => (typeof a[k] === 'string' ? str(a[k], max).replace(/\\n/g, '\n') : undefined)
+    const headline = given('headline', 300)
     const words: BannerWords = {
-      headline: given('headline', 300) ?? kit.words.headline,
-      subline: given('subline', 400) ?? kit.words.subline,
-      eyebrow: given('eyebrow', 200) ?? kit.words.eyebrow,
-      badge: given('badge', 80) ?? kit.words.badge,
-      badgeNote: given('badge_note', 80) ?? kit.words.badgeNote,
-      cta: given('button', 80) ?? kit.words.cta,
+      headline: headline ?? base.headline,
+      subline: given('subline', 400) ?? base.subline,
+      eyebrow: given('eyebrow', 200) ?? base.eyebrow,
+      badge: given('badge', 80) ?? base.badge,
+      badgeNote: given('badge_note', 80) ?? base.badgeNote,
+      cta: given('button', 80) ?? base.cta,
     }
-    // the scene by its own words, else by the headline's ("두 잔", "two cups" → two glasses)
-    const scene = pickScene(kit, size, `${str(a.scene, 300)} ${typeof a.scene === 'string' && a.scene.trim() ? '' : words.headline}`)
+    // the photo: the scene asked for; else one the new headline names ("두 잔", "two cups"); else the last banner's
+    const asked = typeof a.scene === 'string' && a.scene.trim() ? str(a.scene, 300) : ''
+    const byHeadline = headline !== undefined || !last ? matchScene(kit, size, words.headline) : null
+    const lastScene = last ? kit.scenes.find((s) => s.id === last.scene && s.photos[size]) : undefined
+    const scene = asked ? pickScene(kit, size, asked) : byHeadline && byHeadline.score > 0 ? byHeadline.scene : lastScene ?? pickScene(kit, size, words.headline)
     if (!scene) return text(`No photo for ${size} in this demo.`, true)
     let png: Buffer
     try { png = await renderBanner(kit, size, scene, words, this.typst === undefined ? undefined : this.typst) } catch (e) {
@@ -191,10 +202,20 @@ export class FakeHiggsfield {
     fs.mkdirSync(dir, { recursive: true, mode: 0o700 })
     fs.writeFileSync(path.join(dir, `${id}.png`), png, { mode: 0o600 })
     const prompt = `Banner ${size}, ${scene.id}: ${words.headline.replace(/\n/g, ' / ')}`.slice(0, 4000)
-    const g: Generation = { id, prompt, model: 'banner', picture: rel, mime: 'image/png', createdAt: new Date().toISOString() }
+    const g: Generation = { id, prompt, model: 'banner', picture: rel, mime: 'image/png', createdAt: new Date().toISOString(), banner: { size, scene: scene.id, words } }
     this.state.update((d) => { d.generations.push(g) })
+    this.pruneBanners(dir)
     const view = { ...this.view(g), banner: { size, scene: scene.id, words: { headline: words.headline, subline: words.subline, eyebrow: words.eyebrow, badge: words.badge, badge_note: words.badgeNote, button: words.cta } } }
     return { content: [{ type: 'text', text: JSON.stringify(view) }, ...(png.length <= INLINE_MAX ? [{ type: 'image' as const, data: png.toString('base64'), mimeType: 'image/png' }] : [])] }
+  }
+
+  /** keep the pictures of the newest BANNERS_KEPT banners still in the state; delete every other file in the folder
+   * (older banners, and those whose job the state trimmed) */
+  private pruneBanners(dir: string) {
+    const keep = new Set(this.state.get().generations.filter((g) => BANNER_PICTURE.test(g.picture)).slice(-BANNERS_KEPT).map((g) => path.basename(g.picture)))
+    let names: string[] = []
+    try { names = fs.readdirSync(dir) } catch { return }
+    for (const n of names) if (!keep.has(n)) { try { fs.rmSync(path.join(dir, n), { force: true }) } catch { /* next time */ } }
   }
 
   private readonly calls: Record<HiggsfieldToolName, FakeTool['call']> = {
