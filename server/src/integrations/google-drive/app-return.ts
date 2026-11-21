@@ -21,6 +21,12 @@
 // and a team page cannot hand a fragment to http://127.0.0.1 (the listener never sees it) nor a query (it would put
 // the code in a query string). The app's own link carries it instead.
 //
+// Gmail, Calendar, Docs and Sheets (google-apps/service.ts) do the same since 2026-11-21, redeemed at the same claim
+// address (the desktop app posts every code there). A held page opened again NEVER gives a new code and finishes
+// nothing: it says to go back to the app (the starter has the state too: it is in the Google address the app was
+// given). The first return's page holds the only code. A return to a sign-in already answered otherwise says how it
+// went instead of "expired or already used" (docs/decisions/20261121-google-return-already-answered.md).
+//
 // Before Google, the desktop app opens GO_PATH: a page of this server that names the Trina person the Drive will
 // belong to, then links on to the sign-in page. Its key is random, its hash sealed in the flow; it grants nothing.
 import crypto from 'node:crypto'

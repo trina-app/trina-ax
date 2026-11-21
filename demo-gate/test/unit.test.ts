@@ -154,6 +154,17 @@ describe('pages', () => {
       if (k === 'landing' || k === 'ended') expect(html).toContain('action="/__demo/start"')
     }
   })
+  test('the landing says up front how much they can ask, in questions, on one line under Start', () => {
+    const links = { scriptedDemo: 'https://ax.trina.app/demo', pricing: 'https://ax.trina.app/pricing' }
+    const en = renderPage('landing', 'en', { siteKey: 'k', links })
+    const ko = renderPage('landing', 'ko', { siteKey: 'k', links })
+    expect(en).toContain('<p class="note">You can ask Trina about 8 questions. Your copy stays for 24 hours.</p>')
+    expect(ko).toContain('<p class="note">트리나에게 8번 정도 물어볼 수 있어요. 사본은 24시간 동안 남아 있어요.</p>')
+    for (const html of [en, ko]) {
+      expect(html.indexOf('class="note"')).toBeGreaterThan(html.indexOf('type="submit"'))
+      expect(html).not.toMatch(/token|토큰/i)
+    }
+  })
 })
 
 describe('start limits', () => {

@@ -13,9 +13,11 @@ import { listShares, setMembersCanConnect, shareFolders, stopShare, updateShare 
 import { shareView } from '../integrations/google-drive/shares'
 import { DriveError } from '../integrations/google-drive/store'
 import { afterServiceSetup } from '../integrations/service-requests'
+import { googleAppsOf, GoogleAppError } from '../integrations/google-apps/service'
 
 async function safe<T>(fn: () => T | Promise<T>, locale?: Locale): Promise<T> {
   try { return await fn() } catch (e) {
+    if (e instanceof HttpError) throw e
     // the claim's refusals say it in words, not as the code (QA: "drive_invalid_code" on screen)
     if (e instanceof DriveError && locale && (e.reason === 'invalid_code' || e.reason === 'expired')) throw new HttpError('bad_request', msg('driveClaimGone', locale), { status: e.status })
     if (e instanceof DriveError) throw new HttpError(e.status === 404 ? 'not_found' : e.status === 401 ? 'unauthorized' : e.status === 403 ? 'forbidden' : 'bad_request', e.message, { status: e.status })
@@ -29,8 +31,20 @@ export function registerDriveRoutes(kit: RouteKit, ctx: AppContext) {
   kit.handle(API.authorizeDrive, ({ auth }) => safe(() => googleDriveOf(ctx).begin(auth.user.id, auth.session.id, undefined, auth.session.client)))
   kit.handle(API.driveFlow, ({ auth, params }) => safe(() => googleDriveOf(ctx).flow(auth.user.id, auth.session.id, params.id)))
   kit.handle(API.completeDriveFlow, ({ auth, params, body }) => safe(() => googleDriveOf(ctx).complete(auth.user.id, auth.session.id, params.id)))
-  // the desktop app's one-time code for a sign-in Google answered in a browser without a session: this session's flow only
-  kit.handle(API.claimDriveFlow, ({ c, auth, body }) => safe(() => googleDriveOf(ctx).claim(auth.user.id, auth.session.id, body.code), c.get('locale')))
+  // the desktop app's one-time code for a sign-in Google answered in a browser without a session: this session's flow
+  // only. The desktop app posts every such code here, so a Gmail, Calendar, Docs or Sheets sign-in's code is tried next
+  // (google-apps/service.ts claim); a code neither knows is the same refusal.
+  kit.handle(API.claimDriveFlow, ({ c, auth, body }) => safe(() => {
+    try { return googleDriveOf(ctx).claim(auth.user.id, auth.session.id, body.code) } catch (e) {
+      if (!(e instanceof DriveError) || e.reason !== 'invalid_code') throw e
+      try { return googleAppsOf(ctx).claim(auth.user.id, auth.session.id, body.code) } catch (g) {
+        // a Google app's refusal (no longer an owner or admin for a team sign-in, the person or session gone): the same
+        // shape as the Google apps routes' (routes/google-apps.ts), never a 500
+        if (g instanceof GoogleAppError) throw new HttpError(g.status === 401 ? 'unauthorized' : g.status === 403 ? 'forbidden' : g.status === 404 ? 'not_found' : g.status === 409 ? 'conflict' : g.status >= 500 ? 'unavailable' : 'bad_request', g.message, { status: g.status, params: { reason: g.reason } })
+        throw g
+      }
+    }
+  }, c.get('locale')))
   kit.handle(API.cancelDriveFlow, ({ auth, params }) => safe(() => googleDriveOf(ctx).cancel(auth.user.id, auth.session.id, params.id)))
   kit.handle(API.disconnectDrive, ({ auth }) => safe(() => googleDriveOf(ctx).disconnect(auth.user.id)))
   // Admin › App connectors: set up Google Drive here instead of in the installer (integrations/google-drive/admin-setup.ts)

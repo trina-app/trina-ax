@@ -1,8 +1,8 @@
 // One suggestion under a result (components/onboarding/ResultSuggestion.tsx; docs/DECISIONS.md "X — Lean onboarding"):
 // the lead's first result keeps the welcome invite bar and nothing else; otherwise what the server says for the newest
 // answer (tests/unit/b-result-suggestions.test.ts checks the server): schedule the same request every week at this
-// time, make a team skill of an owner's or admin's work (the skill card, docs/DECISIONS.md "W3"), or make a PPT;
-// closing one asks the server to keep it closed for this person.
+// time, make a team skill of an owner's or admin's work (the skill card, docs/DECISIONS.md "W3");
+// a long answer no longer offers slides (docs/decisions/20261121-remove-slides-offer.md); closing one asks the server to keep it closed for this person.
 import { afterAll, afterEach, beforeAll, describe, expect, test } from 'bun:test'
 import { MemoryRouter } from 'react-router-dom'
 import { GENERAL_CARDNEWS_SKILL, type ResultSuggestion as Suggestion, type WelcomeProgress } from '@mycel/shared/api'
@@ -89,27 +89,6 @@ describe('the suggestion under a result', () => {
     } finally { await m.unmount() }
   })
 
-  test('a report: [PPT로 만들기] sends the request; X closes it for good on the server', async () => {
-    signIn('member')
-    suggestion = { kind: 'ppt', key: 'ppt' }
-    const sent: string[] = []
-    let m = await mount(<MemoryRouter><ResultSuggestion chatId={CHAT} messages={thread()} busy={false} onSend={(t) => sent.push(t)} /></MemoryRouter>)
-    try {
-      await m.until(() => m.find('result-suggestion'), 'the line')
-      expect(m.get('result-suggestion-act').textContent).toBe('PPT로 만들기')
-      await m.click('result-suggestion-act')
-      expect(sent).toEqual(['이 내용을 PPT로 만들어 줘'])
-    } finally { await m.unmount() }
-    m = await mount(<MemoryRouter><ResultSuggestion chatId={CHAT} messages={thread()} busy={false} onSend={(t) => sent.push(t)} /></MemoryRouter>)
-    try {
-      await m.until(() => m.find('result-suggestion'), 'the line')
-      await m.click('result-suggestion-close')
-      expect(m.find('result-suggestion')).toBeNull()
-      await m.until(() => called('POST /api/onboarding/suggestion/dismiss').length, 'closed on the server')
-      expect(called('POST /api/onboarding/suggestion/dismiss')[0]!.body).toEqual({ key: 'ppt' })
-    } finally { await m.unmount() }
-  })
-
   test('an owner\'s work with team files: "이 방식대로 팀 스킬로 만들까요?" opens the skill card, then the invite with the skill; X closes it for good', async () => {
     signIn('owner')
     suggestion = { kind: 'team-skill', key: 'team-skill' }
@@ -156,7 +135,7 @@ describe('the suggestion under a result', () => {
 
   test('nothing while the answer runs or failed, and nothing when the server has none', async () => {
     signIn('member')
-    suggestion = { kind: 'ppt', key: 'ppt' }
+    suggestion = { kind: 'schedule', key: `schedule:${GENERAL_CARDNEWS_SKILL}`, skill: { path: GENERAL_CARDNEWS_SKILL, name: 'card-news' } }
     for (const [busy, over] of [[true, {}], [false, { status: 'streaming' }], [false, { status: 'error' }]] as const) {
       const m = await mount(<MemoryRouter><ResultSuggestion chatId={CHAT} messages={thread(over as Partial<ViewMessage>)} busy={busy} onSend={() => {}} /></MemoryRouter>)
       try {
@@ -181,7 +160,7 @@ describe('the suggestion under a result', () => {
 
   test('the intro deck chat is an ordinary chat: no invite bar, the server is asked like anywhere (docs/DECISIONS.md "W5")', async () => {
     signIn('owner')
-    suggestion = { kind: 'ppt', key: 'ppt' }
+    suggestion = { kind: 'team-skill', key: 'team-skill' }
     progress = {
       startedAt: '2026-11-04T00:00:00.000Z', updatedAt: '2026-11-04T00:00:00.000Z', teamType: 'marketing', steps: { profile: 'done', result: null, skills: null, files: null, invite: null },
       resultChatId: CHAT, inviteShownAt: null, site: null, dismissedAt: null, finishedAt: null,

@@ -13,9 +13,11 @@
 // folded at first, kept per person as the sections' folds are), and a round count on the project and on a chat says how
 // many unread mentions of me wait there, with who mentioned me on hover (store/chatMentions.ts).
 // The counts are the server's (GET /api/chats/groups projectActivity), never what this window happens to have loaded.
+// A project in the trash is in no section: one quiet Trash row at the bottom has them, for whoever can restore one
+// (ProjectsTrash.tsx, docs/decisions/20261121-projects-trash-out-of-list.md).
 import { isGuestMe } from '../../lib/guests'
 import clsx from 'clsx'
-import { ChevronRight, FolderLock, Lock, MessageSquare, Plus, SquareKanban, Trash2, Users } from 'lucide-react'
+import { ChevronRight, FolderLock, Lock, MessageSquare, Plus, SquareKanban, Users } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { matchPath, useLocation, useNavigate } from 'react-router-dom'
 import type { Chat, Project } from '@mycel/shared/api'
@@ -40,6 +42,7 @@ import { whoSeesProject } from '../projectWho'
 import { ListIcon, ListRow } from '../list/List'
 import { PanelFrame, PanelSection, panelRow } from './PanelFrame'
 import { useGroupsRead } from './TrinaList'
+import { ProjectsTrash } from './ProjectsTrash'
 import { hasProjectRoom, ProjectRowRoom, useProjectRoom } from '../rooms/ProjectRoomButton'
 
 export function ProjectsPanel() {
@@ -81,14 +84,15 @@ export function ProjectsList(_: { phone?: boolean } = {}) {
   useEffect(() => void readProjectList({ minAgeMs: 30_000 }).catch(() => {}), [])
   // GET /api/projects?manage=1 (the Projects page's list, store/projects.ts managed: as last read at once, read again
   // behind it) adds two kinds the plain list has not:
-  // - a team project in the trash I am a member of (Project.wasMember): its row stays, "In trash", for everyone (QA
-  //   TC-1060; its page says who moved it there and who can restore it);
   // - for the owner and admins, the team projects they manage without being members (their name and members only), in
-  //   their own folded section, as the Projects page has them; not one in the trash (they restore it from Files › Trash,
-  //   QA TC-1061).
+  //   their own folded section, as the Projects page has them;
+  // - the team projects in the trash I am a member of (Project.wasMember) or may restore (Project.canRestore): no row of
+  //   any group (the owner, 2026-11-21: "지운 게 저렇게 보여야해?"), only the Trash row at the bottom (ProjectsTrash.tsx;
+  //   docs/decisions/20261121-projects-trash-out-of-list.md). A link to one still opens its in-the-trash note. Restored
+  //   from there, it is mine to read again before the plain list is read: back in its group at once.
   const admin = isAdmin(useMe())
   const managedList = useProjects((s) => s.managed)
-  const managed = useMemo(() => (managedList ?? []).filter((p) => (p.inTrash ? !!p.wasMember : admin && p.member === false)), [admin, managedList])
+  const managed = useMemo(() => (managedList ?? []).filter((p) => !p.inTrash && (p.member !== false || admin)), [admin, managedList])
   useEffect(() => {
     const read = (fresh = false) => void readManagedList({ fresh }).catch(() => {})
     read()
@@ -98,7 +102,8 @@ export function ProjectsList(_: { phone?: boolean } = {}) {
   }, [])
   const activity = useMemo(() => new Map((groups?.projectActivity ?? []).map((a) => [a.projectId, a])), [groups])
   const projects = useMemo(() => {
-    const seen = [...Object.values(byId).filter((p) => listed?.has(p.id)), ...managed.filter((p) => !listed?.has(p.id))]
+    // (never one in the trash: the plain list has none, but a project read on its page may be in the store)
+    const seen = [...Object.values(byId).filter((p) => listed?.has(p.id) && !p.inTrash), ...managed.filter((p) => !listed?.has(p.id))]
     const at = (p: Project) => activity.get(p.id)?.lastActivityAt ?? ''
     return seen.sort((a, b) => at(b).localeCompare(at(a)) || b.createdAt.localeCompare(a.createdAt) || a.id.localeCompare(b.id))
   }, [byId, listed, activity, managed])
@@ -118,23 +123,20 @@ export function ProjectsList(_: { phone?: boolean } = {}) {
   const { byChat, byProject } = useMentions()
 
   if (!listed) return <div className="mx-auto mt-4 size-4 animate-spin rounded-full border-2 border-line border-t-faint" role="status" aria-label={t('common.loading')} />
-  if (!projects.length) return <p className="px-3 py-2 text-sm text-faint" data-testid="projects-panel-empty">{t('projects.empty')}</p>
-  const others = projects.filter((p) => p.member === false && !p.inTrash)
-  const team = projects.filter((p) => (p.member !== false || p.inTrash) && !onlyMine(p))
+  const others = projects.filter((p) => p.member === false)
+  const team = projects.filter((p) => p.member !== false && !onlyMine(p))
   const mine = projects.filter(onlyMine)
   const rows = (list: Project[]) => (
     <ul>
       {list.map((p) => {
         const a = activity.get(p.id)
-        // "나만" for mine; "멤버 N명" (its page's words) for a team one; one whose folder is in the trash: "휴지통에 있음"
-        // alone, with the trash icon (nobody is its member then, so no members line: QA TC-1012)
-        const who = p.inTrash ? t('chat.project.inTrash') : onlyMine(p) ? t('projects.meta.me') : whoSeesProject(t, p, 'projects.whoMembers')
-        // in the trash: only that (its chats are nobody's to open there; QA TC-1060)
+        // "나만" for mine; "멤버 N명" (its page's words) for a team one
+        const who = onlyMine(p) ? t('projects.meta.me') : whoSeesProject(t, p, 'projects.whoMembers')
         // a guest with no AI has no chats here (no Chats tab): no count of the team's chats either
-        const meta = p.inTrash || noAiGuest ? who : [who, ...(a ? [formatRelative(a.lastActivityAt, locale), t('projectsPanel.chats', { n: a.count })] : [t('projectsPanel.noChats')])].filter(Boolean).join(' · ')
+        const meta = noAiGuest ? who : [who, ...(a ? [formatRelative(a.lastActivityAt, locale), t('projectsPanel.chats', { n: a.count })] : [t('projectsPanel.noChats')])].filter(Boolean).join(' · ')
         const on = lit === p.id
-        // no chats to open in a trashed project, nor for a guest with no AI
-        const foldable = !p.inTrash && !noAiGuest && p.member !== false
+        // no chats to open for a guest with no AI
+        const foldable = !noAiGuest && p.member !== false
         const open = foldable && folds[`project:${p.id}`] === 'open'
         return (
           <ProjectRow
@@ -155,6 +157,9 @@ export function ProjectsList(_: { phone?: boolean } = {}) {
   return (
     <div data-testid="projects-list">
       {members && <ProjectMembersDialog project={members} onClose={() => setMembers(null)} onSaved={(r) => useProjects.getState().put(r)} />}
+      {/* none (the Trash row stays at the bottom, also when every project is in the trash, in one place so its dialog
+          stays open while a restored project comes back) */}
+      {!projects.length && <p className="px-3 py-2 text-sm text-faint" data-testid="projects-panel-empty">{t('projects.empty')}</p>}
       {team.length > 0 && (
         <PanelSection id="projects-team" foldKey="projects:team" label={t('projectsPanel.team')} icon={<Users size={14} className="text-muted" aria-hidden />} count={team.length} labelTestId="projects-panel-label" data-testid="projects-team">
           {rows(team)}
@@ -170,6 +175,7 @@ export function ProjectsList(_: { phone?: boolean } = {}) {
           {rows(others)}
         </PanelSection>
       )}
+      <ProjectsTrash managed={managedList} />
     </div>
   )
 }
@@ -194,7 +200,7 @@ function ProjectRow({ project: p, selected, meta, onMembers, onGone, fold, menti
     <ListRow
       to={`/projects/${p.id}`}
       selected={selected}
-      icon={p.inTrash ? <Trash2 className="text-faint" data-testid="projects-panel-in-trash" /> : <SquareKanban />}
+      icon={<SquareKanban />}
       name={p.name}
       nameTitle={p.name}
       meta={meta}
@@ -232,8 +238,9 @@ function ProjectRow({ project: p, selected, meta, onMembers, onGone, fold, menti
   )
 }
 
-/** A round count of unread mentions of me ("1", "2"), who mentioned me on hover and for a screen reader */
-function MentionPill({ mention: m, testId }: { mention: ChatMention; testId: string }) {
+/** A round count of unread mentions of me ("1", "2"), who mentioned me on hover and for a screen reader; also on a
+ * project page's chat rows (pages/Projects.tsx ProjectChatRow), the same count */
+export function MentionPill({ mention: m, testId }: { mention: ChatMention; testId: string }) {
   const t = useT()
   const by = m.names.length ? t('projectsPanel.fold.by', { names: m.names.slice(0, 3).join(', ') }) : ''
   const label = [t('projectsPanel.fold.mentions', { n: m.count }), by].filter(Boolean).join('. ')

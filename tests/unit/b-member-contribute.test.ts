@@ -1,9 +1,8 @@
 // Members contribute their own skills and files (docs/DECISIONS.md "MC"; server/src/skills/suggestions.ts
 // contributeSkills / approveFolder, server/src/onboarding/suggestions.ts, migration 257):
 //   - the `contribute` line comes under a member's FIRST successful run of the landing skill only (not a failed or a
-//     scheduled one, not a later one, never for an owner or admin, never under another skill), ranks above [PPT로
-//     만들기], closes for good; it names the team folder only when the member can write it, and on a phone without one
-//     the next suggestion takes the slot;
+//     scheduled one, not a later one, never for an owner or admin, never under another skill), closes for good;
+//     it names the team folder only when the member can write it, and on a phone without one there is no line;
 //   - a batch of skill folders: each checked again with the owner's import checks; what the owner's import refuses is
 //     refused here (a key or key file, scripts, a plugin's skill, too big, not a skill) and nothing of it is stored; at
 //     most 10 in one send, 20 waiting per member; members only;
@@ -15,7 +14,7 @@
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from 'bun:test'
 import fs from 'node:fs'
 import path from 'node:path'
-import { API, CONTRIBUTE_LIMITS, PPT_SUGGEST_CHARS, SKILL_SHARE_LIMITS, teamHome, type ContributedSkills, type ShareSkillIn, type SkillSuggestion } from '@mycel/shared/api'
+import { API, CONTRIBUTE_LIMITS, SKILL_SHARE_LIMITS, teamHome, type ContributedSkills, type ShareSkillIn, type SkillSuggestion } from '@mycel/shared/api'
 import { startHarness, type Harness, type TestSocket } from '../lib/b-harness'
 import { notificationsOf } from '../../server/src/notifications/service'
 import { landingSkill, readWelcome, WELCOME_SETTING } from '../../server/src/onboarding/welcome'
@@ -90,24 +89,24 @@ describe('the contribute line under a member\'s first good run of the landing sk
     expect(teamFolder).toBe('shared')
   })
 
-  test('first done run only (not a failed or scheduled one, not a later one); above the PPT; with the team folder bob can write', async () => {
-    const long = '## 이번 주\n' + '가'.repeat(PPT_SUGGEST_CHARS)
+  test('first done run only (not a failed or scheduled one, not a later one); before anything else; with the team folder bob can write', async () => {
+    const long = '## 이번 주\n' + '가'.repeat(4000)
     // a failed run and a scheduled run come first: not good runs
     expect(await suggestionFor('bob', answer('bob', { skill: LANDING, status: 'error', content: long }))).toBeNull()
     answer('bob', { skill: LANDING, scheduleId: 'sched-mc' })
     const first = answer('bob', { skill: LANDING, content: long })
-    // the contribute line, not the PPT that a long answer gets
+    // the contribute line
     expect(await suggestionFor('bob', first)).toEqual({ kind: 'contribute', key: 'contribute', folder: teamFolder })
     // the same answer on a phone: the folder link only (it has one)
     expect(await suggestionFor('bob', first, true)).toEqual({ kind: 'contribute', key: 'contribute', folder: teamFolder })
-    // a later run: the usual suggestion (PPT here), never the line again
-    expect(await suggestionFor('bob', answer('bob', { skill: LANDING, content: long }))).toEqual({ kind: 'ppt', key: 'ppt' })
+    // a later run: never the line again (nothing else applies here)
+    expect(await suggestionFor('bob', answer('bob', { skill: LANDING, content: long }))).toBeNull()
     // the first answer stays the first: asked again, it still shows (until ✕)
     expect((await suggestionFor('bob', first))?.kind).toBe('contribute')
   })
 
-  test('alice joined another way: shared/ is everyone\'s, so it is her folder too; one she cannot write: no files part, on a phone the next suggestion instead', async () => {
-    const long = '가'.repeat(PPT_SUGGEST_CHARS)
+  test('alice joined another way: shared/ is everyone\'s, so it is her folder too; one she cannot write: no files part, on a phone none', async () => {
+    const long = '가'.repeat(4000)
     const first = answer('alice', { skill: LANDING, content: long })
     expect(await suggestionFor('alice', first)).toEqual({ kind: 'contribute', key: 'contribute', folder: 'shared' })
     // shared/ read-only for her (an admin's rule: everyone views there now; access adds up, so a narrower rule of her
@@ -116,7 +115,7 @@ describe('the contribute line under a member\'s first good run of the landing sk
     h.ctx.db.query("UPDATE folder_rules SET access = 'read' WHERE folder_id = ? AND subject_type = 'everyone'").run(f.id)
     try {
       expect(await suggestionFor('alice', first)).toEqual({ kind: 'contribute', key: 'contribute', folder: null })
-      expect(await suggestionFor('alice', first, true)).toEqual({ kind: 'ppt', key: 'ppt' })
+      expect(await suggestionFor('alice', first, true)).toBeNull()
     } finally {
       h.ctx.db.query("UPDATE folder_rules SET access = 'write' WHERE folder_id = ? AND subject_type = 'everyone'").run(f.id)
     }
