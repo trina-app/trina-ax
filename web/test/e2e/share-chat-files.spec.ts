@@ -66,6 +66,19 @@ async function openShare(page: Page, chatId: string) {
 }
 const fileLink = (page: Page, name: string) => page.getByTestId('assistant-message').getByTestId('team-file-chip').filter({ hasText: name })
 const panel = (page: Page) => page.getByTestId('file-panel')
+/** a file that does not open for me: the header keeps the name and Close only (no "Show in Files", download, Ask
+ * Trina, add to chat, share or ⋯), and the title says nothing about where the file is */
+async function blockedHeader(page: Page) {
+  const header = panel(page).locator('header')
+  await expect(header.getByRole('button')).toHaveCount(1)
+  await expect(header.getByRole('button', { name: '닫기' })).toBeVisible()
+  for (const name of ['파일 화면에서 열기', '내려받기', '크게 보기']) await expect(header.getByRole('button', { name })).toHaveCount(0)
+  for (const id of ['file-ask-ai', 'file-ask-trina', 'file-add-to-chat', 'file-panel-more', 'panel-expand']) await expect(header.getByTestId(id)).toHaveCount(0)
+  const title = panel(page).getByTestId('file-panel-title')
+  await expect(title).toHaveAttribute('title', PDF)
+  await expect(title).not.toHaveAttribute('draggable', 'true')
+  await expect(header).not.toContainText('Sincere/')
+}
 
 for (const vp of [{ name: '1440', use: { viewport: { width: 1440, height: 900 }, reducedMotion: 'reduce' as const } }, { name: '390', use: { viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true, reducedMotion: 'reduce' as const } }]) {
   test.describe(`sharing a chat's files at ${vp.name}`, () => {
@@ -157,6 +170,7 @@ for (const vp of [{ name: '1440', use: { viewport: { width: 1440, height: 900 },
       await expect(ask).toContainText('이 파일은 Olga님만 대화에 추가할 수 있어요')
       await expect(ask).not.toContainText('Sincere')
       await expect(ask).not.toContainText('견적')
+      await blockedHeader(bob)
       await audit(bob, 'blocked panel')
       await shots(bob, 'blocked-panel')
       await ask.getByTestId('chat-file-ask-send').click()
@@ -174,6 +188,22 @@ for (const vp of [{ name: '1440', use: { viewport: { width: 1440, height: 900 },
       await fileLink(bob, PDF).click()
       await expect(panel(bob).getByTestId('file-panel-title')).toContainText(PDF)
       await expect(panel(bob).getByTestId('chat-file-ask')).toHaveCount(0)
+      await bob.context().close()
+    })
+
+    test('a link that does not open for any other reason: "can\'t be found", and the same bare header', async ({ page, browser }) => {
+      await reset(page)
+      await signIn(page)
+      const chatId = await quoteChat(page)
+      await shareWithoutFiles(page, chatId)
+      const bob = await as(browser, BOB)
+      // the server's one answer for every other case (gone, not the chat's, someone else's folder)
+      await bob.route('**/api/chats/*/file-access?*', (r) => r.fulfill({ json: { status: 'no' } }))
+      await openChat(bob, chatId)
+      await fileLink(bob, PDF).click()
+      await expect(panel(bob).getByTestId('chat-file-ask-no')).toBeVisible()
+      await blockedHeader(bob)
+      await shots(bob, 'cant-open-panel')
       await bob.context().close()
     })
   })

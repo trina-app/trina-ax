@@ -279,7 +279,7 @@ function Viewer({ renderer, kind, source, width, name, at, path, download, file,
   const blob = source
   switch (renderer) {
     case 'docx':
-      return <DocxView blob={blob} />
+      return <DocxView blob={blob} width={width} />
     case 'pptx':
       return <PptxView blob={blob} width={width} startSlide={at?.kind === 'slide' ? at.slide : undefined} />
     case 'sheet':

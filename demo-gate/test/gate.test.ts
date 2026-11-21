@@ -374,7 +374,10 @@ describe.skipIf(skip)('gate: model upstream', () => {
     const h = await until(async () => { const x = await g.health(); return x.dailyTokens >= before + 450 ? x : null }, 3000, 'counted')
     expect(h.dailyTokens).toBe(before + 450)
     const idb = /\/i\/([0-9a-f]{8})\./.exec(b)![1]
-    expect(h.instances.find((i: { id: string }) => i.id === idb).tokens).toBe(450)
+    // the instance counts as its demo limit does: the cache write at 0.1 (100 + 5 + 200 + 100); the day counts it fully
+    expect(h.instances.find((i: { id: string }) => i.id === idb).tokens).toBe(405)
+    // the log line says both, with the usage fields (counts only)
+    expect(g.log()).toMatch(/"upstream usage".*"tokens":450,"visitor":405.*"in":100,"cw":50,"cr":1000,"out":200/)
     // count_tokens is not counted
     upstream.set(() => Response.json({ input_tokens: 5000 }))
     await (await msg(b, { path: '/v1/messages/count_tokens' })).text()
@@ -430,6 +433,23 @@ describe.skipIf(skip)('gate: per-instance limits', () => {
       // the global day is not used up: it is this instance's cap
       expect((await g.health()).dailyTokens).toBe(1400)
       expect(g.log()).toContain('"model request stopped: instance cap"')
+    } finally { await g.stop() }
+  })
+
+  test('the per-instance cap counts a cache write at 0.1, as the instance does; the day counts it fully', async () => {
+    const g = await startGate({ upstream: upstream.url, turnstile: turnstile.url, locales: ['en'], demo: { limitTokens: 1000 } })
+    try {
+      await warm(g)
+      const u = instanceUpstream(g, fs.readdirSync(g.instancesDir)[0]!)
+      // a fresh copy's first request: the system prompt and the tools written to the cache
+      upstream.set(() => Response.json({ type: 'message', usage: { input_tokens: 10, cache_creation_input_tokens: 5000, output_tokens: 90 } }))
+      expect((await msg(u)).status).toBe(200)
+      // each: 600 for the visitor (10 + 500 + 90), 5100 for the day; with the write counted fully the second was refused
+      expect((await msg(u)).status).toBe(200)
+      expect((await g.health()).dailyTokens).toBe(10_200)
+      expect((await g.health()).instances[0].tokens).toBe(1200)
+      // now at 1200: stopped
+      expect((await msg(u)).status).toBe(403)
     } finally { await g.stop() }
   })
 

@@ -20,6 +20,17 @@ Trina AX は会社のための AI ワークスペースです。Claude Code を�
 
 ![パソコンで開いたアプリ：左のバーにトリナ、トーク、プロジェクト、ファイル、アクティビティ（英語表示では Trina、Chats、Projects、Files、Activity）、その横にトリナの一覧とホーム](../images/overview/app.webp "パソコンで開いた Trina AX")
 
+## 仕事で Trina AX を使う
+
+開発者でない方は、ここから始めてください。各ページに、押すボタンの名前どおりの番号つき手順と、画面の画像があります。
+
+:::cards cols=2
+- icon=message-square | [チャットとプロジェクト](use/chats-and-projects.md) | AI に質問し、チャットを Google Drive のファイルのように共有し、1 つの仕事をプロジェクトにまとめます。
+- icon=folder-lock | [ファイルと権限](use/files-and-permissions.md) | ファイルやフォルダーを共有し、一部のフォルダーを少ない人だけのものにします。
+- icon=bell | [設定と検索](use/settings-and-search.md) | プロフィール、言語、通知、そして ⌘K の検索。
+- icon=clock | [定期タスク](use/scheduled-tasks.md) | 毎週月曜日の同じ作業を、数回のクリックで AI に任せます。
+:::
+
 ## 新しい開発者におすすめの進め方
 
 :::steps

@@ -126,9 +126,12 @@ through the instance's proxy unchanged and the engine's error text classifies as
 marked. The test suite checks this against the server's own functions.
 
 Weight per request: uncached input + cache writes + output + 0.1 × cache reads. The gate keeps the global daily sum
-(stateDir/state.json, with the start times per address as keyed hashes). The 300 000-token cap per visitor is kept
-inside each instance (its block budget), and the gate holds each instance to that cap × `instanceCapMargin` too, in
-case the instance's own count went wrong.
+in that weight (stateDir/state.json, with the start times per address as keyed hashes). The 300 000-token cap per
+visitor is kept inside each instance (its block budget), which counts cache writes at 0.1 too, so a fresh copy's system
+prompt and tools written to the cache are not the visitor's first question. The gate holds each instance to that cap ×
+`instanceCapMargin` in the instance's weight (`visitorWeighted`), in case the instance's own count went wrong. Each
+`upstream usage` log line has both counts (`tokens` for the day, `visitor`) and the usage fields (`in`, `cw`, `cr`,
+`out`).
 
 ## Logs
 

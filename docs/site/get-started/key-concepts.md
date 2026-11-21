@@ -3,7 +3,8 @@ title: Key concepts
 description: Teams, people, folders, chats, projects, skills, engines and MCP in one page.
 ---
 
-Trina AX has a few building blocks. Every other page uses these words.
+Trina AX has a few building blocks. Every other page uses these words. If your team uses Google Drive and Slack, most
+of them will feel familiar: the comparisons below say which.
 
 ## People and roles
 
@@ -14,11 +15,13 @@ Trina AX has a few building blocks. Every other page uses these words.
 | **Member** | Chat with the AI, use files and skills they may open, and keep personal folders and skills. |
 | **Guest** | Someone from outside the team, in one private channel or group chat, and one project, at most. No AI, unless an AI is picked for them. Doesn't take a seat. [Read about guests](../use/guests.md). |
 
-A **group** is a set of people, such as Sales or Finance. A folder can be shared with groups or people.
+A **group** is a set of people, such as Sales or Finance, like a Google group or a Slack user group. A folder can be
+shared with groups or people.
 
 ## The team folder
 
-All company knowledge lives in one team folder on the server.
+All company knowledge lives in one team folder on the server. It works like a shared drive in Google Drive: one place
+for the whole company, with folders that only some people can open.
 
 | Folder | Who sees it |
 |---|---|
@@ -32,19 +35,22 @@ A folder or file you cannot open is invisible: in Files, in AI answers, in searc
 
 ## Chats and projects
 
-A **chat** is a conversation with the AI. Only the person who started it sees it, until they share it with people or groups. Chats in a team project are seen by the project's members, unless the person who starts one locks it.
+A **chat** is a conversation with the AI. Only the person who started it sees it, until they share it with people or
+groups, the way you share a Google Doc. Chats in a team project are seen by the project's members, unless the person who starts one locks it.
 
-A **project** is a folder with instructions, for work that keeps coming back to the same files. A chat in a project gives the AI that folder and those instructions. [Read about chats and projects](../use/chats-and-projects.md).
+A **project** is a folder with instructions, for work that keeps coming back to the same files: think of a Drive
+folder with a note on top that the AI reads every time. A chat in a project gives the AI that folder and those instructions. [Read about chats and projects](../use/chats-and-projects.md).
 
 ![The bar on the left: Trina, Chats, Projects, Files and Activity, with the Trina list beside it: Ask Trina, Search, Scheduled, Team skills, Pinned and Trina history](../images/concepts/rail.webp "The bar on the left")
 
 ## Skills
 
-A **skill** is a `SKILL.md` file with a name, a description and a procedure. It tells the AI how your team does a task. It never grants extra access. [Read about team skills](../use/team-skills.md).
+A **skill** is a `SKILL.md` file with a name, a description and a procedure, like a recipe card or a checklist. It
+tells the AI how your team does a task. It never grants extra access. [Read about team skills](../use/team-skills.md).
 
 ## Engines and AI connections
 
-An **engine** is the agent that answers:
+An **engine** is the AI program that answers (you pick it once; most teams keep the default):
 
 | Engine | Notes |
 |---|---|
@@ -52,11 +58,14 @@ An **engine** is the agent that answers:
 | Codex | OpenAI's agent. Not available on an office Mac. |
 | API | Experimental. Uses a configured API address, model and key. |
 
-An **AI connection** is the account an engine uses: a Claude subscription, an API key or a ChatGPT sign-in. Connections can be personal, or shared by a group or the whole team.
+An **AI connection** is the account an engine uses: a Claude subscription, an API key or a ChatGPT sign-in. Like the
+SIM card in a phone, the engine needs one to work, and the company behind the key or account bills it. Connections can be personal, or shared by a group or the whole team.
 
 ## MCP and other connections
 
-An **MCP connection** lets the AI use an outside service, such as Notion or Linear, with a person's or the team's own sign-in. Trina AX also works the other way: your own Claude can connect to Trina AX as an MCP server. [Read about MCP](../use/mcp.md).
+An **MCP connection** lets the AI use an outside service, such as Notion or Linear, with a person's or the team's own
+sign-in. It is like allowing an app on your iPhone to use your calendar: you allow it once, at the service, and the AI
+can then do only what you allowed. You never need the word MCP to connect an app: [Connect apps](../use/connect-apps.md). Trina AX also works the other way: your own Claude can connect to Trina AX as an MCP server. [Read about MCP](../use/mcp.md).
 
 ## Scheduled tasks and usage
 

@@ -175,9 +175,17 @@ Google Cloud에 어떤 주소를 더 넣어야 하는지 알려 줘요.
 ## 선택: Admin console에서 앱 신뢰하기
 
 회사가 Google 계정을 쓸 수 있는 앱을 제한하고 있다면, Google Workspace 최고 관리자가 이 앱을 신뢰하는 앱으로 표시해야
-해요. [Admin console](https://admin.google.com/)에서 **Security › Access and data control › API controls**를 열고
-**Manage Third-Party App Access** › **Configure new app**으로 가요. 클라이언트 ID(내려받은 파일에 있어요)로 검색해 고른 뒤
-**Trusted**로 설정해요. 이걸 하지 않으면 연결할 때 `admin_policy_enforced`가 뜰 수 있어요.
+해요. 이걸 하지 않으면 연결할 때 `admin_policy_enforced`가 뜰 수 있어요.
+
+1. 앱의 클라이언트 ID를 찾아요. 내려받은 JSON 파일의 `"client_id":` 뒤에 있고,
+   [Clients](https://console.cloud.google.com/auth/clients)의 클라이언트 페이지에도 있어요. `.apps.googleusercontent.com`으로
+   끝나요.
+2. 최고 관리자 계정으로 [Admin console](https://admin.google.com/)에 로그인해요.
+3. 왼쪽 메뉴에서 **Security**, **Access and data control**, **API controls** 순서로 열어요.
+4. **Manage Third-Party App Access**를 고르고 **Configure new app**을 눌러요.
+5. 검색창에 클라이언트 ID를 붙여 넣고 목록에서 내 앱을 골라요.
+6. 적용할 대상(보통은 조직 전체)을 고르고 **Trusted**로 설정한 뒤 **Configure**로 마쳐요(Google의 마지막 버튼이에요.
+   이름이 조금 다를 수 있어요).
 
 ## Trina AX가 보관하는 것
 

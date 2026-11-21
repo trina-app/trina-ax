@@ -20,6 +20,17 @@ Trina AX는 회사용 AI 작업 공간이에요. 서버에 Claude Code를 한 �
 
 ![컴퓨터에서 본 앱: 왼쪽 막대에 트리나, 대화, 프로젝트, 파일, 활동이 있고, 그 옆에 트리나 목록과 홈이 보여요](../images/overview/app.webp "컴퓨터에서 본 Trina AX")
 
+## 회사에서 Trina AX 쓰기
+
+개발자가 아니라면 여기서 시작하세요. 페이지마다 정확한 버튼 이름과 화면 사진이 담긴 순서대로의 단계가 있어요.
+
+:::cards cols=2
+- icon=message-square | [채팅과 프로젝트](use/chats-and-projects.md) | AI에게 묻고, 채팅을 Google Drive 파일처럼 공유하고, 한 가지 일을 프로젝트에 모아요.
+- icon=folder-lock | [파일과 권한](use/files-and-permissions.md) | 파일이나 폴더를 공유하고, 폴더 하나를 더 적은 사람만 보게 해요.
+- icon=bell | [설정과 검색](use/settings-and-search.md) | 내 프로필, 언어, 알림, 그리고 ⌘K 검색.
+- icon=clock | [예약 작업](use/scheduled-tasks.md) | 매주 월요일 같은 일을 AI에게 맡겨요. 몇 번만 누르면 돼요.
+:::
+
 ## 처음 온 개발자에게 권하는 순서
 
 :::steps

@@ -31,8 +31,16 @@ página ni en una imagen.
 | Que la IA use el sistema propio de su empresa (una API) o una app que necesita su propia app de inicio de sesión, como NAVER WORKS | Un administrador | **Administración › Apps conectadas** › **Añadir por su dirección** | [La API de su empresa](api-connections.md) |
 | Usar sus archivos de Trina AX desde Claude o ChatGPT | Usted | **Configuración › Trina AX MCP** | [Conector MCP de Trina AX](../../agents/mcp-connector.md) (en inglés) |
 
-Para abrir **Configuración**, elija su foto en la parte inferior de la barra de la izquierda y después **Configuración**
-(en el teléfono, la pestaña **Yo**). **Administración** está en el mismo menú para el propietario y los administradores.
+### Dónde están Configuración y Administración
+
+- **Configuración** (sus propias conexiones): elija su foto en la parte inferior de la barra de la izquierda y después
+  **Configuración**. En un teléfono, abra la pestaña **Yo**. Configuración se abre sobre la página, con **Conectores** y
+  **Proveedores de IA** en su lista, bajo **Conexiones**.
+- **Administración** (las conexiones del equipo, para el propietario y los administradores): elija el logotipo de su
+  equipo en la parte superior de la barra de la izquierda y después **Administración**. Consulte
+  [Administración](admin.md).
+
+![El menú debajo de su foto: su nombre y su rol, Mostrarme como ausente, Establecer su estado, Configuración y Cerrar sesión](../../images/settings/account-menu.webp "El menú debajo de su foto")
 
 ![Configuración › Conectores (Settings › Connectors) de un miembro de Acme: Descubrir enumera Google Drive, Notion, Linear y otras apps, cada una con un botón +, y debajo de la lista "¿No aparece? Pida a un administrador que lo añada."](../../images/connect/member-connectors.webp "Configuración › Conectores")
 

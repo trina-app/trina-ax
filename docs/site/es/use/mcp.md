@@ -71,9 +71,16 @@ de trabajo y elija **Allow** (el botón también puede llamarse **Continue** o *
 Trina AX indica **Sesión iniciada.** La app sube a **Sus conectores** con **Conectado**.
 :::
 
-Para el equipo, un administrador hace lo mismo en **Administración › Apps conectadas**: abre la app y elige **Conectar
-para el equipo**. La flecha que hay al lado ofrece **Como plantilla: cada miembro conecta**. Después elige quién puede
-usarla.
+Para el equipo, un administrador hace lo mismo en **Administración › Apps conectadas**:
+
+1. Elija el logotipo de su equipo en la parte superior de la barra de la izquierda, después **Administración › Apps
+   conectadas**, y abra la app en **Descubrir**.
+2. Elija **Conectar para el equipo**. (La flecha que hay al lado ofrece en su lugar **Como plantilla: cada miembro
+   conecta**: vea [Plantillas](#plantillas-cada-miembro-usa-su-propia-clave)).
+3. El cuadro muestra la dirección de la app y una línea **Para: Todo el equipo**. Para elegir grupos o personas, elija
+   **Cambiar** en esa línea.
+4. Elija **Guardar e iniciar sesión**, después inicie sesión en la página de la app con la cuenta que compartirá el
+   equipo y permita el acceso, como arriba. La app sube a **Conectados**.
 
 ![La página de Notion en Administración › Apps conectadas: Conectar para el equipo con una flecha para más opciones, y conectar Notion para el equipo con una clave compartida, o como plantilla que cada miembro conecta con la suya.](../../images/connect/admin-notion.webp "Notion para el equipo")
 

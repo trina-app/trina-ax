@@ -84,7 +84,8 @@ preguntas llegan una tras otra, una por carpeta.
 
 ![macOS pregunta: “Trina AX” quiere acceder a los archivos de su carpeta Documentos. Busca archivos de trabajo aquí. El contenido de los archivos se queda en este Mac hasta que decida añadirlos. No permitir, Permitir](../../images/find-work-files/macos-question.webp "macOS pregunta por cada carpeta")
 
-macOS recuerda su respuesta, así que solo pregunta una vez por carpeta.
+macOS recuerda su respuesta, así que solo pregunta una vez por carpeta, igual que un iPhone pregunta una sola vez antes
+de que una app pueda ver sus fotos.
 
 ## Elegir los archivos
 

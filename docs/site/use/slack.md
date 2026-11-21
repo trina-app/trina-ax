@@ -58,13 +58,18 @@ it. Ask an admin to do it.", and the app is taken off the workspace again.
 
 ### Invite the app to channels
 
-Slack tells Trina AX only about the channels it is in. In each channel where people will ask, type:
+Slack tells Trina AX only about the channels it is in, the same as for any Slack app. In each channel where people
+will ask:
+
+1. Open the channel in Slack.
+2. In the message box, type `/invite @trina-ax` and press Enter. (Slack may suggest the app while you type: pick it.)
+3. Slack posts a line in the channel saying the app was added. From then on, anyone in the channel can mention it.
 
 ```
 /invite @trina-ax
 ```
 
-Direct messages need no invite.
+Direct messages need no invite: find **Trina AX** under **Apps** in Slack's sidebar and write to it.
 
 ## Link your account and ask (everyone)
 
@@ -77,9 +82,17 @@ last week's notes in shared/sales".
 
 #### Connect your account the first time
 The first time, Trina AX answers only you: "To ask Trina AX here, first connect your Trina AX account. The link works
-once, for 10 minutes, and only for you." Choose **Connect Trina AX account**. Trina AX opens (sign in if it asks) and
-shows both accounts. **Link** links them when your Slack account has the same e-mail as your Trina AX account. If it
-doesn't, the page says why and offers **Sign in with Slack to link** instead.
+once, for 10 minutes, and only for you."
+
+1. Choose **Connect Trina AX account** in that message.
+2. Trina AX opens in your browser (sign in if it asks). The page **Link your Slack account** shows both accounts: your
+   Slack name, and your Trina AX name and e-mail.
+3. Check that the Slack account is yours and choose **Link**. The page says "Linked. Go back to Slack and ask again."
+
+**Link** is there when your Slack account has the same e-mail as your Trina AX account. If it doesn't, the page says
+why and offers **Sign in with Slack to link** instead.
+
+![The Link your Slack account page: Slack: Bob (@bob), Your account: Bob · bob@acme.example.com, a warning to link only your own Slack account, and the Link and Cancel buttons](../images/slack/link-page.webp "Link your Slack account")
 
 #### Or link from Trina AX
 **Settings › Connectors** has a **Slack** line: "Sign in with your Slack account of … to link it." **Link** takes you

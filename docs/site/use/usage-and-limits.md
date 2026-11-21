@@ -38,7 +38,25 @@ Personal skills are never counted by name, so no admin sees what someone keeps p
 
 ## Set limits
 
-There are no limits by default. Admins add them in **Admin › Team settings**, under **Usage limits**.
+There are no limits by default. A limit is counted in **tokens**: small pieces of text, roughly three quarters of an
+English word each. Everything the AI reads (your question, the files it opens) and writes counts, so an answer that reads
+long files uses many more tokens than a short reply. Like a monthly data plan on a phone, a limit caps how much can be
+used in a day or a month.
+
+To add a limit (owners and admins):
+
+1. Open **Admin › Team settings** and scroll to **Usage limits**.
+2. Press **Add limit**. A window opens.
+3. **Applies to**: **Whole team**, a group or one person. **Period**: **Per day** or **Per month**.
+4. **Token limit**: how many tokens, for example 1000000 for one million. **Spending limit (USD)** is optional: an
+   estimate of what the same use would cost through the API; 0 means no amount limit.
+5. **When exceeded**: **Warn only** lets answers go on and sends a notice; **Block** stops new answers until the period
+   starts again.
+6. Press **Save**.
+
+The limit is now a row under **Usage limits**. Each person, group or the whole team can have one limit per period.
+
+![Add limit: Applies to Whole team, Period Per day, Token limit, Spending limit (USD) with 0 meaning no amount limit, When exceeded Warn only, and Save](../images/usage/limit-dialog.webp "Add a usage limit")
 
 For one person, it is quicker from **Admin › Members & invites**: open their **…** menu and choose **Usage limit…**. The
 dialog is already for that person and opens with the limit they have, with how much of it they used. Pick **Per day** or
@@ -51,4 +69,10 @@ under their name, with **Over limit** once it is used up. On a phone, open the p
 | A group | per day or per month |
 | The whole team | per day or per month |
 
-When a limit is reached, the people it covers cannot start new answers until the period resets. Their usage page says when that is.
+What happens at the limit depends on **When exceeded**:
+
+- **Block**: the owner and admins get a notice at 80% and again at 100% (and the person too, when the limit is theirs).
+  At 100% the people it covers cannot start new answers until the period resets: midnight for a day limit, the 1st of
+  the month for a month limit, in the team's time zone. Their usage page says when that is.
+- **Warn only**: answers go on. The owner and admins (and the person, when the limit is theirs) get one notice when it
+  is used up.

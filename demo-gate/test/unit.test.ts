@@ -8,7 +8,7 @@ import { ConfigError, DEFAULT_MODELS, LOCALES, instanceUserProblem, parseConfig 
 import { createLog } from '../src/log.ts'
 import {
   BUSY_TEXT, NEUTRAL_HEADERS, NEUTRAL_STATUS, OAUTH_BETA, SseRewriter, allowedResponseHeaders, betaFor, budgetError,
-  isPromptTooLong, modelAllowed, neutralError, pinModel, weighted,
+  isPromptTooLong, modelAllowed, neutralError, pinModel, visitorWeighted, weighted,
 } from '../src/model.ts'
 import { WORDS, localeOf, renderPage } from '../src/pages.ts'
 import { asInstanceUser, groupsBelow, ownsGroup, runMode, sudoStartArgv } from '../src/pool.ts'
@@ -108,6 +108,13 @@ describe('weighted tokens', () => {
     expect(weighted({})).toBe(0)
     expect(weighted({ input_tokens: -5, output_tokens: Number.NaN })).toBe(0)
   })
+  test('the visitor\'s count: cache writes at 0.1 too (the instance\'s demo limit, server credentials/broker.ts)', () => {
+    expect(visitorWeighted({ input_tokens: 100, cache_creation_input_tokens: 50, output_tokens: 200, cache_read_input_tokens: 1000 })).toBe(405)
+    // a fresh copy's first request: the system prompt and the tools written to the cache
+    expect(visitorWeighted({ input_tokens: 10, cache_creation_input_tokens: 70_000, output_tokens: 900 })).toBe(7910)
+    expect(weighted({ input_tokens: 10, cache_creation_input_tokens: 70_000, output_tokens: 900 })).toBe(70_910)
+    expect(visitorWeighted({})).toBe(0)
+  })
   test('the stream reader takes input from message_start and the last output total from message_delta', () => {
     const rw = new SseRewriter()
     const ev = (e: unknown) => `event: ${(e as { type: string }).type}\ndata: ${JSON.stringify(e)}\n\n`
@@ -150,6 +157,11 @@ describe('deny list', () => {
     // /api/administrator-notes would be denied by a bare prefix; segment boundaries matter except for credential*
     expect(pathVerdict(p)).toBe('ok')
   })
+})
+
+test('the sign-in page\'s language: GET /api/setup stays denied, GET /api/demo, which says it, passes (QA TC-6790)', () => {
+  expect(pathVerdict('/api/setup')).toBe('deny')
+  expect(pathVerdict('/api/demo')).toBe('ok')
 })
 
 describe('cookies', () => {

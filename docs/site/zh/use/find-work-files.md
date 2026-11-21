@@ -71,7 +71,7 @@ description: 让桌面应用找出你最近的工作文件（文稿、OneDrive �
 
 ![macOS 询问：“Trina AX”想要访问你“文稿”文件夹中的文件，下面是应用的理由，有“不允许”和“允许”](../../images/find-work-files/macos-question.webp "macOS 为每个文件夹询问")
 
-macOS 会记住你的回答，所以每个文件夹只问一次。
+macOS 会记住你的回答，所以每个文件夹只问一次，就像 iPhone 在应用第一次要查看你的照片时只问一次一样。
 
 ## 挑选文件
 
