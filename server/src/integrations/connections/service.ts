@@ -117,7 +117,7 @@ export type CallbackResult =
   | { ok: true; held?: { code: string; who: { name: string; username: string }; name: string } }
   /** `handed`: the return of a sign-in whose code already went to the first page (go back to the app);
    * `otherAccount`: this browser is signed in to the team as someone else than who started (refused) */
-  | { ok: false; reason: FlowFailure | null; handed?: true; otherAccount?: true }
+  | { ok: false; reason: FlowFailure | null; handed?: true; otherAccount?: true; from?: string | null }
 /** the token address refused the client itself (RFC 6749 5.2), not the code */
 const CLIENT_REFUSED = new Set(['invalid_client', 'unauthorized_client'])
 /** an own app's client secret as sealed (clientAad, templateClientAad) */
@@ -1343,6 +1343,14 @@ export class Integrations {
    * and only the starter's own session finishes it with the one-time code (claim). Anything else changes nothing: a web
    * or phone sign-in needs the person's browser session, as before (docs/decisions/20261121-connect-browser-handoff.md). */
   async callback(q: { state?: string; code?: string; error?: string; iss?: string }, browser?: { userId: string; sessionId: string }): Promise<CallbackResult> {
+    const r = await this.answerReturn(q, browser)
+    if (r.ok || !q.state || !/^[A-Za-z0-9_-]{43}$/.test(q.state)) return r
+    // where the sign-in started (desktop, web, mobile), so the page offers the one next step that fits ("Back to the
+    // app" only for the desktop app); nothing else about the flow
+    const f = this.db.query('SELECT session_id FROM integration_oauth_flows WHERE state_hash=?').get(hash(q.state)) as { session_id: string } | null
+    return { ...r, from: f ? this.clientOf(f.session_id) : null }
+  }
+  private async answerReturn(q: { state?: string; code?: string; error?: string; iss?: string }, browser?: { userId: string; sessionId: string }): Promise<CallbackResult> {
     this.sweep()
     const no: CallbackResult = { ok: false, reason: null }
     if (!q.state || !/^[A-Za-z0-9_-]{43}$/.test(q.state)) return no

@@ -49,6 +49,10 @@ Where: `server/src/integrations/connections/{service,text}.ts` (`hold`, `claim`,
   - Cancel, a new try, or 5 minutes without the code revoke the held tokens at the service (best effort).
   - A web or phone sign-in still needs the person's browser session (the phone app does not read a code from a link
     yet). Its page says plainly "This link expired. Go back to the app and press Connect again." with no sign-in link.
+- **Pages (QA TC-6921):** every page of this return is one card with the product mark (`/favicon.svg`, `img-src 'self'`),
+  light or dark as the system is, readable at phone width: the Google return page's own style (`RETURN_STYLE`,
+  allowed by its hash). A heading, plain words and one next step: "Back to the app" for a desktop sign-in, "Open
+  Connectors" for a web one, words only for the phone app or an address nobody knows. "Connected" still closes itself.
 - **Residual risk:**
   - A person who forwards the page's link to the attacker within 5 minutes hands over their account; the page names
     the account it joins and says not to send it on, as Drive's does.

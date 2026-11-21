@@ -172,3 +172,33 @@ test('the same person signed in in the browser finishes a desktop sign-in at onc
   expect(await statusOf(olga, id)).toMatchObject({ status: 'connected' })
 })
 
+
+test('the return pages are one styled card (logo, light and dark, phone width) with one next step that fits where it started', async () => {
+  const styleHash = (html: string) => {
+    const css = /<style>([^<]*)<\/style>/.exec(html)![1]!
+    return `'sha256-${new Bun.CryptoHasher('sha256').update(css).digest('base64')}'`
+  }
+  // desktop, browser signed in as someone else: Back to the app
+  const d = await start(desk)
+  const other = await bob.client.raw('GET', callback(d.cb))
+  const oh = await other.text()
+  expect(other.headers.get('content-security-policy')).toContain(`style-src ${styleHash(oh)}`)
+  expect(other.headers.get('content-security-policy')).toContain("img-src 'self'")
+  expect(oh).toContain('<img class="logo" src="/favicon.svg"')
+  expect(oh).toContain('prefers-color-scheme:dark')
+  expect(oh).toContain('width=device-width,initial-scale=1')
+  expect(oh).toMatch(/<a class="cta" href="trina-ax:\/\/open\?url=[^"#]+">/)
+  // web, browser without a session: Open Connectors on the web
+  const web = await session('olga', OWNER_PW, 'web')
+  const w = await start(web)
+  const wh = await (await bare(callback(w.cb))).text()
+  expect(wh).toContain('<a class="cta" href="/settings/connectors">')
+  expect(wh).not.toContain('trina-ax://')
+  // phone: words only
+  const phone = await session('olga', OWNER_PW, 'mobile')
+  const m = await start(phone)
+  const mh = await (await bare(callback(m.cb))).text()
+  expect(mh).not.toContain('class="cta"')
+  // an unknown state: words only
+  expect(await (await bare(callback({ state: 'x'.repeat(43), code: 'c' }))).text()).not.toContain('class="cta"')
+})
