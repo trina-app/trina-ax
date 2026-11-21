@@ -1,7 +1,7 @@
 // Words that depend on where the page runs: inside the phone app (a WebView around this web app, lib/mobile.ts
 // mobileApp) there is no browser to set up and no new tab, so the copy names the phone's Settings and "your browser"
 // (a link leaves the app) instead. A computer's browser, a phone's browser and the desktop app keep the browser words.
-import type { MobileConfig } from '../../../mobile/src/protocol'
+import { PUSH_LABEL_CAPABILITY, type MobileConfig } from '../../../mobile/src/protocol'
 import type { RecorderErrorCode } from './recorder'
 
 /** Where the microphone was blocked, and so where it is allowed again: the browser's site settings (app: null), or the
@@ -43,11 +43,12 @@ export function micErrorKey(code: RecorderErrorCode, o: { app: Pick<MobileConfig
 /** Whether that wording is "blocked", so the phone app shows its Open Settings beside it. */
 export const micBlocked = (key: MicErrorKey) => key === 'voice.denied' || key === 'voice.deniedIos' || key === 'voice.deniedAndroid' || key === 'voice.deniedMac'
 
-/** Settings › Notifications › "Show message preview": the Android app's pushes carry no text and the app does not ask
- * its team for the first line yet (the iPhone app's notification extension does, docs/DECISIONS.md "아이폰 알림의
- * 이름"), so inside it the words say the setting reaches the computer and the iPhone only (QA TC-4692). */
-export function messagePreviewDescKey(app: Pick<MobileConfig, 'platform'> | null): 'notifications.messagePreviewDesc' | 'notifications.messagePreviewDescAndroid' {
-  return app?.platform === 'android' ? 'notifications.messagePreviewDescAndroid' : 'notifications.messagePreviewDesc'
+/** Settings › Notifications › "Show message preview": an Android app without push-label-v1 (1.0.10 and older) gets pushes
+ * with no text and does not ask its team for the first line, so inside it the words say the setting reaches the computer
+ * and the iPhone only (QA TC-4692). An Android app with push-label-v1 asks its team as the iPhone does
+ * (docs/decisions/20261121-android-push-who-where.md), so it gets the plain words. */
+export function messagePreviewDescKey(app: Pick<MobileConfig, 'platform' | 'capabilities'> | null): 'notifications.messagePreviewDesc' | 'notifications.messagePreviewDescAndroid' {
+  return app?.platform === 'android' && !app.capabilities.includes(PUSH_LABEL_CAPABILITY) ? 'notifications.messagePreviewDescAndroid' : 'notifications.messagePreviewDesc'
 }
 
 /** An answer's outside image is a link: in a browser it opens in a new tab, in the phone app it leaves the app for the

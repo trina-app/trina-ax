@@ -1,6 +1,7 @@
 // Native push: the OS permission prompt and the phone's APNs/FCM device token. Nothing here talks to a server; the
 // signed-in web page receives the token through the bridge (push-token-v1) and registers it with its own team.
 import Constants from 'expo-constants'
+import { requireOptionalNativeModule } from 'expo'
 import { fetch } from 'expo/fetch'
 import * as SecureStore from 'expo-secure-store'
 import * as Application from 'expo-application'
@@ -127,19 +128,27 @@ export const appBadge = new AppBadge(async n => { if (pushBuilt() && setsIconNum
  * and its number goes from the icon (an iPhone's; on Android the cleared tray clears the launcher's count). */
 export function forgetDelivered() { void Notifications.dismissAllNotificationsAsync().catch(() => {}); void appBadge.clear() }
 
-/** The keychain item the notification extension reads (src/labels.ts): only on an iPhone build with the extension (the
- * edition's shared keychain group in extra.pushLabels), readable after the phone's first unlock (the extension runs
- * while it is locked), never in a backup or on another phone. null: no extension, so no names in notifications. */
+/** The label item (src/labels.ts). iPhone: the keychain item the notification extension reads, only on a build with the
+ * extension (the edition's shared keychain group in extra.pushLabels), readable after the phone's first unlock (the
+ * extension runs while it is locked), never in a backup or on another phone. Android: the app's own module
+ * (modules/push-label), whose messaging service reads it; encrypted with a key in the Android Keystore, so never readable
+ * from a backup or on another phone. null: no extension or module, so no names in notifications. */
 export const labels: LabelStore | null = (() => {
+  if (!pushBuilt()) return null
+  const deps = { random: () => Crypto.getRandomBytesAsync(32), sha256Hex: (text: string) => Crypto.digestStringAsync(Crypto.CryptoDigestAlgorithm.SHA256, text, { encoding: Crypto.CryptoEncoding.HEX }) }
+  if (Platform.OS === 'android') {
+    const native = requireOptionalNativeModule<{ getItem(): Promise<string | null>; setItem(value: string | null): Promise<void> }>('PushLabel')
+    return native ? new LabelStore({ slot: { get: () => native.getItem(), set: value => native.setItem(value) }, ...deps }) : null
+  }
   const setup = Constants.expoConfig?.extra?.pushLabels as { accessGroup?: unknown } | null | undefined
   const accessGroup = typeof setup?.accessGroup === 'string' && /^[A-Z0-9]{10}\.[a-z0-9.]+\.notifications$/.test(setup.accessGroup) ? setup.accessGroup : null
-  if (Platform.OS !== 'ios' || !accessGroup || !pushBuilt()) return null
+  if (Platform.OS !== 'ios' || !accessGroup) return null
   const options: SecureStore.SecureStoreOptions = { keychainService: LABEL_SERVICE, accessGroup, keychainAccessible: SecureStore.AFTER_FIRST_UNLOCK_THIS_DEVICE_ONLY }
   const slot: Slot = {
     get: () => SecureStore.getItemAsync(LABEL_ITEM, options),
     set: value => value === null ? SecureStore.deleteItemAsync(LABEL_ITEM, options) : SecureStore.setItemAsync(LABEL_ITEM, value, options),
   }
-  return new LabelStore({ slot, random: () => Crypto.getRandomBytesAsync(32), sha256Hex: text => Crypto.digestStringAsync(Crypto.CryptoDigestAlgorithm.SHA256, text, { encoding: Crypto.CryptoEncoding.HEX }) })
+  return new LabelStore({ slot, ...deps })
 })()
 
 const slot = (key: string): Slot => ({

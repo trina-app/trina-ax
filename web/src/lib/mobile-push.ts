@@ -162,7 +162,7 @@ async function register(turn: number): Promise<string> {
   if (turn !== epoch) throw new DOMException('Mobile operation cancelled', 'AbortError')
   write(GRANTED, '1'); write(DENIED, null); offHereWrite(key, false)
   usePhonePush.setState({ permission: 'granted', ask: false })
-  // with the hash of the label key of an iPhone app that shows who and where in a room push (push-label-v1)
+  // with the hash of the label key of a phone app that shows who and where in a room push (push-label-v1)
   const { id, removeKey } = await api.call(API.registerPushDevice, { body: { consent: true, ...token } })
   if (turn === epoch) { registered = key; usePhonePush.setState(s => ({ registered: s.registered + 1 })) }
   // the session changed meanwhile (sign-out, another person): this device id and key are not the app's to keep now

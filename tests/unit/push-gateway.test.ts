@@ -130,7 +130,11 @@ describe('push gateway contract', () => {
       { path: `/${'a'.repeat(200)}` }, { ttlSeconds: -1 }, { ttlSeconds: 86_401 }, { ttlSeconds: 1.5 }, { ttlSeconds: '60' }, { ttlSeconds: null },
       { tag: '' }, { tag: 'dev 42' }, { tag: 'x'.repeat(101) }, { tag: 42 }, { tag: null }, { tag: 'dev/42' },
       { badge: -1 }, { badge: 10_000 }, { badge: 1.5 }, { badge: '3' }, { badge: null }, { badge: Number.NaN }, { badge: true },
+      // label: Android only, and only `true`
+      { label: true }, { label: false }, { label: 1 }, { label: 'true' }, { label: null },
     ]
+    expect(parsePushGatewaySend(JSON.parse(android({ label: true })))?.label).toBe(true)
+    expect(parsePushGatewaySend(JSON.parse(android({ label: false })))).toBeNull()
     // the app icon's number: a whole number from 0 to 9999, nothing else
     for (const b of [0, 1, 9999]) expect(parsePushGatewaySend({ ...ok, badge: b })?.badge).toBe(b)
     expect(parsePushGatewaySend({ ...ok, tag: 'x'.repeat(100) })?.tag).toBe('x'.repeat(100))
@@ -521,6 +525,32 @@ describe('push gateway: FCM', () => {
     h.clock.t += 2000
     await expectOk(await h.send(android({ notificationId: 'n3' })))
     expect(h.calls.map((c) => c.url.includes('oauth2'))).toEqual([true, false, false, true, false])
+  })
+
+  test('label: a room notice or a shared chat goes data-only, with the generic words in data; other codes keep the notification block', async () => {
+    const h = harness()
+    await expectOk(await h.send(android({ notificationId: 'n1', code: 'room.dm', locale: 'en', path: '/rooms/abc123', tag: 'dev-7', ttlSeconds: 600, label: true })))
+    const sent = (i: number) => JSON.parse(h.calls[i]!.body).message
+    expect(sent(1)).toEqual({
+      token: ANDROID_TOKEN,
+      // no `notification` block: Android starts the app's messaging service, which names who and where
+      data: { notificationId: 'n1', code: 'room.dm', path: '/rooms/abc123', device: 'dev-7', title: 'Trina AX', message: expect.any(String), channelId: 'default', tag: 'n1' },
+      android: { priority: 'HIGH', ttl: '600s', collapse_key: 'n1' },
+    })
+    expect(sent(1).data.message.length).toBeGreaterThan(0)
+    expect('body' in sent(1).data).toBe(false)
+    await expectOk(await h.send(android({ notificationId: 'n2', code: 'chat.shared', label: true })))
+    expect(sent(2).notification).toBeUndefined()
+    expect(sent(2).data.channelId).toBe('default')
+    // a code the app never names keeps the old shape even with label
+    await expectOk(await h.send(android({ notificationId: 'n3', code: 'schedule.success', label: true })))
+    expect(sent(3).notification).toBeDefined()
+    expect(sent(3).data).toEqual({ notificationId: 'n3', code: 'schedule.success' })
+    expect(sent(3).android.notification).toEqual({ channel_id: 'default', tag: 'n3' })
+    // without label (an app from before it): the notification block as before
+    await expectOk(await h.send(android({ notificationId: 'n4', code: 'room.dm' })))
+    expect(sent(4).notification).toBeDefined()
+    expect(sent(4).data).toEqual({ notificationId: 'n4', code: 'room.dm' })
   })
 
   test('UNREGISTERED and an invalid registration token: 410; 5xx, 429, OAuth failure: 502', async () => {
