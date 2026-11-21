@@ -150,7 +150,17 @@ Google はログインを、それを作ったアプリに結び付けます。�
 
 ## 任意：管理コンソールでアプリを信頼する
 
-会社が Google アカウントを使えるアプリを制限している場合は、Google Workspace の特権管理者がこのアプリを信頼済みにします。[管理コンソール](https://admin.google.com/) で **Security › Access and data control › API controls** を開き、**Manage Third-Party App Access** › **Configure new app** を選びます。クライアント ID（ダウンロードしたファイルに入っています）で検索して選び、**Trusted** に設定します。これをしないと、接続するときに `admin_policy_enforced` と表示されることがあります。
+会社が Google アカウントを使えるアプリを制限している場合は、Google Workspace の特権管理者がこのアプリを信頼済みにします。
+これをしないと、接続するときに `admin_policy_enforced` と表示されることがあります。
+
+1. アプリのクライアント ID を確かめます。ダウンロードした JSON ファイルの `"client_id":` のあとと、
+   [Clients](https://console.cloud.google.com/auth/clients) のクライアントのページにあります。末尾は `.apps.googleusercontent.com` です。
+2. 特権管理者として [管理コンソール](https://admin.google.com/) にログインします。
+3. 左のメニューで **Security**、**Access and data control**、**API controls** の順に開きます。
+4. **Manage Third-Party App Access**、**Configure new app** の順に選びます。
+5. 検索欄にクライアント ID を貼り付け、一覧から自分のアプリを選びます。
+6. 対象（ふつうは組織全体）を選び、**Trusted** に設定して、**Configure** で終えます（Google の最後のボタンです。
+   名前は少し違うことがあります）。
 
 ## Trina AX が保存するもの
 

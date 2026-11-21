@@ -306,6 +306,42 @@ const SHOTS: Shot[] = [
   }, crop: '[data-testid="team-settings"]' },
   { file: 'google-own-app/member-reconnect', set: 'mock', path: '/settings/connectors/gmail', as: BOB, crop: '[data-testid="settings-dialog"]', prepare: blur, mock: { googleOwnApp: GOOGLE_OWN, googleApps: [{ app: 'gmail', connect: { userId: 'bob', name: 'Bob', email: 'bob@acme.example.com', status: 'needs_reconnect' } }] } },
   { file: 'google-own-app/row-company-phone', set: 'mock', path: '/admin/connectors/gmail', phone: true, mock: { googleOwnApp: GOOGLE_OWN }, prepare: ownAppRow, crop: '[data-testid="gsign-row"]' },
+  // the hard steps of the set-up and connection pages (docs/site/get-started/team-setup.md, use/google-apps.md,
+  // use/slack.md, use/ai-accounts.md, use/admin.md), from the mock server: Gmail set up with a Google app first
+  { file: 'connect/google-member-connect', set: 'mock', path: '/settings/connectors/gmail', as: BOB, crop: '[data-testid="settings-dialog"]', prepare: blur, mock: { googleApps: [{ app: 'gmail', client: 'app' }] } },
+  { file: 'connect/google-member-connected', set: 'mock', path: '/settings/connectors/gmail', as: BOB, crop: '[data-testid="settings-dialog"]', prepare: blur, mock: { googleApps: [{ app: 'gmail', client: 'app', connect: { userId: 'bob', name: 'Bob', email: 'bob@acme.example.com', status: 'connected' } }] } },
+  { file: 'connect/google-team-row', set: 'mock', path: '/admin/connectors/gmail', mock: { googleApps: [{ app: 'gmail', client: 'app' }] }, prepare: scrollTo('[data-testid="gapp-team-row"]'), crop: '[data-testid="team-settings"]' },
+  { file: 'connect/google-team-dialog', set: 'mock', path: '/admin/connectors/gmail', mock: { googleApps: [{ app: 'gmail', client: 'app' }] }, prepare: async (p) => {
+    await scrollTo('[data-testid="gapp-team-row"]')(p); await p.locator('[data-testid="gapp-team-connect"]').click(); await p.waitForTimeout(600); await blur(p)
+  }, crop: DIALOG },
+  { file: 'setup/tools-step', set: 'mock', path: '/welcome', mock: { slack: { admin: SLACK_NEW }, googleApps: [{ app: 'gmail', client: 'app' }] }, prepare: async (p) => {
+    // 회사 소개, 스킬 and 팀 파일 put off, as the owner would on the way to the Tools step
+    await p.locator('[data-testid="welcome-profile"]').locator('button').filter({ hasText: T('welcome.later') }).first().click(); await p.waitForTimeout(700)
+    await p.locator('[data-testid="skills-later"]').click(); await p.waitForTimeout(700)
+    await p.locator('[data-testid="welcome-later"]').click(); await p.waitForTimeout(1200)
+    await restMouse(p)
+  }, crop: '[data-testid="welcome-tools"]', pad: 16 },
+  { file: 'slack/link-page', set: 'mock', path: `/slack/link?t=${'A'.repeat(43)}`, as: BOB, before: async (p) => {
+    await p.route(/\/api\/slack\/link\/preview$/, (r) => r.fulfill({ contentType: 'application/json', body: JSON.stringify({
+      workspace: 'Acme', slack: { userId: 'U0BOB', name: 'Bob', realName: 'Bob', handle: 'bob' }, me: { name: 'Bob', username: 'bob' },
+      expiresAt: '2099-01-01T00:00:00.000Z', linkedElsewhere: false, emailCheck: 'match', signIn: true, email: 'bob@acme.example.com',
+    }) }))
+  }, crop: '[data-testid="slack-link"]', pad: 8 },
+  { file: 'connect/ai-claude-code', set: 'mock', path: '/admin/engines', prepare: async (p) => {
+    // the team's subscriptions may be shared (Admin › Team settings › Members' own accounts), as the page's notice asks
+    await p.evaluate(async () => { await fetch('/api/admin/credential-settings', { method: 'PATCH', headers: { 'content-type': 'application/json', 'x-mycel-csrf': '1' }, body: JSON.stringify({ sharedSubscriptions: true, acknowledgedSharedSubscriptionRisk: true }) }) }, '')
+    await p.evaluate(() => location.reload(), ''); await p.waitForTimeout(1500)
+    await p.locator('[data-testid="provider-add-claude"]').click(); await p.waitForTimeout(500)
+    await p.locator('[data-testid="kind-anthropic-oauth"]').click(); await p.waitForTimeout(300)
+    await p.locator('[data-testid="credential-label"]').fill('Olga Claude Max')
+    await p.locator('[data-testid="plan-notice-ack"]').first().click()
+    await p.locator('[data-testid="credential-submit"]').click()
+    await p.locator('[data-testid="claude-code"]').waitFor({ timeout: 5000 }); await p.waitForTimeout(400); await blur(p)
+  }, crop: DIALOG },
+  { file: 'admin/invite', set: 'mock', path: '/', prepare: async (p) => {
+    await p.locator('[data-testid="team-menu"]').click(); await p.waitForTimeout(400)
+    await p.locator('[data-testid="team-menu-invite"]').click(); await p.waitForTimeout(900); await blur(p)
+  }, crop: DIALOG },
   // Guests (docs/site/use/guests.md), from the mock server (--mock): the owner Olga, the member Bob, the guests Alex
   // Rivera (the room "Quote prep") and Sam Park (the project "Launch plan")
   { file: 'guests/add-people', path: `/rooms/${QUOTE_ROOM}`, set: 'mock', mock: {}, guests: true, before: quoteMessages, prepare: roomAddList, crop: DIALOG },
