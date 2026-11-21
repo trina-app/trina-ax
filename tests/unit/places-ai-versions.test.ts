@@ -22,7 +22,7 @@ import { listenChatFileVersions } from '../../server/src/chat/chat-file-version-
 import { mayWriteChatVersion, PLACE_WORDS, type ResolveCtx } from '../../server/src/files/places'
 import { FileService, TurnFiles } from '../../server/src/files/service'
 import { configureStorageGuard } from '../../server/src/system/storage'
-import { setLimitsPlatformForTests, setPlanForTests } from '../../server/src/system/limits'
+import { setAvailableMemoryForTests, setLimitsPlatformForTests, setPlanForTests } from '../../server/src/system/limits'
 import type { TurnExec } from '../../server/src/chat/turn'
 import { sharedSection } from '../../server/src/chat/prompt'
 
@@ -342,11 +342,14 @@ describe('limits', () => {
     configureStorageGuard({ root: '/', statfs: () => ({ bsize: 4096, blocks: 20 * GiB / 4096, bfree: 0.1 * GiB / 4096, bavail: 0.1 * GiB / 4096 }), enforce: () => true })
     setLimitsPlatformForTests('linux')
     setPlanForTests({ storageGiB: 10 } as never)
+    // this partial plan has no memory figures: on a real Linux (CI) the queue's memory admission would read
+    // /proc/meminfo and divide by the plan's missing per-answer memory, so the answer would never start
+    setAvailableMemoryForTests(null)
     try {
       const r = await run('bob', chat, readThenEdit(p, 'F1', 'F2'))
       expect(r.content).toContain('storage is full')
       expect(versionsOf(chat, file)).toBe(1)
-    } finally { configureStorageGuard(null); setLimitsPlatformForTests(null); setPlanForTests(undefined) }
+    } finally { configureStorageGuard(null); setLimitsPlatformForTests(null); setPlanForTests(undefined); setAvailableMemoryForTests(undefined) }
   })
 })
 
