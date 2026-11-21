@@ -1,9 +1,9 @@
 ---
 title: Apps en las conversaciones
-description: Permita que Sentry, GitHub, Formularios de Google, Stripe, Jira, HubSpot o cualquier otro servicio publique novedades en una conversaciÃ³n, como tarjetas que ve todo el mundo en la conversaciÃ³n.
+description: Permita que Sentry, GitHub, Formularios de Google, Stripe, Jira, HubSpot o cualquier otro servicio publique novedades en una conversación, como tarjetas que ve todo el mundo en la conversación.
 ---
 
-Una conversaciÃ³n puede recibir novedades de los servicios que su equipo ya usa: respuestas nuevas de **Formularios de Google**, errores de
+Una conversación puede recibir novedades de los servicios que su equipo ya usa: respuestas nuevas de **Formularios de Google**, errores de
 **Sentry**, pull requests y comprobaciones fallidas de **GitHub**, o cualquier otra cosa que pueda enviar un mensaje a un Webhook URL.
 Llegan como tarjetas de la app, con su logotipo y la etiqueta **APP**, nunca como una persona. Las repeticiones de lo mismo (el
 mismo error, el mismo pull request, una respuesta editada) van a un único hilo bajo la primera tarjeta, y la línea de estado de la
@@ -11,13 +11,13 @@ primera tarjeta cambia a medida que avanzan las cosas.
 
 ## Añadir una app
 
-1. Abra la conversaciÃ³n y luego **⋯ › Añadir una app**.
+1. Abra la conversación y luego **⋯ › Añadir una app**.
 2. Elija un servicio. Están agrupados: **Formularios** (Formularios de Google, Typeform, Tally, Jotform), **Pagos y pedidos**
    (Stripe, Shopify), **Trabajo** (Notion, Zendesk, Jira, HubSpot) y **Para desarrolladores** (GitHub, Sentry). **Mostrar más
    servicios** abre algunos más (Toss Payments, Channel Talk, PortOne). **Otra app**, al final, sirve para cualquier otro. Un servicio que necesita un plan o un rol lo indica en su fila (por ejemplo *Necesita: un plan de pago de Notion*).
    Una Otra app recibe primero un nombre (por ejemplo *Avisos de copia de seguridad*): sus mensajes aparecen con ese nombre.
 3. Pulse **Copiar** junto al Webhook URL (Formularios de Google: **Copiar código**) y siga los pasos numerados en ese servicio.
-   No se añade nada a la conversaciÃ³n hasta que copia, así que puede mirar primero y cerrar la guía.
+   No se añade nada a la conversación hasta que copia, así que puede mirar primero y cerrar la guía.
 4. La guía muestra en directo lo que ocurre: *Esperando el primer mensaje*, *Conectado* o por qué no se mostró el último intento.
    Si pasan dos minutos sin nada, **¿Aún no llega nada?** muestra los errores habituales de ese servicio y cómo enviar una prueba.
    **Ver un ejemplo** muestra, dentro de la guía, cómo se verán sus mensajes. No se publica nada.
@@ -26,23 +26,23 @@ También puede empezar desde **Configuración › Conectores**. Sentry, Notion, 
 **Añadir a una conversación** debajo de su fila. Solo muestra las conversaciones donde usted puede añadir
 apps; elija una y se abre con la guía de ese servicio. Si aún no tiene ninguna, empiece una con **Nuevo mensaje**.
 
-![Añadir una app: sus mensajes aparecen en la conversaciÃ³n para todos los que están en ella; luego Formularios de Google, Otra app, GitHub y Sentry](../../images/room-apps/picker.webp "Añadir una app")
+![Añadir una app: sus mensajes aparecen en la conversación para todos los que están en ella; luego Formularios de Google, Otra app, GitHub y Sentry](../../images/room-apps/picker.webp "Añadir una app")
 
 Quién puede hacerlo: en un canal (incluido el canal Todos), sus propietarios y administradores; en un mensaje directo (chat 1:1 o de grupo), cualquiera que esté en él.
-Las demás personas de la conversaciÃ³n ven las tarjetas, responden en sus hilos y preguntan a Trina sobre ellas. Al tocar el nombre de la app
+Las demás personas de la conversación ven las tarjetas, responden en sus hilos y preguntan a Trina sobre ellas. Al tocar el nombre de la app
 se ve quién la configuró.
 
-Todos los que están en la conversaciÃ³n ven los mensajes de una app, también quienes se unan más tarde. Elija la conversaciÃ³n con cuidado: un informe de errores o una
+Todos los que están en la conversación ven los mensajes de una app, también quienes se unan más tarde. Elija la conversación con cuidado: un informe de errores o una
 respuesta de formulario pueden contener datos de clientes.
 
-### En la conversaciÃ³n
+### En la conversación
 
 Cada novedad es una tarjeta con el nombre de la app, la etiqueta **APP**, lo que ocurrió, una línea de estado y un enlace para abrirla en
-el servicio. Las respuestas van al hilo de la tarjeta, como con cualquier mensaje. El chat lateral **✦** de la conversaciÃ³n ofrece **¿Qué pasó
+el servicio. Las respuestas van al hilo de la tarjeta, como con cualquier mensaje. El chat lateral **✦** de la conversación ofrece **¿Qué pasó
 hoy?** (en las conversaciones de Formularios de Google, también **Resumir las respuestas de hoy**), que resume los mensajes de las apps empezando por lo que necesita a alguien; en un hilo ofrece **Resumir este
 hilo**.
 
-![Una conversaciÃ³n con tarjetas de Sentry, GitHub y un formulario de inscripción, cada una con la etiqueta APP, y el chat lateral ✦ abierto con ¿Qué pasó hoy?, Ponerme al día, ¿Hay algo para mí? y Resumir](../../images/room-apps/side-chat.webp "Tarjetas de apps y el chat lateral")
+![Una conversación con tarjetas de Sentry, GitHub y un formulario de inscripción, cada una con la etiqueta APP, y el chat lateral ✦ abierto con ¿Qué pasó hoy?, Ponerme al día, ¿Hay algo para mí? y Resumir](../../images/room-apps/side-chat.webp "Tarjetas de apps y el chat lateral")
 
 ### Formularios de Google
 
@@ -81,7 +81,7 @@ en ese servicio, con los nombres que usa ese servicio. En resumen:
   ([workflows de HubSpot](https://knowledge.hubspot.com/workflows/how-do-i-use-webhooks-with-hubspot-workflows)). Un
   contacto muestra su nombre y su empresa, nunca su correo ni su teléfono.
 
-Las respuestas de formularios aparecen en la conversaciÃ³n tal como se dieron, también las direcciones de correo; de los archivos subidos solo se muestra el nombre (Formularios
+Las respuestas de formularios aparecen en la conversación tal como se dieron, también las direcciones de correo; de los archivos subidos solo se muestra el nombre (Formularios
 de Google: solo cuántos son, así que el script no necesita acceso a su Drive). Las tarjetas de pagos
 y pedidos muestran el nombre del cliente (y la ciudad en Shopify), nunca su correo, su teléfono ni su tarjeta.
 
@@ -134,7 +134,7 @@ con un ejemplo para copiar:
 curl -X POST -H 'Content-Type: application/json' -d '{"text":"Hello from my app"}' <Webhook URL>
 ```
 
-Una **Otra app** muestra la primera letra de su nombre sobre su propio color, así que dos de ellas en una conversaciÃ³n no se ven iguales. Para ponerle una imagen, abra su configuración y elija **Cambiar el icono**: **Subir una imagen** (PNG, JPEG o WebP; se recorta en cuadrado) o **Elegir un emoji**. **Quitar el icono** vuelve a la letra. El icono aparece en todos los mensajes de la aplicación, también en los anteriores. Un mensaje no puede cambiar el nombre ni el icono de la aplicación: campos como `username`, `icon_url` e `icon_emoji` de Slack o `avatar_url` de Discord se ignoran, así que nada enviado a la Webhook URL puede hacerse pasar por una persona u otra aplicación.
+Una **Otra app** muestra la primera letra de su nombre sobre su propio color, así que dos de ellas en una conversación no se ven iguales. Para ponerle una imagen, abra su configuración y elija **Cambiar el icono**: **Subir una imagen** (PNG, JPEG o WebP; se recorta en cuadrado) o **Elegir un emoji**. **Quitar el icono** vuelve a la letra. El icono aparece en todos los mensajes de la aplicación, también en los anteriores. Un mensaje no puede cambiar el nombre ni el icono de la aplicación: campos como `username`, `icon_url` e `icon_emoji` de Slack o `avatar_url` de Discord se ignoran, así que nada enviado a la Webhook URL puede hacerse pasar por una persona u otra aplicación.
 
 ### GitHub
 
@@ -166,7 +166,7 @@ Necesita ser propietario o manager en Sentry.
 
 ## Configuración
 
-**⋯ › Integraciones** muestra las apps de la conversaciÃ³n en **Aplicaciones**, con **Añadir una aplicación**. La página de una app tiene:
+**⋯ › Integraciones** muestra las apps de la conversación en **Aplicaciones**, con **Añadir una aplicación**. La página de una app tiene:
 
 - Quién la configuró, y **Cómo conectar** (sus pasos otra vez).
 - **Una línea de estado**: el último mensaje, *En pausa*, *Esperando el primer mensaje* o, después de **Regenerar** y hasta
@@ -177,7 +177,7 @@ Necesita ser propietario o manager en Sentry.
   publicar* (**Hacerlo más seguro**).
 - **Cambiar el icono** (Otra app): una imagen o un emoji en lugar de la primera letra de su nombre, o **Quitar el icono**.
 - **Nombre**: el nombre con el que aparecen sus mensajes.
-- **Mostrar en esta conversaciÃ³n**: los tipos de novedades que se publican (para las apps que envían más de un tipo). Un evento opcional que
+- **Mostrar en esta conversación**: los tipos de novedades que se publican (para las apps que envían más de un tipo). Un evento opcional que
   nunca configuró en el servicio (por ejemplo, los reembolsos de Shopify) dice *Sin configurar en Shopify*, con un enlace a ese paso.
 - **Publicar en silencio**: una línea corta, sin marca de no leído ni alerta.
 - **Cómo enviar** (Otras apps).
@@ -185,12 +185,12 @@ Necesita ser propietario o manager en Sentry.
   servicio).
 - **Quitar aplicación**: la app ya no puede publicar; sus mensajes se quedan.
 
-![La configuración de Sentry: configurada por Olga, con Cómo conectar, el último mensaje, un aviso Sin firma con Hacerlo más seguro, Nombre, los interruptores de Mostrar en esta conversaciÃ³n, Publicar en silencio, Webhook URL con Copiar y Regenerar, y Quitar aplicación](../../images/room-apps/settings.webp "La configuración de una app")
+![La configuración de Sentry: configurada por Olga, con Cómo conectar, el último mensaje, un aviso Sin firma con Hacerlo más seguro, Nombre, los interruptores de Mostrar en esta conversación, Publicar en silencio, Webhook URL con Copiar y Regenerar, y Quitar aplicación](../../images/room-apps/settings.webp "La configuración de una app")
 
 ## Límites
 
 Una app publica como máximo 500 mensajes al día (Formularios de Google: 500 respuestas). Si los supera, se pausa hasta la medianoche (en la zona horaria
-de su equipo): la conversaciÃ³n recibe una línea, y las personas que la gestionan reciben un aviso en **Actividad** (y en su teléfono y en su navegador) con **Reanudar ahora**
+de su equipo): la conversación recibe una línea, y las personas que la gestionan reciben un aviso en **Actividad** (y en su teléfono y en su navegador) con **Reanudar ahora**
 (una vez al día). Todas las apps de un equipo juntas publican como máximo 5.000 mensajes al día: si se supera, todas las apps se pausan hasta la
 medianoche, y la línea y el aviso dicen *Las apps de su equipo llegaron hoy a 5.000 mensajes*, sin **Reanudar ahora**. Las respuestas
 de formulario que se omitieron siguen en la pestaña Respuestas del formulario. Las tarjetas son texto sin formato: nada en ellas puede mencionar a nadie,
@@ -199,6 +199,6 @@ ejecutar nada ni ocultar un enlace.
 ## Cuando las apps no pueden llegar al servidor
 
 Las apps necesitan una conexión desde fuera para enviar mensajes a su equipo. Los equipos alojados y los servidores que usan el relay de Trina la
-tienen. Un servidor que solo está en la red de una oficina no la tiene: **Añadir una app** en la conversaciÃ³n lo indica, y el propietario puede pulsar **Activar la
+tienen. Un servidor que solo está en la red de una oficina no la tiene: **Añadir una app** en la conversación lo indica, y el propietario puede pulsar **Activar la
 conexión** en **Administración › Sistema › Conexión**. Un servidor con su propia dirección pública y una lista de países o redes
 sigue aceptando mensajes de apps desde cualquier lugar; Administración › Sistema › Conexión lo indica.

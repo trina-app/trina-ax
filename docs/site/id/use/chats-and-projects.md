@@ -204,7 +204,7 @@ seluruh percakapan.
 
 #### Membalas di utas
 
-**Balas di utas** pada sebuah pesan menyimpan percakapan sampingan di bawahnya, sehingga percakapan tetap mudah dibaca. Percakapan menampilkan
+**Balas di utas** pada sebuah pesan menyimpan diskusi terpisah di bawahnya, sehingga percakapan tetap mudah dibaca. Percakapan menampilkan
 berapa balasan yang ada di sebuah utas; **Kirim juga ke percakapan** menaruh balasan di percakapan juga.
 
 ![Utas terbuka di samping percakapan: pesan pertama dan balasannya, dengan kotak untuk membalas](../../images/chats/thread.webp "Sebuah utas")

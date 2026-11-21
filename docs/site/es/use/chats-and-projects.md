@@ -92,9 +92,9 @@ Cada chat de su lista de chats de Trina muestra como máximo una marca, en el ex
 | Anillo gris | La IA está respondiendo, o la respuesta espera su turno. |
 | Punto, título en negrita | Una respuesta nueva que todavía no ha abierto. |
 
-Al abrir un chat desaparece su punto, y también el **?** de una respuesta que falló o se detuvo, en todos los dispositivos. Una sección plegada conserva la marca más fuerte de los chats que contiene. Una conversaciÃ³n muestra **?** en lugar de su recuento mientras la IA espera allí su respuesta.
+Al abrir un chat desaparece su punto, y también el **?** de una respuesta que falló o se detuvo, en todos los dispositivos. Una sección plegada conserva la marca más fuerte de los chats que contiene. Una conversación muestra **?** en lugar de su recuento mientras la IA espera allí su respuesta.
 
-Mientras la pestaña del navegador está en segundo plano, su título cuenta los chats y las conversaciones que le necesitan, por ejemplo "(2) Trina". La app de escritorio muestra el mismo número en el Dock de un Mac, y una notificación cuando se abre una tarjeta o termina una respuesta de más de un minuto mientras usted mira otra cosa; al hacer clic se abre ese chat. Las tareas programadas solo reciben la marca; una pregunta hecha desde Slack se responde allí, así que su chat no recibe punto. **Trina** en la barra de la izquierda (en un teléfono, la pestaña **Trina**) muestra **?** o un punto cuando un chat le necesita, **Chats** muestra **?** mientras la IA espera su respuesta en una conversaciÃ³n, y en un teléfono aparece en la app un mensaje corto con **Abrir**.
+Mientras la pestaña del navegador está en segundo plano, su título cuenta los chats y las conversaciones que le necesitan, por ejemplo "(2) Trina". La app de escritorio muestra el mismo número en el Dock de un Mac, y una notificación cuando se abre una tarjeta o termina una respuesta de más de un minuto mientras usted mira otra cosa; al hacer clic se abre ese chat. Las tareas programadas solo reciben la marca; una pregunta hecha desde Slack se responde allí, así que su chat no recibe punto. **Trina** en la barra de la izquierda (en un teléfono, la pestaña **Trina**) muestra **?** o un punto cuando un chat le necesita, **Chats** muestra **?** mientras la IA espera su respuesta en una conversación, y en un teléfono aparece en la app un mensaje corto con **Abrir**.
 
 ## Compartir un chat
 
@@ -187,25 +187,25 @@ Para traer a alguien de fuera del equipo, elija **Invitar a un invitado** al añ
 
 ![La lista Chats: Menciones e hilos, Canales con Todos (Everyone) y Marketing, y Mensajes directos con una conversación de grupo y un mensaje directo](../../images/chats/rooms-list.webp "La lista Chats")
 
-#### Preguntar a Trina junto a una conversaciÃ³n
+#### Preguntar a Trina junto a una conversación
 
-El botón **✦** arriba de una conversaciÃ³n abre al lado un chat lateral con Trina. Solo usted ve este chat, y la IA
-responde con lo que usted puede abrir. Cuando vale la pena compartir una respuesta, **Enviar** debajo de ella la pone en la conversaciÃ³n como mensaje suyo
-(**Enviar al hilo** si preguntó sobre un mensaje). Si algunas personas de la conversaciÃ³n no pueden abrir un archivo que usó la respuesta,
+El botón **✦** arriba de una conversación abre al lado un chat lateral con Trina. Solo usted ve este chat, y la IA
+responde con lo que usted puede abrir. Cuando vale la pena compartir una respuesta, **Enviar** debajo de ella la pone en la conversación como mensaje suyo
+(**Enviar al hilo** si preguntó sobre un mensaje). Si algunas personas de la conversación no pueden abrir un archivo que usó la respuesta,
 la app se lo dice antes y espera su confirmación.
 
 Con un hilo abierto, **✦** abre el chat lateral junto al hilo y los dos siguen en pantalla (en una ventana pequeña la
-conversaciÃ³n les deja el sitio). El cuadro del chat lateral dice entonces **Viendo este hilo**: su pregunta trata de ese hilo y la
+conversación les deja el sitio). El cuadro del chat lateral dice entonces **Viendo este hilo**: su pregunta trata de ese hilo y la
 respuesta puede ir directamente a él. Pulse **✕** en esa línea para preguntar sobre toda la conversación.
 
 ![El canal Marketing: un mensaje que menciona a Jordan, un hilo con 2 respuestas y la respuesta de Trina enviada desde el chat lateral](../../images/chats/room.webp "Un canal")
 
 #### Responder en un hilo
 
-**Responder en el hilo** en un mensaje mantiene una conversación aparte debajo de él, para que la conversaciÃ³n se lea con facilidad. La conversaciÃ³n muestra cuántas
-respuestas tiene un hilo; **Enviar también a la conversaciÃ³n** pone una respuesta también en la conversaciÃ³n.
+**Responder en el hilo** en un mensaje mantiene un intercambio aparte debajo de él, para que la conversación se lea con facilidad. La conversación muestra cuántas
+respuestas tiene un hilo; **Enviar también a la conversación** pone una respuesta también en la conversación.
 
-![Un hilo abierto junto a la conversaciÃ³n: el primer mensaje y sus respuestas, con un cuadro para responder](../../images/chats/thread.webp "Un hilo")
+![Un hilo abierto junto a la conversación: el primer mensaje y sus respuestas, con un cuadro para responder](../../images/chats/thread.webp "Un hilo")
 
 #### Enlazar a un mensaje
 
