@@ -379,10 +379,6 @@ export const Attachment = z.object({
   /** 'team': a reference to a team-folder file; 'chat': a file from the computer kept with a chat shared with people and
    * groups (its people open it through the chat); absent: an upload */
   source: z.enum(['upload', 'team', 'chat']).optional(),
-  /** a chat file (source 'chat'): who put it there when not a person's upload: 'ai', the AI attached it to its answer
-   * (server/src/chat/work-file-tool.ts); 'shared-copy', a copy of a file from before the chat was shared. Absent: a
-   * person's upload */
-  origin: z.enum(['ai', 'shared-copy']).optional(),
   /** team references: sha256 of the content when it was attached */
   sha256: z.string().regex(/^[0-9a-f]{64}$/).optional(),
   /** team references: the content changed since it was attached (the AI gets the current version) */
@@ -398,7 +394,7 @@ export const Attachment = z.object({
   /** a chat file (source 'chat') the chat got without anyone sending it from their computer: 'shared-copy' is a copy of
    * a file the chat made in its creator's own folder, added by the creator's own press when the chat was shared
    * (docs/decisions/20261121-share-chat-files.md), attached to the answer that made it; 'ai' is the AI's own output
-   * attached to its answer (session e6). Absent: someone's upload */
+   * attached to its answer (server/src/chat/work-file-tool.ts). Absent: someone's upload */
   origin: z.enum(['ai', 'shared-copy']).optional(),
   /** 'shared-copy', for the chat's creator only (a path in their own folder): the team path it was copied from, so
    * their own link to it opens this copy. Everyone else reaches the copy through the link's panel (file-access 'copy').
