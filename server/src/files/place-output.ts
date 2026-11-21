@@ -47,7 +47,7 @@ export interface ChatPlaces {
   /** save `src` as the newest version of the chain `id` (ChatFiles.putVersion, origin 'ai', the turn's write limits and
    * the storage check), every rule of head() checked again first; `read`: the sha256 the AI read it with (another head
    * since then makes the result `beside`: nothing is lost) */
-  version(id: string, src: VersionSource, read: string, files: Pick<TurnFiles, 'bytesWritten' | 'filesWritten' | 'readHashes'>): Promise<ChatVersionMade>
+  version(id: string, src: VersionSource, read: string, files: Pick<TurnFiles, 'bytesWritten' | 'filesWritten' | 'readHashes' | 'chatVersionsMade'>): Promise<ChatVersionMade>
 }
 
 /** A chat file's newest version as a writer of a new one sees it */

@@ -459,3 +459,52 @@ describe('independent review (PR #252)', () => {
     expect(t).toContain('edit_office it without output')
   })
 })
+
+describe('one version per answer (owner, 2026-11-21)', () => {
+  test('several edits of one chat file in one answer leave one version; the next answer adds one', async () => {
+    const { chat, file, path: p } = await sent('steps.md', 'S1 S2 S3\n')
+    const edit = (o: string, n: string) => ({ tool: 'edit', args: { file_path: p, old_string: o, new_string: n } })
+    const r = await run('bob', chat, fake({ tool: 'read', args: { file_path: p } }, edit('S1', 'T1'), edit('S2', 'T2'), { ...edit('S3', 'T3'), sayResult: true }))
+    expect(r.content).toContain('version 2')
+    expect(await fileText('erin', chat, file)).toBe('T1 T2 T3\n')
+    expect(store().versions('erin', chat, file).map((v) => [v.version, v.by, !!v.ai])).toEqual([[1, 'alice', false], [2, 'bob', true]])
+    expect(store().chain(file)).toHaveLength(2)
+    const next = await run('bob', chat, fake({ tool: 'read', args: { file_path: p } }, { ...edit('T1', 'U1'), sayResult: true }))
+    expect(next.content).toContain('saved as version 3')
+    expect(store().chain(file).map((x) => x.version ?? 1)).toEqual([1, 2, 3])
+  })
+
+  test('a person\'s save in between starts a new version; an editor opened on the replaced head saves beside; the old bytes go', async () => {
+    const { chat, file } = await sent('mixed.txt', 'M1')
+    const files = new TurnFiles()
+    const exec = { rt: getChatRuntime(h.ctx), spec: { userId: 'bob', chatId: chat, clientKind: 'web' }, files, shared: { kind: 'people' }, hiddenFromLater: false, livePrincipal: () => ({}) } as unknown as TurnExec
+    const p = chatPlaces(exec, files)
+    const a = await p.version(file, { bytes: enc('AI one') }, store().row(file)!.sha256, files)
+    expect(a).toMatchObject({ version: 2, beside: false })
+    const first = store().headOf(file)!
+    const firstAbs = store().open('bob', chat, file, false).abs
+    // erin's editor was opened on the AI's first save
+    const b = await p.version(file, { bytes: enc('AI two') }, a.sha256, files)
+    expect(b).toMatchObject({ version: 2, beside: false })
+    const second = store().headOf(file)!
+    expect(second.id).not.toBe(first.id)
+    expect(second).toMatchObject({ version: 2, replaces: file, origin: 'ai', sha256: b.sha256, size: 6 })
+    expect(store().row(first.id)).toBeNull()
+    expect(fs.existsSync(firstAbs)).toBe(false)
+    expect(await fileText('erin', chat, file)).toBe('AI two')
+    // erin saves on the head she opened (gone now): beside the AI's, nothing lost
+    const e = await store().putVersion('erin', chat, file, { bytes: enc('ERIN') }, { expectHead: first.id })
+    expect(e).toMatchObject({ beside: true, row: { version: 3 } })
+    // the AI's next save in the same answer is over erin's head: a new version, never in her place
+    const c = await p.version(file, { bytes: enc('AI three') }, e.row.sha256, files)
+    expect(c).toMatchObject({ version: 4, beside: false })
+    expect(store().chain(file).map((x) => [x.version ?? 1, x.user_id])).toEqual([[1, 'alice'], [2, 'bob'], [3, 'erin'], [4, 'bob']])
+    // a new answer (its own TurnFiles) over the AI's head of an earlier one: a new version
+    const files2 = new TurnFiles()
+    const p2 = chatPlaces({ ...exec, files: files2 } as unknown as TurnExec, files2)
+    const d = await p2.version(file, { bytes: enc('AI four') }, c.sha256, files2)
+    expect(d.version).toBe(5)
+    // a turn's write limits still count every save
+    expect(files.bytesWritten).toBe('AI one'.length + 'AI two'.length + 'AI three'.length)
+  })
+})

@@ -80,8 +80,11 @@ export type VersionSource = { bytes: Uint8Array } | { fd: number; st: Pick<fs.St
 export interface PutVersionOptions {
   /** the AI writes it: 'ai' ("Trina for <person>"); a person's save or restore: absent */
   origin?: 'ai'
-  /** a turn writes it: its write limits count it (files/turn-write-limits.ts), as for a team file */
-  turn?: { bytesWritten: number; filesWritten: Set<string> }
+  /** a turn writes it: its write limits count it (files/turn-write-limits.ts), as for a team file. `chatVersionsMade`
+   * (the AI's saves of this answer): a save over a head this same answer wrote takes that head's place (the same
+   * version number) instead of adding one, so an answer that edits a file several times leaves one version and never
+   * pushes people's versions out of CHAT_FILE_VERSIONS_KEPT */
+  turn?: { bytesWritten: number; filesWritten: Set<string>; chatVersionsMade?: Map<string, string> }
   /** the head's id the caller read; another head now makes the result `beside` */
   expectHead?: string
   /** audit action ('chat.file_version', or 'chat.file_restore') */
@@ -340,7 +343,7 @@ export class ChatFiles {
   }
 
   /** The row of a file just put at `dst` (its preview made first). */
-  private async record(userId: string, chatId: string, id: string, name: string, dst: string, sha256: string, copiedFrom: string | null, kind: Attachment['kind'], thumbFrom?: string | null, chain?: { rootId: string; origin: 'ai' | null; check: () => void }): Promise<ChatFileRow> {
+  private async record(userId: string, chatId: string, id: string, name: string, dst: string, sha256: string, copiedFrom: string | null, kind: Attachment['kind'], thumbFrom?: string | null, chain?: { rootId: string; origin: 'ai' | null; check: () => void; coalesce?: string; coalesced?: ChatFileRow }): Promise<ChatFileRow> {
     const quarantined = this.ctx.files.quarantine.hasHash(sha256)
     const size = fs.statSync(dst).size
     let dims: { width: number; height: number } | null = null
@@ -366,9 +369,21 @@ export class ChatFiles {
     chain?.check()
     const head = chain ? this.headOf(chain.rootId) : null
     if (chain && !head) throw new Error('the chain is gone')
-    this.ctx.db.query(`INSERT INTO chat_files (id, chat_id, user_id, name, size, mime, kind, width, height, sha256, thumb, copied_from, created_at, root_id, replaces, version, origin)
+    // one version per answer: the head is still the version this same answer (the AI, for this person) wrote, so the new
+    // row takes its place, with its number and the head it replaced; anyone's save in between made another head, and
+    // then this is a new version as always. A new row id, so a person's editor opened on the old one saves `beside`.
+    const over = chain?.coalesce && head && head.id === chain.coalesce && head.root_id && head.origin === 'ai' && head.user_id === userId ? head : null
+    const insert = () => this.ctx.db.query(`INSERT INTO chat_files (id, chat_id, user_id, name, size, mime, kind, width, height, sha256, thumb, copied_from, created_at, root_id, replaces, version, origin)
       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(id, chatId, userId, name, size, mimeOf(name) ?? 'application/octet-stream', kind, dims?.width ?? null, dims?.height ?? null, sha256, thumb, copiedFrom, nowIso(),
-      chain?.rootId ?? null, head?.id ?? null, head ? (head.version ?? 1) + 1 : null, chain?.origin ?? null)
+      chain?.rootId ?? null, over ? over.replaces ?? null : head?.id ?? null, over ? over.version ?? null : head ? (head.version ?? 1) + 1 : null, chain?.origin ?? null)
+    if (over) {
+      this.ctx.db.transaction(() => {
+        this.ctx.db.query('DELETE FROM chat_files WHERE id = ? AND root_id = ?').run(over.id, over.root_id!)
+        insert()
+      })()
+      chain!.coalesced = over
+      this.removeFiles(over)
+    } else insert()
     return this.row(id)!
   }
 
@@ -637,11 +652,17 @@ export class ChatFiles {
       }
       const before = this.headOf(root.id)
       const check = () => { if (this.writable(userId, chatId, root.id).id !== root.id) fail('not_found'); opts.recheck?.() }
-      const row = await this.record(userId, chatId, id, root.name, dst, sha, null, kind, null, { rootId: root.id, origin: opts.origin ?? null, check })
+      // the AI's save (not a restore) over the head this same answer wrote: that head's place (record)
+      const made = opts.origin === 'ai' && !opts.action ? turn?.chatVersionsMade : undefined
+      const chain: { rootId: string; origin: 'ai' | null; check: () => void; coalesce?: string; coalesced?: ChatFileRow } = { rootId: root.id, origin: opts.origin ?? null, check, ...(made?.has(root.id) ? { coalesce: made.get(root.id)! } : {}) }
+      const row = await this.record(userId, chatId, id, root.name, dst, sha, null, kind, null, chain)
+      made?.set(root.id, row.id)
       const replaced = (row.replaces ? this.row(row.replaces) : null) ?? before ?? root
       this.prune(root.id)
-      audit(this.ctx.db, { actor: userId, action: opts.action ?? 'chat.file_version', target: chatId, detail: { size: row.size, version: row.version, ...(opts.origin ? { origin: opts.origin } : {}) } })
-      return { row, replaced, beside: !!opts.expectHead && opts.expectHead !== replaced.id }
+      audit(this.ctx.db, { actor: userId, action: opts.action ?? 'chat.file_version', target: chatId, detail: { size: row.size, version: row.version, ...(opts.origin ? { origin: opts.origin } : {}), ...(chain.coalesced ? { sameAnswer: true } : {}) } })
+      // a save over this answer's own head is beside nothing when that head is the one the caller read
+      const read = chain.coalesced ? chain.coalesced.id : replaced.id
+      return { row, replaced, beside: !!opts.expectHead && opts.expectHead !== read }
     } catch (e) {
       this.removeFiles({ chat_id: chatId, id })
       if (turn && counted) { turn.bytesWritten -= counted.bytes; if (counted.key) turn.filesWritten.delete(key) }

@@ -109,14 +109,15 @@ export function useChatFileVersions(file: PreviewFile, rev: number): ChatFileVer
   return key && answer?.key === key ? answer.v : null
 }
 
-/** The newest version number of a chat file as the chat on screen has it (Attachment.updated, which the server sends
- * again to everyone in the chat after a save: chat/chat-file-edit.ts tellChat), so an open panel reads it again */
-function useLiveVersion(file: PreviewFile): number | null {
+/** The newest version of a chat file as the chat on screen has it (Attachment.updated, which the server sends again to
+ * everyone in the chat after a save: chat/chat-file-edit.ts tellChat), so an open panel reads it again: its number and
+ * time, since the AI's saves within one answer keep one version (its number stays, its time moves) */
+function useLiveVersion(file: PreviewFile): string | null {
   const chatId = file.source === 'chat' ? file.chatId : null
   const fileId = file.source === 'chat' ? file.fileId : null
   return useChats((s) => {
     if (!chatId) return null
-    for (const m of s.threads[chatId]?.messages ?? []) for (const a of m.attachments ?? []) if (a.id === fileId) return a.updated?.version ?? 1
+    for (const m of s.threads[chatId]?.messages ?? []) for (const a of m.attachments ?? []) if (a.id === fileId) return a.updated ? `${a.updated.version}@${a.updated.at}` : '1'
     return null
   })
 }
@@ -161,7 +162,7 @@ export default function FilePanel({ file, onClose }: { file: PreviewFile; onClos
   }, [file])
   // someone saved a new version of the chat's file (the chat's tiles changed): read it and the list again, unless I am
   // editing it (my save then is `beside` theirs, both kept)
-  const seen = useRef<number | null>(null)
+  const seen = useRef<string | null>(null)
   useEffect(() => {
     if (live === null) return
     if (seen.current !== null && seen.current !== live && !editing) setRev((v) => v + 1)

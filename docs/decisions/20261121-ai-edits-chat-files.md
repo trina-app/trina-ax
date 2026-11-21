@@ -25,6 +25,12 @@
   changed from a shared chat yet.
 - **Left for later:** make_file, edit_pdf, comment_docx and resize_images writing a version of a chat file (they make a
   new file); `write` of a new `chat:files/<name>`.
+- **One version per answer (owner, 2026-11-21):** the AI's saves of one chat file within one answer are one version. A
+  save over a head that the same answer wrote takes its place: a new row with that version's number and the head it
+  replaced, the old row and bytes removed in the same step (a new row id, so an editor opened on the old head saves
+  beside it). A person's save, or a save in another answer, is a new version as before. The turn's limits, the storage
+  check, the recheck and pruning are unchanged. So a few answers that edit a file many times never push people's
+  versions out of the kept 20.
 - **Live update:** `chat/chat-file-version-hook.ts` (`onChatFileVersion`, `listenChatFileVersions`) is the seam the
   web's live update registers with.
 - **Tests:** `tests/unit/places-ai-versions.test.ts`.

@@ -262,6 +262,9 @@ export class TurnFiles {
   imageSources = new Map<string, { hash: string; identity: string }>()
   bytesWritten = 0
   filesWritten = new Set<string>()
+  /** chat files (their chain's root id) the AI saved a version of in this answer, and that version's row id: a later
+   * save of this answer over that same head takes its place, one version per answer (ChatFiles.putVersion) */
+  readonly chatVersionsMade = new Map<string, string>()
   /** the chat's work folder that `read` may open (devenv/work-files.ts), set by a chat turn whose tools include
    * box_shell and whose commands run in a work folder (chat/tools.ts); null everywhere else (a sub-agent's view, remote
    * MCP, a scheduled run, a guest, a confidential chat, a project chat). Looked up again at every call. */
