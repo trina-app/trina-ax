@@ -294,25 +294,25 @@ Mulai chat dari halaman proyek, atau pindahkan chat ke dalamnya dengan **Pindahk
   bisa membukanya, dan sebuah baris di bawahnya menyebutkan hal itu. Anda memerlukan akses tulis ke folder proyek (tanpanya, **+**
   hanya menawarkan file tim); **✕** sebelum mengirim memindahkan file itu ke sampah.
 
-### Ruang obrolan proyek
+### Percakapan proyek
 
-Setiap proyek tim punya ruang obrolannya sendiri. Orang-orang proyek adalah orang-orang ruang itu, dan filenya adalah
+Setiap proyek tim punya percakapannya sendiri. Orang-orang proyek adalah orang-orang percakapan itu, dan filenya adalah
 file proyek: satu daftar orang, satu tempat untuk file.
 
-- **Ruang obrolan** di halaman proyek (di ponsel, baris di bawah nama proyek) membuka ruangnya. Pertama kali, ruang itu
+- **Percakapan** di halaman proyek (di ponsel, baris di bawah nama proyek) membuka percakapannya. Pertama kali, percakapan itu
   dibuat dan diberi nama proyek. Ikon obrolan kecil di baris proyek pada **Proyek** (dengan titik saat ada yang belum
-  dibaca) dan **Ruang obrolan** di atas chat AI proyek juga membukanya.
-- Di atas ruang, tombol folder dengan nama proyek membuka halaman proyek: file dan chat AI-nya. Ruang muncul di
+  dibaca) dan **Percakapan** di atas chat AI proyek juga membukanya.
+- Di atas percakapan, tombol folder dengan nama proyek membuka halaman proyek: file dan chat AI-nya. Percakapan muncul di
   **Saluran**, dengan ikon folder, setelah seseorang menulis di sana.
-- **Siapa yang ada di dalamnya mengikuti proyek.** Menambahkan orang ke proyek menambahkannya ke ruang, dan ia melihat
-  seluruh riwayatnya; mengeluarkan orang dari proyek mengeluarkannya dari ruang. Dialog anggota mengatakannya sebelum
-  Anda menambahkan siapa pun. Untuk mengubahnya, buka nama ruang di atas, lalu **Kelola orang** (bagi yang boleh
-  mengubah orang-orang proyek). **Bisukan** membuat ruang tenang; **Keluar dari proyek** keluar dari proyek dan ruangnya.
+- **Siapa yang ada di dalamnya mengikuti proyek.** Menambahkan orang ke proyek menambahkannya ke percakapan, dan ia melihat
+  seluruh riwayatnya; mengeluarkan orang dari proyek mengeluarkannya dari percakapan. Dialog anggota mengatakannya sebelum
+  Anda menambahkan siapa pun. Untuk mengubahnya, buka nama percakapan di atas, lalu **Kelola orang** (bagi yang boleh
+  mengubah orang-orang proyek). **Bisukan** membuat percakapan tenang; **Keluar dari proyek** keluar dari proyek dan percakapannya.
 - **File yang Anda kirim di sana masuk ke folder Lampiran obrolan proyek**, tempat orang-orang proyek menemukannya di
   halaman File. Orang yang hanya bisa melihat proyek bisa menulis pesan, tetapi tidak bisa menambahkan file.
 - **Menghapus pesan hanya menghapus pesan.** Filenya tetap di Lampiran obrolan proyek; hapus di File jika ingin
   menghilangkannya.
-- Trina di obrolan samping ruang menyimpan dokumen baru di folder proyek, dan chat AI proyek bisa membaca ruang itu.
+- Trina di obrolan samping percakapan menyimpan dokumen baru di folder proyek, dan chat AI proyek bisa membaca percakapan itu.
   Keduanya dilihat orang yang sama, jadi tidak ada pertanyaan soal siapa yang bisa melihat.
 
 ## Menemukan apa saja
