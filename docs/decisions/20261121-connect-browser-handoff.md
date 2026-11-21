@@ -46,8 +46,16 @@ Where: `server/src/integrations/connections/{service,text}.ts` (`hold`, `claim`,
   - Cancel, a new try, or 5 minutes without the code revoke the held tokens at the service (best effort).
   - A web or phone sign-in still needs the person's browser session (the phone app does not read a code from a link
     yet). Its page says plainly "This link expired. Go back to the app and press Connect again." with no sign-in link.
-- **Residual risk:** a person who forwards the page's link to the attacker within 5 minutes hands over their account;
-  the page names the account it joins and says not to send it on, as Drive's does.
+- **Residual risk:**
+  - A person who forwards the page's link to the attacker within 5 minutes hands over their account; the page names
+    the account it joins and says not to send it on, as Drive's does.
+  - A phished victim's tokens are now exchanged and, unclaimed, revoked after 5 minutes (before, the flow stopped
+    before the exchange). A service that ends the whole grant on one revocation (RFC 7009 allows it) can cut off the
+    victim's other connection with the same app: an outage, nothing taken. Accepted, as for Drive. A held result whose
+    app's token address moved meanwhile is dropped without revoking (the client secret never goes to the address that
+    lost); one deleted with its person's account is dropped without revoking.
+- **Review:** independent security review on the branch: nothing blocking; two LOW findings fixed (a refused claim whose
+  app moved no longer revokes; a session that ended during a claim ends the flow instead of a 500), two accepted above.
 - **Tests:** `tests/unit/c-connect-app-return.test.ts` (held then claimed, a colleague's browser, web and phone, the
   same person's browser, a changed connection, replacement) and `tests/security/connect-app-return.test.ts` (attack A:
   curl desktop session and a victim browser without a session; attack B: a victim browser signed in as the victim;

@@ -1492,9 +1492,16 @@ export class Integrations {
       const failed = (reason: FlowFailure): CallbackResult => { this.db.query("UPDATE integration_oauth_flows SET state='failed', reason=?, secret_enc=NULL WHERE id=? AND state='exchanging'").run(reason, f.id); return { ok: false, reason } }
       const refuse = (reason: FlowFailure) => { this.dropHeld([f]); failed(reason) }
       if (this.now() > s.held.until) { refuse('expired'); return this.flowView(f.id) }
-      try { this.liveSession(user, session) } catch (e) { refuse('changed'); throw e }
+      // the route checked the session already; one that ended meanwhile ends the flow (an answer, never a 500)
+      try { this.liveSession(user, session) } catch { refuse('changed'); return this.flowView(f.id) }
       const pre = this.stillFor(f, s)
-      if (typeof pre === 'string') { refuse(pre); return this.flowView(f.id) }
+      if (typeof pre === 'string') {
+        // the app's token address changed meanwhile: dropped, not revoked (as keep: revoking would send the client
+        // secret once more to the address that lost)
+        const now = getRow(this.db, f.integration_id)
+        if (now && this.appMoved(now, s)) failed(pre); else refuse(pre)
+        return this.flowView(f.id)
+      }
       try { await this.keep(f, s, pre.row, pre.viewer, s.held.tokens, failed) } catch { failed('exchange') }
       return this.flowView(f.id)
     }

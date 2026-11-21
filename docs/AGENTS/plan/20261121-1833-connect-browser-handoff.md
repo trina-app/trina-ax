@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-21 18:33
 - Branch: `fix/connect-browser-handoff`
-- Status: in progress
+- Status: done
 - Where: trina-ax `server/src/integrations/connections/`, `server/src/routes/{integrations,drive}.ts`. Why: the
   owner pressed Connect on an app in the desktop app and the system browser ended on "The sign-in could not be
   completed … sign in to the same team account in this browser".
@@ -64,4 +64,10 @@ check:prepush, QA on a private copy of the QA team with a browser without a sess
 
 ## Result
 
-(filled in at the end)
+Built as planned. No desktop or web change: the desktop app already posts every code to the Drive claim address, which
+now tries connections last. A browser signed in as another person is held too (the starter's app finishes it; the other
+person's session cannot). Independent security review: nothing blocking; two LOW findings fixed, two accepted in the
+decision. Tests: tests/unit/c-connect-app-return.test.ts, tests/security/connect-app-return.test.ts. QA on a private
+copy of the QA team (port 19843) with a stand-in OAuth service and a browser with no session: held, claimed by the
+desktop session, connected; replay, other person, attack and web-flow wording checked. Slack still asks a browser
+without a session to sign in first (follow-up).
