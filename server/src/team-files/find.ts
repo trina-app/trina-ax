@@ -2,12 +2,12 @@
 // decided by the same functions as the file screen's tree and the AI's glob tool: allowedRoots() picks the folders
 // ripgrep may enter (hidden sub-folders are excluded before anything is opened) and visiblePath() checks every hit
 // again (name rules, server folders, read access, regular single-link file). Nothing else is ever listed. A name matches
-// when it holds every word of the text, in any order and any case (shared/src/search-text.ts searchWords, as ⌘K's room
+// when it holds every word of the text (any of its forms: searchForms), in any order and any case (shared/src/search-text.ts searchWords, as ⌘K's room
 // files and messages: "budget q4" finds "Q4 Budget.xlsx"). ⌘K also asks for folders (`folders`): the folders the file
 // screen would show the caller (siblingVisible), found by a walk of folders only (QA TC-230: "주간" found no folder).
 import fs from 'node:fs'
 import path from 'node:path'
-import { searchWords } from '@mycel/shared'
+import { searchForms, searchWords } from '@mycel/shared'
 import type { FileEntry, FileList } from '@mycel/shared/api'
 import { allowedRoots, excludeArgs, runRg } from '../files/search'
 import { authorize, siblingVisible, visiblePath } from '../policy/authorize'
@@ -37,14 +37,15 @@ export async function findFiles(files: TeamFiles, userId: string, q: string, bas
   if (!b.st!.isDirectory()) throw new ToolError(`'${b.rel}' is a file`, 'not_folder')
   const { roots, excludes } = allowedRoots(files.fx, rules, user, b.segs)
   if (!roots.length) return { items: [], truncated: false }
-  const words = searchWords(q).map(fold)
+  // each word any of its forms (searchForms: "보고서를" finds "보고서.pdf", "reports" "report.pdf")
+  const words = searchWords(q).map((w) => searchForms(w).map(fold))
   const names: string[] = []
   const cfg = files.ctx.files.cfg
   const r = await runRg(cfg.rg, [...RG_LIST, ...excludeArgs(excludes), '--', ...roots], files.root, '\0', (rec) => {
     const rel = rec.replace(/^\.\//, '')
     const name = rel.slice(rel.lastIndexOf('/') + 1)
     const folded = fold(name)
-    if (!words.every((w) => folded.includes(w))) return
+    if (!words.every((fs) => fs.some((w) => folded.includes(w)))) return
     names.push(rel)
     if (names.length >= CANDIDATE_CAP) return false
   }, cfg.grepTimeoutMs)
@@ -72,7 +73,7 @@ type FolderHits = { rel: string; st: fs.Stats }[] & { scanCut?: boolean }
 
 /** Folders under `base` whose name holds every word, among those the file screen shows the caller (siblingVisible:
  * name rules, server folders, may list it). Only listable folders are entered; links are not followed. */
-async function findFolders(files: TeamFiles, user: ReturnType<TeamFiles['principal']>, rules: ReturnType<TeamFiles['rules']>, base: string[], words: string[]): Promise<FolderHits> {
+async function findFolders(files: TeamFiles, user: ReturnType<TeamFiles['principal']>, rules: ReturnType<TeamFiles['rules']>, base: string[], words: string[][]): Promise<FolderHits> {
   const out: FolderHits = []
   const queue: string[][] = [base]
   for (let seen = 0; queue.length; seen++) {
@@ -85,7 +86,7 @@ async function findFolders(files: TeamFiles, user: ReturnType<TeamFiles['princip
       const segs = [...dir, e.name]
       queue.push(segs)
       const folded = fold(e.name)
-      if (!words.every((w) => folded.includes(w))) continue
+      if (!words.every((fs) => fs.some((w) => folded.includes(w)))) continue
       try { out.push({ rel: segs.join('/'), st: fs.lstatSync(path.join(files.root, ...segs)) }) } catch {}
       if (out.length >= FOLDER_HIT_CAP) return out
     }

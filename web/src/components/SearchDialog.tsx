@@ -438,7 +438,8 @@ function SearchBox({ scope, here, onClose, onPerson }: { scope: 'rooms' | null; 
   // mentions:, "quoted phrases", each word by its part without a Korean particle or an English ending (what is marked
   // in their rows)
   const parts = useMemo(() => parseSearch(norm(sent)), [sent])
-  const terms = parts.terms
+  // what their rows mark: every form a word is found by (a Korean verb's other forms too: "만든" marks "만들었어요")
+  const terms = useMemo(() => parts.forms.flat(), [parts])
   // from:, in:, mentions: in the text or a chip on: only the rooms' messages and files are searched (nothing else has a
   // sender or a room)
   const filtered = parts.from.length > 0 || parts.in.length > 0 || parts.mentions.length > 0 || !!room

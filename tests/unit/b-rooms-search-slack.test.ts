@@ -9,6 +9,7 @@ import { API, uuidv7, type RoomMessage, type RoomSearchPage } from '@mycel/share
 import { editDistance, nearMatch, parseSearch, searchStem } from '@mycel/shared'
 import { startHarness, type Harness } from '../lib/b-harness'
 import { roomsOf } from '../../server/src/rooms/service'
+import { searchRooms } from '../../server/src/rooms/reader'
 import { matchScore, RELEVANT_POOL, searchRoomFiles, searchRoomMessages } from '../../server/src/rooms/search'
 
 setDefaultTimeout(180_000)
@@ -58,7 +59,7 @@ describe('the text: word forms, phrases, filters (shared/src/search-text.ts)', (
   })
 
   test('parseSearch: from:, in:, quoted phrases, words; a lone quote and an empty filter are text', () => {
-    expect(parseSearch('from:@bob in:#marketing 견적서를 "budget review"')).toEqual({ words: ['견적서를', 'budget review'], terms: ['견적서', 'budget review'], phrases: [false, true], from: ['bob'], in: ['marketing'], mentions: [] })
+    expect(parseSearch('from:@bob in:#marketing 견적서를 "budget review"')).toEqual({ words: ['견적서를', 'budget review'], terms: ['견적서', 'budget review'], forms: [['견적서'], ['budget review']], phrases: [false, true], from: ['bob'], in: ['marketing'], mentions: [] })
     expect(parseSearch('from:"Bob Lee" in:"Q4 launch" hi')).toMatchObject({ from: ['Bob Lee'], in: ['Q4 launch'], words: ['hi'] })
     expect(parseSearch('FROM:me 네')).toMatchObject({ from: ['me'], words: ['네'] })
     expect(parseSearch('"abc from: x')).toMatchObject({ words: ['"abc', 'from:', 'x'], from: [] })
@@ -163,6 +164,53 @@ describe('what is found', () => {
     expect(names('erin', 'in:"Files Room"').sort()).toEqual(['FILECANARY_견적서_v2.pdf', 'FILECANARY_회의록.pdf'])
     expect(names('bob', 'FILECANARY')).toEqual([])
     expect(names('bob', 'in:"Files Room"')).toEqual([])
+  })
+
+  test('a Korean verb in another form (docs/decisions/20261121-ko-search-forms.md): messages, best match, files, the AI\'s search, chat records; who sees it unchanged', async () => {
+    const room = await teamRoom(['alice', 'erin'])
+    const other = await teamRoom(['bob'])
+    const T = 'VERB-CANARY'
+    await send('alice', room, `${T} 시안 만들었어요`)
+    await send('alice', room, `${T} 보고서를 작성했습니다`)
+    await send('alice', room, `${T} 견적서 보냈어요`)
+    await send('alice', room, `${T} 이번 건은 좀 어렵습니다`)
+    await send('alice', room, `${T} 시가 총액`)
+    // bob's room: the same words, never anyone else's hit
+    await send('bob', other, `${T} 시안 만들었어요 (bob)`)
+    for (const sort of ['relevant', 'recent'] as const) {
+      expect(await tagged('erin', '만든', T, { sort }), sort).toEqual([`${T} 시안 만들었어요`])
+      expect(await tagged('erin', '만들다', T, { sort })).toEqual([`${T} 시안 만들었어요`])
+      expect(await tagged('erin', '보고서 작성', T, { sort })).toEqual([`${T} 보고서를 작성했습니다`])
+      expect(await tagged('erin', '작성했어요', T, { sort })).toEqual([`${T} 보고서를 작성했습니다`])
+      expect(await tagged('erin', '보낸', T, { sort })).toEqual([`${T} 견적서 보냈어요`])
+      expect(await tagged('erin', '어려워요', T, { sort })).toEqual([`${T} 이번 건은 좀 어렵습니다`])
+      // a noun gains no stem alone: "시간" is not "시가"
+      expect(await tagged('erin', '시간', T, { sort })).toEqual([])
+      expect(await tagged('bob', '만든', T, { sort })).toEqual([`${T} 시안 만들었어요 (bob)`])
+    }
+    // the form found is what the snippet starts at and the app marks
+    const p = await search('erin', `${T} 보낸`)
+    expect(p.items.map((i) => i.snippet)).toEqual([`${T} 견적서 보냈어요`])
+    expect(parseSearch('보낸').forms[0]).toContain('보냈')
+    // files by name, and the AI's search of the rooms (rooms tool)
+    const fd = new FormData()
+    fd.append('file', new File(['x'], 'VERBCANARY_작성한_보고서.pdf', { type: 'application/pdf' }))
+    const fid = ((await (await h.req('alice', `/api/rooms/${room}/files`, { method: 'POST', body: fd })).json()) as { id: string }).id
+    await send('alice', room, `${T} 파일`, { fileIds: [fid] })
+    expect(searchRoomFiles(h.ctx.db, 'erin', { q: 'VERBCANARY 작성했어요' }).items.map((i) => i.file.name)).toEqual(['VERBCANARY_작성한_보고서.pdf'])
+    expect(searchRoomFiles(h.ctx.db, 'bob', { q: 'VERBCANARY 작성했어요' }).items).toEqual([])
+    const ai = searchRooms(h.ctx.db, 'erin', 'UTC', { query: `${T} 만든` })
+    expect(ai.count).toBe(1)
+    expect(ai.text).toContain('시안 만들었어요')
+    // the message and the one its file 작성한_보고서.pdf came with
+    expect(searchRooms(h.ctx.db, 'erin', 'UTC', { query: `${T} 보고서가` }).count).toBe(2)
+    expect(searchRooms(h.ctx.db, 'carol', 'UTC', { query: `${T} 만든` }).count ?? 0).toBe(0)
+    // the chat records' search (AI chats): by title too, particles and verb forms
+    const c = await h.api('erin').call(API.createChat, { body: { title: 'VERBCANARY 주간 보고서를 작성했습니다' } })
+    for (const q of ['VERBCANARY 작성했어요', 'VERBCANARY 보고서가', 'VERBCANARY 작성하다'])
+      expect((await h.api('erin').call(API.listChats, { query: { q } })).items.map((x) => x.id), q).toEqual([c.id])
+    expect((await h.api('erin').call(API.listChats, { query: { q: 'VERBCANARY 보냈어요' } })).items).toEqual([])
+    expect((await h.api('alice').call(API.listChats, { query: { q: 'VERBCANARY 작성했어요' } })).items).toEqual([])
   })
 })
 
@@ -387,6 +435,10 @@ describe('on 100,000 messages', () => {
       // the chips with no text (docs/decisions/20261120-search-shortcuts-slack.md): Sent by me, Mentions me (rare: a far
       // walk), and This conversation with them
       ['from:me', 'relevant'], ['mentions:me', 'relevant'], ['mentions:me', 'recent', room], ['from:me mentions:me', 'relevant', room], ['견적', 'relevant', room],
+      // a Korean verb's other forms (docs/decisions/20261121-ko-search-forms.md): found ("보낸" → 보내드릴게요, "확인했어요"
+      // → 확인 부탁드립니다), and the slowest kind, a form with many whole forms found nowhere ("만든", "시간": a scan
+      // of the index's text with every form)
+      ['보낸', 'relevant'], ['확인했어요', 'relevant'], ['만든', 'relevant'], ['시간', 'recent'], ['어려워요 고객사', 'relevant'],
     ]
     for (const [q, sort, here] of qs) {
       const o = { q, sort, ...(here ? { room: here } : {}) }
