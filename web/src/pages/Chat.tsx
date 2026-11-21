@@ -66,7 +66,7 @@ import QueuedMessages from '../components/chat/QueuedMessages'
 import { ChatProjectCrumb, MoveToProjectDialog } from '../components/chat/ChatProject'
 import type { EnginePick } from '../components/chat/EngineMenu'
 import { ChatTitleMenu } from '../components/chat/ChatTitleMenu'
-import { PrivateChatMark, SharedChatMark, SharedReadOnly } from '../components/chat/SharedChat'
+import { PrivateChatMark, SharedByLine, SharedChatMark, SharedReadOnly, sharedByOf } from '../components/chat/SharedChat'
 import { WhoSeesLine } from '../components/chat/WhoSees'
 import { askPrivately, askPrivatelyHome, lastOwnQuestion } from '../components/chat/privateAsk'
 import { openChatShare, startShare, useSharedWithNames } from '../components/chat/ChatShareDialog'
@@ -194,6 +194,7 @@ function ChatView({ chatId, threadRoot }: { chatId: string; threadRoot: string |
   // a chat shared with people and groups (docs/DECISIONS.md "Chats shared with people and groups"): its creator's line
   // opens the Share dialog; to someone not told how many see it (a group in it), the names it is shared with
   const people = isPeopleShared(chat)
+  const sharedBy = sharedByOf(chat, me.user.id)
   const sharedNames = useSharedWithNames(people && !!shared?.audienceHidden ? chatId : null, shared?.by, me.user.id)
   // someone else's chat shared with me that nobody else sees now (its creator's account is off): it is still theirs,
   // shared with me, never "Only you can see this chat" (QA TC-2263)
@@ -672,7 +673,9 @@ function ChatView({ chatId, threadRoot }: { chatId: string; threadRoot: string |
             <ChevronLeft size={20} aria-hidden />
           </Link>
         </Tooltip>
-        <div className="flex min-w-0 flex-1 items-center justify-center gap-1 text-sm md:justify-start">
+        {/* someone else's chat shared with me by name or group: who shared it, after the title (a phone: under it) */}
+        <div className={clsx('flex min-w-0 flex-1 justify-center', sharedBy && phone ? 'flex-col items-center' : 'items-center')}>
+        <div className={clsx('flex min-w-0 items-center justify-center gap-1 text-sm md:justify-start', sharedBy && phone ? 'max-w-full' : 'flex-1')}>
           <ChatProjectCrumb projectId={projectId} />
           {chat && !chat.deletedAt ? (
             <ChatTitleMenu
@@ -696,6 +699,9 @@ function ChatView({ chatId, threadRoot }: { chatId: string; threadRoot: string |
           {shared && <SharedChatMark audience={shared.audience} hidden={!!shared.audienceHidden} />}
           {/* a chat only I see in a team project: its lock, where a shared one has its people (QA TC-1068) */}
           {!shared && chat && privateInTeamProject(chat, project) && <PrivateChatMark />}
+          {sharedBy && !phone && <SharedByLine by={sharedBy} />}
+        </div>
+        {sharedBy && phone && <SharedByLine by={sharedBy} line />}
         </div>
         {/* a chat of a team project: the project's chat room, one tap away (docs/decisions/20261120-project-is-room.md D5;
             a phone: its icon, a dot while something is unread) */}

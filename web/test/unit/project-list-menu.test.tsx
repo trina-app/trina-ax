@@ -326,10 +326,10 @@ describe('members only (docs/DECISIONS.md "Project contents only for members")',
   })
 
   test('a card of a project I am not in: a lock and "멤버만 내용을 볼 수 있어요." in place of its instructions, never "지침이 없어요."', async () => {
-    list = [...list, outside(), project(TRASHED, 'Acme gone', { folderPath: 'projects/acme-gone', member: false, canEdit: false, canManage: false, canDelete: false, inTrash: true, wasMember: true })]
+    list = [...list, outside()]
     const m = await page()
     try {
-      await m.until(() => cards(m).length === 5, 'the cards')
+      await loaded4(m)
       const about = (name: string) => within(card(m, name), 'project-card-about')!
       // its instructions do not come to me, so the card says why there are none, in plain words, with the lock
       expect(about('Acme legal').textContent).toBe(ko('projects.cardMembersOnly'))
@@ -339,9 +339,6 @@ describe('members only (docs/DECISIONS.md "Project contents only for members")',
       // in the same two lines' room, faint
       expect(about('Acme legal').getAttribute('class')).toContain('min-h-[2lh]')
       expect(about('Acme legal').getAttribute('class')).toContain('text-faint')
-      // in the trash nobody sees its contents: nothing said there (its line above says it is in the trash)
-      expect(about('Acme gone').textContent).toBe('')
-      expect(about('Acme gone').getAttribute('class')).toContain('min-h-[2lh]')
       // a project of mine without instructions still says so, without the lock
       expect(about('Acme launch').textContent).toBe(ko('projects.noInstructions'))
       expect(about('Acme launch').querySelector('svg')).toBeNull()
@@ -350,18 +347,15 @@ describe('members only (docs/DECISIONS.md "Project contents only for members")',
     }
   })
 
-  test('a team project nobody active is in: "남은 멤버 없음" in place of a count; one in the trash says only that (QA TC-1012)', async () => {
-    list = [...list, outside({ id: ORPHAN, name: 'Acme old', folderPath: 'projects/acme-old', audience: 0 }), project(TRASHED, 'Acme gone', { folderPath: 'projects/acme-gone', member: false, canEdit: false, canManage: false, canDelete: false, inTrash: true, wasMember: true })]
+  test('a team project nobody active is in: "남은 멤버 없음" in place of a count (QA TC-1012)', async () => {
+    list = [...list, outside({ id: ORPHAN, name: 'Acme old', folderPath: 'projects/acme-old', audience: 0 })]
     const m = await page()
     try {
-      await m.until(() => cards(m).length === 5, 'the cards')
+      await loaded4(m)
       // the card's who-sees line says it (dev's cards say who sees it in place of the folder path)
       expect(within(card(m, 'Acme old'), 'project-card-who')!.textContent).toBe(ko('projects.noMembers'))
       expect(within(card(m, 'Acme old'), 'project-card-state')).toBeNull()
       expect(ko('projects.noMembers')).toBe('남은 멤버 없음')
-      // in the trash nobody is its member: no "남은 멤버 없음" beside it
-      expect(within(card(m, 'Acme gone'), 'project-card-who')!.textContent).toBe(ko('chat.project.inTrash'))
-      expect(within(card(m, 'Acme gone'), 'project-card-state')!.textContent).toBe(ko('chat.project.inTrash'))
       // a personal project with nobody else: nothing said
       expect(within(card(m, 'Acme launch'), 'project-card-state')).toBeNull()
     } finally {
@@ -416,19 +410,15 @@ describe('members only (docs/DECISIONS.md "Project contents only for members")',
     }
   })
 
-  test('a team project in the trash: its members keep the card, "휴지통에 있음" only; one I am not in has no card (QA TC-1060, TC-1061)', async () => {
+  // docs/decisions/20261121-projects-trash-out-of-list.md: the list beside the page has them under its Trash row
+  test('a team project in the trash has no card: neither one I was a member of nor one I only manage', async () => {
     list = [...list, project(TRASHED, 'Acme gone', { folderPath: 'projects/acme-gone', member: false, canEdit: false, canManage: false, canDelete: false, inTrash: true, wasMember: true }),
       project(ORPHAN, 'Acme binned', { folderPath: 'projects/acme-binned', member: false, canEdit: false, canManage: true, inTrash: true, canRestore: true })]
     const m = await page()
     try {
-      await loaded4(m)
-      expect(cards(m).some((c) => c.textContent?.includes('Acme binned'))).toBe(false)
-      expect(within(card(m, 'Acme gone'), 'project-card-state')!.textContent).toBe(ko('chat.project.inTrash'))
-      expect(within(card(m, 'Acme gone'), 'project-card-about')!.textContent).toBe('')
-      // with the team's projects (not the quiet "other team projects" of an admin)
-      expect(card(m, 'Acme gone').closest('[data-testid="projects-section-team"]')).not.toBeNull()
-      // nothing to do with it from the list but copy its link (its page says who can restore it)
-      expect(await open(m, 'Acme gone')).toEqual([['project-card-copy-link', ko('rooms.menu.copyLink')]])
+      await m.until(() => cards(m).length === 3, 'the cards')
+      expect(calls.find((c) => c.key === 'GET /api/projects')!.url).toContain('manage=1')
+      for (const name of ['Acme gone', 'Acme binned']) expect(cards(m).some((c) => c.textContent?.includes(name))).toBe(false)
     } finally {
       await m.unmount()
     }

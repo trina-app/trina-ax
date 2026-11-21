@@ -531,7 +531,7 @@ The API serves the Trina AX apps. It is not yet a stable public API for other pr
 | `PATCH` | `/api/onboarding/welcome` | Owner | Record a welcome step (owner): start, the team type, a step done or skipped, the invite shown, hide the Home entry. |
 | `POST` | `/api/onboarding/welcome/team` | Owner | Every team's start, once: a group named after the team with its folder groups/<name>/, a meeting notes folder and a brand folder in it, the owner in it. No skill is installed. |
 | `POST` | `/api/onboarding/welcome/brand` | Owner | Put the website's pictures and a company intro file (named in the team's language, unless the owner gave intro files) into the team's brand folder, with no AI (owner). Writes only what is missing. |
-| `GET` | `/api/onboarding/suggestion` | Signed in | The one suggestion under an answer of the caller's own chat (schedule a skill run for the 2nd time, make a team skill of an owner's or admin's work with team files, a member's own skills and files after their first run of the landing skill, or a report as a PPT), or null; none the caller closed. phone=1: a member who can write no team folder gets no contribute line there. |
+| `GET` | `/api/onboarding/suggestion` | Signed in | The one suggestion under an answer of the caller's own chat (schedule a skill run for the 2nd time, make a team skill of an owner's or admin's work with team files, a member's own skills and files after their first run of the landing skill,), or null; none the caller closed. phone=1: a member who can write no team folder gets no contribute line there. |
 | `POST` | `/api/onboarding/suggestion/dismiss` | Signed in | Close a suggestion under answers for good (for the caller only). |
 
 ## Onboarding: team files picked from a folder
