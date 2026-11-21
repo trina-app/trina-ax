@@ -17,7 +17,7 @@ AI가 Trina AX 밖의 앱도 나 대신 쓸 수 있어요. Notion 페이지를 �
 | 앱 | 필요한 것 | 안내 |
 |---|---|---|
 | Notion, Linear, Atlassian (Jira, Confluence), Figma, Canva, Stripe, Supabase, Cloudflare, Higgsfield와 **둘러보기**에 있는 다른 앱 | 그 앱의 내 계정. 복사할 건 없어요 | [둘러보기에서 앱에 로그인하기](#둘러보기에서-앱에-로그인하기) |
-| GitHub | 개인 액세스 토큰 | [GitHub](#github) |
+| GitHub | 내 GitHub 계정. 복사할 것 없음 | [GitHub](#github) |
 | "MCP server" 주소를 공개하는 다른 앱 | 그 주소, 앱이 요구하면 키도 | [주소로 앱 추가하기](#주소로-앱-추가하기) |
 | 회사가 운영하는 시스템(API) | 주소, 키, 메모 | [회사 API](api-connections.md) |
 | Google Drive, Gmail, Calendar, Docs, Sheets | 내 Google 계정 | [Google 앱](google-apps.md) |
@@ -78,39 +78,26 @@ AI가 Trina AX 밖의 앱도 나 대신 쓸 수 있어요. Notion 페이지를 �
 
 ## GitHub
 
-GitHub는 다른 앱이 알아서 로그인하게 해 주지 않아서 개인 액세스 토큰으로 연결해요. 주소로 앱을 추가하는 건 팀장과
-관리자만 할 수 있어요. 멤버는 관리자에게 부탁하고, 관리자는 각자 자기 토큰을 쓰도록
-[템플릿](#템플릿-멤버가-각자-자기-키-쓰기)을 만들 수 있어요.
+GitHub는 둘러보기에 있는 다른 앱처럼 로그인으로 연결해요. 만들거나 복사할 토큰은 없어요. 서버가 가진 GitHub 앱으로 로그인하니까, 사람마다 자기 GitHub 계정으로 로그인하고 AI가 볼 수 있는 저장소를 골라요. Trina가 호스팅하는 팀은 바로 쓸 수 있어요. 직접 운영하는 서버는 운영자가 GitHub 앱을 먼저 더해야 하고, 그 전에는 GitHub 페이지에 "이 서버에는 GitHub가 아직 설정되지 않았어요"라고 나와요.
 
 :::tip
 **필요한 것**
 
-- **주소**: `https://api.githubcopilot.com/mcp/` (GitHub의 MCP 서버).
-- **키**: `github_pat_`로 시작하는 GitHub 개인 액세스 토큰.
+- 브라우저에 로그인된 내 GitHub 계정
 :::
 
 :::steps
-#### GitHub에서 토큰 만들기
-[GitHub › Settings › Developer settings › Personal access tokens › Fine-grained tokens](https://github.com/settings/personal-access-tokens/new)를
-열고 **Generate new token**을 눌러요. 이름("Trina AX"), 만료일, 열 수 있는 저장소(**Only select repositories**가 가장
-안전해요), AI에게 필요한 권한을 정해요. 예를 들어 **Contents**, **Issues**, **Pull requests**를 **Read-only**로, AI가
-바꿔도 된다면 **Read and write**로 둬요. **Generate token**을 누르고 복사해요. GitHub는 토큰을 한 번만 보여 줘요.
-자세한 내용: [GitHub 안내](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/managing-your-personal-access-tokens).
+#### 연결 누르기
+**둘러보기**에서 GitHub를 열고 **연결**을 눌러요. GitHub 페이지가 열려요(데스크톱 앱에서는 브라우저로).
 
-#### Trina AX에 추가하기
-**관리자 › 연결한 서비스**에서 **주소로 직접 추가**(둘러보기 아래) 또는 **추가**를 눌러요. 이렇게 채워요.
+#### 저장소 고르기
+GitHub가 앱이 열 수 있는 저장소를 물어요. AI에 필요한 것만 고르면 AI는 그것만 봐요.
 
-- **이름**: `GitHub`
-- **주소**: `https://api.githubcopilot.com/mcp/`
-- **고급**을 열고 **인증 방식**을 **API 키**로 정해요.
-- **키를 보낼 헤더**: **Authorization: Bearer (기본)** 그대로 둬요.
-- **키**: 토큰을 붙여 넣어요.
-
-![GitHub로 채운 팀 서비스 추가 창: 주소 https://api.githubcopilot.com/mcp/, 키를 보낼 헤더 Authorization: Bearer (기본), 키, 그리고 고급의 팀 공용 키 하나, MCP 서버, API 키, 매번 묻기](../../images/connect/add-by-address-key.webp "토큰으로 연결한 GitHub")
-
-#### 저장하기
-**저장**을 눌러요. Trina AX가 GitHub에 토큰을 확인하고 쓸 수 있는 도구를 보여 줘요. 줄에 **연결됨**이 떠요.
+#### 끝
+Trina AX로 돌아오면 줄에 **연결됨**이 보여요. AI는 뭔가 바꾸기 전에 먼저 묻고, **항상 허용**을 고를 수도 있어요.
 :::
+
+팀 전체용은 관리자가 GitHub를 팀용으로 연결하고 쓸 사람을 정하거나, 각자 자기 계정으로 로그인하는 [템플릿](#템플릿-멤버가-각자-자기-키-쓰기)을 만들어요.
 
 ## 주소로 앱 추가하기
 
@@ -126,6 +113,8 @@ GitHub는 다른 앱이 알아서 로그인하게 해 주지 않아서 개인 �
 - 키를 쓴다면: 앱 설정("API keys", "Tokens", "Developer")에서 받은 **키**, 그리고 앱 도움말에 나와 있다면 `X-API-Key`
   같은 **헤더 이름**.
 :::
+
+![GitHub로 채운 팀 서비스 추가 창: 주소 https://api.githubcopilot.com/mcp/, 키를 보낼 헤더 Authorization: Bearer (기본), 키, 그리고 고급의 팀 공용 키 하나, MCP 서버, API 키, 매번 묻기](../../images/connect/add-by-address-key.webp "토큰으로 연결한 GitHub")
 
 창의 칸은 이래요.
 

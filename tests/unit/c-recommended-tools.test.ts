@@ -33,9 +33,10 @@ describe('recommendedTools', () => {
     expect((await owner.try('PATCH', '/api/admin/settings', { recommendedTools: ['https://evil.example/mcp'] })).status).toBe(400)
     expect((await owner.try('PATCH', '/api/admin/settings', { recommendedTools: Array.from({ length: 51 }, (_, i) => `t${i}`) })).status).toBe(400)
   })
-  test('stored clean: each id once, unknown ids and the team-connect tools (Notion, Slack) dropped; the same list again is no change (audit by value)', async () => {
+  test('stored clean: each id once, unknown ids and the team-only tool (Slack) dropped; Notion kept (a person may connect their own, 2026-11-21); the same list again is no change (audit by value)', async () => {
     const s = await owner.call('PATCH', '/api/admin/settings', { recommendedTools: ['gmail', 'gmail', 'not-a-tool', 'notion', 'slack', 'linear'] })
-    expect(s.recommendedTools).toEqual(['gmail', 'linear'])
+    expect(s.recommendedTools).toEqual(['gmail', 'notion', 'linear'])
+    await owner.call('PATCH', '/api/admin/settings', { recommendedTools: ['gmail', 'linear'] })
     const audits = () => (h.ctx.db.query("SELECT COUNT(*) AS n FROM audit_log WHERE action = 'settings.update'").get() as { n: number }).n
     const before = audits()
     await owner.call('PATCH', '/api/admin/settings', { recommendedTools: ['gmail', 'linear'] })
@@ -63,7 +64,8 @@ describe('the shared helpers', () => {
     expect(recommendedFirst(items, ['notion', 'gmail']).map((x) => x.id)).toEqual(['notion', 'gmail', 'google-drive', 'linear'])
     expect(recommendedFirst(items, []).map((x) => x.id)).toEqual(['google-drive', 'gmail', 'linear', 'notion'])
     expect(isRecommendable('google-drive')).toBe(true)
-    expect(isRecommendable('notion')).toBe(false)
+    expect(isRecommendable('notion')).toBe(true)
+    expect(isRecommendable('slack')).toBe(false)
     expect(isRecommendable('aside')).toBe(true)
     expect(cleanRecommended(['x', 'gmail', 'gmail', 'slack'])).toEqual(['gmail'])
   })

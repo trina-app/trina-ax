@@ -1,4 +1,4 @@
-// Settings › App connectors › Slack (docs/SLACK.md): one line, always there while the team uses Slack: the Slack account
+// Settings › Connectors › Slack (docs/SLACK.md): one line, always there while the team uses Slack: the Slack account
 // linked to me with Unlink, or "Sign in with Slack" to link the Slack account I sign in to (or, without it, how to get a
 // link in Slack), and what the AI may read in Slack (the channels and threads the app was invited to and I am in). The
 // outcome of a sign-in comes back in the address (?slack=…). Hidden when the team does not use Slack

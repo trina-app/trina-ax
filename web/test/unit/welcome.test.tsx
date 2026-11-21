@@ -1209,7 +1209,7 @@ describe('the later steps and the end', () => {
       // every level of shared/, never its notes or brand folders
       expect(fact('files')).toBe(' · 파일 3개')
       expect(read).not.toContain('shared/회의록')
-      expect(fact('tools')).toBe(' · Google Drive 추천')
+      expect(fact('tools')).toBe(' · Google Drive 각자 연결하도록 권했어요')
       expect(fact('invite')).toBe(' · 팀 링크를 만들었어요 · 2명 들어왔어요')
       // no "'견적서 쓰기' 먼저 써 보기" any more: 내 설정 시작 is the one primary
       expect(m.find('welcome-done-try')).toBeNull()
@@ -1301,7 +1301,7 @@ describe('the later steps and the end', () => {
     useWelcome.getState().reset()
   })
 
-  test('팀이 쓸 도구 (docs/decisions/20261120-team-vs-personal-onboarding.md): one list: Notion as a team connection ("팀 전체가 이 연결을 같이 써요" [팀으로 연결]), Drive and Gmail as 팀 추천 where they can be connected, "다른 도구 보기" last; nothing done: 나중에 하기 puts it off → the invite; ← 이전 → 팀 파일', async () => {
+  test('팀이 쓸 도구 (docs/decisions/20261120-team-vs-personal-onboarding.md): one list: Notion as a team connection ("팀 전체가 이 연결을 같이 써요" [팀으로 연결]), Drive and Gmail (각자 연결하도록 권하기) where they can be connected, "다른 도구 보기" last; nothing done: 나중에 하기 puts it off → the invite; ← 이전 → 팀 파일', async () => {
     signIn('owner')
     progress = ran({ steps: { profile: 'done', result: null, skills: 'done', files: 'done', tools: null, invite: null } })
     routes['GET /api/integrations/google-drive'] = () => json(200, { configured: false, status: 'disabled', account: null, scopes: [], expiresAt: null, personalAllowed: true, teamShares: [] })
@@ -1314,7 +1314,7 @@ describe('the later steps and the end', () => {
       await m.until(() => stepOf(m) === 'tools', '팀이 쓸 도구')
       expect(m.get('welcome-progress').querySelector('[aria-current="step"]')!.textContent).toContain('4/5 팀 도구')
       expect(m.get('welcome-tools').querySelector('h2')?.textContent).toBe('팀이 쓸 도구')
-      expect(m.get('welcome-tools').textContent).toContain('팀이 같이 쓸 도구는 여기서 한 번 연결하고, 각자 자기 계정으로 쓰는 도구는 추천해 두세요. 팀 연결은 관리자 › 커넥터, 추천은 각 도구 페이지에서 바꿀 수 있어요.')
+      expect(m.get('welcome-tools').textContent).toContain('팀이 같이 쓸 도구는 여기서 한 번 연결하고, 각자 자기 계정으로 쓸 도구는 연결하도록 권해 두세요. 팀 연결은 관리자 › 연결한 서비스에서, 권하기는 커넥터의 각 도구 페이지에서 바꿀 수 있어요.')
       await m.until(() => called('GET /api/integrations/google-drive').length > 0, 'the Drive read')
       const services = await m.until(() => { const x = m.container.querySelectorAll('[data-testid="welcome-tools-service"]'); return x.length ? x : null }, 'the rows')
       // Notion for the team only (no Drive on this server; Gmail cannot be connected here; no Slack answer)
@@ -1345,7 +1345,7 @@ describe('the later steps and the end', () => {
     }
   })
 
-  test('팀이 쓸 도구: [팀 추천] on Drive and Gmail saves the team\'s list at once (PATCH /api/admin/settings recommendedTools), no sign-in; one recommended makes the primary; a failed save puts it back and says why on its row', async () => {
+  test('팀이 쓸 도구: [각자 연결하도록 권하기] on Drive and Gmail saves the team\'s list at once (PATCH /api/admin/settings recommendedTools), no sign-in; one recommended makes the primary; a failed save puts it back and says why on its row', async () => {
     signIn('owner')
     progress = ran({ steps: { profile: 'done', result: null, skills: 'done', files: 'done', tools: null, invite: null } })
     let recommendedTools: string[] = []
@@ -1368,9 +1368,12 @@ describe('the later steps and the end', () => {
     }
     try {
       await m.until(() => row('google-drive') && row('gmail') && row('notion'), 'the rows')
-      expect([...m.container.querySelectorAll('[data-testid="welcome-tools-service"]')].map((x: any) => `${x.getAttribute('data-id')}:${x.getAttribute('data-kind')}`)).toEqual(['notion:team', 'google-drive:recommend', 'gmail:recommend'])
+      expect([...m.container.querySelectorAll('[data-testid="welcome-tools-service"]')].map((x: any) => `${x.getAttribute('data-id')}:${x.getAttribute('data-kind')}`)).toEqual(['notion:team', 'google-drive:google', 'gmail:google'])
       expect(row('google-drive')!.querySelector('[data-testid="welcome-tools-service-line"]')!.textContent).toBe(`각자 자기 계정으로 연결해요 · ${translate('ko', 'gapps.drive.line')}`)
-      expect(row('google-drive')!.textContent).toContain('팀 추천')
+      expect(row('google-drive')!.textContent).toContain('각자 연결하도록 권하기')
+      // no team Google account here (the admin Google reads do not answer): no 팀으로 연결 on the Google rows
+      expect(row('google-drive')!.getAttribute('data-team')).toBe('none')
+      expect(row('google-drive')!.querySelector('[data-testid="welcome-tools-team-connect"]')).toBeNull()
       expect(sw('google-drive').checked).toBe(false)
       expect(m.find('welcome-tools-next')).toBeNull()
       await flip('google-drive')
@@ -1436,6 +1439,54 @@ describe('the later steps and the end', () => {
       await m.unmount()
       for (const k of ['GET /api/integrations/google-drive', 'GET /api/admin/settings', 'GET /api/admin/integrations', 'POST /api/admin/integrations', 'POST /api/integrations/int-notion/authorize', 'GET /api/integrations/flows/flow-n', 'GET /api/admin/users']) delete routes[k]
       delete g.open
+    }
+  }, 30_000)
+
+  test('팀이 쓸 도구: Google Drive and Gmail both ways: [팀으로 연결] opens the shared-account dialog Admin › Connectors uses (Drive share, Gmail team account), a connected team account shows which account and 연결됨 and makes the primary; the 각자 연결하도록 권하기 switch stays on the row', async () => {
+    signIn('owner')
+    progress = ran({ steps: { profile: 'done', result: null, skills: 'done', files: 'done', tools: null, invite: null } })
+    const GMAIL = { id: 'gmail', configured: true, source: 'service', canSetUp: false, blocked: 'hosted', redirectUri: null, driveAppAvailable: false, apis: [], membersCanConnect: true, connectedMembers: 0,
+      team: { id: 'gt-1', status: 'connected', account: { name: 'Acme Ops', email: 'ops@acme.example' }, access: { everyone: true, groups: [], users: [] }, usedBy: 3, connectedBy: null, connectedAt: '2026-11-20T00:00:00.000Z' } }
+    routes['GET /api/integrations/google-drive'] = () => json(200, { configured: true, status: 'disconnected', account: null, scopes: [], expiresAt: null, personalAllowed: true, teamShares: [] })
+    routes['GET /api/integrations/google-apps'] = () => json(200, { apps: ['gmail', 'calendar'].map((id) => ({ id, available: true, reason: null, status: 'disconnected', account: null, writePolicy: 'ask', serviceDown: false, tools: [] })) })
+    routes['GET /api/admin/google-drive'] = () => json(200, { configured: true, source: 'service', canSetUp: false, blocked: 'hosted', redirectUri: null, connectedMembers: 0, sharesOn: 0 })
+    routes['GET /api/admin/google-drive/shares'] = () => json(200, { items: [] })
+    routes['GET /api/admin/google-apps'] = () => json(200, { apps: [GMAIL, { ...GMAIL, id: 'calendar', team: null }] })
+    routes['GET /api/admin/settings'] = () => json(200, settingsWith([]))
+    routes['GET /api/admin/integrations'] = () => json(200, { items: [] })
+    routes['GET /api/admin/users'] = () => json(200, { items: [] })
+    withGroup()
+    const m = await app()
+    const row = (id: string) => m.container.querySelector(`[data-testid="welcome-tools-service"][data-id="${id}"]`) as any
+    const line = (id: string) => row(id)!.querySelector('[data-testid="welcome-tools-service-line"]')!.textContent
+    const keys = ['GET /api/integrations/google-drive', 'GET /api/integrations/google-apps', 'GET /api/admin/google-drive', 'GET /api/admin/google-drive/shares', 'GET /api/admin/google-apps', 'GET /api/admin/settings', 'GET /api/admin/integrations', 'GET /api/admin/users']
+    try {
+      await m.until(() => row('gmail')?.getAttribute('data-team') === 'connected' && row('google-drive')?.getAttribute('data-team') === 'available' || null, 'the Google rows')
+      // Drive: no shared account yet: what each way means, [팀으로 연결] and the switch
+      expect(line('google-drive')).toBe('공유 계정 하나, 또는 각자 자기 계정')
+      expect(row('google-drive')!.querySelector('[data-testid="welcome-tools-team-connect"]')!.textContent).toBe('팀으로 연결')
+      expect(row('google-drive')!.querySelector('[data-testid="welcome-tools-recommend"]')).not.toBeNull()
+      // Gmail: its shared account, who uses it, 연결됨; the switch still there
+      expect(line('gmail')).toBe('공유 계정 ops@acme.example · 3명이 사용')
+      expect(row('gmail')!.querySelector('[data-testid="welcome-tools-team-on"]')!.textContent).toContain('연결됨')
+      expect(row('gmail')!.querySelector('[data-testid="welcome-tools-team-connect"]')).toBeNull()
+      expect(row('gmail')!.querySelector('[data-testid="welcome-tools-recommend"]')).not.toBeNull()
+      // Notion: [팀으로 연결] and the same switch (a person may connect their own Notion too); Slack has no own connection
+      expect(row('notion')!.querySelector('[data-testid="welcome-tools-team-connect"]')).not.toBeNull()
+      expect(row('notion')!.querySelector('[data-testid="welcome-tools-recommend"]')).not.toBeNull()
+      expect([...m.container.querySelectorAll('[data-testid="welcome-tools-service"]')].map((x: any) => x.getAttribute('data-id'))).toEqual(['notion', 'google-drive', 'gmail'])
+      // Calendar, Docs and Sheets stay out of the step (lean: 다른 도구 보기 and Admin have them)
+      expect(row('calendar')).toBeNull()
+      // a team account that works counts as done: the primary
+      expect(m.get('welcome-tools-next').textContent).toBe('다음: 팀원 초대')
+      // Drive's [팀으로 연결]: the Drive share dialog of Admin › Connectors, nothing signed in or made by the click
+      await m.click(row('google-drive')!.querySelector('[data-testid="welcome-tools-team-connect"]')!)
+      await m.until(() => m.find('drive-share-dialog'), 'the Drive share dialog')
+      expect(m.get('drive-share-dialog').getAttribute('data-step')).toBe('connect')
+      expect(called('POST /api/admin/google-drive/shares/authorize')).toEqual([])
+    } finally {
+      await m.unmount()
+      for (const k of keys) delete routes[k]
     }
   }, 30_000)
 
