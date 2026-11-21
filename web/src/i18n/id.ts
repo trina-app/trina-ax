@@ -2897,7 +2897,6 @@ export const id: Record<MessageKey, string> = {
   'settings.about': 'Tentang',
   'about.version': 'Versi {version}',
   'about.license': '{product} berlisensi GNU AGPL-3.0. Anda bisa meminta kode sumber versi yang berjalan di server ini.',
-  'about.hwp': 'Produk ini dikembangkan dengan mengacu pada spesifikasi publik file dokumen HWP (.hwp) dari Hancom.',
   'about.sourceRequest': 'Minta kode sumber (AGPL-3.0)',
   'about.sourceDownload': 'Unduh sumber untuk versi {version}',
   'system.passwordAgain': 'Masukkan kata sandi lagi',
