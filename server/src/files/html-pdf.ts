@@ -579,6 +579,7 @@ async function printPage(cdp: Cdp, race: <T>(x: Promise<T>) => Promise<T>, req: 
   const pageUrl = `${ORIGIN}/${encodePath(req.page)}`
   /** each team file once (base64), whatever address it was asked by */
   const assets = new Map<string, { b64: string; mime: string } | null>()
+  const loading = new Map<string, Promise<{ b64: string; mime: string } | null>>()
   const blocked = new Set<string>()
   let assetBytes = 0
   /** bytes handed to the browser, every repeat counted, and requests answered: a page that asks for one picture under
@@ -642,13 +643,23 @@ async function printPage(cdp: Cdp, race: <T>(x: Promise<T>) => Promise<T>, req: 
       if (!mime || !['Image', 'Stylesheet', 'Font'].includes(e.resourceType)) return refuse()
       let a = assets.get(team)
       if (a === undefined) {
-        a = null
-        if (assets.size < L.maxAssets) {
-          let bytes: Buffer | null = null
-          try { bytes = await req.asset(team, L.maxAssetBytes) } catch { bytes = null }
-          if (bytes && bytes.length <= L.maxAssetBytes && assetBytes + bytes.length <= L.maxAssetsBytes) { assetBytes += bytes.length; a = { b64: bytes.toString('base64'), mime } }
-        }
-        assets.set(team, a)
+        // one read per file, also when the page asks for it twice at once (asset() may answer later: a chat place's file,
+        // tools/make-file.ts printPlaceHtml): the second request waits for the first one's read
+        let p = loading.get(team)
+        if (!p) {
+          const room = assets.size + loading.size < L.maxAssets
+          p = (async () => {
+            if (!room) return null
+            let bytes: Buffer | null = null
+            try { bytes = await req.asset(team, L.maxAssetBytes) } catch { bytes = null }
+            if (bytes && bytes.length <= L.maxAssetBytes && assetBytes + bytes.length <= L.maxAssetsBytes) { assetBytes += bytes.length; return { b64: bytes.toString('base64'), mime } }
+            return null
+          })()
+          loading.set(team, p)
+          a = await p
+          assets.set(team, a)
+          loading.delete(team)
+        } else a = await p
       }
       if (!a || sent + a.b64.length * 0.75 > L.maxSentBytes) return refuse()
       return fulfill(a.mime, a.b64, Math.round(a.b64.length * 0.75))

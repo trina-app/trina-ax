@@ -122,7 +122,6 @@ import { makeHandler } from '../mcp/protocol'
 import { hasCredentialFor, resolveCredential, SOON_MS, type CredEngine } from '../credentials/resolve'
 import { connectionRoute } from '../credentials/access'
 import { isGuestUser } from '../credentials/guest-ai'
-import { isReservedPlace } from '@mycel/shared/places'
 import { resolvePlace } from '../files/places'
 import { chatPlaces } from './place-ctx'
 import { situationOf } from './situation'
@@ -3707,9 +3706,6 @@ export class TurnExec {
       // a listing's own folder: below, by the names it shows
       if (tool === 'list' && k === 'path') continue
       const w = writes.has(k)
-      // a chat place (chat:files/…, chat:work/…): its readers by the resolver (the chat's people), never a team path; a
-      // refused one adds nothing (the tool refuses it with the resolver's words)
-      if (isReservedPlace(v)) { out.push(...this.placeViewers(v, w ? 'write' : 'read')); continue }
       if (!w && /^[a-z][a-z0-9+.-]*:/i.test(v)) continue
       if (w && fresh(k, v)) continue
       // a copy this chat's save_chat_file made in the person's own folder, untouched since, taken as bytes only: read as

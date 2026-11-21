@@ -166,6 +166,29 @@ describe('sources and pictures resolve through their own place', () => {
     expect(ev.summary).toContain('chat:files/')
   })
 
+  test('a Markdown file of the chat with a picture of the chat: both through chat:files/, out to the chat or a team folder', async () => {
+    const { chat } = await sharedChat()
+    const pic = makePng(6, 4)
+    const upload = async (name: string, content: string | Uint8Array) => {
+      const form = new FormData()
+      form.set('chatId', chat)
+      form.set('file', new File([typeof content === 'string' ? content : new Uint8Array(content)], name))
+      return (await (await h.req('alice', '/api/uploads', { method: 'POST', body: form })).json()) as Attachment
+    }
+    const md = await upload('brief.md', '# Brief\n\n![l](logo.png)\n')
+    const logo = await upload('logo.png', pic)
+    const sentNow = await h.api('alice').call(API.sendMessage, { params: { id: chat }, body: { content: fake({ say: 'ok' }), clientMessageId: cm(), attachmentIds: [md.id, logo.id] } })
+    await ws.alice!.next('message.done', (f) => f.data.message.turnId === sentNow.turnId, 30_000)
+    const r = await run('alice', chat, fake({ tool: 'make_file', args: { format: 'docx', source: `chat:files/${md.id}/brief.md`, output: 'chat:files/brief.docx' }, sayResult: true }))
+    const att = r.attachments.find((a) => a.name === 'brief.docx')!
+    expect(att).toBeTruthy()
+    expect(docxHas(pic, chatFileAbs(chat, att.id))).toBe(true)
+    // into the asker's own folder (fewer people than the chat): no card, a team file
+    const t = await run('alice', chat, fake({ tool: 'make_file', args: { format: 'docx', source: `chat:files/${md.id}/brief.md`, output: 'users/alice/brief.docx' }, sayResult: true }))
+    expect(t.cards).toHaveLength(0)
+    expect(fs.existsSync(path.join(h.team, 'users/alice/brief.docx'))).toBe(true)
+  })
+
   test('a chat:work/ picture named in content, into a team folder: the work folder is its place', async () => {
     const pic = makePng(5, 5)
     const { chat } = await sharedChat({ 'out/chart.png': pic })
