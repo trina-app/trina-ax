@@ -282,11 +282,16 @@
  {
   "file": "rooms/team-place.ts",
   "sql": "u.status = 'active' AND u.deleted_at IS NULL AND u.guest = 0 AND u.role NOT IN ('owner', 'admin') AND NOT EXISTS (SELECT 1 FROM room_members m WHERE m.room_id = ? AND m.user_id = u.id)",
-  "reason": "a department room's wider check (widerThanRoom): someone outside the room who is not the owner or an admin; guests are left out by u.guest = 0 in the same filter (they never read groups/ anyway)"
+  "reason": "a department room's wider check (widerThanRoom): someone outside the room who is not the owner or an admin. Guests are left out by u.guest = 0 here because a guest's policy never reads outside projects/, and teamPlaceFor keeps a group folder inside projects/ in room storage before this check runs. The person-rule query below does not filter guests (defence in depth)"
  },
  {
   "file": "rooms/team-place.ts",
   "sql": "SELECT 1 FROM users u WHERE u.role = 'member' AND ${} LIMIT 1",
   "reason": "a members' role rule reaching a group folder (widerThanRoom): the spliced filter carries u.guest = 0, so a guest (stored as role 'member') never matches"
+ },
+ {
+  "file": "rooms/team-place.ts",
+  "sql": "SELECT 1 FROM users u WHERE u.id = ? AND u.status = 'active' AND u.deleted_at IS NULL AND u.role NOT IN ('owner', 'admin') AND NOT EXISTS (SELECT 1 FROM room_members m WHERE m.room_id = ? AND m.user_id = u.id)",
+  "reason": "a person rule reaching a group folder (widerThanRoom): anyone named who is outside the room counts, a guest too (stored as role 'member'), so the role filter only drops the owner and admins, who read every folder outside users/ anyway"
  }
 ]

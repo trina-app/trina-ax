@@ -14,6 +14,8 @@
 // file for its folder: its upload stays in room storage (teamPlaceFor answers null) when
 //   - the group has no folder, its folder is not there (deleted, in the trash: its row is parked under .system/), or
 //     safe operations are on;
+//   - the group folder was moved inside projects/<name>/: that project's guests may read it, and nothing here counts
+//     guests;
 //   - the uploader may not write the Chat attachments folder (or make it): a read-only person rule;
 //   - the folder is read by someone outside the room (wider): an `everyone` rule or a role rule (members) at read or
 //     above, another group with an active member outside the room, a person outside the room. Only the rules on the
@@ -28,7 +30,7 @@ import type { Database } from 'bun:sqlite'
 import { PRODUCT } from '@mycel/shared'
 import type { AppContext } from '../context'
 import { personLocale } from '../files/media-text'
-import { atLeast, type Principal, type RuleSet } from '../policy/access'
+import { atLeast, inProjectZone, type Principal, type RuleSet } from '../policy/access'
 import { FileError, httpError } from '../team-files/errors'
 import { chatAttachmentsPlace, sharedUploadPlace, type SharedUploadPlace, type UploadFiles } from '../uploads/shared-chat'
 import { isProjectRoom, projectRoomLink } from './project-room'
@@ -112,6 +114,9 @@ export function teamPlaceFor(ctx: AppContext, roomId: string, userId: string): T
   if (!room || room.archived_at) return null
   const folder = groupFolderOf(db, room)
   if (!folder) return null
+  // a group folder an admin moved inside projects/<name>/: guests of that project may read it (their policy reaches the
+  // projects zone, and the checks below count no guests), so its room's uploads stay in room storage
+  if (inProjectZone(folder.split('/'))) return null
   let place: SharedUploadPlace
   // not there, not a folder, safe operations, the uploader may not write there: room storage
   try { place = chatAttachmentsPlace(db, filesOf(ctx), folder, userId) } catch { return null }
@@ -143,7 +148,9 @@ export function widerThanRoom(db: Database, rules: RuleSet, roomId: string, grou
   const anyone = db.query(`SELECT 1 FROM users u WHERE ${OUTSIDER} LIMIT 1`)
   const member = db.query(`SELECT 1 FROM users u WHERE u.role = 'member' AND ${OUTSIDER} LIMIT 1`)
   const inGroup = db.query(`SELECT 1 FROM group_members g JOIN users u ON u.id = g.user_id WHERE g.group_id = ? AND ${OUTSIDER} LIMIT 1`)
-  const person = db.query(`SELECT 1 FROM users u WHERE u.id = ? AND ${OUTSIDER}`)
+  // (a person rule counts a guest too: defence in depth, though a guest's policy never reads outside projects/)
+  const person = db.query(`SELECT 1 FROM users u WHERE u.id = ? AND u.status = 'active' AND u.deleted_at IS NULL AND u.role NOT IN ('owner', 'admin')
+    AND NOT EXISTS (SELECT 1 FROM room_members m WHERE m.room_id = ? AND m.user_id = u.id)`)
   for (const r of reachingRules(rules, folder)) {
     switch (r.subjectType) {
       case 'everyone': if (anyone.get(roomId)) return true; break
