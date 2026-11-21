@@ -10,8 +10,9 @@ import { api, API } from '../lib/api'
 import { useChats } from './chats'
 import { accessChanged, chatChanged, notificationsChanged, reloadAsked } from './live'
 
-/** One chat's unread mentions of me: how many (threads) and who, the newest first, each name once. */
-export interface ChatMention { chatId: string; count: number; names: string[] }
+/** One chat's unread mentions of me: how many (threads) and who, the newest first, each name once; `ids`: the notices
+ * (opening the chat reads them: readChatMentions). */
+export interface ChatMention { chatId: string; count: number; names: string[]; ids: string[] }
 
 /** The Inbox's notices are read in pages of this many, without the conversation rows (`only: 'notices'`: DMs and room
  * mentions are never chat-thread mentions), at most MENTIONS_PAGES pages: the Inbox keeps 30 days, so this reaches
@@ -27,8 +28,9 @@ export function mentionsByChat(items: readonly InboxNotification[]): Map<string,
     if (n.code !== 'chat.thread_reply' || n.readAt || !th?.mention || th.gone) continue
     const chatId = th.chatId ?? n.chatId
     if (!chatId) continue
-    const m = out.get(chatId) ?? { chatId, count: 0, names: [] }
+    const m = out.get(chatId) ?? { chatId, count: 0, names: [], ids: [] }
     m.count++
+    m.ids.push(n.id)
     if (th.name && !m.names.includes(th.name)) m.names.push(th.name)
     out.set(chatId, m)
   }
@@ -42,8 +44,9 @@ export function mentionsByProject(byChat: ReadonlyMap<string, ChatMention>, proj
   for (const m of byChat.values()) {
     const p = projectOf(m.chatId)
     if (!p) continue
-    const t = out.get(p) ?? { chatId: m.chatId, count: 0, names: [], chats: 0, chatIds: [] }
+    const t = out.get(p) ?? { chatId: m.chatId, count: 0, names: [], ids: [], chats: 0, chatIds: [] }
     t.count += m.count
+    t.ids.push(...m.ids)
     t.chats++
     t.chatIds.push(m.chatId)
     for (const n of m.names) if (!t.names.includes(n)) t.names.push(n)
@@ -119,6 +122,22 @@ function watch(): () => void {
     stop?.()
     stop = null
   }
+}
+
+/** The chat is open on screen (pages/Chat.tsx): its mentions of me count as read, in the 프로젝트 panel and on the
+ * project's page at once (the same counts), then on the server (each notice read, as the Inbox reads one), and the
+ * Inbox's count and these counts are read again after. Known mentions only: what a list on screen read. Never rejects. */
+export async function readChatMentions(chatId: string): Promise<void> {
+  const m = useChatMentions.getState().byChat.get(chatId)
+  if (!m?.ids.length) return
+  useChatMentions.setState((s) => {
+    const byChat = new Map(s.byChat)
+    byChat.delete(chatId)
+    return { byChat }
+  })
+  await Promise.all(m.ids.map((id) => api.call(API.markNotificationRead, { params: { id } }).catch(() => {})))
+  // the server's answer (one that could not be read comes back) and the Inbox's count: every list of them reads again
+  notificationsChanged.emit()
 }
 
 /** Signed out or another person in this window: nothing of the last person's stays. */
