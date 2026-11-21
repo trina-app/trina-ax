@@ -3,7 +3,7 @@
 - Date (UTC): 2026-11-21 06:15
 - Branch: `plan/chat-places-as-paths` (plan only, off `feat/shared-chat-attach-work-file` 57e5a4b1c; the builds get
   their own branches, below)
-- Status: reviewed (go with changes, 2026-11-21); P1 in progress on `feat/places-resolver-read`
+- Status: in progress (P1 in review on `feat/places-resolver-read`)
 - Where: server (file service, the turn's cards, tool lists, chat files, devenv work files), shared (one path parser),
   web (step labels, links). Why: the AI's core file tools are core (docs/REPOSITORY-RULES.md)
 - Version impact: **minor**. The file tools take two new kinds of path; old tools keep working as aliases; no
@@ -412,4 +412,22 @@ Per phase in section 7. Always: `bun run typecheck`, `check:prepush`, `check:i18
 
 ## Result
 
-(filled in at the end)
+**P1 (feat/places-resolver-read).** This PR ships `shared/src/places.ts` (the parser and the step-line words) and
+`server/src/files/places.ts` (`resolvePlace`, the interface P2–P4 build on). In `FileService.callPlace`, `read`, `list`,
+`glob` and `grep` take `chat:files/` through the turn's `chatPlace` hook (main AI only), and `read` takes `chat:work/`.
+`chat_file` is the same read. Every other tool refuses a chat place before any card (`placeRefusal`). In
+`sharedSources` a chat place is the chat's own source. `isTeamFilePath` and `SourceLog` never take one. The
+transcripts name `chat:files/<id>/<name>`.
+
+It differs from the plan in four places:
+- A k-carried file is refused, not carried: no such file can be made today.
+- The list goes through a local `visibleChatFiles()` that calls `ChatFiles.open` for each file. P4's
+  `ChatFiles.visibleTo` replaces it.
+- The results still name `$TRINA_WORK/…` for work files.
+- `grep` of `chat:files/` reads text files only and names the others.
+
+QA on a private copy with a real model (OpenRouter, $0.02):
+- A member's list and read of the shared chat's file asked no card, and the step lines read "This chat › …".
+- Their own folder asked the shared read card.
+- Adding qa-member2 counted 1 answer: the one that read the personal folder.
+- A personal chat's upload stayed a team path.
