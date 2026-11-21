@@ -588,6 +588,10 @@ test.describe('office network and allowed sites', () => {
       // the open team: a quiet "지금 사용 중" on its row only
       await expect(w.getByTestId('team').filter({ hasText: 'beta' }).getByTestId('team-current')).toHaveText('지금 사용 중')
       await expect(acmeRow.getByTestId('team-current')).toHaveCount(0)
+      // every other team shows a visible "열기"; the row's one button is named "acme 열기" for screen readers
+      await expect(acmeRow.getByTestId('team-open-pill')).toHaveText('열기')
+      await expect(w.getByTestId('team').filter({ hasText: 'beta' }).getByTestId('team-open-pill')).toHaveCount(0)
+      await expect(acmeRow.getByRole('button', { name: /열기$/ })).toHaveCount(1)
       await acmeRow.getByRole('button', { name: /메뉴$/ }).click()
       await acmeRow.getByRole('menuitem', { name: /목록에서 지우기/ }).click()
       await w.getByTestId('remove-confirm').getByRole('button', { name: '지우기' }).click()
