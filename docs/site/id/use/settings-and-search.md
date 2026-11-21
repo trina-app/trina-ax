@@ -81,12 +81,26 @@ Untuk owner dan admin, **Ponsel › Notifikasi ponsel** memilih ke mana notifika
 **Push Trina AX (bawaan)**, **Mati**, atau **Kustom**, yaitu alamat layanan push Anda sendiri untuk build aplikasi ponsel
 milik Anda sendiri. Notifikasi di ponsel tidak pernah berisi isi file atau percakapan.
 
-Lonceng setiap percakapan memilih levelnya sendiri: **Semua pesan**, **Hanya sebutan**, atau **Mati**. Kanal memakai
-**Hanya sebutan** kecuali Anda mengubahnya; percakapan langsung dan grup memakai **Semua pesan**. Pada **Hanya sebutan**,
-pesan baru membuat nama percakapan tebal tetapi tidak menambah angka, di daftar, di **Obrolan**, maupun di ikon aplikasi;
-pesan yang menyebut Anda tampil sebagai **@** dan dihitung. Pada **Mati**, angkanya abu-abu dan tidak dihitung di mana pun.
-
 ![Pengaturan › Notifikasi untuk owner: bagian Phone dengan Phone notifications only when I'm away dan Phone notifications diatur ke Trina AX push (default), lalu This device](../../images/settings/notifications.webp "Notifikasi")
+
+### Notifikasi satu percakapan
+
+Setiap percakapan bisa punya levelnya sendiri, seperti membisukan satu obrolan grup di ponsel Anda:
+
+1. Buka percakapan di **Obrolan**.
+2. Tekan lonceng di kanan atas, di samping **✦** dan **⋯**. Di ponsel, tekan **⋯** di bagian atas lalu pilih
+   **Pengaturan notifikasi**.
+3. Di bawah **Notifikasi percakapan ini**, pilih salah satu: **Bawaan (ikut pengaturan)** (menampilkan apa artinya
+   untuk percakapan ini sekarang), **Semua pesan**, **Hanya sebutan**, atau **Mati**.
+
+Tanda centang langsung pindah ke pilihan Anda, dan pada **Mati** loncengnya dicoret.
+
+![Lonceng percakapan ditekan: Notify me about, dengan Default (from settings) · Mentions only dicentang, All messages, Mentions only dan Off](../../images/settings/room-notify.webp "Notifikasi satu percakapan")
+
+Kanal memakai **Hanya sebutan** kecuali Anda mengubahnya; percakapan langsung dan grup memakai **Semua pesan**. Pada
+**Hanya sebutan**, pesan baru membuat nama percakapan tebal tetapi tidak menambah angka, di daftar, di **Obrolan**,
+maupun di ikon aplikasi; pesan yang menyebut Anda tampil sebagai **@** dan dihitung. Pada **Mati**, angkanya abu-abu dan
+tidak dihitung di mana pun.
 
 ## Menghapus akun Anda
 

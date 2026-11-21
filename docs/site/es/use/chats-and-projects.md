@@ -77,10 +77,27 @@ del equipo**, luego **Historial de Trina** (primero sus chats fijados y después
 
 Los chats de Trina no tienen carpetas. Para mantener juntos los chats sobre un mismo trabajo, póngalos en un [proyecto](#proyectos).
 
-La lista **Chats** tiene **Carpetas de chats** para los canales y los mensajes directos. Una carpeta solo ordena su lista:
-no contiene archivos y nunca cambia quién ve una conversación. Cree una con **Nueva carpeta** y luego use **···** ›
-**Mover a una carpeta** en una conversación. El menú **···** de una carpeta le cambia el nombre, la sube o la baja, o la elimina; al eliminar una carpeta,
-sus conversaciones se quedan en su lista.
+En la lista **Chats** puede agrupar canales y mensajes directos en sus propias **secciones**, como las secciones de la
+barra lateral de Slack. Una sección solo ordena su propia lista: no contiene archivos, nadie más la ve y nunca cambia
+quién está en una conversación.
+
+1. Abra **Chats** en la barra de la izquierda.
+2. Pase el puntero sobre **Canales** y pulse el **+** al final de esa línea. Se abre un menú pequeño con **Crear un
+   canal** y **Nueva sección**.
+3. Elija **Nueva sección**, escriba un nombre (por ejemplo "Clientes") y pulse **Crear**.
+4. Se abre una lista de sus conversaciones. Marque las que quiera y pulse **Añadir 2 conversaciones** (el número sigue
+   a lo que marque), u **Omitir** para llenarla más tarde.
+
+La nueva sección aparece en su lista Chats, encima de **Canales**, con las conversaciones que eligió.
+
+![La lista Chats con el + junto a Canales pulsado: un menú pequeño con Crear un canal y Nueva sección](../../images/chats/channels-add.webp "Nueva sección, desde el + junto a Canales")
+
+- **Mover una conversación:** en su fila, elija **···** › **Mover a una sección** y elija la sección (o **Nueva
+  sección…**). En un ordenador también puede arrastrar la fila hasta una sección. **Quitar de la sección** la devuelve
+  a **Canales** o **Mensajes directos**.
+- **Cambiar una sección:** su **···** tiene **Añadir conversaciones**, **Cambiar nombre de la sección**, **Subir**,
+  **Bajar** y **Eliminar sección**. Eliminar una sección solo quita el encabezado: sus conversaciones vuelven a
+  **Canales** y **Mensajes directos**.
 
 ## Varios chats a la vez
 
@@ -165,11 +182,12 @@ Las conversaciones de **Chats** (canales y mensajes directos, incluidos los chat
 **···** de la conversación: las fijadas aparecen primero, con una pequeña chincheta después del nombre, en todas las listas de conversaciones, en un ordenador y en la pestaña **Chats** del teléfono.
 Solo usted ve lo que ha fijado. Una conversación deja de estar fijada cuando sale de la conversación o la oculta. Puede fijar hasta 50 conversaciones.
 
-La lista **Chats** muestra todas las conversaciones: las fijadas, sus carpetas y luego **Canales** (primero el canal Todos y después
+La lista **Chats** muestra todas las conversaciones: las fijadas, sus secciones y luego **Canales** (primero el canal Todos y después
 por nombre; los canales privados llevan un candado) y **Mensajes directos** (los chats 1:1 y los chats de grupo sin nombre juntos, el más reciente primero, cada uno con las caras de sus miembros). Las conversaciones que ocultó están en **Conversaciones ocultas (N)**.
 
-El **+** junto a **Canales** es **Crear un canal**: elija a las personas y póngale un nombre, y será un canal privado que
-solo ellas ven. El **+** junto a **Mensajes directos** es **Nuevo mensaje**: elija a una persona para un mensaje directo,
+El **+** junto a **Canales** abre un menú pequeño. **Crear un canal**: elija a las personas y póngale un nombre, y será
+un canal privado que solo ellas ven. **Nueva sección** crea una de sus propias secciones, como se describe arriba en
+Carpetas. El **+** junto a **Mensajes directos** es **Nuevo mensaje**: elija a una persona para un mensaje directo,
 o a varias para un chat de grupo con sus nombres (si ya tiene uno con exactamente esas personas, se abre ese). Para
 convertir un chat de grupo en canal privado, elija **···** › **Convertir en canal privado** y póngale un nombre.
 
@@ -326,6 +344,20 @@ Empiece un chat desde la página del proyecto, o lleve un chat a él con **Mover
   pueden abrirlo, y una línea debajo lo indica. Necesita permiso de escritura en la carpeta del proyecto (sin él, **+**
   solo ofrece archivos del equipo); **✕** antes de enviar mueve el archivo a la papelera.
 
+### Mantener un chat del proyecto solo para usted
+
+Un chat nuevo en un proyecto del equipo se comparte con todas las personas del proyecto, como un documento que crea en
+una carpeta compartida de Google Drive. Para preguntar algo que solo debe ver usted:
+
+1. Abra la página del proyecto.
+2. En el cuadro de mensaje, mire justo después de **+**: la etiqueta dice quién verá el chat, por ejemplo **👥 3 personas**.
+3. Pulse la etiqueta. Cambia a **🔒 Solo yo**.
+4. Escriba su pregunta y envíela.
+
+El chat muestra un candado en la lista del proyecto y en su historial de Trina: solo usted lo ve. El siguiente chat nuevo
+del proyecto vuelve a empezar compartido, así que compruebe la etiqueta cada vez. Para compartirlo más tarde, elija
+**Compartir con los miembros del proyecto** en el menú del chat.
+
 ### La conversación del proyecto
 
 Cada proyecto del equipo tiene su propia conversación. Las personas del proyecto son las personas de la conversación, y sus
@@ -387,7 +419,17 @@ Pulse ⌘K (Ctrl+K en Windows) o elija **Buscar** bajo **Preguntar a Trina** par
 
 ## Chats eliminados
 
-Al eliminar un chat se mueve a **Historial eliminado**, donde puede recuperarlo durante 7 días de forma predeterminada. Los administradores pueden elegir de 1 a 365 días.
+Al eliminar un chat se mueve a **Historial eliminado**, como el álbum Eliminado recientemente de un iPhone: puede
+recuperarlo durante 7 días de forma predeterminada. Los administradores pueden elegir de 1 a 365 días.
+
+Para recuperar un chat:
+
+1. Abra **Trina** en la barra de la izquierda. En un teléfono, abra la pestaña **Trina** y pulse **☰** arriba.
+2. Pulse el **⋯** al final del encabezado **Historial de Trina** y elija **Historial eliminado**. En un teléfono,
+   **Historial eliminado** está al final del menú.
+3. Busque el chat (cada fila dice cuándo se eliminó) y pulse **Restaurar**.
+
+La fila sale de la lista y el chat vuelve a su historial de Trina.
 
 - Un chat compartido va al **Historial eliminado** de la persona que lo creó. Cuando quien creó un proyecto o un administrador elimina el chat compartido de otra persona, también está en su propio **Historial eliminado**, mientras todavía pueda recuperarlo.
 - Al eliminar un proyecto definitivamente, sus chats compartidos se mueven al **Historial eliminado** de las personas que los crearon. Una vez recuperado, ese chat es solo de quien lo creó, sin proyecto.

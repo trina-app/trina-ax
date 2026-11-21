@@ -11,7 +11,10 @@ primera tarjeta cambia a medida que avanzan las cosas.
 
 ## Añadir una app
 
-1. Abra la conversación y luego **⋯ › Añadir una app**.
+1. Abra la conversación y pulse **⋯** arriba a la derecha (junto a la campana), luego elija **Añadir una app**. Si no
+   lo ve, no puede añadir apps aquí: en un canal solo pueden hacerlo sus propietarios y los administradores (vea más
+   abajo). Cuando la conversación ya tiene una app, la opción dice **Integraciones · 1** (el número de apps) y abre la
+   lista, con **Añadir una aplicación**.
 2. Elija un servicio. Están agrupados: **Formularios** (Formularios de Google, Typeform, Tally, Jotform), **Pagos y pedidos**
    (Stripe, Shopify), **Trabajo** (Notion, Zendesk, Jira, HubSpot) y **Para desarrolladores** (GitHub, Sentry). **Mostrar más
    servicios** abre algunos más (Toss Payments, Channel Talk, PortOne). **Otra app**, al final, sirve para cualquier otro. Un servicio que necesita un plan o un rol lo indica en su fila (por ejemplo *Necesita: un plan de pago de Notion*).

@@ -44,7 +44,24 @@ Dialog menyebutkan siapa yang akan mendapat atau kehilangan akses. Tidak ada yan
 
 Akses bertambah, seperti di Google Drive: apa yang diberikan sebuah folder ditambahkan di atas apa yang diberikan folder-folder di atasnya. Peran yang lebih rendah dari itu tidak bisa dipilih; barisnya menyebutkan dari mana peran yang lebih tinggi berasal ("Editor dari "Seluruh perusahaan"").
 
-Untuk memberi sebuah folder akses lebih sedikit daripada folder di atasnya, nyalakan **Setelan › Batasi akses**. Setelah itu hanya orang dan grup yang ditambahkan di sana yang bisa membukanya. **Akses dihapus** mencantumkan orang yang bisa membuka folder di atasnya tetapi tidak folder ini; **Tambahkan** mengembalikan salah satunya sebagai Pelihat. Mematikan pembatasan lagi menaikkan setiap peran yang lebih rendah dari folder di atasnya ke tingkat itu.
+### Memberi folder akses lebih sedikit daripada folder di atasnya
+
+Biasanya sebuah folder mengizinkan masuk semua orang yang diizinkan oleh folder di atasnya. Untuk menyimpan sebuah folder
+bagi lebih sedikit orang (misalnya folder `budget` di dalam `Seluruh perusahaan`), batasi folder itu:
+
+1. Buka dialog **Bagikan** folder itu (**File**, lalu **⋯** pada folder › **Bagikan**).
+2. Di bagian bawah, di bawah **Setelan**, nyalakan sakelar **Batasi akses**.
+3. Baca baris di atas **Simpan**. Baris itu menyebut siapa yang tidak akan bisa membuka folder lagi, misalnya "Alex Kim,
+   Dana Brooks, Jordan Lee, dan 3 orang lainnya tidak akan bisa membukanya lagi". Belum ada yang berubah.
+4. Tambahkan orang dan grup yang tetap boleh mengakses di **Tambahkan orang dan grup**.
+5. Tekan **Simpan**.
+
+Sekarang hanya orang dan grup yang tercantum yang bisa membuka folder itu, ditambah owner dan admin. Di **Admin › Izin
+folder**, folder itu ditandai **Akses dibatasi**, dan **Akses dihapus** di dialognya mencantumkan orang yang bisa membuka
+folder di atasnya tetapi tidak folder ini; **Tambahkan** mengembalikan salah satunya sebagai Pelihat. Mematikan
+pembatasan lagi menaikkan setiap peran yang lebih rendah dari folder di atasnya ke tingkat itu.
+
+![Dialog Bagikan folder handbook dengan Limit access menyala: General access Restricted, dan di atas Save sebuah baris bahwa Alex Kim, Dana Brooks, Jordan Lee and 3 others tidak akan bisa membukanya lagi](../../images/files/limit-access.webp "Batasi akses, sebelum menyimpan")
 
 Owner dan admin selalu bisa membuka folder tim, kecuali proyek yang tidak mereka ikuti. Mereka tampil sebagai satu baris **Pengelola**.
 
@@ -68,7 +85,18 @@ Setelah pembaruan yang membuat akses bertambah, beberapa folder mencantumkan ora
 
 ## Membagikan file
 
-Anda bisa membagikan file milik Anda kepada orang tertentu tanpa mengubah siapa yang bisa membuka foldernya: **File › ⋯ pada file › Bagikan**. Tambahkan orang atau grup, lalu tekan **Bagikan**. Mereka bisa melihat dan mengunduh file itu, tetapi tidak melihat isi folder lainnya. Setiap orang yang Anda tambahkan melihatnya di **Aktivitas**.
+Anda bisa membagikan file milik Anda kepada orang tertentu tanpa mengubah siapa yang bisa membuka foldernya, seperti
+membagikan satu file dari Google Drive. Mereka bisa melihat dan mengunduh file itu, tetapi tidak melihat isi folder lainnya.
+
+1. Buka **File** dan cari filenya.
+2. Arahkan penunjuk ke barisnya dan tekan **⋯** di ujungnya (atau klik kanan barisnya), lalu pilih **Bagikan**.
+3. Ketik nama di **Tambahkan orang atau grup** lalu pilih orang atau grupnya. Anda bisa menambahkan beberapa.
+4. Tekan **Bagikan**. (Sebelum Anda menambahkan siapa pun, tombolnya bertuliskan **Selesai**.)
+
+Orang yang Anda tambahkan sekarang tampil di bawah **Orang yang punya akses** dengan **Bisa melihat**. Masing-masing
+mendapat pemberitahuan di **Aktivitas**, dan file itu tampil di **File › Dibagikan ke saya** mereka.
+
+![Dialog Bagikan sebuah file: Add people or groups, People with access dengan pemiliknya, baris bahwa orang yang bisa membuka folder juga bisa membuka file ini, Copy link dan Done](../../images/files/file-share.webp "Membagikan satu file")
 
 - **Semua orang di tim** adalah pilihan pertama di **Tambahkan orang atau grup**. Sebelum Anda menekan **Bagikan**, satu baris memberi tahu bahwa semua orang di tim akan bisa membuka file itu, termasuk yang bergabung nanti. Tamu tidak pernah bisa. Pilihan ini dihitung sebagai salah satu dari 50 orang dan grup yang bisa diberi akses ke satu file.
 - Kalau Anda membagikan beberapa file sekaligus (misalnya di langkah terakhir **Cari file kerja di komputer ini**), setiap orang menerima satu pemberitahuan di **Aktivitas**, "Mina membagikan 5 file dengan Anda", yang membuka daftar file tersebut. Orang yang Anda tambahkan dengan nama juga mendapat notifikasi di ponsel.
@@ -127,7 +155,10 @@ Ketika Anda berkata "ringkas ini" atau "balas di thread itu" tanpa menyebut nama
 
 - **Unggah** file atau seluruh folder dari layar File.
 - **Unduh**: di aplikasi desktop, file yang Anda unduh langsung masuk ke folder Unduhan di komputer Anda, dan pemberitahuannya menawarkan **Tampilkan di folder**. File dengan nama yang sama tidak ditimpa: file baru disimpan sebagai "nama (1)". Di browser, browser yang menentukan tempat unduhan disimpan.
-- **Riwayat versi**: setiap perubahan menyimpan versi yang bisa Anda buka atau pulihkan.
+- **Riwayat versi**: setiap perubahan menyimpan versi yang bisa Anda buka atau pulihkan, seperti riwayat versi di Google
+  Docs. Untuk kembali ke versi sebelumnya: di baris file, pilih **⋯** › **Riwayat versi**, cari versi yang Anda inginkan,
+  tekan **Pulihkan**, lalu konfirmasi dengan **Pulihkan**. Muncul pesan "v3 dipulihkan." (nomor versinya). Isi yang Anda
+  punya sebelumnya disimpan sebagai versi baru, jadi Anda selalu bisa kembali ke sana.
 - **Sampah**: **File › Sampah** mencantumkan apa yang bisa Anda pulihkan, berdasarkan nama dan tempat asalnya ("price-sheet.xlsx · Seluruh perusahaan › Sales"). File yang dihapus lebih dari sekali tampil sebagai satu baris dengan salinan-salinannya: **Pulihkan** mengembalikan yang terbaru, dan membuka baris itu memulihkan salinan lainnya. Jika daftar berisi hapusan orang lain, **Dihapus oleh saya** hanya menampilkan milik Anda. Item dihapus permanen setelah masa simpan tim (Admin › Pengaturan tim, 30 hari secara bawaan); setiap baris menyebutkan kapan.
 - **Format**: AI membaca teks dari file PDF, Office, dan HWP/HWPX, serta melihat foto dan halaman hasil pindaian sebagai gambar (admin bisa mematikannya). Server Linux tidak menjalankan OCR.
 - **Konfirmasi**: jika AI akan menulis konten terbatas ke tempat yang bisa dilihat lebih banyak orang, server bertanya dulu.
