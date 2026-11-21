@@ -122,7 +122,7 @@ import { makeHandler } from '../mcp/protocol'
 import { hasCredentialFor, resolveCredential, SOON_MS, type CredEngine } from '../credentials/resolve'
 import { connectionRoute } from '../credentials/access'
 import { isGuestUser } from '../credentials/guest-ai'
-import { resolvePlace } from '../files/places'
+import { mayAttachChatFile, resolvePlace } from '../files/places'
 import { chatPlaces } from './place-ctx'
 import { situationOf } from './situation'
 import { appMapView } from './app-map'
@@ -4160,7 +4160,11 @@ export class TurnExec {
    * the people who see this chat now, as a read would be: none hidden from them, they join the answer's record; else
    * the shared read card asks first. Outside a chat shared with people the resolver refused the output already.
    */
-  private async confirmChatTarget(sources: readonly string[], read: readonly ReadSource[], tool: string): Promise<string | null> {
+  private async confirmChatTarget(sources: readonly string[], read: readonly ReadSource[], tool: string, main = true): Promise<string | null> {
+    // who may attach here (the resolver's words: a project chat's folder, My files, a sub-agent): refused before any card,
+    // so a call that cannot attach never asks the person anything
+    const may = mayAttachChatFile({ ...chatPlaces(this, this.files).ctx, main })
+    if (may !== true) return `Not attached (${tool}): ${may}`
     if (this.shared?.kind !== 'people') return refusal({ done: 'Nothing was attached.', why: { kind: 'failed', what: 'this chat\'s files' }, next: 'save it in a team folder instead' })
     const rules = this.rt.files.rules()
     let me: Principal
@@ -4182,7 +4186,7 @@ export class TurnExec {
   async confirmWidening(target: string, extraSources: string[] = [], binding?: string, call?: { tool: string; args: unknown; main?: boolean }, read: readonly ReadSource[] = []): Promise<string | null> {
     // a new file of this chat (chat:files/<name>, files/place-output.ts): exactly the chat's people see it, so what goes
     // in is weighed as a read here: a source some of them cannot open asks on the shared read card first
-    if (isReservedPlace(target)) return this.confirmChatTarget(extraSources, read, call?.tool ?? 'make_file')
+    if (isReservedPlace(target)) return this.confirmChatTarget(extraSources, read, call?.tool ?? 'make_file', call?.main !== false)
     const need = this.widenNeed(target, extraSources, binding, read)
     if (!need) return null
     // a scheduled run: its task's card may have said yes to saving there (chat/schedule-cover.ts); `call` is the tool call

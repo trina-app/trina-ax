@@ -281,3 +281,61 @@ describe('the chat file link', () => {
     expect(g.clean('See [the chat](/c/chat-2)')).toBe('See [the chat](/c/chat-2)')
   })
 })
+
+// Independent review of P3 (2026-11-21): the refusals of the whole turn path, a name a person cannot see, the link
+// guard's spellings and which tools' text becomes a chat-file link
+describe('review: refusals before any card, hidden names, the link guard', () => {
+  test('a personal or project chat gets the resolver\'s own words and no card', async () => {
+    const c = await h.api('alice').call(API.createChat, { body: {} })
+    const r = await run('alice', c.id, fake({ tool: 'make_file', args: { format: 'docx', content: '# A\n\n![x](users/alice/private.png)', output: 'chat:files/a.docx' }, sayResult: true }))
+    expect(r.cards).toHaveLength(0)
+    expect(r.content).toContain(PLACE_WORDS.personalSave)
+    expect(r.attachments).toHaveLength(0)
+    const p = await h.api('alice').call(API.createProject, { body: { name: 'Places P3 review', instructions: '', participants: [{ subjectType: 'group', subjectId: 'marketing' }] } })
+    const pc = await h.api('alice').call(API.createChat, { body: { projectId: p.id } })
+    const q = await run('alice', pc.id, fake({ tool: 'make_file', args: { format: 'docx', content: '# A\n\n![x](users/alice/private.png)', output: 'chat:files/a.docx' }, sayResult: true }))
+    expect(q.cards).toHaveLength(0)
+    expect(q.content).toContain(PLACE_WORDS.projectSave)
+  })
+
+  test('a sub-agent\'s chat:files output attaches nothing (only the read card for its source, as for any call)', async () => {
+    const { chat } = await sharedChat()
+    fs.writeFileSync(path.join(h.team, 'users/alice/private.md'), '# Only alice')
+    const r = await run('alice', chat, fake({ agents: [{ id: 'c1', type: 'general-purpose', description: 'make it', steps: [{ tool: 'make_file', args: { format: 'docx', source: 'users/alice/private.md', output: 'chat:files/sub.docx' }, sayChildResult: true }] }] }), 'share')
+    expect(r.cards.length).toBeLessThanOrEqual(1)
+    expect(r.attachments.filter((a) => a.name === 'sub.docx')).toHaveLength(0)
+    expect(r.content).toContain(PLACE_WORDS.noChat)
+  })
+
+  test('a name only someone else\'s unsent upload holds is not taken: no "(2)" that would tell it is there', async () => {
+    const { chat } = await sharedChat()
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'ppr-up-'))
+    const f = path.join(tmp, 'up.bin')
+    fs.writeFileSync(f, 'erin draft')
+    await chatFilesOf(h.ctx).create('erin', chat, 'secret plan.docx', f, crypto.createHash('sha256').update('erin draft').digest('hex'))
+    fs.rmSync(tmp, { recursive: true, force: true })
+    const r = await run('alice', chat, fake({ tool: 'make_file', args: { format: 'docx', content: '# Plan', output: 'chat:files/secret plan.docx' }, sayResult: true }))
+    expect(r.attachments.map((a) => a.name)).toContain('secret plan.docx')
+    expect(r.content).not.toContain('secret plan (2)')
+  })
+
+  test('the link guard: a spelling the router opens the same way (case, a closing slash) is the same link', () => {
+    const id = '01a1fc0c-bb3a-74b5-a134-7fcbe2e1b208'
+    const other = '01a1fc0c-bb3a-74b5-a134-000000000000'
+    const g = new LinkGuard()
+    g.allow(`Attached: [deck.pptx](/c/chat-1?file=${id})`)
+    expect(g.clean(`[a](/c/chat-1/?file=${id})`)).toBe(`[a](/c/chat-1/?file=${id})`)
+    expect(g.clean(`[a](/C/chat-1/?file=${other})`)).toBe('a')
+    expect(g.clean(`[a](/c/chat-1/?file=${other})`)).toBe('a')
+    expect(g.clean('See [the chat](/c/chat-2/)')).toBe('See [the chat](/c/chat-2/)')
+  })
+
+  test('only a produce tool\'s result becomes a chat-file link: a data file that holds one stays as it is', async () => {
+    const { chat } = await sharedChat()
+    const id = '01a1fc0c-bb3a-74b5-a134-7fcbe2e1b208'
+    fs.writeFileSync(path.join(h.team, 'shared/links.csv'), `name,link\nx,/files/view?path=chat%3Afiles%2F${id}%2Fx.pdf\n`)
+    const r = await run('alice', chat, fake({ tool: 'query_data', args: { paths: ['shared/links.csv'], sql: 'SELECT link FROM data' }, sayResult: true }))
+    expect(r.content).not.toContain(`/c/${chat}?file=`)
+    expect(r.content).not.toContain('attached to your answer')
+  })
+})

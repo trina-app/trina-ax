@@ -40,6 +40,10 @@ export interface ChatPlaces {
   names(): Set<string>
 }
 
+/** The produce tools whose output may be chat:files/<name> (attached to the answer); only their results get the chat
+ * file link (chatLinksInText): another tool's text (a web page, a mail, a Drive file) is never rewritten into one */
+export const PLACE_PRODUCE_TOOLS: ReadonlySet<string> = new Set(['make_file', 'edit_office', 'edit_pdf', 'merge_pdfs', 'split_pdf', 'stamp_pdf', 'comment_docx', 'resize_images', 'make_zip'])
+
 /** The made file as a chat file: its id, name and the link the app opens (/c/<chat>?file=<id>) */
 export interface ChatMade { chatId: string; id: string; name: string; link: string }
 
