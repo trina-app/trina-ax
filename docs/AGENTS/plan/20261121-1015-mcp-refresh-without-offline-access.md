@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-21 10:15
 - Branch: `fix/mcp-refresh-without-offline-access`
-- Status: in progress
+- Status: done
 - Where: server/src/connectors/remote-mcp (oauth, policy), the consent page line, docs. Why: the open item of
   docs/decisions/20261120-mcp-connector-session.md (see docs/REPOSITORY-RULES.md)
 - Version impact: patch: a fix to how long a connection lasts; no API shape, no migration
@@ -55,4 +55,7 @@ and every way the person loses access ends it. No migration. No UI wording chang
 
 ## Result
 
-(at the end)
+Built as planned. The consent defaults and the read-only default now get a refresh token, so expectations in
+remote-mcp-oauth, -groups and -http changed. New tests cover an app without `offline_access` (unit, HTTP for ChatGPT's
+flow, security). Claude Code was checked: its bundled MCP SDK adds `offline_access` when the auth server metadata lists
+it and its registration has `refresh_token` (SEP-2207), so the metadata keeps listing it. PR: see the branch's PR into dev.
