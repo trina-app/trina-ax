@@ -63,6 +63,7 @@ import { HomeGoal } from '../components/onboarding/GoalCard'
 import { NoAiCard } from '../components/onboarding/ConnectAi'
 import { HandoverCard, useLeadCard } from '../components/handover/HandoverCard'
 import { DemoIntro, DemoQuestions, useDemoPersona } from '../components/demo/Demo'
+import { FreeRoamChips } from '../components/demo/FreeRoam'
 import { TeamPrepared } from '../components/onboarding/TeamPrepared'
 import { MemberWelcomeCard } from '../components/onboarding/MemberWelcome'
 import { useMemberWelcome } from '../store/memberWelcome'
@@ -225,8 +226,9 @@ function HomePage() {
           </div>
           {!phone && dock}
           <div className="md:contents" data-testid="home-tail">
-            {/* a free-roam demo's suggestions are in its bar at the top (components/demo/FreeRoam.tsx), not here too */}
-            {demo && !projectId && demo.info.kind !== 'freeRoam' && <DemoQuestions info={demo.info} persona={demo.persona} />}
+            {/* a free-roam demo's suggestions: here, under the box, and nowhere else (components/demo/FreeRoam.tsx; owner,
+                QA 2026-11-22 F9: the first action sat in the top bar, away from the box) */}
+            {demo && !projectId && (demo.info.kind === 'freeRoam' ? <FreeRoamChips info={demo.info} /> : <DemoQuestions info={demo.info} persona={demo.persona} />)}
             {/* "팀에 준비된 것" (W6.3), once the chats are known (the files row and the ready question are for no chats);
                 read-only under a member's no-AI card */}
             {(suggest || (noAi && !admin && !projectId)) && chatsLoaded && welcomeKnown && !welcomeCard && preparedHere && <TeamPrepared key={`prepared-${me.user.id}`} firstTime={firstTime} chats={chats.length} readOnly={noAi} onCompose={choose} onShown={setPrepared} />}
