@@ -156,7 +156,7 @@ import { CONTENT_KINDS, fileTimelineWalk, selfAndAbove } from '../files/timeline
 import { audienceOf, chatAudienceOf, isSharedRow, messageFor, stashWrittenBy } from './shared'
 import { LiveAnswer, publishDoneToOthers } from './live-answer'
 import { answerRecord, setAnswerReads, setLeftOut, withheldFrom, type ReadGroup } from './shared-answers'
-import { missingReaders, readScope } from './read-scope'
+import { missingReaders, readScope, viewersOf } from './read-scope'
 import { clearChatFolder } from './forget'
 import { publicStep, type ChatRow, type ProjectRow, type StoredStep } from './store'
 import { inPeopleAudience, isPeopleRow, peopleAudience } from './chat-audience'
@@ -4390,7 +4390,11 @@ export class TurnExec {
       const row = this.rt.db.query('SELECT path FROM folders WHERE id = ?').get(s.id) as { path: string } | null
       return !!row && rules.canList(me, row.path ? row.path.split('/') : [])
     }
-    return false
+    // a connection, a Drive the team shares, a room or Slack: when the person is among its readers by the read scope's
+    // own test (they may use that connection, see that part of the room, read it with their own Slack). Their own call
+    // to a team connection the other people of a project chat may not use was "a place someone else opened" (owner,
+    // 2026-11-22; docs/decisions/20261121-widening-false-positive-project.md)
+    return viewersOf(this.rt.db, rules, s, [me], me.id).has(me.id)
   }
 
   // ---------------- team skills (skills/guard.ts) ----------------
