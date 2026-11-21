@@ -119,6 +119,10 @@ The owner's rules: sharing a chat is for working together, so there is **no view
 - **L4:** `tests/security/share-chat-files.test.ts`: a guest, a removed member and a member of another chat on a
   people-shared chat get the chat's 404, leave no ask and never open the copy.
 - **Info:** `chat.files_added` audits the chat file ids too (still no path or name).
+- **Re-review (Low):** a chat shared before and made private keeps its answer records, so a re-share must count them:
+  `hiddenAnswers` now runs for the people being added on any chat with records (not only one shared with people now),
+  counting only answers that already have a record (one without is recorded for them by the share). A chat that was a
+  project's shared chat and was moved out goes the same way (its records stay); its own test is a follow-up.
 
 ## Steps
 

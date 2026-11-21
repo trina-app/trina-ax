@@ -16,6 +16,7 @@ import { madeFilesOf } from '../../server/src/chat/chat-files-share'
 import { labelledTranscript } from '../../server/src/chat/shared'
 import { getChatRuntime } from '../../server/src/chat/runtime'
 import { setAnswerReads } from '../../server/src/chat/shared-answers'
+import { roomsOf } from '../../server/src/rooms/service'
 
 setDefaultTimeout(60_000)
 const fake = (...ds: unknown[]) => ds.map((d) => '@fake ' + JSON.stringify(d)).join('\n')
@@ -27,6 +28,9 @@ const ws: Record<string, TestSocket> = {}
 beforeAll(async () => {
   h = await startHarness({ name: 'b-share-chat-files', askUserTimeoutMs: 2500, stallTimeoutMs: 60_000 })
   for (const u of ['alice', 'bob', 'erin']) { ws[u] = await h.ws(u); await ws[u]!.next('hello') }
+  // each audience save takes a room-send token (people-share.ts): the clock moves on so many saves stay under it
+  let clock = Date.now()
+  roomsOf(h.ctx).clock = () => (clock += 10_000)
 })
 afterAll(async () => { for (const s of Object.values(ws)) s.close(); await h.close() })
 
@@ -296,6 +300,24 @@ describe('an answer hidden from someone in the chat (review M1)', () => {
     // now erin is in it: the audience offers nothing more, and her file-access is the generic 'no'
     expect((await h.api('alice').call(API.getChatAudience, { params: { id: c.id } })).madeFiles).toBeUndefined()
     expect(await access('erin', c.id, `${c.dir}/secret-quote.md`)).toEqual({ status: 200, body: { status: 'no' } })
+  })
+
+  test('a re-share: shared, made private (the records stay), shared again with someone new: the hidden answer\'s file is not listed or copied', async () => {
+    const c = await madeChat({ 'reshare.md': 'alice and bob only' })
+    await put('alice', c.id, [bob], { confirmKey: (await preview(c.id, [bob])).previewKey })
+    hideFromOthers(c.id, c.answer)
+    expect((await put('alice', c.id, [])).status).toBe('saved')
+    expect(db().query('SELECT people_shared_at FROM chats WHERE id = ?').get(c.id)).toEqual({ people_shared_at: null })
+    expect(db().query('SELECT 1 AS ok FROM shared_answer_reads WHERE message_id = ?').get(c.answer)).toEqual({ ok: 1 })
+    // shared again with erin, from whom the recorded answer stays hidden: no step, nothing copied
+    const p = await preview(c.id, [erin])
+    expect(p.check.madeFiles).toBeUndefined()
+    const r = await put('alice', c.id, [erin], { confirmKey: p.previewKey, withFiles: true })
+    expect(r.status).toBe('saved')
+    if (r.status === 'saved') expect(r.filesAdded).toBeUndefined()
+    expect(copiesOf(c.id)).toHaveLength(0)
+    // with bob back as well (the answer is his to see) it is still left out: it is hidden from erin
+    expect((await h.api('alice').call(API.getChatAudience, { params: { id: c.id } })).madeFiles).toBeUndefined()
   })
 
   test('an existing copy on an answer hidden from someone who joins later: not opened by them, nor by their AI', async () => {

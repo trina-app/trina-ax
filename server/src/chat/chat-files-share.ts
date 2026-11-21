@@ -46,7 +46,7 @@ export type StoredAttachment = Attachment & { fromSha256?: string }
 export { copyForViewer } from './store'
 import { madeInChat } from './shared-actions'
 import { isPeopleRow, peopleAudience } from './chat-audience'
-import { chatNodes, withheldAmong, withheldFrom } from './shared-answers'
+import { answerRecords, chatNodes, withheldAmong, withheldFrom } from './shared-answers'
 
 /** A file the chat made in its creator's own folder that can be copied into the chat now. */
 export interface MadeFile {
@@ -90,18 +90,24 @@ export function copyOf(ctx: AppContext, chatId: string, rel: string, viewer: str
   return withheldFrom(ctx.db, ctx.files.rules(), chatId, viewer).has(found.messageId) ? null : found.att
 }
 
-/** The answers of a chat shared with people that are hidden from anyone among its people now and `extra` (people about
- * to be added): a file such an answer made is never offered or copied, or the copy would show what the answer hides
- * (review M1). A chat not shared with people yet has no records: its first share records every answer for exactly the
- * people it adds, so nothing is hidden from them (chat/people-share.ts). */
+/** The answers of a chat that are hidden from anyone among its people now (a chat shared with people) or `extra` (people
+ * about to be added): a file such an answer made is never offered or copied, or the copy would show what the answer
+ * hides (review M1). An answer with no record yet is recorded for exactly the people a share adds, so it hides nothing
+ * from them; but a chat shared before and made private again keeps its records (chat/people-share.ts), and those still
+ * count for the people a new share adds (re-review). */
 function hiddenAnswers(ctx: AppContext, chatId: string, extra: readonly string[]): Set<string> {
   const db = ctx.db
   const row = db.query('SELECT id, user_id, people_shared_at, project_id FROM chats WHERE id = ?').get(chatId) as { id: string; user_id: string; people_shared_at: string | null; project_id: string | null } | null
   const out = new Set<string>()
-  if (!row || !isPeopleRow(row)) return out
+  if (!row) return out
+  const shared = isPeopleRow(row)
+  const recorded = shared ? null : answerRecords(db, chatId)
+  // not shared with people now and no record from before: nothing is hidden from anyone it adds
+  if (recorded && !recorded.size) return out
   const nodes = chatNodes(db, chatId)
   const rules = ctx.files.rules()
-  for (const p of new Set([...peopleAudience(db, row), ...extra])) for (const id of withheldAmong(db, rules, nodes, p)) out.add(id)
+  const people = shared ? new Set([...peopleAudience(db, row), ...extra]) : new Set(extra)
+  for (const p of people) for (const id of withheldAmong(db, rules, nodes, p)) if (!recorded || recorded.has(id)) out.add(id)
   return out
 }
 
