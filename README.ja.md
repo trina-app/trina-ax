@@ -16,7 +16,7 @@ Trina AXは、チームのファイル・スキル・ツールを1台のサー�
 
 </div>
 
-https://github.com/user-attachments/assets/6a56c906-051f-421b-b60a-8cca73885e18
+https://github.com/user-attachments/assets/36d0f042-ffac-4016-9f42-33ca7f588836
 
 <p align="center"><sub>80秒でわかる、新入社員のAIが初日にできること。</sub><br>オープンソース（AGPL-3.0）・セルフホストなら無料、人数制限なし<br><br><a href="https://github.com/trina-app/trina-ax?tab=readme-ov-file"><img src="docs/images/readme/v4/star-ja.png" height="44" alt="GitHubでTrina AXにスターを付ける"></a><br><sub>そのあと、ページ上部の［☆ Star］を押してください。スターが増えると、ほかのチームもTrina AXを見つけやすくなります。</sub></p>
 

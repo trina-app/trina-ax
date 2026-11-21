@@ -7,8 +7,8 @@
 // after"): a new folder is there before the server names it, a renamed or deleted one changes at once, a chat or room
 // moves at once; a refusal puts it back with one toast. A read from before such a change reads again instead.
 import { create } from 'zustand'
-import { uuidv7, type Chat, type NavFolder, type NavFolderKind, type Room } from '@mycel/shared/api'
-import { api, API, errorText } from '../lib/api'
+import { NAV_FOLDER_ITEMS_MAX, NAV_FOLDERS_MAX, uuidv7, type Chat, type NavFolder, type NavFolderKind, type Room } from '@mycel/shared/api'
+import { api, API, ApiError, errorText } from '../lib/api'
 import { currentLocale, t } from '../i18n'
 import { optimistic, optimisticEdits, optimisticPending, optimisticPendingKeys, type OptimisticResult } from '../lib/optimistic'
 import { readChatGroups } from './chatGroups'
@@ -122,9 +122,25 @@ const madeId = async (id: string): Promise<string> => {
   if (!real) throw new NotMade('folder not made')
   return real
 }
+/** A refusal about my room folders in the Chats list's own words: there they are sections, never folders
+ * (docs/decisions/20261121-personal-sidebar-sections.md). The server's words say "folder" (server/src/chat/i18n.ts
+ * navFolders*), so its reasons are said again here; anything else as the server said it. */
+export function roomFolderErrorText(e: unknown): string {
+  const reason = e instanceof ApiError ? e.body.params?.reason : undefined
+  if (reason === 'nav_folders_full') return t('sidebarSections.full', { n: NAV_FOLDERS_MAX })
+  if (reason === 'nav_folder_name_taken') return t('sidebarSections.nameTaken')
+  if (reason === 'nav_folder_full') return t('sidebarSections.sectionFull', { n: NAV_FOLDER_ITEMS_MAX })
+  if (reason === 'room_hidden') return t('sidebarSections.hiddenRoom')
+  if (e instanceof ApiError && e.code === 'not_found') return t('sidebarSections.gone')
+  return errorText(e, currentLocale(), t('error.network'))
+}
+
+/** the words of a refusal: a room folder's in the section words (roomFolderErrorText) */
+const failureText = (kind: NavFolderKind, e: unknown) => (kind === 'rooms' ? roomFolderErrorText(e) : errorText(e, currentLocale(), t('error.network')))
+
 /** a refusal of the newest change, in the person's language (not for a folder whose making was refused) */
-function sayFailure(r: OptimisticResult<unknown>) {
-  if (!r.ok && r.newest && !(r.error instanceof NotMade)) toast({ level: 'error', text: errorText(r.error, currentLocale(), t('error.network')) })
+function sayFailure(r: OptimisticResult<unknown>, kind: NavFolderKind) {
+  if (!r.ok && r.newest && !(r.error instanceof NotMade)) toast({ level: 'error', text: failureText(kind, r.error) })
 }
 
 /** A new folder, last in its list at once; the server's folder once it answers, or null when it was refused (one
@@ -141,7 +157,9 @@ export async function createFolder(kind: NavFolderKind, name: string): Promise<N
     send: () => api.call(API.createNavFolder, { body: { kind, name } }),
     // the server's folder in its place (a rename of it meanwhile is sent to it, see serverId)
     settle: (f) => setFolders((all) => all.map((x) => (x.id === temp.id ? { ...f, name: x.name } : x))),
+    failText: false,
   })
+  sayFailure(r, kind)
   if (r.ok) madeAs.set(temp.id, r.reply.id)
   made(r.ok ? r.reply.id : null)
   making.delete(temp.id)
@@ -162,7 +180,7 @@ export async function renameFolder(f: Pick<NavFolder, 'id' | 'kind'> & { name?: 
     confirmed: (x) => x.name,
     failText: false,
   })
-  sayFailure(r)
+  sayFailure(r, f.kind)
   if (r.ok) changed(f.kind)
   return r.ok
 }
@@ -190,7 +208,9 @@ export async function deleteFolder(f: Pick<NavFolder, 'id' | 'kind'>): Promise<b
       const id = await serverId(f.id)
       return id ? api.call(API.deleteNavFolder, { params: { id } }) : null
     },
+    failText: false,
   })
+  sayFailure(r, f.kind)
   if (r.ok) changed(f.kind)
   return r.ok
 }
@@ -243,7 +263,7 @@ export async function fileChat(chatId: string, folderId: string | null): Promise
     },
     failText: false,
   })
-  sayFailure(r)
+  sayFailure(r, 'chats')
   if (r.ok) {
     void readNavFolders()
     void readChatGroups()
@@ -268,7 +288,7 @@ function keepRoomFolders() {
 
 /** Put a room I am in in a folder of mine, or out of it (null): at once in 대화, then on the server; a refusal puts it
  * back with one toast. */
-export async function fileRoom(roomId: string, folderId: string | null): Promise<OptimisticResult<Room>> {
+export async function fileRoom(roomId: string, folderId: string | null, o: { quiet?: boolean } = {}): Promise<OptimisticResult<Room>> {
   keepRoomFolders()
   const was = useRooms.getState().rooms.find((r) => r.id === roomId)
   const r = await optimistic<string | null, Room>({
@@ -284,7 +304,7 @@ export async function fileRoom(roomId: string, folderId: string | null): Promise
     settle: (room) => useRooms.setState((s) => withRoom(s, room)),
     failText: false,
   })
-  sayFailure(r)
+  if (!o.quiet) sayFailure(r, 'rooms')
   if (!optimisticPending(roomFolderKey(roomId))) roomFolders.delete(roomId)
   if (r.ok) void readNavFolders()
   return r
