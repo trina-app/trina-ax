@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-21 05:10
 - Branch: `feat/shared-chat-header-sharer`
-- Status: in progress
+- Status: done
 - Where: web/ (chat header). Why: a recipient of a chat shared with people saw only its title and a people icon, with no
   sign of who shared it (owner, 2026-11-21)
 - Version impact: patch, a small change to an existing screen with no new API
@@ -51,4 +51,8 @@ title button keeps its 44px target.
 
 ## Result
 
-(filled in at the end)
+Built as planned, with no API change: `Chat.shared.by` is the sharer. `sharedByOf` and `SharedByLine` are in
+web/src/components/chat/SharedChat.tsx, so lib/sharedChat.ts is unchanged. On a phone the line sits in the title
+button's lower padding and lets taps through, so the bar stays 48px. Tests: web/test/unit/shared-chat-sharer.test.tsx
+and web/test/e2e/shared-chat-header-sharer.spec.ts (recipient, creator, project chat at 1440 and 390, light and dark
+screenshots with SHOTS_DIR).

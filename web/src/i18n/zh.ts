@@ -1436,6 +1436,7 @@ export const zh: Record<MessageKey, string> = {
   "teamSettings.oftenAsked": "显示团队常问的问题",
   "teamSettings.row.oftenAskedDesc": "在新对话的消息框下方，大家会看到所在小组或团队中多人问过的问题（以概括的说法呈现）。没有人能看到是谁问的。每天用团队 AI 账号生成一次；没有团队 AI 账号则不显示。",
   "chat.sharedLabel": "共享对话",
+  "chat.sharedBy": "{name} 分享",
   "chat.share.facesLabel": "共享对话 · {names}",
   "chat.shared": "共享对话 · {n, plural, one {#人} other {#人}}能看到",
   "chat.footerShared": "AI 可能会出错。请核实重要信息。{n, plural, one {#人} other {#人}}能看到这个对话。",

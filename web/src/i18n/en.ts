@@ -1463,6 +1463,7 @@ export const en: Record<MessageKey, string> = {
   "teamSettings.oftenAsked": "Show what the team often asks",
   "teamSettings.row.oftenAskedDesc": "Under the message box on a new chat, people see questions several people in their group or team asked, in general words. Nobody sees who asked. Made once a day with the team AI account; without one, nothing shows.",
   'chat.sharedLabel': "Shared chat",
+  'chat.sharedBy': "Shared by {name}",
   'chat.share.facesLabel': "Shared chat · {names}",
   "chat.shared": "Shared chat · {n, plural, one {# person} other {# people}} can see it",
   "chat.footerShared": "AI can make mistakes. Check important information. {n, plural, one {# person} other {# people}} can see this chat.",

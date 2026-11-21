@@ -1463,6 +1463,7 @@ export const id: Record<MessageKey, string> = {
   "teamSettings.oftenAsked": "Tampilkan yang sering ditanyakan tim",
   "teamSettings.row.oftenAskedDesc": "Di bawah kotak pesan di obrolan baru, orang melihat pertanyaan yang diajukan beberapa orang di grup atau tim mereka, dengan kata-kata umum. Tidak ada yang tahu siapa yang bertanya. Dibuat sekali sehari dengan akun AI tim; tanpanya, tidak ada yang tampil.",
   'chat.sharedLabel': "Chat bersama",
+  'chat.sharedBy': "Dibagikan oleh {name}",
   'chat.share.facesLabel': "Chat bersama · {names}",
   "chat.shared": "Chat bersama · {n} orang bisa melihatnya",
   "chat.footerShared": "AI bisa salah. Cek lagi informasi penting. {n} orang bisa melihat chat ini.",

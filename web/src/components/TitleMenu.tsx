@@ -63,7 +63,7 @@ export function TitleMenu({ name, items, testId, heading }: { name: string; item
       className="flex max-w-full min-w-0 items-center gap-1 rounded-md px-1.5 py-1 hover:bg-hover max-md:min-h-11"
       data-testid={testId}
     >
-      <span className="truncate">{name}</span>
+      <span className="truncate" title={name}>{name}</span>
       <ChevronDown size={14} className="shrink-0 text-faint" aria-hidden />
     </button>
   )
