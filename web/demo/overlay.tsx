@@ -15,6 +15,7 @@ import { appPath, appPathNow, BASE } from './base'
 import { demoWord } from './words'
 import { useLiveDemo } from './live'
 import { EndLineLinks, EndPopupBusy, EndPopupButtons, type EndLinks } from './end'
+import { beacon } from './beacon'
 import './demo.css'
 
 /** the demos of every language on the site (web/demo/vite.ts demoLangs), named in their own language as the app's
@@ -273,6 +274,12 @@ function Overlay({ server, signupUrl, liveUrl }: { server: DemoServer; signupUrl
   const e = server.engine
   const step = e.guide()
   const end = e.endShown
+  // anonymous counts for the website (./beacon.ts: ax.trina.app only): start, each step reached, the end once
+  const stepNo = step ? server.script.guide.findIndex((s) => s.id === step.id) + 1 : 0
+  useEffect(() => { beacon('demo_start') }, [])
+  useEffect(() => { if (stepNo > 0) beacon('demo_step', stepNo) }, [stepNo])
+  const finished = useRef(false)
+  useEffect(() => { if (end && !finished.current) { finished.current = true; beacon('demo_finish') } }, [end])
   // the story's end: "Now try it yourself" while the live demo can take a visitor (web/demo/live.ts), read once it shows
   const liveEnd = server.script.end.live ? { ...server.script.end.live, url: liveUrl || server.script.end.live.url } : undefined
   const [liveState, recheckLive] = useLiveDemo(liveEnd?.url ?? null, end)

@@ -768,7 +768,7 @@ describe('the srt attack image builds from what it copies (tests/linux/Dockerfil
     const copied = ['shared', 'server/src', 'server/migrations', 'server/assets', 'resources', 'tests/lib']
     for (const d of copied) expect(docker).toContain(`COPY ${d} /opt/mycel/${d}`)
     // and the suites' own files, sweep-as.ts too (the hook sweep as the server account, srt-attack.ts)
-    expect(docker).toContain('COPY tests/linux/srt-attack.ts tests/linux/srt-subagent.ts tests/linux/sweep-as.ts /opt/mycel/tests/linux/')
+    expect(docker).toContain('COPY tests/linux/srt-attack.ts tests/linux/srt-subagent.ts tests/linux/srt-work-write.ts tests/linux/sweep-as.ts /opt/mycel/tests/linux/')
     // and the package files the image copies one by one (bun install)
     const files = ['package.json', 'server/package.json', 'tests/package.json']
     for (const f of files) expect(docker).toMatch(new RegExp(`COPY (\\S+ )*${f.replace('.', '\\.')}( |$)`, 'm'))

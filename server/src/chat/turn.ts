@@ -1,4 +1,5 @@
 import { confidentialChat } from "../safe-ops/confidential"
+import { chatFilePath, isReservedPlace, parsePlace } from '@mycel/shared/places'
 import { seesChatFiles } from './chat-files-access'
 import { chatFileCopyOf } from './chat-file-tool'
 import { ALWAYS_VALUE, LIVE_CLIENTS, alwaysHere, keepAlways, withAlways, type AlwaysPlace } from './always-allow'
@@ -121,6 +122,8 @@ import { makeHandler } from '../mcp/protocol'
 import { hasCredentialFor, resolveCredential, SOON_MS, type CredEngine } from '../credentials/resolve'
 import { connectionRoute } from '../credentials/access'
 import { isGuestUser } from '../credentials/guest-ai'
+import { mayAttachChatFile, resolvePlace } from '../files/places'
+import { chatPlaces } from './place-ctx'
 import { situationOf } from './situation'
 import { appMapView } from './app-map'
 import { isFreeRoam, isManaged } from '../app-config'
@@ -854,6 +857,8 @@ export class TurnExec {
         within: this.shared.kind === 'project' ? this.shared.project.folder_path : null,
         audience: () => this.sharedAudience(),
         noteReads: (folders, audience) => { const rules = rt.files.rules(); return this.noteSharedReads(folders.map((f) => sourceOf(rt.db, rules, f)), audience) },
+        // what was copied into the work folder for these people (devenv/srt/copied-in.ts): a read card's yes covered it
+        noteCopied: (groups) => groups.every((g) => this.noteSharedReads(g.s, g.c, true)),
       } : undefined
       // only while it works (QA TC-4924): a broken or missing install is told to the AI once instead (devEnvDownRule)
       if (mayUseDevEnv(rt.db, rt.files, spec.userId)) {
@@ -2038,7 +2043,7 @@ export class TurnExec {
         // a read of the work folder shows $TRINA_WORK/…, never the server's absolute path, and names no team path
         const work = this.workRead(tool, e.input) ? this.workShown(e.input) : null
         const label = kind === 'web_search' ? (queryOf(e.input) ? tr('webSearch', this.spec.locale, { q: queryOf(e.input) }) : tr('webSearchRunning', this.spec.locale))
-          : work !== null ? stepLabel(tool, { ...(e.input as object), file_path: work }, this.spec.locale, BROWSER_TOOL_NAMES)
+          : work !== null ? stepLabel(tool, { ...(e.input as object), ...(tool === 'read' ? { file_path: work } : { path: work }) }, this.spec.locale, BROWSER_TOOL_NAMES)
           : this.toolSet?.stepLabel(tool, e.input, this.spec.locale) ?? stepLabel(tool, e.input, this.spec.locale, BROWSER_TOOL_NAMES)
         if (kind === 'web_search') { const q = (e.input as { query?: unknown } | null)?.query; this.searchQueries.set(e.id, typeof q === 'string' ? q : '') }
         // a sub-agent's step goes under its sub-task (parentId); the tools that patch their step are the main AI's only
@@ -2827,7 +2832,11 @@ export class TurnExec {
       if (!this.shared) addSources(this.rt.db, this.spec.chatId, [{ type: 'user', id: this.spec.userId }])
       tool = 'box_shell'
     }
-    this.noteOthersTool(tool)
+    // the chat's files (chat:files/…, shared/src/places.ts) are what people sent in this chat: other people's words, as
+    // chat_file counts them (a read through the file tools must not skip what chat_file marks)
+    const named = input && typeof input === 'object' ? (input as { file_path?: unknown; path?: unknown }) : {}
+    const chatFiles = ['read', 'list', 'glob', 'grep'].includes(tool) && parsePlace(tool === 'read' ? named.file_path : named.path)?.kind === 'chatFiles'
+    this.noteOthersTool(chatFiles ? 'chat_file' : tool)
     // what the in-app browser showed (pages the person is signed in to) counts as seen by this person only (tab 7)
     if (BROWSER_TOOL_NAMES.has(tool)) addSources(this.rt.db, this.spec.chatId, [{ type: 'user', id: this.spec.userId, via: 'browser' }])
     if (tool === 'WebSearch' || tool === 'web_search' || tool === 'web_fetch' || BROWSER_TOOL_NAMES.has(tool)) return this.taint()
@@ -2849,12 +2858,15 @@ export class TurnExec {
   }
   /** how a work-folder read's path shows ($TRINA_WORK/…): never the server's absolute path */
   private workShown(input: unknown): string {
-    const p = String((input as { file_path?: unknown } | null)?.file_path ?? '')
+    const a = input as { file_path?: unknown; path?: unknown } | null
+    const p = String(a?.file_path ?? a?.path ?? '')
     const wf = this.files.workFolder?.() ?? null
-    try { const rel = wf ? workRel(p, wf) : namesWorkFolder(p) ? p.trim().replace(/^\$\{?TRINA_WORK\}?\/*/, '') : null; return rel === null ? '$TRINA_WORK/…' : shownWorkPath(rel) } catch { return '$TRINA_WORK/…' }
+    try { const rel = wf ? workRel(p, wf) : namesWorkFolder(p) ? p.trim().replace(/^(?:\$\{?TRINA_WORK\}?|chat:work)\/*/i, '') : null; return rel === null ? '$TRINA_WORK/…' : shownWorkPath(rel) } catch { return '$TRINA_WORK/…' }
   }
   /** a read call that names the chat's work folder (devenv/work-files.ts), by its variable or its absolute path */
   workRead(tool: string, input: unknown): boolean {
+    // list, glob and grep take chat:work/ too (P2): a listing or a search there brings in what commands made
+    if (tool === 'list' || tool === 'glob' || tool === 'grep') return namesWorkFolder((input && typeof input === 'object' ? (input as { path?: unknown }).path : undefined))
     if (tool !== 'read') return false
     const p = (input && typeof input === 'object' ? (input as { file_path?: unknown }).file_path : undefined)
     if (namesWorkFolder(p)) return true
@@ -3706,6 +3718,13 @@ export class TurnExec {
     const written = new Set<string>(), read = new Set<string>()
     // every path the call names, nested ones too (edit_pdf's operations, merge_pdfs' list: namedPaths)
     for (const { key: k, value: v } of namedPaths(tool, a)) {
+      // a chat place (chat:files/…, chat:work/…; shared/src/places.ts): its readers are the chat's people, never a team
+      // folder's; a call that may not take it is refused before this (chat/tools.ts placeRefusal). Never taken as a team
+      // path or a web address below (plan 20261121-0615-chat-places-as-paths.md, review fix 6). It adds nothing to the
+      // answer's record: whoever sees the chat, someone added later too, sees its files, so a {type:'chat'} there would
+      // make the Share check count this answer as one that used files a newcomer cannot open (chat_file records none
+      // either). The read itself joins the chat to the read scope (chat/chat-file-tool.ts).
+      if (isReservedPlace(v)) continue
       // a listing's own folder: below, by the names it shows
       if (tool === 'list' && k === 'path') continue
       const w = writes.has(k)
@@ -3725,14 +3744,23 @@ export class TurnExec {
     }
     // a zip of a folder shows the names of everything under it (tools/make-zip.ts): like a search, every folder with
     // its own rules below each named folder that the person may read joins the sources (a restricted sub-folder too)
-    if (tool === 'make_zip' && Array.isArray(a.paths)) {
+    // ...and so does a folder copied into the chat's work folder (copy_files, chat/places-copy.ts): every file the person
+    // may read under it goes in
+    if ((tool === 'make_zip' || tool === 'copy_files') && Array.isArray(a.paths)) {
       const fold = (p: string) => { const n = p.normalize('NFC'); return fx.caseInsensitive ? n.toLowerCase() : n }
-      const bases = [...new Set(a.paths.filter((p): p is string => typeof p === 'string').flatMap((p) => this.roomNames(p)).map((p) => fold(p.split('/').filter(Boolean).join('/'))))]
+      const bases = [...new Set(a.paths.filter((p): p is string => typeof p === 'string' && !isReservedPlace(p)).flatMap((p) => this.roomNames(p)).map((p) => fold(p.split('/').filter(Boolean).join('/'))))]
       for (const f of rules.boundaryFolders()) {
         const k = fold(f)
         if (bases.some((b) => b === '' || k.startsWith(b + '/')) && readable(f.split('/'))) out.push(sourceOf(this.rt.db, rules, f))
       }
+      // the person's own folder is no rule folder: a folder above it ("users", the team root) takes it in too, as a
+      // search there does (review of P2: copy_files ["users"] into a shared chat's chat:work/ copied users/<me>/ with no
+      // card and recorded only the name "users")
+      const mine = fold(`users/${me.id}`)
+      if (bases.some((b) => b === '' || b === 'users' || mine.startsWith(b + '/'))) out.push({ type: 'user', id: me.id })
     }
+    // a listing or a search of a chat place: the chat's (pushed above), never the team root's readers
+    if ((SEARCH_TOOLS.has(tool) || tool === 'list') && isReservedPlace(a.path)) return done()
     if (SEARCH_TOOLS.has(tool) || tool === 'list') {
       const fold = (p: string) => { const n = p.normalize('NFC'); return fx.caseInsensitive ? n.toLowerCase() : n }
       const start = typeof a.path === 'string' ? a.path : ''
@@ -3826,7 +3854,7 @@ export class TurnExec {
   }
 
   /** confirmSharedRead's decision: null to go on, or why it was refused. */
-  private async sharedReadRefusal(tool: string, input: unknown, o: { step?: boolean } = {}, kind: { save: boolean } = { save: false }): Promise<SharedNo | null> {
+  private async sharedReadRefusal(tool: string, input: unknown, o: { step?: boolean; sources?: readonly ReadSource[] } = {}, kind: { save: boolean } = { save: false }): Promise<SharedNo | null> {
     if (!this.shared) return null
     // the call's step says so (a call's own step only: an attachment or a "/name" skill has none)
     const refuse = (why: SharedNo) => { if (o.step !== false) this.skipStep(tool, kind.save); return why }
@@ -3839,7 +3867,8 @@ export class TurnExec {
     const named = saves ? namedPaths(tool, input) : []
     kind.save = named.length > 0 && named.every((p) => WRITE_TARGET_ARGS[tool]!.includes(p.key))
     try {
-      sources = this.sharedSources(tool, input, { writes })
+      // (a produce tool's chat output: what goes into the new chat file, worked out by the tool: confirmChatTarget)
+      sources = o.sources ? [...o.sources] : this.sharedSources(tool, input, { writes })
       audience = this.sharedAudience()
       const rules = this.rt.files.rules()
       missing = missingReaders(this.rt.db, rules, sources, audience).map((m) => ({ key: sourceKey(m.source), ...m }))
@@ -4028,7 +4057,9 @@ export class TurnExec {
     const a = input && typeof input === 'object' ? input as Record<string, unknown> : {}
     const paths = new Set<string>()
     for (const { value: v } of namedPaths(tool, a)) {
-      // as typed and as spelled on disk (another case or Unicode form): a viewer must be able to see every spelling
+      // as typed and as spelled on disk (another case or Unicode form): a viewer must be able to see every spelling.
+      // A chat place (chat:files/…, chat:work/…) is the chat's own: everyone who sees the step sees the chat, so it hides
+      // nothing (and a web address names no team path)
       if (v && !/^[a-z][a-z0-9+.-]*:/i.test(v)) for (const p of this.roomNames(v)) paths.add(p)
     }
     if (!paths.size) return { label }
@@ -4123,12 +4154,44 @@ export class TurnExec {
     addSources(this.rt.db, this.spec.chatId, add)
   }
 
+  /** A chat place's readers for the read scope and the cards (files/places.ts resolvePlace): the chat's people, or the
+   * person alone for a personal chat's work folder; none when the place is refused here (the tool says why). */
+  placeViewers(input: string, use: 'read' | 'write'): ReadSource[] {
+    try { return resolvePlace(input, chatPlaces(this, this.files).ctx, use).viewers } catch { return [] }
+  }
+
+  /**
+   * A produce tool's new chat file (output: chat:files/<name>): its sources (team files, chat places) are weighed against
+   * the people who see this chat now, as a read would be: none hidden from them, they join the answer's record; else
+   * the shared read card asks first. Outside a chat shared with people the resolver refused the output already.
+   */
+  private async confirmChatTarget(sources: readonly string[], read: readonly ReadSource[], tool: string, main = true): Promise<string | null> {
+    // who may attach here (the resolver's words: a project chat's folder, My files, a sub-agent): refused before any card,
+    // so a call that cannot attach never asks the person anything
+    const may = mayAttachChatFile({ ...chatPlaces(this, this.files).ctx, main })
+    if (may !== true) return `Not attached (${tool}): ${may}`
+    if (this.shared?.kind !== 'people') return refusal({ done: 'Nothing was attached.', why: { kind: 'failed', what: 'this chat\'s files' }, next: 'save it in a team folder instead' })
+    const rules = this.rt.files.rules()
+    let me: Principal
+    try { me = this.livePrincipal() } catch { return 'Access denied: this account is disabled.' }
+    const list: ReadSource[] = [...read]
+    for (const p of sources) {
+      if (isReservedPlace(p)) { list.push(...this.placeViewers(p, 'read')); continue }
+      try { list.push(sourceOf(this.rt.db, rules, authorize(this.rt.files.fx, rules, me, p, 'read').rel)) } catch { /* the tool reports it */ }
+    }
+    const no = await this.sharedReadRefusal(tool, null, { step: false, sources: list })
+    return no ? this.sharedReadText(`Not attached (${tool}): nothing was attached to this answer.`, no) : null
+  }
+
   /**
    * Before the AI saves at `target`: when more people can read the target than can read what this chat read (plus
    * `extraSources`, files a tool copies from), the server asks the person (never left to the AI's own ask_user).
    * Returns the refusal text for the tool, or null to go ahead. Paths the policy refuses are left to the tool.
    */
   async confirmWidening(target: string, extraSources: string[] = [], binding?: string, call?: { tool: string; args: unknown; main?: boolean }, read: readonly ReadSource[] = []): Promise<string | null> {
+    // a new file of this chat (chat:files/<name>, files/place-output.ts): exactly the chat's people see it, so what goes
+    // in is weighed as a read here: a source some of them cannot open asks on the shared read card first
+    if (isReservedPlace(target)) return this.confirmChatTarget(extraSources, read, call?.tool ?? 'make_file', call?.main !== false)
     const need = this.widenNeed(target, extraSources, binding, read)
     if (!need) return null
     // a scheduled run: its task's card may have said yes to saving there (chat/schedule-cover.ts); `call` is the tool call
@@ -4169,6 +4232,8 @@ export class TurnExec {
     try { segs = authorize(fs_.fx, rules, me, target, 'write', { createDirs: true }).segs } catch { return null }
     const extra: ReadSource[] = [...read]
     for (const p of extraSources) {
+      // a chat place's file (a picture from chat:work/): its place's readers
+      if (isReservedPlace(p)) { extra.push(...this.placeViewers(p, 'read')); continue }
       try { extra.push(sourceOf(this.rt.db, rules, authorize(fs_.fx, rules, me, p, 'read').rel)) } catch { /* the tool reports it */ }
     }
     const w = widening(this.rt.db, this.spec.chatId, segs, extra)
@@ -5238,8 +5303,10 @@ export function composeMessage(m: Pick<MessageRow, 'content' | 'attachments'>, a
   // blanked) is left out: nothing about it goes to the AI
   atts = atts.filter((a) => a.source === 'team' || !a.unavailable)
   if (!atts.length) return m.content
-  // a file kept with a chat shared with people (chat/chat-files.ts) is in no team folder: chat_file reads it
-  const list = atts.map((a) => (a.source === 'chat' ? `- a file sent in this chat: "${a.name.replace(/[\r\n"<>]+/g, ' ').slice(0, 200)}" (${a.mime}, ${a.size} bytes; file_id=${a.id}; read it with chat_file)`
+  // a file kept with a chat shared with people (chat/chat-files.ts) is in no team folder: its chat place path
+  // (chat:files/<id>/<name>, shared/src/places.ts) is what read takes; a personal chat's upload (users/<id>/.attachments)
+  // and a team file stay team paths (their own readers, never the chat's)
+  const list = atts.map((a) => (a.source === 'chat' ? `- a file sent in this chat: "${a.name.replace(/[\r\n"<>]+/g, ' ').slice(0, 200)}" (${a.mime}, ${a.size} bytes; path ${chatFilePath(a.id, a.name)}: read, list and grep take it; file_id=${a.id})`
     : a.source !== 'team' ? `- ${a.path} (${a.name}, ${a.mime}, ${a.size} bytes)`
     : a.unavailable ? '- (a file from the team folder that is no longer available: it was deleted or the user can no longer open it)'
     : `- ${a.path} (${a.name}, ${a.mime}, ${a.size} bytes; from the team folder${a.changed ? '; it changed after the user attached it, this is the current version' : ''}${a.moved ? '; it was moved or renamed after the user attached it, this is where it is now' : ''})`)).join('\n')

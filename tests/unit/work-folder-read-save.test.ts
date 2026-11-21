@@ -238,11 +238,12 @@ describe('save_work_file', () => {
 })
 
 describe('the words and the helpers', () => {
-  test('one general prompt line; the tool text names read and save_work_file and no "cp into users/<id>"', () => {
+  test('one general prompt line; the tool text names read and copy_files (P2: the one way in and out) and no "cp into users/<id>"', () => {
     expect(LOOK_AND_HAND_OVER_RULE).toBe('Look at what you make before you report; save the finished file and link it.')
     const d = srtShellDescription(false)
     expect(d).toContain('with read')
-    expect(d).toContain('save_work_file')
+    expect(d).toContain('copy_files (paths ["chat:work/')
+    expect(d).toContain('to_folder "chat:work/in/"')
     expect(d).not.toContain('copy a result the person needs into their own folder')
   })
 
@@ -315,8 +316,9 @@ describe('review findings (QA TC-6201 … TC-6204)', () => {
     await expect(copyWorkFile({ real: root, path: root }, 'v.mp4', path.join(outside, 'd'), 1 << 20, undefined, { beforeCopy: full })).rejects.toThrow(/storage full/)
     expect(seen).toEqual([2048])
     expect(fs.existsSync(path.join(outside, 'd'))).toBe(false)
-    // the tool passes the team disk check (system/storage.ts) as that hook
-    expect(fs.readFileSync(path.join(import.meta.dir, '../../server/src/chat/work-file-tool.ts'), 'utf8')).toContain('beforeCopy: assertStorageRoomForAI')
+    // the tool passes the team disk check (system/storage.ts) as that hook: its routes are copy_files' own since P2
+    // (chat/places-copy.ts workToTeam and workToChat), so both copies there take it
+    expect(fs.readFileSync(path.join(import.meta.dir, '../../server/src/chat/places-copy.ts'), 'utf8').split('beforeCopy: assertStorageRoomForAI').length - 1).toBe(2)
     fs.rmSync(root, { recursive: true, force: true }); fs.rmSync(outside, { recursive: true, force: true })
   })
 

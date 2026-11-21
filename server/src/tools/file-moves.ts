@@ -185,8 +185,12 @@ export function registerFileMoveTools(ctx: AppContext, reg: ToolRegistry) {
   reg.register({
     name: 'copy_files',
     description: 'Copy files of any type (PDF, images, Office files) into another folder of the team drive; the originals stay. ' +
-      'Names are kept; " (2)" is added when a name is taken. Files only, not folders. A target folder that does not exist yet is made. ' +
-      'When more people can see the target folder than the originals, the user is asked first.',
+      'Names are kept; " (2)" is added when a name is taken. Files only, not folders, between team folders. A target folder that does not exist yet is made. ' +
+      'When more people can see the target folder than the originals, the user is asked first. ' +
+      'In a Trina chat it also copies between the team folder, this chat\'s files (chat:files/…) and this chat\'s work folder (chat:work/…, $TRINA_WORK in box_shell): ' +
+      'to_folder "chat:work/in/" brings team files, whole team folders (an HTML file with its images folder) or chat files into the work folder for your commands; ' +
+      'to_folder "chat:files/" attaches a file (a team file, or one from chat:work/) to your answer for everyone in a chat shared with people; ' +
+      'a chat file or a work-folder file into a team folder saves a copy there. In a project chat the project folder is the place to save, and chat:files/ is read-only.',
     input: CopyFilesInput,
     describe: (a) => `copy_files ${a.paths.length} -> ${a.to_folder}`,
     run: (a, tc) => batch('copy', a, tc),

@@ -36,8 +36,9 @@ export const MIGRATIONS_DIR = path.join(import.meta.dir, '..', 'migrations')
  * and event lines in rooms (250_b_group_rooms.sql). 6: thread replies in rooms (251_b_room_threads.sql). 7: folder
  * access adds up like Google Drive (121_a_folder_limited.sql; an older build reads the converted rules deepest-wins). 8:
  * guests (122_a_guests.sql; an older build reads a guest as a full member; 123_a_guest_place_return.sql, which changes
- * its table, carries the same level). */
-export const SCHEMA_READER_LEVEL = 8
+ * its table, carries the same level). 9: versions of chat files (432_b_chat_file_versions.sql; an older build reads a
+ * version as an upload never sent, and its sweep deletes it a day later). */
+export const SCHEMA_READER_LEVEL = 9
 
 export class SchemaTooNewError extends Error {
   constructor(public needed: number, public have: number, public migration: string) {

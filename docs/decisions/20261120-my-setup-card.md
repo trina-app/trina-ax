@@ -23,8 +23,15 @@
   Its rows: 내 도구 연결, 사진 (optional), this computer's files (optional). Title "이제 {name}님 차례예요" (en "Your turn
   now, {name}"), the line "The team is set up. These are just for you.", and "Only you see this" in place of a count
   (one counted row).
-- **A member's card:** 내 도구 연결, 인사하기, 사진, Trina에게 묻기 (or 내 AI 연결 while no AI answers them), the
-  files row. "Get started · n of 3" counts tools, hi and asked.
+- **A member's card:** 내 도구 연결, 인사하기, Trina에게 묻기 (or 내 AI 연결 while no AI answers them), then the optional
+  사진 and files rows. "Get started · n of 3 required" counts tools, hi and asked; the required rows come first and the
+  optional ones say "Optional ·" (2026-11-21, owner: "2 of 3" over five rows read wrong).
+- **Hide** is at the card's top right, on the title's line: it closes the whole card (2026-11-21, owner: on the count
+  line it read as collapsing the list). The quiet words of every Home card (CardHide.tsx), not a ✕.
+- **A demo** (the scripted demo build, web/demo/server.ts; a free-roam instance): the answer says `demo: true` and the
+  card has no 내 도구 연결 and no files / desktop app row (neither can be done there); tools is not counted (a free-roam
+  server sends it done). A free-roam Home shows no card anyway (pages/Home.tsx: a demo persona keeps its own top); the
+  flag covers the scripted demo, whose card is the story's first screen.
 - **내 도구 연결:** the team's recommended tools first (TeamSettings.recommendedTools from GET /api/integrations, ordered
   with `recommendedFirst`, [20261120-team-vs-personal-onboarding.md](20261120-team-vs-personal-onboarding.md)), then
   Google Drive, Gmail, Google Calendar and Notion, at most four. Nothing is gated: owners, admins and members see the

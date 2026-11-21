@@ -46,6 +46,13 @@ export class GateState {
     this.save()
   }
 
+  /** how many distinct addresses started in the last 24 hours (the count of keyed hashes; nothing else is read) */
+  distinctStarters(now = Date.now()): number {
+    let n = 0
+    for (const v of this.starts.values()) if (v.some((t) => now - t < DAY)) n++
+    return n
+  }
+
   dailyTokens(now = Date.now()): number { this.roll(now); return this.tokens }
   addTokens(n: number, now = Date.now()): void { if (n > 0) { this.roll(now); this.tokens += n; this.save() } }
   private roll(now: number) { const d = utcDay(now); if (d !== this.day) { this.day = d; this.tokens = 0 } }
