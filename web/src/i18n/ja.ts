@@ -2858,7 +2858,6 @@ export const ja: Record<MessageKey, string> = {
   'settings.about': "このアプリについて",
   'about.version': "バージョン {version}",
   'about.license': "{product}はGNU AGPL-3.0ライセンスで提供されています。このサーバーで実行中のバージョンのソースコードを請求できます。",
-  'about.hwp': "本製品は、Hancomが公開しているHWP文書ファイル（.hwp）の仕様を参考に開発しました。",
   'about.sourceRequest': "ソースコードを請求（AGPL-3.0）",
   'about.sourceDownload': "バージョン{version}のソースをダウンロード",
   'system.passwordAgain': "パスワードを再入力してください",

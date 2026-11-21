@@ -50,7 +50,7 @@ describe('parsePlace', () => {
     expect(chatFilePath(ID, name)).not.toMatch(/[<>"\r\n]/)
     expect(parsePlace(chatFilePath(ID, name))).toMatchObject({ kind: 'chatFiles', id: ID })
     const att = { source: 'chat', id: ID, name, mime: 'text/plain', size: 3 } as unknown as Attachment
-    for (const t of [composeMessage({ content: 'see this', attachments: '[]' }, [att]), answerWithFiles('done', [att])]) {
+    for (const t of [composeMessage({ content: 'see this', attachments: '[]' }, [att]), answerWithFiles('done', [att], true)]) {
       const inner = t.slice(t.indexOf('<attachments>') + '<attachments>'.length, t.lastIndexOf('</attachments>'))
       expect(inner).not.toContain('<')
       expect(inner).not.toContain('>')

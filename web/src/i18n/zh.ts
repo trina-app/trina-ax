@@ -2853,7 +2853,6 @@ export const zh: Record<MessageKey, string> = {
   "settings.about": "关于",
   "about.version": "版本{version}",
   "about.license": "{product}采用GNU AGPL-3.0许可。你可以索取这台服务器上运行版本的源代码。",
-  "about.hwp": "本产品参考了Hancom公开的HWP文档文件（.hwp）规范进行开发。",
   "about.sourceRequest": "索取源代码（AGPL-3.0）",
   "about.sourceDownload": "下载版本{version}的源代码",
   "system.passwordAgain": "请再次输入密码",
