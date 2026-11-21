@@ -8,18 +8,18 @@
 //     request to the AI, which makes the task through its schedule card: the one way tasks are made);
 //   - an owner's or admin's answer that used team files and ran no team skill, which S's rules let become a team skill
 //     (skill-draft.ts teamSkillOffer): "이 방식대로 팀 스킬로 만들까요?" [팀 스킬로 만들기] (the web app opens the skill
-//     card; docs/DECISIONS.md "W3"); before the PPT: it is the landing's promise, and rarer;
+//     card; docs/DECISIONS.md "W3");
 //   - a member's first successful run of the team's landing skill (onboarding/welcome.ts landingSkill: what the invite
 //     link opens; docs/DECISIONS.md "MC"): "내가 쓰던 스킬이나 파일도 팀에 올릴래요?" [올리기], with the team folder they can
 //     write (groups/<team>/, the welcome steps' group; else null: no files part). Owners and admins have 내 스킬
-//     가져오기 instead. A phone (`phone`) without such a folder gets the next suggestion: there it would be only that link;
-//   - a long report-like answer (PPT_SUGGEST_CHARS of prose or more): [PPT로 만들기].
+//     가져오기 instead. A phone (`phone`) without such a folder gets none: there it would be only that link.
+// A long report-like answer no longer offers slides ([PPT로 만들기]; docs/decisions/20261121-remove-slides-offer.md).
 // The promo video made from the intro deck (`deck-video`, docs/DECISIONS.md "D2") is in the contract but never offered
 // while DECK_VIDEO_SUGGESTION is off: the background run that makes the video is not built yet.
 // A suggestion the person closed never comes back for them (suggestion_dismissals, migration 229, per person).
 import fs from 'node:fs'
 import path from 'node:path'
-import { DECK_ARTIFACT_KEY, DECK_VIDEO_SUGGESTION, PPT_SUGGEST_CHARS, teamHome, type ResultSuggestion } from '@mycel/shared/api'
+import { DECK_ARTIFACT_KEY, DECK_VIDEO_SUGGESTION, teamHome, type ResultSuggestion } from '@mycel/shared/api'
 import type { AppContext } from '../context'
 import { fail } from '../http/errors'
 import { atLeast, loadPrincipal, RuleSet } from '../policy/access'
@@ -58,11 +58,6 @@ function recurring(ctx: Pick<AppContext, 'db' | 'files'>, userId: string, path: 
   let s: Skill | null = null
   try { s = readSkill(ctx.files, ctx.files.principal(userId), path) } catch { s = null }
   return !!s && s.recurring !== undefined && isRecurring(s)
-}
-
-/** A report: a long answer (prose only: code blocks do not make a slide deck). */
-export function reportLike(content: string): boolean {
-  return content.replace(/```[\s\S]*?(?:```|$)/g, '').trim().length >= PPT_SUGGEST_CHARS
 }
 
 /** The suggestion under one answer of the caller's own chat, or null. 404 for a chat that is not theirs. Without the
@@ -115,7 +110,7 @@ export function resultSuggestion(ctx: AppContext, userId: string, chatId: string
       return { kind: 'schedule', key, skill: { path: run.path, name: run.name } }
   }
   if (!run && rt && !no.has('team-skill') && teamSkillOffer(ctx, rt, userId, chatId, messageId)) return { kind: 'team-skill', key: 'team-skill' }
-  // a member's first good run of the landing skill: their own skills and files (before the PPT: it comes once)
+  // a member's first good run of the landing skill: their own skills and files (it comes once)
   if (run && !no.has('contribute') && isMember(ctx, userId)) {
     let landing: string | null = null
     try { landing = landingSkill(ctx) } catch { landing = null }
@@ -123,10 +118,6 @@ export function resultSuggestion(ctx: AppContext, userId: string, chatId: string
       const folder = memberTeamFolder(ctx, userId)
       if (folder || !o.phone) return { kind: 'contribute', key: 'contribute', folder }
     }
-  }
-  if (!no.has('ppt')) {
-    const m = ctx.db.query("SELECT content FROM messages WHERE id = ? AND chat_id = ? AND role = 'assistant'").get(messageId, chatId) as { content: string } | null
-    if (m && reportLike(m.content)) return { kind: 'ppt', key: 'ppt' }
   }
   return null
 }
