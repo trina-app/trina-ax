@@ -1,6 +1,7 @@
 // Word / PowerPoint / Excel previews rendered in the page (no server conversion): docx-preview,
 // @aiden0z/pptx-renderer (Apache-2.0), SheetJS. Ported from Saram web/src/components/viewers/OfficeView.tsx.
 import { fixRenderedBullets } from '../../lib/docxBullets'
+import { defaultDocxPages } from '../../lib/docxPage'
 import clsx from 'clsx'
 import { useEffect, useRef, useState, type RefObject } from 'react'
 import type { CellObject } from 'xlsx'
@@ -67,6 +68,9 @@ export function DocxView({ blob }: { blob: Blob }) {
     // no external resources: docx-preview renders embedded images from the file itself
     await renderAsync(blob, el, undefined, { inWrapper: true, ignoreLastRenderedPageBreak: true, renderComments: false, renderAltChunks: false, useBase64URL: true })
     fixRenderedBullets(el)
+    // a file with no page of its own (make_file's .docx) gets Word's default page and margins (lib/docxPage.ts)
+    const pages = el.querySelector<HTMLElement>('.docx-wrapper')
+    if (pages) defaultDocxPages(pages)
   }, [blob])
   return (
     <div className="relative min-h-full">

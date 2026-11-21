@@ -459,6 +459,40 @@ export function workFolderAt(ctx: AppContext, o: { userId: string; chatId: strin
   } catch { return null }
 }
 
+/** The folder that holds every work folder of a shared chat (one per people and view: sharedWork), or null */
+function sharedWorkTop(chatId: string | null): string | null {
+  if (!chatId) return null
+  try { return path.dirname(sharedWork(srtConfig().base, chatId, 'k')) } catch { return null }
+}
+
+/** A chat shared with people whose commands now start in another work folder than before (its people, or what they may
+ * open, changed: sharedWorkOf's key), so a work folder made for earlier people is there and this one is new (QA
+ * TC-6936). False for a personal chat and when nothing is there yet. Nothing is opened in the old folders. */
+export function workPeopleChanged(ctx: AppContext, o: { userId: string; chatId: string | null; shared?: SharedRun }): boolean {
+  if (!o.shared || !o.chatId) return false
+  const top = sharedWorkTop(o.chatId)
+  if (!top) return false
+  let names: string[]
+  try { names = fs.readdirSync(top) } catch { return false }
+  const now = sharedWorkOf(ctx, o.chatId, o.userId, o.shared)
+  const mine = now ? path.basename(now) : null
+  return names.some((n) => n !== mine)
+}
+
+/** Is `p` an absolute path inside an earlier work folder of this shared chat (not the one its commands use now)? */
+export function inOldWorkFolder(ctx: AppContext, o: { userId: string; chatId: string | null; shared?: SharedRun }, p: string): boolean {
+  if (!o.shared || !o.chatId || !p.startsWith('/')) return false
+  const top = sharedWorkTop(o.chatId)
+  if (!top) return false
+  const tops = [top]
+  try { tops.push(fs.realpathSync(top)) } catch {}
+  const at = tops.find((t) => p.startsWith(t.replace(/\/+$/, '') + '/'))
+  if (!at) return false
+  const key = p.slice(at.replace(/\/+$/, '').length + 1).split('/')[0]
+  const now = sharedWorkOf(ctx, o.chatId, o.userId, o.shared)
+  return !!key && key !== (now ? path.basename(now) : null)
+}
+
 /** Do box_shell's commands of this person in this chat run in a work folder (made or not yet), not in a project folder? */
 export function runsInWorkFolder(ctx: AppContext, o: { userId: string; chatId: string | null; project: { id: string; folderPath: string } | null; shared?: SharedRun }): boolean {
   const s = spaceAt(ctx, o, false)

@@ -83,7 +83,8 @@ import { FileDropZone } from '../components/FileDropZone'
 import { isolate } from '../components/handover/isolate'
 import { RoomSideColumn } from '../components/rooms/RoomSideColumn'
 import { ChatThreadPanel } from '../components/chat/ChatThreadPanel'
-import { closeSidePanel, openFilePreview, useSidePanel, type PreviewFile } from '../lib/sidePanel'
+import { closeSidePanel, getSidePanel, openFilePreview, useSidePanel, type PreviewFile } from '../lib/sidePanel'
+import { chatFileLinkStep, chatFileName } from '../lib/chatFileLink'
 import { ChatLinks } from '../components/Markdown'
 import { useFolderWords } from '../lib/folderLabels'
 
@@ -120,7 +121,6 @@ function ChatView({ chatId, threadRoot }: { chatId: string; threadRoot: string |
     for (const m of s.threads[chatId]?.messages ?? []) for (const a of (m as { attachments?: { id: string; name: string }[] }).attachments ?? []) if (a.id === fileParam) return a.name
     return null
   })
-  useEffect(() => { if (fileParam && /^[A-Za-z0-9_-]+$/.test(fileParam)) openFilePreview({ source: 'chat', chatId, fileId: fileParam, name: fileName ?? 'file' }) }, [chatId, fileParam, fileName])
   const t = useT()
   const locale = useLocale()
   const me = useMeStrict()
@@ -153,6 +153,33 @@ function ChatView({ chatId, threadRoot }: { chatId: string; threadRoot: string |
   const { loadThread, loadOlder, send, stop, regenerate, edit, selectBranch, upsertChat, discardLocal } = useChats.getState()
   const [loadError, setLoadError] = useState<unknown>(null)
   const [loading, setLoading] = useState(!useChats.getState().threads[chatId])
+  // the file link's viewer only once the chat opened and the file is mine to open (lib/chatFileLink.ts, QA TC-6935): a
+  // chat that does not open keeps its own notice alone (a viewer opened from before closes), a file that does not open
+  // gets one plain line and no viewer, never "This format can't be previewed" with a Download that cannot work
+  const fileStep = chatFileLinkStep({ file: fileParam, loading, loadError, name: fileName })
+  useEffect(() => {
+    if (loadError) {
+      const p = getSidePanel()
+      if (p?.kind === 'file' && p.file.source === 'chat' && p.file.chatId === chatId) closeSidePanel()
+      return
+    }
+    if (!fileParam) return
+    if (fileStep === 'open') return void openFilePreview({ source: 'chat', chatId, fileId: fileParam, name: fileName! })
+    if (fileStep !== 'look') return
+    let live = true
+    api.call(API.chatFileVersions, { params: { id: chatId, fileId: fileParam } }).then(
+      (v) => {
+        if (!live) return
+        const name = chatFileName(v)
+        if (name) openFilePreview({ source: 'chat', chatId, fileId: fileParam, name })
+        else toast({ level: 'info', text: t('preview.notFound') })
+      },
+      () => live && toast({ level: 'info', text: t('preview.notFound') }),
+    )
+    return () => {
+      live = false
+    }
+  }, [fileStep, chatId, fileParam, fileName, loadError, t])
   // diagrams, images and code highlighting grow the page after the text arrived, and a phone's keyboard shrinks the
   // list: stay at the bottom if we were there (lib/stickToBottom.ts)
   const list = useStickToBottom()

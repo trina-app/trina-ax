@@ -134,6 +134,19 @@ export const READ_MEDIA_VERB: Record<MediaKind, T> = {
   audio: t('오디오 듣기', 'Listen to audio', 'Dengarkan audio', "音声を聞く", "Escuchar audio", "收听音频"),
 }
 
+/** A read of a deck's slides as pictures (read with pages or as_images of a .pptx) says which slides: "View slides 3–5 ·
+ * launch.pptx", as a video read says "Watch video" (QA TC-6943). The numbers follow the verb in every language. */
+export const READ_SLIDES_VERB: T = t('슬라이드 보기', 'View slides', 'Lihat slide', "スライドを見る", "Ver diapositivas", "查看幻灯片")
+
+/** Was this stored read step a look at a deck's slides (by its verb, in any language)? The web app's icon. */
+export function slidesStep(step: { tool?: string; label: string }): boolean {
+  if (step.tool !== 'read') return false
+  return Object.values(READ_SLIDES_VERB).some((v) => step.label === v || step.label.startsWith(v + ' '))
+}
+
+/** "3", "1-5", "1-3,7" -> "3", "1–5", "1–3, 7" (what the AI asked for, not checked here; at most 30 characters) */
+const slideNumbers = (pages: unknown) => (typeof pages === 'string' ? clip(pages.replace(/\s+/g, '').replace(/[^\d,-]/g, '').replace(/-/g, '–').replace(/,/g, ', '), 30) : '')
+
 /** Whether a stored read step was a video or an audio read (by its verb, in any language): the web app's icon. */
 export function mediaStepKind(step: { tool?: string; label: string }): MediaKind | null {
   if (step.tool !== 'read') return null
@@ -293,6 +306,10 @@ export function stepLabel(tool: string, input: unknown, locale: Locale, browserT
     case 'grep': return `${verb} "${clip(a.pattern, 60)}"${a.path ? ` · ${clip(a.path, 50)}` : ''}`
     case 'read': {
       const k = mediaKind(String(a.file_path ?? ''))
+      if (!k && /\.pptx$/i.test(String(a.file_path ?? '').trim()) && (a.pages !== undefined || a.as_images === true)) {
+        const n = slideNumbers(a.pages)
+        return `${READ_SLIDES_VERB[locale]}${n ? ` ${n}` : ''} · ${clip(a.file_path, 90)}`
+      }
       return `${k ? READ_MEDIA_VERB[k][locale] : verb} · ${clip(a.file_path, 90)}`
     }
     case 'write': case 'edit': return `${verb} · ${clip(a.file_path, 90)}`
@@ -361,7 +378,7 @@ export function stepLabel(tool: string, input: unknown, locale: Locale, browserT
     case 'save_chat_file': return a.save_as ? `${verb} → ${clip(a.save_as, 60)}` : verb!
     // the file by its own name (never a server path), and where it goes
     case 'save_work_file': { const n = clip(String(a.path ?? '').split('/').pop(), 60); return a.save_as ? `${verb} · ${n} → ${clip(a.save_as, 60)}` : `${verb} · ${n}` }
-    case 'box_shell': return `${verb} · ${clip(String(a.command ?? '').split('\n')[0], 80)}${a.job ? ` (${STEP_TEXT.jobSuffix[locale]})` : a.background ? ` (${STEP_TEXT.backgroundSuffix[locale]})` : ''}`
+    case 'box_shell': return `${verb} · ${clip(shellWorkWords(String(a.command ?? '').split('\n')[0]!, locale), 80)}${a.job ? ` (${STEP_TEXT.jobSuffix[locale]})` : a.background ? ` (${STEP_TEXT.backgroundSuffix[locale]})` : ''}`
     case 'ask_user': return stepText('asked', locale, { q: clip(a.question, 120) })
     case 'remember': return stepText('remembered', locale, { text: clip(a.text, 120) })
     case 'forget': return stepText('forgot', locale)
@@ -400,7 +417,7 @@ export const STEP_PLACE = {
   /** users/<id>/.attachments/<chat>/: what the person attached to the chat */
   attachments: t('첨부한 파일', 'Attachments', 'Lampiran', "添付ファイル", "Adjuntos", "附件"),
   /** chat:files/…: the files of this chat (shared/src/places.ts) */
-  chatFiles: t('이 대화', 'This chat', 'Chat ini', "このチャット", "Este chat", "此对话"),
+  chatFiles: t('이 채팅', 'This chat', 'Chat ini', "このチャット", "Este chat", "此对话"),
   /** chat:work/…: the chat's work folder ($TRINA_WORK) */
   work: t('작업 폴더', 'Work folder', 'Folder kerja', "作業フォルダー", "Carpeta de trabajo", "工作文件夹"),
   /** users/<id>/: an answer only ever reaches the person's own */
@@ -418,8 +435,9 @@ const NOTES_NAMES = nfcSet(NOTES_FOLDER)
  * (a web address, a folder these words do not name). The folder names match in any language, as a team's folders are
  * named in the team's language and the screen may be in another. */
 export function placeName(path: string, locale: Locale): string | null {
-  // a chat place (chat:files/<id>/<name>, chat:work/<path>): its words, never the file id
-  const place = parsePlace(path)
+  // a chat place (chat:files/<id>/<name>, chat:work/<path>): its words, never the file id; $TRINA_WORK/… (box_shell's
+  // spelling of the work folder) reads the same as chat:work/… (QA TC-6937)
+  const place = parsePlace(WORK_VAR.test(path.trim()) ? `chat:work${path.trim().replace(WORK_VAR, '')}` : path)
   if (place) {
     if (place.kind === 'chatFiles') return [STEP_PLACE.chatFiles[locale] ?? STEP_PLACE.chatFiles.en, ...(place.name ? [place.name] : [])].join(' › ')
     if (place.kind === 'work') return [STEP_PLACE.work[locale] ?? STEP_PLACE.work.en, ...(place.rel ? place.rel.split('/') : [])].join(' › ')
@@ -446,6 +464,20 @@ export function placeName(path: string, locale: Locale): string | null {
   return null
 }
 
+/** box_shell's spelling of the work folder: $TRINA_WORK, ${TRINA_WORK} */
+const WORK_VAR = /^\$\{?TRINA_WORK\}?(?=\/|$)/i
+
+/**
+ * A command line with the work folder in words (QA TC-6937): the leading `cd "$TRINA_WORK" &&` goes (a command starts
+ * there anyway), and "$TRINA_WORK/out/frame1.png" reads "Work folder › out › frame1.png" (quotes kept as written).
+ */
+export function shellWorkWords(command: string, locale: Locale): string {
+  const w = STEP_PLACE.work[locale] ?? STEP_PLACE.work.en
+  return command
+    .replace(/^\s*cd\s+(["']?)\$\{?TRINA_WORK\}?\/?\1\s*(?:&&|;)\s*/i, '')
+    .replace(/\$\{?TRINA_WORK\}?((?:\/[^\s"'`;|&<>()]*)?)/gi, (_all, rest: string) => [w, ...rest.split('/').filter(Boolean)].join(' › '))
+}
+
 /** Tools whose step line ends in a team path ("<verb> · <path>"; edit_files adds "+N", hwp_render "#page"). */
 const PATH_STEP_TOOLS = new Set(['list', 'glob', 'grep', 'search', 'knowledge_explore', 'read', 'write', 'edit', 'edit_files', 'make_file', 'edit_hwp', 'edit_office', 'stamp_pdf', 'edit_pdf', 'merge_pdfs', 'split_pdf', 'resize_images', 'unzip_file', 'make_zip', 'query_data', 'share_file', 'move_files', 'copy_files', 'rename_file', 'delete_files', 'save_url', 'hwp_render', 'rename_files'])
 
@@ -455,6 +487,11 @@ const PATH_STEP_TOOLS = new Set(['list', 'glob', 'grep', 'search', 'knowledge_ex
  * Any other line comes back as it is, without `path`.
  */
 export function stepPlace(step: { tool?: string }, label: string, locale: Locale): { label: string; path?: string } {
+  // a command saved before its line said the work folder in words
+  if (step.tool === 'box_shell') {
+    const at = label.indexOf(' · ')
+    return { label: at < 0 ? label : label.slice(0, at + 3) + shellWorkWords(label.slice(at + 3), locale) }
+  }
   if (!PATH_STEP_TOOLS.has(step.tool ?? '')) return { label }
   // a call let through without a card ends in " · <why>" (QA 2026-11-11: the 2nd and 3rd saves after one card's
   // "이번만 허용" showed their raw path): the path is before it, and the why stays after the path in words
@@ -570,7 +607,7 @@ export function localizeStep(step: { kind: string; tool?: string; label: string;
   else if (tool === 'remember') label = retemplate(['remembered', 'notRemembered', 'rememberAsking'], step.label, locale)
   else if (tool === 'forget') label = retemplate(['forgot'], step.label, locale)
   else if (BROWSER_STEP_VERB[tool] || step.kind === 'browser' || browserTools?.has(tool)) label = reverb(BROWSER_STEP_VERB[tool] ?? BROWSER_STEP_FALLBACK, step.label, locale, LEGACY_VERBS[tool])
-  else if (tool === 'read') label = reverb(READ_MEDIA_VERB.video, step.label, locale) ?? reverb(READ_MEDIA_VERB.audio, step.label, locale) ?? reverb(FILE_STEP_VERB.read!, step.label, locale)
+  else if (tool === 'read') label = reverb(READ_MEDIA_VERB.video, step.label, locale) ?? reverb(READ_MEDIA_VERB.audio, step.label, locale) ?? reverb(READ_SLIDES_VERB, step.label, locale) ?? reverb(FILE_STEP_VERB.read!, step.label, locale)
   else if (FILE_STEP_VERB[tool]) label = reverb(FILE_STEP_VERB[tool]!, step.label, locale, LEGACY_VERBS[tool])
   // a dev-environment command's " (job)" / " (background)" (English in every language before) in the language on screen
   if (tool === 'box_shell' && label) label = resuffix(label, locale)

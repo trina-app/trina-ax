@@ -545,6 +545,7 @@ export const ko = {
   'chat.error.proxy_down': CHAT_ERROR_MESSAGES.proxy_down.ko,
   'chat.error.user_disabled': CHAT_ERROR_MESSAGES.user_disabled.ko,
   'chat.error.no_credential': CHAT_ERROR_MESSAGES.no_credential.ko,
+  'chat.error.guest_no_ai': CHAT_ERROR_MESSAGES.guest_no_ai.ko,
   'chat.error.credential_unusable': CHAT_ERROR_MESSAGES.credential_unusable.ko,
   'chat.error.model_not_found': CHAT_ERROR_MESSAGES.model_not_found.ko,
   'chat.error.endpoint_unreachable': CHAT_ERROR_MESSAGES.endpoint_unreachable.ko,

@@ -788,7 +788,7 @@ export class TurnExec {
     // server's own sign-in (a self-hosted install without AI connections): "no AI connection", before anything starts
     if (isGuestUser(rt.db, spec.userId)) {
       const managedHere = spec.engine === 'claude-code' ? confs.claude?.authMode === 'managed' && !!confs.claude.modelProxy : spec.engine === 'codex' ? confs.codex?.auth === 'managed' : false
-      if (!managedHere) { this.error = engineError('no_credential', spec.locale); return }
+      if (!managedHere) { this.error = engineError('guest_no_ai', spec.locale); return }
     }
     const route = this.route(confs)
     const engine: EngineId = route === 'claude-code' || route === 'codex' ? route : spec.engine
@@ -3903,7 +3903,7 @@ export class TurnExec {
     const pendingKey = [...keys].sort().join('\u0000')
     let pending = this.sharedPending.get(pendingKey)
     if (!pending) {
-      pending = this.askSharedRead(tool, missing, audience.length, skillUse, kind.save).finally(() => this.sharedPending.delete(pendingKey))
+      pending = this.askSharedRead(tool, missing, audience.length, skillUse, kind.save, input).finally(() => this.sharedPending.delete(pendingKey))
       this.sharedPending.set(pendingKey, pending)
     }
     const decision = await pending
@@ -3915,17 +3915,22 @@ export class TurnExec {
   }
 
   /** The card itself and its audit row: 'shared' = "읽고 공유하기" (a save card: "저장하기"), else why not. */
-  private async askSharedRead(tool: string, missing: { source: ReadSource; missing: string[] }[], audience: number, skillUse = false, save = false): Promise<SharedDecision> {
+  private async askSharedRead(tool: string, missing: { source: ReadSource; missing: string[] }[], audience: number, skillUse = false, save = false, input: unknown = null): Promise<SharedDecision> {
     const L = this.spec.locale
     const labels = { mine: tr('sharedScopeMine', L), root: tr('scopeRoot', L), room: tr('scopeRoom', L), chat: tr('scopeChatFiles', L) }
     const places = [...new Set(missing.map((m) => sourceLabel(this.rt.db, m.source, this.spec.userId, labels, { ownNames: true, place: (p) => this.place(p) })))]
     const who = new Set(missing.flatMap((m) => m.missing))
+    const copy = !skillUse && !save ? copyCardFiles(tool, input, L) : null
     const scheduled = this.spec.clientKind === 'schedule'
     const { value: answer, missing: none } = await this.askAlways(save ? 'shared_save' : 'shared_read', {
       kind: 'ask_user', origin: 'server', requestId: crypto.randomUUID(),
       // a group's skill some of them may not use (not in the group): "…cannot use this skill" (they may see the place);
       // a save into a place that is there already: "…wants to save a file in" (nothing is read from it)
-      question: tr(skillUse ? 'sharedSkillConfirm' : save ? (SAVE_CARD_TOOLS[tool] === 'many' ? 'sharedSaveManyConfirm' : 'sharedSaveConfirm') : 'sharedReadConfirm', L, { sources: places.join(', '), n: String(audience), m: String(who.size) }),
+      // a copy into this chat's work folder or its files: which files, and that everyone in the chat sees them there
+      // (QA TC-6939: "wants to read your personal folder" read as the whole folder)
+      question: copy
+        ? tr(copy.to === 'work' ? 'sharedCopyWorkConfirm' : 'sharedCopyChatConfirm', L, { sources: places.join(', '), files: copy.files, n: String(audience), m: String(who.size) })
+        : tr(skillUse ? 'sharedSkillConfirm' : save ? (SAVE_CARD_TOOLS[tool] === 'many' ? 'sharedSaveManyConfirm' : 'sharedSaveConfirm') : 'sharedReadConfirm', L, { sources: places.join(', '), n: String(audience), m: String(who.size) }),
       options: [{ label: tr(save ? 'sharedSaveYes' : 'sharedReadYes', L), value: 'share' }, { label: tr(save ? 'sharedSaveNo' : 'sharedReadNo', L), value: 'skip' }], multiple: false, allowText: false,
       expiresAt: new Date(Date.now() + this.rt.askUserTimeoutMs()).toISOString(),
     } as TurnRequest & { options: { label: string; value: string }[] }, 'share')
@@ -5666,4 +5671,21 @@ export function skillFolderOf(rel: string): string | null {
   const segs = rel.split('/')
   const depth = root.kind === 'team' ? 1 : 3
   return segs.length > depth + 1 && segs[depth] ? segs.slice(0, depth + 1).join('/') : null
+}
+
+/** copy_files into this chat's work folder or its files, for the shared read card (QA TC-6939): where to, and the files
+ * by name (at most three, each its last part, cut at 60 characters) or how many. null for any other call. */
+export function copyCardFiles(tool: string, input: unknown, locale: Locale): { to: 'work' | 'chat'; files: string } | null {
+  if (tool !== 'copy_files' || !input || typeof input !== 'object') return null
+  const a = input as { paths?: unknown; to_folder?: unknown }
+  const place = parsePlace(a.to_folder)
+  const to = place?.kind === 'work' ? 'work' : place?.kind === 'chatFiles' ? 'chat' : null
+  if (!to || !Array.isArray(a.paths)) return null
+  const names = [...new Set(a.paths.flatMap((p) => {
+    if (typeof p !== 'string') return []
+    const n = p.replace(/\/+$/, '').split('/').pop()?.replace(/[\u0000-\u001f\u007f<>]+/g, ' ').trim() ?? ''
+    return n ? [n.length > 60 ? n.slice(0, 59) + '…' : n] : []
+  }))]
+  if (!names.length) return null
+  return { to, files: names.length <= 3 ? names.join(', ') : tr('sharedCopyCount', locale, { n: String(names.length) }) }
 }

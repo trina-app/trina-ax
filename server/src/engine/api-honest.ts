@@ -92,8 +92,27 @@ function stepKey(tool: string, args: unknown): string {
   return `${CHANGES_FILE.has(tool) ? 'change' : tool}|${target}`
 }
 
+/** Tools that make or hand over a file another way than write and edit: a later call of one of them that names the same
+ * file supersedes a save that was refused (QA TC-6938: write to chat:work/report.txt refused on purpose, then a box_shell
+ * command made report.txt and copy_files attached it; the answer still said "One step didn't work: Save."). */
+const MAKES_FILE = new Set(['write', 'edit', 'box_shell', 'copy_files', 'move_files', 'save_work_file', 'make_file', 'edit_office'])
+
+/** The last part of a path ("chat:work/out/report.txt" -> "report.txt"), lower case; null for none */
+const fileName = (p: string) => p.split('/').filter(Boolean).pop()?.toLowerCase() ?? null
+
+/** Every string an argument holds (arrays and one level of objects: copy_files paths, merge_pdfs files) */
+function argStrings(args: unknown): string[] {
+  const a = (args && typeof args === 'object' ? args : {}) as Record<string, unknown>
+  const out: string[] = []
+  for (const v of Object.values(a)) for (const x of Array.isArray(v) ? v : [v]) {
+    if (typeof x === 'string') out.push(x)
+    else if (x && typeof x === 'object') for (const y of Object.values(x)) if (typeof y === 'string') out.push(y)
+  }
+  return out
+}
+
 /** The answer's tool calls that failed and were not done again with success afterwards (same tool or a change of the
- * same file, same target). */
+ * same file, same target), nor superseded by a later call that made or handed over the same file another way. */
 export class FailedSteps {
   private readonly open = new Map<string, string>()
 
@@ -101,6 +120,16 @@ export class FailedSteps {
     const key = stepKey(tool, args)
     if (ok) {
       this.open.delete(key)
+      // a refused save of a file that a later step made or handed over by another route: the outcome stands
+      if (MAKES_FILE.has(tool)) {
+        // a command's words, split at spaces and shell marks ("> report.txt", "cp a.txt \"$TRINA_WORK/out/\""); other tools' values
+        const said = argStrings(args).flatMap((v) => (tool === 'box_shell' ? v.split(/[\s"'`;|&<>()=]+/) : [v])).map((v) => v.toLowerCase()).filter(Boolean)
+        for (const k of [...this.open.keys()]) {
+          if (!k.startsWith('change|')) continue
+          const name = fileName(k.slice('change|'.length))
+          if (name && said.some((v) => v === name || v.endsWith('/' + name))) this.open.delete(k)
+        }
+      }
       // a call with a target also settles the same tool's earlier failure that had none (bad arguments the first time)
       this.open.delete(`${key.slice(0, key.indexOf('|'))}|`)
       // a file made or changed after a read that failed (often "not found" before it was created) settles the read
