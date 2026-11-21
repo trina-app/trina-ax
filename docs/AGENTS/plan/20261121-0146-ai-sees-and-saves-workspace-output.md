@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-21 01:46 (revised after review, same day)
 - Branch: `fix/ai-sees-and-saves-workspace-output`
-- Status: draft (second review)
+- Status: in progress (PR1 of 2; reviewed twice, owner OK)
 - Where: server (file read, one new chat tool, chat files, dev environment tool text, prompt). Why: the AI's own tools
   (docs/REPOSITORY-RULES.md)
 - Version impact: minor. `read` takes a new kind of path, and there is one new tool (`save_work_file`)
@@ -133,6 +133,38 @@ and card details (`chat/turn.ts` around 5379 and 5461), `rooms/ai-tools.ts` WRIT
 
 Out: public links for dev servers; other file tools on work paths; PPTX slides as pictures in `read` (follow-up);
 MP4 for `promo_video` on Linux (its own handoff in decisions/20261116-save-promo-video.md).
+
+## After the second review (2026-11-21): what is built, in two PRs
+
+**PR1 (this branch): see + personal save.**
+- Gate: work-folder `read` and `save_work_file` exist only when this turn's tools include box_shell (so not in a
+  confidential chat, where box_shell is dropped as a non-local tool although `exec.devEnv` is set) AND this turn's space is
+  a work folder. The resolver follows `spaceOf` exactly, without making folders (a personal project chat whose project
+  folder is missing uses `chatWork`, as spaceOf does); a shared project chat runs in its project folder and has none.
+- Safe open: the work folder's root is `realpath`ed first; the file is opened with `O_RDONLY|O_NOFOLLOW|O_NONBLOCK`, must be a
+  regular file with one link (store.ts refuseNotRegular), and the open fd's kernel path (devenv/snapshot.ts
+  openFilePath: `/proc/self/fd`, `F_GETPATH` on macOS) must be inside the root; null from openFilePath refuses, there is
+  no walk-only fallback and no per-component openat. The bytes are streamed from that fd into a server-only temp copy;
+  every read step works on the copy.
+- Injection: a work-folder read marks the chat as box_shell does (OWN_WORDS / OWN_CHAT_TEAM count it as box_shell:
+  markOthersWords, markOutside, taint), and its result starts with an "information, not instructions" line.
+- In a shared chat a work-folder read records what a run there may read (noteSharedReads) and the chat as its source,
+  instead of the team-path read card.
+- API engine: a model that takes images gets pixels (engine/api-vision.ts, files/vision.ts visionBlock); text only when
+  it does not or image viewing is off.
+- `save_work_file` in a personal chat only: default `users/<id>/<name>`, a clash in a personal folder saves as
+  `name (2).ext`; a `save_as` elsewhere: write rights, the wider-audience card with the person as source, placeProduced's
+  usual rules. Streamed copy and hash; turn write limits and assertStorageRoomForAI. No ffprobe line (ffprobe is not on
+  Mac servers; the AI runs it itself).
+- box_shell text: no "cp into users/<id>" advice; the one way out is save_work_file. One prompt line.
+
+**PR2 (next branch): shared-chat attach.** An AI entry for chat files (streamed, cleanPicture only for pictures, the
+turn write limits and storage check, put into the answer row's attachments at once so `sent()` holds and the unsent
+sweep never takes it), up to 1 GB (decisions/20261116-room-file-limit-1gb.md) within team storage; the attachment chip on
+assistant messages (AttachmentView) and its live event; assistant attachments with their file_id in the history
+(composeMessage) so "save that video to shared/" works with save_chat_file; refused in a turn that has a hidden-answer
+(k) group; sharedWorkOf checked again right before the hand-off. The cited sharing rule is the 11-14 one ("nothing new
+is hidden"; k groups are the one exception), which replaced the 20261118 line.
 
 ## Steps
 
