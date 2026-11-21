@@ -197,6 +197,22 @@ describe('refusals', () => {
   })
 })
 
+describe('review fixes (adversarial review of P1)', () => {
+  test('grep of chat:files/ runs its pattern in ripgrep: a backtracking pattern ends at once, ripgrep syntax, a bad one says so', async () => {
+    const chat = await sharedChat()
+    const a = await upload('alice', chat, 'xs.txt', 'x'.repeat(5000) + '\nfound \\d here\nline 42 here\n')
+    await run('alice', chat, `x\n${fake({ say: 'ok' })}`, [a.body.id])
+    const t = Date.now()
+    const slow = await run('bob', chat, `${fake({ tool: 'grep', args: { pattern: '(x+x+)+y', path: 'chat:files/' }, sayResult: true })}`)
+    expect(Date.now() - t).toBeLessThan(20_000)
+    expect(slow.content).toContain('No matches found')
+    const re = await run('bob', chat, `${fake({ tool: 'grep', args: { pattern: '\\bline \\d+\\b', path: 'chat:files/', output_mode: 'content' }, sayResult: true })}`)
+    expect(re.content).toContain(`${chatFilePath(a.body.id, 'xs.txt')}:3:line 42 here`)
+    const bad = await run('bob', chat, `${fake({ tool: 'grep', args: { pattern: '(unclosed', path: 'chat:files/' }, sayResult: true })}`)
+    expect(bad.content).toContain('Invalid regular expression')
+  })
+})
+
 describe('one way to open a chat file', () => {
   test('only chat/chat-files.ts names the chat files\' storage', () => {
     const root = path.join(import.meta.dir, '../../server/src')

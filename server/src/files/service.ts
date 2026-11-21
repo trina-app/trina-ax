@@ -421,7 +421,7 @@ export interface ChatPlaceHooks {
   read(ctx: ToolCtx, a: ReadArgs, place: Extract<Place, { kind: 'chatFiles' }>): Promise<ToolOutput>
   list(ctx: ToolCtx, a: { path?: string; offset?: number }): ToolOutput
   glob(ctx: ToolCtx, a: { pattern: string; path?: string }): ToolOutput
-  grep(ctx: ToolCtx, a: ReturnType<typeof GrepInput.parse>): ToolOutput
+  grep(ctx: ToolCtx, a: ReturnType<typeof GrepInput.parse>): ToolOutput | Promise<ToolOutput>
 }
 
 /** The refusal of chat:files/ where no chat files are reachable */
