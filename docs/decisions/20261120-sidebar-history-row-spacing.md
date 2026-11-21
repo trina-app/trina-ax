@@ -1,7 +1,7 @@
 # Trina history rows: 36px, 14px, 2px apart
 
 - Date: 2026-11-20
-- Status: accepted
+- Status: superseded by [20261121-trina-history-like-rooms](20261121-trina-history-like-rooms.md)
 - Supersedes: part of [Lists: one set of rows and headers](../DECISIONS.md#lists-one-set-of-rows-and-headers-fixpanel-type-hierarchy-2026-11-13-product-owner)
   (only the rule that 트리나's rows read at the other panels' row size, on a computer)
 - Branch: sidebar-history-row-spacing (QA, pras)

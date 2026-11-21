@@ -43,14 +43,14 @@ test('a grey ring while it runs, then the dot and an ink title; "···" takes i
   await expect(row.getByRole('img', { name: '새 답' })).toBeVisible()
   // (an unread name: 600 in ink, one look in every panel since #697, list/List.tsx rowName)
   await expect(row.getByRole('link').locator('.text-row-history')).toHaveClass(/font-semibold text-ink/)
-  // one marker in the "···" slot, its right edge 12 px in (the rooms' pills' column)
+  // one marker at the row's end after the tag, its right edge 12 px in (the rooms' pills' column)
   const marker = row.getByTestId('chat-marker')
   const menu = row.getByRole('button', { name: '기록 메뉴' })
   const [m, r] = [await marker.locator('[role="img"]').boundingBox(), await row.boundingBox()]
   expect(Math.abs(r!.x + r!.width - 12 - (m!.x + m!.width))).toBeLessThan(1)
-  // on hover "···" shows and the marker gives way; the peek's first line is the reason
+  // on hover "···" shows and the marker gives way (as a room's pill); the peek's first line is the reason
   await row.hover()
-  await expect(marker).toHaveCSS('opacity', '0')
+  await expect(marker).toBeHidden()
   await expect(menu).toHaveCSS('opacity', '1')
   await expect(page.getByTestId('chat-peek-reason')).toHaveText('새 답')
   await page.mouse.move(900, 500)
