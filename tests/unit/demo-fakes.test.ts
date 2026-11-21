@@ -22,7 +22,7 @@ import { DRIVE_CONFIG } from '../lib/fake-google-drive'
 import { activeDemoFakes, demoFakesOf, DEMO_OFFLINE_TEXT, type DemoFakes } from '../../server/src/demo/fakes'
 import { demoOffline } from '../../server/src/demo/fakes/offline'
 import { FakeState, STATE_DIR, STATE_FILE } from '../../server/src/demo/fakes/state'
-import { loadPictures, MEDIA_HOST, pickPicture, VIDEO_REFUSED } from '../../server/src/demo/fakes/higgsfield'
+import { HIGGSFIELD_TOOLS, loadPictures, MEDIA_HOST, pickPicture, PREPARED_PHOTO, SAVE_NEXT, VIDEO_REFUSED } from '../../server/src/demo/fakes/higgsfield'
 import { HIGGSFIELD_PICTURE } from '../../scripts/demo/steepling/make'
 import { googleAppsOf, type GoogleApps } from '../../server/src/integrations/google-apps/service'
 import { workspaceLibraryOf } from '../../server/src/integrations/google-apps/library'
@@ -229,6 +229,15 @@ describe('Higgsfield', () => {
     const g = await t.call('team_higgsfield__generate_image', { prompt: 'a pouch of yuzu ginger tea by a frosted window' })
     expect(g.isError).toBe(false)
     expect(g.text).toContain(MEDIA_HOST)
+    // QA TC-6792 / TC-6791: the result says the photo is a prepared one, and that it is saved and shown next
+    expect(g.text).toContain(PREPARED_PHOTO)
+    expect(g.text).toContain(SAVE_NEXT)
+    for (const n of ['generate_image', 'make_banner']) {
+      const d = HIGGSFIELD_TOOLS.find((x) => x.name === n)!.description
+      expect(d, n).toContain("demo's prepared photos")
+      expect(d, n).toContain('save_connector_file right away')
+    }
+    expect(g.text).toMatch(/mcp-file:[A-Za-z0-9_-]{22}/)
     const job = /"job_id":"(job[a-z0-9]+)"/.exec(g.text)?.[1]
     expect(job).toBeTruthy()
     expect((await t.call('team_higgsfield__job_display', { job_id: job })).text).toContain('completed')

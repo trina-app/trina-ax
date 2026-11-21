@@ -45,7 +45,8 @@ export const INTEGRATION_SPECS: Record<string, Spec> = {
   deleteIntegrationTemplate: { build: c => c.del(`/api/admin/integration-templates/${NONE}`), scope: 'nobody' },
   listIntegrationTemplateMembers: { build: c => c.get(`/api/admin/integration-templates/${NONE}/members`), scope: 'nobody' },
 }
-// GET /api/integrations/oauth/callback: state, session and person binding are tested in tests/unit/c-integrations-oauth.test.ts
+// GET /api/integrations/oauth/callback: state, session and person binding are tested in tests/unit/c-integrations-oauth.test.ts;
+// a desktop sign-in held for the app (login-CSRF, replay, expiry, another session or team) in tests/security/connect-app-return.test.ts
 // GET /api/integrations/oauth/client-metadata.json: public by design (a service fetches it without a session), holds
 // nothing but the product name and this server's callback; tests/unit/c-integrations-approved-apps.test.ts
 export const INTEGRATION_RAW_COVERED = ['RAW GET INTEGRATION_CALLBACK', 'RAW GET CLIENT_METADATA_PATH']

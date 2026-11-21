@@ -2,7 +2,7 @@
 // server behind demo-gate, signed in as the demo's one person, with the real AI until the demo limit. It must start only
 // where only the gate reaches it (managed AI, a loopback listener, no relay, the gate as model upstream), show nothing of
 // a development server, refuse whatever its fences list whoever asks, never mark its stand-in AI connection, and count
-// the demo limit with cache reads at 0.1, refusing sends at the limit with reason demo_limit.
+// the demo limit with cache reads and cache writes at 0.1, refusing sends at the limit with reason demo_limit.
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from 'bun:test'
 import fs from 'node:fs'
 import os from 'node:os'
@@ -11,11 +11,12 @@ import { API, DEMO_LIMIT_DEFAULT, DEV_SESSION_COOKIE, SESSION_COOKIE, type DemoF
 import { cookieFor, FREE_ROAM_SESSION_COOKIE, readToken, sessionCookie } from '../../server/src/auth/service'
 import { ConfigError, loadAppConfig } from '../../server/src/app-config'
 import { featuresOf } from '../../server/src/system/deployment'
-import { demoLimitState, demoUsed, setDemoLimit } from '../../server/src/admin/budgets'
+import { budgetBlock, demoLimitState, demoUsed, setDemoLimit } from '../../server/src/admin/budgets'
+import { demoQuestionsLeft } from '../../web/src/lib/freeRoam'
 import { createBroker } from '../../server/src/credentials/broker'
 import { credentialsOf, getRow, listRows } from '../../server/src/credentials/store'
 import { SHARED_SUBSCRIPTIONS_KEY } from '../../server/src/credentials/policy'
-import { setSetting } from '../../server/src/admin/settings'
+import { setSetting, updateTeamSettings } from '../../server/src/admin/settings'
 import { DEMO_AI_LABEL, demoRestError, freeRoamDenyRead, freeRoamTurnError, startFreeRoam } from '../../server/src/demo/free-roam'
 import { DEMO_GATE_DIR, demoDenyReadDirs, sandboxProfile, setDemoDenyRead } from '../../server/src/tools/isolate'
 import { FREE_ROAM_REFUSED_TOOLS, freeRoamFenceOf } from '../../server/src/demo/guard'
@@ -120,6 +121,13 @@ describe('a free-roam demo server', () => {
     expect(info).toMatchObject({ company: 'Steepling', current: 'newHire', kind: 'freeRoam', used: 0, cap: 5000, signupUrl: 'https://example.com/start' })
     // what demo-gate checks before an instance is warm (demo-gate/src/pool.ts checkFenced): freeRoam, no builder
     expect(info.builder).toBeUndefined()
+    // QA TC-6790: the team default language, also signed out: the gate denies GET /api/setup, so the sign-in page reads
+    // the instance's language here
+    updateTeamSettings(h.ctx.db, { defaultLocale: 'ja' })
+    try {
+      expect((await mina.call('GET', API.demoInfo.path)).locale).toBe('ja')
+      expect((await h.client().call('GET', API.demoInfo.path)).locale).toBe('ja')
+    } finally { updateTeamSettings(h.ctx.db, { defaultLocale: info.locale }) }
     expect(JSON.stringify(info)).not.toContain(PW)
     // QA TC-5578 / review finding 2 on #105: the session cookie is __Host-sid on the instance's plain http too, never
     // the plain-http "mycel-dev-sid" nor a bare "sid"; it was read back (me above) over that http
@@ -239,30 +247,29 @@ describe('a free-roam demo server', () => {
     expect(s.status).toBe(413)
   })
 
-  test('the demo limit: cache reads count 0.1; GET /api/demo says it; at the limit a send is refused with demo_limit', async () => {
+  test('the demo limit: cache reads and cache writes count 0.1; GET /api/demo says it; at the limit a send is refused with demo_limit', async () => {
     const cred = listRows(h.ctx.db).find((r) => r.label === DEMO_AI_LABEL)!.id
     const broker = createBroker(credentialsOf(h.ctx))
     const turn = (id: string) => h.ctx.db.query("INSERT INTO turns (id, chat_id, user_id, engine, status) VALUES (?, 'c', ?, 'claude-code', 'done')").run(id, minaId)
     turn('t-demo-1')
     broker.record(cred, 't-demo-1', 'claude-sonnet-5-5', { input_tokens: 100, cache_creation_input_tokens: 200, cache_read_input_tokens: 10_000, output_tokens: 50 })
     const row = h.ctx.db.query("SELECT input_tokens, output_tokens FROM turns WHERE id = 't-demo-1'").get() as { input_tokens: number; output_tokens: number }
-    // 100 uncached + 200 cache writes + 0.1 x 10,000 cache reads; output as it is
-    expect(row).toEqual({ input_tokens: 1300, output_tokens: 50 })
-    expect(demoUsed(h.ctx.db)).toBe(1350)
-    expect((await mina.call('GET', API.demoInfo.path)).used).toBe(1350)
+    // 100 uncached + 0.1 x 200 cache writes + 0.1 x 10,000 cache reads; output as it is
+    expect(row).toEqual({ input_tokens: 1120, output_tokens: 50 })
+    expect(demoUsed(h.ctx.db)).toBe(1170)
+    expect((await mina.call('GET', API.demoInfo.path)).used).toBe(1170)
 
-    const chat = await mina.call('POST', API.createChat.path, {})
-    const send = () => mina.try('POST', `/api/chats/${chat.id}/messages`, { content: 'hello', clientMessageId: 'cm-' + crypto.randomUUID(), attachmentIds: [] })
     turn('t-demo-2')
     broker.record(cred, 't-demo-2', 'claude-sonnet-5-5', { input_tokens: 3000, output_tokens: 600 })
-    expect(demoUsed(h.ctx.db)).toBe(4950)
-    // under the limit: the send is not refused for the limit
-    const under = await send()
-    expect(under.body?.error?.params?.reason).not.toBe('demo_limit')
+    expect(demoUsed(h.ctx.db)).toBe(4770)
+    // under the limit: nothing refuses for the limit (asked of the check itself: a real send here would start the
+    // engine, and on a checkout whose socket paths fit it is still answering when the next send comes, a 409)
+    expect(budgetBlock(h.ctx.db, minaId, 'en')).toBeNull()
+    const chat = await mina.call('POST', API.createChat.path, {})
     turn('t-demo-3')
-    broker.record(cred, 't-demo-3', 'claude-sonnet-5-5', { input_tokens: 40, output_tokens: 10 })
+    broker.record(cred, 't-demo-3', 'claude-sonnet-5-5', { input_tokens: 180, output_tokens: 50 })
     expect(demoLimitState(h.ctx.db)).toEqual({ used: 5000, cap: 5000 })
-    const r = await send()
+    const r =await mina.try('POST', `/api/chats/${chat.id}/messages`, { content: 'hello', clientMessageId: 'cm-' + crypto.randomUUID(), attachmentIds: [] })
     expect(r.status).toBe(429)
     expect(r.body.error.code).toBe('budget_exceeded')
     expect(r.body.error.params).toEqual({ reason: 'demo_limit', used: 5000, cap: 5000 })
@@ -404,12 +411,14 @@ describe('the model proxy on a free-roam demo', () => {
   const env = makeEnv('demo-free-roam-proxy')
   let answer: { status: number; body: unknown; headers?: Record<string, string> } = { status: 200, body: {} }
   let hits = 0
+  /** the next answers' usage, in order (then the default) */
+  const usages: Record<string, number>[] = []
   const upstream = Bun.serve({
     port: 0, hostname: '127.0.0.1',
     async fetch() {
       hits++
       if (answer.status !== 200) return Response.json(answer.body, { status: answer.status, headers: { 'request-id': 'req_011CTestDemo', ...answer.headers } })
-      return Response.json({ id: 'm', model: 'claude-sonnet-5-5', content: [], usage: { input_tokens: 10, output_tokens: 2, cache_read_input_tokens: 1000 } })
+      return Response.json({ id: 'm', model: 'claude-sonnet-5-5', content: [], usage: usages.shift() ?? { input_tokens: 10, output_tokens: 2, cache_read_input_tokens: 1000 } })
     },
   })
   const t = testCredCtx(env.db, path.join(env.fx.data, 'secrets'), { upstreams: { anthropic: `http://127.0.0.1:${upstream.port}/i/inst.secret` } })
@@ -473,6 +482,34 @@ describe('the model proxy on a free-roam demo', () => {
     answer = { status: 503, body: err('api_error', 'The demo is busy, try again in a bit.') }
     expect((await call()).status).toBe(503)
     expect(events.some((e) => e.ev.type === 'budget')).toBe(false)
+  })
+
+  test('a fresh copy\'s first question writes the instructions to the cache: counted at 0.1, the bar still says about 7', async () => {
+    answer = { status: 200, body: {} }
+    setDemoLimit(env.db, DEMO_LIMIT_DEFAULT)
+    const before = demoUsed(env.db)
+    const first = n
+    // one question, three requests, as a cold copy's first one on demo.trina.app (about 90k true tokens): the system
+    // prompt and the tools written to the cache, then read back while the answer works
+    usages.push(
+      { input_tokens: 3, cache_creation_input_tokens: 68_000, output_tokens: 150 },
+      { input_tokens: 3, cache_creation_input_tokens: 2_500, cache_read_input_tokens: 68_000, output_tokens: 400 },
+      { input_tokens: 3, cache_creation_input_tokens: 1_800, cache_read_input_tokens: 70_500, output_tokens: 900 },
+    )
+    for (let i = 0; i < 3; i++) expect((await call()).status).toBe(200)
+    // (3 + 6,800 + 150) + (3 + 250 + 6,800 + 400) + (3 + 180 + 7,050 + 900); with writes counted fully it was 87,609
+    expect(demoUsed(env.db) - before).toBe(22_539)
+    expect(demoQuestionsLeft(demoUsed(env.db), DEMO_LIMIT_DEFAULT)).toBe(7)
+    // a warm question after it (the cache read back, a little written): 16,766, under one 35k question
+    usages.push(
+      { input_tokens: 3, cache_creation_input_tokens: 3_000, cache_read_input_tokens: 72_300, output_tokens: 300 },
+      { input_tokens: 3, cache_creation_input_tokens: 2_000, cache_read_input_tokens: 75_300, output_tokens: 1_200 },
+    )
+    for (let i = 0; i < 2; i++) expect((await call()).status).toBe(200)
+    expect(demoQuestionsLeft(demoUsed(env.db), DEMO_LIMIT_DEFAULT)).toBe(7)
+    expect(usages).toEqual([])
+    // the next test counts from a small limit: these turns go
+    for (let k = first + 1; k <= n; k++) env.db.query('DELETE FROM turns WHERE id = ?').run(`pt-${k}`)
   })
 
   test('the weight goes through the proxy too, and at the limit the request ends on the budget path (403 budget_exceeded, never 529)', async () => {

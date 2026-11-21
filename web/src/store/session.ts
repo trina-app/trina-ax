@@ -16,7 +16,7 @@ import { forgetStarters } from '../lib/starter'
 import { forgetSkillList } from '../lib/skillTitles'
 import { accountRemoved, guestRemoval, type SignedOutReason } from '../lib/signedOut'
 import { meGuest, myUploadMax } from '../lib/guests'
-import { freeRoamNow } from './demo'
+import { freeRoamNow, useDemo } from './demo'
 
 export type AuthStatus =
   | { kind: 'loading' }
@@ -429,6 +429,15 @@ async function readMe(get: Get, set: Set): Promise<void> {
         const g = guestRemoval(e)
         set({ status: s.needed ? { kind: 'setup', teamName: s.teamName } : withRecovery(g ? guestSignedOut(g) : { kind: 'signed-out', ...(accountRemoved(e) ? { reason: 'removed' as const } : {}) }) })
       } catch {
+        // a free-roam demo's gate denies GET /api/setup (demo-gate DENY_PATHS): the instance's language comes from
+        // GET /api/demo, which the gate lets through (QA TC-6790: a ja instance's sign-in page was English only)
+        const own = await demoLocale()
+        if (own) {
+          lastTeamDefault = own
+          const locale = pickLocale(storedLocale(), own)
+          await wordsFor(locale)
+          useLocaleStore.getState().setLocale(locale)
+        }
         const g = guestRemoval(e)
         set({ status: g ? guestSignedOut(g) : { kind: 'signed-out', ...(accountRemoved(e) ? { reason: 'removed' as const } : {}) } })
       }
@@ -440,6 +449,12 @@ async function readMe(get: Get, set: Set): Promise<void> {
     useLocaleStore.getState().setLocale(locale)
     set({ status: { kind: 'error', error: e } })
   }
+}
+
+/** The team default language a demo server says (GET /api/demo `locale`), or null: not a demo server, an older one,
+ * or no answer. Read through the demo store, so the page asks once. */
+async function demoLocale(): Promise<Locale | null> {
+  try { return (await useDemo.getState().load())?.locale ?? null } catch { return null }
 }
 
 export function useMe(): Me | null {
