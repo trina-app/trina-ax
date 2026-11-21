@@ -22,7 +22,8 @@
   folder … (only you)").
 - **Rule:** for those four kinds the person sees where it came from when they are among its readers by the read scope's
   own test (`read-scope.ts viewersOf`: may use that connection, are on that team Drive share, see that part of the room,
-  read it with their own Slack). The card then names it with its count, as for a folder ("Deck Images (only you)").
+  read it with their own Slack), judged with the chat's reader (its creator, as the read scope's own check: a room part
+  whose later answer is hidden from the person answering is not named to them; security review of #281). The card then names it with its count, as for a folder ("Deck Images (only you)").
   Anyone not among its readers still gets "a place someone else opened in this chat", unnamed.
 - **Unchanged:** when the card comes and who is counted. The other member really may not use that connection, so a save
   where they (and anyone who joins the project later) can open it keeps asking: the chat hides that answer from a later
@@ -30,5 +31,5 @@
 - **Words:** none changed here (branch fix/widening-card-wording owns the card's text).
 - **Tests:** `tests/unit/b-widening-own-source-label.test.ts` (the owner's case names the connection and still asks;
   the other member's save after that read still asks with the unnamed label; a team connection both may use asks
-  nothing).
+  nothing; a room part is named to a member who sees it and not to one from whom a later answer there is hidden).
 - **Version impact:** patch (a card names the right place).

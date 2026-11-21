@@ -4,7 +4,8 @@
 // can't see where it came from": the other member may not use that connection) and now names the connection with its
 // count. It said "a place someone else opened in this chat" (chat/turn.ts seesSource had no case for a connection).
 // The other member's save after that read still gets "a place someone else opened" (they may not use it), and a team
-// connection everyone may use asks nothing. Fake engine through the real launcher and gate; fake MCP services.
+// connection everyone may use asks nothing. A room part in the chat's read scope is named to a member who sees it, and
+// not to one from whom a later answer there is hidden (judged with the chat's reader, its creator: security review of #281). Fake engine through the real launcher and gate; fake MCP services.
 import { afterAll, beforeAll, expect, setDefaultTimeout, test } from 'bun:test'
 import fs from 'node:fs'
 import path from 'node:path'
@@ -12,7 +13,7 @@ import { API } from '@mycel/shared/api'
 import { startHarness, type Harness, type TestSocket } from '../lib/b-harness'
 import { FakeServices } from '../lib/fake-services'
 import { integrationsOf } from '../../server/src/integrations/connections/service'
-import { readScope } from '../../server/src/chat/read-scope'
+import { addSources, readScope } from '../../server/src/chat/read-scope'
 import { tr } from '../../server/src/chat/i18n'
 
 setDefaultTimeout(90_000)
@@ -108,4 +109,35 @@ test('a team connection both may use: no card', async () => {
   const r = await run('alice', chat, save(target))
   expect(r.questions).toHaveLength(0)
   expect(saved(target)).toBe(true)
+})
+
+/** alice's project chat with bob, holding the read of a group room of alice, bob and erin from its first message
+ * (as room_file or a read before the project would leave it); `hideFromBob`: a later answer there is hidden from bob */
+async function roomChat(hideFromBob: boolean) {
+  const { chat } = await projectChat()
+  // a first answer (a chat's first message starts a new session, which clears its read scope)
+  await run('alice', chat, fake({ echo: 'hi' }))
+  const room = (await h.api('alice').call(API.createRoom, { body: { kind: 'group', userIds: ['bob', 'erin'] } })).id as string
+  const m = await h.api('alice').call(API.sendRoomMessage, { params: { id: room }, body: { body: 'launch plan', clientMessageId: cm(), mentions: [], fileIds: [] } })
+  if (hideFromBob) h.ctx.db.query('INSERT INTO room_hidden_answers (room_id, user_id, message_id, see_seq) VALUES (?, ?, ?, ?)').run(room, 'bob', m.id, m.seq)
+  addSources(h.ctx.db, chat, [{ type: 'room', id: room, fromSeq: m.seq }])
+  return chat
+}
+
+test('a room part bob sees: named on his card (shared/ has more readers than the room, so it asks)', async () => {
+  const chat = await roomChat(false)
+  const target = `shared/label-room-${++n}.svg`
+  const r = await run('bob', chat, save(target))
+  expect(r.questions).toHaveLength(1)
+  expect(r.questions[0]).not.toContain(OTHER_KO)
+  expect(r.questions[0]).toContain('Erin')
+})
+
+test('a room part with a later answer hidden from bob: not named to him', async () => {
+  const chat = await roomChat(true)
+  const target = `shared/label-room-${++n}.svg`
+  const r = await run('bob', chat, save(target))
+  expect(r.questions).toHaveLength(1)
+  expect(r.questions[0]).toContain(OTHER_KO)
+  expect(r.questions[0]).not.toContain('Erin')
 })

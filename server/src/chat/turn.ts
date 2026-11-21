@@ -4393,8 +4393,9 @@ export class TurnExec {
     // a connection, a Drive the team shares, a room or Slack: when the person is among its readers by the read scope's
     // own test (they may use that connection, see that part of the room, read it with their own Slack). Their own call
     // to a team connection the other people of a project chat may not use was "a place someone else opened" (owner,
-    // 2026-11-22; docs/decisions/20261121-widening-false-positive-project.md)
-    return viewersOf(this.rt.db, rules, s, [me], me.id).has(me.id)
+    // 2026-11-22; docs/decisions/20261121-widening-false-positive-project.md). The reader is the chat's (its read scope's
+    // own, chatReader), not this person: a room part whose later answer is hidden from them is not named to them
+    return viewersOf(this.rt.db, rules, s, [me], this.chatReader()).has(me.id)
   }
 
   // ---------------- team skills (skills/guard.ts) ----------------
