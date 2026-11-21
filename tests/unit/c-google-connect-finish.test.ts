@@ -8,7 +8,8 @@
 //  - the desktop app's sign-in of Gmail, Calendar, Docs or Sheets: the system browser has no session, so the result
 //    waits for the app's one-time code (as Drive's since #98), which the Drive claim address the desktop app already
 //    calls now redeems too, for the starter's session only (the phishing case of #98's review fails as for Drive);
-//  - a held page reloaded: a fresh code, the old one stops working; signed in as the person: finished at once.
+//  - a held page opened again: "go back to the app", never a second code and never finished there (the starter has
+//    the state too: it is in the Google address; review of this change).
 // Fake Google only.
 import { afterAll, afterEach, beforeAll, beforeEach, expect, setDefaultTimeout, test } from 'bun:test'
 import { harness, withOwner, addMember, OWNER_PW, type Harness, type Client } from './a-lib'
@@ -118,37 +119,46 @@ test('Drive: a window of an earlier try that comes back after a later try connec
   expect((await owner.call('GET', `${drive}/flows/${f1.flowId}`)).state).toBe('failed')
 })
 
-test('Drive desktop: the held page loaded again gives a fresh code (the first stops working); signed in as the person it finishes at once; someone else gets nothing', async () => {
+test('Drive desktop: the held page loaded again says to go back to the app, with no new code; the first code still works', async () => {
   const desk = await login('olga', OWNER_PW, 'desktop')
-  let f = await desk.call('POST', drive + '/authorize', {})
-  let url = cb(drive, fake.authorize(f.authorizationUrl))
+  const f = await desk.call('POST', drive + '/authorize', {})
+  const url = cb(drive, fake.authorize(f.authorizationUrl))
   const p1 = await (await bare(url)).text()
   const c1 = codeOf(p1)!
   expect(c1).toBeTruthy()
   expect(p1).toContain('Trina AX 앱으로 돌아가서 마치세요')
   const n = exchanges()
   const p2 = await bare(url)
-  const c2 = codeOf(await p2.text())!
-  expect(p2.status).toBe(200); expect(c2).toBeTruthy(); expect(c2).not.toBe(c1)
+  const h2 = await p2.text()
+  expect(codeOf(h2)).toBeNull(); expect(h2).not.toContain('#code=')
+  expect(h2).toContain('앱이 마치기를 기다리고 있어요'); expect(h2).not.toContain(EXPIRED)
   expect(exchanges()).toBe(n)
-  // still plain "waiting" to the app until the code comes
   expect((await desk.call('GET', `${drive}/flows/${f.flowId}`)).state).toBe('pending')
-  expect((await claim(desk, c1)).status).toBe(400)
-  const r = await claim(desk, c2)
+  const r = await claim(desk, c1)
   expect(r.status).toBe(200); expect(r.body.state).toBe('ready')
-  // a browser signed in as someone else: nothing, no code
-  f = await desk.call('POST', drive + '/authorize', {})
-  url = cb(drive, fake.authorize(f.authorizationUrl))
-  expect(codeOf(await (await bare(url)).text())).toBeTruthy()
-  const other = await bob.raw('GET', url)
-  const oh = await other.text()
-  expect(other.status).toBe(400); expect(codeOf(oh)).toBeNull(); expect(oh).not.toContain('#code=')
-  expect((await desk.call('GET', `${drive}/flows/${f.flowId}`)).state).toBe('pending')
-  // the person signs this browser in ("Sign in and connect here") and opens the address again: finished here
-  const mine = await owner.raw('GET', url)
-  expect(mine.status).toBe(200); expect(codeOf(await mine.text())).toBeNull()
-  expect((await desk.call('GET', `${drive}/flows/${f.flowId}`)).state).toBe('ready')
 })
+
+for (const which of ['Drive', 'Gmail'] as const) {
+  test(`ATTACK (${which}): the starter brings the state of a held result again, signed out or signed in: no code, nothing finished`, async () => {
+    if (which === 'Gmail') await setUpGmail()
+    const base = which === 'Drive' ? drive : gmail
+    const back = (q: { state: string; code: string }) => (which === 'Drive' ? cb(drive, q) : gmailReturn(q))
+    const attackerApp = await login('bob', BOB_PW, 'desktop')
+    const f = await attackerApp.call('POST', base + '/authorize', {})
+    // the state is in the Google address the attacker's app was given
+    const state = new URL(f.authorizationUrl).searchParams.get('state')!
+    // the victim consents in a browser without a session: held, the code only on the victim's page
+    const victimPage = await (await bare(back(which === 'Drive' ? fake.authorize(f.authorizationUrl, 'alice') : google.authorize(f.authorizationUrl, 'olga')))).text()
+    expect(codeOf(victimPage)).toBeTruthy()
+    // the attacker opens the return address with that state: without a session, and signed in as himself
+    for (const res of [await bare(`${base}/callback?state=${state}`), await attackerApp.raw('GET', `${base}/callback?state=${state}`), await bob.raw('GET', `${base}/callback?state=${state}`)]) {
+      const html = await res.text()
+      expect(codeOf(html)).toBeNull(); expect(html).not.toContain('#code=')
+    }
+    expect((await attackerApp.call('GET', `${base}/flows/${f.flowId}`)).state).toBe('pending')
+    expect((await attackerApp.try('POST', `${base}/flows/${f.flowId}/complete`, {})).status).toBe(409)
+  })
+}
 
 test('Gmail from the desktop app: the system browser without a session gets the app link with a one-time code; the app\'s own session finishes it', async () => {
   await setUpGmail()

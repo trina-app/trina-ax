@@ -20,12 +20,15 @@ Plan: [docs/AGENTS/plan/20261121-0423-google-connect-finish.md](../AGENTS/plan/2
   link's fragment; only the session that started the flow redeems it, at the Drive claim address the desktop app
   already calls (Drive's flows first, then the Google apps'). No page before Google for these four (the return page
   names the Trina account and the Google account, as Drive's does).
-- **Rule 3, a held page opened again** gives a new code (the old one stops working; its time does not grow), or, in
-  a browser signed in as the same person, finishes at once (as a first return there would). A browser signed in as
-  someone else gets nothing. The held page also opens the app link by itself (`meta refresh`; the browser asks first).
+- **Rule 3, a held page opened again** says "this sign-in is waiting for the app: press Back to the app on the first
+  page, or Try again", with no code, and finishes nothing, in any browser. The starter has the state too (it is in the
+  Google address the app was given), so a second code or a finish for whoever brings the state again would hand a
+  phished victim's consent to the starter (found in this change's review). The held page opens the app link by
+  itself (`meta refresh`; the browser asks first).
 - **Security:** unchanged properties. Single use: the state is exchanged once; a code is replaced, never added.
   Bound to the starter: the claim needs the starting session; a browser needs the same person. PKCE and the hashed
-  state as before. The "done" answers go only to a holder of the flow's secret state and say only that it finished.
+  state as before. The "done" answers say only how the starter's own flow ended, which the starter can poll anyway; "Connected
+  since" needs a later confirmed flow of the same person and app (or share) and a connection that is there now.
   The app's poll still shows a held result as plain "pending" (no "answered" hint: it would tell a phisher when the
   victim consented).
 - **Left out:** the phone app's browser without a session (no hand-off there yet); flows of two sessions still

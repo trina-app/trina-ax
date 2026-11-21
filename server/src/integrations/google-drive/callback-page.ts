@@ -21,7 +21,7 @@ import { appLink } from './app-return'
 export type AppClient = 'desktop' | 'mobile'
 
 /** What the page says: the sign-in came back (confirm it in the app), or why it did not. */
-export type GoogleReturn = 'ok' | 'done' | 'cancelled' | 'denied_service' | 'scope' | 'expired' | 'signed_out' | 'other_account' | 'failed'
+export type GoogleReturn = 'ok' | 'done' | 'handed' | 'cancelled' | 'denied_service' | 'scope' | 'expired' | 'signed_out' | 'other_account' | 'failed'
 
 /** How a sign-in ended, as the Drive and Google apps services report it: ok, or the flow's reason code. */
 /** `app`: the app whose session started the sign-in; `code`: the one-time code for the desktop app that finishes a
@@ -46,6 +46,13 @@ const TEXT: Record<GoogleReturn | Extra, T> = {
     '{product} ですでに接続されています。このウィンドウは閉じてかまいません。',
     'Ya está conectado en {product}. Puede cerrar esta ventana.',
     '已经在 {product} 中连接好了。这个窗口可以关闭。'),
+  handed: t(
+    '이 로그인은 {product} 앱이 마치기를 기다리고 있어요. Google이 처음 연 페이지에서 ‘앱으로 돌아가기’를 누르거나, 앱으로 돌아가서 다시 시도를 누르세요.',
+    'This sign-in is waiting for the {product} app. Press “Back to the app” on the first page Google opened, or go back to the app and press Try again.',
+    'Login ini menunggu aplikasi {product}. Tekan “Kembali ke aplikasi” di halaman pertama yang dibuka Google, atau kembali ke aplikasi lalu tekan Coba lagi.',
+    'このログインは {product} アプリでの完了を待っています。Google が最初に開いたページで「アプリに戻る」を押すか、アプリに戻って「再試行」を押してください。',
+    'Este inicio de sesión espera a la aplicación {product}. Pulse «Volver a la aplicación» en la primera página que abrió Google, o vuelva a la aplicación y pulse Reintentar.',
+    '这次登录正在等待 {product} 应用完成。请在 Google 最先打开的页面上按“返回应用”，或者回到应用按“重试”。'),
   hNot: t('연결하지 못했어요', 'Not connected', 'Tidak terhubung', '接続できませんでした', 'No se conectó', '未连接'),
   hSignedOut: t('이 브라우저에서는 마칠 수 없어요', 'This browser can’t finish it', 'Browser ini tidak bisa menyelesaikannya', 'このブラウザーでは完了できません', 'Este navegador no puede terminarlo', '这个浏览器无法完成'),
   okApp: t(
@@ -162,6 +169,7 @@ export function googleReturnOf(outcome: CallbackOutcome, browserSignedIn: boolea
     case 'consent_denied': case 'cancelled': return 'cancelled'
     case 'consent_denied_service': return 'denied_service'
     case 'scope_denied': return 'scope'
+    case 'held': return 'handed'
     case 'invalid_flow': case 'expired': case 'superseded': case 'flow_not_ready': return 'expired'
     case 'browser_session_required': return browserSignedIn ? 'other_account' : 'signed_out'
     default: return 'failed'
@@ -208,6 +216,9 @@ export function googleReturnPage(r: GoogleReturn, locale: Locale, o: ReturnPageO
     actions = (facts.length ? `<ul class="facts" data-testid="held-facts">${facts.map((f) => `<li>${esc(f)}</li>`).join('')}</ul>` : '')
       + `<a class="cta" href="${esc(appLink(origin, o.code))}">${esc(say('backToApp', locale))}</a>`
       + `<p class="note" data-testid="held-own-app">${esc(say('heldOwnApp', locale))}</p>`
+  } else if (r === 'handed') {
+    // the result waits for the first page's code (app-return.ts): this one never gets a code
+    title = say('hBack', locale); text = say('handed', locale); actions = appButton
   } else if (r === 'done') {
     title = say('hOkApp', locale); text = say('done', locale); actions = inApp ? appButton : ''
   } else if (r === 'ok' && inApp) {

@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-21 04:23
 - Branch: `fix/google-connect-finish`
-- Status: in progress
+- Status: done
 - Where: server/src/integrations/google-drive, google-apps, routes; web BrowserWait. Why: the return page and the
   flows live there (see docs/REPOSITORY-RULES.md)
 - Version impact: patch, a fix of the Google sign-in return; no new API, no migration
@@ -35,8 +35,8 @@ In:
    the session that started it). The desktop app already posts every code to the Drive claim address: that address
    now redeems a Google app's code too (no desktop update needed). The return page knows the app (desktop/phone).
 2. Both services: a return to a flow that is already answered says so: "ready" (confirm in the app), "completed"
-   (Connected, close this window), a held one gives a fresh code (the old one stops working), an in-flight one is
-   waited for (up to 15 s) and then reported. A superseded flow whose person connected the same thing since says
+   (Connected, close this window), a held one says "go back to the app" (no new code: the starter has the state), an
+   in-flight one is waited for (up to 15 s) and then reported. A superseded flow whose person connected the same thing since says
    Connected.
 3. The held page: title "Go back to Trina AX to finish", and it opens the app link by itself (the button stays).
 4. The app's wait line on the desktop says to press "Back to the app" in the browser when Google is done.
@@ -63,4 +63,8 @@ a held page reloaded, a superseded window after a newer one connected.
 
 ## Result
 
-(at the end)
+Built as planned, with one change from review: a held page opened again first gave a fresh code (or finished for a
+signed-in starter). The reviewer showed the starter has the state, so that would hand a phished victim's consent to
+the starter. It now says "go back to the app" with no code. Review also tightened "connected since" (the same share;
+a live connection) and the Google-app claim (it repeats the session and admin checks). No trina-cloud change: the
+broker log shows every handoff redeemed once. PR: see the branch fix/google-connect-finish.

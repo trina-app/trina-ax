@@ -277,10 +277,10 @@ export class GoogleDrive {
   }
   /** A return to a sign-in that is no longer waiting for Google (null while it is, or for an unknown state): another
    * return still talking to Google is waited for (SETTLE_MS); answered and waiting for the person's confirm: ok
-   * ('ready'); confirmed: Connected ('completed'); held for the desktop app: a fresh code (the one given before stops
-   * working) to a browser without a session, or finished at once in a browser signed in as the same person; replaced by
-   * a later sign-in of the same person that is connected now: Connected. Anything else: "expired or already used". The state is the
-   * flow's secret: this tells nothing to anyone without it. */
+   * ('ready'); confirmed: Connected ('completed'); held for the desktop app: 'held' (go back to the app; no code,
+   * nothing finished); replaced by a later sign-in of the same person (and the same share) that is connected now:
+   * Connected. Anything else: "expired or already used". Only the outcome of the starter's own flow is told (the
+   * starter can poll it anyway). */
   private async answered(state: string, app: { app?: 'desktop' | 'mobile' }, browser?: { userId: string; sessionId: string }): Promise<CallbackOutcome | null> {
     const read = () => this.ctx.db.query('SELECT * FROM drive_oauth_flows WHERE state_hash=?').get(hash(state)) as FlowRow | null
     this.store.sweep()
@@ -294,24 +294,12 @@ export class GoogleDrive {
     if (r.state === 'completed') return { ok: true, done: 'completed', ...app }
     if (r.state === 'exchanging') {
       if (!this.held(r)) return no('provider_unavailable') // still talking to Google after SETTLE_MS
-      const s = this.store.open<FlowSecret>(r)
-      if (this.now() > s.claim!.until || r.config_key !== this.key) return no('expired')
-      if (browser && browser.userId !== r.user_id) return no('browser_session_required')
-      const { claim, ...rest } = s
-      if (browser) {
-        // signed in as the person now: finished here, as a first return in this browser would be
-        try { this.store.session(browser.userId, browser.sessionId) } catch { return no('invalid_flow') }
-        const sealed = this.store.seal(r.user_id, r.id, rest)
-        if (!this.ctx.db.query("UPDATE drive_oauth_flows SET state='ready',secret_enc=?,key_version=?,account=? WHERE id=? AND state='exchanging'").run(sealed.enc, sealed.keyVersion, JSON.stringify(s.account), r.id).changes) return no('invalid_flow')
-        return { ok: true, ...app }
-      }
-      const code = newToken()
-      const sealed = this.store.seal(r.user_id, r.id, { ...rest, claim: { hash: tokenHash(code), until: claim!.until } })
-      if (!this.ctx.db.query("UPDATE drive_oauth_flows SET secret_enc=?,key_version=? WHERE id=? AND state='exchanging'").run(sealed.enc, sealed.keyVersion, r.id).changes) return no('invalid_flow')
-      const who = this.ctx.db.query('SELECT name, username FROM users WHERE id=?').get(r.user_id) as { name: string; username: string } | null
-      return { ok: true, app: 'desktop', code, who: who ?? { name: '', username: '' }, google: s.account?.email ?? s.account?.name ?? '' }
+      // Held for the desktop app: never a new code, never finished here. The starter has the state too (it is in the
+      // Google address the app was given): a code or a finish for whoever brings the state again would hand a phished
+      // victim's consent to the starter. The first page's code is the only one.
+      return no(this.now() > this.store.open<FlowSecret>(r).claim!.until ? 'expired' : 'held')
     }
-    if (r.state === 'failed' && r.reason === 'superseded' && this.ctx.db.query("SELECT 1 FROM drive_oauth_flows WHERE user_id=? AND purpose=? AND state='completed' AND created_at>=? AND id!=?").get(r.user_id, r.purpose, r.created_at ?? '', r.id)) return { ok: true, done: 'completed', ...app }
+    if (r.state === 'failed' && r.reason === 'superseded' && this.ctx.db.query("SELECT 1 FROM drive_oauth_flows WHERE user_id=? AND purpose=? AND share_id IS ? AND state='completed' AND created_at>=? AND id!=?").get(r.user_id, r.purpose, r.share_id, r.created_at ?? '', r.id) && (r.purpose === 'share' || this.store.connection(r.user_id))) return { ok: true, done: 'completed', ...app }
     // ended otherwise (cancelled in the app, timed out, replaced, refused): "expired or already used", as before
     return no('invalid_flow')
   }
