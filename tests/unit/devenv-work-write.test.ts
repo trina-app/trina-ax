@@ -370,3 +370,41 @@ describe('the settings of the copy run', () => {
     fs.rmSync(mbase, { recursive: true, force: true })
   })
 })
+
+describe('review fixes (#218)', () => {
+  test('a folder on the way to the source folder that is a link: refused, nothing is staged or run (the walk would trust where it leads)', async () => {
+    // alice may write her own folder; a command of hers made via/ a link to a folder outside the team folder, and the
+    // caller names users/alice/via/stuff (or swaps a real via/ for the link after its check)
+    const outside = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'ww-outside-')))
+    w(path.join(outside, 'stuff/server-secret.txt'), 'SERVER-SECRET')
+    fs.symlinkSync(outside, team('users/alice/via'))
+    const id = chat()
+    await expect(writeIntoWork(h.ctx, personal(id), 'got', { kind: 'folder', abs: team('users/alice/via/stuff') })).rejects.toThrow(/link|changed/)
+    expect(runs).toHaveLength(0)
+    expect(stageLeft()).toEqual([])
+    expect(fs.existsSync(path.join(chatWork(base, id), 'got'))).toBe(false)
+    fs.rmSync(outside, { recursive: true, force: true })
+  })
+
+  test('a file named without its lstat through a folder that is a link (a work folder\'s link to the server\'s data): refused', async () => {
+    const outside = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'ww-outside-')))
+    w(path.join(outside, 'db.sqlite'), 'SERVER-DB')
+    const id = chat()
+    // a command made lnk/ in the chat's own work folder; a copy of chat:work/lnk/db.sqlite elsewhere in it
+    await writeIntoWork(h.ctx, personal(id), 'seed.txt', { kind: 'file', abs: team('users/alice/proposal/proposal.html') })
+    const work = fs.realpathSync(chatWork(base, id))
+    fs.symlinkSync(outside, path.join(work, 'lnk'))
+    runs.length = 0
+    await expect(writeIntoWork(h.ctx, personal(id), 'got.sqlite', { kind: 'file', abs: path.join(work, 'lnk', 'db.sqlite') })).rejects.toThrow(/link/)
+    expect(runs).toHaveLength(0)
+    expect(fs.existsSync(path.join(work, 'got.sqlite'))).toBe(false)
+    fs.rmSync(outside, { recursive: true, force: true })
+  })
+
+  test.if(process.platform === 'darwin')('macOS: a folder whose name is stored in another Unicode form than the path names it (Finder NFD) is no link: copied', async () => {
+    const nfd = '제안서'.normalize('NFD')
+    w(team(`users/alice/${nfd}/a.txt`), 'A')
+    const r = await writeIntoWork(h.ctx, personal(chat()), 'nf/', { kind: 'folder', abs: team(`users/alice/${nfd.normalize('NFC')}`) })
+    expect(r.files).toBe(1)
+  })
+})
