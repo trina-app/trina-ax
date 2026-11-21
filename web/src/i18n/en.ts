@@ -1880,6 +1880,8 @@ export const en: Record<MessageKey, string> = {
   'notifications.event.dev_env.jobDoneIn': "Trina finished the job you asked for in “{title}”.",
   'notifications.event.dev_env.jobFailed': "Trina couldn't finish a job you asked for.",
   'notifications.event.dev_env.jobFailedIn': "Trina couldn't finish the job you asked for in “{title}”. Check the chat.",
+  'notifications.event.dev_env.jobUnknown': "A job you asked for has ended, but Trina can't tell whether it worked.",
+  'notifications.event.dev_env.jobUnknownIn': "The job you asked for in “{title}” has ended, but Trina can't tell whether it worked. Check the chat.",
   'notifications.event.dev_env.box': "The server stopped a dev environment box.",
   'settings.browser': 'Browser',
   'settings.browser.desc': 'The in-app browser of the desktop app, for this team on this computer. The same setting as ⚙ in the browser panel.',

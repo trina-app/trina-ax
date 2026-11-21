@@ -1879,6 +1879,8 @@ export const ko = {
   'notifications.event.dev_env.jobDoneIn': "‘{title}’에서 부탁한 작업을 트리나가 마쳤어요.",
   'notifications.event.dev_env.jobFailed': "부탁한 작업을 트리나가 끝내지 못했어요.",
   'notifications.event.dev_env.jobFailedIn': "‘{title}’에서 부탁한 작업을 트리나가 끝내지 못했어요. 채팅에서 확인해 보세요.",
+  'notifications.event.dev_env.jobUnknown': "부탁한 작업이 끝났지만, 잘 됐는지는 트리나가 알 수 없어요.",
+  'notifications.event.dev_env.jobUnknownIn': "‘{title}’에서 부탁한 작업이 끝났지만, 잘 됐는지는 트리나가 알 수 없어요. 채팅에서 확인해 보세요.",
   'notifications.event.dev_env.box': "서버가 개발 환경 상자를 멈췄어요.",
   'settings.browser': '브라우저',
   'settings.browser.desc': '데스크톱 앱의 앱 안 브라우저 설정이에요. 이 컴퓨터에서 이 팀에만 적용되고, 브라우저 패널의 ⚙과 같은 설정이에요.',

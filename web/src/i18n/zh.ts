@@ -1849,6 +1849,8 @@ export const zh: Record<MessageKey, string> = {
   'notifications.event.dev_env.jobDoneIn': "你在“{title}”中交给 Trina 的任务已完成。",
   'notifications.event.dev_env.jobFailed': "你交给 Trina 的任务没能完成。",
   'notifications.event.dev_env.jobFailedIn': "你在“{title}”中交给 Trina 的任务没能完成。请在对话中查看。",
+  'notifications.event.dev_env.jobUnknown': "你交给 Trina 的任务已结束，但 Trina 无法确定是否成功。",
+  'notifications.event.dev_env.jobUnknownIn': "你在“{title}”中交给 Trina 的任务已结束，但 Trina 无法确定是否成功。请在对话中查看。",
   "notifications.event.dev_env.box": "服务器停止了一个开发环境容器。",
   "settings.browser": "浏览器",
   "settings.browser.desc": "桌面应用的内置浏览器，适用于此电脑上的这个团队。与浏览器面板中的 ⚙ 是同一个设置。",

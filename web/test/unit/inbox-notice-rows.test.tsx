@@ -161,6 +161,15 @@ test('the Inbox: a run is one link with its task, time and dot that reads it; no
   } finally { await m.unmount() }
 })
 
+test('a job\'s result in plain words: done, ended with the result unknown (no code, not stopped), not done (QA TC-6586)', () => {
+  const job = (exitCode: number | null, reason?: string) => notice({ eventType: 'dev_env.job', code: 'dev_env.job', outcome: null, devEnv: { projectId: '', projectName: '', job: { name: 'j', exitCode, ...(reason ? { reason } : {}) } } })
+  expect(text(job(0), 'en')).toBe(en('notifications.event.dev_env.jobDone').replaceAll("'", '&#x27;'))
+  expect(text(job(null, 'lost'), 'en')).toBe(en('notifications.event.dev_env.jobUnknown').replaceAll("'", '&#x27;'))
+  expect(text(job(null, 'lost'), 'en')).not.toContain("couldn")
+  expect(text(job(3), 'en')).toBe(en('notifications.event.dev_env.jobFailed').replaceAll("'", '&#x27;'))
+  expect(text(job(null, 'setting'), 'en')).toBe(en('notifications.event.dev_env.jobFailed').replaceAll("'", '&#x27;'))
+})
+
 test('"tried to use Trina but it isn\'t set up yet": the name while the account is there, else a team member; the AI accounts page', () => {
   const ask = (o: Partial<InboxNotification> = {}) => notice({ eventType: 'onboarding.ai_request', code: 'onboarding.ai_request', sourceId: 'not-ready:u1', chatId: null, link: 'admin_credentials', outcome: null, ...o })
   expect(text(ask({ notReady: true, requester: { name: 'Mia' } }), 'en')).toBe("Mia tried to use Trina but it isn&#x27;t set up yet.")

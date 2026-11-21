@@ -1852,6 +1852,8 @@ export const ja: Record<MessageKey, string> = {
   'notifications.event.dev_env.jobDoneIn': "「{title}」で頼んだ作業をトリナが終えました。",
   'notifications.event.dev_env.jobFailed': "頼んだ作業をトリナが終えられませんでした。",
   'notifications.event.dev_env.jobFailedIn': "「{title}」で頼んだ作業をトリナが終えられませんでした。チャットで確認してください。",
+  'notifications.event.dev_env.jobUnknown': "頼んだ作業は終わりましたが、うまくいったかどうかトリナには分かりません。",
+  'notifications.event.dev_env.jobUnknownIn': "「{title}」で頼んだ作業は終わりましたが、うまくいったかどうかトリナには分かりません。チャットで確認してください。",
   'notifications.event.dev_env.box': "サーバーが開発環境のボックスを停止しました。",
   'settings.browser': "ブラウザー",
   'settings.browser.desc': "このコンピューターの、このチーム向けのアプリ内ブラウザー設定です。ブラウザーパネルの⚙と同じ設定です。",
