@@ -272,10 +272,18 @@ describe('who may attach', () => {
 describe('the chat file link', () => {
   const id = '01a1fc0c-bb3a-74b5-a134-7fcbe2e1b208'
   test('a tool result\'s link to chat:files/<id>/… becomes /c/<chat>?file=<id>', () => {
-    const t = chatLinksInText(`Saved chat:files/${id}/deck.pptx. Link for the user: [deck.pptx](/files/view?path=chat%3Afiles%2F${id}%2Fdeck.pptx)`, 'chat-1')
+    const t = chatLinksInText(`Saved chat:files/${id}/deck.pptx. Link for the user: [deck.pptx](/files/view?path=chat%3Afiles%2F${id}%2Fdeck.pptx)`, 'chat-1', true)
     expect(t).toContain(`[deck.pptx](/c/chat-1?file=${id})`)
     expect(t).not.toContain('/files/view')
-    expect(chatLinksInText('Saved shared/a.docx: [a.docx](/files/view?path=shared%2Fa.docx)', 'chat-1')).toBe('Saved shared/a.docx: [a.docx](/files/view?path=shared%2Fa.docx)')
+    expect(t).toContain('everyone in this chat opens it under your answer')
+    expect(chatLinksInText('Saved shared/a.docx: [a.docx](/files/view?path=shared%2Fa.docx)', 'chat-1', true)).toBe('Saved shared/a.docx: [a.docx](/files/view?path=shared%2Fa.docx)')
+  })
+
+  test('QA TC-6778: in a chat only the person sees, the attached-file line names no one', () => {
+    const t = chatLinksInText(`Saved chat:files/${id}/deck.pptx. Link for the user: [deck.pptx](/files/view?path=chat%3Afiles%2F${id}%2Fdeck.pptx)`, 'chat-1', false)
+    expect(t).toContain(`[deck.pptx](/c/chat-1?file=${id})`)
+    expect(t).toContain('it opens under your answer')
+    expect(t).not.toMatch(/everyone/i)
   })
 
   test('the API engine keeps the chat file link a tool gave and drops an invented one; a chat link alone goes through', () => {

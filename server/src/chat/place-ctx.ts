@@ -91,7 +91,7 @@ export function chatPlaces(exec: TurnExec, files: TurnFiles): ChatPlaces {
       files.readHashes.set(h.path, made.row.sha256)
       addSources(rt.db, chatId, [{ type: 'chat', id: chatId }])
       onChatFileVersion(chatId, h.id)
-      return { id: h.id, name: h.name, path: h.path, version: made.row.version ?? 1, size: made.row.size, sha256: made.row.sha256, beside: made.beside, link: chatFileLink(chatId, h.id) }
+      return { id: h.id, name: h.name, path: h.path, version: made.row.version ?? 1, size: made.row.size, sha256: made.row.sha256, beside: made.beside, link: chatFileLink(chatId, h.id), everyone: chatKindOf(exec) === 'people' }
     },
   }
 
