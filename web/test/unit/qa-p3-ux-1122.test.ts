@@ -36,6 +36,9 @@ describe('TC-6924: the Display name after the provider changes', () => {
     expect(presetLabel('Ollama box', { model: 'x', from: 'custom', to: 'ollama' })).toBe('Ollama box')
     expect(presetLabel('QA OpenRouter', { model: 'x', from: 'openrouter', to: 'openrouter' })).toBe('QA OpenRouter')
     // a word that only contains a provider's name is not one ("Googley" is not Google)
+    // OpenRouter serves the others' models: a model family's name stays after picking it, a provider's name goes
+    expect(presetLabel('Claude Sonnet', { model: 'x', from: 'anthropic', to: 'openrouter' })).toBe('Claude Sonnet')
+    expect(presetLabel('Anthropic key', { model: 'x', from: 'anthropic', to: 'openrouter' })).toBe('')
     expect(presetLabel('Googley helper', { model: 'x', from: 'gemini', to: 'ollama' })).toBe('Googley helper')
   })
 })

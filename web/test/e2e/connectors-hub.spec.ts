@@ -281,6 +281,8 @@ test('Admin: Add picks an app from Discover, or a custom app last', async ({ pag
     await expect(dialog.locator(':focus')).toHaveCount(1)
   }
   await expect(dialog.getByRole('heading', { name: 'Notion 추가' })).toBeVisible()
+  // the catalog's address is under Advanced, not up front (QA TC-6928)
+  await expect(dialog.getByTestId('connector-summary')).toBeHidden()
   await expect(dialog.getByTestId('connector-summary')).toHaveText('주소: https://mcp.notion.com/mcp')
   await expect(dialog.getByTestId('integration-name')).toHaveCount(0)
   await expect(dialog.getByTestId('integration-save')).toHaveText('저장하고 로그인')

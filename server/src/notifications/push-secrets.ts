@@ -5,6 +5,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import type { Locale } from '@mycel/shared/api'
+import { withSupport } from '../system/messages-linux'
 
 type T = Record<Locale, string>
 
@@ -21,12 +22,8 @@ export interface PushSecretsProblem {
  * (`create`: it is made 0700 first, as a registration does). */
 export function pushSecretsProblem(o: { dataDir: string; teamRoot: string; secrets: string; create?: boolean }): PushSecretsProblem | null {
   let realData: string, team: string
-  try {
-    realData = fs.realpathSync(o.dataDir)
-    team = fs.realpathSync(o.teamRoot)
-  } catch {
-    return { dir: o.dataDir, why: 'unreadable' }
-  }
+  try { realData = fs.realpathSync(o.dataDir) } catch { return { dir: o.dataDir, why: 'unreadable' } }
+  try { team = fs.realpathSync(o.teamRoot) } catch { return { dir: o.teamRoot, why: 'unreadable' } }
   if (realData === team || realData.startsWith(team + path.sep)) return { dir: o.dataDir, why: 'in_team_folder' }
   for (const dir of [o.dataDir, path.dirname(o.secrets), o.secrets]) {
     if (!fs.existsSync(dir)) {
@@ -57,8 +54,17 @@ export function pushSecretsLogLine(p: PushSecretsProblem): string {
 
 export const PUSH_SECRETS_TEXT = {
   label: { ko: '알림 비밀 폴더', en: 'Notification secrets folder', id: 'Folder rahasia notifikasi', ja: '通知の秘密フォルダー', es: 'Carpeta de secretos de notificaciones', zh: '通知密钥文件夹' } as T,
-  /** Admin › System › Diagnostics: what is wrong and what to run, on the server */
-  problem: (p: PushSecretsProblem): T => {
+  /** Admin › System › Diagnostics: what is wrong and what to run, on the server. A hosted team's admin has no shell
+   * there: no folder or command, only that support fixes it */
+  problem: (p: PushSecretsProblem, hosted = false): T => {
+    if (hosted) return withSupport({
+      ko: '서버의 알림 비밀 폴더 권한이 맞지 않아 휴대폰과 브라우저가 알림을 등록하지 못해요.',
+      en: "The server's notification secrets folder has the wrong permissions, so phones and browsers can't sign up for notifications.",
+      id: 'Izin folder rahasia notifikasi di server salah, jadi ponsel dan browser tidak bisa mendaftar notifikasi.',
+      ja: 'サーバーの通知の秘密フォルダーの権限が正しくないため、スマホやブラウザーが通知を登録できません。',
+      es: 'La carpeta de secretos de notificaciones del servidor tiene permisos incorrectos, así que los teléfonos y navegadores no pueden registrarse para las notificaciones.',
+      zh: '服务器的通知密钥文件夹权限不对，所以手机和浏览器无法注册通知。',
+    })
     if (p.why === 'open') return {
       ko: `${p.dir} 폴더를 다른 계정도 열 수 있어요(권한 ${p.mode}). 그래서 휴대폰과 브라우저가 알림을 등록하지 못해요. 서버에서 \`chmod 700 ${p.dir}\`을 실행해 주세요.`,
       en: `Other accounts can open ${p.dir} (mode ${p.mode}), so phones and browsers can't sign up for notifications. On the server, run \`chmod 700 ${p.dir}\`.`,

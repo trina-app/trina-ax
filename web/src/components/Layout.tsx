@@ -277,9 +277,9 @@ function ConnectionBanner() {
 
 /**
  * Session markers (docs/DECISIONS.md "Session markers"): while the tab is hidden its title starts with "(n) ", n = the
- * AI chats showing "?" or a new answer (each once) plus, for each room that wants me, its unread messages (at least 1
- * for a mention only inside a thread; docs/decisions/20261120-push-every-message.md, store/sessionMarkers.ts): the same
- * number as the dock badge and the phone icon.
+ * AI chats showing "?" or a new answer (each once) plus, for each room that wants me, its unread messages (at least 1)
+ * when it is set to every message, else 1 (shared/src/api/attention.ts attentionCount;
+ * docs/decisions/20261120-push-every-message.md): the same number as the dock badge and the phone icon.
  */
 export function AttentionTitle() {
   const { n: count } = useAttention()

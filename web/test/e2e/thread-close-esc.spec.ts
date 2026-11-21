@@ -44,6 +44,16 @@ test('Esc closes the thread beside the room, and the room address no longer name
   await expect(page.getByTestId('room-thread')).toBeVisible()
 })
 
+test('Esc pressed twice quickly closes the thread once: the room stays, no step past it', async ({ page }) => {
+  await open(page)
+  await page.keyboard.press('Escape')
+  await page.keyboard.press('Escape')
+  await expect(page.getByTestId('room-thread')).toHaveCount(0)
+  await expect(page).toHaveURL(new RegExp(`/rooms/${ROOM_ID}$`))
+  await page.waitForTimeout(500)
+  await expect(page).toHaveURL(new RegExp(`/rooms/${ROOM_ID}$`))
+})
+
 test('Esc while typing in the room box leaves the thread open; in the thread box it closes it', async ({ page }) => {
   await open(page)
   await page.getByTestId('room-input').first().focus()

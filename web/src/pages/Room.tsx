@@ -308,6 +308,8 @@ function RoomView({ roomId, threadId, badThread }: { roomId: string; threadId: s
   const closeThread = useCallback(() => {
     const to = threadClosing(roomId, fromRoom)
     if (to === -1) {
+      // a second close (Esc pressed twice, a key held down) before the step back has landed would step past the room
+      if (dropTarget.current) return
       dropTarget.current = true
       navigate(-1)
     } else navigate(to.path, { replace: to.replace })
@@ -347,7 +349,7 @@ function RoomView({ roomId, threadId, badThread }: { roomId: string; threadId: s
   // three columns): the keyboard goes into the panel that opened and, when the room shows again, back to where it was
   // in the room; Esc closes one panel a press: the one the keyboard is in, else the side chat first, then the thread
   // (not while a menu or dialog of its own is open, nor while an input method composes). Beside the room, as columns,
-  // Esc closes nothing: there it belongs to the mention list, an edit, a menu
+  // the effect after this one closes the thread (QA TC-6923)
   const covering = wide && ((sheet && !!(threadId || rightOpen)) || pair || over)
   // a room under panels is out of sight: nothing in it is read (tryRead)
   const covered = useRef(covering)
@@ -379,7 +381,7 @@ function RoomView({ roomId, threadId, badThread }: { roomId: string; threadId: s
     let preview = false
     const onKeyFirst = (e: KeyboardEvent) => { if (e.key === 'Escape') preview = !!getSidePanel() && !document.querySelector('[role="dialog"]') }
     const onKey = (e: KeyboardEvent) => {
-      if (e.key !== 'Escape' || e.defaultPrevented || e.isComposing || e.keyCode === 229 || preview || document.querySelector('[role="menu"], [role="dialog"]:not([data-sheet])')) return
+      if (e.key !== 'Escape' || e.repeat || e.defaultPrevented || e.isComposing || e.keyCode === 229 || preview || document.querySelector('[role="menu"], [role="dialog"]:not([data-sheet])')) return
       e.preventDefault()
       const inThread = pair && !!document.activeElement?.closest('[data-testid="room-thread"]')
       if (threadId && (inThread || !rightOpen)) closeThread()
@@ -393,17 +395,19 @@ function RoomView({ roomId, threadId, badThread }: { roomId: string; threadId: s
     }
   }, [covering, pair, threadId, rightOpen, closeThread, closeRight])
   // a thread beside the room, as a column: Esc closes it, except while the keyboard types in the room (its box, an edit:
-  // Esc there stays theirs). Below 768 px the thread is the whole screen (QA TC-6923)
+  // Esc there stays theirs). Below 768 px the thread is the whole screen, and the side chat or the files over it close
+  // first (QA TC-6923)
   useEffect(() => {
     if (covering || !threadId) return
     let preview = false
     const onKeyFirst = (e: KeyboardEvent) => { if (e.key === 'Escape') preview = !!getSidePanel() && !document.querySelector('[role="dialog"]') }
     const onKey = (e: KeyboardEvent) => {
-      if (e.key !== 'Escape' || e.defaultPrevented || e.isComposing || e.keyCode === 229 || preview || document.querySelector('[role="menu"], [role="dialog"]:not([data-sheet])')) return
+      if (e.key !== 'Escape' || e.repeat || e.defaultPrevented || e.isComposing || e.keyCode === 229 || preview || document.querySelector('[role="menu"], [role="dialog"]:not([data-sheet])')) return
       const at = document.activeElement
       if (wide && at instanceof HTMLElement && (at.isContentEditable || at.matches('input, textarea, select')) && !at.closest('[data-testid="room-thread"]')) return
       e.preventDefault()
-      closeThread()
+      if (!wide && rightOpen) closeRight()
+      else closeThread()
     }
     window.addEventListener('keydown', onKeyFirst, true)
     window.addEventListener('keydown', onKey)
@@ -411,7 +415,7 @@ function RoomView({ roomId, threadId, badThread }: { roomId: string; threadId: s
       window.removeEventListener('keydown', onKeyFirst, true)
       window.removeEventListener('keydown', onKey)
     }
-  }, [covering, threadId, wide, closeThread])
+  }, [covering, threadId, wide, rightOpen, closeThread, closeRight])
   usePeopleList()
   // a private channel: its project (Room.project) is read again when the window comes back, so a project renamed or
   // one I can no longer open shows without a reload

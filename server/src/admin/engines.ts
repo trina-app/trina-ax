@@ -363,7 +363,11 @@ async function checkApiEngine(env: EngineEnv, enabled: boolean, locale: Locale):
   const base = { id: 'api' as const, label: conf ? `${conf.label} (API)` : ENGINE_LABELS.api, enabled, authMode: 'api-key' as const, ...(provider ? { provider } : {}), ...(keyless ? { keyless } : {}), checkedAt: new Date().toISOString(), version: null,
     models: conf ? [{ id: conf.model, label: conf.label }] : [] }
   if (!conf) return { ...base, installed: false, status: 'not_installed', detail: t('apiNotSet', locale) }
-  const out = (status: EngineStatus['status'], detail: string | null, errorDetail?: string): EngineStatus => ({ ...base, installed: true, status, detail, ...(errorDetail ? { errorDetail } : {}) })
+  // "No key needed" never next to a refused key (a gateway on the network that does want one)
+  const out = (status: EngineStatus['status'], detail: string | null, errorDetail?: string): EngineStatus => {
+    const { keyless: _k, ...rest } = base as typeof base & { keyless?: boolean }
+    return { ...(status === 'not_logged_in' ? rest : base), installed: true, status, detail, ...(errorDetail ? { errorDetail } : {}) }
+  }
   try {
     // Anthropic's model list wants x-api-key (its OpenAI-compatible chat endpoint takes the Bearer header): a refused
     // list would leave a working Claude API engine out of the composer (admin/engine-choice.ts readyEngines)

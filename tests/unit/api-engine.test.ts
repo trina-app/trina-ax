@@ -266,6 +266,11 @@ describe('B-API-4 / B-API-6: the Admin status check of the API engine', () => {
         expect(String(s.detail)).not.toMatch(/40[13]/)
       }
       expect(logged[0]).toMatchObject({ msg: 'api engine: key refused', fields: { status } })
+      // a key-less gateway on this computer that refuses: never "No key needed" beside the refusal
+      const open = fs.mkdtempSync(path.join(require('node:os').tmpdir(), 'mycel-api-refused-open-'))
+      writeApiEngine(open, { baseUrl: `http://127.0.0.1:${srv.port}/v1`, model: 'm', label: 'M' })
+      reply = { models: new Response('no', { status }) }
+      expect((await checkEngine('api', { dataDir: open, log } as EngineEnv, true, 'en')).keyless).toBeUndefined()
       expect(JSON.stringify(logged)).not.toContain('sk-test-12345678')
     }
   })

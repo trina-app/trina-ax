@@ -47,6 +47,9 @@ test('the words: the log line and every language name the folder and the fix, an
   for (const l of ['ko', 'en', 'id', 'ja', 'es', 'zh'] as const) {
     expect(words[l]).toContain('chmod 700 /srv/trina/data')
     expect(PUSH_SECRETS_TEXT.label[l].length).toBeGreaterThan(0)
+    // a hosted team's admin has no shell: no folder, no command
+    expect(PUSH_SECRETS_TEXT.problem(p, true)[l]).not.toContain('/srv/trina/data')
+    expect(PUSH_SECRETS_TEXT.problem(p, true)[l]).not.toContain('chmod')
     for (const why of ['owner', 'link', 'not_folder', 'in_team_folder', 'unreadable'] as const) expect(PUSH_SECRETS_TEXT.problem({ dir: '/x', why })[l]).toContain('/x')
   }
 })

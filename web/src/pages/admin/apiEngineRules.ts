@@ -13,9 +13,10 @@ export const API_PRESETS = [
 
 /** Words that name a provider in a display name ("QA OpenRouter", "Claude via API") */
 const PRESET_NAMES: Record<string, readonly string[]> = {
+  // the provider's own word first: OpenRouter serves the others' models, so only that one counts after picking it
   openai: ['openai', 'gpt', 'chatgpt'],
-  anthropic: ['claude', 'anthropic'],
-  gemini: ['gemini', 'google'],
+  anthropic: ['anthropic', 'claude'],
+  gemini: ['google', 'gemini'],
   openrouter: ['openrouter'],
   ollama: ['ollama'],
 }
@@ -29,7 +30,7 @@ export function presetLabel(current: string, o: { model: string; from: string; t
   if (!typed || o.from === o.to) return current
   const lower = typed.toLowerCase()
   const stale = typed === o.model.trim() || API_PRESETS.some((p) => p.label.toLowerCase() === lower)
-    || Object.entries(PRESET_NAMES).some(([id, words]) => id !== o.to && words.some((w) => new RegExp(`(^|[^a-z])${w}([^a-z]|$)`).test(lower)))
+    || Object.entries(PRESET_NAMES).some(([id, words]) => id !== o.to && (o.to === 'openrouter' ? words.slice(0, 1) : words).some((w) => new RegExp(`(^|[^a-z])${w}([^a-z]|$)`).test(lower)))
   return stale ? '' : current
 }
 

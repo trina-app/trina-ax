@@ -473,7 +473,7 @@ export class OpsService {
     // the push secrets' folder (notifications/push-secrets.ts): open to other accounts, no phone or browser can register
     // for notifications, and a member's phone says only that the server is unavailable (QA TC-6929). Shown when wrong
     const pushDir = pushSecretsProblem({ dataDir: this.ctx.config.dataDir, teamRoot: this.ctx.config.teamRoot, secrets: path.join(this.ctx.config.dataDir, 'secrets', 'push') })
-    if (pushDir) add('push_secrets', 'server', t(PUSH_SECRETS_TEXT.label), 'warn', t(PUSH_SECRETS_TEXT.problem(pushDir)))
+    if (pushDir) add('push_secrets', 'server', t(PUSH_SECRETS_TEXT.label), 'warn', t(PUSH_SECRETS_TEXT.problem(pushDir, host === 'hosted')))
 
     // connection. Without the relay the line says what the server knows: a public address set up (tunnel.host, the
     // server's own domain; never the relay's team address) or the office network only (QA: a Linux server behind a

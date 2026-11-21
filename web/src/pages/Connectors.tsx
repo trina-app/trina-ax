@@ -141,6 +141,9 @@ function useConnectorsState() {
       if (window.location.pathname !== connectorHref(c.id)) navigate(connectorHref(c.id))
     } finally { setListedBusy(null) }
   }
+  // a failure is said on that service's page until the page is left
+  const where = useLocation().pathname
+  useEffect(() => setListedError((e) => (e && where !== connectorHref(e.id) ? null : e)), [where])
   const listed = { busy: listedBusy, error: listedError, connect: (c: Connector) => void connectListed(c) }
   return { list, drive, google, asks, requests, reload, actions, dialog, setDialog, admin, local, listed }
 }
@@ -263,7 +266,7 @@ function ConnectorsHome() {
     return [{ id, name, line: t(lineKey(id)), logo: builtInLogo(id), state: v.status === 'needs_reconnect' ? 'reconnect' : googleAppCardState(v), setUp, asked: setUp && asked, noSetUp: setUp && hosted, onOpen: open,
       onAdd: () => { open(); if (!inApp) void google.flows[id].start() } }]
   })
-  // the listed services: added from their page or with + (the add dialog, filled in); only while members may add their own
+  // the listed services: added from their page or with + (one click: the connection and its sign-in, QA TC-6928); only while members may add their own
   // (every connection the person can use counts as connected: their own, the team's, the ones made from a template;
   // and a template the team set up for them, connected or not, is in Your connectors, never in Discover as well: QA
   // TC-179)

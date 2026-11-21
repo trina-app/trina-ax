@@ -42,6 +42,8 @@ test('member asks for Notion, takes it back, asks again; the admin adds it for t
   await expect(asked).toContainText('Bob')
   await asked.getByTestId('member-ask-add').click()
   const dialog = page.getByRole('dialog')
+  // the catalog's address is under Advanced, not up front (QA TC-6928)
+  await expect(dialog.getByTestId('connector-summary')).toBeHidden()
   await expect(dialog.getByTestId('connector-summary')).toContainText('https://mcp.notion.com/mcp')
   // who may use it: everyone (a team connection Bob may not use would leave his request open); the chooser opens from
   // the "For: … · Change" line (QA TC-187), and the whole team is already chosen

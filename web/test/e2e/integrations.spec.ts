@@ -700,6 +700,8 @@ test('Discover: a listed service in two clicks, marked once added; anything else
   await expect(dialog.getByRole('heading', { name: 'Notion 추가' })).toBeVisible()
   await expect(dialog.getByTestId('integration-title-app').locator('img')).toHaveAttribute('src', '/icons/connectors/notion.svg')
   await expect(dialog.getByTestId('integration-for')).toContainText('쓸 사람: 팀 전체')
+  // the catalog's address is under Advanced, not up front (QA TC-6928)
+  await expect(page.getByTestId('connector-summary')).toBeHidden()
   await expect(page.getByTestId('connector-summary')).toContainText('https://mcp.notion.com/mcp')
   // what the list answers is not asked; who may use it and what the AI may change still are
   for (const id of ['integration-name', 'integration-url', 'integration-kind-http', 'integration-auth-oauth']) await expect(page.getByTestId(id)).toHaveCount(0)
