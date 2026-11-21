@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-21 06:48
 - Branch: `feat/work-safe-write` (off `feat/shared-chat-attach-work-file` 57e5a4b1c, #200's head)
-- Status: in progress
+- Status: done (PR open, not in the queue)
 - Where: server (devenv: a new module `devenv/work-write.ts`, a small record `devenv/srt/copied-in.ts`, the srt
   settings and the runner), tests/unit, tests/linux. Why: the dev environment and the AI's file tools are core
   (docs/REPOSITORY-RULES.md)
@@ -72,7 +72,7 @@ never under-records). From then on:
 writeIntoWork(ctx, target: { userId, chatId, project, shared?, expect?: WorkFolder }, dest: string,
   source: { kind: 'file', abs, seen?, name? } | { kind: 'folder', abs, include?(rel, kind) },
   o?: { sources?: ReadSource[]; maxFileBytes?; turnLeft?: { bytes, files }; signal? })
-  → { path, files, bytes, skipped: { path, why }[] }
+  → { path, files, bytes, skipped: { path, why }[], viaLink? }
 noteCopiedIn(ctx, { chatId, shared, workRoot }): boolean
 copiedInOf(chatId, workRoot): CopiedGroup[]
 validWorkRel(dest): string
@@ -81,7 +81,9 @@ WORK_COPY_MAX_BYTES (1 GB), WORK_COPY_MAX_FILES (2,000)
 
 `expect`: the work folder the resolver showed the person; another one now (the people changed) refuses. `include`:
 the caller's permission check per entry (P2 passes the folder rules and adds `boundaryFolders()` to `sources`).
-`sources` is required in a shared chat (the caller's read card decides; this module records).
+`sources` is required in a shared chat (the caller's read card decides; this module records). `viaLink`: a folder on
+the way was a link a command made, so the copy went where it points (as far as the sandbox let the box write there,
+for example the person's own folder); P2 tells the AI that the file is not in the work folder itself.
 
 ## Scope
 
@@ -110,6 +112,8 @@ would leave read-only copies the AI's later commands could not edit.
   read-only in the settings and gone afterwards, the server never writing into the work folder itself, a key change
   when people change, provenance recorded and re-recorded on later runs (and a run refused when it cannot be), macOS
   settings (darwin platform) and the ACL grant of the stage folder.
+- `tests/macos/srt-work-write-mac.ts` with srt's real Seatbelt profile on a Mac (srt's CLI as the current account, no
+  slot account): the stage folder is read-only, links to `shared/` and to the data folder do not take the copy.
 - `tests/linux/srt-work-write.ts` on real srt (bwrap) in the image of `tests/linux/Dockerfile.srt`: a link to a team
   folder or the server's data at the destination's root and mid-path cannot make the copy land outside what the box
   may write; the stage folder is read-only in the run.
@@ -117,4 +121,15 @@ would leave read-only copies the AI's later commands could not edit.
 
 ## Result
 
-Filled in at the end.
+Built as planned: `server/src/devenv/work-write.ts` (writeIntoWork, noteCopiedIn, copiedInOf, validWorkRel),
+`server/src/devenv/srt/copied-in.ts` (the per-key record), the `stage` input of the srt settings (read-only, checked
+by settingsProblems), `SpawnSpec.readable` (macOS ACL), `SharedRun.noteCopied` (chat/turn.ts records the groups as y
+groups), re-noting in `noteSharedRun`, and the record removed with the chat.
+
+Differs from the plan: the result carries `viaLink`. On real srt a link at the destination to a place the run may
+write (the person's own folder) takes the copy there, and a link into a hidden folder lets the box write into srt's
+empty mask (lost with the run, never on the disk), so "it landed" alone would mislead.
+
+Ran: unit (20 cases), the devenv unit areas (dev-env-srt, dev-env-srt-mac, e-desktop-work-*, g-srt-ubuntu) with Bun
+1.3.12; tests/linux/srt-work-write.ts, srt-subagent.ts (19/19) and srt-attack.ts (132/132) in colima Docker (Ubuntu 24.04 kernel; the
+apparmor userns sysctl set to 0 for the run and back to 1 after); tests/macos/srt-work-write-mac.ts on this Mac.
