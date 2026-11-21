@@ -343,7 +343,7 @@ export class ChatFiles {
   }
 
   /** The row of a file just put at `dst` (its preview made first). */
-  private async record(userId: string, chatId: string, id: string, name: string, dst: string, sha256: string, copiedFrom: string | null, kind: Attachment['kind'], thumbFrom?: string | null, chain?: { rootId: string; origin: 'ai' | null; check: () => void; coalesce?: string; coalesced?: ChatFileRow }): Promise<ChatFileRow> {
+  private async record(userId: string, chatId: string, id: string, name: string, dst: string, sha256: string, copiedFrom: string | null, kind: Attachment['kind'], thumbFrom?: string | null, chain?: { rootId: string; origin: 'ai' | null; check: () => void; coalesce?: string; coalesced?: ChatFileRow; made?: Map<string, string> }): Promise<ChatFileRow> {
     const quarantined = this.ctx.files.quarantine.hasHash(sha256)
     const size = fs.statSync(dst).size
     let dims: { width: number; height: number } | null = null
@@ -382,8 +382,11 @@ export class ChatFiles {
         insert()
       })()
       chain!.coalesced = over
-      this.removeFiles(over)
     } else insert()
+    // in the same step as the insert: the answer's next save knows this head
+    chain?.made?.set(chain.rootId, id)
+    // the replaced head's bytes: the new row is in, so a failure here only leaves a file for the sweep to set aside
+    if (over) { try { this.removeFiles(over) } catch (e) { this.ctx.log.warn('chat file version: old bytes not removed', { err: e }) } }
     return this.row(id)!
   }
 
@@ -654,9 +657,8 @@ export class ChatFiles {
       const check = () => { if (this.writable(userId, chatId, root.id).id !== root.id) fail('not_found'); opts.recheck?.() }
       // the AI's save (not a restore) over the head this same answer wrote: that head's place (record)
       const made = opts.origin === 'ai' && !opts.action ? turn?.chatVersionsMade : undefined
-      const chain: { rootId: string; origin: 'ai' | null; check: () => void; coalesce?: string; coalesced?: ChatFileRow } = { rootId: root.id, origin: opts.origin ?? null, check, ...(made?.has(root.id) ? { coalesce: made.get(root.id)! } : {}) }
+      const chain: { rootId: string; origin: 'ai' | null; check: () => void; coalesce?: string; coalesced?: ChatFileRow; made?: Map<string, string> } = { rootId: root.id, origin: opts.origin ?? null, check, ...(made ? { made } : {}), ...(made?.has(root.id) ? { coalesce: made.get(root.id)! } : {}) }
       const row = await this.record(userId, chatId, id, root.name, dst, sha, null, kind, null, chain)
-      made?.set(root.id, row.id)
       const replaced = (row.replaces ? this.row(row.replaces) : null) ?? before ?? root
       this.prune(root.id)
       audit(this.ctx.db, { actor: userId, action: opts.action ?? 'chat.file_version', target: chatId, detail: { size: row.size, version: row.version, ...(opts.origin ? { origin: opts.origin } : {}), ...(chain.coalesced ? { sameAnswer: true } : {}) } })
