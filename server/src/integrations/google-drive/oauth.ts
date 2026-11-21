@@ -299,7 +299,7 @@ export class GoogleDrive {
       // victim's consent to the starter. The first page's code is the only one.
       return no(this.now() > this.store.open<FlowSecret>(r).claim!.until ? 'expired' : 'held')
     }
-    if (r.state === 'failed' && r.reason === 'superseded' && this.ctx.db.query("SELECT 1 FROM drive_oauth_flows WHERE user_id=? AND purpose=? AND share_id IS ? AND state='completed' AND created_at>=? AND id!=?").get(r.user_id, r.purpose, r.share_id, r.created_at ?? '', r.id) && (r.purpose === 'share' || this.store.connection(r.user_id))) return { ok: true, done: 'completed', ...app }
+    if (r.state === 'failed' && r.reason === 'superseded' && this.ctx.db.query("SELECT 1 FROM drive_oauth_flows WHERE user_id=? AND purpose=? AND share_id IS ? AND state='completed' AND created_at>=? AND id!=?").get(r.user_id, r.purpose, r.share_id, r.created_at ?? '', r.id) && (r.purpose === 'share' || this.store.connection(r.user_id)?.status === 'connected')) return { ok: true, done: 'completed', ...app }
     // ended otherwise (cancelled in the app, timed out, replaced, refused): "expired or already used", as before
     return no('invalid_flow')
   }
