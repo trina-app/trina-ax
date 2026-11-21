@@ -1,7 +1,7 @@
 // The lock screen of a named room push (docs/decisions/20261121-android-push-who-where.md "Lock screen"): a public
 // version with the gateway's generic title and line. Android draws it when the phone is set to hide sensitive content
 // on the lock screen (instead of "Contents hidden"). With Android's default "show all content" the notification is drawn
-// in full; matching the iPhone's default "When Unlocked" there is not built (see the decision).
+// in full: the lock screen follows the phone's own setting, as other messengers do (see the decision).
 //
 // expo-notifications posts every notification from its NotificationsService (a broadcast receiver it finds by the
 // action expo.modules.notifications.NOTIFICATION_EVENT). This subclass is the app's only one (plugins/push-label.js

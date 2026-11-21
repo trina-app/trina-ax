@@ -60,24 +60,18 @@
   signatures they use, and the pure helpers (plain, teamOrigin, named, title) were run on the JVM;
   `PushLabelModule.kt`, the manifest merge and `assembleDebug` were not (they need NDK 27.1).
 - Version impact: **minor** (a new optional gateway key, a new phone behaviour; no migration).
-- **Lock screen (2026-11-21): a generic public version; the default does NOT match the iPhone yet.** Asked: a locked
-  Android phone shows only the generic words, the full words once unlocked, as the iPhone's default Show Previews
-  "When Unlocked". Built: each named room push is `VISIBILITY_PRIVATE` with a public version from `data.title` /
-  `data.message` (the generic words the gateway already sends to Google; never the team's answer).
+- **Lock screen (2026-11-21, decided under the owner's standing order): Android lock screen follows the phone's own
+  setting, like other messengers; iPhone parity is not a goal on Android.** Slack, WhatsApp and Gmail all leave it to
+  the person's system setting, and so does Trina. Each named room push is `VISIBILITY_PRIVATE` with a public version
+  from `data.title` / `data.message` (the generic words the gateway already sends to Google; never the team's answer):
+  with "hide sensitive content" on, the lock screen shows the generic words instead of "Contents hidden"; with
+  "show all content" (Android's default) it shows the full notification, as those apps do.
   `LabelNotificationsService` extends expo-notifications' `NotificationsService` (the broadcast receiver that posts
   every notification) with a presentation delegate whose `createNotification` adds it; `plugins/push-label.js` removes
   expo-notifications' receiver from the manifest and stops the prebuild when the receiver's or the delegate's shape or
   the receiver's actions change.
-  - **What it does and does not do.** Android draws a public version only when the phone is set to hide sensitive
-    content on the lock screen; then it now shows the generic words instead of "Contents hidden". With Android's
-    default "show all content" (stock Android, One UI, MIUI) a private notification is drawn in full on the lock
-    screen, so a locked phone still shows who, where and (with preview on) the first line. No app API forces redaction
-    under "show all content". This was found by the review of the change (2026-11-21), before any device test.
-  - **To match the iPhone's default (not built, next step):** when the phone is locked at post time
-    (`KeyguardManager.isDeviceLocked`), post the generic words and swap in the team's words after the unlock. A manifest
-    receiver no longer gets `USER_PRESENT` (Android 8+), so the swap needs a live process: a re-post when the app
-    opens, or a WorkManager job. `VISIBILITY_SECRET` (hidden entirely while locked) is the simple alternative, but it is
-    not "generic words".
+  - **Not built, on purpose:** posting generic words while locked and swapping after the unlock, or `VISIBILITY_SECRET`.
+    Both were weighed (2026-11-21) and dropped: they override a setting the person chose.
   - The group summary (expo-notifications' private `postGroupSummary`) has no public version and lists the children's
     titles; from Android 7 a group draws its children, but some skins and watches draw the summary. Check on a device.
   - Notifications already in the shade at the update (Android 7–11) tap and dismiss through intents aimed at the
