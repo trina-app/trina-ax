@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-21 04:35
 - Branch: `fix/remove-slides-offer`
-- Status: in progress
+- Status: done
 - Where: server/src/onboarding, shared/src/api, web/src/components/onboarding, web/src/i18n. Why: the one suggestion
   under a result is decided by the server and shown by the web app (see docs/REPOSITORY-RULES.md)
 - Version impact: patch. A suggestion line is no longer shown; no new feature, no API a client relies on breaks (the
@@ -43,4 +43,7 @@ Old `ppt` rows in `suggestion_dismissals` stay; they are never read for anything
 
 ## Result
 
-(filled in at the end)
+Built as planned. The `ppt` kind is gone from the server rule, the contract (kind, key, `PPT_SUGGEST_CHARS`), the web
+line and the six languages; the API reference (`docs/site/reference/http-api.md`) is regenerated. The tests that used a
+long answer to show "the next suggestion" now expect none. The security case for closing a suggestion uses
+`team-skill` as its spoof key. Old migration 229's comment still names the line; migrations are not edited.
