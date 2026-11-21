@@ -127,7 +127,7 @@ describe('the snapshot of Steepling (en)', () => {
     } finally { hf.close() }
     // a free-roam demo file: one person, the suggestions, the fakes' folder; the file list off, the AI through the gate
     const demo = JSON.parse(fs.readFileSync(L.demo, 'utf8'))
-    expect(demo).toMatchObject({ kind: 'freeRoam', fakes: { content: 'fakes' }, signupUrl: 'https://ax.trina.app/pricing' })
+    expect(demo).toMatchObject({ kind: 'freeRoam', fakes: { content: 'fakes' }, signupUrl: 'https://demo.trina.app/__demo/go/start-free' })
     expect(demo.personas.map((p: { username: string }) => p.username)).toEqual(['mina'])
     expect(demo.freeRoam.suggestions.length).toBe(3)
     expect(JSON.parse(fs.readFileSync(L.config, 'utf8'))).toMatchObject({ engine: { authMode: 'managed' }, fileList: { enabled: false }, dataDir: '../data', teamRoot: '../team' })

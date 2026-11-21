@@ -5963,7 +5963,7 @@ export const es: Record<MessageKey, string> = {
   "memberWelcome.title": "Le damos la bienvenida a {team}, {name}",
   "memberWelcome.invited": "{inviter} le invitó · {n, plural, one {# persona está aquí} other {# personas están aquí}}",
   "memberWelcome.people": "{n, plural, one {# persona está aquí} other {# personas están aquí}}",
-  "memberWelcome.progress": "Para empezar · {done} de {total}",
+  "memberWelcome.progress": "Para empezar · {done} de {total} obligatorios",
   "memberWelcome.hideLabel": "Ocultar mi configuración",
   "memberWelcome.rooms": "Está en {rooms}",
   "memberWelcome.roomsOpen": "Abrir",

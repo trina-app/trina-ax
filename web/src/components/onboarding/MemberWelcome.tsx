@@ -6,9 +6,13 @@
 // - A member: "Welcome to {team}, {first name}" and one line "{inviter} invited you · {n} people are here · You're in
 //   {rooms}" (the rooms a link to Chats; no inviter: without the first part). The owner ('owner'): "Now your own
 //   setup, {first name}" and "The team is set up. These are just for you."
-// - "Get started · {done} of {total}" (the owner's one counted row: "Only you see this") and Hide (on every device;
-//   Settings › Profile can show it again while its days last).
-// - Rows, each with a done / not done circle:
+// - Hide at the card's top right, on the title's line (it closes the whole card, on every device; Settings › Profile
+//   can show it again while its days last), then "Get started · {done} of {total} required", a plain label over the
+//   rows (the owner's one counted row: "Only you see this"). It counts the required rows only; they come first, and the
+//   optional ones ("Optional · …" in their line) after them (owner 2026-11-21: "2 of 3" over five rows read wrong).
+// - A demo (`welcome.demo`: the scripted demo build, a free-roam instance) has no row a. and no row e.: neither can be
+//   done there (owner 2026-11-21), and tools is not counted.
+// - Rows, each with a done / not done circle, in this order (c. after d.):
 //   a. "Connect your tools" (counted; MyToolsRow.tsx): the team's recommended tools, then the usual ones, each [연결]
 //      with the person's own account, "팀 연결됨" for one the team connected for everyone (all of them the team's:
 //      nothing left to connect, done).
@@ -60,11 +64,12 @@ export function roomList(rooms: Welcome['rooms'], everyone: string, locale: stri
   try { return new Intl.ListFormat(locale, { type: 'conjunction' }).format(names) } catch { return names.join(', ') }
 }
 
-/** The rows that count toward "{done} of {total}": tools, and a member's hi and asked (the photo and the files row are
- * optional). An older server sends no `tools`: its card counts as before (the rooms, done, with hi and asked). */
-export function countedSteps(w: Pick<Welcome, 'kind' | 'steps'>): { done: number; total: number } {
+/** The rows that count toward "{done} of {total} required": tools, and a member's hi and asked (the photo and the files
+ * row are optional). A demo has no tools row: a member's hi and asked only. An older server sends no `tools`: its card
+ * counts as before (the rooms, done, with hi and asked). */
+export function countedSteps(w: Pick<Welcome, 'kind' | 'steps' | 'demo'>): { done: number; total: number } {
   const s = w.steps
-  const rows = w.kind === 'owner' ? [!!s.tools] : s.tools === undefined ? [s.rooms, s.hi, s.asked] : [s.tools, s.hi, s.asked]
+  const rows = w.kind === 'owner' ? (w.demo ? [] : [!!s.tools]) : w.demo ? [s.hi, s.asked] : s.tools === undefined ? [s.rooms, s.hi, s.asked] : [s.tools, s.hi, s.asked]
   return { done: rows.filter(Boolean).length, total: rows.length }
 }
 
@@ -84,6 +89,7 @@ export function MemberWelcomeCard({ welcome }: { welcome: Welcome }) {
   const drop = useMemberWelcome((s) => s.drop)
   const name = greetName(me.user.name, locale)
   const owner = welcome.kind === 'owner'
+  const demo = !!welcome.demo
   const people = t('memberWelcome.people', { n: welcome.people })
   const frame = 'md:rounded-2xl md:border md:border-line md:p-5'
   // "You're all set" a few seconds, then gone (Close ends it sooner)
@@ -116,9 +122,13 @@ export function MemberWelcomeCard({ welcome }: { welcome: Welcome }) {
   return (
     <section className={clsx('mb-6 max-md:mb-0', frame)} aria-labelledby={`${ids}-title`} data-testid="member-welcome" data-state="open" data-kind={owner ? 'owner' : 'member'}>
       <div className="max-md:px-3">
-        <h2 id={`${ids}-title`} className="text-display font-semibold tracking-tight text-ink text-balance" data-testid="member-welcome-title">
-          {owner ? t('memberWelcome.ownerTitle', { name }) : t('memberWelcome.title', { team: welcome.team, name })}
-        </h2>
+        {/* Hide closes the whole card: at its top right, on the title's line (a long title wraps before it) */}
+        <div className="flex items-start gap-3">
+          <h2 id={`${ids}-title`} className="min-w-0 flex-1 text-display font-semibold tracking-tight text-ink text-balance" data-testid="member-welcome-title">
+            {owner ? t('memberWelcome.ownerTitle', { name }) : t('memberWelcome.title', { team: welcome.team, name })}
+          </h2>
+          <CardHide onClick={() => void hide()} label={t('memberWelcome.hideLabel')} testId="member-welcome-hide" className="mt-1 max-md:-mr-1.5 max-md:mt-0" />
+        </div>
         <p className="mt-0.5 text-sm text-muted" data-testid="member-welcome-line">
           {owner ? t('memberWelcome.ownerLine') : (
             <>
@@ -128,16 +138,16 @@ export function MemberWelcomeCard({ welcome }: { welcome: Welcome }) {
           )}
         </p>
       </div>
-      <div className="mt-4 flex items-center justify-between gap-3 border-b border-line pb-2 max-md:mt-3 max-md:px-3">
-        <p className="text-xs font-medium text-muted" data-testid="member-welcome-progress">{owner ? t('memberWelcome.onlyYou') : t('memberWelcome.progress', { done, total })}</p>
-        <CardHide onClick={() => void hide()} label={t('memberWelcome.hideLabel')} testId="member-welcome-hide" />
-      </div>
+      <p className="mt-4 border-b border-line pb-2 text-xs font-medium text-muted max-md:mt-3 max-md:px-3" data-testid="member-welcome-progress">
+        {owner ? t('memberWelcome.onlyYou') : t('memberWelcome.progress', { done, total })}
+      </p>
+      {/* the counted rows first, then the optional ones */}
       <ul className="divide-y divide-line" data-testid="member-welcome-rows">
-        <ToolsRow done={!!welcome.steps.tools} />
+        {!demo && <ToolsRow done={!!welcome.steps.tools} />}
         {!owner && <HiRow welcome={welcome} name={me.user.name.trim()} />}
-        <PhotoRow done={welcome.steps.photo} />
         {!owner && <AskRow welcome={welcome} />}
-        <FilesRow done={!!welcome.steps.files} />
+        <PhotoRow done={welcome.steps.photo} />
+        {!demo && <FilesRow done={!!welcome.steps.files} />}
       </ul>
     </section>
   )

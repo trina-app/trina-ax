@@ -288,6 +288,26 @@ describe.skipIf(skip)('gate: model upstream', () => {
     await r.text()
   })
 
+  test('the unified limit headers reach health and the usage log line, never the visitor', async () => {
+    upstream.set(() => SSE([{ type: 'message_start', message: { usage: { input_tokens: 10, output_tokens: 1 } } }, { type: 'message_delta', usage: { output_tokens: 20 } }, { type: 'message_stop' }], {
+      'request-id': 'req_lim', 'anthropic-organization-id': 'org-lim', 'anthropic-ratelimit-unified-status': 'allowed',
+      'anthropic-ratelimit-unified-reset': '1795000000', 'anthropic-ratelimit-unified-5h-utilization': '0.31',
+      'anthropic-ratelimit-unified-7d-utilization': '0.05', 'anthropic-ratelimit-unified-7d-status': 'allowed',
+    }))
+    const r = await msg(a)
+    expect(r.status).toBe(200)
+    r.headers.forEach((_v, k) => expect(k.startsWith('anthropic-')).toBe(false))
+    expect(r.headers.get('request-id')).toBeNull()
+    await r.text()
+    const ida = /\/i\/([0-9a-f]{8})\./.exec(a)![1]!
+    const lim = (await until(async () => { const h = await g.health(); return h.upstream.limits.utilization5h === 0.31 ? h : null }, 3000, 'limits')).upstream.limits
+    expect(lim).toMatchObject({ utilization5h: 0.31, utilization7d: 0.05, status: 'allowed', resetAt: new Date(1795000000 * 1000).toISOString() })
+    expect(Number.isFinite(Date.parse(lim.seenAt))).toBe(true)
+    const line = await until(async () => g.log().split('\n').find((l) => l.includes('"upstream usage"') && l.includes(ida) && l.includes('"u5h":0.31')) ?? null, 3000, 'usage line')
+    expect(JSON.parse(line)).toMatchObject({ ev: 'upstream usage', instance: ida, tokens: 30, u5h: 0.31, u7d: 0.05 })
+    for (const bad of ['req_lim', 'org-lim', 'ratelimit']) expect(g.log()).not.toContain(bad)
+  })
+
   test('error rewrite: 401/403/402/400/404/500/502/529 all become the neutral 503', async () => {
     for (const status of [401, 403, 402, 400, 404, 500, 502, 529]) {
       upstream.set(() => Response.json({ type: 'error', error: { type: status === 401 ? 'authentication_error' : 'overloaded_error', message: 'OAuth token has been revoked, organization disabled' } }, { status, headers: { 'request-id': 'req_9', 'retry-after': '9999' } }))
@@ -683,6 +703,83 @@ describe.skipIf(skip)('gate: pool', () => {
       await until(() => !fs.existsSync(path.join(g.instancesDir, 'abcdef12')), 5000, 'orphan removed')
       await until(() => !fs.existsSync(path.join(g.root, 'snap', 'en', 'snap-0')), 5000, 'old snapshot removed')
       expect(fs.existsSync(path.join(g.root, 'snap', 'en', 'snap-1'))).toBe(true)
+    } finally { await g.stop() }
+  })
+})
+
+describe.skipIf(skip)('gate: daily stats', () => {
+  const today = () => new Date().toISOString().slice(0, 10)
+  const stats = async (g: Gate) => (await (await fetch(`${g.base}/__demo/stats`)).json()) as { days: Record<string, Record<string, Record<string, number>>>; distinctStarters24h: number }
+  const en = async (g: Gate) => (await stats(g)).days[today()]?.en ?? {}
+
+  test('a landing, start, question, Start free, the demo limit, refusals; local only; no address or hash in stats.json', async () => {
+    const g = await startGate({ upstream: upstream.url, turnstile: turnstile.url, locales: ['en'], pool: { maxLive: 1 }, demo: { limitTokens: 1000 } })
+    try {
+      await warm(g)
+      // local operators only, as health
+      expect((await fetch(`${g.base}/__demo/stats`)).status).toBe(200)
+      expect((await fetch(`${g.base}/__demo/stats`, { headers: { 'cf-connecting-ip': '203.0.113.1' } })).status).toBe(404)
+      expect((await stats(g)).days).toEqual({})
+
+      const v = visitor('203.0.113.40')
+      expect((await get(g, v, '/?lang=en')).status).toBe(200)
+      expect((await startVisit(g, v, { token: 'bad' })).status).toBe(400)
+      expect((await startVisit(g, v)).status).toBe(303)
+      // a question: a chat message the instance takes (2xx); reading the messages is not one
+      expect((await get(g, v, '/api/chats/c1/messages', { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' })).status).toBe(200)
+      expect((await get(g, v, '/api/chats/c1/messages')).status).toBe(200)
+      // "Start free" in the app: counted with the visitor's locale, then on to the plans
+      const sf = await get(g, v, '/__demo/go/start-free')
+      expect(sf.status).toBe(302)
+      expect(sf.headers.get('location')).toBe('https://ax.trina.app/pricing')
+      // and with no session at all (counted as '-')
+      expect((await get(g, visitor(), '/__demo/go/start-free')).status).toBe(302)
+
+      // the instance's demo limit (1000; the gate's cap is 1200): crossed once, counted once
+      const live = await liveInstance(g)
+      const u = instanceUpstream(g, live.id)
+      upstream.set(() => Response.json({ type: 'message', usage: { input_tokens: 600, output_tokens: 0 } }))
+      expect((await msg(u)).status).toBe(200)
+      expect((await msg(u)).status).toBe(200) // 1200: over the demo limit, at the gate's cap
+      expect((await msg(u)).status).toBe(403)
+
+      // the pool is full (maxLive 1): the next visitor sees busy, a start is refused as full
+      const v2 = visitor('203.0.113.41')
+      expect(await (await get(g, v2, '/')).text()).not.toContain('cf-turnstile')
+      expect((await startVisit(g, v2)).status).toBe(503)
+      // PAUSE: a start refused as paused
+      fs.writeFileSync(g.pauseFile, '')
+      await Bun.sleep(1100)
+      expect((await startVisit(g, v2)).status).toBe(503)
+      fs.rmSync(g.pauseFile)
+
+      const c = await en(g)
+      expect(c).toMatchObject({ landing: 1, turnstileFail: 1, turnstilePass: 1, starts: 1, questions: 1, startFree: 1, hitLimit: 1, tokens: 1200, busyShown: 1, refusedFull: 1, refusedPaused: 1 })
+      expect((await stats(g)).days[today()]!['-']).toEqual({ startFree: 1 })
+      expect((await stats(g)).distinctStarters24h).toBe(1)
+
+      // stats.json: counters only, never an address or the start limits' hashes
+      const file = path.join(g.root, 'state', 'stats.json')
+      await until(() => fs.existsSync(file) && fs.readFileSync(file, 'utf8').includes('refusedPaused'), 3000, 'stats saved')
+      const saved = fs.readFileSync(file, 'utf8')
+      expect(saved).not.toContain('203.0.113.')
+      const hashes = Object.keys(JSON.parse(fs.readFileSync(path.join(g.root, 'state', 'state.json'), 'utf8')).starts)
+      expect(hashes.length).toBe(1)
+      for (const h of hashes) expect(saved).not.toContain(h)
+    } finally { await g.stop() }
+  })
+
+  test('an ended instance records one time-active bucket', async () => {
+    const g = await startGate({ upstream: upstream.url, turnstile: turnstile.url, locales: ['en'], pool: { ttlHours: 2 / 3600 } })
+    try {
+      await warm(g)
+      const v = visitor()
+      expect((await startVisit(g, v)).status).toBe(303)
+      const e = await (await get(g, v, '/echo')).json() as { dir: string }
+      await until(() => !fs.existsSync(e.dir), 8000, 'instance removed')
+      const c = await en(g)
+      expect(c['dur.lt2m']).toBe(1)
+      expect(Object.keys(c).filter((k) => k.startsWith('dur.'))).toEqual(['dur.lt2m'])
     } finally { await g.stop() }
   })
 })

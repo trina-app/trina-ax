@@ -5963,7 +5963,7 @@ export const ja: Record<MessageKey, string> = {
   "memberWelcome.title": "{team}へようこそ、{name}さん",
   "memberWelcome.invited": "{inviter}さんがあなたを招待しました · {n, plural, one {#人がいます} other {#人がいます}}",
   "memberWelcome.people": "{n, plural, one {#人がいます} other {#人がいます}}",
-  "memberWelcome.progress": "はじめに · {total}件中{done}件",
+  "memberWelcome.progress": "はじめに · 必須{total}件中{done}件",
   "memberWelcome.hideLabel": "自分の設定を隠す",
   "memberWelcome.rooms": "{rooms}に参加しています",
   "memberWelcome.roomsOpen": "開く",

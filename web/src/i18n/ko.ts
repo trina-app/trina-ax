@@ -6007,7 +6007,7 @@ export const ko = {
   "memberWelcome.title": "{team}에 오신 걸 환영해요, {name}님",
   "memberWelcome.invited": "{inviter}님이 초대했어요 · {n}명이 함께해요",
   "memberWelcome.people": "{n}명이 함께해요",
-  "memberWelcome.progress": "시작하기 · {total}개 중 {done}개",
+  "memberWelcome.progress": "시작하기 · 필수 {total}개 중 {done}개",
   "memberWelcome.hideLabel": "내 설정 숨기기",
   "memberWelcome.rooms": "{rooms}에 들어와 있어요",
   "memberWelcome.roomsOpen": "보기",
