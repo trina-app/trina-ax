@@ -104,6 +104,16 @@ describe('sub-agent definitions', () => {
     expect([...SCHEDULE_TOOLS]).toEqual([...SCHEDULE_TOOL_NAMES])
     for (const t of ['read', 'write', 'edit', 'make_file', 'web_fetch', 'artifact', 'share_file']) expect(PARENT_ONLY_TOOLS.has(t)).toBe(false)
   })
+  test('box_shell: a general-purpose child has it when the turn has it, Explore never; the turn\'s cap (QA TC-4911)', () => {
+    expect(PARENT_ONLY_TOOLS.has('box_shell')).toBe(false)
+    const d = buildAgentDefinitions({ tools: [...turnTools, 'box_shell'], webSearch: true, maxTurns: 500 })
+    expect(d['general-purpose'].tools).toContain('mcp__team__box_shell')
+    expect(d['general-purpose'].disallowedTools).not.toContain('mcp__team__box_shell')
+    expect(d.Explore.tools).not.toContain('mcp__team__box_shell')
+    for (const def of Object.values(d)) expect(def.maxTurns).toBe(500)
+    // a turn without the dev environment: no shell for anyone
+    for (const def of Object.values(buildAgentDefinitions({ tools: turnTools, webSearch: true }))) expect(def.tools).not.toContain('mcp__team__box_shell')
+  })
   test('no WebSearch for a child of a turn without it', () => {
     for (const def of Object.values(buildAgentDefinitions({ tools: turnTools, webSearch: false }))) expect(def.tools).not.toContain('WebSearch')
   })

@@ -1,0 +1,591 @@
+# Whole pieces of work over several steps and several people (lib/flow.ts). A step is a person's turn with the AI
+# (ask) or something another person or a service does through the real API as that fake user (event). Checks run after
+# every step; the report names the first step that broke, the prompts each person saw, the time and the cost.
+#
+# Fixture: fixture/seed.ts (가나다오피스, fictional). The group chat "라마바카페 건" has sora, daniel and minho; jiwoo
+# (CEO) joins it in FL-08. Connected services marked `mocked: true` are the MOCK services of mock-services/ (made-up
+# data, reached through the product's real MCP connection path): no real Notion, Google, Linear or mailbox is used.
+# Heavy steps (a deck, a video) are stopped after about 3 minutes and marked slow. Outputs are kept small on purpose:
+# the flow is what is checked, not the quality of a 30-page document.
+version: 1
+flows:
+
+# ================================================================ sharing and links (the owner's first group)
+- id: FL-01
+  title: A file link in the room, opened by a teammate who asks the AI about it
+  group: sharing
+  features: [rooms.messages, files.share-links, files.view]
+  steps:
+    - say: sora posts a link to the price list in the room
+      event: { type: room_message, as: sora, text: "단가표 최신본이에요 {{file:groups/영업/단가표-2026.xlsx}}" }
+    - say: daniel asks his side chat about the file behind the link
+      ask: { as: daniel, chat: d1, context: room-side, prompt: "What's the price of the monitor stand in the file Sora just linked?" }
+      checks:
+        - { type: answer_matches, pattern: "23,?000" }
+    - say: daniel follows up in the same chat (context kept)
+      ask: { as: daniel, chat: d1, context: room-side, prompt: "And how many are in stock?" }
+      checks:
+        - { type: answer_matches, pattern: "\\b18\\b" }
+
+- id: FL-02
+  title: A DM link to a file the receiver can't open, then shared, then opened
+  group: sharing
+  features: [files.share-links, rooms.messages, chat.cards]
+  steps:
+    - say: sora DMs hana a link to the sales client list (hana is not in 영업)
+      event: { type: dm, as: sora, to: hana, text: "하나님 거래처 목록 참고하세요 {{file:groups/영업/거래처-목록.csv}}" }
+    - say: hana asks her AI about the linked file
+      ask: { as: hana, chat: h1, prompt: "소라님이 DM으로 보낸 거래처 목록에서 서울 거래처 몇 곳이야?" }
+      checks:
+        - { type: answer_not_matches, pattern: "\\b3\\b ?곳|세 곳" }
+    - say: sora asks her AI to share the file with hana
+      ask: { as: sora, chat: s1, prompt: "거래처 목록 CSV 최하나님한테 볼 수 있게 공유해줘" }
+      checks:
+        - { type: tool_used, any: [share_with_person, share_file] }
+    - say: hana asks again
+      ask: { as: hana, chat: h1, prompt: "이제 열려? 서울 거래처 몇 곳인지 다시 봐줘" }
+      checks:
+        - { type: answer_matches, pattern: "3 ?곳|세 곳|3개" }
+
+- id: FL-03
+  title: An AI answer shared into the room, then a teammate asks about it
+  group: sharing
+  features: [chat.share, rooms.messages]
+  steps:
+    - say: sora asks for a summary of the visit report in her own chat
+      ask: { as: sora, chat: s1, prompt: "라마바카페 방문보고서 스캔본 세 줄로 요약해줘" }
+      checks:
+        - { type: answer_matches, pattern: "26,?500" }
+    - say: sora asks to share that answer into the room
+      ask: { as: sora, chat: s1, prompt: "방금 요약 라마바카페 건 방에 공유해줘" }
+      checks:
+        - { type: room_message, pattern: "26,?500" }
+    - say: minho asks his side chat about what was shared
+      ask: { as: minho, chat: m1, context: room-side, prompt: "소라가 방금 올린 요약에서 경쟁사 가격이 얼마였어?" }
+      checks:
+        - { type: answer_matches, pattern: "25,?900" }
+
+- id: FL-04
+  title: Links to a folder and to someone's own chat
+  group: sharing
+  features: [files.share-links, chat.share, files.browse]
+  steps:
+    - say: sora works in her own chat
+      ask: { as: sora, chat: s1, prompt: "단가표에서 제일 비싼 품목 뭐야?" }
+    - say: sora DMs daniel a link to her chat and to the quotes folder
+      event: { type: dm, as: sora, to: daniel, text: "제 대화 {{chat:s1}} 이랑 견적서 폴더 {{file:groups/영업/견적서}} 봐주세요" }
+    - say: daniel asks his AI what is in the folder link
+      ask: { as: daniel, chat: d1, prompt: "Sora DM'd me a folder link. What files are in it?" }
+      checks:
+        - { type: answer_matches, pattern: "거래명세서|견적서" }
+    - say: daniel asks his AI about Sora's chat link (her own chat; he can't see it unless she shares it)
+      ask: { as: daniel, chat: d1, prompt: "And what did Sora ask in the chat she linked?" }
+      checks:
+        - { type: answer_not_matches, pattern: "가장 비싼|most expensive" }
+
+- id: FL-05
+  title: Links pasted from outside (a Notion page and a web page)
+  group: sharing
+  mocked: true
+  features: [connectors.mine, chat.web-access]
+  steps:
+    - say: sora pastes the Notion sales wiki page id and asks
+      ask: { as: sora, chat: s1, prompt: "노션 영업 위키(p-sales-wiki) 열어서 토요일 배송 규칙 알려줘" }
+      checks:
+        - { type: answer_matches, pattern: "퀵" }
+    - say: sora pastes a web address
+      ask: { as: sora, chat: s1, prompt: "https://example.com 이 페이지 뭐하는 데야? 한 줄로" }
+      checks:
+        - { type: answer_matches, pattern: "예시|example|문서" }
+
+- id: FL-06
+  title: Forward a room message to someone outside the room
+  group: sharing
+  features: [rooms.messages, chat.share]
+  steps:
+    - say: minho writes the agreed price in the room
+      event: { type: room_message, as: minho, text: "라마바카페 연간 단가 27,000원으로 확정합니다. 마케팅에도 공유 부탁해요." }
+    - say: sora asks her side chat to forward it to hana (not in the room)
+      ask: { as: sora, chat: s2, context: room-side, prompt: "민호 이사님이 방금 확정한 단가 내용 최하나님한테 전달해줘" }
+      checks:
+        - { type: tool_used, any: [post_to_room] }
+    - say: hana asks her AI what she got
+      ask: { as: hana, chat: h1, prompt: "소라님이 나한테 뭐 보냈어? 단가 얼마로 확정됐대?" }
+      checks:
+        - { type: answer_matches, pattern: "27,?000" }
+
+- id: FL-07
+  title: A teammate replies with an edited file, and the original gets the edits
+  group: sharing
+  features: [rooms.files, files.edit, files.versions]
+  steps:
+    - say: sora sends the meeting notes into the room
+      event: { type: room_file, as: sora, path: "shared/회의록/2026-11-10-주간회의.md", text: "회의록 확인 부탁드려요" }
+    - say: daniel answers with an edited copy (next meeting moved)
+      event: { type: room_edited_file, as: daniel, path: "shared/회의록/2026-11-10-주간회의.md", from: "오전 10시", to: "오후 3시", name: "2026-11-10-주간회의-daniel수정.md", text: "Moved the next meeting, edited file attached" }
+    - say: sora asks her side chat to apply Daniel's edit to the original
+      ask: { as: sora, chat: s2, context: room-side, prompt: "다니엘이 고친 회의록 파일 내용대로 원본 회의록도 고쳐줘" }
+      checks:
+        - { type: file_contains, path: "shared/회의록/2026-11-10-주간회의.md", text: "오후 3시" }
+
+# ================================================================ office flows with other people
+- id: FL-08
+  title: "Quote: draft, seal, room, CEO asks a change, update, re-seal, mail it"
+  group: office
+  mocked: true
+  fixInProgress: stamp_pdf tool (other agent's PR) for the seal steps
+  features: [files.edit, rooms.messages, connectors.google-apps, skills.list]
+  steps:
+    - say: setup, the team's skill names the seal file as it is now (the fixture's old path is for the SKL-01 cases)
+      event: { type: file_edit, as: jiwoo, path: skills/quote-writer/SKILL.md, from: "shared/도장/직인.png", to: "shared/도장/회사직인.png" }
+    - say: sora asks for a quote PDF with the seal
+      ask: { as: sora, chat: s1, heavy: true, prompt: "사아자 베이커리 견적서 PDF 만들어줘. A4 복사용지 5박스, 볼펜 2갑. 마지막 장 (인)에 회사 직인 찍어서" }
+      checks:
+        - { type: file_created, file: "**/*.pdf" }
+    - say: sora asks to share it in the room
+      ask: { as: sora, chat: s1, prompt: "그 견적서 라마바카페 건 방에 올려줘" }
+      checks:
+        - { type: tool_used, any: [post_to_room, share_with_person] }
+    - say: sora adds the CEO to the room
+      event: { type: room_invite, as: sora, user: jiwoo }
+    - say: the CEO asks for a price change in the room
+      event: { type: room_message, as: jiwoo, text: "사아자 베이커리는 볼펜 단가 5,500원으로 해주세요." }
+    - say: sora asks her AI to update the quote as the CEO said
+      ask: { as: sora, chat: s1, heavy: true, prompt: "대표님이 방에서 말한 대로 견적서 고쳐서 다시 직인 찍어줘" }
+      checks:
+        - { type: file_created, file: "**/*.pdf" }
+    - say: sora asks to mail it (mock Gmail)
+      ask: { as: sora, chat: s1, prompt: "수정 견적서 사아자 베이커리 총무팀(office@saaja.example)에 메일로 보내줘" }
+      checks:
+        # sent, and with the quote attached or linked (the mock takes files as base64 or links)
+        - { type: mock, path: mail.sent, pattern: "saaja[\\s\\S]*\"attachments\":\\[\\{" }
+
+- id: FL-09
+  title: Meeting talk in the room, summarised, to-dos assigned, a member replies, revised
+  group: people
+  features: [rooms.messages, rooms.threads, chat.share]
+  steps:
+    - say: three people talk in the room
+      event: { type: room_message, as: minho, text: "[회의] 라마바카페 샘플은 다니엘이 목요일에 가져가기로. 계약서 최종본은 제가 금요일까지." }
+    - say: more talk
+      event: { type: room_message, as: sora, text: "[회의] 견적서 수정본은 제가 수요일까지 보낼게요." }
+    - say: sora asks her side chat for the to-dos
+      ask: { as: sora, chat: s2, context: room-side, prompt: "방금 [회의]로 얘기한 거 할 일 표로 정리해서 방에 올려줘" }
+      checks:
+        - { type: room_message, pattern: "다니엘|Daniel" }
+    - say: daniel replies that he can't do Thursday
+      event: { type: room_message, as: daniel, text: "Sorry, I can't do Thursday - Friday morning works for the samples." }
+    - say: sora asks to revise
+      ask: { as: sora, chat: s2, context: room-side, prompt: "다니엘 답 반영해서 할 일 표 고쳐서 다시 올려줘" }
+      checks:
+        - { type: room_message, pattern: "금요일|Friday" }
+
+- id: FL-10
+  title: A form becomes a skill, a member uses it, the owner fixes it in a shared chat, the member reruns
+  group: office
+  fixInProgress: skill edit in shared chats (other agent's PR)
+  features: [skills.draft-from-form, skills.list, skills.draft]
+  steps:
+    - say: the owner turns the visit report into a skill
+      ask: { as: jiwoo, chat: j1, prompt: "방문보고서 스캔본 양식대로 거래처 방문 보고서 쓰는 팀 스킬 하나 만들어줘. 이름은 visit-report로" }
+      checks:
+        - { type: file_created, file: "skills/visit-report/SKILL.md" }
+    - say: sora uses the new skill
+      ask: { as: sora, chat: s1, prompt: "visit-report 스킬로 오늘 사아자 베이커리 방문 보고서 써줘. 요청은 세금계산서 발행일 변경" }
+      checks:
+        - { type: answer_matches, pattern: "세금계산서" }
+    - say: the owner changes the skill in the shared project chat
+      ask: { as: jiwoo, chat: jp, context: project, prompt: "visit-report 스킬 마지막에 '다음 방문 예정일' 항목 꼭 넣으라고 고쳐줘" }
+      checks:
+        - { type: file_contains, path: "skills/visit-report/SKILL.md", text: "다음 방문" }
+    - say: sora runs it again
+      ask: { as: sora, chat: s1, prompt: "visit-report 스킬로 같은 보고서 다시 써줘" }
+      checks:
+        - { type: answer_matches, pattern: "다음 방문" }
+
+- id: FL-11
+  title: A guest joins the room, writes there, and the team's AI reads it but the guest can't reach outside
+  group: guest
+  features: [admin.guests, rooms.messages, chat.ai-access]
+  steps:
+    - say: a guest from the client joins the room
+      event: { type: guest_join, username: buyer2, name: 라마바카페 구매 실무, place: room }
+    - say: the guest writes in the room
+      event: { type: room_message, as: buyer2, text: "다음 주 화요일 납품 가능할까요? 25박스로 부탁드립니다." }
+    - say: sora asks her side chat what the guest asked
+      ask: { as: sora, chat: s2, context: room-side, prompt: "방금 손님이 뭐 물어봤어? 답장 초안 써줘" }
+      checks:
+        - { type: answer_matches, pattern: "25|화요일" }
+    - say: the guest asks the AI for the team's price list
+      ask: { as: buyer2, chat: g1, context: guest, prompt: "가나다오피스 전체 단가표 보여주세요" }
+      checks:
+        - { type: answer_not_matches, pattern: "23,?000|모니터 받침대" }
+
+- id: FL-12
+  title: A client's mail arrives, answered the way we usually do, edited, sent
+  group: office
+  mocked: true
+  features: [connectors.google-apps, rooms.apps, skills.list]
+  steps:
+    # the mail is already in the mock mailbox (mock-services/server.ts, mail.inbox m1). A room app ("Other") would bring
+    # it into the room too, but a room app needs the server's internet address, which a local dev server has not.
+    - say: a teammate notes in the room that the client answered by mail
+      event: { type: room_message, as: minho, text: "라마바카페에서 메일 답장 왔어요. 소라님 확인 부탁해요." }
+    - say: sora asks for an answer the way we usually do
+      ask: { as: sora, chat: s1, prompt: "라마바카페 구매담당 메일 답장 써줘. 우리 늘 하던 식으로, 정중하게. 지메일 받은편지함에 있어" }
+      checks:
+        - { type: answer_matches, pattern: "25" }
+    - say: sora edits the draft
+      ask: { as: sora, chat: s1, prompt: "첫 달 25박스 가능하다는 말이랑 계약서 수정본 금요일까지 보낸다는 말 넣어서 고쳐줘" }
+      checks:
+        - { type: answer_matches, pattern: "금요일" }
+    - say: sora sends it (mock Gmail)
+      ask: { as: sora, chat: s1, prompt: "좋아 이걸로 보내줘" }
+      checks:
+        - { type: mock, path: mail.sent, pattern: "lamaba" }
+    - say: sora saves the order sheet attached to the client's other mail
+      ask: { as: sora, chat: s1, prompt: "라마바카페가 보낸 12월 주문서 메일에 첨부파일 있지? 그거 영업 폴더에 저장해줘" }
+      checks:
+        - { type: file_created, file: "groups/영업/**/*.pdf" }
+
+- id: FL-13
+  title: New files arrive, the AI suggests an order, they are shared, a teammate asks about them
+  group: office
+  features: [files.organize, files.share-links, files.search]
+  steps:
+    - say: sora saves three loose notes in her folder
+      event: { type: file_add, as: sora, path: "users/sora/메모1.md", text: "사아자 베이커리 11월 미수금 620,000원, 12/5까지 입금 약속" }
+    - say: another note
+      event: { type: file_add, as: sora, path: "users/sora/메모2.md", text: "차카타 학원 2월 신학기 A4 200박스 예정, 견적 1월 초" }
+    - say: sora asks how to organise them
+      ask: { as: sora, chat: s1, prompt: "내 폴더에 메모1, 메모2 있지? 거래처별로 정리하는 방법 제안해줘. 옮기지는 말고" }
+      checks:
+        - { type: tool_not_used, tools: [move_files, rename_file] }
+    - say: sora asks to share them with the sales group
+      ask: { as: sora, chat: s1, prompt: "두 메모 영업팀 그룹이 볼 수 있게 공유해줘" }
+      checks:
+        - { type: tool_used, any: [share_with_person, share_file, copy_files] }
+    - say: daniel asks his AI about them
+      ask: { as: daniel, chat: d1, prompt: "Sora shared some client notes with Sales. When will 사아자 베이커리 pay?" }
+      checks:
+        - { type: answer_matches, pattern: "12/5|12월 5일|Dec(ember)? 5" }
+
+- id: FL-30
+  title: A teammate changes one line of a shared file; the AI says who changed what (QA TC-4547)
+  group: office
+  features: [files.versions, files.view]
+  steps:
+    - say: daniel moves the next meeting in the shared meeting notes
+      event: { type: file_edit, as: daniel, path: "shared/회의록/2026-11-10-주간회의.md", from: "오전 10시", to: "오후 3시" }
+    - say: sora asks what daniel changed
+      ask: { as: sora, chat: s1, prompt: "다니엘이 주간회의 회의록에서 뭐 바꿨어?" }
+      checks:
+        - { type: tool_used, any: [read] }
+        - { type: answer_matches, pattern: "오전 10시" }
+        - { type: answer_matches, pattern: "오후 3시" }
+        - { type: answer_not_matches, pattern: "버전 기록.{0,20}(없|못)|version history" }
+
+# ================================================================ making things (kept small)
+- id: FL-14
+  title: "A proposal (1 page): draft, a comment in the room, revise, share"
+  group: making
+  features: [files.edit, rooms.messages, chat.share]
+  steps:
+    - say: sora asks for a short proposal
+      ask: { as: sora, chat: s1, heavy: true, prompt: "라마바카페 연간 계약 제안서 워드로 1페이지만 만들어줘. 단가는 복사용지 27,000원" }
+      checks:
+        - { type: docx_contains, file: "**/*.docx", text: "27,000" }
+    - say: minho comments in the room
+      event: { type: room_message, as: minho, text: "제안서에 무료 배송 조건(월 20박스 이상)도 넣어주세요." }
+    - say: sora asks to revise as minho said
+      ask: { as: sora, chat: s1, heavy: true, prompt: "민호 이사님이 방에 남긴 의견대로 제안서 고쳐줘" }
+      checks:
+        - { type: docx_contains, file: "**/*.docx", text: "무료 배송" }
+    - say: sora asks to share it in the room
+      ask: { as: sora, chat: s1, prompt: "고친 제안서 방에 올려줘" }
+      checks:
+        - { type: tool_used, any: [post_to_room, share_with_person] }
+
+- id: FL-15
+  title: "A small deck (3 slides): make, change a slide, add a picture, reorder, export PDF"
+  group: making
+  features: [files.edit, chat.decks]
+  steps:
+    - say: hana asks for a 3-slide deck
+      ask: { as: hana, chat: h1, heavy: true, prompt: "친환경 신제품 소개 PPT 3장짜리 만들어줘. 표지, 제품, 일정" }
+      checks:
+        - { type: pptx_slides, file: "**/*.pptx", min: 3 }
+    - say: hana asks to change one slide and add a photo
+      ask: { as: hana, chat: h1, heavy: true, prompt: "제품 슬라이드에 마케팅 사진 폴더 IMG_2041 사진 넣고, 일정 슬라이드를 2번째로 옮겨줘" }
+      checks:
+        - { type: pptx_slides, file: "**/*.pptx", min: 3 }
+    - say: hana asks for a PDF
+      ask: { as: hana, chat: h1, heavy: true, prompt: "그 PPT PDF로도 저장해줘" }
+      checks:
+        - { type: pdf_pages, file: "**/*.pdf", min: 3 }
+
+- id: FL-16
+  title: "A video of a few seconds: make it, then share it"
+  group: making
+  features: [chat.promo-video, chat.share]
+  steps:
+    - say: hana asks for a very short video
+      ask: { as: hana, chat: h1, heavy: true, prompt: "신제품 홍보 영상 아주 짧게, 5초 정도로 만들어줘" }
+      checks:
+        - { type: file_created, file: "**/*.{mp4,mov,webm}" }
+    - say: hana asks to share it with sora
+      ask: { as: hana, chat: h1, prompt: "그 영상 이소라님한테 보내줘" }
+      checks:
+        - { type: tool_used, any: [share_with_person, post_to_room] }
+
+- id: FL-17
+  title: "A report with a chart from the sales sheet: make, a comment, revise"
+  group: making
+  features: [files.edit, rooms.messages]
+  steps:
+    - say: jiwoo asks for a one-page report with a chart
+      ask: { as: jiwoo, chat: j1, heavy: true, prompt: "월별 매출 엑셀로 10월 지역별 실적 1페이지 보고서 PDF 만들어줘. 막대 그래프 하나 넣어서" }
+      checks:
+        - { type: file_created, file: "**/*.pdf" }
+    - say: jiwoo asks for a change
+      ask: { as: jiwoo, chat: j1, heavy: true, prompt: "그래프에 7월부터 10월까지 다 넣고 서울만 진하게 해줘" }
+      checks:
+        - { type: file_created, file: "**/*.pdf" }
+
+# ================================================================ spreadsheets
+- id: FL-18
+  title: "Excel: read, edit cells and a formula, add a sheet, chart, export"
+  group: spreadsheets
+  features: [files.edit, files.view]
+  steps:
+    - say: sora asks a question about the price list
+      ask: { as: sora, chat: s1, prompt: "단가표에서 재고가 50개 아래인 품목 뭐 있어?" }
+      checks:
+        - { type: answer_matches, pattern: "스테이플러|모니터 받침대|문서 세단기|라벨" }
+    - say: sora asks for a price change and a total formula
+      ask: { as: sora, chat: s1, prompt: "단가표에서 볼펜 단가 6,500원으로 바꾸고 맨 아래에 재고 합계 수식 넣어줘" }
+      checks:
+        - { type: xlsx, file: "groups/영업/**/*.xlsx", formula: true }
+    - say: sora asks for a new sheet
+      ask: { as: sora, chat: s1, prompt: "같은 파일에 '재고부족' 시트 추가해서 재고 50개 아래 품목만 넣어줘" }
+      checks:
+        - { type: xlsx, file: "groups/영업/**/*.xlsx", header: "품목" }
+    - say: sora asks for a chart and a PDF
+      ask: { as: sora, chat: s1, heavy: true, prompt: "품목별 재고 막대 차트 넣고 PDF로도 뽑아줘" }
+      checks:
+        - { type: file_created, file: "**/*.pdf" }
+
+- id: FL-19
+  title: "Google Sheets (mock): read, update a cell, append rows, make a sheet from a table"
+  group: spreadsheets
+  mocked: true
+  features: [connectors.mine, connectors.google-drive]
+  steps:
+    - say: sora reads the orders sheet
+      ask: { as: sora, chat: s1, prompt: "구글 시트 '2026 주문 현황'에서 라마바카페 11월 주문 금액 얼마야?" }
+      checks:
+        - { type: answer_matches, pattern: "1,?530,?000|153만" }
+    - say: sora corrects one cell
+      ask: { as: sora, chat: s1, prompt: "그 11월 라마바카페 금액 1,580,000원으로 고쳐줘" }
+      checks:
+        - { type: mock, path: sheets.sheets, pattern: "1580000" }
+    - say: sora appends rows
+      ask: { as: sora, chat: s1, prompt: "11월에 차카타 학원 960,000원, 다라 치과의원 540,000원 두 줄 추가해줘" }
+      checks:
+        - { type: mock, path: sheets.sheets, pattern: "차카타" }
+    - say: sora makes a sheet from a table
+      ask: { as: sora, chat: s1, prompt: "거래처 목록 CSV를 구글 시트로 새로 만들어줘" }
+      checks:
+        - { type: mock, path: sheets.sheets, pattern: "다라 치과의원.*02-0000|02-0000.*다라" }
+
+- id: FL-20
+  title: "CSV: tidy, add a column, export to Excel, a teammate asks"
+  group: spreadsheets
+  features: [files.edit, files.view]
+  steps:
+    - say: sora asks for a new column
+      ask: { as: sora, chat: s1, prompt: "거래처 목록 CSV에 '등급' 열 추가해줘. 월평균주문액 100만 원 넘으면 A, 50만 넘으면 B, 나머지 C" }
+      checks:
+        - { type: file_contains, path: "groups/영업/거래처-목록.csv", text: "등급" }
+    - say: sora asks for an Excel copy
+      ask: { as: sora, chat: s1, prompt: "그거 엑셀로도 저장해줘" }
+      checks:
+        - { type: xlsx, file: "**/*.xlsx", header: "등급" }
+    - say: daniel asks about the grades
+      ask: { as: daniel, chat: d1, prompt: "Which clients are grade A in the client list?" }
+      checks:
+        - { type: answer_matches, pattern: "라마바" }
+
+# ================================================================ documents
+- id: FL-21
+  title: "Word: make, edit, comments, fill the contract template, export PDF"
+  group: documents
+  features: [files.edit]
+  steps:
+    - say: minho asks for a short notice
+      ask: { as: minho, chat: m1, prompt: "거래처 공지 워드 하나 만들어줘. 12월 24일부터 1월 1일까지 배송 쉼. 반 페이지" }
+      checks:
+        - { type: docx_contains, file: "**/*.docx", text: "12월 24일" }
+    - say: minho asks for a change
+      ask: { as: minho, chat: m1, prompt: "1월 2일부터 정상 배송이라는 줄 추가해줘" }
+      checks:
+        - { type: docx_contains, file: "**/*.docx", text: "1월 2일" }
+    - say: minho asks for comments or tracked changes
+      ask: { as: minho, chat: m1, prompt: "계약서 워드에 제3조 옆에 '정산일 재확인 필요' 메모(댓글) 달아줘" }
+    - say: minho asks to fill the contract and export PDF
+      ask: { as: minho, chat: m1, heavy: true, prompt: "계약서 워드에 을 대표 최라마 넣은 버전 만들고 PDF로도 저장해줘" }
+      checks:
+        - { type: pdf_text, file: "**/*.pdf", text: "최라마" }
+
+- id: FL-22
+  title: "PowerPoint: edit a slide, replace a picture, reorder, export PDF"
+  group: documents
+  features: [files.edit]
+  steps:
+    - say: hana asks to edit the existing deck
+      ask: { as: hana, chat: h1, heavy: true, prompt: "2027 신제품 소개 PPT에서 '가격 정책' 슬라이드 첫 줄을 '기존 단가 대비 5% 인상'으로 바꾼 버전 만들어줘" }
+      checks:
+        - { type: pptx_slides, file: "**/*.pptx", min: 3 }
+    - say: hana asks to add a picture and move a slide
+      ask: { as: hana, chat: h1, heavy: true, prompt: "거기에 매장 전경 사진 넣은 슬라이드 하나 맨 앞에 추가해줘" }
+      checks:
+        - { type: pptx_slides, file: "**/*.pptx", min: 4 }
+    - say: hana asks for a PDF
+      ask: { as: hana, chat: h1, heavy: true, prompt: "PDF로 저장해줘" }
+      checks:
+        - { type: pdf_pages, file: "**/*.pdf", min: 4 }
+
+- id: FL-23
+  title: "Hangul: edit the agreement (plugin off here: a Word copy instead)"
+  group: documents
+  features: [files.edit, admin.plugins]
+  steps:
+    - say: minho asks to change the Hangul agreement
+      ask: { as: minho, chat: m1, prompt: "업무협약서 한글 파일 총 사업비 15,000,000원으로 고쳐줘" }
+    - say: minho accepts the alternative
+      ask: { as: minho, chat: m1, prompt: "그럼 워드로라도 만들어줘" }
+      checks:
+        - { type: docx_contains, file: "**/*.docx", text: "15,000,000" }
+
+- id: FL-24
+  title: "Google Docs and Slides (mock): read, edit, make from a draft"
+  group: documents
+  mocked: true
+  features: [connectors.mine, connectors.google-apps]
+  steps:
+    - say: sora reads the proposal doc
+      ask: { as: sora, chat: s1, prompt: "구글 문서 '라마바카페 연간계약 제안 (초안)' 조건 부분 뭐라고 돼 있어?" }
+      checks:
+        - { type: answer_matches, pattern: "27,?000" }
+    - say: sora edits it
+      ask: { as: sora, chat: s1, prompt: "그 문서에서 '월말 정산'을 '익월 말 정산'으로 고쳐줘" }
+      checks:
+        - { type: mock, path: docs.docs, pattern: "익월 말 정산" }
+    - say: sora makes a new doc and a 2-slide deck from the chat
+      ask: { as: sora, chat: s1, prompt: "방금 내용으로 구글 문서 새로 하나 만들고, 같은 내용 구글 슬라이드 2장짜리도 만들어줘" }
+      checks:
+        - { type: mock, path: slides.decks, pattern: "라마바|연간" }
+
+# ================================================================ connectors
+- id: FL-25
+  title: "Notion (mock): read a page, update a database row, make a page from a chat result"
+  group: connectors
+  mocked: true
+  features: [connectors.mine]
+  steps:
+    - say: sora reads the pipeline
+      ask: { as: sora, chat: s1, prompt: "노션 거래처 파이프라인에서 협의 중인 거래처 어디야?" }
+      checks:
+        - { type: answer_matches, pattern: "라마바" }
+    - say: sora updates a row
+      ask: { as: sora, chat: s1, prompt: "라마바카페 상태 '계약'으로 바꿔줘" }
+      checks:
+        - { type: mock, path: notion.db, pattern: "\"client\":\"라마바카페\",\"status\":\"계약\"" }
+    - say: sora makes a page from a chat answer
+      ask: { as: sora, chat: s1, prompt: "방문보고서 스캔본 요약해서 노션에 새 페이지로 만들어줘" }
+      checks:
+        - { type: mock, path: notion.pages, pattern: "26,?500" }
+
+- id: FL-26
+  title: "Linear (mock): read issues, act on one, write back; Slack (not connected)"
+  group: connectors
+  mocked: true
+  features: [connectors.mine, connectors.slack]
+  steps:
+    - say: jiwoo reads the issues
+      ask: { as: jiwoo, chat: j1, prompt: "리니어에 직인 관련 이슈 있어? 상태 어때?" }
+      checks:
+        - { type: answer_matches, pattern: "ENG-12" }
+    - say: jiwoo asks to comment and move it
+      ask: { as: jiwoo, chat: j1, prompt: "그 이슈에 '도장 찍는 기능 개발 중' 댓글 달고 In Progress로 옮겨줘" }
+      checks:
+        - { type: mock, path: linear.issues, pattern: "도장 찍는 기능" }
+    - say: jiwoo asks to post the same news to Slack
+      ask: { as: jiwoo, chat: j1, prompt: "같은 내용 슬랙 #sales 채널에도 올려줘" }
+      checks:
+        - { type: answer_not_matches, pattern: "올렸습니다|보냈습니다|posted" }
+
+# ================================================================ PDF (edit_pdf is being built)
+- id: FL-27
+  title: "Scanned contract: drop the blank page, merge the cover letter, seal the last page, number pages, share in the room"
+  group: pdf
+  fixInProgress: edit_pdf tool (other agent's PR)
+  features: [files.edit, rooms.files]
+  steps:
+    - say: sora asks to drop the blank page
+      ask: { as: sora, chat: s1, prompt: "라마바카페 계약서 서명본 스캔에 빈 페이지 빼줘" }
+      checks:
+        - { type: pdf_pages, file: "**/*.pdf", min: 3, max: 3 }
+    - say: sora asks to put the cover letter in front
+      ask: { as: sora, chat: s1, prompt: "그 앞에 계약서 송부 커버레터 붙여서 한 파일로 만들어줘" }
+      checks:
+        - { type: pdf_pages, file: "**/*.pdf", min: 4, max: 4 }
+    - say: sora asks to seal the last page
+      ask: { as: sora, chat: s1, prompt: "마지막 장에 회사 직인 찍어줘" }
+      checks:
+        - { type: pdf_image_on_page, file: "**/*.pdf", page: 4 }
+    - say: sora asks for page numbers
+      ask: { as: sora, chat: s1, prompt: "쪽번호도 넣어줘" }
+      checks:
+        - { type: pdf_text, file: "**/*.pdf", page: 2, text: "2" }
+    - say: sora asks to share it in the room
+      ask: { as: sora, chat: s1, prompt: "완성본 라마바카페 건 방에 올려줘" }
+      checks:
+        - { type: tool_used, any: [post_to_room, share_with_person] }
+
+# ================================================================ the real case (owner 2026-11-16)
+- id: FL-28
+  title: A teammate's meeting-notes link in the room, saved from the side chat, then sent to the thread (mocked)
+  group: sharing
+  mocked: true
+  why: Owner, 2026-11-16 - five permission prompts to save a teammate's meeting-notes link from a room (the person then pressed Send to thread under the answer).
+  features: [rooms.messages, chat.web-access, chat.cards, chat.share]
+  steps:
+    - say: minho posts a meeting-notes link with a tracking query in the room
+      event: { type: room_message, as: minho, text: "일요일 회의록이에요 {{mock}}/s/8LdgbR8hDYo2hLjRhVXF?utm_source=slack&utm_medium=share" }
+    - say: sora asks her side chat to save the meeting notes
+      ask: { as: sora, chat: s9, context: room-side, prompt: "민호님이 올린 일요일 회의록 링크 내용 파일로 저장해줘" }
+      checks:
+        - { type: answer_matches, pattern: "회의록|저장" }
+    - say: sora sends the answer to the thread of minho's message (the Send to thread button)
+      event: { type: share_answer, as: sora, chat: s9, threadOf: "일요일 회의록이에요" }
+
+- id: FL-29
+  title: "A meeting-notes link in the room: save the notes, then the AI replies in its thread"
+  group: sharing
+  why: Owner, 2026-11-16 - five permission prompts to save a teammate's meeting-notes link from a room.
+  features: [rooms.messages, rooms.threads, chat.web-access, files.upload, chat.share]
+  steps:
+    # a Tiro-style shared notes link with tracking noise; served by the mock server's public page behind its tunnel
+    - say: daniel posts the meeting-notes link in the room
+      event: { type: room_message, as: daniel, text: "Today's meeting notes (AI notes): {{mock:/pub/notes/kR3x9Tq?utm_source=tiro&utm_medium=share&fbclid=IwAR0x#summary}}" }
+    - say: sora asks her side chat to save the notes
+      ask: { as: sora, chat: s2, context: room-side, prompt: "다니엘이 올린 회의록 링크 내용 회의록 폴더에 저장해줘" }
+      checks:
+        # the room is the group chat "라마바카페 건" (not the Everyone room): since #1162 its default place is the 영업
+        # folder its non-admin members share, so "회의록 폴더" may be 영업's own 회의록 folder or the company's
+        - { type: file_created, file: "{shared,groups/영업}/회의록/**" }
+    - say: sora asks to reply in that message's thread with a summary
+      ask: { as: sora, chat: s2, context: room-side, prompt: "저장한 회의록 요약해서 다니엘 메시지 스레드에 답글로 달아줘" }
+      checks:
+        - { type: tool_used, any: [post_to_room] }

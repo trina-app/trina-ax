@@ -1,5 +1,5 @@
 // Settings on a phone at 390×844 (QA TC-261–263, docs/AGENTS/plan/20261111-1748-phone-settings-rows.md): sections are
-// rows and switches, not a web page's buttons (Memory, Security & devices, Notifications, Profile, AI accounts, sign
+// rows and switches, not a web page's buttons (Memory, Security & devices, Notifications, Profile, AI providers, sign
 // out); in the phone app what only works on a computer is not offered (connecting a service, AI app setup, Mac and
 // Windows downloads); and there are no duplicate entries or loops (Activity, the AI's sites in one page, the "just for
 // you" line, the schedule-review row). A computer keeps every section as it was.
@@ -207,7 +207,7 @@ test.describe('TC-261: phone Settings sections use rows and switches, not web bu
     expect(patched).toBe(0)
   })
 
-  test('4. AI accounts — an Add account row', async ({ page }) => {
+  test('4. AI providers — an Add account row', async ({ page }) => {
     await me(page, 'settings-row-providers')
     const addRow = page.getByTestId('my-credential-add-claude')
     await expect(addRow).toBeVisible()
@@ -219,25 +219,26 @@ test.describe('TC-261: phone Settings sections use rows and switches, not web bu
     await expect(page.getByRole('dialog')).toBeVisible()
   })
 
-  test('5. Profile — language and theme are checkmark lists', async ({ page }) => {
+  test('5. Profile — the language is one row with a sheet, the theme a checkmark list', async ({ page }) => {
     await me(page, 'settings-me')
     await expect(page).toHaveURL(/\/settings\/profile$/)
-    const english = page.getByTestId('locale-en')
-    await expect(english).toHaveAttribute('role', 'radio')
-    await expect(english).toHaveAttribute('aria-checked', 'false')
-    await tall(english, 48)
-    expect(await english.evaluate((el) => getComputedStyle(el).borderTopWidth)).toBe('0px')
-    await expect(page.getByTestId('locale-team')).toHaveAttribute('aria-checked', 'true')
+    // one row "Language   Team default (…) ›" (owner 2026-11-16: no list of every language on the page)
+    const row = page.getByTestId('profile-locale')
+    await tall(row, 48)
+    await expect(page.getByTestId('profile-locale-value')).toHaveText(t['settings.languageTeam'].replace('{language}', 'English'))
+    await row.click()
+    const english = page.getByTestId('profile-locale-option-en')
+    await expect(english).toBeVisible()
+    await expect(page.getByTestId('profile-locale-option-team')).toHaveAttribute('aria-checked', 'true')
+    await english.click()
+    await expect(page.locator('html')).toHaveAttribute('lang', 'en')
+    await expect(page.getByTestId('profile-locale-value')).toHaveText('English')
     const dark = page.getByTestId('theme-dark')
     await tall(dark, 48)
     await dark.click()
     await expect(dark).toHaveAttribute('aria-checked', 'true')
     await expect(page.getByTestId('theme-system')).toHaveAttribute('aria-checked', 'false')
     await fits(page)
-    // a radio group: one tab stop (the chosen row); the arrow keys move to the next row and pick it
-    await expect(page.getByTestId('profile-language').getByRole('radiogroup')).toHaveAccessibleName(t['settings.language'])
-    await expect(page.getByTestId('locale-team')).toHaveAttribute('tabindex', '0')
-    await expect(english).toHaveAttribute('tabindex', '-1')
     await dark.focus()
     await page.keyboard.press('ArrowUp')
     await expect(page.getByTestId('theme-light')).toBeFocused()
@@ -419,8 +420,9 @@ test.describe('a computer keeps every section as it was', () => {
     await expect(page.getByTestId('notifications-activity')).toBeVisible()
     await expect(page.getByTestId('notification-room-level').locator('input[type="radio"]')).toHaveCount(3)
     await page.goto('/settings/profile')
-    await expect(page.getByTestId('locale-en')).toHaveAttribute('role', 'radio')
-    expect(await page.getByTestId('locale-en').evaluate((el) => getComputedStyle(el).borderTopWidth)).toBe('1px')
+    // a computer: the language is one select (owner 2026-11-16), not the phone's checkmark list
+    await expect(page.getByTestId('profile-locale')).toHaveJSProperty('tagName', 'SELECT')
+    await expect(page.getByTestId('locale-en')).toHaveCount(0)
     await expect(page.getByTestId('theme-dark')).toHaveCount(0)
   })
 })

@@ -11,6 +11,25 @@ const pluralForms = (s: string) => [...s.matchAll(/\{(\w+), plural,((?:\s*(?:zer
   .map(m => `${m[1]}:${[...m[2]!.matchAll(/(zero|one|two|few|many|other)\s*\{/g)].map(f => f[1]).sort().join(',')}`).sort()
 const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b)
 
+// Voice and word rules agreed in the translation review (PR #1019). Keys that hold text the user sends to the AI
+// keep the second person that addresses the AI (id "kamu"), so they are listed here by name.
+const word = (alternatives: string) => new RegExp(`(?<![\\p{L}])(?:${alternatives})(?![\\p{L}])`, 'iu')
+const voiceRules: Record<string, { name: string, pattern: RegExp, except?: string[] }[]> = {
+  es: [
+    { name: 'tú form (use usted)', pattern: word('tu|tus|tú|contigo|puedes|quieres|tienes|necesitas|eres|estás|verás|podrás|recibirás|tendrás|sabes|prefieres|deseas|asegúrate|inténtalo|pídele|cuéntale|ponte'), except: ['gsign.start.what'] },
+    { name: '"computadora" (say ordenador)', pattern: /computadora/i, except: ['apps.winSmartScreen'] },
+  ],
+  id: [{ name: '"kamu" (say Anda)', pattern: word('kamu|kau|engkau|dirimu|milikmu|punyamu'), except: ['home.prepared.startAsk', 'files.summary.askOwnFolderPrompt', 'files.summary.askOwnFolderPromptFiles'] }],
+  ko: [{ name: '"그룹" for people groups (say 부서)', pattern: /그룹(?!\s*대화)/ }],
+  ja: [{ name: '"グループチャット" (say グループトーク)', pattern: /グループチャット/ }],
+  zh: [
+    { name: '群组 (say 小组)', pattern: /群组/ },
+    { name: '房间 (say 聊天室)', pattern: /房间/ },
+    { name: '拥有者 (say 所有者)', pattern: /拥有者/ },
+    { name: '您 (say 你)', pattern: /您/ },
+  ],
+}
+
 export function auditI18n() {
   const problems: string[] = []
   const counts: Record<string, number> = {}
@@ -27,6 +46,11 @@ export function auditI18n() {
         else if ((locale === 'ja' || locale === 'es' || locale === 'zh') && !same(pluralForms(value), pluralForms(translated))) problems.push(`${name}.${locale}.${key}: plural forms differ from en`)
       }
       for (const key of Object.keys(dictionary)) if (!(key in english)) problems.push(`${name}.${locale}.${key}: unknown key`)
+      for (const rule of voiceRules[locale] ?? []) {
+        for (const [key, value] of Object.entries(dictionary)) {
+          if (!rule.except?.includes(key) && rule.pattern.test(value)) problems.push(`${name}.${locale}.${key}: ${rule.name}`)
+        }
+      }
     }
   }
   let tables = 0
@@ -37,7 +61,12 @@ export function auditI18n() {
       const relative = `${dir}/${file}`
       // signed protocol fixtures shared byte for byte with Trina Cloud (zh is optional there, as ja/es once were)
       if (relative === 'shared/src/cloud-protocol/vectors.ts') continue
-      const source = ts.createSourceFile(relative, fs.readFileSync(path.join(root, relative), 'utf8'), ts.ScriptTarget.Latest, true)
+      const text = fs.readFileSync(path.join(root, relative), 'utf8')
+      // A locale table needs a `ko` key and a helper a `ko` parameter, so a file without the word `ko` has neither:
+      // skip the TypeScript parse (about 1 in 10 files has it; parsing all of them took 2.7-4.3 s of bun's 5 s
+      // test limit on CI). openrouter-stt.ts calls an imported helper, so it is always parsed.
+      if (!/\bko\b/.test(text) && relative !== 'server/src/jobs/openrouter-stt.ts') continue
+      const source = ts.createSourceFile(relative, text, ts.ScriptTarget.Latest, true)
       const checkValues = (values: Map<string | undefined, ts.Expression>, location: string) => {
         const reference = values.get('en')
         if (!reference) return

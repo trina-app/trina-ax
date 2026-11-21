@@ -210,7 +210,7 @@ sign in or paste the key into the card. The key never reaches the AI.
 |---|---|
 | **Sign-in needed** | The sign-in ended or the key was revoked at the app. Open the connection and choose **Sign in again**, or **Replace key**. |
 | **Signing in has not finished yet.** | The sign-in window was closed or is behind another window. Choose **Open sign-in window**, or cancel and try again. |
-| **Access was not allowed at the service.** | You chose Cancel or Deny on the app's page. Sign in again and allow it. |
+| **The sign-in was stopped at the service.** | You chose Cancel or Deny on the app's page. Sign in again and allow it. |
 | **Could not check the connection.** with "401" or "unauthorized" in the reason | The key is wrong, expired, or was copied with a space. Copy it again with the app's copy button. For a header other than Bearer, check the **Header name** letter by letter. |
 | **The service listed no tools.** | The address isn't an MCP address (often the app's home page was pasted). Use the address from the app's MCP help page. |
 | A member can't find the app | Members connect apps from **Discover** only. Ask an admin to add it by its address, or as a template. |
@@ -218,6 +218,6 @@ sign in or paste the key into the card. The key never reaches the AI.
 ## The other direction
 
 Your own Claude (Claude Code, Claude Desktop or claude.ai) can connect **to** Trina AX and use your files with your
-permissions. [Read about the Team AX MCP connector](../agents/mcp-connector.md).
+permissions. [Read about the Trina AX MCP connector](../agents/mcp-connector.md).
 
 Full details for developers: [Integrations](../../INTEGRATIONS.md).

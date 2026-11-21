@@ -4,7 +4,7 @@
 #   publish  signs the update archive KEYLESS with Sigstore cosign (this workflow's OIDC identity on refs/heads/dev)
 #            and pushes it to GHCR as an OCI artifact: ghcr.io/trina-app/trina-ax-dev:<short sha> and :latest
 #
-# The release key is never used here. The bundle has no manifest.sig: the dev test server (trina-ax-test-1) allows
+# The release key is never used here. The bundle has no manifest.sig: the dev test server (the QA server) allows
 # unsigned app bundles and checks the cosign signature instead. Its updater must check exactly this identity:
 #   certificate identity  https://github.com/trina-app/trina-ax/.github/workflows/dev-build.yml@refs/heads/dev
 #   OIDC issuer           https://token.actions.githubusercontent.com

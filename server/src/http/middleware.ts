@@ -21,7 +21,7 @@ function hasRoomApps(ctx: AppContext): boolean {
 export function loggablePath(p: string): string {
   // an app's address may carry a token in its query too (a service that adds ?token=…): /in/ never logs a query
   if (/^\/in(\/|\?|$)/.test(p)) p = p.replace(/\?.*$/s, '')
-  return p.replace(/^(\/(?:api\/(?:invites|password-resets)|invite|reset-password|api\/connectors\/remote\/requests|connector-uploads|in)\/)[^/]+/, '$1***')
+  return p.replace(/^(\/(?:api\/(?:invites|password-resets)|invite|reset-password|api\/connectors\/remote\/requests|connector-uploads|connector-downloads|in)\/)[^/]+/, '$1***')
 }
 
 /** An app's room address (rooms/apps/inbound.ts): POST /in/<a well-formed token>. */
@@ -231,6 +231,9 @@ export function publicAddressRefusal(t: AppContext['config']['tunnel'], ip: stri
   return null
 }
 
+/** POST /api/me/computer (routes/people.ts): no activity for the sleep policy */
+const COMPUTER_REPORT_API = '/api/me/computer'
+
 /** Resolve the session (cookie or bearer) through the session service of component A. The desktop app's in-app
  * browser (the pane the AI drives) marks its User-Agent; it never gets the team server, signed in or not (tab 5
  * "앱 안 브라우저 분리": the desktop blocks team addresses, this is the second fence). */
@@ -241,7 +244,9 @@ export function session(ctx: AppContext): MiddlewareHandler<AppEnv> {
       try {
         const auth = await ctx.services.sessions.resolve(c.req.raw, c.get('info'))
         c.set('auth', auth)
-        if (auth) { c.set('locale', auth.user.locale); touchActivity() }
+        // the desktop app's computer report (every 30 s while it is open) is not use of the team (system/activity.ts: an
+        // app left open is not), so it never keeps a trial team's server awake
+        if (auth) { c.set('locale', auth.user.locale); if (c.req.path !== COMPUTER_REPORT_API) touchActivity() }
       } catch (e) {
         c.get('log').error('session lookup failed', { err: e })
         c.set('auth', null)

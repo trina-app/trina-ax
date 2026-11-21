@@ -6,6 +6,7 @@
 // used as it is; a file of the same name gets a new name ('rename', as for one file).
 // No API calls here: the screen gives them (FolderUploadCalls), so the tests need no server.
 import { isSystemName } from '@mycel/shared/api'
+import type { WorkCloudProvider } from '@mycel/shared'
 import { markBusy } from './busy'
 import { joinPath, nameProblem, parentPath } from './paths'
 
@@ -21,7 +22,9 @@ export { isSystemName } from '@mycel/shared/api'
 
 /** A file that goes up: a File the browser gave, or one whose content is read only when it goes (`open`: the welcome
  * step's list and the desktop app's look keep no File, docs/DECISIONS.md "Find work files on this computer"). */
-export type PlanFile = { rel: string; file: File } | { rel: string; size: number; open: () => Promise<File> }
+export type PlanFile = { rel: string; file: File } | { rel: string; size: number; open: OpenFile }
+/** Reads a file's content when it goes; `onCloud`: the desktop app is getting it from its cloud first (a slow read). */
+export type OpenFile = (o?: { onCloud?: (cloud: WorkCloudProvider) => void }) => Promise<File>
 
 /** What goes up. Each `rel` is relative to the folder that receives the upload and starts with the folder's own name. */
 export interface FolderPlan {
@@ -129,7 +132,7 @@ export interface FolderUploadCalls {
   /** make one folder; a 409 means that the name is there */
   mkdir(path: string, signal: AbortSignal): Promise<unknown>
   isFolder(path: string, signal: AbortSignal): Promise<boolean>
-  upload(file: File, path: string, signal: AbortSignal, onProgress: (p: { phase: 'hashing' | 'uploading' | 'finishing' | 'waiting'; loaded: number; total: number }) => void): Promise<unknown>
+  upload(file: File, path: string, signal: AbortSignal, onProgress: (p: { phase: 'queued' | 'hashing' | 'uploading' | 'finishing' | 'waiting'; loaded: number; total: number }) => void): Promise<unknown>
   /** drop what the server holds of an unfinished file */
   discard(file: File, path: string): Promise<unknown>
   concurrency?: number
@@ -167,7 +170,8 @@ export interface FolderUploadView {
   failures: readonly FolderFailure[]
   /** the storage refusal that stopped the upload */
   refusal: unknown
-  active: readonly { name: string; phase: 'hashing' | 'uploading' | 'finishing' | 'waiting' | null; loaded: number; total: number }[]
+  /** `cloud`: its content is being downloaded from that cloud before it goes up (Find work files on this computer) */
+  active: readonly { name: string; phase: 'queued' | 'hashing' | 'uploading' | 'finishing' | 'waiting' | null; loaded: number; total: number; cloud?: WorkCloudProvider }[]
   canRetry: boolean
 }
 
@@ -175,7 +179,9 @@ interface Item {
   rel: string
   file?: File
   /** read the content when it goes (a PlanFile with `open`); kept on the item after, until it is up */
-  open?: () => Promise<File>
+  open?: OpenFile
+  /** the desktop app is getting its content from this cloud now */
+  cloud?: WorkCloudProvider
   /** a folder with no file in it */
   folder?: boolean
   size: number
@@ -211,7 +217,7 @@ export class FolderUpload {
   private skipped: number
 
   constructor(plan: FolderPlan, readonly base: string, private calls: FolderUploadCalls, private onChange: () => void = () => {}) {
-    const entry = (rel: string, size: number, file?: File, open?: () => Promise<File>): Item => {
+    const entry = (rel: string, size: number, file?: File, open?: OpenFile): Item => {
       const local = localRefusal(rel, size, calls.maxFileSize)
       return { rel, file, open, size, state: local ? 'failed' : 'queued', loaded: 0, phase: null, local }
     }
@@ -248,7 +254,7 @@ export class FolderUpload {
         canRetry = true
       } else if (i.state === 'active') {
         bytesDone += i.loaded
-        active.push({ name: i.rel, phase: i.phase, loaded: i.loaded, total: i.size })
+        active.push({ name: i.rel, phase: i.phase, loaded: i.loaded, total: i.size, ...(i.cloud ? { cloud: i.cloud } : {}) })
       }
     }
     const status = this.running ? 'running' : this.refusal !== null ? 'stopped' : failed ? 'failed' : 'done'
@@ -257,8 +263,8 @@ export class FolderUpload {
 
   /** Each file as it is now (the welcome step's rows, docs/DECISIONS.md "W6"): its path inside the receiving folder, size,
    * state and bytes sent; `queued` after the run ended means it never went (stopped). Folders are left out. */
-  rows(): { rel: string; size: number; state: Item['state']; loaded: number; local?: LocalRefusal; error?: unknown; file?: File }[] {
-    return this.items.filter((i) => !i.folder).map((i) => ({ rel: i.rel, size: i.size, state: i.state, loaded: i.loaded, local: i.local, error: i.error, file: i.open ? undefined : i.file }))
+  rows(): { rel: string; size: number; state: Item['state']; loaded: number; local?: LocalRefusal; error?: unknown; file?: File; cloud?: WorkCloudProvider }[] {
+    return this.items.filter((i) => !i.folder).map((i) => ({ rel: i.rel, size: i.size, state: i.state, loaded: i.loaded, local: i.local, error: i.error, file: i.open ? undefined : i.file, ...(i.cloud ? { cloud: i.cloud } : {}) }))
   }
 
   /** Send what is queued. Ends when all of it is done or failed, or at a refusal. */
@@ -324,9 +330,16 @@ export class FolderUpload {
           // any more (moved, changed, a limit) fails here and trying again does not help
           if (!item.file && item.open) {
             try {
-              item.file = await item.open()
+              // a file only in the cloud downloads first: the row says where from while it does
+              item.file = await item.open({ onCloud: (cloud) => {
+                if (item.state !== 'active') return
+                item.cloud = cloud
+                this.onChange()
+              } })
             } catch (e) {
-              // why it could not be read stays with the row (the desktop app's reason: changed, expired, a limit)
+              // why it could not be read stays with the row (the desktop app's reason: changed, expired, a limit, a cloud
+              // download over the read's minute)
+              item.cloud = undefined
               item.state = 'failed'
               item.local = 'unreadable'
               item.error = e
@@ -334,9 +347,14 @@ export class FolderUpload {
               continue
             }
           }
+          // downloaded: the row goes on to "Uploading" at once
+          if (item.cloud) {
+            item.cloud = undefined
+            this.onChange()
+          }
           await this.calls.upload(item.file!, joinPath(this.base, item.rel), signal, (p) => {
             item.phase = p.phase
-            if (p.phase !== 'hashing') item.loaded = p.loaded
+            if (p.phase !== 'hashing' && p.phase !== 'queued') item.loaded = p.loaded
             this.onChange()
           })
           // what was read on demand goes once it is up (a run keeps its rows until sign-out)

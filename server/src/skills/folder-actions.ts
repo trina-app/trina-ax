@@ -29,7 +29,7 @@ import path from 'node:path'
 import type { Locale } from '@mycel/shared/api'
 import type { AppContext } from '../context'
 import { audit } from '../admin/audit'
-import { groupOfFolder, listGroupSkills, listSkills, listTeamSkills, liveProjectRoots, parseSkill, projectOfFolder, sameSkillName, skillAlias, skillEntriesOnDisk, skillFileProblem, skillTier, widerSkillsNamed, type Skill } from '../chat/skills'
+import { groupOfFolder, listGroupSkills, listSkills, listTeamSkills, liveProjectRoots, parseSkill, projectOfFolder, sameSkillName, skillAlias, skillEntriesOnDisk, SKILL_FILE_MAX_BYTES, skillFileProblem, skillTier, widerSkillsNamed, type Skill } from '../chat/skills'
 import { ext } from '../files/extract'
 import { readRegular } from '../files/store'
 import { atLeast, RuleSet, type Principal } from '../policy/access'
@@ -39,6 +39,7 @@ import { badSegment, foldKey } from '../policy/names'
 import { componentC } from '../team-files/component'
 import { FileError } from '../team-files/errors'
 import { activePeople } from '../team-files/service'
+import { readerCheck } from '../files/share-readers'
 import { allowSkillAction, dropSkillAction, projectLevelPossible, skillRootOf, type SkillActionGrant } from './guard'
 import { copyNameOk, withName, type Level } from './move'
 
@@ -197,7 +198,9 @@ function followers(ctx: AppContext, rules: RuleSet, l: Level | null, entry: stri
 /** Who may change `rel` under `rules` (write), ids sorted. */
 const editors = (ctx: AppContext, rules: RuleSet, rel: string) => activePeople(ctx.db).filter((p) => rules.access(p, segsOf(rel)) === 'write').map((p) => p.id).sort()
 /** Who can read `rel` under `rules`, but `except` (the asker), ids sorted. */
-const readers = (ctx: AppContext, rules: RuleSet, rel: string, except: string) => activePeople(ctx.db).filter((p) => p.id !== except && atLeast(rules.access(p, segsOf(rel)), 'read')).map((p) => p.id).sort()
+/** (a folder share's people read it too: a file moved or copied out of a skill into a folder the asker shares reaches
+ * them, files/share-readers.ts) */
+const readers = (ctx: AppContext, rules: RuleSet, rel: string, except: string) => { const reads = readerCheck(ctx.db, rules); return activePeople(ctx.db).filter((p) => p.id !== except && reads(p, segsOf(rel))).map((p) => p.id).sort() }
 
 /** The folder rules as they will be after `from` moves to `to`: a moved folder's rules go with it (team-files
  * relocate moves the folders rows), everything else stays. */
@@ -232,7 +235,7 @@ function walk(ctx: AppContext, user: Principal, rules: RuleSet, rel: string): Fi
     if (st.nlink > 1) refuse(`'${relp}' is hard-linked to another file; replace it with a copy first`)
     if (!atLeast(rules.access(user, relp.split('/')), 'read')) refuse('something inside it is hidden from the user', ADMIN)
     if (out.length >= FOLDER_MAX_FILES || (total += st.size) > FOLDER_MAX_BYTES) refuse(`it is too large to show on one card (more than ${FOLDER_MAX_FILES} files or ${FOLDER_MAX_BYTES / 1024 / 1024} MB)`)
-    const bytes = readRegular(abs, FOLDER_MAX_BYTES).bytes
+    const bytes = readRegular(abs, FOLDER_MAX_BYTES, st).bytes
     out.push({ path: relp, size: bytes.length, sha: sha256(bytes), bytes, exec: (st.mode & 0o111) !== 0 })
   }
   visit(r.rel)
@@ -325,7 +328,7 @@ function nameCheck(ctx: AppContext, user: Principal, rules: RuleSet, l: Level, n
  * it is part of (that skill changes). */
 function leaving(ctx: AppContext, user: Principal, rules: RuleSet, from: string, files: FileHash[], level: Level | null): SkillTouched[] {
   const rf = rootFolder(from)!
-  const bytesOf = (p: string) => files.find((f) => f.path === p)?.bytes ?? (() => { try { return readRegular(path.join(ctx.files.fx.root, ...p.split('/')), 128 * 1024).bytes } catch { return undefined } })()
+  const bytesOf = (p: string) => files.find((f) => f.path === p)?.bytes ?? (() => { try { return readRegular(path.join(ctx.files.fx.root, ...p.split('/')), SKILL_FILE_MAX_BYTES).bytes } catch { return undefined } })()
   const out: SkillTouched[] = []
   const add = (entry: string, kind: 'skill' | 'rule', effect: SkillTouched['effect']) =>
     out.push({ name: kind === 'rule' ? nameOf(entry) : entryName(entry, bytesOf(entry)), entry, kind, effect, followers: followers(ctx, rules, level, entry), readable: atLeast(rules.access(user, segsOf(entry)), 'read') })
@@ -440,7 +443,7 @@ function renameFolder(ctx: AppContext, user: Principal, rules: RuleSet, a: Folde
 /** R: a skill's own folder renamed in its skills folder, its SKILL.md's name line with it (else it stops loading). */
 function renameSkill(ctx: AppContext, user: Principal, rules: RuleSet, a: FolderActionInput, from: string, to: string): FolderPlan {
   const name = nameOf(to)
-  if (!copyNameOk(name)) refuse('a skill\'s folder name uses lowercase letters a-z, digits and hyphens only (at most 64), and its name: line takes the same', 'suggest a name like "estimate-docs" and call skill_files again')
+  if (!copyNameOk(name)) refuse('a skill\'s folder name is lowercase letters (any language) and digits in words joined by single hyphens, no spaces, dots or capitals (at most 64), and its name: line takes the same', 'suggest a name like "estimate-docs" or "견적-문서" and call skill_files again')
   const files = walk(ctx, user, rules, from)
   const manifest = `${from}/SKILL.md`
   const own = files.find((f) => f.path === manifest)
@@ -588,7 +591,8 @@ export async function runFolderAction(ctx: AppContext, userId: string, a: Folder
     if (action === 'place') {
       done = svc.placeSkillTree(userId, plan.from, plan.to, plan.files.map(placed), { folder: plan.isDir, turnId: o.turnId, tool: o.tool, skillGrant: id }).path
     } else if (action === 'copy') {
-      const r = await svc.copy(userId, plan.from, plan.to, { onExists: 'fail', turnId: o.turnId, tool: o.tool, skillGrant: id })
+      // (the card showed who more can see it: its yes is the copy's confirm for a folder the asker shares)
+      const r = await svc.copy(userId, plan.from, plan.to, { onExists: 'fail', turnId: o.turnId, tool: o.tool, skillGrant: id, confirm: plan.seeAdded.length > 0 })
       if ('path' in r) done = r.path
     } else {
       // a project's first skill: its skills folder is made first (it has no rules of its own), and taken away again

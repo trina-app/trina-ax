@@ -11,6 +11,13 @@
 // before the size watcher and read as the reader leaving the bottom, so the list stopped following and the newest
 // messages went behind the box. A scroll event while the list's height differs from the height last seen, moving it no
 // further than that difference, is left to the size watcher, which runs after it in the same frame.
+//
+// The browser's own scroll anchoring is off while the list follows its newest message (anchorWhileFollowing, QA
+// TC-4962). A reloaded chat jumped to its bottom, then the running answer and the messages waiting to be sent took their
+// place under it; to keep a row above them where it was, Chromium moved the list up 160 px, and that scroll event (the
+// list's own height unchanged) read as the reader scrolling up: the list stopped following and the newest answer and the
+// waiting messages stayed below the fold, also while pictures and code blocks above kept loading. At the bottom the
+// size watcher keeps the list in place itself; scrolled up, anchoring is on again and keeps the message in sight.
 import { useEffect, useRef } from 'react'
 
 /** Near the bottom: a list this close to its end follows it. */
@@ -57,6 +64,14 @@ export function placeAfterResize(el: Box, follows: boolean, lastTop: number, see
 /** How long after a visual viewport event a change of the list's height counts as the keyboard's (placeAfterResize). */
 export const KEYBOARD_MS = 1000
 
+/** The browser's scroll anchoring off while the list follows its newest message, on (the stylesheet's) when it does not
+ * (see the top of this file). Changes the style only when `follows` differs from `was` (what it set last; null: nothing
+ * yet), so it never undoes holdPlace's own setting while older messages come in. Returns what it set. */
+export function anchorWhileFollowing(el: { style: { overflowAnchor: string } }, follows: boolean, was: boolean | null): boolean {
+  if (was !== follows) el.style.overflowAnchor = follows ? 'none' : ''
+  return follows
+}
+
 /** What useStickToBottom keeps for a list. */
 export interface ListState {
   /** follows its newest message */
@@ -79,6 +94,13 @@ export function onListScroll(el: Box, st: ListState, canStick: () => boolean = (
 
 /** The list's own jump to its bottom, remembered as its last position (followsAfterScroll compares the next scroll event
  * with it). */
+/** Farther than this from the end, the AI chat shows its jump-to-bottom button (QA AP-043, like claude.ai's). */
+export const JUMP_BUTTON_PX = 300
+/** Is the reader far enough up for the jump-to-bottom button? */
+export function farFromBottom(el: Pick<HTMLElement, 'scrollTop' | 'scrollHeight' | 'clientHeight'>): boolean {
+  return el.scrollHeight - el.scrollTop - el.clientHeight > JUMP_BUTTON_PX
+}
+
 export function jumpToBottom(el: Pick<HTMLElement, 'scrollTop' | 'scrollHeight'>, lastTop: { current: number }) {
   el.scrollTop = el.scrollHeight
   lastTop.current = el.scrollTop
@@ -92,7 +114,7 @@ export function jumpToBottom(el: Pick<HTMLElement, 'scrollTop' | 'scrollHeight'>
 export function watchListSize(
   scroller: HTMLElement,
   content: HTMLElement,
-  st: { follows: () => boolean; lastTop: { current: number }; seen: { current: ListSize | null } },
+  st: { follows: () => boolean; lastTop: { current: number }; seen: { current: ListSize | null }; settled?: () => void },
   RO: typeof ResizeObserver | undefined = globalThis.ResizeObserver,
   vv: Pick<VisualViewport, 'addEventListener' | 'removeEventListener'> | null | undefined = globalThis.visualViewport,
 ): () => void {
@@ -103,6 +125,7 @@ export function watchListSize(
     const keyboard = Date.now() - viewportAt < KEYBOARD_MS
     const to = placeAfterResize(scroller, st.follows(), st.lastTop.current, st.seen.current, keyboard)
     if (to !== null) scroller.scrollTop = to
+    st.settled?.()
     if (!record) return
     st.seen.current = { height: scroller.clientHeight, width: scroller.clientWidth }
     st.lastTop.current = scroller.scrollTop
@@ -141,9 +164,10 @@ export type HoldBox = Rect & { scrollTop: number; style: { overflowAnchor: strin
  * Before, the list added the height it grew by (scrollHeight) on top of what the browser's scroll anchoring had done
  * already (Chromium, current Safari): the view jumped down by a whole page. Doing it here, once, gives the same result
  * whether the engine anchors or not (an older iPhone does not), at the very top too, and what grew below the row (a
- * streaming answer, a new message) is not counted. A row that is gone by then: the list stays as it is.
+ * streaming answer, a new message) is not counted. A row that is gone by then: the list stays as it is. `reanchor`
+ * (useStickToBottom's): anchoring is put back as the list's following state says then (anchorWhileFollowing).
  */
-export function holdPlace(scroller: HoldBox, rows: string): () => void {
+export function holdPlace(scroller: HoldBox, rows: string, reanchor?: () => void): () => void {
   const top = () => scroller.getBoundingClientRect().top
   let row: (Rect & { isConnected: boolean }) | null = null
   for (const r of scroller.querySelectorAll(rows)) {
@@ -159,7 +183,10 @@ export function holdPlace(scroller: HoldBox, rows: string): () => void {
       const added = at(row) - before
       if (Math.abs(added) >= 1) scroller.scrollTop += added
     }
-    scroller.style.overflowAnchor = anchor
+    // anchoring as the list's following state says now (useStickToBottom reanchor: it may have changed meanwhile);
+    // without one, what it was before
+    if (reanchor) reanchor()
+    else scroller.style.overflowAnchor = anchor
   }
 }
 
@@ -203,10 +230,16 @@ export function useStickToBottom(canStick?: () => boolean) {
   may.current = canStick
   const can = () => may.current?.() ?? true
   const follows = () => stick.current && can()
+  /** what anchorWhileFollowing set last */
+  const anchored = useRef<boolean | null>(null)
+  const anchor = () => { const el = scroller.current; if (el) anchored.current = anchorWhileFollowing(el, follows(), anchored.current) }
+  /** anchoring set again from the following state, whatever was set last (holdPlace's end) */
+  const reanchor = () => { anchored.current = null; anchor() }
   useEffect(() => {
     const s = scroller.current, c = content.current
     if (!s || !c) return
-    return watchListSize(s, c, { follows, lastTop, seen })
+    anchor()
+    return watchListSize(s, c, { follows, lastTop, seen, settled: anchor })
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
   return {
@@ -216,12 +249,24 @@ export function useStickToBottom(canStick?: () => boolean) {
     /** the list's scroll event (onListScroll) */
     onScroll(): boolean {
       const el = scroller.current
-      return !!el && onListScroll(el, { stick, lastTop, seen }, can)
+      const reader = !!el && onListScroll(el, { stick, lastTop, seen }, can)
+      anchor()
+      return reader
+    },
+    /** holdPlace's `reanchor`: the browser's anchoring as the list's following state says now */
+    reanchor,
+    /** to the bottom now, and follow from there (the jump-to-bottom button) */
+    toBottom() {
+      const el = scroller.current
+      stick.current = true
+      if (el) jumpToBottom(el, lastTop)
+      anchor()
     },
     /** to the bottom while following (after new messages) */
     follow() {
       const el = scroller.current
       if (el && follows()) jumpToBottom(el, lastTop)
+      anchor()
     },
   }
 }

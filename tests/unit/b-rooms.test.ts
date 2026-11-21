@@ -4,13 +4,15 @@
 // permissions (members only, admins included; the author is never taken from the request), my own read position and
 // badge (no read receipts: nobody is told who has read what), realtime fan-out to members only, notices, room files
 // outside the team folder, and the replay check on reconnect.
-import { afterEach, expect, setDefaultTimeout, test } from 'bun:test'
+import { afterEach, expect, setDefaultTimeout, setSystemTime, test } from 'bun:test'
 import fs from 'node:fs'
 import path from 'node:path'
 import type { RealtimeConn } from '../../server/src/services'
 import { Hub } from '../../server/src/realtime/hub'
 import { notificationsOf } from '../../server/src/notifications/service'
 import { savePreferences } from '../../server/src/notifications/preferences'
+import { updateTeamSettings } from '../../server/src/admin/settings'
+import { roomsOf } from '../../server/src/rooms/service'
 import { newId } from '../../server/src/db'
 import { addMember, harness, RecordingHub, withOwner, type Client, type Harness } from './a-lib'
 
@@ -247,9 +249,9 @@ test('session markers: each room.message says the notice its recipient got, as t
   // a DM message: nora gets room.dm, mia (its author) nothing
   const m1 = await send(mia.client, dm.id, 'hello')
   expect(marks(m1.id)).toEqual({ [mia.id]: null, [nora.id]: 'room.dm' })
-  // a second one while the first is unread: no new notice (one per unread run, like the push), so no mark
+  // a second one while the first is unread: a notice of its own too (every message rings: docs/decisions/20261120-push-every-message.md)
   const m2 = await send(mia.client, dm.id, 'are you there')
-  expect(marks(m2.id)[nora.id]).toBeNull()
+  expect(marks(m2.id)[nora.id]).toBe('room.dm')
   // read: the next one is a notice again
   await nora.client.call('POST', `/api/rooms/${dm.id}/read`, { seq: 999 })
   const m3 = await send(mia.client, dm.id, 'ping')
@@ -283,11 +285,26 @@ test('session markers: each room.message says the notice its recipient got, as t
   await nora.client.call('PATCH', `/api/rooms/${team.id}`, { notifyLevel: 'all' })
   const t3 = await send(mia.client, team.id, 'every message now')
   expect(marks(t3.id)[nora.id]).toBe('room.dm')
-  // quiet hours (all day but the minute 23:59–24:00, weekends whole): the notice is kept but never rings, so no mark
-  await nora.client.call('POST', `/api/rooms/${team.id}/read`, { seq: 999 })
-  n.setPreferences(nora.id, { quietHours: { on: true, start: '00:00', end: '23:59', weekends: true } })
-  const t4 = await send(mia.client, team.id, '@NORA at night', { mentions: [nora.id] })
-  expect(marks(t4.id)[nora.id]).toBeNull()
+  // quiet hours (22:00–08:00, across midnight, in the team's zone): the notice is kept but never rings, so no mark.
+  // The clock is pinned (it used to be the real one with a 00:00–23:59 window, which failed in the minute 23:59).
+  // 2026-11-18 is a Wednesday, so the weekend rule plays no part. The sending budget keeps its own clock, moving
+  // forward, so the jumps of the pinned one never empty it.
+  updateTeamSettings(h.ctx.db, { timeZone: 'UTC' })
+  let budget = Date.now()
+  roomsOf(h.ctx).clock = () => (budget += 10_000)
+  n.setPreferences(nora.id, { quietHours: { on: true, start: '22:00', end: '08:00', weekends: false } })
+  const mentionAt = async (iso: string, body: string) => {
+    await nora.client.call('POST', `/api/rooms/${team.id}/read`, { seq: 999 })
+    setSystemTime(new Date(iso))
+    try { return marks((await send(mia.client, team.id, `@NORA ${body}`, { mentions: [nora.id] })).id)[nora.id] }
+    finally { setSystemTime() }
+  }
+  expect(await mentionAt('2026-11-18T23:59:30Z', 'just before midnight')).toBeNull()
+  expect(await mentionAt('2026-11-19T00:00:30Z', 'just after midnight')).toBeNull()
+  expect(await mentionAt('2026-11-19T07:59:30Z', 'before eight')).toBeNull()
+  // outside the window it rings again
+  expect(await mentionAt('2026-11-19T08:00:30Z', 'at eight')).toBe('room.mention')
+  expect(await mentionAt('2026-11-18T21:59:30Z', 'before ten')).toBe('room.mention')
 })
 
 test('a failure while recording notices never holds a new message back from anyone (it goes out unmarked)', async () => {
@@ -315,19 +332,23 @@ test('notices: a DM or an @mention, one unread notice of each per room (pushed; 
     const rows = h.ctx.db.query('SELECT id FROM room_notices WHERE user_id = ? AND suppressed = 0 ORDER BY created_at DESC, id DESC').all(uid) as { id: string }[]
     const items = rows.map((r) => n.get(uid, r.id))
     const listed = n.list(uid, {})
-    expect(listed.items.filter((x) => x.code === 'room.dm' || x.code === 'room.mention').map((x) => x.id).sort()).toEqual(items.filter((x) => x.code === 'room.mention').map((x) => x.id).sort())
-    expect(listed.unreadCount).toBe(items.filter((x) => x.readAt === null && x.code === 'room.mention').length)
+    // one Inbox row per place: a room's unread mentions (a notice each) are one row, its id the newest notice's
+    const rowIds = listed.items.filter((x) => x.code === 'room.dm' || x.code === 'room.mention').map((x) => x.id)
+    const mentionIds = items.filter((x) => x.code === 'room.mention').map((x) => x.id)
+    expect(rowIds.every((id) => mentionIds.includes(id))).toBe(true)
+    expect(listed.unreadCount).toBe(new Set(items.filter((x) => x.readAt === null && x.code === 'room.mention').map((x) => x.room?.id)).size)
     return { items, unreadCount: items.filter((x) => x.readAt === null).length }
   }
   const dm = await mia.client.call('POST', '/api/rooms', { kind: 'dm', userId: nora.id })
   await send(mia.client, dm.id, 'TOP SECRET ONE')
   await send(mia.client, dm.id, 'TOP SECRET TWO')
-  // the message preview on (the default): the notice a push opens has the first line ("알림 미리보기")
-  expect(notices(nora.id).items[0]!.room?.preview).toBe('TOP SECRET ONE')
+  // a notice per message (newest first); the message preview on (the default): the notice a push opens has its own
+  // message's first line ("알림 미리보기")
+  expect(notices(nora.id).items.map((x) => x.room?.preview)).toEqual(['TOP SECRET TWO', 'TOP SECRET ONE'])
   // off: no text
   savePreferences(h.ctx.db, nora.id, { messagePreview: false })
   let inbox = notices(nora.id)
-  expect(inbox.items).toHaveLength(1)
+  expect(inbox.items).toHaveLength(2)
   expect(inbox.items[0]).toMatchObject({ code: 'room.dm', link: 'room', room: { id: dm.id, from: 'MIA' }, chatId: null })
   expect(JSON.stringify(inbox)).not.toContain('TOP SECRET')
   expect(notices(mia.id).items).toHaveLength(0)
@@ -335,14 +356,14 @@ test('notices: a DM or an @mention, one unread notice of each per room (pushed; 
   const last = (await nora.client.call('GET', `/api/rooms/${dm.id}`)).lastSeq
   await nora.client.call('POST', `/api/rooms/${dm.id}/read`, { seq: last })
   expect(notices(nora.id).unreadCount).toBe(0)
-  // a team room message notifies only those mentioned, and mentions too come once per unread run
+  // a team room message notifies only those mentioned, each mention a notice of its own
   const team = await teamRoom(mia.client)
   await send(mia.client, team.id, 'for everyone')
   expect(notices(nora.id).unreadCount).toBe(0)
   await send(mia.client, team.id, '@NORA look', { mentions: [nora.id] })
   await send(mia.client, team.id, '@NORA and this', { mentions: [nora.id] })
   inbox = notices(nora.id)
-  expect(inbox.unreadCount).toBe(1)
+  expect(inbox.unreadCount).toBe(2)
   expect(inbox.items[0]).toMatchObject({ code: 'room.mention', room: { id: team.id } })
   await nora.client.call('POST', `/api/rooms/${team.id}/read`, { seq: 999 })
   expect(notices(nora.id).unreadCount).toBe(0)
@@ -674,15 +695,16 @@ test('push: room notices and the other notices reach Web Push and phones alike; 
     const toNora = await mia.client.call('POST', '/api/rooms', { kind: 'dm', userId: nora.id })
     const toOtto = await mia.client.call('POST', '/api/rooms', { kind: 'dm', userId: otto.id })
     await send(mia.client, toNora.id, 'LOCK SCREEN MUST NOT SHOW THIS')
-    await send(mia.client, toOtto.id, 'LOCK SCREEN MUST NOT SHOW THIS')
+    const ottoMessage = await send(mia.client, toOtto.id, 'LOCK SCREEN MUST NOT SHOW THIS')
     notificationsOf(h.ctx).connectionReconnect(otto.id, 'reconnect-1', new Date(now).toISOString())
     now = Date.now() + 20
     await p.tick(); await p.tick()
     expect(web).toEqual([{ notificationId: expect.any(String), subscriptionId: sub.id, code: 'room.dm' }])
     expect(phone).toHaveLength(2)
     // ids, the event code, the language, the device tag, an id path and the icon's number (otto's one count: the unread
-    // DM from mia; docs/DECISIONS.md "휴대폰 앱 아이콘의 숫자"): never names or text
-    expect(phone.find((x) => x.code === 'room.dm')).toEqual({ notificationId: expect.any(String), code: 'room.dm', locale: expect.any(String), tag: device.id, path: `/rooms/${toOtto.id}`, badge: 1 })
+    // DM from mia; docs/DECISIONS.md "휴대폰 앱 아이콘의 숫자"): never names or text. The path ends at the message (/m/<id>:
+    // the web app opens the room at it)
+    expect(phone.find((x) => x.code === 'room.dm')).toEqual({ notificationId: expect.any(String), code: 'room.dm', locale: expect.any(String), tag: device.id, path: `/rooms/${toOtto.id}/m/${ottoMessage.id}`, badge: 1 })
     expect(phone.find((x) => x.code === 'connection.reconnect')).toEqual({ notificationId: expect.any(String), code: 'connection.reconnect', locale: expect.any(String), tag: device.id, path: '/settings/notifications', badge: 1 })
     expect(JSON.stringify([web, phone])).not.toContain('LOCK SCREEN')
     expect(h.ctx.db.query('SELECT state FROM room_push_deliveries WHERE subscription_id = ?').all(device.id)).toEqual([{ state: 'sent' }])

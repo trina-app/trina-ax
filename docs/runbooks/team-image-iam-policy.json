@@ -2,7 +2,7 @@
   "Version": "2012-10-17",
   "Statement": [
     {
-      "Sid": "OnlyTheTwoImageRegions",
+      "Sid": "OnlyTheImageRegions",
       "Effect": "Deny",
       "Action": [
         "ec2:*",
@@ -13,7 +13,8 @@
         "StringNotEquals": {
           "aws:RequestedRegion": [
             "ap-northeast-2",
-            "ap-southeast-1"
+            "ap-southeast-1",
+            "us-east-1"
           ]
         }
       }
@@ -121,6 +122,8 @@
       "Action": "ec2:RunInstances",
       "Resource": [
         "arn:aws:ec2:ap-northeast-2:<ACCOUNT_ID>:subnet/<AMI_SUBNET_ID>",
+        "arn:aws:ec2:ap-northeast-2:<ACCOUNT_ID>:subnet/<AMI_SUBNET_ID_2C>",
+        "arn:aws:ec2:ap-northeast-2:<ACCOUNT_ID>:subnet/<AMI_SUBNET_ID_2B>",
         "arn:aws:ec2:ap-northeast-2:<ACCOUNT_ID>:network-interface/*"
       ]
     },

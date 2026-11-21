@@ -465,6 +465,10 @@ export function actionLabel(t: ReturnType<typeof useT>, e: AuditEntry): string {
     return words?.[currentLocale()] ?? e.action
   }
   const key = e.source === 'file' ? `audit.file.${e.action}` : `audit.act.${e.action}`
+  // an API connection (or template) by the name the app gives it elsewhere ("API"), not "MCP" (QA TC-3054)
+  // an app on the person's computer (kind local) by its own words too
+  const api = e.source !== 'file' && (e.detail?.kind === 'http' || e.detail?.kind === 'local') ? `${key}.${e.detail.kind}` : null
+  if (api && hasMessage(api)) return t(api)
   return hasMessage(key) ? t(key) : e.action
 }
 

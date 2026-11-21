@@ -16,13 +16,15 @@ import { z } from 'zod'
 import { UserId, Uuid7 } from '../ids'
 import { ApiErrorBody, ErrorCode, RelPath } from './common'
 import { BrowserCall, BrowserResult } from './browser'
-import { ArtifactSummary, ArtifactType, Chat, Job, JobKind, Memory, Message, MessageStatus, Step, UserRef } from './entities'
+import { LocalCall, LocalResult } from './local-apps'
+import { ArtifactSummary, ArtifactType, Chat, ChatThreadReply, ChatThreadSummary, Job, JobKind, Memory, Message, MessageStatus, Step, UserRef } from './entities'
 import { CredentialLogin } from './credentials'
-import { IntegrationAuth, IntegrationKind, IntegrationScope } from './integrations'
+import { IntegrationAuth, IntegrationScope, RemoteIntegrationKind } from './integrations'
 import { SkillProblem } from './skills'
 import { Room, RoomMessage, RoomReaction, RoomThreadSummary } from './rooms'
 import { DeckBuild } from './intro-deck'
 import { PresenceState, WindowActivity } from './people'
+import { ShareCardAsk } from './share-card'
 
 export const WS_PATH = '/api/ws'
 export const WS_PING_INTERVAL_MS = 20_000
@@ -122,6 +124,10 @@ export const SkillWritePreview = z.object({
   added: z.number().int().nonnegative(),
   removed: z.number().int().nonnegative(),
   truncated: z.boolean(),
+  /** a new skill's other files that this one card also saves (docs/decisions/20261117-new-skill-files-on-card.md): plain
+   * text files the AI wrote into the new skill's folder before its SKILL.md, held until this card. Each with its size,
+   * its first lines and its whole text: nothing is saved that the card does not show */
+  files: z.array(z.object({ path: RelPath, size: z.number().int().nonnegative(), lines: z.string().max(1000), text: z.string().max(20_000), truncated: z.boolean() })).max(5).optional(),
 })
 export type SkillWritePreview = z.infer<typeof SkillWritePreview>
 
@@ -134,7 +140,13 @@ export const ConfirmDetail = z.object({
   text: z.string(),
   /** show the first this many characters of `text` and the rest on request ("전체 보기"); absent: all of it */
   collapsedAt: z.number().int().positive().optional(),
-  fields: z.array(z.object({ name: z.string(), value: z.string() })).optional(),
+  /** `text` is only the start of a longer text of this many characters (a write of millions of characters to a connected
+   * service): the whole text is read on request, GET /api/turns/:id/requests/:requestId/details/:index (server
+   * chat/card-fold.ts), while the card is open. A client that does not know this shows the start. */
+  fullChars: z.number().int().positive().optional(),
+  /** `code`: a script exactly as it runs (a declared CLI's stdin), shown in a code block with its spacing; a client that
+   * does not know it shows the value as before */
+  fields: z.array(z.object({ name: z.string(), value: z.string(), code: z.literal(true).optional() })).optional(),
   marks: z.array(z.string()).optional(),
   /** `fields` show every value of `text` in full, each under a name in words (a connected service's call: "받는 사람",
    * "제목"), and `text` is its exact form (the call's JSON): the card shows the fields and puts the text one click away
@@ -143,6 +155,10 @@ export const ConfirmDetail = z.object({
   /** `text` is a list of names (files to delete, move or attach), not text that goes out: the card shows no size
    * (QA TC-091: "23 characters" counted the letters of a path) */
   noSize: z.boolean().optional(),
+  /** `text` is a message as a room will show it (post_to_room's card, QA TC-4791): the card formats it with the chat's
+   * Markdown renderer and shows no size. Set only when the text has no web address and no marks, so nothing a link would
+   * hide is hidden. A client that does not know this shows the text as before. */
+  markdown: z.literal(true).optional(),
   /** whole lines of `text` to show in red with a short note after them (the AI's members card: a name that is not in
    * the person's own messages, "내 메시지에 없는 이름이에요"). `text` holds them too, so a client that does not know this
    * still shows every line. */
@@ -173,6 +189,9 @@ export const AskUserRequest = z.object({
   buttons: z.literal(true).optional(),
   /** a server check: one line under its buttons, what a choice covers */
   note: z.string().max(300).optional(),
+  /** a server check before files are shared or a share is stopped (api/share-card.ts): the files and people as rows.
+   * The card shows these in place of `question` and `details`, and turns into the result (`Step.shared`) */
+  share: ShareCardAsk.optional(),
 })
 /** browser wants to open an office-network (private) address: ask once / always / deny */
 export const BrowserSiteRequest = z.object({ kind: z.literal('browser_site'), requestId: z.string(), url: z.string(), host: z.string(), reason: z.string().optional() })
@@ -189,7 +208,7 @@ export const ConnectServiceRequest = z.object({
   /** personal: only this person uses it; team: an admin adds it for the team and picks who may use it */
   scope: IntegrationScope,
   /** target 'service': the connection the AI filled in. host = the address's host, the card's main line */
-  service: z.object({ kind: IntegrationKind, url: z.string(), host: z.string(), auth: IntegrationAuth, authHeader: z.string().nullable() }).optional(),
+  service: z.object({ kind: RemoteIntegrationKind, url: z.string(), host: z.string(), auth: IntegrationAuth, authHeader: z.string().nullable() }).optional(),
   /** a connection template an admin shared with this person (scope personal): connecting it makes their own
    * connection from the template (its address, sign-in method and header fixed), only while the template is the
    * version shown here; older servers omit it */
@@ -261,10 +280,18 @@ export const ServerEvent = z.discriminatedUnion('type', [
    * answer the person stopped, a server stop, a scheduled run or a turn asked from Slack. Absent: show it, tell nothing.
    * 'deleted' with no chat: a shared project chat this person no longer sees (they lost its project): drop it. */
   ev('chat.updated', z.object({ chatId: Uuid7, change: z.enum(['created', 'updated', 'deleted', 'restored', 'purged']), chat: Chat.nullable(), notify: z.enum(['card', 'answer']).optional() })),
+  /** the thread under an AI answer of a shared chat changed (docs/decisions/20261116-chat-answer-threads.md), to each
+   * person who sees the chat and the answer now, as they see it: a reply came (`reply`), one was deleted (`replyId`), or
+   * I read it on another device (`read`: only to me). `thread`: the summary under the answer for me (null: no replies
+   * left). Replayed after a reconnect only while I still see the thread (realtime/hub.ts stillVisible). */
+  ev('chat.thread', z.object({ chatId: Uuid7, rootId: Uuid7, change: z.enum(['reply', 'deleted', 'read']), reply: ChatThreadReply.optional(), replyId: Uuid7.optional(), thread: ChatThreadSummary.nullable() })),
   /** my list folders changed (made, renamed, reordered, deleted, a chat or room put in or taken out): read them again
    * (GET /api/nav-folders). Only to me, never to anyone else (docs/DECISIONS.md "List folders"). An older page ignores
    * it (an unknown event). */
   ev('navFolders.changed', z.object({ kind: z.enum(['chats', 'rooms']) })),
+  /** the team's conversation categories changed (made, renamed, reordered, deleted): read them again
+   * (GET /api/room-categories). To everyone; a channel moved between categories comes as its room.updated. */
+  ev('roomCategories.changed', z.object({})),
   /** only paths this person can read (file screen refresh) */
   ev('files.changed', z.object({ changes: z.array(FileChange) })),
   /** someone's save met a newer version: theirs became `copyPath` next to `path` (sent to the saver and to whoever
@@ -279,6 +306,12 @@ export const ServerEvent = z.discriminatedUnion('type', [
   ev('browser.call', z.object({ windowId: z.string(), call: BrowserCall })),
   /** the turn stopped; abandon this call */
   ev('browser.cancel', z.object({ windowId: z.string(), callId: z.string() })),
+  /** an app on the person's computer (local-apps.ts): one JSON-RPC message for the desktop app to pass to the program,
+   * only to the window that sent the turn (or the Settings check); the window must dedupe by callId. An older page
+   * ignores it (the call fails when the window stays silent). */
+  ev('local.call', z.object({ windowId: z.string(), call: LocalCall })),
+  /** the turn stopped; abandon this call */
+  ev('local.cancel', z.object({ windowId: z.string(), callId: z.string() })),
   ev('memory.changed', z.object({ change: z.enum(['created', 'updated', 'deleted', 'cleared']), memory: Memory.nullable() })),
   /** an intro deck being built in a chat turn (docs/DECISIONS.md "D2", round 2): the outline, each finished slide, the
    * review and the end (only to the chat's owner) */
@@ -325,17 +358,39 @@ export const ServerFrame = z.union([ControlFrame, ServerEvent])
 export type ServerFrame = z.infer<typeof ServerFrame>
 
 // ---------------- client -> server ----------------
+/** the screens a window names in its `looking` frame (web lib/lookingAt.ts) */
+export const LOOKING_SCREENS = ['home', 'chat', 'rooms', 'room', 'files', 'file', 'shared_files', 'shared_file', 'projects', 'project', 'activity', 'skills', 'scheduled', 'trash', 'admin', 'settings', 'other'] as const
+export type LookingScreen = (typeof LOOKING_SCREENS)[number]
+/** a window sends `looking` at most this often (the last state wins) */
+export const LOOKING_EVERY_MS = 500
+export const LOOKING_PATH_MAX = 1024
 export const ClientFrame = z.discriminatedUnion('type', [
   z.object({ type: z.literal('ping'), t: z.number() }),
   /** the window received browser.call and started it (stops the server from re-sending after a reconnect) */
   z.object({ type: z.literal('browser.ack'), callId: z.string().min(1).max(100) }),
   z.object({ type: z.literal('browser.result'), result: BrowserResult }),
+  /** the window received local.call and handed it to the desktop app (no re-send after a reconnect) */
+  z.object({ type: z.literal('local.ack'), callId: z.string().min(1).max(100) }),
+  z.object({ type: z.literal('local.result'), result: LocalResult }),
   /** this window is in use or idle (docs/DECISIONS.md "접속 상태"): sent when it changes and after each `hello` (the
    * server takes a newly connected window as active until it says otherwise); never queued while disconnected */
   z.object({ type: z.literal('presence'), state: WindowActivity }),
   /** I am writing in this room's box (threadRootId null) or this thread's box, or stopped (sent, emptied, left). At most
    * every ROOM_TYPING_EVERY_MS while typing; never queued while disconnected. The server relays it as RoomTypingFrame. */
   z.object({ type: z.literal('room.typing'), roomId: Uuid7, threadRootId: Uuid7.nullable(), typing: z.boolean() }),
+  /** what this window shows now, for the AI's looking_at tool (docs/decisions/20261116-ai-screen-and-shared-tools.md):
+   * the screen's name and ids only, never a title or text. Sent when the route or the side panel changes (at most one
+   * every LOOKING_EVERY_MS) and after each `hello`; never queued while disconnected. `screen` null: nothing to tell
+   * (a confidential chat is open): the server forgets what this window told before. Kept in memory only. */
+  z.object({
+    type: z.literal('looking'), screen: z.enum(LOOKING_SCREENS).nullable(),
+    chatId: Uuid7.optional(), projectId: z.string().min(1).max(64).optional(), roomId: Uuid7.optional(), threadRootId: Uuid7.optional(),
+    /** a team file open in the viewer or the side panel: its team path */
+    filePath: z.string().min(1).max(LOOKING_PATH_MAX).optional(),
+    /** a file link's page (/f/<id>) */
+    linkId: z.string().regex(/^[A-Za-z0-9_-]{22}$/).optional(),
+  }),
 ])
 export type ClientFrame = z.infer<typeof ClientFrame>
 
+export type LookingFrame = Extract<ClientFrame, { type: 'looking' }>

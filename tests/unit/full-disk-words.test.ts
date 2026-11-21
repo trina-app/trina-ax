@@ -35,7 +35,10 @@ describe('what a full disk looks like', () => {
     expect(diskAlmostFull(['/x'], 64 * MiB, () => disk(GiB, GiB / 2))).toBe(false)
     expect(diskAlmostFull(['/x'], 64 * MiB, () => { throw new Error('gone') })).toBe(false)
     expect(absoluteFloor(600 * MiB)).toBe(10 * GiB)
-    expect(absoluteFloor(1000 * GiB)).toBe(50 * GiB)
+    // capped as the reserve is (disk-stat.ts diskReserve): a big disk is not read-only with 10 GiB or more free
+    expect(absoluteFloor(1000 * GiB)).toBe(10 * GiB)
+    expect(absoluteFloor(1.8e12)).toBe(10 * GiB)
+    expect(absoluteFloor(1.8e12)).toBeLessThan(85e9)
   })
 })
 

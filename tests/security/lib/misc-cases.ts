@@ -15,6 +15,12 @@ import { C, USER_OF, type Who, type World } from './world'
 const UNKNOWN_GROUP = '01900000-0000-7000-8000-00000000f00d'
 const err = (r: Resp) => r.json?.error as { fields?: Record<string, string>; params?: Record<string, unknown> } | undefined
 const admin = (who: Who) => who === 'owner' || who === 'admin'
+/** the free-roam snapshot builder's routes on a server without a builder demo file: 404 for the owner, refused for others */
+const DEMO_UUID7 = '01900000-0000-7000-8000-00000000de70'
+const builderOff = (status: number, who: Who) => {
+  if (status < 400) throw new Error(`${who}: a demo builder route answered ${status}`)
+  if (who === 'owner' && status !== 404) throw new Error(`the owner got ${status} from a demo builder route, not 404`)
+}
 
 /** An owner or admin is refused for the body (400 with this field), never let through; a member is refused for the role. */
 const bodyCheck = (field: string, what: string) => (r: Resp, _w: World, who: Who) => {
@@ -229,11 +235,21 @@ export const MISC_SPECS: Record<string, Spec> = {
   // the files sent there, by name: the DM's file is found by its two people and by nobody else (the canary check)
   searchRoomFiles: { build: (c) => c.get(`/api/room-files?q=${encodeURIComponent(C.dmFileName)}`), scope: 'self',
     check: (r, _w, who) => { if ((who === 'memberIn' || who === 'other') && !r.text.includes(C.dmFileName)) throw new Error(`${who} does not find the DM's file`) } },
+  // "Files you sent": my own files only, whoever asks (never another person's file: the matrix's canary check)
+  listMyRoomFiles: { build: (c) => c.get('/api/room-files/mine'), scope: 'self' },
   // away: only my own (a body naming someone else is refused)
   setMyAway: { build: (c) => c.put('/api/me/away', { away: false }), scope: 'self',
     check: async (r, w, who) => {
       if (r.status !== 200) return
       const spoof = await w.as[who].req('PUT', '/api/me/away', { away: true, userId: 'alice' })
+      if (spoof.status !== 400) throw new Error(`${who}: a body naming a person was not refused: ${spoof.status}`)
+    } },
+
+  // the desktop app's computer report (the phone rule): only my own (a body naming someone else is refused)
+  reportMyComputer: { build: (c) => c.post('/api/me/computer', { idleMs: 0, locked: false }), scope: 'self',
+    check: async (r, w, who) => {
+      if (r.status !== 204) return
+      const spoof = await w.as[who].req('POST', '/api/me/computer', { idleMs: 0, locked: false, userId: 'alice' })
       if (spoof.status !== 400) throw new Error(`${who}: a body naming a person was not refused: ${spoof.status}`)
     } },
 
@@ -258,6 +274,13 @@ export const MISC_SPECS: Record<string, Spec> = {
   demoInfo: { build: (c) => c.get('/api/demo'), scope: 'nobody', check: (r, _w, who) => { if (r.status !== 404) throw new Error(`${who}: the demo info answered ${r.status}`) } },
   demoSwitch: { skipPositive: true, build: (c) => c.post('/api/demo/persona', { key: 'newHire' }), scope: 'nobody',
     check: (r, _w, who) => { if (r.status !== 404) throw new Error(`${who}: the demo switch answered ${r.status}`) } },
+  // the free-roam snapshot builder's routes: the owner only, and even then 404 without a demo file that says builder
+  demoBuilderRoomTimes: { skipPositive: true, build: (c) => c.post('/api/demo/builder/room-times', { roomId: DEMO_UUID7, times: [] }), scope: 'nobody', check: (r, _w, who) => builderOff(r.status, who) },
+  demoBuilderWelcome: { skipPositive: true, build: (c) => c.post('/api/demo/builder/welcome', { userId: 'nobody', inviterId: 'nobody' }), scope: 'nobody', check: (r, _w, who) => builderOff(r.status, who) },
+  demoBuilderConnection: { skipPositive: true, build: (c) => c.post('/api/demo/builder/connections', { service: 'higgsfield', account: { name: 'X', email: 'x@team.example' } }), scope: 'nobody', check: (r, _w, who) => builderOff(r.status, who) },
+  demoBuilderChatTurns: { skipPositive: true, build: (c) => c.post('/api/demo/builder/chat-turns', { chatId: DEMO_UUID7, turns: [{ ask: 'a', answer: 'b', at: '2026-01-01T00:00:00.000Z' }] }), scope: 'nobody', check: (r, _w, who) => builderOff(r.status, who) },
+  demoBuilderThreadTimes: { skipPositive: true, build: (c) => c.post('/api/demo/builder/thread-times', { chatId: DEMO_UUID7, times: [{ replyId: DEMO_UUID7, at: '2026-01-01T00:00:00.000Z' }] }), scope: 'nobody', check: (r, _w, who) => builderOff(r.status, who) },
+  demoBuilderFileTimes: { skipPositive: true, build: (c) => c.post('/api/demo/builder/file-times', { times: [{ path: 'shared/a.md', at: '2026-01-01T00:00:00.000Z' }], hideFromRecent: ['skills'] }), scope: 'nobody', check: (r, _w, who) => builderOff(r.status, who) },
 
   // ---- after-update to-dos (owners and admins); a to-do nobody has: 404 after the check
   afterUpdateActions: { build: (c) => c.get('/api/admin/after-update'), scope: 'byLevel' },

@@ -6,15 +6,20 @@
 // text that would stand for "no text" until the file changes: it is tried again later, a few times. Of the two office
 // workers, background work takes at most one, and people go first among those that wait, until background work's turn:
 // it never waits for ever behind people's work that keeps coming.
-import { afterEach, describe, expect, setSystemTime, test } from 'bun:test'
+import { afterAll, afterEach, beforeAll, describe, expect, setSystemTime, test } from 'bun:test'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import * as XLSX from 'xlsx'
 import { BACKGROUND_WALL_FACTOR, backgroundPrefix, backgroundRun, inBackground, runIsolated } from '../../server/src/tools/isolate'
 import { OFFICE_EXTRACT_PARALLEL, OFFICE_RETRY_FIRST_MS, OFFICE_RETRY_MAX, OfficeCache } from '../../server/src/files/search'
-import { BACKGROUND_PASSED_MAX, BACKGROUND_WAIT_MS, BackgroundTurn, ConverterStopped, extractText, OFFICE_WORKERS_BACKGROUND_MAX, OFFICE_WORKERS_MAX, officeWorkerSlot, officeWorkersRecheck } from '../../server/src/files/extract'
+import { BACKGROUND_PASSED_MAX, BACKGROUND_WAIT_MS, BackgroundTurn, ConverterStopped, extractText, OFFICE_WORKERS_BACKGROUND_MAX, officeWorkerSlot, setOfficeWorkersMaxForTests, officeWorkersRecheck } from '../../server/src/files/extract'
 import { ToolError } from '../../server/src/policy/errors'
+
+// the queueing below is checked with two office workers at once (officeWorkersMax gives more on a bigger machine)
+const WORKERS = 2
+beforeAll(() => setOfficeWorkersMaxForTests(WORKERS))
+afterAll(() => setOfficeWorkersMaxForTests(null))
 
 const dirs: string[] = []
 const tmp = (p: string) => { const d = fs.mkdtempSync(path.join(fs.realpathSync(os.tmpdir()), p)); dirs.push(d); return d }
@@ -56,7 +61,9 @@ describe('converter priority (tools/isolate.ts)', () => {
     expect(await priorityOf({ scope: () => false })).toBe(normal)
     expect(await priorityOf({ scope: () => true, background: false })).toBe(normal)
     if (process.platform === 'linux') expect(await priorityOf({ background: true })).toBe(Math.min(19, normal + 10))
-  })
+    // seven `sleep` runs one after the other, each found by a `ps` poll: on a loaded CI runner that passed bun's 5 s default
+    // (exit 143 in batch 6), so it gets its own, wider budget; the work itself does not change
+  }, 30_000)
   test.skipIf(!unix)('a background run may take BACKGROUND_WALL_FACTOR times its time limit (it can wait for the CPU)', async () => {
     const fg = await runIsolated({ cmd: sleepBin, args: ['0.8'], timeoutMs: 400 })
     expect(fg.killed).toBe('timeout')
@@ -150,8 +157,7 @@ describe('the office workers: background work takes at most one, people go first
   }
 
   test('background work takes one worker, the next waits for it; the other worker stays free for a person', async () => {
-    expect(OFFICE_WORKERS_MAX).toBe(2)
-    expect(OFFICE_WORKERS_BACKGROUND_MAX).toBe(1)
+        expect(OFFICE_WORKERS_BACKGROUND_MAX).toBe(1)
     const started: string[] = []
     const b1 = holder(started, 'b1', () => true), b2 = holder(started, 'b2', () => true)
     await settle()
@@ -304,14 +310,14 @@ describe('the office workers: background work takes at most one, people go first
     const [at] = await amongPeople(loops, 1)
     expect(at).toBeGreaterThanOrEqual(0)
     // the jobs already in line when it came, then BACKGROUND_PASSED_MAX, then those running when its turn came
-    expect(at!).toBeLessThanOrEqual(BACKGROUND_PASSED_MAX + loops + OFFICE_WORKERS_MAX)
+    expect(at!).toBeLessThanOrEqual(BACKGROUND_PASSED_MAX + loops + WORKERS)
   })
 
   test('the next background job waits its own turn, so people\'s work goes on between them', async () => {
     const [first, second, third] = (await amongPeople(3, 3)).sort((a, b) => a - b)
     expect(first).toBeGreaterThanOrEqual(0)
-    expect(second! - first!).toBeGreaterThanOrEqual(BACKGROUND_PASSED_MAX - OFFICE_WORKERS_MAX)
-    expect(third! - second!).toBeGreaterThanOrEqual(BACKGROUND_PASSED_MAX - OFFICE_WORKERS_MAX)
+    expect(second! - first!).toBeGreaterThanOrEqual(BACKGROUND_PASSED_MAX - WORKERS)
+    expect(third! - second!).toBeGreaterThanOrEqual(BACKGROUND_PASSED_MAX - WORKERS)
   })
 
   test('long jobs of people: after BACKGROUND_WAIT_MS the next free worker is background work\'s, ahead of people in line', async () => {

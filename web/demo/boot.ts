@@ -30,6 +30,6 @@ export async function boot(made: (s: DemoServer) => void) {
   if (script.home.button) words['memberWelcome.askButton'] = script.home.button
   await import('../src/main')
   const { mountOverlay } = await import('./overlay')
-  mountOverlay(server, import.meta.env.VITE_DEMO_SIGNUP_URL || script.end.signup.url)
+  mountOverlay(server, import.meta.env.VITE_DEMO_SIGNUP_URL || script.end.signup.url, import.meta.env.VITE_DEMO_LIVE_URL || undefined)
   server.engine.fire({ start: true })
 }

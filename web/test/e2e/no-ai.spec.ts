@@ -1,5 +1,6 @@
-// No AI answers the person (docs/DECISIONS.md "W2 — AI connection first"): Home shows one card instead of its top row,
-// the suggestions and the line above the box, and "Claude 구독 연결" opens the simple dialog in place (the whole team,
+// No AI answers the person (docs/DECISIONS.md "W2 — AI connection first"): Home shows one quiet line under the greeting
+// (QA TC-5447) instead of its top row, the suggestions and the line above the box, and "Claude 연결하기" opens the simple
+// dialog in place (the whole team,
 // no name, the terms in one line, no password). The mock team server always answers AI, so GET
 // /api/me/ai-access is answered here as a team with no connection.
 import { expect, test, type Page } from '@playwright/test'
@@ -16,28 +17,37 @@ const sharedClaude = (page: Page) => page.route('**/api/admin/credentials', asyn
 
 test.use({ viewport: { width: 390, height: 844 } })
 
-test('the owner\'s Home without AI: one card; "Claude 구독 연결" opens the simple dialog, the whole team', async ({ page }) => {
+test('the owner\'s Home without AI: one line under the greeting, one button; "Claude 연결하기" opens the simple dialog, the whole team', async ({ page }) => {
   const errors = watchConsole(page)
   await reset(page)
   await noAi(page, 'connect_team')
   await sharedClaude(page)
   await signIn(page)
   const card = page.getByTestId('no-ai-card')
-  await expect(card).toContainText('AI를 먼저 연결해 주세요')
+  await expect(page.getByTestId('no-ai-line')).toHaveText('AI를 연결하면 바로 시작할 수 있어요.')
   await expect(page.getByTestId('ai-access-banner')).toHaveCount(0)
   await expect(page.getByTestId('welcome-resume')).toHaveCount(0)
   await expect(page.getByTestId('often-asked')).toHaveCount(0)
   await expect(page.getByTestId('composer-input')).toBeVisible()
-  // the three ways at once (no "다른 방법" fold), equal rows that fit the phone, Claude first and recommended
-  await expect(card.getByTestId('welcome-ai-ways').getByRole('button')).toHaveText(['Claude 구독 연결추천', 'ChatGPT 구독 연결', 'API 키로 연결'])
-  await expect(card.getByTestId('welcome-ai-engines')).toHaveText('OpenRouter 같은 다른 AI 서비스는 관리자 › AI 제공사에서')
-  await expect(card.getByTestId('welcome-ai-other')).toHaveCount(0)
-  const rows = await card.getByTestId('welcome-ai-ways').getByRole('button').evaluateAll((bs) => bs.map((b) => ({ width: b.getBoundingClientRect().width, fits: b.scrollWidth <= b.clientWidth })))
-  expect(new Set(rows.map((r) => r.width)).size).toBe(1)
-  expect(rows.every((r) => r.fits)).toBe(true)
+  // one line, one main button, the rest under "다른 방법": under the greeting, over the box, nothing on top of the page
+  await expect(card.getByRole('button')).toHaveText(['Claude 연결하기', '다른 방법'])
+  await expect(page.getByTestId('home-top').getByTestId('no-ai-card')).toHaveCount(0)
+  const y = async (id: string) => (await page.getByTestId(id).first().boundingBox())!.y
+  const h1 = (await page.locator('h1').boundingBox())!.y
+  expect(h1).toBeLessThan(await y('no-ai-card'))
+  expect(await y('no-ai-card')).toBeLessThan(await y('composer-input'))
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
-  // "API 키로 연결": the same dialog with only the two keys to pick from
-  await card.getByTestId('welcome-ai-keys').click()
+  // typed anyway: not sent, a line under the box says why, the text stays
+  await page.getByTestId('composer-input').fill('이번 주 회의록 정리해 줘')
+  await expect(page.getByTestId('composer-blocked')).toHaveText('AI를 연결해야 보낼 수 있어요. 쓴 글은 그대로 둘게요.')
+  await expect(page.getByTestId('send')).toBeDisabled()
+  await page.getByTestId('send').click({ force: true })
+  await expect(page).toHaveURL(/\/$/)
+  await expect(page.getByTestId('composer-input')).toHaveValue('이번 주 회의록 정리해 줘')
+  await page.getByTestId('composer-input').fill('')
+  // "다른 방법" › "API 키로 연결": the same dialog with only the two keys to pick from
+  await page.getByTestId('no-ai-other').click()
+  await page.getByRole('menuitem', { name: 'API 키로 연결' }).click()
   await expect(page.getByRole('dialog').getByTestId('kind-anthropic-api-key')).toBeVisible()
   await expect(page.getByRole('dialog').getByTestId('kind-openai-api-key')).toBeVisible()
   await expect(page.getByRole('dialog').getByTestId('kind-chatgpt')).toHaveCount(0)
@@ -58,13 +68,16 @@ test('the owner\'s Home without AI: one card; "Claude 구독 연결" opens the s
   expect(realErrors(errors)).toEqual([])
 })
 
-test('a member\'s Home without team AI: "팀장이 AI를 연결하면 바로 쓸 수 있어요", one ask, their own connection folded under it', async ({ page }) => {
+test('a member\'s Home without team AI: "아직 쓸 수 있는 AI가 없어요", one ask, their own connection beside it', async ({ page }) => {
   await reset(page)
   await noAi(page, 'connect_own')
   await signIn(page, BOB)
   const card = page.getByTestId('no-ai-card')
-  await expect(card).toContainText('팀장이나 관리자가 AI를 연결하면 바로 쓸 수 있어요')
-  await expect(card.getByTestId('ai-access-button')).toHaveText('팀장·관리자에게 알리기')
+  await expect(card.getByTestId('no-ai-line')).toHaveText('아직 쓸 수 있는 AI가 없어요.')
+  await expect(card.getByTestId('ai-access-button')).toHaveText('팀장·관리자에게 연결 요청하기')
+  await page.getByTestId('composer-input').fill('견적서 만들어 줘')
+  await expect(page.getByTestId('composer-blocked')).toHaveText('AI가 연결되면 보낼 수 있어요. 쓴 글은 그대로 둘게요.')
+  await page.getByTestId('composer-input').fill('')
   // nothing prepared and no AI: no block (its question would need the AI)
   await expect(page.getByTestId('team-prepared')).toHaveCount(0)
   await card.getByTestId('no-ai-own').click()

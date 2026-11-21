@@ -1,6 +1,6 @@
 // The right-click menu of a picture or a file (components/FileMenu.tsx, docs/DECISIONS.md "A right-click menu on
 // pictures and files"): in the image viewer, under a room's or a thread's message, on an AI chat's attachment. Like
-// Slack's: 이미지 복사 (pictures only), 링크 복사, 내려받기, 트리나에게 묻기. What applies, and the addresses it uses,
+// Slack's: 이미지 복사 (pictures only), 링크 복사, 내려받기, 팀 폴더에 저장 (a room file), 트리나에게 묻기. What applies, and the addresses it uses,
 // are decided here, pure and unit-tested (tests/unit/file-menu.test.ts).
 // - 링크 복사 is the app's own address of the place: the message it was sent in (`/rooms/<id>?m=<message>`, a reply at its
 //   thread) or the team file (`/files/view?path=…`). It names the place, never a key or token: someone who cannot open
@@ -10,7 +10,7 @@
 //   address (another site, a data: or blob: one) is never fetched.
 import type { RoomPlace, ViewerItem } from './imageViewer'
 
-export type FileMenuAction = 'copyImage' | 'copyLink' | 'download' | 'ask'
+export type FileMenuAction = 'copyImage' | 'copyLink' | 'download' | 'saveToTeam' | 'ask'
 
 /** What the menu needs of a picture or file; absent parts are items it does not show. */
 export interface FileMenuTarget {
@@ -22,7 +22,12 @@ export interface FileMenuTarget {
   copyImage?: (() => void) | null
   /** the app's own address of it (messageLink, teamFileLink) */
   link?: string | null
+  /** a team file (not a folder): 링크 복사 gives its /f/<id> link instead of `link` (QA TC-3093, components/FileShareDialog.tsx) */
+  teamFile?: string | null
   download?: (() => void) | null
+  /** a room file: "Save to team folder", or once it is there where I can open it, "Open in team folder"
+   * (docs/decisions/20261117-room-file-save-btn.md) */
+  team?: { saved: boolean; run: () => void } | null
   /** 트리나에게 묻기 */
   ask?: (() => void) | null
 }
@@ -33,6 +38,7 @@ export function fileMenuActions(t: FileMenuTarget, canCopy: boolean): FileMenuAc
   if (canCopy && (t.copyImage || (t.image && ownFileAddress(t.image.src)))) out.push('copyImage')
   if (t.link) out.push('copyLink')
   if (t.download) out.push('download')
+  if (t.team) out.push('saveToTeam')
   if (t.ask) out.push('ask')
   return out
 }

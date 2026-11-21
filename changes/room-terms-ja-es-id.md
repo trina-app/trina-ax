@@ -1,0 +1,1 @@
+- Japanese, Spanish and Indonesian now call a project's room by the same word as every other conversation in the app: **トーク**, **conversación** and **percakapan** (the project's button, its tooltips, the leave and remove warnings, the room's info line, the server's replies and the help page). They said チャットルーム, sala de chat and ruang obrolan, words used nowhere else.

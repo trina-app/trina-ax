@@ -2,24 +2,46 @@
 // why the file could not be read, why its sound was not transcribed. The AI usually passes them on. What the AI must
 // send next (a `time` value) stays English in the result itself, like the other tool contracts. The frames follow the
 // image notes of vision-text.ts (switch off, API engine, connection, turn budget).
+// Members read these through the AI: no "server", "Linux", "Mac server", tool or package names (AI scenario check
+// VIEW-08, 2026-11-16: "Linux servers can" became "switch the server to Linux"). Only the *Admin notes, given to an
+// owner or admin, may name what to install (tests/unit/media-text.test.ts).
 import type { Database } from 'bun:sqlite'
+import { PRODUCT } from '@mycel/shared'
 
 export const MEDIA_TEXT = {
   mac: {
-    ko: '이 맥 서버에서는 아직 영상·오디오 파일을 읽을 수 없어요. Linux 서버에서는 읽을 수 있어요.',
-    en: 'This Mac server cannot read video and audio files yet. Linux servers can.',
-    id: 'Server Mac ini belum bisa membaca berkas video dan audio. Server Linux bisa.',
-    ja: 'この Mac サーバーではまだ動画・音声ファイルを読み取れません。Linux サーバーでは読み取れます。',
-    es: 'Este servidor Mac todavía no puede leer archivos de video y audio. Los servidores Linux sí pueden.',
-    zh: '这台 Mac 服务器还不能读取视频和音频文件。Linux 服务器可以。',
+    ko: '여기서는 아직 녹음·영상 파일을 열 수 없어요. 직접 들어 보시고 주요 내용을 알려 주시거나 받아 적은 글을 붙여 주시면 정리해 드릴게요.',
+    en: 'Recordings and videos can\'t be opened here yet. If you play the file and tell me the main points, or paste a transcript, I can summarize it.',
+    id: 'Rekaman dan video belum bisa dibuka di sini. Kalau Anda memutarnya lalu memberi tahu poin utamanya, atau menempelkan transkripnya, saya bisa merangkumnya.',
+    ja: 'ここではまだ録音・動画ファイルを開けません。再生して要点を教えていただくか、書き起こしを貼り付けていただければ、まとめます。',
+    es: 'Aquí todavía no se pueden abrir grabaciones ni videos. Si lo reproduce y me cuenta los puntos principales, o pega una transcripción, puedo resumirlo.',
+    zh: '这里还不能打开录音和视频文件。你可以播放后告诉我要点，或者粘贴文字稿，我来帮你整理。',
+  },
+  /** added to `mac` when voice input works on this install */
+  macVoice: {
+    ko: '마이크 버튼을 눌러 말로 알려 주셔도 돼요.',
+    en: 'You can also tell me by voice with the microphone button.',
+    id: 'Anda juga bisa memberi tahu saya lewat suara dengan tombol mikrofon.',
+    ja: 'マイクボタンを押して、声で伝えていただくこともできます。',
+    es: 'También puede decírmelo por voz con el botón del micrófono.',
+    zh: '也可以点麦克风按钮，用语音告诉我。',
   },
   noTool: {
-    ko: '이 서버에 영상 도구(ffmpeg)가 없어 영상·오디오 파일을 읽을 수 없어요. 관리자가 ffmpeg 패키지를 설치하면 읽을 수 있어요.',
-    en: 'This server has no video tool (ffmpeg), so video and audio files cannot be read. An admin can install the ffmpeg package.',
-    id: 'Server ini tidak memiliki alat video (ffmpeg), jadi berkas video dan audio tidak dapat dibaca. Admin dapat memasang paket ffmpeg.',
-    ja: 'このサーバーには動画ツール（ffmpeg）がないため、動画・音声ファイルを読み取れません。管理者が ffmpeg パッケージをインストールできます。',
-    es: 'Este servidor no tiene la herramienta de video (ffmpeg), por lo que no se pueden leer archivos de video y audio. Un administrador puede instalar el paquete ffmpeg.',
-    zh: '这台服务器没有视频工具（ffmpeg），所以无法读取视频和音频文件。管理员可以安装 ffmpeg 软件包。',
+    ko: '지금은 여기서 녹음·영상 파일을 열 수 없어요. 직접 들어 보시고 주요 내용을 알려 주시거나 받아 적은 글을 붙여 주시면 정리해 드릴게요. 관리자가 고칠 수도 있어요.',
+    en: 'Recordings and videos can\'t be opened here right now. If you play the file and tell me the main points, or paste a transcript, I can summarize it. An admin can also fix this.',
+    id: 'Rekaman dan video tidak bisa dibuka di sini saat ini. Kalau Anda memutarnya lalu memberi tahu poin utamanya, atau menempelkan transkripnya, saya bisa merangkumnya. Admin juga dapat memperbaikinya.',
+    ja: '現在ここでは録音・動画ファイルを開けません。再生して要点を教えていただくか、書き起こしを貼り付けていただければ、まとめます。管理者が直すこともできます。',
+    es: 'Ahora mismo aquí no se pueden abrir grabaciones ni videos. Si lo reproduce y me cuenta los puntos principales, o pega una transcripción, puedo resumirlo. Un administrador también puede solucionarlo.',
+    zh: '现在这里打不开录音和视频文件。你可以播放后告诉我要点，或者粘贴文字稿，我来帮你整理。管理员也可以解决这个问题。',
+  },
+  /** `noTool` for an owner or admin, who can install it */
+  noToolAdmin: {
+    ko: '지금은 여기서 녹음·영상 파일을 열 수 없어요. {product}가 설치된 컴퓨터에 ffmpeg 패키지가 없어서예요. 설치하면 열 수 있어요.',
+    en: 'Recordings and videos can\'t be opened here right now: the ffmpeg package is missing on the computer {product} runs on. Installing it fixes this.',
+    id: 'Rekaman dan video tidak bisa dibuka di sini saat ini: paket ffmpeg tidak ada di komputer tempat {product} berjalan. Memasangnya akan memperbaiki ini.',
+    ja: '現在ここでは録音・動画ファイルを開けません。{product} が動いているコンピューターに ffmpeg パッケージがないためです。インストールすると開けるようになります。',
+    es: 'Ahora mismo aquí no se pueden abrir grabaciones ni videos: falta el paquete ffmpeg en el equipo donde se ejecuta {product}. Instalarlo lo soluciona.',
+    zh: '现在这里打不开录音和视频文件：运行 {product} 的电脑上缺少 ffmpeg 软件包。安装后即可打开。',
   },
   tooLarge: {
     ko: '파일이 너무 커서({gb}GB 초과) 읽을 수 없어요. 잘라서 올려 주세요.',
@@ -38,12 +60,12 @@ export const MEDIA_TEXT = {
     zh: '文件长度超过{h}小时，无法读取。',
   },
   unsupported: {
-    ko: '이 형식의 영상·오디오는 읽을 수 없어요. 서버가 열지 않는 형식의 트랙이 들어 있을 수도 있어요.',
-    en: 'Video or audio in this format cannot be read. The file may also hold a track in a format the server does not open.',
-    id: 'Video atau audio dengan format ini tidak dapat dibaca. Berkas mungkin juga berisi trek dengan format yang tidak dibuka server.',
-    ja: 'この形式の動画・音声は読み取れません。サーバーが開かない形式のトラックが含まれている可能性もあります。',
-    es: 'No se puede leer video o audio en este formato. El archivo también puede contener una pista en un formato que el servidor no abre.',
-    zh: '无法读取这种格式的视频或音频。文件中也可能有服务器打不开的格式的音轨或视频轨。',
+    ko: '이 형식의 영상·오디오는 읽을 수 없어요. 여기서 열 수 없는 형식의 트랙이 들어 있을 수도 있어요.',
+    en: 'Video or audio in this format cannot be read. The file may also hold a track in a format that cannot be opened here.',
+    id: 'Video atau audio dengan format ini tidak dapat dibaca. Berkas mungkin juga berisi trek dengan format yang tidak bisa dibuka di sini.',
+    ja: 'この形式の動画・音声は読み取れません。ここでは開けない形式のトラックが含まれている可能性もあります。',
+    es: 'No se puede leer video o audio en este formato. El archivo también puede contener una pista en un formato que aquí no se puede abrir.',
+    zh: '无法读取这种格式的视频或音频。文件中也可能有这里打不开的格式的音轨或视频轨。',
   },
   damaged: {
     ko: '파일이 손상됐거나 읽을 수 없어요.',
@@ -70,12 +92,12 @@ export const MEDIA_TEXT = {
     zh: '现在正在读取其他视频。请稍后再读取一次。',
   },
   noRoom: {
-    ko: '서버에 남은 디스크 공간이 부족해 이 파일을 읽을 수 없어요.',
-    en: 'The server does not have enough free disk space to read this file.',
-    id: 'Server tidak memiliki cukup ruang disk kosong untuk membaca berkas ini.',
-    ja: 'サーバーの空きディスク容量が足りないため、このファイルを読み取れません。',
-    es: 'El servidor no tiene suficiente espacio libre en disco para leer este archivo.',
-    zh: '服务器的可用磁盘空间不足，无法读取这个文件。',
+    ko: '여기에 남은 저장 공간이 부족해 이 파일을 읽을 수 없어요.',
+    en: 'There is not enough free storage space to read this file.',
+    id: 'Ruang penyimpanan kosong tidak cukup untuk membaca berkas ini.',
+    ja: '空きストレージ容量が足りないため、このファイルを読み取れません。',
+    es: 'No hay suficiente espacio de almacenamiento libre para leer este archivo.',
+    zh: '可用存储空间不足，无法读取这个文件。',
   },
   noAudio: {
     ko: '이 영상에는 소리 트랙이 없어요.',
@@ -118,12 +140,12 @@ export const MEDIA_TEXT = {
     zh: '这个团队不把视频声音转成文字，所以声音没有转写。管理员可以在“团队设置 › 语音输入”中开启“把视频声音转成文字”。',
   },
   transcriptsOffSmall: {
-    ko: '이 서버에서는 소리를 글로 바꾸는 데 오래 걸려서 꺼 두었어요. 관리자가 팀 설정 › 음성 입력에서 "영상 소리를 글로 바꾸기"를 켤 수 있어요.',
-    en: 'Turning sound into text takes long on this server, so it is off. An admin can turn on "Turn video sound into text" in Team settings › Voice input.',
-    id: 'Mengubah suara menjadi teks memakan waktu lama di server ini, jadi dimatikan. Admin dapat mengaktifkan "Ubah suara video menjadi teks" di Pengaturan tim › Input suara.',
-    ja: 'このサーバーでは音声をテキストにするのに時間がかかるため、オフにしています。管理者が「チーム設定 › 音声入力」で「動画の音声をテキストにする」をオンにできます。',
-    es: 'Convertir el sonido en texto tarda mucho en este servidor, por eso está desactivado. Un administrador puede activar "Convertir el sonido de los videos en texto" en Configuración del equipo › Entrada de voz.',
-    zh: '在这台服务器上把声音转成文字很慢，所以已关闭。管理员可以在“团队设置 › 语音输入”中开启“把视频声音转成文字”。',
+    ko: '여기는 소리를 글로 바꾸기에 컴퓨터가 작아서(CPU 4개, 메모리 8GB 미만) 꺼 두었어요. 관리자가 팀 설정 › 음성 입력에서 "영상 소리를 글로 바꾸기"를 켤 수 있어요.',
+    en: 'This computer is too small to turn sound into text quickly (it has fewer than 4 CPU cores or less than 8 GB of memory), so it is off. An admin can turn on "Turn video sound into text" in Team settings › Voice input.',
+    id: 'Komputer ini terlalu kecil untuk mengubah suara menjadi teks dengan cepat (kurang dari 4 inti CPU atau kurang dari 8 GB memori), jadi dimatikan. Admin dapat mengaktifkan "Ubah suara video menjadi teks" di Pengaturan tim › Input suara.',
+    ja: 'このコンピューターは音声をすばやくテキストにするには小さいため（CPU 4 コア未満、またはメモリ 8 GB 未満）、オフにしています。管理者が「チーム設定 › 音声入力」で「動画の音声をテキストにする」をオンにできます。',
+    es: 'Este equipo es demasiado pequeño para convertir el sonido en texto con rapidez (tiene menos de 4 núcleos de CPU o menos de 8 GB de memoria), por eso está desactivado. Un administrador puede activar "Convertir el sonido de los videos en texto" en Configuración del equipo › Entrada de voz.',
+    zh: '这台电脑太小，无法快速把声音转成文字（CPU 少于 4 核或内存少于 8 GB），所以已关闭。管理员可以在“团队设置 › 语音输入”中开启“把视频声音转成文字”。',
   },
   noKey: {
     ko: '받아쓰기에 쓸 OpenRouter 키가 없어 소리를 받아쓰지 않았어요. 관리자가 팀 설정 › 음성 입력에서 키를 넣을 수 있어요.',
@@ -135,12 +157,39 @@ export const MEDIA_TEXT = {
   },
   /** {hours}: the plan's free hours a month (credentials/hosted-speech.ts hostedSpeechFreeHours) */
   freeUsed: {
-    ko: '이번 달 무료 받아쓰기 {hours}시간을 다 써서 소리를 받아쓰지 않았어요. 다음 달 1일에 다시 생겨요. 관리자가 팀 설정 › 음성 입력에 팀의 OpenRouter 키를 넣으면 바로 이어서 쓸 수 있어요.',
-    en: 'This month\'s {hours} free hours of transcription are used up, so the sound was not transcribed. They come back on the 1st. An admin can add the team\'s own OpenRouter key in Team settings › Voice input to go on now.',
-    id: '{hours} jam transkripsi gratis bulan ini sudah habis, jadi suara tidak ditranskripsi. Jatahnya kembali tanggal 1. Admin dapat menambahkan kunci OpenRouter tim di Pengaturan tim › Input suara untuk lanjut sekarang.',
-    ja: '今月の無料文字起こし{hours}時間を使い切ったため、文字起こししませんでした。来月1日にまた使えます。管理者が「チーム設定 › 音声入力」でチームの OpenRouter キーを追加すれば、すぐに続けられます。',
-    es: 'Se agotaron las {hours} horas gratuitas de transcripción de este mes, por lo que el sonido no se transcribió. Vuelven el día 1. Un administrador puede añadir la clave de OpenRouter del equipo en Configuración del equipo › Entrada de voz para seguir ahora.',
-    zh: '本月{hours}小时的免费转写时长已用完，所以声音没有转写。每月1日会恢复。管理员可以在“团队设置 › 语音输入”中添加团队自己的 OpenRouter 密钥，马上继续使用。',
+    ko: '이번 달 받아쓰기 시간({hours}시간)을 다 써서 소리를 글로 바꾸지 않았어요. 다음 달 1일에 다시 생겨요. 더 쓰려면 팀 소유자가 요금제를 바꾸거나, 관리자가 팀 설정 › 음성 입력에 팀의 OpenRouter 키를 넣으면 돼요.',
+    en: 'This month\'s speech-to-text allowance ({hours} hours) is used up, so the sound was not turned into text. It comes back on the 1st. To get more now, the team owner can change the plan, or an admin can add the team\'s own OpenRouter key in Team settings › Voice input.',
+    id: 'Jatah ubah suara ke teks bulan ini ({hours} jam) sudah habis, jadi suara tidak diubah menjadi teks. Jatahnya kembali tanggal 1. Untuk dapat lebih sekarang, pemilik tim dapat mengganti langganan tim, atau admin dapat menambahkan kunci OpenRouter tim di Pengaturan tim › Input suara.',
+    ja: '今月の文字起こしの枠（{hours}時間）を使い切ったため、音声をテキストにしませんでした。来月1日にまた使えます。今すぐ増やすには、チームのオーナーがプランを変更するか、管理者が「チーム設定 › 音声入力」でチームの OpenRouter キーを追加してください。',
+    es: 'Se agotó la cuota de voz a texto de este mes ({hours} horas), por lo que el sonido no se convirtió en texto. Vuelve el día 1. Para tener más ahora, el propietario del equipo puede cambiar el plan, o un administrador puede añadir la clave de OpenRouter del equipo en Configuración del equipo › Entrada de voz.',
+    zh: '本月的语音转文字额度（{hours}小时）已用完，所以声音没有转成文字。每月1日会恢复。如果现在需要更多，团队所有者可以更换套餐，或者管理员可以在“团队设置 › 语音输入”中添加团队自己的 OpenRouter 密钥。',
+  },
+  /** {hours} as in freeUsed, {to}: how far the text made before goes (it is kept and in this result) */
+  freeUsedPart: {
+    ko: '이번 달 받아쓰기 시간({hours}시간)을 다 써서 {to}까지만 글로 바꿨어요. 거기까지 바꾼 글은 남아 있어요. 다음 달 1일에 다시 생겨요. 더 쓰려면 팀 소유자가 요금제를 바꾸거나, 관리자가 팀 설정 › 음성 입력에 팀의 OpenRouter 키를 넣으면 돼요.',
+    en: 'This month\'s speech-to-text allowance ({hours} hours) is used up, so the sound was turned into text only up to {to}. The text up to there is kept. The allowance comes back on the 1st. To get more now, the team owner can change the plan, or an admin can add the team\'s own OpenRouter key in Team settings › Voice input.',
+    id: 'Jatah ubah suara ke teks bulan ini ({hours} jam) sudah habis, jadi suara hanya diubah menjadi teks sampai {to}. Teks sampai situ tetap disimpan. Jatahnya kembali tanggal 1. Untuk dapat lebih sekarang, pemilik tim dapat mengganti langganan tim, atau admin dapat menambahkan kunci OpenRouter tim di Pengaturan tim › Input suara.',
+    ja: '今月の文字起こしの枠（{hours}時間）を使い切ったため、{to} までしかテキストにできませんでした。そこまでのテキストは残っています。枠は来月1日にまた使えます。今すぐ増やすには、チームのオーナーがプランを変更するか、管理者が「チーム設定 › 音声入力」でチームの OpenRouter キーを追加してください。',
+    es: 'Se agotó la cuota de voz a texto de este mes ({hours} horas), por lo que el sonido solo se convirtió en texto hasta {to}. El texto hasta ahí se conserva. La cuota vuelve el día 1. Para tener más ahora, el propietario del equipo puede cambiar el plan, o un administrador puede añadir la clave de OpenRouter del equipo en Configuración del equipo › Entrada de voz.',
+    zh: '本月的语音转文字额度（{hours}小时）已用完，所以声音只转写到{to}。到那里为止的文字会保留。额度每月1日恢复。如果现在需要更多，团队所有者可以更换套餐，或者管理员可以在“团队设置 › 语音输入”中添加团队自己的 OpenRouter 密钥。',
+  },
+  /** {from}–{to}: the part still being turned into text after this read (FileService fillTranscript) */
+  background: {
+    ko: '{from}–{to}의 소리는 지금 뒤에서 계속 글로 바꾸고 있어요. 이어서 읽으면 끝난 부분은 바로 나오고, 만드는 중인 부분은 기다렸다가 나와요.',
+    en: 'The sound from {from} to {to} is still being turned into text in the background. Reading on gives the parts already done at once and waits for the part being made.',
+    id: 'Suara dari {from} sampai {to} masih diubah menjadi teks di latar belakang. Membaca lanjut langsung memberi bagian yang sudah selesai dan menunggu bagian yang sedang dibuat.',
+    ja: '{from}–{to} の音声は、今もバックグラウンドでテキストにしています。続けて読み取ると、済んだ部分はすぐに、作成中の部分は待ってから出ます。',
+    es: 'El sonido de {from} a {to} se sigue convirtiendo en texto en segundo plano. Al seguir leyendo, las partes ya hechas salen enseguida y se espera a la que se está haciendo.',
+    zh: '{from}到{to}的声音还在后台继续转成文字。接着读取时，已完成的部分会马上给出，正在转写的部分会等它完成。',
+  },
+  /** the OpenRouter key was removed or replaced while the sound was being turned into text (security review of #1335) */
+  keyChanged: {
+    ko: '받아쓰기에 쓰는 키가 도중에 바뀌어서 소리를 더 글로 바꾸지 않았어요. 바꾼 부분은 남아 있고, 다시 읽으면 바뀐 설정으로 이어서 바꿔요.',
+    en: 'The key used for transcription changed meanwhile, so no more of the sound was turned into text. What was done is kept; reading again goes on with the new setting.',
+    id: 'Kunci untuk transkripsi berubah di tengah jalan, jadi suara tidak diubah lagi menjadi teks. Yang sudah selesai tetap disimpan; membaca lagi akan melanjutkan dengan pengaturan baru.',
+    ja: '文字起こしに使うキーが途中で変わったため、これ以上は音声をテキストにしませんでした。済んだ部分は残っています。もう一度読み取ると新しい設定で続けます。',
+    es: 'La clave usada para la transcripción cambió mientras tanto, así que no se convirtió más sonido en texto. Lo hecho se guarda; al leer de nuevo se sigue con la nueva configuración.',
+    zh: '用于转写的密钥中途变了，所以没有继续把声音转成文字。已完成的部分会保留，再次读取会按新的设置继续。',
   },
   confidential: {
     ko: '기밀 대화에서는 소리를 바깥 서비스로 보내지 않아 받아쓰지 않았어요.',
@@ -151,28 +200,20 @@ export const MEDIA_TEXT = {
     zh: '在保密对话中，声音不会发送到外部服务，所以没有转写。',
   },
   noWhisper: {
-    ko: '이 서버에 받아쓰기 도구(whisper.cpp)가 없어 소리를 받아쓰지 않았어요.',
-    en: 'The transcription tool (whisper.cpp) is not on this server, so the sound was not transcribed.',
-    id: 'Alat transkripsi (whisper.cpp) tidak ada di server ini, jadi suara tidak ditranskripsi.',
-    ja: 'このサーバーには文字起こしツール（whisper.cpp）がないため、文字起こししませんでした。',
-    es: 'La herramienta de transcripción (whisper.cpp) no está en este servidor, por lo que el sonido no se transcribió.',
-    zh: '这台服务器上没有转写工具（whisper.cpp），所以声音没有转写。',
+    ko: '여기에는 받아쓰기 도구가 없어 소리를 받아쓰지 않았어요. 관리자가 팀 설정 › 음성 입력에서 무엇이 빠졌는지 볼 수 있어요.',
+    en: 'The transcription tool is missing here, so the sound was not transcribed. An admin can see what is missing in Team settings › Voice input.',
+    id: 'Alat transkripsi tidak ada di sini, jadi suara tidak ditranskripsi. Admin dapat melihat apa yang kurang di Pengaturan tim › Input suara.',
+    ja: 'ここには文字起こしツールがないため、文字起こししませんでした。管理者は「チーム設定 › 音声入力」で足りないものを確認できます。',
+    es: 'Aquí falta la herramienta de transcripción, por lo que el sonido no se transcribió. Un administrador puede ver qué falta en Configuración del equipo › Entrada de voz.',
+    zh: '这里没有转写工具，所以声音没有转写。管理员可以在“团队设置 › 语音输入”中查看缺少什么。',
   },
   noModel: {
-    ko: '이 서버에 음성 인식 모델이 아직 없어 소리를 받아쓰지 않았어요. 채팅에서 음성 입력을 처음 쓰면 모델을 내려받아요.',
-    en: 'The speech model is not on this server yet, so the sound was not transcribed. It is downloaded the first time someone uses voice input in chat.',
-    id: 'Model suara belum ada di server ini, jadi suara tidak ditranskripsi. Model diunduh saat input suara pertama kali dipakai di percakapan.',
-    ja: 'このサーバーにはまだ音声認識モデルがないため、文字起こししませんでした。チャットで初めて音声入力を使うとダウンロードされます。',
-    es: 'El modelo de voz todavía no está en este servidor, por lo que el sonido no se transcribió. Se descarga la primera vez que alguien usa la entrada de voz en el chat.',
-    zh: '这台服务器上还没有语音模型，所以声音没有转写。第一次有人在对话中使用语音输入时会下载它。',
-  },
-  slow: {
-    ko: '이 서버에서는 한 번 읽을 때 새 소리를 {min}분까지만 글로 바꿔요.',
-    en: 'On this server one read turns at most {min} minutes of new sound into text.',
-    id: 'Di server ini satu kali baca mengubah paling banyak {min} menit suara baru menjadi teks.',
-    ja: 'このサーバーでは 1 回の読み取りでテキストにできる新しい音声は {min} 分までです。',
-    es: 'En este servidor una lectura convierte en texto como máximo {min} minutos de sonido nuevo.',
-    zh: '在这台服务器上，每次读取最多把{min}分钟的新声音转成文字。',
+    ko: '음성 인식 모델을 아직 내려받지 못해서 소리를 받아쓰지 않았어요. 자동으로 다시 내려받으니 몇 분 뒤에 다시 읽으면 돼요.',
+    en: 'The speech model could not be downloaded yet, so the sound was not transcribed. It is tried again automatically; reading it again in a few minutes will work.',
+    id: 'Model suara belum berhasil diunduh, jadi suara tidak ditranskripsi. Unduhan dicoba lagi secara otomatis; membaca lagi beberapa menit lagi akan berhasil.',
+    ja: '音声認識モデルをまだダウンロードできていないため、文字起こししませんでした。自動でもう一度ダウンロードするので、数分後にもう一度読み取ればできます。',
+    es: 'El modelo de voz aún no se pudo descargar, por lo que el sonido no se transcribió. Se vuelve a intentar automáticamente; leerlo de nuevo en unos minutos funcionará.',
+    zh: '语音模型还没能下载下来，所以声音没有转写。会自动重新下载，过几分钟再读取就可以了。',
   },
   connection: {
     ko: '이 연결로는 한 번에 1분 안에 끝나는 만큼만 받아써요.',
@@ -183,12 +224,12 @@ export const MEDIA_TEXT = {
     zh: '通过这个连接，每次读取只转写大约一分钟内能完成的部分。',
   },
   timeUp: {
-    ko: '이번에 읽는 시간 안에 소리를 {from}–{to}까지 글로 바꿨어요. 다시 읽으면 그다음부터 이어서 바꿔요(바꾼 부분은 서버에 남아 있어요).',
-    en: 'This read had time to turn the sound from {from} to {to} into text. Reading again goes on from there (what was done is kept on the server).',
-    id: 'Bacaan ini sempat mengubah suara dari {from} sampai {to} menjadi teks. Membaca lagi akan melanjutkan dari sana (yang sudah selesai disimpan di server).',
-    ja: '今回の読み取り時間内に、{from}–{to} の音声をテキストにしました。もう一度読み取ると、その続きから処理します（済んだ部分はサーバーに残っています）。',
-    es: 'Esta lectura tuvo tiempo de convertir en texto el sonido de {from} a {to}. Al leer de nuevo se sigue desde ahí (lo ya hecho se guarda en el servidor).',
-    zh: '这次读取把{from}到{to}的声音转成了文字。再次读取会从那里继续（已完成的部分保存在服务器上）。',
+    ko: '이번에 읽는 시간 안에 소리를 {from}–{to}까지 글로 바꿨어요. 다시 읽으면 그다음부터 이어서 바꿔요(바꾼 부분은 남아 있어요).',
+    en: 'This read had time to turn the sound from {from} to {to} into text. Reading again goes on from there (what was done is kept).',
+    id: 'Bacaan ini sempat mengubah suara dari {from} sampai {to} menjadi teks. Membaca lagi akan melanjutkan dari sana (yang sudah selesai disimpan).',
+    ja: '今回の読み取り時間内に、{from}–{to} の音声をテキストにしました。もう一度読み取ると、その続きから処理します（済んだ部分は残っています）。',
+    es: 'Esta lectura tuvo tiempo de convertir en texto el sonido de {from} a {to}. Al leer de nuevo se sigue desde ahí (lo ya hecho se guarda).',
+    zh: '这次读取把{from}到{to}的声音转成了文字。再次读取会从那里继续（已完成的部分会保留）。',
   },
   timeNone: {
     ko: '이번에 읽는 시간 안에는 소리를 글로 바꾸지 못했어요. 장면 없이(frames: 0) 다시 읽으면 소리에 시간을 더 쓸 수 있어요.',
@@ -199,12 +240,12 @@ export const MEDIA_TEXT = {
     zh: '这次读取没有剩余时间把声音转成文字。不生成截图再次读取（frames: 0），可以给声音留出更多时间。',
   },
   voiceBusy: {
-    ko: '지금 음성 입력이 이 서버의 받아쓰기를 쓰고 있어서 소리를 더 글로 바꾸지 못했어요. 잠시 뒤 다시 읽으면 이어서 바꿔요.',
-    en: 'Voice input is using this server\'s transcription right now, so no more of the sound was turned into text. Reading again in a moment goes on from there.',
-    id: 'Input suara sedang memakai transkripsi server ini, jadi suara tidak diubah lagi menjadi teks. Membaca lagi sebentar lagi akan melanjutkan dari sana.',
-    ja: '音声入力がこのサーバーの文字起こしを使っているため、これ以上は音声をテキストにできませんでした。しばらくしてからもう一度読み取ると続きから処理します。',
-    es: 'La entrada de voz está usando ahora la transcripción de este servidor, así que no se convirtió más sonido en texto. Al leer de nuevo en un momento se sigue desde ahí.',
-    zh: '语音输入正在使用这台服务器的转写功能，所以没有继续把声音转成文字。稍后再次读取会从那里继续。',
+    ko: '지금 음성 입력이 받아쓰기를 쓰고 있어서 소리를 더 글로 바꾸지 못했어요. 잠시 뒤 다시 읽으면 이어서 바꿔요.',
+    en: 'Voice input is using the transcription right now, so no more of the sound was turned into text. Reading again in a moment goes on from there.',
+    id: 'Input suara sedang memakai transkripsi, jadi suara tidak diubah lagi menjadi teks. Membaca lagi sebentar lagi akan melanjutkan dari sana.',
+    ja: '音声入力が文字起こしを使っているため、これ以上は音声をテキストにできませんでした。しばらくしてからもう一度読み取ると続きから処理します。',
+    es: 'La entrada de voz está usando ahora la transcripción, así que no se convirtió más sonido en texto. Al leer de nuevo en un momento se sigue desde ahí.',
+    zh: '语音输入正在使用转写功能，所以没有继续把声音转成文字。稍后再次读取会从那里继续。',
   },
   failed: {
     ko: '받아쓰기에 실패했어요({why}).',
@@ -213,6 +254,43 @@ export const MEDIA_TEXT = {
     ja: '文字起こしに失敗しました（{why}）。',
     es: 'La transcripción falló ({why}).',
     zh: '转写失败（{why}）。',
+  },
+  /** an Apple silicon Mac: the sound of a video only (jobs/mac-audio.ts) */
+  macNoPicture: {
+    ko: '이 영상은 소리만 읽었어요. 여기서는 영상의 화면은 볼 수 없어요.',
+    en: 'Only the sound of this video was read. Its pictures can\'t be seen here.',
+    id: 'Hanya suara video ini yang dibaca. Gambarnya tidak bisa dilihat di sini.',
+    ja: 'この動画は音声だけを読み取りました。ここでは動画の画面は見られません。',
+    es: 'Solo se leyó el sonido de este video. Sus imágenes no se pueden ver aquí.',
+    zh: '这个视频只读取了声音。这里看不到视频的画面。',
+  },
+  /** a format macOS does not open (webm, mkv, avi, wma, ogg vorbis, amr) */
+  macFormat: {
+    ko: '이 형식의 녹음·영상은 여기서 열 수 없어요. mp3·m4a·wav·aiff·flac 파일과 mp4·mov 영상은 열 수 있어요.',
+    en: 'Recordings and videos in this format can\'t be opened here. mp3, m4a, wav, aiff and flac files and mp4 and mov videos can.',
+    id: 'Rekaman dan video dengan format ini tidak bisa dibuka di sini. Berkas mp3, m4a, wav, aiff, dan flac serta video mp4 dan mov bisa.',
+    ja: 'この形式の録音・動画はここでは開けません。mp3、m4a、wav、aiff、flac のファイルと mp4、mov の動画は開けます。',
+    es: 'Las grabaciones y los videos en este formato no se pueden abrir aquí. Los archivos mp3, m4a, wav, aiff y flac y los videos mp4 y mov sí.',
+    zh: '这里打不开这种格式的录音和视频。mp3、m4a、wav、aiff、flac 文件和 mp4、mov 视频可以打开。',
+  },
+  /** a video with no sound macOS opens (none at all, or an unusual sound format) */
+  macNoSound: {
+    ko: '이 영상에서 여기서 열 수 있는 소리를 찾지 못했어요. 소리가 없는 영상일 수 있어요.',
+    en: 'No sound that can be opened here was found in this video. It may have no sound.',
+    id: 'Tidak ditemukan suara yang bisa dibuka di sini dalam video ini. Mungkin video ini tidak bersuara.',
+    ja: 'この動画には、ここで開ける音声が見つかりませんでした。音声のない動画かもしれません。',
+    es: 'No se encontró en este video un sonido que se pueda abrir aquí. Puede que no tenga sonido.',
+    zh: '这个视频里没有找到这里能打开的声音。它可能没有声音。',
+  },
+  /** {mb}: the model's size, {done}: MB downloaded so far. The download (ahead of first use, or started by a read) was not
+   * done in this read's time */
+  modelDownloading: {
+    ko: '처음 한 번만 필요한 음성 인식 모델(약 {mb}MB)을 내려받는 중이라 아직 소리를 글로 바꾸지 못했어요({done}MB 받음). 다 받으면 바로 글로 바꿀 수 있어요.',
+    en: 'The speech model (about {mb} MB, needed only the first time) is still downloading ({done} MB so far), so the sound was not turned into text yet. It can be as soon as the download is done.',
+    id: 'Model suara (sekitar {mb} MB, hanya diperlukan pertama kali) masih diunduh ({done} MB sejauh ini), jadi suara belum diubah menjadi teks. Suara bisa diubah begitu unduhan selesai.',
+    ja: '初回だけ必要な音声認識モデル（約 {mb} MB）をダウンロード中のため、まだ音声をテキストにできませんでした（{done} MB 完了）。ダウンロードが終わればすぐにテキストにできます。',
+    es: 'El modelo de voz (unos {mb} MB, solo hace falta la primera vez) todavía se está descargando ({done} MB hasta ahora), por lo que el sonido aún no se convirtió en texto. Se podrá en cuanto termine la descarga.',
+    zh: '只在第一次需要的语音识别模型（约 {mb} MB）还在下载（已下载 {done} MB），所以声音还没有转成文字。下载完成后就可以马上转写。',
   },
   framesSlow: {
     ko: '장면을 만드는 데 시간이 너무 오래 걸려 일부만 보여 줘요.',
@@ -229,7 +307,8 @@ export type MediaTextKey = keyof typeof MEDIA_TEXT
 export function mediaText(db: Database, userId: string, key: MediaTextKey, vars: Record<string, string | number> = {}): string {
   const u = db.query('SELECT locale FROM users WHERE id = ?').get(userId) as { locale?: string } | null
   const locale = u?.locale === 'ko' || u?.locale === 'id' || u?.locale === 'ja' || u?.locale === 'es' || u?.locale === 'zh' ? u.locale : 'en'
-  return MEDIA_TEXT[key][locale].replace(/\{(\w+)\}/g, (m, k: string) => (k in vars ? String(vars[k]) : m))
+  const all: Record<string, string | number> = { product: PRODUCT.displayName, ...vars }
+  return MEDIA_TEXT[key][locale].replace(/\{(\w+)\}/g, (m, k: string) => (k in all ? String(all[k]) : m))
 }
 
 /** a JobFailure's message (OpenRouter refused the key, no credits …) in the person's language, for `failed` */

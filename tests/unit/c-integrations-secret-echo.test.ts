@@ -11,10 +11,10 @@ import { startHarness, type Harness } from '../lib/b-harness'
 import { waitFor } from '../lib/wait'
 import { FakeServices } from '../lib/fake-services'
 import { HIDDEN } from '../../server/src/integrations/connections/hide'
-import { carryLength, RedactingText, redactorFor, redactorOf } from '../../server/src/integrations/connections/redact'
+import { carryLength, hideKeysInStoredMemories, MEMORY_SCAN_KEY, RedactingText, redactorFor, redactorOf } from '../../server/src/integrations/connections/redact'
 import { integrationsOf } from '../../server/src/integrations/connections/service'
 import { placeholderTitle } from '../../server/src/chat/title'
-import { runExport } from '../../server/src/system/export'
+import { memoriesCsv, runExport } from '../../server/src/system/export'
 import { readFileChunks, zstdDecompress } from '../../server/src/system/streams'
 import { extractTar } from '../../server/src/system/tar'
 
@@ -51,7 +51,7 @@ describe('the stream redactor (redact.ts)', () => {
     const text = 'QA FAKE KEY 0000 is not the key; QA-FAKE-KEY-000 neither. 한글도 그대로.'
     expect(stream(text, 3).join('')).toBe(text)
     const none = redactorOf([])
-    expect(none.re).toBeNull()
+    expect(none.res).toEqual([])
     const pieces = stream(`${KEY} as typed`, 4, none)
     expect(pieces.slice(0, -1).join('')).toBe(`${KEY} as typed`) // every piece let out at once
     expect(pieces.at(-1)).toBe('')
@@ -64,8 +64,9 @@ describe('the stream redactor (redact.ts)', () => {
     const s = new RedactingText(() => r)
     expect(s.push('see QA-FA')).toBe('see ')
     expect(s.held).toBe('QA-FA')
-    expect(s.push('X-')).toBe('QA-FAX-') // not the key after all
-    expect(s.flush()).toBe('')
+    // not the key after all; the word at the end still waits: it could start an encoded form (formCarryLength)
+    expect(s.push('X- and')).toBe('QA-FAX- ')
+    expect(s.flush()).toBe('and')
   })
 
   test('placeholder title: a stored key is cut out like a secret-looking one; a line left with one word is skipped', () => {
@@ -104,7 +105,7 @@ describe('a turn that repeats the stored key', () => {
   afterAll(async () => { svc?.stop(); await h?.close() })
 
   /** one turn in a new chat; every text the server let out or saved for it */
-  async function turn(content: string) {
+  async function turn(content: string, answer = 'allow') {
     const chat = await h.api('alice').call(API.createChat, { body: {} })
     const started = await h.api('alice').call(API.sendMessage, { params: { id: chat.id }, body: { content, clientMessageId: 'cm-' + crypto.randomUUID(), attachmentIds: [] } })
     const id = started.assistantMessage.id
@@ -114,7 +115,7 @@ describe('a turn that repeats the stored key', () => {
       for (const p of published) {
         if (p.ev.type !== 'turn.request' || p.ev.data.turnId !== started.turnId || answered.has(p.ev.data.request.requestId)) continue
         answered.add(p.ev.data.request.requestId)
-        void h.api('alice').call(API.answerTurn, { params: { id: started.turnId }, body: { kind: 'ask_user', requestId: p.ev.data.request.requestId, answer: 'allow' } }).catch(() => {})
+        void h.api('alice').call(API.answerTurn, { params: { id: started.turnId }, body: { kind: 'ask_user', requestId: p.ev.data.request.requestId, answer } }).catch(() => {})
       }
     }, 20)
     const doneEv = await waitFor(() => published.find((p) => p.ev.type === 'message.done' && p.ev.data.messageId === id), { timeoutMs: 40_000, what: 'message.done' }).finally(() => clearInterval(approve))
@@ -184,6 +185,103 @@ describe('a turn that repeats the stored key', () => {
     const t = await turn(fake({ say: text }))
     expect(t.done.content).toBe(text)
     expect(t.deltas.map((d) => d.text).join('')).toBe(text)
+  })
+
+  // QA AP-033 (docs/decisions/20261120-ap033-thinking-text.md): the AI's thinking text is kept on its "Thinking" step,
+  // saved with the message (so a reload shows it), with the stored key hidden in the whole text (the key comes cut across
+  // thinking deltas). It never goes into the answer, and an empty thinking block adds no text.
+  test.skipIf(!native)('AP-033: the thinking text is kept on its step, the key hidden, also after a reload', async () => {
+    const first = `The person asks about ${KEY}. Check the connection first.`
+    const t = await turn(fake({ think: first }, { say: 'Done.' }, { think: '  ' }, { say: 'Bye.' }))
+    expect(t.done.content).toBe('Done.\n\nBye.') // two text blocks: two paragraphs, no thinking text
+    const thinking = (steps: { kind: string; detail?: string; status: string }[]) => steps.filter((s) => s.kind === 'thinking')
+    const live = thinking(t.done.steps)
+    expect(live).toHaveLength(2)
+    expect(live[0]!.detail).toBe(`The person asks about ${HIDDEN}. Check the connection first.`)
+    expect(live[0]!.status).toBe('ok')
+    expect(live[1]!.detail).toBeUndefined()
+    // saved with the message: the chat's page after a reload has the same text
+    const page = await h.api('alice').call(API.listMessages, { params: { id: t.chatId } })
+    const answer = page.items.find((m) => m.id === t.done.id)!
+    const reloaded = thinking(answer.steps)
+    expect(reloaded.map((s) => s.detail)).toEqual(live.map((s) => s.detail))
+    // the key is nowhere in the answer: not in the stored steps, the reloaded answer, or any step event the person's apps
+    // got (the person's own message keeps it as typed)
+    const stepEvents = published.filter((p) => p.ev.type === 'message.step' && p.ev.data.messageId === t.done.id)
+    expect(stepEvents.length).toBeGreaterThan(0)
+    expect(leaks(t.stored.steps + JSON.stringify(stepEvents) + JSON.stringify(answer))).toEqual([])
+  })
+
+  // QA TC-2981: the step said "Remembered: My key is [hidden key]", the saved memory held the key (Settings › Memory,
+  // the export's memories.csv)
+  test.skipIf(!native)('remember: the saved memory, Settings › Memory and the export have the key hidden', async () => {
+    const t = await turn(['remember my key please', fake({ tool: 'remember', args: { text: `My key is ${KEY}` }, sayResult: true }, { say: 'Done.' })].join('\n'))
+    const step = t.done.steps.find((s: { tool: string }) => s.tool === 'remember')
+    expect(step.label).toBe(`Remembered: My key is ${HIDDEN}`)
+    const id = String(step.detail).replace('memory:', '')
+    const row = h.ctx.db.query('SELECT text FROM memories WHERE id = ?').get(id) as { text: string }
+    expect(row.text).toBe(`My key is ${HIDDEN}`)
+    const listed = await h.api('alice').call(API.listMemories, {})
+    expect(listed.items.find((m) => m.id === id)!.text).toBe(`My key is ${HIDDEN}`)
+    const rows = h.ctx.db.query("SELECT id, text, created_at, source_chat_id FROM memories WHERE user_id = 'alice'").all() as Parameters<typeof memoriesCsv>[0]
+    expect(leaks(memoriesCsv(rows) + JSON.stringify(listed))).toEqual([])
+  })
+
+  test.skipIf(!native)('schedule_create: the card and the saved task have the key hidden in the title and the prompt', async () => {
+    const args = { title: `Check ${KEY}`, prompt: `Every morning call QA API with the key ${KEY} and save the answer in my folder.`, repeat: 'daily', time: '07:00' }
+    const t = await turn(fake({ tool: 'schedule_create', args, sayResult: true }), 'create')
+    const card = published.find((p) => p.ev.type === 'turn.request' && JSON.stringify(p.ev.data.request).includes('Every morning call QA API'))
+    expect(card).toBeTruthy()
+    expect(leaks(JSON.stringify(card!.ev))).toEqual([])
+    const row = h.ctx.db.query("SELECT title, prompt FROM schedules WHERE user_id = 'alice' AND prompt LIKE 'Every morning call QA API%'").get() as { title: string; prompt: string }
+    expect(row).toEqual({ title: `Check ${HIDDEN}`, prompt: `Every morning call QA API with the key ${HIDDEN} and save the answer in my folder.` })
+    expect(leaks(t.done.content + JSON.stringify(t.done.steps))).toEqual([])
+  })
+
+  test('once at start: memories the AI saved with a stored key get it hidden; memories the person typed stay', () => {
+    const db = h.ctx.db
+    const at = new Date().toISOString()
+    db.query("INSERT INTO memories (id, user_id, text, source_chat_id, source, created_turn_id, created_at) VALUES ('m-old-ai', 'alice', ?, NULL, 'ai', 'turn-old', ?)").run(`My key is ${KEY}`, at)
+    db.query("INSERT INTO memories (id, user_id, text, source_chat_id, source, created_turn_id, created_at) VALUES ('m-old-typed', 'alice', ?, NULL, 'user', NULL, ?)").run(`typed ${KEY}`, at)
+    db.query("INSERT INTO memories (id, user_id, text, source_chat_id, source, created_turn_id, created_at) VALUES ('m-old-bob', 'bob', ?, NULL, 'ai', 'turn-bob', ?)").run(`not bob's key ${KEY}`, at)
+    db.query('DELETE FROM settings WHERE key = ?').run(MEMORY_SCAN_KEY)
+    expect(hideKeysInStoredMemories(h.ctx)).toBe(1)
+    const text = (id: string) => (db.query('SELECT text FROM memories WHERE id = ?').get(id) as { text: string }).text
+    expect(text('m-old-ai')).toBe(`My key is ${HIDDEN}`)
+    expect(text('m-old-typed')).toBe(`typed ${KEY}`)
+    expect(text('m-old-bob')).toBe(`not bob's key ${KEY}`) // alice's key is not bob's secret
+    // once: a later row is left to the remember tool
+    db.query("UPDATE memories SET text = ? WHERE id = 'm-old-ai'").run(`again ${KEY}`)
+    expect(hideKeysInStoredMemories(h.ctx)).toBe(0)
+    db.query("DELETE FROM memories WHERE id IN ('m-old-ai', 'm-old-typed', 'm-old-bob')").run()
+  })
+
+  test('the start-up clean-up is not marked done while a stored key cannot be read; it runs again at the next start', () => {
+    const db = h.ctx.db
+    const at = new Date().toISOString()
+    const own = db.query("SELECT id FROM integrations WHERE scope = 'personal' AND owner_user_id = 'alice' AND secret_enc IS NOT NULL LIMIT 1").get() as { id: string }
+    // a second connection of alice's whose stored secret cannot be opened (a damaged row, a changed server key)
+    db.run('CREATE TEMP TABLE broken AS SELECT * FROM integrations WHERE id = ?', [own.id])
+    db.run("UPDATE broken SET id = 'int-broken', name = 'Broken API', slug = 'brokenapi', secret_enc = 'not-a-sealed-secret'")
+    db.run('INSERT INTO integrations SELECT * FROM broken')
+    db.run('DROP TABLE broken')
+    try {
+      db.query("INSERT INTO memories (id, user_id, text, source_chat_id, source, created_turn_id, created_at) VALUES ('m-scan-1', 'alice', ?, NULL, 'ai', 'turn-old', ?)").run(`My key is ${KEY}`, at)
+      db.query('DELETE FROM settings WHERE key = ?').run(MEMORY_SCAN_KEY)
+      // the keys that can be read are hidden now; the mark waits
+      expect(hideKeysInStoredMemories(h.ctx)).toBe(1)
+      expect((db.query("SELECT text FROM memories WHERE id = 'm-scan-1'").get() as { text: string }).text).toBe(`My key is ${HIDDEN}`)
+      expect(db.query('SELECT value FROM settings WHERE key = ?').get(MEMORY_SCAN_KEY)).toBeNull()
+      // the next start reads every key: it runs again and is marked done
+      db.run("DELETE FROM integrations WHERE id = 'int-broken'")
+      db.query("UPDATE memories SET text = ? WHERE id = 'm-scan-1'").run(`again ${KEY}`)
+      expect(hideKeysInStoredMemories(h.ctx)).toBe(1)
+      expect((db.query("SELECT text FROM memories WHERE id = 'm-scan-1'").get() as { text: string }).text).toBe(`again ${HIDDEN}`)
+      expect(db.query('SELECT value FROM settings WHERE key = ?').get(MEMORY_SCAN_KEY)).toEqual({ value: '1' })
+    } finally {
+      db.run("DELETE FROM integrations WHERE id = 'int-broken'")
+      db.run("DELETE FROM memories WHERE id = 'm-scan-1'")
+    }
   })
 
   test('a title that holds the key (made before the key was saved, or a rename) is hidden in the list, search, one chat and chat.updated', async () => {

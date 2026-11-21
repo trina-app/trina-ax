@@ -6,7 +6,7 @@ import path from 'node:path'
 import type { Database } from 'bun:sqlite'
 import type { Credential, CredentialKind, CredentialState, Locale, ServerEventInput } from '@mycel/shared/api'
 import { sharedSubscriptionsAllowed } from './policy'
-import { allowedCredentialKinds, modelUpstreams, type AllowedKinds, type AppConfig, type ModelUpstreams } from '../app-config'
+import { allowedCredentialKinds, isFreeRoam, modelUpstreams, type AllowedKinds, type AppConfig, type ModelUpstreams } from '../app-config'
 import { audit } from '../admin/audit'
 import { periodEnd } from '../admin/budgets'
 import { teamTimeZone } from '../admin/settings'
@@ -60,7 +60,7 @@ export interface CredCtx {
   db: Database
   vault: Vault
   sealer: Sealer
-  config: Pick<AppConfig, 'engine' | 'mode' | 'dataDir'>
+  config: Pick<AppConfig, 'engine' | 'mode' | 'dataDir'> & Partial<Pick<AppConfig, 'demo'>>
   /** the kinds this server allows, and its Anthropic-compatible gateway (app-config allowedCredentialKinds) */
   allowedKinds: Set<CredentialKind> & { gateway: string | null }
   upstreams: ModelUpstreams
@@ -82,6 +82,8 @@ export interface CredCtx {
   noticed: Map<string, number>
   /** helpers the proxy, the turn and the login share (filled by their modules) */
   extra: Record<string, unknown>
+  /** the server's secrets folder (resolveLayout secretsDir): the older token file lives there (deleteCredential) */
+  secretsDir?: string
 }
 
 export function makeCredCtx(o: {
@@ -92,7 +94,7 @@ export function makeCredCtx(o: {
     db: o.db, vault: new Vault(o.secretsDir), sealer: new Sealer(o.secretsDir, o.now), config: o.config,
     allowedKinds: allowedCredentialKinds(o.config), upstreams: modelUpstreams(o.config), log: o.log,
     notify: o.notify ?? (() => {}), publish: o.publish ?? (() => {}), publishAll: o.publishAll ?? (() => {}), changeListeners: new Set(),
-    fetch: o.fetch ?? fetch, now: o.now ?? Date.now, cache: new Map(), noticed: new Map(), extra: {},
+    fetch: o.fetch ?? fetch, now: o.now ?? Date.now, cache: new Map(), noticed: new Map(), extra: {}, secretsDir: o.secretsDir,
   }
 }
 
@@ -260,7 +262,12 @@ export function overMonthLimit(db: Database, r: CredRow, now: Date): boolean {
 }
 
 /** Why a connection cannot be used now, or null. (Order: the reason the owner can do something about first.) */
-export type Unusable = 'disabled' | 'invalid' | 'needs_reconnect' | 'expired' | 'limited' | 'over_limit' | 'kind_off' | 'sharing_off'
+export type Unusable = 'disabled' | 'invalid' | 'needs_reconnect' | 'expired' | 'no_credit' | 'limited' | 'over_limit' | 'kind_off' | 'sharing_off'
+/** status_code of an API key Anthropic answered "out of credit" (proxy/anthropic-refusal.ts): held out until
+ * limited_until like a limit, but shown and handled as "out of credit" (no limit time, no Codex limit fallback) */
+export const NO_CREDIT = 'out_of_credit'
+/** how long such a key is held out before the next request tries it again (someone may have added credit) */
+export const NO_CREDIT_HOLD_MS = 3600_000
 export function unusable(db: Database, r: CredRow, now: Date, allowed: AllowedKinds): { why: Unusable; retryAt: string | null } | null {
   if (!allowed.has(r.kind) || otherGateway(r, allowed)) return { why: 'kind_off', retryAt: null }
   if (r.disabled) return { why: 'disabled', retryAt: null }
@@ -268,7 +275,11 @@ export function unusable(db: Database, r: CredRow, now: Date, allowed: AllowedKi
   if (r.status === 'needs_reconnect') return { why: 'needs_reconnect', retryAt: null }
   if (r.status === 'invalid') return { why: 'invalid', retryAt: null }
   if (r.expires_at && Date.parse(r.expires_at) <= now.getTime()) return { why: 'expired', retryAt: null }
-  if (r.limited_until && Date.parse(r.limited_until) > now.getTime()) return { why: 'limited', retryAt: new Date(r.limited_until).toISOString() }
+  if (r.limited_until && Date.parse(r.limited_until) > now.getTime()) {
+    // out of credit: waiting is not what brings it back, so no time to retry at (never a rate limit for the turn)
+    if (r.status_code === NO_CREDIT) return { why: 'no_credit', retryAt: null }
+    return { why: 'limited', retryAt: new Date(r.limited_until).toISOString() }
+  }
   if (overMonthLimit(db, r, now)) return { why: 'over_limit', retryAt: nextMonthStart(db, now).toISOString() }
   return null
 }
@@ -289,8 +300,8 @@ export function stateOf(db: Database, r: CredRow, now: Date, allowed: AllowedKin
 
 function detailOf(r: CredRow, state: CredentialState, locale: Locale, allowed: AllowedKinds): string | null {
   const key: Partial<Record<CredentialState, keyof typeof CT>> = {
-    unverified: 'unverified', expired: 'expired', invalid: r.status_code === 'usage_not_included' ? 'invalidPlan' : 'invalid',
-    needs_reconnect: r.status_code === 'decrypt_failed' ? 'decryptFailed' : 'needsReconnect', over_limit: 'overLimit', disabled: 'disabled', kind_off: 'kindOff', sharing_off: 'sharedSubscriptionsOff',
+    unverified: 'unverified', expired: 'expired', invalid: r.status_code === 'usage_not_included' ? 'invalidPlan' : r.status_code === 'plan_ended' ? 'planEnded' : 'invalid',
+    needs_reconnect: r.status_code === 'decrypt_failed' ? 'decryptFailed' : 'needsReconnect', over_limit: 'overLimit', no_credit: 'noCredit', disabled: 'disabled', kind_off: 'kindOff', sharing_off: 'sharedSubscriptionsOff',
   }
   if (state === 'kind_off' && allowed.has(r.kind) && otherGateway(r, allowed)) return ct('otherGateway', locale)
   if (state === 'disabled' && metaOf(r).assigneesGone) return ct('assigneesGone', locale)
@@ -320,27 +331,49 @@ export function toCredential(cc: CredCtx, r: CredRow, locale: Locale): Credentia
   }
 }
 
+/** A free-roam demo's one connection is a stand-in demo-gate swaps for the real credential
+ * (docs/decisions/20261119-demo-free-roam-a.md): no answer, check or refresh says anything about it, so it is never
+ * marked refused, out of credit or to reconnect. */
+function standIn(cc: CredCtx, r: CredRow): boolean {
+  if (!isFreeRoam(cc.config)) return false
+  cc.log.warn('free-roam demo: a mark on the stand-in AI connection was ignored', { credential: r.id, kind: r.kind })
+  return true
+}
+
 /** mark a connection refused by its provider (401) and tell the admins (once an hour) */
 export function markInvalid(cc: CredCtx, id: string, code: string, upstreamStatus: number | null) {
   const r = getRow(cc.db, id)
   if (!r) return
+  if (standIn(cc, r)) return
   cc.db.query("UPDATE engine_credentials SET status = 'invalid', status_code = ?, updated_at = ? WHERE id = ?").run(code, new Date(cc.now()).toISOString(), id)
   if (r.status !== 'invalid' || r.status_code !== code) audit(cc.db, { actor: null, action: 'credential.rejected', target: id, detail: { kind: r.kind, upstreamStatus, newStatus: 'invalid' } })
   cc.log.warn('an AI connection was refused by its provider', { credential: id, kind: r.kind, upstreamStatus })
   notifyAboutConnection(cc, r, { level: 'error', code: 'credential_rejected', message: ctAll('nRejected', { label: r.label }), link: '/admin/credentials' }, ctAll('nOwnRejected', { label: r.label }))
 }
+/** an API key Anthropic answered "credit balance too low": held out for NO_CREDIT_HOLD_MS, the owner and admins told */
+export function markNoCredit(cc: CredCtx, id: string) {
+  const r = getRow(cc.db, id)
+  if (!r) return
+  if (standIn(cc, r)) return
+  const now = cc.now()
+  cc.db.query('UPDATE engine_credentials SET limited_until = ?, status_code = ?, updated_at = ? WHERE id = ?').run(new Date(now + NO_CREDIT_HOLD_MS).toISOString(), NO_CREDIT, new Date(now).toISOString(), id)
+  if (r.status_code !== NO_CREDIT) audit(cc.db, { actor: null, action: 'credential.no_credit', target: id, detail: { kind: r.kind } })
+  cc.log.warn('an AI connection is out of credit', { credential: id, kind: r.kind })
+  notifyAboutConnection(cc, r, { level: 'error', code: 'credential_no_credit', message: ctAll('nNoCredit', { label: r.label }), link: '/admin/credentials' }, ctAll('nNoCredit', { label: r.label }))
+}
 export function markNeedsReconnect(cc: CredCtx, id: string, code: string) {
   const r = getRow(cc.db, id)
   if (!r) return
+  if (standIn(cc, r)) return
   cc.db.query("UPDATE engine_credentials SET status = 'needs_reconnect', status_code = ?, updated_at = ? WHERE id = ?").run(code, new Date(cc.now()).toISOString(), id)
   notifyAboutConnection(cc, r, { level: 'error', code: 'credential_needs_reconnect', message: ctAll('nNeedsReconnect', { label: r.label }), link: '/admin/credentials' }, ctAll('nOwnNeedsReconnect', { label: r.label }))
 }
-/** Where a person manages their own AI connections (Settings › AI accounts; a member cannot open Admin). */
+/** Where a person manages their own AI connections (Settings › AI providers; a member cannot open Admin). */
 export const OWN_CONNECTIONS_LINK = '/settings/providers'
 /**
  * A notice about one connection, at most once per `everyMs` for that connection and code. The owner and admins get `n`
- * (Admin › AI accounts). The person whose own connection it is gets `own` with a link to their Settings › AI accounts
- * instead: a member was told to fix their own key in Admin › AI accounts, a page they cannot open (QA 2026-11-13).
+ * (Admin › AI providers). The person whose own connection it is gets `own` with a link to their Settings › AI providers
+ * instead: a member was told to fix their own key in Admin › AI providers, a page they cannot open (QA 2026-11-13).
  */
 export function notifyAboutConnection(cc: CredCtx, r: Pick<CredRow, 'id' | 'owner_user_id'>, n: Notice, own: Notice['message'] = n.message, everyMs = 3600_000) {
   const k = `${r.id}|${n.code}`

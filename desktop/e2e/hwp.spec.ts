@@ -4,7 +4,9 @@ import os from 'node:os'
 import path from 'node:path'
 import { createHash } from 'node:crypto'
 import { offlineServer, signInOfflineTeam } from '../../web/test/e2e/offline-server'
-import { close, launch, newUserData, teamPage, welcome } from './helpers'
+import { close, launch, newUserData, teamPage, welcome, stopLeftoverApps } from './helpers'
+
+stopLeftoverApps()
 
 // Real Electron and built web assets; the mock team invokes the pinned native renderer.
 test('HWP pages render in Electron and the original downloads unchanged', async () => {

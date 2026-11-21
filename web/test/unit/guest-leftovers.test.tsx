@@ -23,10 +23,14 @@ describe('joined notice', () => {
     expect(noticeLink(item({ kind: 'room', name: '', id: null }))).toBeNull()
   })
 
-  test('a member joined the team; a guest joined their place as a guest (a group chat with no name says so)', () => {
+  test('a member joined the team; a guest joined their place as a guest (a group DM with no name, or a place the reader is not in, says so)', () => {
     expect(joinedText({ name: 'Nora' }, en)).toBe('Nora joined the team.')
     expect(joinedText({ name: 'Gina', guestPlace: { kind: 'project', name: 'Quote prep' } }, en)).toBe("Gina joined 'Quote prep' as a guest.")
+    // no name, the reader is in the room or is an admin (id is a string or absent): the room has no name of its own, a group chat
     expect(joinedText({ name: 'Gina', guestPlace: { kind: 'room', name: '' } }, en)).toBe('Gina joined a group chat as a guest.')
+    expect(joinedText({ name: 'Gina', guestPlace: { kind: 'room', name: '', id: 'r1' } }, en)).toBe('Gina joined a group chat as a guest.')
+    // no name and the reader sees nothing of the room (id null): it could be a private channel, so the general words
+    expect(joinedText({ name: 'Gina', guestPlace: { kind: 'room', name: '', id: null } }, en)).toBe('Gina joined a private channel or group chat as a guest.')
     expect(joinedText({ name: 'Gina', guestPlace: { kind: 'project', name: '' } }, en)).toBe('Gina joined a project as a guest.')
   })
 })
@@ -35,7 +39,7 @@ const guestMe = (place: { kind: 'room' | 'project'; id: string; name: string }, 
   user: { id: 'gina', username: 'gina', name: 'Gina', email: null, role: 'guest', locale: 'en', localeChoice: null, mustChangePassword: false, prefs: {} },
   groups: [], team: { name: 'Acme', defaultLocale: 'en', chatTrashRetentionDays: 14 }, session: { id: '01900000-0000-7000-8000-00000000000a', client: 'web', expiresAt: '2026-12-04T00:00:00.000Z' },
   server: { version: '0', dev: false, deployment: 'hosted' },
-  guest: { place, ai: ai === 'team' ? { mode: 'team', credentialId: 'c1', limitUsd: 20 } : { mode: ai } },
+  guest: { places: [place], ai: ai === 'team' ? { mode: 'team', credentialId: 'c1', limitUsd: 20 } : { mode: ai } },
 } as unknown as Me)
 
 describe("a guest's delete-account page", () => {

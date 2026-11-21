@@ -2,8 +2,8 @@
 // server/src/tools/web-allow-all.ts, url-gate.ts rule ①d). A person's own switch, behind the team's webAllowAll (on by
 // default, the owner's call) under browserAllowAll, lets ordinary public addresses open without the address card, with
 // no budget, in the turns of that person (also in rooms and shared chats: always the caller's own switch, never another
-// member's) that the person watches. What still asks: random-looking parts, long names before the site, user names, long queries, an
-// unknown exit address, addresses with no site, echoes, confidential chats. Only the person turns it on: Settings with
+// member's) that the person watches. What still asks: random-looking parts, long names before the site, user names, a long query in a run
+// nobody watches, an unknown exit address, addresses with no site, echoes, confidential chats. Only the person turns it on: Settings with
 // the risk sentence accepted, or the address card's own answer (on the first card). The team turning it off is
 // race-free (an epoch) and audited, as are a stale warning and a deactivated account.
 // Every DNS lookup is a stub (node:dns/promises lookup replaced for this file): nothing resolves or opens a real name.
@@ -98,9 +98,9 @@ describe('the card', () => {
     await gate(chat, 'https://first.example/page', person('allow', asked))
     expect(values(asked[0])).toEqual(['allow', 'site', ALL_SITES_ANSWER, 'deny'])
     expect(asked[0]!.options![2]!.label).toBe('Allow all websites (turn off in Settings)')
-    expect(asked[0]!.question).toContain('If you allow all websites, the AI opens public websites without asking when you ask it, in your chats and in rooms')
+    expect(asked[0]!.question).toContain('If you allow all websites, the AI opens public websites without asking when you ask it, in your chats and conversations')
     // the same plain words as the site line beside it (#348), no "token"
-    expect(asked[0]!.question).toContain('Addresses with long hard-to-read strings or a lot of text at the end still ask, but that only catches what is easy to spot.')
+    expect(asked[0]!.question).toContain('Addresses with long hard-to-read strings still ask, but that only catches what is easy to spot.')
     expect(asked[0]!.question).not.toMatch(/token/i)
     // in Korean too: "긴 글자" as on the lines beside it, never "긴 문자열" or "토큰"; every language without "token"
     for (const k of ['opaque', 'site', 'all'] as const) expect([k, GATE_TEXT[k].ko.includes('긴 글자')]).toEqual([k, true])
@@ -168,7 +168,6 @@ describe('with the switch on', () => {
       'https://x.example/doc/aB3dE5fG7hJ9kL1mN3pQ5rT',
       'https://abcdefghijklmnopqrstuvwxyz.x.example/',
       'https://user:pw@x.example/',
-      `https://x.example/?q=${'a'.repeat(201)}`,
       'https://203.0.113.9/x',
       'http://intranet/',
       'https://github.io/',
@@ -177,16 +176,53 @@ describe('with the switch on', () => {
       await expect(gate(chat, u, person(null, asked))).rejects.toThrow(/did not allow/)
       expect(asked).toHaveLength(1)
     }
-    // the server's exit address unknown (web_fetch and save_url pass it; the browser tools never do)
-    const asked: Asked[] = []
-    await expect(gate(chat, 'https://plain.example/', person(null, asked), { egressKnown: false })).rejects.toThrow(/did not allow/)
-    expect(asked).toHaveLength(1)
+    // the server's exit address unknown (web_fetch and save_url pass it; the browser tools never do): what is not plain
+    // still asks (docs/decisions/20261116-always-allow-more-cards.md)
+    for (const u of ['https://203.0.113.9/x', 'https://x.example/doc/aB3dE5fG7hJ9kL1mN3pQ5rT']) {
+      const asked: Asked[] = []
+      await expect(gate(chat, u, person(null, asked), { egressKnown: false })).rejects.toThrow(/did not allow/)
+      expect(asked).toHaveLength(1)
+    }
+    // a plain address with a query over 200 characters is no exception any more in a watched turn, also while the exit
+    // address is unknown (docs/decisions/20261120-url-gate-camelcase-params.md); a scheduled run never opens it
+    const longQuery = `https://x.example/?q=${'a'.repeat(201)}`
+    const none: Asked[] = []
+    expect(await gate(chat, longQuery, person(null, none))).toBe('all')
+    expect(await gate(chat, longQuery, person(null, none), { egressKnown: false })).toBe('all')
+    expect(none).toHaveLength(0)
+    await expect(gate(chat, longQuery, person(null, none, { unattended: true }))).rejects.toThrow(/long query part/)
     // a confidential chat
     const secret = await chatOf()
     db().query('INSERT OR IGNORE INTO safe_ops_chats (chat_id) VALUES (?)').run(secret)
     const conf: Asked[] = []
     await expect(gate(secret, 'https://plain.example/', person(null, conf))).rejects.toThrow(/did not allow/)
     expect(conf).toHaveLength(1)
+  })
+
+  test('the exit address unknown (FL-05): the card offers it, and once on a plain address opens without the card', async () => {
+    const chat = await chatOf('alice', 'https://typed.example/ 이 페이지 뭐하는 데야?')
+    const asked: Asked[] = []
+    expect(await gate(chat, 'https://typed.example/', person(ALL_SITES_ANSWER, asked), { egressKnown: false })).toBe('confirmed')
+    expect(asked[0]!.question).toContain("doesn't lead to a device inside your network")
+    // no "this site in this conversation" (①b stays off while the address is unknown), "Allow all websites" offered
+    expect(values(asked[0])).toEqual(['allow', ALL_SITES_ANSWER, 'deny'])
+    expect(webAllowAll(db(), 'alice')).toBe(true)
+    const later: Asked[] = []
+    expect(await gate(chat, 'https://other-plain.example/news', person(null, later), { egressKnown: false })).toBe('all')
+    expect(later).toEqual([])
+    // never another member's switch: bob's turn in the same state still asks
+    const bobs: Asked[] = []
+    await expect(gate(await chatOf('bob'), 'https://other-plain.example/news', person(null, bobs), { egressKnown: false, user: 'bob' })).rejects.toThrow(/did not allow/)
+    expect(bobs).toHaveLength(1)
+    // a number address, an echo and a run nobody watches still ask (or stay closed)
+    rememberUrls(db(), chat, ['https://echo-unknown.example/p?d=hello'], 'fetched', () => true)
+    for (const u of ['https://203.0.113.9/x', 'https://echo-unknown.example/p?d=hello']) {
+      const a: Asked[] = []
+      await expect(gate(chat, u, person(null, a), { egressKnown: false })).rejects.toThrow(/did not allow/)
+      expect(a).toHaveLength(1)
+      expect(values(a[0]) ?? []).not.toContain(ALL_SITES_ANSWER)
+    }
+    await expect(gate(chat, 'https://other-plain.example/news', person(null, [], { unattended: true }), { egressKnown: false })).rejects.toThrow(/does not know its own public internet address/)
   })
 
   test('an echo asks, under a site allowed in the chat (①b) and under the switch (①d)', async () => {
@@ -265,8 +301,12 @@ describe('only the person turns it on', () => {
     const r1 = await send(fake({ tool: 'ask_user', args: { question: 'Allow all websites?', options: [{ label: 'Allow all websites (turn off in Settings)', value: ALL_SITES_ANSWER }] } }, { say: 'done' }))
     const own = await alice.next('turn.request', (f) => f.data.turnId === r1.turnId, 20_000)
     expect(req(own).origin).not.toBe('server')
-    await h.api('alice').call(API.answerTurn, { params: { id: r1.turnId }, body: { kind: 'ask_user', requestId: own.data.request.requestId, answer: ALL_SITES_ANSWER } })
     await alice.next('message.done', (f) => f.data.messageId === r1.assistantMessage.id, 30_000)
+    await h.api('alice').call(API.answerTurn, { params: { id: r1.turnId }, body: { kind: 'ask_user', requestId: own.data.request.requestId, answer: ALL_SITES_ANSWER } })
+    // the answer goes on as the next turn of the chat (chat/open-questions.ts); it turns nothing on
+    const u = await alice.next('message.created', (f) => f.data.chatId === chat && f.data.message.parentId === r1.assistantMessage.id, 20_000)
+    const a = await alice.next('message.created', (f) => f.data.chatId === chat && f.data.message.parentId === u.data.message.id, 20_000)
+    await alice.next('message.done', (f) => f.data.messageId === a.data.message.id, 30_000)
     expect(webAllowAll(db(), 'alice')).toBe(false)
     // the server's address card that does not offer it (a random-looking part): that answer, typed text, another person
     const r2 = await send(fake({ tool: 'web_fetch', args: { url: 'https://card-only.example/doc/aB3dE5fG7hJ9kL1mN3pQ5rT' } }, { say: 'done' }))

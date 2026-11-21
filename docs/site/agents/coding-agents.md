@@ -13,7 +13,7 @@ The short version lives in [`CLAUDE.md`](../../../CLAUDE.md) and [`AGENTS.md`](.
 
 - The product id in code is `mycel`: folders, sockets and `MYCEL_*` variables. Trina branding is in `editions/trina/branding/`.
 - Read the [repository rules (Korean)](../../REPOSITORY-RULES.md) before adding a feature. Shared features belong in the core first. [Read about core and Trina](../develop/core-and-trina.md).
-- Check [`docs/DECISIONS.md`](../../DECISIONS.md) before changing permissions, engines or security behaviour.
+- Check the design decisions before changing permissions, engines or security behaviour: [`docs/decisions/`](../../decisions/README.md) since 2026-11-16, [`docs/DECISIONS.md`](../../DECISIONS.md) before that.
 - Licence: AGPL-3.0-only, except `shared/src/cloud-protocol/` (MIT). Keep LICENSE, NOTICE and dependency notices.
 
 ## Never commit
@@ -41,22 +41,31 @@ bun run typecheck
 | Strings | `bun run check:i18n` |
 | Docs | `bun run check:docs` |
 
+#### Before you push
+```sh
+bun run check:prepush
+```
+It fetches `origin/dev` and runs the quick CI checks (typecheck, docs, change notes, migration numbers, i18n and product names) against it.
+
 #### Compare failures
 If a test fails, run it on an untouched checkout before blaming your change. Some suites need native helpers or document converters.
 :::
 
 ## Pull request format
 
-- Branch from current `main`. Keep one focused change per pull request.
+- Branch from current `dev` and open the pull request against `dev`, never `main`. Keep one focused change per pull request.
+- Before code, write a plan in `docs/AGENTS/plan/<timestamp>-<feature>.md` as the branch's first commit ([format](../../AGENTS/README.md)).
 - A new feature starts with `넣을 곳: <repository/folder>, 이유: <one sentence>`.
 - Fill in the pull request template: problem, change, validation and **Version impact** (`patch`, `minor`, `major` or `none`, with one reason). [Read how to choose](../develop/versioning.md).
 - Add screenshots with fictional data for visible UI changes.
 - Do not edit `CHANGELOG.md`. Put the user-visible notes in a new file `changes/<topic>.md` ([rules](../../../changes/README.md)); `bun run check:docs` fails a pull request that adds a line under "## Unreleased".
+- Write each new design decision as a new file `docs/decisions/<YYYYMMDD>-<topic>.md` ([rules](../../decisions/README.md)). Do not add to `docs/DECISIONS.md`, the archive; `bun run check:docs` fails a pull request that does.
 - Update `docs/UPSTREAM.md` when you bring a change from the core.
+- `dev` has a merge queue. After review, add the pull request to the queue with `bun run queue <number> <reviewed head SHA>`; do not use `gh pr merge`. [Read the rules (Korean)](../../REPOSITORY-RULES.md).
 
 ## Actions that need a human
 
-Do not, without explicit approval: force-push, rewrite history, push or merge to `main` directly, tag a release, change repository names or visibility, or connect to customer servers.
+Do not, without explicit approval: force-push, rewrite history, push or merge to `main`, tag a release, change repository names or visibility, or connect to customer servers.
 
 ## Writing style for app strings and docs
 

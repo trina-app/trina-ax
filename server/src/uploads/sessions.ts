@@ -1,8 +1,9 @@
 // Chunked uploads (tab 4 "큰 업로드"): create (target, size, sha256) -> PUT 8 MB chunks in any order, resumable
-// -> complete (sha256 check, then through the policy function into place). Chunks are written straight into one
+// -> complete (sha256 check, then through the policy function into place; a room target: into the room's own folder,
+// rooms/files.ts). Chunks are written straight into one
 // sparse part file at their offset (<data>/uploads/<id>.part), so nothing is buffered beyond one network read and
 // completing needs no assembly. While chunks arrive in order the sha256 is computed on the way, so complete only
-// hashes what came out of order. An unfinished session is removed 24 hours after its last chunk (a laptop that slept
+// hashes what came out of order. A session with no chunk yet is removed after an hour; an unfinished session is removed 24 hours after its last chunk (a laptop that slept
 // overnight resumes where it stopped), and at the latest 7 days after it started (its part file holds disk room).
 import { isGuestUser } from '../credentials/guest-ai'
 import fs from 'node:fs'
@@ -16,14 +17,25 @@ import { HttpError } from '../http/errors'
 import { authorize } from '../policy/authorize'
 import { badSegment } from '../policy/names'
 import { assertStorageRoom } from '../system/storage'
+import { planManageUrl } from '../system/limits'
 import { fileError } from '../team-files/errors'
 import { hashFile } from '../team-files/place'
 import type { TeamFiles } from '../team-files/service'
 import type { Attachments } from './attachments'
 import { defaultChunkGate, type ChunkGate } from './chunk-gate'
+import { diskStat } from '../system/disk-stat'
+import { roomFilesOf } from '../rooms/files'
+import { assertGuestUploadSize } from './guest-limit'
+import { roomsOf } from '../rooms/service'
+import { assertRoomUpload } from '../rooms/project-room'
+import { personLocale } from '../files/media-text'
 
 /** idle expiry: every accepted chunk moves expires_at to now + this */
 export const SESSION_TTL_MS = 24 * 3600_000
+/** A session that has not received a chunk yet lives this long: nothing of it could be resumed, and until it goes it
+ * holds its whole size of team disk room and one of the person's MAX_OPEN_SESSIONS (a tab closed right after it
+ * started, a file taken out as the session was made). The first chunk gives it the 24 hours. */
+export const SESSION_EMPTY_TTL_MS = 3600_000
 /** absolute cap from created_at: a trickling upload can't keep its reserved disk room forever */
 export const SESSION_MAX_MS = 7 * 24 * 3600_000
 export const MAX_OPEN_SESSIONS = 10
@@ -60,7 +72,7 @@ export class UploadSessions {
       this.drop(id)
       // the words name the limit that ended it (QA TC-230: a 7-day upload was told "24 h" seconds after a chunk)
       const started = r.created_at ? Date.parse(r.created_at) : NaN
-      fileError('gone', Number.isFinite(started) && Date.now() >= started + SESSION_MAX_MS ? 'expiredMax' : 'expired')
+      fileError('gone', Number.isFinite(started) && Date.now() >= started + SESSION_MAX_MS ? 'expiredMax' : neverStarted(r, started) ? 'expiredEmpty' : 'expired')
     }
     return r
   }
@@ -74,18 +86,24 @@ export class UploadSessions {
     if (open >= MAX_OPEN_SESSIONS) fileError('rate_limited', 'tooManySessions')
     this.checkTarget(userId, target, sha256, size)
     let free = Infinity
-    try { const s = fs.statfsSync(this.dir()); free = s.bavail * s.bsize } catch (e) { this.ctx.log.warn('statfs failed', { err: e }) }
+    try { const s = diskStat(this.dir()); free = Number(s.bavail) * Number(s.bsize) } catch (e) { this.ctx.log.warn('free disk space unreadable', { err: e }) }
     // part files are sparse: what unfinished sessions will still write counts as used
     const reserved = (db.query('SELECT COALESCE(SUM(size), 0) AS n FROM upload_sessions WHERE result IS NULL AND expires_at > ?').get(new Date().toISOString()) as { n: number }).n
     // the team disk near full or over the plan's limit (system/storage.ts): 507 storage_full before anything is written.
     // The hard cap counts the open sessions too, or several at once could pass it.
     assertStorageRoom(size, reserved)
-    if (free < size + reserved + DISK_MARGIN) fileError('payload_too_large', 'diskFull')
+    // reason 'disk_full': a room's box tells it apart from the file-size refusal (web rooms/storageRefusal.tsx); on a small
+    // hosted disk this 1 GB margin can come before the guard's reserve, so the plan's page goes with it as with a 507
+    if (free < size + reserved + DISK_MARGIN) {
+      const plans = planManageUrl()
+      fileError('payload_too_large', 'diskFull', undefined, { reason: 'disk_full', ...(plans ? { manageUrl: plans } : {}) })
+    }
     const id = newId()
     const fd = fs.openSync(this.part(id), fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_EXCL, 0o600)
     try { fs.ftruncateSync(fd, size) } finally { fs.closeSync(fd) }
     const now = Date.now()
-    const expires = expiry(now, now)
+    // no chunk yet: an hour (SESSION_EMPTY_TTL_MS); each accepted chunk then moves it to 24 h from that chunk
+    const expires = new Date(now + SESSION_EMPTY_TTL_MS).toISOString()
     db.query('INSERT INTO upload_sessions (id, user_id, target, size, sha256, chunk_size, received, expires_at, created_at) VALUES (?,?,?,?,?,?,?,?,?)')
       .run(id, userId, JSON.stringify(target), size, sha256, UPLOAD_CHUNK_SIZE, '[]', expires, new Date(now).toISOString())
     return this.get(userId, id)
@@ -93,6 +111,9 @@ export class UploadSessions {
 
   /** Early checks (complete checks again: rules may change during a long upload). */
   private checkTarget(userId: string, t: UploadTarget, sha256: string, size?: number) {
+    // a guest's own limit, whatever the target (uploads/guest-limit.ts; a room target checks it in its own words below):
+    // refused before a byte is sent or any disk room is reserved
+    if (t.kind !== 'room' && size !== undefined) assertGuestUploadSize(this.ctx.db, userId, size)
     if (t.kind === 'path') {
       const user = this.files.principal(userId)
       const r = authorize(this.files.fx, this.files.rules(), user, t.path, 'write', { mustExist: false })
@@ -101,6 +122,13 @@ export class UploadSessions {
       this.attachments.assertUploadChat(userId, t.chatId, sha256, size)
       const bad = t.name.includes('/') ? 'names cannot contain "/"' : badSegment(t.name.normalize('NFC'))
       if (bad) fileError('validation', 'badName', { name: bad })
+    } else if (t.kind === 'room') {
+      // in the room now, a name that can be kept, at most 1 GB: refused here, before a byte is sent (rooms/files.ts)
+      // the room as the person may use it now (rooms/service.ts: a DM closed since answers like one that is not there)
+      roomsOf(this.ctx).get(userId, t.roomId)
+      // a project's room: only someone who may add files to the project (rooms/project-room.ts)
+      assertRoomUpload(this.ctx, userId, t.roomId, personLocale(this.ctx.db, userId))
+      roomFilesOf(this.ctx).assertUpload(userId, t.roomId, t.name, size ?? 0)
     } else if (isGuestUser(this.ctx.db, userId)) {
       // a guest: no speech to text (a team cost outside the guest's own limit; POST /api/transcribe is off their list too)
       throw new HttpError('forbidden')
@@ -178,6 +206,11 @@ export class UploadSessions {
 
   private async finish(userId: string, r: Row): Promise<UploadComplete> {
     const id = r.id
+    // a guest's limit as it is now, before anything else is done with the file (lowered while it was on its way: nothing
+    // of it is kept, and the session ends). A room target says it in the room's words, where the file is kept
+    if ((JSON.parse(r.target) as UploadTarget).kind !== 'room') {
+      try { assertGuestUploadSize(this.ctx.db, userId, r.size) } catch (e) { this.drop(id); throw e }
+    }
     const count = chunkCount(r.size, r.chunk_size)
     const received = new Set<number>(JSON.parse(r.received))
     const missing: number[] = []
@@ -199,6 +232,18 @@ export class UploadSessions {
       result = { kind: 'path', entry }
     } else if (target.kind === 'attachment') {
       result = { kind: 'attachment', attachment: await this.attachments.create(userId, target.chatId, target.name, this.part(id), sha) }
+    } else if (target.kind === 'room') {
+      // checked again (create: in the room now); the part file is moved into the room's folder, never read whole
+      try {
+        roomsOf(this.ctx).get(userId, target.roomId)
+        assertRoomUpload(this.ctx, userId, target.roomId, personLocale(this.ctx.db, userId))
+        result = { kind: 'room', file: await roomFilesOf(this.ctx).create(userId, target.roomId, target.name, this.part(id), sha) }
+      } catch (e) {
+        // refused for good (the room left or closed meanwhile, a photo that cannot be read, its bytes taken away): this
+        // session can never finish, so it ends here and its part file gives its disk room back at once
+        if ((e instanceof HttpError && (e.code === 'not_found' || e.code === 'validation' || e.code === 'payload_too_large')) || !fs.existsSync(this.part(id))) this.drop(id)
+        throw e
+      }
     } else {
       if (!this.transcribe) throw new HttpError('unavailable')
       // checked again here: the chat may be gone or locked confidential during a long upload; refused, nothing of the
@@ -219,14 +264,20 @@ export class UploadSessions {
   async cancel(userId: string, id: string) {
     const r = this.row(userId, id)
     const running = this.completing.get(id)
+    const target = JSON.parse(r.target) as UploadTarget
+    // a room file whose chip was taken out while it was put in place, or just after: the unsent upload is removed (a
+    // sent one stays: discardUnsent only takes files not in a message)
+    const dropRoomFile = (done: UploadComplete | null) => { if (target.kind === 'room' && done?.kind === 'room') roomFilesOf(this.ctx).discardUnsent(userId, target.roomId, [done.file.id]) }
     if (running) {
-      if ((JSON.parse(r.target) as UploadTarget).kind !== 'attachment') fileError('conflict', 'completing')
+      if (target.kind !== 'attachment' && target.kind !== 'room') fileError('conflict', 'completing')
       const done = await running.catch(() => null)
-      this.attachments.discardSaved(userId, done?.kind === 'attachment' ? done.attachment : null)
+      if (target.kind === 'room') { dropRoomFile(done); if (this.ctx.db.query('SELECT 1 FROM upload_sessions WHERE id = ?').get(id)) this.drop(id) }
+      else this.attachments.discardSaved(userId, done?.kind === 'attachment' ? done.attachment : null)
       return
     }
     const done = r.result ? JSON.parse(r.result) as UploadComplete : null
     if (done?.kind === 'attachment') this.attachments.discardSaved(userId, done.attachment)
+    dropRoomFile(done)
     this.drop(id)
   }
   private drop(id: string) {
@@ -251,6 +302,10 @@ export class UploadSessions {
     return n
   }
 }
+
+/** It ended within its first hour with no chunk: it never started (a session whose chunks were thrown away after a
+ * checksum mismatch had started, and ends in the 24 hour words). */
+const neverStarted = (r: Pick<Row, 'received' | 'expires_at'>, started: number) => r.received === '[]' && Number.isFinite(started) && Date.parse(r.expires_at) - started <= SESSION_EMPTY_TTL_MS
 
 export const chunkCount = (size: number, chunk: number) => (size === 0 ? 0 : Math.ceil(size / chunk))
 

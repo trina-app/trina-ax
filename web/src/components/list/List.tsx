@@ -6,7 +6,7 @@
 //   ListRow     a row: icon, name, an optional second line (meta), something at its end; unread and selected states
 //   ListIcon    a row's icon: a bare 16px icon on a computer, a 32px round tile on a phone (as the 대화 tab's faces)
 //   ListSection a section with a header that folds it (▸, its icon, its name, an action at its end)
-//   ListHeading a header that does not fold (the phone's 대화 kinds, a settings group)
+//   ListHeading a header that does not fold (a settings group)
 // A chat's row (nav/ChatItem.tsx) is a ListRow too, with its "···" (`menu`), its pin (`lead`) and its project (`tag`).
 // Rows with a drag of their own (a room: nav/RoomsList.tsx, pages/Rooms.tsx) keep their own markup but take their
 // name's look from `rowName` here.
@@ -18,9 +18,9 @@ import { useFolds } from '../panels/folds'
 import { MenuButton, useRowMenu, type MenuItem } from '../rooms/MenuButton'
 
 /** A row's name: unread or selected semibold in ink; otherwise the read look (a panel on a computer: muted 400; a phone
- * and a page's main list, `page`: ink 400) */
-export const rowName = ({ unread = false, selected = false, page = false }: { unread?: boolean; selected?: boolean; page?: boolean } = {}) =>
-  clsx('text-row', unread || selected ? 'font-semibold text-ink' : page ? 'font-normal text-ink' : 'font-row-read text-row-read')
+ * and a page's main list, `page`: ink 400). `history`: the Trina history's names, 14px on a computer (--text-row-history) */
+export const rowName = ({ unread = false, selected = false, page = false, history = false }: { unread?: boolean; selected?: boolean; page?: boolean; history?: boolean } = {}) =>
+  clsx(history ? 'text-row-history' : 'text-row', unread || selected ? 'font-semibold text-ink' : page ? 'font-normal text-ink' : 'font-row-read text-row-read')
 
 /** A row's icon: a bare icon on a computer, a round tile on a phone (index.css --spacing-list-icon, --color-list-icon-bg).
  * `face`: a list of people (the member picker): a box a picture reads in, 28px on a computer (--spacing-list-face) */
@@ -54,6 +54,10 @@ export interface RowMenu {
 /** A row's height (index.css --spacing-row-min): 30px on a computer, 48px on a phone, never under 44px on a touch
  * screen. Every list row's box takes it (ListRow; a panel's fixed rows, PanelFrame panelRowBox; a room's row) */
 export const rowBox = 'min-h-row-min pointer-coarse:min-h-[max(2.75rem,var(--spacing-row-min))]'
+/** The room a row's "···" takes at its right on a computer only while it shows (a mouse on the row, the keyboard in it,
+ * its menu open), as a room's row in 대화 (nav/RoomsList.tsx): at rest the name and tag reach the row's edge. A phone
+ * always shows the "···" and keeps its room. ListRow `scale="history"` (the Trina history; docs/decisions/20261121-trina-history-like-rooms.md) */
+export const rowMenuRoomOnHover = 'max-md:pr-11 md:group-hover:pr-9 md:group-focus-within:pr-9 md:group-has-[[aria-expanded=true]]:pr-9'
 /** A section header's row (ListSection; a group of the filtered history, history/HistoryGroups.tsx): the rows' 30px on
  * a computer, 44px to tap on a phone and a touch screen */
 export const headBox = 'flex h-row items-center gap-1 pointer-coarse:min-h-11 max-md:min-h-11'
@@ -75,6 +79,9 @@ export const rowTag = 'ml-auto max-w-[40%] shrink-0 truncate text-meta font-norm
  * One row of a list. `to` makes it a link (with `state`), else `onClick` a button, else a row that opens nothing. `icon`: a lucide icon (drawn in a
  * ListIcon). `meta`: a second line, small and faint ("나만 · 3시간 전", a notice's time). `end`: what sits at the row's
  * right (a count, a dot, a ›). `selected`: the place on screen (aria-current, a fill); `unread`: semibold in ink.
+ * `metaKeep`: the end of the second line that is never cut (a file's time and size): when the line is too long, `meta`
+ * before it is shortened with "…" and `metaKeep` stays whole, after a " · " (QA TC-4729). Keep it short (a time, a
+ * size): it is never cut, so a long one would run past the row.
  * `wrap`: the name may take two lines. `nameTitle`: the whole name on hover when it is cut. `disabled`: a button row
  * that does nothing now (a picker's row already added): no hover fill. `face`: the icon box of a list of people (ListIcon).
  * `lead`: small marks right before the name (a chat's pin, its shared icon). `tag`: the row's trailing tag (rowTag).
@@ -92,7 +99,7 @@ export const rowTag = 'ml-auto max-w-[40%] shrink-0 truncate text-meta font-norm
  * a page's main list (pageRowBox): taller, flush with its heading, read names in ink; its "···" and `actions` move out
  * with the row, so the times and tags still end at one edge.
  */
-export function ListRow({ expanded, to, state, onClick, icon, lead, faces, name, nameTitle, meta, end, tag, tagTitle, tagTestId, menu, menuSpace, choice, rowMenu, actions, rowRef, rowTitle, strong, scale = 'panel', unread, selected, wrap, disabled, face, testId, nameTestId, metaTestId, link, li, rowClass, onFocus, onBlur, onKeyDown }: {
+export function ListRow({ expanded, to, state, onClick, icon, lead, faces, name, nameTitle, meta, metaKeep, metaWrap, end, tag, tagTitle, tagTestId, menu, menuSpace, choice, rowMenu, actions, rowRef, rowTitle, strong, scale = 'panel', unread, selected, wrap, disabled, face, testId, nameTestId, metaTestId, link, li, rowClass, onFocus, onBlur, onKeyDown }: {
   to?: string
   state?: unknown
   onClick?: (e: MouseEvent<HTMLElement>) => void
@@ -102,6 +109,10 @@ export function ListRow({ expanded, to, state, onClick, icon, lead, faces, name,
   name: ReactNode
   nameTitle?: string
   meta?: ReactNode
+  /** the second line's end that is never cut (meta is shortened before it) */
+  metaKeep?: ReactNode
+  /** the second line may wrap (a long description is read whole, never cut) */
+  metaWrap?: boolean
   end?: ReactNode
   tag?: ReactNode
   tagTitle?: string
@@ -115,7 +126,10 @@ export function ListRow({ expanded, to, state, onClick, icon, lead, faces, name,
   /** the whole row's tooltip (a skill's description) */
   rowTitle?: string
   strong?: boolean
-  scale?: 'panel' | 'page'
+  /** `history`: the Trina history's rows: the panel's 30px rows, as a room's row in 대화, with 14px names on a computer
+   * (--text-row-history); the "···" takes its room only
+   * while it shows (rowMenuRoomOnHover), and a row with no menu among them (`menuSpace`) keeps only a phone's */
+  scale?: 'panel' | 'page' | 'history'
   unread?: boolean
   selected?: boolean
   wrap?: boolean
@@ -135,6 +149,7 @@ export function ListRow({ expanded, to, state, onClick, icon, lead, faces, name,
   expanded?: boolean
 }) {
   const page = scale === 'page'
+  const history = scale === 'history'
   const cls = clsx(
     // a touch screen: at least 44px to tap, or the list's own least height where that is more (a phone: 48px)
     'flex gap-2.5 rounded-lg px-3 text-left focus-visible:-outline-offset-2',
@@ -142,23 +157,29 @@ export function ListRow({ expanded, to, state, onClick, icon, lead, faces, name,
     page ? [pageRowBox, actions ? '-ml-3' : pageBleed] : [rowBox, 'w-full'],
     (to || onClick || choice) && !disabled && rowOpenHover,
     choice && 'cursor-pointer has-[:disabled]:opacity-60',
-    meta ? 'items-start py-1.5 max-md:items-center max-md:py-2' : face ? 'items-center py-1' : 'items-center',
+    meta || metaKeep ? 'items-start py-1.5 max-md:items-center max-md:py-2' : face ? 'items-center py-1' : 'items-center',
     selected && 'bg-hover',
     // the "···" (28px on a computer, 44px on a phone) at the row's right: the words end before it
-    (menu || menuSpace || rowMenu) && 'pr-9 max-md:pr-11',
+    (menu || menuSpace || rowMenu) && (!history ? 'pr-9 max-md:pr-11' : menu || rowMenu ? rowMenuRoomOnHover : 'max-md:pr-11'),
     actions && 'min-w-0 flex-1',
     rowClass,
   )
   const body = (
     <>
-      {icon && <ListIcon face={face} className={meta ? (face ? 'self-center' : 'mt-0.5 max-md:mt-0') : undefined}>{icon}</ListIcon>}
+      {icon && <ListIcon face={face} className={meta || metaKeep ? (face ? 'self-center' : 'mt-0.5 max-md:mt-0') : undefined}>{icon}</ListIcon>}
       {lead && <span className="-mr-1 flex shrink-0 items-center gap-1 self-center">{lead}</span>}
       <span className="min-w-0 flex-1">
-        <span className={clsx(wrap ? 'line-clamp-2 break-words' : 'block truncate', strong ? 'text-row font-medium text-ink' : rowName({ unread, selected, page }))} title={nameTitle} data-testid={nameTestId}>
+        <span className={clsx(wrap ? 'line-clamp-2 break-words' : 'block truncate', strong ? clsx(history ? 'text-row-history' : 'text-row', 'font-medium text-ink') : rowName({ unread, selected, page, history }))} title={nameTitle} data-testid={nameTestId}>
           {name}
         </span>
-        {meta && (
-          <span className="block truncate text-meta text-faint tabular-nums" data-testid={metaTestId}>
+        {metaKeep ? (
+          // the part that may be cut first, then the kept end (no wrap), on one line
+          <span className="flex min-w-0 whitespace-nowrap text-meta text-faint tabular-nums" data-testid={metaTestId}>
+            {meta && <span className="min-w-0 truncate" title={typeof meta === 'string' ? meta : undefined}>{meta}</span>}
+            <span className="shrink-0">{meta && '\u00a0· '}{metaKeep}</span>
+          </span>
+        ) : meta && (
+          <span className={clsx(metaWrap ? 'block break-words' : 'block truncate', 'text-meta text-faint tabular-nums')} data-testid={metaTestId}>
             {meta}
           </span>
         )}
@@ -236,15 +257,29 @@ const sectionBody = '[&>button]:pl-row-indent [&>ul>li>a]:pl-row-indent [&>secti
 /**
  * A section of a list (트리나's 고정, 최근 기록; 대화's kinds; 프로젝트's 팀/내; 파일's places; 활동's 읽음): its header (the
  * rows' size, semibold in ink on a computer; small and grey on a phone: index.css --text-list-head), space above it,
- * folds the section with the ▸ on its left (remembered per person in this browser, `foldKey`); `count`, when given,
- * shows beside the label while it is folded. `link`: the label's words open a page (파일's 팀 폴더), so the ▸ is a
- * button of its own. `folded`: how it starts until the person opens or folds it (프로젝트's "다른 팀 프로젝트").
+ * folds the section with the ▸ on its left (remembered per person on their account, `foldKey`, panels/folds.ts);
+ * `count`, when given, shows beside the label while it is folded. `link`: the label's words open a page (파일's 팀
+ * 폴더), so the ▸ is a button of its own. `folded`: how it starts until the person opens or folds it (프로젝트's "다른
+ * 팀 프로젝트").
+ * While folded (docs/decisions/20261116-collapsible-chat-sections.md): `pill` (what waits inside: the Chats list's
+ * unread rooms or "@") takes the count's place at the header's end, inside its button so a screen reader hears it;
+ * `unread` makes the name bold in ink; `keep` is still drawn under the header (the room open on screen). `foldId`: the
+ * whole fold key, when one place of the list shares it with another (a room folder on the phone and the computer).
+ * `headClassName`: the header row's own inset (a phone page's gutter); `as`: the heading's level; `indent` false: the
+ * rows keep their own inset (a page's list with its own gutter, pages/Rooms.tsx).
  */
-export function ListSection({ id, label, icon, count, action, link, foldKey, labelTestId, children, className, folded: foldedFirst = false, ...rest }: {
+export function ListSection({ id, label, icon, count, pill, unread = false, keep, foldId, headClassName, as: Heading = 'h3', indent = true, action, link, foldKey, labelTestId, children, className, folded: foldedFirst = false, ...rest }: {
   id: string
   label: ReactNode
   icon?: ReactNode
   count?: number
+  pill?: ReactNode
+  unread?: boolean
+  keep?: ReactNode
+  foldId?: string
+  headClassName?: string
+  as?: 'h2' | 'h3'
+  indent?: boolean
   action?: ReactNode
   link?: ReactNode
   foldKey: string
@@ -254,21 +289,26 @@ export function ListSection({ id, label, icon, count, action, link, foldKey, lab
   folded?: boolean
 } & Omit<HTMLAttributes<HTMLElement>, 'id'> & { [data: `data-${string}`]: string | undefined }) {
   const { folds, set } = useFolds()
-  const key = `section:${foldKey}`
+  const key = foldId ?? `section:${foldKey}`
   const folded = folds[key] ? folds[key] === 'folded' : foldedFirst
   const bodyId = useId()
   const toggle = () => set(key, folded ? 'open' : 'folded')
   const words = (
     <>
       {icon}
-      <span className="truncate">{label}</span>
-      {folded && count !== undefined && count > 0 && <span className="shrink-0 text-meta font-normal text-faint tabular-nums" data-testid="panel-section-count">{count}</span>}
+      <span className="truncate" data-testid="panel-section-name">{label}</span>
+      {folded && pill ? (
+        <span className="mr-1 ml-auto flex shrink-0 items-center pl-1">{pill}</span>
+      ) : (
+        folded && count !== undefined && count > 0 && <span className="shrink-0 text-meta font-normal text-faint tabular-nums" data-testid="panel-section-count">{count}</span>
+      )}
     </>
   )
+  const lit = folded && unread
   return (
-    <section aria-labelledby={id} className={clsx('mt-4 first:mt-0', className)} data-folded={folded ? '' : undefined} {...rest}>
-      <div className={clsx(headBox, 'pr-1')} data-testid={labelTestId}>
-        <h3 id={id} className="flex min-w-0 flex-1 items-center gap-1.5 text-list-head font-semibold text-list-head-ink">
+    <section aria-labelledby={id} className={clsx('mt-4 first:mt-0', className)} data-folded={folded ? '' : undefined} data-unread={lit ? '' : undefined} {...rest}>
+      <div className={clsx(headBox, headClassName ?? 'pr-1')} data-testid={labelTestId}>
+        <Heading id={id} className={clsx('flex min-w-0 flex-1 items-center gap-1.5 text-list-head', lit ? 'font-bold text-ink' : 'font-semibold text-list-head-ink')}>
           {link ? (
             <>
               <GroupChevron folded={folded} controls={bodyId} label={typeof label === 'string' ? label : undefined} onClick={toggle} testId="panel-section-fold" />
@@ -282,17 +322,17 @@ export function ListSection({ id, label, icon, count, action, link, foldKey, lab
               {words}
             </button>
           )}
-        </h3>
+        </Heading>
         {action}
       </div>
-      <div id={bodyId} hidden={folded} className={sectionBody}>
-        {!folded && children}
+      <div id={bodyId} hidden={folded && !keep} className={indent ? sectionBody : undefined}>
+        {folded ? keep : children}
       </div>
     </section>
   )
 }
 
-/** A header that does not fold (the phone's 대화 kinds, a settings group): the same look as ListSection's. `as`: its
+/** A header that does not fold (a settings group): the same look as ListSection's. `as`: its
  * heading level (h2 on a page's own list, h3 inside a panel). */
 export function ListHeading({ id, children, className, as: Tag = 'h3', testId }: { id?: string; children: ReactNode; className?: string; as?: 'h2' | 'h3'; testId?: string }) {
   return (

@@ -4,11 +4,12 @@
 // after a transfer the old owner is an admin, and the run they started still records the step. The file must be there,
 // in shared/ (where the step puts a team's files since docs/DECISIONS.md "Team folder basics") or a group's folder,
 // readable by the caller; the step is recorded once, and only on a team whose steps were opened
-// (a team from before them never gets a progress row from an upload). The file must have been written within the hour.
+// (a team from before them never gets a progress row from an upload, and a row the setup made is not changed before
+// the owner opened the steps: welcomeOpened). The file must have been written within the hour.
 import { SHARED_HOME, type Role } from '@mycel/shared/api'
 import type { AppContext } from '../context'
 import { authorize } from '../policy/authorize'
-import { readWelcome, updateWelcome } from './welcome'
+import { readWelcome, updateWelcome, welcomeOpened } from './welcome'
 
 /** A landed file was written at most this long ago. */
 const LANDED_MS = 60 * 60_000
@@ -25,8 +26,9 @@ function inStepPlace(ctx: AppContext, path: string): boolean {
  * folder the caller can read). */
 export function recordTeamFilesLanded(ctx: AppContext, who: { id: string; role: Role }, path: string): boolean {
   if (who.role !== 'owner' && who.role !== 'admin') return false
+  // a row the setup made that nobody opened yet counts as no row (welcomeOpened)
   const p = readWelcome(ctx)
-  if (!p || p.steps.files === 'done') return false
+  if (!p || !welcomeOpened(ctx) || p.steps.files === 'done') return false
   if (!inStepPlace(ctx, path)) return false
   try {
     const r = authorize(ctx.files.fx, ctx.files.rules(), ctx.files.principal(who.id), path, 'read')

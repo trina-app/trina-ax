@@ -4,7 +4,9 @@
 // - Images (png, jpg, gif, webp, heic, tiff, bmp) and PDF pages without a text layer go to the model as one new JPEG
 //   each: decoded and rebuilt from pixels by the Go normalizer `mycel-safeops vision` (native/internal/safeops/
 //   vision.go): longest side 1568 px, at most 1 MiB, transparency on white, EXIF orientation applied, no metadata
-//   (EXIF, GPS, XMP, ICC, comments) copied. HEIC is first decoded by heif-dec or macOS ImageIO (heic-preview.ts).
+//   (EXIF, GPS, XMP, ICC, comments) copied. HEIC is first decoded by heif-dec or macOS ImageIO (heic-preview.ts),
+//   after its declared size is checked, and normalized as upright pixels (`vision upright`): Claude takes only JPEG,
+//   PNG, GIF and WebP. A server without a HEIC decoder says so in one plain sentence (vision_no_heic).
 // - PDF pages: the text layer comes from pdftotext (or PDFKit, `mycel-ocr --layer`, on a Mac without poppler);
 //   pages are drawn by pdftoppm (Linux) or PDFKit (`mycel-ocr --page`, macOS) and normalized the same way.
 // - Every converter runs in the converter isolation (tools/isolate.ts: bwrap + converter cgroup on Linux,
@@ -30,13 +32,45 @@ export const VISION_SIDE_MAX = 1568
 export const VISION_OUTPUT_MAX = 1024 ** 2
 /** the largest image file read for the model (a 48 MP phone JPEG is about 20 MB) */
 export const VISION_INPUT_MAX = 32 * 1024 ** 2
-/** images and bytes of image blocks one turn may send: every image stays in the conversation the engine sends again
- * with each request (the model proxy and the providers take at most 32 MB per request) */
-export const VISION_TURN_IMAGES = 40
-export const VISION_TURN_BYTES = 10 * 1024 ** 2
+/** base64 characters of `n` bytes: what an image block carries in the model request (the request limits count these) */
+export const b64Len = (n: number) => Math.ceil(n / 3) * 4
+
+/** Images and bytes (base64, b64Len) of the image blocks one turn may send when its model requests do not pass the team
+ * server's model proxy (Codex, a direct sign-in): every image stays in the conversation the engine sends again with
+ * each request, and one request may hold at most 100 images and 32 MB, text and tools included. Images, PDF pages and
+ * video frames all count (docs/decisions/20261118-limits-images.md). */
+export const VISION_TURN_IMAGES = 90
+export const VISION_TURN_BYTES = 20 * 1024 ** 2
+/** In every turn, at most VISION_TURN_FULL images (and VISION_TURN_FULL_BYTES of them, base64) go at full size: the
+ * first VISION_TURN_FULL_NEW new ones, and the rest of the allowance for pictures read a second time in the turn (the
+ * AI asked for their details). The others go smaller (smallForModel), so many fit and the engine's request stays
+ * small. Images, PDF pages and video frames alike. */
+export const VISION_TURN_FULL = 16
+export const VISION_TURN_FULL_NEW = 12
+export const VISION_TURN_FULL_BYTES = 10 * 1024 ** 2
+/** The caps when the turn's requests pass the model proxy, which fits each request's images itself before it goes on
+ * (proxy/fit-images.ts). The engine's request must still reach the proxy: it takes at most PROXY_BODY_MAX
+ * (proxy/model-proxy.ts, 64 MB), so the images of one turn stay at 48 MB of base64 with room for the text. */
+export const VISION_FITTED_IMAGES = 200
+export const VISION_FITTED_BYTES = 48 * 1024 ** 2
+/** The caps count the pictures of the whole engine session, not only this turn's: a resumed session sends every
+ * picture it holds again (chat/session-slim.ts sessionPictures). Past this share of the cap every new picture goes
+ * smaller, and a session that would carry more than half the cap into the next answer is not kept (chat/turn.ts
+ * stashSession: the next answer starts fresh, from the chat's summary). */
+export const VISION_SESSION_SHRINK_SHARE = 0.8
+/** whether a saved session may carry these pictures into the next answer (chat/turn.ts stashSession): at most half the
+ * caps, so the next answer has room for its own */
+export const sessionPicturesKept = (kept: { count: number; bytes: number }, caps: { images: number; bytes: number }) =>
+  kept.bytes <= caps.bytes / 2 && kept.count <= caps.images / 2
+/** a smaller image: longest side and most bytes (about 600 tokens instead of about 2,500) */
+export const VISION_SMALL_SIDE = 768
+export const VISION_SMALL_BYTES = 150_000
 /** PDF pages per read call, and the most pages a read may give without `pages` (Claude Code's Read contract) */
 export const PDF_PAGES_PER_READ = 20
 export const PDF_PAGES_WITHOUT_RANGE = 10
+/** A question about a whole PDF reads every page (QA AP-004: the AI read pages 1-20 of 80 and grep-searched the rest,
+ * so it could miss what a search does not find). In the read tools' words and in the pages_required refusal. */
+export const WHOLE_PDF_RULE = `For a question about the whole document (a summary, every chapter, a check of all of it), read every page in parts of ${PDF_PAGES_PER_READ} (pages "1-${PDF_PAGES_PER_READ}", "${PDF_PAGES_PER_READ + 1}-${PDF_PAGES_PER_READ * 2}", … to the last page) before you answer; grep finds a passage, it does not read the document.`
 /** One tool result as the engine takes it. Claude Code cuts an MCP result over MAX_MCP_OUTPUT_TOKENS (25,000 by default):
  * it leaves out the images past the limit and tells the AI the output was truncated. A PDF read stops adding page images
  * below that and names the pages to read in another call (review of feat/vision-read). */
@@ -64,7 +98,7 @@ export const SCANNED_PAGE_CHARS = 20
 export const PDF_TEXT_MAX = 200_000
 
 const CONVERT_TIMEOUT_MS = 30_000
-const CONVERT_RSS_MIB = 1024
+export const CONVERT_RSS_MIB = 1024
 /** conversions at the same time on this server; more wait (VISION_QUEUE_MAX at most, then 'busy') */
 export const VISION_PARALLEL = 3
 const VISION_QUEUE_MAX = 32
@@ -77,17 +111,23 @@ export function visionOn(db: Database): boolean {
   return getTeamSettings(db).aiVision
 }
 
+/** API engine turns whose model takes images (engine/api-vision.ts apiSeesImages), set by the turn before its model
+ * runs and cleared when it ends (chat/turn.ts) */
+const apiVisionTurns = new Set<string>()
+export function setApiVisionTurn(turnId: string, on: boolean) { if (on) apiVisionTurns.add(turnId); else apiVisionTurns.delete(turnId) }
+
 /**
  * Whether this call may send pixels: the team switch, and an engine that takes images. The API engine (OpenAI-
- * compatible chat, engine/api-agent.ts) passes only text to its model; a call without a chat turn comes from a
- * connection whose answer is text only (the remote MCP connector).
+ * compatible chat, engine/api-agent.ts) sends them only when its model takes images (setApiVisionTurn; else its text
+ * path, the 'engine' note); a call without a chat turn comes from a connection whose answer is text only (the remote MCP
+ * connector).
  */
 export function visionBlock(db: Database, turnId: string | null): VisionBlock | null {
   if (!visionOn(db)) return 'off'
   if (!turnId) return 'connection'
   const t = db.query('SELECT engine FROM turns WHERE id = ?').get(turnId) as { engine: string } | null
   if (!t) return 'connection'
-  return t.engine === 'api' ? 'engine' : null
+  return t.engine === 'api' && !apiVisionTurns.has(turnId) ? 'engine' : null
 }
 
 export interface VisionTools {
@@ -135,6 +175,9 @@ async function slot<T>(f: () => Promise<T>, signal?: AbortSignal): Promise<T> {
   }
 }
 
+/** the same slots for other image work of the Go helper (tools/resize-images.ts): one queue for all of it */
+export const imageSlot = slot
+
 /** conversions running and waiting (tests) */
 export const visionStats = () => ({ running, waiting: waiting.length })
 
@@ -150,12 +193,13 @@ const REFUSALS: [string, string][] = [
   ['vision: unsupported format', 'vision_unsupported'], ['vision: corrupt image', 'vision_damaged'], ['vision: output limit', 'vision_heavy'],
 ]
 
-/** One image file's bytes -> the JPEG the model sees. Throws ToolError vision_* (never converter text). */
-export async function normalizeForModel(bytes: Uint8Array, tools: VisionTools, signal?: AbortSignal): Promise<Buffer> {
+/** One image file's bytes -> the JPEG the model sees. Throws ToolError vision_* (never converter text). `upright`: the
+ * pixels are upright already (a decoded HEIC), the orientation tag is ignored. */
+export async function normalizeForModel(bytes: Uint8Array, tools: VisionTools, signal?: AbortSignal, upright = false): Promise<Buffer> {
   if (!tools.normalizer) throw new ToolError('the image normalizer (mycel-safeops) is missing', 'vision_unavailable')
   if (bytes.byteLength > VISION_INPUT_MAX) throw new ToolError('image over the input limit', 'vision_too_large')
   const r = await slot(() => runIsolated({
-    cmd: tools.normalizer!, args: ['vision'], stdin: bytes, timeoutMs: CONVERT_TIMEOUT_MS, maxRssMiB: CONVERT_RSS_MIB,
+    cmd: tools.normalizer!, args: upright ? ['vision', 'upright'] : ['vision'], stdin: bytes, timeoutMs: CONVERT_TIMEOUT_MS, maxRssMiB: CONVERT_RSS_MIB,
     maxStdout: VISION_OUTPUT_MAX + 1, signal, env: { GOMAXPROCS: '2' },
   }), signal)
   signal?.throwIfAborted()
@@ -177,10 +221,44 @@ export async function modelImage(name: string, bytes: Uint8Array, tools: VisionT
   let decoded: Buffer | null
   try { decoded = await slot(() => heicToJpeg(bytes, tools.heic, signal), signal) } catch (e) {
     signal?.throwIfAborted()
+    if (e instanceof ToolError && e.code === 'too_large') throw new ToolError('the HEIC photo is over the pixel limits', 'vision_too_large')
     throw new ToolError('the HEIC photo could not be decoded', e instanceof ToolError && /stopped \((?!workdir\))/.test(e.message) ? 'vision_heavy' : 'vision_damaged')
   }
-  if (!decoded) throw new ToolError('no HEIC decoder on this server', 'vision_unavailable')
-  return normalizeForModel(decoded, tools, signal)
+  if (!decoded) throw new ToolError('no HEIC decoder on this server', 'vision_no_heic')
+  return normalizeForModel(decoded, tools, signal, true)
+}
+
+/** Whether this turn's model requests pass the model proxy, which fits the images of each request (proxy/fit-images.ts):
+ * the Claude engine with a proxy token (managed AI connections, an office Mac's own sign-in). */
+export function requestsFitted(db: Database, turnId: string | null): boolean {
+  if (!turnId) return false
+  return !!db.query("SELECT 1 FROM proxy_tokens WHERE turn_id = ? AND family = 'anthropic' LIMIT 1").get(turnId)
+}
+
+/** The image caps of one turn (bytes in base64): `fitted` (the proxy fits each request) the caps of what the proxy takes
+ * in, otherwise of what one request may hold; in both, the full-size images before the next ones go smaller. */
+export function turnImageCaps(db: Database, turnId: string | null): { fitted: boolean; images: number; bytes: number; full: number; fullBytes: number } {
+  const full = { full: VISION_TURN_FULL, fullBytes: VISION_TURN_FULL_BYTES }
+  return requestsFitted(db, turnId)
+    ? { fitted: true, images: VISION_FITTED_IMAGES, bytes: VISION_FITTED_BYTES, ...full }
+    : { fitted: false, images: VISION_TURN_IMAGES, bytes: VISION_TURN_BYTES, ...full }
+}
+
+/** A model JPEG (or any PNG/JPEG/WebP picture) -> a smaller JPEG (VISION_SMALL_SIDE, VISION_SMALL_BYTES), through the
+ * resize helper in the converter isolation; null when it is small already or cannot be made smaller (the same answer
+ * every time). Throws when the conversion did not run to its end (stopped by a limit, the server busy, a stop). */
+export async function smallForModel(bytes: Uint8Array, tools: Pick<VisionTools, 'normalizer'>, signal?: AbortSignal): Promise<Buffer | null> {
+  if (!tools.normalizer || bytes.byteLength > VISION_INPUT_MAX) return null
+  // resize <side> <width> <permille> <max bytes> <options>: options 22 = no details (2) + JPEG (4) + upright (16)
+  const r = await slot(() => runIsolated({
+    cmd: tools.normalizer!, args: ['resize', String(VISION_SMALL_SIDE), '0', '0', String(VISION_SMALL_BYTES), '22'], stdin: bytes,
+    timeoutMs: CONVERT_TIMEOUT_MS, maxRssMiB: CONVERT_RSS_MIB, maxStdout: VISION_OUTPUT_MAX + 1, signal, env: { GOMAXPROCS: '2', GOMEMLIMIT: '800MiB' },
+  }), signal)
+  if (r.killed === 'aborted') signal?.throwIfAborted()
+  // a stop by a limit (time, memory, a busy server) may pass: thrown, so nobody keeps it as "cannot be made smaller"
+  if (r.killed) throw new ToolError(`image conversion stopped (${r.killed})`, stoppedCode(r.killed))
+  if (r.code !== 0 || !isJpeg(r.stdout) || r.stdout.length >= bytes.byteLength) return null
+  return r.stdout
 }
 
 // ---------------- PDFs ----------------

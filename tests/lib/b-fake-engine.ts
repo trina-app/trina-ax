@@ -3,11 +3,13 @@
 // It speaks MCP to our tools through the bridge the launcher configured, keeps a session file the way Claude
 // does (so stash / restore / resume can be tested), and follows directives found in the user's message:
 //   @fake {"say": "text"}                    stream text (in small chunks)
+//   @fake {"think": "text"}                  (Claude) the main AI thinks: thinking_delta stream events (small chunks)
 //   @fake {"tool": "read", "args": {...}}    call one of our tools; {"sayResult": true} also says the result,
 //                                            {"sayLength": true} only its length and the start of its last line
 //   @fake {"tool": …, "followResult": true}  also run the "@fake {…}" directives found in the result (an AI that follows
 //                                            an instruction planted in what a tool returned)
 //   @fake {"sleep": 300}                     wait
+//   @fake {"systemLine": {"subtype": …}}  (Claude) one system line in the stream, like Claude Code's compact_boundary
 //   @fake {"afterContinue": [{…}, …]}        nothing now; the directives of the run that continues this answer after a
 //                                            connect (resumed with the server's note, chat/turn.ts continueAfterConnect).
 //                                            A second one is for the second continuation
@@ -22,9 +24,18 @@
 //   @fake {"fail": "rate limit exceeded"}    end with an engine error
 //   @fake {"claudeFail": "usage limit"}     the same, as Claude only (Codex goes on: the limit fallback)
 //   @fake {"crashOnce": true}                exit 3 without output the first time in this chat folder
+//   @fake {"contextFullOnce": true}          the first time in this chat folder: end like Claude Code when the
+//                                            conversation does not fit ("Prompt is too long", the session kept); the
+//                                            next run (the fresh start that goes on with the answer) skips the
+//                                            directives up to here and runs the rest
+//   @fake {"contextFull": true}              the same, every time
 //   @fake {"diskFull": true}                 exit 1 with Node's "ENOSPC: no space left on device" on stderr (every time)
+//   @fake {"startFail": true}                exit 1 without output and bwrap's "Can't find source path …: Permission
+//                                            denied" on stderr, every time (the sandbox could not start the engine)
+//   @fake {"sessionNow": true}               write the session file now with the message and no answer (Claude Code's
+//                                            file when a run is stopped mid-answer)
 //   @fake {"loseSession": true}              on --resume: answer "No conversation found" (the stash went bad)
-//   @fake {"echo": "system" | "message" | "tools" | "model" | "history" | "resume"}
+//   @fake {"echo": "system" | "message" | "tools" | "toolDescriptions" | "toolSchemas" | "model" | "history" | "resume"}
 //   @fake {"model": "prompt"}               call the model like Claude Code in subscription mode: the per-turn token
 //                                            from the inherited fd (CLAUDE_CODE_OAUTH_TOKEN_FILE_DESCRIPTOR), POST
 //                                            $ANTHROPIC_BASE_URL/v1/messages?beta=true with stream, say the text deltas;
@@ -32,6 +43,8 @@
 //                                            Office own-login (ANTHROPIC_CUSTOM_HEADERS set): a fixed stand-in login
 //                                            (FAKE_MAC_LOGIN, never a real login file) as the Bearer + the custom headers.
 //                                            "modelExtra": {...} adds fields to the request body (mcp_servers, tools ...)
+//                                            "cliAuthText": true: a 401 / 403 ends with Claude Code's wording
+//                                            ("Failed to authenticate. API Error: …"); also with "modelAny"
 //   @fake {"echo": "secrets"}                say whether a model credential is visible in env / argv (it must not be)
 //   @fake {"direct": "http://127.0.0.1:N/"}  try to reach an address other than the proxy; says direct=blocked|reached
 //   @fake {"echo": "codexEnv"}               (Codex) say what the turn got: the (placeholder) login in CODEX_HOME, the
@@ -198,17 +211,41 @@ function closeBlock() {
   }
   if (blockOpen) { out({ type: 'stream_event', event: { type: 'content_block_stop', index: 0 } }); blockOpen = false }
 }
-async function say(text: string) {
+/** what an echo says (the instructions, the message, the tool list…) streams in at most this many deltas */
+const ECHO_DELTAS = 100
+/** `chunk`: characters per delta (each delta is followed by a 2 ms pause) */
+async function say(text: string, chunk = 7) {
   if (!text || stopped) return
   if (codex) { codexText += text; return }
   if (!blockOpen) { out({ type: 'stream_event', event: { type: 'content_block_start', index: 0, content_block: { type: 'text', text: '' } } }); blockOpen = true }
-  for (let i = 0; i < text.length; i += 7) {
-    const d = text.slice(i, i + 7)
+  for (let i = 0; i < text.length; i += chunk) {
+    const d = text.slice(i, i + chunk)
     answer += d
     out({ type: 'stream_event', event: { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: d } } })
     await Bun.sleep(2)
   }
 }
+
+/** The main AI's thinking, as Claude Code streams it: its own block of thinking_delta events (closes an open text block) */
+async function think(text: string, chunk = 7) {
+  if (stopped || codex) return
+  closeBlock()
+  out({ type: 'stream_event', event: { type: 'content_block_start', index: 0, content_block: { type: 'thinking', thinking: '' } } })
+  for (let i = 0; i < text.length; i += chunk) {
+    out({ type: 'stream_event', event: { type: 'content_block_delta', index: 0, delta: { type: 'thinking_delta', thinking: text.slice(i, i + chunk) } } })
+    await Bun.sleep(2)
+  }
+  out({ type: 'stream_event', event: { type: 'content_block_stop', index: 0 } })
+}
+
+/**
+ * What an echo directive says back (the instructions, the message, the history, the tool list, argv…): the same text
+ * as say, in at most ECHO_DELTAS deltas. At say's 7 characters per 2 ms pause, echoing the ~24,000-character
+ * instructions took 3,400 deltas and 8-9 s on a quiet Mac and over 15 s on a loaded CI runner, so a test with two
+ * echoes ran into its 30 s limit (b-chat "lost stash", dev CI 2026-11-16) as the instructions grew. Streaming in
+ * small pieces is tested with say, not with echoes.
+ */
+const sayEcho = (text: string) => say(text, Math.max(7, Math.ceil(text.length / ECHO_DELTAS)))
 
 async function saySplit(text: string) {
   if (codex || !text) return say(text)
@@ -295,6 +332,8 @@ function ownLoginHeaders(): Record<string, string> | null {
   out.authorization = 'Bearer ' + FAKE_MAC_LOGIN
   return out
 }
+/** the directive asked for Claude Code's wording of a 401 / 403 ("Failed to authenticate. API Error: …") */
+let cliAuthText = false
 async function callModel(prompt: string, speak = true, extra: Record<string, unknown> = {}) {
   const base = process.env.ANTHROPIC_BASE_URL
   if (!base) return finish({ error: 'no ANTHROPIC_BASE_URL' })
@@ -307,7 +346,7 @@ async function callModel(prompt: string, speak = true, extra: Record<string, unk
       body: JSON.stringify({ model: 'claude-sonnet-4-5', max_tokens: 200, stream: true, messages: [{ role: 'user', content: prompt }], ...extra }),
     })
   } catch (e) { return finish({ error: `API Error: Connection error (${(e as Error).message})` }) }
-  if (!r.ok) return finish({ error: `API Error: ${r.status} ${(await r.text()).slice(0, 300)}` })
+  if (!r.ok) return finish({ error: `${cliAuthText && (r.status === 401 || r.status === 403) ? 'Failed to authenticate. ' : ''}API Error: ${r.status} ${(await r.text()).slice(0, 300)}` })
   let buf = ''
   const dec = new TextDecoder()
   for await (const chunk of r.body as unknown as AsyncIterable<Uint8Array>) {
@@ -495,11 +534,22 @@ if (!directives.length && resumed && message.includes('\n[The connect card is fi
   const plan = (asked?.text ?? '').split('\n').filter((l) => l.startsWith('@fake ')).map((l) => { try { return JSON.parse(l.slice(6)) } catch { return {} } }).filter((d) => d.afterContinue)
   directives = plan[notes]?.afterContinue ?? []
 }
+// the fresh start after "Prompt is too long": the directives after the one that ended the earlier run
+const fullMarker = path.join(process.cwd(), '.context-full-once')
+const fullAt = directives.findIndex((d) => d.contextFullOnce)
+if (fullAt >= 0 && fs.existsSync(fullMarker)) directives = directives.slice(fullAt + 1)
 if (!directives.length) await say('echo: ' + (message.split('\n')[0] ?? ''))
 for (const d of directives) {
+  cliAuthText = d.cliAuthText === true
   if (stopped) break
   if (d.say !== undefined) await say(String(d.say))
-  else if (d.tool) {
+  else if (d.think !== undefined) await think(String(d.think))
+  else if (d.sessionNow) {
+    // like Claude Code, which writes the person's message into its session file at once and the answer only when a
+    // message ends: a run stopped after this keeps a session without the text it was writing (QA AP-030)
+    fs.mkdirSync(path.dirname(sessionFile), { recursive: true })
+    fs.writeFileSync(sessionFile, [...history, { role: 'user', text: message }].map((l) => JSON.stringify(l)).join('\n') + '\n')
+  } else if (d.tool) {
     const r = await tool(d.tool, d.args ?? {}, !!d.expectImage, !!d.inspectImages)
     if (d.sayResult) await say(r)
     // an AI that follows an instruction it found in a tool's result (prompt injection): "@fake {...}" anywhere in a line
@@ -521,6 +571,7 @@ for (const d of directives) {
       message: { content: [{ type: 'tool_result', tool_use_id: id, content: `Web search results for query: "${q}"\n\nLinks: ${JSON.stringify(d.webSearch.textLinks ?? d.webSearch.hits ?? [])}\n\n${d.webSearch.wrote ?? ''}` }] } })
     await Bun.sleep(Number(d.webSearch.pause ?? 150))
   } else if (d.sleep) await Bun.sleep(Number(d.sleep))
+  else if (d.systemLine) out({ type: 'system', session_id: sessionId, ...d.systemLine })
   // (Claude) one model call ends, with its tokens in the stream (message_start / message_delta), before the run's total
   else if (d.callUsage && !codex) {
     closeBlock()
@@ -531,12 +582,16 @@ for (const d of directives) {
   else if (d.refuseUnless !== undefined) { if (!String(model).includes(d.refuseUnless)) finish({ refused: true }) }
   else if (d.fail) finish({ error: String(d.fail) })
   else if (d.claudeFail) { if (!codex) finish({ error: String(d.claudeFail) }) }
+  else if (d.startFail) { process.stderr.write("bwrap: Can't find source path /var/lib/mycel/app/current/native/mycel-bridge: Permission denied\n"); process.exit(1) }
   else if (d.diskFull) { process.stderr.write("Error: ENOSPC: no space left on device, write\n"); process.exit(1) }
-  else if (d.crashOnce) {
+  else if (d.contextFullOnce || d.contextFull) {
+    if (d.contextFullOnce) fs.writeFileSync(fullMarker, '1')
+    finish({ error: 'Prompt is too long: 201234 tokens > 200000 maximum' })
+  } else if (d.crashOnce) {
     const marker = path.join(process.cwd(), '.crashed-once')
     if (!fs.existsSync(marker)) { fs.writeFileSync(marker, '1'); process.exit(3) }
-  } else if (d.echo === 'system') await say(system)
-  else if (d.echo === 'message') await say(message)
+  } else if (d.echo === 'system') await sayEcho(system)
+  else if (d.echo === 'message') await sayEcho(message)
   else if (d.echo === 'model') await say(`model=${model}`)
   else if (d.echo === 'resume') await say(`resumed=${resumed}`)
   else if (d.model !== undefined) await callModel(String(d.model), true, d.modelExtra && typeof d.modelExtra === 'object' ? d.modelExtra : {})
@@ -545,7 +600,7 @@ for (const d of directives) {
     let reached = false
     try { await fetch(String(d.direct), { signal: AbortSignal.timeout(3000) }); reached = true } catch {}
     await say(`direct=${reached ? 'reached' : 'blocked'}`)
-  } else if (d.echo === 'history') await say(history.map((h) => `${h.role}: ${h.text.split('\n')[0]}`).join(' | ') || '(no history)')
+  } else if (d.echo === 'history') await sayEcho(history.map((h) => `${h.role}: ${h.text.split('\n')[0]}`).join(' | ') || '(no history)')
   else if (d.echo === 'codexEnv') {
     const home = process.env.CODEX_HOME ?? ''
     let auth: any = null
@@ -553,7 +608,7 @@ for (const d of directives) {
     const px = process.env.HTTPS_PROXY ? new URL(process.env.HTTPS_PROXY) : null
     const conf = (k: string) => { const a = argv.find((x) => x.startsWith(k + '=')); return a ? a.slice(k.length + 1).replace(/^"|"$/g, '') : null }
     const tok = auth?.tokens?.access_token ?? auth?.OPENAI_API_KEY ?? ''
-    await say(JSON.stringify({ codexHome: path.relative(process.cwd(), home), account: auth?.tokens?.account_id ?? null, authMode: auth?.auth_mode ?? null,
+    await sayEcho(JSON.stringify({ codexHome: path.relative(process.cwd(), home), account: auth?.tokens?.account_id ?? null, authMode: auth?.auth_mode ?? null,
       turnToken: /^mpx_[A-Za-z0-9_-]{43}$/.test(tok), refresh: auth?.tokens?.refresh_token ?? null,
       homeEmpty: fs.readdirSync(process.env.HOME!).length === 0,
       proxyUser: px?.username ?? null, proxyHost: px ? `${px.hostname}:${px.port}` : null, sslCertFile: process.env.SSL_CERT_FILE ?? null,
@@ -580,7 +635,7 @@ for (const d of directives) {
       }
     }
     walk(process.cwd())
-    await say(Buffer.from(seen.join('\n')).toString('base64'))
+    await sayEcho(Buffer.from(seen.join('\n')).toString('base64'))
   } else if (d.refreshAuth) {
     const f = path.join(process.env.CODEX_HOME!, 'auth.json')
     const j = JSON.parse(fs.readFileSync(f, 'utf8'))
@@ -620,13 +675,23 @@ for (const d of directives) {
     await say(status)
   } else if (d.agents) await runAgents(d.agents, Number(d.lateAgentLine ?? 0))
   else if (d.init) { /* reported in the init event above */ }
-  else if (d.echo === 'agents') { const f = arg('--agents'); await say(f && fs.existsSync(f) ? fs.readFileSync(f, 'utf8') : '(no --agents)') }
-  else if (d.echo === 'subagentPrompt') { const f = arg('--append-subagent-system-prompt-file'); await say(f && fs.existsSync(f) ? fs.readFileSync(f, 'utf8') : '(none)') }
-  else if (d.echo === 'args') await say(JSON.stringify(argv))
+  else if (d.echo === 'agents') { const f = arg('--agents'); await sayEcho(f && fs.existsSync(f) ? fs.readFileSync(f, 'utf8') : '(no --agents)') }
+  else if (d.echo === 'subagentPrompt') { const f = arg('--append-subagent-system-prompt-file'); await sayEcho(f && fs.existsSync(f) ? fs.readFileSync(f, 'utf8') : '(none)') }
+  else if (d.echo === 'args') await sayEcho(JSON.stringify(argv))
   else if (d.echo === 'tools') {
     await startBridge()
     const l = br ? await rpc('tools/list', {}) : { result: { tools: [] } }
-    await say((l.result?.tools ?? []).map((t: any) => t.name).sort().join(','))
+    await sayEcho((l.result?.tools ?? []).map((t: any) => t.name).sort().join(','))
+  } else if (d.echo === 'toolDescriptions') {
+    // every tool's name and description as the engine is given them (tests/unit/b-guests-prompt.test.ts)
+    await startBridge()
+    const l = br ? await rpc('tools/list', {}) : { result: { tools: [] } }
+    await sayEcho(JSON.stringify(Object.fromEntries((l.result?.tools ?? []).map((t: any) => [t.name, String(t.description ?? '')]))))
+  } else if (d.echo === 'toolSchemas') {
+    // the whole tool list as the engine gets it, in its order (tests/unit/engine-prompt-pin.test.ts)
+    await startBridge()
+    const l = br ? await rpc('tools/list', {}) : { result: { tools: [] } }
+    await sayEcho(JSON.stringify(l.result?.tools ?? []))
   }
 }
 finish()

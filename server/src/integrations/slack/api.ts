@@ -2,6 +2,8 @@
 // https://slack.com/api/<method> with the token in the Authorization header (never in the body or the address), no
 // redirects, a time limit and a size limit on the answer. A 429 waits for Retry-After (at most twice, at most 30 s
 // each); a 5xx is tried once more. Errors carry Slack's error code only (a short word), never a token or a body.
+// A demo server with fakes has no Slack: every call is refused before anything is sent (demo/fakes/offline.ts).
+import { demoOffline } from '../../demo/fakes/offline'
 
 export interface SlackDeps {
   /** tests only: the fake Slack's address instead of https://slack.com. It also allows that address's ws:// socket and
@@ -60,6 +62,7 @@ export class SlackApi {
    * the body). `noWait`: a 429 is not waited out (an AI's read: it says so at once and goes on) */
   async call(method: string, token: string, body: Record<string, unknown> = {}, o: { noAuth?: boolean; noWait?: boolean } = {}): Promise<CallResult & { scopes: string[] | null }> {
     if (!/^[a-z]+(\.[a-zA-Z0-9]+)+$/.test(method)) throw new SlackApiError('invalid_method')
+    if (demoOffline()) throw new SlackApiError('unreachable')
     let retries = 0
     for (;;) {
       let r: Response
@@ -91,7 +94,7 @@ export class SlackApi {
 
   /** May this address get an interaction's answer? Slack's own response URLs only (the fake Slack's in tests). */
   responseUrlOk(raw: unknown): raw is string {
-    if (typeof raw !== 'string' || raw.length > 2048) return false
+    if (demoOffline() || typeof raw !== 'string' || raw.length > 2048) return false
     let u: URL
     try { u = new URL(raw) } catch { return false }
     if (u.username || u.password || u.hash) return false
@@ -111,7 +114,7 @@ export class SlackApi {
 
   /** The Socket Mode address apps.connections.open gave: Slack's wss:// only (the fake Slack's ws:// in tests). */
   socketUrlOk(raw: unknown): raw is string {
-    if (typeof raw !== 'string' || raw.length > 4096) return false
+    if (demoOffline() || typeof raw !== 'string' || raw.length > 4096) return false
     let u: URL
     try { u = new URL(raw) } catch { return false }
     if (u.username || u.password || u.hash) return false

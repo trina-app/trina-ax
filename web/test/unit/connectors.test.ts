@@ -9,6 +9,7 @@ import { IntegrationInput } from '@mycel/shared/api'
 import { AI_APPS, BUILT_IN, connectorFor, CONNECTORS, isConnected, SLACK_APP } from '../../src/lib/connectors'
 import { canonicalService, emptyForm, toInput, validate } from '../../src/lib/integrations'
 import { DICTS } from '../../src/i18n'
+import { LISTED_LOCAL_APPS } from '../../src/lib/localApps'
 import { APP_LOGOS } from '../../src/components/rooms/apps/AppParts'
 
 describe('the shared list of services (shared/src/service-catalog.ts)', () => {
@@ -20,7 +21,8 @@ describe('the shared list of services (shared/src/service-catalog.ts)', () => {
     for (const n of ['Notion', 'notion', 'NOTION', 'Notion MCP', 'the Notion app', 'Ｎｏｔｉｏｎ']) expect(catalogNamed(n), n).toMatchObject({ exact: true, service: { id: 'notion' } })
     for (const [n, id] of [['ClickUp', 'clickup'], ['Click Up', 'clickup'], ['WordPress', 'wordpress'], ['WordPress.com', 'wordpress'], ['Mermaid', 'mermaid'], ['Mermaid Chart', 'mermaid'], ['Monday.com', 'monday']] as const) expect(catalogNamed(n), n).toMatchObject({ exact: true, service: { id } })
     for (const [n, id] of [['Notion workspace', 'notion'], ['Acme GitLab', 'gitlab'], ['My Click Up tasks', 'clickup']] as const) expect(catalogNamed(n), n).toMatchObject({ exact: false, service: { id } })
-    for (const n of ['Higgs Studio', 'Notes', 'Lineup', 'GitHub']) expect(catalogNamed(n), n).toBeUndefined()
+    for (const n of ['Higgs Studio', 'Notes', 'Lineup', 'Hubspot']) expect(catalogNamed(n), n).toBeUndefined()
+    for (const n of ['GitHub', 'github', '깃허브']) expect(catalogNamed(n), n).toMatchObject({ exact: true, service: { id: 'github' } })
   })
   test('look-alikes and local names count as the service: other scripts, accents, digits, Korean and Japanese', () => {
     for (const n of ['N\u043etion', 'N\u03bftion', 'Not\u00edon', 'Notio\u0301n', 'N0tion', '노션', 'ノーション', '노션 MCP']) expect(catalogNamed(n), n).toMatchObject({ exact: true, service: { id: 'notion' } })
@@ -109,7 +111,8 @@ describe('Discover', () => {
     // AI apps' that connect to this server (Claude and Claude Code share one file; "other MCP apps" has no logo) and
     // Slack's (Admin › Connected apps › Slack)
     const apps = AI_APPS.flatMap((a) => (a.logo ? [{ id: a.id, logo: a.logo }] : []))
-    const all = [...CONNECTORS, ...BUILT_IN, ...apps, SLACK_APP]
+    // and the apps on the person's computer listed by name (Aside, ego lite: lib/localApps.ts)
+    const all = [...CONNECTORS, ...BUILT_IN, ...apps, SLACK_APP, ...LISTED_LOCAL_APPS]
     expect(fs.readdirSync(dir).sort()).toEqual([...new Set(all.map((c) => c.logo))].sort())
     expect(new Set(all.map((c) => c.id)).size).toBe(all.length)
     for (const c of all) {

@@ -5,18 +5,25 @@
 // ranges (Usage: the last 30 days, as Admin > Usage opens); an area that cannot be read says so on its card and the
 // others still show. Diagnostics are the owner's (Admin > System), so only the owner's Home asks for them. The owner
 // also gets the setup steps still to do (OwnerChecklist; it was on the chat Home before), or, while the welcome steps
-// are unfinished, only "시작 설정 다시 보기" when the setup row was hidden (OwnerSetup, docs/DECISIONS.md "W5").
-import { Activity, AlertTriangle, Cable, CheckCircle2, ChevronRight, Cpu, Gauge, Lock, Puzzle, ScrollText, Users, type LucideIcon } from 'lucide-react'
+// are unfinished, only "시작 설정 다시 보기" when the setup row was hidden (OwnerSetup, docs/DECISIONS.md "W5"). An admin
+// gets "팀 파일 정리하기" while nobody applied the setup's folder plan (OrganizeTeamFiles).
+import { Activity, AlertTriangle, Cable, CheckCircle2, ChevronRight, Cpu, Gauge, Lock, Puzzle, ScrollText, UserRoundPlus, Users, type LucideIcon } from 'lucide-react'
 import type { ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import { formatRelative, formatUsd } from '../../lib/format'
 import { useLocale, useT } from '../../i18n'
 import { Badge } from '../../components/ui'
+import { useGuestLimit } from '../../components/GuestInvite'
 import { actionLabel } from './Audit'
 import { AdminPageHeader } from './common'
 import { JobLine } from './jobs'
 import { OwnerSetup } from './OwnerChecklist'
+import { HomeCardsShowAgain } from '../../components/onboarding/CardHide'
+import { OrganizeTeamFiles } from '../../components/onboarding/OrganizeTeamFiles'
 import { OldProjectsCard } from './OldProjectsCard'
+import { FolderShareNotice } from './FolderShareNotice'
+import { DevEnvOfferNotice } from './DevEnvOfferNotice'
+import { OfficeMcpNotice } from './OfficeMcpNotice'
 import { names, useAdminOverview, type AttentionItem, type State } from './overview'
 
 export default function Home() {
@@ -25,9 +32,13 @@ export default function Home() {
   // what it reads and the "needs attention" rows: overview.tsx (the phone's Admin list reads the same)
   const {
     owner, users, engines, credentials, services, plugins, usage, audit, storage, diagnostics,
-    active, openInvites, noAi, badEngines, noEngine, limitedEngines, badCredentials, badServices, storageBad, checksToLook,
+    active, guests, openInvites, noAi, badEngines, noEngine, limitedEngines, badCredentials, badServices, storageBad, checksToLook,
     allChecksOk, attention, ready, unchecked, defaultEngine, latest, install,
   } = useAdminOverview()
+  // the plan's guest cap, for "1/3 guests" (read only when the team has guests: the card shows then)
+  const guestLimit = useGuestLimit(guests.length > 0)
+  const activeGuests = guests.filter((u) => u.status === 'active')
+  const guestCap = guestLimit ? guestLimit.limit : null
 
   return (
     <div className="space-y-8" data-testid="admin-home">
@@ -57,7 +68,20 @@ export default function Home() {
       {/* team projects from before the update that are members-only now (the owner and admins it concerns) */}
       <OldProjectsCard />
 
+      {/* once, when folder sharing opens: members can now share folders in their own files */}
+      <FolderShareNotice />
+
+      {/* once, for a team from before the dev environment came (it is off there): what turning it on allows */}
+      <DevEnvOfferNotice />
+
+      {/* office mode, once, for the owner: Claude Code connections removed from this Mac (updated installs got no word) */}
+      <OfficeMcpNotice />
+
       {owner && <OwnerSetup />}
+      {/* an admin's "팀 파일 정리하기" while nobody applied the setup's folder plan (it was a row of the welcome card) */}
+      <OrganizeTeamFiles />
+      {/* the team goal card hidden on Home (its "Hide"): brought back here, where the owner's checklist is */}
+      <HomeCardsShowAgain cards={['goalCard']} testId="admin-home-cards" />
 
       <section aria-labelledby="admin-home-areas">
         <h2 id="admin-home-areas" className="mb-2 text-title-sm font-semibold">
@@ -68,6 +92,14 @@ export default function Home() {
             line={t('adminHome.members', { count: active.length }) + (openInvites ? ` · ${t('adminHome.invites', { count: openInvites })}` : '')}
             meta={names(active.map((u) => u.name))}
           />
+          {/* guests (walkthrough S2): how many against the plan's cap, opening Members filtered to guests; only once the
+              team has any, so a team without guests sees no extra card */}
+          {guests.length > 0 && (
+            <Area id="guests" to="/admin/members?role=guest" icon={UserRoundPlus} title={t('guest.admin.title')} state={users}
+              line={typeof guestCap === 'number' ? t('adminHome.guestsOf', { n: activeGuests.length, m: guestCap }) : t('adminHome.guests', { n: activeGuests.length })}
+              meta={names(activeGuests.map((u) => u.name))}
+            />
+          )}
           {/* the engines and the accounts they use are one page (AI providers) */}
           <Area id="providers" to="/admin/providers" icon={Cpu} title={t('admin.providers')} state={engines} problems={badEngines.length + (noEngine ? 1 : 0) + limitedEngines.length + badCredentials.length + (noAi.length ? 1 : 0)}
             line={[defaultEngine && t('adminHome.default', { engine: defaultEngine }), t('adminHome.connections', { count: credentials.data?.length ?? 0 })].filter(Boolean).join(' · ')}

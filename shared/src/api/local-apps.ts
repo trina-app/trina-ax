@@ -1,0 +1,202 @@
+// Apps on the person's own computer as connectors (docs/decisions/20261118-local-app-connectors.md): a program the
+// desktop app starts on that computer, either a local MCP server over stdio (adapter 'mcp', e.g. `aside mcp`) or a
+// plain CLI wrapped as a few declared tools (adapter 'cli', e.g. ego lite's `ego-browser nodejs`). The server keeps
+// only the command's shape (never a setting's value) and speaks MCP to the desktop app over the window's relay:
+// local.call carries one JSON-RPC message to the window that sent the turn, local.result its answer. Owner: C
+// (server/src/integrations/connections/local.ts, server/src/realtime/local-relay.ts, server/src/routes/local-apps.ts).
+import { z } from 'zod'
+import { endpoint, empty } from './endpoint'
+import { Uuid7 } from '../ids'
+
+/** the program: a name looked up on the computer (`aside`) or a full path; one line, no shell */
+const Program = z.string().trim().min(1).max(1000).regex(/^[^\0\r\n]+$/, 'one line')
+/** one argument, passed to the program as it is (never through a shell) */
+const Arg = z.string().max(4000).regex(/^[^\0]*$/, 'no NUL')
+/** a setting the program reads from its environment: only its name is kept here; the value stays on the computer */
+export const LocalEnvName = z.string().regex(/^[A-Za-z_][A-Za-z0-9_]{0,63}$/, 'a name such as API_KEY')
+const SlotName = z.string().regex(/^[a-z][a-z0-9_]{0,39}$/, 'lower-case letters, digits and _')
+const ToolName = z.string().regex(/^[a-z][a-z0-9_]{0,63}$/, 'lower-case letters, digits and _')
+
+/** A value the AI fills in for a CLI tool: a typed slot, passed as one argument of its own or as stdin. */
+export const LocalSlot = z.object({
+  name: SlotName,
+  description: z.string().max(500),
+  type: z.enum(['string', 'number', 'boolean']),
+  required: z.boolean(),
+}).strict()
+export type LocalSlot = z.infer<typeof LocalSlot>
+/** one part of a CLI tool's argument list: a fixed argument, or a slot's value as one argument of its own */
+export const LocalArgPart = z.union([Arg, z.object({ slot: SlotName }).strict()])
+export type LocalArgPart = z.infer<typeof LocalArgPart>
+
+export const LocalCliTool = z.object({
+  name: ToolName,
+  title: z.string().trim().max(100).optional(),
+  description: z.string().max(2000),
+  args: z.array(LocalArgPart).max(50),
+  /** this slot's value is written to the program's stdin (a script); no other input reaches stdin */
+  stdin: SlotName.optional(),
+  slots: z.array(LocalSlot).max(20),
+  /** it only reads (a guide, a list): the AI may run it without asking, like an MCP tool marked read-only */
+  readOnly: z.boolean(),
+}).strict().superRefine((t, c) => {
+  const names = new Set(t.slots.map((s) => s.name))
+  if (names.size !== t.slots.length) c.addIssue({ code: 'custom', message: 'two slots have the same name', path: ['slots'] })
+  t.args.forEach((a, i) => { if (typeof a !== 'string' && !names.has(a.slot)) c.addIssue({ code: 'custom', message: `no slot named ${a.slot}`, path: ['args', i] }) })
+  if (t.stdin) {
+    const s = t.slots.find((x) => x.name === t.stdin)
+    if (!s || s.type !== 'string') c.addIssue({ code: 'custom', message: 'stdin needs a text slot', path: ['stdin'] })
+    else if (t.args.some((a) => typeof a !== 'string' && a.slot === t.stdin)) c.addIssue({ code: 'custom', message: 'a slot goes to stdin or to an argument, not both', path: ['stdin'] })
+  }
+})
+export type LocalCliTool = z.infer<typeof LocalCliTool>
+
+export const LocalMcpSpec = z.object({
+  adapter: z.literal('mcp'),
+  command: Program,
+  args: z.array(Arg).max(100),
+  env: z.array(LocalEnvName).max(20),
+}).strict()
+export const LocalCliSpec = z.object({
+  adapter: z.literal('cli'),
+  command: Program,
+  env: z.array(LocalEnvName).max(20),
+  tools: z.array(LocalCliTool).min(1).max(20),
+}).strict().refine((s) => new Set(s.tools.map((t) => t.name)).size === s.tools.length, { message: 'two tools have the same name', path: ['tools'] })
+/** What runs on the computer: never a setting's value, never a shell line. */
+export const LocalAppSpec = z.discriminatedUnion('adapter', [LocalMcpSpec, LocalCliSpec])
+export type LocalAppSpec = z.infer<typeof LocalAppSpec>
+
+/** The part of a spec the computer's one-time confirm covers: the program, its arguments, and for a CLI each tool's
+ * argument template and stdin. A change here asks again on the computer; a new description, title or setting name does
+ * not. Stable JSON (the desktop app hashes it). */
+export function localCommandKey(s: LocalAppSpec): string {
+  return s.adapter === 'mcp'
+    ? JSON.stringify(['mcp', s.command, s.args])
+    : JSON.stringify(['cli', s.command, s.tools.map((t) => [t.name, t.args, t.stdin ?? null, t.slots.map((x) => [x.name, x.type])])])
+}
+
+/** One argument as people read it (display only: the program never gets a shell line). */
+export function quoteArg(a: string): string {
+  return /^[A-Za-z0-9_@%+=:,./-]+$/.test(a) ? a : `'${a.replace(/'/g, `'\\''`)}'`
+}
+/** The command line as the confirm and Settings show it: "aside mcp"; a CLI: one line per tool ("ego-browser nodejs < script"). */
+export function localCommandLines(s: LocalAppSpec): string[] {
+  if (s.adapter === 'mcp') return [[s.command, ...s.args].map(quoteArg).join(' ')]
+  return s.tools.map((t) => [s.command, ...t.args.map((a) => (typeof a === 'string' ? quoteArg(a) : `<${a.slot}>`))].map((x, i) => (i === 0 ? quoteArg(x) : x)).join(' ') + (t.stdin ? ` < ${t.stdin}` : ''))
+}
+
+/** A command line a person typed (Settings › Connectors › An app on your computer › Another program) as the program and
+ * its arguments: split on spaces, '…' and "…" keep spaces, \ escapes the next character outside '…'. Nothing here is
+ * a shell: the program gets these arguments as they are. A line with what only a shell would read (| & ; < > ` $( ) or
+ * an unclosed quote is refused (null), so it never runs as something else than it reads. */
+export function splitCommand(line: string): string[] | null {
+  const out: string[] = []
+  let cur = '', has = false, q: '"' | "'" | null = null
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i]!
+    if (q === "'") { if (ch === "'") q = null; else cur += ch; continue }
+    if (q === '"') {
+      if (ch === '"') q = null
+      else if (ch === '\\' && i + 1 < line.length) cur += line[++i]
+      else if (ch === '$' || ch === '`') return null
+      else cur += ch
+      continue
+    }
+    if (ch === "'" || ch === '"') { q = ch; has = true; continue }
+    if (ch === '\\' && i + 1 < line.length) { cur += line[++i]; has = true; continue }
+    if (/\s/.test(ch)) { if (has) { out.push(cur); cur = ''; has = false } continue }
+    if ('|&;<>`$()'.includes(ch)) return null
+    cur += ch; has = true
+  }
+  if (q) return null
+  if (has) out.push(cur)
+  return out.length ? out : null
+}
+
+/** Known tools, picked in Settings › Connectors › Add › An app on your computer (or the person types a command). */
+export const LOCAL_APP_PRESETS: readonly { id: string; name: string; spec: LocalAppSpec }[] = [
+  { id: 'aside', name: 'Aside', spec: { adapter: 'mcp', command: 'aside', args: ['mcp'], env: [] } },
+  {
+    id: 'ego-lite', name: 'ego lite', spec: {
+      adapter: 'cli', command: 'ego-browser', env: [], tools: [
+        { name: 'read_guide', title: 'Read the guide', description: 'How to write ego-browser scripts (its helpers, pages, waits and the rules for starting and ending a reply). Read it before the first run_script of a chat.', args: ['skill'], slots: [], readOnly: true },
+        {
+          name: 'run_script', title: 'Run a browser script', description: 'Runs one Node.js script (ES module, top-level await) with ego-browser\'s helpers in Ego Lite and returns what it printed. Read the guide first.',
+          args: ['nodejs'], stdin: 'script', slots: [{ name: 'script', description: 'The whole script', type: 'string', required: true }], readOnly: false,
+        },
+      ],
+    },
+  },
+]
+
+/** why a call did not reach the program (the server turns each into words for the person and the AI) */
+export const LocalFailure = z.enum([
+  /** this window is not the desktop app (the web, the phone app) */
+  'not_desktop',
+  /** the person chose Cancel on the computer's confirm */
+  'declined',
+  /** the program could not start (not found, not allowed, exited at once) */
+  'start_failed',
+  /** the desktop app runs as root (it never starts a program then) */
+  'root',
+  /** the program stopped or broke the protocol */
+  'failed',
+  /** the desktop app is too old for this kind of call */
+  'too_old',
+  /** the confirm on the computer is still open: the person has not pressed Connect yet (it stays open; a later Connect
+   * makes the page check again) */
+  'unconfirmed',
+])
+export type LocalFailure = z.infer<typeof LocalFailure>
+
+/** A JSON-RPC message (one object), to or from the program, as MCP sends it. */
+const RpcMessage = z.record(z.string(), z.unknown())
+
+export const LocalCall = z.object({
+  /** unique per call; the window must not run the same callId twice (dedupe after reconnects) */
+  callId: z.string().min(1).max(100),
+  /** the turn it belongs to; null for a check from Settings */
+  turnId: Uuid7.nullable(),
+  /** the connection (the desktop app keeps its confirm and setting values by team and connection) */
+  connectionId: z.string().min(1).max(100),
+  name: z.string().max(100),
+  spec: LocalAppSpec,
+  /** one JSON-RPC request or notification for the program */
+  message: RpcMessage,
+  /** epoch ms after which the server stops waiting */
+  deadline: z.number().int(),
+})
+export type LocalCall = z.infer<typeof LocalCall>
+
+export const LocalResult = z.object({
+  callId: z.string().min(1).max(100),
+  ok: z.boolean(),
+  /** the program's JSON-RPC answer (null: the call was a notification) */
+  message: RpcMessage.nullable().optional(),
+  failure: LocalFailure.optional(),
+  /** what went wrong, for the log and the AI (never a setting's value: the desktop app hides them) */
+  error: z.string().max(4000).optional(),
+})
+export type LocalResult = z.infer<typeof LocalResult>
+
+/** The newest kind of call this server sends (DesktopBridge.localApps.version): an older desktop app answers too_old. */
+export const LOCAL_APPS_BRIDGE_VERSION = 1
+
+const Name = z.string().trim().min(1).max(60)
+/** A new app on my computer (only the person, in Settings on their own computer): never a team connection. */
+export const LocalIntegrationInput = z.object({
+  name: Name,
+  slug: z.string().regex(/^[a-z0-9]{1,12}$/).optional(),
+  spec: LocalAppSpec,
+  writePolicy: z.enum(['ask', 'allow', 'deny']).default('ask'),
+}).strict()
+export type LocalIntegrationInput = z.infer<typeof LocalIntegrationInput>
+export const LocalIntegrationPatch = z.object({ spec: LocalAppSpec }).strict()
+
+const LocalPollQuery = z.object({ windowId: z.string().min(8).max(64), waitMs: z.coerce.number().int().min(0).max(25_000).optional() })
+
+export const LOCAL_APPS = {
+  pollLocalCalls: endpoint({ method: 'GET', path: '/api/local-apps/calls', auth: 'user', owner: 'C', query: LocalPollQuery, response: z.object({ calls: z.array(LocalCall) }), summary: 'Long-poll fallback: pending local.call for this window (waits up to waitMs).' }),
+  postLocalResult: endpoint({ method: 'POST', path: '/api/local-apps/results', auth: 'user', owner: 'C', body: LocalResult, response: empty, status: 204, summary: 'Long-poll fallback: local.result.' }),
+}

@@ -6,7 +6,8 @@ import { describe, expect, test } from 'bun:test'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { runInNewContext } from 'node:vm'
-import { asksOutside, desktopPagePath, firstRunLinks, healthVerdict, linkFromArgv, LINK_SCHEME, readDesktopLink, hostOf, INSTALL_DOCS, isGatewayDown, isLoopbackHost, isSignInPath, originOf, parseTeamAddress, teamLabel, TEAM_DOMAIN } from '../../desktop/src/common/address'
+import { answersAgain, asksOutside, certTrouble, desktopPagePath, firstRunLinks, healthVerdict, officeCertPage, offlineRetryDelay, OFFLINE_RETRY_MS, linkFromArgv, LINK_SCHEME, readDesktopLink, retypablePath, startupLinkTarget, hostOf, INSTALL_DOCS, isGatewayDown, isLoopbackHost, isSignInPath, onThisComputer, originOf, parseTeamAddress, teamLabel, TEAM_DOMAIN } from '../../desktop/src/common/address'
+import { resumePage } from '../../desktop/src/common/update-guard'
 import { errorResult, MAX_ITEMS, toBrowserResult } from '../../desktop/src/common/browser-result'
 import { asUiLocale, DEFAULT_UI_LOCALE, STRINGS, t, UI_LOCALES, type UiKey, type UiLocale } from '../../desktop/src/common/i18n'
 import { parseKeyCombo, redactUrl } from '../../desktop/src/common/input'
@@ -17,7 +18,7 @@ import { blockedUrl } from '../../desktop/src/common/browser-block'
 import { acceptFilter, answersFileChoosers, openDialogChoice } from '../../desktop/src/common/file-chooser'
 import { browserOwnerChange } from '../../desktop/src/common/browser-owner'
 import { publicRequestVerdict, responseSourceVerdict } from '../../desktop/src/common/net-policy'
-import { addTeam, compareVersions, emptyTeams, normalizeFingerprint, partitionFor, readTeams, removeTeam, sortedTeams, touchTeam, updateTeam } from '../../desktop/src/common/teams'
+import { addTeam, compareVersions, dataDirName, emptyTeams, normalizeFingerprint, partitionFor, readTeams, removeTeam, sortedTeams, touchTeam, updateTeam } from '../../desktop/src/common/teams'
 import { isOwnUiUrl, isTrustedAppSender, UI_ORIGIN } from '../../desktop/src/common/trust'
 import { BrowserResult } from '../../shared/src/api/browser'
 import { PRODUCT } from '@mycel/shared'
@@ -107,6 +108,63 @@ describe('first run: what the team address answered, the help screens, the host 
     expect(t('ko', 'err.short_name')).toContain('macmini.local:8443')
     expect(t('ko', 'err.teamUnknown', { name: 'acme' })).toBe("'acme' 팀을 찾지 못했어요. 철자를 확인하거나 초대 링크를 붙여 넣어 주세요.")
   })
+  test('TC-3452: an office certificate that is not installed here is said as that, with where to get it; the check stays strict', () => {
+    // what Electron's net.request gives when no authority this computer trusts signed the certificate
+    expect(certTrouble(new Error('net::ERR_CERT_AUTHORITY_INVALID'))).toBe('untrusted')
+    for (const code of ['ERR_CERT_COMMON_NAME_INVALID', 'ERR_CERT_DATE_INVALID', 'ERR_CERT_REVOKED', 'ERR_CERT_WEAK_KEY', 'ERR_CERT_INVALID'])
+      expect(certTrouble(new Error(`net::${code}`))).toBe('invalid')
+    // not the certificate: "cannot reach" as before
+    for (const e of [new Error('net::ERR_CONNECTION_REFUSED'), new Error('net::ERR_NAME_NOT_RESOLVED'), new Error('net::ERR_INTERNET_DISCONNECTED'), new Error('net::ERR_SSL_PROTOCOL_ERROR'), new Error('timeout'), new Error(''), null, undefined, 7, { message: 'net::ERR_CERT_AUTHORITY_INVALID' }, 'XERR_CERT_AUTHORITY_INVALID'])
+      expect(certTrouble(e)).toBeNull()
+    // the certificate page: plain http one port below, only for an office address with a port
+    expect(officeCertPage('https://192.168.0.10:8443')).toBe('http://192.168.0.10:8442')
+    expect(officeCertPage('https://10.0.0.5:9443')).toBe('http://10.0.0.5:9442')
+    expect(officeCertPage('https://macmini.local:8443')).toBe('http://macmini.local:8442')
+    expect(officeCertPage('https://[fd00::1]:8443')).toBe('http://[fd00::1]:8442')
+    for (const o of ['https://192.168.0.10', 'https://team.example.com:8443', `https://acme.${TEAM_DOMAIN}`, 'https://8.8.8.8:8443', 'http://192.168.0.10:8443', 'https://192.168.0.10:1', 'garbage', ''])
+      expect(officeCertPage(o)).toBeNull()
+    for (const l of Object.keys(STRINGS) as UiLocale[]) {
+      const withPage = t(l, 'err.certUntrusted', { page: 'http://192.168.0.10:8442' })
+      expect(withPage).toContain('http://192.168.0.10:8442')
+      expect(withPage).not.toContain('{page}')
+      for (const k of ['err.certUntrusted', 'err.certUntrustedNoPage', 'err.certInvalid'] as const) expect(STRINGS[l][k]).not.toBe(STRINGS[l]['err.unreachable'])
+      expect(STRINGS[l]['err.certUntrustedNoPage']).not.toContain('{')
+    }
+    expect(t('en', 'err.certUntrusted', { page: 'http://192.168.0.10:8442' })).toBe('This computer does not have the office certificate yet, so the app cannot check the team server. Open http://192.168.0.10:8442 in a web browser, or follow the desk card, install the certificate, then try again.')
+    expect(t('en', 'err.certUntrusted', { page: 'x' })).not.toMatch(/internet/i)
+    // nothing here lets a connection past a certificate error: the app's one certificate rule is the pinned office
+    // certificate of a team already joined (main/direct.ts, its probe and its verify proc), and the add-team check
+    // only reads the error
+    const main = ['app-window.ts', 'main.ts', 'security.ts', 'direct.ts'].map((f) => readFileSync(join(import.meta.dir, '../../desktop/src/main', f), 'utf8'))
+    expect(main.slice(0, 3).join('\n')).not.toMatch(/certificate-error|ignore-certificate-errors|allow-insecure-localhost|rejectUnauthorized|setCertificateVerifyProc\(/)
+    expect(main[3]!.match(/setCertificateVerifyProc\(/g)?.length).toBe(1)
+    expect(main[3]!.match(/rejectUnauthorized/g)?.length).toBe(1)
+    const win = main[0]!
+    expect(win).toMatch(/const trouble = certTrouble\(e\)\n\s+return trouble \? failCert\(trouble\) : fail\('unreachable'\)/)
+  })
+  test('TC-3453: the cannot-reach card looks again by itself after 5, 10, 20 and then every 30 s; only the team server\'s own answer opens the team', () => {
+    expect([0, 1, 2, 3, 4, 50].map(offlineRetryDelay)).toEqual([5_000, 10_000, 20_000, 30_000, 30_000, 30_000])
+    expect([-1, NaN, Infinity].map(offlineRetryDelay)).toEqual([5_000, 30_000, 30_000])
+    expect(Math.max(...OFFLINE_RETRY_MS)).toBeLessThanOrEqual(30_000)
+    expect(answersAgain(o, { status: 200, location: null, relayError: null, bodyOk: true })).toBe(true)
+    // the relay's or a tunnel's page while the server is off: not back
+    expect(answersAgain(o, { status: 503, location: null, relayError: 'team_offline', bodyOk: false })).toBe(false)
+    expect(answersAgain(o, { status: 530, location: null, relayError: null, bodyOk: false })).toBe(false)
+    for (const status of [502, 503, 504]) expect(answersAgain(o, { status, location: null, relayError: null, bodyOk: false })).toBe(false)
+    // anything else is not the team server back: another page, a paused or renamed team, and a sleeping trial team
+    // (the app's own look never wakes it)
+    expect(answersAgain(o, { status: 404, location: null, relayError: null, bodyOk: false })).toBe(false)
+    expect(answersAgain(o, { status: 200, location: null, relayError: null, bodyOk: false })).toBe(false)
+    expect(answersAgain(o, { status: 403, location: null, relayError: 'team_suspended', bodyOk: false })).toBe(false)
+    expect(answersAgain(o, { status: 308, location: `https://acme-corp.${TEAM_DOMAIN}/api/health`, relayError: null, bodyOk: false })).toBe(false)
+    expect(answersAgain(o, { status: 503, location: null, relayError: 'team_waking', bodyOk: false })).toBe(false)
+    for (const l of Object.keys(STRINGS) as UiLocale[]) expect(STRINGS[l]['offline.auto'].length).toBeGreaterThan(5)
+    // it stops when the card is left, and the person's own Try again takes over
+    const win = readFileSync(join(import.meta.dir, '../../desktop/src/main/app-window.ts'), 'utf8')
+    expect(win).toMatch(/showWelcome\(\) \{\n\s+this\.stopOfflineWatch\(\)/)
+    expect(win).toMatch(/private disposeTeam\(\) \{\n\s+clearInterval\(this\.recheckTimer\)\n\s+this\.stopOfflineWatch\(\)/)
+    expect(win).toMatch(/leftOffline\(\) \{\n\s+this\.stopOfflineWatch\(\)/)
+  })
   test('a redirect is never followed by the network stack: only a relay rename to another name under the team domain', () => {
     // the health check reads the 3xx itself (app-window.ts fetchHealth: net.request with redirect 'manual')
     const win = readFileSync(join(import.meta.dir, '../../desktop/src/main/app-window.ts'), 'utf8')
@@ -126,7 +184,13 @@ describe('first run: what the team address answered, the help screens, the host 
     for (const p of ['/login', '/join', '/setup', '/invite/abc', '/reset-password/abc']) expect(isSignInPath(p)).toBe(true)
     for (const p of ['/', '/chats/1', '/invite', '/joined', '/settings/apps']) expect(isSignInPath(p)).toBe(false)
     const win = readFileSync(join(import.meta.dir, '../../desktop/src/main/app-window.ts'), 'utf8')
-    expect(win).toContain('const top = hostLineNow({ path: this.pagePath, signedIn: this.signedIn, answered: this.meAnswered, waited: this.stripWaited }) ? HOSTBAR_HEIGHT : 0')
+    expect(win).toContain('return !pageLine && hostLineNow({ path: this.pagePath, signedIn: this.signedIn, answered: this.meAnswered, waited: this.stripWaited })')
+    // the same strip says "Trina is reading N files" while Find work files reads added files (never over the host line)
+    expect(win).toContain('const top = this.hostLine() || this.reading ? HOSTBAR_HEIGHT : 0')
+    // a team whose sign-in pages draw the address under the card (DesktopBridge.hostLine) gets no strip, only on the
+    // sign-in paths, until another team is opened (owner 2026-11-15)
+    expect(win).toContain('const pageLine = this.pageHostLine && isSignInPath(this.pagePath)')
+    expect(win).toMatch(/this\.stripTimer = undefined\n\s*this\.pageHostLine = false/)
     // no jump on a signed-in open: the strip waits up to 300 ms for /api/me (a sign-in page shows it at once); a new
     // team page starts the wait again, and an answer (signed in or not) ends it
     expect(win).toContain('const HOSTBAR_WAIT_MS = 300')
@@ -206,6 +270,21 @@ describe('links from outside (trina-ax://open?url=…) and screen ④', () => {
       `${LINK_SCHEME}://open/x?url=${enc('https://acme.trina.app')}`, `other://open?url=${enc('https://acme.trina.app')}`, `https://acme.${TEAM_DOMAIN}/join#t=0INpvAqjFG3OhdmwH4CfCuxr-mz7rx3dLOr1tEwbB7E`, 'x'.repeat(5000)])
       expect(readDesktopLink(raw)).toBeNull()
   })
+  test('a link that starts the closed app opens its page on a known team, else it is left to screen 4', () => {
+    const team = `https://acme.${TEAM_DOMAIN}`
+    const id = '019a5c3e-7b2d-7c11-9f00-3a1b2c3d4e5f'
+    const teams = [{ id: 't1', origin: `https://other.${TEAM_DOMAIN}` }, { id: 't2', origin: team }]
+    const raw = (inner: string) => `${LINK_SCHEME}://open?url=${encodeURIComponent(inner)}`
+    expect(startupLinkTarget(raw(`${team}/c/${id}`), teams)).toEqual({ id: 't2', path: `/c/${id}` })
+    expect(startupLinkTarget(raw(`${team}/rooms/${id}?m=${id}`), teams)).toEqual({ id: 't2', path: `/rooms/${id}?m=${id}` })
+    expect(startupLinkTarget(raw(`https://new.${TEAM_DOMAIN}/c/${id}`), teams)).toBeNull()
+    expect(startupLinkTarget(raw(team), teams)).toBeNull()
+    expect(startupLinkTarget(raw(`${team}/settings`), teams)).toBeNull()
+    expect(startupLinkTarget(null, teams)).toBeNull()
+    expect(startupLinkTarget(raw(`${team}/c/${id}`), [])).toBeNull()
+    // the link as it comes on a command line
+    expect(startupLinkTarget(linkFromArgv(['/opt/app', '--no-sandbox', raw(`${team}/c/${id}`)]), teams)?.id).toBe('t2')
+  })
   test('a chat, room or project page inside the link (QA TC-2266): fixed routes with id-shaped parts only', () => {
     const team = `https://acme.${TEAM_DOMAIN}`
     const id = '019a5c3e-7b2d-7c11-9f00-3a1b2c3d4e5f'
@@ -249,6 +328,35 @@ describe('links from outside (trina-ax://open?url=…) and screen ④', () => {
     expect(opener).not.toMatch(/addTeam|fetch|loadURL/)
     expect(win).toMatch(/offerLink\(raw: string\) \{\n\s*if \(this\.openLinkedPage\(raw\)\) return\n\s*const p = readDesktopLink\(raw\)/)
   })
+  test('the one-time sign-in link (web "Continue in the Mac app") opens its page; only in a link from outside', () => {
+    const code = 'Zm9vYmFyYmF6cXV4MDEyMzQ1Njc4OWFiY2RlZmdoaWo'
+    expect(code).toHaveLength(43)
+    const team = `https://acme.${TEAM_DOMAIN}`
+    expect(readDesktopLink(link(`${team}/app-signin#c=${code}`))).toMatchObject({ ok: true, host: `acme.${TEAM_DOMAIN}`, hosted: true, entryPath: `/app-signin#c=${code}` })
+    // the code's shape: newToken exactly, the code alone in the fragment, no query
+    for (const inner of [`${team}/app-signin#c=${code}x`, `${team}/app-signin#c=${code.slice(1)}`, `${team}/app-signin#c=${code}&x=1`, `${team}/app-signin?c=${code}`, `${team}/app-signin?x=1#c=${code}`, `${team}/app-signin`])
+      expect(readDesktopLink(link(inner))).toEqual({ ok: false, error: 'link' })
+    // the outer link with a fragment of its own is no link (the code must be inside url=)
+    expect(readDesktopLink(`${link(`${team}/app-signin`)}#c=${code}`)).toBeNull()
+    // never this machine, never http
+    expect(readDesktopLink(link(`https://127.0.0.1/app-signin#c=${code}`))).toEqual({ ok: false, error: 'insecure' })
+    expect(readDesktopLink(link(`http://acme.${TEAM_DOMAIN}/app-signin#c=${code}`))).toEqual({ ok: false, error: 'insecure' })
+    // the first-run box refuses it (typed or pasted), so a code never opens the team's start in its place
+    expect(parseTeamAddress(`${team}/app-signin#c=${code}`)).toEqual({ ok: false, error: 'invalid' })
+    // it is never a page link (opened at once without ④): it always goes through ④
+    expect(desktopPagePath(link(`${team}/app-signin#c=${code}`))).toBeNull()
+    // the "renamed" answer's next address goes back through the box: the team's start then
+    expect(retypablePath(`/app-signin#c=${code}`)).toBe('/')
+    expect(retypablePath('/invite/abc')).toBe('/invite/abc')
+    // an update restart never opens it again
+    expect(resumePage('t1', `${team}/app-signin#c=${code}`, [team])).toBeNull()
+    expect(resumePage('t1', `${team}/app-signin`, [team])).toBeNull()
+    // the address shows on that page in the app
+    expect(isSignInPath('/app-signin')).toBe(true)
+    // a page that failed to load is logged without its fragment
+    const win = readFileSync(join(import.meta.dir, '../../desktop/src/main/app-window.ts'), 'utf8')
+    expect(win).toContain("debug('team page failed to load', code, url.split('#')[0])")
+  })
   test('the link in a command line (Windows, Linux; a second instance)', () => {
     const l = link('https://acme.trina.app/invite/K-PTTVic_Q_pfdW4-06s4zsJJlKEInlO2rHLV9HryGk')
     expect(linkFromArgv(['/Applications/X.app/Contents/MacOS/X', '--allow-file-access-from-files', l])).toBe(l)
@@ -268,17 +376,21 @@ describe('links from outside (trina-ax://open?url=…) and screen ④', () => {
     // offerLink fetches nothing; answerLink connects only with the gate's offer
     const offer = win.slice(win.indexOf('  offerLink(raw: string) {'), win.indexOf('  async answerLink('))
     expect(offer).not.toMatch(/fetch|addTeam|openTeam|loadURL/)
-    expect(win).toMatch(/const offer = this\.linkGate\.answer\(yes, host, Date\.now\(\)\)[\s\S]{0,200}if \(!offer\) return null[\s\S]{0,80}return this\.addTeam\(offer\.origin \+ offer\.entryPath, true\)/)
+    // a link to the start of the team on screen (a Google sign-in's "Back to the app") only brings the window forward
+    expect(offer).toMatch(/if \(this\.app && this\.mode !== 'offline' && isShownTeamStart\(raw, this\.team\?\.origin\)\) return\n/)
+    expect(win).toMatch(/const offer = this\.linkGate\.answer\(yes, host, Date\.now\(\)\)[\s\S]{0,200}if \(!offer\) return null[\s\S]{0,300}return this\.addTeam\(offer\.origin, true, offer\.entryPath\)/)
     // ④ counts from when the screen says it is up, and a team view taking over drops a waiting link
     expect(win).toContain('this.linkGate.shown(id, Date.now())')
-    expect(win).toMatch(/async openTeam\(id: string, entryPath = '\/'\) \{[\s\S]{0,200}this\.linkGate\.clear\(\)/)
+    expect(win).toMatch(/async openTeam\(id: string, entryPath = '\/', o: \{ startup\?: boolean \} = \{\}\) \{[\s\S]{0,300}this\.linkGate\.clear\(\)/)
     const welcome = readFileSync(join(import.meta.dir, '../../desktop/src/ui/welcome.ts'), 'utf8')
     expect(welcome).toContain('ui.welcome.linkShown(link.id)')
     // [연결] is off until ④ has been on screen as long as the gate wants (no click that silently does nothing)
     expect(welcome).toContain('const LINK_READY_MS = 650')
     expect(welcome).toContain('disabled: busy || !linkReady,')
     // a development run never takes the scheme over by itself
-    expect(main).toContain("if (primary && app.isPackaged) app.setAsDefaultProtocolClient(LINK_SCHEME)")
+    // (and on Linux only the .deb: common/linux.ts registersLinkHandler, tests/unit/e-desktop-linux.test.ts)
+    expect(main).toContain("if (primary && registersLinkHandler(linuxStart)) app.setAsDefaultProtocolClient(LINK_SCHEME)")
+    expect(main).toContain("const linuxStart = { platform: process.platform, packaged: app.isPackaged, env: process.env }")
   })
   test('the dmg, Mac App Store and Microsoft Store builds declare the scheme', async () => {
     const base = (await import('../../desktop/electron-builder.config')).default as { protocols?: { name: string; schemes: string[] }[] }
@@ -319,6 +431,19 @@ describe('links from outside (trina-ax://open?url=…) and screen ④', () => {
   test('④ strings name the host and never the page', () => {
     expect(t('ko', 'link.title', { host: 'acme.trina.app' })).toBe('acme.trina.app에 연결할까요?')
     expect(t('ko', 'link.body')).toBe('직접 받은 링크가 맞을 때만 연결하세요.')
+  })
+})
+
+describe('a first start on a Mac that ran a dev build (0.5.7 DMG opened on localhost:19100)', () => {
+  test('a development run keeps its own settings folder; the installed app keeps the old name', () => {
+    expect(dataDirName(PRODUCT.desktopDataDir, true)).toBe(PRODUCT.desktopDataDir)
+    expect(dataDirName(PRODUCT.desktopDataDir, false)).not.toBe(PRODUCT.desktopDataDir)
+    expect(dataDirName('Team AX', false)).toBe('Team AX (dev)')
+  })
+  test('a team on this computer falls back to the team list at start; a real team does not', () => {
+    for (const o of ['http://localhost:19100', 'http://acme.localhost:19161', 'http://LOCALHOST:19100', 'https://localhost']) expect({ o, r: onThisComputer(o) }).toEqual({ o, r: true })
+    // the Office Mac's own server (scripts/install-macos.sh, 127.0.0.1:47820) is a real team that may still be starting
+    for (const o of ['http://127.0.0.1:47820', 'http://127.0.0.1:19100', 'http://[::1]:19100', 'https://acme.trina.app', 'https://qa.trina.app', 'https://192.168.1.5:8443', 'https://mini.local:8443', 'not a url', '']) expect({ o, r: onThisComputer(o) }).toEqual({ o, r: false })
   })
 })
 
@@ -977,5 +1102,45 @@ describe('quitting', () => {
     // asked again from a new task: a quit asked while Electron still handles the held-back one is ignored
     expect(willQuit).toContain('setTimeout(() => app.quit(), 0)')
     expect(willQuit.match(/app\.quit\(\)/g)).toHaveLength(1)
+  })
+})
+
+describe('the Mac dmg window', () => {
+  test('opens on the Trina background with the two icons over its spots', async () => {
+    type Dmg = { background: string; window?: unknown; iconSize: number; contents: { x: number; y: number; type: string; path?: string }[] }
+    const base = (await import('../../desktop/electron-builder.config')).default as { dmg: Dmg }
+    const dmg = base.dmg
+    const size = (f: string) => {
+      const b = readFileSync(join(import.meta.dir, '../../desktop', f))
+      return { w: b.readUInt32BE(16), h: b.readUInt32BE(20) }
+    }
+    // electron-builder joins background.png with background@2x.png (same name + @2x) into one retina TIFF
+    expect(dmg.background).toBe('build-resources/background.png')
+    const one = size(dmg.background), two = size(dmg.background.replace('.png', '@2x.png'))
+    expect(two).toEqual({ w: one.w * 2, h: one.h * 2 })
+    // electron-builder makes the window the picture's size, title bar (32 points on macOS 26) included: no `window`, and
+    // the picture is the 420 points of art plus 32
+    expect(dmg.window).toBeUndefined()
+    expect(one).toEqual({ w: 660, h: 420 + 32 })
+    // the app on the left, Applications on the right, on the art's two spots (scripts/dmg-background.svg), icons 144 points
+    expect(dmg.contents).toEqual([
+      { x: 170, y: 210, type: 'file' },
+      { x: 490, y: 210, type: 'link', path: '/Applications' },
+    ])
+    expect(dmg.iconSize).toBe(144)
+    expect((base.dmg as Dmg & { iconTextSize?: number }).iconTextSize).toBe(13)
+    const svg = readFileSync(join(import.meta.dir, '../../desktop/scripts/dmg-background.svg'), 'utf8')
+    expect(svg).toContain(`viewBox="0 0 ${one.w} ${one.h}"`)
+    // the SVG's notes name the same two spots (keeps its comment true)
+    for (const c of dmg.contents) expect(svg).toContain(`(${c.x},${c.y})`)
+    // the drawn chevron: three marks at the icons' height, all between the two icons (144 points wide)
+    const [app, apps] = dmg.contents
+    const marks = [...svg.matchAll(/<path d="M(\d+) (\d+) L(\d+) (\d+) L\d+ \d+"/g)].map((m) => ({ x0: +m[1], tip: +m[3], y: +m[4] }))
+    expect(marks).toHaveLength(3)
+    for (const m of marks) {
+      expect(m.y).toBe(app.y)
+      expect(m.x0).toBeGreaterThan(app.x + 72)
+      expect(m.tip).toBeLessThan(apps.x - 72)
+    }
   })
 })

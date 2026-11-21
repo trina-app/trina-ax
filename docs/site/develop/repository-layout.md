@@ -32,7 +32,7 @@ The repository is a Bun workspace. The product id in code is `mycel`.
 | `server/src/files/`, `server/src/team-files/` | File service and the team folder |
 | `server/src/policy/` | The permission function |
 | `server/src/integrations/` | MCP and HTTP API connections |
-| `server/src/connectors/remote-mcp/` | The Team AX MCP connector for outside AI apps |
+| `server/src/connectors/remote-mcp/` | Trina AX MCP, the connector for outside AI apps |
 | `server/src/proxy/` | The model proxy |
 | `server/src/admin/` | Admin features, audit and usage |
 | `server/migrations/` | SQL migrations |
@@ -43,8 +43,8 @@ The repository is a Bun workspace. The product id in code is `mycel`.
 |---|---|
 | Add or change an endpoint | `shared/src/api/<area>.ts`, then `server/src/routes/<area>.ts` |
 | Change a screen | `web/src/pages/` and `web/src/components/` |
-| Add a string | `web/src/i18n/{en,ko,id,es,ja}.ts` |
+| Add a string | `web/src/i18n/{en,ko,id,es,ja,zh}.ts` |
 | Add an AI tool | `server/src/tools/` and its registry |
 | Change who can see what | `server/src/policy/` (read the [decisions](../../DECISIONS.md) first) |
 
-Design decisions are recorded in [`docs/DECISIONS.md`](../../DECISIONS.md). Ownership by area is in [`docs/WORKPLAN.md`](../../WORKPLAN.md).
+Design decisions are recorded one file each in [`docs/decisions/`](../../decisions/README.md) (since 2026-11-16; older ones in the archive [`docs/DECISIONS.md`](../../DECISIONS.md)). Ownership by area is in [`docs/WORKPLAN.md`](../../WORKPLAN.md).

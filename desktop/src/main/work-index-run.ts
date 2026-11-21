@@ -8,7 +8,7 @@ import { execFile } from 'node:child_process'
 import { open } from 'node:fs/promises'
 import { shell } from 'electron'
 import { windowsRecentLinks } from './work-places-run'
-import { mdlsArgs, mergeIndexed, parseMdls, parseOfficeMru, parseWindowsSearch, parseZoneIdentifier, powershellArgs, windowsSearchScript, type IndexedFile } from '../common/work-index'
+import { mdlsArgs, mergeIndexed, parseMdls, parseOfficeMru, parseWindowsSearch, parseZoneIdentifier, powershellArgs, windowsLook, windowsSearchScript, type IndexedFile, type WindowsLook } from '../common/work-index'
 
 /** A command's output; a non-zero exit with output still answers (mdls exits 1 when one of 200 paths is gone, and the
  * other 199 count); a time-out or no output at all fails. */
@@ -48,17 +48,18 @@ async function windowsRecent(home: string): Promise<IndexedFile[]> {
   return out
 }
 
-/** Windows Search's recent files under the roots plus the recent lists, merged; null when the index does not answer
- * (the WSearch service off, no provider). Files under Downloads say where they were downloaded from. */
-export async function windowsIndex(roots: readonly string[], downloads: string | null, o: { home?: string; drives?: boolean } = {}): Promise<IndexedFile[] | null> {
-  let indexed: IndexedFile[]
-  const recentP = windowsRecent(o.home ?? process.env.USERPROFILE ?? '')
-  try {
-    indexed = parseWindowsSearch(await run('powershell.exe', powershellArgs(windowsSearchScript(roots, undefined, undefined, { drives: o.drives })), 10_000))
-  } catch {
-    return null
-  }
-  const all = mergeIndexed([indexed, await recentP], 'win32')
+/** Windows Search's recent files under the roots plus the recent lists (common/work-index.ts windowsLook): the index's
+ * part is null when the index does not answer (the WSearch service off, no provider), and the recent lists still count
+ * (`lists`).
+ * Files under Downloads say where they were downloaded from. */
+export async function windowsIndex(roots: readonly string[], downloads: string | null, o: { home?: string; drives?: boolean; lists?: boolean } = {}): Promise<WindowsLook> {
+  const recentP = windowsRecent(o.home ?? process.env.USERPROFILE ?? '').catch(() => [] as IndexedFile[])
+  const indexed = await run('powershell.exe', powershellArgs(windowsSearchScript(roots, undefined, undefined, { drives: o.drives })), 10_000).then(parseWindowsSearch, () => null)
+  const look = windowsLook(indexed, await recentP)
+  // a look that only takes the index (the three folders) walks at once when there is none (`lists`: the wide look,
+  // which lists the recent files too)
+  if (!look.index && !o.lists) return look
+  const all = look.index ?? look.recent
   if (downloads) {
     // where the downloads came from: their Zone.Identifier stream (4 KB at most), only for files under Downloads
     // itself (not a Downloads2 beside it), a second each and 5 s in all; the hosts only
@@ -79,13 +80,27 @@ export async function windowsIndex(roots: readonly string[], downloads: string |
       }))
     }
   }
-  return all
+  return look
 }
 
+/** How long one answer of windowsFixedDrives is used again: each PowerShell start is a process start on the app's main
+ * thread (QA TC-4813 measured 0.25-1.2 s of it in a wide look), and the fixed drives seldom change. A drive added
+ * meanwhile only counts as a network one (looked at one call at a time) until then. */
+const FIXED_DRIVES_MS = 5 * 60_000
+let fixedDrives: { at: number; drives: Promise<string[]> } | null = null
+
 /** Windows' fixed drives ("C:\\", "D:\\"): any other drive letter is a network or removable one. */
-export async function windowsFixedDrives(): Promise<string[]> {
-  try {
-    const out = await run('powershell.exe', powershellArgs("[System.IO.DriveInfo]::GetDrives()|Where-Object{$_.DriveType -eq 'Fixed'}|ForEach-Object{$_.Name}"), 5000)
-    return out.split(/\r?\n/).map((x) => x.trim()).filter((x) => /^[A-Z]:\\$/i.test(x))
-  } catch { return [] }
+export function windowsFixedDrives(): Promise<string[]> {
+  if (fixedDrives && Date.now() - fixedDrives.at < FIXED_DRIVES_MS) return fixedDrives.drives
+  const drives = (async () => {
+    try {
+      const out = await run('powershell.exe', powershellArgs("[System.IO.DriveInfo]::GetDrives()|Where-Object{$_.DriveType -eq 'Fixed'}|ForEach-Object{$_.Name}"), 5000)
+      return out.split(/\r?\n/).map((x) => x.trim()).filter((x) => /^[A-Z]:\\$/i.test(x))
+    } catch { return [] }
+  })()
+  const entry = { at: Date.now(), drives }
+  fixedDrives = entry
+  // no answer is not kept: the next look asks again
+  void drives.then((d) => { if (!d.length && fixedDrives === entry) fixedDrives = null })
+  return drives
 }

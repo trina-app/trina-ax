@@ -1,10 +1,17 @@
-# The feature map (docs/FEATURES.md): on every push to dev, runs the web e2e suite against the mock team server, keeps
+# The feature map (docs/FEATURES.md): on a push to dev (the paths below), runs the web e2e suite against the mock team server, keeps
 # the endpoints it reached (web/test-results/feature-coverage.json) as an artifact, and rewrites the "Features" tab of
 # the QA sheet when its secrets are set. Not a required check, and not on pull requests (the suite takes long: it runs in
 # four shards).
-# A burst of merges does not cancel a run that is going: one runs, the newest push waits (GitHub keeps one pending).
+# One run at a time: a newer push replaces the waiting run (GitHub keeps one pending), and a running run is never
+# cancelled. Every run that starts finishes, so the issue below shows the newest dev head that was tested to the end.
+# What saves runners is the paths filter below (a run keeps ~4 runners busy for 30-40 min): it runs only for pushes that
+# can change the web e2e result or the feature map.
 # A failing e2e test fails its shard and the run ends red, but only after the coverage of every shard is uploaded and the
 # Features tab is rewritten (the sheet job still runs). Each shard's failed tests are listed in the run summary.
+# On a dev push the summary job merges the shards' blob reports, writes the totals and every failing spec:line to the
+# run summary (scripts/ci/web-e2e-summary.ts) and keeps ONE open issue labelled web-e2e-dev, "Web e2e on dev: N failing
+# (<date>, <sha>)": opened or updated on a red run, closed on a green one. Only that job has issues: write, and only a
+# run whose shards all ran to the end updates the issue (never a cancelled one).
 #
 # One-time setup (docs/FEATURES.md "Sheet sync in CI"): the secret GOOGLE_SHEETS_SA_JSON (a Google service account's key
 # JSON, the sheet shared with its e-mail as an editor) and the secret FEATURES_SHEET_ID (the QA sheet's
@@ -15,10 +22,33 @@ name: Feature map
 on:
   push:
     branches: [dev]
+    # what the mock team server, the specs and the web build read (web/test/mock imports server/, shared/, mobile/src
+    # and tests/lib; the server imports resources/skill-packs; build:web reads resources/promo-video,
+    # scripts/release-notices.ts and versions.json), the rhwp pin (resources/hwp), the feature map (docs/features.ts,
+    # scripts/features/: the Features tab), the summary script and this file
+    paths:
+      - 'web/**'
+      - 'shared/**'
+      - 'server/**'
+      - 'mobile/src/**'
+      - 'tests/lib/**'
+      - 'resources/**'
+      - 'scripts/release-notices.ts'
+      - 'versions.json'
+      - 'tsconfig.json'
+      - 'scripts/hwp-bundle.ts'
+      - 'scripts/linux/apparmor-bwrap.in'
+      - 'docs/features.ts'
+      - 'scripts/features/**'
+      - 'scripts/ci/web-e2e-summary.ts'
+      - 'package.json'
+      - 'bun.lock'
+      - '.github/workflows/feature-map.yml'
   workflow_dispatch:
 
+# one run at a time per branch ("feature-map-dev" on dev), at most one waiting; never cancelled half way (see above)
 concurrency:
-  group: feature-map
+  group: feature-map-${{ github.ref_name }}
   cancel-in-progress: false
 
 permissions:
@@ -68,11 +98,13 @@ jobs:
       # what the mock team server and the specs need that the runner image has none of: ffmpeg (previews.spec.ts makes
       # its test videos with it), pandoc (the docx and pptx samples: without it answer-sources lists 3 files, not 4),
       # bubblewrap and fontconfig (the HWP renderer runs isolated as on a server: without bwrap the mock answers "Safe
-      # document rendering is unavailable" and no Hangul page is drawn)
-      - name: Tools (ffmpeg, pandoc, bubblewrap)
+      # document rendering is unavailable" and no Hangul page is drawn), and a phone's font: Roboto as sans-serif and
+      # system-ui (web/test/e2e/fonts/phone-font.conf), so the specs that measure text against its box draw it as a
+      # phone does, not in the runner's much wider DejaVu Sans
+      - name: Tools (ffmpeg, pandoc, bubblewrap, the phone font)
         run: |
           for try in 1 2 3 4 5; do
-            sudo apt-get -o Acquire::Retries=3 update -qq && sudo apt-get -o Acquire::Retries=3 install -y -qq --no-install-recommends ffmpeg bubblewrap libfontconfig1 && break
+            sudo apt-get -o Acquire::Retries=3 update -qq && sudo apt-get -o Acquire::Retries=3 install -y -qq --no-install-recommends ffmpeg bubblewrap libfontconfig1 fonts-roboto-unhinted && break
             [ "$try" = 5 ] && exit 1
             echo "::warning::apt failed (try $try of 5); trying again in $((try * 20)) s"; sleep $((try * 20))
           done
@@ -82,6 +114,11 @@ jobs:
             curl -fsSL --retry 5 --retry-all-errors -o "$deb" "https://github.com/jgm/pandoc/releases/download/${PANDOC_VERSION}/pandoc-${PANDOC_VERSION}-1-amd64.deb"
           fi
           sudo dpkg -i "$deb"
+          sudo install -m 644 web/test/e2e/fonts/phone-font.conf /etc/fonts/conf.d/99-mycel-e2e-phone-font.conf
+          fc-cache -f
+          for generic in sans-serif system-ui; do
+            [ "$(fc-match -f '%{family}' "$generic")" = Roboto ] || { echo "::error::$generic is not Roboto: $(fc-match "$generic")"; exit 1; }
+          done
           pandoc --version | head -1; ffmpeg -version | head -1
       # as ci.yml: Ubuntu 24.04 restricts unprivileged user namespaces; the installer's bwrap-only AppArmor allowance
       - name: Enable and smoke-test converter isolation
@@ -96,11 +133,13 @@ jobs:
       - name: Playwright browsers (Chromium, WebKit)
         run: cd web && bunx playwright install --with-deps chromium webkit
       # no continue-on-error: a failed test fails the shard (and the run); the steps below run anyway (if: always())
+      # workers: 1 comes from the config (the mock server's state is shared); the blob report is what the summary merges
       - name: e2e suite, shard ${{ matrix.shard }} of 4 (records the endpoints it reaches)
-        run: cd web && bunx playwright test -c playwright.config.ts --shard=${{ matrix.shard }}/4 --reporter=dot,json
+        run: cd web && bunx playwright test -c playwright.config.ts --shard=${{ matrix.shard }}/4 --reporter=dot,json,blob
         env:
           FEATURE_COVERAGE_FILE: ${{ github.workspace }}/coverage/feature-coverage-${{ matrix.shard }}.json
           PLAYWRIGHT_JSON_OUTPUT_FILE: ${{ runner.temp }}/e2e-report.json
+          PLAYWRIGHT_BLOB_OUTPUT_FILE: ${{ runner.temp }}/blob-report/report-${{ matrix.shard }}.zip
       - name: Failed tests in the run summary
         if: ${{ !cancelled() }}
         run: bun scripts/features/e2e-failures.ts "$RUNNER_TEMP/e2e-report.json" "shard ${{ matrix.shard }}/4" >> "$GITHUB_STEP_SUMMARY"
@@ -113,6 +152,15 @@ jobs:
           path: web/test-results/
           retention-days: 7
           if-no-files-found: ignore
+      # a cancelled shard uploads none, so the summary sees it as missing
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: ${{ !cancelled() }}
+        with:
+          name: blob-report-${{ matrix.shard }}
+          path: ${{ runner.temp }}/blob-report/
+          # only this run's summary job reads it
+          retention-days: 1
+          if-no-files-found: ignore
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         if: always()
         with:
@@ -124,7 +172,8 @@ jobs:
   sheet:
     name: Features tab of the QA sheet
     needs: e2e
-    if: ${{ !cancelled() }}
+    # dev only: a manual run of another branch (its own concurrency group) must not overlap a dev run and rewrite the tab
+    if: ${{ !cancelled() && github.ref == 'refs/heads/dev' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
@@ -160,3 +209,102 @@ jobs:
             exit 0
           fi
           bun scripts/features/sync-sheet.ts "${args[@]}"
+
+  summary:
+    name: e2e summary and issue
+    needs: e2e
+    # dev pushes only (not a manual run of another branch), also after red shards; only when every shard ran to the end:
+    # a cancelled run or shard never opens, updates or closes the issue
+    if: ${{ !cancelled() && github.event_name == 'push' && github.ref == 'refs/heads/dev' && (needs.e2e.result == 'success' || needs.e2e.result == 'failure') }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ~/.bun/install/cache
+          key: bun-store-${{ runner.os }}-${{ env.BUN_VERSION }}-${{ hashFiles('bun.lock') }}
+          restore-keys: bun-store-${{ runner.os }}-${{ env.BUN_VERSION }}-
+      - run: bun install --frozen-lockfile
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          pattern: blob-report-*
+          path: all-blob-reports
+          merge-multiple: true
+      - name: Merge the shards' reports
+        run: |
+          mkdir -p all-blob-reports
+          ls -la all-blob-reports
+          if ls all-blob-reports/*.zip > /dev/null 2>&1; then
+            cd web && bunx playwright merge-reports -c playwright.config.ts --reporter=html,json ../all-blob-reports
+          else
+            echo "::warning::no shard sent a blob report"
+          fi
+        env:
+          PLAYWRIGHT_JSON_OUTPUT_FILE: ${{ runner.temp }}/merged.json
+          PLAYWRIGHT_HTML_OUTPUT_DIR: ${{ github.workspace }}/playwright-report
+          PLAYWRIGHT_HTML_OPEN: never
+      - id: sum
+        name: Run summary
+        # also when the merge failed: the script then reports "No merged report" with the shard counts
+        if: ${{ !cancelled() }}
+        env:
+          SHA: ${{ github.sha }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          SHARDS_RESULT: ${{ needs.e2e.result }}
+        run: |
+          blobs=$(find all-blob-reports -maxdepth 1 -name '*.zip' | wc -l)
+          # --jobs: a shard that failed outside its tests (setup, a time-out) still makes the run red
+          bun scripts/ci/web-e2e-summary.ts "$RUNNER_TEMP/merged.json" --shards 4 --blobs "$blobs" --jobs "$SHARDS_RESULT" \
+            --date "$(date -u +%F)" --sha "$SHA" --run "$RUN_URL" --out "$RUNNER_TEMP/summary.md" >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: ${{ !cancelled() && steps.sum.outputs.status != 'green' }}
+        with:
+          name: playwright-report
+          # the merged HTML report, with the failed tests' traces and screenshots
+          path: playwright-report/
+          retention-days: 7
+          if-no-files-found: ignore
+      # ONE open issue labelled web-e2e-dev: updated on a red run (title and body; a comment only when the title changes,
+      # so subscribers are not pinged on every push), opened when there is none, closed (every open one) on a green run
+      - id: issue
+        name: Web e2e issue
+        if: ${{ !cancelled() }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          STATUS: ${{ steps.sum.outputs.status }}
+          TITLE: ${{ steps.sum.outputs.title }}
+          SHA: ${{ github.sha }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          body="$RUNNER_TEMP/summary.md"
+          # the summary step itself failed: still report the run as red
+          if [ -z "$STATUS" ] || [ ! -s "$body" ]; then
+            STATUS=red; TITLE="Web e2e on dev: summary failed ($(date -u +%F), ${SHA:0:9})"
+            printf 'The web e2e summary step failed; see the run: %s\n' "$RUN_URL" > "$body"
+          fi
+          gh label create web-e2e-dev --color B60205 --description "Web e2e failures on dev (feature-map.yml)" > /dev/null 2>&1 || true
+          if [ "$STATUS" = green ]; then
+            for n in $(gh issue list --label web-e2e-dev --state open --json number --jq '.[].number'); do
+              gh issue close "$n" --comment "Green again on $(date -u +%F) (${SHA:0:9}): $RUN_URL"
+            done
+            exit 0
+          fi
+          open=$(gh issue list --label web-e2e-dev --state open --limit 1 --json number --jq '.[0].number // empty')
+          if [ -n "$open" ]; then
+            old=$(gh issue view "$open" --json title --jq .title)
+            gh issue edit "$open" --title "$TITLE" --body-file "$body"
+            # the count changed (the date and sha always do): say so once
+            if [ "${old%% (*}" != "${TITLE%% (*}" ]; then gh issue comment "$open" --body "$TITLE: $RUN_URL"; fi
+          else
+            gh issue create --title "$TITLE" --label web-e2e-dev --body-file "$body"
+          fi

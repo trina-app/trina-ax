@@ -1,13 +1,12 @@
 // Route module "jobs" — owner: component C (docs/WORKPLAN.md).
 // Implements: JOBS (get, cancel, transcribe). Contract: shared/src/api/jobs.ts. Logic: server/src/jobs/*.
 // init() installs the JobService (ctx.services.jobs) that G's backup / restore / update / export also use.
-import fs from 'node:fs'
-import path from 'node:path'
 import { API } from '@mycel/shared/api'
 import { HttpError } from '../http/errors'
+import { JobFailure } from '../jobs/service'
+import { MeetingGone, MeetingInFlight, PieceTooFast } from '../jobs/meeting-piece'
 import { mapErrors } from '../team-files/errors'
 import { componentC, startComponentC } from '../team-files/component'
-import { writeTemp } from '../team-files/place'
 import type { RouteModule } from './module'
 
 export const jobsRoutes: RouteModule = {
@@ -37,10 +36,30 @@ export const jobsRoutes: RouteModule = {
       // a confidential chat's recording never goes to OpenRouter: refused before it is written anywhere
       C.checkTranscribe(auth.user.id, chatId)
       const name = body.file.name || 'audio.webm'
-      const p = await writeTemp(path.join(ctx.config.dataDir, 'work'), body.file)
+      // the recording is on disk already (http/multipart.ts); the job takes the file over, or the kit removes it
+      return { jobId: C.startTranscribe(auth.user.id, body.file.path, name, { language: body.fields.language, chatId }) }
+    }))
+    // a piece's refusal as voice input reads it: 429 in_flight / too_fast and 503
+    // busy / not_ready are sent again after retryAfter; 409 (off, no_key), 403 confidential and 429 free_used
+    // stop with the sentence
+    const pieceError = (locale: Parameters<typeof mapErrors>[0], e: unknown): never => {
+      if (e instanceof MeetingInFlight) throw new HttpError('rate_limited', undefined, { params: { reason: 'in_flight' }, retryAfter: 2 })
+      if (e instanceof PieceTooFast) throw new HttpError('rate_limited', undefined, { params: { reason: 'too_fast' }, retryAfter: e.retryAfter })
+      if (e instanceof MeetingGone) throw new HttpError('bad_request')
+      if (e instanceof JobFailure) {
+        const again = e.reason === 'busy' || e.reason === 'not_ready'
+        throw new HttpError(e.code, e.messages[locale], { ...(e.reason ? { params: { reason: e.reason } } : {}), ...(again ? { retryAfter: 5 } : {}) })
+      }
+      throw e
+    }
+    // voice input while recording (web app): the chat is checked as for a whole recording, before the piece is read
+    kit.handle(API.transcribePiece, ({ c, body, auth }) => mapErrors(c.get('locale'), async () => {
+      const chatId = body.fields.chatId
+      if (chatId) C.attachments.assertVoiceChat(auth.user.id, chatId)
+      C.checkTranscribe(auth.user.id, chatId)
       try {
-        return { jobId: C.startTranscribe(auth.user.id, p, name, { language: body.fields.language, chatId }) }
-      } catch (e) { fs.rmSync(p, { force: true }); throw e }
+        return await C.voicePiece(auth.user.id, body.file.path, { language: body.fields.language, signal: c.req.raw.signal })
+      } catch (e) { return pieceError(c.get('locale'), e) }
     }))
   },
 }

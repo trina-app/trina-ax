@@ -82,7 +82,7 @@ test('the consent offers reading conversations and writing in them; an older pag
   // reading only: the three read tools, and room_send is refused
   const reads = await f.connect(f.reader.client.cookie!, { rooms: true })
   expect(reads.scope).toBe('mcp:read mcp:rooms offline_access')
-  expect(f.names(reads.token)).toEqual(['list', 'glob', 'grep', 'read', 'skills_list', ...READS])
+  expect(f.names(reads.token)).toEqual(['list', 'glob', 'grep', 'read', 'create_download_link', 'skills_list', ...READS])
   const dm = await f.room(f.reader, { kind: 'dm', userId: f.helper.id })
   expect(text(await f.call(reads.token, 'room_send', { room: dm, text: 'hello' }))).toContain('no permission')
   expect(f.rows(dm)).toEqual([])
@@ -96,7 +96,7 @@ test('the consent offers reading conversations and writing in them; an older pag
   const again = f.oauth.token({ client_id: f.client.client_id, grant_type: 'refresh_token', refresh_token: narrowed.refresh, scope: 'mcp:read mcp:rooms.write offline_access', resource: f.oauth.resource() })
   expect(again.scope).toBe('mcp:read offline_access')
   expect(f.names(again.access_token).filter(n => ROOM_TOOLS.has(n))).toEqual([])
-  expect(f.names(both.token)).toEqual(['list', 'glob', 'grep', 'read', 'skills_list', ...READS, 'room_send'])
+  expect(f.names(both.token)).toEqual(['list', 'glob', 'grep', 'read', 'create_download_link', 'skills_list', ...READS, 'room_send'])
   const listed = f.tools.list(both.grant())
   for (const n of READS) expect(listed.find(t => t.name === n)!.annotations).toMatchObject({ readOnlyHint: true, openWorldHint: false })
   expect(listed.find(t => t.name === 'room_send')!.annotations).toMatchObject({ readOnlyHint: false, destructiveHint: false })

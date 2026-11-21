@@ -292,6 +292,16 @@ describe('limits and search', () => {
     expect(searchRooms(h.ctx.db, 'alice', TZ, { since: '2026-10-03', until: '2026-10-03', room: roomId }).count).toBe(1)
     expect(searchRooms(h.ctx.db, 'alice', TZ, { query: '100%_예산', room: roomId }).count).toBe(0)
     expect(searchRooms(h.ctx.db, 'alice', TZ, { query: '예산', room: roomId }).seen).toEqual([{ roomId, fromSeq: expect.any(Number) }])
+    // a search finds the words only: read the room before saying someone wrote nothing (AI flow FL-14, 2026-11-17)
+    expect(words.text).toContain('Only messages with this word are found: before you say someone did not write something, or that this room does not have it, read the room\'s newest messages with room_read.')
+    const miss = searchRooms(h.ctx.db, 'alice', TZ, { query: '라마바 카페', room: roomId })
+    expect(miss.count).toBe(0)
+    expect(miss.text).toContain('Only messages with these words are found')
+    // all rooms: only the room where it would have been said, never every room
+    const everywhere = searchRooms(h.ctx.db, 'alice', TZ, { query: 'no-such-words-anywhere' })
+    expect(everywhere.count).toBe(0)
+    expect(everywhere.text).toContain('read the newest messages of the room where they would have said it with room_read (not every room).')
+    expect(searchRooms(h.ctx.db, 'alice', TZ, { person: 'Erin Yoo님', room: roomId }).text).not.toContain('Only messages with')
   })
 })
 
@@ -311,7 +321,7 @@ describe('in a chat', () => {
     const steps = r.done.steps!.filter((s) => s.tool === 'rooms' || s.tool === 'room_read')
     // alice reads English: the room's step names it as she sees it (the AI passed its id)
     expect(steps.map((s) => s.label)).toEqual(['Find in conversations', `Read conversation · 마케팅${tag}`])
-    expect(localizeStep({ kind: 'tool', tool: 'room_read', label: steps[1]!.label }, 'ko').label).toBe(`대화방 읽기 · 마케팅${tag}`)
+    expect(localizeStep({ kind: 'tool', tool: 'room_read', label: steps[1]!.label }, 'ko').label).toBe(`대화 읽기 · 마케팅${tag}`)
     expect(roomsSeen(chat)).toBe(1)
     const row = h.ctx.db.query('SELECT session_tainted, session_read_scope s FROM chats WHERE id = ?').get(chat) as { session_tainted: number; s: string }
     expect(row.session_tainted).toBe(1)
@@ -334,8 +344,12 @@ describe('in a chat', () => {
     const card = await ws.alice!.next('turn.request', (f) => f.data.turnId === turnId && f.data.request.kind === 'ask_user', 15_000)
     // the room is in the chat's read scope and shared/ is wider: one card, the wider-audience card, which also asks for
     // the change (docs/DECISIONS.md "대화방에서 새 파일은 미리 허용": one card per call), with what it writes
-    expect(card.data.request).toMatchObject({ origin: 'server', options: [{ value: 'save' }, { value: '__always' }, { value: 'skip' }], details: [{ fields: [{ value: 'Save' }, { value: W(target) }], text: 'after the room\n' }] })
-    expect((card.data.request as { question: string }).question).toContain('Messages from your conversations')
+    // (QA TC-4815: the question names the place, so no Action or File row repeats it; no size; the text formatted)
+    expect(card.data.request).toMatchObject({ origin: 'server', options: [{ value: 'save' }, { value: '__always' }, { value: 'skip' }], details: [{ text: 'after the room\n', noSize: true, markdown: true }] })
+    expect((card.data.request as { details: { fields?: unknown }[] }).details[0]!.fields).toBeUndefined()
+    // why it asks: the small line under the buttons (this chat is not the room's side chat), not the question
+    expect((card.data.request as { note?: string }).note).toContain('Messages from your conversations')
+    expect((card.data.request as { question: string }).question).not.toContain('Messages from your conversations')
     expect((card.data.request as { question: string }).question).toContain(W(target))
     await h.api('alice').call(API.answerTurn, { params: { id: turnId }, body: { kind: 'ask_user', requestId: card.data.request.requestId, answer: 'skip' } })
     await ws.alice!.next('message.done', (f) => f.data.message.turnId === turnId, 30_000)
@@ -344,7 +358,7 @@ describe('in a chat', () => {
     const third = await h.api('alice').call(API.sendMessage, { params: { id: chat }, body: { content: fake({ tool: 'read', args: { file_path: target } }, { tool: 'write', args: { file_path: target, content: 'with a yes\n' } }, { say: 'saved' }), clientMessageId: cm(), attachmentIds: [] } })
     // the room is in the chat's read scope: saving where more people can see (shared/) is the one card, naming the room
     const card3 = await ws.alice!.next('turn.request', (f) => f.data.turnId === third.turnId && f.data.request.kind === 'ask_user', 15_000)
-    expect((card3.data.request as { question: string }).question).toContain('wants to save to')
+    expect((card3.data.request as { question: string }).question).toMatch(/^Save to .+ \(\d+ (person|people)\)\? \d+ of them can’t see the chat it came from\.\nIt came from .+ \(\d+ (person|people)\)\./)
     await h.api('alice').call(API.answerTurn, { params: { id: third.turnId }, body: { kind: 'ask_user', requestId: card3.data.request.requestId, answer: 'save' } })
     await ws.alice!.next('message.done', (f) => f.data.message.turnId === third.turnId, 30_000)
     expect(fs.readFileSync(abs(), 'utf8')).toBe('with a yes\n')
@@ -362,11 +376,16 @@ describe('in a chat', () => {
       expect((again.query('SELECT rooms_seen FROM chats WHERE id = ?').get(chat) as { rooms_seen: number }).rooms_seen).toBe(1)
       again.close()
     } finally { fs.rmSync(dir, { recursive: true, force: true }) }
-    const fourth = await h.api('alice').call(API.sendMessage, { params: { id: chat }, body: { content: fake({ tool: 'read', args: { file_path: target } }, { tool: 'write', args: { file_path: target, content: 'no\n' } }, { say: 'x' }), clientMessageId: cm(), attachmentIds: [] } })
+    // (the same file again is covered by the yes above for the rest of this chat: docs/decisions/
+    // 20261117-card-approved-once-per-chat.md; another file still waits for a yes)
+    const other2 = `${target}.other.md`
+    fs.writeFileSync(path.join(h.team, other2), 'other\n')
+    const fourth = await h.api('alice').call(API.sendMessage, { params: { id: chat }, body: { content: fake({ tool: 'read', args: { file_path: other2 } }, { tool: 'write', args: { file_path: other2, content: 'no\n' } }, { say: 'x' }), clientMessageId: cm(), attachmentIds: [] } })
     const card4 = await ws.alice!.next('turn.request', (f) => f.data.turnId === fourth.turnId && f.data.request.kind === 'ask_user', 15_000)
     await h.api('alice').call(API.answerTurn, { params: { id: fourth.turnId }, body: { kind: 'ask_user', requestId: card4.data.request.requestId, answer: 'skip' } })
     await ws.alice!.next('message.done', (f) => f.data.message.turnId === fourth.turnId, 30_000)
-    expect(fs.readFileSync(abs(), 'utf8')).toBe('with a yes\n')
+    expect(fs.readFileSync(path.join(h.team, other2), 'utf8')).toBe('other\n')
+    fs.rmSync(path.join(h.team, other2), { force: true })
     fs.rmSync(abs(), { force: true })
   })
 
@@ -420,8 +439,9 @@ describe('in a chat', () => {
     const r = await turn('alice', chat, fake({ tool: 'room_file', args: { room: roomId, file: f.id }, sayResult: true }))
     expect(r.done.content).toContain('결정: 다음 주 월요일 출시')
     expect(r.done.content).toContain('sent by Erin Yoo')
-    // the time it was sent is in the team's time zone and says so (the prompt's time line: other tool times are UTC)
-    expect(r.done.content).toMatch(/sent by Erin Yoo on \d{4}-\d{2}-\d{2} \d{2}:\d{2} \(the team's time zone\) in /)
+    // the time it was sent names its zone, the turn's (the team's here: no device zone was sent; TC-4549), so it is not
+    // converted again (the prompt's time line: other tool times are UTC)
+    expect(r.done.content).toMatch(/sent by Erin Yoo on \d{4}-\d{2}-\d{2} \d{2}:\d{2} \([A-Za-z_/+-]+\) in /)
     expect(r.done.steps!.find((s) => s.tool === 'room_file')?.label).toBe('Read conversation file · 회의록.md')
     // by its name too; bob, invited later, does not see the message it came with: no such file for him
     expect((await turn('alice', chat, fake({ tool: 'room_file', args: { room: roomId, file: '회의록.md' }, sayResult: true }))).done.content).toContain('다음 주 월요일')
@@ -430,6 +450,24 @@ describe('in a chat', () => {
     const no = await turn('bob', bobChat, fake({ tool: 'room_file', args: { room: roomId, file: f.id }, sayResult: true }))
     expect(no.done.content).toContain('No file')
     expect(no.done.content).not.toContain('월요일')
+  })
+})
+
+describe('room_file on a big file (limits audit 1 #23)', () => {
+  test('a 40 MB export sent in a room is read up to the read limit, not refused at 32 MB', async () => {
+    // erin makes this room: alice's own group chats are already near the 10-an-hour limit in this file
+    const roomId = await groupChat('erin', ['alice', 'carol'], 'big export')
+    const src = path.join(h.dataDir, `room-file-${uuidv7()}.csv`)
+    const row = 'id,name,amount,region,note\n'
+    fs.writeFileSync(src, 'id,name,amount,region,note\n' + `1,Acme,100,Seoul,${'x'.repeat(80)}\n`.repeat(Math.ceil((40 << 20) / 98)))
+    expect(fs.statSync(src).size).toBeGreaterThan(40 << 20)
+    const f = await roomFilesOf(h.ctx).create('erin', roomId, 'export.csv', src, 'x'.repeat(64))
+    await send('erin', roomId, 'export', { fileIds: [f.id] })
+    const chat = await newChat('alice')
+    const r = await turn('alice', chat, fake({ tool: 'room_file', args: { room: roomId, file: f.id }, sayResult: true }))
+    expect(r.done.content).not.toContain('too large')
+    expect(r.done.content).toContain(row.trim())
+    expect(r.done.content).toMatch(/read on with offset=\d+/)
   })
 })
 
@@ -484,8 +522,8 @@ describe('"#" room tokens', () => {
     expect(token).toBe(`#[토큰 확인](room:${roomId})`)
     expect(roomRefsBlock(`봐줘 ${token}`)).toContain(`room_id=${roomId}`)
     expect(roomRefsBlock('no token here')).toBe('')
-    expect(stepLabel('room_read', { room: token }, 'ko', new Set())).toBe('대화방 읽기 · 토큰 확인')
-    expect(stepLabel('room_read', { room: roomId }, 'ko', new Set())).toBe('대화방 읽기')
+    expect(stepLabel('room_read', { room: token }, 'ko', new Set())).toBe('대화 읽기 · 토큰 확인')
+    expect(stepLabel('room_read', { room: roomId }, 'ko', new Set())).toBe('대화 읽기')
     // the engine gets the block with the id in front of the message
     const chat = await newChat('alice')
     const seen = await turn('alice', chat, `${token} 봐봐\n${fake({ echo: 'message' })}`)
@@ -496,7 +534,8 @@ describe('"#" room tokens', () => {
     expect(block).toContain('토큰 확인')
     expect(said).not.toContain('토큰 확인')
     expect(said).toContain('[#room 1] 봐봐')
-    expect(roomsSeen(chat)).toBe(1)
+    // names only (docs/decisions/20261118-dm-own-paste.md): every gate of a read room applies, no room message came in
+    expect(roomsSeen(chat)).toBe(2)
     expect(historyBlock([{ role: 'user', content: `${token} 봐봐` }, { role: 'assistant', content: 'ok' }])).toContain(`[#room room_id=${roomId}] 봐봐`)
     expect(historyBlock([{ role: 'user', content: `${token} 봐봐` }, { role: 'assistant', content: 'ok' }])).not.toContain('토큰 확인')
     // the AI passes the id the block gave it (the token itself never reaches it: the message says [#room 1])

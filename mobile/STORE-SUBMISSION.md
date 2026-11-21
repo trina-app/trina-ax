@@ -7,10 +7,15 @@ What the owner provides or decides before each store step. Engineering steps and
 
 - Bundle id / Android package: `app.trina.ax` (editions/trina/branding/mobile.json). The iOS platform is added to the
   existing App Store Connect record of the Mac App Store app, team `YWW96288YY`, version 1.0.0, then 1.0.1 to
-  1.0.6 (1.0.5: the app's own photo picker, photo-pick-v1; 1.0.6: Simplified Chinese screens and permission prompts, from
-  Trina 0.5.4, live on Google Play only: its App Store review was withdrawn for 1.0.7); the next store version is 1.0.7
-  (`app.config.ts`, from Trina 0.5.5: the offline and cannot-reach screens open the page by themselves, the "Trina is
-  updating" screen, a paused trial team is woken when added, an address without a dot is refused).
+  1.0.8 (1.0.5: the app's own photo picker, photo-pick-v1; 1.0.6: Simplified Chinese screens and permission prompts, from
+  Trina 0.5.4, live on Google Play only: its App Store review was withdrawn for 1.0.7; 1.0.7, from Trina 0.5.5: the
+  offline and cannot-reach screens open the page by themselves, the "Trina is updating" screen, a paused trial team is
+  woken when added, an address without a dot is refused; 1.0.8: the light app icon, Android adaptive icon and
+  light/dark launch screen, a clearer team-address hint; 1.0.9, Google Play only: the Android app declares
+  MODIFY_AUDIO_SETTINGS, so voice input works); the next store version is 1.0.10 (`app.config.ts`, App Store: voice
+  input written on the iPhone itself while the person talks, the Dictation module and dictation-v1, with the Speech
+  Recognition usage text for iPhones before iOS 26; Google Play: the phone's own speech recognizer writes the words
+  while the person talks, the same capability; neither submitted yet).
 - From 1.0.1 the iPhone app has a notification service extension, `app.trina.ax.NotificationService` (who and where in a
   room push, docs/DECISIONS.md "아이폰 알림의 이름"). Its App ID and profiles are made by automatic signing at the first
   archive (`-allowProvisioningUpdates` with the Admin API key); nothing to register by hand. It needs no App Group and no

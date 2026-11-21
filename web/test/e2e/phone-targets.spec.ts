@@ -100,6 +100,39 @@ async function expectTargets(page: Page, only: string, atLeast = 1) {
   expect(fields, `${only}: text under 16 px`).toEqual([])
 }
 
+// QA TC-4741: the Android app measured the message box's 📎, mic and send at 35–37 dp, which is their drawn size (what
+// the phone's view tree reports); each takes taps from a 44 px box around it (index.css touch-hit), and these say so on
+// a touch phone, for a room's box and the AI chat's, in light and dark.
+test.describe('a touch phone: the message box\'s buttons take taps from 44 px', () => {
+  test.use({ hasTouch: true, isMobile: true })
+  test.beforeEach(async ({ page }) => {
+    await reset(page, { teamLocale: 'en', usersFollowTeam: true, withAdmin: true })
+  })
+  for (const scheme of ['light', 'dark'] as const) {
+    test(`a room: 📎, the mic and send (${scheme})`, async ({ page }) => {
+      await page.emulateMedia({ colorScheme: scheme })
+      await routeRoom(page, { members: [{ id: 'bob', name: 'Bob' }], messages: [{ id: '019a5f00-0000-7000-8000-000000000101', author: { id: 'bob', name: 'Bob' }, body: 'Can you check the deck?' }] })
+      await signIn(page)
+      await page.goto(`/rooms/${ROOM_ID}`)
+      await expect(page.getByText('Can you check the deck?')).toBeVisible()
+      await expectTargets(page, '[data-testid="room-attach"], [data-testid="voice-button"], [data-testid="room-send"]', 3)
+      // with text in the box, send is live (its filled look) and still 44 px
+      await page.getByTestId('room-input').fill('Looks good')
+      await expectTargets(page, '[data-testid="room-send"]')
+      await page.screenshot({ path: `../../shots/composer-room-390-${scheme}.png` })
+    })
+    test(`the AI chat: ＋, the mic and send (${scheme})`, async ({ page }) => {
+      await page.emulateMedia({ colorScheme: scheme })
+      await signIn(page)
+      await page.goto('/new')
+      await expect(page.getByTestId('composer-input')).toBeVisible()
+      await page.getByTestId('composer-input').fill('Sum up the week')
+      await expectTargets(page, '[data-testid="attach-button"], [data-testid="voice-button"], [data-testid="send"]', 3)
+      await page.screenshot({ path: `../../shots/composer-ai-390-${scheme}.png` })
+    })
+  }
+})
+
 for (const touch of [true, false])
   test.describe(touch ? 'a touch phone' : 'a narrow window with a mouse', () => {
     test.use({ hasTouch: touch, isMobile: touch })
@@ -209,11 +242,14 @@ for (const touch of [true, false])
     await expect(page.getByTestId('new-folder-button')).toHaveCount(0)
   })
 
-  test('Settings: Profile\'s theme and text size, Usage\'s period and the team\'s usage link', async ({ page }) => {
+  test('Settings: Profile\'s theme, language and text size, Usage\'s period and the team\'s usage link', async ({ page }) => {
     await signIn(page)
     await page.goto('/settings/profile')
     await expect(page.getByTestId('text-size')).toBeAttached()
-    await expectTargets(page, '[role="radiogroup"] [role="radio"]', 5)
+    // the theme's three; the language is one row with a sheet since ab0b0abd2 / 59971c01e (owner 2026-11-16), no longer
+    // a row of radios
+    await expectTargets(page, '[role="radiogroup"] [role="radio"]', 3)
+    await expectTargets(page, 'button[data-testid="profile-locale"]')
     await expectTargets(page, '[data-testid="text-size"]')
     await page.goto('/settings/usage')
     await expect(page.getByTestId('my-usage-team-link')).toBeAttached()

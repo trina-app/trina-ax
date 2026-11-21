@@ -85,7 +85,7 @@ test('resource reads, invalid manifests, links, traversal and oversized files do
   fs.writeFileSync(path.join(base, 'bad.md'), '---\nname: Resource\n---\nBody')
   fs.mkdirSync(path.join(env.fx.team, 'skills/invalid-manifest'), { recursive: true })
   fs.writeFileSync(path.join(env.fx.team, 'skills/invalid-manifest/SKILL.md'), '---\nname: wrong-name\ndescription: d\n---\nBody')
-  fs.writeFileSync(path.join(base, 'oversize.md'), '---\nname: Big\n---\n' + 'x'.repeat(140 * 1024))
+  fs.writeFileSync(path.join(base, 'oversize.md'), '---\nname: Big\n---\n' + 'x'.repeat(520 * 1024))
   fs.linkSync(path.join(env.fx.team, skill.path), path.join(base, 'hard.md'))
   fs.symlinkSync(path.join(env.fx.team, skill.path), path.join(base, 'linked.md'))
   for (const rel of ['skills/usage-folder/references/guide.md', 'skills/usage-folder/bad.md', 'skills/invalid-manifest/SKILL.md',

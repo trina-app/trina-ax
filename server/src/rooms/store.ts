@@ -17,16 +17,20 @@
 // shared/src/api/rooms.ts RoomReactionEmoji), counted for current members only, never anywhere else.
 import type { Database } from 'bun:sqlite'
 import { getPreferences, type Preferences } from '../notifications/preferences'
+import { loadPrincipal, RuleSet } from '../policy/access'
 import { roomNotifyOut } from './alerts'
 import { parseStored, unescapeMarkdown } from './apps/card'
+import { iconsOf } from './apps/icon'
 import { linkPreviewsFor, prepareLinkPreviews, type LinkPrep } from './link-previews'
+import { eventProjectsFor, projectForViewer } from './project-link'
+import { isProjectRoom, NOT_HELD_SQL } from './project-room'
 import { answerFilePaths, RoomEventLine, ROOM_QUOTE_EXCERPT_MAX, ROOM_REACTION_NAMES, type Room, type RoomFile, type RoomKind, type RoomLastMessage, type RoomMember, type RoomMessage, type RoomQuote, type RoomReaction, type RoomThreadSummary, type UserRef, RoomAppKind, RoomAppPreset, type RoomAppRef } from '@mycel/shared/api'
 
 export const MAX_UNREAD = 999
 const EXCERPT_QUOTE = ROOM_QUOTE_EXCERPT_MAX
 const EXCERPT_LIST = 120
 
-export interface RoomRow { id: string; kind: RoomKind; group_id: string | null; dm_key: string | null; created_by: string | null; created_at: string; last_seq: number; activity_at: string; archived_at: string | null; name: string | null }
+export interface RoomRow { id: string; kind: RoomKind; group_id: string | null; dm_key: string | null; created_by: string | null; created_at: string; last_seq: number; activity_at: string; archived_at: string | null; name: string | null; /** the team category (migration 429); absent from rows made in code or read with named columns */ category_id?: string | null }
 /** muted / notify_level: my level for the room (rooms/alerts.ts ownLevel; notify_level is absent from rows made in code).
  * hidden_at: when I hid the room from my own lists (docs/DECISIONS.md "대화 숨기기"); null or absent: shown */
 /** visible_from_seq: the room's last seq when they joined (the floor of their read position); history_from_seq: where
@@ -64,6 +68,12 @@ export type EventData =
   | { type: 'left' }
   | { type: 'removed'; userId: string }
   | { type: 'joined' }
+  /** a private channel linked to a team project, or unlinked (rooms/project-link.ts): the project by id, its name read
+   * per viewer when shown (only to someone who can open it) */
+  | { type: 'project_linked'; projectId: string }
+  | { type: 'project_unlinked'; projectId: string }
+  /** a linked channel became the project's chat room at the upgrade (rooms/project-room.ts settleLinked): by the system */
+  | { type: 'project_room'; projectId: string }
 export interface FileRow { id: string; room_id: string; user_id: string | null; message_id: string | null; name: string; size: number; mime: string; kind: RoomFile['kind']; width: number | null; height: number | null; sha256: string; thumb: number; created_at: string; team_path?: string | null; team_stamp?: string | null }
 
 export const MSG_COLS = 'id, room_id, seq, author_kind, author_id, asked_by, visibility, visible_to, body, reply_to_id, mentions, client_id, created_at, edited_at, deleted_at, event, thread_root_id, thread_root_seq, also_in_room, mentions_all, answer_at, answer_cut, app_id, app_card, app_quiet, link_previews'
@@ -78,7 +88,7 @@ export const memberRow = (db: Database, roomId: string, userId: string): MemberR
   db.query(`SELECT ${MEMBER_COLS} FROM room_members m WHERE m.room_id = ? AND m.user_id = ?`).get(roomId, userId) as MemberRow | null
 /** Is this person in the room now? (the realtime hub asks before it replays a room event) */
 export const isRoomMember = (db: Database, roomId: string, userId: string): boolean =>
-  !!db.query('SELECT 1 FROM room_members m JOIN rooms r ON r.id = m.room_id WHERE m.room_id = ? AND m.user_id = ? AND r.archived_at IS NULL').get(roomId, userId)
+  !!db.query(`SELECT 1 FROM room_members m JOIN rooms r ON r.id = m.room_id WHERE m.room_id = ? AND m.user_id = ? AND r.archived_at IS NULL AND ${NOT_HELD_SQL('r')}`).get(roomId, userId)
 export const members = (db: Database, roomId: string): MemberRow[] => db.query(`SELECT ${MEMBER_COLS} FROM room_members m WHERE m.room_id = ?`).all(roomId) as MemberRow[]
 export const messageRow = (db: Database, roomId: string, id: string): MessageRow | null =>
   db.query(`SELECT ${MSG_COLS} FROM room_messages WHERE id = ? AND room_id = ?`).get(id, roomId) as MessageRow | null
@@ -176,13 +186,15 @@ export function parseEvent(s: string | null): EventData | null {
       case 'left': return { type: 'left' }
       case 'joined': return { type: 'joined' }
       case 'removed': return typeof v.userId === 'string' ? { type: 'removed', userId: v.userId } : null
+      case 'project_linked': case 'project_unlinked': case 'project_room': return typeof v.projectId === 'string' ? { type: v.type, projectId: v.projectId } : null
     }
   } catch { /* not an event this build reads */ }
   return null
 }
 const eventUserIds = (e: EventData | null): string[] => (!e ? [] : e.type === 'created' || e.type === 'added' ? e.userIds : e.type === 'removed' ? [e.userId] : [])
-/** The event line as the app gets it: the people by name as they are now (an account that is gone is left out). */
-function eventOut(e: EventData, people: Map<string, UserRef>): RoomEventLine {
+/** The event line as the app gets it: the people by name as they are now (an account that is gone is left out); a
+ * project by name only when this viewer can open it now (`projects`, rooms/project-link.ts eventProjectsFor). */
+function eventOut(e: EventData, people: Map<string, UserRef>, projects: Map<string, { id: string; name: string }> = new Map()): RoomEventLine {
   const refs = (ids: string[]) => ids.map((id) => people.get(id)).filter((x): x is UserRef => !!x)
   switch (e.type) {
     case 'created': return { type: 'created', users: refs(e.userIds) }
@@ -191,6 +203,7 @@ function eventOut(e: EventData, people: Map<string, UserRef>): RoomEventLine {
     case 'left': return { type: 'left' }
     case 'joined': return { type: 'joined' }
     case 'removed': return { type: 'removed', user: people.get(e.userId) ?? null }
+    case 'project_linked': case 'project_unlinked': case 'project_room': return { type: e.type, project: projects.get(e.projectId) ?? null }
   }
 }
 
@@ -198,6 +211,25 @@ export const fileOut = (f: FileRow): RoomFile => ({
   id: f.id, name: f.name, size: f.size, mime: f.mime, kind: f.kind,
   ...(f.width ? { width: f.width } : {}), ...(f.height ? { height: f.height } : {}), thumb: !!f.thumb,
 })
+
+/** How a room file kept in the team folder (room_file_refs: a project room's file) is shown to one viewer (rooms/
+ * file-refs.ts RoomFileRefs.view: checked now, as a member who reads its path; rooms/service.ts sets it for the server's
+ * database). Without one, such a file is "unavailable" to everyone (fails closed). */
+const refViews = new WeakMap<Database, (viewerId: string) => (f: FileRow) => RoomFile>()
+export function setRoomRefView(db: Database, view: (viewerId: string) => (f: FileRow) => RoomFile) { refViews.set(db, view) }
+/** The room files as `viewerId` sees them, in order: a room-stored file as it was sent (fileOut), one kept in the team
+ * folder as it is now for them (a member of its room the caller checked). */
+export function filesOutFor(db: Database, rows: readonly FileRow[], viewerId: string): RoomFile[] {
+  if (!rows.length) return []
+  const refs = new Set<string>()
+  for (let i = 0; i < rows.length; i += 500) {
+    const part = rows.slice(i, i + 500)
+    for (const r of db.query(`SELECT room_file_id FROM room_file_refs WHERE room_file_id IN (${part.map(() => '?').join(',')})`).all(...part.map((f) => f.id)) as { room_file_id: string }[]) refs.add(r.room_file_id)
+  }
+  if (!refs.size) return rows.map(fileOut)
+  const view = refViews.get(db)?.(viewerId)
+  return rows.map((f) => (!refs.has(f.id) ? fileOut(f) : view ? view(f) : { id: f.id, name: '', size: 0, mime: 'application/octet-stream', kind: 'other', thumb: false, teamFile: true, state: 'unavailable' }))
+}
 
 /** The rows of a list that are hidden from `viewer` (one of their hidden old answers, or in its thread). */
 export function hiddenAmong(db: Database, rows: readonly MessageRow[], viewer: Pick<MemberRow, 'user_id'>): Set<string> {
@@ -248,11 +280,14 @@ function withheldOut(db: Database, r: MessageRow, viewer: MemberRow, people: Map
 function shownOut(db: Database, rows: readonly MessageRow[], viewer: MemberRow, links: LinkPrep | null): RoomMessage[] {
   const ids = rows.map((r) => r.id)
   const files = new Map<string, RoomFile[]>()
-  for (const f of db.query(`SELECT * FROM room_files WHERE message_id IN (${ids.map(() => '?').join(',')}) ORDER BY created_at, id`).all(...ids) as FileRow[]) {
+  const fileRows = db.query(`SELECT * FROM room_files WHERE message_id IN (${ids.map(() => '?').join(',')}) ORDER BY created_at, id`).all(...ids) as FileRow[]
+  // a project room's file (kept in the team folder) as this viewer may see it now
+  const shown = filesOutFor(db, fileRows, viewer.user_id)
+  fileRows.forEach((f, i) => {
     const l = files.get(f.message_id!) ?? []
-    l.push(fileOut(f))
+    l.push(shown[i]!)
     files.set(f.message_id!, l)
-  }
+  })
   const replyIds = [...new Set(rows.map((r) => r.reply_to_id).filter((x): x is string => !!x))]
   const quotes = new Map<string, MessageRow>()
   if (replyIds.length) for (const q of db.query(`SELECT ${MSG_COLS} FROM room_messages WHERE room_id = ? AND id IN (${replyIds.map(() => '?').join(',')})`).all(rows[0]!.room_id, ...replyIds) as MessageRow[]) quotes.set(q.id, q)
@@ -267,6 +302,9 @@ function shownOut(db: Database, rows: readonly MessageRow[], viewer: MemberRow, 
   const replyRoots = [...new Set(rows.map((r) => r.thread_root_id).filter((x): x is string => !!x))]
   const followed = new Set(replyRoots.length ? (db.query(`SELECT root_id FROM room_thread_follows WHERE user_id = ? AND root_id IN (${replyRoots.map(() => '?').join(',')})`).all(viewer.user_id, ...replyRoots) as { root_id: string }[]).map((r) => r.root_id) : [])
   const people = refsOf(db, [...rows.flatMap((r) => [r.author_id, r.asked_by]), ...[...quotes.values()].map((q) => q.author_id), ...[...events.values()].flatMap(eventUserIds)])
+  // the projects the page's link lines name, for this viewer (only those they can open now)
+  const linkIds = [...events.values()].flatMap((e) => (e.type === 'project_linked' || e.type === 'project_unlinked' || e.type === 'project_room' ? [e.projectId] : []))
+  const projects = linkIds.length ? eventProjectsFor(db, linkIds, viewer.user_id) : undefined
   // answers people sent from their own AI chat with files attached: which of the answer's links each copy stands for
   const attached = attachedLinksOn(db, rows.filter((r) => sharedAnswerOf(r) && files.has(r.id)), files)
   // the room AI's earlier answers (author_kind 'ai'), and answers people sent from their own AI chat (sharedAnswerOf):
@@ -285,7 +323,7 @@ function shownOut(db: Database, rows: readonly MessageRow[], viewer: MemberRow, 
       return {
         id: r.id, roomId: r.room_id, seq: r.seq, authorKind: 'user', author: ev && r.author_id ? people.get(r.author_id) ?? null : null, askedBy: null,
         visibility: 'room', body: '', replyTo: null, mentions: [], files: [], createdAt: r.created_at, editedAt: null, deletedAt: null,
-        event: ev ? eventOut(ev, people) : { type: 'unknown' },
+        event: ev ? eventOut(ev, people, projects) : { type: 'unknown' },
       }
     }
     let replyTo: RoomQuote | null = null
@@ -451,14 +489,33 @@ function lastMessage(db: Database, roomId: string, viewer: MemberRow): RoomLastM
   return { id: m.id, seq: m.seq, author, excerpt: m.deleted_at ? '' : excerpt(text.replace(/\s+/g, ' ').trim(), EXCERPT_LIST), fileCount: files, deleted: !!m.deleted_at, createdAt: m.created_at, ...(app ? { app } : {}) }
 }
 
-/** Unread messages of the timeline for `viewer`: after their read position, theirs to see, not their own, not deleted,
- * no event line, no reply that stays in its thread. */
+/** unreadCount reads at most this many messages for its number (one more than it can answer). */
+const UNREAD_COUNTED = MAX_UNREAD + 1
+/** Unread messages of the timeline on room_messages `m` (parameters: room, read position, seeArgs, the person): after
+ * their read position, theirs to see, not their own, not deleted, no event line, no reply that stays in its thread. */
+const UNREAD_SQL = `m.room_id = ? AND m.seq > ? AND ${SEE_SQL} AND ${TIMELINE_SQL} AND m.deleted_at IS NULL AND m.event IS NULL AND m.app_quiet = 0 AND (m.author_id IS NULL OR m.author_id <> ?)`
+/** Is one of them a mention of the person? Read from where they are mentioned, never the room's messages (reading every
+ * unread message for it took 120-170 ms at 300k, TC-4796): the messages that pick them (room_message_mentions, kept by
+ * triggers from room_messages.mentions: migration 416), then the ones that mention everyone (the partial index
+ * room_messages_mention_all). Each candidate is checked by the whole rule (UNREAD_SQL and MENTIONS_SQL). Parameters:
+ * room, person, read position, then UNREAD_SQL's, then the person twice (UNREAD_MENTION_PICKED_SQL); UNREAD_SQL's, then
+ * the person twice (UNREAD_MENTION_ALL_SQL). Exported for their query plan guards. */
+export const UNREAD_MENTION_PICKED_SQL = `SELECT 1 FROM room_message_mentions x CROSS JOIN room_messages m ON m.room_id = x.room_id AND m.seq = x.seq
+  WHERE x.room_id = ? AND x.user_id = ? AND x.seq > ? AND ${UNREAD_SQL} AND ${MENTIONS_SQL} LIMIT 1`
+export const UNREAD_MENTION_ALL_SQL = `SELECT 1 FROM room_messages m WHERE ${UNREAD_SQL} AND m.mentions_all = 1 AND ${MENTIONS_SQL} LIMIT 1`
+/** Unread messages of the timeline for `viewer` (UNREAD_SQL), counted up to MAX_UNREAD, and whether one mentions them. */
 export function unreadCount(db: Database, roomId: string, viewer: MemberRow): { n: number; mentioned: boolean } {
   const from = Math.max(viewer.last_read_seq, viewer.visible_from_seq)
-  const r = db.query(`SELECT COUNT(*) n, MAX(${MENTIONS_SQL}) men FROM room_messages m
-    WHERE m.room_id = ? AND m.seq > ? AND ${SEE_SQL} AND ${TIMELINE_SQL} AND m.deleted_at IS NULL AND m.event IS NULL AND m.app_quiet = 0 AND (m.author_id IS NULL OR m.author_id <> ?)`)
-    .get(viewer.user_id, viewer.user_id, roomId, from, ...seeArgs(viewer), viewer.user_id) as { n: number; men: number | null }
-  return { n: Math.min(MAX_UNREAD, r.n), mentioned: !!r.men }
+  const args = [roomId, from, ...seeArgs(viewer), viewer.user_id]
+  // counted up to UNREAD_COUNTED only: the answer stops at MAX_UNREAD, and a person far behind in a big room made every
+  // read count the whole rest of it (TC-4772)
+  const r = db.query(`SELECT COUNT(*) n, MAX(men) men FROM (SELECT ${MENTIONS_SQL} men FROM room_messages m WHERE ${UNREAD_SQL} LIMIT ${UNREAD_COUNTED})`)
+    .get(viewer.user_id, viewer.user_id, ...args) as { n: number; men: number | null }
+  // a mention past those rows still counts: looked for in the rest only when they had none
+  const mentioned = !!r.men || (r.n >= UNREAD_COUNTED && (
+    !!db.query(UNREAD_MENTION_PICKED_SQL).get(roomId, viewer.user_id, from, ...args, viewer.user_id, viewer.user_id)
+    || !!db.query(UNREAD_MENTION_ALL_SQL).get(...args, viewer.user_id, viewer.user_id)))
+  return { n: Math.min(MAX_UNREAD, r.n), mentioned }
 }
 
 /** The newest position of the timeline `viewer` can see (an event line's too), 0 for none: the room's own counter would
@@ -497,7 +554,8 @@ export const groupName = (db: Database, room: Pick<RoomRow, 'kind' | 'group_id'>
 /** May this person rename the room: a group chat's members; a team room's and the everyone room's members who are owner
  * or admin; nobody in a DM (its name is the other person). Membership is checked by the caller. */
 export function mayRename(db: Database, room: Pick<RoomRow, 'kind'>, userId: string): boolean {
-  if (room.kind === 'group') return true
+  // a guest never renames their one place (Room.canRename false, so the room info shows no pencil: guest walkthrough M2)
+  if (room.kind === 'group') return !db.query('SELECT 1 FROM users WHERE id = ? AND guest = 1').get(userId)
   if (room.kind === 'dm') return false
   return isOwnerOrAdmin(db, userId)
 }
@@ -534,8 +592,28 @@ export function roomNaming(db: Database, room: RoomRow, viewerId: string): Pick<
   return { name, memberCount, peers: peers.map((p) => ({ id: p.id, name: p.name })) }
 }
 
-/** `prefs`: the viewer's notification preferences when the caller has them (a list of rooms), else read here. */
-export function roomOut(db: Database, room: RoomRow, viewer: MemberRow, prefs: Preferences = getPreferences(db, viewer.user_id)): Room {
+/** A team room's group folder (its folders row's path, e.g. `groups/leads`) when this person may open it: the folder
+ * rules as the Files page judges a folder (RuleSet.canList, the same test as listing it), no other path. null for the
+ * other kinds, a group without a folder and someone the rules keep out (Room.groupFolder, the header's Files button;
+ * docs/decisions/20261116-room-group-folder-button.md). `rules`: the caller's set when it judges many rooms at once. */
+export function groupFolderFor(db: Database, room: Pick<RoomRow, 'kind' | 'group_id'>, userId: string, rules?: () => RuleSet): string | null {
+  if (room.kind !== 'team' || !room.group_id) return null
+  const f = (db.query('SELECT f.path FROM groups g JOIN folders f ON f.id = g.folder_id WHERE g.id = ?').get(room.group_id) as { path: string } | null)?.path
+  if (!f) return null
+  const who = loadPrincipal(db, userId)
+  if (!who) return null
+  return (rules ? rules() : RuleSet.load(db)).canList(who, f.split('/')) ? f : null
+}
+
+/** The folder rules read once, when a team room first needs them (a list or a fan-out of rooms: groupFolderFor). */
+export function rulesOnce(db: Database): () => RuleSet {
+  let rules: RuleSet | undefined
+  return () => (rules ??= RuleSet.load(db))
+}
+
+/** `prefs`: the viewer's notification preferences when the caller has them (a list of rooms), else read here. `rules`:
+ * the folder rules when the caller judges many rooms at once (groupFolderFor). */
+export function roomOut(db: Database, room: RoomRow, viewer: MemberRow, prefs: Preferences = getPreferences(db, viewer.user_id), rules?: () => RuleSet): Room {
   const { name, memberCount, peers } = roomNaming(db, room, viewer.user_id)
   const unread = unreadCount(db, room.id, viewer)
   const threads = threadsUnread(db, room.id, viewer)
@@ -545,17 +623,28 @@ export function roomOut(db: Database, room: RoomRow, viewer: MemberRow, prefs: P
   const pinned = pinOf(db, room.id, viewer)
   // and the viewer's own list folder (chat/nav-folders.ts): none while hidden, and only one filed during this membership
   const folder = folderOf(db, room.id, viewer)
+  // the team-wide category it is in (rooms/categories.ts): the same for every member
+  const category = room.category_id !== undefined ? room.category_id : ((db.query('SELECT category_id FROM rooms WHERE id = ?').get(room.id) as { category_id: string | null } | null)?.category_id ?? null)
+  const groupFolder = groupFolderFor(db, room, viewer.user_id, rules)
+  // a project's own chat room (rooms/project-room.ts): the project for a viewer who can open it; its name, people and
+  // alert default follow the project
+  const projectRoom = room.kind === 'group' && isProjectRoom(db, room.id)
+  const project = projectRoom ? projectForViewer(db, room, viewer.user_id, rules, memberCount) : undefined
   return {
-    id: room.id, kind: room.kind, name, canRename: mayRename(db, room, viewer.user_id), managerId: managerOf(db, room), groupId: room.kind === 'team' ? room.group_id : null, memberCount,
+    id: room.id, kind: room.kind, name, canRename: !projectRoom && mayRename(db, room, viewer.user_id), managerId: projectRoom ? null : managerOf(db, room), canManageApps: mayManageApps(db, room, viewer.user_id), groupId: room.kind === 'team' ? room.group_id : null, memberCount,
     peers,
     unreadCount: unread.n, threadsUnread: threads.n, nextThreadId: threads.next, mentioned: unread.mentioned || threads.mentioned,
     lastReadSeq: Math.max(viewer.last_read_seq, viewer.visible_from_seq), lastSeq: Math.max(lastSeqFor(db, room.id, viewer), viewer.visible_from_seq),
-    lastMessage: last, muted: !!viewer.muted, notify: roomNotifyOut(room.kind, viewer, prefs), createdAt: room.created_at,
+    lastMessage: last, muted: !!viewer.muted, notify: roomNotifyOut(room.kind, viewer, prefs, projectRoom), createdAt: room.created_at,
     activityAt: last && last.createdAt > since ? last.createdAt : since,
     ...(viewer.hidden_at ? { hidden: true as const } : {}),
     ...(pinned ? { pinnedAt: pinned } : {}),
     ...(folder ? { folderId: folder } : {}),
+    ...(category ? { categoryId: category } : {}),
     ...(dmPeerGone(db, room) ? { gone: true as const } : {}),
+    ...(groupFolder ? { groupFolder } : {}),
+    ...(project ? { project } : {}),
+    ...(projectRoom ? { projectRoom: true as const } : {}),
   }
 }
 
@@ -603,8 +692,10 @@ export function appRefsOf(db: Database, rows: readonly Pick<MessageRow, 'id' | '
   if (!mine.length) return out
   const ids = [...new Set(mine.map((r) => r.app_id).filter((x): x is string => !!x))]
   // live apps, with who added it while they are in the team (the sender's popover: "Set up by …")
-  const live = new Map(ids.length ? (db.query(`SELECT a.id, u.id by_id, u.name by_name FROM room_apps a LEFT JOIN users u ON u.id = a.created_by AND u.deleted_at IS NULL
-    WHERE a.id IN (${ids.map(() => '?').join(',')})`).all(...ids) as { id: string; by_id: string | null; by_name: string | null }[]).map((a) => [a.id, a]) : [])
+  const live = new Map(ids.length ? (db.query(`SELECT a.id, a.kind, a.preset, u.id by_id, u.name by_name FROM room_apps a LEFT JOIN users u ON u.id = a.created_by AND u.deleted_at IS NULL
+    WHERE a.id IN (${ids.map(() => '?').join(',')})`).all(...ids) as { id: string; kind: string; preset: string | null; by_id: string | null; by_name: string | null }[]).map((a) => [a.id, a]) : [])
+  // a plain Other app's own icon now (apps/icon.ts): a new one shows on its past messages too; a removed app has none
+  const icons = iconsOf(db, [...live.values()].filter((a) => a.kind === 'other' && !a.preset).map((a) => a.id))
   for (const r of mine) {
     const stored = parseStored(r.app_card ?? null)
     if (!stored) continue
@@ -613,6 +704,7 @@ export function appRefsOf(db: Database, rows: readonly Pick<MessageRow, 'id' | '
       id: r.app_id && live.has(r.app_id) ? r.app_id : null, name: stored.app.name, kind: RoomAppKind.safeParse(kind).success ? kind : 'other',
       // the service of a preset app (its logo), when this build knows it
       ...(kind === 'other' && RoomAppPreset.safeParse(stored.app.preset).success ? { preset: stored.app.preset as RoomAppPreset } : {}),
+      ...(r.app_id && icons.has(r.app_id) ? { icon: icons.get(r.app_id)! } : {}),
       by: (() => { const l = r.app_id ? live.get(r.app_id) : undefined; return l?.by_id && l.by_name ? { id: l.by_id, name: l.by_name } : null })(),
       ...(r.app_quiet ? { quiet: true as const } : {}), ...(stored.example ? { example: true as const } : {}),
     })

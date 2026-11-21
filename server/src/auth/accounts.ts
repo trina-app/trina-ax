@@ -1,4 +1,5 @@
 // Account flows: first-owner setup, sign-in, password change, invites, one-time reset links.
+import { hostedTeamName, reportTeamName } from '../system/cloud-team-name'
 import fs from 'node:fs'
 import { projectJoinsOfNewAccount } from '../chat/project-joins'
 import path from 'node:path'
@@ -13,12 +14,13 @@ import {
 import type { z } from 'zod'
 import type { AppContext } from '../context'
 import { newId } from '../db'
+import { answerTokensCached, insertGuestBudget } from '../admin/budgets'
 import type { AppEnv } from '../http/env'
 import { fail } from '../http/errors'
 import { originAllowed } from '../http/middleware'
 import { audit } from '../admin/audit'
 import { afterAccessChange, captureState, createDefaultFolders, ensureFolderRow, rulesOf, writeFolderAccess } from '../admin/folders'
-import { createGuestInvite, inviteMakerOk, parseGuestAi, guestPlaceOf, placeAlive, teamCredentialOk, type GuestInviteFields } from './guest-invites'
+import { createGuestInvite, inviteMakerOk, openGuestLinks, parseGuestAi, guestPlaceOf, placeAlive, teamCredentialOk, type GuestInviteFields } from './guest-invites'
 import { assertGuestFree, guestLimit, guestsUsed, placeName, projectFolder } from './guests'
 import { getTeamSettings, updateTeamSettings } from '../admin/settings'
 import { msg, weakPasswordMessage } from './messages'
@@ -29,12 +31,14 @@ import { authOf } from './service'
 import { assertSeatFree, planManageUrl, seatLimit, seatsUsed } from '../system/limits'
 import { isValidTimeZone } from '../system/time-zone'
 import { isHosted } from '../system/deployment'
+import { HOSTED_BROKER_ORIGIN } from '../integrations/google-drive/broker'
 import { isManaged } from '../app-config'
 import { resolveLayout } from '../system/layout'
 import { deriveUserId, ensurePersonalFolder, existingGroups, getUser, getUserByUsername, insertUser, usernameTaken, userRef, type UserRow } from './users'
 import { notifyResetLink, notifyTeamJoined, notifyTemplateOffers } from '../notifications/service'
 import { roomsOf } from '../rooms/service'
 import { recordJoin } from '../onboarding/member-welcome'
+import { startWelcomeAtSetup } from '../onboarding/welcome'
 import { afterLeadJoin, handoverText, leadInviteBeforeInsert, leadInviteShape, resetLinkRefused } from '../admin/handover'
 
 export const RESET_TTL_MS = 24 * 3600_000
@@ -84,7 +88,7 @@ function checkNewPassword(pw: string, username: string | null, locale: Locale, f
 export const viaOf = (info: { via: string; tunnel?: boolean; tailnet?: boolean }): string => info.tunnel ? 'internet' : info.tailnet ? 'tailnet' : info.via
 
 /** Count an unknown/invalid token against the caller's IP and refuse while over the limit. */
-function tokenGuard(ctx: AppContext, ip: string | null): { fail(): void } {
+export function tokenGuard(ctx: AppContext, ip: string | null): { fail(): void } {
   const a = authOf(ctx)
   const keys = tokenIpKeys(ip)
   const wait = a.limiter.retryAfter(keys)
@@ -98,9 +102,18 @@ export const userCount = (db: Database) => (db.query('SELECT COUNT(*) AS n FROM 
 /** GET /api/setup, public. teamName is always null: no client reads it, and it told anonymous visitors (also through
  * the office internet address) the team's name and so that it is set up (security review round 4). The default
  * language stays: it is what the sign-in page shows. */
-export function setupStatus(ctx: AppContext): { needed: boolean; teamName: null; defaultLocale: Locale } {
+export function setupStatus(ctx: AppContext): { needed: boolean; teamName: null; defaultLocale: Locale; ownerRecoveryUrl: string | null } {
   const needed = userCount(ctx.db) === 0
-  return { needed, teamName: null, defaultLocale: getTeamSettings(ctx.db).defaultLocale }
+  return { needed, teamName: null, defaultLocale: getTeamSettings(ctx.db).defaultLocale, ownerRecoveryUrl: ownerRecoveryUrl(ctx.config) }
+}
+
+/** Where the owner of a hosted team resets a forgotten password: the edition's console (HOSTED_BROKER_ORIGIN, from
+ * SERVICE_HOSTS.accountHost; never MYCEL_GOOGLE_DRIVE_BROKER_URL, so turning Drive off keeps the link) + `/recover`.
+ * The same address for every hosted team: no host, slug or install id, so a signed-out visitor learns only that the
+ * team is hosted (its *.<team domain> address says so already). The sign-in page adds `?team=<its own host>` itself,
+ * and the console matches it only against the signed-in account's own teams. null: not hosted, or no hosted service. */
+export function ownerRecoveryUrl(cfg: AppContext['config'], origin: string | null = HOSTED_BROKER_ORIGIN): string | null {
+  return isHosted(cfg) && origin ? `${origin}/recover` : null
 }
 
 /**
@@ -138,6 +151,9 @@ export interface OwnerInput { username: string; name: string; password: string; 
  * concurrent setups cannot both win). Used by POST /api/setup and the server CLI.
  */
 export async function bootstrapOwner(ctx: AppContext, o: OwnerInput): Promise<string> {
+  // a hosted team's name must be one the hosting service takes (system/cloud-team-name.ts)
+  const named = hostedTeamName(ctx, o.teamName)
+  o = { ...o, teamName: 'name' in named ? named.name : fail('validation', msg('teamNameInvalid', o.locale), { fields: { 'body.teamName': named.problem } }) }
   const passwordHash = await hashPassword(o.password)
   const id = deriveUserId(ctx.db, o.username, ctx.files.fx.root)
   const created = ctx.db.transaction(() => {
@@ -153,6 +169,8 @@ export async function bootstrapOwner(ctx: AppContext, o: OwnerInput): Promise<st
     return true
   }).immediate()
   if (!created) fail('conflict', msg('setupDone', o.locale))
+  // a hosted team: the name the owner just gave goes to the hosting service too (system/cloud-team-name.ts)
+  void reportTeamName(ctx, o.teamName)
   ensurePersonalFolder(ctx.files.fx.root, id)
   // the one-time token is spent: the server's copy and the installer's copy for the administrator (<base>/setup/code,
   // `sudo cat` on Linux and the Mac; QA TC-211: it stayed on disk after setup)
@@ -181,6 +199,8 @@ export async function setup(c: Context<AppEnv>, ctx: AppContext, b: In<typeof Se
   if (relay && userCount(ctx.db) > 0) fail('conflict', msg('setupDone', locale))
   checkNewPassword(b.owner.password, b.owner.username, locale, 'body.owner.password')
   const id = await bootstrapOwner(ctx, { username: b.owner.username, name: b.owner.name, password: b.owner.password, email: b.owner.email ?? null, teamName: b.teamName, locale: b.locale, timeZone: b.timeZone ?? null })
+  // the owner's welcome steps start now, with the link's website: the desktop app resumes them too (/open-app)
+  startWelcomeAtSetup(ctx, b.site)
   return authOf(ctx).signIn(c, id, 'web', 'cookie')
 }
 
@@ -295,8 +315,9 @@ export function toInvite(db: Database, r: InviteRow): Invite {
     id: r.id, role: r.role, groupIds: parseIds(r.group_ids), createdBy: userRef(db, r.created_by), createdAt: r.created_at ?? r.expires_at,
     expiresAt: r.expires_at, usedAt: r.used_at, usedBy: userRef(db, r.used_by),
     leadFor: r.lead_hint ? r.lead_for : null,
-    // a project's name too (the list names it; whoever reads the list may manage every project); never a room's name
-    ...(r.role === 'guest' && guestPlaceOf(r) ? { guestPlace: ((pl) => (pl.kind === 'project' ? { ...pl, name: placeName(db, pl) } : pl))(guestPlaceOf(r)!) } : {}),
+    // the place's name too: Admin's list says where the link leads (guest walkthrough S8), as Admin's guest rows name a
+    // guest's room (auth/guests.ts guestDetail); the list is the owner's and admins', the create answer its maker's
+    ...(r.role === 'guest' && guestPlaceOf(r) ? { guestPlace: ((pl) => ({ ...pl, name: placeName(db, pl) }))(guestPlaceOf(r)!) } : {}),
     ...(r.role === 'guest' && r.guest_name ? { guestName: r.guest_name } : {}),
     // an open link whose maker or place is gone (a member who left the room: nothing revokes the link then, accept refuses it)
     ...((s) => (s ? { stopped: s } : {}))(!r.used_at && !r.revoked_at && Date.parse(r.expires_at) > Date.now() ? ((w) => (w === 'revoked' ? 'ai_gone' : w))(makerReason(db, r)) as Invite['stopped'] | null : null),
@@ -420,7 +441,9 @@ export function inviteInfo(c: Context<AppEnv>, ctx: AppContext, token: string): 
   // who made it, only while it works ("{inviter} invited you to {team}"): not while every seat is taken either, when the
   // accept is refused (the team link's 'full'); `valid` stays as it was, so the page does not say "expired or used"
   const full = valid && (r!.role === 'guest' ? guestsFull(ctx.db) : seatsFull(ctx.db))
-  const inviterName = valid && !full && r!.created_by ? getUser(ctx.db, r!.created_by)?.name ?? null : null
+  // a full guest link keeps who sent it: the page says "{inviter} invited you to {team}" over "can't take more guests
+  // now" (guest walkthrough M3), never a form that is refused after it was filled in
+  const inviterName = valid && (!full || r!.role === 'guest') && r!.created_by ? getUser(ctx.db, r!.created_by)?.name ?? null : null
   // a guest invite: the kind and name of the one place, only while the link works (no ids, no people, nothing else)
   const gp = valid && r!.role === 'guest' ? guestPlaceOf(r!) : null
   return { teamName: getTeamSettings(ctx.db).teamName, role: r!.role, expiresAt: r!.expires_at, valid, ...(dead ? { reason: dead } : {}), inviterName, full, ...(r!.lead_hint && !dead ? { lead: true } : {}), ...(gp ? { guestPlace: { kind: gp.kind, name: placeName(ctx.db, gp) } } : {}), ...(gp && r!.guest_name ? { guestName: r!.guest_name } : {}), ...(gp ? { guestAi: parseGuestAi(r!.guest_ai).mode } : {}) }
@@ -484,12 +507,26 @@ class UsernameTaken extends Error {}
 
 /** GET /api/guest-invites/limit: the plan's guest cap now, read before the invite dialog shows its form (a guest never
  * gets here: the endpoint is off their list). The owner and admins also learn how many guests are active now (Admin ›
- * Guests: "N of M guests"), whether every seat is taken ("Make team member" needs one) and the plan page. Everyone
+ * Guests: "N of M guests"), whether every seat is taken ("Make team member" needs one), the plan page and the team's
+ * tokens per answer (admin/budgets.ts answerTokens). Everyone
  * learns whether a guest can have AI on this server at all (guestAiUnavailable). */
 export function guestInviteLimit(c: Context<AppEnv>, ctx: AppContext): GuestInviteLimit {
   const role = c.get('auth')!.user.role
   const url = planManageUrl()
-  return { full: guestsFull(ctx.db), limit: guestLimit(), ...(role === 'owner' || role === 'admin' ? { used: guestsUsed(ctx.db), seatsFull: seatsFull(ctx.db), ...(url ? { manageUrl: url } : {}) } : {}),
+  // a new link needs a free place that no open link holds (guest walkthrough M4: auth/guest-invites.ts
+  // assertGuestLinkFree), so the dialog says it is full before its form, as Create link would
+  const max = guestLimit()
+  const pending = max === null ? 0 : openGuestLinks(ctx.db, authOf(ctx).now())
+  const used = guestsUsed(ctx.db)
+  const full = max !== null && used + pending >= max
+  // how many links wait is the owner's and admins' (they can cancel one), like `used`; only while the links are what
+  // fills it (the guests alone below the cap: cancelling one frees a place). Guests alone at the cap: the plain words,
+  // as Create link's refusal (QA TC-3223)
+  const staff = role === 'owner' || role === 'admin'
+  const holding = max !== null && used < max ? pending : 0
+  return { full, limit: max, ...(full && holding && staff ? { pending: holding } : {}), ...(staff ? { used: guestsUsed(ctx.db), seatsFull: seatsFull(ctx.db), ...(url ? { manageUrl: url } : {}),
+    // answerTokens: the Team AI limit's "about N answers" (only the owner and admins give Team AI)
+    answerTokens: answerTokensCached(ctx.db) } : {}),
     // a guest's AI never runs on this server's own sign-in (credentials/guest-ai.ts): a member's invite dialog says so too
     ...(isManaged(ctx.config) ? {} : { guestAiUnavailable: 'host_sign_in' as const }) }
 }
@@ -532,9 +569,16 @@ async function acceptGuestInvite(c: Context<AppEnv>, ctx: AppContext, r: InviteR
     if (res.changes !== 1) return 'gone'
     insertUser(ctx.db, { id, username: b.username, name: b.name, passwordHash, role: 'member', locale: b.locale ?? null, mustChangePassword: false, groupIds: [] })
     ctx.db.query('UPDATE users SET guest = 1 WHERE id = ?').run(id)
-    ctx.db.query('INSERT INTO guests (user_id, place_kind, place_id, ai, team_credential_id, invited_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)')
-      .run(id, place!.kind, place!.id, ai.mode, ai.mode === 'team' ? ai.credentialId : null, r.created_by, now)
-    if (ai.mode === 'team') ctx.db.query("INSERT INTO budgets (id, subject_type, subject_id, period, limit_usd, limit_tokens, action) VALUES (?, 'user', ?, 'month', ?, NULL, 'block')").run(newId(), id, ai.limitUsd)
+    // place_kind / place_id: the place this invite opened (kept as it is); room_id / project_id: the guest's group chat
+    // and project slots (migration 126), the invite's place taking its own kind's slot
+    ctx.db.query('INSERT INTO guests (user_id, place_kind, place_id, room_id, project_id, ai, team_credential_id, invited_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
+      .run(id, place!.kind, place!.id, place!.kind === 'room' ? place!.id : null, place!.kind === 'project' ? place!.id : null, ai.mode, ai.mode === 'team' ? ai.credentialId : null, r.created_by, now)
+    // Team AI's monthly limit: tokens; a link made before tokens keeps its US dollars (guest-invites.ts parseGuestAi)
+    if (ai.mode === 'team') {
+      if (ai.limitTokens) insertGuestBudget(ctx.db, id, ai.limitTokens)
+      else if (ai.limitUsd && ai.limitUsd > 0) ctx.db.query("INSERT INTO budgets (id, subject_type, subject_id, period, limit_usd, limit_tokens, action) VALUES (?, 'user', ?, 'month', ?, NULL, 'block')").run(newId(), id, ai.limitUsd)
+      else throw new Error('a Team AI guest link without a limit')
+    }
     if (place!.kind === 'room') {
       // the group chat's size limit holds here too (Rooms.invite checks it for people added in the app)
       const n = (ctx.db.query('SELECT COUNT(*) AS n FROM room_members WHERE room_id = ?').get(place!.id) as { n: number }).n

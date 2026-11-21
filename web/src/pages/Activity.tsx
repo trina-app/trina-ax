@@ -14,12 +14,12 @@
 // loaded yet too (POST /api/notifications/read, the same tab rule: activityTabHas).
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import clsx from 'clsx'
-import { AtSign, Bell, BellRing, Check, CheckCheck, Hash, Inbox, MessageCircle, MessagesSquare, Search, Settings, X } from 'lucide-react'
+import { AtSign, Bell, BellRing, Check, CheckCheck, Folder, Hash, Inbox, Lock, MessageCircle, MessagesSquare, Search, Settings, X } from 'lucide-react'
 import { Link, Navigate, useSearchParams } from 'react-router-dom'
 import { activityTabHas, type ActivityTab, type InboxNotification } from '@mycel/shared/api'
 import { api, API, errorText } from '../lib/api'
 import { intlTag, localDay } from '../lib/format'
-import { badgeText } from '../lib/rooms'
+import { badgeText, isPrivateChannel, isProjectRoom } from '../lib/rooms'
 import { aiName } from '../lib/tabs'
 import { activityInChats, CHATS_ACTIVITY } from '../lib/screens'
 import { keepPendingReads, markAllNoticesRead, markNoticeRead, noticeReadAsked, noticeReadKey, useActivityUnread } from '../store/inbox'
@@ -34,7 +34,10 @@ import { PhoneBarAction } from '../components/phone/PhoneBarAction'
 import { Face, isRoomRow, roomNoticeLink, roomRowText, type RoomNotice } from '../components/settings/RoomNoticeRow'
 import { noticeLink, noticeText } from '../components/settings/Notifications'
 import { HandoverNoticeExtras } from '../components/handover/HandoverNotice'
+import { FileRequestExtras } from '../components/FileRequestNotice'
+import { AccessRequestExtras } from '../components/AccessRequestNotice'
 import { LeaverNoticeExtras, PausedNoticeExtras } from '../components/rooms/apps/PausedNotice'
+import { KeyFilesNoticeExtras } from '../components/settings/KeyFilesNotice'
 import { useRoomTitle } from '../components/rooms/RoomIcon'
 import { requestableName } from '../lib/googleApps'
 import { Tooltip } from '../components/Tooltip'
@@ -466,7 +469,8 @@ function RoomRow({ item, onOpen }: { item: RoomNotice; onOpen: () => void }) {
   const { who, where, line, mark } = roomRowText(item.room, t, listed ? title(listed) : null)
   const unread = !item.readAt
   const n = item.room.count ?? 1
-  const PlaceIcon = item.room.thread ? MessagesSquare : item.room.kind === 'dm' || item.room.kind === 'group' ? MessageCircle : Hash
+  // a private channel (a named group room) has its lock, as in the Chats list
+  const PlaceIcon = item.room.thread ? MessagesSquare : listed && isProjectRoom(listed) ? Folder : listed && isPrivateChannel(listed) ? Lock : item.room.kind === 'dm' || item.room.kind === 'group' ? MessageCircle : Hash
   return (
     <li data-testid="notification-item">
       <Link to={roomNoticeLink(item.room)} onClick={onOpen} className={rowCls} data-testid="notification-room-row" data-unread={unread ? '' : undefined}>
@@ -490,8 +494,8 @@ function RoomRow({ item, onOpen }: { item: RoomNotice; onOpen: () => void }) {
 }
 
 /** A notice of the app's own: a bell for a photo, the app's name, the notice's words; under them what it is about (the
- * project). With a place to open the row is that link; without, it keeps "Mark as read". A job's log and a handover's
- * buttons sit under the row, not in the link. */
+ * project). With a place to open the row is that link; without, it keeps "Mark as read". A handover's buttons sit under
+ * the row, not in the link. */
 function NoticeRow({ item, onRead, onChanged }: { item: InboxNotification; onRead: () => void; onChanged: () => void }) {
   const t = useT(), locale = useLocale()
   const unread = !item.readAt
@@ -505,11 +509,17 @@ function NoticeRow({ item, onRead, onChanged }: { item: InboxNotification; onRea
   const ask = sr?.open
     ? <span className="mt-1 inline-flex h-8 items-center rounded-lg border border-field-border bg-surface px-3 text-sm font-medium text-ink" data-testid="notification-service-setup">{t('gapps.setUpLink', { name: requestableName(sr.service) })}</span>
     : sr?.added ? <span className="flex items-center gap-1 text-ok" data-testid="notification-service-added"><Check size={13} aria-hidden />{t('notifications.serviceRequest.added')}</span> : null
-  const below = item.handover || d?.job?.tail || item.roomApp?.roomId || item.roomAppLeaver?.roomId ? <>
+  const fileAsk = item.code === 'file.access_requested' && !!item.fileShare
+  // a request to open my chat or project (docs/decisions/20261116-chat-project-ask-access.md): Share / Add and Decline
+  const accessAsk = item.code === 'access.requested' && !!item.accessRequest
+  const below = item.handover || item.roomApp?.roomId || item.roomAppLeaver?.roomId || item.keyFiles?.files.length || fileAsk || accessAsk ? <>
+    {fileAsk && <FileRequestExtras item={item} onRead={onRead} onChanged={onChanged} />}
+    {accessAsk && <AccessRequestExtras item={item} onRead={onRead} onChanged={onChanged} />}
     {item.handover && <HandoverNoticeExtras item={item} onRead={onRead} onChanged={onChanged} />}
     {item.code === 'room_app.paused' && <PausedNoticeExtras item={item} onRead={onRead} onChanged={onChanged} />}
     {item.code === 'room_app.leaver' && <LeaverNoticeExtras item={item} onRead={onRead} />}
-    {d?.job?.tail && <pre className="mt-1 max-h-40 overflow-auto font-mono text-xs break-words whitespace-pre-wrap text-faint" data-testid="notification-job-tail">{d.job.tail}</pre>}
+    {/* older AI-made files with a saved key in them: each one to open (the row itself opens nothing) */}
+    {item.code === 'files.stored_key' && <KeyFilesNoticeExtras item={item} onRead={onRead} />}
   </> : null
   const body = <RowBody
     face={<span aria-hidden className="mt-0.5 flex size-9 shrink-0 items-center justify-center rounded-lg bg-hover text-muted"><Bell size={16} /></span>}
@@ -517,12 +527,7 @@ function NoticeRow({ item, onRead, onChanged }: { item: InboxNotification; onRea
     iso={item.createdAt}
     unread={unread && !!link}
     line={<span data-testid="notification-text">{noticeText(item, t, locale)}</span>}
-    context={ask ?? (project || (d?.job?.exitCode === null && d.job.note)
-      ? <span className="min-w-0">
-          {project && <span className="block truncate" data-testid="notification-project"><bdi>{project}</bdi></span>}
-          {d?.job?.exitCode === null && d.job.note && <span className="block" data-testid="notification-job-note">{d.job.note}</span>}
-        </span>
-      : null)}
+    context={ask ?? (project ? <span className="block min-w-0 truncate" data-testid="notification-project"><bdi>{project}</bdi></span> : null)}
     count={unread && link ? <span className="block size-2 rounded-full bg-accent" data-testid="notification-unread"><span className="sr-only">{t('notifications.unreadMark')}</span></span> : undefined}
   />
   if (!link) return (

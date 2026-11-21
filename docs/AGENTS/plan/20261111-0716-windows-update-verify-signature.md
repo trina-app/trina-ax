@@ -25,7 +25,7 @@ In:
   version → ok or a reason.
 - desktop updater: no install on quit until verified; manifest from <team>/downloads/<channel>.json, else the release
   feed (<feed>/office/<version>/<channel>.json, <feed>/office/<channel>.json); a mismatch deletes the download, logs,
-  and shows "This update couldn't be checked, so it wasn't installed." (five languages).
+  and shows "This update didn't pass its safety check, so it wasn't installed." (five languages).
 - server offerWindows (office Mac and Linux): also writes the signed manifest as /downloads/<channel>.json; served.
 - Development builds may skip the check (MYCEL_DESKTOP_UPDATE_UNVERIFIED=1, not packaged only).
 

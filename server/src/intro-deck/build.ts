@@ -131,7 +131,7 @@ function reader(ctx: AppContext, t: ToolCtx) {
   return (src: string): Uint8Array | null => {
     if (cache.has(src)) return cache.get(src)!
     let b: Uint8Array | null = null
-    try { const a = authorize(ctx.files.fx, ctx.files.rules(), t.user, src, 'read', { mustExist: true }); b = new Uint8Array(readRegular(a.abs, 20 * 1024 * 1024).bytes) } catch { b = null }
+    try { const a = authorize(ctx.files.fx, ctx.files.rules(), t.user, src, 'read', { mustExist: true }); b = new Uint8Array(readRegular(a.abs, 20 * 1024 * 1024, a.st).bytes) } catch { b = null }
     cache.set(src, b)
     return b
   }
@@ -264,7 +264,7 @@ export function runDeckStep(ctx: AppContext, a: IntroDeckStep, t: ToolCtx, o: We
 }
 
 /** Outside text reached the AI in this chat: `remember` asks first from now on (as after web_fetch or a Drive read). */
-const taint = (ctx: Pick<AppContext, 'db'>, chatId: string) => ctx.db.query('UPDATE chats SET session_tainted = 1 WHERE id = ?').run(chatId)
+const taint = (ctx: Pick<AppContext, 'db'>, chatId: string) => ctx.db.query('UPDATE chats SET session_tainted = 1, others_words = 1 WHERE id = ?').run(chatId)
 
 /** The `read` step's answer: the pages as quoted external data (web_fetch's wrapper), and the chat marked as having
  * read outside content. */

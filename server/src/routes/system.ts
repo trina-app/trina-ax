@@ -19,6 +19,10 @@ import { BackupError, lastRestore } from '../system/backup'
 import { connectInfo } from '../system/connect-info'
 import { ConnectionChangeError, connectionStatus, modeOf, saveClaimCodeFor, saveConnectionMode } from '../system/connection'
 import { runExport } from '../system/export'
+import { MY_EXPORT_KEEP_MS, myExportFile, runMyExport, sweepMyExports } from '../system/my-export'
+import { linkBase } from '../auth/accounts'
+import { streamFile } from '../team-files/download'
+import fs from 'node:fs'
 import { redactorFor } from '../integrations/connections/redact'
 import { LocalJobService } from '../system/job-runner'
 import { enPlural, M, stepText, tr } from '../system/messages'
@@ -31,8 +35,11 @@ import type { RouteModule } from './module'
 import { feature, isHosted } from '../system/deployment'
 import { noticesFor, planStatus } from '../system/managed'
 import { setApiEnginePublicOnly } from '../system/egress'
+import { askCleanup } from '../system/storage-cleanup'
 
 const opsByCtx = new WeakMap<AppContext, OpsService>()
+/** the people whose own export (Settings › Export) is queued or running: one at a time per person */
+const myExportsByCtx = new WeakMap<AppContext, Set<string>>()
 /** The ops service of a running server (tests, CLI). */
 /** The owner's export: a path inside a team project only while they read it (the Files tree's check, the rules read
  * once per export; docs/DECISIONS.md "Project contents only for members"). */
@@ -73,6 +80,8 @@ export const T = {
   cannotRead: (v: string) => ({ ko: `${v}은(는) 이 서버의 데이터를 아직 열 수 없어요. 더 새로운 버전을 기다리는 중이에요.`, en: `${v} can't open this server's data yet. Waiting for a newer version.`, id: `${v} belum bisa membuka data server ini. Menunggu versi yang lebih baru.`, ja: `${v}はこのサーバーのデータをまだ開けません。より新しいバージョンを待っています。`, es: `${v} todavía no puede abrir los datos de este servidor. Esperando una versión más nueva.`, zh: `${v} 还无法打开此服务器的数据。正在等待更新的版本。` }),
   /** the publisher paused the release (system/rollout.ts hold): not installed until it resumes */
   paused: { ko: `${PRODUCT.displayName}에서 이 버전의 업데이트를 잠시 멈췄어요. 이 서버는 지금 버전 그대로 쓸 수 있어요.`, en: `${PRODUCT.displayName} has paused updates to this version for now. This server can stay on its current version.`, id: `${PRODUCT.displayName} sedang menjeda pembaruan ke versi ini. Server ini bisa tetap memakai versinya sekarang.`, ja: `${PRODUCT.displayName}がこのバージョンへの更新を一時停止しています。このサーバーは現在のバージョンのまま使えます。`, es: `${PRODUCT.displayName} ha pausado por ahora las actualizaciones a esta versión. Este servidor puede seguir con su versión actual.`, zh: `${PRODUCT.displayName}暂时停止了到这个版本的更新。这台服务器可以继续使用当前版本。` },
+  /** Settings › Export: the person's own export is still being made */
+  myExportBusy: { ko: '내보내기를 만드는 중이에요. 끝난 뒤 다시 해 주세요.', en: 'Your export is still being made. Try again when it is done.', id: 'Ekspor Anda masih dibuat. Coba lagi setelah selesai.', ja: "エクスポートを作成中です。完了してからもう一度お試しください。", es: "Su exportación todavía se está creando. Vuelva a intentarlo cuando termine.", zh: "你的导出仍在生成中。请在完成后再试。" },
   noPrevious: { ko: '되돌릴 이전 버전이 없어요.', en: 'There is no previous version to go back to.', id: 'Tidak ada versi sebelumnya.', ja: "戻せる以前のバージョンはありません。", es: "No hay una versión anterior a la que volver.", zh: "没有可以回退的旧版本。" },
   busy: { ko: '이미 진행 중인 작업이 있어요.', en: 'Another operation is already running.', id: 'Operasi lain sedang berjalan.', ja: "別の操作がすでに実行中です。", es: "Ya hay otra operación en curso.", zh: "已有其他操作正在进行。" },
   busyPrune: { ko: '서버가 오래된 버전을 지우는 중이에요. 잠시 뒤에 다시 해 주세요.', en: 'The server is removing old versions. Try again in a moment.', id: 'Server sedang menghapus versi lama. Coba lagi sebentar lagi.', ja: "サーバーが古いバージョンを削除しています。しばらくしてからもう一度お試しください。", es: "El servidor está borrando versiones antiguas. Vuelva a intentarlo en un momento.", zh: "服务器正在删除旧版本。请稍后重试。" },
@@ -102,6 +111,12 @@ export const systemRoutes: RouteModule = {
     opsByCtx.set(ctx, ops)
     ops.start()
     ctx.onClose(() => ops.stop())
+    // members' own exports are kept 24 hours (system/my-export.ts)
+    myExportsByCtx.set(ctx, new Set())
+    sweepMyExports(ctx.config.dataDir)
+    const sweep = setInterval(() => sweepMyExports(ctx.config.dataDir), 3600_000)
+    sweep.unref?.()
+    ctx.onClose(() => clearInterval(sweep))
   },
   register(kit, ctx) {
     const ops = () => opsByCtx.get(ctx)!
@@ -139,6 +154,8 @@ export const systemRoutes: RouteModule = {
     kit.handle(API.diagnostics, ({ c }) => ops().diagnostics(c.get('locale')))
 
     kit.handle(API.storage, () => ops().storage.status())
+    // "Ask people to clean up" (system/storage-cleanup.ts): never who or how many
+    kit.handle(API.askStorageCleanup, ({ auth }) => askCleanup(ctx, auth.user.id))
 
     // the plan (plan.json) and the operator's notices (notices.json): system/limits.ts, system/managed.ts
     kit.handle(API.plan, ({ c }) => planStatus(ctx.db, c.get('locale')))
@@ -159,7 +176,8 @@ export const systemRoutes: RouteModule = {
       }
       // turnAt: when the staged roll-out reaches this server (system/rollout.ts), while hold is 'rollout'
       const turnAt = ops().rolloutTurnAt()
-      return { ...u.status(), auto: ops().autoUpdates, managed: !feature(ctx.config, 'selfUpdate'), ...ops().updateWindowStatus(), hold: ops().updateHold(), ...(turnAt !== undefined ? { turnAt } : {}),
+      const hold = ops().updateHold()
+      return { ...u.status(), auto: ops().autoUpdates, managed: !feature(ctx.config, 'selfUpdate'), ...ops().updateWindowStatus(), hold, ...(hold === 'failed' || hold === 'root_failed' ? { holdReason: ops().updateHoldReason() } : {}), ...(turnAt !== undefined ? { turnAt } : {}),
         running: ops().queue().running, waiting: updateWaitingFor(ctx.config) }
     })
 
@@ -259,6 +277,45 @@ export const systemRoutes: RouteModule = {
       // who took a copy of the team's data out, and what (never the password): the activity log shows it
       audit(ctx.db, { actor: auth.user.id, action: 'export.start', detail: { what: body.what, encrypted: !!body.password } })
       return { jobId }
+    })
+
+    // Settings › Export (QA AP-038): any member, their own chats only. Not the ops lock of the owner's tools: a member's
+    // export never blocks a backup or an update. The jobs of kind 'export' run one at a time on the server.
+    kit.handle(API.startMyExport, ({ c, auth }) => {
+      const locale = c.get('locale')
+      const userId = auth.user.id
+      const running = myExportsByCtx.get(ctx)!
+      if (running.has(userId)) fail('busy', tr(locale, T.myExportBusy))
+      const base = linkBase(c, ctx)
+      running.add(userId)
+      let jobId: string
+      try {
+        jobId = jobs().start({
+          kind: 'export', userId,
+          run: async (h) => {
+            try {
+              const r = await runMyExport(ctx.db, ctx.config.dataDir, h.id, { ownerId: userId, locale, base, hide: redactorFor(ctx, userId).hide, readable: exportReadable(ctx, userId), sharedVisible: (id) => !!visibleSharedChat(ctx.db, ctx.files, userId, id), sharedWithheld: (id) => withheldFrom(ctx.db, ctx.files.rules(), id, userId) }, (p, m) => h.progress(p, stepText(locale, m)))
+              audit(ctx.db, { actor: userId, action: 'export.mine', detail: { chats: r.chats, size: r.size } })
+              return r
+            } finally { running.delete(userId) }
+          },
+          discard: () => { running.delete(userId) },
+        })
+      } catch (e) { running.delete(userId); throw e }
+      return { jobId }
+    })
+
+    kit.handle(API.myExportDownload, ({ c, params, auth }) => {
+      // only the maker's own finished export job, while its file is kept: anything else is the same 404
+      const row = ctx.db.query("SELECT user_id FROM jobs WHERE id = ? AND kind = 'export' AND status = 'done'").get(params.jobId) as { user_id: string | null } | null
+      if (!row || row.user_id !== auth.user.id) fail('not_found')
+      const abs = myExportFile(ctx.config.dataDir, auth.user.id, params.jobId)
+      let found: fs.Stats | null = null
+      try { found = fs.lstatSync(abs) } catch { /* none */ }
+      if (!found || !found.isFile() || Date.now() - found.mtimeMs > MY_EXPORT_KEEP_MS) return fail('not_found')
+      const st = found
+      const name = `${PRODUCT.id}-my-chats-${new Date(st.mtimeMs).toISOString().slice(0, 10)}.zip`
+      return streamFile({ abs, seen: st, name, req: c.req.raw, disposition: 'attachment', via: c.get('info')?.via, cache: 'private, no-store' })
     })
 
     kit.handle(API.connection, () => connectionStatus(ctx))

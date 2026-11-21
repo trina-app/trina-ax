@@ -14,6 +14,9 @@ import type { AppContext } from '../context'
 import { JobServiceImpl } from '../jobs/service'
 import { transcribe, type TranscribeConfig } from '../jobs/transcribe'
 import { cleanMediaWork, localModelName, recordLocalSpeed } from '../files/media'
+import { speechPiece, type MeetingDeps } from '../jobs/meeting-piece'
+import type { MeetingPieceResult } from '@mycel/shared/api'
+import { safeOpsEnabled } from '../safe-ops/runner'
 import { SPEECH_CONFIDENTIAL, SPEECH_NO_KEY, SPEECH_OFF, transcribeOpenRouter } from '../jobs/openrouter-stt'
 import { confidentialDictation } from '../safe-ops/confidential'
 import { HttpError } from '../http/errors'
@@ -30,6 +33,9 @@ import { UploadSessions } from '../uploads/sessions'
 import { publishChanges } from './changes'
 import { atLeast, loadPrincipal, RuleSet } from '../policy/access'
 import { TeamFiles } from './service'
+import { readRegular } from '../files/store'
+import { fileSharesOf } from '../files/shares'
+import { listSharedFolder, sharedFolderChild } from '../files/shared-folder-reads'
 
 export interface ComponentC {
   hwp: HwpPreviews
@@ -47,6 +53,9 @@ export interface ComponentC {
    * the speech provider is OpenRouter. Throws a 403 with the person's note; the job checks again when it runs. */
   checkTranscribe(userId: string, chatId?: string): void
   startTranscribe(userId: string, file: string, name: string, o?: { language?: string; chatId?: string }): string
+  /** voice input while recording: one piece (a server-owned WAV, removed here; the route checked the chat with
+   * checkTranscribe) turned into lines at once (jobs/meeting-piece.ts) with the team's voice input setting */
+  voicePiece(userId: string, file: string, o: { language?: string; signal?: AbortSignal }): Promise<MeetingPieceResult>
   /** run every retention sweep now (also runs hourly) */
   sweep(): Record<string, number>
 }
@@ -66,6 +75,30 @@ export function componentC(ctx: AppContext): ComponentC {
   const have = instances.get(ctx)
   if (have) return have
   const files = new TeamFiles(ctx)
+  // a shared file's link follows its file (files/shares.ts: its file-event hook); the recipient's AI reads it by its
+  // link or path (docs/decisions/20261116-shared-files-for-the-ai.md)
+  const shares = fileSharesOf(ctx)
+  ctx.files.shared = {
+    at: (user, input) => shares.grantedFile(user.id, input), link: (user, input) => shares.fileOfLink(user.id, input),
+    // inside a folder shared with them, by its link only (files/shared-folder-reads.ts)
+    folderList: (user, files, input, L) => listSharedFolder(ctx, user, files, input, L),
+    folderChild: (user, input, L) => sharedFolderChild(ctx, user, input, L),
+  }
+  // the AI's read with `versions` (docs/decisions/20261117-ai-file-versions.md): the rows the Files screen's Version
+  // history shows the caller, by name only (a ref without a users row carries its id as the name: no name then)
+  const named = (u: { id: string; name: string } | null | undefined) => (u && u.name !== u.id ? u.name : null)
+  ctx.files.versions = {
+    async list(userId, rel) {
+      let h: Awaited<ReturnType<TeamFiles['history']>>
+      try { h = await files.history(userId, rel) } catch (e) { if (e instanceof HttpError) return null; throw e }
+      return {
+        current: h.current ? { version: h.current.version, by: named(h.current.author), at: h.current.at } : null,
+        items: h.items.filter((v) => v.kind !== 'conflict_copy').map((v) => ({ id: v.id, version: v.version, size: v.size, by: named(v.savedBy), replacedBy: named(v.author), replacedAt: v.createdAt, viaAi: !!v.turnId })),
+      }
+    },
+    bytes(userId, versionId, max) { return readRegular(files.versionFile(userId, versionId).abs, max).bytes },
+    places: (userId, versionId) => files.versionPlaces(userId, versionId),
+  }
   const teamRefs = new TeamFileRefs(ctx, files)
   const attachments = new Attachments(ctx, files, teamRefs)
   const uploads = new UploadSessions(ctx, files, attachments)
@@ -76,6 +109,18 @@ export function componentC(ctx: AppContext): ComponentC {
   // the hosting service's key: its requests count against the month's free hours (credentials/hosted-speech.ts)
   stt.meter = hostedSpeechMeter(ctx.db, () => readHostedSpeechKey(credentialsOf(ctx)))
   ctx.files.speechFree = () => (speechKeySource(ctx.db) === 'hosted' ? { leftSec: hostedSpeechLeft(ctx.db) } : null)
+  // voice input's pieces: the team's voice input setting (jobs/meeting-piece.ts)
+  const pieces: MeetingDeps = {
+    stt,
+    provider: () => getTeamSettings(ctx.db).speechProvider,
+    openRouter: () => {
+      const key = readSpeechKey(credentialsOf(ctx))
+      if (!key) return null
+      // the hosting service's key is for its one model (its guardrail at OpenRouter refuses any other)
+      return { key, model: speechKeySource(ctx.db) === 'hosted' ? HOSTED_SPEECH_MODEL : getTeamSettings(ctx.db).speechModel }
+    },
+    confidential: safeOpsEnabled,
+  }
   const locale = (userId: string): Locale => ((ctx.db.query('SELECT locale FROM users WHERE id = ?').get(userId) as { locale: Locale } | null)?.locale ?? DEFAULT_LOCALE)
   const c: ComponentC = {
     // the renderer of the HWP Preview plugin while it is usable, otherwise every page is refused ('disabled')
@@ -125,6 +170,9 @@ export function componentC(ctx: AppContext): ComponentC {
           discard: () => fs.rmSync(own, { force: true }),
         })
       } catch (e) { fs.rmSync(own, { force: true }); throw e }
+    },
+    voicePiece(userId, file, o) {
+      return speechPiece(pieces, userId, file, { language: o.language, locale: locale(userId), signal: o.signal })
     },
     sweep() {
       const r: Record<string, number> = {}

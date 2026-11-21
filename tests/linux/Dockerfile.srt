@@ -2,7 +2,8 @@
 # Debian 13 with what install-srt.sh puts on a team server: bubblewrap, socat, ripgrep, node 22 in /opt/trina/node, srt
 # from scripts/dev-env/srt/package-lock.json in /opt/trina/srt/<version>, run-wrap in /opt/trina/devenv. No systemd: the
 # driver runs srt with no scope (memory, CPU, polkit and systemd lines run on the VM). Run it with tests/linux/srt-run.ts
-# (--privileged: bwrap's user namespaces and mounts).
+# (--privileged: bwrap's user namespaces and mounts). The same image runs tests/linux/srt-subagent.ts (sub-agents' and
+# skills' commands through the real box_shell tool), in a container of its own.
 FROM oven/bun:1.3.12-debian
 ARG TARGETARCH
 RUN apt-get update && apt-get install -y --no-install-recommends bubblewrap socat ripgrep curl xz-utils ca-certificates \
@@ -34,8 +35,11 @@ COPY web/package.json /opt/mycel/web/package.json
 COPY desktop/package.json /opt/mycel/desktop/package.json
 COPY relay/package.json /opt/mycel/relay/package.json
 RUN cd /opt/mycel && bun install --frozen-lockfile --ignore-scripts >/dev/null
-COPY server/src/devenv/srt /opt/mycel/server/src/devenv/srt
-COPY server/src/policy/access.ts /opt/mycel/server/src/policy/access.ts
-COPY tests/lib/rule-world.ts /opt/mycel/tests/lib/rule-world.ts
-COPY tests/linux/srt-attack.ts /opt/mycel/tests/linux/srt-attack.ts
+# the whole server and the test helpers: tests/linux/srt-subagent.ts runs the real box_shell tool and runner on srt
+COPY server/src /opt/mycel/server/src
+COPY server/migrations /opt/mycel/server/migrations
+COPY server/assets /opt/mycel/server/assets
+COPY resources /opt/mycel/resources
+COPY tests/lib /opt/mycel/tests/lib
+COPY tests/linux/srt-attack.ts tests/linux/srt-subagent.ts tests/linux/sweep-as.ts /opt/mycel/tests/linux/
 CMD ["bun", "/opt/mycel/tests/linux/srt-attack.ts"]

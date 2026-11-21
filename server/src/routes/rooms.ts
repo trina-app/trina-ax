@@ -3,15 +3,12 @@
 // in advance, rooms/ai-grants.ts). Logic: server/src/rooms/*. Every handler takes the person from the session; the
 // request never names an author or another member's read position.
 import { dropAlways, listAlways } from '../chat/always-allow'
-import fs from 'node:fs'
-import path from 'node:path'
 import { API } from '@mycel/shared/api'
 import type { RouteModule } from './module'
 import { fail } from '../http/errors'
 import { assertStorageRoom } from '../system/storage'
 import { streamFile } from '../team-files/download'
 import { SAFE_OPS_TEXT } from '../safe-ops/strings'
-import { hashFile, writeTemp } from '../team-files/place'
 import { HwpError } from '../files/hwp-engine'
 import { componentC } from '../team-files/component'
 import { httpError } from '../team-files/errors'
@@ -19,6 +16,9 @@ import { fileOpener, roomsOf } from '../rooms/service'
 import { roomFilesOf } from '../rooms/files'
 import { deleteGrant, listGrants } from '../rooms/ai-grants'
 import { keptMediaCache } from '../auth/media-key'
+import { mapErrors } from '../team-files/errors'
+import { savedFiles, savePlan, saveToTeam } from '../rooms/save-to-team'
+import { assertRoomUpload } from '../rooms/project-room'
 
 export const roomsRoutes: RouteModule = {
   name: 'rooms',
@@ -27,7 +27,8 @@ export const roomsRoutes: RouteModule = {
     const rooms = roomsOf(ctx)
     // existing groups get their team rooms and everyone gets the everyone room at the first start with rooms; after
     // that groups and accounts are followed at once (admin/folders.ts afterAccessChange) and on this tick
-    try { rooms.sync() } catch (e) { ctx.log.error('room sync failed', { err: e }) }
+    // and every project's chat room, the 0.5.21 linked channels settled first (rooms/project-room.ts)
+    try { rooms.sync({ projects: 'all' }) } catch (e) { ctx.log.error('room sync failed', { err: e }) }
     // after a restore the database and the team folder can be from different moments: rows and files are matched
     try { roomFilesOf(ctx).reconcile() } catch (e) { ctx.log.error('room file reconcile failed', { err: e }) }
     // once, a minute after start: the JPEG thumbnails of transparent pictures sent before become PNG ones (rooms/files.ts
@@ -38,14 +39,13 @@ export const roomsRoutes: RouteModule = {
       ;(later as { unref?: () => void }).unref?.()
       ctx.onClose(() => { clearTimeout(later); stop.abort() })
     }
-    const tick = setInterval(() => { rooms.syncSoon(); try { roomFilesOf(ctx).sweep() } catch (e) { ctx.log.warn('room file sweep failed', { err: e }) } }, 60_000)
+    const tick = setInterval(() => { rooms.syncNow('all'); try { roomFilesOf(ctx).sweep() } catch (e) { ctx.log.warn('room file sweep failed', { err: e }) } }, 60_000)
     ;(tick as { unref?: () => void }).unref?.()
     ctx.onClose(() => clearInterval(tick))
   },
   register(kit, ctx) {
     const rooms = roomsOf(ctx)
     const files = roomFilesOf(ctx)
-    const tmpDir = path.join(ctx.config.dataDir, 'uploads', 'tmp')
 
     kit.handle(API.listRooms, ({ c, auth }) => { c.header('Cache-Control', 'no-store'); return { items: rooms.list(auth.user.id), alerts: rooms.alerts(auth.user.id) } })
     kit.handle(API.createRoom, ({ c, auth, body }) => (body.kind === 'dm' ? rooms.openDm(auth.user.id, body.userId) : rooms.createGroup(auth.user.id, body.userIds, body.name, c.get('locale'))))
@@ -56,6 +56,12 @@ export const roomsRoutes: RouteModule = {
     kit.handle(API.searchRoomMessages, ({ c, auth, query }) => { c.header('Cache-Control', 'no-store'); return rooms.search(auth.user.id, query) })
     // and the files sent with those messages, by name (the same rule: rooms/search.ts searchRoomFiles)
     kit.handle(API.searchRoomFiles, ({ c, auth, query }) => { c.header('Cache-Control', 'no-store'); return rooms.searchFiles(auth.user.id, query) })
+    // "Files you sent": my own, largest first (docs/decisions/20261116-room-files-cleanup.md)
+    kit.handle(API.listMyRoomFiles, ({ c, auth, query }) => { c.header('Cache-Control', 'no-store'); return rooms.listMyFiles(auth.user.id, query) })
+    // ⌘K before anything is typed: the newest files of my rooms (rooms/search.ts recentRoomFiles), the same checks
+    kit.handle(API.recentRoomFiles, ({ c, auth }) => { c.header('Cache-Control', 'no-store'); return rooms.recentFiles(auth.user.id) })
+    // a room's Files list (rooms/search.ts listRoomFiles): not for a project's chat room (404; its files are the project's)
+    kit.handle(API.listRoomFiles, ({ c, auth, params, query }) => { c.header('Cache-Control', 'no-store'); return rooms.listFiles(auth.user.id, params.id, query) })
     // the screen's language for a refusal ("@트리나" asks nothing: docs/DECISIONS.md "Room @트리나 code removed")
     kit.handle(API.sendRoomMessage, ({ c, auth, params, body }) => rooms.send(auth.user.id, params.id, body, { locale: c.get('locale'), ...(body.showMessages?.length ? { showMessages: body.showMessages } : {}) }))
     // message links (docs/DECISIONS.md "Message links and their previews", rooms/link-previews.ts): the composer's
@@ -72,9 +78,17 @@ export const roomsRoutes: RouteModule = {
     kit.handle(API.listRoomMembers, ({ c, auth, params }) => { c.header('Cache-Control', 'no-store'); return { items: rooms.members(auth.user.id, params.id) } })
     // group chats (docs/DECISIONS.md "그룹 대화와 방 이름"): any member invites or leaves; the manager, or an owner or
     // admin in it, takes someone out
+    // a team project's own chat room (rooms/project-room.ts; docs/decisions/20261120-project-is-room.md): made the first
+    // time it is opened, for someone who reads the project
+    kit.handle(API.openProjectRoom, ({ c, auth, params }) => rooms.openProjectRoom(auth.user.id, params.id, c.get('locale')))
+    // the 0.5.21 project link's endpoints are retired (one release): 410 for everyone, before any check, naming nothing
+    kit.handle(API.undoRoomSave, () => fail('gone'))
+    kit.handle(API.linkRoomProject, () => fail('gone'))
+    kit.handle(API.unlinkRoomProject, () => fail('gone'))
+    kit.handle(API.createProjectChannel, () => fail('gone'))
     kit.handle(API.inviteRoomMembers, ({ c, auth, params, body }) => rooms.invite(auth.user.id, params.id, body.userIds, c.get('locale')))
-    kit.handle(API.removeRoomMember, ({ auth, params }) => rooms.removeMember(auth.user.id, params.id, params.userId))
-    kit.handle(API.leaveRoom, ({ auth, params }) => rooms.leave(auth.user.id, params.id))
+    kit.handle(API.removeRoomMember, ({ c, auth, params }) => rooms.removeMember(auth.user.id, params.id, params.userId, c.get('locale')))
+    kit.handle(API.leaveRoom, ({ c, auth, params }) => rooms.leave(auth.user.id, params.id, c.get('locale')))
     // hiding a DM, a team room or the everyone room from my own lists (docs/DECISIONS.md "대화 숨기기"): mine only
     kit.handle(API.setRoomHidden, ({ auth, params, body }) => rooms.setHidden(auth.user.id, params.id, body.hidden))
     // "상단에 고정" / "고정 해제" (docs/DECISIONS.md "Pinned conversations"): mine only; only my own windows hear it
@@ -85,13 +99,17 @@ export const roomsRoutes: RouteModule = {
     kit.handle(API.listAiAllowances, ({ c, auth }) => { c.header('Cache-Control', 'no-store'); return { items: [...listAlways(ctx.db, auth.user.id), ...listGrants(ctx.db, auth.user.id)] } })
     kit.handle(API.deleteAiAllowance, ({ auth, params }) => { if (!(params.id.startsWith('card:') ? dropAlways(ctx.db, auth.user.id, params.id) : deleteGrant(ctx.db, auth.user.id, params.id))) fail('not_found') })
 
-    kit.handle(API.uploadRoomFile, async ({ auth, params, body }) => {
+    // a small file in one request (larger ones: an upload session with target room, uploads/sessions.ts). The body was
+    // streamed to a temp file and hashed on the way (http/multipart.ts); create() moves it into the room's folder (a
+    // project's chat room: into the project's Chat attachments folder, rooms/files.ts createInProject)
+    kit.handle(API.uploadRoomFile, async ({ c, auth, params, body }) => {
       // the same checks as a chat attachment: the whole part arrived, there is room on the disk
       if (body.fields.size !== undefined && body.fields.size !== body.file.size) fail('validation', undefined, { fields: { 'body.file': `expected ${body.fields.size} bytes, got ${body.file.size}` } })
       assertStorageRoom(body.file.size)
       rooms.get(auth.user.id, params.id)
-      const p = await writeTemp(tmpDir, body.file)
-      try { return await files.create(auth.user.id, params.id, body.fields.name ?? (body.file.name || 'file'), p, await hashFile(p)) } finally { fs.rmSync(p, { force: true }) }
+      // a project's room: only someone who may add files to the project (403 shared_upload_read_only)
+      assertRoomUpload(ctx, auth.user.id, params.id, c.get('locale'))
+      return await files.create(auth.user.id, params.id, body.fields.name ?? (body.file.name || 'file'), body.file.path, body.file.sha256)
     })
     // "팀 파일" in a room's box (a phone's attach sheet): the copy "대화방에 보내기" makes of a linked file (rooms/files.ts
     // teamCopy over fromTeamFile: in the room, my read access now, a regular file of at most 50 MB, the storage check,
@@ -106,6 +124,12 @@ export const roomsRoutes: RouteModule = {
       const unable = others.filter((m) => !fileOpener(ctx, m.user_id)(body.path)).length
       return { file, unable }
     })
+    // "Save to team folder" on a file of a room, a DM or a thread (rooms/save-to-team.ts, docs/decisions/
+    // 20261117-room-file-save-btn.md): the files saved where I can open them, the sheet's plan, and the copy, each with
+    // room_file's read checks and, for the copy, the AI's byte save (write access again, never an overwrite)
+    kit.handle(API.roomSavedFiles, ({ c, auth, params }) => { c.header('Cache-Control', 'no-store'); return savedFiles(ctx, auth.user.id, params.id) })
+    kit.handle(API.roomSavePlan, ({ c, auth, params, body }) => mapErrors(c.get('locale'), () => savePlan(ctx, auth.user.id, params.id, body.fileIds, body.folder), 'body.folder'))
+    kit.handle(API.saveRoomFilesToTeam, ({ c, auth, params, body }) => mapErrors(c.get('locale'), () => saveToTeam(ctx, auth.user.id, params.id, body.fileIds, body.folder), 'body.folder'))
     kit.handle(API.roomFile, ({ c, auth, params, query }) => {
       const f = files.open(auth.user.id, params.id, params.fileId, !!query.thumb)
       // a file on the safety check's download-only list (docs/SAFE-OPS-1A.md) goes only as a download (download=1): no
@@ -116,8 +140,9 @@ export const roomsRoutes: RouteModule = {
       if (f.quarantined && (query.thumb || !query.download || (dest && dest !== 'document' && dest !== 'empty'))) fail('unavailable', SAFE_OPS_TEXT.quarantined[c.get('locale')], { params: { reason: 'quarantined' } })
       // a room file's id always means the same bytes: its thumbnail (only ever an <img> in the app) is kept by this
       // browser for this sign-in when the address carries the session's own media key (auth/media-key.ts); all checks
-      // above ran first. Anything else (an inline read, a download) is never kept, nor a file on the download-only list
-      const cache = query.thumb && !query.download && !f.quarantined ? keptMediaCache(ctx.db, auth.session, query.k) ?? undefined : undefined
+      // above ran first. Anything else (an inline read, a download) is never kept, nor a file on the download-only list,
+      // nor a project room's file kept in the team folder (its bytes are the team file's now, and may change)
+      const cache = query.thumb && !query.download && !f.quarantined && !f.teamFile ? keptMediaCache(ctx.db, auth.session, query.k) ?? undefined : undefined
       return streamFile({ abs: f.abs, name: f.name, req: c.req.raw, disposition: query.download ? 'attachment' : 'inline', via: c.get('info')?.via, cache })
     })
     // a Hangul file's pages from the HWP Preview plugin (files/hwp-preview.ts: the team file preview's renderer, limits,

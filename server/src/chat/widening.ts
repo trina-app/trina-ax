@@ -67,7 +67,12 @@ export function answerPreview(content: string): string {
  * the project's members and sees its chats.
  */
 export function wideningAnswers(db: Database, rules: { now: RuleSet; after: RuleSet }, target: { kind: 'project'; projectId: string } | { kind: 'chat'; chatId: string }, newPeople: readonly Principal[], viewer: Principal,
-  page: { before?: number | null; limit: number }, o: { subjects?: readonly WideningSubject[]; stats?: WideningStats; words?: PlaceWords; place?: (path: string) => string } = {}): WideningResult {
+  page: { before?: number | null; limit: number }, o: { subjects?: readonly WideningSubject[]; stats?: WideningStats; words?: PlaceWords; place?: (path: string) => string
+    /** one chat's answers the Share check found besides their records (chat/audience-check.ts: their own files, my
+     * memories, my personal accounts), with the new people each widens to and the places it used that count */
+    extra?: ReadonlyMap<string, { widens: ReadonlySet<string>; sources: readonly ReadSource[] }>
+    /** filled with every answer the records alone list, and the new people each widens to */
+    collect?: Map<string, Set<string>> } = {}): WideningResult {
   const empty: WideningResult = { total: 0, totalCapped: false, items: [], nextRowid: null }
   if (!newPeople.length) return empty
   const stats = o.stats ?? { checks: 0 }
@@ -82,7 +87,8 @@ export function wideningAnswers(db: Database, rules: { now: RuleSet; after: Rule
       return new Set(people.filter((x) => atLeast(set.access(x, segs), 'read')).map((x) => x.id))
     }
     if (s.type === 'name') { const segs = nameSegs(s.path); return new Set(people.filter((x) => set.canList(x, segs)).map((x) => x.id)) }
-    if (s.type === 'user') return new Set(people.some((x) => x.id === s.id) ? [s.id] : [])
+    // (from inside a folder the person shares: viewersOf counts the share's people too)
+    if (s.type === 'user' && !s.share) return new Set(people.some((x) => x.id === s.id) ? [s.id] : [])
     if (s.type === 'slack') return new Set(people.some((x) => x.id === s.userId) ? [s.userId] : [])
     return viewersOf(db, set, s, people)
   }
@@ -137,21 +143,24 @@ export function wideningAnswers(db: Database, rules: { now: RuleSet; after: Rule
   for (const id of answers) {
     if (++walked > WIDENING_COUNT_CAP) { capped = true; break }
     const n = nodeById.get(id)!
-    if (!n.rec || hiddenFromViewer.has(id) || meta.get(id)!.status === 'streaming') continue
-    const groups = n.rec.reads
-    if (!groups.length) continue
+    if (hiddenFromViewer.has(id) || meta.get(id)!.status === 'streaming') continue
+    const groups = n.rec?.reads ?? []
+    const extra = o.extra?.get(id)
+    if (!groups.length && !extra?.widens.size) continue
     // who among the new people would start seeing it although they miss one of its places
     const widens = new Set<string>()
-    for (const p of people) {
+    for (const p of groups.length ? people : []) {
       if (n.runner === p.id) continue
       // (an x group: what it read is not all known, so anyone not in it misses it)
       const misses = groups.some((g) => !g.c.has(p.id) && (g.x || g.s.some((s) => !newOf(s).has(p.id))))
       if (!misses) continue
       // an answer that stays hidden from them anyway widens nothing: an older one no card covered (rule b, its own
       // record), a newer one by an x group
-      if (n.late ? lateHides(groups, p.id) : groupsHide(groups, p.id, (s) => newOf(s).has(p.id))) continue
+      if (n.late ? lateHides(groups, p.id, (s) => newOf(s).has(p.id)) : groupsHide(groups, p.id, (s) => newOf(s).has(p.id))) continue
       widens.add(p.id)
     }
+    if (widens.size) o.collect?.set(id, new Set(widens))
+    for (const p of extra?.widens ?? []) widens.add(p)
     if (!widens.size) continue
     total++
     const m = meta.get(id)!
@@ -181,7 +190,7 @@ export function wideningAnswers(db: Database, rules: { now: RuleSet; after: Rule
       case 'room': return words.room.replace('{name}', roomName(db, s.id))
       case 'slack': return slackPlaceName(s)
       // a chat's own files (chat/chat-files.ts): the chat is the place
-      case 'chat': return words.chat ?? 'files sent in a shared chat'
+      case 'chat': return words.chat ?? 'files or comments in a shared chat'
     }
   }
   const items: WideningItem[] = []
@@ -192,7 +201,14 @@ export function wideningAnswers(db: Database, rules: { now: RuleSet; after: Rule
     const seen = new Set<string>()
     const places: WideningItem['places'] = []
     let hidden = false
-    for (const g of x.node.rec!.reads) {
+    for (const s of o.extra?.get(x.node.id)?.sources ?? []) {
+      const k = sourceKey(s)
+      if (seen.has(k)) continue
+      seen.add(k)
+      if (viewerReads(s)) places.push({ name: placeName(s) })
+      else hidden = true
+    }
+    for (const g of x.node.rec?.reads ?? []) {
       // not all known: one "a place you can't open" for the people it widens to
       if (g.x && [...x.widens].some((id) => !g.c.has(id))) hidden = true
       for (const s of g.s) {

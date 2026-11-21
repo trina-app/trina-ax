@@ -1,5 +1,16 @@
 # 결정 기록 (Stage 1 "권한 바닥 공사")
 
+> **Archive.** Since 2026-11-16 new decisions are one file each in [docs/decisions/](decisions/README.md)
+> (`<YYYYMMDD>-<topic>.md`); look there for anything decided after that day. Do not add sections or lines here
+> (`bun run check:docs` fails a PR that does); fixing a typo in an old entry is fine.
+> 2026-11-16부터 새 결정은 `docs/decisions/`에 한 파일씩 적는다. 이 파일은 그 전의 기록이다.
+>
+> **Reversed later (checked 2026-11-19), the later entry counts:** the knowledge graph ("K —", "지식 그래프로 더 빠른 답",
+> "뜻으로도 찾는 지식 그래프") was removed by "Knowledge graph removed"; "@트리나" in rooms ("대화방의 트리나" and its follow-ups)
+> by "Trina side chat, PR 2" and "Room @트리나 code removed" (the AI is the ✦ side chat); "Trina history by project" is
+> no longer the default ("Trina history: Group by defaults to None"); "Mac users get the App Store only" and "Mac App
+> Store 먼저" by [20261116-desktop-first-onboarding](decisions/20261116-desktop-first-onboarding.md) (the signed dmg).
+
 설계서 v3(팀 AX 플랫폼 구현 설계서)를 기준으로, 설계서에 없거나 애매한 부분을 구현하면서 정한 것들이다.
 형식: **결정** — 이유. (날짜는 모두 2026-10-21)
 
@@ -762,7 +773,7 @@ owner가 LinkedIn 글쓰기 화면에서 시험하다가 페이지 위에 노란
   through the relay: the desktop and phone apps' address check only parse the shape, the bootstrap, installers,
   `mycel-ctl` and the Docker health check ask `127.0.0.1`, and the sign-in page's source-code link then names no version
   (as on the office internet address).
-- **A full disk is said as one (2026-11-11, QA TC-209).** Where the Mac's absolute floor (max(10 GB, 5%), not a Linux
+- **A full disk is said as one (2026-11-11, QA TC-209).** Where the Mac's absolute floor (max(10 GB, min(5%, 10 GB)), not a Linux
   production install) decides the disk check, the storage card's level is `full` under it too, so the card and the
   check never disagree on a small disk. A backup refused for room (`disk_space`, `plan_space`) is told in the person's
   language. Any request that fails on a full disk (ENOSPC / EDQUOT, SQLite "database or disk is full", also as a cause)
@@ -6351,7 +6362,9 @@ on every call as before.
   API. The same field checks as a connection (`service.ts` `headerName`, `normUrl`, `obviouslyPrivate`). The body is
   strict, so a key sent with a request is refused (400), not dropped. No write rule (the member's choice, ask or refuse,
   as for any personal connection) and no access rule. One waiting request per member and address, 20 waiting per
-  member, 200 in all. Refused (409) while the team does not allow personal connections. A member's existing
+  member, 200 in all. Refused (409) while the team does not allow personal connections. Never to a guest (2026-11-15,
+  QA TC-2948): a guest cannot open Settings › Connectors, so the request would wait on nobody; refused (400 under the
+  person), and a waiting one to a guest ends as withdrawn once, at server start (no migration). A member's existing
   connections are never looked at: a refusal "already connected" would tell the admin about them.
 - **States.** waiting, connected, declined (member), withdrawn (admin), expired (7 days, `INTEGRATION_REQUEST_DAYS`;
   derived from `expires_at`, nothing rewrites the row). Ended and expired requests leave the admin's list 30 days later.
@@ -7632,7 +7645,7 @@ Onboarding wave 1, stream E. Placement: Team AX core (accounts and invites are c
 - **Per-link rate limit.** `RateLimiter` got a `link` kind (`perLink` 30 per 15 minutes): every join attempt through a found link counts, from any address, before the slow password hash (`hold()`), on top of the per-IP limit on unknown tokens; a join that worked is taken back (`release()`), since the uses cap those, so a 40-person team joining in one go is not turned away by its own typos. Refusals are audited once a minute per link (`team_link.rate_limited`). Someone holding the link can still keep it refusing with failed attempts; the leader then makes a new link. `POST /api/team-link/info` has no per-link limit (cheap; unknown tokens count per IP).
 - **Owners are told.** A new event `team.joined` in its own table `team_join_notices` (migration 111; `notification_inbox` has a fixed CHECK list and tables are never rebuilt, as for skill, dev-env and connection-request notices). Recipients: the active owners and the link's maker. Shown always (no new preference column: a join is rare and the owner wants it); no OS push (`push_deliveries` refers to `notification_inbox` only). Metadata only: the source is the new account's id; the inbox resolves the name while the account exists. Settings › Notifications shows "○○님이 팀 초대 링크로 들어왔어요" with a link to Admin › Members.
 - **Audit**: `team_link.create` (groups, uses, expiry, skill, replaced), `team_link.revoke`, `team_link.join` (who, groups, use n of m, IP and route, like sign-ins), `team_link.rate_limited`. The token is never in a detail.
-- **Skill deep link.** A link may name a team skill (`skills/…`, never a personal one). Creating one checks it against a stand-in new member with the link's groups (the same stand-in as Admin's "who will see what", `access-explain.ts`) and refuses a skill such a person could not open. The join checks again with the real account, after it exists (`readSkill` with the new principal): `next` is `/skills?run=<path>` only when they can read it, else null (Home). The web follows only a `/skills?run=skills/…` next (`lib/team-link.ts joinNext`). The info answer shows the skill's name only when a stand-in new member could open it. Stream C builds the `?run=` form.
+- **Skill deep link.** *(Landing superseded 2026-11-15 by "A new member lands on Home": every join goes Home.)* A link may name a team skill (`skills/…`, never a personal one). Creating one checks it against a stand-in new member with the link's groups (the same stand-in as Admin's "who will see what", `access-explain.ts`) and refuses a skill such a person could not open. The join checks again with the real account, after it exists (`readSkill` with the new principal): `next` is `/skills?run=<path>` only when they can read it, else null (Home). The web follows only a `/skills?run=skills/…` next (`lib/team-link.ts joinNext`). The info answer shows the skill's name only when a stand-in new member could open it. Stream C builds the `?run=` form.
 - **Ready-made message** (none of the reference products has one): "{name}님이 {product}에서 함께 일하자고 초대했어요. 링크로 바로 들어올 수 있어요: {link}", with a skill "… '{skill}' 스킬을 같이 써 보자고 해요. …", in all five languages; `{name}` is the person copying it (they send it).
 - **Join form**: name, username, password for both single-use invites and the team link (`pages/Auth.tsx JoinForm`). The second password field is gone; an eye button shows what was typed and Caps Lock is named (the pattern of the forced password change). All validation stays: the username rule while typing, the 8-character minimum before sending, the server's words after. The first-run setup and the reset-password forms are unchanged (setup belongs to wave 2; a reset is for an existing account). Expired, used-up, revoked, stopped and full links each say so and ask for a new link (or to tell the sender, when full); an unknown token asks to check the copied link.
 - **After joining** the session switch re-renders `/join` as a signed-in page before the router's own navigation (a transition) lands, so the signed-in `/join` route sends the new member to the target the join page set (`AfterJoin`, `lib/team-link.ts setAfterJoin`).
@@ -7712,7 +7725,7 @@ one or two".
   no usable AI (`GET /api/me/ai-access`, asked again on this step) it shows A's banner and button instead of the form.
 - **The invite.** On the first-result chat, once its answer is done, the owner sees one slim bar above the composer
   (`components/onboarding/WelcomeInviteBar.tsx`, one line in Chat.tsx): "결과가 마음에 드세요? 팀원도 같이 써 보게 해요
-  [초대하기]". It opens E's `InviteStep` in a dialog with that skill (`skillPath`: people who join land on its form) and
+  [초대하기]". It opens E's `InviteStep` in a dialog with that skill (`skillPath`: people who join land on its form; Superseded 2026-11-15 by "A new member lands on Home": every join goes Home, no maker line.) and
   the heading "방금 쓴 '광고 문구' 스킬, 팀원도 써 보게 할까요?" (new optional `title` prop). Closing the bar asks E's soft
   question first. When step 3 was put off, the invite is the last step of the page itself, with the pack's skill when
   there is one and E's own heading.
@@ -8369,7 +8382,7 @@ every week. Placement: Team AX core (skills, files and permissions, the team lin
   changing its address: a link already posted keeps working) only files a stand-in new member with the link's groups
   could open are kept; with none left there is no starter, and a starter needs the link's skill. At the join each file
   is checked again with the real account (`authorize` + `visiblePath`, the file screen's test); one they cannot read is
-  left out silently, none left = no starter and the member lands on the skill form as before. The answer carries
+  left out silently, none left = no starter and the member lands on the skill form as before *(Superseded 2026-11-15 by "A new member lands on Home": every join goes Home, no maker line.)*. The answer carries
   `starter { kind, skill, files, by }`; the admin view shows `{ kind, files: n }` only. Audited in `team_link.create` /
   `team_link.update`. The team group is the default group of a new link (the invite step and Admin › Members), so
   people who join see the team's folder; when the lead invites from the notes and the open link lacks it, the PATCH adds
@@ -9434,7 +9447,7 @@ the "3 proposals" step and the bar after sharing. Placement: Team AX core (skill
   version that is a pack's text (any language, earlier releases) has no maker: the owner who pressed install did not
   write it. Used three ways: the join answer's new `skillBy` (and `starter.by` for a skill without a form), the receipt
   (`Message.receipt.skill.by`, only when the maker is not the asker; cached a minute per path), nothing else.
-- **The member**: a skill with a form opens on `/skills?run=` as before, with one line on top in place of its description:
+- **The member** *(Superseded 2026-11-15 by "A new member lands on Home": every join goes Home, no maker line.)*: a skill with a form opens on `/skills?run=` as before, with one line on top in place of its description:
   "{팀장}님이 만든 팀 스킬이에요 · 이 채팅은 {이름}님만 봐요" (`skillBy`, held in this tab until the form goes away,
   `lib/starter.ts holdMadeBy`). A skill without a form gets M's arrival on Home with a new starter kind `skill` (no
   files): "{팀장}님이 만든 팀 스킬이에요", its title as the box's chip and "이 방식대로 해 줘". The answer's step line reads
@@ -10564,7 +10577,7 @@ items of SK.
   '우리 회사 소개서'에 있어요" only when a deck started, by the server's fact `deckStarted` (the deck's chat holds the
   "/intro-deck" message or a deck build exists; never a recorded chat alone: a first result of a row from before is no
   deck) (no button: its row has its own marker, Part A); the primary
-  "'{skill}' 먼저 써 보기" opens the same form a member lands on (`/skills?run=`), "AI 연결하기" while no AI answers; 홈으로
+  "'{skill}' 먼저 써 보기" opens the skill's form (`/skills?run=`; members no longer land on it: "A new member lands on Home", 2026-11-15), "AI 연결하기" while no AI answers; 홈으로
   is a quiet link. Finishing later (내 스킬 on a computer after the phone's end screen) goes Home with "시작 설정을
   마쳤어요".
 - **Finish rule (server, `welcomeFinished`).** 회사 소개 answered (put off; or saved with `resultChatId`, or a row from
@@ -10713,7 +10726,7 @@ items of SK.
   with control or text-direction characters, the same set as `readSkillTitle` and the server's `readSkillExample` (the
   box then starts empty).
 - **The walk of PR #100** (a first-time owner and an invited member in a browser; no dead end found; these fixed):
-  - *The member lands on the skill's form* for every skill: the `'skill'` starter ("이 방식대로 해 줘" on Home, for a
+  - *The member lands on the skill's form* for every skill: *(Landing superseded 2026-11-15 by "A new member lands on Home": every join goes Home.)* the `'skill'` starter ("이 방식대로 해 줘" on Home, for a
     skill a person made that has no fields) is gone from the join; a link to a skill returns its form as `next` (a form
     without fields starts with `skillExample`), with "지훈님이 만든 팀 스킬이에요" above it. Only a link with files (M)
     still lands on Home with its starter. The `'skill'` kind stays in the contract and Home reads it for joins made
@@ -15261,7 +15274,8 @@ enters a shared transcript; that check is new here, and turns never run on the c
   `shared_chat_busy` names the runner ("○○님의 질문에 답하는 중이에요. 끝나면 보낼 수 있어요."), and
   `Chat.shared.answering` says the same (with `waiting` while their card is open). No queued sends.
 - **What a shared turn has.** `SHARED_TOOLS` = `ROOM_TOOLS` without the room's own tools: no memories, chat title,
-  connections, Drive, schedules, browser, box, dev environment or room reading. The PC runner (not merged yet) must be
+  connections, Drive, schedules, browser, box, dev environment or room reading (amended 2026-11-15: `post_to_room` is
+  in it, "Sending to a person or a room from a shared chat"). The PC runner (not merged yet) must be
   off there too. The instructions come from `SHARED_PROMPT_SECTIONS` (like the room's allowlist, with the project): the
   person lines name only the person's name and id and folders everyone who sees the chat may read; skills, team rules
   and the company profile only what they all read; no memories. A "Shared project chat" section says who sees it,
@@ -15817,7 +15831,7 @@ the project's audience, the answer goes to the room; otherwise it stays private 
 rule and the search palette are core chat.
 
 From the team chat: "Chat search: search the messages in rooms and DMs", "search chat must be included on the search
-menu with cmd+k". The owner approved it on 2026-11-08.
+menu with cmd+k". The owner approved it on 2026-11-08. Later: ⌘F and the chips ([20261120](decisions/20261120-search-shortcuts-slack.md)).
 
 - **Where: the palette there is.** No new screen, no new tab, no filter chips. On the 전체 tab, after the chat records
   (기록), a "대화방 메시지" section: the first 5 hits, then "메시지 더 보기", which shows more in place and asks for the
@@ -16636,7 +16650,8 @@ accounts, relay names); nothing about plans or billing.
   Store allows a non-game app its own payment: the Windows store build keeps the button. The desktop's main process
   picks both addresses (`firstRunLinks`); the screen only names which (`ui:open-link`), so a screen can never open
   another address. The phone opens the guide in the browser sheet; closing it returns to ③.
-- **The app draws the host, not the page.** A fake server can draw any address on its own sign-in page, and the desktop
+- **The app draws the host, not the page.** (Since 2026-11-15 the desktop's sign-in pages draw it under the card from the
+  bridge's team address and the strip steps aside there: "Desktop first start, the sign-in line and one team screen".) A fake server can draw any address on its own sign-in page, and the desktop
   app may show the page from the office-network address (direct.ts), so `location.host` is not the team address there.
   Both apps show it on the sign-in pages (`/login`, `/invite/…`, `/join`, `/setup`, `/reset-password/…`) **and on every
   page until the team answered GET /api/me for a signed-in person** (`hostLineShown`, shared), because a fake sign-in
@@ -17291,8 +17306,8 @@ transferOwnership, `auth/accounts.ts` invites, `shared/src/api/handover.ts`, mig
   Drive shares signed in with their Google account; team connections to services, an MCP server such as Higgsfield,
   whose OAuth sign-in is theirs, read from `team_sign_ins` alone (written by the sign-in, cleared when it ends; a sign-in
   from before that record is unknown and neither listed nor ended); team API keys and keys typed into a connection
-  are the team's and never listed), each ticked "넘기면
-  끊어요" (untick the company's own seat), the line on who can still reset passwords (hosted, the office server Mac, a
+  are the team's and never listed), each kept by default
+  with its own opt-in "넘길 때 끊기" (QA TC-3095, below; it was ticked "넘기면 끊어요" at first), the line on who can still reset passwords (hosted, the office server Mac, a
   self-installed server), and the password. The rule: settings move with the role; connections in a person's own name
   are ended by that person, at the handover. Which ones is written in the transfer's own write (`owner_transfers.to_end`,
   only what is the caller's then), and they are ended **after the commit** (`owner.transfer.disconnect` per connection;
@@ -17437,7 +17452,7 @@ direction ("그럼 ㄱ"); the plan was reviewed per persona (5 MUST, 16 SHOULD, 
 page, no migration. Placement: Team AX core (Home, the skills routes, onboarding components). Plan:
 `docs/AGENTS/plan/20261108-1734-onb6-members.md`.
 
-- **Where an invite lands is unchanged.** A link with the owner's shared skill opens its form; every other link lands
+- **Where an invite lands is unchanged.** *(Landing superseded 2026-11-15 by "A new member lands on Home": every join goes Home.)* A link with the owner's shared skill opens its form; every other link lands
   on Home. Not the first kept skill's form: 회사 소개서, 카드뉴스 and 홍보 영상 make company material, and a member's first
   run would remake the company's cards on the team's AI.
 - **One member endpoint, `GET /api/skills/examples`** (`auth: 'user'`, server/src/skills/examples.ts), read as the
@@ -23112,7 +23127,7 @@ changes them.
 - **The updater.** electron-updater's auto-download, install-on-quit and web installer are off. The app downloads
   itself, never while a download is being checked, and re-hashes the file right before installing (restart and quit).
   A contradicted download is deleted, logged and not downloaded again in that run; the person sees once: "This update
-  couldn't be checked, so it wasn't installed." (5 languages). Nothing readable at all (server down, no internet) keeps
+  didn't pass its safety check, so it wasn't installed." (5 langs). Nothing readable at all (server down, no internet) keeps
   the download for the next check. Unpacked dev runs may skip (`MYCEL_DESKTOP_UPDATE_UNVERIFIED=1` or no keys); a
   packaged app always checks.
 - Tests: `office-update-desktop.test.ts` (good signature, wrong key, tampered payload, broken signature, hash mismatch,
@@ -23750,6 +23765,9 @@ compared after lower-casing) and closes open point (2) of "Projects made on 0.4.
     sign-in opens in the window reserved during the click, and the card shows how it goes, then "연결됨".
   - **The address form** ("다른 도구 연결하기", a team connection) stays as the last, quiet choice; it is no longer
     the only one.
+- **Amended 2026-11-15** ("Onboarding's Tools step: Drive, Notion and the full list" below): no Drive row while Drive
+  is not ready (reverses TC-145), Notion is the only listed service, and "다른 도구 연결하기" opens Settings › Connectors
+  instead of the address form.
 
 ## The Linux launcher tests the live engine firewall before every turn (fix/firewall-live-check, 2026-11-12, QA TC-310)
 
@@ -25788,14 +25806,14 @@ default.
 - **Slack's default.** Slack (help "Configure your Slack notifications"): while you are active on desktop, mobile gets
   no push; inactive, it does. Discord does the same with no way out. Slack's docs describe no catch-up of what arrived
   while you were active, and neither do we: **a phone push is decided once, when it would go.** The person at Trina
-  then saw it on the computer: that phone push is **cancelled** (state `cancelled`, a debug log line with reason
-  `at_trina`), never held and never sent later. Away: it goes as before. The notice itself, the Inbox, the badges and
+  then saw it on the computer: that phone push is **cancelled** (state `cancelled`, an info log line
+  `phone push decision` with why), never held and never sent later. Away: it goes as before. The notice itself, the Inbox, the badges and
   the computer's own notification are unchanged.
 - **At Trina** (`Presence.inUse`, memory only, never shown to anyone): a window of the person's in use (`active`) and
   heard from within 60 s (`PRESENCE_SILENT_MS`: a computer that slept or lost its network while its socket is still
   open; the page pings every 20 s, the relay has no pings of its own, Bun closes idle sockets after 120 s), or a window
   closed while in use within the 30 s grace (a reload, a Wi-Fi switch, a relay reconnect; any window opening again
-  ends it). Not when the person set themselves away (manual away sends). Any Trina window counts, the phone app's too
+  ends it). Their own away pick does not count (2026-11-19, docs/decisions/20261116-away-os-idle.md). Any Trina window counts, the phone app's too
   while open in front of them (it goes idle when hidden), as Slack counts any active client.
 - **The computer's own use (desktop app).** A page sees only its own input: someone in Excel with Trina behind it, or
   in the in-app browser pane, would look away. The desktop app asks Electron `powerMonitor` every 30 s
@@ -26306,7 +26324,8 @@ docs/AGENTS/plan/20261113-1046-ai-send-to-person.md.
   goes (not offered on a card with [파일도 함께 보내기], as before).
 - **Unchanged.** Always one card unless "Always allow" is on;
   every place post_to_room is not offered (scheduled run, confidential chat, shared project chat, Slack, a restricted or
-  template run, a sub-agent). Prompt: `ROOMS_POST_RULE` says "tell X …" uses the same tool with the person's name and
+  template run, a sub-agent). (Amended 2026-11-15: shared chats have it now, "Sending to a person or a room from a
+  shared chat" below.) Prompt: `ROOMS_POST_RULE` says "tell X …" uses the same tool with the person's name and
   `own_words`, and to ask when several match.
 - No migration.
 
@@ -26650,6 +26669,9 @@ the data and the API do not change. P2 (Drive's additive inheritance, a `limited
   who start seeing a project its own way), no "Copy link" (no per-folder link), members do not share (only the owner
   and admins change access; members see the count and "An admin changes who can open it."). The model copied is the
   shared drive's (the team owns the folders, the owner and admins act like Managers).
+  **Amended 2026-11-15 (the owner, QA TC-3093, "A member shares their own files" below):** members do not share
+  **folders**; a member shares a **file** they own with chosen people, and a file's Copy link is its `/f/<id>` link.
+  "No Copy link" stays for folders.
 - Tests: web unit `folder-sharing.test.ts` (General access picks, the downgrade captions against the permission
   function), `folder-sharing-panel.test.tsx` (role menu, Access removed + Add, the lasting General access line);
   e2e `folder-access.spec.ts` (the dialog, Remove access, the Downgrade world before and after Save, Access removed),
@@ -27321,7 +27343,7 @@ with the store app get phone pushes: "저거 해보자" (2026-11-14).
 - **Ask:** a team brings an outside person (a client, a freelancer) into one conversation or one project without that
   person seeing the rest of the team. Phase 1 is the security core and the server side of the invite; the screens are
   phase 2. Plan: docs/AGENTS/plan/20261114-1016-guest-invites-p1.md.
-- **Exactly one place** (owner, final): one group chat (`rooms.kind 'group'`) or one team project. Never several.
+- **Exactly one place** (owner, 2026-11-14; superseded 2026-11-15 by "Guests: one group chat and one project": now at most one group chat AND one project): one group chat (`rooms.kind 'group'`) or one team project. Never several.
   Putting a guest into a second place (another group chat, a new group chat with them, another project's people, a
   group, a second invite) is 409 `conflict` with `params.reason: 'guest_one_place'` and the message "A guest can be in
   one room or project only. To add them to more, make them a team member." (ko "게스트는 방이나 프로젝트 한 곳에만 들어갈
@@ -27361,6 +27383,79 @@ with the store app get phone pushes: "저거 해보자" (2026-11-14).
   chats follow the team default (visible to the project's members; phase 2 tells the guest), connectors stay off,
   deletion requests work as a member's, the answer-share check counts a guest as someone who cannot see team files
   and skills/.
+
+## The AI tells a guest the truth — 게스트에게 맞는 AI 안내 (fix/guest-prompt-truth, 2026-11-15, the owner's report)
+
+Builds on "Guests: only what they were invited to" and "Guest invites, phase 2: the screens".
+
+- **Ask:** a guest asked "hello can I connect apps?" and the AI described the team drive, "Admin > Plugins", the desktop
+  app's browser, and told them to ask a team admin. Cause: a guest's turn already had only the guest tools
+  (`chat/guest-tools.ts`), but its instructions (`chat/prompt.ts`) were a member's: "working in the team's shared drive",
+  the team folders (shared/, groups/, skills/), the "Where you run" text about the team drive and the Files screen, the
+  web/phone browser line ("the desktop app has a browser"), "an admin can check" for a missing file, and the tool
+  descriptions themselves (make_file: "an admin can turn on the Hangul plugin (Admin > Plugins)", a template "under
+  skills/"; list: "the team drive").
+- **A guest section** (`guestSection`, in the instructions and a resumed session's turn context): the user is a guest
+  from outside the team; their places by name (a list, so a guest in one group chat and one project reads right); what
+  they can do (the project's files and their own folder; in a group chat, talk with the people there); what a guest
+  cannot do (other parts of the team, connecting apps, skills, Admin, inviting, making rooms or projects, web, browser);
+  for those and anything else, ask the person who invited them (by name), never a team admin, and where a tool result
+  says to ask an admin, say the inviter instead. Place and inviter names are cut to one line without `<>`.
+- **Left out of a guest's turn:** the team folder lines, the company profile, team rules, the team skill list, the
+  connected-services text, both browser sections, source links to /files/view (not a guest's page) and the member
+  wording of the trash and placement rules; the "Where you run" text has a guest version. In a shared project chat the
+  "not available here" line names only what sharing takes away. A guest's turn loads no `/skill`, skill hints or skill
+  changes (a project's own skills included). Tool descriptions go through `guestToolDescription`: exact rewrites of the
+  member-only parts (the Hangul plugin sentence, a template under skills/, "the team drive"), then any sentence still
+  about Admin, plugins, connect_service, the desktop app or save_url is left out (fails closed); a test checks that what
+  each tool does survives. The `list` tool now says "the team files" for everyone. The trash rule tells a guest they
+  cannot get their own folder's files back (they have no trash screen; the project's people can restore project files).
+- **A guest's room side chat:** a guest's turn has no room tools, so the side-panel section says the AI sees only what
+  the person writes, pastes, attaches or quotes, and asks them to quote or paste (a room file: attach it). The panel
+  shows a guest no "Looking at <room>" line, no Catch up / Anything for me / Summarize starters and no quick asks about a
+  quoted file; its empty line says to quote or paste a message. A guest gets no "Save as skill" on answers and no
+  result suggestion under them (the server refuses that endpoint to guests).
+- **Not changed:** what a guest may do. Room reading for a guest's side chat stays off (phase 1 left it out on
+  purpose); whether a guest's AI may read their own room is the owner's call.
+- Version impact: **patch**.
+
+## Search results and "Open in Files" for guests — 게스트 검색 결과 (fix/guest-search-folders, 2026-11-16, the coordinator)
+
+Builds on the entry below (its leftover). In Search (⌘K) a guest's folder and file results open the project's own files
+screen (`lib/guests.ts guestFolderHref`, now with `select`), a file picked there (`?select=<full path>`: the row's fill,
+scrolled to); a result no screen of theirs lists (their own folder) is left out, and the "search in Files" row is not
+shown to a guest. "Open in Files" in a guest's preview picks the file the same way. The palette shows a guest only
+what they can reach: 전체, 대화, 파일, 프로젝트 with a project and 기록 with AI; no 스킬, 예약 or 서비스 tabs or
+sections.
+
+**Every guest lands in their place** (coordinator, QA TC-3359): opening the app on Home (the tab's first entry or a
+sign-in, `lib/welcome.ts isLanding`) takes a guest to their group chat, else their project (`GuestLanding`; a guest in both since #1004 lands in the group chat, `guestPlacePath`), with
+Team AI or their own AI too, as Slack opens a single-channel guest in that channel. This replaces "the Home redirect is
+the invite's AI choice" for landings; a guest with AI still opens Trina (Home) from its tab, and one without AI never
+sees Home, as before. Version impact: **patch**.
+
+## A guest's AI reads their own rooms; file links and the delete card for guests — 게스트 AI의 대화방 읽기·파일 링크·삭제 카드 (fix/guest-ai-rooms-files, 2026-11-16, the coordinator for the owner)
+
+Builds on "The AI tells a guest the truth" (its three open questions).
+
+- **Rooms:** a guest's AI may read the group chat the guest was invited to (coordinator for the owner, 2026-11-16: the
+  guest sees every message there anyway, and the ✦ side chat is no use without it): `room_read` and `room_file` join
+  `GUEST_TURN_TOOLS`, and `chat/room-tools.ts` refuses a guest's call unless it names exactly that group chat
+  (`findRoom` among their own rooms, then the guest's place). Every other room, their 1:1 chats included, answers as
+  "not there" by id and by name; a test tries a group chat, a team room, the everyone room and their 1:1 chat. Still
+  left out: `rooms` (list and search), `save_room_file` and `post_to_room`. The prompt says which room it reads
+  (`guestSection`, `GUEST_ROOMS_RULE`); their ✦ side chat beside that group chat gets the members' side-panel section
+  without posting and shows the starters and "Looking at <room>" again ("Save to files" on a quoted file stays hidden).
+  Beside a 1:1 chat the panel has no starters and says to quote or paste.
+- **File links:** a guest has no 파일 screen (`/files` goes Home). A folder link in an answer or a room message and the
+  preview's "Open in Files" go to the project's own files screen (`/projects/<id>/files?dir=…`, `lib/guests.ts
+  guestFolderHref`, `guestAppHref`); a folder no screen of theirs lists (their own users/<id>/, anything else) is plain
+  text and the preview has no "Open in Files". A file link still opens in the preview panel, which a guest has.
+- **Delete card:** for a guest the card says "Project files stay in the trash until <date>, and the project's people can
+  bring them back." and/or "Files from your own folder can't be brought back." in place of "…restored from the trash
+  until <date>. An admin can empty the trash before then."; the result and the refusals no longer say Files › Trash or
+  the Files screen (the person who invited them deletes it instead).
+- Version impact: **patch**.
 
 ## Office Mac guest AI for members, the one sign-in slot, a switched-off account's sign-in (fix/office-signin-slot, 2026-11-15, QA TC-2580..2582)
 
@@ -27413,7 +27508,7 @@ Builds on "Guests: only what they were invited to" and "Claude 구독 연결: �
   straight into their one place, as Slack does for single-channel guests: sign-in, an accepted invite, Settings opened by
   its address (the page under it) and, on a computer, the chats page of a guest in a room go to their room or project
   (`lib/guests.ts guestPlacePath`, `GuestView.tsx useGuestPlacePath`). What hides the 트리나 place, the ✦ side chat and
-  the Home redirect is the invite's AI choice (`Me.guest.ai` 'none', `useGuestAiOff`), not whether an answer can come now:
+  the Home redirect is the invite's AI choice (the Home redirect on landing: every guest since fix/guest-search-folders, below) (`Me.guest.ai` 'none', `useGuestAiOff`), not whether an answer can come now:
   a Team AI guest keeps 트리나 and ✦ like a member with AI also while the team account cannot answer here (ai-access not
   usable, e.g. a server without managed AI), and the box says "AI can't answer you here yet. Ask the person who invited
   you." (`useGuestNoAi`, no side-chat starters, no "✦ ask privately"); their project page keeps its box place,
@@ -27477,9 +27572,9 @@ default" above: self-hosted operators may want to change the phone push address,
   most 512 bytes are read and it ends after 5 s; only ok or the reason comes back. Not pinned to the checked address
   (unlike the send): a re-pointed name learns nothing but "not a gateway", and sends keep their own pinned check.
 - **The operator wins.** When `MYCEL_PUSH_GATEWAY` or server.json `push.gatewayUrl` is set (an address or off), the row
-  shows the value, has no control, and one line says where it is set ("Set in the server's settings
-  (MYCEL_PUSH_GATEWAY), so it can't be changed here."). A save is refused (409, reason `locked`). AppConfig carries who
-  set it as `push.setBy`.
+  shows the value, has no control, and one plain line says so ("Set in your team server's settings, so it can't be
+  changed here."; since 2026-11-19 without the variable or file name, which meant nothing to the people reading it). A
+  save is refused (409, reason `locked`). AppConfig carries who set it as `push.setBy`.
 - **Stored and applied.** The choice is the `push.gateway` row of the `settings` table (Off or Custom; Default removes
   the row, so a later change of the edition default reaches the team). The push service reads it on every use, so a
   change applies without a restart. A changed address leaves old device rows unused as before (`nativeConfigKey`):
@@ -27878,9 +27973,8 @@ and the phone push are core.
   "Shared a chat with you." under it. Never the chat's title. A browser push names the sharer from the signed-in fetch
   of the notice (`/api/push` `messages.chatSharedBy`).
 - **Older parts.** An older gateway shows its `chat.*` fallback ("You have a new message") with no mutable flag; an
-  older iPhone build's extension ignores the code and shows the gateway's line; Android always showed the gateway's
-  line (it had no extension; the same as room pushes; since 2026-11-15 a new Android build names the sharer: "Android
-  notifications name who and where"); an older browser service worker drops the code (no
+  older iPhone build's extension ignores the code and shows the gateway's line; Android always shows the gateway's
+  line (it has no extension; the same as room pushes); an older browser service worker drops the code (no
   notification). A tap works on every phone build (the path is ids only). Nothing in the gateway's contract changed,
   so the team server and the gateway deploy independently.
 - Tests: tests/unit/b-chat-share-push.test.ts (by name, group, same-day, setting, quiet hours, removed share, read,
@@ -28273,6 +28367,61 @@ words and components.
 - Not in v1: AI chat messages and `/c/<id>` links, links to a whole room, Forward, a per-person "no previews" setting,
   Slack's one-hour repeat rule, thumbnails in a card, live updates of cards in other rooms, other websites' previews.
 
+## Guest Team AI: a token limit (feat/guest-ai-tokens, 2026-11-15, owner)
+
+The owner asked for a guest's Team AI limit in tokens, not US dollars, with roughly how many answers it allows next to
+it. A dollar limit only fills up on API-key connections (admin/budgets.ts: a subscription prices nothing per request),
+so a guest on a subscription connection was never stopped; tokens count with every connection.
+
+- **Stored and enforced**: the guest's own 'block' budget for the month (as before), now `limit_usd = 0` and
+  `limit_tokens = N` (`insertGuestBudget`). Every check that stops a guest at the limit (sends, schedules, the model
+  proxy, Slack, skills, onboarding, the file list: all `budgetBlock` → `checkBudgets`) already counted `limit_tokens`
+  against the month's input + output tokens of the guest's turns; nothing new there. `GuestDetail.aiUse` gives the
+  month's used tokens (and dollars) and the reset date (the 1st in the team's time zone); "left" is limit − used.
+- **API**: `GuestAiChoiceBody` (invite and PATCH guest-ai) takes `limitTokens` only, a whole number from 1 to 10억;
+  `limitUsd` in a body is refused (400, the team object is strict, so a body with both is refused too). `GuestAiChoice` (what screens read) has `limitTokens` or, for an older guest,
+  `limitUsd`.
+- **Existing dollar limits: kept, not converted.** There is no safe rule from dollars to tokens: the price per token
+  depends on the model, on cached reads (a tenth of the input price) and on the connection (a subscription has none),
+  so any rate would give some guests far more or far less than the admin meant. Guests with a dollar budget keep it,
+  read and enforced as it is; Admin's row says "up to $20.00 a month"; Change AI says the dollar limit, has no amount
+  picked and saves only with a token amount, which replaces it. An unused guest link made before this keeps its dollar
+  limit when it is accepted (`parseGuestAi`). No migration. The gap that stays: a dollar guest on a subscription
+  connection is still never stopped (nothing prices those requests), as before this change; an admin closes it by
+  picking tokens in Change AI.
+- **The estimate ("about N answers")**: limit ÷ the team's tokens per answer, rounded down (whole under 100, to 10
+  under 1,000, then two significant digits; under one answer says "less than 1 answer"). Tokens per answer = the mean
+  of input + output tokens over the team's finished turns of the last 90 days that used any (`answerTokens`, sent to
+  the owner and admins in `GET /api/guest-invites/limit`, read again at most every 10 minutes). Members' long
+  tool-heavy answers count too, so a guest who asks short questions gets more answers than shown. The mean, not the median: limit ÷ mean is how many average answers
+  fit, and the budget counts the long ones too. With fewer than 20 such answers it is `DEFAULT_TOKENS_PER_ANSWER` =
+  80,000 (shared/src/guest-tokens.ts), from the find-files bench (one tool call: Claude Code 80,469, Codex 57,949
+  input tokens): every step of an answer reads the conversation and tools again and those reads count. The hint says
+  which it is ("An estimate from this team's recent answers." / "An estimate from a typical answer. This team has few
+  answers so far.").
+- **Presets**: 1M, 5M (the start) and 10M tokens, plus Other (a number). The owner's examples (10만/50만/100만)
+  would be about 1, 6 and 12 answers at 80,000 per answer, too few to be useful, so the presets are ten times larger;
+  the estimate next to each makes the size plain. Amounts show in the reader's words ("500만 토큰", "5M tokens":
+  `Intl.NumberFormat` compact).
+- **Words**: "토큰" is said once with "토큰은 AI가 읽고 쓰는 양이에요." under the field; no prices. Admin's row: "up to 5M
+  tokens a month · 3.2M left" or "· AI limit used up"; the guest at the limit: "You've used this month's AI limit (5M
+  tokens). It resets on Dec 1. …" only when their own limit stopped it (`params.own` on budget_exceeded); a team or
+  group limit, and a dollar guest, read the old words. A guest budget with both limits cleared in Admin › AI limits
+  is no limit (`guestHasBlockBudget`), so Team AI is off rather than unlimited.
+- **Hands-on QA (TC-3310, fix/guest-limit-notice-tokens):** a send refused before a chat exists (the main chat box,
+  a room's AI side chat) shows the server's `budget_exceeded` message as it is, which still said "this month's AI usage
+  limit" without the amount. The server's message for a guest stopped by their own token limit now names it ("You have
+  used up this month's AI limit (5M tokens). You can use it again from …"); a dollar guest and a team or group limit
+  keep the old words. Two smaller findings of the same run: on a phone the Admin row's two lines cut "AI limit used up" (it had
+  moved to the end), so it is again right after where the guest is, and the account's name now comes after the limit
+  and what is left; Change AI showed "about N answers" from the default before the team's number was read, so it
+  waits for that read (a skeleton, as the invite dialog does).
+- Tests: `tests/unit/a-guests-ai-tokens.test.ts` (stored, enforced at no cost, last month not counted, Change AI
+  replaces a dollar limit, dollar bodies refused, an old link, the team's mean and the default, rounding); the guest
+  unit tests now use tokens; e2e `guest-ai-tokens.spec.ts` (invite presets/Other/estimate, Admin rows, Change AI on a
+  dollar guest, the guest's notice; ko and en), `guest-invite`, `guest-admin`, `guest-states`.
+- Version impact: **minor** (an API body field changes: `limitUsd` → `limitTokens`).
+
 ## Guests: leftovers from QA — 게스트 남은 문제 (fix/guest-leftovers, 2026-11-15, QA TC-2451..TC-2457)
 
 넣을 곳: Team AX core (`web/src/components/GuestView.tsx` NotForRoomGuests, `components/rooms/SideChatPanel.tsx`, `lib/guestFiles.ts` with `components/chat/TeamFilePicker.tsx` and `components/FolderPicker.tsx`, `pages/Projects.tsx` with `store/live.ts`, `components/settings/AccountDeletion.tsx`, `components/settings/Notifications.tsx`; server `chat/project-joins.ts`, `auth/guests.ts` seenBy, `auth/status-messages.ts`, `notifications/service.ts`). Builds on "Guests: only what they were invited to".
@@ -28335,6 +28484,21 @@ words and components.
 - **Change AI (TC-2252):** the dialog says the guest sees the change right away, even in a chat that is open (it does: the box follows live).
 - **Left as is:** a room is "archived" only when its last member (the guest too) has gone, so a room guest never sees an archived room alone; a removed guest signing in fresh in another browser still gets "wrong username or password" (fix pending in another PR).
 - Version impact: **patch** (no API change).
+
+## Guest walkthrough A: links hold a place, what guests see, the invite page — 게스트 워크스루 A (fix/guest-walk-a, 2026-11-15)
+
+넣을 곳: Team AX core (`server/src/auth/guest-invites.ts`, `server/src/auth/accounts.ts`, `server/src/auth/account-removal.ts`, `server/src/rooms/store.ts`, `web/src/pages/Auth.tsx`, `web/src/components/GuestInvite.tsx`, `web/src/store/session.ts`), 이유: an independent guest walkthrough (owner, 11-15) found guests offered actions the server refuses, a cap that refused only after the form, and guests told the wrong thing when their account ended.
+
+- **Open guest links hold a guest place** (M4, owner decision): Create link needs `active guests + open links + 1 ≤ maxGuests`. An open link is one nobody used, revoked or let run out whose maker may still invite into a place that is still open (`openGuestLinks`, the accept's own rule), so a link that stopped by itself holds nothing. Refused: 409 `plan_limit` reason `guest_limit` with `params.pending` and words that say to cancel a link. `GuestInviteLimit.full` counts the links too, with `pending`, so the dialog says it is full before the form. Switching a guest back on and a restored project still check active guests only (no link is handed out there); a link made before the cap dropped is still refused at accept (M3 below).
+- **A full guest link keeps who sent it** (M3): `InviteInfo.inviterName` stays for a guest link while the guests are full; the page shows "{inviter} invited you to {team}" and one line ("can't take more guests now, let the person who invited you know"), no form. A refusal at accept turns the page into the same.
+- **Guests are not offered what the server refuses** (M1, M2, S1): no "Suggest as skill" (answers, side chat, My files), `Room.canRename` false for a guest (`mayRename`, one rule for the room and the PATCH), and no "Send to a chat room" for a guest with no conversation.
+- **A guest's ended sign-in says how** (S5, S6): when a guest's account is switched off or deleted, their session token hashes are noted for 7 days (24 h for others, unchanged) with 'left' (they left their place themselves: the actor is the guest) or 'removed'. The 401 then carries `params: { reason: 'account_removed', guest, team }`, only to that token's holder; a guest switched back on gets the plain 401. The web shows "You left {team}" or "You're no longer in {team}" at once, also when the app is opened later, before any password.
+- **Admin's invite list names a guest link's room** (S8): `Invite.guestPlace.name` for a group chat too. Admin's guest rows already name it; the list is the owner's and admins'. "Copy link" on a listed link was left out: links are kept only as a hash, so an old link cannot be shown again.
+- **The guest link comes with a message** (S7): who sends it, the one place, their own AI account when that is their AI, the link and its end, in the inviter's language. Copy message is the main action.
+- **The guest's invite page** (S9, S10): on a phone Continue in the browser is the main button and the app a link; the page follows the browser's language (one of ours) unless one was picked, and the new account keeps it.
+- **A guest's AI switched off while signed in** (N7): one info toast; a deleted Team AI account (the guest keeps the AI place) says nothing new.
+- **Hands-on QA follow-ups (fix/guest-removed-language, TC-3223, 3225, 3226):** the guest's own screen after their account ended follows their browser's language (one of ours) unless they picked one here, like their invite page; it was the team's. A guest's `session.ended` asks `/api/me` first, so a guest who left never reads "no longer in" for a moment. `GuestInviteLimit.pending` only while the links are what fills the cap (the guests alone below it); guests alone at the cap get the plain words, as Create link's refusal does.
+- Version impact: **minor** (new optional API fields `GuestInviteLimit.pending`, error `params.pending`, 401 `params.guest`/`team`; `Invite.guestPlace.name` for rooms).
 
 ## Free plan removed (owner 2026-11-14): trial with a card only
 
@@ -28451,6 +28615,100 @@ QA on a private copy of QA-Acme in managed AI mode with a plan file of two guest
   ("Show removed (N)"), since those accounts can be switched on or deleted only there.
 - The keys `members.usedBy` and `members.expired` had no other use and were removed in all languages.
 - Version impact: **patch** (fewer rows on one admin page).
+
+## Guests into a personal project (fix/guest-personal-project, owner 2026-11-15)
+
+- **Asked:** the owner's projects are all personal (**My projects**), so the guest place picker (Admin › Invite to team ›
+  Guest, Invite people, New conversation, the invite step) listed group chats only. The owner: a personal project can
+  be shared with a guest too.
+- **Why it was left out:** nobody else ever reads a personal folder (`users/<id>/`, `policy/access.ts`: rules there are
+  ignored), so a guest let into one would land in nothing. `inviteMakerOk` still accepted it from its creator; it now
+  refuses a project whose folder is in `users/` (403, the same answer as any place one may not open a guest into),
+  at create and again at accept.
+- **The picker** (`GuestInviteChoice.tsx`) lists my own personal projects under Projects, after the team projects
+  whose members I change, with **Only me** as their meta, when I may share them: the same rule as the project page's
+  **Add people** (`mayShareForGuest`: a folder in my own `users/<me>/`, the owner and admins, or members when Team
+  settings lets members make team projects). Someone else's personal project is never offered (the owner and admins
+  cannot see them).
+- **Create link shares it first**, through the same endpoint and rules as **Add people**
+  (`POST /api/projects/:id/share` with no participants: the creator alone), then makes the link. So it behaves exactly
+  as that share: its folder moves to `projects/<name>` with its files, nothing goes to the trash, its skills are asked
+  about first (the same confirm), a project holding another project is refused, and it never goes back to only me.
+  Shared once: a Create link refused after it does not share it again. Such a refusal (the plan filled up meanwhile,
+  the team AI account gone, my role changed) leaves it shared with nobody but me: still under My projects, Only me,
+  its folder in `projects/`; the next Create link makes only the link. Shared meanwhile elsewhere (another tab, its
+  page's Add people: 400 "not a personal project"): Create link goes on to the link. Cancel before Create link changes
+  nothing. Two calls rather than one server step: no API change, and the share's own checks and
+  questions stay where they are.
+- **What the owner sees:** after Create link it is a team project whose only member is me, so it stays under **My
+  projects** with **Only me** (`ProjectsPanel` puts a team project with an audience of 1 there). When the guest joins,
+  the audience is 2: it moves to **Team projects** and the members line counts 2. Its chats: as after any share, the
+  ones from before stay mine and the new ones are shared with its members, but a guest never sees members' chats
+  (owner 2026-11-14, `a-guests-projects`), so the guest sees its files and none of my chats. The form's one line says
+  that before Create link (`guest.invite.personalProject`): "This project is only yours now. When the guest joins,
+  they can open and edit its files. They won't see your chats." followed by Add people's own "This can't go back to
+  only you." (`projects.shareConfirmFinal`). The task's example line ("…and the chats you start
+  there") was not used: it would be untrue for a guest.
+- The empty line (`guest.invite.noPlaces`) now says "Group chats you're in and your projects show here." A member whose
+  team lets only admins share projects and who has no group chat or team project gets that line.
+- Not changed: projects made before `projects/<name>` (no `membersEditable`) stay out; the guest form, the cap, the
+  one-place rule and a project page's own add list.
+- Tests: `tests/unit/a-guests-personal-project.test.ts`, e2e `guest-personal-project.spec.ts`.
+- Version impact: **patch**.
+
+## Guests from Invite people (feat/invite-people-guest, owner 2026-11-15)
+
+- **Asked:** the owner opened **Invite people** (the team menu, ⌘K, the phone's 나 tab: `TeamMenu.tsx`
+  `TeamInviteDialog`) and found no guest option; #959 had added it to Admin › Invite to team only.
+- The Guest half of #959 moved out of Admin into one shared file, `components/GuestInviteChoice.tsx`
+  (`InviteKindTabs`, `useGuestChoice`, `GuestChoicePanel`, `GuestChoiceButtons`, `GuestChoiceForm`, and
+  `GuestPlacePicker`, moved from `pages/admin/`). Admin's Invite to team and Invite people both use it, so the line, the
+  places, the limit, See plans and the guest form (`GuestInviteDialog`, unchanged) are the same in both. No new
+  endpoint, no new words.
+- **New conversation** (the chats panel's +, /rooms?new=1, ⌘K's people, a DM's 초대하기) starts with the same
+  **Invite a guest** row as a group chat's add list, for everyone but a guest (meta "Outside the team · joins one group
+  chat or project"). It opens `GuestInviteFlow`: the Guest half on its own (title "Invite a guest", the line, the places
+  or the limit), then the guest form. Picking the place was simpler and clearer than making a group chat first.
+- A group chat's or a DM's header **⋯** now has **Invite people** (after the pin), the same add list as the room info's
+  (`Room.tsx invitePeople`), whose first row in a group chat is Invite a guest. Before this the add list was only behind
+  the chat's name at the top, which is why the owner could not find it in a group chat. A row's ⋯ in a list has none.
+- Invite people starts on **Team member** (the team link's message, `InviteStep`, unchanged). Guest's Cancel / Close and
+  See plans sit in the same row under the content where Team member has Done (the dialog has no footer bar).
+- The places are what the server accepts from the caller (`inviteMakerOk`): group chats they are in; projects whose
+  members they may change (`membersEditable`: the creator, the owner and admins). The picker is role-blind, so it
+  stays right if a member ever opens it.
+- The team link's invite step (`InviteStep`) outside that dialog — the owner's welcome steps (where Invite people sends
+  an owner while the steps are unfinished: the QA-Acme owner landed there, so the owner on qa.trina.app likely did
+  too), Home's goal card [Invite teammates] — gets one quiet line under the message:
+  "Someone from outside the team? **Invite a guest**" (`GuestInviteFlow`). Not tabs there: those screens are about
+  colleagues using the team's skills, and the welcome steps stay one task per step. Invite people's own dialog has the
+  tabs, so its InviteStep has no line (`guestLine={false}`); nor has the invite right after sharing a team skill (its
+  message is about that skill; review). In New conversation, Cancel on the places goes back to the people list; Done
+  closes everything.
+- **Left as they are:** Invite people stays the owner's and admins' (the team link is theirs; a member invites a guest
+  from New conversation, a group chat's ⋯ or a project's add list). Admin's team invite link card stays team members
+  only (one link for many people; a guest's link is for one person and one place). - Version impact: **minor** (a new way in to an existing feature).
+
+## Guests from Admin › Invite to team (feat/admin-invite-guest, owner 2026-11-15)
+
+- **Asked:** admins coming from Slack start at **Admin › Members & invites › Invite to team**, which had no guest
+  option, so they could not find guest invites (they live in a room's or project's add list).
+- The dialog starts with a two-choice switch (the shared segmented `Tabs`): **Team member** (picked first, today's form
+  unchanged) or **Guest**. Guest shows one plain line and the one place the guest joins
+  (`pages/admin/GuestPlacePicker.tsx`, shared `ListRow` rows and the admin `SearchBox` once there are more than six
+  places): group chats the caller is in, then team projects whose members they may change (`Project.membersEditable`
+  on the manage=1 list, not in the trash). That is what `POST /api/guest-invites` accepts from the owner or an admin
+  (`inviteMakerOk`: a group chat only for its members, any live project for staff), narrowed to the places whose own
+  add list offers "Invite a guest": no personal projects, no projects from before `projects/<name>`.
+- Picking a place opens the existing guest form (`GuestInviteDialog`, unchanged: name, AI, 7 days / one use, Create
+  link, Copy link); its Cancel comes back to the places with Guest still picked; Done closes and reads the invite list
+  again. No second form, no new endpoint.
+- The guest cap is read (`useGuestLimit(enabled)`) only once Guest is picked; a full plan shows the existing limit
+  words (`GuestsFull`) with **See plans** in place of the places. A Create link refused as full meanwhile hands the
+  limit back (`GuestInviteDialog` `onFull`), so the place list is not offered again.
+- The dialog's title is now **Invite to team**, the button's words (it was "Invite link"). Group chats show their member
+  count; projects show none (`Project.audience` counts who sees it, not who is in it).
+- Version impact: **minor** (a new way in to an existing feature).
 
 ## The invite message introduces the team; the invite step keeps only the message (feat/onboarding-invite-message, 2026-11-15, the owner)
 
@@ -28741,6 +28999,23 @@ Disk Access) are part 5.
   managedNoneDetail, QA TC-3009) already point to "Add account" below since #944, not to the page they are on.
 - Version impact: **patch** (wording only; no API or data change).
 
+## Admin and Settings: one name, "AI providers" (chore/rename-ai-providers, 2026-11-15)
+
+Owner, 2026-11-15: "Shouldn't it match the personal settings? How about AI provider?" **Supersedes** the split in the
+entry above (admin "Providers", Settings "AI accounts") and "Plain words for members" (2026-11-11).
+
+- Both pages are **AI providers** (ko AI 제공사, ja AIプロバイダー, es Proveedores de IA, id Penyedia AI, zh AI 提供商):
+  `admin.providers` (en was "Providers") and `settings.providers` (was "AI accounts" and its translations), the Admin
+  Home tile, every hint and server message that names either page, and the docs and docs site in en and zh (the
+  docs page `use/ai-accounts.md` keeps its address, its title is AI providers).
+- The pages differ in whose they are, not in name: Admin lists the team's connections, Settings your own. Where one
+  list shows both (a phone's Settings, with the admin list inside it) the team's is **Team AI providers**
+  (`admin.team.providers`; ko 팀 AI 제공사), as Team connected apps is.
+- Rows inside still say "account" where they mean an account: the Add account button, "Your AI account ...", the
+  guest's AI account. Settings search finds the page by "AI accounts" and "providers" too (`settings.find.credentials`).
+- Kept: the stored legacy chat-error words in `shared/src/api/errors.ts`.
+- Version impact: **patch** (wording only).
+
 ## Find work files, part 5: wider places, Full Disk Access first on a Mac (feat/find-work-files-wide, 2026-11-15)
 
 Owner, 2026-11-15: "Documents, Desktop and Downloads aren't where real company files are", then "doesn't this mean we
@@ -28807,54 +29082,1343 @@ need Full Disk Access?". Still conservative: recent (≤180 days), work-like, th
 - Not verified on Windows here (parsers unit-tested on made-up bytes). Office for Mac's list format is from forensic
   write-ups; no Office was installed on the Mac this was built on.
 
-## Android notifications name who and where (feat/android-push-who-where, 2026-11-15, QA TC-366 / tracking TC-204)
+## Stored keys are hidden in saved memories and scheduled tasks the AI writes (fix/memory-hides-keys, 2026-11-15)
 
-- **A room push (`room.*`) and a chat shared by name (`chat.shared`) on Android now show who and where**, as on the
-  iPhone since 1.0.1 ("아이폰 알림의 이름"): title "민준 · #마케팅 › 스레드" (a DM "민준", a shared chat the sharer's
-  name), text the gateway's generic line. Never the message's text: unlike the iPhone extension, the Android app takes
-  only `title` from the label answer and keeps the gateway's line even when the person's message preview is on (the
-  task said "the generic line as the text"; the iPhone keeps showing the server's `body`). Quiet hours, the person's
-  settings, the room's level and "read/left/deleted" are the server's checks, unchanged: the label answer is `{}` for
-  every one of them, and a push that the server holds back is not sent at all.
-- **Why the gateway changes for Android.** An FCM message with a `notification` block is shown by Android itself while
-  the app is in the background or closed; no app code runs, so nothing can ask the team. The app needs a data-only
-  message. The contract gets one optional key, `label: true` (Android only; shared/src/cloud-protocol/push-gateway.ts
-  "Label"). With it, for a room code or `chat.shared`, the gateway sends no `notification` block and puts the generic
-  `title`, `message` and `channelId: 'default'` into `data` next to `{ notificationId, code, path?, device? }`. Every
-  other message, and every message without the key, is exactly as before.
-- **Who gets `label`.** The team server sends it only to an Android device row with a label key hash (`label_hash`,
-  migration 263, now also kept for Android). Only an Android app that offers `push-label-v1` sends a hash, so the
-  installed 1.0.3 and every Android build before this change never get a data-only push and keep the gateway's line.
-- **Compatibility.** An older gateway refuses the key (400 `invalid_body`, its schema is strict): the team server sends
-  the same push again without it and sends no `label` to that gateway for an hour (the `badge` rule,
-  `NO_BADGE_RETRY_MS`). An older team server never sends the key: it accepts `labelHash` from an Android page but does
-  not keep it, so the new app gets the gateway's line there. A new app on an
-  older team server or gateway therefore shows the generic line; nothing breaks in any order of deploys.
-- **How the app builds it (expo-notifications 58).** Not a headless JS task: React Native would have to start in the
-  background within FCM's few seconds, and expo-notifications shows no data-only message in the foreground. Instead the
-  app's own module `mobile/modules/push-label` declares `LabelMessagingService`, a subclass of expo-notifications'
-  `ExpoFirebaseMessagingService` whose delegate overrides `createNotificationRequest`: for a data-only room push it asks
-  the team (`POST /api/push/devices/:id/label`, the iPhone's request: the stored origin only, https, no redirects, no
-  cache, `x-mycel-csrf`, at most 4 s, an answer of at most 4 KiB, the title made plain) and hands expo-notifications the
-  team's title and the generic line. FCM runs the service even when the app is closed (not after a force stop, as for
-  every Android app). The notification still goes through expo-notifications: channel `default`, quiet in the
-  foreground (`quietForeground`), id = the notice id (a resend replaces it, as the old `tag` did), and a tap reaches the
-  app with the push's own data (the FCM trigger is kept). Any failure, or no label item, shows the gateway's title and
-  line. `plugins/push-label.js` removes expo-notifications' service from the app's manifest and stops the prebuild when
-  expo-notifications changes what the service overrides.
-- **The key on Android.** The label item (`src/labels.ts`, the same JSON as the iPhone's keychain item) is stored by the
-  module, encrypted with an AES-GCM key in the Android Keystore that never leaves the phone. Android's Auto Backup may
-  copy the encrypted file, but a restored copy cannot be read on another phone or after a reinstall: the same promise
-  as the iPhone's `THIS_DEVICE_ONLY`. Before the phone's first unlock the read fails and the push is generic. It is
-  deleted on a team change, a sign-out and at a launch that finds it stale, as on the iPhone.
-- Tests: `tests/unit/push-gateway.test.ts` (the contract key, the data-only shape, other codes and older apps
-  unchanged), `tests/unit/push-label-gateway.test.ts` (the team server's key and the older-gateway fallback),
-  `tests/unit/push-label.test.ts` (an Android device with a key: `label` on the push, the same answer),
-  `tests/unit/mobile-labels.test.ts` (the hash on Android), `tests/unit/mobile-push-label-android.test.ts` (the plugin,
-  the manifest, the Kotlin's rules). No CI job builds Android: the first full compile is a
-  release build (`mobile/scripts/android-release.sh`). At the PR, `Label.kt`, `LabelStore.kt` and
-  `LabelMessagingService.kt` were compiled with kotlinc against stubs of the expo-notifications and Firebase
-  signatures they use, and the pure helpers (plain, teamOrigin, named, title) were run on the JVM;
-  `PushLabelModule.kt`, the manifest merge and `assembleDebug` were not (they need NDK 27.1).
-- Version impact: **minor** (a new optional gateway key, a new phone behaviour; no migration).
-||||||| 78e8913ca
+- **Problem (QA tracking TC-2981).** A member asked the AI to remember a connection key. The step read "Remembered: My
+  key is [hidden key]", but the remember tool saved the text as the AI wrote it: Settings › Memory and the owner's
+  export (memories.csv) had the key. "No stored key in the answer" covered what the turn shows, not what it saves for
+  later.
+- **Decision.** Text the AI writes to keep goes through the same redactor (`integrations/connections/redact.ts`) before
+  any card shows it and before it is saved: `remember` (the memory text) and `schedule_create` (the task's title and
+  prompt; a run uses the stored connection, never a key written in its prompt). Once at server start
+  (`hideKeysInStoredMemories`, settings key `memory.storedKeyScan`), memories the AI saved earlier (`created_turn_id`
+  set) get `[hidden key]` in place of their person's stored keys, also when the person edited such a memory later
+  (hiding there is the safe direction). When a stored key cannot be read at that start, the memories are cleaned of
+  the keys that can be read and the clean-up is not marked done, so it runs again at the next start.
+- **Checked, not changed.** File-list lines (a nightly team reader, not a person's turn; a line shows only to people who
+  can open the file itself), skill suggestions (sent by the person from an answer that is already hidden, or from their
+  own file, and edited by them first), "often asked" lines (already masked), room posts, answer shares and chat titles
+  (already hidden). The person's own typed messages, memories they add themselves in Settings › Memory (no
+  `created_turn_id`) and a task they edit there stay as typed. An AI-made memory the person edited later is still
+  cleaned by the start-up pass.
+- Tests: `tests/unit/c-integrations-secret-echo.test.ts`.
+- Version impact: **patch** (a security fix; no new feature or API change).
+
+## Members' own connections off: said truly in chat, on the row and page, and in the hint (fix/personal-connections-off-truth, 2026-11-15, QA TC-2930, TC-2931, TC-2936)
+
+- **What "off" covers is unchanged** (store.ts `mayUse`/`usable`): a member's own MCP or API connection is kept but not
+  used in chats; one made from an admin's template, the Google apps (Gmail, Calendar, Docs, Sheets) and Google Drive,
+  and team connections keep working. Nothing is widened.
+- **One test for "off by the team"**: `store.ts offByTeam` (personal, not from a template, not a Google app, switch off).
+  connect_service uses it before "already connected": the AI is told the connection is not used now and who can turn
+  members' own connections back on, never "its tools are yours" (they are not offered). A connection's view carries
+  `personalOff: true` for it; the row in Your connectors says **Off** (lib/integrations.ts `connectionRowStatus`), its
+  page says Off with one line, and has no Sign in again.
+- **Signing in again is refused while off** (`authorize`, 403, one plain line) rather than finished and left unused: the
+  smaller change, and a sign-in that would not be used is not started. A key changed while off (`update`) and a sign-in
+  started before the switch went off and finished after are left as they were (both stay unused).
+- **The switch's hint says what keeps working** (connections from a team template and the Google apps), in six languages.
+- **An MCP sign-in window allowed after its 10 minutes** says the sign-in expired and to connect again from the app
+  (callback reason `expired`), only to a browser signed in as the person who started it, as "cancelled" is; anyone else
+  gets the generic page as before. The page keeps the request's language like the other return pages.
+- Version impact: **patch** (wording, an optional field, a refusal of a sign-in that was already unused).
+
+## AI app connections: plain lines for an expired request, the connector off, the Connect dialog (fix/mcp-consent-plain-lines, 2026-11-15, QA TC-2970, TC-2971, tracking TC-3032)
+
+- **Expired consent request.** The consent request lookup (`server/src/connectors/remote-mcp/oauth.ts` `pending`) gives
+  a request that is gone (decided, cleared), expired, or claimed by another login session its own reason: the browser
+  routes answer `not_found` (still 404, same code, so older pages and apps behave the same) with
+  `params.reason = 'request_expired'` (`REMOTE_CONSENT_EXPIRED` in `shared/src/api/remote-mcp.ts`). The page shows
+  `connectors.expired` and drops the request with Allow / Deny, on load and after Allow or Deny. A real no access
+  (a guest, a temporary login: 403) and the connector off keep their own answers.
+- **Connector off.** Settings › AI apps shows the "connect again" lines (conversations, group management) only while the
+  connector is on; off, the off line above says why and old connections keep Disconnect.
+- **Connect dialog.** A new connection counts only when it belongs to the dialog's app (`appIdFor`; the generic row takes
+  every unnamed app). Another app's new connection gets one line ("{name} connected. Still waiting for {app}.") and the
+  wait goes on. Chosen over showing "Connected" for any app: it never claims the wrong app is done.
+- Tests: `tests/unit/remote-mcp-http.test.ts`, `web/test/unit/ai-app-connected.test.ts`,
+  `web/test/unit/connector-consent-expired.test.ts`, `web/test/e2e/connectors.spec.ts`, `web/test/e2e/ai-apps.spec.ts`.
+- Version impact: **patch**.
+
+## Phone app Drive card says "connect on a computer"; template notices follow the sign-in type and tell people left out (fix/phone-drive-card-template-notices, 2026-11-15, QA TC-2977, TC-2980)
+
+- **The chat's Google Drive card follows Settings in the phone app.** Settings › Connectors › Google Drive there has no
+  Google sign-in, only "Connect Google Drive on a computer." (QA TC-262). The chat card offered "Connect Google account"
+  and a browser sign-in line. Now, with the same `mobileApp()` check, the card shows the same line ("Reconnect … on a
+  computer." for a reconnect card), no connect button and no privacy box (that is shown where it is connected); "Not
+  now" stays. A phone's browser keeps the sign-in. Removed: the string `drive.mobileBrowserLogin` (6 languages).
+- **Template notices say what to do for that template.** A sign-in template's notices say "sign in with your own
+  account" / "sign in again with your own account"; a key template's "connect it with your own key" / "enter your own
+  key again". The server adds `template.signIn`. Without a template (deleted) the words name no key or sign-in.
+- **Left out of a template: one plain notice.** When a connection goes because the template no longer covers its member
+  (`dropFromTemplate` `not_covered`: the admin narrowed who it is for, alone or with a new address, or they left its
+  group), the member gets "You no longer have access to <name>." It uses the reconnect notice's table and event type
+  with its own source (`<template>.left.<connection>`, `templateLeft: true`), so no migration; an older app shows it
+  with the reconnect words. No link, not under 요청. On a server rollback an older server shows it as "A team template
+  changed: connect it again." (it does not know the source form); harmless: the template is not for them, so its
+  Connect is not there to use.
+- **Template notices keep the name while the template is there**, also for someone it is no longer for (they were told
+  the name before); the link to its Connect stays only while it is for them.
+
+## Google sign-in return pages, the unverified-app line, Google apps not available yet stay listed (fix/google-signin-pages-1115, 2026-11-15)
+
+QA TC-2956, TC-2957, TC-2958, TC-2978, TC-2979, TC-2932, TC-3034.
+
+- **The return page** (`server/src/integrations/google-drive/callback-page.ts`, both Google callbacks) uses the
+  request's locale like the other connections' return page: the signed-in person's language, else the anonymous locale
+  (the sign-in screen's pick, else the team default). Never the flow owner's language for a browser that is not that
+  person. Outcomes: confirm in the app (never "received" or "connected": the account is confirmed in the app),
+  cancelled, Google refused through the hosting service (Cancel, or only some accounts allowed while Google reviews the
+  app), a permission not ticked, expired or used, this browser not signed in, signed in as someone else, else a general
+  line. Only the last two carry a link, to `/login` (same origin, no code or state).
+- **`callbackOutcome`** next to `callback()` in both services: the boolean `callback()` is unchanged for callers.
+- **A refusal through the hosting service** is `consent_denied_service` for Google Drive too (as for the apps), never
+  "you cancelled": Google may be allowing only some accounts while it reviews the shared app.
+- **The 20-sign-ins-an-hour limit** has its own reason, `signin_limit` (refusal messages `drive_signin_limit`,
+  `google_app_signin_limit`), so the app says "try again in about an hour" only for it. The hosting service's and
+  Google's own `rate_limited` (a 503 that passes soon) keep the general try-again line.
+- **The unverified line is never in the phone app** (signing in to Google is done on a computer there).
+- **The unverified line** shows only where the hosting service's shared Google app signs in (`hostedApp`: broker mode),
+  never with a company's own app (direct mode, which also covers an operator's client). Before Google opens on the
+  Drive and Google app pages, not on the Discover card's + (which opens Google at once) and not in the team-account
+  dialog. Removing it later: `GoogleUnverifiedNote.tsx`, `showUnverifiedHint`, key `google.unverifiedHint`.
+- **Discover** keeps a Google app whose reason is `service_limited` or `unsupported`, with its short line on the right
+  for everyone (an admin cannot set those up either). With members' own connections off, the line saying so always
+  shows, and a member's search lists the listed services with "Ask admin to add it" (their page has the button); without
+  a search they stay out of Discover.
+- Version impact: **patch** (words, one list entry kept, one optional field on two answers).
+
+## Connector lines and notices keep their word (fix/connector-notices-truth, 2026-11-15, QA TC-2939, TC-2944, TC-2945, TC-2946)
+
+- **An address that answered says so** (TC-2939). The page's own words for a check's reason (ConnectionPage.tsx
+  REASON_KIND) had `not_mcp` and `redirect` under "Couldn't reach the service at its address". They have their own
+  lines now ("The address answered, but not like a connector." / "The address sent us on to another address."), with
+  the same next step (check the address in Edit; ask an admin; on a computer).
+- **Always allow lines follow the team's switch** (TC-2944). The server rule stays (it is the safer one): with the
+  team's Always allow switch off, a person's Always allow and a team connection set to run without asking ask again in
+  a chat that read something from outside, and a member's own Always allow at a team connection does not count; with
+  it on, a question sent from Slack still asks there (connections/tools.ts gate). The page could not know the switch,
+  so the session tells it (`Me.team.alwaysAllowOff`, absent while on), and the page, the Google apps' policy dialog and
+  a team connection's line pick the line for it. Owner rule "Always allow means done" kept: no caps added, only the
+  words made true.
+- **Every own connection says when it needs a sign-in again** (TC-2945). Only Google Drive called
+  notifyConnectionReconnect, while Settings › Notifications promised it "when a connected service needs you to sign in
+  again". Now connections/service.ts setStatus tells the owner of a personal connection (an MCP or HTTP API one, one
+  from a template, Gmail and the other Google apps) when it moves from connected into needs sign-in: the same
+  `connection.reconnect` notice and push (the lock screen stays generic), source `<id>_<ms>`, none while the last one
+  for that connection is unread, none for one that never worked or was just edited (the person is at it). The Inbox
+  names it and opens its page (`InboxNotification.connection`); Google Drive's keeps the generic line. A team
+  connection tells nobody yet (who: open question).
+- **A member's ask that closes without the app is answered** (TC-2946). Reverses "A member asks for any listed
+  connector, and can take it back": "Dismissing tells nobody". The page told the member "We'll tell you when Notion is
+  ready", so an admin's Dismiss and the 30 days now give each asker one quiet notice (`service.closed`, Activity only,
+  never a push, never an admin's name: "An admin closed your request for Notion. You can ask again." / "…ended after
+  30 days…") that opens the app's page. A member's own Cancel request tells nobody. Data: migration 353,
+  `service_request_closed_notices` (the 343 table's event CHECK is fixed); how it closed is the request's
+  `closed_reason` ('expired', NULL for a dismissed one), so no change to `service_requests`.
+- Tests: `tests/unit/c-connection-reconnect-notice.test.ts`, `c-service-requests.test.ts`,
+  `c-service-requests-catalog.test.ts`, `a-auth.test.ts` (the session flag); web unit `connector-detail-tools`,
+  `integration-always-allow`, `service-requests`.
+- Version impact: **patch** (wrong lines fixed and missing notices sent; one additive migration, no API removed).
+
+## Activity log: only entries with the same details fold (fix/guest-request-audit-menu, 2026-11-15, QA TC-2953)
+
+Admin › Activity log folds repeats close together into one row ("· 5 times"). That row shows one entry's details and
+the list of times, so two quick edits of one connection (name, then address) showed only the latest edit. Decided:
+entries fold only when their whole details are the same, for every kind (admin changes, AI tools, files, sign-ins).
+Two AI reads of different files and two saves of a file with other contents are now two rows; sign-ins from one
+address still fold. Code: `web/src/lib/activity.ts` sameEvent. Version impact: **patch**.
+
+## Stored keys are hidden in the files the AI saves, and in the live answer's encoded forms (fix/files-hide-keys, 2026-11-15)
+
+- **Problem (QA tracking TC-3041, TC-2981).** The answer and the steps said [hidden key], but the tools that save what
+  the AI gives them wrote the person's stored connection key as given: make_file (docx, pdf, hwpx), write, edit,
+  edit_hwp (a `{{key}}` filled in), artifact; the search's text cache and the owner's export copied those files. And
+  while a turn waited on a card, a base64 form of the key cut across the answer's text pieces showed in the live answer
+  and the messages API: the stream held back only the start of the key as written.
+- **Decision: one place for every tool call.** `mcp/protocol.ts` asks the turn (`TurnToolSet.hideKeys`, chat/tools.ts)
+  for the arguments first, before any check, card or write; `integrations/connections/hide-args.ts` runs them through the
+  turn's redactor (redact.ts). The tools and fields: make_file (content, output), write (content, file_path), edit and
+  each file of edit_files (new_string), edit_hwp (replace, a cell's value, added rows, output), artifact (content,
+  title, key, an edit's new), rename_file / move_files / copy_files (new name, target folder), save_url and
+  save_room_file (save_as), generate_video (prompt, save_as), promo_video and intro_deck (their text). The AI is told
+  after the call that the key was saved as [hidden key], so it does not say the file holds the key; edit_hwp's result
+  lines already show the hidden value.
+- **What the person already has is not changed.** A field the tool only finds by is left (edit's old_string, edit_hwp's
+  find and label cells, an artifact edit's old), a replacement keeps a key form the text it replaces holds, and write
+  keeps a key form the file it overwrites holds: an AI rewrite of the person's own file with their key in it does not
+  break it. Paths a tool only reads (make_file's source and template, a promo's sources) are left: a file made from a
+  team file is a copy of that file. Files saved before this fix and uploaded files are not rewritten.
+- **The live answer.** `RedactingText` also holds back the end of the text that could be part of an encoded form of a
+  key (`formCarryLength`: the run of characters base64 and the %, JSON and HTML escapes are made of, at most the longest
+  form), so no piece lets out part of one. Prose flows on (the run is the last word); Korean and Japanese text is not
+  held. The whole answer is still checked at the end.
+- **Checked, not changed.** remember, schedule_create and post_to_room hide keys themselves; answer shares and titles
+  already did. box_shell (developer environments) runs its command as given; its shown command is already hidden.
+- Tests: `tests/unit/c-integrations-secret-files.test.ts`, `c-integrations-secret-echo.test.ts`.
+- Version impact: **patch** (a security fix; no new feature or API change).
+
+## Sending to a person or a room from a shared chat (fix/shared-chat-send-to-person, 2026-11-15, the owner, QA TC-3091)
+
+- **Problem.** In a chat shared with people, a member asked "저것들 대현도 볼 수 있게 공유해줘" (send these two photos
+  from my folder to my teammate). The AI refused and blamed Slack: it had no way to send. `post_to_room` was left out of
+  shared chats (`postToRoomOff`, `SHARED_TOOLS`), and the shared prompt listed "posting to a room" as unavailable.
+- **Decision (Option A, the owner: do it now).** `post_to_room` is offered in shared chats (a project's and one shared
+  with people), the same tool with the same card and checks as in the person's own chat, acting as the person who sent
+  the latest message: a turn is its sender's (`spec.userId`, "Shared project chats"). To a teammate by name the message
+  goes to the asker's 1:1 chat with them (made on send when there is none); to a room the asker is in, as before.
+  Amends "post_to_room" and "post_to_room to a person" (not offered in a shared project chat) and "Shared project chats"
+  (`SHARED_TOOLS`). Room reading (`rooms`, `room_read`, `room_file`, `save_room_file`) stays off there.
+- **Why it is safe.** Nothing new is reachable: the "대화방에 보내기" button under an answer of one's own turn already
+  sends from a shared chat with the same checks (`prepareShare` / `sendShare`), and the tool adds only the card.
+  - The card (`ask_user`, origin server) goes to the asker alone: cards of a shared chat are the runner's
+    (`TurnExec.waitForPerson`), and anyone else answering is refused (`shared_chat_runner`). It shows the recipient (a
+    new 1:1 chat says so), all of the text and, for [파일도 함께 보내기], the file names; nothing goes until the asker
+    presses send. An answer the card does not offer is refused.
+  - Other people's messages are information: the shared prompt says to call it only when the asker's own message asks,
+    never for another person's message, a file or a page; and whatever the AI does, the call meets the asker's card.
+  - Files: only links to files the asker may open now are offered as copies, and `RoomFiles.fromTeamFile` checks the
+    asker's read access again when it copies; a file they cannot read is never attached and never named.
+  - The provenance and access lines, hidden answers, the sending budget, the redactor and the audit row
+    (`room.answer_share`, `via: 'ai'`) are the asker's, as in their own chat.
+  - The asker's room names never reach the others (security review of #980). A group chat's title is its members'
+    names, and the AI writes where everyone in the chat reads, so in a shared chat the AI is never given a room's or
+    person's title: its results name the place by the words it gave (`"<room>"`). When several rooms or people match,
+    the AI gets no list: the asker picks on a card only they get ("'{ref}'에 맞는 곳이 여러 개예요. 어디로 보낼까요?",
+    `postRoomPick`), then the send card follows; [보내지 않기] or no answer posts nothing. Other viewers see a
+    post_to_room step as its verb alone ("대화방에 보내기"), without the room, detail or `posted`, whether it was sent,
+    cancelled or refused (`ChatStore.viewSteps`); live step frames go to the runner only.
+  - Unchanged: a sub-agent never gets it; confidential chats, scheduled runs, Slack questions, restricted and template
+    runs never offer it.
+- **Always allow, narrowed in shared chats** (security review of #980). Other people's messages are in the AI's
+  context there, so the asker's "Always allow" for posts counts only when the asker's own latest message names the
+  recipient as matched (`namesRecipient`: the person's name or username, a 1:1 chat's other person, a room's or its
+  group's name; or the words the AI gave when they are in the message and are that name in full or one word of it, or,
+  for a person's Hangul name only, its end, like "대현" for "남대현"; two letters at least; fails closed). Outside
+  Hangul a name counts only as whole words ("jo" is not in "join", "design" not in "redesign"; a Korean particle after
+  it is fine: "Bob에게"); in Hangul a part counts, so particles match ("대현에게"). Rooms and group names never use the
+  ending rule. A check's refusal in a shared chat gives the AI a generic line, never the server's own message (it could
+  name a room). Otherwise the card shows (without the "Always
+  allow" choice). `own_words` never goes without the card there, and a card that offers files always asks, as
+  everywhere. In the asker's own chat nothing changes.
+- **Prompt.** `sharedSection(…, post)`: with the tool, one line says to use post_to_room for "send/share this with
+  <person>", to link team files and leave `own_words` off so the card offers them, that the files go to that person's
+  1:1 chat with the asker, and to say it was sent only on "sent"; posting leaves the "Not available" list (reading team
+  chat rooms stays in it, with the "Continue in a chat only you see" advice). A sub-agent's instructions keep the old
+  line.
+- **Removed.** `postToRoomOff`'s shared-chat refusal (unreachable now).
+- Tests: `tests/unit/b-post-to-room.test.ts` "a shared chat: …" (offered, the instructions, two photos to a new 1:1
+  chat with the card only to the asker, another member's request still meets the asker's card and only the asker may
+  answer it, a file the asker cannot read never goes).
+- Version impact: **patch** (a missing action restored in shared chats; no API change, no migration).
+
+## Owner transfer keeps every connection unless asked (fix/owner-transfer-keep-default, 2026-11-15, QA TC-3095)
+
+- **Problem.** The transfer confirm listed the connections made with the owner's own accounts with a box ticked by
+  default ("disconnected on transfer"); an unticked box read "kept". The owner could not tell what the box meant, and
+  the default ended the team's own AI seat.
+- **Decision (product owner).** Kept is the default: a team account stays with the team. Each row says **Kept** or
+  **Will be disconnected**, and its box is the action, **Disconnect when I hand over**, off by default; a box left
+  unticked never sits beside the word "kept". [Transfer] without touching anything ends nothing. The server already
+  treats a missing `end` as "keep" (`TransferOwnershipBody.end` defaults to `[]`), now pinned by a test. The new owner
+  can still disconnect anything later in Admin › AI providers or Connected apps.
+- The [Transfer] button keeps the shared `danger` variant of every destructive confirm; it is disabled until the
+  password is typed (the screenshot was that state).
+
+## The welcome card brings work files from this computer (feat/welcome-find-files, 2026-11-15, product owner)
+
+Owner, 2026-11-15: the invited person's welcome card gets an optional fourth row for "Find work files on this computer",
+in the desktop app only, never blocking "You're all set". Until now Find work files had two ways in, My files and the
+setup's 팀 파일 step (part 2); this is the third. Placement: Team AX core (Home). Plan:
+`docs/AGENTS/plan/20261115-1400-welcome-find-files.md`.
+
+- **The row** (MemberWelcome.tsx `FilesRow`): "Bring work files from this computer", "Optional · only the files you pick;
+  only you see them, in My files › From this computer", **Find files**. Shown only where My files' line is
+  (`useMyWorkFiles` in FindWorkFiles.tsx, shared by both): the desktop app with the bridge's version, not a guest (guests
+  have no card anyway). Not in a browser, a phone's app, the Mac App Store build or an older desktop app; not on a narrow
+  window (like My files' line), where a dialog already open stays as it is (it keeps its place in the tree).
+- **The same dialog as My files** (`useMyWorkFiles`, no second copy): the member's own AI picks (`rank: 'own'`), nothing
+  ticked, files to My files › From this computer, the run's result with Open and Undo; a run started on the card is the
+  one My files' line reopens, and the other way round.
+- **Done** = a file is in the person's My files › From this computer (`steps.files`, optional in the contract, absent
+  from older servers; `welcomeOf` looks on disk: at most 200 folders, hidden names and links not counted, the person's
+  folder and From this computer must be real folders, not links). No migration
+  and no new field to write: Undo (the files go to the trash) makes it not done again, and a file added from My files
+  before counts too. A new file up marks it on the card at once; closing the dialog and Undo read the card again. Done:
+  **Open** (My files › From this computer), as the rooms and hi rows.
+- **Optional, not counted** (as the photo): `countedSteps` and the server's `allSet` stay hi + asked, so "1 of 3" is the
+  same on the web, a phone and the desktop app, and "You're all set" never waits for it.
+- **Exits** (the walk, PR): Cancel in the app's own window, the dialog's ✕ or Escape at any step, list Cancel, Not now
+  on the Full Disk Access screen (the three folders, then the app's window: its Cancel), Close after Add, Undo then
+  Close: all back to the card, which reads its rows again. Open (after Add, or on the done row) goes to My files › From
+  this computer; Home is one tap back. How (the guide) opens in the browser.
+- i18n: `memberWelcome.files`, `memberWelcome.filesHint`, `memberWelcome.filesButton` in the six languages. Guide:
+  `docs/site/use/find-work-files.md` (and zh) names the row.
+- Tests: `tests/unit/b-member-welcome.test.ts` (files done on disk, folders, hidden names and links not counted, the
+  file route's delete (Undo's way) makes it not done, a linked From this computer not followed, all set without it), web unit `member-welcome.test.tsx` (no row in a browser, an older app or the Mac App Store
+  build, a phone's width; the row optional and "1 of 3"; done with Open; the all-set card shows no row; Cancel back to
+  the card and read again), e2e `welcome-find-work-files.spec.ts` (the stand-in bridge: every exit back to the card, Add
+  done, Undo not done, a reload, Not now then Cancel, a narrow window keeps the open dialog, a run started on the card
+  reopened from My files' line), `shots-welcome-find-work-files.spec.ts`
+  (1440 and 390, light and dark).
+- Version impact: **minor** (a visible row on the desktop app's welcome card; an optional field in an answer).
+
+## Office Mac with its own Claude login: the engine no longer opens the keychain (fix/office-local-login-sandbox, 2026-11-15, QA TC-358, TC-359)
+
+Pras's QA (TC-358) on an office Mac in local-login mode: a turn could run `/usr/bin/security` (engine.sb allowed it with
+`LOCAL_LOGIN=1`), read `~/.claude/.credentials.json` and list `~/Library/Keychains`. `security` reads, without a prompt,
+every keychain item that `security` itself made: the Claude login, and also the tokens other command-line tools keep
+there (their items trust `/usr/bin/security`). Owner: keep the local-login mode, make it safe.
+
+- **How Claude Code reads its login (2.1.325, read from the binary).** Only by running `security` found through PATH:
+  `find-generic-password -a <user> -w -s "Claude Code-credentials"` (and `-s "Claude Code"` for a Console API key),
+  `security -i` with `add-generic-password -U -a <user> -s <service> -X <hex>` on stdin to save a refreshed login, and
+  `show-keychain-info` for a locked keychain. A shell form (`execSync`) also exists but needs `/bin/sh`, which the
+  sandbox never ran. Without a keychain item it reads `~/.claude/.credentials.json` itself.
+- **Decided: a broker outside the sandbox, a shim inside.** engine.sb now denies, last and whatever an allow above
+  opened: exec of `/usr/bin/security`, `~/Library/Keychains`, `~/.claude/.credentials.json`, and the Security services
+  (`com.apple.SecurityServer`, `securityd.xpc`, `secd`, `security.agent`, `authhost`), plus `/Library/Keychains` and
+  `/private/var/db/mds`. The launcher (with `--local-login` and a sandbox profile) makes `<tools-sock folder>/kc/security`,
+  a link to `mycel-bridge`, which under that name is a shim; the launcher puts that folder first in the PATH of every
+  Claude turn and the profile opens exactly that link and the broker's socket `kc/sock` (new parameter `KEYCHAIN_DIR`;
+  empty for a Claude sign-in and in managed mode). The shim passes its argv and the stdin of `-i` to the broker; the
+  broker (`native/cmd/mycel-launcher/keychain.go`) decides: `find -w` of the Claude login answers only its
+  `claudeAiOauth` part (MCP servers' sign-ins in the same item stay out), the API-key item read-only, `add -U` of the
+  Claude login takes only `claudeAiOauth` and merges it into the live item, `show-keychain-info` gives the exit code.
+  Every other command, service, account, option (`-g`, `-T`, a keychain path) is refused. Where the login lives in
+  `~/.credentials.json` (no item, or a locked keychain) the broker answers that and saves back into it (0600, atomic,
+  never through a link). The broker reads the live item on every request: Claude Code rotates the refresh token on
+  every refresh, and another turn or the Mac user's own `claude` may have refreshed a moment ago. Only processes of a
+  running Claude turn of that launcher may ask (peer uid and session).
+- **Office: the engine never holds the real refresh token** (independent review). With a model proxy (office mode) the
+  broker shows the engine `mycel-refresh-held-by-the-team-server` in place of the refresh token. Claude Code refreshes
+  through the proxy's refresh terminator, which asks the launcher for the real token (launcher socket op
+  `claude-refresh-token`, server uid only), sends the refresh with it, saves the new refresh and access token through
+  the broker (`claude-refresh-rotated`) and hands the engine the access token with the placeholder again. In this mode
+  a save from the engine changes nothing (it is answered as done; one with another refresh token is refused): the
+  terminator saved what the refresh brought, and an engine save could only roll a newer login back, plant another
+  account's access token or pad the item until the next save fails (second review). A refresh that names another token
+  is refused by the terminator, which sends only the fields of a refresh grant (grant_type, the real refresh_token,
+  client_id, scope) and runs one refresh at a time, each with the token the previous one saved. A rotated login the
+  broker cannot write is kept in its memory and written at the next request, never dropped (the old refresh token is
+  used up by then). So a taken-over turn holds at most an access token that runs
+  out within hours, not a token that keeps the subscription. Dev (no proxy, direct HTTPS) keeps the real refresh token
+  in the engine: there Claude Code refreshes at the host itself.
+- **Saving, bounded.** Only the known `claudeAiOauth` fields are kept (accessToken, refreshToken, expiresAt, scopes,
+  subscriptionType, rateLimitTier), each with a size limit. The broker writes the item only on the stdin of
+  `security -i`, never in argv (another process of the account, a turn too, can read argv). `security -i` cuts a line
+  at about 4076 bytes (about 1950 bytes of JSON as hex), which an item with MCP sign-ins passes: such an item goes to
+  `~/.claude/.credentials.json` and the keychain item is removed, as Claude Code's own fallback does, so every reader
+  finds the file. A locked keychain (no GUI session) gets the plaintext file instead,
+  as Claude Code itself does; a link at the file's place is followed only to a file in the same home. Every
+  `security` call has a 10 s limit (a keychain that waits for an unlock dialog must not hold every turn), the socket
+  takes at most 32 requests at once, and only turns without a model proxy token and not Codex get the broker.
+- **Rejected: the proxy holds the whole login and the engine gets a stand-in access token too** (as in subscription
+  mode). It would keep even the access token out of the engine, but the server would have to sign every request and
+  run the whole refresh outside the CLI; with the placeholder refresh token the CLI keeps its own refresh logic and
+  the lasting part of the login still never reaches a turn. The setup-token mode stays the way to an engine with no
+  real credential at all.
+- **Dev with Codex on** (`LOCAL_CODEX=1`, no proxy) keeps read access to the system keychains and the Security server for
+  certificate checks of a Rust TLS stack; the login keychain, `/usr/bin/security` and the login file stay closed there too.
+- **The tunnel (TC-359).** Pras's run used build 0.5.2-ts3, made before #800: there office turns tunnelled to
+  `api.anthropic.com` with no body check. Since #800 (in dev and v0.5.4) model requests use the proxy's checked HTTP
+  path and the only Claude tunnel (`platform.claude.com`) ends at the refresh terminator. Added here: a Claude turn's
+  CONNECT is refused when its host has no terminator (`connect.ts`), so a setup that passes `claudeHosts` alone can no
+  longer open a byte pipe.
+- **Left open.** The engine holds the current access token (it signs with it), so a turn whose tool lockdown and
+  sandbox both failed could show it in an answer or a web search query (#800 ①) until it runs out. In dev (no proxy) the
+  engine keeps the real refresh token and its saves are written. A refresh of the Mac user's own `claude` outside Team
+  AX is not serialized with the terminator's. A turn can ask for refresh after refresh (each waits for the one before;
+  it does not lose the login, but other turns' refreshes wait). The old keychain item that cannot be removed after a
+  move to the login file, and a rotated login the launcher does not take, are kept in memory (broker / terminator) and
+  handed over again; a restart of both before that loses them. `~/.claude.json` stays readable (account e-mail, project list). A real
+  refresh through the terminator with the Mac's real login has not been run (it would touch the owner's sign-in): QA row.
+- **Checked.** Real Claude Code 2.1.325 under the new profile through the real launcher and bridge, with a FAKE login in a
+  stand-in keychain (`--keychain-test-store`) and HOME in the chat folder: `claude auth status` "loggedIn: true" from the
+  broker, and a `-p` turn sent `Authorization: Bearer <the fake token>` to a local stub. The real keychain and the Mac's
+  Claude login were never opened. Tests: `native/cmd/mycel-launcher/keychain_test.go` (rules, merge, file login, locked
+  keychain, socket only for turns, placeholder refresh token, rotation), `native/cmd/mycel-bridge/security_test.go`, `tests/security/r4c-office-keychain-broker.test.ts`
+  (macOS: profile denies in dev, office and dev + Codex; launcher + bridge end to end), `tests/security/r4-engine-local-login.test.ts`
+  (keychain folder closed), `tests/security/r4b-office-engine-network.test.ts` (no tunnel without a terminator),
+  `tests/security/r4b-office-body-check.test.ts` (the terminator swaps the placeholder and keeps the new refresh token).
+  Version impact: **patch**.
+
+## Desktop team list: a workspace switcher (fix/team-picker-lean, 2026-11-15, QA TC-3090)
+
+The owner found the desktop's team list heavy, and its "Open now" pill looked like a button that did nothing (it was
+the open team's status tag; only the team's name opened it). Decided, after Slack's workspace switcher: with saved
+teams the screen leads with "Your teams", one row per team (an initial tile, the name, the address without "https://"
+as 13px meta), the web app's list row look (List.tsx ListRow: 15px name, 13px `--faint` meta, 8px rounded hover fill,
+the row's inset outside the text column). The whole row opens the team; the open team's row ends in a quiet check and
+"Current" and a click on it goes back to it. "Remove from list" moved from a red-outlined button into the row's "···"
+menu (faint until the row is hovered or focused, full on a touch screen); its question puts Cancel first and focuses it. The
+address box comes under the list as "Add another team" (no hint paragraph there); with no saved team the screen is
+unchanged ("Join your team" and the box). Back stays, as a small muted link left of Language (a click on the Current
+row does the same; Esc does not, so a half-typed address is never lost); nothing is focused when the screen opens with saved teams (no ring on a row nobody picked; Tab reaches the first row), the box is when none is saved. Desktop only: the phone app keeps
+one team and the web has no such screen. Code: `desktop/src/ui/welcome.ts`, `ui.css`. Version impact: **patch**.
+
+## Find work files: the Full Disk Access screen says what you get; Restart lands back on the step (fix/work-files-copy, 2026-11-15, QA TC-3098)
+
+Owner, 2026-11-15: "don't explain the mechanics; say what the person gets: Trina finds the files worth sharing with the
+team", and the screen's How link was a 404. Then: "after granting Full Disk Access, do you have to quit and reopen?"; the
+person should never have to work that out. Amends part 5's screen. Plan: `docs/AGENTS/plan/20261115-1436-work-files-copy.md`.
+
+- **The words follow where the files go**, so each claim is true. The setup's 팀 파일 step (rank `team`, files to the
+  team's home, the team's AI picks company documents): **Find files your team should have** / "Trina AX looks through the
+  folders on this Mac and suggests files worth sharing with the team. You pick what to share; nothing is shared or moved
+  without you." My files and the welcome card (rank `own`, files to My files › From this computer, only the person sees
+  them; there is no "share to the team" step yet, part 2's "not here"): **Find your work files** / "… suggests the files
+  you work on. You pick what to add to My files, where only you see them; nothing is moved." Then one short line, "To
+  look, Trina AX needs Full Disk Access on this Mac." The picture, "Mail, Messages and Photos are never looked at · How",
+  Not now and Open Settings stay. The welcome card's hint leads with what Trina AX does ("suggests the ones that look
+  like work and you pick"). The app's own consent dialog keeps its words: it is the consent and names what is read.
+- **Restart only when it is needed, and back on the same step.** Whether macOS counts the switch without a restart is
+  answered by the app's own probe (opening TCC.db in the main process, the process that also does the look), every
+  second while Settings is open and when the window comes back: granted goes on with no word about a restart. Back and
+  still off: one button, **Restart Trina AX** (and a quiet "Open Settings again" for someone who did not switch it on).
+  The page notes the step (`lib/workFilesResume.ts`: the person, the page, `own` or `team`, 15 minutes, the main
+  process's own limit for a restart) when Settings opens and on Restart, so macOS's own **Quit & Reopen** in Settings
+  lands back as well. The restarted app starts on Home; the page opens the noted page (App.tsx, only from a plain `/`),
+  and the dialog there opens again (My files' line, the welcome card, the setup's step, the Files screen's and the
+  welcome card's 팀 파일 dialogs), whose screen goes on by itself. The note is taken once, and dropped when the screen
+  goes on or its dialog closes. Nothing is typed on this screen, so nothing else needs keeping.
+- **The guide was there, the website was not re-synced.** `docs/site/use/find-work-files.md` (and zh) is in nav.json on
+  dev; ax.trina.app/docs is built from the website repository's copy, which had not taken it yet. New unit test
+  `tests/unit/docs-in-app-links.test.ts`: every https://ax.trina.app/docs/... in the apps' code (web, desktop, server,
+  shared, mobile) leads to a page in nav.json, and a #section to one of its headings (the build's own `headingId`).
+- Not verified on a real Mac whether a restart is needed: turning Full Disk Access on needs the Mac's password in System
+  Settings. The screen does not depend on the answer.
+- Tests: `web/test/e2e/find-work-files-wide.spec.ts` (the new words, Restart, the restarted app back on the step and
+  going on with no restart line, the note taken once, a closed screen forgets it), `shots-find-work-files.spec.ts` (the
+  team's words too), `tests/unit/docs-in-app-links.test.ts`.
+- Version impact: **patch** (words and a smoother restart on an existing screen).
+
+## Desktop first start, the sign-in line and one team screen for every switch (fix/desktop-first-run-localhost, 2026-11-15, owner)
+
+넣을 곳: the desktop app (`desktop/src/main/main.ts`, `main/app-window.ts`, `common/address.ts` `onThisComputer`,
+`common/teams.ts` `dataDirName`, `preload/app.ts`), `shared/src/desktop-bridge.ts` (`hostLine`) and the web sign-in pages
+(`web/src/pages/Auth.tsx` `DesktopTeamLine`, `web/src/lib/teamSwitch.ts`). 이유: the owner downloaded the signed 0.5.7
+DMG and its first screen was "팀 서버에 연결할 수 없어요 — http://localhost:19100".
+
+- **Cause**: the DMG has no localhost default (a clean profile opens "Join your team"). `bun run app` used the same
+  settings folder as the installed app (`~/Library/Application Support/Team AX`), so a development run with
+  `MYCEL_DESKTOP_TEAM=http://localhost:19100` left that team as the last one, and the installed app opened it at start.
+- **A development run has its own folder**: `Team AX (dev)` (`dataDirName`, unpackaged only). The installed app keeps
+  `Team AX`. Cost, accepted: a developer's dev teams from before are not seen by the dev build any more (added again once).
+- **A team at a development address that does not answer at start** (`localhost`, `*.localhost`; the app opened it by
+  itself, `openLast`): the first-run screen with the team list and the line "이 컴퓨터의 {address}가 응답하지 않아요.
+  팀을 고르거나 새로 참여하세요." instead of the offline card. The team stays in the list (Open, Remove from list); opened
+  from there it gets the offline card with [다시 시도]. A real team at start keeps the card and [다시 시도]: its server
+  may be down for a moment, and the person should not lose their place. Loopback IPs count as real: the Office Mac's own
+  server is `http://127.0.0.1:47820` and may still be starting after a restart.
+- **Sign-in line under the card** (amends "The app draws the host, not the page"): in the desktop app the sign-in pages
+  show "qa.trina.app · Switch team" under the card, and the app drops its strip above the page there, so the address is
+  shown once, next to the form (the owner did not find the strip). The address is the bridge's `connection.teamAddress`
+  (what the app connected to, punycode with its port), never `location.host`. The page tells the app with the optional
+  `hostLine(true)` as soon as it is on a sign-in path; the app hides the strip only on the sign-in paths and keeps that
+  until another team is opened (a sign-out or reload of the same team does not make the strip jump in and out), so off
+  those paths (a look-alike at `/` or `/signin`) the strip stays until `/api/me` answers. **Accepted cost**: the strip's
+  app-drawn address is removed on the sign-in paths of a team that asks for it, so a hostile server the person added
+  (through ④ or the outside-address question) can draw a look-alike address there with nothing on screen to contradict
+  it; the phone app's footer stays app-drawn. The line was recorded as a hint, not the protection (④ and the
+  outside-address question are). A follow-up can make the line app-drawn again (an app-owned view at the place the page
+  names) if the owner wants that back. A desktop app without `hostLine`: the page draws no line
+  and the strip stays. A plain browser: nothing. The phone app keeps its native footer (host and "다른 팀에 연결").
+- **Every switch opens the app's team screen**: the logo menu's "Switch team", the sign-in line, the offline card's "다른
+  팀" and an older page's `teamMenu()` open the first-run screen with "Your teams" (Open, Remove from list, Back to the
+  team you came from). The menu under the pointer is gone (owner: it floated over the rail). The OS 팀 menu and ⌘1–9
+  stay.
+- Tests: `tests/unit/e-desktop-common.test.ts` (`dataDirName`, `onThisComputer`, the strip rule), `desktop/e2e/desktop.spec.ts`
+  (start on a dead localhost team: list and line, then the card when opened; `hostLine` drops the strip on sign-in paths
+  only, also after a reload; `openTeams` and `teamMenu` both open the team screen, no popup, Back, Open), `web/test/e2e/sign-in-team-line.spec.ts`
+  (no line in a plain browser or an app without `hostLine`; the address and Switch team under the card; 1440/390 light and
+  dark pictures), `web/test/unit/nav-menus.test.tsx`.
+- Version impact: patch (a first-start fix; an optional bridge method, no API change).
+
+## Connectors that take only an app on the computer sign in from the desktop app (feat/connector-desktop-loopback-signin, 2026-11-15)
+
+Canva, Intercom and Square refuse the team's https sign-in return address (not on their list) but take
+`http://127.0.0.1:<port>/callback`, the address apps on a computer use (RFC 8252); Figma refuses both. Decided:
+- The desktop app signs in at them through a one-time listener on 127.0.0.1 that sends the browser on to the team's own
+  return page (`desktop/src/common/sign-in-return.ts`); the server finishes the sign-in exactly as for any other (state,
+  PKCE, the same person's browser session). The order stays: registered app for https → metadata document → 127.0.0.1,
+  only when both were refused.
+- The port counts only from a desktop session. A forged session kind gains nothing: the code goes only to the person's
+  own computer, is useless without the verifier the server keeps, and finishes only that person's own sign-in.
+- The web and the phone app say "<service> only lets you sign in from an app on your computer. Open the Trina desktop
+  app and connect it there." (`oauth_desktop_only`) with Get the desktop app (the phone app: "Connect Canva on a
+  computer."), when one probe registration for 127.0.0.1 shows it would work. Whether a sign-in server takes 127.0.0.1
+  is remembered an hour, keyed by that server only, and only spares the probe: the usual client choice (with the
+  metadata document from a public address) always runs first (security review of #977).
+- Not now: passing the return through the app's own session (the system browser must be signed in, as for every desktop
+  sign-in), `localhost`, the Mac App Store build (its sandbox has no `network.server`; adding it is a store-review
+  decision for the release owner).
+- Tests: `tests/unit/c-integrations-desktop-signin.test.ts` (recorded service shapes), `tests/unit/e-desktop-sign-in-return.test.ts`
+  (the listener), `web/test/unit/integration-desktop-signin.test.tsx`. Version impact: **minor** (a new way to connect,
+  additive API and bridge fields).
+
+## Share in one press — the warning shows while picking, only when something is at stake (feat/share-dialog-one-press, 2026-11-15, product owner, QA TC-3092)
+
+Where: Team AX core (`server/src/chat/{audience-check,people-share,share-chat,widening,answer-share}.ts`,
+`server/src/routes/chats.ts`, `shared/src/api/chats.ts`, `web/src/components/{ShareWarning,ProjectMembersDialog,ProjectParticipants}.tsx`,
+`web/src/components/chat/{ChatShareDialog,ShareChat}.tsx`, `web/src/i18n/*`). Plan:
+`docs/AGENTS/plan/20261115-1400-share-dialog-one-press.md`. Supersedes "The check comes on Save, not while picking" in
+"Chats shared with people and groups: the Share dialog" (2026-11-14).
+
+- **One press, like Drive's warning for an outside person.** While the picks bring anyone new in, the Share dialog asks
+  `POST /api/chats/:id/audience/preview` 400 ms after every change of the list (adds, removals, groups). Share is off from
+  the first change until the answer for exactly those picks is here. The button never changes colour or words ("Share
+  anyway" is gone): pressing Share is the confirmation.
+- **Only what is at stake warns, specifically.** One check (`chat/audience-check.ts`) counts answers: that may have used
+  my personal memories (answers of the chat's private time written while I had a memory; a shared chat's turns never
+  carry them), that used files the new people can't open (each answer's own `message_sources`, the hash rule as before,
+  plus the answers whose recorded places they miss), older answers the read scope does not describe while a personal
+  connection or the in-app browser was on for me ("may have used your personal accounts"), other places the chat used
+  (named only where I may look), and team chat rooms it read without saying which ("rooms Mina may not be in" — a
+  warning, not an unknown). "Show answers ›" lists those answers (the widening list of one chat now also lists them).
+- **Unknowns are a grey line.** Answers the scope does not describe (without personal accounts) and answers that ran dev
+  environment commands: "N older answers couldn't be checked", no box, a normal button. The first share still records
+  them conservatively (`x: 1`), and `share_hidden` still refuses.
+- **The server stays the gate.** A save that brings in anyone new must carry the key of the check now
+  (`confirmMac` v2 over the list, the new people, the provenance keys, the sorted answer ids of every warning, the places,
+  rooms, the unchecked ids, the earlier uploads and every message id); no key or another state's: nothing saved, the
+  check comes back (`reason` 'unchecked' or 'changed'), shown in place with "Check this, then press Share again". A
+  failed preview is a grey line; Share then gets that answer: never a silent share. Removals alone need no key.
+- **The preview is no free probe.** Creator only (403/404 as a save), the save's refusals (chat_busy while a turn runs,
+  safe operations, unknown entries), the dry-run limit (60 a minute, as the project dry run), counts and places I may
+  look only, never who (the dialog names only what was picked), and a 60-second cache per who asks, chat state, list,
+  new people and folder rules (a save never reads it), so 60 a minute never hash big files 60 times.
+- **The project members' share of a private chat** says the same specific lines in its confirm (still one press: the
+  menu item opens it).
+- **Project Members dialog: one press when people are only added.** What they would see (how many, files, shared chats,
+  skills, "the people who see it now are told") shows in place under the count; Save waits for the dry run of the picks
+  and saves at once when its own dry run says the same. The confirm stays only where it guards something different that
+  a later save can't take back: people taken out (they lose access and their running turns stop; a guest's account is
+  switched off), a save that writes a rule nobody chose here (the floor rule, the creator's rule back), and "Add me"
+  (its members are told). A dry run that says more than the lines shown brings the confirm back.
+- **How it reads (coordinator, after the screenshots).** One finding per line in the box (a short list when there are
+  several), "Show answers ›" after them. In Korean a person takes 님 ("Bob 님이 열 수 없는 파일", "Bob 님은 열 수 없는 곳"); a group never
+  does: it reads as its people ("Sales 그룹 사람들이 열 수 없는 파일", "Sales 그룹 사람들은 열 수 없는 곳";
+  `share.who.person` / `share.who.group`, `whoNames`), and the lines' particle marks read right after either. Names the
+  server sends without saying person or group need no particle: "열 수 없는 사람: …", "공유 대상: …".
+- **My earlier files always show (security review).** When a first share copies my earlier computer uploads, their line
+  is always on screen, a line of its own, never folded into the "couldn't be checked" line. The Members dialog compares the
+  whole lines it showed with the save's dry run, not only counts.
+- Not here: Admin › Groups (someone joining a group widens silently, accepted 2026-11-14).
+- Version impact: **minor**.
+
+## What the AI sends to a connected service never holds a stored key (fix/connection-tools-hide-keys, 2026-11-15)
+
+- **Problem (QA tracking TC-3081).** The AI could put a person's stored connection key into a call to a connected
+  service (an MCP tool, Gmail, Drive, Notion, api_request). The card showed the arguments with the key hidden (chat/turn.ts
+  redacts a card's details), but the call sent the key itself: the person approved one thing and the service got another.
+- **Decision: hidden before the cards and the call.** The hook of the entry above (`TurnToolSet.hideKeys`, run first in
+  mcp/protocol.ts) gives every tool a provider adds to the turn (the connections' tools, api_request, call_tool, Slack's
+  reads; chat/tools.ts `outside`) to `hideAllArgs` (integrations/connections/hide-args.ts): every value and field name
+  through the turn's redactor. So the room card, the connection's card and the call all see the same arguments, and
+  the service gets [hidden key] where the AI wrote the key. The AI is told it was sent as [hidden key]
+  (KEYS_SENT_HIDDEN_NOTE). An api_request path that would hold [hidden key] is refused as before (spaces are not allowed).
+- **Data that must arrive as it is.** A changed value that is base64 data (64+ base64 characters once its whitespace
+  is taken out: a Gmail attachment's `content`, an upload, wrapped at any width) is not sent with a hole in it: the
+  whole call is refused (KeyRefusal), the AI is told why, and the audit line says "not sent (a stored key in its
+  data)". The redactor's patterns do not match across whitespace, so every value is also checked with its whitespace
+  taken out: a key that shows only then (base64 wrapped across lines, a key cut by a space or a line break) refuses the
+  call too (security review of #981). The check runs on what would be sent (after hiding), so a whole copy that was
+  hidden does not let a split copy in the same text go out.
+- **Fails closed.** Calls to connected services are checked with `completeRedactorFor` (every stored secret of the
+  person, read now); when one cannot be read the call is not sent, the AI is told so in a plain line and the audit
+  line says "not sent (stored keys could not be read)". The saving tools of the entry above keep the turn's redactor.
+- **Sign-in is not an argument.** A connection's own key or token goes in a header (service.ts authHeaders), an admin's
+  query in the connection address; neither passes through the arguments, so both keep working. Checked: no connection
+  tool, Google app tool or api_request takes a stored key in its arguments.
+- **#971 review points.** write now looks up the file it overwrites at the path it really writes (the hidden one), so a
+  key form is kept only when that file holds it. Not changed: a tool call lets out the held answer text. The engines
+  join text blocks around a tool call with a blank line (claude-parse.ts, codex-parse.ts), so the halves of a base64
+  form cut by a call are never one form, held or not; hiding that needs base64 patterns that allow line breaks
+  (hide.ts), left for its own change.
+- **Not in this change: TC-3082** (a start-up scan that tells owners which AI-made files still hold a stored key): its
+  own PR.
+- Tests: `tests/unit/c-integrations-secret-sends.test.ts` (a fake MCP connection and a fake HTTP API through net.ts
+  testAllow). Version impact: **patch** (a security fix; no new feature or API change).
+
+## Find work files, part 6: fewer, better (fix/find-work-files-quality, 2026-11-15)
+
+Owner, 2026-11-15, on 0.5.7 (Full Disk Access on, so the wide look) against qa.trina.app: "they're work files, but it
+only brought really useless ones". The list showed one real plan and eleven `f(N).txt` pieces of a saved web page
+(`…_files`) downloaded from `aif.notion.so`. Cause: a work app's shared host (`notion.so`, `docs.google.com`,
+`slack-files`, …) counted as the company's on its own, and "Looks like work = recent AND (the company's OR the AI's
+pick)" let that weak match through whatever the AI said.
+
+- **Never work** (`shared/src/file-scan.ts`, the app's look and the page's list alike, so a list from an older app is
+  held to it):
+  - a browser's saved page: the walk never enters a folder named like one (`_files`, `_파일`, `-Dateien`, `_fichiers`,
+    …) when its page (`.html`, `.htm`, `.mhtml`, …) is beside it (`savedPage`); anywhere else, a text file or picture
+    inside a folder named like that is the page's (a PDF there is kept: "Client_files" can be a person's folder);
+  - a tool's or runtime's folder by its name (`node-v26.13.0-win-x64`, `ffmpeg-7.1-darwin-arm64`, `python-3.12.1`:
+    a platform suffix, or a runtime with a dotted version and nothing after it; never "Go-2026 plan");
+    `bower_components`, `__pycache__`, `site-packages`, `dist-packages`; a folder whose entries say it is a program or
+    a code project (`.dll`/`.so`/`.dylib`, a package manifest, `bin` beside `lib`: `softwareFolder`; the walk does not
+    enter it and the recent lists' files inside it are left out);
+  - names a program gave (`autoNamed`): `f(8).txt`, `image001.png`, "Untitled" / "New Text Document" with no more
+    words (six languages), a hash or UUID, a random id (16+ letters and digits, digits in four places or more; never a
+    CamelCase name), a messenger's chat export, README/CHANGELOG/LICENSE/CONTRIBUTING as bare names in text;
+  - documents under 1 KB and text files (txt, md, csv, rtf) under 2 KB (`tooSmall`).
+- **Copies and series** (page, `workCandidates`, recent files only): "X (1)", "Copy of X", "X - 복사본", "X copy 2"
+  are dropped when a recent X is in the same folder (a copy downloaded again lately stays when its original is old);
+  four or more names that differ only in their numbers, in one folder, of one type, show the newest only, and none when
+  the names hold fewer than three letters (`2026-10-01.pdf`).
+- **The company must be real** (`companyHost`). A host counts when it is the company's domain, a host of its own name
+  (`acme.com`, `files.acme.co.kr`, even with no registered domain), or a work app's shared host that carries the
+  company's label left of the app's name (`acme.slack.com`, `acme-my.sharepoint.com`, `acme.notion.site`). The shared
+  hosts alone (`docs.google.com`, `drive.google.com`, `www.notion.so`, `aif.notion.so`, `files.slack.com`, Dropbox, …)
+  are just "from the web"; host words (`files`, `docs`, `drive`, …) never count as the company's name.
+- **The AI can veto.** The page sends the best 80 candidates; once the AI picked, its answer decides for those: a file
+  it was shown and did not pick is not listed (a ticked one stays in view). An answer with no pick at all is no
+  judgement (a small model that said nothing): the rules decide. Files it was not shown, and every file when no AI
+  answered, are listed only on a strong sign (`strongWork`): the company's (name, own host, a team member as author)
+  for a document, or with that sign a text file; or a document with a real name (three letters or more, not a
+  program's) that was opened lately (the index's last-opened, a recent list's entry: `WorkFileMeta.listed`, used ≥ 2)
+  or lives in a work folder or the company's cloud drive. A plain download is not enough. Plain text and CSV are neither
+  sent nor listed without the company's sign. Recency by last change unless an opened date comes from the index or a
+  recent list (Windows' last-accessed is not trusted: a separate change there). The own-folder prompt now also says to
+  leave out program-named files, saved pages, chat exports and short notes, that a download from a shared work app is
+  not work for that reason alone, and that five sure picks beat twenty doubtful ones.
+- **Types.** Office, PDF, Hangul and iWork documents first; Markdown with a real name of two words or more; txt and
+  csv weigh 0.3; a name without letters weighs half.
+- **Coverage.** Why it walked: a Mac's look always walks Documents, Desktop and Downloads (part 4: listing through
+  Spotlight was slower than the walk), with or without Full Disk Access (the wide look uses Spotlight for the places
+  beyond them), and asks Spotlight (mdls) about the newest 1,000 walked files; "is big" is the walk's 20,000 entries,
+  10 s, or a folder deeper than four levels. Before, the recent lists' files inside a cut folder were dropped ("left as
+  the look left it"). Now (1) the walk takes the most lately changed folder next (a heap on each folder's date, each
+  level down counted two weeks older so one fresh deep tree does not use up the walk), so a cut keeps recent folders;
+  (2) each walked folder also gets the files opened lately inside it (`LookOptions.recentIn`): a Mac without the wide
+  look asks Spotlight (`mdfind -onlyin <folder> kMDItemLastUsedDate >= 180 days`, after that folder's own question,
+  4 s at most, so no new question) and mdls for the newest 300; the wide look gives each folder its part of the recent
+  lists it already reads (Spotlight's last-opened across home, the shared file lists `*.sfl2/3/4`, Office's lists).
+  Those files join the list even when the walk was cut or they are too deep (checked as the index's: folder realpath,
+  lstat, never a never-listed part); a walked file in a recent list gets its opened date and `listed`. The shared file
+  lists and Office's lists are read only with Full Disk Access, as before: Office's lists are inside other apps'
+  containers, which macOS guards with its own question.
+- **Bench** (`scripts/bench/find-work-files/run.ts`: a made-up home of 8,818 files, 35 recent work files; the
+  Downloads walk cut at a fifth of the real limit; Spotlight simulated from the fixture). No AI: before 50 shown,
+  precision 0.28, recall 0.40; after 27 shown, precision 1.0, recall 0.77. An AI that picks every name it is shown (the
+  worst case: only the rules hold): before 0.58 / 0.83, after 0.85 / 1.0 (only plain personal downloads it picked get
+  through: tickets, a menu). An AI that judges each name right: before 0.62 / 0.89 (the rules' junk stayed beside its
+  picks), after 1.0 / 1.0. The look stays around 0.1 s and the list under 15 ms on the bench.
+- **Independent review** (one MUST-FIX set, all fixed): the saved-page and install-folder name rules hid "Client_files"
+  and "Go-2026 plan" (now the page beside it, and a dotted version only); `autoNamed` hid "License Agreement Acme.pdf",
+  CamelCase names and "Chat with investors.docx" (now bare names only); a recent copy of an old original vanished (now
+  recent files only). SHOULD-FIX fixed: the company's own site without a registered domain, an empty AI answer, recent
+  files inside a skipped code project, one fresh deep tree using up the walk, the extra waits per folder (1.5 s + 2 s).
+
+## Find work files: the app's own consent window (feat/work-files-consent-window, 2026-11-15, product owner)
+
+Owner, 2026-11-15, on the native alert of "Find work files on this computer": "this doesn't even catch the eye… did
+anyone design this UI?" The question was a grey `dialog.showMessageBox` (a bullet list and two paragraphs). It is now
+a designed window, still owned by the main process (the review of #923: the team page is remote content, so no script
+there may draw, fake or skip the consent).
+
+- **The window.** `desktop/src/main/work-consent-window.ts` opens a small modal `BrowserWindow` with the app window as its
+  parent (a sheet on macOS), in the `mycel-ui` session, sandboxed, loading `mycel-ui://app/consent.html` (a file of the
+  app, `desktop/src/ui/consent.html` + `consent.ts`, served by `serveUi` with the app screens' CSP), never the team
+  server; `guardUiView` stops any navigation or new window. Its preload (`desktop/src/preload/consent.ts`) has two calls:
+  read the finished view (`consent:view`, sync) and give back yes or no (`consent:answer`). Both channels answer only a
+  window this file opened, in its top frame at that address (`consentSender`); the team page's preload has no consent
+  channel and the page still gets only the scan's result. Closing the window, Escape (handled in the main process,
+  whatever the page does), Not now, the page's renderer going away, another person or team (`forget()`) are a no.
+- **What it says comes from the look itself.** `consentView` (`desktop/src/common/work-consent.ts`) is built from the same
+  roots and places `scan()` then looks through: the three folders (OneDrive named under the folder), each wide place by
+  kind (messenger, work folder, cloud drive), and "Recently opened files" with where they are. Three lines under it: two
+  promises with a check ("Only file details are read (name, date, size, author, where it came from), not what's inside"; "Nothing is ticked for you. Contents
+  stay on this Mac until you add them") and, with its own sparkle icon so it does not read as a promise, "To help you
+  pick, file names may go to your team's AI". The rest (macOS asks per folder; Full Disk Access; Mail, Messages, Photos
+  and Safari never read; cloud-only files not downloaded; nothing moved or changed) is one small line. Buttons: Not now
+  (secondary) and Find work files (primary, focused). All six languages; Korean wraps by word only (`:lang(ko)`).
+- **Enter now means yes, but only when the person could mean it (changes the earlier review MUST).** Part 1 made Cancel
+  the default so that a page that asks while the person types gets no yes from their next Enter. The owner wanted Enter
+  to press the primary button. `ConsentGate` keeps the protection in the main process: a yes counts only 800 ms after the
+  window is shown and 800 ms after the last key typed into it (any key but Tab, Shift, Enter, Space, Escape and the
+  arrows; a held key counts as typing), and only once. An early yes is ignored, starts the wait again (a stream of
+  clicks or Enters never gets through; security review) and the window stays; a no is never held back. The first line
+  says what is read as it is: name, date, size, author and where a file came from (Spotlight's fields), never contents.
+- Tests: `tests/unit/e-desktop-work-consent.test.ts` (view, gate, sender check, wiring), `desktop/e2e/work-consent.spec.ts`
+  (the real window: modal child, early click and Enter after typing ignored, Enter later counts, Escape, a forged answer
+  and view request from another window refused, close and forget are a no); `work-files*.spec.ts` record the view.
+  Version impact: **patch**.
+
+## Find work files: asked once, reads only what is added (feat/work-files-add-confirm, 2026-11-15, product owner, QA TC-3300)
+
+The security review of #1000 (S6) found that the desktop app read any file of the latest look the team page asked for:
+"contents stay on this computer until you add them" held only by the page's goodwill. A second window "Add N files?"
+was built first and dropped before it shipped: the owner, "창 좀 그만 띄워, 권한만 주다가 일 다 하겠다". Decided instead:
+
+- **Reads only what is added (no window).** `workFiles.add(ids)` (bridge version 2, `WORK_FILES_BRIDGE_VERSION = 2`) names
+  the ticked files as the person presses Add (`web/src/lib/workFiles.ts confirmAdd`, the one Add button of
+  `FindWorkFiles.tsx`, which My files, the member welcome card and the setup's 팀 파일 step all use). The main process
+  takes it only from the team page's top frame (`fromApp`), only within `PERSON_INPUT_MS` (2 s) of the person's own key
+  or mouse press on the team page's view (Electron's `before-input-event` / `before-mouse-event` on that webContents,
+  which no page script can make; `AppWindow.appInputAt`), only for ids of that origin's latest look, each once, within
+  the read limits (100 files, 1 GB, with what was added before). `WorkFileSessions.read` then refuses every id not
+  added (`unknown`); a new look, another person or team forgets what was added.
+- **Asked once.** A yes in the consent window is remembered per team origin and signed-in person
+  (`work-files-consent.json` in the app's data: the time and the places it listed). A later look goes straight to the
+  list when every place of it was in that window, within 90 days, and the person pressed a key or the mouse on the team
+  page within 2 s. A new place (Full Disk Access turned on, a new cloud drive or messenger folder) or 90 days ask again;
+  Not now remembers nothing; another person on the same computer is asked for themselves.
+- **"Trina is reading N files from this computer"** while added files are read: the app's own strip above the team page
+  (the host strip's view, `hostbar.ts`; the team address there wins on sign-in pages), no click. It shows from the
+  add, and again during every read of an added file however late; it hides when nothing is waiting or after 15 s with
+  no read running. When the app does not take an add (the press did not reach it in time, the list is over an hour
+  old), the list says so under the Add button (`files.findWork.addRefused`) instead of doing nothing.
+- **What this does not stop (residual risk, said plainly).** The 2 s check proves that a person is at the team page, not
+  which files they chose: the main process cannot see which element was clicked. A team page that runs a hostile script
+  (a compromised team server, an injected script) can wait for any real click or key press (typing a chat message is
+  enough) and within 2 s name any ids of the latest look: up to 100 files and 1 GB of its places, within the hour after
+  the look. And once a yes is remembered, such a page can start a look without the window, again only right after a real
+  press of the person's. What it does stop: reads and looks with nobody at the page (a background or overnight script),
+  ids never named at an add, ids of another origin, look or person, and anything over the limits. The strip shows
+  every read of an added file while it runs (security review: it no longer goes quiet after 15 s). Known limit: a
+  VoiceOver or Voice Control "press" sends no key or mouse event, so Add is refused there (the line under Add says so);
+  a keyboard Enter or Space works.
+- Version: an app of version 2 offers nothing to a page of version 1 (whose reads would all be refused); a page of version
+  2 still takes an app of version 1 (no add: the old behaviour), so a newer page works with an older app.
+- Tests: `tests/unit/e-desktop-work-files.test.ts` (only added files are read; ticked then unticked; ids of another
+  origin, twice, over the limits, expired; a new look forgets), `tests/unit/e-desktop-work-consent.test.ts` (asked once:
+  place words, 90 days, new places, per person; wiring of the 2 s check and the strip), `desktop/e2e/work-files.spec.ts`
+  (real Electron: nothing read before add, an add without the person's press or from another origin refused, only added
+  files read, the strip counted down, the second look without the window), `web/test/unit/work-files.test.ts`
+  (`confirmAdd`, versions), `web/test/e2e/find-work-files.spec.ts` (the fake app enforces it; ticked then unticked is
+  never named). Version impact: **minor** (bridge version 2).
+
+## Find work files: Not now kept 30 days; VoiceOver and Voice Control get the Add window (feat/work-files-later-a11y, 2026-11-15, product owner)
+
+Two follow-ups to "asked once, reads only what is added":
+
+- **"Not now" on the Full Disk Access screen is kept 30 days** for this team (the page's own storage, per origin) and this
+  person (`mycel.findWork.fullDiskLater:<user id>`, `web/src/lib/workFiles.ts fullDiskLater`). The next looks go straight
+  to the three folders (the app is asked first whether it has Full Disk Access by now: then the wide look, no screen),
+  with a quiet link in the list's header, "Look in more places (Full Disk Access)", which forgets the Not now and shows
+  the screen again. A private window or blocked storage remembers nothing (the screen comes as before).
+- **Assistive technology is not locked out.** A VoiceOver or Voice Control "press" makes no key or mouse event, so the
+  2 s rule refused their Add. Now, when an add comes with no press and Electron's `app.accessibilitySupportEnabled` is on
+  (macOS turns it on for VoiceOver, Voice Control and other assistive apps; a screen reader on Windows), and only then,
+  the main process asks in the consent window's style: "Add N files from this computer?" with the files by name (8
+  shown, "and N more files"), Cancel / Add N files, the same 800 ms gate and one answer (`addView`,
+  `WorkFilesController.askAdd`). Cancel adds nothing (the page says nothing: the person chose it). Everyone else keeps
+  the way with no window. One window at a time, never right after another: 3 s after any answer, a minute after two
+  Cancels in a row (security review: a page asking again in a loop). VoiceOver reads the files' names with the
+  question (the list is part of the window's description).
+- **What this path does not stop (said plainly, security review).** A page cannot turn assistive support on itself,
+  but Chromium turns it on when any app on the computer reads the window's accessibility tree, not only a screen
+  reader: on a Mac, Grammarly, window managers (Rectangle, Magnet), text expanders, launchers and some password managers
+  do; on Windows, any automation client. It then stays on until the app restarts. On such a computer an add with no
+  press is asked in this window instead of refused: a hostile page can make the window come (at most once every 3 s,
+  once a minute after two Cancels), and files are read only after the person's Add there. Only the forced setting was
+  tested on this Mac; that VoiceOver and Voice Control turn it on is Chromium's documented behaviour, checked by hand in
+  QA (TC-3401).
+- Tests: `desktop/e2e/work-files.spec.ts` (real Electron, `app.setAccessibilitySupportEnabled(true)` forced: refused with
+  it off; with it on the window lists the file, No adds nothing and reads nothing, Add adds it and it reads),
+  `tests/unit/e-desktop-work-consent.test.ts` (`addView`, the fallback only after the press check and only with
+  `assistive()`), `web/test/unit/work-files.test.ts` (30 days, per person, forgotten by the link, nonsense stored),
+  `web/test/e2e/find-work-files-wide.spec.ts` (Not now, then the next open goes straight to the three folders; the
+  link brings the screen back; granted by then: wide). Version impact: **patch**.
+
+## Connector follow-ups: the sign-in push opens its connection, API rows in the log, sign-in words on a skipped run (fix/connector-small-followups, 2026-11-15, tracking TC-3052, TC-3053, TC-3054)
+
+- **A sign-in push opens its connection** (TC-3053). The `connection.reconnect` phone push opened the Inbox
+  (`/settings/notifications`) while its Inbox row already opened the connection's page. Now the push's path
+  (notifications/push-events.ts `reconnectPushPath`, ids only, the same PATH rule as every push) is the person's own
+  connection while it is still theirs: a Google app's page (`/settings/connectors/<app>`) or the connection's
+  (`/settings/connectors/mcp/<id>`); Google Drive's notice opens Drive's page while that Drive connection is theirs; a
+  removed one opens the Inbox as before. A Web Push click (web/pwa/sw.js) opens the same page from the signed-in notice
+  (never the payload); Drive's Web Push stays on the Inbox there, because the notice does not say Drive (the Inbox row
+  links a notice without a connection to Drive's page). The push words stay generic (gateway privacy design).
+- **API connections in the Activity log** (TC-3054). The Always allow card's own write-rule record (connections/tools.ts
+  keepAlwaysAllow) now saves the connection's scope and kind as the other records do. `integration.create/update/delete` and
+  `integration_template.create/update/delete` rows whose details say `kind: http` read "Added an API connection",
+  "Created an API template", … (the app calls that kind "API", `integrations.kind.http`), keys `audit.act.<action>.http`.
+  MCP rows and older rows without a kind keep their words.
+- **A skipped run for a sign-in template asks for a sign-in** (TC-3052). `InboxNotification.needsKey.signIn` (true when
+  the template, still there, signs in): "Scheduled task "…" did not run: sign in to {name} with your own account." A key
+  template and a removed template keep the key words. The Scheduled page says it the same way: `Schedule.lastNeed.signIn`
+  and `ScheduleRun.needSignIn` (chat/schedules.ts `templateSignsIn`) pick "Needs your sign-in" on the card, "Needs you to
+  sign in to {name}" on the run, the next step "Sign in to {name} with your own account in Settings › Connectors, then
+  use Run now." and the link "Sign in to {name}".
+- Tests: `tests/unit/c-connection-reconnect-notice.test.ts`, `c-template-chat-schedule.test.ts`, `mobile-push.test.ts`,
+  `push-native.test.ts`; web unit `push-worker`, `activity`, `inbox-notice-rows`, `scheduled-view`; e2e `activity-log`,
+  `schedule-notifications`.
+- Version impact: **minor** (three new optional API fields, `needsKey.signIn`, `lastNeed.signIn`, `ScheduleRun.needSignIn`,
+  and a new push tap target; nothing removed).
+
+## Older AI-made files with a stored key: the person is told, nothing is rewritten (feat/old-files-key-scan, 2026-11-15, QA TC-3082)
+
+- **Problem.** fix/files-hide-keys (above, TC-3041) stopped the saving tools from writing a stored connection key, but
+  "files saved before this fix … are not rewritten": a file the AI made earlier, and its search text (the text cache of
+  docx, pdf, hwpx, which grep and the content search read), can still hold the key.
+- **Decision: find them once and tell the person whose key it is; never rewrite.** A file the AI made is the person's
+  (or their team's) work, a key in it may be on purpose, and a rewrite of a docx or hwpx could break it. Once, a moment
+  after a server start (after the memory clean-up of #953; `integrations/connections/file-scan.ts`, settings key
+  `files.storedKeyScan`), each file whose newest AI save (`file_events` with a `turn_id`, create or update) is by a
+  person with stored keys is read as that person (it must still be there and theirs to read) together with its text
+  cache, and checked for any form of that person's keys (`allSecretsFor`, the answer's redactor: as written, base64,
+  escaped). Files found are kept by path (`stored_key_files`, migration 354) and the person gets one Activity notice
+  (`files.stored_key`, `stored_key_file_notices`, never a push, shown whatever the switches say): "N files the AI made
+  for you have a saved key of a connected service in them. Open each one and remove the key, or delete the file.", with
+  the files listed under it as links (name and place in the Files sidebar's words). The row itself opens nothing and
+  keeps Mark as read.
+- **Who is told, and access.** The person whose key it is (whose AI turn saved the file), not the team owner: the owner
+  may not be allowed to open a member's files, and the key is the member's. The list is read when the notice is shown,
+  as that person: a file that is gone or that they may no longer open drops off (no access is widened); none left says
+  the files were moved or deleted. Uploaded files and files a person saved are not looked at. A file the AI saved in a
+  folder its person can no longer read is reported to nobody, also not to the team owner: such a list would show the
+  owner the names of files that may be private (security review of #983). One notice per person and scan version
+  (source `scan-v<FILE_SCAN_VERSION>`), so a later version of the scan can tell them again.
+- **Done, and cost.** Marked done only when every person's keys could be read; otherwise the keys that can be read are
+  looked for and it runs again at the next start (as #953). At most the newest 20,000 such files and 4 MB of text per
+  file and per text cache in one run; it lets the server's other work run after every 50 files and after every 2 MB
+  read (so after each big file), so big files never hold the start (the dev server's health check); nothing is written
+  when the server stops meanwhile; the log
+  has counts only (scanned, found, people, done), never a path or a key.
+- Tests: `tests/unit/c-integrations-secret-old-files.test.ts`, web unit `key-files-notice.test.tsx`.
+- Version impact: **patch** (a security follow-up: one notice, one additive migration, no API removed).
+
+## A member shares their own files — 내 파일을 고른 사람과 공유 (feat/file-share-links, 2026-11-15, the owner, QA TC-3093)
+
+Plan: docs/AGENTS/plan/20261115-1407-file-share-links.md (reviewed; P1 here). In a shared chat a member asked the AI to
+share two photos with a teammate; `share_file` only made a `/files/view?path=` link, which grants nothing, and the
+teammate got "not found". The owner decided: a member shares their **own** file with chosen people or groups, Drive
+style; anyone else who opens the link gets **Ask for access**, which the owner answers in one step; removing access
+takes it away. This overrides "only the owner and admins share" (#787) for a member's own files; team folders' rules
+stay as they are.
+
+- **Who owns a file** (no file had an owner): a personal file's person (`users/<id>/`); a team file's adder, found by
+  walking `file_events` back from the current path (`files/shares.ts creatorOf`): the newest create or upload at the
+  path with no later delete or move-away; a move's own create (`movedFrom`) and a trash restore (`originalPath`) are
+  followed back, never an authorship, so a move (an admin's too) never makes the mover the owner; a copy is the
+  copier's; no event or a delete first: nobody. `file_shares.owner_id` comes from the walk, never from who made the
+  link (`created_by`). Who may share: the owner with edit access now (members only while "Members can share files they
+  own" is on, Admin › Team settings, default on); the team owner and admins for any team file. Never a folder, never a
+  guest, never oneself; a member adds only their own groups. View only (open, preview, download of the current bytes).
+- **The link** `/f/<id>`: 16 random bytes, base64url, made on the first Share or Copy link, kept through renames and
+  moves (`TeamFiles.move` rewrites `file_shares.path` in the move's transaction), parked with the trash item and back
+  on restore, deleted with a purge. Pinned to the file by inode, device, size, mtime and the last sha256 recorded through
+  the app. Only an event that keeps the **same** file re-pins it (a save, an upload over it, a version restore, a
+  conflict, the trash restore of that row); a plain create or upload, a copy or another trash restore at its path makes
+  the row **dead** (its link answers no access, its grants and waiting requests go). Review of #979 (blocker): a file
+  uploaded where a shared one had been deleted outside the app inherited its link. A file changed outside the app: the
+  inode verified last time with the size, mtime and ctime recorded is the same file (nothing hashed); anything else is
+  checked once: a different size makes the row dead, else the hash decides (files up to 32 MB, dead above; a match
+  re-pins, a mismatch makes the row dead), never per request. An inode number alone proves nothing (Linux reuses a
+  freed one for the next file at once: CI found it), nor do an equal size and mtime on another inode (re-review of
+  #979). A move's rename never re-pins: up to 32 MB the next open hashes once; above, the times are taken again only
+  while the size and mtime are still the recorded ones. **Known limit:** on a team folder on a network filesystem
+  (SMB, NFS, AFP) the times may not be kept or may be coarse; the no-hash path still trusts an unchanged inode, size,
+  mtime and ctime there (always hashing on such a mount was not cheap to detect: statfs gives a type number that
+  differs by system).
+- **Who it opens for** (`FileShares.open`): whoever the folder rules let read it (`RuleSet.access`, unchanged), and the
+  people and groups on it (groups read live) while the owner can still edit the file. Guests never, through a link.
+  `RuleSet.decide` is not changed: grants are read only by the id endpoints, which serve the current bytes
+  (`/api/files/shared/:id/download`); no versions, history, extracted text, path, folder or neighbours. Search, the AI's
+  file tools and the file list stay on RuleSet and never see a file through a grant.
+- **The link page** never shows the file's name, type or owner to someone it does not open for (`no_access`, with
+  `canAsk` and `askedAt`); an unknown id says so (no fake "sent", no same-timing promise: the review dropped both;
+  ids are not guessed). The owner's own file in the trash: "This file is in the trash".
+- **Notices:** `file.shared` names who gave THIS person access (their own grant or their group's). Someone told of a
+  request who may not share the file now (an admin without edit access there) changes nothing by answering (403).
+- **Ask for access** goes to the owner, or for a team file with no owner known to the team owner and admins; never to a
+  member while members' sharing is off (403 `file_request_off`). One waiting request per person and file, 5 a day to
+  one owner, 20 an hour in all (429); a note of at most 500 characters, control characters out, shown as plain text.
+  The owner's Activity row (`file.access_requested`, one per person and file, brought back up by a new ask) has
+  **Share** and **Decline**; Share adds the person, Decline tells them "Your request to open a file wasn't approved."
+  (`file.access_answered`, nothing about the file). Activity only in P1: no push (P2: a generic gateway line, the
+  sharer named through the label fetch, never the file name).
+- **A grant never widens past what its owner chose.** A move by someone other than the owner to where fewer people can
+  read it removes the grants **inside the move's own step** (`TeamFiles.relocate` → `sharesNarrowedByMove`; a failure
+  fails the move; audit `file.unshare` reason `moved_narrower`; the owner is told after: `file.unshared_by_move`).
+  The owner's own move keeps them; the move confirm (409 `audience_narrowed`) carries `linkPeople`, "N people have this
+  file by its link." An admin narrowing a folder's rules: the folder Share dialog's preview carries `linkPeople` ("N
+  people have files here by link.") with **Remove those links too**, ticked by default; the save sends
+  `removeFileLinks` and removes them in its own step (audit `file.unshare` reason `folder_narrowed`). A narrowing save
+  while files there are shared by link must send `removeFileLinks` (true or false): without it, 409
+  `file_links_decide` (nothing saved), so a missing field never keeps the links silently.
+- **The AI: `share_with_person(paths, people)`** (chat/share-with-person.ts). The rules of every action that reaches
+  others are post_to_room's, in one helper both tools import (chat/shared-actions.ts: the person whose turn it is acts,
+  their card is theirs alone, other viewers see the step's verb alone, not offered in a template or restricted run, a
+  confidential chat or a question from Slack, several matches picked on the asker's card in a shared chat, no server
+  words in a shared chat's refusals). Two differences, because it grants access: the card is shown **every time**
+  (Always allow never skips it; never in a scheduled run), and in a chat someone else wrote in each file must be one the
+  asker attached, named in their own message, or the AI made in this turn. Its paths are not reads for the shared
+  chat's read card (it brings nothing into the chat). Then the AI replies with the links. Audited `file.share` via ai.
+  **`share_file`** says it gives nobody access, and a file's preview link is now its `/f/<id>` link.
+- **Audit:** `file.share`, `file.unshare`, `file.access_request` (never the note), `file.access_approved`,
+  `file.access_declined`, `file.shares_removed_all`; target `file-share:<id>`; a team file by its path, a personal
+  file only as `personal: true`. **The team owner's emergency revoke:** Admin › Team settings, **Remove all file shares**
+  (every grant and waiting request, at once); the switch off stops new shares and requests to members.
+- **Unchanged:** `users/<id>/` stays private to its person by path (admins too); a shared file opens only by its link.
+  Folders keep #787's dialog. Guests keep their one place.
+- **P2:** push, "Shared with me", Admin's list of every file share, phone universal links for `/f/*` (store build),
+  guests in a place the sharer is in, the recipient's AI reading a shared file.
+- Migration `355_c_file_shares.sql` (C; additive, reader 1; 354 is taken by feat/old-files-key-scan). Tests:
+  `tests/unit/c-file-shares.test.ts`, `tests/security/file-shares.test.ts`, `tests/unit/b-share-with-person.test.ts`,
+  web e2e `file-share-links.spec.ts`. Version impact: **minor** (a feature, endpoints, a migration).
+
+## Share in the title row — 공유 버튼은 제목 줄 오른쪽에 (feat/project-share-button, 2026-11-15, the owner, QA TC-3283 and the next row)
+
+넣을 곳: `web/src/components/HeaderShare.tsx`, `web/src/pages/Projects.tsx` (`ProjectShareRow`), `web/src/pages/Chat.tsx`,
+`web/src/components/NewProjectDialog.tsx`, `web/src/components/ProjectPeopleField.tsx`. 이유: a user could not find how to
+share a project (a small "Members · Add people" line at the bottom of the side column) or a chat (only in its title
+menu). Plan: `docs/AGENTS/plan/20261115-1549-project-share-button.md`, with one independent review. Amends "Making a
+project: a name, only me, people later" (People in New project) and "Project members in one panel" (no Members line).
+
+- **One place, top right.** `HeaderShare` puts who can see it ("Only me", a count, or the faces of who is in it) and
+  **Share** at the right of a title row, as Drive, Notion and Claude projects do. The project page's title row and the
+  chat's header use it; on a phone the project has it as the row under the bar, a chat as the Share icon in the top bar
+  (beside ✦; the line under the box says who sees a chat).
+- **What Share opens is what was there before**, no logic of its own: a personal project's share dialog, a team
+  project's members dialog (#976 reworks that dialog; this entry point inherits it), a chat's title-menu Share
+  (`shareKindOf`: the Share dialog, the members' share of a private team-project chat, the personal-project
+  explanation), a shared project chat's members dialog for whoever may change them.
+- **Decision: can't share → hidden, not read-only.** A Share that opens a dialog where nothing can be shared is a dead
+  end; the faces or words beside it open the read-only list and say who changes the members. The rules did not change:
+  a personal project for its creator when they may make team projects (`projectCreators`, admins always), a team project
+  with `Project.membersEditable`, a chat as `shareKindOf` says, nothing in the trash. A personal project in a team where
+  only admins share says so in one faint line under the row (a tooltip cannot be found by touch).
+- **Removed:** the side column's Members line (`MembersRow`) and "Only me · Add people", the separate faces line under
+  the name, and Share in a chat's title menu. The admin's link to Admin › Folder permissions for a project made outside
+  `projects/` moved into the members dialog's note. The list rows' ⋯ Members / Share stay (shortcuts on a list).
+- **New project: People (optional)** for whoever may share, from the Projects panel, the Projects page and Search (not
+  from Move to project, whose Undo deletes only a project still mine alone). Nobody picked: a personal project, as
+  before. People picked: the count, what sharing does ("can't go back to only you"), and Create makes a team project
+  (`POST /api/projects` scope team: `assertMayCreateTeamProject`, `checkParticipants`, `newProjectRules`,
+  `validateRules`, the same as a later share; no folder move since it is empty). Create is the yes (one press). The field
+  is outside the name's form (Enter in the search never creates). Every guest is greyed out there and in the share
+  dialog with where they are: a guest is in one place already. One component, `ProjectPeopleField`, for both.
+- The AI's "change members" card says "Projects › {name} › Share".
+- Tests: web unit `project-new-people`, `who-sees` (the title row), `project-members-only`, `chat-title-pin`; e2e
+  `project-share-button` (1440 and 390, light and dark) and the specs that used the old line or menu item.
+- Version impact: **minor** (where sharing is, a new optional field; no API or data change).
+
+## Find work files: a cloud-only file says where it comes from (perf/upload-parallel-chunks, 2026-11-15, QA TC-3247, TC-3248)
+
+When the desktop app reads a file of Find work files whose content is only in the cloud (a Mac's SF_DATALESS, checked with
+`/usr/bin/stat` just before the open; on Windows the look's index attributes, Found.late), or a read in a cloud's folder
+still going after 1.5 s, it tells the page which cloud (`workFiles.read(id, { onCloud })`, the event
+`bridge:work-files-reading` to the asking frame; older apps never call it). The run, the upload row and the welcome
+step's row say "Getting <name> from iCloud…" (OneDrive, Google Drive, Dropbox, Box, or "the cloud") instead of
+"Preparing"/"Uploading". The 60 s read limit stays; a cloud read that runs out answers `cloudTimeout` with the cloud,
+and the file's reason says it did not come down within a minute and to open it once, then add it again (it stays "not
+tried again", as an unreadable file). Copy in en first, then ko, ja, zh, es, id. Version impact: **patch**.
+
+## Guests in Admin: a Home card, left or removed; one name for each thing (fix/guest-walk-b, 2026-11-15, guest walkthrough)
+- **Admin Home › Guests card** (S2): shown once the team has any guest (a team without guests sees no extra card).
+  "1 of 3" under the card title (active guests against the plan's cap, GET /api/guest-invites/limit; "1 guest" without a cap; QA 11-16: never "Guests" twice) and the
+  active guests' names; it opens `/admin/members?role=guest` (Members reads `?role=guest` as its first Role filter). The
+  Members card (and the phone's Admin list value) counts team members only, as the Members page header does. No
+  sidebar item: it would open the same page as Members & invites, which is not lean.
+- **Left or removed** (S3): `User.guest.leftThemselves` (optional, `true` only with `placeOut: 'left'`), from the new
+  column `guests.left_at` (migration 125, reader level 8 like 122): set when the server switches a guest off because
+  they left their place themselves (`disableGuestIfPlaceless` with the guest as the actor: only the room service's
+  leave), cleared by any switch an admin makes by hand. Not read from `audit_log`, which is purged after its retention;
+  the migration fills it from the log for guests who left before. Admin's hidden rows read "Left '…' on their own" or
+  "… · Removed", and the toggle names what it holds: "Show guests who left", "Show removed guests", or both. The
+  guest's leave dialog says they can't sign in any more (the account is switched off and Admin still lists it), not
+  that the account goes.
+- **A trashed project's guest** (S4) is listed with the active ones, with Restore project, not behind the toggle; the
+  count beside the title stays the active guests (the plan's count).
+- **N1/N2**: Admin's button is 사람 초대 / Invite people (it opens both tabs); the dialog's title follows the tab
+  (팀원 초대 / 게스트 초대); the Guests title's count is "1/3명" / "1 of 3" (no second "Guests").
+- **Names** (owner, 2026-11-15): a group chat is 그룹 대화 / group chat (never 방, 대화방 or chat room); a sentence about
+  any conversation (DMs, group chats, team rooms) says 대화 / conversation; the team rooms' section name stays. 게스트,
+  never 손님. Someone who is or becomes a full member is 팀원 / team member (counts in headers keep 멤버). The team owner
+  is 팀장 (role.owner) in Korean; 소유자 went (a scheduled task's "owner" is "the person who made it"). 초대하기 split
+  into 팀원 초대, 게스트 초대 and 그룹 대화에 추가 (a DM's menu says 사람 추가 / Add people: there is no group chat
+  yet). A group chat's manager: 대화 관리자 / Chat manager. The guest AI
+  notice says "중요한 내용은 확인해 주세요" like every other chat. Same in id, ja, es, zh, the server's messages and
+  docs/site (en, zh).
+- **Korean particles**: `format` resolves "을(를)" after a name only when it can tell how the name is read; a name it
+  cannot read (most Latin words) left the mark. Texts with a name people type (projects, files, schedules, folders,
+  connection labels, dev sites, attachments, search words) now put the particle after a fixed word ("'{name}' 프로젝트를")
+  or put the name after a colon. People's names in share lines are left as they are (Korean names resolve).
+
+## The AI knows who it is talking to (fix/ai-knows-the-person, 2026-11-15, product owner)
+
+- **Problem.** The instructions named the person's role in a word ("role member") and nothing else about them. The AI
+  answered as if everyone were the owner at a computer: it sent members to Admin pages they cannot open, did not know
+  whether they were on the web, the phone app or the desktop app, whose AI account answered, or that an admin had
+  turned off personal AI sign-ins or personal connected services, and it told hosted teams their server was "a
+  computer in the office".
+- **Decision.** Every own chat's instructions (and a resumed session's turn context) carry a short **About this
+  person and place** block built from real state (`server/src/chat/situation.ts`): the role and whether it may open
+  Admin (a member: never sent to an Admin page; the owner or an admin does team-wide changes), the app (web, phone with
+  Settings under the Me tab, desktop with or without its browser, Slack, a scheduled run), whose AI account answers
+  (their own, one the team set up, or the server computer's own sign-in), whether they may add their own AI sign-in and
+  their own connected services, where their usage is, and for the owner and admins the team's plan from the plan file.
+  "Where you run" says where the server is by the way it runs (hosted: in the cloud; office: a Mac in the office; else
+  a computer the team runs itself).
+- Screen names come from `SCREEN` (`server/src/policy/refusal.ts`) in English and in the person's language; a test
+  compares them with the web app's labels, so a renamed screen fails the test instead of misleading the AI.
+- **Kept out.** Anything about other people (no admin names, as in "Refusals say why, who and what next"), connection
+  or account names, secrets, and numbers that change every answer (usage left): the block stays the same from turn to
+  turn. A shared chat leaves it out (the person's role is not the chat's people's to know). A guest gets only the app
+  line: what a guest can do is the guest part of the instructions. Whose AI answers follows the engine the turn starts
+  with, decided as the turn decides it (Codex runs on the team's AI connections on an installed server whatever
+  engine.authMode says); a limit that hands the answer to the other engine midway changes the next turn's block. No
+  card is offered in Slack or a scheduled run, and no web tools are named where the chat has none.
+
+## A new member lands on Home — 새 멤버는 홈에 도착한다 (fix/member-first-landing, 2026-11-15, the owner)
+
+The owner joined with a team link that named a skill and landed straight on that skill's form, a modal over Team skills
+("UX검수 한거야?"). The cause was older than the welcome card: the join answer's `next` sent every link with a skill to
+`/skills?run=<path>` ("Skill deep link" in stream E, kept by W5's PR #100 walk and W6.3), and "A welcome for invited
+people" never took it away. The onboarding review (2026-11-14) and the owner's answer (Q1: no recommended-skill line for
+members; the invite message names the skill) decide the fix. This **supersedes** stream E's "Skill deep link" landing,
+W5's "The member lands on the skill's form" and W6.3's "Where an invite lands is unchanged".
+
+- **Every join lands on Home** with the welcome card: a team link with or without a skill, a single-use invite (it
+  already did) and Add directly. Nothing opens by itself. `POST /api/team-link/join` always answers `next: null` and no
+  longer sends `skillBy`; both stay in the contract (`next` required, `skillBy` optional) so an older app still reads
+  the answer, and an older app then goes Home. The web ignores any `next` (an older server's `/skills?run=` too), so
+  `lib/team-link.ts joinNext` is removed.
+- **The link's skill** is still chosen by the owner and still checked against a new member's access; the invite message
+  names it ("I set up '{skill}' for us", lane C), and Home's "Ready in your team" lists the team's landing skill once
+  the card is gone. No suggestion line on the card and no column for it (the review cut migration 352).
+- **The join page** no longer names the skill ("After you join, you can try '{skill}' right away" is gone, key
+  `teamLink.joinSubSkill` removed in all six languages): it says who invited you to which team and until when the link
+  works, as for a link without a skill.
+- **A skill form opened from a link that says where it came from** (`navigate('/skills?run=…', { state: { back } })`):
+  ✕ or Esc goes back there (a path in this app only) instead of staying on Team skills. Without `state.back` the form
+  closes onto Team skills as before.
+- **The form's maker line is gone** ("{by} made this team skill · Only {name} can see this chat", S): only the join's
+  `skillBy` fed it, and it named the reader in the third person ("Only test can see this chat"). The form shows the
+  skill's description again; the chat footer already says "Only you can see new chats". Removed: `skillForm.madeBy` in
+  all six languages, `SkillForm`'s `by`, and the maker hold in `lib/starter.ts` (which now only clears what an older
+  version left in the tab at sign-out).
+- **Phones:** while the welcome card says hello ("Welcome to {team}"), Home's big greeting is for screen readers only
+  (two greetings, one half under the docked box). "You're all set" greets nobody, so the greeting is back then.
+  Computers keep it.
+- Side effect on the 7-day goal: members are no longer pushed into the link's skill on arrival, so first runs may come
+  later; the invite message is now the one place that names it. MC's "contribute" still follows a member's first run.
+- Version impact: **patch**.
+
+## W6 follow-up: every way out of the welcome steps has a way back (fix/onboarding-exit-ai-accounts, 2026-11-14)
+
+- **Problem.** The AI step's "Other AI services such as OpenRouter: Admin › AI accounts" opened Admin with no way back:
+  Admin has no setup row, and without AI the row opens the connect dialog, not the steps; a phone's ‹ said "Admin".
+- **Audit of the exits from /welcome.** Leaving to another app page in the same tab: the AI step's engines line and 팀
+  파일's **Open** of the project it made (both fixed here). Meant to leave: 나중에 (Home; the setup row, Home's row and the
+  no-AI card lead back), the end screen's Home and skill (the steps are finished or put off; the end screen lists what
+  was put off). New browser tabs (the company website, Google and MCP sign-ins) leave the steps where they are. The
+  invite step's "add skills · add files" switch steps inside /welcome.
+- **Decision.** A link out of the steps carries the step in the history entry's state (`lib/welcome.ts
+  setupReturnState`, like `INVITE_STEP_STATE`). The page it opens shows one small control at its top
+  (`components/onboarding/SetupReturn.tsx`): "← Back to getting started", and after the AI step, once AI answers (asked
+  again on an engines change and on window focus, for a sign-in in another tab), "Continue setup" in the accent. Both
+  open /welcome, which resumes by itself (the AI step recorded done). On a phone whose entry under the page is the
+  steps, it goes back in the history instead; on a computer /welcome opens the step it came from even when that step was
+  recorded done meanwhile (the team files result with the project made, not the next step). While it shows, a phone's
+  bar has no ‹ of its own (one back). A failed AI check (read as "usable" so nothing warns) does not offer "Continue
+  setup". Owner only; nothing once the steps are finished. The engines line goes straight to /admin/providers (the
+  /admin/engines redirect dropped the state); Home's no-AI card keeps a plain link.
+- **Only an answered AI read counts.** A failed read (offline, 5xx) leaves `usable` true so nothing warns; it never
+  shows "Continue setup" (`aiAccess.answered`) and never records the AI step done (Welcome.tsx on arrival and when AI
+  comes back). A phone's engine row in Admin › AI accounts carries the state on to /admin/providers/<id>, so the way
+  back stays there too.
+- **Not done.** The state lives in that one history entry (a reload or Back to it keeps it): moving to another page
+  drops the control (the setup row is the way back from there).
+- Tests: web/test/unit/setup-return.test.tsx, web/test/e2e/welcome-exits.spec.ts.
+
+## Hosted teams get the hosting service's Google sign-in without setup (fix/hosted-drive-broker-default, 2026-11-14, the owner)
+
+- **Problem.** A new hosted team (diontree, 0.5.3) showed "Google Drive isn't set up on this server yet. Set it up in
+  Admin › Connected apps." in onboarding. The team server used the hosting service's Google sign-in only when
+  `MYCEL_GOOGLE_DRIVE_BROKER_URL` was in its environment, and nothing writes it on a hosted tenant (mycel-enroll's
+  `/etc/default/mycel` holds only the time zone, install id and windows; the control plane has no command that sets
+  environment). The control plane already serves every hosted team (it recorded the relay key at enroll and has the
+  Google client), so the only missing piece was the variable: no hosted team ever reached the broker.
+- **Rule.** On a hosted server (`deployment: "hosted"`) without a Google client of its own, the broker address
+  defaults to the edition's console, `https://` + `SERVICE_HOSTS.accountHost` (`brokerOrigin`, `hostedDefault`). An
+  empty value or `off` still turns it off; a set value still wins; a client of its own still wins. Self-installed
+  servers are unchanged: only with the variable. Drive still turns on only after a signed `/status` says yes.
+- **Under `NODE_ENV=test` there is no default**, so a hosted test app never calls the real hosting service (the same
+  guard as the other loops); the unit tests pass their own env to check the default.
+- **Text.** If a hosted team still has no Drive (the hosting service says no), its card in Settings › Connectors and
+  Admin says "Google Drive isn't ready for this team yet. It turns on by itself; if it stays off, contact Trina
+  support." and an admin gets no **Set it up** button (Admin › Connected apps has nothing to set up on a hosted server).
+  Its Discover card, and the Google apps' cards (Gmail, Calendar, Docs, Sheets) in the same state, say "Not ready yet"
+  for everyone, never **Set up** to Admin (`DiscoverItem.noSetUp`, `drive.notReadyShort`).
+- **Onboarding's Tools step hides the Drive row while Drive is not ready** (hosted and self-installed alike): a "not set
+  up" or "contact support" line is a dead end in the setup. This **amends "Onboarding's Tools step on Connectors' cards"
+  (TC-136) and reverses QA TC-145** (Drive "not set up" shown in the setup; that ID is the one the entry names, today's
+  sheet keeps the rule in TC-136's notes). The rest of the step: the next entry.
+- **Slack's official app is not defaulted here.** Its hosted one-click path (sign-in + reading in one consent,
+  owner 11-13) is not verified end to end on a hosted team yet, so a hosted server still uses it only with
+  `MYCEL_SLACK_BROKER_URL` (or the Drive variable) set, as before. Defaulting it is a separate change after that check.
+- Version impact: **patch**. Tests: tests/unit/c-drive-broker.test.ts.
+
+## Onboarding's Tools step: Drive, Notion and the full list (fix/hosted-drive-broker-default, 2026-11-15, the owner, Q3)
+
+- **Owner, 2026-11-15 (Q3 of the onboarding re-check):** the step is Google Drive (when ready) + Notion + "Connect
+  another tool", which opens Connectors' full list with a way back. On 11-08 the owner chose Drive + one "connect
+  another" line (W6 core); QA TC-136 (11-12) grew it to seven rows. This **amends "Onboarding's Tools step on
+  Connectors' cards"** again.
+- **Rows.** Google Drive only where this server has it (hosted: once the hosting service said yes; self-installed: a
+  Google client), never a "not set up" or "contact Trina support" row (that line is on Connectors only). While Drive is
+  not ready the step reads it again every 15 s and when the window comes back, so a late "ready" shows the row. Notion, the
+  same one-click card as before (`WELCOME_SERVICES`). Then the quiet "Connect another tool" line. **Removed:** the
+  Linear, Atlassian, Canva and Figma cards, the not-ready Drive card, and the address form opened in place (an MCP
+  address is not a thing an office worker has; Connectors' Discover list has every listed service, and "Add custom
+  connector" for an owner).
+- **The way back.** "Connect another tool" opens `/settings/connectors`. Settings is a dialog over the page it was
+  opened from (App.tsx `useSettingsOverlay`), so the step stays mounted under it, and the dialog's close, Esc and the
+  browser's Back all come back to the step as it was; no extra "Back to getting started" control is needed there (it
+  would be a second back on the same screen). A phone never shows this step (W6), so there is no phone path.
+- **Leaving Settings for Admin.** The list opens with the step's way back in its history state
+  (`setupReturnState('tools')`, from "W6 follow-up: every way out of the welcome steps has a way back", PR #837), and
+  the "Set up" links of not-set-up Google cards carry it on, so Admin › Connectors shows "Back to getting started",
+  which opens the Tools step again. Opened any other way, the list's links carry nothing.
+- **Anything connected there counts.** When Settings closes (and on `integrations_changed`) the step reads again every
+  connection the owner can use (their own and the team's, `GET /api/integrations`), the Google apps
+  (`GET /api/integrations/google-apps`), their Slack link (`GET /api/slack/me`) and Drive; any one connected makes the
+  primary "Next".
+- **Slack** is not in the step: its hosted one-click path is not verified end to end yet (entry above).
+- Tests: web/test/unit/welcome.test.tsx (도구 연결), web/test/unit/drive-not-set-up.test.tsx,
+  web/test/e2e/welcome-tools.spec.ts (close/Esc/Back, Linear, a Google app or Slack, "Set up" → Admin → back).
+
+## W6 follow-up: the team files step without a team group (fix/onboarding-team-files-no-folder, 2026-11-15, QA TC-1613, TC-1614)
+
+- **Problem.** On a hosted team (0.5.3/0.5.4) the Team files step showed only "The team folder is not there yet" and
+  Do this later: `progress.teamGroup` was null because the team start (POST /api/onboarding/welcome/team, called when
+  the company step is left) did not go through, its failure is swallowed there (the owner is never held), and nothing
+  asked again.
+- **Decision.** The step's place falls back to shared/ (every team has it) and the step tries the team start again once
+  for the owner; the `welcome.teamFiles.noFolder` sentence is deleted in all languages (the intro files' upload says
+  `welcome.teamFiles.failed` when the brand folder is still missing). The organize line ("We sort them into folders in
+  {shared}…") is part of the step's description now (`welcome.teamFiles.descShared`, `phoneDescShared`, only while an
+  AI answers, as before), one grey line less under the buttons.
+- **Cause, as far as it is known.** Not confirmed on that server (no access). A fresh hosted-style Linux team under Bun
+  1.3.12 starts fine (team languages ko/en, odd team names, non-root with umask 027). The start fails with a 500 when
+  shared/ is not as expected: a file where the brand or notes folder goes (`not a folder`), shared/ missing on disk, or
+  shared/ not writable by the server account (EACCES). In each case `teamGroupFor` had already made the group, so the
+  row never recorded it and every retry made another ("Acme 2", "Acme 3"). Fixed here: the folders in shared/ are made
+  before the group (`server/src/onboarding/welcome.ts teamGroupFor`), and a missing shared/ is made again with the
+  team's default folders (`sharedStart` → `admin/folders.ts createDefaultFolders`, which changes nothing that is there;
+  the likeliest hosted cause). An unexpected failure is already logged by the app ("unhandled error" with the path,
+  app.ts); a refusal (HttpError) left no line, so the route logs it as a warning with its code
+  (`routes/onboarding-welcome.ts logged`). To check on the team: those log lines on POST /api/onboarding/welcome/team,
+  the `onboarding.welcome` row (`general` set but no `teamGroup` = it failed in the group step), `groups` /
+  `audit_log` `group.create` rows, and `ls -la` of shared/.
+- Tests: tests/unit/b-onboarding-welcome.test.ts ("leaves no group behind", "shared/ missing"), web/test/unit/team-files.test.ts,
+  web/test/e2e/welcome-team-files.spec.ts, welcome-organize.spec.ts.
+
+## W6 follow-up: the one-line intro is always filled, and a reload keeps the review (fix/onboarding-profile-oneline, 2026-11-15)
+
+- **Problem.** The invite message introduces the team with the profile's `oneLine` ("About us: …"), but the three
+  questions path left it empty (it asks what you sell, to whom, the tone), and a reading of a website or text left it
+  empty whenever the pages did not say it in one sentence. A reload during the review lost the AI draft (about a minute
+  of work) and started again at the website question.
+- **Decision.**
+  - The draft's instructions (`server/src/onboarding/draft.ts draftSystemPrompt`) ask for `oneLine` whenever products
+    or customers are filled, written from them and adding nothing; an answer that still leaves it out gets the first
+    line of its products, with the products' excerpt as its source (`withOneLine`, in `parseDraftAnswer`).
+  - The three answers go to the same text draft while an AI answers the person (the reading screen of a pasted text);
+    the review keeps the answers as typed and takes the AI's name and one-line intro. With no AI, or when that draft
+    fails, the answers go straight to the review as before, the intro from the first line of the products answer
+    (`profileLineFrom` in shared/src/api/onboarding.ts, the same rule the server uses). This replaces "the three
+    questions go straight to the review" for the AI case only. Only the name and the intro come from the AI (the
+    rest, sources included, stays the typed draft). While it writes, the screen says "Writing a one-line intro from
+    your answers" with "Skip, check my answers" (the review at once), and after 20 s it opens the review anyway.
+  - The welcome steps keep the reading under way and the review with its edits in this tab's `sessionStorage`
+    (`ProfileStep` `keep`, key `mycel.profileDraft.<user id>`); a save or going back to the website question clears
+    it. A kept reading whose chat is gone (404) stops at once and opens the fallback (or the answers' review), so a
+    reload never loops; sign-out clears the key (`lib/localData.ts clearLocalData`, sessionStorage). Not the server
+    progress (no API change), not in Admin › Team settings. No schema change.
+- Tests: tests/unit/b-onboarding-draft.test.ts ("always filled"), web/test/unit/profile-step.test.tsx (typed answers
+  with and without AI, keep), web/test/unit/welcome.test.tsx (the reading comes back in the same tab).
+
+## W6 follow-up: after the setup (fix/onboarding-after-setup, 2026-11-15, review of the onboarding re-check §7 lane A 4)
+
+- **Removed.** The AI step's and Home's no-AI card's line "Other AI services such as OpenRouter: Admin › AI accounts"
+  (`welcome.ai.enginesLine`, all languages): an expert page on a non-developer's first screen. Other providers stay in
+  Admin › AI accounts; the way back from a page a step links to (SetupReturn, the W6 follow-up above) stays for the
+  team files step's project and any later link. Not built: an OpenRouter choice in the key dialog (no credential kind
+  for it, the API engine needs a password; the MIT cloud contract would change).
+- **End screen.** The first-result button is the skill's own verb title, per kept skill (`FIRST_RESULT_SKILLS.verb`:
+  "Make promo cards", "Make a company slide deck", "Make a promo video"; 자연스러운 글 keeps "Try '{skill}'");
+  `welcome.done.make` ("Make a '{skill}'") is gone. The path list under the put-off steps (`welcome.done.laterHint`,
+  "Admin › Team settings › Company profile, Skills, …") is removed: the setup row is the way back now.
+- **Setup row after the end.** Supersedes "W6 follow-up: never brings back the setup row after finish" (it was a "Not
+  done", not an owner rejection). While the steps are finished and counted steps were put off (`lib/welcome.ts
+  putOffSteps`: answered as skipped; never the AI step, never 도구 연결 on a phone nor 내 스킬 put off for a computer),
+  the row reads "Still to do: 2 steps" (how many, never the names: they were cut at 1440 in en, ko and es) and opens the first of them as itself (the
+  `setupReturnState` ask; `Welcome.tsx` opens a step asked back after the end only when it was put off, and ending it
+  says nothing again). ✕ hides it as before (`dismissedAt`, with its undo). A put-off step done elsewhere is recorded
+  done on the next read (server `welcome.ts settlePutOff`): the company profile saved in Admin, someone other than a
+  guest in the team (the team menu's invites), a connection connected in Connectors. Without AI it stays out (Home's no-AI card
+  first); on a phone not on Home, as the unfinished row.
+- **Home: one thing.** The owner's "Ready in your team" (TeamPrepared) stays out while the goal card shows (HomeGoal
+  `onShown`; it waits for that answer, so nothing flashes). Admins and members unchanged.
+- **Goal title.** The counting word only: "3 people using 'Promo cards', 'Promo video', and 'Natural writing' this
+  week" (`goal.titleSkills` with `target`; "3 people using a team skill this week" without a skill). "People", never
+  "teammates": the leader is one of the three. The owner's 2026-11-11 choice stays: up to three of the team's own
+  skills named, the goal's one first (`GOAL_TITLE_SKILLS` 3).
+- Tests: web/test/unit/setup-row.test.tsx, welcome.test.tsx, goal-card.test.tsx, setup-return.test.tsx,
+  connect-ai.test.tsx; web/test/e2e/welcome-exits.spec.ts, no-ai.spec.ts.
+
+## W6 follow-up: setup copy (fix/onboarding-copy, 2026-11-15)
+
+- The AI step's sentence under "Connect an AI first": "{product} uses it to read your files and do the work." (not
+  "Connect an AI…" twice). The progress label of 회사
+  소개 in English, Indonesian and Spanish is one short word ("Company"; ko/ja/zh were short already). The skills
+  step's primary says how many go in, "Add 3 skills" (`welcome.skills.putN`). Merged with PR #926 (QA TC-2654), which
+  already counted from two skills on: one skill keeps its name ("카드뉴스 넣기", `welcome.skills.put`), so no names run
+  together and the one-skill case still says what goes in (batch #929). A phone's bar button that leaves the steps reads "Close" (its accessible name "Close ·
+  continue later"), so the screen has one "Later" (the step's own "Do this later").
+- The English prepared skill `intro-deck` is titled "Company slide deck" (was "Company profile", the name of step 2;
+  resources/skill-packs/general/en/intro-deck/SKILL.md, its closing line "I made the … company slide deck", the
+  catalog line in server/src/onboarding/skill-packs.ts SUMMARY en/id and the mock's). Only new installs get the new
+  title; name and path stay. ko/ja/zh/es already said deck/slides.
+  The example picture's `skillHash` (server/src/onboarding/skill-examples.ts) is recorded again without remaking the
+  picture: only the title, the description's first words and the heading changed, none of which the deck reads.
+- Not changed: "Next" on a phone already names the next open step with the same rule as a computer
+  (`Welcome.tsx nextLabel` → `lib/welcome.ts nextStep`, the device only drops 도구 연결); the walk's "Next: invite your
+  team" after the skills step on a phone was not reproduced from the code.
+
+## Free disk space: a checked statfs, then df, and "unknown" never blocks (fix/intel-mac-free-space, 2026-11-15, QA TC-3099)
+
+On an Intel Mac the bundled Bun 1.3.12 (darwin-x64) returns `fs.statfsSync` with `bsize: 0` and the other fields
+shifted (`blocks: 4096, bfree: 1048576, bavail: 39270390` on a disk with 129 GB free), so every backup said "0 MB free,
+2 GB needed" and every office update stopped at its pre-update backup. Decided: every free-space reading goes through
+`server/src/system/disk-stat.ts` `diskStat()`. A reading is believed only when bsize (and frsize) > 0, blocks > 0,
+bfree and bavail ≤ blocks and the disk is below 1 EiB; otherwise `/bin/df -k -P -- <path>` (no shell, 5 s timeout,
+`LC_ALL=C`) gives it (Available × 1024; bfree = bavail like an APFS statfs, so "used" stays the whole container's). Both
+failing is `DiskSpaceUnknown`, which no gate treats as a full disk: the backup logs a warning and goes ahead (a really
+full disk still fails the copy), the update download's room check passes, the storage guard and `diskAlmostFull` say
+"not full", and Admin › System warns "Could not read the free space" (`disk.*` checks; `disk.*FreeBytes` null). A real
+low reading still refuses as before. The Go helpers (mycel-ctl) read statfs correctly on Intel and are unchanged.
+Version impact: **patch**.
+
+Follow-up (fix/intel-mac-free-space-2, 2026-11-15): df never runs on a request's path. It runs async in the background
+(one run per path at a time, killed after 5 s; no second one while a stuck one is still alive), sync readers only
+read its cache (a reading older than 10 s starts a refresh, one older than 60 s is unknown; both folders are primed at
+start), and only the one-shot gates (backup, update room check, Admin diagnostics) wait, at most about 6 s, for a
+fresh answer (`primeDiskStat`). A df stuck on a dead mount therefore means "unknown", never a stalled server. On Linux
+each readable disk keeps its level check when the other cannot be read. The "unknown" warning is logged once per change.
+
+## Connection tool calls wait minutes, not 30 s (fix/connector-tool-timeout, 2026-11-15)
+
+A team connection to a web-scraping service (Bright Data's remote MCP server) failed every LinkedIn scrape: the
+scrape answers in 1-2 minutes and every request to a connection had 30 s (`net.ts` `TIMEOUT_MS`), `tools/call`
+included. The engines were not the limit (Claude Code `MCP_TOOL_TIMEOUT` and Codex `tool_timeout_sec` are 30 minutes,
+the turn's stall guard waits while our tool runs). Decided:
+- A `tools/call` fails only when nothing comes for 5 minutes (`MCP_CALL_IDLE_MS`) or 15 minutes after it began
+  (`MCP_CALL_TIMEOUT_MS`). The bytes of an event stream count as signs of life; each call names a `progressToken`
+  (its own request id), so a service that reports progress keeps the call alive past 5 minutes (like the SDK's
+  `resetTimeoutOnProgress`/`maxTotalTimeout`; Trina does not use the SDK). 15 minutes stays under the engines' 30 so the AI gets our reason.
+- Stop ends the call at once (the turn's signal closes the request) and sends `notifications/cancelled` (so do our own
+  limits, so the service can stop working and billing); the AI is told
+  the call was stopped, not "did not answer within 30 seconds".
+- A call that sent nothing for 5 minutes marks the connection as an error that is only for now (`call_idle`), as the
+  30 s did. A call past 15 minutes marks nothing: a long job is not a broken connection (the AI is still told). Everything else keeps the 30 s (the session's start, OAuth, `api_request`), a check keeps 30 s
+  without bytes and 90 s in all, and a Google app's calls to the library on this machine keep their 30 s.
+- No per-connection setting (none exists, none added).
+- Tests: `tests/unit/c-integrations-slow-call.test.ts` (scaled limits: a silent call 3 times the request limit, progress
+  past the pause limit, the pause limit, the hard limit, Stop), `tests/unit/c-integrations-slow-list.test.ts`. Version
+  impact: **patch**.
+
+## Guests: one group chat and one project — 게스트는 그룹 대화 하나와 프로젝트 하나 (feat/guest-two-places, 2026-11-15, the owner, final)
+
+- **Rule:** a guest is in at most one group chat AND at most one project at the same time (two places, one of each
+  kind). A second group chat or a second project is 409 `conflict`, `params.reason: 'guest_one_place'`, "A guest can be
+  in one group chat and one project. To add them to more, make them a team member." (ko "게스트는 그룹 대화 하나와
+  프로젝트 하나까지 들어갈 수 있어요. 더 넣으려면 팀원으로 초대해 주세요."). Unchanged: deny by default, the AI choice,
+  the plan's guest cap, no groups, DMs never a place, one place per invite (a second place comes through the place's
+  own add list: a group chat's Invite, a project's Members or a new project's people). Supersedes "Exactly one place".
+- **Storage** (migration `126_a_guest_two_places.sql`, additive, reader level stays 8): `guests.room_id` and
+  `guests.project_id`, one column per kind, so a second place of one kind cannot be stored. Set in the write that puts
+  the guest in (`claimGuestRoom` in createGroup/invite, `claimGuestProject` in `writeFolderAccess`); never cleared, so a
+  slot says where they are or were last, and whether they are in it now is read from the place (member rows, folder
+  rules). `place_kind`/`place_id` now mean only the invite's place (the "joined as a guest" notice). Both slots empty =
+  a row an older build wrote: read as `place_kind`/`place_id`. Level 8 is enough: an older build reads only the invite's
+  place, which narrows a guest's reach (it may switch off a guest who left that place for good), never widens it.
+- **Joining:** a group chat is refused while the guest is a member of any other live group chat (read from the member
+  rows, not the slot). A project person rule is allowed at or below the project the guest holds; holding none, only on
+  a live team project's own folder, which becomes theirs. A project is held while live and they read it, or while it
+  is in the trash with their rule kept there (restoring it brings them back, so no other project meanwhile); taken
+  out (also before it was trashed) or purged, the kind is free. A new project: its row is written before its rules, so
+  a group-chat guest can be among its first people. Sharing a personal project to the team with a guest who has no
+  project: refused as before (rare; least change).
+- **The policy holds it too** (independent plan review must-fix: a folder moved or restored from the trash brings rules
+  with it, no write check runs): `RuleSet.fromDb` loads each guest's live project folder (`guestProjects`); inside
+  `projects/` a guest reads that folder only, whatever rule names them elsewhere. Carried through `replacing`,
+  `excepting`, `relocated` (moved with the folder) and `parkedInPlace`; `fromWorld` without it (tests, the web mock)
+  leaves only the rules. A failed read is an empty map: no guest reads any project (fail closed).
+- **Reach is the union** (`placePeople`): a guest sees, DMs and gets presence of the people of their group chat and
+  of their project, each only while they are in it; a member sees the guest when they share at least one of the two.
+  A guest adds nobody to their group chat (403): its people are there already, and their project's people are not
+  theirs to bring in. Files: like anyone, a guest may share in their group chat a file they can read in their project
+  (they could download and upload it anyway); accepted, not blocked.
+- **What each side learns:** `Person.guestPlaces` names a place (id, name) only when the viewer is in it too; the
+  other comes as its kind only, so an add list can grey the guest out ("A guest can be in one group chat and one
+  project.") without saying where. That they are in some other place is told; its name never.
+- **Out of a place:** out of one (left, taken out, the chat archived, the project trashed) they stay on; out of both
+  they are switched off (`disableGuestIfPlaceless`), `off_with_place` when a place of theirs was closed, and a restored
+  project brings them back while they are in it.
+- **API:** `GuestDetail.place` → `places` (the group chat first; a removed guest's each with `out`), `placeOut` the
+  overall reason; `Person.guestPlace` → `guestPlaces`. Screens: Admin › Guests lists both, add lists grey a guest only
+  for a second place of the same kind, a guest's rail shows 대화 and 프로젝트 when they have both, Settings › Profile and
+  account deletion name both. Version impact: **minor** (contract fields changed).
+
+## Guests never use Slack — 게스트는 Slack을 못 쓴다 (fix/slack-guest-refusal, 2026-11-16, QA TC-2950)
+
+Builds on "Guests: only what they were invited to" and the Slack connector's e-mail proof ("Send the victim my link").
+
+- **Ask:** a guest (an outside person in one group chat and one project) must never use the team's Slack connection
+  and never be linked to a Slack user through a matching e-mail. The Slack routes were already closed to guests by the
+  guest endpoint list (403), but the connector itself had no guest check: a Slack question from a Slack account linked
+  to a guest (a row made by hand or by an older build) would have run a turn as them.
+- **One check in the connector** (`integrations/slack/service.ts`): `person()` (every link page, Sign in with Slack, a
+  turn, a delivery, "Post to channel") no longer returns a guest, `bindable()` refuses to link one (the same
+  `link_expired` 404 as a gone link), and `linkOf()` counts no link of a guest (so the AI never reads Slack for them).
+- **A linked guest asks in Slack** (@mention or DM): no turn, the link row deleted (audited `slack.unlinked`, reason
+  `guest`), one plain line "This {product} team can't answer you here." in the team's language, no blocks or button.
+- **An unlinked Slack account is never matched by e-mail** (independent security review, must-fix): a guest's gets the
+  same connect prompt as anyone unlinked, and its link page refuses the guest. A first version answered a Slack account
+  whose e-mail was a guest's with the plain line instead. Rejected: a guest sets their own e-mail (Settings › Profile),
+  so copying a member's address silently blocked that member's link, and the different answer told anyone who can set a
+  Slack e-mail whether that address is a guest's here. So "one plain line" holds for a linked guest; an unlinked one sees
+  the generic prompt, which leads nowhere for them.
+- **The e-mail proof still counts a guest's e-mail as "the same e-mail on another active account"** (unchanged; Superseded 2026-11-16 by "A guest can't take an e-mail used in the team": guests are now left out): leaving
+  guests out would let a member pass the proof with an address that only a guest also gives, so a guest's Slack account
+  could be linked to a member who confirms the guest's forwarded link. The cost: a guest who copies a member's e-mail
+  blocks that member's link until one of them changes it (open question for the owner).
+- **Other connectors:** no other connector maps an outside identity to an account here by e-mail. Google Drive, the
+  Google apps and personal MCP connections are signed in by the person through endpoints closed to guests, and the
+  connection store refuses guests (`mayUse`, `shareCovers`); room apps post as the app, never as a person.
+- Slash commands are acknowledged and do nothing (unchanged). Tests: `tests/unit/c-slack-guest.test.ts`.
+
+## A guest can't take an e-mail used in the team — 게스트는 팀에서 쓰는 이메일을 못 쓴다 (fix/guest-email-unique, 2026-11-16, the owner)
+
+Follows "Guests never use Slack" (its open question).
+
+- **Ask:** a guest sets their own e-mail (Settings › Profile, `PATCH /api/me`). The Slack e-mail proof refuses an address
+  that another active account also gives ("it proves nobody in particular"), so a guest who copied a member's address
+  blocked that member's Slack link. The owner: a guest can't set an e-mail another account in the team already uses.
+- **Rule:** `PATCH /api/me` from a guest (`users.guest = 1`, read from the database, not the session's role) with an
+  address another account gives (not deleted, any state: a switched-off member can come back), compared as the e-mail
+  proof compares (NFC, trimmed, lower case), is 409 `conflict`, `params.reason: 'email_in_use'`, field `body.email`, with
+  one plain line: "This e-mail is already used in this team." (ko "이 팀에서 이미 쓰고 있는 이메일이에요."). It names
+  nobody. Clearing it or giving an unused address works as before.
+- **Members unchanged:** members could already share an address and still may (an owner and an admin sometimes share a
+  team mailbox); for them the e-mail proof keeps refusing an address another member gives. A guest's invite accept
+  takes no e-mail.
+- **The Slack e-mail proof leaves guests out** of "the same e-mail on another active account" (independent review
+  must-fix): the PATCH check alone does not stop a guest who sets a member's address before the member does, nor an
+  address an admin gave or old data. A guest is never linked (`bindable()`), so their address proves nothing either way.
+  Accepted residual (reviewed, and the reason "Guests never use Slack" first kept guests in): a member who sets their
+  e-mail to an address only a guest gives, and then confirms a one-time link the guest forwarded from their own Slack,
+  links the guest's Slack account to the member. That takes the member's own deliberate steps, like sharing a password.
+- **Not an address oracle:** a guest may give at most 10 addresses an hour (`GUEST_EMAIL_TRIES`, any answer, clearing
+  not counted; 429 `rate_limited`, reason `email_tries`), so the refusal cannot be used to find who is in the team. In
+  memory, per process: a restart starts it again (enough for typos, too few to probe).
+- **Left as is:** an owner or admin setting a guest's e-mail in Admin › Members (an admin is trusted, and an admin's
+  change counts as no proof for 7 days anyway).

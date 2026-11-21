@@ -1,43 +1,45 @@
 ---
 title: Set up your team
-description: The owner's first steps after making a team: connect AI, the company profile, your own skills, team files and the invite.
+description: The owner's first steps after making a team: connect AI, the company profile, skills, team files, tools and the invite.
 ---
 
 After you make a team, the app takes you, the owner, through a few short steps. Only the owner sees them. Every step can be put off, and the steps resume where you stopped, on any device.
+
+If you made the team in a browser on a Mac or Windows computer, the next page offers **Continue in the Mac app** (or the Windows app): the app signs you in by itself, with no second password, and only the app can find work files on your computer. **Continue in the browser** goes on to the steps here. The steps come with you: in the app they open where you stopped, with the company website from your sign-up link already filled in.
 
 ## The steps
 
 :::steps
 #### AI connection (only when no AI answers yet)
-Connect a Claude or ChatGPT subscription, or an API key. Without AI the company profile cannot be read, so this step comes first. **Later** leaves the steps; the setup row then says **Connect AI**.
+Connect a Claude or ChatGPT subscription, or an API key. Without AI the company profile cannot be read, so this step comes first. **Do this later** leaves the steps; the setup row then says **Connect AI**.
 
 #### Company profile
-Type the company website. The AI reads it and writes one line about the company ("What we understood: … · Edit"). You can add an intro file or a company deck with **Add an intro file if you have one**.
+Type the company website. The AI reads it and writes one line about the company ("Here's what we found: … · Edit"). You can add an intro file or a company deck with **Add an intro file if you have one**. While the AI reads, there is nothing to press. If it takes more than 90 seconds, **Don't wait, go on** moves to the next step and the reading carries on; come back to this step in the same window to see it.
 
-**Save and continue** saves the profile and starts your company profile deck, once per team. The line under the button says how long it takes (the team's deck time, Admin › Team settings) and where it will be: **Our company profile** in your list of Trina chats. Saving again later only saves. **Later** skips the deck.
+**Save and continue** saves the profile. It also puts the website's photos and a company intro file into the team's brand folder; the line under the button says so. Nothing else starts by itself.
 
-#### Your skills
-Bring the skills you use with Claude Code or Codex to the team. Pick your `.claude` folder, or your `.codex` folder (Codex keeps personal skills in `.agents`), or drop it on the step. Or paste one line into Claude Code or Codex once they are connected to the team (see [the MCP connector](../agents/mcp-connector.md)). Nothing reaches the team before you press **Share with the team**. Skills that hold a key never leave your computer.
+#### Choose the skills your team will use
+The skills Trina AX prepared, each with **Example**: Company slide deck, Promo cards, Promo video and Natural writing. The first three come ticked when you saved the company profile. The button says what goes in, for example **Add 3 skills**. Nothing goes in until you press it. To bring the skills you use with Claude Code or Codex, use **Team skills › Bring my skills** later ([Team skills](../use/team-skills.md)).
 
 #### Team files
-Put the team's documents (company intro, reports, forms) into the team's folder. One line says who will see them.
+**Choose a folder** with company documents. The AI suggests the ones the team can use from the file names, folders and dates only, and you tick what goes up. Nothing is uploaded until you press the button. Afterwards the AI can read them and offer folders to sort them into (**Sort them like this?**). One line says who will see the files.
+
+#### Team tools
+**Tools for your team** is one list. Connect a tool once for the whole team (**Connect for the team**: Notion, or Slack on its own page; the whole team shares that connection), or mark a tool each person connects with their own account (Google Drive, Gmail) as a **Team pick**. Team picks come first in everyone's connector list and gate nothing. **Other tools** opens the full list, where each tool's page has the same team-pick switch. Nobody signs in with their own account on this step. On a phone this step is skipped.
 
 #### Invite
-Copy the ready-made message. It names one skill, and people who join land on that skill's form. When each person signs in to their own AI, the message says so. The invite page offers the language of the person's browser. If someone else is already signed in on that computer, the page says "You're already in <team name>" and offers **Sign out to join**, which signs out and opens the same link.
+Copy the ready-made message. It names one skill. People who join land on Home, where a welcome card says who invited them and what to do first; the skill is in **Team skills**. When each person signs in to their own AI, the message says so. The invite page offers the language of the person's browser. If someone else is already signed in on that computer, the page says "You're already in <team name>" and offers **Sign out to join**, which signs out and opens the same link.
 :::
 
-At the end, **You're all set** offers to try that skill yourself first. It shows once.
-
-## While the deck builds
-
-The deck is an ordinary chat with Trina. On a computer you see it in **Trina history** in your Trina list on the left, beside the steps; you can open it at any time. On a phone, open the **Trina** tab and press **☰**: it is in **Trina history**.
+At the end, **You're all set** sums up the setup: each step with what it did, or put off with **Do it now**. Next come your own settings (your tools, photo and apps): **Start my settings** goes Home. It shows once.
 
 ## Coming back
 
-- **Continue setup · 2/4** shows near the top of the Trina, Chats, Files and Activity lists beside the bar on the left until the steps are finished. It opens the steps where you stopped. On a phone it is at the top of the **☰** list on the **Trina** tab and of the **Files** tab, and Home shows it as a quiet row under the message box.
+- **Continue setup · 2/5** shows near the top of the Trina, Chats, Files and Activity lists beside the bar on the left until the steps are finished. It opens the steps where you stopped. On a phone it is at the top of the **☰** list on the **Trina** tab and of the **Files** tab, and Home shows it as a quiet row under the message box.
 - Opening the app on Home also brings you back to the steps, once per browser session.
 - ✕ hides the row. **Show setup again** in Admin › Home brings it back.
+- Home's team goal card and **Ready in your team** have **Hide**. **Settings › Profile** shows them again (the team goal also from Admin › Home).
 
 ## When setup counts as finished
 
-The company profile is saved with the deck started or put off, and your skills, team files and the invite are each done or put off. A skill to merge into an existing team skill waits until then; afterwards one notice in **Activity**, **Review skills to merge**, opens the merge chat.
+The company profile, skills, team files, tools and the invite are each done or put off. A skill to merge into an existing team skill waits until then; afterwards one notice in **Activity**, **Review skills to merge**, opens the merge chat.

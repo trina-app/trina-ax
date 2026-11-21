@@ -29,6 +29,7 @@ import { BROWSER_TOOLS, IN_APP_BROWSER_UA_MARK, PRODUCT, WEB_ALLOW_ALL_WARNING_V
 import { blockedMessage, blockedUrl, type BlockReason } from '../../common/browser-block'
 import { isBlankPage, RUNS_AI_SCRIPT } from '../../common/net-policy'
 import { paneGrab } from '../../common/pane-width'
+import { externalUrl } from '../../common/pane-chrome'
 import { HostClassifier } from './classify'
 import { installNetGuard, stopIfRebound } from './net-guard'
 import { clearSessionData, type ClearResult } from '../clear-session'
@@ -63,6 +64,10 @@ export interface PaneHost {
   onKeys?(view: WebContentsView): void
   /** the person pressed a key or the mouse in a tab (not the AI's own clicks while it drives) */
   onPersonActed?(view: WebContentsView): void
+  /** the window's own views that stay above the browser (the find bar): the toolbar and the tab are not raised over them */
+  overlays?(): readonly WebContentsView[]
+  /** the pane placed its views (the window puts its overlays back on top) */
+  onLayout?(): void
 }
 
 interface ConsoleEntry {
@@ -259,10 +264,11 @@ export class BrowserPane {
     const b = this.isOpen && this.bounds && this.bounds.width > 0 ? this.bounds : undefined
     const chrome = this.host.chrome
     const tabViews = new Set([...this.tabs.values()].filter((t) => !t.popup).map((t) => t.view as unknown))
+    const overlays = new Set<unknown>(this.host.overlays?.() ?? [])
     if (b) {
       const at = views.children.indexOf(chrome)
       // added, or raised over a view put above it meanwhile (the team page after the team list, the host strip)
-      if (at < 0 || views.children.slice(at + 1).some((v) => !tabViews.has(v))) {
+      if (at < 0 || views.children.slice(at + 1).some((v) => !tabViews.has(v) && !overlays.has(v))) {
         if (at >= 0) debug('browser toolbar raised')
         views.addChildView(chrome)
       }
@@ -272,7 +278,7 @@ export class BrowserPane {
     for (const t of this.tabs.values()) {
       if (t.popup) continue
       if (b && t.id === this.activeId) {
-        if (views.children.at(-1) !== t.view) {
+        if (views.children.filter((v) => !overlays.has(v)).at(-1) !== t.view) {
           if (views.children.includes(t.view)) debug('browser tab raised')
           views.addChildView(t.view)
         }
@@ -281,6 +287,7 @@ export class BrowserPane {
         if (t.view.getVisible() !== drawn) t.view.setVisible(drawn)
       } else if (views.children.includes(t.view)) views.removeChildView(t.view)
     }
+    this.host.onLayout?.()
   }
 
   /** The tab's first real page committed (or failed with an error page): draw it from now on. */
@@ -308,6 +315,17 @@ export class BrowserPane {
 
   private emitPrompts() {
     this.host.onPrompts(this.prompts.map(({ id, scope, host, url, tool, hint }) => ({ id, scope, host, url, tool, ...(hint ? { hint } : {}) })))
+  }
+
+  /** The toolbar's page loaded again (app-window.ts): the questions waiting for the person are told once more. */
+  resendPrompts() {
+    this.emitPrompts()
+  }
+
+  /** The address of the tab on screen for the person's own browser (http/https only), or null. */
+  externalUrl(): string | null {
+    const t = this.activeTab()
+    return t && !t.popup && !t.wc.isDestroyed() ? externalUrl(t.wc.getURL()) : null
   }
 
   /** Log what happened; `topLevel`: it stopped a whole page load (decides whether it is shown over the page). */

@@ -104,7 +104,7 @@ export function countedSteps(p: WelcomeProgress | null, aiReady = true, computer
 
 /** A counted step is done: 회사 소개 saved and answered (profileAnswered), the others (the AI step too) recorded done.
  * Put off is not done. */
-const stepDone = (p: WelcomeProgress, s: WelcomeStep) => (s === 'profile' ? p.steps.profile === 'done' && profileAnswered(p) : stepState(p, s) === 'done')
+export const stepDone = (p: WelcomeProgress, s: WelcomeStep) => (s === 'profile' ? p.steps.profile === 'done' && profileAnswered(p) : stepState(p, s) === 'done')
 
 /** The counted steps done (the AI step once AI answered). A step put off is not counted: with
  * steps put off the row read "5/5" while something was left (the recheck of onboarding v5). A phone counts its own. */
@@ -122,6 +122,15 @@ export function stepsLeft(p: WelcomeProgress | null, aiReady = true, computer = 
   return counted.filter((s) => !stepDone(p, s) && !(s === 'skills' && !computer && p.skillsLater))
 }
 
+/** The counted steps put off when the setup finished (still counted as answered, docs/DECISIONS.md "W6"): the setup
+ * row names them ("Still to do: Team files · Tools") until each is done or the row is hidden (✕), so a put-off step
+ * keeps a way back after the end screen. Never the AI step (Home's no-AI card is its place); on a phone never 도구 연결
+ * (a computer's step) nor 내 스킬 put off for a computer. */
+export function putOffSteps(p: WelcomeProgress | null, aiReady = true, computer = true): WelcomeStep[] {
+  if (!p || !p.finishedAt || p.dismissedAt) return []
+  return stepsLeft(p, aiReady, computer).filter((s) => s !== 'ai' && stepState(p, s) === 'skipped')
+}
+
 /** How many steps the progress counts (the "/5", "/6" with the AI step; a phone's "/4"): read it from here, never as a
  * number of its own. */
 export const stepTotal = (p: WelcomeProgress | null = null, aiReady = true, computer = true) => countedSteps(p, aiReady, computer).length
@@ -133,6 +142,11 @@ const STEP_NAME: Partial<Record<WelcomeStep, MessageKey>> = { ai: 'welcome.progr
  * quiet row, so the two agree: one step left here, it is named ("남은 일: 팀 파일", no count); else "설정 이어서 하기"
  * with "n/5", the steps done. */
 export function setupRowWords(t: (key: MessageKey, params?: Params) => string, p: WelcomeProgress | null, aiReady = true, computer = true): { text: string; count: string | null } {
+  // after the end: the steps put off, all named, no count (the setup is over; these are what is left of it)
+  const off = putOffSteps(p, aiReady, computer)
+  // how many, never the names: names were cut at 1440 in en, ko and es ("Still to do: About the co…"); the row opens the
+  // first of them, which names itself
+  if (off.length) return { text: t('setupRow.leftN', { n: off.length }), count: null }
   const left = stepsLeft(p, aiReady, computer)
   const name = left.length === 1 ? STEP_NAME[left[0]!] : undefined
   if (name) return { text: t('setupRow.left', { step: t(name) }), count: null }
@@ -180,16 +194,21 @@ export const skillsWaitForComputer = (p: WelcomeProgress | null) =>
  * The setup row (components/onboarding/SetupRow.tsx; docs/DECISIONS.md "W5"), the owner's one way back to the steps
  * from every page: `hidden`, `resume` ("설정 이어서 하기 · 2/5", or "남은 일: 팀 파일" with one step left: setupRowWords;
  * → /welcome at its step) or `ai` (while no AI answers: "AI 연결하기", the connect dialog). Never on /welcome itself;
- * while unfinished and not hidden (showResume). Without AI it hides on Home, where the no-AI card stands. On a phone it
- * hides on Home, whose own quiet row under the message box says the same; on a computer it replaces that row.
+ * while unfinished and not hidden (showResume). Without AI it hides on Home, where the no-AI card stands. It hides on
+ * Home (a phone and a computer), whose own top row says the same (docs/decisions/20261120-my-setup-card.md).
  * `aiReady`: AI answers the owner (or not known yet).
  */
-export function setupRowState(p: WelcomeProgress | null, o: { path: string; aiReady: boolean; computer: boolean; home?: boolean }): 'hidden' | 'resume' | 'ai' {
-  if (o.path === '/welcome' || !showResume(p, o.computer)) return 'hidden'
+export function setupRowState(p: WelcomeProgress | null, o: { path: string; aiReady: boolean; computer: boolean; home?: boolean }): 'hidden' | 'resume' | 'ai' | 'left' {
   // `home`: the new-chat page is on screen (Home, `/`; on a phone `/new`, `/` being the list)
   const home = o.home ?? o.path === '/'
+  if (o.path === '/welcome') return 'hidden'
+  // finished with steps put off: "Still to do: …" while AI answers (without it Home's no-AI card comes first); on a
+  // phone not on Home, as the unfinished row
+  if (putOffSteps(p, o.aiReady, o.computer).length) return !o.aiReady || (home && !o.computer) ? 'hidden' : 'left'
+  if (!showResume(p, o.computer)) return 'hidden'
   if (!o.aiReady) return home ? 'hidden' : 'ai'
-  return home && !o.computer ? 'hidden' : 'resume'
+  // on Home the top row says it (WelcomeResume, on a computer too: docs/decisions/20261120-my-setup-card.md)
+  return home ? 'hidden' : 'resume'
 }
 
 /**
@@ -220,6 +239,21 @@ export const forgetStepsSeen = () => {
     }
   } catch { /* none kept */ }
 }
+/**
+ * A link out of the steps to another page of the app (the AI step's "Other AI services … Admin › AI accounts", the team
+ * files step's "Open" of the project it made) carries the step it left in the history entry's state, so that page shows
+ * one way back (components/onboarding/SetupReturn.tsx: "← Back to getting started", "Continue setup" once AI answers
+ * after the AI step). The steps resume where they stopped on their own (resumeStep), so the way back is only /welcome.
+ * The state belongs to that history entry: a reload or Back to it keeps it, a move to another page does not (the setup
+ * row stays the way back from everywhere else).
+ */
+export const setupReturnState = (step: WelcomeStep) => ({ setupStep: step }) as const
+/** The step a page was opened from (setupReturnState), or null. */
+export function setupReturnStep(state: unknown): WelcomeStep | null {
+  const s = (state as { setupStep?: unknown } | null)?.setupStep
+  return typeof s === 'string' && (s === 'ai' || (WELCOME_COUNTED as readonly string[]).includes(s)) ? (s as WelcomeStep) : null
+}
+
 /** A landing takes the owner to the steps while they were started, are neither finished nor hidden, and have a step to
  * open (resumeStep: with only a put-off invite left there is none, and the steps would send Home again). */
 export const resumesOnLanding = (p: WelcomeProgress | null, computer = true) => showResume(p, computer)
@@ -244,20 +278,21 @@ export function inviteSkill(p: WelcomeProgress): string | null {
 
 /** The kept skills 준비 끝 offers a first result with (docs/DECISIONS.md "W6"), in its order: 카드뉴스 (the quickest
  * picture), 회사 소개서, 홍보 영상, then 자연스러운 글 (it needs the person's own text). Each by its pack path, else a
- * team skill of its name (the catalog matches the same way). `write`: "'{skill}' 써 보기" instead of "만들어 보기". */
+ * team skill of its name (the catalog matches the same way). `verb`: the end screen's button in the skill's own words
+ * ("Make promo cards", never "Make a 'Promo cards'"); `write` (자연스러운 글, a null verb): "Try '{skill}'". */
 export const FIRST_RESULT_SKILLS = [
-  { path: GENERAL_CARDNEWS_SKILL, name: 'card-news', write: false },
-  { path: GENERAL_DECK_SKILL, name: 'intro-deck', write: false },
-  { path: GENERAL_PROMO_SKILL, name: 'promo-video', write: false },
-  { path: 'skills/work/humanizer/SKILL.md', name: 'humanizer', write: true },
-] as const
+  { path: GENERAL_CARDNEWS_SKILL, name: 'card-news', write: false, verb: 'welcome.done.makeCardNews' },
+  { path: GENERAL_DECK_SKILL, name: 'intro-deck', write: false, verb: 'welcome.done.makeDeck' },
+  { path: GENERAL_PROMO_SKILL, name: 'promo-video', write: false, verb: 'welcome.done.makePromoVideo' },
+  { path: 'skills/work/humanizer/SKILL.md', name: 'humanizer', write: true, verb: null },
+] as const satisfies readonly { path: string; name: string; write: boolean; verb: MessageKey | null }[]
 
 /** The skill 준비 끝 offers to make a first result with: the first of FIRST_RESULT_SKILLS the team has (its own path,
  * or a team skill of that name), else null (홈으로 alone). */
-export function firstResultSkill<T extends { path: string; name: string }>(skills: readonly T[]): { skill: T; write: boolean } | null {
+export function firstResultSkill<T extends { path: string; name: string }>(skills: readonly T[]): { skill: T; write: boolean; verb: MessageKey | null } | null {
   for (const k of FIRST_RESULT_SKILLS) {
     const s = skills.find((x) => x.path === k.path) ?? skills.find((x) => x.name.toLowerCase() === k.name)
-    if (s) return { skill: s, write: k.write }
+    if (s) return { skill: s, write: k.write, verb: k.verb }
   }
   return null
 }

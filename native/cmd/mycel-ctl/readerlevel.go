@@ -73,14 +73,46 @@ func readMinReader(raw json.RawMessage) int {
 	return int(n)
 }
 
-// dbReaderLevel is the reader level the database needs now: that of the version that runs (app/current). A running
-// build has applied all its migrations, and it would have refused a database that needs more than it reads, so the two
-// are the same. 0: unknown (no app/current), nothing is checked.
+// dbReaderLevel is the reader level the database needs at the next start. Normally that of the version that runs
+// (app/current): a running build has applied all its migrations, and it would have refused a database that needs more
+// than it reads, so the two are the same. With a staged restore (data/restore-pending.json), the next start puts the
+// staged copy in place before it opens the database (server/src/main.ts applyPendingRestore), so the copy's level
+// counts (QA TC-2859: "Going back to the version before an update" in docs/BACKUP-RESTORE.md was always refused).
+// 0: unknown (no app/current), nothing is checked.
 func (u *updater) dbReaderLevel() int {
+	if n := stagedReaderLevel(u.e.base); n > 0 {
+		return n
+	}
 	if u.res.From == "" || !bundle.ValidVersion(u.res.From) {
 		return 0
 	}
 	return readerLevel(filepath.Join(u.e.base, "app", "versions", u.res.From))
+}
+
+// stagedReaderLevel is the reader level of a staged database restore: restore-pending.json's readerLevel (written by
+// stageDbRestore, server/src/system/backup.ts, from the staged copy's applied migrations), when the file names
+// data/restore-staged.db and that is a regular file. 0: no restore staged, or one staged by a version that did not
+// write the level (then the running version's level counts, as before). Both files belong to the server account, so
+// the level can be wrong: the worst case is a release that exits 75 at its start and the bootstrap's roll-back.
+func stagedReaderLevel(base string) int {
+	data := filepath.Join(base, "data")
+	b, err := readSmall(filepath.Join(data, "restore-pending.json"), 64<<10)
+	if err != nil {
+		return 0
+	}
+	var p struct {
+		Format      int             `json:"format"`
+		File        string          `json:"file"`
+		ReaderLevel json.RawMessage `json:"readerLevel"`
+	}
+	staged := filepath.Join(data, "restore-staged.db")
+	if json.Unmarshal(b, &p) != nil || p.Format != 1 || filepath.Clean(p.File) != staged {
+		return 0
+	}
+	if st, err := os.Lstat(staged); err != nil || !st.Mode().IsRegular() {
+		return 0
+	}
+	return readMinReader(p.ReaderLevel)
 }
 
 // unreadable says why release v, whose reader level is level (0: unknown), cannot open this server's database, or ""
@@ -92,6 +124,9 @@ func (u *updater) unreadable(v string, level int) string {
 	need := u.dbReaderLevel()
 	if need <= level {
 		return ""
+	}
+	if stagedReaderLevel(u.e.base) > 0 {
+		return fmt.Sprintf("release %s cannot open this server's data yet: it reads database level %d, and the restore staged now (data/restore-pending.json) puts back a database of level %d. Waiting for a newer release", v, level, need)
 	}
 	return fmt.Sprintf("release %s cannot open this server's data yet: it reads database level %d, and %s has already updated the database to level %d. Waiting for a newer release", v, level, u.res.From, need)
 }

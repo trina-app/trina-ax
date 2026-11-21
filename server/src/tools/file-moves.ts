@@ -12,7 +12,7 @@
 // Skill folders (skills/, a group's, a project's: what people's AI follows) are out of reach here: a skill changes only
 // through write / edit with the person's approval on the card, and moves to another level with move_skill.
 import { placeWords } from '../chat/place-words'
-import { CopyFilesInput, MoveFilesInput, RenameFileInput } from '@mycel/shared'
+import { CopyFilesInput, MoveFilesInput, RENAME_FILES_MAX, RenameFileInput, RenameFilesInput } from '@mycel/shared'
 import type { Locale } from '@mycel/shared/api'
 import { fillPlurals } from '@mycel/shared/plural'
 import type { AppContext } from '../context'
@@ -27,8 +27,9 @@ import { componentC } from '../team-files/component'
 import { FileError } from '../team-files/errors'
 import type { ToolRegistry } from './registry'
 import { askConfirm } from './url-gate'
+import { instructionLike, patternName } from './rename-pattern'
 
-export const FILE_MOVE_TOOL_NAMES = ['move_files', 'copy_files', 'rename_file'] as const
+export const FILE_MOVE_TOOL_NAMES = ['move_files', 'copy_files', 'rename_file', 'rename_files'] as const
 
 const t = (ko: string, en: string, id: string, ja: string, es: string, zh: string): Record<Locale, string> => ({ ko, en, id, ja, es, zh })
 export const TEXT = {
@@ -57,6 +58,10 @@ const parentOf = (p: string) => p.split('/').slice(0, -1).join('/')
 const join = (folder: string, name: string) => (folder ? `${folder}/${name}` : name)
 
 type Mode = 'move' | 'copy'
+
+/** names looked at inside a folder rename_files renames (more: refused, it might hold an instruction file) */
+const HOLDS_SCAN_MAX = 2000
+const INSTRUCTION_REFUSAL = 'rename_files does not make or move an instruction file (CLAUDE.md, AGENTS.md, GEMINI.md, SKILL.md or a skill), by its new name or inside a renamed folder; nothing was changed for this item. Use rename_file for it, one at a time'
 
 export function registerFileMoveTools(ctx: AppContext, reg: ToolRegistry) {
   const svc = componentC(ctx).files
@@ -140,11 +145,13 @@ export function registerFileMoveTools(ctx: AppContext, reg: ToolRegistry) {
           throw new ToolError('the audience changed while this call waited; nothing was changed for this item. Ask again with the current audience.')
         }
         if (mode === 'move') {
-          // confirm only what the person saw: a narrowing that appears after the question fails this item
-          const r = svc.move(tc.user.id, p, join(folder, nameOf(p)), 'rename', { confirm: confirmed && lost > 0, turnId: tc.turnId, tool })
+          // confirm only what the person saw: a narrowing that appears after the question fails this item (the audience
+          // was compared just above); a move into a folder its owner shares asks on this same card (added > 0), and
+          // move() asks for that whatever the client says (W7), so the card's yes is passed on
+          const r = svc.move(tc.user.id, p, join(folder, nameOf(p)), 'rename', { confirm: confirmed && (lost > 0 || added > 0), turnId: tc.turnId, tool })
           done.push({ from: p, to: r.entry.path })
         } else {
-          const r = await svc.copy(tc.user.id, p, join(folder, nameOf(p)), { onExists: 'rename', turnId: tc.turnId, tool })
+          const r = await svc.copy(tc.user.id, p, join(folder, nameOf(p)), { onExists: 'rename', turnId: tc.turnId, tool, confirm: confirmed && added > 0 })
           if ('path' in r) done.push({ from: p, to: r.path })
         }
       } catch (e) {
@@ -184,6 +191,79 @@ export function registerFileMoveTools(ctx: AppContext, reg: ToolRegistry) {
     describe: (a) => `copy_files ${a.paths.length} -> ${a.to_folder}`,
     run: (a, tc) => batch('copy', a, tc),
   })
+  /** One rename in place, with every check of rename_file (the name, skill folders, the file layer's access and a taken
+   * name: fails, never " (2)"); the new path. The same folder: the same people see it, nothing to ask. */
+  function renameOne(p: string, newName: string, tc: ToolCtx, tool: 'rename_file' | 'rename_files'): string {
+    const name = newName.normalize('NFC')
+    if (name.includes('/')) throw new ToolError('new_name is a name, not a path: use move_files to put it in another folder')
+    const bad = badSegment(name)
+    if (bad) throw new ToolError(`invalid name: ${bad}`)
+    // the new name counts too: groups/<g>/drafts renamed "skills" would become that group's skills folder
+    if (inSkills(p) || inSkills(join(parentOf(p), name))) throw new ToolError(SKILLS)
+    return svc.move(tc.user.id, p, join(parentOf(p), name), 'fail', { turnId: tc.turnId, tool }).entry.path
+  }
+
+  /** Does the folder at `rel` hold an instruction file (CLAUDE.md, AGENTS.md, GEMINI.md, SKILL.md, a skill) among what
+   * the person sees in it? A file: false. Past HOLDS_SCAN_MAX names: true (it might). */
+  function holdsInstructions(userId: string, rel: string): boolean {
+    const todo = [rel]
+    let seen = 0
+    while (todo.length) {
+      let entries: { path: string; type: string }[]
+      try { entries = svc.tree(userId, todo.pop()!, undefined, Number.MAX_SAFE_INTEGER).entries } catch (e) { if (e instanceof ToolError && e.code === 'not_folder') return false; throw e }
+      for (const e of entries) {
+        if (++seen > HOLDS_SCAN_MAX || instructionLike(e.path)) return true
+        if (e.type === 'folder') todo.push(e.path)
+      }
+    }
+    return false
+  }
+
+  /** rename_files: a list of renames, or a find/replace on the names directly inside one folder; each item on its own
+   * (one that fails is reported, the rest go on), at most RENAME_FILES_MAX per call. */
+  function renameMany(a: { renames?: { path: string; new_name: string }[]; folder?: string; find?: string; replace?: string; at?: 'anywhere' | 'start' | 'end' }, tc: ToolCtx) {
+    let items: { path: string; new_name: string }[]
+    let left = 0
+    let where = ''
+    if (a.renames) {
+      const seen = new Set<string>()
+      items = a.renames.map((r) => ({ path: clean(r.path), new_name: r.new_name })).filter((r) => (seen.has(r.path) ? false : (seen.add(r.path), true)))
+    } else {
+      const folder = clean(a.folder ?? '')
+      where = folder || 'the team root'
+      const src = a.find ?? ''
+      let entries: { path: string; name: string }[]
+      try { entries = svc.tree(tc.user.id, folder, undefined, Number.MAX_SAFE_INTEGER).entries } catch (e) { throw new ToolError(`nothing was renamed: ${why(e, tc)}`) }
+      const all: { path: string; new_name: string }[] = []
+      for (const e of entries) {
+        const to = patternName(e.name.normalize('NFC'), src, a.replace ?? '', a.at ?? 'anywhere')
+        if (to !== null) all.push({ path: clean(e.path), new_name: to })
+      }
+      if (!all.length) return { text: `Nothing was renamed: no name directly inside ${where} has a match for ${JSON.stringify(src)} that changes it.`, isError: true, summary: `rename_files 0/0 in ${folder}` }
+      items = all.slice(0, RENAME_FILES_MAX)
+      left = all.length - items.length
+    }
+    const done: { from: string; to: string }[] = []
+    const failed: { path: string; error: string }[] = []
+    for (const it of items) {
+      if (tc.signal?.aborted) { failed.push({ path: it.path, error: 'cancelled' }); continue }
+      try {
+        // never an instruction file by a batch (its new name, or one inside a renamed folder), checked now and not only on
+        // a room's card before the call: the folder may have changed since (review of #1327); rename_file does one
+        if (instructionLike(join(parentOf(it.path), it.new_name.normalize('NFC'))) || holdsInstructions(tc.user.id, it.path)) throw new ToolError(INSTRUCTION_REFUSAL)
+        done.push({ from: it.path, to: renameOne(it.path, it.new_name, tc, 'rename_files') })
+      } catch (e) { failed.push({ path: it.path, error: why(e, tc) }) }
+    }
+    const text = [
+      done.length ? `Renamed ${done.length}${where ? ` in ${where}` : ''}:\n${done.map((d) => `- ${d.from} -> ${nameOf(d.to)}`).join('\n')}` : 'Nothing was renamed.',
+      failed.length ? `Not renamed:\n${failed.map((f) => `- ${f.path}: ${f.error}`).join('\n')}` : '',
+      left ? `${left} more name${left === 1 ? '' : 's'} match: at most ${RENAME_FILES_MAX} are renamed per call. Call rename_files again with the same folder and find for the rest (a name renamed above is changed again only if its new name still matches).` : '',
+    ].filter(Boolean).join('\n\n')
+    const summary = `rename_files ${done.length}/${done.length + failed.length}${where ? ` in ${a.folder}` : ''}${left ? ` (${left} left)` : ''}`
+    if (!done.length) return { text, isError: true, summary }
+    return { text, summary, structured: { renamed: done, failed, left } }
+  }
+
   reg.register({
     name: 'rename_file',
     description: 'Rename a file or folder in place (it stays in the same folder). Give the new name only; to move it elsewhere use move_files.',
@@ -191,16 +271,9 @@ export function registerFileMoveTools(ctx: AppContext, reg: ToolRegistry) {
     describe: (a) => `rename_file ${a.path} -> ${a.new_name}`,
     run(a, tc) {
       const p = clean(a.path)
-      const name = a.new_name.normalize('NFC')
-      if (name.includes('/')) throw new ToolError('new_name is a name, not a path: use move_files to put it in another folder')
-      const bad = badSegment(name)
-      if (bad) throw new ToolError(`invalid name: ${bad}`)
-      // the new name counts too: groups/<g>/drafts renamed "skills" would become that group's skills folder
-      if (inSkills(p) || inSkills(join(parentOf(p), name))) throw new ToolError(SKILLS)
       try {
-        // the same folder: the same people see it, nothing to ask
-        const r = svc.move(tc.user.id, p, join(parentOf(p), name), 'fail', { turnId: tc.turnId, tool: 'rename_file' })
-        return { text: `Renamed ${p} to ${r.entry.path}.`, summary: `rename_file ${p} -> ${r.entry.path}`, structured: { path: r.entry.path } }
+        const to = renameOne(p, a.new_name, tc, 'rename_file')
+        return { text: `Renamed ${p} to ${to}.`, summary: `rename_file ${p} -> ${to}`, structured: { path: to } }
       } catch (e) {
         // an admin-only folder names the admins (B14); a read-only place says who can give write access (B2)
         if (e instanceof FileError) throw new ToolError(why(e, tc))
@@ -208,5 +281,12 @@ export function registerFileMoveTools(ctx: AppContext, reg: ToolRegistry) {
         throw e
       }
     },
+  })
+  reg.register({
+    name: 'rename_files',
+    description: `Rename many files or folders in place in one call (each stays in its folder), with the same checks as rename_file: either renames, a list of { path, new_name }, or a pattern: folder with find and replace on the names directly inside that folder (plain text; at: "start" or "end" for only the start or end of a name). At most ${RENAME_FILES_MAX} per call; when more names match, the answer says how many are left. A name that is taken, or a place the user may not change, fails for that item only. Use it instead of many rename_file calls.`,
+    input: RenameFilesInput,
+    describe: (a) => (a.renames ? `rename_files ${a.renames.length}` : `rename_files ${a.folder} ${JSON.stringify(a.find)} -> ${JSON.stringify(a.replace ?? '')}`),
+    run: (a, tc) => renameMany(a, tc),
   })
 }

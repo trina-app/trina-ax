@@ -4,6 +4,7 @@
 // Pure: no Electron, unit-tested in tests/unit/e-desktop-common.test.ts and tests/unit/team-link.test.ts.
 import { SERVICE_HOSTS } from '@mycel/shared/service-hosts'
 import { PRODUCT, SOURCE_CODE } from '@mycel/shared'
+import { classifyHostStatic } from './netaddr'
 import { mayBeAsleep, parseTeamInput, readAppLink, relayAnswer, relayRename, wakeTeam, type RelayAnswer, type TeamInput, type TeamInputError, type TeamInputOptions, type WakeAnswer, type WakeSteps } from '@mycel/shared/team-link'
 
 export { hostLineNow, hostLineShown, isLoopbackHost, isSignInPath } from '@mycel/shared/team-link'
@@ -29,17 +30,27 @@ export const LINK_SCHEME: string = PRODUCT.linkScheme
 /** A link that opened the app from outside: `<scheme>://open?url=<team link>` only (the desktop declares no web
  * domains), read with the box's rules but stricter: https only, and never this machine (a link from a web page must
  * not point the app, its team view and its bridge at a local port). Typed addresses keep http to this machine for
- * development. null: not a link for this app. */
+ * development. Only here, the team's one-time sign-in link (`/app-signin#c=<code>`, the web's "Continue in the Mac
+ * app") is read too; the box and the phone refuse it (shared/src/team-link.ts appSignIn). null: not a link for this app. */
 export function readDesktopLink(raw: string): TeamInput | null {
-  const p = readAppLink(raw, { ...DESKTOP_INPUT, loopbackHttp: false, scheme: LINK_SCHEME, universal: false })
+  const p = readAppLink(raw, { ...DESKTOP_INPUT, loopbackHttp: false, scheme: LINK_SCHEME, universal: false, appSignIn: true })
   return p?.ok && p.loopback ? { ok: false, error: 'insecure' } : p
+}
+
+/** The page a link opens, as the first-run box may be given it again (the "renamed" answer's next address goes back
+ * through parseTeamAddress): a one-time sign-in link's page is not one the box reads, so it is the team's start there.
+ * The code is spent or dead by then anyway. */
+export function retypablePath(entryPath: string): string {
+  return /^\/app-signin(?:[/?#]|$)/i.test(entryPath) ? '/' : entryPath
 }
 
 /** An id in a page address: the server's ids (uuidv7) and nothing that could move the path (no `.`, `%`, `/`, `\`). */
 const PAGE_ID = '[A-Za-z0-9_-]{1,64}'
+/** A file's link id (shared/src/api/file-shares.ts FileLinkId: 16 random bytes, base64url). */
+const FILE_LINK_ID = '[A-Za-z0-9_-]{22}'
 /** The team pages a link from outside may open in the app (web/src/App.tsx routes): a chat, a room, a room's thread,
- * a project. Nothing else (settings, admin, files, sign-in pages). */
-const PAGE_PATH = new RegExp(`^/(?:c/${PAGE_ID}|rooms/${PAGE_ID}(?:/t/${PAGE_ID})?|projects/${PAGE_ID})$`)
+ * a project, a file's link (/f/<id>, QA TC-3093). Nothing else (settings, admin, files, sign-in pages). */
+const PAGE_PATH = new RegExp(`^/(?:c/${PAGE_ID}|rooms/${PAGE_ID}(?:/t/${PAGE_ID})?|projects/${PAGE_ID}|f/${FILE_LINK_ID})$`)
 const ROOM_PATH = /^\/rooms\//
 const MESSAGE_ID = new RegExp(`^${PAGE_ID}$`)
 
@@ -76,6 +87,45 @@ export function desktopPagePath(raw: string): { origin: string; path: string } |
   const m = inner.searchParams.get('m')
   const query = ROOM_PATH.test(path) && m && MESSAGE_ID.test(m) && [...inner.searchParams.keys()].length === 1 ? `?m=${m}` : ''
   return { origin: p.origin, path: path + query }
+}
+
+/**
+ * A link to the start of the team the window shows (`trina-ax://open?url=https://acme.trina.app/`, exact origin): the
+ * "Back to the app" button of a Google sign-in's last page in the system browser (server google-drive/callback-page.ts).
+ * The app only comes forward (main.ts onLink); screen ④ does not ask to connect a team it shows already.
+ */
+export function isShownTeamStart(raw: string, shownOrigin: string | null | undefined): boolean {
+  const p = readDesktopLink(raw)
+  if (!shownOrigin || !p?.ok || p.entryPath !== '/' || p.origin !== shownOrigin) return false
+  try {
+    const inner = new URL(new URL(raw).searchParams.get('url') ?? '')
+    return inner.pathname === '/' && !inner.search && !inner.hash
+  } catch {
+    return false
+  }
+}
+
+/**
+ * The one-time code in the "Back to the app" link of a Google Drive sign-in that Google answered in a browser without a
+ * session (server google-drive/app-return.ts): `trina-ax://open?url=<the team on screen>/#code=<code>`. The code is
+ * only in the fragment; the link must otherwise be exactly the start of the team the window shows. null otherwise.
+ */
+export function signInCode(raw: string, shownOrigin: string | null | undefined): string | null {
+  const i = typeof raw === 'string' ? raw.indexOf('#') : -1
+  if (i < 0) return null
+  const m = /^code=([A-Za-z0-9_-]{43})$/.exec(raw.slice(i + 1))
+  return m && isShownTeamStart(raw.slice(0, i), shownOrigin) ? m[1]! : null
+}
+
+/**
+ * A link that started the app (the app was closed): when it is a chat, room or project page of a team the app already
+ * has (exact origin, desktopPagePath), the team and the page to open at the first load. null: the app starts as usual
+ * and the link goes to screen ④ (AppWindow.offerLink).
+ */
+export function startupLinkTarget(raw: string | null, teams: readonly { id: string; origin: string }[]): { id: string; path: string } | null {
+  const page = raw ? desktopPagePath(raw) : null
+  const known = page ? teams.find((x) => x.origin === page.origin) : undefined
+  return page && known ? { id: known.id, path: page.path } : null
 }
 
 /** The link in a command line: Windows and Linux start the app (or its second instance) with the link as an argument.
@@ -151,6 +201,49 @@ export async function checkTeam(origin: string, io: TeamCheckIo): Promise<TeamCh
   return { ok: true, origin }
 }
 
+/**
+ * The add-team check could not be made because of the server's certificate (QA TC-3452: an office address whose
+ * certificate is not installed on this computer said "check your internet connection"). Read from the error Electron's
+ * net.request gives ("net::ERR_CERT_AUTHORITY_INVALID"): 'untrusted' = no certificate authority this computer trusts
+ * signed it (the office certificate is not installed yet); 'invalid' = any other certificate error (expired, another
+ * name, revoked). null: not a certificate error. The app only says so: it never connects past a certificate error.
+ */
+export type CertTrouble = 'untrusted' | 'invalid'
+export function certTrouble(err: unknown): CertTrouble | null {
+  const text = err instanceof Error ? err.message : typeof err === 'string' ? err : ''
+  const code = /(?:^|[^A-Z0-9_])(ERR_CERT_[A-Z0-9_]+)/.exec(text)?.[1]
+  if (!code) return null
+  return code === 'ERR_CERT_AUTHORITY_INVALID' ? 'untrusted' : 'invalid'
+}
+
+/**
+ * Where an office server hands out its certificate: plain http on the port below its https port (the office
+ * installer's default, server/src/office/settings.ts helperDefault: 8443 → 8442), for an address on the office network
+ * with a port in it (an IP address or a local name). null: an address that is not an office one, so no page is named.
+ * Only shown as text for the person to open in a browser and compare with the desk card; the app never opens it.
+ */
+export function officeCertPage(origin: string): string | null {
+  let u: URL
+  try { u = new URL(origin) } catch { return null }
+  const port = Number(u.port)
+  if (u.protocol !== 'https:' || !u.port || port < 2 || classifyHostStatic(u.hostname) !== 'private') return null
+  return `http://${u.hostname}:${port - 1}`
+}
+
+/** How long the full-page "cannot reach the team server" card waits before it looks again by itself, per try: 5, 10,
+ * 20 s, then every 30 s (QA TC-3453). One small GET /api/health each time. */
+export const OFFLINE_RETRY_MS = [5_000, 10_000, 20_000, 30_000] as const
+export function offlineRetryDelay(tries: number): number {
+  const i = Number.isFinite(tries) ? Math.min(Math.max(0, Math.floor(tries)), OFFLINE_RETRY_MS.length - 1) : OFFLINE_RETRY_MS.length - 1
+  return OFFLINE_RETRY_MS[i]!
+}
+/** The team server answers again: its own health answer, nothing else. A tunnel's or relay's error page, a Wi-Fi
+ * sign-in page, another kind of server, a renamed or paused team are not "back" (a reload would fail or show nothing
+ * new), and a sleeping trial team is not woken by the app looking: only a person's Try again loads the page. */
+export function answersAgain(origin: string, r: HealthAnswer): boolean {
+  return healthVerdict(origin, r).ok
+}
+
 /** Origin of a URL, or '' (about:blank, garbage). */
 export function originOf(url: string): string {
   try {
@@ -158,6 +251,23 @@ export function originOf(url: string): string {
     return u.protocol === 'http:' || u.protocol === 'https:' ? u.origin : ''
   } catch {
     return ''
+  }
+}
+
+/**
+ * A remembered team at a development address on this computer: `localhost` or `*.localhost` (`bun run dev`,
+ * http://localhost:19100, often not running). When the app opens it by itself at start and it does not answer, the
+ * first-run screen with the team list comes instead of the "cannot reach the team server" card (main/app-window.ts
+ * openLast). Loopback IPs are left out: the Office Mac's own server is http://127.0.0.1:47820 (scripts/install-macos.sh),
+ * a real team that may still be starting after a restart, so it keeps the card and its [다시 시도]. A team the person
+ * opens keeps the card too.
+ */
+export function onThisComputer(origin: string): boolean {
+  try {
+    const h = new URL(origin).hostname.toLowerCase().replace(/\.$/, '')
+    return h === 'localhost' || h.endsWith('.localhost')
+  } catch {
+    return false
   }
 }
 

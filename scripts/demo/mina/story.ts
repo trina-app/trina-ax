@@ -196,6 +196,9 @@ export function buildScript(s: Strings, locale: DemoScript['locale']): DemoScrip
       title: s.end.title,
       contrast: s.end.usually,
       signup: { label: s.end.signup, url: 'https://ax.trina.app/pricing' },
+      // the live demo (docs/decisions/20261119-demo-free-roam-web.md): the visitor's own server behind demo-gate, in
+      // the story's language; offered only while the gate says it can take a visitor
+      live: { label: s.end.tryLive, busy: s.end.liveBusy, retry: s.end.liveRetry, url: `https://demo.trina.app/?lang=${locale}` },
       popup: { title: s.end.popupTitle, line: s.end.popupLine, recap: s.end.recap, close: s.end.explore },
     },
   }

@@ -27,7 +27,7 @@ const LONG_PRESS_MS = 500
 
 function CardFace({ p }: { p: RoomLinkPreview }) {
   const user = useAvatarOf(p.author)
-  if (p.app) return <AppTile service={serviceOf(p.app)} size="title" />
+  if (p.app) return <AppTile service={serviceOf(p.app)} app={p.app} size="title" />
   if (p.authorKind === 'ai') return <AiFace size={22} />
   return user ? <Avatar user={user} size={24} className="select-none" /> : <span aria-hidden className="size-6 shrink-0 rounded-full bg-hover" />
 }

@@ -1,13 +1,17 @@
-// Guests (docs/DECISIONS.md "Guests: only what they were invited to"): an outside person in exactly one group chat or
-// one project. The server decides everything a guest may reach (server/src/auth/guests.ts, the endpoint allow-list);
-// the screens only label guests and leave out what a guest cannot use. The contract's guest fields are read here:
-// Person.guest (the tag), Me.guest and User.guest (the place by name and the AI; placeOut and teamAiGone), InviteInfo.guestPlace
+// Guests (docs/DECISIONS.md "Guests: only what they were invited to", "Guests: one group chat and one project"): an
+// outside person in at most one group chat and one project. The server decides everything a guest may reach
+// (server/src/auth/guests.ts, the endpoint allow-list); the screens only label guests and leave out what a guest cannot
+// use. The contract's guest fields are read here: Person.guest (the tag) and Person.guestPlaces, Me.guest and
+// User.guest (the places by name and the AI; placeOut and teamAiGone), InviteInfo.guestPlace
 // and InviteInfo.reason (the invite page) and Invite.guestName (who a link is for, in the invite list).
 import type { GuestAi, GuestAiChoice, GuestPlace, Invite, InviteInfo, Me, Person, User } from '@mycel/shared/api'
 
 export type PlaceKind = GuestPlace['kind']
-/** A guest's one place as the screens name it (the invite page knows no id). */
+/** A guest's place as the screens name it (the invite page knows no id; an add list knows only the kind of a place
+ * the viewer is not in). */
 export interface GuestPlaceView { kind: PlaceKind; id?: string; name?: string }
+/** A removed guest's place with why they are out of it (User.guest.places[].out). */
+export type GuestPlaceOutView = GuestPlaceView & { out?: GuestPlaceOut }
 
 /** The signed-in person is a guest (Me.user.role). */
 export const isGuestMe = (me: Me | null | undefined): boolean => me?.user.role === 'guest'
@@ -15,19 +19,26 @@ export const isGuestMe = (me: Me | null | undefined): boolean => me?.user.role =
 /** A person of the directory (GET /api/people) is a guest. */
 export const personIsGuest = (p: Pick<Person, 'guest'> | null | undefined): boolean => p?.guest === true
 
-/** The signed-in guest's place and AI mode (Me.guest); null for anyone else. Team AI whose team AI account was deleted
- * (Me.guest.teamAiGone) stays 'team': the guest keeps their 트리나 place and is told AI can't answer them now. */
-export function meGuest(me: Me | null | undefined): { place: GuestPlaceView | null; ai: GuestAi | undefined } | null {
+/** The signed-in guest's places (Me.guest.places: their group chat and/or their project, the group chat first; empty
+ * until the server names them), each by kind (`room`, `project`), and their AI mode; null for anyone else. Team AI whose
+ * team AI account was deleted (Me.guest.teamAiGone) stays 'team': the guest keeps their 트리나 place and is told AI
+ * can't answer them now. */
+export function meGuest(me: Me | null | undefined): { places: GuestPlaceView[]; room: GuestPlaceView | null; project: GuestPlaceView | null; ai: GuestAi | undefined } | null {
   if (!isGuestMe(me)) return null
-  return { place: me!.guest?.place ?? null, ai: me!.guest?.teamAiGone ? 'team' : me!.guest?.ai.mode }
+  const places = me!.guest?.places ?? []
+  return { places, room: places.find((p) => p.kind === 'room') ?? null, project: places.find((p) => p.kind === 'project') ?? null, ai: me!.guest?.teamAiGone ? 'team' : me!.guest?.ai.mode }
 }
 
-/** The address of the signed-in guest's one place as the server names it (Me.guest.place): their room or their project;
- * null for anyone else or before the server names it. A guest opens straight into it (Slack's single-channel guests). */
+/** The address of a guest's place: its group chat or its project. */
+export const placePath = (place: GuestPlaceView): string | null => (place.id ? (place.kind === 'room' ? `/rooms/${place.id}` : `/projects/${place.id}`) : null)
+
+/** Where the signed-in guest opens (Me.guest.places): their group chat, else their project; null for anyone else or
+ * before the server names it. A guest opens straight into it (Slack's single-channel guests). */
 export function guestPlacePath(me: Me | null | undefined): string | null {
-  const place = meGuest(me)?.place
-  if (!place?.id) return null
-  return place.kind === 'room' ? `/rooms/${place.id}` : `/projects/${place.id}`
+  // the group chat first, then the project (QA TC-3359), whatever order the server sent them in
+  const g = meGuest(me)
+  const first = g?.room ?? g?.project ?? g?.places[0]
+  return first ? placePath(first) : null
 }
 
 /** A guest invite's place (InviteInfo.guestPlace); null for a member invite. */
@@ -35,13 +46,45 @@ export function inviteGuest(info: InviteInfo): { place: GuestPlaceView | null; a
   return info.role === 'guest' ? { place: info.guestPlace ?? null, ai: info.guestAi ?? null } : null
 }
 
+/** The words for a guest's place when its name is the only thing known. A guest's room is always a group room (a group
+ * chat or a private channel), so the room's own name decides the wording, as lib/rooms.ts isPrivateChannel does: a
+ * name = a private channel, no name = a group chat. A project always has a name; one without (an older server) and a
+ * place that is not sent at all get the general words (null). */
+export function roomWording(place: { kind: PlaceKind; name?: string | null } | null | undefined): 'privateChannel' | 'groupChat' | 'project' | null {
+  if (!place) return null
+  if (place.kind === 'project') return place.name?.trim() ? 'project' : null
+  return place.name?.trim() ? 'privateChannel' : 'groupChat'
+}
+
+/** The guest invite page's line for the place (guest.join.*). */
+export const joinLineKey = (place: GuestPlaceView | null): 'guest.join.room' | 'guest.join.roomGroup' | 'guest.join.project' | 'guest.join.some' => {
+  const w = roomWording(place)
+  return w === 'privateChannel' ? 'guest.join.room' : w === 'groupChat' ? 'guest.join.roomGroup' : w === 'project' ? 'guest.join.project' : 'guest.join.some'
+}
+
 /** Why a removed guest is not in their place (User.guest.placeOut): left it, its project in the trash, or gone. */
 export type GuestPlaceOut = NonNullable<NonNullable<User['guest']>['placeOut']>
 
-/** A guest's place and AI choice as Admin › Members shows them (User.guest), with why a removed one is not in their place
- * (`out`), whether their Team AI's account was deleted (`aiGone`) and whether this month's limit is used up (`aiUsedUp`). */
-export function userGuest(u: User): { place: GuestPlaceView | null; ai: GuestAiChoice | null; out: GuestPlaceOut | null; aiGone: boolean; aiUsedUp: boolean } | null {
-  return u.role === 'guest' ? { place: u.guest?.place ?? null, ai: u.guest?.ai ?? null, out: u.guest?.placeOut ?? null, aiGone: u.guest?.teamAiGone === true, aiUsedUp: u.guest?.aiUsedUp === true } : null
+/** A guest's places and AI choice as Admin › Members shows them (User.guest): their group chat and/or project (a removed
+ * one's each with why they are out of it), why a removed one is in none (`out`), whether they left on their own
+ * (`leftThemselves`), whether their Team AI's account was deleted (`aiGone`), whether this month's limit is used up
+ * (`aiUsedUp`) and how much of it is used (`aiUse`, Team AI only). */
+export function userGuest(u: User): { places: GuestPlaceOutView[]; ai: GuestAiChoice | null; out: GuestPlaceOut | null; leftThemselves: boolean; aiGone: boolean; aiUsedUp: boolean; aiUse: NonNullable<User['guest']>['aiUse'] | null } | null {
+  return u.role === 'guest' ? { places: u.guest?.places ?? [], ai: u.guest?.ai ?? null, out: u.guest?.placeOut ?? null, leftThemselves: u.guest?.leftThemselves === true, aiGone: u.guest?.teamAiGone === true, aiUsedUp: u.guest?.aiUsedUp === true, aiUse: u.guest?.aiUse ?? null } : null
+}
+
+/** The project of a removed guest that is in the trash (restoring it brings them back), or null. */
+export const trashedProjectOf = (g: ReturnType<typeof userGuest>): GuestPlaceOutView | null => g?.places.find((pl) => pl.kind === 'project' && pl.out === 'trashed') ?? null
+
+/** Where a guest's row goes in Admin (walkthrough S3/S4): 'active'; 'trashed' (switched off with their project in the
+ * trash: listed with the active ones, with Restore project, since restoring brings them back); 'left' (left their place
+ * on their own); 'removed' (taken out, removed by an admin, or their place gone). The last two stay behind a toggle. */
+export type GuestRowState = 'active' | 'trashed' | 'left' | 'removed'
+export function guestRowState(u: User): GuestRowState {
+  if (u.status === 'active') return 'active'
+  const g = userGuest(u)
+  if (g?.out === 'trashed' && trashedProjectOf(g)?.id) return 'trashed'
+  return g?.leftThemselves ? 'left' : 'removed'
 }
 
 /** Why an invite link does not work (InviteInfo.reason), or null while it works or when an older server does not say. */
@@ -62,3 +105,32 @@ export const GUEST_ONE_PLACE = 'guest_one_place'
 export const GUEST_LIMIT = 'guest_limit'
 /** A removed guest switched on with nothing to bring them back to (409 conflict, params.placeOut: why). */
 export const GUEST_NO_PLACE = 'guest_no_place'
+
+/**
+ * Where a guest opens a team folder (they have no 파일 screen: App.tsx NotForGuests): the files screen of the project
+ * that holds it (`/projects/<id>/files?dir=…`, Projects.tsx ProjectFiles); null for any other folder, their own
+ * users/<id>/ included (no screen lists it: its files open in the preview panel only).
+ */
+export function guestFolderHref(path: string, projects: readonly { id: string; folderPath: string }[], select?: string): string | null {
+  const clean = path.replace(/^\/+|\/+$/g, '')
+  const p = projects.find((x) => x.folderPath && (clean === x.folderPath || clean.startsWith(`${x.folderPath}/`)))
+  if (!p) return null
+  const dir = clean === p.folderPath ? '' : clean.slice(p.folderPath.length + 1)
+  // `select`: a file in it to show picked (its full path, as the 파일 screen's ?select= takes it)
+  const q = [dir ? `dir=${encodeURIComponent(dir)}` : '', select ? `select=${encodeURIComponent(select)}` : ''].filter(Boolean).join('&')
+  return `/projects/${p.id}/files${q ? `?${q}` : ''}`
+}
+
+/** An in-app address as a guest opens it: a /files address goes to their project's files screen (guestFolderHref, via
+ * `folder`) or nowhere (null); any other address stays as it is. */
+export function guestAppHref(href: string, folder: (path: string, select?: string) => string | null): string | null {
+  // (the router matches addresses without regard to case: /FILES is /files)
+  if (!/^\/files(\/|\?|#|$)/i.test(href)) return href
+  const u = new URL(href, 'http://app.invalid')
+  const path = u.pathname.toLowerCase() === '/files' ? u.searchParams.get('path') : null
+  return path ? folder(path, u.searchParams.get('select') ?? undefined) : null
+}
+
+/** The largest file I may upload anywhere, in bytes: for a guest the team's guest limit (Me.team.uploadMaxBytes; the
+ * server checks it on every upload), for anyone else `otherwise` (each kind of upload has its own limit). */
+export const myUploadMax = (me: Me | null | undefined, otherwise: number): number => Math.min(otherwise, me?.team?.uploadMaxBytes ?? otherwise)

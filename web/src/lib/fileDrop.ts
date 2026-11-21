@@ -38,3 +38,48 @@ export function guardFileDrops(win: Pick<Window, 'addEventListener'>) {
   win.addEventListener('dragover', stop)
   win.addEventListener('drop', stop)
 }
+
+/** Files a drop marked as plain files (their entry said so): never taken for a folder by withoutFolders. */
+const plainFiles = new WeakSet<File>()
+
+/** The files a drop carries and how many folders were in it (TC-4483). A folder is no attachment: the browser hands it
+ * over as a File with no bytes to read, and its upload failed as if the connection were lost. Each item's entry says
+ * which it is (DataTransferItem.webkitGetAsEntry, every current browser and the desktop app); read in the drop event
+ * itself (the items are empty after it). Where there are no entries, all of `dt.files` comes back, and withoutFolders
+ * tells the folders by their missing bytes. */
+export function filesOfDrop(dt: Pick<DataTransfer, 'files'> & { items?: DataTransferItemList | null }): { files: File[]; folders: number } {
+  const all = Array.from(dt.files ?? [])
+  const items = Array.from(dt.items ?? []).filter((it) => it.kind === 'file')
+  if (!items.length || !items.every((it) => typeof it.webkitGetAsEntry === 'function')) return { files: all, folders: 0 }
+  const files: File[] = []
+  let folders = 0
+  for (const it of items) {
+    const entry = it.webkitGetAsEntry()
+    if (entry?.isDirectory) { folders++; continue }
+    const file = it.getAsFile()
+    if (!file) continue
+    if (entry?.isFile) plainFiles.add(file)
+    files.push(file)
+  }
+  return { files, folders }
+}
+
+/** A File that may be a folder: no bytes, no type, not marked a plain file by its drop's entry (a folder from a browser
+ * without entries, or one that came another way, as a file input). Reading it settles it: an empty file reads, a folder
+ * does not. */
+async function isFolder(file: File): Promise<boolean> {
+  if (plainFiles.has(file) || file.size !== 0 || file.type !== '') return false
+  try {
+    await file.arrayBuffer()
+    return false
+  } catch {
+    return true
+  }
+}
+
+/** `files` without the folders among them (see isFolder), and how many there were: what a message box takes from a drop,
+ * a pick or a paste. */
+export async function withoutFolders(files: readonly File[]): Promise<{ files: File[]; folders: number }> {
+  const folder = await Promise.all(files.map(isFolder))
+  return { files: files.filter((_, i) => !folder[i]), folders: folder.filter(Boolean).length }
+}

@@ -8,7 +8,7 @@ import { expect, test, type Page } from '@playwright/test'
 import { realErrors, reset, signIn, watchConsole } from './helpers'
 
 const RESOURCE = 'https://team.example/mcp'
-const app = { id: 'synthetic-grant', clientName: 'Synthetic Claude', scopes: ['mcp:read', 'mcp:write', 'offline_access'], createdAt: '2026-11-05T01:00:00.000Z', expiresAt: '2099-01-01T00:00:00.000Z', currentSession: true }
+const app = { id: 'synthetic-grant', clientName: 'Synthetic Claude', scopes: ['mcp:read', 'mcp:write', 'offline_access'], createdAt: '2026-11-05T01:00:00.000Z', expiresAt: '2099-01-01T00:00:00.000Z' }
 const BOB = { username: 'bob', password: 'bob password 1' }
 
 /** GET /api/connectors/remote like a server with the connector on (or off); `state.items` is what it lists. */
@@ -78,13 +78,14 @@ test('the dialog says Connected when the app appears, and the list then shows it
   await page.getByTestId('ai-app-connect-claude').click()
   const status = page.getByRole('dialog').getByTestId('ai-app-status')
   await expect(status).toHaveAttribute('data-state', 'waiting')
-  state.items = [app]
+  // the dialog's own app (by its client name, appIdFor)
+  state.items = [{ ...app, clientName: 'Claude' }]
   await expect(status).toHaveAttribute('data-state', 'connected', { timeout: 15_000 })
-  await expect(status).toContainText('Synthetic Claude')
+  await expect(status).toContainText('Claude')
   await page.getByTestId('ai-app-done').click()
   const connected = page.getByTestId('connected-apps')
   await expect(connected.getByTestId('connector-item')).toHaveCount(1)
-  await expect(connected.getByTestId('connector-item')).toContainText('Synthetic Claude')
+  await expect(connected.getByTestId('connector-item')).toContainText('Claude')
   await expect(connected.getByRole('button', { name: '연결 해제', exact: true })).toBeVisible()
   // closed: no more asking
   const after = state.calls
@@ -147,6 +148,45 @@ test('connector off: a member sees one line and no Connect; an owner gets the se
   await expect(setup.getByTestId('ai-apps-setup-env')).toContainText('MYCEL_REMOTE_MCP_ORIGIN=')
   await expect(setup.getByTestId('ai-apps-guide')).toHaveAttribute('href', /mcp-connector\.md$/)
   await expect(page.getByTestId('ai-app-connect-claude')).toHaveCount(0)
+})
+
+test('connector off: an old connection keeps Disconnect but no "connect again" line, which cannot work while off (QA TC-2971)', async ({ page }) => {
+  await reset(page)
+  const state = await connector(page, false)
+  state.items = [app]
+  await signIn(page, BOB)
+  await page.goto('/settings/ai-apps')
+  await expect(page.getByTestId('ai-apps-off')).toHaveText('관리자가 아직 켜지 않았어요.')
+  const rows = page.getByTestId('connected-apps').getByTestId('connector-item')
+  await expect(rows).toHaveCount(1)
+  await expect(rows.getByTestId('connector-disconnect')).toBeVisible()
+  await expect(page.getByTestId('connector-reconnect-rooms')).toHaveCount(0)
+  await expect(page.getByTestId('connector-reconnect-groups')).toHaveCount(0)
+  // an owner: no group line either
+  await page.context().clearCookies()
+  await signIn(page)
+  await page.goto('/settings/ai-apps')
+  await expect(page.getByTestId('connected-apps').getByTestId('connector-item')).toHaveCount(1)
+  await expect(page.getByTestId('connector-reconnect-rooms')).toHaveCount(0)
+  await expect(page.getByTestId('connector-reconnect-groups')).toHaveCount(0)
+})
+
+test('Claude Code\'s dialog waits for Claude Code: Claude connecting meanwhile gets its own line (QA TC-3032)', async ({ page }) => {
+  await reset(page)
+  const state = await connector(page)
+  await signIn(page)
+  await page.goto('/settings/ai-apps')
+  await page.getByTestId('ai-app-connect-claude-code').click()
+  const dialog = page.getByRole('dialog'), status = dialog.getByTestId('ai-app-status')
+  await expect(status).toHaveAttribute('data-state', 'waiting')
+  state.items = [{ ...app, id: 'g-claude', clientName: 'Claude' }]
+  await expect(dialog.getByTestId('ai-app-other-connected')).toHaveText('Claude 앱이 연결됐어요. Claude Code 연결은 아직 기다리는 중이에요.', { timeout: 15_000 })
+  await expect(status).toHaveAttribute('data-state', 'waiting')
+  await expect(status).not.toContainText('연결됨')
+  state.items = [...state.items, { ...app, id: 'g-code', clientName: 'Claude Code (trina-ax)' }]
+  await expect(status).toHaveAttribute('data-state', 'connected', { timeout: 15_000 })
+  await expect(status).toContainText('Claude Code (trina-ax)')
+  await expect(dialog.getByTestId('ai-app-other-connected')).toHaveCount(0)
 })
 
 test('Admin › AI apps: in the Admin menu, the same four apps with Connect when on, the setup when off', async ({ page }) => {

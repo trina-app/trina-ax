@@ -52,6 +52,8 @@ import { PhoneListGroup, PhoneListRow } from '../phone/PhoneList'
 import { PhonePageBar } from '../phone/PhonePageBar'
 import { SettingsBarSlot, SettingsHold } from './SettingsBar'
 import type { MessageKey } from '../../i18n'
+import { useFreeRoam } from '../../store/demo'
+import { FREE_ROAM_HIDDEN_PAGES } from '../../lib/freeRoam'
 
 const SettingsPane = lazy(() => import('../../pages/Settings'))
 /** sections a phone's list shows on top instead of in their group: the profile (the photo row) */
@@ -116,7 +118,9 @@ export default function SettingsDialog({ onClose, page }: { onClose: () => void;
   useEffect(() => { if (me.user.webAllowAll) setWebOn(true) }, [me.user.webAllowAll])
   // a guest whose AI is off: no usage or AI accounts either (components/GuestView.tsx)
   const guestAiOff = useGuestAiOff()
-  const tabs = settingsTabs(browserTabShown(Boolean(browserSettingsBridge()), me.team.webAllowAll, webOn), Boolean(own), Boolean(sites), isGuestMe(me), guestAiOff)
+  // a free-roam demo (store/demo.ts): no AI account, usage or developer pages
+  const freeRoam = useFreeRoam()
+  const tabs = settingsTabs(browserTabShown(Boolean(browserSettingsBridge()), me.team.webAllowAll, webOn), Boolean(own), Boolean(sites), isGuestMe(me), guestAiOff, freeRoam)
   const [query, setQuery] = useState('')
   const searchRef = useRef<HTMLInputElement>(null)
   const q = query.trim().toLowerCase()
@@ -138,7 +142,8 @@ export default function SettingsDialog({ onClose, page }: { onClose: () => void;
   // the section's one action in a phone's bar (SettingsBar.tsx)
   const [barSlot, setBarSlot] = useState<HTMLElement | null>(null)
   const back = useGoBack(page ? `/settings/${tab}` : '/settings')
-  const backLabel = useBackLabel(page ? `/settings/${tab}` : '/settings', (p) => settingsPageName(p, t))
+  // a phone: /settings is the 나 tab, so its pages go back to "‹ Me", never "‹ Settings" (QA TC-5614)
+  const backLabel = useBackLabel(page ? `/settings/${tab}` : '/settings', (p) => (phone && p === '/settings' ? t('tabs.me') : settingsPageName(p, t)))
   // Connectors' older addresses here (MCP and Google Drive were sections of their own): its section, with what the
   // address asked for (?add=1, ?template=, ?request=), and Google Drive's page under it
   if (tab === 'integrations') return <Navigate to={`${CONNECTORS_HOME}${location.search}`} replace />
@@ -148,6 +153,8 @@ export default function SettingsDialog({ onClose, page }: { onClose: () => void;
   // an old or mistyped address (/settings/devices), or /settings/browser outside the desktop app while the team does not
   // let members allow all websites for web reads: /settings instead (the list, and on a computer the profile beside it)
   if (tab && !waiting && !tabs.some((x) => x.id === tab)) return <Navigate to="/settings" replace />
+  // a free-roam demo: the account deletion, password and devices pages are not the visitor's (lib/freeRoam.ts)
+  if (freeRoam && page && FREE_ROAM_HIDDEN_PAGES.has(page)) return <Navigate to="/settings" replace />
   // a phone: Browser and Dev environment sites are parts of 트리나에게 허용한 것
   if (phone && tab && !page && !waiting && PHONE_FOLDED.has(tab)) return <Navigate to="/settings/allowances" replace />
   const current = tab ?? 'profile'
@@ -271,9 +278,12 @@ function PhoneSettingsList({ tabs, navRef }: { tabs: SettingsTab[]; navRef: Reac
   // the 나 tab's count (the app's own notices: mentions and thread replies are counted on 대화)
   const inbox = useNoticeUnread()
   const groups = SETTINGS_GROUPS.map((g) => tabs.filter((x) => x.group === g && !PHONE_TOP.has(x.id) && !PHONE_FOLDED.has(x.id))).filter((g) => g.length)
-  // signing out asks first (a tap at the end of a long list is easily made by mistake)
+  // a free-roam demo: no sign-out (QA TC-5623; AccountMenu.tsx says why)
+  const freeRoam = useFreeRoam()
+  // signing out asks first (a tap at the end of a long list is easily made by mistake); the sheet says what it does
+  // (its body was empty: QA TC-5623)
   const signOut = async () => {
-    if (await confirmDialog({ title: t('settings.logoutConfirm'), confirm: t('auth.logout'), danger: true })) void logout()
+    if (await confirmDialog({ title: t('settings.logoutConfirm'), body: t('settings.logoutBody'), confirm: t('auth.logout'), danger: true })) void logout()
   }
   return (
     <nav ref={navRef} aria-label={t('tabs.me')} className="min-h-0 flex-1 overflow-y-auto pb-6" data-testid="settings-menu">
@@ -315,22 +325,26 @@ function PhoneSettingsList({ tabs, navRef }: { tabs: SettingsTab[]; navRef: Reac
         </PhoneListGroup>
       ))}
       {/* signing out lives here (the phone has no account menu) */}
-      <PhoneListGroup>
-        <PhoneListRow icon={<LogOut size={16} />} title={t('auth.logout')} onClick={() => void signOut()} testId="settings-logout" />
-      </PhoneListGroup>
+      {!freeRoam && (
+        <PhoneListGroup>
+          <PhoneListRow icon={<LogOut size={16} />} title={t('auth.logout')} onClick={() => void signOut()} testId="settings-logout" />
+        </PhoneListGroup>
+      )}
     </nav>
   )
 }
 
 /** The 나 tab's team: the team's logo and name; for owners and admins 팀원 초대 (the invite dialog, or
- * the owner's own invite step while the welcome steps are unfinished: TeamMenu.tsx openTeamInvite) and 관리자; in the
- * phone app (or the desktop app at a phone's width) "다른 팀으로 전환" for everyone (lib/teamSwitch.ts: the app's own
- * screen; a plain browser has none). */
+ * the owner's own invite step while the welcome steps are unfinished: TeamMenu.tsx openTeamInvite) and 관리자;
+ * "다른 팀으로 전환" for everyone (lib/teamSwitch.ts: the phone app's or desktop app's own screen, a plain browser's
+ * dialog; a phone app without its team screen has none). */
 function PhoneTeamGroup() {
   const t = useT()
   const me = useMeStrict()
   const navigate = useNavigate()
-  const admin = isAdmin(me)
+  // a free-roam demo: nobody is invited to the demo's team (server/src/demo/guard.ts refuses the invites)
+  const freeRoam = useFreeRoam()
+  const admin = isAdmin(me) && !freeRoam
   const canSwitch = useTeamSwitchWay() !== null
   return (
     <PhoneListGroup testId="settings-team-group">

@@ -16,7 +16,7 @@ Want to make one? Read [Build a plugin](../develop/plugins.md): what the communi
 | **Skill bundle** | Company skills (`SKILL.md`) only | No |
 | **Native tool or preview** | A program the server runs in isolation, through a driver the core already knows | Yes, isolated |
 
-Today the only native driver is the HWP preview (`rhwp-v1`). While it is on, Hangul files (HWP, HWPX) open as pages in the file panel: files in team folders, and files sent in a room, DM or thread, for the people who can see that message. Without it, Hangul files are downloaded to open them.
+Today the only native driver is the HWP preview (`rhwp-v1`). While it is on, Hangul files (HWP, HWPX) open as pages in the file panel: files in team folders, and files sent in a conversation or thread, for the people who can see that message. Without it, Hangul files are downloaded to open them.
 
 ## Install
 
@@ -45,7 +45,7 @@ When on, a bundle's skills appear at `skills/<plugin id>/<skill>/SKILL.md`. That
 | Item | Rule |
 |---|---|
 | File | `.trinaplugin`: a POSIX tar, optionally gzipped |
-| Manifest | `trina-plugin.json`: id (reverse domain), SemVer version, provider, kind, names and descriptions in five languages, permissions, platforms, and every file's path, size and SHA-256 |
+| Manifest | `trina-plugin.json`: id (reverse domain), SemVer version, provider, kind, names and descriptions in English (Korean, Simplified Chinese, Japanese, Spanish and Indonesian optional), permissions, platforms, and every file's path, size and SHA-256 |
 | Permissions | `skills.company`, `files.read.selected`, `preview.render`, `runtime.native.isolated`, `model.send.preview-pixels` |
 | Format version | `schemaVersion` 1. Unknown fields, keys or permissions are refused. |
 

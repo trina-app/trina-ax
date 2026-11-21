@@ -38,12 +38,18 @@ const DECIDED: Record<string, RailItem | null> = {
   '': 'ai',
   new: 'ai',
   'c/:chatId': 'ai',
+  'c/:chatId/t/:messageId': 'ai',
   rooms: 'chats',
   'rooms/:roomId': 'chats',
   'rooms/:roomId/t/:messageId': 'chats',
+  'rooms/:roomId/m/:target': 'chats',
+  'rooms/:roomId/t/:messageId/m/:target': 'chats',
   activity: 'activity',
+  'activity/:noticeId': 'activity',
   files: 'files',
   'files/view': 'files',
+  'f/batch/:id': 'files',
+  'f/:id': 'files',
   projects: 'projects',
   'projects/:projectId': 'projects',
   'projects/:projectId/files': 'projects',
@@ -52,6 +58,8 @@ const DECIDED: Record<string, RailItem | null> = {
   'admin/:section/:sub': null,
   'admin/:section/:sub/:item': null,
   trash: 'ai',
+  // "Files you sent" (pages/SentFiles.tsx): the conversations'
+  'sent-files': 'chats',
   skills: 'ai',
   'skills/share/:id': 'ai',
   scheduled: 'ai',
@@ -105,7 +113,7 @@ describe('the places', () => {
     expect(railOf('/Rooms')).toBe('chats')
     expect(railOf('/rooms/')).toBe('chats')
     expect(railOf('/FILES/view')).toBe('files')
-    for (const p of ['/c', '/files/view/x', '/rooms/a/b/c/d', '/trash/x', '/activity/x']) expect(railOf(p)).toBeNull()
+    for (const p of ['/c', '/files/view/x', '/rooms/a/b/c/d', '/trash/x', '/activity/x/y']) expect(railOf(p)).toBeNull()
   })
 })
 

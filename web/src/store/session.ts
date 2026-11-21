@@ -6,7 +6,7 @@ import { optimistic, optimisticPending, optimisticPendingKeys } from '../lib/opt
 import { applyTheme, storedTheme, storeTheme } from '../lib/theme'
 import { applyTextSize, pickTextSize, storedTextSize, storeTextSize, textSizeFailed, textSizeSettled, unsavedTextSize } from '../lib/textSize'
 import { toast } from './ui'
-import { loadLocale, pickLocale, t as tNow, recentLocale, storedLocale, storeLocale, storeRecentLocale, useLocaleStore } from '../i18n'
+import { browserLocale, loadLocale, pickLocale, t as tNow, recentLocale, storedLocale, storeLocale, storeRecentLocale, useLocaleStore } from '../i18n'
 import { recoveryLocale } from '../i18n/recovery-locale'
 import { forgetSetupToken, keptSetupToken, readSetupLink, rememberSetupToken } from '../lib/setupLink'
 import { forgetFileUploads } from '../lib/fileUploads'
@@ -14,14 +14,18 @@ import { forgetFolderUploads } from '../lib/folderRuns'
 import { forgetTeamAttach } from '../lib/teamAttach'
 import { forgetStarters } from '../lib/starter'
 import { forgetSkillList } from '../lib/skillTitles'
-import { accountRemoved, type SignedOutReason } from '../lib/signedOut'
+import { accountRemoved, guestRemoval, type SignedOutReason } from '../lib/signedOut'
+import { meGuest, myUploadMax } from '../lib/guests'
+import { freeRoamNow } from './demo'
 
 export type AuthStatus =
   | { kind: 'loading' }
   | { kind: 'setup'; teamName: string | null }
   // 'removed': an account taken out of the team. A guest turned off while signed in carries the team's name for the
   // sign-in page's guest line; a removed member (TC-1974, lib/signedOut.ts) has none (pages/Auth.tsx Login)
-  | { kind: 'signed-out'; reason?: SignedOutReason; team?: string }
+  // ownerRecoveryUrl: a hosted team's console page where its owner resets a forgotten password (GET /api/setup; the
+  // sign-in page adds ?team=<its own host>); left out when the server sent none
+  | { kind: 'signed-out'; reason?: SignedOutReason; team?: string; ownerRecoveryUrl?: string }
   | { kind: 'signed-in'; me: Me }
   | { kind: 'error'; error: unknown }
 
@@ -37,7 +41,7 @@ interface SessionState {
   pickLocale: (l: Locale) => void
   /** engine / model null = back to the team default. Shown at once; throws when refused (the screen is back to what the
    * account has); false: a newer pick replaced this one (its answer decides; nothing to say) */
-  updatePrefs: (prefs: Omit<Partial<UserPrefs>, 'engine' | 'model' | 'away'> & { engine?: UserPrefs['engine'] | null; model?: string | null }) => Promise<boolean>
+  updatePrefs: (prefs: Omit<Partial<UserPrefs>, 'engine' | 'model' | 'away' | 'mentionAllAsk' | 'goalCard' | 'preparedCard'> & { engine?: UserPrefs['engine'] | null; model?: string | null; mentionAllAsk?: 'off' | null; goalCard?: 'hidden' | null; preparedCard?: 'hidden' | null }) => Promise<boolean>
   /** the person's language: one of their own, or null = follow the team default */
   setLocale: (l: Locale | null) => Promise<void>
   setTheme: (t: Theme) => Promise<void>
@@ -54,11 +58,33 @@ interface SessionState {
 /** A guest turned off while signed in: the team's name, kept in this browser until the next sign-in, so the sign-in page
  * still says why on a later visit (the server's answer to their password is only "wrong"). */
 const REMOVED_KEY = 'mycel.removedFrom'
+/** ...and 'left' when the guest left their place themselves (guest walkthrough S5) */
+const REMOVED_HOW_KEY = 'mycel.removedHow'
 export function removedFrom(): string | null {
   try { return localStorage.getItem(REMOVED_KEY) } catch { return null }
 }
-function rememberRemoved(team: string | null) {
-  try { if (team) localStorage.setItem(REMOVED_KEY, team); else localStorage.removeItem(REMOVED_KEY) } catch { /* storage blocked: said only this time */ }
+export function removedHow(): 'left' | 'removed' {
+  try { return localStorage.getItem(REMOVED_HOW_KEY) === 'left' ? 'left' : 'removed' } catch { return 'removed' }
+}
+function rememberRemoved(team: string | null, how: 'left' | 'removed' = 'removed') {
+  try {
+    if (team) { localStorage.setItem(REMOVED_KEY, team); localStorage.setItem(REMOVED_HOW_KEY, how) }
+    else { localStorage.removeItem(REMOVED_KEY); localStorage.removeItem(REMOVED_HOW_KEY) }
+  } catch { /* storage blocked: said only this time */ }
+}
+/** A guest's own screen (their account ended) in their language: their browser's (one of ours) unless they picked one
+ * here, as their invite page was (guest walkthrough S10), not the team's (QA TC-3225/3226: a Korean guest of an English
+ * team read English). */
+function guestLanguage() {
+  const mine = storedLocale() ? null : browserLocale(typeof navigator === 'undefined' ? [] : navigator.languages?.length ? navigator.languages : [navigator.language])
+  if (mine && mine !== useLocaleStore.getState().locale) useLocaleStore.getState().setLocale(mine)
+}
+/** The signed-out status for a guest whose account ended (the 401 said so): their own screen, before any password. */
+function guestSignedOut(g: { how: 'left' | 'removed'; team: string | null }, team?: string): Extract<AuthStatus, { kind: 'signed-out' }> {
+  const name = g.team ?? team ?? null
+  if (name) rememberRemoved(name, g.how)
+  guestLanguage()
+  return { kind: 'signed-out', reason: g.how, ...(name ? { team: name } : {}) }
 }
 
 function applyMe(me: Me) {
@@ -86,6 +112,10 @@ let pendingPick: Locale | null = null
 let pickedBeforeSignIn = false
 /** team default as last seen, for the sign-in screen after a sign-out */
 let lastTeamDefault: Locale | null = null
+/** GET /api/setup's ownerRecoveryUrl as last seen (null: none, or not asked yet), kept for the sign-in screen */
+let lastOwnerRecovery: string | null = null
+/** a signed-out status with the hosted team's owner-recovery page, when the server named one */
+const withRecovery = <T extends Extract<AuthStatus, { kind: 'signed-out' }>>(st: T): T => (lastOwnerRecovery ? { ...st, ownerRecoveryUrl: lastOwnerRecovery } : st)
 /** the latest theme pick still being saved (setTheme), and the theme in use before the picks not saved yet */
 let themePick: { back: Theme } | null = null
 
@@ -155,6 +185,7 @@ export const useSession = create<SessionState>((set, get) => ({
     pendingPick = null
     pickedBeforeSignIn = false
     lastTeamDefault = null
+    lastOwnerRecovery = null
     themePick = null
     booting = null
   },
@@ -203,14 +234,19 @@ export const useSession = create<SessionState>((set, get) => ({
     // the sign-in screen shows this browser's pick, else the team default: not the previous person's language
     // (requests before sign-in carry the screen's language, so their errors follow too)
     useLocaleStore.getState().setLocale(pickLocale(storedLocale(), lastTeamDefault))
-    if (reason === 'removed' && team) rememberRemoved(team)
-    set({ status: { kind: 'signed-out', reason, ...(team ? { team } : {}) } })
+    // a guest's (only a guest's 'removed' carries the team)
+    if ((reason === 'removed' || reason === 'left') && team) { rememberRemoved(team, reason); guestLanguage() }
+    set({ status: withRecovery({ kind: 'signed-out', reason, ...(team ? { team } : {}) }) })
     // ended from elsewhere (the live link said so, or it was refused): the server tells this sign-in's own holder when
-    // the account was removed from the team, so the page does not say "you signed out elsewhere" (TC-1974)
-    if (reason === 'ended' || reason === 'expired') {
+    // the account was removed from the team, so the page does not say "you signed out elsewhere" (TC-1974); a guest
+    // also learns whether they left their place themselves (guest walkthrough S5)
+    if (reason === 'ended' || reason === 'expired' || reason === 'removed') {
       api.call(API.me).then(() => {}, (e) => {
         const st = get().status
-        if (accountRemoved(e) && st.kind === 'signed-out' && st.reason === reason) set({ status: { kind: 'signed-out', reason: 'removed' } })
+        if (st.kind !== 'signed-out' || st.reason !== reason) return
+        const g = guestRemoval(e)
+        if (g) set({ status: withRecovery(guestSignedOut(g, st.team)) })
+        else if (accountRemoved(e) && reason !== 'removed') set({ status: withRecovery({ kind: 'signed-out', reason: 'removed' }) })
       })
     }
   },
@@ -226,6 +262,12 @@ export const useSession = create<SessionState>((set, get) => ({
         get().signedIn(me)
         // an admin made this guest a team member while they are signed in: said once, in words (their windows already widen)
         if (before.kind === 'signed-in' && before.me.user.role === 'guest' && me.user.role !== 'guest') toast({ level: 'info', text: tNow('guest.nowMember') })
+        // their AI was switched off meanwhile: the AI place leaves the menu, so one quiet line says why (guest walkthrough
+        // N7), not a tab that is simply gone
+        else {
+          const was = meGuest(before.me)?.ai, now = meGuest(me)?.ai
+          if (was && was !== 'none' && now === 'none') toast({ level: 'info', text: tNow('guest.aiTurnedOff') })
+        }
       }
     } catch {
       /* signed out or offline: the realtime connection reports that */
@@ -367,21 +409,26 @@ async function readMe(get: Get, set: Set): Promise<void> {
         // the setup link's token, if this tab was opened with one (kept for a reload: lib/setupLink.ts): through the
         // relay the server says setup is still needed only to a visitor who has it (server/src/auth/accounts.ts
         // setupStatusFor)
-        const linked = typeof location === 'undefined' ? null : readSetupLink(location).token
-        rememberSetupToken(linked)
+        const link = typeof location === 'undefined' ? null : readSetupLink(location)
+        const linked = link?.token ?? null
+        rememberSetupToken(linked, link?.team ? { team: link.team, lang: link.lang } : null)
         const token = linked ?? keptSetupToken()
         const s = await api.call(API.setupStatus, token ? { headers: { [SETUP_TOKEN_HEADER]: token } } : {})
         // a kept token the server did not take (spent, or wrong) is not sent again: each try counts toward the
         // per-address token limit that everyone behind this address shares
         if (!s.needed) forgetSetupToken()
         lastTeamDefault = s.defaultLocale ?? null
+        lastOwnerRecovery = s.ownerRecoveryUrl ?? null
         // before sign-in: the visitor's pick on this browser, else the team default (also tells the desktop app)
         const locale = pickLocale(storedLocale(), s.defaultLocale)
         await wordsFor(locale)
         useLocaleStore.getState().setLocale(locale)
-        set({ status: s.needed ? { kind: 'setup', teamName: s.teamName } : { kind: 'signed-out', ...(accountRemoved(e) ? { reason: 'removed' as const } : {}) } })
+        // a guest switched off while away: their own screen at once, not a plain sign-in (guest walkthrough S6)
+        const g = guestRemoval(e)
+        set({ status: s.needed ? { kind: 'setup', teamName: s.teamName } : withRecovery(g ? guestSignedOut(g) : { kind: 'signed-out', ...(accountRemoved(e) ? { reason: 'removed' as const } : {}) }) })
       } catch {
-        set({ status: { kind: 'signed-out', ...(accountRemoved(e) ? { reason: 'removed' as const } : {}) } })
+        const g = guestRemoval(e)
+        set({ status: g ? guestSignedOut(g) : { kind: 'signed-out', ...(accountRemoved(e) ? { reason: 'removed' as const } : {}) } })
       }
       return
     }
@@ -408,4 +455,13 @@ export const isAdmin = (me: Me | null) => me?.user.role === 'admin' || me?.user.
 export const isOwner = (me: Me | null) => me?.user.role === 'owner'
 /** may pick the AI engine / model (composer picker, "retry with another model", own default): owner and admins always,
  * others when Admin > AI providers allows them. The server enforces it; an older server without the field: admins only. */
-export const canChooseEngine = (me: Me | null) => !!me && (me.user.canChooseEngine ?? isAdmin(me))
+// a free-roam demo's visitor never picks or sees which AI answers (docs/decisions/20261119-demo-free-roam-web.md): its
+// demo info is read before the app's screens (App.tsx), so this holds from the first one
+export const canChooseEngine = (me: Me | null) => !!me && !freeRoamNow() && (me.user.canChooseEngine ?? isAdmin(me))
+
+/** The largest file whoever is signed in now may upload (lib/guests.ts myUploadMax), for code outside a component (a
+ * drop handler, a folder upload's limits). */
+export const myUploadMaxNow = (otherwise: number): number => {
+  const st = useSession.getState().status
+  return myUploadMax(st.kind === 'signed-in' ? st.me : null, otherwise)
+}

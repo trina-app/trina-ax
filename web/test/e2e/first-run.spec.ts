@@ -38,9 +38,12 @@ test('a used or unknown invite: the reason, "이미 가입했다면 로그인하
   await expect(p2).not.toHaveURL(/\/invite\//)
   await other.close()
   const p3 = await (await page.context().browser()!.newContext({ locale: 'ko-KR' })).newPage()
-  for (const path of [`/invite/${token}`, '/invite/AAAAAAAAAAAAAAAAAAAAAA']) {
+  // the used link says so (InviteInfo.reason, QA TC-2219); a link the server does not know has no reason to give: the general line
+  for (const [path, line, reason] of [[`/invite/${token}`, 'invite.reason.used', 'used'], ['/invite/AAAAAAAAAAAAAAAAAAAAAA', 'invite.invalid', null]] as const) {
     await p3.goto(path)
-    await expect(p3.getByText(ko('invite.invalid'))).toBeVisible()
+    await expect(p3.getByTestId('invite-invalid')).toHaveText(ko(line))
+    if (reason) await expect(p3.getByTestId('invite-invalid')).toHaveAttribute('data-reason', reason)
+    else await expect(p3.getByTestId('invite-invalid')).not.toHaveAttribute('data-reason')
     await expect(p3.getByText(ko('auth.alreadyJoined'))).toBeVisible()
     const button = p3.getByTestId('invalid-signin')
     await expect(button).toBeVisible()
@@ -131,17 +134,20 @@ test('Settings › 앱: an office server reached at a port; plain http says the 
 
 // phase 2 (docs/AGENTS/plan/20261108-1025-first-run-open-links.md): "앱에서 열기" on both join pages carries this page's own
 // link (the team link's token from memory: the address bar no longer has it), and only where our own app receives it:
-// the desktop app's scheme on a Mac or Windows, an intent naming our package on Android, nothing on an iPhone or Linux
+// the desktop app's scheme on a Mac, Windows or Linux computer, an intent naming our package on Android, nothing on an
+// iPhone or a Chromebook (QA TC-5352: Linux had none)
 const UA = {
   mac: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Safari/605.1.15',
   windows: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36',
   android: 'Mozilla/5.0 (Linux; Android 15; Pixel 9) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Mobile Safari/537.36',
   iphone: 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1',
   linux: 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36',
+  chromebook: 'Mozilla/5.0 (X11; CrOS x86_64 14541.0.0) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36',
 }
+const computer = (system: string) => system === 'mac' || system === 'windows' || system === 'linux'
 // without the app, Android's Chrome opens the Google Play listing (APP_DOWNLOADS; no token in it)
 const FALLBACK = `S.browser_fallback_url=${encodeURIComponent('https://play.google.com/store/apps/details?id=app.trina.ax')};`
-test('"앱에서 열기": the desktop scheme on computers, an intent with our package on Android, none on iPhone or Linux', async ({ page, browser }) => {
+test('"앱에서 열기": the desktop scheme on computers, an intent with our package on Android, none on iPhone or a Chromebook', async ({ page, browser }) => {
   await reset(page)
   await signIn(page)
   const { token } = await post(page, '/api/admin/invites', { role: 'member', groupIds: [] })
@@ -156,7 +162,7 @@ test('"앱에서 열기": the desktop scheme on computers, an intent with our pa
     const origin = new URL(p.url()).origin
     const invite = encodeURIComponent(`${origin}/invite/${token}`)
     const open = p.getByTestId('open-in-app')
-    if (system === 'mac' || system === 'windows') {
+    if (computer(system)) {
       await expect(open).toHaveText(ko('auth.openInApp'))
       expect(await open.getAttribute('href')).toBe(`trina-ax://open?url=${invite}`)
     } else if (system === 'android') {
@@ -170,7 +176,7 @@ test('"앱에서 열기": the desktop scheme on computers, an intent with our pa
     expect(new URL(p.url()).hash).toBe('')
     const join = encodeURIComponent(`${origin}/join${linkUrl.hash}`)
     const href = (await p.getByTestId('open-in-app').count()) ? await p.getByTestId('open-in-app').getAttribute('href') : null
-    expect({ system, href }).toEqual({ system, href: system === 'mac' || system === 'windows' ? `trina-ax://open?url=${join}` : system === 'android' ? `intent://open?url=${join}#Intent;scheme=trina-ax;package=app.trina.ax;${FALLBACK}end` : null })
+    expect({ system, href }).toEqual({ system, href: computer(system) ? `trina-ax://open?url=${join}` : system === 'android' ? `intent://open?url=${join}#Intent;scheme=trina-ax;package=app.trina.ax;${FALLBACK}end` : null })
     await ctx.close()
   }
 })

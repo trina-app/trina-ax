@@ -41,8 +41,11 @@ async function routeInbox(page: Page) {
   return state
 }
 
+/** the room after the thread's first message: long enough that the room opens far below it */
+const LATER: MockMessage[] = Array.from({ length: 40 }, (_, i) => ({ id: id(501 + i), author: [SEOYEON, JIHO][i % 2]!, body: `나중 메시지 ${i + 1}: 다른 이야기예요` }))
+
 async function routeThread(page: Page) {
-  return routeRoom(page, { kind: 'team', members: [MINJUN, SEOYEON, JIHO], messages: [{ id: ROOT, author: MINJUN, body: '다음 주 발표 시안, 어떻게 나눌까요?' }, ...REPLIES] })
+  return routeRoom(page, { kind: 'team', members: [MINJUN, SEOYEON, JIHO], messages: [{ id: ROOT, author: MINJUN, body: '다음 주 발표 시안, 어떻게 나눌까요?', extra: { thread: { replyCount: REPLIES.length, repliers: [MINJUN, SEOYEON, JIHO], lastReplyAt: ago(2), newReplies: false } } }, ...REPLIES, ...LATER] })
 }
 
 test('a thread row says who and where with the newest line and the count; a click opens the thread at the first unread reply and reads it', async ({ page }) => {
@@ -85,7 +88,46 @@ test('a thread row says who and where with the newest line and the count; a clic
   const picked = page.getByTestId('room-thread').locator('[data-highlight]')
   await expect(picked).toContainText(TARGET.body)
   await expect(picked).toBeInViewport()
+  // only the place: no tinted background on the message (owner 2026-11-21)
+  expect(await picked.evaluate((el) => getComputedStyle(el).backgroundColor)).toBe('rgba(0, 0, 0, 0)')
+  // the room in the middle: at the message the thread is under (40 later messages below it), lit, not at the bottom
+  // (docs/decisions/20261120-notif-open-parent-message.md)
+  const parent = page.getByTestId('room-scroller').locator('[data-highlight]')
+  await expect(parent).toContainText('다음 주 발표 시안, 어떻게 나눌까요?')
+  await expect(parent).toBeInViewport()
+  await expect(page.getByTestId('room-scroller').getByText(LATER.at(-1)!.body)).not.toBeInViewport()
   expect(state.reads).toEqual([id(1)])
+})
+
+test('a thread opened from the room leaves the room where it was; a push path to a message opens the room at it', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await reset(page)
+  await signIn(page)
+  await routeInbox(page)
+  await routeThread(page)
+  // the room at its newest; scrolled up to the thread's first message, its reply line opens the thread and the room does
+  // not move
+  await page.goto(`/rooms/${ROOM_ID}`)
+  const scroller = page.getByTestId('room-scroller')
+  await expect(scroller.getByText(LATER.at(-1)!.body)).toBeInViewport()
+  const line = scroller.locator(`[id="room-msg-${ROOT}"]`).getByTestId('room-thread-line')
+  await line.scrollIntoViewIfNeeded()
+  const before = await scroller.evaluate((el) => el.scrollTop)
+  await line.click()
+  await expect(page.getByTestId('room-thread')).toBeVisible()
+  await page.waitForTimeout(300)
+  expect(Math.abs((await scroller.evaluate((el) => el.scrollTop)) - before)).toBeLessThan(4)
+  await expect(scroller.locator('[data-highlight]')).toHaveCount(0)
+  // a phone notification's path: /rooms/<room>/t/<root>/m/<reply> is the thread at the reply, the room at its root
+  await page.goto(`/rooms/${ROOM_ID}/t/${ROOT}/m/${TARGET.id}`)
+  await expect(page).toHaveURL(new RegExp(`/rooms/${ROOM_ID}/t/${ROOT}\\?m=${TARGET.id}$`))
+  await expect(page.getByTestId('room-thread').locator('[data-highlight]')).toContainText(TARGET.body)
+  await expect(scroller.locator('[data-highlight]')).toBeInViewport()
+  // /rooms/<room>/m/<message>: the room at that message
+  await page.goto(`/rooms/${ROOM_ID}/m/${LATER[5]!.id}`)
+  await expect(page).toHaveURL(new RegExp(`/rooms/${ROOM_ID}\\?m=${LATER[5]!.id}$`))
+  await expect(scroller.locator('[data-highlight]')).toContainText(LATER[5]!.body)
+  await expect(scroller.locator('[data-highlight]')).toBeInViewport()
 })
 
 test('Inbox screenshots: 1440 and 390, light and dark', async ({ browser }) => {

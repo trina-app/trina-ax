@@ -1,19 +1,26 @@
-// Voice input's pieces in a message box (lib/useVoiceInput.ts), the same in the AI chat's Composer and a room's or
-// thread's RoomComposer:
+// Voice input's pieces in a message box (lib/useVoiceInput.ts), the same in the AI chat's Composer, a room's or
+// thread's RoomComposer and the ✦ side chat's box (rooms/SideChatPanel.tsx):
 // - VoiceBar: stands where the box was while recording: ✕ (cancel), the red dot, a short line (how a hold ends; once,
 //   for a clicked recording on a computer, that Space can be held), the input level, the time (the time left in the
-//   last 30 seconds), ✓ (the words go to the box).
+//   last 30 seconds), ✓ (the words go to the box). A recording that ends with ✓ and has heard nothing in its first
+//   seconds says so where the level was (a row of dots then), until the first sound.
 // - VoiceMic: the mic (a click toggles; on touch screens a finger held on it talks), a spinner on it while
 //   transcribing; nothing while voice input can't be used on this server (lib/voice.ts micState).
 // - VoiceLive: the polite live region (녹음 중, 텍스트로 바꾸는 중, 텍스트를 넣었어요). Always there, so a change is read.
+// - VoiceHeld: the box's text while recording (it cannot be typed in then). It grows with the words of a live recording
+//   (lib/liveDictation.ts) as the box grows while typing, up to the box's own max-height (each box passes its text
+//   field's), then shows its last whole lines (lib/autoGrow.ts fitLastLines), again when the window or the keyboard
+//   changes what is in sight.
 // - VoiceProgress: the job's own label (a model download, a conversion) over a box that has text; an empty box shows it
 //   as its placeholder.
 // Ping and level movement only without reduced motion.
 import clsx from 'clsx'
 import { Check, Loader2, Mic, X } from 'lucide-react'
-import { useEffect, useRef } from 'react'
+import { useEffect, useLayoutEffect, useRef, type CSSProperties } from 'react'
 import { useT } from '../i18n'
+import { fitLastLines } from '../lib/autoGrow'
 import { fmtDuration } from '../lib/format'
+import { waveBarPx } from '../lib/recorder'
 import type { VoiceInputState } from '../lib/useVoiceInput'
 import type { MicState } from '../lib/voice'
 import { Tooltip } from './Tooltip'
@@ -39,15 +46,17 @@ export function VoiceBar({ voice, className }: { voice: VoiceInputState; classNa
         <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-danger" />
       </span>
       {voice.hint && (
-        <span className="min-w-0 shrink text-xs leading-snug break-keep text-muted" data-testid="voice-hint">
+        <span className={clsx('min-w-0 text-xs leading-snug', voice.silent ? 'flex-1 text-ink' : 'shrink break-keep text-muted')} data-testid="voice-hint" data-silent={voice.silent || undefined}>
           {voice.hint}
         </span>
       )}
-      <div className="flex h-8 min-w-8 flex-1 items-center gap-[3px] overflow-hidden" aria-hidden>
-        {Array.from({ length: 32 }, (_, i) => (
-          <span key={i} className="w-[3px] shrink-0 rounded-full bg-ink motion-safe:transition-[height] motion-safe:duration-100" style={{ height: `${Math.max(3, voice.level * 32 * (0.4 + 0.6 * Math.abs(Math.sin((i + voice.seconds) * 1.7))))}px` }} />
-        ))}
-      </div>
+      {!voice.silent && (
+        <div className="flex h-8 min-w-8 flex-1 items-center gap-[3px] overflow-hidden" aria-hidden data-testid="voice-wave">
+          {Array.from({ length: 32 }, (_, i) => (
+            <span key={i} className="w-[3px] shrink-0 rounded-full bg-ink motion-safe:transition-[height] motion-safe:duration-100" style={{ height: `${waveBarPx(voice.level, i, voice.seconds)}px` }} />
+          ))}
+        </div>
+      )}
       <span className={clsx('shrink-0 text-sm tabular-nums', voice.left !== null ? 'font-medium text-danger' : 'text-muted')} data-testid="voice-time">
         {voice.left !== null ? t('voice.left', { time: fmtDuration(voice.left) }) : fmtDuration(voice.seconds)}
       </span>
@@ -83,6 +92,37 @@ export function VoiceMic({ voice, mic, disabled = false, tip = false, className 
     >
       {voice.transcribing ? <Loader2 size={18} className="animate-spin" aria-hidden /> : <Mic size={18} aria-hidden />}
     </IconButton>
+  )
+}
+
+/** `textClass`: the box's own text size where it is not the reading size (the ✦ side chat's box: text-sm) */
+export function VoiceHeld({ text, className, style, testId, textClass = 'text-reading leading-reading' }: { text: string; className?: string; style?: CSSProperties; testId: string; textClass?: string }) {
+  const el = useRef<HTMLParagraphElement>(null)
+  // as tall as its words up to the box's limit; then the newest words stay in sight, no line cut at the top
+  useLayoutEffect(() => {
+    const p = el.current
+    if (!p) return
+    fitLastLines(p)
+    // a phone's keyboard or a turned phone changes the limit: measured again in the next frame, once lib/viewport.ts has
+    // set --app-h for what is in sight now
+    let frame = 0
+    const fit = () => {
+      cancelAnimationFrame(frame)
+      frame = requestAnimationFrame(() => fitLastLines(p))
+    }
+    const vv = window.visualViewport
+    window.addEventListener('resize', fit)
+    vv?.addEventListener('resize', fit)
+    return () => {
+      cancelAnimationFrame(frame)
+      window.removeEventListener('resize', fit)
+      vv?.removeEventListener('resize', fit)
+    }
+  }, [text])
+  return (
+    <p ref={el} aria-hidden style={style} className={clsx('overflow-hidden break-words whitespace-pre-wrap', textClass, className)} data-testid={testId}>
+      {text}
+    </p>
   )
 }
 

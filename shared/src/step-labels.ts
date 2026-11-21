@@ -24,14 +24,25 @@ export const FILE_STEP_VERB: Record<string, T> = {
   edit_files: t('여러 파일 수정', 'Edit files', 'Ubah beberapa berkas', "複数のファイルを編集", "Editar archivos", "编辑多个文件"),
   make_file: t('파일 만들기', 'Make file', 'Buat berkas', "ファイルを作成", "Crear archivo", "创建文件"),
   edit_hwp: t('한글 문서 고치기', 'Edit Hangul document', 'Ubah dokumen Hangul', "ハングル文書を編集", "Editar documento Hangul", "编辑韩文（HWP）文档"),
+  stamp_pdf: t('PDF에 이미지 찍기', 'Stamp PDF', 'Bubuhkan gambar ke PDF', "PDFに画像を押す", "Estampar en PDF", "在PDF上盖图"),
+  edit_pdf: t('PDF 고치기', 'Edit PDF', 'Ubah PDF', "PDFを編集", "Editar PDF", "编辑PDF"),
+  merge_pdfs: t('PDF 합치기', 'Merge PDFs', 'Gabungkan PDF', "PDFを結合", "Combinar PDF", "合并PDF"),
+  split_pdf: t('PDF 나누기', 'Split PDF', 'Pisahkan PDF', "PDFを分割", "Dividir PDF", "拆分PDF"),
+  resize_images: t('사진 크기 줄이기', 'Resize photos', 'Perkecil foto', "写真を縮小", "Reducir fotos", "缩小照片"),
+  unzip_file: t('압축 풀기', 'Unzip', 'Ekstrak zip', "ZIPを展開", "Descomprimir", "解压缩"),
+  make_zip: t('압축 파일 만들기', 'Make a zip', 'Buat zip', "ZIPを作成", "Crear zip", "创建压缩包"),
+  query_data: t('데이터 계산', 'Calculate data', 'Hitung data', "データを集計", "Calcular datos", "计算数据"),
   share_file: t('파일 공유 링크', 'Share link', 'Tautan berkas', "リンクを共有", "Compartir enlace", "分享链接"),
   move_files: t('파일 옮기기', 'Move files', 'Pindahkan berkas', "ファイルを移動", "Mover archivos", "移动文件"),
   copy_files: t('파일 복사', 'Copy files', 'Salin berkas', "ファイルをコピー", "Copiar archivos", "复制文件"),
   rename_file: t('이름 바꾸기', 'Rename', 'Ganti nama', "名前を変更", "Cambiar nombre", "重命名"),
+  rename_files: t('이름 여러 개 바꾸기', 'Rename files', 'Ganti nama berkas', "複数の名前を変更", "Cambiar nombres", "批量重命名"),
   delete_files: t('휴지통으로 옮기기', 'Move to trash', 'Pindahkan ke tempat sampah', "ゴミ箱に移動", "Mover a la papelera", "移到回收站"),
   artifact: t('화면 만들기', 'Make a page', 'Buat halaman', "画面を作成", "Crear una página", "制作页面"),
   web_fetch: t('웹 페이지 가져오기', 'Fetch page', 'Ambil halaman', "ページを取得", "Obtener página", "获取网页"),
   save_url: t('파일 받아 저장', 'Download file', 'Unduh berkas', "ファイルをダウンロード", "Descargar archivo", "下载文件"),
+  // a Gmail attachment or a Drive file saved as the original file (server/src/tools/save-connector-file.ts)
+  save_connector_file: t('원본 파일 저장', 'Save original file', 'Simpan berkas asli', "元のファイルを保存", "Guardar archivo original", "保存原始文件"),
   hwp_render: t('한글 문서 쪽 보기', 'View Hangul document page', 'Lihat halaman dokumen Hangul', "ハングル文書のページを表示", "Ver página del documento Hangul", "查看韩文（HWP）文档页面"),
   // the removed search by meaning tool and the removed knowledge graph's tool (docs/DECISIONS.md, 2026-11-11): their
   // steps stay in older chats
@@ -44,7 +55,10 @@ export const FILE_STEP_VERB: Record<string, T> = {
   drive_list: t('Google Drive 폴더 보기', 'List Google Drive folder', 'Lihat folder Google Drive', "Google ドライブのフォルダを表示", "Listar carpeta de Google Drive", "查看Google Drive文件夹"),
   drive_read: t('Google Drive 파일 읽기', 'Read Google Drive file', 'Baca berkas Google Drive', "Google ドライブのファイルを読む", "Leer archivo de Google Drive", "读取Google Drive文件"),
   generate_video: t('동영상 만들기', 'Generate video', 'Buat video', "動画を生成", "Generar video", "生成视频"),
+  comment_docx: t('워드 메모 달기', 'Add Word comments', 'Tambah komentar Word', "Wordにコメントを追加", "Añadir comentarios en Word", "添加 Word 批注"),
+  edit_office: t('오피스 파일 고치기', 'Edit Office file', 'Ubah berkas Office', "Officeファイルを編集", "Editar archivo de Office", "编辑 Office 文件"),
   promo_video: t('홍보 영상 만들기', 'Make promo video', 'Buat video promosi', "プロモーション動画を作成", "Crear vídeo promocional", "制作宣传视频"),
+  save_promo_video: t('홍보 영상 파일로 저장', 'Save promo video as a file', 'Simpan video promosi sebagai berkas', "プロモーション動画をファイルに保存", "Guardar el vídeo promocional como archivo", "将宣传视频保存为文件"),
   intro_deck: t('회사 소개서 만들기', 'Make company profile', 'Buat profil perusahaan', "会社紹介資料を作成", "Crear presentación corporativa", "制作公司介绍"),
   box_shell: t('개발 환경 명령', 'Dev environment command', 'Perintah lingkungan pengembangan', "開発環境のコマンド", "Comando del entorno de desarrollo", "开发环境命令"),
   ask_user: t('질문', 'Question', 'Pertanyaan', "質問", "Pregunta", "提问"),
@@ -53,26 +67,45 @@ export const FILE_STEP_VERB: Record<string, T> = {
   move_skill: t('스킬 옮기기', 'Move skill', 'Pindahkan skill', "スキルを移動", "Mover habilidad", "移动技能"),
   skill_files: t('스킬 폴더 파일', 'Skill folder files', 'Berkas folder skill', "スキルフォルダーのファイル", "Archivos de carpeta de habilidades", "技能文件夹文件"),
   find_tools: t('쓸 수 있는 기능 찾기', 'Find features', 'Cari fitur', "使える機能を探す", "Buscar funciones", "查找功能"),
+  // the next part of a long answer of a connected service (server/src/integrations/connections/tools.ts)
+  connection_result: t('이어서 읽기', 'Read on', 'Baca lanjutan', "続きを読む", "Seguir leyendo", "继续阅读"),
   // no step under an answer (server/src/chat/turn.ts HIDDEN_STEP_TOOLS), but the activity log names it (QA TC-069)
   set_title: t('채팅 이름 짓기', 'Name the chat', 'Beri nama obrolan', "チャットに名前を付ける", "Poner nombre al chat", "给对话命名"),
   remember: t('기억하기', 'Remember', 'Ingat', "記憶", "Recordar", "记住"),
   forget: t('기억 지우기', 'Forget', 'Lupakan', "忘れる", "Olvidar", "忘记"),
   connect_service: t('서비스 연결', 'Connect service', 'Hubungkan layanan', "サービスを接続", "Conectar servicio", "连接服务"),
   // the person's own team chat rooms (server/src/chat/room-tools.ts): "대화방 읽기 · 마케팅", "대화방 찾기 "예산""
-  rooms: t('대화방 찾기', 'Find in conversations', 'Cari di ruang obrolan', "トークルームを探す", "Buscar en salas de chat", "在群聊中查找"),
-  room_read: t('대화방 읽기', 'Read conversation', 'Baca ruang obrolan', "トークルームを読む", "Leer sala de chat", "读取群聊"),
+  rooms: t('대화 찾기', 'Find in conversations', 'Cari di percakapan', "トークを探す", "Buscar en conversaciones", "在聊天中查找"),
+  room_read: t('대화 읽기', 'Read conversation', 'Baca percakapan', "トークを読む", "Leer conversación", "读取聊天"),
   // reading Slack with the bot token (server/src/integrations/slack/read.ts)
   slack_read_thread: t('Slack 스레드 읽기', 'Read Slack thread', 'Baca utas Slack', "Slackのスレッドを読む", "Leer hilo de Slack", "读取Slack话题"),
   slack_read_channel: t('Slack 채널 읽기', 'Read Slack channel', 'Baca kanal Slack', "Slackのチャンネルを読む", "Leer canal de Slack", "读取Slack频道"),
-  room_file: t('대화방 파일 읽기', 'Read conversation file', 'Baca berkas ruang obrolan', "トークルームのファイルを読む", "Leer archivo de sala de chat", "读取群聊文件"),
+  room_file: t('대화 파일 읽기', 'Read conversation file', 'Baca berkas percakapan', "トークのファイルを読む", "Leer archivo de conversación", "读取聊天文件"),
   chat_file: t('채팅 파일 읽기', 'Read chat file', 'Baca berkas obrolan', 'チャットのファイルを読む', 'Leer archivo del chat', '读取对话文件'),
-  save_room_file: t('대화방 파일 저장', 'Save conversation file', 'Simpan berkas ruang obrolan', "トークルームのファイルを保存", "Guardar archivo de sala de chat", "保存群聊文件"),
+  save_room_file: t('대화 파일 저장', 'Save conversation file', 'Simpan berkas percakapan', "トークのファイルを保存", "Guardar archivo de conversación", "保存聊天文件"),
+  save_chat_file: t('채팅 파일 저장', 'Save chat file', 'Simpan berkas obrolan', 'チャットのファイルを保存', 'Guardar archivo del chat', '保存对话文件'),
+  // a finished file from the chat's work folder into the team folder (server/src/chat/work-file-tool.ts)
+  save_work_file: t('작업 결과 저장', 'Save work file', 'Simpan berkas kerja', '作業ファイルを保存', 'Guardar archivo de trabajo', '保存工作文件'),
   // the AI posts to one of the person's rooms after their yes on its card (server/src/chat/post-to-room.ts): "대화방에
   // 보내기 · #영업팀", the room named by the server once found (the button's words: shared rooms.ts SIDE_CHAT_SEND)
-  post_to_room: t('대화방에 보내기', 'Send to room', 'Kirim ke ruang', 'ルームに送る', 'Enviar a la sala', "发送到群聊"),
+  post_to_room: t('대화에 보내기', 'Send to conversation', 'Kirim ke percakapan', 'トークに送る', 'Enviar a la conversación', "发送到聊天"),
+  // the AI shares the person's own files with teammates after their yes on its card (server/src/chat/share-with-person.ts)
+  share_with_person: t('파일 공유', 'Share files', 'Bagikan berkas', 'ファイルを共有', 'Compartir archivos', '共享文件'),
+  stop_sharing: t('공유 중지', 'Stop sharing', 'Berhenti membagikan', '共有を停止', 'Dejar de compartir', '停止共享'),
+  // the AI shares a folder in the person's own files, or stops (server/src/chat/share-folder.ts)
+  share_folder: t('폴더 공유', 'Share folder', 'Bagikan folder', 'フォルダを共有', 'Compartir carpeta', '共享文件夹'),
+  // the files shared with the person, listed when the AI asks (server/src/chat/shared-with-me-tool.ts), and what they have
+  // open now (server/src/chat/looking-at.ts)
+  shared_with_me: t('공유받은 파일 확인', 'Check files shared with you', 'Periksa berkas yang dibagikan kepada Anda', '共有されたファイルを確認', 'Ver archivos compartidos con usted', '查看共享给你的文件'),
+  // the comments under answers in this chat (server/src/chat/answer-comments.ts)
+  answer_comments: t('스레드 답글 읽기', 'Read thread replies', 'Baca balasan utas', 'スレッドの返信を読む', 'Leer respuestas del hilo', '读取话题回复'),
+  looking_at: t('열어 둔 화면 확인', 'Check what you have open', 'Periksa yang sedang Anda buka', '開いている画面を確認', 'Ver lo que tiene abierto', '查看你打开的内容'),
   // the AI changes a team project's members after the person's yes on its card (server/src/chat/project-members.ts):
   // "프로젝트 멤버 바꾸기 · 견적"
   change_project_members: t('프로젝트 멤버 바꾸기', 'Change project members', 'Ubah anggota proyek', 'プロジェクトのメンバーを変更', 'Cambiar miembros del proyecto', "更改项目成员"),
+  // the AI looks up who can open a file, a folder or the chat (server/src/chat/who-can-open.ts); never a path or a name
+  who_can_open: t('누가 볼 수 있는지 확인', 'Check who can open it', 'Periksa siapa yang bisa membuka', '開ける人を確認', 'Comprobar quién puede abrirlo', '查看谁可以打开'),
+  change_folder_access: t('폴더 권한 바꾸기', 'Change folder access', 'Ubah akses folder', 'フォルダのアクセスを変更', 'Cambiar el acceso a la carpeta', '更改文件夹权限'),
 }
 
 /** Verb of an in-app browser step: "<verb> · <url>". */
@@ -149,6 +182,8 @@ export const STEP_TEXT = {
   refusedRetry: t('AI가 답하지 않아 다른 AI로 다시 답해요', 'The AI declined; trying again with another AI', 'AI menolak; mencoba lagi dengan AI lain', "AIが回答しなかったため、別のAIでもう一度回答します", "La IA no respondió; se intenta de nuevo con otra IA", "AI拒绝回答，正在用另一个AI重试"),
   /** the chat's engine was switched off by an admin: this answer uses the team default */
   /** demo mode (server/src/demo/replay.ts): the answer is a recorded real run played again */
+  /** a fresh session's history did not fit: the older part was summarized first (server/src/chat/history-summary.ts) */
+  historySummary: t('이 채팅 앞부분 요약', 'Summary of the earlier part of this chat', 'Ringkasan bagian awal obrolan ini', "このチャットの前半の要約", "Resumen de la parte anterior de este chat", "此对话前面部分的摘要"),
   demoReplay: t('데모용으로 미리 준비한 결과예요', 'Prepared in advance for the demo', 'Disiapkan sebelumnya untuk demo', "デモ用に事前に用意した結果です", "Preparado de antemano para la demostración", "为演示提前准备的结果"),
   engineOffDefault: t('고른 AI를 지금 쓸 수 없어 팀 기본 AI로 답해요', "The chosen AI is off; answering with the team's default AI", 'AI yang dipilih sedang mati; menjawab dengan AI bawaan tim', "選んだAIは今使えないため、チームの既定のAIで回答します", "La IA elegida está desactivada; se responde con la IA predeterminada del equipo", "所选AI已关闭，改用团队默认AI回答"),
   /** "다른 AI로 대신 답하기": the chat's engine has no AI connection for the person, the other one has
@@ -156,6 +191,8 @@ export const STEP_TEXT = {
   engineNoConnection: t('고른 AI에 연결된 계정이 없어 다른 AI로 답해요', 'The chosen AI has no account connected; answering with another AI', 'AI yang dipilih tidak punya akun terhubung; menjawab dengan AI lain', "選んだAIにアカウントが接続されていないため、別のAIで回答します", "La IA elegida no tiene una cuenta conectada; se responde con otra IA", "所选AI没有连接账号，改用另一个AI回答"),
   /** "다른 AI로 대신 답하기": the Claude subscription limit was hit and the admin allowed the fallback */
   limitFallback: t('사용 한도에 닿아 다른 AI로 이어서 답해요', 'Usage limit reached; continuing with another AI', 'Batas pemakaian tercapai; dilanjutkan dengan AI lain', "使用量の上限に達したため、別のAIで続けます", "Se alcanzó el límite de uso; se continúa con otra IA", "已达到用量上限，换用另一个AI继续回答"),
+  /** the conversation got too long for the AI: the same answer goes on in a fresh session (server/src/chat/context-recover.ts) */
+  contextRecover: t('대화가 길어져서 AI가 정리하고 이어서 답해요', 'The conversation got long, so the AI made room and is continuing', 'Percakapan makin panjang, jadi AI merapikannya dan melanjutkan', "会話が長くなったため、AIが整理して回答を続けます", "La conversación se alargó, así que la IA hizo espacio y continúa", "对话变长了，AI整理后继续回答"),
   credentialSwitchLimit: t('사용 한도에 닿아 다른 AI 계정으로 이어서 답해요', 'Usage limit reached; continuing with another AI account', 'Batas pemakaian tercapai; dilanjutkan dengan akun AI lain', "使用量の上限に達したため、別のAIアカウントで続けます", "Se alcanzó el límite de uso; se continúa con otra cuenta de IA", "已达到用量上限，换用另一个AI账号继续回答"),
   /** a dev-environment command that runs as a long job, or in the background (box_shell job / background) */
   jobSuffix: t('오래 걸리는 작업', 'long task', 'tugas panjang', "時間のかかる作業", "tarea larga", "耗时任务"),
@@ -166,13 +203,16 @@ export const STEP_TEXT = {
   // after a step's own line (" · <these>"): why the call went on without a card (server/src/chat/turn.ts coverStep,
   // chat/schedule-cover.ts). COVER_STEP_KEYS: localizeStep and stepPlace know them at the end of any line
   /** the step of a call a room grant let through, after its own words */
-  roomGrantStep: t('항상 허용으로 진행', 'allowed: always in this room', 'diizinkan: selalu di ruang ini', "常に許可で実行", "permitido: siempre en esta sala", "已允许：在此群聊中始终允许"),
+  roomGrantStep: t('항상 허용으로 진행', 'allowed: always in this conversation', 'diizinkan: selalu di percakapan ini', "常に許可で実行", "permitido: siempre en esta conversación", "已允许：在此聊天中始终允许"),
   /** the step of a call this answer's [이번만 허용] for its folder let through */
   roomOnceStep: t('이번만 허용으로 진행', 'allowed once in this answer', 'diizinkan sekali di jawaban ini', "今回だけ許可で実行", "permitido esta vez en esta respuesta", "已允许：本次回答中允许一次"),
   /** the step of a scheduled run's save or send that its task's card allowed (chat/schedule-cover.ts) */
   scheduleCoverStep: t('예약 작업에서 허용', 'allowed on the scheduled task', 'diizinkan di tugas terjadwal', "定期タスクで許可", "permitido en la tarea programada", "已在定时任务中允许"),
   /** the step of a call that made a new file in the person's own folder after a room read, with no card */
   ownFolderStep: t('내 폴더라 묻지 않고 저장', 'saved without asking: your own folder', 'disimpan tanpa bertanya: folder Anda sendiri', "自分のフォルダーなので確認せずに保存", "guardado sin preguntar: su propia carpeta", "未询问直接保存：你自己的文件夹"),
+  /** the step of a call the person allowed on a card for the same file or recipients earlier in this chat
+   * (server chat/card-approvals.ts) */
+  chatOnceStep: t('이 대화에서 허용한 대로 진행', 'allowed earlier in this chat', 'diizinkan sebelumnya di chat ini', "このチャットで許可済み", "permitido antes en este chat", "已在此聊天中允许过"),
 } satisfies Record<string, T>
 export type StepTextKey = keyof typeof STEP_TEXT
 
@@ -180,7 +220,7 @@ export type StepTextKey = keyof typeof STEP_TEXT
 const TEXT_STEP_TOOLS = new Set(['ask_user', 'remember', 'forget', 'agent', 'refusal', 'demo_replay', 'engine', 'attachment'])
 
 /** The words that may end any step's line after " · ": why the call went on without a card (STEP_TEXT above). */
-export const COVER_STEP_KEYS = ['roomGrantStep', 'roomOnceStep', 'scheduleCoverStep', 'ownFolderStep'] as const satisfies readonly StepTextKey[]
+export const COVER_STEP_KEYS = ['roomGrantStep', 'roomOnceStep', 'scheduleCoverStep', 'ownFolderStep', 'chatOnceStep'] as const satisfies readonly StepTextKey[]
 
 /** The word for a step whose tool has no verb of its own, when only the words of a step may show. */
 export const STEP_WORDS_OTHER: T = t('작업', 'Step', 'Langkah', "ステップ", "Paso", "步骤")
@@ -262,9 +302,26 @@ export function stepLabel(tool: string, input: unknown, locale: Locale, browserT
     }
     case 'make_file': return `${verb} · ${clip(a.output, 90)}`
     case 'edit_hwp': return `${verb} · ${clip(a.output ?? a.file_path, 90)}`
-    case 'share_file': return `${verb} · ${clip(a.path, 90)}`
+    case 'stamp_pdf': case 'edit_pdf': case 'split_pdf': return `${verb} · ${clip(a.file_path, 90)}`
+    case 'make_zip': case 'resize_images': case 'query_data': {
+      if (tool === 'make_zip' && typeof a.output === 'string' && a.output) return `${verb} · ${clip(a.output, 90)}`
+      // the first photo (query_data: the first data file) and how many more ("+2"), as merge_pdfs
+      const paths = Array.isArray(a.paths) ? a.paths.filter((p: unknown) => typeof p === 'string') as string[] : []
+      return paths.length ? `${verb} · ${clip(paths[0], 80)}${paths.length > 1 ? ` +${paths.length - 1}` : ''}` : verb!
+    }
+    case 'merge_pdfs': {
+      // the first file and how many more ("+2": a number, the same in every language)
+      const files = Array.isArray(a.files) ? a.files.map((f: unknown) => (typeof f === 'string' ? f : (f as { path?: string } | null)?.path ?? '')) : []
+      return files.length ? `${verb} · ${clip(files[0], 80)}${files.length > 1 ? ` +${files.length - 1}` : ''}` : verb!
+    }
+    case 'share_file': case 'unzip_file': return `${verb} · ${clip(a.path, 90)}`
     case 'move_files': case 'copy_files': return `${verb} · ${clip(a.to_folder, 90)}`
     case 'rename_file': return `${verb} · ${clip(a.path, 90)}`
+    case 'rename_files': {
+      // the folder of a pattern, else the first file and how many more ("+3": a number, the same in every language)
+      const items = Array.isArray(a.renames) ? a.renames.map((r: unknown) => (r as { path?: string } | null)?.path ?? '') : []
+      return typeof a.folder === 'string' ? `${verb} · ${clip(a.folder || '/', 90)}` : items.length ? `${verb} · ${clip(items[0], 80)}${items.length > 1 ? ` +${items.length - 1}` : ''}` : verb!
+    }
     case 'skill_files': return `${verb} · ${clip(a.path, 60)}${a.to_folder ? ` → ${clip(a.to_folder, 40)}` : a.new_name ? ` → ${clip(a.new_name, 40)}` : ''}`
     case 'delete_files': {
       // the first item and how many more ("+3": a number, the same in every language)
@@ -274,6 +331,7 @@ export function stepLabel(tool: string, input: unknown, locale: Locale, browserT
     case 'artifact': return `${verb} · ${clip(a.title ?? a.key, 80)}`
     case 'web_fetch': return `${verb} · ${clip(a.url, 80)}`
     case 'save_url': return `${verb} · ${clip(a.save_as || a.url, 80)}`
+    case 'save_connector_file': return a.save_as ? `${verb} · ${clip(a.save_as, 80)}` : verb!
     case 'hwp_render': return `${verb} · ${clip(a.source, 80)}${typeof a.page === 'number' ? ` #${a.page}` : ''}`
     case 'search': case 'drive_search': case 'knowledge_explore': return `${verb} "${clip(a.query, 60)}"${a.path ? ` · ${clip(a.path, 50)}` : ''}`
     case 'schedule_create': return `${verb} · ${clip(a.title, 80)}`
@@ -282,7 +340,10 @@ export function stepLabel(tool: string, input: unknown, locale: Locale, browserT
     case 'schedule_delete': return verb!
     case 'drive_list': case 'drive_read': return verb!
     case 'generate_video': return `${verb} · ${clip(a.prompt, 80)}`
+    case 'comment_docx': return `${verb} · ${clip(a.file_path, 80)}`
+    case 'edit_office': return `${verb} · ${clip(a.output ?? a.file_path, 80)}`
     case 'promo_video': case 'intro_deck': return `${verb} · ${clip(a.title, 80)}`
+    case 'save_promo_video': return a.save_as ? `${verb} · ${clip(a.save_as, 80)}` : verb!
     case 'skill': return `${verb} · ${clip(a.name, 80)}`
     case 'move_skill': return `${verb} · ${clip(a.skill, 60)} → ${clip(a.to === 'group' ? a.group ?? a.to : a.to === 'project' ? a.project ?? a.to : a.to, 40)}`
     case 'find_skills': case 'find_tools': return `${verb} "${clip(a.query, 60)}"`
@@ -290,10 +351,15 @@ export function stepLabel(tool: string, input: unknown, locale: Locale, browserT
     case 'rooms': { const w = roomWord(a.room ?? a.person); return `${verb}${a.query ? ` "${clip(a.query, 60)}"` : ''}${w ? ` · ${clip(w, 60)}` : ''}` }
     case 'room_read': { const w = roomWord(a.room); return w ? `${verb} · ${clip(w, 60)}` : verb! }
     case 'room_file': { const w = roomWord(a.file); return w ? `${verb} · ${clip(w, 60)}` : verb! }
-    case 'chat_file': return verb!
+    case 'chat_file': case 'answer_comments': return verb!
     case 'post_to_room': { const w = roomWord(a.room); return w ? `${verb} · ${clip(w, 60)}` : verb! }
     case 'change_project_members': return a.project ? `${verb} · ${clip(a.project, 60)}` : verb!
+    // the folder by its own name (its last part): the path stays out of the step
+    case 'change_folder_access': { const f = typeof a.folder === 'string' ? a.folder.replace(/\/+$/, '').split('/').pop() : ''; return f ? `${verb} · ${clip(f, 60)}` : verb! }
     case 'save_room_file': { const w = roomWord(a.file); return w ? `${verb} · ${clip(w, 60)}${a.save_as ? ` → ${clip(a.save_as, 60)}` : ''}` : verb! }
+    case 'save_chat_file': return a.save_as ? `${verb} → ${clip(a.save_as, 60)}` : verb!
+    // the file by its own name (never a server path), and where it goes
+    case 'save_work_file': { const n = clip(String(a.path ?? '').split('/').pop(), 60); return a.save_as ? `${verb} · ${n} → ${clip(a.save_as, 60)}` : `${verb} · ${n}` }
     case 'box_shell': return `${verb} · ${clip(String(a.command ?? '').split('\n')[0], 80)}${a.job ? ` (${STEP_TEXT.jobSuffix[locale]})` : a.background ? ` (${STEP_TEXT.backgroundSuffix[locale]})` : ''}`
     case 'ask_user': return stepText('asked', locale, { q: clip(a.question, 120) })
     case 'remember': return stepText('remembered', locale, { text: clip(a.text, 120) })
@@ -369,7 +435,7 @@ export function placeName(path: string, locale: Locale): string | null {
 }
 
 /** Tools whose step line ends in a team path ("<verb> · <path>"; edit_files adds "+N", hwp_render "#page"). */
-const PATH_STEP_TOOLS = new Set(['list', 'glob', 'grep', 'search', 'knowledge_explore', 'read', 'write', 'edit', 'edit_files', 'make_file', 'edit_hwp', 'share_file', 'move_files', 'copy_files', 'rename_file', 'delete_files', 'save_url', 'hwp_render'])
+const PATH_STEP_TOOLS = new Set(['list', 'glob', 'grep', 'search', 'knowledge_explore', 'read', 'write', 'edit', 'edit_files', 'make_file', 'edit_hwp', 'edit_office', 'stamp_pdf', 'edit_pdf', 'merge_pdfs', 'split_pdf', 'resize_images', 'unzip_file', 'make_zip', 'query_data', 'share_file', 'move_files', 'copy_files', 'rename_file', 'delete_files', 'save_url', 'hwp_render', 'rename_files'])
 
 /**
  * A step line (already in the language on screen, localizeStep) with its team path in words, and that path for a
@@ -483,8 +549,10 @@ export function localizeStep(step: { kind: string; tool?: string; label: string;
   else if (step.kind === 'web_search') label = retemplate(['webSearch', 'webSearchRunning', 'webSearchOpen', 'webSearchPlain'], step.label, locale)
   else if (tool === 'refusal') label = retemplate(['refusedRetry'], step.label, locale)
   else if (tool === 'demo_replay') label = retemplate(['demoReplay'], step.label, locale)
+  else if (tool === 'history_summary') label = retemplate(['historySummary'], step.label, locale)
   else if (tool === 'engine') label = retemplate(['engineOffDefault', 'engineNoConnection', 'limitFallback', 'credentialSwitchLimit', 'credentialSwitchInvalid'], step.label, locale)
   else if (tool === 'attachment') label = retemplate(['attachChanged', 'attachMoved', 'attachUnavailable'], step.label, locale)
+  else if (tool === 'context') label = retemplate(['contextRecover'], step.label, locale)
   else if (tool === 'agent') label = retemplate(['subtask'], step.label, locale)
   else if (tool === 'ask_user') label = retemplate(['asked'], step.label, locale)
   else if (tool === 'remember') label = retemplate(['remembered', 'notRemembered', 'rememberAsking'], step.label, locale)

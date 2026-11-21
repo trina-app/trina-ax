@@ -4,7 +4,8 @@ import { mkdtempSync, writeFileSync } from 'node:fs'
 import { once } from 'node:events'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
-import { _electron as electron, expect, type ElectronApplication, type Page } from '@playwright/test'
+import type { ChildProcess } from 'node:child_process'
+import { _electron as electron, expect, test, type ElectronApplication, type Page } from '@playwright/test'
 
 export const ROOT = resolve(import.meta.dirname, '..')
 export const ACME = 'http://acme.localhost:19151'
@@ -45,6 +46,11 @@ export async function launch(userData: string, env: Record<string, string> = {},
       ...env,
     },
   })
+  // a test's own app (a group's beforeAll app lives until its afterAll and is closed there)
+  if (inTest) {
+    running.add(app.process())
+    app.process().once('exit', () => running.delete(app.process()))
+  }
   if (process.env.MYCEL_DESKTOP_DEBUG === '1') {
     app.process().stdout?.on('data', (d) => process.stdout.write(`[app] ${d}`))
     app.process().stderr?.on('data', (d) => process.stdout.write(`[app:err] ${d}`))
@@ -79,8 +85,12 @@ export async function bindWindow(p: Page, origin: string): Promise<Page> {
 
 export async function addTeam(app: ElectronApplication, address: string, origin: string): Promise<Page> {
   const w = await welcome(app)
-  await w.getByRole('textbox', { name: '초대 링크 또는 팀 주소' }).fill(address)
-  await w.getByRole('button', { name: '들어가기' }).click()
+  const field = w.getByRole('textbox', { name: '초대 링크 또는 팀 주소' })
+  await field.fill(address)
+  await expect(w.getByRole('button', { name: '들어가기' })).toBeEnabled()
+  // Enter submits the form as the button does. A click waits for animation frames, which a welcome view behind the team
+  // page never gets on Linux (the second team of a test is added while the first one is on screen).
+  await field.press('Enter')
   return bindWindow(await teamPage(app, origin), origin)
 }
 
@@ -281,6 +291,22 @@ export async function windowShot(app: ElectronApplication, file: string) {
     }
   })
   writeFileSync(file, Buffer.from(png.split(',')[1]!, 'base64'))
+}
+
+/** Apps launched here that have not exited yet. A test that times out never reaches its `finally { close(app) }`; its
+ * app then kept the worker from shutting down ("Worker teardown timeout", the desktop workflow on 2026-11-16) and turned
+ * a test that passed on retry into a failed run. After each test, whatever is still running is killed. */
+const running = new Set<ChildProcess>()
+let inTest = false
+/** Call once at the top of every spec file that launches the app (hooks belong to the file that declares them; this
+ * module is loaded once per worker, so hooks declared here would only reach the first file). */
+export function stopLeftoverApps() {
+  test.beforeEach(() => { inTest = true })
+  test.afterEach(() => {
+    inTest = false
+    for (const proc of running) if (proc.exitCode === null && proc.signalCode === null) proc.kill('SIGKILL')
+    running.clear()
+  })
 }
 
 /** Quit the app; kill it when quitting hangs (a stuck app must not keep talking to the fake servers). */

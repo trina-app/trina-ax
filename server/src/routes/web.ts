@@ -22,7 +22,7 @@
 import path from 'node:path'
 import type { Context } from 'hono'
 import { PRODUCT } from '@mycel/shared'
-import { REPO_ROOT } from '../app-config'
+import { isFreeRoam, REPO_ROOT } from '../app-config'
 import type { AppEnv } from '../http/env'
 import { fromOutside } from '../http/tunnel'
 import type { AppContext } from '../context'
@@ -42,7 +42,8 @@ export const webRoutes: RouteModule = {
   register(kit, ctx) {
     const opts: WebOptions = {
       dist: envDist() ?? WEB_DIST_DEFAULT,
-      dev: ctx.config.mode === 'dev',
+      // a free-roam demo instance never shows the developer's page (docs/decisions/20261119-demo-free-roam-a.md)
+      dev: ctx.config.mode === 'dev' && !isFreeRoam(ctx.config),
       devPort: ctx.config.listen.port,
       teamIcon: () => readTeamIcon(ctx.config.dataDir),
     }

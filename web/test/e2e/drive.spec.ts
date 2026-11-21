@@ -59,7 +59,7 @@ test('Popular lists Google Drive first; its + goes straight to Google, one line 
   await expect(detail(page).getByTestId('drive-confirm-step')).toContainText('이 계정을 연결할까요?')
   await expect(detail(page).getByTestId('app-tool').first()).toHaveAttribute('data-name', 'drive_search')
   expect(state.completed).toBe(0)
-  await detail(page).getByRole('button', { name: '이 계정으로 연결 완료' }).click()
+  await detail(page).getByRole('button', { name: '이 계정 연결' }).click()
   await expect(detail(page).getByTestId('drive-detail-line')).toHaveText('fixture@example.test')
   await expect(detail(page).getByTestId('drive-connected')).toHaveText('연결됨')
   await expect(detail(page).getByTestId('drive-try')).toHaveCount(0)
@@ -177,7 +177,7 @@ test('a Drive that needs a new sign-in says so on the page, with Reconnect', asy
   const popup = page.waitForEvent('popup')
   await detail(page).getByTestId('drive-reconnect').click()
   await popup
-  await detail(page).getByRole('button', { name: '이 계정으로 연결 완료' }).click()
+  await detail(page).getByRole('button', { name: '이 계정 연결' }).click()
   await expect(detail(page)).toHaveAttribute('data-state', 'connected')
   expect(state.completed).toBe(1)
 })
@@ -215,7 +215,7 @@ for (const scheme of ['light', 'dark'] as const) {
     await popup
     await expect(detail(page).getByTestId('drive-confirm-step')).toBeVisible()
     expect(await audit()).toEqual([])
-    await detail(page).getByRole('button', { name: '이 계정으로 연결 완료' }).click()
+    await detail(page).getByRole('button', { name: '이 계정 연결' }).click()
     await detail(page).getByTestId('drive-menu').click()
     await expect(detail(page).getByRole('menu')).toBeVisible()
     expect(await audit()).toEqual([])

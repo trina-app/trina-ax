@@ -37,39 +37,85 @@ export function cfClientIp(v: string | null | undefined): string | null {
   return m ? m[1]! : t.toLowerCase()
 }
 
-export interface TunnelRequest { req: Request; ip: string }
+export interface TunnelRequest { url: string; ip: string }
 
 /**
- * The request as the app should see it when it came through the office public address, else null (handle it as it
- * is). `peer` is the socket peer (already through peerIp), `port` the listener's port.
+ * The public URL and client IP of a request that came through the office public address, else null (handle it as it
+ * is). `peer` is the socket peer (already through peerIp), `port` the listener's port. No Request is built here:
+ * see withPublicUrl.
  */
 export function tunnelRequest(cfg: Pick<AppConfig, 'tunnel' | 'listen'>, req: Request, peer: string | null, port: number | null | undefined): TunnelRequest | null {
   const host = cfg.tunnel?.host
   if (!host || port == null || port !== cfg.listen.port || !isLoopback(peer)) return null
   if ((req.headers.get('host') ?? '').toLowerCase() !== host) return null
   const u = new URL(req.url)
-  // the body stays a stream (chunked uploads); Bun keeps every header, Host included
-  const rewritten = new Request(`https://${host}${u.pathname}${u.search}`, req)
   // without a valid CF-Connecting-IP (only a local program would send that) every such request shares the
   // loopback address's limits instead of getting none
-  return { req: rewritten, ip: cfClientIp(req.headers.get('cf-connecting-ip')) ?? peer! }
+  return { url: `https://${host}${u.pathname}${u.search}`, ip: cfClientIp(req.headers.get('cf-connecting-ip')) ?? peer! }
 }
 
-/** Bun.serve's fetch for a direct listener: the socket peer and listener port, the tunnel rewrite (above).
+let wrapWarned = false
+
+/**
+ * The request Bun.serve handed over, with `url` reading the public https URL (an own property over Request's getter,
+ * fixed once set). Every reader of the URL (Hono's routing and c.req.url, the cookie name, CSRF and WebSocket Origin
+ * checks, links, redirects) then sees https://<host>/... as before, and the body stays Bun's own.
+ * Never `new Request(url, req)`: under Bun 1.3.12 the copy's body is a JavaScript stream in which every socket read
+ * becomes its own buffer that garbage collection does not count. cloudflared forwards a chunked upload in small pieces,
+ * so a 3 MB upload kept about 550 MB, and a few 100 MB uploads took a 4 GB server down
+ * (docs/decisions/20261116-tunnel-request-body-memory.md). Only if a Bun ever refuses the property does the copy come
+ * back (correct, but memory-heavy), with a warning.
+ */
+export function withPublicUrl(req: Request, url: string): Request {
+  try { Object.defineProperty(req, 'url', { value: url, enumerable: true, writable: false, configurable: false }) } catch { /* checked below */ }
+  if (req.url === url) return req
+  if (!wrapWarned) {
+    wrapWarned = true
+    process.emitWarning('this Bun does not let a request carry its public URL; requests through the public address are copied (more memory per upload)')
+  }
+  return new Request(url, req)
+}
+
+/** Requests refused before their body was read to its end (http/route.ts): their connection ends with the answer. */
+const endAfterAnswer = new WeakSet<Request>()
+
+/**
+ * End this request's connection soon after its answer. Bun 1.3.12 ignores `Connection: close` on a response: it keeps
+ * the socket, reads and throws away whatever the client still sends (measured: 227 MB in 8 s after a 413) and then
+ * serves the next request on it. directFetch asks Bun to time the socket out instead (server.timeout(req, 1): closed
+ * about 4 s after the answer on 1.3.12). Only for short error answers: the timeout also cuts a response still being
+ * sent.
+ */
+export function endConnectionAfter(req: Request): void { endAfterAnswer.add(req) }
+
+type DirectEnv = { ip: string | null; via: 'direct'; port: number; server: unknown; tunnel?: boolean; tailnet?: boolean; upgradeReq?: Request }
+type DirectServer = { requestIP(r: Request): { address: string } | null; port: number | undefined; timeout?(r: Request, seconds: number): void }
+
+/** Bun.serve's fetch for a direct listener: the socket peer and listener port, the tunnel URL (above), and the end of
+ * the connection after an early refusal (endConnectionAfter).
  * `o.tailnet`: this is the office Tailscale listener (main.ts): every request on it is marked tailnet, none is a
  * tunnel request (the tunnel arrives on the loopback app port only). */
 export function directFetch(
   cfg: Pick<AppConfig, 'tunnel' | 'listen'>,
-  fetch: (req: Request, env: { ip: string | null; via: 'direct'; port: number; server: unknown; tunnel?: boolean; tailnet?: boolean; upgradeReq?: Request }) => Response | Promise<Response>,
+  fetch: (req: Request, env: DirectEnv) => Response | Promise<Response>,
   peerIp: (addr: string | null | undefined) => string | null,
   o: { tailnet?: boolean } = {},
 ) {
-  return (req: Request, server: { requestIP(r: Request): { address: string } | null; port: number | undefined }) => {
+  return async (req: Request, server: DirectServer): Promise<Response> => {
     const peer = peerIp(server.requestIP(req)?.address)
     const port = server.port ?? 0
-    if (o.tailnet) return fetch(req, { ip: peer, via: 'direct', port, server, tailnet: true })
-    const t = tunnelRequest(cfg, req, peer, port)
-    if (t) return fetch(t.req, { ip: t.ip, via: 'direct', port, server, tunnel: true, upgradeReq: req })
-    return fetch(req, { ip: peer, via: 'direct', port, server })
+    let seen = req
+    let res: Response
+    if (o.tailnet) res = await fetch(req, { ip: peer, via: 'direct', port, server, tailnet: true })
+    else {
+      const t = tunnelRequest(cfg, req, peer, port)
+      if (t) {
+        seen = withPublicUrl(req, t.url)
+        // Bun upgrades only the object it handed over: the copy (fallback only) names it
+        res = await fetch(seen, { ip: t.ip, via: 'direct', port, server, tunnel: true, ...(seen !== req ? { upgradeReq: req } : {}) })
+      } else res = await fetch(req, { ip: peer, via: 'direct', port, server })
+    }
+    if (endAfterAnswer.has(seen) || endAfterAnswer.has(req)) server.timeout?.(req, 1)
+    return res
   }
 }

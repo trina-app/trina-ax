@@ -5,7 +5,7 @@
 // files, so this file can never become a rule or a skill whatever it holds. The AI gets the facts as their own
 // <company_profile> block (chat/prompt.ts companyProfileBlock), never as instructions.
 import type { CompanyProfile, CompanyProfileInput, Locale, ProfileField } from '@mycel/shared/api'
-import { normalizeWebsite, PROFILE_BLOCK_MAX, PROFILE_FIELDS, PROFILE_LIMITS, profileName } from '@mycel/shared/api'
+import { COMPANY_PROFILE_PATH, normalizeWebsite, PROFILE_BLOCK_MAX, PROFILE_FIELDS, PROFILE_LIMITS, profileName } from '@mycel/shared/api'
 import type { FileService } from '../files/service'
 import { readRegular, sha256 } from '../files/store'
 import type { Principal } from '../policy/access'
@@ -13,7 +13,7 @@ import { authorize } from '../policy/authorize'
 import { HttpError } from '../http/errors'
 import { normUrl } from '../tools/url-gate'
 
-export const PROFILE_PATH = 'skills/company-profile.json'
+export const PROFILE_PATH = COMPANY_PROFILE_PATH
 /** a hand-edited file larger than this is not read */
 const PROFILE_FILE_MAX_BYTES = 64 * 1024
 
@@ -114,12 +114,21 @@ export function profileFactLines(p: CompanyProfileInput, max = PROFILE_BLOCK_MAX
   return out
 }
 
+/** What a saved profile says about the company, as JSON text to look a number or a name up in: its fields without
+ * `updatedAt` and `colors`. The time of the save is not a fact about the company: with it, "34" or "2026" counted as
+ * "written in the profile" whenever the save's minute or year happened to be that number (the intro deck's number
+ * check, tests/unit/b-intro-deck). A colour code is not one either ("#ff2010" does not say 2010). */
+export function profileFactsJson(p: CompanyProfile): string {
+  const { updatedAt: _savedAt, colors: _colors, ...facts } = p
+  return JSON.stringify(facts)
+}
+
 /** The profile file as `user` may read it (folder rules of skills/), or null: no file, no access, not JSON. */
 export function readCompanyProfile(files: FileService, user: Principal): CompanyProfile | null {
   try {
     const r = authorize(files.fx, files.rules(), user, PROFILE_PATH, 'read')
     if (!r.st?.isFile() || r.st.size > PROFILE_FILE_MAX_BYTES) return null
-    const raw = JSON.parse(readRegular(r.abs, PROFILE_FILE_MAX_BYTES).bytes.toString('utf8')) as Record<string, unknown>
+    const raw = JSON.parse(readRegular(r.abs, PROFILE_FILE_MAX_BYTES, r.st).bytes.toString('utf8')) as Record<string, unknown>
     const p = cleanProfile(raw)
     if (!p || profileEmpty(p)) return null
     const at = typeof raw.updatedAt === 'string' && !Number.isNaN(Date.parse(raw.updatedAt)) ? new Date(raw.updatedAt).toISOString() : r.st.mtime.toISOString()
@@ -175,7 +184,7 @@ export function saveCompanyProfile(files: FileService, userId: string, input: Co
   let base: string | null = null
   try {
     const r = authorize(files.fx, files.rules(), user, PROFILE_PATH, 'read')
-    if (r.st?.isFile()) base = sha256(readRegular(r.abs, PROFILE_FILE_MAX_BYTES * 4).bytes)
+    if (r.st?.isFile()) base = sha256(readRegular(r.abs, PROFILE_FILE_MAX_BYTES * 4, r.st).bytes)
   } catch { /* none yet, or not readable: the write decides */ }
   files.humanSave(userId, PROFILE_PATH, Buffer.from(text, 'utf8'), base)
   return profile

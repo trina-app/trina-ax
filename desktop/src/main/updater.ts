@@ -2,26 +2,36 @@
 // Windows (packaged): electron-updater, generic provider = <open team address>/downloads/, the team's session as a
 // Bearer token (the folder is for signed-in people; electron-updater uses its own session without cookies and drops
 // the header on a redirect to another host). Checked 20 s after start and every 4 hours; the download runs in the
-// background and installs when the app quits, or at once with the "다시 시작" prompt / menu item, but only after the
-// downloaded installer matches the product's signed release (../common/update-verify.ts): until then nothing installs,
-// and a mismatch deletes the download and tells the person once per version.
+// background and installs when the app quits, by itself when the computer is idle and nothing would be lost
+// (idleRestart), or at once with the menu item, but only after the downloaded installer matches the product's signed
+// release (../common/update-verify.ts): until then nothing installs, and a mismatch deletes the download and tells the
+// person once per version. No "Restart" question (docs/decisions/20261116-quiet-desktop-updates.md).
 // macOS (the Developer ID signed dmg): the same, electron-updater's Mac updater on <team>/downloads/latest-mac.yml and
 // its update zip. The download is checked against the signed release first; only then is it handed to Squirrel.Mac
 // (electron-updater's local proxy, nativeUpdater.checkForUpdates), which takes only an app signed by the same team and
-// installs it when the app quits or at once with "다시 시작". A team server without latest-mac.yml (older than 0.5.5):
+// installs it when the app quits, when idle (idleRestart) or with the menu item. A start while ShipIt is still
+// installing steps aside (./update-launch.ts). An app that runs from the dmg or a translocated download cannot be
+// updated: one line offers "Move to Applications". A team server without latest-mac.yml (older than 0.5.5):
 // the old notice once per new version found in /downloads/index.json, with a button that opens Settings > Apps.
+// Linux AppImage (APPIMAGE set): the same as Windows, electron-updater's AppImage updater on
+// <team>/downloads/latest-linux.yml (latest-linux-arm64.yml on arm64) and the AppImage it names, checked against the
+// signed release (its `linux` entry for this processor); it replaces the AppImage when the app quits. Linux .deb: no
+// updater; the team's signed /downloads/<channel>.json is read and a newer `linux` version is said once, with a button
+// for the download page (docs/decisions/20261119-linux-desktop-app.md).
 // Store build (process.mas, process.windowsStore): off; the store updates it.
 import { closeSync, createReadStream, existsSync, openSync, readFileSync, readSync, rmSync, writeFileSync } from 'node:fs'
 import { createHash } from 'node:crypto'
 import { join } from 'node:path'
-import { app, autoUpdater as nativeUpdater, dialog, session, type BaseWindow } from 'electron'
+import { app, autoUpdater as nativeUpdater, BaseWindow, dialog, powerMonitor, session, shell } from 'electron'
 import { DEV_SESSION_COOKIE, SESSION_COOKIE } from '@mycel/shared/api'
-import { APP_DOWNLOADS } from '@mycel/shared'
+import { APP_DOWNLOADS, PRODUCT } from '@mycel/shared'
 import { t, type UiLocale } from '../common/i18n'
 import { partitionFor } from '../common/teams'
 import { CHECK_EVERY_MS, FIRST_CHECK_MS, feedUrlFor, genericFeed, macNotice, selfUpdatingMac, storeBuild, updateMode, type UpdateMode } from '../common/update'
-import { manifestSources, verificationRequired, verifyInstaller } from '../common/update-verify'
+import { linuxNotice, manifestSources, verificationRequired, verifyInstaller } from '../common/update-verify'
+import { idleRestartAllowed, readOnlyRefusal, stagedPending, type Resume } from '../common/update-guard'
 import { debug } from './debug'
+import { readPending, writePending, writeResume } from './update-launch'
 
 export interface UpdaterHost {
   /** the open team (null on the welcome screen) */
@@ -32,7 +42,12 @@ export interface UpdaterHost {
   openApps(): void
   /** the menu shows "update ready — restart" */
   changed(): void
+  /** what an idle restart could lose, or null when nothing can be lost (and the page to open again after it) */
+  restartBlockers(): Promise<{ pageBusy: boolean | null; browserTabs: number; resume: Resume }>
 }
+
+/** how often a ready update looks whether the computer is idle enough to restart into it */
+const IDLE_CHECK_MS = 60_000
 
 export class DesktopUpdater {
   readonly mode: UpdateMode
@@ -40,7 +55,6 @@ export class DesktopUpdater {
   ready: string | null = null
   private timer?: NodeJS.Timeout
   private busy = false
-  private prompted = new Set<string>()
   /** versions whose download the signed release contradicted: not downloaded again in this run */
   private refused = new Set<string>()
   private noticed = new Set<string>()
@@ -49,18 +63,25 @@ export class DesktopUpdater {
   private verifying = false
   private quitHandler = false
   private updater: typeof import('electron-updater').autoUpdater | null = null
+  private idleTimer?: NodeJS.Timeout
+  private idleChecking = false
+  /** Squirrel.Mac refusals per version in this run (not about where the app runs): the second one says so */
+  private squirrelFailed = new Map<string, number>()
 
-  /** Mac (Squirrel.Mac) or Windows (NSIS) install path */
+  /** Mac (Squirrel.Mac), or Windows (NSIS) and the Linux AppImage install path */
   private readonly mac: boolean
+  /** Linux: the AppImage installs like Windows; a .deb only gets the notice (checkLinux) */
+  private readonly linux: boolean
 
   /** `trust`: the release keys and product to check against, and the platform; tests only (default RELEASE_CHANNEL's,
    * process.platform) */
   constructor(private host: UpdaterHost, private trust: { keys?: readonly string[]; product?: string; platform?: NodeJS.Platform } = {}) {
     const platform = trust.platform ?? process.platform
     this.mac = platform === 'darwin'
+    this.linux = platform === 'linux'
     let pkg: unknown = null
     if (this.mac && app.isPackaged) { try { pkg = JSON.parse(readFileSync(join(app.getAppPath(), 'package.json'), 'utf8')) } catch {} }
-    this.mode = updateMode(platform, app.isPackaged, process.env.MYCEL_DESKTOP_UPDATE_TEST, storeBuild(process), selfUpdatingMac(pkg))
+    this.mode = updateMode(platform, app.isPackaged, process.env.MYCEL_DESKTOP_UPDATE_TEST, storeBuild(process), selfUpdatingMac(pkg), process.env.APPIMAGE)
   }
 
   start() {
@@ -71,6 +92,7 @@ export class DesktopUpdater {
 
   stop() {
     if (this.timer) clearInterval(this.timer)
+    if (this.idleTimer) clearInterval(this.idleTimer)
   }
 
   /** the session token of the team page (the cookie the team server set), or null when signed out */
@@ -93,6 +115,7 @@ export class DesktopUpdater {
           if ((e as { code?: string }).code === 'ERR_UPDATER_CHANNEL_FILE_NOT_FOUND') await this.checkMac(team)
         }
       } else if (this.mode === 'auto-install') await this.checkWindows(team)
+      else if (this.mode === 'notice' && this.linux) await this.checkLinux(team)
       else if (this.mode === 'notice') await this.checkMac(team)
     } catch (e) {
       debug('update check failed', (e as Error).message)
@@ -115,7 +138,10 @@ export class DesktopUpdater {
 
   private async autoUpdater() {
     if (this.updater) return this.updater
-    const { autoUpdater } = await import('electron-updater')
+    const eu = await import('electron-updater')
+    // an AppImage always takes the AppImage updater: electron-updater would pick its .deb updater if a
+    // resources/package-type file ever came into the AppImage (the .deb build writes one into the shared unpacked folder)
+    const autoUpdater = this.linux && process.env.APPIMAGE && typeof eu.AppImageUpdater === 'function' ? new eu.AppImageUpdater() : eu.autoUpdater
     autoUpdater.autoDownload = false
     // no web installer: its package file would not be covered by the signed release
     autoUpdater.disableWebInstaller = true
@@ -155,23 +181,26 @@ export class DesktopUpdater {
         // Squirrel.Mac fetches the checked zip from electron-updater's local proxy and stages it; it installs on quit
         // by itself from then on (no quit handler here)
         try { await this.squirrelTakes() } catch (e) {
-          console.warn(`[desktop] update ${version} not installed: ${(e as Error).message}`)
-          this.refused.add(version) // not downloaded again in this run (an app run from the dmg or a read-only folder)
+          const message = (e as Error).message
+          console.warn(`[desktop] update ${version} not installed: ${message}`)
           this.verified = null
-          // the person still hears of the new version (Settings › Apps), as before this updater
-          const team = this.host.team()
-          if (team) void this.checkMac(team).catch((e) => debug('update notice', (e as Error).message))
+          // the one case the person can fix: the app runs from the dmg or a translocated download. Any other refusal is
+          // tried again at the next check, quietly, and said (download page) the second time
+          if (readOnlyRefusal(message) || !app.isInApplicationsFolder()) {
+            this.refused.add(version) // not downloaded again in this run
+            void this.offerMove(version)
+          } else if ((this.squirrelFailed.get(version) ?? 0) + 1 >= 2) {
+            // the same refusal twice in this run: no more downloads of it, one line with the download page
+            this.refused.add(version)
+            void this.offerDownload(version)
+          } else this.squirrelFailed.set(version, (this.squirrelFailed.get(version) ?? 0) + 1)
           return
         }
-        this.ready = version
-        this.host.changed()
-        void this.promptRestart(version)
+        this.becameReady(version)
         return
       }
-      this.ready = version
       this.installOnQuit()
-      this.host.changed()
-      void this.promptRestart(version)
+      this.becameReady(version)
     } finally {
       this.verifying = false
     }
@@ -197,7 +226,7 @@ export class DesktopUpdater {
         continue
       }
       if (text.length > MANIFEST_MAX) continue
-      const v = verifyInstaller({ manifest: text, installerSha256, channel: src.channel, version, current: app.getVersion(), keys: this.trust.keys, product: this.trust.product, platform: this.mac ? 'mac' : 'windows' })
+      const v = verifyInstaller({ manifest: text, installerSha256, channel: src.channel, version, current: app.getVersion(), keys: this.trust.keys, product: this.trust.product, platform: this.mac ? 'mac' : this.linux ? 'linux' : 'windows', arch: process.arch })
       if (v.ok) return { ...v, sha256: installerSha256 }
       debug('update manifest', src.url, v.reason)
       first ??= v.reason
@@ -224,7 +253,7 @@ export class DesktopUpdater {
     this.quitHandler = true
     app.once('quit', (_e, code) => {
       if (code !== 0 || !this.ready || !this.updater || !this.installsVerified()) return
-      // BaseUpdater.install (NSIS on Windows; the AppUpdater type does not name it)
+      // BaseUpdater.install (NSIS on Windows, the AppImage replaced on Linux; the AppUpdater type does not name it)
       ;(this.updater as unknown as { install(silent: boolean, runAfter: boolean): boolean }).install(true, false)
     })
   }
@@ -245,7 +274,7 @@ export class DesktopUpdater {
     return false
   }
 
-  /** "이 업데이트는 확인할 수 없어서 설치하지 않았어요" (once per version) */
+  /** "이 업데이트는 안전 확인을 통과하지 못해서 설치하지 않았어요" (once per version) */
   private async notifyRefused(version: string) {
     if (this.noticed.has(version)) return
     this.noticed.add(version)
@@ -264,37 +293,129 @@ export class DesktopUpdater {
     else await dialog.showMessageBox(opts)
   }
 
-  /** "업데이트 준비됨 — 다시 시작" (once per version; the menu item stays) */
-  async promptRestart(version: string) {
-    if (this.prompted.has(version)) return
-    this.prompted.add(version)
+  /** ready to install: nothing is asked. It installs when the app quits, or by itself when idle (idleRestart); the next
+   * start checks that it did (./update-launch.ts) */
+  private becameReady(version: string) {
+    this.ready = version
+    const userData = app.getPath('userData')
+    writePending(userData, stagedPending(readPending(userData), version, Date.now()))
+    this.host.changed()
+    if (!this.idleTimer) this.idleTimer = setInterval(() => void this.idleRestart(), Number(process.env.MYCEL_DESKTOP_UPDATE_IDLE_MS) || IDLE_CHECK_MS)
+  }
+
+  /** restart into the ready update when nobody uses the app and nothing would be lost; the open page comes back */
+  async idleRestart(): Promise<boolean> {
+    if (!this.ready || this.idleChecking) return false
+    this.idleChecking = true
+    try {
+      const quiet = () => {
+        let locked = false
+        try { locked = powerMonitor.getSystemIdleState(60) === 'locked' } catch {}
+        return { ready: !!this.ready, focused: BaseWindow.getAllWindows().some((w) => !w.isDestroyed() && w.isFocused()), idleSeconds: powerMonitor.getSystemIdleTime(), locked }
+      }
+      // cheap checks first: the page is asked only when the computer is idle, and they are read again after its answer
+      if (!idleRestartAllowed({ ...quiet(), pageBusy: false, browserTabs: 0 })) return false
+      const b = await this.host.restartBlockers()
+      if (!idleRestartAllowed({ ...quiet(), pageBusy: b.pageBusy, browserTabs: b.browserTabs })) return false
+      debug('idle restart into', this.ready)
+      const userData = app.getPath('userData')
+      writeResume(userData, b.resume)
+      if (this.restartNow()) return true
+      writeResume(userData, null)
+      return false
+    } catch (e) {
+      debug('idle restart', (e as Error).message)
+      return false
+    } finally {
+      this.idleChecking = false
+    }
+  }
+
+  /** "<app> can't update itself from here" with "Move to Applications" (once per version) */
+  private async offerMove(version: string) {
+    if (this.noticed.has(version)) return
+    this.noticed.add(version)
+    const L = this.host.locale()
+    const r = await this.ask({ message: t(L, 'update.move.message', { app: PRODUCT.displayName, version }), buttons: [t(L, 'update.move.move'), t(L, 'update.later')] })
+    if (r !== 0) return
+    try {
+      // moves the app (out of the dmg, or the translocated copy) into /Applications and starts it from there
+      if (!app.moveToApplicationsFolder()) void this.offerDownload(version, true)
+    } catch (e) {
+      debug('move to applications', (e as Error).message)
+      void this.offerDownload(version, true)
+    }
+  }
+
+  /** "<app> couldn't update to <version>" with the website's download page (once per version) */
+  async offerDownload(version: string, again = false) {
+    if (this.noticed.has(version) && !again) return
+    this.noticed.add(version)
+    const L = this.host.locale()
+    const r = await this.ask({ message: t(L, 'update.failed.message', { app: PRODUCT.displayName, version }), buttons: [t(L, 'update.failed.download'), t(L, 'update.later')] })
+    // an edition without its own download page: the team's Settings › Apps
+    if (r === 0) { if (APP_DOWNLOADS.page) void shell.openExternal(APP_DOWNLOADS.page); else this.host.openApps() }
+  }
+
+  private async ask(o: { message: string; buttons: string[] }): Promise<number> {
+    const opts = { type: 'info' as const, message: o.message, buttons: o.buttons, defaultId: 0, cancelId: 1, noLink: true }
+    const w = this.host.window()
+    const r = w && !w.isDestroyed() ? await dialog.showMessageBox(w, opts) : await dialog.showMessageBox(opts)
+    return r.response
+  }
+
+  /** install the ready update now and start the app again (the menu item, idleRestart); false when nothing installs */
+  restartNow(): boolean {
+    if (!this.ready || !this.updater) return false
+    // Mac: Squirrel.Mac already holds the checked bytes (squirrelTakes); electron-updater's quitAndInstall restarts into them
+    if (this.mac) { this.updater.quitAndInstall(); return true }
+    if (!this.installsVerified()) return false
+    // silent install (the one-click installer shows nothing anyway), then start the app again
+    this.updater.quitAndInstall(true, true)
+    return true
+  }
+
+  private dismissedFile() {
+    return join(app.getPath('userData'), 'update-notice.json')
+  }
+
+  /** Linux .deb: the team's signed release names a newer Linux app: one line once per version, with the download page
+   * (an edition without one: the team's Settings › Apps) */
+  private async checkLinux(team: { id: string; origin: string }) {
+    const base = feedUrlFor(team.origin)
+    if (!base) return
+    const ses = session.fromPartition(partitionFor(team.id, 'app'))
+    let n: { version: string } | null = null
+    for (const src of manifestSources(base, app.getVersion()).filter((x) => x.team)) {
+      try {
+        const res = await ses.fetch(src.url, { signal: AbortSignal.timeout(10_000), redirect: 'error', headers: { accept: 'application/json', 'cache-control': 'no-cache' } })
+        if (!res.ok || Number(res.headers.get('content-length') ?? 0) > MANIFEST_MAX) continue
+        const text = await res.text()
+        if (text.length > MANIFEST_MAX) continue
+        n = linuxNotice(text, { channel: src.channel, current: app.getVersion(), keys: this.trust.keys, product: this.trust.product })
+      } catch (e) { debug('linux update notice', src.url, (e as Error).message); continue }
+      // the team server offers one channel: its manifest decides
+      break
+    }
+    if (!n) return
+    let seen: string | null = null
+    try { seen = existsSync(this.dismissedFile()) ? (JSON.parse(readFileSync(this.dismissedFile(), 'utf8')) as { version?: string }).version ?? null : null } catch {}
+    if (seen === n.version) return
+    try { writeFileSync(this.dismissedFile(), JSON.stringify({ version: n.version })) } catch {}
     const L = this.host.locale()
     const opts = {
       type: 'info' as const,
-      title: t(L, 'update.ready.title'),
-      message: t(L, 'update.ready.message', { version }),
-      detail: t(L, 'update.ready.detail'),
-      buttons: [t(L, 'update.ready.restart'), t(L, 'update.ready.later')],
+      title: t(L, 'update.linux.title'),
+      message: t(L, 'update.linux.message', { version: n.version, current: app.getVersion() }),
+      detail: t(L, 'update.linux.detail'),
+      buttons: [t(L, 'update.linux.download'), t(L, 'update.linux.later')],
       defaultId: 0,
       cancelId: 1,
       noLink: true,
     }
     const w = this.host.window()
     const r = w && !w.isDestroyed() ? await dialog.showMessageBox(w, opts) : await dialog.showMessageBox(opts)
-    if (r.response === 0) this.restartNow()
-  }
-
-  restartNow() {
-    if (!this.ready || !this.updater) return
-    // Mac: Squirrel.Mac already holds the checked bytes (squirrelTakes); electron-updater's quitAndInstall restarts into them
-    if (this.mac) { this.updater.quitAndInstall(); return }
-    if (!this.installsVerified()) return
-    // silent install (the one-click installer shows nothing anyway), then start the app again
-    this.updater.quitAndInstall(true, true)
-  }
-
-  private dismissedFile() {
-    return join(app.getPath('userData'), 'update-notice.json')
+    if (r.response === 0) { if (APP_DOWNLOADS.page) void shell.openExternal(APP_DOWNLOADS.page); else this.host.openApps() }
   }
 
   private async checkMac(team: { id: string; origin: string }) {

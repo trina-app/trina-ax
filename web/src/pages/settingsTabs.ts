@@ -1,21 +1,22 @@
 // The sections of the personal Settings dialog (components/settings/SettingsDialog.tsx, pages/Settings.tsx), in named
 // groups the dialog's list shows: Account (you and this device: profile, security, the in-app browser, your own usage,
-// what the AI remembers about you, what you allowed it in advance (트리나에게 허용한 것: room folders for new files,
+// what the AI remembers about you, a ZIP of your own chats (export), what you allowed it in advance (트리나에게 허용한 것: room folders for new files,
 // components/settings/AiAllowances.tsx); the whole team's usage is Admin › Usage) · Connections (Connectors: the AI
 // using other services with your accounts, pages/Connectors.tsx, for everyone, its pages under it at
-// /settings/connectors/<id>; Providers: your own AI accounts, while the team lets members add their own or one is still
+// /settings/connectors/<id>; AI providers: your own AI accounts, while the team lets members add their own or one is still
 // there; AI apps: outside AI apps such as Claude using this server) · App (notices, the apps to install, about).
 // The same groups as Admin's menu, which has no AI group either. Every section is just for you (Admin is the team's).
 // "Browser" is there inside a desktop app that offers it (the AI has the browser only there, server/src/chat/turn.ts);
 // on the web and phones only while the person's own "Allow all websites" for the AI's web reads is on, so it can be
 // turned off again (Me.user.webAllowAll, while the team allows it: Me.team.webAllowAll). Old addresses: /settings/integrations
-// and /connectors (Connectors), /settings/drive (Connectors › Google Drive), /settings/credentials (Providers,
+// and /connectors (Connectors), /settings/drive (Connectors › Google Drive), /settings/credentials (AI providers,
 // /settings/providers), SettingsDialog.tsx and App.tsx. "Dev
 // environment sites" (the sites the person allowed for her own dev-environment commands, and her Full internet switch)
 // is there while the dev environment on srt is on for her.
-import { Bell, Bot, Brain, Cable, Download, Gauge, Globe, Info, KeyRound, Laptop, Network, ShieldCheck, User } from 'lucide-react'
+import { Bell, Bot, Brain, Cable, Download, FileArchive, Gauge, Globe, Info, KeyRound, Laptop, Network, ShieldCheck, User } from 'lucide-react'
 import { PRODUCT_NAMED_AFTER_AI } from '@mycel/shared/api'
 import type { MessageKey } from '../i18n'
+import { FREE_ROAM_HIDDEN_SETTINGS } from '../lib/freeRoam'
 
 export interface SettingsTab {
   id: string
@@ -37,6 +38,8 @@ const TABS: SettingsTab[] = [
   { id: 'browser', label: 'settings.browser', find: 'settings.find.browser', icon: Globe, group: 'account' },
   { id: 'usage', label: 'settings.usage', find: 'settings.find.usage', icon: Gauge, group: 'account' },
   { id: 'memory', label: 'settings.memory', find: 'settings.find.memory', icon: Brain, group: 'account' },
+  // a ZIP of the person's own AI chats (components/settings/MyExport.tsx; QA AP-038)
+  { id: 'export', label: 'settings.export', find: 'settings.find.export', icon: FileArchive, group: 'account' },
   // named after the AI where the product is (트리나에게 허용한 것), else "AI에게 허용한 것"
   { id: 'allowances', label: PRODUCT_NAMED_AFTER_AI ? 'settings.allowances' : 'settings.allowancesAi', find: 'settings.find.allowances', icon: ShieldCheck, group: 'account' },
   // the person's own connections (Google Drive, Gmail, Slack, MCP services): everyone's, with its pages under it
@@ -49,18 +52,19 @@ const TABS: SettingsTab[] = [
   { id: 'about', label: 'settings.about', find: 'settings.find.about', icon: Info, group: 'app' },
 ]
 
-/** The tabs to show: "browser" when browserTabShown says so,
+/** The tabs to show: "browser" when browserTabShown says so, none of a free-roam demo's hidden ones (lib/freeRoam.ts:
+ * which AI account answers, its usage, the AI apps' page, the dev environment),
  * "providers" only when the member may have their own AI accounts (or still has one), "dev-env-sites" only when the dev
  * environment on srt is on for the person (GET /api/dev-env/sites state is not 'off'). */
-export function settingsTabs(withBrowser: boolean, withCredentials = false, withDevEnvSites = false, guest = false, guestAiOff = false): SettingsTab[] {
-  return TABS.filter((x) => (x.id !== 'browser' || withBrowser) && (x.id !== 'providers' || withCredentials) && (x.id !== 'dev-env-sites' || withDevEnvSites) && !(guest && GUEST_HIDDEN.has(x.id)) && !(guestAiOff && GUEST_AI_OFF_HIDDEN.has(x.id)))
+export function settingsTabs(withBrowser: boolean, withCredentials = false, withDevEnvSites = false, guest = false, guestAiOff = false, freeRoam = false): SettingsTab[] {
+  return TABS.filter((x) => (x.id !== 'browser' || withBrowser) && (x.id !== 'providers' || withCredentials) && (x.id !== 'dev-env-sites' || withDevEnvSites) && !(guest && GUEST_HIDDEN.has(x.id)) && !(guestAiOff && GUEST_AI_OFF_HIDDEN.has(x.id)) && !(freeRoam && FREE_ROAM_HIDDEN_SETTINGS.has(x.id)))
 }
 
 /** A guest's Settings (lib/guests.ts): only their own account, AI sign-in and the app. What the team shares with its
  * members (connected apps, AI apps, the AI's allowances, the browser, the dev environment) and the AI's memory are not
- * theirs: the server refuses those to a guest (server/src/auth/guest-endpoints.ts has no memories). With their AI off
+ * theirs: the server refuses those to a guest (server/src/auth/guest-endpoints.ts has no memories and no own export). With their AI off
  * (`guestAiOff`) also the AI's usage and AI accounts: nothing to see or sign in to (their own sign-in keeps AI accounts). */
-const GUEST_HIDDEN = new Set(['browser', 'allowances', 'connectors', 'ai-apps', 'dev-env-sites', 'memory'])
+const GUEST_HIDDEN = new Set(['browser', 'allowances', 'connectors', 'ai-apps', 'dev-env-sites', 'memory', 'export'])
 const GUEST_AI_OFF_HIDDEN = new Set(['usage', 'providers'])
 
 /** Is there a Browser section: inside a desktop app that offers its site setting (the only client whose AI has the

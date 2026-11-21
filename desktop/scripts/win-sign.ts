@@ -43,7 +43,8 @@ export function winSignSettings(env: Record<string, string | undefined> = proces
 }
 
 /** ./win-sign.ps1, found from the build's working directory (desktop/: `bun run --cwd desktop dist:win`). Not
- * __dirname: electron-builder compiles this config into a cache folder (config-file-ts), where the script is not. */
+ * __dirname: electron-builder loads the config through its own loader (config-file-ts compiled it into a cache folder
+ * up to 26.0; jiti since 26.x), so the build folder is the sure way to find the script. */
 export function signScript(cwd = process.cwd()): string {
   const script = path.join(cwd, 'scripts', 'win-sign.ps1')
   if (!fs.existsSync(script)) throw new Error(`Windows signing: ${script} not found (build from desktop/)`)

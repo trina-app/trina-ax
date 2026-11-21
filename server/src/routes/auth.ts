@@ -1,5 +1,6 @@
 // Route module "auth" — owner: component A (docs/WORKPLAN.md).
-// Implements: AUTH (setup, login, logout, password, me, sessions, invite info/accept, password reset links) and
+// Implements: AUTH (setup, login, logout, password, me, sessions, invite info/accept, password reset links, the desktop
+// app's one-time sign-in codes) and
 // ACCOUNT_DELETION (a person's request to have their account deleted: routes/account-deletion.ts)
 // Contract: shared/src/api/auth.ts, shared/src/api/account-deletion.ts
 import { API } from '@mycel/shared/api'
@@ -12,14 +13,28 @@ import { forgetUserName } from '../chat/runtime'
 import { fail } from '../http/errors'
 import { acceptInvite, changePassword, completeReset, inviteInfo, login, resetInfo, setup, setupStatusFor } from '../auth/accounts'
 import { authOf, installAuth } from '../auth/service'
+import { mintAppSignIn, redeemAppSignIn, voidAppSignInCodes } from '../auth/app-signin'
 import { startSweeper } from '../auth/sweeper'
 import { registerAccountsCleanup } from '../auth/account-removal'
 import { getUser, setUserLocale } from '../auth/users'
+import { emailUsedByOther, isGuest } from '../auth/guests'
+import { msg } from '../auth/messages'
 import type { RouteModule } from './module'
 import { reachedAt } from '../system/connection'
 import { canChooseEngine, filterEnginePrefs } from '../admin/engine-choice'
 import { myUsage } from '../admin/my-usage'
 import { registerAccountDeletionRoutes } from './account-deletion'
+
+/** a guest's e-mail changes (an address, not clearing it) per hour, in this process: enough for typos, too few to probe */
+export const GUEST_EMAIL_TRIES = 10
+const guestEmailTries = new Map<string, number[]>()
+function guestEmailTry(userId: string, now: number): boolean {
+  const recent = (guestEmailTries.get(userId) ?? []).filter((t) => t > now - 3600_000)
+  if (recent.length >= GUEST_EMAIL_TRIES) { guestEmailTries.set(userId, recent); return false }
+  recent.push(now)
+  guestEmailTries.set(userId, recent)
+  return true
+}
 
 export const authRoutes: RouteModule = {
   name: 'auth',
@@ -43,11 +58,17 @@ export const authRoutes: RouteModule = {
 
     kit.handle(API.logout, ({ c, auth }) => {
       a().revokeSession(auth.session.id, 'logout')
+      // a desktop sign-in code made in this browser goes with the sign-out (auth/app-signin.ts)
+      voidAppSignInCodes(ctx.db, auth.user.id)
       if (auth.via === 'cookie') a().clearCookie(c)
       // a shared computer: the browser forgets what it kept of this person (room pictures of this sign-in, the bodies
       // of private answers it stored to check again), so nothing of it is left for the next person (auth/media-key.ts)
       c.header('Clear-Site-Data', '"cache"')
     })
+
+    // "Continue in the Mac app" (web /open-app): a one-time code for the desktop app, and its redeem there
+    kit.handle(API.appSignIn, ({ c }) => mintAppSignIn(c, ctx))
+    kit.handle(API.redeemAppSignIn, ({ c, body }) => redeemAppSignIn(c, ctx, body))
 
     kit.handle(API.changePassword, async ({ c, body }) => {
       await changePassword(c, ctx, body)
@@ -77,7 +98,15 @@ export const authRoutes: RouteModule = {
       const sets: string[] = []
       const args: (string | null)[] = []
       if (body.name !== undefined) { sets.push('name = ?'); args.push(body.name) }
-      if (body.email !== undefined) { sets.push('email = ?'); args.push(body.email) }
+      if (body.email !== undefined) {
+        // a guest may not take an address another account here gives (members may share one, as before). At most
+        // GUEST_EMAIL_TRIES addresses an hour, whatever the answer, so it cannot be used to find who is in the team
+        if (body.email !== null && isGuest(ctx.db, auth.user.id)) {
+          if (!guestEmailTry(auth.user.id, Date.now())) fail('rate_limited', undefined, { params: { reason: 'email_tries' } })
+          if (emailUsedByOther(ctx.db, auth.user.id, body.email)) fail('conflict', msg('emailInUse', c.get('locale')), { params: { reason: 'email_in_use' }, fields: { 'body.email': 'email_in_use' } })
+        }
+        sets.push('email = ?'); args.push(body.email)
+      }
       if (body.prefs !== undefined) {
         // merge: a PATCH carrying only { theme } keeps the other preferences
         let cur: Record<string, unknown> = {}
@@ -115,7 +144,7 @@ export const authRoutes: RouteModule = {
     }))
 
     kit.handle(API.revokeMySession, ({ c, params, auth }) => {
-      const row = ctx.db.query('SELECT id FROM sessions WHERE id = ? AND user_id = ?').get(params.id, auth.user.id)
+      const row = ctx.db.query('SELECT id FROM sessions WHERE id = ? AND user_id = ? AND connector = 0').get(params.id, auth.user.id)
       if (!row) fail('not_found')
       a().revokeSession(params.id, 'revoked')
       if (params.id === auth.session.id && auth.via === 'cookie') a().clearCookie(c)

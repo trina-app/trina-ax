@@ -8,8 +8,10 @@
 // AI, a read the app refuses, every folder blocked, the owner's setup step (the team home), and an older app.
 import { expect, test, type Page } from '@playwright/test'
 import { realErrors, reset, signIn, watchConsole } from './helpers'
+import { FILE_SHARE_EVERYONE } from '@mycel/shared/api'
+import { translate } from '../../src/i18n'
 
-import { answer, app, fakeApp, look, pickHolds, roots, type Meta } from './fake-work-files'
+import { answer, app, fakeApp, look, notNow, pickHolds, refuseAdds, roots, type Meta } from './fake-work-files'
 
 const BOB = { username: 'bob', password: 'bob password 1' }
 
@@ -42,12 +44,14 @@ test('a member on My files: the app asks first; Cancel does nothing; nothing tic
   await reset(page)
   await signIn(page, BOB)
   await openMine(page)
-  await expect(page.getByTestId('files-find-work-entry')).toHaveText('이 컴퓨터에서 업무 파일 찾기')
+  await expect(page.getByTestId('files-find-work-entry')).toHaveText('업무 파일 찾기')
   // Cancel in the app's own dialog: the page closes, nothing was looked at or sent
   await page.getByTestId('files-find-work-entry').click()
   await expect(page.getByTestId('find-work')).toHaveAttribute('data-screen', 'asking')
   await answer(page, 'cancel')
   await expect(page.getByTestId('find-work')).toHaveCount(0)
+  // Not now, Esc or closing the app's window (the app answers 'cancelled' for each): the page says so (TC-3491)
+  await expect(page.getByTestId('toast').filter({ hasText: '취소했어요. 아무것도 넣지 않았어요.' })).toBeVisible()
   expect((await app(page)).reads).toEqual([])
   expect(await (await page.request.get('/__test/file-rank')).json()).toEqual([])
   // Look: Downloads blocked by macOS, Desktop cut (big), the list with nothing ticked
@@ -115,6 +119,10 @@ test('Add: only the ticked files are read, they land in My files › From this c
   const work = page.getByTestId('find-work-work')
   await work.getByTestId('find-work-row').filter({ hasText: 'Quote template 2026.xlsx' }).getByTestId('find-work-check').check()
   await work.getByTestId('find-work-row').filter({ hasText: 'Northwind proposal.pptx' }).getByTestId('find-work-check').check()
+  // ticked, then unticked: never named to the app, never read (TC-3300)
+  const brand = work.getByTestId('find-work-row').filter({ hasText: 'Brand guide v3.pdf' }).getByTestId('find-work-check')
+  await brand.check()
+  await brand.uncheck()
   await expect(page.getByTestId('find-work-add')).toHaveText('2개 넣기')
   // slow uploads: the dialog is closed while they go, and the line opens on the same run (its Undo stays reachable)
   await page.request.post('/__test/upload-delay', { data: { ms: 1500 } })
@@ -126,8 +134,10 @@ test('Add: only the ticked files are read, they land in My files › From this c
   await expect(page.getByTestId('find-work-run')).toBeVisible()
   expect((await app(page)).scans).toBe(1)
   await expect(page.getByTestId('find-work-run')).toHaveAttribute('data-status', 'done', { timeout: 15_000 })
+  await notNow(page)
   await expect(page.getByTestId('find-work-run-title')).toHaveText('내 파일 › 이 컴퓨터에서에 2개를 넣었어요')
-  // exactly the two ticked files were read, each once
+  // exactly the two ticked files were named to the app at Add (TC-3300) and read, each once
+  expect((await app(page)).adds.map((a) => [...a].sort())).toEqual([['id0', 'id3']])
   expect((await app(page)).reads.sort()).toEqual(['id0', 'id3'])
   expect((await tree(page, 'users/bob/From this computer/Documents')).map((e) => e.name).sort()).toEqual(['Clients', 'Sales'])
   // the older copy is not replaced: the new one gets a name of its own
@@ -145,6 +155,195 @@ test('Add: only the ticked files are read, they land in My files › From this c
   expect(own(errors)).toEqual([])
 })
 
+test('the share step: nothing ticked, a hint on the kinds teams keep, Share is the file Share dialog\'s; Not now and the way back', async ({ page }) => {
+  const errors = watchConsole(page)
+  await fakeApp(page)
+  await reset(page)
+  await signIn(page, BOB)
+  await openMine(page)
+  await look(page, WORK)
+  await page.getByTestId('files-find-work-entry').click()
+  await answer(page, 'look')
+  await expect(page.getByTestId('find-work-ai')).toBeVisible()
+  const work = page.getByTestId('find-work-work')
+  await work.getByTestId('find-work-row').filter({ hasText: 'Quote template 2026.xlsx' }).getByTestId('find-work-check').check()
+  await work.getByTestId('find-work-row').filter({ hasText: 'Northwind proposal.pptx' }).getByTestId('find-work-check').check()
+  await page.getByTestId('find-work-add').click()
+  // after the add: the step, with what was added said above it
+  await expect(page.getByTestId('find-work-run')).toHaveAttribute('data-stage', 'share', { timeout: 15_000 })
+  await expect(page.getByTestId('find-work-share-added')).toHaveText('내 파일 › 이 컴퓨터에서에 2개를 넣었어요')
+  await expect(page.getByTestId('find-work-share-title')).toHaveText('이 중에 팀과 공유할 파일이 있나요?')
+  const rows = page.getByTestId('find-work-share-row')
+  // the hinted kind first (a form), the proposal with no hint; nothing ticked, Share off
+  await expect(rows).toHaveText([/Quote template 2026\.xlsx/, /Northwind proposal\.pptx/])
+  await expect(rows.first()).toContainText('공유하기 좋은 양식 · 문서 › Sales')
+  await expect(rows.nth(1)).not.toContainText('공유하기 좋은')
+  for (const c of await page.getByTestId('find-work-share-check').all()) await expect(c).not.toBeChecked()
+  await expect(page.getByTestId('find-work-share-go')).toBeDisabled()
+  // a file ticked, nobody added yet: says who is missing, still off
+  await rows.first().getByTestId('find-work-share-check').check()
+  await expect(page.getByTestId('find-work-share-who')).toHaveText('볼 사람을 추가해 주세요.')
+  await expect(page.getByTestId('find-work-share-go')).toBeDisabled()
+  await page.getByTestId('find-work-share-picker-search').fill('Olga')
+  await page.getByTestId('participant-add-user-olga').click()
+  await expect(page.getByTestId('find-work-share-go')).toHaveText('1개 공유')
+  await page.getByTestId('find-work-share-go').click()
+  // the result: added, shared with whom; Undo, Open, Close as before
+  await expect(page.getByTestId('find-work-run')).toHaveAttribute('data-stage', 'result')
+  await expect(page.getByTestId('find-work-shared')).toHaveText('Olga 님에게 1개를 공유했어요')
+  await expect(page.getByTestId('find-work-undo')).toBeVisible()
+  const shares = async (path: string) => (await (await page.request.get(`/api/files/shares?path=${encodeURIComponent(path)}`)).json()) as { people: { subjectId: string }[] }
+  expect((await shares('users/bob/From this computer/Documents/Sales/Quote template 2026.xlsx')).people.map((p) => p.subjectId)).toEqual(['olga'])
+  expect((await shares('users/bob/From this computer/Documents/Clients/Northwind/Northwind proposal.pptx')).people).toEqual([])
+  // the way back: the step again, nothing ticked; Not now leaves everything as it is
+  await page.getByTestId('find-work-share-again').click()
+  await expect(page.getByTestId('find-work-run')).toHaveAttribute('data-stage', 'share')
+  for (const c of await page.getByTestId('find-work-share-check').all()) await expect(c).not.toBeChecked()
+  await page.getByTestId('find-work-share-skip').click()
+  await expect(page.getByTestId('find-work-run')).toHaveAttribute('data-stage', 'result')
+  expect((await shares('users/bob/From this computer/Documents/Clients/Northwind/Northwind proposal.pptx')).people).toEqual([])
+  await page.getByTestId('find-work-done').click()
+  expect(own(errors)).toEqual([])
+})
+
+test('the share step with "Everyone on the team": the first option, the line before the press, one press; a teammate gets ONE notice for both files', async ({ page, browser }) => {
+  const ko = (k: Parameters<typeof translate>[1], p: Record<string, string | number> = {}) => translate('ko', k, p)
+  await fakeApp(page)
+  await reset(page)
+  await signIn(page, BOB)
+  await openMine(page)
+  await look(page, WORK)
+  await page.getByTestId('files-find-work-entry').click()
+  await answer(page, 'look')
+  await expect(page.getByTestId('find-work-ai')).toBeVisible()
+  const work = page.getByTestId('find-work-work')
+  await work.getByTestId('find-work-row').filter({ hasText: 'Quote template 2026.xlsx' }).getByTestId('find-work-check').check()
+  await work.getByTestId('find-work-row').filter({ hasText: 'Brand guide v3.pdf' }).getByTestId('find-work-check').check()
+  await page.getByTestId('find-work-add').click()
+  await expect(page.getByTestId('find-work-run')).toHaveAttribute('data-stage', 'share', { timeout: 15_000 })
+  for (const c of await page.getByTestId('find-work-share-check').all()) await c.check()
+  await page.getByTestId('find-work-share-picker-search').click()
+  await expect(page.getByTestId('find-work-share-picker-results').getByRole('button').first()).toContainText(ko('fileShare.everyone'))
+  await page.getByTestId(`participant-add-group-${FILE_SHARE_EVERYONE}`).click()
+  await expect(page.getByTestId('find-work-share-everyone-line')).toHaveText(ko('fileShare.everyoneLineMany', { n: 2 }))
+  await page.getByTestId('find-work-share-go').click()
+  await expect(page.getByTestId('find-work-shared')).toHaveText(ko('files.findWork.share.done', { n: 2, names: ko('fileShare.everyoneWho') }))
+  // Olga (the team owner) gets one notice for the two files, which opens their list
+  const ctx = await browser.newContext({ baseURL: new URL(page.url()).origin, viewport: { width: 390, height: 844 }, locale: 'ko-KR' })
+  const olga = await ctx.newPage()
+  await signIn(olga)
+  await olga.goto('/activity')
+  const item = olga.getByTestId('notification-item').filter({ hasText: ko('notifications.event.file.sharedMany', { by: 'Bob', n: 2 }) })
+  await expect(item).toHaveCount(1)
+  await item.getByTestId('notification-file-batch-link').click()
+  await expect(olga.getByTestId('file-batch-row')).toHaveCount(2)
+  await ctx.close()
+})
+
+test('the share step at 390 (QA TC-3522): twelve files ticked, a person and "Everyone on the team" picked: the warning line and both buttons stay fully in sight together in the sheet\'s footer; the list scrolls', async ({ page }) => {
+  await fakeApp(page)
+  await reset(page)
+  // twelve of the company's files (named after it, no AI): a list taller than the sheet
+  await page.request.post('/__test/file-rank', { data: { ai: 'none' } })
+  await signIn(page, BOB)
+  await openMine(page)
+  await look(page, Array.from({ length: 12 }, (_, i) => ({ name: `Acme report ${'abcdefghijkl'[i]}.pdf` })))
+  await page.getByTestId('files-find-work-entry').click()
+  await answer(page, 'look')
+  await expect(page.getByTestId('find-work-ai')).toBeVisible()
+  await page.getByTestId('find-work-select-all').click()
+  await page.getByTestId('find-work-add').click()
+  await expect(page.getByTestId('find-work-run')).toHaveAttribute('data-stage', 'share', { timeout: 15_000 })
+  await page.setViewportSize({ width: 390, height: 844 })
+  for (const c of await page.getByTestId('find-work-share-check').all()) await c.check()
+  await page.getByTestId('find-work-share-picker-search').fill('Olga')
+  await page.getByTestId('participant-add-user-olga').click()
+  // "Everyone on the team" too: its warning sits in the footer, right above the buttons (QA TC-3509)
+  await page.getByTestId('find-work-share-picker-search').click()
+  await page.getByTestId(`participant-add-group-${FILE_SHARE_EVERYONE}`).click()
+  await page.getByTestId('find-work-share-picker-search').blur()
+  await expect(page.getByTestId('find-work-share-check')).toHaveCount(12)
+  // the buttons are in the dialog's footer row, below the scrolling body, whole and on screen without scrolling
+  const footer = page.getByRole('dialog').getByTestId('modal-footer')
+  for (const id of ['find-work-share-everyone-line', 'find-work-share-go', 'find-work-share-skip']) {
+    await expect(footer.getByTestId(id)).toBeInViewport({ ratio: 1 })
+  }
+  const box = (await footer.boundingBox())!
+  expect(box.y + box.height).toBeLessThanOrEqual(844)
+  if (process.env.FIND_SHARE_390_SHOTS) {
+    for (const scheme of ['light', 'dark'] as const) {
+      await page.emulateMedia({ colorScheme: scheme })
+      await page.waitForTimeout(200)
+      await page.screenshot({ path: `${process.env.FIND_SHARE_390_SHOTS}/390-${scheme}-picked.png` })
+    }
+    await page.setViewportSize({ width: 1440, height: 900 })
+    for (const scheme of ['light', 'dark'] as const) {
+      await page.emulateMedia({ colorScheme: scheme })
+      await page.waitForTimeout(200)
+      await page.screenshot({ path: `${process.env.FIND_SHARE_390_SHOTS}/1440-${scheme}-picked.png` })
+    }
+    await page.setViewportSize({ width: 390, height: 844 })
+    await page.emulateMedia({ colorScheme: 'light' })
+  }
+  // Not now from the footer: the result
+  await footer.getByTestId('find-work-share-skip').click()
+  await expect(page.getByTestId('find-work-run')).toHaveAttribute('data-stage', 'result')
+})
+
+test('the share step is skipped when the team turned off members\' file sharing', async ({ page }) => {
+  await fakeApp(page)
+  await reset(page)
+  expect((await page.request.post('/__test/file-shares', { data: { off: true } })).ok()).toBeTruthy()
+  await signIn(page, BOB)
+  await openMine(page)
+  await look(page, WORK)
+  await page.getByTestId('files-find-work-entry').click()
+  await answer(page, 'look')
+  await page.getByTestId('find-work-work').getByTestId('find-work-row').filter({ hasText: 'Quote template 2026.xlsx' }).getByTestId('find-work-check').check()
+  await page.getByTestId('find-work-add').click()
+  await expect(page.getByTestId('find-work-run')).toHaveAttribute('data-stage', 'result', { timeout: 15_000 })
+  await expect(page.getByTestId('find-work-share-again')).toHaveCount(0)
+  await expect(page.getByTestId('find-work-run-title')).toHaveText('내 파일 › 이 컴퓨터에서에 1개를 넣었어요')
+})
+
+test('My files\' dialog stays open at 390 and through resizes (QA TC-3504): the look goes on, the search works, Add lands', async ({ page }) => {
+  const errors = watchConsole(page)
+  await fakeApp(page)
+  await reset(page)
+  // the share step is the share test's; this one looks at the dialog at phone width
+  expect((await page.request.post('/__test/file-shares', { data: { off: true } })).ok()).toBeTruthy()
+  await signIn(page, BOB)
+  await openMine(page)
+  await look(page, WORK)
+  // the button is in the computer toolbar; made phone-narrow while the app asks, the dialog and its look stay
+  await page.getByTestId('files-find-work-entry').click()
+  await expect(page.getByTestId('find-work')).toHaveAttribute('data-screen', 'asking')
+  await page.setViewportSize({ width: 390, height: 844 })
+  await expect(page.getByTestId('find-work')).toHaveAttribute('data-screen', 'asking')
+  await answer(page, 'look')
+  await expect(page.getByTestId('find-work')).toHaveAttribute('data-screen', 'list')
+  expect((await app(page)).scans).toBe(1)
+  // the search works at 390
+  await page.getByTestId('find-work-search').fill('notes')
+  await expect(page.getByTestId('find-work-found').getByTestId('find-work-row')).toHaveText([/notes\.txt/])
+  await page.getByTestId('find-work-search').fill('')
+  await page.getByTestId('find-work-work').getByTestId('find-work-row').filter({ hasText: 'Quote template 2026.xlsx' }).getByTestId('find-work-check').check()
+  if (process.env.FIND_WORK_390_SHOT) await page.screenshot({ path: process.env.FIND_WORK_390_SHOT })
+  // back to a computer width and narrow again: the same dialog, the tick kept
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await expect(page.getByTestId('find-work')).toHaveAttribute('data-screen', 'list')
+  await page.setViewportSize({ width: 390, height: 844 })
+  await expect(page.getByTestId('find-work-work').getByTestId('find-work-row').filter({ hasText: 'Quote template 2026.xlsx' }).getByTestId('find-work-check')).toBeChecked()
+  expect((await app(page)).scans).toBe(1)
+  await page.getByTestId('find-work-add').click()
+  await expect(page.getByTestId('find-work-run')).toHaveAttribute('data-status', 'done', { timeout: 15_000 })
+  await expect(page.getByTestId('find-work-run-title')).toHaveText('내 파일 › 이 컴퓨터에서에 1개를 넣었어요')
+  await page.getByTestId('find-work-done').click()
+  await expect(page.getByTestId('find-work-run')).toHaveCount(0)
+  expect((await tree(page, 'users/bob/From this computer/Documents/Sales')).map((e) => e.name)).toEqual(['Quote template 2026.xlsx'])
+  expect(own(errors)).toEqual([])
+})
+
 test('Select all: never a personal file, at most 100, and it says so; no AI: the names\' order', async ({ page }) => {
   await fakeApp(page)
   await reset(page)
@@ -152,7 +351,7 @@ test('Select all: never a personal file, at most 100, and it says so; no AI: the
   await signIn(page, BOB)
   await openMine(page)
   // without AI only the company's files are listed (here by the team's name in the file name)
-  await look(page, [...Array.from({ length: 120 }, (_, i) => ({ name: `Acme report ${i}.pdf` })), { name: 'Acme Tax Return 2025.pdf' }, { name: 'random notes.pdf' }])
+  await look(page, [...Array.from({ length: 120 }, (_, i) => ({ name: `Acme report q${'abcdefghijkl'[i % 12]}${'mnopqrstuv'[Math.floor(i / 12)]}.pdf` })), { name: 'Acme Tax Return 2025.pdf' }, { name: 'random notes.pdf' }])
   await page.getByTestId('files-find-work-entry').click()
   await answer(page, 'look')
   await expect(page.getByTestId('find-work-ai')).toHaveText('AI 없이 파일 이름으로 정렬했어요')
@@ -184,6 +383,7 @@ test('a read the app refuses (the file changed) is not added; every folder block
   await page.getByTestId('find-work-select-all').click()
   await page.getByTestId('find-work-add').click()
   await expect(page.getByTestId('find-work-run')).toHaveAttribute('data-status', 'failed')
+  await notNow(page)
   await expect(page.getByTestId('find-work-run')).toContainText('1개는 넣지 못했어요')
   // the app's reason, in words
   await expect(page.getByTestId('find-work-failed')).toContainText('살펴본 뒤 이 컴퓨터에서 바뀌었어요')
@@ -205,6 +405,191 @@ test('a read the app refuses (the file changed) is not added; every folder block
   await expect(page.getByTestId('find-work')).toHaveAttribute('data-screen', 'none')
   await page.getByTestId('find-work-close').click()
   await expect(page.getByTestId('find-work')).toHaveCount(0)
+})
+
+test('TC-219: one ticked file changed and one deleted since the look: each says why, the rest are added, Look again brings the list back with the ticks', async ({ page }) => {
+  const errors = watchConsole(page)
+  const ko = (key: Parameters<typeof translate>[1], params?: Record<string, string | number>) => translate('ko', key, params)
+  await fakeApp(page, { refuse: ['id1'], missing: ['id2'] })
+  await reset(page)
+  await signIn(page, BOB)
+  await openMine(page)
+  const before: Meta[] = [{ name: 'Quote template.xlsx' }, { name: 'Brand guide.pdf' }, { name: 'Northwind proposal.pptx', folder: 'Clients/Northwind' }]
+  await look(page, before)
+  await page.getByTestId('files-find-work-entry').click()
+  await answer(page, 'look')
+  await page.getByTestId('find-work-select-all').click()
+  await expect(page.getByTestId('find-work-add')).toHaveText(ko('files.findWork.add', { n: 3 }))
+  await page.getByTestId('find-work-add').click()
+  await expect(page.getByTestId('find-work-run')).toHaveAttribute('data-status', 'failed', { timeout: 15_000 })
+  await notNow(page)
+  // the other ticked file went
+  await expect(page.getByTestId('find-work-run-title')).toContainText('1')
+  expect((await tree(page, 'users/bob/From this computer/Documents')).filter((e) => e.type === 'file').map((e) => e.name)).toEqual(['Quote template.xlsx'])
+  // each failed file says why, in the app's words, never "the browser could not read this item"
+  const failed = page.getByTestId('find-work-failed')
+  await expect(failed).toContainText(`Brand guide.pdf · ${ko('files.findWork.why.changed')}`)
+  await expect(failed).toContainText(`Northwind proposal.pptx · ${ko('files.findWork.why.missing')}`)
+  await expect(page.getByTestId('find-work-run')).not.toContainText(ko('files.folderUpload.unreadable'))
+  // the run's row on My files says the same
+  await expect(page.getByTestId('folder-upload-failures')).toContainText(ko('files.findWork.why.missing'))
+  await expect(page.getByTestId('folder-upload-failures')).not.toContainText(ko('files.folderUpload.unreadable'))
+  // Look again: a new look (the app asks again); the changed file comes back ticked and says so, the deleted one is named
+  // (the new look's ids are new: Brand guide is id0 now, which the stand-in reads)
+  await look(page, [{ name: 'Brand guide.pdf', size: 52_000 }, { name: 'Quote template.xlsx' }])
+  await page.getByTestId('find-work-look-again').click()
+  await expect(page.getByTestId('find-work')).toHaveAttribute('data-screen', 'asking')
+  await answer(page, 'look')
+  await expect(page.getByTestId('find-work')).toHaveAttribute('data-screen', 'list')
+  expect((await app(page)).scans).toBe(2)
+  // the one added before is in My files now: not offered again
+  await expect(page.getByTestId('find-work-already')).toBeVisible()
+  const brand = page.getByTestId('find-work-row').filter({ hasText: 'Brand guide.pdf' })
+  await expect(brand.getByTestId('find-work-check')).toBeChecked()
+  await expect(brand.getByTestId('find-work-row-changed')).toHaveText(ko('files.findWork.why.changed'))
+  await expect(page.getByTestId('find-work-gone')).toHaveText(ko('files.findWork.gone', { n: 1, names: 'Northwind proposal.pptx' }))
+  await expect(page.getByTestId('find-work-add')).toHaveText(ko('files.findWork.add', { n: 1 }))
+  await page.getByTestId('find-work-add').click()
+  await expect(page.getByTestId('find-work-run')).toHaveAttribute('data-status', 'done', { timeout: 15_000 })
+  expect((await tree(page, 'users/bob/From this computer/Documents')).filter((e) => e.type === 'file').map((e) => e.name).sort()).toEqual(['Brand guide.pdf', 'Quote template.xlsx'])
+  expect(own(errors)).toEqual([])
+})
+
+test('TC-219: a list left open for over an hour looks again before Add, keeps the ticks and says so', async ({ page }) => {
+  await page.clock.install()
+  const ko = (key: Parameters<typeof translate>[1], params?: Record<string, string | number>) => translate('ko', key, params)
+  await fakeApp(page)
+  await reset(page)
+  await signIn(page, BOB)
+  await openMine(page)
+  await look(page, [{ name: 'Quote template.xlsx' }, { name: 'Brand guide.pdf' }])
+  await page.getByTestId('files-find-work-entry').click()
+  await answer(page, 'look')
+  await page.clock.runFor(1000)
+  await expect(page.getByTestId('find-work')).toHaveAttribute('data-screen', 'list')
+  await page.getByTestId('find-work-select-all').click()
+  await expect(page.getByTestId('find-work-stale')).toHaveCount(0)
+  await page.clock.runFor('51:00')
+  await expect(page.getByTestId('find-work-stale')).toHaveText(ko('files.findWork.stale'))
+  // the files changed meanwhile: Brand guide is bigger now
+  await look(page, [{ name: 'Quote template.xlsx' }, { name: 'Brand guide.pdf', size: 60_000 }])
+  await page.getByTestId('find-work-add').click()
+  // nothing named to the app from the old list: a new look first
+  await expect(page.getByTestId('find-work')).toHaveAttribute('data-screen', 'asking')
+  expect((await app(page)).adds).toEqual([])
+  await answer(page, 'look')
+  await page.clock.runFor(1000)
+  await expect(page.getByTestId('find-work')).toHaveAttribute('data-screen', 'list')
+  await expect(page.getByTestId('find-work-looked-again')).toHaveText(ko('files.findWork.lookedAgain'))
+  await expect(page.getByTestId('find-work-stale')).toHaveCount(0)
+  await expect(page.getByTestId('find-work-add')).toHaveText(ko('files.findWork.add', { n: 2 }))
+  await expect(page.getByTestId('find-work-row').filter({ hasText: 'Brand guide.pdf' }).getByTestId('find-work-row-changed')).toBeVisible()
+  await page.getByTestId('find-work-add').click()
+  await expect(page.getByTestId('find-work-run')).toBeVisible()
+  expect((await app(page)).adds.map((a) => [...a].sort())).toEqual([['id0', 'id1']])
+})
+
+test('TC-219 review: a file from "Choose a folder…" that changed: Look again; Cancel in the app\'s window goes back to the result; the new look says to choose the folder again, and choosing it ticks the file', async ({ page }) => {
+  const ko = (key: Parameters<typeof translate>[1], params?: Record<string, string | number>) => translate('ko', key, params)
+  await fakeApp(page, { pickFolder: 'Projects', refuse: ['p100'] })
+  await reset(page)
+  await signIn(page, BOB)
+  await openMine(page)
+  await look(page, [{ name: 'Quote template.xlsx' }])
+  await pickHolds(page, [{ name: 'Northwind plan.docx', root: 'folder', place: 'Projects' }])
+  await page.getByTestId('files-find-work-entry').click()
+  await answer(page, 'look')
+  await expect(page.getByTestId('find-work')).toHaveAttribute('data-screen', 'list')
+  await page.getByTestId('find-work-row').filter({ hasText: 'Quote template.xlsx' }).getByTestId('find-work-check').check()
+  await page.getByTestId('find-work-choose-folder').click()
+  await page.getByTestId('find-work-found').getByTestId('find-work-row').filter({ hasText: 'Northwind plan.docx' }).getByTestId('find-work-check').check()
+  await page.getByTestId('find-work-add').click()
+  await expect(page.getByTestId('find-work-run')).toHaveAttribute('data-status', 'failed', { timeout: 15_000 })
+  await notNow(page)
+  await expect(page.getByTestId('find-work-failed')).toContainText(`Northwind plan.docx · ${ko('files.findWork.why.changed')}`)
+  // Look again, then Cancel in the app's window: back to the result, its Undo still there
+  await page.getByTestId('find-work-look-again').click()
+  await expect(page.getByTestId('find-work')).toHaveAttribute('data-screen', 'asking')
+  await answer(page, 'cancel')
+  await expect(page.getByTestId('find-work-run')).toHaveAttribute('data-stage', 'result')
+  await expect(page.getByTestId('find-work-undo')).toBeVisible()
+  // Look again, the look this time: it does not list the chosen folder's file; never "no longer on this computer"
+  await look(page, [{ name: 'Quote template.xlsx' }])
+  await page.getByTestId('find-work-look-again').click()
+  await answer(page, 'look')
+  await expect(page.getByTestId('find-work-not-listed')).toContainText(ko('files.findWork.notListed', { n: 1, names: 'Northwind plan.docx' }))
+  await expect(page.getByTestId('find-work-gone')).toHaveCount(0)
+  // choosing the folder again (a new id for the file now): it comes back ticked, with the change said
+  await pickHolds(page, [{ name: 'Northwind plan.docx', root: 'folder', place: 'Projects', size: 41_000 }], 200)
+  await expect(page.getByTestId('find-work-choose-again')).toHaveText(ko('files.findWork.chooseAgain', { folder: 'Projects' }))
+  await page.getByTestId('find-work-choose-again').click()
+  await expect(page.getByTestId('find-work-not-listed')).toHaveCount(0)
+  const plan = page.getByTestId('find-work-row').filter({ hasText: 'Northwind plan.docx' })
+  await expect(plan.getByTestId('find-work-check')).toBeChecked()
+  await expect(plan.getByTestId('find-work-row-changed')).toBeVisible()
+  await expect(page.getByTestId('find-work-add')).toHaveText(ko('files.findWork.add', { n: 1 }))
+  await page.getByTestId('find-work-add').click()
+  await expect(page.getByTestId('find-work-run')).toHaveAttribute('data-status', 'done', { timeout: 15_000 })
+})
+
+test('TC-219 review: the app turned Add down: Look again keeps the ticks, a personal-looking one in sight', async ({ page }) => {
+  const ko = (key: Parameters<typeof translate>[1], params?: Record<string, string | number>) => translate('ko', key, params)
+  await fakeApp(page)
+  await reset(page)
+  await signIn(page, BOB)
+  await openMine(page)
+  const list: Meta[] = [{ name: 'Quote template.xlsx' }, { name: 'payslip_oct.pdf', root: 'downloads' }]
+  await look(page, list)
+  await page.getByTestId('files-find-work-entry').click()
+  await answer(page, 'look')
+  await page.getByTestId('find-work-row').filter({ hasText: 'Quote template.xlsx' }).getByTestId('find-work-check').check()
+  await page.getByTestId('find-work-personal-toggle').click()
+  await page.getByTestId('find-work-personal').getByTestId('find-work-row').filter({ hasText: 'payslip_oct.pdf' }).getByTestId('find-work-check').check()
+  await refuseAdds(page, 1)
+  await page.getByTestId('find-work-add').click()
+  await expect(page.getByTestId('find-work-add-refused')).toBeVisible()
+  await page.getByTestId('find-work-refused-again').click()
+  await expect(page.getByTestId('find-work')).toHaveAttribute('data-screen', 'asking')
+  await answer(page, 'look')
+  await expect(page.getByTestId('find-work')).toHaveAttribute('data-screen', 'list')
+  expect((await app(page)).scans).toBe(2)
+  // both ticks kept; the personal one's group is open, so the tick is in sight
+  await expect(page.getByTestId('find-work-add')).toHaveText(ko('files.findWork.add', { n: 2 }))
+  await expect(page.getByTestId('find-work-personal').getByTestId('find-work-row').filter({ hasText: 'payslip_oct.pdf' }).getByTestId('find-work-check')).toBeChecked()
+  await page.getByTestId('find-work-add').click()
+  await expect(page.getByTestId('find-work-run')).toBeVisible()
+  expect((await app(page)).adds.at(-1)!.sort()).toEqual(['id0', 'id1'])
+})
+
+test('TC-219 review: the owner\'s setup step: files found on the computer that changed or went away: Look again starts a new look; Cancel goes back to the run', async ({ page }) => {
+  const ko = (key: Parameters<typeof translate>[1], params?: Record<string, string | number>) => translate('ko', key, params)
+  await fakeApp(page, { refuse: ['id0'], missing: ['id1'] })
+  await reset(page)
+  await signIn(page)
+  await page.goto('/welcome')
+  await page.getByTestId('welcome-profile').getByRole('button', { name: '나중에 하기' }).click()
+  await page.getByTestId('skills-later').click()
+  await look(page, [{ name: '2026 견적서 양식.xlsx', folder: 'Sales' }, { name: '회사 소개서.pdf' }])
+  await page.getByTestId('welcome-team-files-computer').click()
+  await answer(page, 'look')
+  await page.getByTestId('find-work-select-all').click()
+  await page.getByTestId('find-work-add').click()
+  const run = page.getByTestId('welcome-team-files-run')
+  await expect(run).toHaveAttribute('data-status', 'failed', { timeout: 15_000 })
+  await expect(run).toContainText(ko('files.findWork.why.changed'))
+  await expect(run).toContainText(ko('files.findWork.why.missing'))
+  await page.getByTestId('welcome-team-files-look-again').click()
+  await expect(page.getByTestId('find-work')).toHaveAttribute('data-screen', 'asking')
+  await answer(page, 'cancel')
+  await expect(run).toBeVisible()
+  await page.getByTestId('welcome-team-files-look-again').click()
+  await look(page, [{ name: '회사 소개서.pdf' }, { name: '2026 견적서 양식.xlsx', folder: 'Sales', size: 45_000 }])
+  await answer(page, 'look')
+  await expect(page.getByTestId('find-work')).toHaveAttribute('data-screen', 'list')
+  // the changed one comes back ticked; the deleted one is named only because the app said it is gone, and is listed again
+  // here (put back): ticked too
+  await expect(page.getByTestId('find-work-add')).toHaveText(ko('files.findWork.add', { n: 2 }))
+  await expect(page.getByTestId('find-work-row').filter({ hasText: '2026 견적서 양식.xlsx' }).getByTestId('find-work-row-changed')).toBeVisible()
 })
 
 test('an older desktop app (another version) and a browser show no entry; the owner\'s setup step keeps the team home', async ({ page }) => {
@@ -262,4 +647,38 @@ test('macOS kept the app out of Downloads: "Choose it yourself" opens the system
   expect((await app(page)).picks).toBe(1)
   // nothing was read: the picked folder's files are listed only
   expect((await app(page)).reads).toEqual([])
+})
+
+test('MAN-057: "Choose a folder…" after a look that missed a folder: one quiet link, the system\'s window, the folder\'s files show at once and nothing is read', async ({ page }) => {
+  await fakeApp(page, { pickFolder: 'Quotes', platform: 'win32' })
+  await reset(page)
+  await signIn(page, BOB)
+  await openMine(page)
+  // the look missed the quotes: two files, Documents cut
+  await look(page, [{ name: 'Lunch menu.pdf', root: 'desktop' }, { name: 'Holiday.docx', root: 'downloads' }], roots({ id: 'documents', state: 'ok', cut: true }, { id: 'desktop', state: 'ok' }, { id: 'downloads', state: 'ok' }))
+  await pickHolds(page, [
+    { name: 'Quote-Hanbit-Q1001.xlsx', root: 'documents', folder: 'QA desktop test/Quotes' },
+    { name: 'Quote-Sora-Q1002.xlsx', root: 'documents', folder: 'QA desktop test/Quotes' },
+    { name: 'Quote-Mirae-Q1003.xlsx', root: 'documents', folder: 'QA desktop test/Quotes' },
+  ])
+  await page.getByTestId('files-find-work-entry').click()
+  await answer(page, 'look')
+  await expect(page.getByTestId('find-work')).toHaveAttribute('data-screen', 'list')
+  await page.getByTestId('find-work-search').fill('quote')
+  await expect(page.getByTestId('find-work-found').getByTestId('find-work-row')).toHaveCount(0)
+  // the one quiet link (no panel); its files show at once with their folder's name
+  const link = page.getByTestId('find-work-choose-folder')
+  await expect(link).toHaveCount(1)
+  await link.click()
+  await expect(page.getByTestId('find-work-chosen')).toContainText('Quotes')
+  await expect(page.getByTestId('find-work-found').getByTestId('find-work-row')).toHaveCount(3)
+  // nothing ticked, nothing read
+  await expect(page.getByTestId('find-work-add')).toBeDisabled()
+  expect((await app(page)).reads).toEqual([])
+  expect((await app(page)).picks).toBe(1)
+  // Show all: back to the list; the quotes are found by name from now on
+  await page.getByTestId('find-work-show-all').click()
+  await expect(page.getByTestId('find-work-chosen')).toHaveCount(0)
+  await page.getByTestId('find-work-search').fill('quote')
+  await expect(page.getByTestId('find-work-found').getByTestId('find-work-row')).toHaveCount(3)
 })

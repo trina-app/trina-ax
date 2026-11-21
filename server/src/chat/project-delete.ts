@@ -15,6 +15,9 @@ import { audit } from '../admin/audit'
 import { forgetPurgedChats } from './forget'
 import { dropChatPins } from './pins'
 import { dropChatFolderItems } from './nav-folders'
+import { dropLinksInTx } from '../rooms/project-link'
+import { archiveRoomsOf } from '../rooms/project-room'
+import { roomsOf } from '../rooms/service'
 
 const isPersonalPath = (folder: string) => folder === 'users' || folder.startsWith('users/')
 
@@ -39,8 +42,20 @@ export function deleteProjectForGood(ctx: AppContext, rt: ChatRuntime, r: Projec
   const item = r.trashed_with ? ctx.db.query("SELECT id FROM trash_items WHERE id = ? AND restored_at IS NULL AND kind = 'folder' AND original_path = ?").get(r.trashed_with, r.folder_path) as { id: string } | null : null
   if (item) mapErrors(locale, () => componentC(ctx).files.purgeTrash(item.id, actorId, { manager: true }), 'params.id')
   for (const x of shared) rt.stopChat(x.id)
+  // its own chat room (rooms/project-room.ts) is archived in its own write before the project row goes: the link cascades
+  // with the project, which would leave a plain channel that keeps everyone. Its members lose it now. If the write below
+  // then fails, the project stays without that room (archived, its link gone): nothing leaks, and Chat room makes a new one
+  const archived = archiveRoomsOf(ctx.db, r.id)
+  for (const a of archived) for (const uid of a.members) {
+    ctx.services.realtime.forgetReplay(uid)
+    ctx.services.realtime.publish(uid, { type: 'room.updated', data: { roomId: a.roomId, change: 'removed', room: null } })
+  }
   const now = new Date().toISOString()
+  let unlinked: string[] = []
   ctx.db.transaction(() => {
+    // a link row left (a 0.5.21 linked channel not settled yet, rooms/project-link.ts) goes here, explicitly (the cascade
+    // would take it too), audited by the project only; that channel stays a plain private channel
+    unlinked = dropLinksInTx(ctx.db, { projectId: r.id })
     for (const x of purged) rt.purgeChat(x.id)
     // one already in the trash keeps its time there (and who put it there)
     for (const x of kept) ctx.db.query('UPDATE chats SET shared_at = NULL, project_id = NULL, deleted_at = COALESCE(deleted_at, ?), deleted_by = CASE WHEN deleted_at IS NULL THEN ? ELSE deleted_by END WHERE id = ?').run(now, actorId, x.id)
@@ -63,5 +78,7 @@ export function deleteProjectForGood(ctx: AppContext, rt: ChatRuntime, r: Projec
     for (const uid of audience) if (uid !== x.user_id) gone(x.id, uid)
   }
   for (const x of purged) for (const uid of audience) gone(x.id, uid)
+  // such a channel's members get the room as they see it now
+  if (unlinked.length) roomsOf(ctx).projectsChanged([], unlinked)
   if (purged.length) void forgetPurgedChats(ctx, purged.map((x) => x.id))
 }

@@ -579,7 +579,7 @@ test("a team file named in the column's thread opens in the side panel: the view
   await expect(column(page).getByTestId('room-message')).toHaveCount(3)
   // opened from the keyboard: a message's hover bar can lie over a link at the end of its first line and take the click
   // (seen with the Linux runner's fonts; a layout point for the redesign); the route is what is tested here
-  await column(page).getByTestId('room-link').focus()
+  await column(page).getByTestId('app-link-chip').focus()
   await page.keyboard.press('Enter')
   await expect(viewer(page)).toHaveCount(0)
   await expect(page.getByTestId('file-panel').getByTestId('file-panel-title')).toHaveText('handbook.pdf')
@@ -600,6 +600,20 @@ test("the column starts on Trina when the room page's side chat was open: the sa
   await page.keyboard.press('Escape')
   await expect(viewer(page)).toHaveCount(0)
   await expect(pageSide.getByTestId('side-chat-input')).toHaveValue('acme 초안')
+})
+
+test("with a thread beside the page's side chat, a file opened from the thread starts the column on its thread; both stay on the page", async ({ page }) => {
+  await openRoom(page, { at: `/rooms/${ROOM_ID}/t/${id(1)}` })
+  await page.getByTestId('room-side-chat-button').click()
+  await expect(page.getByTestId('room-side-chat')).toBeVisible()
+  await expect(page.getByTestId('room-thread')).toBeVisible()
+  await openChip(page.getByTestId('thread-scroller'), 'acme-reply.md')
+  await expect(fileDialog(page, 'acme-reply.md')).toBeVisible()
+  await expect(column(page)).toHaveAttribute('data-show', 'thread')
+  await page.keyboard.press('Escape')
+  await expect(viewer(page)).toHaveCount(0)
+  await expect(page.getByTestId('room-side-chat')).toBeVisible()
+  await expect(page.getByTestId('room-thread')).toBeVisible()
 })
 
 test('the side chat beside a file takes a pasted picture, and the room page\'s side chat has the same one', async ({ page, browserName }) => {

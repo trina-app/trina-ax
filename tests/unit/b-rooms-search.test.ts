@@ -219,7 +219,12 @@ describe('what a hit is', () => {
     expect(await one('견적')).toEqual(['KO-CANARY 견적서를 내일까지 보내드릴게요'])
     expect(await one('견적서')).toEqual(['KO-CANARY 견적서를 내일까지 보내드릴게요'])
     expect(await one('서를 내일')).toEqual(['KO-CANARY 견적서를 내일까지 보내드릴게요'])
-    expect(await one('견적서가')).toEqual([])
+    // a particle at the end is not part of the word ("견적서가" is searched as "견적서": TC-5365); other syllables are
+    expect(await one('견적서가')).toEqual(['KO-CANARY 견적서를 내일까지 보내드릴게요'])
+    // a word no message holds as typed: only near matches (typing mistakes), said as such
+    const near = await search('erin', '견적서류')
+    expect(near.near).toBe(true)
+    expect(bodies(near).filter((b) => b.includes('KO-CANARY'))).toEqual(['KO-CANARY 견적서를 내일까지 보내드릴게요'])
     expect(await one('quarterly budget')).toEqual(['KO-CANARY Quarterly Budget 할인 50% 적용'])
     expect(await one('50%')).toEqual(['KO-CANARY Quarterly Budget 할인 50% 적용'])
     expect(await one('_')).toEqual(['KO-CANARY 할인 500 적용, file_name.xlsx'])

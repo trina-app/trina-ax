@@ -74,6 +74,12 @@ const sendTo = (chatId: string, content: string, o: { window?: string; engine?: 
   h.api('alice', { window: o.window ?? W1 }).call(API.sendMessage, { params: { id: chatId }, body: { content, clientMessageId: cm(), attachmentIds: [], ...(o.engine ? { engine: o.engine } : {}) } })
 const openCard = (s: TestSocket, turnId: string) => s.next('turn.request', (f) => f.data.turnId === turnId, 15_000)
 const answerCard = (turnId: string, request: TurnRequest, answer = 'ok') => h.api('alice').call(API.answerTurn, { params: { id: turnId }, body: { kind: 'ask_user', requestId: request.requestId, answer } })
+/** The turn the person's answer to an AI question started (chat/open-questions.ts), once it is done: its answer */
+const answeredTurnDone = async (chatId: string, askingId: string) => {
+  const u = await main.next('message.created', (f) => f.data.chatId === chatId && f.data.message.role === 'user' && f.data.message.parentId === askingId, 20_000)
+  const a = await main.next('message.created', (f) => f.data.chatId === chatId && f.data.message.parentId === u.data.message.id, 20_000)
+  return (await main.next('message.done', (f) => f.data.messageId === a.data.message.id, 30_000)).data.message
+}
 /** a turn the server starts by itself for this chat (a scheduled run, a question asked in Slack) */
 const serverTurn = (chatId: string, clientKind: 'schedule' | 'slack', content: string) =>
   h.rt().createTurn({ chat: h.rt().store.chatRow(chatId)!, userId: 'alice', locale: 'en', windowId: null, clientKind, engine: 'claude-code', model: null,
@@ -224,22 +230,22 @@ describe('notify: what is worth telling', () => {
     expect((await listed(chat.id))?.unseen).toBeUndefined()
   })
 
-  test('a card opens: \'card\' with Chat.waiting in every window; its close and the turn\'s end tell nothing more', async () => {
+  test('a card opens: \'card\' with Chat.waiting in every window; the answer ends with the card open, and nothing more is told', async () => {
     const chat = await newChat()
     const from = other.frames.length
     const s = await sendTo(chat.id, fake({ tool: 'ask_user', args: { question: 'Which one?' }, sayResult: true }))
     const card = await openCard(main, s.turnId)
-    const opened = await until(other, chat.id, (f) => f.data.chat?.waiting === true, from)
-    expect(opened.data).toMatchObject({ notify: 'card', chat: { runState: 'running' } })
-    // /seen never clears a card's wait, and tells nobody (nothing finished is unseen)
-    const mark = other.frames.length
+    const opened = await until(other, chat.id, (f) => f.data.notify === 'card', from)
+    expect(opened.data.chat).toMatchObject({ waiting: true, runState: 'running' })
+    // the AI's question waits after its answer ends (chat/open-questions.ts): the chat still waits for the person
+    await main.next('message.done', (f) => f.data.messageId === s.assistantMessage.id, 20_000)
+    expect((await runEnd(other, chat.id, from)).data.chat).toMatchObject({ waiting: true })
+    // /seen never clears a card's wait
     expect((await h.api('alice').call(API.markChatSeen, { params: { id: chat.id } })).waiting).toBe(true)
     const m2 = other.frames.length
-    expect(m2).toBe(mark)
     await answerCard(s.turnId, card.data.request)
     await until(other, chat.id, (f) => f.data.chat !== null && f.data.chat.waiting === undefined, m2)
-    await main.next('message.done', (f) => f.data.messageId === s.assistantMessage.id, 20_000)
-    await runEnd(other, chat.id, m2)
+    await answeredTurnDone(chat.id, s.assistantMessage.id)
     expect(updates(other, chat.id, from).filter((f) => f.data.notify).map((f) => f.data.notify)).toEqual(['card'])
   })
 
@@ -285,9 +291,10 @@ describe('every engine alike', () => {
     const from = other.frames.length
     const s = await sendTo(chat.id, fake({ tool: 'ask_user', args: { question: 'Codex asks' }, sayResult: true }))
     const card = await openCard(main, s.turnId)
-    expect((await until(other, chat.id, (f) => f.data.chat?.waiting === true, from)).data.notify).toBe('card')
-    await answerCard(s.turnId, card.data.request)
+    expect((await until(other, chat.id, (f) => f.data.notify === 'card', from)).data.chat?.waiting).toBe(true)
     await main.next('message.done', (f) => f.data.messageId === s.assistantMessage.id, 20_000)
+    await answerCard(s.turnId, card.data.request)
+    await answeredTurnDone(chat.id, s.assistantMessage.id)
     expect((await listed(chat.id))?.lastOutcome).toBeUndefined()
     await ask(h, main, 'alice', chat.id, fake({ fail: 'codex fell over' }))
     expect(await listed(chat.id)).toMatchObject({ unseen: true, lastOutcome: 'error' })
@@ -299,11 +306,14 @@ describe('every engine alike', () => {
     const from = other.frames.length
     const s = await sendTo(chat.id, 'please ask me', { engine: 'api' })
     const card = await openCard(main, s.turnId)
-    expect((await until(other, chat.id, (f) => f.data.chat?.waiting === true, from)).data.notify).toBe('card')
-    expect(await listed(chat.id)).toMatchObject({ engine: 'api', waiting: true })
-    await answerCard(s.turnId, card.data.request)
+    expect((await until(other, chat.id, (f) => f.data.notify === 'card', from)).data.chat?.waiting).toBe(true)
     const d = await main.next('message.done', (f) => f.data.messageId === s.assistantMessage.id, 20_000)
     expect(d.data.status).toBe('done')
+    // its answer ended on the question: the card still waits
+    expect(await listed(chat.id)).toMatchObject({ engine: 'api', waiting: true })
+    script.push(sse([], 'API answered.'))
+    await answerCard(s.turnId, card.data.request)
+    expect((await answeredTurnDone(chat.id, s.assistantMessage.id)).content).toBe('API answered.')
     expect(await listed(chat.id)).toMatchObject({ unseen: true })
     expect((await listed(chat.id))?.lastOutcome).toBeUndefined()
 

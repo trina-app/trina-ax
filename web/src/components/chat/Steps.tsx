@@ -56,7 +56,7 @@ export function subtaskStats(sub: Step['subtask'], t: TFunction): string {
  * its failure changed nothing. */
 const lookedUp = (s: Step) => s.kind === 'web_search' || s.kind === 'thinking' || (s.kind === 'tool' && !!s.tool && (READ_ONLY_TOOLS.has(s.tool) || REMOVED_READ_ONLY_TOOLS.has(s.tool)))
 /** Tools that save a file: one that worked makes up for another that failed. */
-const SAVE_TOOLS = new Set(['write', 'edit', 'edit_files', 'make_file', 'edit_hwp'])
+const SAVE_TOOLS = new Set(['write', 'edit', 'edit_files', 'make_file', 'edit_hwp', 'edit_office', 'stamp_pdf', 'edit_pdf', 'merge_pdfs', 'split_pdf', 'resize_images', 'unzip_file', 'make_zip', 'query_data'])
 /** What a later step must have done to make up for a failed one that changed something: the same tool (a save tool for a
  * save, a browser step for a browser step). */
 const family = (s: Step) => (s.tool && SAVE_TOOLS.has(s.tool) ? 'save' : s.kind !== 'tool' ? `kind:${s.kind}` : `tool:${s.tool ?? ''}`)
@@ -83,7 +83,7 @@ export function stepsGotPast(steps: Step[]): Set<string> {
  * 'error', an interrupted answer too), and the failed steps the AI went on past (stepsGotPast). */
 /** Where a post's 보기 goes (a room's side chat passes its own; elsewhere the room's or the thread's page). */
 export const StepPostView = createContext<((p: NonNullable<Step['posted']>) => void) | null>(null)
-const postPath = (p: NonNullable<Step['posted']>) => (p.threadRootId ? `/rooms/${p.roomId}/t/${p.threadRootId}?m=${p.messageId}` : `/rooms/${p.roomId}?m=${p.messageId}`)
+export const postPath = (p: NonNullable<Step['posted']>) => (p.threadRootId ? `/rooms/${p.roomId}/t/${p.threadRootId}?m=${p.messageId}` : `/rooms/${p.roomId}?m=${p.messageId}`)
 
 export interface MarkContext { live: boolean; answerFailed: boolean; gotPast: ReadonlySet<string> }
 
@@ -193,6 +193,8 @@ function StepRow({ step, live, marks, kids = [] }: { step: Step; live: boolean; 
   const place = stepPlace(step, words.label, locale)
   const [open, setOpen] = useState(false)
   const subtask = step.tool === 'agent'
+  // the AI's thinking text (QA AP-033): closed until the person opens it, like claude.ai
+  const thinking = step.kind === 'thinking'
   // a read of a video or an audio file ("Watch video · …") shows a film / sound icon
   const media = step.kind === 'tool' ? mediaStepKind(step) : null
   const Icon = subtask ? Workflow : media === 'video' ? Film : media === 'audio' ? AudioLines : step.kind === 'tool' && step.tool && FILE_TOOLS.has(step.tool) ? FileSearch : ICON[step.kind] ?? Wrench
@@ -253,7 +255,8 @@ function StepRow({ step, live, marks, kids = [] }: { step: Step; live: boolean; 
   return (
     <li className="text-label text-muted" {...(subtask ? { 'data-testid': 'subtask', 'data-step-id': step.id } : {})}>
       {expandable ? (
-        <button type="button" aria-expanded={open} aria-label={subtask ? `${words.label}${cut ? ` · ${cut}` : ''}${markWords ? ` · ${markWords}` : ''} · ${t('steps.subtaskShow')}` : undefined} onClick={() => setOpen((v) => !v)} className={rowClass}>
+        <button type="button" aria-expanded={open} aria-label={subtask ? `${words.label}${cut ? ` · ${cut}` : ''}${markWords ? ` · ${markWords}` : ''} · ${t('steps.subtaskShow')}` : thinking ? `${words.label}${cut ? ` · ${cut}` : ''} · ${t('steps.thinkingShow')}` : undefined}
+          onClick={() => setOpen((v) => !v)} className={rowClass} {...(thinking ? { 'data-testid': 'step-thinking' } : {})}>
           {head}
         </button>
       ) : (
@@ -273,7 +276,7 @@ function StepRow({ step, live, marks, kids = [] }: { step: Step; live: boolean; 
       )}
       {open && !subtask && (
         <div className="mt-1 mb-2 ml-6 space-y-1.5 border-l border-line pl-3">
-          {detail && <p className="text-xs whitespace-pre-wrap text-muted">{detail}</p>}
+          {detail && <p className="text-xs whitespace-pre-wrap text-muted" {...(thinking ? { 'data-testid': 'step-thinking-text' } : {})}>{detail}</p>}
           {step.sources && (
             <ul className="space-y-1" data-testid="search-sources">
               {step.sources.map((s, i) => (
@@ -329,7 +332,8 @@ export default function Steps({ steps: all, streaming, failed = false, receipt }
   const [open, setOpen] = useState(false)
   // a demo server's replayed answer: its note is no step of the work (shown in the opened list only)
   const note = all.find((s) => s.tool === DEMO_REPLAY_STEP)
-  const steps = note ? all.filter((s) => s !== note) : all
+  // the to-do list is its own card under the steps (TodoCard.tsx), not a row of them
+  const steps = all.filter((s) => s !== note && !s.todos)
   // a team skill on team files, once the answer is done
   const rec = !streaming && receipt && receipt.teamFiles > 0 ? receipt : null
   const skill = useSkillTitle(rec?.skill.path ?? null, rec?.skill.name ?? '')

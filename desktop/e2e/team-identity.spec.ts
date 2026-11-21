@@ -1,7 +1,9 @@
 import { expect, test } from '@playwright/test'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { ACME, addTeam, close, launch, newUserData } from './helpers'
+import { ACME, addTeam, close, launch, newUserData, stopLeftoverApps } from './helpers'
+
+stopLeftoverApps()
 
 test('sign-in navigation reads the new identity after an earlier anonymous request finishes', async () => {
   const control = (mode: string) => fetch(`${ACME}/test/anonymous-me?mode=${mode}`).then(r => r.json())

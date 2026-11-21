@@ -3,8 +3,10 @@ import { setOwnFolderWord } from '@mycel/shared'
 import { createRoot } from 'react-dom/client'
 import App from './App'
 import { initPwa } from './lib/pwa'
+import './lib/reload-guard'
 import { followVisualViewport } from './lib/viewport'
 import { holdPageZoom } from './lib/pageZoom'
+import { followInputModality } from './lib/inputModality'
 import { applyTheme, storedTheme, watchSystemTheme } from './lib/theme'
 import { applyTextSize, storedTextSize } from './lib/textSize'
 import { loadLocale, localeChosen, localeLoaded, onLocaleLoadFailed, recentLocale, storedLocale, useLocaleStore, t } from './i18n'
@@ -18,6 +20,7 @@ import { toast } from './store/ui'
 import { setPushSession } from './lib/push'
 import { setMobilePushSession } from './lib/mobile-push'
 import { guardFileDrops } from './lib/fileDrop'
+import { initDesktopDownloads } from './lib/desktopDownloads'
 import './index.css'
 import './theme.edition.css'
 
@@ -27,6 +30,8 @@ applyTheme(storedTheme())
 applyTextSize(storedTextSize())
 watchSystemTheme()
 document.documentElement.lang = useLocaleStore.getState().locale
+// the desktop app saves downloads straight into Downloads once this page shows the notice for them
+initDesktopDownloads()
 initMobile(error => toast({ level: 'error', text: t(error instanceof MobileFileTooLarge ? 'mobile.fileTooLarge' : 'mobile.saveFailed') }))
 useSession.subscribe(state => {
   const status = state.status
@@ -63,6 +68,8 @@ initPwa()
 followVisualViewport()
 // the phone app and the installed app: no zoom of the whole page (a picture viewer zooms on its own)
 holdPageZoom()
+// the focus ring for the keyboard only, never after a click or a tap
+followInputModality()
 // a file dropped where nothing takes it is not opened in place of the app
 guardFileDrops(window)
 // what the old navigation remembered (its lists open or showing all): nothing reads it now

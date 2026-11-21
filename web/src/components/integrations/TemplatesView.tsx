@@ -44,7 +44,9 @@ function ServiceIcon({ url, kind }: { url: string; kind: Integration['kind'] }) 
  * connection's address). ?template=<id> (an inbox notice, a scheduled run that needed it) opens that template's
  * Connect. Returns the rows (sorted by name, with their names for the page's own sorting), whether both lists are in,
  * and the dialog to render. */
-const TEMPLATES_KEY = 'connectors:templates'
+export const TEMPLATES_KEY = 'connectors:templates'
+/** the templates for me, as the list above keeps them (a page that only asks whether one serves a service) */
+export const readMyTemplates = () => api.call(API.listIntegrationTemplates).then((r) => r.items)
 export function useFromTeam({ team, latest, version, query, onOpen, onConnected }: {
   team: Integration[] | null
   latest?: Integration[]
@@ -103,15 +105,15 @@ export function useFromTeam({ team, latest, version, query, onOpen, onConnected 
   const logoOf = (url: string) => { const c = connectorFor(url); return c ? connectorLogo(c) : undefined }
   const rows: { name: string; row: ReactNode }[] = [
     ...(team ?? []).filter((i) => matchesQuery(i, query)).map((i) => ({ name: i.name, row: (
-      <ConnectorRow key={i.id} id={i.id} logo={logoOf(i.url)} name={i.name} team status={i.status === 'connected' ? 'connected' : 'attention'} onOpen={() => onOpen(i)} />
+      <ConnectorRow key={i.id} id={i.id} catalogId={connectorFor(i.url)?.id} logo={logoOf(i.url)} name={i.name} team status={i.status === 'connected' ? 'connected' : 'attention'} onOpen={() => onOpen(i)} />
     ) })),
     ...items.filter((x) => !q || x.name.toLocaleLowerCase().includes(q)).map((x) => {
       const conn = x.connection && (latest?.find((i) => i.id === x.connection!.id) ?? x.connection)
       return { name: x.name, row: conn ? (
-        <ConnectorRow key={x.id} id={conn.id} logo={logoOf(conn.url)} name={conn.name} team
+        <ConnectorRow key={x.id} id={conn.id} catalogId={connectorFor(conn.url)?.id} logo={logoOf(conn.url)} name={conn.name} team
           status={connectionRowStatus(conn)} onOpen={() => onOpen(conn)} />
       ) : (
-        <ConnectorRow key={x.id} id={x.id} logo={logoOf(x.url)} name={x.name} team status="connect" testId="template-row" onOpen={() => setOpen(x)} onConnect={() => setOpen(x)} />
+        <ConnectorRow key={x.id} id={x.id} catalogId={connectorFor(x.url)?.id} logo={logoOf(x.url)} name={x.name} team status="connect" testId="template-row" onOpen={() => setOpen(x)} onConnect={() => setOpen(x)} />
       ) }
     }),
   ].sort((a, b) => a.name.localeCompare(b.name))
@@ -215,7 +217,7 @@ export function TemplateRow({ tpl, groups, users, onEdit, onDeleted }: {
             </button>
             {isEmptyAccess(a) && <Badge tone="warn">{t('integrations.users.nobody')}</Badge>}
           </span>
-          <span className="mt-0.5 block truncate text-xs text-muted" data-testid="template-admin-line">{t('integrations.template.eachOwn')}</span>
+          <span className="mt-0.5 block truncate text-xs text-muted" data-testid="template-admin-line">{t(tpl.auth === 'oauth' ? 'integrations.template.eachSignIn' : 'integrations.template.eachOwn')}</span>
         </span>
       </div>
       <IconButton label={t('common.edit')} onClick={onEdit} data-testid="template-edit"><Pencil size={15} /></IconButton>

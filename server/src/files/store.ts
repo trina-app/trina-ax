@@ -12,12 +12,34 @@ import { verifyChain } from '../policy/resolve'
 import { newId } from '../db'
 import { zonedParts } from '../system/time-zone'
 import { contentOrigin } from './timeline'
+import { openChecked } from '../team-files/place'
 
 const C = fs.constants
 export const sha256 = (b: Uint8Array | string) => crypto.createHash('sha256').update(b).digest('hex')
 
-/** Open a regular, singly-linked file without following a final symlink; returns its bytes. */
-export function readRegular(abs: string, maxBytes = 200 * 1024 * 1024): { bytes: Buffer; st: fs.Stats } {
+/** What the lstat of a path (or the fstat of its open file) says about reading it: a folder, a link, anything but a
+ * regular file with one link is refused. */
+function refuseNotRegular(st: fs.Stats) {
+  if (st.isSymbolicLink()) throw new Denied('symbolic links are not followed')
+  if (st.isDirectory()) throw new ToolError('this is a folder; use list', 'is_folder')
+  if (!st.isFile()) throw new Denied('not a regular file')
+  if (st.nlink > 1) throw new Denied('hard-linked files are refused')
+}
+
+/**
+ * Open a file to read it: never through a link in its last name (O_NOFOLLOW), a regular file with one link. The caller
+ * reads from the descriptor and closes it.
+ *
+ * `seen`: the lstat the permission check took of this path (policy/authorize.ts `st`, with `abs` its `abs`). Pass it
+ * for every file of the team folder: a personal folder is also written by that person's dev environment runs, so a
+ * file, or a folder on the way to it, can change after the check. What the check saw answers as before; after it, the
+ * open file must be the very file that was checked (team-files/place.ts openChecked: same device and inode, and the
+ * system's own path of the open file is `abs`), and every way that can fail is the one refusal "path changed while
+ * opening". Without `seen` (server-owned folders: uploads, caches, work folders) the file is only checked to be
+ * regular.
+ */
+export function openToRead(abs: string, seen?: fs.Stats): { fd: number; st: fs.Stats } {
+  if (seen) { refuseNotRegular(seen); return openChecked(abs, seen) }
   let fd: number
   try { fd = fs.openSync(abs, C.O_RDONLY | C.O_NOFOLLOW | (C.O_NONBLOCK ?? 0)) } catch (e: any) {
     if (e.code === 'ELOOP' || e.code === 'EMLINK') throw new Denied('symbolic links are not followed')
@@ -26,9 +48,16 @@ export function readRegular(abs: string, maxBytes = 200 * 1024 * 1024): { bytes:
   }
   try {
     const st = fs.fstatSync(fd)
-    if (st.isDirectory()) throw new ToolError('this is a folder; use list', 'is_folder')
-    if (!st.isFile()) throw new Denied('not a regular file')
-    if (st.nlink > 1) throw new Denied('hard-linked files are refused')
+    refuseNotRegular(st)
+    return { fd, st }
+  } catch (e) { fs.closeSync(fd); throw e }
+}
+
+/** The bytes of a regular, singly-linked file (no link followed in its last name; `seen`: see openToRead), read from
+ * the one descriptor that was opened. */
+export function readRegular(abs: string, maxBytes = 200 * 1024 * 1024, seen?: fs.Stats): { bytes: Buffer; st: fs.Stats } {
+  const { fd, st } = openToRead(abs, seen)
+  try {
     if (st.size > maxBytes) throw new ToolError('file is too large')
     const bytes = Buffer.alloc(st.size)
     let off = 0
@@ -37,22 +66,41 @@ export function readRegular(abs: string, maxBytes = 200 * 1024 * 1024): { bytes:
   } finally { fs.closeSync(fd) }
 }
 
+/** The first `n` bytes of a regular, singly linked file (same refusals and `seen` as readRegular): a CSV's column names. */
+export function readHead(abs: string, n: number, seen?: fs.Stats): Buffer {
+  const { fd, st } = openToRead(abs, seen)
+  try {
+    const bytes = Buffer.alloc(Math.min(n, st.size))
+    const got = bytes.length ? fs.readSync(fd, bytes, 0, bytes.length, 0) : 0
+    return bytes.subarray(0, Math.max(0, got))
+  } finally { fs.closeSync(fd) }
+}
+
+/** A regular, singly linked file in pieces of at most 4 MiB (same refusals and `seen` as readRegular), up to the size
+ * its fstat gave, never the whole file in memory: `each` gets every piece in order and may wait (make_zip's deflate). */
+export async function readRegularPieces(abs: string, seen: fs.Stats | undefined, each: (piece: Buffer) => Promise<void> | void, signal?: AbortSignal): Promise<fs.Stats> {
+  const { fd, st } = openToRead(abs, seen)
+  try {
+    const buf = Buffer.allocUnsafe(Math.min(4 * 1024 * 1024, Math.max(1, st.size)))
+    for (let pos = 0; pos < st.size;) {
+      signal?.throwIfAborted()
+      const n = fs.readSync(fd, buf, 0, Math.min(buf.length, st.size - pos), pos)
+      if (n <= 0) break
+      await each(Buffer.from(buf.subarray(0, n)))
+      pos += n
+    }
+    return st
+  } finally { fs.closeSync(fd) }
+}
+
 /**
  * sha256 of a regular, singly linked file (no final symlink followed), read in 4 MiB pieces: no size limit and never
- * the whole file in memory. Synchronous, for checks that run inside authorize(); same refusals as readRegular.
+ * the whole file in memory. Synchronous, for checks that run inside authorize(); same refusals as readRegular, and the
+ * same `seen`.
  */
-export function sha256Regular(abs: string): string {
-  let fd: number
-  try { fd = fs.openSync(abs, C.O_RDONLY | C.O_NOFOLLOW | (C.O_NONBLOCK ?? 0)) } catch (e: any) {
-    if (e.code === 'ELOOP' || e.code === 'EMLINK') throw new Denied('symbolic links are not followed')
-    if (e.code === 'ENOENT') throw new ToolError('not found', 'not_found')
-    throw new ToolError(`cannot open file (${e.code})`)
-  }
+export function sha256Regular(abs: string, seen?: fs.Stats): string {
+  const { fd, st } = openToRead(abs, seen)
   try {
-    const st = fs.fstatSync(fd)
-    if (st.isDirectory()) throw new ToolError('this is a folder; use list', 'is_folder')
-    if (!st.isFile()) throw new Denied('not a regular file')
-    if (st.nlink > 1) throw new Denied('hard-linked files are refused')
     // the bytes up to the size fstat gave, like readRegular: a file that grows while it is hashed is judged by what it
     // was (its first st.size bytes), never let through because the appended bytes changed the hash
     const h = crypto.createHash('sha256')
@@ -64,6 +112,38 @@ export function sha256Regular(abs: string): string {
     }
     return h.digest('hex')
   } finally { fs.closeSync(fd) }
+}
+
+/**
+ * A copy of a regular, singly linked file (same refusals and `seen` as readRegular) into `dest`, a new file (0600):
+ * read and written in 4 MiB pieces without blocking the server, never whole in memory, and hashed on the way, so the
+ * hash is of the very bytes copied (a file that grows meanwhile is copied up to the size fstat gave). Refused over
+ * `maxBytes`. The caller removes `dest` on failure (it is in a work folder).
+ */
+export async function copyRegular(abs: string, dest: string, maxBytes: number, seen?: fs.Stats, signal?: AbortSignal): Promise<{ size: number; sha256: string }> {
+  const { fd, st } = openToRead(abs, seen)
+  let out: number | null = null
+  try {
+    if (st.size > maxBytes) throw new ToolError('file is too large')
+    out = fs.openSync(dest, C.O_WRONLY | C.O_CREAT | C.O_EXCL | C.O_NOFOLLOW, 0o600)
+    const h = crypto.createHash('sha256')
+    const buf = Buffer.allocUnsafe(Math.min(4 * 1024 * 1024, Math.max(1, st.size)))
+    const read = (pos: number, len: number) => new Promise<number>((ok, no) => fs.read(fd, buf, 0, len, pos, (e, n) => (e ? no(e) : ok(n))))
+    const write = (at: number, from: number, len: number) => new Promise<number>((ok, no) => fs.write(out!, buf, from, len, at, (e, n) => (e ? no(e) : ok(n))))
+    let pos = 0
+    while (pos < st.size) {
+      signal?.throwIfAborted()
+      const n = await read(pos, Math.min(buf.length, st.size - pos))
+      if (n <= 0) break
+      h.update(buf.subarray(0, n))
+      for (let w = 0; w < n;) w += await write(pos + w, w, n - w)
+      pos += n
+    }
+    return { size: pos, sha256: h.digest('hex') }
+  } finally {
+    fs.closeSync(fd)
+    if (out !== null) fs.closeSync(out)
+  }
 }
 
 /** Current sha256 of an existing regular file, or null if missing. */
@@ -171,10 +251,11 @@ export function recordConflictCopy(db: Database, events: { emit(name: string, e:
   return { changedBy: last ? { id: last.user_id, name: last.name } : null }
 }
 
-/** Move a file to .system/trash (30 days) and record it. */
-export function moveToTrash(db: Database, root: string, segs: string[], by: { userId: string; turnId: string | null }) {
+/** Move a file to .system/trash (30 days) and record it. `seen`: the check's lstat of it (readRegular): the copy kept
+ * is of the file that was checked. */
+export function moveToTrash(db: Database, root: string, segs: string[], by: { userId: string; turnId: string | null }, seen?: fs.Stats) {
   const abs = path.join(root, ...segs)
-  const { bytes } = readRegular(abs)
+  const { bytes } = readRegular(abs, undefined, seen)
   verifyChain(root, segs)
   const storage = storeBlob(root, 'trash', bytes)
   fs.unlinkSync(abs)

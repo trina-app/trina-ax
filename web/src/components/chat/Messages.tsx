@@ -16,7 +16,7 @@
 // there (Message.withheld: it used something I cannot open, and I did not see the chat then) is one faint line in its
 // place, the rooms' words ("볼 수 없는 자료를 참고한 답이라 가려졌어요"), with only its branch switch.
 import clsx from 'clsx'
-import { AlertTriangle, BookmarkPlus, ChevronDown, ChevronLeft, ChevronRight, CirclePause, Copy, History, Info, Loader2, MessageSquareShare, Paperclip, Pencil, Play, RotateCcw, Shapes, Square } from 'lucide-react'
+import { AlertTriangle, BookmarkPlus, Check, ChevronDown, ChevronLeft, ChevronRight, CirclePause, Copy, History, Info, Loader2, MessageSquareReply, MessageSquareShare, MessagesSquare, Paperclip, Pencil, Play, RotateCcw, Shapes, Square } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { DECK_ARTIFACT_KEY, PROMO_ARTIFACT_KEY, chatErrorReason, ERROR_MESSAGES, hideThreadRef, isDefaultErrorMessage, sideQuoteOf, skillLabel, type Attachment, type EngineId, type SideQuote, type Step, type UserRef } from '@mycel/shared/api'
@@ -25,7 +25,7 @@ import { answerHtml } from '../LazyMarkdown'
 import { formAnswers } from '../../lib/skillForm'
 import { skillByName, splitCommand, useSkillList } from '../../lib/skillTitles'
 import { useAutoGrow } from '../../lib/autoGrow'
-import { formatResetDay, formatSize } from '../../lib/format'
+import { formatNumber, formatResetDay, formatResetTime, formatSize } from '../../lib/format'
 import { openArtifact, openFilePreview, openTeamFile, useSidePanel } from '../../lib/sidePanel'
 import { TEAM_FILE_DRAG_TYPE } from '../../lib/teamAttach'
 import { useChatArtifacts } from '../../lib/useArtifacts'
@@ -35,6 +35,7 @@ import { useMessageBuild } from '../../store/deckBuilds'
 import { readsForDeck } from '../../lib/deckProgress'
 import { useAiAccess } from '../../store/aiAccess'
 import { canChooseEngine, useMe } from '../../store/session'
+import { demoAnswerKey } from '../../lib/freeRoam'
 import { meGuest } from '../../lib/guests'
 import { useEngines } from '../../store/engines'
 import { toast } from '../../store/ui'
@@ -49,15 +50,20 @@ import { isNoAiReason } from '../../lib/aiAccess'
 import { adminPath, chatErrorText } from '../../lib/chatErrors'
 import { Button, CopyButton, IconButton, inputCls, useCopy, useMediaQuery } from '../ui'
 import AskCard from './AskCard'
+import TodoCard, { todoStepOf } from './TodoCard'
+import ShareCard from './ShareCard'
+import TeamFolderCard from './TeamFolderCard'
+import PostedCard from './PostedCard'
 import ConnectCard from './ConnectCard'
 import { SecretWarning, useSecretHold } from './SecretWarning'
 import SuggestSkillDialog from '../SuggestSkillDialog'
 import ShareToRoom from './ShareToRoom'
 import { SendHere, SendHereNote, type SentHere } from '../rooms/SendHere'
 import { MenuButton, useLongPress, type MenuItem } from '../rooms/MenuButton'
-import { keepThreadRef, type SendTarget } from '../../lib/sideChatSend'
+import { keepThreadRef, shownQuestion, type SendTarget } from '../../lib/sideChatSend'
 import FileSummary from './FileSummary'
 import SourcesList from './SourcesList'
+import { StepFixes } from './StepFix'
 import Steps, { StepPostView } from './Steps'
 import DeckProgress from './DeckProgress'
 import { SkillChip } from './SkillChip'
@@ -70,6 +76,8 @@ import { useViewerItem } from '../ImageViewer'
 import { attachmentItem, chatFileItem } from '../../lib/imageViewer'
 import { itemImage, teamFileLink } from '../../lib/fileMenu'
 import { useFileMenu } from '../FileMenu'
+import { ThreadLine } from '../ThreadLine'
+import { capBlankLines } from '../../lib/blankLines'
 
 export { ENGINE_LABEL }
 
@@ -158,7 +166,7 @@ export function AttachmentView({ a, align = 'end', chatId }: { a: Attachment; al
   // for a file that is gone. No 트리나에게 묻기: this chat is the place to ask
   const fileMenu = useFileMenu(team && a.unavailable ? null : kept
     ? { name: a.name, image: picture ? itemImage(item()) : null, download: () => startDownload(chatFileUrl(chatId!, a.id, { download: '1' }), a.name) }
-    : { name: a.name, image: picture ? itemImage(attachmentItem(a)) : null, link: teamFileLink(a.path), download: () => startDownload(fileUrl(a.path), a.name) })
+    : { name: a.name, image: picture ? itemImage(attachmentItem(a)) : null, link: teamFileLink(a.path), teamFile: a.path, download: () => startDownload(fileUrl(a.path), a.name) })
   // a team file that was deleted or that the person can no longer open: the server sent nothing about it
   if (team && a.unavailable)
     return (
@@ -218,8 +226,8 @@ export function AttachmentView({ a, align = 'end', chatId }: { a: Attachment; al
  * then the rest of the question, in place of "/meeting-tasks …" (the command is what was sent and what runs; copy and
  * edit keep it). A command no skill of the person's has stays as it was typed. In a room's side chat (`quotes`; also
  * opened as a full chat) a question about a message or a file (shared rooms.ts sideQuoteOf) shows that as a quote on top,
- * as the side chat's box showed it before it went (who, when, its lines; a file by its name), never its Markdown or the
- * thread it names; the question below it. Folded (`clamp`, a long question) the quote shows its first 3 lines and 전체
+ * as the side chat's box showed it before it went (who, when, its lines; a file by its name; the thread that was open
+ * beside the chat as "Thread · who · when"), never its Markdown or the thread it names; the question below it. Folded (`clamp`, a long question) the quote shows its first 3 lines and 전체
  * 보기 opens it too. Other chats show a quote typed by hand as it was typed. */
 export function UserText({ content: sent, clamp, quotes = false }: { content: string; clamp: boolean; quotes?: boolean }) {
   const quote = quotes ? sideQuoteOf(sent) : null
@@ -230,11 +238,11 @@ export function UserText({ content: sent, clamp, quotes = false }: { content: st
   // "#" rooms the person picked (#[마케팅](room:<id>)) show as chips by their titles; a room named by its id alone (a
   // scheduled run's question is its instruction, "… room_id <id>") by its name for a viewer in it (components/RoomNames.tsx)
   const text = !cmd || !skill ? (
-    content && <div className={clsx('whitespace-pre-wrap [overflow-wrap:anywhere]', clamp && 'line-clamp-[12]')} onCopy={copyRoomIds}><WithRoomNames text={content} tokenTitles /></div>
+    content && <div className={clsx('whitespace-pre-wrap [overflow-wrap:anywhere]', clamp && 'line-clamp-[12]')} onCopy={copyRoomIds}><WithRoomNames text={capBlankLines(content)} tokenTitles /></div>
   ) : (
     <div data-testid="user-text-skill">
       <SkillChip title={skillLabel(skill)} name={skill.name} />
-      {cmd.rest.trim() && <div className={clsx('mt-1 whitespace-pre-wrap [overflow-wrap:anywhere]', clamp && 'line-clamp-[12]')} onCopy={copyRoomIds}><WithRoomNames text={cmd.rest} tokenTitles /></div>}
+      {cmd.rest.trim() && <div className={clsx('mt-1 whitespace-pre-wrap [overflow-wrap:anywhere]', clamp && 'line-clamp-[12]')} onCopy={copyRoomIds}><WithRoomNames text={capBlankLines(cmd.rest)} tokenTitles /></div>}
     </div>
   )
   if (!quote) return text
@@ -249,12 +257,18 @@ export function UserText({ content: sent, clamp, quotes = false }: { content: st
 /** The room's message or file a side chat question is about, as a quote at the top of the bubble; `clamp`: its first 3
  * lines (the message is folded: 전체 보기 shows the rest) */
 function SideQuoteBlock({ quote, clamp }: { quote: SideQuote; clamp: boolean }) {
+  const t = useT()
   return (
     <blockquote className="mb-1.5 border-l-2 border-line-strong pl-2 text-xs leading-5" data-testid="user-quote">
       {quote.kind === 'file' ? (
         <p className="flex min-w-0 items-center gap-1 text-muted" data-testid="user-quote-file">
           <Paperclip size={12} aria-hidden className="shrink-0" />
           <span className="truncate">{quote.name}</span>
+        </p>
+      ) : quote.kind === 'thread' ? (
+        <p className="flex min-w-0 items-center gap-1 text-muted" data-testid="user-quote-thread">
+          <MessagesSquare size={12} aria-hidden className="shrink-0" />
+          <span className="truncate"><span className="font-medium text-ink">{t('rooms.thread')}</span>{quote.author && ` · ${quote.author}`}{quote.at && <span className="text-faint"> · {quote.at}</span>}</span>
         </p>
       ) : (
         <>
@@ -348,14 +362,56 @@ export function MessageAuthor({ author }: { author: UserRef | null }) {
   )
 }
 
+/** The line's words: the same choice on several cards once with their count ("2개 모두 열기 선택함"), different choices
+ * each once ("열기 (2) · 열지 않기 선택함"), Skip as such; a shared chat's hidden labels only "답함". */
+export function cardAnswerWords(c: NonNullable<ViewMessage['cardAnswer']>, t: ReturnType<typeof useT>): string {
+  if (c.hidden) return t('chat.cardAnswered')
+  const picked = c.choices.filter((x): x is string => x !== null)
+  const skipped = picked.length < c.choices.length
+  const counts = new Map<string, number>()
+  for (const x of picked) counts.set(x, (counts.get(x) ?? 0) + 1)
+  const only = counts.size === 1 ? [...counts][0]! : null
+  const chose = !picked.length ? ''
+    : only && only[1] > 1 && !skipped ? t('chat.cardAnswerAll', { choice: only[0], count: only[1] })
+    : t('chat.cardAnswer', { choices: [...counts].map(([x, n]) => (n > 1 ? `${x} (${n})` : x)).join(' · ') })
+  return [chose, skipped ? t('chat.cardSkipped') : ''].filter(Boolean).join(' · ')
+}
+
+/** A message that only answers the AI's cards (Message.cardAnswer: their buttons, not typed): one quiet line under the
+ * answer that asked, in the AI's column, never a bubble of the person's words. The cards' text is not repeated; a shared
+ * chat names who chose (their name as it is, as MessageAuthor). No edit or copy: there is nothing they wrote. */
+function CardAnswerLine({ m, showAuthor, busy, onSelectBranch }: { m: ViewMessage & { cardAnswer: NonNullable<ViewMessage['cardAnswer']> }; showAuthor: boolean; busy: boolean; onSelectBranch: (id: string) => void }) {
+  const t = useT()
+  const nameOf = useNameOf()
+  const words = cardAnswerWords(m.cardAnswer, t)
+  const who = showAuthor ? (m.author ? nameOf(m.author) ?? m.author.name : t('rooms.goneUser')) : null
+  return (
+    <div className="-mt-3 flex min-w-0 items-start gap-1.5 text-xs leading-5 text-muted" data-testid="card-answer" data-message-id={m.id}>
+      <Check size={13} className="mt-1 shrink-0 text-faint" aria-hidden />
+      <span className="min-w-0 break-words [overflow-wrap:anywhere]">
+        {who && <span className="font-medium" data-testid="card-answer-author">{who} · </span>}
+        {words}
+      </span>
+      {m.branch.count > 1 && <BranchNav m={m} onSelect={onSelectBranch} disabled={busy} />}
+    </div>
+  )
+}
+
 /** `showAuthor`: a shared chat, every question shows who asked (MessageAuthor); `canEdit` false: not mine to edit (a
  * shared chat); `sideChat`: a room's side chat, whose questions may quote a room message or file (UserText) */
-export function UserMessage({ m, chatId, busy, onEdit, onSelectBranch, showAuthor = false, canEdit = true, sideChat = false, pressMenu = false }: { m: ViewMessage; chatId: string; busy: boolean; onEdit: (m: ViewMessage, text: string) => void; onSelectBranch: (id: string) => void; showAuthor?: boolean; canEdit?: boolean; sideChat?: boolean; /** a room's side chat panel: a phone's long press opens the actions (usePhonePress) */ pressMenu?: boolean }) {
+export function UserMessage(props: { m: ViewMessage; chatId: string; busy: boolean; onEdit: (m: ViewMessage, text: string) => void; onSelectBranch: (id: string) => void; showAuthor?: boolean; canEdit?: boolean; sideChat?: boolean; /** a room's side chat panel: a phone's long press opens the actions (usePhonePress) */ pressMenu?: boolean }) {
+  const { m } = props
+  if (m.cardAnswer && !m.local) return <CardAnswerLine m={m as ViewMessage & { cardAnswer: NonNullable<ViewMessage['cardAnswer']> }} showAuthor={!!props.showAuthor} busy={props.busy} onSelectBranch={props.onSelectBranch} />
+  return <WrittenMessage {...props} />
+}
+
+function WrittenMessage({ m, chatId, busy, onEdit, onSelectBranch, showAuthor = false, canEdit = true, sideChat = false, pressMenu = false }: Parameters<typeof UserMessage>[0]) {
   const t = useT()
   const [editing, setEditing] = useState(false)
   // the box shows a "#" room token as "#<title>"; what is sent again keeps its room (lib/roomRefs.ts); a side chat's
-  // quote shows without its thread, which goes back on while the quote's header line stays (lib/sideChatSend.ts)
-  const shown = hideThreadRef(m.content)
+  // quote shows without its thread, which goes back on while the quote's header line stays (lib/sideChatSend.ts); a
+  // thread line (the box's "Looking at this thread" chip put it there) is not shown at all and stays on an edit
+  const shown = shownQuestion(m.content, sideChat)
   const [draft, setDraft] = useState(() => fromWire(shown).text)
   /** the edited text looks like a key: it waits for "Send anyway" (SecretWarning) */
   const secret = useSecretHold(draft)
@@ -364,7 +420,7 @@ export function UserMessage({ m, chatId, busy, onEdit, onSelectBranch, showAutho
   useAutoGrow(editRef, [draft, editing])
   const sendEdit = () => {
     setEditing(false)
-    onEdit(m, keepThreadRef(toWire(draft, fromWire(shown).picked), m.content))
+    onEdit(m, keepThreadRef(toWire(draft, fromWire(shown).picked), m.content, sideChat))
   }
   const resend = useChats((s) => s.resend)
   const discard = useChats((s) => s.discardLocal)
@@ -618,8 +674,9 @@ export function AssistantMessage({
   shareRoomId,
   sendHere,
   canRegenerate = true,
-  canSuggest = true,
+  canSuggest: canSuggestHere = true,
   pressMenu = false,
+  onThread,
 }: {
   m: ViewMessage
   chatId: string
@@ -650,6 +707,10 @@ export function AssistantMessage({
    * does (usePhonePress); "스레드에 보내기" / "대화방에 보내기" stays under the answer (docs/DECISIONS.md "Trina side chat:
    * send here") */
   pressMenu?: boolean
+  /** a shared chat (docs/decisions/20261116-chat-answer-threads.md): "Reply in thread" on a finished answer and the
+   * thread's line under it; `focus` puts the caret in the thread's box. Absent: no thread (a chat of one person, a room's
+   * side chat: never shared) */
+  onThread?: (focus: boolean) => void
 }) {
   const t = useT()
   const locale = useLocale()
@@ -664,6 +725,8 @@ export function AssistantMessage({
   const build = useMessageBuild(chatId, m.id)
   const question = useChats((s) => (streaming && m.parentId ? s.threads[chatId]?.messages.find((x) => x.id === m.parentId)?.content : undefined))
   const deck = !!build || readsForDeck(m, question)
+  // the AI's to-do list of this answer (todo_write): one card that moves on in place
+  const todoStep = todoStepOf(m.steps)
   const thinking = streaming && !m.content && !waitingForYou && !deck
   const known = m.error ? ERROR_MESSAGES[m.error.code] : undefined
   const reason = m.error ? chatErrorReason(m.error) : null
@@ -677,16 +740,30 @@ export function AssistantMessage({
   const guest = myRole === 'guest'
   // a guest with their own sign-in (Me.guest.ai 'own') connects it themselves: "no AI" says so, with "Connect my AI"
   const guestOwn = guest && meGuest(meNow)?.ai === 'own'
+  // a guest suggests no skills (the server refuses it: guest walkthrough M1), so the button is not offered
+  const canSuggest = canSuggestHere && !guest
+  const guestAi = guest ? meNow?.guest?.ai : undefined
+  // only when their own limit stopped it (params.own); a team or group limit has another amount
+  const guestTokens = guestAi?.mode === 'team' && m.error?.params?.own === true ? guestAi.limitTokens : undefined
   const role = guest ? undefined : myRole
+  // the AI could not start on the server: the owner and admins read that trying again won't help, so no "Try again" (TC-3840)
+  const adminWords = role === 'owner' || role === 'admin'
   const noAi = useAiAccess((s) => s.loaded && !s.usable)
   // a guest is not told to ask an admin they do not know: the person who invited them
   // at the limit: when it resets (the server's date, params.resetsAt, in the team's time zone: QA TC-2201)
   const resetsAt = m.error?.code === 'budget_exceeded' && typeof m.error.params?.resetsAt === 'string' ? m.error.params.resetsAt : null
   const guestKey = !guest || !m.error ? null : m.error.code === 'budget_exceeded' ? (resetsAt ? 'guest.aiLimitUntil' as const : 'guest.aiLimit' as const) : reason && GUEST_ASKS.has(reason) ? (guestOwn && isNoAiReason(reason) ? 'aiAccess.banner.connectOwn' as const : 'guest.noAi' as const) : null
-  const said = guestKey ? { key: guestKey, where: null } : reason ? chatErrorText(reason, role, noAi) : null
+  // the AI usage ran out until a known time (params.until, server/src/chat/turn.ts limitError): the words say when
+  const usageUntil = reason === 'usage_used_up' && typeof m.error?.params?.until === 'string' && Number.isFinite(Date.parse(m.error.params.until)) ? m.error.params.until : null
+  const said = guestKey ? { key: guestKey, where: null } : reason ? chatErrorText(reason, role, noAi, !!usageUntil) : null
+  // a free-roam demo's stop or failure (lib/freeRoam.ts): its own plain line, never an AI account's words
+  const demoKey = m.error ? demoAnswerKey(m.error) : null
   const errText = m.error
-    ? guestKey === 'guest.aiLimitUntil' ? t(guestKey, { date: formatResetDay(resetsAt!, locale, meNow?.server.timeZone) })
-      : said ? t(said.key, said.where ? { path: adminPath(t, said.where) } : undefined)
+    ? demoKey ? t(demoKey) : guestKey === 'guest.aiLimitUntil' ? (guestTokens
+      // a token limit says its amount ("this month's AI limit (5M tokens)"); an older US dollar one reads as before
+      ? t('guest.aiLimitTokens', { amount: formatNumber(guestTokens, locale, { notation: 'compact', maximumFractionDigits: 1 }), date: formatResetDay(resetsAt!, locale, meNow?.server.timeZone) })
+      : t(guestKey, { date: formatResetDay(resetsAt!, locale, meNow?.server.timeZone) }))
+      : said ? t(said.key, said.where || usageUntil ? { ...(said.where ? { path: adminPath(t, said.where) } : {}), ...(usageUntil ? { date: formatResetTime(usageUntil, locale) } : {}) } : undefined)
       : m.error.params?.reason === undefined && known && isDefaultErrorMessage(m.error.code, m.error.message) ? known[locale] : m.error.message
     : null
   const [suggesting, setSuggesting] = useState(false)
@@ -706,6 +783,8 @@ export function AssistantMessage({
   const canRetry = !(m.status === 'error' && isLast) && !limitNow && canRegenerate
   const finished = !!m.content && m.status === 'done'
   const sendHereOn = !!sendHere && shareable && finished
+  // an answer that can have a thread: finished (done or stopped), not hidden from me
+  const threadable = !!onThread && !m.withheld && (m.status === 'done' || m.status === 'stopped')
   const pressItems: MenuItem[] = pressMenu && !streaming ? [
     ...(m.content ? [{ label: t('chat.copyAnswer'), icon: <Copy size={14} aria-hidden />, onSelect: () => {
       let rich: string | undefined
@@ -714,7 +793,8 @@ export function AssistantMessage({
     }, testId: 'side-answer-copy' }] : []),
     // (not while an answer runs: the icon is disabled then, and a sheet item cannot be)
     ...(canRetry && !busy ? [{ label: t('chat.regenerate'), icon: <RotateCcw size={14} aria-hidden />, onSelect: () => onRegenerate(m), testId: 'side-answer-regenerate' }] : []),
-    ...(canSuggest && finished ? [{ label: t('suggest.button'), icon: <BookmarkPlus size={14} aria-hidden />, onSelect: () => setSuggesting(true), testId: 'side-answer-suggest' }] : []),
+    // a guest has no skills (docs/DECISIONS.md "Guests: only what they were invited to")
+    ...(canSuggest && !guest && finished ? [{ label: t('suggest.button'), icon: <BookmarkPlus size={14} aria-hidden />, onSelect: () => setSuggesting(true), testId: 'side-answer-suggest' }] : []),
   ] : []
 
   if (m.withheld) {
@@ -753,6 +833,7 @@ export function AssistantMessage({
             <Steps steps={m.steps} streaming={streaming} failed={m.status === 'error'} receipt={m.receipt} />
           </StepPostView.Provider>
         )}
+        {todoStep?.todos && <TodoCard todos={todoStep.todos} streaming={streaming} />}
         {providerBusy && !waitingForYou && (queuePos === undefined || queuePos === 0) && (
           <p className="mb-2 text-sm text-muted" role="status" data-testid="provider-busy">{t('chat.providerBusy')}</p>
         )}
@@ -770,7 +851,12 @@ export function AssistantMessage({
             {t('chatux.waitingForYou')}
           </p>
         )}
+        {/* what the AI did for the person, from the server's record on the step (a share, a stop, a post): where its
+            confirmation card was, so that card reads as turning into this one */}
+        {m.steps.map((s) => (s.shared?.teamFolder && !s.parentId ? <TeamFolderCard key={s.id} shared={s.shared} folder={s.shared.teamFolder} /> : s.shared && !s.parentId ? <ShareCard key={s.id} shared={s.shared} fixes={s.fixes} /> : s.posted && !s.parentId ? <PostedCard key={s.id} posted={s.posted} /> : null))}
         {requests.map((r) => (r.request.kind === 'connect_service' ? <ConnectCard key={r.request.requestId} request={r.request} /> : <AskCard key={r.request.requestId} req={r} />))}
+        {/* the server's next steps for this answer (Step.fixes): "3 people can't open it yet. [Let them view]" */}
+        <StepFixes steps={m.steps} />
         {m.files && <FileSummary files={m.files} onAskOwnFolder={onAskOwnFolder} disabled={busy} />}
         {!streaming && m.sourceCount ? <SourcesList chatId={chatId} messageId={m.id} count={m.sourceCount} /> : null}
         {atLimit && (
@@ -785,14 +871,18 @@ export function AssistantMessage({
             {/* at least ~12rem for the text: on a phone the buttons go to their own line instead of squeezing it; one
                 line of text is as tall as the buttons, so text, icon and buttons share a centre line */}
             <span className="min-w-0 flex-[1_1_12rem] py-1 leading-6">{errText ?? t('chat.answerFailed')}</span>
-            {isLast && canRegenerate && (
+            {isLast && canRegenerate && !(reason === 'engine_start_failed' && adminWords) && (
               <span className="ml-auto flex flex-wrap justify-end gap-2">
                 {isNoAiReason(reason) && (!guest || guestOwn) && <AiAccessButton />}
                 {reason === 'engine_missing' && <NotReadyButton role={role} />}
-                <Button size="sm" variant="secondary" disabled={busy} onClick={() => onRegenerate(m)} data-testid="retry">
-                  <RotateCcw size={13} aria-hidden /> {t('common.retry')}
-                </Button>
-                {retryWith && retryWith.engines.length > 0 && <RetryWithModel m={m} busy={busy} retryWith={retryWith} onPick={(p) => onRegenerate(m, p)} />}
+                {/* used up until a later time: the same AI is refused until then, so only "another model" (when there is one) */}
+                {!(usageUntil && Date.parse(usageUntil) > Date.now()) && (
+                  <Button size="sm" variant="secondary" disabled={busy} onClick={() => onRegenerate(m)} data-testid="retry">
+                    <RotateCcw size={13} aria-hidden /> {t('common.retry')}
+                  </Button>
+                )}
+                {/* the AI could not start on the server: another model starts the same way and fails the same (QA TC-3521) */}
+                {retryWith && retryWith.engines.length > 0 && reason !== 'engine_start_failed' && <RetryWithModel m={m} busy={busy} retryWith={retryWith} onPick={(p) => onRegenerate(m, p)} />}
               </span>
             )}
           </div>
@@ -821,7 +911,7 @@ export function AssistantMessage({
           <p role="note" className="mt-3 flex items-start gap-1.5 text-xs leading-5 text-muted" data-testid="memory-note">
             <History size={13} className="mt-0.5 shrink-0" aria-hidden />
             <span>
-              {t('chat.memory.note')} <span className="text-faint">{t('chat.memory.tip')}</span>
+              {t(m.historySmallModel ? 'chat.memory.smallModel' : 'chat.memory.note')} <span className="text-faint">{t(m.historySmallModel ? 'chat.memory.smallModelTip' : 'chat.memory.tip')}</span>
             </span>
           </p>
         )}
@@ -829,8 +919,9 @@ export function AssistantMessage({
           // phones: an older answer's actions and model name wait for a tap, its branch switch stays in sight; without
           // one the row takes no room until then
           // (a side chat panel: the send button stays in sight under every finished answer, the icons wait for a long press)
-          <div className={clsx('mt-1.5 -ml-1.5 flex flex-wrap items-center gap-1 select-none max-md:gap-3', !isLast && ON_HOVER, untilTap && !branched && !(pressMenu && sendHereOn) && UNTIL_TAP)} data-testid="answer-actions">
-            <span className={clsx('flex items-center gap-1 max-md:gap-3 md:contents', untilTap && UNTIL_TAP)} data-testid="answer-actions-tap">
+          // (a phone: the 44 px tap boxes touch, no gap, so the icons stand 44 px apart, the closest a 44 px target allows)
+          <div className={clsx('mt-1.5 -ml-1.5 flex flex-wrap items-center gap-1 select-none max-md:gap-0', !isLast && ON_HOVER, untilTap && !branched && !(pressMenu && sendHereOn) && UNTIL_TAP)} data-testid="answer-actions">
+            <span className={clsx('flex items-center gap-1 max-md:gap-0 md:contents', untilTap && UNTIL_TAP)} data-testid="answer-actions-tap">
               {m.content && <CopyButton text={m.content} html={() => answerHtml(m.content)} label={t('chat.copyAnswer')} className="touch-hit" />}
             </span>
             {/* send to a room: a finished answer to a room I am in, as my message (ShareToRoom); a room's side chat sends it
@@ -840,7 +931,12 @@ export function AssistantMessage({
                 <SendHere chatId={chatId} answerId={m.id} roomId={sendHere!.roomId} target={sendHere!.target} onView={sendHere!.onView} />
               </span>
             )}
-            <span className={clsx('flex items-center gap-1 max-md:gap-3 md:contents', untilTap && UNTIL_TAP)} data-testid="answer-actions-tap-more">
+            <span className={clsx('flex items-center gap-1 max-md:gap-0 md:contents', untilTap && UNTIL_TAP)} data-testid="answer-actions-tap-more">
+              {threadable && (
+                <IconButton label={t('rooms.replyInThread')} onClick={() => onThread!(true)} className="touch-hit" data-testid="reply-in-thread">
+                  <MessageSquareReply size={13} />
+                </IconButton>
+              )}
               {shareable && finished && !sendHere && (
                 <IconButton label={t('chat.shareToRoom')} onClick={() => setSharing(true)} className="touch-hit" data-testid="share-to-room">
                   <MessageSquareShare size={13} />
@@ -852,16 +948,18 @@ export function AssistantMessage({
                   <RotateCcw size={13} />
                 </IconButton>
               )}
-              {canSuggest && m.content && m.status === 'done' && (
+              {canSuggest && !guest && m.content && m.status === 'done' && (
                 <IconButton label={t('suggest.button')} onClick={() => setSuggesting(true)} className="touch-hit" data-testid="suggest-skill">
                   <BookmarkPlus size={13} />
                 </IconButton>
               )}
             </span>
             <BranchNav m={m} onSelect={onSelectBranch} disabled={busy} />
-            {(m.model || m.engine) && <AnsweredBy m={m} className={clsx(untilTap && UNTIL_TAP)} />}
+            {(m.model || m.engine) && !(m.status === 'error' && reason === 'engine_start_failed') && <AnsweredBy m={m} className={clsx(untilTap && UNTIL_TAP)} />}
           </div>
         )}
+        {/* the thread under it: always in sight (a phone too), the line opens it */}
+        {threadable && <ThreadLine summary={m.thread} onOpen={() => onThread!(false)} testId="chat-thread-line" />}
         {sendHere && shareable && !streaming && <SendHereNote answerId={m.id} />}
         {suggesting && (
           <SuggestSkillDialog source={{ kind: 'message', chatId, messageId: m.id }} initialContent={m.content} onClose={() => setSuggesting(false)} />

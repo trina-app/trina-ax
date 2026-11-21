@@ -9,10 +9,14 @@
 //       only when a team turned image viewing off.
 //   mycel-ocr --jpeg N  < image   (a JPEG of the image, longest side at most N px, rotated as the file asks; the
 //                                  HEIC / HEIF preview of the file panel and of AI reads, heic-preview.ts)
+//   mycel-ocr --jpeg N --meta < image   (the same at quality 0.92, keeping the photo's EXIF, GPS, TIFF and IPTC
+//                                  details with the orientation set to 1: a HEIC photo the AI makes a smaller copy of,
+//                                  tools/resize-images.ts; whether the location stays is decided after, by mycel-safeops)
 //   mycel-ocr --layer  < pdf      (the text layer of every page, no recognition; each page ends with a form feed,
 //                                  like pdftotext: AI reads on a Mac without poppler, server/src/files/vision.ts)
-//   mycel-ocr --page P --px N  < pdf   (page P, 1-based, drawn on white with its /Rotate, longest side N px, as a
-//                                       PNG: a PDF page the AI reads as an image, server/src/files/vision.ts)
+//   mycel-ocr --page P --px N  < pdf   (page P, 1-based, drawn on white with its /Rotate and its annotations (form
+//                                       fields), longest side N px, as a PNG: a PDF page the AI reads as an image,
+//                                       server/src/files/vision.ts)
 // Exit 2: not a PDF or an image (or no such page). Exit 1: other failures (a password-protected PDF).
 import CoreGraphics
 import Foundation
@@ -22,6 +26,7 @@ import Vision
 
 var maxPages = 100
 var jpegMax = 0
+var keepMeta = false
 var layerOnly = false
 var pageNo = 0
 var pagePx = 0
@@ -30,6 +35,7 @@ while let a = args.popFirst() {
   if a == "--max-pages", let v = args.popFirst(), let n = Int(v), n > 0 { maxPages = n }
   if a == "--jpeg", let v = args.popFirst(), let n = Int(v), n > 0 { jpegMax = min(n, 16384) }
   if a == "--layer" { layerOnly = true }
+  if a == "--meta" { keepMeta = true }
   if a == "--page", let v = args.popFirst(), let n = Int(v), n > 0 { pageNo = n }
   if a == "--px", let v = args.popFirst(), let n = Int(v), n > 0 { pagePx = min(n, 4096) }
 }
@@ -87,7 +93,22 @@ func jpeg(_ data: Data, _ maxPx: Int) -> Never {
   guard let img = CGImageSourceCreateThumbnailAtIndex(src, CGImageSourceGetPrimaryImageIndex(src), opts as CFDictionary) else { fail("could not decode the image", 1) }
   let out = NSMutableData()
   guard let dst = CGImageDestinationCreateWithData(out as CFMutableData, "public.jpeg" as CFString, 1, nil) else { fail("could not write a JPEG", 1) }
-  CGImageDestinationAddImage(dst, onWhite(img), [kCGImageDestinationLossyCompressionQuality: 0.85] as CFDictionary)
+  var props: [CFString: Any] = [kCGImageDestinationLossyCompressionQuality: keepMeta ? 0.92 : 0.85]
+  if keepMeta, let p = CGImageSourceCopyPropertiesAtIndex(src, CGImageSourceGetPrimaryImageIndex(src), nil) as? [CFString: Any] {
+    for k in [kCGImagePropertyExifDictionary, kCGImagePropertyGPSDictionary, kCGImagePropertyTIFFDictionary, kCGImagePropertyIPTCDictionary] {
+      if let v = p[k] { props[k] = v }
+    }
+    // the pixels are upright now (the thumbnail applied the orientation)
+    if var tiff = props[kCGImagePropertyTIFFDictionary] as? [CFString: Any] {
+      tiff[kCGImagePropertyTIFFOrientation] = 1
+      // the HEIC's tile size says nothing about a JPEG
+      tiff.removeValue(forKey: kCGImagePropertyTIFFTileWidth)
+      tiff.removeValue(forKey: kCGImagePropertyTIFFTileLength)
+      props[kCGImagePropertyTIFFDictionary] = tiff
+    }
+    props[kCGImagePropertyOrientation] = 1
+  }
+  CGImageDestinationAddImage(dst, onWhite(img), props as CFDictionary)
   guard CGImageDestinationFinalize(dst) else { fail("could not write a JPEG", 1) }
   FileHandle.standardOutput.write(out as Data)
   exit(0)
@@ -112,7 +133,7 @@ func layer(_ data: Data) -> Never {
 /** One page as a reader shows it (a PNG): the crop box turned by the page's /Rotate, longest side maxPx, on white. */
 func pagePng(_ data: Data, _ number: Int, _ maxPx: Int) -> Never {
   let doc = pdf(data)
-  guard number <= doc.pageCount, let ref = doc.page(at: number - 1)?.pageRef else { fail("no such page", 2) }
+  guard number <= doc.pageCount, let page = doc.page(at: number - 1), let ref = page.pageRef else { fail("no such page", 2) }
   let box = ref.getBoxRect(.cropBox)
   let rot = ((Int(ref.rotationAngle) % 360) + 360) % 360
   let (w, h) = rot == 90 || rot == 270 ? (box.height, box.width) : (box.width, box.height)
@@ -123,16 +144,10 @@ func pagePng(_ data: Data, _ number: Int, _ maxPx: Int) -> Never {
   ctx.setFillColor(CGColor(red: 1, green: 1, blue: 1, alpha: 1))
   ctx.fill(CGRect(x: 0, y: 0, width: pw, height: ph))
   ctx.scaleBy(x: scale, y: scale)
-  // the page's clockwise /Rotate in this y-up space, with the turned box's corner at the origin
-  switch rot {
-  case 90: ctx.concatenate(CGAffineTransform(a: 0, b: -1, c: 1, d: 0, tx: 0, ty: box.width))
-  case 180: ctx.concatenate(CGAffineTransform(a: -1, b: 0, c: 0, d: -1, tx: box.width, ty: box.height))
-  case 270: ctx.concatenate(CGAffineTransform(a: 0, b: 1, c: -1, d: 0, tx: box.height, ty: 0))
-  default: break
-  }
-  ctx.translateBy(x: -box.minX, y: -box.minY)
-  ctx.clip(to: box)
-  ctx.drawPDFPage(ref)
+  // PDFKit's own drawing of the crop box with the page's /Rotate, and the page's annotations on top as Preview draws
+  // them: a fill-in form's fields with their values, stamps, comments' marks (CoreGraphics' drawPDFPage drew the page's
+  // own content only, so a filled form looked empty and text written under an empty field looked filled; QA TC-5513)
+  page.draw(with: .cropBox, to: ctx)
   guard let img = ctx.makeImage() else { fail("could not draw the page", 1) }
   let png = NSMutableData()
   guard let dst = CGImageDestinationCreateWithData(png as CFMutableData, "public.png" as CFString, 1, nil) else { fail("could not write a PNG", 1) }

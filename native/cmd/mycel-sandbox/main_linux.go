@@ -5,6 +5,7 @@
 //	mycel-sandbox exec   [--landlock MODE] [--exec-allow PATH]... [--allow-listen] [--net-proxy PORT] -- PROG ARGS...
 //	mycel-sandbox cgexec [--cgroup DIR] [--oom-score-adj N] [--rlimit-cpu SEC] [--rlimit-fsize BYTES] [--rlimit-nofile N] -- PROG ARGS...
 //	mycel-sandbox port-forward --cgroup DIR --port N --socket PATH
+//	mycel-sandbox port-bridge --cgroup DIR --port N --socket PATH
 //	mycel-sandbox probe
 //
 // exec runs INSIDE bwrap (bind-mounted at /.sbx/mycel-sandbox, read-only): Landlock and seccomp must come after bwrap
@@ -20,6 +21,9 @@
 // forwarder is the internal command `forward`).
 //
 // port-forward serves a dev server of a dev environment run on a unix socket, for the preview (portfwd_linux.go).
+//
+// port-bridge listens on a port in another run's network namespace and copies to such a socket: a later command of a
+// chat reaches the chat's own dev server (portbridge_linux.go).
 //
 // probe prints what this kernel offers (launcher status, diagnostics).
 //
@@ -61,7 +65,7 @@ func (m *multi) Set(v string) error { *m = append(*m, v); return nil }
 
 func main() {
 	if len(os.Args) < 2 {
-		fail("usage: mycel-sandbox exec|cgexec|forward|port-forward|probe ...")
+		fail("usage: mycel-sandbox exec|cgexec|forward|port-forward|port-bridge|probe ...")
 	}
 	switch os.Args[1] {
 	case "exec":
@@ -74,10 +78,14 @@ func main() {
 		cmdPortForward(os.Args[2:])
 	case "port-forward-inner":
 		cmdPortForwardInner(os.Args[2:])
+	case "port-bridge":
+		cmdPortBridge(os.Args[2:])
+	case "port-bridge-inner":
+		cmdPortBridgeInner(os.Args[2:])
 	case "probe":
 		cmdProbe()
 	default:
-		fail("unknown command %q (exec, cgexec, forward, port-forward, probe)", os.Args[1])
+		fail("unknown command %q (exec, cgexec, forward, port-forward, port-bridge, probe)", os.Args[1])
 	}
 }
 

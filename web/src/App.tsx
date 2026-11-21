@@ -3,15 +3,17 @@
 import { GuestLanding, NotForGuests, NotForRoomGuests, useGuestPlacePath } from './components/GuestView'
 import { ShareChatHost } from './components/chat/ShareChat'
 import { ChatShareHost } from './components/chat/ChatShareDialog'
+import { FileShareHost } from './components/FileShareDialog'
 import { WideningDraftHost } from './components/WideningDraftHost'
-import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Link, Navigate, Route, Routes, unstable_HistoryRouter as HistoryRouter, useLocation, useNavigate, useNavigationType, type Location } from 'react-router-dom'
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { Link, Navigate, Route, Routes, unstable_HistoryRouter as HistoryRouter, useLocation, useNavigate, useNavigationType, useParams, type Location } from 'react-router-dom'
 import { PRODUCT } from '@mycel/shared'
 import { Loader2 } from 'lucide-react'
 import { ApiError, errorText, isServerUpdating, isTeamWaking, setMediaKey } from './lib/api'
 import { useWakeWait } from './lib/wakeWait'
 import { useLocale, useT } from './i18n'
 import { useChats } from './store/chats'
+import { useChatThreads } from './store/chatThreads'
 import { useDeckBuilds } from './store/deckBuilds'
 import { useSendQueue } from './store/sendQueue'
 import { useProjects } from './store/projects'
@@ -21,6 +23,7 @@ import { useProjectPage } from './store/projectPage'
 import { useTeamFiles } from './store/teamFiles'
 import { useChatGroups } from './store/chatGroups'
 import { useNavFolders } from './store/navFolders'
+import { useLinkNames } from './store/linkNames'
 import { useAiAccess } from './store/aiAccess'
 import { useWelcome } from './store/welcome'
 import { useMemberWelcome } from './store/memberWelcome'
@@ -30,26 +33,33 @@ import { usePeople } from './store/people'
 import { startLive, stopLive } from './store/live'
 import { useEngines } from './store/engines'
 import { resetInbox } from './store/inbox'
+import { resetChatMentions } from './store/chatMentions'
 import { useJobs } from './store/jobs'
 import { useSessionMarkers } from './store/sessionMarkers'
 import { resetAdminReads } from './store/adminPeople'
 import { useRailMemory } from './lib/rail'
 import { setBeforePersonSwitch, useMe, useSession } from './store/session'
 import { isGuestMe } from './lib/guests'
+import { forgetKept, forgetRoomUploads, restoreRoomUploads } from './store/roomUploads'
 import { clearLocalData } from './lib/localData'
 import { forgetStepsSeen } from './lib/welcome'
 import Layout from './components/Layout'
+import { useDemoInfo } from './components/demo/Demo'
+import { FreeRoamUnavailable } from './components/demo/FreeRoam'
+import { useFreeRoam } from './store/demo'
 import { screenHistory } from './lib/screenHistory'
 import { ChunkErrorBoundary } from './components/ChunkErrorBoundary'
 import { AnnounceProvider, Button, DialogHost, Spinner, Toaster } from './components/ui'
 import { StatusDialogHost } from './components/StatusMessage'
 import { AcceptInvite, ForcedPassword, InviteWhileSignedIn, Login, ResetPassword, Setup, signedInHome, TeamJoin } from './pages/Auth'
+import { AppSignIn, OpenApp } from './pages/OpenApp'
 import Home from './pages/Home'
 import SettingsDialog from './components/settings/SettingsDialog'
 import { ImageViewerHost } from './components/ImageViewer'
 import { RealPath } from './lib/realPath'
 import { noteLocation } from './lib/backStack'
 import { useAppNav } from './lib/appNav'
+import { resumePath } from './lib/workFilesResume'
 import { safeNext } from './lib/nav'
 import { isOldConnectorsPath, oldConnectorsTarget } from './lib/connectors'
 import { useLogoutTo } from './lib/logout'
@@ -58,15 +68,19 @@ import { resetOptimistic } from './lib/optimistic'
 import { toast } from './store/ui'
 import { afterSetupTarget, clearAfterSetup, LANDING_STATE } from './lib/welcome'
 import { RoomAppsHost } from './components/rooms/apps/AppsHost'
+import { AddConversationsHost } from './components/nav/SidebarSections'
 
 const ChatPage = lazy(() => import('./pages/Chat'))
 const Files = lazy(() => import('./pages/Files'))
 const FileView = lazy(() => import('./pages/FileView'))
+const FileLink = lazy(() => import('./pages/FileLink'))
+const FileBatch = lazy(() => import('./pages/FileBatch'))
 const ProjectList = lazy(() => import('./pages/Projects').then((m) => ({ default: m.ProjectList })))
 const ProjectHome = lazy(() => import('./pages/Projects').then((m) => ({ default: m.ProjectHome })))
 const ProjectFiles = lazy(() => import('./pages/Projects').then((m) => ({ default: m.ProjectFiles })))
 const AdminLayout = lazy(() => import('./pages/admin/AdminLayout'))
 const Trash = lazy(() => import('./pages/Trash'))
+const SentFiles = lazy(() => import('./pages/SentFiles'))
 const Skills = lazy(() => import('./pages/Skills'))
 const SkillSharePage = lazy(() => import('./pages/SkillSharePage'))
 const ScheduledList = lazy(() => import('./pages/Scheduled').then((m) => ({ default: m.ScheduledList })))
@@ -135,6 +149,7 @@ function dropPersonStores() {
   // the changes still on their way to the server (lib/optimistic.ts) write nothing into the next person's stores
   resetOptimistic()
   useChats.getState().reset()
+  useChatThreads.getState().reset()
   useDeckBuilds.getState().reset()
   useSendQueue.getState().reset()
   useProjects.getState().reset()
@@ -144,14 +159,19 @@ function dropPersonStores() {
   useProjectPage.getState().reset()
   useChatGroups.getState().reset()
   useNavFolders.getState().reset()
+  // the names of app links in messages, as the server gave them to this person (store/linkNames.ts)
+  useLinkNames.getState().reset()
   useAiAccess.getState().reset()
   useWelcome.getState().reset()
   useMemberWelcome.getState().reset()
   useHandover.getState().reset()
   useRooms.getState().reset()
+  // a room box's files, the ones still going up too (store/roomUploads.ts)
+  forgetRoomUploads()
   usePeople.getState().reset()
   useEngines.getState().reset()
   resetInbox()
+  resetChatMentions()
   useJobs.getState().reset()
   useSessionMarkers.getState().reset()
   useRailMemory.getState().reset()
@@ -174,6 +194,20 @@ setBeforePersonSwitch(() => {
 const mediaKeyOf = (s: ReturnType<typeof useSession.getState>) => (s.status.kind === 'signed-in' ? s.status.me.session?.mediaKey ?? null : null)
 setMediaKey(mediaKeyOf(useSession.getState()))
 useSession.subscribe((s) => setMediaKey(mediaKeyOf(s)))
+
+// the files this tab's room boxes held before the page loaded again are there again (store/roomUploads.ts), for the
+// person they belong to and before their screens draw; not while a forced password change is in the way (the session's
+// stores are emptied until it is done: useSessionLifecycle below). Nobody signed in (the sign-in ended while the page
+// was away): what the tab remembers goes. A server that does not answer (it is restarting) says nothing about who
+// is here: it stays
+const restoreUploadsOf = (s: ReturnType<typeof useSession.getState>) => {
+  if (s.status.kind === 'signed-in') {
+    const user = s.status.me?.user
+    if (user?.id && !user.mustChangePassword) restoreRoomUploads(user.id)
+  } else if (s.status.kind === 'signed-out') forgetKept()
+}
+restoreUploadsOf(useSession.getState())
+useSession.subscribe(restoreUploadsOf)
 
 /** The page load after another person signed in over the signed-in one (tests replace it). */
 export const personSwitch = { reload: () => location.reload() }
@@ -275,12 +309,26 @@ function Gate() {
   }, [load])
 
   useSessionLifecycle()
+  // a demo server (components/demo/Demo.tsx): known before the app's screens, so a free-roam demo never shows a
+  // screen it hides (the AI's accounts, the engine choice) for a moment first. Only a server that may be one is asked
+  const demo = useDemoInfo()
   // the phone app's swipe and Back follow the screens (nav-v1, lib/appNav.ts)
   useAppNav(status.kind === 'signed-in' ? status.me.user.id : '')
 
   useEffect(() => {
     document.title = PRODUCT.displayName
   }, [])
+
+  // the desktop app restarted for Full Disk Access ("Restart <product>" on Find work files): it starts on Home, so the
+  // page the person was on opens again, where that dialog opens by itself (lib/workFiles.ts saveResume)
+  const navigate = useNavigate()
+  const signedInId = status.kind === 'signed-in' && !status.me.user.mustChangePassword ? status.me.user.id : null
+  useEffect(() => {
+    if (!signedInId || location.pathname !== '/' || location.search) return
+    const back = resumePath(signedInId)
+    if (back && back !== '/') navigate(back, { replace: true })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [signedInId])
 
   if (status.kind === 'loading') return <Splash />
   if (status.kind === 'error') {
@@ -306,6 +354,8 @@ function Gate() {
         {/* the team invite link: the token is after # (never in a path or a log) */}
         <Route path="/join" element={<TeamJoin />} />
         <Route path="/reset-password/:token" element={<ResetPassword />} />
+        {/* the desktop app's one-time sign-in (pages/OpenApp.tsx): the code is after # (never in a path or a log) */}
+        <Route path="/app-signin" element={<AppSignIn />} />
         <Route path="/slack/done" element={<Suspense fallback={<Splash />}><SlackDone signedIn={false} /></Suspense>} />
         <Route path="*" element={<Navigate to={`/login${next}`} replace />} />
       </Routes>
@@ -323,6 +373,7 @@ function Gate() {
       </Routes>
     )
   }
+  if (!demo.ready) return <Splash />
   return (
     // a lazy route that is gone after a server update: reload once instead of a blank page (lib/chunk-reload.ts)
     <ChunkErrorBoundary>
@@ -339,30 +390,43 @@ function Gate() {
               computer's goes to / (pages/Home.tsx) */}
           <Route path="new" element={<Home />} />
           <Route path="c/:chatId" element={<ChatPage />} />
+          {/* a thread under a shared chat's answer, beside the chat (docs/decisions/20261116-chat-answer-threads.md) */}
+          <Route path="c/:chatId/t/:messageId" element={<ChatPage />} />
           {/* the team chat rooms: the list (the 대화 tab on phones) and one room (the mobile app links here) */}
           <Route path="rooms" element={<Rooms />} />
           <Route path="rooms/:roomId" element={<RoomPage />} />
           {/* a thread of a room (beside it on computers, over it on phones; a room notice of a reply links here) */}
           <Route path="rooms/:roomId/t/:messageId" element={<RoomPage />} />
+          {/* a phone notification's tap at one message (a path names no ?m=): the same as ?m=, in place of it */}
+          <Route path="rooms/:roomId/m/:target" element={<RoomPage />} />
+          <Route path="rooms/:roomId/t/:messageId/m/:target" element={<RoomPage />} />
           <Route path="activity" element={<Activity key={`${status.me.user.id}:${status.me.session.id}`} />} />
+          {/* one notice by its id alone: a phone notification's tap names a path, never a query (an access request to a file:
+              docs/decisions/20261116-file-share-push-gaps.md) */}
+          <Route path="activity/:noticeId" element={<ActivityNotice />} />
           <Route path="files" element={<NotForGuests><Files /></NotForGuests>} />
           <Route path="files/view" element={<NotForGuests><FileView /></NotForGuests>} />
+          {/* a file's link (QA TC-3093): for a guest too, who gets "You can't open this file" (the server answers 403) */}
+          <Route path="f/batch/:id" element={<FileBatch />} />
+          <Route path="f/:id" element={<FileLink />} />
           {/* a guest in a room has no projects: their room instead of an empty list (components/GuestView.tsx) */}
           <Route path="projects" element={<NotForRoomGuests><ProjectList /></NotForRoomGuests>} />
           <Route path="projects/:projectId" element={<ProjectHome />} />
           <Route path="projects/:projectId/files" element={<ProjectFiles />} />
-          <Route path="admin" element={<NotForGuests><AdminLayout /></NotForGuests>} />
-          <Route path="admin/:section" element={<NotForGuests><AdminLayout /></NotForGuests>} />
+          <Route path="admin" element={<NotForGuests><NotInFreeRoam><AdminLayout /></NotInFreeRoam></NotForGuests>} />
+          <Route path="admin/:section" element={<NotForGuests><NotInFreeRoam><AdminLayout /></NotInFreeRoam></NotForGuests>} />
           {/* a group of Team settings, its own page on a phone (pages/admin/teamSettingsGroups.ts) */}
-          <Route path="admin/:section/:sub" element={<NotForGuests><AdminLayout /></NotForGuests>} />
+          <Route path="admin/:section/:sub" element={<NotForGuests><NotInFreeRoam><AdminLayout /></NotInFreeRoam></NotForGuests>} />
           {/* a team connection's page in Admin › Connectors (/admin/connectors/mcp/<id>) */}
-          <Route path="admin/:section/:sub/:item" element={<NotForGuests><AdminLayout /></NotForGuests>} />
+          <Route path="admin/:section/:sub/:item" element={<NotForGuests><NotInFreeRoam><AdminLayout /></NotInFreeRoam></NotForGuests>} />
           <Route path="trash" element={<Trash />} />
+          {/* my own files in conversations ("Files you sent"), guests too: no menu item */}
+          <Route path="sent-files" element={<SentFiles />} />
           <Route path="skills" element={<NotForGuests><Skills /></NotForGuests>} />
           {/* a share proposal of the owner's or admin's own (내 스킬 가져오기): the Claude Code notice leads here */}
           <Route path="skills/share/:id" element={<NotForGuests><SkillSharePage /></NotForGuests>} />
-          <Route path="scheduled" element={<NotForGuests><ScheduledList /></NotForGuests>} />
-          <Route path="scheduled/:id" element={<NotForGuests><ScheduledTask /></NotForGuests>} />
+          <Route path="scheduled" element={<NotForGuests><NotInFreeRoam><ScheduledList /></NotInFreeRoam></NotForGuests>} />
+          <Route path="scheduled/:id" element={<NotForGuests><NotInFreeRoam><ScheduledTask /></NotInFreeRoam></NotForGuests>} />
           {/* the welcome steps after /setup (owner only; pages/Welcome.tsx) */}
           <Route path="welcome" element={<NotForGuests><Welcome /></NotForGuests>} />
           {/* an outside AI app asks to use this server as the person (Connectors itself is in Settings, below) */}
@@ -386,6 +450,10 @@ function Gate() {
         <Route path="/join" element={<AfterJoin />} />
         {/* a reset link opened while someone is signed in (a shared computer): using it signs that person in instead */}
         <Route path="/reset-password/:token" element={<ResetPassword />} />
+        {/* after setup in a Mac or Windows browser: continue in the desktop app, or in the browser (pages/OpenApp.tsx) */}
+        <Route path="/open-app" element={<NotForGuests><OpenApp /></NotForGuests>} />
+        {/* the desktop app's one-time sign-in while someone is signed in: the code replaces that session */}
+        <Route path="/app-signin" element={<AppSignIn />} />
       </Routes>
       </div>
       </RealPath.Provider>
@@ -422,9 +490,11 @@ export default function App() {
       <AnnounceProvider>
         <Gate />
         <DialogHost />
+        <AddConversationsHost />
         <RoomAppsHost />
         <ShareChatHost />
         <ChatShareHost />
+        <FileShareHost />
         <WideningDraftHost />
         <StatusDialogHost />
         <ImageViewerHost />
@@ -467,6 +537,13 @@ export function AfterSetup() {
 }
 
 /** /connectors, /connectors/<id>, /connectors/mcp/<id>: the same place in Settings, its query and hash kept. */
+/** /activity/<id> → the notice opened by itself (/activity?n=<id>; a phone's Activity lists it, newest first). The page
+ * reads the notice signed in, so the id opens only the person's own notice. */
+function ActivityNotice() {
+  const { noticeId } = useParams()
+  return <Navigate to={`/activity?n=${encodeURIComponent(noticeId ?? '')}`} replace />
+}
+
 function OldConnectors() {
   const { pathname, search, hash } = useLocation()
   return <Navigate to={oldConnectorsTarget(pathname, search, hash)} replace />
@@ -496,4 +573,13 @@ function AfterSignIn() {
   if (next) return <Navigate to={next} replace />
   if (guest) return <GuestLanding />
   return <Navigate to={signedInHome()} state={LANDING_STATE} replace />
+}
+
+/** A free-roam demo's visitor never uses the team's admin pages or scheduled tasks (server/src/demo/guard.ts refuses
+ * them): one line instead, the dev environment's in its own words. */
+function NotInFreeRoam({ children }: { children: ReactNode }) {
+  const freeRoam = useFreeRoam()
+  const { pathname } = useLocation()
+  if (!freeRoam) return <>{children}</>
+  return <FreeRoamUnavailable what={pathname.includes('dev-env') ? 'demo.free.devEnv' : 'demo.free.fenced'} />
 }

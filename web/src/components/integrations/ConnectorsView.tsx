@@ -7,8 +7,11 @@ import { useId, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import type { Integration } from '@mycel/shared/api'
 import { connectorLogo, type Connector } from '../../lib/connectors'
+import { desktop } from '../../lib/desktop'
 import { useT } from '../../i18n'
 import { ConnectionRow, connectionLogo } from './ConnectionRow'
+import { RoomAppEntry } from './RoomAppEntry'
+import { useFreeRoam } from '../../store/demo'
 import { Button, IconButton, StickyHeader, inputCls, useMediaQuery } from '../ui'
 import { SplitAction, type AddMenuItem } from '../PageActions'
 
@@ -82,19 +85,29 @@ export const DISCOVER_FIRST = 10
 
 /** One card of Discover (Connectors' and Admin › Connectors'): what it is, its state, what opens it and what its +
  * does. `off`: it cannot be connected now (the team has not set it up); `setUp`/`asked` say why on its right. */
-export interface DiscoverItem { id: string; name: string; line: string; logo: string; state: 'added' | 'reconnect' | 'available' | 'off'; setUp?: boolean; asked?: boolean; onOpen: () => void; onAdd: () => void }
+export interface DiscoverItem { id: string; name: string; line: string; logo: string; state: 'added' | 'reconnect' | 'available' | 'off'; setUp?: boolean; asked?: boolean;
+  /** off, and nothing an owner or admin can set up either (a hosted team's Google Drive and Google apps: the hosting
+   * service turns them on): "Not ready yet" for everyone, never "Set up"; its page says why */
+  noSetUp?: boolean
+  /** off, with this short line on its right for everyone (why it cannot be connected now, or "Ask admin to add it") */
+  offLine?: string; onOpen: () => void; onAdd: () => void }
 
 /** One Discover row: logo, name, one line, and one + on the right (for one the team has not set up yet: an owner or
- * admin "Set up", a member "Not set up yet" or "Asked"). The row opens its page. */
-export function DiscoverCard({ c, admin }: { c: DiscoverItem; admin: boolean }) {
+ * admin "Set up", a member "Not set up yet" or "Asked"). The row opens its page. `linkState`: the history state "Set up"
+ * carries to Admin (opened from the welcome steps: their way back, onboarding/SetupReturn.tsx). */
+export function DiscoverCard({ c, admin, linkState }: { c: DiscoverItem; admin: boolean; linkState?: unknown }) {
   const t = useT()
   return (
     <ConnectionRow testId="connector-card" data={{ 'data-id': c.id, 'data-state': c.state }} className="border-b border-line" onOpen={c.onOpen} openTestId="connector-open"
       logo={<LogoTile src={c.logo} className={connectionLogo} />} name={c.name} line={c.line}
-      end={c.state === 'off' && !admin ? (
-        <span className="max-w-28 text-right text-xs text-faint" data-testid="connector-off">{t(c.asked ? 'serviceRequest.asked' : 'gapps.off.notSetUp')}</span>
+      // a listed service with a conversation app (Sentry, Notion, ...): "Add to a conversation" under it
+      children={<RoomAppEntry catalogId={c.id} />}
+      end={c.state === 'off' && c.offLine ? (
+        <span className="max-w-28 text-right text-xs text-faint" data-testid="connector-off">{c.offLine}</span>
+      ) : c.state === 'off' && (!admin || c.noSetUp) ? (
+        <span className="max-w-28 text-right text-xs text-faint" data-testid="connector-off">{t(c.asked ? 'serviceRequest.asked' : c.noSetUp ? 'drive.notReadyShort' : 'gapps.off.notSetUp')}</span>
       ) : c.state === 'off' ? (
-        <Link to="/admin/connectors" className="touch-hit rounded-lg px-2 py-1 text-xs font-medium text-muted hover:bg-hover hover:text-ink max-md:inline-flex max-md:min-h-11 max-md:items-center" data-testid="connector-set-up">{t('connectors.setUp')}</Link>
+        <Link to="/admin/connectors" state={linkState} className="touch-hit rounded-lg px-2 py-1 text-xs font-medium text-muted hover:bg-hover hover:text-ink max-md:inline-flex max-md:min-h-11 max-md:items-center" data-testid="connector-set-up">{t('connectors.setUp')}</Link>
       ) : (
         <IconButton label={t('integrations.discover.add', { name: c.name })} className="rounded-full border border-line" onClick={c.onAdd} data-testid="connector-add">
           <Plus size={16} aria-hidden />
@@ -115,13 +128,16 @@ export function InitialTile({ name, className }: { name: string; className?: str
 
 /** What one row of "Your connectors" says on its right: one status or one button, nothing else. `off`: set up and
  * turned off (Admin › Connected apps › Slack); `connecting`: on and not connected yet (Slack, lib/slackState.ts). */
-export type RowStatus = 'connected' | 'on' | 'off' | 'connecting' | 'signin' | 'reconnect' | 'attention' | 'connect'
+export type RowStatus = 'connected' | 'on' | 'off' | 'connecting' | 'signin' | 'reconnect' | 'attention' | 'elsewhere' | 'connect'
 
 /** One row of Connectors' "Your connectors", like Claude's list: logo, name (a small "Team" label for what the team
  * provides) and one status on the right. The row opens the connector's page, where everything else is (switches,
  * errors, "Run without asking", disconnect). `onConnect`: the Connect button (a team template not connected yet). */
-export function ConnectorRow({ id, logo, name, team, note, status, onOpen, onConnect, testId = 'connected-app' }: {
+export function ConnectorRow({ id, catalogId, logo, name, team, note, status, onOpen, onConnect, testId = 'connected-app' }: {
   id: string
+  /** the listed service it is (lib/connectors.ts connectorFor): one with a conversation app gets "Get updates in a
+   * conversation" under the row (RoomAppEntry) */
+  catalogId?: string | null
   logo?: string
   name: string
   team?: boolean
@@ -135,10 +151,16 @@ export function ConnectorRow({ id, logo, name, team, note, status, onOpen, onCon
   const t = useT()
   // a phone: the note goes under the name; at the row's right it would take the room the name needs (QA TC-1549)
   const phone = useMediaQuery('(max-width: 767.98px)')
+  // a free-roam demo (store/demo.ts): a row to read, not a page to open (its page changes or removes the connection,
+  // which server/src/demo/guard.ts refuses); only what is connected: a sign-in, a reconnect or a team template to
+  // connect would each be a new connection
+  const freeRoam = useFreeRoam()
+  if (freeRoam && status !== 'connected' && status !== 'on') return null
   return (
-    <ConnectionRow testId={testId} data={{ 'data-id': id, 'data-state': status }} className="border-b border-line last:border-b-0" onOpen={onOpen} openTestId="connector-row-open"
+    <ConnectionRow testId={testId} data={{ 'data-id': id, 'data-state': status }} className="border-b border-line last:border-b-0" onOpen={freeRoam ? undefined : onOpen} openTestId="connector-row-open"
       logo={logo ? <LogoTile src={logo} className={connectionLogo} /> : <InitialTile name={name} className={connectionLogo} />} name={name}
       badge={team && <span className="shrink-0 rounded-full border border-line px-1.5 text-micro text-muted" data-testid="connector-row-team">{t('connectors.team')}</span>}
+      children={freeRoam ? undefined : <RoomAppEntry catalogId={catalogId} />}
       more={phone && note ? <span className="mt-1 flex">{note}</span> : undefined}
       end={<>
         {!phone && note}
@@ -148,6 +170,9 @@ export function ConnectorRow({ id, logo, name, team, note, status, onOpen, onCon
           </span>
         ) : status === 'off' ? (
           <span className="text-xs text-muted" data-testid="connector-row-status">{t('appConnectors.off')}</span>
+        ) : status === 'elsewhere' ? (
+          // an app on a computer, read away from it: where it works, in the neutral style (not a fault)
+          <span className="text-xs text-muted" data-testid="connector-row-status">{t(desktop()?.localApps ? 'localApps.status.otherComputer' : 'localApps.status.desktopOnly')}</span>
         ) : status === 'connecting' ? (
           // a spinner: it is under way (QA TC-2132); its page says how long it can take
           <span className="flex items-center gap-1 text-xs text-warn" role="status" data-testid="connector-row-status">

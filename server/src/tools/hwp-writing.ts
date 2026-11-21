@@ -39,5 +39,5 @@ export function hwpWritingOffTextFor(db: Database, userId: string): string {
 export const MakeFileInputWithoutHwpx = z.strictObject({
   ...MakeFileInput.shape,
   format: MakeFileInput.shape.format.exclude(['hwpx']),
-  template: MakeFileInput.shape.template.describe('Template file under skills/ (.docx or .pptx, the same format as the output)'),
+  template: MakeFileInput.shape.template.describe('A file the person can read whose styles the new file takes (.docx or .pptx, the same format as the output), e.g. their earlier document or a team template under skills/'),
 })

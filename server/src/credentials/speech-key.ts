@@ -120,7 +120,7 @@ export function voiceInputOutside(db: Database): boolean {
 /** Voice input works now: on this server when it has whisper-cli and ffmpeg (`local`: the transcribe config the voice
  * input jobs use; without them the mic showed and every recording failed, e.g. on an office Mac), or OpenRouter with the
  * team's key or the hosting service's. */
-export function voiceInputOn(db: Database, local: Pick<TranscribeConfig, 'whisperBin' | 'ffmpegBin'>): boolean {
+export function voiceInputOn(db: Database, local: Pick<TranscribeConfig, 'whisperBin' | 'ffmpegBin' | 'mac'>): boolean {
   const p = getTeamSettings(db).speechProvider
   return (p === 'local' && missingLocalTools(local).length === 0) || (p === 'openrouter' && speechKeySource(db) !== null)
 }

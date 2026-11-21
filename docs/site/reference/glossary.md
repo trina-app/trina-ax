@@ -7,12 +7,11 @@ description: Short definitions of the words used in Trina AX and these docs.
 |---|---|
 | **Activity log** | Admin records of actions and tool calls. Shows which files the AI read, never the chat. |
 | **AI connection** | The account an engine uses: a Claude subscription, an API key or a ChatGPT sign-in. |
-| **App connector** | The Team AX MCP connector: your own Claude connecting to a team. |
 | **Confidential chat** | A chat that never uses the web or sends sound out (with Safe operations 1A on). |
 | **Core** | Team AX, the shared codebase Trina AX is built on. |
 | **Engine** | The agent that answers: Claude Code, Codex or the API engine. |
 | **Group** | A set of people that folder rules can name. |
-| **Guest** | Someone from outside the team, in one group chat or one project only. Takes no seat. See [Guests](../use/guests.md). |
+| **Guest** | Someone from outside the team, in one private channel or group chat, and one project, at most. Takes no seat. See [Guests](../use/guests.md). |
 | **Local-login** | Engines use the server OS user's own CLI sign-in. Used by office Macs and development. |
 | **Managed** | Engines use AI connections through the model proxy. Used by Linux servers. |
 | **MCP** | Model Context Protocol. How the AI talks to tools and outside services. |
@@ -26,4 +25,5 @@ description: Short definitions of the words used in Trina AX and these docs.
 | **Skill manager** | A person who can change team skills, through write access to `skills/`. |
 | **Sub-agent** | A helper the AI starts for part of a big request, working as the same person. |
 | **Team folder** | The folder tree on the server: `shared/`, `groups/`, `projects/`, `skills/`, `users/`. |
+| **Trina AX MCP** | The connector that lets your own Claude or another AI app use a team's files, with your permissions. |
 | **Turn** | One answer from the AI, with all its tool calls. |

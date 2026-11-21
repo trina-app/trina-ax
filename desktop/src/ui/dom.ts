@@ -4,12 +4,14 @@ import { fillPlurals } from '@mycel/shared/plural'
 import { SERVICE_HOSTS } from '@mycel/shared/service-hosts'
 import type { UiKey, UiLocale } from '../common/i18n'
 import type { PaneActivity } from '../common/pane-activity'
+import type { FindResult } from '../common/find-bar'
 
 export interface WelcomeState {
   mode: 'welcome' | 'team' | 'offline'
   teams: { id: string; label: string; origin: string; current: boolean }[]
   canGoBack: boolean
-  offline: { address: string } | null
+  /** `auto`: the app looks again by itself and opens the team when it answers */
+  offline: { address: string; auto?: boolean } | null
   /** a kit build's team address to fill in on the first run */
   suggested?: string | null
   /** the "no team yet" screen offers [팀 만들기] (not in the Mac App Store build) */
@@ -70,11 +72,23 @@ export interface MycelUi {
     remove(id: string): Promise<void>
     back(): void
     retry(): void
+    /** "Other teams" on the cannot-reach card: the app stops trying that team again by itself */
+    leftOffline(): void
+  }
+  /** the find bar (Cmd/Ctrl+F) over the view it searches */
+  find: {
+    state(): Promise<{ text: string; seq: number; result: FindResult | null } | null>
+    /** Cmd+F again: this text, selected, with the keyboard in the field */
+    onOpen(cb: (o: { text: string; seq: number }) => void): () => void
+    onResult(cb: (r: FindResult | null) => void): () => void
+    query(text: string): void
+    step(forward: boolean): void
+    close(): void
   }
   /** the team address above the team's sign-in pages */
   hostbar: {
-    state(): Promise<{ host: string } | null>
-    onState(cb: (s: { host: string } | null) => void): () => void
+    state(): Promise<{ host: string; reading?: number } | null>
+    onState(cb: (s: { host: string; reading?: number } | null) => void): () => void
     teams(): void
   }
   pane: {
@@ -92,6 +106,8 @@ export interface MycelUi {
     select(id: string): void
     closeTab(id: string): void
     close(): void
+    /** the page on screen in the person's own browser */
+    openExternal(): void
     stop(): void
     answer(id: string, decision: 'once' | 'always' | 'deny'): void
     toolbarHeight(h: number): void

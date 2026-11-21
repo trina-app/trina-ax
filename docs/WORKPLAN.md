@@ -2,7 +2,7 @@
 
 여러 에이전트가 같은 저장소(`main`)에서 동시에 일한다. 충돌을 없애는 원칙은 하나: **파일마다 주인이 하나**다.
 남의 파일을 고쳐야 하면 고치지 말고, 자기 파일에 새로 만들거나(새 스키마 파일, 새 마이그레이션) 주인에게 맡긴다.
-설계 기준은 설계서(Claude Docs, 탭 1–8)이고, 설계서에 없는 결정은 `docs/DECISIONS.md`에 적는다.
+설계 기준은 설계서(Claude Docs, 탭 1–8)이고, 설계서에 없는 결정은 `docs/decisions/<YYYYMMDD>-<topic>.md`에 한 파일씩 적는다(2026-11-16 전의 결정은 `docs/DECISIONS.md`).
 
 제품 표시 이름은 **Team AX**(`PRODUCT.displayName`), 코드 id는 `mycel`(`PRODUCT.id`, 폴더·소켓·환경 변수 `MYCEL_*`)이다.
 
@@ -141,6 +141,7 @@ export const chatsRoutes: RouteModule = {
   D·E는 서버 DB를 쓰지 않는다. 범위 안에서 다음 번호를 쓴다(예: `101_a_login_attempts.sql`, `201_b_queue.sql`).
   B는 200–299가 다 차면 400–499를 쓴다.
 - dev에 올라간 번호는 바꾸지 않는다. 번호가 겹치면 나중 브랜치가 병합 전에 자기 번호를 바꾼다(이미 그 번호를 실행한 DB는 새 파일을 건너뛴다).
+- `bun run check:migrations`(CI의 정적 검사, `scripts/check-migrations.ts`)가 이를 확인한다: 같은 번호의 파일 둘, 컴포넌트 범위 밖 번호, 그리고 PR에서는 기준 브랜치에 없는 새 번호가 그 컴포넌트의 기준 브랜치 최고 번호보다 크지 않은 경우에 실패한다. 번호 사이의 빈 자리는 괜찮다. 로컬에서는 `MIGRATIONS_BASE=origin/dev bun run check:migrations`.
 - 자기 범위와 001–099의 테이블에만 기대고, **추가만** 한다: 새 테이블, 기본값 있거나 NULL 가능한 새 열, 인덱스. 이름 바꾸기·테이블 다시 만들기·열 삭제 금지. SQL은 항상 열 이름을 적는다(`SELECT *`·위치 INSERT 금지). 새 테이블의 FK는 `ON DELETE CASCADE`.
 - 이전 버전이 읽을 수 없는 변경을 꼭 해야 하면 파일 첫 줄들에 `-- min_compatible_reader: N`을 쓰고 `db.ts`의 `SCHEMA_READER_LEVEL`을 N으로 올린다(기반과 상의). 서버는 더 새 reader가 필요한 DB를 열지 않는다(복원 안내).
 - 데이터가 있는 DB에 새 마이그레이션을 적용하기 전에 `<data>/backups/pre-migrate-*.db`(VACUUM INTO)가 생긴다. 같은 스키마의 이전 사본은 새 사본으로 대체된다. 복사와 마이그레이션은 자식 프로세스에서 돌고, 그동안 `/api/health`는 503 `status: "migrating"`으로 답한다(`server/src/system/migrate-start.ts`; 부트스트랩은 최대 `--migrate-timeout` 60분 기다린다).
@@ -190,7 +191,7 @@ export const chatsRoutes: RouteModule = {
 - `shared/src/api/index.ts`: 새 그룹 파일을 만들 때 import·spread·export 한 줄씩만.
 - `server/src/services.ts`: 인터페이스에 메서드를 **추가**할 때만, 기본값(fallback)도 같이.
 - `server/src/app.ts`, `main.ts`, `context.ts`, `http/*`, `routes/index.ts`, `db.ts`: 기반 파일. 꼭 필요하면 작은 단위로 고치고 커밋 메시지에 이유를 적는다.
-- `docs/DECISIONS.md`: 누구나 자기 절(`## A …` 등)을 추가해 결정을 적는다.
+- `docs/DECISIONS.md`: 2026-11-16 전 결정의 보관본. 절을 더하지 않는다. 새 결정은 `docs/decisions/<YYYYMMDD>-<topic>.md`에 새 파일로 적는다([docs/decisions/README.md](decisions/README.md)).
 
 ## 7. 커밋
 

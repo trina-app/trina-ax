@@ -192,6 +192,14 @@ test('requests expire after 30 days and close when their member leaves or become
   for (const who of ['alice', 'bob', 'erin'] as const) expect(A.ctx.db.query("SELECT COUNT(*) AS n FROM service_request_notices WHERE user_id = ? AND event_type = 'service.ready'").get(who)).toEqual({ n: 0 })
   const carol = await notices('carol', 'service.request')
   expect(carol.every((x) => x.readAt !== null && x.serviceRequest.open === false && !x.serviceRequest.added)).toBe(true)
+  // the one that ran out is told it closed and that she may ask again (QA TC-2946); those who left are not
+  const closed = await notices('erin', 'service.closed')
+  expect(closed.map((x) => x.serviceRequest)).toEqual([{ service: 'calendar', closed: 'expired' }])
+  noAdminNames(JSON.stringify(closed))
+  expect(A.ctx.db.query("SELECT user_id FROM service_request_closed_notices").all()).toEqual([{ user_id: 'erin' }])
+  // the next pass tells nobody again
+  settleServiceRequests(A.ctx)
+  expect((await notices('erin', 'service.closed')).length).toBe(1)
   // an expired request is no longer "already": Erin may ask again
   expect((await ask('erin', 'calendar')).body.state).toBe('sent')
 })

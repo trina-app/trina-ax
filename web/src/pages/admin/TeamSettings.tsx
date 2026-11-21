@@ -24,14 +24,17 @@ import { useEffect, useRef, useState } from 'react'
 import { useLocation, useNavigate, useParams } from 'react-router-dom'
 import { ExternalLink, Loader2, RotateCcw, Upload } from 'lucide-react'
 import { teamIconUrl, TEAM_ICON_TYPES, WEB_ALLOW_ALL_RISK } from '@mycel/shared'
-import { ANSWER_STEP_LIMIT_MAX, ANSWER_STEP_LIMIT_MIN, DEFAULT_ANSWER_STEP_LIMIT, DEFAULT_SPEECH_MODEL, mediaTranscriptsDefault, mediaTranscriptsOffSmall, TeamSettings, type Locale, type SpeechHost, type SpeechProvider, DEFAULT_DECK_TIER } from '@mycel/shared/api'
+import { ANSWER_STEP_LIMIT_MAX, ANSWER_STEP_LIMIT_MIN, DEFAULT_ANSWER_STEP_LIMIT, DEFAULT_SPEECH_MODEL, mediaTranscriptsDefault, mediaTranscriptsOffSmall, TeamSettings, type SpeechHost, type SpeechProvider, DEFAULT_DECK_TIER } from '@mycel/shared/api'
 import { api, API, errorText } from '../../lib/api'
 import { canSeal, sealSecret } from '../../lib/seal'
 import { LOCALES, useLocale, useT } from '../../i18n'
 import { isOwner, useMeStrict, useSession } from '../../store/session'
+import { capTeamName } from '../../lib/teamName'
 import { toast } from '../../store/ui'
 import { Button, confirmDialog, Field, inputCls, Switch, useMediaQuery } from '../../components/ui'
+import { LanguageSelect } from '../../components/LanguageSelect'
 import { PhoneListGroup, PhoneListRow } from '../../components/phone/PhoneList'
+import { PhonePickSheet, useDevicePick } from '../../components/DevicePick'
 import { PhoneChoiceRow, phoneNumberCls } from '../../components/phone/PhoneChoice'
 import { AdminPageHeader, BarTitleProvider, FlatCardsProvider, Loadable, SettingRow, SettingsSection, useAction, useLoad } from './common'
 import { safeHash, teamSettingsGroup, teamSettingsGroups } from './teamSettingsGroups'
@@ -46,7 +49,10 @@ import FileListSettings from './FileList'
 
 export default function TeamSettingsPage() {
   const t = useT()
+  // folder sharing open: the members switch names folders too
   const me = useMeStrict()
+  // a hosted server's team name is at most 60 code points (capTeamName; no maxLength, which counts UTF-16 units), the hosting service's limit; a self-installed one's is 100 (QA TC-5921)
+  const hosted = me.server.deployment === 'hosted'
   const signedIn = useSession((s) => s.signedIn)
   const act = useAction()
   const navigate = useNavigate()
@@ -92,7 +98,7 @@ export default function TeamSettingsPage() {
     if (r && ('updateWindow' in changed || 'timeZone' in changed)) void office.reload()
     // people who follow the team default (maybe this admin) now see the new language: refresh the own view at once,
     // and the chat retention that the chat delete, chat trash and member delete dialogs name (read from /api/me)
-    if (r && (changed.defaultLocale || changed.speechProvider || changed.chatTrashRetentionDays !== undefined || changed.projectCreators !== undefined)) await api.call(API.me).then(signedIn, () => {})
+    if (r && (changed.defaultLocale || changed.speechProvider || changed.chatTrashRetentionDays !== undefined || changed.trashRetentionDays !== undefined || changed.projectCreators !== undefined)) await api.call(API.me).then(signedIn, () => {})
   }
   // what is not saved yet (text fields and switches alike), and what blocks Save: the save bar says both
   const unsaved = !!f && !!state.data && Object.entries(f).some(([k, v]) => state.data![k as keyof TeamSettings] !== v)
@@ -207,20 +213,14 @@ export default function TeamSettingsPage() {
                       <>
                         <SettingsSection title={t('teamSettings.section.general')} id="ts-general" testId="team-settings-general">
                           <SettingRow id="ts-name" title={t('setup.teamName')} desc={owner ? t('teamSettings.row.nameDesc') : t('teamSettings.nameOwnerOnly')}
-                            control={<input id="ts-name" aria-describedby="ts-name-desc" className={clsx(inputCls, 'md:w-64')} data-team-field="name" value={f.teamName} disabled={!owner} onChange={(e) => setF({ ...f, teamName: e.target.value })} maxLength={100} />} />
+                            control={<input id="ts-name" aria-describedby="ts-name-desc" className={clsx(inputCls, 'md:w-64')} data-team-field="name" value={f.teamName} disabled={!owner} onChange={(e) => setF({ ...f, teamName: hosted ? capTeamName(e.target.value) : e.target.value })} maxLength={hosted ? undefined : 100} />} />
                           {/* a phone: "Team default language   한국어 ›", the languages in a sheet (QA TC-378) */}
                           {phone ? (
                             <PhoneChoiceRow title={t('teamSettings.defaultLocale')} desc={t('teamSettings.defaultLocaleHint')} value={f.defaultLocale}
                               options={LOCALES.map((l) => ({ value: l.id, label: l.label }))} onChange={(v) => setF({ ...f, defaultLocale: v })} testId="team-default-locale" />
                           ) : <SettingRow id="ts-locale" title={t('teamSettings.defaultLocale')} desc={t('teamSettings.defaultLocaleHint')}
                             control={
-                              <select id="ts-locale" aria-describedby="ts-locale-desc" className={clsx(inputCls, 'md:w-64')} value={f.defaultLocale} onChange={(e) => setF({ ...f, defaultLocale: e.target.value as Locale })} data-testid="team-default-locale">
-                                {LOCALES.map((l) => (
-                                  <option key={l.id} value={l.id} lang={l.id}>
-                                    {l.label}
-                                  </option>
-                                ))}
-                              </select>
+                              <LanguageSelect id="ts-locale" describedBy="ts-locale-desc" className="md:w-64" value={f.defaultLocale} onChange={(v) => setF({ ...f, defaultLocale: v })} testId="team-default-locale" />
                             } />}
                           <TeamIconRow />
                         </SettingsSection>
@@ -253,11 +253,16 @@ export default function TeamSettingsPage() {
                         <BrowserPolicySwitch value={f.browserAllowAll} onChange={(v) => setF({ ...f, browserAllowAll: v })} />
                         <WebAllowAllSwitch value={f.webAllowAll} parentOn={f.browserAllowAll} onChange={(v) => setF({ ...f, webAllowAll: v })} />
                         <PersonalIntegrationsSwitch value={f.personalIntegrations} onChange={(v) => setF({ ...f, personalIntegrations: v })} />
+                        <LocalAppsSwitch value={f.localApps !== false} onChange={(v) => setF({ ...f, localApps: v })} />
                         <AiVisionSwitch value={f.aiVision} onChange={(v) => setF({ ...f, aiVision: v })} />
                         <AiSubagentsSwitch value={f.aiSubagents} onChange={(v) => setF({ ...f, aiSubagents: v })} />
                         <SwitchRow id="ts-room-always" testId="team-room-always" value={f.roomAlwaysAllow} onChange={(v) => setF({ ...f, roomAlwaysAllow: v })} title={t('teamSettings.roomAlways')} desc={t('teamSettings.row.roomAlwaysDesc')} />
                         {/* who makes team projects (docs/DECISIONS.md "Projects live only in projects/"): members by default */}
                         <SwitchRow id="ts-project-creators" testId="team-project-creators" value={f.projectCreators !== 'admins'} onChange={(v) => setF({ ...f, projectCreators: v ? 'members' : 'admins' })} title={t('teamSettings.projectCreators')} desc={t('teamSettings.row.projectCreatorsDesc')} />
+                        {/* a member shares a file of theirs with chosen people (QA TC-3093): on by default; the owner may remove
+                            every file share at once */}
+                        <SwitchRow id="ts-member-file-shares" testId="team-member-file-shares" value={f.memberFileShares} onChange={(v) => setF({ ...f, memberFileShares: v })} title={t('teamSettings.memberFileFolderShares')} desc={t('teamSettings.row.memberFileFolderSharesDesc')} />
+                        {owner && <RemoveFileShares />}
                         {/* Home's "what my group often asks" (docs/DECISIONS.md "Home: what my group often asks"): on by default */}
                         <SwitchRow id="ts-often-asked" testId="team-often-asked" value={f.oftenAsked} onChange={(v) => setF({ ...f, oftenAsked: v })} title={t('teamSettings.oftenAsked')} desc={t('teamSettings.row.oftenAskedDesc')} />
                         <AnswerStepLimitField value={f.answerStepLimit} onChange={(v) => setF((x) => (x ? { ...x, answerStepLimit: v } : x))} />
@@ -274,7 +279,7 @@ export default function TeamSettingsPage() {
               }
             </Loadable>
           )}
-          {/* the team's AI: defaults, who picks the engine, members' own accounts, usage limits (were Providers' second
+          {/* the team's AI: defaults, who picks the engine, members' own accounts, usage limits (were AI providers' second
               tab). After the form has loaded, so a link to #ai or #ai-limits lands where the page will stay; a phone
               shows them as two groups of their own (no form above them) */}
           {!phone && state.data && <TeamAiSettings />}
@@ -342,6 +347,9 @@ export function TeamIconRow() {
       setBusy(null)
     }
   }
+  // a phone: the upload row opens our sheet's device rows (components/DevicePick.tsx), never iOS's raw menu
+  const device = useDevicePick({ onFiles: (f) => { if (f[0]) void upload(f[0]) }, accept: TEAM_ICON_TYPES.join(','), camera: false, testIds: 'team-icon', off: busy !== null })
+  const [sheet, setSheet] = useState(0)
   const remove = async () => {
     if (!(await confirmDialog({ title: t('teamIcon.removeTitle'), body: t('teamIcon.removeBody'), confirm: t('teamIcon.removeConfirm'), danger: true }))) return
     setError(null)
@@ -384,11 +392,12 @@ export function TeamIconRow() {
           // upload icon, the words and the logo now on the right; "back to the default" a row under it
           <>
             <ul className="-mx-4 flex-1 border-y border-line" data-testid="team-icon-rows">
-              <PhoneListRow icon={<Upload size={16} />} title={version ? t('teamIcon.replace') : t('teamIcon.upload')} onClick={() => input.current?.click()} disabled={busy !== null} testId="team-icon-upload"
+              <PhoneListRow icon={<Upload size={16} />} title={version ? t('teamIcon.replace') : t('teamIcon.upload')} onClick={() => setSheet((n) => n + 1)} disabled={busy !== null} testId="team-icon-upload"
                 end={busy === 'upload' ? spinner : <img src={logoSrc} alt="" width={32} height={32} className="size-8 shrink-0 rounded-lg border border-line object-cover" />} />
               {version && <PhoneListRow icon={<RotateCcw size={16} />} title={t('teamIcon.remove')} onClick={() => void remove()} disabled={busy !== null} testId="team-icon-remove" end={busy === 'remove' ? spinner : undefined} />}
             </ul>
             {fileInput}
+            <PhonePickSheet pick={device} heading={t('teamIcon.title')} request={sheet} focusBack={() => document.querySelector<HTMLElement>('[data-testid="team-icon-upload"]')?.focus()} testId="team-icon-sheet" />
           </>
         ) : (
           <span className="inline-flex flex-wrap items-center gap-2">
@@ -484,6 +493,34 @@ function UpdateWindowTimes({ value, ok, legacy, onChange }: { value: string | nu
 }
 
 /** One team switch as a settings row: the name labels it, the short line describes it, the long text is "Learn more". */
+/** The team owner's "Remove all file shares" (QA TC-3093): every file shared one by one, with its links' people, at
+ * once. Nothing while no file is shared that way. */
+function RemoveFileShares() {
+  const t = useT()
+  const act = useAction()
+  const [count, setCount] = useState<{ files: number; people: number; folders?: number } | null>(null)
+  const [busy, setBusy] = useState(false)
+  useEffect(() => {
+    let live = true
+    api.call(API.fileSharesCount).then((r) => live && setCount(r), () => {})
+    return () => { live = false }
+  }, [])
+  if (!count?.files && !count?.folders) return null
+  // files and folders counted apart (folder sharing): "3 files and 1 folder"
+  const what = [count.files ? t('teamSettings.sharedFiles', { n: count.files }) : null, count.folders ? t('teamSettings.sharedFolders', { n: count.folders }) : null].filter(Boolean).join(t('teamSettings.and'))
+  const removeAll = async () => {
+    if (!(await confirmDialog({ title: t('teamSettings.removeSharesConfirm', { people: count.people, what }), confirm: t('teamSettings.removeFileSharesDo'), danger: true }))) return
+    setBusy(true)
+    const r = await act(() => api.call(API.removeAllFileShares), t('teamSettings.fileSharesRemoved'))
+    setBusy(false)
+    if (r) setCount(r)
+  }
+  return (
+    <SettingRow id="ts-remove-file-shares" testId="team-remove-file-shares" title={t('teamSettings.removeFileShares')} desc={t('teamSettings.removeSharesDesc', { people: count.people, what })} inline
+      control={<Button variant="danger" size="sm" busy={busy} onClick={() => void removeAll()} data-testid="team-remove-file-shares-button">{t('teamSettings.removeFileSharesDo')}</Button>} />
+  )
+}
+
 function SwitchRow({ id, value, onChange, title, desc, more, testId }: { id: string; value: boolean; onChange: (v: boolean) => void; title: string; desc: string; more?: string; testId: string }) {
   return (
     <SettingRow id={id} title={title} desc={desc} more={more} testId={testId} attrs={{ 'data-on': value ? 'true' : 'false' }} inline
@@ -525,6 +562,14 @@ export function WebAllowAllSwitch({ value, parentOn, onChange }: { value: boolea
 export function PersonalIntegrationsSwitch({ value, onChange }: { value: boolean; onChange: (v: boolean) => void }) {
   const t = useT()
   return <SwitchRow id="ts-personal-integrations" testId="team-personal-integrations" value={value} onChange={onChange} title={t('teamSettings.personalIntegrations')} desc={t('teamSettings.row.personalIntegrationsDesc')} more={t('teamSettings.personalIntegrationsHint')} />
+}
+
+/** "Apps on your computer" (default on; docs/decisions/20261118-local-app-connectors.md): members may connect a program on
+ * their own computer (Aside, ego lite ...) that the desktop app runs for the AI. Off: none can be added, the ones there
+ * are not used. */
+export function LocalAppsSwitch({ value, onChange }: { value: boolean; onChange: (v: boolean) => void }) {
+  const t = useT()
+  return <SwitchRow id="ts-local-apps" testId="team-local-apps" value={value} onChange={onChange} title={t('teamSettings.localApps')} desc={t('teamSettings.row.localAppsDesc')} more={t('teamSettings.localAppsHint')} />
 }
 
 /** "Send images, PDF pages and video frames to the AI" (default on; server/src/files/vision.ts). Off: AI reads send no
@@ -601,21 +646,22 @@ export const transcriptsAfterProvider = (next: SpeechProvider, saved: Pick<TeamS
   next === saved.speechProvider ? saved.aiMediaTranscripts : null
 
 /** The switch with what it means on this server: where the sound goes, the piece length and how a read goes on, a
- * hosted server's cap, the speed measured here, and why it starts off on a small server (shared mediaTranscriptsDefault).
- * `hostedKey`: OpenRouter goes with the hosting service's key (on by default, its free hours). */
+ * speed measured here, and why it starts off on a small server (shared mediaTranscriptsDefault: on when hosted, on a Mac
+ * and with 4 cores and 8 GB). `hostedKey`: OpenRouter goes with the hosting service's key (its free hours). */
 export function MediaTranscriptsSwitch({ provider, value, host, hostedKey = false, onChange }: { provider: SpeechProvider; value: boolean | null; host: SpeechHost; hostedKey?: boolean; onChange: (v: boolean) => void }) {
   const t = useT()
-  const on = value ?? mediaTranscriptsDefault(provider, host.cpuCores, hostedKey)
+  // an older server sends no hosted / bigEnough: its hosting key, and more than 2 cores, as it read before
+  const where = { hosted: host.hosted ?? hostedKey, hostedKey, mac: !!host.localMac, bigEnough: host.bigEnough ?? host.cpuCores > 2 }
+  const on = value ?? mediaTranscriptsDefault(provider, where)
   const local = provider === 'local'
   const perMinute = host.localSecPerSec === null ? null : host.localSecPerSec * 60
   return (
     <SettingRow id="ts-media-transcripts" testId="team-media-transcripts" inline attrs={{ 'data-on': on ? 'true' : 'false' }} title={t('speech.mediaTranscripts')}
-      desc={<span className={local ? undefined : hostedKey ? undefined : 'text-warn'}>{local ? t('speech.mediaTranscriptsLocal', { sec: host.localPieceSec }) : hostedKey ? t('speech.mediaTranscriptsHostedKey') : t('speech.mediaTranscriptsOpenRouter')}</span>}
+      desc={<span className={local ? undefined : hostedKey ? undefined : 'text-warn'}>{local ? t('speech.mediaTranscriptsLocal') : hostedKey ? t('speech.mediaTranscriptsHostedKey') : t('speech.mediaTranscriptsOpenRouter')}</span>}
       control={<Switch id="ts-media-transcripts" external describedBy="ts-media-transcripts-desc" checked={on} onChange={onChange} label={t('speech.mediaTranscripts')} />}
       below={
         <>
-          {local && value === null && mediaTranscriptsOffSmall(provider, host.cpuCores) && <p className="mt-1 text-xs text-muted" data-testid="team-media-transcripts-small">{t('speech.mediaTranscriptsSmall', { cores: host.cpuCores })}</p>}
-          {local && host.hostedNewSec !== null && <p className="mt-1 text-xs text-faint">{t('speech.mediaTranscriptsHosted', { min: Math.round(host.hostedNewSec / 60) })}</p>}
+          {local && value === null && mediaTranscriptsOffSmall(provider, where) && <p className="mt-1 text-xs text-muted" data-testid="team-media-transcripts-small">{t('speech.mediaTranscriptsSmall', { cores: host.cpuCores, gb: host.memoryGb ?? 0 })}</p>}
           {local && perMinute !== null && (
             <p className="mt-1 text-xs text-faint" data-testid="team-media-transcripts-speed">
               {perMinute < 90 ? t('speech.mediaTranscriptsSpeedSec', { n: Math.max(1, Math.round(perMinute)) }) : t('speech.mediaTranscriptsSpeedMin', { n: Math.round(perMinute / 6) / 10 })}
@@ -647,6 +693,10 @@ export function SpeechSection({ provider, model, transcripts, saved, onChange, o
   const hostedKey = provider === 'openrouter' && !!key.data?.hosted && !key.data.set
   // "this server" without the tools the mic's recordings need: voice input is off (Me.team.voiceInput), say which
   const missing = provider === 'local' ? host.data?.localMissing ?? [] : []
+  // an Apple silicon Mac transcribes on its own GPU: fast, and its first use downloads the speech model (say how big)
+  const localHint = host.data?.localMac
+    ? t('speech.localHintMac') + (host.data.localModelMb ? ' ' + t('speech.localFirstDownload', { mb: host.data.localModelMb }) : '')
+    : t('speech.localHint')
   const [secret, setSecret] = useState('')
   const [password, setPassword] = useState('')
   const [busy, setBusy] = useState(false)
@@ -681,10 +731,10 @@ export function SpeechSection({ provider, model, transcripts, saved, onChange, o
     <SettingsSection id="speech" testId="team-speech" title={t('speech.title')} desc={t('speech.desc')}>
       {/* a phone: "Speech to text   Off ›", the three in a sheet (QA TC-378) */}
       {phone ? (
-        <PhoneChoiceRow title={t('speech.provider')} desc={provider === 'local' ? t('speech.localHint') : undefined} below={providerNote} value={provider}
+        <PhoneChoiceRow title={t('speech.provider')} desc={provider === 'local' ? localHint : undefined} below={providerNote} value={provider}
           options={PROVIDERS.map((p) => ({ value: p, label: t(`speech.${p}`) }))} onChange={pickProvider} testId="team-speech-provider" />
       ) : <SettingRow id="ts-speech-provider" title={t('speech.provider')}
-        desc={provider === 'local' ? t('speech.localHint') : undefined}
+        desc={provider === 'local' ? localHint : undefined}
         below={providerNote}
         control={
           <select id="ts-speech-provider" aria-describedby={provider === 'local' ? `ts-speech-provider-desc${missing.length > 0 ? ' ts-speech-local-missing' : ''}` : undefined} className={clsx(inputCls, 'md:w-64')} value={provider}

@@ -1,13 +1,24 @@
 // What the API returns for the tables of design tab 1. These are API views (camelCase, no secrets, no hashes),
 // not raw rows. Server code maps rows -> these shapes; clients only ever see these.
 import { z } from 'zod'
+import { RecommendedTools } from './team-tools'
 import { UserId, Uuid7 } from '../ids'
+import { StepShared } from './share-card'
 import { Access, ApiErrorBody, ClientKind, EngineId, IsoTime, Locale, GuestDetail, GuestPlace, RelPath, Role, TeamRole, TextSize, Theme, UserStatus } from './common'
 
 // ---------------- people ----------------
 /** Minimal person reference (chat authors, audit actors, file authors). */
 export const UserRef = z.object({ id: UserId, name: z.string() })
 export type UserRef = z.infer<typeof UserRef>
+
+/** How many folds a person's lists keep (ListFolds); a newer choice pushes out the oldest. */
+export const LIST_FOLDS_MAX = 200
+/** One fold's key: `section:<list>:<section>` (a list's section), `room-folder:<id>`, `folder:<id>` (my folders). */
+export const ListFoldKey = z.string().min(1).max(120).regex(/^[a-z][a-z-]*:[A-Za-z0-9:_-]+$/)
+/** The sections and folders of my lists I folded or opened (web components/panels/folds.ts), on every device I sign in
+ * on; a key not there starts as its list starts it (most open). */
+export const ListFolds = z.record(ListFoldKey, z.enum(['open', 'folded'])).refine((o) => Object.keys(o).length <= LIST_FOLDS_MAX, { message: `at most ${LIST_FOLDS_MAX} folds` })
+export type ListFolds = z.infer<typeof ListFolds>
 
 export const UserPrefs = z.object({
   theme: Theme.optional(),
@@ -25,6 +36,25 @@ export const UserPrefs = z.object({
   /** the one-time line under a room's header ("✦ Ask Trina about this room. Only you see it.") was closed, or ✦ was
    * used: it never shows again (docs/DECISIONS.md "A welcome for invited people") */
   roomAskHint: z.literal('seen').optional().catch(undefined),
+  /** an owner's or admin's one-time line on Admin › Home that members can now share folders in their own files
+   * (docs/AGENTS/plan/20261116-1330-folder-share-web.md) was closed: it never shows again */
+  folderShareNotice: z.literal('seen').optional().catch(undefined),
+  /** the office owner's one-time notice on Admin › Home that the server removed Claude Code connections from this Mac
+   * (server/src/office/claude-mcp-notice.ts) was closed: it never shows again */
+  officeMcpNotice: z.literal('seen').optional().catch(undefined),
+  /** an owner's or admin's one-time notice that the dev environment exists and is off for their team (a team from before
+   * 2026-11-06, docs/decisions/20261118-run-code-skills-subagents.md) was closed or followed: it never shows again */
+  devEnvOffer: z.literal('seen').optional().catch(undefined),
+  /** my lists' folds (ListFolds); a stored value that does not read reads as absent, never hiding the other preferences */
+  listFolds: ListFolds.optional().catch(undefined),
+  /** 'off': a room message with "@전체" goes without the question first ("Don't ask again" on that question; Settings ›
+   * Notifications › "Ask before notifying everyone" turns it back on). One choice for every room; absent = ask. */
+  mentionAllAsk: z.literal('off').optional().catch(undefined),
+  /** 'hidden': the person hid the 7-day team goal card on Home (its "Hide"); Admin › Home's "Show the team goal again"
+   * clears it. On every device (owner 2026-11-20: every Home onboarding card can be closed) */
+  goalCard: z.literal('hidden').optional().catch(undefined),
+  /** 'hidden': the person hid "Ready in your team" on Home (its "Hide"); Settings › Profile's "Show it again" clears it */
+  preparedCard: z.literal('hidden').optional().catch(undefined),
 })
 export type UserPrefs = z.infer<typeof UserPrefs>
 
@@ -86,8 +116,8 @@ export const Invite = z.object({
   /** a lead invite ("이 사람이 팀장이에요", docs/DECISIONS.md "W6"): the owner's words for whom it is, while it is still
    * flagged (a transfer clears every flag); absent or null otherwise and from older servers */
   leadFor: z.string().nullable().optional(),
-  /** a guest invite's one place; absent on member invites. `name`: a project's name (the invite list names it; a room's
-   * name is left out, since a group chat is its people's) */
+  /** a guest invite's one place; absent on member invites. `name`: the project's or the group chat's name (the invite
+   * list names it, as Admin's guest rows do; older servers sent a project's only; '' for a group chat with no name) */
   guestPlace: GuestPlace.extend({ name: z.string().optional() }).optional(),
   /** a guest invite: who the link is for, in the inviter's words (CreateGuestInviteBody.name; the invite list tells
    * the links apart by it); absent when none was given and on member invites */
@@ -227,6 +257,11 @@ export const Project = z.object({
    * admins for a team project, and its creator while they are one of its members. Absent: no, or an older server (there:
    * the owner and admins). */
   canRestore: z.literal(true).optional(),
+  /** the project's own chat room (docs/decisions/20261120-project-is-room.md), for someone who reads the project (never
+   * with `member: false`): its id and my unread count there (0 until the room's people are put right for me). Absent: no
+   * room yet (POST /api/projects/:id/room makes it), a personal or older project, the project in the trash, an older
+   * server. */
+  room: z.object({ id: Uuid7, unread: z.number().int().nonnegative() }).optional(),
 })
 export type Project = z.infer<typeof Project>
 
@@ -300,6 +335,9 @@ export const Chat = z.object({
     /** someone else's question is being answered now (their name; `waiting`: the AI waits for their yes on a card);
      * null when nobody's is, or when it is mine */
     answering: z.object({ name: z.string(), waiting: z.literal(true).optional() }).nullable(),
+    /** how many other people have messages waiting there to be sent when the answer ends (PUT /api/chats/:id/waiting): a
+     * number, never who or what. Absent: none (or an older server). */
+    waiting: z.number().int().positive().optional(),
     /** I made it or wrote in it: it is in my chat list */
     mine: z.boolean(),
     /** I may delete it (its creator or an editor of its project) */
@@ -355,8 +393,53 @@ export const Attachment = z.object({
   receivedSize: z.number().int().nonnegative().optional(),
 })
 export type Attachment = z.infer<typeof Attachment>
-/** At most this many attachments (uploads and team files together) per message. */
-export const MESSAGE_ATTACHMENTS_MAX = 20
+/** At most this many attachments (uploads and team files together) per message: 100, what one model request may hold
+ * in pictures (a person attaches 60 photos and asks about all of them, docs/decisions/20261118-limits-images.md). */
+export const MESSAGE_ATTACHMENTS_MAX = 100
+/** At most this many characters of text per AI chat message (send and edit; both message boxes, the full chat's and
+ * the side chat's, say so before sending, and a longer paste goes in as a text file: web/src/lib/longPaste.ts). */
+export const MESSAGE_TEXT_MAX = 200_000
+
+/** A next step under an AI step (Step.fixes): a line the server wrote, and one button that runs
+ * POST /api/share-fixes/:id/run as the person. Names are people's display names as the server read them.
+ * - let_view: `people` get view access to `file` (the person may share it). The list shown is the list granted.
+ * - ask_owner: the file's owner (`owner`) is asked to share `file` with `count` people (their names only when the
+ *   person asks for themselves or may see them).
+ * - ask_admin: an admin (`owner`: their name) gets a message about the folder `file`.
+ * - share_project: the app's own "Share with project members" flow for chat `chatId` opens (no server run).
+ * `state`: open (the button shows), done (`doneCount` people; the line says what happened), gone (nothing left to do:
+ * everyone can open it already, or the file or the room is gone). */
+export const StepFixKind = z.enum(['let_view', 'ask_owner', 'ask_admin', 'share_project'])
+export type StepFixKind = z.infer<typeof StepFixKind>
+export const StepFix = z.object({
+  id: z.string().max(64),
+  kind: StepFixKind,
+  /** the file's or the folder's name (one line), or the project's for share_project */
+  file: z.string().max(200),
+  /** more files of the same offer, when it is about several (the count beyond `file`) */
+  moreFiles: z.number().int().min(0).optional(),
+  /** where the people are, as the person sees it ("#Sales"); absent when the offer is not about a room */
+  place: z.string().max(200).optional(),
+  /** the first few people it is about, by name, and how many in all */
+  people: z.array(z.string().max(120)).max(5).optional(),
+  count: z.number().int().min(0),
+  /** guests among the people who cannot open it: never given a file */
+  guests: z.number().int().min(0).optional(),
+  /** ask_admin: why an admin is asked. folder (or absent): a team folder only admins share; switch: the team turned off
+   * members' file sharing (the admins are asked to turn it on) */
+  reason: z.enum(['folder', 'switch']).optional(),
+  /** who is asked: the file's owner, or the admin(s) */
+  owner: z.string().max(200).optional(),
+  chatId: z.string().max(64).optional(),
+  state: z.enum(['open', 'done', 'gone']),
+  doneCount: z.number().int().min(0).optional(),
+  /** after let_view ran: people in the room who still cannot open it and were not on the list (they joined since) */
+  left: z.number().int().min(0).optional(),
+})
+export type StepFix = z.infer<typeof StepFix>
+/** POST /api/share-fixes/:id/run: what the offer became (the app keeps the rest of the line it showed) */
+export const RunStepFixResult = z.object({ state: z.enum(['open', 'done', 'gone']), doneCount: z.number().int().min(0).optional(), left: z.number().int().min(0).optional() })
+export type RunStepFixResult = z.infer<typeof RunStepFixResult>
 
 /** messages.steps[]: what the AI did ("파일 검색 중"). Shown as a collapsible list under the answer. */
 export const StepKind = z.enum(['tool', 'thinking', 'web_search', 'browser', 'artifact', 'ask_user'])
@@ -383,7 +466,20 @@ export const Step = z.object({
   sources: z.array(z.object({ title: z.string(), url: z.string() })).max(50).optional(),
   /** a post_to_room step that posted (server/src/chat/post-to-room.ts): where the message went, for the step's 보기 (the
    * room at the message, or the thread at the reply), as the button's sent line has it */
-  posted: z.object({ roomId: Uuid7, messageId: Uuid7, threadRootId: Uuid7.optional() }).optional(),
+  posted: z.object({
+    roomId: Uuid7, messageId: Uuid7, threadRootId: Uuid7.optional(),
+    /** what went, for the card: the message's first words (plain, one line) and the names of the files sent with it,
+     * read from the posted message itself (never the AI's words about it) */
+    preview: z.string().max(120).optional(),
+    files: z.array(z.string().max(255)).max(10).optional(),
+  }).optional(),
+  /** a share_with_person or stop_sharing step: what it did, for its card (api/share-card.ts). Only for the person whose
+   * turn it was; absent for every other viewer of a shared chat */
+  shared: StepShared.optional(),
+  /** next steps the server offers under this step (server/src/files/share-fixes.ts; docs/decisions/
+   * 20261116-ai-share-who-can-open.md): "3 people in #Sales can't open it yet" with one button. Written by the server
+   * from its own records, never from the AI's text; only the person whose turn it was gets them */
+  fixes: z.array(z.lazy(() => StepFix)).max(4).optional(),
   /** screenshot shared from the browser pane / images the AI shows: served via /api/files/download */
   images: z.array(z.object({ path: RelPath, alt: z.string().optional() })).max(20).optional(),
   /** a step a sub-agent took: the id of its sub-task step (tool 'agent'). Apps without this field show it in the flat
@@ -410,6 +506,14 @@ export const Step = z.object({
     why: z.literal('project').optional(),
     port: z.number().int().min(1).max(65535).optional(),
   }).optional(),
+  /** the AI's to-do list for this answer (todo_write, like Claude Code's TodoWrite): one step per answer, its list
+   * replaced in place on each call and kept with the answer. Apps show it as a checklist card, not as a step line;
+   * an app without this field shows the step's label only */
+  todos: z.array(z.object({
+    content: z.string().max(300),
+    status: z.enum(['pending', 'in_progress', 'completed']),
+    activeForm: z.string().max(300).optional(),
+  })).max(50).optional(),
 })
 export type Step = z.infer<typeof Step>
 
@@ -460,7 +564,7 @@ export type MessageSources = z.infer<typeof MessageSources>
 export const MessageStatus = z.enum(['streaming', 'done', 'error', 'stopped'])
 export type MessageStatus = z.infer<typeof MessageStatus>
 /** Why a finished answer ended before the AI was done: it reached the per-answer limit of tool calls (`tool_limit`,
- * Claude Code --max-turns, Admin > Team settings `answerStepLimit`, default 150 / the API engine's 30 rounds), or, for
+ * Claude Code --max-turns, Admin > Team settings `answerStepLimit`, default 500, the API engine's rounds too), or, for
  * answers from before 2026-11-14, the old limit of working time (`time_limit`, 20 active minutes or 45 in total; one
  * answer has no time limit since then, docs/DECISIONS.md "No time limit on one answer"). Its status stays 'done': not
  * an error, not a stop by the person; the screen offers "continue". */
@@ -473,6 +577,34 @@ export type Usage = z.infer<typeof Usage>
  * messages. Conversations are trees: editing a user message or regenerating an answer adds a sibling with the
  * same parentId; the chat shows one path (chats.active_leaf_id). `branch` lets the UI show "< 2/3 >".
  */
+/** The talk under an AI answer of a shared chat (docs/decisions/20261116-chat-answer-threads.md), as I see it: how many
+ * replies, the time of the last one, up to 3 people who replied (the latest first) and whether a thread I follow (I
+ * asked the answer or replied) has a reply I have not read. The rooms' RoomThreadSummary, for chats. */
+export const ChatThreadSummary = z.object({
+  replyCount: z.number().int().nonnegative(),
+  lastReplyAt: IsoTime.nullable(),
+  repliers: z.array(UserRef),
+  newReplies: z.boolean(),
+})
+export type ChatThreadSummary = z.infer<typeof ChatThreadSummary>
+/** One reply under an answer of a shared chat: people's words only (the AI never writes or reads these). `author` null:
+ * an account that is gone and has no tombstone name. */
+export const ChatThreadReply = z.object({
+  id: Uuid7,
+  chatId: Uuid7,
+  rootId: Uuid7,
+  author: UserRef.nullable(),
+  /** plain text; links are made clickable by the app, nothing else is formatted */
+  content: z.string(),
+  /** the people it mentions by "@name" (ids; docs/decisions/20261118-chat-thread-mentions.md): only people who saw the
+   * thread when it was sent. Older servers omit it */
+  mentions: z.array(UserId).optional(),
+  createdAt: IsoTime,
+  /** I may delete it: my own, or I may moderate the chat (its creator; a project editor for a project chat) */
+  canDelete: z.boolean(),
+})
+export type ChatThreadReply = z.infer<typeof ChatThreadReply>
+
 export const Message = z.object({
   id: Uuid7,
   chatId: Uuid7,
@@ -497,6 +629,9 @@ export const Message = z.object({
   /** answers only: the AI got only the recent part of this conversation (the history a fresh engine session gets is
    * cut at 40,000 characters, and a session resumed from such a start keeps that); absent: all of it */
   historyTrimmed: z.boolean().optional(),
+  /** answers only, with historyTrimmed: the cut came from the team's AI model, whose context holds only a short
+   * conversation (server/src/chat/history-fit.ts), not from a long chat */
+  historySmallModel: z.literal(true).optional(),
   /** finished answers only: how many team files the AI read or saw passages of while writing it ("참고한 파일 N개");
    * the list itself, checked against the viewer's access, comes from GET .../messages/:messageId/sources. Absent: none */
   sourceCount: z.number().int().positive().optional(),
@@ -511,6 +646,14 @@ export const Message = z.object({
    * nothing of it comes (no steps, files, sources, artifacts, model or error); its place in the branch stays. Never on
    * an answer of my own question */
   withheld: z.literal(true).optional(),
+  /** a finished answer of a shared chat with replies under it that I may see: the thread's summary (absent: none) */
+  thread: ChatThreadSummary.optional(),
+  /** questions only: this message is the person's answer on the AI's cards (its questions, a website, a delete, a
+   * share: chat/open-questions.ts), picked with the cards' buttons, not typed. Each card's choice in words, null for
+   * Skip. The apps show it as one quiet line under the answer that asked, never as a message the person wrote.
+   * `hidden`: a shared chat where the cards' words are hidden (their answer used what not everyone may read): the line
+   * says only that they answered, and `choices` is empty. Absent: the person's own words */
+  cardAnswer: z.object({ choices: z.array(z.string().nullable()), hidden: z.literal(true).optional() }).optional(),
 })
 export type Message = z.infer<typeof Message>
 
@@ -576,7 +719,11 @@ export const BackupResult = z.object({ backupId: z.string(), size: z.number().in
 export const RestoreResult = z.object({ backupId: z.string(), restoredAt: IsoTime, lostSince: IsoTime.nullable() })
 export const UpdateResult = z.object({ fromVersion: z.string(), toVersion: z.string(), rolledBack: z.boolean() })
 export const ExportResult = z.object({ path: RelPath, size: z.number().int().nonnegative() })
-export const JobResult = z.union([TranscribeResult, BackupResult, RestoreResult, UpdateResult, ExportResult])
+/** A member's own export (Settings › Export, POST /api/me/export): `download` is where its maker gets the ZIP, for 24
+ * hours; `chats` how many chats it holds. */
+export const MyExportResult = z.object({ download: z.string().regex(/^\/api\/me\/export\/[0-9a-f-]{36}\/download$/), size: z.number().int().nonnegative(), chats: z.number().int().nonnegative() })
+export type MyExportResult = z.infer<typeof MyExportResult>
+export const JobResult = z.union([TranscribeResult, BackupResult, RestoreResult, UpdateResult, ExportResult, MyExportResult])
 export const Job = z.object({
   id: Uuid7,
   kind: JobKind,
@@ -616,6 +763,9 @@ export const FileEntry = z.object({
    * that file was kept and nothing new was made (keepSame). Find work files' Undo takes back only files a run made
    * (docs/DECISIONS.md "Find work files on this computer"). Absent on every other entry and from older servers. */
   kept: z.literal(true).optional(),
+  /** in a listing of the caller's OWN files only (docs/decisions/20261116-folder-share-server.md): 'own' the entry has
+   * people of its own on it, 'through' a folder above it is shared. Absent everywhere else and from older servers. */
+  shared: z.enum(['own', 'through']).optional(),
 })
 export type FileEntry = z.infer<typeof FileEntry>
 
@@ -689,6 +839,9 @@ export const UploadTarget = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('attachment'), chatId: Uuid7, name: z.string().min(1).max(255) }),
   /** audio for transcription (not kept in the team folder); chatId as in TranscribeFields */
   z.object({ kind: z.literal('transcribe'), name: z.string().min(1).max(255), chatId: Uuid7.optional() }),
+  /** a file to send in a room the caller is in (at most ROOM_FILE_MAX): kept as their unsent upload there, like
+   * POST /api/rooms/:id/files; membership checked at create and at complete */
+  z.object({ kind: z.literal('room'), roomId: Uuid7, name: z.string().min(1).max(255) }),
 ])
 export type UploadTarget = z.infer<typeof UploadTarget>
 export const UploadSession = z.object({
@@ -748,37 +901,53 @@ export type AuditEntry = z.infer<typeof AuditEntry>
 export const SpeechProvider = z.enum(['off', 'openrouter', 'local'])
 export type SpeechProvider = z.infer<typeof SpeechProvider>
 export const DEFAULT_SPEECH_MODEL = 'openai/whisper-large-v3-turbo'
-/** A server with this many CPU cores or fewer turns sound into text itself only slowly: on a 2 vCPU box whisper.cpp
- * small took 1.5-1.9 s for each second of speech outside the app (2 and 1 threads) and over 2.5 s inside a read (QA
- * 2026-11-01), so a read gets one to two minutes of a recording. */
-export const SMALL_SERVER_CORES = 2
-/** "Turn video sound into text" (TeamSettings.aiMediaTranscripts) when the admin has not chosen: on when the speech
- * provider is this server (the sound stays here) and it has more than SMALL_SERVER_CORES cores, off on a smaller one
- * (too slow; frames still go), off for OpenRouter with the team's own key (team files' sound would go to a third party
- * the team did not pick for it) and on for OpenRouter with the hosting service's key (`hostedKey`: the hosted plan's
- * speech-to-text, zero data retention, the plan's free hours a month; docs/DECISIONS.md "Hosted speech-to-text"). `cpuCores`:
- * the server's (system/limits.ts cpuBudget; GET /api/admin/speech-host for the settings page). An admin's choice
- * always wins. The one place this default lives (docs/DECISIONS.md "AI reads video and audio"). */
-export const mediaTranscriptsDefault = (provider: SpeechProvider, cpuCores: number, hostedKey = false): boolean =>
-  provider === 'local' ? cpuCores > SMALL_SERVER_CORES : provider === 'openrouter' && hostedKey
-/** whether the default is off only because this server is small (the read and the settings switch say so) */
-export const mediaTranscriptsOffSmall = (provider: SpeechProvider, cpuCores: number): boolean => provider === 'local' && !mediaTranscriptsDefault(provider, cpuCores)
-/** whether AI reads of video and audio files transcribe their sound: never with voice input off. `hostedKey`: OpenRouter
- * goes with the hosting service's key (mediaTranscriptsDefault) */
-export const mediaTranscriptsOn = (s: { speechProvider: SpeechProvider; aiMediaTranscripts: boolean | null }, cpuCores: number, hostedKey = false): boolean =>
-  s.speechProvider !== 'off' && (s.aiMediaTranscripts ?? mediaTranscriptsDefault(s.speechProvider, cpuCores, hostedKey))
+/** The least a server needs to turn sound into text itself by default (whisper.cpp next to the AI, voice input and
+ * other reads): 4 CPU cores and 8 GB of memory (the owner, 2026-11-19). A 2 vCPU box took 1.5-1.9 s for each second
+ * of speech (QA 2026-11-01). The memory floor is a little under 8 GiB: an "8 GB" machine reports less. */
+export const LOCAL_SPEECH_MIN_CORES = 4
+export const LOCAL_SPEECH_MIN_MEMORY = 7.5 * 1024 ** 3
+/** whether a server with `cpuCores` and `memoryBytes` is big enough for local speech-to-text by default */
+export const localSpeechBigEnough = (cpuCores: number, memoryBytes: number): boolean =>
+  cpuCores >= LOCAL_SPEECH_MIN_CORES && memoryBytes >= LOCAL_SPEECH_MIN_MEMORY
+/** Where the server runs, for the default of "Turn video sound into text": `hosted` (the hosting service's server, a
+ * plan), `hostedKey` (OpenRouter goes with the hosting service's speech key: the plan's hours), `mac` (an Apple silicon
+ * Mac that runs whisper.cpp on its GPU), `bigEnough` (localSpeechBigEnough). */
+export interface MediaTranscriptsHost { hosted: boolean; hostedKey: boolean; mac: boolean; bigEnough: boolean }
+/** "Turn video sound into text" (TeamSettings.aiMediaTranscripts) when the admin has not chosen (the owner and the
+ * coordinator, 2026-11-19; docs/decisions/20261119-speech-defaults-no-cap.md): for "this server" (the sound stays
+ * here) on when hosted, on a Mac or on a server with at least 4 CPU cores and 8 GB (a self-installed Linux server, the
+ * Docker image), off on a smaller one (too slow; frames still go); for OpenRouter on only with the hosting service's key
+ * (the plan's hours), off with the team's own key anywhere, hosted too (team files' sound would go to a third party at
+ * the team's cost without anyone picking that). An admin's choice always wins. The one place this default lives. */
+export const mediaTranscriptsDefault = (provider: SpeechProvider, host: MediaTranscriptsHost): boolean =>
+  provider === 'local' ? host.hosted || host.mac || host.bigEnough : provider === 'openrouter' && host.hostedKey
+/** whether the default is off only because this server is too small for local speech (the read and the settings switch say so) */
+export const mediaTranscriptsOffSmall = (provider: SpeechProvider, host: MediaTranscriptsHost): boolean =>
+  provider === 'local' && !mediaTranscriptsDefault(provider, host)
+/** whether AI reads of video and audio files transcribe their sound: never with voice input off */
+export const mediaTranscriptsOn = (s: { speechProvider: SpeechProvider; aiMediaTranscripts: boolean | null }, host: MediaTranscriptsHost): boolean =>
+  s.speechProvider !== 'off' && (s.aiMediaTranscripts ?? mediaTranscriptsDefault(s.speechProvider, host))
 /** an OpenRouter model id: "<vendor>/<model>" */
 export const SpeechModel = z.string().max(128).regex(/^[a-z0-9][a-z0-9._-]*\/[A-Za-z0-9][A-Za-z0-9._:-]*$/)
 
 /** Tool rounds one answer may take (Claude Code `--max-turns`; Admin > Team settings `answerStepLimit`). A round is one
  * reply of the AI: tools it calls together in one reply count once. Claude Code itself has no such cap; with
  * the budgets it is what ends a long answer (one answer has no time limit). docs/DECISIONS.md "Tool rounds per answer". */
-export const DEFAULT_ANSWER_STEP_LIMIT = 150
+export const DEFAULT_ANSWER_STEP_LIMIT = 500
+/** a guest's answers take at most this many rounds, whatever the team setting (the default before 2026-11-18;
+ * docs/decisions/20261118-limits-caps.md) */
+export const GUEST_ANSWER_STEP_LIMIT = 150
+/** an answer nobody watches (a scheduled run, a run asked from Slack) takes at most this many rounds: nobody can stop a
+ * long run there (docs/decisions/20261118-limits-caps.md) */
+export const UNATTENDED_ANSWER_STEP_LIMIT = 150
 export const ANSWER_STEP_LIMIT_MIN = 10
-export const ANSWER_STEP_LIMIT_MAX = 500
+export const ANSWER_STEP_LIMIT_MAX = 2000
 
 /** settings (team-level, key/value json in the DB). */
 export const TeamSettings = z.object({
+  /** 1-100 characters on a self-installed server. A hosted server takes only a name the hosting service takes
+   * (cloud-protocol/team-name.ts teamNameProblem: 1-60 characters, no hidden characters), checked by the server when
+   * the name changes (system/cloud-team-name.ts hostedTeamName); a name kept from before stays readable here. */
   teamName: z.string().min(1).max(100),
   defaultLocale: Locale,
   defaultEngine: EngineId,
@@ -807,6 +976,15 @@ export const TeamSettings = z.object({
   /** members may add their own external-service connections (Settings > External services; default on). Off: none can
    * be added and the ones there are left out of chats (team connections are not affected). */
   personalIntegrations: z.boolean(),
+  /** "Apps on your computer" (default on; docs/decisions/20261118-local-app-connectors.md): members may connect a
+   * program on their own computer (Aside, ego lite ...) that the desktop app runs for the AI. Off: none can be added
+   * and the ones there are left out of chats. Needs personalIntegrations too (they are personal connections). Older
+   * servers omit it. */
+  localApps: z.boolean().optional(),
+  /** "팀 추천" (docs/decisions/20261120-team-vs-personal-onboarding.md, shared/src/api/team-tools.ts): the tools an owner
+   * or admin recommends, first in each person's Settings › Connectors. Gates nothing. Absent (every team before it, an
+   * older server) or empty: none. */
+  recommendedTools: RecommendedTools.optional(),
   /** "Send images, PDF pages and video frames to the AI" (default on): an AI read of a photo, screenshot, scanned PDF
    * page or video gives the model the image (like Claude Code). Off: no pixels go to the provider; a Mac server reads
    * the text with Apple Vision instead, a Linux server says the image is not shown. */
@@ -820,10 +998,18 @@ export const TeamSettings = z.object({
    * 허용"). Off: no card offers it and the choices people made are ignored (kept: they count again when it is turned
    * back on) */
   roomAlwaysAllow: z.boolean(),
+  /** "Members can share files they own" (default on; docs/DECISIONS.md "A member shares their own files"): a member's
+   * Share on a file of theirs, and access requests to members. Off: members cannot add people or be asked; the shares
+   * already made keep working until removed. The team owner and admins share team files either way. */
+  memberFileShares: z.boolean(),
   /** who may make team projects (a new projects/<name> folder with the people they choose; docs/DECISIONS.md "Projects
    * live only in projects/"): 'members' (default: anyone, like a chat channel) or 'admins' (the owner and admins only).
    * Personal projects are never limited. */
   projectCreators: z.enum(['members', 'admins']),
+  /** the largest file a guest may upload: in a room, to their project's folder, to an AI chat (GUEST_FILE_MAX; default
+   * 100 MB, at most 1 GB; docs/decisions/20261116-guest-room-file-limit.md, 20261116-room-file-limit-1gb.md). Members
+   * are not held to it. */
+  guestFileMax: z.enum(['100mb', '1gb']),
   /** "Show what the team often asks" (default on; docs/DECISIONS.md "Home: what my group often asks"): Home lists
    * generic questions that 3 or more people of a group or the team asked, rewritten once a day on the owner's AI. Off:
    * the lists are deleted for everyone, no run starts, and questions sent while it is off never count. */
@@ -838,8 +1024,8 @@ export const TeamSettings = z.object({
   /** the OpenRouter speech-to-text model */
   speechModel: SpeechModel,
   /** "Turn video sound into text": AI reads of video and audio files transcribe the sound with the speech provider.
-   * null = not chosen: mediaTranscriptsDefault (on for this server unless it is small, off for OpenRouter with the
-   * team's key, on with the hosting service's key). A change of speechProvider
+   * null = not chosen: mediaTranscriptsDefault (OpenRouter: on only with the hosting key; this server: on when hosted,
+   * on a Mac or with 4 cores and 8 GB, off otherwise). A change of speechProvider
    * puts it back to null, so a choice made for one provider never sends sound to another. */
   aiMediaTranscripts: z.boolean().nullable(),
   /** how long the company intro deck may take (docs/DECISIONS.md "D2", round 2; server/src/intro-deck/tiers.ts):

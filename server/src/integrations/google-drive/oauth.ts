@@ -6,15 +6,18 @@ import { audit } from '../../admin/audit'
 import { resolveLayout } from '../../system/layout'
 import { DRIVE_SCOPE, OWN_APP_SETTING, configKey, hash, readDriveConfig, type DriveConfig } from './config'
 import { GoogleTransport, GOOGLE_AUTH, GOOGLE_TOKEN, GOOGLE_REVOKE, DRIVE_API, checkAbort, responseError, waitFor, backoff, type DriveFetch } from './client'
-import { DriveStore, DriveError, type Account, type Tokens, type FlowSecret, type ConnectionRow } from './store'
+import { DriveStore, DriveError, type Account, type Tokens, type FlowSecret, type FlowRow, type ConnectionRow } from './store'
 import { googleAccountInUse, googleEmailOf, signsTeamGoogleApp } from '../connections/store'
 import type { DriveConnection, DriveFlow } from '@mycel/shared/api'
 import { notifyConnectionReconnect, notifyDriveShareReconnect } from '../../notifications/service'
 import { onShareOwnerCheck, ownerOk, SHARE_CONTEXT, shareByName, shareRow, shareRows, shareWorks, teamSharesFor, type ShareRow } from './shares'
 import { getSetting, setSetting } from '../../admin/settings'
 import { brokerKey, driveBrokerFor, DriveBroker, type BrokerOptions } from './broker'
+import type { CallbackOutcome } from './callback-page'
+import { CLAIM_MS, GO_PATH, newToken, tokenHash, tokenMatches } from './app-return'
+import type { ClientKind } from '@mycel/shared/api'
 
-/** `broker`: sign in through the hosting service (broker.ts); left out, driveBrokerFor decides (broker URL set, no own client). */
+/** `broker`: sign in through the hosting service (broker.ts); left out, driveBrokerFor decides (no own client; broker URL set, or a hosted server). */
 export interface DriveDeps { config?: DriveConfig | null; fetch?: DriveFetch; now?: () => number; broker?: BrokerOptions | null }
 /** One Drive connection's way to call Google: a person's own, or a team share's (read.ts). */
 export interface DriveConn {
@@ -36,7 +39,7 @@ export class GoogleDrive {
    * admin's in-app setup replaces it (admin-setup.ts reload()) */
   get config() { return this.cfg }
   /** sign-in through the hosting service (a hosted or registered self-installed server without a client
-   * of its own and with MYCEL_GOOGLE_DRIVE_BROKER_URL), else null */
+   * of its own: a hosted one by default, a self-installed one with MYCEL_GOOGLE_DRIVE_BROKER_URL), else null */
   readonly broker: DriveBroker | null
   private brokerOk = false
   private brokerCheckedAt = 0
@@ -71,6 +74,7 @@ export class GoogleDrive {
     this.broker = brokerOpts ? new DriveBroker(brokerOpts, deps.fetch ?? fetch, this.now) : null
     this.cfgKey = this.cfg ? configKey(this.cfg) : this.broker ? brokerKey(this.broker.o.origin) : ''
     this.store = new DriveStore(ctx.db, dir, this.now)
+    this.store.onDrop = (rows) => this.dropTokens(rows)
     this.transport = new GoogleTransport(deps.fetch)
     const sweep = () => {
       try { this.store.sweep() } catch { ctx.log.warn('Drive flow cleanup deferred') }
@@ -124,7 +128,8 @@ export class GoogleDrive {
       const row = this.store.connection(user)
       if (row) this.invalidate(row)
     }
-    return { ...status, personalAllowed: true, teamShares: this.enabled ? teamSharesFor(this.ctx.db, user, this.key) : [] }
+    // hostedApp: the hosting service's shared Google app signs in (not a company's own): Google may call it unverified
+    return { ...status, personalAllowed: true, teamShares: this.enabled ? teamSharesFor(this.ctx.db, user, this.key) : [], hostedApp: this.enabled && this.viaBroker }
   }
   /** Keep cancellation registered throughout a tool's download and conversion. */
   run<T>(user: string, signal: AbortSignal | undefined, fn: (signal: AbortSignal) => Promise<T>) { return this.operation(user, signal, fn) }
@@ -149,16 +154,37 @@ export class GoogleDrive {
   }
   /** Start a Google sign-in either way: this server's own client (authorize), or the hosting service's (broker.ts),
    * which makes the Google address for this flow. The routes use this. */
-  async begin(user: string, session: string, share?: { shareId?: string }): Promise<{ flowId: string; authorizationUrl: string; connectUrl?: string; expiresAt: string }> {
-    if (!this.viaBroker) return this.authorize(user, session, share)
+  async begin(user: string, session: string, share?: { shareId?: string }, client: ClientKind = 'web'): Promise<{ flowId: string; authorizationUrl: string; connectUrl?: string; expiresAt: string; openPath?: string }> {
+    if (!this.viaBroker) return this.fromApp(this.authorize(user, session, share), client)
     const p = this.prepare(user, session, share)
     try {
       const urls = await this.broker!.start(share ? 'share' : 'personal', p.state, challengeOf(p.verifier))
-      return { flowId: p.id, ...urls, expiresAt: p.expiresAt }
+      return this.fromApp({ flowId: p.id, ...urls, expiresAt: p.expiresAt }, client)
     } catch (e) {
       const reason = e instanceof DriveError ? e.reason : 'broker_unavailable'
       this.ctx.db.query("UPDATE drive_oauth_flows SET state='failed',reason=?,secret_enc=NULL WHERE id=? AND state='pending'").run(reason, p.id)
       throw e instanceof DriveError ? e : new DriveError('broker_unavailable', 503)
+    }
+  }
+  /** A sign-in started in the desktop app (app-return.ts): `openPath`, the page of this server it opens first in the
+   * system browser. It names the Trina person the Drive will belong to, then links on to the sign-in page. Its key
+   * (random, hash sealed with the flow) only shows that page; it does not let a browser finish anything. */
+  private fromApp<T extends { flowId: string; authorizationUrl: string; connectUrl?: string }>(a: T, client: ClientKind): T & { openPath?: string } {
+    if (client !== 'desktop') return a
+    const r = this.store.flow(a.flowId)
+    if (!r) return a
+    const key = newToken(), s = this.store.open<FlowSecret>(r)
+    const sealed = this.store.seal(r.user_id, r.id, { ...s, go: { hash: tokenHash(key), url: a.connectUrl ?? a.authorizationUrl } })
+    this.ctx.db.query("UPDATE drive_oauth_flows SET secret_enc=?,key_version=? WHERE id=? AND state='pending'").run(sealed.enc, sealed.keyVersion, r.id)
+    return { ...a, openPath: `${GO_PATH}?${new URLSearchParams({ flow: a.flowId, k: key })}` }
+  }
+  /** Best effort: revoke at Google the tokens a flow holds that will never be used (a result never confirmed, never
+   * claimed, cancelled, replaced or late). Before the row loses its secret; a failure changes nothing here. */
+  private dropTokens(rows: FlowRow[]) {
+    for (const r of rows) {
+      let token: string | undefined
+      try { token = this.store.open<FlowSecret>(r).tokens?.refreshToken } catch { continue }
+      if (token) void this.revoke(token).catch(() => 'unavailable')
     }
   }
   /** The flow row both ways share: who, which session, the state's hash and the sealed PKCE verifier. */
@@ -172,9 +198,12 @@ export class GoogleDrive {
     const now = this.now(), id = newId(), state = crypto.randomBytes(32).toString('base64url'), verifier = crypto.randomBytes(48).toString('base64url')
     // Bound creation rate without retaining a plaintext verifier or authorization URL.
     const n = (this.ctx.db.query('SELECT count(*) n FROM drive_oauth_flows WHERE user_id=? AND created_at>?').get(user, new Date(now - 3600_000).toISOString()) as { n: number }).n
-    if (n >= 20) throw new DriveError('rate_limited', 429)
+    // its own reason (not the hosting service's or Google's 'rate_limited'): the app says to wait about an hour (QA TC-3034)
+    if (n >= 20) throw new DriveError('signin_limit', 429)
     const sealed = this.store.seal(user, id, { verifier })
     const expiresAt = new Date(now + TTL).toISOString()
+    // a waiting result of the flow this one replaces is never used: its tokens are revoked
+    this.dropTokens(this.ctx.db.query("SELECT * FROM drive_oauth_flows WHERE user_id=? AND purpose=? AND state IN ('exchanging','ready') AND secret_enc IS NOT NULL").all(user, purpose) as FlowRow[])
     this.ctx.db.transaction(() => {
       this.ctx.db.query("UPDATE drive_oauth_flows SET state='failed',reason='superseded',secret_enc=NULL,account=NULL WHERE user_id=? AND purpose=? AND state IN ('pending','exchanging','ready')").run(user, purpose)
       this.ctx.db.query(`INSERT INTO drive_oauth_flows(id,user_id,session_id,state_hash,config_key,state,secret_enc,key_version,expires_at,created_at,purpose,share_id) VALUES(?,?,?,?,?,'pending',?,?,?,?,?,?)`)
@@ -185,26 +214,73 @@ export class GoogleDrive {
   flow(user: string, session: string, id: string): DriveFlow {
     const r = this.store.ownFlow(user, session, id)
     const a = r.account ? JSON.parse(r.account) as Account : null
-    return { flowId: r.id, state: r.state, account: a ? { name: a.name, email: a.email } : null, expiresAt: r.expires_at, reason: r.reason }
+    return { flowId: r.id, state: this.held(r) ? 'pending' : r.state, account: a ? { name: a.name, email: a.email } : null, expiresAt: r.expires_at, reason: r.reason }
+  }
+  /** a result waiting for the desktop app's code (app-return.ts): to its owner it is plain "pending" until then */
+  private held(r: FlowRow): boolean {
+    if (r.state !== 'exchanging' || !r.secret_enc) return false
+    try { return !!this.store.open<FlowSecret>(r).claim } catch { return false }
   }
   cancel(user: string, session: string, id: string) {
-    this.store.ownFlow(user, session, id)
+    const r = this.store.ownFlow(user, session, id)
+    if ((r.state === 'ready' || r.state === 'exchanging') && r.secret_enc) this.dropTokens([r])
     this.ctx.db.query("UPDATE drive_oauth_flows SET state='failed',reason='cancelled',secret_enc=NULL,account=NULL WHERE id=? AND state!='completed'").run(id)
   }
+  /** GO_PATH (app-return.ts): for a flow still waiting for Google, with its key: the Trina person it is for and the
+   * sign-in page to go on to. null otherwise. */
+  goPage(flowId: string | undefined, key: string | undefined): { url: string; name: string; username: string } | null {
+    if (!flowId || !/^[A-Za-z0-9_-]{1,64}$/.test(flowId)) return null
+    this.store.sweep()
+    const r = this.store.flow(flowId)
+    if (!r || r.state !== 'pending' || r.config_key !== this.key) return null
+    let s: FlowSecret
+    try { s = this.store.open<FlowSecret>(r) } catch { return null }
+    if (!s.go || !tokenMatches(key, s.go.hash)) return null
+    const u = this.ctx.db.query('SELECT name, username FROM users WHERE id=?').get(r.user_id) as { name: string; username: string } | null
+    return u ? { url: s.go.url, name: u.name, username: u.username } : null
+  }
+  /** Why GO_PATH has no page for a flow: the person cancelled it ('cancelled'), else 'expired' (late, used, unknown or a
+   * wrong key). Reads only the flow's own recorded reason; the key cannot be checked (a cancel erases the secret). */
+  goGone(flowId: string | undefined): 'cancelled' | 'expired' {
+    if (!flowId || !/^[A-Za-z0-9_-]{1,64}$/.test(flowId)) return 'expired'
+    try { return this.store.flow(flowId)?.reason === 'cancelled' ? 'cancelled' : 'expired' } catch { return 'expired' }
+  }
+  /** The kind of app whose session started a flow ('web', 'desktop', 'mobile'), or null */
+  private clientOf(sessionId: string): string | null {
+    return (this.ctx.db.query('SELECT client FROM sessions WHERE id=?').get(sessionId) as { client: string } | null)?.client ?? null
+  }
+  /** The return page's answer (routes/drive.ts, callback-page.ts): ok, or why not (the reason the flow recorded, or the
+   * refusal before it started: an expired or used link, a browser not signed in as the same person). `app`: the app
+   * whose session started the flow; `code`: the one-time completion code for that app (app-return.ts). */
+  async callbackOutcome(input: { state?: string; code?: string; error?: string; handoff?: string }, browser?: { userId: string; sessionId: string }): Promise<CallbackOutcome> {
+    const row = input.state && /^[A-Za-z0-9_-]{43}$/.test(input.state) ? this.ctx.db.query('SELECT session_id FROM drive_oauth_flows WHERE state_hash=?').get(hash(input.state)) as { session_id: string } | null : null
+    const client = row ? this.clientOf(row.session_id) : null
+    const app = client === 'desktop' || client === 'mobile' ? { app: client } as const : {}
+    try {
+      const done = await this.callback(input, browser)
+      if (done) return { ok: true, ...app, ...(typeof done === 'object' ? done : {}) }
+    } catch (e) { return { ok: false, reason: e instanceof DriveError ? e.reason : 'provider_unavailable', ...app } }
+    const r = this.ctx.db.query('SELECT reason FROM drive_oauth_flows WHERE state_hash=?').get(hash(input.state!)) as { reason: string | null } | null
+    return { ok: false, reason: r?.reason ?? 'provider_unavailable', ...app }
+  }
   /** Google's (direct) or the hosting service's (broker: `handoff` instead of `code`) return to this server. */
-  async callback(input: { state?: string; code?: string; error?: string; handoff?: string }, browser?: { userId: string; sessionId: string }): Promise<boolean> {
+  async callback(input: { state?: string; code?: string; error?: string; handoff?: string }, browser?: { userId: string; sessionId: string }): Promise<boolean | { code: string; who: { name: string; username: string }; google: string }> {
     this.configured(); this.store.sweep()
     if (!input.state || !/^[A-Za-z0-9_-]{43}$/.test(input.state)) throw new DriveError('invalid_flow')
     const r = this.ctx.db.query('SELECT * FROM drive_oauth_flows WHERE state_hash=?').get(hash(input.state)) as ReturnType<DriveStore['flow']>
     if (!r || r.state !== 'pending' || r.config_key !== this.key) throw new DriveError('invalid_flow')
     // A leaked authorization URL must not let its creator claim somebody else's Google consent.
-    // The system browser must itself be authenticated to the same team person; polling alone proves nothing.
-    if (!browser || browser.userId !== r.user_id) throw new DriveError('browser_session_required', 401)
-    this.store.session(browser.userId, browser.sessionId)
+    // A browser signed in as someone else is refused. A browser without a session finishes a flow of the desktop app
+    // only as far as a one-time code that goes to the app on THIS computer, which redeems it with its own session
+    // (claim; app-return.ts). Anything else needs the same person signed in here; polling alone proves nothing.
+    const held = !browser && this.clientOf(r.session_id) === 'desktop'
+    if (!held && (!browser || browser.userId !== r.user_id)) throw new DriveError('browser_session_required', 401)
+    if (browser) this.store.session(browser.userId, browser.sessionId)
     this.store.session(r.user_id, r.session_id); this.busy(r.user_id)
     if (!this.ctx.db.query("UPDATE drive_oauth_flows SET state='exchanging' WHERE id=? AND state='pending'").run(r.id).changes) throw new DriveError('invalid_flow')
     try {
-      if (input.error) throw new DriveError(input.error === 'provider_error' ? 'provider_unavailable' : 'consent_denied')
+      // through the hosting service a refusal may be Google's (only some accounts for now), not the person's Cancel
+      if (input.error) throw new DriveError(input.error === 'provider_error' ? 'provider_unavailable' : this.viaBroker ? 'consent_denied_service' : 'consent_denied')
       const viaBroker = this.viaBroker
       if (viaBroker ? !input.handoff || !/^[A-Za-z0-9_-]{43}$/.test(input.handoff) : !input.code || input.code.length > 4096) throw new DriveError('invalid_flow')
       const s = this.store.open<FlowSecret>(r), cfg = this.config
@@ -226,6 +302,14 @@ export class GoogleDrive {
       this.store.session(r.user_id, r.session_id)
       const current = this.store.flow(r.id)
       if (!current || current.state !== 'exchanging' || current.expires_at <= new Date(this.now()).toISOString()) throw new DriveError('invalid_flow')
+      if (held) {
+        // kept sealed, still "waiting" to everyone (no account shown), until the app on this computer brings the code
+        const code = newToken(), until = Math.min(this.now() + CLAIM_MS, Date.parse(current.expires_at))
+        const sealed = this.store.seal(r.user_id, r.id, { ...result, claim: { hash: tokenHash(code), until } })
+        this.ctx.db.query("UPDATE drive_oauth_flows SET secret_enc=?,key_version=? WHERE id=? AND state='exchanging'").run(sealed.enc, sealed.keyVersion, r.id)
+        const who = this.ctx.db.query('SELECT name, username FROM users WHERE id=?').get(r.user_id) as { name: string; username: string } | null
+        return { code, who: who ?? { name: '', username: '' }, google: result.account.email ?? result.account.name ?? '' }
+      }
       const sealed = this.store.seal(r.user_id, r.id, result)
       this.ctx.db.query("UPDATE drive_oauth_flows SET state='ready',secret_enc=?,key_version=?,account=? WHERE id=? AND state='exchanging'").run(sealed.enc, sealed.keyVersion, JSON.stringify(result.account), r.id)
       return true
@@ -234,6 +318,30 @@ export class GoogleDrive {
       this.ctx.db.query("UPDATE drive_oauth_flows SET state='failed',reason=?,secret_enc=NULL,account=NULL WHERE id=? AND state='exchanging'").run(reason, r.id)
       return false
     }
+  }
+  /** The desktop app brings the one-time code of a sign-in Google answered in a browser without a session (app-return.ts).
+   * It counts only for a flow of THIS session: the flow turns "ready" (the person then confirms the account as
+   * always) and the code is used up. A code of another session's flow, a used, unknown or late code: refused, nothing
+   * changes (a late one ends its flow). */
+  claim(user: string, session: string, code: string): DriveFlow {
+    // no configured() first: an unknown code is the same refusal everywhere (a held flow's config_key is checked below)
+    this.store.session(user, session); this.store.sweep()
+    const rows = this.ctx.db.query("SELECT * FROM drive_oauth_flows WHERE user_id=? AND session_id=? AND state='exchanging' AND secret_enc IS NOT NULL").all(user, session) as FlowRow[]
+    for (const r of rows) {
+      let s: FlowSecret
+      try { s = this.store.open<FlowSecret>(r) } catch { continue }
+      if (!s.claim || !tokenMatches(code, s.claim.hash)) continue
+      if (this.now() > s.claim.until || r.config_key !== this.key) {
+        this.dropTokens([r])
+        this.ctx.db.query("UPDATE drive_oauth_flows SET state='failed',reason='expired',secret_enc=NULL,account=NULL WHERE id=? AND state='exchanging'").run(r.id)
+        throw new DriveError('expired', 400)
+      }
+      const { claim: _used, ...rest } = s
+      const sealed = this.store.seal(r.user_id, r.id, rest)
+      if (!this.ctx.db.query("UPDATE drive_oauth_flows SET state='ready',secret_enc=?,key_version=?,account=? WHERE id=? AND state='exchanging'").run(sealed.enc, sealed.keyVersion, JSON.stringify(s.account), r.id).changes) break
+      return this.flow(user, session, r.id)
+    }
+    throw new DriveError('invalid_code', 400)
   }
   /** An active owner or admin (docs/DECISIONS.md "W6", re-check N1): may start their own sign-in while members may not
    * connect theirs, and turn that switch on at the confirm. */

@@ -1,10 +1,11 @@
 // Screenshots of Find work files on this computer (docs/DECISIONS.md "Find work files on this computer"), for reviewing
 // it by eye: the My files line, the dialog while the app asks, the list (a folder macOS kept the app out of, a big folder,
 // the personal group, Select all at its cap), the result with Undo, every folder blocked, and the owner's setup step; at
-// 1440 light and dark, the dialogs at 390 too. Only when FIND_WORK_SHOTS names a folder to write them to.
+// 1440 light and dark, the dialogs at 390 too; the Full Disk Access screen in My files' words and the setup's. Only
+// when FIND_WORK_SHOTS names a folder to write them to.
 import { expect, test } from '@playwright/test'
 import { reset, signIn } from './helpers'
-import { answer, fakeApp, look, roots, setFullDisk, type Meta } from './fake-work-files'
+import { answer, fakeApp, look, notNow, roots, setFullDisk, type Meta } from './fake-work-files'
 
 const dir = process.env.FIND_WORK_SHOTS
 test.skip(!dir, 'FIND_WORK_SHOTS is not set')
@@ -58,6 +59,9 @@ for (const scheme of ['light', 'dark'] as const) {
       await shot('4-ticked-personal-open')
       await page.getByTestId('find-work-add').click()
       await expect(page.getByTestId('find-work-run')).toHaveAttribute('data-status', 'done')
+      await expect(page.getByTestId('find-work-run')).toHaveAttribute('data-stage', 'share')
+      await shot('5-share')
+      await notNow(page)
       await shot('5-added')
       await page.getByTestId('find-work-undo').click()
       await expect(page.getByTestId('find-work-undone-until')).toBeVisible()
@@ -117,6 +121,21 @@ for (const scheme of ['light', 'dark'] as const) {
       await expect(page.getByTestId('find-work')).toHaveAttribute('data-screen', 'list')
       await expect(page.getByTestId('find-work-ai')).toBeVisible()
       await shot('13-wide-list')
+    })
+    // the setup's 팀 파일 step (the owner, files for the team): the same screen in the team's words (QA TC-3098); a
+    // computer's width only (on a narrow window the step has no Find work files)
+    if (width === 1440) test(`full disk access · setup · ${width} · ${scheme}`, async ({ page }) => {
+      await page.setViewportSize({ width: 1440, height: 900 })
+      await page.emulateMedia({ colorScheme: scheme })
+      await fakeApp(page, { wide: true, fullDisk: 'denied' })
+      await reset(page, { teamLocale: 'en', usersFollowTeam: true })
+      await signIn(page)
+      await page.goto('/welcome')
+      await page.getByTestId('welcome-profile').getByRole('button', { name: 'Do this later' }).click()
+      await page.getByTestId('skills-later').click()
+      await page.getByTestId('welcome-team-files-computer').click()
+      await expect(page.getByTestId('find-work-access')).toHaveAttribute('data-screen', 'ask')
+      await page.screenshot({ path: `${dir}/${width}-${scheme}-14-full-disk-team.png` })
     })
   }
 }

@@ -5,6 +5,8 @@ import { create } from 'zustand'
 import { getDesktopBridge, PRODUCT } from '@mycel/shared'
 import { DEFAULT_LOCALE, LOCALE_NAMES, LOCALE_ORDER, asLocale, type Locale } from '@mycel/shared/api'
 import { dropDoubleHonorifics } from '@mycel/shared/honorific'
+import { KO_PARTICLE_PATTERN, koParticle } from '@mycel/shared/ko-particle'
+import { esContract, esMark } from '@mycel/shared/es-contract'
 import { PLURAL_PATTERN, fillPlurals, pluralNames } from '@mycel/shared/plural'
 import { RECENT_LOCALE_KEY, SIGN_IN_LOCALE_KEY } from './recovery-locale'
 import { BUNDLED } from './bundled'
@@ -80,42 +82,32 @@ export function placeholdersOf(template: string): string[] {
 /** Filled in every text without the caller passing them: the product's name lives in shared/src/product.ts only. */
 export const PRODUCT_PARAMS: Params = { product: PRODUCT.displayName, productFile: PRODUCT.artifactBase }
 
-/** Korean "(으)로" after a filled-in value, when its last sound can be told: 로 after a vowel or ㄹ, 으로 after another
- * final consonant. A number ends as it is read: 1 2 4 5 7 8 9 (일 이 사 오 칠 팔 구) take 로, 0 3 6 (영·십 삼 육) take
- * 으로, so "v{version}(으)로" reads "v1로", "v3으로". Latin letters and signs keep "(으)로". A value in quotes or
- * brackets is read by its last word ("'주간 회의'로"). */
-export function koRo(value: string): string {
-  const last = [...value.trim().replace(/['"’”」』»)\]]+$/u, '')].pop() ?? ''
-  const c = last.codePointAt(0) ?? 0
-  if (c >= 0xac00 && c <= 0xd7a3) return [0, 8].includes((c - 0xac00) % 28) ? '로' : '으로'
-  if (/[0-9]/.test(last)) return '036'.includes(last) ? '으로' : '로'
-  return '(으)로'
-}
+/** Korean "(으)로" after a filled-in value, in the form its last sound takes when read aloud (shared/src/ko-particle.ts):
+ * 로 after a vowel or ㄹ ("v1로", "Gmail로"), 으로 after another final consonant ("v3으로", "Notion으로"); "(으)로" when
+ * that cannot be told. */
+export const koRo = (value: string): string => koParticle(value, '(으)로')
 
-/** Korean "(을)를" after a filled-in value, when its last sound can be told: 을 after a final consonant, 를 after a
- * vowel. A number ends as it is read: 2 4 5 9 (이 사 오 구) take 를, the others 을, so "{section}(을)를" reads "숫자를",
- * "제품을", "2를". Latin letters and signs keep "(을)를". */
-export function koEul(value: string): string {
-  const last = [...value.trim()].pop() ?? ''
-  const c = last.codePointAt(0) ?? 0
-  if (c >= 0xac00 && c <= 0xd7a3) return (c - 0xac00) % 28 === 0 ? '를' : '을'
-  if (/[0-9]/.test(last)) return '2459'.includes(last) ? '를' : '을'
-  return '(을)를'
-}
+/** Korean "(을)를" after a filled-in value, as koRo: 을 after a final consonant, 를 after a vowel ("Canva를"). */
+export const koEul = (value: string): string => koParticle(value, '(을)를')
+
+/** A placeholder, an optional closing quote the text puts around it, and a Korean particle mark right after it
+ * ("{name}을(를)", "'{folder}'을(를)", "{version}(으)로"). */
+const PARTICLE_AFTER = new RegExp(`\\{(\\w+)\\}(['"’”」』)\\]]?)(${KO_PARTICLE_PATTERN})?`, 'g')
 
 export function format(template: string, callerParams?: Params, locale: string = DEFAULT_LOCALE): string {
   const params: Params = { ...PRODUCT_PARAMS, ...callerParams }
   // "{n, plural, one {# step} other {# steps}}": the form for the number in this language (shared/src/plural.ts); the
   // text's own honorific (님, さん) left out when the name has one already, with or without a space before it:
   // "{name}님" and "{name} 님" with 대표님 read "대표님", never "대표님님" (shared/src/honorific.ts); after a value,
-  // "(으)로" and "(을)를" as it is read (koRo, koEul)
-  return dropDoubleHonorifics(fillPlurals(template, params, locale), params).replace(/\{(\w+)\}(\(으\)로|\(을\)를)?/g, (all, k: string, mark?: string) => {
+  // a Korean particle mark ("을(를)", "이(가)", "(으)로" …) in the form the value takes when read aloud: "Canva를",
+  // "Notion을" (shared/src/ko-particle.ts)
+  // (Spanish: "a {who}" with "el grupo Ventas" reads "al grupo Ventas": shared/src/es-contract.ts)
+  return esContract(dropDoubleHonorifics(fillPlurals(template, params, locale), params).replace(PARTICLE_AFTER, (all, k: string, close: string, mark?: string) => {
     if (params[k] === undefined) return all
     const v = String(params[k])
-    if (!mark) return v
-    if (locale !== 'ko') return v + mark
-    return v + (mark === '(으)로' ? koRo(v) : koEul(v))
-  })
+    if (!mark || locale !== 'ko') return esMark(locale, v) + close + (mark ?? '')
+    return v + close + koParticle(v, mark)
+  }))
 }
 
 export function translate(locale: Locale, key: MessageKey, params?: Params): string {

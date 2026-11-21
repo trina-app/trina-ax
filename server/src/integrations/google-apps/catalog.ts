@@ -115,6 +115,9 @@ export const ATTACHMENT_TOOL = 'get_gmail_attachment_content'
 export const SENDING_TOOLS = new Set(['send_gmail_message', 'draft_gmail_message'])
 /** read tools of Docs and Sheets: plain "what does this file say" goes to drive_read (owner decision 4) */
 const STRUCTURE_READS = new Set(['get_doc_content', 'get_doc_as_markdown', 'inspect_doc_structure', 'debug_table_structure', 'get_spreadsheet_info', 'read_sheet_values', 'list_sheet_tables'])
+/** how a Gmail send or draft attaches a team file (the handle's prefix is connections/team-attach.ts TEAM_FILE_PREFIX;
+ * tests/unit/c-integrations-attach.test.ts holds the two together) */
+const ATTACH_LINE = 'To attach a team file: attachments [{"filename": "<name>", "content": "team-file:<the file\'s path in the team folder>"}]; the file itself is put there after the user\'s OK. Never a "path" or a "url".'
 const DRIVE_READ_LINE = 'For a plain "what does this file say" question, use drive_read instead; use this tool to read the structure (cells, ranges, paragraphs) before you change the file.'
 
 /** the attachment tool's own argument: the file's name as the message listed it, so it is read with the right reader;
@@ -144,8 +147,11 @@ export function appTools(app: GoogleAppId, tools: readonly RemoteTool[]): Remote
       delete props.return_base64
       props[ATTACHMENT_NAME_ARG] = { type: 'string', maxLength: 300, description: 'the attachment\'s file name as the message listed it (e.g. "invoice.pdf"), so it is read as the right kind of file' }
       props[ATTACHMENT_SIZE_ARG] = { type: 'integer', minimum: 0, description: 'the attachment\'s size in bytes as the message listed it, when it gave one' }
-      tool = { ...tool, inputSchema: { ...schema, properties: props }, description: `${t.description} The attachment is read for you as text (PDF, Hangul, Word, Excel, PowerPoint) or shown as a picture; to keep a copy in the team files when the user asks, save it with save_url into the user's own folder unless they name another one.`.slice(0, 1000) }
+      tool = { ...tool, inputSchema: { ...schema, properties: props }, description: `${t.description} The attachment is read for you as text (PDF, Hangul, Word, Excel, PowerPoint) or shown as a picture; to keep the original file in the team files when the user asks, save it with save_connector_file (the handle in the result) into the user's own folder unless they name another one.`.slice(0, 1000) }
     }
+    // a team file as an attachment: by its handle, which the server swaps for the file after the card
+    // (connections/team-attach.ts); first, so a long description of the library's does not cut it off
+    if (SENDING_TOOLS.has(t.name)) tool = { ...tool, description: `${ATTACH_LINE} ${t.description}`.slice(0, 1000) }
     if (STRUCTURE_READS.has(t.name)) tool = { ...tool, description: `${DRIVE_READ_LINE} ${t.description}`.slice(0, 1000) }
     out.push(tool)
   }

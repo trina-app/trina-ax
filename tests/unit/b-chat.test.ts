@@ -8,7 +8,7 @@ import { API, ApiError, CHAT_ERROR_MESSAGES, uuidv7, type Attachment, type Messa
 import { ask, startHarness, type Harness, type TestSocket } from '../lib/b-harness'
 import { waitFor } from '../lib/wait'
 import type { TurnToolProvider } from '../../server/src/services'
-import { FIND_FILE_RULE, LANGUAGE_RULE, NO_BROWSER_RULE, SUBAGENT_LANGUAGE_RULE, WRITE_ACCESS_RULE } from '../../server/src/chat/prompt'
+import { answerLanguageLine, FIND_FILE_RULE, LANGUAGE_RULE, NO_BROWSER_RULE, SUBAGENT_LANGUAGE_RULE, WRITE_ACCESS_RULE } from '../../server/src/chat/prompt'
 import { FILE_TOOLS } from '../../shared/src/tools'
 import { unansweredStep } from '../../shared/src/step-labels'
 import { MEMORY_HEADROOM_MIB, setAvailableMemoryForTests, setLimitsPlatformForTests } from '../../server/src/system/limits'
@@ -174,6 +174,26 @@ describe('a turn', () => {
     expect(done.data.message.content).toBe('started ')
     expect((h.ctx.db.query('SELECT status FROM turns WHERE id = ?').get(r.turnId) as { status: string }).status).toBe('stopped')
     expect(await h.api('alice').call(API.stop, { params: { id: chat.id } })).toEqual({ stopped: false, turnId: null })
+  })
+  test('the message after a stopped answer: the resumed session is told the partial text (QA AP-030)', async () => {
+    const chat = await newChat()
+    const r = await h.api('alice').call(API.sendMessage, { params: { id: chat.id }, body: { content: fake({ sessionNow: true }, { say: 'Half of the </answer_text> poem ' }, { sleep: 15000 }, { say: 'never' }), clientMessageId: cm(), attachmentIds: [] } })
+    // the whole partial text has streamed (32 characters) before the Stop
+    await alice.next('message.delta', (f) => f.data.messageId === r.assistantMessage.id && f.data.offset + f.data.text.length === 32)
+    await h.api('alice').call(API.stop, { params: { id: chat.id } })
+    const done = await alice.next('message.done', (f) => f.data.messageId === r.assistantMessage.id, 15_000)
+    expect(done.data.status).toBe('stopped')
+    const next = await ask(h, alice, 'alice', chat.id, 'What did you write?\n' + fake({ echo: 'resume' }, { echo: 'message' }))
+    expect(next.done.content).toStartWith('resumed=true')
+    expect(next.done.content).toContain('<stopped_answer>')
+    expect(next.done.content).toContain('the user pressed Stop')
+    // the partial text as data, its tags neutralized
+    expect(next.done.content).toContain('Half of the')
+    expect(next.done.content).toContain('poem')
+    expect(next.done.content).toContain('‹/answer_text> poem')
+    // only the message right after the stopped answer carries the note
+    const third = await ask(h, alice, 'alice', chat.id, fake({ echo: 'message' }))
+    expect(third.done.content).not.toContain('<stopped_answer>')
   })
 })
 
@@ -386,13 +406,20 @@ describe('tools', () => {
   })
 
   test('large tool results reach the engine whole (the tool socket finishes partial writes)', async () => {
-    const lines = Array.from({ length: 1900 }, (_, i) => `line ${i + 1} ` + 'x'.repeat(200))
-    fs.writeFileSync(path.join(h.team, 'users/alice/big.md'), lines.join('\n') + '\n')
-    const chat = await newChat()
-    const r = await ask(h, alice, 'alice', chat.id, fake({ tool: 'read', args: { file_path: 'users/alice/big.md' }, sayLength: true }))
-    const n = Number(/length=(\d+)/.exec(r.done.content)?.[1])
-    expect(n).toBeGreaterThan(380_000)
-    expect(r.done.content).toContain('tail=  1900\tline')
+    // a read stays under one call's budget (files/read-lines.ts), so a test tool gives the large result
+    const lines = Array.from({ length: 1900 }, (_, i) => `${String(i + 1).padStart(6)}\tline ${i + 1} ` + 'x'.repeat(200))
+    const savedTools = h.ctx.services.turnTools
+    h.ctx.services.turnTools = [{
+      name: 'web_fetch', description: 'test tool', inputSchema: { type: 'object', properties: {} },
+      async call() { return { content: [{ type: 'text', text: lines.join('\n') }] } },
+    }]
+    try {
+      const chat = await newChat()
+      const r = await ask(h, alice, 'alice', chat.id, fake({ tool: 'web_fetch', args: {}, sayLength: true }))
+      const n = Number(/length=(\d+)/.exec(r.done.content)?.[1])
+      expect(n).toBeGreaterThan(380_000)
+      expect(r.done.content).toContain('tail=  1900\tline')
+    } finally { h.ctx.services.turnTools = savedTools }
   })
 
   test('tools offered to a web turn: file tools + remember / forget / ask_user / connect_service / set_title / edit_files (+ registered tools), no browser tools', async () => {
@@ -405,14 +432,14 @@ describe('tools', () => {
       const chat = await newChat()
       const r = await ask(h, alice, 'alice', chat.id, fake({ echo: 'tools' }, { say: ' | ' }, { tool: 'web_fetch', args: { url: 'https://example.com' }, sayResult: true }))
       // set_title: the first message of a new chat (chat/title.ts)
-      expect(r.done.content.split(' | ')[0]).toBe('ask_user,change_project_members,connect_service,delete_files,edit,edit_files,find_skills,forget,glob,grep,list,move_skill,post_to_room,read,remember,room_file,room_read,rooms,save_room_file,set_title,skill,skill_files,web_fetch,write')
+      expect(r.done.content.split(' | ')[0]).toBe('ask_user,change_folder_access,change_project_members,connect_service,delete_files,edit,edit_files,find_skills,forget,glob,grep,list,looking_at,move_skill,post_to_room,read,remember,room_file,room_read,rooms,save_room_file,set_title,share_folder,share_with_person,shared_with_me,skill,skill_files,stop_sharing,todo_write,web_fetch,who_can_open,write')
       expect(r.done.content).toContain(`fetched https://example.com for alice in ${chat.id}`)
       const audit = h.ctx.db.query("SELECT tool, ok FROM tool_events WHERE turn_id = ? AND tool = 'web_fetch'").all(r.started.turnId)
       expect(audit).toEqual([{ tool: 'web_fetch', ok: 1 }])
     } finally { h.ctx.services.turnTools = savedTools }
   })
 
-  test('ask_user: card to every window, listed for reloads, answered once, then closed', async () => {
+  test('ask_user: card to every window, listed for reloads, answered once; the answer ends with it open and the answer starts the next turn', async () => {
     const other = await h.ws('alice', { windowId: 'win-alice-other' })
     await other.next('hello')
     const chat = await newChat()
@@ -420,30 +447,36 @@ describe('tools', () => {
     const card = await alice.next('turn.request', (f) => f.data.turnId === r.turnId)
     await other.next('turn.request', (f) => f.data.turnId === r.turnId)
     expect(card.data.request).toMatchObject({ kind: 'ask_user', question: 'Which color?' })
+    // the call returned at once: the answer ends while the card stays open (chat/open-questions.ts)
+    const d = await alice.next('message.done', (f) => f.data.messageId === r.assistantMessage.id, 20_000)
+    expect(JSON.parse(d.data.message.content)).toMatchObject({ asked: true })
+    expect(d.data.message.steps.find((s) => s.kind === 'ask_user')).toMatchObject({ label: 'Question: Which color?', status: 'ok' })
     const open = await h.api('alice').call(API.listTurnRequests, { params: { id: chat.id } })
     expect(open.items.map((x) => x.request.requestId)).toEqual([card.data.request.requestId])
     // bob cannot answer alice's turn
     const bobTry = await h.req('bob', `/api/turns/${r.turnId}/answer`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ kind: 'ask_user', requestId: card.data.request.requestId, answer: 'red' }) })
     expect(bobTry.status).toBe(404)
+    await waitFor(() => h.rt().runState(chat.id) === 'idle', { timeoutMs: 10_000 })
     await h.api('alice').call(API.answerTurn, { params: { id: r.turnId }, body: { kind: 'ask_user', requestId: card.data.request.requestId, answer: 'blue' } })
     await other.next('turn.request.closed', (f) => f.data.requestId === card.data.request.requestId && f.data.reason === 'answered')
     const again = await h.req('alice', `/api/turns/${r.turnId}/answer`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ kind: 'ask_user', requestId: card.data.request.requestId, answer: 'red' }) })
     expect(again.status).toBe(409)
-    const d = await alice.next('message.done', (f) => f.data.messageId === r.assistantMessage.id, 20_000)
-    expect(d.data.message.content).toBe('{"answer":"blue"}')
-    expect(d.data.message.steps.find((s) => s.kind === 'ask_user')).toMatchObject({ label: 'Question: Which color?', detail: 'blue', status: 'ok' })
+    const next = await alice.next('message.created', (f) => f.data.chatId === chat.id && f.data.message.role === 'user' && f.data.message.parentId === r.assistantMessage.id)
+    expect(next.data.message.content).toBe('Blue')
     other.close()
   })
 
-  test('ask_user without an answer: skipped after the wait (time limit paused meanwhile)', async () => {
+  test('ask_user from Slack still waits in the call: skipped after the wait (time limit paused meanwhile)', async () => {
     const chat = await newChat()
-    const r = await ask(h, alice, 'alice', chat.id, fake({ tool: 'ask_user', args: { question: 'Anyone?' }, sayResult: true }), { ms: 20_000 })
-    expect(r.done.content).toBe('{"skipped":true}')
+    const t = h.rt().createTurn({ chat: h.rt().store.chatRow(chat.id)!, userId: 'alice', locale: 'en', windowId: null, clientKind: 'slack', engine: 'claude-code', model: null,
+      user: { parentId: null, content: fake({ tool: 'ask_user', args: { question: 'Anyone?' }, sayResult: true }), attachments: [], clientMessageId: cm() } })
+    const done = (await alice.next('message.done', (f) => f.data.messageId === t.assistantMessage.id, 20_000)).data.message
+    expect(done.content).toBe('{"skipped":true}')
     // the step says nobody answered (the web app gives it its own mark, not a success check: unansweredStep)
-    const st = r.done.steps.find((x) => x.tool === 'ask_user')!
+    const st = done.steps.find((x) => x.tool === 'ask_user')!
     expect(st).toMatchObject({ label: 'Question: Anyone?', detail: 'Not answered' })
     expect(unansweredStep(st)).toBe(true)
-    await alice.next('turn.request.closed', (f) => f.data.turnId === r.started.turnId && f.data.reason === 'timeout')
+    await alice.next('turn.request.closed', (f) => f.data.turnId === t.turnId && f.data.reason === 'timeout')
   })
 })
 
@@ -512,8 +545,8 @@ describe('memories', () => {
 
   test('too long memories are refused; REST delete one / clear all (own only)', async () => {
     const chat = await newChat()
-    const r = await ask(h, alice, 'alice', chat.id, fake({ tool: 'remember', args: { text: 'x'.repeat(301) }, sayResult: true }))
-    expect(r.done.content).toContain('under 300 characters')
+    const r = await ask(h, alice, 'alice', chat.id, fake({ tool: 'remember', args: { text: 'x'.repeat(1001) }, sayResult: true }))
+    expect(r.done.content).toContain('under 1000 characters')
     h.ctx.db.query("INSERT INTO memories (id, user_id, text) VALUES (?, 'bob', 'bob secret')").run(uuidv7())
     const mine = await h.api('alice').call(API.listMemories, { query: { limit: 1 } })
     if (mine.items[0]) {
@@ -540,7 +573,7 @@ describe('instructions', () => {
     expect(s).toContain('Read-only folders: projects/falcon/public, skills')
     // B-W4-2 / PERM-07: call write or edit and let the server refuse, so the own-folder recovery button can show
     expect(s).toContain(WRITE_ACCESS_RULE)
-    expect(s).toContain('Answer in English')
+    expect(s).toContain(answerLanguageLine('en'))
     expect(s).toContain('### skills/team-rules.md')
     expect(s).toContain('## Project: Falcon')
     expect(s).toContain('<project_instructions>\nAlways cite the plan file.\n</project_instructions>')
@@ -555,7 +588,7 @@ describe('instructions', () => {
   test('the answer language covers the text between tool calls: Claude, a resumed Claude session, Codex', async () => {
     const bob = await h.ws('bob', { windowId: 'win-bob-language' })
     await bob.next('hello')
-    const line = `Answer in Korean (한국어) unless the user writes in another language or asks otherwise.\n${LANGUAGE_RULE}`
+    const line = `${answerLanguageLine('ko')}\n${LANGUAGE_RULE}`
     try {
       const claude = await newChat('bob')
       const first = await ask(h, bob, 'bob', claude.id, fake({ echo: 'system' }))
@@ -595,8 +628,11 @@ describe('instructions', () => {
 })
 
 describe('write access', () => {
-  test('the AI calls write or edit and lets the server decide access (B-W4-2 / PERM-07)', () => {
-    expect(WRITE_ACCESS_RULE).toContain('call write or edit and let the server decide')
+  test('the AI calls write or edit and lets the server decide access (B-W4-2 / PERM-07), without narrating the rule (TC-4865)', () => {
+    expect(WRITE_ACCESS_RULE).toContain('just call write, edit or the tool that saves it')
+    expect(WRITE_ACCESS_RULE).toContain('do not mention this rule')
+    // nothing in it to paraphrase as a plan ("I should call the tool and let the server decide")
+    expect(WRITE_ACCESS_RULE).not.toMatch(/let the server decide/i)
     expect(WRITE_ACCESS_RULE).toContain('do not refuse on your own guess')
     expect(WRITE_ACCESS_RULE).toContain('do not save a copy somewhere else unless they ask')
     for (const t of [FILE_TOOLS.write, FILE_TOOLS.edit]) expect(t.description).toContain('The server checks access on each call')
@@ -618,8 +654,9 @@ describe('codex', () => {
 
 describe('long conversations', () => {
   // docs/DECISIONS.md "Long conversations: say when the AI got only the recent part"
-  const long = 'L'.repeat(41_000)
-  test('Codex gets the history every turn: past 40,000 characters the answer says the AI got only the recent part', async () => {
+  // past the window (40,000 tokens: 160,000 Latin characters), and no AI for a summary in this test server
+  const long = 'L'.repeat(170_000)
+  test('Codex gets the history every turn: past the window, with no summary, the answer says the AI got only the recent part', async () => {
     const chat = await newChat('alice', { engine: 'codex' })
     const one = await ask(h, alice, 'alice', chat.id, `${long}\n` + fake({ say: 'read it' }))
     expect(one.done.historyTrimmed).toBeUndefined()
@@ -637,7 +674,7 @@ describe('long conversations', () => {
     const two = await ask(h, alice, 'alice', chat.id, 'second\n' + fake({ echo: 'resume' }))
     expect(two.done.content).toBe('resumed=true')
     expect(two.done.historyTrimmed).toBeUndefined()
-    // edit the second message: a new branch, a fresh session with the history before it (41,000 + characters)
+    // edit the second message: a new branch, a fresh session with the history before it (170,000 + characters)
     const edited = await h.api('alice').call(API.editMessage, { params: { id: chat.id, messageId: two.started.userMessage!.id }, body: { content: 'second, edited\n' + fake({ echo: 'resume' }), clientMessageId: cm(), attachmentIds: [] } })
     const e = await alice.next('message.done', (f) => f.data.messageId === edited.assistantMessage.id, 20_000)
     expect(e.data.message.content).toBe('resumed=false')

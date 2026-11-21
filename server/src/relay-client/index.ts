@@ -3,6 +3,7 @@
 // serve relayed requests with ctx.appFetch(req, { ip, via: 'relay' }) and relayed WebSockets with the realtime hub's
 // RealtimeHub.attach() (wrapped by realtime-conn.ts). ctx.services.relay.status() feeds GET /api/admin/connection (component G).
 import { X509Certificate } from 'node:crypto'
+import { isFreeRoam } from '../app-config'
 import fs from 'node:fs'
 import path from 'node:path'
 import type { ConnectionStatus, Locale } from '@mycel/shared/api'
@@ -140,7 +141,8 @@ export function startRelayClient(ctx: AppContext): RelayService {
     log.error('relay url is not a ws:// or wss:// URL', { url })
     return service
   }
-  const name = ctx.config.relay.teamName ?? (ctx.config.mode === 'dev' ? DEV_TEAM_NAME : null)
+  // a free-roam demo has no relay at all (app-config.ts readDemoFile); never the developer's default name either
+  const name = ctx.config.relay.teamName ?? (ctx.config.mode === 'dev' && !isFreeRoam(ctx.config) ? DEV_TEAM_NAME : null)
   try {
     keyPair = loadOrCreateKey(ctx.config.dataDir)
   } catch (e) {

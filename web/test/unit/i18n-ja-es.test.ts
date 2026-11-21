@@ -11,6 +11,11 @@ test('regional account input normalizes to Japanese or Spanish; unsupported inpu
   expect(asLocale('fr-FR')).toBeNull()
 })
 
+test('Spanish: "a {who}" with a group ("el grupo …") reads "al grupo …" (shared/src/es-contract.ts)', () => {
+  expect(translate('es', 'teamFolderCard.removed', { who: 'el grupo Ventas (3 personas)', folder: 'Informes' })).toBe('Se quitó al grupo Ventas (3 personas) de Informes')
+  expect(translate('es', 'teamFolderCard.removed', { who: 'Ana', folder: 'Informes' })).toBe('Se quitó a Ana de Informes')
+})
+
 test('Japanese counts use other; Spanish counts distinguish one and other', () => {
   expect(translate('ja', 'steps.summary', { n: 1 })).toBe('1ステップ')
   expect(translate('ja', 'steps.summary', { n: 3 })).toBe('3ステップ')

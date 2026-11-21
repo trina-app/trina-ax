@@ -3,16 +3,19 @@
 // are unfinished and not hidden: "설정 이어서 하기 · 2/5" (or, with one step left, "남은 일: 도구 연결"), which opens /welcome
 // at the step it resumes on; while no AI answers the owner: "AI 연결하기", which opens the same connect dialog as every
 // other "AI 연결하기" (ConnectAi.tsx).
-// Never on /welcome itself. Without AI it hides on Home, where the no-AI card stands; on a phone it hides on Home,
-// whose own quiet row under the message box says the same (WelcomeResume); on a computer it replaces that row. ✕ hides
+// Never on /welcome itself. Without AI it hides on Home, where the no-AI card stands; while unfinished it hides on Home
+// (a phone and a computer), whose own top row says the same (WelcomeResume, docs/decisions/20261120-my-setup-card.md). ✕ hides
 // it (the row's `dismissedAt`) with an undo toast; Admin › Home's "시작 설정 다시 보기" brings it back. The rules are
 // lib/welcome.ts setupRowState; the words and counts are the steps' own (setupRowWords: the same as Home's row). Five
 // steps since 도구 연결 (docs/DECISIONS.md "W6"; six with AI 연결); on a phone 도구 연결 is not named or
 // resumed (a phone walks past it), but it still counts.
+// After the end (fix/onboarding-after-setup) the row stays while counted steps are put off: "Still to do: Team files ·
+// Tools" (lib/welcome.ts putOffSteps; a phone never names 도구 연결), which opens the first of them as itself, until
+// each is done or ✕ hides the row; Home's one thing is then the goal card.
 import { Sparkles, X } from 'lucide-react'
 import { useEffect, useRef } from 'react'
 import { Link, useLocation } from 'react-router-dom'
-import { setupRowState, setupRowWords } from '../../lib/welcome'
+import { putOffSteps, setupReturnState, setupRowState, setupRowWords } from '../../lib/welcome'
 import { useT } from '../../i18n'
 import { useAiAccess } from '../../store/aiAccess'
 import { isOwner, useMe } from '../../store/session'
@@ -44,7 +47,7 @@ export function SetupRow({ onNavigate }: { onNavigate?: () => void }) {
   useEffect(() => { if (owner) void useAiAccess.getState().load() }, [owner])
   // read once, and again on a page change while the row can show: unfinished and not hidden (the steps' own writes, ✕,
   // its undo and Admin › Home's "시작 설정 다시 보기" update the store copy themselves)
-  const open = !!progress && !progress.finishedAt && !progress.dismissedAt
+  const open = !!progress && !progress.dismissedAt && (!progress.finishedAt || putOffSteps(progress, aiReady, computer).length > 0)
   useEffect(() => {
     if (!owner) return
     const w = useWelcome.getState()
@@ -74,7 +77,9 @@ export function SetupRow({ onNavigate }: { onNavigate?: () => void }) {
           <span className="min-w-0 truncate">{t('aiAccess.connectTeam')}</span>
         </ConnectAiButton>
       ) : (
-        <Link to="/welcome" onClick={onNavigate} className={row} data-testid="setup-row-link">
+        // after the end (`left`): the first step put off, opened as itself (Welcome.tsx: a step asked back opens even when
+        // the steps are finished, if it was put off)
+        <Link to="/welcome" state={state === 'left' ? setupReturnState(putOffSteps(progress, aiReady, computer)[0]!) : undefined} onClick={onNavigate} className={row} data-testid="setup-row-link">
           <Sparkles size={16} className="shrink-0 text-accent-text" aria-hidden />
           <span className="min-w-0 truncate">{words.text}</span>
           {words.count && (

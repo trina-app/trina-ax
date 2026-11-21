@@ -1,0 +1,160 @@
+# whisper-cli for the office zip's Apple silicon Macs (docs/RELEASE-CI.md "whisper-cli for the office Mac",
+# docs/decisions/20261116-mac-local-speech.md): the pinned whisper.cpp built with Metal and without OpenMP
+# (scripts/macos/build-whisper.sh), a spoken sentence transcribed with it, then signed with the Developer ID Application
+# certificate of the Mac app (hardened runtime, secure timestamp) and notarized by Apple. release.yml calls this for
+# every release tag (job build-mac-whisper) and build-office puts the artifact `mac-whisper` into the zip
+# (build-office.ts --whisper checks the signature again). A pull request that changes the build builds and tests it
+# unsigned: signing secrets never reach pull requests.
+#
+# Secrets (the same five as mac-app.yml): MAC_DEVELOPER_ID_P12_BASE64, MAC_DEVELOPER_ID_P12_PASSWORD, APPLE_API_KEY_ID,
+# APPLE_API_ISSUER_ID, APPLE_API_KEY_P8. Only the steps that use them see them; the keychain and the key file live
+# under $RUNNER_TEMP and are removed whatever happens.
+name: Mac whisper-cli
+
+on:
+  workflow_call:
+    inputs:
+      ref:
+        description: the commit to build
+        required: true
+        type: string
+      runner:
+        description: the macOS runner (empty = the repository variable RELEASE_MAC_RUNNER when release.yml calls this at a v* tag, else macos-15)
+        required: false
+        default: ""
+        type: string
+      retention-days:
+        required: false
+        default: 7
+        type: number
+    secrets:
+      MAC_DEVELOPER_ID_P12_BASE64:
+        required: true
+      MAC_DEVELOPER_ID_P12_PASSWORD:
+        required: true
+      APPLE_API_KEY_ID:
+        required: true
+      APPLE_API_ISSUER_ID:
+        required: true
+      APPLE_API_KEY_P8:
+        required: true
+  workflow_dispatch:
+    inputs:
+      runner:
+        description: "The hosted macOS runner; empty = macos-15 (macos-15-intel when the arm64 pool has no capacity)"
+        required: false
+        default: ""
+        type: string
+  pull_request:
+    paths:
+      - scripts/macos/build-whisper.sh
+      - scripts/release/mac-whisper.ts
+      - .github/workflows/mac-whisper.yml
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+env:
+  BUN_VERSION: 1.3.12
+
+jobs:
+  build:
+    name: whisper-cli (darwin-arm64, Metal${{ github.event_name == 'pull_request' && ', unsigned' || ', Developer ID, notarized' }})
+    # RELEASE_MAC_RUNNER (which may name the self-hosted release Mac, docs/RELEASE-CI.md 13) applies only when release.yml
+    # at a v* tag called this (github.workflow_ref is the caller's); pull requests and "Run workflow" here stay hosted
+    runs-on: ${{ inputs.runner || (startsWith(github.workflow_ref, 'trina-app/trina-ax/.github/workflows/release.yml@refs/tags/v') && vars.RELEASE_MAC_RUNNER) || 'macos-15' }}
+    # the build takes 2-4 minutes; Apple's notary service the rest (one submission took 25-35 minutes on 2026-11-15)
+    timeout-minutes: 90
+    env:
+      SIGN: ${{ github.event_name != 'pull_request' }}
+    steps:
+      # the self-hosted release Mac (docs/RELEASE-CI.md 13) takes only release.yml at a v* tag of this repository (tag
+      # push or Run workflow with the tag); its job-started hook checks the same on the host before any step
+      - name: Release Mac runner guard
+        if: runner.environment == 'self-hosted'
+        env:
+          REPO: ${{ github.repository }}
+          EVENT: ${{ github.event_name }}
+          REF: ${{ github.ref }}
+          WORKFLOW_REF: ${{ github.workflow_ref }}
+        run: |
+          refuse() { echo "::error::the self-hosted release Mac runs only release.yml at a v* tag of trina-app/trina-ax: $*"; exit 1; }
+          [ "$REPO" = trina-app/trina-ax ] || refuse "repository $REPO"
+          [ "$EVENT" = push ] || [ "$EVENT" = workflow_dispatch ] || refuse "event $EVENT"
+          [[ "$REF" == refs/tags/v* ]] || refuse "ref $REF"
+          [[ "$WORKFLOW_REF" == "trina-app/trina-ax/.github/workflows/release.yml@refs/tags/v"* ]] || refuse "workflow $WORKFLOW_REF"
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+      - run: bun install --frozen-lockfile
+      - name: Build (pinned whisper.cpp, Metal, no OpenMP, arm64)
+        run: |
+          cmake --version | head -1
+          bash scripts/macos/build-whisper.sh --out dist/mac-whisper
+      - name: A spoken sentence comes back as text (the tiny model, sha256 pinned)
+        run: |
+          if [ "$(uname -m)" = arm64 ]; then bun scripts/release/mac-whisper.ts smoke dist/mac-whisper/whisper-cli
+          else echo "::notice::an Intel runner cannot run the arm64 program; built only"; fi
+      - name: Signing keychain (the Developer ID certificate from the secret, never printed)
+        if: env.SIGN == 'true'
+        env:
+          P12: ${{ secrets.MAC_DEVELOPER_ID_P12_BASE64 }}
+          P12_PASSWORD: ${{ secrets.MAC_DEVELOPER_ID_P12_PASSWORD }}
+        run: |
+          if [ -z "$P12" ] || [ -z "$P12_PASSWORD" ]; then echo "::error::secrets MAC_DEVELOPER_ID_P12_BASE64 / MAC_DEVELOPER_ID_P12_PASSWORD are not set (docs/RELEASE-CI.md \"Mac app\")"; exit 1; fi
+          umask 077
+          kc="$RUNNER_TEMP/devid.keychain-db"
+          pw=$(openssl rand -base64 32)
+          printf '%s' "$P12" | base64 --decode > "$RUNNER_TEMP/devid.p12"
+          security create-keychain -p "$pw" "$kc"
+          security set-keychain-settings -lut 7200 "$kc"
+          security unlock-keychain -p "$pw" "$kc"
+          security import "$RUNNER_TEMP/devid.p12" -k "$kc" -P "$P12_PASSWORD" -x -T /usr/bin/codesign > /dev/null
+          rm -f "$RUNNER_TEMP/devid.p12"
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$pw" "$kc" > /dev/null
+          # codesign finds an identity only in a keychain of the search list, even with --keychain
+          security list-keychains -d user -s "$kc" $(security list-keychains -d user | tr -d '"')
+          security find-identity -v -p codesigning "$kc" | grep -q '"Developer ID Application: Trina Inc. (YWW96288YY)"' || { echo "::error::the .p12 holds no Developer ID Application identity of team YWW96288YY"; exit 1; }
+          echo "CSC_KEYCHAIN=$kc" >> "$GITHUB_ENV"
+      - name: App Store Connect API key for notarytool (from the secret, never printed)
+        if: env.SIGN == 'true'
+        env:
+          P8: ${{ secrets.APPLE_API_KEY_P8 }}
+        run: |
+          if [ -z "$P8" ]; then echo "::error::secret APPLE_API_KEY_P8 is not set (docs/RELEASE-CI.md \"Mac app\")"; exit 1; fi
+          umask 077
+          printf '%s\n' "$P8" > "$RUNNER_TEMP/AuthKey.p8"
+          echo "APPLE_API_KEY=$RUNNER_TEMP/AuthKey.p8" >> "$GITHUB_ENV"
+      - name: Sign, notarize and check
+        if: env.SIGN == 'true'
+        env:
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER_ID }}
+        run: |
+          bun scripts/release/mac-whisper.ts sign dist/mac-whisper/whisper-cli
+          bun scripts/release/mac-whisper.ts notarize dist/mac-whisper/whisper-cli
+          bun scripts/release/mac-whisper.ts check dist/mac-whisper/whisper-cli
+          if [ "$(uname -m)" = arm64 ]; then bun scripts/release/mac-whisper.ts smoke dist/mac-whisper/whisper-cli; fi
+          (cd dist/mac-whisper && shasum -a 256 whisper-cli > whisper-cli.sha256 && cat whisper-cli.sha256)
+      - name: Remove the keychain and the key
+        if: always()
+        run: |
+          if [ -n "$CSC_KEYCHAIN" ]; then security delete-keychain "$CSC_KEYCHAIN" || true; fi
+          rm -f "$RUNNER_TEMP/AuthKey.p8" "$RUNNER_TEMP/devid.p12"
+      - name: Pack (tar keeps the file mode; an artifact does not)
+        run: tar -C dist -cf dist/mac-whisper.tar mac-whisper
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: mac-whisper
+          path: dist/mac-whisper.tar
+          if-no-files-found: error
+          overwrite: true # a re-run of the job replaces its own artifact
+          retention-days: ${{ inputs.retention-days || 3 }}

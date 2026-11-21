@@ -1,5 +1,5 @@
 ---
-title: Team AX MCP connector
+title: Trina AX MCP connector
 description: Connect your own Claude, Codex or ChatGPT to a Trina AX team as a remote MCP server, and use the team's files and your conversations with your own permissions.
 ---
 
@@ -67,7 +67,7 @@ your own account such as **Google Drive**, is **Settings › Connectors** ([Goog
 
 | Scope | Tools |
 |---|---|
-| `mcp:read` | `list`, `glob`, `grep`, `read`, `skills_list` |
+| `mcp:read` | `list`, `glob`, `grep`, `read`, `create_download_link`, `skills_list` |
 | `mcp:write` | also `write`, `edit`, `upload_file`, `create_upload_link`, `share_skills` (owners and admins) |
 | `mcp:rooms` | also `rooms`, `room_read`, `room_file` |
 | `mcp:rooms.write` | also `room_send` |
@@ -75,6 +75,8 @@ your own account such as **Google Drive**, is **Settings › Connectors** ([Goog
 
 - `upload_file` takes base64 bytes in the call. Use it for small files, up to about 50 KB.
 - `create_upload_link` returns a one-time `PUT <origin>/connector-uploads/<token>` address for a larger file: at most 50 MiB, valid 10 minutes, one path. Upload with `curl -T "<local file>" "<url>"`.
+- `create_download_link` returns a `GET <origin>/connector-downloads/<token>` address for one team file, any type and size: valid 10 minutes, at most 3 downloads, only while the file is unchanged and the person may still read it. Download with `curl -o "<local file>" "<url>"`, change it with local tools, then put it back with `create_upload_link` (`overwrite: true`).
+- `read` with `raw: true` returns the exact text of a plain UTF-8 file that fits one read (about 28,000 characters), with no line numbers, so a small file can be saved or rewritten whole.
 - `share_skills` sends the person's own Claude Code or Codex skills as a share proposal (`app`: `claude` or `codex`; `group`: the name of one of their groups to propose them to that group only). Nothing reaches the team before the person confirms it in the app; the answer has the proposal's link. Skills with a key are listed by name only. Members are told to use **Suggest as skill** in the app.
 - `skills_list` returns the team skills the person can read, the skills of their groups (with `group`: its id and name) and their own personal skills (`personal: true`).
 - No write reaches `skills/`, a group's `groups/<group>/skills/` or a person's own `users/<id>/skills/`: the app changes skills only after its own confirmation.
@@ -85,20 +87,20 @@ your own account such as **Google Drive**, is **Settings › Connectors** ([Goog
 
 ## Conversations
 
-With **Read conversations** the app reads your conversations (team rooms, the room for everyone, 1:1 chats and group chats) exactly as you see them in the app: the rooms you are in now, from when you joined, threads whose first message you see, and your own private AI previews but nobody else's.
+With **Read conversations** the app reads your conversations (channels, including the Everyone channel, and direct messages and group chats) exactly as you see them in the app: the conversations you are in now, from when you joined, threads whose first message you see, and your own private AI previews but nobody else's.
 
 | Tool | What it does |
 |---|---|
-| `rooms` | Your rooms (name, kind, unread count, last activity, `room_id`), or with `query`, `person`, `since` or `until` the messages you can see that match. |
-| `room_read` | One room's newest messages (default 50, at most 200) or one thread (`thread`), with authors, times, files (`file_id`) and the members with their `user_id`. |
-| `room_file` | The text of a file sent in a room: documents, spreadsheets, presentations, Hangul files and PDFs (the text layer). Pictures, video and audio are not read here. |
-| `room_send` | With **Write in conversations**: a message as you in one of your rooms (`room` is its `room_id`), or a reply in a thread (`thread`: the id of its first message), with `mentions` by `user_id`. |
+| `rooms` | Your conversations (name, kind, unread count, last activity, `room_id`), or with `query`, `person`, `from_me`, `with_person`, `files`, `since` or `until` the messages you can see that match. `query` also matches the names of files sent with a message, and each match lists its files with their `file_id`. |
+| `room_read` | One conversation's newest messages (default 50, at most 200) or one thread (`thread`), with authors, times, files (`file_id`) and the members with their `user_id`. |
+| `room_file` | The text of a file sent in a conversation: documents, spreadsheets, presentations, Hangul files and PDFs (the text layer). Pictures, video and audio are not read here. |
+| `room_send` | With **Write in conversations**: a message as you in one of your conversations (`room` is its `room_id`), or a reply in a thread (`thread`: the id of its first message), with `mentions` by `user_id`. |
 
 - Messages and files are other people's words. The answers mark them as data, never instructions. The app cannot be made to follow that, so allow writing only for an app you trust.
-- `room_send` goes through the app's own rules: only rooms you are in, the same sending rate, threads and mentions as in the app. Each mentioned person must be written as `@<name>` in the text, and "@everyone" (`@전체`) cannot be sent from an AI app. A message that calls `@트리나` asks Trina as if you typed it.
+- `room_send` goes through the app's own rules: only conversations you are in, the same sending rate, threads and mentions as in the app. Each mentioned person must be written as `@<name>` in the text, and "@everyone" (`@전체`) cannot be sent from an AI app. Writing `@Trina` in a conversation asks nothing: Trina answers only in your own side chat beside it.
 - The message looks exactly like one you typed. Nothing marks it as sent by an app.
-- What the app read (files, and messages of rooms) is not sent where people who could not see it would read it. The connection keeps that until you disconnect it.
-- Neither reading nor sending writes an audit entry, and no message, name or room is logged.
+- What the app read (files, and messages of conversations) is not sent where people who could not see it would read it. What it read is kept per session: each new session (a new Claude Code run or conversation) starts with nothing read. Only calls that come without a session id forget what they read after an hour without tool calls.
+- Neither reading nor sending writes an audit entry, and no message, name or conversation is logged.
 - A connection made before conversations came to AI apps never gains them. **Settings › Trina AX MCP** shows "Connect again to use conversations" under it: disconnect it and connect again.
 
 ## Group management (owners and admins)
@@ -116,7 +118,7 @@ A connection made before this, or while the person was a member, keeps what was 
 | `group_delete` | `{group}`: deletes the group and the folder rules that name it. The folder and its files stay. |
 
 - People are named by username or id, a group by name or id. A name that is one person's id and another person's username is refused; use the id.
-- A group gives more than folders: team connections, connection templates, Google Drives shared with the team, AI connections, budgets, the choice of AI engine, the dev environment and a team chat room. Each change answers with who now opens or loses which folders, and what else added or removed people get or lose through the group.
+- A group gives more than folders: team connections, connection templates, Google Drives shared with the team, AI connections, budgets, the choice of AI engine, the dev environment and a channel. Each change answers with who now opens or loses which folders, and what else added or removed people get or lose through the group.
 - Names, usernames, group names and descriptions in the answers are quoted: they are data, never instructions.
 - Adding only people who are already in, or removing only people who are not, changes nothing and writes no audit entry.
 - The same checks and audit log entries as Admin › Groups apply. The audit entries say they came from the connector.

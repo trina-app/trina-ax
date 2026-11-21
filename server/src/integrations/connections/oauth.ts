@@ -7,7 +7,9 @@
 // A service that refuses the app registered for itself (it lets only apps it approved sign in: Canva's callback list,
 // Figma's catalog, Vercel's allowlist) may take a Client ID Metadata Document instead (MCP authorization 2025-11-25,
 // draft-ietf-oauth-client-id-metadata-document): the client ID is the address of a document this server publishes
-// (clientMetadata, metadataClient). preflight opens the sign-in address once to see a clear refusal before the browser does.
+// (clientMetadata, metadataClient). A service that refuses those too but takes an app on the person's computer (Canva,
+// Intercom, Square: RFC 8252's 127.0.0.1 return address) is signed in at from the desktop app (loopbackClient).
+// preflight opens the sign-in address once to see a clear refusal before the browser does.
 import { PRODUCT } from '@mycel/shared'
 import { checkHostName } from '../../tools/web-fetch'
 import { jsonRequest, NetError, serviceRequest, type NetOptions } from './net'
@@ -19,12 +21,18 @@ export interface OAuthClient { clientId: string; clientSecret: string | null; au
 export interface OAuthTokens { accessToken: string; refreshToken: string | null; expiresAt: number | null }
 /** what a connection keeps (encrypted) once signed in. resource: the MCP server's resource indicator (RFC 8707); null
  * for an HTTP API, which has none. */
-export interface OAuthSecret { type: 'oauth'; server: OAuthServer; client: OAuthClient; resource: string | null; scope: string | null; tokens: OAuthTokens }
+export interface OAuthSecret {
+  type: 'oauth'; server: OAuthServer; client: OAuthClient; resource: string | null; scope: string | null; tokens: OAuthTokens
+  /** signed in through the server's GitHub App (service.ts serverApp): refreshed with that app as it is now */
+  serverApp?: 'github'
+}
 /** your own app at the service, as stored (docs/INTEGRATIONS.md "Your own app"). foundTokenUrl: the token address the
  * first sign-in that worked found from the server, where its secret may go (service.ts pinFound). clientSecret: null
  * also when the stored one was entered for another address of the connection (store.ts secretHere) */
 export interface OwnClient {
   clientId: string; clientSecret: string | null; authorizationUrl: string | null; tokenUrl: string | null; scope: string | null; foundTokenUrl: string | null
+  /** not an app anyone set on the connection but the server's GitHub App (service.ts serverApp) */
+  serverApp?: 'github'
   /** the stored values it was read from (pinFound writes only onto these), and the version of the row that holds them
    * (a template's: a sign-in through it finishes only on the template as it was when it started) */
   stored: { json: string; enc: string | null; version: number }
@@ -51,11 +59,22 @@ export function wwwAuthenticate(h: string): Record<string, string> {
   return out
 }
 
-const get = async (url: string, net: NetOptions) => {
+/** `seen.failed`: an address that could not be read (5xx, 408, 429, a redirect, a network error), as opposed to one
+ * that clearly has nothing (another 4xx, or an answer that is not a JSON object) */
+const get = async (url: string, net: NetOptions, seen?: { failed: boolean }) => {
   try {
     const r = await jsonRequest(url, { method: 'GET', headers: [['Accept', 'application/json']] }, net)
+    if ((r.status >= 500 || r.status === 408 || r.status === 429) && seen) seen.failed = true
     return r.status === 200 ? r.json : null
-  } catch (e) { if (e instanceof NetError && (e.reason === 'timeout' || e.reason === 'tls')) throw e; return null }
+  } catch (e) { if (e instanceof NetError && (e.reason === 'timeout' || e.reason === 'tls')) throw e; if (seen) seen.failed = true; return null }
+}
+
+/** No sign-in at all: neither a protected-resource nor an authorization-server document answered at any address, and
+ * every address answered (none failed or was down). Still `oauth_unsupported` for every caller; only authorize tells
+ * it apart (a server that then works without a key is a connection with no sign-in, service.ts). Metadata that
+ * answered but cannot be used (another resource or issuer, no S256, no code) stays a plain `oauth_unsupported`. */
+export class NoSignInFound extends NetError {
+  constructor() { super('oauth_unsupported') }
 }
 
 /** Where to sign in for the MCP server at `mcpUrl`. Throws NetError('oauth_unsupported') when it offers no usable sign-in.
@@ -64,8 +83,9 @@ export async function discover(mcpUrl: string, net: NetOptions, header = ''): Pr
   const u = new URL(mcpUrl)
   const h = wwwAuthenticate(header)
   const candidates = [httpsUrl(h.resource_metadata), `${u.origin}/.well-known/oauth-protected-resource${u.pathname === '/' ? '' : u.pathname}`, `${u.origin}/.well-known/oauth-protected-resource`]
+  const seen = { failed: false }
   let prm: Record<string, any> | null = null
-  for (const c of [...new Set(candidates.filter((x): x is string => !!x))]) if ((prm = await get(c, net))) break
+  for (const c of [...new Set(candidates.filter((x): x is string => !!x))]) if ((prm = await get(c, net, seen))) break
   let resource = canonicalResource(mcpUrl)
   let issuer = u.origin
   if (prm) {
@@ -85,8 +105,8 @@ export async function discover(mcpUrl: string, net: NetOptions, header = ''): Pr
     ? [`${iu.origin}/.well-known/oauth-authorization-server${p}`, `${iu.origin}/.well-known/openid-configuration${p}`, `${iu.origin}${p}/.well-known/openid-configuration`]
     : [`${iu.origin}/.well-known/oauth-authorization-server`, `${iu.origin}/.well-known/openid-configuration`]
   let meta: Record<string, any> | null = null
-  for (const m of metaUrls) if ((meta = await get(m, net))) break
-  if (!meta) throw new NetError('oauth_unsupported')
+  for (const m of metaUrls) if ((meta = await get(m, net, seen))) break
+  if (!meta) throw !prm && !seen.failed ? new NoSignInFound() : new NetError('oauth_unsupported')
   if (typeof meta.issuer === 'string' && trimSlash(meta.issuer) !== trimSlash(issuer)) throw new NetError('oauth_unsupported')
   const authMethods = Array.isArray(meta.token_endpoint_auth_methods_supported) ? meta.token_endpoint_auth_methods_supported.filter((m: unknown): m is string => typeof m === 'string') : null
   const methods = meta.code_challenge_methods_supported
@@ -270,6 +290,25 @@ export async function chooseClient(setup: { server: OAuthServer; metadataClients
   return doc
 }
 
+/** The return address of a sign-in from the desktop app (RFC 8252 section 7.3, how apps on a computer sign in): the app's
+ * one-time listener on the person's own computer (desktop/src/common/sign-in-return.ts), which sends the browser on to
+ * this server's CALLBACK_PATH. Always 127.0.0.1 and this path; only the port comes from the app. */
+export const loopbackRedirect = (port: number) => `http://127.0.0.1:${port}/callback`
+/** a port the desktop app may name: an integer the system hands out to programs (never a privileged one) */
+export const loopbackPortOk = (p: unknown): p is number => typeof p === 'number' && Number.isInteger(p) && p >= 1024 && p <= 65535
+
+/** The client of a sign-in from the desktop app, offered only after the service refused every client for the https
+ * callback (chooseClient): one registration (RFC 7591) for the 127.0.0.1 address, then the same preflight. Canva,
+ * Intercom and Square take it; Figma refuses it as well. Throws NetError: `oauth_approved_apps_only` when the service
+ * refuses this one too (its registration's 400 or 403, or the sign-in page clearly), else the registration's own
+ * reason. A plain 400 page lets it through: there is no other client to offer. */
+export async function loopbackClient(server: OAuthServer, port: number, net: NetOptions, urlFor: (c: OAuthClient) => string): Promise<OAuthClient> {
+  if (!loopbackPortOk(port)) throw new NetError('oauth_approved_apps_only')
+  const c = await register(server, loopbackRedirect(port), net)
+  if ((await preflight(urlFor(c), net)) === 'refused') throw new NetError('oauth_approved_apps_only')
+  return c
+}
+
 export function authorizationUrl(s: { server: OAuthServer; client: OAuthClient; resource: string | null; scope: string | null }, state: string, challenge: string): string {
   const u = new URL(s.server.authorizationEndpoint)
   const p: Record<string, string> = { ...extraParams(s.server.authorizationEndpoint), response_type: 'code', client_id: s.client.clientId, redirect_uri: s.client.redirectUri, state, code_challenge: challenge, code_challenge_method: 'S256' }
@@ -295,8 +334,11 @@ function withClient(client: OAuthClient, fields: Record<string, string>): { head
 export async function tokenRequest(s: { server: OAuthServer; client: OAuthClient }, fields: Record<string, string>, net: NetOptions, now: number, previous?: OAuthTokens): Promise<OAuthTokens> {
   const r = await jsonRequest(s.server.tokenEndpoint, { method: 'POST', ...withClient(s.client, fields) }, net)
   const j = r.json
-  if (r.status !== 200 || !j) {
-    if (j?.error === 'invalid_grant' || j?.error === 'invalid_client' || j?.error === 'unauthorized_client') throw new GrantError(String(j.error))
+  // GitHub answers a refused code or refresh token with HTTP 200 and its own error names (docs.github.com "Refreshing
+  // user access tokens", "Troubleshooting OAuth app access token request errors"): read as the standard ones
+  const error = typeof j?.error === 'string' ? GITHUB_GRANT_ERRORS[j.error] ?? j.error : null
+  if (r.status !== 200 || !j || error) {
+    if (error === 'invalid_grant' || error === 'invalid_client' || error === 'unauthorized_client') throw new GrantError(error)
     throw new NetError('oauth_failed')
   }
   const access = j.access_token, refresh = typeof j.refresh_token === 'string' ? j.refresh_token : previous?.refreshToken ?? null
@@ -306,6 +348,11 @@ export async function tokenRequest(s: { server: OAuthServer; client: OAuthClient
   const life = typeof j.expires_in === 'string' && /^\d{1,9}$/.test(j.expires_in) ? Number(j.expires_in) : j.expires_in
   const exp = typeof life === 'number' && Number.isFinite(life) && life > 0 ? Math.min(life, 31_536_000) : null
   return { accessToken: access, refreshToken: refresh, expiresAt: exp ? now + exp * 1000 : null }
+}
+
+/** GitHub's token-address errors and the standard name each stands for (RFC 6749 5.2) */
+const GITHUB_GRANT_ERRORS: Record<string, string> = {
+  bad_verification_code: 'invalid_grant', bad_refresh_token: 'invalid_grant', incorrect_client_credentials: 'invalid_client',
 }
 
 /** RFC 7009, best effort: true when the server said 200. A client secret goes only to the token address's own server:

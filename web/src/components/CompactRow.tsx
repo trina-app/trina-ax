@@ -10,7 +10,7 @@ import { Link } from 'react-router-dom'
 
 const openCls = '-my-1.5 flex min-h-12 min-w-0 flex-1 flex-col justify-center py-1.5 text-left -outline-offset-2'
 
-export function CompactRow({ lead, title, chip, second, menu, className, testId, data, rowRef, onOpen, to, openLabel }: {
+export function CompactRow({ lead, title, chip, second, menu, className, testId, data, rowRef, onOpen, to, state, openLabel }: {
   /** before the name: a small mark (an engine's logo) */
   lead?: ReactNode
   title: ReactNode
@@ -27,6 +27,8 @@ export function CompactRow({ lead, title, chip, second, menu, className, testId,
   onOpen?: () => void
   /** opens the row's own page as a link (a new tab works too) */
   to?: string
+  /** the history state the `to` link carries (the welcome steps' way back, SetupReturn.tsx) */
+  state?: unknown
   /** the open button's name, when the title alone does not say it */
   openLabel?: string
 }) {
@@ -40,7 +42,7 @@ export function CompactRow({ lead, title, chip, second, menu, className, testId,
     <li ref={rowRef} className={clsx('flex min-h-12 items-center gap-2 py-1.5 text-sm', className)} data-testid={testId} {...data}>
       {lead}
       {to ? (
-        <Link to={to} aria-label={openLabel} className={openCls} data-testid="row-open">
+        <Link to={to} state={state} aria-label={openLabel} className={openCls} data-testid="row-open">
           {text}
         </Link>
       ) : onOpen ? (

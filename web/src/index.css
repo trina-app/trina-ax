@@ -4,6 +4,10 @@
 /* dark mode follows the .dark class on <html> (lib/theme.ts: light / dark / system) */
 @custom-variant dark (&:where(.dark, .dark *));
 
+/* The focus ring is the keyboard's only (lib/inputModality.ts): after a mouse click or a tap, <html data-input="pointer">
+   and nothing a focus-visible: class draws shows; after Tab it does. The base rule below follows the same. */
+@custom-variant focus-visible (&:focus-visible:where(:root:not([data-input="pointer"]) *));
+
 /* Semantic colour tokens. Text on canvas/surface keeps ≥ 4.5:1; focus rings, strong borders and the edge of a text
    field ≥ 3:1 (WCAG 2.2 AA, 1.4.11). --c-line is for cards and dividers (decoration, softer); --c-field-border is the
    edge of inputs, selects and text areas, ≥ 3:1 against canvas, surface and subtle (test/unit/field-contrast.test.ts). */
@@ -34,6 +38,11 @@
   --c-code-bg: #1e1d1b;
   --c-code-ink: #ece9e3;
   --c-shadow: 0 1px 2px rgb(0 0 0 / 0.04), 0 4px 16px -6px rgb(0 0 0 / 0.08);
+  /* the ✦ Trina side panel's fill (components/rooms/SideChatPanel.tsx): a warm wash of the brand, so the private side
+     chat reads as its own surface beside the room and its thread. Made from the edition's own tokens (computed on :root,
+     where .dark sits): c-accent-soft with 2 % of c-accent here, c-accent-soft itself in dark (the .dark block below).
+     c-faint on it 5.1:1 (light) and 5.05:1 (dark). */
+  --c-aside: color-mix(in srgb, var(--c-accent) 2%, var(--c-accent-soft));
 }
 
 .dark {
@@ -61,6 +70,7 @@
   --c-code-bg: #141311;
   --c-code-ink: #ece9e3;
   --c-shadow: 0 1px 2px rgb(0 0 0 / 0.3), 0 4px 16px -6px rgb(0 0 0 / 0.5);
+  --c-aside: var(--c-accent-soft);
 }
 
 @theme {
@@ -127,6 +137,11 @@
   --spacing-row-min: 1.875rem; /* a ListRow's least height: 30px */
   --spacing-row-page: 3rem; /* a page's main list (ListRow scale="page": a project's 트리나 기록, 팀 스킬): 48px on a
      computer and a phone, not the panels' 30px (docs/DECISIONS.md "Page lists: page density") */
+  /* the Trina history's row names (ListRow scale="history": nav/ChatItem.tsx, a task's folded runs): 14px on a computer,
+     a step under the other rows' 15px, in the rows' own 30px (docs/decisions/20261121-trina-history-like-rooms.md); a
+     phone uses the phone row size (the block below) */
+  --text-row-history: 0.875rem; /* 14px */
+  --text-row-history--line-height: 1.25rem; /* 20px */
   --spacing-list-icon: 1rem; /* a row's icon box: the bare 16px icon */
   --spacing-list-glyph: 1rem; /* the icon inside it */
   --spacing-list-face: 1.75rem; /* a row's icon box when it holds people's pictures (the member picker): 28px */
@@ -158,6 +173,7 @@
   --color-accent-ink: var(--c-accent-ink);
   --color-accent-soft: var(--c-accent-soft);
   --color-accent-text: var(--c-accent-text);
+  --color-aside: var(--c-aside);
   --color-danger: var(--c-danger);
   --color-danger-soft: var(--c-danger-soft);
   --color-warn: var(--c-warn);
@@ -205,7 +221,9 @@ body { background: var(--c-canvas); color: var(--c-ink); -webkit-font-smoothing:
 /* Japanese takes a Japanese face first: in Apple SD Gothic Neo / Noto Sans KR the full-width marks （）：？ get Korean
    metrics and ・ is drawn as a narrow middle dot (QA TC-2525) */
 :root:lang(ja) { --font-sans: -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Yu Gothic UI", "Yu Gothic", Meiryo, "Noto Sans JP", "Noto Sans CJK JP", "Segoe UI", Roboto, system-ui, sans-serif; }
-::selection { background: var(--c-accent-soft); }
+/* Selected text uses the browser's and system's own colour (the usual blue), on every surface: the app's tint was almost
+   the page's own colour and the hovered row's (QA TC-4592). No ::selection background or colour here (a unit test keeps
+   it so); the page declares color-scheme (index.html, lib/theme.ts) so a dark page gets the dark system selection. */
 /* components/TokenTextarea.tsx: while the box has text, its own letters are not drawn. The layer over it draws them,
    its tokens in colour, and the one under it only the tokens' backgrounds; the box's caret, selection (see-through, so a
    token's background shows under it), an IME's background, spell check and placeholder are in between. */
@@ -213,7 +231,7 @@ textarea[data-token-input]:not(:placeholder-shown) { -webkit-text-fill-color: tr
 /* an empty box's hint stays on one line, cut at the end, so the box does not grow from it (the largest text size on a
    phone, a wide system font); a transcription job's label (aria-busy) still wraps and grows the box (RoomComposer) */
 textarea[data-token-input]:placeholder-shown:not([aria-busy]) { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-textarea[data-token-input]::selection { -webkit-text-fill-color: transparent; background: color-mix(in srgb, var(--c-accent) 24%, transparent); }
+textarea[data-token-input]::selection { -webkit-text-fill-color: transparent; background: Highlight; }
 [data-token-layer="back"] > div, [data-token-layer="back"] [data-token] { color: transparent !important; }
 [data-token-box]:not([data-composing]) > [data-token-layer="front"] [data-token] { background: none !important; box-shadow: none !important; }
 /* While an IME writes, the box paints its own letters, so the IME's underline (drawn in their colour) shows; the front
@@ -226,9 +244,10 @@ textarea[data-token-input]::selection { -webkit-text-fill-color: transparent; ba
   [data-token-layer] { visibility: hidden; }
 }
 /* The AI chat's message box with "#" room tokens (components/chat/RoomRefMenu.tsx): a layer behind it draws the text,
-   so its own is transparent; the caret stays, and the selection lets that text show through. */
+   so its own is transparent; the caret stays, and the selection lets that text show through: the system's selection
+   colour at 75% (an opaque one would hide the text behind it). */
 .room-ref-field { color: transparent; caret-color: var(--c-ink); }
-.room-ref-field::selection { color: transparent; background: color-mix(in srgb, var(--c-accent) 26%, transparent); }
+.room-ref-field::selection { color: transparent; background: color-mix(in srgb, Highlight 75%, transparent); }
 
 /* The online-status dot on a picture (components/Presence.tsx; docs/DECISIONS.md "접속 상태"): a 2 px ring in the
    colour behind the picture, as Slack draws it; a row sets --presence-bg to its own (its hover, the current row). Online
@@ -282,6 +301,9 @@ textarea[data-token-input]::selection { -webkit-text-fill-color: transparent; ba
     --text-row--line-height: 1.375rem; /* 22px */
     --spacing-row-indent: 0.75rem; /* the rows' own 12px: no extra indent */
     --spacing-row-min: 3rem; /* 48px */
+    /* the Trina history's row names: the same as every phone list row */
+    --text-row-history: var(--text-row);
+    --text-row-history--line-height: var(--text-row--line-height);
     --spacing-list-icon: 2rem; /* 32px */
     --spacing-list-glyph: 1.125rem; /* 18px */
     --spacing-list-face: 2rem; /* 32px, as the icon box */
@@ -307,7 +329,9 @@ textarea[data-token-input]::selection { -webkit-text-fill-color: transparent; ba
 /* one visible focus style everywhere (3:1 against both themes) */
 /* (in the base layer, so a field inside a framed box can turn it off with outline-none and let the box show focus) */
 @layer base {
-  :focus-visible { outline: 2px solid var(--c-accent); outline-offset: 2px; }
+  /* (never after a mouse click or a tap: lib/inputModality.ts) */
+  :where(:root:not([data-input="pointer"])) :focus-visible { outline: 2px solid var(--c-accent); outline-offset: 2px; }
+  :where(:root[data-input="pointer"]) :focus-visible { outline: none; }
 }
 
 /* Every single-choice <select> draws its own arrow, 0.75em in from the right edge. The browser's own arrow sits on the
@@ -349,6 +373,17 @@ input[type="checkbox"], input[type="radio"] { accent-color: var(--c-accent); }
 @utility touch-hit-placed {
   @media (max-width: 767.98px) {
     &::after { content: ""; position: absolute; top: 50%; left: 50%; width: max(100%, 44px); height: max(100%, 44px); transform: translate(-50%, -50%); }
+  }
+}
+
+/* touch-hit-start: the same 44px box for a control with something tappable just before it (a message's name beside its
+   photo): 44px high around its middle, and from its start as wide as it is or 44px, so it never reaches back over the
+   control before it. Drawn over what follows it (z-index 1: a message's text starts right under its name, and a later
+   positioned row would take those taps). Truncate goes on a child: a box that clips would cut the tap box. */
+@utility touch-hit-start {
+  @media (max-width: 767.98px) {
+    position: relative;
+    &::after { content: ""; position: absolute; z-index: 1; top: 50%; inset-inline-start: 0; width: max(100%, 44px); height: max(100%, 44px); transform: translateY(-50%); }
   }
 }
 
@@ -419,7 +454,3 @@ input[type="checkbox"], input[type="radio"] { accent-color: var(--c-accent); }
 .docx-host .docx-wrapper { background: var(--c-subtle); padding: 12px; }
 .docx-host .docx-wrapper > section { margin: 0 auto 12px; box-shadow: var(--c-shadow); }
 
-/* an answer opened from the widening list (pages/Chat.tsx ?answer=): lit for a moment, then it fades */
-[data-message-id] { transition: box-shadow 600ms ease, background-color 600ms ease, outline-color 600ms ease; border-radius: 0.75rem; outline: 1.5px solid transparent; outline-offset: 8px; }
-[data-message-id][data-focused] { background-color: color-mix(in srgb, var(--c-accent) 8%, transparent); box-shadow: 0 0 0 8px color-mix(in srgb, var(--c-accent) 8%, transparent); outline-color: var(--c-accent); }
-@media (prefers-reduced-motion: reduce) { [data-message-id] { transition: none; } }

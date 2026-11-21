@@ -166,7 +166,7 @@ test('a team skill that already has a pack skill\'s name blocks it: "/<name>" wo
 test('the Korean and English titles', () => {
   const titles = (id: 'general' | 'work', locale: 'ko' | 'en') => Object.fromEntries(Object.entries(SKILL_PACKS[id].skills[locale]!).map(([name, text]) => [name, (checkSkill(text, `skills/${id}/${name}/SKILL.md`) as { title?: string }).title]))
   expect(titles('general', 'ko')).toEqual({ 'card-news': '카드뉴스', 'promo-video': '홍보 영상', 'intro-deck': '회사 소개서' })
-  expect(titles('general', 'en')).toEqual({ 'card-news': 'Promo cards', 'promo-video': 'Promo video', 'intro-deck': 'Company profile' })
+  expect(titles('general', 'en')).toEqual({ 'card-news': 'Promo cards', 'promo-video': 'Promo video', 'intro-deck': 'Company slide deck' })
   expect(titles('work', 'ko')).toEqual({ humanizer: '자연스러운 글' })
   expect(titles('work', 'en')).toEqual({ humanizer: 'Natural writing' })
 })

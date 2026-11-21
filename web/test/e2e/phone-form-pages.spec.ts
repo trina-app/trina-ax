@@ -160,7 +160,7 @@ test('a link to a setting opens the group that holds it, with the lists under it
   await expect(page).toHaveURL(/\/admin\/settings\/voice#speech$/)
   await expect(page.getByTestId('team-speech')).toBeVisible()
   await expect(page.getByTestId('team-settings-general')).toHaveCount(0)
-  // the old Providers tab's address: the AI engine's group
+  // the old AI providers tab's address: the AI engine's group
   await page.goto('/admin/providers?tab=team')
   await expect(page).toHaveURL(/\/admin\/settings\/ai#ai$/)
   await expect(page.getByTestId('engine-defaults')).toBeVisible()
@@ -220,7 +220,7 @@ test('System: values on the right of their label, long ones under it; its button
 test('Settings › Profile: the photo button and the language and theme choices are 44 px; username and role on the right', async ({ page }) => {
   await page.goto('/settings/profile')
   await expect(page.getByTestId('profile-form')).toBeVisible()
-  for (const id of ['profile-photo-pick', 'locale-team', 'locale-en']) expect(Math.round((await page.getByTestId(id).boundingBox())!.height), id).toBeGreaterThanOrEqual(44)
+  for (const id of ['profile-photo-pick', 'profile-locale']) expect(Math.round((await page.getByTestId(id).boundingBox())!.height), id).toBeGreaterThanOrEqual(44)
   const user = (await page.getByTestId('profile-username').boundingBox())!
   expect(user.x + user.width).toBeGreaterThan(390 - 30)
 })

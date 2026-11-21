@@ -4,6 +4,7 @@
 //   own address, pushed over the page they come from: ‹ and the browser's (the iPhone's swipe) Back go one level up, and
 //   the bar names the page; no second "← back" link under the bar.
 import { expect, test, type Page } from '@playwright/test'
+import { PRODUCT } from '@mycel/shared'
 import { CSRF_HEADER } from '@mycel/shared/api'
 import { reset, signIn } from './helpers'
 import { openTab } from './nav'
@@ -148,7 +149,7 @@ test('TC-268 step 4: Folder permissions › 사람별: the list alone, a person 
   await expect(option).toBeVisible()
 })
 
-test('TC-267 step 3 / TC-270 step 4: AI accounts › an engine opens a pushed page with its accounts; its server login is left to a computer', async ({ page }) => {
+test('TC-267 step 3 / TC-270 step 4: AI providers › an engine opens a pushed page with its accounts; its server login is left to a computer', async ({ page }) => {
   await openAdminPage(page, 'providers', /\/admin\/providers$/)
   const row = page.locator('[data-testid="engine-row"][data-engine="codex"]')
   await expect(row).toBeVisible()
@@ -352,7 +353,7 @@ test('TC-269 step 6: page intros (English): the line is not cut beside a button;
   // the team's versions of what the 나 list has for the person
   await expect(page.getByTestId('admin-row-providers')).toContainText(t['admin.team.providers'])
   await expect(page.getByTestId('admin-row-connectors')).toContainText(t['admin.team.integrations'])
-  await expect(page.getByTestId('admin-row-ai-apps')).toContainText(t['admin.team.aiApps'])
+  await expect(page.getByTestId('admin-row-ai-apps')).toContainText(t['admin.team.aiApps'].replace('{product}', PRODUCT.displayName))
 })
 
 test('TC-269 (ADM-19): Team settings › General: the logo in phone words; the update window as two time pickers', async ({ page }) => {
@@ -377,7 +378,7 @@ test('TC-270 steps 2, 4, 5: Slack › 토큰 바꾸기, Connectors › add by ad
   await expect(page.getByTestId('integration-add')).toHaveCount(0)
   await expect(page.getByTestId('connector-custom')).toHaveCount(0)
   await expect(page.getByTestId('connector-custom-note')).toHaveText(t['admin.onComputerAdd'])
-  // AI accounts › an engine's server login text
+  // AI providers › an engine's server login text
   await page.goto('/admin/providers/codex')
   await expect(page.getByTestId('engine-on-computer')).toHaveText(t['admin.onComputer'])
   await expect(page.getByTestId('engine-page')).not.toContainText('codex login')

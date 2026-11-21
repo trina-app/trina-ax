@@ -55,6 +55,65 @@ owner와 팀은 설정 화면에서 직접 만드세요. 에이전트도 이 문
 - **팀 주소**는 로그인한 사람 누구나 설정 › 앱에서 보고 복사할 수 있어요.
 - **누른 링크**: 앱은 `*.trina.app`의 초대 링크만 바로 열어요(유니버설 링크·앱 링크). 직접 설치한 서버의 주소에서는 링크가 브라우저로 열리고, 가입 화면의 **앱에서 열기**(`trina-ax://open?url=…`)로 데스크톱·휴대폰 앱을 열 수 있어요. 어느 쪽이든 앱은 "{주소}에 연결할까요?"를 먼저 묻고, 답하기 전에는 아무것도 열지 않아요.
 
+## 리눅스 데스크톱 앱
+
+이 절은 서버가 아니라 리눅스 컴퓨터에서 쓰는 팀 데스크톱 앱 이야기다. x64와 arm64용이 있다.
+웹사이트의 다운로드 페이지나 [최신 GitHub Release](https://github.com/trina-app/trina-ax/releases/latest)에서 받고, 시스템에 맞춰 고른다.
+
+| 파일 | 대상 | 업데이트 |
+|---|---|---|
+| `Trina-AX-<v>-linux-amd64.deb`, `Trina-AX-<v>-linux-arm64.deb` | Ubuntu 24.04, Debian 12·13과 그 위에 만든 시스템 | 새 버전이 나오면 앱이 알려 준다. 새 .deb를 그대로 덮어 설치한다 |
+| `Trina-AX-<v>-linux-x86_64.AppImage`, `Trina-AX-<v>-linux-arm64.AppImage` | 그 밖의 배포판(Fedora, Arch …) | 스스로: 팀 서버에서 받아, 서명된 릴리스가 그 파일을 가리킬 때만, 앱이 끝날 때 바꾼다 |
+
+**.deb** (App Center로 열거나 터미널에서):
+
+```sh
+sudo apt install ./Trina-AX-<v>-linux-amd64.deb
+```
+
+앱 목록에 앱을 넣고, `trina-ax://` 링크(웹의 **앱에서 열기**)가 앱을 열게 하고, AppArmor 프로필(`/etc/apparmor.d/trina-ax`)을
+깐다. 그래서 Ubuntu 24.04가 user namespace를 막아도 Chromium 샌드박스가 돈다. `sudo apt remove trina-ax`가 이것을 모두 지운다.
+데이터는 `~/.config/Team AX`에 남는다. 그것까지 지우려면 그 폴더를 지운다.
+
+**AppImage:**
+
+```sh
+chmod +x Trina-AX-<v>-linux-x86_64.AppImage
+./Trina-AX-<v>-linux-x86_64.AppImage
+```
+
+- **FUSE:** AppImage는 FUSE의 `fusermount3`(또는 `fusermount`)로 자기 자신을 마운트한다. GNOME·KDE 데스크톱에는 이미 있고,
+  최소 설치 시스템이면 `fuse3`를 설치한다(Fedora `sudo dnf install fuse3`, Arch `sudo pacman -S fuse3`, Debian·Ubuntu
+  `sudo apt install fuse3`). FUSE 2 라이브러리는 필요 없다. 0.5.18 이하의 AppImage는 아직 FUSE 2가 필요하다: Fedora는 `fuse`
+  패키지(`fusermount`와 `fuse-libs`를 함께 설치한다. `fuse-libs`만으로는 안 된다), Arch `fuse2`, Ubuntu 24.04 `libfuse2t64`.
+  이 AppImage들은 스스로 새 방식으로 업데이트된다.
+- **샌드박스:** 앱은 Chromium 샌드박스 안에서만 돈다. AppArmor 프로필이 없는 프로그램의 user namespace를 막는 시스템(Ubuntu 24.04
+  이후)에서는 AppImage가 샌드박스를 쓸 수 없어서, 앱이 ".deb를 설치하세요"라고 말하고 끝난다. 거기서는 .deb를 쓴다. AppImage를
+  손으로 `--no-sandbox`와 함께 띄워도 같이 거절한다. .deb의 앱도 `--no-sandbox`로 띄우지 않는다.
+- 메뉴 항목과 링크 처리기를 만들지 않는다. `trina-ax://` 링크가 필요하면 .deb를 쓴다.
+- 스스로 업데이트하려면 쓸 수 있는 폴더(예: `~/Applications`)에 둔다.
+
+**키링:** "내 컴퓨터의 앱"은 설정값(토큰, 키)을 Secret Service를 통해 시스템 키링(GNOME Keyring 또는 KWallet)에 둔다. 세션에
+키링이 없으면(창 관리자만 쓸 때, `gnome-keyring` 없는 Xfce 등) 설정을 저장하지 않고 앱이 그렇게 알려 준다. 연결은 설정 없이도 된다.
+로그인 쿠키도 키링이 있으면 Chrome처럼 그것으로 보호된다. Chromium이 모르는 데스크톱(sway, i3 등)에서는 키링이 떠 있어도 Electron이
+그것을 고르지 않을 수 있다. 거기서는 앱을 `--password-store=gnome-libsecret`(또는 `kwallet6`)로 띄운다.
+
+**받은 파일 확인**(버전의 GitHub Release에 있는 서명된 체크섬으로):
+
+```sh
+V=<version> # 예: 0.5.18
+BASE="https://github.com/trina-app/trina-ax/releases/download/v$V"
+F="Trina-AX-$V-linux-amd64.deb"
+curl -fLO "$BASE/$F" -fLO "$BASE/SHA256SUMS" -fLO "$BASE/SHA256SUMS.sig"
+sha256sum --ignore-missing -c SHA256SUMS
+# SHA256SUMS의 서명: 이 저장소의 릴리스 키로(Bun 필요)
+git clone --depth 1 --branch "v$V" https://github.com/trina-app/trina-ax trina-ax-src
+bun trina-ax-src/scripts/release/release-ci.ts verify-sums SHA256SUMS
+```
+
+`verify-sums`는 그 버전 소스의 릴리스 키로 `SHA256SUMS.sig`를 확인한 뒤, `SHA256SUMS`에 있고 같은 폴더에 있는 파일을 모두 확인한다.
+앱 안의 업데이트는 같은 릴리스 서명을 스스로 확인한다.
+
 ## 2. 요구 사항
 
 | 항목 | 값 |
@@ -171,6 +230,17 @@ sudo ./install-linux.sh install --from . --engine claude --engine codex
 
 `repair`와 `update`는 `--public-host`와 `--app-connectors`를 기억한다. Drive 클라이언트 파일은 기억하지 않고, 설치된 파일을
 그대로 둔다. 잘못된 값은 아무것도 바꾸기 전에 거절한다.
+
+### 회사 HTTP 프록시 뒤의 서버
+
+서버가 회사 프록시로만 인터넷에 나갈 때의 설정이에요(2026-11-16 Debian 13 + squid로 확인, QA TC-2860). 명령과 프록시가 허용할 호스트 목록은 영어 문서 [Behind an HTTP proxy](INSTALL-LINUX.en.md#behind-an-http-proxy)에 있어요. 요약:
+
+1. apt: `sudo`는 셸의 프록시 변수를 apt에 넘기지 않아요. `/etc/apt/apt.conf.d/95proxy`에 `Acquire::http::Proxy`, `Acquire::https::Proxy`를 쓰세요.
+2. 설치 프로그램: 셸에 `https_proxy`/`http_proxy`/`no_proxy`(대문자도)를 정하고 `sudo -E ./install-linux.sh install …`로 실행하세요. `repair`, `update`도 `sudo -E`로요.
+3. 서버: 같은 변수를 `/etc/default/mycel`에 넣고 `sudo systemctl restart mycel-server`. `NO_PROXY`에 `127.0.0.1,localhost`를 남기세요. 이게 없으면 AI 키 확인이 "확인 중…", 답이 "생각 중…"에서 멈춰요.
+4. 루트 업데이트 타이머(`mycel-update.service`)는 `/etc/default/mycel`을 읽지 않아요: systemd drop-in으로 `HTTPS_PROXY`를 주세요.
+
+아직 프록시를 쓰지 않는 것: 서버의 공인 주소 확인(`https://updates.trina.app/ip`)과 AI가 여는 웹 페이지는 직접 연결해요. 프록시로만 나갈 수 있으면 공인 주소가 "알 수 없음"이 되고, AI가 여는 웹 주소마다 사람에게 묻고 예약 작업은 열지 않아요. 관리 › 시스템은 첫 확인 전에는 "아직 확인하지 않았어요", 확인이 실패하면 "업데이트 서버에 연결하지 못했어요"라고 해요(프록시가 `updates.trina.app`을 허용하는지 확인하세요).
 
 ## 5. 첫 설정
 
@@ -386,6 +456,15 @@ Voice input is off by default. In Admin › Team settings › Voice input, savin
 takes 10–38 s). On small servers, use OpenRouter. The server account can reach public https hosts (openrouter.ai), so
 the firewall needs no change.
 
+### 서버 메모리 한도
+
+서버 유닛(`<id>-server.service`)은 컴퓨터 메모리의 75%까지만 쓰고 스왑은 쓰지 않는다(`MemoryMax=75%`,
+`MemorySwapMax=0`). 안전장치다: 서버가 돌려줘야 할 메모리를 계속 쥐고 있으면 커널이 이 한도에서 서버를 끝내고 서버는
+몇 초 안에 다시 시작한다. 그러지 않으면 컴퓨터 전체 메모리가 바닥나 멈춘다. 평소 사용은 한도보다 훨씬 아래다(업로드,
+문서 변환, 인쇄는 각자 더 작은 한도가 있다). 이 한도를 가져오는 업데이트는 유닛을 바꾸므로 root 업데이트다(업데이트
+타이머 또는 `sudo mycel-ctl update`). 한도는 늦어도 서버가 다시 시작될 때 적용된다. 호스팅 요금제는 자기 서버 한도를 따로 두며
+그것이 우선한다(스왑을 쓰지 않는 것은 그대로 적용된다). 확인: `systemctl show <id>-server -p MemoryMax`.
+
 ### 9a. 안전한 PowerPoint(1A, 선택)
 
 기밀 문서용 PowerPoint 만들기(`docs/SAFE-OPS-1A.md`)는 기본으로 꺼져 있다. 켜기·끄기·상태:
@@ -412,7 +491,7 @@ sudo mycel-ctl safe-ops off
   "앱"은 보관 중인 버전과 엔진이다. 오래된 버전은 서버가 지운다(8장 "보관하는 버전").
   80%가 넘으면 owner·관리자에게 하루 한 번 알린다. 남은 공간이 max(512 MB, 2%) 아래로 내려가면 저장·업로드·AI의 파일 쓰기를
   받지 않는다(507). 휴지통 비우기, 파일 기록 보존일 줄이기(관리자 › 설정)로 공간을 만든다.
-- 로컬 백업: 매일 팀 시간대 03:00 이후, `/var/lib/mycel/team/.system/backups`(DB는 `data/backups`), 14일.
+- 로컬 백업: 매일 밤 팀 시간대 03:00(호스팅 서버는 팀의 시작 시각), 그 밤에 꺼져 있었으면 켜지는 즉시(설치 직후에도 한 번), `/var/lib/mycel/team/.system/backups`(DB는 `data/backups`), 14일.
 - 다른 곳에 두기(권장): `admin.js archive`로 age 암호화 아카이브를 만들어 서버 밖에 보관한다(비밀값 제외).
 - 오래된 기록 정리: 도구 기록(감사 보존일, 기본 90일), 파일 활동(1년 이상), 턴(400일, 채팅마다 마지막 턴은 남김)은 자동으로 지운다.
 

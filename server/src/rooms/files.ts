@@ -7,16 +7,31 @@
 // the message the file was sent with. It sends them like a team file's download (team-files/download.ts streamFile:
 // nosniff, a sandbox CSP, a page or script type inline as text/plain); the app's preview panel reads those bytes and
 // draws them (an HTML page only in its sandbox frame), never as a page of this origin. A file whose bytes are on the
-// team's download-only list goes only as a download (no inline read, no thumbnail). The upload path and its limits are the chat attachments' (multipart ≤ 50 MB, the
-// storage check, the temp file and its sha256, the image size and thumbnail helpers, the quarantine list).
+// team's download-only list goes only as a download (no inline read, no thumbnail). A file of up to 50 MB arrives in one request (multipart, streamed to a temp
+// file and hashed on the way: http/multipart.ts), a larger one, up to ROOM_FILE_MAX (1 GB), through an upload session
+// with target room (uploads/sessions.ts: 8 MB chunks written straight to disk, resumable). Either way the file is never
+// in memory whole; the storage check, the image size and thumbnail helpers and the quarantine list are the chat
+// attachments'. Only a picture of at most 50 MB is read whole (its metadata is cut out); a larger one is a plain file.
 // reconcile() runs at every start: after a restore the database and the folder may be from different moments; a file
 // without its row is set aside in .system/rooms-orphans/ for 30 days, a row without its file is only counted.
+// sweep() (the rooms' one-minute tick) also runs, once a day, the purge of those set-aside batches and purgeArchived():
+// the files of a conversation that was archived more than 30 days ago (nobody is in it, nobody can open it and nothing
+// brings it back) go with their rows; its messages stay (docs/decisions/20261116-archived-room-files-purge.md).
 // fromTeamFile() makes a room upload from a team file the sender may read now ("대화방에 보내기" attaching the files an
 // answer links to, chat/answer-share.ts): the same limits (≤ 50 MB, the storage check), then create().
 // teamCopy() is the same copy for a phone's attach sheet (POST /api/rooms/:id/team-file), kept as an unsent upload until
 // the person sends it: marked with its team path and the file as it was (room_files.team_path, team_stamp; migration
 // 287), so the same unchanged file picked again in the same room gets that copy back, and a person's unsent copies are
 // capped (TEAM_COPIES_UNSENT_MAX): a small request cannot fill the team's disk with 50 MB copies kept for a day.
+// A project's chat room (rooms/project-room.ts) keeps no bytes here (docs/decisions/20261120-project-is-room.md D3): a
+// file sent from the computer there goes into the project's Chat attachments folder (createInProject: the project's
+// shared chat's place and checks, uploads/shared-chat.ts), and a team file picked there stays where it is (teamRef);
+// either way the row carries a room_file_refs row (rooms/file-refs.ts) that follows the file and is checked on every
+// show and read. One rule on every path that deletes room files (removeForMessage, discardUnsent, sweep's unsent
+// uploads, purgeArchived): the row goes (its reference with it), and nothing on disk is deleted for a row kept in the
+// team folder; abs() refuses such a row, and reconcile() leaves them out. Only an upload taken out before it was sent
+// (a removed chip, an abandoned upload) sends its file to the team trash, when it is the uploader's own, unchanged and
+// shown nowhere else (no other chat's or room's reference to it).
 // hwpSource() gives a Hangul file's bytes to the HWP preview (files/hwp-preview.ts, the HWP Preview plugin's renderer;
 // GET /api/rooms/:id/files/:fileId/hwp-preview) with the inline read's checks, made again on every call.
 import { createHash, randomBytes } from 'node:crypto'
@@ -24,7 +39,8 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { PRODUCT } from '@mycel/shared'
 import { which } from '../config'
-import { SMALL_UPLOAD_MAX, type Locale, type RoomFile } from '@mycel/shared/api'
+import { GUEST_FILE_MAX, ROOM_FILE_MAX, SMALL_UPLOAD_MAX, type Locale, type RoomFile } from '@mycel/shared/api'
+import { guestUploadMax, sizeWords } from '../uploads/guest-limit'
 import { HWP_LIMITS } from '@mycel/shared/hwp'
 import type { AppContext } from '../context'
 import { newId, nowIso } from '../db'
@@ -33,7 +49,7 @@ import { HwpError } from '../files/hwp-engine'
 import type { HwpSource } from '../files/hwp-preview'
 import type { SearchAdmission } from '../files/search-admission'
 import { sha256 } from '../files/store'
-import { fail } from '../http/errors'
+import { fail, HttpError } from '../http/errors'
 import { loadPrincipal } from '../policy/access'
 import { authorize, visiblePath } from '../policy/authorize'
 import { badSegment } from '../policy/names'
@@ -47,11 +63,26 @@ import { personLocale } from '../files/media-text'
 import { tr } from '../chat/i18n'
 import { SAFE_OPS_TEXT } from '../safe-ops/strings'
 import { canSee, fileOut, memberRow, messageRow, roomRow, type FileRow } from './store'
+import { roomFileRefsOf, type RoomRefRow } from './file-refs'
+import { projectRoomLink } from './project-room'
+import { sharedUploadPlace } from '../uploads/shared-chat'
+import { otherRefTo } from '../uploads/ref-follow'
+import { ATTACH_RATE_MAX, hashChecked } from '../uploads/team-refs'
+import { instructionFile } from '../team-files/ai-trash'
+import { FileError, httpError } from '../team-files/errors'
+import { componentC } from '../team-files/component'
 
 /** An upload not sent in a message within a day is removed. */
 export const UNSENT_FILE_MS = 24 * 3600_000
 /** A person's team-file copies not sent yet (teamCopy), in bytes, all rooms together: four 50 MB files, or many small ones */
 export const TEAM_COPIES_UNSENT_MAX = 200 * 1024 * 1024
+/** A person's team-file references in project rooms not sent yet (teamRef), all rooms together */
+export const TEAM_REFS_UNSENT_MAX = 50
+/** The daily part of sweep(): the set-aside batches and the archived conversations' files. */
+export const DAILY_MS = 24 * 3600_000
+/** purgeArchived: rows per statement, and how long one run may take before it goes on at the next tick */
+const PURGE_BATCH = 100
+const PURGE_BUDGET_MS = 2000
 /** Room files without a database row are kept this long in .system/rooms-orphans/ (reconcile). */
 export const ORPHAN_KEEP_MS = 30 * 86400_000
 /** a picture's thumbnail beside it: <file id>.thumb.jpg, or .thumb.png for one with transparency (uploads/image.ts) */
@@ -74,9 +105,17 @@ export class RoomFiles {
   private reserved = new Map<string, number>()
   /** teamCopy: the copies on their way, by person, room, team path and stamp */
   private copying = new Map<string, Promise<RoomFile>>()
+  /** when the daily part of sweep() last ran (null: not since this start, so the first tick runs it) */
+  private dailyAt: number | null = null
   root() { return path.join(this.ctx.files.fx.root, PRODUCT.systemDir, 'rooms') }
   private dir(roomId: string) { return path.join(this.root(), roomId) }
-  private abs(f: Pick<FileRow, 'room_id' | 'id'>) { return path.join(this.dir(f.room_id), f.id) }
+  /** a room-stored file's bytes; a row kept in the team folder has none here, and is refused (no later change can point
+   * a delete or a read of room storage at the team folder) */
+  private abs(f: Pick<FileRow, 'room_id' | 'id'>) {
+    if (this.refs().isRef(f.id)) throw new Error('a room file kept in the team folder has no room storage')
+    return path.join(this.dir(f.room_id), f.id)
+  }
+  private refs() { return roomFileRefsOf(this.ctx) }
   private thumbBase(f: Pick<FileRow, 'room_id' | 'id'>) { return path.join(this.dir(f.room_id), `${f.id}.thumb`) }
   private removeThumbs(f: Pick<FileRow, 'room_id' | 'id'>) { for (const e of THUMB_EXTS) fs.rmSync(`${this.thumbBase(f)}.${e}`, { force: true }) }
 
@@ -86,12 +125,50 @@ export class RoomFiles {
     return me ?? fail('not_found')
   }
 
-  /** Keep an uploaded temp file (moved, not copied) for sending in this room. */
-  async create(userId: string, roomId: string, name: string, src: string, sha256: string): Promise<RoomFile> {
-    this.member(userId, roomId)
+  /** The name a file is kept under, or 422 for one that cannot be a file name. */
+  private cleanName(name: string, field = 'body.name'): string {
     const clean = name.normalize('NFC').replace(/[\u0000-\u001f]/g, '').trim()
     const bad = clean.includes('/') || clean.includes('\\') ? 'names cannot contain "/"' : badSegment(clean)
-    if (bad) fail('validation', undefined, { fields: { 'body.name': bad } })
+    if (bad) fail('validation', undefined, { fields: { [field]: bad } })
+    return clean
+  }
+
+  /**
+   * Before a large upload starts (an upload session with target room, uploads/sessions.ts), and again when it is
+   * complete: the person is in the room, the name can be kept and the file is at most ROOM_FILE_MAX. Refused before any
+   * byte is taken, in plain words with the limit (a guest's own: maxFor).
+   */
+  assertUpload(userId: string, roomId: string, name: string, size: number): void {
+    this.member(userId, roomId)
+    this.cleanName(name, 'body.target.name')
+    this.assertSize(userId, size)
+  }
+
+  /** The largest file this person may send in a room now: ROOM_FILE_MAX, or for a guest the team's choice (100 MB
+   * unless the owner or an admin raised it to 1 GB: uploads/guest-limit.ts). Read at every upload, from their role then. */
+  maxFor(userId: string): number {
+    return Math.min(ROOM_FILE_MAX, guestUploadMax(this.ctx.db, userId) ?? ROOM_FILE_MAX)
+  }
+
+  /** 413 in plain words with the person's own limit ("… The limit is 100 MB."). */
+  private assertSize(userId: string, size: number): void {
+    const max = this.maxFor(userId)
+    if (size <= max) return
+    fail('payload_too_large', tr('roomFileTooBig', personLocale(this.ctx.db, userId), { max: sizeWords(max) }), { params: { reason: 'room_file_too_large', maxBytes: max } })
+  }
+
+  /**
+   * Keep an uploaded temp file (moved, not copied) for sending in this room. Nothing here reads the whole file into
+   * memory unless it is a picture of at most SMALL_UPLOAD_MAX (its metadata is cut out); a larger file named like a
+   * picture is kept as a plain file (no preview made from it), like any document.
+   */
+  async create(userId: string, roomId: string, name: string, src: string, sha256: string, o: { roomStorage?: boolean } = {}): Promise<RoomFile> {
+    this.member(userId, roomId)
+    const clean = this.cleanName(name)
+    // a project's chat room: into the project's Chat attachments folder (a copy fromTeamFile makes for an answer stays a
+    // room copy: it is there for the members who cannot open the team file)
+    const link = o.roomStorage ? null : projectRoomLink(this.ctx.db, roomId)
+    if (link) return this.createInProject(userId, roomId, link.project_id, clean, src, sha256)
     const id = newId()
     fs.mkdirSync(this.dir(roomId), { recursive: true, mode: 0o700 })
     const dst = this.abs({ room_id: roomId, id })
@@ -100,12 +177,14 @@ export class RoomFiles {
     let headLen = 0
     try { headLen = fs.readSync(fd, head, 0, head.length, 0) } finally { fs.closeSync(fd) }
     let size = fs.statSync(src).size
+    // the person's limit as it is now, whichever way the bytes came (one request, an upload session, a team file's copy)
+    this.assertSize(userId, size)
     const first = head.subarray(0, headLen)
     // a picture is shown in the room only as one whose metadata can be cut out (JPEG, PNG, WebP, HEIC) or one that
     // carries no place in practice (GIF, BMP, SVG); anything else named like a picture (a TIFF, which can hold GPS like
     // any camera EXIF, or bytes that are not what the name says) goes as a plain file, like a document
     const fmt = imageFormat(first)
-    const kind = attachmentKind(clean) === 'image' && !fmt && !plainPicture(first, clean) ? 'other' : attachmentKind(clean)
+    const kind = attachmentKind(clean) === 'image' && (size > SMALL_UPLOAD_MAX || (!fmt && !plainPicture(first, clean))) ? 'other' : attachmentKind(clean)
     // a file on the team's quarantine list (safe-ops) is kept as a file: no preview is made from it
     const quarantined = this.ctx.files.quarantine.hasHash(sha256)
     // the size it is shown at (a portrait phone photo stored landscape stands upright): from the photo as sent
@@ -122,8 +201,14 @@ export class RoomFiles {
       size = cleaned.byteLength
       stored = createHash('sha256').update(cleaned).digest('hex')
     }
-    try { fs.renameSync(src, dst) } catch { fs.copyFileSync(src, dst); fs.rmSync(src, { force: true }) }
+    // another disk than the uploads folder: a copy that does not hold the server up while a large file is written
+    try { fs.renameSync(src, dst) } catch {
+      try { await fs.promises.copyFile(src, dst) } catch (e) { fs.rmSync(dst, { force: true }); throw e }
+      fs.rmSync(src, { force: true })
+    }
     fs.chmodSync(dst, 0o600)
+    // the room may have been archived, or the person taken out, while the copy ran
+    try { this.member(userId, roomId) } catch (e) { fs.rmSync(dst, { force: true }); throw e }
     let thumb = false
     if (kind === 'image' && !quarantined) {
       try { thumb = !!(await makeThumbnail(dst, this.thumbBase({ room_id: roomId, id }), 640, path.join(this.ctx.config.dataDir, 'work'))) } catch (e) { this.ctx.log.debug('room thumbnail failed', { err: e }) }
@@ -131,6 +216,156 @@ export class RoomFiles {
     this.ctx.db.query(`INSERT INTO room_files (id, room_id, user_id, name, size, mime, kind, width, height, sha256, thumb, created_at)
       VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`).run(id, roomId, userId, clean, size, mimeOf(clean) ?? 'application/octet-stream', kind, dims?.width ?? null, dims?.height ?? null, stored, thumb ? 1 : 0, nowIso())
     return fileOut(this.ctx.db.query('SELECT * FROM room_files WHERE id = ?').get(id) as FileRow)
+  }
+
+  /**
+   * A file from the computer in a project's chat room (docs/decisions/20261120-project-is-room.md D3): placed by the
+   * person in the project's Chat attachments folder as a Files-screen upload of theirs, with the project's shared chat's
+   * place and checks (uploads/shared-chat.ts sharedUploadPlace: write access there, 403 shared_upload_read_only
+   * otherwise; the folder made when missing; a taken name or an instruction file's name gets the next free one, "(2)";
+   * never an overwrite). Its upload event carries { attachment, roomId } (the file's history reads "Sent in the chat
+   * room"). The room's limits stay (maxFor), a picture's metadata is cut out first as for any room photo, and bytes on
+   * the download-only list are refused (they never become a team file the AI could be handed). The room keeps no bytes:
+   * the row gets a room_file_refs row. A row that cannot be made sends the placed file to the trash.
+   */
+  private async createInProject(userId: string, roomId: string, projectId: string, clean: string, src: string, sha256: string): Promise<RoomFile> {
+    const db = this.ctx.db
+    const locale = personLocale(db, userId)
+    const team = componentC(this.ctx).files
+    let place: { folder: string; exists: boolean }
+    try { place = sharedUploadPlace(db, { fx: this.ctx.files.fx, rules: () => this.ctx.files.rules(), principal: (id) => this.ctx.files.principal(id) }, userId, { project_id: projectId }) } catch (e) {
+      if (e instanceof FileError && e.params?.reason === 'shared_upload_read_only') throw httpError('forbidden', 'sharedUploadReadOnly', locale, undefined, { reason: 'shared_upload_read_only' })
+      throw e
+    }
+    if (this.ctx.files.quarantine.hasHash(sha256)) fail('unavailable', SAFE_OPS_TEXT.quarantined[locale], { params: { reason: 'quarantined' } })
+    const head = Buffer.alloc(64 * 1024)
+    const fd = fs.openSync(src, 'r')
+    let headLen = 0
+    try { headLen = fs.readSync(fd, head, 0, head.length, 0) } finally { fs.closeSync(fd) }
+    const size = fs.statSync(src).size
+    this.assertSize(userId, size)
+    const first = head.subarray(0, headLen)
+    const fmt = imageFormat(first)
+    const kind = attachmentKind(clean) === 'image' && (size > SMALL_UPLOAD_MAX || (!fmt && !plainPicture(first, clean))) ? 'other' : attachmentKind(clean)
+    const dims = kind === 'image' ? displaySize(first) : null
+    // like any room photo, the place it was taken, the camera and other metadata are cut out (uploads/metadata.ts)
+    let stored = sha256
+    if (kind === 'image' && fmt) {
+      const cleaned = cleanImage(fs.readFileSync(src), PHOTO)
+      if (!(cleaned instanceof Uint8Array)) { fs.rmSync(src, { force: true }); return fail('validation', tr('roomPhotoUnreadable', locale)) }
+      fs.writeFileSync(src, cleaned)
+      stored = createHash('sha256').update(cleaned).digest('hex')
+    }
+    if (!place.exists) {
+      // another upload of the same moment may have made it just now
+      try { team.mkdir(userId, place.folder) } catch (e) { if (!(e instanceof FileError && e.key === 'exists')) throw e }
+    }
+    const id = newId()
+    const entry = await team.placeUpload(userId, place.folder, clean, src, 'rename', stored, { action: 'upload', detail: { attachment: id, roomId } }, { taken: instructionFile })
+    const at = path.join(team.root, ...entry.path.split('/'))
+    let placed: fs.Stats | null = null
+    try { placed = fs.lstatSync(at) } catch { /* gone already: refused below */ }
+    try {
+      if (!placed?.isFile()) fail('not_found')
+      // the room may have been archived, or the person taken out, while it was placed
+      this.member(userId, roomId)
+      const name = entry.path.slice(entry.path.lastIndexOf('/') + 1)
+      db.transaction(() => {
+        db.query(`INSERT INTO room_files (id, room_id, user_id, name, size, mime, kind, width, height, sha256, thumb, created_at)
+          VALUES (?,?,?,?,?,?,?,?,?,?,0,?)`).run(id, roomId, userId, name, placed!.size, mimeOf(name) ?? 'application/octet-stream', kind, dims?.width ?? null, dims?.height ?? null, stored, nowIso())
+        this.refs().add(id, entry.path, placed!, stored)
+      })()
+    } catch (e) {
+      // only the file this upload put there (not one that took its place meanwhile)
+      try {
+        const now = fs.lstatSync(at)
+        if (placed && now.ino === placed.ino && now.dev === placed.dev) team.remove(userId, entry.path)
+      } catch (err) { this.ctx.log.warn('a project room upload whose row failed could not go to the trash', { err }) }
+      throw e
+    }
+    return this.refs().view(userId, db.query('SELECT * FROM room_files WHERE id = ?').get(id) as FileRow)
+  }
+
+  /**
+   * "Add from team files" in a project's chat room (teamCopy there): a reference to the team file `rel`, never a copy
+   * (docs/decisions/20261120-project-is-room.md D3): `userId`'s unsent upload marked with its team path and stamp, as a
+   * copy is (the same unchanged pick again gives it back; Rooms.send checks the access again and audits it). A member
+   * who cannot open the file sees it as "unavailable". Its content hash is read once, through the checked descriptor.
+   */
+  private async teamRef(userId: string, roomId: string, src: { abs: string; name: string; rel: string; st: fs.Stats }, stamp: string, locale: Locale): Promise<RoomFile> {
+    const db = this.ctx.db
+    const same = db.query('SELECT f.* FROM room_files f JOIN room_file_refs r ON r.room_file_id = f.id WHERE f.room_id = ? AND f.user_id = ? AND f.message_id IS NULL AND f.team_path = ? AND f.team_stamp = ? ORDER BY f.created_at DESC LIMIT 1').get(roomId, userId, src.rel, stamp) as FileRow | null
+    if (same) return this.refs().view(userId, same)
+    // each new reference hashes the file: as for a chat's team file references (uploads/team-refs.ts ATTACH_RATE_MAX),
+    // at most that many new ones a person in ten minutes (429), and at most TEAM_REFS_UNSENT_MAX not sent yet (409)
+    const since = new Date(Date.now() - 10 * 60_000).toISOString()
+    const recent = (db.query('SELECT COUNT(*) n FROM room_files f JOIN room_file_refs r ON r.room_file_id = f.id WHERE f.user_id = ? AND f.team_path IS NOT NULL AND f.created_at > ?').get(userId, since) as { n: number }).n
+    if (recent >= ATTACH_RATE_MAX) throw new HttpError('rate_limited', undefined, { retryAfter: 60 })
+    const unsent = (db.query('SELECT COUNT(*) n FROM room_files f JOIN room_file_refs r ON r.room_file_id = f.id WHERE f.user_id = ? AND f.message_id IS NULL').get(userId) as { n: number }).n
+    if (unsent >= TEAM_REFS_UNSENT_MAX) fail('conflict', tr('roomTeamCopiesFull', locale, { max: `${TEAM_REFS_UNSENT_MAX}` }), { params: { reason: 'team_refs_full' } })
+    let sha: string
+    try { sha = await hashChecked(src.abs, src.st) } catch { return fail('not_found') }
+    this.member(userId, roomId)
+    const id = newId()
+    const kind = attachmentKind(src.name)
+    let dims: { width: number; height: number } | null = null
+    if (kind === 'image') {
+      try {
+        const head = Buffer.alloc(64 * 1024)
+        const { fd } = openChecked(src.abs, src.st)
+        try { dims = displaySize(head.subarray(0, fs.readSync(fd, head, 0, head.length, 0))) } finally { fs.closeSync(fd) }
+      } catch { /* no size: shown as a file */ }
+    }
+    db.transaction(() => {
+      db.query(`INSERT INTO room_files (id, room_id, user_id, name, size, mime, kind, width, height, sha256, thumb, created_at, team_path, team_stamp)
+        VALUES (?,?,?,?,?,?,?,?,?,?,0,?,?,?)`).run(id, roomId, userId, src.name, src.st.size, mimeOf(src.name) ?? 'application/octet-stream', kind, dims?.width ?? null, dims?.height ?? null, sha, nowIso(), src.rel, stamp)
+      this.refs().add(id, src.rel, src.st, sha)
+    })()
+    return this.refs().view(userId, db.query('SELECT * FROM room_files WHERE id = ?').get(id) as FileRow)
+  }
+
+  /** The rows among these kept in the team folder, by id (read before they are deleted: their reference goes with them). */
+  private refRows(ids: readonly string[]): Map<string, RoomRefRow> {
+    const out = new Map<string, RoomRefRow>()
+    for (const id of this.refs().refIds(ids)) { const r = this.refs().row(id); if (r) out.set(id, r) }
+    return out
+  }
+
+  /** An upload of `f.user_id` taken out before it was sent (a removed chip, an abandoned upload), kept in the team folder:
+   * its team path when the file should go to the trash: the upload event names this row and its room, no other chat's
+   * or room's reference shows the very file, and it is still the file put there (the same place and inode, the same
+   * size, not modified since). Else null: anything else stays where it is (a team file picked from Files, one moved,
+   * renamed or edited since, one shown elsewhere). Read before the row goes. */
+  private uploadToTrash(f: Pick<FileRow, 'id' | 'room_id' | 'user_id' | 'size' | 'created_at'>, ref: RoomRefRow): string | null {
+    if (!f.user_id) return null
+    const uploaded = this.ctx.db.query("SELECT 1 FROM file_events WHERE path = ? AND user_id = ? AND action = 'upload' AND json_extract(detail, '$.attachment') = ? AND json_extract(detail, '$.roomId') = ? LIMIT 1")
+      .get(ref.path_at_attach, f.user_id, f.id, f.room_id)
+    if (!uploaded || otherRefTo(this.ctx.db, { table: 'room_file_refs', id: f.id }, ref)) return null
+    const s = this.refs().locate(f.user_id, f, { persist: true })
+    if (s.state !== 'ok' || s.rel !== ref.path_at_attach || s.st.ino !== ref.ino || s.st.dev !== ref.dev || s.st.size !== f.size) return null
+    // modified after it was sent in (2 s for the file system's clock)
+    if (Math.floor(s.st.mtimeMs) > Date.parse(f.created_at) + 2000) return null
+    return s.rel
+  }
+
+  /** Rows that went (`rows`): a room-stored file's bytes and thumbnails go; a row kept in the team folder (`refs`, read
+   * before) leaves the disk alone, except `trash` (uploadToTrash's answers), which go to the team trash as their
+   * uploader's delete. */
+  private afterDelete(rows: readonly Pick<FileRow, 'id' | 'room_id'>[], refs: ReadonlyMap<string, RoomRefRow>, trash: ReadonlyMap<string, { userId: string; rel: string; ino: number; dev: number }> = new Map()) {
+    for (const f of rows) {
+      if (refs.has(f.id)) {
+        this.refs().forget(f.id)
+        const t = trash.get(f.id)
+        if (t) try {
+          // still the very file uploadToTrash checked (nothing took its place meanwhile)
+          const now = fs.lstatSync(path.join(componentC(this.ctx).files.root, ...t.rel.split('/')))
+          if (now.isFile() && now.ino === t.ino && now.dev === t.dev) componentC(this.ctx).files.remove(t.userId, t.rel)
+        } catch (e) { this.ctx.log.warn('a removed room upload could not go to the trash', { err: e }) }
+        continue
+      }
+      fs.rmSync(path.join(this.dir(f.room_id), f.id), { force: true })
+      this.removeThumbs(f)
+    }
   }
 
   /**
@@ -142,9 +377,9 @@ export class RoomFiles {
    */
   async fromTeamFile(userId: string, roomId: string, rel: string): Promise<RoomFile> {
     this.member(userId, roomId)
-    const { abs, name } = this.teamSource(userId, rel)
+    const { abs, name, st: seen } = this.teamSource(userId, rel)
     let opened: { fd: number; st: fs.Stats }
-    try { opened = openChecked(abs) } catch { return fail('not_found') }
+    try { opened = openChecked(abs, seen) } catch { return fail('not_found') }
     const tmpDir = path.join(this.ctx.config.dataDir, 'uploads', 'tmp')
     const tmp = path.join(tmpDir, `${PRODUCT.tmpPrefix}room-${randomBytes(8).toString('hex')}`)
     let sha: string
@@ -172,7 +407,7 @@ export class RoomFiles {
       fs.rmSync(tmp, { force: true })
       throw e
     } finally { fs.closeSync(opened.fd) }
-    try { return await this.create(userId, roomId, name, tmp, sha) } finally { fs.rmSync(tmp, { force: true }) }
+    try { return await this.create(userId, roomId, name, tmp, sha, { roomStorage: true }) } finally { fs.rmSync(tmp, { force: true }) }
   }
 
   /** The team file `rel` as `userId` may read it now: a regular file they may open (anything else 404, like a missing
@@ -197,17 +432,26 @@ export class RoomFiles {
     this.member(userId, roomId)
     const src = this.teamSource(userId, rel)
     const stamp = `${src.st.size}:${Math.trunc(src.st.mtimeMs)}:${src.st.ino}`
+    const key = [userId, roomId, src.rel, stamp].join('\n')
+    // a project's chat room: a reference to the team file, never a copy (the same pick on its way: that one)
+    if (projectRoomLink(this.ctx.db, roomId)) {
+      const going = this.copying.get(key)
+      if (going) return going
+      const ref = (async () => { try { return await this.teamRef(userId, roomId, src, stamp, locale) } finally { this.copying.delete(key) } })()
+      this.copying.set(key, ref)
+      return ref
+    }
     const same = this.ctx.db.query('SELECT * FROM room_files WHERE room_id = ? AND user_id = ? AND message_id IS NULL AND team_path = ? AND team_stamp = ? ORDER BY created_at DESC').all(roomId, userId, src.rel, stamp) as FileRow[]
     for (const f of same) {
       try { checkRegular(this.abs(f)); return fileOut(f) } catch { /* its file is gone: a new copy below */ }
     }
     // the same pick already on its way (a double tap, two boxes): that copy, not a second one
-    const key = [userId, roomId, src.rel, stamp].join('\n')
     const going = this.copying.get(key)
     if (going) return going
     // the cap counts the copies on their way too: their bytes are taken here, before anything awaits (one server
     // process: nothing else runs between the sum and the reservation), and given back once the row carries them
-    const unsent = (this.ctx.db.query('SELECT COALESCE(SUM(size), 0) n FROM room_files WHERE user_id = ? AND message_id IS NULL AND team_path IS NOT NULL').get(userId) as { n: number }).n
+    // (a project room's reference holds no bytes: never counted here)
+    const unsent = (this.ctx.db.query('SELECT COALESCE(SUM(size), 0) n FROM room_files WHERE user_id = ? AND message_id IS NULL AND team_path IS NOT NULL AND NOT EXISTS (SELECT 1 FROM room_file_refs rr WHERE rr.room_file_id = room_files.id)').get(userId) as { n: number }).n
     const held = this.reserved.get(userId) ?? 0
     if (unsent + held + src.st.size > TEAM_COPIES_UNSENT_MAX) fail('conflict', tr('roomTeamCopiesFull', locale, { max: '200 MB' }), { params: { reason: 'team_copies_full' } })
     this.reserved.set(userId, held + src.st.size)
@@ -250,19 +494,27 @@ export class RoomFiles {
   }
 
   /** Uploads of `userId` in this room not sent with a message: removed (a shared answer that did not go after all). */
+  /** One kept in the team folder (a project room's) leaves the disk alone, unless it is the person's own upload,
+   * unchanged and shown nowhere else: then it goes to the team trash (uploadToTrash). */
   discardUnsent(userId: string, roomId: string, fileIds: readonly string[]) {
     if (!fileIds.length) return
-    const rows = this.ctx.db.query(`DELETE FROM room_files WHERE room_id = ? AND user_id = ? AND message_id IS NULL AND id IN (${fileIds.map(() => '?').join(',')}) RETURNING id, room_id`)
+    const list = `(${fileIds.map(() => '?').join(',')})`
+    const before = this.ctx.db.query(`SELECT id, room_id, user_id, size, created_at FROM room_files WHERE room_id = ? AND user_id = ? AND message_id IS NULL AND id IN ${list}`).all(roomId, userId, ...fileIds) as Pick<FileRow, 'id' | 'room_id' | 'user_id' | 'size' | 'created_at'>[]
+    const refs = this.refRows(before.map((f) => f.id))
+    const trash = new Map<string, { userId: string; rel: string; ino: number; dev: number }>()
+    for (const f of before) { const r = refs.get(f.id); const rel = r ? this.uploadToTrash(f, r) : null; if (rel && r) trash.set(f.id, { userId, rel, ino: r.ino!, dev: r.dev! }) }
+    const rows = this.ctx.db.query(`DELETE FROM room_files WHERE room_id = ? AND user_id = ? AND message_id IS NULL AND id IN ${list} RETURNING id, room_id`)
       .all(roomId, userId, ...fileIds) as Pick<FileRow, 'id' | 'room_id'>[]
-    for (const f of rows) { fs.rmSync(this.abs(f), { force: true }); this.removeThumbs(f) }
+    this.afterDelete(rows, refs, trash)
   }
 
   /**
    * The file for `userId`, checked now: in the room, and either sent in a message they may see (not deleted) or their
    * own upload not sent yet. thumb: the small preview (or the image itself when it is a small web image). quarantined:
-   * its bytes are on the team's download-only list (the route then sends it only as a download).
+   * its bytes are on the team's download-only list (the route then sends it only as a download). A file kept in the team
+   * folder (`teamFile`: a project room's): the team file as it is now, while I read its path now; its bytes may change.
    */
-  open(userId: string, roomId: string, fileId: string, thumb: boolean): { abs: string; name: string; quarantined: boolean; sha256: string } {
+  open(userId: string, roomId: string, fileId: string, thumb: boolean): { abs: string; name: string; quarantined: boolean; sha256: string; teamFile?: true } {
     const me = this.member(userId, roomId)
     const f = this.ctx.db.query('SELECT * FROM room_files WHERE id = ? AND room_id = ?').get(fileId, roomId) as FileRow | null
     if (!f) return fail('not_found')
@@ -270,8 +522,17 @@ export class RoomFiles {
       const m = messageRow(this.ctx.db, roomId, f.message_id)
       if (!m || m.deleted_at || !canSee(this.ctx.db, m, me)) fail('not_found')
     } else if (f.user_id !== userId) fail('not_found')
-    const abs = this.abs(f)
     const quarantined = this.ctx.files.quarantine.hasHash(f.sha256)
+    // a project room's file kept in the team folder: where it is now, while I read it there (rooms/file-refs.ts)
+    if (this.refs().isRef(f.id)) {
+      const s = this.refs().locate(userId, f)
+      if (s.state !== 'ok') return fail('not_found')
+      const name = s.rel.slice(s.rel.lastIndexOf('/') + 1)
+      // no thumbnail of its own: the picture itself when it is a small web image (as a chat's team file reference)
+      if (thumb && (f.kind !== 'image' || !/^(png|jpe?g|gif|webp)$/.test(ext(name)) || s.st.size > 2 * 1024 * 1024)) fail('not_found')
+      return { abs: s.abs, name, quarantined, sha256: f.sha256, teamFile: true }
+    }
+    const abs = this.abs(f)
     if (thumb) {
       // a PNG one (a picture with transparency), else the JPEG one (every other picture, and those from before)
       if (f.thumb) {
@@ -307,17 +568,22 @@ export class RoomFiles {
     if (st.size > HWP_LIMITS.inputBytes) throw new HwpError('limit')
     const read = admission.read(f.abs, () => {
       try { const now = checked(); return now.abs === f.abs && now.sha256 === f.sha256 && checkRegular(now.abs) } catch { return false }
-    }, HWP_LIMITS.inputBytes)
+    }, HWP_LIMITS.inputBytes, { serverOwned: !f.teamFile })
     if (!read) throw new HwpError('changed')
     const hash = sha256(read.bytes)
-    if (hash !== f.sha256) throw new HwpError('changed')
-    return { key: `room:${roomId}/${fileId}`, bytes: read.bytes, hash, version: f.sha256, ext: /\.hwpx$/i.test(f.name) ? 'hwpx' : 'hwp' }
+    // a room-stored file is the bytes it was sent with; one kept in the team folder is the file as it is now
+    if (!f.teamFile && hash !== f.sha256) throw new HwpError('changed')
+    return { key: `room:${roomId}/${fileId}`, bytes: read.bytes, hash, version: f.teamFile ? hash : f.sha256, ext: /\.hwpx$/i.test(f.name) ? 'hwpx' : 'hwp' }
   }
 
-  /** A message was deleted: its files go from disk and from the table. */
+  /** A message was deleted: its files go from the table, and a room-stored one from disk. A file kept in the team folder
+   * (a project room's) stays there as an ordinary team file: deleting a message deletes only the message (owner
+   * 2026-11-20, as in Slack); people delete the file from Files themselves. */
   removeForMessage(messageId: string) {
+    const ids = (this.ctx.db.query('SELECT id FROM room_files WHERE message_id = ?').all(messageId) as { id: string }[]).map((r) => r.id)
+    const refs = this.refRows(ids)
     const rows = this.ctx.db.query('DELETE FROM room_files WHERE message_id = ? RETURNING id, room_id').all(messageId) as Pick<FileRow, 'id' | 'room_id'>[]
-    for (const f of rows) { fs.rmSync(this.abs(f), { force: true }); this.removeThumbs(f) }
+    this.afterDelete(rows, refs)
   }
 
   /**
@@ -347,9 +613,10 @@ export class RoomFiles {
       if (n) this.ctx.log.warn('room files folder missing or unreadable; room files are not checked at this start', { rows: n })
       return { ...out, skipped: true }
     }
-    const rows = this.ctx.db.query('SELECT id, room_id FROM room_files').all() as Pick<FileRow, 'id' | 'room_id'>[]
+    // (a row kept in the team folder has no bytes here: never counted as missing)
+    const rows = this.ctx.db.query('SELECT id, room_id FROM room_files f WHERE NOT EXISTS (SELECT 1 FROM room_file_refs rr WHERE rr.room_file_id = f.id)').all() as Pick<FileRow, 'id' | 'room_id'>[]
     const known = new Set(rows.map((r) => `${r.room_id}/${r.id}`))
-    for (const r of rows) if (!fs.existsSync(this.abs(r))) out.missingFiles++
+    for (const r of rows) if (!fs.existsSync(path.join(this.dir(r.room_id), r.id))) out.missingFiles++
     const batch = this.newBatch(now)
     for (const room of rooms) {
       const dir = path.join(root, room)
@@ -477,17 +744,81 @@ export class RoomFiles {
     return { refreshed }
   }
 
-  /** Uploads never sent, and files of rooms that are gone. */
+  /** Uploads never sent; once a day, the set-aside batches older than 30 days and the files of conversations archived
+   * more than 30 days ago (purgeArchived). */
   sweep(now = Date.now()) {
     const cutoff = new Date(now - UNSENT_FILE_MS).toISOString()
+    // an abandoned upload kept in the team folder (a project room's) is taken out as its removed chip would be
+    const before = this.ctx.db.query('SELECT id, room_id, user_id, size, created_at FROM room_files WHERE message_id IS NULL AND created_at < ?').all(cutoff) as Pick<FileRow, 'id' | 'room_id' | 'user_id' | 'size' | 'created_at'>[]
+    const refs = this.refRows(before.map((f) => f.id))
+    const trash = new Map<string, { userId: string; rel: string; ino: number; dev: number }>()
+    for (const f of before) { const r = refs.get(f.id); const rel = r ? this.uploadToTrash(f, r) : null; if (rel && r && f.user_id) trash.set(f.id, { userId: f.user_id, rel, ino: r.ino!, dev: r.dev! }) }
     const rows = this.ctx.db.query('DELETE FROM room_files WHERE message_id IS NULL AND created_at < ? RETURNING id, room_id').all(cutoff) as Pick<FileRow, 'id' | 'room_id'>[]
-    for (const f of rows) { fs.rmSync(this.abs(f), { force: true }); this.removeThumbs(f) }
+    this.afterDelete(rows, refs, trash)
+    // a clock set back: the day starts again from now, so the daily part does not stop
+    if (this.dailyAt !== null && now < this.dailyAt) this.dailyAt = now
+    if (this.dailyAt === null || now - this.dailyAt >= DAILY_MS) {
+      // each on its own: one that fails (a share that refuses a delete) neither stops the other nor runs again every
+      // minute; it is tried again the next day
+      let archived = { files: 0, more: false }, batches = 0
+      try { archived = this.purgeArchived(now) } catch (e) { this.ctx.log.warn('archived conversations\' files not purged', { err: e }) }
+      try { batches = this.purgeOrphans(now) } catch (e) { this.ctx.log.warn('set-aside room files not purged', { err: e }) }
+      // not done (the time ran out on a large conversation): the next tick goes on
+      if (!archived.more) this.dailyAt = now
+      if (archived.files || batches) this.ctx.log.info('room files checked', { archivedFilesPurged: archived.files, orphanBatchesPurged: batches })
+    }
     return rows.length
+  }
+
+  /**
+   * The files of conversations archived more than ORPHAN_KEEP_MS ago, and still without a member (the rule that makes
+   * them unreachable, checked here, not assumed): their rows go, then each file and its thumbnails, then the
+   * conversation's empty folder. The messages stay. Nothing when the room files folder is not there (a share not
+   * mounted: the rows would go while the bytes stay on the share) or when the clock looks wrong (earlier than the newest
+   * room file or the newest archive). At most PURGE_BUDGET_MS a run; `more`: there is more to do.
+   */
+  purgeArchived(now = Date.now(), o: { batch?: number; budgetMs?: number } = {}): { files: number; more: boolean } {
+    const out = { files: 0, more: false }
+    if (!this.teamFolderPresent()) return out
+    try { if (!fs.statSync(this.root()).isDirectory()) return out } catch { return out }
+    const newest = this.ctx.db.query('SELECT MAX(created_at) t FROM room_files').get() as { t: string | null }
+    const archived = this.ctx.db.query('SELECT MAX(archived_at) t FROM rooms').get() as { t: string | null }
+    if ((newest.t && now < Date.parse(newest.t)) || (archived.t && now < Date.parse(archived.t))) {
+      this.ctx.log.warn('the clock is earlier than the newest room file or archive; archived conversations keep their files', { newest: newest.t, archived: archived.t })
+      return out
+    }
+    const cutoff = new Date(now - ORPHAN_KEEP_MS).toISOString()
+    const batch = o.batch ?? PURGE_BATCH
+    const del = this.ctx.db.query(`DELETE FROM room_files WHERE id IN (SELECT f.id FROM room_files f JOIN rooms r ON r.id = f.room_id
+      WHERE r.archived_at IS NOT NULL AND r.archived_at < ? AND NOT EXISTS (SELECT 1 FROM room_members m WHERE m.room_id = r.id) LIMIT ${Math.max(1, Math.floor(batch))})
+      RETURNING id, room_id`)
+    const until = Date.now() + (o.budgetMs ?? PURGE_BUDGET_MS)
+    const rooms = new Set<string>()
+    let failed = 0
+    // (a row kept in the team folder: the row goes, the team file stays; its id is looked up before the delete)
+    const refsAmong = this.ctx.db.query(`SELECT f.id FROM room_files f JOIN rooms r ON r.id = f.room_id JOIN room_file_refs rr ON rr.room_file_id = f.id
+      WHERE r.archived_at IS NOT NULL AND r.archived_at < ? AND NOT EXISTS (SELECT 1 FROM room_members m WHERE m.room_id = r.id)`)
+    for (;;) {
+      const refIds = new Set((refsAmong.all(cutoff) as { id: string }[]).map((r) => r.id))
+      const rows = del.all(cutoff) as Pick<FileRow, 'id' | 'room_id'>[]
+      // the rows are gone: a file that cannot be removed now is set aside by the next start's check (reconcile)
+      for (const f of rows) {
+        rooms.add(f.room_id)
+        if (refIds.has(f.id)) { this.refs().forget(f.id); continue }
+        try { fs.rmSync(path.join(this.dir(f.room_id), f.id), { force: true }); this.removeThumbs(f) } catch { failed++ }
+      }
+      out.files += rows.length
+      if (rows.length < batch) break
+      if (Date.now() > until) { out.more = true; break }
+    }
+    for (const r of rooms) try { fs.rmdirSync(this.dir(r)) } catch { /* not empty: an unsent upload's file, gone tomorrow */ }
+    if (failed) this.ctx.log.warn('some files of archived conversations could not be removed', { failed })
+    return out
   }
 }
 
 export function roomFilesOf(ctx: AppContext): RoomFiles {
   let s = services.get(ctx)
-  if (!s) { s = new RoomFiles(ctx); services.set(ctx, s) }
+  if (!s) { s = new RoomFiles(ctx); services.set(ctx, s); roomFileRefsOf(ctx) }
   return s
 }

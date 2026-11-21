@@ -10,6 +10,7 @@ bun run build:native
 bun run typecheck
 bun run check:i18n
 bun run check:docs
+bun run check:migrations
 bun test tests/unit/onboarding-docs.test.ts tests/unit/demo-start.test.ts tests/unit/demo-seed.test.ts tests/unit/skills.test.ts tests/unit/skill-issues.test.ts
 ```
 

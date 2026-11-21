@@ -44,6 +44,10 @@ function offScale(phone: boolean): Omit<Off, 'screen'>[] {
   const px = (el: Element) => Number.parseFloat(getComputedStyle(el).fontSize)
   // a list row's name, and a setting's name and line
   for (const el of root.querySelectorAll('.text-row')) if (shown(el) && px(el) !== row) add(`row-name-not-${row}`, el, px(el))
+  // the Trina history's row names: 14px on a computer, the phone rows' 16px on a phone
+  // (docs/decisions/20261121-trina-history-like-rooms.md)
+  const historyRow = phone ? 16 : 14
+  for (const el of root.querySelectorAll('.text-row-history')) if (shown(el) && px(el) !== historyRow) add(`history-row-name-not-${historyRow}`, el, px(el))
   for (const el of root.querySelectorAll('[data-setting-name]')) if (shown(el) && px(el) !== row) add(`setting-name-not-${row}`, el, px(el))
   for (const el of root.querySelectorAll('[data-setting-desc]')) if (shown(el) && px(el) !== 13) add('setting-line-not-13', el, px(el))
   // meta and hints 13, body 15 (a field on a phone is 16 or more, against iOS's zoom)
@@ -80,11 +84,12 @@ for (const width of [390, 1440]) {
   })
 }
 
-// The rail's five panels at 1440 (docs/DECISIONS.md "Lists: one set of rows and headers"): 트리나's 고정 · 최근 기록 rows
-// (nav/ChatItem.tsx, a ListRow) read at the other panels' row size, line height and height, its section headers at
-// theirs, and the trailing tags (a chat's project, a task's last run) are 13px, end at one edge on every row and never
-// take more than 40% of the row.
-test('panel rows at 1440px: 트리나\'s rows, headers and tags read as 대화, 프로젝트, 파일 and 활동\'s', async ({ page }) => {
+// The rail's five panels at 1440 (docs/DECISIONS.md "Lists: one set of rows and headers"): 트리나's section headers read
+// as the other panels' headers. 트리나's 고정 · 최근 기록 rows (nav/ChatItem.tsx, a ListRow scale="history") are the other
+// panels' 30px rows with no gap, as a room's row in 대화, and 14px names (docs/decisions/20261121-trina-history-like-rooms.md).
+// The trailing tags (a chat's project, a task's last run) are 13px, end at one edge on every row and never take
+// more than 40% of the row.
+test('panel rows at 1440px: 트리나\'s rows 30px / 14px, its headers and tags as 대화, 프로젝트, 파일 and 활동\'s', async ({ page }) => {
   test.setTimeout(120_000)
   await page.setViewportSize({ width: 1440, height: 900 })
   await reset(page)
@@ -108,7 +113,7 @@ test('panel rows at 1440px: 트리나\'s rows, headers and tags read as 대화, 
     return { size: s.fontSize, weight: s.fontWeight, lh: s.lineHeight, height: Math.round(el.closest(box)!.getBoundingClientRect().height) }
   }, box)
   // a row's name: the ListRow's name span, or a room's link that carries the name's look itself (nav/RoomsList.tsx)
-  const rowName = '#rail-panel li > a .text-row, #rail-panel li > a.text-row'
+  const rowName = '#rail-panel li > a .text-row, #rail-panel li > a.text-row, #rail-panel li > a .text-row-history'
   const head = '#rail-panel section[aria-labelledby] > div > h3'
   const looks: Record<string, { row: Look; head?: Look }> = {}
   for (const item of ['chats', 'projects', 'files', 'activity', 'ai'] as const) {
@@ -119,24 +124,29 @@ test('panel rows at 1440px: 트리나\'s rows, headers and tags read as 대화, 
   const ai = looks.ai!
   for (const item of ['chats', 'projects', 'files', 'activity']) {
     const o = looks[item]!
-    expect({ size: ai.row.size, lh: ai.row.lh }, `트리나's row against ${item}'s`).toEqual({ size: o.row.size, lh: o.row.lh })
+    expect({ size: o.row.size, lh: o.row.lh }, `${item}'s row`).toEqual({ size: '15px', lh: '20px' })
     if (o.head) expect(ai.head, `트리나's section header against ${item}'s`).toEqual(o.head)
   }
-  // a read row: 15px at 400 in a 30px row, as 파일's
-  expect(ai.row).toEqual({ ...looks.files!.row, weight: '400' })
-  expect(ai.row.height).toBe(30)
-  // every row of 트리나's list is one height; the tags end at one edge, 13px, at most 40% of their row
+  // a read row: 14px / 20px at 400 in a 30px row, as 파일's and a room's
+  expect(ai.row).toEqual({ size: '14px', lh: '20px', weight: '400', height: 30 })
+  expect(looks.files!.row.height).toBe(30)
+  // every row of 트리나's list is one height, with no gap; the tags end at one edge, 12px in from the row's (no room kept
+  // for the "···" at rest, as a room's row), 13px, at most 40% of their row
   const list = page.getByTestId('trina-list')
   const heights = await list.locator('li > a').evaluateAll((els) => els.map((e) => Math.round(e.getBoundingClientRect().height)))
   expect(new Set(heights)).toEqual(new Set([30]))
+  const gaps = await list.locator('ul').last().locator(':scope > li').evaluateAll((els) => els.slice(1).map((e, i) => Math.round(e.getBoundingClientRect().top - els[i]!.getBoundingClientRect().bottom)))
+  expect(gaps.length).toBeGreaterThan(0)
+  expect(new Set(gaps)).toEqual(new Set([0]))
   const tags = await list.locator('[data-testid="chat-row-project"], [data-testid="task-runs-row"] .text-meta').evaluateAll((els) => els.map((e) => {
     const r = e.getBoundingClientRect(), row = e.closest('a')!.getBoundingClientRect()
-    return { right: Math.round(r.right), share: r.width / row.width, size: getComputedStyle(e).fontSize, text: e.textContent }
+    return { right: Math.round(r.right), inset: Math.round(row.right - r.right), share: r.width / row.width, size: getComputedStyle(e).fontSize, text: e.textContent }
   }))
   expect(tags.map((x) => x.text)).toEqual(expect.arrayContaining(['acme-web', 'Hello', 'ops']))
   expect(tags.length).toBe(4)
   expect(new Set(tags.map((x) => x.right)).size, JSON.stringify(tags)).toBe(1)
   for (const x of tags) {
+    expect(x.inset).toBe(12)
     expect(x.size).toBe('13px')
     expect(x.share).toBeLessThanOrEqual(0.41)
   }

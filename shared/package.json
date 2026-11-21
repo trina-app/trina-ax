@@ -21,14 +21,18 @@
     "./cloud-protocol/relay-ops": "./src/cloud-protocol/relay-ops.ts",
     "./cloud-protocol/drive-broker": "./src/cloud-protocol/drive-broker.ts",
     "./cloud-protocol/slack-broker": "./src/cloud-protocol/slack-broker.ts",
+    "./cloud-protocol/team-name": "./src/cloud-protocol/team-name.ts",
     "./plugins": "./src/plugins.ts",
     "./plural": "./src/plural.ts",
     "./honorific": "./src/honorific.ts",
+    "./ko-particle": "./src/ko-particle.ts",
+    "./es-contract": "./src/es-contract.ts",
     "./product": "./src/product.ts",
     "./team-link": "./src/team-link.ts",
     "./app-links": "./src/app-links.ts",
     "./skill-roots": "./src/skill-roots.ts",
     "./release-manifest": "./src/release-manifest.ts",
-    "./sentry-report": "./src/sentry-report.ts"
+    "./sentry-report": "./src/sentry-report.ts",
+    "./speech-pieces": "./src/speech-pieces.ts"
   }
 }

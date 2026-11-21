@@ -87,6 +87,29 @@ export function backLabelHasRoom(label: Locator): Promise<boolean> {
   })
 }
 
+/** A phone's segmented tabs (components/ui.tsx Tabs) labelled `label`: one row of equal choices when every word fits its
+ * share in this browser's font, else, on purpose, one picker row whose sheet lists the choices. Which one depends on
+ * the system font: Folder permissions' "What a person can open" fits a phone's (and a Mac's) half of the row but not on
+ * the Linux CI's wider DejaVu Sans. `control`: the row or the picker, whichever shows; `choose`: picks a choice the way
+ * a person would on it. */
+export async function phoneTabs(page: Page, label: string) {
+  const row = page.getByRole('tablist', { name: label })
+  const picker = page.getByTestId('tabs-picker').and(page.locator(`[aria-label^="${label}: "]`))
+  await expect(row.or(picker)).toBeVisible()
+  const isRow = (await row.count()) > 0
+  return {
+    isRow,
+    control: isRow ? row : picker,
+    tabs: row.getByRole('tab'),
+    choose: async (name: string) => {
+      if (isRow) return row.getByRole('tab', { name, exact: true }).click()
+      await picker.click()
+      await page.getByRole('menu', { name: label }).getByRole('menuitemradio', { name, exact: true }).click()
+      await expect(picker).toHaveAccessibleName(`${label}: ${name}`)
+    },
+  }
+}
+
 
 /** Admin › Folder permissions or Files: the open Share dialog's General access set to the team with a role (or
  * Restricted), saved (Give access when it asks), and closed with Done (docs/DECISIONS.md "Share like Google Drive (P1)") */
@@ -108,4 +131,10 @@ export async function shareGeneral(page: Page, to: 'read' | 'write' | 'restricte
     await page.getByTestId('sharing-done').click()
     await expect(panel).toHaveCount(0)
   }
+}
+
+/** The mock team's Slack not added (the mock's default is a connected Slack): the welcome steps' 팀이 쓸 도구 counts a
+ * connected Slack as the step done, so a walk that puts the step off starts here. After reset (which brings it back). */
+export async function noSlack(page: Page) {
+  expect((await page.request.post('/__test/slack', { data: { admin: { tokens: false, enabled: false, state: 'off', workspace: null, botName: null, lastError: null } } })).ok()).toBeTruthy()
 }

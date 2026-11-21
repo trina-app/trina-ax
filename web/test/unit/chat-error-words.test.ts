@@ -55,6 +55,12 @@ test('the owner and admins read where to fix it, in the menu\'s own words; the h
     // an admin (who cannot open it) reads the member's words
     expect(say(l, 'network_protection_off', 'owner')).toContain(adminPath(t, 'health'))
     expect(say(l, 'network_protection_off', 'admin')).toBe(CHAT_ERROR_MESSAGES.network_protection_off[l])
+    // the AI could not start on the server (QA TC-3521): the owner and admins read that trying again won't help and who
+    // fixes it, with no menu path (the health page does not show it); a member reads that the admins were told
+    for (const role of ['owner', 'admin'] as const) {
+      expect(say(l, 'engine_start_failed', role)).toBe(translate(l, 'chat.error.admin.engine_start_failed'))
+      expect(say(l, 'engine_start_failed', role)).not.toContain('›')
+    }
     for (const r of REASONS) expect([l, r, JARGON.test(say(l, r, 'owner'))]).toEqual([l, r, false])
   }
 })
@@ -93,4 +99,28 @@ test('a connection sign-in that did not finish is said in words, never as its st
     for (const l of LOCALES) expect(translate(l, flowReasonKey(code))).not.toContain('integrations.')
   }
   for (const other of ['scope_denied', '', null]) expect(flowReasonKey(other)).toBe('integrations.signIn.failed')
+})
+
+test('AI usage used up until a known time: everyone reads until when; the owner and admins where to add another account, a member to ask an admin', () => {
+  const providers = `${translate('en', 'admin.title')} › ${translate('en', 'admin.providers')}`
+  const word = (role: 'owner' | 'admin' | 'member', until: boolean) => {
+    const { key, where } = chatErrorText('usage_used_up', role, false, until)
+    return translate('en', key, { ...(where ? { path: adminPath((k: MessageKey) => translate('en', k), where) } : {}), date: 'Nov 21, 3:00 PM' })
+  }
+  for (const role of ['owner', 'admin'] as const) {
+    expect(word(role, true)).toContain('Nov 21, 3:00 PM')
+    expect(word(role, true)).toContain(providers)
+    expect(word(role, false)).toContain(providers)
+  }
+  expect(word('member', true)).toContain('Nov 21, 3:00 PM')
+  expect(word('member', true)).toContain('Ask your admin')
+  expect(word('member', true)).not.toContain('›')
+  // never "for now, try again a bit later" (that is the short wait's words)
+  for (const l of LOCALES) for (const role of ['owner', 'member'] as const) {
+    const { key } = chatErrorText('usage_used_up', role, false, true)
+    const text = translate(l, key, { path: 'X', date: 'D' })
+    expect([l, role, text.includes('D'), text.includes('{')]).toEqual([l, role, true, false])
+    expect(text).not.toBe(CHAT_ERROR_MESSAGES.rate_limit[l])
+    expect([l, JARGON.test(text)]).toEqual([l, false])
+  }
 })

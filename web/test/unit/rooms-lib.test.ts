@@ -3,7 +3,7 @@
 import { describe, expect, test } from 'bun:test'
 import { uuidv7 } from '@mycel/shared/api'
 import { translate } from '../../src/i18n'
-import { eventText, groupRuns, insertMention, matchMembers, mentionAt, mentionParts, mentionsIn, mentionTokens, tokenMentions, plainLine, readUpTo, roomBadge, roomEmptyKey, roomTitle, threadClosing, threadOpening, totalUnread } from '../../src/lib/rooms'
+import { eventText, groupRuns, isPrivateChannel, insertMention, matchMembers, mentionAt, mentionParts, mentionsIn, mentionTokens, tokenMentions, plainLine, readUpTo, roomBadge, roomEmptyKey, roomTitle, threadClosing, threadOpening, totalUnread } from '../../src/lib/rooms'
 import { at, BEN, CY, ME, message, room } from './rooms-fixtures'
 
 const R = uuidv7()
@@ -116,12 +116,19 @@ test('titles and the tab total', () => {
   expect(roomTitle(room({ kind: 'all', name: null, groupId: null }), words)).toBe('Everyone')
   expect(roomTitle(room({ kind: 'dm', name: null, groupId: null, peers: [BEN] }), words)).toBe('Ben')
   expect(roomTitle(room({ kind: 'dm', name: null, groupId: null, peers: [] }), words)).toBe('Unknown person')
-  expect(totalUnread([{ unreadCount: 2, muted: false }, { unreadCount: 0, muted: false }, { unreadCount: 5, muted: false }])).toBe(7)
+  const dm = (o: { unreadCount: number; muted?: boolean; mentioned?: boolean }) => ({ kind: 'dm' as const, muted: false, ...o })
+  expect(totalUnread([dm({ unreadCount: 2 }), dm({ unreadCount: 0 }), dm({ unreadCount: 5 })])).toBe(7)
   // a muted room's badge is grey and stays out of the 대화 tab's count
-  expect(totalUnread([{ unreadCount: 2, muted: false }, { unreadCount: 5, muted: true }])).toBe(2)
+  expect(totalUnread([dm({ unreadCount: 2 }), dm({ unreadCount: 5, muted: true })])).toBe(2)
+  // plain messages in a room at 멘션만 (a team room at its default) add nothing; a mention adds them
+  expect(totalUnread([dm({ unreadCount: 2 }), { kind: 'team', muted: false, unreadCount: 3 }])).toBe(2)
+  expect(totalUnread([{ kind: 'team', muted: false, unreadCount: 4, mentioned: true }])).toBe(4)
   // "@" alone when one of them mentions me ("@2" read like two mentions)
-  expect(roomBadge({ unreadCount: 2, mentioned: true })).toBe('@')
-  expect(roomBadge({ unreadCount: 120, mentioned: false })).toBe('99+')
+  expect(roomBadge(dm({ unreadCount: 2, mentioned: true }))).toBe('@')
+  expect(roomBadge(dm({ unreadCount: 120 }))).toBe('99+')
+  // a room at 멘션만 with plain messages only: no number (the row is only bold)
+  expect(roomBadge({ kind: 'dm', muted: false, unreadCount: 3, notify: { own: 'mentions', byDefault: 'all', level: 'mentions' } })).toBe('')
+  expect(roomBadge({ kind: 'team', muted: false, unreadCount: 3, mentioned: true })).toBe('@')
 })
 
 test("an AI answer's Markdown is one plain line in the rooms list", () => {
@@ -163,15 +170,22 @@ describe('group chats and event lines', () => {
     expect(eventText({ type: 'created', users: [p('A'), p('B'), p('C'), p('D'), p('E')] }, ME, w('ko'))).toBe('Ada님이 A님, B님, C님 외 2명을 초대했어요')
     expect(eventText({ type: 'added', users: [BEN, CY] }, ME, w('en'))).toBe('Ada invited Ben, Cy Park')
     expect(eventText({ type: 'added', users: [BEN] }, ME, w('ja'))).toBe('AdaさんがBenさんを招待しました')
-    expect(eventText({ type: 'renamed', name: '주간 회의' }, boss, w('ko'))).toBe("대표님이 방 이름을 '주간 회의'로 바꿨어요")
-    expect(eventText({ type: 'renamed', name: '디자인팀' }, ME, w('ko'))).toBe("Ada님이 방 이름을 '디자인팀'으로 바꿨어요")
-    expect(eventText({ type: 'renamed', name: 'Plan' }, ME, w('en'))).toBe('Ada renamed the chat to “Plan”')
-    expect(eventText({ type: 'renamed', name: null }, ME, w('ko'))).toBe('Ada님이 방 이름을 원래대로 바꿨어요')
+    expect(eventText({ type: 'renamed', name: '주간 회의' }, boss, w('ko'))).toBe("대표님이 이름을 바꿨어요: '주간 회의'")
+    expect(eventText({ type: 'renamed', name: '디자인팀' }, ME, w('ko'))).toBe("Ada님이 이름을 바꿨어요: '디자인팀'")
+    expect(eventText({ type: 'renamed', name: 'Plan' }, ME, w('en'))).toBe('Ada renamed this to “Plan”')
+    expect(eventText({ type: 'renamed', name: null }, ME, w('ko'))).toBe('Ada님이 이름을 원래대로 바꿨어요')
     expect(eventText({ type: 'left' }, boss, w('ko'))).toBe('대표님이 나갔어요')
     expect(eventText({ type: 'removed', user: kim }, boss, w('ko'))).toBe('대표님이 김민지 씨를 내보냈어요')
     expect(eventText({ type: 'removed', user: null }, ME, w('en'))).toBe('Ada removed ?')
     // a line this build cannot read: neutral, nobody named
-    expect(eventText({ type: 'unknown' }, null, w('ko'))).toBe('대화방 정보가 바뀌었어요')
+    expect(eventText({ type: 'unknown' }, null, w('ko'))).toBe('대화 정보가 바뀌었어요')
+    // a channel linked to a project (docs/decisions/20261119-channel-project-link.md): named only with the project
+    const LS = { id: '0190f0f0-0000-7000-8000-0000000000a1', name: 'Launch site' }
+    expect(eventText({ type: 'project_linked', project: null }, ME, w('en'))).toBe('Ada linked this channel to a project')
+    expect(eventText({ type: 'project_linked', project: LS }, ME, w('en'))).toBe('Ada linked this channel to the project Launch site')
+    expect(eventText({ type: 'project_unlinked', project: null }, ME, w('en'))).toBe('Ada unlinked this channel from a project')
+    expect(eventText({ type: 'project_unlinked', project: LS }, ME, w('en'))).toBe('Ada unlinked this channel from the project Launch site')
+    expect(eventText({ type: 'project_linked', project: null }, boss, w('ko'))).toBe('대표님이 이 채널을 프로젝트에 연결했어요')
   })
 
   test('an event line is a run of its own and ends the run before it', () => {
@@ -268,5 +282,17 @@ describe('the empty room line (QA TC-1973)', () => {
     expect(translate('en', roomEmptyKey(room({ id: R, kind: 'dm', peers: [BEN] })))).toBe('No messages yet. Send the first one.')
     expect(translate('en', roomEmptyKey({ ...room({ id: R, kind: 'dm', peers: [BEN] }), gone: true }))).toBe('No messages.')
     expect(translate('en', roomEmptyKey(null))).toBe('No messages yet. Send the first one.')
+  })
+})
+
+describe('isPrivateChannel: a named group room is a private channel, an unnamed one a group DM', () => {
+  test('by kind and name', () => {
+    expect(isPrivateChannel({ kind: 'group', name: 'Launch' })).toBe(true)
+    expect(isPrivateChannel({ kind: 'group', name: null })).toBe(false)
+    expect(isPrivateChannel({ kind: 'group', name: '' })).toBe(false)
+    expect(isPrivateChannel({ kind: 'group', name: '   ' })).toBe(false)
+    // team rooms and the everyone room are channels already; a DM never
+    expect(isPrivateChannel({ kind: 'team', name: 'Design' })).toBe(false)
+    expect(isPrivateChannel({ kind: 'dm', name: 'x' })).toBe(false)
   })
 })

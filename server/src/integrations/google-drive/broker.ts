@@ -3,12 +3,14 @@
 // Google client whose ONE return address is on the console host, so a new team address needs no new registration at
 // Google.
 //
-// When it is used (driveBrokerFor): ONLY when the operator set MYCEL_GOOGLE_DRIVE_BROKER_URL (the control plane's
-// console origin, e.g. https://account.trina.app; https, or http to this machine) on a server WITHOUT a Google client of
-// its own (no client.json, no MYCEL_GOOGLE_DRIVE_CLIENT_FILE). Hosted or self-installed alike: setting the variable is
-// the operator's choice, and a self-installed server is served only after the hosting service's operator registered its
-// relay public key and exact address (`admin.js google-broker-key` prints both). Without the variable nothing changes:
-// no call to the hosting service, Drive as today. A server with its own client keeps the direct flow (oauth.ts)
+// When it is used (driveBrokerFor): on a server WITHOUT a Google client of its own (no client.json, no
+// MYCEL_GOOGLE_DRIVE_CLIENT_FILE), when MYCEL_GOOGLE_DRIVE_BROKER_URL names the control plane's console origin (e.g.
+// https://account.trina.app; https, or http to this machine), or, on a HOSTED server whose environment leaves the
+// variable out, the edition's console (https://SERVICE_HOSTS.accountHost): the control plane already serves every hosted
+// team by the relay key it recorded at enroll, so a new hosted team gets Drive with no setup (an empty value or "off"
+// turns it off). A self-installed server uses it only when its operator sets the variable, and is served only after the
+// hosting service's operator registered its relay public key and exact address (`admin.js google-broker-key` prints
+// both); without the variable nothing changes there: no call to the hosting service, Drive as today. A server with its own client keeps the direct flow (oauth.ts)
 // unchanged. Even when it is set, Drive turns on only after the hosting service answers that it serves this server
 // (oauth.ts checkBroker); an unregistered or removed server stays "Not available yet".
 //
@@ -28,18 +30,37 @@ import {
   type DriveBrokerOp, type DriveBrokerPurpose, type GoogleBrokerApp,
 } from '@mycel/shared/cloud-protocol'
 import type { AppContext } from '../../context'
+import { isHosted } from '../../system/deployment'
 import { loadOrCreateKey } from '../../relay-client/registration'
 import { loadPrivateKey, publicKeyOf } from '@mycel/shared/relay-protocol'
+import { SERVICE_HOSTS } from '@mycel/shared/service-hosts'
 import { DriveError } from './store'
 import type { DriveFetch } from './client'
 
 export interface BrokerIdentity { key: KeyObject; publicKey: string }
 export interface BrokerOptions { origin: string; identity: () => BrokerIdentity }
 
-/** The control plane origin from MYCEL_GOOGLE_DRIVE_BROKER_URL. null: not set, or not usable. */
-export function brokerOrigin(env: Record<string, string | undefined> = process.env): string | null {
-  const raw = env.MYCEL_GOOGLE_DRIVE_BROKER_URL?.trim()
-  if (!raw) return null
+/** The hosting service's console, where a hosted server signs in when its environment names none (null: an edition
+ * without a hosted service). */
+export const HOSTED_BROKER_ORIGIN: string | null = SERVICE_HOSTS.accountHost ? brokerUrlOrigin(`https://${SERVICE_HOSTS.accountHost}`) : null
+
+/** The control plane origin from MYCEL_GOOGLE_DRIVE_BROKER_URL; left out of the environment on a hosted server,
+ * HOSTED_BROKER_ORIGIN (hostedDefault). null: not set on a self-installed server, set empty or "off", or not usable. */
+export function brokerOrigin(env: Record<string, string | undefined> = process.env, hosted = false): string | null {
+  const v = env.MYCEL_GOOGLE_DRIVE_BROKER_URL
+  if (v === undefined) return hostedDefault(env, hosted)
+  const raw = v.trim()
+  return raw && raw !== 'off' ? brokerUrlOrigin(raw) : null
+}
+
+/** The edition's console for a hosted server that names none; never under NODE_ENV=test (a test app never calls the
+ * real hosting service; tests pass their own env to see the default). */
+export function hostedDefault(env: Record<string, string | undefined>, hosted: boolean): string | null {
+  return hosted && env.NODE_ENV !== 'test' ? HOSTED_BROKER_ORIGIN : null
+}
+
+/** An operator's broker address as an origin: https, or http to this machine; never a path, query or credentials. */
+export function brokerUrlOrigin(raw: string): string | null {
   let u: URL
   try { u = new URL(raw) } catch { return null }
   const loopback = u.hostname === '127.0.0.1' || u.hostname === 'localhost' || u.hostname === '[::1]'
@@ -48,11 +69,11 @@ export function brokerOrigin(env: Record<string, string | undefined> = process.e
   return u.origin
 }
 
-/** Whether this server signs in through the hosting service: the broker URL set and no Google client of its own (hosted
- * or self-installed; the hosting service decides whether it serves this server). */
+/** Whether this server signs in through the hosting service: no Google client of its own, and the broker URL set (or
+ * left out on a hosted server: brokerOrigin). The hosting service decides whether it serves this server. */
 export function driveBrokerFor(ctx: AppContext, ownClient: boolean, clientFromEnv: boolean, env: Record<string, string | undefined> = process.env): BrokerOptions | null {
   if (ownClient || clientFromEnv) return null
-  const origin = brokerOrigin(env)
+  const origin = brokerOrigin(env, isHosted(ctx.config))
   if (!origin) return null
   return { origin, identity: () => { const { key, publicKey } = loadOrCreateKey(ctx.config.dataDir); return { key, publicKey } } }
 }
@@ -74,6 +95,13 @@ export function googleBrokerKey(dataDir: string, tunnelHost: string | null | und
 
 /** The configuration fingerprint of broker mode: connections made through one control plane origin belong together. */
 export const brokerKey = (origin: string) => 'broker:' + crypto.createHash('sha256').update(origin).digest('hex')
+
+/** A Google app request the hosting service refused as a request (`invalid_request`: an older control plane that does
+ * not know the `app` field, or not with this purpose). It reads as service_limited ("not available yet") everywhere;
+ * only a team sign-in's start looks at it, to start again as "personal" (google-apps/service.ts brokerStart). */
+export class BrokerRequestRefused extends DriveError {
+  constructor() { super('service_limited', 409) }
+}
 
 export class DriveBroker {
   constructor(readonly o: BrokerOptions, private readonly fetcher: DriveFetch = fetch, private readonly now: () => number = Date.now) {}
@@ -106,9 +134,12 @@ export class DriveBroker {
     const code = typeof json?.error?.code === 'string' ? json.error.code : ''
     if (code === 'invalid_grant') throw new DriveError('needs_reconnect', 409)
     if (code === 'invalid_handoff') throw new DriveError('invalid_flow')
+    // Google's answer lacks part of the access asked for (a box left unticked): sign in again and allow every access
+    if (code === 'scope_denied') throw new DriveError('scope_denied', 409)
     // a Google app other than Drive (gmail, calendar, docs, sheets): an older control plane refuses the `app` field, and
     // a newer one may not offer that app yet; either way it is not available through the hosting service now
-    if (forApp && (code === 'invalid_request' || code === 'app_unavailable')) throw new DriveError('service_limited', 409)
+    if (forApp && code === 'invalid_request') throw new BrokerRequestRefused()
+    if (forApp && code === 'app_unavailable') throw new DriveError('service_limited', 409)
     if (code === 'rate_limited' || r.status === 429) throw new DriveError('rate_limited', 503)
     if (code === 'provider_error') throw new DriveError('provider_unavailable', 503)
     throw new DriveError('broker_unavailable', 503)

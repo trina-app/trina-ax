@@ -28,9 +28,9 @@ export const TEXT = {
     id: 'Ada pesan baru untuk Anda.', ja: "新しいメッセージが届きました。", es: "Tiene un mensaje nuevo.", zh: "你有一条新消息。",
   },
   'room.mention': {
-    ko: '대화방에서 나를 언급한 메시지가 있어요.',
-    en: 'Someone mentioned you in a room.',
-    id: 'Seseorang menyebut Anda di ruang obrolan.', ja: "ルームであなたがメンションされました。", es: "Alguien le mencionó en una sala.", zh: "有人在群聊中提到了你。",
+    ko: '대화에서 나를 언급한 메시지가 있어요.',
+    en: 'Someone mentioned you in a conversation.',
+    id: 'Seseorang menyebut Anda di percakapan.', ja: "トークであなたがメンションされました。", es: "Alguien le mencionó en una conversación.", zh: "有人在聊天中提到了你。",
   },
   // 팀장 넘기기: someone joined with the owner's lead link; who it was stays in the app
   'owner.lead_joined': {
@@ -58,12 +58,39 @@ export const TEXT = {
     en: 'Someone shared a chat with you.',
     id: 'Seseorang membagikan obrolan dengan Anda.', ja: '誰かがチャットを共有しました。', es: 'Alguien compartió un chat con usted.', zh: '有人与你共享了一个对话。',
   },
+  // someone shared a file, or several in one press, with me by name: never who or which (the push gateway has the same
+  // words: push-gateway/src/text.ts)
+  'file.shared': {
+    ko: '누군가 파일을 공유했어요.',
+    en: 'Someone shared files with you.',
+    id: 'Seseorang membagikan file dengan Anda.', ja: '誰かがファイルを共有しました。', es: 'Alguien compartió archivos con usted.', zh: '有人与你共享了文件。',
+  },
+  // someone asked to open a file I answer for (docs/decisions/20261116-file-share-push-gaps.md): never the file, the
+  // asker or the note (the push gateway has the same words: push-gateway/src/text.ts)
+  'file.access_requested': {
+    ko: '누군가 파일을 열게 해 달라고 요청했어요.',
+    en: 'Someone asked to open a file.',
+    id: 'Seseorang meminta untuk membuka file.', ja: 'ファイルを開くリクエストが届きました。', es: 'Alguien pidió abrir un archivo.', zh: '有人请求打开文件。',
+  },
+  // someone asked to open a chat or project I answer for (docs/decisions/20261116-chat-project-ask-access.md; older team
+  // servers never send it): never the title, the asker or the note
+  'access.requested': {
+    ko: '누군가 채팅이나 프로젝트를 열게 해 달라고 요청했어요.',
+    en: 'Someone asked for access to a chat or project.',
+    id: 'Seseorang meminta akses ke obrolan atau proyek.', ja: 'チャットまたはプロジェクトへのアクセスリクエストが届きました。', es: 'Alguien pidió acceso a un chat o proyecto.', zh: '有人请求访问对话或项目。',
+  },
   // an app in a room I manage paused for the day (room_app_notices): never the app's or the room's name (the push
   // gateway has the same words: push-gateway/src/text.ts)
   'room_app.paused': {
-    ko: '대화방의 앱이 오늘 하루 멈췄어요.',
-    en: 'An app in a room was paused for today.',
-    id: 'Sebuah aplikasi di ruang obrolan dijeda untuk hari ini.', ja: 'ルームのアプリが今日は一時停止されました。', es: 'Una aplicación de una sala se pausó por hoy.', zh: '群聊中的一个应用今天已暂停。',
+    ko: '대화에 추가한 앱이 오늘 하루 멈췄어요.',
+    en: 'An app in a conversation was paused for today.',
+    id: 'Sebuah aplikasi di percakapan dijeda untuk hari ini.', ja: 'トークのアプリが今日は一時停止されました。', es: 'Una aplicación de una conversación se pausó por hoy.', zh: '聊天中的一个应用今天已暂停。',
+  },
+  // a reply in a thread I follow under an AI answer of a shared chat: never who, the chat's title or the reply's text
+  'chat.thread_reply': {
+    ko: '스레드에 답글이 달렸어요.',
+    en: 'Someone replied in a thread.',
+    id: 'Seseorang membalas di utas.', ja: 'スレッドに返信がありました。', es: 'Alguien respondió en un hilo.', zh: '有人在话题中回复了。',
   },
 } satisfies Record<'title' | PushEventType, Record<Locale, string>>
 /** The line under the sharer's name (the title) when an iPhone's notification extension names them
@@ -117,5 +144,9 @@ export function pushMessages(locale: Locale) {
     'chat.answer_done': TEXT['chat.answer_done'][locale],
     'chat.shared': TEXT['chat.shared'][locale],
     'room_app.paused': TEXT['room_app.paused'][locale],
+    'file.shared': TEXT['file.shared'][locale],
+    'chat.thread_reply': TEXT['chat.thread_reply'][locale],
+    'file.access_requested': TEXT['file.access_requested'][locale],
+    'access.requested': TEXT['access.requested'][locale],
   }, markRead: MARK_READ[locale], chatSharedBy: CHAT_SHARED_BY[locale] }
 }

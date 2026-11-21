@@ -5,25 +5,31 @@
 // has no ✕. Nothing is saved until Save (Share while the chat is not shared yet), which is off with no change; a picked
 // row says "new", a saved row taken out is struck through with Undo. ✕, Esc, the scrim and a phone's Back with unsaved
 // changes ask "Discard changes?" first ([Keep editing] [Discard]). A failed or offline save keeps the picks and says so
-// above the button.
+// above the button. Copy link at the bottom left (components/ShareCopyLink.tsx; docs/decisions/
+// 20261116-chat-share-copy-link.md): the chat's /c/<id> with the chat menu's toast, a line while picks are not saved, and
+// Copy link again on the toast after the save.
 //
-// The server checks what the new people would start to see (PUT /api/chats/:id/audience): when its answers used places
-// some of them can't open, may have used my memories, or nothing is known, it answers "confirm"; those lines show here
-// in place (with "Show answers ›" for the answers the new people would see: the widening list, components/
-// WideningList.tsx, with this chat as its target) and the button reads "Share anyway", which sends the key back.
-// Changing the picks after that asks again. A group picked adds the line that whoever joins it later sees the chat too;
-// taking everyone out says the chat becomes mine alone again. The fixed note under it all says what sharing means.
+// One press (docs/DECISIONS.md "Share in one press", QA TC-3092): while the picks bring someone new in, the dialog asks
+// the server what they would see (POST /api/chats/:id/audience/preview) 400 ms after the last change of the list, any
+// change, removals too; Share is off from the first change until the answer for exactly these picks is here. What is
+// really at stake shows in place (components/ShareWarning.tsx: "2 answers may have used your personal memories",
+// "3 answers used files Mina can't open", "Show answers ›" for the list, components/WideningList.tsx); nothing at stake
+// or only answers nobody could check: at most one grey line. The button keeps its colour and words: Share sends the
+// preview's key, and the server saves only with the key of what they would see now. A failed preview says so in grey
+// and Share still works: the server answers with the check instead of saving (never a silent share), it shows in place
+// with "Check this, then press Share again", as it does when something changed since the preview. Taking everyone out
+// says the chat becomes mine alone again. The fixed note under it all says what sharing means.
 //
 // Someone else's shared chat: who it is shared with, read only, "Only {name} can change who sees this chat." A chat of
 // mine in a personal project: why it can't be shared and Move; once moved out, this dialog opens again on it.
 // On a phone the dialog is the app's bottom sheet (ui.tsx Modal); an answer of the widening list opens on the same
 // screen, the draft kept first (store/wideningDraft.ts), and "‹ Back to sharing" reopens this dialog on the list with
 // the picks (components/WideningDraftHost.tsx).
-import { AlertCircle, AlertTriangle, ChevronLeft, ChevronRight, FolderInput, Info, Loader2 } from 'lucide-react'
+import { AlertCircle, ChevronLeft, FolderInput, Info, Loader2 } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { create } from 'zustand'
-import type { Chat, ChatAudience, ProjectParticipant, PutChatAudienceResult, WideningAnswer } from '@mycel/shared/api'
+import type { Chat, ChatAudience, ProjectParticipant, ShareCheck, WideningAnswer } from '@mycel/shared/api'
 import { useT, useLocale } from '../../i18n'
 import { api, API, ApiError, errorText, isConnectionError } from '../../lib/api'
 import { isOverlayEntry } from '../../lib/backCloses'
@@ -40,10 +46,20 @@ import { answerHref, WideningList } from '../WideningList'
 import { Button, ErrorNote, IconButton, Modal, Skeleton, confirmDialog, menuOpener, useMediaQuery } from '../ui'
 import { CalmNotice } from '../LoadError'
 import { MoveToProjectDialog } from './ChatProject'
-import { placeName } from './ShareToRoom'
+import { GreyLine, ShareWarning, shareAtStake, shareFilesLine, shareGreyLine, shareWarningLines, whoNames } from '../ShareWarning'
 import { openShareChat } from './ShareChat'
+import { useCopyChatLink } from './copyChatLink'
+import { ShareCopyLink } from '../ShareCopyLink'
 
-type Ask = Extract<PutChatAudienceResult, { status: 'confirm' }> & { seq: number }
+/** The check for one list of picks (`for`: its audienceKey): asking, answered (with the key a save carries), or failed.
+ * `again`: the save answered with the check instead of saving (no key: the preview failed; or something changed). */
+type Preview =
+  | { for: string; state: 'loading' }
+  | { for: string; state: 'ready'; check: ShareCheck; key: string; again?: 'changed' | 'unchecked' }
+  | { for: string; state: 'failed' }
+
+/** How long the preview waits after the last change of the picks (as the project dialogs' count). */
+export const SHARE_PREVIEW_DEBOUNCE_MS = 400
 
 /** Who a chat is shared with, as one key: a draft made on another list is dropped (store/wideningDraft.ts). */
 export const audienceKey = (subjects: readonly ProjectParticipant[]) => subjects.map(participantKey).sort().join(',')
@@ -70,7 +86,9 @@ export function ChatShareDialog({ chat, onClose, initial, personal = false, retu
   const [audience, setAudience] = useState<ChatAudience | null>(null)
   const [loadError, setLoadError] = useState<unknown>(null)
   const [picks, setPicks] = useState<ProjectParticipant[]>([])
-  const [ask, setAsk] = useState<Ask | null>(null)
+  const [preview, setPreview] = useState<Preview | null>(null)
+  // the grey "Checking…" line only once asking takes a moment (no flicker on a quick answer)
+  const [slow, setSlow] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   // Trina is updating (lib/serverUpdating.ts): the picks stay, a calm line says so, and it saves again by itself once
@@ -84,6 +102,9 @@ export function ChatShareDialog({ chat, onClose, initial, personal = false, retu
   const [sheet, setSheet] = useState(0)
   const [moving, setMoving] = useState(false)
   const reopened = useRef(false)
+  // Copy link (components/ShareCopyLink.tsx): the chat as this window knows it now (shared or not, how many), its toast says who opens it
+  const copyLink = useCopyChatLink()
+  const known = useChats((s) => s.chats.find((c) => c.id === chat.id))
 
   const shown = (a: ChatAudience) => {
     setAudience(a)
@@ -122,7 +143,8 @@ export function ChatShareDialog({ chat, onClose, initial, personal = false, retu
   const savedKeys = useMemo(() => new Set(saved.map(participantKey)), [saved])
   const adding = useMemo(() => picks.filter((x) => !savedKeys.has(participantKey(x))), [picks, savedKeys])
   const nameOf = useCallback((x: ProjectParticipant) => options.find((o) => participantKey(o) === participantKey(x))?.name ?? '', [options])
-  const addedNames = useMemo(() => adding.map(nameOf).filter(Boolean).join(t('rooms.nameSep')), [adding, nameOf, t])
+  // as the share lines name them: a person "Bob 님", a group "Sales 부서 사람들" (components/ShareWarning.tsx whoNames)
+  const addedNames = useMemo(() => whoNames(t, adding.map((x) => ({ subjectType: x.subjectType, name: nameOf(x) }))), [adding, nameOf, t])
   const groupAdded = adding.some((x) => x.subjectType === 'group')
   const removesAll = saved.length > 0 && picks.length === 0
   // someone taken out by name who stays in a group still picked keeps the chat through it (QA TC-2264): the server says
@@ -133,9 +155,33 @@ export function ChatShareDialog({ chat, onClose, initial, personal = false, retu
     const groups = row.inGroups.filter((g) => pickedKeys.has(`group:${g}`)).map((g) => nameOf({ subjectType: 'group', subjectId: g })).filter(Boolean)
     return groups.length ? [{ id: row.subjectId, text: t('chat.share.keepsThrough', { name: row.name, groups: groups.join(t('rooms.nameSep')) }) }] : []
   }), [audience, pickedKeys, nameOf, t])
-  // a confirm is about the picks it was asked for: another pick asks again
-  const askedFor = useRef('')
-  useEffect(() => { if (ask && askedFor.current !== audienceKey(picks)) setAsk(null) }, [picks, ask])
+  // the check of what the people being added would see, again after every change of the list while anyone is being
+  // added (an add, a removal, a group): a newer list drops the answer of an older one
+  const picksKey = audienceKey(picks)
+  const seq = useRef(0)
+  useEffect(() => {
+    const n = ++seq.current
+    setSlow(false)
+    if (!editable || !audience || !adding.length) { setPreview(null); return }
+    setPreview({ for: picksKey, state: 'loading' })
+    const shown = setTimeout(() => { if (seq.current === n) setSlow(true) }, 300)
+    const asked = setTimeout(() => {
+      api.call(API.previewChatAudience, { params: { id: chat.id }, body: { subjects: picks } }).then((r) => {
+        if (seq.current !== n) return
+        setPreview({ for: picksKey, state: 'ready', check: r.check, key: r.previewKey })
+      }, (e) => {
+        if (seq.current !== n) return
+        setPreview({ for: picksKey, state: 'failed' })
+        // a refusal says why in the server's words (someone who can't be added, a busy chat); no answer: a grey line
+        if (e instanceof ApiError && !isConnectionError(e) && e.status < 500 && e.status !== 429) setError(errorText(e, locale, t('chat.share.saveFailed')))
+      })
+    }, SHARE_PREVIEW_DEBOUNCE_MS)
+    return () => { clearTimeout(shown); clearTimeout(asked) }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [picksKey, editable, audience, adding.length, chat.id])
+  const current = preview?.for === picksKey ? preview : null
+  // Share waits for the check of exactly these picks (from the first change, the 400 ms wait included)
+  const checking = adding.length > 0 && (!current || current.state === 'loading')
   // nothing to list any more (the picks changed): back to them
   useEffect(() => { if (listing && audience && !adding.length) setListing(false) }, [listing, audience, adding.length])
 
@@ -148,23 +194,25 @@ export function ChatShareDialog({ chat, onClose, initial, personal = false, retu
   }
 
   const save = async () => {
-    if (!dirty || busy) return
+    if (!dirty || busy || checking) return
     setBusy(true)
     setError(null)
     setUpdating(false)
-    const key = audienceKey(picks)
+    const key = picksKey
+    const sent = current?.state === 'ready' ? current.key : undefined
     try {
-      const r = await api.call(API.putChatAudience, { params: { id: chat.id }, body: { subjects: picks, ...(ask ? { confirmKey: ask.confirmKey } : {}) } })
+      const r = await api.call(API.putChatAudience, { params: { id: chat.id }, body: { subjects: picks, ...(sent ? { confirmKey: sent } : {}) } })
       if (r.status === 'confirm') {
-        askedFor.current = key
-        setAsk((a) => ({ ...r, seq: (a?.seq ?? 0) + 1 }))
+        // not saved: what they would see now, in place; the same Share again saves it
+        if (audienceKey(picks) === key) setPreview({ for: key, state: 'ready', check: r.check, key: r.confirmKey, again: r.reason ?? 'unchecked' })
         return
       }
       const before = useChats.getState().chats.find((c) => c.id === r.chat.id)
       useChats.getState().upsertChat(keepFaces(before, r.chat))
       // the first share says with how many (when I may know it); any other save says it is saved
       const others = r.audience.count !== undefined ? r.audience.count - 1 : null
-      toast({ level: 'success', text: !saved.length && others ? t('chat.share.done', { n: others }) : t('chat.share.saved') })
+      // with Copy link: share, then send the link, in one go
+      toast({ level: 'success', text: !saved.length && others ? t('chat.share.done', { n: others }) : t('chat.share.saved'), ms: 10_000, action: { label: t('rooms.menu.copyLink'), run: () => void copyLink(r.chat) } })
       // a first share: my earlier files from the computer that could not go with it (too large, no room, changed since)
       if (r.filesNotCopied) toast({ level: 'warn', text: t('chat.share.filesNotCopied', { n: r.filesNotCopied }) })
       // someone taken out by name who still sees it through a group (QA TC-2264)
@@ -208,17 +256,18 @@ export function ChatShareDialog({ chat, onClose, initial, personal = false, retu
     />
   )
 
-  const p = ask?.provenance
-  const places = p?.places.map((x) => placeName(t, x)) ?? []
-  // one warning for what the new people would start seeing: the answers that used places they can't open (the places by
-  // name where I may open them), with "Show answers ›"; without such answers the check's own line (content from places
-  // some of them can't open, or "not all known")
-  const hidden = ask?.hiddenAnswers && addedNames ? ask.hiddenAnswers : 0
-  const unknown = p?.unknown ? t('chat.shareChat.unknown') : null
-  const warning = hidden
-    ? [places.length && !p?.unknown ? t('chat.share.warnPlaces', { n: hidden, names: addedNames, places: places.join(', ') }) : t('chat.share.warn', { n: hidden, names: addedNames }), unknown].filter(Boolean).join(' ')
-    : !p ? null : unknown ?? (places.length ? t('chat.shareChat.provenance', { m: p.people, places: places.join(', ') }) : t('chat.shareChat.provenanceNoPlace', { m: p.people }))
-  const label = ask ? t('chat.share.shareAnyway') : saved.length ? t('common.save') : t('chat.share.share')
+  const check = current?.state === 'ready' ? current.check : null
+  const stake = !!check && shareAtStake(check)
+  const warnNames = addedNames
+  const warningText = check ? shareWarningLines(t, check, warnNames).join(' ') : ''
+  // the one grey line when there is no warning to read first: asking (after a moment), the check failed, or the check's
+  const grey = checking ? (slow ? t('share.grey.checking') : null)
+    : current?.state === 'failed' ? t('share.grey.failed')
+      : shareGreyLine(t, check, groupAdded ? t('chat.share.futureGroup') : null)
+  // my earlier files from the computer a first share copies: a line of its own whenever there are any
+  const filesLine = shareFilesLine(t, check)
+  const label = saved.length ? t('common.save') : t('chat.share.share')
+  const copyButton = <ShareCopyLink onCopy={() => void copyLink(known ?? chat, { inDialog: true })} unsaved={editable && adding.length ? label : null} testId="chat-share-copy-link" />
   return (
     <Modal
       key={sheet}
@@ -235,16 +284,19 @@ export function ChatShareDialog({ chat, onClose, initial, personal = false, retu
         </span>
       ) : <span className="block min-w-0 truncate" data-testid="chat-share-title">{title}</span>}
       footer={listing ? undefined : personal || !editable ? (
-        <Button variant="ghost" onClick={onClose} data-testid="chat-share-close">{t('common.close')}</Button>
+        <>
+          {copyButton}
+          <Button variant="ghost" onClick={onClose} data-testid="chat-share-close">{t('common.close')}</Button>
+        </>
       ) : (
         <>
           {error && <p role="alert" className="mr-auto w-full text-sm break-keep text-danger" data-testid="chat-share-error">{error}</p>}
           {updating && !error && <CalmNotice className="mr-auto w-full" testId="chat-share-updating" state="updating" icon={<Loader2 size={16} className="animate-spin" />} title={t('chat.share.updating')} />}
+          {copyButton}
           {/* a visible way out besides ✕ (asks first with unsaved changes, as ✕ does) */}
-          {/* a phone: Cancel as wide as its word, the main button the rest; a long label ("Compartir de todos modos")
-              wraps inside it instead of spilling out (QA TC-2270) */}
+          {/* a phone: Cancel as wide as its word, the main button the rest */}
           <Button variant="ghost" disabled={busy} onClick={() => void close()} className="max-sm:shrink-0" data-testid="chat-share-cancel">{t('common.cancel')}</Button>
-          <Button variant="primary" busy={busy} disabled={!dirty} onClick={() => void save()} className="text-center max-sm:h-auto max-sm:min-h-11 max-sm:min-w-0 max-sm:flex-1 max-sm:py-2 max-sm:whitespace-normal" data-testid="chat-share-save">{label}</Button>
+          <Button variant="primary" busy={busy} disabled={!dirty || checking} onClick={() => void save()} className="max-sm:min-w-0 max-sm:flex-1" data-testid="chat-share-save">{label}</Button>
         </>
       )}
     >
@@ -261,7 +313,7 @@ export function ChatShareDialog({ chat, onClose, initial, personal = false, retu
       ) : (
         <div className="space-y-3" data-testid="chat-share-dialog">
           {/* what the check found and who keeps access, read out when it appears (the lines below are shown; QA TC-2271) */}
-          <p className="sr-only" role="status" aria-live="polite" data-testid="chat-share-live">{editable ? [warning, ask?.earlierFiles ? t('chat.share.earlierFiles', { n: ask.earlierFiles }) : null, ...keepsThrough.map((k) => k.text)].filter(Boolean).join(' ') : ''}</p>
+          <p className="sr-only" role="status" aria-live="polite" data-testid="chat-share-live">{editable ? [warningText, filesLine, grey, ...keepsThrough.map((k) => k.text)].filter(Boolean).join(' ') : ''}</p>
           {loadError ? <ErrorNote onRetry={() => void load()}>{errorText(loadError, locale, t('error.network'))}</ErrorNote> : null}
           {!audience && !loadError && <Skeleton lines={3} />}
           {audience && (
@@ -277,43 +329,15 @@ export function ChatShareDialog({ chat, onClose, initial, personal = false, retu
           {audience && !editable && creator && <p className="text-sm break-keep text-muted" data-testid="chat-share-read-only">{t('chat.share.readOnly', { name: creator.name })}</p>}
           {editable && (
             <>
-              {groupAdded && <p className="text-sm leading-6 break-keep text-muted" data-testid="chat-share-future-group">{t('chat.share.futureGroup')}</p>}
-              {ask?.reason === 'changed' && (
+              {current?.state === 'ready' && current.again && (
                 <p role="status" className="flex items-start gap-2 text-sm leading-6 break-keep text-warn" data-testid="chat-share-changed">
                   <AlertCircle size={16} className="mt-1 shrink-0" aria-hidden />
-                  {t('chat.shareChat.changed')}
+                  {current.again === 'changed' ? t('chat.shareChat.changed') : t('share.again')}
                 </p>
               )}
-              {warning && (
-                <p className="flex items-start gap-2 rounded-lg bg-warn-soft px-3 py-2 text-sm leading-6 break-keep text-warn" data-testid="chat-share-warning">
-                  <AlertTriangle size={16} className="mt-1 shrink-0" aria-hidden />
-                  <span>
-                    {warning}
-                    {hidden > 0 && (
-                      <>
-                        {' '}
-                        <button type="button" onClick={() => setListing(true)} className="touch-hit inline-flex items-center font-medium text-accent-text hover:underline" data-testid="chat-share-widen-show">
-                          {t('share.widenList.show')}<ChevronRight size={14} aria-hidden />
-                        </button>
-                      </>
-                    )}
-                  </span>
-                </p>
-              )}
-              {/* a quiet line of its own: a first share shows them the files I attached from my computer */}
-              {!!ask?.earlierFiles && (
-                <p className="flex items-start gap-2 text-sm leading-6 break-keep text-muted" data-testid="chat-share-earlier-files">
-                  <Info size={16} className="mt-1 shrink-0 text-faint" aria-hidden />
-                  <span>{t('chat.share.earlierFiles', { n: ask.earlierFiles })}</span>
-                </p>
-              )}
-              {/* a quiet line of its own: not about the people, about my memories */}
-              {ask?.memories && (
-                <p className="flex items-start gap-2 text-sm leading-6 break-keep text-muted" data-testid="chat-share-memories">
-                  <Info size={16} className="mt-1 shrink-0 text-faint" aria-hidden />
-                  <span>{t('chat.shareChat.memories')}</span>
-                </p>
-              )}
+              {check && stake && <ShareWarning check={check} names={warnNames} onShow={() => setListing(true)} grey={false} testId="chat-share-warning" />}
+              {filesLine && <GreyLine text={filesLine} testId="chat-share-files" />}
+              {grey && <GreyLine text={grey} testId="chat-share-grey" />}
               {keepsThrough.map((k) => (
                 <p key={k.id} className="flex items-start gap-2 text-sm leading-6 break-keep text-muted" data-testid="chat-share-keeps-through">
                   <Info size={16} className="mt-1 shrink-0 text-faint" aria-hidden />
@@ -322,7 +346,7 @@ export function ChatShareDialog({ chat, onClose, initial, personal = false, retu
               ))}
               {removesAll && <p className="text-sm leading-6 break-keep text-warn" data-testid="chat-share-only-you">{t('chat.share.onlyYou')}</p>}
               {/* the fixed note; shorter while a warning says the rest */}
-              <p className="text-sm leading-6 break-keep text-faint" data-testid="chat-share-note">{t(warning ? 'chat.share.noteShort' : 'chat.share.note')}</p>
+              <p className="text-sm leading-6 break-keep text-faint" data-testid="chat-share-note">{t(stake ? 'chat.share.noteShort' : 'chat.share.note')}</p>
             </>
           )}
         </div>

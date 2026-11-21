@@ -1,4 +1,4 @@
-// Admin › Team settings, the AI groups (they were the "Team provider settings" tab of Admin › Providers, Engines.tsx;
+// Admin › Team settings, the AI groups (they were the "Team provider settings" tab of Admin › AI providers, Engines.tsx;
 // /admin/providers?tab=team and /admin/engines?tab=team open them at #ai, a usage-limits link at #ai-limits):
 // - AI defaults (#ai): the engine and model of new chats, and how many answers run at the same time.
 // - Who picks the engine: whether members may pick another engine ("팀원이 엔진 고르기 허용", off: owner and admins

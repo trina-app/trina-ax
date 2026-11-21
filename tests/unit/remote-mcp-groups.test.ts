@@ -64,7 +64,7 @@ test('an owner or admin gets mcp:admin without asking or ticking; what the body 
   // an admin too, with write unticked
   const admin = await f.connect(f.helper.client.cookie!, 'mcp:read', { write: false })
   expect(admin).toMatchObject({ optional: ['mcp:write', 'mcp:rooms', 'mcp:rooms.write'], admin: true, scope: 'mcp:read mcp:admin' })
-  expect(f.names(admin.token)).toEqual(['list', 'glob', 'grep', 'read', 'skills_list', ...GROUP])
+  expect(f.names(admin.token)).toEqual(['list', 'glob', 'grep', 'read', 'create_download_link', 'skills_list', ...GROUP])
   expect(f.audits('remote_mcp.connected').map(a => a.detail)).toEqual([
     { scopes: ['mcp:read', 'mcp:admin'], asked: ['mcp:read'], app: 'MCP app' },
     { scopes: ['mcp:read', 'mcp:write', 'mcp:admin', 'offline_access'], asked: ['mcp:read', 'mcp:write', 'mcp:admin', 'offline_access'], app: 'MCP app' },
@@ -127,7 +127,7 @@ test('existing grants are unaffected: an admin\'s grant without mcp:admin keeps 
   const old = await f.connect(f.owner.cookie!, 'mcp:read mcp:write offline_access', {})
   f.h.ctx.db.query('UPDATE remote_mcp_grants SET scopes = ? WHERE id = ?').run(JSON.stringify(['mcp:read', 'mcp:write', 'offline_access']), old.grant().id)
   // the write scope's ten: the files, the skills list and share_skills (a proposal only, skills/share.ts), no group tools
-  const ten = ['list', 'glob', 'grep', 'read', 'write', 'edit', 'upload_file', 'create_upload_link', 'skills_list', 'share_skills']
+  const ten = ['list', 'glob', 'grep', 'read', 'write', 'edit', 'upload_file', 'create_upload_link', 'create_download_link', 'skills_list', 'share_skills']
   expect(f.names(old.token)).toEqual(ten)
   expect(text(await f.call(old.token, 'groups_list'))).toContain('no permission')
   expect(() => f.oauth.token({ client_id: f.client.client_id, grant_type: 'refresh_token', refresh_token: old.refresh, scope: ALL, resource: f.oauth.resource() })).toThrow('invalid_scope')

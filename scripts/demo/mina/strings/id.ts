@@ -22,13 +22,13 @@ export const id: Strings = {
     chris: { name: 'Chris Walker', title: 'Account Director', org: 'Fieldnote' },
   },
   marketingGroup: 'Marketing',
-  project: { name: 'Kampanye peluncuran November', description: 'Peluncuran Yuzu Jahe edisi musim dingin, Senin 23 Nov' },
+  project: { name: 'Kampanye peluncuran Yuzu Jahe', description: 'Peluncuran Yuzu Jahe edisi musim dingin, hari Senin' },
 
   brandSkill: 'brand-guide',
 
   paths: {
     companyIntro: 'shared/Profil perusahaan.md',
-    brief: 'Brief peluncuran November.md',
+    brief: 'Brief peluncuran Yuzu Jahe.md',
     leoBanner: 'banner-peluncuran-leo-v1.png',
     banner: 'banner-peluncuran-baru.jpg',
     square: 'instagram-square.jpg',
@@ -71,7 +71,7 @@ export const id: Strings = {
 
   leoChat: {
     title: 'Banner peluncuran, draft pertama',
-    ask: 'Buatkan banner peluncuran blend Yuzu Jahe. Diskon 20%, 23/11 sampai 6/12',
+    ask: 'Buatkan banner peluncuran blend Yuzu Jahe. Diskon 20% selama dua minggu pertama',
     answer: 'Ini draft pertama banner-nya.',
   },
 
@@ -107,7 +107,7 @@ export const id: Strings = {
       after: 'Draft Leo tidak aku ubah.',
     },
     captions: [
-      'Baru, edisi musim dingin: Yuzu Jahe 🍋 Celupkan satu kantong ke air dingin sebelum tidur, paginya tinggal nikmati yang segar. Diskon 20% sampai 6 Desember.',
+      'Baru, edisi musim dingin: Yuzu Jahe 🍋 Celupkan satu kantong ke air dingin sebelum tidur, paginya tinggal nikmati yang segar. Diskon 20% selama dua minggu pertama.',
       'yuzu + jahe. udah. gitu doang postingannya. (oke deh, minggu ini juga lagi diskon 20%)',
       'Diam-diam tim kami sudah minum ini sejak Agustus. Mulai Senin, giliran kamu.',
     ],
@@ -138,20 +138,20 @@ export const id: Strings = {
         '',
         'Aku Mina, baru gabung di tim Marketing Steepling. Mulai sekarang, urusan banner lewat aku ya.',
         '',
-        'Terlampir banner peluncuran final (1200×628) dan versi Instagram square. Daniel sudah approve. Bisa mulai tayang Senin, 23 November?',
+        'Terlampir banner peluncuran final (1200×628) dan versi Instagram square. Daniel sudah approve. Bisa mulai tayang hari Senin?',
         '',
         'Makasih!',
         'Mina',
       ],
     },
     formal: {
-      subject: 'Kampanye peluncuran Steepling: banner final untuk Senin, 23 November',
+      subject: 'Kampanye peluncuran Steepling: file final banner',
       body: [
         'Yth. Bapak Chris Walker,',
         '',
         'Semoga Bapak dalam keadaan baik. Perkenalkan, saya Mina Lee, anggota baru tim Marketing Steepling.',
         '',
-        'Bersama email ini saya lampirkan banner final kampanye peluncuran (1200×628) beserta versi Instagram square. Keduanya telah disetujui oleh CEO kami. Mohon kiranya banner tersebut dapat mulai ditayangkan pada hari Senin, 23 November.',
+        'Bersama email ini saya lampirkan banner final kampanye peluncuran (1200×628) beserta versi Instagram square. Keduanya telah disetujui oleh CEO kami. Mohon kiranya banner tersebut dapat mulai ditayangkan pada hari Senin, hari peluncuran kami.',
         '',
         'Atas perhatian dan kerja samanya, saya ucapkan terima kasih. Saya menantikan kerja sama kita ke depannya.',
         '',
@@ -204,8 +204,11 @@ export const id: Strings = {
       emails: 'Email terkirim',
     },
     usually: 'biasanya ~2 hari',
-    signup: 'Lihat paket & mulai gratis',
+    signup: 'Lihat paket',
     explore: 'Lihat-lihat dulu',
+    tryLive: 'Sekarang coba sendiri',
+    liveBusy: 'Demo langsung sedang penuh saat ini',
+    liveRetry: 'Coba lagi',
     popupTitle: 'Itulah hari pertama Mina 🎉',
     popupLine: 'Kampanye peluncuran selesai dalam {time}. Biasanya sekitar 2 hari.',
     recap: ['Membaca 2 file tim', 'Memakai skill tim Panduan brand', 'Membuat 4 aset dengan Higgsfield', 'Disetujui CEO', 'Email ke agensi'],

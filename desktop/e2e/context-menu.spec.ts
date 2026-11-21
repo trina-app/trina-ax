@@ -6,7 +6,9 @@
 // takes the menu where it would pop up and runs an item's click as the menu would. Nothing reaches the computer's
 // clipboard (the copy and edit calls are caught) and the save is caught at will-download and cancelled.
 import { expect, test } from '@playwright/test'
-import { ACME, addTeam, close, launch, newUserData, welcome } from './helpers'
+import { ACME, addTeam, close, launch, newUserData, welcome, stopLeftoverApps } from './helpers'
+
+stopLeftoverApps()
 
 interface Caught {
   menus: { label: string; enabled: boolean }[][]

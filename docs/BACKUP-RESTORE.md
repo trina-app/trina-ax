@@ -11,6 +11,7 @@ A local backup is on the same disk. Keep an encrypted off-host copy and test rec
 | Admin → System → Backups → Restore | Database: accounts, chats, settings; applied at next server start | Team files are unchanged, and so are folder permissions (who may open which folder stays as it is now) |
 | `restore-team --backup ID --to NEWDIR` | Team files reconstructed from the full/incremental chain into a new folder | Does not replace the live team or database |
 | `archive` / `restore-archive` | Database + team files (including file history present there), extracted to `db/app.sqlite` and `team/` | OS accounts, services, config, CA keys, provider secret keys and data-directory session state |
+| `archive --zip --out FILE.zip` | Nothing: a plain ZIP for people (folders by person name, every channel, direct message and AI chat as text and JSON, a README.txt), not encrypted | Not read by any restore command; use `archive` for restoring |
 | Office `teamax restore-archive` | Stops the app and swaps the recovered DB/team into the office installation | Does not reconstruct missing deployment settings or external accounts |
 
 Files sent in chat rooms (대화방) are kept in the team folder under `.system/rooms/`, a folder no person can open through the app (the owner and admins included) and that the owner's export leaves out, so every team-folder backup, archive, off-site copy and restore above includes them. When the team folder is on a network share or another disk, room files live there too. At every start the server compares them with the database without deleting anything on a guess: after a DB-only restore, room files the restored database does not know are moved to `.system/rooms-orphans/<time>/` and deleted after 30 days (so going back to the newer database stays possible within that time); a database row whose file is missing is kept and only counted in the log (its file answers "not found"); and when `.system/rooms/` is missing or cannot be read (a share not mounted yet) the check is skipped. / 대화방에서 보낸 파일은 팀 폴더의 `.system/rooms/`에 있어 팀 폴더 백업·보관·복원에 함께 들어가요(팀 폴더가 네트워크 공유에 있으면 대화방 파일도 거기 있어요). 서버가 시작할 때 DB와 비교하지만 짐작으로 지우지 않아요. DB만 복원하면 그 DB가 모르는 대화방 파일은 `.system/rooms-orphans/`로 옮겨 30일 뒤에 지워요.
@@ -46,6 +47,21 @@ trina_admin archive --out /var/lib/mycel/data/off-host.tar.zst.age --password-st
 `--password-stdin` requires at least eight characters. Use a private terminal with echo disabled or pipe from your password manager; never put a real password in shell history or an argument. It reads until EOF. The JSON result must say `encrypted: true`. Copy the mode-600 archive to protected off-host storage and compare its SHA-256 at both ends. Do not leave this extra archive indefinitely in the data directory.
 
 Role-account Mac uses the same `admin.js` commands as `_axserver`, with `MYCEL_CONFIG="/Library/Application Support/mycel/config/server.json"` and the executable paths under `/Library/Application Support/mycel/app/current/`. Check your installation ID and paths first; do not substitute Linux paths blindly.
+
+## Team export on the hosted service
+
+The owner's "Export the whole team" in the Trina Cloud console gives two files from one moment
+([decision](decisions/20261120-team-export-zip.md)):
+
+- **Download ZIP**: a normal ZIP that opens with a double-click on any computer (the layout of `archive --zip`). It is
+  encrypted in storage to a one-time key of the hosting service and decrypted only while the signed-in owner downloads
+  it. Nobody needs a passphrase or a terminal for it.
+- **Encrypted backup (for restoring)**: the `archive` file (`.tar.zst.age`) with a passphrase shown once, eight groups
+  of five letters and digits joined by dashes (the dashes are part of it). Restore it with
+  `trina_admin restore-archive --in <file> --to <new folder> --password-stdin`, or open it by hand with
+  `age -d -o team.tar.zst <file>` (age needs `-o`: it does not print binary to a terminal), then `tar --zstd -xf team.tar.zst`.
+
+Both links work 7 days. Every member is told once, when the owner first downloads or reveals.
 
 ## DB-only and file restore
 
@@ -93,6 +109,8 @@ Define `trina_admin` as in [Make a backup now](#make-a-backup-now), then:
    sudo mycel-ctl auto-update off
    ```
 
+   Do not go on to step 3 while the server is still starting: a starting server takes a staged copy at once, changes it again, and what was written since the update is lost. The command waits until the server answers again and then says "the server restarted with the new setting and answers again". If it says "does not answer yet" instead (or "not restarted"), wait until `curl -s http://127.0.0.1:47820/api/health` shows `"ok":true`.
+
 2. Find the copy of the database from just before the update:
 
    ```sh
@@ -116,6 +134,7 @@ Define `trina_admin` as in [Make a backup now](#make-a-backup-now), then:
    Look at the **first** line it prints (the result; lines starting with `note:` may follow, such as "root files 0.5.0 are newer than 0.4.0; kept", which is expected). It must start with `ok: 0.5.0 -> 0.4.0`. If it does not:
 
    - It starts with `rolled_back:`: the old version did not start and the server went back to the new one. Do steps 2–4 again.
+   - It starts with `error:` and says "cannot open this server's data yet ... has already updated the database to level N": the update you go back from raised the database level, and its `mycel-ctl` does not read the level of the staged copy (versions up to 0.5.8; QA TC-2859). Nothing was changed, and the copy is still staged. Cancel it as below and ask support; do not restart the server meanwhile. From 0.5.9 on, `mycel-ctl` checks the staged copy's level, so this works when you go back from 0.5.9 or a later version.
    - It starts with anything else (`error:`, `verify_failed:`, `busy:`): restart nothing yet, and run `sudo mycel-ctl status`. Its first line says which version runs now (`version …`).
      - `version 0.4.0` and the `health:` line shows `ok:true`: the old version runs and the copy was put back. Go on with step 5.
      - Otherwise, cancel the staged copy, then read the message, fix the cause and start again at step 2:
@@ -235,7 +254,7 @@ When the old server is lost, set up a new one from your off-host archive (made w
    Right after the start, the `health:` line may show `connection refused`: the server is still starting. Wait a few seconds and run `sudo mycel-ctl status` again; `health:` then shows `ok:true`.
 
 9. Everyone signs in again with their old password. Old sign-ins, unused invite links and password-reset links no longer work: send new invites where needed.
-10. Connect the AI accounts again in **Admin › Providers**, and reconnect integrations (Google, Slack and others). Their keys were sealed with the old server's keys, which are not in the archive; never copy key files from the old server or from a support attachment.
+10. Connect the AI accounts again in **Admin › AI providers**, and reconnect integrations (Google, Slack and others). Their keys were sealed with the old server's keys, which are not in the archive; never copy key files from the old server or from a support attachment.
 11. Do the checks in [Verify before reopening access](#verify-before-reopening-access), make a new backup, then delete `/var/lib/mycel/data/off-host.tar.zst.age` and `/var/lib/mycel/data/recovered`. Keep `fresh-install` and `team.fresh-install` for a week, then delete them.
 
 The team folder is always `/var/lib/mycel/team` on Linux (the installer sets it at every install, repair and update). If it is a network share or another disk mounted there, these steps do not work as written: `mv` of a mount point fails ("Device or resource busy"), and `chown`/`chmod` may not work on NFS or SMB. Leave the share mounted, skip the team-folder `mv` in steps 5 and 6, move what the new install put on the share aside, and copy the contents of the recovered `team/` onto it; check with the share's administrator that only the service account can read it. The new server's settings, certificates and keys stay those of the new install; the archive does not carry them.

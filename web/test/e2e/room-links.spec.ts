@@ -43,13 +43,13 @@ test('another site opens in a new tab without the referrer; a mention beside a l
   await expect(first).toHaveAttribute('referrerpolicy', 'no-referrer')
   await expect(first).toHaveText(ARTIFACT)
   const second = page.getByTestId('room-message').nth(1)
-  await expect(second.locator('span.text-accent-text', { hasText: '@Olga' })).toBeVisible()
+  await expect(second.locator('button.text-accent-text', { hasText: '@Olga' })).toBeVisible()
   // the bracket and the comma of the sentence are not part of the link; www. opens as https
   await expect(second.getByTestId('room-link').first()).toHaveAttribute('href', 'https://www.example.org/guide')
   await expect(second.getByTestId('room-link').first()).toHaveText('www.example.org/guide')
   // the accent colour, underlined; the mention is the same colour without the line
   const look = await second.getByTestId('room-link').first().evaluate((e) => ({ color: getComputedStyle(e).color, line: getComputedStyle(e).textDecorationLine }))
-  const mention = await second.locator('span.text-accent-text').first().evaluate((e) => ({ color: getComputedStyle(e).color, line: getComputedStyle(e).textDecorationLine }))
+  const mention = await second.locator('button.text-accent-text').first().evaluate((e) => ({ color: getComputedStyle(e).color, line: getComputedStyle(e).textDecorationLine }))
   expect(look).toEqual({ color: mention.color, line: 'underline' })
   expect(mention.line).toBe('none')
   const [popup] = await Promise.all([page.waitForEvent('popup'), first.click()])
@@ -76,9 +76,12 @@ test("a quote's link sits above the quote's jump: the link opens the site, the r
   const [popup] = await Promise.all([page.waitForEvent('popup'), link.click()])
   expect(popup.url()).toBe(ARTIFACT)
   await popup.close()
-  // the name: to the quoted message, which lights up
+  // the name: to the quoted message, in sight and marked, with no colour (only the place: owner 2026-11-21)
   await quote.getByTestId('message-quote-jump').click({ position: { x: 12, y: 6 } })
-  await expect(page.getByTestId('room-message').nth(0)).toHaveClass(/bg-accent-soft/)
+  const quoted = page.getByTestId('room-message').nth(0)
+  await expect(quoted).toHaveAttribute('data-highlight', '')
+  await expect(quoted).toBeInViewport()
+  await expect(quoted).not.toHaveClass(/bg-accent-soft/)
 })
 
 test('a link to this team app moves inside the app, without a reload; the keyboard shows its focus ring', async ({ page }) => {
@@ -86,8 +89,8 @@ test('a link to this team app moves inside the app, without a reload; the keyboa
   const link = page.getByTestId('room-message').nth(1).getByTestId('room-link').nth(1)
   await expect(link).toHaveAttribute('href', `/rooms/${ROOM_ID}/t/${id(1)}`)
   await expect(link).not.toHaveAttribute('target', /.*/)
-  // keyboard focus: the ring
-  await page.keyboard.press('Shift')
+  // keyboard focus: the ring (a key that moves around the page; Shift alone no longer counts: lib/inputModality.ts)
+  await page.keyboard.press('Tab')
   await link.focus()
   expect(await link.evaluate((e) => [e.matches(':focus-visible'), getComputedStyle(e).outlineStyle])).toEqual([true, 'solid'])
   await page.evaluate(() => ((window as unknown as { stayed: boolean }).stayed = true))

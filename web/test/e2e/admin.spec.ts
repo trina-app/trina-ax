@@ -1,6 +1,6 @@
 import { expect, test, type Page } from '@playwright/test'
 import { OWNER, realErrors, reset, signIn, watchConsole } from './helpers'
-import { openAdmin, showPanel, teamHeader, teamMenuButton } from './nav'
+import { openAdmin, showPanel, teamMenuButton } from './nav'
 import { DICTS, translate } from '../../src/i18n'
 import { PRODUCT } from '@mycel/shared'
 import { CSRF_HEADER, ERROR_MESSAGES } from '@mycel/shared/api'
@@ -238,9 +238,11 @@ test('members cannot open admin screens', async ({ page }) => {
   await reset(page)
   await signIn(page, { username: 'bob', password: 'bob password 1' })
   await expect(page.getByRole('link', { name: '관리자' })).toHaveCount(0)
-  // no team menu either: a member's header is the team's name only
-  await expect(teamHeader(page)).toBeVisible()
-  await expect(teamMenuButton(page)).toHaveCount(0)
+  // the team menu opens (Switch team, owner 2026-11-18) with no Invite or Admin item in it
+  await teamMenuButton(page).click()
+  await expect(page.getByTestId('team-menu-switch')).toBeVisible()
+  for (const item of ['team-menu-invite', 'team-menu-admin']) await expect(page.getByTestId(item)).toHaveCount(0)
+  await page.keyboard.press('Escape')
   // an /admin link says the page is for admins, with a way Home (QA TC-272), not a silent Home
   await page.goto('/admin/members')
   await expect(page.getByTestId('admin-only')).toContainText('관리자만 볼 수 있어요')
@@ -284,6 +286,9 @@ test('system: storage use with what uses it; Team AX Cloud shows the plan and le
   await expect(storage).toContainText('80% 넘음')
   await expect(page.getByTestId('storage-bar')).toHaveAttribute('style', /width: 82%/)
   await expect(page.getByTestId('storage-breakdown')).toContainText('휴지통')
+  // files sent in conversations: one line of their own, one number (no names, conversations or people)
+  await expect(page.getByTestId('storage-part-rooms')).toContainText('대화에 보낸 파일')
+  await expect(page.getByTestId('storage-part-rooms')).toContainText('6.4 GB')
   await expect(storage).toContainText('휴지통 비우기')
   await expect(page.getByTestId('plan-card')).toHaveCount(0)
   await expect(page.getByTestId('managed-notices')).toHaveCount(0)
@@ -438,8 +443,8 @@ test('settings: the team turns sending images and PDF pages to the AI off', asyn
 })
 
 // "Turn video sound into text" (TeamSettings.aiMediaTranscripts, docs/DECISIONS.md "AI reads video and audio"): in the
-// voice input section; its default follows the speech provider (on for this server unless it is small, off for
-// OpenRouter), a provider picked in the form starts from its own default and the saved one gets the saved choice back
+// voice input section; its default follows the speech provider and the server (on for this server with 4 cores and
+// 8 GB, off for the team's own OpenRouter key on its own server), a provider picked in the form starts from its own default and the saved one gets the saved choice back
 test('settings: "Turn video sound into text" follows the speech provider until the admin chooses', async ({ page }) => {
   await reset(page)
   const errors = watchConsole(page)
@@ -465,7 +470,7 @@ test('settings: "Turn video sound into text" follows the speech provider until t
   // back to this server before saving: the admin's saved "off" stays off (QA L4: it went back to the default, on)
   await page.getByTestId('team-speech-provider').selectOption('local')
   await expect(sw).toHaveAttribute('data-on', 'false')
-  await expect(sw).toContainText('30초씩 나눠 바꾸는데')
+  await expect(sw).toContainText('녹음 전체를 글로 바꾸고')
   await expect(sw).not.toContainText('2분씩')
   // voice input off: no switch
   await page.getByTestId('team-speech-provider').selectOption('off')
@@ -473,16 +478,16 @@ test('settings: "Turn video sound into text" follows the speech provider until t
   expect(realErrors(errors)).toEqual([])
 })
 
-// a server with 2 cores or fewer transcribes slowly (QA 2026-11-01): the switch starts off there and says why
+// a server under 4 cores or 8 GB transcribes slowly (QA 2026-11-01; the owner's rule 2026-11-19): the switch starts off there and says why
 test('settings: on a small server "Turn video sound into text" starts off, with why and the measured speed', async ({ page }) => {
   await reset(page)
   const errors = watchConsole(page)
-  expect((await page.request.post('/__test/speech-host', { data: { cpuCores: 2, localSecPerSec: 1.2 } })).ok()).toBeTruthy()
+  expect((await page.request.post('/__test/speech-host', { data: { cpuCores: 2, bigEnough: false, memoryGb: 4, localSecPerSec: 1.2 } })).ok()).toBeTruthy()
   await signIn(page)
   await page.goto('/admin/settings')
   const sw = page.getByTestId('team-media-transcripts')
   await expect(sw).toHaveAttribute('data-on', 'false')
-  await expect(page.getByTestId('team-media-transcripts-small')).toContainText('이 서버에서는 소리를 글로 바꾸는 데 오래 걸려서 꺼 두었어요(CPU 코어 2개)')
+  await expect(page.getByTestId('team-media-transcripts-small')).toContainText('이 서버는 CPU 코어 2개, 메모리 4GB예요')
   await expect(page.getByTestId('team-media-transcripts-speed')).toContainText('소리 1분을 바꾸는 데 약 72초 걸려요')
   // the admin turns it on: saved as their choice, and the note about the default goes
   const saved = page.waitForRequest((r) => r.url().endsWith('/api/admin/settings') && r.method() === 'PATCH')

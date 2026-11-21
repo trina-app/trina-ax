@@ -1,8 +1,10 @@
 // The rail and the Trina panel, rendered and pressed (the layout itself is
 // test/unit/rail-badges.test.tsx and the e2e suites):
-// - the team menu on top of the rail (docs/DECISIONS.md "The team menu"): for owners and admins a button that opens the
-//   team, its address, "팀원 초대" and 관리자, by mouse and by keyboard; a member's is not a button; 팀원 초대 opens the
-//   invite dialog, or the owner's own invite step while the welcome steps are unfinished;
+// - the team menu on top of the rail (docs/DECISIONS.md "The team menu", docs/decisions/20261118-team-menu-for-members.md):
+//   a button for every role that opens the team, its address, "팀원 초대" and 관리자 for owners and admins only, and
+//   "다른 팀으로 전환" for everyone (a plain browser: a dialog that opens another team's address), by mouse and by
+//   keyboard; a member in a phone app without its team screen gets no button; 팀원 초대 opens the invite dialog, or the
+//   owner's own invite step while the welcome steps are unfinished;
 // - a chat row's "…" (nav/ChatItem.tsx, in the Trina panel's history): "상단에 고정" / "고정 해제" for every row, rename,
 //   "프로젝트로 옮기기" ("프로젝트 바꾸기" in a project) and delete for a chat of my own, the move dialog of the chat's
 //   title menu; a shared chat never offers the move;
@@ -13,6 +15,7 @@ import { MemoryRouter, useLocation, useNavigate } from 'react-router-dom'
 import { type Chat, type Me, type WelcomeProgress } from '@mycel/shared/api'
 import { translate, useLocaleStore } from '../../src/i18n'
 import { TeamInviteDialog, TeamMenu } from '../../src/components/TeamMenu'
+import { DialogHost } from '../../src/components/ui'
 import { HistoryList, useRecentsView } from '../../src/components/nav/HistoryList'
 import { useChatPeek } from '../../src/components/nav/ChatItem'
 import { INVITE_STEP_STATE } from '../../src/components/onboarding/GoalCard'
@@ -119,24 +122,87 @@ describe('the team menu on top', () => {
   const key = (el: FakeElement, k: string) => act(async () => { el.dispatchEvent(new FakeEvent('keydown', { bubbles: true, cancelable: true, key: k })) })
   let path = ''
   const Where = () => { path = useLocation().pathname; return null }
-  const renderWithDialog = () => mount(<MemoryRouter initialEntries={['/files']}><Nav /><TeamInviteDialog /><Where /></MemoryRouter>)
+  const renderWithDialog = () => mount(<MemoryRouter initialEntries={['/files']}><Nav /><TeamInviteDialog /><DialogHost /><Where /></MemoryRouter>)
 
-  test('a member: the team\'s logo and name, not a button (no menu)', async () => {
+  // the owner 2026-11-18: "어드민 아니어도 팀 바꾸고 할 수는 있어야": a member's logo opens the menu in a plain browser too
+  test('a member in a browser: a button; the menu has the team and 다른 팀으로 전환 only, no admin item', async () => {
     as('member', 'https://acme.trina.app')
-    const m = await render()
+    const m = await renderWithDialog()
     try {
-      expect(m.get('team-header').tagName).toBe('DIV')
+      const button = m.get('team-menu')
+      expect(button.tagName).toBe('BUTTON')
+      expect(button.getAttribute('aria-haspopup')).toBe('menu')
       expect(m.get('sidebar-team').textContent).toBe('에이크미 마케팅본부')
       expect(m.get('sidebar-team').className).toContain('truncate')
-      expect(m.find('team-menu')).toBeNull()
-      expect(m.get('team-header').querySelector('button, a, svg')).toBeNull()
+      expect(m.find('team-header')).toBeNull()
+      await m.click(button)
+      const menu = m.get('team-dropdown')
+      expect(m.get('team-menu-name').textContent).toBe('에이크미 마케팅본부')
+      expect(m.get('team-menu-address').textContent).toBe('acme.trina.app')
+      const items = menu.querySelectorAll('[role="menuitem"]')
+      expect(items.map((x) => [x.getAttribute('data-testid'), x.textContent?.trim()])).toEqual([['team-menu-switch', ko('teamMenu.switch')]])
+      for (const id of ['team-menu-invite', 'team-menu-admin']) expect(m.find(id)).toBeNull()
+      expect(document.activeElement).toBe(items[0] as never)
     } finally {
       await m.unmount()
     }
   })
 
+  test('a browser\'s 다른 팀으로 전환: a dialog that reads the address as the apps do, then opens that team in this tab', async () => {
+    as('member', 'https://acme.trina.app')
+    const g = globalThis as Record<string, unknown>
+    const assigned: string[] = []
+    const had = Object.getOwnPropertyDescriptor(globalThis, 'location')
+    Object.defineProperty(globalThis, 'location', { configurable: true, value: { hostname: 'acme.trina.app', assign: (u: string) => assigned.push(u) } })
+    const m = await renderWithDialog()
+    try {
+      await m.click('team-menu')
+      await m.click('team-menu-switch')
+      expect(m.find('team-dropdown')).toBeNull()
+      const input = await m.until(() => m.find('dialog-input'), 'the dialog')
+      expect(m.html()).toContain(ko('teamSwitch.label'))
+      expect(m.get('dialog-confirm').textContent).toBe(ko('teamSwitch.open'))
+      expect(m.get('dialog-confirm').disabled).toBe(true)
+      await m.type(input, 'me@example.com')
+      expect(m.html()).toContain(ko('teamSwitch.problem.email'))
+      expect(m.get('dialog-confirm').disabled).toBe(true)
+      await m.type(input, 'http://beta.example.com')
+      expect(m.html()).toContain(ko('teamSwitch.problem.insecure'))
+      await m.type(input, 'javascript:alert(1)')
+      expect(m.html()).toContain(ko('teamSwitch.problem.invalid', { example: 'acme.trina.app' }))
+      expect(m.get('dialog-confirm').disabled).toBe(true)
+      // a bare name is a hosted team's
+      await m.type(input, 'beta')
+      expect(m.get('dialog-confirm').disabled).toBe(false)
+      await m.click('dialog-confirm')
+      await m.until(() => assigned.length, 'the other team opened')
+      expect(assigned).toEqual(['https://beta.trina.app/'])
+      expect(m.find('dialog-input')).toBeNull()
+    } finally {
+      await m.unmount()
+      if (had) Object.defineProperty(globalThis, 'location', had)
+      else delete g.location
+    }
+  })
+
+  test('a member in a phone app without its team screen (a computer\'s width): the logo and name, not a button', async () => {
+    as('member', 'https://acme.trina.app')
+    const g = globalThis as Record<string, unknown>
+    g.ReactNativeWebView = { postMessage() {} }
+    const m = await render()
+    try {
+      expect(m.get('team-header').tagName).toBe('DIV')
+      expect(m.find('team-menu')).toBeNull()
+      expect(m.get('team-header').querySelector('button, a, svg')).toBeNull()
+    } finally {
+      await m.unmount()
+      delete g.ReactNativeWebView
+    }
+  })
+
   // UX review S6: switching teams is found under the logo, as in Slack; the app draws the list (the page never sees it)
-  test('the desktop app: every role\'s menu ends with 다른 팀으로 전환, which opens the app\'s own teams menu (an older app: its team list)', async () => {
+  // owner 2026-11-15: no menu floating over the rail; always the app's own team screen (openTeams), with or without teamMenu
+  test('the desktop app: every role\'s menu ends with 다른 팀으로 전환, which opens the app\'s team screen, never its menu', async () => {
     const calls: string[] = []
     const g = globalThis as Record<string, unknown>
     try {
@@ -157,14 +223,14 @@ describe('the team menu on top', () => {
           }
         }
       }
-      expect(calls).toEqual(['member:teamMenu', 'member:openTeams', 'owner:teamMenu', 'owner:openTeams'])
+      expect(calls).toEqual(['member:openTeams', 'member:openTeams', 'owner:openTeams', 'owner:openTeams'])
     } finally {
       delete g.mycelDesktop
     }
   })
 
   for (const role of ['owner', 'admin'] as const) {
-    test(`${role}: a button opens the menu: the team with its address, then 팀원 초대 and 관리자, nothing personal`, async () => {
+    test(`${role}: a button opens the menu: the team with its address, then 팀원 초대, 관리자 and 다른 팀으로 전환, nothing personal`, async () => {
       as(role, 'https://acme.trina.app')
       const m = await renderWithDialog()
       try {
@@ -183,7 +249,7 @@ describe('the team menu on top', () => {
         expect(m.get('team-menu-name').textContent).toBe('에이크미 마케팅본부')
         expect(m.get('team-menu-address').textContent).toBe('acme.trina.app')
         const items = menu.querySelectorAll('[role="menuitem"]')
-        expect(items.map((x) => [x.getAttribute('data-testid'), x.textContent?.trim()])).toEqual([['team-menu-invite', ko('teamMenu.invite')], ['team-menu-admin', ko('sidebar.admin')]])
+        expect(items.map((x) => [x.getAttribute('data-testid'), x.textContent?.trim()])).toEqual([['team-menu-invite', ko('teamMenu.invite')], ['team-menu-admin', ko('sidebar.admin')], ['team-menu-switch', ko('teamMenu.switch')]])
         expect(document.activeElement).toBe(items[0] as never)
         // the person's own things stay in the photo's menu at the rail's bottom
         for (const id of ['account-settings', 'logout', 'account-away', 'account-trash']) expect(menu.querySelector(`[data-testid="${id}"]`)).toBeNull()
@@ -218,19 +284,21 @@ describe('the team menu on top', () => {
     try {
       const button = m.get('team-menu')
       await m.click(button)
-      const [invite, admin] = [m.get('team-menu-invite'), m.get('team-menu-admin')]
+      const [invite, admin, other] = [m.get('team-menu-invite'), m.get('team-menu-admin'), m.get('team-menu-switch')]
       expect(document.activeElement).toBe(invite as never)
       await key(invite, 'ArrowDown')
       expect(document.activeElement).toBe(admin as never)
       await key(admin, 'ArrowDown')
+      expect(document.activeElement).toBe(other as never)
+      await key(other, 'ArrowDown')
       expect(document.activeElement).toBe(invite as never)
       await key(invite, 'ArrowUp')
-      expect(document.activeElement).toBe(admin as never)
-      await key(admin, 'Home')
+      expect(document.activeElement).toBe(other as never)
+      await key(other, 'Home')
       expect(document.activeElement).toBe(invite as never)
       await key(invite, 'End')
-      expect(document.activeElement).toBe(admin as never)
-      await key(admin, 'Escape')
+      expect(document.activeElement).toBe(other as never)
+      await key(other, 'Escape')
       expect(m.find('team-dropdown')).toBeNull()
       expect(document.activeElement).toBe(button as never)
       expect(button.getAttribute('aria-expanded')).toBe('false')
@@ -482,7 +550,9 @@ describe('a chat row\'s "…"', () => {
       await m.click('chat-project-save')
       await m.until(() => useChats.getState().chats.find((c) => c.id === id)?.projectId === P, 'the chat in the project')
       expect(sent).toEqual([{ projectId: P }])
-      expect(useUi.getState().toasts.at(-1)?.text).toBe(ko('chat.project.moved', { name: 'Acme launch' }))
+      // into a team project it arrives private: the toast says so, with the way to share it (docs/decisions/20261116-ai-share-who-can-open.md)
+      expect(useUi.getState().toasts.at(-1)?.text).toBe(ko('chat.project.movedPrivate', { name: 'Acme launch' }))
+      expect(useUi.getState().toasts.at(-1)?.action?.label).toBe(ko('stepFix.shareProject'))
       await m.until(() => !m.find('chat-project-choices'), 'the dialog to close')
       // Group by: None by default (docs/DECISIONS.md "Trina history: Group by defaults to None"): the row stays in the
       // one list, no project header

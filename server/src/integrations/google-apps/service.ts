@@ -35,6 +35,7 @@ import { isHosted } from '../../system/deployment'
 import { GOOGLE_AUTH, GOOGLE_REVOKE, GOOGLE_TOKEN, GOOGLE_USERINFO, type DriveFetch } from '../google-drive/client'
 import { googleDriveOf, ownsLiveDriveShare } from '../google-drive/oauth'
 import { DriveError } from '../google-drive/store'
+import { BrokerRequestRefused } from '../google-drive/broker'
 import { integrationsOf } from '../connections/service'
 import { memberAllows } from '../connections/tools'
 import { accessOf, activeUser, connectionAad, getRow, isAdmin, mayUse, savedTools, selectRows, setAccess, signsTeamGoogleApp, googleAccountInUse, googleEmailOf, usersOf, type Row } from '../connections/store'
@@ -42,6 +43,10 @@ import { APIS, APP_IDS, APP_NAMES, APP_SLUGS, catalog, placeholderUrl } from './
 import { clientFromBody, clientSettingKey, driveAppAvailable, redirectUriOf, safeAppsDir, appsSecretsDir, readAppClient, setupOf, writeClientFile, type AppSetup } from './config'
 import { googleTransport, isGoogleAppSecret, setGoogleFetch, tokensOf, type GoogleAppSecret } from './tokens'
 import { workspaceLibraryOf } from './library'
+import type { CallbackOutcome } from '../google-drive/callback-page'
+
+/** The key of a Google app connection the demo's snapshot builder makes (routes/demo-builder.ts): no Google app made it. */
+export const DEMO_GOOGLE_KEY = 'demo'
 
 export class GoogleAppError extends Error {
   name = 'GoogleAppError'
@@ -148,7 +153,13 @@ export class GoogleApps {
   /** connected, or needs a new sign-in (its tokens gone, refused by Google, or made with a Google app set up earlier) */
   private stateOf(row: Row, setupKey: string): 'connected' | 'needs_reconnect' {
     const secret = this.secretOf(row)
-    return secret && row.status !== 'needs_auth' && secret.google.key === setupKey ? 'connected' : 'needs_reconnect'
+    return secret && row.status !== 'needs_auth' && this.keyMatches(secret.google.key, setupKey) ? 'connected' : 'needs_reconnect'
+  }
+  /** Was the connection made with the Google app set up now? On a demo server with fakes, a connection the snapshot
+   * builder made (key DEMO_GOOGLE_KEY: there is no Google app, the demo's fake answers it) counts as made with it, so
+   * Settings › Connectors shows the demo's Gmail as connected (the free-roam audit, QA TC-5611). */
+  private keyMatches(key: string, setupKey: string): boolean {
+    return key === setupKey || (key === DEMO_GOOGLE_KEY && !!this.ctx.config.demo?.fakes)
   }
   private secretOf(row: Row): GoogleAppSecret | null {
     if (!row.secret_enc) return null
@@ -169,7 +180,7 @@ export class GoogleApps {
     const reason = this.reasonOf(app)
     const row = this.row(user, app)
     const secret = row ? this.secretOf(row) : null
-    const status: GoogleAppView['status'] = !row ? 'disconnected' : secret && row.status !== 'needs_auth' && secret.google.key === setup.key ? 'connected' : 'needs_reconnect'
+    const status: GoogleAppView['status'] = !row ? 'disconnected' : secret && row.status !== 'needs_auth' && this.keyMatches(secret.google.key, setup.key) ? 'connected' : 'needs_reconnect'
     const account = row ? accountOf(row) : null
     // the team's shared account, only for the people its rule includes now (an admin it does not include sees it on the
     // admin page, not here)
@@ -185,6 +196,8 @@ export class GoogleApps {
       serviceDown: status === 'connected' && lib !== 'ready' && lib !== 'unsupported',
       tools: catalog(app),
       shared,
+      // the hosting service's shared Google app signs in (not a company's own): Google may call it unverified
+      hostedApp: setup.mode === 'broker',
     }
   }
   list(user: string): { apps: GoogleAppView[] } { return { apps: APP_IDS.map((a) => this.view(user, a)) } }
@@ -218,7 +231,8 @@ export class GoogleApps {
     this.sweep()
     const now = this.now()
     const n = (this.db.query('SELECT count(*) n FROM google_app_flows WHERE user_id=? AND created_at>?').get(user, new Date(now - 3600_000).toISOString()) as { n: number }).n
-    if (n >= FLOWS_PER_HOUR) throw new GoogleAppError('rate_limited', 429)
+    // its own reason (not the hosting service's or Google's 'rate_limited'): the app says to wait about an hour (QA TC-3034)
+    if (n >= FLOWS_PER_HOUR) throw new GoogleAppError('signin_limit', 429)
     const id = newId(), state = crypto.randomBytes(32).toString('base64url'), verifier = crypto.randomBytes(48).toString('base64url')
     let sealed
     try { sealed = this.box.seal(flowAad({ id, user_id: user }), { verifier } satisfies FlowSecret) } catch { throw new GoogleAppError('key_unsafe', 503) }
@@ -230,7 +244,7 @@ export class GoogleApps {
     })()
     if (setup.mode === 'broker') {
       try {
-        const urls = await googleDriveOf(this.ctx).broker!.start('personal', state, challengeOf(verifier), app)
+        const urls = await this.brokerStart(scope, state, challengeOf(verifier), app)
         this.limited.delete(app)
         return { flowId: id, ...urls, expiresAt }
       } catch (e) {
@@ -247,6 +261,21 @@ export class GoogleApps {
       access_type: 'offline', prompt: 'consent', state, code_challenge: challengeOf(verifier), code_challenge_method: 'S256',
     })) url.searchParams.set(k, v)
     return { flowId: id, authorizationUrl: url.href, expiresAt }
+  }
+
+  /** The hosting service's sign-in for this app: a team connection says so on its start page (purpose "share"). An
+   * older control plane takes an app only with "personal" and refuses "share" as a bad request (invalid_request:
+   * BrokerRequestRefused): only then start again with "personal", which signs in the same way and only words the page
+   * as one person's (QA TC-6065). Any other refusal (the app closed: app_unavailable, rate limits, ...) is final, never
+   * downgraded. This holds only while `purpose` is wording only on the broker (the same scopes, the same tokens, the
+   * same team binding): if the broker ever treats "share" differently, this fallback must go. */
+  private async brokerStart(scope: Scope, state: string, challenge: string, app: GoogleAppId) {
+    const broker = googleDriveOf(this.ctx).broker!
+    if (scope !== 'team') return broker.start('personal', state, challenge, app)
+    try { return await broker.start('share', state, challenge, app) } catch (e) {
+      if (!(e instanceof BrokerRequestRefused)) throw e
+      return broker.start('personal', state, challenge, app)
+    }
   }
 
   /** A flow of this person and session for this app and scope: a personal sign-in never completes the team's, nor the
@@ -272,16 +301,21 @@ export class GoogleApps {
   /** Google's (direct) or the hosting service's (`handoff` instead of `code`) return to this server. The browser must be
    * signed in as the person who started it: a leaked sign-in address cannot attach someone else's Google consent. */
   async callback(input: { state?: string; code?: string; error?: string; handoff?: string }, browser?: { userId: string; sessionId: string }): Promise<boolean> {
+    return (await this.callbackOutcome(input, browser)).ok
+  }
+  /** The same, with why it did not work for the return page (routes/google-apps.ts, google-drive/callback-page.ts). */
+  async callbackOutcome(input: { state?: string; code?: string; error?: string; handoff?: string }, browser?: { userId: string; sessionId: string }): Promise<CallbackOutcome> {
     this.sweep()
-    if (!input.state || !/^[A-Za-z0-9_-]{43}$/.test(input.state)) return false
+    const no = (reason: string): CallbackOutcome => ({ ok: false, reason })
+    if (!input.state || !/^[A-Za-z0-9_-]{43}$/.test(input.state)) return no('invalid_flow')
     const f = this.db.query('SELECT * FROM google_app_flows WHERE state_hash=?').get(hash(input.state)) as FlowRow | null
-    if (!f || f.state !== 'pending') return false
-    if (!browser || browser.userId !== f.user_id) return false
-    try { this.session(browser.userId, browser.sessionId); this.session(f.user_id, f.session_id, f.scope ?? 'personal') } catch { return false }
+    if (!f || f.state !== 'pending') return no('invalid_flow')
+    if (!browser || browser.userId !== f.user_id) return no('browser_session_required')
+    try { this.session(browser.userId, browser.sessionId); this.session(f.user_id, f.session_id, f.scope ?? 'personal') } catch { return no('invalid_flow') }
     const setup = setupOf(this.ctx, f.app)
-    if (setup.key !== f.config_key || setup.mode === 'off') return false
-    if (!this.db.query("UPDATE google_app_flows SET state='exchanging' WHERE id=? AND state='pending'").run(f.id).changes) return false
-    const failed = (reason: string) => { this.db.query("UPDATE google_app_flows SET state='failed', reason=?, secret_enc=NULL, account=NULL WHERE id=? AND state='exchanging'").run(reason, f.id); return false }
+    if (setup.key !== f.config_key || setup.mode === 'off') return no('invalid_flow')
+    if (!this.db.query("UPDATE google_app_flows SET state='exchanging' WHERE id=? AND state='pending'").run(f.id).changes) return no('invalid_flow')
+    const failed = (reason: string) => { this.db.query("UPDATE google_app_flows SET state='failed', reason=?, secret_enc=NULL, account=NULL WHERE id=? AND state='exchanging'").run(reason, f.id); return no(reason) }
     try {
       if (input.error) return failed(input.error === 'provider_error' ? 'provider_unavailable' : setup.mode === 'broker' ? 'consent_denied_service' : 'consent_denied')
       const broker = setup.mode === 'broker'
@@ -303,7 +337,7 @@ export class GoogleApps {
       if (!cur || cur.state !== 'exchanging' || cur.expires_at <= new Date(this.now()).toISOString()) return failed('invalid_flow')
       const sealed = this.box.seal(flowAad(f), { verifier: '', tokens: { ...tokens, refreshToken: tokens.refreshToken! }, account, scope: granted.join(' ') } satisfies FlowSecret)
       this.db.query("UPDATE google_app_flows SET state='ready', secret_enc=?, key_version=?, account=? WHERE id=? AND state='exchanging'").run(sealed.enc, sealed.keyVersion, JSON.stringify(account), f.id)
-      return true
+      return { ok: true }
     } catch (e) {
       return failed(e instanceof DriveError && e.reason === 'needs_reconnect' ? 'exchange' : e instanceof DriveError ? e.reason : 'provider_unavailable')
     }

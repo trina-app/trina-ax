@@ -1,6 +1,6 @@
 {
   "name": "@mycel/web",
-  "version": "0.5.6",
+  "version": "0.5.25",
   "private": true,
   "license": "AGPL-3.0-only",
   "type": "module",
@@ -15,6 +15,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "bun test test/unit",
     "e2e": "bunx playwright test -c playwright.config.ts",
+    "e2e:guard": "bunx playwright test -c playwright.config.ts --project=chromium phone-targets rail.spec session-markers chat-list-folds chat-project-ask-access mentions-only-count",
     "mock": "bun test/mock/serve.ts"
   },
   "dependencies": {
@@ -23,6 +24,7 @@
     "clsx": "2.1.1",
     "docx-preview": "0.4.1",
     "emojibase-data": "18.0.0",
+    "es-module-lexer": "3.0.4",
     "hash-wasm": "4.12.0",
     "hast-util-from-html": "2.0.3",
     "highlight.js": "11.12.0",

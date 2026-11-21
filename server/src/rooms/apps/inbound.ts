@@ -25,10 +25,12 @@
 //      posts it with its delivery row (a retry posts once). 200 "ok" (Slack-style senders look for it).
 // No network I/O and no AI on this path. A refusal is written to the app's status line at most once a minute, never the
 // body.
+import { NOT_HELD_SQL } from '../project-room'
 import { ROOM_APP_BODY_MAX, ROOM_APP_BODY_SECONDS, ROOM_APP_DAILY_RECEIVED, ROOM_APP_GITHUB_BODY_MAX, ROOM_APP_TOKEN_RE, type RoomAppKind } from '@mycel/shared/api'
 import type { AppContext } from '../../context'
 import { teamDefaultLocale, teamTimeZone } from '../../admin/settings'
 import { storageRefusesWrites } from '../../system/storage'
+import { endConnectionAfter } from '../../http/tunnel'
 import { parseArrival, type Parsed } from './parse'
 import { presetOf, PRESETS } from './presets'
 import { tallyTooOld, typeformTooOld } from './presets/forms'
@@ -54,7 +56,7 @@ class TooBig extends Error {}
 /** The raw body, at most `max` bytes, within `seconds` (past either the stream is cancelled, never waited for). */
 async function readBody(req: Request, max: number, seconds: number): Promise<Uint8Array> {
   const len = req.headers.get('content-length')
-  if (len !== null && Number(len) > max) throw new TooBig()
+  if (len !== null && Number(len) > max) { endConnectionAfter(req); throw new TooBig() }
   const chunks: Uint8Array[] = []
   let size = 0
   if (!req.body) return new Uint8Array(0)
@@ -66,10 +68,11 @@ async function readBody(req: Request, max: number, seconds: number): Promise<Uin
       const r = await Promise.race([reader.read(), deadline])
       if (r.done) break
       size += r.value.byteLength
-      if (size > max) throw new TooBig()
+      if (size > max) { endConnectionAfter(req); throw new TooBig() }
       chunks.push(r.value)
     }
   } catch (e) {
+    if (e instanceof Timeout) endConnectionAfter(req) // what still trickles in is not read either
     void reader.cancel().catch(() => { /* given up */ })
     throw e
   } finally { clearTimeout(timer) }
@@ -109,7 +112,7 @@ export async function roomAppInbound(ctx: AppContext, req: Request, token: strin
   const db = ctx.db
   // 1. the token first
   const row = ROOM_APP_TOKEN_RE.test(token)
-    ? db.query('SELECT a.* FROM room_apps a JOIN rooms r ON r.id = a.room_id WHERE a.token_hash = ? AND r.archived_at IS NULL').get(sha256(token)) as AppRow | null
+    ? db.query(`SELECT a.* FROM room_apps a JOIN rooms r ON r.id = a.room_id WHERE a.token_hash = ? AND r.archived_at IS NULL AND ${NOT_HELD_SQL('r')}`).get(sha256(token)) as AppRow | null
     : null
   if (!row) return apps.limits.unknownOk(info.ip, info.strict) ? NOT_FOUND() : answer(429, 'slow_down', { 'retry-after': '60' })
   // 2. never from a web page in a visitor's browser

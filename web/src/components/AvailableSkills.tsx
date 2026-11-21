@@ -34,6 +34,7 @@ import { isSkillsPath } from '../lib/skillIssues'
 import { useT } from '../i18n'
 import { useCachedRead } from '../store/listCache'
 import { accessChanged, filesChanged, reloadAsked, skillsChanged } from '../store/live'
+import { useFreeRoam } from '../store/demo'
 import { isAdmin, useMe } from '../store/session'
 import { toast } from '../store/ui'
 import { BringSkillsSheet } from './skills/BringSkillsSheet'
@@ -74,7 +75,7 @@ const skillShown = (s: Pick<SkillInfo, 'name' | 'title'>) => { const title = s.t
  * load). */
 export const AVAILABLE_KEY = 'skills:available'
 export const readAvailable = (): Promise<Skill[]> =>
-  Promise.all([api.call(API.listSkills, { query: { shadowed: '1', projects: '1' } }), api.call(API.popularSkills).catch(() => null)]).then(([list, popular]) => {
+  Promise.all([api.call(API.listSkills, { query: { shadowed: '1', projects: '1', groups: '1' } }), api.call(API.popularSkills).catch(() => null)]).then(([list, popular]) => {
     const uses = new Map(popular?.items.map((p) => [p.path, p.uses]))
     return list.items.map((s) => ({ ...s, uses: uses.get(s.path) ?? 0 })).sort((a, b) => b.uses - a.uses)
   })
@@ -141,11 +142,15 @@ export function AvailableSkillsList({ items, query = '', catalogOpen = false }: 
     <div className="space-y-6">
       <div className="space-y-6" data-testid="skill-list">
         <SkillSection title={t('skills.fromTeam')} items={shown.filter((s) => !s.personal && !s.group && !s.project && !s.shadowedBy)} folders={admin} onRun={setRunning} onMove={setMoving} />
-        {skillGroups(shown.filter((s) => !s.shadowedBy)).map((g) => (
-          <SkillSection key={g.id} title={t('skills.fromGroup', { group: g.name })} items={shown.filter((s) => s.group?.id === g.id && !s.shadowedBy)} folders={admin} onRun={setRunning} onMove={setMoving} testId={`skill-group-${g.id}`} />
+        {skillGroups(shown.filter((s) => !s.shadowedBy && !s.notMember)).map((g) => (
+          <SkillSection key={g.id} title={t('skills.fromGroup', { group: g.name })} items={shown.filter((s) => s.group?.id === g.id && !s.shadowedBy && !s.notMember)} folders={admin} onRun={setRunning} onMove={setMoving} testId={`skill-group-${g.id}`} />
         ))}
         {skillProjects(shown).map((p) => (
           <SkillSection key={p.id} title={t('skills.fromProject', { project: p.name })} hint={t('skills.projectHint')} items={shown.filter((s) => s.project?.id === p.id)} folders={admin} onRun={setRunning} onMove={setMoving} testId={`skill-project-${p.id}`} />
+        ))}
+        {/* owner and admins: the groups they are not in, to manage (move, edit, delete); they do not run for them */}
+        {skillGroups(shown.filter((s) => s.notMember)).map((g) => (
+          <SkillSection key={g.id} title={t('skills.fromGroupManaged', { group: g.name })} hint={t('skills.managedGroupHint')} items={shown.filter((s) => s.group?.id === g.id && s.notMember)} folders={admin} onRun={setRunning} onMove={setMoving} testId={`skill-managed-group-${g.id}`} />
         ))}
         <SkillSection title={t('skills.personal')} items={shown.filter((s) => s.personal)} folders={admin} onRun={setRunning} onMove={setMoving} />
         <SkillSection title={t('skills.shadowedTitle')} items={hidden} folders={admin} onRun={setRunning} onMove={setMoving} testId="skill-shadowed" />
@@ -226,7 +231,9 @@ function BringOwnLine() {
   const admin = isAdmin(me)
   const computer = usePicksFolders()
   const [open, setOpen] = useState(false)
-  if (!me) return null
+  // a free-roam demo: nothing comes in from the visitor's own computer (QA TC-5613; the server refuses it too)
+  const freeRoam = useFreeRoam()
+  if (!me || freeRoam) return null
   if (!computer) return <p className="text-label text-muted" data-testid="skill-bring-phone">{t('skills.catalog.bringPhone')}</p>
   return (
     <>
@@ -300,7 +307,7 @@ function SkillRow({ skill: s, folder, onRun, onMove }: { skill: Skill; folder: b
   // a replaced skill is never run from here (a chat with its name runs the one that replaced it, and its form would
   // send that name too): its row opens the file, the details. A project's skill runs in its project's chats only:
   // its row opens the project, where the "/" menu has it
-  const use = () => (s.shadowedBy ? navigateTo(skillFileLink(s.path)) : s.project ? navigateTo(`/projects/${s.project.id}`) : s.inputs?.length ? onRun(s) : navigateTo(skillChatLink(s.name)))
+  const use = () => (s.shadowedBy || s.notMember ? navigateTo(skillFileLink(s.path)) : s.project ? navigateTo(`/projects/${s.project.id}`) : s.inputs?.length ? onRun(s) : navigateTo(skillChatLink(s.name)))
   return (
     // the lists' row (components/list/List.tsx): the icon, the name (at medium weight, as the "/" menu's: `strong`) and its
     // line, the uses at its end; 실행 and "…" beside it, outside its button
@@ -327,17 +334,17 @@ function SkillRow({ skill: s, folder, onRun, onMove }: { skill: Skill; folder: b
         )
       }
       tag={s.uses ? <span title={t('skills.usesHint')}>{t('skills.uses', { uses: s.uses })}</span> : undefined}
-      end={!s.shadowedBy && <span className="sr-only">{t('skills.use')}</span>}
+      end={!s.shadowedBy && !s.notMember && <span className="sr-only">{t('skills.use')}</span>}
       testId="skill-use"
       li={{ className: clsx(s.shadowedBy && 'opacity-70'), 'data-testid': 'skill-row', 'data-path': s.path, 'data-shadowed': s.shadowedBy ? s.shadowedBy.tier : undefined }}
       actions={
         <>
-          {!!s.inputs?.length && !s.shadowedBy && !s.project && (
+          {!!s.inputs?.length && !s.shadowedBy && !s.project && !s.notMember && (
             <IconButton label={t('skillForm.runNamed', { name: shown })} onClick={() => onRun(s)} data-testid="skill-run">
               <Play size={16} aria-hidden />
             </IconButton>
           )}
-          <SkillMenu skill={s} onUse={s.shadowedBy ? null : use} onMove={() => onMove(s)} />
+          <SkillMenu skill={s} onUse={s.shadowedBy || s.notMember ? null : use} onMove={() => onMove(s)} />
         </>
       }
     />
@@ -348,10 +355,14 @@ function SkillRow({ skill: s, folder, onRun, onMove }: { skill: Skill; folder: b
  * and a bottom sheet with the skill's name on top and no path (rooms/MenuButton.tsx, the app's one sheet). */
 function SkillMenu(props: { skill: Skill; onUse: (() => void) | null; onMove: () => void }) {
   const phone = useMediaQuery('(max-width: 767.98px)')
-  return phone ? <SkillSheet {...props} /> : <SkillDropdown {...props} />
+  // a free-roam demo: no "Move" (QA TC-5616). The visitor's one person may not write at the other levels, so the
+  // dialog only offered disabled places with no word why
+  const freeRoam = useFreeRoam()
+  const shown = { ...props, onMove: freeRoam ? null : props.onMove }
+  return phone ? <SkillSheet {...shown} /> : <SkillDropdown {...shown} />
 }
 
-function SkillSheet({ skill: s, onUse, onMove }: { skill: Skill; onUse: (() => void) | null; onMove: () => void }) {
+function SkillSheet({ skill: s, onUse, onMove }: { skill: Skill; onUse: (() => void) | null; onMove: (() => void) | null }) {
   const t = useT()
   const name = skillShown(s) ?? `/${s.name}`
   return (
@@ -366,13 +377,13 @@ function SkillSheet({ skill: s, onUse, onMove }: { skill: Skill; onUse: (() => v
       items={[
         ...(onUse ? [{ label: t('skills.use'), icon: <MessageSquarePlus size={18} aria-hidden />, onSelect: onUse }] : []),
         { label: t('skills.viewFile'), icon: <FileText size={18} aria-hidden />, onSelect: () => navigateTo(skillFileLink(s.path)), testId: 'skill-file' },
-        { label: t('skills.move'), icon: <ArrowRightLeft size={18} aria-hidden />, onSelect: onMove, testId: 'skill-move-open' },
+        ...(onMove ? [{ label: t('skills.move'), icon: <ArrowRightLeft size={18} aria-hidden />, onSelect: onMove, testId: 'skill-move-open' }] : []),
       ]}
     />
   )
 }
 
-function SkillDropdown({ skill: s, onUse, onMove }: { skill: Skill; onUse: (() => void) | null; onMove: () => void }) {
+function SkillDropdown({ skill: s, onUse, onMove }: { skill: Skill; onUse: (() => void) | null; onMove: (() => void) | null }) {
   const t = useT()
   const box = useRef<HTMLDivElement>(null)
   const [open, setOpen] = useState(false)
@@ -415,9 +426,11 @@ function SkillDropdown({ skill: s, onUse, onMove }: { skill: Skill; onUse: (() =
             <FileText size={14} aria-hidden /> {t('skills.viewFile')}
           </button>
           {/* to another level: the team, a group, a project's chats, only me (skills/MoveSkillDialog.tsx) */}
-          <button role="menuitem" type="button" className={item} onClick={() => { setOpen(false); onMove() }} data-testid="skill-move-open">
-            <ArrowRightLeft size={14} aria-hidden /> {t('skills.move')}
-          </button>
+          {onMove && (
+            <button role="menuitem" type="button" className={item} onClick={() => { setOpen(false); onMove() }} data-testid="skill-move-open">
+              <ArrowRightLeft size={14} aria-hidden /> {t('skills.move')}
+            </button>
+          )}
           {/* where the file is, for people who manage skills (the row itself keeps to the name and the description) */}
           <p className="mt-1 border-t border-line px-2 pt-1.5 pb-1 font-mono text-micro break-all text-faint" title={t('skills.pathLine', { path: s.path })} data-testid="skill-path">{s.path}</p>
         </div>

@@ -3,11 +3,16 @@
 // and its button opens Settings > Apps; it does not replace itself. (Windows installs through electron-updater; its
 // configuration is unit-tested in tests/unit/office-update.test.ts.)
 import { expect, test } from '@playwright/test'
-import { ACME, addTeam, close, launch, newUserData, teamPage } from './helpers'
+import { ACME, addTeam, close, launch, newUserData, teamPage, stopLeftoverApps } from './helpers'
+
+stopLeftoverApps()
 
 const hits = () => fetch(`${ACME}/test/downloads-hits`).then((r) => r.json() as Promise<{ hits: string[] }>).then((j) => j.hits)
 
 test('Mac: a newer Mac app in /downloads/index.json is announced once, with the team session; Download opens Settings > Apps', async () => {
+  // the notice mode reads index.json only on the Mac: on Linux it is the .deb's notice, read from the team's signed
+  // /downloads/<channel>.json (updater.ts checkLinux; unit-tested in tests/unit/office-update-desktop-updater.test.ts)
+  test.skip(process.platform !== 'darwin', 'the Mac notice; Linux reads the signed manifest instead')
   const userData = newUserData('ko')
   const before = (await hits()).length
   const env = { MYCEL_DESKTOP_UPDATE_TEST: 'notice', MYCEL_DESKTOP_UPDATE_FIRST_MS: '7000' }
@@ -23,7 +28,7 @@ test('Mac: a newer Mac app in /downloads/index.json is announced once, with the 
     await expect.poll(() => app.evaluate(() => (globalThis as any).__boxes.length), { timeout: 20_000 }).toBe(1)
     const box = await app.evaluate(() => (globalThis as any).__boxes[0])
     expect(box.message).toContain('99.0.0')
-    expect(box.title).toBe('새 버전이 있어요')
+    expect(box.title).toBe('맥 앱 업데이트')
     expect(box.buttons).toEqual(['내려받기', '나중에'])
     expect((await hits()).slice(before)).toEqual(['session'])
     // Download: the team page goes to Settings > Apps (where the signed-in person downloads it)

@@ -57,7 +57,7 @@ const TEXT = {
   askOwn: {
     ko: '이 컴퓨터에서 찾은 파일 중 내 폴더에 넣을 업무 파일을 골라 주세요.', en: 'Pick the work files from my computer that belong in my own folder.',
     id: 'Pilih file kerja dari komputer saya yang sebaiknya masuk ke folder saya sendiri.', ja: 'このコンピューターで見つかったファイルから、自分のフォルダーに入れる仕事のファイルを選んでください。',
-    es: 'Elige los archivos de trabajo de mi equipo que deberían ir a mi propia carpeta.',
+    es: 'Elige los archivos de trabajo de mi ordenador que deberían ir a mi propia carpeta.',
     zh: '请从我电脑上找到的文件中，挑出应该放进我自己文件夹的工作文件。',
   },
   ask: {
@@ -151,7 +151,8 @@ function ownRankPrompt(m: FileRankMaterial, o: { history?: { role: 'user' | 'ass
     '## What to pick',
     '- Files this person uses for their work at this company: forms and templates, the company or product introduction, reports, meeting notes, brand material (logos, a brand guide), rules and policies, training material and manuals, proposals.',
     '- Leave out what is private or not work (a CV, a payslip, an ID, medical, tax, bank or family papers, private photos), installers and app files, downloads that are not work, and old copies when a newer file of the same kind is there (words like "final" or "v2" in any language, and the dates, tell which is newer).',
-    '- When unsure, leave it out: the person can tick more themselves.',
+    '- Leave out names a program gave rather than a person (pieces of a saved web page such as "f(3).txt" or "image001.png", "Untitled", numbers or codes only), files inside a saved page\'s or a program\'s folder, chat exports, README or licence files, and short notes. A file downloaded from a shared work app (Google Docs, Notion, Slack) is not work for that reason alone: judge its name.',
+    '- Pick only files you would bet are work documents: five sure picks are better than twenty doubtful ones. When unsure, leave it out: the person can tick more themselves.',
     '',
     '## Answer',
     'Answer with one JSON object in a ```json code block and nothing else: the ids of the work files, grouped by kind (short: it is read by a program):',

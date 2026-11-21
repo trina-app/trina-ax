@@ -78,11 +78,12 @@ type feedServer struct {
 	mu        sync.Mutex
 	files     map[string][]byte
 	downloads int
+	built     map[string]string // bundle kind of a version -> the archive built for it (see archive)
 }
 
 func newFeedServer(t *testing.T) *feedServer {
 	pub, priv, _ := ed25519.GenerateKey(rand.Reader)
-	f := &feedServer{t: t, priv: priv, key: base64.StdEncoding.EncodeToString(pub), files: map[string][]byte{}}
+	f := &feedServer{t: t, priv: priv, key: base64.StdEncoding.EncodeToString(pub), files: map[string][]byte{}, built: map[string]string{}}
 	f.srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		f.mu.Lock()
 		b, ok := f.files[r.URL.Path]
@@ -100,6 +101,24 @@ func newFeedServer(t *testing.T) *feedServer {
 	return f
 }
 
+// archive builds the bundle of one kind (version + content) once and hands the same archive to every later publish of
+// it. A version is published twice, as the channel feed and as <v>/release.json; both feeds name one sha256 and the
+// server holds one file under /bundles/<v>, so the two must be the same bytes. Built twice, they were not: the
+// manifest's createdAt has second precision, and a second tick between the builds made the earlier feed's hash fail
+// ("download does not match the release hash", about 3 runs in 100 under load).
+func (f *feedServer) archive(v, kind string, mk func() string) string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	k := v + "|" + kind
+	if p, ok := f.built[k]; ok {
+		return p
+	}
+	arch := filepath.Join(f.t.TempDir(), v+"-linux-"+runtime.GOARCH+".tar.zst")
+	mkArchive(f.t, mk(), arch, nil)
+	f.built[k] = arch
+	return arch
+}
+
 // publish makes a signed bundle of v (its launcher says which version it is) and its signed feed at p.
 func (f *feedServer) publish(p, v string, needsRoot bool) {
 	f.publishWith(p, v, needsRoot, nil)
@@ -108,8 +127,7 @@ func (f *feedServer) publish(p, v string, needsRoot bool) {
 // publishWith is publish with more (or other) feed fields: rollout, urgent, publishedAt (rollout_test.go).
 func (f *feedServer) publishWith(p, v string, needsRoot bool, extra map[string]any) {
 	t := f.t
-	arch := filepath.Join(t.TempDir(), v+"-linux-"+runtime.GOARCH+".tar.zst")
-	mkArchive(t, signedBundle(t, v, f.priv, "launcher "+v), arch, nil)
+	arch := f.archive(v, "plain", func() string { return signedBundle(t, v, f.priv, "launcher "+v) })
 	ab, err := os.ReadFile(arch)
 	must(t, err)
 	sum := sha256.Sum256(ab)

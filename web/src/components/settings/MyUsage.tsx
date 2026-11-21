@@ -10,8 +10,9 @@ import { Link } from 'react-router-dom'
 import type { MyUsage as MyUsageData, MyUsageLimit } from '@mycel/shared/api'
 import { api, API, errorText } from '../../lib/api'
 import { limitResetText } from '@mycel/shared'
-import { formatDateTime, formatNumber, formatRelative, formatUsd } from '../../lib/format'
+import { formatDateTime, formatNumber, formatRelative } from '../../lib/format'
 import { usageShares } from '../../lib/usage-share'
+import { costText } from '../../lib/usage-cost'
 import { useLocale, useT, type MessageKey } from '../../i18n'
 import { isAdmin, useMeStrict } from '../../store/session'
 import { ENGINE_LABEL } from '../chat/EngineMenu'
@@ -114,7 +115,7 @@ export default function MyUsage() {
               testId="my-usage-totals"
               items={[
                 { label: t('usage.turns'), value: formatNumber(d.totals.turns, locale) },
-                { label: t('usage.cost'), value: `${formatUsd(d.totals.costUsd, locale)}${d.totals.unpricedTurns ? ' +?' : ''}` },
+                { label: t('usage.cost'), value: costText(d.totals, locale, t('usage.noPrice')) },
               ]}
             />
           </div>
@@ -142,6 +143,8 @@ export default function MyUsage() {
             )}
           </section>
           <p className="mt-3 text-xs text-faint">{t('myUsage.costNote')}</p>
+          {!!d.totals.estimatedTurns && <p className="mt-1 text-xs text-faint" data-testid="my-usage-estimated-note">{t('usage.estimated', { n: d.totals.estimatedTurns })}</p>}
+          {!!d.totals.unpricedTurns && <p className="mt-1 text-xs text-warn" data-testid="my-usage-unpriced-note">{t('usage.unpriced', { n: d.totals.unpricedTurns })}</p>}
 
           <p className="mt-1 text-xs text-muted" data-testid="my-usage-updated">{t('myUsage.updated', { when: formatRelative(new Date(state.at).toISOString(), locale) })}</p>
           {isAdmin(me) && (

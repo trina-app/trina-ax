@@ -17,6 +17,8 @@
 // from before keeps them in the group's folder groups/<name>/ (its members read and write it): nothing is moved. No
 // skill is installed (docs/DECISIONS.md "W6": a skill goes in only on a press that names it); the general pack's record
 // is written with no paths for older builds.
+import fs from 'node:fs'
+import path from 'node:path'
 import { z } from 'zod'
 import {
   BRAND_FOLDER, BRAND_IMAGES_FOLDER, GENERAL_CARDNEWS_SKILL, GENERAL_DECK_SKILL, GENERAL_PROMO_SKILL, NOTES_FOLDER, SHARED_HOME, TeamGroupRef, TeamType, WELCOME_STEPS, WelcomeProgress, WelcomeStepState, normalizeWebsite,
@@ -25,11 +27,14 @@ import {
 import type { AppContext } from '../context'
 import { getTeamSettings, setSetting, teamDefaultLocale } from '../admin/settings'
 import { createGroupAs, groupFolder, groupIdByName } from '../admin/groups'
+import { createDefaultFolders } from '../admin/folders'
 import { fail } from '../http/errors'
 import { authorize } from '../policy/authorize'
 import { listTeamSkills, sameSkillName } from '../chat/skills'
 import { componentC } from '../team-files/component'
+import { readCompanyProfile } from './profile'
 import { retireLegacyDefaultSkills } from './retired-skills'
+import { startMySetup } from './my-setup'
 
 export const WELCOME_SETTING = 'onboarding.welcome'
 
@@ -172,8 +177,37 @@ export function deckStarted(ctx: Pick<AppContext, 'db'>): boolean {
 }
 
 /** The progress as the screens get it: the row and the facts read for them (`deckStarted`, `landingSkill`). */
+/**
+ * After the end, a step put off that got done elsewhere (fix/onboarding-after-setup): the company profile saved in
+ * Admin, someone (not a guest) in the team besides the owners (the team menu's invites), a team or personal connection
+ * connected in Connectors. Recorded done on a read, so the setup row stops naming it. Team files and skills have no
+ * such fact here: they are done in their step. Never throws.
+ */
+function settlePutOff(ctx: AppContext, p: WelcomeProgress): WelcomeProgress {
+  if (!p.finishedAt || p.dismissedAt) return p
+  const done: string[] = []
+  try {
+    if (p.steps.profile === 'skipped') {
+      const owner = ctx.db.query("SELECT id FROM users WHERE role = 'owner' AND deleted_at IS NULL ORDER BY created_at LIMIT 1").get() as { id: string } | null
+      if (owner && readCompanyProfile(ctx.files, ctx.files.principal(owner.id))) done.push('profile')
+    }
+    if (p.steps.invite === 'skipped' && ctx.db.query("SELECT 1 FROM users WHERE role IN ('admin', 'member') AND guest = 0 AND deleted_at IS NULL LIMIT 1").get()) done.push('invite')
+    if (p.steps.tools === 'skipped' && ctx.db.query("SELECT 1 FROM integrations WHERE status = 'connected' LIMIT 1").get()) done.push('tools')
+    if (!done.length) return p
+    const s = stored(ctx)
+    if (!s.raw) return p
+    const steps = isObj(s.raw.steps) ? { ...s.raw.steps } : {}
+    for (const d of done) steps[d] = 'done'
+    return save(ctx, { ...s.raw, steps }, new Date().toISOString())
+  } catch (err) {
+    ctx.log.warn('the put-off welcome steps were not checked', { err })
+    return p
+  }
+}
+
 export function welcomeOut(ctx: AppContext, p: WelcomeProgress | null): WelcomeProgress | null {
   if (!p) return p
+  p = settlePutOff(ctx, p)
   let landing: string | null = null
   try { landing = landingSkill(ctx) } catch { /* none */ }
   return { ...p, deckStarted: deckStarted(ctx), landingSkill: landing }
@@ -218,6 +252,12 @@ export function updateWelcome(ctx: Pick<AppContext, 'db' | 'log'> & Partial<AppC
   const raw = forWrite(ctx, now)
   const p = view(raw, now)
   const steps = raw.steps as Raw
+  // the owner's own change in the steps opens them (welcomeOpened): every PATCH /welcome sends, its automatic ones too
+  // (the first visit's start, the AI step recorded as skipped on screen), so landing in the steps opens them, as a row
+  // made by the first visit did before. Not a ✕ on "Continue setup" (`dismissed` alone): that declines the steps
+  // without entering them
+  const onlyDismiss = u.dismissed !== undefined && Object.entries(u).every(([k, v]) => k === 'dismissed' || v === undefined)
+  if (raw[OPENED_AT] === null && !onlyDismiss) raw[OPENED_AT] = now
   if (u.resultChatId !== undefined) {
     // the deck's chat: one of the caller's own, not deleted; recorded once it holds a message (a page that sends it
     // later: settleDeck records the kept chat when its message is in)
@@ -256,11 +296,68 @@ export function updateWelcome(ctx: Pick<AppContext, 'db' | 'log'> & Partial<AppC
     if (!p.finishedAt) raw.finishedAt = now
   }
   const r = saveRow(ctx, raw, now)
-  // the legacy "finish" sets finishedAt itself: it ends the steps too
-  if (r.finished || (u.finish && !p.finishedAt)) finishedNow(ctx, userId)
+  // the legacy "finish" sets finishedAt itself: it ends the steps too. The end screen is next: the owner's own card
+  // ("My setup", my-setup.ts) starts now
+  if (r.finished || (u.finish && !p.finishedAt)) {
+    startMySetup(ctx, userId, now)
+    finishedNow(ctx, userId)
+  }
   // hiding the steps (✕) lets what waited for them go, but only once it holds: the setup row's toast can undo it
   if (u.dismissed && !p.dismissedAt) afterDismissHold(ctx, userId)
   return r.progress
+}
+
+// `openedAt` on the row: null while the row is only what the setup made (no step seen yet), the time of the owner's first
+// move in the steps after that: any change of the steps but a ✕ alone (updateWelcome; /welcome itself sends one as it
+// opens: the first visit's start or the AI step recorded on screen), the team's start (setupWelcomeTeam), the brand
+// action (markWelcomeOpened). A row without the field (every row from before
+// docs/decisions/20261119-welcome-steps-in-app.md) was made by the steps themselves: opened. A build from before that
+// decision reads a row the setup made as any row (it does not know the field): opened.
+const OPENED_AT = 'openedAt'
+
+/** The owner opened the steps: a row is there and it is not one the setup made that nobody has opened yet. What
+ * records a step or holds something back for the steps from outside them (an upload's 팀 파일, a pack install's 내 스킬,
+ * a shared skill, the brand materials before a skill install, the merges that wait for the end, an admin's "sort the
+ * team's files" row) needs this, as it needed a row before: a team whose steps were never opened is never changed by
+ * them (security matrix: teamFilesLanded). */
+export function welcomeOpened(ctx: Pick<AppContext, 'db'>): boolean {
+  const s = stored(ctx)
+  return !!s.raw && s.raw[OPENED_AT] !== null
+}
+
+/** The owner's own move in the steps (the brand action from the steps' page): the row is opened. updateWelcome and
+ * setupWelcomeTeam open it too. */
+export function markWelcomeOpened(ctx: Pick<AppContext, 'db' | 'log'>): void {
+  try {
+    const s = stored(ctx)
+    if (!s.raw || s.raw[OPENED_AT] !== null) return
+    setSetting(ctx.db, WELCOME_SETTING, { ...s.raw, [OPENED_AT]: new Date().toISOString() })
+  } catch (err) { ctx.log.warn('the welcome steps were not marked opened', { err }) }
+}
+
+/**
+ * The team was just made (POST /api/setup, auth/accounts.ts setup): the owner's welcome steps start here, so every
+ * device resumes them (docs/decisions/20261119-welcome-steps-in-app.md). Before, the row was made only when /welcome
+ * opened once, and an owner who went on in the desktop app (/open-app) never had one: Home's landing and the setup row
+ * read none and showed nothing. `site`: the setup link's company website, normalized (anything else is dropped), for the
+ * company profile step. A row already there (a restored backup, a second call) is kept as it is: only a site it lacks is
+ * added. Never throws: the team exists whatever happens here, and /welcome still starts the row on its first visit.
+ */
+export function startWelcomeAtSetup(ctx: Pick<AppContext, 'db' | 'log'>, site: string | null | undefined): void {
+  try {
+    const s = stored(ctx)
+    if (s.row && !s.raw) return
+    const clean = site ? normalizeWebsite(site) : null
+    if (s.raw && (!clean || typeof s.raw.site === 'string')) return
+    const now = new Date().toISOString()
+    // `openedAt: null`: made here, not opened yet (welcomeOpened); the owner's first move in the steps sets it
+    const raw: Raw = s.raw ? { ...s.raw } : { ...fresh(now), [OPENED_AT]: null }
+    if (clean) raw.site = clean
+    raw.updatedAt = now
+    setSetting(ctx.db, WELCOME_SETTING, raw)
+  } catch (err) {
+    ctx.log.warn('the welcome steps were not started at setup', { err })
+  }
 }
 
 /**
@@ -285,6 +382,8 @@ export function endHeldDismissal(ctx: Pick<AppContext, 'db' | 'log'> & Partial<A
   let p: WelcomeProgress | null
   try { p = readWelcome(ctx) } catch { return false }
   if (!p || p.finishedAt || !dismissHeld(p, now)) return false
+  // the steps closed for good: the owner's own card ("My setup", my-setup.ts), its days from the ✕
+  startMySetup(ctx, ownerId, p.dismissedAt!)
   finishedNow(ctx, ownerId)
   return true
 }
@@ -298,7 +397,7 @@ export function welcomeUnfinishedFor(ctx: Pick<AppContext, 'db'>, userId: string
     const owner = ctx.db.query("SELECT 1 FROM users WHERE id = ? AND role = 'owner' AND deleted_at IS NULL").get(userId)
     if (!owner) return false
     const p = readWelcome(ctx)
-    return !!p && !p.finishedAt && !dismissHeld(p)
+    return !!p && welcomeOpened(ctx) && !p.finishedAt && !dismissHeld(p)
   } catch { return false }
 }
 
@@ -360,6 +459,9 @@ export function brandFoldersOf(ctx: AppContext, userId: string, folder: string, 
  * there, else new ones named in the team's language, made when missing. */
 function sharedStart(ctx: AppContext, userId: string, recorded: TeamGroupRef | null): Pick<TeamGroupRef, 'notesFolder' | 'brandFolder' | 'home'> {
   const kept = recorded?.home === SHARED_HOME
+  // shared/ missing on disk (a team folder made or restored by hand, a volume mounted empty: the likely hosted cause of a
+  // team start that failed): the team's default folders again, which changes nothing that is there
+  if (!fs.existsSync(path.join(ctx.files.fx.root, SHARED_HOME))) createDefaultFolders(ctx)
   const notesFolder = kept && recorded.notesFolder.startsWith(`${SHARED_HOME}/`) ? recorded.notesFolder : `${SHARED_HOME}/${NOTES_FOLDER[teamDefaultLocale(ctx.db)]}`
   ensureNotesFolder(ctx, userId, notesFolder)
   return { notesFolder, brandFolder: brandFoldersOf(ctx, userId, SHARED_HOME, kept ? recorded.brandFolder : undefined).brandFolder, home: SHARED_HOME }
@@ -385,11 +487,15 @@ function teamGroupFor(ctx: AppContext, userId: string, recorded: TeamGroupRef | 
   const team = getTeamSettings(ctx.db).teamName.trim().slice(0, 100) || 'Team'
   const name = !groupIdByName(ctx, team) ? team
     : [2, 3, 4, 5, 6, 7, 8, 9].map((n) => `${team.slice(0, 96)} ${n}`).find((n) => !groupIdByName(ctx, n)) ?? `${team.slice(0, 80)} ${Date.now()}`
+  // the folders in shared/ first: a team start that fails there (a file where a folder goes, shared/ missing or not
+  // writable) leaves no group behind, so asking again makes the same group, not "Acme 2", "Acme 3"… (QA: a hosted team's
+  // start left no team group; the group made before the folders stayed while the row never recorded it)
+  const start = sharedStart(ctx, userId, recorded)
   // no team room: the everyone room is the team's one room (docs/DECISIONS.md "One room for the whole team")
   const g = createGroupAs(ctx, userId, { name, memberIds: [userId], room: false }, locale)
   const folder = groupFolder(ctx, g.id)
   if (!folder) return fail('internal')
-  return { id: g.id, name: g.name, folder, ...sharedStart(ctx, userId, recorded) }
+  return { id: g.id, name: g.name, folder, ...start }
 }
 
 /**
@@ -409,6 +515,8 @@ function teamGroupFor(ctx: AppContext, userId: string, recorded: TeamGroupRef | 
 export function setupWelcomeTeam(ctx: AppContext, userId: string, locale: Locale): WelcomeTeamResult {
   const now = new Date().toISOString()
   const raw = forWrite(ctx, now)
+  // the team's start comes from the steps (their page, or the brand action once they are opened): opened
+  if (raw[OPENED_AT] === null) raw[OPENED_AT] = now
   let p = view(raw, now)
   if (!p.general) {
     const skills = listTeamSkills(ctx.files, ctx.files.principal(userId))
@@ -480,7 +588,7 @@ export function recordShared(ctx: Pick<AppContext, 'db' | 'log'> & Partial<AppCo
   try {
     const owner = ctx.db.query("SELECT 1 FROM users WHERE id = ? AND role = 'owner'").get(userId)
     const s = stored(ctx)
-    if (!owner || !s.raw) return false
+    if (!owner || !s.raw || !welcomeOpened(ctx)) return false
     const now = new Date().toISOString()
     const raw: Raw = { ...s.raw, steps: isObj(s.raw.steps) ? { ...s.raw.steps } : {} }
     settleDeck(ctx, raw)
@@ -494,7 +602,7 @@ export function recordShared(ctx: Pick<AppContext, 'db' | 'log'> & Partial<AppCo
     ;(raw.steps as Raw).skills = 'done'
     delete raw.skillsLater
     const r = saveRow(ctx, raw, now)
-    if (r.finished) finishedNow(ctx, userId)
+    if (r.finished) { startMySetup(ctx, userId, now); finishedNow(ctx, userId) }
     return r.finished
   } catch (err) {
     ctx.log.warn('welcome shared skills not recorded', { err })

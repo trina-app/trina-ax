@@ -5,10 +5,28 @@
 // A runner looks at every chat with waiting messages whenever the chats store or this one changes: when the
 // answer has ended, the waiting messages go out together through the normal send (same permission checks, same
 // "not sent [send again]" on a failure); a stopped or failed answer pauses them until "Send now".
+//
+// A shared chat (docs/decisions/20261118-shared-chat-queued-sends.md) is the same, with three more rules: this browser
+// tells the server how many wait (never what), so the person who queued first sends first (409 shared_chat_next: they
+// wait again); the send goes under the chat's end as the server has it (someone else's turn may not be read here yet);
+// someone else's answer that stopped or failed does not pause them, and someone else's running turn is waited for.
 import { create } from 'zustand'
-import { uuidv7, type Attachment } from '@mycel/shared/api'
-import { awaitedAnswer, combine, combinedClientId, emptyQueue, nextStep, parseQueue, QUEUE_ITEMS_MAX, QUEUE_KEY_PREFIX, queueKey, restoredQueue, serializeQueue, type ChatQueue, type QueuedMessage, type QueuePause } from '../lib/sendQueue'
+import { uuidv7, type Attachment, type Chat } from '@mycel/shared/api'
+import { api, API } from '../lib/api'
+import { awaitedAnswer, combine, combinedClientId, declaredCount, emptyQueue, nextStep, parseQueue, QUEUE_ITEMS_MAX, QUEUE_KEY_PREFIX, queueKey, restoredQueue, serializeQueue, WAITING_REFRESH_MS, type ChatQueue, type QueuedMessage, type QueuePause } from '../lib/sendQueue'
 import { useChats } from './chats'
+
+/** the chat as this window knows it (my list, or someone else's shared chat on screen) */
+const chatOf = (chatId: string): Chat | undefined => {
+  const s = useChats.getState()
+  return s.chats.find((c) => c.id === chatId) ?? s.others[chatId]
+}
+const sharedChat = (chatId: string) => !!chatOf(chatId)?.shared
+/** nextStep's shared-chat rule: whose answers are mine (a question with no author is the chat's creator's) */
+const sharedRule = (chatId: string, me: string | null): { me?: string; creator?: string } => {
+  const shared = chatOf(chatId)?.shared
+  return shared && me ? { me, creator: shared.by.id } : {}
+}
 
 export class QueueFull extends Error {
   constructor() {
@@ -17,7 +35,7 @@ export class QueueFull extends Error {
   }
 }
 
-export interface NewQueued { content: string; attachments: Attachment[]; author: { id: string; name: string } }
+export interface NewQueued { content: string; attachments: Attachment[]; author: { id: string; name: string }; lead?: string }
 
 interface SendQueueState {
   userId: string | null
@@ -73,6 +91,9 @@ function writeStored(userId: string, chatId: string, q: ChatQueue) {
 
 /** chats whose waiting messages are being handed to send() right now */
 const flushing = new Set<string>()
+/** a shared chat's waiting messages on their way to the server (still counted as waiting there until it answers, so
+ * this browser never gives up its place in line just before its own send) */
+const inFlight = new Map<string, number>()
 /** a chat whose send met a running answer (409): left alone for a moment while its state is reloaded */
 const holdUntil = new Map<string, number>()
 const HOLD_MS = 2000
@@ -102,12 +123,17 @@ export const useSendQueue = create<SendQueueState>((set, get) => {
     const q = current(chatId)
     if (!q.items.length || flushing.has(chatId)) return
     const { take, content, attachments } = combine(q.items)
+    const shared = sharedChat(chatId)
     flushing.add(chatId)
     try {
+      if (shared) inFlight.set(chatId, take.length)
       put(chatId, { items: q.items.slice(take.length), paused: null, after: null })
       // send() puts the message on screen as "sending" before it returns: from then on the chat is busy and the runner
       // waits (a failure shows "not sent [send again]" on that message, so nothing disappears)
-      void useChats.getState().send({ chatId, content, attachments, author: take[0]!.author, clientMessageId: combinedClientId(take), onConflict: (e) => takeBack(chatId, take, e.body.params?.reason === 'earlier_answer_ending') }).catch(() => {})
+      void useChats.getState().send({ chatId, content, attachments, author: take[0]!.author, clientMessageId: combinedClientId(take), atEnd: shared, onConflict: (e) => takeBack(chatId, take, e.body.params?.reason === 'earlier_answer_ending', e.body.params?.reason === 'shared_chat_next') })
+        .then((r) => r.sent)
+        .catch(() => {})
+        .finally(() => { if (inFlight.delete(chatId)) schedule() })
     } finally {
       flushing.delete(chatId)
     }
@@ -116,13 +142,16 @@ export const useSendQueue = create<SendQueueState>((set, get) => {
   /** The server still runs an answer in the chat: the messages wait again, in front of anything queued since. The
    * earlier answer is still being ended (Chat.ending, minutes at most): they wait for "Send now", not tried again and
    * again (the chat says why). */
-  function takeBack(chatId: string, take: QueuedMessage[], ending = false) {
+  function takeBack(chatId: string, take: QueuedMessage[], ending = false, behind = false) {
+    inFlight.delete(chatId)
     const q = current(chatId)
     const ids = new Set(q.items.map((i) => i.id))
     put(chatId, { ...q, items: [...take.filter((i) => !ids.has(i.id)), ...q.items], paused: ending ? 'error' : null })
     holdUntil.set(chatId, Date.now() + HOLD_MS)
     setTimeout(schedule, HOLD_MS + 50)
-    void useChats.getState().loadThread(chatId).catch(() => {})
+    // someone else's messages go first (shared_chat_next): nothing changed in the chat, so nothing to read again (their
+    // turn starting is heard from chat.updated)
+    if (!behind) void useChats.getState().loadThread(chatId).catch(() => {})
   }
 
   return {
@@ -135,7 +164,7 @@ export const useSendQueue = create<SendQueueState>((set, get) => {
       const q = current(chatId)
       if (q.items.length >= QUEUE_ITEMS_MAX) throw new QueueFull()
       const thread = useChats.getState().threads[chatId]
-      const item: QueuedMessage = { id: uuidv7(), content: m.content, attachments: m.attachments, author: m.author, createdAt: new Date().toISOString() }
+      const item: QueuedMessage = { id: uuidv7(), content: m.content, attachments: m.attachments, author: m.author, createdAt: new Date().toISOString(), ...(m.lead ? { lead: m.lead } : {}) }
       // a message added while an answer runs means "send when it is done" for everything waiting (a pause ends)
       put(chatId, { items: [...q.items, item], paused: null, after: (thread ? awaitedAnswer(thread.messages) : null) ?? q.after })
     },
@@ -170,11 +199,14 @@ export const useSendQueue = create<SendQueueState>((set, get) => {
       if (!stored) return
       const thread = useChats.getState().threads[chatId]
       if (!thread) return
-      put(chatId, restoredQueue(stored, thread.messages))
+      put(chatId, restoredQueue(stored, thread.messages, sharedRule(chatId, userId)))
     },
 
     reset() {
       flushing.clear()
+      inFlight.clear()
+      declared.clear()
+      answeringSeen.clear()
       holdUntil.clear()
       memoryOnly.clear()
       set({ userId: null, queues: {}, editing: {} })
@@ -185,11 +217,24 @@ export const useSendQueue = create<SendQueueState>((set, get) => {
 /** What every chat with waiting messages does now (nextStep); runs after each change of either store. */
 function pump() {
   const s = useSendQueue.getState()
+  watchTurns()
+  declareAll()
   for (const [chatId, q] of Object.entries(s.queues)) {
-    if (!q.items.length || q.paused || s.editing[chatId] || flushing.has(chatId) || (holdUntil.get(chatId) ?? 0) > Date.now()) continue
+    // paused because the answer was stopped or failed, and that answer is no longer the newest (the person tried again
+    // and that answer runs or finished, QA TC-4930): "The answer didn't finish" would sit under a finished answer. They
+    // wait for "Send now" as after a reload (the chat moved on; nothing drops in by itself)
+    if (q.items.length && (q.paused === 'stopped' || q.paused === 'error')) {
+      const thread = useChats.getState().threads[chatId]
+      const step = thread ? nextStep(thread.messages, sharedRule(chatId, s.userId)) : null
+      if (thread && !(typeof step === 'object' && step?.pause === q.paused)) pause(chatId, 'away')
+      continue
+    }
+    if (!q.items.length || q.paused || s.editing[chatId] || flushing.has(chatId) || inFlight.has(chatId) || (holdUntil.get(chatId) ?? 0) > Date.now()) continue
     const thread = useChats.getState().threads[chatId]
     if (!thread) continue
-    const step = nextStep(thread.messages)
+    // someone else's question is being answered (its text is not streamed here): theirs first
+    if (chatOf(chatId)?.shared?.answering) continue
+    const step = nextStep(thread.messages, sharedRule(chatId, s.userId))
     if (step === 'wait') {
       // remember which answer they wait for, so a reload can tell whether it ended meanwhile (restoredQueue)
       const awaited = awaitedAnswer(thread.messages)
@@ -212,6 +257,63 @@ function pause(chatId: string, why: QueuePause) {
   const next = { ...q, paused: why }
   if (s.userId) writeStored(s.userId, chatId, next)
   useSendQueue.setState((st) => ({ queues: { ...st.queues, [chatId]: next } }))
+}
+
+/** each shared chat with waiting messages: whose question was being answered when last looked (null: nobody else's) */
+const answeringSeen = new Map<string, string | null>()
+/** A shared chat with waiting messages, also while another chat is on screen: someone else's turn started or ended, so
+ * its messages are read again here (the chat page does it only while it is open). Without that this window would never
+ * see the answer end, never send, and its place in line would hold the others back. */
+function watchTurns() {
+  const s = useSendQueue.getState()
+  for (const chatId of [...answeringSeen.keys()]) if (!s.queues[chatId]?.items.length) answeringSeen.delete(chatId)
+  for (const [chatId, q] of Object.entries(s.queues)) {
+    const shared = chatOf(chatId)?.shared
+    if (!q.items.length || !shared || !useChats.getState().threads[chatId]) continue
+    const now = shared.answering?.name ?? null
+    if (!answeringSeen.has(chatId)) { answeringSeen.set(chatId, now); continue }
+    if (answeringSeen.get(chatId) === now) continue
+    answeringSeen.set(chatId, now)
+    void useChats.getState().loadThread(chatId).catch(() => {})
+  }
+}
+
+/** what this browser last told the server waits in each shared chat, and when */
+const declared = new Map<string, { count: number; at: number }>()
+/** a say that was not taken is tried again after this long (the server takes none within 3 s of my own send) */
+const WAITING_RETRY_MS = 3_500
+let refreshTimer: ReturnType<typeof setTimeout> | null = null
+/** A shared chat: tell the server how many of mine wait there when that changed, and again before it would forget. */
+function declareAll() {
+  const s = useSendQueue.getState()
+  if (!s.userId) return
+  const now = Date.now()
+  for (const chatId of new Set([...Object.keys(s.queues), ...declared.keys()])) {
+    if (!declared.has(chatId) && !sharedChat(chatId)) continue
+    // only a chat whose messages this window has, read since they last changed: one it cannot follow says 0 (its
+    // messages still wait here, and go once the chat is open again)
+    const thread = useChats.getState().threads[chatId]
+    const current = !!thread && !thread.stale
+    const count = current ? declaredCount(s.queues[chatId], !!s.editing[chatId]) + (inFlight.get(chatId) ?? 0) : 0
+    const last = declared.get(chatId)
+    if (!last && !count) continue
+    if (last && last.count === count && now - last.at < WAITING_REFRESH_MS) continue
+    if (count) declared.set(chatId, { count, at: now })
+    else declared.delete(chatId)
+    void api.call(API.putChatWaiting, { params: { id: chatId }, body: { count: Math.min(count, 50) } }).catch(() => {
+      // not taken (just after my own send: 409 waiting_after_send; offline; too many): said again a few seconds later
+      const d = declared.get(chatId)
+      if (d?.at === now) { declared.set(chatId, { ...d, at: Date.now() - WAITING_REFRESH_MS + WAITING_RETRY_MS }); planRefresh() }
+    })
+  }
+  planRefresh()
+}
+/** the next refresh: when the soonest place this window holds is due again */
+function planRefresh() {
+  if (refreshTimer) clearTimeout(refreshTimer)
+  if (!declared.size) { refreshTimer = null; return }
+  const due = Math.min(...[...declared.values()].map((d) => d.at + WAITING_REFRESH_MS)) - Date.now()
+  refreshTimer = setTimeout(() => { refreshTimer = null; schedule() }, Math.max(50, due))
 }
 
 let scheduled = false

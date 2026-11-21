@@ -1,5 +1,7 @@
 // 대화 beside the rail (docs/AGENTS/plan/20261112-1839-nav-rail.md §2.1, phase P3), with the server's `navRail` switch on:
-// every conversation, no "더 보기" cap, by kind: 고정 · 팀 대화방 (전체 first) · 그룹 대화 · 1:1 대화; the rooms I hid are
+// every conversation, no "더 보기" cap, by kind: 고정 · 채널 (전체 first; a named group chat is a private channel there, with a
+// lock) · 다이렉트 메시지 (1:1s and unnamed group chats together, latest first, a group chat with its people's faces:
+// docs/decisions/20261116-sidebar-channels-dms.md, docs/decisions/20261117-named-groups-private-channels.md); the rooms I hid are
 // behind one quiet row; 300 rooms are all listed, drawn 200 at a time as the list scrolls (the plan's rendering budget);
 // and on a narrow window (below 812 px) a room's thread is a sheet over the room.
 import { expect, test, type Page } from '@playwright/test'
@@ -19,7 +21,7 @@ const BY_KIND: MockRoomSpec[] = [
   { id: kid(5), kind: 'dm', name: null, peers: [KIM], ago: 5, last: '확인했어요', pinnedAt: '2026-11-07T08:00:00.000Z' },
   { id: kid(6), kind: 'all', name: null, peers: [SAM, KIM, EVE], ago: 6, last: '점심 같이 하실 분' },
   { id: kid(7), kind: 'team', name: '영업', peers: [EVE], ago: 7, last: '견적서 보냈어요' },
-  { id: kid(8), kind: 'group', name: '점심 모임', peers: [EVE, KIM], ago: 8, last: '12시에 봬요' },
+  { id: kid(8), kind: 'group', name: null, peers: [EVE, KIM], ago: 8, last: '12시에 봬요' },
   { id: kid(9), kind: 'dm', name: null, peers: [EVE], ago: 9, last: '좋아요' },
   { id: kid(10), kind: 'team', name: '기획', peers: [EVE], ago: 10, last: '일정 공유해요' },
   { id: kid(11), kind: 'dm', name: null, peers: [{ id: 'dana', name: 'Dana' }], ago: 11, last: '감사해요', hidden: true },
@@ -41,12 +43,23 @@ test('every conversation by kind, no "더 보기"; the hidden ones behind one ro
   await page.getByTestId('rail-chats').click()
   await expect(panel(page)).toBeVisible()
   await expect(panel(page).getByTestId('sidebar-room-row')).toHaveCount(10)
-  expect(await sectionNames(page)).toEqual(['pinned', 'team', 'group', 'dm'])
-  await expect(panel(page).getByTestId('chats-panel-label')).toHaveText([t['chat.pinned'], t['rooms.section.team'], t['rooms.section.group'], t['rooms.section.dm']])
+  expect(await sectionNames(page)).toEqual(['pinned', 'team', 'dm'])
+  await expect(panel(page).getByTestId('chats-panel-label')).toHaveText([t['chat.pinned'], t['rooms.section.team'], t['rooms.section.dm']])
+  await expect(panel(page).getByTestId('chats-panel-label')).toHaveText(['고정됨', '채널', '다이렉트 메시지'])
   expect(await namesIn(page, 'pinned')).toEqual(['김민지'])
-  expect(await namesIn(page, 'team')).toEqual(['전체', '개발', '기획', '디자인', '영업'])
-  expect(await namesIn(page, 'group')).toEqual(['주간회의', '점심 모임'])
-  expect(await namesIn(page, 'dm')).toEqual(['Sam', 'Eve'])
+  // the named group chat (주간회의) is a private channel: among the channels by name, a lock, no faces
+  expect(await namesIn(page, 'team')).toEqual(['전체', '개발', '기획', '디자인', '영업', '주간회의'])
+  const locked = panel(page).locator('[data-testid="sidebar-room-row"][data-section="team"]').filter({ hasText: '주간회의' })
+  await expect(locked.locator('svg.lucide-lock')).toHaveCount(1)
+  await expect(locked.getByTestId('room-group-people')).toHaveCount(0)
+  // the unnamed group chat among the 1:1s, by latest activity, named after its people with two faces; a 1:1 with its one picture
+  expect(await namesIn(page, 'dm')).toEqual(['Sam', 'Eve, 김민지', 'Eve'])
+  await expect(panel(page).getByTestId('room-group-people')).toHaveCount(1)
+  await expect(panel(page).getByTestId('room-group-people').first().locator(':scope > *')).toHaveCount(2)
+  // the faces take one picture's box: a group chat's name starts where a 1:1's does
+  const nameX = async (name: string) => (await panel(page).locator(`[data-testid="sidebar-room-row"][data-section="dm"] span[title="${name}"]`).boundingBox())!.x
+  expect(await nameX('Eve, 김민지')).toBe(await nameX('Sam'))
+  expect((await panel(page).getByTestId('room-group-people').first().boundingBox())!.width).toBe(20)
   await expect(panel(page).getByTestId('rooms-more')).toHaveCount(0)
   await expect(panel(page).getByTestId('rooms-all')).toHaveCount(0)
   // 멘션·스레드 stays the first row

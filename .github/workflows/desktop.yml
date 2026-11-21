@@ -1,0 +1,447 @@
+# Desktop checks on pull requests (docs/RELEASE-CI.md "데스크톱 검사"): the desktop app's own e2e suite on a Mac, the
+# unsigned dmg mounted and looked into, the Windows installer installed, updated over and removed on a GitHub
+# windows runner, and the Linux packages (docs/decisions/20261119-linux-desktop-app.md): the .deb installed, started,
+# updated over and removed and the AppImage's refusal without the sandbox on ubuntu-24.04, the arm64 .deb installed and
+# started on a real arm64 runner, and a Linux subset of the e2e suite under xvfb. ci.yml runs none of this (Linux only), so a desktop break waited for the release (#994: the find-work-files
+# specs broke unnoticed; a Windows install-over was tried on a real PC). The repository is public: GitHub's hosted macOS
+# and Windows runners cost nothing; the path filter keeps them to pull requests that can change the desktop app.
+#
+# No secret is used: the dmg, the installer and the Linux packages are unsigned (the release signs them: mac-app.yml,
+# release.yml build-windows; the Linux files are covered by the signed release, release.yml build-linux-desktop). These jobs are not required checks; the required one stays ci.yml's.
+name: Desktop
+
+on:
+  pull_request:
+    paths:
+      - "desktop/**"
+      # bundled into the app (@mycel/shared), branded at build time (editions/trina/branding)
+      - "shared/**"
+      - "editions/trina/branding/**"
+      # desktop/build.ts writes the release notices
+      - "scripts/release-notices.ts"
+      # the mock team server offline.spec and hwp.spec sign in to
+      - "web/test/mock/**"
+      - "web/test/e2e/offline-server.ts"
+      # hwp.spec: the pinned renderer and its file
+      - "resources/hwp/**"
+      - "scripts/hwp-bundle.ts"
+      - "tests/fixtures/hwp/**"
+      - "scripts/ci/dmg-check.ts"
+      - "scripts/ci/windows-install-check.ps1"
+      - "scripts/ci/linux-install-check.sh"
+      - "scripts/ci/appimage-runtime-check.sh"
+      - "package.json"
+      - "bun.lock"
+      - ".github/workflows/desktop.yml"
+  # every merge to dev, with no path filter, but only the e2e jobs (macOS and Linux): the PR filter leaves out web/src (most PRs), and the
+  # offline and HWP desktop specs run on the web build, so a web change that breaks them shows up right after its merge
+  push:
+    branches: [dev]
+  # no merge_group on purpose: these jobs are not required on dev and hosted macOS runners are short, so a merge queue
+  # entry never waits on them (docs/decisions/20261117-merge-queue.md); they stay advisory on the PR and the push.
+  workflow_dispatch:
+
+concurrency:
+  # a new push to the pull request stops the run of the push before it
+  group: desktop-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+env:
+  BUN_VERSION: 1.3.12
+
+jobs:
+  e2e-mac:
+    name: Desktop e2e (macOS)
+    # macos-15-intel, not macos-15: after 2026-11-16 08:30 UTC no arm64 macos-15 job of this workflow got a runner, each
+    # was cancelled unstarted ("The job was not acquired by Runner of type hosted even after multiple attempts"; "Due to
+    # capacity constraints, jobs targeting macOS arm64 runners may experience longer queue times"), as the release's
+    # office zip was on 2026-11-02..04 and 11-12..13 (docs/RELEASE-CI.md). The Intel Macs are another pool; the
+    # repository variable DESKTOP_MAC_RUNNER (e.g. macos-15) switches back without a commit.
+    runs-on: ${{ vars.DESKTOP_MAC_RUNNER || 'macos-15-intel' }}
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+      # bun's package store (by bun.lock) and Electron's download (by bun.lock: the electron version is in it)
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ~/.bun/install/cache
+          key: bun-store-${{ runner.os }}-${{ runner.arch }}-${{ env.BUN_VERSION }}-${{ hashFiles('bun.lock') }}
+          restore-keys: bun-store-${{ runner.os }}-${{ runner.arch }}-${{ env.BUN_VERSION }}-
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ~/Library/Caches/electron
+          key: electron-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('bun.lock') }}
+          restore-keys: electron-${{ runner.os }}-${{ runner.arch }}-
+      - run: bun install --frozen-lockfile
+      # the fake teams' names (helpers.ts ACME, BETA, LAN, BAD; desktop.spec's gone.localhost): Chromium maps *.localhost
+      # to 127.0.0.1 itself, the specs' own fetch() goes through the system resolver, which on these runners does not
+      - name: Fake team names on 127.0.0.1
+        run: |
+          for h in acme beta lan bad gone; do echo "127.0.0.1 $h.localhost" | sudo tee -a /etc/hosts > /dev/null; done
+          dscacheutil -flushcache || true
+      # offline.spec and hwp.spec sign in to the web app's mock team (web/test/mock/offline-serve.ts), which serves the
+      # production web build; hwp.spec renders with the pinned rhwp (prepare:hwp checks its sha256)
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: native/bin/hwp
+          key: rhwp-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('resources/hwp/manifest.json') }}
+      - name: Web build and the pinned Hangul renderer
+        run: |
+          bun run build:web
+          bun run prepare:hwp
+      - name: Desktop e2e suite (real Electron, fake team servers, made-up homes)
+        # e2e/ci.config.ts: the whole suite (desktop.spec, work-files, work-files-wide, work-consent, folder window, …),
+        # a 25-minute ceiling for all of it, one retry so a runner hiccup is reported as flaky instead of red
+        timeout-minutes: 30
+        run: |
+          cd desktop
+          bun build.ts
+          bunx playwright test -c e2e/ci.config.ts
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: failure()
+        with:
+          name: desktop-e2e-mac
+          # screenshots and traces the specs took, the html report, each fixture's stdout/stderr (e2e/fixture-run.ts)
+          path: desktop/e2e/.work/
+          # .work is a dot folder: upload-artifact leaves those out unless asked
+          include-hidden-files: true
+          retention-days: 7
+
+  dmg-mac:
+    name: Mac dmg (unsigned build, mount and look)
+    # pull requests (path-filtered) and runs by hand; not on the push to dev
+    if: github.event_name != 'push'
+    # the same runner as the e2e job (see there)
+    runs-on: ${{ vars.DESKTOP_MAC_RUNNER || 'macos-15-intel' }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ~/.bun/install/cache
+          key: bun-store-${{ runner.os }}-${{ runner.arch }}-${{ env.BUN_VERSION }}-${{ hashFiles('bun.lock') }}
+          restore-keys: bun-store-${{ runner.os }}-${{ runner.arch }}-${{ env.BUN_VERSION }}-
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: |
+            ~/Library/Caches/electron
+            ~/Library/Caches/electron-builder
+          key: electron-builder-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('bun.lock') }}
+          restore-keys: electron-builder-${{ runner.os }}-${{ runner.arch }}-
+      - run: bun install --frozen-lockfile
+      - name: Build the dmg (universal, like the release; unsigned)
+        env:
+          # no certificate on a pull request: never look for one in the runner's keychains
+          CSC_IDENTITY_AUTO_DISCOVERY: "false"
+        run: |
+          bun run --cwd desktop dist:mac
+          ls -l desktop/release
+      - name: Mount the dmg and check it against the electron-builder settings
+        run: bun scripts/ci/dmg-check.ts desktop/release
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: always()
+        with:
+          name: desktop-dmg
+          # to open the window by hand (unsigned: right-click > Open, or xattr -d com.apple.quarantine)
+          path: desktop/release/*.dmg
+          if-no-files-found: warn
+          retention-days: 3
+
+  windows-install:
+    name: Windows installer (install, update over, uninstall)
+    # pull requests (path-filtered) and runs by hand; not on the push to dev
+    if: github.event_name != 'push'
+    # the release builds the installer on windows-2025 too (release.yml build-windows); windows-latest is the same image
+    runs-on: windows-2025
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ~/.bun/install/cache
+          key: bun-store-${{ runner.os }}-${{ runner.arch }}-${{ env.BUN_VERSION }}-${{ hashFiles('bun.lock') }}
+          restore-keys: bun-store-${{ runner.os }}-${{ runner.arch }}-${{ env.BUN_VERSION }}-
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: |
+            ~/AppData/Local/electron/Cache
+            ~/AppData/Local/electron-builder/Cache
+          key: electron-builder-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('bun.lock') }}
+          restore-keys: electron-builder-${{ runner.os }}-${{ runner.arch }}-
+      - run: bun install --frozen-lockfile
+      - name: Two unsigned installers of this commit (an old and a new version)
+        run: |
+          base=$(bun -e 'console.log(require("./desktop/package.json").version)')
+          echo "OLD_VERSION=$base-ci.1" >> "$GITHUB_ENV"
+          echo "NEW_VERSION=$base-ci.2" >> "$GITHUB_ENV"
+          echo "PRODUCT=$(bun -e 'console.log(require("./shared/src/product.ts").PRODUCT.displayName)')" >> "$GITHUB_ENV"
+          echo "SCHEME=$(bun -e 'console.log(require("./shared/src/product.ts").PRODUCT.linkScheme)')" >> "$GITHUB_ENV"
+          # which electron-builder (and so which NSIS) made the installers: 26.0.12 made the 0.5.7-era installers, #1036
+          # moves to 26.15.3; an installer crash names it (windows-install-check.ps1)
+          echo "BUILDER=electron-builder $(bun -e 'console.log(require("./desktop/node_modules/electron-builder/package.json").version)')" >> "$GITHUB_ENV"
+          echo "DATA_DIR=$(bun -e 'console.log(require("./shared/src/product.ts").PRODUCT.desktopDataDir)')" >> "$GITHUB_ENV"
+          bun run --cwd desktop dist:win -- "-c.extraMetadata.version=$base-ci.1"
+          # the same app packed again with the next version (electron-builder only; dist/ is already built)
+          (cd desktop && bunx electron-builder --config electron-builder.config.ts --win nsis --x64 --publish never "-c.extraMetadata.version=$base-ci.2")
+          ls -l desktop/release
+          for v in ci.1 ci.2; do ls desktop/release/*-Setup-$base-$v-win-x64.exe; done
+      - name: Install, start, update over, uninstall
+        shell: pwsh
+        run: |
+          $old = (Get-ChildItem "desktop/release/*-Setup-$env:OLD_VERSION-win-x64.exe").FullName
+          $new = (Get-ChildItem "desktop/release/*-Setup-$env:NEW_VERSION-win-x64.exe").FullName
+          ./scripts/ci/windows-install-check.ps1 -Old $old -New $new -OldVersion $env:OLD_VERSION -NewVersion $env:NEW_VERSION `
+            -Product $env:PRODUCT -Scheme $env:SCHEME -DataDir $env:DATA_DIR -Builder $env:BUILDER -LogDir "$env:RUNNER_TEMP/install-logs"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: always()
+        with:
+          name: desktop-windows-install-logs
+          path: ${{ runner.temp }}/install-logs/
+          if-no-files-found: warn
+          retention-days: 7
+
+  linux-packages:
+    name: Linux packages (install, update over, uninstall)
+    # pull requests (path-filtered) and runs by hand; not on the push to dev
+    if: github.event_name != 'push'
+    # the release builds the Linux app on ubuntu-24.04 too (release.yml build-linux-desktop)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    outputs:
+      new_version: ${{ steps.build.outputs.new_version }}
+      package: ${{ steps.build.outputs.package }}
+      exe: ${{ steps.build.outputs.exe }}
+      product: ${{ steps.build.outputs.product }}
+      scheme: ${{ steps.build.outputs.scheme }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ~/.bun/install/cache
+          key: bun-store-${{ runner.os }}-${{ runner.arch }}-${{ env.BUN_VERSION }}-${{ hashFiles('bun.lock') }}
+          restore-keys: bun-store-${{ runner.os }}-${{ runner.arch }}-${{ env.BUN_VERSION }}-
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: |
+            ~/.cache/electron
+            ~/.cache/electron-builder
+          key: electron-builder-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('bun.lock') }}
+          restore-keys: electron-builder-${{ runner.os }}-${{ runner.arch }}-
+      - run: bun install --frozen-lockfile
+      - name: Two unsigned builds of this commit (an old and a new version)
+        id: build
+        run: |
+          base=$(bun -e 'console.log(require("./desktop/package.json").version)')
+          # the .deb writes a pre-release with ~ (0.5.17~ci.2 sorts before 0.5.17), dpkg-query reports that form
+          echo "OLD_VERSION=$base~ci.1" >> "$GITHUB_ENV"
+          echo "NEW_VERSION=$base~ci.2" >> "$GITHUB_ENV"
+          echo "new_version=$base~ci.2" >> "$GITHUB_OUTPUT"
+          echo "BASE=$base" >> "$GITHUB_ENV"
+          exe=$(bun -e 'console.log(require("./desktop/electron-builder.config.ts").LINUX_EXECUTABLE)')
+          pkg=$(bun -e 'console.log(require("./desktop/electron-builder.config.ts").default.deb.packageName)')
+          product=$(bun -e 'console.log(require("./shared/src/product.ts").PRODUCT.displayName)')
+          scheme=$(bun -e 'console.log(require("./shared/src/product.ts").PRODUCT.linkScheme)')
+          artifact=$(bun -e 'console.log(require("./shared/src/product.ts").PRODUCT.artifactBase)')
+          for kv in "EXE=$exe" "PACKAGE=$pkg" "PRODUCT=$product" "SCHEME=$scheme" "ARTIFACT=$artifact"; do echo "$kv" >> "$GITHUB_ENV"; done
+          { echo "exe=$exe"; echo "package=$pkg"; echo "product=$product"; echo "scheme=$scheme"; } >> "$GITHUB_OUTPUT"
+          # the old version first, the x64 .deb only (its latest-linux.yml is written over by the new version below)
+          (cd desktop && NODE_ENV=production bun build.ts && bunx electron-builder --config electron-builder.config.ts --linux deb --x64 --publish never "-c.extraMetadata.version=$base-ci.1")
+          # the new version through dist:linux, as the release runs it: both formats, x64 and arm64
+          bun run --cwd desktop dist:linux -- "-c.extraMetadata.version=$base-ci.2"
+          ls -l desktop/release
+          for f in "$artifact-$base-ci.1-linux-amd64.deb" "$artifact-$base-ci.2-linux-amd64.deb" "$artifact-$base-ci.2-linux-arm64.deb" \
+                   "$artifact-$base-ci.2-linux-x86_64.AppImage" "$artifact-$base-ci.2-linux-arm64.AppImage" latest-linux.yml latest-linux-arm64.yml; do
+            [ -f "desktop/release/$f" ] || { echo "::error::missing desktop/release/$f"; exit 1; }
+          done
+          # the update files name this version (the release checks the same)
+          grep -q "^version: $base-ci.2\$" desktop/release/latest-linux.yml
+          grep -q "^version: $base-ci.2\$" desktop/release/latest-linux-arm64.yml
+          dpkg-deb -I "desktop/release/$artifact-$base-ci.2-linux-arm64.deb" | grep -q 'Architecture: arm64'
+      - name: Tools for the check (a virtual display, window search, the link handler, fusermount for the AppImage)
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q xvfb xdotool xdg-utils fuse3 binutils file > /dev/null
+      # QA TC-5356: both AppImages' runtimes name no unversioned library (the arm64 one of 0.5.18 needed libz.so, from
+      # zlib's -devel package only); the x86_64 one also starts in a stock Fedora container. The arm64 one is started
+      # in Fedora by the arm64 job below.
+      - name: The AppImage runtimes (no unversioned libraries; x86_64 in a stock Fedora)
+        run: |
+          r=desktop/release
+          scripts/ci/appimage-runtime-check.sh "$r/$ARTIFACT-$BASE-ci.2-linux-x86_64.AppImage" fedora
+          scripts/ci/appimage-runtime-check.sh "$r/$ARTIFACT-$BASE-ci.2-linux-arm64.AppImage"
+      - name: Install, start, update over, uninstall; the AppImage without the sandbox
+        env:
+          LOG_DIR: ${{ runner.temp }}/linux-install-logs
+        run: |
+          r=desktop/release
+          scripts/ci/linux-install-check.sh full "$r/$ARTIFACT-$BASE-ci.1-linux-amd64.deb" "$r/$ARTIFACT-$BASE-ci.2-linux-amd64.deb" "$r/$ARTIFACT-$BASE-ci.2-linux-x86_64.AppImage"
+      # the arm64 .deb and AppImage for the next job (a real arm64 runner installs and starts the .deb and starts the
+      # AppImage's runtime in a stock Fedora)
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: desktop-linux-arm64-deb
+          path: |
+            desktop/release/*-linux-arm64.deb
+            desktop/release/*-linux-arm64.AppImage
+          if-no-files-found: error
+          retention-days: 3
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: always()
+        with:
+          name: desktop-linux-install-logs
+          path: ${{ runner.temp }}/linux-install-logs/
+          if-no-files-found: warn
+          retention-days: 7
+
+  linux-arm64:
+    name: "Linux package (arm64: install and start)"
+    needs: linux-packages
+    if: github.event_name != 'push'
+    # builds nothing: installs the arm64 .deb the job above made, starts it, removes it; starts the arm64 AppImage's
+    # runtime in a stock Fedora (QA TC-5356)
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+          sparse-checkout: |
+            scripts/ci/linux-install-check.sh
+            scripts/ci/appimage-runtime-check.sh
+          sparse-checkout-cone-mode: false
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: desktop-linux-arm64-deb
+          path: arm64
+      - name: Tools for the check
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q xvfb xdotool xdg-utils binutils file > /dev/null
+      - name: "The arm64 AppImage runtime: no unversioned libraries, starts in a stock Fedora"
+        run: |
+          ls arm64/*-linux-arm64.AppImage
+          scripts/ci/appimage-runtime-check.sh arm64/*-linux-arm64.AppImage fedora
+      - name: Install, start, remove
+        env:
+          NEW_VERSION: ${{ needs.linux-packages.outputs.new_version }}
+          PACKAGE: ${{ needs.linux-packages.outputs.package }}
+          EXE: ${{ needs.linux-packages.outputs.exe }}
+          PRODUCT: ${{ needs.linux-packages.outputs.product }}
+          SCHEME: ${{ needs.linux-packages.outputs.scheme }}
+          LOG_DIR: ${{ runner.temp }}/linux-install-logs
+        run: scripts/ci/linux-install-check.sh start arm64/*-linux-arm64.deb
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: always()
+        with:
+          name: desktop-linux-arm64-logs
+          path: ${{ runner.temp }}/linux-install-logs/
+          if-no-files-found: warn
+          retention-days: 7
+
+  e2e-linux:
+    name: Desktop e2e (Linux, subset)
+    # pull requests and the push to dev, like the macOS e2e job
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ~/.bun/install/cache
+          key: bun-store-${{ runner.os }}-${{ runner.arch }}-${{ env.BUN_VERSION }}-${{ hashFiles('bun.lock') }}
+          restore-keys: bun-store-${{ runner.os }}-${{ runner.arch }}-${{ env.BUN_VERSION }}-
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ~/.cache/electron
+          key: electron-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('bun.lock') }}
+          restore-keys: electron-${{ runner.os }}-${{ runner.arch }}-
+      - run: bun install --frozen-lockfile
+      # the fake teams' names, as on the Mac (see e2e-mac)
+      - name: Fake team names on 127.0.0.1
+        run: for h in acme beta lan bad gone; do echo "127.0.0.1 $h.localhost" | sudo tee -a /etc/hosts > /dev/null; done
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: native/bin/hwp
+          key: rhwp-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('resources/hwp/manifest.json') }}
+      - name: Web build and the pinned Hangul renderer
+        run: |
+          bun run build:web
+          bun run prepare:hwp
+      # a virtual display, a session bus and a keyring (local-apps.spec seals a setting with safeStorage)
+      - name: Display, session bus and keyring
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q xvfb dbus-x11 gnome-keyring libsecret-1-0 libsecret-tools > /dev/null
+      - name: Desktop e2e subset (real Electron under xvfb, fake team servers, made-up homes)
+        timeout-minutes: 25
+        env:
+          # Chromium picks the keyring by desktop: GNOME means the Secret Service (gnome-keyring below), never basic_text
+          XDG_CURRENT_DESKTOP: GNOME
+          # Playwright's Electron loader adds --password-store=basic; the app (development runs only) sets it back
+          MYCEL_DESKTOP_TEST_PASSWORD_STORE: gnome-libsecret
+        run: |
+          # Electron runs from node_modules, without the .deb's AppArmor profile: let it make the user namespaces its
+          # sandbox needs for this run (never --no-sandbox)
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          cd desktop
+          bun build.ts
+          cat > "$RUNNER_TEMP/keyring-check.cjs" <<'JS'
+          const { app, safeStorage } = require('electron')
+          app.whenReady().then(() => {
+            console.log(`safeStorage: backend ${safeStorage.getSelectedStorageBackend()}, available ${safeStorage.isEncryptionAvailable()}`)
+            app.quit()
+          })
+          JS
+          export KEYRING_CHECK="$RUNNER_TEMP/keyring-check.cjs"
+          xvfb-run -a -s '-screen 0 1440x900x24' dbus-run-session -- bash -c '
+            set -e
+            # an unlocked "login" keyring for this run. A password is needed: with an empty one gnome-keyring creates no
+            # login collection, and the first write waits on a prompt nobody can answer (tried in ubuntu:24.04)
+            echo -n ci-keyring | gnome-keyring-daemon --unlock --components=secrets > /dev/null
+            # the keyring answers on the session bus, and Electron picks it (never basic_text)
+            echo -n probe | timeout 20 secret-tool store --label=probe ci probe || { echo "::error::the secret service did not store a value"; exit 1; }
+            [ "$(timeout 20 secret-tool lookup ci probe)" = probe ] || { echo "::error::the secret service does not answer"; exit 1; }
+            echo "secret service: ok"
+            out=$(timeout 60 bunx electron "$KEYRING_CHECK" 2>&1 || true)
+            echo "$out" | grep "safeStorage:" || true
+            echo "$out" | grep -q "backend gnome_libsecret, available true" || { echo "::error::Electron did not pick the keyring"; echo "$out" | tail -20; exit 1; }
+            bunx playwright test -c e2e/linux.config.ts'
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: failure()
+        with:
+          name: desktop-e2e-linux
+          path: desktop/e2e/.work/
+          include-hidden-files: true
+          retention-days: 7

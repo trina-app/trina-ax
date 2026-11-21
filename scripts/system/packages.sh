@@ -562,11 +562,12 @@ pk_py() {
   echo "$v"
 }
 # pk_python_requirements NAME: pip's requirements file, one line per wheel with every sha256 the list allows
+# (no regex interval like {64} in awk: mawk 1.3.4 20200120, the awk of Debian 12, does not know them and matches nothing)
 pk_python_requirements() {
   pk__lines | awk -F'\t' -v n="$1" '$1 == "W" && $2 == n {
     if ($3 !~ /^[a-z0-9][a-z0-9-]*==[0-9][0-9A-Za-z.!+]*$/) { print "packages: not a pinned requirement: " $3 > "/dev/stderr"; bad = 1; exit 1 }
     k = split($4, h, " "); line = $3
-    for (i = 1; i <= k; i++) { if (h[i] !~ /^[0-9a-f]{64}$/) { print "packages: " $3 ": not a sha256" > "/dev/stderr"; bad = 1; exit 1 } line = line " --hash=sha256:" h[i] }
+    for (i = 1; i <= k; i++) { if (length(h[i]) != 64 || h[i] !~ /^[0-9a-f]+$/) { print "packages: " $3 ": not a sha256" > "/dev/stderr"; bad = 1; exit 1 } line = line " --hash=sha256:" h[i] }
     print line; found = 1 }
     END { exit bad || !found }'
 }

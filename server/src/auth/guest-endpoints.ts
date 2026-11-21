@@ -21,6 +21,8 @@ export const GUEST_ENDPOINTS: ReadonlySet<Endpoint> = new Set<Endpoint>([
   API.setMyStatus,
   API.clearMyStatus,
   API.setMyAway,
+  // their computer in use keeps their own phone quiet (notifications/away.ts), as for a member
+  API.reportMyComputer,
   API.myDeletionRequest,
   API.requestAccountDeletion,
   API.cancelAccountDeletion,
@@ -59,6 +61,10 @@ export const GUEST_ENDPOINTS: ReadonlySet<Endpoint> = new Set<Endpoint>([
   API.listRoomMessages,
   API.searchRoomMessages,
   API.searchRoomFiles,
+  API.listMyRoomFiles,
+  // their rooms' Files lists and ⌘K's recent files: only rooms they are in (rooms/search.ts myRooms)
+  API.listRoomFiles,
+  API.recentRoomFiles,
   API.sendRoomMessage,
   API.listRoomThread,
   API.markRoomThreadRead,
@@ -78,11 +84,15 @@ export const GUEST_ENDPOINTS: ReadonlySet<Endpoint> = new Set<Endpoint>([
   API.attachRoomTeamFile,
   API.roomFile,
   API.roomFileHwpPreview,
+  // an app's icon on the messages they see (never its settings: managing apps stays 403)
+  API.roomAppIcon,
   API.setRoomFolder,
   // Projects (read only: their one project)
   API.listProjects,
   API.getProject,
   API.getProjectPeople,
+  // their project's own chat room (rooms/project-room.ts): they are one of its people (404 for any other project)
+  API.openProjectRoom,
   // Files (the folder policy: their project and their own users/<id>/)
   API.tree,
   API.content,
@@ -133,10 +143,16 @@ export const GUEST_ENDPOINTS: ReadonlySet<Endpoint> = new Set<Endpoint>([
   API.stop,
   API.shareAnswerToRoom,
   API.messageSources,
+  // threads on AI answers: a guest's own shared chat only (chat/threads.ts threadAccess → chatFor is the real check)
+  API.listChatThread,
+  API.sendChatThreadReply,
+  API.deleteChatThreadReply,
+  API.markChatThreadRead,
   API.regenerate,
   API.editMessage,
   API.selectBranch,
   API.listTurnRequests,
+  API.turnRequestDetail,
   API.answerTurn,
   API.listChatArtifacts,
   API.getArtifact,
@@ -146,9 +162,14 @@ export const GUEST_ENDPOINTS: ReadonlySet<Endpoint> = new Set<Endpoint>([
   API.deleteMemory,
   API.clearMemories,
   API.listNavFolders,
+  // the team's conversation categories (read only: the Chats list groups a guest's channels the same way)
+  API.listRoomCategories,
   API.createNavFolder,
   API.updateNavFolder,
   API.deleteNavFolder,
   API.orderNavFolders,
   API.setChatFolder,
+  // names of app links in messages (link-names/resolve.ts): each decided with the page's own check, for the guest's own
+  // narrower access (a file link never opens for a guest)
+  API.linkNames,
 ])

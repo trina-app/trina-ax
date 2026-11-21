@@ -61,7 +61,10 @@ const pushPending = new Set()
 // fetch of the notice, never from the payload)
 // chat.shared: someone shared a chat with me by name ("Chats shared with me"); the title is who shared it and a click opens
 // the chat, both from the signed-in fetch of the notice (never the chat's title, never from the payload)
-const PUSH_PREF = { 'schedule.success': 'scheduleSuccess', 'schedule.failure': 'scheduleFailure', 'connection.reconnect': 'connectionReconnect', 'chat.answer_done': 'chatAnswers', 'chat.shared': 'chatShares' }
+// chat.thread_reply: a reply in a thread I follow under an AI answer of a shared chat ("Replies in threads I'm part of");
+// a click opens that thread, its ids from the signed-in fetch of the notice (never the reply, the chat's title or the
+// payload)
+const PUSH_PREF = { 'schedule.success': 'scheduleSuccess', 'schedule.failure': 'scheduleFailure', 'connection.reconnect': 'connectionReconnect', 'chat.answer_done': 'chatAnswers', 'chat.shared': 'chatShares', 'chat.thread_reply': 'roomThreadReplies', 'file.shared': 'fileShares', 'file.access_requested': 'fileShares', 'access.requested': 'fileShares' }
 // room.dm / room.mention: a message or an @mention in a room. No switch of their own here: each room's level decides on
 // the server, which sends the push only while that level still asks for it (docs/DECISIONS.md "대화방 알림 설정"; a room
 // at its own level alerts even with the default 받지 않음, whose older switch roomMessages is then false)
@@ -76,6 +79,18 @@ const ACCOUNT_CODES = new Set(['owner.reauth_locked'])
 // app is still paused and the person still in its room; a click opens that room (its id from the signed-in fetch of the
 // notice, roomApp.roomId, never from the payload)
 const APP_CODES = new Set(['room_app.paused'])
+// file.shared: someone shared a file, or several in one press, with me by name (docs/decisions/20261116-file-share-everyone.md).
+// The server sends it only while unread, outside quiet hours and while a file of it still opens for me; the generic line
+// only (never who or which file); a click opens the file's link page (/f/<id>) or the press's list (/f/batch/<id>), the
+// id from the signed-in fetch of the notice, never from the payload
+// file.access_requested: someone asked to open a file I answer for (docs/decisions/20261116-file-share-push-gaps.md):
+// shown only while the signed-in notice says I may still answer it; the generic line only (never the file, the asker or
+// the note); a click opens that request in Activity (/activity?n=<id>, the id the signed-in fetch answered with)
+// access.requested: someone asked to open a chat or project I answer for (docs/decisions/
+// 20261116-chat-project-ask-access.md): as a file's request, shown only while the signed-in notice says I may still answer
+// it, the generic line only, a click opens it in Activity
+// All three follow "File sharing" (fileShares, PUSH_PREF)
+const FILE_CODES = new Set(['file.shared', 'file.access_requested', 'access.requested'])
 const pushWanted = (preferences, code) => ROOM_CODES.has(code) || HOME_CODES.has(code) || ACCOUNT_CODES.has(code) || APP_CODES.has(code) || (Object.hasOwn(PUSH_PREF, code) && preferences[PUSH_PREF[code]] === true)
 const opaqueId = value => typeof value === 'string' && /^[A-Za-z0-9_-]{1,100}$/.test(value)
 // A room notice's title: who and where ("민준 · #마케팅 › 스레드", a DM "민준"; names only, never the message's text), from
@@ -161,7 +176,7 @@ self.addEventListener('push', event => {
   event.waitUntil((async () => {
     let payload
     try { payload = event.data?.json() } catch { return }
-    if (!payload || !opaqueId(payload.notificationId) || !opaqueId(payload.subscriptionId) || !(Object.hasOwn(PUSH_PREF, payload.code) || ROOM_CODES.has(payload.code) || HOME_CODES.has(payload.code) || ACCOUNT_CODES.has(payload.code) || APP_CODES.has(payload.code))) return
+    if (!payload || !opaqueId(payload.notificationId) || !opaqueId(payload.subscriptionId) || !(Object.hasOwn(PUSH_PREF, payload.code) || ROOM_CODES.has(payload.code) || HOME_CODES.has(payload.code) || ACCOUNT_CODES.has(payload.code) || APP_CODES.has(payload.code) || FILE_CODES.has(payload.code))) return
     const tag = `notification:${payload.subscriptionId}:${payload.notificationId}`, generation = pushEpoch
     if (pushPending.has(tag)) return
     pushPending.add(tag)
@@ -184,9 +199,30 @@ self.addEventListener('push', event => {
       const appRoomId = !roomId && APP_CODES.has(payload.code) && item.link === 'room' && opaqueId(item.roomApp?.roomId) ? item.roomApp.roomId : undefined
       // a reply in a thread opens that thread (its root's id, from the same signed-in fetch)
       const threadId = roomId && opaqueId(item.room?.thread) ? item.room.thread : undefined
+      // the message itself (a mention, a reply): the room goes to it and picks it out (pages/Room.tsx ?m=)
+      const messageId = roomId && opaqueId(item.room?.message) ? item.room.message : undefined
       // an AI chat's answer opens its chat while the person may still open it (the same signed-in fetch); a chat they
       // can no longer open lands on the start page (the Inbox never lists these notices)
       const chatId = !roomId && (payload.code === 'chat.answer_done' || payload.code === 'chat.shared') && item.link === 'chat' && opaqueId(item.chatId) ? item.chatId : undefined
+      // a chat thread's reply opens that thread while the person still sees it (the same signed-in fetch)
+      const chatThread = payload.code === 'chat.thread_reply' && item.link === 'chat_thread' && item.chatThread?.gone !== true && opaqueId(item.chatThread?.chatId) && opaqueId(item.chatThread?.rootId) ? item.chatThread : undefined
+      // a connection that needs a sign-in again opens its own page, where "Sign in again" is (the same signed-in fetch;
+      // the Inbox row's link) while it is still the person's: a Google app's page or the connection's. Google Drive's and
+      // a removed one's (no connection in the notice): the Inbox, as before
+      const reconnect = payload.code === 'connection.reconnect' && item.link === 'connections'
+      const connectorId = reconnect && opaqueId(item.connection?.googleApp) ? item.connection.googleApp : undefined
+      const connectionId = reconnect && !connectorId && opaqueId(item.connection?.id) ? item.connection.id : undefined
+      // a file shared with me: its link page, or the press's list (the same signed-in fetch; gone: the start page)
+      const fileShare = payload.code === 'file.shared' && item.link === 'file' && item.fileShare?.gone !== true ? item.fileShare : undefined
+      const fileBatch = fileShare && opaqueId(fileShare.batchId) ? fileShare.batchId : undefined
+      const fileLink = fileShare && !fileBatch && opaqueId(fileShare.linkId) ? fileShare.linkId : undefined
+      // a request to open my file: only while I may still answer it (answered meanwhile, by me or someone else: nothing
+      // shown); a click opens that notice (its id from the same signed-in fetch)
+      const fileRequest = payload.code === 'file.access_requested' && item.link === 'file' && item.fileShare?.canAnswer === true && item.fileShare.state === 'pending' && opaqueId(item.id) ? item.id : undefined
+      if (payload.code === 'file.access_requested' && !fileRequest) return
+      // a request to open my chat or project: the same, from the notice's accessRequest
+      const accessRequest = payload.code === 'access.requested' && item.accessRequest?.canAnswer === true && item.accessRequest.state === 'pending' && opaqueId(item.id) ? item.id : undefined
+      if (payload.code === 'access.requested' && !accessRequest) return
       const silent = payload.code.startsWith('room.') && await pageSounds().catch(() => false)
       if (generation !== pushEpoch) return
       // a room notice says who and where in its title; the body is the message's first line when the server sends it
@@ -201,7 +237,8 @@ self.addEventListener('push', event => {
       const seq = roomId && Number.isSafeInteger(item.room?.seq) && item.room.seq >= 0 ? item.room.seq : undefined
       const markRead = typeof settings.messages?.markRead === 'string' && settings.messages.markRead ? settings.messages.markRead.slice(0, 40) : ''
       const actions = seq !== undefined && markRead ? [{ action: 'read', title: markRead }] : []
-      await self.registration.showNotification(shownTitle, { body: preview || (sharer && sharedBy) || body, tag, renotify: false, silent, ...(actions.length ? { actions } : {}), data: roomId ? { notificationId: payload.notificationId, roomId, ...(threadId ? { threadId } : {}), ...(seq !== undefined ? { seq } : {}) } : { notificationId: payload.notificationId, ...(chatId ? { chatId } : {}), ...(appRoomId ? { roomId: appRoomId } : {}), ...(HOME_CODES.has(payload.code) || (payload.code === 'chat.answer_done' && !chatId) ? { home: true } : {}) } })
+      // the light tile (owner 2026-11-16: every app icon is the light tile), so a push never shows the browser's own or a dark icon
+      await self.registration.showNotification(shownTitle, { icon: '/icons/icon-192.png', body: preview || (sharer && sharedBy) || body, tag, renotify: false, silent, ...(actions.length ? { actions } : {}), data: roomId ? { notificationId: payload.notificationId, roomId, ...(threadId ? { threadId } : {}), ...(messageId ? { messageId } : {}), ...(seq !== undefined ? { seq } : {}) } : { notificationId: payload.notificationId, ...(chatId ? { chatId } : {}), ...(chatThread ? { chatId: chatThread.chatId, chatThreadId: chatThread.rootId } : {}), ...(appRoomId ? { roomId: appRoomId } : {}), ...(connectionId ? { connectionId } : {}), ...(connectorId ? { connectorId } : {}), ...(fileBatch ? { fileBatch } : fileLink ? { fileLink } : fileRequest ? { fileRequest } : accessRequest ? { fileRequest: accessRequest } : {}), ...(HOME_CODES.has(payload.code) || (payload.code === 'file.shared' && !fileBatch && !fileLink) || (payload.code === 'chat.answer_done' && !chatId) ? { home: true } : {}) } })
       if (generation !== pushEpoch) {
         for (const item of await self.registration.getNotifications({ tag })) item.close()
         return
@@ -232,8 +269,14 @@ self.addEventListener('notificationclick', event => {
   event.waitUntil((async () => {
     // The payload cannot choose a URL or open a chat whose access has since changed. A room notice opens its room (the
     // id stored at show time from the authenticated notice; the room page checks membership again).
-    const roomId = event.notification.data?.roomId, threadId = event.notification.data?.threadId, chatId = event.notification.data?.chatId
-    const target = new URL(opaqueId(roomId) ? (opaqueId(threadId) ? `/rooms/${roomId}/t/${threadId}` : `/rooms/${roomId}`) : opaqueId(chatId) ? `/c/${chatId}` : event.notification.data?.home === true ? '/' : '/settings/notifications', self.location.origin).href
+    const roomId = event.notification.data?.roomId, threadId = event.notification.data?.threadId, messageId = event.notification.data?.messageId, chatId = event.notification.data?.chatId, chatThreadId = event.notification.data?.chatThreadId
+    const connectionId = event.notification.data?.connectionId, connectorId = event.notification.data?.connectorId
+    const fileBatch = event.notification.data?.fileBatch, fileLink = event.notification.data?.fileLink, fileRequest = event.notification.data?.fileRequest
+    const at = opaqueId(messageId) ? `?m=${messageId}` : ''
+    const target = new URL(opaqueId(roomId) ? (opaqueId(threadId) ? `/rooms/${roomId}/t/${threadId}${at}` : `/rooms/${roomId}${at}`) : opaqueId(chatId) ? (opaqueId(chatThreadId) ? `/c/${chatId}/t/${chatThreadId}` : `/c/${chatId}`)
+      : opaqueId(fileBatch) ? `/f/batch/${fileBatch}` : opaqueId(fileLink) ? `/f/${fileLink}` : opaqueId(fileRequest) ? `/activity?n=${fileRequest}`
+      : opaqueId(connectionId) ? `/settings/connectors/mcp/${connectionId}` : opaqueId(connectorId) ? `/settings/connectors/${connectorId}`
+      : event.notification.data?.home === true ? '/' : '/settings/notifications', self.location.origin).href
     const clients = await self.clients.matchAll({ type: 'window', includeUncontrolled: true })
     const existing = clients.find(client => new URL(client.url).origin === self.location.origin)
     if (existing) { await existing.navigate(target); await existing.focus() }

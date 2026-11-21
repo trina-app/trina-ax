@@ -36,9 +36,9 @@ const AUTO_PAGES = 9
 const PAGE = 30
 
 /** A notice opens as itself in the main area (not at its link) when it has no page of its own or carries what only its
- * own view shows: a handover's buttons, a job's log, an ask to add an app with its button, a paused room app's Resume now. */
+ * own view shows: a handover's buttons, an ask to add an app with its button, a paused room app's Resume now. */
 export function opensAsItself(item: InboxNotification): boolean {
-  return !noticeLink(item) || !!item.handover || !!item.devEnv?.job?.tail || (item.code === 'service.request' && !!item.serviceRequest?.open)
+  return !noticeLink(item) || !!item.handover || (item.code === 'service.request' && !!item.serviceRequest?.open)
     // an app paused in a room that can still be resumed: its Resume now (components/rooms/apps/PausedNotice.tsx)
     || (item.code === 'room_app.paused' && !!item.roomApp?.canResume && !!item.roomApp.pausedUntil)
 }
@@ -119,12 +119,12 @@ export const FEED_KEY = 'feed:panel'
 export function ActivityPanel() {
   const t = useT(), locale = useLocale()
   const admin = isAdmin(useMe())
-  const chips = chipsFor(admin)
   const [chip, setChip] = useState<ActivityChip>('all')
-  const shownChip = chips.includes(chip) ? chip : 'all'
   // the list as this window last showed it (store/listCache.ts): 활동 again shows it at once and reads it behind it
   const [kept] = useState(() => peekCached<KeptFeed>(FEED_KEY))
   const [items, setItems] = useState<InboxNotification[] | null>(kept?.items ?? null)
+  const chips = chipsFor(admin, items ?? [])
+  const shownChip = chips.includes(chip) ? chip : 'all'
   const [cursor, setCursor] = useState<string | null>(kept?.cursor ?? null)
   const [unread, setUnread] = useState(kept?.unread ?? 0)
   useEffect(() => { rememberCached<KeptFeed>(FEED_KEY, items ? { items, cursor, unread } : undefined) }, [items, cursor, unread])
@@ -301,14 +301,17 @@ function NoticeRow({ item, open, onOpen }: { item: InboxNotification; open: bool
   const unread = !item.readAt
   const kind = chipOf(item)
   const Icon = kind === 'trina' ? CalendarClock : kind === 'requests' ? Plug : Bell
-  const target = noticeTarget(item)
+  // a file shared with me that no longer opens (docs/decisions/20261120-file-share-gone-notice.md): muted, opens
+  // nothing; while unread a press only reads it (read, it drops out of the list on the next load)
+  const gone = item.code === 'file.shared' && !!item.fileShare?.gone
+  const target = gone ? null : noticeTarget(item)
   return (
     <ListRow
-      to={target.to}
-      state={target.state}
-      onClick={onOpen}
+      to={target?.to}
+      state={target?.state}
+      onClick={gone && !unread ? undefined : onOpen}
       selected={open}
-      unread={unread}
+      unread={unread && !gone}
       wrap
       icon={<Icon />}
       name={noticeText(item, t, locale)}
@@ -323,7 +326,7 @@ function NoticeRow({ item, open, onOpen }: { item: InboxNotification; open: bool
         )
       }
       testId="activity-panel-row"
-      link={{ 'data-unread': unread ? '' : undefined, 'data-chip': kind ?? 'other' }}
+      link={{ 'data-unread': unread ? '' : undefined, 'data-chip': kind ?? 'other', ...(gone ? { 'data-gone': '' } : {}) }}
     />
   )
 }

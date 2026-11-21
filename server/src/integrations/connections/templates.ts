@@ -273,7 +273,8 @@ export class ConnectionTemplates {
     const now = getTemplate(this.db, id)
     if (!now || now.version !== t.version || !templateCovers(this.db, id, viewer.id)) {
       const row = getRow(this.db, made.id)
-      if (row) await this.svc.dropFromTemplate([row], null, now ? 'template_moved' : 'template_deleted')
+      // no longer for them (narrowed meanwhile): "no longer have access", never "connect it again" (QA TC-2980)
+      if (row) await this.svc.dropFromTemplate([row], null, !now ? 'template_deleted' : !templateCovers(this.db, id, viewer.id) ? 'not_covered' : 'template_moved')
       return fail('conflict', say('templateChanged', L))
     }
     return made

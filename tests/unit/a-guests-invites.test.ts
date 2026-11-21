@@ -77,8 +77,8 @@ test('a project invite stops when the project goes to the trash; AI team needs a
   expect(await status(accept(h.client(), tokenOf(inv), 'gus'))).toBe(410)
   const p2 = await mia.client.call('POST', '/api/projects', { name: 'Second', scope: 'team' })
   // a member cannot give a guest the team's AI; an admin cannot with a connection that does not exist
-  expect(await status(invite(mia.client, { kind: 'project', id: p2.id }, { mode: 'team', credentialId: 'x', limitUsd: 5 }))).toBe(403)
-  expect(await status(invite(ada.client, { kind: 'project', id: p2.id }, { mode: 'team', credentialId: 'x', limitUsd: 5 }))).toBe(403)
+  expect(await status(invite(mia.client, { kind: 'project', id: p2.id }, { mode: 'team', credentialId: 'x', limitTokens: 5000 }))).toBe(403)
+  expect(await status(invite(ada.client, { kind: 'project', id: p2.id }, { mode: 'team', credentialId: 'x', limitTokens: 5000 }))).toBe(403)
   // their own sign-in is fine from a member
   expect((await invite(mia.client, { kind: 'project', id: p2.id }, { mode: 'own' })).invite.role).toBe('guest')
 })
@@ -86,10 +86,11 @@ test('a project invite stops when the project goes to the trash; AI team needs a
 test('the plan caps guests (409 plan_limit, reason guest_limit) at create and at accept; guests take no seat', async () => {
   const { owner, mia, room } = await setup()
   const seatsBefore = (await owner.call('GET', '/api/admin/users')).items.length
-  setPlanForTests(plan({ maxGuests: 1, maxActiveMembers: seatsBefore }))
-  // two links while one guest place is free; the second accept hits the cap
+  // two links made before the plan's cap came down to one guest; the second accept hits the cap (an open link holds a
+  // place, so with the cap already there the second link is refused when it is made: a-guests-walkthrough.test.ts)
   const i1 = await invite(mia.client, { kind: 'room', id: room })
   const i2 = await invite(mia.client, { kind: 'room', id: room })
+  setPlanForTests(plan({ maxGuests: 1, maxActiveMembers: seatsBefore }))
   // every seat is taken, yet a guest joins: guests take no seat
   await accept(h.client(), tokenOf(i1), 'gus')
   let err: ApiFail | null = null
@@ -131,8 +132,9 @@ test('one place: an account never takes a second invite; the reason says to make
   expect((await owner.try('PATCH', `/api/admin/users/${(await addMember(h, owner, { username: 'max' })).id}`, { role: 'guest' })).status).toBe(400)
   // the owner's handover never goes to a guest
   expect((await owner.try('POST', '/api/admin/transfer-ownership', { userId: g.id, password: 'owner horse battery 42' })).status).toBeGreaterThanOrEqual(400)
-  expect(GUEST_ONE_PLACE_MSG.en).toBe('A guest can be in one room or project only. To add them to more, make them a team member.')
-  expect(GUEST_ONE_PLACE_MSG.ko).toBe('게스트는 방이나 프로젝트 한 곳에만 들어갈 수 있어요. 여러 곳에 넣으려면 팀원으로 초대해 주세요.')
+  // (owner, 2026-11-15: one group chat and one project)
+  expect(GUEST_ONE_PLACE_MSG.en).toBe('A guest can be in one private channel or group chat, and one project. To add them to more, make them a team member.')
+  expect(GUEST_ONE_PLACE_MSG.ko).toBe('게스트는 비공개 채널이나 그룹 대화 하나와 프로젝트 하나까지 들어갈 수 있어요. 더 넣으려면 팀원으로 초대해 주세요.')
 })
 
 test('convert to member: takes a seat (409 seat_limit when none is free), keeps the place, role member', async () => {

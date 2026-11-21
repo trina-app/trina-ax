@@ -20,7 +20,9 @@ import { urlsOf } from '../../server/src/realtime/browser-tools'
 import { Hub, MAX_SOCKETS_PER_USER } from '../../server/src/realtime/hub'
 import { MAX_POLLERS_PER_USER } from '../../server/src/realtime/browser-relay'
 import { bunConn, type ConnHooks } from '../../server/src/routes/ws'
-import { ENVIRONMENT, WRITE_ACCESS_RULE, historyBlock, memoryBlock, neutralizeTags, teamRules, timeLine } from '../../server/src/chat/prompt'
+import { answerLanguageLine, ENVIRONMENT, WRITE_ACCESS_RULE, historyBlock, memoryBlock, neutralizeTags, teamRules, timeLine } from '../../server/src/chat/prompt'
+import { turnZone } from '../../server/src/routes/chats'
+import { SCHEDULE_TIME_DESCRIPTION } from '../../server/src/tools/schedules'
 import { LocalEngines, MODEL_RE } from '../../server/src/chat/engines'
 import { stepId } from '../../server/src/chat/turn'
 import type { AppContext } from '../../server/src/context'
@@ -90,9 +92,40 @@ describe('prompt blocks', () => {
     expect(timeLine(new Date('2026-03-08T07:30:00Z'), 'America/New_York')).toContain('Sunday, March 8, 2026 at 3:30 AM (America/New_York)') // after the DST jump
     expect(timeLine(new Date('2026-12-31T23:59:00Z'), 'UTC')).toContain('Thursday, December 31, 2026 at 11:59 PM (UTC)')
     expect(l).toContain('Times in tool results are UTC')
-    // a result that gives its times in the team's time zone (the room tools) is not converted again
-    expect(l).toContain("unless the result says they are in the team's time zone (those are in Asia/Seoul already)")
+    // TC-3700: the zone is the team setting, so the AI can answer "is our team time zone Seoul?" from it
+    expect(l).toContain('Asia/Seoul is the team time zone, read from the team settings.')
+    // a result that names its zone (the room tools) is not converted again
+    expect(l).toContain('unless the result names their time zone (those in Asia/Seoul are ready as they are)')
     expect(l).toContain('give it in Asia/Seoul')
+  })
+
+  test("TC-4549: the person's device zone, when it differs, is the zone of every time the AI says; the team zone is still named", () => {
+    // the room shows 9:08 AM on a Jakarta browser; the team is set to Seoul. The AI said 11:08 (the Seoul time).
+    const now = new Date('2026-11-17T02:08:00Z')
+    const l = timeLine(now, 'Asia/Seoul', 'Asia/Jakarta')
+    expect(l).toContain('Now: Tuesday, November 17, 2026 at 9:08 AM (Asia/Jakarta); 2026-11-17T02:08:00.000Z UTC.')
+    // #1139 / ADM-05.ask: "is our team zone Seoul?" is still answered from the setting
+    expect(l).toContain('Asia/Seoul is the team time zone, read from the team settings.')
+    expect(l).toContain("The user's device is set to Asia/Jakarta")
+    expect(l).toContain('give it in Asia/Jakarta')
+    expect(l).not.toContain('give it in Asia/Seoul')
+    // no zone from the device, the same zone, or a name the runtime does not know: the team zone, as before
+    // schedules run in the team zone: the AI converts the person's time ("remind me at 9" from Jakarta = 11:00 Seoul)
+    expect(l).toContain('A schedule\'s time is in Asia/Seoul: convert a time the user gives (in Asia/Jakarta) to Asia/Seoul for it')
+    // the same zone spelled another way, or an offset rather than a zone name: the team zone, no device sentence
+    for (const z of [undefined, null, 'Asia/Seoul', 'asia/seoul', '+09:00', '+07:00', 'Mars/Olympus', 'x'.repeat(80)]) {
+      const t = timeLine(now, 'Asia/Seoul', z)
+      expect(t).toContain('at 11:08 AM (Asia/Seoul)')
+      expect(t).toContain('give it in Asia/Seoul')
+      expect(t).not.toContain("device is set")
+    }
+    // the request field is stored by its canonical name; offsets and unknown names are dropped
+    expect(turnZone('asia/jakarta')).toBe('Asia/Jakarta')
+    expect(turnZone('Asia/Jakarta')).toBe('Asia/Jakarta')
+    expect(turnZone('UTC')).toBe('UTC')
+    for (const z of ['+07:00', 'Mars/Olympus', '', undefined]) expect(turnZone(z)).toBeUndefined()
+    // the schedule tool's time says which zone it is in and that the person's time is converted to it
+    expect(SCHEDULE_TIME_DESCRIPTION).toContain("in the team's time zone (convert a time the user gives in their own device zone")
   })
 
   test('the instructions say the AI runs on the team server, not on the user\'s computer', () => {
@@ -309,7 +342,7 @@ describe('app review fixes', () => {
     expect(resumed).toBe('resumed=true')
     expect(message).toStartWith('<turn_context>')
     expect(message).toContain('Prefers bullet points')
-    expect(message).toContain('Answer in English')
+    expect(message).toContain(answerLanguageLine('en'))
     expect(message).toContain(WRITE_ACCESS_RULE) // B-W4-2: a resumed session also gets the write-access rule
     expect(message).toContain('@fake') // the person's own message follows the block
   })

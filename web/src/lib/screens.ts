@@ -94,6 +94,9 @@ export function screenOf(to: string): Screen {
       return b === 'share' && c ? s('ai', '/skills') : s('ai', '/', '/skills')
     case 'trash':
       return s('ai', '/')
+    case 'sent-files':
+      // "Files you sent" (pages/SentFiles.tsx): a page of the conversations' tab, under its list
+      return s('chats', '/rooms')
     case 'welcome':
       // Getting started (pages/Welcome.tsx), a flow of its own over the tabs: each step a screen (?step=), under the step
       // a phone shows before it (도구 연결 is a computer's: lib/welcome.ts prevStep), the first one (and the AI step, which
@@ -132,7 +135,7 @@ export function screenOf(to: string): Screen {
   }
 }
 
-/** 파일's screens: its places (/files) the tab's root; 최근 파일, the trash and the team
+/** 파일's screens: its places (/files) the tab's root; 최근 파일, Shared with me, the trash and the team
  * folder's own top (/files?team=1) under them; a
  * folder under the folder above it, except that the team's top folders, a project's folder (projects/x) and my own
  * folder (users/me) are under the places, as 파일's list shows them; a file under its folder. */
@@ -145,6 +148,7 @@ function filesScreen(b: string | undefined, path: string, view: string | null, t
   if (b) return { tab: 'files', parent: '/files', id: `/files/${b}` }
   if (view === 'trash') return { tab: 'files', parent: '/files', id: 'trash', tree: true }
   if (view === 'recent') return { tab: 'files', parent: '/files', id: 'recent' }
+  if (view === 'shared') return { tab: 'files', parent: '/files', id: 'shared' }
   // the team folder's own top (its files kept loose there), from the 팀 폴더 label of the places
   if (!path && team) return { tab: 'files', parent: '/files', id: 'team-root' }
   return path ? { tab: 'files', parent: up(path), id: `folder:${path}`, tree: true } : { tab: 'files', parent: null, id: 'folder:', tree: true }
@@ -181,6 +185,7 @@ const TITLES: [RegExp, MessageKey][] = [
   [/^\/scheduled(\/|$)/, 'settings.schedules'],
   [/^\/skills(\/|$)/, 'skills.title'],
   [/^\/trash$/, 'trash.title'],
+  [/^\/sent-files$/, 'sentFiles.title'],
   [/^\/admin$/, 'admin.title'],
   [/^\/rooms$/, 'tabs.chats'],
   [/^\/welcome$/, 'welcome.eyebrow'],
@@ -223,6 +228,7 @@ export function useScreenName(): (to: string) => string | null {
       if (seg[1] === 'view') return path.slice(path.lastIndexOf('/') + 1) || null
       if (q(search).get('view') === 'trash') return t('files.trash')
       if (q(search).get('view') === 'recent') return t('filesPanel.recent')
+      if (q(search).get('view') === 'shared') return t('filesPanel.shared')
       // 파일's places, or the team folder's own top (?team=1)
       return path ? folderName(path) : !q(search).has('team') ? t('sidebar.files') : t('files.root')
     }

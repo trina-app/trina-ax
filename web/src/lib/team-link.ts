@@ -4,6 +4,7 @@
 import { TEAM_LINK_FRAGMENT_KEY } from '@mycel/shared/api'
 import type { MessageKey, Params } from '../i18n'
 import { namedProduct } from './tabs'
+import { desktopPlatform, type Platform } from './pwa'
 
 /**
  * The token of a /join#t=<token> address, and the address to put back without it. A fragment never reaches a server
@@ -68,16 +69,6 @@ export function teamLinkMessage(t: (key: MessageKey, params?: Params) => string,
   ].filter(Boolean).join('\n')
 }
 
-/** Where to go after joining: only the skill form the server named (`/skills?run=<path>`), anything else is Home. */
-export function joinNext(next: string | null | undefined): string {
-  if (!next || !next.startsWith('/skills?run=')) return '/'
-  try {
-    const u = new URL(next, 'http://x')
-    const run = u.searchParams.get('run')
-    return u.pathname === '/skills' && run && run.startsWith('skills/') && [...u.searchParams.keys()].length === 1 ? `/skills?run=${encodeURIComponent(run)}` : '/'
-  } catch { return '/' }
-}
-
 /**
  * Where the person who just joined goes, kept for the signed-in app's /join route (App.tsx AfterJoin). The join page
  * sets it right before the session switches to signed in: that switch re-renders /join as a signed-in page at once,
@@ -96,20 +87,21 @@ export const clearAfterJoin = () => { afterJoin = null }
  * receives it:
  * - Android: an `intent://` link naming our package (`package=`): no other app can take it, as one could take a bare
  *   custom scheme.
- * - macOS and Windows: `<scheme>://open?url=…`, answered by the installed desktop app. Another program installed on
+ * - macOS, Windows and Linux: `<scheme>://open?url=…`, answered by the installed desktop app (on Linux the .deb's menu
+ *   entry registers the scheme; docs/decisions/20261119-linux-desktop-app.md "Links"). Another program installed on
  *   the same computer could claim the scheme too (the residual risk, in DECISIONS).
  * - iPhone: none. iOS hands a custom scheme to whichever app claims it, and no package can be named; the verified
  *   universal link (the team link itself on `*.<team domain>`) opens the app there instead.
- * - Anything else (Linux, unknown): none.
+ * - Anything else (ChromeOS, unknown): none.
  * The team link's token comes from memory (the page took it out of the address bar).
  */
-export function openInAppHref(o: { scheme: string; origin: string; path: string; platform: 'ios' | 'android' | 'mac' | 'windows' | 'other'; androidPackage: string; androidFallback?: string | null }): string | null {
+export function openInAppHref(o: { scheme: string; origin: string; path: string; platform: Platform; androidPackage: string; androidFallback?: string | null }): string | null {
   const url = encodeURIComponent(o.origin + o.path)
   // without the app, Chrome opens the fallback page (getAppHref: the store listing or the download page, a fixed
   // https address with nothing of this page in it), never the token
   const fallback = o.androidFallback && /^https:\/\//.test(o.androidFallback) ? `S.browser_fallback_url=${encodeURIComponent(o.androidFallback)};` : ''
   if (o.platform === 'android') return `intent://open?url=${url}#Intent;scheme=${o.scheme};package=${o.androidPackage};${fallback}end`
-  if (o.platform === 'mac' || o.platform === 'windows') return `${o.scheme}://open?url=${url}`
+  if (desktopPlatform(o.platform)) return `${o.scheme}://open?url=${url}`
   return null
 }
 /** Shown only in a web browser (inside the apps the page already is the app) with a link for this system. */
@@ -118,12 +110,12 @@ export const openInAppShown = (client: 'web' | 'desktop' | 'mobile', href: strin
 /**
  * "Open in the app" in a chat's title menu (docs/DECISIONS.md "A chat link opens the desktop app on that chat"): the
  * same chat in the desktop app, which opens it at once on a team it already has and else asks on its screen ④. Only in
- * a computer's web browser on macOS or Windows (the systems the desktop app answers the link on), never at phone width,
+ * a computer's web browser on macOS, Windows or Linux (the systems the desktop app answers the link on), never at phone width,
  * never inside our apps, and only on an https team (the desktop app opens no other link). Without the app the browser
  * does nothing more (the page stays as it is).
  */
-export function chatOpenInAppHref(o: { scheme: string; origin: string; chatId: string; platform: 'ios' | 'android' | 'mac' | 'windows' | 'other'; client: 'web' | 'desktop' | 'mobile'; phone: boolean }): string | null {
-  if (o.client !== 'web' || o.phone || !/^https:\/\/[^/]+$/.test(o.origin) || (o.platform !== 'mac' && o.platform !== 'windows') || !/^[A-Za-z0-9_-]{1,64}$/.test(o.chatId)) return null
+export function chatOpenInAppHref(o: { scheme: string; origin: string; chatId: string; platform: Platform; client: 'web' | 'desktop' | 'mobile'; phone: boolean }): string | null {
+  if (o.client !== 'web' || o.phone || !/^https:\/\/[^/]+$/.test(o.origin) || !desktopPlatform(o.platform) || !/^[A-Za-z0-9_-]{1,64}$/.test(o.chatId)) return null
   return openInAppHref({ scheme: o.scheme, origin: o.origin, path: `/c/${o.chatId}`, platform: o.platform, androidPackage: '' })
 }
 
@@ -136,7 +128,7 @@ export function chatOpenInAppHref(o: { scheme: string; origin: string; chatId: s
  * - Android: the Google Play listing (APP_DOWNLOADS.android), else the download page (never an .apk itself); the
  *   intent's fallback follows it.
  */
-export function getAppHref(platform: 'ios' | 'android' | 'mac' | 'windows' | 'other', client: 'web' | 'desktop' | 'mobile', links: { page: string; iphone: string; android: string }): string | null {
+export function getAppHref(platform: Platform, client: 'web' | 'desktop' | 'mobile', links: { page: string; iphone: string; android: string }): string | null {
   if (client !== 'web') return null
   const href = platform === 'ios' ? links.iphone || links.page : platform === 'android' ? links.android || links.page : ''
   return /^https:\/\//.test(href) ? href : null

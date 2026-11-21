@@ -11,17 +11,27 @@ import { HttpError } from '../http/errors'
 import { isSharedChat, severalAuthors, visibleSharedChat } from '../chat/shared'
 import { withheldFrom } from '../chat/shared-answers'
 import { ToolError } from '../policy/errors'
+import { assertStorageRoomForAI } from '../system/storage'
 import { normIso } from '../team-files/service'
 
-export const MAX_ARTIFACT_BYTES = 2 * 1024 * 1024
+/** one version's content (second limits audit N31: 2 MB before). Kept as a row of `artifacts`; the Files screen's
+ * "save to the team folder" takes up to 10 MiB of text (SaveContentBody), so a saved artifact still fits. */
+export const MAX_ARTIFACT_BYTES = 10 * 1024 * 1024
 export const MAX_VERSIONS_PER_KEY = 200
+/** every version of every artifact of one chat together: each version is stored whole, so 200 versions of a 10 MB
+ * page would be 2 GB in the database; 100 MB is ten full-size pages or hundreds of usual ones (second limits audit
+ * review). Over it the AI is told to save the page as a file instead. */
+export const MAX_ARTIFACT_BYTES_PER_CHAT = 100 * 1024 * 1024
 
 interface Row { id: string; chat_id: string; message_id: string | null; key: string; version: number; type: ArtifactType; title: string | null; language: string | null; content: string; created_at: string }
 const COLS = 'id, chat_id, message_id, key, version, type, title, language, content, created_at'
 
-const summary = (r: Row): ArtifactSummary => ({
+/** a row without its content, its size from the database (the list never loads the pages themselves) */
+type SizedRow = Omit<Row, 'content'> & { size: number }
+const LIST_COLS = 'id, chat_id, message_id, key, version, type, title, language, length(CAST(content AS BLOB)) AS size, created_at'
+const summary = (r: SizedRow): ArtifactSummary => ({
   id: r.id, chatId: r.chat_id, messageId: r.message_id, key: r.key, version: r.version, type: r.type, title: r.title, language: r.language,
-  createdAt: normIso(r.created_at), size: Buffer.byteLength(r.content, 'utf8'),
+  createdAt: normIso(r.created_at), size: r.size,
 })
 const full = (r: Row): Artifact => ({
   id: r.id, chatId: r.chat_id, messageId: r.message_id, key: r.key, version: r.version, type: r.type, title: r.title, language: r.language,
@@ -84,8 +94,13 @@ export class Artifacts {
       if (a.content === undefined) throw new ToolError(`${a.action} needs "content"`)
       content = a.content
     }
-    if (Buffer.byteLength(content, 'utf8') > MAX_ARTIFACT_BYTES) throw new ToolError(`artifact is too large (max ${MAX_ARTIFACT_BYTES / 1024 / 1024} MB)`)
+    const bytes = Buffer.byteLength(content, 'utf8')
+    if (bytes > MAX_ARTIFACT_BYTES) throw new ToolError(`artifact is too large (max ${MAX_ARTIFACT_BYTES / 1024 / 1024} MB); split it into several artifacts (other keys) or save it as a file with write`)
+    // every version is kept whole: the team disk near full refuses it like a file (system/storage.ts)
+    assertStorageRoomForAI(bytes)
     if (latest && latest.version >= MAX_VERSIONS_PER_KEY) throw new ToolError(`too many versions of '${a.key}'; create a new key`)
+    const used = (this.ctx.db.query('SELECT coalesce(sum(length(CAST(content AS BLOB))), 0) AS n FROM artifacts WHERE chat_id = ?').get(t.chatId) as { n: number }).n
+    if (used + bytes > MAX_ARTIFACT_BYTES_PER_CHAT) throw new ToolError(`this chat's pages and their versions already take ${Math.round(used / 1024 / 1024)} MB, and one chat keeps at most ${MAX_ARTIFACT_BYTES_PER_CHAT / 1024 / 1024} MB of them; nothing was saved. Save this page as a file in the team folder with write instead (the user opens it from Files), or suggest a new chat for more pages`)
     const row: Row = {
       id: newId(), chat_id: t.chatId, message_id: t.messageId, key: a.key, version: (latest?.version ?? 0) + 1,
       type: (a.action === 'update' ? prev!.type : a.type) ?? prev?.type ?? 'markdown',
@@ -94,7 +109,7 @@ export class Artifacts {
     }
     this.ctx.db.query(`INSERT INTO artifacts (${COLS}) VALUES (?,?,?,?,?,?,?,?,?,?)`)
       .run(row.id, row.chat_id, row.message_id, row.key, row.version, row.type, row.title, row.language, row.content, row.created_at)
-    const s = summary(row)
+    const s = summary({ ...row, size: bytes })
     this.ctx.services.realtime.publish(t.userId, {
       type: 'artifact.updated',
       data: { chatId: t.chatId, messageId: t.messageId, key: row.key, type: row.type, title: row.title, status: 'done', artifact: s },
@@ -115,7 +130,7 @@ export class Artifacts {
     this.ownChat(userId, chatId)
     // (a shared chat: none hidden from the caller)
     const hidden = this.hiddenVersions(userId, chatId)
-    const rows = (this.ctx.db.query(`SELECT ${COLS} FROM artifacts WHERE chat_id = ? ORDER BY key, version DESC`).all(chatId) as Row[]).filter((r) => !hidden.has(r.id))
+    const rows = (this.ctx.db.query(`SELECT ${LIST_COLS} FROM artifacts WHERE chat_id = ? ORDER BY key, version DESC`).all(chatId) as SizedRow[]).filter((r) => !hidden.has(r.id))
     const groups = new Map<string, ArtifactSummary[]>()
     for (const r of rows) { const g = groups.get(r.key) ?? []; g.push(summary(r)); groups.set(r.key, g) }
     // keys in the order they were first created

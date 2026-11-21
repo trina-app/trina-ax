@@ -1,14 +1,35 @@
 // Pure helpers of the team chat rooms ("대화방" v1, shared/src/api/rooms.ts): a room's title, runs of one author's
 // messages, event lines, and @mentions (the "@name" being typed, the members that fit it, and the parts of a sent
 // text). No React, no requests: unit tested in test/unit/rooms-lib.test.ts.
-import { roomLightsDot, roomUnread, roomWantsMe, ROOM_MENTIONS_MAX, type Room, type RoomEventLine, type RoomMessage, type UserRef } from '@mycel/shared/api'
+import { isUuid7, roomCounts, roomLightsDot, roomNoticeWanted, roomUnread, roomWantsMe, ROOM_MENTIONS_MAX, type CountedRoomFields, type Room, type RoomEventLine, type RoomMessage, type UserRef } from '@mycel/shared/api'
 
 /** The words a title falls back to: `all` for the everyone room, `gone` for a DM whose other person is gone, and for an
  * unnamed group chat its other members ("가, 나, 다 외 2명"; `alone` when nobody else is left). */
 export interface TitleWords { all: string; gone: string; names?: (names: string, more: number) => string; sep?: string; alone?: string }
 
+/** From this many members (me included) a message with "@전체" asks before it goes (components/rooms/RoomComposer.tsx),
+ * unless the person said "Don't ask again" (prefs.mentionAllAsk). */
+export const MENTION_ALL_CONFIRM = 10
+
 /** How many of a group chat's other members its title names before "외 N명". */
 export const TITLE_NAMES = 3
+
+/** A group room with a name of its own is a private channel (listed under Channels with a lock); one with no name is a
+ * group DM, titled by its people (docs/decisions/20261117-named-groups-private-channels.md). Renaming moves it. */
+export const isPrivateChannel = (room: Pick<Room, 'kind' | 'name'>): boolean => room.kind === 'group' && !!room.name?.trim()
+
+/** A team project's own chat room (docs/decisions/20261120-project-is-room.md), for every member (Room.projectRoom; a
+ * member who cannot open the project's folder now has no Room.project). Its people are the project's, its name is the
+ * project's, and its files go to the project: no Add people, Remove, Rename, Leave or guest invites in it. */
+export const isProjectRoom = (room: Partial<Pick<Room, 'project' | 'projectRoom'>>): boolean => !!room.projectRoom || !!room.project?.room
+
+/** A project room's project, as I can open it now; null for every other room (and for a member who cannot open it). */
+export const projectRoomOf = (room: Partial<Pick<Room, 'project'>>): NonNullable<Room['project']> | null => (room.project?.room ? room.project : null)
+
+/** Shown in the 대화 lists: a project's chat room only once it has a message (until then it is reached from the
+ * project), or while it is the room on screen. */
+export const listedRoom = (room: Partial<Pick<Room, 'project' | 'projectRoom' | 'lastMessage' | 'id'>>, openId: string | null = null): boolean =>
+  !isProjectRoom(room) || !!room.lastMessage || room.id === openId
 
 /** The room's own name when it has one; else team: the group's name; all: the app's word for everyone; dm: the other
  * person (peers[0]); group: the other members (the first TITLE_NAMES of peers, then how many more). */
@@ -27,7 +48,7 @@ export function roomTitle(room: Pick<Room, 'kind' | 'name' | 'peers'> & Partial<
 /** The words of an event line (lib, not React: the component passes t). `person` puts a language's honorific after a
  * name ("{name}님"), `quote` puts a room name in the language's quotes. */
 export interface EventWords {
-  t: (key: 'rooms.event.invited' | 'rooms.event.invitedMore' | 'rooms.event.renamed' | 'rooms.event.renamedBack' | 'rooms.event.left' | 'rooms.event.joined' | 'rooms.event.removed' | 'rooms.event.unknown' | 'rooms.event.person' | 'rooms.event.quoted' | 'rooms.nameSep', params?: Record<string, string | number>) => string
+  t: (key: 'rooms.event.invited' | 'rooms.event.invitedMore' | 'rooms.event.renamed' | 'rooms.event.renamedBack' | 'rooms.event.left' | 'rooms.event.joined' | 'rooms.event.removed' | 'rooms.event.unknown' | 'rooms.event.projectLinked' | 'rooms.event.projectLinkedNamed' | 'rooms.event.projectUnlinked' | 'rooms.event.projectUnlinkedNamed' | 'rooms.event.projectRoom' | 'rooms.event.projectRoomNamed' | 'rooms.event.person' | 'rooms.event.quoted' | 'rooms.nameSep', params?: Record<string, string | number>) => string
   nameOf: (u: UserRef | null) => string
 }
 /** "가나님이 다라님, 마바님을 초대했어요": every name but the last gets the language's honorific here, the last one the
@@ -51,9 +72,26 @@ export function eventText(e: RoomEventLine, author: UserRef | null, w: EventWord
       return w.t('rooms.event.joined', { actor })
     case 'removed':
       return w.t('rooms.event.removed', { actor, name: w.nameOf(e.user) })
+    // a private channel linked to a project or unlinked (docs/decisions/20261119-channel-project-link.md): the project's
+    // name only for a viewer who can open it (the server sends it then), else "a project"
+    case 'project_linked':
+    case 'project_unlinked': {
+      const k = projectEventKey(e)
+      return e.project ? w.t(k, { actor, name: e.project.name }) : w.t(k, { actor })
+    }
+    // a linked channel that became the project's chat room at the upgrade (docs/decisions/20261120-project-is-room.md):
+    // written by the server, so no actor
+    case 'project_room':
+      return e.project ? w.t('rooms.event.projectRoomNamed', { name: e.project.name }) : w.t('rooms.event.projectRoom')
     case 'unknown':
       return w.t('rooms.event.unknown')
   }
+}
+
+/** The words of a project link line: named when the viewer can open the project, else neutral. */
+export function projectEventKey(e: Extract<RoomEventLine, { type: 'project_linked' | 'project_unlinked' }>): 'rooms.event.projectLinked' | 'rooms.event.projectLinkedNamed' | 'rooms.event.projectUnlinked' | 'rooms.event.projectUnlinkedNamed' {
+  if (e.type === 'project_linked') return e.project ? 'rooms.event.projectLinkedNamed' : 'rooms.event.projectLinked'
+  return e.project ? 'rooms.event.projectUnlinkedNamed' : 'rooms.event.projectUnlinked'
 }
 
 /** Messages of one author close together share one avatar, name and time: a new run after another author, a pause
@@ -66,21 +104,32 @@ export function localDayKey(iso: string): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 }
 
-export interface MessageRun {
+/** What runs are cut by: a room message, or a reply in the thread under a shared chat's AI answer
+ * (components/chat/ChatThreadPanel.tsx), which has no AI author and no event lines. */
+export interface RunItem {
+  id: string
+  createdAt: string
+  author: { id: string } | null
+  authorKind?: RoomMessage['authorKind']
+  askedBy?: { id: string } | null
+  event?: unknown
+}
+
+export interface MessageRun<M extends RunItem = RoomMessage> {
   /** the first message's id */
   key: string
-  messages: RoomMessage[]
+  messages: M[]
   /** the first run of its day (the list shows the date above it) */
   newDay: boolean
 }
 
-const authorKey = (m: RoomMessage) => (m.authorKind === 'ai' ? `ai:${m.askedBy?.id ?? ''}` : `user:${m.author?.id ?? ''}`)
+const authorKey = (m: RunItem) => (m.authorKind === 'ai' ? `ai:${m.askedBy?.id ?? ''}` : `user:${m.author?.id ?? ''}`)
 
 /** Cut the messages (oldest first) into runs of one author. An event line is a run of its own and ends the one before
  * it (the next message starts a new run with its name and time). */
-export function groupRuns(messages: RoomMessage[], dayOf: (iso: string) => string = localDayKey): MessageRun[] {
-  const runs: MessageRun[] = []
-  let prev: RoomMessage | null = null
+export function groupRuns<M extends RunItem>(messages: readonly M[], dayOf: (iso: string) => string = localDayKey): MessageRun<M>[] {
+  const runs: MessageRun<M>[] = []
+  let prev: M | null = null
   let prevDay: string | null = null
   for (const m of messages) {
     const day = dayOf(m.createdAt)
@@ -173,6 +222,10 @@ export function mentionsIn(text: string, people: { id: string; name: string }[])
   return out
 }
 
+/** The class of a mention: the accent colour; mine on a soft background (as RoomMessages drew it before). One look for
+ * a message's Markdown (lib/messageMarkdown.ts) and plain words (components/rooms/MessageText.tsx MentionedText). */
+export const mentionClass = (strong?: boolean) => ['font-medium', 'text-accent-text', ...(strong ? ['rounded', 'bg-accent-soft', 'px-0.5'] : [])]
+
 /** A sent text cut into plain parts and the "@name"s of the people it mentions (the longest name wins where one name
  * starts another). Only shown as text: another member's words are never HTML. */
 export function mentionParts(body: string, mentioned: { id: string; name: string }[]): { text: string; userId?: string }[] {
@@ -223,16 +276,21 @@ export function readUpTo(th: { messages: RoomMessage[]; nextCursor: string | nul
   return 0
 }
 
-/** Every room's own badge, added (messages, not rooms; the 대화 tab and the rail count conversations instead:
- * components/rail/railBadges.ts chatsMark); a muted room's never (its badge is grey), nor a hidden one's
- * (docs/DECISIONS.md "대화 숨기기": what comes for me brings it back first, and then it counts). */
-export function totalUnread(rooms: (Pick<Room, 'unreadCount' | 'muted'> & Partial<Pick<Room, 'threadsUnread' | 'hidden'>>)[]): number {
-  return rooms.reduce((n, r) => n + (r.muted || r.hidden ? 0 : roomUnread(r)), 0)
+/** Every room's own number, added (messages, not rooms; the 대화 tab and the rail count conversations instead:
+ * components/rail/railBadges.ts chatsMark), by roomCounts: a room that does not count adds nothing (a muted room's badge
+ * is grey; plain messages in a room at 멘션만 have no number), nor a hidden one (docs/DECISIONS.md "대화 숨기기": what comes
+ * for me brings it back first, and then it counts). */
+export function totalUnread(rooms: (CountedRoomFields & Partial<Pick<Room, 'hidden'>>)[]): number {
+  return rooms.reduce((n, r) => {
+    const c = roomCounts(r)
+    return n + (c.counts && !r.hidden ? c.number : 0)
+  }, 0)
 }
 
-/** The rooms my lists show: the ones I did not hide, and the room on screen whatever it is. */
-export const shownInLists = <R extends Pick<Room, 'id'> & Partial<Pick<Room, 'hidden'>>>(rooms: R[], openId: string | null = null): R[] =>
-  rooms.filter((r) => !r.hidden || r.id === openId)
+/** The rooms my lists show: the ones I did not hide (a project's chat room once it has a message: listedRoom), and the
+ * room on screen whatever it is. */
+export const shownInLists = <R extends Pick<Room, 'id'> & Partial<Pick<Room, 'hidden' | 'project' | 'projectRoom' | 'lastMessage'>>>(rooms: R[], openId: string | null = null): R[] =>
+  rooms.filter((r) => (!r.hidden || r.id === openId) && listedRoom(r, openId))
 
 type Pinnable = Pick<Room, 'id'> & Partial<Pick<Room, 'pinnedAt'>>
 /** My pinned rooms (docs/DECISIONS.md "Pinned conversations"), the most recently pinned first. */
@@ -241,12 +299,18 @@ export const pinnedRooms = <R extends Pinnable>(rooms: R[]): R[] => rooms.filter
  * order they came (by latest activity). */
 export const pinnedFirst = <R extends Pinnable>(rooms: R[]): R[] => [...pinnedRooms(rooms), ...rooms.filter((r) => !r.pinnedAt)]
 
-/** A room's one badge: "?" while its AI waits on me (docs/DECISIONS.md "Session markers"), else "@" when one of the
- * unread messages (or followed replies) mentions me (the count would read as a count of mentions), else the count. */
-export const roomBadge = (r: Pick<Room, 'unreadCount' | 'mentioned'> & Partial<Pick<Room, 'threadsUnread'>>) => (r.mentioned ? '@' : badgeText(roomUnread(r)))
+/** A room's one badge (roomCounts): "@" when one of the unread messages (or followed replies) mentions me (the count
+ * would read as a count of mentions), else its number of unread messages of the timeline (a followed thread's reply is
+ * not one: docs/decisions/20261119-room-unread-after-read.md); '' when it has none (plain messages in a room at 멘션만:
+ * the row is only bold). */
+export const roomBadge = (r: CountedRoomFields) => {
+  const c = roomCounts(r)
+  return c.mention ? '@' : c.number > 0 ? badgeText(c.number) : ''
+}
 
-// roomWantsMe, roomLightsDot and roomUnread: shared/src/api/attention.ts (the server counts a phone push's badge with them)
-export { roomLightsDot, roomUnread, roomWantsMe }
+// roomCounts, roomWantsMe, roomNoticeWanted, roomLightsDot and roomUnread: shared/src/api/attention.ts (the server counts a phone push's
+// badge with them)
+export { roomCounts, roomLightsDot, roomNoticeWanted, roomUnread, roomWantsMe }
 
 /** Who put a reaction there, for its tooltip: the names given ("가나, 다라"), then how many more ("외 3명"). */
 export function reactionWho(r: { count: number; users: { name: string }[] }, w: { sep: string; more: (names: string, n: number) => string }): string {
@@ -277,6 +341,33 @@ export function plainLine(md: string): string {
  * unmarked, so closing it never steps back out of the room). */
 export function threadOpening(roomId: string, rootId: string, open: { threadId: string | null; fromRoom: boolean }): { path: string; replace: boolean; state: { fromRoom: boolean } } {
   return { path: `/rooms/${roomId}/t/${rootId}`, replace: !!open.threadId, state: { fromRoom: open.threadId ? open.fromRoom : true } }
+}
+/** The message a room's own timeline goes to and picks out (components/rooms/RoomMessages.tsx `highlight`): with no
+ * thread open, the one a link points at (?m=: an Activity row, a search result, a message link); with a thread open from
+ * a link, an Activity row or a push tap, the thread's first message, so the room shows the message the thread is under
+ * beside it, as Slack does (a push names no ?m=: the thread's address is enough); none for a thread opened by a click in
+ * this room (`openedHere`: that message is in sight already, and the room stays as it was). */
+export function timelineTarget(o: { threadId: string | null; target: string | null; openedHere: boolean }): string | null {
+  if (!o.threadId) return o.target
+  return o.openedHere ? null : o.threadId
+}
+/** A phone notification's path to a message (/rooms/<room>[/t/<root>]/m/<message>: server/src/notifications/push-events.ts
+ * roomPath) as the app's own address: the room or the thread at that message (?m=). An id that is not one: the room or
+ * the thread alone (the page says what it says about a bad thread). */
+export function pushedMessagePath(roomId: string, rootId: string | null, messageId: string): string {
+  const room = `/rooms/${encodeURIComponent(roomId)}${rootId ? `/t/${encodeURIComponent(rootId)}` : ''}`
+  return isUuid7(messageId) && messageId !== rootId ? `${room}?m=${encodeURIComponent(messageId)}` : room
+}
+/** Whether a list picks out (scrolls to and lights) `highlight` now: once for each place in the history that points at
+ * it (`navKey`: the router's location key), so coming back to that place (closing a thread opened from it, Back) leaves
+ * the reader where they scrolled, and a link or a notice clicked again (a new place) picks it out again. `seen` holds
+ * what was picked out already, for the life of the list. */
+export function highlightNow(seen: Set<string>, highlight: string | null, navKey: string | null): boolean {
+  if (!highlight) return false
+  const k = `${navKey ?? ''} ${highlight}`
+  if (seen.has(k)) return false
+  seen.add(k)
+  return true
 }
 /** Closing it: one step back when the room is that step, else to the room in place of the thread. */
 export const threadClosing = (roomId: string, fromRoom: boolean): -1 | { path: string; replace: true } => (fromRoom ? -1 : { path: `/rooms/${roomId}`, replace: true })

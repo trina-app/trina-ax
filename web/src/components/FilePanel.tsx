@@ -11,28 +11,33 @@
 // prints the page as a browser does and saves "<name>.pdf" next to it (POST /api/files/html-pdf); a folder the person
 // cannot write gets the same PDF as a download (GET /api/files/html-pdf).
 import clsx from 'clsx'
-import { Download, FileDown, FileText, FolderOpen, Loader2, Paperclip, Pencil, Sparkles, X } from 'lucide-react'
+import { Download, FileDown, FileText, FolderOpen, Loader2, Paperclip, Pencil, UserPlus, X } from 'lucide-react'
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { api, API, chatFileUrl, fileUrl, isApiError, roomFileUrl, saveBlob, startDownload, errorText } from '../lib/api'
 import { extOf, parentPath } from '../lib/paths'
 import { PREVIEW_TEXT_MAX, type PreviewKind } from '../lib/preview'
 import { openTeamFile, setPanelExpanded, setPanelGuard, type PreviewFile } from '../lib/sidePanel'
+import { markBusy } from '../lib/busy'
 import { TEAM_FILE_DRAG_TYPE } from '../lib/teamAttach'
 import { useTeamAttach } from '../lib/useTeamAttach'
 import { useLocale, useT } from '../i18n'
 import { aiName } from '../lib/tabs'
 import { toast } from '../store/ui'
 import { useMe } from '../store/session'
+import { useGuestFolderHref } from './GuestView'
 import { keptFolder } from '../store/teamFiles'
 import { conflictText, savedHere, savingHere } from '../lib/conflictNotice'
 import { PAGE_FIT_QUERY } from '../lib/pageFit'
 import { Button, confirmDialog, IconButton, useMediaQuery } from './ui'
 import { askTrinaInRoom, fileSeed } from '../lib/sideChatAsk'
 import { MenuButton, type MenuItem } from './rooms/MenuButton'
+import { AiMark } from './rooms/AiFace'
 import { Tooltip } from './Tooltip'
 import { PanelExpandButton } from './SidePanelFrame'
 import FileBody, { useFileBlob } from './FileBody'
+import { openFileShare } from './FileShareDialog'
+import { isGuestMe } from '../lib/guests'
 
 const MAX_TEXT = PREVIEW_TEXT_MAX
 /** kinds the panel can edit as plain text */
@@ -141,6 +146,8 @@ export default function FilePanel({ file, onClose }: { file: PreviewFile; onClos
   useEffect(() => {
     if (!unsaved) return
     setPanelGuard(askDiscard)
+    // nothing reloads or restarts by itself over the edits (web update, desktop update restart)
+    const release = markBusy('draft')
     const beforeUnload = (e: BeforeUnloadEvent) => {
       e.preventDefault()
       e.returnValue = ''
@@ -148,6 +155,7 @@ export default function FilePanel({ file, onClose }: { file: PreviewFile; onClos
     window.addEventListener('beforeunload', beforeUnload)
     return () => {
       setPanelGuard(null)
+      release()
       window.removeEventListener('beforeunload', beforeUnload)
     }
     // askDiscard only reads the language; the guard is set while there are edits
@@ -238,10 +246,15 @@ export default function FilePanel({ file, onClose }: { file: PreviewFile; onClos
   const teamPath = file.source === 'team' ? file.path : null
   const addToChat = teamPath && chatActionsFor(file, error, downloadOnly) && chatAttach.target ? { title: chatAttach.target.title, add: () => chatAttach.addToChat([teamPath]) } : null
   // the folder shows beside the panel: a big panel goes back side by side
+  // a guest has no 파일 screen: their project's files screen, or no button (their own folder has no screen)
+  const guestFolder = useGuestFolderHref()
+  const filesHref = teamPath === null ? null
+    : guestFolder ? guestFolder(parentPath(teamPath), teamPath)
+    : `/files?path=${encodeURIComponent(parentPath(teamPath))}&select=${encodeURIComponent(file.name)}`
   const openInFiles = () => {
-    if (!teamPath) return
+    if (!filesHref) return
     setPanelExpanded(false)
-    navigate(`/files?path=${encodeURIComponent(parentPath(teamPath))}&select=${encodeURIComponent(file.name)}`)
+    navigate(filesHref)
   }
   const canDownload = error?.kind !== 'missing'
   // an .html team file the server can print (never a button that cannot work), not while editing or after an error
@@ -250,8 +263,10 @@ export default function FilePanel({ file, onClose }: { file: PreviewFile; onClos
   const more: MenuItem[] = [
     ...(showEdit && phone && phoneCanEdit(file.name) && !editing && !error ? [{ label: t('preview.edit'), icon: <Pencil size={15} className="shrink-0" aria-hidden />, onSelect: () => { if (!loadingEdit) void startEdit() }, testId: 'file-more-edit' }] : []),
     ...(canPdf ? [{ label: pdfBusy ? t('preview.savingPdf') : t('preview.savePdf'), icon: pdfBusy ? <Loader2 size={15} className="shrink-0 animate-spin" aria-hidden /> : <FileDown size={15} className="shrink-0" aria-hidden />, onSelect: () => void savePdf(), testId: 'file-more-save-pdf' }] : []),
-    ...(addToChat ? [{ label: t('files.addToChatNamed', { title: addToChat.title }), icon: <Paperclip size={15} className="shrink-0" aria-hidden />, onSelect: addToChat.add, testId: 'file-more-add-to-chat' }] : []),
-    ...(file.source === 'team' ? [{ label: t('preview.openInFiles'), icon: <FolderOpen size={15} className="shrink-0" aria-hidden />, onSelect: openInFiles, testId: 'file-more-open-in-files' }] : []),
+    ...(addToChat ? [{ label: addToChat.title ? t('files.addToChatNamed', { title: addToChat.title }) : t('files.addToCurrentChat'), icon: <Paperclip size={15} className="shrink-0" aria-hidden />, onSelect: addToChat.add, testId: 'file-more-add-to-chat' }] : []),
+    ...(filesHref ? [{ label: t('preview.openInFiles'), icon: <FolderOpen size={15} className="shrink-0" aria-hidden />, onSelect: openInFiles, testId: 'file-more-open-in-files' }] : []),
+    // a team file shared with chosen people (QA TC-3093; components/FileShareDialog.tsx)
+    ...(file.source === 'team' && !isGuestMe(me) ? [{ label: t('folderAccess.menu'), icon: <UserPlus size={15} className="shrink-0" aria-hidden />, onSelect: () => openFileShare(file.path), testId: 'file-more-share' }] : []),
     ...(canDownload ? [{ label: t('common.download'), icon: <Download size={15} className="shrink-0" aria-hidden />, onSelect: download, testId: 'file-more-download' }] : []),
   ]
 
@@ -279,7 +294,7 @@ export default function FilePanel({ file, onClose }: { file: PreviewFile; onClos
             <Tooltip label={t('files.askAi', { name: aiName(t) })}>
               <button type="button" onClick={() => chatAttach.askAi([file.path])} className="touch-hit mr-1 inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-accent-text hover:bg-accent-soft max-md:p-1.5 max-sm:p-2" data-testid="file-ask-ai">
                 {/* phones: the icon alone, as large as the header's other icons, in an IconButton's padding */}
-                <Sparkles size={14} className="max-md:size-4" aria-hidden /> <span className="max-md:sr-only @max-md:sr-only">{t('files.askAiShort', { name: aiName(t) })}</span>
+                <AiMark place="label" /> <span className="max-md:sr-only @max-md:sr-only">{t('files.askAiShort', { name: aiName(t) })}</span>
               </button>
             </Tooltip>
           )}
@@ -287,12 +302,12 @@ export default function FilePanel({ file, onClose }: { file: PreviewFile; onClos
             <Tooltip label={t('sideChat.askAboutFile')}>
               <button type="button" onClick={() => askTrinaInRoom(file.roomId, fileSeed(file.fileId, file.name))}
                 className="touch-hit mr-1 inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-accent-text hover:bg-accent-soft max-md:p-1.5 max-sm:p-2" data-testid="file-ask-trina">
-                <Sparkles size={14} className="max-md:size-4" aria-hidden /> <span className="max-md:sr-only">{t('sideChat.askAboutFileShort')}</span>
+                <AiMark place="label" /> <span className="max-md:sr-only">{t('sideChat.askAboutFileShort')}</span>
               </button>
             </Tooltip>
           )}
           {addToChat && (
-            <IconButton label={t('files.addToChatNamed', { title: addToChat.title })} className="max-md:hidden" onClick={addToChat.add} data-testid="file-add-to-chat">
+            <IconButton label={addToChat.title ? t('files.addToChatNamed', { title: addToChat.title }) : t('files.addToCurrentChat')} className="max-md:hidden" onClick={addToChat.add} data-testid="file-add-to-chat">
               <Paperclip size={16} />
             </IconButton>
           )}
@@ -308,7 +323,7 @@ export default function FilePanel({ file, onClose }: { file: PreviewFile; onClos
               {loadingEdit ? <Loader2 size={16} className="animate-spin" /> : <Pencil size={16} />}
             </IconButton>
           )}
-          {file.source === 'team' && (
+          {filesHref && (
             <IconButton label={t('preview.openInFiles')} className="max-md:hidden" onClick={openInFiles}>
               <FolderOpen size={16} />
             </IconButton>

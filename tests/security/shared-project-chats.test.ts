@@ -70,6 +70,9 @@ const reads = (): Row[] => [
   { route: 'GET /api/chats/:id/artifacts', run: (w) => hit(w, `/api/chats/${chatId}/artifacts`), allow: ['alice', 'bob', 'carol'], deny: { dana: 404, erin: 404 } },
   { route: 'GET /api/chats/:id/messages/:messageId/sources', run: (w) => hit(w, `/api/chats/${chatId}/messages/${answerId}/sources`), allow: ['alice', 'bob', 'carol'], deny: { dana: 404, erin: 404 } },
   { route: 'POST /api/chats/:id/seen', run: (w) => hit(w, `/api/chats/${chatId}/seen`, J({})), allow: ['alice', 'bob', 'carol'], deny: { dana: 404, erin: 404 } },
+  // threads on AI answers (chat/threads.ts threadAccess): the chat's audience, the one 404 for everyone else
+  { route: 'GET /api/chats/:id/messages/:messageId/thread', run: (w) => hit(w, `/api/chats/${chatId}/messages/${answerId}/thread`), allow: ['alice', 'bob', 'carol'], deny: { dana: 404, erin: 404 } },
+  { route: 'POST /api/chats/:id/messages/:messageId/thread', run: (w) => hit(w, `/api/chats/${chatId}/messages/${answerId}/thread`, J({ text: `reply by ${w}`, clientId: cm() })), allow: ['alice', 'bob', 'carol'], deny: { dana: 404, erin: 404 } },
   { route: 'GET /api/chats (list)', run: async (w) => { const r = await hit(w, `/api/chats?projectId=${projectId}`); return r.text.includes(chatId) ? r : { status: 404, text: r.text } }, allow: ['alice', 'bob', 'carol'], deny: { dana: 404, erin: 404 } },
 ]
 /** the writing routes, one person at a time */
@@ -81,6 +84,10 @@ const writes = (): Row[] => [
   // alice's own answer goes on to the room's checks (no such room: refused there); everyone else is stopped before
   { route: 'POST /api/chats/:id/messages/:messageId/share-to-room', run: (w) => hit(w, `/api/chats/${chatId}/messages/${answerId}/share-to-room`, J({ roomId: uuidv7(), note: '', clientMessageId: cm() })), allow: [], deny: { bob: 404, carol: 404, dana: 404, erin: 404 } },
   { route: 'POST /api/attachments/team-file', run: (w) => hit(w, '/api/attachments/team-file', J({ chatId, path: 'projects/falcon/plan.md' })), allow: ['alice', 'bob', 'carol'], deny: { dana: 404, erin: 404 } },
+  // a read mark on a reply alice just wrote: the audience; a reply's delete: its author or a moderator (alice made the
+  // chat; carol may edit the project as an admin member), bob 403, the rest the one 404
+  { route: 'POST /api/chats/:id/messages/:messageId/thread/read', run: async (w) => { const r = JSON.parse((await hit('alice', `/api/chats/${chatId}/messages/${answerId}/thread`, J({ text: 'to read', clientId: cm() }))).text); return hit(w, `/api/chats/${chatId}/messages/${answerId}/thread/read`, J({ upTo: r.id })) }, allow: ['alice', 'bob', 'carol'], deny: { dana: 404, erin: 404 } },
+  { route: 'DELETE /api/chats/:id/thread-replies/:replyId', run: async (w) => { const r = JSON.parse((await hit('alice', `/api/chats/${chatId}/messages/${answerId}/thread`, J({ text: 'to delete', clientId: cm() }))).text); return hit(w, `/api/chats/${chatId}/thread-replies/${r.id}`, { method: 'DELETE', headers: { [CSRF_HEADER]: '1' } }) }, allow: ['alice', 'carol'], deny: { bob: 403, dana: 404, erin: 404 } },
   // into the project folder (uploads/shared-chat.ts): who may write it; bob only reads it (403 shared_upload_read_only)
   { route: 'POST /api/uploads (computer file)', run: (w) => { const f = new FormData(); f.set('chatId', chatId); f.set('file', new File(['x'], 'x.txt', { type: 'text/plain' })); return hit(w, '/api/uploads', { method: 'POST', headers: { [CSRF_HEADER]: '1' }, body: f }) }, allow: ['alice', 'carol'], deny: { bob: 403, dana: 404, erin: 404 } },
   { route: 'POST /api/chats/:id/branch', run: (w) => hit(w, `/api/chats/${chatId}/branch`, J({ messageId: answerId })), allow: ['alice', 'bob', 'carol'], deny: { dana: 404, erin: 404 } },
@@ -211,7 +218,7 @@ describe("while the project's folder is in the trash", () => {
 })
 
 describe('realtime', () => {
-  test("erin's socket never carries the shared chat; bob's never carries alice's live answer or cards", async () => {
+  test("erin's socket never carries the shared chat; bob's carries alice's answer as he sees it, never her cards", async () => {
     await idle()
     const at = { erin: ws.erin!.frames.length, bob: ws.bob!.frames.length, dana: ws.dana!.frames.length }
     const r = await h.api('alice').call(API.sendMessage, { params: { id: chatId }, body: { content: fake({ tool: 'read', args: { file_path: 'users/alice/todo.md' } }, { say: `live ${CANARY}` }), clientMessageId: cm(), attachmentIds: [] } })
@@ -226,7 +233,15 @@ describe('realtime', () => {
     expect(dana.includes(chatId)).toBe(false)
     expect(dana.includes(CANARY)).toBe(false)
     const bob = ws.bob!.frames.slice(at.bob)
-    expect(bob.some((f) => f.type === 'message.delta' || f.type === 'message.step' || f.type === 'turn.request' || f.type === 'message.done' || f.type === 'queue.position')).toBe(false)
+    // the answer as it is written (docs/decisions/20261118-shared-chat-live-answers.md): his live text is exactly his
+    // finished answer; her card and queue position never
+    expect(bob.some((f) => f.type === 'turn.request' || f.type === 'queue.position')).toBe(false)
+    const mine = bob.filter((f) => (f as { data?: { messageId?: string } }).data?.messageId === r.assistantMessage.id)
+    let live = ''
+    for (const f of mine) if (f.type === 'message.delta') live = (f.data.reset ? live.slice(0, f.data.offset) : live.slice(0, f.data.offset)) + f.data.text + (f.data.reset ? '' : live.slice(f.data.offset + f.data.text.length))
+    const done = mine.find((f) => f.type === 'message.done') as Extract<(typeof bob)[number], { type: 'message.done' }> | undefined
+    expect(done?.data.message.content).toBeTruthy()
+    expect(live).toBe(done!.data.message.content)
     expect(bob.some((f) => f.type === 'chat.updated' && f.data.chatId === chatId)).toBe(true)
     expect(JSON.stringify(bob).includes('todo.md')).toBe(false)
   })
@@ -264,7 +279,7 @@ describe('an existing private chat shared later', () => {
     // alice: a confirm that names her own folder and nobody (its audience: bob and carol, not the owner who is no member)
     const ask = await hit('alice', `/api/chats/${own}/share`, J({}))
     const c = JSON.parse(ask.text)
-    expect(c).toMatchObject({ status: 'confirm', audience: 2, provenance: { people: 2, places: [{ kind: 'mine' }] } })
+    expect(c).toMatchObject({ status: 'confirm', audience: 2, check: { added: 2, fileAnswers: 1 } })
     expect(NAMES.filter((n) => ask.text.includes(n))).toEqual([])
     expect(ask.text.includes(PRIVATE)).toBe(false)
     expect(ask.text.includes('todo.md')).toBe(false)
@@ -302,7 +317,7 @@ describe('an existing private chat shared later', () => {
     expect(ws.bob!.frames.slice(at.bob).some((f) => f.type === 'chat.updated' && f.data.chatId === own)).toBe(true)
     // the audit row: counts, no names
     const row = h.ctx.db.query("SELECT detail FROM audit_log WHERE action = 'chat.share' AND target = ?").get(own) as { detail: string }
-    expect(JSON.parse(row.detail)).toEqual({ audience: 2, people: 2, unknown: false, memories: false, confirmed: true })
+    expect(JSON.parse(row.detail)).toEqual({ audience: 2, answers: 1, unchecked: 0, memories: false, confirmed: true })
   })
 })
 

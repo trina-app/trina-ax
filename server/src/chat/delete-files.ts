@@ -1,15 +1,20 @@
 // delete_files (docs/DECISIONS.md "AI가 휴지통으로 옮기기"): the AI moves files and folders to the team trash, exactly as
 // the Files screen's delete does (TeamFiles.remove, never FileService.deleteFile), after the person's yes on the
 // server's own card. Only in the person's own chat with the person there: refused up front, before any card, in a
-// scheduled run, an approved template run, a shared project chat, a chat other people wrote in or one that has
-// read rooms (chat/read-rooms.ts: a room read, a side chat, a quoted message) or a Slack thread, a confidential chat, a
-// draft or judge chat, and for a sub-agent. The card shows
+// scheduled run, an approved template run, a shared project chat, a chat other people wrote in or a Slack thread, a
+// confidential chat, a draft or judge chat, and for a sub-agent. A chat that has read rooms (chat/read-rooms.ts: a room
+// read, a side chat, a quoted message) or a file someone shared asks on the card, the room line first; the person's own
+// "Always allow" for deletes is final there too, as for members and folder access (the owner, 2026-11-11; docs/decisions/
+// 20261118-api-images-connector-cap-delete-cards.md). The card shows
 // exactly what goes: every path in full, the files in each folder, the other people whose files these are (as the file
 // history names them), how many people lose them and how many of those cannot restore them (that number only for the
 // owner and admins: it says how many people can write them; others read the rule), and the purge date of the team's
 // trash setting. The yes is bound to the plan (TeamFiles.planAiTrash: every entry on disk, who reads and writes
 // it, the trash setting), checked again around the move itself. No earlier answer, room grant or "always allow" covers
-// it; at most two such cards per answer, none after a "no", one card open at a time. One audit row per call.
+// it; no count per answer (Claude Code asks every time), none after a "no", one card open at a time. One audit row per
+// call.
+import { grantOnly, seenWhy, SHARED_FILE_SOURCE } from './grant-reads'
+import { tr } from './i18n'
 import { placeWords } from './place-words'
 import { DeleteFilesInput, uuidv7 } from '@mycel/shared'
 import type { Locale, TurnRequest } from '@mycel/shared/api'
@@ -23,17 +28,16 @@ import { confidentialChat } from '../safe-ops/confidential'
 import { componentC } from '../team-files/component'
 import type { AiTrashPlan } from '../team-files/service'
 import { neutralizeTags } from './prompt'
+import { isGuestUser } from '../credentials/guest-ai'
 import { readRooms } from './read-rooms'
 import type { Tool } from './tools'
 import type { TurnExec } from './turn'
 import { alwaysHere, withAlways } from './always-allow'
 
 export const DELETE_FILES_TOOL = 'delete_files'
-/** delete cards one answer may show (card fatigue: a third ask is a new message) */
-export const MAX_DELETE_CARDS = 2
 
 export const DELETE_FILES_DESCRIPTION = 'Move files or folders of the team drive to the team trash, only when the user asked you to delete them. ' +
-  'Give their full paths. The user confirms on a card that lists every item, how many files each folder holds, whose files they are, ' +
+  'Give their full paths, all of them in one call when several go: one card lists them all. The user confirms on a card that lists every item, how many files each folder holds, whose files they are, ' +
   'who loses them and until when they can be restored. Nothing is deleted for good: the trash keeps them for the team\'s set number of days. ' +
   'Not for top-level folders, group, project or rule folders, skill folders, other people\'s folders or chat attachments; at most 200 files and folders per call, counted inside folders.'
 
@@ -47,6 +51,10 @@ export const DELETE_TEXT = {
   /** what the person reads instead of noRestore unless they may see who can write it (AiTrashPlan.writersShown) */
   noRestoreRule: t('쓰기 권한이 없는 사람은 휴지통에서도 볼 수 없고 되살릴 수 없어요.', 'People without write access cannot see {count, plural, one {it} other {them}} in the trash or restore {count, plural, one {it} other {them}}.', 'Orang tanpa akses tulis tidak bisa melihatnya di tempat sampah atau memulihkannya.', '書き込み権限がない人は、ゴミ箱でも{count, plural, one {この項目} other {これらの項目}}を閲覧・復元できません。', 'Quien no tiene permiso de escritura no puede {count, plural, one {verlo} other {verlos}} en la papelera ni {count, plural, one {restaurarlo} other {restaurarlos}}.', '没有写入权限的人无法在回收站里看到或恢复{count, plural, one {它} other {它们}}。'),
   until: t('{date}까지 휴지통에서 되살릴 수 있어요. 관리자는 그 전에 휴지통을 비울 수 있어요.', 'It can be restored from the trash until {date}. An admin can empty the trash before then.', 'Bisa dipulihkan dari tempat sampah sampai {date}. Admin bisa mengosongkan tempat sampah sebelum itu.', '{date}までゴミ箱から復元できます。管理者はそれより前にゴミ箱を空にできます。', 'Se puede restaurar desde la papelera hasta el {date}. Un administrador puede vaciar la papelera antes.', '在{date}之前都可以从回收站恢复。管理员可能会提前清空回收站。'),
+  /** a guest's card (docs/DECISIONS.md "Guests: only what they were invited to"): a guest has no Files screen or trash of
+   * their own, and nobody but them can write their own folder, so nobody can bring those files back */
+  untilGuestProject: t('프로젝트 파일은 이 프로젝트 파일을 고칠 수 있는 사람이 {date}까지 되살릴 수 있어요.', 'People who can change the project\'s files can bring project files back until {date}.', 'Orang yang bisa mengubah berkas proyek ini bisa memulihkan berkas proyek sampai {date}.', 'プロジェクトのファイルは、このプロジェクトのファイルを変更できる人が{date}まで復元できます。', 'Quienes pueden cambiar los archivos del proyecto pueden recuperar los archivos del proyecto hasta el {date}.', '能修改项目文件的人可以在{date}之前恢复项目文件。'),
+  untilGuestOwn: t('내 폴더의 파일은 되살릴 수 없어요.', 'Files from your own folder can\'t be brought back.', 'Berkas dari folder Anda sendiri tidak bisa dipulihkan.', '自分のフォルダーのファイルは復元できません。', 'Los archivos de su propia carpeta no se pueden recuperar.', '你自己文件夹里的文件无法恢复。'),
   confirm: t('휴지통으로 옮길까요?', '{count, plural, one {Move it to the trash?} other {Move them to the trash?}}', 'Pindahkan ke tempat sampah?', '{count, plural, one {ゴミ箱に移動しますか？} other {ゴミ箱に移動しますか？}}', '{count, plural, one {¿Moverlo a la papelera?} other {¿Moverlos a la papelera?}}', '{count, plural, one {要移到回收站吗？} other {要移到回收站吗？}}'),
   items: t('휴지통으로 옮길 항목', 'Items to move to the trash', 'Item yang dipindahkan ke tempat sampah', 'ゴミ箱に移動する項目', 'Elementos que irán a la papelera', '要移到回收站的项目'),
   files: t('파일 {n}개', '{n, plural, one {# file} other {# files}}', '{n} berkas', 'ファイル{n}個', '{n, plural, one {# archivo} other {# archivos}}', '{n, plural, one {#个文件} other {#个文件}}'),
@@ -63,42 +71,48 @@ const DAY = 86_400_000
 /** The refusals, with what did not happen, why, and what the person can do instead (English: the AI tells the person). */
 const NONE = 'Nothing was moved to the trash'
 const SCREEN = 'they can delete it themselves on the Files screen (it goes to the trash there too)'
+/** ...for a guest, who has no Files screen */
+const GUEST_SCREEN = 'they can ask again in a chat of their own (for project files, the project\'s people who can change them can also delete them)'
 export const DELETE_REFUSAL = {
   scheduled: `${NONE}: a scheduled run has nobody to confirm the delete card. Tell the user ${SCREEN}, or to ask in a chat, where they confirm on a card.`,
   template: `${NONE}: an approved scheduled template only reads its folder and writes reports. Tell the user ${SCREEN}.`,
   shared: `${NONE}: the AI does not delete files in a shared project chat (everyone in the project writes and reads it). Tell the user to ask in their own AI chat, or that ${SCREEN}.`,
   others: `${NONE}: other people's messages are in this chat, and one of them could ask for the delete. Tell the user to ask in a new chat of their own, or that ${SCREEN}.`,
-  roomsSeen: `${NONE}: this chat holds messages from the user's team chat rooms or quotes another person's message (other people's words), and one of them could ask for the delete. Tell the user to ask in a new chat, or that ${SCREEN}.`,
+  roomsSeen: `${NONE}: this is a scheduled run, and this chat holds messages from the user's team chat rooms or quotes another person's message (other people's words): a delete then needs the user's yes on its card, which a scheduled run cannot show. Tell the user to ask in a chat, or that ${SCREEN}.`,
+  sharedFile: `${NONE}: this is a scheduled run, and this chat read ${SHARED_FILE_SOURCE}: a delete then needs the user's yes on its card, which a scheduled run cannot show. Tell the user to ask in a chat, or that ${SCREEN}.`,
   slack: `${NONE}: the AI does not delete files in a chat asked from Slack. Tell the user to ask in the app's AI chat, or that ${SCREEN}.`,
   confidential: `${NONE}: the AI does not delete files in a confidential chat. Tell the user ${SCREEN}.`,
   restricted: `${NONE}: this chat has no file tools.`,
   subagent: `${NONE}: only the main assistant deletes, after the user confirms on a card. Put what should be deleted in your report; the assistant asks the user.`,
   declined: `${NONE}: the user said no to a delete earlier in this answer, so no more deletes are asked in it. Do not delete these another way (no move into another folder, no overwrite with empty content); ask the user what they want.`,
-  tooMany: `${NONE}: at most ${MAX_DELETE_CARDS} delete cards are asked in one answer. Tell the user what is left to delete; they can ask again in a new message, or ${SCREEN}.`,
   busy: `${NONE}: another card is waiting for the user's answer, and a delete card is asked only when nothing else is open. Wait for that answer, then ask again with one call.`,
 } as const
 export type DeleteRefusal = keyof typeof DELETE_REFUSAL
 
 /** What delete_files needs of the chat turn (chat/turn.ts TurnExec): narrow, so the rules here are tested on their own. */
-export type DeleteExec = Pick<TurnExec, 'spec' | 'shared' | 'restricted' | 'templateRun' | 'roomsSeen' | 'otherAuthors' | 'fromSlack' | 'files' | 'rt' | 'waitForPerson' | 'openRequests' | 'livePrincipal'> & Partial<Pick<TurnExec, 'alwaysPlace'>>
+export type DeleteExec = Pick<TurnExec, 'spec' | 'shared' | 'restricted' | 'templateRun' | 'roomsSeen' | 'otherAuthors' | 'fromSlack' | 'files' | 'rt' | 'waitForPerson' | 'openRequests' | 'livePrincipal'> & Partial<Pick<TurnExec, 'alwaysPlace' | 'callNow'>>
 
 /** Why delete_files is refused in this turn whatever is asked, or null: only the person's own chat, with them there. */
-export function deleteFilesRefusal(exec: Pick<DeleteExec, 'spec' | 'shared' | 'restricted' | 'templateRun' | 'roomsSeen' | 'otherAuthors' | 'fromSlack' | 'rt'> & Partial<Pick<TurnExec, 'alwaysPlace'>>): DeleteRefusal | null {
+export function deleteFilesRefusal(exec: Pick<DeleteExec, 'spec' | 'shared' | 'restricted' | 'templateRun' | 'roomsSeen' | 'otherAuthors' | 'fromSlack' | 'rt'> & Partial<Pick<TurnExec, 'alwaysPlace' | 'files'>>): DeleteRefusal | null {
   if (exec.restricted) return 'restricted'
   if (exec.templateRun) return 'template'
   // a scheduled run has nobody to answer the card: only the person's own "Always allow" for deletes lets it go on (owner 2026-11-14)
   if (exec.spec.clientKind === 'schedule' && alwaysHere(exec.alwaysPlace?.(), 'delete_files') !== 'on') return 'scheduled'
   if (exec.shared) return 'shared'
   if (confidentialChat(exec.rt.db, exec.spec.chatId)) return 'confidential'
+  // kept (the one part that protects other people's data): in a chat other people write in, anyone there could ask for
+  // a delete of files only the asker may delete, and the asker's yes would answer someone else's request
   if (exec.otherAuthors) return 'others'
   if (exec.fromSlack) return 'slack'
-  // has read rooms: a room read, a ✦ side chat, or another person's message quoted on this branch (chat/read-rooms.ts)
-  if (readRooms(exec)) return 'roomsSeen'
+  // has read rooms: a room read, a ✦ side chat, or another person's message quoted on this branch (chat/read-rooms.ts):
+  // the card every time (deleteFilesTool), so only a scheduled run, which shows no card, is refused here
+  // (words only: a mark that came from a file shared with the person alone says so, chat/grant-reads.ts)
+  if (exec.spec.clientKind === 'schedule' && readRooms(exec)) return grantOnly(exec) ? 'sharedFile' : 'roomsSeen'
   return null
 }
 
-/** The cards of one answer: how many delete cards it showed, whether one was declined, whether one is open now. */
-interface CardState { shown: number; declined: boolean; open: boolean }
+/** The cards of one answer: whether one was declined, whether one is open now. */
+interface CardState { declined: boolean; open: boolean }
 const cardStates = new WeakMap<object, CardState>()
 
 const schema = (s: z.ZodType) => { const j = z.toJSONSchema(s, { target: 'draft-7' }) as Record<string, unknown>; delete j.$schema; return j }
@@ -111,8 +125,17 @@ export function restoreUntilDay(purgeAt: string, timeZone: string): string {
   return zonedDay(new Date(purgeAt), timeZone)
 }
 
+/** A guest's card lines: the project line for items outside their own folder, the own-folder line for items in it. */
+function guestUntil(plan: AiTrashPlan, guestId: string): ('untilGuestProject' | 'untilGuestOwn')[] {
+  const own = (rel: string) => rel === `users/${guestId}` || rel.startsWith(`users/${guestId}/`)
+  return [
+    ...(plan.items.some((i) => !own(i.rel)) ? ['untilGuestProject' as const] : []),
+    ...(plan.items.some((i) => own(i.rel)) ? ['untilGuestOwn' as const] : []),
+  ]
+}
+
 /** The card: what goes (every path in full, what each folder holds), whose files they are, who loses them, until when. */
-export function deleteCard(plan: AiTrashPlan, L: Locale, timeZone: string, now = Date.now(), place: (path: string) => string = (p) => p): { question: string; details: { label: string; text: string; collapsedAt?: number; noSize?: boolean }[] } {
+export function deleteCard(plan: AiTrashPlan, L: Locale, timeZone: string, now = Date.now(), place: (path: string) => string = (p) => p, guestId: string | null = null): { question: string; details: { label: string; text: string; collapsedAt?: number; noSize?: boolean }[] } {
   const count = plan.items.length
   const files = plan.items.reduce((n, i) => n + (i.kind === 'folder' ? i.files : 1), 0)
   const date = new Intl.DateTimeFormat(L, { dateStyle: 'long', timeZone }).format(new Date(now + plan.retentionDays * DAY))
@@ -125,7 +148,8 @@ export function deleteCard(plan: AiTrashPlan, L: Locale, timeZone: string, now =
     // how many cannot restore it says how many can write it: only for the owner and admins. Anyone else reads the rule,
     // the same whether one, none or all of them can write it (shown whenever someone else loses it, which they know)
     plan.writersShown ? (plan.noRestore ? fill(DELETE_TEXT.noRestore[L], { n: plan.noRestore, count }, L) : '') : plan.lost ? fill(DELETE_TEXT.noRestoreRule[L], { count }, L) : '',
-    fill(DELETE_TEXT.until[L], { date }, L),
+    // a guest: where their deleted files go, in words they can act on (no Files › Trash, no admin)
+    ...(guestId ? guestUntil(plan, guestId).map((k) => fill(DELETE_TEXT[k][L], { date }, L)) : [fill(DELETE_TEXT.until[L], { date }, L)]),
     fill(DELETE_TEXT.confirm[L], { count }, L),
   ].filter(Boolean).join(' ')
   // each item in full, in words (내 폴더 › 메모.txt; a folder with what it holds): place, chat/place-words.ts
@@ -144,7 +168,9 @@ export function deleteCard(plan: AiTrashPlan, L: Locale, timeZone: string, now =
 
 export function deleteFilesTool(exec: DeleteExec): Tool {
   const { rt, spec } = exec
-  const state = (): CardState => { let s = cardStates.get(exec); if (!s) cardStates.set(exec, s = { shown: 0, declined: false, open: false }); return s }
+  // a guest (credentials/guest-ai.ts): the card, the result and the refusals say what a guest can reach
+  const guest = isGuestUser(rt.db, spec.userId)
+  const state = (): CardState => { let s = cardStates.get(exec); if (!s) cardStates.set(exec, s = { declined: false, open: false }); return s }
   // one audit row per call, whatever ends it
   type Audit = (detail: Record<string, unknown>, target: string | null) => void
   const auditor = (): Audit => {
@@ -158,7 +184,8 @@ export function deleteFilesTool(exec: DeleteExec): Tool {
   }
   const refusedBy = (auditCall: Audit, why: DeleteRefusal, paths: string[]) => {
     auditCall({ outcome: 'refused', reason: why, paths: paths.slice(0, 50), requestId: null, trashIds: [] }, paths[0] ?? null)
-    return result(DELETE_REFUSAL[why], `refused: ${why}`)
+    // a guest has no Files screen: the person who invited them deletes it
+    return result(guest ? DELETE_REFUSAL[why].replaceAll(SCREEN, GUEST_SCREEN) : DELETE_REFUSAL[why], `refused: ${why}`)
   }
   return {
     name: DELETE_FILES_TOOL,
@@ -196,9 +223,10 @@ export function deleteFilesTool(exec: DeleteExec): Tool {
     if (mode) return refused(mode, paths)
     const s = state()
     if (s.declined) return refused('declined', paths)
-    // "Always allow" for deletes (chat/always-allow.ts; the owner, 2026-11-13): no card and no card limit
-    const always = alwaysHere(exec.alwaysPlace?.(), 'delete_files')
-    if (always !== 'on' && s.shown >= MAX_DELETE_CARDS) return refused('tooMany', paths)
+    // "Always allow" for deletes (chat/always-allow.ts; the owner, 2026-11-13): no card, also after a room read or a
+    // shared file (the person's choice is final, docs/decisions/20261116-always-allow-final-rule-a.md); a card that does
+    // show there leads with the room line
+    const roomsRead = readRooms(exec)
     if (s.open || exec.openRequests().length) return refused('busy', paths)
     let user
     try { user = exec.livePrincipal() } catch {
@@ -219,18 +247,21 @@ export function deleteFilesTool(exec: DeleteExec): Tool {
     }
     const plan = planned.plan
     const L = spec.locale
-    const card = deleteCard(plan, L, teamTimeZone(rt.db), Date.now(), (p) => placeWords(rt.db, p, L, spec.userId))
+    const card = deleteCard(plan, L, teamTimeZone(rt.db), Date.now(), (p) => placeWords(rt.db, p, L, spec.userId), guest ? spec.userId : null)
+    // after a room read the card says why it asks, first (the members and folder access cards' line)
+    const question = roomsRead ? `${tr(seenWhy(exec, 'roomsSeenWhy'), L)}\n\n${card.question}` : card.question
     const requestId = uuidv7()
-    // counted and marked open before the card goes out: a second call while it waits is refused (busy), not queued
-    if (always !== 'on') s.shown++
+    // marked open before the card goes out: a second call while it waits is refused (busy), not queued
     s.open = true
     let answer: unknown
+    const options = [{ label: DELETE_TEXT.yes[L], value: 'trash' }, { label: DELETE_TEXT.no[L], value: 'skip' }]
+    const ask = (opts: typeof options, more: Record<string, unknown> = {}) => exec.waitForPerson({
+      kind: 'ask_user', origin: 'server', requestId, question, multiple: false, allowText: false,
+      options: opts, details: card.details, ...more,
+      expiresAt: new Date(Date.now() + rt.askUserTimeoutMs()).toISOString(),
+    } as TurnRequest, { timeoutMs: rt.askUserTimeoutMs(), exclusive: true })
     try {
-      answer = await withAlways(exec.alwaysPlace?.(), 'delete_files', [{ label: DELETE_TEXT.yes[L], value: 'trash' }, { label: DELETE_TEXT.no[L], value: 'skip' }], 'trash', (options, more) => exec.waitForPerson({
-        kind: 'ask_user', origin: 'server', requestId, question: card.question, multiple: false, allowText: false,
-        options, details: card.details, ...more,
-        expiresAt: new Date(Date.now() + rt.askUserTimeoutMs()).toISOString(),
-      } as TurnRequest, { timeoutMs: rt.askUserTimeoutMs(), exclusive: true }))
+      answer = await withAlways(exec.alwaysPlace?.(), 'delete_files', options, 'trash', ask)
     } finally { s.open = false }
     const picked = Array.isArray(answer) && answer.length === 1 ? answer[0] : answer
     const base = { paths: plan.items.map((i) => i.rel), entries: plan.entries, lost: plan.lost, noRestore: plan.noRestore, retentionDays: plan.retentionDays, others: plan.others.length, requestId }
@@ -238,7 +269,8 @@ export function deleteFilesTool(exec: DeleteExec): Tool {
     if (picked !== 'trash') {
       // "no", or no answer (closed, timed out, the answer stopped): no more delete cards in this answer
       s.declined = true
-      auditCall({ ...base, outcome: picked === null || picked === undefined ? 'no_answer' : 'declined', trashIds: [] }, target)
+      // a card that waits after the answer ends (chat/open-questions.ts): this call deleted nothing, the next turn runs it
+      auditCall({ ...base, outcome: picked === null || picked === undefined ? (exec.callNow?.deferred === requestId ? 'deferred' : 'no_answer') : 'declined', trashIds: [] }, target)
       return result(`The user did not allow this, so ${NONE.charAt(0).toLowerCase()}${NONE.slice(1)}. Do not delete or hide these another way (no move into another folder, no overwrite with empty content), and ask no other delete in this answer; ask the user what they want.`, 'not allowed by the user')
     }
     // everything again, then the moves, in one synchronous block (TeamFiles.trashAiPlan)
@@ -259,9 +291,11 @@ export function deleteFilesTool(exec: DeleteExec): Tool {
     const until = done.trashed[0] && restoreUntilDay(done.trashed[0].purgeAt, timeZone)
     const text = [
       done.trashed.length ? `Moved to the team trash (${done.trashed.length}):\n${done.trashed.map((x) => `- ${neutralizeTags(x.path)}${x.changed ? ' (it changed while it moved and could not go back: everything in it went to the trash; tell the user to check it there)' : ''}`).join('\n')}` : '',
-      until ? `The user can restore each item until ${until} (in the team's time zone, ${timeZone}) on the Files screen › Trash (in their app: ${DELETE_TEXT.where[L]}); an admin can empty the trash before then. Tell the user what went and how to restore it.` : '',
+      until ? (guest
+        ? `The user is a guest and has no trash screen. Project files stay in the team trash until ${until} (in the team's time zone, ${timeZone}), and the people who can change the project's files can bring them back until then (an admin can empty the trash sooner); files from the user's own folder cannot be brought back. Tell the user what went.`
+        : `The user can restore each item until ${until} (in the team's time zone, ${timeZone}) on the Files screen › Trash (in their app: ${DELETE_TEXT.where[L]}); an admin can empty the trash before then. Tell the user what went and how to restore it.`) : '',
       // a double fault (TeamFiles.remove): moved, but the trash list could not record it; the server log says where it is
-      done.stranded.length ? `Moved out of its place but not listed in the trash (the server could not record it; it is kept in the server's trash storage, and the server log says where): ${done.stranded.map((x) => neutralizeTags(x.path)).join(', ')}. Tell the user it was removed from its folder and that an admin can recover it; it is not in Files › Trash.` : '',
+      done.stranded.length ? `Moved out of its place but not listed in the trash (the server could not record it; it is kept in the server's trash storage, and the server log says where): ${done.stranded.map((x) => neutralizeTags(x.path)).join(', ')}. Tell the user it was removed from its folder and that an admin can recover it${guest ? '' : '; it is not in Files › Trash'}.` : '',
       done.changed.length ? `Not moved, changed after the card was shown (left where it was): ${done.changed.map(neutralizeTags).join(', ')}.` : '',
       done.failed.length ? `Not moved:\n${done.failed.map((f) => `- ${neutralizeTags(f.path)}: ${neutralizeTags(f.error)}`).join('\n')}` : '',
     ].filter(Boolean).join('\n\n')

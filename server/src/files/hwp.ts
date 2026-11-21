@@ -11,6 +11,7 @@ import zlib from 'node:zlib'
 import * as XLSX from 'xlsx'
 import { ToolError } from '../policy/errors'
 import { checkZip, isZip, tooComplex } from './zip-guard'
+import { CFB_LIMITS, CfbError, isCfb, readCfb } from './cfb'
 
 export const TEXT_MAX = 8 * 1024 * 1024
 export const STREAM_MAX = 64 * 1024 * 1024
@@ -21,7 +22,20 @@ interface Entry { path: string; content: Uint8Array }
 
 const asBytes = (v: Uint8Array | number[] | undefined) => (v instanceof Uint8Array ? v : Uint8Array.from(v ?? []))
 
+/** a .hwp at least this large is read without its pictures (BinData): SheetJS's reader copies every stream, so a
+ * 150 MB file of photos took 560 MB (measured 2026-11-18, docs/decisions/20261118-limits-office-read.md) */
+const LEAN_FROM = 8 * 1024 * 1024
+
 function entries(bytes: Uint8Array): Entry[] {
+  if (!isZip(bytes) && isCfb(bytes) && bytes.byteLength >= LEAN_FROM) {
+    try {
+      const c = readCfb(bytes, CFB_LIMITS, (p) => !/^BinData\//i.test(p))
+      return [...c.streams.values()].map((e) => ({ path: e.path, content: e.data })).filter((e) => e.content.length > 0)
+    } catch (e) {
+      // a file the strict reader does not take (another version, an odd layout): SheetJS's reader, as before
+      if (!(e instanceof CfbError)) throw e
+    }
+  }
   if (isZip(bytes)) checkZip(bytes)
   let c: { FullPaths: string[]; FileIndex: { content?: Uint8Array | number[] }[] }
   try { c = XLSX.CFB.read(Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength), { type: 'buffer' }) } catch { throw new ToolError('could not read this Hangul document (damaged or not a .hwp / .hwpx file)') }

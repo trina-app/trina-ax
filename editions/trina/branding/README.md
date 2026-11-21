@@ -16,9 +16,13 @@
 
 [plugin-trust.json](plugin-trust.json)은 플러그인과 공식 플러그인 목록을 서명할 수 있는 공개키를 정합니다. 제품 업데이트 키와 다른 키여야 합니다. `bun scripts/plugins/trust.ts editions/trina/branding/plugin-trust.json`으로 검토하고 `--apply`로 `shared/src/plugin-trust.ts`에 적용합니다. 지금은 비어 있어 실서버가 모든 플러그인 꾸러미를 거부합니다. 키 생성·보관 절차는 [플러그인 설치·관리](../../../docs/PLUGINS.md)에 있습니다.
 
+## 로고와 앱 아이콘
+
+[logo/](logo/)가 로고의 원본입니다. 2026-11-16부터 밝은 로고(먹색 면, 주황 윗면)가 기본이고, 어두운 로고는 어두운 바탕에서만 씁니다. 앱 아이콘은 모든 곳에서 밝은 타일입니다. 파일 목록, 쓰는 법, 여백·최소 크기·색·하지 말 것은 [logo/README.md](logo/README.md)에 있고, 앱 아이콘 그림(웹, 데스크톱, 휴대폰, Microsoft Store)은 모두 `logo/make.py`가 만듭니다.
+
 ## 휴대폰 앱
 
-[mobile.json](mobile.json)은 휴대폰 앱의 이름, 색, bundle id(`app.trina.ax`), Apple 팀 ID를 정하고, [mobile/](mobile/)에는 웹 마크(`web/public/favicon.svg`)로 만든 앱 아이콘·Android 아이콘 전경·시작 화면 이미지(PNG)와 그 SVG 원본이 있습니다. `mobile/`에서 `MYCEL_MOBILE_EDITION=trina`로 빌드하면 적용되고, 없으면 중립 Team AX 앱입니다. 휴대폰 푸시는 [service.json](service.json)의 `pushGatewayUrl`(`https://push.trina.app`)로 기본으로 켜져 있습니다. 팀 서버 운영자는 `MYCEL_PUSH_GATEWAY`(또는 server.json의 `push.gatewayUrl`)로 다른 게이트웨이를 정하거나 `off`/`''`로 끌 수 있습니다. 스토어 제출에 필요한 것은 [STORE-SUBMISSION.md](../../../mobile/STORE-SUBMISSION.md)에 있습니다.
+[mobile.json](mobile.json)은 휴대폰 앱의 이름, 색, bundle id(`app.trina.ax`), Apple 팀 ID를 정하고, [mobile/](mobile/)에는 `logo/make.py`가 만든 앱 아이콘·Android 아이콘 전경과 배경·시작 화면 이미지(밝은 모드, 어두운 모드 `splash-icon-dark`)(PNG)와 그 SVG 원본이 있습니다. 시작 화면 배경은 `background`, 어두운 모드에서는 `backgroundDark`입니다. `mobile/`에서 `MYCEL_MOBILE_EDITION=trina`로 빌드하면 적용되고, 없으면 중립 Team AX 앱입니다. 휴대폰 푸시는 [service.json](service.json)의 `pushGatewayUrl`(`https://push.trina.app`)로 기본으로 켜져 있습니다. 팀 서버 운영자는 `MYCEL_PUSH_GATEWAY`(또는 server.json의 `push.gatewayUrl`)로 다른 게이트웨이를 정하거나 `off`/`''`로 끌 수 있습니다. 스토어 제출에 필요한 것은 [STORE-SUBMISSION.md](../../../mobile/STORE-SUBMISSION.md)에 있습니다.
 
 ## 앱 받는 곳
 

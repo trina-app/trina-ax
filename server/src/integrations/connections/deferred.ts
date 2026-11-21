@@ -8,10 +8,11 @@ import type { RemoteTool } from './mcp'
 /** the list of tools to look up in the instructions: its lines stay within this many characters (Claude Code's skill
  * list budget, 1% of a 200K context x 4 characters, as chat/skill-list.ts SKILL_LIST_BUDGET) */
 export const DEFERRED_LIST_BUDGET = 8_000
-/** the longest short description a listed tool gets (its first sentence, cut) */
-export const DEFERRED_DESCRIPTION_MAX = 160
-/** find_tools answers with at most this many tools (default FIND_TOOLS_DEFAULT) */
-export const FIND_TOOLS_MAX = 10
+/** the longest short description a listed tool gets (its first sentence, cut; 160 before TC-4979) */
+export const DEFERRED_DESCRIPTION_MAX = 400
+/** find_tools answers with at most this many tools (default FIND_TOOLS_DEFAULT; 10 before TC-4979). The answer's size
+ * stays within MAX_RESULT_CHARS: past it a tool comes by name, its schema with "select:" */
+export const FIND_TOOLS_MAX = 25
 export const FIND_TOOLS_DEFAULT = 5
 
 const fold = (s: string) => s.normalize('NFC').toLowerCase()
@@ -125,7 +126,7 @@ export interface DeferredGroup {
 export function deferredLines(groups: readonly DeferredGroup[], budget = DEFERRED_LIST_BUDGET): { lines: string[]; listed: number; described: boolean } {
   const total = groups.reduce((n, g) => n + g.items.length, 0)
   const size = (lines: string[]) => lines.reduce((n, l) => n + l.length + 1, 0)
-  for (const cap of [DEFERRED_DESCRIPTION_MAX, 100, 60, 40, 0]) {
+  for (const cap of [DEFERRED_DESCRIPTION_MAX, 240, 160, 100, 60, 40, 0]) {
     const lines = groups.flatMap((g) => [g.header, ...g.items.map((it) => `- ${it.short}${cap && it.description ? `: ${firstSentence(it.description, cap)}` : ''}`)])
     if (size(lines) <= budget) return { lines, listed: total, described: cap > 0 }
   }

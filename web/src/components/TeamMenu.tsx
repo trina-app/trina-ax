@@ -1,13 +1,14 @@
 // The team menu on top of the rail (components/rail/Rail.tsx; docs/DECISIONS.md "The team menu", "Computers: an icon
-// rail with labels"): the team's logo (Admin › Team settings, or the product's mark) with its name small under it. For
-// owners and admins it is a button that opens a menu to its right: the team again with its address (GET /api/me
-// team.address, when the server knows one), then "Invite people" (the invite endpoints are admins' only) and "Admin".
-// Nothing personal: Settings and Sign out are the photo's menu at the rail's bottom. A member has neither item, so for
-// them it is the team's logo and name, not a button (a menu with no items would be a dead end). Keyboard as in the
-// profile menu: the first item takes focus, arrows, Home and End move, Esc closes it and gives the keyboard back, Tab and
-// a click outside close it. Phones (below 768 px) have the team's row with Invite and Admin on the 나 tab. In the desktop
-// app the menu ends with "다른 팀으로 전환" for every role (lib/teamSwitch.ts: the app's own list of teams), so there a
-// member's logo is a button too.
+// rail with labels"; docs/decisions/20261118-team-menu-for-members.md): the team's logo (Admin › Team settings, or the
+// product's mark) with its name small under it, a button for every role that opens a menu to its right: the team again
+// with its address (GET /api/me team.address, when the server knows one), then for owners and admins only "Invite
+// people" (the invite endpoints are admins' only) and "Admin", then "Switch team" for everyone (lib/teamSwitch.ts: the
+// desktop app's team screen, the phone app's, or in a plain browser a dialog that opens another team's address or an
+// invite link). Nothing personal: Settings and Sign out are the photo's menu at the rail's bottom. Only a phone app
+// without its team screen, at a computer's width, gives a member no item: there it is the team's logo and name, not a
+// button (a menu with no items would be a dead end). Keyboard as in the profile menu: the first item takes focus,
+// arrows, Home and End move, Esc closes it and gives the keyboard back, Tab and a click outside close it. Phones (below
+// 768 px) have the team's row with Invite, Admin and Switch team on the 나 tab.
 import clsx from 'clsx'
 import { ArrowLeftRight, Shield, UserPlus } from 'lucide-react'
 import { useEffect, useId, useRef, useState, type KeyboardEvent } from 'react'
@@ -19,10 +20,12 @@ import { teamAddressShown } from '../lib/team-address'
 import { switchTeam, useTeamSwitchWay } from '../lib/teamSwitch'
 import { showResume } from '../lib/welcome'
 import { isAdmin, isOwner, useMeStrict, useSession } from '../store/session'
+import { useFreeRoam } from '../store/demo'
 import { useWelcome } from '../store/welcome'
 import { INVITE_STEP_STATE } from './onboarding/GoalCard'
 import { InviteStep } from './onboarding/InviteStep'
-import { Modal } from './ui'
+import { GuestChoiceButtons, GuestChoiceForm, GuestChoicePanel, InviteKindTabs, useGuestChoice, type InviteKind } from './GuestInviteChoice'
+import { Modal, TabPanel } from './ui'
 
 /** The team's logo, cropped square as the settings previews do; the product's mark while there is none. */
 export function TeamLogo({ className, testId }: { className: string; testId?: string }) {
@@ -40,8 +43,10 @@ export function TeamMenu() {
   const button = useRef<HTMLButtonElement>(null)
   const menu = useRef<HTMLDivElement>(null)
   const admin = isAdmin(me)
-  // the desktop app (or the phone app at a computer's width) holds several teams: "다른 팀으로 전환" for everyone, so a
-  // member gets the menu too; a plain browser is one team per address
+  // a free-roam demo: nobody is invited to the demo's team (server/src/demo/guard.ts refuses the invites)
+  const freeRoam = useFreeRoam()
+  const invite = admin && !freeRoam
+  // "다른 팀으로 전환" for everyone: the desktop app's or phone app's team screen, a plain browser's dialog
   const canSwitch = useTeamSwitchWay() !== null
   const host = teamAddressShown(me.team.address)
   const addressId = useId()
@@ -117,6 +122,7 @@ export function TeamMenu() {
           <div role="separator" className="mx-1 mb-1.5 border-t border-line" />
           {admin && (
             <>
+              {invite && (
               <button
                 role="menuitem"
                 type="button"
@@ -129,6 +135,7 @@ export function TeamMenu() {
               >
                 <UserPlus size={16} className="text-muted" aria-hidden /> {t('teamMenu.invite')}
               </button>
+              )}
               <button
                 role="menuitem"
                 type="button"
@@ -186,17 +193,43 @@ export async function openTeamInvite(navigate: NavigateFunction, returnTo: HTMLE
 const closeInvite = () => useTeamInvite.setState({ open: false, returnTo: null })
 
 export function TeamInviteDialog() {
-  const t = useT()
   const { open, returnTo } = useTeamInvite()
   const { pathname } = useLocation()
   // another page (a link in the dialog: 스킬 넣기, 팀 파일 넣기; ⇧⌘O) closes it, and so does a new mount (signed out and
   // in again): it never stays over a page it was not opened on
   useEffect(closeInvite, [pathname])
   if (!open) return null
-  const close = closeInvite
+  return <InvitePeople returnTo={returnTo} onClose={closeInvite} />
+}
+
+/** "Invite people" (docs/DECISIONS.md "Guests from Invite people"): Team member (picked first: the team link's message,
+ * InviteStep, as before) or Guest, the same Guest half as Admin › Invite to team (components/GuestInviteChoice.tsx): one
+ * line, the one place they join, then the rooms' and projects' guest invite form, whose Cancel comes back here. Opened
+ * fresh each time, so it always starts on Team member. */
+function InvitePeople({ returnTo, onClose }: { returnTo: HTMLElement | null; onClose: () => void }) {
+  const t = useT()
+  const admin = isAdmin(useMeStrict())
+  const [kind, setKind] = useState<InviteKind>('member')
+  const kinds = useId()
+  const guest = kind === 'guest'
+  const choice = useGuestChoice(guest)
+  if (choice.place) return <GuestChoiceForm choice={choice} onDone={onClose} />
   return (
-    <Modal open onClose={close} title={t('teamMenu.invite')} width={560} returnTo={returnTo}>
-      <InviteStep title={null} onDone={close} />
+    <Modal open onClose={onClose} title={t('teamMenu.invite')} width={560} returnTo={returnTo}>
+      <InviteKindTabs value={kind} onChange={setKind} panels={kinds} />
+      {guest ? (
+        <div className="space-y-4">
+          <GuestChoicePanel choice={choice} panels={kinds} admin={admin} />
+          {/* where the Team member half has Done: the same row under the content */}
+          <div className="flex flex-wrap justify-end gap-2 border-t border-line pt-4">
+            <GuestChoiceButtons choice={choice} admin={admin} onClose={onClose} />
+          </div>
+        </div>
+      ) : (
+        <TabPanel base={kinds} value="member">
+          <InviteStep title={null} onDone={onClose} guestLine={false} />
+        </TabPanel>
+      )}
     </Modal>
   )
 }

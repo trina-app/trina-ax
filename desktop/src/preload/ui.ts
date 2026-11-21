@@ -26,11 +26,20 @@ contextBridge.exposeInMainWorld('mycelUi', {
     remove: (id: string) => ipcRenderer.invoke('ui:remove-team', String(id)),
     back: () => ipcRenderer.send('ui:back'),
     retry: () => ipcRenderer.send('ui:retry'),
+    leftOffline: () => ipcRenderer.send('ui:offline-left'),
   },
   hostbar: {
     state: () => ipcRenderer.invoke('ui:hostbar-state'),
     onState: on('ui:hostbar'),
     teams: () => ipcRenderer.send('ui:hostbar-teams'),
+  },
+  find: {
+    state: () => ipcRenderer.invoke('ui:find-state'),
+    onOpen: on('ui:find-open'),
+    onResult: on('ui:find-result'),
+    query: (text: string) => ipcRenderer.send('ui:find-query', String(text)),
+    step: (forward: boolean) => ipcRenderer.send('ui:find-step', forward !== false),
+    close: () => ipcRenderer.send('ui:find-close'),
   },
   pane: {
     state: () => ipcRenderer.invoke('ui:pane-state'),
@@ -45,6 +54,7 @@ contextBridge.exposeInMainWorld('mycelUi', {
     select: (id: string) => ipcRenderer.send('ui:pane-select', String(id)),
     closeTab: (id: string) => ipcRenderer.send('ui:pane-close-tab', String(id)),
     close: () => ipcRenderer.send('ui:pane-close'),
+    openExternal: () => ipcRenderer.send('ui:pane-open-external'),
     stop: () => ipcRenderer.send('ui:pane-stop'),
     answer: (id: string, decision: 'once' | 'always' | 'deny') => ipcRenderer.send('ui:pane-answer', { id: String(id), decision }),
     toolbarHeight: (h: number) => ipcRenderer.send('ui:pane-toolbar-height', Number(h)),

@@ -1,14 +1,18 @@
 // The parts of a run on srt with no side effects (docs/research/srt-dev-env.md section 2): the srt settings file, the
 // environment of the run, the arguments of a run unit (trina-dev@<runId>.service) and the argv of an older install's
 // `systemd-run --scope`. Tests check each one (tests/unit/dev-env-srt.test.ts).
+import crypto from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
 import { DEV_ENV_DEFAULT_DOMAINS, PRODUCT, mergeSites } from '@mycel/shared'
 import type { FolderView } from './access'
+import { gitEnv } from './git-guard'
 
 /** The pinned srt version. A new version goes into a new folder (scripts/dev-env/srt/install-srt.sh). */
 export const SRT_VERSION = '0.0.81'
 /** System paths of the install. They must be outside the base folder: the settings hide all of it. */
+/** The real git of a run, which the git wrapper runs (macOS: the Command Line Tools' git directly). */
+export const realGit = (platform: DevPlatform) => (platform === 'darwin' ? '/Library/Developer/CommandLineTools/usr/bin/git' : '/usr/bin/git')
 export const SRT_PATHS = {
   node: '/opt/trina/node/bin/node',
   cli: `/opt/trina/srt/${SRT_VERSION}/cli.js`,
@@ -59,12 +63,80 @@ export function devenvPaths(base: string) {
     home: path.join(root, 'home'),
     logs: path.join(root, 'logs'),
     work: path.join(root, 'work'),
+    /** the homes of a person's runs in one project folder (projectHome; QA TC-4939) */
+    homeProject: path.join(root, 'hp'),
+    /** programs the server puts first on a run's PATH (the git wrapper, git-guard.ts); read-only in the run */
+    bin: path.join(root, 'bin'),
+    /** HOME, TMPDIR and caches of the runs of one shared chat (docs/decisions/20261118-devenv-shared-chats.md) */
+    chatHome: path.join(root, 'chat-home'),
+    /** the work folders of shared chats with no project, one per chat and audience (sharedWork): never the private one */
+    workShared: path.join(root, 'work-shared'),
+    /** the output files of the commands of one shared chat */
+    chatLogs: path.join(root, 'chat-logs'),
+    /** TMPDIR of a shared chat's command (runTmp): short, because srt makes its proxy sockets there */
+    runTmp: path.join(root, 'rt'),
+    /** the files of a run's first line (srt/mounts.ts writePins), one folder per run that the server makes fresh and
+     * removes when the run ends; read-only in that run, not there in any other */
+    guard: path.join(root, 'guard'),
   }
 }
 /** HOME, TMPDIR and the caches of one person's runs (read and write) */
 export const personHome = (base: string, userId: string) => path.join(devenvPaths(base).home, safeId(userId))
 /** the logs of one person's runs (the sandbox reads them, never writes them) */
 export const personLogs = (base: string, userId: string) => path.join(devenvPaths(base).logs, safeId(userId))
+/** HOME and caches of a shared chat's runs: everyone in the chat shares them, so nothing of one person's is in them */
+export const chatHome = (base: string, chatId: string) => path.join(devenvPaths(base).chatHome, safeId(chatId))
+/** the output files of a shared chat's commands */
+export const chatLogs = (base: string, chatId: string) => path.join(devenvPaths(base).chatLogs, safeId(chatId))
+/** the home of a run: the shared chat's, else the person's */
+export interface RunOwnerPaths { userId: string; sharedChat?: string | null; runId?: string; projectFolder?: string | null
+  /** a shared chat's run: the key of who sees the chat and what all of them may read (srt/runner.ts sharedLogKey), the
+   * name of its logs folder */
+  logKey?: string | null }
+/** The home of a person's runs that start in a team folder (a project folder; `folder` team-relative): its own, never
+ * the home of the person's other chats (QA TC-4939). Code of the project folder runs there on purpose (npm, make,
+ * python, written by any member), so what it leaves in the home (an npx or pip cache, a startup file) must not reach
+ * the runs of the person's own chats, which see their own folder users/<id>. Short (a hash), for srt's socket paths. */
+export const projectHome = (base: string, userId: string, folder: string) =>
+  path.join(devenvPaths(base).homeProject, crypto.createHash('sha256').update(`${safeId(userId)}\0${folder}`).digest('hex').slice(0, 24))
+const sharedRunId = (o: RunOwnerPaths) => { if (!o.runId || !RUN_ID_RE.test(o.runId)) throw new Error('a run of a shared chat needs its run id'); return o.runId }
+/** the home of a run: in a shared chat a fresh folder per command (chat-home/<chat>/<run>, removed when it ends: nothing
+ * one audience's run left there reaches a later one), else the person's */
+export const runHome = (base: string, o: RunOwnerPaths) => (o.sharedChat ? path.join(chatHome(base, o.sharedChat), sharedRunId(o)) : o.projectFolder ? projectHome(base, o.userId, o.projectFolder) : personHome(base, o.userId))
+/** TMPDIR of a run. srt makes its two proxy bridge sockets there (srtSocketPaths), and a unix socket path has at most
+ * SUN_PATH_MAX bytes: a shared chat's per-command home (chat-home/<chat uuid>/<run>) made them 124 bytes long on a
+ * production base (/var/lib/mycel) and every command failed with "Failed to create bridge sockets" (QA TC-4848). So a
+ * shared chat's command gets a short temp folder of its own, devenv/rt/<run>, removed when it ends like its home; a
+ * person's run keeps <home>/tmp. */
+export const runTmp = (base: string, o: RunOwnerPaths) => (o.sharedChat ? path.join(devenvPaths(base).runTmp, sharedRunId(o)) : path.join(runHome(base, o), 'tmp'))
+/** The folder of a run's first-line files (Linux): never in a folder a run can write (a person's TMPDIR is in her
+ * HOME, where an earlier run could leave a link the server would write through). Null without a valid run id. */
+export const runGuard = (base: string, runId: string | undefined) => (runId && RUN_ID_RE.test(runId) ? path.join(devenvPaths(base).guard, runId) : null)
+/** The longest path of a unix socket on Linux: sun_path is 108 bytes with its closing NUL. */
+export const SUN_PATH_MAX = 107
+/** The unix sockets srt 0.0.81 makes in TMPDIR for its network bridge (linux-sandbox-utils.js
+ * initializeLinuxNetworkBridge: claude-http-<16 hex>.sock and claude-socks-<16 hex>.sock). */
+export const srtSocketPaths = (tmp: string) => ['claude-http-', 'claude-socks-'].map((p) => path.join(tmp, `${p}${'0'.repeat(16)}.sock`))
+/** srt's sockets in `tmp` that would not fit a unix socket path */
+export const srtSocketProblems = (tmp: string): string[] => srtSocketPaths(tmp).filter((sp) => Buffer.byteLength(sp) > SUN_PATH_MAX).map((sp) => `srt's socket path is too long (${Buffer.byteLength(sp)} bytes, at most ${SUN_PATH_MAX}): ${sp}`)
+/** the logs of a run: in a shared chat the folder of its people and their view (chat-logs/<chat>/<key>: the logs of the
+ * chat's jobs and dev servers, which a later command of the same people reads; another audience, another empty folder),
+ * else the person's */
+export const runLogs = (base: string, o: RunOwnerPaths) => (o.sharedChat ? sharedLogs(base, o.sharedChat, o.logKey) : personLogs(base, o.userId))
+/** the logs folder of a shared chat's runs for one key (sharedLogKey); a run of a shared chat with no key is refused */
+export const sharedLogs = (base: string, chatId: string, key: string | null | undefined) => {
+  if (!key || !/^[0-9a-f]{32}$/.test(key)) throw new Error('a run of a shared chat needs the key of its people')
+  return path.join(chatLogs(base, chatId), key)
+}
+/** The work folder of a shared chat with no project, for one audience (`audienceKey`, sharedWorkKey): a chat's private
+ * work folder (chatWork) is never mounted in a shared run (it may hold copies of the person's own files), and a new
+ * audience gets an empty folder (nothing an earlier, smaller audience's run copied there reaches someone new). */
+export const sharedWork = (base: string, chatId: string, audienceKey: string) => path.join(devenvPaths(base).workShared, safeId(chatId), safeId(audienceKey))
+/** The key of a shared chat's work folder: its people and what a run there may read (`view`, the hash of the shared
+ * view, srt/runner.ts sharedWorkOf). The same people with the same view, the same key; anyone more, or anyone whose
+ * access narrowed (out of a group, a folder rule changed), a new empty folder: what a run copied there while they could
+ * read it never reaches a run that could not. */
+export const sharedWorkKey = (audience: readonly string[], view = '') => crypto.createHash('sha256').update([...new Set(audience)].sort().join('\n') + '\0' + view).digest('hex').slice(0, 32)
 /** the work folder of a chat with no project (read and write); removed when the chat is purged */
 export const chatWork = (base: string, chatId: string) => path.join(devenvPaths(base).work, safeId(chatId))
 
@@ -152,6 +224,15 @@ export interface SettingsInput {
   start: string | null
   /** the chat's work folder (a chat with no project), else null */
   work: string | null
+  /** a run of this shared chat (docs/decisions/20261118-devenv-shared-chats.md): the home and logs are the chat's, not
+   * the person's, and no personal folder is readable, the person's own included. Absent: a run of the person's own chat */
+  sharedChat?: string | null
+  /** the run's id: the per-command home and logs of a shared chat's run */
+  runId?: string
+  /** a run of the person's own chat that starts in a team folder: its home is projectHome */
+  projectFolder?: string | null
+  /** a shared chat's run: the key of its logs folder (sharedLogs) */
+  logKey?: string | null
   network: 'open' | 'offline'
   /** the team's extra domains (devEnv.team) */
   extraDomains: readonly string[]
@@ -183,14 +264,14 @@ const uniq = (a: string[]) => [...new Set(a)]
 /** The srt settings file of one run. It is complete for each run: srt refuses a bad or empty file, so a bug fails
  * closed. */
 export function srtSettings(i: SettingsInput) {
-  const home = personHome(i.base, i.userId), logs = personLogs(i.base, i.userId)
+  const home = runHome(i.base, i), logs = runLogs(i.base, i)
   const platform = i.platform ?? devPlatform()
   const host = hostLists(platform)
   // the team's No network (and the plan's) wins over every site a person allowed and over Full internet
   const open = i.network === 'open'
   const domains = open ? mergeSites(DEV_ENV_DEFAULT_DOMAINS, i.extraDomains, i.userDomains ?? []) : []
   const full = open && !!i.full
-  const fixedHidden = [...hiddenUsers(i.teamRoot, i.userId, platform), abs(i.teamRoot, PRODUCT.systemDir)]
+  const fixedHidden = [...hiddenUsers(i.teamRoot, i.sharedChat ? '' : i.userId, platform), abs(i.teamRoot, PRODUCT.systemDir)]
   // srt binds a denied folder's allowed paths back writes first, then reads: a writable folder inside a read-only one
   // (the starting folder inside a folder that Q0 (b) made read-only, for example the team root of an admin) would be
   // read-only. A denyRead landing on the writable folder itself makes srt bind it back again, writable, after the
@@ -203,12 +284,13 @@ export function srtSettings(i: SettingsInput) {
   const deny = uniq([i.base, ...(inside(i.teamRoot, i.base) ? [] : [i.teamRoot]), ...(platform === 'linux' ? serverFilesOutsideBase(i.id) : []), ...host.denied,
     ...(i.serverPaths ?? []).filter((p) => !inside(p, i.base)), ...fixedHidden, ...i.view.denyRead.filter((r) => platform === 'linux' || r !== 'users').map((r) => abs(i.teamRoot, r)),
     ...writeInRead.map((w) => abs(i.teamRoot, w))])
-  const allowRead = uniq([...i.view.read, ...i.view.write].map((r) => abs(i.teamRoot, r)).concat([home, logs], i.work ? [i.work] : [], host.read))
+  const guard = platform === 'linux' ? runGuard(i.base, i.runId) : null
+  const allowRead = uniq([...i.view.read, ...i.view.write].map((r) => abs(i.teamRoot, r)).concat([home, logs, devenvPaths(i.base).bin], i.work ? [i.work] : [], guard ? [guard] : [], host.read))
   return {
     filesystem: {
       denyRead: uniq(deny.concat((i.connectedSources ?? []).filter((src) => !hiddenBy(deny, allowRead, src)))),
       allowRead,
-      allowWrite: uniq(i.view.write.map((r) => abs(i.teamRoot, r)).concat([home], i.work ? [i.work] : [])),
+      allowWrite: uniq(i.view.write.map((r) => abs(i.teamRoot, r)).concat([home], i.sharedChat ? [runTmp(i.base, i)] : [], i.work ? [i.work] : [])),
       denyWrite: uniq(i.view.denyWrite.map((r) => abs(i.teamRoot, r))),
     },
     network: {
@@ -252,17 +334,17 @@ const hidden = (s: ReturnType<typeof srtSettings>, p: string) => hiddenBy(s.file
 
 /** Checks that a settings file keeps the rules of the design. Returns the problems (empty = good). The runner calls it
  * before every spawn, so a bug in the builder does not reach srt. */
-export function settingsProblems(s: ReturnType<typeof srtSettings>, i: Pick<SettingsInput, 'base' | 'teamRoot' | 'userId' | 'work' | 'serverPaths' | 'start' | 'connectedSources' | 'platform'>): string[] {
+export function settingsProblems(s: ReturnType<typeof srtSettings>, i: Pick<SettingsInput, 'base' | 'teamRoot' | 'userId' | 'work' | 'serverPaths' | 'start' | 'connectedSources' | 'platform' | 'sharedChat' | 'runId'>): string[] {
   const out: string[] = []
   const platform = i.platform ?? devPlatform()
   const host = hostLists(platform)
   const deny = s.filesystem.denyRead
   const users = path.join(i.teamRoot, 'users'), own = path.join(users, i.userId), system = path.join(i.teamRoot, PRODUCT.systemDir)
-  const home = personHome(i.base, i.userId), logs = personLogs(i.base, i.userId)
+  const home = runHome(i.base, i), logs = runLogs(i.base, i)
   if (!deny.includes(i.base)) out.push('the base folder is not hidden')
   if (!deny.some((d) => inside(i.teamRoot, d))) out.push('the team folder is not hidden')
   if (platform === 'linux' && !deny.includes(users)) out.push('the personal folders are not hidden')
-  if (platform === 'darwin') for (const u of hiddenUsers(i.teamRoot, i.userId, 'darwin')) if (!deny.includes(u)) out.push(`a personal folder is not hidden: ${u}`)
+  if (platform === 'darwin') for (const u of hiddenUsers(i.teamRoot, i.sharedChat ? '' : i.userId, 'darwin')) if (!deny.includes(u)) out.push(`a personal folder is not hidden: ${u}`)
   if (!deny.includes(system)) out.push('the system folder is not hidden')
   // a base folder from the environment that is not the real one must not show the server's data (fail closed)
   for (const sp of i.serverPaths ?? []) if (!hidden(s, sp)) out.push(`a server path is not hidden: ${sp}`)
@@ -273,10 +355,12 @@ export function settingsProblems(s: ReturnType<typeof srtSettings>, i: Pick<Sett
     if (!hidden(s, src)) out.push(`a connected folder's source is not hidden: ${src}`)
     for (const r of s.filesystem.allowRead) if (inside(r, src)) out.push(`a path in a connected folder's source is readable: ${r}`)
   }
-  if (i.work !== null && !inside(i.work, devenvPaths(i.base).work)) out.push(`the work folder is not in the base folder's devenv/work: ${i.work}`)
+  // a shared chat's work folder is never the private one (devenv/work), and a private run never gets a shared one
+  const workRoot = i.sharedChat ? path.join(devenvPaths(i.base).workShared, i.sharedChat) : devenvPaths(i.base).work
+  if (i.work !== null && (i.work === workRoot || !inside(i.work, workRoot))) out.push(`the work folder is not in the base folder's ${path.relative(i.base, workRoot)}: ${i.work}`)
   /** a path a run may get: a team folder (not .system, not another person's personal folder), the home, the work folder */
   const allowed = (p: string, extra: string[]) => {
-    if (p === home || (i.work !== null && p === i.work) || extra.includes(p)) return true
+    if (p === home || (i.sharedChat && p === runTmp(i.base, i)) || (i.work !== null && p === i.work) || extra.includes(p)) return true
     if (!inside(p, i.teamRoot)) return false
     if (inside(p, system)) return false
     if (inside(p, users)) return inside(p, own)
@@ -289,10 +373,33 @@ export function settingsProblems(s: ReturnType<typeof srtSettings>, i: Pick<Sett
   for (const w of s.filesystem.allowWrite) {
     if (inside(w, i.teamRoot) && !inside(w, own) && !(start !== null && inside(w, start))) out.push(`a team folder outside the starting folder is writable: ${w}`)
   }
-  for (const r of s.filesystem.allowRead) if (!allowed(r, [logs, ...host.read])) out.push(`a path that a run may not read: ${r}`)
+  const guard = platform === 'linux' ? runGuard(i.base, i.runId) : null
+  for (const r of s.filesystem.allowRead) if (!allowed(r, [logs, devenvPaths(i.base).bin, ...(guard ? [guard] : []), ...host.read])) out.push(`a path that a run may not read: ${r}`)
+  // the run's first-line files are read-only in it
+  for (const w of s.filesystem.allowWrite) if (inside(w, devenvPaths(i.base).guard) || inside(devenvPaths(i.base).guard, w)) out.push(`the run's guard folder is writable: ${w}`)
+  // the server's programs are read-only in a run (a run that could write the git wrapper would switch it off)
+  for (const w of s.filesystem.allowWrite) if (inside(w, devenvPaths(i.base).bin) || inside(devenvPaths(i.base).bin, w)) out.push(`the server's programs are writable: ${w}`)
+  // a shared chat (docs/decisions/20261118-devenv-shared-chats.md): no personal folder, the person's own neither, no
+  // person's home or logs, and in a project chat no team folder outside the project folder
+  if (i.sharedChat) {
+    const given = [...s.filesystem.allowRead, ...s.filesystem.allowWrite]
+    for (const r of given) if (inside(r, users)) out.push(`a personal folder is readable in a shared chat: ${r}`)
+    for (const r of given) if (inside(r, devenvPaths(i.base).home) || inside(r, devenvPaths(i.base).logs)) out.push(`a person's home or logs are readable in a shared chat: ${r}`)
+    for (const r of given) if (inside(r, devenvPaths(i.base).work)) out.push(`a private work folder is readable in a shared chat: ${r}`)
+    if (start !== null) for (const r of given) if (inside(r, i.teamRoot) && !inside(r, start)) out.push(`a team folder outside the project folder is readable in a shared chat: ${r}`)
+  }
   // a host secret in /etc must not be given back
   for (const r of s.filesystem.allowRead) if (host.etcSecrets.some((e) => inside(r, e))) out.push(`a host secret is readable: ${r}`)
   for (const sys of Object.values(SRT_PATHS)) if (inside(sys, i.base)) out.push(`${sys} is inside the base folder`)
+  // Linux: srt's bridge sockets in TMPDIR must fit a unix socket path, else every command fails with "Failed to create
+  // bridge sockets" (QA TC-4848); refused here with the reason instead
+  // (on a Linux host only: the sockets are made on this machine; the tests of a fake Linux system on a Mac have long
+  // temp folders and make no sockets)
+  if (platform === 'linux' && process.platform === 'linux') {
+    let tmp = ''
+    try { tmp = runTmp(i.base, i) } catch { out.push('a shared chat\'s run has no run id') }
+    if (tmp) out.push(...srtSocketProblems(tmp))
+  }
   // the network: the private, link-local and metadata ranges are always denied, with every site list and Full internet
   const n = s.network
   // macOS: localhost is the whole Mac's (the server's ports, other runs' dev servers)
@@ -319,25 +426,27 @@ export function resolveRunCwd(root: string, rel: string): string | null {
   } catch { return null }
 }
 
-export interface EnvInput { base: string; userId: string; teamRoot: string; work: string | null; nodeBin?: string; platform?: DevPlatform }
+export interface EnvInput { base: string; userId: string; teamRoot: string; work: string | null; nodeBin?: string; platform?: DevPlatform; sharedChat?: string | null; runId?: string; projectFolder?: string | null; logKey?: string | null }
 
 /** The whole environment of a run. Nothing comes from the server's own environment (srt passes its caller's
  * environment to the command). srt adds its proxy variables. */
 export function runEnv(i: EnvInput): Record<string, string> {
-  const home = personHome(i.base, i.userId)
+  const home = runHome(i.base, i), tmp = runTmp(i.base, i)
   const mac = (i.platform ?? devPlatform()) === 'darwin'
   const node = path.dirname(i.nodeBin ?? SRT_PATHS.node)
   return {
     // macOS: Trina's Python 3 (install-srt-mac.sh), git and make of the Command Line Tools directly (the /usr/bin stubs
     // run xcrun, which needs the developer folder that xcode-select names), Homebrew's programs when the Mac has them
     // (MAC_SYSTEM_READ_PATHS); /usr/local is not readable there
-    PATH: mac ? `${node}:/opt/trina/python3/bin:/Library/Developer/CommandLineTools/usr/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin` : `${node}:/usr/local/bin:/usr/bin:/bin`,
+    // the git wrapper first (git-guard.ts): every git call checks the repository's settings
+    PATH: mac ? `${devenvPaths(i.base).bin}:${node}:/opt/trina/python3/bin:/Library/Developer/CommandLineTools/usr/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin` : `${devenvPaths(i.base).bin}:${node}:/usr/local/bin:/usr/bin:/bin`,
     HOME: home,
     // srt's own temp files (proxy sockets) land here too. A server-only TMPDIR for the srt process was tried (S7,
     // 2026-11-04, Docker suite): srt then binds that folder into the sandbox writable and the allowed-site proxy broke
-    TMPDIR: path.join(home, 'tmp'),
+    // (a shared chat's command: a short folder of its own, runTmp: srt's sockets there must fit SUN_PATH_MAX)
+    TMPDIR: tmp,
     // srt sets TMPDIR in the sandbox to this value (else /tmp/claude, which the settings hide)
-    CLAUDE_CODE_TMPDIR: path.join(home, 'tmp'),
+    CLAUDE_CODE_TMPDIR: tmp,
     // node 22.21+ sends http, https and fetch through HTTPS_PROXY only with this: without it a node program (the
     // Remotion browser download, for example) has no network in srt (spike VM, 2026-11-04)
     NODE_USE_ENV_PROXY: '1',
@@ -348,7 +457,9 @@ export function runEnv(i: EnvInput): Record<string, string> {
     npm_config_cache: path.join(home, '.npm'),
     PIP_CACHE_DIR: path.join(home, '.cache', 'pip'),
     PLAYWRIGHT_BROWSERS_PATH: '0',
-    TRINA_LOGS: personLogs(i.base, i.userId),
+    // git runs no repository hook or program by itself, nothing is read from the home (QA TC-4939, git-guard.ts)
+    ...gitEnv(),
+    TRINA_LOGS: runLogs(i.base, i),
     /** the team folder: team paths of the file tools are under it */
     TRINA_TEAM: i.teamRoot,
     ...(i.work ? { TRINA_WORK: i.work } : {}),

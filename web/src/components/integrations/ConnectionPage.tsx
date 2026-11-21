@@ -9,17 +9,22 @@
 import clsx from 'clsx'
 import { Check, RefreshCw } from 'lucide-react'
 import { useState, type ReactNode } from 'react'
-import type { Integration } from '@mycel/shared/api'
+import type { Integration, IntegrationList } from '@mycel/shared/api'
 import { CONNECTOR_DOCS, connectorFor, connectorLogo, type Connector } from '../../lib/connectors'
 import { formatDateTime } from '../../lib/format'
-import { canSignIn, lastCheckNote, toolsShortfall } from '../../lib/integrations'
+import { awayFromComputer, computerSignIn, lastCheckNote, signInOffered, toolsShortfall } from '../../lib/integrations'
+import { signsInOnComputer } from '../../lib/desktop'
 import { mobileApp } from '../../lib/mobile'
 import { useLocale, useT } from '../../i18n'
+import { useMe } from '../../store/session'
 import { Badge, Button, Modal, Switch } from '../ui'
 import { AppDetail, Detail, ExtLink } from './AppDetail'
 import { CardMenu, type CardMenuItem } from './AppConnectorCard'
 import { Note } from './GoogleAppConnector'
 import { SignInPanel, type IntegrationActions } from './IntegrationRow'
+import { LocalAppDetails, LocalAppWhere, localAppsBridge } from './LocalApp'
+import { localAppLogo, localAppOf } from '../../lib/localApps'
+import { readIntegrations, SHARED, useCachedRead } from '../../store/listCache'
 
 /** Where the page sits: Settings (its h2 under the dialog's title, `inSettings`), Admin (its own way back, `list`). */
 interface Place { list?: { to: string; name: string }; inSettings?: boolean }
@@ -30,27 +35,36 @@ export const LISTED_TOOLS = 12
 /** What kind of trouble a check's reason code is (server/src/integrations/connections/text.ts Reason): the page says it
  * in one line of its own words with the one next step for its reader. A code not here (or an older server's connection
  * without one) shows the server's own words, which carry their own next step. */
-const REASON_KIND: Record<string, 'address' | 'key' | 'slow' | 'service'> = {
-  unreachable: 'address', private_address: 'address', blocked_port: 'address', redirect: 'address', not_mcp: 'address',
+const REASON_KIND: Record<string, 'address' | 'notMcp' | 'redirect' | 'key' | 'notSignedIn' | 'slow' | 'service'> = {
+  unreachable: 'address', private_address: 'address', blocked_port: 'address',
+  // the address answered: not as a connector, or by sending us elsewhere (QA TC-2939); its fix is still the address
+  not_mcp: 'notMcp', redirect: 'redirect',
   // the oauth_unsupported / oauth_no_registration / oauth_approved_apps_only codes need another way to connect (or none),
   // not a new key: the server's words
   refused: 'key', no_secret: 'key', sign_in: 'key', oauth_failed: 'key',
-  timeout: 'slow', list_timeout: 'slow',
+  timeout: 'slow', list_timeout: 'slow', call_idle: 'slow',
   http_status: 'service', too_large: 'service', tls: 'service',
 }
 
 /** Why a connection does not work, and the one thing this reader can do about it, in one line. `manage`: they manage it
  * here; `elsewhere`: they manage it, in Admin › Connectors (an admin on a team connection in Settings); `phone`: the
- * phone app (Edit and sign-in are a computer's); `signIn`: Sign in is on this page. */
-export function errorLine(t: ReturnType<typeof useT>, i: Pick<Integration, 'lastError' | 'lastErrorReason' | 'auth'>, who: { manage: boolean; elsewhere: boolean; phone: boolean; signIn: boolean }): string {
-  const kind = i.lastErrorReason ? REASON_KIND[i.lastErrorReason] : undefined
-  if (!kind) return i.lastError ?? ''
+ * phone app (Edit and sign-in are a computer's); `signIn`: Sign in is on this page; `computer`: this window is an app
+ * on the computer that a service taking only such an app signs in from (lib/desktop.ts signsInOnComputer). */
+export function errorLine(t: ReturnType<typeof useT>, i: Pick<Integration, 'lastError' | 'lastErrorReason' | 'auth' | 'hasSecret'>, who: { manage: boolean; elsewhere: boolean; phone: boolean; signIn: boolean; computer?: boolean }): string {
+  // a sign-in only an app on the computer can do, read in that app: not signed in yet, and it signs in here (the
+  // server's words say to open the desktop app, which is right only elsewhere: QA TC-4794)
+  const known = computerSignIn(i, !!who.computer) ? 'notSignedIn' : i.lastErrorReason ? REASON_KIND[i.lastErrorReason] : undefined
+  if (!known) return i.lastError ?? ''
+  // waiting for a sign-in that was never finished (stopped at the service, cancelled here, or its window closed): the
+  // service refused nothing, there is no sign-in it could refuse (QA TC-3859)
+  const kind = i.lastErrorReason === 'sign_in' && i.auth === 'oauth' && !i.hasSecret ? 'notSignedIn' : known
   const step = who.elsewhere ? 'inAdmin'
     : !who.manage ? (kind === 'slow' ? 'later' : 'askAdmin')
     : kind === 'slow' || kind === 'service' ? 'checkAgain'
     : who.phone ? 'onComputer'
-    : kind === 'address' ? 'editAddress'
-    : i.auth === 'oauth' && who.signIn ? 'signIn' : 'editKey'
+    : kind === 'address' || kind === 'notMcp' || kind === 'redirect' ? 'editAddress'
+    // never signed in: the button there reads "Sign in", not "Sign in again"
+    : i.auth === 'oauth' && who.signIn ? (kind === 'notSignedIn' ? 'signInFirst' : 'signIn') : 'editKey'
   return `${t(`connectors.err.${kind}`)} ${t(`connectors.step.${step}`)}`
 }
 
@@ -129,25 +143,38 @@ export function ConnectionPage({ i, actions, onEdit, readOnly, about, alert, chi
   const phone = !!mobileApp()
   const flow = actions.signIn.state?.id === i.id ? actions.signIn.state : null
   const checking = actions.checking === i.id
-  const failing = !!i.lastError && i.status !== 'connected'
-  const note = lastCheckNote(i)
+  const failing = !!i.lastError && i.status !== 'connected' && !i.personalOff
+  // off by the team: not used, so a failed check is not news (QA TC-2930)
+  const note = i.personalOff ? null : lastCheckNote(i)
   const short = toolsShortfall(i)
   const off = i.tools.filter((x) => x.enabled === false).length
-  const allowed = i.writePolicy === 'allow' || !!i.alwaysAllowedByMe
+  // the team's switch for Always allow is off: a member's own Always allow at a team connection asks (tools.ts gate), and
+  // a rule to run without asking asks again after something from outside (QA TC-2944)
+  const alwaysOff = useMe()?.team.alwaysAllowOff === true
+  const allowed = i.writePolicy === 'allow' || (!!i.alwaysAllowedByMe && !alwaysOff)
   // the person's own Always allow (a write card's choice), which "Ask every time" ends (QA TC-130); a team's "Run
   // without asking" is the admin's rule, changed in Edit
   const ownAllow = !!i.alwaysAllowedByMe || (i.scope === 'personal' && i.writePolicy === 'allow')
-  const signInHere = manage && canSignIn(i) && !phone
+  // the team has members' own connections off: kept, not used in chats, not signed in again (QA TC-2930)
+  const teamOff = !!i.personalOff
+  const computer = signsInOnComputer()
+  const signInHere = signInOffered(i, { readOnly, phone, computer })
   const items: CardMenuItem[] = [
     ...(manage ? [{ label: t('integrations.refresh'), onSelect: () => void actions.refresh(i), disabled: checking, testId: 'integration-refresh' }] : []),
     ...(signInHere && i.status !== 'needs_auth' && !flow ? [{ label: t(i.hasSecret ? 'integrations.signInAgain' : 'integrations.signIn'), onSelect: () => void actions.signIn.start(i.id), testId: 'integration-signin-again' }] : []),
-    ...(manage && !phone ? [{ label: t('common.edit'), onSelect: onEdit, testId: 'integration-edit' }] : []),
+    // an app on the computer has no address, key or sign-in to edit (LocalApp.tsx keeps what is its own)
+    ...(manage && !phone && i.kind !== 'local' ? [{ label: t('common.edit'), onSelect: onEdit, testId: 'integration-edit' }] : []),
     ...(ownAllow && (i.alwaysAllowedByMe || manage) ? [{ label: t('integrations.alwaysAllow.stop'), onSelect: () => void actions.askAgain(i), testId: 'integration-always-allow-stop' }] : []),
     ...(manage ? [{ label: t('common.delete'), onSelect: () => void actions.remove(i), danger: true, testId: 'integration-delete' }] : []),
   ]
   const status = checking ? (
     // Check again under way: said where the state is, until the answer comes (a toast then says how it went)
     <span role="status" className="flex items-center gap-1 text-xs text-muted" data-testid="connection-status" data-state="checking"><RefreshCw size={14} className="animate-spin" aria-hidden />{t('connectors.page.checking')}</span>
+  ) : teamOff ? (
+    <span className="text-xs text-muted" data-testid="connection-status" data-state="personal-off">{t('appConnectors.off')}</span>
+  ) : awayFromComputer(i) ? (
+    // checked from somewhere other than its computer: where it works, never a red "Error" (that is for a real failure)
+    <span className="text-xs text-muted" data-testid="connection-status" data-state="elsewhere">{t(localAppsBridge() ? 'localApps.status.otherComputer' : 'localApps.status.desktopOnly')}</span>
   ) : i.status === 'connected' ? (
     <span className="flex items-center gap-1 text-xs text-ok" data-testid="connection-status" data-state="connected"><Check size={14} aria-hidden />{t('integrations.status.connected')}</span>
   ) : i.status === 'needs_auth' && signInHere ? (
@@ -157,16 +184,25 @@ export function ConnectionPage({ i, actions, onEdit, readOnly, about, alert, chi
   )
   // what happened and the one thing to do, in one line: whoever manages it here checks, edits or signs in again; an
   // admin reading a team connection in Settings manages it in Admin; anyone else asks an admin
-  const trouble = failing ? errorLine(t, i, { manage, elsewhere: !!readOnly && i.canManage, phone, signIn: signInHere }) : null
+  // (a sign-in Settings offers on a team connection is done here, not in Admin)
+  const trouble = failing ? errorLine(t, i, { manage: manage || signInHere, elsewhere: !!readOnly && i.canManage && !signInHere, phone, signIn: signInHere, computer }) : null
   const signInLine = i.auth === 'oauth'
     ? (i.hasSecret ? (i.account ? t('integrations.account', { account: i.account }) : t('integrations.signedIn')) : t('connectors.page.notSignedIn'))
     : i.auth === 'none' ? t('connectors.page.signInNone') : t(i.hasSecret ? 'integrations.keySaved' : 'integrations.keyMissing')
+  // an app on a computer, read away from the desktop app: its "works only from the desktop app there" note already says
+  // why its check failed there, so the same words do not come twice in a second box
+  const elsewhereOnly = awayFromComputer(i) && !localAppsBridge()
   const lastUsed = i.lastUsedAt ? formatDateTime(i.lastUsedAt, locale) : t('integrations.neverUsed')
   const name = c?.name ?? i.name
+  // Aside or ego lite (lib/localApps.ts): its own logo and line, like a listed service
+  const app = localAppOf(i)
   const { links, help } = docsRows(t, name, c)
+  // GitHub: the repositories its app may see are chosen on GitHub, on the app's installation page (an organization's
+  // owner installs it there, or a member asks them to); the server knows the page (docs/INTEGRATIONS.md "GitHub")
+  const installUrl = useCachedRead<IntegrationList>(c?.id === 'github' ? SHARED.integrations : null, readIntegrations).data?.github?.installUrl ?? null
   // before its tools are known (not signed in, not answering), it may change things: the line says it asks first
   const canChange = i.writePolicy !== 'deny' && (!i.tools.length || i.tools.some((x) => !x.readOnly && x.enabled !== false))
-  const toolsNote = i.kind !== 'mcp' ? null : (
+  const toolsNote = i.kind === 'http' ? null : (
     <>
       {!i.tools.length && <span className="block">{t(i.status === 'connected' ? 'integrations.noTools' : i.status === 'error' ? 'connectors.page.toolsWhenWorks' : 'connectors.toolsAfter')}</span>}
       {short && <span className="block" data-testid="integration-tools-capped">{t(short, { n: i.tools.length, total: i.toolsTotal! })}</span>}
@@ -189,8 +225,9 @@ export function ConnectionPage({ i, actions, onEdit, readOnly, about, alert, chi
   return (
     <>
       <AppDetail embedded inSettings={place.inSettings} list={place.list} testId="connector-detail" state={flow ? `flow-${flow.state}` : i.status}
-        logo={c ? connectorLogo(c) : '/favicon.svg'} name={i.name}
-        byLine={c ? t('connectors.byLine', { name: c.name, line: t(`integrations.catalog.${c.id}`) }) : hostOf(i.url)}
+        logo={c ? connectorLogo(c) : app ? localAppLogo(app) : '/favicon.svg'} name={i.name}
+        byLine={c ? t('connectors.byLine', { name: c.name, line: t(`integrations.catalog.${c.id}`) }) : app ? t('connectors.byLine', { name: app.name, line: t(app.line) })
+          : i.kind === 'local' ? t('localApps.title') : hostOf(i.url)}
         actions={(status || items.length > 0) && (
           <>
             {status}
@@ -198,23 +235,32 @@ export function ConnectionPage({ i, actions, onEdit, readOnly, about, alert, chi
             {items.length > 0 && <div className="max-sm:ml-auto"><CardMenu label={t('appConnectors.more', { name: i.name })} testId="connection-menu" items={items} /></div>}
           </>
         )}
-        status={(flow || failing || note || alert) ? (
+        status={(flow || failing || note || alert || teamOff || i.kind === 'local') ? (
           <>
-            {flow && <SignInPanel flow={flow} onRetry={() => void actions.signIn.start(i.id)} onCancel={actions.signIn.cancel} />}
-            {trouble && !flow && <Note tone="warn" testId="integration-error">{trouble}</Note>}
+            {i.kind === 'local' && <LocalAppWhere />}
+            {teamOff && <Note tone="warn" testId="integration-personal-off">{t('connectors.page.personalOff')}</Note>}
+            {flow && <SignInPanel flow={flow} name={i.name} url={i.url} onRetry={() => void actions.signIn.start(i.id)} onCancel={actions.signIn.cancel} />}
+            {trouble && !flow && !elsewhereOnly && <Note tone="warn" testId="integration-error">{trouble}</Note>}
             {note && <Note tone="warn" testId="integration-check-failed">{t(note.key, { reason: note.reason, date: note.date ? formatDateTime(note.date, locale) : '' })}</Note>}
             {alert}
           </>
         ) : undefined}
         about={about}
         canChange={canChange} asks={allowed ? 'allow' : 'ask'}
-        abilities={canChange && i.scope === 'team' && i.writePolicy === 'allow' ? t('connectors.page.teamAllowLine') : undefined}
-        developer={c?.name} signIn={signInLine} links={links}
+        abilities={canChange && i.scope === 'team' && i.writePolicy === 'allow' ? t(alwaysOff ? 'connectors.page.teamAllowLineOff' : 'connectors.page.teamAllowLine') : undefined}
+        developer={c?.name} signIn={i.kind === 'local' ? undefined : signInLine} links={links}
         more={<>
           {help}
           {/* a call that failed counts as tried: while it is failing, "Last tried" (QA retest 2026-11-12) */}
           <Detail label={t(failing && i.lastUsedAt ? 'connectors.page.lastTried' : 'connectors.page.lastUsed')} testId="integration-meta">{lastUsed}</Detail>
-          {!c && <Detail label={t('connectors.page.address')} testId="connector-address"><span className="break-all">{i.url}</span></Detail>}
+          {installUrl && (
+            <Detail label={t('connectors.github.repos')} testId="connector-github-repos">
+              <span className="block text-muted">{t('connectors.github.reposLine')}</span>
+              <ExtLink href={installUrl} name={t('connectors.github.choose')} testId="connector-github-choose">{t('connectors.github.choose')}</ExtLink>
+            </Detail>
+          )}
+          {!c && i.kind !== 'local' && <Detail label={t('connectors.page.address')} testId="connector-address"><span className="break-all">{i.url}</span></Detail>}
+          {i.kind === 'local' && <LocalAppDetails i={i} onChanged={() => void actions.refresh(i)} />}
         </>}
         tools={(allChips ? i.tools : i.tools.slice(0, LISTED_TOOLS)).map((x) => ({ name: x.name, title: x.title || x.name, description: x.description || undefined, changes: !x.readOnly, off: x.enabled === false }))}
         toolsNote={toolsNote}>

@@ -15,6 +15,7 @@
 //              staged; the swap happens at the next start, before the DB is opened (applyPendingRestore), with the
 //              folder permissions of the current DB (keepFolderAccess: the team folder stays as it is now). Team-folder
 //              restores and moving to another Mac go through scripts/ (admin password) using restoreTeamTo().
+import { ERROR_REPORT_SALT_SETTING } from './error-reports'
 import crypto from 'node:crypto'
 import fs from 'node:fs'
 import fsp from 'node:fs/promises'
@@ -26,10 +27,11 @@ import type { BackupInfo, LastRestore } from '@mycel/shared/api'
 import { audit } from '../admin/audit'
 import { userRef } from '../auth/users'
 import { RestorePending } from '@mycel/shared/install'
-import { SCHEMA_READER_LEVEL, checkReadable, migrate } from '../db'
+import { SCHEMA_READER_LEVEL, checkReadable, migrate, requiredReaderLevelOfFile } from '../db'
 import { FOLDER_ACCESS_MODEL, FOLDER_ACCESS_MODEL_KEY } from '../policy/access'
 import type { Logger } from '../log'
-import { diskSpace, type InstallLayout } from './layout'
+import { diskSpaceOrUnknown, primeDiskSpace, type InstallLayout } from './layout'
+import { unknownChanged } from './disk-stat'
 import { diffManifest, toManifest, walkTree, type Manifest } from './manifest'
 import { backupWalk } from './regenerable'
 import { fsyncPath, fsyncTree, readFileChunks, writeAtomic, zstdCompress, zstdDecompress } from './streams'
@@ -269,7 +271,21 @@ export class BackupManager {
     // old copies of a DB a restore replaced take room no new backup needs: dropped before the space check, so a disk
     // they filled does not stop every backup (and with it the prune that follows one)
     this.pruneBeforeRestore(this.now().getTime() - retentionDays() * 86400_000)
-    const free = Math.min(diskSpace(L.dataDir).free, diskSpace(L.teamRoot).free)
+    // free space that could not be read (statfs and df both failed, QA TC-3099) does not stop the backup: it goes ahead
+    // with a warning, and a disk that is really full still fails the copy itself (and removeUnfinished cleans up)
+    await Promise.all([primeDiskSpace(L.dataDir), primeDiskSpace(L.teamRoot)])
+    const read = (where: string) => {
+      let error: unknown = null
+      const d = diskSpaceOrUnknown(where, (err) => { error = err })
+      // logged once when it becomes unknown and once when it is readable again, not on every backup
+      if (unknownChanged(`backup:${where}`, d === null)) {
+        if (d === null) this.o.log.warn('could not read the free disk space; backing up anyway', { where, err: error })
+        else this.o.log.info('the free disk space can be read again', { where })
+      }
+      return d
+    }
+    const spaces = [read(L.dataDir), read(L.teamRoot)].filter((d) => d !== null)
+    const free = spaces.length ? Math.min(...spaces.map((d) => d.free)) : Infinity
     if (free < BACKUP_MIN_FREE_BYTES) throw new BackupError(`not enough free disk space for a backup (${Math.round(free / 1024 ** 2)} MB free, 2 GB needed)`, 'disk_space')
     const newChain = o.scope === 'full' && this.planGate()
     await fsp.mkdir(L.dbBackupsDir, { recursive: true, mode: 0o700 })
@@ -578,7 +594,7 @@ export class BackupManager {
     await fsp.copyFile(src, staged)
     await fsp.chmod(staged, 0o600)
     try { inspectDbCopy(staged) } catch (e) { await fsp.rm(staged, { force: true }); throw e }
-    const pending: RestorePending = { format: 1, file: staged, backupId: id, requestedAt: this.now().toISOString(), requestedBy, backupCreatedAt: this.createdAtOf(id) }
+    const pending: RestorePending = { format: 1, file: staged, backupId: id, requestedAt: this.now().toISOString(), requestedBy, backupCreatedAt: this.createdAtOf(id), readerLevel: requiredReaderLevelOfFile(staged) }
     await fsp.writeFile(path.join(this.o.layout.dataDir, 'restore-pending.json'), JSON.stringify(pending), { mode: 0o600 })
     return pending
   }
@@ -663,6 +679,8 @@ export function endSessions(file: string): void {
     db.transaction(() => {
       db.run('DELETE FROM sessions')
       if (has('password_resets')) db.run('DELETE FROM password_resets WHERE used_at IS NULL')
+      // the desktop app's one-time sign-in codes (auth/app-signin.ts): 3 minutes anyway, none survives a restore
+      if (has('app_signin_codes')) db.run('DELETE FROM app_signin_codes')
       if (has('invites')) db.run('DELETE FROM invites WHERE used_at IS NULL')
       // the team invite link too (auth/team-links.ts): one revoked after the copy was made would open again, with its
       // old count of uses. Revoked rather than deleted: its address then says "ask for a new link".
@@ -678,9 +696,9 @@ export function endSessions(file: string): void {
  * backup must not bring back a key the hosting service has replaced or taken away since. This month's count of its
  * free hours: restoring a backup must not give the month's hours back (credentials/hosted-speech.ts). The grace state
  * of the plan's storage limit: a restore must not give a new 7 days, and an old state must not cut a new period short
- * (system/storage.ts).
+ * (system/storage.ts). The key of the error reports' person stand-ins (system/error-reports.ts): a server's own.
  */
-export const SERVER_OWN_SETTINGS = [HOSTED_SPEECH_KEY_SETTING, HOSTED_SPEECH_USAGE_SETTING, GRACE_KEY, GRACE_TOLD_KEY] as const
+export const SERVER_OWN_SETTINGS = [HOSTED_SPEECH_KEY_SETTING, HOSTED_SPEECH_USAGE_SETTING, GRACE_KEY, GRACE_TOLD_KEY, ERROR_REPORT_SALT_SETTING] as const
 const ownIn = SERVER_OWN_SETTINGS.map(() => '?').join(', ')
 
 /** Put the SERVER_OWN_SETTINGS rows of the database `live` (none when it is missing) into the copy `staged`. */

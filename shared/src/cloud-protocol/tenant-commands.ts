@@ -137,6 +137,22 @@ export const OpenRouterApiKey = z.string().regex(/^sk-or-[A-Za-z0-9_-]{16,200}$/
 export const HostedSpeechKeyInput = z.strictObject({ key: OpenRouterApiKey.nullable() })
 export type HostedSpeechKeyInput = z.infer<typeof HostedSpeechKeyInput>
 
+/** A Sentry project key (DSN): https://<public key>@<host>[:port][/<prefix>...]/<project id>, the shape
+ * shared/src/sentry-report.ts parseDsn reads. The whole value must match (mycel-ctl checks the same pattern): it becomes
+ * a line of the team server's environment file, so a newline, quote, backslash, space or "=" is refused. */
+export const SentryDsn = z.string().max(1000).regex(/^https:\/\/[A-Za-z0-9]{1,128}@[A-Za-z0-9-]{1,63}(\.[A-Za-z0-9-]{1,63}){0,9}(:[0-9]{1,5})?(\/[A-Za-z0-9_-]{1,64}){0,4}\/[0-9]{1,20}$/)
+/** error-reports-set's stdin: the hosting service's error report key for this team server (the server's
+ * MYCEL_ERROR_REPORT_URL, trina-ax docs/decisions/20261119-hosted-error-reports.md), or null to take it away. */
+export const ErrorReportsInput = z.strictObject({ url: SentryDsn.nullable() })
+export type ErrorReportsInput = z.infer<typeof ErrorReportsInput>
+/** error-reports-set's answer. changed: the environment file changed (false when it already held this value, or none
+ * for null, so the same input may be sent again at any time). restarted: the server was restarted to read it, once no
+ * answer has run for up to 60 s. That happens on a change, and also without one when the running server started before
+ * the file last changed (an earlier call found it busy), so a resend finishes what a busy call left; false otherwise
+ * (busy: it reads the value at its next start, or at the next resend). */
+export const ErrorReportsResult = z.object({ ok: z.literal(true), changed: z.boolean(), restarted: z.boolean() })
+export type ErrorReportsResult = z.infer<typeof ErrorReportsResult>
+
 export const BackupKindArg = z.enum(['daily', 'manual', 'pre-update', 'final'])
 
 /** backup-prepare's answer (admin.js cloud-backup prepare) */
@@ -166,12 +182,21 @@ export const UploadedFile = z.object({ name: BackupFileName, size: z.number().in
 export const BackupUploadResult = z.object({ files: z.array(UploadedFile).min(1) })
 export type BackupUploadResult = z.infer<typeof BackupUploadResult>
 
-export const ExportInput = z.object({ partSize: PartSize, partUrls: PartUrls })
+export const ExportInput = z.object({
+  partSize: PartSize, partUrls: PartUrls,
+  /** also the plain ZIP for people (folders, chats as text and JSON, README.txt), age-encrypted to this one-time
+   * recipient of the control plane, which decrypts it only while a signed-in owner downloads it. An older team
+   * server ignores the key and answers without `zip`. */
+  zip: z.object({ recipient: AgeRecipient, partSize: PartSize, partUrls: PartUrls }).optional(),
+})
 export type ExportInput = z.infer<typeof ExportInput>
 export const ExportResult = z.object({
-  /** random passphrase of the age (scrypt) file; the control plane shows it to the owner once */
+  /** random passphrase of the age (scrypt) file; the control plane shows it to the owner once. Since the plain ZIP:
+   * eight groups of five from 23456789abcdefghjkmnpqrstuvwxyz joined by "-" (no 0/o, 1/l/i to mix up) */
   passphrase: z.string().min(20).max(200),
   size: z.number().int().nonnegative(), sha256: Sha256Hex, parts: z.array(UploadedPart).min(1),
+  /** the encrypted plain ZIP, when the input asked for it */
+  zip: z.object({ size: z.number().int().nonnegative(), sha256: Sha256Hex, parts: z.array(UploadedPart).min(1) }).optional(),
 })
 export type ExportResult = z.infer<typeof ExportResult>
 
@@ -230,6 +255,9 @@ export const TENANT_COMMANDS = {
   'owner-recovery-claimed': { args: NoArgs, stdin: null, output: z.object({ ok: z.literal(true), cleared: z.boolean() }), timeoutSec: 30 },
   /** the hosting service's speech-to-text key (HostedSpeechKeyInput); `set`: whether the server holds one now */
   'hosted-speech-key-set': { args: NoArgs, stdin: HostedSpeechKeyInput, output: z.object({ ok: z.literal(true), set: z.boolean() }), timeoutSec: 30 },
+  /** the hosting service's error report key (ErrorReportsInput, ErrorReportsResult). Idempotent: send it again when
+   * unsure (a reimage or restore writes the environment file anew). It waits up to 60 s for running answers. */
+  'error-reports-set': { args: NoArgs, stdin: ErrorReportsInput, output: ErrorReportsResult, timeoutSec: 120 },
   'setup-token-rotate': { args: NoArgs, stdin: null, output: z.object({ setupToken: z.string().regex(/^[A-Za-z0-9_-]{24,128}$/) }), timeoutSec: 120 },
   /** keyAge decrypts to the key file's line: "<base64 32 bytes>" for version 1, "credentials.key.<N> <base64>" for a
    * later version (after credentials-rekey). The control plane keeps it as is and hands it back in

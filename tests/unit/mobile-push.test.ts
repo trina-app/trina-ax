@@ -85,6 +85,9 @@ test('a tapped notification may only open an id path on the current team', () =>
   expect(tappedNotificationPath({ path: '/rooms/r1' }, since / 1000 - 60, since)).toBeNull() // before this team was chosen
   expect(tappedNotificationPath({ path: 'https://evil.example' }, since + 5000, since)).toBeNull()
   expect(tappedNotificationPath(null, since + 5000, since)).toBeNull()
+  // a connection that needs a sign-in again opens its own page (server push-events.ts reconnectPushPath, QA TC-3053)
+  for (const p of ['/settings/connectors/mcp/0190f5a0-0000-7000-8000-0000000000d1', '/settings/connectors/gmail', '/settings/connectors/google-drive'])
+    expect(tappedNotificationPath({ path: p }, since + 5000, since)).toBe(p)
 })
 
 test('the path rule matches the push gateway contract when it exists', async () => {
@@ -126,16 +129,17 @@ test('the Trina edition builds app.trina.ax for iPhone only, with usage strings,
   process.env.MYCEL_MOBILE_EDITION = 'trina'
   delete process.env.MYCEL_MOBILE_GOOGLE_SERVICES; delete process.env.MYCEL_MOBILE_BUILD_NUMBER
   const c = appConfig({ config: {}, projectRoot: mobileRoot } as never)
-  expect(c.name).toBe('Trina AX'); expect(c.version).toBe('1.0.7')
+  expect(c.name).toBe('Trina AX'); expect(c.version).toBe('1.0.10')
   expect(c.ios).toMatchObject({ bundleIdentifier: 'app.trina.ax', supportsTablet: false, buildNumber: '1', appleTeamId: 'YWW96288YY', infoPlist: { ITSAppUsesNonExemptEncryption: false } })
-  for (const key of ['NSCameraUsageDescription', 'NSMicrophoneUsageDescription', 'NSPhotoLibraryUsageDescription']) {
+  for (const key of ['NSCameraUsageDescription', 'NSMicrophoneUsageDescription', 'NSPhotoLibraryUsageDescription', 'NSSpeechRecognitionUsageDescription']) {
     expect(c.ios?.infoPlist?.[key]).toBeTruthy()
     expect((c.locales?.ko as { ios: Record<string, string> }).ios[key]).toMatch(/[가-힣]/)
     expect((c.locales?.['zh-Hans'] as { ios: Record<string, string> }).ios[key]).toMatch(/[\u4e00-\u9fff]/)
   }
   expect(c.android).toMatchObject({ package: 'app.trina.ax', versionCode: 1 })
-  // camera and microphone for the team page as on iOS; no overlay windows
-  expect(c.android?.permissions).toEqual(['android.permission.CAMERA', 'android.permission.RECORD_AUDIO'])
+  // camera and microphone for the team page as on iOS, and the audio settings the WebView's microphone needs (QA
+  // TC-4740: without it getUserMedia failed with the microphone allowed); no overlay windows
+  expect(c.android?.permissions).toEqual(['android.permission.CAMERA', 'android.permission.RECORD_AUDIO', 'android.permission.MODIFY_AUDIO_SETTINGS'])
   expect(c.android?.blockedPermissions).toEqual(['android.permission.SYSTEM_ALERT_WINDOW'])
   expect(JSON.stringify(c.plugins)).toContain('"targetSdkVersion":36,"compileSdkVersion":37')
   expect(c.plugins).toContain('./plugins/release-signing.js')

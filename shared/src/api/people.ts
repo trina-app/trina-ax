@@ -5,7 +5,7 @@ import { z } from 'zod'
 import { UserId } from '../ids'
 import { AVATAR_MAX_BYTES, PROFILE_STATUS_MAX, PROFILE_TITLE_MAX } from '../avatar'
 import { PersonName } from './auth'
-import { GuestPlaceNamed } from './common'
+import { GuestPlace } from './common'
 import { binary, empty, endpoint, stream } from './endpoint'
 import { MyStatus, SetStatusBody, StatusMessage } from './status-message'
 
@@ -20,11 +20,13 @@ export const Person = z.object({
   /** their status message now (docs/DECISIONS.md "상태 메시지"): absent without one, before its first day and after it
    * cleared */
   statusMessage: StatusMessage.optional(),
-  /** an outside person in one room or project of the team (the "Guest" tag beside their name); absent for members */
+  /** an outside person in a group chat and/or a project of the team (the "Guest" tag beside their name); absent for
+   * members */
   guest: z.literal(true).optional(),
-  /** a guest's one place, by name (an add list greys them out elsewhere: "In 'Quote prep'"); only a guest the viewer
-   * sees at all, so only a place the viewer is in */
-  guestPlace: GuestPlaceNamed.optional(),
+  /** a guest's places now (at most one group chat and one project), so an add list greys them out only for a second
+   * place of the same kind ("In 'Quote prep'"). A place the viewer is in comes with its id and name; one the viewer is
+   * not in comes as its kind only (never its id or name). Only for a guest the viewer sees at all. */
+  guestPlaces: z.array(GuestPlace.extend({ id: z.string().optional(), name: z.string().optional() })).max(2).optional(),
 })
 export type Person = z.infer<typeof Person>
 export const PeopleResponse = z.object({ people: z.array(Person) })
@@ -58,6 +60,11 @@ export type WindowActivity = z.infer<typeof WindowActivity>
  * automatic. The answer is what is kept. */
 export const SetAwayBody = z.object({ away: z.boolean() }).strict()
 export type SetAwayBody = z.infer<typeof SetAwayBody>
+/** POST /api/me/computer: the desktop app's word on the computer it runs on (its main process, every 30 s and on a lock
+ * or an unlock): how long the computer has had no input and whether its screen is locked. Only for the phone rule
+ * (server/src/notifications/away.ts); never shown to anyone. */
+export const ComputerActivityBody = z.object({ idleMs: z.number().int().min(0).max(366 * 24 * 3600_000), locked: z.boolean() }).strict()
+export type ComputerActivityBody = z.infer<typeof ComputerActivityBody>
 
 export const PEOPLE = {
   listPeople: endpoint({ method: 'GET', path: '/api/people', auth: 'user', owner: 'A', response: PeopleResponse, summary: 'The people of the team (name, title, status, photo version); no emails, roles or groups; deactivated people left out.' }),
@@ -68,4 +75,5 @@ export const PEOPLE = {
   setMyStatus: endpoint({ method: 'PUT', path: '/api/me/status', auth: 'user', owner: 'A', body: SetStatusBody, response: MyStatus, summary: 'Set your status message: one emoji, up to 100 characters of text, and when it clears (30 minutes to 2 hours, the end of today or this week in the team\'s time zone, chosen days, or never); only your own. The team sees it beside your name.' }),
   clearMyStatus: endpoint({ method: 'DELETE', path: '/api/me/status', auth: 'user', owner: 'A', response: empty, status: 204, summary: 'Clear your status message (also one that starts later); only your own.' }),
   setMyAway: endpoint({ method: 'PUT', path: '/api/me/away', auth: 'user', owner: 'A', body: SetAwayBody, response: SetAwayBody, summary: 'Set yourself away (your dot shows away to the team until you change it) or back to automatic; only your own.' }),
+  reportMyComputer: endpoint({ method: 'POST', path: '/api/me/computer', auth: 'user', owner: 'A', body: ComputerActivityBody, response: empty, status: 204, summary: 'The desktop app tells how long its computer has had no input and whether the screen is locked (every 30 s): while the computer is in use, your phone gets no push. Kept in memory for a minute; shown to nobody.' }),
 } as const

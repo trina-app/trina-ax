@@ -136,9 +136,10 @@ describe('what the publish scripts write', () => {
 
 describe('a burst of releases (inheritRollout, rollout.since)', () => {
   const at = (h: number) => hours(h).toISOString()
+  // fixed salts (one per release hour), not random ones: the shares measured below are binomial, so a random salt fails by chance now and then
   /** what the publish scripts write for a stable release published at hour h after the previous head `prev` */
   const publish = (h: number, prev: ReleaseFeed | null, version: string): ReleaseFeed =>
-    ({ ...ramped({ version, publishedAt: at(h) }), rollout: inheritRollout(newRollout('stable', 'staged'), prev, at(h)) })
+    ({ ...ramped({ version, publishedAt: at(h) }), rollout: inheritRollout(newRollout('stable', 'staged', `burst-salt-${h}`), prev, at(h)) })
 
   test('a release while the previous one still ramps takes over its salt and start; after 48 h a new ramp starts', () => {
     const a = publish(0, null, '1.1.0')
@@ -177,7 +178,7 @@ describe('a burst of releases (inheritRollout, rollout.since)', () => {
     const release = (inherit: boolean) => {
       const out: ReleaseFeed[] = []
       for (let h = 0, prev: ReleaseFeed | null = null; h < 14 * 24; h += 20) {
-        prev = inherit ? publish(h, prev, `2.0.${h}`) : ramped({ version: `2.0.${h}`, publishedAt: at(h), rollout: newRollout('stable', 'staged') })
+        prev = inherit ? publish(h, prev, `2.0.${h}`) : ramped({ version: `2.0.${h}`, publishedAt: at(h), rollout: newRollout('stable', 'staged', `alone-salt-${h}`) })
         out.push(prev)
       }
       return out

@@ -20,12 +20,14 @@ import type { AppContext } from '../context'
 import type { McpContent } from '../turns'
 import { audit } from '../admin/audit'
 import { ToolError } from '../policy/errors'
+import { authorize } from '../policy/authorize'
 import { assertStorageRoomForAI } from '../system/storage'
-import { newJobName, pollSrt, runResultsForAI } from './jobs'
+import { newJobName, pendingShared, pollSrt, runResultsForAI } from './jobs'
 import { mayUseDevEnv, teamSetting, type ProjectRef } from './setting'
-import { networkNow, othersInProject, personNetNow, runCommand, runNameInUse, spaceOf, startServer, submitJob, teamHosts, type Space } from './srt/runner'
+import { networkNow, noteSharedReads, othersInProject, personNetNow, reachSupported, reachTargets, runCommand, runNameInUse, sharedLockedTops, sharedLogKey, sharedVisible, spaceOf, startServer, submitJob, teamHosts, type SharedRun, type Space } from './srt/runner'
 import { grantUserSite, siteAllowed } from './sites'
 import { DEV_ENV_MAX_USER_SITES, siteFromInput, userSiteProblem } from '@mycel/shared'
+import { FILE_VIEW_PATH } from '@mycel/shared/api'
 import path from 'node:path'
 import { changesByOthers, markSeen, withChangeWindow, type ForeignChange } from './track'
 import type { Change } from './snapshot'
@@ -35,6 +37,8 @@ import { placeInLine, projectBusy, waitProjectFree, previewPortProblem, previewS
 import { previewBase } from './preview'
 import { addTicket, armTicket, commandWaitFor, FULL_MESSAGE, releaseCommand, waitTicket } from './srt/queue'
 import { newId } from '../db'
+import { inOthersSkills } from '../skills/script-copies'
+import { hideProxyLogin } from './srt/proxy-login'
 
 export const BOX_SHELL_TOOL = 'box_shell'
 
@@ -52,35 +56,59 @@ export const BoxShellInput = z.object({
 })
 export type BoxShellInput = z.infer<typeof BoxShellInput>
 
-/** The dev server part of the tool text: with a preview gateway, the person opens the dev server with the Preview
- * button (devenv/preview.ts); without one, only a test with curl in one command works. */
-/** How the AI starts and tests a dev server. macOS (a Mac team server): one localhost for the whole Mac, and a run may
- * listen on and reach only its own port, $PORT (srt-mac.mjs); the Preview button is Linux only (port-forward into the
- * run's network namespace). Linux: each run has its own localhost; with preview the person opens it from the step. */
-const MAC_DEV_SERVER_TEXT = 'For a dev server use background=true and make it listen on port $PORT (each command has its own; no other localhost port works), for example: npm run dev -- --port $PORT (Next.js reads PORT itself). There is no preview link yet, and a later command cannot reach the dev server: to test it, start it, call it and stop it in one command, for example: npm run dev -- --port $PORT & sleep 5; curl -s localhost:$PORT; kill %1. '
-const devServerText = (preview: boolean) => runPlatform() === 'darwin' ? MAC_DEV_SERVER_TEXT : preview
+/** How the AI starts and tests a dev server (docs/decisions/20261118-devenv-shared-jobs-mac-localhost.md). macOS (a Mac
+ * team server): one localhost for the whole Mac; a run listens only on its own port, $PORT, and a later command of the
+ * same chat reaches the ports of the chat's own running jobs and dev servers, nothing else (srt-mac.mjs); the Preview
+ * button is Linux only. Linux: each run has its own localhost; with preview the person opens it from the step, and with
+ * the sandbox helper a later command reaches it at the port the AI named (mycel-sandbox port-bridge). */
+const MAC_DEV_SERVER_TEXT = 'For a dev server use background=true and make it listen on port $PORT (each command has its own; no other localhost port can listen), for example: npm run dev -- --port $PORT (Next.js reads PORT itself). The answer names that port: later box_shell commands in this chat reach the dev server at localhost:<that port> (for example curl -s localhost:<port>), and no other localhost port. There is no preview link yet. '
+const reachText = 'Later box_shell commands in this chat reach it at localhost:<port> (for example curl -s localhost:3000), as long as it runs; no other localhost port of the server. '
+const devServerText = (preview: boolean, reach: boolean = reachSupported()) => runPlatform() === 'darwin' ? MAC_DEV_SERVER_TEXT : preview
   ? 'For a dev server use background=true and set port to the port it listens on: the person gets a Preview button on this step and opens the app in their browser. Do not open the app yourself. '
-    + 'A later command cannot reach the dev server: to test it yourself, start a second copy, call it and stop it in one command, for example: npm run dev -- --port 3001 & sleep 5; curl -s localhost:3001; kill %1. '
+    + (reach ? reachText : 'A later command cannot reach the dev server: to test it yourself, start a second copy, call it and stop it in one command, for example: npm run dev -- --port 3001 & sleep 5; curl -s localhost:3001; kill %1. ')
+  : reach ? 'For a dev server use background=true and set port to the port it listens on. There is no preview link on this server. ' + reachText
   : 'For a dev server use background=true. There is no preview link on this server, and a later command cannot reach the dev server: to test it, start it, call it and stop it in one command, for example: npm run dev & sleep 5; curl -s localhost:3000; kill %1. '
 
 /** The tool text (docs/research/srt-dev-env.md section 7). The dev environment is not locked to a project: the command
  * gets the folder access of the person of this chat. */
 export const srtShellDescription = (preview: boolean) => 'Run a shell command in the dev environment (bash, git, node, npm, python3, pip, ffmpeg, chromium) on the team server. '
   + 'The command can read the team folders that the person of this chat may open; other folders are not there. '
-  + 'It can write only the folder it starts in and the person\'s own folder users/<id>: every other team folder is read-only in a command, also where the person may write. To save a file in another team folder, use the file tools. '
+  + 'It can write only the folder it starts in and the person\'s own folder users/<id>: every other team folder is read-only in a command, also where the person may write. To put a file in another team folder, use copy_files for a file in a team folder and save_work_file for one in $TRINA_WORK. '
+  + 'A folder in users/<id> that the person shares with other people is read-only in a command too: write the file somewhere else, then move it in with move_files, which asks the person first. '
   + 'Team folders are under $TRINA_TEAM, with the same paths as in the file tools. '
   + 'In a project chat the command starts in the project folder, and changes there are shared with the team and recorded with your name. '
-  + 'In a chat with no project it starts in the chat\'s own work folder ($TRINA_WORK), which only this chat uses and which the file tools do not show: copy a result the person needs into their own folder users/<id>, or into another team folder they can write with the file tools. '
+  + 'In a chat with no project it starts in the chat\'s own work folder ($TRINA_WORK), which only this chat uses: open a picture, a video, a PDF or any file made there with read and its path ($TRINA_WORK/out/frame.png, or the absolute path a command prints) to see it yourself, and hand a finished file over with save_work_file (it goes into the team folder, the person\'s own folder by default), then link it. Do not start a dev server to show a finished file: Preview is for a web app. '
   + 'node_modules, .venv and build output are in that folder and use team disk. '
   + 'The network reaches only allowed sites (npm, PyPI, GitHub, the team\'s sites and the sites this person allowed), or nothing (the team setting No network). '
   + 'A blocked site answers HTTP 403 (curl: "CONNECT tunnel failed, response 403"). If the command needs that site, call box_shell again with the same command and request_sites set to its host name: the person is asked to allow it, and the command runs when they do. Never ask for an IP address, localhost or the team server; those stay blocked. '
   + 'There are NO credentials: git push, npm publish and other commands that need a login do not work; tell the person to do them on their own computer. '
-  + 'You cannot change .git/config or .git/hooks. For chromium use --headless --no-sandbox --disable-dev-shm-usage. '
+  + 'You cannot change .git/config or .git/hooks, and git runs no repository hooks here. For chromium use --headless --no-sandbox --disable-dev-shm-usage. '
   + devServerText(preview)
   + 'For a long command (a render, a large build) use job=true: the call returns at once; if other jobs of the team run, it waits in a queue. '
   + 'Read its log with tail -n 20 $TRINA_LOGS/<log_name>.log and do not wait for it in a loop. When a job ends the person gets a notice, and your next box_shell call in this chat gives you its exit code and the end of its log. '
-  + 'One command at a time per folder; default time limit 120 s; only the first 32 KiB of stdout and of stderr come back. '
+  + '/tmp and $TMPDIR can be the command\'s own and gone when it ends, and read cannot open them: make a result in the folder the command starts in. '
+  + 'One command at a time per folder; default time limit 120 s; a long stdout or stderr comes back as its first and its last 16 KiB (the middle is left out, and the result says so): to search all of a long output, send it to a file (cmd > $TRINA_LOGS/out.log 2>&1) and grep or tail that. '
   + 'When the dev environment of the team is full, a command waits for a free slot (at most 5 minutes) and then runs; the person sees its place in line.'
+/** The tool text in a shared chat (docs/decisions/20261118-devenv-shared-chats.md): everyone in the chat sees the
+ * command and its output, so it sees only what all of them may open; no login. Jobs and dev servers too, with the same
+ * folders (docs/decisions/20261118-devenv-shared-jobs-mac-localhost.md). */
+export const sharedShellDescription = (project: boolean) => 'Run a shell command in the dev environment (bash, git, node, npm, python3, pip, ffmpeg, chromium) on the team server. '
+  + 'This is a shared chat: everyone in it sees the command and its output, so the command sees only the team folders that EVERYONE in this chat may open. No personal folder (users/...) is there, not even the person\'s own, and no other chat\'s files. '
+  + (project
+    ? 'It starts in the project folder and sees only the parts of it that everyone here may open (a folder some of them cannot open is not there); it can write only in the project folder, where the person may write. Changes there are shared with the team and recorded with your name. To use a file from somewhere else, the person must copy it into the project folder first. '
+    : 'It starts in the chat\'s own work folder ($TRINA_WORK), which it can write: open a picture, a video, a PDF or any file made there with read and its path ($TRINA_WORK/out/frame.png) to see it yourself. It can read the team folders that everyone in this chat may open, under $TRINA_TEAM with the same paths as in the file tools, and write none of them. Do not start a dev server to show a finished file: Preview is for a web app. ')
+  + 'The network reaches only allowed sites (npm, PyPI, GitHub, the team\'s sites and the sites this person allowed), or nothing (the team setting No network). '
+  + 'A blocked site answers HTTP 403 (curl: "CONNECT tunnel failed, response 403"). If the command needs that site, call box_shell again with the same command and request_sites set to its host name: the person is asked to allow it, and the command runs when they do. Never ask for an IP address, localhost or the team server; those stay blocked. '
+  + 'There are NO credentials, and commands that need a login (git push, npm publish, ssh ...) are refused here: tell the person to do them on their own computer. '
+  + 'Jobs and dev servers run here too, with the same folders: everyone in this chat sees their results, and they stop when the people of this chat or what they may open change. '
+  + 'You cannot change .git/config or .git/hooks, and git runs no repository hooks here. For chromium use --headless --no-sandbox --disable-dev-shm-usage. '
+  + devServerText(previewReady())
+  + 'For a long command (a render, a large build) use job=true: the call returns at once; if other jobs of the team run, it waits in a queue. '
+  + 'Read its log with tail -n 20 $TRINA_LOGS/<log_name>.log and do not wait for it in a loop. When a job ends, the next box_shell call in this chat gives you its exit code and the end of its log. '
+  + '/tmp and $TMPDIR can be the command\'s own and gone when it ends, and read cannot open them: make a result in the folder the command starts in. '
+  + 'One command at a time per folder; default time limit 120 s; a long stdout or stderr comes back as its first and its last 16 KiB (the middle is left out, and the result says so): to search all of a long output, send it to a file (cmd > $TRINA_LOGS/out.log 2>&1) and grep or tail that. '
+  + 'When the dev environment of the team is full, a command waits for a free slot (at most 5 minutes) and then runs; the person sees its place in line.'
+
 /** this server shows previews: a preview origin is set and the runner can forward a port (systemd scopes) */
 export const previewReady = () => !!previewBase() && previewSupported()
 
@@ -96,9 +124,15 @@ export function boxCwd(cwd: string | undefined): string | null {
   return c
 }
 
-export function changeLines(changes: Change[], max = 30): string {
+/** a team file's link in the app (chat/prompt.ts SOURCE_LINK_RULE's form): the AI links what a command made, and the API
+ * engine's link guard (engine/api-links.ts) lets a link through only when a tool result holds it */
+const fileLink = (p: string) => `[${p.split('/').pop()}](${FILE_VIEW_PATH}?path=${encodeURIComponent(p)})`
+
+/** `links`: a link for each new or changed file, or only for those this predicate takes (the ones the person can open) */
+export function changeLines(changes: Change[], max = 30, links: boolean | ((rel: string) => boolean) = false): string {
   const verb = { create: 'created', update: 'changed', delete: 'deleted' } as const
-  const lines = changes.slice(0, max).map((c) => `  ${verb[c.action]} ${c.path}`)
+  const linked = (c: Change) => c.action !== 'delete' && (typeof links === 'function' ? links(c.path) : links)
+  const lines = changes.slice(0, max).map((c) => `  ${verb[c.action]} ${c.path}${linked(c) ? ` (link: ${fileLink(c.path)})` : ''}`)
   if (changes.length > max) lines.push(`  ... and ${changes.length - max} more`)
   return lines.join('\n')
 }
@@ -109,7 +143,22 @@ export function foreignLines(f: { items: ForeignChange[]; total: number }): stri
   return lines.join('\n')
 }
 
-const clip = (s: string) => (s.length > OUT_SHOWN ? s.slice(0, OUT_SHOWN) + '\n(cut)' : s)
+/** what the AI gets of a stdout or stderr: its first and last half of OUT_SHOWN, never only the start (limits audit 1 #21:
+ * the error at the end of a long build was lost). The runner already cut a long output this way with its own line
+ * (srt/runner.ts readEnds, the same size): that one is kept, never cut again. Cuts go to a line break when one is near,
+ * so a value on one line is never split (the redaction after this matches whole values). */
+export const clip = (s: string) => {
+  if (s.length <= OUT_SHOWN || RUNNER_CUT.test(s) && s.length <= OUT_SHOWN + 200) return s
+  let head = s.slice(0, OUT_SHOWN / 2), tail = s.slice(-OUT_SHOWN / 2)
+  const nl = head.lastIndexOf('\n')
+  if (nl >= 0 && head.length - nl <= 4096) head = head.slice(0, nl + 1)
+  const tn = tail.indexOf('\n')
+  if (tn >= 0 && tn < 4096) tail = tail.slice(tn + 1)
+  if (/[\uD800-\uDBFF]$/.test(head)) head = head.slice(0, -1)
+  if (/^[\uDC00-\uDFFF]/.test(tail)) tail = tail.slice(1)
+  return `${head}\n… (${s.length - head.length - tail.length} characters in the middle left out; the end follows) …\n${tail}`
+}
+const RUNNER_CUT = /\n… \(about \d+ bytes in the middle of this output were left out; the end follows\) …\n/
 
 export interface BoxShellHost {
   ctx: AppContext
@@ -128,19 +177,50 @@ export interface BoxShellHost {
   askSite?(host: string, command: string): Promise<'once' | 'always' | 'deny' | null>
   /** nobody can answer a card in this turn (a scheduled run): no site card is raised */
   unattended?: boolean
+  /** a shared chat (srt/runner.ts SharedRun): each run sees only what everyone who sees the chat may read; foreground
+   * commands only, no command that needs a login, no results of the person's jobs */
+  shared?: SharedRun
+  /** who made a call (its turn file state, chat/tools.ts): a sub-agent ("helper", QA TC-4911) or the main AI. `key`:
+   * one per agent, so each agent's first call gets the notes of a first call */
+  caller?(files: unknown): { helper: boolean; key: string }
+  /** this call is a sub-agent's (set per call from `caller`): it runs commands with the same folders and fence, but
+   * raises no card (it cannot ask the person), starts no job or dev server (their notice, Preview button and results
+   * are the main AI's) and takes no job results */
+  helper?: boolean
+  /** the sub-agent's key (its Agent call id, '?' when not known) on a helper's call: in the audit line */
+  agent?: string
   redact(s: string): string
 }
 
+/** What a shared chat's command cannot do in a folder given entry by entry (srt/mounts.ts). Names only folders everyone
+ * in the chat may open, and never what is hidden or why. */
+export const lockedTopsNote = (folders: readonly string[]) => `Note: in this shared chat a command cannot add, rename or delete anything directly in ${folders.slice(0, 5).map((f) => `$TRINA_TEAM/${f}`).join(', ')}${folders.length > 5 ? ` and ${folders.length - 5} more` : ''} (a new file or folder there fails with "Permission denied"), and the files there are read-only; folders whose names start with a dot and skill folders there are read-only too, and a .git folder there is not available (git does not work at that level). Write in one of its other sub-folders or in $TMPDIR, and save a result with the file tools (write, edit, copy_files).`
+
 type Window = { changes: Change[]; background: Change[]; conflicts: string[] }
+
+/** May the person of this call open the team file `rel` now (their own read access; false when it cannot be told)? */
+function personCanOpen(h: Pick<BoxShellHost, 'ctx' | 'userId'>, rel: string): boolean {
+  try {
+    const f = h.ctx.files
+    authorize(f.fx, f.rules(), f.principal(h.userId), rel, 'read')
+    return true
+  } catch { return false }
+}
 
 /** The answer to the AI after a command ran. */
 function answer(h: BoxShellHost, o: { notes: string[]; head: string; started: number; exit: RunExit; w: Window; background: boolean; what: string }) {
   const { notes, head, started, exit: e, w, background, what } = o
   const parts = [...notes, `${head} (${((Date.now() - started) / 1000).toFixed(1)} s)`]
-  parts.push(e.stdout ? `--- stdout ---\n${clip(e.stdout)}` : '--- stdout: empty ---')
-  if (e.stderr) parts.push(`--- stderr ---\n${clip(e.stderr)}`)
+  // srt's proxy login (srt/proxy-login.ts: per run, useless outside it) never reaches the AI, so never a chat; secrets are
+  // hidden before any cut (a value split at a cut would not match), and the whole answer again below
+  parts.push(e.stdout ? `--- stdout ---
+${clip(h.redact(hideProxyLogin(e.stdout)))}` : '--- stdout: empty ---')
+  if (e.stderr) parts.push(`--- stderr ---
+${clip(h.redact(hideProxyLogin(e.stderr)))}`)
   if (e.truncated) parts.push('(output cut)')
-  if (w.changes.length) parts.push(`Files changed by this command (${w.changes.length}):\n${changeLines(w.changes)}`)
+  // a link only for a file the person can open now: the project folder's changes may include a file a teammate's run
+  // saved in a sub-folder this person cannot open (a dead link in the answer otherwise)
+  if (w.changes.length) parts.push(`Files changed by this command (${w.changes.length}):\n${changeLines(w.changes, 30, (rel) => personCanOpen(h, rel))}`)
   if (w.background.length) parts.push(`Files changed in the background since the last command (${w.background.length}):\n${changeLines(w.background)}`)
   if (w.conflicts.length) parts.push(`Someone saved some of these files while the command ran; their version is kept as: ${w.conflicts.join(', ')}`)
   const failed = e.code !== 0 || (e.signal !== '' && !background)
@@ -172,13 +252,15 @@ async function srtShell(h: BoxShellHost, input: BoxShellInput, o: { space: Space
   const go = async (): Promise<Out> => {
     const base = { space, turnId: h.turnId, command: input.command, shown, cwd, once: [...o.once] }
     if (jobName) return { kind: 'job', r: await submitJob(ctx, { ...base, name: jobName }) }
-    if (background) return { kind: 'server', r: await startServer(ctx, { ...base, name: input.log_name ?? 'background' }) }
-    return { kind: 'exit', r: await runCommand(ctx, { space, cwd, command: input.command, shown, timeoutMs, signal: h.signal, once: [...o.once] }) }
+    if (background) return { kind: 'server', r: await startServer(ctx, { ...base, name: input.log_name ?? 'background', ...(input.port ? { port: input.port } : {}) }) }
+    return { kind: 'exit', r: await runCommand(ctx, { space, cwd, command: input.command, shown, timeoutMs, signal: h.signal, once: [...o.once], redact: h.redact }) }
   }
   let w: Window & { value: Out }
   if (o.tracked) {
     w = await withChangeWindow(ctx, o.tracked, { userId: h.userId, turnId: h.turnId }, { command: input.command.slice(0, 500) }, run).finally(() => slot?.release())
-    markSeen(ctx, o.tracked.id, h.userId)
+    // a sub-agent's command does not use up the main AI's "changed by other people" note or the login card's check
+    // (both are the main AI's; the helper never sees the card)
+    if (!h.helper) markSeen(ctx, o.tracked.id, h.userId)
   } else w = { ...NO_WINDOW, value: await run() }
   notes.push(...await o.jobNotes())
   const out = w.value
@@ -189,7 +271,18 @@ async function srtShell(h: BoxShellHost, input: BoxShellInput, o: { space: Space
   audit(ctx.db, { actor: h.userId, action: 'dev_env.command', target: space.projectId, detail: {
     turnId: h.turnId, chatId: space.chatId, command: h.redact(input.command.slice(0, 2000)), cwd, folder: o.tracked ? 'project' : 'work', background: background || !!jobName, ...(jobName ? { job: jobName } : {}), runner: 'srt',
     result, changed: w.changes.length, background_changes: w.background.length, conflicts: w.conflicts,
+    ...(h.helper ? { by: 'sub-agent', agent: h.agent ?? '?' } : {}),
   } })
+  // a shared chat: the answer names only paths the run could see (a save by someone else in a folder some people here
+  // cannot open lands in the same window); the audit line above keeps them all
+  if (h.shared) {
+    const see = sharedVisible(ctx, space)
+    w = { ...w, changes: w.changes.filter((c) => see(c.path)), background: w.background.filter((c) => see(c.path)), conflicts: w.conflicts.filter(see) }
+    // a writable folder that holds a folder some of them cannot open is given entry by entry (srt/mounts.ts): its top
+    // cannot change in a command, which the AI must know (else it would try to make files there, which fails)
+    const locked = sharedLockedTops(ctx, space)
+    if (locked.length) notes.push(lockedTopsNote(locked))
+  }
   if (!out.r.ok) return { ...text(h.redact([...notes, `Error: the command could not run (${out.r.message.slice(0, 300)}).`].join('\n')), true), summary: `${what} -> ${out.r.message.slice(0, 200)}` }
   const empty = { ev: 'exit' as const, code: 0, signal: '', stdout: '', stderr: '', truncated: false, ms: Date.now() - started }
   if (out.kind === 'job' && out.r.ok) {
@@ -205,8 +298,12 @@ async function srtShell(h: BoxShellHost, input: BoxShellInput, o: { space: Space
     const preview = previewReady()
     // the step shows the Preview button for the port the AI named (Step.devEnvRun kind server)
     if (preview && input.port) h.queueStep?.({ id: out.r.rowId, kind: 'server', state: 'started', position: null, port: input.port })
-    const head = !preview ? `Started in the background (log: ${log}). A later command cannot reach it; test it in one command with curl.`
-      : input.port ? `Started in the background (log: ${log}). The person now has a Preview button for port ${input.port} on this step: tell them to press it. If the page does not open, read the log. A later command cannot reach the dev server.`
+    // where later commands of this chat reach it (srt/runner.ts reachTargets): macOS its own $PORT, Linux the port named
+    const at = out.r.port
+    const later = at ? `Later box_shell commands in this chat reach it at localhost:${at} while it runs (for example curl -s localhost:${at}).` : 'A later command cannot reach it; test it in one command with curl.'
+    const head = runPlatform() === 'darwin' ? `Started in the background (log: ${log}), listening on $PORT, which is ${at ?? 'its own port'}. ${later}`
+      : !preview ? `Started in the background (log: ${log}). ${later}`
+      : input.port ? `Started in the background (log: ${log}). The person now has a Preview button for port ${input.port} on this step: tell them to press it${h.shared ? ' (everyone in this chat can open it)' : ''}. If the page does not open, read the log. ${later}`
       : `Started in the background (log: ${log}), with no port: the person has no Preview button. Stop it and start it again with port set to the port the dev server listens on.`
     return answer(h, { notes, head, started, exit: empty, w, background: true, what })
   }
@@ -272,14 +369,34 @@ async function srtCall(h: BoxShellHost, data: BoxShellInput, what: string, first
   const { ctx, project } = h
   // never trust the start of the turn alone: the admin may have turned it off, the person may be out of scope now
   if (!mayUseDevEnv(ctx.db, ctx.files, h.userId)) return { ...text('The dev environment is off for you now. Do not try again.', true), summary: `${what} -> off` }
-  const space = spaceOf(ctx, { userId: h.userId, chatId: h.chatId ?? null, project: project ? { id: project.id, folderPath: project.folderPath } : null })
+  // a shared chat: no command that would use a login (no card: a run holds no credentials anyway), checked before
+  // anything else runs. Jobs and dev servers run there with the chat's view (srt/runner.ts sharedRowStart)
+  // a sub-agent (QA TC-4911): foreground commands only; the main AI starts jobs and dev servers
+  if (h.helper && (data.job || data.background)) return { ...text(HELPER_NO_JOB, true), summary: `${what} -> refused (job of a sub-agent)` }
+  // a group's or project's skills folder is not in any run (srt/access.ts RunWrites.othersSkills); a command that names
+  // one gets the reason before anything runs (QA TC-4932)
+  if (namesOthersSkills(data.command) || (data.cwd && namesOthersSkills(data.cwd))) return { ...text(OTHERS_SKILLS_REFUSAL, true), summary: `${what} -> refused (a group or project skills folder)` }
+  if (h.shared && usesCredentials(data.command)) return { ...text('Not run: commands that need a login (git push, npm publish, ssh ...) do not run in a shared chat. Tell the person to do it on their own computer.', true), summary: `${what} -> refused (login in a shared chat)` }
+  const space = spaceOf(ctx, { userId: h.userId, chatId: h.chatId ?? null, project: project ? { id: project.id, folderPath: project.folderPath } : null, ...(h.shared ? { shared: h.shared } : {}) })
   if (!space) return { ...text('Error: this chat has no folder for commands. Do not try again.', true), summary: `${what} -> no folder` }
   const tracked = project && space.projectId === project.id && space.root === path.join(ctx.files.fx.root, project.folderPath) ? { id: project.id, folderPath: project.folderPath } : null
   const cwd = boxCwd(data.cwd)
   if (cwd === null) return { ...text('Invalid input: cwd must be a folder inside the folder of this chat (the project folder, or the work folder).', true), summary: `${what} -> bad cwd` }
+  // the project's own skills folder as cwd: not in the run either (QA TC-4932)
+  if (tracked && cwd && inOthersSkills(`${tracked.folderPath}/${cwd}`)) return { ...text(OTHERS_SKILLS_REFUSAL, true), summary: `${what} -> refused (a project skills folder)` }
   const background = !!data.background || !!data.job
   /** the jobs of this chat that ended and the AI does not know of yet, in every answer that goes back to it */
   const jobNotes = async () => {
+    // a sub-agent: none (the main AI gets them on its next call: a result given to a helper would never reach it)
+    if (h.helper) return []
+    if (h.shared) {
+      // a shared chat: the chat's jobs of the same people and view only (a person's own jobs never: their log is the
+      // person's), and only once what a run here may read joined this answer's record (as for a command)
+      await pollSrt(ctx, { chatId: h.chatId ?? '' }).catch(() => {})
+      const key = sharedLogKey(ctx, space)
+      if (!key || !pendingShared(ctx, h.chatId ?? null, key) || !noteSharedReads(ctx, space)) return []
+      return runResultsForAI(ctx, h.userId, h.chatId ?? null, key).map((n) => h.redact(n))
+    }
     await pollSrt(ctx, { userId: h.userId }).catch(() => {})
     return runResultsForAI(ctx, h.userId, h.chatId ?? null).map((n) => h.redact(n))
   }
@@ -307,12 +424,15 @@ async function srtCall(h: BoxShellHost, data: BoxShellInput, what: string, first
   const logInUse = background ? (jobName ?? data.log_name ?? 'background') : null
   if (logInUse) {
     await pollSrt(ctx, { userId: h.userId }).catch(() => {})
-    if (runNameInUse(ctx.db, h.userId, logInUse)) return { ...text(`Error: a job or dev server named ${logInUse} still runs for this person. Use another log_name, or wait for it to end.`, true), summary: `${what} -> job name in use` }
+    if (runNameInUse(ctx, space, logInUse)) return { ...text(`Error: a job or dev server named ${logInUse} still runs ${h.shared ? 'in this chat' : 'for this person'}. Use another log_name, or wait for it to end.`, true), summary: `${what} -> job name in use` }
   }
   const notes: string[] = []
   if (tracked) {
-    const foreign = changesByOthers(ctx, tracked, h.userId)
+    let foreign = changesByOthers(ctx, tracked, h.userId)
+    // a shared chat: only changes in folders this run may see, and no count of the others (sharedVisible)
+    if (h.shared) { const see = sharedVisible(ctx, space); const items = foreign.items.filter((c) => see(c.path)); foreign = { ...foreign, items, total: items.length } }
     if (usesCredentials(data.command) && foreign.total > 0) {
+      if (h.helper) return { ...text(HELPER_NO_CARD, true), summary: `${what} -> refused (login command of a sub-agent after changes by others)` }
       const ok = await h.confirm(
         `This command can use a login: ${data.command.slice(0, 200)}\nOther people changed files in the project since your last command. Check the changes before you run it.`,
         [{ label: 'Run it', value: 'run' }, { label: 'Do not run', value: 'no' }],
@@ -323,11 +443,15 @@ async function srtCall(h: BoxShellHost, data: BoxShellInput, what: string, first
     } else if (firstCall && foreign.total > 0) {
       notes.push(`Changed by other people since this person's last command:\n${foreignLines(foreign)}`)
     }
-    if (firstCall) {
+    // other people's jobs and dev servers (their names): never in a shared chat
+    if (firstCall && !h.shared) {
       const others = othersInProject(ctx, tracked.id, h.userId)
       if (others.length) notes.push('Other people\'s jobs and dev servers in this project (they keep running):\n' + others.slice(0, 20).map((r) => `  ${r.kind} ${r.name}${r.position ? ` (waiting, position ${r.position})` : ''}, by ${r.by}`).join('\n'))
     }
   }
+  // the chat's own jobs and dev servers this command reaches on localhost (srt/runner.ts reachTargets)
+  const reach = reachTargets(ctx, space)
+  if (reach.length) notes.push(`This command can reach the running ${reach.length === 1 ? 'dev server' : 'dev servers'} of this chat: ${reach.map((t) => `${t.name} (${t.kind === 'job' ? 'a job' : 'a dev server'}) at localhost:${t.port}`).join(', ')}.`)
   if (data.request_sites?.length) {
     const asked = await askSites(h, data, once, denied)
     if (asked.refusal) return { ...text(h.redact([...notes, ...asked.notes, asked.refusal].join('\n')), true), summary: `${what} -> ${asked.summary}` }
@@ -358,6 +482,8 @@ async function askSites(h: BoxShellHost, data: BoxShellInput, once: Set<string>,
     // a host that the person did not allow in this turn is not asked again: no second card (the AI may try again
     // because a web page or a file tells it to; the person said no once)
     if (denied.has(host)) return { notes, refusal: `The person did not allow ${host} in this answer, so the command did not run. Do not ask for it again; tell the person what does not work without it.`, summary: `site ${host} not allowed (asked again)` }
+    // a sub-agent cannot ask the person: the main AI asks for the site (no card, nothing recorded as denied)
+    if (h.helper) return { notes, refusal: `${host} is not on the allowed list, and a sub-agent cannot ask the person to allow it, so the command did not run. Say in your report that the command needs ${host}: the main assistant can ask for it.`, summary: `site ${host} not asked (sub-agent)` }
     if (h.unattended) {
       audit(ctx.db, { actor: h.userId, action: 'dev_env.site_denied', target: null, detail: { host, answer: 'none', turnId: h.turnId, chatId: h.chatId ?? null } })
       denied.add(host)
@@ -391,23 +517,49 @@ export const blockedHint = (o: { full: boolean }) => o.full
 
 const text = (t: string, isError = false) => ({ content: [{ type: 'text' as const, text: t }] as McpContent[], ...(isError ? { isError: true } : {}) })
 
+/** a path of a group's or project's skills folder under $TRINA_TEAM in a command ($TRINA_TEAM/groups/<folder>/skills,
+ * $TRINA_TEAM/projects/<name>/skills, any letter case; a folder name may hold spaces). A hint for a clear refusal only,
+ * so a relative path or a look-alike elsewhere is not refused by its text: the run itself never has these folders
+ * (srt/access.ts RunWrites.othersSkills), however the command names them */
+const OTHERS_SKILLS_PATH = /\$\{?TRINA_TEAM\}?\/+(?:\.\/+)*(?:groups|projects)\/+[^/\n'"`]+?\/+skills(?=$|[\/\s'"`;|&)<>*?])/i
+export const namesOthersSkills = (s: string) => OTHERS_SKILLS_PATH.test(s.normalize('NFC'))
+export const OTHERS_SKILLS_REFUSAL = 'Not run: this command names a group\'s or project\'s skills folder. Those folders are not in the dev environment: other members wrote what is there, and their scripts never run or get copied (they would run with this user\'s access). Follow the skill\'s other steps, and tell the user that a skill manager can make it a team skill if they need its script.'
+
+/** a sub-agent's job or dev server (QA TC-4911) */
+export const HELPER_NO_JOB = 'Not started: a sub-agent runs commands that finish within their time limit (at most 1800 s); jobs and dev servers are started by the main assistant. Run it without job and background, or say in your report that it needs a job or a dev server.'
+/** a sub-agent's command that would need the person's yes on a card */
+export const HELPER_NO_CARD = 'Not run: this command can use a login and other people changed files in the project, so the person must check the changes on a card first, and a sub-agent cannot ask them. Say in your report that the command still needs to run: the main assistant can run it.'
+
+/** Who made a box_shell call, from the turn file state it came with (files/service.ts forCall): the turn's own state
+ * is the main AI; anything else is a helper, also a call whose agent is not known (a fresh view with agent null), which
+ * fails closed to the helper's rules. `key`: one per agent ('?' for an unknown one). */
+export function callerOf(files: unknown, main: unknown): { helper: boolean; key: string } {
+  if (!files || files === main) return { helper: false, key: '' }
+  const agent = (files as { agent?: unknown }).agent
+  return { helper: true, key: typeof agent === 'string' && agent ? agent : '?' }
+}
+
 export function boxShellTool(h: BoxShellHost) {
-  let firstCall = true
+  /** the agents (main AI '', each sub-agent its own key) whose first call came already */
+  const called = new Set<string>()
   /** the sites the person allowed once in this turn (foreground commands; a job or dev server keeps its own copy) */
   const once = new Set<string>()
   /** the sites the person did not allow in this turn (or nobody could answer): no second card for them */
   const denied = new Set<string>()
   return {
     name: BOX_SHELL_TOOL,
-    description: srtShellDescription(previewReady()),
+    description: h.shared ? sharedShellDescription(h.shared.within !== null) : srtShellDescription(previewReady()),
     inputSchema: (() => { const j = z.toJSONSchema(BoxShellInput, { target: 'draft-7' }) as Record<string, unknown>; delete j.$schema; return j })(),
-    async call(args: unknown): Promise<{ content: McpContent[]; isError?: boolean; summary?: string }> {
+    async call(args: unknown, files?: unknown): Promise<{ content: McpContent[]; isError?: boolean; summary?: string }> {
       const a = BoxShellInput.safeParse(args)
       if (!a.success) return { ...text('Invalid input: ' + a.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; '), true), summary: 'box_shell -> invalid input' }
+      const who = h.caller?.(files) ?? { helper: false, key: '' }
       const what = h.redact(`box_shell ${a.data.command.slice(0, 200)}`)
-      const first = firstCall
-      firstCall = false
-      return srtCall(h, a.data, what, first, once, denied)
+      const first = !called.has(who.key)
+      called.add(who.key)
+      // a sub-agent's call: no step patch (patchToolStep's FIFO is the main AI's; chat/subagents.ts PARENT_ONLY_TOOLS)
+      const host: BoxShellHost = who.helper ? { ...h, helper: true, agent: who.key, queueStep: undefined } : h
+      return srtCall(host, a.data, what + (who.helper ? ' (sub-agent)' : ''), first, once, denied)
     },
   }
 }

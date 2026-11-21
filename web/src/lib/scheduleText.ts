@@ -30,9 +30,26 @@ export const onceDate = (date: string | null | undefined, locale: Locale) => {
   return new Intl.DateTimeFormat(TAG[locale] ?? locale, { dateStyle: 'medium', timeZone: 'UTC' }).format(new Date(Date.UTC(+m[1]!, +m[2]! - 1, +m[3]!)))
 }
 
-/** "Weekdays (Mon–Fri) at 09:00", in the team's time zone (the times the server keeps). */
-export const repeatText = (s: Schedule, t: T, locale: Locale) =>
-  t(`schedules.repeat.${s.repeat}` as MessageKey, { time: s.time, date: onceDate(s.date, locale), day: String(s.day ?? ''), weekday: weekdayName(s.weekday ?? 0, locale) })
+/** An interval as its biggest whole unit: 90 → 90 minutes, 120 → 2 hours, 2880 → 2 days. */
+export function intervalUnit(minutes: number): { n: number; unit: 'minutes' | 'hours' | 'days' } {
+  if (minutes > 0 && minutes % 1440 === 0) return { n: minutes / 1440, unit: 'days' }
+  if (minutes > 0 && minutes % 60 === 0) return { n: minutes / 60, unit: 'hours' }
+  return { n: minutes, unit: 'minutes' }
+}
+
+/** "Weekdays (Mon–Fri) at 09:00", in the team's time zone (the times the server keeps); several days of the week as the
+ * language lists them, the last day of the month, every N minutes, hours or days, a cron schedule as written. */
+export function repeatText(s: Schedule, t: T, locale: Locale): string {
+  const days = s.weekdays?.length ? s.weekdays : [s.weekday ?? 0]
+  const weekday = new Intl.ListFormat(TAG[locale] ?? locale, { type: 'conjunction' }).format(days.map((d) => weekdayName(d, locale)))
+  if (s.repeat === 'interval') {
+    const { n, unit } = intervalUnit(s.everyMinutes ?? 0)
+    return t(`schedules.repeat.interval.${unit}` as MessageKey, { n: String(n), time: s.time, date: onceDate(s.date, locale) })
+  }
+  if (s.repeat === 'cron') return t('schedules.repeat.cron', { cron: s.cron ?? '' })
+  if (s.repeat === 'monthly' && s.day === 'last') return t('schedules.repeat.monthlyLast', { time: s.time })
+  return t(`schedules.repeat.${s.repeat}` as MessageKey, { time: s.time, date: onceDate(s.date, locale), day: String(s.day ?? ''), weekday })
+}
 
 /** on · paused · waiting for its owner's check ("다시 확인") · a one-time task that ran or whose time passed */
 export type ScheduleState = 'on' | 'paused' | 'review' | 'completed' | 'expired'
@@ -53,6 +70,8 @@ export const stateLabel = (s: Schedule, t: T) => {
 export const outcomeLabel = (s: Schedule, t: T) => (!s.lastOutcome ? ''
   // a project that is still there, only for its members now: not "Project gone" (QA TC-360)
   : s.lastOutcome === 'project_gone' && s.lastMembersOnly ? t('scheduleTemplates.outcome.members_only')
+  // a template each member signs in to: a sign-in, not a key (QA TC-3052)
+  : s.lastOutcome === 'needs_key' && s.lastNeed?.signIn ? t('scheduleTemplates.outcome.needs_signIn')
   : t(`scheduleTemplates.outcome.${s.lastOutcome}` as MessageKey))
 
 const RUN_STATE: Partial<Record<NonNullable<Schedule['lastOutcome']>, MessageKey>> = {
@@ -72,7 +91,8 @@ export const runStateLabel = (s: Schedule, t: T) => {
  *  success or before the first run. The API gives only the outcome code, not the error text, so this explains the code. */
 export const outcomeReason = (s: Schedule, t: T) =>
   // a run that needed the owner's own key for an admin's template names it ("…your own key for Demo Wiki…")
-  s.lastOutcome === 'needs_key' ? t('scheduled.reason.needs_keyNamed', { name: s.lastNeed?.name ?? '' })
+  // (a template each member signs in to: "Sign in to Wiki with your own account…", QA TC-3052)
+  s.lastOutcome === 'needs_key' ? t(s.lastNeed?.signIn ? 'scheduled.reason.needs_signInNamed' : 'scheduled.reason.needs_keyNamed', { name: s.lastNeed?.name ?? '' })
     : s.lastOutcome === 'project_gone' && s.lastMembersOnly ? t('scheduled.reason.members_only')
     : s.lastOutcome && s.lastOutcome !== 'done' ? t(`scheduled.reason.${s.lastOutcome}` as MessageKey) : ''
 
@@ -86,7 +106,7 @@ export const runReason = (r: ScheduleRun, t: T, o: { membersOnly?: boolean } = {
   // the label already says it ("Failed", "Stopped"): a reason only where it adds something
   if (r.status === 'running' || r.status === 'done' || r.status === 'stopped') return ''
   if (r.status === 'error') return r.error ?? ''
-  if (r.status === 'needs_key') return r.needName ? t('scheduled.runReason.needs_keyNamed', { name: r.needName }) : t('scheduled.runReason.needs_key')
+  if (r.status === 'needs_key') return r.needName ? t(r.needSignIn ? 'scheduled.runReason.needs_signInNamed' : 'scheduled.runReason.needs_keyNamed', { name: r.needName }) : t('scheduled.runReason.needs_key')
   if (r.status === 'project_gone' && o.membersOnly) return t('scheduled.runReason.members_only')
   return t(`scheduled.runReason.${r.status}` as MessageKey)
 }

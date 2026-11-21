@@ -96,7 +96,7 @@ test('⌘K → a word → Enter opens the room at an old message, marked; 최근
   await expect(input(page)).toHaveAttribute('placeholder', '기록·대화 메시지, 파일, 프로젝트 등 검색')
   await input(page).fill('견적')
   await expect(messages(page)).toBeVisible()
-  await expect(messages(page).getByText('대화방 메시지')).toBeVisible()
+  await expect(messages(page).getByText('대화 메시지')).toBeVisible()
   const rows = messages(page).getByRole('option')
   // five, then 메시지 더 보기 (in place: the dialog stays)
   await expect(rows).toHaveCount(6)

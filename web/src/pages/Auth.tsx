@@ -5,31 +5,37 @@ import { Eye, EyeOff, Loader2 } from 'lucide-react'
 import { useEffect, useId, useRef, useState, type FormEvent, type ReactNode } from 'react'
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom'
 import { APP_DOWNLOADS, PRODUCT } from '@mycel/shared'
-import { guestPlacePath, inviteDeadReason, inviteGuest, type GuestPlaceView } from '../lib/guests'
-import { skillLabel, type InviteInfo, type Locale, type PasswordResetInfo, type TeamLinkInfo } from '@mycel/shared/api'
+import { GUEST_LIMIT, guestPlacePath, inviteDeadReason, inviteGuest, joinLineKey, type GuestPlaceView } from '../lib/guests'
+import { type InviteInfo, type Locale, type PasswordResetInfo, type TeamLinkInfo } from '@mycel/shared/api'
 import { api, API, errorText, isApiError } from '../lib/api'
 import { formatDateTime } from '../lib/format'
 import { browserLocale, loadLocale, LOCALES, storedLocale, storeLocale, translate, useLocale, useLocaleStore, useT, type MessageKey } from '../i18n'
-import { removedFrom, useMe, useSession } from '../store/session'
+import { removedFrom, removedHow, useMe, useSession } from '../store/session'
 import { toast } from '../store/ui'
-import { clientKind } from '../lib/desktop'
+import { clientKind, desktop } from '../lib/desktop'
 import { mobileApp } from '../lib/mobile'
 import { isTextField } from '../lib/viewport'
 import { clearLocalData } from '../lib/localData'
-import { forgetSetupToken, keptSetupToken, readSetupLink, rememberSetupSite } from '../lib/setupLink'
+import { forgetSetupToken, keptSetupToken, readSetupLink, rememberSetupSite, setupTeamOf } from '../lib/setupLink'
 import { setAfterSetup } from '../lib/welcome'
+import { afterSetupPath, pageOrigin } from '../lib/open-app'
 import { landingPath } from '../lib/tabs'
-import { forgetJoinToken, getAppHref, joinNext, openInAppHref, openInAppShown, setAfterJoin, tabJoinToken } from '../lib/team-link'
+import { forgetJoinToken, getAppHref, openInAppHref, openInAppShown, setAfterJoin, tabJoinToken } from '../lib/team-link'
 import { safeNext } from '../lib/nav'
 import { platform } from '../lib/pwa'
 import { copyInTap } from '../lib/copy-in-tap'
 import { APP_LINKS } from '@mycel/shared/app-links'
-import { holdMadeBy } from '../lib/starter'
 import { SourceCodeLink } from '../components/SourceCodeLink'
-import { Button, Field, IconButton, inputCls } from '../components/ui'
+import { Button, Field, IconButton, inputCls, TextAction } from '../components/ui'
+import { LanguageSelect } from '../components/LanguageSelect'
+import { isSignInPath } from '@mycel/shared/team-link'
+import { teamAddressHost } from '../lib/team-address'
 import { browserTimeZone } from '../lib/time-zones'
 import { signedOutLine } from '../lib/signedOut'
 import { DemoStart, useDemoInfo } from '../components/demo/Demo'
+import { FreeRoamStart } from '../components/demo/FreeRoam'
+import { FREE_ROAM_LOCALES } from '../lib/freeRoam'
+import { useFreeRoam } from '../store/demo'
 
 /** The password rule's minimum (server: server/src/auth/passwords.ts, the same 8 everywhere). */
 export const PASSWORD_MIN = 8
@@ -79,16 +85,12 @@ export function LanguageSwitcher() {
   const t = useT()
   const locale = useLocale()
   const pick = useSession((s) => s.pickLocale)
+  // a free-roam demo: only the languages its company is written in (lib/freeRoam.ts FREE_ROAM_LOCALES)
+  const freeRoam = useFreeRoam()
   return (
     <label className="mt-6 flex items-center justify-center gap-2 text-xs text-faint">
       {t('settings.language')}
-      <select className="rounded border border-field-border bg-surface px-1.5 py-1 text-xs text-ink max-md:min-h-11" value={locale} data-testid="auth-locale" onChange={(e) => pick(e.target.value as Locale)}>
-        {LOCALES.map((l) => (
-          <option key={l.id} value={l.id} lang={l.id}>
-            {l.label}
-          </option>
-        ))}
-      </select>
+      <LanguageSelect compact value={locale} testId="auth-locale" onChange={(l) => pick(l)} only={freeRoam ? FREE_ROAM_LOCALES : undefined} />
     </label>
   )
 }
@@ -126,7 +128,7 @@ export function BrowserLanguageOffer() {
  * that box's bottom edge, above the keyboard (QA TC-272). Inside the phone app the website's footer (the source code
  * link, the language select) is left out: the app's Settings › About has the source offer, and the language is the
  * person's or the team's. */
-function AuthFrame({ title, children, sub, switcher = true }: { title: string; children: ReactNode; sub?: ReactNode; switcher?: boolean }) {
+export function AuthFrame({ title, children, sub, switcher = true }: { title: string; children: ReactNode; sub?: ReactNode; switcher?: boolean }) {
   const inApp = !!mobileApp()
   const box = useFieldAboveBar()
   return (
@@ -141,10 +143,54 @@ function AuthFrame({ title, children, sub, switcher = true }: { title: string; c
           {sub && <div className="mb-4 text-sm text-balance text-muted">{sub}</div>}
           {children}
         </div>
+        <DesktopTeamLine />
         {switcher && !inApp && <LanguageSwitcher />}
         {!inApp && <SourceCodeLink className="mt-4 block text-center text-xs text-faint hover:text-muted" />}
       </main>
     </div>
+  )
+}
+
+/**
+ * Under the sign-in card, in the desktop app only: the team address the app connected to and "Switch team", which opens
+ * the app's own team screen (the remembered teams, Open, Remove from list, Back; DesktopBridge.openTeams). The app then
+ * leaves out its strip above the page (DesktopBridge.hostLine), so the address is shown once, next to the form (owner
+ * 2026-11-15). The address is the bridge's teamAddress, never location.host (over the office network the page is at the
+ * office address). A plain browser has no team list: nothing. The phone app draws its own footer under the page (host
+ * and "다른 팀에 연결"): nothing here either. A desktop app without hostLine keeps its strip: nothing here.
+ */
+function DesktopTeamLine() {
+  const t = useT()
+  const { pathname } = useLocation()
+  const bridge = desktop()
+  const shown = !!bridge?.hostLine && isSignInPath(pathname)
+  const [host, setHost] = useState<string | null>(null)
+  useEffect(() => {
+    if (!shown || !bridge) return
+    let live = true
+    const take = (c: { teamAddress: string } | null) => {
+      if (live) setHost(teamAddressHost(c?.teamAddress))
+    }
+    const off = bridge.connection.onChange(take)
+    void bridge.connection.get().then(take, () => {})
+    return () => {
+      live = false
+      off()
+    }
+  }, [shown, bridge])
+  // said at once (not after the address arrives) and not taken back on leaving: the app keeps it for this team, so a
+  // later sign-in page of the same team (a sign-out, a reload) opens without the strip jumping in and out
+  useEffect(() => {
+    if (shown) bridge?.hostLine?.(true)
+  }, [shown, bridge])
+  if (!shown || !host) return null
+  return (
+    <p className="mt-4 flex flex-wrap items-center justify-center gap-x-2 text-center text-xs text-muted" data-testid="auth-team-line">
+      <span className="sr-only">{t('system.address')}: </span>
+      <span className="min-w-0 truncate font-medium text-ink" data-testid="auth-team-host">{host}</span>
+      <span aria-hidden>·</span>
+      <TextAction onClick={() => bridge!.openTeams()} data-testid="auth-switch-team">{t('teamMenu.switch')}</TextAction>
+    </p>
   )
 }
 
@@ -291,6 +337,49 @@ function FormSection({ title, children, testId }: { title: string; children: Rea
   )
 }
 
+/** The team name (and language) the hosted service set at sign-up, as plain text: nothing to type or change here.
+ * The owner renames the team later in Settings > Team, and anyone can pick their own language there. */
+function FixedTeam({ name, lang }: { name: string; lang: Locale | null }) {
+  const t = useT()
+  const label = lang ? LOCALES.find((l) => l.id === lang)?.label ?? lang : null
+  return (
+    <div data-testid="setup-team-fixed">
+      <dl className="divide-y divide-line rounded-lg border border-line text-sm">
+        <div className="flex items-baseline justify-between gap-4 px-3 py-2.5">
+          <dt className="shrink-0 text-muted">{t('setup.teamName')}</dt>
+          <dd className="min-w-0 truncate text-right font-medium text-ink" data-testid="setup-team-name" title={name}>{name}</dd>
+        </div>
+        {label && (
+          <div className="flex items-baseline justify-between gap-4 px-3 py-2.5">
+            <dt className="shrink-0 text-muted">{t('setup.teamLocale')}</dt>
+            <dd className="min-w-0 truncate text-right font-medium text-ink" data-testid="setup-team-lang" lang={lang ?? undefined}>{label}</dd>
+          </div>
+        )}
+      </dl>
+      <p className="mt-1.5 text-xs text-muted">{t('setup.fixedHint')}</p>
+    </div>
+  )
+}
+
+/** The forgot-password line under Sign in. A hosted team (GET /api/setup ownerRecoveryUrl): its owner also gets a link to
+ * the hosting console's recovery page, which matches `?team=` (this page's own host, added here: the server never sends
+ * it) against the signed-in account's own teams. A plain new-tab link: the desktop shell sends it to the system browser
+ * (setWindowOpenHandler), the phone app to its in-app browser (onOpenWindow); never lib/mobile openExternal, which
+ * opens only Google sign-in. */
+function ForgotLine({ url }: { url?: string }) {
+  const t = useT()
+  // https only (the API schema says so too): never a javascript: or plain-http href, whatever the answer held
+  if (!url || !url.startsWith('https://')) return <p className="text-center text-xs text-faint">{t('auth.forgot')}</p>
+  return (
+    <div className="text-center text-xs text-faint" data-testid="login-forgot-hosted">
+      <p>{t('auth.forgotHosted')}</p>
+      <a href={`${url}?team=${encodeURIComponent(location.host)}`} target="_blank" rel="noopener noreferrer" className="mt-1 inline-block text-accent-text underline max-md:inline-flex max-md:min-h-11 max-md:items-center" data-testid="login-owner-recovery">
+        {t('auth.ownerRecovery')}
+      </a>
+    </div>
+  )
+}
+
 export function Login() {
   const t = useT()
   const signedIn = useSession((s) => s.signedIn)
@@ -304,7 +393,9 @@ export function Login() {
   const reason = status.kind === 'signed-out' ? status.reason : undefined
   // a removed guest (store/session.ts): now, or on a later visit from this browser. (A removed member's 'removed' has no
   // team: the browser's guest memory is cleared at every sign-in, so it is never an earlier guest's; their line is below)
-  const removedTeam = reason === 'removed' ? (status.kind === 'signed-out' && status.team) || removedFrom() : !reason ? removedFrom() : null
+  const removedTeam = reason === 'removed' || reason === 'left' ? (status.kind === 'signed-out' && status.team) || removedFrom() : !reason ? removedFrom() : null
+  // a guest who left their place themselves is told they left, not that they are "no longer in" it (guest walkthrough S5)
+  const left = !!removedTeam && (reason === 'left' || (!reason && removedHow() === 'left'))
   // otherwise the line for why this page opened; a removed member gets "no longer a member" (TC-1974)
   const line = signedOutLine(reason)
   // a demo server (`bun run demo:company`): one action, start as the new hire; the usual form is one link away
@@ -322,6 +413,14 @@ export function Login() {
       if (r.me.user.mustChangePassword) navigate(`/password${next ? `?next=${encodeURIComponent(next)}` : ''}`, { replace: true })
     })
   }
+  // a free-roam demo: only "Continue as Mina" (demo-gate signs in; the form is refused on such a server)
+  if (demo?.kind === 'freeRoam') {
+    return (
+      <AuthFrame title={t('demo.signIn.title', { company: demo.company })}>
+        <FreeRoamStart info={demo} />
+      </AuthFrame>
+    )
+  }
   if (demo && !form) {
     return (
       <AuthFrame title={t('demo.signIn.title', { company: demo.company })}>
@@ -330,7 +429,7 @@ export function Login() {
     )
   }
   return (
-    <AuthFrame title={removedTeam ? t('auth.guestRemovedTitle', { team: removedTeam }) : t('auth.signIn')} sub={removedTeam ? <span data-testid="login-removed">{t('auth.guestRemoved')}</span> : line ? t(line) : undefined}>
+    <AuthFrame title={removedTeam ? t(left ? 'auth.guestLeftTitle' : 'auth.guestRemovedTitle', { team: removedTeam }) : t('auth.signIn')} sub={removedTeam ? <span data-testid="login-removed" data-left={left || undefined}>{t(left ? 'auth.guestLeft' : 'auth.guestRemoved')}</span> : line ? t(line) : undefined}>
       <form onSubmit={submit} noValidate className="space-y-4">
         <Field label={t('auth.username')} error={errorOf('username')}>
           <input className={inputCls} name="username" autoComplete="username" autoCapitalize="none" value={username} onChange={(e) => setUsername(e.target.value)} required data-testid="login-username" />
@@ -348,7 +447,7 @@ export function Login() {
             {t('auth.signIn')}
           </Button>
         </SubmitBar>
-        {!removedTeam && <p className="text-center text-xs text-faint">{t('auth.forgot')}</p>}
+        {!removedTeam && <ForgotLine url={status.kind === 'signed-out' ? status.ownerRecoveryUrl : undefined} />}
       </form>
     </AuthFrame>
   )
@@ -364,7 +463,11 @@ export function Setup() {
   const [link] = useState(() => readSetupLink(window.location))
   // after a reload the token is no longer in the address: the one this tab's link carried (lib/setupLink.ts)
   const [linkToken] = useState(() => link.token ?? keptSetupToken())
-  const [form, setForm] = useState({ setupToken: linkToken ?? '', teamName: link.team ?? '', name: '', username: '', password: '' })
+  // the hosted service named the team (and its language) at sign-up: shown as set, never asked or changed again here
+  // (owner 2026-11-20). An installer link, or no link, asks for them as before.
+  const [fixed] = useState(() => (linkToken ? setupTeamOf(link) : null))
+  const fixedLang = fixed?.lang ?? null
+  const [form, setForm] = useState({ setupToken: linkToken ?? '', teamName: fixed?.team ?? '', name: '', username: '', password: '' })
   const reveal = usePasswordReveal()
   const passwordHintId = useId()
   const { busy, error, run, setError } = useSubmit()
@@ -372,7 +475,8 @@ export function Setup() {
     // the token leaves the address bar (history, screenshots) as soon as it is in the form
     if (link.cleanUrl) window.history.replaceState(window.history.state, '', link.cleanUrl)
     // the language the team signed up with; else, with none picked in this browser yet, the browser's own
-    if (link.lang && !storedLocale()) { if (link.lang !== locale) setLocale(link.lang); return }
+    const startLang = link.lang ?? fixedLang
+    if (startLang && !storedLocale()) { if (startLang !== locale) setLocale(startLang); return }
     if (storedLocale()) return
     const l = browserLocale(typeof navigator === 'undefined' ? [] : navigator.languages?.length ? navigator.languages : [navigator.language])
     if (l && l !== locale) setLocale(l)
@@ -380,7 +484,7 @@ export function Setup() {
   const set = (k: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement>) => setForm((f) => ({ ...f, [k]: e.target.value }))
   const { errorOf, check } = useFieldChecks({
     setupToken: linkToken ? null : requiredCheck(form.setupToken),
-    teamName: requiredCheck(form.teamName),
+    teamName: fixed ? null : requiredCheck(form.teamName),
     name: requiredCheck(form.name),
     username: usernameCheck(form.username),
     password: form.password ? null : 'auth.required',
@@ -392,20 +496,25 @@ export function Setup() {
     void run(async () => {
       // the team's time zone starts as this browser's (Admin > Settings changes it)
       const timeZone = browserTimeZone()
-      const r = await api.call(API.setup, { body: { setupToken: form.setupToken.trim(), teamName: form.teamName.trim(), locale, ...(timeZone ? { timeZone } : {}), owner: { username: form.username.trim(), name: form.name.trim(), password: form.password } } })
-      // the company website from the link: the company profile step starts from it (components/onboarding)
+      const r = await api.call(API.setup, { body: { setupToken: form.setupToken.trim(), teamName: (fixed?.team ?? form.teamName).trim(), locale: fixedLang ?? locale, ...(timeZone ? { timeZone } : {}), owner: { username: form.username.trim(), name: form.name.trim(), password: form.password }, ...(link.site ? { site: link.site } : {}) } })
+      // the company website from the link: the server keeps it with the welcome steps (the desktop app reads it there);
+      // this tab keeps a copy for an older server that does not
       rememberSetupSite(link.site)
       forgetSetupToken()
-      // then the welcome steps (pages/Welcome.tsx): set before the session switch re-renders /setup (App.tsx AfterSetup)
-      setAfterSetup('/welcome')
-      signedIn(r.me)
-      navigate('/welcome', { replace: true })
+      // then the welcome steps (pages/Welcome.tsx), or first, in a Mac or Windows browser, the offer to continue in the
+      // desktop app (pages/OpenApp.tsx; lib/open-app.ts): set before the session switch re-renders /setup (App.tsx AfterSetup)
+      const next = afterSetupPath({ platform: platform(), client: clientKind(), origin: pageOrigin() })
+      setAfterSetup(next)
+      // with the team language set at sign-up, a language picked under the card is this owner's own (not the team's)
+      signedIn(r.me, fixedLang ? { adoptPick: true } : undefined)
+      navigate(next, { replace: true })
     })
   }
   return (
-    // the "Team language" field below is this screen's language switcher too (one picker, not two). Two groups under
-    // quiet headings, so it is plain where the team ends and the owner's own account begins.
-    <AuthFrame title={t('setup.title')} sub={t('setup.sub')} switcher={false}>
+    // the "Team language" field below is this screen's language switcher too (one picker, not two); with the language
+    // set at sign-up, the usual switcher under the card changes only this screen. Two groups under quiet headings, so it
+    // is plain where the team ends and the owner's own account begins.
+    <AuthFrame title={t(fixed ? 'setup.titleHosted' : 'setup.title')} sub={t(fixed ? 'setup.subHosted' : 'setup.sub')} switcher={!!fixedLang}>
       <form onSubmit={submit} noValidate className="space-y-6">
         <FormSection title={t('setup.section.team')} testId="setup-section-team">
           {!linkToken && (
@@ -413,28 +522,19 @@ export function Setup() {
               <input className={inputCls} name="setupToken" value={form.setupToken} onChange={set('setupToken')} required autoComplete="off" />
             </Field>
           )}
-          <Field label={t('setup.teamName')} error={errorOf('teamName')}>
-            <input className={inputCls} name="teamName" value={form.teamName} onChange={set('teamName')} required maxLength={100} data-testid="setup-team" />
-          </Field>
-          <Field label={t('setup.teamLocale')} hint={t('setup.teamLocaleHint')}>
-            {/* the team language is the language on screen: picking one here switches this page too */}
-            <select
-              className={inputCls}
-              value={locale}
-              data-testid="setup-locale"
-              onChange={(e) => {
-                const l = e.target.value as Locale
-                storeLocale(l)
-                setLocale(l)
-              }}
-            >
-              {LOCALES.map((l) => (
-                <option key={l.id} value={l.id} lang={l.id}>
-                  {l.label}
-                </option>
-              ))}
-            </select>
-          </Field>
+          {fixed ? (
+            <FixedTeam name={fixed.team} lang={fixedLang} />
+          ) : (
+            <Field label={t('setup.teamName')} error={errorOf('teamName')}>
+              <input className={inputCls} name="teamName" value={form.teamName} onChange={set('teamName')} required maxLength={100} data-testid="setup-team" />
+            </Field>
+          )}
+          {!fixedLang && (
+            <Field label={t('setup.teamLocale')} hint={t('setup.teamLocaleHint')}>
+              {/* the team language is the language on screen: picking one here switches this page too */}
+              <LanguageSelect value={locale} testId="setup-locale" onChange={(l) => { storeLocale(l); setLocale(l) }} />
+            </Field>
+          )}
         </FormSection>
         <FormSection title={t('setup.section.owner')} testId="setup-section-owner">
           <Field label={t('setup.name')} error={errorOf('name')}>
@@ -456,7 +556,7 @@ export function Setup() {
             </p>
           )}
           <Button type="submit" variant="primary" className="w-full" busy={busy} data-testid="setup-submit">
-            {t('setup.create')}
+            {t(fixed ? 'setup.createHosted' : 'setup.create')}
           </Button>
         </SubmitBar>
       </form>
@@ -531,7 +631,7 @@ function SignInInstead() {
  * systems only. On Android, without the app, Chrome opens the "Get the app" address instead. */
 function OpenInApp({ path }: { path: string }) {
   const t = useT()
-  const href = openInAppHref({ scheme: PRODUCT.linkScheme, origin: window.location.origin, path, platform: platform(), androidPackage: APP_LINKS.androidPackage, androidFallback: getAppHref('android', clientKind(), APP_DOWNLOADS) })
+  const href = openInAppHref({ scheme: PRODUCT.linkScheme, origin: pageOrigin(), path, platform: platform(), androidPackage: APP_LINKS.androidPackage, androidFallback: getAppHref('android', clientKind(), APP_DOWNLOADS) })
   if (!openInAppShown(clientKind(), href)) return null
   return (
     <p className="mt-2 text-center text-sm">
@@ -596,13 +696,21 @@ function JoinChoices({ path, children, lean = false }: { path: string; children:
   }
   // the store this button opens: the App Store, Google Play, or (a build without a Play listing) the download page
   const goLabel = t(!onAndroid ? 'auth.goAppStore' : APP_DOWNLOADS.android && store === APP_DOWNLOADS.android ? 'auth.goGooglePlay' : 'auth.goDownloadPage')
+  // a guest (`lean`) is from outside the team and usually joins once, for one room or project: the browser is the main
+  // way, the app a plain link under it (guest walkthrough S9)
+  const browserButton = (
+    <button type="button" className={lean ? PRIMARY_LINK_CLS : 'text-accent-text underline max-md:inline-flex max-md:min-h-11 max-md:items-center'} onClick={() => setWeb(true)} data-testid="get-app-web">
+      {t('auth.continueInBrowser')}
+    </button>
+  )
   return (
-    <div data-testid="get-app">
+    <div data-testid="get-app" data-guest={lean || undefined}>
+      {lean && browserButton}
       <a
         href={store}
         rel="noreferrer noopener"
         onClick={tap}
-        className="flex min-h-10 w-full items-center justify-center rounded-lg bg-accent max-md:min-h-11 px-3.5 py-2 text-center text-sm font-medium text-accent-ink hover:bg-accent-hover"
+        className={lean ? 'mt-4 flex justify-center text-center text-sm text-accent-text underline max-md:min-h-11 max-md:items-center' : PRIMARY_LINK_CLS}
         data-testid="get-app-store"
       >
         {t('auth.getApp')}
@@ -630,15 +738,14 @@ function JoinChoices({ path, children, lean = false }: { path: string; children:
       )}
       <p className="mt-2 text-center text-sm text-muted" data-testid="get-app-hint">{t('auth.getAppHint')}</p>
       <OpenInApp path={path} />
-      <p className="mt-4 text-center text-sm">
-        <button type="button" className="text-accent-text underline max-md:inline-flex max-md:min-h-11 max-md:items-center" onClick={() => setWeb(true)} data-testid="get-app-web">
-          {t('auth.continueInBrowser')}
-        </button>
-      </p>
+      {!lean && <p className="mt-4 text-center text-sm">{browserButton}</p>}
       {!lean && <HaveAccount />}
     </div>
   )
 }
+
+/** The join page's one main action on a phone (the app's store link, or for a guest Continue in the browser). */
+const PRIMARY_LINK_CLS = 'flex min-h-10 w-full items-center justify-center rounded-lg bg-accent max-md:min-h-11 px-3.5 py-2 text-center text-sm font-medium text-accent-ink hover:bg-accent-hover'
 
 /** Both join pages' title: "{inviter} invited you to {team}" when the link's or invite's maker is known (docs/DECISIONS.md
  * "A welcome for invited people"), else "Join {team}". */
@@ -701,6 +808,7 @@ const DEAD_REASONS: readonly DeadReason[] = ['expired', 'used', 'revoked', 'invi
 export function AcceptInvite() {
   const t = useT()
   const locale = useLocale()
+  const setLocale = useLocaleStore((s) => s.setLocale)
   const { token } = useParams()
   const signedIn = useSession((s) => s.signedIn)
   const navigate = useNavigate()
@@ -713,7 +821,20 @@ export function AcceptInvite() {
     let live = true
     setLoadFailed(null)
     api.call(API.inviteInfo, { params: { token: token! } }).then(
-      (i) => live && setInfo(i),
+      (i) => {
+        if (!live) return
+        // a guest is from outside the team: the page speaks their browser's language (one of ours) unless they picked one
+        // here, not the team's (guest walkthrough S10); the switcher under the card still changes it
+        if (i.role === 'guest' && !storedLocale()) {
+          const l = browserLocale(typeof navigator === 'undefined' ? [] : navigator.languages?.length ? navigator.languages : [navigator.language])
+          // its words first, so the page does not show in the team's language for a moment
+          if (l && l !== useLocaleStore.getState().locale) {
+            void loadLocale(l).catch(() => {}).finally(() => { if (live) { setLocale(l); setInfo(i) } })
+            return
+          }
+        }
+        setInfo(i)
+      },
       (e) => {
         if (!live) return
         // the server's own "no such invite" / "used or expired"; a 404 page without its answer (a relay or proxy in
@@ -729,7 +850,9 @@ export function AcceptInvite() {
   const submit = (v: JoinValues) =>
     void run(async () => {
       try {
-        const r = await api.call(API.acceptInvite, { params: { token: token! }, body: { ...v, locale: storedLocale() ?? undefined, client: clientKind(), tokenMode: 'cookie' } })
+        // a guest's account keeps the language the page was read in (their browser's, or the one picked here)
+        const guestPage = info && info !== 'missing' && info.role === 'guest'
+        const r = await api.call(API.acceptInvite, { params: { token: token! }, body: { ...v, locale: storedLocale() ?? (guestPage ? locale : undefined), client: clientKind(), tokenMode: 'cookie' } })
         signedIn(r.me)
         // a guest opens straight into their one place (components/GuestView.tsx)
         navigate(guestPlacePath(r.me) ?? '/', { replace: true })
@@ -738,6 +861,8 @@ export function AcceptInvite() {
         // trash; QA TC-2226): the page says why, as when it is opened, instead of an error under the form
         const reason = isApiError(e, 'gone') ? e.body.params?.reason : undefined
         if (typeof reason === 'string' && info && info !== 'missing' && (DEAD_REASONS as readonly string[]).includes(reason)) { setInfo({ ...info, valid: false, reason: reason as DeadReason }); return }
+        // the team's guests filled up while the form was filled in: the page says so, as when it is opened (M3)
+        if (isApiError(e, 'plan_limit') && e.body.params?.reason === GUEST_LIMIT && info && info !== 'missing') { setInfo({ ...info, full: true }); return }
         throw e
       }
     })
@@ -761,6 +886,14 @@ export function AcceptInvite() {
   // a guest invite (docs/DECISIONS.md "Guests: only what they were invited to"): where exactly they will be, in place of
   // the role and the date; the form is the members' one. Guests take no seat: `full` never stops one
   const guest = inviteGuest(info)
+  // the team's guests are all there (guest walkthrough M3): who invited them, and only that it can't take more guests
+  // now, with what to do; no form that would only be refused after it was filled in
+  if (info.full && guest)
+    return (
+      <AuthFrame title={joinTitle(t, info.teamName, info.inviterName)}>
+        <p role="status" className="text-sm leading-6 break-keep text-ink" data-testid="invite-guest-full">{t('invite.guestFull')}</p>
+      </AuthFrame>
+    )
   // every seat of the plan is taken: no form that would only be refused after it was filled in (as the team link)
   if (info.full && !guest)
     return (
@@ -780,14 +913,15 @@ export function AcceptInvite() {
   )
 }
 
-/** A guest invite's line: "You'll join only the 'Quote prep' project. You won't see the rest of the team." (the general
- * words while the server does not name the place) */
+/** A guest invite's line: "You'll join only the 'Quote prep' project. You won't see the rest of the team." A room with no
+ * name is a group chat, a named one a private channel (lib/rooms.ts isPrivateChannel); the general words only while the
+ * server sends no place. */
 function GuestJoinLine({ place, ai }: { place: GuestPlaceView | null; ai: 'none' | 'team' | 'own' | null }) {
   const t = useT()
   return (
     <>
       <p className="text-ink" data-testid="invite-guest-place">
-        {place?.name ? t(place.kind === 'room' ? 'guest.join.room' : 'guest.join.project', { place: place.name }) : t('guest.join.some')}
+        {t(joinLineKey(place), { place: place?.name ?? '' })}
       </p>
       {/* their own sign-in: said before they join, so "connect your own" inside is no surprise */}
       {ai === 'own' && <p className="mt-2 text-muted" data-testid="invite-guest-own-ai">{t('guest.join.ownAi')}</p>}
@@ -799,8 +933,8 @@ function GuestJoinLine({ place, ai }: { place: GuestPlaceView | null; ai: 'none'
  * /join#t=<token>: the team invite link (one link for many people; it makes members only). The token is read from the
  * fragment and leaves the address bar at once; it goes to the server only in a POST body. This tab keeps it until the
  * person joined or the server said the link does not work (lib/team-link.ts tabJoinToken), and details that did not
- * load (a weak connection) can be loaded again. After joining, a link that names a skill opens that skill's form
- * (`/skills?run=`) when the new member can read it, else Home.
+ * load (a weak connection) can be loaded again. After joining: Home with the welcome card, whatever skill the link
+ * names (docs/DECISIONS.md "A new member lands on Home").
  */
 export function TeamJoin() {
   const t = useT()
@@ -842,17 +976,12 @@ export function TeamJoin() {
   const submit = (v: JoinValues) =>
     void run(async () => {
       const r = await api.call(API.joinTeamLink, { body: { token: link.token!, ...v, locale: storedLocale() ?? undefined, client: clientKind(), tokenMode: 'cookie' } })
-      // every skill opens on its form, whose box starts with the skill's own example when it has no fields
-      // (docs/DECISIONS.md "W5"); no skill: Home
-      const next = joinNext(r.next)
-      // a team skill a person made: its form says who ("지훈님이 만든 팀 스킬이에요", docs/DECISIONS.md "S")
-      const by = r.skillBy ?? null
-      const formPath = by && next.startsWith('/skills?run=') ? new URLSearchParams(next.slice('/skills?'.length)).get('run') : null
-      if (formPath && by) holdMadeBy(r.me.user.id, formPath, by)
+      // Home and its welcome card, also when the link names a skill (an older server's `next` is not followed):
+      // nothing opens by itself (docs/DECISIONS.md "A new member lands on Home")
       forgetJoinToken()
-      setAfterJoin(next)
+      setAfterJoin('/')
       signedIn(r.me)
-      navigate(next, { replace: true })
+      navigate('/', { replace: true })
     })
   if (info === null)
     return (
@@ -868,7 +997,7 @@ export function TeamJoin() {
       </AuthFrame>
     )
   return (
-    <AuthFrame title={joinTitle(t, info.teamName, info.inviterName)} sub={info.skillName ? t('teamLink.joinSubSkill', { skill: skillLabel({ name: info.skillName, title: info.skillTitle }) }) : t('teamLink.joinSub', { date: formatDateTime(info.expiresAt, locale) })}>
+    <AuthFrame title={joinTitle(t, info.teamName, info.inviterName)} sub={t('teamLink.joinSub', { date: formatDateTime(info.expiresAt, locale) })}>
       <BrowserLanguageOffer />
       <JoinChoices path={`/join#t=${link.token}`}>
         <JoinForm submitLabel={t('invite.accept')} busy={busy} error={error} onSubmit={submit} onTooShort={() => setError('auth.passwordRule')} />

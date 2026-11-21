@@ -21,6 +21,15 @@ describe('mic visibility', () => {
   })
 })
 
+describe('mic visibility for a guest', () => {
+  test('a guest never sees the mic (the server refuses a guest\'s recording), whatever the team\'s switch says', () => {
+    const guest = (voiceInput?: boolean) => ({ user: { role: 'guest' as const }, team: { name: 'T', defaultLocale: 'en' as const, ...(voiceInput === undefined ? {} : { voiceInput }) } })
+    expect(micState(guest(true))).toBe('hidden')
+    expect(micState(guest())).toBe('hidden')
+    expect(micState(guest(false))).toBe('hidden')
+  })
+})
+
 describe('confidential chats', () => {
   const team = (outside?: true) => ({ team: { name: 'T', defaultLocale: 'en' as const, voiceInput: true, ...(outside ? { voiceInputOutside: outside } : {}) } })
   test('voice input that goes to OpenRouter is not used in a confidential chat', () => {
@@ -48,7 +57,7 @@ describe('rooms', () => {
 })
 
 // The hold-Space and finger moves (lib/voiceInput.ts), on a clock of their own.
-function rig(o: { blocked?: boolean; granted?: boolean; slowStart?: boolean; failStart?: unknown; busyElsewhere?: boolean } = {}) {
+function rig(o: { blocked?: boolean; granted?: boolean; slowStart?: boolean; failStart?: unknown; busyElsewhere?: boolean; live?: boolean } = {}) {
   let now = 0
   let next = 1
   const timers = new Map<number, { at: number; fn: () => void }>()
@@ -56,7 +65,17 @@ function rig(o: { blocked?: boolean; granted?: boolean; slowStart?: boolean; fai
   const notes: (VoiceNote | null)[] = []
   let gate: { resolve: () => void; reject: (e: unknown) => void } | null = null
   const jobs: { signal: AbortSignal; resolve: (s: string) => void; reject: (e: unknown) => void }[] = []
+  /** a live recording's wait for its last pieces (settle) */
+  const settles: { signal: AbortSignal; resolve: (heard: boolean) => void; reject: (e: unknown) => void }[] = []
   const deps: VoiceDeps = {
+    settle: (signal) =>
+      o.live
+        ? new Promise<boolean>((resolve, reject) => {
+            log.push('settle')
+            settles.push({ signal, resolve, reject })
+            signal.addEventListener('abort', () => reject(new Error('aborted')))
+          })
+        : null,
     start: () => {
       log.push('start')
       if (o.failStart) return Promise.reject(o.failStart)
@@ -104,7 +123,7 @@ function rig(o: { blocked?: boolean; granted?: boolean; slowStart?: boolean; fai
     now = end
     await flush()
   }
-  return { v, log, notes, jobs, advance, flush, open: () => gate!.resolve(), refuse: (e: unknown) => gate!.reject(e) }
+  return { v, log, notes, jobs, settles, advance, flush, open: () => gate!.resolve(), refuse: (e: unknown) => gate!.reject(e) }
 }
 type Key = KeyLike & { prevented: boolean }
 const key = (k: string, more: Partial<KeyLike> = {}): Key => {
@@ -494,5 +513,58 @@ describe('a transcription job\'s own label', () => {
     expect(jobWaiting({ status: 'running' })).toBe(false)
     expect(jobWaiting({ status: 'done' })).toBe(false)
     expect(jobWaiting(undefined)).toBe(false) // not heard of yet (most jobs start at once): transcribing
+  })
+})
+
+describe('a live recording (voice input through OpenRouter)', () => {
+  test('✓ waits for the last pieces (no upload, no job); words heard: inserted, the box focused', async () => {
+    const r = rig({ live: true })
+    r.v.click()
+    await r.flush()
+    expect(r.v.phase).toBe('recording')
+    void r.v.finish()
+    await r.flush()
+    expect(r.v.phase).toBe('transcribing')
+    expect(r.log).toEqual(['start', 'stop', 'settle'])
+    r.settles[0]!.resolve(true)
+    await r.flush()
+    expect(r.v.phase).toBe('idle')
+    expect(r.v.live).toBe('inserted')
+    expect(r.log).not.toContain('transcribe')
+    expect(r.notes.filter(Boolean)).toEqual([])
+  })
+  test('nothing heard: the "nothing was recognized" note, as a whole recording says', async () => {
+    const r = rig({ live: true })
+    r.v.click()
+    await r.flush()
+    void r.v.finish()
+    await r.flush()
+    r.settles[0]!.resolve(false)
+    await r.flush()
+    expect(r.notes.at(-1)).toEqual({ kind: 'empty' })
+  })
+  test('a refusal (free hours used up): its sentence under the box', async () => {
+    const r = rig({ live: true })
+    r.v.click()
+    await r.flush()
+    void r.v.finish()
+    await r.flush()
+    const e = new Error('used up')
+    r.settles[0]!.reject(e)
+    await r.flush()
+    expect(r.v.phase).toBe('idle')
+    expect(r.notes.at(-1)).toEqual({ kind: 'error', error: e })
+  })
+  test('Esc while the last pieces come: the wait is aborted, no note', async () => {
+    const r = rig({ live: true })
+    r.v.click()
+    await r.flush()
+    void r.v.finish()
+    await r.flush()
+    r.v.windowKeyDown(key('Escape'), { ours: true })
+    await r.flush()
+    expect(r.settles[0]!.signal.aborted).toBe(true)
+    expect(r.v.phase).toBe('idle')
+    expect(r.notes.filter(Boolean)).toEqual([])
   })
 })

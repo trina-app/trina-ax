@@ -1,12 +1,15 @@
 // The message box of a room: text that grows with what is typed (Enter sends, Shift+Enter makes a new line, nothing
 // happens while a Korean or Japanese word is still being composed; on touch screens Enter makes a new line and the
 // button sends, like the AI chat's box), files (the clip, paste, or a drop anywhere on the room's column or the thread
-// around the box: components/FileDropZone.tsx; each is uploaded at once with POST /api/rooms/:id/files and sent by id;
+// around the box: components/FileDropZone.tsx; each is uploaded at once and sent by id: a small one with POST /api/rooms/:id/files, a larger one, up to 1 GB, in
+// 8 MB pieces through an upload session that goes on after a lost connection (lib/upload.ts), what happens to it on the chip
+// (waiting for its turn, being checked, its percent, finishing: components/UploadLabel.tsx);
 // a picture shows as itself at once, a 64 px square, while it uploads), and "@"
 // for the room's members: a picked name stands out in the
 // box at once and is sent as a mention (useMentionMenu, components/TokenTextarea.tsx). "@전체" notifies everyone in the
 // room (not in a DM; in the everyone room only for owners and admins); in a room of MENTION_ALL_CONFIRM people or more the
-// send asks first, in one line inside the box ("N명에게 알림이 가요. 보낼까요?"). In a thread (threadRootId) it
+// send asks first, in one line inside the box ("N명에게 알림이 가요. 보낼까요?"), with one quiet tick "더 이상 묻지 않기" (Don't
+// ask again: prefs.mentionAllAsk, one choice for every room and device; Settings › Notifications turns it back on). In a thread (threadRootId) it
 // writes a reply, with one quiet choice under the box: "대화방에도 보내기" (the reply goes to the room's timeline too).
 // Voice input as in the AI chat's box (lib/useVoiceInput.ts, components/VoiceBar.tsx), under the same team switch: the
 // mic right before send (the clip stays on the left), Space held in the box on a computer, a finger held on the mic; the words go into the box as
@@ -33,67 +36,56 @@ import { composerInset, composerRadius } from '../chat/composerBox'
 import { useGuestNoAi } from '../GuestView'
 import clsx from 'clsx'
 import { ArrowUp, Check, FileText, FolderOpen, Loader2, Paperclip, Pencil, X } from 'lucide-react'
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import { ROOM_FILES_MAX, ROOM_MESSAGE_MAX, SMALL_UPLOAD_MAX, type FileEntry, type RoomFile, type UserRef } from '@mycel/shared/api'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { ROOM_FILE_MAX, ROOM_FILES_MAX, ROOM_MESSAGE_MAX, SMALL_UPLOAD_MAX, type FileEntry, type UserRef } from '@mycel/shared/api'
 import { api, API, errorText, roomFileUrl } from '../../lib/api'
 import { markBusy } from '../../lib/busy'
 import { formatSize } from '../../lib/format'
+import { NO_UPLOADS, nextUploadKey, roomTarget as targetOf, setPlaceUploads, teamCopies, useRoomUploads, type RoomUpload } from '../../store/roomUploads'
+import { cancelUpload, SINGLE_REQUEST_MAX, unreadableFile, uploadFile, uploadPercent } from '../../lib/upload'
+import { UploadLabel } from '../UploadLabel'
 import { pastedFiles } from '../../lib/paste'
+import { pastedTextFile, pasteOverLimit } from '../../lib/longPaste'
 import { useVoiceInput } from '../../lib/useVoiceInput'
 import { micState, voiceBlockedInRoom } from '../../lib/voice'
-import { useLocale, useT } from '../../i18n'
-import { useMe } from '../../store/session'
+import { currentLocale, translate, useLocale, useT } from '../../i18n'
+import { myUploadMax } from '../../lib/guests'
+import { isAdmin, useMe, useSession } from '../../store/session'
 import { findMessage, keepRoomDraft, onRoomDraftElsewhere, placeKey, restoreRoomDraft, roomDraftMentions, roomDrafts as drafts, useRooms } from '../../store/rooms'
 import { failedEdits, hasRoomBox, registerRoomBox, useRoomEdit } from '../../store/roomEdit'
 import { usePeople } from '../../store/people'
-import { fitHeight } from '../../lib/autoGrow'
-import { allMentionNames, lineBreaks, type PickedMention } from '../../lib/rooms'
+import { fitHeight, useEndAfterRecording } from '../../lib/autoGrow'
+import { allMentionNames, lineBreaks, MENTION_ALL_CONFIRM, type PickedMention } from '../../lib/rooms'
 import { toast } from '../../store/ui'
 import { TokenTextarea } from '../TokenTextarea'
 import { Button, IconButton, useMediaQuery } from '../ui'
 import { Tooltip } from '../Tooltip'
-import { ChipRemove, FAILED_REASON, isLocalImage, PictureTile } from '../ChipThumb'
+import { ChipRemove, chipText, FAILED_REASON, isHeicName, isLocalImage, PictureTile } from '../ChipThumb'
 import { ImageGroup } from '../ImageViewer'
 import { localItem, roomItem } from '../../lib/imageViewer'
-import { VoiceBar, VoiceLive, VoiceMic, VoiceProgress } from '../VoiceBar'
+import { VoiceBar, VoiceHeld, VoiceLive, VoiceMic, VoiceProgress } from '../VoiceBar'
 import { MENTION_ALL_WORDS, pickedInMessage, useEveryone, useMentionMenu } from './useMentionMenu'
 import { useTextSize } from '../../lib/textSize'
 import { usePanelExpanded } from '../../lib/sidePanel'
 import { useFileDrop } from '../chat/ComposerFiles'
+import { withoutFolders } from '../../lib/fileDrop'
 import { useDropTarget } from '../FileDropZone'
-import { StoragePlansLink, storagePlansUrl } from '../StoragePlansLink'
+import { storagePlansUrl } from '../StoragePlansLink'
+import { isStorageFull, RefusalLinks, storageFullText } from './storageRefusal'
 import { AttachSheet } from '../chat/AttachSheet'
 import { ComposerToolbar } from '../chat/ComposerToolbar'
 import TeamFilePicker from '../chat/TeamFilePicker'
 import { sendTyping, TypingSender } from '../../lib/roomTyping'
 import { RoomTypingLine } from './RoomTypingLine'
 import { MessageLinkChoice, useLinkChoice } from './MessageLinkChoice'
+import { MicBlockedNotice } from '../MicBlockedNotice'
 
-interface Upload {
-  key: number
-  file: File
-  status: 'uploading' | 'done' | 'failed'
-  roomFile?: RoomFile
-  error?: string
-  /** a storage-full refusal: the plan page it names, linked for the owner and admins (StoragePlansLink.tsx) */
-  plans?: string
-  abort: AbortController
-  /** a team file (the attach sheet's 팀 파일): its team path, and once copied how many other members cannot open it */
-  teamPath?: string
-  unable?: number
-}
-
-let uploadKey = 0
-
-/** the team files copied in this tab (by the copy's id): their team path and how many more people they reach, so a send
- * the server refused brings them back into the box with the line under the files */
-const teamCopies = new Map<string, { path: string; unable: number }>()
+type Upload = RoomUpload
 
 /** It shows as a picture (a square, not a file chip): one from this computer, or a photo of a send the server gave back (its room thumbnail). */
-const picture = (u: Upload) => isLocalImage(u.file) || (u.roomFile?.kind === 'image' && !!u.roomFile.thumb)
+// an iPhone photo (HEIC) is a picture square from the start: the room's thumbnail once it is sent (a picture icon until then)
+const picture = (u: Upload) => isLocalImage(u.file) || isHeicName(u.file.name) || (u.roomFile?.kind === 'image' && !!u.roomFile.thumb)
 
-/** From this many members (me included) a message with "@전체" asks before it goes. */
-export const MENTION_ALL_CONFIRM = 10
 
 /** the boxes on screen for each place (placeKey), each with how it reads the place's draft again */
 const boxesOf = new Map<string, Set<() => void>>()
@@ -116,7 +108,10 @@ export function RoomComposer({ roomId, threadRootId = null, members, meId, onSen
     return drafts.get(key) ?? ''
   })
   const [alsoInRoom, setAlsoInRoom] = useState(false)
-  const [files, setFiles] = useState<Upload[]>([])
+  // the place's files live above the box (store/roomUploads.ts): one that is still going up when the person opens
+  // another room or page goes on, and is here when they come back. Nothing is sent before they press send here
+  const files = useRoomUploads((s) => s.byPlace[key] ?? NO_UPLOADS)
+  const setFiles = useCallback((next: Upload[] | ((list: Upload[]) => Upload[])) => setPlaceUploads(key, next), [key])
   const input = useRef<HTMLTextAreaElement>(null)
   const picker = useRef<HTMLInputElement>(null)
   // below 768px: the attach sheet (and its team-file picker) instead of the clip's file input
@@ -151,6 +146,18 @@ export function RoomComposer({ roomId, threadRootId = null, members, meId, onSen
   const everyone = useEveryone(roomId, members, meId)
   const others = members.filter((m) => m.id !== meId).length
   const me = useMe()
+  // a project's chat room: a file sent here goes into the project's Chat attachments folder, so it needs write there
+  // (Room.project.attach, for everyone, guests too; docs/decisions/20261120-project-is-room.md D1). Someone who may
+  // only read the project, or only not that folder, sends text only (the server refuses with 403
+  // shared_upload_read_only). A member who cannot open the project now has no Room.project: text only too.
+  const roomNow = useRooms((s) => s.rooms.find((r) => r.id === roomId))
+  const attach = roomNow?.project?.room ? (roomNow.project.attach ?? (roomNow.project.canSave ? 'ok' : 'read_only')) : roomNow?.projectRoom ? 'read_only' : 'ok'
+  const noFiles = attach === 'ok' ? null : t(attach === 'folder' ? 'rooms.project.noAttachFolder' : 'rooms.project.noAttach')
+  // the owner or an admin (never a guest): a full disk's refusal links what takes the space
+  const staff = isAdmin(me)
+  // the largest file I may send here: 1 GB, or for a guest what the team allows guests (Me.team.uploadMaxBytes;
+  // the server checks it again)
+  const fileMax = myUploadMax(me, ROOM_FILE_MAX)
   // my message being edited in this box (a phone: RoomMessages.tsx puts it in store/roomEdit.ts when this place has a box)
   const editId = useRoomEdit((s) => s.editing[key] ?? null)
   const editMsg = useRooms((s) => (editId ? findMessage(s, roomId, editId) ?? null : null))
@@ -158,6 +165,9 @@ export function RoomComposer({ roomId, threadRootId = null, members, meId, onSen
   // an edit keeps "@전체" or takes it out, never adds one: it notifies nobody (the server refuses it)
   const mention = useMentionMenu({ text, setText, input, members, meId, initial: roomDraftMentions.get(key), everyone: editing ? (editMsg!.mentionsAll ? { count: others } : null) : everyone })
   const [asking, setAsking] = useState(false)
+  // "Don't ask again" ticked on the question (saved with the send); the person said so before: no question at all
+  const [noAsk, setNoAsk] = useState(false)
+  const askAll = me?.user.prefs?.mentionAllAsk !== 'off'
   // voice input off (Admin > Team settings): no mic for members, a hint to the setting for admins
   const mic = micState(me)
   const [voiceError, setVoiceError] = useState<string | null>(null)
@@ -173,7 +183,10 @@ export function RoomComposer({ roomId, threadRootId = null, members, meId, onSen
     replace: mention.inputProps.onTextChange,
     append: (said) => {
       const cur = latest.current
-      setText(cur.trim() ? `${cur.trimEnd()} ${said}` : said)
+      const next = cur.trim() ? `${cur.trimEnd()} ${said}` : said
+      // a live recording's next words may come before the box renders again
+      latest.current = next
+      setText(next)
     },
     blocked: voiceBlockedInRoom(me),
     enabled: mic === 'on',
@@ -181,6 +194,9 @@ export function RoomComposer({ roomId, threadRootId = null, members, meId, onSen
     onError: setVoiceError,
     afterFocus: mention.inputProps.onSelect,
   })
+  // another room or thread in the same box: a recording for the last one goes (its words stay with that room's draft)
+  const abandonVoice = voice.abandon
+  useEffect(() => () => abandonVoice(), [key]) // eslint-disable-line react-hooks/exhaustive-deps
   // the draft keeps its mentions too
   useEffect(() => {
     if (editingNow.current) return
@@ -218,7 +234,7 @@ export function RoomComposer({ roomId, threadRootId = null, members, meId, onSen
     useRooms.getState().takeReturned(key)
     mention.putBack(back.body, back.mentions, !!back.mentionsAll)
     if (back.alsoInRoom) setAlsoInRoom(true)
-    if (back.files.length) setFiles((list) => [...back.files.map((f) => ({ key: ++uploadKey, file: { name: f.name, size: f.size } as File, status: 'done' as const, roomFile: f, abort: new AbortController(), ...(teamCopies.has(f.id) ? { teamPath: teamCopies.get(f.id)!.path, unable: teamCopies.get(f.id)!.unable } : {}) })), ...list])
+    if (back.files.length) setFiles((list) => [...back.files.map((f) => ({ key: nextUploadKey(), file: { name: f.name, size: f.size } as File, status: 'done' as const, roomFile: f, abort: new AbortController(), ...(teamCopies.has(f.id) ? { teamPath: teamCopies.get(f.id)!.path, unable: teamCopies.get(f.id)!.unable } : {}) })), ...list])
     input.current?.focus()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [back, editing, backAgain])
@@ -282,39 +298,78 @@ export function RoomComposer({ roomId, threadRootId = null, members, meId, onSen
   useLayoutEffect(() => {
     if (input.current) fitHeight(input.current, 200)
   }, [text, textSize, placeholder, voice.recording, behindPanel, editing])
+  // back after a recording: the newest words in sight, as they were while recording
+  useEndAfterRecording(input, voice.recording, voice.busy, text)
   // a thread just opened (from "reply in thread"): the box is where the person types next
   useEffect(() => {
     if (autoFocus) input.current?.focus({ preventScroll: true })
   }, [autoFocus])
-  // leaving the room stops uploads still on their way (they would never be sent)
-  const current = useRef(files)
-  current.current = files
-  useEffect(() => () => current.current.forEach((f) => f.status === 'uploading' && f.abort.abort()), [])
-
+  const roomTarget = (file: File) => targetOf(roomId, file)
+  /** a failed file's words: a full disk's by the role I have now (an upload can outlive a role change and this box) */
+  const failedText = (f: Upload) => (f.stopped ? t('rooms.uploadStopped') : f.full ? storageFullText(staff, locale) : f.error)
+  /** a failed file's words, in the language of this moment (the box may be gone by now: another room). A full disk
+   * is only marked (its words follow the role at render: failedText); the rest as the server words it */
+  const failure = (e: unknown): Pick<Upload, 'error' | 'plans' | 'full'> => {
+    const locale = currentLocale()
+    if (isStorageFull(e)) return { error: undefined, plans: storagePlansUrl(e), full: true }
+    // a file the browser could not read is not a lost connection (TC-4483)
+    if (unreadableFile(e)) return { error: translate(locale, 'composer.unreadable') }
+    return { error: errorText(e, locale, translate(locale, 'error.network')), plans: storagePlansUrl(e) }
+  }
+  /** A large file from this computer (one that goes in pieces) says what happens to it: waiting for its turn, being
+   * checked, its percent, finishing (components/UploadLabel.tsx, as on the Files page). A small one is up in a moment:
+   * it only spins, with its percent once there is one (a slow connection). */
+  const says = (f: Upload) => !f.teamPath && (f.file.size > SINGLE_REQUEST_MAX || uploadPercent(f.progress) !== null)
   const upload = async (u: Upload) => {
     try {
-      const f = await api.call(API.uploadRoomFile, { params: { id: roomId }, body: { fields: { size: String(u.file.size) }, file: u.file, filename: u.file.name }, signal: u.abort.signal })
-      setFiles((list) => list.map((x) => (x.key === u.key ? { ...x, status: 'done', roomFile: f } : x)))
+      // a small file in one request, a larger one (up to 1 GB) in 8 MB pieces that go on after a lost connection
+      // (lib/upload.ts): no single request is large, so it passes a proxy in front of the team server too
+      const r = await uploadFile(u.file, roomTarget(u.file), { client: api, signal: u.abort.signal, onProgress: (progress) => setFiles((list) => list.map((x) => (x.key === u.key ? { ...x, progress } : x))) })
+      if (r.kind !== 'room') throw new Error('unexpected upload result')
+      setFiles((list) => list.map((x) => (x.key === u.key ? { ...x, status: 'done', roomFile: r.file, progress: undefined } : x)))
     } catch (e) {
-      if (u.abort.signal.aborted) return
-      setFiles((list) => list.map((x) => (x.key === u.key ? { ...x, status: 'failed', error: errorText(e, locale, t('error.network')), plans: storagePlansUrl(e) } : x)))
+      // taken out while its pieces went up: what the server holds of it is dropped (lib/upload.ts cancelUpload; nothing
+      // to do for a small file). Leaving the room does not stop it (store/roomUploads.ts)
+      if (u.abort.signal.aborted) { void cancelUpload(u.file, roomTarget(u.file), api); return }
+      // the box may be gone by now (another room): the reason in the language of this moment
+      setFiles((list) => list.map((x) => (x.key === u.key ? { ...x, status: 'failed', ...failure(e) } : x)))
     }
   }
 
-  const addFiles = (picked: File[]) => {
-    const room = ROOM_FILES_MAX - files.length
-    if (picked.length > room) toast({ level: 'warn', text: t('rooms.tooMany', { n: ROOM_FILES_MAX }) })
+  /** `dropFolders`: the folders a drop held besides (lib/fileDrop.ts filesOfDrop). A folder is never a chip: one line
+   * says so, however many there were; the files beside them go on as usual (TC-4483). */
+  const addFiles = async (all: File[], dropFolders = 0): Promise<boolean> => {
+    if (noFiles) {
+      toast({ level: 'info', text: noFiles })
+      return false
+    }
+    const sorted = await withoutFolders(all)
+    if (dropFolders + sorted.folders) toast({ level: 'warn', text: t('composer.folders') })
+    const picked = sorted.files
+    // (the box as it is now: sorting the folders out took a moment, and a file may have come or gone meanwhile)
+    const files = useRoomUploads.getState().byPlace[key] ?? NO_UPLOADS
+    // a file the page's reload stopped (store/roomUploads.ts `stopped`) picked again: the pick takes that chip's place
+    // (no room is needed for it), and a large one goes on from the pieces the server has (lib/upload.ts)
+    const again = new Set<number>()
+    let count = files.length, over = false
     const added: Upload[] = []
-    for (const file of picked.slice(0, Math.max(0, room))) {
-      if (file.size > SMALL_UPLOAD_MAX) {
-        toast({ level: 'warn', text: t('rooms.tooBig', { name: file.name, max: formatSize(SMALL_UPLOAD_MAX, locale) }) })
+    for (const file of picked) {
+      const twin = files.find((f) => f.stopped && !again.has(f.key) && f.file.name === file.name && f.file.size === file.size)
+      if (!twin && count >= ROOM_FILES_MAX) { over = true; continue }
+      // refused here, before a checksum of a huge file is made (the server refuses it too, before any byte is sent)
+      if (file.size > fileMax) {
+        toast({ level: 'warn', text: t('rooms.tooBig', { name: file.name, max: formatSize(fileMax, locale) }) })
         continue
       }
-      added.push({ key: ++uploadKey, file, status: 'uploading', abort: new AbortController() })
+      if (twin) again.add(twin.key)
+      else count++
+      added.push({ key: nextUploadKey(), file, status: 'uploading', abort: new AbortController() })
     }
-    if (!added.length) return
-    setFiles((list) => [...list, ...added])
+    if (over) toast({ level: 'warn', text: t('rooms.tooMany', { n: ROOM_FILES_MAX }) })
+    if (!added.length) return false
+    setFiles((list) => [...list.filter((x) => !again.has(x.key)), ...added])
     for (const u of added) void upload(u)
+    return true
   }
 
   // team files (a phone's attach sheet): each copied as my upload in this room, a chip at once while it is copied, then
@@ -326,7 +381,7 @@ export function RoomComposer({ roomId, threadRootId = null, members, meId, onSen
       setFiles((list) => list.map((x) => (x.key === u.key ? { ...x, status: 'done', roomFile: r.file, unable: r.unable, file: { name: r.file.name, size: r.file.size } as File } : x)))
     } catch (e) {
       if (u.abort.signal.aborted) return
-      setFiles((list) => list.map((x) => (x.key === u.key ? { ...x, status: 'failed', error: errorText(e, locale, t('error.network')), plans: storagePlansUrl(e) } : x)))
+      setFiles((list) => list.map((x) => (x.key === u.key ? { ...x, status: 'failed', ...failure(e) } : x)))
     }
   }
   const addTeamFiles = (picked: FileEntry[]) => {
@@ -338,7 +393,7 @@ export function RoomComposer({ roomId, threadRootId = null, members, meId, onSen
         toast({ level: 'warn', text: t('rooms.tooBig', { name: f.name, max: formatSize(SMALL_UPLOAD_MAX, locale) }) })
         continue
       }
-      added.push({ key: ++uploadKey, file: { name: f.name, size: f.size ?? 0 } as File, status: 'uploading', abort: new AbortController(), teamPath: f.path })
+      added.push({ key: nextUploadKey(), file: { name: f.name, size: f.size ?? 0 } as File, status: 'uploading', abort: new AbortController(), teamPath: f.path })
     }
     if (!added.length) return
     setFiles((list) => [...list, ...added])
@@ -351,11 +406,14 @@ export function RoomComposer({ roomId, threadRootId = null, members, meId, onSen
 
   // files dropped on the column around the box (the room's, the thread's: FileDropZone) come here, with its checks: a box
   // with no room left for one more refuses the whole drop. Outside every column the box takes drops on itself.
-  const inZone = useDropTarget({ files: addFiles, refusal: () => (files.length >= ROOM_FILES_MAX ? t('rooms.tooMany', { n: ROOM_FILES_MAX }) : null) })
+  const inZone = useDropTarget({ files: addFiles, refusal: () => (files.filter((f) => !f.stopped).length >= ROOM_FILES_MAX ? t('rooms.tooMany', { n: ROOM_FILES_MAX }) : null) })
   const { drag, dropProps } = useFileDrop({ files: inZone ? undefined : addFiles })
 
   const removeFile = (u: Upload) => {
     u.abort.abort()
+    // a failed large file taken out: the pieces the server still holds are dropped (one still on its way drops them
+    // itself when it stops: upload() above)
+    if (u.status === 'failed' && !u.teamPath) void cancelUpload(u.file, roomTarget(u.file), api)
     setFiles((list) => list.filter((x) => x.key !== u.key))
   }
 
@@ -369,14 +427,20 @@ export function RoomComposer({ roomId, threadRootId = null, members, meId, onSen
   // the question shows while the message still has "@전체" (taken out, there is nothing to ask, and a later one asks anew)
   const ask = asking && all
   useEffect(() => {
-    if (!all) setAsking(false)
+    if (!all) { setAsking(false); setNoAsk(false) }
   }, [all])
   const submit = (sure = false) => {
     if (!canSend) return
-    if (all && members.length >= MENTION_ALL_CONFIRM && !sure) {
+    if (all && askAll && members.length >= MENTION_ALL_CONFIRM && !sure) {
       setAsking(true)
       return
     }
+    // sent with "Don't ask again" ticked: from now on "@전체" goes without the question, in every room (a refusal says so
+    // and the next one asks again)
+    if (sure && noAsk) {
+      void useSession.getState().updatePrefs({ mentionAllAsk: 'off' }).catch((e) => toast({ level: 'error', text: errorText(e, locale, t('error.network')) }))
+    }
+    setNoAsk(false)
     setAsking(false)
     // "stopped" before the message, so nobody sees it arrive under "… is typing"
     typing.stop()
@@ -414,10 +478,15 @@ export function RoomComposer({ roomId, threadRootId = null, members, meId, onSen
   }
 
   // the clip: the attach sheet on a phone, the file input on a computer
-  const attach = (
+  const clip = noFiles ? (
+    // off, with why: a tap says it too (a disabled button would give a finger no tooltip)
+    <IconButton tip={noFiles} compact label={noFiles} aria-disabled onClick={() => toast({ level: 'info', text: noFiles })} className="opacity-40" data-testid="room-attach-off">
+      <Paperclip size={18} />
+    </IconButton>
+  ) : (
     <>
       {phone ? (
-        <AttachSheet key={key} onFiles={addFiles} room={ROOM_FILES_MAX - files.length} fileMax={SMALL_UPLOAD_MAX} onTeam={() => setTeamPicker(true)} icon={<Paperclip size={18} />} testId="room-attach" filesTestId="room-file-input" />
+        <AttachSheet key={key} onFiles={addFiles} room={ROOM_FILES_MAX - files.length} fileMax={fileMax} onTeam={() => setTeamPicker(true)} icon={<Paperclip size={18} />} testId="room-attach" filesTestId="room-file-input" />
       ) : (
         <IconButton tip compact label={t('composer.attach')} onClick={() => picker.current?.click()} data-testid="room-attach">
           <Paperclip size={18} />
@@ -431,12 +500,22 @@ export function RoomComposer({ roomId, threadRootId = null, members, meId, onSen
           hidden
           data-testid="room-file-input"
           onChange={(e) => {
-            addFiles(Array.from(e.target.files ?? []))
+            void addFiles(Array.from(e.target.files ?? []))
             e.target.value = ''
           }}
         />
       )}
     </>
+  )
+  // the text field's limit, and the text's while recording (VoiceHeld grows to it as the field does): a phone's whole box
+  // (the files' row, the text, its buttons and padding) stays within about 35 % of what is in sight, so the messages keep
+  // the rest while the keyboard is up (QA TC-252); at least one line. The other rows: about 5rem, 6rem with the files' row
+  // (measured at 390 × 480)
+  const fieldMax = clsx(
+    'max-h-[200px]',
+    files.length > 0
+      ? 'max-md:max-h-[min(200px,max(2.75rem,calc(var(--app-h,100dvh)*0.35-6rem)))]'
+      : 'max-md:max-h-[min(200px,max(2.75rem,calc(var(--app-h,100dvh)*0.35-5rem)))]',
   )
   const field = (
     <TokenTextarea
@@ -453,12 +532,42 @@ export function RoomComposer({ roomId, threadRootId = null, members, meId, onSen
       onBlur={() => typing.stop()}
       onPaste={(e) => {
         // an edit takes words only
-        if (editing) return
-        const pasted = pastedFiles(e.clipboardData)
-        if (pasted.length) {
-          e.preventDefault()
-          addFiles(pasted)
+        if (!editing) {
+          const pasted = pastedFiles(e.clipboardData)
+          if (pasted.length) {
+            e.preventDefault()
+            void addFiles(pasted)
+            return
+          }
         }
+        // text that would take the box over what a message holds is never cut (lib/longPaste.ts; the box's maxLength
+        // would drop the rest without a word): it goes in as a text file, or, in an edit or with every file place
+        // taken, the paste is refused with the reason
+        const box = e.currentTarget
+        const pastedText = e.clipboardData?.getData?.('text/plain') ?? ''
+        const target = { value: box.value, selectionStart: box.selectionStart, selectionEnd: box.selectionEnd }
+        if (!pasteOverLimit(target, pastedText, ROOM_MESSAGE_MAX)) {
+          // it fits as the box keeps it (\n), but the browser's own maxLength counts the pasted \r\n twice and would
+          // drop the whole paste: put it in here
+          if (pastedText.includes('\r\n') && box.value.length - (box.selectionEnd - box.selectionStart) + pastedText.length > ROOM_MESSAGE_MAX) {
+            e.preventDefault()
+            const clean = pastedText.replace(/\r\n/g, '\n')
+            const at = box.selectionStart
+            setText(box.value.slice(0, at) + clean + box.value.slice(box.selectionEnd))
+            requestAnimationFrame(() => input.current?.setSelectionRange(at + clean.length, at + clean.length))
+          }
+          return
+        }
+        e.preventDefault()
+        const max = ROOM_MESSAGE_MAX.toLocaleString(locale)
+        if (editing || files.length >= ROOM_FILES_MAX) {
+          toast({ level: 'warn', text: t('composer.textTooLong', { max }) })
+          return
+        }
+        // the notice only when the file was taken (a refusal has said its own reason)
+        void addFiles([pastedTextFile(pastedText, t('composer.pastedTextName'))]).then((taken) => {
+          if (taken) toast({ level: 'info', text: t('composer.pastedAsFile', { max }) })
+        })
       }}
       onKeyDown={(e) => {
         if (mention.onKeyDown(e)) return
@@ -491,16 +600,12 @@ export function RoomComposer({ roomId, threadRootId = null, members, meId, onSen
         }
       }}
       containerClassName={phone ? 'min-w-0 flex-1' : undefined}
-      // a phone: the whole box (the files' row, the text field, its buttons and padding) stays within about 35 % of
-      // what is in sight, so the messages keep the rest while the keyboard is up (QA TC-252); at least one line
+      // a phone: the whole box stays within about 35 % of what is in sight (fieldMax)
       className={clsx(
-        'max-h-[200px] resize-none text-reading leading-reading text-ink outline-none placeholder:text-faint',
+        'resize-none text-reading leading-reading text-ink outline-none placeholder:text-faint',
         // one line on a phone; on a computer the text alone on top, as in the AI chat's box (its padding)
         phone ? 'px-1.5 py-2' : 'px-4.5 pt-3 pb-1',
-        // the other rows: about 5rem, 6rem with the files' row (measured at 390 × 480)
-        files.length > 0
-          ? 'max-md:max-h-[min(200px,max(2.75rem,calc(var(--app-h,100dvh)*0.35-6rem)))]'
-          : 'max-md:max-h-[min(200px,max(2.75rem,calc(var(--app-h,100dvh)*0.35-5rem)))]',
+        fieldMax,
       )}
       data-testid="room-input"
     />
@@ -568,8 +673,13 @@ export function RoomComposer({ roomId, threadRootId = null, members, meId, onSen
             <p role="status" className="min-w-0 flex-1 text-sm text-ink">
               {t('rooms.mentionAllConfirm', { n: others })}
             </p>
-            <div className="flex shrink-0 gap-1.5">
-              <Button size="sm" variant="ghost" onClick={() => { setAsking(false); input.current?.focus() }} data-testid="room-mention-all-cancel">
+            {/* a phone: the tick and the buttons on a line of their own under the question, the tick on the left */}
+            <div className="flex shrink-0 items-center gap-1.5 max-md:w-full">
+              <label className="mr-1.5 flex cursor-pointer items-center gap-1.5 text-xs text-muted select-none max-md:mr-auto" data-testid="room-mention-all-no-ask">
+                <input type="checkbox" checked={noAsk} onChange={(e) => setNoAsk(e.target.checked)} className="size-4 accent-[var(--color-accent)]" />
+                {t('rooms.mentionAllNoAsk')}
+              </label>
+              <Button size="sm" variant="ghost" onClick={() => { setAsking(false); setNoAsk(false); input.current?.focus() }} data-testid="room-mention-all-cancel">
                 {t('common.cancel')}
               </Button>
               <Button size="sm" variant="primary" onClick={() => submit(true)} disabled={!canSend} data-testid="room-mention-all-send">
@@ -584,8 +694,9 @@ export function RoomComposer({ roomId, threadRootId = null, members, meId, onSen
           // pictures are one pane of the image viewer (← →)
           <ImageGroup>
           <ul
-            // a phone: one sideways row (six files and the keyboard would push the text field out of sight)
-            className="scroll-thin flex flex-wrap items-center gap-2 px-3 pt-2 max-md:flex-nowrap max-md:overflow-x-auto max-md:pb-1 max-md:*:shrink-0" aria-label={t('composer.attachments')} data-testid="room-file-chips">
+            // a phone: one sideways row (six files and the keyboard would push the text field out of sight).
+            // @container: a failed chip follows this box's width (ChipThumb.tsx chipText)
+            className="@container scroll-thin flex flex-wrap items-center gap-2 px-3 pt-2 max-md:flex-nowrap max-md:overflow-x-auto max-md:pb-1 max-md:*:shrink-0" aria-label={t('composer.attachments')} data-testid="room-file-chips">
             {files.map((f) =>
               picture(f) ? (
                 // a picture as itself, at once: from this computer, or a photo of a send the server gave back (its room
@@ -594,27 +705,44 @@ export function RoomComposer({ roomId, threadRootId = null, members, meId, onSen
                   <PictureTile
                     name={f.file.name}
                     file={isLocalImage(f.file) ? f.file : undefined}
-                    src={isLocalImage(f.file) ? undefined : roomFileUrl(roomId, f.roomFile!.id, { thumb: '1' })}
+                    src={isLocalImage(f.file) || !f.roomFile?.thumb ? undefined : roomFileUrl(roomId, f.roomFile.id, { thumb: '1' })}
                     busy={f.status === 'uploading'}
                     failed={f.status === 'failed'}
                     removeLabel={t('rooms.removeFile', { name: f.file.name })}
                     onRemove={() => removeFile(f)}
                     // its own bytes in the image viewer, or the room's copy the server gave back
-                    item={isLocalImage(f.file) ? localItem(String(f.key), f.file, f.file.name) : roomItem(roomId, f.roomFile!)}
+                    item={isLocalImage(f.file) ? localItem(String(f.key), f.file, f.file.name) : f.roomFile ? roomItem(roomId, f.roomFile) : null}
                   />
-                  <span role="status" className={f.status === 'failed' ? FAILED_REASON : 'sr-only'}>
-                    {f.status === 'uploading' ? t('rooms.uploading', { name: f.file.name }) : f.status === 'failed' ? f.error : formatSize(f.file.size, locale)}
-                  </span>
-                  {f.status === 'failed' && <StoragePlansLink url={f.plans} />}
+                  {/* a large picture says how far it is beside its tile (a small one is there in a moment) */}
+                  {f.status === 'failed' ? (
+                    // the reason (announced), then its links in the same run of text, outside the live region
+                    <span className={FAILED_REASON}>
+                      <span role="status">{failedText(f)}</span>
+                      <RefusalLinks full={!!f.full && staff} plans={f.plans} mine={!!f.full && !staff} />
+                    </span>
+                  ) : (
+                    <span role="status" className={f.status === 'uploading' && says(f) ? 'text-faint tabular-nums' : 'sr-only'}>
+                      {f.status === 'uploading' ? (says(f) ? <span data-testid="room-file-progress"><UploadLabel progress={f.progress} busy={t('rooms.uploading', { name: f.file.name })} /></span> : t('rooms.uploading', { name: f.file.name })) : formatSize(f.file.size, locale)}
+                    </span>
+                  )}
                 </li>
               ) : (
                 <li key={f.key} className={clsx('inline-flex max-w-full items-center gap-2 rounded-xl border py-1.5 pr-2 pl-2.5 text-xs', f.status === 'failed' ? 'border-danger/40 bg-danger-soft' : 'border-line bg-subtle')} data-testid="room-file-chip" data-status={f.status} data-team={f.teamPath ? '' : undefined}>
                   {f.status === 'uploading' ? <Loader2 size={14} className="animate-spin text-faint" aria-hidden /> : f.teamPath ? <FolderOpen size={14} className="text-accent-text" aria-hidden /> : <FileText size={14} className="text-muted" aria-hidden />}
-                  <span className="max-w-[180px] truncate font-medium">{f.file.name}</span>
-                  <span role="status" className={f.status === 'failed' ? FAILED_REASON : 'text-faint'}>
-                    {f.status === 'uploading' ? <span className="sr-only">{t('rooms.uploading', { name: f.file.name })}</span> : f.status === 'failed' ? f.error : formatSize(f.file.size, locale)}
+                  {/* the name and what the chip says: a failed one's reason under the name in a narrow box (chipText) */}
+                  <span className={chipText(f.status === 'failed')}>
+                    <span className="max-w-[180px] truncate font-medium" data-testid="room-file-name">{f.file.name}</span>
+                    {f.status === 'failed' ? (
+                      <span className={FAILED_REASON}>
+                        <span role="status">{failedText(f)}</span>
+                        <RefusalLinks full={!!f.full && staff} plans={f.plans} mine={!!f.full && !staff} />
+                      </span>
+                    ) : (
+                      <span role="status" className="text-faint">
+                        {f.status === 'uploading' ? (says(f) ? <span className="tabular-nums" data-testid="room-file-progress"><UploadLabel progress={f.progress} busy={t('rooms.uploading', { name: f.file.name })} /></span> : <span className="sr-only">{t('rooms.uploading', { name: f.file.name })}</span>) : formatSize(f.file.size, locale)}
+                      </span>
+                    )}
                   </span>
-                  {f.status === 'failed' && <StoragePlansLink url={f.plans} />}
                   <ChipRemove label={t('rooms.removeFile', { name: f.file.name })} onClick={() => removeFile(f)} />
                 </li>
               ),
@@ -629,15 +757,17 @@ export function RoomComposer({ roomId, threadRootId = null, members, meId, onSen
         )}
         {voice.recording ? (
           phone ? (
-            // as tall as the box's row (one slot and the row's padding), ✕ and ✓ where the clip and send were: nothing moves
-            <VoiceBar voice={voice} className="box-content min-h-composer-line py-1.5 pr-3 pl-2" />
-          ) : (
-            // a computer's box keeps its height: the text as it was on top (it cannot be typed in while recording), the
-            // bar in the row's place (as tall as ComposerToolbar), ✕ and ✓ where the clip and send were
+            // as tall as the box's row (one slot and the row's padding), ✕ and ✓ where the clip and send were: nothing moves;
+            // once a live recording put words in, the box's text shows above it
             <>
-              <p aria-hidden className={clsx('max-h-[200px] overflow-hidden px-4.5 pt-3 pb-1 text-reading leading-reading break-words whitespace-pre-wrap', text ? 'text-ink' : 'text-faint')} data-testid="room-text-held">
-                {text || placeholder}
-              </p>
+              {voice.heard && <VoiceHeld text={text} className={clsx(fieldMax, 'px-4 pt-2.5 text-ink')} testId="room-text-held" />}
+              <VoiceBar voice={voice} className="box-content min-h-composer-line py-1.5 pr-3 pl-2" />
+            </>
+          ) : (
+            // a computer's box: the text on top (it cannot be typed in while recording), growing with a live recording's
+            // words as the field does while typing; the bar in the row's place (as tall as ComposerToolbar), ✕ and ✓ where the clip and send were
+            <>
+              <VoiceHeld text={text || placeholder} className={clsx(fieldMax, 'px-4.5 pt-3 pb-1', text ? 'text-ink' : 'text-faint')} testId="room-text-held" />
               <VoiceBar voice={voice} className="box-content min-h-9 px-3 pt-1 pb-2.5" />
             </>
           )
@@ -656,24 +786,26 @@ export function RoomComposer({ roomId, threadRootId = null, members, meId, onSen
               </div>
             ) : phone ? (
               <div className="flex items-end gap-1 py-1.5 pr-3 pl-2">
-                <div className="flex h-composer-line shrink-0 items-center">{attach}</div>
+                <div className="flex h-composer-line shrink-0 items-center">{clip}</div>
                 {field}
                 <div className="flex h-composer-line shrink-0 items-center gap-1">{sendControls}</div>
               </div>
             ) : (
               <>
                 {field}
-                <ComposerToolbar testId="room-composer-tools" start={attach} end={sendControls} />
+                <ComposerToolbar testId="room-composer-tools" start={clip} end={sendControls} />
               </>
             )}
           </>
         )}
       </div>
-      {voiceError && (
-        <p role="alert" className="mx-auto max-w-[780px] px-1 pt-1.5 text-xs text-danger max-sm:px-4" data-testid="room-voice-error">
-          {voiceError}
-          {voice.settingsFor === voiceError && <Button size="sm" className="ml-2 align-middle" onClick={voice.openSettings} data-testid="voice-open-settings">{t('voice.openSettings')}</Button>}
-        </p>
+      {voiceError && voice.blockedFor === voiceError && (
+        <div className="mx-auto max-w-[780px] px-1 pt-1.5 max-sm:px-4">
+          <MicBlockedNotice text={voiceError} onOpenSettings={voice.settingsFor === voiceError ? voice.openSettings : undefined} testId="room-voice-error" />
+        </div>
+      )}
+      {voiceError && voice.blockedFor !== voiceError && (
+        <p role="alert" className="mx-auto max-w-[780px] px-1 pt-1.5 text-xs text-danger max-sm:px-4" data-testid="room-voice-error">{voiceError}</p>
       )}
       {phone && (
         <TeamFilePicker

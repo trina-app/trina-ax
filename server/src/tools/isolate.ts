@@ -136,11 +136,22 @@ export function browserProfileRules(services: readonly string[] = BROWSER_MACH_S
   ]
 }
 
+/** A free-roam demo instance (demo/free-roam.ts startFreeRoam): demo-gate's folder on the hosting Mac, which holds the
+ * one real AI credential. Never readable by a converter, whatever the hosting user setup. */
+export const DEMO_GATE_DIR = '/private/var/demo-gate'
+let demoDenyRead: string[] = []
+/** Free-roam only: the folders no converter may read (DEMO_GATE_DIR and the gate's configured state and secret folders,
+ * which the gate passes as MYCEL_DEMO_GATE_DIRS). Absolute paths only; [] turns it off (tests). */
+export function setDemoDenyRead(dirs: readonly string[]): void {
+  demoDenyRead = [...new Set(dirs.filter((d) => path.isAbsolute(d) && d !== '/'))]
+}
+export const demoDenyReadDirs = (): readonly string[] => demoDenyRead
+
 export function sandboxProfile(o: { cmd: string; workDir: string; readPaths: string[]; denyRead: string[]; gpu?: boolean; curatedFonts?: boolean; helpersIn?: string; execAlso?: string[]; browserProfile?: boolean }): string {
   const gpu = o.gpu ? metalCacheDirs() : []
   const deny = [...new Set([
     '/Users', '/Volumes', '/private/tmp', '/private/var/folders', '/private/var/root', '/Library/Keychains',
-    `/Library/Application Support/${PRODUCT.id}`, os.homedir(), ...o.denyRead,
+    `/Library/Application Support/${PRODUCT.id}`, os.homedir(), ...demoDenyRead, ...o.denyRead,
   ].map(real))]
   const allowRead = [o.workDir, ...o.readPaths].map(real).concat(gpu)
   return [
@@ -297,10 +308,6 @@ export async function runIsolated(o: IsolatedRun): Promise<IsolatedResult> {
   }, RSS_POLL_MS) : null
   const onAbort = () => kill('aborted')
   if (o.signal) { if (o.signal.aborted) onAbort(); else o.signal.addEventListener('abort', onAbort, { once: true }) }
-  if (o.stdin) {
-    const w = p.stdin as import('bun').FileSink
-    try { w.write(o.stdin); await w.end() } catch { /* converter closed stdin early */ }
-  }
   const max = o.maxStdout ?? 64 * 1024 * 1024
   const outP = (async () => {
     const parts: Uint8Array[] = []
@@ -322,7 +329,19 @@ export async function runIsolated(o: IsolatedRun): Promise<IsolatedResult> {
     }
     return s
   })()
-  const [stdout, stderr, code] = await Promise.all([outP, errP, p.exited])
+  // stdin is written while stdout and stderr are already being read: a converter that writes more than a pipe holds
+  // before the last of its input is taken would otherwise wait for the server, and the server for it (a 5 MB workbook
+  // with a 2 MB answer timed out, security re-review of #1290)
+  // made before stdin is written, so an error of the output streams while the input is still going is handled too
+  const all = Promise.all([outP, errP, p.exited])
+  all.catch(() => {})
+  if (o.stdin) {
+    const w = p.stdin as import('bun').FileSink
+    // both awaited: a converter that exits before reading all its input (`head -c`, a refused file) makes the write
+    // reject with EPIPE, and an unawaited rejection is fatal to the server (sentry-report.ts)
+    try { await w.write(o.stdin); await w.end() } catch { /* converter closed stdin early */ }
+  }
+  const [stdout, stderr, code] = await all
   clearTimeout(timer)
   if (watch) clearInterval(watch)
   o.signal?.removeEventListener('abort', onAbort)

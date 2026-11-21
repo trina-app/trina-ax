@@ -1,7 +1,7 @@
 // Phone notifications only when I'm away (docs/DECISIONS.md "Phone notifications when I'm away";
 // server/src/notifications/away.ts), Slack's default: decided once per notice when its phone push would go. The person
 // at Trina then (a window in use) saw it on the computer: that phone push is cancelled, never held or sent later. Away
-// (idle, no window, manual away): it goes as before. "Always": as before. Right after a start it waits once for the
+// (idle, no window; their own "away" pick does not count, TC-5205): it goes as before. "Always": as before. Right after a start it waits once for the
 // windows to reconnect. Someone else's phone is never affected.
 import { afterEach, expect, setDefaultTimeout, test } from 'bun:test'
 import crypto from 'node:crypto'
@@ -81,20 +81,32 @@ test('closed while in use (a reload): still at Trina for the grace; closed after
   expect(sent).toHaveLength(1)
 })
 
-test('manual away sends; "Always" sends while at Trina; the setting is the caller\'s own', async () => {
-  const { nora, mia, dm, send, read, sent, pr } = await setup()
-  pr.open(nora.id, 'w1')
-  pr.setAway(nora.id, true)
+test('their own "away" pick: no phone push while the desktop app says the computer is in use; idle 10 min: it goes (QA TC-5205)', async () => {
+  const { nora, mia, dm, send, read, sent, states } = await setup()
+  // nora picked "Show me as away" in the account menu, and works at the Mac with Trina in the back
+  expect((await nora.client.call('PUT', '/api/me/away', { away: true })).away).toBe(true)
+  const report = (idleMs: number) => nora.client.call('POST', '/api/me/computer', { locked: false, idleMs })
+  await report(2000)
   await send(mia.client, dm.id, 'one')
   await p!.tick()
-  expect(sent).toHaveLength(1)
-  pr.setAway(nora.id, false)
-  const prefs = await nora.client.call('PATCH', '/api/notification-preferences', { phoneWhen: 'always' })
-  expect(prefs.phoneWhen).toBe('always')
+  expect(sent).toHaveLength(0)
+  expect(states()).toEqual([{ state: 'cancelled', n: 1 }])
+  // the computer left alone for 10 minutes: the next one rings the phone
   await read(nora.client)
+  await report(10 * 60_000)
   await send(mia.client, dm.id, 'two')
   await p!.tick()
-  expect(sent).toHaveLength(2)
+  expect(sent).toHaveLength(1)
+})
+
+test('"Always" sends while at Trina; the setting is the caller\'s own', async () => {
+  const { nora, mia, dm, send, sent, pr } = await setup()
+  pr.open(nora.id, 'w1')
+  const prefs = await nora.client.call('PATCH', '/api/notification-preferences', { phoneWhen: 'always' })
+  expect(prefs.phoneWhen).toBe('always')
+  await send(mia.client, dm.id, 'two')
+  await p!.tick()
+  expect(sent).toHaveLength(1)
   expect((await mia.client.call('GET', '/api/notification-preferences')).phoneWhen).toBe('away')
   expect((await nora.client.call('GET', '/api/notification-preferences')).phoneWhen).toBe('always')
 })
@@ -140,10 +152,10 @@ test('a cancelled phone push does not silence the rest of the unread run: the ne
   await p!.tick()
   expect(sent).toHaveLength(1)
   expect((h.ctx.db.query('SELECT COUNT(*) n FROM room_notices WHERE user_id = ? AND room_id = ?').get(nora.id, dm.id) as { n: number }).n).toBe(2)
-  // a notice whose push went holds the run back as before: a third message adds none
+  // every message is a push of its own (docs/decisions/20261120-push-every-message.md): a third one goes too
   await send(mia.client, dm.id, 'third')
   await p!.tick()
-  expect(sent).toHaveLength(1)
+  expect(sent).toHaveLength(2)
 })
 
 test('at Trina: Web Push still goes, a retry still goes, the owner\'s locked password check still goes', async () => {
@@ -185,4 +197,31 @@ test('at Trina: Web Push still goes, a retry still goes, the owner\'s locked pas
   notificationsOf(h.ctx).handoverNotice(owner.id, 'owner.reauth_locked', `reauth-test-${Date.now()}`, new Date().toISOString())
   await p.tick()
   expect(phoneSent.some((s) => s.payload.code === 'owner.reauth_locked')).toBe(true)
+})
+
+test('each phone push decision is in the server log: the notice kind, send or cancel, and why; never the message', async () => {
+  const { nora, mia, dm, send, read, sent, pr } = await setup()
+  const lines: Record<string, unknown>[] = []
+  const info = h.ctx.log.info.bind(h.ctx.log)
+  h.ctx.log.info = (msg, fields) => { if (msg === 'phone push decision') lines.push(fields ?? {}); info(msg, fields) }
+  const device = (h.ctx.db.query("SELECT id FROM push_subscriptions WHERE user_id = ? AND kind = 'native'").get(nora.id) as { id: string }).id.slice(-6)
+  pr.open(nora.id, 'w1')
+  await send(mia.client, dm.id, 'the secret launch date')
+  await p!.tick()
+  pr.activity(nora.id, 'w1', 'idle')
+  await read(nora.client)
+  await send(mia.client, dm.id, 'are you there')
+  await p!.tick()
+  // the desktop app says the computer has had no input for 12 minutes
+  pr.computer(nora.id, 'other-sign-in', { idleMs: 12 * 60_000, locked: false })
+  await read(nora.client)
+  await send(mia.client, dm.id, 'hello?')
+  await p!.tick()
+  expect(sent).toHaveLength(2)
+  expect(lines).toEqual([
+    { event: 'room.dm', decision: 'cancel', reason: 'browser or app window active', user: nora.id, device },
+    { event: 'room.dm', decision: 'send', reason: 'no computer report; window idle', user: nora.id, device },
+    { event: 'room.dm', decision: 'send', reason: 'computer idle 12m; window idle', user: nora.id, device },
+  ])
+  expect(JSON.stringify(lines)).not.toMatch(/secret|are you there|hello/)
 })

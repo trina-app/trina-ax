@@ -12,7 +12,7 @@
 import clsx from 'clsx'
 import { Globe, MessageCircleQuestion, ShieldAlert } from 'lucide-react'
 import { type ReactNode, useContext, useEffect, useId, useRef, useState } from 'react'
-import { errorText } from '../../lib/api'
+import { api, API, errorText } from '../../lib/api'
 import { BoxAnswers, forgetPicks, rememberPicks } from '../../lib/askAnswer'
 import { useFolderWords } from '../../lib/folderLabels'
 import { issueText } from '../../lib/skillIssues'
@@ -26,10 +26,15 @@ import { toast } from '../../store/ui'
 import { useSession } from '../../store/session'
 import { Button, inputCls } from '../ui'
 import { SecretWarning, useSecretHold } from './SecretWarning'
+import { ShareAskRows } from './ShareCard'
+import { Markdown } from '../LazyMarkdown'
+
+/** a card's turn and id: where a folded detail's whole text is read (GET /api/turns/:id/requests/:requestId/details/:index) */
+type FullAt = { turnId: string; requestId: string }
 
 type AnswerBody = Parameters<ReturnType<typeof useChats.getState>['answer']>[1]
 
-export default function AskCard({ req, onAnswer }: { req: Pick<OpenRequest, 'request'>; onAnswer?: (requestId: string, body: AnswerBody) => Promise<void> }) {
+export default function AskCard({ req, onAnswer }: { req: Pick<OpenRequest, 'request'> & { turnId?: string }; onAnswer?: (requestId: string, body: AnswerBody) => Promise<void> }) {
   const t = useT()
   const locale = useLocale()
   const storeAnswer = useChats((s) => s.answer)
@@ -45,6 +50,8 @@ export default function AskCard({ req, onAnswer }: { req: Pick<OpenRequest, 'req
   const secret = useSecretHold(text)
   const textRef = useRef<HTMLTextAreaElement>(null)
   const r = req.request
+  /** where a long detail's whole text is read (ConfirmDetail.fullChars): the card's own turn */
+  const full = req.turnId ? { turnId: req.turnId, requestId: r.requestId } : null
   const boxAnswers = useContext(BoxAnswers)
   useEffect(() => rememberPicks(r.requestId, picked), [r.requestId, picked])
   useEffect(() => () => forgetPicks(r.requestId), [r.requestId])
@@ -143,11 +150,14 @@ export default function AskCard({ req, onAnswer }: { req: Pick<OpenRequest, 'req
         <p className="flex items-center gap-1.5 text-xs font-medium text-warn">
           <ShieldAlert size={14} aria-hidden /> {t('ask.serverTitle')}
         </p>
-        <p id={`${name}-q`} className="mt-1 whitespace-pre-wrap text-sm font-medium [overflow-wrap:anywhere]">
-          {r.question}
-        </p>
+        {/* a share or a stop (AskUserRequest.share): the files and people as rows, the card its result card becomes */}
+        {r.share ? <ShareAskRows ask={r.share} titleId={`${name}-q`} /> : (
+          <p id={`${name}-q`} className="mt-1 whitespace-pre-wrap text-sm font-medium [overflow-wrap:anywhere]">
+            {r.question}
+          </p>
+        )}
         {r.preview && <div className="mt-2.5"><SkillPreview p={r.preview} /></div>}
-        {r.details?.length ? <Details items={r.details} plain /> : null}
+        {!r.share && r.details?.length ? <Details items={r.details} plain full={full} /> : null}
         <div className="mt-3 flex flex-wrap items-center justify-end gap-2">
           {error && <span role="alert" className="mr-auto text-xs text-danger">{error}</span>}
           <Button size="sm" variant="ghost" disabled={busy} busy={busy && picked[0] === no.value} onClick={() => pick(no.value)} data-testid="ask-no">
@@ -174,12 +184,14 @@ export default function AskCard({ req, onAnswer }: { req: Pick<OpenRequest, 'req
         <p className="flex items-center gap-1.5 text-xs font-medium text-warn">
           <ShieldAlert size={14} aria-hidden /> {t('ask.serverTitle')}
         </p>
-        <p id={`${name}-q`} className="mt-1 whitespace-pre-wrap text-sm font-medium [overflow-wrap:anywhere]">
-          {r.question}
-        </p>
+        {r.share ? <ShareAskRows ask={r.share} titleId={`${name}-q`} /> : (
+          <p id={`${name}-q`} className="mt-1 whitespace-pre-wrap text-sm font-medium [overflow-wrap:anywhere]">
+            {r.question}
+          </p>
+        )}
         {/* a project skill whose name is taken elsewhere: another name, or the one that runs (docs/DECISIONS.md "Project skills") */}
         {r.preview && <div className="mt-2.5"><SkillPreview p={r.preview} /></div>}
-        {r.details?.length ? <Details items={r.details} plain /> : null}
+        {!r.share && r.details?.length ? <Details items={r.details} plain full={full} /> : null}
         <ChoiceRow
           className="mt-3"
           busy={busy}
@@ -214,7 +226,7 @@ export default function AskCard({ req, onAnswer }: { req: Pick<OpenRequest, 'req
         <fieldset className="space-y-2">
           <legend className="mb-2.5 whitespace-pre-wrap text-sm font-medium [overflow-wrap:anywhere]">{r.question}</legend>
           {fromServer && r.preview && <SkillPreview p={r.preview} />}
-          {fromServer && r.details?.length ? <Details items={r.details} /> : null}
+          {fromServer && r.details?.length ? <Details items={r.details} full={full} /> : null}
           {options.length > 0 && (
             <div className="flex flex-col gap-1.5">
               {options.map((o) => (
@@ -225,6 +237,9 @@ export default function AskCard({ req, onAnswer }: { req: Pick<OpenRequest, 'req
               ))}
             </div>
           )}
+          {/* a server card with four choices (the team folder card that also asks about file shares, with "Always allow"):
+              its line about the file shares and what "Always allow" covers, as on the button cards */}
+          {fromServer && r.note && <p className="whitespace-pre-wrap text-xs text-muted" data-testid="ask-note">{r.note}</p>}
           {allowText && (
             <textarea
               ref={textRef}
@@ -308,12 +323,36 @@ function ChoiceRow({ choices, busy, error, className }: { choices: [Choice, Choi
   )
 }
 
-/** What the AI is about to save under skills/ (team skills and rules every teammate's AI follows): the diff. */
+/** A new skill's SKILL.md in plain words (QA MAN-052: the card showed only the raw file, "---", "name:", "## Steps"):
+ * its description and the titles of its parts, read from the diff (a new file: every line added). null for a change,
+ * a rule or a file that is not a skill. */
+export function newSkillSummary(p: Pick<SkillWritePreview, 'isNew' | 'skillName' | 'diff'>): { description: string | null; parts: string[] } | null {
+  if (!p.isNew || !p.skillName) return null
+  const lines = p.diff.split('\n')
+  if (!lines[0]?.startsWith('@@')) return null
+  const text = lines.slice(1).filter((l) => l.startsWith('+')).map((l) => l.slice(1))
+  let i = 0
+  let description: string | null = null
+  if (text[0]?.trim() === '---') {
+    for (i = 1; i < text.length && text[i]!.trim() !== '---'; i++) {
+      const m = /^description:\s*(.+)$/.exec(text[i]!.trim())
+      if (m) description = m[1]!.replace(/^["']|["']$/g, '').trim() || null
+    }
+    i++
+  }
+  const parts = text.slice(i).map((l) => /^#{2,3}\s+(.+)$/.exec(l.trim())?.[1]?.trim()).filter((x): x is string => !!x).slice(0, 8)
+  return { description, parts }
+}
+
+/** What the AI is about to save under skills/ (team skills and rules every teammate's AI follows): the diff. A new
+ * skill first in plain words (what it does, its parts), the file itself one click away. */
 function SkillPreview({ p }: { p: SkillWritePreview }) {
   const t = useT()
   const words = useFolderWords()
   const lines = p.diff.split('\n')
   const isDiff = lines[0]?.startsWith('@@')
+  const sum = newSkillSummary(p)
+  const plain = sum && (sum.description || sum.parts.length) ? sum : null
   return (
     <div className="mb-2 overflow-hidden rounded-lg border border-line" data-testid="skill-preview">
       <div className="flex flex-wrap items-center gap-2 border-b border-line bg-subtle px-3 py-1.5 text-xs">
@@ -328,25 +367,69 @@ function SkillPreview({ p }: { p: SkillWritePreview }) {
           </span>
         )}
       </div>
-      {isDiff ? (
-        <pre className="scroll-thin max-h-64 overflow-auto px-0 py-1 font-mono text-code-sm leading-5" data-testid="skill-preview-diff">
-          {lines.map((l, i) => (
-            <div
-              key={i}
-              className={clsx('px-3 whitespace-pre-wrap [overflow-wrap:anywhere]', l.startsWith('+') ? 'bg-ok-soft text-ok' : l.startsWith('-') ? 'bg-danger-soft text-danger' : l.startsWith('@@') ? 'text-faint' : '')}
-            >
-              {l || ' '}
-            </div>
-          ))}
-        </pre>
+      {plain && (
+        <div className="space-y-1 px-3 py-2 text-sm" data-testid="skill-preview-summary">
+          {plain.description && <p data-testid="skill-preview-does"><span className="text-muted">{t('ask.skillDoes')}</span> {plain.description}</p>}
+          {plain.parts.length > 0 && <p data-testid="skill-preview-parts"><span className="text-muted">{t('ask.skillParts')}</span> {plain.parts.join(' · ')}</p>}
+        </div>
+      )}
+      {isDiff && plain ? (
+        <details className="border-t border-line" data-testid="skill-preview-file">
+          <summary className="cursor-pointer px-3 py-1.5 text-xs text-muted hover:text-ink">{t('ask.skillShowFile')}</summary>
+          <SkillDiff lines={lines} />
+        </details>
+      ) : isDiff ? (
+        <SkillDiff lines={lines} />
       ) : (
         <p className="px-3 py-2 text-xs text-muted">{p.diff}</p>
       )}
       {p.truncated && <p className="border-t border-line px-3 py-1 text-micro text-faint">{t('ask.skillTruncated')}</p>}
+      {p.files?.length ? <HeldFiles files={p.files} /> : null}
       {p.problem && <p className="border-t border-line bg-warn-soft px-3 py-1.5 text-xs text-warn" data-testid="skill-preview-problem">{issueText(t, { path: p.path, problem: p.problem })}</p>}
       {/* a skill of the same name at another level the person sees: which one runs (the server's words) */}
       {p.sameName && <p className="border-t border-line bg-warn-soft px-3 py-1.5 text-xs text-warn" data-testid="skill-preview-same-name" data-hidden={p.sameName.hidden || undefined}>{p.sameName.text}</p>}
     </div>
+  )
+}
+
+/** A new skill's other files that the same card saves (a form, a template; docs/decisions/
+ * 20261117-new-skill-files-on-card.md): each by name, size and first lines, its whole text one click away. */
+function HeldFiles({ files }: { files: NonNullable<SkillWritePreview['files']> }) {
+  const t = useT()
+  return (
+    <div className="border-t border-line px-3 py-2 text-sm" data-testid="skill-preview-files">
+      <p className="text-muted">{t('ask.skillFiles', { count: files.length })}</p>
+      <ul className="mt-1 space-y-1">
+        {files.map((f) => (
+          <li key={f.path} data-testid="skill-preview-held">
+            <details>
+              <summary className="cursor-pointer">
+                <span className="font-medium" title={f.path}>{f.path.split('/').at(-1)}</span>{' '}
+                <span className="font-mono text-xs text-faint">{f.size} B</span>
+                {f.lines && <span className="block whitespace-pre-wrap pl-4 text-xs text-muted [overflow-wrap:anywhere]">{f.lines}</span>}
+              </summary>
+              <pre className="scroll-thin mt-1 max-h-64 overflow-auto rounded bg-subtle px-3 py-1 font-mono text-code-sm leading-5 whitespace-pre-wrap [overflow-wrap:anywhere]" data-testid="skill-preview-held-text">{f.text}</pre>
+            </details>
+          </li>
+        ))}
+      </ul>
+    </div>
+  )
+}
+
+/** The skill card's diff: added lines green, removed red. */
+function SkillDiff({ lines }: { lines: string[] }) {
+  return (
+    <pre className="scroll-thin max-h-64 overflow-auto px-0 py-1 font-mono text-code-sm leading-5" data-testid="skill-preview-diff">
+      {lines.map((l, i) => (
+        <div
+          key={i}
+          className={clsx('px-3 whitespace-pre-wrap [overflow-wrap:anywhere]', l.startsWith('+') ? 'bg-ok-soft text-ok' : l.startsWith('-') ? 'bg-danger-soft text-danger' : l.startsWith('@@') ? 'text-faint' : '')}
+        >
+          {l || ' '}
+        </div>
+      ))}
+    </pre>
   )
 }
 
@@ -355,7 +438,7 @@ function SkillPreview({ p }: { p: SkillWritePreview }) {
  * the fields too. `plain` (a yes/no card): no boxes, the fields as name–value lines and the text under its label with a
  * rule beside it. `exact` (a connected service's call, docs/DECISIONS.md "Plain words in errors, cards and steps"): the
  * fields already show every value, so the text (its exact JSON) is one click away, "보내는 내용 그대로 보기". */
-function Details({ items, plain }: { items: ConfirmDetail[]; plain?: boolean }) {
+function Details({ items, plain, full }: { items: ConfirmDetail[]; plain?: boolean; full?: FullAt | null }) {
   const t = useT()
   if (plain)
     return (
@@ -371,9 +454,13 @@ function Details({ items, plain }: { items: ConfirmDetail[]; plain?: boolean }) 
                     <div key={j} className="contents">
                       <dt className="min-w-14 text-faint [overflow-wrap:anywhere]"><Marked text={f.name} marks={d.marks} /></dt>
                       {/* a long value scrolls in place, so the next name stays near; the marks are highlighted here too */}
-                      <dd className={clsx('min-w-0 whitespace-pre-wrap [overflow-wrap:anywhere]', f.value.length > 600 && 'scroll-thin max-h-48 overflow-auto')} tabIndex={f.value.length > 600 ? 0 : undefined} data-testid="ask-detail-value">
-                        <Marked text={f.value} marks={d.marks} />
-                      </dd>
+                      {f.code ? (
+                        <dd className="min-w-0" data-testid="ask-detail-value"><CodeValue text={f.value} label={f.name} marks={d.marks} /></dd>
+                      ) : (
+                        <dd className={clsx('min-w-0 whitespace-pre-wrap [overflow-wrap:anywhere]', f.value.length > 600 && 'scroll-thin max-h-48 overflow-auto')} tabIndex={f.value.length > 600 ? 0 : undefined} data-testid="ask-detail-value">
+                          <Marked text={f.value} marks={d.marks} />
+                        </dd>
+                      )}
                     </div>
                   ))}
                 </dl>
@@ -384,10 +471,10 @@ function Details({ items, plain }: { items: ConfirmDetail[]; plain?: boolean }) 
                 <div>
                   <p className="flex items-baseline gap-2 text-xs text-faint">
                     <span className="min-w-0 flex-1">{d.label}</span>
-                    {!d.noSize && <span data-testid="ask-detail-size">{t('ask.detailSize', { n: d.text.length })}</span>}
+                    {!d.noSize && !d.markdown && <span data-testid="ask-detail-size">{t('ask.detailSize', { n: d.fullChars ?? d.text.length })}</span>}
                   </p>
                   <div className="mt-1 border-l-2 border-line">
-                    <DetailText d={d} plain />
+                    <DetailText d={d} plain full={full && { ...full, index: i }} />
                   </div>
                 </div>
               </Exact>
@@ -402,9 +489,9 @@ function Details({ items, plain }: { items: ConfirmDetail[]; plain?: boolean }) 
         <div key={i} className="overflow-hidden rounded-lg border border-line" data-testid="ask-detail">
           <div className="flex flex-wrap items-center gap-2 border-b border-line bg-subtle px-3 py-1.5 text-xs">
             <span className="min-w-0 flex-1 font-medium">{d.label}</span>
-            {d.text && !d.noSize && (
+            {d.text && !d.noSize && !d.markdown && (
               <span className="text-faint" data-testid="ask-detail-size">
-                {t('ask.detailSize', { n: d.text.length })}
+                {t('ask.detailSize', { n: d.fullChars ?? d.text.length })}
               </span>
             )}
           </div>
@@ -419,16 +506,30 @@ function Details({ items, plain }: { items: ConfirmDetail[]; plain?: boolean }) 
               {d.fields.map((f, j) => (
                 <div key={j} className="flex gap-3">
                   <span className="max-w-[40%] shrink-0 text-faint [overflow-wrap:anywhere]"><Marked text={f.name} marks={d.marks} /></span>
-                  <span className="min-w-0 whitespace-pre-wrap [overflow-wrap:anywhere]" data-testid="ask-detail-value"><Marked text={f.value} marks={d.marks} /></span>
+                  {f.code ? (
+                    <span className="min-w-0 flex-1" data-testid="ask-detail-value"><CodeValue text={f.value} label={f.name} marks={d.marks} /></span>
+                  ) : (
+                    <span className="min-w-0 whitespace-pre-wrap [overflow-wrap:anywhere]" data-testid="ask-detail-value"><Marked text={f.value} marks={d.marks} /></span>
+                  )}
                 </div>
               ))}
             </div>
           ) : null}
           {/* a detail of named fields only (a room change card's rename: the file and its new name) has no text */}
-          {d.text && <Exact d={d}><DetailText d={d} /></Exact>}
+          {d.text && <Exact d={d}><DetailText d={d} full={full && { ...full, index: i }} /></Exact>}
         </div>
       ))}
     </div>
+  )
+}
+
+/** A script as it runs (a field with `code`: a declared CLI's stdin), in a code block: every space, tab and line as sent,
+ * never wrapped or trimmed (a long line scrolls sideways); the marks highlighted as in any value. */
+function CodeValue({ text, label, marks }: { text: string; label: string; marks?: string[] }) {
+  return (
+    <pre className="scroll-thin max-h-64 overflow-auto rounded bg-subtle px-2 py-1 font-mono text-code-sm leading-5 whitespace-pre [tab-size:4]" tabIndex={0} aria-label={label} data-testid="ask-detail-code">
+      <Marked text={text} marks={marks} />
+    </pre>
   )
 }
 
@@ -449,7 +550,7 @@ function Exact({ d, plain, children }: { d: ConfirmDetail; plain?: boolean; chil
       >
         <span>{open ? t('ask.exactHide') : t('ask.exactShow')}</span>
         {/* open, the size shows beside the text's label (once) */}
-        {!open && !d.noSize && <span className="font-normal text-faint">{t('ask.detailSize', { n: d.text.length })}</span>}
+        {!open && !d.noSize && <span className="font-normal text-faint">{t('ask.detailSize', { n: d.fullChars ?? d.text.length })}</span>}
       </button>
       {open && <div className={plain ? 'mt-1' : 'border-t border-line'}>{children}</div>}
     </div>
@@ -457,26 +558,51 @@ function Exact({ d, plain, children }: { d: ConfirmDetail; plain?: boolean; chil
 }
 
 /** A detail's text: all of it, or with `collapsedAt` its start and the rest one click away (a room change card's
- * preview of what a call writes; the size above always counts all of it). */
-function DetailText({ d, plain }: { d: ConfirmDetail; plain?: boolean }) {
+ * preview of what a call writes; the size above always counts all of it). `markdown` (a message as the room will show
+ * it: post_to_room's card) is formatted with the chat's renderer, in the same scrolling box. */
+function DetailText({ d, plain, full }: { d: ConfirmDetail; plain?: boolean; full?: (FullAt & { index: number }) | null }) {
   const t = useT()
+  const locale = useLocale()
   const [open, setOpen] = useState(false)
-  const long = d.collapsedAt !== undefined && d.text.length > d.collapsedAt
-  const text = long && !open ? `${d.text.slice(0, d.collapsedAt).trimEnd()}…` : d.text
+  /** the whole text of a detail the card carries only the start of (fullChars), read when "Show all" is pressed */
+  const [whole, setWhole] = useState<string | null>(null)
+  const [loading, setLoading] = useState(false)
+  const more = !!d.fullChars && d.fullChars > d.text.length
+  const long = (d.collapsedAt !== undefined && d.text.length > d.collapsedAt) || more
+  const all = whole ?? d.text
+  const text = long && !open ? `${d.text.slice(0, d.collapsedAt ?? d.text.length).trimEnd()}…` : more && !whole ? `${all}…` : all
+  const toggle = async () => {
+    if (open || !more || whole !== null || !full) { setOpen((v) => !v); return }
+    setLoading(true)
+    try {
+      const r = await api.call(API.turnRequestDetail, { params: { id: full.turnId, requestId: full.requestId, index: String(full.index) } })
+      setWhole(r.text)
+      setOpen(true)
+    } catch (e) { toast({ level: 'error', text: errorText(e, locale, t('error.network')) }) } finally { setLoading(false) }
+  }
   return (
     <>
-      <pre
-        className={clsx('scroll-thin max-h-64 overflow-auto font-mono text-code-sm leading-5 whitespace-pre-wrap [overflow-wrap:anywhere]', plain ? 'py-0.5 pl-3' : 'px-3 py-2')}
-        tabIndex={0}
-        aria-label={d.label}
-        data-testid="ask-detail-text"
-      >
-        <Marked text={text} marks={d.marks} alerts={d.alerts} />
-      </pre>
+      {d.markdown ? (
+        <div className={clsx('scroll-thin max-h-64 overflow-auto', plain ? 'py-0.5 pl-3' : 'px-3 py-2')} tabIndex={0} aria-label={d.label} data-testid="ask-detail-text" data-format="markdown">
+          <Markdown text={text} size="small" />
+        </div>
+      ) : (
+        <pre
+          className={clsx('scroll-thin max-h-64 overflow-auto font-mono text-code-sm leading-5 whitespace-pre-wrap [overflow-wrap:anywhere]', plain ? 'py-0.5 pl-3' : 'px-3 py-2')}
+          tabIndex={0}
+          aria-label={d.label}
+          data-testid="ask-detail-text"
+        >
+          <Marked text={text} marks={d.marks} alerts={d.alerts} />
+        </pre>
+      )}
+      {/* the card carries only the start: it says so, with the whole size, before anyone opens it */}
+      {more && !whole && <p className={clsx('text-xs text-muted', plain ? 'mt-1 ml-3' : 'border-t border-line px-3 py-1.5')} data-testid="ask-detail-partial">{t('ask.detailPartial', { shown: (open ? d.text.length : Math.min(d.collapsedAt ?? d.text.length, d.text.length)).toLocaleString(locale), n: d.fullChars!.toLocaleString(locale) })}</p>}
       {long && (
         <button
           type="button"
-          onClick={() => setOpen((v) => !v)}
+          onClick={() => void toggle()}
+          disabled={loading}
           aria-expanded={open}
           className={clsx('block text-left text-xs font-medium text-muted hover:text-ink', plain ? 'mt-1 ml-3 rounded px-0 py-1 underline-offset-2 hover:underline' : 'w-full border-t border-line px-3 py-1.5 hover:bg-hover')}
           data-testid="ask-detail-more"

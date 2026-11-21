@@ -95,21 +95,23 @@ older apps and changes nothing, and a stored `integrations.googleApps.<app>.memb
   have asked for it). So does every change in a chat that read something from outside, a mail included
   ([DECISIONS.md](DECISIONS.md) "Connector write cards: outside content asks"). Scheduled tasks keep the rules of any personal connection: only to recipients the task's card
   pinned, otherwise nothing is sent.
-- In a team chat room, @트리나 may use the asker's own Google apps (only the asker's). What it found goes through the
-  room's private answer: only the asker sees it until they share it.
+- Rooms have no AI of their own (no "@트리나" since 2026-11-09). The ✦ side chat beside a room is a personal chat: it
+  uses the asker's own Google apps like any personal chat, and an answer reaches the room only when the person sends
+  it (**Send to a conversation**).
 - Docs and Sheets read tools say to use `drive_read` for a plain "what does this file say" question, and to use them
   to read a document's structure (paragraphs, cells, ranges) before editing.
 - Gmail attachments are read like a Drive file (PDF text, Hangul, Word, Excel, PowerPoint, pictures through the
-  existing readers), never handed to the AI as base64. A copy goes into the team files only when the person asks: a
-  PDF or a picture with `save_url` (kept for the chat like a connection's file), anything else from its text with the
-  file tools, into the person's own folder unless they name another one. An attachment over about 18 MB is not read
+  existing readers), never handed to the AI as base64. A copy goes into the team files only when the person asks: every
+  attachment is kept for the chat like a connection's file, and `save_connector_file` saves the original bytes (any
+  kind), into the person's own folder unless they name another one
+  ([decision](decisions/20261118-save-connector-file.md)). An attachment over about 18 MB is not read
   (its base64 would not fit in one 25 MB answer): the AI is told so in plain words, from the size the message listed
   (`file_size`, then not fetched at all) or from the answer itself.
 
 ## Shared with the team
 
 An owner or admin can also connect **one Google account per app for the team** (a shared mailbox, a team calendar):
-Admin › Connectors › Gmail (or Calendar, Docs, Sheets) › Team settings › **Shared Google account** › **Connect for the
+Admin › Connected apps › Gmail (or Calendar, Docs, Sheets) › Team settings › **Shared Google account** › **Connect for the
 team**. The dialog signs in at Google, confirms the account, then asks who may use it (everyone, groups or people: the
 same picker as a team connection). Per member stays the default: nothing is shared until an admin connects one and
 saves its people.
@@ -204,7 +206,9 @@ same rule. The answer says `revoked`, `unavailable` or `not_needed`.
   tools that need full Drive access). Read or change by the library's own mark and ours (a change if either says so);
   `get_gmail_attachment_content` counts as a read. A `send_gmail_message` or `draft_gmail_message` call whose
   attachments use a `url` or a `path` is refused before anything is sent (the library would fetch the address or read a
-  file on the server).
+  file on the server). A team file is attached by its handle (`"content": "team-file:<path in the team folder>"`
+  with a `filename`): the server puts the file there after the card, which names it (docs/INTEGRATIONS.md "Reads,
+  writes and the confirmation card"; the two tools' descriptions say how).
 - **Rooms**: the integrations provider gets `room: true` and offers only the asker's own Google apps there; their
   answers add the connection to the read scope as `integration`, so `rooms/ai.ts` decide() keeps the answer private.
 

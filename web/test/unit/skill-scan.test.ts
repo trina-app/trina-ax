@@ -139,7 +139,7 @@ describe('a picked .claude folder', () => {
     expect(await ruleText(new Blob([`API_KEY=${OPENAI}\n`]))).toBeNull()
   })
 
-  test('too big: more than 30 files, a file over 128 KB, a skill over 1 MB: the name only', async () => {
+  test('too big: more than 30 files, a file over 512 KB, a skill over 1 MB: the name only', async () => {
     const many: Node = { 'SKILL.md': skillMd('many') }
     for (let i = 0; i < SKILL_SHARE_LIMITS.skillFiles; i++) many[`note-${i}.md`] = `note ${i}`
     const heavy: Node = { 'SKILL.md': skillMd('heavy') }
@@ -148,7 +148,7 @@ describe('a picked .claude folder', () => {
     const r = await scanFolder(fromHandle(handle('.claude', {
       skills: {
         many,
-        big: { 'SKILL.md': skillMd('big'), 'data.csv': 'x'.repeat(129 * 1024), 'after.md': 'not read' },
+        big: { 'SKILL.md': skillMd('big'), 'data.csv': 'x'.repeat(513 * 1024), 'after.md': 'not read' },
         heavy,
         fine: { 'SKILL.md': skillMd('fine'), 'notes.md': 'x'.repeat(100 * 1024) },
       },

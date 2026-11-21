@@ -6,11 +6,11 @@ import { labelSetup, mobileProduct, mobileService } from './src/product.ts'
 import { IOS_USAGE } from './src/strings.ts'
 
 /** Store version (CFBundleShortVersionString / versionName). The build number must grow with every upload. */
-const VERSION = '1.0.7'
+const VERSION = '1.0.10'
 
 /** `MYCEL_MOBILE_EDITION=<name>` reads editions/<name>/branding/mobile.json (only the fields src/product.ts accepts) and
  * the fixed asset names in editions/<name>/branding/mobile/. Without it the neutral Team AX defaults apply. */
-function edition(projectRoot: string): { values: unknown; service: unknown; source: unknown; assets: Record<'icon' | 'adaptive' | 'splash' | 'notification', string> | null } {
+function edition(projectRoot: string): { values: unknown; service: unknown; source: unknown; assets: (Record<'icon' | 'adaptive' | 'splash' | 'notification', string> & { adaptiveBackground?: string; splashDark?: string }) | null } {
   const name = process.env.MYCEL_MOBILE_EDITION
   if (!name) return { values: undefined, service: undefined, source: undefined, assets: null }
   if (!/^[a-z][a-z0-9-]{0,30}$/.test(name)) throw new Error('MYCEL_MOBILE_EDITION must be an edition folder name')
@@ -22,7 +22,10 @@ function edition(projectRoot: string): { values: unknown; service: unknown; sour
   const service = optional('service.json'), source = optional('source.json')
   const file = (n: string) => path.join(dir, 'mobile', n)
   const assets = { icon: file('icon.png'), adaptive: file('adaptive-icon.png'), splash: file('splash-icon.png'), notification: file('notification-icon.png') }
-  return { values, service, source, assets: Object.values(assets).every(f => fs.existsSync(path.join(projectRoot, f))) ? assets : null }
+  if (!Object.values(assets).every(f => fs.existsSync(path.join(projectRoot, f)))) return { values, service, source, assets: null }
+  // optional: the Android icon's background picture (else the background colour) and the launch screen's dark-mode mark
+  const extra = (n: string) => fs.existsSync(path.join(projectRoot, file(n))) ? file(n) : undefined
+  return { values, service, source, assets: { ...assets, adaptiveBackground: extra('adaptive-background.png'), splashDark: extra('splash-icon-dark.png') } }
 }
 
 function buildNumber(): string {
@@ -51,6 +54,10 @@ export default ({ config, projectRoot }: ConfigContext): ExpoConfig => {
     ...(chosen.assets ? { icon: chosen.assets.icon } : {}),
     ios: {
       supportsTablet: false, bundleIdentifier: product.bundleId, buildNumber: build,
+      // iOS 18+ draws the Dark and Tinted home screen styles, Notification Center and the lock screen from the icon's
+      // dark and tinted appearances; with none it darkens the icon itself, a black tile in every notification while the
+      // system is dark. The edition's one tile for all three (Trina: the light paper tile, owner 2026-11-16).
+      ...(chosen.assets ? { icon: { light: chosen.assets.icon, dark: chosen.assets.icon, tinted: chosen.assets.icon } } : {}),
       ...(product.appleTeamId ? { appleTeamId: product.appleTeamId } : {}),
       // universal links: the App ID needs the Associated Domains capability before a signed build (STORE-SUBMISSION.md)
       ...(linkHost ? { associatedDomains: [`applinks:${linkHost}`] } : {}),
@@ -68,11 +75,13 @@ export default ({ config, projectRoot }: ConfigContext): ExpoConfig => {
     },
     android: {
       package: product.bundleId, versionCode: Number(build),
-      ...(chosen.assets ? { adaptiveIcon: { foregroundImage: chosen.assets.adaptive, backgroundColor: background } } : {}),
+      ...(chosen.assets ? { adaptiveIcon: { foregroundImage: chosen.assets.adaptive, backgroundColor: background, ...(chosen.assets.adaptiveBackground ? { backgroundImage: chosen.assets.adaptiveBackground } : {}) } } : {}),
       // Camera and microphone for the team page (photo attachment, voice input), as on iOS. Android's WebView has no
       // per-origin grant, but only the team's own origin is ever a top-level page here (src/protocol.ts) and a
       // cross-origin frame cannot ask without the team page delegating it (Permissions Policy). No overlay windows.
-      permissions: ['android.permission.CAMERA', 'android.permission.RECORD_AUDIO'],
+      // MODIFY_AUDIO_SETTINGS (a normal permission, granted at install, no prompt): Chromium's WebView opens no audio
+      // input without it, so getUserMedia failed with the microphone allowed (1.0.8, QA TC-4740).
+      permissions: ['android.permission.CAMERA', 'android.permission.RECORD_AUDIO', 'android.permission.MODIFY_AUDIO_SETTINGS'],
       blockedPermissions: ['android.permission.SYSTEM_ALERT_WINDOW'],
       // app links: verified against https://<team domain>/.well-known/assetlinks.json (a wildcard host is checked at its
       // root); until then Android offers the app in its chooser
@@ -88,7 +97,8 @@ export default ({ config, projectRoot }: ConfigContext): ExpoConfig => {
       // aps-environment entitlement; Xcode's App Store export switches it to production.
       // Android's status bar icon is a white silhouette (otherwise the system shows a plain circle)
       ['expo-notifications', { defaultChannel: 'default', ...(chosen.assets ? { icon: chosen.assets.notification, color: product.accent } : {}) }],
-      ['expo-splash-screen', { backgroundColor: background, ...(chosen.assets ? { image: chosen.assets.splash, imageWidth: 112 } : {}) }],
+      // the launch screen follows the phone's light or dark mode when the edition has a dark mark (backgroundDark)
+      ['expo-splash-screen', { backgroundColor: background, ...(chosen.assets ? { image: chosen.assets.splash, imageWidth: 112 } : {}), ...(chosen.assets?.splashDark && product.backgroundDark ? { dark: { backgroundColor: product.backgroundDark, image: chosen.assets.splashDark } } : {}) }],
       // target 36 (Play's requirement since 2026-08-31); compile against 37, which the SDK 58 modules require
       ['expo-build-properties', { android: { targetSdkVersion: 36, compileSdkVersion: 37 } }],
       // release signing from the environment, never from a file in the repository (scripts/android-release.sh)

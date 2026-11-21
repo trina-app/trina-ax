@@ -3,6 +3,7 @@
 // (the mock refuses it like the server). The admin screen sets who may pick and "다른 AI로 대신 답하기", with its
 // warning that data also goes to the other AI's company, unavailable while Codex is off.
 import { expect, test, type Page } from '@playwright/test'
+import { CSRF_HEADER } from '@mycel/shared/api'
 import { OWNER, realErrors, reset, signIn, watchConsole } from './helpers'
 
 const BOB = { username: 'bob', password: 'bob password 1' }
@@ -56,6 +57,22 @@ test('the owner picks: composer picker, "retry with another model", own default 
   await expect(page.getByTestId('my-engine-select')).toHaveValue('codex')
   await page.getByTestId('my-engine-select').selectOption('')
   await expect(page.getByTestId('my-model-select')).toHaveCount(0)
+})
+
+test('one engine with two models: the picker lists the models only, and a pick is sent (AI parity QA AP-032)', async ({ page }) => {
+  await reset(page)
+  await signIn(page, OWNER)
+  expect((await page.request.patch('/api/admin/engines', { headers: { [CSRF_HEADER]: '1' }, data: { enabled: { codex: false } } })).ok()).toBeTruthy()
+  await page.reload()
+  await expect(page.getByTestId('engine-picker')).toBeVisible()
+  await page.getByTestId('engine-picker').click()
+  const list = page.getByRole('listbox', { name: 'AI 고르기' })
+  // the models of Claude only: no engine row ("기본 모델"), no ChatGPT
+  await expect(list.getByRole('option')).toHaveText(['Sonnet', 'Opus'])
+  await list.getByRole('option', { name: 'Opus' }).click()
+  await expect(page.getByTestId('engine-picker')).toContainText('Claude · Opus')
+  await ask(page, 'hello')
+  await expect.poll(async () => (await engineRequests(page)).map((r) => r.model ?? null)).toContain('claude-opus')
 })
 
 test('saving the AI defaults keeps ticks not saved yet under who picks the engine (QA TC-217)', async ({ page }) => {
@@ -114,7 +131,7 @@ test('the admin lets a member pick; the member sees the picker without reloading
   // Codex off: the fallback is off and cannot be turned on
   await page.reload()
   await expect(card.getByLabel('다른 AI로 대신 답하기')).toBeChecked()
-  // the switch is on Admin › Providers; back in Team settings the fallback follows it
+  // the switch is on Admin › AI providers; back in Team settings the fallback follows it
   await page.goto('/admin/providers')
   await page.locator('[data-engine="codex"] label').filter({ has: page.getByTestId('engine-switch-codex') }).click()
   await expect(page.getByTestId('engine-switch-codex')).not.toBeChecked()

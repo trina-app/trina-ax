@@ -146,7 +146,7 @@ describe('over the API', () => {
     setSetting(h.ctx.db, 'defaultLocale', 'ja')
     try {
       const c = skillPackCatalog(h.ctx, 'dana', 'ja')
-      expect(c.skills.map((s) => s.title)).toEqual(['Company profile', 'Promo cards', 'Promo video', 'Natural writing'])
+      expect(c.skills.map((s) => s.title)).toEqual(['Company slide deck', 'Promo cards', 'Promo video', 'Natural writing'])
       expect(c.skills.every((s) => s.locale === 'en')).toBe(true)
       // the English examples, made on "Example Coffee"
       expect(c.skills.map((s) => (s.example?.kind === 'image' ? s.example.url : s.example?.kind))).toEqual(['/skill-examples/en/intro-deck.webp', '/skill-examples/en/card-news.webp', '/skill-examples/en/promo-video.webp', 'text'])

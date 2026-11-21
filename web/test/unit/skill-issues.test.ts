@@ -53,7 +53,8 @@ test('the name text of a SKILL.md gives the folder name; a legacy file has its o
 test('every language names the rule of a SKILL.md name', () => {
   for (const m of [ko, en, es, id, ja]) {
     const text = m['skills.issues.name']
-    for (const part of ['a', 'z', '0', '9', '64', '{folder}']) expect(text).toContain(part)
+    // #1069: letters in any language, so the text names the length and the folder, not a-z / 0-9
+    for (const part of ['64', '{folder}']) expect(text).toContain(part)
     expect(m['skills.issues.name_legacy']).toContain('60')
   }
 })

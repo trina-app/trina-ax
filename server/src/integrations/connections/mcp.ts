@@ -24,10 +24,22 @@ export const MCP_LIST_MAX_PAGES = 20
  * and the check when its pages are not all in MCP_LIST_TIMEOUT_MS after it began, instead of the 30 s each of other
  * requests (net.ts). A big list can come slowly: Higgsfield sent its 1.07 MB at 17-38 KB/s in 2026-11, 30-65 s, and
  * the 30 s cut it every time. 90 s stays under what the person's "Check again" request may wait (the relay's 100 s for
- * an answer to start, the server's 120 s idle limit, main.ts). Tool calls keep the 30 s; a turn never reads the list
- * (it uses the saved one, store.ts savedTools). */
+ * an answer to start, the server's 120 s idle limit, main.ts). A turn never reads the list (it uses the saved one,
+ * store.ts savedTools). */
 export const MCP_LIST_IDLE_MS = 30_000
 export const MCP_LIST_TIMEOUT_MS = 90_000
+/** a tools/call waits for its answer for as long as the service keeps working on it: it fails when nothing at all comes
+ * for MCP_CALL_IDLE_MS (the bytes of an event stream count: the progress notifications we ask for with a progressToken,
+ * pings, log messages), and in any case MCP_CALL_TIMEOUT_MS after it began. It used to have the 30 s of other requests,
+ * which cut every web scrape (Bright Data's LinkedIn scrapers answer in 1-2 minutes, silently, in 2026-11). 5 minutes:
+ * a scrape or a render that sends nothing until it is done finishes; a service that has hung is told apart within
+ * that. 15 minutes in all: under the 30 minutes the engines wait for one of our tool calls (engine/claude.ts
+ * MCP_TOOL_TIMEOUT_MS, engine/codex.ts CODEX_TOOL_TIMEOUT_SEC), so the AI gets our plain reason, not the engine's
+ * timeout, and a service that keeps trickling bytes cannot hold a turn for ever (the turn's stall guard waits while
+ * our tool runs, chat/turn.ts ownCallStarted). Stop ends the call at once (the turn's signal) and tells the service
+ * (notifications/cancelled). */
+export const MCP_CALL_IDLE_MS = 5 * 60_000
+export const MCP_CALL_TIMEOUT_MS = 15 * 60_000
 const KNOWN_VERSIONS = new Set(['2024-11-05', '2025-03-26', '2025-06-18', '2025-11-25'])
 /** tools kept per connection: every tool a service lists, up to this hard ceiling (docs/DECISIONS.md "Connection
  * tools: deferred, found and called"). A turn offers what fits its budget as tools and the rest through find_tools /
@@ -101,6 +113,8 @@ export class McpClient {
       // an event stream may stay open after our reply: stop reading once it is in
       until: id ? (body, head) => /text\/event-stream/i.test(head.headers['content-type'] ?? '') && !!findReply(sseEvents(body.toString('utf8')).map(parse), id) : undefined,
     }
+    // a long call keeps the session in use while it runs (service.ts CLIENT_IDLE_MS)
+    this.usedAt = Date.now()
     const res = this.send ? await this.send(this.url, req) : await serviceRequest(this.url, req, this.net)
     this.usedAt = Date.now()
     if (read) read.bytes += res.body.length
@@ -188,9 +202,23 @@ export class McpClient {
     return { tools, more: full || !!cursor, total: seen.size, unread: !!cursor }
   }
 
+  /** One tools/call: MCP_CALL_IDLE_MS without a byte, MCP_CALL_TIMEOUT_MS in all (the session's start keeps its 30 s).
+   * Its own id is the progressToken, so a service that reports progress keeps the call alive. Stopped by `signal` (Stop,
+   * the turn's end) or by those limits: the request is closed and the service told, as MCP asks (notifications/cancelled),
+   * so it can stop its work too. */
   async callTool(name: string, args: unknown, signal?: AbortSignal): Promise<Record<string, any>> {
     await this.start(signal)
-    return (await this.request('tools/call', { name, arguments: args && typeof args === 'object' ? args : {} }, { signal, maxBytes: MCP_CALL_MAX_BYTES })) ?? {}
+    const id = crypto.randomUUID()
+    const deadline = Date.now() + (this.net.callTimeoutMs ?? MCP_CALL_TIMEOUT_MS)
+    const long = { deadline, idleMs: this.net.callIdleMs ?? MCP_CALL_IDLE_MS, reason: 'call_timeout' as const, idleReason: 'call_idle' as const }
+    const params = { name, arguments: args && typeof args === 'object' ? args : {}, _meta: { progressToken: id } }
+    try {
+      return (await this.post({ jsonrpc: '2.0', id, method: 'tools/call', params }, { signal, maxBytes: MCP_CALL_MAX_BYTES, long })) ?? {}
+    } catch (e) {
+      // stopped here: the service may stop its work too (best effort, never waited for)
+      if (signal?.aborted || (e instanceof NetError && (e.reason === 'call_idle' || e.reason === 'call_timeout'))) this.post({ jsonrpc: '2.0', method: 'notifications/cancelled', params: { requestId: id, reason: signal?.aborted ? 'stopped' : 'timed out' } }).catch(() => {})
+      throw e
+    }
   }
 }
 
@@ -215,8 +243,9 @@ export function toolOf(t: unknown, hide: Hide = keep): RemoteTool | null {
   try { json = JSON.stringify(hideDeep(schema, hide)) } catch { return null }
   if (json.length > MAX_SCHEMA_CHARS) return null
   const title = clean(x.title ?? x.annotations?.title, 200, hide) || null
-  // readOnly is the remote server's own readOnlyHint (not checked here): it decides the room card and, for a scheduled
-  // run's result, whether a failed call is a look-up (chat/schedule-outcome.ts). It never hides a refused change of our
-  // own tools
-  return { name: x.name, title, description: clean(x.description, MAX_DESCRIPTION, hide), readOnly: x.annotations?.readOnlyHint === true, inputSchema: JSON.parse(json) }
+  // readOnly is the remote server's own readOnlyHint (not checked here), never with destructiveHint (a tool that says
+  // both is taken as a change; QA TC-4900): it decides the room card and, for a scheduled run's result, whether a failed
+  // call is a look-up (chat/schedule-outcome.ts). It never hides a refused change of our own tools. In a shared chat
+  // the name must agree too (read-mark.ts)
+  return { name: x.name, title, description: clean(x.description, MAX_DESCRIPTION, hide), readOnly: x.annotations?.readOnlyHint === true && x.annotations?.destructiveHint !== true, inputSchema: JSON.parse(json) }
 }

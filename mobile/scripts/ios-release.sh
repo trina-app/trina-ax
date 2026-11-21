@@ -61,6 +61,11 @@ ipa="$(ls "$out"/export/*.ipa | head -1)"
 # The app must read the edition's config at runtime, not the neutral one.
 unzip -p "$ipa" 'Payload/*.app/EXConstants.bundle/app.config' > "$out/app.config.json"
 node -e "const c=JSON.parse(require('fs').readFileSync(process.argv[1],'utf8')),want=require(process.argv[2]);if(c.name!==want.name||c.extra?.teamAxEdition?.bundleId!==want.bundleId){console.error('embedded app.config is not the edition ('+c.name+')');process.exit(1)}" "$out/app.config.json" "$edition_json"
+# The icon as compiled (QA TC-5587): an opaque light tile in the light, dark and tinted appearances, or iOS draws a
+# black tile in Notification Center and on the lock screen while the phone is dark (scripts/check-ios-icon.mjs).
+unzip -p "$ipa" 'Payload/*.app/Assets.car' > "$out/Assets.car"
+xcrun assetutil --info "$out/Assets.car" > "$out/assets.json"
+node scripts/check-ios-icon.mjs < "$out/assets.json"
 # The export signs with the distribution profile: push must be production there. Files, not pipes, so set -o pipefail
 # cannot turn an early-exiting reader into a false warning.
 unzip -p "$ipa" 'Payload/*.app/embedded.mobileprovision' > "$out/embedded.mobileprovision" 2>/dev/null || true

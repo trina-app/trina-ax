@@ -9,9 +9,12 @@
 // A shared project chat (Chat.shared, docs/DECISIONS.md "Shared project chats"): the people of its project see it and may
 // continue it. The header has its mark, the line under the box says how many see it, other people's messages carry
 // their names, and only what the person may do is offered (rename and the engine: its creator; delete: its creator or a
-// project editor; stop: whoever asked; edit and regenerate: their own messages; no move, no queued sends, team files
-// only). While someone else's question is answered the box holds the text with a line saying whose; the others get no
-// live text, so the messages are read again when that turn starts and ends. While safe operations are on it is read-only.
+// project editor; stop: whoever asked; edit and regenerate: their own messages; no move, team files only). A message
+// sent while an answer runs, mine or someone else's, waits under the conversation as in a private chat; the server sends
+// the waiting messages of different people in the order they were queued, and the others see only how many wait
+// (docs/decisions/20261118-shared-chat-queued-sends.md). While someone else's question is answered a line above the box
+// says whose; the others get no live text, so the messages are read again when that turn starts and ends. While safe
+// operations are on it is read-only.
 // Files from this computer dropped anywhere on the screen (its header, the messages, the box) go into the box
 // (components/FileDropZone.tsx); a chat in the trash or a read-only one says why nothing can be attached.
 // `?answer=<messageId>` (an item of the widening list, components/WideningList.tsx): the branch holding that answer, for
@@ -24,23 +27,23 @@ import { GuestNoAi, useGuestNoAi } from '../components/GuestView'
 import AiAccessBanner from '../components/chat/AiAccessBanner'
 import { isNoAiReason } from '../lib/aiAccess'
 import { ResultSuggestion } from '../components/onboarding/ResultSuggestion'
-import { ChevronLeft, Globe, Loader2, RotateCcw, Trash2 } from 'lucide-react'
+import { ArrowDown, ChevronLeft, Globe, Loader2, RotateCcw, Trash2 } from 'lucide-react'
 import { Fragment, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { chatErrorReason, uuidv7, type Attachment, type Chat, type EngineId, type Project } from '@mycel/shared/api'
 import { api, API, errorText, isApiError } from '../lib/api'
-import { isPeopleShared, noLongerMemberOf, noLongerSharedWith, privateInTeamProject, refusalKey, refusalReason, sharedRights } from '../lib/sharedChat'
+import { isPeopleShared, noLongerMemberOf, noLongerSharedWith, privateInTeamProject, refusalKey, refusalReason, shareKindOf, sharedRights } from '../lib/sharedChat'
 import { answerTooLong, BoxAnswers, choiceWaiting, composerAnswer, composerQuestion, picksOf } from '../lib/askAnswer'
 import { desktop, isDesktop, usePaneState } from '../lib/desktop'
 import { rememberChat } from '../lib/teamAttach'
 import { readDraft } from '../lib/localData'
 import { fromWire } from '../lib/roomRefs'
 import { useBackLink } from '../lib/back'
-import { openHome } from '../lib/screenHistory'
 import { aiName } from '../lib/tabs'
 import { formatDate } from '../lib/format'
 import { chatPurgeAt, chatTrashDays } from '../lib/chat-trash'
-import { CHAT_ROW, holdPlace, listPlace, restorePlace, useStickToBottom } from '../lib/stickToBottom'
+import { focusInPlace, linkedAnswer, linkedStep } from '../lib/linkedAnswer'
+import { CHAT_ROW, farFromBottom, holdPlace, listPlace, restorePlace, useStickToBottom } from '../lib/stickToBottom'
 import { useWaitingMerge } from '../lib/mergeStart'
 import { useLocale, useT } from '../i18n'
 import { chatEnd, chatPlace, keepChatPlace, showThrough, useChats } from '../store/chats'
@@ -48,9 +51,12 @@ import { freshDraft, useWideningDraft } from '../store/wideningDraft'
 import { useSessionMarkers } from '../store/sessionMarkers'
 import { useEngines } from '../store/engines'
 import { canChooseEngine, isAdmin, useMeStrict } from '../store/session'
+import { useRooms } from '../store/rooms'
+import { isGuestMe } from '../lib/guests'
 import { emptyThread, rowButtonsWait, runningMessage, type ViewMessage } from '../store/thread'
 import { QueueFull, useSendQueue } from '../store/sendQueue'
 import { toast } from '../store/ui'
+import { LinkAskAccess } from '../components/LinkAskAccess'
 import Composer, { type ComposerHandle, type EngineChoice } from '../components/chat/Composer'
 import { changeChat, trashChat, useChatActions } from '../components/chat/chatActions'
 import { AssistantMessage, UserMessage } from '../components/chat/Messages'
@@ -62,7 +68,10 @@ import { ChatTitleMenu } from '../components/chat/ChatTitleMenu'
 import { PrivateChatMark, SharedChatMark, SharedReadOnly } from '../components/chat/SharedChat'
 import { WhoSeesLine } from '../components/chat/WhoSees'
 import { askPrivately, askPrivatelyHome, lastOwnQuestion } from '../components/chat/privateAsk'
-import { openChatShare, useSharedWithNames } from '../components/chat/ChatShareDialog'
+import { openChatShare, startShare, useSharedWithNames } from '../components/chat/ChatShareDialog'
+import { HeaderShare, WhoSeesWords } from '../components/HeaderShare'
+import { ProjectRoomButton } from '../components/rooms/ProjectRoomButton'
+import { PeopleStack, useProjectPeople } from '../components/ProjectPeople'
 import { ProjectMembersDialog } from '../components/ProjectMembersDialog'
 import { useProjects } from '../store/projects'
 import { useTrashLines } from '../components/ProjectTrashNote'
@@ -70,21 +79,25 @@ import { Button, CopyButton, EmptyState, IconButton, Skeleton, confirmDialog, us
 import { LoadError } from '../components/LoadError'
 import { Tooltip } from '../components/Tooltip'
 import { FileDropZone } from '../components/FileDropZone'
-import { AiMark } from '../components/rooms/AiFace'
+import { isolate } from '../components/handover/isolate'
+import { RoomSideColumn } from '../components/rooms/RoomSideColumn'
+import { ChatThreadPanel } from '../components/chat/ChatThreadPanel'
+import { closeSidePanel, useSidePanel } from '../lib/sidePanel'
 import { useFolderWords } from '../lib/folderLabels'
 
 /** Where a link goes inside a translated sentence ({projects} in chat.notFoundManage): split there. */
 const SLOT = '\u0000'
 
 export default function ChatPage() {
-  const { chatId } = useParams()
+  const { chatId, messageId } = useParams()
   // ?answer= read again when it changes on the same chat (an answer of the widening list opened from this chat's own
   // Share dialog on a phone)
   const [params] = useSearchParams()
-  return <ChatView key={`${chatId}:${params.get('answer') ?? ''}`} chatId={chatId!} />
+  // /c/:chatId/t/:messageId: the thread under that answer, beside the chat (the same view: the chat stays as it was)
+  return <ChatView key={`${chatId}:${params.get('answer') ?? ''}`} chatId={chatId!} threadRoot={messageId ?? null} />
 }
 
-function ChatView({ chatId }: { chatId: string }) {
+function ChatView({ chatId, threadRoot }: { chatId: string; threadRoot: string | null }) {
   // ?answer=: this view shows that answer's branch; what is in memory for the chat may be another branch, so it is read
   // again (before the first read below)
   const [params] = useSearchParams()
@@ -119,7 +132,8 @@ function ChatView({ chatId }: { chatId: string }) {
   const chatFromList = useChats((s) => s.chats.find((c) => c.id === chatId) ?? s.others[chatId])
   // a chat opened from a list that already holds it (a project page's rows: someone else's shared chat is not in my list
   // yet) shows its title, crumb and people on the first frame, before the read comes back (QA TC-1293)
-  const handed = (useLocation().state as { chat?: Chat } | null)?.chat
+  const location = useLocation()
+  const handed = (location.state as { chat?: Chat } | null)?.chat
   const [chat, setChat] = useState<Chat | null>(chatFromList ?? (handed?.id === chatId ? handed : null))
   const thread = useChats((s) => s.threads[chatId]) ?? emptyThread()
   const { loadThread, loadOlder, send, stop, regenerate, edit, selectBranch, upsertChat, discardLocal } = useChats.getState()
@@ -131,14 +145,21 @@ function ChatView({ chatId }: { chatId: string }) {
   const { scroller, content, stick } = list
   const composer = useRef<ComposerHandle>(null)
   const guestNoAi = useGuestNoAi()
+  const guestHere = isGuestMe(me)
   const [olderBusy, setOlderBusy] = useState(false)
+  // the reader scrolled up far from the newest message: a round button above the box takes them back (QA AP-043)
+  const [away, setAway] = useState(false)
+  useEffect(() => { setAway(false) }, [chatId])
   const models = useEngines((s) => s.models)
   const engines = useEngines((s) => s.engines)
   const loadEngines = useEngines((s) => s.load)
   // the engine / model are the admin's choice: the picker and "retry with another model" only for people allowed
   const choose = canChooseEngine(me)
   // "대화방에 보내기" only from a chat known not to be confidential (Safe operations 1A: every chat while the server says so)
-  const shareable = !!chat && !chat.confidential && !me.server.allChatsConfidential
+  // a guest with no conversation to send to (a project's guest, usually): no button that opens an empty list (guest
+  // walkthrough S1). A member always has the everyone room
+  const guestNowhere = useRooms((s) => isGuestMe(me) && s.loaded && !s.failed && s.rooms.length === 0)
+  const shareable = !!chat && !chat.confidential && !me.server.allChatsConfidential && !guestNowhere
   const actions = useChatActions()
   // a shared project chat: what this person may do in it, whose question is being answered (not mine), and read-only
   // while safe operations are on
@@ -182,6 +203,21 @@ function ChatView({ chatId }: { chatId: string }) {
       openLabel={people ? t('chat.share.changeWho') : undefined}
     />
   ) : undefined
+  // Share at the top right of the header (docs/DECISIONS.md "Share in the title row"; components/HeaderShare.tsx), the
+  // one place to share a chat (the title menu has no Share any more): what the title menu's Share opened (shareKindOf:
+  // the Share dialog of my chat outside projects, the members' share of my private chat in a team project, the
+  // explanation with Move of my chat in a personal project); on a shared project chat, the project's members dialog for
+  // whoever may change them (as the line under the box). Anyone else: no button, who sees it stays beside where it was.
+  const shareKind = chat && !chat.deletedAt ? shareKindOf(chat, project, me.user.id, !!me.server.allChatsConfidential) : null
+  const projectChat = !!shared && !people
+  const onShare = shareKind ? () => startShare({ id: chat!.id, title: chat!.title ?? title, projectId: chat!.projectId, shared: chat!.shared }, shareKind) : projectChat && project?.membersEditable && !chat?.deletedAt ? () => setMembers(true) : undefined
+  // who sees it, beside Share (a computer; a phone's line under the box says it): a shared project chat by its project's
+  // faces (they open the members, read only for whoever cannot change them), else in words
+  const projectPeople = useProjectPeople(projectChat && project ? project : null)
+  const faces = projectChat && projectPeople && projectPeople.people.length > 1 ? projectPeople.people : null
+  const whoWords = !chat ? null : !shared ? t('chat.whoMe') : shared.audienceHidden ? t('chat.sharedLabel') : t('projects.visibilityPeople', { n: shared.audience })
+  const headerWho = faces ? <PeopleStack people={faces} onOpen={() => setMembers(true)} testId="chat-header" />
+    : whoWords ? <WhoSeesWords words={whoWords} onOpen={people && rights.creator && !chat?.deletedAt ? () => openChatShare(chat!) : projectChat && project ? () => setMembers(true) : undefined} testId="chat-who-sees" /> : null
   // someone else's chat shared with me: when it can't be opened any more, it says so (QA TC-1405)
   const wasSharedWithMe = useRef(false)
   if (people && shared && shared.by.id !== me.user.id) wasSharedWithMe.current = true
@@ -233,7 +269,8 @@ function ChatView({ chatId }: { chatId: string }) {
   const messages = thread.messages
   const running = runningMessage(messages)
 
-  // ?answer=: scroll to it and light it for a moment, once it is read; gone (or hidden from me): say so
+  // ?answer=: scroll to it and mark it (`data-focused`, no look: only the place) for a moment, once it is read; gone (or
+  // hidden from me): say so
   const focused = useRef(false)
   useEffect(() => {
     if (!focusAnswer || focused.current || loading || loadError) return
@@ -264,8 +301,10 @@ function ChatView({ chatId }: { chatId: string }) {
   // a shared chat: the running answer is mine to stop only when I asked; someone else's turn holds the box instead
   const runningMine = shared ? (!!running && mine(askedBy(running))) || messages.some((m) => m.local?.state === 'sending') : busy
 
-  // a shared chat: someone else's turn started or ended. Its question and answer are not streamed to the others (phase
-  // 1): the messages are read again, so they appear
+  // a shared chat: someone else's turn started or ended. Their question is not sent to the others as an event: the
+  // messages are read again, so it appears with the answer's text so far, and the answer's live text, steps and end
+  // follow as events (docs/decisions/20261118-shared-chat-live-answers.md); read again at the end too, in case one was
+  // missed
   const othersTurnNow = !!othersTurn
   const wasOthersTurn = useRef<boolean | null>(null)
   useEffect(() => {
@@ -319,10 +358,11 @@ function ChatView({ chatId }: { chatId: string }) {
     const el = scroller.current
     if (!el) return
     list.onScroll()
+    setAway(farFromBottom(el))
     if (el.scrollTop < 200 && thread.nextCursor && !olderBusy) {
       setOlderBusy(true)
       // the message in sight stays where it is (lib/stickToBottom.ts holdPlace)
-      const keep = holdPlace(el, CHAT_ROW)
+      const keep = holdPlace(el, CHAT_ROW, list.reanchor)
       await loadOlder(chatId).catch(() => {})
       requestAnimationFrame(keep)
       setOlderBusy(false)
@@ -368,11 +408,11 @@ function ChatView({ chatId }: { chatId: string }) {
   const onSend = async (text: string, attachments: Attachment[]) => {
     stick.current = true
     const author = { id: me.user.id, name: me.user.name }
-    if (shared) return sendShared(text, attachments, author)
     const queue = useSendQueue.getState()
     const waiting = queue.queues[chatId]
-    // an answer is running (or messages already wait): this one waits too and goes when the answer is done
-    if (busy || waiting?.items.length) {
+    // an answer is running (or messages already wait): this one waits too and goes when the answer is done. A shared
+    // chat: also while someone else's question is answered, or someone else's messages wait (theirs go first)
+    if (busy || waiting?.items.length || (shared && (othersTurn || shared.waiting))) {
       // nothing runs, but earlier messages were paused (stopped / failed answer): sending now takes them along, in order
       if (!busy && waiting?.paused) return queue.sendNow(chatId, { content: text, attachments, author })
       try {
@@ -384,21 +424,30 @@ function ChatView({ chatId }: { chatId: string }) {
       announce(t('outbox.waitingOne'))
       return
     }
+    if (shared) return sendShared(text, attachments, author)
     await send({ chatId, content: text, attachments, author })
   }
 
-  /** A shared chat: nothing waits to be sent (the box holds the text while an answer runs). A refusal (someone else's
-   * question began a moment ago, safe operations, a computer file) takes the message back and keeps the text in the box
-   * with the reason; the chat is read again, so the box says whose turn it is. */
+  /** A shared chat with nothing running or waiting. Someone else's question began a moment ago, or their messages wait
+   * (409 shared_chat_busy / shared_chat_next): the message waits under the conversation like any sent during an answer.
+   * Another refusal (safe operations, a computer file) takes the message back and keeps the text in the box with the
+   * reason; the chat is read again, so the box says whose turn it is. */
   const sendShared = async (text: string, attachments: Attachment[], author: { id: string; name: string }) => {
-    // (the box does not send then; a suggestion's button might: the text stays with the line's words)
-    if (othersTurn) throw new Error(t(othersTurn.waiting ? 'chat.sharedWaiting' : 'chat.sharedBusy', { name: othersTurn.name }))
     const clientMessageId = uuidv7()
     const r = await send({ chatId, content: text, attachments, author, clientMessageId })
     const refused = (e: unknown): Error | null => {
       if (!refusalReason(e) && !isApiError(e, 'conflict')) return null // shown on the message ("not sent", send again)
       const local = useChats.getState().threads[chatId]?.messages.find((m) => m.local?.clientMessageId === clientMessageId)
       if (local) discardLocal(chatId, local.id)
+      const reason = isApiError(e, 'conflict') ? e.body.params?.reason : null
+      if (reason === 'shared_chat_busy' || reason === 'shared_chat_next') {
+        try {
+          useSendQueue.getState().enqueue(me.user.id, chatId, { content: text, attachments, author })
+          announce(t('outbox.waitingOne'))
+          void api.call(API.getChat, { params: { id: chatId } }).then((c) => { setChat(c); upsertChat(c) }, () => {})
+          return null
+        } catch { /* too many waiting: the box keeps the text with the reason below */ }
+      }
       void api.call(API.getChat, { params: { id: chatId } }).then((c) => { setChat(c); upsertChat(c) }, () => {})
       const key = refusalKey(e, 'chat')
       return new Error(key ? t(key) : errorText(e, locale, t('error.network')))
@@ -457,6 +506,89 @@ function ChatView({ chatId }: { chatId: string }) {
     composer.current?.prepareDraft(path ? t('files.summary.askOwnFolderPromptFiles', { path: folderWords.path(path, ' › ') }) : t('files.summary.askOwnFolderHiddenPromptFiles'))
   }
 
+  // threads on a shared chat's answers (docs/decisions/20261116-chat-answer-threads.md): opened from this chat it is one
+  // step back from it (‹, ✕, Esc, the browser's back); from a link or a notice it closes to the chat in its place. One
+  // thing beside the chat at a time: a thread closes a file or artifact panel, and one of those closes the thread
+  const fromChat = !!(location.state as { fromChat?: boolean } | null)?.fromChat
+  const threadFocus = !!(location.state as { focus?: boolean } | null)?.focus
+  // what opened the thread ("Reply in thread", or the line under the answer): closing it puts the focus back there, never
+  // on the page (QA TC-3888); a thread opened from a link goes back to its answer's line
+  const opener = useRef<{ id: string; button: boolean } | null>(null)
+  const focusBack = useRef(true)
+  const lastThread = useRef(threadRoot)
+  useEffect(() => {
+    const was = lastThread.current
+    lastThread.current = threadRoot
+    if (!was || threadRoot) return
+    const back = focusBack.current
+    focusBack.current = true
+    if (!back) return
+    const button = opener.current?.id === was && opener.current.button
+    requestAnimationFrame(() => {
+      const row = scroller.current?.querySelector(`[data-message-id="${CSS.escape(was)}"]`)
+      const pick = (id: string) => row?.querySelector<HTMLElement>(`[data-testid="${id}"]`) ?? null
+      focusInPlace(button ? pick('reply-in-thread') ?? pick('chat-thread-line') : pick('chat-thread-line') ?? pick('reply-in-thread'))
+    })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [threadRoot])
+  const openThread = (id: string, focus: boolean) => {
+    opener.current = { id, button: focus }
+    closeSidePanel()
+    navigate(`/c/${chatId}/t/${id}`, { replace: !!threadRoot, state: { fromChat: threadRoot ? fromChat : true, focus, here: true } })
+  }
+  // a thread opened from outside this chat (an Activity row, a push tap, a link): the chat goes to the answer it is under
+  // and marks it (`data-focused`, no look) for a moment, reading older pages to find it (lib/linkedAnswer.ts); one opened
+  // here leaves it as it was
+  const lightAnswer = (id: string) => {
+    const el = scroller.current?.querySelector<HTMLElement>(`[data-message-id="${CSS.escape(id)}"]`)
+    if (!el) return
+    // at once, not in the next frame: a scroll event of the list's own jump to its bottom, still on its way, would make it
+    // follow the bottom again first (onListScroll near the bottom), and the answer would be pushed out of sight. Then the
+    // browser's scroll anchoring on again, so what grows later (a picture, the chat narrowing beside the thread) keeps it
+    // in place
+    el.scrollIntoView({ block: 'center' })
+    stick.current = false
+    list.reanchor()
+    el.setAttribute('data-focused', '')
+    setTimeout(() => el.removeAttribute('data-focused'), 2400)
+  }
+  const openedHere = !!(location.state as { here?: boolean } | null)?.here
+  const linked = linkedAnswer(threadRoot, openedHere)
+  const linkedAt = useRef<{ id: string | null; tries: number; done: boolean }>({ id: null, tries: 0, done: false })
+  useEffect(() => {
+    if (linkedAt.current.id !== linked) linkedAt.current = { id: linked, tries: 0, done: false }
+    const now = linkedAt.current
+    if (!linked || now.done || loading || loadError || olderBusy) return
+    const step = linkedStep({ id: linked, ids: messages.map((m) => m.id), hasOlder: !!thread.nextCursor, tries: now.tries })
+    if (step === 'older') {
+      now.tries += 1
+      setOlderBusy(true)
+      void loadOlder(chatId).catch(() => { now.done = true }).finally(() => setOlderBusy(false))
+      return
+    }
+    now.done = true
+    if (step === 'show') lightAnswer(linked)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [linked, loading, loadError, olderBusy, messages.length, thread.nextCursor])
+  // a phone: the thread was over the chat, so the chat goes to that answer (lit) when the thread closes
+  const lastLinked = useRef<string | null>(null)
+  useEffect(() => {
+    const was = lastLinked.current
+    lastLinked.current = linked
+    if (linked || !was || !phone) return
+    requestAnimationFrame(() => lightAnswer(was))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [linked])
+  const closeThread = useCallback(() => {
+    if (fromChat) navigate(-1)
+    else navigate(`/c/${chatId}`, { replace: true })
+  }, [fromChat, navigate, chatId])
+  const sidePanel = useSidePanel()
+  useEffect(() => {
+    // (the panel that opened takes the focus, not the answer)
+    if (sidePanel && threadRoot) { focusBack.current = false; closeThread() }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sidePanel])
   // a shared chat of a project in the trash, to one of its members: the server says so (and only to them), and the page
   // says what the project's page says (QA TC-1060)
   if (loadError && isApiError(loadError, 'not_found') && loadError.body.params?.reason === 'project_in_trash' && typeof loadError.body.params.projectId === 'string')
@@ -466,7 +598,7 @@ function ChatView({ chatId }: { chatId: string }) {
   if (goneFrom)
     return (
       <div className="flex h-full flex-col justify-center" data-testid="chat-not-found" data-gone="">
-        <EmptyState screen title={t('projects.noLongerMember', { name: goneFrom })}>
+        <EmptyState screen title={isolate(locale, 'projects.noLongerMember', { name: goneFrom }, ['name'])}>
           <Link to="/projects" className="mt-1 inline-block font-medium text-accent-text underline">
             {t('projects.title')}
           </Link>
@@ -477,8 +609,11 @@ function ChatView({ chatId }: { chatId: string }) {
   // (the server says so only to someone who was in it: QA TC-2009). What I was typing there stays, with Copy (TC-2032)
   if (loadError && isApiError(loadError, 'not_found') && (wasSharedWithMe.current || noLongerSharedWith(loadError)))
     return <NoLongerShared userId={me.user.id} chatId={chatId} />
+  // a teammate's link to a chat I am not in: Ask for access when the chat can be shared with me (QA TC-4185,
+  // docs/decisions/20261116-chat-project-ask-access.md); else, and for an address that was never a chat, the one page
+  // (the owner and admins: that page when no ask is possible, with its "add yourself in Projects" line)
   if (loadError && isApiError(loadError, 'not_found'))
-    return (
+    return <LinkAskAccess kind="chat" id={chatId} staff={isAdmin(me)} onOpen={() => { setLoading(true); void load() }} fallback={
       <div className="flex h-full flex-col justify-center" data-testid="chat-not-found">
         <EmptyState screen title={t('chat.notFound')}>
           {/* one text for every chat that cannot be opened (a chat only its creator sees, one deleted, one of a project
@@ -509,10 +644,11 @@ function ChatView({ chatId }: { chatId: string }) {
           </Link>
         </EmptyState>
       </div>
-    )
+    } />
 
   return (
-    <FileDropZone className="flex h-full flex-col" empty={chat?.deletedAt ? t('drop.trashed') : undefined} data-testid="chat-drop">
+    <div className="flex h-full" data-testid="chat-page">
+    <FileDropZone className={clsx('flex h-full min-w-0 flex-1 flex-col', threadRoot && chat && 'max-md:hidden')} empty={chat?.deletedAt ? t('drop.trashed') : undefined} data-testid="chat-drop">
       {backToSharing && (
         <div className="flex h-11 shrink-0 items-center border-b border-line bg-surface px-1">
           {/* like the system Back: the screen that opened the dialog, which opens it again on the list (WideningDraftHost) */}
@@ -523,9 +659,10 @@ function ChatView({ chatId }: { chatId: string }) {
         </div>
       )}
       {/* like the top of a Claude chat: the project it is in, then its name, which opens rename and delete. On a phone
-          it is the only bar (Layout drops its own here): ‹ back (where I came from, else the 트리나 tab: lib/back.ts),
-          the name, and a new chat (✦, as a room's header asks Trina). */}
-      <div className="flex h-12 shrink-0 items-center gap-2 border-b border-line px-4 max-md:gap-1 max-md:px-1">
+          it is the only bar (Layout drops its own here): ‹ back (where I came from, else the 트리나 tab: lib/back.ts,
+          whose box is the new chat), the name and Share. No ✦: this already is a chat with Trina, and a computer's
+          header never had one; ✦ in a header is a room's side chat (docs/decisions/20261118-phone-trina-button-in-ai-chats.md). */}
+      <div className="flex h-12 shrink-0 items-center gap-2 border-b border-line px-4 max-md:gap-1 max-md:px-1" data-testid="chat-bar">
         <Tooltip label={t('tabs.back')}>
           <Link to="/" replace onClick={backLink} aria-label={t('tabs.back')} className="inline-flex items-center justify-center rounded-md p-3 text-muted hover:bg-hover hover:text-ink md:hidden" data-testid="chat-back">
             <ChevronLeft size={20} aria-hidden />
@@ -556,12 +693,15 @@ function ChatView({ chatId }: { chatId: string }) {
           {/* a chat only I see in a team project: its lock, where a shared one has its people (QA TC-1068) */}
           {!shared && chat && privateInTeamProject(chat, project) && <PrivateChatMark />}
         </div>
+        {/* a chat of a team project: the project's chat room, one tap away (docs/decisions/20261120-project-is-room.md D5;
+            a phone: its icon, a dot while something is unread) */}
+        {chat && !chat.deletedAt && <ProjectRoomButton project={project} look={phone ? 'icon' : 'button'} testId="chat-project-room" />}
+        {/* who sees it and Share (components/HeaderShare.tsx); a phone: the Share icon only */}
+        {chat && !phone && <HeaderShare who={headerWho} onShare={onShare} testId="chat-share" />}
         {isDesktop() && <BrowserToggle />}
-        {/* a new chat: 트리나's Home, as that tab at its root when this chat sits on another tab's stack (a project's) */}
-        <IconButton label={t('sidebar.askAi', { name: aiName(t) })} onClick={() => openHome(navigate, me.user.id, { compose: true })} className="size-11 shrink-0 md:hidden" data-testid="chat-new">
-          <AiMark />
-        </IconButton>
+        {chat && phone && <HeaderShare icon onShare={onShare} testId="chat-share" />}
       </div>
+      <div className="relative flex min-h-0 flex-1 flex-col">
       <div ref={scroller} onScroll={onScroll} className="scroll-thin min-h-0 flex-1 overflow-y-auto" data-testid="messages">
         <div ref={content} className="mx-auto max-w-[780px] space-y-6 px-4 py-8 max-md:py-4">
           {olderBusy && <Loader2 size={16} className="mx-auto animate-spin text-faint" aria-label={t('common.loading')} />}
@@ -583,14 +723,20 @@ function ChatView({ chatId }: { chatId: string }) {
               const switchedFrom = prevAssistant?.engine && m.engine && prevAssistant.engine !== m.engine ? (prevAssistant.engine as EngineId) : null
               return (
                 <ViewerMeta key={m.id} sender={{ kind: 'ai' }} at={m.createdAt}>
-                  <AssistantMessage m={m} chatId={chatId} isLast={i === messages.length - 1} busy={rowsBusy} switchedFrom={switchedFrom} onRegenerate={onRegenerate} retryWith={choose ? { engines, models } : undefined} onSelectBranch={onSelectBranch} onAskOwnFolder={askOwnFolder} onContinue={chat?.deletedAt || readOnly || !mine(askedBy(m)) ? undefined : onContinue} shareable={shareable && mine(askedBy(m))} shareRoomId={chat?.sideRoomId ?? undefined} canRegenerate={!readOnly && mine(askedBy(m))} canSuggest={!shared} />
+                  <AssistantMessage m={m} chatId={chatId} isLast={i === messages.length - 1} busy={rowsBusy} switchedFrom={switchedFrom} onRegenerate={onRegenerate} retryWith={choose ? { engines, models } : undefined} onSelectBranch={onSelectBranch} onAskOwnFolder={askOwnFolder} onContinue={chat?.deletedAt || readOnly || !mine(askedBy(m)) ? undefined : onContinue} shareable={shareable && mine(askedBy(m))} shareRoomId={chat?.sideRoomId ?? undefined} canRegenerate={!readOnly && mine(askedBy(m))} canSuggest={!shared} onThread={shared && !chat?.sideRoomId ? (focus) => openThread(m.id, focus) : undefined} />
                 </ViewerMeta>
               )
             })}
           </ImageGroup>
           </BoxAnswers.Provider>
-          {!chat?.deletedAt && <QueuedMessages chatId={chatId} onFocusComposer={() => composer.current?.focus()} />}
+          {!chat?.deletedAt && <QueuedMessages chatId={chatId} onFocusComposer={() => composer.current?.focus()} shared={shared && !readOnly ? { audience: shared.audience, kind: shared.kind, othersWaiting: shared.waiting ?? 0 } : undefined} />}
         </div>
+      </div>
+      {away && (
+        <IconButton label={t('chat.toBottom')} onClick={() => { list.toBottom(); setAway(false) }} className="absolute bottom-3 left-1/2 -translate-x-1/2 rounded-full border border-line bg-surface shadow-md" data-testid="chat-to-bottom">
+          <ArrowDown size={16} aria-hidden />
+        </IconButton>
+      )}
       </div>
       <div className={clsx('mx-auto w-full max-w-[780px] pb-[var(--box-bottom)]', composerInset)} data-bottom-bar>
         {chat?.deletedAt ? (
@@ -605,7 +751,8 @@ function ChatView({ chatId }: { chatId: string }) {
           {/* I answered the AI, and the answer waits for a free place among the team's answers (Chat.waitingForPlace) */}
           {chat?.waitingForPlace && <p className="pb-2 text-sm text-muted" role="status" data-testid="waiting-for-place">{t('chat.waitingForPlace')}</p>}
           {/* one suggestion under the newest answer: the welcome invite on the first result, else schedule or PPT */}
-          <ResultSuggestion chatId={chatId} messages={messages} busy={busy} onSend={(text) => void onSend(text, []).catch(fail)} />
+          {/* (not for a guest: no team skills, schedules or welcome invite are theirs, and the server refuses it) */}
+          {!guestHere && <ResultSuggestion chatId={chatId} messages={messages} busy={busy} onSend={(text) => void onSend(text, []).catch(fail)} />}
           {/* the newest answer failed for want of AI: its own line has the button, one is enough */}
           {!noAiError(messages.at(-1)) && <AiAccessBanner />}
           <Composer
@@ -625,8 +772,10 @@ function ChatView({ chatId }: { chatId: string }) {
             footer={t('chat.footerAi')}
             who={who}
             // the earlier answer ended but the end of its work is not confirmed yet (Chat.ending): one plain line, no send
-            hold={chat?.ending ? t('chat.endingEarlier') : othersTurn ? t(othersTurn.waiting ? 'chat.sharedWaiting' : 'chat.sharedBusy', { name: othersTurn.name }) : undefined}
-            queueing={!shared}
+            hold={chat?.ending ? t('chat.endingEarlier') : undefined}
+            // someone else's question is being answered: a line saying whose, and what I send now waits for it
+            note={othersTurn ? t(othersTurn.waiting ? 'chat.sharedWaiting' : 'chat.sharedBusy', { name: othersTurn.name }) : undefined}
+            later={!!othersTurn || !!shared?.waiting}
             sharedUploads={shared ? { audience: shared.audience, allowed: shared.canUpload !== false, kind: shared.kind } : undefined}
             projectId={chat?.projectId ?? null}
             autoFocus
@@ -654,6 +803,13 @@ function ChatView({ chatId }: { chatId: string }) {
         />
       )}
     </FileDropZone>
+    {/* the thread in the address (a shared chat's answer): a column beside the chat on a computer, the screen on a phone */}
+    {threadRoot && chat && (
+      <RoomSideColumn label={t('rooms.thread')} testId="chat-thread-column" divider="thread">
+        <ChatThreadPanel key={threadRoot} chat={chat} rootId={threadRoot} meId={me.user.id} onClose={closeThread} onShownBranch={messages.some((m) => m.id === threadRoot)} focusBox={threadFocus} />
+      </RoomSideColumn>
+    )}
+    </div>
   )
 }
 

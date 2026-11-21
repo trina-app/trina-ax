@@ -7,7 +7,7 @@
 //   drive the OS folder window); only known places are read; the list comes back checked and judged; [팀에 넣기 · N개]
 //   puts the ticked ones in. The kept skills' rows and the example viewer: onb6-skills.spec.ts.
 import { expect, test } from '@playwright/test'
-import { realErrors, reset, signIn, watchConsole } from './helpers'
+import { realErrors, reset, signIn, watchConsole, noSlack } from './helpers'
 
 /** A .claude folder: skills, a plugin, a command, CLAUDE.md, and what must never be opened. */
 const TREE = {
@@ -25,6 +25,7 @@ const TREE = {
 test('the setup walk: the skills step offers only the skills Trina prepared; one goes in → 팀 파일; 이전 shows 다음; the invite; 준비 끝났어요 → its form', async ({ page }) => {
   const errors = watchConsole(page)
   await reset(page)
+  await noSlack(page)
   await signIn(page)
   await page.goto('/welcome')
   await page.getByTestId('welcome-profile').getByRole('button', { name: '나중에 하기' }).click()
@@ -65,15 +66,19 @@ test('the setup walk: the skills step offers only the skills Trina prepared; one
   await expect(page.getByTestId('invite-step')).toBeVisible()
   await expect(page.getByTestId('welcome-progress')).toContainText('5/5 팀원 초대')
   await page.getByTestId('invite-step-done').click()
-  // 준비 끝났어요, once: a first result with the kept skill that went in (자연스러운 글: "써 보기")
+  // 준비 끝났어요, once: the steps summed up (내 스킬 done with the skill that went in), no first result; 내 설정 시작 → Home
   await expect(page.getByTestId('welcome-done')).toContainText('준비 끝났어요')
-  const make = page.getByTestId('welcome-done-make')
-  await expect(make).toHaveAttribute('data-skill', 'skills/work/humanizer/SKILL.md')
-  await make.click()
-  await expect.poll(() => { const u = new URL(page.url()); return `${u.pathname} ${u.searchParams.get('run')}` }).toBe('/skills skills/work/humanizer/SKILL.md')
-  await expect(page.getByTestId('skill-form')).toBeVisible()
-  // finished: no setup row any more
-  await expect(page.getByTestId('setup-row')).toHaveCount(0)
+  await expect(page.getByTestId('welcome-done-make')).toHaveCount(0)
+  await expect(page.locator('[data-testid="welcome-done-row"][data-step="skills"]')).toHaveAttribute('data-state', 'done')
+  await page.getByTestId('welcome-done-home').click()
+  await expect(page).toHaveURL(/\/$/)
+  // finished with 회사 소개, 팀 파일 and 도구 연결 put off: the setup row stays for them (fix/onboarding-after-setup) and
+  // opens the first
+  const left = page.getByTestId('setup-row')
+  await expect(left).toHaveAttribute('data-state', 'left')
+  await expect(left.getByTestId('setup-row-link')).toHaveText('남은 일 3개')
+  await left.getByTestId('setup-row-link').click()
+  await expect(page.getByTestId('welcome-profile')).toBeVisible()
   expect(realErrors(errors)).toEqual([])
 })
 

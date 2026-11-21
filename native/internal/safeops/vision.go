@@ -50,7 +50,13 @@ var visionFormats = map[string]bool{"png": true, "jpeg": true, "gif": true, "web
 var visionQualities = []int{85, 75, 65, 55, 45}
 
 // Vision decodes one image (format detected from the content, not the file name) and returns the normalized JPEG.
-func Vision(b []byte) ([]byte, error) {
+func Vision(b []byte) ([]byte, error) { return vision(b, false) }
+
+// VisionUpright is Vision for pixels that are upright already (a HEIC the server decoded first): the orientation tag
+// is ignored (Debian 12's heif-convert turns the pixels and keeps the tag).
+func VisionUpright(b []byte) ([]byte, error) { return vision(b, true) }
+
+func vision(b []byte, upright bool) ([]byte, error) {
 	if len(b) > VisionInputMax {
 		return nil, ErrVisionBytes
 	}
@@ -84,7 +90,7 @@ func Vision(b []byte) ([]byte, error) {
 		return nil, ErrVisionPixels
 	}
 	o := 1
-	if format == "jpeg" {
+	if format == "jpeg" && !upright {
 		o = orientation(b)
 	}
 	// Scale first in the stored orientation (the fast concrete-type paths of x/image/draw), then turn the small

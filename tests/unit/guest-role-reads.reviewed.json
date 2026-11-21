@@ -65,6 +65,11 @@
   "reason": "filter on owner/admin only: a guest is stored as role 'member' (users.guest = 1) and never matches"
  },
  {
+  "file": "chat/access-requests.ts",
+  "sql": "SELECT id FROM users WHERE role IN ('owner','admin') AND guest = 0 AND status = 'active' AND deleted_at IS NULL ORDER BY id",
+  "reason": "the owner and admins who may answer a project's access request (each then checked through loadPrincipal and the members rules); guest = 0 excludes guests too"
+ },
+ {
   "file": "chat/members-only-once.ts",
   "sql": "SELECT id FROM users WHERE role IN ('owner', 'admin')",
   "reason": "filter on owner/admin only: a guest is stored as role 'member' (users.guest = 1) and never matches"
@@ -170,6 +175,16 @@
   "reason": "filter on owner/admin only: a guest is stored as role 'member' (users.guest = 1) and never matches"
  },
  {
+  "file": "onboarding/member-welcome.ts",
+  "sql": "SELECT 1 FROM users WHERE id = ? AND role = 'owner' AND deleted_at IS NULL",
+  "reason": "filter on owner/admin only: a guest is stored as role 'member' (users.guest = 1) and never matches"
+ },
+ {
+  "file": "onboarding/my-setup.ts",
+  "sql": "SELECT 1 FROM users WHERE id = ? AND role = 'owner' AND deleted_at IS NULL",
+  "reason": "filter on owner/admin only: a guest is stored as role 'member' (users.guest = 1) and never matches"
+ },
+ {
   "file": "onboarding/suggestions.ts",
   "sql": "SELECT 1 FROM users WHERE id = ? AND role = 'member' AND guest = 0 AND status = 'active' AND deleted_at IS NULL",
   "reason": "role = 'member' AND guest = 0: guests left out on purpose"
@@ -203,6 +218,11 @@
   "file": "onboarding/welcome.ts",
   "sql": "SELECT 1 FROM users WHERE id = ? AND role = 'owner'",
   "reason": "filter on owner/admin only: a guest is stored as role 'member' (users.guest = 1) and never matches"
+ },
+ {
+  "file": "onboarding/welcome.ts",
+  "sql": "SELECT 1 FROM users WHERE role IN ('admin', 'member') AND guest = 0 AND deleted_at IS NULL LIMIT 1",
+  "reason": "guests left out by guest = 0: only whether someone besides the owner joined the team (the put-off invite step)"
  },
  {
   "file": "policy/convert-additive.ts",
@@ -243,5 +263,20 @@
   "file": "system/ops.ts",
   "sql": "SELECT id, locale FROM users WHERE role IN ('owner','admin') AND status = 'active' AND deleted_at IS NULL",
   "reason": "filter on owner/admin only: a guest is stored as role 'member' (users.guest = 1) and never matches"
+ },
+ {
+  "file": "notifications/service.ts",
+  "sql": "SELECT id FROM users WHERE role IN ('owner', 'admin') AND status = 'active' AND deleted_at IS NULL",
+  "reason": "filter on owner/admin only: a guest is stored as role 'member' (users.guest = 1) and never matches"
+ },
+ {
+  "file": "files/share-fixes.ts",
+  "sql": "SELECT id FROM users WHERE status = 'active' AND deleted_at IS NULL AND guest = 0 AND role IN ('owner','admin') AND id <> ? ORDER BY CASE role WHEN 'owner' THEN 0 ELSE 1 END, name, id LIMIT ?",
+  "reason": "the team owner and admins an \"Ask an admin\" next step writes to (owner first); guest = 0 and the owner/admin filter exclude guests (stored as role 'member')"
+ },
+ {
+  "file": "system/team-export-zip.ts",
+  "sql": "SELECT id, username, name, email, CASE WHEN role = 'owner' THEN 'owner' WHEN role = 'admin' THEN 'admin' ELSE 'member' END AS role, status, deleted_at FROM users ORDER BY created_at, id",
+  "reason": "only for a database from before guests (no users.guest column): no guest can exist there, so role is the whole truth; with the column the export reads the guest-aware CASE"
  }
 ]

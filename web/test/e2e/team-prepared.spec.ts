@@ -15,7 +15,7 @@
 //   스킬 and back to 초대, hidden while "이 사람이 팀장이에요" is ticked; gone once the team has a skill.
 import { expect, test, type Page } from '@playwright/test'
 import { CSRF_HEADER } from '@mycel/shared/api'
-import { realErrors, reset, signIn, watchConsole } from './helpers'
+import { realErrors, reset, signIn, watchConsole, noSlack } from './helpers'
 
 const BOB = { username: 'bob', password: 'bob password 1' }
 const H = { [CSRF_HEADER]: '1' }
@@ -221,6 +221,7 @@ for (const width of [1440, 390] as const) {
 test('the invite step of an empty team: one line, the way to 내 스킬 and back to 초대; no owner flag; gone with a skill', async ({ page }) => {
   const errors = watchConsole(page)
   await reset(page)
+  await noSlack(page)
   await signIn(page)
   await page.goto('/welcome')
   await page.getByTestId('welcome-profile').getByRole('button', { name: '나중에 하기' }).click()

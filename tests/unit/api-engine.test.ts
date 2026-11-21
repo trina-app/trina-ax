@@ -9,6 +9,7 @@ import path from 'node:path'
 import { API, CHAT_ERROR_MESSAGES, type EngineId } from '@mycel/shared/api'
 import type { EngineEvent } from '@mycel/shared'
 import { errorOf, readApiEngine, redact, runApiAgent, usageEvent, writeApiEngine, type ApiEngineConf } from '../../server/src/engine/api-agent'
+import { isPatientApiAddress } from '../../server/src/engine/api-context'
 import { checkEngine, modelListed, type EngineEnv } from '../../server/src/admin/engines'
 import { usage as usageReport } from '../../server/src/admin/budgets'
 import { setMemberChoice } from '../../server/src/admin/engine-choice'
@@ -44,7 +45,7 @@ const cutOff = () => new Response([
 ].map((l) => `data: ${JSON.stringify(l)}\n\n`).join('') + 'data: [DONE]\n\n')
 
 describe('agent loop', () => {
-  test('stream text, call a tool (prefix stripped, arguments in pieces), answer with the result', async () => {
+  test('stream text, call a tool (prefix stripped, arguments in pieces), answer with the result (the tool round\'s text held back, TC-4830)', async () => {
     const bodies: any[] = []
     const replies = [sse({ text: ['Let me look. '], calls: [{ id: 'c1', name: 'mcp__team__list', args: '{"path":"shared"}' }] }), sse({ text: ['There is ', 'a.md.'] })]
     const f = (async (_u: string, init: RequestInit) => { bodies.push(JSON.parse(String(init.body))); return new Response(replies.shift()!) }) as unknown as typeof fetch
@@ -56,7 +57,7 @@ describe('agent loop', () => {
     }
     const events: EngineEvent[] = []
     await runApiAgent({ conf, systemPrompt: 'sys', message: 'what is in shared?', rpc, emit: (e) => events.push(e), signal: new AbortController().signal, fetchFn: f })
-    expect(events.filter((e) => e.type === 'text').map((e) => (e as { delta: string }).delta).join('')).toBe('Let me look. There is a.md.')
+    expect(events.filter((e) => e.type === 'text').map((e) => (e as { delta: string }).delta).join('')).toBe('There is a.md.')
     expect(calls[1]).toMatchObject({ method: 'tools/call', params: { name: 'list', arguments: { path: 'shared' } } })
     expect(events.find((e) => e.type === 'tool_start')).toMatchObject({ id: 'c1', name: 'list' })
     expect(events.find((e) => e.type === 'tool_end')).toMatchObject({ id: 'c1', ok: true, output: 'a.md' })
@@ -76,7 +77,7 @@ describe('agent loop', () => {
     expect(events.filter((e) => e.type === 'tool_start')).toHaveLength(3)
     expect(events.filter((e) => e.type === 'error')).toEqual([])
     expect(events.slice(-2)).toEqual([{ type: 'limit', kind: 'turns' }, { type: 'done' }])
-    expect(events.filter((e) => e.type === 'text').map((e) => (e as { delta: string }).delta).join('')).toBe('Working. Working. Working. ')
+    expect(events.filter((e) => e.type === 'text').map((e) => (e as { delta: string }).delta).join('')).toBe('Working. ')
   })
   test('cut off at the output limit (finish_reason length): an output_limit error, the cut tool call neither run nor sent again', async () => {
     const bodies: any[] = []
@@ -116,7 +117,8 @@ describe('agent loop', () => {
     expect(errorOf(404, '{"error":"model \'llama9\' not found"}').code).toBe('model_not_found')
     // a wrong address (no /v1): the path is not there, no word about a model
     expect(errorOf(404, '<html>Not Found</html>')).toMatchObject({ code: 'endpoint_unreachable', status: 404 })
-    expect(errorOf(429, 'slow down')).toMatchObject({ code: 'rate_limit', status: 429 })
+    // the provider is busy: its own reason, not this team's usage limit (TC-4832)
+    expect(errorOf(429, 'slow down')).toMatchObject({ code: 'provider_busy', status: 429 })
     expect(errorOf(502, 'bad gateway')).toMatchObject({ code: 'provider_error', status: 502 })
     expect(errorOf(402, 'Insufficient credits')).toMatchObject({ code: 'provider_error', status: 402 })
     // "this model does not support tools" is not a missing model
@@ -134,14 +136,48 @@ describe('agent loop', () => {
     const port = closed.port
     closed.stop(true)
     expect((await runErr(fetch, { c: { ...conf, baseUrl: `http://127.0.0.1:${port}/v1` } })).err?.code).toBe('endpoint_unreachable')
-    // accepts the connection, never answers: stopped after the headers time limit, not at the turn's
+    // a cloud address that accepts the connection and never answers: stopped after the headers time limit, not at the turn's
     const silent = Bun.serve({ port: 0, hostname: '127.0.0.1', fetch: () => new Promise<Response>(() => {}) })
     try {
       const t0 = Date.now()
-      const r = await runErr(fetch, { c: { ...conf, baseUrl: `http://127.0.0.1:${silent.port}/v1` }, headersTimeoutMs: 300 })
+      const toSilent = ((_u: string, init: RequestInit) => fetch(`http://127.0.0.1:${silent.port}/v1/chat/completions`, init)) as unknown as typeof fetch
+      const r = await runErr(toSilent, { headersTimeoutMs: 300 })
       expect(r.err?.code).toBe('endpoint_unreachable')
       expect(Date.now() - t0).toBeLessThan(5000)
     } finally { silent.stop(true) }
+  })
+  test('TC-5207: a local address waits for a slow first answer (no headers limit); Stop still cancels it', async () => {
+    // answers after 1.2 s of silence, four times the limit a cloud address gets here
+    const slow = Bun.serve({ port: 0, hostname: '127.0.0.1', fetch: async () => { await Bun.sleep(1200); return new Response(sse({ text: ['late ok'] })) } })
+    try {
+      const local: ApiEngineConf = { ...conf, baseUrl: `http://127.0.0.1:${slow.port}/v1` }
+      const events: EngineEvent[] = []
+      await runApiAgent({ conf: local, systemPrompt: 's', message: 'm', rpc: async () => ({ result: { tools: [] } }), emit: (e) => events.push(e), signal: new AbortController().signal, headersTimeoutMs: 300 })
+      expect(events.find((e) => e.type === 'error')).toBeUndefined()
+      expect(events.filter((e) => e.type === 'text').map((e: any) => e.delta).join('')).toContain('late ok')
+      // the same wait, stopped after 200 ms: ends at once, without an error
+      const ac = new AbortController(), ev2: EngineEvent[] = []
+      const t0 = Date.now()
+      setTimeout(() => ac.abort(), 200)
+      await runApiAgent({ conf: local, systemPrompt: 's', message: 'm', rpc: async () => ({ result: { tools: [] } }), emit: (e) => ev2.push(e), signal: ac.signal, headersTimeoutMs: 300 })
+      expect(Date.now() - t0).toBeLessThan(1000)
+      expect(ev2.find((e) => e.type === 'error')).toBeUndefined()
+      // a private-network IP, a .local name, a Tailscale name and a CGNAT address count as local too
+      for (const u of ['http://192.168.1.20:1234/v1', 'http://ollama.local:11434/v1', 'http://localhost:11434/v1', 'http://box.tail1234.ts.net:11434/v1', 'http://100.101.102.103:11434/v1', 'http://[fd7a:115c:a1e0::1]:11434/v1']) {
+        let sawTimer = false
+        const f = (async (_u: string, init: RequestInit) => { await new Promise((r) => setTimeout(r, 400)); sawTimer = !init.signal!.aborted; return new Response(sse({ text: ['ok'] })) }) as unknown as typeof fetch
+        const e3: EngineEvent[] = []
+        await runApiAgent({ conf: { ...conf, baseUrl: u }, systemPrompt: 's', message: 'm', rpc: async () => ({ result: { tools: [] } }), emit: (e) => e3.push(e), signal: new AbortController().signal, fetchFn: f, headersTimeoutMs: 100 })
+        expect(sawTimer).toBe(true)
+        expect(e3.find((e) => e.type === 'error')).toBeUndefined()
+      }
+    } finally { slow.stop(true) }
+  })
+  test('TC-5207: which addresses are waited for: not public IP literals, Tailscale names; public IPs (incl. a public IPv6) are not', () => {
+    for (const u of ['http://127.0.0.1:1/v1', 'http://10.1.2.3/v1', 'http://172.16.5.5/v1', 'http://192.168.0.9/v1', 'http://169.254.1.1/v1', 'http://100.64.0.1/v1', 'http://100.127.255.254/v1', 'http://[::1]/v1', 'http://[fe80::1]/v1', 'http://[fd12:3456::1]/v1', 'https://my-mac.tail9f2.ts.net/v1', 'http://localhost:11434/v1', 'http://ollama.local/v1', 'http://gpu-box:11434/v1'])
+      expect([u, isPatientApiAddress(u)]).toEqual([u, true])
+    for (const u of ['https://api.openai.com/v1', 'https://api.example/v1', 'http://8.8.8.8/v1', 'http://100.63.255.255/v1', 'http://100.128.0.1/v1', 'http://[2600:1f18::1234]/v1', 'http://[2a05:d014:1:2::5]/v1', 'https://ts.net.evil.com/v1', 'https://evil-ts.net/v1'])
+      expect([u, isPatientApiAddress(u)]).toEqual([u, false])
   })
   test('B-API-3: the provider\'s cost and request id, else the list price, else tokens with the cost unknown (never free)', async () => {
     // OpenRouter: usage.cost (USD) and the generation id; usage repeated on two chunks counts once
@@ -213,7 +249,8 @@ describe('B-API-4 / B-API-6: the Admin status check of the API engine', () => {
     const port = closed.port
     closed.stop(true)
     const s = await check('m', Response.json({ data: [] }), `http://127.0.0.1:${port}/v1`)
-    expect(s).toMatchObject({ status: 'error', detail: expect.stringContaining('could not be reached') })
+    // a closed port on this computer: nothing runs there (QA TC-4827)
+    expect(s).toMatchObject({ status: 'error', detail: expect.stringContaining('Nothing answers at this address') })
     expect(String(s.detail).includes('sk-test-12345678')).toBe(false)
   })
   test('OpenRouter (public model list): a refused key is found by GET /key; no key check address is said', async () => {
@@ -279,7 +316,8 @@ describe('a chat turn with the api engine', () => {
     const r = await h.api('alice').call(API.sendMessage, { params: { id: chat.id }, body: { content: 'look around', clientMessageId: `cm-${Date.now()}`, attachmentIds: [], engine: 'api' as EngineId } })
     await waitFor(() => (h.ctx.db.query('SELECT status FROM messages WHERE id = ?').get(r.assistantMessage.id) as { status: string }).status !== 'streaming', { timeoutMs: 20_000 })
     const m = h.ctx.db.query('SELECT status, content, steps, engine FROM messages WHERE id = ?').get(r.assistantMessage.id) as { status: string; content: string; steps: string; engine: string }
-    expect(m).toMatchObject({ status: 'done', content: 'Done reading.', engine: 'api' })
+    // the refused read was not done again and the answer does not say so: the server's line says it (TC-4829)
+    expect(m).toMatchObject({ status: 'done', content: "Done reading.\n\nOne step didn't work: Read.", engine: 'api' })
     const steps = JSON.parse(m.steps) as { tool: string; status: string }[]
     expect(steps.map((s) => [s.tool, s.status])).toEqual([['read', 'error'], ['list', 'ok']])
     // the model got the refusal text back, and the system prompt is the team's

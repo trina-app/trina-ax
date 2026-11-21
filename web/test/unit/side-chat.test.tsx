@@ -8,10 +8,11 @@
 import { afterAll, afterEach, beforeAll, expect, test } from 'bun:test'
 import { act } from 'react'
 import { MemoryRouter, Route, Routes, useNavigate, type NavigateFunction } from 'react-router-dom'
-import { MESSAGE_ATTACHMENTS_MAX, PRODUCT_NAMED_AFTER_AI, SIDE_CHAT_QUICK, SIDE_CHAT_SEND, uuidv7, type Attachment, type Chat, type Me, type Message as MessageT, type ServerEvent } from '@mycel/shared/api'
+import { MESSAGE_ATTACHMENTS_MAX, MESSAGE_TEXT_MAX, PRODUCT_NAMED_AFTER_AI, SIDE_CHAT_QUICK, SIDE_CHAT_SEND, uuidv7, type Attachment, type Chat, type Me, type Message as MessageT, type ServerEvent } from '@mycel/shared/api'
 import { AssistantMessage } from '../../src/components/chat/Messages'
 import ShareToRoom from '../../src/components/chat/ShareToRoom'
-import { SideChatPanel, withQuote } from '../../src/components/rooms/SideChatPanel'
+import { SideChatPanel, withQuote, withThread } from '../../src/components/rooms/SideChatPanel'
+import { formatDateTime } from '../../src/lib/format'
 import { askTrinaInRoom, fileSeed, messageSeed, onAskTrinaInRoom } from '../../src/lib/sideChatAsk'
 import { RoomMessages } from '../../src/components/rooms/RoomMessages'
 import { useViewerColumn, ViewerColumn } from '../../src/components/rooms/ViewerColumn'
@@ -19,10 +20,13 @@ import RoomPage from '../../src/pages/Room'
 import { translate, useLocaleStore } from '../../src/i18n'
 import { aiName } from '../../src/lib/tabs'
 import { useChats } from '../../src/store/chats'
+import { useSendQueue } from '../../src/store/sendQueue'
 import { useRooms } from '../../src/store/rooms'
 import { sideChatOf, useSideChats } from '../../src/store/sideChats'
 import { useSession } from '../../src/store/session'
+import { useUi } from '../../src/store/ui'
 import { forgetTeamAttach } from '../../src/lib/teamAttach'
+import { keepSideChatOpen, resetSideChatOpenForTest } from '../../src/lib/sideChatOpenKeep'
 import { FakeEvent, installDom, mount, removeDom, type FakeElement, type Mounted } from './dom-host'
 import { CHAT, msg } from './fixtures'
 import { at, BEN, ME, message, room } from './rooms-fixtures'
@@ -215,6 +219,36 @@ test('no side chat yet: the empty line; the first question makes a side chat of 
     expect(calls.find((c) => c.path === `/api/chats/${made}/messages`)!.body).toMatchObject({ content: 'summarize this room' })
   } finally {
     await m.unmount()
+  }
+})
+
+test('the box has the mic right before send, as every message box (voice input off for the team: no mic)', async () => {
+  signIn()
+  serve(null)
+  const m = await mount(<MemoryRouter><SideChatPanel roomId={team.id} roomTitle="Marketing" onClose={() => {}} /></MemoryRouter>)
+  try {
+    await m.until(() => !!m.find('side-chat-empty'), 'the empty line')
+    const tools = m.get('side-chat-tools')
+    const mic = tools.querySelector('[data-testid="voice-button"]')!
+    expect(mic.getAttribute('aria-label')).toBe(en('voice.start'))
+    expect(mic.hasAttribute('disabled')).toBe(false)
+    // the clip, then the mic, then send
+    const order = [...tools.querySelectorAll('[data-testid]')].map((e) => e.getAttribute('data-testid'))
+    expect(order.filter((id) => ['side-chat-attach', 'voice-button', 'side-chat-send'].includes(id!))).toEqual(['side-chat-attach', 'voice-button', 'side-chat-send'])
+    // the live region is there before a recording, so its first words are read
+    expect(m.get('voice-live').textContent).toBe('')
+  } finally {
+    await m.unmount()
+  }
+  useSession.setState({ status: { kind: 'signed-in', me: { user: { id: ME.id, name: ME.name }, server: { allChatsConfidential: false }, team: { voiceInput: false } } as unknown as Me } })
+  serve(null)
+  const off = await mount(<MemoryRouter><SideChatPanel roomId={team.id} roomTitle="Marketing" onClose={() => {}} /></MemoryRouter>)
+  try {
+    await off.until(() => !!off.find('side-chat-empty'), 'the empty line')
+    expect(off.find('voice-button')).toBeNull()
+    expect(off.get('side-chat-send')).toBeTruthy()
+  } finally {
+    await off.unmount()
   }
 })
 
@@ -591,6 +625,29 @@ test('📎 attaches a file into the side chat: a chip with its size and ✕; sen
   }
 })
 
+test('a file alone with the thread\'s chip on: the thread line goes with it; ✕ on the chip and it goes as a file alone', async () => {
+  signIn()
+  const id = uuidv7()
+  serve(id, [], UNSEEN)
+  const beside = { rootId: root.id, author: BEN.name, at: root.createdAt }
+  const m = await mount(<MemoryRouter><SideChatPanel roomId={team.id} roomTitle="Marketing" onClose={() => {}} thread={beside} /></MemoryRouter>)
+  try {
+    await m.until(() => !!m.find('side-chat-open-full'), 'the chat found')
+    expect(m.find('side-chat-thread-chip')).not.toBeNull()
+    await pick(m, [pdf()])
+    await m.until(() => chips(m)[0]?.getAttribute('data-status') === 'done', 'the file attached')
+    await m.click('side-chat-send')
+    await m.until(() => sentTo(id), 'the file sent')
+    expect(sentTo(id)!.body).toMatchObject({ content: withThread(beside, '', (iso) => formatDateTime(iso, 'en')), attachmentIds: [attached[0]!.id] })
+    // the bubble: the thread's mark and the file, no line
+    expect(m.get('user-quote-thread').textContent).toContain(BEN.name)
+    expect(m.get('user-message').textContent).toContain('acme-brief.pdf')
+    expect((m.get('user-message').textContent ?? '').includes('thread_id')).toBe(false)
+  } finally {
+    await m.unmount()
+  }
+})
+
 test('a picture pasted into the box shows as itself at once (not pasted as text); ✕ takes it out; a dropped file is attached too', async () => {
   signIn()
   const id = uuidv7()
@@ -621,6 +678,35 @@ test('a picture pasted into the box shows as itself at once (not pasted as text)
     await m.until(() => chips(m)[0]?.getAttribute('data-status') === 'done', 'the dropped file attached')
     expect(drop.defaultPrevented).toBe(true)
     expect(uploads.map((u) => u.name)).toEqual(['image.png', 'acme-drop.pdf'])
+  } finally {
+    await m.unmount()
+  }
+})
+
+// docs/decisions/20261118-audit2-web-limits.md: the box took 20,000 characters and cut a longer paste without a word
+test('a paste past what a message holds goes in as a text file, never cut; the box itself has no 20,000 limit', async () => {
+  signIn()
+  const id = uuidv7()
+  serve(id, [], UNSEEN)
+  const m = await mount(<MemoryRouter><SideChatPanel roomId={team.id} roomTitle="Marketing" onClose={() => {}} /></MemoryRouter>)
+  try {
+    await m.until(() => !!m.find('side-chat-open-full'), 'the chat found')
+    expect(m.get('side-chat-input').getAttribute('maxlength')).toBeNull()
+    const pasteText = async (text: string) => {
+      const e = Object.assign(new FakeEvent('paste', { bubbles: true, cancelable: true }), { clipboardData: { files: [], items: [], getData: (k: string) => (k === 'text/plain' ? text : '') } })
+      m.get('side-chat-input').dispatchEvent(e)
+      await m.settle()
+      return e
+    }
+    // 50,000 characters: the box's own text, as the full chat's box (the browser pastes it)
+    expect((await pasteText('a'.repeat(50_000))).defaultPrevented).toBe(false)
+    expect(chips(m)).toHaveLength(0)
+    // past 200,000: every character goes in as a file, and the person is told
+    const long = 'b'.repeat(MESSAGE_TEXT_MAX + 1)
+    expect((await pasteText(long)).defaultPrevented).toBe(true)
+    await m.until(() => chips(m)[0]?.getAttribute('data-status') === 'done', 'the text file attached')
+    expect(uploads.map((u) => u.name)).toEqual([`${en('composer.pastedTextName')}.txt`])
+    expect(useUi.getState().toasts.map((t) => t.text)).toContain(en('composer.pastedAsFile', { max: MESSAGE_TEXT_MAX.toLocaleString('en') }))
   } finally {
     await m.unmount()
   }
@@ -964,32 +1050,153 @@ test('"Ask Trina about this" on a message after the side chat was closed: a new 
   }
 })
 
-test('a thread in the side chat\'s place: ✦ brings the same chat back; the thread closed with nothing in its place closes it', async () => {
+test('a thread beside the side chat: both show; the box\'s chip names the thread and a question carries its line; ✕ takes it off; the thread closing leaves the chat open', async () => {
   signIn()
   const { made } = serve(null, [], { turns: true })
   useRooms.setState({ rooms: [team], loaded: true })
   const m = await roomPage()
+  const sent = () => calls.filter((c) => c.method === 'POST' && /^\/api\/chats\/[^/]+\/messages$/.test(c.path)).map((c) => (c.body as { content: string }).content)
   try {
     await m.until(() => !!m.find('room-message'), 'the room')
     await openSide(m)
-    await askInSide(m, 'what did I miss?')
+    // no thread: no chip, the room's line and starters
+    expect(m.find('side-chat-thread-chip')).toBeNull()
+    expect(m.find('side-chat-context')).not.toBeNull()
+    expect(m.find('side-chat-starter-catchUp')).not.toBeNull()
+    expect(m.get('side-chat-intro').textContent).toBe(en('sideChat.empty', { name: aiName((k) => en(k)) }))
+    // a thread opens: the side chat stays beside it (docs/decisions/20261117-thread-plus-trina.md), its box says so
+    await act(async () => { await go(`/rooms/${team.id}/t/${root.id}`) })
+    await m.until(() => !!m.find('room-thread') && !!m.find('side-chat-thread-chip'), 'the thread beside the side chat, its chip in the box')
+    expect(m.find('side-chat-panel')).not.toBeNull()
+    expect(m.get('side-chat-thread-chip').textContent).toBe(en('sideChat.threadChip'))
+    expect(m.get('side-chat-thread-chip-off').getAttribute('aria-label')).toBe(en('sideChat.threadChipOff'))
+    expect(m.get('side-chat-input').getAttribute('placeholder')).toBe(en('sideChat.placeholderThread', { name: aiName((k) => en(k)) }))
+    // one line says what is looked at, and the one starter is the thread's
+    expect(m.find('side-chat-context')).toBeNull()
+    expect(m.find('side-chat-starter-catchUp')).toBeNull()
+    expect(m.get('side-chat-starter-thread').textContent).toBe(en('roomApps.chipThread'))
+    // the intro line says thread too (and conversation again once the chip is off: below, after an answer, it is gone)
+    expect(m.get('side-chat-intro').textContent).toBe(en('sideChat.emptyThread', { name: aiName((k) => en(k)) }))
+    // a question with the chip on: the thread line on top (who started it, when, its id), no message text
+    await askInSide(m, 'what was decided?')
+    expect(sent().at(-1)).toBe(withThread({ rootId: root.id, author: BEN.name, at: root.createdAt }, 'what was decided?', (iso) => formatDateTime(iso, 'en')))
+    expect(sent().at(-1)!.split('\n')).toEqual([expect.stringMatching(new RegExp(`^> 🧵 ${BEN.name} · .+ \\(thread_id ${root.id} in this room\\)$`)), '', 'what was decided?'])
+    // its bubble: the "Thread" mark, never the line
+    const bubble = m.get('user-text').textContent ?? ''
+    expect(m.get('user-quote-thread').textContent).toContain(`${en('rooms.thread')} · ${BEN.name}`)
+    expect(bubble).toContain('what was decided?')
+    expect(bubble.includes('thread_id') || bubble.includes('🧵')).toBe(false)
     answerEnds(made)
     await m.until(() => answerDone(m), 'the answer')
-    // a thread takes the column; ✦ switches back to the same chat
-    await act(async () => { await go(`/rooms/${team.id}/t/${root.id}`) })
-    await m.until(() => !!m.find('room-thread') && !m.find('side-chat-panel'), 'the thread in its place')
-    await openSide(m)
-    expect(m.find('room-thread')).toBeNull()
-    expect(count(m, 'user-message')).toBe(1)
-    // the thread again, then closed (Back): the column is empty, the side chat closed with it
-    await act(async () => { await go(`/rooms/${team.id}/t/${root.id}`) })
-    await m.until(() => !!m.find('room-thread'), 'the thread')
+    // ✕: no chip, the room's placeholder, and the next question goes as typed
+    await m.click('side-chat-thread-chip-off')
+    expect(m.find('side-chat-thread-chip')).toBeNull()
+    expect(useSideChats.getState().byRoom[team.id]!.chipOff).toBe(root.id)
+    expect(m.get('side-chat-input').getAttribute('placeholder')).toBe(en('sideChat.placeholder', { name: aiName((k) => en(k)) }))
+    await askInSide(m, 'and in the room?')
+    expect(sent().at(-1)).toBe('and in the room?')
+    answerEnds(made)
+    // the thread closed: the side chat is still there, the same chat; the chip's ✕ is forgotten with the thread
     await act(async () => { await go(`/rooms/${team.id}`) })
     await m.until(() => !m.find('room-thread'), 'the thread closed')
-    await openSide(m)
-    expect(fresh(m)).toBe(true)
+    expect(m.find('side-chat-panel')).not.toBeNull()
+    expect(count(m, 'user-message')).toBe(2)
+    expect(useSideChats.getState().byRoom[team.id]!.chipOff).toBeNull()
+    // opened again: the chip is back
+    await act(async () => { await go(`/rooms/${team.id}/t/${root.id}`) })
+    await m.until(() => !!m.find('side-chat-thread-chip'), 'the chip again')
+    // a quoted message takes the chip's place while it shows
+    await m.click('message-ask-trina')
+    await m.until(() => !!m.find('side-chat-quote'), 'the message quoted')
+    expect(m.find('side-chat-thread-chip')).toBeNull()
+    expect(m.find('room-thread')).not.toBeNull()
+    await m.click('side-chat-quote-remove')
+    expect(m.find('side-chat-thread-chip')).not.toBeNull()
+    // ✦ closes the side chat; the thread stays
+    await m.click('room-side-chat-button')
+    expect(m.find('side-chat-panel')).toBeNull()
+    expect(m.find('room-thread')).not.toBeNull()
   } finally {
     await m.unmount()
+  }
+})
+
+test('after a reload: a side chat with messages kept waiting in this browser opens again with them (QA TC-4912)', async () => {
+  signIn()
+  const id = uuidv7()
+  serve(id)
+  const q = msg({ chatId: id, role: 'user', content: 'what was decided?' })
+  turns[id] = [q, msg({ chatId: id, role: 'assistant', parentId: q.id, status: 'done', content: 'Wednesday.' })]
+  localStorage.setItem(`mycel.queue:${ME.id}:${id}`, JSON.stringify({ v: 1, items: [{ id: uuidv7(), content: 'and who does it?', attachments: [], author: { id: ME.id, name: ME.name }, createdAt: at(2), lead: withThread({ rootId: root.id, author: BEN.name, at: root.createdAt }, '', () => 't').trimEnd() }], paused: null, after: null }))
+  const m = await mount(<MemoryRouter><SideChatPanel roomId={team.id} roomTitle="Marketing" onClose={() => {}} /></MemoryRouter>)
+  try {
+    // not a new chat: the one they wait in, the message under it with its thread; it waits for "Send now" (typed long ago)
+    await m.until(() => !!m.find('outbox-item'), 'the waiting message')
+    expect(m.find('side-chat-empty')).toBeNull()
+    expect(m.get('outbox-item').querySelector('[data-testid="user-quote-thread"]')).not.toBeNull()
+    expect(m.find('outbox-send-now')).not.toBeNull()
+    await m.click('outbox-send-now')
+    await m.until(() => !!sentTo(id), 'sent')
+    expect((sentTo(id)!.body as { content: string }).content).toBe(withThread({ rootId: root.id, author: BEN.name, at: root.createdAt }, 'and who does it?', () => 't'))
+  } finally {
+    await m.unmount()
+    useSendQueue.getState().reset()
+    localStorage.clear()
+  }
+})
+
+test('sent while an answer runs: the message waits under the chat with the thread it was about, can be edited, stays when the panel closes and opens again, and goes with its thread line when the answer ends (QA TC-4912)', async () => {
+  signIn()
+  const { made } = serve(null, [], { turns: true })
+  useRooms.setState({ rooms: [team], loaded: true })
+  const m = await roomPage()
+  const sent = () => calls.filter((c) => c.method === 'POST' && /^\/api\/chats\/[^/]+\/messages$/.test(c.path)).map((c) => (c.body as { content: string }).content)
+  const time = (iso: string) => formatDateTime(iso, 'en')
+  const beside = { rootId: root.id, author: BEN.name, at: root.createdAt }
+  try {
+    await m.until(() => !!m.find('room-message'), 'the room')
+    await openSide(m)
+    await act(async () => { await go(`/rooms/${team.id}/t/${root.id}`) })
+    await m.until(() => !!m.find('side-chat-thread-chip'), 'the thread chip')
+    await askInSide(m, 'what was decided?')
+    // the answer runs: send is "send when the answer is done", not off
+    await m.type('side-chat-input', 'and who does it?')
+    expect(m.get('side-chat-input').getAttribute('placeholder')).toBe(en('outbox.placeholder'))
+    expect(m.get('side-chat-send').hasAttribute('disabled')).toBe(false)
+    expect(m.get('side-chat-send').getAttribute('aria-label')).toBe(en('outbox.sendLater'))
+    await m.click('side-chat-send')
+    await m.until(() => !!m.find('outbox-item'), 'the message waiting')
+    expect(sent()).toHaveLength(1)
+    expect(boxText(m)).toBe('')
+    expect(m.get('outbox-status').textContent).toContain(en('outbox.waitingOne'))
+    // the thread it was about shows on it, as on the sent bubble
+    expect(m.get('outbox-item').querySelector('[data-testid="user-quote-thread"]')).not.toBeNull()
+    expect(m.get('outbox-text').textContent).toContain('and who does it?')
+    expect(m.get('outbox-text').textContent!.includes('thread_id')).toBe(false)
+    // edited: the text alone (the thread stays on it)
+    await m.click('outbox-edit')
+    expect((m.get('outbox-edit-input') as unknown as { value: string }).value).toBe('and who does it?')
+    await m.type('outbox-edit-input', 'and who does it by Friday?')
+    await m.click('outbox-save')
+    await m.until(() => !m.find('outbox-edit-input'), 'the edit saved')
+    // closed and opened again while the answer runs: the same chat, the message still waiting (kept in this browser too)
+    await m.click('side-chat-close')
+    await m.until(() => !m.find('side-chat-panel'), 'the side chat closed')
+    expect(localStorage.getItem(`mycel.queue:${ME.id}:${made}`)).toContain('and who does it by Friday?')
+    await act(async () => { await go(`/rooms/${team.id}`) })
+    await openSide(m)
+    await m.until(() => !!m.find('outbox-item'), 'the message still waiting')
+    expect(sent()).toHaveLength(1)
+    // the answer ends: it goes by itself, under the thread it was asked about, though that thread is closed now
+    answerEnds(made)
+    await m.until(() => sent().length === 2, 'the waiting message sent')
+    expect(sent()[1]).toBe(withThread(beside, 'and who does it by Friday?', time))
+    await m.until(() => !m.find('outbox-item'), 'nothing waiting')
+    expect(localStorage.getItem(`mycel.queue:${ME.id}:${made}`)).toBeNull()
+  } finally {
+    await m.unmount()
+    useSendQueue.getState().reset()
+    localStorage.clear()
   }
 })
 
@@ -1087,3 +1294,92 @@ test('a first read that cannot reach the server: the calm notice; a chat the per
     await m.unmount()
   }
 }, 10_000)
+
+/** a computer's window (min-width 768 px matches) while `fn` runs; the test DOM is a phone otherwise */
+async function onComputer<T>(fn: () => Promise<T>): Promise<T> {
+  const was = window.matchMedia
+  Object.assign(window, { matchMedia: (q: string) => ({ matches: q.includes('min-width'), media: q, addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {} }) })
+  try { return await fn() } finally { Object.assign(window, { matchMedia: was }) }
+}
+const queueOne = (chatId: string) => localStorage.setItem(`mycel.queue:${ME.id}:${chatId}`, JSON.stringify({ v: 1, items: [{ id: uuidv7(), content: 'and who does it?', attachments: [], author: { id: ME.id, name: ME.name }, createdAt: at(2) }], paused: null, after: null }))
+
+test('a reload (QA TC-4963): on a computer the side chat opens by itself when a message of mine waits in it, with that message', async () => {
+  signIn()
+  const id = uuidv7()
+  serve(id)
+  const q = msg({ chatId: id, role: 'user', content: 'what was decided?' })
+  turns[id] = [q, msg({ chatId: id, role: 'assistant', parentId: q.id, status: 'done', content: 'Wednesday.' })]
+  queueOne(id)
+  useRooms.setState({ rooms: [team], loaded: true })
+  resetSideChatOpenForTest()
+  await onComputer(async () => {
+    const m = await roomPage()
+    try {
+      await m.until(() => !!m.find('side-chat-panel') && !!m.find('outbox-item'), 'the side chat, open by itself, with the waiting message')
+      expect(m.get('room-side-chat-button').getAttribute('aria-pressed')).toBe('true')
+    } finally {
+      await m.unmount()
+      useSendQueue.getState().reset()
+      localStorage.clear()
+    }
+  })
+})
+
+test('a reload (QA TC-4963): nothing waits and it was closed: it stays closed, and the server is not asked for the side chat', async () => {
+  signIn()
+  serve(uuidv7())
+  useRooms.setState({ rooms: [team], loaded: true })
+  resetSideChatOpenForTest()
+  await onComputer(async () => {
+    const m = await roomPage()
+    try {
+      await m.until(() => !!m.find('room-message'), 'the room')
+      await m.settle()
+      expect(m.find('side-chat-panel')).toBeNull()
+      expect(calls.some((c) => c.path === '/api/chats' && c.search.includes('sideRoomId'))).toBe(false)
+    } finally { await m.unmount() }
+  })
+})
+
+test('a reload (QA TC-4963): open before it, it is open after it, on a phone too; closing it, or leaving the room, keeps it closed the next time', async () => {
+  signIn()
+  serve(null)
+  useRooms.setState({ rooms: [team], loaded: true })
+  // the tab had it open: what the room page wrote before the reload
+  keepSideChatOpen(ME.id, team.id, true)
+  resetSideChatOpenForTest()
+  const m = await roomPage()
+  try {
+    await m.until(() => !!m.find('side-chat-panel'), 'the side chat, open again (a phone)')
+    // ✕ closes it: not kept for the next reload
+    await m.click('room-side-chat-button')
+    await m.until(() => !m.find('side-chat-panel'), 'closed')
+    expect(sessionStorage.getItem(`mycel.sideChatOpen.${ME.id}`)).toBeNull()
+    // ✦ opens it: kept; leaving the room closes it and forgets it
+    await openSide(m)
+    expect(JSON.parse(sessionStorage.getItem(`mycel.sideChatOpen.${ME.id}`) ?? '[]')).toEqual([team.id])
+  } finally { await m.unmount() }
+  expect(sessionStorage.getItem(`mycel.sideChatOpen.${ME.id}`)).toBeNull()
+})
+
+test('a phone (QA TC-4963): a waiting message alone does not cover the room with the side chat; ✦ opens it on that chat', async () => {
+  signIn()
+  const id = uuidv7()
+  serve(id)
+  turns[id] = [msg({ chatId: id, role: 'user', content: 'what was decided?' })]
+  queueOne(id)
+  useRooms.setState({ rooms: [team], loaded: true })
+  resetSideChatOpenForTest()
+  const m = await roomPage()
+  try {
+    await m.until(() => !!m.find('room-message'), 'the room')
+    await m.settle()
+    expect(m.find('side-chat-panel')).toBeNull()
+    await m.click('room-side-chat-button')
+    await m.until(() => !!m.find('outbox-item'), 'the side chat on the chat the message waits in')
+  } finally {
+    await m.unmount()
+    useSendQueue.getState().reset()
+    localStorage.clear()
+  }
+})

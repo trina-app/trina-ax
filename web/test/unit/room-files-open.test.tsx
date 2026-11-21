@@ -97,7 +97,7 @@ test('a chip\'s name opens the file viewer, its icon downloads; a file with no p
   const pdf = file('acme-q4.pdf', { mime: 'application/pdf' })
   const zip = file('acme-assets.zip')
   const hwp = file('acme-form.hwp')
-  const huge = file('acme-scan.png', { kind: 'image', mime: 'image/png', size: 30 * 1024 * 1024 })
+  const huge = file('acme-scan.png', { kind: 'image', mime: 'image/png', size: 100 * 1024 * 1024 + 1 })
   const m = message({ roomId: team.id, seq: 1, author: BEN, body: '', files: [pdf, zip, hwp, huge] })
   expect([pdf, zip, hwp, huge].map(opensWithoutServer)).toEqual([true, false, false, false])
   expect([pdf, zip, hwp, huge].map((f) => roomNoPreview(f, null))).toEqual([null, 'unsupported', 'unsupported', 'large'])

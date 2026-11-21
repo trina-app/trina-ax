@@ -10,13 +10,14 @@
 // (canSee; people who join a team room later too: rooms/history.ts never hides one), it counts as unread and alerts by
 // the room's level like any message (never a mention: mentions '[]'), and a reply in its thread notifies who replied
 // there. Quiet ones (app_quiet) count nowhere: no unread, no notice, not the rooms list's line, no activity bump.
+import { NOT_HELD_SQL } from '../project-room'
 import crypto from 'node:crypto'
 import type { Database } from 'bun:sqlite'
 import {
-  AI_OWN_NAMES, DEFAULT_LOCALE, ROOM_APP_DAILY_CAP, ROOM_APP_DEFAULT_NAMES, ROOM_APP_EXAMPLES_PER_HOUR, ROOM_APP_PRESET_NAMES, ROOM_APP_PRESET_SIGNING, ROOM_APP_PRESET_SWITCHES,
+  AI_OWN_NAMES, DEFAULT_LOCALE, ROOM_APP_DAILY_CAP, ROOM_APP_DEFAULT_NAMES, ROOM_APP_EXAMPLES_PER_HOUR, ROOM_APP_ICON_CHANGES_PER_HOUR, ROOM_APP_PRESET_NAMES, ROOM_APP_PRESET_SIGNING, ROOM_APP_PRESET_SWITCHES,
   ROOM_APP_SECRET_RE, ROOM_APP_SWITCHES, ROOM_APP_TEAM_DAILY_CAP, ROOM_APPS_MAX, ROOM_APPS_PER_HOUR, roomAppDefaults, SENTRY_SECRET_RE, ZENDESK_TEST_SECRET,
   type CreateRoomAppBody, type Locale, type RoomApp, type RoomAppAddress, type RoomAppCreated, type RoomAppKind, type RoomAppList, type RoomAppRefusal,
-  type RoomAppSecretResult, type SetRoomAppSecretBody, type UpdateRoomAppBody,
+  type RoomAppSecretResult, type SetRoomAppEmojiBody, type SetRoomAppSecretBody, type UpdateRoomAppBody,
 } from '@mycel/shared/api'
 import { limitResetText } from '@mycel/shared'
 import { PRODUCT } from '@mycel/shared/product'
@@ -33,6 +34,7 @@ import { notificationsOf } from '../../notifications/service'
 import { roomsOf } from '../service'
 import { mayManageApps, messageRow, roomAuditRef, threadable, type MessageRow, type RoomRow } from '../store'
 import { bodyOf, cleanCard, line, type StoredCard } from './card'
+import { dropIcon, iconImage, iconsOf, readIconUpload, writeIcon } from './icon'
 import { AppLimits } from './limits'
 import type { AppEvent } from './parse'
 import { presetOf } from './presets'
@@ -107,6 +109,7 @@ export class RoomApps {
   readonly limits = new AppLimits(() => this.clock())
   private added = new Map<string, number[]>()
   private examples = new Map<string, number[]>()
+  private iconChanges = new Map<string, number[]>()
   constructor(readonly ctx: AppContext) {}
   private get db(): Database { return this.ctx.db }
   private get vault(): Vault { return credentialsOf(this.ctx).vault }
@@ -144,7 +147,7 @@ export class RoomApps {
    * (routes/room-apps.ts). Idempotent: one notice per person and address (the table's UNIQUE). Returns how many apps had
    * a leaver. */
   leaverSweep(): number {
-    const rows = this.db.query(`SELECT a.* FROM room_apps a JOIN rooms r ON r.id = a.room_id AND r.archived_at IS NULL
+    const rows = this.db.query(`SELECT a.* FROM room_apps a JOIN rooms r ON r.id = a.room_id AND r.archived_at IS NULL AND ${NOT_HELD_SQL('r')}
       WHERE EXISTS (SELECT 1 FROM room_app_viewers v WHERE v.app_id = a.id)`).all() as AppRow[]
     const n = notificationsOf(this.ctx)
     let found = 0
@@ -245,8 +248,9 @@ export class RoomApps {
     const reason = row.last_refusal as RoomAppRefusal | null
     const preset = this.presetOf(row)
     const pausedBy = paused ? this.pausedBy(row, day) : null
+    const icon = this.iconable(row) ? iconsOf(this.db, [row.id]).get(row.id) : undefined
     return {
-      id: row.id, roomId: row.room_id, kind: row.kind, ...(preset ? { preset } : {}), name: row.name, events: this.switches(row), quiet: !!row.quiet, signed: !!row.secret_enc && !row.secret_pending,
+      id: row.id, roomId: row.room_id, kind: row.kind, ...(preset ? { preset } : {}), name: row.name, ...(icon ? { icon } : {}), events: this.switches(row), quiet: !!row.quiet, signed: !!row.secret_enc && !row.secret_pending,
       ...(row.secret_enc && row.secret_pending ? { signingPending: true as const } : {}),
       createdBy: by ? { id: by.id, name: by.name } : null, createdAt: row.created_at, firstOkAt: row.first_ok_at, lastOkAt: row.last_ok_at,
       lastRefusal: row.last_refusal_at && reason ? { at: row.last_refusal_at, reason } : null,
@@ -431,6 +435,62 @@ export class RoomApps {
       audit(this.db, { actor: userId, action: 'room_app.remove', target: row.id, detail: { ...roomAuditRef(room), kind: row.kind, ...(row.preset ? { preset: row.preset } : {}) } })
     })()
     this.limits.forget(row.id)
+  }
+
+  // ---------------- its own icon (docs/decisions/20261116-other-app-icon.md) ----------------
+  /** Only a plain Other app has one: a named service, Sentry, GitHub and Google Forms keep their marks (an unknown
+   * preset of a newer build too). */
+  iconable(row: Pick<AppRow, 'kind' | 'preset'>): boolean { return row.kind === 'other' && !row.preset }
+  private iconRow(userId: string, roomId: string, appId: string, locale: Locale): { room: RoomRow; row: AppRow } {
+    const r = this.mine(userId, roomId, appId)
+    if (!this.iconable(r.row)) fail('validation', appText('iconNotOther', locale), { params: { reason: 'not_other' } })
+    return r
+  }
+  /** One icon change of an app, counted per app and hour after the permission check (refused uploads too): the audit
+   * log is not a place to flood (security review of #1045). */
+  private iconTry(userId: string, roomId: string, appId: string, locale: Locale): { room: RoomRow; row: AppRow } {
+    const r = this.iconRow(userId, roomId, appId, locale)
+    this.takeHourly(this.iconChanges, r.row.id, ROOM_APP_ICON_CHANGES_PER_HOUR, (minutes) => appText('iconLimit', locale, { n: ROOM_APP_ICON_CHANGES_PER_HOUR, minutes }))
+    return r
+  }
+  private iconChanged(userId: string, room: RoomRow, row: AppRow, detail: { set: 'image' | 'emoji' | null; size?: number; before: number | null }) {
+    audit(this.db, { actor: userId, action: 'room_app.icon', target: row.id, detail: { ...roomAuditRef(room), ...detail } })
+  }
+  /** "Change icon" › Upload an image. The right is checked before the upload is read and again after it (an app removed,
+   * or the person's right taken away, meanwhile gets nothing). */
+  async setIconImage(userId: string, roomId: string, appId: string, body: AsyncIterable<Uint8Array>, declared: string, locale: Locale): Promise<RoomApp> {
+    this.iconTry(userId, roomId, appId, locale)
+    const img = await readIconUpload(body, declared, locale)
+    const { room, row } = this.iconRow(userId, roomId, appId, locale)
+    this.db.transaction(() => {
+      const { before } = writeIcon(this.db, row.id, img)
+      this.iconChanged(userId, room, row, { set: 'image', size: img.bytes.byteLength, before })
+    })()
+    return this.out(this.row(row.id)!)
+  }
+  /** "Change icon" › Pick an emoji (one, already checked by the contract). */
+  setIconEmoji(userId: string, roomId: string, appId: string, b: SetRoomAppEmojiBody, locale: Locale): RoomApp {
+    const { room, row } = this.iconTry(userId, roomId, appId, locale)
+    this.db.transaction(() => {
+      const { before } = writeIcon(this.db, row.id, { emoji: b.emoji })
+      this.iconChanged(userId, room, row, { set: 'emoji', before })
+    })()
+    return this.out(this.row(row.id)!)
+  }
+  /** "Remove icon": the letter again. Nothing to remove changes nothing (and is not audited). */
+  removeIcon(userId: string, roomId: string, appId: string, locale: Locale): RoomApp {
+    const { room, row } = this.iconTry(userId, roomId, appId, locale)
+    this.db.transaction(() => {
+      if (dropIcon(this.db, row.id)) this.iconChanged(userId, room, row, { set: null, before: null })
+    })()
+    return this.out(this.row(row.id)!)
+  }
+  /** The image, for anyone in the room (Rooms.mine: 404 otherwise); another room's app, or none, is 404 too. */
+  iconImageFor(userId: string, roomId: string, appId: string): { bytes: Uint8Array; type: string; version: number } {
+    const { room } = roomsOf(this.ctx).mine(userId, roomId)
+    const row = this.row(appId)
+    if (!row || row.room_id !== room.id || !this.iconable(row)) return fail('not_found')
+    return iconImage(this.db, row.id) ?? fail('not_found')
   }
 
   resume(userId: string, roomId: string, appId: string, locale: Locale): RoomApp {

@@ -9,9 +9,9 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { PRODUCT } from '@mycel/shared'
 import { catalogAt, officialService, SERVICE_CATALOG } from '../../shared/src/service-catalog'
-import { harness, withOwner, type Client, type Harness } from './a-lib'
+import { addMember, harness, withOwner, type Client, type Harness } from './a-lib'
 import { FakeServices, MCP_KEY } from '../lib/fake-services'
-import { integrationsOf, MAX_PERSONAL, personalCounts, personalFull } from '../../server/src/integrations/connections/service'
+import { integrationsOf, MAX_PERSONAL, personalCounts } from '../../server/src/integrations/connections/service'
 import { connectRows } from '../../server/src/chat/connect-service'
 import { getRow } from '../../server/src/integrations/connections/store'
 import { authorizationUrl, chooseClient, CLIENT_METADATA_PATH, discover, documentOriginAt, documentOrigins, pageWords, preflight, publicOrigin, type OAuthClient } from '../../server/src/integrations/connections/oauth'
@@ -287,6 +287,11 @@ describe('sign-ins that never finished', () => {
   const insert = (id: string, url: string, auth: string, secret: string | null) => h.ctx.db.query(`INSERT INTO integrations (id, scope, owner_user_id, created_by, kind, name, slug, url, auth, status, secret_enc, created_at, updated_at)
     VALUES (?, 'personal', ?, ?, 'mcp', 'n', ?, ?, ?, 'connected', ?, ?, ?)`).run(id, ownerId(), ownerId(), id, url, auth, secret, new Date().toISOString(), new Date().toISOString())
   const ownerId = () => (h.ctx.db.query("SELECT id FROM users WHERE username = 'olga'").get() as { id: string }).id
+  const sessionId = () => (h.ctx.db.query('SELECT id FROM sessions WHERE user_id = ? LIMIT 1').get(ownerId()) as { id: string }).id
+  /** a refused sign-in try of that connection, `age` ms before the service's clock */
+  const tried = (id: string, age: number) => h.ctx.db.query(`INSERT INTO integration_oauth_flows (id, integration_id, integration_version, user_id, session_id, state_hash, state, secret_enc, key_version, reason, expires_at, created_at)
+    VALUES (?, ?, 1, ?, ?, ?, 'failed', NULL, 1, 'refused', ?, ?)`).run(`flow-${id}-${age}`, id, ownerId(), sessionId(), `hash-${id}-${age}`, new Date(fake.now - age).toISOString(), new Date(fake.now - age).toISOString())
+  const waitingIds = () => (h.ctx.db.query(`SELECT id FROM integrations WHERE owner_user_id = ? AND auth = 'oauth' AND secret_enc IS NULL ORDER BY created_at, id`).all(ownerId()) as { id: string }[]).map((r) => r.id)
 
   test('a failed or closed sign-in does not count toward the limit; Connect again at the same address picks it up', async () => {
     // 19 that work, and three failed tries at the same service plus two at other ones
@@ -315,7 +320,10 @@ describe('sign-ins that never finished', () => {
     expect(personalCounts(h.ctx.db, ownerId())).toEqual({ settled: MAX_PERSONAL, waiting: 0 })
     const more = await olga.try('POST', '/api/integrations', { kind: 'mcp', name: 'One more', url: `${fake.base}/mcp-strict?s=new`, auth: 'oauth' })
     expect(more.status).toBe(409)
-    expect(more.body.error.message).toContain(String(MAX_PERSONAL))
+    expect(more.body.error.message).toBe(TEXT.tooManyWorking.ko.replace('{n}', String(MAX_PERSONAL)))
+    expect(TEXT.tooManyWorking.en).toBe('You can have at most {n} working connections of your own.')
+    // a key one too
+    expect((await olga.try('POST', '/api/integrations', { kind: 'mcp', name: 'Key', url: `${fake.base}/mcp-key`, auth: 'bearer', secret: MCP_KEY })).status).toBe(409)
   })
 
   test('20 sign-ins finished through the callback, then the 21st is refused at create', async () => {
@@ -350,16 +358,22 @@ describe('sign-ins that never finished', () => {
     expect((await olga.try('PATCH', `/api/integrations/${key.id}`, { auth: 'bearer', secret: MCP_KEY })).status).toBe(409)
   })
 
-  test('the chat card counts like Settings: waiting ones do not fill the limit, and have their own cap', async () => {
+  test('the chat card counts like Settings: waiting ones do not fill the limit; at their cap one may make room', async () => {
+    const svc = integrationsOf(h.ctx)
     for (let i = 0; i < MAX_PERSONAL; i++) insert(`wait-${i}`, `${fake.base}/mcp-strict?w=${i}`, 'oauth', null)
     expect(connectRows(h.ctx.db, ownerId(), 'personal').count).toBe(0)
-    expect(personalFull(h.ctx.db, ownerId(), 'bearer')).toBe(false)
-    expect(personalFull(h.ctx.db, ownerId(), 'oauth')).toBe(true)
+    expect(svc.personalRoom(ownerId(), 'bearer')).toBe('ok')
+    // never tried: the oldest may go
+    expect(svc.personalRoom(ownerId(), 'oauth')).toBe('ok')
+    // every one tried in the last hour: none may go
+    for (let i = 0; i < MAX_PERSONAL; i++) tried(`wait-${i}`, 30 * 60_000)
+    expect(svc.personalRoom(ownerId(), 'oauth')).toBe('waiting')
+    expect(svc.personalRoom(ownerId(), 'bearer')).toBe('ok')
     h.ctx.db.query("DELETE FROM integrations WHERE id LIKE 'wait-%'").run()
     for (let i = 0; i < MAX_PERSONAL; i++) insert(`ok-${i}`, `${fake.base}/mcp-open?n=${i}`, 'none', null)
     expect(connectRows(h.ctx.db, ownerId(), 'personal').count).toBe(MAX_PERSONAL)
-    expect(personalFull(h.ctx.db, ownerId(), 'oauth')).toBe(true)
-    expect(personalFull(h.ctx.db, ownerId(), 'none')).toBe(true)
+    expect(svc.personalRoom(ownerId(), 'oauth')).toBe('working')
+    expect(svc.personalRoom(ownerId(), 'none')).toBe('working')
   })
 
   test('Connect again at a waiting address takes the new name, notes and write rule; another short name makes a new one', async () => {
@@ -373,15 +387,168 @@ describe('sign-ins that never finished', () => {
   })
 
   test('connections waiting for a sign-in have a cap of their own; one with a stored sign-in is never reused', async () => {
-    for (let i = 0; i < MAX_PERSONAL; i++) insert(`wait-${i}`, `${fake.base}/mcp-strict?w=${i}`, 'oauth', null)
+    for (let i = 0; i < MAX_PERSONAL; i++) { insert(`wait-${i}`, `${fake.base}/mcp-strict?w=${i}`, 'oauth', null); tried(`wait-${i}`, 10 * 60_000) }
+    // every one tried within the hour: none may go, said as waiting ones (not as the limit of working ones)
     const over = await olga.try('POST', '/api/integrations', { kind: 'mcp', name: 'One more', url: `${fake.base}/mcp-strict?w=new`, auth: 'oauth' })
     expect(over.status).toBe(409)
+    expect(over.body.error.message).toBe(TEXT.tooManyWaiting.ko.replace('{n}', String(MAX_PERSONAL)))
+    expect(personalCounts(h.ctx.db, ownerId()).waiting).toBe(MAX_PERSONAL)
     // Connect for an address that has one waiting still works (it is the same one)
     expect((await olga.call('POST', '/api/integrations', { kind: 'mcp', name: 'Again', url: `${fake.base}/mcp-strict?w=3`, auth: 'oauth' })).id).toBe('wait-3')
     h.ctx.db.query("DELETE FROM integrations WHERE id LIKE 'wait-%'").run()
     // signed in once (a stored sign-in): a new Connect makes its own
     insert('signed', `${fake.base}/mcp-strict`, 'oauth', 'sealed')
     expect((await strict()).id).not.toBe('signed')
+  })
+})
+
+describe('waiting connections never block adding a connector (QA TC-3048)', () => {
+  const ownerId = () => (h.ctx.db.query("SELECT id FROM users WHERE username = 'olga'").get() as { id: string }).id
+  const at = () => new Date(fake.now).toISOString()
+  const insert = (id: string, auth: string, secret: string | null, more: { template_id?: string; oauth_client?: string } = {}) => h.ctx.db.query(`INSERT INTO integrations (id, scope, owner_user_id, created_by, kind, name, slug, url, auth, status, secret_enc, template_id, oauth_client, created_at, updated_at)
+    VALUES (?, 'personal', ?, ?, 'mcp', 'n', ?, ?, ?, 'needs_auth', ?, ?, ?, ?, ?)`).run(id, ownerId(), ownerId(), id, `${fake.base}/mcp-strict?keep=${id}`, auth, secret, more.template_id ?? null, more.oauth_client ?? null, at(), at())
+  const exists = (id: string) => !!h.ctx.db.query('SELECT 1 FROM integrations WHERE id = ?').get(id)
+  const connect = (url: string) => olga.call('POST', '/api/integrations', { kind: 'mcp', name: 'Try', url, auth: 'oauth' }, PUBLIC)
+
+  test('25 tries at services that refuse or windows closed, over two hours, then a 26th Connect at a service that works connects', async () => {
+    const ids: string[] = []
+    for (let i = 0; i < 25; i++) {
+      // most refuse the app (Canva, Figma, Intercom, Square); every fifth window is closed without signing in
+      const closed = i % 5 === 4
+      fake.strict = closed ? {} : { register: 403 }
+      const c = await connect(`${fake.base}/mcp-strict?try=${i}`)
+      ids.push(c.id)
+      expect((await authorize(c.id)).status, `try ${i}`).toBe(closed ? 200 : 400)
+      fake.now += 4 * 60_000
+    }
+    expect(personalCounts(h.ctx.db, ownerId())).toEqual({ settled: 0, waiting: MAX_PERSONAL })
+    fake.strict = {}
+    const ok = await connect(`${fake.base}/mcp-strict?fine=1`)
+    const r = await authorize(ok.id)
+    expect(r.status).toBe(200)
+    expect((await olga.raw('GET', callback(fake.authorize(r.body.authorizationUrl, `${fake.base}/as-strict`)))).status).toBe(200)
+    const listed = (await olga.call('GET', '/api/integrations')).items
+    expect(listed.find((i: any) => i.id === ok.id)).toMatchObject({ status: 'connected' })
+    // the six oldest tries made room, oldest first; the rest stay
+    for (const [n, id] of ids.entries()) {
+      expect(exists(id), `try ${n}`).toBe(n >= 6)
+      expect(listed.some((i: any) => i.id === id), `try ${n} listed`).toBe(n >= 6)
+    }
+    expect(personalCounts(h.ctx.db, ownerId())).toEqual({ settled: 1, waiting: MAX_PERSONAL - 1 })
+    // each removal is logged like a delete
+    expect(h.ctx.db.query("SELECT count(*) AS n FROM audit_log WHERE action = 'integration.delete' AND detail LIKE '%\"replaced\":\"waiting\"%'").get()).toEqual({ n: 6 })
+  })
+
+  test('the oldest that may go is removed: its sign-in had ended and cannot finish later; one tried in the last hour stays and still signs in', async () => {
+    fake.strict = {}
+    const ids: string[] = []
+    for (let i = 0; i < MAX_PERSONAL; i++) { ids.push((await connect(`${fake.base}/mcp-strict?o=${i}`)).id); fake.now += 60_000 }
+    // the oldest: a sign-in started and its window left open
+    const old = await authorize(ids[0]!)
+    expect(old.status).toBe(200)
+    fake.now += 61 * 60_000
+    expect(await olga.call('GET', `/api/integrations/flows/${old.body.flowId}`)).toMatchObject({ state: 'expired' })
+    // the second oldest: a sign-in going on now
+    const now = await authorize(ids[1]!)
+    expect(now.status).toBe(200)
+    const a = await connect(`${fake.base}/mcp-strict?o=new1`)
+    expect(exists(ids[0]!)).toBe(false)
+    expect(exists(a.id)).toBe(true)
+    // its flow went with it, and the window left open cannot connect anything
+    expect((await olga.try('GET', `/api/integrations/flows/${old.body.flowId}`)).status).toBe(404)
+    expect((await olga.raw('GET', callback(fake.authorize(old.body.authorizationUrl, `${fake.base}/as-strict`)))).status).not.toBe(200)
+    expect(exists(ids[0]!)).toBe(false)
+    // the next one skips the connection tried in the last hour
+    await connect(`${fake.base}/mcp-strict?o=new2`)
+    expect(exists(ids[1]!)).toBe(true)
+    expect(exists(ids[2]!)).toBe(false)
+    expect(personalCounts(h.ctx.db, ownerId()).waiting).toBe(MAX_PERSONAL)
+    // and that sign-in still finishes
+    expect((await olga.raw('GET', callback(fake.authorize(now.body.authorizationUrl, `${fake.base}/as-strict`)))).status).toBe(200)
+    expect(getRow(h.ctx.db, ids[1]!)!.secret_enc).not.toBeNull()
+  })
+
+  test('never removed: a stored sign-in, a key, one from a template, one with its own app', async () => {
+    insert('signed', 'oauth', 'sealed')
+    insert('keyed', 'bearer', 'sealed')
+    insert('from-template', 'oauth', null, { template_id: 'tpl-1' })
+    for (let i = 0; i < MAX_PERSONAL - 1; i++) insert(`own-app-${i}`, 'oauth', null, { oauth_client: JSON.stringify({ clientId: 'mine' }) })
+    fake.now += 60_000
+    insert('plain', 'oauth', null)
+    expect(personalCounts(h.ctx.db, ownerId())).toEqual({ settled: 2, waiting: MAX_PERSONAL })
+    // the only one that may go is the newest
+    fake.strict = {}
+    const a = await connect(`${fake.base}/mcp-strict?n=1`)
+    expect(exists('plain')).toBe(false)
+    // then only the new one may go (it was never tried)
+    await connect(`${fake.base}/mcp-strict?n=2`)
+    expect(exists(a.id)).toBe(false)
+    // with a sign-in try on the newest, none may go: refused, saying so, nothing removed
+    const n2 = (h.ctx.db.query("SELECT id FROM integrations WHERE url LIKE '%?n=2'").get() as { id: string }).id
+    expect((await authorize(n2)).status).toBe(200)
+    const over = await olga.try('POST', '/api/integrations', { kind: 'mcp', name: 'More', url: `${fake.base}/mcp-strict?n=3`, auth: 'oauth' })
+    expect(over.status).toBe(409)
+    expect(over.body.error.message).toBe(TEXT.tooManyWaiting.ko.replace('{n}', String(MAX_PERSONAL)))
+    for (const id of ['signed', 'keyed', 'from-template', n2, ...Array.from({ length: MAX_PERSONAL - 1 }, (_, i) => `own-app-${i}`)]) expect(exists(id), id).toBe(true)
+    // a key connection is never held up by waiting ones
+    expect((await olga.call('POST', '/api/integrations', { kind: 'mcp', name: 'Key', url: `${fake.base}/mcp-key`, auth: 'bearer', secret: MCP_KEY })).status).toBe('connected')
+  })
+
+  test('a key changed to sign-in at the waiting cap replaces the oldest waiting one', async () => {
+    for (let i = 0; i < MAX_PERSONAL; i++) insert(`wait-${i}`, 'oauth', null)
+    fake.now += 60_000
+    const key = await olga.call('POST', '/api/integrations', { kind: 'mcp', name: 'Key', url: `${fake.base}/mcp-key`, auth: 'bearer', secret: MCP_KEY })
+    await olga.call('PATCH', `/api/integrations/${key.id}`, { auth: 'oauth' })
+    expect(getRow(h.ctx.db, key.id)).toMatchObject({ auth: 'oauth', secret_enc: null })
+    expect(personalCounts(h.ctx.db, ownerId())).toEqual({ settled: 0, waiting: MAX_PERSONAL })
+    expect(Array.from({ length: MAX_PERSONAL }, (_, i) => exists(`wait-${i}`)).filter((x) => !x).length).toBe(1)
+  })
+
+  test('a save that fails removes nothing: the replacement is in the write\'s transaction (create and a key changed to sign-in)', async () => {
+    for (let i = 0; i < MAX_PERSONAL; i++) insert(`wait-${i}`, 'oauth', null)
+    fake.now += 60_000
+    const key = await olga.call('POST', '/api/integrations', { kind: 'mcp', name: 'Key', url: `${fake.base}/mcp-key`, auth: 'bearer', secret: MCP_KEY })
+    const deletes = () => (h.ctx.db.query("SELECT count(*) AS n FROM audit_log WHERE action = 'integration.delete'").get() as { n: number }).n
+    // the write itself fails (a trigger stands in for a failure in the database)
+    h.ctx.db.exec("CREATE TRIGGER tc3048_insert BEFORE INSERT ON integrations WHEN NEW.name = 'Boom' BEGIN SELECT RAISE(ABORT, 'boom'); END")
+    h.ctx.db.exec("CREATE TRIGGER tc3048_update BEFORE UPDATE ON integrations WHEN NEW.id = '" + key.id + "' AND NEW.auth = 'oauth' BEGIN SELECT RAISE(ABORT, 'boom'); END")
+    try {
+      const made = await olga.try('POST', '/api/integrations', { kind: 'mcp', name: 'Boom', url: `${fake.base}/mcp-strict?boom=1`, auth: 'oauth' })
+      expect(made.status).toBeGreaterThanOrEqual(500)
+      const changed = await olga.try('PATCH', `/api/integrations/${key.id}`, { auth: 'oauth' })
+      expect(changed.status).toBeGreaterThanOrEqual(500)
+      for (let i = 0; i < MAX_PERSONAL; i++) expect(exists(`wait-${i}`), `wait-${i}`).toBe(true)
+      expect(deletes()).toBe(0)
+      expect(getRow(h.ctx.db, key.id)).toMatchObject({ auth: 'bearer' })
+    } finally { h.ctx.db.exec('DROP TRIGGER tc3048_insert; DROP TRIGGER tc3048_update') }
+    // the same saves without the failure replace one each
+    await connect(`${fake.base}/mcp-strict?boom=2`)
+    await olga.call('PATCH', `/api/integrations/${key.id}`, { auth: 'oauth' })
+    expect(deletes()).toBe(2)
+    expect(personalCounts(h.ctx.db, ownerId()).waiting).toBe(MAX_PERSONAL)
+  })
+
+  test('other people\'s waiting connections and waiting team connections are never touched', async () => {
+    const mia = await addMember(h, olga, { username: 'mia' })
+    const other = (id: string, scope: 'personal' | 'team', owner: string | null) => h.ctx.db.query(`INSERT INTO integrations (id, scope, owner_user_id, created_by, kind, name, slug, url, auth, status, secret_enc, created_at, updated_at)
+      VALUES (?, ?, ?, ?, 'mcp', 'n', ?, ?, 'oauth', 'needs_auth', NULL, ?, ?)`).run(id, scope, owner, owner ?? ownerId(), id, `${fake.base}/mcp-strict?other=${id}`, at(), at())
+    // theirs are older than every one of olga's
+    for (let i = 0; i < MAX_PERSONAL; i++) other(`mia-${i}`, 'personal', mia.id)
+    for (let i = 0; i < 3; i++) other(`team-${i}`, 'team', null)
+    fake.now += 60_000
+    for (let i = 0; i < MAX_PERSONAL; i++) insert(`wait-${i}`, 'oauth', null)
+    fake.strict = {}
+    for (let n = 0; n < 3; n++) { fake.now += 60_000; await connect(`${fake.base}/mcp-strict?olga=${n}`) }
+    for (let i = 0; i < MAX_PERSONAL; i++) expect(exists(`mia-${i}`), `mia-${i}`).toBe(true)
+    for (let i = 0; i < 3; i++) expect(exists(`team-${i}`), `team-${i}`).toBe(true)
+    expect(Array.from({ length: MAX_PERSONAL }, (_, i) => exists(`wait-${i}`)).filter((x) => !x).length).toBe(3)
+    expect(personalCounts(h.ctx.db, mia.id)).toEqual({ settled: 0, waiting: MAX_PERSONAL })
+  })
+
+  test('the words: "working connections" for the limit, the waiting cap in plain words, six languages', () => {
+    for (const k of ['tooManyWorking', 'tooManyWaiting'] as const) for (const l of [...LOCALES, 'zh'] as const) expect(TEXT[k][l], `${k} ${l}`).toContain('{n}')
+    expect(TEXT.tooManyWorking.en).toContain('working connections')
+    expect(TEXT.tooManyWaiting.en).not.toMatch(/OAuth|flow|record|token|hour/i)
   })
 })
 
@@ -405,6 +572,8 @@ const RECORDED: Recorded[] = JSON.parse(fs.readFileSync(path.join(import.meta.di
 const EXPECTED: Record<string, 'registered' | 'metadata' | 'approved_only' | 'no_registration'> = {
   canva: 'metadata', indeed: 'metadata', railway: 'metadata', vercel: 'metadata',
   figma: 'approved_only', intercom: 'approved_only', square: 'approved_only',
+  // registers no apps: it signs in through the server's GitHub App (c-integrations-github.test.ts)
+  github: 'no_registration',
 }
 /** the second probe of an address (Canva's documented api.canva.com, Atlassian's v1) */
 const expectedFor = (r: Recorded) => (r.mcpUrl === 'https://api.canva.com/connect/v1/mcp' ? 'no_registration' : EXPECTED[r.id] ?? 'registered')
@@ -412,7 +581,7 @@ const expectedFor = (r: Recorded) => (r.mcpUrl === 'https://api.canva.com/connec
 function recordedNet(r: Recorded, server: { registration?: string; authorization?: string }): NetOptions {
   const reply = (a: Answer) => ({ status: a.status, headers: a.headers ?? {}, body: a.json !== undefined ? JSON.stringify(a.json) : a.body ?? '' })
   return {
-    answerForTests: async (url: string, req: NetRequest) => {
+    answer: async (url: string, req: NetRequest) => {
       if (req.method === 'POST' && server.registration && url === server.registration) return r.register ? reply(r.register) : { status: 404 }
       if (req.method === 'GET' && server.authorization && url.startsWith(server.authorization + '?')) {
         if (new URL(url).searchParams.get('client_id') === DOC) return { status: 200, body: '<html>Sign in</html>' }

@@ -48,8 +48,8 @@ async function setup() {
   return { owner, ada, mia, nora, otto, pia, group, hub, rooms, send, messages, makeGroup }
 }
 
-test('a group chat: me and two or more active people; named or not; several with the same people; not audited', async () => {
-  const { owner, mia, nora, otto, pia, rooms, messages, makeGroup, hub } = await setup()
+test('a group chat: me and two or more active people, or a named one (a private channel) with one or more; the group DM of the same people is opened again; not audited', async () => {
+  const { owner, ada, mia, nora, otto, pia, rooms, messages, makeGroup, hub } = await setup()
   const g = await makeGroup(mia.client, [nora.id, otto.id, nora.id, mia.id])
   expect(g).toMatchObject({ kind: 'group', name: null, memberCount: 3, canRename: true, managerId: mia.id, groupId: null, unreadCount: 0, lastMessage: null })
   expect(g.peers.map((p: any) => p.id).sort()).toEqual([nora.id, otto.id].sort())
@@ -61,12 +61,25 @@ test('a group chat: me and two or more active people; named or not; several with
   expect(lines[0]).toMatchObject({ seq: 1, author: { id: mia.id }, body: '', event: { type: 'created' } })
   expect(lines[0].event.users.map((u: any) => u.id).sort()).toEqual([nora.id, otto.id].sort())
   expect((await rooms(nora.client)).find((r) => r.id === g.id)).toMatchObject({ unreadCount: 0, lastMessage: null })
-  // a second one with the same people is a new room; a name is kept as typed (trimmed)
+  // New message with the same people again (any order, by any of them): the group DM there is, not a second one
+  // (docs/decisions/20261117-named-groups-private-channels.md)
+  expect((await makeGroup(nora.client, [otto.id, mia.id])).id).toBe(g.id)
+  expect((await makeGroup(mia.client, [otto.id, nora.id], '  ')).id).toBe(g.id)
+  // fewer or more people is another group DM
+  const withOwner = await makeGroup(mia.client, [nora.id, otto.id, ada.id])
+  expect(withOwner.id).not.toBe(g.id)
+  // a named one (a private channel) with the same people is a new room; a name is kept as typed (trimmed)
   const named = await makeGroup(mia.client, [nora.id, otto.id], '  Launch 회의  ')
   expect(named.id).not.toBe(g.id)
   expect(named.name).toBe('Launch 회의')
-  // one other person is a DM, not a group chat; myself only or nobody: refused
+  // the group DM is still found once the private channel exists (a named room is never a group DM)
+  expect((await makeGroup(mia.client, [nora.id, otto.id])).id).toBe(g.id)
+  // a private channel needs only one other person
+  const pair = await makeGroup(mia.client, [nora.id], 'Pair')
+  expect(pair).toMatchObject({ kind: 'group', name: 'Pair', memberCount: 2 })
+  // without a name, one other person is a DM, not a group chat; myself only or nobody: refused
   expect((await mia.client.try('POST', '/api/rooms', { kind: 'group', userIds: [nora.id] })).status).toBe(400)
+  expect((await mia.client.try('POST', '/api/rooms', { kind: 'group', userIds: [mia.id], name: 'Solo' })).status).toBe(400)
   expect((await mia.client.try('POST', '/api/rooms', { kind: 'group', userIds: [nora.id, mia.id] })).status).toBe(400)
   // only active people of this team, refused the same way whatever is wrong with the id
   await owner.call('PATCH', `/api/admin/users/${pia.id}`, { status: 'disabled' })
@@ -81,7 +94,7 @@ test('a group chat: me and two or more active people; named or not; several with
   expect((await mia.client.try('POST', '/api/rooms', { kind: 'group', userIds: [nora.id, otto.id], name: 'a‮b' })).status).toBe(400)
   // admins read the audit log: group chats are not in it (who talks to whom)
   const audit = h.ctx.db.query('SELECT action, target, detail FROM audit_log').all() as { action: string; target: string | null; detail: string | null }[]
-  expect(audit.filter((r) => [g.id, named.id].includes(r.target ?? '') || [g.id, named.id].some((id) => (r.detail ?? '').includes(id)) || (r.detail ?? '').includes('"group"'))).toEqual([])
+  expect(audit.filter((r) => [g.id, named.id, pair.id, withOwner.id].includes(r.target ?? '') || [g.id, named.id, pair.id, withOwner.id].some((id) => (r.detail ?? '').includes(id)) || (r.detail ?? '').includes('"group"'))).toEqual([])
 })
 
 test(`a group chat holds at most ${ROOM_GROUP_MAX} people`, async () => {
@@ -233,6 +246,35 @@ test('remove: the manager, or an owner or admin in it, takes someone out (never 
   expect((await nora.client.try('DELETE', `/api/rooms/${dm.id}/members/${pia.id}`)).status).toBe(403)
 })
 
+test('a private channel keeps its name: emptying it is refused for its manager and a member; a group DM can be named (TC-4554)', async () => {
+  const { mia, nora, otto, messages, makeGroup } = await setup()
+  const patch = (c: Client, id: string, body: unknown) => c.try('PATCH', `/api/rooms/${id}`, body)
+  // a group DM (no name) can be given one: it becomes a private channel
+  const g = await makeGroup(mia.client, [nora.id, otto.id])
+  expect(g.name).toBeNull()
+  expect((await patch(nora.client, g.id, { name: 'Launch' })).body.name).toBe('Launch')
+  const seq = (await mia.client.call('GET', `/api/rooms/${g.id}`)).lastSeq
+  // '', spaces or null: 400 (the field named), for the manager (mia made it) and a member alike; nothing is written
+  for (const c of [mia.client, nora.client]) {
+    for (const name of ['', '   ', null]) {
+      const r = await patch(c, g.id, { name })
+      expect(r.status).toBe(400)
+      expect(r.body.error.code).toBe('validation')
+      expect(r.body.error.fields?.['body.name']).toBeTruthy()
+    }
+  }
+  const after = await mia.client.call('GET', `/api/rooms/${g.id}`)
+  expect(after).toMatchObject({ name: 'Launch', lastSeq: seq })
+  expect((await messages(otto.client, g.id)).at(-1).event).toEqual({ type: 'renamed', name: 'Launch' })
+  // a new name is still fine, and so is a level change with no name in the body
+  expect((await patch(mia.client, g.id, { name: 'Launch 2' })).body.name).toBe('Launch 2')
+  expect((await patch(nora.client, g.id, { notifyLevel: 'mentions' })).status).toBe(200)
+  // a group DM with no name: an empty name changes nothing (still allowed, as before)
+  const dmGroup = await makeGroup(nora.client, [mia.id, otto.id])
+  expect((await patch(nora.client, dmGroup.id, { name: '' })).status).toBe(200)
+  expect((await patch(nora.client, dmGroup.id, { name: null })).body.name).toBeNull()
+})
+
 test('rename: group chats by any member; team and everyone rooms by an owner or admin in them; never a DM', async () => {
   const { owner, ada, mia, nora, otto, group, rooms, messages, makeGroup, hub } = await setup()
   const g = await makeGroup(mia.client, [nora.id, otto.id])
@@ -247,9 +289,9 @@ test('rename: group chats by any member; team and everyone rooms by an owner or 
   const seq = (await mia.client.call('GET', `/api/rooms/${g.id}`)).lastSeq
   await patch(mia.client, g.id, { name: '주간 회의' })
   expect((await mia.client.call('GET', `/api/rooms/${g.id}`)).lastSeq).toBe(seq)
-  // '' or null: back to the members' names
-  expect((await patch(mia.client, g.id, { name: '' })).body.name).toBeNull()
-  expect((await messages(otto.client, g.id)).at(-1).event).toEqual({ type: 'renamed', name: null })
+  // '' or null: refused once it has a name (a private channel stays a channel, TC-4554; its own test below)
+  expect((await patch(mia.client, g.id, { name: '' })).status).toBe(400)
+  expect((await mia.client.call('GET', `/api/rooms/${g.id}`)).lastSeq).toBe(seq)
   // the name's rules: at most ROOM_NAME_MAX characters after trimming, no control characters or bidi overrides
   expect((await patch(mia.client, g.id, { name: 'x'.repeat(ROOM_NAME_MAX + 1) })).status).toBe(400)
   expect((await patch(mia.client, g.id, { name: `  ${'가'.repeat(ROOM_NAME_MAX)}  ` })).status).toBe(200)
@@ -420,11 +462,17 @@ test('an event line this build cannot read is a neutral line by nobody, never "<
 
 test(`at most ${GROUPS_PER_HOUR} new group chats an hour per person, with a 429 that says so`, async () => {
   const { mia, nora, otto, makeGroup } = await setup()
-  for (let i = 0; i < GROUPS_PER_HOUR; i++) await makeGroup(mia.client, [nora.id, otto.id])
+  // named (private channels): the same people's group DM would be opened again, not made
+  for (let i = 0; i < GROUPS_PER_HOUR; i++) await makeGroup(mia.client, [nora.id, otto.id], `g${i}`)
   const over = await mia.client.try('POST', '/api/rooms', { kind: 'group', userIds: [nora.id, otto.id] })
   expect(over.status).toBe(429)
   expect(over.body.error).toMatchObject({ code: 'rate_limited', retryAfter: expect.any(Number) })
   expect(over.body.error.message).toContain(String(GROUPS_PER_HOUR))
+  // a group DM being made says group chats; a private channel being made says private channels (one count for both)
+  expect(over.body.error.message).toContain('새 그룹 대화는')
+  const overNamed = await mia.client.try('POST', '/api/rooms', { kind: 'group', userIds: [nora.id], name: 'One more' })
+  expect(overNamed.status).toBe(429)
+  expect(overNamed.body.error.message).toContain('새 비공개 채널과 그룹 대화는')
   // another person has their own count; a DM is not a group chat
   expect((await nora.client.try('POST', '/api/rooms', { kind: 'group', userIds: [mia.id, otto.id] })).status).toBe(201)
   expect((await mia.client.try('POST', '/api/rooms', { kind: 'dm', userId: otto.id })).status).toBe(201)

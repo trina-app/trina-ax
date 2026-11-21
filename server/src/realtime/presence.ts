@@ -12,6 +12,8 @@
 //   together go out as one frame.
 // - For WARMUP_MS after the server starts, a window gets its whole list only at the end of it: everyone is reconnecting
 //   then, and an early list would take every dot off the screen of someone who had them (a deploy would blink them all).
+// - For the phone rule only (inUse, notifications/away.ts), the desktop app also reports its computer's own use
+//   (POST /api/me/computer: idle time and a locked screen); it never changes a dot.
 // - Told with the `presence` control frame (shared/src/api/ws.ts): the whole list to each window as it connects, then
 //   changes to every open window of the team. Only ids and states: never a device, a window count or a time. Only
 //   active accounts are listed (the AI is no account; disabled and deleted accounts are left out), and "offline" is told
@@ -36,6 +38,26 @@ export const PRESENCE_WARMUP_MS = 15_000
  * (inUse): a computer that slept or lost its network, whose socket the server has not closed yet (the relay sends no
  * pings of its own; Bun closes an idle socket only after 120 s) */
 export const PRESENCE_SILENT_MS = 60_000
+/** the desktop app's report on its computer (POST /api/me/computer, every 30 s) counts this long; then it is old (the app
+ * quit, the computer slept, the team was closed or signed out) */
+export const PRESENCE_COMPUTER_FRESH_MS = 60_000
+/** the computer counts as in use until it has had no input for this long: the page's own 10 minutes
+ * (web/src/lib/presence.ts IDLE_AFTER_MS), Slack's desktop idle */
+export const PRESENCE_COMPUTER_IDLE_MS = 10 * 60_000
+
+/** The desktop app's last word on the computer it runs on (POST /api/me/computer) */
+export interface ComputerReport {
+  /** how long the computer had had no input when it was told (ms) */
+  idleMs: number
+  /** its screen was locked */
+  locked: boolean
+}
+
+/** what a computer report says for the phone rule */
+export type ComputerState = 'in use' | 'idle' | 'locked'
+export function computerState(r: ComputerReport): ComputerState {
+  return r.locked ? 'locked' : r.idleMs < PRESENCE_COMPUTER_IDLE_MS ? 'in use' : 'idle'
+}
 
 export interface PresenceClock {
   now(): number
@@ -64,6 +86,8 @@ export interface PresenceOptions {
   activeIds(): ReadonlySet<string>
   /** they set themselves away (kept in their account) */
   awayOf(userId: string): boolean
+  /** the sign-in (session) an open window is on: a computer report says locked or idle for that device's windows only */
+  sessionOf?(userId: string, windowId: string): string | undefined
   clock?: PresenceClock
   settleMs?: number
   graceMs?: number
@@ -88,6 +112,10 @@ interface Person {
 
 export class Presence {
   private people = new Map<string, Person>()
+  /** each person's last desktop report per sign-in (one per computer: its app's session) and when it came (clock ms):
+   * only for inUse, never told; not tied to a window (a window in the back may be silent for minutes while its app's
+   * main process still reports) */
+  private computers = new Map<string, Map<string, ComputerReport & { at: number }>>()
   private outgoing = new Map<string, PresenceState>()
   private flushTimer: unknown = null
   private stopped = false
@@ -146,21 +174,78 @@ export class Presence {
     if (p && p.windows.has(windowId)) p.seen.set(windowId, this.clock.now())
   }
 
-  /** Is the person at Trina now, for their phone's pushes (notifications/away.ts)? A window of theirs in use (active,
-   * and heard from within PRESENCE_SILENT_MS), or one closed while in use within the grace. Not when they set
-   * themselves away. Only this server's memory; nothing of it is shown to anyone. Right after a start windows are still
-   * reconnecting: ask warmingUntil first. */
+  /** The desktop app reports the computer it runs on (POST /api/me/computer): how long it has had no input, whether
+   * its screen is locked. Kept for PRESENCE_COMPUTER_FRESH_MS, for inUse only. */
+  computer(userId: string, sessionId: string, r: ComputerReport): ComputerState | null {
+    if (this.stopped || !Number.isFinite(r.idleMs) || r.idleMs < 0) return null
+    let mine = this.computers.get(userId)
+    if (!mine) this.computers.set(userId, (mine = new Map()))
+    const now = this.clock.now(), before = mine.get(sessionId)
+    mine.set(sessionId, { idleMs: r.idleMs, locked: r.locked, at: now })
+    // what changed, for the server log (routes/people.ts): the first report of this sign-in (or the first after an old
+    // one) and every change between in use, idle and locked; null while it stays the same (every 30 s)
+    const state = computerState(r)
+    return !before || now - before.at > PRESENCE_COMPUTER_FRESH_MS || computerState(before) !== state ? state : null
+  }
+
+  /** Is the person at Trina now, for their phone's pushes (notifications/away.ts; docs/decisions/20261116-away-os-idle.md)?
+   * - A fresh desktop report (within PRESENCE_COMPUTER_FRESH_MS) of input within PRESENCE_COMPUTER_IDLE_MS: in use,
+   *   with the Trina window in front, behind other apps or minimized (a window in the back is throttled and may send
+   *   nothing for minutes).
+   * - A window of theirs in use (active, and heard from within PRESENCE_SILENT_MS), or one closed while in use within
+   *   the grace. A browser tab counts only while visible (web/src/lib/presence.ts). Not a window on a sign-in whose
+   *   fresh report says its screen is locked or the computer idle (that window may not have said idle yet); another
+   *   device's windows and reports still count.
+   * Their own "away" pick (PUT /api/me/away) does not count here: it is what the team sees, not whether they are at the
+   * computer. Slack's mobile push follows desktop activity the same way (owner 2026-11-19: the phone rang at the Mac
+   * while the dot said away; QA TC-5205). Only this server's memory; nothing of it is shown to anyone. Right after a
+   * start windows are still reconnecting: ask warmingUntil first. */
   inUse(userId: string): boolean {
-    if (this.stopped) return false
+    return this.phoneUse(userId).inUse
+  }
+
+  /** inUse with why, for the server log of each phone decision (notifications/away.ts): a few words such as
+   * "computer idle 12m; no window open" or "browser or app window active". Only states and rounded times: never a
+   * device, a window id or anything the person wrote. */
+  phoneUse(userId: string): { inUse: boolean; why: string } {
+    if (this.stopped) return { inUse: false, why: 'presence stopped' }
     const now = this.clock.now()
     const p = this.people.get(userId)
-    if (!p || p.away) return false
-    for (const [w, state] of p.windows) if (state === 'active' && now - (p.seen.get(w) ?? 0) <= PRESENCE_SILENT_MS) return true
+    // sign-ins whose computer is locked or idle now: their windows do not count
+    const notUsed = new Set<string>()
+    const computer: string[] = []
+    const mine = this.computers.get(userId)
+    if (mine) {
+      for (const [sid, c] of mine) {
+        const age = now - c.at
+        if (age > PRESENCE_COMPUTER_FRESH_MS) { mine.delete(sid); computer.push(`computer report old (${span(age)})`); continue }
+        const idle = c.idleMs + age
+        if (!c.locked && idle < PRESENCE_COMPUTER_IDLE_MS) {
+          if (p || this.activeAccount(userId)) return { inUse: true, why: `computer in use (input ${span(idle)} ago)` }
+          computer.push('computer in use, not an active account')
+        } else {
+          notUsed.add(sid)
+          computer.push(c.locked ? 'computer locked' : `computer idle ${span(idle)}`)
+        }
+      }
+      if (!mine.size) this.computers.delete(userId)
+    }
+    const head = computer.length ? computer.join(', ') : 'no computer report'
+    if (!p || !p.windows.size && !p.closedInUse.size) return { inUse: false, why: `${head}; no window open` }
+    const windows = new Set<string>()
+    for (const [w, state] of p.windows) {
+      const quiet = now - (p.seen.get(w) ?? 0)
+      if (state !== 'active') { windows.add('window idle'); continue }
+      if (quiet > PRESENCE_SILENT_MS) { windows.add(`window silent ${span(quiet)}`); continue }
+      const sid = notUsed.size ? this.o.sessionOf?.(userId, w) : undefined
+      if (sid && notUsed.has(sid)) { windows.add('window on that computer'); continue }
+      return { inUse: true, why: 'browser or app window active' }
+    }
     for (const [w, until] of p.closedInUse) {
-      if (until > now) return true
+      if (until > now) return { inUse: true, why: 'window closed while in use (grace)' }
       p.closedInUse.delete(w)
     }
-    return false
+    return { inUse: false, why: `${head}; ${windows.size ? [...windows].join(', ') : 'no window open'}` }
   }
 
   /** Until when (clock ms) windows are still reconnecting after a start (the warm-up); null once it is over. inUse
@@ -220,6 +305,7 @@ export class Presence {
 
   stop(): void {
     this.stopped = true
+    this.computers.clear()
     for (const p of this.people.values()) if (p.timer) this.clock.clearTimeout(p.timer)
     if (this.flushTimer) this.clock.clearTimeout(this.flushTimer)
     if (this.warmTimer) this.clock.clearTimeout(this.warmTimer)
@@ -235,6 +321,12 @@ export class Presence {
     if (this.stopped) return
     const list = this.list()
     for (const w of this.warming.splice(0)) this.o.send(w.userId, { type: 'presence', full: true, people: list }, w.windowId)
+  }
+
+  /** a person with no window open yet: an active account of this team (a report for the AI or a deleted account counts
+   * for nobody) */
+  private activeAccount(userId: string): boolean {
+    try { return this.o.isPerson(userId) } catch { return false }
   }
 
   private person(userId: string): Person {
@@ -304,11 +396,19 @@ const stateOf = (p: Person): PresenceState => {
   return 'away'
 }
 
+/** a time for the phone decision's log line, rounded down: 12s, 4m, 3h */
+export function span(ms: number): string {
+  const s = Math.max(0, Math.floor(ms / 1000))
+  if (s < 60) return `${s}s`
+  if (s < 3600) return `${Math.floor(s / 60)}m`
+  return `${Math.floor(s / 3600)}h`
+}
+
 const started = new WeakMap<AppContext, Presence>()
 
 /**
  * Presence frames cut to what each window's person may know (docs/DECISIONS.md "Guests: only what they were invited
- * to"): a guest is told only about the people of their one place, and a member is not told about a guest who shares no
+ * to"): a guest is told only about the people of their places (their group chat and their project), and a member is not told about a guest who shares no
  * place with them. Who is a guest and each guest's place people are worked out once per frame (the same frame object
  * goes to every window of a change), never once per window; with no guest on the team the frame goes as it is.
  */
@@ -346,6 +446,7 @@ export function startPresence(hub: Hub, ctx: AppContext, o: Partial<PresenceOpti
     isPerson: (id) => !!ctx.db.query("SELECT 1 FROM users WHERE id = ? AND status = 'active' AND deleted_at IS NULL").get(id),
     activeIds: () => new Set((ctx.db.query("SELECT id FROM users WHERE status = 'active' AND deleted_at IS NULL").all() as { id: string }[]).map((r) => r.id)),
     awayOf: (id) => parsePrefs((ctx.db.query('SELECT prefs FROM users WHERE id = ?').get(id) as { prefs: string } | null)?.prefs).away === true,
+    sessionOf: (userId, windowId) => hub.sessionOfWindow(userId, windowId),
     ...o,
     send,
   })

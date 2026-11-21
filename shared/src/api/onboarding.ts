@@ -6,6 +6,10 @@
 import { z } from 'zod'
 import { endpoint } from './endpoint'
 import { SKILL_SHARE } from './onboarding-skill'
+import { PRODUCT } from '../product'
+
+/** Where the profile lives, from the team folder's root (server/src/onboarding/profile.ts; the demo's story times). */
+export const COMPANY_PROFILE_PATH = 'skills/company-profile.json'
 
 /** The fields of a profile that reach the AI (website besides). Skill inputs read them as `company.<field>`. `name`
  * (the company's name) is optional: profiles saved before it have none, and an empty one reads as the team's name. */
@@ -15,7 +19,7 @@ export type ProfileField = z.infer<typeof ProfileField>
 
 /** Characters per field (and the source lines). Together they keep the prompt block under PROFILE_BLOCK_MAX. */
 export const PROFILE_LIMITS = {
-  website: 200, name: 80, oneLine: 120, products: 400, audience: 300, avoid: 300,
+  website: 200, name: 80, oneLine: 120, products: 3000, audience: 1500, avoid: 1000,
   /** tone: at most this many chips, each at most toneItem characters */
   toneCount: 4, toneItem: 20,
   sources: 10, sourceUrl: 500, excerpt: 200,
@@ -24,10 +28,18 @@ export const PROFILE_LIMITS = {
 } as const
 /** A brand colour as the profile keeps it: "#rrggbb", lower case. */
 export const BrandColor = z.string().regex(/^#[0-9a-f]{6}$/)
-/** The rendered facts of a profile (labels included) in the AI's instructions: at most this many characters. */
-export const PROFILE_BLOCK_MAX = 2000
+/** The rendered facts of a profile (labels included) in the AI's instructions: at most this many characters (2,000
+ * before the second limits audit, TC-4980; Claude Code reads a CLAUDE.md of any length). */
+export const PROFILE_BLOCK_MAX = 8000
 /** A draft from pasted text: at most this many characters of it. */
 export const PROFILE_TEXT_MAX = 8000
+
+/** The one-line intro written from the products when nothing else wrote it (the draft's answer, the three typed
+ * answers): their first line without a list mark, cut to the field's length. "" when there are none. */
+export function profileLineFrom(products: string): string {
+  const first = products.split('\n').map((l) => l.replace(/^\s*(?:[-*•·]|\d+[.)])\s+/, '').trim()).find(Boolean) ?? ''
+  return [...first].slice(0, PROFILE_LIMITS.oneLine).join('')
+}
 
 /** Where a field came from: the page (url, '' for pasted text or the person's own answer) and a short quote of it. */
 export const ProfileSource = z.object({
@@ -141,9 +153,15 @@ export function normalizeWebsite(raw: string): string | null {
   return u.href.length > PROFILE_LIMITS.website ? null : u.href
 }
 
-/** The company's name as everything uses it: the profile's own, else the team's name (Admin › Team settings). */
-export const profileName = (p: Pick<CompanyProfileInput, 'name'> | null | undefined, teamName = ''): string =>
-  (p?.name ?? '').trim() || teamName.trim()
+/** The company's name as everything uses it: the profile's own, else the team's name (Admin › Team settings). The
+ * team-name setting's default is the product's name (admin/settings.ts): a team that never named itself has no name
+ * here, so nothing says "Company name: <product>" (review finding 1 on #105). */
+export const profileName = (p: Pick<CompanyProfileInput, 'name'> | null | undefined, teamName = ''): string => {
+  const own = (p?.name ?? '').trim()
+  if (own) return own
+  const team = teamName.trim()
+  return team === PRODUCT.displayName ? '' : team
+}
 
 /** The skill-input prefill keys (stream C reads them): `company.<field>` and `company.website`, each as text (tone chips
  * joined with ", "). Empty fields are left out; no profile, no keys. `company.name` falls back to `teamName`. */

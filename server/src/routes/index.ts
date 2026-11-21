@@ -5,6 +5,7 @@ import { peopleRoutes } from './people'
 import { artifactsRoutes } from './artifacts'
 import { authRoutes } from './auth'
 import { browserRoutes } from './browser'
+import { localAppsRoutes } from './local-apps'
 import { chatsRoutes } from './chats'
 import { filesRoutes } from './files'
 import { jobsRoutes } from './jobs'
@@ -33,6 +34,8 @@ import { slackRoutes } from './slack'
 import { appLinksRoutes } from './app-links'
 import { oftenAskedRoutes } from './often-asked'
 import { navFoldersRoutes } from './nav-folders'
+import { roomCategoriesRoutes } from './room-categories'
+import { linkNamesRoutes } from './link-names'
 
 export type { RouteModule } from './module'
 
@@ -46,9 +49,11 @@ export const ROUTE_MODULES: readonly RouteModule[] = [
   memoriesRoutes, // B
   roomsRoutes, // B (team chat rooms, docs/DECISIONS.md "대화방 v1")
   roomAppsRoutes, // B (apps posting in rooms and their public /in/ address, docs/DECISIONS.md "Apps posting in rooms")
+  roomCategoriesRoutes, // B (team-wide conversation categories, shared/src/api/room-categories.ts); after rooms
   navFoldersRoutes, // B (a person's own list folders, docs/DECISIONS.md "List folders"); after chats and rooms
   wsRoutes, // B
   browserRoutes, // B
+  localAppsRoutes, // C
   filesRoutes, // C
   artifactsRoutes, // C
   jobsRoutes, // C
@@ -67,6 +72,7 @@ export const ROUTE_MODULES: readonly RouteModule[] = [
   oftenAskedRoutes, // B: Home's "what my group often asks" and its daily run (docs/DECISIONS.md "Home: what my group often asks")
   slackRoutes, // C: the Slack connector (docs/SLACK.md); after chats, whose runtime its questions use
   demoRoutes, // demo company (`bun run demo:company`; 404 unless a development server runs with MYCEL_DEMO)
+  linkNamesRoutes, // B: names of links to things in this app pasted into messages (docs/decisions/20261118-named-app-links.md); after chats, rooms and files
   appLinksRoutes, // G: /.well-known files for the phone app's links (docs/DECISIONS.md "First run, phase 2")
   webRoutes, // D (catch-all, keep last)
 ]

@@ -134,10 +134,10 @@ describe('scripts, plugin, size, not a skill', () => {
     expect(needsScripts('Run the script past the client before the shoot.', [])).toBe(false)
   })
 
-  test('plugin: excluded without looking; too big: a file over 128 KB (in bytes) or over 1 MB in all', () => {
+  test('plugin: excluded without looking; too big: a file over 512 KB (in bytes) or over 1 MB in all', () => {
     expect(one(skill('p', [{ path: 'SKILL.md', text: md('p') }], { origin: 'plugin' })).c).toMatchObject({ group: 'excluded', reason: 'plugin', files: [] })
-    // 129 KB of Korean is under the schema's character limit, over the byte limit
-    const big = '가'.repeat(Math.ceil(129 * 1024 / 3))
+    // 513 KB of Korean is under the schema's character limit, over the byte limit
+    const big = '가'.repeat(Math.ceil(513 * 1024 / 3))
     expect(big.length).toBeLessThan(SKILL_SHARE_LIMITS.fileBytes)
     expect(one(skill('b', [{ path: 'SKILL.md', text: md('b') }, { path: 'big.md', text: big }])).c).toMatchObject({ group: 'excluded', reason: 'too_big' })
     const files = Array.from({ length: 9 }, (_, i) => ({ path: `t/${i}.md`, text: 'a'.repeat(120 * 1024) }))
@@ -273,6 +273,6 @@ describe('the strict schema', () => {
       { source: 'browser', skills: [], rule: { text: 'x', key: 'y' } },
     ]) expect(CreateSkillShare.safeParse(bad).success, JSON.stringify(bad).slice(0, 80)).toBe(false)
     // a 129 KB file of plain ASCII is over the schema's limit: the whole share is refused
-    expect(CreateSkillShare.safeParse({ source: 'browser', skills: [skill('x', [{ path: 'SKILL.md', text: md('x') }, { path: 'a.md', text: 'a'.repeat(129 * 1024) }])] }).success).toBe(false)
+    expect(CreateSkillShare.safeParse({ source: 'browser', skills: [skill('x', [{ path: 'SKILL.md', text: md('x') }, { path: 'a.md', text: 'a'.repeat(513 * 1024) }])] }).success).toBe(false)
   })
 })

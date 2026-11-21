@@ -1,11 +1,11 @@
 // The right-click menu of a picture or a file (docs/DECISIONS.md "A right-click menu on pictures and files"): a room's
 // or a thread's picture and file chip, an AI chat's attachment, and the image viewer's picture. The app's own menu
 // (rooms/MenuButton.tsx, the look of every other menu; a bottom sheet on phones) at the pointer, with what applies
-// (lib/fileMenu.ts): 이미지 복사, 링크 복사, 내려받기, 트리나에게 묻기. Ways to it: a right-click (Shift+right-click keeps
+// (lib/fileMenu.ts): 이미지 복사, 링크 복사, 내려받기, 팀 폴더에 저장, 트리나에게 묻기. Ways to it: a right-click (Shift+right-click keeps
 // the browser's own menu), the menu key or Shift+F10 on the focused picture, and a long press with a finger. In the
 // desktop app the page takes these right-clicks itself, so the app's own menu (desktop/src/main/context-menu.ts) does
 // not open over them; it still answers text, links and other pictures.
-import { Download, ImageIcon, Link2 } from 'lucide-react'
+import { Download, FolderCheck, FolderInput, ImageIcon, Link2 } from 'lucide-react'
 import { useRef, useState, type KeyboardEvent, type MouseEvent, type PointerEvent, type ReactNode } from 'react'
 import { useT } from '../i18n'
 import { canCopyImage, COPY_FAILED, copyImage, pickFromAddress } from '../lib/copyImage'
@@ -14,6 +14,7 @@ import { toast } from '../store/ui'
 import { AiMark } from './rooms/AiFace'
 import { MenuButton, useLongPress, type MenuItem } from './rooms/MenuButton'
 import { useCopy } from './ui'
+import { useCopyTeamFileLink } from './FileShareDialog'
 
 export type { FileMenuTarget }
 
@@ -41,15 +42,20 @@ export function copyImageFrom(image: NonNullable<FileMenuTarget['image']>, t: Re
 export function useFileMenuItems(target: FileMenuTarget | null): MenuItem[] {
   const t = useT()
   const copyLink = useCopyFileLink()
+  const copyFileLink = useCopyTeamFileLink()
   if (!target) return []
   const icon = (I: typeof Link2) => <I size={14} className="shrink-0" aria-hidden />
-  const make: Record<FileMenuAction, () => MenuItem> = {
+  const make: Record<FileMenuAction, () => MenuItem | MenuItem[]> = {
     copyImage: () => ({ label: t('fileMenu.copyImage'), icon: icon(ImageIcon), onSelect: () => (target.copyImage ? target.copyImage() : copyImageFrom(target.image!, t)), testId: 'file-menu-copy-image' }),
-    copyLink: () => ({ label: t('rooms.menu.copyLink'), icon: icon(Link2), onSelect: () => void copyLink(target.link!), testId: 'file-menu-copy-link' }),
+    copyLink: () => ({ label: t('rooms.menu.copyLink'), icon: icon(Link2), onSelect: () => void (target.teamFile ? copyFileLink(target.teamFile) : copyLink(target.link!)), testId: 'file-menu-copy-link' }),
     download: () => ({ label: t('common.download'), icon: icon(Download), onSelect: () => target.download!(), testId: 'file-menu-download' }),
+    saveToTeam: () => {
+      const team = target.team!
+      return { label: t(team.saved ? 'rooms.save.open' : 'rooms.save.action'), icon: icon(team.saved ? FolderCheck : FolderInput), onSelect: () => team.run(), testId: team.saved ? 'file-menu-open-team' : 'file-menu-save-team' }
+    },
     ask: () => ({ label: t('sideChat.askAboutFile'), icon: <AiMark place="menu" />, onSelect: () => target.ask!(), testId: 'file-menu-ask' }),
   }
-  return fileMenuActions(target, canCopyImage()).map((a) => make[a]())
+  return fileMenuActions(target, canCopyImage()).flatMap((a) => make[a]())
 }
 
 type Point = { x: number; y: number }

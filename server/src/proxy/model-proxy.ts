@@ -25,6 +25,11 @@ import { gatewayModelIds } from '../app-config'
 import type { CredentialBroker } from '../credentials/broker'
 import type { Family } from '../credentials/resolve'
 import { handleCodex } from './codex-path'
+import type { FitReport } from './fit-images'
+import { accountRefusal, upstreamSpeaksForAccount } from './anthropic-refusal'
+
+/** 403s of two different accounts within this time: a cause on this server's side, nothing is marked */
+const SERVER_WIDE_403_MS = 5 * 60_000
 
 const h = (t: string) => crypto.createHash('sha256').update(t).digest('hex')
 
@@ -55,12 +60,18 @@ export function revokeProxyTokens(db: Database, turnId: string) {
  * connection, and shows the reason). */
 export type ProxyTurnEvent =
   | { type: 'auth' }
-  | { type: 'budget' }
+  /** `demoRest`: a free-roam demo's gate stopped it (its daily cap or pause), not this server's budget */
+  | { type: 'budget'; demoRest?: true }
   | { type: 'rate_limit'; retryAt: string | null; credentialId?: string }
   /** a short 429 or a 529: the engine tries again by itself (on); the provider answered again (off). Shown to the person
    * while it lasts (QA TC-388); the turn goes on */
   | { type: 'busy'; on: boolean }
-  | { type: 'credential'; credentialId: string; reason: 'invalid' | 'needs_reconnect' | 'over_limit' | 'gone' }
+  /** 'no_credit': an API key out of credit (held out); 'skip': refused for a reason that may not be the account's,
+   * skipped in this turn only (nothing marked) */
+  | { type: 'credential'; credentialId: string; reason: 'invalid' | 'needs_reconnect' | 'over_limit' | 'gone' | 'no_credit' | 'skip' }
+  /** the proxy itself refused a request (its forwarding rules, the peer check, a token for the other path): never the
+   * AI account's fault, so the turn does not switch accounts on the engine's error that follows */
+  | { type: 'refused'; reason: string }
   /** a request named a tool outside the turn's lockdown (checkToolNames): the answer stops */
   | { type: 'lockdown'; reason: string }
   /** a Codex web search the proxy answered with something Codex ends its item on (codex-path.ts: the upstream's answer,
@@ -144,6 +155,9 @@ export interface ProxyOpts {
    * plain HTTP with the engine's own credential, get the same checks as managed mode and go to `upstream` (default
    * OWN_LOGIN_UPSTREAM) with that credential (TC-359) */
   ownLogin?: { upstream?: string }
+  /** fits the pictures of a Claude request before it goes on (./fit-images.ts: older ones smaller, the oldest out past
+   * one request's limits); a failure forwards the request as it came */
+  fitImages?: (body: unknown, signal: AbortSignal) => Promise<FitReport | null>
   port?: number
   hostname?: string
   /** why a request was refused or failed: status, path and the error's type + message only (never a body, a header
@@ -250,6 +264,14 @@ export function checkProxyRequest(method: string, url: URL, body: unknown, model
   return null
 }
 
+/** The largest engine request the proxy takes in (Bun answers 413 past it, before any check). The engine sends every
+ * picture of the conversation again with each request and the proxy fits them (./fit-images.ts) down to what the
+ * provider takes (32 MB), so it takes in more than that: 64 MB. Memory: a request is held about four times while it is
+ * checked and fitted (the bytes, the decoded text, the parsed object, the body written again), so up to about 256 MB
+ * for each request of that size at the same time; a turn's own images stay below this (files/vision.ts
+ * VISION_FITTED_BYTES, 48 MB of base64). */
+export const PROXY_BODY_MAX = 64 * 1024 * 1024
+
 export function apiError(status: number, type: string, message: string, extra: Record<string, string> = {}) {
   return new Response(JSON.stringify({ type: 'error', error: { type, message } }), { status, headers: { 'content-type': 'application/json', ...extra } })
 }
@@ -282,6 +304,8 @@ export async function startModelProxy(o: ProxyOpts): Promise<ModelProxy> {
   // turns told "busy" (a short 429 or a 529) and not yet told it is over: only those hear "busy: off" on the next answer.
   // A turn that ends while busy stays here; the set is emptied when it grows large (the web app clears the line itself)
   const busyTurns = new Set<string>()
+  /** AI connections Anthropic refused with an account-level 403 lately (connection id -> when) */
+  const recent403 = new Map<string, number>()
   const busy = (turnId: string, on: boolean) => {
     if (on === busyTurns.has(turnId)) return
     if (on) { if (busyTurns.size >= 10_000) busyTurns.clear(); busyTurns.add(turnId) } else busyTurns.delete(turnId)
@@ -307,10 +331,14 @@ export async function startModelProxy(o: ProxyOpts): Promise<ModelProxy> {
     // ChatGPT sign-in token (the engine's process passes the peer check, so the token has to say what it is for)
     if (row.family !== family) {
       refusedAudit(row, family === 'anthropic' ? 'not a Claude turn' : 'not a Codex turn', { path: path.slice(0, 120) })
+      o.onTurnEvent?.(row.turn_id, { type: 'refused', reason: 'wrong_path' })
       return apiError(403, 'permission_error', `this token is not for the ${family === 'anthropic' ? 'Claude' : 'Codex'} path`)
     }
     if (o.peerCheck) {
-      if (!clientPort || !(await o.peerCheck(clientPort, serverPort, row.turn_id))) return apiError(403, 'permission_error', 'caller is not part of this turn')
+      if (!clientPort || !(await o.peerCheck(clientPort, serverPort, row.turn_id))) {
+        o.onTurnEvent?.(row.turn_id, { type: 'refused', reason: 'peer' })
+        return apiError(403, 'permission_error', 'caller is not part of this turn')
+      }
     }
     return row
   }
@@ -341,6 +369,7 @@ export async function startModelProxy(o: ProxyOpts): Promise<ModelProxy> {
         ?? checkProxyRequest(req.method, url, parsed, gateway ? new Set(gatewayModelIds(gateway)) : undefined)
       if (refused) {
         refusedAudit(row, refused)
+        o.onTurnEvent?.(row.turn_id, { type: 'refused', reason: refused.slice(0, 200) })
         return apiError(403, 'permission_error', `refused by the team server: ${refused}`)
       }
       // the lockdown of the turn's tools, for the main AI and every sub-agent alike: the answer stops (M1)
@@ -375,6 +404,15 @@ export async function startModelProxy(o: ProxyOpts): Promise<ModelProxy> {
       // the body that goes out is the one checked above, written again: a raw body could say more than JSON.parse
       // saw (a duplicate key: JSON.parse keeps the last, another parser the first, e.g. a refused tool list)
       headers.set('content-type', 'application/json')
+      if (o.fitImages && url.pathname.startsWith('/v1/messages')) {
+        try {
+          const fit = await o.fitImages(parsed, req.signal)
+          if (fit && (fit.shrunk || fit.dropped || fit.pending)) o.log?.debug?.('model request images fitted', { turn: row.turn_id, ...fit, bodyBytes: body.byteLength })
+        } catch (e) {
+          if (req.signal.aborted) return unreachable(req)
+          o.log?.warn('model request images not fitted', { turn: row.turn_id, err: (e as Error).message?.slice(0, 120) })
+        }
+      }
       const outBody = JSON.stringify(parsed)
       const beta = new Set((headers.get('anthropic-beta') ?? '').split(',').map((s) => s.trim()).filter((s) => BETA_RE.test(s)))
       let sent = ''
@@ -407,10 +445,51 @@ export async function startModelProxy(o: ProxyOpts): Promise<ModelProxy> {
       const outHeaders = new Headers()
       for (const [k, v] of up.headers) if (!DROP_RESPONSE.has(k.toLowerCase())) outHeaders.set(k, v)
 
-      if (up.status === 401 && broker) {
+      // a free-roam demo (credentials/broker.ts freeRoam): its one connection is a stand-in that demo-gate swaps for the
+      // real one, so whatever the upstream answers says nothing about it; nothing is marked and the answer goes on as it
+      // came (the gate words its errors itself)
+      const marks = !!broker && !broker.freeRoam
+      // ...but demo-gate's own stop (its daily cap or its pause: a 403 budget_exceeded, the shape this proxy gives) ends
+      // the turn on the budget path, like the demo limit
+      if (up.status === 403 && broker?.freeRoam) {
+        const text = await up.text()
+        let gateStop = false
+        try { const e = (JSON.parse(text) as { error?: { type?: unknown; message?: unknown } }).error; gateStop = e?.type === 'budget_exceeded' || e?.message === 'budget_exceeded' } catch {}
+        if (gateStop) o.onTurnEvent?.(row.turn_id, { type: 'budget', demoRest: true })
+        return new Response(text, { status: up.status, headers: outHeaders })
+      }
+      if (up.status === 401 && broker && marks) {
         // this connection only: marked refused (the owner is told), the turn moves to another connection or ends
         await broker.onUnauthorized(cred.credentialId, sent)
         o.onTurnEvent?.(row.turn_id, { type: 'credential', credentialId: cred.credentialId, reason: 'invalid' })
+      }
+      // Anthropic's own refusal of the account (a subscription that ended, an API key out of credit, an account switched
+      // off): marked, so it is not "healthy" again on the next turn, and the turn moves on (QA TC-4835,
+      // ./anthropic-refusal.ts). Any other 403 skips the account in this turn only. Only /v1/messages, only an answer
+      // in Anthropic's error shape with a request-id, only from Anthropic itself (never a gateway or another upstream).
+      if ((up.status === 400 || up.status === 402 || up.status === 403) && broker && marks && 'kind' in cred && upstreamSpeaksForAccount(cred.upstream, !!gateway)) {
+        const text = await up.text()
+        let r = accountRefusal({ path: url.pathname, status: up.status, body: text, requestId: up.headers.get('request-id'), kind: cred.kind })
+        if (r?.action === 'invalid' && up.status === 403) {
+          // two different accounts refused with a 403 within a few minutes: more likely this server (a region, an IP)
+          // than both accounts, so nothing is marked, the account is only skipped
+          const now = Date.now()
+          for (const [id, at] of recent403) if (now - at > SERVER_WIDE_403_MS) recent403.delete(id)
+          const others = [...recent403.keys()].some((id) => id !== cred.credentialId)
+          recent403.set(cred.credentialId, now)
+          if (others) r = { action: 'skip' }
+        }
+        if (r?.action === 'invalid') {
+          broker.markInvalid(cred.credentialId, r.code, up.status)
+          o.onTurnEvent?.(row.turn_id, { type: 'credential', credentialId: cred.credentialId, reason: 'invalid' })
+        } else if (r?.action === 'no_credit') {
+          broker.onNoCredit(cred.credentialId)
+          o.onTurnEvent?.(row.turn_id, { type: 'credential', credentialId: cred.credentialId, reason: 'no_credit' })
+        } else if (r?.action === 'skip') {
+          o.log?.warn('model proxy: the provider refused an AI connection (403); it is skipped in this turn', { turn: row.turn_id, credential: cred.credentialId })
+          o.onTurnEvent?.(row.turn_id, { type: 'credential', credentialId: cred.credentialId, reason: 'skip' })
+        }
+        return new Response(text, { status: up.status, headers: outHeaders })
       }
       if (up.status === 429) {
         const s = retryAfterSeconds(up.headers.get('retry-after'))
@@ -418,7 +497,8 @@ export async function startModelProxy(o: ProxyOpts): Promise<ModelProxy> {
           // the subscription's own limit: this connection stays out until it resets; the turn moves on or ends
           await up.body?.cancel().catch(() => {})
           const until = new Date(Date.now() + s * 1000)
-          broker.onLongLimit(cred.credentialId, until)
+          // (a free-roam demo's stand-in is never held out: the answer ends, the next one tries the gate again)
+          if (marks) broker.onLongLimit(cred.credentialId, until)
           o.onTurnEvent?.(row.turn_id, { type: 'rate_limit', retryAt: until.toISOString(), credentialId: cred.credentialId })
           return apiError(403, 'permission_error', 'subscription_limited', { 'retry-after': String(s) })
         }
@@ -495,7 +575,7 @@ export async function startModelProxy(o: ProxyOpts): Promise<ModelProxy> {
     hostname: '127.0.0.1', port: 0, reusePort: false,
     // a long answer can stream for many minutes; Bun's default idle timeout (10 s) would cut a quiet stream
     idleTimeout: 0,
-    maxRequestBodySize: 32 * 1024 * 1024,
+    maxRequestBodySize: PROXY_BODY_MAX,
     async fetch(req, srv) {
       const ip = srv.requestIP(req)
       const clientPort = ip ? links.get(ip.port) : undefined

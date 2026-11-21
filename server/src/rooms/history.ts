@@ -26,16 +26,20 @@
 // hidden from the member is in what it read): it may carry what no card covered. The walk only ever shows more than the
 // rule before it, never less.
 import type { Database } from 'bun:sqlite'
-import type { RoomKind } from '@mycel/shared/api'
 import type { AppContext } from '../context'
 import { loadPrincipal, type Principal, type RuleSet } from '../policy/access'
 import { sourceKey, viewersOf, type ReadSource } from '../chat/read-scope'
 import { afterCutover, hiddenAnswersCutover } from '../chat/shared-answers'
-import { memberRow, roomRow } from './store'
+import { memberRow, roomRow, type RoomRow } from './store'
+import { historyFloor, isProjectRoom, PROJECT_ROOM_SQL } from './project-room'
 
-/** Rooms whose history a later member sees: a team room and the everyone room (Slack's channels). Group chats and
- * 1:1s keep "from the join on" (Slack's group DMs). */
-export const historyKinds = (kind: RoomKind): boolean => kind === 'team' || kind === 'all'
+/** Rooms whose history a later member sees: a team room, the everyone room (Slack's channels) and a project's chat room
+ * (docs/decisions/20261120-project-is-room.md D2: from its floor, rooms/project-room.ts historyFloor). Other group chats
+ * and 1:1s keep "from the join on" (Slack's group DMs). */
+export const historyRoom = (db: Database, room: Pick<RoomRow, 'id' | 'kind'> | null | undefined): boolean =>
+  !!room && (room.kind === 'team' || room.kind === 'all' || (room.kind === 'group' && isProjectRoom(db, room.id)))
+/** SQL: the room `r` is one of historyRoom's. */
+export const HISTORY_ROOM_SQL = (r: string): string => `(${r}.kind IN ('team', 'all') OR (${r}.kind = 'group' AND ${PROJECT_ROOM_SQL(r)}))`
 
 /** A failing (room, member) is tried again after this long (meanwhile they see the room from their join on). */
 const RETRY_MS = 5 * 60_000
@@ -75,10 +79,15 @@ function scopeOf(c: Candidate): Scope | null {
 export function openHistory(ctx: AppContext, roomId: string, userId: string, o: { deadline?: number } = {}): boolean {
   const db = ctx.db
   const room = roomRow(db, roomId)
-  if (!room || room.archived_at || !historyKinds(room.kind)) return false
+  if (!room || room.archived_at || !historyRoom(db, room)) return false
   const me = memberRow(db, roomId, userId)
   if (!me) return false
   const first = me.history_from_seq === null
+  // where the history opens: the whole of a team room or the everyone room; a project room's from its floor (never the
+  // old channel's private past), and never later than where they see it from already. A start that is set stays when
+  // they are checked again (a converted channel's members keep theirs)
+  const floor = room.kind === 'group' ? Math.min(historyFloor(db, roomId), me.visible_from_seq) : 0
+  const from = first ? floor : (me.history_from_seq ?? floor)
   if (!first && !me.history_recheck) return false
   const who = loadPrincipal(db, userId)
   const rules = ctx.files.rules()
@@ -88,7 +97,7 @@ export function openHistory(ctx: AppContext, roomId: string, userId: string, o: 
     db.query('DELETE FROM room_hidden_answers WHERE room_id = ? AND user_id = ?').run(roomId, userId)
     const add = db.query('INSERT OR IGNORE INTO room_hidden_answers (room_id, user_id, message_id, see_seq) VALUES (?, ?, ?, ?)')
     for (const h of fresh) if (!before || before.has(h.id)) add.run(roomId, userId, h.id, h.see)
-    db.query('UPDATE room_members SET history_from_seq = 0, history_recheck = 0 WHERE room_id = ? AND user_id = ?').run(roomId, userId)
+    db.query('UPDATE room_members SET history_from_seq = ?, history_recheck = 0 WHERE room_id = ? AND user_id = ?').run(from, roomId, userId)
   })()
   return true
 }
@@ -178,7 +187,7 @@ function walk(ctx: AppContext, rules: RuleSet, roomId: string, userId: string, j
     if (s.type === 'room' && s.id === roomId) return !hiddenFrom(s.fromSeq ?? 0, exemptFor(c, s))
     // another room: a team room or the everyone room is a team place a card could have covered (rule b); a 1:1 or a
     // group chat is its members' only, judged as before (security review of #813)
-    const other = s.type === 'room' && !historyKinds(roomRow(db, s.id)?.kind ?? 'dm')
+    const other = s.type === 'room' && !historyRoom(db, roomRow(db, s.id))
     // a team folder, the top, a name, another team room: not judged any more
     if (!JUDGED.has(s.type) && !other) return true
     const k = sourceKey(s)
@@ -214,7 +223,7 @@ function walk(ctx: AppContext, rules: RuleSet, roomId: string, userId: string, j
 /** Members waiting for a room's history (NULL) or a check again, newest joins first: `userId`'s only, or everyone's. */
 function waiting(db: Database, o: { userId?: string; roomId?: string }): { room_id: string; user_id: string }[] {
   return db.query(`SELECT m.room_id, m.user_id FROM room_members m JOIN rooms r ON r.id = m.room_id
-    WHERE r.kind IN ('team', 'all') AND r.archived_at IS NULL AND (m.history_from_seq IS NULL OR m.history_recheck = 1)
+    WHERE ${HISTORY_ROOM_SQL('r')} AND r.archived_at IS NULL AND (m.history_from_seq IS NULL OR m.history_recheck = 1)
       AND (?1 IS NULL OR m.user_id = ?1) AND (?2 IS NULL OR m.room_id = ?2)
     ORDER BY m.joined_at DESC, m.room_id, m.user_id`).all(o.userId ?? null, o.roomId ?? null) as { room_id: string; user_id: string }[]
 }
@@ -232,7 +241,7 @@ function waiting(db: Database, o: { userId?: string; roomId?: string }): { room_
 export function openHistories(ctx: AppContext, o: { userId?: string; roomId?: string; budgetMs?: number; within?: boolean } = {}): { changed: { roomId: string; userId: string }[]; left: number } {
   const db = ctx.db
   db.query(`UPDATE room_members SET history_from_seq = 0 WHERE history_from_seq IS NULL AND visible_from_seq <= 0 AND (?1 IS NULL OR user_id = ?1) AND (?2 IS NULL OR room_id = ?2)
-    AND room_id IN (SELECT id FROM rooms WHERE kind IN ('team', 'all'))`).run(o.userId ?? null, o.roomId ?? null)
+    AND room_id IN (SELECT r.id FROM rooms r WHERE ${HISTORY_ROOM_SQL('r')})`).run(o.userId ?? null, o.roomId ?? null)
   const until = o.budgetMs === undefined ? Infinity : Date.now() + o.budgetMs
   const fails = failed.get(db) ?? new Map<string, number>()
   failed.set(db, fails)

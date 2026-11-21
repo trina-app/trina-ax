@@ -14,6 +14,11 @@
   --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans SC", "Noto Sans CJK SC", "Source Han Sans SC", Roboto, sans-serif;
   --serif: ui-serif, "New York", "Songti SC", "Noto Serif SC", "Noto Serif CJK SC", "Source Han Serif SC", Georgia, serif;
 }
+/* Japanese pages: Japanese system fonts first, so kanji do not fall back to Korean or Chinese forms */
+:root:lang(ja) {
+  --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Yu Gothic UI", "Yu Gothic", Meiryo, "Noto Sans JP", "Noto Sans CJK JP", Roboto, sans-serif;
+  --serif: ui-serif, "New York", "Hiragino Mincho ProN", "Yu Mincho", "Noto Serif JP", "Noto Serif CJK JP", Georgia, serif;
+}
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
     --bg: #141210; --surface: #1b1816; --subtle: #211d1a; --hover: #2a2522; --line: #2e2925; --line-strong: #6f665d;
@@ -47,6 +52,14 @@ svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width:
 .bar { height: var(--bar); display: flex; align-items: center; gap: 16px; }
 .brand { display: flex; align-items: center; gap: 9px; text-decoration: none; white-space: nowrap; padding: 4px 6px; margin: -4px -6px; border-radius: 8px; }
 .brand span { font: 400 26px/1 var(--serif); letter-spacing: -0.01em; }
+/* the logo: the primary (light) mark, the dark mark on the dark theme */
+.brand .brand-dark { display: none; }
+:root[data-theme="dark"] .brand .brand-light { display: none; }
+:root[data-theme="dark"] .brand .brand-dark { display: inline; }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .brand .brand-light { display: none; }
+  :root:not([data-theme="light"]) .brand .brand-dark { display: inline; }
+}
 .menu-button { display: none; }
 .search { position: relative; display: flex; align-items: center; gap: 8px; margin: 0 auto; width: min(520px, 40vw); height: 38px; padding: 0 10px 0 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); color: var(--muted); }
 .search:focus-within { border-color: var(--line-strong); }
@@ -231,19 +244,29 @@ body.toc-collapsed .toc-toggle { margin-left: 0; }
 .docs-row { display: none; }
 @media (max-width: 1280px) { .sitenav .docs-tools .search { width: 190px; } }
 
-/* the link to the same page in the other language (only on pages that have one) */
-.lang-switch { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); text-decoration: none; font-size: 14px; }
-.lang-switch:hover { color: var(--ink); }
-.lang-switch svg { width: 15px; height: 15px; }
-.bar-links .lang-switch, .sitenav .lang-switch { padding: 6px 10px; border-radius: 8px; white-space: nowrap; }
-.bar-links .lang-switch:hover, .sitenav .lang-switch:hover { background: var(--hover); }
-.drawer-links .lang-switch { gap: 4px; text-decoration: underline; }
-/* in a website's bar the switch takes room from the search, so the bar's own buttons keep theirs */
-.sitenav .lang-switch { padding: 6px 8px; }
+/* the language menu: the same markup as ax.trina.app's (a <details>), so inside a website's bar that site's own CSS
+   styles it; these rules are for the docs' own bar and the phone drawer */
+.lang-menu { position: relative; }
+.lang-menu > summary { list-style: none; cursor: pointer; }
+.lang-menu > summary::-webkit-details-marker { display: none; }
+.bar-links .lang-link, .drawer-links .lang-link { display: inline-flex; align-items: center; gap: 6px; padding: 6px 10px; border-radius: 8px; color: var(--muted); font-size: 14px; white-space: nowrap; }
+.bar-links .lang-link:hover, .bar-links .lang-menu[open] > .lang-link, .drawer-links .lang-menu[open] > .lang-link { color: var(--ink); background: var(--hover); }
+.bar-links .lang-link svg, .drawer-links .lang-link svg { width: 15px; height: 15px; }
+.bar-links .lang-code, .drawer-links .lang-code { display: none; }
+.bar-links .lang-list { position: absolute; right: 0; top: calc(100% + 6px); z-index: 60; min-width: 190px; }
+.bar-links .lang-list, .drawer-links .lang-list { margin: 0; padding: 6px; list-style: none; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: 0 8px 24px rgba(0, 0, 0, .12); }
+.bar-links .lang-list a, .drawer-links .lang-list a { display: block; padding: 7px 10px; border-radius: 6px; color: var(--ink); font-size: 14px; text-decoration: none; white-space: nowrap; }
+.bar-links .lang-list a:hover, .drawer-links .lang-list a:hover { background: var(--hover); }
+.bar-links .lang-list a[aria-current="true"], .drawer-links .lang-list a[aria-current="true"] { font-weight: 650; }
+.bar-links .lang-list a[aria-current="true"]::after, .drawer-links .lang-list a[aria-current="true"]::after { content: " \2713"; color: var(--muted); }
+/* in the drawer the list opens in place, under the button */
+.drawer-links .lang-menu { flex-basis: 100%; order: 3; }
+.drawer-links .lang-link { padding: 4px 0; text-decoration: underline; }
+.drawer-links .lang-list { margin-top: 6px; box-shadow: none; }
+/* in a website's bar the menu takes room from the search, so the bar's own buttons keep theirs */
 .sitenav:has(.lang-switch) .docs-tools .search { width: 170px; }
 @media (max-width: 1280px) {
   .sitenav:has(.lang-switch) .docs-tools .search { width: 150px; }
-  .sitenav .lang-switch span { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 }
 
 /* ---------- smaller screens ---------- */
@@ -266,7 +289,7 @@ body.toc-collapsed .toc-toggle { margin-left: 0; }
   body.nav-open .sidebar { transform: none; }
   .drawer-only { display: block; margin-bottom: 22px; padding-bottom: 18px; border-bottom: 1px solid var(--line); }
   .drawer-tabs a[aria-current="true"] { color: var(--accent-text); font-weight: 600; }
-  .drawer-links { display: flex; gap: 14px; padding: 12px 14px 0; font-size: 14px; }
+  .drawer-links { display: flex; flex-wrap: wrap; gap: 14px; padding: 12px 14px 0; font-size: 14px; }
   .drawer-links a { color: var(--muted); }
   .bar-links .lang-switch, .sitenav .lang-switch { display: none; }
   .scrim { position: fixed; inset: var(--bar) 0 0 0; z-index: 40; background: rgb(0 0 0 / 0.35); }

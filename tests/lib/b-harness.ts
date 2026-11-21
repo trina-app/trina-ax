@@ -25,11 +25,13 @@ import { WORK } from './env'
 
 export const FAKE_ENGINE_TS = path.join(import.meta.dir, 'b-fake-engine.ts')
 
-/** An executable the launcher can run (it only starts allow-listed absolute paths). */
+/** An executable the launcher can run (it only starts allow-listed absolute paths). Bun's runtime transpiler cache is
+ * off: Bun caches a source file over 50 KB (the fake engine is) under $HOME, and a turn's HOME must stay empty
+ * (codex-prod.test.ts "homeEmpty"), like the server's own Bun children (BUN_RUNTIME_TRANSPILER_CACHE_PATH=0). */
 export function fakeEngineBin(dir: string): string {
   const bin = path.join(dir, 'fake-engine')
   fs.mkdirSync(dir, { recursive: true })
-  fs.writeFileSync(bin, `#!/bin/sh\nexec "${process.execPath}" "${FAKE_ENGINE_TS}" "$@"\n`, { mode: 0o755 })
+  fs.writeFileSync(bin, `#!/bin/sh\nBUN_RUNTIME_TRANSPILER_CACHE_PATH=0 exec "${process.execPath}" "${FAKE_ENGINE_TS}" "$@"\n`, { mode: 0o755 })
   return bin
 }
 
@@ -233,7 +235,7 @@ export async function startHarness(o: HarnessOptions): Promise<Harness> {
   const ownRunDir = !o.engineConfig?.runDir
   if (ownRunDir && !o.realCore) ctx.engineConfig.runDir = fs.mkdtempSync('/tmp/mycel-b-')
   if (o.engineConfig) Object.assign(ctx.engineConfig, o.engineConfig)
-  configureChat(ctx, { presence: { warmupMs: 0 }, ...o, engines: o.realEngines || o.realCore ? new LocalEngines(ctx) : new StaticEngines(fakeEngines(bin, dataDir, codexBin)) })
+  configureChat(ctx, { presence: { warmupMs: 0 }, ...o, safetyCardsWait: o.safetyCardsWait ?? false, engines: o.realEngines || o.realCore ? new LocalEngines(ctx) : new StaticEngines(fakeEngines(bin, dataDir, codexBin)) })
   // test sessions last: init() runs in order, so they replace the real session service (component A)
   // web_fetch with the test's network options: registered just before the files module, which would register it without
   // (the first registration wins; the tools need the chat runtime, installed earlier)

@@ -3,17 +3,17 @@
 // proxy never picks a connection from anything the engine sends (headers, account ids): token -> row -> connection.
 // Every request reads the connection again, so switching it off or removing it stops the next request (T15), and its
 // 401 / long 429 state belongs to that connection only (one subscription at its limit does not stop the others).
-import type { CredentialKind } from '@mycel/shared/api'
+import { DEMO_CACHE_READ_WEIGHT, type CredentialKind } from '@mycel/shared/api'
 import { audit } from '../admin/audit'
-import { anthropicGateway, type AnthropicGatewayConf, type ModelUpstreams } from '../app-config'
+import { anthropicGateway, isFreeRoam, type AnthropicGatewayConf, type ModelUpstreams } from '../app-config'
 import type { ProxyTurnEvent } from '../proxy/model-proxy'
 import { ensureFresh } from './chatgpt-tokens'
 import { ctAll, fmtTime } from './i18n'
-import { costOf, setUnknownPriceHook, type ClaudeUsage, type OpenAiUsage } from './prices'
+import { costOf, estimateOf, setUnknownPriceHook, type ClaudeUsage, type OpenAiUsage } from './prices'
 import { candidates, familyOfKind, teamCredentialSummary, type Family } from './resolve'
 import { personalConnectionsAllowed } from './policy'
 import {
-  getRow, markInvalid, notifyAboutConnection, secretOf, teamDay, unusable,
+  getRow, markInvalid, markNoCredit, notifyAboutConnection, secretOf, teamDay, unusable,
   type CredCtx, type CredRow, type Secrets,
 } from './store'
 
@@ -33,6 +33,9 @@ export interface CredentialBroker {
   /** engine.anthropicGateway: the anthropic family goes there (upstreams.anthropic), on its models only (the proxy's
    * allow-list); absent or null = Anthropic */
   readonly gateway?: AnthropicGatewayConf | null
+  /** a free-roam demo instance (app-config.ts isFreeRoam): its one AI connection is a stand-in the gate swaps for the
+   * real one, so no answer of the upstream marks it (proxy/model-proxy.ts) */
+  readonly freeRoam?: boolean
   /** the connection bound to this token, if it can be used now, and what to put on the request */
   forRequest(t: TokenBinding, want: Family): Promise<ForRequest>
   /** the upstream answered 401. API keys and Claude tokens: marked refused ('refused'). ChatGPT: refreshed once (or
@@ -41,6 +44,8 @@ export interface CredentialBroker {
   onUnauthorized(credentialId: string, sentAccess: string): Promise<'retry' | 'refused' | 'temporary'>
   /** refused for good (after a retry still 401, or a plan without Codex) */
   markInvalid(credentialId: string, code: string, upstreamStatus: number | null): void
+  /** an API key out of credit (Anthropic's billing answer): held out for a while, shown as out of credit */
+  onNoCredit(credentialId: string): void
   /** a long limit (subscription 5-hour / weekly, out of credit): no request goes out on it until then */
   onLongLimit(credentialId: string, until: Date, code?: string): void
   /** usage of one request: the turn's totals, the connection's day, last used; cost from the price table */
@@ -58,6 +63,7 @@ const LIMIT_AUDIT_MS = 10 * 60_000
 
 export function createBroker(cc: CredCtx): CredentialBroker {
   const gateway = anthropicGateway(cc.config)
+  const freeRoam = isFreeRoam(cc.config)
   setUnknownPriceHook((model) => {
     audit(cc.db, { actor: null, action: 'credential.unknown_price', target: null, detail: { model: model.slice(0, 100) } })
     cc.log.warn('a model has no price: its cost is counted at the most expensive price of its family', { model: model.slice(0, 100), ...(gateway ? { hint: 'engine.anthropicGateway.prices' } : {}) })
@@ -67,7 +73,8 @@ export function createBroker(cc: CredCtx): CredentialBroker {
   // while the answer runs) is replaced by the first request the proxy counts, never added to it
   const add = cc.db.query(`UPDATE turns SET input_tokens = (CASE WHEN usage_source = 'proxy' THEN input_tokens ELSE 0 END) + ?,
     output_tokens = (CASE WHEN usage_source = 'proxy' THEN output_tokens ELSE 0 END) + ?,
-    cost_usd = (CASE WHEN usage_source = 'proxy' THEN COALESCE(cost_usd, 0) ELSE 0 END) + ?, usage_source = 'proxy' WHERE id = ?`)
+    cost_usd = (CASE WHEN usage_source = 'proxy' THEN COALESCE(cost_usd, 0) ELSE 0 END) + ?,
+    est_cost_usd = (CASE WHEN usage_source = 'proxy' THEN COALESCE(est_cost_usd, 0) ELSE 0 END) + ?, usage_source = 'proxy' WHERE id = ?`)
   const day = cc.db.query(`INSERT INTO credential_usage_daily (credential_id, day, requests, input_tokens, output_tokens, cost_usd) VALUES (?, ?, 1, ?, ?, ?)
     ON CONFLICT(credential_id, day) DO UPDATE SET requests = requests + 1, input_tokens = input_tokens + excluded.input_tokens, output_tokens = output_tokens + excluded.output_tokens, cost_usd = cost_usd + excluded.cost_usd`)
   const used = cc.db.query('UPDATE engine_credentials SET last_used_at = ?, checked_at = COALESCE(checked_at, ?) WHERE id = ?')
@@ -76,6 +83,7 @@ export function createBroker(cc: CredCtx): CredentialBroker {
   return {
     upstreams: cc.upstreams,
     gateway,
+    freeRoam,
 
     async forRequest(t, want) {
       if (!t.credentialId || t.family !== want) return fail(403, 'permission_error', 'this token is not bound to an AI connection of this kind', { type: 'auth' })
@@ -92,7 +100,7 @@ export function createBroker(cc: CredCtx): CredentialBroker {
           const secs = Math.max(1, Math.ceil((Date.parse(u.retryAt!) - now.getTime()) / 1000))
           return fail(403, 'permission_error', 'subscription_limited', { type: 'rate_limit', retryAt: u.retryAt, credentialId: row.id }, secs)
         }
-        const reason = u.why === 'invalid' || u.why === 'expired' ? 'invalid' : u.why === 'needs_reconnect' ? 'needs_reconnect' : u.why === 'over_limit' ? 'over_limit' : 'gone'
+        const reason = u.why === 'invalid' || u.why === 'expired' ? 'invalid' : u.why === 'needs_reconnect' ? 'needs_reconnect' : u.why === 'over_limit' ? 'over_limit' : u.why === 'no_credit' ? 'no_credit' : 'gone'
         return fail(403, 'permission_error', `credential_${reason}`, { type: 'credential', credentialId: row.id, reason })
       }
       if (row.kind === 'chatgpt') {
@@ -129,6 +137,8 @@ export function createBroker(cc: CredCtx): CredentialBroker {
 
     markInvalid(credentialId, code, upstreamStatus) { markInvalid(cc, credentialId, code, upstreamStatus) },
 
+    onNoCredit(credentialId) { markNoCredit(cc, credentialId) },
+
     onLongLimit(credentialId, until, code) {
       const row = getRow(cc.db, credentialId)
       if (!row) return
@@ -154,14 +164,18 @@ export function createBroker(cc: CredCtx): CredentialBroker {
       let input: number, output: number
       if (familyOfKind(row.kind) === 'anthropic') {
         const u = usage as ClaudeUsage
-        input = n(u.input_tokens) + n(u.cache_read_input_tokens) + n(u.cache_creation_input_tokens)
+        // a free-roam demo's limit weighs a cache read at DEMO_CACHE_READ_WEIGHT (admin/budgets.ts demoLimitState): what
+        // the demo counts is what the visitor's answers really cost, not the instructions read again from the cache
+        const cacheRead = freeRoam ? Math.round(n(u.cache_read_input_tokens) * DEMO_CACHE_READ_WEIGHT) : n(u.cache_read_input_tokens)
+        input = n(u.input_tokens) + cacheRead + n(u.cache_creation_input_tokens)
         output = n(u.output_tokens)
       } else {
         const u = usage as OpenAiUsage
         input = n(u.input_tokens); output = n(u.output_tokens)
       }
       const now = new Date(cc.now())
-      add.run(input, output, cost, turnId)
+      // a subscription request adds 0 to the money spent, and its API list price to the estimate (est_cost_usd)
+      add.run(input, output, cost, estimateOf(row.kind, model, usage), turnId)
       day.run(credentialId, teamDay(cc.db, now), input, output, cost)
       used.run(now.toISOString(), now.toISOString(), credentialId)
       const userId = (cc.db.query('SELECT user_id FROM turns WHERE id = ?').get(turnId) as { user_id: string } | null)?.user_id

@@ -19,7 +19,8 @@ import net from 'node:net'
 import tls from 'node:tls'
 import { PRODUCT, SOURCE_CODE } from '@mycel/shared'
 import { ToolError } from '../policy/errors'
-import { precheckTarget, resolveTarget, type ResolveOptions, type Target } from './web-fetch'
+import { acceptLanguage, precheckTarget, resolveTarget, type ResolveOptions, type Target } from './web-fetch'
+import { activeDemoFakes } from '../demo/fakes'
 
 export const DOWNLOAD_MAX_REDIRECTS = 5
 /** per hop: the name lookup, the connection and the answer's head */
@@ -63,6 +64,8 @@ export interface DownloadOptions extends Pick<ResolveOptions, 'lookup' | 'testAl
   idleTimeoutMs?: number
   /** the whole transfer's wall-clock budget (time asking the person does not count); default DOWNLOAD_TOTAL_TIMEOUT_MS */
   totalTimeoutMs?: number
+  /** the Accept-Language header (web-fetch.ts acceptLanguage: the person's language, then English); default English */
+  acceptLanguage?: string
 }
 
 export interface Downloaded {
@@ -150,12 +153,12 @@ const TOKEN = /^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/
 const BREAKS = /[\r\n\0]/
 
 /** Connect to the pinned address and send one GET; resolves once connected. */
-function connect(t: Target, o: { deadline: number; insecureTlsForTests?: boolean; signal?: AbortSignal; idleMs: number }): Promise<Conn> {
+function connect(t: Target, o: { deadline: number; insecureTlsForTests?: boolean; signal?: AbortSignal; idleMs: number; acceptLanguage?: string }): Promise<Conn> {
   return new Promise((resolve, reject) => {
     const path = (t.url.pathname || '/') + t.url.search
     if (BREAKS.test(path) || /\s/.test(path)) return reject(new ToolError('invalid request'))
     const hostHeader = t.url.port ? `${t.url.hostname}:${t.url.port}` : t.url.hostname
-    const headers: [string, string][] = [['User-Agent', UA], ['Accept', '*/*'], ['Accept-Encoding', 'identity'], ['Accept-Language', 'ko,en;q=0.8']]
+    const headers: [string, string][] = [['User-Agent', UA], ['Accept', '*/*'], ['Accept-Encoding', 'identity'], ['Accept-Language', o.acceptLanguage ?? acceptLanguage()]]
     let head = `GET ${path} HTTP/1.1\r\nHost: ${hostHeader}\r\n`
     for (const [k, v] of headers) {
       if (!TOKEN.test(k) || BREAKS.test(v)) return reject(new ToolError('invalid request header'))
@@ -250,6 +253,19 @@ async function* bodyOf(conn: Conn, h: Head): AsyncGenerator<Buffer> {
   }
 }
 
+/** A demo fake's file written to `dst` with the caller's limits (size, the sniff, the disk room), like a download. */
+function saveFake(url: string, f: { bytes: Buffer; contentType: string }, dst: string, o: DownloadOptions): Downloaded {
+  if (o.signal?.aborted) throw stopped()
+  if (o.maxBytes !== undefined && f.bytes.length > o.maxBytes) throw new ToolError(`the file is larger than the limit (${o.maxBytes} bytes)`)
+  const first = f.bytes.subarray(0, SNIFF_BYTES)
+  o.sniff?.(first, f.contentType)
+  o.room?.(f.bytes.length)
+  const fd = fs.openSync(dst, 'wx', 0o600)
+  try { fs.writeSync(fd, f.bytes) } catch (e) { fs.closeSync(fd); fs.rmSync(dst, { force: true }); throw e }
+  fs.closeSync(fd)
+  return { url, size: f.bytes.length, sha256: crypto.createHash('sha256').update(f.bytes).digest('hex'), contentType: f.contentType, first: Buffer.from(first), openEnded: false }
+}
+
 /** The size the answer announces (Content-Length without chunked framing), or null. */
 export function announcedSize(headers: Record<string, string>): number | null {
   if (/chunked/i.test(headers['transfer-encoding'] ?? '')) return null
@@ -259,6 +275,10 @@ export function announcedSize(headers: Record<string, string>): number | null {
 
 /** GET `rawUrl` into the new file `dst` (created, 0600; never an existing file). Throws ToolError; `dst` is then gone. */
 export async function downloadToFile(rawUrl: string, dst: string, o: DownloadOptions = {}): Promise<Downloaded> {
+  // a demo server with fakes: a file only a fake has (a generated picture) comes from it; anything else is refused by
+  // resolveTarget before a lookup (demo/fakes/offline.ts)
+  const fake = activeDemoFakes()?.download(rawUrl)
+  if (fake) return saveFake(rawUrl, fake, dst, o)
   const connectMs = o.connectTimeoutMs ?? DOWNLOAD_CONNECT_TIMEOUT_MS
   const idleMs = o.idleTimeoutMs ?? DOWNLOAD_IDLE_TIMEOUT_MS
   const totalMs = o.totalTimeoutMs ?? DOWNLOAD_TOTAL_TIMEOUT_MS
@@ -282,7 +302,7 @@ export async function downloadToFile(rawUrl: string, dst: string, o: DownloadOpt
     const deadline = Date.now() + connectMs
     const t = await resolveTarget(current, { lookup: o.lookup, testAllow: o.testAllow, blockedIps: o.blockedIps, deadline })
     if (o.signal?.aborted) throw stopped()
-    const conn = await connect(t, { deadline, insecureTlsForTests: o.insecureTlsForTests, signal: o.signal, idleMs })
+    const conn = await connect(t, { deadline, insecureTlsForTests: o.insecureTlsForTests, signal: o.signal, idleMs, acceptLanguage: o.acceptLanguage })
     try {
       const h = await readHead(conn)
       if ([301, 302, 303, 307, 308].includes(h.status) && h.headers.location) {

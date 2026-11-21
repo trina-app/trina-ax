@@ -16,7 +16,7 @@ test('owner adds a Claude subscription, an API key and a ChatGPT plan; orders th
   await reset(page)
   const errors = watchConsole(page)
   await signIn(page)
-  // the old address opens Providers, at Claude Code: each provider row lists its own accounts (none yet)
+  // the old address opens AI providers, at Claude Code: each provider row lists its own accounts (none yet)
   await page.goto('/admin/credentials')
   await expect(page).toHaveURL(/\/admin\/providers\?engine=claude-code$/)
   await expect(page.getByRole('heading', { level: 2, name: 'AI 제공사', exact: true })).toBeVisible()
@@ -122,6 +122,51 @@ test('owner adds a Claude subscription, an API key and a ChatGPT plan; orders th
   await page.getByTestId('credentials-claude').getByTestId('credential-row').nth(1).getByTestId('credential-menu').click()
   await page.getByTestId('credentials-claude').getByRole('menuitem', { name: '위로' }).click()
   await expect.poll(labels).toEqual(['회사 키', '대표 Max'])
+  // the plain line under a list of two or more says how the order is used (no "How order works" link any more)
+  await expect(page.getByTestId('credentials-order')).toContainText('위에 있는 계정부터 써요. 거절되거나 한도에 닿으면 다음 계정으로 넘어가요.')
+  await expect(page.getByTestId('how-order-works')).toHaveCount(0)
+
+  // or drag a row by its handle (QA TC-4836): the subscription goes back on top, saved through the same PATCH
+  const handles = page.getByTestId('credentials-claude').getByTestId('credential-drag')
+  await expect(handles).toHaveCount(2)
+  await expect(handles.first()).toHaveAccessibleName('회사 키 순서 바꾸기')
+  const box = (await handles.nth(1).boundingBox())!
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2)
+  await page.mouse.down()
+  await page.mouse.move(box.x + box.width / 2, box.y - 80, { steps: 8 })
+  await expect(page.getByTestId('credentials-claude').locator('[data-moving]')).toContainText('대표 Max')
+  const reordered = page.waitForRequest((r) => /\/api\/admin\/credentials\/[^/]+$/.test(r.url()) && r.method() === 'PATCH')
+  await page.mouse.up()
+  expect((await reordered).postDataJSON()).toEqual({ priority: 10 })
+  await expect.poll(labels).toEqual(['대표 Max', '회사 키'])
+  await expect(page.getByTestId('credentials-claude').locator('[data-moving]')).toHaveCount(0)
+
+  // the keyboard: Space picks the row up, ArrowDown moves it, Space drops it; a screen reader hears each step, and the
+  // focus stays on the moved row's handle
+  const said = page.locator('[role="status"][aria-live="polite"]')
+  await handles.first().focus()
+  await page.keyboard.press('Space')
+  await expect(said.filter({ hasText: '집었어요: 대표 Max' })).toHaveCount(1)
+  await expect(handles.first()).toHaveAttribute('aria-pressed', 'true')
+  await page.keyboard.press('ArrowDown')
+  await expect(said.filter({ hasText: '대표 Max: 2개 중 2번째' })).toHaveCount(1)
+  await page.keyboard.press('Space')
+  await expect.poll(labels).toEqual(['회사 키', '대표 Max'])
+  await expect(said.filter({ hasText: '2번째로 옮겼어요' })).toHaveCount(1)
+  await expect(handles.nth(1)).toBeFocused()
+  // the handles wait while the new order is saved, then take the keyboard again
+  await expect(handles.nth(1)).not.toHaveAttribute('aria-disabled', 'true')
+  // Escape puts a picked-up row back: nothing is sent
+  let sent = 0
+  const count = (r: import('@playwright/test').Request) => { if (r.method() === 'PATCH' && /\/api\/admin\/credentials\//.test(r.url())) sent++ }
+  page.on('request', count)
+  await page.keyboard.press('Space')
+  await page.keyboard.press('ArrowUp')
+  await page.keyboard.press('Escape')
+  await expect(said.filter({ hasText: '순서를 바꾸지 않았어요' })).toHaveCount(1)
+  expect(await labels()).toEqual(['회사 키', '대표 Max'])
+  page.off('request', count)
+  expect(sent).toBe(0)
 
   // ChatGPT: Codex's Add account; the address and the one-time code, then connected
   await page.getByTestId('provider-add-codex').click()
@@ -194,10 +239,10 @@ test('personal connections are available by default, prefer subscriptions, and p
   await page.goto('/admin/settings#ai')
   await expect(page.getByRole('checkbox', { name: '팀원이 자기 AI 연결을 추가할 수 있게 하기' })).toBeChecked()
   await page.goto('/settings')
-  // Settings › Connections: Connectors first (everyone has it), then Providers (one's own accounts, by provider)
+  // Settings › Connections: Connectors first (everyone has it), then AI providers (one's own accounts, by provider)
   await expect(page.getByTestId('settings-group-connections').getByRole('link').first()).toContainText('커넥터')
-  await expect(page.getByTestId('settings-group-connections').getByRole('link').nth(1)).toHaveText('AI 계정')
-  await page.getByTestId('settings-group-connections').getByRole('link', { name: 'AI 계정', exact: true }).click()
+  await expect(page.getByTestId('settings-group-connections').getByRole('link').nth(1)).toHaveText('AI 제공사')
+  await page.getByTestId('settings-group-connections').getByRole('link', { name: 'AI 제공사', exact: true }).click()
   await page.getByTestId('my-credential-add-codex').click()
   await expect(page.getByTestId('kind-chatgpt')).toBeEnabled()
   await page.getByRole('dialog').getByRole('button', { name: '취소' }).click()
@@ -251,7 +296,7 @@ test('personal connections are available by default, prefer subscriptions, and p
   await page.reload()
   await expect(page.getByRole('checkbox', { name: '팀원이 자기 AI 연결을 추가할 수 있게 하기' })).not.toBeChecked()
   await page.goto('/settings')
-  await expect(page.getByTestId('settings-menu').getByRole('link', { name: 'AI 계정', exact: true })).toHaveCount(0)
+  await expect(page.getByTestId('settings-menu').getByRole('link', { name: 'AI 제공사', exact: true })).toHaveCount(0)
   // the old address goes to the profile, like any section not shown
   await page.goto('/settings/credentials')
   await expect(page).toHaveURL(/\/settings$/)
@@ -309,7 +354,7 @@ test('where the browser cannot seal (no crypto.subtle: http on a LAN address), a
 
 // An admin who is not the owner connects the team's AI like the owner does (docs/DECISIONS.md "Admins connect the team's
 // AI too"): the same Add account, the menu (switch off, remove) and the API engine form, (the API engine form still asks for their own password).
-test('an admin sees and uses the Providers buttons: adds a key with no password, switches it off, removes it, saves the API engine with their password', async ({ page }) => {
+test('an admin sees and uses the AI providers buttons: adds a key with no password, switches it off, removes it, saves the API engine with their password', async ({ page }) => {
   await reset(page)
   await signIn(page)
   expect((await page.request.patch('/api/admin/users/bob', { headers: { [CSRF_HEADER]: '1' }, data: { role: 'admin' } })).ok()).toBe(true)
@@ -441,7 +486,7 @@ test('the one sign-in slot: a member reads a true wait, stops their own leftover
   await expect(page.getByTestId('claude-open')).toBeVisible()
 })
 
-// A member's own ChatGPT sign-in (Settings › AI accounts) asked them to sign in "with the account the team will use":
+// A member's own ChatGPT sign-in (Settings › AI providers) asked them to sign in "with the account the team will use":
 // it is their own account, so the step says so; the team's sign-in in Admin keeps the team wording (test above).
 test('my own ChatGPT sign-in asks for my own account, not the team\'s', async ({ page }) => {
   await reset(page)
@@ -456,7 +501,7 @@ test('my own ChatGPT sign-in asks for my own account, not the team\'s', async ({
   await expect(page.getByTestId('chatgpt-code')).not.toContainText(DICTS.ko['credentials.chatgpt.step3'])
 })
 
-// A member's own API key (Settings › AI accounts; QA TC-519): the advice is about their own key, not "a key just for
+// A member's own API key (Settings › AI providers; QA TC-519): the advice is about their own key, not "a key just for
 // this team in the company's console"; a key the provider refused, then edited, shows only the new key's problem.
 test('my own API key: advice for my own key; the provider\'s refusal goes when I change the key', async ({ page }) => {
   await reset(page)

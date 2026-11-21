@@ -5,11 +5,18 @@
 // write-only here: no response ever carries them (only `hasSecret`).
 // Not the "connectors" of remote-mcp.ts: those are the other direction (claude.ai using this server's files).
 import { z } from 'zod'
+import { RecommendedTools } from './team-tools'
 import { IsoTime } from './common'
 import { endpoint, empty } from './endpoint'
+import { LocalAppSpec, LocalIntegrationInput, LocalIntegrationPatch } from './local-apps'
 
-export const IntegrationKind = z.enum(['mcp', 'http'])
+/** mcp: an MCP server over https; http: a plain HTTP API with a key; local: an app on the person's own computer that the
+ * desktop app runs (local-apps.ts; always the person's own connection, never a team one, a template or a request) */
+export const IntegrationKind = z.enum(['mcp', 'http', 'local'])
 export type IntegrationKind = z.infer<typeof IntegrationKind>
+/** what a team connection, a template, a request and the address form take: a service on the internet only */
+export const RemoteIntegrationKind = z.enum(['mcp', 'http'])
+export type RemoteIntegrationKind = z.infer<typeof RemoteIntegrationKind>
 export const IntegrationScope = z.enum(['personal', 'team'])
 export type IntegrationScope = z.infer<typeof IntegrationScope>
 /** none; bearer = "Authorization: Bearer <key>"; header = "<authHeader>: <key>"; oauth = sign in at the service (an MCP
@@ -82,7 +89,7 @@ export const OAuthClientView = z.object({
 })
 export type OAuthClientView = z.infer<typeof OAuthClientView>
 /** sign-in at an HTTP API needs your own app with its addresses (there is nothing to find them from) */
-const oauthFits = (v: { kind: IntegrationKind; auth: IntegrationAuth; oauthClient?: OAuthClientInput | null }) =>
+const oauthFits = (v: { kind: RemoteIntegrationKind; auth: IntegrationAuth; oauthClient?: OAuthClientInput | null }) =>
   v.auth !== 'oauth' || v.kind === 'mcp' || !!v.oauthClient?.tokenUrl
 const clientFits = (v: { auth?: IntegrationAuth; oauthClient?: OAuthClientInput | null }) => !v.oauthClient || v.auth === undefined || v.auth === 'oauth'
 const OAUTH_HTTP = { message: 'sign-in at an API needs your own app with its sign-in and token addresses', path: ['oauthClient'] }
@@ -140,6 +147,12 @@ export const Integration = z.object({
    * TC-130): their own choice, not the team's rule; it still asks after the chat read something from outside. Older
    * servers omit it. */
   alwaysAllowedByMe: z.boolean().optional(),
+  /** the caller's own connection, kept but not used in chats and not signed in again, while the team has "Members can
+   * add their own connections" off (not one from a template, not a Google app). Absent otherwise and on older servers. */
+  personalOff: z.literal(true).optional(),
+  /** kind 'local': what runs on the computer, for its owner (never a setting's value: only their names). Older servers
+   * omit it. */
+  local: LocalAppSpec.optional(),
 })
 export type Integration = z.infer<typeof Integration>
 
@@ -147,7 +160,7 @@ const Name = z.string().trim().min(1).max(60)
 const Notes = z.string().max(4000)
 /** A new connection. slug: derived from the name when missing. secret: the key (auth bearer / header); write-only. */
 export const IntegrationInput = z.object({
-  kind: IntegrationKind,
+  kind: RemoteIntegrationKind,
   name: Name,
   slug: Slug.optional(),
   url: ServiceUrl,
@@ -194,6 +207,16 @@ export const IntegrationList = z.object({
   items: z.array(Integration),
   /** the team lets members add their own connections (TeamSettings.personalIntegrations) */
   personalAllowed: z.boolean(),
+  /** the team lets members add apps on their own computer (TeamSettings.localApps, and personalAllowed). Older servers
+   * omit it. */
+  localAllowed: z.boolean().optional(),
+  /** the tools the team recommends, first in Settings › Connectors (TeamSettings.recommendedTools, shared/src/api/
+   * team-tools.ts); nothing is gated by it. Older servers omit it (none). */
+  recommendedTools: RecommendedTools.optional(),
+  /** GitHub (docs/INTEGRATIONS.md "GitHub"): whether this server holds a GitHub App, so Connect signs in at GitHub with
+   * nothing to set up, and the app's installation page, where people choose the repositories it may see (null: the app
+   * has no known address). Older servers omit it. */
+  github: z.object({ ready: z.boolean(), installUrl: z.string().url().nullable() }).optional(),
 })
 export type IntegrationList = z.infer<typeof IntegrationList>
 
@@ -212,7 +235,7 @@ export type IntegrationRequestState = z.infer<typeof IntegrationRequestState>
 const Person = z.object({ id: z.string(), name: z.string() })
 export const IntegrationRequest = z.object({
   id: z.string(),
-  kind: IntegrationKind,
+  kind: RemoteIntegrationKind,
   name: z.string(),
   url: z.string(),
   /** never 'none': the point of a request is the member's own key or sign-in */
@@ -240,7 +263,7 @@ export type IntegrationRequest = z.infer<typeof IntegrationRequest>
  * (the member's own, as for any personal connection) and no access rule (a personal connection is its owner's only). */
 export const IntegrationRequestInput = z.object({
   userId: z.string().min(1).max(200),
-  kind: IntegrationKind,
+  kind: RemoteIntegrationKind,
   name: Name,
   url: ServiceUrl,
   auth: z.enum(['bearer', 'header', 'oauth']),
@@ -273,7 +296,7 @@ export const INTEGRATION_TEMPLATES_MAX = 50
 
 export const IntegrationTemplate = z.object({
   id: z.string(),
-  kind: IntegrationKind,
+  kind: RemoteIntegrationKind,
   name: z.string(),
   url: z.string(),
   /** never 'none': the point of a template is each member's own key or sign-in */
@@ -295,7 +318,7 @@ export const IntegrationTemplate = z.object({
 export type IntegrationTemplate = z.infer<typeof IntegrationTemplate>
 
 export const IntegrationTemplateInput = z.object({
-  kind: IntegrationKind,
+  kind: RemoteIntegrationKind,
   name: Name,
   url: ServiceUrl,
   auth: z.enum(['bearer', 'header', 'oauth']),
@@ -331,7 +354,7 @@ export const MyIntegrationTemplate = z.object({
   id: z.string(),
   /** sent back when connecting: a template that changed since (its address above all) is refused with 409 */
   version: z.number().int().positive(),
-  kind: IntegrationKind,
+  kind: RemoteIntegrationKind,
   name: z.string(),
   /** the address without its query (where my key or sign-in will go) */
   url: z.string(),
@@ -368,13 +391,18 @@ export const INTEGRATIONS = {
   createIntegration: endpoint({ method: 'POST', path: '/api/integrations', auth: 'user', owner: 'C', status: 201, body: IntegrationInput, response: Integration, summary: 'A personal connection (403 when the team turned personal connections off). Checked right away; status says how it went.' }),
   updateIntegration: endpoint({ method: 'PATCH', path: '/api/integrations/:id', auth: 'user', owner: 'C', body: IntegrationPatch, response: Integration, summary: 'Change a connection: the owner of a personal one, an admin for a team one. A new address drops the stored key.' }),
   deleteIntegration: endpoint({ method: 'DELETE', path: '/api/integrations/:id', auth: 'user', owner: 'C', response: empty, status: 204, summary: 'Delete a connection (OAuth: revocation is tried, the local tokens go first).' }),
+  createLocalIntegration: endpoint({ method: 'POST', path: '/api/integrations/local', auth: 'user', owner: 'C', status: 201, body: LocalIntegrationInput, response: Integration, summary: 'An app on my own computer (docs/decisions/20261118-local-app-connectors.md): the command\'s shape only, never a setting\'s value. Always a personal connection; 403 when the team turned these or personal connections off. Checked right away through this desktop window (x-mycel-window), whose app asks once on the computer before it runs anything.' }),
+  updateLocalIntegration: endpoint({ method: 'PATCH', path: '/api/integrations/:id/local', auth: 'user', owner: 'C', body: LocalIntegrationPatch, response: Integration, summary: 'Change what an app on my computer runs (its owner only). A new command asks again on the computer before it runs.' }),
   refreshIntegration: endpoint({ method: 'POST', path: '/api/integrations/:id/refresh', auth: 'user', owner: 'C', body: z.object({}), response: Integration, summary: 'Check the connection now; MCP: save its current tool list.' }),
-  authorizeIntegration: endpoint({ method: 'POST', path: '/api/integrations/:id/authorize', auth: 'user', owner: 'C', body: z.object({}), response: z.object({ flowId: z.string(), authorizationUrl: z.string().url(), expiresAt: IsoTime }), summary: 'Start signing in at the service (OAuth with PKCE) in a browser window: an MCP server, or an API with your own app.' }),
+  // loopbackPort: the desktop app's one-time return address on 127.0.0.1 (DesktopBridge.signInReturn), used only from a
+  // desktop session and only for a service that refuses the team's https address (Canva, Intercom, Square); loopback:
+  // the sign-in goes through it (the app keeps it open, else closes it)
+  authorizeIntegration: endpoint({ method: 'POST', path: '/api/integrations/:id/authorize', auth: 'user', owner: 'C', body: z.object({ loopbackPort: z.number().int().min(1024).max(65535).optional() }), response: z.union([z.object({ flowId: z.string(), authorizationUrl: z.string().url(), expiresAt: IsoTime, loopback: z.boolean().optional() }), z.object({ connected: z.literal(true) })]), summary: 'Start signing in at the service (OAuth with PKCE) in a browser window: an MCP server, or an API with your own app. From the desktop app, loopbackPort names its return address on this computer for services that take only that. `connected`: an MCP server that offers no sign-in and works without one; it is now a connection with no sign-in, and there is nothing to open.' }),
   stopAlwaysAllow: endpoint({ method: 'DELETE', path: '/api/integrations/:id/always-allow', auth: 'user', owner: 'C', response: Integration, summary: 'Ask again before the AI changes something at a team connection: ends my own Always allow there (never the team\'s rule).' }),
   setIntegrationTool: endpoint({ method: 'POST', path: '/api/integrations/:id/tools', auth: 'user', owner: 'C', body: z.object({ name: z.string().min(1).max(200), enabled: z.boolean() }).strict(), response: Integration, summary: 'Turn one tool of an MCP connection on or off for the AI (whoever manages the connection). New tools are on.' }),
   integrationFlow: endpoint({ method: 'GET', path: '/api/integrations/flows/:id', auth: 'user', owner: 'C', response: IntegrationFlow, summary: 'Poll a sign-in started by this same session.' }),
   cancelIntegrationFlow: endpoint({ method: 'DELETE', path: '/api/integrations/flows/:id', auth: 'user', owner: 'C', response: empty, status: 204, summary: 'Cancel a sign-in started by this same session that is still waiting: the service\'s answer to it is refused afterwards.' }),
-  listTeamIntegrations: endpoint({ method: 'GET', path: '/api/admin/integrations', auth: 'admin', owner: 'C', response: z.object({ items: z.array(Integration) }), summary: 'Every team connection, with who may use it.' }),
+  listTeamIntegrations: endpoint({ method: 'GET', path: '/api/admin/integrations', auth: 'admin', owner: 'C', response: z.object({ items: z.array(Integration), github: IntegrationList.shape.github }), summary: 'Every team connection, with who may use it.' }),
   createTeamIntegration: endpoint({ method: 'POST', path: '/api/admin/integrations', auth: 'admin', owner: 'C', status: 201, body: IntegrationInput, response: Integration, summary: 'A team connection; access says who may use it (default: nobody until set).' }),
   listIntegrationRequests: endpoint({ method: 'GET', path: '/api/integration-requests', auth: 'user', owner: 'C', response: RequestList, summary: 'Requests from admins to connect a service as my own connection, still waiting for me.' }),
   getIntegrationRequest: endpoint({ method: 'GET', path: '/api/integration-requests/:id', auth: 'user', owner: 'C', response: IntegrationRequest, summary: 'One request to me, in any state (404 for anyone else, admins included).' }),

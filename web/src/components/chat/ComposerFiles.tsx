@@ -23,24 +23,26 @@ import clsx from 'clsx'
 import { FileAudio, FileText, FolderOpen, Loader2 } from 'lucide-react'
 import { useEffect, useRef, useState, type ChangeEvent, type ClipboardEvent, type DragEvent } from 'react'
 import { CHAT_FILES_FOLDER } from '@mycel/shared'
-import { DEFAULT_LOCALE, MESSAGE_ATTACHMENTS_MAX, UPLOAD_SESSION_MAX, uuidv7, type Attachment } from '@mycel/shared/api'
-import { api, API, errorText } from '../../lib/api'
+import { DEFAULT_LOCALE, MESSAGE_ATTACHMENTS_MAX, MESSAGE_TEXT_MAX, UPLOAD_SESSION_MAX, uuidv7, type Attachment } from '@mycel/shared/api'
+import { api, API, errorText, thumbnailUrl } from '../../lib/api'
 import { markBusy } from '../../lib/busy'
 import { SIGNED_OUT } from '../../lib/localData'
 import { formatSize } from '../../lib/format'
 import { previewKind, serverPreview } from '../../lib/preview'
 import { openFilePreview, openTeamFile } from '../../lib/sidePanel'
 import { loadChips, patchStash, readStash, saveChips, shareStash, subscribeStash, TEAM_FILE_DRAG_TYPE, writeStash, type AttachResult } from '../../lib/teamAttach'
-import { cancelUpload, splitOversize, uploadFile, uploadPercent, type UploadProgress } from '../../lib/upload'
+import { cancelUpload, splitOversize, unreadableFile, uploadFile, uploadPercent, type UploadProgress } from '../../lib/upload'
 import { pastedFiles } from '../../lib/paste'
-import { dragKind, type DropKind } from '../../lib/fileDrop'
+import { pastedTextFile, pasteOverLimit, type PasteTarget } from '../../lib/longPaste'
+import { toast } from '../../store/ui'
+import { dragKind, filesOfDrop, withoutFolders, type DropKind } from '../../lib/fileDrop'
 import { attachmentItem, localItem } from '../../lib/imageViewer'
 import { useFolderWords } from '../../lib/folderLabels'
 import { useLocale, useT } from '../../i18n'
-import { useMe } from '../../store/session'
+import { myUploadMaxNow, useMe } from '../../store/session'
 import { isGuestMe } from '../../lib/guests'
 import { UploadLabel } from '../UploadLabel'
-import { ChipRemove, FAILED_REASON, isLocalImage, PictureTile } from '../ChipThumb'
+import { ChipRemove, FAILED_REASON, isHeicName, isLocalImage, PictureTile } from '../ChipThumb'
 import { ImageGroup } from '../ImageViewer'
 import { StoragePlansLink, storagePlansUrl } from '../StoragePlansLink'
 
@@ -120,15 +122,23 @@ export function useComposerFiles({ userId, draftId, ensureChat, onError, reload 
   const live = (list: Pending[]) => list.filter((f) => f.status !== 'failed')
   const room = () => MESSAGE_ATTACHMENTS_MAX - live(filesRef.current).length
 
-  const addFiles = async (all: File[]) => {
-    if (!all.length || !computer) return
+  /** `dropFolders`: the folders a drop held besides (lib/fileDrop.ts filesOfDrop). A folder is never a chip: one line
+   * says so, however many there were; the files beside them go on as usual. */
+  const addFiles = async (picked: File[], dropFolders = 0) => {
+    if ((!picked.length && !dropFolders) || !computer) return
     onError(null)
+    const sorted = await withoutFolders(picked)
+    const all = sorted.files
+    if (dropFolders + sorted.folders) onError(t('composer.folders'))
+    if (!all.length) return
     // a file over what the server takes is refused here, before anything is read or sent (the sha256 of a huge file
     // would take minutes before the server could say no)
-    const { fit, tooBig } = splitOversize(all)
+    // (a guest: the team's guest limit)
+    const max = myUploadMaxNow(UPLOAD_SESSION_MAX)
+    const { fit, tooBig } = splitOversize(all, max)
     const list = fit.slice(0, Math.max(0, room()))
     if (list.length < fit.length) onError(t('composer.tooMany', { n: MESSAGE_ATTACHMENTS_MAX }))
-    else if (tooBig) onError(t('composer.fileTooBig', { name: tooBig.name, max: formatSize(UPLOAD_SESSION_MAX, locale) }))
+    else if (tooBig) onError(t('composer.fileTooBig', { name: tooBig.name, max: formatSize(max, locale) }))
     if (!list.length) return
     const items: Pending[] = list.map((file) => ({ id: uuidv7(), source: 'upload', name: file.name, file, size: file.size, status: 'uploading', progress: null, abort: new AbortController() }))
     setFiles((p) => [...p, ...items])
@@ -154,7 +164,8 @@ export function useComposerFiles({ userId, draftId, ensureChat, onError, reload 
         } catch (e) {
           // removed while uploading: drop the server's half-received session as well
           if (it.abort.signal.aborted) return it.abort.signal.reason === SIGNED_OUT ? undefined : void cancelUpload(it.file!, target, api)
-          update(it.id, { status: 'failed', error: errorText(e, locale, t('error.network')), plans: storagePlansUrl(e) })
+          // a file the browser could not read is not a lost connection (TC-4483)
+          update(it.id, { status: 'failed', error: unreadableFile(e) ? t('composer.unreadable') : errorText(e, locale, t('error.network')), plans: storagePlansUrl(e) })
         }
       }),
     )
@@ -223,14 +234,25 @@ export function useComposerFiles({ userId, draftId, ensureChat, onError, reload 
       for (const f of filesRef.current) f.abort.abort()
       setFiles(() => [])
     },
-    /** files pasted into the box's text (a screenshot, a copied file) are attached, not pasted as text */
+    /** files pasted into the box's text (a screenshot, a copied file) are attached, not pasted as text. Text that would
+     * take the box over what a message holds is never cut (lib/longPaste.ts): it goes in as a text file where the box
+     * takes files from this computer and has room for one more, else the paste is refused with the reason. */
     onPaste: (e: ClipboardEvent<HTMLElement>) => {
       // files are not taken here: the paste goes on as text (a screenshot alone adds nothing)
       const pasted = computer ? pastedFiles(e.clipboardData) : []
       if (pasted.length) {
         e.preventDefault()
         void addFiles(pasted)
+        return
       }
+      const box = e.currentTarget as HTMLElement & Partial<PasteTarget>
+      const text = e.clipboardData?.getData?.('text/plain') ?? ''
+      if (typeof box.value !== 'string' || !pasteOverLimit({ value: box.value, selectionStart: box.selectionStart ?? null, selectionEnd: box.selectionEnd ?? null }, text)) return
+      e.preventDefault()
+      const max = MESSAGE_TEXT_MAX.toLocaleString(locale)
+      if (!computer || room() < 1) return onError(t('composer.textTooLong', { max }))
+      void addFiles([pastedTextFile(text, t('composer.pastedTextName'))])
+      toast({ level: 'info', text: t('composer.pastedAsFile', { max }) })
     },
     /** a file input's pick (the input is emptied, so the same file can be picked again) */
     onPicked: (e: ChangeEvent<HTMLInputElement>) => {
@@ -250,7 +272,7 @@ const taken = new WeakSet<object>()
  * Moving over its own parts is not leaving it: a count of the enters and leaves that reached it, and the element the
  * pointer goes to (`relatedTarget`) when the browser says. Off on a drop, on leaving it, at the drag's end and on Esc.
  * A picture or link dragged from the page itself is not a file from this computer (lib/fileDrop.ts dragKind). */
-export function useFileDrop({ files, teamPath, refusal }: { files?: (files: File[]) => void; teamPath?: (path: string) => void; refusal?: (kind: DropKind) => string | null }) {
+export function useFileDrop({ files, teamPath, refusal }: { files?: (files: File[], folders: number) => void; teamPath?: (path: string) => void; refusal?: (kind: DropKind) => string | null }) {
   const [over, setOver] = useState<{ kind: DropKind; refusal: string | null; covered: boolean } | null>(null)
   const depth = useRef(0)
   const zone = useRef<HTMLElement | null>(null)
@@ -333,8 +355,10 @@ export function useFileDrop({ files, teamPath, refusal }: { files?: (files: File
         if (refusal?.(kind)) return
         const path = kind === 'team' ? e.dataTransfer.getData(TEAM_FILE_DRAG_TYPE) : ''
         if (path) return teamPath?.(path)
-        const list = Array.from(e.dataTransfer.files ?? [])
-        if (list.length && files) files(list)
+        // the folders in it are left out here and counted (lib/fileDrop.ts filesOfDrop): the box says once that they
+        // cannot be sent
+        const { files: list, folders } = filesOfDrop(e.dataTransfer)
+        if ((list.length || folders) && files) files(list, folders)
       },
     },
   }
@@ -353,18 +377,21 @@ export function ComposerFileList({ files, onRemove, className }: { files: Pendin
     // the box's pictures: ← → in the image viewer walks through these. A phone: one sideways row, so many files and the
     // keyboard do not push the text field out of sight
     <ImageGroup>
-    <ul className={clsx('scroll-thin flex flex-wrap items-center gap-2 max-md:flex-nowrap max-md:overflow-x-auto max-md:pb-1 max-md:*:shrink-0', className)} aria-label={t('composer.attachments')}>
+    <ul className={clsx('scroll-thin flex flex-wrap items-center gap-2 md:max-h-40 md:overflow-y-auto max-md:flex-nowrap max-md:overflow-x-auto max-md:pb-1 max-md:*:shrink-0', className)} aria-label={t('composer.attachments')}>
       {files.map((f) => {
         const canOpen = !!previewKind(f.name) && (f.source === 'upload' || f.status === 'done')
         const open = () => (f.source === 'team' || !f.file || (serverPreview(f.name) && f.attachment?.path) ? openTeamFile(f.attachment?.path ?? f.path!) : openFilePreview({ source: 'local', name: f.name, blob: f.file }))
         // a picture from this computer shows as itself at once, while it uploads (a pasted screenshot too); its
         // words for screen readers, a failure's reason beside it. Both regions stay through the whole upload.
-        if (f.source === 'upload' && f.file && isLocalImage(f.file))
+        // an iPhone photo (HEIC) shows as the server's thumbnail once it is uploaded (a picture icon if none could be made)
+        const heic = f.source === 'upload' && !!f.file && isHeicName(f.name) && f.status !== 'failed'
+        if (f.source === 'upload' && f.file && (isLocalImage(f.file) || heic))
           return (
             <li key={f.id} className="flex max-w-full items-center gap-2 pt-1.5 pr-1.5 text-xs" data-testid="attachment-chip" data-source={f.source} data-status={f.status}>
               <PictureTile
                 name={f.name}
-                file={f.file}
+                file={heic ? undefined : f.file}
+                src={heic && f.attachment ? thumbnailUrl(f.attachment.id) : undefined}
                 busy={f.status === 'uploading'}
                 percent={f.status === 'uploading' ? uploadPercent(f.progress) : null}
                 failed={f.status === 'failed'}
@@ -478,6 +505,25 @@ export function SharedUploadLine({ files, audience, kind, className }: { files: 
       {t('chat.sharedUploadLine', { folder, n: audience })}
     </p>
   )
+}
+
+/**
+ * The same line under a waiting message of a shared chat (components/chat/QueuedMessages.tsx): a file from the computer
+ * in it was saved when it was attached, so the line still says where and who can see it. A waiting message keeps only
+ * its attachments: a file in the project's chat attachments folder (in any language's name) counts as one of those
+ * uploads; a chat shared with people, a file kept with the chat.
+ */
+export function SharedQueuedLine({ attachments, audience, kind, className }: { attachments: readonly Attachment[]; audience: number; kind?: 'project' | 'people'; className?: string }) {
+  const t = useT()
+  if (kind === 'people') {
+    if (!attachments.some((a) => a.source === 'chat')) return null
+    return <p className={clsx('text-xs leading-5 break-keep text-faint', className)} data-testid="outbox-upload-line">{t('chat.share.uploadLine')}</p>
+  }
+  const names = new Set<string>(Object.values(CHAT_FILES_FOLDER))
+  const saved = attachments.find((a) => a.source === 'team' && names.has(folderOf(a.path).slice(folderOf(a.path).lastIndexOf('/') + 1)))
+  if (!saved) return null
+  const folder = folderOf(saved.path).slice(folderOf(saved.path).lastIndexOf('/') + 1)
+  return <p className={clsx('text-xs leading-5 break-keep text-faint', className)} data-testid="outbox-upload-line">{t('chat.sharedUploadLine', { folder, n: audience })}</p>
 }
 
 /** The chips of a draft: those kept in memory, else (`reload`) the finished ones kept for this tab (after a reload). */

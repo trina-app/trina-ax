@@ -18,7 +18,7 @@ import path from 'node:path'
 import { DECK_KINDS, type DeckSlide, type IntroDeckInput, type Locale } from '@mycel/shared/api'
 import type { AppContext } from '../context'
 import type { ToolCtx } from '../files/service'
-import { readCompanyProfile } from '../onboarding/profile'
+import { profileFactsJson, readCompanyProfile } from '../onboarding/profile'
 import { authorize } from '../policy/authorize'
 import { readRegular } from '../files/store'
 import { rawRgba } from '../onboarding/brand-assets'
@@ -145,11 +145,11 @@ export async function checkDeckInput(ctx: AppContext, t: ToolCtx, a: IntroDeckIn
     // a file this tool made (downloaded and put back) would let the deck prove its own numbers
     try {
       const x = authorize(ctx.files.fx, ctx.files.rules(), t.user, raw.replace(/^\/+/, ''), 'read', { mustExist: true })
-      if (own(crypto.createHash('sha256').update(readRegular(x.abs, 60 * 1024 * 1024).bytes).digest('hex'))) problems.push(`source "${raw}" is an intro deck this tool made; name the material it was made from instead`)
+      if (own(crypto.createHash('sha256').update(readRegular(x.abs, 60 * 1024 * 1024, x.st).bytes).digest('hex'))) problems.push(`source "${raw}" is an intro deck this tool made; name the material it was made from instead`)
     } catch { /* sourceText said why */ }
   }
   const profile = (() => { try { return readCompanyProfile(ctx.files, t.user) } catch { return null } })()
-  const known = (s: string) => src.tight.includes(squash(s)) || (profile ? squash(JSON.stringify(profile)).includes(squash(s)) : false)
+  const known = (s: string) => src.tight.includes(squash(s)) || (profile ? squash(profileFactsJson(profile)).includes(squash(s)) : false)
   // the website: from the material or the saved profile, as its host
   let website: string | null = null
   if (a.website) {
@@ -207,7 +207,7 @@ export async function checkDeckInput(ctx: AppContext, t: ToolCtx, a: IntroDeckIn
     const where = (w: string) => `slides[${i}] (${s.kind}) ${w}`
     for (const [w, text] of slideTexts(s)) {
       if (['email', 'phone', 'website'].includes(w)) continue
-      for (const n of new Set(numbersIn(text))) if (!hasNumber(src.text, n) && !(profile && hasNumber(spaced(JSON.stringify(profile)), n))) problems.push(where(`${w}: the number "${n}" is not in the sources; use only numbers written in the material, as written`))
+      for (const n of new Set(numbersIn(text))) if (!hasNumber(src.text, n) && !(profile && hasNumber(spaced(profileFactsJson(profile)), n))) problems.push(where(`${w}: the number "${n}" is not in the sources; use only numbers written in the material, as written`))
       for (const word of SUPERLATIVES) if (text.toLowerCase().includes(word.toLowerCase()) && !src.text.toLowerCase().includes(word.toLowerCase())) problems.push(where(`${w}: "${word}" is not what the sources say; leave the claim out`))
     }
     if (s.kind === 'numbers') s.stats.forEach((st, k) => { if (!signVariants(st.number).some((v) => src.tight.includes(v))) problems.push(where(`stats[${k}].number "${st.number}" is not written in the sources exactly like that; copy the number with its sign and unit as the material writes it (never counted, computed or rounded)`)) })

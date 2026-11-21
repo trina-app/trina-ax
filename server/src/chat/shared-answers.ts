@@ -14,7 +14,12 @@
 //                                 shared later whose check could not tell); y: a read card's yes covered it (written by
 //                                 the card from now on, and by migration 296 for the groups of a turn whose audit row
 //                                 chat.shared_read says 'shared'). Still written for every answer: nothing is hidden by
-//                                 a new one, but explicit widening warns from them (chat/widening.ts)
+//                                 a new one, but explicit widening warns from them (chat/widening.ts); k: what a
+//                                 connected service returned (chat/turn.ts confirmSharedConnection): an answer from the
+//                                 cutover on is hidden from anyone not in c who may not read every place s now (a
+//                                 person who joins later and may not use that connection;
+//                                 docs/decisions/20261118-shared-chat-connections.md). An older build ignores k and
+//                                 shows the answer as the cutover's rule says
 //   shared_answer_reads.left_out  the answers above it on its branch that its runner did not see: they were not in its
 //                                 context (a fresh session gets the transcript as its runner sees it), so they keep
 //                                 nothing of it hidden from anyone
@@ -31,7 +36,7 @@ import { sourceKey, viewersOf, type ReadSource } from './read-scope'
 
 /** What an answer read while these people saw the chat. `x`: not all of it is known (only `c` may see it); `y`: a read
  * card's yes covered it (an answer from before the cutover is not hidden for it). */
-export interface ReadGroup { c: string[]; s: ReadSource[]; x?: 1; y?: 1 }
+export interface ReadGroup { c: string[]; s: ReadSource[]; x?: 1; y?: 1; k?: 1 }
 
 /** The settings key of the cutover (migration 296). */
 export const CUTOVER_KEY = 'hidden_answers_cutover'
@@ -48,8 +53,13 @@ export function hiddenAnswersCutover(db: Database): string | null {
   return v
 }
 
-/** Set the cutover (tests): the stored value and the one kept in memory. */
-export function setHiddenAnswersCutover(db: Database, at: string): void {
+/** Set the cutover (tests): the stored value and the one kept in memory; null removes both (as before migration 296). */
+export function setHiddenAnswersCutover(db: Database, at: string | null): void {
+  if (at === null) {
+    db.query('DELETE FROM settings WHERE key = ?').run(CUTOVER_KEY)
+    cutovers.delete(db)
+    return
+  }
   db.query('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value').run(CUTOVER_KEY, at)
   cutovers.set(db, at)
 }
@@ -76,9 +86,9 @@ export function parseRecord(reads: string | null, left: string | null): AnswerRe
     const groups: ReadGroup[] = []
     for (const g of r) {
       if (!g || typeof g !== 'object') return null
-      const { c, s, x, y } = g as { c?: unknown; s?: unknown; x?: unknown; y?: unknown }
+      const { c, s, x, y, k } = g as { c?: unknown; s?: unknown; x?: unknown; y?: unknown; k?: unknown }
       if (!isStrings(c) || !Array.isArray(s) || !s.every(isSource)) return null
-      groups.push({ c, s, ...(x ? { x: 1 as const } : {}), ...(y ? { y: 1 as const } : {}) })
+      groups.push({ c, s, ...(x ? { x: 1 as const } : {}), ...(y ? { y: 1 as const } : {}), ...(k ? { k: 1 as const } : {}) })
     }
     return { reads: groups, left: l }
   } catch { return null }
@@ -122,7 +132,7 @@ export type NodeRow = { id: string; parent_id: string | null; role: string; runn
  * `late`: made from the cutover on and not before its chat was shared (hidden only by an x group: what it read is not
  * all known). */
 export interface Node { id: string; parent: string | null; answer: boolean; runner: string | null; late: boolean; rec: { reads: ParsedGroup[]; left: ReadonlySet<string> } | null }
-export interface ParsedGroup { c: ReadonlySet<string>; s: ReadSource[]; x: boolean; y: boolean }
+export interface ParsedGroup { c: ReadonlySet<string>; s: ReadSource[]; x: boolean; y: boolean; k: boolean }
 const NONE: readonly string[] = []
 
 /** A message row (with its turn's person and record) as the walk needs it; `cutover`: hiddenAnswersCutover. */
@@ -130,7 +140,7 @@ export function nodeOf(m: NodeRow, cutover: string | null): Node {
   const answer = m.role === 'assistant'
   const late = answer && afterCutover(cutover, m.created_at, m.shared_at)
   const rec = answer ? parseRecord(m.reads, m.left_out) : null
-  return { id: m.id, parent: m.parent_id, answer, runner: m.runner, late, rec: rec && { reads: rec.reads.map((g) => ({ c: new Set(g.c), s: g.s, x: !!g.x, y: !!g.y })), left: new Set(rec.left) } }
+  return { id: m.id, parent: m.parent_id, answer, runner: m.runner, late, rec: rec && { reads: rec.reads.map((g) => ({ c: new Set(g.c), s: g.s, x: !!g.x, y: !!g.y, k: !!g.k })), left: new Set(rec.left) } }
 }
 
 /** A chat's messages with their turns' person and records, read and parsed once (any number of viewers then). */
@@ -142,8 +152,10 @@ export function chatNodes(db: Database, chatId: string): Node[] {
   return rows.map((m) => nodeOf(m, cutover))
 }
 
-/** A late answer (from the cutover on) is hidden from `who` only by an x group they are not in. */
-export const lateHides = (groups: readonly ParsedGroup[], who: string): boolean => groups.some((g) => g.x && !g.c.has(who))
+/** A late answer (from the cutover on) is hidden from `who` only by an x group they are not in, or a k group (a connected
+ * service's answer) they are not in whose places they may not all read now (`reads`; none: fails closed). */
+export const lateHides = (groups: readonly ParsedGroup[], who: string, reads?: (s: ReadSource) => boolean): boolean =>
+  groups.some((g) => !g.c.has(who) && (g.x || (g.k && !(reads && g.s.every(reads)))))
 
 /** An older answer's verdict for one person by its record alone (rule b, without what is above it): hidden unless every
  * group has them in `c`, was covered by a card's yes, or has every place readable by them (`reads`). */
@@ -172,7 +184,7 @@ export function withheldAmong(db: Database, rules: RuleSet, nodes: readonly Node
     if (!m.answer || (m.runner !== null && m.runner === viewer)) return false
     // from the cutover on nothing is hidden (rule a), but what an x group read is not all known (memories, a scope the
     // share's check could not tell): only its `c` sees it, as before
-    if (m.late) return !!m.rec && lateHides(m.rec.reads, viewer)
+    if (m.late) return !!m.rec && lateHides(m.rec.reads, viewer, reads)
     if (!m.rec) return true
     // an older answer: a group the viewer was in, one a card's yes covered (not x), or one whose every place the viewer
     // may read now (rule b)

@@ -3,7 +3,7 @@
 // Admins never see other people's chats or memories, and there is no "sign in as" (tab 1).
 import { z } from 'zod'
 import { UserId, Uuid7 } from '../ids'
-import { Access, EngineId, GuestAiChoice, GuestPlace, IsoTime, Locale, PageQuery, QueryBool, RelPath, Role, TeamRole, UserStatus, page } from './common'
+import { Access, EngineId, GuestAiChoiceBody, GuestPlace, IsoTime, Locale, PageQuery, QueryBool, RelPath, Role, TeamRole, UserStatus, page } from './common'
 import { binary, endpoint, empty } from './endpoint'
 import { AuditEntry, Budget, EngineAccount, Folder, FolderRuleInput, Group, Invite, SubjectType, TeamSettings, User, UserRef } from './entities'
 import { Password, PersonName, Username } from './auth'
@@ -95,13 +95,13 @@ export const CreateInviteBody = z.object({
   /** role guest only (required then): the one group chat or project the guest joins */
   guestPlace: GuestPlace.optional(),
   /** role guest only: how the guest's AI runs (default none) */
-  guestAi: GuestAiChoice.optional(),
+  guestAi: GuestAiChoiceBody.optional(),
 })
 /** POST /api/guest-invites: a member invites a guest into a group chat they are in, or (the project's creator or an
  * admin) into a project. Same answer as createInvite. */
 export const CreateGuestInviteBody = z.object({
   place: GuestPlace,
-  ai: GuestAiChoice.default({ mode: 'none' }),
+  ai: GuestAiChoiceBody.default({ mode: 'none' }),
   expiresInHours: z.number().int().min(1).max(24 * 30).default(24 * 7),
   /** who the link is for, in the inviter's words (shown in the invite list); not the account's name */
   name: z.string().trim().min(1).max(100).optional(),
@@ -110,17 +110,24 @@ export const CreateGuestInviteBody = z.object({
  * `limit`: the plan's guests (null: no cap). For the owner and admins also whether every seat is taken (making a guest a
  * team member needs one) and the plan page when the server knows it. */
 export const GuestInviteLimit = z.object({
+  /** no new guest link fits: the active guests and the links nobody has used yet fill the plan's guests */
   full: z.boolean(),
   limit: z.number().int().nonnegative().nullable(),
   /** the owner and admins: the active guests now (removed ones do not count), for Admin's "N of M guests"; absent from
    * an older server. Can be above `limit` after the plan was lowered: nobody is removed, only new invites wait */
   used: z.number().int().nonnegative().optional(),
+  /** the owner and admins, while `full`: how many guest links nobody has used yet hold a place (each open link counts toward the cap, so a
+   * new link is refused when it is made; absent when none does, and from older servers) */
+  pending: z.number().int().positive().optional(),
   seatsFull: z.boolean().optional(),
   manageUrl: z.string().optional(),
   /** 'host_sign_in': this server runs its AI on its own sign-in (an Office Mac, engine.authMode local-login), where a
    * guest is never answered, so the invite dialog offers only No AI. For everyone who may invite (members too: the
    * same flag as CredentialsResponse.guestAiUnavailable, which only the owner and admins read) */
   guestAiUnavailable: z.enum(['host_sign_in']).optional(),
+  /** the owner and admins: tokens one answer takes on average, for the Team AI limit's "about N answers". `team`: this
+   * team's own answers of the last 90 days (at least 20 of them); `default`: too few yet, so DEFAULT_TOKENS_PER_ANSWER */
+  answerTokens: z.object({ tokens: z.number().int().positive(), from: z.enum(['team', 'default']) }).optional(),
 })
 export type GuestInviteLimit = z.infer<typeof GuestInviteLimit>
 /** No mail in v1: the admin copies the link. The token is shown only here. `replacedLead`: a lead invite made with
@@ -163,10 +170,13 @@ export const CreateFolderBody = z.object({
   /** the hash of the rules the editor started from (no row yet: the hash of no rules) */
   expectedHash: ExpectedHash.optional(),
   limited: Limited.optional(),
+  /** "Remove those links too" (FolderEditPreview.linkPeople): the save also removes every grant of the files shared one
+   * by one at or under this folder (docs/DECISIONS.md "A member shares their own files"). Missing: kept */
+  removeFileLinks: z.boolean().optional(),
 })
 /** A save of a limited folder without `limited` that carries a hash from before the limit (or none) is refused with 409
  * `client_outdated`: a page from an older build, which would not show the limit. */
-export const PutRulesBody = z.object({ rules: z.array(FolderRuleInput).max(200), expectedHash: ExpectedHash.optional(), limited: Limited.optional() })
+export const PutRulesBody = z.object({ rules: z.array(FolderRuleInput).max(200), expectedHash: ExpectedHash.optional(), limited: Limited.optional(), removeFileLinks: z.boolean().optional() })
 /**
  * "Who sees what" before saving: send the proposed rule sets (each replaces the rules of that folder); the server
  * computes every active person's effective access before/after for those folders and their rule-free subfolders.
@@ -451,17 +461,26 @@ export const FolderEditPreview = z.object({
   less: z.number().int().nonnegative(),
   more: z.number().int().nonnegative(),
   warnings: z.array(FolderEditWarning),
+  /** the change takes access away from someone (`less`) and files at or under this folder are shared one by one: how
+   * many people have them by their links (they keep them unless the save removes the links: removeFileLinks).
+   * Absent: none, or nobody loses access, or an older server */
+  linkPeople: z.number().int().positive().optional(),
 })
 export type FolderEditPreview = z.infer<typeof FolderEditPreview>
 
 // ---------------- engines ----------------
 /** The team's API engine (server/src/engine/api-agent.ts): any OpenAI-compatible Chat Completions API. */
-export const ApiEngineConfig = z.object({ baseUrl: z.string().nullable(), model: z.string().nullable(), label: z.string().nullable(), hasKey: z.boolean() })
+export const ApiEngineConfig = z.object({ baseUrl: z.string().nullable(), model: z.string().nullable(), label: z.string().nullable(), hasKey: z.boolean(),
+  /** whether the model takes pictures (server engine/api-vision.ts): `detected` what its server says (null: it does not
+   * say), `choice` the admin's "Reads pictures" (used only while `detected` is null). Absent: an older server */
+  vision: z.object({ detected: z.boolean().nullable(), choice: z.enum(['on', 'off']).nullable() }).optional() })
 export const ApiEngineBody = z.object({
   baseUrl: z.string().url().max(300).refine((u) => /^https?:\/\//.test(u), 'http(s) only'),
   model: z.string().min(1).max(200),
   label: z.string().max(40).optional(),
   key: z.string().max(500).nullable().optional(),
+  /** "Reads pictures" while the model's server does not say: on, off, null to clear, absent to keep */
+  vision: z.enum(['on', 'off']).nullable().optional(),
   /** the caller's own password again (admin-reauth) */
   password: z.string().min(1).max(256),
 })
@@ -483,6 +502,9 @@ export const EngineStatus = z.object({
   limitedUntil: IsoTime.nullable().optional(),
   /** what is missing, in the user's language (e.g. "owner must run `claude setup-token`") */
   detail: z.string().nullable(),
+  /** a failed check: what the engine printed, for support only (keys, tokens and home folders taken out, cut short).
+   * The card's line is `detail`; this stays behind "Show details" (Admin › AI providers, admins only) */
+  errorDetail: z.string().max(1000).optional(),
   models: z.array(z.object({ id: z.string(), label: z.string() })),
   checkedAt: IsoTime.nullable(),
   /** still being verified on this installation (Codex on the engine account): labelled beta, owner-only, never the
@@ -574,14 +596,25 @@ export const SpeechHost = z.object({
   /** tools 'local' lacks here: with any, voice input on this server is off (Me.team.voiceInput false) and Team settings
    * names them. Absent: an older server */
   localMissing: z.array(LocalSpeechTool).optional(),
+  /** an Apple silicon Mac that transcribes with whisper.cpp on its GPU (fast; docs/decisions/20261116-mac-local-speech.md).
+   * Absent: another server, or an older one */
+  localMac: z.literal(true).optional(),
+  /** the speech model 'local' downloads on its first use, in MB; null when it is on this server already. Absent: an
+   * older server */
+  localModelMb: z.number().int().positive().nullable().optional(),
   /** CPU cores the server's helpers may use (the plan's, else the machine's) */
   cpuCores: z.number().int().positive(),
   /** whisper.cpp pieces of a read, in seconds of sound (each is cached; reading again goes on from there) */
   localPieceSec: z.number().int().positive(),
   /** measured on this server: seconds of whisper.cpp work per second of sound (null = not measured yet) */
   localSecPerSec: z.number().nonnegative().nullable(),
-  /** a hosted server: the most new sound one read turns into text here, in seconds (null = no such cap) */
-  hostedNewSec: z.number().int().positive().nullable(),
+  /** a hosted server (a plan): "Turn video sound into text" is on by default. Absent: an older server */
+  hosted: z.boolean().optional(),
+  /** at least 4 CPU cores and 8 GB (localSpeechBigEnough): this server turns sound into text itself by default. Absent:
+   * an older server */
+  bigEnough: z.boolean().optional(),
+  /** the server's memory in whole GB (the settings page says why the default is off on a small server). Absent: an older server */
+  memoryGb: z.number().int().nonnegative().optional(),
 })
 export type SpeechHost = z.infer<typeof SpeechHost>
 /** sealed in the browser (purpose 'speech.key'); null removes the key. The password again, like AI connections. */
@@ -603,9 +636,11 @@ export const UsageQuery = z.object({
   /** facets=1: who, which engines, models, AI connections and groups have usage in the range (the filter choices) */
   facets: QueryBool.optional(),
 })
-/** unpricedTurns: how many of the turns have an amount with an unknown part (the API engine's provider gave no cost and
- * the model has no list price); absent = none */
-export const UsageRow = z.object({ key: z.string(), label: z.string(), turns: z.number().int(), inputTokens: z.number().int(), outputTokens: z.number().int(), costUsd: z.number(), unpricedTurns: z.number().int().optional() })
+/** costUsd: money spent plus the API-price estimate of subscription sign-ins (server/src/admin/usage-amount.ts).
+ * unpricedTurns: how many of the turns have an amount with an unknown part (no cost from the provider and no list price,
+ * Codex on a local login, subscription turns from before the estimate); estimatedTurns: how many include a subscription
+ * estimate at API prices (not a bill). Absent = none. */
+export const UsageRow = z.object({ key: z.string(), label: z.string(), turns: z.number().int(), inputTokens: z.number().int(), outputTokens: z.number().int(), costUsd: z.number(), unpricedTurns: z.number().int().optional(), estimatedTurns: z.number().int().optional() })
 const UsageFacet = z.object({ key: z.string(), label: z.string() })
 /** one day (YYYY-MM-DD in the team time zone) and one groupBy key; skill and group keys may overlap like their rows */
 export const UsageSeriesPoint = z.object({ day: z.string(), key: z.string(), turns: z.number().int(), inputTokens: z.number().int(), outputTokens: z.number().int() })
@@ -631,7 +666,7 @@ export const AuditQuery = PageQuery.extend({
 export const ADMIN = {
   listUsers: endpoint({ method: 'GET', path: '/api/admin/users', auth: 'admin', owner: 'A', query: z.object({ noAi: QueryBool.optional() }), response: UsersResponse, summary: 'All members, and with ?noAi=1 who cannot use AI now ("No AI").' }),
   createUser: endpoint({ method: 'POST', path: '/api/admin/users', auth: 'admin', owner: 'A', status: 201, body: CreateUserBody, response: CreatedUser, summary: 'Add a member with a temporary password (alternative to an invite).' }),
-  updateUser: endpoint({ method: 'PATCH', path: '/api/admin/users/:id', auth: 'admin', owner: 'A', body: UpdateUserBody, response: User, summary: 'Role, groups, disable (ends their sessions). Only the owner changes admins.' }),
+  updateUser: endpoint({ method: 'PATCH', path: '/api/admin/users/:id', auth: 'admin', owner: 'A', body: UpdateUserBody, response: User, summary: 'Role, groups, disable (ends their sessions). Only the owner changes admins. A guest\'s e-mail cannot be one another account here gives (409 conflict, reason email_in_use).' }),
   deleteUser: endpoint({ method: 'DELETE', path: '/api/admin/users/:id', auth: 'admin', owner: 'A', query: DeleteUserQuery, body: DeleteUserBody, response: empty, status: 204, summary: 'The owner removes anyone but themselves; an admin removes a member only (never the owner, an admin or themselves), with their password again in the body. Sessions end now, chats and memories are purged after the chat retention period; the personal folder goes to the owner or is deleted.' }),
   resetPassword: endpoint({ method: 'POST', path: '/api/admin/users/:id/reset-password', auth: 'admin', owner: 'A', body: ResetPasswordBody, response: ResetPasswordResult, summary: 'New temporary password (given, or a memorable one is made); the person must change it at next sign-in; valid 7 days; audited.' }),
   createResetLink: endpoint({ method: 'POST', path: '/api/admin/users/:id/reset-link', auth: 'admin', owner: 'A', response: ResetLinkResult, summary: 'One-time password reset link (24 h) to hand over; ends their sessions when used; audited.' }),
@@ -641,7 +676,7 @@ export const ADMIN = {
   createInvite: endpoint({ method: 'POST', path: '/api/admin/invites', auth: 'admin', owner: 'A', status: 201, body: CreateInviteBody, response: CreatedInvite, summary: 'New invite link (copy it; no mail in v1).' }),
   createGuestInvite: endpoint({ method: 'POST', path: '/api/guest-invites', auth: 'user', owner: 'A', status: 201, body: CreateGuestInviteBody, response: CreatedInvite, summary: 'Invite a guest into one place: a group chat the caller is in, or a project the caller created (the owner and admins: any project). 409 plan_limit reason guest_limit over the plan\'s guests.' }),
   guestInviteLimit: endpoint({ method: 'GET', path: '/api/guest-invites/limit', auth: 'user', owner: 'A', response: GuestInviteLimit, summary: "Whether the plan has room for one more guest (and, for the owner and admins, whether every seat is taken), so the invite and Make team member dialogs say so before the form." }),
-  updateGuestAi: endpoint({ method: 'PATCH', path: '/api/admin/users/:id/guest-ai', auth: 'admin', owner: 'A', body: GuestAiChoice, response: User, summary: "Change a guest's AI: none, own sign-in, or a team connection with a monthly limit." }),
+  updateGuestAi: endpoint({ method: 'PATCH', path: '/api/admin/users/:id/guest-ai', auth: 'admin', owner: 'A', body: GuestAiChoiceBody, response: User, summary: "Change a guest's AI: none, own sign-in, or a team connection with a monthly token limit." }),
   convertGuest: endpoint({ method: 'POST', path: '/api/admin/users/:id/convert-guest', auth: 'admin', owner: 'A', response: User, summary: 'Make a guest a team member (takes a seat: 409 plan_limit reason seat_limit when none is free). They keep their place.' }),
   revokeInvite: endpoint({ method: 'DELETE', path: '/api/admin/invites/:id', auth: 'admin', owner: 'A', response: empty, status: 204, summary: 'Revoke an unused invite.' }),
 

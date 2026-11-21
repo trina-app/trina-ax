@@ -5,7 +5,7 @@
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from 'bun:test'
 import fs from 'node:fs'
 import path from 'node:path'
-import { API } from '@mycel/shared/api'
+import { API, type ClientKind } from '@mycel/shared/api'
 import { ask, startHarness, type Harness, type TestSocket } from '../lib/b-harness'
 import { waitFor } from '../lib/wait'
 import { FakeServices, MCP_KEY } from '../lib/fake-services'
@@ -13,17 +13,23 @@ import { integrationsOf } from '../../server/src/integrations/connections/servic
 import { hwpPluginOn, setHwpPlugin } from '../lib/hwp-plugin'
 import { employmentForm } from '../lib/hwpx'
 import { labeledPath } from '@mycel/shared'
+import { mp4Available } from '../../server/src/promo-video/render'
 
 // a team path as the cards say it (server/src/chat/place-words.ts; docs/DECISIONS.md "Plain words in errors, cards and steps")
 const W = (p: string) => labeledPath(p.replace(/\/+$/, ''), 'en', 'alice', ' › ')
 
 setDefaultTimeout(30_000)
+// the harness's session carries whatever client the test names; the app list in ClientKind has no Slack (a Slack turn arrives by the connector)
+const SLACK = 'slack' as unknown as ClientKind
 const fake = (...ds: unknown[]) => ds.map((d) => '@fake ' + JSON.stringify(d)).join('\n')
 
 let h: Harness
 let alice: TestSocket
 beforeAll(async () => {
-  h = await startHarness({ name: 'i-wiring', askUserTimeoutMs: 3000, stallTimeoutMs: 60_000 })
+  // A card stays open for askUserTimeoutMs from the moment it is made. The tests below answer it a few awaits later, and
+  // on a loaded CI runner those awaits can take more than the old 3 s: the card then expired before the answer and the turn
+  // ended without the refusal under test. No test here needs a card to expire, so it stays open as long as the stall guard.
+  h = await startHarness({ name: 'i-wiring', askUserTimeoutMs: 60_000, stallTimeoutMs: 60_000 })
   // edit_hwp and make_file .hwpx come with the HWP plugin (tools/hwp-writing.ts): on, but where a test turns it off
   hwpPluginOn(h.ctx)
   alice = await h.ws('alice', { windowId: 'win-i-main' })
@@ -35,7 +41,10 @@ describe('B turns use C tools', () => {
   test('a web turn is offered the file tools, B tools and every C tool (set_title: a new chat\'s first message)', async () => {
     const chat = await h.api('alice').call(API.createChat, { body: {} })
     const r = await ask(h, alice, 'alice', chat.id, fake({ echo: 'tools' }))
-    expect(r.done.content.split(',')).toEqual(['artifact', 'ask_user', 'change_project_members', 'connect_service', 'copy_files', 'delete_files', 'edit', 'edit_files', 'edit_hwp', 'find_skills', 'forget', 'glob', 'grep', 'intro_deck', 'list', 'make_file', 'move_files', 'move_skill', 'post_to_room', 'promo_video', 'read', 'remember', 'rename_file', 'room_file', 'room_read', 'rooms', 'save_room_file', 'save_url', 'schedule_create', 'schedule_delete', 'schedule_list', 'set_title', 'share_file', 'skill', 'skill_files', 'web_fetch', 'write'])
+    // save_promo_video only where this server can render the MP4 (promo-video/render.ts mp4Available: a Mac dev server)
+    const offered: string[] = r.done.content.split(',')
+    expect(offered.includes('save_promo_video')).toBe(mp4Available(h.ctx))
+    expect(offered.filter((n) => n !== 'save_promo_video')).toEqual(['artifact', 'ask_user', 'change_folder_access', 'change_project_members', 'comment_docx', 'connect_service', 'copy_files', 'delete_files', 'edit', 'edit_files', 'edit_hwp', 'edit_office', 'edit_pdf', 'find_skills', 'forget', 'glob', 'grep', 'intro_deck', 'list', 'looking_at', 'make_file', 'make_zip', 'merge_pdfs', 'move_files', 'move_skill', 'post_to_room', 'promo_video', 'query_data', 'read', 'remember', 'rename_file', 'rename_files', 'resize_images', 'room_file', 'room_read', 'rooms', 'save_connector_file', 'save_room_file', 'save_url', 'schedule_create', 'schedule_delete', 'schedule_list', 'set_title', 'share_file', 'share_folder', 'share_with_person', 'shared_with_me', 'skill', 'skill_files', 'split_pdf', 'stamp_pdf', 'stop_sharing', 'todo_write', 'unzip_file', 'web_fetch', 'who_can_open', 'write'])
   })
 
   test('Hangul writing follows the HWP plugin in a turn: off, no edit_hwp and no .hwpx in the instructions, make_file .hwpx refused before any card; on again, both back', async () => {
@@ -76,8 +85,12 @@ describe('B turns use C tools', () => {
     fs.writeFileSync(path.join(h.team, ...form.split('/')), employmentForm())
     const chat = await h.api('alice').call(API.createChat, { body: {} })
     // on when the turn starts (edit_hwp is in its list); after reading a personal file, a new file in shared/ would ask
-    // the person first (a wider audience)
-    const sent = await h.api('alice').call(API.sendMessage, { params: { id: chat.id }, body: { content: fake(
+    // the person first (a wider audience).
+    // The turn must stand still on its ask_user card while the plugin is turned off. Only a turn of these apps keeps the
+    // card inside the tool call (open-questions.ts questionsWaitInCall); on the web the call returns at once and the turn
+    // runs on to edit_hwp, which then raced the test's "turn it off" and, on a loaded runner, won it (plugin still on, so a
+    // second card instead of the refusal). A Slack turn waits for the answer, so the order no longer depends on speed.
+    const sent = await h.api('alice', { client: SLACK }).call(API.sendMessage, { params: { id: chat.id }, body: { content: fake(
       { tool: 'read', args: { file_path: form } },
       { tool: 'ask_user', args: { question: 'Go on?', options: [{ label: 'Yes', value: 'yes' }] } },
       { tool: 'edit_hwp', args: { file_path: form, changes: [{ find: '{{발급일}}', replace: '2026년 11월 4일' }], output: 'shared/hwp-filled' }, sayResult: true },
@@ -150,7 +163,8 @@ describe('B turns use C tools', () => {
       { tool: 'make_file', args: {}, sayResult: true },
     ))
     const [ok, hidden, bad] = r.done.content.split(' | ')
-    expect(ok).toContain('/files/view?path=shared%2Fglossary.md')
+    // a file's preview link is its /f/<id> link (TC-3093)
+    expect(ok).toMatch(/\/f\/[A-Za-z0-9_-]{22}/)
     expect(hidden).toMatch(/denied|not found/i)
     expect(bad).toContain('Invalid input')
   })

@@ -42,15 +42,15 @@ test('a grey ring while it runs, then the dot and an ink title; "···" takes i
   await expect(row.getByTestId('marker-new')).toBeVisible({ timeout: 20_000 })
   await expect(row.getByRole('img', { name: '새 답' })).toBeVisible()
   // (an unread name: 600 in ink, one look in every panel since #697, list/List.tsx rowName)
-  await expect(row.getByRole('link').locator('.text-row')).toHaveClass(/font-semibold text-ink/)
-  // one marker in the "···" slot, its right edge 12 px in (the rooms' pills' column)
+  await expect(row.getByRole('link').locator('.text-row-history')).toHaveClass(/font-semibold text-ink/)
+  // one marker at the row's end after the tag, its right edge 12 px in (the rooms' pills' column)
   const marker = row.getByTestId('chat-marker')
   const menu = row.getByRole('button', { name: '기록 메뉴' })
   const [m, r] = [await marker.locator('[role="img"]').boundingBox(), await row.boundingBox()]
   expect(Math.abs(r!.x + r!.width - 12 - (m!.x + m!.width))).toBeLessThan(1)
-  // on hover "···" shows and the marker gives way; the peek's first line is the reason
+  // on hover "···" shows and the marker gives way (as a room's pill); the peek's first line is the reason
   await row.hover()
-  await expect(marker).toHaveCSS('opacity', '0')
+  await expect(marker).toBeHidden()
   await expect(menu).toHaveCSS('opacity', '1')
   await expect(page.getByTestId('chat-peek-reason')).toHaveText('새 답')
   await page.mouse.move(900, 500)
@@ -135,7 +135,7 @@ test('⌘K "Needs attention" shows the sidebar\'s marks and words: "?" for the c
   await expect(row(done)).toHaveCount(0)
 })
 
-test('rooms: "@" over the count; the one count holds DMs and mentions once each, not plain team unread', async ({ page }) => {
+test('rooms: "@" over the count; the one count holds a DM\'s messages and each mention room once, not plain team unread', async ({ page }) => {
   await reset(page)
   await signIn(page)
   const now = new Date().toISOString()
@@ -152,18 +152,22 @@ test('rooms: "@" over the count; the one count holds DMs and mentions once each,
   await showRooms(page)
   const badge = (name: string) => navRoomLinks(page).filter({ hasText: name }).getByTestId('room-unread')
   await expect(badge('Zed Park')).toHaveText(/^3/)
-  await expect(badge('마케팅팀')).toHaveText(/^12/)
+  // a channel at "Mentions only" (its default): 12 plain messages make the row bold, with no number (57c35ca3a,
+  // docs/decisions/20261116-mentions-only-no-count.md)
+  await expect(badge('마케팅팀')).toHaveCount(0)
   await expect(badge('영업팀')).toContainText('@')
   await expect(badge('전체')).toContainText('@')
-  // the one count: the DM and the two mentions (each room once); the team room's 12 only make it bold
+  // the one count: the DM's 3 unread messages (each message counts, as on Slack's and KakaoTalk's icons:
+  // docs/decisions/20261120-push-every-message.md) and the two mention rooms once each; the team room's 12 only make it bold
   await hide(page, true)
-  await expect(page).toHaveTitle(/^\(3\) /)
+  await expect(page).toHaveTitle(/^\(5\) /)
   await hide(page, false)
-  // the phone: the 대화 tab's pill is the rail's number, the conversations with something unread (4, not 18 messages);
+  // the phone: the 대화 tab's pill is the rail's number, the conversations that count (3: the DM and the two mentions,
+  // not 18 messages, and not 마케팅팀's plain ones);
   // the AI's mark is for the AI chats only, and none wants me
   await page.setViewportSize({ width: 390, height: 844 })
   await page.goto('/')
-  await expect(tabMark(page, 'chats')).toContainText('4')
+  await expect(tabMark(page, 'chats')).toContainText('3')
   await expect(phoneAiMark(page)).toHaveCount(0)
 })
 

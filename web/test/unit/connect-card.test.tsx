@@ -15,6 +15,7 @@ import { cardTrust, connectCase, notOfficialOf, connectWithKey, connectWithoutKe
 import { useChats } from '../../src/store/chats'
 import { CHAT } from './fixtures'
 import { installDom, mount, removeDom } from './dom-host'
+import { MOBILE_CAPABILITIES, type MobileConfig } from '../../../mobile/src/protocol'
 
 const KEY = 'hf_live_9a8B7c6D5e4F3g2H1i0J'
 const TURN = uuidv7()
@@ -611,6 +612,30 @@ describe('the card, clicked', () => {
     await m.unmount()
   })
 
+  test('Google Drive in the phone app: the same one line as Settings, no Google sign-in; "Not now" stays (QA TC-2977)', async () => {
+    const g = globalThis as Record<string, unknown>
+    const config: MobileConfig = { protocol: 1, appVersion: '1.0.4', platform: 'android', nonce: 'c'.repeat(64), generation: 1, capabilities: MOBILE_CAPABILITIES }
+    const was = { mycelMobile: g.mycelMobile, ReactNativeWebView: g.ReactNativeWebView }
+    g.mycelMobile = { ...config }
+    g.ReactNativeWebView = { postMessage: () => {} }
+    try {
+      for (const reconnect of [false, true]) {
+        const r = card({ target: 'google_drive', name: 'Google Drive', service: undefined, ...(reconnect ? { reconnect: true } : {}) })
+        open(r)
+        const m = await mount(<ConnectCard request={r} />)
+        expect(m.get('connect-drive-on-computer').textContent).toBe(translate('en', reconnect ? 'integrations.reconnectOnComputer' : 'integrations.onComputer', { name: 'Google Drive' }))
+        expect(m.find('connect-drive')).toBeNull()
+        expect(m.get('connect-card').textContent).not.toContain(translate('en', 'drive.connect'))
+        expect(m.get('connect-card').textContent).not.toContain(translate('en', 'drive.privacy'))
+        expect(m.find('connect-skip')).not.toBeNull()
+        await m.unmount()
+      }
+      expect(said()).toEqual([])
+    } finally {
+      for (const [k, v] of Object.entries(was)) { if (v === undefined) delete g[k]; else g[k] = v }
+    }
+  })
+
   test('Google Drive in the desktop app: no blank window; Google\'s page opens in the system browser once the server answered', async () => {
     const r = card({ target: 'google_drive', name: 'Google Drive', service: undefined })
     open(r)
@@ -632,6 +657,34 @@ describe('the card, clicked', () => {
       await m.unmount()
     } finally {
       delete (globalThis as Record<string, unknown>).mycelDesktop
+      globalThis.open = was
+    }
+  })
+
+  test('Google Drive in the desktop app with a server that sends the one-time address: the system browser opens it first', async () => {
+    const r = card({ target: 'google_drive', name: 'Google Drive', service: undefined })
+    open(r)
+    connects({ state: 'connected' })
+    const google = 'https://accounts.google.com/o/oauth2/v2/auth?client_id=x'
+    const openPath = `/api/integrations/google-drive/go?flow=d3&k=${'T'.repeat(43)}`
+    routes['POST /api/integrations/google-drive/authorize'] = () => json({ flowId: 'd3', authorizationUrl: google, openPath, expiresAt })
+    routes['GET /api/integrations/google-drive/flows/d3'] = () => json({ flowId: 'd3', state: 'pending', account: null, expiresAt, reason: null })
+    const asked: string[] = []
+    const was = globalThis.open, hadLocation = 'location' in globalThis
+    // the team page's own address (the desktop app shows the team at its origin)
+    Object.assign(globalThis, { mycelDesktop: { bridgeVersion: 1 }, open: (url: string) => { asked.push(url); return null } })
+    if (!hadLocation) Object.assign(globalThis, { location: { origin: 'https://acme.trina.app' } })
+    try {
+      const m = await mount(<ConnectCard request={r} />)
+      await m.click('connect-drive')
+      await m.until(() => asked.length > 0, 'the one-time address opened')
+      expect(asked).toEqual([`${globalThis.location.origin}${openPath}`])
+      // the link beside the wait stays the sign-in page
+      expect(m.get('connect-card').innerHTML).toContain(google)
+      await m.unmount()
+    } finally {
+      delete (globalThis as Record<string, unknown>).mycelDesktop
+      if (!hadLocation) delete (globalThis as Record<string, unknown>).location
       globalThis.open = was
     }
   })

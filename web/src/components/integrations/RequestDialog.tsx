@@ -11,7 +11,7 @@
 import clsx from 'clsx'
 import { Globe, Link2, RotateCcw, Undo2, Waypoints } from 'lucide-react'
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
-import { INTEGRATION_REQUEST_DAYS, type IntegrationKind, type IntegrationRequest, type User } from '@mycel/shared/api'
+import { INTEGRATION_REQUEST_DAYS, type RemoteIntegrationKind as IntegrationKind, type IntegrationRequest, type User } from '@mycel/shared/api'
 import { api, API, errorText } from '../../lib/api'
 import { connectorFor } from '../../lib/connectors'
 import { formatDateTime } from '../../lib/format'
@@ -134,6 +134,10 @@ export function requestFormOf(r: IntegrationRequest): RequestForm {
   }
 }
 
+/** Who can be asked: active people, by name. Never a guest: a guest never opens Settings › Connectors, so a request
+ * would wait on nobody (the server refuses it too; QA TC-2948). */
+export const askablePeople = (users: User[]): User[] => users.filter((u) => u.status === 'active' && u.role !== 'guest').sort((a, b) => a.name.localeCompare(b.name))
+
 /** Fill in the service and pick the member (`initial`: a request asked again). Sent: the popup closes with a short
  * note, and the request is a row on the page (its link is copied from there). */
 export function RequestDialog({ users, initial, onClose, onSent }: { users: User[]; initial?: RequestForm; onClose: () => void; onSent: (r: IntegrationRequest) => void }) {
@@ -146,7 +150,7 @@ export function RequestDialog({ users, initial, onClose, onSent }: { users: User
   const [busy, setBusy] = useState(false)
   const body = useRef<HTMLDivElement>(null)
   const errors = validateRequest(f)
-  const people = useMemo(() => users.filter((u) => u.status === 'active').sort((a, b) => a.name.localeCompare(b.name)), [users])
+  const people = useMemo(() => askablePeople(users), [users])
   const noneTaken = useMemo(() => new Set<string>(), [])
   const chosen = users.find((u) => u.id === f.userId)
   const faceOf = useFaceOf()

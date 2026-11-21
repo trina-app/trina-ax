@@ -9,6 +9,7 @@ import { linkBase } from '../auth/accounts'
 import { integrationsOf, MAX_PERSONAL, type CallbackResult, type FlowFailure } from '../integrations/connections/service'
 import { requestsOf } from '../integrations/connections/requests'
 import { templatesOf } from '../integrations/connections/templates'
+import { githubAppView } from '../integrations/github/app'
 import { afterTeamConnection } from '../integrations/service-requests'
 import { templatesSeen } from '../onboarding/member-welcome'
 import type { AuthInfo } from '../services'
@@ -20,10 +21,17 @@ const CLOSE = 'window.close()'
 const CLOSE_HASH = 'sha256-' + crypto.createHash('sha256').update(CLOSE).digest('base64')
 const esc = (s: string) => s.replace(/[&<>"']/g, (ch) => `&#${ch.charCodeAt(0)};`)
 const viewer = (auth: AuthInfo) => ({ id: auth.user.id, role: auth.user.role })
+/** the desktop window a request came from (its x-mycel-window, from a desktop session only): where an app on the
+ * person's computer is checked (integrations/connections/local.ts); null from the web or the phone app */
+const desktopWindow = (c: AppContextC, auth: AuthInfo): { windowId: string; turnId: null } | null => {
+  const w = c.req.header('x-mycel-window') ?? ''
+  return auth.session.client === 'desktop' && /^[A-Za-z0-9_-]{8,64}$/.test(w) ? { windowId: w, turnId: null } : null
+}
 /** a sign-in the service did not finish, in words (never a code, never the service's answer); one that never started
  * here (no session in this browser, a used link) says to sign in to the team account */
 const FAILED_TEXT: Record<FlowFailure, TextKey> = {
   client: 'callbackClient', client_template: 'callbackClientTemplate', limit: 'callbackLimit', denied: 'callbackDenied', changed: 'callbackChanged', exchange: 'callbackExchange', invalid: 'callbackExchange', superseded: 'callbackChanged', cancelled: 'callbackCancelled',
+  expired: 'callbackExpired',
 }
 
 export function registerIntegrationRoutes(kit: RouteKit, ctx: AppContext) {
@@ -35,11 +43,16 @@ export function registerIntegrationRoutes(kit: RouteKit, ctx: AppContext) {
   kit.handle(API.deleteIntegration, async ({ auth, params }) => { await svc().remove(viewer(auth), params.id) })
   kit.handle(API.setIntegrationTool, ({ c, auth, params, body }) => svc().setTool(viewer(auth), params.id, body.name, body.enabled, c.get('locale')))
   kit.handle(API.stopAlwaysAllow, ({ c, auth, params }) => svc().stopAlwaysAllow(viewer(auth), params.id, c.get('locale')))
-  kit.handle(API.refreshIntegration, ({ c, auth, params }) => svc().refresh(viewer(auth), params.id, c.get('locale')))
-  kit.handle(API.authorizeIntegration, ({ c, auth, params }) => svc().authorize(viewer(auth), auth.session.id, params.id, linkBase(c, ctx), c.get('locale')))
+  kit.handle(API.refreshIntegration, ({ c, auth, params }) => svc().refresh(viewer(auth), params.id, c.get('locale'), desktopWindow(c, auth)))
+  kit.handle(API.createLocalIntegration, ({ c, auth, body }) => svc().createLocal(viewer(auth), body, c.get('locale'), desktopWindow(c, auth)))
+  kit.handle(API.updateLocalIntegration, ({ c, auth, params, body }) => svc().updateLocal(viewer(auth), params.id, body.spec, c.get('locale'), desktopWindow(c, auth)))
+  // the desktop app's return port counts only from a desktop session (what the app said at sign-in, as for its browser
+  // tools); from any other session it is dropped, whatever the body says
+  kit.handle(API.authorizeIntegration, ({ c, auth, params, body }) => svc().authorize(viewer(auth), auth.session.id, params.id, linkBase(c, ctx), c.get('locale'),
+    { client: auth.session.client, loopbackPort: auth.session.client === 'desktop' ? body.loopbackPort ?? null : null }))
   kit.handle(API.integrationFlow, ({ auth, params }) => svc().flow(auth.user.id, auth.session.id, params.id))
   kit.handle(API.cancelIntegrationFlow, ({ auth, params }) => { svc().cancelFlow(auth.user.id, auth.session.id, params.id) })
-  kit.handle(API.listTeamIntegrations, ({ c, auth }) => ({ items: svc().listTeam(viewer(auth), c.get('locale')) }))
+  kit.handle(API.listTeamIntegrations, ({ c, auth }) => ({ items: svc().listTeam(viewer(auth), c.get('locale')), github: githubAppView(ctx) }))
   kit.handle(API.createTeamIntegration, async ({ c, auth, body }) => { const i = await svc().create(viewer(auth), body, 'team', c.get('locale')); afterTeamConnection(ctx, i.url); return i })
   // an admin asks a member to connect a service as their own connection (integrations/connections/requests.ts)
   const reqs = () => requestsOf(ctx)

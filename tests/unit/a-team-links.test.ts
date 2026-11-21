@@ -1,6 +1,7 @@
 // Onboarding stream E: the team invite link (server/src/auth/team-links.ts, shared/src/api/team-links.ts). Create,
 // re-show, replace and revoke; members only; uses, seats and expiry; the per-link rate limit; the token only in the
-// #fragment and only sealed at rest; the skill deep link checked against the new member's access; the owners' inbox.
+// #fragment and only sealed at rest; the link's skill checked against the new member's access (they land on Home all
+// the same: docs/DECISIONS.md "A new member lands on Home"); the owners' inbox.
 import { afterAll, afterEach, beforeAll, describe, expect, test } from 'bun:test'
 import crypto from 'node:crypto'
 import fs from 'node:fs'
@@ -8,7 +9,6 @@ import path from 'node:path'
 import { Plan, setPlanForTests } from '../../server/src/system/limits'
 import { DEFAULT_LIMITS } from '../../server/src/auth/rate-limit'
 import { addMember, harness, withOwner, type Client, type Harness } from './a-lib'
-import { joinNext } from '../../web/src/lib/team-link'
 import { profilePrefill } from '@mycel/shared/api'
 
 const PW = 'tulip meadow 2026'
@@ -373,8 +373,8 @@ describe('seats', () => {
   })
 })
 
-describe('skill deep link', () => {
-  test('a readable team skill: the new member lands on its form; a skill new members cannot read is refused', async () => {
+describe('the link\'s skill', () => {
+  test('a readable team skill: the new member still lands on Home; a skill new members cannot read is refused', async () => {
     setPlanForTests(null)
     writeSkill(h, 'skills/marketing/ad-copy/SKILL.md', 'ad-copy')
     const { link } = await owner.call('POST', '/api/admin/team-link', { skillPath: 'skills/marketing/ad-copy/SKILL.md' })
@@ -383,23 +383,24 @@ describe('skill deep link', () => {
     expect((await info(tokenOf(link.url))).body).toMatchObject({ skillName: 'ad-copy', skillTitle: 'ad-copy' })
     const r = await join(tokenOf(link.url))
     expect(r.status).toBe(201)
-    expect(r.body.next).toBe(`/skills?run=${encodeURIComponent('skills/marketing/ad-copy/SKILL.md')}`)
+    expect(r.body.next).toBeNull()
+    expect(r.body).not.toHaveProperty('skillBy')
     // not a skill, someone's personal skill, a missing file: refused
     for (const p of ['shared/x.md', `users/${adminId}/skills/mine/SKILL.md`, 'skills/nope/SKILL.md', '../etc/passwd']) {
       expect((await owner.try('POST', '/api/admin/team-link', { skillPath: p })).status).toBe(400)
     }
   })
 
-  test('a skill with a title: the card and the join page name it by its title, the deep link still by its path', async () => {
+  test('a skill with a title: the card and the join page\'s details name it by its title; the join goes Home', async () => {
     setPlanForTests(null)
     writeSkill(h, 'skills/marketing/ad-copy/SKILL.md', 'ad-copy', '광고 문구')
     const { link } = await owner.call('POST', '/api/admin/team-link', { skillPath: 'skills/marketing/ad-copy/SKILL.md' })
     expect(link.skill).toEqual({ path: 'skills/marketing/ad-copy/SKILL.md', name: 'ad-copy', title: '광고 문구' })
     expect((await info(tokenOf(link.url))).body).toMatchObject({ skillName: 'ad-copy', skillTitle: '광고 문구' })
-    expect((await join(tokenOf(link.url))).body.next).toBe(`/skills?run=${encodeURIComponent('skills/marketing/ad-copy/SKILL.md')}`)
+    expect((await join(tokenOf(link.url))).body.next).toBeNull()
   })
 
-  test('the folder rules decide: a group-only skill needs that group on the link, and a lost right drops the deep link', async () => {
+  test('the folder rules decide: a group-only skill needs that group on the link, and a lost right takes it off the join details', async () => {
     const g = await owner.call('POST', '/api/admin/groups', { name: 'Sales' })
     const folder = await owner.call('POST', '/api/admin/folders', { path: 'skills/sales', limited: true, rules: [{ subjectType: 'group', subjectId: g.id, access: 'read' }] })
     writeSkill(h, 'skills/sales/pitch/SKILL.md', 'pitch')
@@ -417,7 +418,7 @@ describe('skill deep link', () => {
     expect((await owner.call('GET', '/api/admin/team-link')).link.skill).toEqual({ path: 'skills/sales/pitch/SKILL.md', name: 'pitch', title: 'pitch' })
   })
 
-  test('a skill of a recommended pack (onboarding C): the new member lands on its form, and their own list carries it with its fields', async () => {
+  test('a skill of a recommended pack (onboarding C): the new member lands on Home, and their own list carries it with its fields', async () => {
     setPlanForTests(null)
     expect((await owner.try('POST', '/api/onboarding/packs/work/install')).status).toBe(200)
     expect((await owner.try('PUT', '/api/onboarding/profile', { website: 'https://www.acme.example/', oneLine: '', products: 'Paper planners', audience: 'Small offices', tone: ['friendly'], avoid: '', sources: [] })).status).toBe(200)
@@ -426,10 +427,9 @@ describe('skill deep link', () => {
     const c = h.client({ ip: '10.9.1.1' })
     const r = await join(tokenOf(link.url), { tokenMode: 'cookie' }, c)
     expect(r.status).toBe(201)
-    // the address the join page goes to (web/src/lib/team-link.ts joinNext keeps exactly this one)
-    const next = joinNext(r.body.next)
-    expect(next).toBe(`/skills?run=${encodeURIComponent(skillPath)}`)
-    const run = new URL(next, 'http://x').searchParams.get('run')
+    expect(r.body.next).toBeNull()
+    // the skill as Team skills opens it for that member (/skills?run=<path>)
+    const run = skillPath
     // what the Skills page's form reads as that member: the skill by that path, with its fields, the only one of its
     // name (so "/humanizer" runs it), and the company profile for the fields that ask for it
     const items = (await c.call('GET', '/api/skills')).items as { path: string; name: string; inputs?: { name: string; prefill?: string }[] }[]

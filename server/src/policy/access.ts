@@ -5,6 +5,7 @@
 // projects/<name> (the project exception). The rules from before (deepest folder decides, person > group > role >
 // everyone) were converted once (policy/convert-additive.ts; the old resolver is kept in policy/legacy-deepest.ts).
 import type { Database } from 'bun:sqlite'
+import { AsyncLocalStorage } from 'node:async_hooks'
 import { PRODUCT } from '@mycel/shared'
 
 export type Access = 'none' | 'read' | 'write'
@@ -48,6 +49,19 @@ const guestSubject = (p: Principal): Principal => ({ id: p.id, name: p.name, rol
 /** users.guest = 1 (migration 122); none on a database from before it. */
 function guestIds(db: Database): string[] {
   try { return (db.query('SELECT id FROM users WHERE guest = 1').all() as { id: string }[]).map((r) => r.id) } catch { return [] }
+}
+/** Each guest's one project folder (guests.project_id, migration 126; a row only an older build wrote names it in
+ * place_kind/place_id), while that project is live; null = none. Inside projects/ a guest reads that one project only,
+ * whatever rule names them elsewhere (a folder moved or brought back from the trash with their rule on it): docs/
+ * DECISIONS.md "Guests: one group chat and one project". Read failing: an empty map, so no guest reads any project
+ * (fail closed). */
+function guestProjects(db: Database): Map<string, string | null> {
+  try {
+    const rows = db.query(`SELECT u.id, p.folder_path FROM users u LEFT JOIN guests g ON g.user_id = u.id
+      LEFT JOIN projects p ON p.trashed_with IS NULL AND p.id = COALESCE(g.project_id, CASE WHEN g.room_id IS NULL AND g.place_kind = 'project' THEN g.place_id END)
+      WHERE u.guest = 1`).all() as { id: string; folder_path: string | null }[]
+    return new Map(rows.map((r) => [r.id, r.folder_path]))
+  } catch { return new Map() }
 }
 export type SubjectType = 'everyone' | 'role' | 'group' | 'user'
 
@@ -99,6 +113,38 @@ export interface Explained { access: Access; reason: AccessReason }
 /** Where decide() leaves why it answered. access() passes none, so the hot path allocates nothing for it. */
 interface Why { kind: AccessReasonKind; folderLen: number; cutLen: number; rules: readonly Rule[] | null; best: number; who?: Principal }
 
+/**
+ * Folders that do not exist for one person while a call runs (docs/decisions/20261118-shared-hide-subfolder-names.md,
+ * QA TC-4945): in a shared project chat, every sub-folder of the project folder that not everyone who sees the chat may
+ * open. access() is "none" at and below them for that person, whatever the rules give, so every tool answers there
+ * exactly as for a name that is not there (authorize: the same refusal), lists and searches leave them out, and the
+ * read card is never about them. Set for one tool call by mcp/protocol.ts (withHiddenFolders); other people's access
+ * is unchanged. Names compare after NFC and lower case (fails closed on a case-sensitive disk: a look-alike hides too).
+ */
+export interface HiddenFolders { userId: string; folders: readonly string[] }
+const hiddenScope = new AsyncLocalStorage<{ userId: string; keys: readonly string[] } | null>()
+const hiddenKey = (p: string) => p.normalize('NFC').toLowerCase()
+/** Run `fn` with `scope`'s folders hidden from its person (null: nothing hidden, also inside an outer scope). */
+export function withHiddenFolders<T>(scope: HiddenFolders | null, fn: () => T): T {
+  return hiddenScope.run(scope && scope.folders.length ? { userId: scope.userId, keys: scope.folders.map(hiddenKey) } : null, fn)
+}
+/** Is `segs` at or below a folder hidden from `p` in the running call? */
+export function hiddenNow(p: Pick<Principal, 'id'>, segs: readonly string[]): boolean {
+  const h = hiddenScope.getStore()
+  if (!h || h.userId !== p.id || !segs.length) return false
+  const k = hiddenKey(segs.join('/'))
+  return h.keys.some((f) => k === f || k.startsWith(f + '/'))
+}
+
+/** Does the folder `segs` directly hold a folder hidden from `p` in the running call? A new entry there is refused
+ * with one text (policy/authorize.ts LOCKED_TOP), so a write cannot tell a hidden name from a free one. */
+export function holdsHiddenNow(p: Pick<Principal, 'id'>, segs: readonly string[]): boolean {
+  const h = hiddenScope.getStore()
+  if (!h || h.userId !== p.id) return false
+  const k = hiddenKey(segs.join('/'))
+  return h.keys.some((f) => { const i = f.lastIndexOf('/'); return (i < 0 ? '' : f.slice(0, i)) === k })
+}
+
 export function loadPrincipal(db: Database, userId: string): Principal | null {
   // the role as the API knows it: a guest is stored as role 'member' with users.guest = 1 (migration 122_a_guests.sql)
   const u = db.query("SELECT id, name, CASE WHEN guest = 1 THEN 'guest' ELSE role END AS role, status FROM users WHERE id = ?").get(userId) as any
@@ -111,7 +157,12 @@ export function loadPrincipal(db: Database, userId: string): Principal | null {
 export interface RuleRow { path: string; subject_type: SubjectType; subject_id: string | null; access: Access; origin?: string | null }
 /** Everything access depends on: the rule rows, the limited folders (by path) and the guests' ids (docs/DECISIONS.md
  * "Guests: only what they were invited to": for them only person rules inside projects/<name> count). */
-export interface RuleWorld { rows: readonly RuleRow[]; limited: Iterable<string>; guests?: Iterable<string> }
+export interface RuleWorld {
+  rows: readonly RuleRow[]; limited: Iterable<string>; guests?: Iterable<string>
+  /** each guest's one project folder (null: none); given (the server's fromDb always gives it), a guest reads inside
+   * projects/ only in that folder. Left out (tests, the web mock), only the rules decide. */
+  guestProjects?: ReadonlyMap<string, string | null>
+}
 /** A rule as the API and the database have it (FolderRuleInput, DecidingRule). */
 export interface RuleLike { subjectType: string; subjectId: string | null; access: string; origin?: string | null }
 
@@ -148,6 +199,8 @@ export class RuleSet {
   /** the guests' user ids (users.guest = 1): judged by person rules inside projects/<name> only, whatever role a
    * Principal built anywhere says (the role is checked too: either one makes a guest) */
   private guests: Set<string>
+  /** guest id -> their one project's folder (null: none); undefined when the set was built without it */
+  private guestProjects: ReadonlyMap<string, string | null> | undefined
   /** projects/<name> -> the people its project exception rows name */
   private exceptions = new Map<string, Set<string>>()
   /** set when the set was built from a database without the conversion marker: no rule applies */
@@ -157,6 +210,7 @@ export class RuleSet {
     this.failedClosed = failedClosed
     this.limited = new Set(w.limited)
     this.guests = new Set(w.guests ?? [])
+    this.guestProjects = w.guestProjects ? new Map(w.guestProjects) : undefined
     for (const r of w.rows) {
       const list = this.byPath.get(r.path) ?? []
       list.push({ subject_type: r.subject_type, subject_id: r.subject_id, access: r.access, origin: r.origin ?? null })
@@ -183,7 +237,7 @@ export class RuleSet {
     try { model = (db.query('SELECT value FROM settings WHERE key = ?').get(FOLDER_ACCESS_MODEL_KEY) as { value: string } | null)?.value ?? null } catch { model = null }
     if (model !== FOLDER_ACCESS_MODEL) {
       if (!failClosedLogged) { failClosedLogged = true; console.error(`folder access: the database has no "${FOLDER_ACCESS_MODEL_KEY}" marker; every folder rule is ignored (fail closed)`) }
-      return new RuleSet({ rows: [], limited: [], guests: guestIds(db) }, true)
+      return new RuleSet({ rows: [], limited: [], guests: guestIds(db), guestProjects: guestProjects(db) }, true)
     }
     const map = o.mapPath
     const folders = db.query('SELECT id, path, limited FROM folders').all() as { id: string; path: string; limited: number }[]
@@ -201,16 +255,16 @@ export class RuleSet {
       if (p === undefined) continue
       rows.push({ path: p, subject_type: r.subject_type, subject_id: r.subject_id, access: r.access, origin: r.origin })
     }
-    return new RuleSet({ rows, limited, guests: guestIds(db) })
+    return new RuleSet({ rows, limited, guests: guestIds(db), guestProjects: guestProjects(db) })
   }
   /** = fromDb(db) */
   static load(db: Database): RuleSet { return RuleSet.fromDb(db) }
 
   /** Everything this set holds, as fromWorld takes it. */
-  world(): { rows: RuleRow[]; limited: string[]; guests: string[] } {
+  world(): { rows: RuleRow[]; limited: string[]; guests: string[]; guestProjects?: Map<string, string | null> } {
     const rows: RuleRow[] = []
     for (const [path, list] of this.byPath) for (const r of list) rows.push({ path, subject_type: r.subject_type, subject_id: r.subject_id, access: r.access, origin: r.origin })
-    return { rows, limited: [...this.limited], guests: [...this.guests] }
+    return { rows, limited: [...this.limited], guests: [...this.guests], ...(this.guestProjects ? { guestProjects: new Map(this.guestProjects) } : {}) }
   }
 
   /** The folders where access can change: those that carry a rule row, and the limited ones ('' = the team root). */
@@ -258,7 +312,7 @@ export class RuleSet {
     const lim = new Set(w.limited)
     if (limited) lim.add(folder)
     else lim.delete(folder)
-    return new RuleSet({ rows, limited: lim, guests: w.guests })
+    return new RuleSet({ rows, limited: lim, guests: w.guests, guestProjects: w.guestProjects })
   }
   /** This set with a project exception for `userId` on projects/<name> (`folder`), as setProjectException stores it:
    * their own rule there becomes "no access". */
@@ -267,14 +321,15 @@ export class RuleSet {
     const w = this.world()
     const rows = w.rows.filter((r) => !(r.path === folder && r.subject_type === 'user' && r.subject_id === userId))
     rows.push({ path: folder, subject_type: 'user', subject_id: userId, access: 'none' })
-    return new RuleSet({ rows, limited: w.limited, guests: w.guests })
+    return new RuleSet({ rows, limited: w.limited, guests: w.guests, guestProjects: w.guestProjects })
   }
   /** This set after `from` moves to `to`: the rows and limits at or below it go with it (team-files relocate moves the
    * folders rows), everything else stays. */
   relocated(from: string, to: string): RuleSet {
     const move = (p: string) => (p === from ? to : from === '' || p.startsWith(from + '/') ? to + p.slice(from.length) : p)
     const w = this.world()
-    return new RuleSet({ rows: w.rows.map((r) => ({ ...r, path: move(r.path) })), limited: w.limited.map(move), guests: w.guests })
+    const gp = w.guestProjects ? new Map([...w.guestProjects].map(([id, f]) => [id, f === null ? null : move(f)] as const)) : undefined
+    return new RuleSet({ rows: w.rows.map((r) => ({ ...r, path: move(r.path) })), limited: w.limited.map(move), guests: w.guests, guestProjects: gp })
   }
   /** The rules as if a trashed folder were back: its parked rows (under `storage`) at `original`, and none of a folder
    * that took that path since (as chat/shared.ts rulesInPlace builds them from the database). */
@@ -285,7 +340,8 @@ export class RuleSet {
     for (const r of w.rows) { const p = map(r.path); if (p !== null) rows.push({ ...r, path: p }) }
     const limited: string[] = []
     for (const f of w.limited) { const p = map(f); if (p !== null) limited.push(p) }
-    return new RuleSet({ rows, limited, guests: w.guests })
+    // (a guest's project is a live one: none of them is the trashed folder put back here)
+    return new RuleSet({ rows, limited, guests: w.guests, guestProjects: w.guestProjects })
   }
 
   access(p: Principal, segs: readonly string[]): Access { return this.decide(p, segs, null) }
@@ -306,6 +362,16 @@ export class RuleSet {
     return { access, reason: { kind: 'rule', folder: segs.slice(0, why.folderLen).join('/'), tier, rules } }
   }
 
+  /** `segs` is inside the guest's one project folder (projects/<name> and below). */
+  private inOwnProject(id: string, segs: readonly string[]): boolean {
+    const own = this.guestProjects?.get(id)
+    if (!own) return false
+    const o = own.split('/')
+    if (segs.length < o.length) return false
+    for (let i = 0; i < o.length; i++) if (segs[i] !== o[i]) return false
+    return true
+  }
+
   /** A guest by id (users.guest = 1 when the set was loaded) or by role. */
   isGuest(p: Pick<Principal, 'id' | 'role'>): boolean { return p.role === 'guest' || this.guests.has(p.id) }
 
@@ -318,6 +384,8 @@ export class RuleSet {
   /** THE resolution. Both access() and explain() come from here, so the answer and its reason never drift apart. */
   private decide(p: Principal, segs: readonly string[], why: Why | null): Access {
     if (segs.length && segs[0] === PRODUCT.systemDir) { if (why) why.kind = 'system'; return 'none' }
+    // a shared project chat's sub-folder not everyone in it may open: not there for the person in this call
+    if (hiddenNow(p, segs)) { if (why) why.kind = 'no-rule'; return 'none' }
     for (let i = 0; i < segs.length; i++) if (segs[i]!.startsWith(PRODUCT.tmpPrefix)) { if (why) why.kind = 'temp'; return 'none' }
     // users/<id>/ (tab 2 rules 2-3): the person's own folder is always write; anyone else's is none for every role,
     // owner and admin included, and rules there are ignored (the admin API refuses them; a moved folder or a
@@ -336,6 +404,8 @@ export class RuleSet {
     // projects/<name> itself (docs/DECISIONS.md "Guests: only what they were invited to")
     if (this.isGuest(p)) {
       if (!inProjectZone(segs)) { if (why) why.kind = 'no-rule'; return 'none' }
+      // and inside it their one project only (guests.project_id), whatever rule names them in another
+      if (this.guestProjects && !this.inOwnProject(p.id, segs)) { if (why) why.kind = 'no-rule'; return 'none' }
       if (segs.length > ZONE_FLOOR && !atLeast(this.decide(p, segs.slice(0, ZONE_FLOOR), null), 'read')) {
         if (why) this.decide(p, segs.slice(0, ZONE_FLOOR), why)
         return 'none'
@@ -385,6 +455,7 @@ export class RuleSet {
   /** true when something strictly below `segs` is readable (so the folder may be listed for navigation) */
   hasVisibleDescendant(p: Principal, segs: readonly string[]): boolean {
     if (segs.length && segs[0] === PRODUCT.systemDir) return false
+    if (hiddenNow(p, segs)) return false
     if (segs[0] === 'users') {
       if (segs.length === 1) return true // own personal folder below
       return segs[1] === p.id

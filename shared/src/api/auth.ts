@@ -5,7 +5,7 @@ import { ClientKind, DEFAULT_LOCALE, GuestDetail, EngineId, IsoTime, Locale, Ok,
 import { endpoint, empty } from './endpoint'
 import { TEAM_ICON_VERSION_RE } from '../team-icon'
 import { NAME_FORBIDDEN, NAME_FORBIDDEN_FIELD } from '../name-chars'
-import { Session, UserPrefs, UserRef } from './entities'
+import { ListFolds, Session, UserPrefs, UserRef } from './entities'
 import { MyStatus } from './status-message'
 
 export const Username = z.string().min(2).max(64).regex(/^[A-Za-z0-9._@-]+$/, 'letters, digits, ".", "_", "@", "-"')
@@ -63,12 +63,26 @@ export const Me = z.object({
     /** voice input goes to an outside service (OpenRouter): a confidential chat's composer says it is not used there
      * (the server refuses it either way). Absent: on this server, off, or an older server. */
     voiceInputOutside: z.literal(true).optional(),
+    /** voice input recordings go up as 16 kHz WAV: the server decodes with macOS's own programs (an Apple silicon Mac
+     * without ffmpeg), which do not open the webm/opus browsers record. Absent: the browser's own recording. */
+    voiceInputWav: z.literal(true).optional(),
     /** days a deleted chat stays in the chat trash, and days a deleted account's chats and memories stay (Admin > Team
      * settings chatTrashRetentionDays; the purge uses the current value). Absent (older server) = the default, 7. */
     chatTrashRetentionDays: z.number().int().min(1).max(365).optional(),
+    /** days a deleted file, folder or team project stays in Files > Trash (Admin > Team settings trashRetentionDays; the
+     * purge uses the value each item was given). Absent (older server): the screens do not name a number. */
+    trashRetentionDays: z.number().int().min(1).max(365).optional(),
     /** who may make team projects (Admin > Team settings projectCreators): a member sees "팀 프로젝트" only with
      * 'members'. Absent (older server) = admins only. */
     projectCreators: z.enum(['members', 'admins']).optional(),
+    /** a guest only: the largest file they may upload anywhere, in bytes (the team's guestFileMax). Absent (a member,
+     * or an older server): each kind of upload's own limit. The server checks it either way. */
+    uploadMaxBytes: z.number().int().positive().optional(),
+    /** an admin turned off "Always allow" for the team (Admin > Team settings roomAlwaysAllow): a member's own Always allow
+     * on a team connection is ignored, and an Always allow or a team connection set to run without asking asks again in
+     * a chat that read something from outside (server/src/integrations/connections/tools.ts gate). The connector pages
+     * say so. Absent: on (the default), or an older server. */
+    alwaysAllowOff: z.literal(true).optional(),
     /** the team's address for its members, an origin (https://acme.trina.app): what a new device puts in the app
      * (Settings › 앱 "팀 주소"). The relay address when the server is on a relay, else the public address it knows,
      * else for a server not on a relay the address it is reached at, with its port, http included
@@ -117,6 +131,9 @@ export const Me = z.object({
      * 'folder' = a self-installed server without a feed (the owner copies the release's files in). Absent: an office Mac
      * (teamax desktop add), dev, a hosted tenant without a feed, or an older server. */
     windowsApp: z.enum(['feed', 'folder']).optional(),
+    /** Always true: folder sharing is always on (owner 2026-11-17). Kept only for web and app builds from before, which
+     * show folder sharing only when it is true; current clients do not read it. */
+    folderShares: z.literal(true).optional(),
   }),
   /** last password reset by an admin / owner recovery: settings shows "last reset: who, when" (tab 5). by null = owner recovery on the server Mac */
   passwordReset: z.object({ by: UserRef.nullable(), at: IsoTime }).nullable().optional(),
@@ -187,6 +204,10 @@ export const SetupStatus = z.object({
   teamName: z.string().nullable(),
   /** the team's default language: what the sign-in, invite and reset pages show until the visitor picks one */
   defaultLocale: Locale.optional(),
+  /** a hosted team only: the hosting console's fixed owner-recovery page (`<console origin>/recover`, the same for every
+   * team: never this team's host, slug or id). The sign-in page links the owner there with `?team=<its own host>`.
+   * null (or left out by an older server): no such page; the sign-in page keeps the plain "ask an admin" line. */
+  ownerRecoveryUrl: z.string().url().refine((u) => u.startsWith('https://'), 'https only').nullable().optional(),
 })
 export const SetupBody = z.object({
   /** one-time token written by the installer / printed by the dev server; proves local access to the Mac */
@@ -198,6 +219,10 @@ export const SetupBody = z.object({
    * server's default (MYCEL_TEAM_TZ, else its own zone, else UTC) */
   timeZone: z.string().min(1).max(64).optional(),
   owner: z.object({ username: Username, name: PersonName, password: Password, email: z.email().optional() }),
+  /** the company website the setup link carried (#site=…): kept with the welcome steps' progress, so the company profile
+   * step starts from it on any device, the desktop app too. Not an http(s) address, or too long: dropped, never an
+   * error (a setup never fails over it) */
+  site: z.string().max(300).optional().catch(undefined),
 })
 
 /** One-time reset link (admin-issued, 24 h; or owner recovery from the server Mac). Web page: /reset-password/<token>. */
@@ -215,6 +240,19 @@ export const CompletePasswordResetBody = z.object({
   tokenMode: z.enum(['cookie', 'bearer']).default('cookie'),
 })
 
+/** A one-time code that signs the desktop app in as the person who asked for it in their browser ("Continue in the Mac
+ * app", web /open-app; server/src/auth/app-signin.ts). The browser opens `<scheme>://open?url=<team>/app-signin#c=<code>`;
+ * the app's page redeems it. 32 random bytes (base64url, 43 characters), 3 minutes, one use, one live code per person. */
+export const AppSignInCode = z.object({ code: z.string(), expiresAt: IsoTime })
+export type AppSignInCode = z.infer<typeof AppSignInCode>
+/** The body of the redeem, shaped like the sign-in's. Cookie only: the desktop app keeps its session in a cookie; and
+ * always a desktop session (a code lifted off the link makes no session that passes for a browser or a phone). */
+export const RedeemAppSignInBody = z.object({
+  code: z.string().min(1).max(200),
+  client: z.literal('desktop').default('desktop'),
+  tokenMode: z.enum(['cookie']).default('cookie'),
+})
+
 export const UpdateMeBody = z.object({
   name: PersonName.optional(),
   /** a language, or null = follow the team default */
@@ -222,7 +260,7 @@ export const UpdateMeBody = z.object({
   email: z.email().nullable().optional(),
   /** engine / model null = back to the team default ("내 기본 엔진/모델"); ignored for people who may not pick */
   /** `away` is not set here (PUT /api/me/away tells the team at once); one sent is dropped */
-  prefs: UserPrefs.omit({ away: true }).extend({ textSize: TextSize.optional(), engine: EngineId.nullable().optional(), model: z.string().max(100).nullable().optional() }).optional(),
+  prefs: UserPrefs.omit({ away: true }).extend({ textSize: TextSize.optional(), engine: EngineId.nullable().optional(), model: z.string().max(100).nullable().optional(), listFolds: ListFolds.nullable().optional(), mentionAllAsk: z.literal('off').nullable().optional(), goalCard: z.literal('hidden').nullable().optional(), preparedCard: z.literal('hidden').nullable().optional() }).optional(),
 })
 
 /** PUT /api/me/web-access: my "Allow all websites" for the AI's web reads. Turning it on needs the version of the risk
@@ -236,7 +274,7 @@ export type MyWebAccess = z.infer<typeof MyWebAccess>
  * team's limit shows only how full it is, not who used it. */
 const MyUsagePeriod = z.enum(['day', 'week', 'month'])
 export const MyUsageQuery = z.object({ period: MyUsagePeriod.default('month') })
-const MyUsageAmount = z.object({ turns: z.number().int(), inputTokens: z.number().int(), outputTokens: z.number().int(), costUsd: z.number(), unpricedTurns: z.number().int().optional() })
+const MyUsageAmount = z.object({ turns: z.number().int(), inputTokens: z.number().int(), outputTokens: z.number().int(), costUsd: z.number(), unpricedTurns: z.number().int().optional(), estimatedTurns: z.number().int().optional() })
 /** one engine and model the person's answers used (model null = the engine's default) */
 export const MyUsageRow = MyUsageAmount.extend({ key: z.string(), engine: z.string(), model: z.string().nullable() })
 export const MyUsageLimit = z.object({
@@ -278,6 +316,10 @@ export const AUTH = {
   inviteInfo: endpoint({ method: 'GET', path: '/api/invites/:token', auth: 'public', owner: 'A', response: InviteInfo, summary: 'What an invite link is for (team name, role, still valid?).' }),
   passwordResetInfo: endpoint({ method: 'GET', path: '/api/password-resets/:token', auth: 'public', owner: 'A', response: PasswordResetInfo, summary: 'What a password reset link is for (whose account, still valid?).' }),
   completePasswordReset: endpoint({ method: 'POST', path: '/api/password-resets/:token', auth: 'public', owner: 'A', body: CompletePasswordResetBody, response: LoginResponse, summary: 'Set a new password with a one-time reset link; ends every other session and signs in.' }),
+  // "Continue in the Mac app" after setup (web /open-app): the browser's cookie session makes a one-time code, the
+  // desktop app's /app-signin page spends it (server/src/auth/app-signin.ts). Never a GET: the code is a sign-in
+  appSignIn: endpoint({ method: 'POST', path: '/api/auth/app-signin', auth: 'user', owner: 'A', response: AppSignInCode, summary: 'Make a one-time code (3 minutes) that signs the desktop app in as me. Cookie sessions only; rate-limited; my earlier codes stop working.' }),
+  redeemAppSignIn: endpoint({ method: 'POST', path: '/api/auth/app-signin/redeem', auth: 'public', owner: 'A', body: RedeemAppSignInBody, response: LoginResponse, summary: 'Sign in with a one-time code from appSignIn (once, within 3 minutes). Sets the session cookie.' }),
   acceptInvite: endpoint({ method: 'POST', path: '/api/invites/:token/accept', auth: 'public', owner: 'A', status: 201, body: AcceptInviteBody, response: LoginResponse, summary: 'Create the account from an invite link and sign in.' }),
 } as const
 

@@ -125,6 +125,16 @@ test('grouped by day, repeats folded into one row that opens, and each row has i
   await expect(run.getByTestId('activity-times-list').locator('li')).toHaveCount(5)
   await expect(run.getByTestId('activity-detail')).toContainText('Bob (bob)')
 
+  // two quick edits of one connection that changed different things: two rows, each with its own details (QA TC-2953)
+  const edits = rows(page).filter({ has: page.locator('[title="integration.update"]') })
+  await expect(edits).toHaveCount(2)
+  // an API connection reads as one, not "an MCP connection" (QA TC-3054)
+  for (const i of [0, 1]) await expect(edits.nth(i)).toContainText('Olga changed an API connection')
+  await expect(edits.getByTestId('activity-times')).toHaveCount(0)
+  await edits.nth(1).getByRole('button').click()
+  await expect(edits.nth(1).getByTestId('activity-detail')).toContainText('replaced')
+  await edits.nth(1).getByRole('button').click()
+
   // one event: its details, and they close again
   const first = rows(page).first()
   await first.getByRole('button').click()

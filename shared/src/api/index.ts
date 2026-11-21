@@ -4,6 +4,7 @@ import { ADMIN } from './admin'
 import { ARTIFACTS } from './artifacts'
 import { AUTH } from './auth'
 import { BROWSER } from './browser'
+import { LOCAL_APPS } from './local-apps'
 import { CHATS } from './chats'
 import { FILES } from './files'
 import { JOBS } from './jobs'
@@ -44,13 +45,17 @@ import { MEMBER_WELCOME } from './member-welcome'
 import { SERVICE_REQUESTS } from './service-requests'
 import { ROOM_APPS } from './room-apps'
 import { NAV_FOLDERS } from './nav-folders'
+import { ROOM_CATEGORIES } from './room-categories'
+import { FILE_SHARES } from './file-shares'
+import { ACCESS_REQUESTS } from './access-requests'
+import { LINK_NAMES } from './link-names'
 import type { Endpoint } from './endpoint'
 
-export const API = { ...AUTH, ...CHATS, ...MEMORIES, ...SKILLS, ...SCHEDULES, ...CONNECTED, ...FILES, ...ARTIFACTS, ...JOBS, ...BROWSER, ...ADMIN, ...CREDENTIALS, ...DRIVE, ...GOOGLE_APPS, ...INTEGRATIONS, ...NOTIFICATIONS, ...PUSH, ...REMOTE_MCP, ...SYSTEM, ...OFFICE_UPDATE, ...PLUGINS, ...DEV_ENV, ...ONBOARDING_PACKS, ...ONBOARDING, ...TEAM_LINKS, ...WELCOME, ...ONBOARDING_FILES, ...FILES_ORGANIZE, ...ONBOARDING_GOAL, ...DEMO, ...PEOPLE, ...ROOMS, ...ACCOUNT_DELETION, ...SLACK, ...PROMO_VIDEO, ...INTRO_DECK, ...SKILL_SHARES, ...AI_ALLOWANCES, ...HANDOVER, ...FILE_LIST, ...MEMBER_WELCOME, ...SERVICE_REQUESTS, ...NAV_FOLDERS, ...ROOM_APPS } as const
+export const API = { ...AUTH, ...CHATS, ...MEMORIES, ...SKILLS, ...SCHEDULES, ...CONNECTED, ...FILES, ...ARTIFACTS, ...JOBS, ...BROWSER, ...LOCAL_APPS, ...ADMIN, ...CREDENTIALS, ...DRIVE, ...GOOGLE_APPS, ...INTEGRATIONS, ...NOTIFICATIONS, ...PUSH, ...REMOTE_MCP, ...SYSTEM, ...OFFICE_UPDATE, ...PLUGINS, ...DEV_ENV, ...ONBOARDING_PACKS, ...ONBOARDING, ...TEAM_LINKS, ...WELCOME, ...ONBOARDING_FILES, ...FILES_ORGANIZE, ...ONBOARDING_GOAL, ...DEMO, ...PEOPLE, ...ROOMS, ...ACCOUNT_DELETION, ...SLACK, ...PROMO_VIDEO, ...INTRO_DECK, ...SKILL_SHARES, ...AI_ALLOWANCES, ...HANDOVER, ...FILE_LIST, ...MEMBER_WELCOME, ...SERVICE_REQUESTS, ...NAV_FOLDERS, ...ROOM_CATEGORIES, ...ROOM_APPS, ...FILE_SHARES, ...ACCESS_REQUESTS, ...LINK_NAMES } as const
 export type Api = typeof API
 export type ApiName = keyof Api
 
-export const API_GROUPS = { AUTH, CHATS, MEMORIES, SKILLS, SCHEDULES, CONNECTED, FILES, ARTIFACTS, JOBS, BROWSER, ADMIN, CREDENTIALS, DRIVE, GOOGLE_APPS, INTEGRATIONS, NOTIFICATIONS, PUSH, REMOTE_MCP, SYSTEM, OFFICE_UPDATE, PLUGINS, DEV_ENV, ONBOARDING_PACKS, ONBOARDING, TEAM_LINKS, WELCOME, ONBOARDING_FILES, FILES_ORGANIZE, ONBOARDING_GOAL, DEMO, PEOPLE, ROOMS, ACCOUNT_DELETION, SLACK, PROMO_VIDEO, INTRO_DECK, SKILL_SHARES, AI_ALLOWANCES, HANDOVER, FILE_LIST, MEMBER_WELCOME, SERVICE_REQUESTS, NAV_FOLDERS, ROOM_APPS } as const
+export const API_GROUPS = { AUTH, CHATS, MEMORIES, SKILLS, SCHEDULES, CONNECTED, FILES, ARTIFACTS, JOBS, BROWSER, LOCAL_APPS, ADMIN, CREDENTIALS, DRIVE, GOOGLE_APPS, INTEGRATIONS, NOTIFICATIONS, PUSH, REMOTE_MCP, SYSTEM, OFFICE_UPDATE, PLUGINS, DEV_ENV, ONBOARDING_PACKS, ONBOARDING, TEAM_LINKS, WELCOME, ONBOARDING_FILES, FILES_ORGANIZE, ONBOARDING_GOAL, DEMO, PEOPLE, ROOMS, ACCOUNT_DELETION, SLACK, PROMO_VIDEO, INTRO_DECK, SKILL_SHARES, AI_ALLOWANCES, HANDOVER, FILE_LIST, MEMBER_WELCOME, SERVICE_REQUESTS, NAV_FOLDERS, ROOM_CATEGORIES, ROOM_APPS, FILE_SHARES, ACCESS_REQUESTS, LINK_NAMES } as const
 
 /** All endpoints with their registry key. */
 export function listEndpoints(): { name: ApiName; ep: Endpoint }[] {
@@ -72,6 +77,7 @@ export * from './files'
 export * from './artifacts'
 export * from './jobs'
 export * from './browser'
+export * from './local-apps'
 export * from './admin'
 export * from './handover'
 export * from './file-list'
@@ -79,10 +85,16 @@ export * from './member-welcome'
 export * from './service-requests'
 export * from './room-apps'
 export * from './nav-folders'
+export * from './room-categories'
+export * from './file-shares'
+export * from './share-card'
+export * from './access-requests'
+export * from './link-names'
 export * from './credentials'
 export * from './drive'
 export * from './google-apps'
 export * from './integrations'
+export * from './team-tools'
 export * from './notifications'
 export * from './push'
 export * from './remote-mcp'

@@ -836,10 +836,11 @@
     "setns",
     "mount",
     "umount2",
-    "pivot_root"
+    "pivot_root",
+    "sethostname"
    ],
    "action": "SCMP_ACT_ALLOW",
-   "comment": "Trina AX: bubblewrap creates user, mount, pid and net namespaces as the unprivileged engine account"
+   "comment": "Trina AX: bubblewrap creates user, mount, pid, net and UTS namespaces as the unprivileged engine account and sets the turn's hostname (--hostname mycel-turn)"
   }
  ]
 }

@@ -143,12 +143,16 @@ export default function AdminIntegrations() {
   const adminList = { to: '/admin/connectors', name: t('admin.integrations') }
   // added from Discover (or from Add over a connector's page): the search is cleared (it was looking for what the new
   // row may not match) and the keyboard goes to the list the new row is in (once it is there: a template comes with the
-  // list loaded again), since the button that opened the dialog is gone
+  // list loaded again), since the button that opened the dialog is gone. From an effect, so it runs after the commit
+  // that closes the dialog: the dialog's focus trap gives the keyboard back to its opener when it closes, and a heading
+  // focused before that commit lost it to the opener, then to nothing when the opener went (QA TC-4807)
+  const [toConnected, setToConnected] = useState(0)
+  useEffect(() => { if (toConnected) goToSection(ids.connected) }, [toConnected, ids.connected])
   const added = (toList: boolean | undefined, listed?: Promise<unknown>) => {
     if (!toList) return
     setOpen(null)
     setQuery('')
-    void Promise.resolve(listed).then(() => goToSection(ids.connected))
+    void Promise.resolve(listed).then(() => setToConnected((n) => n + 1))
   }
   /** what needs the admin's attention stays on the line: nobody may use it, or the admin cannot */
   const accessWarning = (i: Integration) => {

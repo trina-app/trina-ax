@@ -44,7 +44,8 @@ test('admin opens on Home: problems first, then one card per area, each opening 
   await expect(menu.getByRole('link', { name: t['admin.home'], exact: true })).toHaveAttribute('aria-current', 'page')
   for (const [group, items] of MENU) {
     const g = menu.getByRole('group', { name: t[group] })
-    await expect(g.getByRole('link')).toHaveText(items.map((k) => t[k]))
+    // a label may name the product ("{product} MCP"): as the menu shows it
+    await expect(g.getByRole('link')).toHaveText(items.map((k) => t[k].replace('{product}', PRODUCT.displayName)))
     await expect(g.getByText(t[group], { exact: true })).toBeVisible()
   }
 
@@ -106,7 +107,7 @@ test('an engine nobody set up is no problem while another answers; the default o
   await expect(attention.getByRole('link', { name: `Codex: ${t['engines.status.error']}` })).toBeVisible()
 
   // an untested version still answers: not on Home (no line, nothing to fix), and Claude alone on it is no "No AI";
-  // Diagnostics (Admin › System) names it with its detail, and Providers says Connected without the version text
+  // Diagnostics (Admin › System) names it with its detail, and AI providers says Connected without the version text
   const pinned = 'This version has not been tested (pinned: 2.1.300; lockdown-tested: 2.1.300).'
   engines = (b) => ({ ...b, engines: b.engines.map((e) => (e.id === 'claude-code' ? { ...e, status: 'version_unsupported', detail: pinned } : e)) })
   await page.reload()
@@ -425,7 +426,8 @@ test('automatic updates on: the item says when it installs, with no button; a re
   await answerUpdate(page, () => ({ json: { ...auto, hold: 'failed' } }))
   await page.goto('/admin')
   await expect(page.getByTestId('attention-update')).toContainText(t['adminHome.update.failed'].replace('{version}', '0.3.0'))
-  await expect(page.getByTestId('attention-update').getByRole('button', { name: t['adminHome.update.install'] })).toBeVisible()
+  // a version on hold: the same retry as Admin › System's ("Try this version again"), not "Install now"
+  await expect(page.getByTestId('attention-update').getByRole('button')).toHaveText([t['system.retryShort']])
 
   // needs root: the update timer installs it; no button
   await page.unroute('**/api/admin/update')

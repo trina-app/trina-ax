@@ -4,12 +4,13 @@
 // proxy prices API-key requests from credentials/prices.ts). Budget notices: admin/budget-watch.ts.
 import type { Database } from 'bun:sqlite'
 import type { z } from 'zod'
-import type { Budget, BudgetBody, Locale, UsageQuery, UsageResponse } from '@mycel/shared/api'
-import { limitResetText } from '@mycel/shared'
+import { DEMO_LIMIT_REASON, type Budget, type BudgetBody, type Locale, type UsageQuery, type UsageResponse } from '@mycel/shared/api'
+import { ANSWER_AVERAGE_DAYS, DEFAULT_TOKENS_PER_ANSWER, MIN_ANSWERS_FOR_AVERAGE, limitResetText } from '@mycel/shared'
 import { newId } from '../db'
 import { fail } from '../http/errors'
 import { msg } from '../auth/messages'
 import { teamTimeZone } from './settings'
+import { USAGE_AGG, turnAmount, withCounts, type TurnAmountRow } from './usage-amount'
 import { zonedDay, zonedParts, zonedToUtc } from '../system/time-zone'
 
 type In<T extends z.ZodType> = z.output<T>
@@ -52,10 +53,25 @@ function checkSubject(db: Database, t: Budget['subjectType'], id: string | null,
   if (t === 'user' && !db.query('SELECT 1 FROM users WHERE id = ? AND deleted_at IS NULL').get(id)) bad()
 }
 
+/**
+ * One limit per subject and period: a second one for the same person, group or team and period is refused (409
+ * budget_duplicate). Admin › Members edits a person's limit for the period picked (web pages/admin/BudgetForm.tsx), so a
+ * second one would never be seen there. Duplicates already in a database are kept and keep counting (no unique index,
+ * nothing deleted); only a new one, or an edit that moves a limit onto a taken subject and period, is refused.
+ */
+function checkNoDuplicate(db: Database, t: Budget['subjectType'], subjectId: string | null, period: Budget['period'], exceptId: string | null, locale: Locale): void {
+  const taken = db.query('SELECT 1 FROM budgets WHERE subject_type = ? AND subject_id IS ? AND period = ? AND id IS NOT ? LIMIT 1').get(t, t === 'team' ? null : subjectId, period, exceptId)
+  if (taken) fail('conflict', msg('budgetDuplicate', locale), { params: { reason: 'budget_duplicate' } })
+}
+
 export function createBudget(db: Database, b: In<typeof BudgetBody>, locale: Locale): Budget {
   checkSubject(db, b.subjectType, b.subjectId, locale)
   const id = newId()
-  db.query(`INSERT INTO budgets (${COLS}) VALUES (?, ?, ?, ?, ?, ?, ?)`).run(id, b.subjectType, b.subjectId, b.period, b.limitUsd, b.limitTokens ?? null, b.action)
+  // the check and the insert in one transaction, so two saves at once can't both pass the check
+  db.transaction(() => {
+    checkNoDuplicate(db, b.subjectType, b.subjectId, b.period, null, locale)
+    db.query(`INSERT INTO budgets (${COLS}) VALUES (?, ?, ?, ?, ?, ?, ?)`).run(id, b.subjectType, b.subjectId, b.period, b.limitUsd, b.limitTokens ?? null, b.action)
+  }).immediate()
   return toBudget(db, db.query(`SELECT ${COLS} FROM budgets WHERE id = ?`).get(id) as BudgetRow)
 }
 
@@ -71,8 +87,13 @@ export function updateBudget(db: Database, id: string, b: Partial<In<typeof Budg
     action: b.action ?? cur.action,
   }
   checkSubject(db, next.subject_type, next.subject_id, locale)
-  db.query('UPDATE budgets SET subject_type = ?, subject_id = ?, period = ?, limit_usd = ?, limit_tokens = ?, action = ? WHERE id = ?')
-    .run(next.subject_type, next.subject_id, next.period, next.limit_usd, next.limit_tokens, next.action, id)
+  // an existing duplicate can still be edited in place; moving a limit onto a subject and period that has one is refused
+  const moved = next.subject_type !== cur.subject_type || next.subject_id !== cur.subject_id || next.period !== cur.period
+  db.transaction(() => {
+    if (moved) checkNoDuplicate(db, next.subject_type, next.subject_id, next.period, id, locale)
+    db.query('UPDATE budgets SET subject_type = ?, subject_id = ?, period = ?, limit_usd = ?, limit_tokens = ?, action = ? WHERE id = ?')
+      .run(next.subject_type, next.subject_id, next.period, next.limit_usd, next.limit_tokens, next.action, id)
+  }).immediate()
   return toBudget(db, { id, ...next })
 }
 
@@ -107,11 +128,53 @@ export function periodEnd(period: Budget['period'], now: Date, tz: string): Date
   return zonedToUtc(next.getUTCFullYear(), next.getUTCMonth() + 1, next.getUTCDate(), 0, 0, tz)
 }
 
+/** What a refused send carries (HttpError params): a budget's reset time (and `own` for the person's own), or a
+ * free-roam demo's limit (reason DEMO_LIMIT_REASON, with the weighted tokens used and the limit) */
+export type BudgetBlockParams = { resetsAt: string; own?: true } | { reason: typeof DEMO_LIMIT_REASON; used: number; cap: number }
+
+// ---------------- the free-roam demo's limit (docs/decisions/20261119-demo-free-roam-a.md) ----------------
+// One visitor's instance (demo/free-roam.ts) has one limit for everything the AI does there: the weighted tokens of every
+// answer the model proxy counted (credentials/broker.ts record weighs a cache read DEMO_CACHE_READ_WEIGHT), for every
+// person, with no period: the instance lives a day at most. It is a block, checked where every block budget is
+// (budgetBlock: the send, the scheduled run, the proxy's overBudget), so a running answer ends through the budget path.
+const demoLimits = new WeakMap<Database, number>()
+/** freeRoam start (demo/free-roam.ts): the demo limit of this database's server; null takes it away (tests) */
+export function setDemoLimit(db: Database, cap: number | null): void {
+  if (cap === null) demoLimits.delete(db)
+  else demoLimits.set(db, cap)
+}
+/** weighted tokens the model proxy counted on this instance (only usage_source 'proxy': a snapshot has none) */
+export function demoUsed(db: Database): number {
+  const r = db.query("SELECT COALESCE(SUM(COALESCE(input_tokens, 0) + COALESCE(output_tokens, 0)), 0) AS n FROM turns WHERE usage_source = 'proxy'").get() as { n: number }
+  return Math.max(0, r.n)
+}
+/** the free-roam demo's limit and use, or null on any other server */
+export function demoLimitState(db: Database): { used: number; cap: number } | null {
+  const cap = demoLimits.get(db)
+  return cap === undefined ? null : { used: demoUsed(db), cap }
+}
+const DEMO_LIMIT_TEXT: Record<Locale, string> = {
+  ko: '이 데모의 AI를 다 썼어요. 무료로 시작하면 우리 팀에서 계속 쓸 수 있어요.',
+  en: "You've used this demo's AI. Start free to keep going with your own team.",
+  id: 'AI demo ini sudah habis Anda pakai. Mulai gratis untuk lanjut dengan tim Anda sendiri.',
+  ja: 'このデモのAIを使い切りました。無料で始めると、ご自分のチームで続けられます。',
+  es: 'Ha usado la IA de esta demostración. Empiece gratis para seguir con su propio equipo.',
+  zh: '你已用完此演示的AI。免费开始，即可在自己的团队中继续使用。',
+}
+function demoLimitBlock(db: Database, locale: Locale): { budget: Budget; message: string; resetsAt: null; params: BudgetBlockParams } | null {
+  const s = demoLimitState(db)
+  if (!s || s.used < s.cap) return null
+  const budget: Budget = { id: 'demo', subjectType: 'team', subjectId: null, period: 'month', limitUsd: 0, limitTokens: s.cap, action: 'block', usedUsd: 0, usedTokens: s.used }
+  return { budget, message: DEMO_LIMIT_TEXT[locale] ?? DEMO_LIMIT_TEXT.en, resetsAt: null, params: { reason: DEMO_LIMIT_REASON, used: s.used, cap: s.cap } }
+}
+
 /**
  * A used-up "block" budget that applies to this person, as an error to answer the send with (tab 5 "사용 한도 도달":
  * the person's own limit is checked before sending, not by queueing). null when they may start a turn.
  */
-export function budgetBlock(db: Database, userId: string, locale: Locale, now = new Date()): { budget: Budget; message: string; resetsAt: string } | null {
+export function budgetBlock(db: Database, userId: string, locale: Locale, now = new Date()): { budget: Budget; message: string; resetsAt: string | null; params: BudgetBlockParams } | null {
+  const demo = demoLimitBlock(db, locale)
+  if (demo) return demo
   const hit = checkBudgets(db, userId, now).find((b) => b.exceeded && b.budget.action === 'block')
   if (!hit) return null
   const tz = teamTimeZone(db)
@@ -122,20 +185,59 @@ export function budgetBlock(db: Database, userId: string, locale: Locale, now = 
   // a guest does not know the team's admins: the person who invited them (docs/DECISIONS.md "Guests: only what they
   // were invited to"); the same date
   const guest = !!(db.query('SELECT guest FROM users WHERE id = ?').get(userId) as { guest: number } | null)?.guest
-  const message = guest ? {
+  // a guest's own token limit says its amount, as the web's in-chat notice does ("this month's AI limit (5M tokens)"):
+  // the composer, a room's AI side chat and every other place show this text as it is (QA TC-3310)
+  const own = guest && hit.budget.subjectType === 'user' && hit.budget.limitTokens !== null && hit.budget.limitTokens > 0 && !(hit.budget.limitUsd > 0)
+  const n = own ? new Intl.NumberFormat(locale, { notation: 'compact', maximumFractionDigits: 1 }).format(hit.budget.limitTokens!) : ''
+  const message = own ? {
+    ko: `${p} AI 한도(${n} 토큰)를 다 썼어요. ${at}부터 다시 쓸 수 있어요. 더 필요하면 초대한 분께 물어봐 주세요.`,
+    en: `You have used up ${p} AI limit (${n} tokens). You can use it again from ${at}. Ask the person who invited you if you need more.`,
+    id: `Batas AI ${p} (${n} token) sudah habis. Anda bisa memakainya lagi mulai ${at}. Tanyakan ke orang yang mengundang Anda jika perlu lebih.`, ja: `${p}のAIの上限（${n}トークン）を使い切りました。${at}から再び使用できます。追加が必要な場合は、招待してくれた人に聞いてください。`, es: `Agotó el límite de IA ${p} (${n} tokens). Podrá volver a usarla a partir de ${at}. Si necesita más, pregunte a quien le invitó.`,
+    zh: `${p}AI额度（${n} token）已用完。从${at}起可以再次使用。如果需要更多，请询问邀请你的人。`,
+  }[locale] : guest ? {
     ko: `${p} AI 사용 한도를 다 썼어요. ${at}부터 다시 쓸 수 있어요. 더 필요하면 초대한 분께 물어봐 주세요.`,
     en: `You have used up ${p} AI usage limit. You can use it again from ${at}. Ask the person who invited you if you need more.`,
-    id: `Batas penggunaan AI ${p} sudah habis. Kamu bisa memakainya lagi mulai ${at}. Tanyakan ke orang yang mengundangmu jika perlu lebih.`, ja: `${p}のAI使用量上限を使い切りました。${at}から再び使用できます。追加が必要な場合は、招待してくれた人に聞いてください。`, es: `Agotó el límite de uso de IA ${p}. Podrá volver a usarla a partir de ${at}. Si necesita más, pregunte a quien le invitó.`,
+    id: `Batas penggunaan AI ${p} sudah habis. Anda bisa memakainya lagi mulai ${at}. Tanyakan ke orang yang mengundang Anda jika perlu lebih.`, ja: `${p}のAI使用量上限を使い切りました。${at}から再び使用できます。追加が必要な場合は、招待してくれた人に聞いてください。`, es: `Agotó el límite de uso de IA ${p}. Podrá volver a usarla a partir de ${at}. Si necesita más, pregunte a quien le invitó.`,
     zh: `${p}AI用量上限已用完。从${at}起可以再次使用。如果需要更多，请询问邀请你的人。`,
   }[locale] : {
     ko: `${p} AI 사용 한도를 다 썼어요. ${at}부터 다시 쓸 수 있어요. 더 필요하면 관리자에게 말해 주세요.`,
     en: `You have used up ${p} AI usage limit. You can use it again from ${at}. Ask an admin if you need more.`,
-    id: `Batas penggunaan AI ${p} sudah habis. Kamu bisa memakainya lagi mulai ${at}. Minta admin jika perlu lebih.`, ja: `${p}のAI使用量上限を使い切りました。${at}から再び使用できます。追加が必要な場合は管理者にご相談ください。`, es: `Agotó el límite de uso de IA ${p}. Podrá volver a usarla a partir de ${at}. Consulte a un administrador si necesita más.`,
+    id: `Batas penggunaan AI ${p} sudah habis. Anda bisa memakainya lagi mulai ${at}. Minta admin jika perlu lebih.`, ja: `${p}のAI使用量上限を使い切りました。${at}から再び使用できます。追加が必要な場合は管理者にご相談ください。`, es: `Agotó el límite de uso de IA ${p}. Podrá volver a usarla a partir de ${at}. Consulte a un administrador si necesita más.`,
     zh: `${p}AI用量上限已用完。从${at}起可以再次使用。如果需要更多，请联系管理员。`,
   }[locale]
   // resetsAt: when the limit starts again (the start of the next period in the team's time zone), for screens that
   // word it themselves (a guest's "It resets on Dec 1": web components/chat/Messages.tsx)
-  return { budget: hit.budget, message, resetsAt: end.toISOString() }
+  // params: what a refused send carries; `own` when it is the person's own limit (a guest's notice then names its amount,
+  // never a team or group limit's)
+  return { budget: hit.budget, message, resetsAt: end.toISOString(), params: { resetsAt: end.toISOString(), ...(hit.budget.subjectType === 'user' ? { own: true as const } : {}) } }
+}
+
+/**
+ * Tokens one answer takes on average in this team (input + output, as a budget counts them): the turns of the last
+ * ANSWER_AVERAGE_DAYS days that used any. With fewer than MIN_ANSWERS_FOR_AVERAGE of them, DEFAULT_TOKENS_PER_ANSWER
+ * (shared/src/guest-tokens.ts). The mean, not the median: tokens of the limit / the mean = how many answers fit.
+ * Finished answers only: a running or failed one has not used all its tokens and would make answers look smaller.
+ */
+export function answerTokens(db: Database, now = new Date()): { tokens: number; from: 'team' | 'default' } {
+  const since = new Date(now.getTime() - ANSWER_AVERAGE_DAYS * 86_400_000).toISOString()
+  const r = db.query("SELECT COUNT(*) AS n, COALESCE(SUM(COALESCE(input_tokens, 0) + COALESCE(output_tokens, 0)), 0) AS tokens FROM turns WHERE started_at >= ? AND status = 'done' AND COALESCE(input_tokens, 0) + COALESCE(output_tokens, 0) > 0").get(since) as { n: number; tokens: number }
+  if (r.n < MIN_ANSWERS_FOR_AVERAGE) return { tokens: DEFAULT_TOKENS_PER_ANSWER, from: 'default' }
+  return { tokens: Math.max(1, Math.round(r.tokens / r.n)), from: 'team' }
+}
+const answerTokensCache = new WeakMap<Database, { at: number; v: { tokens: number; from: 'team' | 'default' } }>()
+/** answerTokens, read again at most every 10 minutes: the invite and Change AI dialogs ask on every open, and the 90
+ * days of turns have no index by time. */
+export function answerTokensCached(db: Database, now = new Date()): { tokens: number; from: 'team' | 'default' } {
+  const hit = answerTokensCache.get(db)
+  if (hit && Math.abs(now.getTime() - hit.at) < 600_000) return hit.v
+  const v = answerTokens(db, now)
+  answerTokensCache.set(db, { at: now.getTime(), v })
+  return v
+}
+
+/** A guest's Team AI limit: their own 'block' budget for the month, in tokens (no money limit: limit_usd 0). */
+export function insertGuestBudget(db: Database, userId: string, limitTokens: number): void {
+  db.query("INSERT INTO budgets (id, subject_type, subject_id, period, limit_usd, limit_tokens, action) VALUES (?, 'user', ?, 'month', 0, ?, 'block')").run(newId(), userId, limitTokens)
 }
 
 // ---------------- usage ----------------
@@ -147,15 +249,17 @@ function usageByLocalDay(db: Database, where: string, params: string[]): UsageRe
   const tz = teamTimeZone(db)
   const localDay = (d: Date) => zonedDay(d, tz)
   const days = new Map<string, UsageRes['rows'][number]>()
-  const rows = db.query(`SELECT t.started_at, t.input_tokens, t.output_tokens, t.cost_usd, t.usage_source FROM turns t WHERE ${where}`).all(...params) as { started_at: string; input_tokens: number | null; output_tokens: number | null; cost_usd: number | null; usage_source: string | null }[]
+  const rows = db.query(`SELECT t.started_at, t.input_tokens, t.output_tokens, t.cost_usd, t.est_cost_usd, t.usage_source FROM turns t WHERE ${where}`).all(...params) as ({ started_at: string } & TurnAmountRow)[]
   for (const r of rows) {
     const key = localDay(new Date(r.started_at))
     const d = days.get(key) ?? { key, label: key, turns: 0, inputTokens: 0, outputTokens: 0, costUsd: 0 }
     d.turns++
     d.inputTokens += r.input_tokens ?? 0
     d.outputTokens += r.output_tokens ?? 0
-    d.costUsd += r.cost_usd ?? 0
-    if (r.usage_source === 'engine_unpriced') d.unpricedTurns = (d.unpricedTurns ?? 0) + 1
+    const a = turnAmount(r)
+    d.costUsd += a.usd
+    if (a.unpriced) d.unpricedTurns = (d.unpricedTurns ?? 0) + 1
+    if (a.estimated) d.estimatedTurns = (d.estimatedTurns ?? 0) + 1
     days.set(key, d)
   }
   return [...days.values()].sort((a, b) => a.key.localeCompare(b.key))
@@ -216,7 +320,7 @@ export function usage(db: Database, q: In<typeof UsageQuery>, now = new Date()):
   if (q.credential) { conds.push('t.credential_id = ?'); params.push(q.credential) }
   if (q.group) { conds.push('t.user_id IN (SELECT user_id FROM group_members WHERE group_id = ?)'); params.push(q.group) }
   const where = conds.join(' AND ')
-  const agg = 'COUNT(*) AS turns, COALESCE(SUM(t.input_tokens), 0) AS inputTokens, COALESCE(SUM(t.output_tokens), 0) AS outputTokens, COALESCE(SUM(t.cost_usd), 0) AS costUsd, COALESCE(SUM(CASE WHEN t.usage_source = \'engine_unpriced\' THEN 1 ELSE 0 END), 0) AS unpricedTurns'
+  const agg = USAGE_AGG
   let sql = ''
   switch (q.groupBy) {
     case 'user': sql = `SELECT t.user_id AS key, COALESCE(u.name, t.user_id) AS label, ${agg} FROM turns t LEFT JOIN users u ON u.id = t.user_id WHERE ${where} GROUP BY t.user_id ORDER BY costUsd DESC, turns DESC`; break
@@ -238,8 +342,8 @@ export function usage(db: Database, q: In<typeof UsageQuery>, now = new Date()):
   }
   const rows = q.groupBy === 'day' ? usageByLocalDay(db, where, params) : (db.query(sql).all(...(q.groupBy === 'skill' ? [...range, ...params] : params)) as UsageRes['rows'])
   const tot = db.query(`SELECT ${agg} FROM turns t WHERE ${where}`).get(...params) as UsageRes['totals']
-  // unpricedTurns: turns whose amount has an unknown part (API engine, no provider cost and no list price); only when any
-  const priced = <T extends { unpricedTurns?: number }>(r: T): T => { if (!r.unpricedTurns) delete r.unpricedTurns; return r }
+  // unpricedTurns / estimatedTurns (admin/usage-amount.ts): only when any
+  const priced = withCounts
   const res: UsageRes = { from: from.toISOString(), to: to.toISOString(), rows: rows.map(priced), totals: priced(tot) }
   if (q.series) res.series = usageSeries(db, q.groupBy, where, params)
   if (q.facets) res.facets = usageFacets(db, range)

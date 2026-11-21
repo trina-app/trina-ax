@@ -201,6 +201,38 @@ describe('the target: chosen, moved, refused, gone', () => {
     expect(cand(await h.api('dana').call(API.getSkillShare, { params: { id: s.id } }), 'weekly').applied).toMatchObject({ status: 'merge', chatId: null })
   })
 
+  test('a share leaves the review list (dismissed, applied, moved away): the group\'s reviewers are told quietly, nobody else (QA TC-4005)', async () => {
+    const quietFrames = (u: string) => socks[u]!.frames.flatMap((f) => (f.type === 'notice' && f.data.code === 'skills_changed' ? [f.data] : []))
+    const quiet = (u: string) => quietFrames(u).length
+    const told = async (u: string, n: number) => { await waitFor(() => quiet(u) >= n, { timeoutMs: 10_000 }); expect(quiet(u)).toBe(n) }
+    const toReview = async (u: string) => (await h.api(u).call(API.skillsOverview)).sharesToReview ?? 0
+    const base = { alice: quiet('alice'), erin: quiet('erin'), bob: quiet('bob') }
+    const before = await toReview('alice')
+    // dismissed by one member of the group: the other's count follows
+    let s = await ready((await create({ group: 'marketing', skills: [skill('quiet-one')] })).id)
+    expect(await toReview('alice')).toBe(before + 1)
+    await h.api('erin').call(API.dismissSkillShare, { params: { id: s.id } })
+    await told('alice', base.alice + 1)
+    await told('erin', base.erin + 1)
+    expect(await toReview('alice')).toBe(before)
+    // applied as a merge (no file changes under the group's skills yet)
+    s = await ready((await create({ group: 'marketing', skills: [skill('weekly')] })).id)
+    await h.api('erin').call(API.applySkillShare, { params: { id: s.id }, body: { skills: [{ name: 'weekly', action: 'merge' }] } })
+    await told('alice', base.alice + 2)
+    expect(await toReview('alice')).toBe(before)
+    // moved from the group back to the team by its proposer
+    s = await ready((await create({ group: 'marketing', skills: [skill('quiet-two')] })).id)
+    await h.api('dana').call(API.setSkillShareTarget, { params: { id: s.id }, body: { group: null } })
+    await told('alice', base.alice + 3)
+    expect(await toReview('alice')).toBe(before)
+    await h.api('dana').call(API.dismissSkillShare, { params: { id: s.id } })
+    // a share to the team is nobody's to review: nothing more; and never a person outside the group
+    expect(quiet('alice')).toBe(base.alice + 3)
+    expect(quiet('bob')).toBe(base.bob)
+    // quiet: no text and no link
+    expect(quietFrames('alice').at(-1)).toEqual({ level: 'info', code: 'skills_changed', message: '' })
+  })
+
   test('migration 260 is additive (reader 1), and its number is the only one', () => {
     const sql = fs.readFileSync(path.join(MIGRATIONS_DIR, '260_b_skill_share_targets.sql'), 'utf8')
     expect(sql.split('\n')[0]).toBe('-- min_compatible_reader: 1')

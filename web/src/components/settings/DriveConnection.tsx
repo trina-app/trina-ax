@@ -2,17 +2,18 @@ import { useEffect, useRef, useState } from 'react'
 import type { DriveConnection as Connection, DriveFlow } from '@mycel/shared/api'
 import { api, API, ApiError } from '../../lib/api'
 import { mobileApp, openExternal } from '../../lib/mobile'
-import { driveSignInUrl, openSignInWindow, reserveSignInWindow, signInPlace } from '../../lib/driveSignIn'
+import { desktopOpenUrl, driveSignInUrl, openSignInWindow, reserveSignInWindow, signInPlace } from '../../lib/driveSignIn'
 import { useT } from '../../i18n'
 import { SIGN_IN_WAIT_MINUTES, useWaitLimit } from '../../lib/signInWait'
 import { peekCached, rememberCached } from '../../store/listCache'
 import { Button, LinkButton, WaitLine, confirmDialog } from '../ui'
+import { GoogleAccountBlock } from '../integrations/GoogleAccount'
 
 /** What a sign-in flow calls on the server: Google Drive's (useDriveFlow) and each Google app's (Gmail, Calendar, Docs,
  * Sheets: integrations/GoogleAppConnector.tsx) are the same steps on their own addresses. `current`: the connection once
  * a flow says it was completed elsewhere (another window confirmed it). */
 export interface SignInOps<C> {
-  authorize: () => Promise<{ flowId: string; authorizationUrl: string; connectUrl?: string; expiresAt: string }>
+  authorize: () => Promise<{ flowId: string; authorizationUrl: string; connectUrl?: string; openPath?: string; expiresAt: string }>
   poll: (id: string) => Promise<DriveFlow>
   complete: (id: string) => Promise<C>
   cancel: (id: string) => Promise<unknown>
@@ -78,7 +79,9 @@ export function useSignInFlow<C>(ops: SignInOps<C>, onConnected: (c: C) => void)
       setAuthorizationUrl(url)
       setFlow({ flowId: result.flowId, state: 'pending', account: null, expiresAt: result.expiresAt, reason: null })
       if (place === 'phone') await openExternal(url, { purpose: 'google-oauth' })
-      else openSignInWindow(place, popup.current, url)
+      // the desktop app: the server's one-time address first, so the system browser can finish without a sign-in
+      // (Drive only; the link beside the wait stays the sign-in page)
+      else openSignInWindow(place, popup.current, (place === 'desktop' && desktopOpenUrl(result, globalThis.location?.origin)) || url)
     } catch (e) { if (g === generation.current) { setError(true); setReason(e instanceof ApiError ? e.message : null); popup.current?.close() } }
     finally { if (g === generation.current) setBusy(false) }
   }
@@ -146,7 +149,7 @@ export function DriveFlowPanel({ d, flow }: { d: DriveFlowState; flow: DriveFlow
     {flow.state === 'ready' ? <p role="status">{t('drive.confirmAccount')}</p>
       : <WaitLine text={t('drive.waiting')} hint={t('connect.wait.google', { n: SIGN_IN_WAIT_MINUTES })} testId="drive-flow-wait" />}
     {flow.state === 'ready' && <>
-      <p data-testid="drive-account">{flow.account?.name} {flow.account?.email}</p>
+      <GoogleAccountBlock account={flow.account} testId="drive-account" />
       <Button variant="primary" busy={d.busy} onClick={() => void d.complete()} data-testid="drive-confirm">{t('drive.confirm')}</Button>
     </>}
     {/* waiting: Continue with Google (the window again), Try again (a new window, the server replaces the flow) beside Cancel, always (QA TC-1417) */}

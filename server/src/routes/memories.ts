@@ -8,12 +8,14 @@ import { API, type Locale } from '@mycel/shared/api'
 import type { RouteModule } from './module'
 import { fail } from '../http/errors'
 import { getChatRuntime } from '../chat/runtime'
-import { cleanMemoryText, MEMORY_ITEM_MAX } from '../chat/prompt'
+import { cleanMemoryText, contextTokensFor, MEMORY_ITEM_MAX, memoryTokensOf, promptBudget } from '../chat/prompt'
+import { personalDefault } from '../admin/engine-choice'
+import type { AppContext } from '../context'
 import { tr } from '../chat/i18n'
 import { newId } from '../db'
 import { audit } from '../admin/audit'
 import { decodeCursor, encodeCursor } from '../chat/store'
-import { projectSkillSections, scanSkillsWithShadowed, skillInfo, skillIssues, type ShadowedBy } from '../chat/skills'
+import { otherGroupSkills, projectSkillSections, scanSkillsWithShadowed, skillInfo, skillIssues, type ShadowedBy } from '../chat/skills'
 import { levelLabel, moveOptions, runMove } from '../skills/move'
 import { teamRuleFiles } from '../chat/prompt'
 import { popularSkills } from '../skills/popular'
@@ -24,6 +26,8 @@ import { registerNotifications } from './notifications'
 import { registerPush } from './push'
 import { installPush } from '../notifications/push-service'
 import { needsReview, type ScheduleRow } from '../chat/schedules'
+import { timingOf } from '../chat/schedule-timing'
+import { chatFor } from '../chat/shared'
 import { scopeOut } from '../chat/schedule-scope'
 import { awaitingReview, confirmReview, reviewCard } from '../chat/schedule-review'
 import { editCard, saveTask, saveTemplate } from '../chat/schedule-edit'
@@ -52,7 +56,8 @@ export const memoriesRoutes: RouteModule = {
       const last = items[items.length - 1]
       // which of them the AI gets now (the same cut as its memory block): the others are marked, and the page says how
       // many are in use of how many kept (QA TC-213)
-      const used = rt.memoriesInUse(auth.user.id)
+      // by the budget of the engine and model a new chat of this person starts on (chat/prompt.ts promptBudget)
+      const used = rt.memoriesInUse(auth.user.id, memoryTokensFor(ctx, rt, auth.user))
       const total = (ctx.db.query('SELECT count(*) n FROM memories WHERE user_id = ?').get(auth.user.id) as { n: number }).n
       return {
         items: items.map((r) => ({ ...rt.store.toMemory(r), ...(used.has(r.id) ? {} : { unused: true as const }) })),
@@ -106,11 +111,21 @@ export const memoriesRoutes: RouteModule = {
       if (r.changes) audit(ctx.db, { actor: auth.user.id, action: 'memory.clear', target: null, detail: { count: r.changes } })
       rt.hub.publish(auth.user.id, { type: 'memory.changed', data: { change: 'cleared', memory: null } })
     })
-    const scheduleOut = (s: ScheduleRow) => ({ id: s.id, title: s.title, prompt: s.prompt, repeat: s.repeat, time: s.time, weekday: s.weekday, day: s.day, date: s.date,
-      projectId: s.project_id, enabled: !!s.enabled, resumeBlockedReason: rt.schedules.resumeBlockedReason(s), nextRunAt: s.next_run_at, lastRunAt: s.last_run_at, lastChatId: s.last_chat_id,
+    const scheduleOut = (s: ScheduleRow) => ({ id: s.id, title: s.title, prompt: s.prompt, ...timingOut(s),
+      projectId: s.project_id, postsIn: postsIn(s), enabled: !!s.enabled, resumeBlockedReason: rt.schedules.resumeBlockedReason(s), nextRunAt: s.next_run_at, lastRunAt: s.last_run_at, lastChatId: s.last_chat_id,
       templateId: s.template_id, templateVersion: s.template_version, sourcePath: s.template_source_path, outputPath: s.template_output_path,
       pendingDueAt: s.pending_due_at, retryAt: s.retry_at, deferredCount: s.deferred_count, ...lastOf(s),
       needsReview: needsReview(s), reviewSince: s.review_since, ...scopeOut(ctx, s) })
+    /** its timing as the server reads it (chat/schedule-timing.ts: `rule` for the kinds the old columns cannot hold) */
+    function timingOut(s: ScheduleRow) {
+      const t = timingOf(s)
+      return { repeat: t.repeat, time: t.time, weekday: t.weekdays?.[0] ?? null, weekdays: t.weekdays, day: t.day, date: t.date, everyMinutes: t.everyMinutes, cron: t.cron }
+    }
+    /** the shared chat its runs post in, by its title while its owner may open it (a run there starts only then) */
+    function postsIn(s: ScheduleRow) {
+      if (!s.chat_id) return null
+      try { const a = chatFor(rt, s.user_id, s.chat_id, 'view'); return { chatId: a.row.id, title: a.row.title } } catch { return null }
+    }
     /** the last run's result and when it came, whether a run is queued or running now (its chat is lastChatId: "Run
      * now" moves only that), and for a run that needed the owner's own key for a template, which one */
     function lastOf(s: ScheduleRow) {
@@ -160,7 +175,9 @@ export const memoriesRoutes: RouteModule = {
       const shadow = (b: ShadowedBy) => (b.tier === 'group' ? { tier: 'group' as const, group: { id: b.group.id, name: b.group.name } } : { tier: b.tier })
       const one = (s: (typeof items)[number], extra: object = {}) => { const i = skillInfo(s); const who = by.get(s.path); const r = replaces.get(s.path); return { ...i, ...(who ? { suggestedBy: who } : {}), ...(r ? { replaces: r } : {}), ...extra } }
       const listed = new Set([...items.map((s) => s.path), ...lost.map((l) => l.skill.path)])
-      return { items: [...items.map((s) => one(s)), ...lost.map((l) => one(l.skill, { shadowedBy: shadow(l.by) })),
+      // ?groups=1, owner and admins: the skills of the groups they are not in, to manage them (never to run)
+      const others = query?.groups ? otherGroupSkills(ctx.files, p) : []
+      return { items: [...items.map((s) => one(s)), ...lost.map((l) => one(l.skill, { shadowedBy: shadow(l.by) })), ...others.map((s) => ({ ...skillInfo(s), notMember: true })),
         ...sections.filter((x) => !listed.has(x.skill.path)).map((x) => ({ ...skillInfo(x.skill), ...(x.by ? { shadowedBy: shadow(x.by) } : {}) }))] }
     })
     // "옮기기" on the Skills page (skills/move.ts): where a skill can go, then the move as seen
@@ -191,4 +208,14 @@ export const memoriesRoutes: RouteModule = {
     kit.handle(API.approveSkillSuggestion, ({ c, params, body, auth }) => approveSuggestion(ctx, auth.user.id, params.id, body, c.get('locale')))
     kit.handle(API.rejectSkillSuggestion, ({ c, params, body, auth }) => rejectSuggestion(ctx, auth.user.id, params.id, body.note, c.get('locale')))
   },
+}
+
+/** The memory block's tokens for the engine and model a new chat of this person starts on (admin/engine-choice.ts
+ * personalDefault), so Settings marks "Not used" by the same cut as that AI's instructions (chat/prompt.ts promptBudget). */
+function memoryTokensFor(ctx: AppContext, rt: ReturnType<typeof getChatRuntime>, user: { id: string; role: string }): number | undefined {
+  try {
+    const e = personalDefault(ctx, user as Parameters<typeof personalDefault>[1])
+    const api = e.engine === 'api' ? rt.engines.get().api ?? null : null
+    return memoryTokensOf(promptBudget(contextTokensFor(e.engine, api ? api.model : e.model, { apiBaseUrl: api?.baseUrl })).total)
+  } catch { return undefined }
 }

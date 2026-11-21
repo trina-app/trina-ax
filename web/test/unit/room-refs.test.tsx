@@ -1,5 +1,5 @@
 // "#" rooms in the AI chat's message box (lib/roomRefs.ts, components/chat/RoomRefMenu.tsx; docs/DECISIONS.md "내 AI
-// 채팅에서 대화방 읽기"): which "#word" opens the list, which rooms it lists, what picking writes, what is sent (the room's
+// 채팅에서 대화 읽기"): which "#word" opens the list, which rooms it lists, what picking writes, what is sent (the room's
 // id with its title), a token taken whole by Backspace, the chips in a sent message, and the room steps under an answer
 // in the language on screen.
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
@@ -122,15 +122,15 @@ describe('room steps under an answer', () => {
   const before = useLocaleStore.getState().locale
   beforeAll(() => installDom())
   afterAll(() => { removeDom(); useLocaleStore.setState({ locale: before }) })
-  const step = (o: Partial<Step>): Step => ({ id: 's', kind: 'tool', tool: 'room_read', label: '대화방 읽기 · 마케팅', status: 'ok', startedAt: '2026-11-06T10:00:00.000Z', endedAt: '2026-11-06T10:00:01.000Z', ...o })
-  const steps = [step({ id: 'a', tool: 'rooms', label: '대화방 찾기' }), step({ id: 'b' }), step({ id: 'c', tool: 'room_file', label: '대화방 파일 읽기 · 보고서.pdf' })]
+  const step = (o: Partial<Step>): Step => ({ id: 's', kind: 'tool', tool: 'room_read', label: '대화 읽기 · 마케팅', status: 'ok', startedAt: '2026-11-06T10:00:00.000Z', endedAt: '2026-11-06T10:00:01.000Z', ...o })
+  const steps = [step({ id: 'a', tool: 'rooms', label: '대화 찾기' }), step({ id: 'b' }), step({ id: 'c', tool: 'room_file', label: '대화 파일 읽기 · 보고서.pdf' })]
   const want: Record<Locale, string[]> = {
-    ko: ['대화방 찾기', '대화방 읽기 · 마케팅', '대화방 파일 읽기 · 보고서.pdf'],
+    ko: ['대화 찾기', '대화 읽기 · 마케팅', '대화 파일 읽기 · 보고서.pdf'],
     en: ['Find in conversations', 'Read conversation · 마케팅', 'Read conversation file · 보고서.pdf'],
-    id: ['Cari di ruang obrolan', 'Baca ruang obrolan · 마케팅', 'Baca berkas ruang obrolan · 보고서.pdf'],
-    ja: ['トークルームを探す', 'トークルームを読む · 마케팅', 'トークルームのファイルを読む · 보고서.pdf'],
-    es: ['Buscar en salas de chat', 'Leer sala de chat · 마케팅', 'Leer archivo de sala de chat · 보고서.pdf'],
-    zh: ['在群聊中查找', '读取群聊 · 마케팅', '读取群聊文件 · 보고서.pdf'],
+    id: ['Cari di percakapan', 'Baca percakapan · 마케팅', 'Baca berkas percakapan · 보고서.pdf'],
+    ja: ['トークを探す', 'トークを読む · 마케팅', 'トークのファイルを読む · 보고서.pdf'],
+    es: ['Buscar en conversaciones', 'Leer conversación · 마케팅', 'Leer archivo de conversación · 보고서.pdf'],
+    zh: ['在聊天中查找', '读取聊天 · 마케팅', '读取聊天文件 · 보고서.pdf'],
   }
   for (const L of Object.keys(want) as Locale[]) {
     test(`in plain words (${L})`, async () => {

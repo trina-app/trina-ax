@@ -1,9 +1,9 @@
 ---
-title: Apps in rooms
-description: Let Sentry, GitHub, Google Forms, Stripe, Jira, HubSpot or any other service post updates into a room, as cards everyone in the room sees.
+title: Apps in conversations
+description: Let Sentry, GitHub, Google Forms, Stripe, Jira, HubSpot or any other service post updates into a conversation, as cards everyone in the conversation sees.
 ---
 
-A room can get updates from the services your team already uses: new **Google Forms** responses, errors from
+A conversation can get updates from the services your team already uses: new **Google Forms** responses, errors from
 **Sentry**, pull requests and failed checks from **GitHub**, or anything else that can send a message to a Webhook URL.
 They arrive as cards from the app, with its logo and an **APP** tag, never as a person. Repeats of the same thing (the
 same error, the same pull request, an edited response) go into one thread under the first card, and the first card's
@@ -11,34 +11,38 @@ status line changes as things move on.
 
 ## Add an app
 
-1. Open the room, then **⋯ › Add an app**.
+1. Open the conversation, then **⋯ › Add an app**.
 2. Pick a service. They are grouped: **Forms** (Google Forms, Typeform, Tally, Jotform), **Payments & orders**
    (Stripe, Shopify), **Work** (Notion, Zendesk, Jira, HubSpot) and **For developers** (GitHub, Sentry). **Show more
    services** opens a few more (Toss Payments, Channel Talk, PortOne). **Other app**, last, takes anything else. A service that needs a plan or a role says so on its row (for example *Needs: a paid Notion plan*).
    An Other app gets a name first (for example *Backup alerts*): its messages show under that name.
 3. Press **Copy** next to the Webhook URL (Google Forms: **Copy code**) and follow the numbered steps in that service.
-   Nothing is added to the room until you copy, so you can look first and close the guide.
+   Nothing is added to the conversation until you copy, so you can look first and close the guide.
 4. The guide shows what happens live: *Waiting for the first message*, *Connected*, or why the last try wasn't shown.
    After two minutes with nothing, **Nothing yet?** lists the usual mistakes for that service and how to send a test.
    **Show an example** shows, inside the guide, how its messages will look. Nothing is posted.
 
-![Add an app: its messages appear in the room for everyone in it, then Google Forms, Other app, GitHub and Sentry](../images/room-apps/picker.webp "Add an app")
+You can also start from **Settings › Connectors**. Sentry, Notion, Stripe and Atlassian (for Jira) have
+**Add to a conversation** under their row. It lists only the conversations where you may add apps; pick one and
+it opens with that service's guide. If you have none yet, start one with **New message** first.
 
-Who can do this: in a team room or the everyone room, its owners and admins; in a 1:1 or a group chat, anyone in it.
-Everyone else in the room sees the cards, replies in their threads and asks Trina about them. A tap on the app's name
+![Add an app: its messages appear in the conversation for everyone in it, then Google Forms, Other app, GitHub and Sentry](../images/room-apps/picker.webp "Add an app")
+
+Who can do this: in a channel (including the Everyone channel), its owners and admins; in a 1:1 or a group chat, anyone in it.
+Everyone else in the conversation sees the cards, replies in their threads and asks Trina about them. A tap on the app's name
 says who set it up.
 
-Everyone in the room sees an app's messages, people who join later too. Pick the room with care: an error report or a
+Everyone in the conversation sees an app's messages, people who join later too. Pick the conversation with care: an error report or a
 form answer can hold customer data.
 
-### In the room
+### In the conversation
 
 Each update is a card under the app's name, with an **APP** tag, what happened, a status line and a link to open it in
-the service. Replies go in the card's thread, as with any message. The room's **✦** side chat offers **What happened
-today?** (Google Forms rooms also **Summarize today's responses**), which sums up the apps' messages with what needs someone first; in a thread it offers **Summarize this
+the service. Replies go in the card's thread, as with any message. The conversation's **✦** side chat offers **What happened
+today?** (Google Forms conversations also **Summarize today's responses**), which sums up the apps' messages with what needs someone first; in a thread it offers **Summarize this
 thread**.
 
-![A room with cards from Sentry, GitHub and a sign-up form, each with an APP tag, and the ✦ side chat open with What happened today?, Catch up, Anything for me? and Summarize](../images/room-apps/side-chat.webp "App cards and the side chat")
+![A conversation with cards from Sentry, GitHub and a sign-up form, each with an APP tag, and the ✦ side chat open with What happened today?, Catch up, Anything for me? and Summarize](../images/room-apps/side-chat.webp "App cards and the side chat")
 
 ### Google Forms
 
@@ -77,7 +81,7 @@ in that service, named the way it names them. In short:
   ([HubSpot workflows](https://knowledge.hubspot.com/workflows/how-do-i-use-webhooks-with-hubspot-workflows)). A
   contact shows its name and company, never its email or phone.
 
-Form answers show in the room as they were given, email addresses too; uploaded files show only their name (Google
+Form answers show in the conversation as they were given, email addresses too; uploaded files show only their name (Google
 Forms: only how many, so the script needs no access to your Drive). Payment
 and order cards show a customer's name (and city for Shopify), never their email, phone or card.
 
@@ -130,6 +134,13 @@ with an example to copy:
 curl -X POST -H 'Content-Type: application/json' -d '{"text":"Hello from my app"}' <Webhook URL>
 ```
 
+An Other app shows the first letter of its name on its own colour, so two Other apps in one conversation don't look the
+same. To give it a picture instead, open its settings and choose **Change icon**: **Upload an image** (PNG, JPEG or
+WebP; it is cut to a square) or **Pick an emoji**. **Remove icon** brings the letter back. The icon shows on all of the
+app's messages, older ones too. A message can't change the app's name or icon: fields such as Slack's `username`,
+`icon_url` and `icon_emoji` or Discord's `avatar_url` are ignored, so nothing posted to the Webhook URL can pass for a
+person or another app.
+
 ### GitHub
 
 Per repository; you need admin access to it ([GitHub docs](https://docs.github.com/en/webhooks/using-webhooks/creating-webhooks)).
@@ -160,7 +171,7 @@ You need to be an owner or a manager in Sentry.
 
 ## Settings
 
-**⋯ › Integrations** lists the room's apps under **Apps**, with **Add an App**. One app's page has:
+**⋯ › Integrations** lists the conversation's apps under **Apps**, with **Add an App**. One app's page has:
 
 - Who set it up, and **How to connect** (its steps again).
 - **A status line**: the last message, *Paused*, *Waiting for the first message*, or, after **Regenerate** and until
@@ -169,8 +180,9 @@ You need to be an owner or a manager in Sentry.
 - **Warnings**, each with one action: why the last try wasn't shown (**Check the secret**), *Someone who left knows this
   Webhook URL* (**Regenerate**), and, for a service that can sign but has no secret yet, *Not signed: anyone with the Webhook URL can
   post* (**Make it safer**).
+- **Change icon** (Other apps): an image or an emoji in place of the first letter of its name, or **Remove icon**.
 - **Name**: the name its messages show under.
-- **Show in this room**: the kinds of updates to post (for apps that send more than one kind). An optional event you
+- **Show in this conversation**: the kinds of updates to post (for apps that send more than one kind). An optional event you
   never set up in the service (for example Shopify's refunds) says *Not set up in Shopify*, with a link to that step.
 - **Post quietly**: a short line, with no unread mark or alert.
 - **How to send** (Other apps).
@@ -178,12 +190,12 @@ You need to be an owner or a manager in Sentry.
   service).
 - **Remove app**: the app can't post any more; its messages stay.
 
-![Sentry's settings: set up by Olga with How to connect, the last message, a Not signed warning with Make it safer, Name, Show in this room switches, Post quietly, Webhook URL with Copy and Regenerate, and Remove app](../images/room-apps/settings.webp "An app's settings")
+![Sentry's settings: set up by Olga with How to connect, the last message, a Not signed warning with Make it safer, Name, Show in this conversation switches, Post quietly, Webhook URL with Copy and Regenerate, and Remove app](../images/room-apps/settings.webp "An app's settings")
 
 ## Limits
 
 An app posts at most 500 messages a day (Google Forms: 500 responses). Past that it pauses until midnight (your team's
-time zone): the room gets one line, and the people who manage it get a notice in **Activity** (and on their phone and in their browser) with **Resume now**
+time zone): the conversation gets one line, and the people who manage it get a notice in **Activity** (and on their phone and in their browser) with **Resume now**
 (once a day). All of a team's apps together post at most 5,000 messages a day: past that every app pauses until
 midnight, and the line and notice say *Your team's apps reached 5,000 messages today*, with no **Resume now**. Form
 responses it skipped are still in the form's Responses tab. Cards are plain text: nothing in them can mention anyone,
@@ -192,6 +204,6 @@ run anything or hide a link.
 ## When apps can't reach the server
 
 Apps need an outside connection to send messages to your team. Hosted teams and servers that use the Trina relay have
-one. A server on an office network only does not: the room's **Add an app** says so, and the owner can **Turn on
+one. A server on an office network only does not: the conversation's **Add an app** says so, and the owner can **Turn on
 connection** in **Admin › System › Connection**. A server with its own public address and a country or network list
 still takes app messages from anywhere; Admin › System › Connection says so.

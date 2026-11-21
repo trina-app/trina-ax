@@ -20,16 +20,17 @@ import { msg } from '../auth/messages'
 import { userRef } from '../auth/users'
 import { audit } from './audit'
 import { teamDefaultLocale } from './settings'
-import { failOnePlace, guestPlace, guestsAmong, projectFolder } from '../auth/guests'
+import { claimGuestProject, guestsAmong } from '../auth/guests'
 import { folderKeep, isParkedRow, type FolderKeep } from './folder-keep'
 import { shownSegs } from './access-rows'
 import { rulesHash, rulesHashV1 } from './access-edit'
-import { resetEngineSessions as resetChatSessions, stopTurnsIn } from '../chat/runtime'
+import { forgetLiveViewers, resetEngineSessions as resetChatSessions, stopTurnsIn } from '../chat/runtime'
 import { sharedChatsHidden } from '../chat/shared'
 import { peopleChatsLost, rememberAudience } from '../chat/chat-audience'
-import { syncRoomsNow } from '../rooms/service'
+import { groupFoldersChanged, syncRoomsNow, teamRoomSeats } from '../rooms/service'
 import { recheckHistories } from '../rooms/history'
 import { checkDriveShareOwners } from '../integrations/google-drive/shares'
+import { anyFolderShare } from '../files/share-readers'
 
 export interface FolderRow { id: string; path: string; created_at: string; limited?: number }
 interface RuleRow { id: string; folder_id: string; subject_type: FolderRule['subjectType']; subject_id: string | null; access: Access; updated_by: string | null; updated_at: string; origin?: string | null }
@@ -229,8 +230,9 @@ export function writeFolderAccess(db: Database, folderId: string, next: { rules:
 }
 
 /**
- * One place per guest (docs/DECISIONS.md "Guests: only what they were invited to"): a person rule that gives a guest
- * access is written only at or below their own project's folder. A new one anywhere else (the members panel, the AI's
+ * One project per guest (docs/DECISIONS.md "Guests: one group chat and one project"): a person rule that gives a guest
+ * access is written only at or below the project they hold, or, holding none, on a live project's own folder, which
+ * then becomes theirs (auth/guests.ts claimGuestProject). A new one anywhere else (the members panel, the AI's
  * change_project_members, Admin › Folder permissions, a new project's people) is refused in the same write with 409
  * guest_one_place; a rule they already have there may be kept or changed.
  */
@@ -238,9 +240,7 @@ function guestRulesInPlace(db: Database, folderPath: string, folderId: string, r
   const named = rules.filter((r) => r.subjectType === 'user' && r.subjectId && r.access !== 'none').map((r) => r.subjectId!)
   for (const id of guestsAmong(db, named)) {
     if (db.query("SELECT 1 FROM folder_rules WHERE folder_id = ? AND subject_type = 'user' AND subject_id = ? AND access <> 'none'").get(folderId, id)) continue
-    const place = guestPlace(db, id)
-    const own = place?.kind === 'project' ? projectFolder(db, place.id) : null
-    if (!own || !(folderPath === own || folderPath.startsWith(own + '/'))) failOnePlace(teamDefaultLocale(db))
+    claimGuestProject(db, id, folderPath, teamDefaultLocale(db))
   }
 }
 
@@ -497,6 +497,17 @@ export function afterAccessChange(ctx: AppContext, before: AccessState, by: { ac
     const chatsReset = resetEngineSessions(ctx, userId)
     out.push({ userId, paths, chatsReset })
   }
+  // someone who left a group (or the team) while folders of the team are shared: a folder share through that group may
+  // have reached them (files/share-readers.ts; the grants are read live, so nothing else changes): a fresh engine
+  // session, as for a folder they lost (a resumed one may hold what they read there)
+  if (anyFolderShare(ctx.db)) {
+    const afterGroups = new Map(after.principals.map((p) => [p.id, p.groups]))
+    for (const pb of before.principals) {
+      if (losses.has(pb.id)) continue
+      const ga = afterGroups.get(pb.id)
+      if (!ga || pb.groups.some((g) => !ga.includes(g))) { try { resetEngineSessions(ctx, pb.id) } catch { /* their next turn starts fresh when it cannot resume */ } }
+    }
+  }
   // every person whose access changed in a way they can tell re-reads open folders (tab 5 "권한 회수")
   const paths = decidingPaths(before, after)
   const created = new Set(by.created ?? [])
@@ -510,14 +521,20 @@ export function afterAccessChange(ctx: AppContext, before: AccessState, by: { ac
   // whose access changed: the old answers hidden from them in team rooms and the everyone room are checked again on
   // the rooms' next pass (rooms/history.ts: only fewer, never more)
   const accessChanged: string[] = []
+  // the folders whose access changed for anyone (a team room's Files button follows them: groupFoldersChanged below)
+  const changedPaths = new Set<string>()
   for (const pb of before.principals) {
     const pa = after.principals.find((p) => p.id === pb.id)
     if (!pa) { ctx.services.realtime.forgetReplay(pb.id); continue }
     const changed = paths.filter((p) => before.rules.access(pb, segsOf(p)) !== after.rules.access(pa, segsOf(p)))
     if (changed.length) { ctx.services.realtime.forgetReplay(pb.id); accessChanged.push(pb.id) }
+    for (const p of changed) changedPaths.add(p)
     const named = changed.filter((p) => noticeMayName(p, pb, pa, before, after, created, onDisk))
     if (named.length) ctx.services.realtime.publish(pb.id, { type: 'notice', data: { level: 'info', code: 'access_changed', message: named.map((p) => p || '/').join(', ') } })
   }
+  // a running answer of a shared chat works out who gets its live text again before its next piece (chat/live-answer.ts):
+  // any access change may change who sees the chat or which paths a step line may name to them
+  try { forgetLiveViewers(ctx) } catch (e) { ctx.log.warn('live viewers not reset', { err: e }) }
   // shared project chats follow their project's audience (chat/shared.ts): whoever no longer sees one has it dropped from
   // their lists and project pages, by its id alone (the chat's details never go to someone who cannot see it). After
   // the replay buffers above were emptied, so a window resuming gets these too. Never throws: the change is saved
@@ -550,7 +567,12 @@ export function afterAccessChange(ctx: AppContext, before: AccessState, by: { ac
   if (out.length) audit(ctx.db, { actor: by.actor, action: 'folder.access_lost', target: by.target, detail: { losing: out, ...(by.via ? { via: by.via } : {}) } })
   // team rooms and the everyone room follow groups and accounts (rooms/service.ts sync; it never throws)
   recheckHistories(ctx, accessChanged)
-  syncRoomsNow(ctx)
+  // the team rooms of the people whose access changed, as they were before the sync (joiners get the sync's `added`)
+  const seats = changedPaths.size ? teamRoomSeats(ctx, accessChanged) : new Set<string>()
+  // (and a project's chat room for the projects near a folder whose access changed: rooms/project-room.ts)
+  syncRoomsNow(ctx, [...changedPaths])
+  // and a team room's header Files button shows or hides for whoever's answer changed (QA TC-3848; never throws)
+  groupFoldersChanged(ctx, before, after, [...changedPaths], seats)
   // a Drive shared with the team stops when its admin is disabled, deleted or no longer an admin
   checkDriveShareOwners(ctx)
   // the hooks of other areas (admin/guests.ts: a guest no longer in their one place is switched off)

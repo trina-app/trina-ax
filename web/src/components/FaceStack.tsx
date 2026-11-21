@@ -1,6 +1,7 @@
 // People's pictures overlapping, at most 3 and then "+N"; on a phone at most 2, so the row's text keeps its room. Used
 // for who else wrote in a shared chat (chat/SharedChat.tsx ChatFaces; docs/DECISIONS.md "Faces in every chat list"), for a group's members (Admin › Groups) and for who is in a team project (ProjectPeople.tsx: 4 faces, also on a
-// phone, each with its name on hover: `shown`, `phoneShown`, `tips`). Decorative (aria-hidden): the row says the names in
+// phone, each with its name on hover: `shown`, `phoneShown`, `tips`). A group chat among the direct messages draws its stack in one
+// picture's box (`fit`: two faces overlapped, the front one 80% of the box and the back one 70%, as Slack's group DMs), so its name lines up with a 1:1's. Decorative (aria-hidden): the row says the names in
 // words. It takes a ref and handlers (the rest of its props go to its element), so a Tooltip can wrap it.
 import clsx from 'clsx'
 import type { ComponentPropsWithRef } from 'react'
@@ -28,7 +29,7 @@ const MORE = '-ml-1 flex shrink-0 items-center justify-center rounded-full bg-ho
  * `<testId>-people`, the "+N" tiles `<testId>-more` (a computer) and `<testId>-more-phone` (only when the phone shows
  * fewer). `size`: each face's size (20 unless given).
  */
-export function FaceStack({ people, count, hoverRing, on = 'canvas', selected, testId, shown = FACES_SHOWN, phoneShown = PHONE_SHOWN, tips, size = 20, ...rest }: {
+export function FaceStack({ people, count, hoverRing, on = 'canvas', selected, testId, shown = FACES_SHOWN, phoneShown = PHONE_SHOWN, tips, size = 20, fit, ...rest }: {
   people: readonly AvatarUser[]
   count: number
   hoverRing?: boolean
@@ -40,8 +41,38 @@ export function FaceStack({ people, count, hoverRing, on = 'canvas', selected, t
   tips?: boolean
   /** each face's size in px: 20, 24 (a project's people under its name) or 28 (the member picker's group rows) */
   size?: 20 | 24 | 28
+  /** the stack in one picture's box of this many px, as Slack draws a group DM (a group chat among the direct messages,
+   * so its name lines up with a 1:1's): the first two faces, the back one (70%) at the top left and the front one (80%,
+   * ringed) at the bottom right over it; one face fills the box. No "+N" (the row's words say how many); `shown`, `phoneShown`, `size` and `tips` do
+   * not apply. */
+  fit?: number
 } & Omit<ComponentPropsWithRef<'span'>, 'children' | 'className'>) {
   const ring = clsx('ring-2', selected ? 'ring-hover' : on === 'subtle' ? 'ring-subtle' : on === 'surface' ? 'ring-surface' : 'ring-canvas', hoverRing && 'group-hover:ring-hover')
+  if (fit) {
+    const two = people.slice(0, 2)
+    // two faces: the front one (bottom right) 80% of the box and the back one (top left) 70%, as large as the box allows
+    // while the back one still shows (TC-3936: at 70% each the sidebar's 20px box gave two 14px faces nobody could read)
+    const front = two.length > 1 ? Math.round(fit * 0.8) : fit
+    const back = Math.round(fit * 0.7)
+    return (
+      <span {...rest} className="relative isolate block shrink-0" style={{ width: fit, height: fit }} aria-hidden data-testid={`${testId}-people`} data-fit="">
+        {two.map((p, i) => {
+          const behind = i === 0 && two.length > 1
+          return (
+            // the back face shows only a sliver: its letter (a person without a photo) would be cut to a stray stroke, so
+            // it is a plain disc; the front one keeps its letter, ringed in the row's colour. A letter's disc is a shade
+            // of the line colour, not the hover colour: on a highlighted (hover-coloured) row the hover disc vanished
+            <Avatar
+              key={p.id}
+              user={p}
+              size={behind ? back : front}
+              className={clsx('absolute', two.length < 2 ? 'top-0 left-0' : behind ? 'top-0 left-0 z-0 bg-line-strong/45! text-transparent!' : 'right-0 bottom-0 z-[1] bg-line-strong/25! text-ink!', i > 0 && ring)}
+            />
+          )
+        })}
+      </span>
+    )
+  }
   // the "+N" tile as high as a face
   const more = clsx(MORE, size === 28 ? 'h-[28px] min-w-[28px]' : size === 24 ? 'h-[24px] min-w-[24px]' : 'h-[20px] min-w-[20px]')
   const phone = Math.min(phoneShown, shown)

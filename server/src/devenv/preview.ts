@@ -8,7 +8,8 @@
 //  - A short-lived, single-use token in the link (5 minutes); redeeming it sets a session cookie for that one origin
 //    (60 minutes).
 //  - A link belongs to one run (its row and its run id), one port and one person: the person who started the dev
-//    server. Every request checks again that the row is open and is still that run, and that the person may still use
+//    server, or in a shared chat the person in that chat who opened it (docs/decisions/20261118-devenv-shared-jobs-
+//    mac-localhost.md: everyone who sees the chat may open it, the run sees only what all of them may open). Every request checks again that the row is open and is still that run, and that the person may still use
 //    the dev environment. The socket comes from the row (srt/runner.ts previewSocket), never from the request, so a
 //    link of run A never reaches run B (attack A26).
 //  - The gateway reaches the dev server through `mycel-sandbox port-forward`'s unix socket (the run's own network
@@ -17,8 +18,7 @@
 import crypto from 'node:crypto'
 import type { AppContext } from '../context'
 import { audit } from '../admin/audit'
-import { mayUseDevEnv } from './setting'
-import { previewRow, previewSocket } from './srt/runner'
+import { previewAllowed, previewSocket } from './srt/runner'
 
 export const TOKEN_TTL_MS = 5 * 60_000
 export const SESSION_TTL_MS = 60 * 60_000
@@ -71,8 +71,8 @@ const deny = (status: number, msg: string) => new Response(msg, { status, header
 /** the person may still see this preview: the same run is open and running, and the person may use the dev
  * environment (the team setting, the scope, an active account) */
 function stillAllowed(ctx: AppContext, l: Link): boolean {
-  if (!previewRow(ctx, { rowId: l.rowId, runId: l.runId, userId: l.userId })) return false
-  try { return mayUseDevEnv(ctx.db, ctx.files, l.userId) } catch { return false }
+  // a shared chat's dev server: the viewer still sees that chat, and its starter may still use the dev environment
+  return !!previewAllowed(ctx, { rowId: l.rowId, runId: l.runId, userId: l.userId })
 }
 
 export type PreviewUpstream = (socket: string, req: Request) => Promise<Response>

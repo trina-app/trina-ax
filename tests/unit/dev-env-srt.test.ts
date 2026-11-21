@@ -14,12 +14,12 @@ import { legacyProjectFolder, oldProject } from '../lib/legacy-project'
 import { CANARIES, EXPECTED } from '../lib/fixtures'
 import { RuleSet, type Access, type Principal } from '../../server/src/policy/access'
 import { folderView, runMayWrite, runSkillFolders, viewAccess, type FolderView } from '../../server/src/devenv/srt/access'
-import { DENIED_NAMES, DENIED_RANGES, DENIED_SYSTEM_PATHS, ETC_SECRETS, RUN_ID_RE, SYSTEM_READ_PATHS, isFull, SRT_PATHS, SRT_VERSION, TEMPLATE_UNIT_RE, UNIT_RE, chatWork, personHome, personLogs, runEnv, runIdOfUnit, scopeArgv, serverFilesOutsideBase, settingsProblems, srtArgv, srtSettings, unitArgs, unitLimits, unitName } from '../../server/src/devenv/srt/config'
+import { DENIED_NAMES, DENIED_RANGES, DENIED_SYSTEM_PATHS, ETC_SECRETS, RUN_ID_RE, SYSTEM_READ_PATHS, isFull, SRT_PATHS, SRT_VERSION, TEMPLATE_UNIT_RE, UNIT_RE, chatWork, personHome, personLogs, projectHome, runEnv, runIdOfUnit, scopeArgv, serverFilesOutsideBase, settingsProblems, srtArgv, srtSettings, unitArgs, unitLimits, unitName } from '../../server/src/devenv/srt/config'
 import { effectiveLimits, parsePlan, sliceValues, type DevEnvPlan } from '../../server/src/devenv/srt/plan'
 import { _active, newRunId, readExit, setSrtSystem, teamHosts, WAIT_MAX_MS } from '../../server/src/devenv/srt/runner'
 import { _held, _heldSkills, holdPlaceholders, holdSkillFolders, SRT_DENY_DIRS, SRT_DENY_FILES } from '../../server/src/devenv/srt/placeholders'
 import { cgroupDir, slicePath, type SpawnSpec, type SrtSystem, type UnitInfo } from '../../server/src/devenv/srt/system'
-import { pollSrt, runResultsForAI } from '../../server/src/devenv/jobs'
+import { JOB_DONE, JOB_FAILED, JOB_FAILED_NO_CHAT, pollSrt, runResultsForAI } from '../../server/src/devenv/jobs'
 import { mayUseDevEnv, newConsent, saveTeamSetting, teamInForce, teamSetting } from '../../server/src/devenv/setting'
 import { boxShellTool } from '../../server/src/devenv/tool'
 import { _resetUpdateWait, beginUpdateWait, endUpdateWait } from '../../server/src/system/update-wait'
@@ -27,6 +27,7 @@ import { fullInternet, grantUserSite, setFullInternet, userSites } from '../../s
 import { configureStorageGuard } from '../../server/src/system/storage'
 import { fileEvent } from '../../server/src/files/store'
 import { componentC } from '../../server/src/team-files/component'
+import { gitEnv } from '../../server/src/devenv/srt/git-guard'
 import { ruleWorld, type RuleRow } from '../lib/rule-world'
 
 setDefaultTimeout(40_000)
@@ -353,7 +354,7 @@ describe('the srt settings file', () => {
   test('hides the base folder, users/ and .system/; gives back the person\'s folders, home and logs', () => {
     const s = srtSettings(input)
     expect(s.filesystem.denyRead).toEqual([BASE, '/etc/default/mycel', ...DENIED_SYSTEM_PATHS, `${TEAM}/users`, `${TEAM}/.system`, `${TEAM}/groups/marketing/salaries`])
-    expect(s.filesystem.allowRead).toEqual([`${TEAM}/shared`, `${TEAM}/skills`, `${TEAM}/groups/marketing`, `${TEAM}/projects/falcon`, `${TEAM}/users/alice`, `${BASE}/devenv/home/alice`, `${BASE}/devenv/logs/alice`, ...SYSTEM_READ_PATHS])
+    expect(s.filesystem.allowRead).toEqual([`${TEAM}/shared`, `${TEAM}/skills`, `${TEAM}/groups/marketing`, `${TEAM}/projects/falcon`, `${TEAM}/users/alice`, `${BASE}/devenv/home/alice`, `${BASE}/devenv/logs/alice`, `${BASE}/devenv/bin`, ...SYSTEM_READ_PATHS])
     expect(s.filesystem.allowWrite).toEqual([`${TEAM}/projects/falcon`, `${TEAM}/users/alice`, `${BASE}/devenv/home/alice`])
     expect(s.filesystem.denyWrite).toEqual([`${TEAM}/projects/falcon/public`, `${TEAM}/projects/falcon/skills`, `${TEAM}/users/alice/skills`])
     expect(settingsProblems(s, input)).toEqual([])
@@ -511,7 +512,9 @@ describe('the srt settings file', () => {
   })
   test('the environment: only the listed keys; HOME and the logs per person; the work folder only for a chat with no project', () => {
     const e = runEnv({ base: BASE, userId: 'alice', teamRoot: TEAM, work: null })
-    expect(Object.keys(e).sort()).toEqual(['CI', 'CLAUDE_CODE_TMPDIR', 'HOME', 'LANG', 'NODE_USE_ENV_PROXY', 'PATH', 'PIP_CACHE_DIR', 'PLAYWRIGHT_BROWSERS_PATH', 'SHELL', 'TERM', 'TMPDIR', 'TRINA_LOGS', 'TRINA_TEAM', 'npm_config_cache'])
+    // (and git's, npm's and Python's settings that run nothing by themselves: git-guard.ts gitEnv, QA TC-4939)
+    expect(Object.keys(e).filter((k) => !(k in gitEnv())).sort()).toEqual(['CI', 'CLAUDE_CODE_TMPDIR', 'HOME', 'LANG', 'NODE_USE_ENV_PROXY', 'PATH', 'PIP_CACHE_DIR', 'PLAYWRIGHT_BROWSERS_PATH', 'SHELL', 'TERM', 'TMPDIR', 'TRINA_LOGS', 'TRINA_TEAM', 'npm_config_cache'])
+    for (const [k, v] of Object.entries(gitEnv())) expect(e[k]).toBe(v)
     expect(e.HOME).toBe(personHome(BASE, 'alice'))
     expect(e.TMPDIR).toBe(`${BASE}/devenv/home/alice/tmp`)
     expect(e.CLAUDE_CODE_TMPDIR).toBe(`${BASE}/devenv/home/alice/tmp`)
@@ -613,7 +616,7 @@ describe('the argv of a run', () => {
     // no environment or extra rights of the server's own
     for (const k of ['Environment', 'EnvironmentFile', 'Delegate']) expect(t.has(k)).toBe(false)
     // every other line of the server unit's [Service] is its sandbox: the template has the same value
-    const notSandbox = new Set(['Type', 'User', 'Group', 'ExecStart', 'Environment', 'EnvironmentFile', 'Restart', 'RestartSec', 'KillMode', 'TimeoutStopSec', 'Slice', 'Delegate', 'OOMPolicy', 'TasksMax', 'LimitNOFILE'])
+    const notSandbox = new Set(['Type', 'User', 'Group', 'ExecStart', 'Environment', 'EnvironmentFile', 'Restart', 'RestartSec', 'KillMode', 'TimeoutStopSec', 'Slice', 'Delegate', 'OOMPolicy', 'TasksMax', 'LimitNOFILE', 'MemoryMax', 'MemorySwapMax'])
     for (const [k, v] of sv) {
       if (notSandbox.has(k)) continue
       if (k === 'ReadWritePaths') {
@@ -722,27 +725,35 @@ describe('the plan file (root/dev-env.json)', () => {
 })
 
 describe('the srt attack image builds from what it copies (tests/linux/Dockerfile.srt)', () => {
-  test('the files the attack suite loads import only node, @mycel/shared, the srt folder and policy/access.ts', () => {
-    // the image copies shared/, server/src/devenv/srt and server/src/policy/access.ts only: a new import of anything else
-    // breaks the CI step "Dev environment on srt, attack suite" (it did once: skills/guard from access.ts)
+  test('every file the two suites load is in a folder the image copies', () => {
+    // the image copies shared/, server/src, server/migrations, server/assets, resources/ and tests/lib: a new import of
+    // anything else breaks the CI step "Dev environment on srt, attack suite" (it did once: skills/guard from access.ts)
     const docker = fs.readFileSync(path.join(REPO, 'tests/linux/Dockerfile.srt'), 'utf8')
-    expect(docker).toContain('COPY server/src/devenv/srt /opt/mycel/server/src/devenv/srt')
-    expect(docker).toContain('COPY server/src/policy/access.ts /opt/mycel/server/src/policy/access.ts')
+    const copied = ['shared', 'server/src', 'server/migrations', 'server/assets', 'resources', 'tests/lib']
+    for (const d of copied) expect(docker).toContain(`COPY ${d} /opt/mycel/${d}`)
+    // and the suites' own files, sweep-as.ts too (the hook sweep as the server account, srt-attack.ts)
+    expect(docker).toContain('COPY tests/linux/srt-attack.ts tests/linux/srt-subagent.ts tests/linux/sweep-as.ts /opt/mycel/tests/linux/')
+    // and the package files the image copies one by one (bun install)
+    const files = ['package.json', 'server/package.json', 'tests/package.json']
+    for (const f of files) expect(docker).toMatch(new RegExp(`COPY (\\S+ )*${f.replace('.', '\\.')}( |$)`, 'm'))
+    const inCopy = (rel: string) => files.includes(rel) || copied.some((d) => rel === d || rel.startsWith(d + '/'))
+    const resolve = (rel: string) => [rel, `${rel}.ts`, `${rel}.tsx`, `${rel}/index.ts`].find((f) => { try { return fs.statSync(path.join(REPO, f)).isFile() } catch { return false } })
     const seen = new Set<string>()
     const visit = (rel: string) => {
       if (seen.has(rel)) return
       seen.add(rel)
       const text = fs.readFileSync(path.join(REPO, rel), 'utf8')
-      for (const m of text.matchAll(/^(?:import|export)[^'"]*from\s+['"]([^'"]+)['"]/gm)) {
+      for (const m of text.matchAll(/(?:^(?:import|export)[^'"\n]*from\s+|\bimport\(\s*)['"]([^'"]+)['"]/gm)) {
         const spec = m[1]!
-        if (spec.startsWith('node:') || spec === 'bun:sqlite' || spec.startsWith('@mycel/shared')) continue
-        const next = path.posix.normalize(path.posix.join(path.posix.dirname(rel), spec)) + '.ts'
-        expect([rel, spec, next.startsWith('server/src/devenv/srt/') || next === 'server/src/policy/access.ts']).toEqual([rel, spec, true])
-        visit(next)
+        if (!spec.startsWith('.')) continue
+        const file = resolve(path.posix.normalize(path.posix.join(path.posix.dirname(rel), spec)))
+        expect([rel, spec, !!file && inCopy(file)]).toEqual([rel, spec, true])
+        if (file && /\.tsx?$/.test(file)) visit(file)
       }
     }
-    for (const m of fs.readFileSync(path.join(REPO, 'tests/linux/srt-attack.ts'), 'utf8').matchAll(/from\s+'\.\.\/\.\.\/(server\/src\/[^']+)'/g)) visit(`${m[1]}.ts`)
+    for (const f of ['tests/linux/srt-attack.ts', 'tests/linux/srt-subagent.ts']) visit(f)
     expect([...seen]).toContain('server/src/devenv/srt/access.ts')
+    expect([...seen]).toContain('server/src/devenv/tool.ts')
   })
 })
 
@@ -827,7 +838,7 @@ const fake: SrtSystem = {
     const exited = new Promise<{ code: number | null; signal: string | null }>((r) => { resolve = r })
     const r: FakeRun = { spec, settings, settingsMode, state: 'active', result: '', resolve, oom: 0 }
     runs.set(spec.runId, r)
-    const c = spec.command
+    const c = spec.command.split('\n').pop()!
     const end = (code: number) => { fs.writeFileSync(spec.exitFile, `${code}\n`); r.state = 'gone'; resolve({ code, signal: null }) }
     queueMicrotask(() => {
       if (c === 'sleep') return
@@ -943,7 +954,10 @@ describe('the team setting', () => {
     setSrtSystem(fake, { base: devBase, id: 'mycel', plan: STARTER })
     const r = await h.api('alice').call(API.devEnv, { params: { id: falconId } })
     expect(r.availability).toMatchObject({ available: false, reason: 'platform' })
-    expect(r.availability.detail).toContain('polkit')
+    // the reason names server paths: an admin sees it, a member does not (QA TC-4924 review)
+    expect(r.availability.detail).toBeUndefined()
+    const admin = await h.api('carol').call(API.devEnvTeam, {})
+    expect(admin.availability!.detail).toContain('polkit')
   })
   test('off: the tool says so and runs nothing', async () => {
     turnOnTeam({ enabled: false })
@@ -997,7 +1011,8 @@ describe('a command follows the person, not the project', () => {
     const t = (r: string) => path.join(h.team, r)
     // Q0 (b): only the project folder is writable. Falcon is seen by bob (finance) and the admins too, so a folder they
     // may not read (groups/marketing, her own users/alice) is hidden in the run: nothing of it can be copied into falcon
-    expect(s.filesystem.allowWrite).toEqual([t(FALCON), personHome(devBase, 'alice')])
+    // a home of her own for this project folder (QA TC-4939, config.ts projectHome)
+    expect(s.filesystem.allowWrite).toEqual([t(FALCON), projectHome(devBase, 'alice', FALCON)])
     expect(s.filesystem.allowRead).toEqual(expect.arrayContaining([t('skills'), t('shared')]))
     for (const p of [...s.filesystem.allowRead, ...s.filesystem.allowWrite]) for (const no of ['groups/marketing', 'users/alice']) expect(p.startsWith(t(no))).toBe(false)
     expect(s.filesystem.denyRead).toEqual(expect.arrayContaining([devBase, h.team, t('users'), t('.system')]))
@@ -1052,7 +1067,7 @@ describe('a command follows the person, not the project', () => {
     // groups/finance is writable for bob, but alice sees falcon and may not read groups/finance: hidden in this run
     expect(s.filesystem.allowWrite).not.toContain(path.join(h.team, 'groups/finance'))
     expect(s.filesystem.allowRead).not.toContain(path.join(h.team, 'groups/finance'))
-    expect([...runs.values()][0]!.spec.env.HOME).toBe(personHome(devBase, 'bob'))
+    expect([...runs.values()][0]!.spec.env.HOME).toBe(projectHome(devBase, 'bob', FALCON))
   })
   test('a project folder the person cannot open: the run starts in the chat\'s work folder and the folder stays hidden', async () => {
     await shell('erin', falcon(), chatErin).call({ command: 'echo x' })
@@ -1076,7 +1091,7 @@ describe('a command follows the person, not the project', () => {
   test('the environment is the listed keys only: nothing from the server\'s environment', async () => {
     await alice().call({ command: 'echo x' })
     const env = [...runs.values()][0]!.spec.env
-    expect(env).toEqual(runEnv({ base: devBase, userId: 'alice', teamRoot: h.team, work: null, platform: 'linux' }))
+    expect(env).toEqual(runEnv({ base: devBase, userId: 'alice', teamRoot: h.team, work: null, platform: 'linux', projectFolder: FALCON }))
     expect(JSON.stringify(env)).not.toContain('CANARY-ENV')
     expect(Object.keys(env).some((k) => k.startsWith('MYCEL'))).toBe(false)
   })
@@ -1174,9 +1189,14 @@ describe('the storage rule before each command', () => {
     expect(r.isError).toBeUndefined()
     expect(runs.size).toBe(1)
   })
-  test('where the rule is not enforced the command runs', async () => {
-    configureStorageGuard({ root: h.team, enforce: () => false, statfs: () => ({ bsize: 4096, blocks: 100, bfree: 0, bavail: 0 }) })
+  test('where the rule is not enforced the command runs while the simple floor has room', async () => {
+    // #1284: without the plan's rule the simple floor (2 GiB or 5% free, system/storage.ts simpleFloorBytes) still applies
+    configureStorageGuard({ root: h.team, enforce: () => false, statfs: () => ({ bsize: 4096, blocks: (100 * GiB) / 4096, bfree: (50 * GiB) / 4096, bavail: (50 * GiB) / 4096 }) })
     expect((await alice().call({ command: 'echo hi' })).isError).toBeUndefined()
+    configureStorageGuard({ root: h.team, enforce: () => false, statfs: () => ({ bsize: 4096, blocks: 100, bfree: 0, bavail: 0 }) })
+    const r = await alice().call({ command: 'echo hi' })
+    expect(r.isError).toBe(true)
+    expect(out(r)).toContain("the team's storage is full")
   })
 })
 
@@ -1230,11 +1250,11 @@ describe('jobs and the queue (per team)', () => {
     expect(rows().map((r) => [r.name, r.state, r.end_reason])).toEqual([['one', 'ended', 'exit'], ['two', 'running', ''], ['three', 'waiting', '']])
     expect(rows()[0]!.exit_code).toBe(0)
     expect(publish.filter((p) => p.frame.data.code === 'dev_env_job')).toMatchObject([{ user: 'alice', frame: { data: { link: `/c/${chatFalcon}` } } }])
-    expect(runs.get(runIdOfRow(rows()[1]!))!.spec.command).toBe('echo two')
-    expect(runs.get(runIdOfRow(rows()[1]!))!.spec.env.HOME).toBe(personHome(devBase, 'bob'))
+    expect(runs.get(runIdOfRow(rows()[1]!))!.spec.command.split('\n').pop()).toBe('echo two')
+    expect(runs.get(runIdOfRow(rows()[1]!))!.spec.env.HOME).toBe(projectHome(devBase, 'bob', FALCON))
     finish(runIdOfRow(rows()[1]!), 0)
     await pollSrt(h.ctx)
-    expect(runs.get(runIdOfRow(rows()[2]!))!.spec.command).toBe('echo three hunter2')
+    expect(runs.get(runIdOfRow(rows()[2]!))!.spec.command.split('\n').pop()).toBe('echo three hunter2')
     // the result goes to the AI of the chat that started the job, once, and to nobody else
     expect(runResultsForAI(h.ctx, 'bob', chatBob).join('\n')).not.toContain('Job one')
     expect(runResultsForAI(h.ctx, 'alice', chatPlain).join('\n')).not.toContain('Job one')
@@ -1309,7 +1329,9 @@ describe('jobs and the queue (per team)', () => {
     r.state = 'failed'; r.result = 'oom-kill'; r.resolve({ code: null, signal: 'SIGKILL' })
     await pollSrt(h.ctx)
     expect(rows()[0]).toMatchObject({ state: 'ended', end_reason: 'oom', exit_code: null })
-    expect(publish.find((p) => p.frame.data.code === 'dev_env_job')!.frame.data.message).toContain('ran out of memory')
+    // the person hears that it did not finish, in plain words (the reason stays in the row, for the AI)
+    const bigTitle = (h.ctx.db.query('SELECT title FROM chats WHERE id = ?').get(chatPlain) as { title: string }).title.trim()
+    expect(bigTitle ? Object.values(JOB_FAILED).map((f) => f(bigTitle)) : Object.values(JOB_FAILED_NO_CHAT)).toContain(publish.find((p) => p.frame.data.code === 'dev_env_job')!.frame.data.message!)
     // the inbox has the job of a chat with no project, with a link to the chat
     const inbox = (await h.api('alice').call(API.listNotifications, { query: {} })).items.find((i) => i.devEnv?.job?.name === 'big')
     expect(inbox).toMatchObject({ link: 'chat', chatId: chatPlain, devEnv: { projectId: '', job: { exitCode: null, reason: 'oom' } } })
@@ -1317,6 +1339,43 @@ describe('jobs and the queue (per team)', () => {
     runs.get(runIdOfRow(rows()[1]!))!.state = 'gone'
     await pollSrt(h.ctx)
     expect(rows()[1]).toMatchObject({ state: 'ended', end_reason: 'lost' })
+  })
+  test('a finished job tells the person the result in plain words: no log, exit code or job name, and it opens the chat', async () => {
+    const title = 'Launch video for Mina'
+    h.ctx.db.query('UPDATE chats SET title = ? WHERE id = ?').run(title, chatPlain)
+    const log = '@hf-progress {"code":"encode","done":815,"total":900}\n89% Encoding frame 822/900\nrender.mp4 written\n'
+    const plainWords = (m: string) => {
+      for (const bad of ['@hf-progress', 'Encoding', '822/900', 'render', 'exit code', '종료 코드', '(0)', '/tmp', '$TRINA_LOGS']) expect(m).not.toContain(bad)
+    }
+    try {
+      await alice({ project: null, chat: chatPlain }).call({ command: 'sleep', job: true, log_name: 'render' })
+      finish(runIdOfRow(rows()[0]!), 0, log)
+      await pollSrt(h.ctx)
+      // the live notice: one plain line about the result, in the person's language, with the chat's title; it opens the chat
+      const live = publish.filter((p) => p.frame.data.code === 'dev_env_job')
+      expect(live).toHaveLength(1)
+      expect(live[0]).toMatchObject({ user: 'alice', frame: { data: { link: `/c/${chatPlain}` } } })
+      expect(Object.values(JOB_DONE).map((f) => f(title))).toContain(live[0]!.frame.data.message!)
+      plainWords(live[0]!.frame.data.message!)
+      // Activity: a link to the chat with its title, and none of the log or the English end note
+      const item = (await h.api('alice').call(API.listNotifications, { query: {} })).items.find((i) => i.code === 'dev_env.job')!
+      expect(item).toMatchObject({ link: 'chat', chatId: chatPlain, devEnv: { job: { exitCode: 0, chatTitle: title } } })
+      expect(item.devEnv!.job!.tail).toBeUndefined()
+      expect(item.devEnv!.job!.note).toBeUndefined()
+      for (const bad of ['@hf-progress', 'Encoding', '822/900']) expect(JSON.stringify(item)).not.toContain(bad)
+      // the log stays for the AI of that chat
+      expect(runResultsForAI(h.ctx, 'alice', chatPlain).join('\n')).toContain('Encoding frame 822/900')
+      // a job that failed says so, with no code and no log
+      publish.length = 0
+      await alice({ project: null, chat: chatPlain }).call({ command: 'sleep', job: true, log_name: 'render2' })
+      finish(runIdOfRow(rows()[1]!), 2, 'Error: ffmpeg exited with code 1\n    at encode (render.js:12)\n')
+      await pollSrt(h.ctx)
+      const failed = publish.find((p) => p.frame.data.code === 'dev_env_job')!.frame.data.message!
+      expect(Object.values(JOB_FAILED).map((f) => f(title))).toContain(failed)
+      plainWords(failed)
+      expect(failed).not.toContain('ffmpeg')
+      expect(runResultsForAI(h.ctx, 'alice', chatPlain).join('\n')).toContain('ffmpeg exited')
+    } finally { h.ctx.db.query("UPDATE chats SET title = '' WHERE id = ?").run(chatPlain) }
   })
   test('a person stops their own run; others cannot, except on the project page with access, and admins', async () => {
     await alice({ project: null, chat: chatPlain }).call({ command: 'sleep', job: true, log_name: 'run' })
@@ -1711,7 +1770,7 @@ describe('starts that meet (one start at a time)', () => {
     open()
     expect(out(await p)).toContain('Exit code 0.')
     // the run itself gets the real command
-    expect([...runs.values()][0]!.spec.command).toBe('echo hunter2')
+    expect([...runs.values()][0]!.spec.command.split('\n').pop()).toBe('echo hunter2')
   })
   test('the server\'s data folder is hidden from a run even outside the base folder', async () => {
     await alice().call({ command: 'echo x' })

@@ -13,9 +13,13 @@ import { Tooltip } from './Tooltip'
 import { useViewerItem } from './ImageViewer'
 import type { ViewerItem } from '../lib/imageViewer'
 
-/** A file this computer gave as a picture (its type, as the browser reports it; a chip given back by the server has
- * none). */
-export const isLocalImage = (file: File): boolean => typeof file.type === 'string' && file.type.startsWith('image/')
+/** An iPhone photo (HEIC / HEIF): Chrome, Edge and Firefox cannot draw it, so its square shows the server's thumbnail
+ * once it is uploaded (server/src/uploads/image.ts makes it with the same decoder as the file panel's preview). */
+export const isHeicName = (name: string): boolean => /\.(heic|heif)$/i.test(name)
+
+/** A file this computer gave as a picture the browser can draw itself (its type, as the browser reports it; a chip
+ * given back by the server has none). A HEIC photo is not one: see isHeicName. */
+export const isLocalImage = (file: File): boolean => typeof file.type === 'string' && file.type.startsWith('image/') && !isHeicName(file.name)
 
 const SQUARE = 'size-16 shrink-0 rounded-lg'
 
@@ -106,6 +110,14 @@ export function PictureTile({ name, file, src, busy, percent = null, failed, rem
 
 /** A failed attachment's reason beside its chip or square: in full, on as many lines as it needs (never cut with "…"). */
 export const FAILED_REASON = 'max-w-[220px] whitespace-normal break-words leading-snug text-danger'
+
+/** A file chip's name and what it says beside it (its size, its percent, a failure's reason), as one item of the chip.
+ * In a wide box they share a row. A failed chip in a narrow box (a phone's, or a thread's beside the room on a
+ * computer) puts the reason on a line of its own under the name (`failed`): the chip is no wider than its box, and
+ * beside the name a long reason with its links left the name three letters ("QA-…", QA TC-4540). The name is cut with
+ * "…" only when it is longer than the chip. The width is the box's own, not the screen's: the list of chips is the
+ * `@container`. */
+export const chipText = (failed: boolean) => clsx('flex min-w-0 items-center gap-2', failed && '@max-md:flex-col @max-md:items-start @max-md:gap-0.5')
 
 /** A file chip's ✕ in a message box (both boxes): a 24 px target on a computer, 44 px on a phone (WCAG target size,
  * as PictureTile's ✕), its icon as before. The negative margins keep a computer's chip its height; a phone's chip is

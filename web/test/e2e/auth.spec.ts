@@ -40,40 +40,44 @@ test.describe('first-run setup in an English browser', () => {
     await page.getByRole('button', { name: '팀 만들고 시작하기' }).click()
     // the new team's owner goes to the welcome steps first (pages/Welcome.tsx); the sidebar's setup row then offers to
     // continue them on every other page (docs/DECISIONS.md "W5")
+    // a Mac or Windows browser (Playwright's Desktop Chrome says Windows) is first offered the desktop app (pages/OpenApp.tsx)
+    await expect(page).toHaveURL(/\/open-app$/)
+    await page.getByTestId('open-app-browser').click()
     await expect(page).toHaveURL(/\/welcome$/)
     // five steps (도구 연결 and the invite counted), and nothing above the first (no team question: every team gets its
     // start when it is left); no setup row on the steps themselves
     await expect(page.getByTestId('welcome-progress')).toContainText('1/5 회사 소개')
-    await expect(page.getByTestId('welcome-progress')).toContainText('4/5 도구 연결')
+    await expect(page.getByTestId('welcome-progress')).toContainText('4/5 팀 도구')
     await expect(page.getByTestId('welcome-progress')).toContainText('5/5 팀원 초대')
     await expect(page.getByTestId('welcome-pack-line')).toHaveCount(0)
     await expect(page.getByTestId('setup-row')).toHaveCount(0)
     await page.goto('/')
     await expect(page.getByRole('heading', { name: /Kim Owner님/ })).toBeVisible()
-    // a computer: the sidebar's row stands for the steps (Home has no row of its own there)
-    await expect(page.getByTestId('setup-row-link')).toContainText('설정 이어서 하기')
+    // Home's top row stands for the steps, on a computer too (docs/decisions/20261120-my-setup-card.md); the sidebar's
+    // row hides on Home then
+    await expect(page.getByTestId('welcome-resume-text')).toContainText('설정 이어서 하기')
     // the step it opens, the bar's "1/5 회사 소개" (one number on both)
-    await expect(page.getByTestId('setup-row-count')).toHaveText('· 1/5')
-    await expect(page.getByTestId('welcome-resume')).toHaveCount(0)
+    await expect(page.getByTestId('welcome-resume-text')).toContainText('· 1/5')
+    await expect(page.getByTestId('setup-row')).toHaveCount(0)
     // the steps are the owner's checklist while unfinished: Admin › Home's own checklist hides
     await expect(page.getByTestId('owner-checklist')).toHaveCount(0)
     await page.goto('/admin')
     await expect(page.getByTestId('owner-checklist')).toHaveCount(0)
     await expect(page.getByTestId('owner-setup')).toHaveCount(0)
-    // ✕ hides the row (undo in its toast); Admin › Home's "시작 설정 다시 보기" brings it back. The row is on the list
-    // panels: Admin draws none beside the rail, so the ✕ is pressed on Home and the row looked for there again
+    // ✕ hides the row (undo in its toast); Admin › Home's "시작 설정 다시 보기" brings it back. On Home the ✕ is the top
+    // row's; the list panels' row is the same record (another page shows it again)
     await page.goto('/')
-    await page.getByTestId('setup-row-hide').click()
-    await expect(page.getByTestId('setup-row')).toHaveCount(0)
+    await page.getByTestId('welcome-resume-hide').click()
+    await expect(page.getByTestId('welcome-resume')).toHaveCount(0)
     await page.goto('/admin')
     await page.getByTestId('owner-setup-show').click()
     await expect(page.getByTestId('owner-setup')).toHaveCount(0)
     await page.goto('/')
-    await expect(page.getByTestId('setup-row-link')).toBeVisible()
+    await expect(page.getByTestId('welcome-resume-link')).toBeVisible()
     // the owner has no language of their own: "team default (한국어)" is the chosen one
     await page.goto('/settings/profile')
-    await expect(page.getByTestId('locale-team')).toHaveAttribute('aria-checked', 'true')
-    await expect(page.getByTestId('locale-team')).toContainText('팀 기본값 (한국어)')
+    await expect(page.getByTestId('profile-locale')).toHaveValue('team')
+    await expect(page.getByTestId('profile-locale').locator('option[value=\"team\"]')).toContainText('팀 기본값 (한국어)')
   })
 
   test('first-run setup left in English makes an English team', async ({ page }) => {
@@ -85,6 +89,9 @@ test.describe('first-run setup in an English browser', () => {
     await page.getByLabel('Username').fill('kim')
     await page.getByLabel('Password', { exact: true }).fill('a long password 1')
     await page.getByRole('button', { name: 'Create team and start' }).click()
+    // a Mac or Windows browser (Playwright's Desktop Chrome says Windows) is first offered the desktop app (pages/OpenApp.tsx)
+    await expect(page).toHaveURL(/\/open-app$/)
+    await page.getByTestId('open-app-browser').click()
     await expect(page).toHaveURL(/\/welcome$/)
     await expect(page.getByTestId('welcome-progress')).toBeVisible()
     await page.goto('/')
@@ -105,14 +112,17 @@ test('the owner who left the steps lands on them when signing in again (a phone 
   await page.getByTestId('setup-username').fill('kim')
   await page.getByTestId('setup-password').fill('a long password 1')
   await page.getByTestId('setup-submit').click()
+  // a Mac or Windows browser (Playwright's Desktop Chrome says Windows) is first offered the desktop app (pages/OpenApp.tsx)
+  await expect(page).toHaveURL(/\/open-app$/)
+  await page.getByTestId('open-app-browser').click()
   await expect(page).toHaveURL(/\/welcome$/)
   // the first visit starts the progress on the server
   await expect(page.getByTestId('welcome-progress')).toContainText('1/5 회사 소개')
-  // the same tab: Home stays Home (the steps were on screen here), the sidebar's setup row leads back
+  // the same tab: Home stays Home (the steps were on screen here), Home's top row leads back
   await page.goto('/')
-  await expect(page.getByTestId('setup-row-link')).toBeVisible()
+  await expect(page.getByTestId('welcome-resume-link')).toBeVisible()
   await page.reload()
-  await expect(page.getByTestId('setup-row-link')).toBeVisible()
+  await expect(page.getByTestId('welcome-resume-link')).toBeVisible()
   await expect(page).not.toHaveURL(/\/welcome/)
   const signInAs = async (p: typeof page, path = '/') => {
     await p.goto(path)
@@ -126,12 +136,12 @@ test('the owner who left the steps lands on them when signing in again (a phone 
   await signInAs(p2)
   await expect(p2).toHaveURL(/\/welcome$/)
   await expect(p2.getByTestId('welcome-progress')).toContainText('1/5 회사 소개')
-  // opening Home again in that tab: Home, with the setup row
+  // opening Home again in that tab: Home, with the setup's row at the top
   await p2.goto('/')
-  await expect(p2.getByTestId('setup-row-link')).toBeVisible()
+  await expect(p2.getByTestId('welcome-resume-link')).toBeVisible()
   await expect(p2).not.toHaveURL(/\/welcome/)
   // the row leads back to the step
-  await p2.getByTestId('setup-row-link').click()
+  await p2.getByTestId('welcome-resume-link').click()
   await expect(p2).toHaveURL(/\/welcome$/)
   await expect(p2.getByTestId('welcome-progress')).toContainText('1/5 회사 소개')
   await desk.close()
@@ -163,6 +173,9 @@ test.describe('first-run setup in a browser in Jakarta', () => {
     await page.getByLabel('Username').fill('kim')
     await page.getByLabel('Password', { exact: true }).fill('a long password 1')
     await page.getByRole('button', { name: 'Create team and start' }).click()
+    // a Mac or Windows browser (Playwright's Desktop Chrome says Windows) is first offered the desktop app (pages/OpenApp.tsx)
+    await expect(page).toHaveURL(/\/open-app$/)
+    await page.getByTestId('open-app-browser').click()
     await expect(page).toHaveURL(/\/welcome$/)
     await expect(page.getByTestId('welcome-progress')).toBeVisible()
     await page.goto('/admin/settings')
@@ -239,7 +252,7 @@ test('an invite opens in the team language and offers the browser language, save
   await p2.getByTestId('invite-password').fill('another password 1')
   await p2.getByTestId('invite-submit').click()
   await p2.goto('/settings/profile')
-  await expect(p2.getByTestId('locale-id')).toHaveAttribute('aria-checked', 'true')
+  await expect(p2.getByTestId('profile-locale')).toHaveValue('id')
   await other.close()
   // a Korean browser (the team's language) is offered nothing
   const same = await browser.newContext({ locale: 'ko-KR' })
@@ -254,11 +267,11 @@ test('language switch to English and Indonesian', async ({ page }) => {
   await reset(page)
   await signIn(page)
   await page.goto('/settings/profile')
-  await page.getByTestId('locale-en').click()
+  await page.getByTestId('profile-locale').selectOption('en')
   await expect(page.getByRole('heading', { name: 'Settings' })).toBeVisible()
   // the sidebar under the Settings dialog speaks English too
   await expect(await newChatButton(page)).toContainText(askAi('en'))
-  await page.getByTestId('locale-id').click()
+  await page.getByTestId('profile-locale').selectOption('id')
   await expect(page.getByRole('heading', { name: 'Pengaturan' })).toBeVisible()
   await expect(page.locator('html')).toHaveAttribute('lang', 'id')
 })
@@ -290,14 +303,14 @@ test('personal setting: team default, an own language, back to the team default;
   await reset(page, { teamLocale: 'en', usersFollowTeam: true })
   await signIn(page)
   await page.goto('/settings/profile')
-  await expect(page.getByTestId('locale-team')).toHaveAttribute('aria-checked', 'true')
-  await expect(page.getByTestId('locale-team')).toHaveText('Team default (English)')
-  await page.getByTestId('locale-ko').click()
+  await expect(page.getByTestId('profile-locale')).toHaveValue('team')
+  await expect(page.getByTestId('profile-locale').locator('option[value=\"team\"]')).toHaveText('Team default (English)')
+  await page.getByTestId('profile-locale').selectOption('ko')
   await expect(page.getByRole('heading', { name: '설정' })).toBeVisible()
-  await expect(page.getByTestId('locale-ko')).toHaveAttribute('aria-checked', 'true')
+  await expect(page.getByTestId('profile-locale')).toHaveValue('ko')
   await page.reload()
   await expect(page.getByRole('heading', { name: '설정' })).toBeVisible()
-  await page.getByTestId('locale-team').click()
+  await page.getByTestId('profile-locale').selectOption('team')
   await expect(page.getByRole('heading', { name: 'Settings' })).toBeVisible()
   await expect(page.locator('html')).toHaveAttribute('lang', 'en')
   // the admin sets the team default to Indonesian: olga follows it at once
@@ -306,7 +319,7 @@ test('personal setting: team default, an own language, back to the team default;
   await page.getByRole('button', { name: 'Save' }).click()
   await expect(page.locator('html')).toHaveAttribute('lang', 'id')
   await page.goto('/settings/profile')
-  await expect(page.getByTestId('locale-team')).toHaveText('Bawaan tim (Bahasa Indonesia)')
+  await expect(page.getByTestId('profile-locale').locator('option[value=\"team\"]')).toHaveText('Bawaan tim (Bahasa Indonesia)')
 })
 
 test('a language picked before sign-in becomes the account’s own, also through the forced password change', async ({ page }) => {
@@ -331,7 +344,7 @@ test('a language picked before sign-in becomes the account’s own, also through
   await expect(page.getByRole('heading', { name: 'Bob님, 무엇을 도와드릴까요?' })).toBeVisible()
   // saved to the account: it survives a reload and shows as bob's own choice
   await page.goto('/settings/profile')
-  await expect(page.getByTestId('locale-ko')).toHaveAttribute('aria-checked', 'true')
+  await expect(page.getByTestId('profile-locale')).toHaveValue('ko')
 })
 
 test('a link opened with a temporary password: after the new password, the page it asked for (not Home)', async ({ page }) => {
@@ -387,7 +400,7 @@ test('open windows of people who follow the team switch when an admin changes th
   await page.getByRole('button', { name: 'Save' }).click()
   // the other window was not reloaded
   await expect(other.getByRole('heading', { name: '설정' })).toBeVisible()
-  await expect(other.getByTestId('locale-team')).toHaveText('팀 기본값 (한국어)')
+  await expect(other.getByTestId('profile-locale').locator('option[value=\"team\"]')).toHaveText('팀 기본값 (한국어)')
 })
 
 // The app shell is available (as with Electron's cached reload), but account lookup cannot reach the server.
@@ -470,15 +483,15 @@ test('recovery does not replace an old login pick or pass a previous account lan
   await page.reload()
   await signIn(page)
   await page.goto('/settings/profile')
-  await page.getByTestId('locale-ko').click()
-  await expect(page.getByTestId('locale-ko')).toHaveAttribute('aria-checked', 'true')
+  await page.getByTestId('profile-locale').selectOption('ko')
+  await expect(page.getByTestId('profile-locale')).toHaveValue('ko')
   await page.route('**/api/me', route => route.abort('internetdisconnected'))
   await page.reload()
   await expect(page.getByRole('button', { name: '다시 시도', exact: true })).toBeVisible()
   expect(await page.evaluate(() => localStorage.getItem('mycel.locale'))).toBe('id')
   await page.unroute('**/api/me')
   await page.getByRole('button', { name: '다시 시도', exact: true }).click()
-  await expect(page.getByTestId('locale-ko')).toHaveAttribute('aria-checked', 'true')
+  await expect(page.getByTestId('profile-locale')).toHaveValue('ko')
   // Settings is a dialog over the page: close it to reach the account menu
   await page.keyboard.press('Escape')
   await signOut(page)
@@ -487,7 +500,7 @@ test('recovery does not replace an old login pick or pass a previous account lan
   await signIn(page, { username: 'bob', password: 'bob password 1' })
   await expect(page.locator('html')).toHaveAttribute('lang', 'en')
   await page.goto('/settings/profile')
-  await expect(page.getByTestId('locale-team')).toHaveAttribute('aria-checked', 'true')
+  await expect(page.getByTestId('profile-locale')).toHaveValue('team')
 })
 
 test('recovery language is isolated by team origin', async ({ page, context, baseURL }) => {

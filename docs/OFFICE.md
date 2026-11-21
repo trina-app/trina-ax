@@ -36,7 +36,7 @@
 > printed on the Mac, `teamax card`). The first-run setup is refused over the internet. No sudo, no relay. Bundle:
 > `bun run build:office`; control: `~/TeamAX/teamax`. The latest release is on GitHub Releases and on the Trina update feed
 > (`https://updates.trina.app`, live since 2026-10-29). The Mac checks `<feed>/office/<channel>.json` nightly;
-> `teamax update now` installs at once (section 6). There is no Mac desktop DMG yet.
+> `teamax update now` installs at once (section 6). The Mac desktop app is the signed DMG on GitHub Releases (since 0.5.6).
 
 ## 1. 준비물
 
@@ -113,7 +113,8 @@ HTML을 PDF로 바꾸는 헤드리스 브라우저(Chrome for Testing `chrome-he
   (이 맥 사용자만 읽음)에 두고, 사본을 못 두면 거기서 멈춥니다.
 
 이미 설치된 맥과 자동 업데이트는 멈추지 않고, 이 버전부터 서버가 지우기 전에 사본을 둡니다(`office-uninstall.sh`로 프로그램을
-지운 뒤 다시 설치하면 새 설치로 봅니다). 확인·사본·되돌리기:
+지운 뒤 다시 설치하면 새 설치로 봅니다). 처음 무언가를 지운 뒤에는 소유자가 관리자 › 홈에서 한 번 안내를 봅니다(무엇을 왜
+지웠는지, 사본 위치, `--claude-token-file`로 바꾸는 방법). 확인·사본·되돌리기:
 `~/TeamAX/teamax claude-mcp check | backups | restore <사본>`(8장).
 
 > **앱 포트(`--app-port`)를 바꿨다면**: Cloudflare 터널도 그 포트를 가리켜야 합니다. 설치 담당자 맥에서
@@ -283,7 +284,7 @@ bash ./TrinaAX-office-VERSION/office-install.sh
 ```
 
 설치기는 기존 데이터·팀 폴더·설정을 유지하며 앱을 교체합니다. 인증서가 바뀐 경우 데스크 카드를 다시 확인하세요.
-Mac 데스크톱 DMG는 배포하지 않습니다. Windows 설치 파일은 GitHub Releases에서 별도로 받습니다.
+Mac 데스크톱 앱(서명·공증된 DMG, 0.5.6부터)과 Windows 설치 파일은 GitHub Releases에서 따로 받습니다.
 
 ### 피드 업데이트의 동작
 
@@ -334,9 +335,12 @@ Mac 데스크톱 DMG는 배포하지 않습니다. Windows 설치 파일은 GitH
 6. 릴리스에 든 **데스크용 윈도우 앱**(설치 파일 + `latest.yml`)을 `data/downloads`에 넣습니다(설정 > 앱에 보이는 곳,
    이전 윈도우 설치 파일은 지움). 데스크의 Trina AX 앱(0.2.0부터)은 시작할 때와 4시간마다 팀 주소의 `/downloads/`를
    확인해 뒤에서 받고, 받은 파일이 서명된 릴리스(같이 넣는 `/downloads/<채널>.json`, 없으면 릴리스 피드)가 가리키는
-   파일일 때만 "업데이트 준비됨 — 다시 시작"을 띄웁니다(아니면 지우고 설치하지 않음). 나중에를 누르면 앱을 닫을 때 설치됩니다. 0.1.0
-   데스크 앱은 자동 업데이트가 없으니 한 번만 설정 > 앱에서 새 앱을 받아 설치합니다. 맥용 데스크톱 앱은 스스로 바뀌지
-   않고(애플 서명이 필요) "새 버전이 있어요"와 내려받기 버튼만 보여 줍니다.
+   파일일 때만 설치할 준비를 합니다(아니면 지우고 설치하지 않음). 묻지 않고 앱을 닫을 때 설치되고, 컴퓨터를 한동안
+   쓰지 않고 잃을 것(올리는 중인 파일, 쓰던 글, 녹음, 앱 안 브라우저의 페이지)이 없으면 저절로 다시 시작해 보던 화면으로
+   돌아옵니다(메뉴의 "업데이트 준비됨 — 다시 시작"으로 바로 할 수도 있음). 0.1.0 데스크 앱은 자동 업데이트가 없으니 한 번만
+   설정 > 앱에서 새 앱을 받아 설치합니다. Developer ID로 서명된 맥 앱(dmg)도 같은 방식이고, 앱을 닫은 직후 다시 열어도
+   설치가 끝난 새 버전으로 열립니다. dmg에서 바로 실행한 맥 앱은 스스로 바뀌지 못해 "응용 프로그램으로 옮기기" 한 줄만
+   보여 줍니다(docs/decisions/20261116-quiet-desktop-updates.md).
 
 업데이트는 `data/`, `team/`, `tls/`, `config/`를 건드리지 않습니다. 데스크 로그인도 그대로입니다.
 
@@ -387,6 +391,7 @@ bun scripts/release/publish.ts --channel stable --build --version 0.2.1
 | 데스크: "연결이 비공개로 설정되어 있지 않습니다" | 인증서를 **신뢰할 수 있는 루트 인증 기관**에 넣었는지, Edge를 모두 닫았다 열었는지, 카드의 주소인지 |
 | 업데이트 중 데스크 주소(8443): "연결이 거부됨" | 새 버전이 큰 데이터베이스를 바꾸는 중일 수 있음(6장 5단계, 몇 분에서 최대 60분). 맥 미니에서 `teamax status`의 "this Mac" 줄이 "updating its database"면 기다리세요. 진행은 `~/TeamAX/logs/update.log` |
 | 데스크: 아예 안 열림 | 같은 네트워크인지, 맥 미니에서 `teamax status`, 맥 방화벽에서 bun 허용, IP가 바뀌지 않았는지(`teamax info`) |
+| 맥에 "백그라운드 항목이 추가됨: Trina AX" 알림이 뜸 / 로그인 항목을 바꾼 뒤 서버가 시작되지 않음 | 정상 알림: 서버와 자동 업데이트가 **Trina AX**라는 백그라운드 항목 두 개로 실행됨(시스템 설정 > 일반 > 로그인 항목 및 확장 프로그램 > "백그라운드에서 허용"). 이전 설치에서는 "Jarred Sumner"(함께 들어 있는 Bun 런타임 제작자)의 소프트웨어로 보였고, 첫 업데이트 때 새 이름으로 알림이 다시 뜸. 항목을 끄면 서버나 업데이트가 멈추며, macOS가 알려 주면 `teamax status`에 표시됨. Trina AX 항목을 모두 다시 켠 다음 `~/TeamAX/teamax start`. 활성 상태 보기와 방화벽에는 계속 `bun`으로 보임 |
 | 403 "office network" | 다른 네트워크(VPN·게스트 Wi-Fi)에서 접속함. 맥 미니와 같은 사무실 네트워크에서 |
 | `tailscale-address on`: "HTTPS certificates are off" | Tailscale 관리 화면 → DNS에서 MagicDNS와 HTTPS Certificates를 켜고 다시 실행 |
 | `tailscale-address on`: "used by `tailscale serve`" | 그 포트는 이 맥의 serve·Funnel이 씀. `--port <다른 포트>` |
@@ -450,10 +455,16 @@ bun scripts/release/publish.ts --channel stable --build --version 0.2.1
   없으며, 턴마다 바뀌는 가짜 토큰만 받습니다(진짜 토큰은 프록시가 Anthropic에 보낼 때만 붙임). 엔진 잠금과 샌드박스가 둘 다
   뚫려도 **이 맥의 Claude 로그인과 구독 토큰은 엔진이 읽을 수 없습니다.** 남는 것은 그 턴이 읽은 자료를 Anthropic API로
   보내는 길뿐이고(프록시가 요청 내용을 검사함), 이것은 운영 설치와 같습니다.
-- **이 맥의 Claude 로그인 방식**(토큰 없이 설치): 엔진 잠금과 샌드박스가 **둘 다 뚫리면** 그 턴은 이 맥의 Claude 로그인
-  토큰(키체인, `~/.claude.json`)을 읽고 `api.anthropic.com`·`platform.claude.com`으로 보낼 수 있습니다(다른 곳은 프록시가
-  막음; 그래도 그 토큰으로 대표님 구독을 쓸 수 있음). **이것을 닫는 것은 구독 토큰 방식뿐입니다.** 이 방식으로 둘 때는 이
-  맥을 **Trina AX 전용**으로 두고 다른 서비스의 암호를 키체인에 저장하지 마세요.
+- **이 맥의 Claude 로그인 방식**(토큰 없이 설치): 엔진은 키체인을 직접 열 수 없습니다(TC-358). `/usr/bin/security` 실행,
+  키체인 파일, 키체인 서비스, `~/.claude/.credentials.json`이 모두 막혀 있고, Claude Code가 로그인을 읽고 갱신할 때 쓰는
+  `security`는 실행기의 **Claude 로그인 중개**로 갑니다. 중개는 이 맥 사용자의 Claude 로그인 항목 하나(그 안의 Claude
+  로그인 부분만)만 답하고, 갱신된 로그인만 그 항목에 저장합니다. 그래서 키체인의 **다른 항목**(다른 프로그램의 토큰·암호)은
+  엔진 잠금과 샌드박스가 둘 다 뚫려도 읽을 수 없습니다. 오래 가는 **갱신 토큰도 엔진에 가지 않습니다**: 엔진은 자리표시만
+  받고, 갱신은 프록시가 진짜 토큰으로 대신 보내고 새 토큰을 보관합니다. 남는 것: 엔진은 몇 시간 안에 만료되는
+  **접근 토큰**은 받습니다(Claude Code가 그것으로 요청에 서명하므로). 엔진의 네트워크는 프록시뿐이고 프록시는 요청 내용을 검사해
+  `api.anthropic.com`으로만, 로그인 갱신만 `platform.claude.com`으로 보냅니다. 그래도 뚫린 턴이 그 토큰을 답에 적어 보일 수
+  있으니, **엔진에 토큰이 전혀 없게 하려면 구독 토큰 방식**을 쓰세요. 이 방식으로 둘 때는 이 맥을 **Trina AX 전용**으로
+  두세요.
 - 이 방식에서는 엔진이 `~/.claude.json`을 쓸 수 있으므로 서버가 시작할 때와 매 턴 뒤에 그 파일과 백업
   (`~/.claude.json.backup`, `~/.claude/backups/`)에서 **MCP 서버를 지우고**, 그 자리에 링크가 있으면 보통 파일로 바꿉니다
   (관리자 → 활동 로그에 `engine.claude_json_mcp_removed`). 샌드박스는 그 이름들에 링크를 만들지 못하게 합니다. 파일은 Claude Code와
@@ -486,7 +497,8 @@ bun scripts/release/publish.ts --channel stable --build --version 0.2.1
 **운영 설치가 나중에 더하는 것**
 - 엔진이 **별도 계정**(`_axagent`)으로 돌아 OS 계정 경계가 하나 더 생기고, **pf 방화벽**이 샌드박스와 별도로 엔진의
   네트워크를 모델 프록시 하나로 막습니다. 사무실 모드의 엔진은 맥 미니 사용자 계정으로 돌고(샌드박스 안, 네트워크는 프록시
-  포트만), 이 맥의 Claude 로그인 방식이면 그 계정의 Claude 로그인(키체인, `~/.claude.json`)을 읽을 수 있습니다.
+  포트만), 이 맥의 Claude 로그인 방식이면 그 계정의 Claude 로그인 토큰(중개를 거쳐, 키체인의 다른 항목은 아님)과
+  `~/.claude.json`을 읽을 수 있습니다.
 - 그래서 지금은 **Trina AX 전용 맥 미니, 개인 자료 없음, FileVault 켜기, 맥 미니 사용자 암호는 대표님만**을 권장합니다.
 - 서명·공증된 앱이 아닙니다(설치기가 다운로드 격리 표시를 지웁니다).
 
@@ -668,7 +680,7 @@ bun·ripgrep·pandoc·cloudflared(2026.10.0, Cloudflare 서명)는 GitHub 릴리
 
 ## 부록 C. 윈도우 데스크톱 앱 (키트)
 
-공개 Windows 릴리스 이름은 `Trina-AX-Setup-<버전>-win-x64.exe`입니다. `build-office.ts --with-desktop`의 별도 키트는 ZIP 옆 복사본을 `Trina-AX-Setup-<버전>-x64.exe`로 바꿀 수 있으므로, 그 키트의 `desktop.sha256`에 적힌 정확한 이름을 사용하세요. Mac DMG는 미배포이며 직접 빌드한 파일이 있는 경우에만 아래 DMG 단계를 따릅니다.
+공개 Windows 릴리스 이름은 `Trina-AX-Setup-<버전>-win-x64.exe`입니다. `build-office.ts --with-desktop`의 별도 키트는 ZIP 옆 복사본을 `Trina-AX-Setup-<버전>-x64.exe`로 바꿀 수 있으므로, 그 키트의 `desktop.sha256`에 적힌 정확한 이름을 사용하세요. Mac DMG는 0.5.6부터 릴리스에 서명·공증된 `Trina-AX-<버전>-mac-universal.dmg`로 들어 있고, 아래 DMG 단계는 그 파일에도 같습니다.
 
 데스크 대부분은 Edge 앱이면 됩니다. AI가 웹사이트를 직접 열어 읽고 클릭해야 하는 자리만 데스크톱 앱을 씁니다(앱 안
 브라우저 창, 사이트마다 묻기). 그 팀용 설치 파일은 개발 맥에서 만듭니다(맥에서 윈도우용으로 빌드됨, wine 필요 없음):
@@ -714,7 +726,7 @@ SmartScreen `추가 정보 → 실행`, 맥은 `시스템 설정 → 개인정�
 - **서명**: `서명 확인됨`은 실제 검사가 통과했을 때만입니다(윈도우: `osslsigncode verify`, 맥: Gatekeeper
   `spctl -a -t open --context context:primary-signature`). 인증서가 붙어 있기만 하거나 ad-hoc 서명인 파일은 `서명 있음(확인 안
   됨)`이고, 설정 → 앱은 SmartScreen·Gatekeeper 단계를 계속 보여 줍니다. 윈도우 빌드는 아직 서명하지 않으므로 `서명 없음`.
-  맥 dmg는 0.5.5부터 Developer ID로 서명·공증되어(`docs/RELEASE-CI.md` "Mac app") 이 맥에서 `서명 확인됨`이 됩니다. 서명된 맥 앱은
+  맥 dmg는 0.5.6부터 Developer ID로 서명·공증되어(`docs/RELEASE-CI.md` "Mac app") 이 맥에서 `서명 확인됨`이 됩니다. 서명된 맥 앱은
   업데이트 6단계가 `/downloads/`에 두는 업데이트 zip과 `latest-mac.yml`로 윈도우 앱처럼 스스로 업데이트합니다.
 - **맥 dmg**: `-mac-universal.dmg`(인텔·애플 실리콘 모두)를 올리세요. `-mac-arm64.dmg`를 올리면 설정 → 앱에 "Apple Silicon(M1
   이후) 맥 전용"이 붙고, 같은 버전이면 universal이 우선입니다.
@@ -742,7 +754,8 @@ SmartScreen `추가 정보 → 실행`, 맥은 `시스템 설정 → 개인정�
   `TEAMAX_ALLOW_FROM=<CIDR,…>`(또는 `any`). Tailscale로 밖에서 쓰려면 이 둘 대신 10장의 Tailscale 주소를 쓰세요(인증서 설치 없음).
 - 맥 이름을 바꾸면 `.local` 주소가 인증서에서 빠집니다(IP 주소는 계속 됨). 이름까지 쓰려면 위 "주소 대역" 항목처럼 새 CA.
 - AI가 사진(png·jpg·heic 등)과 글자 층이 없는 스캔 PDF 페이지를 읽으면 Claude Code처럼 이미지를 직접 봅니다(관리자 > 팀 설정 "이미지·PDF 페이지·영상 장면을 AI에게 보내기", 기본 켜짐; 끄면 애플 Vision 글자 인식으로 대신). PDF의 글자 층과 페이지 이미지는 번들의 `mycel-ocr`(PDFKit)로, `pdftotext`(Homebrew `poppler`)가 있으면 글자 층은 그것으로 읽습니다. 스캔 PDF는 애플 Vision으로 글자를 인식해 검색 색인에 넣습니다(쪽당 약 1초, 최대 100쪽; 사진은 색인하지 않음). docx·pptx는 번들의 pandoc으로, 한글 문서(.hwp·.hwpx)는 따로 설치 없이 읽습니다(배포용·암호 문서는 미리보기 글만).
-- 영상·오디오 파일(mp4·mov·m4a·mp3 등)은 아직 사무실 맥에서 읽지 못합니다. AI가 그렇다고 알려 줍니다(Linux 서버에서는 장면과 받아쓰기로 읽음).
+- 음성 입력과 녹음·영상 파일(Apple 실리콘 맥, M1 이상): 키 없이 됩니다. 번들에 든 whisper-cli(Metal, 맥 앱과 같은 Developer ID로 서명·공증)가 맥 안에서 받아쓰고, 녹음은 macOS의 afconvert·afinfo·avconvert가 풉니다(변환기 샌드박스, 네트워크 없음). 받아쓰기 방식을 고르지 않았고 OpenRouter 키도 없다면 "이 서버에서"가 기본이고, 팀의 OpenRouter 키는 관리자가 고를 수 있는 다른 방법입니다. 처음 쓸 때 음성 인식 모델(약 490MB, sha256 확인)을 한 번 내려받으며 그렇게 알려 줍니다(설치할 때는 내려받지 않음). AI는 m4a·mp3·wav·aiff·flac 파일과 mp4·mov 영상의 소리를 글로 읽고, 영상의 장면은 보지 않습니다. webm·mkv·avi·wma는 못 엽니다.
+- 인텔 맥: 영상·오디오 파일은 읽지 못합니다. AI가 그렇다고 쉬운 말로 알려 주고, 들어 보고 주요 내용을 말해 주거나 받아 적은 글을 붙여 달라고 합니다(음성 입력이 되면 마이크로 말해도 된다고 덧붙임). 음성 입력은 OpenRouter 키로 켭니다. Linux 서버에서는 장면과 받아쓰기로 읽습니다.
 - 맥 사용자가 로그아웃하면 멈춥니다(LaunchAgent, cloudflared, 자동 업데이트도). 운영 설치는 LaunchDaemon이라 로그인 없이 돕니다.
 - 자동 업데이트(6장): 데이터베이스는 되돌리지 않습니다(호환되는 앱 버전인지 먼저 확인하고 필요하면
   `업데이트 전` 백업으로 복원). 키트로 만든 데스크 앱(부록 C)은 자동 업데이트 뒤 일반 빌드가 되고, 새로 설치하는 데스크는

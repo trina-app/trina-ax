@@ -14,6 +14,30 @@ export const SRT_DENY_FILES = ['.gitconfig', '.gitmodules', '.bashrc', '.bash_pr
 export const SRT_DENY_DIRS = ['.vscode', '.idea', '.claude/commands', '.claude/agents']
 
 const held = new Map<string, { count: number; made: string[] }>()
+/** every path made now for a run (the names of both holders below): what isRunPlaceholder answers for */
+const madeNow = new Map<string, number>()
+const markMade = (p: string) => madeNow.set(p, (madeNow.get(p) ?? 0) + 1)
+const unmark = (p: string) => { const n = (madeNow.get(p) ?? 0) - 1; if (n > 0) madeNow.set(p, n); else madeNow.delete(p) }
+
+/**
+ * Is `abs` an empty name this server made for a run that is still going (a protected name srt needs as a mount point,
+ * or an empty skills folder), and not something a person has put there? Such a name is on the disk of the team folder
+ * while a run lives (a background command or a dev server, for hours): bwrap binds over a path that exists, and a name
+ * taken away at once would let the command make it (see the top). It is never shown: not in a folder listing, a search,
+ * a "files changed" list or a change notice to the other people of the folder (QA TC-5349). A folder counts only while
+ * it holds nothing but such names (.claude with its commands/ and agents/); anything written into it makes it, and
+ * what is in it, real.
+ */
+export function isRunPlaceholder(abs: string): boolean {
+  const p = path.resolve(abs)
+  if (!madeNow.has(p)) return false
+  try {
+    const st = fs.lstatSync(p)
+    if (st.isFile()) return st.size === 0
+    if (!st.isDirectory()) return false
+    return fs.readdirSync(p).every((n) => isRunPlaceholder(path.join(p, n)))
+  } catch { return false }
+}
 
 /** Make the absent names in cwd; returns the release function. Call release once, when the run has ended. */
 export function holdPlaceholders(cwd: string): () => void {
@@ -30,6 +54,7 @@ export function holdPlaceholders(cwd: string): () => void {
         if (dir) fs.mkdirSync(p)
         else fs.closeSync(fs.openSync(p, fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_EXCL | fs.constants.O_NOFOLLOW, 0o644))
         made.push(p)
+        markMade(p)
       } catch { /* present already (it is then the person's), or the folder is not writable */ }
     }
     for (const f of SRT_DENY_FILES) make(f, false)
@@ -50,6 +75,7 @@ export function holdPlaceholders(cwd: string): () => void {
     held.delete(key)
     // deepest first; only what is still empty (a person may have put content there through the file tools)
     for (const p of [...h!.made].sort((a, b) => b.length - a.length)) {
+      unmark(p)
       try {
         const st = fs.lstatSync(p)
         if (st.isFile() && st.size === 0) fs.unlinkSync(p)
@@ -75,7 +101,7 @@ export function holdSkillFolders(teamRoot: string, rels: readonly string[]): () 
     if (!h) {
       let made = false
       try {
-        if (fs.lstatSync(path.dirname(abs)).isDirectory()) { fs.mkdirSync(abs, { mode: 0o700 }); made = true }
+        if (fs.lstatSync(path.dirname(abs)).isDirectory()) { fs.mkdirSync(abs, { mode: 0o700 }); made = true; markMade(abs) }
       } catch { /* there already (it is then someone's), or nothing above it to write in */ }
       h = { count: 0, made }
       heldSkills.set(abs, h)
@@ -92,9 +118,17 @@ export function holdSkillFolders(teamRoot: string, rels: readonly string[]): () 
       if (!h || --h.count > 0) continue
       heldSkills.delete(k)
       if (!h.made) continue
+      unmark(k)
       try { const st = fs.lstatSync(k); if (st.isDirectory() && fs.readdirSync(k).length === 0) fs.rmdirSync(k) } catch {}
     }
   }
+}
+
+/** An empty skills folder this server made for a run (holdSkillFolders), not one a person made: not a group's or a
+ * project's skills (runner.ts othersSkillRoots leaves it out). */
+export function isSkillPlaceholder(abs: string): boolean {
+  if (!heldSkills.get(path.resolve(abs))?.made) return false
+  try { return fs.lstatSync(abs).isDirectory() && fs.readdirSync(abs).length === 0 } catch { return false }
 }
 
 /** for tests */

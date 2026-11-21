@@ -1,4 +1,7 @@
 # Team AX: grow the data filesystem online when ax-hostd resizes the data zvol (resizeTenant, isolation.md §5.7).
-# The kernel sends a "change" uevent with the new capacity; resize2fs is a no-op when the size did not change.
-# Run outside udev (systemd-run) so a long resize is not killed by the udev worker timeout.
-ACTION=="change", SUBSYSTEM=="block", ENV{ID_FS_LABEL}=="axdata", ENV{ID_FS_TYPE}=="ext4", RUN+="/usr/bin/systemd-run --no-block --collect --unit=ax-axdata-resize /usr/sbin/resize2fs $devnode"
+# The kernel sends a "change" uevent with the new capacity. Run outside udev (systemd-run) so a long resize is not
+# killed by the udev worker timeout.
+# axdata-resize runs resize2fs only when the device is bigger than the filesystem: resize2fs opens the disk for
+# writing, its close makes udev send another "change" (the disk "watch"), and a bare resize2fs here ran 100-160 times
+# in a first boot.
+ACTION=="change", SUBSYSTEM=="block", ENV{ID_FS_LABEL}=="axdata", ENV{ID_FS_TYPE}=="ext4", RUN+="/usr/bin/systemd-run --no-block --collect --unit=ax-axdata-resize /usr/local/sbin/axdata-resize $devnode"

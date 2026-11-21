@@ -8,23 +8,26 @@
 // phone a long press opens it as a sheet. Rooms I hid (docs/DECISIONS.md "대화 숨기기") are not in the list: a quiet
 // "숨긴 대화 N" at its end opens them, each with 다시 보이기 (opening one shows it again too).
 // The list has the 대화 panel's sections in its order (panels/RoomsByKind.tsx roomsByKind): 고정 (all my pins, the most
-// recently pinned first, a pin after the name), my folders (one with nothing in it is left out here), 팀 대화방 (전체
-// first), 그룹 대화, 1:1 대화, each under its name. Someone with no 1:1 or group conversation yet gets one quiet line
+// recently pinned first, a pin after the name), my sections (an empty one says how to fill it), 채널 (전체
+// first), 다이렉트 메시지 (1:1s and group chats, a group chat with its people's faces), each under its name. Someone with no 1:1 or group chat yet gets one quiet line
 // under the list that opens the people list ("동료에게 새 대화 시작하기"), as the top bar's ⊕ does.
 // The list starts with "멘션·스레드" (QA TC-256): the Activity page's conversations (mentions and replies in
 // threads I follow, lib/screens.ts CHATS_ACTIVITY), a page of this tab. A dot while one is unread, no number: their rooms
 // count them already, on their rows and on the 대화 tab. Search is the top bar's 🔍 (components/PhoneTopBar.tsx).
+// Each section folds with its header (docs/decisions/20261116-collapsible-chat-sections.md), with the 대화
+// panel's fold keys, so a section folded here is folded on the computer and on my other devices (panels/folds.ts):
+// folded, its rooms go and the header says what waits there, bold with one pill (RoomsByKind.tsx foldedLook).
 import { useCanStartChat, useGuestHidden } from '../components/GuestView'
 import { guestPlacePath, meGuest } from '../lib/guests'
 import clsx from 'clsx'
-import { ListHeading, ListIcon, rowName } from '../components/list/List'
+import { ListIcon, ListSection, rowName } from '../components/list/List'
 import { AtSign, BellOff, ChevronDown, Plus } from 'lucide-react'
 import { useEffect, useId, useRef, useState } from 'react'
 import { Link, Navigate, useLocation, useSearchParams } from 'react-router-dom'
 import type { Room } from '@mycel/shared/api'
 import { errorText } from '../lib/api'
 import { listTime } from '../lib/format'
-import { plainLine, roomUnread } from '../lib/rooms'
+import { listedRoom, plainLine, roomCounts } from '../lib/rooms'
 import { CHATS_ACTIVITY } from '../lib/screens'
 import { useLocale, useT } from '../i18n'
 import { useRooms } from '../store/rooms'
@@ -33,9 +36,9 @@ import { toast } from '../store/ui'
 import { useMe } from '../store/session'
 import { PeoplePicker } from '../components/rooms/PeoplePicker'
 import { RoomIcon, RoomName, useRoomTitle } from '../components/rooms/RoomIcon'
-import { ROW_MENU_BUTTON, ROW_MENU_SHOWN, RoomPinIcon, SECTION_WORD, UnreadBadge } from '../components/nav/RoomsList'
-import { useFolders } from '../components/nav/NavFolders'
-import { roomsByKind } from '../components/panels/RoomsByKind'
+import { ROW_MENU_BUTTON, ROW_MENU_SHOWN, RoomPinIcon, RoomSectionAction, RoomUploadMark, SECTION_WORD, UnreadBadge } from '../components/nav/RoomsList'
+import { SectionEmpty, SectionMenu, useSections } from '../components/nav/SidebarSections'
+import { foldedLook, roomsByKind, withKinds } from '../components/panels/RoomsByKind'
 import { RoomMenu, useRowMenu } from '../components/rooms/RoomMenu'
 import { Button, Skeleton, useMediaQuery } from '../components/ui'
 import { LoadError } from '../components/LoadError'
@@ -59,11 +62,10 @@ export default function Rooms() {
   const [picking, setPicking] = useState(false)
   // the start hint and "or start a new one with +": not a guest's (components/GuestView.tsx)
   const canStart = useCanStartChat()
-  // a guest opens their one place (Slack's single-channel guests): on a computer a guest in a room gets their room
-  // itself, not "pick one"; a guest in a project with no conversation (no 대화 place) gets their project
+  // a guest opens their place (Slack's single-channel guests): on a computer a guest in a group chat gets it itself,
+  // not "pick one"; a guest in a project only, with no conversation (no 대화 place), gets their project
   const me = useMe()
-  const guestPlace = meGuest(me)?.place
-  const guestRoom = guestPlace?.kind === 'room' ? guestPlace.id : undefined
+  const guestRoom = meGuest(me)?.room?.id
   const noChats = useGuestHidden().has('chats')
   const guestHome = guestPlacePath(me)
   const asked = params.has('new')
@@ -82,7 +84,7 @@ export default function Rooms() {
   const computer = useMediaQuery('(min-width: 768px)')
   const titleOf = useRoomTitle()
   const locale = useLocale()
-  const folders = useFolders('rooms', !computer)
+  const folders = useSections(!computer)
   if (resuming) return <div className="h-full" />
   const hidden = everyRoom.filter((r) => r.hidden)
   if (noChats && guestHome) return <Navigate to={guestHome} replace />
@@ -105,21 +107,40 @@ export default function Rooms() {
         <ul>
           <ChatsActivityRow className={row} />
         </ul>
-        {roomsByKind(everyRoom.filter((r) => !r.hidden), titleOf, locale, folders)
-          .filter((s) => s.rooms.length > 0)
+        {(() => {
+          const sections = roomsByKind(everyRoom.filter((r) => !r.hidden && listedRoom(r)), titleOf, locale, folders)
+          // with any conversation, Channels and Direct messages stay (their "+" makes a section or a channel), and my
+          // sections stay empty or not (an empty one says how to fill it)
+          return everyRoom.length ? withKinds(sections) : sections
+        })()
           .map((s) => {
             const key = s.folder ? `folder-${s.folder.id}` : s.key
             return (
-              <section key={key} aria-labelledby={`rooms-section-${key}`} data-testid="rooms-section" data-section={s.key}>
-                <ListHeading as="h2" id={`rooms-section-${key}`} className="px-4 pt-4 pb-1 sm:px-6">
-                  {s.folder ? s.folder.name : s.key === 'pinned' ? t('chat.pinned') : t(SECTION_WORD[s.key])}
-                </ListHeading>
+              <ListSection
+                key={key}
+                id={`rooms-section-${key}`}
+                as="h2"
+                // the 대화 panel's keys: one fold for this tab and the computer's panel
+                foldKey={`chats:${s.key}`}
+                foldId={s.folder ? `room-folder:${s.folder.id}` : undefined}
+                label={s.folder ? s.folder.name : s.key === 'pinned' ? t('chat.pinned') : t(SECTION_WORD[s.key])}
+                {...foldedLook(s.rooms, 'rooms-section-pill')}
+                action={s.folder ? <SectionMenu section={s.folder} /> : s.key === 'pinned' ? undefined : <RoomSectionAction section={s.key} />}
+                // 10 px on a phone, not 8: the ⊕ (24 px) takes taps from a 44 px box (touch-hit), 10 px past its
+                // edge; any less and that box sticks out of the list, which then drags sideways (QA TC-4833)
+                headClassName="pr-2.5 pl-2 sm:pr-4 sm:pl-4"
+                indent={false}
+                labelTestId="rooms-section-head"
+                data-testid="rooms-section"
+                data-section={s.key}
+              >
                 <ul>
                   {s.rooms.map((r) => (
                     <RoomListRow key={r.id} room={r} className={row} />
                   ))}
                 </ul>
-              </section>
+                {s.folder && !s.rooms.length && <SectionEmpty section={s.folder} className="px-4 sm:px-6" />}
+              </ListSection>
             )
           })}
         {loaded && !failed && canStart && everyRoom.length > 0 && !everyRoom.some((r) => r.kind === 'dm' || r.kind === 'group') && (
@@ -222,7 +243,7 @@ function RoomListRow({ room, className }: { room: Room; className: string }) {
   const nameOf = useNameOf()
   // an app's message: the app's name (docs/DECISIONS.md "Apps posting in rooms")
   const who = !m ? null : m.app ? m.app.name : m.author?.id === me?.user.id ? t('rooms.you') : room.kind === 'dm' ? null : nameOf(m.author)
-  const unread = roomUnread(room)
+  const { bold } = roomCounts(room)
   const menu = useRowMenu()
   return (
     <li className="group relative" {...menu.row}>
@@ -231,11 +252,11 @@ function RoomListRow({ room, className }: { room: Room; className: string }) {
       '[--presence-bg:var(--c-canvas)] hover:[--presence-bg:var(--c-hover)] group-has-[[aria-expanded=true]]:[--presence-bg:var(--c-hover)]',
       // while the "⋯" shows over the row's end, the preview stops before it (the time and the count give way)
       'pointer-fine:group-hover:pr-14 group-has-[:focus-visible]:pr-14 pointer-fine:group-has-[[aria-expanded=true]]:pr-14')} data-testid="rooms-row">
-      <RoomIcon room={room} size={32} glyph={18} tile presence />
+      <RoomIcon room={room} size={32} glyph={18} tile presence faces />
       {/* the time on the name's line and the count on the preview's, so the preview has the whole width */}
       <span className="min-w-0 flex-1">
         <span className="flex min-w-0 items-center gap-1.5">
-          <span className={clsx('truncate', rowName({ unread: unread > 0 }))}><RoomName room={room} /></span>
+          <span className={clsx('truncate', rowName({ unread: bold }))}><RoomName room={room} /></span>
           {room.kind === 'dm' && room.peers[0] && <PresenceText userId={room.peers[0].id} />}
           {room.muted && (
             <>
@@ -244,6 +265,7 @@ function RoomListRow({ room, className }: { room: Room; className: string }) {
             </>
           )}
           <RoomPinIcon room={room} />
+          <RoomUploadMark roomId={room.id} />
           {m && <span className={clsx('ml-auto shrink-0 pl-2 text-xs text-faint', ROW_MENU_SHOWN)}>{listTime(m.createdAt, locale, t('sidebar.yesterday'))}</span>}
         </span>
         <span className="flex min-w-0 items-center gap-2">
@@ -262,6 +284,7 @@ function RoomListRow({ room, className }: { room: Room; className: string }) {
       openSignal={menu.openSignal}
       openRequest={menu.openRequest}
       testId="rooms-row-menu"
+      folders
     />
     </li>
   )

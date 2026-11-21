@@ -13,6 +13,15 @@ import type { Database } from 'bun:sqlite'
 import { threadRefOf } from '@mycel/shared/api'
 import type { TurnExec } from './turn'
 
+/** chats.rooms_seen when only room names came in: the rooms tool listed the person's rooms or found no message
+ * (chat/room-tools.ts), to find a room or a person by name. Every gate of a read room still applies (the value is
+ * true); only the provenance check of a post or a share (chat/answer-share.ts, chat/audience-check.ts) does not count
+ * it as room messages the read scope does not name (docs/decisions/20261118-dm-own-paste.md). 1: messages came in. */
+export const ROOM_NAMES_ONLY = 2
+/** Did room messages come into the chat (rooms_seen set, and not by names alone)? Anything else than 0 or
+ * ROOM_NAMES_ONLY counts as messages (fails closed). */
+export const roomMessagesSeen = (v: number | null | undefined): boolean => !!v && v !== ROOM_NAMES_ONLY
+
 /** how far up the branch the quote check reads (as chat/project-members.ts ownWords) */
 const BRANCH_MAX = 2000
 
@@ -51,6 +60,32 @@ export function quotesOnBranch(db: Database, answerId: string): boolean {
       UNION ALL SELECT m.id, m.parent_id, m.role, up.depth + 1 FROM messages m JOIN up ON m.id = up.parent_id WHERE up.depth < ${BRANCH_MAX})
     SELECT m.content content FROM up JOIN messages m ON m.id = up.id WHERE up.role = 'user' AND m.auto_sent = 0 AND instr(m.content, '>') > 0`).all(answerId) as { content: string | null }[]
   return rows.some((r) => (r.content ?? '').split('\n').some(isQuoteLine))
+}
+
+/** Does every quote on the branch up to `answerId` come from a person's message in `roomId` (QA TC-4791, review of
+ * #1235)? Each user message that holds a quote line must start with the app's own quote of a room message, whose header
+ * names its thread (threadRefOf) in that room, with no other quote line further down; the thread holds no app's card.
+ * A pasted quote (no token), a quote of another room's message, an app card's quote or a second quote block: false.
+ * True when there is no quote at all. Fails closed. */
+export function quotesOnlyFrom(db: Database, answerId: string, roomId: string): boolean {
+  try {
+    const rows = db.query(`WITH RECURSIVE up(id, parent_id, role, depth) AS (SELECT id, parent_id, role, 0 FROM messages WHERE id = ?
+        UNION ALL SELECT m.id, m.parent_id, m.role, up.depth + 1 FROM messages m JOIN up ON m.id = up.parent_id WHERE up.depth < ${BRANCH_MAX})
+      SELECT m.content content FROM up JOIN messages m ON m.id = up.id WHERE up.role = 'user' AND m.auto_sent = 0 AND instr(m.content, '>') > 0`).all(answerId) as { content: string | null }[]
+    for (const r of rows) {
+      const lines = (r.content ?? '').split('\n')
+      if (!lines.some(isQuoteLine)) continue
+      const ref = threadRefOf(r.content ?? '')
+      if (!ref) return false
+      const end = lines.findIndex((l) => !isQuoteLine(l))
+      if (end >= 0 && lines.slice(end).some(isQuoteLine)) return false
+      if (!db.query('SELECT 1 FROM room_messages WHERE id = ? AND room_id = ? AND app_card IS NULL').get(ref, roomId)) return false
+      if (db.query('SELECT 1 FROM room_messages WHERE thread_root_id = ? AND app_card IS NOT NULL LIMIT 1').get(ref)) return false
+    }
+    return true
+  } catch {
+    return false
+  }
 }
 
 /** Does a question on the branch up to `answerId` quote an app's message ("Ask Trina about this" on a card from Sentry,

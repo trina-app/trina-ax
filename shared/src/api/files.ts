@@ -5,6 +5,7 @@ import { HwpPreviewPage, HwpPreviewQuery } from '../hwp'
 import { Uuid7 } from '../ids'
 import { Access, IsoTime, PageQuery, QueryBool, RelPath, SMALL_UPLOAD_MAX, UPLOAD_CHUNK_SIZE, UPLOAD_SESSION_MAX, page } from './common'
 import { binary, endpoint, empty, multipart, stream } from './endpoint'
+import { RoomFile } from './rooms'
 import { Attachment, AudienceSplit, FileEntry, FileHistoryEvent, FileVersion, SourceLoc, TrashItem, UploadSession, UploadTarget, UserRef } from './entities'
 
 export const PathQuery = z.object({ path: RelPath })
@@ -97,6 +98,9 @@ export const CopyBody = z.object({
   baseSha256: z.string().regex(/^[0-9a-f]{64}$/).nullable().optional(),
   dryRun: z.boolean().default(false),
   onExists: z.enum(['fail', 'replace', 'rename']).default('rename'),
+  /** the person said yes to more people seeing the copy: a copy into a folder its owner shares answers 409 conflict
+   * {params: {reason: 'audience_widened', viewersAdded}} without it */
+  confirm: z.boolean().optional(),
 })
 export const CopyResult = z.union([
   z.object({ path: RelPath, sha256: z.string() }),
@@ -132,7 +136,12 @@ export const HistoryResponse = z.object({
 })
 export type HistoryResponse = z.infer<typeof HistoryResponse>
 /** Restore an old version of a file (the current content becomes a new version first). */
-export const RestoreVersionBody = z.object({ path: RelPath, versionId: Uuid7 })
+/** confirm: the version goes back into a folder its owner shares, to people who never had it (409 conflict
+ * {params: {reason: 'audience_widened', viewersAdded}} without it) */
+export const RestoreVersionBody = z.object({ path: RelPath, versionId: Uuid7, confirm: z.boolean().optional() })
+/** POST /api/files/trash/:id/restore?confirm=1: it goes back into a folder its owner shared since it was trashed (409
+ * conflict {params: {reason: 'audience_widened', viewersAdded}} without it). No body, as before */
+export const RestoreTrashQuery = z.object({ confirm: QueryBool.optional() })
 /** mine: only items the caller deleted */
 export const TrashQuery = PageQuery.extend({ mine: QueryBool.optional() })
 
@@ -194,6 +203,8 @@ export const UploadComplete = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('attachment'), attachment: Attachment }),
   /** transcribe target: the job that was started */
   z.object({ kind: z.literal('transcribe'), jobId: Uuid7 }),
+  /** room target: the caller's unsent upload in that room (sent by id in a message) */
+  z.object({ kind: z.literal('room'), file: RoomFile }),
 ])
 export type UploadComplete = z.infer<typeof UploadComplete>
 
@@ -324,7 +335,7 @@ export const FILES = {
   versionDownload: endpoint({ method: 'GET', path: '/api/files/history/:versionId/download', auth: 'user', owner: 'C', response: stream(true), summary: 'Download an old version (read access to its path).' }),
   restoreVersion: endpoint({ method: 'POST', path: '/api/files/restore', auth: 'user', owner: 'C', body: RestoreVersionBody, response: SaveResult, summary: 'Restore an old version of a file.' }),
   trash: endpoint({ method: 'GET', path: '/api/files/trash', auth: 'user', owner: 'C', query: TrashQuery, response: page(TrashItem), summary: 'Trash items the caller could restore (write access to the original path; a team project\'s own folder, named as the project: the owner, admins and its creator while a member).' }),
-  restoreTrash: endpoint({ method: 'POST', path: '/api/files/trash/:id/restore', auth: 'user', owner: 'C', response: MoveResult, summary: 'Put a trashed item back (write access to the original path; " (restored)", in the team language, is added when the name is taken).' }),
+  restoreTrash: endpoint({ method: 'POST', path: '/api/files/trash/:id/restore', auth: 'user', owner: 'C', query: RestoreTrashQuery, response: MoveResult, summary: 'Put a trashed item back (write access to the original path; " (restored)", in the team language, is added when the name is taken).' }),
   purgeTrash: endpoint({ method: 'DELETE', path: '/api/files/trash/:id', auth: 'admin', owner: 'C', response: empty, status: 204, summary: 'Delete a trashed item for good (admin or owner). A team project\'s own folder: the project is deleted for good with it, as DELETE /api/projects/:id does.' }),
 
   uploadAttachment: endpoint({ method: 'POST', path: '/api/uploads', auth: 'user', owner: 'C', status: 201, body: multipart(AttachmentUploadFields, SMALL_UPLOAD_MAX), response: Attachment, summary: 'Attach a file (≤ 50 MB) to an own chat: stored in users/<me>/.attachments/<chatId>/. In a shared project chat the caller sees: saved in the project\'s chat attachments folder (named in the team\'s language, made when missing; a taken name gets " (2)") and attached as a team file (source team); 403 shared_upload_read_only without write access there.' }),
@@ -336,7 +347,7 @@ export const FILES = {
   moveSuggestions: endpoint({ method: 'POST', path: '/api/files/move-suggestions', auth: 'user', owner: 'C', body: MoveSuggestBody, response: MoveSuggestions, summary: 'Where files being moved could go (the Move picker): up to 3 folders the caller can write whose names, files and file-list lines fit the files\' names, with a confidence; and up to 3 folders the caller recently moved or saved into. No AI call. Paths the caller cannot read: 404.' }),
   dismissMoveSuggestion: endpoint({ method: 'POST', path: '/api/files/move-suggestions/dismiss', auth: 'user', owner: 'C', body: DismissMoveSuggestionBody, response: empty, status: 204, summary: 'Stop suggesting this folder to the caller for files named like these (per person, kept on the server).' }),
   recentFiles: endpoint({ method: 'GET', path: '/api/files/recent', auth: 'user', owner: 'C', query: RecentFilesQuery, response: FileList, summary: 'Recently changed files the caller can read (for the attach picker).' }),
-  createUploadSession: endpoint({ method: 'POST', path: '/api/upload-sessions', auth: 'user', owner: 'C', status: 201, body: CreateUploadSessionBody, response: UploadSession, summary: `Start a chunked upload (${UPLOAD_CHUNK_SIZE / 1024 / 1024} MB chunks). Expires 24 h after the last chunk arrived, at most 7 days after the start.` }),
+  createUploadSession: endpoint({ method: 'POST', path: '/api/upload-sessions', auth: 'user', owner: 'C', status: 201, body: CreateUploadSessionBody, response: UploadSession, summary: `Start a chunked upload (${UPLOAD_CHUNK_SIZE / 1024 / 1024} MB chunks). Expires 24 h after the last chunk arrived (one hour while no chunk has arrived), at most 7 days after the start.` }),
   uploadChunk: endpoint({ method: 'PUT', path: '/api/upload-sessions/:id/chunks/:n', auth: 'user', owner: 'C', body: binary(UPLOAD_CHUNK_SIZE), response: ChunkResult, summary: 'Store chunk n (0-based). Re-sending a stored chunk is a no-op.' }),
   getUploadSession: endpoint({ method: 'GET', path: '/api/upload-sessions/:id', auth: 'user', owner: 'C', response: UploadSession, summary: 'Which chunks arrived (to resume after a disconnect).' }),
   completeUploadSession: endpoint({ method: 'POST', path: '/api/upload-sessions/:id/complete', auth: 'user', owner: 'C', response: UploadComplete, summary: 'Verify sha256 and move the file into place.' }),

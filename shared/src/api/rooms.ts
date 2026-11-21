@@ -70,6 +70,8 @@ const ROOM_MENTION_ALL_WORD = {
   zh: '所有人',
 } as const
 export const ROOM_MENTION_ALL_WORDS: readonly string[] = Object.values(ROOM_MENTION_ALL_WORD)
+/** The word "@<word>" is written with in this language (the AI's post_to_room writes it in the asker's language). */
+export const roomMentionAllWord = (locale: Locale): string => ROOM_MENTION_ALL_WORD[locale] ?? ROOM_MENTION_ALL_WORD.en
 /** Does "@<one of ROOM_MENTION_ALL_WORDS>" stand in the text where a mention may start (the start, a space or an opening
  * mark before it)? Without regard to case. */
 export function roomMentionAllIn(body: string): boolean {
@@ -157,14 +159,40 @@ export const hideThreadRef = (text: string): string => text.replace(THREAD_REF_R
 /** Does a side chat question start with a quote (a message or a file of the room asked about)? */
 export const quotesRoom = (content: string) => content.startsWith('> ')
 /**
+ * The thread line (docs/decisions/20261117-thread-plus-trina.md): the first line of a side chat question asked while
+ * a thread was open beside the chat with the box's "Looking at this thread" chip on (web SideChatPanel withThread):
+ * `> 🧵 <who started it> · <when> (thread_id <id> in this room)`, then an empty line and the question. A quote's
+ * header with no message under it: the app sends the thread's id only, and the AI reads the thread with room_read, which
+ * checks what this person may read. The app shows it as a small mark, never as text, and hides it in copy and edit.
+ */
+export const THREAD_LINE = '> 🧵 '
+/** A question that starts with a thread line: the line as it was sent, its thread, who started it and when as the line
+ * says, and the question under it; null for anything else (a quoted message has lines under its header). */
+export function threadLineOf(content: string): { line: string; rootId: string; author: string; at: string; question: string } | null {
+  if (!content.startsWith(THREAD_LINE)) return null
+  const end = content.indexOf('\n')
+  const line = end < 0 ? content : content.slice(0, end)
+  const rootId = threadRefOf(line)
+  const rest = end < 0 ? '' : content.slice(end)
+  if (!rootId || (rest && !rest.startsWith('\n\n'))) return null
+  const head = hideThreadRef(line).slice(THREAD_LINE.length), at = head.lastIndexOf(' · ')
+  return { line, rootId, author: at < 0 ? head : head.slice(0, at), at: at < 0 ? '' : head.slice(at + 3), question: rest.slice(2) }
+}
+/**
  * Where an answer of a side chat goes (docs/DECISIONS.md "Trina side chat: send here"), from the questions above it on its
  * branch, the nearest first: the first that quotes something decides, its token's thread, or the room (null) when it has
  * none (a file, a message that cannot have a thread, an older chat); a follow-up without a quote keeps what an earlier
- * one said. No question quotes anything: the room. One rule for the button under an answer (web lib/sideChatSend.ts) and
- * the AI's post_to_room (server chat/post-to-room.ts).
+ * one said. A thread line (threadLineOf) counts for its own question only: the box puts it on every question while its
+ * chip is on, so a later question without it was asked with the chip off and goes to the room. No question quotes
+ * anything: the room. One rule for the button under an answer (web lib/sideChatSend.ts) and the AI's post_to_room
+ * (server chat/post-to-room.ts).
  */
 export function nearestThreadOf(questionsNearestFirst: Iterable<string>): string | null {
-  for (const q of questionsNearestFirst) if (quotesRoom(q)) return threadRefOf(q)
+  let own = true
+  for (const q of questionsNearestFirst) {
+    if (quotesRoom(q)) return !own && threadLineOf(q) ? null : threadRefOf(q)
+    own = false
+  }
   return null
 }
 
@@ -175,7 +203,11 @@ export function nearestThreadOf(questionsNearestFirst: Iterable<string>): string
 export type SideQuote =
   | { kind: 'message'; author: string; at: string; text: string; question: string }
   | { kind: 'file'; name: string; question: string }
+  /** a thread line: the thread that was open beside the chat (who started it, when) */
+  | { kind: 'thread'; author: string; at: string; question: string }
 export function sideQuoteOf(content: string): SideQuote | null {
+  const thread = threadLineOf(content)
+  if (thread) return { kind: 'thread', author: thread.author, at: thread.at, question: thread.question }
   const shown = hideThreadRef(content)
   if (!shown.startsWith('> ')) return null
   const cut = shown.indexOf('\n\n')
@@ -228,7 +260,7 @@ export type SideChatQuick = keyof typeof SIDE_CHAT_QUICK
  * chat/prompt.ts sideRoomSection), which name it as the person sees it. */
 export const SIDE_CHAT_SEND = {
   thread: { ko: '스레드에 보내기', en: 'Send to thread', id: 'Kirim ke utas', ja: 'スレッドに送る', es: 'Enviar al hilo', zh: '发送到话题' },
-  room: { ko: '대화방에 보내기', en: 'Send to room', id: 'Kirim ke ruang', ja: 'ルームに送る', es: 'Enviar a la sala', zh: '发送到群聊' },
+  room: { ko: '대화에 보내기', en: 'Send to conversation', id: 'Kirim ke percakapan', ja: 'トークに送る', es: 'Enviar a la conversación', zh: '发送到聊天' },
 } as const satisfies Record<string, Record<Locale, string>>
 /** the quick questions under a quoted message, and under a quoted file (팀 폴더에 저장: the AI saves it with
  * save_room_file, whose card says where and who will see it) */
@@ -255,6 +287,16 @@ export const RoomFile = z.object({
   width: z.number().int().positive().optional(),
   height: z.number().int().positive().optional(),
   thumb: z.boolean(),
+  /** a file kept in the team folder, not in the room (a project room's file: sent from the computer into the project's
+   * Chat attachments folder, or a team file attached from Files): deleting its message leaves the file where it is.
+   * Its name and size are the file's now, as this viewer may see it (docs/decisions/20261120-project-is-room.md D3) */
+  teamFile: z.literal(true).optional(),
+  /** with teamFile: where the file is now in the team folder, for a viewer who may open it there */
+  teamPath: z.string().optional(),
+  /** with teamFile, in place of the file (its name, path and size blanked): 'deleted' the file was put in the trash or
+   * deleted in Files ("File deleted"; a restore brings it back), 'unavailable' this viewer cannot open it now (moved
+   * where they cannot read it, a narrowed folder, access taken away) */
+  state: z.enum(['deleted', 'unavailable']).optional(),
 })
 export type RoomFile = z.infer<typeof RoomFile>
 
@@ -320,6 +362,15 @@ export const RoomEventLine = z.discriminatedUnion('type', [
   z.object({ type: z.literal('removed'), user: UserRef.nullable() }),
   /** the author joined the team (an invite, the team link or an admin's "Add directly"): the everyone room's line, nobody notified */
   z.object({ type: z.literal('joined') }),
+  /** the author linked this private channel to a team project, or unlinked it (docs/decisions/
+   * 20261119-channel-project-link.md): `project` only for a viewer who can open that project now, else null (the line
+   * says "a project") */
+  z.object({ type: z.literal('project_linked'), project: z.object({ id: Uuid7, name: z.string() }).nullable() }),
+  z.object({ type: z.literal('project_unlinked'), project: z.object({ id: Uuid7, name: z.string() }).nullable() }),
+  /** a private channel linked to a team project in 0.5.21 became the project's chat room at the upgrade, its people
+   * being the project's people (docs/decisions/20261120-project-is-room.md D7); written by the server (author null).
+   * `project` as for project_linked */
+  z.object({ type: z.literal('project_room'), project: z.object({ id: Uuid7, name: z.string() }).nullable() }),
   /** a line this build cannot read (a newer build's, or a damaged one): said neutrally, without who did it */
   z.object({ type: z.literal('unknown') }),
 ])
@@ -539,7 +590,34 @@ export const Room = z.object({
   /** a group chat's manager (방장): its maker while they are in it, else the member who joined first. They, and owners
    * and admins in it, may take someone out. null for the other kinds */
   managerId: UserId.nullable(),
+  /** may I add and manage this room's apps (the server's rooms/store.ts mayManageApps: a team room's and the everyone
+   * room's owners and admins, a 1:1's and a group chat's members, never a guest). Older servers omit it */
+  canManageApps: z.boolean().optional(),
   groupId: Uuid7.nullable(),
+  /** a team room's group folder (e.g. `groups/leads`), for the header's Files button: present only when the group has a
+   * folder and I can open it (the folder rules, as the Files page judges them). Absent for the other kinds, a group
+   * without a folder, someone the rules keep out, and older servers. */
+  groupFolder: z.string().min(1).optional(),
+  /** a private channel linked to a team project (docs/decisions/20261119-channel-project-link.md), for a viewer who can
+   * open that project now: the header's Files button opens `folderPath`; `canSave`: Save to project (not a guest, and
+   * write on the folder). Absent: not linked, a link that is not active (the project in the trash, outside projects/),
+   * a viewer who cannot open the project, and older servers. */
+  project: z.object({ id: Uuid7, name: z.string(), folderPath: z.string().min(1), canSave: z.boolean(),
+    /** this room is the project's own chat room (docs/decisions/20261120-project-is-room.md): its members are the
+     * project's people, it is named after the project, and its people are managed on the project (no Add people,
+     * Remove, Rename or Leave here). Absent: older servers. */
+    room: z.literal(true).optional(),
+    /** a project's chat room: may I send files from the computer there (they go into the project's Chat attachments
+     * folder, so write there is needed, guests included): 'ok'; 'read_only' I may only read the project; 'folder' only its
+     * Chat attachments folder is closed to me. Absent: older servers (canSave decides). */
+    attach: z.enum(['ok', 'read_only', 'folder']).optional(),
+    /** a project's chat room: may I leave the project ('yes'), or am I its last person ('last': add someone first);
+     * absent: older servers, or not a project one leaves */
+    leave: z.enum(['yes', 'last']).optional() }).optional(),
+  /** this is a team project's own chat room (docs/decisions/20261120-project-is-room.md), told to every member whether
+   * or not they can open the project now (Room.project needs that): its people are the project's, so no Add people,
+   * Remove, Rename, Leave or guest invites here. Absent: any other room, older servers. */
+  projectRoom: z.literal(true).optional(),
   memberCount: z.number().int().nonnegative(),
   /** up to 4 other members, for the avatars; a DM: the other person */
   peers: z.array(UserRef),
@@ -576,6 +654,8 @@ export const Room = z.object({
   /** the list folder I keep it in (PUT /api/rooms/:id/folder; docs/DECISIONS.md "List folders"). Mine only: each
    * member's copy of the room carries theirs. Not while hidden (it comes back with the room). Absent = in no folder. */
   folderId: Uuid7.optional(),
+  /** the team-wide category it is in (shared/src/api/room-categories.ts): the same for every member. Absent = none. */
+  categoryId: Uuid7.optional(),
   /** a DM whose other person was deleted from the team: it stays readable but nobody can write in it any more. Absent
    * = they are still here (older servers never send it). */
   gone: z.literal(true).optional(),
@@ -586,16 +666,19 @@ export const RoomMember = z.object({ user: UserRef, joinedAt: IsoTime })
 export type RoomMember = z.infer<typeof RoomMember>
 
 /** dm: the DM with this person (the existing one when there is one). group: a new group chat of me and these people
- * (at least two others; several group chats of the same people are fine), optionally named. Only active people of this
+ * (a private channel when named; a group DM, at least two others, when not: the server opens the group DM of exactly
+ * these people if there is one), optionally named. Only active people of this
  * team. Team rooms and the everyone room are made by the server, never through the API. */
 export const CreateRoomBody = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('dm'), userId: UserId }).strict(),
-  z.object({ kind: z.literal('group'), userIds: z.array(UserId).min(2).max(ROOM_GROUP_MAX - 1), name: RoomName.nullable().optional() }).strict(),
+  // a name makes a private channel (one other person is enough); none a group DM (two or more others): rooms/service.ts createGroup
+  z.object({ kind: z.literal('group'), userIds: z.array(UserId).min(1).max(ROOM_GROUP_MAX - 1), name: RoomName.nullable().optional() }).strict(),
 ])
 export type CreateRoomBody = z.infer<typeof CreateRoomBody>
 /** notifyLevel: my level for this room (null: back to my default). muted: the older apps' switch (true is 'off', false
  * brings 'off' back to my default); not with notifyLevel. name: the room's own name (Room.canRename; '' or null: back to
- * the server's name) */
+ * the server's name). A group room that has a name is a private channel and keeps one: '' or null there is refused (400
+ * validation, body.name); a group room with no name can be given one (rooms/service.ts rename) */
 export const UpdateRoomBody = z.object({ muted: z.boolean().optional(), notifyLevel: RoomNotifyLevel.nullable().optional(), name: RoomName.nullable().optional() }).strict()
   .refine((b) => b.muted !== undefined || b.notifyLevel !== undefined || b.name !== undefined, { message: 'nothing to change' })
   .refine((b) => b.muted === undefined || b.notifyLevel === undefined, { message: 'muted or notifyLevel, not both', path: ['muted'] })
@@ -634,7 +717,16 @@ export const RoomSearchQuery = z.object({
   q: z.string().trim().min(1).max(200).refine((s) => !s.includes('\u0000'), { message: 'invalid character' }),
   cursor: z.string().max(500).optional(),
   limit: z.coerce.number().int().min(1).max(ROOM_SEARCH_PAGE_MAX).optional(),
+  /** messages only: recent (the default: newest first) or relevant (the best match first among the newest matches, then
+   * newest first; what the app asks for) */
+  sort: z.enum(['relevant', 'recent']).optional(),
+  /** only this one of my rooms ("This conversation": ⌘F in a room, a DM or a thread). It narrows, never widens: a room
+   * I am not in now (left, archived, not mine) finds nothing and says so with filters.roomGone, as an in: that named
+   * none of my rooms does; with in: it is both (the room only if in: names it too). */
+  room: Uuid7.optional(),
 })
+export const RoomSearchSort = z.enum(['relevant', 'recent'])
+export type RoomSearchSort = z.infer<typeof RoomSearchSort>
 /** A message found: who wrote it and when, and the text around the first match (at most ROOM_SEARCH_SNIPPET_MAX
  * characters, … where it is cut, a room link as #name). threadRootId: a reply in that message's thread (it opens the
  * thread). The text is the message's own, as the room shows it to me: never a quote, a file or an answer hidden from me. */
@@ -658,7 +750,15 @@ export type RoomSearchHit = z.infer<typeof RoomSearchHit>
 /** The rooms of the hits on a page, as much as their titles need (the app names them as in its lists) */
 export const RoomSearchRoom = z.object({ id: Uuid7, kind: RoomKind, name: z.string().nullable(), peers: z.array(UserRef), memberCount: z.number().int().nonnegative() })
 export type RoomSearchRoom = z.infer<typeof RoomSearchRoom>
-export const RoomSearchPage = z.object({ items: z.array(RoomSearchHit), rooms: z.array(RoomSearchRoom), nextCursor: z.string().nullable() })
+/** What the search's from:, in: and mentions: were read as (shared/src/search-text.ts parseSearch): the people and
+ * rooms (at most 10 each), and each filter that named nobody or none of my rooms ("from:kim", "in:sales",
+ * "mentions:kim": only mentions:me finds anything): then nothing is found. mentions: mentions:me applied. roomGone: the
+ * `room` asked for is not one of my rooms now (nothing found; never named, so no room id is shown). */
+export const RoomSearchFilters = z.object({ from: z.array(UserRef), in: z.array(RoomSearchRoom), missing: z.array(z.string()), mentions: z.boolean().optional(), roomGone: z.boolean().optional() })
+export type RoomSearchFilters = z.infer<typeof RoomSearchFilters>
+/** near: nothing matched as typed, so these are near matches (typing mistakes), one page. filters: how from:/in: were
+ * read (only when the text has them). */
+export const RoomSearchPage = z.object({ items: z.array(RoomSearchHit), rooms: z.array(RoomSearchRoom), nextCursor: z.string().nullable(), near: z.boolean().optional(), filters: RoomSearchFilters.optional() })
 export type RoomSearchPage = z.infer<typeof RoomSearchPage>
 /** A file sent in a room, found by its name (same query as RoomSearchQuery: every word in the name, any case): the file
  * as the room shows it, and the message it was sent with, which opening it opens (a thread reply: in its thread). Only
@@ -673,8 +773,25 @@ export const RoomFileSearchHit = z.object({
   createdAt: IsoTime,
 })
 export type RoomFileSearchHit = z.infer<typeof RoomFileSearchHit>
-export const RoomFileSearchPage = z.object({ items: z.array(RoomFileSearchHit), rooms: z.array(RoomSearchRoom), nextCursor: z.string().nullable() })
+export const RoomFileSearchPage = z.object({ items: z.array(RoomFileSearchHit), rooms: z.array(RoomSearchRoom), nextCursor: z.string().nullable(), filters: RoomSearchFilters.optional() })
 export type RoomFileSearchPage = z.infer<typeof RoomFileSearchPage>
+/** "Files you sent" (docs/decisions/20261116-room-files-cleanup.md): my own files in the conversations I am in now, of
+ * messages that are not deleted, largest first (`cursor` from the last page). */
+export const MyRoomFilesQuery = z.object({ cursor: z.string().max(500).optional(), limit: z.coerce.number().int().min(1).max(ROOM_SEARCH_PAGE_MAX).optional() })
+/** a page of them; `totalBytes`: all of them together, not only this page (sent with the first page; 0 on the next ones) */
+export const MyRoomFilesPage = RoomFileSearchPage.extend({ totalBytes: z.number().nonnegative() })
+export type MyRoomFilesPage = z.infer<typeof MyRoomFilesPage>
+/** A room's own Files list (docs/decisions/20261120-project-is-room.md D8): the files sent in a channel, a 1:1 or a group
+ * chat I am in, with messages I can see now, newest first (`cursor` from the last page). A project's chat room has none:
+ * its files are the project's, in Files. */
+export const RoomFilesQuery = MyRoomFilesQuery
+export const RoomFilesPage = z.object({ items: z.array(RoomFileSearchHit), nextCursor: z.string().nullable() })
+export type RoomFilesPage = z.infer<typeof RoomFilesPage>
+/** ⌘K before anything is typed: at most this many recent files of my rooms */
+export const RECENT_ROOM_FILES_MAX = 5
+/** the newest files sent in the rooms I am in, with messages I can see now, and their rooms (for the names) */
+export const RecentRoomFiles = z.object({ items: z.array(RoomFileSearchHit).max(RECENT_ROOM_FILES_MAX), rooms: z.array(RoomSearchRoom) })
+export type RecentRoomFiles = z.infer<typeof RecentRoomFiles>
 
 export const SendRoomMessageBody = z.object({
   body: z.string().max(ROOM_MESSAGE_MAX),
@@ -746,6 +863,53 @@ export const RoomTeamFileBody = z.object({ path: RelPath }).strict()
 export const RoomTeamFile = z.object({ file: RoomFile, unable: z.number().int().nonnegative() })
 export type RoomTeamFile = z.infer<typeof RoomTeamFile>
 
+// ---------------- "Save to team folder" on a room file (docs/decisions/20261117-room-file-save-btn.md) ----------------
+/** files of one message saved with one sheet, at most */
+export const ROOM_SAVE_FILES_MAX = 10
+/** a room file this viewer can open in the team folder: where (a team path they may read) */
+export const RoomSavedFile = z.object({ fileId: Uuid7, path: RelPath })
+export type RoomSavedFile = z.infer<typeof RoomSavedFile>
+export const RoomSavedFiles = z.object({ items: z.array(RoomSavedFile) })
+export const RoomSavePlanBody = z.object({
+  fileIds: z.array(Uuid7).min(1).max(ROOM_SAVE_FILES_MAX),
+  /** the folder the person picked: its audience instead of a suggestion */
+  folder: RelPath.optional(),
+}).strict()
+/** `outside`: how many active people can open the folder and are not in the conversation now (a count, never who) */
+const SaveFolder = z.object({ path: RelPath, outside: z.number().int().nonnegative() })
+export const RoomSavePlan = z.object({
+  /** the message's files: `savedPath` when this one is in the team folder already where the viewer can open it;
+   * `sensitive` when this one looks like a personal document (it gets no suggestion; the others keep theirs); `sameAs`
+   * when it has the same bytes as an earlier file of the list (one file: saved once, both point at it) */
+  files: z.array(z.object({ id: Uuid7, name: z.string(), size: z.number().int().nonnegative(), savedPath: RelPath.optional(), sensitive: z.boolean().optional(), sameAs: Uuid7.optional() })),
+  /** the folder to pre-select, for the files that look ordinary: suggested by name when one folder fits every one of
+   * them, else one the person recently saved to; null when none fits or every file to save looks personal */
+  suggestion: SaveFolder.extend({ why: z.enum(['suggested', 'recent']) }).nullable(),
+  /** some file looks like a personal document (an ID, a bank book, a contract with a person's name …): see files[].sensitive */
+  sensitive: z.boolean(),
+  /** the picked folder (body.folder), checked writable */
+  folder: SaveFolder.optional(),
+})
+export type RoomSavePlan = z.infer<typeof RoomSavePlan>
+export const RoomSaveBody = z.object({ fileIds: z.array(Uuid7).min(1).max(ROOM_SAVE_FILES_MAX), folder: RelPath }).strict()
+/** Undo of a Save to project: the token its save gave for a copy it made (RoomSaveResult.saved[].undo) */
+export const RoomSaveUndoBody = z.object({ token: z.string().min(16).max(128) }).strict()
+export const RoomSaveUndoResult = z.object({ removed: z.literal(true) })
+export type RoomSaveUndoResult = z.infer<typeof RoomSaveUndoResult>
+/** link this private channel to a team project (PUT /api/rooms/:id/project; also the project page's Link a channel) */
+export const LinkRoomProjectBody = z.object({ projectId: Uuid7, /** where it was linked from (the audit row's via; default the channel) */ via: z.enum(['channel', 'project']).optional() }).strict()
+/** DELETE /api/rooms/:id/project?via=project: unlinked from the project page (the audit row's via; default the channel) */
+export const UnlinkRoomProjectQuery = z.object({ via: z.enum(['channel', 'project']).optional() })
+/** a private channel for a project (POST /api/projects/:id/channel): its name and the people to add (the client
+ * pre-fills the project's people; never a sync) */
+export const CreateProjectChannelBody = z.object({ name: RoomName.refine((s) => s.length > 0, { message: 'required' }), userIds: z.array(UserId).min(1).max(ROOM_GROUP_MAX - 1) }).strict()
+/** each file's team path; `existed`: the same bytes were there already; `nextTo`: a different file had the name, so the
+ * copy is beside it */
+/** `undo` (a one-click Save to project only, and only for a copy this save made: existed false): a short-lived token for
+ * POST /api/rooms/:id/save-undo, bound to the person, the place and that copy on disk */
+export const RoomSaveResult = z.object({ saved: z.array(z.object({ fileId: Uuid7, path: RelPath, existed: z.boolean(), nextTo: RelPath.optional(), undo: z.string().min(16).max(128).optional() })) })
+export type RoomSaveResult = z.infer<typeof RoomSaveResult>
+
 // ---------------- the confirm before content goes to a room ("대화방에 보내기", a room AI preview) ----------------
 /** at most this many rows in a "confirm": past it the rest of the answer's links is one more row nothing is told about
  * (everyone else counted) */
@@ -753,14 +917,14 @@ export const ANSWER_SHARE_FILES_MAX = 100
 /** Where something the answer used came from that some member cannot open (never who cannot). */
 export const AnswerSharePlace = z.discriminatedUnion('kind', [
   /** a team folder ('' = the top of the team folder) */
-  z.object({ kind: z.literal('folder'), path: z.string() }),
+  z.object({ kind: z.literal('folder'), path: z.string(), /** how many files the answer read there that count, when all are known */ files: z.number().int().positive().optional() }),
   /** my own folder, or what only I saw (the in-app browser, a personal connection) */
-  z.object({ kind: z.literal('mine') }),
+  z.object({ kind: z.literal('mine'), files: z.number().int().positive().optional() }),
   /** a team connection (a connected service) or a shared Google Drive, by its name */
   z.object({ kind: z.literal('service'), name: z.string() }),
   /** a team room by its group's name, or the everyone room (name '') */
   z.object({ kind: z.literal('room'), name: z.string() }),
-  /** a 1:1 or group conversation (never named: its name is people's names) */
+  /** a 1:1 or group chat (never named: its name is people's names) */
   z.object({ kind: z.literal('conversation') }),
 ])
 export type AnswerSharePlace = z.infer<typeof AnswerSharePlace>
@@ -807,13 +971,15 @@ export const AnswerShareConfirm = z.object({
 export type AnswerShareConfirm = z.infer<typeof AnswerShareConfirm>
 
 export const ROOMS = {
-  listRooms: endpoint({ method: 'GET', path: '/api/rooms', auth: 'user', owner: 'B', response: z.object({ items: z.array(Room), alerts: RoomAlertSettings.optional() }), summary: 'The rooms I am in (my team rooms, everyone, DMs, group chats), most recent activity first, with my unread count, the last message, my notification level and my pin (pinnedAt; the app lists my pinned rooms first); alerts: what else decides whether a message rings (thread replies, quiet hours, the team time zone).' }),
+  listRooms: endpoint({ method: 'GET', path: '/api/rooms', auth: 'user', owner: 'B', response: z.object({ items: z.array(Room), alerts: RoomAlertSettings.optional() }), summary: 'The rooms I am in (my team rooms, everyone, DMs, group chats), most recent activity first, with my unread count, the last message, my notification level, my pin (pinnedAt; the app lists my pinned rooms first) and whether I may add apps there (canManageApps, the same rule as the apps routes); alerts: what else decides whether a message rings (thread replies, quiet hours, the team time zone).' }),
   createRoom: endpoint({ method: 'POST', path: '/api/rooms', auth: 'user', owner: 'B', status: 201, body: CreateRoomBody, response: Room, summary: 'Open the DM with a person (the existing one when there is one), or make a group chat with two or more people. Not audited: admins do not learn who talks to whom.' }),
   getRoom: endpoint({ method: 'GET', path: '/api/rooms/:id', auth: 'user', owner: 'B', response: Room, summary: 'One room I am in (404 for anyone else, admins included).' }),
-  updateRoom: endpoint({ method: 'PATCH', path: '/api/rooms/:id', auth: 'user', owner: 'B', body: UpdateRoomBody, response: Room, summary: 'Set my notification level for a room (all, mentions, off, or my default), or rename it (group chats: any member; team and everyone rooms: owner or admin members; never a DM).' }),
+  updateRoom: endpoint({ method: 'PATCH', path: '/api/rooms/:id', auth: 'user', owner: 'B', body: UpdateRoomBody, response: Room, summary: 'Set my notification level for a room (all, mentions, off, or my default), or rename it (group chats: any member, and a private channel, a group chat with a name, cannot be left without one; team and everyone rooms: owner or admin members; never a DM, nor a project\'s chat room: it follows the project\'s name).' }),
   listRoomMessages: endpoint({ method: 'GET', path: '/api/rooms/:id/messages', auth: 'user', owner: 'B', query: ListRoomMessagesQuery, response: RoomMessagesPage, summary: 'The timeline of a room I am in from my join on (thread replies only when sent to the room too), newest page first, oldest first within it. With around: the page around that message, and newerCursor for the newer ones.' }),
-  searchRoomMessages: endpoint({ method: 'GET', path: '/api/room-messages', auth: 'user', owner: 'B', query: RoomSearchQuery, response: RoomSearchPage, summary: 'Search the messages I can see in the rooms, 1:1 and group chats I am in now (q: every word, in any order and any case; Korean by part of a word), newest first, with the text around the first word found and the rooms of the hits.' }),
-  searchRoomFiles: endpoint({ method: 'GET', path: '/api/room-files', auth: 'user', owner: 'B', query: RoomSearchQuery, response: RoomFileSearchPage, summary: 'Search the files sent in the rooms, 1:1 and group chats I am in now by name (q: every word, any case), only those of messages I can see, newest first, with the message each was sent with and the rooms of the hits.' }),
+  searchRoomMessages: endpoint({ method: 'GET', path: '/api/room-messages', auth: 'user', owner: 'B', query: RoomSearchQuery, response: RoomSearchPage, summary: 'Search the messages I can see in the rooms, 1:1 and group chats I am in now (q: every word, in any order and any case, a Korean word without its particle and an English one without its ending; "quoted phrases"; from:person, in:room and mentions:me narrow it, and room= to one room of mine), newest first or the best match first (sort), near matches when nothing matched as typed, with the text around the first word found and the rooms of the hits.' }),
+  searchRoomFiles: endpoint({ method: 'GET', path: '/api/room-files', auth: 'user', owner: 'B', query: RoomSearchQuery, response: RoomFileSearchPage, summary: 'Search the files sent in the rooms, 1:1 and group chats I am in now by name (q: every word, any case; from:, in:, mentions:me and room= as for messages), only those of messages I can see, newest first, with the message each was sent with and the rooms of the hits.' }),
+  listMyRoomFiles: endpoint({ method: 'GET', path: '/api/room-files/mine', auth: 'user', owner: 'B', query: MyRoomFilesQuery, response: MyRoomFilesPage, summary: 'The files I sent in the rooms, 1:1 and group chats I am in now, with a message that is not deleted, largest first, with the room of each and how much space they take together ("Files you sent"). Only my own; deleting one is deleting its message.' }),
+  recentRoomFiles: endpoint({ method: 'GET', path: '/api/room-files/recent', auth: 'user', owner: 'B', response: RecentRoomFiles, summary: 'The newest files (at most 5) sent in the rooms, 1:1 and group chats I am in now, only those of messages I can see and, for a project room\'s file kept in the team folder, only while I can open it there; with the room of each (⌘K before anything is typed).' }),
   sendRoomMessage: endpoint({ method: 'POST', path: '/api/rooms/:id/messages', auth: 'user', owner: 'B', status: 201, body: SendRoomMessageBody, response: RoomMessage, summary: 'Send a message as myself (never another author), or a reply in a thread, with @mentions (or @everyone, written as the everyone room word of each language: mentionsAll; in the everyone room owners and admins only) and files; DMs, group chats, mentions and followed threads notify.' }),
   listRoomThread: endpoint({ method: 'GET', path: '/api/rooms/:id/messages/:messageId/thread', auth: 'user', owner: 'B', query: ListRoomMessagesQuery, response: RoomThreadPage, summary: 'A thread in a room I am in: its root and the replies I can see (none of it when I cannot see the root).' }),
   markRoomThreadRead: endpoint({ method: 'POST', path: '/api/rooms/:id/messages/:messageId/thread/read', auth: 'user', owner: 'B', body: MarkRoomReadBody, response: RoomThreadReadState, summary: 'Move my read position in a thread I follow forward to seq; its notices count as read.' }),
@@ -824,15 +990,24 @@ export const ROOMS = {
   deleteRoomMessage: endpoint({ method: 'DELETE', path: '/api/rooms/:id/messages/:messageId', auth: 'user', owner: 'B', status: 204, response: empty, summary: 'Delete my own message (its text and files are removed; "deleted" stays in its place).' }),
   markRoomRead: endpoint({ method: 'POST', path: '/api/rooms/:id/read', auth: 'user', owner: 'B', body: MarkRoomReadBody, response: RoomReadState, summary: 'Move my read position forward to seq (never back); nobody else is told.' }),
   listRoomMembers: endpoint({ method: 'GET', path: '/api/rooms/:id/members', auth: 'user', owner: 'B', response: z.object({ items: z.array(RoomMember) }), summary: 'Who is in a room I am in (names only; nobody\'s read position).' }),
-  inviteRoomMembers: endpoint({ method: 'POST', path: '/api/rooms/:id/members', auth: 'user', owner: 'B', body: InviteRoomBody, response: Room, summary: 'Add people to a group chat I am in (any member; active people only). They see it from now on. Not audited.' }),
-  removeRoomMember: endpoint({ method: 'DELETE', path: '/api/rooms/:id/members/:userId', auth: 'user', owner: 'B', status: 204, response: empty, summary: 'Take someone out of a group chat I am in: its manager, or an owner or admin in it (never myself: leave instead). Not audited.' }),
+  inviteRoomMembers: endpoint({ method: 'POST', path: '/api/rooms/:id/members', auth: 'user', owner: 'B', body: InviteRoomBody, response: Room, summary: 'Add people to a group chat I am in (any member; active people only). They see it from now on. Not audited. A project\'s chat room: 403 project_room (its people are the project\'s).' }),
+  removeRoomMember: endpoint({ method: 'DELETE', path: '/api/rooms/:id/members/:userId', auth: 'user', owner: 'B', status: 204, response: empty, summary: 'Take someone out of a group chat I am in: its manager, or an owner or admin in it (never myself: leave instead). Not audited. A project\'s chat room: 403 project_room.' }),
   setRoomHidden: endpoint({ method: 'PUT', path: '/api/rooms/:id/hidden', auth: 'user', owner: 'B', body: SetRoomHiddenBody, response: Room, summary: 'Hide a DM, a team room or the everyone room from my own lists, or show it again (nobody else is told; a group chat is left instead). Hiding unpins it. It comes back by itself when something for me arrives.' }),
   pinRoom: endpoint({ method: 'POST', path: '/api/rooms/:id/pin', auth: 'user', owner: 'B', response: Room, summary: 'Pin a room I am in to the top of my own conversation list ("Pin to top"; nobody else is told). Pinned already: unchanged. A hidden room: 409 room_hidden (hiding unpins it). At most 50 pins (409 room_pins_full). My other windows hear it (room.updated).' }),
   unpinRoom: endpoint({ method: 'DELETE', path: '/api/rooms/:id/pin', auth: 'user', owner: 'B', response: Room, summary: 'Unpin a room ("Unpin"); not pinned: unchanged. My other windows hear it (room.updated).' }),
-  leaveRoom: endpoint({ method: 'POST', path: '/api/rooms/:id/leave', auth: 'user', owner: 'B', status: 204, response: empty, summary: 'Leave a group chat; the last one to leave closes it. Not audited.' }),
-  uploadRoomFile: endpoint({ method: 'POST', path: '/api/rooms/:id/files', auth: 'user', owner: 'B', status: 201, body: multipart(RoomFileUploadFields, SMALL_UPLOAD_MAX), response: RoomFile, summary: 'Upload a file (≤ 50 MB) to send in a room I am in; stored outside the team folder, readable by the room\'s members once sent.' }),
+  leaveRoom: endpoint({ method: 'POST', path: '/api/rooms/:id/leave', auth: 'user', owner: 'B', status: 204, response: empty, summary: 'Leave a group chat; the last one to leave closes it. Not audited. A project\'s chat room: 403 project_room (leave the project instead: POST /api/projects/:id/leave).' }),
+  uploadRoomFile: endpoint({ method: 'POST', path: '/api/rooms/:id/files', auth: 'user', owner: 'B', status: 201, body: multipart(RoomFileUploadFields, SMALL_UPLOAD_MAX), response: RoomFile, summary: 'Upload a file (≤ 50 MB) to send in a room I am in; stored outside the team folder, readable by the room\'s members once sent. A larger file (up to 1 GB): an upload session with target room (POST /api/upload-sessions).' }),
   attachRoomTeamFile: endpoint({ method: 'POST', path: '/api/rooms/:id/team-file', auth: 'user', owner: 'B', status: 201, body: RoomTeamFileBody, response: RoomTeamFile, summary: 'Copy a team-folder file I may read now (not a folder, a link or a quarantined file: 404 like a missing one; ≤ 50 MB) as my upload to send in a room I am in, readable by the room\'s members once sent; with how many other members cannot open the team file (a count). The same unchanged file again before sending: that copy again; past 200 MB of my unsent copies: 409 team_copies_full. Audited when sent (room.team_file).' }),
   roomFile: endpoint({ method: 'GET', path: '/api/rooms/:id/files/:fileId', auth: 'user', owner: 'B', query: RoomFileQuery, response: stream(true), summary: 'A file sent in a room I am in (membership checked on every read); thumb=1 for an image preview, download=1 as an attachment. Inline, a page or script type is sent as text/plain with a sandbox CSP: never a page of the app. A file on the safety check\'s download-only list is sent only with download=1 (503 quarantined otherwise).' }),
+  listRoomFiles: endpoint({ method: 'GET', path: '/api/rooms/:id/files', auth: 'user', owner: 'B', query: RoomFilesQuery, response: RoomFilesPage, summary: 'The files sent in a channel, 1:1 or group chat I am in, only those of messages I can see now, newest first, with who sent each and when (the room\'s Files list). A project\'s chat room has no list of its own (its files are the project\'s): 404, as for a room I am not in.' }),
+  roomSavedFiles: endpoint({ method: 'GET', path: '/api/rooms/:id/saved-files', auth: 'user', owner: 'B', response: RoomSavedFiles, summary: 'Files of a room I am in that were saved to the team folder and that I can open there now: the place still holds the same bytes and my access allows reading it. Not for guests.' }),
+  roomSavePlan: endpoint({ method: 'POST', path: '/api/rooms/:id/save-plan', auth: 'user', owner: 'B', body: RoomSavePlanBody, response: RoomSavePlan, summary: 'What the "Save to team folder" sheet shows for files of a room I can see: each file (where it is saved already, whether it looks like a personal document, whether it is the same bytes as an earlier one), one folder I can write to pre-select for the files that look ordinary (matched by name, no AI, only when it fits every one of them; else a recent folder; none when every file looks personal) or, with folder, that folder checked; how many people outside the conversation can see it (a count). Rate limited like the Move picker\'s suggestions. Not for guests.' }),
+  saveRoomFilesToTeam: endpoint({ method: 'POST', path: '/api/rooms/:id/save-to-team', auth: 'user', owner: 'B', body: RoomSaveBody, response: RoomSaveResult, summary: 'Copy files of a room I can see into a team folder I may write, byte for byte (each ≤ 50 MB, not on the download-only list, never into skills/ or as an instruction file). Never overwrites: the same bytes there already (from this file or any room file with those bytes, an identical file of the same save included) count as saved; a different file of that name stays and the copy goes next to it. Recorded in the file history. Not for guests.' }),
+  openProjectRoom: endpoint({ method: 'POST', path: '/api/projects/:id/room', auth: 'user', owner: 'B', response: Room, summary: 'The chat room of a team project in projects/<name> I read (docs/decisions/20261120-project-is-room.md), made the first time it is opened: a private channel named after the project whose members are the project\'s people (followed from then on: added, removed, renamed with the project). Anyone who cannot read the project (the owner and admins outside it included): 404 as for a missing project. A personal or older project: 409 project_not_linkable. Its making is audited (project.room).' }),
+  undoRoomSave: endpoint({ method: 'POST', path: '/api/rooms/:id/save-undo', auth: 'user', owner: 'B', body: RoomSaveUndoBody, response: RoomSaveUndoResult, summary: 'Undo of the one-click Save to project. Retired in 0.5.22 with the project link (docs/decisions/20261120-project-is-room.md): 410 gone for everyone, naming nothing.' }),
+  linkRoomProject: endpoint({ method: 'PUT', path: '/api/rooms/:id/project', auth: 'user', owner: 'B', body: LinkRoomProjectBody, response: Room, summary: 'Link a private channel to a team project. Retired in 0.5.22 with the project link (docs/decisions/20261120-project-is-room.md): 410 gone for everyone, naming nothing.' }),
+  unlinkRoomProject: endpoint({ method: 'DELETE', path: '/api/rooms/:id/project', auth: 'user', owner: 'B', status: 204, query: UnlinkRoomProjectQuery, response: empty, summary: 'Unlink a private channel from its project. Retired in 0.5.22 with the project link (docs/decisions/20261120-project-is-room.md): 410 gone for everyone, naming nothing.' }),
+  createProjectChannel: endpoint({ method: 'POST', path: '/api/projects/:id/channel', auth: 'user', owner: 'B', status: 201, body: CreateProjectChannelBody, response: Room, summary: 'Make a private channel for a team project. Retired in 0.5.22 with the project link (docs/decisions/20261120-project-is-room.md): 410 gone for everyone, naming nothing. A project\'s chat room: POST /api/projects/:id/room.' }),
   roomFileHwpPreview: endpoint({ method: 'GET', path: '/api/rooms/:id/files/:fileId/hwp-preview', auth: 'user', owner: 'B', query: HwpPreviewQuery, response: HwpPreviewPage, summary: 'One page of a Hangul file (HWP, HWPX) sent in a room I am in, as a PNG from the HWP Preview plugin: the team file preview\'s renderer, limits and cache. Checked on every request as reading the file inline is: a member, the message visible to me and not deleted (404 otherwise), not on the download-only list (503 quarantined). The plugin off or not usable here: 503 unavailable with params.reason disabled, as for a team file. Pages are 1-based.' }),
 } as const
 
@@ -840,9 +1015,16 @@ export const ROOMS = {
  * links name them (no slashes around): what RoomMessage.openable is checked from. */
 export function answerFilePaths(body: string, max = 100): string[] {
   const out = new Set<string>()
-  for (const m of body.matchAll(/(?:\/api\/files\/download|\/files\/view)\?([^\s)"'<>\]]+)/g)) {
+  for (const m of body.matchAll(/(?:\/api\/files\/download|\/files\/view)\?([^\s"'<>\]]+)/g)) {
+    // a Markdown link's address may hold balanced parentheses ("회의록 (11-15).md", as CommonMark reads it): it ends at
+    // the first ")" that closes nothing
+    let q = m[1]!, depth = 0
+    for (let i = 0; i < q.length; i++) {
+      if (q[i] === '(') depth++
+      else if (q[i] === ')' && depth-- === 0) { q = q.slice(0, i); break }
+    }
     let p: string | null = null
-    try { p = new URLSearchParams(m[1]!.replace(/&amp;/g, '&')).get('path') } catch { /* not a query */ }
+    try { p = new URLSearchParams(q.replace(/&amp;/g, '&')).get('path') } catch { /* not a query */ }
     const clean = p?.replace(/^\/+|\/+$/g, '')
     if (clean) out.add(clean)
     if (out.size >= max) break

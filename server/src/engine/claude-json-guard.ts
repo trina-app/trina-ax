@@ -445,6 +445,9 @@ export interface FamilyResult {
   moved: string[]
   /** "<file name>: <why>" for each file that may still hold MCP settings: it could not be checked, cleaned or moved */
   failed: string[]
+  /** the names of the MCP servers taken out (mcpServers and enabledMcpjsonServers), each once: what the owner's notice
+   * lists (office/claude-mcp-notice.ts) */
+  names: string[]
 }
 
 /** guardClaudeJson on every file of claudeJsonFiles. With `backupDir`, what is removed is saved there first (one file
@@ -472,7 +475,31 @@ export function guardClaudeJsonFamilyKeep(home = os.homedir(), o: Omit<GuardOpti
       for (const k of planKeys(p, a)) removed.push(`${rel(p.file)}: ${k}`)
     } catch (e) { failed.push(`${rel(p.file)}: could not be cleaned or moved aside (${errText(e)})`) }
   }
-  return { removed, backup, backupError, moved, failed }
+  return { removed, backup, backupError, moved, failed, names: entryNames(plans.flatMap((p) => p.taken)) }
+}
+
+/** the server names of MCP entries (mcpServers, enabledMcpjsonServers; the approval switch and env have none), each once */
+export function entryNames(entries: Pick<McpEntry, 'key' | 'value'>[]): string[] {
+  const out = new Set<string>()
+  for (const e of entries) if (e.key === 'mcpServers' || e.key === 'enabledMcpjsonServers') for (const n of mcpNames(e)) out.add(n)
+  return [...out]
+}
+
+/** The server names in a copy of removed settings (a file of `dir`, by its base name; null when it is not one of the
+ * copies or cannot be read). Entries whose value was too large to keep still carry their names. */
+export function backupNames(dir: string, name: string): string[] | null {
+  if (path.basename(name) !== name || !BACKUP_FILE.test(name)) return null
+  try {
+    const b = JSON.parse(fs.readFileSync(path.join(dir, name), 'utf8')) as McpBackup
+    const out = new Set<string>()
+    for (const list of Object.values(b.files ?? {})) {
+      for (const e of list ?? []) {
+        if (e.key !== 'mcpServers' && e.key !== 'enabledMcpjsonServers') continue
+        for (const n of 'names' in e && Array.isArray(e.names) ? e.names : mcpNames(e as McpEntry)) out.add(String(n))
+      }
+    }
+    return [...out]
+  } catch { return null }
 }
 
 /** guardClaudeJson on every file of claudeJsonFiles; returns "<file name>: <key path>" for each finding (no copy) */
@@ -536,8 +563,9 @@ export function guardOfficeClaudeJson(ctx: Pick<AppContext, 'config' | 'db' | 'l
       ctx.log.warn('removed MCP servers or a link from ~/.claude.json (office mode: an interactive claude would run them unsandboxed)', { when, keys: r.removed, backup: r.backup, moved: r.moved })
       // a moved file by its name in the copies folder, or where it is when it had to stay next to itself
       const moved = r.moved.map((f) => path.dirname(f) === backupDir ? path.basename(f) : `~/${path.relative(h, f)}`)
+      // names: what the owner's one-time notice in Admin lists (office/claude-mcp-notice.ts)
       audit(ctx.db, { actor: null, action: 'engine.claude_json_mcp_removed', target: '~/.claude.json', detail: {
-        when, keys: r.removed.slice(0, 20), ...(r.backup ? { backup: path.basename(r.backup) } : {}), ...(moved.length ? { moved } : {}),
+        when, keys: r.removed.slice(0, 20), ...(r.names.length ? { names: r.names.slice(0, 20) } : {}), ...(r.backup ? { backup: path.basename(r.backup) } : {}), ...(moved.length ? { moved } : {}),
       } })
     }
     if (r.failed.length) {

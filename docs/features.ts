@@ -38,6 +38,7 @@ export const FEATURES: Feature[] = [
   { id: 'auth.setup', name: 'First-run setup: make the team and its owner', area: 'Sign-in & account', endpoints: ['setupStatus', 'setup'], screens: ['/setup'] },
   { id: 'auth.signin', name: 'Sign in and sign out', area: 'Sign-in & account', endpoints: ['login', 'logout', 'me', 'health'], screens: ['/login'] },
   { id: 'auth.password', name: 'Change password (also a forced temporary one)', area: 'Sign-in & account', endpoints: ['changePassword'], screens: ['/password', '/settings/security/password'] },
+  { id: 'auth.app-signin', name: 'Continue in the desktop app after setup, signed in with a one-time code', area: 'Sign-in & account', endpoints: ['appSignIn', 'redeemAppSignIn'], screens: ['/open-app', '/app-signin'] },
   { id: 'auth.reset', name: 'Password reset link', area: 'Sign-in & account', endpoints: ['passwordResetInfo', 'completePasswordReset'], screens: ['/reset-password/:token'] },
   { id: 'auth.invite', name: 'Accept an invite', area: 'Sign-in & account', endpoints: ['inviteInfo', 'acceptInvite'], screens: ['/invite/:token'] },
   { id: 'auth.team-link', name: 'Join with the team link', area: 'Sign-in & account', endpoints: ['teamLinkInfo', 'joinTeamLink', '*TeamLink'], screens: ['/join'] },
@@ -49,18 +50,20 @@ export const FEATURES: Feature[] = [
   { id: 'people.directory', name: 'People of the team', area: 'Sign-in & account', endpoints: ['listPeople'] },
 
   // ---------------- AI chat ----------------
-  { id: 'chat.conversation', name: 'Chat with the AI: send, stream, stop', area: 'AI chat', endpoints: ['createChat', 'getChat', 'listMessages', 'sendMessage', 'stop', 'getChatQueue', 'markChatSeen'], screens: ['/c/:chatId'] },
+  { id: 'chat.conversation', name: 'Chat with the AI: send, stream, stop', area: 'AI chat', endpoints: ['createChat', 'getChat', 'listMessages', 'sendMessage', 'putChatWaiting', 'stop', 'getChatQueue', 'markChatSeen'], screens: ['/c/:chatId'] },
   { id: 'chat.list', name: 'Chat history: rename, pin, delete, restore', area: 'AI chat', endpoints: ['listChats', 'listChatGroups', 'updateChat', 'deleteChat', 'restoreChat', 'pinChat', 'unpinChat'], screens: ['/trash'] },
-  { id: 'chat.list-folders', name: 'List folders: my own folders for AI chats and conversations', area: 'AI chat', endpoints: ['*NavFolder*', 'setChatFolder', 'setRoomFolder'] },
+  { id: 'chat.list-folders', name: 'List folders: my own folders for AI chats, and my sidebar sections for conversations', area: 'AI chat', endpoints: ['*NavFolder*', 'setChatFolder', 'setRoomFolder'] },
+  { id: 'rooms.categories', name: 'Conversation categories (team-wide, made by admins): no longer shown in the app since sidebar sections; kept on the server until a cleanup', area: 'AI chat', endpoints: ['*RoomCategor*', 'setRoomCategory'] },
   { id: 'chat.edit-regenerate', name: 'Edit a question, regenerate, answer branches', area: 'AI chat', endpoints: ['editMessage', 'regenerate', 'selectBranch'] },
-  { id: 'chat.cards', name: 'AI questions, confirmations and connect cards in a turn', area: 'AI chat', endpoints: ['listTurnRequests', 'answerTurn', 'connectTurn'] },
+  { id: 'chat.cards', name: 'AI questions, confirmations and connect cards in a turn', area: 'AI chat', endpoints: ['listTurnRequests', 'answerTurn', 'connectTurn', 'turnRequestDetail'] },
   { id: 'chat.sources', name: 'Answer sources', area: 'AI chat', endpoints: ['messageSources'] },
-  { id: 'chat.share', name: 'Share a chat (with its project, or with chosen people and groups) or an answer to a room', area: 'AI chat', endpoints: ['shareChat', 'shareAnswerToRoom', 'getChatAudience', 'putChatAudience', 'hideChat', 'unhideChat', 'userSharedChats', 'chatFile'] },
+  { id: 'chat.share', name: 'Share a chat (with its project, or with chosen people and groups) or an answer to a room', area: 'AI chat', endpoints: ['shareChat', 'shareAnswerToRoom', 'getChatAudience', 'putChatAudience', 'previewChatAudience', 'hideChat', 'unhideChat', 'userSharedChats', 'chatFile', 'linkAccess', 'requestLinkAccess', 'answerAccessRequest'] },
+  { id: 'chat.threads', name: 'Threads on AI answers in shared chats (people talk under an answer; the AI reads it when asked, or someone sends it)', area: 'AI chat', endpoints: ['listChatThread', 'sendChatThreadReply', 'deleteChatThreadReply', 'markChatThreadRead'], screens: ['/c/:chatId/t/:messageId'] },
   { id: 'chat.engine', name: 'Pick the AI engine and model', area: 'AI chat', endpoints: ['chatEngines'] },
   { id: 'chat.artifacts', name: 'Artifacts made in a chat (pages, documents)', area: 'AI chat', endpoints: ['listChatArtifacts', 'getArtifact'] },
   { id: 'chat.decks', name: 'Intro decks (slides, PPTX, PDF)', area: 'AI chat', endpoints: ['*IntroDeck*', 'listDeckBuilds', 'deckBuildSlide'] },
   { id: 'chat.promo-video', name: 'Promo videos (MP4)', area: 'AI chat', endpoints: ['*PromoVideo'] },
-  { id: 'chat.voice', name: 'Voice input and recordings to text', area: 'AI chat', endpoints: ['transcribe', 'getJob', 'cancelJob'] },
+  { id: 'chat.voice', name: 'Voice input and recordings to text', area: 'AI chat', endpoints: ['transcribe', 'transcribePiece', 'getJob', 'cancelJob'] },
   { id: 'chat.browser', name: 'The AI uses the browser (desktop app)', area: 'AI chat', endpoints: ['pollCalls', 'postResult'], screens: ['/settings/browser'] },
   { id: 'chat.web-access', name: 'Allow all websites for the AI', area: 'AI chat', endpoints: ['setMyWebAccess'] },
   { id: 'chat.memory', name: 'What the AI remembers about me', area: 'AI chat', endpoints: ['*Memor*'], screens: ['/settings/memory'] },
@@ -83,6 +86,9 @@ export const FEATURES: Feature[] = [
   { id: 'files.organize', name: 'New folder, move, copy, delete', area: 'Files', endpoints: ['mkdir', 'move', 'copy', 'remove', 'moveSuggestions', 'dismissMoveSuggestion'] },
   { id: 'files.versions', name: 'File history and restore a version', area: 'Files', endpoints: ['history', 'versionDownload', 'restoreVersion'] },
   { id: 'files.trash', name: 'Files trash', area: 'Files', endpoints: ['trash', 'restoreTrash', 'purgeTrash'] },
+  { id: 'files.share-links', name: 'Share a file with chosen people; its link and Ask for access', area: 'Files', endpoints: ['fileLink', 'fileShares', 'putFileShares', 'shareCards', 'shareFilesBatch', 'sharedBatch', 'sharedFile', 'sharedFileDownload', 'requestFileAccess', 'answerFileRequest', 'fileSharesCount', 'removeAllFileShares', 'runShareFix', 'grantedFileLink'], screens: ['/f/:id', '/f/batch/:id'] },
+  { id: 'files.shared-with-me', name: 'Files shared with me', area: 'Files', endpoints: ['sharedWithMe'] },
+  { id: 'files.folder-share', name: 'Share a folder in My files (view only); the folder link page; Undo', area: 'Files', endpoints: ['undoFileShares', 'sharedFolderList', 'sharedFolderEntry'] },
   { id: 'files.search', name: 'Find files and search inside them; recent files', area: 'Files', endpoints: ['findFiles', 'searchFileContents', 'recentFiles'] },
   { id: 'files.attach', name: 'Attach files to a chat', area: 'Files', endpoints: ['uploadAttachment', 'attachmentThumbnail', 'attachTeamFile', 'discardAttachment'] },
   { id: 'files.file-list', name: 'File list (what each file is)', area: 'Files', endpoints: ['fileListStatus', 'runFileList'], screens: ['/admin/settings/file-list'] },
@@ -91,15 +97,20 @@ export const FEATURES: Feature[] = [
   // ---------------- Rooms ----------------
   { id: 'rooms.list', name: 'Conversations list, new room, DM and group chat', area: 'Rooms', endpoints: ['listRooms', 'createRoom'], screens: ['/rooms'] },
   { id: 'rooms.messages', name: 'Room messages: send, edit, delete, read', area: 'Rooms', endpoints: ['getRoom', 'listRoomMessages', 'sendRoomMessage', 'editRoomMessage', 'deleteRoomMessage', 'markRoomRead'], screens: ['/rooms/:roomId'] },
-  { id: 'rooms.threads', name: 'Thread replies in a room', area: 'Rooms', endpoints: ['listRoomThread', 'markRoomThreadRead'], screens: ['/rooms/:roomId/t/:messageId'] },
+  { id: 'rooms.threads', name: 'Thread replies in a room', area: 'Rooms', endpoints: ['listRoomThread', 'markRoomThreadRead'], screens: ['/rooms/:roomId/t/:messageId', '/rooms/:roomId/m/:target', '/rooms/:roomId/t/:messageId/m/:target'] },
   { id: 'rooms.reactions', name: 'Reactions', area: 'Rooms', endpoints: ['reactRoomMessage'] },
   { id: 'rooms.message-links', name: 'Message links: Copy link, previews, Show message, remove preview', area: 'Rooms', endpoints: ['roomMessageLinkAudience', 'hideRoomLinkPreview'] },
+  { id: 'rooms.app-link-names', name: 'Links to chats, projects, files and conversations show their names', area: 'Rooms', endpoints: ['linkNames'] },
   { id: 'rooms.members', name: 'Room members: invite, remove, leave, rename', area: 'Rooms', endpoints: ['updateRoom', 'listRoomMembers', 'inviteRoomMembers', 'removeRoomMember', 'leaveRoom'] },
   { id: 'rooms.hide-pin', name: 'Hide and pin conversations', area: 'Rooms', endpoints: ['setRoomHidden', 'pinRoom', 'unpinRoom'] },
-  { id: 'rooms.files', name: 'Files in a room', area: 'Rooms', endpoints: ['uploadRoomFile', 'attachRoomTeamFile', 'roomFile', 'roomFileHwpPreview'] },
+  { id: 'rooms.files', name: 'Files in a room', area: 'Rooms', endpoints: ['uploadRoomFile', 'attachRoomTeamFile', 'roomFile', 'roomFileHwpPreview', 'roomSavedFiles', 'roomSavePlan', 'saveRoomFilesToTeam'] },
+  { id: 'rooms.project-link', name: 'A private channel linked to a team project (retired in 0.5.22: the endpoints answer 410)', area: 'Rooms', endpoints: ['linkRoomProject', 'unlinkRoomProject', 'createProjectChannel', 'undoRoomSave'] },
+  { id: 'rooms.project-room', name: 'A team project\'s own chat room (its people are the project\'s people)', area: 'Rooms', endpoints: ['openProjectRoom'] },
   { id: 'rooms.search', name: 'Search messages and files of rooms', area: 'Rooms', endpoints: ['searchRoomMessages', 'searchRoomFiles'] },
-  { id: 'rooms.activity', name: 'Activity: mentions and thread replies', area: 'Rooms', screens: ['/activity'] },
-  { id: 'rooms.apps', name: 'Apps posting in rooms (Sentry, GitHub, Google Forms, Notion, Typeform, Tally, Jotform, Stripe, Shopify, Zendesk, Jira, HubSpot; more services: Toss Payments, Channel Talk, PortOne; other services in Slack, Discord or JANDI format)', area: 'Rooms', endpoints: ['listRoomApps', 'createRoomApp', 'getRoomAppAddress', 'updateRoomApp', 'setRoomAppSecret', 'rotateRoomApp', 'resumeRoomApp', 'exampleRoomApp', 'deleteRoomApp'], screens: ['/rooms/:roomId'] },
+  { id: 'rooms.sent-files', name: 'Files you sent: my own files in rooms, largest first, delete', area: 'Rooms', endpoints: ['listMyRoomFiles'], screens: ['/sent-files'] },
+  { id: 'rooms.files-list', name: 'A room\'s Files list, and recent room files in search', area: 'Rooms', endpoints: ['listRoomFiles', 'recentRoomFiles'] },
+  { id: 'rooms.activity', name: 'Activity: mentions and thread replies', area: 'Rooms', screens: ['/activity', '/activity/:noticeId'] },
+  { id: 'rooms.apps', name: 'Apps posting in rooms (Sentry, GitHub, Google Forms, Notion, Typeform, Tally, Jotform, Stripe, Shopify, Zendesk, Jira, HubSpot; more services: Toss Payments, Channel Talk, PortOne; other services in Slack, Discord or JANDI format; added from a conversation menu or from "Add to a conversation" in Connectors)', area: 'Rooms', endpoints: ['listRoomApps', 'createRoomApp', 'getRoomAppAddress', 'updateRoomApp', 'setRoomAppSecret', 'rotateRoomApp', 'resumeRoomApp', 'exampleRoomApp', 'deleteRoomApp', 'putRoomAppIcon', 'setRoomAppEmoji', 'deleteRoomAppIcon', 'roomAppIcon'], screens: ['/rooms/:roomId'] },
 
   // ---------------- Skills ----------------
   { id: 'skills.list', name: 'Skills page: my, group and team skills', area: 'Skills', endpoints: ['listSkills', 'listSkillIssues', 'skillsOverview'], screens: ['/skills'] },
@@ -117,7 +128,7 @@ export const FEATURES: Feature[] = [
   { id: 'schedules.review', name: 'Review a paused scheduled task', area: 'Scheduled tasks', endpoints: ['getScheduleReview', 'confirmScheduleReview', 'listSchedulesAwaitingReview'] },
 
   // ---------------- Connections ----------------
-  { id: 'connectors.mine', name: 'My connectors (MCP services)', area: 'Connections', endpoints: ['listIntegrations', 'createIntegration', 'updateIntegration', 'deleteIntegration', 'refreshIntegration', 'authorizeIntegration', 'integrationFlow', 'cancelIntegrationFlow', 'setIntegrationTool', 'stopAlwaysAllow'], screens: ['/settings/connectors', '/settings/connectors/:id', '/settings/connectors/mcp/:integrationId'] },
+  { id: 'connectors.mine', name: 'My connectors (MCP services)', area: 'Connections', endpoints: ['listIntegrations', 'createIntegration', 'updateIntegration', 'deleteIntegration', 'refreshIntegration', 'authorizeIntegration', 'integrationFlow', 'cancelIntegrationFlow', 'setIntegrationTool', 'stopAlwaysAllow', 'createLocalIntegration', 'updateLocalIntegration', 'pollLocalCalls', 'postLocalResult'], screens: ['/settings/connectors', '/settings/connectors/:id', '/settings/connectors/mcp/:integrationId'] },
   { id: 'connectors.team', name: 'Team connectors (Admin › Connected apps)', area: 'Connections', endpoints: ['listTeamIntegrations', 'createTeamIntegration'], screens: ['/admin/connectors', '/admin/connectors/:id', '/admin/connectors/mcp/:id'] },
   { id: 'connectors.requests', name: 'Admin asks a member to connect a service', area: 'Connections', endpoints: ['*IntegrationRequest*'] },
   { id: 'connectors.templates', name: 'Shared connector templates', area: 'Connections', endpoints: ['*IntegrationTemplate*'] },
@@ -140,7 +151,7 @@ export const FEATURES: Feature[] = [
   { id: 'onboarding.suggestion', name: 'Suggestion under an answer', area: 'Onboarding', endpoints: ['getResultSuggestion', 'dismissSuggestion'] },
   { id: 'onboarding.member-welcome', name: 'Welcome card for an invited member', area: 'Onboarding', endpoints: ['getMemberWelcome', 'updateMemberWelcome'] },
   { id: 'onboarding.handover', name: 'Handover to a team lead', area: 'Onboarding', endpoints: ['handoverState', 'endPendingConnections', 'dismissLeadCard'] },
-  { id: 'onboarding.demo', name: 'Demo mode', area: 'Onboarding', endpoints: ['demoInfo', 'demoSwitch'] },
+  { id: 'onboarding.demo', name: 'Demo mode', area: 'Onboarding', endpoints: ['demoInfo', 'demoSwitch', 'demoBuilderRoomTimes', 'demoBuilderWelcome', 'demoBuilderConnection', 'demoBuilderChatTurns', 'demoBuilderThreadTimes', 'demoBuilderFileTimes'] },
 
   // ---------------- Home ----------------
   { id: 'home.start', name: 'Home: prepared skills, frequent skills, often asked', area: 'Home', endpoints: ['skillExamples', 'popularSkills', 'oftenAsked'], screens: ['/', '/new'] },
@@ -148,7 +159,7 @@ export const FEATURES: Feature[] = [
   // ---------------- Settings ----------------
   { id: 'settings.list', name: 'Settings list and search', area: 'Settings', screens: ['/settings'] },
   { id: 'settings.notifications', name: 'Notifications and inbox', area: 'Settings', endpoints: ['*Notification*'], screens: ['/settings/notifications'] },
-  { id: 'settings.push', name: 'Push notifications on phones and computers', area: 'Settings', endpoints: ['*Push*'] },
+  { id: 'settings.push', name: 'Push notifications on phones and computers', area: 'Settings', endpoints: ['*Push*', 'reportMyComputer'] },
   { id: 'settings.apps', name: 'Apps to install', area: 'Settings', screens: ['/settings/apps'] },
   { id: 'settings.about', name: 'About this app', area: 'Settings', screens: ['/settings/about'] },
 
@@ -167,12 +178,13 @@ export const FEATURES: Feature[] = [
   { id: 'admin.dev-env', name: 'Dev environment for the team', area: 'Admin', endpoints: ['devEnvTeam', 'updateDevEnvTeam'], screens: ['/admin/settings/dev-env'] },
 
   // ---------------- System ----------------
-  { id: 'system.storage', name: 'Storage use', area: 'System', endpoints: ['storage'], screens: ['/admin/system', '/admin/system/storage'] },
-  { id: 'system.updates', name: 'Server updates', area: 'System', endpoints: ['updateStatus', 'startUpdate', 'officeUpdateStatus', 'officeUpdateAction'], screens: ['/admin/system/updates'] },
+  { id: 'system.storage', name: 'Storage use', area: 'System', endpoints: ['storage', 'askStorageCleanup'], screens: ['/admin/system', '/admin/system/storage'] },
+  { id: 'system.updates', name: 'Server updates', area: 'System', endpoints: ['updateStatus', 'startUpdate', 'officeUpdateStatus', 'officeUpdateAction', 'officeClaudeMcpNotice'], screens: ['/admin/system/updates'] },
   { id: 'system.health', name: 'Health and diagnostics', area: 'System', endpoints: ['diagnostics'], screens: ['/admin/system/health'] },
   { id: 'system.connection', name: 'Team address and office network', area: 'System', endpoints: ['connection', 'updateConnection', 'connectInfo', 'lanFailure'], screens: ['/admin/system/connection'] },
   { id: 'system.backups', name: 'Backups and restore', area: 'System', endpoints: ['listBackups', 'startBackup', 'startRestore'], screens: ['/admin/system/backups'] },
   { id: 'system.export', name: 'Export the team data', area: 'System', endpoints: ['startExport'], screens: ['/admin/system/export'] },
+  { id: 'settings.export', name: 'Export my own chats', area: 'Settings', endpoints: ['startMyExport', 'myExportDownload'], screens: ['/settings/export'] },
 
   // ---------------- Apps & hosting (no endpoint or screen of their own: QA rows only) ----------------
   { id: 'app.desktop-mac', name: 'Mac desktop app (window, menu bar, sign-in)', area: 'Apps & hosting', manual: true },

@@ -7,6 +7,11 @@ import { passwordProblem, temporaryPassword } from '../../server/src/auth/passwo
 import { weakPasswordMessage } from '../../server/src/auth/messages'
 import { OWNER_PW, SETUP_TOKEN, addMember, harness, withOwner, type Client, type Harness } from './a-lib'
 import { resolveLayout } from '../../server/src/system/layout'
+import { installId, updateTeamSettings } from '../../server/src/admin/settings'
+import { ownerRecoveryUrl } from '../../server/src/auth/accounts'
+import { HOSTED_BROKER_ORIGIN } from '../../server/src/integrations/google-drive/broker'
+import { SERVICE_HOSTS } from '@mycel/shared/service-hosts'
+import type { AppConfig } from '../../server/src/app-config'
 import { FIELD_MESSAGES, type Locale } from '@mycel/shared/api'
 import { NAME_FORBIDDEN_FIELD } from '@mycel/shared'
 const SEALED = { kid: '0123456789abcdef', epk: 'A'.repeat(87), iv: 'A'.repeat(16), ct: 'A'.repeat(40) } // well-formed, never opened
@@ -30,7 +35,7 @@ describe('first-run setup', () => {
   afterAll(() => h.close())
 
   test('status says setup is needed while no user exists', async () => {
-    expect(await h.client().call('GET', '/api/setup')).toEqual({ needed: true, teamName: null, defaultLocale: 'en' })
+    expect(await h.client().call('GET', '/api/setup')).toEqual({ needed: true, teamName: null, defaultLocale: 'en', ownerRecoveryUrl: null })
   })
   test('wrong token and weak passwords are refused', async () => {
     const c = h.client()
@@ -56,9 +61,15 @@ describe('first-run setup', () => {
     const body = (await res.json()) as any
     expect(body.token).toBeUndefined()
     expect(body.me.user).toMatchObject({ id: 'olga', username: 'Olga', role: 'owner', mustChangePassword: false })
-    expect(body.me.team).toEqual({ name: 'Acme', defaultLocale: 'en', browserAllowAll: true, webAllowAll: true, iconVersion: null, voiceInput: false, chatTrashRetentionDays: 7, projectCreators: 'members' })
+    expect(body.me.team).toEqual({ name: 'Acme', defaultLocale: 'en', browserAllowAll: true, webAllowAll: true, iconVersion: null, voiceInput: false, chatTrashRetentionDays: 7, trashRetentionDays: 30, projectCreators: 'members' })
     const me = await c.call('GET', '/api/me')
     expect(me.user.id).toBe('olga')
+    // the team's switch for Always allow off: the session says so, and the connector pages say it asks again after
+    // something from outside (QA TC-2944); on (the default): absent
+    expect(me.team.alwaysAllowOff).toBeUndefined()
+    updateTeamSettings(h.ctx.db, { roomAlwaysAllow: false })
+    try { expect((await c.call('GET', '/api/me')).team.alwaysAllowOff).toBe(true) }
+    finally { updateTeamSettings(h.ctx.db, { roomAlwaysAllow: true }) }
     for (const d of ['shared', 'skills', 'groups', 'projects', 'users/olga']) expect(fs.statSync(path.join(h.ctx.files.fx.root, d)).isDirectory()).toBe(true)
     const folders = await c.call('GET', '/api/admin/folders')
     const rules = Object.fromEntries(folders.items.map((f: any) => [f.path, f.rules.map((r: any) => `${r.subjectType}:${r.subjectId}:${r.access}`).sort()]))
@@ -75,7 +86,7 @@ describe('first-run setup', () => {
   test('cannot run twice; status now shows the team', async () => {
     const r = await h.client().try('POST', '/api/setup', { setupToken: SETUP_TOKEN, teamName: 'Evil', owner: { username: 'mallory', name: 'M', password: OWNER_PW } })
     expect(r.status).toBe(409)
-    expect(await h.client().call('GET', '/api/setup')).toEqual({ needed: false, teamName: null, defaultLocale: 'en' }) // round 4: no team name to anonymous visitors
+    expect(await h.client().call('GET', '/api/setup')).toEqual({ needed: false, teamName: null, defaultLocale: 'en', ownerRecoveryUrl: null }) // round 4: no team name to anonymous visitors
   })
 })
 
@@ -90,7 +101,7 @@ describe('setup status through the relay', () => {
   afterAll(() => h.close())
 
   test('signed out without the token: needed is false, as for a team that is set up', async () => {
-    expect(await relay().call('GET', '/api/setup')).toEqual({ needed: false, teamName: null, defaultLocale: 'en' })
+    expect(await relay().call('GET', '/api/setup')).toEqual({ needed: false, teamName: null, defaultLocale: 'en', ownerRecoveryUrl: null })
     // a relay that reports a loopback client (a relay on this machine) is still the relay
     expect((await relay('127.0.0.1').call('GET', '/api/setup')).needed).toBe(false)
     // a wrong token: false too
@@ -110,7 +121,7 @@ describe('setup status through the relay', () => {
   let before: { status: number; body: any }
   test('with the setup token the setup page still opens through the relay, and setup works there', async () => {
     const c = relay('198.51.100.9')
-    expect(await c.call('GET', '/api/setup', undefined, { [TOKEN]: SETUP_TOKEN })).toEqual({ needed: true, teamName: null, defaultLocale: 'en' })
+    expect(await c.call('GET', '/api/setup', undefined, { [TOKEN]: SETUP_TOKEN })).toEqual({ needed: true, teamName: null, defaultLocale: 'en', ownerRecoveryUrl: null })
     const r = await c.raw('POST', '/api/setup', { setupToken: SETUP_TOKEN, teamName: 'Acme', locale: 'en', owner: { username: 'olga', name: 'Olga', password: OWNER_PW } })
     expect(r.status).toBe(201)
     // set up: the spent token says false like any other, and so does every other way in
@@ -147,6 +158,44 @@ describe('setup status through the relay: wrong tokens are limited like on POST 
   test('POST /api/setup through the relay shares the limit: over it, a 429 before any setup state is looked at', async () => {
     const r = await h.client({ via: 'relay', ip: '203.0.113.20' }).try('POST', '/api/setup', { setupToken: SETUP_TOKEN, teamName: 'Acme', owner: { username: 'olga', name: 'Olga', password: OWNER_PW } })
     expect(r.status).toBe(429)
+  })
+})
+
+// A hosted team's owner who forgot the password resets it on the hosting console (QA TC-6062): GET /api/setup names the
+// console's fixed /recover page, the same for every team, never this team's host, slug, install id or a token.
+describe('setup status: owner recovery page', () => {
+  const HOST = 'acme-recovery.trina.test'
+  let hosted: Harness
+  let self: Harness
+  beforeAll(async () => {
+    hosted = await harness('setup-recovery-hosted', { deployment: 'hosted', publicOrigins: [`https://${HOST}`] } as Partial<AppConfig>)
+    self = await harness('setup-recovery-self', { tunnel: { host: HOST, allowFrom: [], countries: [] } } as Partial<AppConfig>)
+    await withOwner(hosted)
+    await withOwner(self)
+  })
+  afterAll(() => { hosted.close(); self.close() })
+
+  test('hosted: the console origin + /recover only, on every way in', async () => {
+    const want = `https://${SERVICE_HOSTS.accountHost}/recover`
+    for (const via of ['relay', 'direct', 'test'] as const) {
+      const s = await hosted.client({ via, ip: '203.0.113.70' }).call('GET', '/api/setup')
+      expect(s.ownerRecoveryUrl).toBe(want)
+      const u = new URL(s.ownerRecoveryUrl)
+      expect(u.pathname).toBe('/recover')
+      expect(u.search).toBe('')
+      expect(u.hash).toBe('')
+    }
+    // nothing team-specific in the whole answer: no host, slug, install id or setup token
+    const raw = JSON.stringify(await hosted.client({ via: 'relay', ip: '203.0.113.71' }).call('GET', '/api/setup'))
+    for (const secret of [HOST, 'acme-recovery', installId(hosted.ctx.db), SETUP_TOKEN]) expect(raw).not.toContain(secret)
+  })
+  test('the Drive broker setting does not decide it', () => {
+    expect(ownerRecoveryUrl({ deployment: 'hosted' } as AppConfig)).toBe(`${HOSTED_BROKER_ORIGIN}/recover`)
+    expect(ownerRecoveryUrl({ deployment: 'hosted' } as AppConfig, null)).toBeNull()
+  })
+  test('self-installed (with a public address of its own): null', async () => {
+    expect((await self.client({ via: 'relay', ip: '203.0.113.72' }).call('GET', '/api/setup')).ownerRecoveryUrl).toBeNull()
+    expect(ownerRecoveryUrl({} as AppConfig)).toBeNull()
   })
 })
 
@@ -276,6 +325,61 @@ describe('sign-in and sessions', () => {
     // a step this version does not know (stored by a later one) reads as none and hides nothing else
     const id = (await c.call('GET', '/api/me')).user.id
     h.ctx.db.query('UPDATE users SET prefs = ? WHERE id = ?').run(JSON.stringify({ theme: 'dark', textSize: 'huge' }), id)
+    expect((await c.call('GET', '/api/me')).user.prefs).toEqual({ theme: 'dark' })
+  })
+
+  test('my lists\' folds are kept on the account, beside the other preferences (docs/decisions/20261116-collapsible-chat-sections.md)', async () => {
+    const c = h.client()
+    await c.login('olga', OWNER_PW)
+    const id = (await c.call('GET', '/api/me')).user.id
+    h.ctx.db.query('UPDATE users SET prefs = ? WHERE id = ?').run(JSON.stringify({ theme: 'dark' }), id)
+    const folds = { 'section:chats:team': 'folded', 'room-folder:0193b6a2-7c1d-7000-8000-000000000001': 'folded', 'section:projects:other': 'open' }
+    let me = await c.call('PATCH', '/api/me', { prefs: { listFolds: folds } })
+    expect(me.user.prefs).toEqual({ theme: 'dark', listFolds: folds })
+    // another device (a second sign-in) reads them
+    const other = h.client()
+    await other.login('olga', OWNER_PW)
+    expect((await other.call('GET', '/api/me')).user.prefs.listFolds).toEqual(folds)
+    // a later save of another preference keeps them; a new map replaces the old one whole
+    me = await c.call('PATCH', '/api/me', { prefs: { theme: 'light' } })
+    expect(me.user.prefs.listFolds).toEqual(folds)
+    me = await c.call('PATCH', '/api/me', { prefs: { listFolds: { 'section:chats:team': 'open' } } })
+    expect(me.user.prefs.listFolds).toEqual({ 'section:chats:team': 'open' })
+    // refused: a value that is not open/folded, a key that is not a fold key, more than 200 folds
+    expect((await c.try('PATCH', '/api/me', { prefs: { listFolds: { 'section:chats:team': 'hidden' } } })).status).toBe(400)
+    expect((await c.try('PATCH', '/api/me', { prefs: { listFolds: { '<b>': 'open' } } })).status).toBe(400)
+    const many = Object.fromEntries(Array.from({ length: 201 }, (_, i) => [`room-folder:f${i}`, 'folded']))
+    expect((await c.try('PATCH', '/api/me', { prefs: { listFolds: many } })).status).toBe(400)
+    // null: forgotten
+    me = await c.call('PATCH', '/api/me', { prefs: { listFolds: null } })
+    expect(me.user.prefs.listFolds).toBeUndefined()
+    // a stored value that does not read reads as none and hides nothing else
+    h.ctx.db.query('UPDATE users SET prefs = ? WHERE id = ?').run(JSON.stringify({ theme: 'dark', listFolds: { x: 1 } }), id)
+    expect((await c.call('GET', '/api/me')).user.prefs).toEqual({ theme: 'dark' })
+  })
+
+  test('"Don\'t ask again" on the @everyone question is my own preference, on every device; null asks again (QA TC-4864)', async () => {
+    const c = h.client()
+    await c.login('olga', OWNER_PW)
+    const id = (await c.call('GET', '/api/me')).user.id
+    h.ctx.db.query('UPDATE users SET prefs = ? WHERE id = ?').run(JSON.stringify({ theme: 'dark' }), id)
+    let me = await c.call('PATCH', '/api/me', { prefs: { mentionAllAsk: 'off' } })
+    expect(me.user.prefs).toEqual({ theme: 'dark', mentionAllAsk: 'off' })
+    const other = h.client()
+    await other.login('olga', OWNER_PW)
+    expect((await other.call('GET', '/api/me')).user.prefs.mentionAllAsk).toBe('off')
+    // another preference saved later keeps it
+    me = await c.call('PATCH', '/api/me', { prefs: { theme: 'light' } })
+    expect(me.user.prefs.mentionAllAsk).toBe('off')
+    // only 'off' or null
+    expect((await c.try('PATCH', '/api/me', { prefs: { mentionAllAsk: 'on' } })).status).toBe(400)
+    expect((await c.try('PATCH', '/api/me', { prefs: { mentionAllAsk: true } })).status).toBe(400)
+    // null (Settings › "Ask before notifying everyone" on): asked again
+    me = await c.call('PATCH', '/api/me', { prefs: { mentionAllAsk: null } })
+    expect(me.user.prefs.mentionAllAsk).toBeUndefined()
+    expect((await other.call('GET', '/api/me')).user.prefs).toEqual({ theme: 'light' })
+    // a stored value that does not read reads as absent (asks) and hides nothing else
+    h.ctx.db.query('UPDATE users SET prefs = ? WHERE id = ?').run(JSON.stringify({ theme: 'dark', mentionAllAsk: 'never' }), id)
     expect((await c.call('GET', '/api/me')).user.prefs).toEqual({ theme: 'dark' })
   })
 })

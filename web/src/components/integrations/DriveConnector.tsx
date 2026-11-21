@@ -26,8 +26,12 @@ import type { DriveConnectionState } from '../settings/DriveConnection'
 import { LogoTile } from './ConnectorsView'
 import { AppConnectorCard, CardMenu } from './AppConnectorCard'
 import { connectionLogo } from './ConnectionRow'
+import { GoogleAccountBlock } from './GoogleAccount'
 import { BrowserWait } from './BrowserWait'
 import { googleLink } from './googleLink'
+import { GoogleUnverifiedNote } from './GoogleUnverifiedNote'
+import { showUnverifiedHint, signInFailedKey } from '../../lib/googleApps'
+import { mobileApp } from '../../lib/mobile'
 import { Tooltip } from '../Tooltip'
 import { dropOverCls } from '../FileDropZone'
 import { useFileDrop } from '../chat/ComposerFiles'
@@ -50,7 +54,10 @@ export function DriveLogo({ className }: { className?: string }) {
  * it, so a Google sign-in started by someone else can never land in this person's Drive connection). */
 export function useDriveParts(s: DriveConnectionState) {
   const t = useT()
-  const admin = isAdmin(useMe())
+  const me = useMe()
+  const admin = isAdmin(me)
+  // a hosted team's admin has nothing to set up (the hosting service signs in to Google): never sent to a setup page
+  const hosted = me?.server.deployment === 'hosted'
   const navigate = useNavigate()
   const c = s.connection
   const { d } = s
@@ -59,18 +66,20 @@ export function useDriveParts(s: DriveConnectionState) {
   const unavailable = !!c && !c.configured
   const shares = c?.teamShares ?? []
   const flow = d.inProgress ? d.flow : null
+  // not in the phone app: signing in to Google is done on a computer there (QA TC-262)
+  const unverified = showUnverifiedHint(c) && !!c?.configured && !flow && (!linked || reconnect) && !mobileApp()
 
   let line: string = t('drive.cardDesc')
   if (!c && s.loadFailed) line = t('drive.loadFailed')
   // not set up on this server: a member waits for an admin; an owner or admin is the one to set it up (QA TC-196)
-  else if (unavailable) line = t(admin ? 'drive.setUpFirst' : 'connectors.adminNeeded')
+  else if (unavailable) line = t(hosted ? 'drive.notReadyHosted' : admin ? 'drive.setUpFirst' : 'connectors.adminNeeded')
   else if (reconnect) line = t('drive.status.needs_reconnect')
   else if (linked && c?.account) line = c.account.email ?? c.account.name ?? t('drive.status.connected')
 
   const action = !c
     ? (s.loadFailed ? <Button size="sm" onClick={s.load} data-testid="drive-retry">{t('common.retry')}</Button> : null)
     : unavailable
-      ? admin
+      ? admin && !hosted
         ? <Button size="sm" variant="primary" onClick={() => navigate('/admin/connectors?drive=1')} data-testid="drive-set-up">{t('drive.goSetUp')}</Button>
         : <Button size="sm" disabled data-testid="drive-connect">{t('aiApps.connect')}</Button>
       : flow
@@ -94,18 +103,23 @@ export function useDriveParts(s: DriveConnectionState) {
           onRetry={s.start} onCancel={() => void d.cancel()} link={googleLink(d, t('drive.openGoogle'))} />
       )}
       {flow?.state === 'ready' && (
-        <div className="flex flex-wrap items-center gap-2 text-sm" data-testid="drive-confirm-step">
-          <span role="status" className="min-w-0 flex-1">{t('drive.confirmAccount')} <span className="font-medium" data-testid="drive-account">{[flow.account?.name, flow.account?.email].filter(Boolean).join(' · ')}</span></span>
-          <Button size="sm" variant="primary" busy={d.busy} onClick={() => void d.complete()} data-testid="drive-confirm">{t('drive.confirm')}</Button>
-          <Button size="sm" variant="ghost" disabled={d.busy} onClick={d.cancel} data-testid="drive-cancel">{t('common.cancel')}</Button>
+        <div className="space-y-2" data-testid="drive-confirm-step">
+          <p role="status" className="text-sm font-medium text-ink">{t('drive.confirmAccount')}</p>
+          <GoogleAccountBlock account={flow.account} testId="drive-account" />
+          <div className="flex flex-wrap items-center gap-2 pt-1">
+            <Button size="sm" variant="primary" busy={d.busy} onClick={() => void d.complete()} data-testid="drive-confirm">{t('drive.confirm')}</Button>
+            <Button size="sm" variant="ghost" disabled={d.busy} onClick={d.cancel} data-testid="drive-cancel">{t('common.cancel')}</Button>
+          </div>
         </div>
       )}
-      {d.error && !flow && <p className="text-sm text-danger" role="alert" data-testid="drive-error">{t(d.reason === 'timeout' ? 'connect.wait.timedOut' : 'drive.failed')}</p>}
+      {/* before Google opens: Google may call Trina's shared app unverified (QA TC-2957) */}
+      {unverified && <GoogleUnverifiedNote />}
+      {d.error && !flow && <p className="text-sm text-danger" role="alert" data-testid="drive-error">{t(d.reason === 'timeout' ? 'connect.wait.timedOut' : signInFailedKey(d.reason))}</p>}
       {s.revokeWarning && <p className="text-xs text-muted" role="status" data-testid="drive-revoke-warning">{t('drive.revokeWarning')}</p>}
     </>
   )
   const state = !c ? 'loading' : unavailable ? 'disabled' : flow ? `flow-${flow.state}` : c.status
-  return { line, action, steps, state, linked, reconnect, unavailable, shares, busy: !!flow }
+  return { line, action, steps, state, linked, reconnect, unavailable, shares, busy: !!flow, unverified }
 }
 
 /** The Drives the team shares with this person: nothing to connect, the AI can use them in their chats. */

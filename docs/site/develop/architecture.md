@@ -3,12 +3,12 @@ title: Architecture
 description: The pieces of Trina AX and how a question travels from the browser to the AI and back.
 ---
 
-Trina AX is one server per team. People use it from a browser, a phone or the Windows app. The AI engines run on the same server, behind a permission check.
+Trina AX is one server per team. People use it from a browser, a phone or the desktop app (Mac and Windows). The AI engines run on the same server, behind a permission check.
 
 ## The big picture
 
 ```text
- Browser · phone · Windows app
+ Browser · phone · desktop app
             │  HTTPS + WebSocket
             ▼
  ┌────────────────────────────────────────────┐
@@ -57,7 +57,7 @@ Steps and text stream to the browser. Confirmation cards wait for a person.
 | API contract | `shared/src/api/` | zod schemas, one registry for server and clients |
 | Native helpers | `native/` | Go: `mycel-ctl`, `mycel-sandbox`, `mycel-gate`, `mycel-bridge`, `mycel-launcher`, `mycel-bootstrap` and others |
 | Relay | `relay/` | Node: public addresses through outbound WebSockets |
-| Desktop app | `desktop/` | Electron, with an in-app browser the AI can drive |
+| Desktop app | `desktop/` | Electron (Mac and Windows), with an in-app browser the AI can drive |
 | Mobile app | `mobile/` | Expo wrapper around the team's web app |
 | Menubar app | `menubar/` | Swift, for the server Mac |
 

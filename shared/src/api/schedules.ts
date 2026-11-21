@@ -13,12 +13,22 @@ export const Schedule = z.object({
   id: z.string(),
   title: z.string(),
   prompt: z.string(),
-  repeat: z.enum(['once', 'daily', 'weekdays', 'weekly', 'monthly']),
+  /** interval: every `everyMinutes` from `date` + `time`; cron: `cron` (five fields, the team's time zone; `L` = the
+   * last day of the month). Older servers send only the first five */
+  repeat: z.enum(['once', 'daily', 'weekdays', 'weekly', 'monthly', 'interval', 'cron']),
   time: z.string(),
+  /** weekly: its first day (older clients read this one); `weekdays` has them all */
   weekday: z.number().nullable(),
-  day: z.number().nullable(),
+  weekdays: z.array(z.number()).nullable().optional(),
+  /** monthly: 1–31, or 'last' (the last day of the month) */
+  day: z.union([z.number(), z.literal('last')]).nullable(),
   date: z.string().nullable(),
+  everyMinutes: z.number().nullable().optional(),
+  cron: z.string().nullable().optional(),
   projectId: z.string().nullable(),
+  /** made in a shared chat: its runs post there (null: each run is a new chat of the owner's). `title`: the chat's
+   * title, while its owner may still open it */
+  postsIn: z.object({ chatId: z.string(), title: z.string() }).nullable().optional(),
   enabled: z.boolean(),
   resumeBlockedReason: z.enum(['completed', 'expired']).nullable().optional(),
   nextRunAt: z.string().nullable(),
@@ -35,8 +45,9 @@ export const Schedule = z.object({
    * servers omit it */
   running: z.boolean().optional(),
   /** lastOutcome 'needs_key': the connection template whose own key the run needed (its owner has not connected it, or
-   * its key stopped working); older servers omit it */
-  lastNeed: z.object({ templateId: z.string(), name: z.string() }).nullable().optional(),
+   * its key stopped working); older servers omit it. `signIn`: the template is one each member signs in to with their
+   * own account (no key) */
+  lastNeed: z.object({ templateId: z.string(), name: z.string(), signIn: z.literal(true).optional() }).nullable().optional(),
   /** lastOutcome 'project_gone' for a team project that is still there but only its members use now (its owner, an owner
    * or admin, is not one since the update from 0.4.0): Add me to it and the task starts again. Older servers omit it */
   lastMembersOnly: z.boolean().optional(),
@@ -73,8 +84,8 @@ export const ConfirmScheduleReview = z.object({ requestId: z.string().min(1).max
 /** Admin view: a task waiting for its owner to confirm it again. Metadata only: never its title or instruction (the
  * person's own words, like their chats). */
 export const ScheduleAwaitingReview = z.object({
-  id: z.string(), user: UserRef, repeat: Schedule.shape.repeat, time: z.string(), weekday: z.number().nullable(), day: z.number().nullable(),
-  date: z.string().nullable(), reviewSince: z.string().nullable(),
+  id: z.string(), user: UserRef, repeat: Schedule.shape.repeat, time: z.string(), weekday: z.number().nullable(), weekdays: Schedule.shape.weekdays, day: Schedule.shape.day,
+  date: z.string().nullable(), everyMinutes: Schedule.shape.everyMinutes, cron: Schedule.shape.cron, reviewSince: z.string().nullable(),
 })
 export type ScheduleAwaitingReview = z.infer<typeof ScheduleAwaitingReview>
 
@@ -97,8 +108,11 @@ const TaskFields = {
   repeat: Schedule.shape.repeat,
   time: z.string().max(10),
   weekday: z.number().int().min(0).max(6).nullable().optional(),
-  day: z.number().int().min(1).max(28).nullable().optional(),
+  weekdays: z.array(z.number().int().min(0).max(6)).max(7).nullable().optional(),
+  day: z.union([z.number().int().min(1).max(31), z.literal('last')]).nullable().optional(),
   date: z.string().max(20).nullable().optional(),
+  everyMinutes: z.number().int().min(1).max(527040).nullable().optional(),
+  cron: z.string().max(200).nullable().optional(),
   projectId: z.string().max(64).nullable(),
   /** the save folder (server/src/chat/schedule-scope.ts): another one, null for none; left out: as it is */
   saveFolder: z.string().max(1000).nullable().optional(),
@@ -126,7 +140,8 @@ export type ScheduleEdit = z.infer<typeof ScheduleEdit>
  * 'interrupted'), 'running' while it is queued or running, or why an occurrence did not run. `chatId`: the run's chat
  * while it is there (null: it did not run, or its chat was deleted). `error`: the first line of a failed run's error
  * message (in the owner's language, as the chat showed it), at most 200 characters; null otherwise. `needName`: for
- * 'needs_key', the template whose own key it needed, by the name it had then. */
+ * 'needs_key', the template whose own key it needed, by the name it had then; `needSignIn`: that template is one each
+ * member signs in to (no key). */
 export const ScheduleRun = z.object({
   id: z.string(),
   status: z.enum(['running', 'done', 'problems', 'error', 'stopped', 'interrupted', 'budget_exceeded', 'user_unavailable', 'needs_key', 'project_gone']),
@@ -135,6 +150,7 @@ export const ScheduleRun = z.object({
   chatId: z.string().nullable(),
   error: z.string().nullable(),
   needName: z.string().nullable().optional(),
+  needSignIn: z.literal(true).optional(),
 })
 export type ScheduleRun = z.infer<typeof ScheduleRun>
 export const ScheduleRunsPage = z.object({ items: z.array(ScheduleRun), nextCursor: z.string().nullable() })

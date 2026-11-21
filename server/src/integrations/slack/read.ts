@@ -367,7 +367,7 @@ function readTools(ctx: AppContext, s: SlackConnector, userId: string): TurnTool
     try {
       ctx.db.transaction(() => {
         addSources(ctx.db, chatId, sources)
-        ctx.db.query('UPDATE chats SET session_tainted = 1 WHERE id = ?').run(chatId)
+        ctx.db.query('UPDATE chats SET session_tainted = 1, others_words = 1 WHERE id = ?').run(chatId)
       })()
     } catch (e) { s.log.warn('slack read scope failed', { err: String(e) }) }
   }
@@ -498,8 +498,10 @@ export function slackReadProvider(ctx: AppContext): TurnToolProvider {
       const on = !!cfg?.enabled && !!cfg.secret_enc && !!cfg.team_id
       const lines: string[] = ['## Slack']
       let tools: TurnTool[] = []
-      if (!on) lines.push(`Slack is not connected for this team, so you cannot read Slack. Only if the user asks about Slack: the team's owner or an admin adds it in Admin › Connected apps › Slack. ${NO_SLACK_CARD}`)
-      else if (!s.linkOf(b.userId, cfg)) lines.push(`Slack is set up for this team (workspace "${clean(cfg!.team_name ?? cfg!.team_id!).replace(/</g, '‹')}"), but the user has not linked their Slack account, so you cannot read Slack. They do it once in Settings › Connectors › Slack with Sign in with Slack. ${NO_SLACK_CARD}`)
+      // checked by the server for this answer, with both routes: the team's Slack (owner or admin) and the person's own
+      // link (QA TC-4528: "no Slack connected" said as if unchecked, the member's own link left out)
+      if (!on) lines.push(`Checked by the server for this answer: Slack is not added for this team yet, so you cannot read Slack. Only if the user asks about Slack: the team's owner or an admin adds Slack for the whole team in Admin › Connected apps › Slack; after that each person links their own Slack account once in Settings › Connectors › Slack (Sign in with Slack); an admin can tell members to link theirs. A member cannot add Slack for the whole team, but links their own once it is added. ${NO_SLACK_CARD}`)
+      else if (!s.linkOf(b.userId, cfg)) lines.push(`Checked by the server for this answer: Slack is added for this team (workspace "${clean(cfg!.team_name ?? cfg!.team_id!).replace(/</g, '‹')}"), but the user has not linked their own Slack account, so you cannot read Slack. They do it once in Settings › Connectors › Slack with Sign in with Slack. ${NO_SLACK_CARD}`)
       else if (!s.readsSlack(b.userId)) lines.push(`The user's Slack account is linked (questions they ask in Slack come here), but you cannot read Slack messages: ${NEEDS_UPDATE} ${NO_SLACK_CARD}`)
       else {
         tools = readTools(ctx, s, b.userId)

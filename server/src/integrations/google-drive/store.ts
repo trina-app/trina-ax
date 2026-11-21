@@ -10,7 +10,9 @@ export class DriveError extends ToolError {
 }
 export interface Account { subject: string; name: string | null; email: string | null }
 export interface Tokens { accessToken: string; refreshToken: string; expiresAt: number }
-export interface FlowSecret { verifier: string; tokens?: Tokens; account?: Account; scopes?: string[] }
+/** `go`: the desktop app's page before Google (its key's hash, the sign-in page); `claim`: the one-time code that lets the
+ * app's own session finish a sign-in Google answered in a browser without a session (app-return.ts) */
+export interface FlowSecret { verifier: string; tokens?: Tokens; account?: Account; scopes?: string[]; go?: { hash: string; url: string }; claim?: { hash: string; until: number } }
 export interface ConnectionRow { id: string; user_id: string; config_key: string; account: string; scopes: string; secret_enc: string; key_version: number; status: 'connected' | 'needs_reconnect'; version: number; expires_at: string; updated_at: string }
 export interface FlowRow { id: string; user_id: string; session_id: string; state_hash: string; config_key: string; state: DriveFlow['state']; secret_enc: string | null; key_version: number; account: string | null; reason: string | null; expires_at: string; purpose: 'personal' | 'share'; share_id: string | null }
 
@@ -74,8 +76,15 @@ export class DriveStore {
     if (!row || row.user_id !== user || row.session_id !== session) throw new DriveError('not_found', 404)
     return row
   }
+  /** Told about flows that hold Google tokens just before their time runs out and the tokens are dropped (a result
+   * never confirmed, or never claimed by the app): the service revokes them at Google (oauth.ts dropTokens). */
+  onDrop: ((rows: FlowRow[]) => void) | null = null
   sweep() {
     const now = new Date(this.now()).toISOString()
+    if (this.onDrop) {
+      const held = this.db.query("SELECT * FROM drive_oauth_flows WHERE expires_at<=? AND state IN ('ready','exchanging') AND secret_enc IS NOT NULL").all(now) as FlowRow[]
+      if (held.length) try { this.onDrop(held) } catch { /* best effort */ }
+    }
     this.db.query("UPDATE drive_oauth_flows SET state='expired',secret_enc=NULL,account=NULL WHERE expires_at<=? AND state NOT IN ('completed','failed','expired')").run(now)
     this.db.query('DELETE FROM drive_oauth_flows WHERE expires_at<?').run(new Date(this.now() - 86_400_000).toISOString())
   }

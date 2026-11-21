@@ -12,10 +12,10 @@ Google Drive keeps its own integration ([GOOGLE-DRIVE.md](GOOGLE-DRIVE.md)), sho
 card whose Connect goes straight to Google (`web/src/components/integrations/DriveConnector.tsx`; the old
 `/settings/drive` leads there), and so does asking the AI from Slack ([SLACK.md](SLACK.md)). App connectors are the
 apps this server's AI uses with a person's own account (`web/src/lib/connectors.ts` `APP_CONNECTORS`, one card each).
-Admin › App connectors shows whether the server has a Google client and how many members are connected, and an admin
+Admin › Connected apps shows whether the server has a Google client and how many members are connected, and an admin
 can set the client up there. These connections are the other direction from the "connectors" of
-`server/src/connectors/remote-mcp` (outside AI apps such as Claude using this server's files), which are Settings › AI
-apps and Admin › Trina AX MCP.
+`server/src/connectors/remote-mcp` (outside AI apps such as Claude using this server's files), which are Settings › Trina AX MCP
+and Admin › Trina AX MCP.
 
 Gmail, Google Calendar, Google Docs and Google Sheets are built-in connectors too
 ([GOOGLE-APPS.md](GOOGLE-APPS.md)): a card each, one Google sign-in per app, the tools of the Google Workspace MCP
@@ -51,6 +51,11 @@ team app changes them only after its own confirmation, which an outside model ca
 - `create_upload_link`: a one-time `PUT <origin>/connector-uploads/<token>` URL for a larger file (at most 50 MiB,
   10 minutes, one path). Claude Code runs `curl -T "<local file>" "<url>"`. The permissions are checked when the link
   is made and again when the file arrives.
+- `create_download_link` (`mcp:read`): the mirror, a `GET <origin>/connector-downloads/<token>` URL for a team file's
+  exact bytes (any type, any size the person may read; 10 minutes, at most 3 GETs). Claude Code runs
+  `curl -o "<local file>" "<url>"`, changes the file locally and puts it back with `create_upload_link` (overwrite).
+  The read check runs when the link is made and on every GET; a changed file, lost access or an ended connection
+  gives 404. `read` with `raw: true` gives a small UTF-8 text file's exact text (one read, about 28,000 characters).
 - `share_skills` (내 스킬 가져오기, docs/DECISIONS.md "SK"): Claude Code sends the person's own Claude skills (from
   `~/.claude/skills`, the projects' `.claude/skills` it knows and `~/.claude/commands`), the names of those it left out
   (plugin skills, a skill with a key: names only), CLAUDE.md as text and its remote MCP servers (https addresses only, no
@@ -80,7 +85,7 @@ back), `server/src/routes/integrations.ts`, migration
 
 | | Personal | Team |
 | --- | --- | --- |
-| Made by | the member (Settings › External services) | an admin (Admin › External services) |
+| Made by | the member (Settings › Connectors) | an admin (Admin › Connected apps) |
 | Used by | that member, in their own chats only | the people its rules name: everyone, groups, people |
 | Managed by | the member; nobody else sees it, admins and the owner included | admins |
 | Ends | when the member deletes it or their account is deleted | when an admin deletes it |
@@ -130,7 +135,11 @@ characters (and the note no hidden characters).
   `integration_template_offers` keeps a second notice from coming after the first is past its 30 days. When a new
   address, sign-in method or header drops a member's key, that member gets "Reconnect <name>"
   (`integration.template_reconnect`, one per change). Both open Settings › Connectors with the template's Connect
-  (`?template=<id>`); they carry its id and name only while it is still for that person, never an address or a key.
+  (`?template=<id>`) only while it is still for that person; they carry its id, name and `signIn` (a sign-in template:
+  "sign in again with your own account", else "enter your own key again") while it is there, never an address or a
+  key. A member whose connection went because the template is no longer for them (the admin narrowed who it is for,
+  alone or with a new address, or they left its group) gets one "You no longer have access to <name>" (the same table
+  and event type, source `<template>.left.<connection>`, `templateLeft`), with no link and no "connect it again".
 - In a chat, the AI is told which templates for this person are not connected yet (or whose key stopped working) and
   offers the connect card for them (`connect_service` with `template`, or found by the address the AI filled in). The
   card says "Connect your own key for <name>" and connects through the template's own path (`templates.ts connect`):
@@ -172,13 +181,15 @@ advances the safe-operations policy generation); web: `web/src/components/integr
 ## Asking a member to connect
 
 Some services log every call as the person whose key it is, so that key belongs in the member's personal connection.
-An admin cannot add a personal connection for someone else. Instead, Admin › External services › "Requests to members"
+An admin cannot add a personal connection for someone else. Instead, Admin › Connected apps › "Ask a member to connect"
 sends one member a request with the service filled in (kind, name, address, key or sign-in, the key's header, usage
 notes for an API). The member gets an inbox entry and a banner, and the admin can copy a link
-(`/settings/integrations?request=<id>`; only that member, signed in, can open it). In Settings › External services the
+(`/settings/connectors?request=<id>`; only that member, signed in, can open it). In Settings › Connectors the
 member connects it with their own key or signs in, which creates their personal connection through the same path as
 one they add themselves, or declines it. The admin sees the state (waiting, connected, declined, withdrawn, expired
-after 7 days) and can withdraw a waiting request; the admin never sees the key or the member's connection. Code:
+after 7 days) and can withdraw a waiting request; the admin never sees the key or the member's connection. A guest is
+never asked: the picker leaves guests out, the server refuses one (400 under the person), and a request sent to a guest
+before that ends as withdrawn once, when the server starts (QA TC-2948). Code:
 `server/src/integrations/connections/requests.ts`, migrations `220_b_integration_request_notices.sql` and
 `331_c_integration_requests.sql`. Decisions: [DECISIONS.md](DECISIONS.md) "Asking a member to connect a service as
 their own".
@@ -216,10 +227,11 @@ the page says "Request sent" (also when opened again while the request is open),
   own connection to the service does not stop the ask.
 - **Taking it back:** "Cancel request" under "Request sent" (`DELETE /api/integrations/service-requests/:service`, one's
   own only; audited `service_request.withdraw`). It still counts toward the 10 a day.
-- **Admin › Connectors, "Asked by members":** one line per app or service with open requests (who asked), **Add** (a
+- **Admin › Connected apps, "Asked by members":** one line per app or service with open requests (who asked), **Add** (a
   Google one: its page; a listed service: "Connect for the team") and **Dismiss** (`POST
-  /api/admin/service-requests/:service/dismiss`: closes them, nobody is told, they may ask again; audited
-  `service_request.dismiss`). `GET /api/admin/service-requests` lists them. A request taken back or dismissed is closed
+  /api/admin/service-requests/:service/dismiss`: closes them; each member who asked gets one quiet notice
+  (`service.closed`, never an admin's name) that it was closed and that they may ask again, as after the 30 days (QA
+  TC-2946, migration 353); audited `service_request.dismiss`). `GET /api/admin/service-requests` lists them. A request taken back or dismissed is closed
   with no reason (`closed_reason` NULL), so no migration. The notice of a listed service opens its page in Admin ›
   Connectors.
 - Nothing a member gets names an admin. Code: `server/src/integrations/service-requests.ts`,
@@ -231,7 +243,9 @@ the page says "Request sent" (also when opened again while the request is open),
 A person says in a chat "connect Higgsfield" (or Notion, Linear, GitHub, any MCP server or HTTP API, or their Google
 Drive). The AI looks up the service's official address itself, fills in the connection with the `connect_service`
 tool, and the chat shows a card. The person does one thing on the card: paste the key, sign in, or press Connect. They
-never have to open Settings. Code: `server/src/chat/connect-service.ts` (the tool and the card's endpoint),
+never have to open Settings. The AI calls the tool before it writes anything about connecting and never announces a
+connect card: the card shows itself when there is one, and only the result says what happened (a refusal says "No card
+was shown"; AI scenario CON-02). Code: `server/src/chat/connect-service.ts` (the tool and the card's endpoint),
 `POST /api/turns/:id/connect` (`server/src/routes/chats.ts`), the card in the web app. Contract: `ConnectServiceInput`
 (`shared/src/tools.ts`), `ConnectServiceRequest` (`shared/src/api/ws.ts`), `TurnConnectBody` / `TurnConnectResult`
 (`shared/src/api/chats.ts`).
@@ -325,7 +339,8 @@ never have to open Settings. Code: `server/src/chat/connect-service.ts` (the too
   the turn's person can finish the card (the route checks the owner), and the tools the answer goes on with are that
   person's own: a room's answer (where `connect_service` is not offered) keeps only the asker's own Google apps.
 - If the person pastes a key into the chat anyway, the AI tells them not to, that it should be revoked and replaced
-  at the service, and offers the card (the instructions' rule, `prompt.ts` `CONNECT_RULE`). The web app also warns
+  at the service, and calls `connect_service` without the key so they enter a new one on the card (the instructions'
+  rule, `prompt.ts` `CONNECT_RULE`). The web app also warns
   before sending text that almost surely holds a key, with "Send anyway" and "Edit" (`SecretWarning`), in every box
   whose text reaches the AI: the message box, an ask_user card's own answer, editing a sent message and editing a
   waiting one. It warns on `hasLikelySecret`: known key prefixes (also Notion, Linear, Groq and `sk-` keys in lower
@@ -405,8 +420,8 @@ Every request (checks, tool calls, OAuth discovery, registration, token, revocat
 - **Redirects are never followed**; they are reported (a check: "the service tried to send us to another address";
   `api_request`: the status and Location as external data).
 - Standard ports only (web_fetch's 80/443 rule; with https that is 443). 30 seconds per request, answers cut at 1 MiB while reading (also without
-  Content-Length), compressed answers decoded with the same limit. A check's `tools/list` is the one exception to the
-  30 s (below).
+  Content-Length), compressed answers decoded with the same limit. A check's `tools/list` and an MCP `tools/call` are
+  the exceptions to the 30 s (below).
 
 ## MCP servers
 
@@ -421,15 +436,25 @@ idle minutes; a 404 for it starts a new one.
   that. The list is read for as long as it keeps coming: a page fails only when no bytes arrive for 30 seconds, and the
   check when it is not done 90 seconds after it began ("did not send its whole tool list within 90 seconds"), not at
   the 30 s of other requests (Higgsfield sent its 1.07 MB at 17-38 KB/s, 30-65 s). The check ends at that deadline:
-  its requests end by it, it stops waiting for a session (shared with the calls, which keep their own 30 s) at it, and
+  its requests end by it, it stops waiting for a session (shared with the calls, whose start keeps its own 30 s) at it, and
   no token refresh starts that could end after it (a token still valid is used). So 90 s stays under the relay's 100 s
-  wait for an answer and the server's 120 s idle limit and "Check again" is answered; tool calls keep the 30 s. The tool list is saved (`tools_json`): every tool the service lists, up to 1,000 tools and 4,000,000 characters
+  wait for an answer and the server's 120 s idle limit and "Check again" is answered. The tool list is saved (`tools_json`): every tool the service lists, up to 1,000 tools and 4,000,000 characters
   of schemas and descriptions per connection (past that Settings and the AI are told "N of M", or "N of more than M"
   when pages were left unread); a tool whose input schema is not an object or is over 32,000 characters is left out.
   Turns use the saved list only: nothing is fetched when a chat starts. The server keeps the parsed lists in memory by
   connection and `tools_rev` (moved by a trigger whenever `tools_json` changes; at most 64 MiB of saved JSON, the list
   used longest ago first), so a turn reads the connections without their lists and parses only a list that changed;
   who may use a connection and which of its tools are off are read with every turn and call.
+- **Tool calls** (`tools/call`) wait as long as the service works on them: a call fails when nothing at all comes for
+  5 minutes ("sent nothing for 5 minutes") and in any case 15 minutes after it began ("did not finish within 15
+  minutes"); its session's start keeps the 30 s. Each call names its own `progressToken`, so a service that reports
+  progress (or sends any bytes of its event stream) keeps the call alive past 5 minutes. A web scrape takes 1-2 minutes
+  (Bright Data, 2026-11), which the 30 s used to cut. 15 minutes stays under the engines' 30 minutes for one of our
+  tool calls (Claude Code `MCP_TOOL_TIMEOUT`, Codex `tool_timeout_sec`), so the AI gets our reason; the turn's stall
+  guard waits while the call runs. Stop, or one of these limits, ends the call at once and sends the service
+  `notifications/cancelled`. A call that
+  sent nothing for 5 minutes marks the connection like the 30 s did, as an error that is only for now (a check keeps its
+  saved list); one past 15 minutes marks nothing (a long job, not a broken connection).
 - **Tool names** for the engine: `my_<slug>__<tool>` (personal) and `team_<slug>__<tool>` (team), letters, digits, `_` and
   `-` only. With the engine's `mcp__team__` the full name stays within 64 characters: longer or clashing names are cut and
   given a short hash; the server maps each back to the remote name.
@@ -463,6 +488,19 @@ idle minutes; a 404 for it starts a new one.
   key, or an own app below). Tokens refresh ahead of expiry and after a 401, one refresh at a time per connection; `invalid_grant` means
   "sign in again". Deleting a connection, or a change that drops its sign-in, removes the local tokens first and then
   asks the service to revoke them (RFC 7009, best effort).
+- **Services that need no sign-in, added with sign-in** (QA TC-4771, DeepWiki). Sign-in is the form's default way in,
+  so a public server is often added with it. When Sign in finds no sign-in at all (`NoSignInFound`: no
+  protected-resource and no authorization-server document answered at any address, each answered 4xx or something that
+  is not a JSON object, and none was down with a 5xx, a redirect or a network error), the server answered `initialize`
+  without a key (no 401) and it also lists its tools without one, the connection is changed to no sign-in
+  (`auth: 'none'`, as if chosen under Advanced; it is checked and its tools saved; the audit entry says
+  `via: 'no_signin_probe'`) and `authorize` answers `{ connected: true }` with no flow, only when that check connected
+  it. Only a connection never signed in, without its own app and not from a template (a template's members bring their
+  own key or sign-in). The write happens only while the connection is as it was read before the probe (same version
+  and address, no sign-in stored): a sign-in that finished meanwhile, or an address changed, keeps its own state and
+  the old answer is given. The requests go through the same address rules as every other. Metadata that answered but
+  cannot be used (another resource or issuer, no S256, no code), a metadata address that is down, and a server that
+  refuses its tool list without a key all keep `oauth_unsupported`.
 - **Services that accept only apps they approved.** Some refuse the app registered for them: the registration answers
   400 or 403 (Figma 403 outside its catalog, Vercel, Square, Intercom and Indeed 400 for a callback not on their list,
   Railway 403 "registration is disabled"; any 4xx naming `invalid_redirect_uri` or `invalid_client_metadata` counts
@@ -484,6 +522,31 @@ idle minutes; a 404 for it starts a new one.
   chat card; nobody on the team can fix it. Such a refusal is kept as a failed flow, so it counts toward the 20 sign-in
   tries an hour (a service that is down or busy does not count). The document is offered only from an address it is
   served at (`documentOrigins`: the configured public addresses and the tunnel's), never from a server without one.
+- **Services that take only an app on the computer** (Canva, Intercom, Square; RFC 8252). They refuse every client
+  for the team's https callback but take the return address apps on a computer use, `http://127.0.0.1:<port>/callback`
+  (Canva: its sign-in page answers 302 instead of "Invalid redirect URI."; Intercom and Square: registration 201
+  instead of 400). The desktop app opens a one-time listener there (`desktop/src/common/sign-in-return.ts`, bridge
+  `signInReturn`): 127.0.0.1 only, a port the system picks, one at a time (overlapping opens leave only the later one).
+  It takes one `GET /callback` with a state and a code or an error, from its own Host, as a page the browser opens
+  (Sec-Fetch-Mode `navigate` and Sec-Fetch-Dest `document` when sent), and sends it on with a 302 to
+  `https://<team>/api/integrations/oauth/callback?<the same query>` (only the https team origin the window shows; the
+  code is never read there), then closes. Any other request gets 404 and never uses it up, however many come. It closes
+  after 10 minutes, on Cancel, by a newer one or a team switch. The web page opens one for every sign-in in the desktop
+  app and closes it as soon as the answer says it is not used (asking the server first would cost a second try at the
+  service). The page passes its port as `loopbackPort` to `POST /api/integrations/:id/authorize`; the route keeps it
+  only for a desktop session (`sessions.client`). The usual client choice (registered app, then metadata document, as
+  above) always runs first, from every address; only when it is refused is one app registered for the 127.0.0.1 address
+  and its sign-in page opened once (the same preflight). Its address is in the flow's sealed client, so the token
+  exchange sends it (refresh sends none) and the answer says `loopback: true`. From the web or the phone app (no port),
+  one probe registration for 127.0.0.1 tells whether the desktop app would get in: then `oauth_desktop_only` ("Canva
+  only lets you sign in from an app on your computer. Open the Trina desktop app and connect it there."; Get the desktop
+  app → Settings › Apps on the web, "Connect Canva on a computer." in the phone app), else `oauth_approved_apps_only`
+  (Figma refuses that too). Whether a sign-in server takes 127.0.0.1 (keyed by its issuer and registration address,
+  never the team's address) is remembered an hour in memory, and only after a clear answer: it spares the web's probe
+  and a desktop try at a server that refused 127.0.0.1. Both reasons count as refused tries. A desktop app from before
+  this sends no port and keeps `oauth_approved_apps_only`; so does the Mac App Store build when its App Sandbox (no
+  `network.server` entitlement) refuses the listener (expected, not tried on a store build yet). The browser that comes
+  back must be signed in to the team, as for every desktop sign-in (below).
 - The sign-in flow (`integration_oauth_flows`) lives 10 minutes, at most 20 per person per hour, bound to the person and
   the session that started it (polling `GET /api/integrations/flows/:id` needs that session); the state is stored hashed,
   the verifier and client details encrypted. A connection change while it is pending (version) fails it. For a team
@@ -569,7 +632,7 @@ Setting up Google (Gmail, Calendar … MCP servers; in Google's Workspace Develo
    External with test users. Restricted scopes (`gmail.readonly`, `drive.readonly`) need Google's verification before an
    External app may go public.
 3. Credentials › OAuth client ID › Web application, with the redirect address above.
-4. Admin › External services › add, as a template (each member signs in with their own Google account): MCP server,
+4. Admin › Connected apps › add, as a template (each member signs in with their own Google account): MCP server,
    `https://gmailmcp.googleapis.com/mcp/v1`, sign-in, "Sign in with my own app", the client ID and secret, and the scopes,
    e.g. `https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/gmail.compose`.
 
@@ -577,7 +640,7 @@ Setting up NAVER WORKS (API 2.0):
 
 1. Developer Console › the app: its Client ID and Client Secret, the Redirect URL above, the OAuth scopes the AI needs
    (`calendar`, `mail`, `file`, `user.read` …), and the access token's lifetime.
-2. Admin › External services › add, as a template: API, `https://www.worksapis.com/v1.0`, sign-in, the client ID and
+2. Admin › Connected apps › add, as a template: API, `https://www.worksapis.com/v1.0`, sign-in, the client ID and
    secret, sign-in address `https://auth.worksmobile.com/oauth2/v2.0/authorize`, token address
    `https://auth.worksmobile.com/oauth2/v2.0/token`, the same scopes, and notes with the endpoints the AI should call.
 
@@ -586,6 +649,72 @@ Code: `oauth.ts` (`ownClient`, `manualServer`, `issuerMatches`), `service.ts` (`
 `pinFound`, `send`), `store.ts` (`secretHere`), `templates.ts` (`appAfter`),
 `web/src/components/integrations/IntegrationDialog.tsx` (`AppSection`). Tests:
 `tests/unit/c-integrations-own-app.test.ts`, `web/test/unit/integrations.test.ts`.
+
+## GitHub
+
+GitHub's own remote MCP server (`https://api.githubcopilot.com/mcp/`, github.com/github/github-mcp-server) is a Discover
+card. It has OAuth metadata but no dynamic client registration, so every host brings its own app. Here that is ONE
+**GitHub App the server holds**: a person presses Connect, signs in at GitHub and is connected, with nothing to set up
+or paste ([decision](decisions/20261120-github-connector.md)).
+
+- **The app file.** `MYCEL_GITHUB_APP_FILE`, else `<secrets>/integrations/github/app.json`: a private file of the
+  server account (regular, one link, mode 0600, outside the team folder; `server/src/integrations/github/app.ts`),
+  `{ "clientId": "Iv23…", "clientSecret": "…", "slug": "<the app's name in github.com/apps/<slug>>" }`. Read each
+  time (no restart). No answer, log line or audit entry carries it; the list says only `github: { ready, installUrl }`.
+- **Which connections use it.** Only one at GitHub's exact official address (`serverAppAt`: https, that host and path,
+  no port, query or fragment) without an own app of its own or its template's: personal ones, team ones (an admin
+  signs in) and a template's members (each with their own GitHub account). The sign-in and token addresses are GitHub's
+  (`https://github.com/login/oauth/authorize`, `…/access_token`), fixed in code: nothing is discovered, so no server can
+  name another address for the secret. No scope is asked (a GitHub App's permissions are set on the app). The rest is
+  the own-app sign-in above (PKCE S256, state, `iss`, the resource indicator, sealed tokens, the secret only in the
+  token request's body and hidden in answers).
+- **Tokens.** A GitHub App's user token lasts 8 hours and comes with a refresh token (6 months) that works once; it is
+  refreshed ahead of expiry with the app's secret **as the file has it now** (a rotated secret needs no new sign-in;
+  another client ID ends the sign-ins: GitHub refuses the old refresh token), and the new refresh token is kept.
+  GitHub answers a refused code or refresh token with HTTP 200 and `bad_verification_code`, `bad_refresh_token` or
+  `incorrect_client_credentials`; these are read as `invalid_grant` / `invalid_client` (`oauth.ts tokenRequest`).
+- **Repositories.** The AI sees what the person may see AND what the app's installation covers. People choose the
+  repositories on GitHub's installation page (`https://github.com/apps/<slug>/installations/new`), linked from the
+  connection's page ("Choose on GitHub"); an organization's owner installs it there, or a member asks
+  them to (GitHub's own request flow). No picker of our own.
+- **Without the file** the card says "Not set up yet" (a member can ask an admin; an owner or admin reads that the
+  operator adds the app, or that they can add GitHub in Admin › Connected apps with their own GitHub App), and a
+  sign-in fails with "registers no apps" as before. The GitHub dialog keeps Advanced › "Sign in with my own app" (hidden
+  for other listed services), so an admin there makes GitHub a team template or team connection with the company's own
+  GitHub App (its callback: the server's own address). A member's page then says "Your team set up GitHub. Connect it
+  under Your connectors." instead of the ask, and members who asked are told it is ready (QA TC-5656, TC-5661).
+
+Registering the app (once, by an owner of the GitHub organization; GitHub › Settings › Developer settings › GitHub
+Apps › New):
+
+1. Name and homepage; **Callback URL** `https://<team domain>/api/integrations/oauth/callback` with **wildcard
+   matching on** (it then takes every `<team>.<team domain>` with that path; a server on another address adds its own
+   callback, up to 10, or uses an app of its own). **Expire user authorization tokens** on. **Request user
+   authorization (OAuth) during installation** off (it would send the browser to the first callback without our
+   state). Webhook off. Where can it be installed: any account.
+2. Permissions (repository): Contents, Issues, Pull requests: read and write; Metadata: read (always). Add more only
+   when a tool needs them (Actions, Checks, Discussions read for the matching tools).
+3. Generate a client secret. Put `clientId`, the secret and the app's slug in the file above (0600). No private key is
+   needed: the server never acts as the app itself, only as the signed-in person.
+
+Checked for real on 2026-11-20 with the registered app ("Trina AX", github.com/apps/trina-ax, owned by the trina-app
+organization) on a copy of the QA team with the real AI: GitHub's MCP server takes the GitHub App user token (46 tools);
+in a chat the AI listed issues, read README.md, created an issue and opened a one-line pull request (each change behind
+the write card, made "via Trina AX" as the signed-in person); a project chat showed the share card to the asker only
+("Waiting for QA Member to confirm" for the others); a refresh at GitHub after the token's 8 hours (clock moved on)
+kept the new tokens and the next call worked. GitHub's wildcard callback took `qa.trina.app` and `potenlab.trina.app`
+and refused other hosts and other paths.
+
+- **Disconnect** (and signing in again, and a team connection's sign-out at 팀장 넘기기) ends the connection's token at
+  GitHub: `DELETE https://api.github.com/applications/<client ID>/token` with the app's ID and current secret as basic
+  auth (`github/app.ts revokeGitHubToken`, best effort, 204). The person's authorization of the app itself stays on
+  GitHub (GitHub › Settings › Applications › Authorized GitHub Apps lists Trina AX until they revoke it there), so a
+  second connection of the same GitHub account here (a personal one and a team one) keeps working.
+
+Not yet: an admin page for the file, keeping the secret behind the hosting service like the Drive broker.
+Code: `server/src/integrations/github/app.ts`, `connections/service.ts` (`serverApp`, `currentClient`), `oauth.ts`
+(`GITHUB_GRANT_ERRORS`), `shared/src/service-catalog.ts` (`serverAppAt`), `web/src/pages/Connectors.tsx`,
+`web/src/components/integrations/ConnectionPage.tsx`. Tests: `tests/unit/c-integrations-github.test.ts`.
 
 ## HTTP APIs: `api_request`
 
@@ -629,6 +758,16 @@ connections with their address and the first 1,000 characters of their notes.
   fetched for its preview. An `allow` team connection's content is not checked this way yet (a follow-up).
   After a room read, such a write skips the room card only when every room the run read is on the schedule's card
   (`TurnTool.sendsTo` names the connection a call writes to); an `allow` team connection keeps the room card then. docs/DECISIONS.md "Scheduled tasks: saving and sending allowed on the card".
+- **A team file as an attachment** (docs/decisions/20261116-mail-attach-team-file.md): where an MCP tool takes a file's
+  content as base64, the AI gives `team-file:<path in the team folder>` as that whole value and the server puts the
+  file there (`team-attach.ts`). The file is read as the person as they are now (read permission, a regular file, not
+  held by the safety check; one they cannot read answers like one that is not there). The connection's card shows it
+  first ("Team file to attach": name, size, folder), and the exact text shows the handle, never the bytes. After the
+  card the account, its access and the file are checked again. At most 10 files and 10 MB together in one call. Not
+  with a tool that only reads, not in a scheduled run or where nobody can answer a card, not through `api_request`. A
+  connection that sends without asking for this person attaches without a card too, only in a turn they watch from
+  the app. A file named twice is refused. A file whose bytes hold one of the person's stored keys is not sent
+  (compressed content is not looked into). The audit line names each file (path, size, start of its hash).
 - Results are wrapped as external data (`<external_data source="<name>">`, the closing tag neutralised inside), and the
   instructions tell the AI that they are data, never instructions.
 - **Read scope**: an answer from a personal connection counts like the person's own folder (`{type:'user'}`); from a team
@@ -639,12 +778,37 @@ connections with their address and the first 1,000 characters of their notes.
   `<connection name> · <tool>` and `<connection name> · <METHOD> <path>` (no translated words, so they show the same in
   every language).
 
+## Apps on your computer (kind `local`)
+
+Decision: [Apps on your own computer as connectors](decisions/20261118-local-app-connectors.md).
+
+- **What it is.** It is a program on the person's own computer that the desktop app runs for the AI. There are two kinds:
+  - an MCP server over stdio, such as `aside mcp`;
+  - a plain CLI declared as tools, such as ego lite's `ego-browser nodejs` with the script on stdin and its guide from `ego-browser skill`.
+- **What the server keeps.** It is the person's own connection only. In the database it is a column `integrations.local_app` (migration 364), and the API calls it kind `local`. The server keeps the command's shape: the program, its arguments, the setting names and the CLI templates. It never keeps a setting's value.
+- **Adding one.** Only the person adds it, in Settings › Connectors in the desktop app: Aside and ego lite have cards of their own in Discover (+ connects their preset command, no picker; web/src/lib/localApps.ts), and any other program is Add custom connector › On this computer (a member, who adds no server by its address, gets only that choice). It cannot be added through `POST /api/integrations/local`'s team counterparts, templates, requests or the connect card.
+- **How calls travel.** The calls go through the local relay (`server/src/realtime/local-relay.ts`, the sibling of the browser relay) to the desktop window the message was sent from. They never go out over the network.
+  - From anywhere else, the AI says that the app works only from the desktop app on that computer.
+  - Scheduled runs, shared chats, rooms and sub-agents never get its tools.
+- **On the computer** (`desktop/src/common/local-apps.ts`):
+  - The desktop app asks once in its own dialog ("Connect this program?"), and again only when the command changes.
+  - It starts the program from an argument list, never through a shell, and never runs as root.
+  - Setting values are sealed with safeStorage. They are hidden in every answer before it leaves the computer, then `hide.ts` and `redact.ts` run as usual.
+  - Stop and quitting the app end the program.
+  - A declared CLI's answer is its stdout, then its stderr, also when it exits 0 (ego lite prints a script's
+    `console.log` on stderr). Both together are at most `CLI_OUTPUT_MAX` characters, so the answer stays one WebSocket
+    frame (under 16 MB): stderr gets what stdout leaves, and a cut stream ends with a note that says how much is missing.
+- **Asking before changes.** Writes ask on the normal card with Always allow, like any connection. A CLI tool's script
+  (its stdin argument) shows on the card as a code block, byte for byte with its indentation (`cardLines` `isCode`);
+  invisible characters, odd spaces and white space at line ends still mean no lines, and the exact JSON stays open.
+- **Turning it off.** The team switch `localApps` (Admin › Team settings › Members can connect apps on their computer) turns it off.
+
 ## Audit
 
 - Admin audit log: `integration.create`, `integration.update` (also access changes, with before/after, a completed
   sign-in: `changed: ["signIn"]`, and a tool turned on or off: `changed: ["tools"]`), `integration.delete`. Team connections are named with their host; a member's own
   connections only by scope, kind and auth (no name or address).
-- Requests to members: `integration_request.create` / `.withdraw` (the admin) and `.complete` / `.decline` (the
+- Ask a member to connect: `integration_request.create` / `.withdraw` (the admin) and `.complete` / `.decline` (the
   member), with the member, kind, name, host and auth the admin filled in.
 - Each call is a `tool_events` row with a summary only: the tool, `api_request <connection> <METHOD> <path> -> <status>`,
   "confirmed by the user" or why it was refused. No arguments, bodies, query strings or secrets.
@@ -654,9 +818,10 @@ connections with their address and the first 1,000 characters of their notes.
 | Boundary | Limit |
 | --- | --- |
 | Connections | 20 personal per person (that work, have a key or need no sign-in), 50 team. A personal one still waiting for its first sign-in does not count; those have a cap of 20 of their own. A new connection needs room under both (a sign-in one), the sign-in's callback refuses a first sign-in over 20 (`limit`), and an edit that stops or starts waiting is checked the same way. Connect again at a waiting address picks that one up with the new name, notes and write rule. Settings and the chat's connect card count alike (`personalCounts`) |
-| Request | 30 s, no redirects, standard ports (a check's `tools/list`: 30 s without bytes, 90 s in all) |
+| Request | 30 s, no redirects, standard ports (a check's `tools/list`: 30 s without bytes, 90 s in all; a `tools/call`: 5 min without bytes, 15 min in all) |
 | Answer | 1 MiB while reading; 40,000 characters to the AI |
 | Request body (`api_request`) | 1 MiB |
+| Team files attached to one call (`team-file:`) | 10 files, 10 MiB together |
 | MCP tools | 1,000 per connection, 4,000,000 schema and description characters per connection, 32,000 per tool schema; as tools of their own 200 and 50,000 characters per answer, the rest through `find_tools` / `call_tool` |
 | Reading `tools/list` (a check) | 8 MiB a page, 20 pages and 16 MiB together; stops once the list kept is full |
 | Sign-in flow | 10 minutes, 20 per person per hour |
@@ -678,8 +843,9 @@ The services come from the remote servers listed on [mcpservers.org](https://mcp
 with its featured ones and those with a curated logo. A listing is not enough: a service is listed here only if it
 answers the way this server needs, Streamable HTTP and OAuth with dynamic client registration (see above). Checked on
 2026-11-02 with an unauthenticated `initialize` and the public OAuth metadata, not with a real sign-in, so a service can
-still refuse a client it does not know. Left out because they need an app of their own: Slack, GitHub, Asana, HubSpot,
-Box, Zoom, Docusign, PagerDuty, Granola, Clerk. Google Drive has its own integration.
+still refuse a client it does not know. Left out because they need an app of their own: Slack, Asana, HubSpot,
+Box, Zoom, Docusign, PagerDuty, Granola, Clerk. Google Drive has its own integration. GitHub is listed although it registers
+no apps: it signs in through the server's GitHub App ("GitHub" below).
 
 Logos are files in `web/public/icons/connectors`, because the content security policy loads no image from elsewhere,
 and a connection whose address matches a listed service shows its logo too. Where each file came from is not recorded:

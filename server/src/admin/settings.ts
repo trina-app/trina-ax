@@ -1,7 +1,7 @@
 // Team settings (tab 1 `settings`: key -> JSON value). One key per TeamSettings field; internal keys use a dot
 // prefix ("engines.enabled"). Other components read settings through getTeamSettings() (read-only for them).
 import type { Database } from 'bun:sqlite'
-import { DEFAULT_ANSWER_STEP_LIMIT, DEFAULT_LOCALE, DEFAULT_SPEECH_MODEL, Locale, TeamSettings, type EngineId, type TeamSettings as TeamSettingsT, DEFAULT_DECK_TIER } from '@mycel/shared/api'
+import { cleanRecommended, GUEST_FILE_DEFAULT, DEFAULT_ANSWER_STEP_LIMIT, DEFAULT_LOCALE, DEFAULT_SPEECH_MODEL, Locale, TeamSettings, type EngineId, type TeamSettings as TeamSettingsT, DEFAULT_DECK_TIER } from '@mycel/shared/api'
 import { PRODUCT } from '@mycel/shared'
 import { defaultTimeZone, isValidTimeZone } from '../system/time-zone'
 
@@ -26,14 +26,22 @@ export const DEFAULT_SETTINGS: TeamSettingsT = {
    * owner's call, 2026-11-11); each person still turns their own switch on */
   webAllowAll: true,
   personalIntegrations: true,
+  /** apps on a member's own computer as connectors (integrations/connections/local.ts): on unless an admin turns it off */
+  localApps: true,
+  /** "팀 추천" (shared/src/api/team-tools.ts): none until an owner or admin recommends a tool */
+  recommendedTools: [],
   /** AI reads send images and PDF pages as images (files/vision.ts) */
   aiVision: true,
   /** the AI may split work into sub-tasks (Claude Code's Agent tool; chat/subagents.ts) */
   aiSubagents: true,
   /** the AI's cards may offer "Always allow" (chat/always-allow.ts; rooms/ai-grants.ts) */
   roomAlwaysAllow: true,
+  /** members share files they own (files/shares.ts): on unless an admin turns it off */
+  memberFileShares: true,
   /** any member may make a team project (docs/DECISIONS.md "Projects live only in projects/") */
   projectCreators: 'members',
+  /** a guest uploads files of up to 100 MB until the owner or an admin raises it (uploads/guest-limit.ts) */
+  guestFileMax: GUEST_FILE_DEFAULT,
   /** Home's "what my group often asks" (chat/often-asked.ts): on unless an admin turns it off (the owner's call, 2026-11-11) */
   oftenAsked: true,
   /** tool rounds per answer (Claude Code --max-turns; chat/runtime.ts maxEngineTurns) */
@@ -45,7 +53,7 @@ export const DEFAULT_SETTINGS: TeamSettingsT = {
    * OpenRouter (getTeamSettings) */
   speechProvider: 'off',
   speechModel: DEFAULT_SPEECH_MODEL,
-  /** not chosen: the default follows the speech provider (shared mediaTranscriptsDefault) */
+  /** not chosen: the default follows the speech provider and the server (shared mediaTranscriptsDefault) */
   aiMediaTranscripts: null,
 }
 
@@ -71,6 +79,12 @@ export function setSetting(db: Database, key: string, value: unknown): void {
   db.query('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value').run(key, JSON.stringify(value))
 }
 
+/** This server transcribes on its own with nothing to install (jobs/transcribe.ts localSpeechReady: an Apple silicon Mac
+ * with whisper-cli, or a server with whisper-cli and ffmpeg and 4 cores and 8 GB): set once at start (main.ts). Tests
+ * and every other server leave it false. */
+let localSpeechDefault = false
+export function setLocalSpeechReady(ready: boolean) { localSpeechDefault = ready }
+
 /** Stored settings over the defaults. Invalid stored values fall back to defaults, except an invalid update window stays closed. */
 export function getTeamSettings(db: Database): TeamSettingsT {
   const out = { ...DEFAULT_SETTINGS, timeZone: defaultTimeZone() } as Record<string, unknown>
@@ -80,6 +94,9 @@ export function getTeamSettings(db: Database): TeamSettingsT {
     try { v = JSON.parse(r.value) } catch {}
     const field = TeamSettings.shape[r.key as keyof TeamSettingsT]
     if (field && field.safeParse(v).success) out[r.key] = v
+    // a guest limit of 10 GB picked before a room took at most 1 GB (docs/decisions/20261116-room-file-limit-1gb.md):
+    // read as the member limit, never above it and never back down to the default
+    else if (r.key === 'guestFileMax' && v === '10gb') out[r.key] = '1gb'
     // Do not turn an invalid old window into null: null permits the default 03:00-05:00 window.
     // Equal endpoints keep updates closed and let the admin read, replace or clear the setting.
     else if (r.key === 'updateWindow') out[r.key] = '00:00-00:00'
@@ -87,7 +104,13 @@ export function getTeamSettings(db: Database): TeamSettingsT {
   // not chosen: voice input goes through OpenRouter once there is a key for it, the hosting service's (a hosted team, its plan's
   // free hours a month) or the team's own (a team's own server: saving the key turns it on, removing it turns it off).
   // Nothing is stored for it, and an admin's choice, "off" too, always wins
-  if (!rows.some((r) => r.key === 'speechProvider') && db.query('SELECT 1 FROM settings WHERE key IN (?, ?)').get(HOSTED_SPEECH_KEY_SETTING, SPEECH_KEY_SETTING)) out.speechProvider = 'openrouter'
+  // Without a key, a server that has what 'local' needs (setLocalSpeechReady: an Apple silicon Mac, or a Linux kit or
+  // Docker server with 4 cores and 8 GB) reads 'local': the sound stays on the server. A saved key stays what turned voice input on (a team that saved one before keeps OpenRouter after the
+  // update, with no surprise model download; docs/decisions/20261116-mac-local-speech.md)
+  if (!rows.some((r) => r.key === 'speechProvider')) {
+    if (db.query('SELECT 1 FROM settings WHERE key IN (?, ?)').get(HOSTED_SPEECH_KEY_SETTING, SPEECH_KEY_SETTING)) out.speechProvider = 'openrouter'
+    else if (localSpeechDefault) out.speechProvider = 'local'
+  }
   return out as TeamSettingsT
 }
 
@@ -97,6 +120,8 @@ export function updateTeamSettings(db: Database, patch: Partial<TeamSettingsT>):
   // (the admin agreed to sound going to this server, not to OpenRouter)
   if (patch.speechProvider !== undefined && patch.aiMediaTranscripts === undefined && patch.speechProvider !== getTeamSettings(db).speechProvider)
     patch = { ...patch, aiMediaTranscripts: null }
+  // team picks: known ids only, each once (shared/src/api/team-tools.ts)
+  if (patch.recommendedTools) patch = { ...patch, recommendedTools: cleanRecommended(patch.recommendedTools) }
   db.transaction(() => {
     for (const [k, v] of Object.entries(patch)) if (v !== undefined && (FIELDS as string[]).includes(k)) setSetting(db, k, v)
     if (patch.defaultLocale !== undefined) syncFollowingLocales(db)
@@ -130,6 +155,9 @@ export const WEB_ACCESS_CHANGED = { type: 'notice', data: { level: 'info', code:
  * Realtime notice: voice input was turned on or off (speechProvider, the OpenRouter key). Open windows ask GET /api/me
  * again (Me.team.voiceInput) and show or hide the mic. The message carries nothing.
  */
+/** to guests when an admin changed the largest file a guest may upload: their boxes read the limit again
+ * (Me.team.uploadMaxBytes), so a raised limit works without a reload */
+export const GUEST_FILE_LIMIT_CHANGED = { type: 'notice', data: { level: 'info', code: 'guest_file_limit_changed', message: '' } } as const
 export const SPEECH_CHANGED = { type: 'notice', data: { level: 'info', code: 'speech_changed', message: '' } } as const
 
 /** The team default language alone (cheap: read for every request without a session). */

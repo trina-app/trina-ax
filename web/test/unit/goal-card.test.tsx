@@ -55,14 +55,15 @@ describe('text helpers', () => {
     expect(skillTopic('ja', '広告コピー', 'x')).toBe('「広告コピー」')
     expect(skillTopic('en', null, 'a team skill')).toBe('a team skill')
   })
-  test('the title: up to three skill names, the first given first, each once, never a skipped path; joined per language', () => {
+  test('the title: up to three skill names, the first given first, each once, never a skipped path; "N people" per language', () => {
     const list = [{ path: 'a', name: '신청서' }, { path: 'deck', name: '회사 소개서' }, { path: 'b', name: '광고 문구' }, { path: 'c', name: '견적' }, { path: 'd', name: '카드뉴스' }]
     expect(goalTitleSkills('광고 문구', list, ['deck'])).toEqual(['광고 문구', '신청서', '견적'])
     expect(goalTitleSkills(null, [], [])).toEqual([])
-    expect(goalTitleText(ko, 'ko', ['광고 문구', '견적'])).toBe("동료와 함께 문서 만들어 보기: '광고 문구', '견적'")
-    expect(goalTitleText(en, 'en', ['Ad copy', 'Quotes', 'Promo cards'])).toBe("Make documents together with your colleagues: 'Ad copy', 'Quotes', and 'Promo cards'")
-    expect(goalTitleText(en, 'en', [])).toBe('Make documents together with your colleagues')
-    expect(goalTitleText((k, p) => translate('ja', k, p), 'ja', ['広告', '見積'])).toBe('同僚と一緒に資料を作ってみる：「広告」「見積」')
+    expect(goalTitleText(ko, 'ko', ['광고 문구', '견적'], 3)).toBe("이번 주에 3명이 '광고 문구', '견적' 써 보기")
+    expect(goalTitleText(en, 'en', ['Ad copy', 'Quotes', 'Promo cards'], 3)).toBe("3 people using 'Ad copy', 'Quotes', and 'Promo cards' this week")
+    expect(goalTitleText(en, 'en', [], 3)).toBe('3 people using a team skill this week')
+    expect(goalTitleText(en, 'en', ['Promo cards'], 1)).toBe("1 person using 'Promo cards' this week")
+    expect(goalTitleText((k, p) => translate('ja', k, p), 'ja', ['広告', '見積'], 3)).toBe('今週3人で「広告」「見積」を使ってみる')
   })
   test('progress up to the target, then a count; three names with "·", then +N (deleted people counted, never named)', () => {
     expect(goalProgressText(ko, 2, 3)).toBe('2/3')
@@ -145,7 +146,7 @@ describe('the card: a title, one line, one button', () => {
     try {
       const h = m.html()
       // the title invites people to make documents with the team's skill
-      expect(h).toContain("동료와 함께 문서 만들어 보기: '광고 문구'")
+      expect(h).toContain("이번 주에 3명이 '광고 문구' 써 보기")
       expect(h).toContain(' · 1/3 · 5일 남음')
       expect(m.get('team-goal-next').textContent).toBe("민지님이 들어왔어요. '광고 문구'는 아직 써 보기 전이에요.")
       expect(buttons(h)).toBe(1)
@@ -172,7 +173,7 @@ describe('the card: a title, one line, one button', () => {
     const m = await card(goal({ skill: null, joined: 3, waiting: { first: '민지', more: 2 } }), deck)
     try {
       expect(m.html()).not.toContain('회사 소개서')
-      expect(m.html()).toContain('동료와 함께 문서 만들어 보기')
+      expect(m.html()).toContain('이번 주에 3명이 팀 스킬 써 보기')
       await m.click('team-goal-resend')
       expect(copied[0]).not.toContain('회사 소개서')
       expect(copied[0]).not.toContain('intro-deck')
@@ -224,7 +225,7 @@ describe('the card: a title, one line, one button', () => {
     try {
       expect(m.get('team-goal-next').textContent).toBe('민지님이 들어왔어요. 팀 스킬은 아직 써 보기 전이에요.')
       // no skill to name: the plain invitation
-      expect(m.html()).toContain('>동료와 함께 문서 만들어 보기<')
+      expect(m.html()).toContain('>이번 주에 3명이 팀 스킬 써 보기<')
       await m.click('team-goal-resend')
       expect(copied[0]).toMatch(/^민지님, 팀 스킬 한 번 눌러 보세요: .*\/skills$/)
     } finally { await m.unmount() }
@@ -303,15 +304,16 @@ describe('the card: a title, one line, one button', () => {
     const skills = [s('skills/general/intro-deck/SKILL.md', 'intro-deck', '회사 소개서'), s('skills/forms/SKILL.md', 'forms', '신청서'), s(AD, 'ad-copy', '광고 문구'), s('skills/quote-maker/SKILL.md', 'quote-maker', 'quote-maker'), s('skills/card-news/SKILL.md', 'card-news', '카드뉴스')]
     globalThis.fetch = (async (input: RequestInfo | URL) => {
       const url = new URL(String(input), 'http://x')
-      if (url.pathname === '/api/skills/examples') return new Response(JSON.stringify({ skills, teamFolder: null, landing: null, ranTeamSkill: false, hasProfile: false }), { status: 200, headers: { 'content-type': 'application/json' } })
+      if (url.pathname === '/api/skills/examples') { asked++; return new Response(JSON.stringify({ skills, teamFolder: null, landing: null, ranTeamSkill: false, hasProfile: false }), { status: 200, headers: { 'content-type': 'application/json' } }) }
       return new Response(JSON.stringify({ error: { code: 'internal', message: 'down' } }), { status: 500, headers: { 'content-type': 'application/json' } })
     }) as unknown as typeof fetch
+    let asked = 0
     try {
       const m = await card(goal({ joined: 1, waiting: { first: '민지', more: 0 } }), LINK)
       try {
         const title = () => m.get('team-goal').querySelectorAll('h2')[0]!.textContent
-        await m.until(() => title()!.includes('신청서') || null, 'the team\'s skills in the title')
-        expect(title()).toBe("동료와 함께 문서 만들어 보기: '광고 문구', '신청서', 'quote maker' · 1/3 · 5일 남음")
+        await m.until(() => (asked > 0 && title()!.includes('신청서')) || null, 'the team\'s skills in the title')
+        expect(title()).toBe("이번 주에 3명이 '광고 문구', '신청서', 'quote maker' 써 보기 · 1/3 · 5일 남음")
         expect(m.get('team-goal-progress').className).toContain('text-xs')
       } finally { await m.unmount() }
     } finally { globalThis.fetch = realFetch }
@@ -330,7 +332,7 @@ describe('the card: a title, one line, one button', () => {
     const link: TeamLinkResponse = { ...LINK, link: { ...LINK.link!, skill: { path: QUOTE, name: 'quote-maker', title: 'quote-maker' } } }
     const m = await card(goal({ skill: null, joined: 0 }), link)
     try {
-      expect(m.html()).toContain("동료와 함께 문서 만들어 보기: 'quote maker'")
+      expect(m.html()).toContain("이번 주에 3명이 'quote maker' 써 보기")
       await m.click('team-goal-copy-invite')
       expect(copied[0]).toContain("'quote maker'")
       expect(m.html() + copied[0]).not.toContain('quote-maker')
@@ -377,11 +379,27 @@ describe('the card: a title, one line, one button', () => {
       useSession.setState({ status: { kind: 'signed-in', me: me() } } as never)
     }
   })
+  test('open: the quiet "숨기기" of every Home onboarding card (CardHide, as the member welcome card) hides it; none without onHide', async () => {
+    let hidden = 0
+    let m = await mount(<MemoryRouter><GoalCard goal={goal({ joined: 0 })} onDismiss={() => {}} onHide={() => hidden++} link={LINK} /></MemoryRouter>)
+    try {
+      const hide = m.get('team-goal-hide')
+      expect(hide.textContent).toBe('숨기기')
+      expect(hide.getAttribute('aria-label')).toBe('팀 목표 숨기기')
+      // the same words and look as the member welcome card's
+      expect(hide.className).toContain('text-xs text-muted')
+      await m.click('team-goal-hide')
+      expect(hidden).toBe(1)
+    } finally { await m.unmount() }
+    m = await mount(<MemoryRouter><GoalCard goal={goal({ joined: 0 })} onDismiss={() => {}} link={LINK} /></MemoryRouter>)
+    try { expect(m.find('team-goal-hide')).toBeNull() } finally { await m.unmount() }
+  })
   test('reached: "달성했어요 · names" and only a way to hide it', async () => {
     let hidden = 0
     const m = await mount(<MemoryRouter><GoalCard goal={goal({ state: 'reached', reachedAt: '2026-11-04T00:00:00.000Z', skill: { path: AD, name: '광고 문구', runners: 3, people: ['민지', '지훈', 'Olga'] } })} onDismiss={() => hidden++} link={null} /></MemoryRouter>)
     try {
-      expect(m.get('team-goal').textContent).toBe('달성했어요 · 민지·지훈·Olga')
+      expect(m.get('team-goal').querySelector('h2')!.textContent).toBe('달성했어요 · 민지·지훈·Olga')
+      expect(m.get('team-goal-dismiss').textContent).toBe('숨기기')
       expect(m.html()).not.toContain('일 남음')
       expect(buttons(m.html())).toBe(1)
       await m.click('team-goal-dismiss')
@@ -396,7 +414,7 @@ describe('the card: a title, one line, one button', () => {
       try {
         const toggle = m.get('team-goal-toggle')
         // the title, and the counts as its second line
-        expect(toggle.textContent).toBe("동료와 함께 문서 만들어 보기: '광고 문구'1/3 · 5일 남음")
+        expect(toggle.textContent).toBe("이번 주에 3명이 '광고 문구' 써 보기1/3 · 5일 남음")
         expect(m.get('team-goal-progress').textContent).toBe('1/3 · 5일 남음')
         expect(toggle.getAttribute('aria-expanded')).toBe('false')
         // no frame, no rule under it
@@ -424,14 +442,15 @@ describe('the card: a title, one line, one button', () => {
       } finally { await m.unmount() }
       m = await mount(<MemoryRouter><GoalCard goal={goal({ state: 'reached', reachedAt: '2026-11-04T00:00:00.000Z', skill: { path: AD, name: '광고 문구', runners: 3, people: ['민지', '지훈', 'Olga'] } })} onDismiss={() => {}} link={null} /></MemoryRouter>)
       try {
-        expect(m.get('team-goal').textContent).toBe('달성했어요 · 민지·지훈·Olga')
+        expect(m.get('team-goal').querySelector('h2')!.textContent).toBe('달성했어요 · 민지·지훈·Olga')
+      expect(m.get('team-goal-dismiss').textContent).toBe('숨기기')
         expect(m.get('team-goal').className).not.toContain('border')
       } finally { await m.unmount() }
     } finally { globalThis.matchMedia = media }
   })
   test('English (the static renderer reads English)', () => {
     const h = renderToStaticMarkup(<MemoryRouter><GoalCard goal={goal({ daysLeft: 1, joined: 1, waiting: { first: 'Minji', more: 0 } })} onDismiss={() => {}} link={LINK} /></MemoryRouter>)
-    expect(h).toContain('Make documents together with your colleagues: &#x27;광고 문구&#x27;')
+    expect(h).toContain('3 people using &#x27;광고 문구&#x27; this week')
     expect(h).toContain(' · 1/3 · 1 day left')
     expect(h).toContain('Minji joined. Not tried yet: &#x27;광고 문구&#x27;.')
     expect(h).toContain('Send again')
@@ -477,7 +496,7 @@ describe('the top of Home: one thing', () => {
     } finally { await m.unmount() }
   }
 
-  test('setup unfinished: on a phone only the quiet "설정 이어서 하기 · n/4" row (the steps a phone shows, QA TC-271), no goal card; on a computer the goal card (the list panel\'s setup row stands for the steps, docs/DECISIONS.md "W5")', async () => {
+  test('setup unfinished: only the quiet "설정 이어서 하기 · n/4" row on a phone (the steps a phone shows, QA TC-271), "n/5" on a computer (docs/decisions/20261120-my-setup-card.md), no goal card', async () => {
     welcome = fresh(); teamGoal = goal()
     const media = globalThis.matchMedia
     globalThis.matchMedia = ((q: string) => ({ matches: q === '(max-width: 767.98px)', addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {} })) as unknown as typeof matchMedia
@@ -489,7 +508,9 @@ describe('the top of Home: one thing', () => {
       expect(stepTotal(null, true, false)).toBe(4)
       expect({ ...t, resume: null }).toEqual({ resume: null, goal: null, dots: false })
     } finally { globalThis.matchMedia = media }
-    expect(await top('owner')).toEqual({ resume: null, goal: 'open', dots: false })
+    const c = await top('owner')
+    expect(c.resume).toBe(`${translate('ko', 'setupRow.resume')} · 2/${stepTotal(null, true, true)}`)
+    expect({ ...c, resume: null }).toEqual({ resume: null, goal: null, dots: false })
   })
   test('setup finished or hidden: only the goal card; an admin gets the card at once', async () => {
     teamGoal = goal()

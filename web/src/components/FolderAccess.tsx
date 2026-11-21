@@ -19,6 +19,9 @@ import { useLocale, useT } from '../i18n'
 import { accessChanged } from '../store/live'
 import { audienceRead, keptAudience } from '../store/teamFiles'
 import { isAdmin, useMeStrict } from '../store/session'
+import { offersFolderShare, type OwnShare } from '../lib/folder-share'
+import { openFileShare } from './FileShareDialog'
+import { peopleText } from './FolderShareParts'
 import { Button, ErrorNote, Modal, Skeleton } from './ui'
 
 const FolderSharing = lazy(() => import('../pages/admin/FolderSharing'))
@@ -78,8 +81,39 @@ export function useFolderAccess(path: string | null, place: ChipPlace | null, ad
   return { audience, self, error, ready, adminsOnly: !!self && adminsOnly(self.self, self.members) }
 }
 
-/** The chip for the folder on screen; nothing where a member learns nothing new, while loading, or after a failure. */
-export function FolderAccessChip({ path, access, project, onOpen }: { path: string; access: Access; project: Project | null; onOpen: () => void }) {
+/** The chip for the folder on screen; nothing where a member learns nothing new, while loading, or after a failure.
+ * A folder of mine that can be shared says "Shared" (people on it, or on a
+ * folder above it) or "Only you see it", and opens the Share dialog (`own`: the Files page's read of it). */
+export function FolderAccessChip({ path, access, project, onOpen, own = null }: { path: string; access: Access; project: Project | null; onOpen: () => void; own?: OwnShare | null }) {
+  const me = useMeStrict()
+  if (offersFolderShare(path, me.user.id)) return own ? <OwnShareChip path={path} own={own} /> : null
+  return <AccessChip path={path} access={access} project={project} onOpen={onOpen} />
+}
+
+/** My own folder's chip: Shared (with whom, in its name) or Only you; it opens the dialog */
+function OwnShareChip({ path, own }: { path: string; own: OwnShare }) {
+  const t = useT()
+  const Icon = own.shared ? Users : UserRound
+  const label = own.shared ? (own.people.length ? t('folderAccess.sharedWith', { people: peopleText(t, own.people) }) : t('files.sharedThrough', { folder: own.through ?? '' })) : t('folderAccess.onlyYou')
+  return (
+    <button
+      type="button"
+      onClick={() => openFileShare(path)}
+      aria-haspopup="dialog"
+      aria-label={label}
+      title={label}
+      className={CHIP}
+      data-testid="folder-access-chip"
+      data-kind={own.shared ? 'shared' : 'onlyYou'}
+    >
+      <Icon size={11} aria-hidden /> {own.shared ? t('files.sharedBadge') : t('folderAccess.onlyYou')}
+    </button>
+  )
+}
+
+const CHIP = "relative ml-2 inline-flex items-center gap-1 rounded-md border border-line px-1.5 py-0.5 text-micro font-medium whitespace-nowrap text-muted hover:bg-hover hover:text-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent max-md:after:absolute max-md:after:-inset-x-1 max-md:after:-inset-y-2.5 max-md:after:content-['']"
+
+function AccessChip({ path, access, project, onOpen }: { path: string; access: Access; project: Project | null; onOpen: () => void }) {
   const t = useT()
   const me = useMeStrict()
   const place = chipPlace(path, { me: me.user.id, access, project })
@@ -93,7 +127,7 @@ export function FolderAccessChip({ path, access, project, onOpen }: { path: stri
       onClick={onOpen}
       aria-haspopup="dialog"
       aria-label={chipLabel(t, chip)}
-      className="relative ml-2 inline-flex items-center gap-1 rounded-md border border-line px-1.5 py-0.5 text-micro font-medium whitespace-nowrap text-muted hover:bg-hover hover:text-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent max-md:after:absolute max-md:after:-inset-x-1 max-md:after:-inset-y-2.5 max-md:after:content-['']"
+      className={CHIP}
       data-testid="folder-access-chip"
       data-kind={chip.kind}
     >

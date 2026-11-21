@@ -12,6 +12,9 @@ describe('활동: 전체 · 트리나 · 요청', () => {
     expect(chipOf({ code: 'schedule.failure' })).toBe('trina')
     expect(chipOf({ code: 'skill.suggested' })).toBe('requests')
     expect(chipOf({ code: 'connection.reconnect' })).toBe('requests')
+    // a team template no longer for me: nothing to do, under 전체 only (QA TC-2980)
+    expect(chipOf({ code: 'integration.template_reconnect' })).toBe('requests')
+    expect(chipOf({ code: 'integration.template_reconnect', templateLeft: true })).toBeNull()
     expect(chipOf({ code: 'service.request' })).toBe('requests')
     expect(chipOf({ code: 'team.joined' })).toBeNull()
     expect(inChip({ code: 'team.joined' }, 'all')).toBe(true)
@@ -35,16 +38,26 @@ describe('활동: 전체 · 트리나 · 요청', () => {
 const room = (id: string, kind: Room['kind'], o: Partial<Room> = {}) => ({ id, kind, name: id, pinnedAt: null, ...o }) as unknown as Room
 
 describe('대화: every room by kind, no cap', () => {
-  test('고정 first, then 팀 대화방 (전체 first, by name), 그룹 대화, 1:1 대화; a pin is only under 고정', () => {
-    const rooms = [room('dm1', 'dm'), room('t-b', 'team'), room('g1', 'group'), room('all', 'all'), room('t-a', 'team'), room('dm2', 'dm', { pinnedAt: '2026-11-10T00:00:00Z' })]
+  test('고정 first, then 채널 (전체 first, by name; named group rooms are private channels among them), then 다이렉트 메시지: 1:1s and unnamed group rooms together by latest activity; a pin is only under 고정', () => {
+    // in the store's order, latest activity first: g1 (no name) between dm1 and dm3; p-c a named group room
+    const rooms = [room('dm1', 'dm'), room('t-b', 'team'), room('g1', 'group', { name: null }), room('p-c', 'group'), room('all', 'all'), room('t-a', 'team'), room('g2', 'group', { name: '  ' }), room('dm3', 'dm'), room('dm2', 'dm', { pinnedAt: '2026-11-10T00:00:00Z' })]
     const s = roomsByKind(rooms, (r) => r.id, 'ko')
     expect(s.map((x) => [x.key, x.rooms.map((r) => r.id)])).toEqual([
       ['pinned', ['dm2']],
-      ['team', ['all', 't-a', 't-b']],
-      ['group', ['g1']],
-      ['dm', ['dm1']],
+      ['team', ['all', 'p-c', 't-a', 't-b']],
+      ['dm', ['dm1', 'g1', 'g2', 'dm3']],
     ])
   })
+
+  test('renaming moves a group room: a name puts it under 채널, clearing it brings it back to 다이렉트 메시지', () => {
+    const before = [room('t-a', 'team'), room('g1', 'group', { name: null }), room('dm1', 'dm')]
+    const where = (rs: Room[]) => roomsByKind(rs, (r) => r.id, 'ko').find((x) => x.rooms.some((r) => r.id === 'g1'))!.key
+    expect(where(before)).toBe('dm')
+    const named = before.map((r) => (r.id === 'g1' ? { ...r, name: 'Launch' } : r))
+    expect(where(named)).toBe('team')
+    expect(where(named.map((r) => (r.id === 'g1' ? { ...r, name: null } : r)))).toBe('dm')
+  })
+
   test('300 rooms: all are listed, 200 drawn first; the room on screen is always drawn', () => {
     const many = Array.from({ length: 300 }, (_, i) => room(`d${i}`, 'dm'))
     expect(roomsByKind(many, (r) => r.id, 'ko')[0]!.rooms).toHaveLength(300)

@@ -16,12 +16,12 @@ import { isOwner, useMeStrict } from '../../store/session'
 import { Button } from '../../components/ui'
 import { useAction } from './common'
 import { useUpdateInstall } from './jobs'
-import { releaseCannotRead, releasePaused } from '../../lib/updateOutcome'
+import { releaseCannotRead, releaseHeld, releasePaused } from '../../lib/updateOutcome'
 import { homeCheck, technicalEngineState } from './plain'
 
 /** AI connection states an admin should act on (a member's own connection is theirs to fix, so team ones only): Home's
- * attention rows, and Providers keeps such an account in sight on a phone */
-export const CREDENTIAL_PROBLEMS: CredentialState[] = ['expiring', 'expired', 'invalid', 'needs_reconnect', 'over_limit']
+ * attention rows, and AI providers keeps such an account in sight on a phone */
+export const CREDENTIAL_PROBLEMS: CredentialState[] = ['expiring', 'expired', 'invalid', 'needs_reconnect', 'no_credit', 'over_limit']
 /** an engine nobody set up: no program or API settings, or no sign-in or AI connection of its kind (the API engine's
  * not_logged_in is its key refused: set up, and broken) */
 const notSetUp = (e: EngineStatus) => e.status === 'not_installed' || (e.status === 'not_logged_in' && e.id !== 'api')
@@ -138,7 +138,9 @@ export function useAdminOverview() {
   const act = useAction()
 
   const item = (name: string, state: string) => t('adminHome.item', { name, state })
-  const active = users.data?.items.filter((u) => u.status === 'active') ?? []
+  // team members only (the Members page's own count); guests take no seat and have their own card (Home)
+  const active = users.data?.items.filter((u) => u.status === 'active' && u.role !== 'guest') ?? []
+  const guests = users.data?.items.filter((u) => u.role === 'guest') ?? []
   const noAiPeople = users.data ? users.data.items.filter((u) => users.data?.noAi?.includes(u.id)) : []
   const noAi = noAiPeople.map((u) => u.name)
   // every one of them only waits for a limit to end (noAiUntil): the line says until when (the last end: all have AI then)
@@ -191,7 +193,7 @@ export function useAdminOverview() {
     ...failedChecks.map((c) => ({ key: `check-${c.id}`, text: c.label, to: '/admin/system/health' })),
     ...(newVersion && upd ? [{
       key: 'update', text: updateLine(t, locale, upd, newVersion), to: '/admin/system/updates', job: install.jobId,
-      actions: canInstall ? <Button size="sm" variant="primary" disabled={!!install.jobId} onClick={() => install.ask('update')} data-testid="home-update-install">{t('adminHome.update.install')}</Button> : undefined,
+      actions: canInstall ? <Button size="sm" variant="primary" disabled={!!install.jobId} onClick={() => install.ask(releaseHeld(upd) ? 'retry' : 'update')} data-testid="home-update-install">{t(releaseHeld(upd) ? 'system.retryShort' : 'adminHome.update.install')}</Button> : undefined,
     }] : []),
     ...(after.data ?? []).filter((a) => AFTER_UPDATE_IDS.includes(a.id)).map((a) => ({
       key: `after-${a.id}`, text: t(`adminHome.after.${a.id}` as MessageKey), to: a.to,
@@ -213,7 +215,7 @@ export function useAdminOverview() {
 
   return {
     owner, users, engines, credentials, services, plugins, usage, audit, storage, diagnostics,
-    active, openInvites, noAi, badEngines, noEngine, limitedEngines, badCredentials, badServices, storageBad, checksToLook,
+    active, guests, openInvites, noAi, badEngines, noEngine, limitedEngines, badCredentials, badServices, storageBad, checksToLook,
     allChecksOk, attention, ready, unchecked, defaultEngine, latest, install, toFix,
   }
 }

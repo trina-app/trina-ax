@@ -2,31 +2,64 @@
 // pin, and the order of the kinds' sections (docs/DECISIONS.md "Pinned conversations", "Conversations by kind under
 // Show more").
 import clsx from 'clsx'
-import { BellOff, Pin } from 'lucide-react'
+import { BellOff, Loader2, Pin } from 'lucide-react'
+import { useState } from 'react'
 import { NavLink } from 'react-router-dom'
 import type { Room } from '@mycel/shared/api'
 import { useT } from '../../i18n'
-import { pinnedRooms, roomBadge, roomUnread } from '../../lib/rooms'
+import { uploadingIn, useRoomUploads } from '../../store/roomUploads'
+import { isPrivateChannel, pinnedRooms, roomBadge, roomCounts } from '../../lib/rooms'
 import { RoomIcon, RoomName, useRoomTitle } from '../rooms/RoomIcon'
 import { RoomMenu, useRowMenu } from '../rooms/RoomMenu'
+import { CountPill } from '../CountPill'
 import { PresenceText } from '../Presence'
-import { dragRow } from './NavFolders'
+import { dragRow, SectionAddButton } from './NavFolders'
+import { ChannelsAddMenu } from './SidebarSections'
+import { PeoplePicker } from '../rooms/PeoplePicker'
+import { useMe } from '../../store/session'
+import { isGuestMe } from '../../lib/guests'
 import { rowBox, rowName } from '../list/List'
 
-/** The kinds' sections of the 대화 list, in this order: team rooms (전체 and the groups' rooms), group chats, DMs. */
-export const ROOM_SECTIONS = ['team', 'group', 'dm'] as const
+/** The kinds' sections of the 대화 list, in this order: channels (전체, the groups' rooms and the named group rooms, which
+ * are private channels), then direct messages (1:1s and the unnamed group rooms, as Slack lists group DMs:
+ * docs/decisions/20261116-sidebar-channels-dms.md, docs/decisions/20261117-named-groups-private-channels.md). */
+export const ROOM_SECTIONS = ['team', 'dm'] as const
 export type RoomSection = (typeof ROOM_SECTIONS)[number]
-export const SECTION_WORD = { team: 'rooms.section.team', group: 'rooms.section.group', dm: 'rooms.section.dm' } as const
-const sectionOf = (kind: Room['kind']): RoomSection => (kind === 'all' ? 'team' : kind)
+export const SECTION_WORD = { team: 'rooms.section.team', dm: 'rooms.section.dm' } as const
+const sectionOf = (room: Pick<Room, 'kind'> & Partial<Pick<Room, 'name'>>): RoomSection => (room.kind === 'all' || room.kind === 'team' || isPrivateChannel({ kind: room.kind, name: room.name ?? null }) ? 'team' : 'dm')
 
-/** The rooms not pinned or in a folder (`rest`, by latest activity, as the store has them), by kind
+/** A kind section's "+" (as Slack has it). Channels': a small menu, Create a channel (a name is required: a private
+ * channel) and New section (docs/decisions/20261121-personal-sidebar-sections.md); a guest, who makes no channel, gets
+ * New section itself. Direct messages': New message (one person: the DM; more: their group DM), none for a guest
+ * (docs/decisions/20261117-named-groups-private-channels.md). */
+export function RoomSectionAction({ section }: { section: RoomSection }) {
+  const t = useT()
+  const guest = isGuestMe(useMe())
+  const [open, setOpen] = useState(false)
+  if (section === 'team')
+    return (
+      <>
+        <ChannelsAddMenu canMakeChannel={!guest} onNewChannel={() => setOpen(true)} />
+        {!guest && <PeoplePicker open={open} onClose={() => setOpen(false)} mode={{ kind: 'channel' }} />}
+      </>
+    )
+  if (guest) return null
+  return (
+    <>
+      <SectionAddButton label={t('rooms.newChat')} onClick={() => setOpen(true)} testId="rooms-new-message" />
+      <PeoplePicker open={open} onClose={() => setOpen(false)} mode={{ kind: 'new' }} />
+    </>
+  )
+}
+
+/** The rooms not pinned or in a section (`rest`, by latest activity, as the store has them), by kind
  * (docs/DECISIONS.md "Conversations by kind under Show more"): in each section any pins first (the
- * most recently pinned first), then team rooms with 전체 first and the others by the name their row shows (`titleOf`,
- * compared in the app's language, numbers by their value), group chats and DMs by latest activity. A section with no
- * room is left out. */
-export function roomSections<R extends Pick<Room, 'id' | 'kind'> & Partial<Pick<Room, 'pinnedAt'>>>(rest: R[], titleOf: (room: R) => string, locale: string): { section: RoomSection; rooms: R[] }[] {
+ * most recently pinned first), then channels with 전체 first and the others (private channels among them) by the name their row shows (`titleOf`,
+ * compared in the app's language, numbers by their value), direct messages (1:1s and unnamed group rooms mixed) by latest
+ * activity. A section with no room is left out. */
+export function roomSections<R extends Pick<Room, 'id' | 'kind'> & Partial<Pick<Room, 'pinnedAt' | 'name'>>>(rest: R[], titleOf: (room: R) => string, locale: string): { section: RoomSection; rooms: R[] }[] {
   return ROOM_SECTIONS.map((section) => {
-    const of = rest.filter((r) => sectionOf(r.kind) === section)
+    const of = rest.filter((r) => sectionOf(r) === section)
     const others = of.filter((r) => !r.pinnedAt)
     if (section === 'team') {
       // each name worked out once, and one collator for the sort (the order of String.localeCompare in this language,
@@ -39,21 +72,24 @@ export function roomSections<R extends Pick<Room, 'id' | 'kind'> & Partial<Pick<
   }).filter((s) => s.rooms.length > 0)
 }
 
-/** A room's one badge: the unread count, or "@" when one of them mentions me; grey for a muted room (which the 대화 tab
- * does not count). */
+/** A room's one badge (shared roomCounts, docs/decisions/20261116-mentions-only-no-count.md): its number, or "@" when one
+ * of the unread messages mentions me; grey for a room I turned off (which the 대화 tab does not count). Plain messages in
+ * a room at 멘션만 show no number: the row is only bold, and a screen reader still hears that something is unread. */
 export function UnreadBadge({ room, className, testId }: { room: Room; className?: string; testId: string }) {
   const t = useT()
-  const n = roomUnread(room)
-  if (n <= 0) return null
-  return (
-    <span className={clsx('shrink-0 rounded-full px-1.5 text-micro font-medium', room.muted ? 'bg-hover text-muted' : 'bg-accent text-accent-ink', className)} data-testid={testId} data-muted={room.muted ? '' : undefined}>
-      <span aria-hidden>{roomBadge(room)}</span>
-      <span className="sr-only">
-        {t('rooms.unread', { n })}
-        {room.mentioned && `, ${t('rooms.mentionedYou')}`}
-      </span>
-    </span>
-  )
+  const c = roomCounts(room)
+  if (!c.bold) return null
+  if (!c.mention && c.number <= 0) return <span className="sr-only" data-testid={`${testId}-bold`}>{t('rooms.unreadNoCount')}</span>
+  return <CountPill text={roomBadge(room)} label={`${t('rooms.unread', { n: c.number })}${c.mention ? `, ${t('rooms.mentionedYou')}` : ''}`} quiet={c.quiet} className={className} testId={testId} data-muted={c.quiet ? '' : undefined} />
+}
+
+/** A file of mine is still going up in this room (store/roomUploads.ts): its row says so while I am somewhere else, so
+ * an upload that goes on is never out of sight. */
+export function RoomUploadMark({ roomId, className }: { roomId: string; className?: string }) {
+  const t = useT()
+  const on = useRoomUploads((s) => uploadingIn(s, roomId))
+  if (!on) return null
+  return <Loader2 size={12} role="img" aria-label={t('rooms.uploadingMark')} className={clsx('shrink-0 animate-spin text-faint', className)} data-testid="room-upload-mark" />
 }
 
 /** A pinned room's mark after its name (docs/DECISIONS.md "Pinned conversations"): the AI chats' pin, named 고정됨 for
@@ -73,9 +109,9 @@ export const ROW_MENU_BUTTON = 'opacity-0 pointer-coarse:hidden group-hover:opac
 export function RoomRow({ room, onNavigate, section }: { room: Room; onNavigate: () => void; section?: RoomSection | 'pinned' | 'folder' }) {
   const t = useT()
   const title = useRoomTitle()(room)
-  const unread = roomUnread(room)
+  const { bold } = roomCounts(room)
   const menu = useRowMenu()
-  // a room may go in one of my folders (its "⋯", or dragged onto the folder with a mouse)
+  // a conversation may go in one of my sections (its "⋯", or dragged onto the section with a mouse)
   return (
     <li className="group relative" {...menu.row} {...dragRow('rooms', room.id, !room.hidden)} data-testid="sidebar-room-row" data-section={section}>
       <NavLink
@@ -93,25 +129,31 @@ export function RoomRow({ room, onNavigate, section }: { room: Room; onNavigate:
             // the ring of a DM's online dot takes the row's colour (index.css .presence-dot)
             '[--presence-bg:var(--c-subtle)] hover:[--presence-bg:var(--c-hover)] aria-[current=page]:[--presence-bg:var(--c-hover)] group-has-[[aria-expanded=true]]:[--presence-bg:var(--c-hover)]',
             isActive && 'bg-hover',
-            rowName({ selected: isActive, unread: unread > 0 }),
+            rowName({ selected: isActive, unread: bold }),
           )
         }
         data-testid="sidebar-room"
       >
-        <RoomIcon room={room} size={20} presence />
-        {/* a long name is cut; the whole of it on hover */}
-        <span className="truncate" title={title}>
-          <RoomName room={room} />
-        </span>
-        {room.kind === 'dm' && room.peers[0] && <PresenceText userId={room.peers[0].id} />}
-        {room.muted && (
+        {({ isActive }) => (
           <>
-            <BellOff size={12} className={clsx('shrink-0 text-faint', ROW_MENU_SHOWN)} aria-hidden />
-            <span className="sr-only">{t('rooms.muted')}</span>
+            {/* an unnamed group room: its people's faces (FaceStack), ringed in the row's colour; a named one: a lock */}
+            <RoomIcon room={room} size={20} presence faces on="subtle" selected={isActive} />
+            {/* a long name is cut; the whole of it on hover */}
+            <span className="truncate" title={title}>
+              <RoomName room={room} />
+            </span>
+            {room.kind === 'dm' && room.peers[0] && <PresenceText userId={room.peers[0].id} />}
+            {room.muted && (
+              <>
+                <BellOff size={12} className={clsx('shrink-0 text-faint', ROW_MENU_SHOWN)} aria-hidden />
+                <span className="sr-only">{t('rooms.muted')}</span>
+              </>
+            )}
+            <RoomPinIcon room={room} className={ROW_MENU_SHOWN} />
+            <RoomUploadMark roomId={room.id} className={ROW_MENU_SHOWN} />
+            <UnreadBadge room={room} className={clsx('ml-auto', ROW_MENU_SHOWN)} testId="room-unread" />
           </>
         )}
-        <RoomPinIcon room={room} className={ROW_MENU_SHOWN} />
-        <UnreadBadge room={room} className={clsx('ml-auto', ROW_MENU_SHOWN)} testId="room-unread" />
       </NavLink>
       <RoomMenu
         room={room}

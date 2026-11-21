@@ -22,13 +22,13 @@ export const zh: Strings = {
     chris: { name: 'Chris Walker', title: '客户总监', org: 'Fieldnote' },
   },
   marketingGroup: '市场部',
-  project: { name: '11月新品上市活动', description: '冬季限定柚子姜上市，11月23日（周一）' },
+  project: { name: '柚子姜新品上市活动', description: '冬季限定柚子姜，周一上市' },
 
   brandSkill: 'brand-guide',
 
   paths: {
     companyIntro: 'shared/公司介绍.md',
-    brief: '11月上新简报.md',
+    brief: '柚子姜上新简报.md',
     leoBanner: '上新banner_Leo_初稿.png',
     banner: '上新banner_定稿.jpg',
     square: 'Instagram方图.jpg',
@@ -71,7 +71,7 @@ export const zh: Strings = {
 
   leoChat: {
     title: '上新 banner 初稿',
-    ask: '帮我做一张柚子姜新品的上新 banner。8折，11/23 到 12/6',
+    ask: '帮我做一张柚子姜新品的上新 banner。上市头两周 8 折',
     answer: '这是 banner 初稿。',
   },
 
@@ -107,7 +107,7 @@ export const zh: Strings = {
       after: 'Leo 的初稿没有动。',
     },
     captions: [
-      '冬季新品：柚子姜 🍋 睡前丢一包进冷水，醒来就是一瓶清爽。12月6日前享 8 折。',
+      '冬季新品：柚子姜 🍋 睡前丢一包进冷水，醒来就是一瓶清爽。上市头两周享 8 折。',
       '柚子 + 姜。没了。就这些。（好吧，这周还打 8 折）',
       '其实我们团队从 8 月就在偷偷喝了。周一起，轮到你了。',
     ],
@@ -138,20 +138,20 @@ export const zh: Strings = {
         '',
         '我是 Mina，刚加入 Steepling 市场部，之后 banner 的事都由我来对接。',
         '',
-        '附件是上新 banner 定稿（1200×628）和 Instagram 方图，Daniel 已经确认过了。麻烦从 11 月 23 日周一开始投放，可以吗？',
+        '附件是上新 banner 定稿（1200×628）和 Instagram 方图，Daniel 已经确认过了。麻烦从周一开始投放，可以吗？',
         '',
         '谢谢！',
         'Mina',
       ],
     },
     formal: {
-      subject: '【Steepling】11月23日（周一）新品上市活动 banner 定稿',
+      subject: '【Steepling】新品上市活动 banner 定稿文件',
       body: [
         '尊敬的 Chris：',
         '',
         '您好！我是 Steepling 市场部新入职的 Mina Lee，今后 banner 相关事宜将由我与您对接。',
         '',
-        '随信附上新品上市活动的 banner 定稿（1200×628）及 Instagram 方图版本，两份文件均已通过我司 CEO 审批。烦请于 11 月 23 日（周一）起安排投放。',
+        '随信附上新品上市活动的 banner 定稿（1200×628）及 Instagram 方图版本，两份文件均已通过我司 CEO 审批。烦请于上市当天（周一）起安排投放。',
         '',
         '感谢您的支持，期待与您合作。',
         '',
@@ -206,8 +206,11 @@ export const zh: Strings = {
       emails: '已发邮件',
     },
     usually: '通常要 2 天左右',
-    signup: '查看套餐，免费开始',
+    signup: '查看套餐',
     explore: '随便看看',
+    tryLive: '现在亲自试试',
+    liveBusy: '在线演示现在比较忙',
+    liveRetry: '再试一次',
     popupTitle: 'Mina 的第一天 🎉',
     popupLine: '{time} 搞定上新活动。通常要 2 天左右。',
     recap: ['读了 2 个团队文件', '用了团队技能“品牌手册”', '用 Higgsfield 做了 4 个素材', 'CEO 批准', '给代理公司发了邮件'],

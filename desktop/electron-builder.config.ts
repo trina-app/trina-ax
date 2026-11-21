@@ -4,11 +4,14 @@
 // GUID come from it), so an update after a rename replaces the old app instead of installing a second one.
 // The office server recognizes the installers by <artifactBase>-Setup-<v>-x64.exe / <artifactBase>-<v>-mac-*.dmg
 // (server/src/office/desktop.ts), built from the same PRODUCT.
+import path from 'node:path'
 import { PRODUCT } from '../shared/src/product'
 import { winSignOptions } from './scripts/win-sign'
 import { DESKTOP_APP_ID } from './src/common/app-id'
 
 const A = PRODUCT.artifactBase
+/** Linux: the program's name, its AppArmor profile (/etc/apparmor.d/<it>) and its menu entry (<it>.desktop) */
+export const LINUX_EXECUTABLE = A.toLowerCase()
 
 export default {
   // the shortcuts carry it as their AppUserModelID; main.ts gives the running app the same one (src/common/app-id.ts),
@@ -16,7 +19,10 @@ export default {
   appId: DESKTOP_APP_ID,
   productName: PRODUCT.displayName,
   // the packaged package.json carries the name too (Electron's app name before main.ts sets it)
-  extraMetadata: { productName: PRODUCT.displayName, description: `${PRODUCT.displayName} desktop app` },
+  // desktopName: on Linux Electron registers the link handler (setAsDefaultProtocolClient, every packaged start) under
+  // this menu entry's name, and the window's WM_CLASS matches it; without it the handler would point at
+  // "<productName>.desktop", a file the .deb does not install (docs/decisions/20261119-linux-desktop-app.md "Names")
+  extraMetadata: { productName: PRODUCT.displayName, description: `${PRODUCT.displayName} desktop app`, desktopName: `${LINUX_EXECUTABLE}.desktop` },
   copyright: 'Copyright © 2026 TreeSoop. AGPL-3.0-only.',
   directories: { output: 'release', buildResources: 'build-resources' },
   files: ['dist/**/*', '!dist/**/*.map', 'package.json'],
@@ -56,10 +62,30 @@ export default {
       NSDownloadsFolderUsageDescription: 'Looks for work files here. File contents stay on this Mac until you choose to add them.',
       CFBundleLocalizations: ['en', 'ko', 'zh-Hans', 'ja', 'es', 'id'],
     },
+    // voice input's on-device helper (desktop/native/dictation/build.sh, run by the dist:mac* scripts) next to the app's
+    // own program in Contents/MacOS; electron-builder signs it with the app (hardened runtime, the inherit
+    // entitlements). It reads sound from the app, never the microphone, so it needs no permission of its own.
+    extraFiles: [{ from: 'native-build/dictation', to: 'MacOS/dictation' }],
+    // it is universal already, so the arm64 and x64 apps hold the same file: @electron/universal takes it as it is
+    x64ArchFiles: 'Contents/MacOS/dictation',
     extraResources: Object.entries({ en: 'en', ko: 'ko', 'zh-Hans': 'zh-Hans', zh_CN: 'zh-Hans', ja: 'ja', es: 'es', es_419: 'es', id: 'id' })
       .map(([folder, lang]) => ({ from: `build-resources/mac-infoplist/${lang}.strings`, to: `${folder}.lproj/InfoPlist.strings` })),
   },
-  dmg: { sign: false, title: `${PRODUCT.displayName} \${version}`, artifactName: `${A}-\${version}-mac-\${arch}.\${ext}` },
+  dmg: {
+    sign: false,
+    title: `${PRODUCT.displayName} \${version}`,
+    artifactName: `${A}-\${version}-mac-\${arch}.\${ext}`,
+    // the window it opens on: scripts/dmg-background.svg rendered at 660×452 and 1320×904 (background@2x.png, which
+    // electron-builder joins with this file into one retina TIFF). electron-builder makes the window the picture's size,
+    // title bar included, so no `window` here; the art's spots are the icon centres below (points from its top left).
+    background: 'build-resources/background.png',
+    iconSize: 144,
+    iconTextSize: 13,
+    contents: [
+      { x: 170, y: 210, type: 'file' },
+      { x: 490, y: 210, type: 'link', path: '/Applications' },
+    ],
+  },
   win: {
     target: [{ target: 'nsis', arch: ['x64'] }],
     signAndEditExecutable: true,
@@ -84,5 +110,41 @@ export default {
     include: 'installer.nsh',
     artifactName: `${A}-Setup-\${version}-win-\${arch}.\${ext}`,
   },
+  // Linux (docs/decisions/20261119-linux-desktop-app.md): the .deb for Ubuntu and Debian, the AppImage for every other
+  // distribution, x64 and arm64 (dist:linux). The .deb keeps electron-builder's default dependencies (the libraries the
+  // app needs; `deb` below sets only the package name), and its after-install script loads the AppArmor profile that lets
+  // Chromium's sandbox use user namespaces on Ubuntu 24.04. The menu entry carries MimeType=x-scheme-handler/<scheme>
+  // from `protocols` above. File names: <A>-<v>-linux-amd64.deb, -arm64.deb, -x86_64.AppImage, -arm64.AppImage
+  // (electron-builder's arch names per format).
+  linux: {
+    target: [{ target: 'deb', arch: ['x64', 'arm64'] }, { target: 'AppImage', arch: ['x64', 'arm64'] }],
+    category: 'Office',
+    executableName: LINUX_EXECUTABLE,
+    // the menu entry's file name (and its StartupWMClass) follows extraMetadata.desktopName, as Electron's app_id does
+    syncDesktopName: true,
+    artifactName: `${A}-\${version}-linux-\${arch}.\${ext}`,
+    // the icon at every size the hicolor theme looks up (16…512, build-resources/linux-icons/<n>x<n>.png, written by
+    // editions/trina/branding/logo/make.py from scripts/trina-icon.svg): GNOME's lookup stops at 512, so the one 1024 px
+    // picture this used to be showed a generic gear in the app grid and the dock (QA TC-5353)
+    icon: 'build-resources/linux-icons',
+    synopsis: `${PRODUCT.displayName} desktop app`,
+    maintainer: 'TreeSoop <contact@trina.app>',
+  },
+  // only the package's name (apt install/remove <it>, dpkg-query): the default would be the product name, which has a
+  // space and capitals. No `depends`: it would replace the default list of libraries. `fpm` adds the scalable icon
+  // (hicolor/scalable/apps/<executable>.svg, any size) next to the sized PNGs electron-builder installs from linux.icon.
+  deb: { packageName: LINUX_EXECUTABLE, fpm: [`${path.join(__dirname, 'scripts', 'trina-icon.svg')}=/usr/share/icons/hicolor/scalable/apps/${LINUX_EXECUTABLE}.svg`] },
+  // electron-builder's default for the AppImage's own menu entry is `AppRun --no-sandbox %U` (used by AppImageLauncher,
+  // Gear Lever, appimaged): the app refuses that start, so the entry passes nothing (AppRun still adds the flag by itself
+  // only where the sandbox cannot run, and then the app says to install the .deb)
+  appImage: { executableArgs: [] },
+  // The AppImage's runtime (the small program at the start of the file that mounts it): AppImage's own static type2
+  // runtime (electron-builder-binaries appimage@1.0.3, runtime 20251108, pinned by checksum in app-builder-lib). The
+  // default legacy toolset (appimage-12.0.1) ships an arm64 runtime linked against the unversioned `libz.so`, which only
+  // zlib's -devel package provides, so the arm64 AppImage did not start on a stock Fedora (QA TC-5356; its x64 runtime
+  // names libz.so.1). The static runtime needs no shared library at all and no libfuse2: only a fusermount or
+  // fusermount3 program, which GNOME and KDE desktops already have (docs/decisions/20261119-linux-desktop-app.md
+  // "Packages"). CI checks the runtime of both AppImages (scripts/ci/appimage-runtime-check.sh).
+  toolsets: { appimage: '1.0.3' },
   publish: [{ provider: 'generic', url: 'https://localhost.invalid/downloads/', channel: 'latest' }],
 }

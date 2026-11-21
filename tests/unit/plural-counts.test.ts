@@ -33,13 +33,18 @@ describe('fillPlurals', () => {
 
 describe('server messages', () => {
   test('the card before the AI saves where more people see it', () => {
-    const one = tr('widenConfirm', 'en', { sources: 'users/a/x.md', target: 'shared', n: '1' })
-    expect(one).toContain('which 1 person can see')
-    expect(tr('widenConfirm', 'en', { sources: 's', target: 't', n: '5' })).toContain('which 5 people can see')
-    expect(tr('widenConfirm', 'es', { sources: 's', target: 't', n: '1' })).toContain('visible para 1 persona.')
-    expect(tr('widenConfirm', 'ko', { sources: 's', target: 't', n: '1' })).toContain('1명이 볼 수 있어요')
+    expect(tr('widenConfirm', 'en', { target: 'shared', n: '1' })).toBe('Save to shared (1 person)?')
+    expect(tr('widenConfirm', 'en', { target: 't', n: '5' })).toBe('Save to t (5 people)?')
+    expect(tr('widenConfirm', 'es', { target: 't', n: '1' })).toBe('¿Guardar en t (1 persona)?')
+    expect(tr('widenConfirm', 'es', { target: 't', n: '5' })).toBe('¿Guardar en t (5 personas)?')
+    expect(tr('widenBlind', 'es', { m: '1' })).toBe('1 de ellas no puede ver de dónde viene.')
+    expect(tr('widenBlind', 'es', { m: '2' })).toBe('2 de ellas no pueden ver de dónde viene.')
+    expect(tr('widenBlindChat', 'es', { m: '2' })).toBe('2 de ellas no pueden ver la conversación de donde viene.')
+    expect(tr('widenConfirm', 'ko', { target: 't', n: '1' })).toBe('t(1명)에 저장할까요?')
+    expect(tr('widenFrom', 'en', { source: 'x', n: '1' })).toBe('x (1 person)')
+    expect(tr('widenFrom', 'en', { source: 'x', n: '3' })).toBe('x (3 people)')
     // a value is put in as written, never read as a count
-    expect(tr('widenConfirm', 'en', { sources: '{n, plural, one {x} other {y}}', target: 't', n: '2' })).toContain('({n, plural, one {x} other {y}})')
+    expect(tr('widenSource', 'en', { sources: '{n, plural, one {x} other {y}}' })).toBe('It came from {n, plural, one {x} other {y}}.')
   })
   test('moving and copying files: "item" / "items", "person" / "people", "it" / "them"', () => {
     const fill = (s: string, v: Record<string, string | number>, l: string) => fillPlurals(s, v, l).replace(/\{(\w+)\}/g, (_, k) => String(v[k]))
@@ -67,8 +72,8 @@ describe('desktop app', () => {
     expect(desktopT('id', 'pane.promptsMore', { n: '1' })).toBe('1 pertanyaan lagi menunggu')
   })
   test('no bare count before an English plural noun in the desktop strings', () => {
-    // names, addresses and versions are not counts ("{app} needs", "{host} is", "{name} downloads": a messenger's name)
-    const counts = (v: string) => [...v.matchAll(/\{(\w+)\} (?:more |other )?\w+s\b/g)].filter((m) => !['app', 'domain', 'host', 'version', 'current', 'name'].includes(m[1]!))
+    // names, addresses and versions are not counts ("{app} needs", "{host} is", "{name} downloads": a messenger's name, "{team} wants": a team's name)
+    const counts = (v: string) => [...v.matchAll(/\{(\w+)\} (?:more |other )?\w+s\b/g)].filter((m) => !['app', 'domain', 'host', 'version', 'current', 'name', 'team'].includes(m[1]!))
     for (const [k, v] of Object.entries(STRINGS.en)) expect({ k, bare: counts(v).length }).toEqual({ k, bare: 0 })
   })
 })

@@ -18,6 +18,7 @@ import type { Logger } from './log'
 import type { AppBindings } from './http/env'
 import { startServer, type Running } from './server'
 import type { LauncherSandbox } from './native'
+import { launcherHeldLogin } from './native'
 import { CLAUDE_CONNECT_HOSTS } from './proxy/connect'
 import { startRefreshTerminator } from './proxy/refresh-terminator'
 import { noSessions, nullRealtime, type Services } from './services'
@@ -121,7 +122,9 @@ export async function startLocalCore(ctx: AppContext): Promise<Running> {
     // the refresh host also answers the Messages API: its tunnel ends at the refresh terminator, which passes the
     // refresh only (TC-359)
     let refresh: ReturnType<typeof startRefreshTerminator>
-    try { refresh = startRefreshTerminator({ db: ctx.db, dir: path.join(tunnel.secretsDir, 'claude-refresh-ca'), log: tunnel.log }) } catch (e) {
+    // the real refresh token stays with the launcher's Claude login broker; the engine holds a placeholder (TC-358)
+    const login = launcherHeldLogin(path.join(cfg.runDir, 'private', 'launcher.sock'))
+    try { refresh = startRefreshTerminator({ db: ctx.db, dir: path.join(tunnel.secretsDir, 'claude-refresh-ca'), log: tunnel.log, login }) } catch (e) {
       throw new CoreUnavailableError(`the Claude sign-in renewal certificate could not be made (${(e as Error).message}): engines will not run without it`)
     }
     ctx.onClose(() => refresh.stop())

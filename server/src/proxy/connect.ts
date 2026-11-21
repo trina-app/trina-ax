@@ -18,13 +18,15 @@
 // port, and Claude turns get HTTPS_PROXY the same way. A Claude turn's token opens tunnels only to `claudeHosts`
 // (CLAUDE_CONNECT_HOSTS: the login refresh host); a Codex turn's only to `hosts`. The Messages API no longer tunnels
 // (TC-359): it goes to the proxy's HTTP path, which reads and checks every request body (model-proxy.ts ownLogin).
-// Without `claudeHosts` (production, subscription mode: Claude goes through the HTTP path) a Claude turn gets 403.
+// Without `claudeHosts` (production, subscription mode: Claude goes through the HTTP path) a Claude turn gets 403, and a
+// Claude host that has no `terminate` listener is refused too: no Claude turn gets a byte pipe the proxy cannot read.
 import crypto from 'node:crypto'
 import net from 'node:net'
 import type { IncomingMessage } from 'node:http'
 import type { Duplex } from 'node:stream'
 import type { Database } from 'bun:sqlite'
 import { audit } from '../admin/audit'
+import { demoOffline, isLoopbackHost } from '../demo/fakes/offline'
 
 export const CODEX_CONNECT_HOSTS = ['chatgpt.com:443', 'auth.openai.com:443']
 /** the ChatGPT device sign-in (`codex login --device-auth`) calls auth.openai.com only (codex-rs/login, C13) */
@@ -193,6 +195,9 @@ export function codexConnectHandler(o: ConnectOpts): ConnectHandler {
       const expected = !!quiet?.has(target) && (!o.peerSession || (await o.peerSession(clientPort, serverPort)) === session)
       return deny(403, 'host not allowed', r.user_id, r.turn_id, expected)
     }
+    // a Claude turn never gets a plain byte pipe (TC-359): its tunnel ends at a listener that reads it (the refresh
+    // terminator); a Claude host without one is refused (fails closed if a setup passes claudeHosts alone)
+    if (claudeTurn && !o.terminate?.hosts.includes(target)) return deny(403, 'a Claude turn\'s tunnel must end at the refresh terminator', r.user_id, r.turn_id)
     // caller: a process of that engine session
     if (o.peerSession) {
       const sid = await o.peerSession(clientPort, serverPort)
@@ -200,7 +205,9 @@ export function codexConnectHandler(o: ConnectOpts): ConnectHandler {
     }
     const i = target.lastIndexOf(':')
     const host = target.slice(0, i), port = Number(target.slice(i + 1))
-    const up = claudeTurn && o.terminate?.hosts.includes(target) ? o.terminate.dial() : (o.dial ?? ((h, p) => net.connect(p, h)))(host, port)
+    // a demo server with fakes opens no tunnel out of this computer (demo/fakes/offline.ts)
+    if (demoOffline() && !isLoopbackHost(host)) return deny(403, 'not available in the demo', r.user_id, r.turn_id)
+    const up = claudeTurn ? o.terminate!.dial() : (o.dial ?? ((h, p) => net.connect(p, h)))(host, port)
     let open = false
     const turnId = r.turn_id
     up.on('connect', () => {

@@ -9,7 +9,9 @@
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from 'bun:test'
 import { makeCApp, PEOPLE, type CApp, type Person } from '../lib/c-app'
 import { APP_CLIENT, FakeGoogle, FakeLibrary, sessionRow } from '../lib/fake-google-apps'
-import { googleAppsOf, type GoogleApps } from '../../server/src/integrations/google-apps/service'
+import { DEMO_GOOGLE_KEY, googleAppsOf, type GoogleApps } from '../../server/src/integrations/google-apps/service'
+import { integrationsOf } from '../../server/src/integrations/connections/service'
+import { connectionAad, getRow } from '../../server/src/integrations/connections/store'
 import { integrationToolProvider } from '../../server/src/integrations/connections/tools'
 import { readScope } from '../../server/src/chat/read-scope'
 import { TurnFiles } from '../../server/src/files/service'
@@ -92,8 +94,9 @@ describe('calls', () => {
   test('a read runs without a card, with the person\'s own token only; the answer is external data with no token in it', async () => {
     const p = person('no')
     const t = turn('alice', { person: p })
-    expect(t.prompt).toContain('Gmail (personal connection, MCP server)')
-    expect([...t.tools.keys()].every((n) => n.startsWith('my_gmail__'))).toBe(true)
+    expect(t.prompt).toContain('Gmail (personal connection)')
+    // (connection_result: the rest of a long answer of these tools, offered with any connection's tool, #1321)
+    expect([...t.tools.keys()].filter((n) => n !== 'connection_result').every((n) => n.startsWith('my_gmail__'))).toBe(true)
     // Docs and Sheets read tools send plain questions to drive_read (not connected here: the catalog says so)
     lib.calls = []
     const r = await t.call('my_gmail__search_gmail_messages', { query: 'lunch' })
@@ -321,6 +324,15 @@ describe('calls', () => {
   })
 })
 
+describe('members\' own connections off (Team settings)', () => {
+  test('a person\'s own Gmail keeps its tools, as the switch\'s hint says (QA TC-2931)', async () => {
+    A.ctx.db.query("INSERT INTO settings (key, value) VALUES ('personalIntegrations', 'false') ON CONFLICT(key) DO UPDATE SET value = 'false'").run()
+    try {
+      expect([...turn('alice').tools.keys()].some((n) => n.startsWith('my_gmail__'))).toBe(true)
+    } finally { A.ctx.db.query("UPDATE settings SET value = 'true' WHERE key = 'personalIntegrations'").run() }
+  })
+})
+
 describe('the library down', () => {
   test('a call says the app is not reachable now and nothing about the connection changes', async () => {
     lib.stop()
@@ -330,5 +342,21 @@ describe('the library down', () => {
     expect(apps.view('alice', 'gmail').status).toBe('connected')
     noTokens(logs.join('\n'))
     noTokens(['integrations', 'google_app_flows', 'audit_log', 'tool_events'].map((x) => JSON.stringify(A.ctx.db.query(`SELECT * FROM ${x}`).all())).join('\n'))
+  })
+
+  test('a connection made by the demo snapshot builder (its key) is no sign-in of this server: Reconnect off a demo (free-roam audit, QA TC-5611)', () => {
+    const box = integrationsOf(A.ctx).box
+    const row = getRow(A.ctx.db, aliceGmail)!
+    const before = { enc: row.secret_enc, kv: row.key_version }
+    const secret = box.open<{ google: { key: string } }>(connectionAad(row), row.secret_enc!, row.key_version)
+    const sealed = box.seal(connectionAad(row), { ...secret, google: { ...secret.google, key: DEMO_GOOGLE_KEY } })
+    A.ctx.db.query('UPDATE integrations SET secret_enc = ?, key_version = ? WHERE id = ?').run(sealed.enc, sealed.keyVersion, aliceGmail)
+    try {
+      expect(A.ctx.config.demo).toBeUndefined()
+      expect(apps.view('alice', 'gmail').status).toBe('needs_reconnect')
+    } finally {
+      A.ctx.db.query('UPDATE integrations SET secret_enc = ?, key_version = ? WHERE id = ?').run(before.enc, before.kv, aliceGmail)
+    }
+    expect(apps.view('alice', 'gmail').status).toBe('connected')
   })
 })

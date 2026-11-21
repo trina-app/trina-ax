@@ -1,11 +1,11 @@
 // Chats, messages, turn control, projects, ask_user answers. Owner: B (server/src/routes/chats.ts).
 import { z } from 'zod'
-import { Uuid7 } from '../ids'
+import { UserId, Uuid7 } from '../ids'
 import { Access, EngineId, IsoTime, PageQuery, QueryBool, RelPath, page } from './common'
 import { endpoint, empty, stream } from './endpoint'
 import { SealedSecret } from './credentials'
-import { AudienceSplit, Chat, Message, MessageSources, Project, SubjectType, UserRef } from './entities'
-import { ANSWER_NOTE_MAX, AnswerShareConfirm, AnswerShareProvenance, ROOM_FILES_MAX, RoomMessage } from './rooms'
+import { AudienceSplit, Chat, ChatThreadReply, MESSAGE_ATTACHMENTS_MAX, MESSAGE_TEXT_MAX, Message, MessageSources, Project, SubjectType, UserRef } from './entities'
+import { ANSWER_NOTE_MAX, AnswerShareConfirm, AnswerSharePlace, ROOM_FILES_MAX, ROOM_MENTIONS_MAX, ROOM_MESSAGE_MAX, RoomMessage } from './rooms'
 import { IntegrationStatus } from './integrations'
 import { TurnRequest } from './ws'
 
@@ -39,6 +39,44 @@ export const ShareAnswerToRoomResult = z.discriminatedUnion('status', [
 ])
 export type ShareAnswerToRoomResult = z.infer<typeof ShareAnswerToRoomResult>
 
+// ---------------- threads on AI answers in shared chats (docs/decisions/20261116-chat-answer-threads.md) ----------------
+/** a reply is at most as long as a room message */
+export const CHAT_THREAD_REPLY_MAX = ROOM_MESSAGE_MAX
+/** at most this many replies under one answer (409 thread_full) */
+export const CHAT_THREAD_MAX = 500
+export const ListChatThreadQuery = PageQuery
+/** Why I can read a thread but not reply: safe operations are on (or the chat is confidential), the chat is in the
+ * trash, or it is not shared any more (its creator still reads it). */
+export const ChatThreadReadOnly = z.enum(['safe_ops', 'trash', 'not_shared'])
+export type ChatThreadReadOnly = z.infer<typeof ChatThreadReadOnly>
+/** A thread: its answer as I see it, a page of replies (without a cursor the newest `limit`, oldest first; nextCursor
+ * fetches older ones), whether I may reply, which version of the answer it is (`version`: 1-based index and count of
+ * the answer's versions) and whether that version is on the branch the chat shows now (`onShownBranch`). */
+export const ChatThreadPage = z.object({
+  root: Message,
+  replies: z.array(ChatThreadReply),
+  nextCursor: z.string().nullable(),
+  canReply: z.boolean(),
+  readOnlyReason: ChatThreadReadOnly.optional(),
+  version: z.object({ index: z.number().int().positive(), count: z.number().int().positive() }),
+  onShownBranch: z.boolean(),
+  /** the thread holds CHAT_THREAD_MAX replies: no more */
+  full: z.boolean(),
+  /** who the reply box may mention ("@"): the people who see this thread now (the chat's audience and the answer not
+   * hidden from them), never me. Only while I may reply. Older servers omit it (no mentions) */
+  people: z.array(UserRef).optional(),
+})
+export type ChatThreadPage = z.infer<typeof ChatThreadPage>
+export const SendChatThreadReplyBody = z.object({
+  text: z.string().max(CHAT_THREAD_REPLY_MAX).refine((t) => t.trim().length > 0, { message: 'empty reply' }),
+  /** client-made id: sending the same one again returns the first reply */
+  clientId: z.string().min(8).max(64),
+  /** the people picked with "@" (ids). The server keeps only those who see the thread now, never the sender */
+  mentions: z.array(UserId).max(ROOM_MENTIONS_MAX).optional(),
+}).strict()
+/** the newest reply I have read (one of the thread's) */
+export const MarkChatThreadReadBody = z.object({ upTo: Uuid7 }).strict()
+
 // ---------------- an existing chat shared with its project's members ("프로젝트 멤버와 공유") ----------------
 export const ShareChatBody = z.object({
   /** the last "confirm"'s `confirmKey`: the person saw that state and said yes. Anything changed since (the project's
@@ -48,18 +86,37 @@ export const ShareChatBody = z.object({
    * share); without it a chat with nothing to ask about is shared at once (the move dialog's switch) */
   ask: z.boolean().optional(),
 }).strict()
+/** What the people who would start to see a chat would see that they could not before (docs/DECISIONS.md "Share in one
+ * press", QA TC-3092): counts of answers and places, never who. `added`: how many people start to see it;
+ * `memoryAnswers`: answers that may have used my personal memories; `fileAnswers`: answers that used files (or recorded
+ * places) some of them can't open; `accountAnswers`: older answers that may have used my personal accounts (a personal
+ * connection or the in-app browser was on then); `places`: other places the chat used that some of them can't open, by
+ * name only where I may look (`otherPlaces`: others too); `roomsUnseen`: it read team chat rooms some of them may not be
+ * in; `unchecked`: older answers nothing could be checked about (no warning); `earlierFiles`: at a first share, my files
+ * from the computer they will see. */
+export const ShareCheck = z.object({
+  added: z.number().int().nonnegative(),
+  memoryAnswers: z.number().int().nonnegative(),
+  fileAnswers: z.number().int().nonnegative(),
+  accountAnswers: z.number().int().nonnegative(),
+  places: z.array(AnswerSharePlace),
+  otherPlaces: z.boolean(),
+  roomsUnseen: z.boolean(),
+  unchecked: z.number().int().nonnegative(),
+  earlierFiles: z.number().int().positive().optional(),
+})
+export type ShareCheck = z.infer<typeof ShareCheck>
+
 export const ShareChatResult = z.discriminatedUnion('status', [
   /** shared now: the chat as I see it (with `shared`) */
   z.object({ status: z.literal('shared'), chat: Chat }),
-  /** nothing changed yet. `audience`: the project's people (not me) who would see it; `provenance`: its answers carry
-   * content from material some of them cannot see (null: none; `unknown`: not all of what it used is known);
-   * `memories`: an answer may have used my personal memories; `confirmKey`: send it back to share. `reason` 'changed':
-   * asked again after a key, something changed meanwhile */
+  /** nothing changed yet. `audience`: the project's people (not me) who would see it; `check`: what they would see that
+   * they could not before; `confirmKey`: send it back to share. `reason` 'changed': asked again after a key, something
+   * changed meanwhile */
   z.object({
     status: z.literal('confirm'),
     audience: z.number().int().nonnegative(),
-    provenance: AnswerShareProvenance.nullable(),
-    memories: z.boolean(),
+    check: ShareCheck,
     confirmKey: z.string(),
     reason: z.literal('changed').optional(),
   }),
@@ -184,18 +241,34 @@ export type OftenAsked = z.infer<typeof OftenAsked>
 export const ListMessagesQuery = PageQuery.extend({ through: Uuid7.optional() })
 export const MessagesPage = page(Message)
 
+/** The sender's device time zone (IANA, e.g. "Asia/Jakarta"): the screen shows times in it, so the AI gives its times
+ * in it too (QA TC-4549, docs/decisions/20261117-ai-times-viewer-zone.md). A name the server does not know is ignored
+ * (the team's time zone is used), not refused. */
+export const TurnTimeZone = z.string().max(64).optional()
+
+/** PUT /api/chats/:id/waiting: how many of my messages wait in this shared chat for the running answer to end (0: none
+ * any more, or they are paused). Said again every 15 s while they wait; the server lets the one who waited longest send
+ * first (docs/decisions/20261118-shared-chat-queued-sends.md). Never the text. */
+export const PutChatWaitingBody = z.object({ count: z.number().int().min(0).max(50) })
+export type PutChatWaitingBody = z.infer<typeof PutChatWaitingBody>
+
 export const SendMessageBody = z.object({
-  content: z.string().max(200_000),
+  content: z.string().max(MESSAGE_TEXT_MAX),
   /** uploaded via POST /api/uploads or an upload session with target attachment */
-  attachmentIds: z.array(Uuid7).max(20).default([]),
+  attachmentIds: z.array(Uuid7).max(MESSAGE_ATTACHMENTS_MAX).default([]),
   /** message to answer under; default: the chat's active leaf */
   parentId: Uuid7.nullable().optional(),
+  /** without parentId: answer under the newest end of the branch through this message (a shared chat's waiting
+   * message: the end its sender last saw; turns that came since are kept, another version someone switched to is not
+   * where it lands) */
+  after: Uuid7.optional(),
   /** only for people who may pick the engine (Me.user.canChooseEngine); anyone else naming another engine or model
    * than the chat's gets 403 */
   engine: EngineId.optional(),
   model: z.string().max(100).nullable().optional(),
   /** client-generated id; resending the same clientMessageId after a reconnect returns the first result (idempotent) */
   clientMessageId: z.string().min(8).max(64),
+  timeZone: TurnTimeZone,
 }).refine((b) => b.content.trim().length > 0 || b.attachmentIds.length > 0, { message: 'empty message', path: ['content'] })
 
 /** Response of send / edit / regenerate: the turn is queued; text arrives over the WebSocket. */
@@ -222,15 +295,17 @@ export type ChatQueueSnapshot = z.infer<typeof ChatQueueSnapshot>
 export const RegenerateBody = z.object({
   engine: EngineId.optional(),
   model: z.string().max(100).nullable().optional(),
+  timeZone: TurnTimeZone,
 })
 /** Edit a user message: adds a sibling user message (same parent) and answers it. Team-folder file changes of the
  * old branch are NOT undone (the UI says so). */
 export const EditMessageBody = z.object({
-  content: z.string().min(1).max(200_000),
-  attachmentIds: z.array(Uuid7).max(20).default([]),
+  content: z.string().min(1).max(MESSAGE_TEXT_MAX),
+  attachmentIds: z.array(Uuid7).max(MESSAGE_ATTACHMENTS_MAX).default([]),
   engine: EngineId.optional(),
   model: z.string().max(100).nullable().optional(),
   clientMessageId: z.string().min(8).max(64),
+  timeZone: TurnTimeZone,
 })
 /** Show another branch: messageId is any message; the chat's active leaf becomes the newest leaf under it. */
 export const SelectBranchBody = z.object({ messageId: Uuid7 })
@@ -345,23 +420,22 @@ export const PutChatAudienceResult = z.discriminatedUnion('status', [
      * Only through groups I am in (admins any); someone kept only through other groups is not listed */
     keptThrough: z.array(z.object({ name: z.string(), groups: z.array(z.string()).min(1) })).optional(),
   }),
-  /** nothing changed yet: the check for the people who would start to see it. `added`: how many people (never who);
-   * `provenance`: its answers carry content from places some of them cannot open (null: none); `memories`: an answer
-   * may have used my personal memories; `hiddenAnswers`: answers whose recorded places some of them cannot open;
-   * `earlierFiles`: at a first share, how many files I attached from my computer will be visible to them;
-   * `confirmKey`: send it back to save. `reason` 'changed': asked again after a key, something changed meanwhile */
+  /** nothing changed yet: the save brings in new people and did not carry the key of what they would see now (no key:
+   * `reason` 'unchecked'; a key of another state: 'changed'). `check`: what they would see; `confirmKey`: send it back
+   * to save */
   z.object({
     status: z.literal('confirm'),
-    added: z.number().int().nonnegative(),
-    provenance: AnswerShareProvenance.nullable(),
-    memories: z.boolean(),
-    hiddenAnswers: z.number().int().nonnegative(),
-    earlierFiles: z.number().int().positive().optional(),
+    check: ShareCheck,
     confirmKey: z.string(),
-    reason: z.literal('changed').optional(),
+    reason: z.enum(['changed', 'unchecked']).optional(),
   }),
 ])
 export type PutChatAudienceResult = z.infer<typeof PutChatAudienceResult>
+/** The Share dialog's check while picking (docs/DECISIONS.md "Share in one press"): the whole list as a save would send it. */
+export const ChatAudiencePreviewBody = z.object({ subjects: z.array(ProjectParticipant).max(CHAT_AUDIENCE_MAX + 1) }).strict()
+/** What the people the list brings in would see (`check`), and `previewKey`: the save's `confirmKey` for exactly this */
+export const ChatAudiencePreview = z.object({ check: ShareCheck, previewKey: z.string() })
+export type ChatAudiencePreview = z.infer<typeof ChatAudiencePreview>
 
 /**
  * Two kinds (docs/DECISIONS.md "Projects live only in projects/"):
@@ -578,15 +652,21 @@ export const CHATS = {
   markChatSeen: endpoint({ method: 'POST', path: '/api/chats/:id/seen', auth: 'user', owner: 'B', response: Chat, summary: 'I have this own chat on screen: its finished answers are seen (Chat.unseen goes away in every window and device).' }),
   listMessages: endpoint({ method: 'GET', path: '/api/chats/:id/messages', auth: 'user', owner: 'B', query: ListMessagesQuery, response: MessagesPage, summary: 'Active branch of the conversation, paged backwards.' }),
   sendMessage: endpoint({ method: 'POST', path: '/api/chats/:id/messages', auth: 'user', owner: 'B', status: 202, body: SendMessageBody, response: TurnStarted, summary: 'Save the message, create the empty answer, queue the turn. Send the X-Mycel-Window header so browser tools reach this window.' }),
+  putChatWaiting: endpoint({ method: 'PUT', path: '/api/chats/:id/waiting', auth: 'user', owner: 'B', body: PutChatWaitingBody, response: empty, status: 204, summary: 'A shared chat I may continue: how many of my messages wait there for the running answer to end (0: none). The server keeps it in memory for 45 s after the last call; a send there while someone else has waited longer is refused (409 shared_chat_next, naming nobody); a first place whose holder does not send within 12 s of holding someone back goes to the back of the line. The others see only how many other people wait (Chat.shared.waiting), told when someone starts or stops waiting. At most 30 a minute per person and chat (429). A chat of one person: nothing kept.' }),
   stop: endpoint({ method: 'POST', path: '/api/chats/:id/stop', auth: 'user', owner: 'B', response: StopResponse, summary: 'Stop the running or queued turn of this chat (a shared chat: only the person whose turn it is).' }),
   shareAnswerToRoom: endpoint({ method: 'POST', path: '/api/chats/:id/messages/:messageId/share-to-room', auth: 'user', owner: 'B', body: ShareAnswerToRoomBody, response: ShareAnswerToRoomResult, summary: 'Post a finished answer of my own AI chat to a room I am in, as my message (my note, then the answer as a quote), or as a reply in a message\'s thread there (threadRootId: a room\'s side chat). When some member cannot open a file it links to, or it carries content from material some cannot see, it first answers "confirm": a row per linked file and one provenance line, as counts and places I may look myself (never who), with a confirmKey; sent again with that key it posts, attaching the linked files asked for (attach). Older clients: confirm = the number of people. Rate-limited and notified like any message; audited. The AI\'s post_to_room tool (the person\'s own chat, after their yes on one server card) goes through the same checks and is audited with via ai.' }),
   shareChat: endpoint({ method: 'POST', path: '/api/chats/:id/share', auth: 'user', owner: 'B', body: ShareChatBody, response: ShareChatResult, summary: 'Share my private chat with its project\'s members (a team project that shares its chats). First a check of every branch: when its answers carry content from material some of them cannot see, or may have used my personal memories (or with ask), it answers "confirm" (how many, the places I may look myself, never who) with a confirmKey; sent again with that key it shares. Never undone. 409 with reason project_not_sharing, project_personal, project_in_trash, safe_ops, already_shared, scheduled_run, chat_busy or share_hidden. Rate-limited like a room message; audited.' }),
   getChatAudience: endpoint({ method: 'GET', path: '/api/chats/:id/audience', auth: 'user', owner: 'B', response: ChatAudience, summary: 'Who a chat I can see is shared with: for a chat outside projects shared with people and groups, the people and groups by name (a group\'s size and the count only for its creator and admins when a group is in it); a shared project chat or my private chat lists nobody. Anyone who cannot see the chat gets the 404 of a missing chat.' }),
+  previewChatAudience: endpoint({ method: 'POST', path: '/api/chats/:id/audience/preview', auth: 'user', owner: 'B', body: ChatAudiencePreviewBody, response: ChatAudiencePreview, summary: 'Dry run of a save of who sees a chat outside projects (its creator only, the same refusals as a save, chat_busy while a turn runs): what the people the list brings in would see that they could not before (counts of answers and places I may look myself, never who), and the key a save must carry. Nothing is saved. At most 60 a minute per person (429); the same list and chat state answers from a 60-second cache.' }),
   putChatAudience: endpoint({ method: 'PUT', path: '/api/chats/:id/audience', auth: 'user', owner: 'B', body: PutChatAudienceBody, response: PutChatAudienceResult, summary: 'Its creator saves who sees a chat outside projects (the whole list, at most 100 people and groups; [] makes it theirs alone again). Adds that bring in new people first answer "confirm" when its answers carry content from places some of them cannot open, may have used my memories, used recorded places they cannot open, or (a first share) will show them my earlier computer uploads (counts and places I may look myself, never who), with a confirmKey; sent again with that key it saves. Removed people\'s turns there stop first. A first share copies my earlier computer uploads into the chat (each at most 50 MB, metadata of photos cut out); filesNotCopied says how many could not be. 403 chat_share_creator_only to others who see it, the 404 of a missing chat to everyone else; 409 share_people_in_project, project_personal, safe_ops (adds), scheduled_run, side_chat, chat_busy (adds); 400 audience_full, unknown_subject (newly added only), needs_people. Rate-limited like a room message; audited (counts only); people added by name and through a group get an Inbox notice (at most one per chat and person a day).' }),
   userSharedChats: endpoint({ method: 'GET', path: '/api/admin/users/:id/shared-chats', auth: 'admin', owner: 'B', response: z.object({ sharedChats: z.number().int().nonnegative() }), summary: 'For the delete-account dialog: how many chats this person shared with people and groups hold other people\'s messages. Deleting the account deletes them for good after the retention period (disabling it keeps them). A count, nothing else.' }),
   hideChat: endpoint({ method: 'POST', path: '/api/chats/:id/hide', auth: 'user', owner: 'B', response: Chat, summary: '"Hide from my list": a chat someone shared with me leaves my chat lists, for me only (search still finds it); opening it (POST /api/chats/:id/seen) or DELETE brings it back. Its creator gets 400 chat_hide_creator.' }),
   unhideChat: endpoint({ method: 'DELETE', path: '/api/chats/:id/hide', auth: 'user', owner: 'B', response: Chat, summary: 'Bring a chat I hid from my list back.' }),
   chatFile: endpoint({ method: 'GET', path: '/api/chats/:id/files/:fileId', auth: 'user', owner: 'B', query: ChatFileQuery, response: stream(true), summary: 'A file from the computer kept with a chat shared with people and groups (Attachment source chat), for whoever sees the chat now (checked on every read: anyone else, a removed person included, gets the 404 of a missing chat); one not sent in a message yet only for its sender. thumb=1 for an image preview, download=1 as an attachment. Inline, a page or script type is sent as text/plain with a sandbox CSP: never a page of the app. A file on the safety check\'s download-only list is sent only with download=1 (503 quarantined otherwise).' }),
+  listChatThread: endpoint({ method: 'GET', path: '/api/chats/:id/messages/:messageId/thread', auth: 'user', owner: 'B', query: ListChatThreadQuery, response: ChatThreadPage, summary: 'The thread under a finished AI answer of a shared chat I see: the answer as I see it and a page of the replies (newest page first, oldest first within it). People only: the AI never reads replies. A chat I do not see, a missing or hidden answer, a question or another chat\'s answer: the same 404. canReply false with readOnlyReason while safe operations are on, the chat is in the trash or no longer shared.' }),
+  sendChatThreadReply: endpoint({ method: 'POST', path: '/api/chats/:id/messages/:messageId/thread', auth: 'user', owner: 'B', status: 201, body: SendChatThreadReplyBody, response: ChatThreadReply, summary: 'Reply under a finished answer (done or stopped) of a shared chat I may continue, as myself. The same clientId again returns the first reply. Access is checked before the sending budget (429 with retryAfter, the rooms\' budget); at most 500 replies (409 thread_full). The answer\'s asker and everyone who replied get one Inbox notice per unread thread, and a push while "Replies in threads I\'m part of" is on.' }),
+  deleteChatThreadReply: endpoint({ method: 'DELETE', path: '/api/chats/:id/thread-replies/:replyId', auth: 'user', owner: 'B', response: empty, status: 204, summary: 'Delete a reply for everyone (no undo): its author, or whoever may moderate the chat (a project chat: its creator or a project editor; a chat shared with people: its creator). A moderator\'s delete is audited with ids only. A reply of another chat: 404.' }),
+  markChatThreadRead: endpoint({ method: 'POST', path: '/api/chats/:id/messages/:messageId/thread/read', auth: 'user', owner: 'B', body: MarkChatThreadReadBody, response: empty, status: 204, summary: 'I read a thread I follow up to this reply: its notice counts as read; my other windows hear it. Never past the thread\'s own replies.' }),
   messageSources: endpoint({ method: 'GET', path: '/api/chats/:id/messages/:messageId/sources', auth: 'user', owner: 'B', response: MessageSources, summary: 'The files the AI read or saw passages of for this answer, each checked against the viewer\'s access now (no name or path for the others).' }),
   regenerate: endpoint({ method: 'POST', path: '/api/chats/:id/messages/:messageId/regenerate', auth: 'user', owner: 'B', status: 202, body: RegenerateBody, response: TurnStarted, summary: 'New answer to the same user message (sibling of :messageId, an assistant message).' }),
   editMessage: endpoint({ method: 'POST', path: '/api/chats/:id/messages/:messageId/edit', auth: 'user', owner: 'B', status: 202, body: EditMessageBody, response: TurnStarted, summary: 'Edited copy of user message :messageId as a new branch, then answer it.' }),
@@ -594,6 +674,7 @@ export const CHATS = {
   listTurnRequests: endpoint({ method: 'GET', path: '/api/chats/:id/requests', auth: 'user', owner: 'B', response: z.object({ items: z.array(OpenTurnRequest) }), summary: 'Open ask_user / browser site cards of the running turn of this chat.' }),
   // here, not in rooms.ts: ws.ts (TurnRequest) and this file import rooms.ts
   connectTurn: endpoint({ method: 'POST', path: '/api/turns/:id/connect', auth: 'user', owner: 'B', body: TurnConnectBody, response: TurnConnectResult, summary: 'Finish a connect_service card: add the connection with a sealed key, after a sign-in, or skip' }),
+  turnRequestDetail: endpoint({ method: 'GET', path: '/api/turns/:id/requests/:requestId/details/:index', auth: 'user', owner: 'B', response: z.object({ text: z.string() }), summary: 'The whole text of a card detail that the card carries only the start of (ConfirmDetail.fullChars), of an own open card.' }),
   answerTurn: endpoint({ method: 'POST', path: '/api/turns/:id/answer', auth: 'user', owner: 'B', body: TurnAnswerBody, response: empty, status: 204, summary: 'Answer an ask_user card or a browser site confirmation of an own running turn.' }),
 
   listProjects: endpoint({ method: 'GET', path: '/api/projects', auth: 'user', owner: 'B', query: ProjectsQuery, response: z.object({ items: z.array(Project) }), summary: 'Projects whose folder the caller can read; manage=1 (the owner and admins): also the team projects they manage without being a member, without their contents; and for everyone the team projects in the trash they are a member of (name and state only).' }),

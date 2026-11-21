@@ -39,12 +39,13 @@ async function start(page: Page, rooms = ROOMS) {
   return state
 }
 /** the 대화 panel's room names, in order (pins, then team rooms with 전체 first and the others by name, group chats, DMs) (the name's own span: no picture initials or unread pill) */
+// a named group room is a private channel, listed and sorted with the channels (d927951c8); DMs after them
 const sidebarOrder = (page: Page) => navRoomLinks(page).locator('span[title]').allTextContents()
 const sidebarRow = (page: Page, name: string) => navRoomRow(page, name)
 
 test('sidebar: 상단에 고정 from a row\'s "⋯" and from a right-click moves it to the top with the pin; 고정 해제 puts it back', async ({ page }) => {
   const state = await start(page)
-  await expect.poll(() => sidebarOrder(page)).toEqual(['전체', '개발팀', '영업팀', '디자인 리뷰', '마케팅 주간회의', '김소라', '박지우'])
+  await expect.poll(() => sidebarOrder(page)).toEqual(['전체', '개발팀', '디자인 리뷰', '마케팅 주간회의', '영업팀', '김소라', '박지우'])
   await expect(page.getByTestId('room-pin-icon')).toHaveCount(0)
 
   // the row's "⋯": 상단에 고정 is its first item
@@ -55,7 +56,7 @@ test('sidebar: 상단에 고정 from a row\'s "⋯" and from a right-click moves
   await page.getByTestId('room-menu-pin').click()
   await expect.poll(() => state.pinned).toEqual([{ roomId: TEAM, pinned: true }])
   // first, with the pin after its name (named for screen readers); the five latest others below it
-  await expect.poll(() => sidebarOrder(page)).toEqual(['개발팀', '전체', '영업팀', '디자인 리뷰', '마케팅 주간회의', '김소라', '박지우'])
+  await expect.poll(() => sidebarOrder(page)).toEqual(['개발팀', '전체', '디자인 리뷰', '마케팅 주간회의', '영업팀', '김소라', '박지우'])
   await expect(sidebarRow(page, '개발팀').getByTestId('room-pin-icon')).toHaveAttribute('aria-label', '고정됨')
   await expect(page.getByTestId('room-pin-icon')).toHaveCount(1)
 
@@ -64,7 +65,7 @@ test('sidebar: 상단에 고정 from a row\'s "⋯" and from a right-click moves
   await roomRowLink(sidebarRow(page, '박지우')).click({ button: 'right' })
   await page.getByTestId('room-menu-pin').click()
   await expect.poll(() => state.pinned.length).toBe(2)
-  await expect.poll(() => sidebarOrder(page)).toEqual(['박지우', '개발팀', '전체', '영업팀', '디자인 리뷰', '마케팅 주간회의', '김소라'])
+  await expect.poll(() => sidebarOrder(page)).toEqual(['박지우', '개발팀', '전체', '디자인 리뷰', '마케팅 주간회의', '영업팀', '김소라'])
   await expect(page.getByTestId('room-pin-icon')).toHaveCount(2)
 
   // after a reload too (the server keeps it)
@@ -78,7 +79,7 @@ test('sidebar: 상단에 고정 from a row\'s "⋯" and from a right-click moves
   await expect(page.getByRole('menu').getByRole('menuitem').first()).toHaveText('고정 해제')
   await page.getByTestId('room-menu-unpin').click()
   await expect.poll(() => state.pinned.at(-1)).toEqual({ roomId: TEAM, pinned: false })
-  await expect.poll(() => sidebarOrder(page)).toEqual(['박지우', '전체', '개발팀', '영업팀', '디자인 리뷰', '마케팅 주간회의', '김소라'])
+  await expect.poll(() => sidebarOrder(page)).toEqual(['박지우', '전체', '개발팀', '디자인 리뷰', '마케팅 주간회의', '영업팀', '김소라'])
   await expect(sidebarRow(page, '개발팀').getByTestId('room-pin-icon')).toHaveCount(0)
 
   // hiding a pinned DM unpins it; the undo shows it and pins it again
@@ -126,7 +127,7 @@ test.describe('phone', () => {
     await page.waitForTimeout(650)
     await row.dispatchEvent('pointerup', { button: 0, pointerType: 'touch', isPrimary: true, clientX: 100, clientY: 100 })
     const sheet = page.getByRole('menu')
-    await expect(sheet.getByRole('menuitem')).toHaveText(['상단에 고정', '알림 설정', '앱 추가', '링크 복사', '숨기기'])
+    await expect(sheet.getByRole('menuitem')).toHaveText(['상단에 고정', '섹션으로 옮기기', '알림 설정', '앱 추가', '링크 복사', '숨기기'])
     await page.waitForTimeout(450)
     await page.getByTestId('room-menu-pin').click()
     await expect.poll(() => state.pinned).toEqual([{ roomId: TEAM, pinned: true }])

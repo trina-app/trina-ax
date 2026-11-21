@@ -14,15 +14,16 @@
 import clsx from 'clsx'
 import { ArrowDown, ArrowUp, Folder, FolderMinus, FolderPlus, Pencil, Plus, Trash2 } from 'lucide-react'
 import { useEffect, useId, useState, type DragEvent, type ReactNode, type RefObject } from 'react'
-import { graphemeCount, NAV_FOLDER_NAME_MAX, NavFolderName, type NavFolder, type NavFolderKind, type Room } from '@mycel/shared/api'
+import { graphemeCount, NAV_FOLDER_NAME_MAX, NavFolderName, type NavFolder, type NavFolderKind, type CountedRoomFields } from '@mycel/shared/api'
 import { errorText } from '../../lib/api'
 import { useLocale, useT } from '../../i18n'
 import { aiName } from '../../lib/tabs'
-import { roomUnread } from '../../lib/rooms'
+import { badgeText, roomCounts } from '../../lib/rooms'
 import { createFolder, deleteFolder, fileChat, fileRoom, foldersOf, moveFolder, nameTaken, renameFolder, useNavFolders, watchNavFolders } from '../../store/navFolders'
 import { toast } from '../../store/ui'
 import { confirmDialog, promptDialog } from '../ui'
 import { MenuButton, type MenuItem } from '../rooms/MenuButton'
+import { CountPill } from '../CountPill'
 import { Tooltip } from '../Tooltip'
 import { panelRowBox } from '../panels/PanelFrame'
 
@@ -105,9 +106,16 @@ export function NewFolderRow({ kind, className }: { kind: NavFolderKind; classNa
 export function NewFolderButton({ kind }: { kind: NavFolderKind }) {
   const t = useT()
   const act = useFolderActions(kind)
+  return <SectionAddButton label={t('navFolders.new')} onClick={() => void act.create()} testId={`${kind}-folder-new`} />
+}
+
+/** A section header's "+" (the folders' New folder, the Chats list's Create a channel and New message): one size and
+ * look for every section action, its words on hover and for screen readers. A finger gets 44px: on a phone from touch-hit,
+ * on a touch screen wider than a phone a 44px box that takes only the 24px slot (as list/List.tsx GroupChevron). */
+export function SectionAddButton({ label, onClick, testId }: { label: string; onClick: () => void; testId: string }) {
   return (
-    <Tooltip label={t('navFolders.new')}>
-      <button type="button" aria-label={t('navFolders.new')} onClick={() => void act.create()} className="touch-hit flex size-6 items-center justify-center rounded text-faint hover:bg-hover hover:text-ink" data-testid={`${kind}-folder-new`}>
+    <Tooltip label={label}>
+      <button type="button" aria-label={label} onClick={onClick} className="touch-hit flex size-6 items-center justify-center rounded text-faint hover:bg-hover hover:text-ink md:pointer-coarse:-m-2.5 md:pointer-coarse:size-11" data-testid={testId}>
         <Plus size={14} aria-hidden />
       </button>
     </Tooltip>
@@ -246,22 +254,27 @@ export function useDropTarget(kind: NavFolderKind, onDrop: (id: string) => void)
 /** how a folder looks while a row is held over it */
 export const DROP_OVER = 'rounded-lg bg-accent-soft ring-2 ring-accent ring-inset'
 
-/** A folded room folder's one pill: the strongest of its rooms, "@" (an unread mention) › how many of its rooms have
- * unread messages. Muted rooms are left out, as the 대화 count leaves them. */
+/** A folded room folder's (or 대화 section's) one pill: the strongest of its rooms, "@" (an unread mention) › how many of its rooms
+ * count (shared roomCounts, as the 대화 count: muted rooms left out, a room at 멘션만 only with a mention; a followed thread's
+ * reply without a mention adds nothing: docs/decisions/20261119-room-unread-after-read.md). */
 export type RoomFolderPill = { kind: 'mention' } | { kind: 'unread'; n: number }
-export function roomFolderPill(rooms: Pick<Room, 'mentioned' | 'muted' | 'unreadCount' | 'threadsUnread'>[]): RoomFolderPill | null {
-  const loud = rooms.filter((r) => !r.muted && roomUnread(r) > 0)
-  if (loud.some((r) => r.mentioned)) return { kind: 'mention' }
+export function roomFolderPill(rooms: CountedRoomFields[]): RoomFolderPill | null {
+  const loud = rooms.map(roomCounts).filter((c) => c.counts)
+  if (loud.some((c) => c.mention)) return { kind: 'mention' }
   return loud.length ? { kind: 'unread', n: loud.length } : null
 }
 
-export function RoomFolderPillView({ pill, className }: { pill: RoomFolderPill; className?: string }) {
+/** A folded room folder's (or 대화 section's) name is bold while one of its rooms is (roomCounts `bold`), muted ones left
+ * out: a room at 멘션만 with only plain messages has no pill but still makes it bold, as its row is. */
+export const roomFolderBold = (rooms: CountedRoomFields[]): boolean => rooms.some((r) => {
+  const c = roomCounts(r)
+  return c.bold && !c.quiet
+})
+
+/** The pill of a folded room folder or a folded section of the 대화 list (List.tsx ListSection `pill`): the rows' own
+ * badge look; its words for a screen reader. */
+export function RoomFolderPillView({ pill, className, testId = 'room-folder-pill' }: { pill: RoomFolderPill; className?: string; testId?: string }) {
   const t = useT()
   const words = pill.kind === 'mention' ? t('rooms.mentionedYou') : t('navFolders.unreadRooms', { n: pill.n })
-  return (
-    <span className={clsx('shrink-0 rounded-full bg-accent px-1.5 text-micro font-medium text-accent-ink', className)} data-testid="room-folder-pill" data-kind={pill.kind}>
-      <span aria-hidden>{pill.kind === 'mention' ? '@' : pill.n > 99 ? '99+' : pill.n}</span>
-      <span className="sr-only">{words}</span>
-    </span>
-  )
+  return <CountPill text={pill.kind === 'mention' ? '@' : badgeText(pill.n)} label={words} className={className} testId={testId} data-kind={pill.kind} />
 }

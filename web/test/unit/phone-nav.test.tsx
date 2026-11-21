@@ -197,7 +197,7 @@ describe('the tab bar', () => {
 
   // the stores' current state needs a client render (a server render reads their first state)
   test('one count per kind: conversations with unread messages on 대화 (muted rooms left out, as the rail), unread Inbox notices on 나', async () => {
-    useRooms.setState({ rooms: [room({ unreadCount: 3 }), room({ unreadCount: 2, muted: true }), room({ unreadCount: 120, kind: 'dm' })] })
+    useRooms.setState({ rooms: [room({ kind: 'group', unreadCount: 3 }), room({ unreadCount: 4 }), room({ unreadCount: 2, muted: true }), room({ unreadCount: 120, kind: 'dm' })] })
     inboxCount = 4
     const m = await mount(<MemoryRouter initialEntries={['/']}><BottomTabs /></MemoryRouter>)
     try {
@@ -416,10 +416,43 @@ describe('the 나 tab\'s list on a phone', () => {
         expect(m.find('settings-invite')).not.toBeNull()
         expect(m.get('settings-admin').getAttribute('href')).toBe('/admin')
         expect(m.get('settings-team-group').querySelector('[data-testid="settings-admin"]')).not.toBeNull()
+        expect(m.get('settings-team-group').querySelector('[data-testid="settings-switch-team"]')).not.toBeNull()
         expect(m.find('settings-inbox-unread')).toBeNull()
       } finally {
         await m.unmount()
       }
+    }
+  })
+
+  // the owner 2026-11-18: everyone can get to another team; a plain browser's row opens the address dialog
+  test('the team on top for a member in a browser: 다른 팀으로 전환, no 팀원 초대 or 관리자; none in a phone app without its team screen', async () => {
+    useSession.setState({ status: { kind: 'signed-in', me: me('member') } } as never)
+    const m = await dialog()
+    try {
+      const group = m.get('settings-team-group')
+      expect(group.querySelector('[data-testid="settings-switch-team"]')?.textContent).toContain(ko('teamMenu.switch'))
+      expect(m.find('settings-invite')).toBeNull()
+      expect(m.find('settings-admin')).toBeNull()
+    } finally {
+      await m.unmount()
+    }
+    const g = globalThis as Record<string, unknown>
+    g.ReactNativeWebView = { postMessage() {} }
+    const app = await dialog()
+    try {
+      expect(app.find('settings-switch-team')).toBeNull()
+      // the app's config with its team screen arrives after the page loaded: the row comes, and it asks the app (no dialog)
+      const sent: string[] = []
+      g.ReactNativeWebView = { postMessage: (m: string) => sent.push(m) }
+      g.mycelMobile = { protocol: 1, appVersion: '1.0.9', platform: 'android', nonce: 'c'.repeat(64), generation: 1, capabilities: ['file-share-v1', 'external-oauth-v1', 'change-team-v1'] }
+      await act(async () => { window.dispatchEvent(new FakeEvent('mycel:mobile-ready') as never) })
+      await app.click(await app.until(() => app.find('settings-switch-team'), 'the row once the app said it has its team screen'))
+      await app.until(() => sent.some((m) => m.includes('change-team')), 'the app asked to change team')
+      expect(app.find('dialog-input')).toBeNull()
+    } finally {
+      await app.unmount()
+      delete g.ReactNativeWebView
+      delete g.mycelMobile
     }
   })
 })

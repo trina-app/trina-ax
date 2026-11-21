@@ -10,6 +10,7 @@
 import crypto from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
+import { isRunPlaceholder } from './srt/placeholders'
 
 export const SKIP_NAMES: ReadonlySet<string> = new Set(['node_modules', '.git', 'dist', 'build', '.next', '.venv', '__pycache__', '.cache', '.turbo', '.svelte-kit', '.parcel-cache'])
 export const skipName = (n: string) => SKIP_NAMES.has(n) || n === '.env' || n.startsWith('.env.') || n.startsWith('.env-')
@@ -113,6 +114,8 @@ export function takeSnapshot(root: string, folder: string, prev: Manifest | null
       if (truncated) return
       if (skipName(e.name)) continue
       const r = rel ? `${rel}/${e.name}` : e.name
+      // the empty names this server made for a run (srt's mount points) are no change of the folder (QA TC-5349)
+      if (isRunPlaceholder(path.join(root, r))) continue
       if (e.isDirectory()) { walk(r); continue }
       if (!e.isFile()) continue
       if (++count > SNAPSHOT_MAX_FILES) { truncated = true; return }

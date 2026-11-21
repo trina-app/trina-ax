@@ -557,6 +557,33 @@ pk_fetch https://example.com/x "" "" "${d}/x" || echo no-hash-refused`, { PK_BUN
     fs.rmSync(d, { recursive: true, force: true })
   })
 
+  test('a sha256 in the requirements is 64 hex characters: 63 or 65 stop it', () => {
+    const d = fs.mkdtempSync(path.join(os.tmpdir(), 'pk-py-'))
+    for (const h of ['a'.repeat(63), 'a'.repeat(65), 'g'.repeat(64)]) {
+      const l = clone(); l.python!['workspace-mcp']!.requirements = { [`workspace-mcp==${l.python!['workspace-mcp']!.version}`]: h }
+      fs.writeFileSync(path.join(d, 'l.json'), JSON.stringify(l))
+      const r = lib(`pk_load "${d}/l.json"; pk_python_requirements workspace-mcp >/dev/null || echo refused`, { PK_BUN: process.execPath })
+      expect(r.out.trim()).toBe('refused')
+      expect(r.err).toContain('not a sha256')
+    }
+    fs.rmSync(d, { recursive: true, force: true })
+  })
+
+  // TC-2848: Debian 12's awk (mawk 1.3.4 20200120) has no regex intervals: /^[0-9a-f]{64}$/ matches nothing there, so
+  // workspace-mcp never installed. No awk regex in the Linux install scripts may use {n} (bash's [[ =~ ]] may).
+  test('no awk regex in the Linux install scripts uses an interval {n}', () => {
+    const awkRegex = /(?:~\s*|[(,']\s*)\/((?:[^/\\\n]|\\.)+)\//g
+    let seen = 0
+    for (const f of [...INSTALLERS, 'scripts/system/packages.sh']) {
+      const code = codeLines(f).map(([, l]) => l).join('\n')
+      for (const m of code.matchAll(awkRegex)) {
+        seen++
+        expect(`${f}: ${m[1]}`).not.toMatch(/\{[0-9]+(,[0-9]*)?\}/)
+      }
+    }
+    expect(seen).toBeGreaterThan(10)
+  })
+
   // a fake python3: -c answers the version check (too old while <d>/old exists); -m venv DIR makes a venv whose python
   // stands for pip: it records its arguments and the requirements it got, and puts a program that starts (unless
   // <d>/broken exists; it fails while <d>/pip-fails exists)
@@ -724,6 +751,7 @@ describe('every install path reads the list', () => {
     'tests/linux/Dockerfile': { why: 'the Linux test container (its pandoc and typst for the tests)', lines: ['typst-$T-unknown-linux-musl.tar.xz'] },
     'tests/linux/Dockerfile.srt': { why: 'the srt attack test container: its node is the list\'s (checked below)', lines: ['no node pin for $TARGETARCH'] },
     'scripts/vm/macos-vm.sh': { why: 'the digest of the macOS test VM image', lines: ['ghcr.io/cirruslabs/macos-tahoe-base@sha256:'] },
+    'scripts/macos/release-runner/setup.sh': { why: 'the self-hosted release runner host: the GitHub Actions runner tarball, which the list does not hold (its Node.js comes from the list)', lines: ['RUNNER_SHA256='] },
   }
   /** is this command of file f allowed by the list (a command that holds one of the file's fragments)? */
   const allowedBy = (list: Record<string, Allow>, f: string, l: string) => !!list[f]?.lines.some((x) => l.includes(x))

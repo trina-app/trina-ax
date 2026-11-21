@@ -124,7 +124,7 @@ describe('wiring', () => {
 
   test('the width comes from the remembered share, is saved when a drag ends, and the keyboard goes back', () => {
     expect(win).toContain('this.paneFraction = readPaneFraction(saved.paneFraction)')
-    expect(win).toContain('const pw = this.pane?.open ? paneWidthFor(this.paneFraction, w) : 0')
+    expect(win).toContain('const pw = this.paneShown() ? paneWidthFor(this.paneFraction, w) : 0')
     expect(win).toMatch(/if \(phase === 'reset'\) this\.setPaneFraction\(null\)\s*this\.saveWindow\(\)/)
     expect(win).toContain('this.keysAfterDrag(press)')
     // back only where the toolbar still has the keyboard, to a view still on screen, never over a dialog or menu
@@ -133,7 +133,8 @@ describe('wiring', () => {
   })
 
   test('the edge is never left hidden: a loaded toolbar is told again, an older answer never overrides a told width', () => {
-    expect(win).toMatch(/this\.chrome\.webContents\.on\('did-finish-load', \(\) => \{\s*this\.paneWidthTold = ''\s*this\.sendPaneWidth\(\)/)
+    // (layout() tells the width; the browser is drawn again once its toolbar is back, common/pane-chrome.ts)
+    expect(win).toMatch(/this\.chrome\.webContents\.on\('did-finish-load', \(\) => \{[\s\S]*?this\.paneWidthTold = ''\s*this\.sendPaneWidth\(\)/)
     expect(ui).toMatch(/ui\.pane\.onWidth\(\(w: PaneWidth\) => \{\s*widthTold = true\s*applyWidth\(w\)/)
     expect(ui).toContain('if (w && !widthTold) applyWidth(w)')
   })
@@ -141,7 +142,8 @@ describe('wiring', () => {
   test('the toolbar view reaches over the team page\'s edge, transparent there, and stays above it', () => {
     expect(win).toContain("this.chrome.setBackgroundColor('#00000000')")
     expect(pane).toContain('chrome.setBounds({ x: b.x - grab, y: b.y, width: b.width + grab, height: b.height })')
-    expect(pane).toMatch(/if \(at < 0 \|\| views\.children\.slice\(at \+ 1\)\.some\(\(v\) => !tabViews\.has\(v\)\)\) \{[^}]*views\.addChildView\(chrome\)/)
+    // raised over any view put above it, except its own tab and the window's overlays (the find bar)
+    expect(pane).toMatch(/if \(at < 0 \|\| views\.children\.slice\(at \+ 1\)\.some\(\(v\) => !tabViews\.has\(v\) && !overlays\.has\(v\)\)\) \{[^}]*views\.addChildView\(chrome\)/)
     expect(css).toMatch(/html\.pane,\s*body\.pane \{\s*background: transparent;/)
     // the handle and the pane's box are made once: a re-render does not end a drag
     expect(ui).toContain('root.replaceChildren(edge, main)')

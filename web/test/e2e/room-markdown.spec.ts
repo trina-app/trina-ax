@@ -50,9 +50,11 @@ test('a room message in Markdown: formatting, line breaks, a mention and a plain
   await expect(rich.locator('p code').first()).toHaveText('code')
   await expect(rich.locator('ul > li')).toHaveText(['one', 'two'])
   await expect(rich.locator('pre')).toContainText('const a = 1')
-  await expect(rich.locator('br')).toHaveCount(1)
+  // one line break in the words; each blank line between the blocks is an empty line of its own (QA TC-4964)
+  await expect(rich.locator('br:not([data-blank-lines] br)')).toHaveCount(1)
+  await expect(rich.locator('[data-blank-lines="1"]')).toHaveCount(3)
   // the mention is me: the accent colour on its soft background
-  await expect(rich.locator('span.text-accent-text.bg-accent-soft', { hasText: '@Olga' })).toBeVisible()
+  await expect(rich.locator('button.text-accent-text.bg-accent-soft', { hasText: '@Olga' })).toBeVisible()
   const plain = rich.getByTestId('room-link').filter({ hasText: 'example.com' })
   await expect(plain).toHaveAttribute('href', 'https://example.com/a')
   const trina = rich.getByRole('link', { name: 'Trina' })
@@ -154,4 +156,81 @@ test('messages nested thousands deep do not take the room down; links show where
   for (const [i, real] of [[9, '(evil.example)'], [10, '(evil.example)'], [12, '(x@evil.example)']] as const) await expect(msgs.nth(i).locator('[data-real-address]')).toHaveText(real)
   await expect(msgs.nth(11).getByRole('link', { name: 'https://evil.example/b' })).toBeVisible()
   if (process.env.SHOTS_DIR) await page.screenshot({ path: `${process.env.SHOTS_DIR}/room-markdown-deep-390.png`, fullPage: true })
+})
+
+// QA TC-4964: blank lines show as typed (lib/messageMarkdown.ts keepBlankLines): the owner's "hei", a blank line,
+// "I test", two blank lines, "you" has one empty line and then two, in a room and a thread reply, at 1440 and 390; a
+// message of thousands of line breaks draws at most MAX_BLANK_LINES (5) empty lines.
+const OWNER = 'hei\n\nI test\n\n\nyou'
+
+/** the gaps between the paragraphs of a message's words, in its own line heights */
+const gaps = (words: ReturnType<Page['getByTestId']>) =>
+  words.evaluate((el) => {
+    const ps = [...el.querySelectorAll(':scope > p')]
+    const line = parseFloat(getComputedStyle(el).lineHeight)
+    return ps.slice(1).map((p, i) => Math.round(((p.getBoundingClientRect().top - ps[i]!.getBoundingClientRect().bottom) / line) * 10) / 10)
+  })
+
+for (const width of [1440, 390])
+  test(`blank lines as typed in a room and a thread reply (${width})`, async ({ page }) => {
+    await page.setViewportSize({ width, height: width > 800 ? 900 : 844 })
+    await reset(page)
+    await routeRoom(page, {
+      members: [SORA],
+      messages: [
+        { id: id(60), author: SORA, body: OWNER },
+        { id: id(61), author: SORA, body: 'many' + '\n'.repeat(3000) + 'breaks' },
+        { id: id(62), author: SORA, body: OWNER, threadRootId: id(60) },
+      ],
+    })
+    await signIn(page)
+    await page.goto(`/rooms/${ROOM_ID}`)
+    const msgs = page.getByTestId('room-message')
+    await expect(msgs).toHaveCount(2)
+    expect(await gaps(msgs.nth(0).getByTestId('message-markdown'))).toEqual([1, 2])
+    // thousands of line breaks: a few empty lines, not a screen of them
+    const many = msgs.nth(1).getByTestId('message-markdown')
+    await expect(many).toContainText('breaks')
+    const tall = await many.evaluate((el) => el.getBoundingClientRect().height / parseFloat(getComputedStyle(el).lineHeight))
+    expect(tall).toBeLessThanOrEqual(2 + 5 + 0.5)
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width)
+    if (process.env.SHOTS_DIR) await page.screenshot({ path: `${process.env.SHOTS_DIR}/room-blank-lines-${width}.png` })
+    await page.goto(`/rooms/${ROOM_ID}/t/${id(60)}`)
+    const reply = page.getByTestId('room-message').filter({ hasText: 'I test' }).last()
+    await expect(reply).toBeVisible()
+    expect(await gaps(reply.getByTestId('message-markdown'))).toEqual([1, 2])
+    if (process.env.SHOTS_DIR) await page.screenshot({ path: `${process.env.SHOTS_DIR}/thread-blank-lines-${width}.png` })
+  })
+
+// QA TC-4967 (review of #1310): the blocks around empty lines have no margin of their own there, so the gap is the lines
+// typed; a link definition adds no empty line.
+test('blocks after blank lines sit at the gap typed; a link definition adds none', async ({ page }) => {
+  await reset(page)
+  const blocks = 'top\n\n\n```\ncode\n```\n\n\n# Heading\n\n\n> quote\n\n\n|a|b|\n|-|-|\n|1|2|\n\n\n---\n\n\nend'
+  await routeRoom(page, {
+    members: [SORA],
+    messages: [
+      { id: id(70), author: SORA, body: blocks },
+      { id: id(71), author: SORA, body: 'see [docs][r]\n\n[r]: https://example.com/d\n\nafter' },
+    ],
+  })
+  await signIn(page)
+  await page.goto(`/rooms/${ROOM_ID}`)
+  const msgs = page.getByTestId('room-message')
+  await expect(msgs).toHaveCount(2)
+  // each spacer: from the block before it to the block after it is exactly its lines
+  const gaps = (n: number) =>
+    msgs.nth(n).getByTestId('message-markdown').evaluate((el) => {
+      const line = parseFloat(getComputedStyle(el).lineHeight)
+      return [...el.querySelectorAll(':scope > [data-blank-lines]')].map((s) => {
+        const prev = s.previousElementSibling!.getBoundingClientRect()
+        const next = s.nextElementSibling!.getBoundingClientRect()
+        return { lines: Number(s.getAttribute('data-blank-lines')), gap: Math.round(((next.top - prev.bottom) / line) * 10) / 10, next: s.nextElementSibling!.tagName }
+      })
+    })
+  const g = await gaps(0)
+  expect(g.length).toBe(6)
+  for (const x of g) expect(x, JSON.stringify(g)).toMatchObject({ gap: x.lines })
+  // "see docs", one empty line, "after": the hidden definition's line and its second blank line add nothing
+  expect((await gaps(1)).map((x) => x.lines)).toEqual([1])
 })

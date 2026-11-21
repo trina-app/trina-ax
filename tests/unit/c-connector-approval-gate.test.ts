@@ -42,7 +42,7 @@ interface Asker { answer: 'yes' | 'always' | 'no'; cards: Card[] }
 const asker = (answer: Asker['answer']): Asker => ({ answer, cards: [] })
 
 /** `live` (default on): the person watches the turn in their own app (TurnPerson.allSitesHere); off: a Slack question */
-function turn(user: Person, o: { person?: Asker; scheduled?: boolean; chat?: string; roomsSeen?: boolean; live?: boolean } = {}) {
+function turn(user: Person, o: { person?: Asker; scheduled?: boolean; chat?: string; roomsSeen?: boolean; live?: boolean; othersWords?: boolean } = {}) {
   const chat = o.chat ?? A.chat(user)
   const turnId = A.turn(user, chat)
   const built = integrationToolProvider(A.ctx).build({ userId: user, chatId: chat, turnId, browser: false, scheduled: !!o.scheduled })
@@ -62,6 +62,7 @@ function turn(user: Person, o: { person?: Asker; scheduled?: boolean; chat?: str
       allSitesHere: () => o.live !== false && !o.scheduled,
       ...(o.roomsSeen ? { roomsSeen: true } : {}),
       ...(o.scheduled ? { unattended: true } : {}),
+      ...(o.othersWords !== undefined ? { othersWords: () => o.othersWords! } : {}),
     }
   }
   const tc: TurnToolContext = { turnId, chatId: chat, userId: user, messageId: 'm', locale: 'en', signal: new AbortController().signal, files }
@@ -172,7 +173,9 @@ describe('TC-130: Send once, Always allow, Don\'t send on every card', () => {
     // Always allow: sent, and kept as her own rule (audited)
     expect((await turn('alice', { person: asker('always') }).call('my_tasks__create_task', { title: 'always' })).isError).toBe(false)
     expect((A.ctx.db.query('SELECT write_policy FROM integrations WHERE id = ?').get(tasks.id) as { write_policy: string }).write_policy).toBe('allow')
-    expect(A.ctx.db.query("SELECT detail FROM audit_log WHERE action = 'integration.update' AND target = ? AND detail LIKE '%\"via\":\"card\"%'").get(tasks.id)).toBeTruthy()
+    const kept = A.ctx.db.query("SELECT detail FROM audit_log WHERE action = 'integration.update' AND target = ? AND detail LIKE '%\"via\":\"card\"%'").get(tasks.id) as { detail: string } | null
+    // with its kind, so Admin › Activity log names an API connection as one (QA TC-3054)
+    expect(JSON.parse(kept!.detail)).toMatchObject({ scope: 'personal', kind: 'mcp', changed: ['writePolicy'], via: 'card' })
     const quiet = asker('no')
     expect((await turn('alice', { person: quiet }).call('my_tasks__create_task', { title: 'quiet' })).isError).toBe(false)
     expect(quiet.cards).toEqual([])
@@ -375,5 +378,31 @@ describe('Always allow on the connector card: the team\'s switch and a watched t
       updateTeamSettings(A.ctx.db, { roomAlwaysAllow: true })
       await json('alice', `/api/integrations/${teamAsk.id}/always-allow`, 'DELETE')
     }
+  })
+})
+
+// docs/decisions/20261116-no-card-after-explicit-ask.md, 20261116-always-allow-final-rule-a.md: the explicit-ask skip is our
+// own text match, not the person's choice, so it never applies where the chat holds other people's words
+describe('the explicit-ask skip for a connector write', () => {
+  /** a turn whose user message is `said` */
+  function asked(user: Person, said: string, o: Parameters<typeof turn>[1]) {
+    const chat = A.chat(user)
+    const t = turn(user, { ...o, chat })
+    const m = crypto.randomUUID()
+    A.ctx.db.query("INSERT INTO messages (id, chat_id, role, author_id, content, status) VALUES (?, ?, 'user', ?, ?, 'done')").run(m, chat, user, said)
+    A.ctx.db.query('UPDATE turns SET user_message_id = ? WHERE id = ?').run(m, t.turnId)
+    return t
+  }
+  test('a clean chat: no card; a chat with other people\'s words: the card', async () => {
+    const said = "할 일 'call the printer' 추가해줘"
+    const clean = asker('no')
+    const n0 = created()
+    expect((await asked('bob', said, { person: clean, othersWords: false }).call('team_teamboard__create_task', { title: 'call the printer' })).isError).toBe(false)
+    expect(clean.cards).toHaveLength(0)
+    expect(created()).toBe(n0 + 1)
+    const marked = asker('no')
+    expect((await asked('bob', said, { person: marked, othersWords: true }).call('team_teamboard__create_task', { title: 'call the printer' })).isError).toBe(true)
+    expect(marked.cards).toHaveLength(1)
+    expect(created()).toBe(n0 + 1)
   })
 })

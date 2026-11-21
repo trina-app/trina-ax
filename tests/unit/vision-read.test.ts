@@ -7,16 +7,19 @@ import fs from 'node:fs'
 import path from 'node:path'
 import zlib from 'node:zlib'
 import { makeCApp, type CApp } from '../lib/c-app'
-import { makePng } from '../lib/images'
+import { makePng, pngOf } from '../lib/images'
 import { CCITT_SCAN, makePagesPdf, makePdf } from '../lib/pdf'
 import { makeHandler } from '../../server/src/mcp/protocol'
 import { send, flush } from '../../server/src/mcp/socket'
 import { nativeBinDir, ocrBin, which } from '../../server/src/config'
 import { isolation } from '../../server/src/tools/isolate'
 import { heicTools } from '../../server/src/files/heic-preview'
-import { imageTokens, PDF_PAGES_PER_READ, READ_OUTPUT_TOKENS, textTokens, VISION_SIDE_MAX, VISION_TURN_BYTES, VISION_TURN_IMAGES, parsePages, visionTools } from '../../server/src/files/vision'
+import { imageTokens, PDF_PAGES_PER_READ, READ_OUTPUT_TOKENS, WHOLE_PDF_RULE, textTokens, VISION_FITTED_IMAGES, VISION_SIDE_MAX, VISION_SMALL_BYTES, VISION_SMALL_SIDE, VISION_TURN_BYTES, VISION_TURN_FULL, VISION_TURN_FULL_BYTES, VISION_TURN_FULL_NEW, VISION_TURN_IMAGES, b64Len, parsePages, sessionPicturesKept, setApiVisionTurn, smallForModel, turnImageCaps, visionTools } from '../../server/src/files/vision'
+import { issueProxyToken, PROXY_BODY_MAX } from '../../server/src/proxy/model-proxy'
 import { confidentialChat } from '../../server/src/safe-ops/confidential'
 import { TurnFiles } from '../../server/src/files/service'
+import { CHAT_FILE_DESCRIPTION } from '../../server/src/chat/chat-file-tool'
+import { FILE_TOOLS } from '@mycel/shared'
 
 setDefaultTimeout(60_000)
 // making the fixture team (pandoc, an app) can take long on a busy CI machine: a hook that times out keeps running into
@@ -205,6 +208,8 @@ describe('PDF pages (Claude Code Read contract)', () => {
     const no = await h.call('read', { file_path: `${ALICE}/eleven.pdf` })
     expect(no.result.isError).toBe(true)
     expect(texts(no)).toContain('has 11 pages: read it in parts with pages')
+    // QA AP-004: a whole-document question reads every page, not a grep sample
+    expect(texts(no)).toContain(WHOLE_PDF_RULE)
     const some = await h.call('read', { file_path: `${ALICE}/eleven.pdf`, pages: '10-11' })
     expect(texts(some)).toContain('This is page number 11')
     expect(texts(some)).not.toContain('This is page number 9 ')
@@ -278,6 +283,49 @@ describe('PDF pages (Claude Code Read contract)', () => {
     } finally { page.mockRestore() }
   })
 
+  // QA AP-004 (owner decision b): the read tools' own words say a whole-document question reads every page in parts
+  test('the read and chat_file descriptions and the cut note say to read every page for a whole-document question', async () => {
+    expect(WHOLE_PDF_RULE).toContain('read every page in parts of 20')
+    expect(FILE_TOOLS.read.description).toContain(WHOLE_PDF_RULE)
+    expect(CHAT_FILE_DESCRIPTION).toContain(WHOLE_PDF_RULE)
+    const ctx = A.toolCtx('alice' as any, A.turn('alice', A.chat('alice')))
+    const r = await A.ctx.files.pdfPagesForModel(ctx, { label: `${ALICE}/k.pdf`, bytes: new Uint8Array(), layers: dense(18) }, Array.from({ length: 18 }, (_, i) => i + 1))
+    expect(r.notes.join('\n')).toContain(WHOLE_PDF_RULE)
+  })
+
+  // QA AP-004: page text counted only in characters (200,000): 18 dense Korean pages are about 34,000 tokens, and
+  // Claude Code cut the result past 25,000 without a word. Text pages that would pass the limit wait for the next call
+  // (the text layers are given: a generated PDF holds only what fits on its page)
+  const dense = (n: number) => Array.from({ length: n }, (_, i) => `밀집 페이지 ${i + 1} 시작.\n${'한국어 문서의 촘촘한 본문 내용입니다. '.repeat(90)}`)
+  const pdfText = (r: { content: any[] }) => r.content.filter((c) => c.type === 'text').map((c) => c.text).join('\n')
+  test('page text that would pass the tool output limit waits for the next call, which reads it', async () => {
+    const layers = dense(18) // about 1,900 tokens a page, 34,000 in all; 37,000 characters, far under the old cap
+    const ctx = A.toolCtx('alice' as any, A.turn('alice', A.chat('alice')))
+    const doc = { label: `${ALICE}/korean.pdf`, bytes: new Uint8Array(), layers }
+    const all = Array.from({ length: 18 }, (_, i) => i + 1)
+    const first = await A.ctx.files.pdfPagesForModel(ctx, doc, all)
+    const firstText = pdfText(first) + '\n' + first.notes.join('\n')
+    expect(textTokens(firstText)).toBeLessThanOrEqual(READ_OUTPUT_TOKENS)
+    const m = /Not shown in this read: pages (\d+)-18 .*pages: "(\d+)-18"/.exec(firstText)
+    expect(m).not.toBeNull()
+    const next = Number(m![1])
+    expect(next).toBeGreaterThan(5)
+    expect(firstText).toContain(`밀집 페이지 ${next - 1} 시작.`)
+    expect(firstText).not.toContain(`밀집 페이지 ${next} 시작.`)
+    const rest = await A.ctx.files.pdfPagesForModel(ctx, doc, all.slice(next - 1))
+    expect(pdfText(rest)).toContain(`밀집 페이지 ${next} 시작.`)
+    expect(pdfText(rest)).toContain('밀집 페이지 18 시작.')
+    expect(rest.notes.join('\n')).not.toContain('Not shown in this read')
+  })
+
+  test('one page alone over the tool output limit: its text is cut to fit and says how to read the rest', async () => {
+    const ctx = A.toolCtx('alice' as any, A.turn('alice', A.chat('alice')))
+    const r = await A.ctx.files.pdfPagesForModel(ctx, { label: `${ALICE}/huge.pdf`, bytes: new Uint8Array(), layers: ['한국어 계약서 조항. '.repeat(5000)] }, [1])
+    expect(textTokens(pdfText(r))).toBeLessThanOrEqual(READ_OUTPUT_TOKENS)
+    expect(pdfText(r)).toContain('page text cut: the page alone passes the tool output limit')
+    expect(r.notes).toEqual([])
+  })
+
   test.skipIf(!pageRenderer)('line reads name the scanned pages to read as images', async () => {
     const r = await handler('alice', A.turn('alice', A.chat('alice'))).call('read', { file_path: `${ALICE}/mixed.pdf`, offset: 1 })
     expect(texts(r)).toContain('Pages without a text layer (scans or pictures): 2.')
@@ -295,13 +343,124 @@ describe('per-turn image budget', () => {
       expect(images(await h.call('read', { file_path: `${ALICE}/photo.png` }))).toHaveLength(1)
       const full = await h.call('read', { file_path: `${ALICE}/photo.png` })
       expect(images(full)).toEqual([])
-      expect(texts(full)).toContain('image limit')
+      expect(texts(full)).toContain('as many as one answer can hold')
       expect(codec.mock.calls.length).toBe(1) // nothing converted once the budget is used up
       const h2 = handler('alice', A.turn('alice', A.chat('alice')))
       h2.ctx.files.imageBytes = VISION_TURN_BYTES - 2
       const over = await h2.call('read', { file_path: `${ALICE}/photo.png` })
       expect(images(over)).toEqual([])
-      expect(texts(over)).toContain('image limit')
+      expect(texts(over)).toContain('as many as one answer can hold')
+    } finally { codec.mockRestore() }
+  })
+
+  test('the cap note does not send the person to a new message (limits audit #4, QA TC-4907)', async () => {
+    const h = handler('alice', A.turn('alice', A.chat('alice')))
+    const codec = spyOn(A.ctx.files, 'modelImage').mockResolvedValue(fakeJpeg)
+    try {
+      h.ctx.files.imageCount = VISION_TURN_IMAGES
+      const t = texts(await h.call('read', { file_path: `${ALICE}/photo.png` }))
+      expect(t).toContain(`already looked at ${VISION_TURN_IMAGES} images`)
+      expect(t).toContain('name the files you did not look at')
+      expect(t).not.toContain('new message')
+    } finally { codec.mockRestore() }
+  })
+
+  test('a turn whose requests the model proxy fits: more images than one request holds, up to what the proxy takes in', async () => {
+    const turn = A.turn('alice', A.chat('alice'))
+    issueProxyToken(A.ctx.db, turn, 'alice', { family: 'anthropic' })
+    const h = handler('alice', turn)
+    const codec = spyOn(A.ctx.files, 'modelImage').mockResolvedValue(fakeJpeg)
+    try {
+      h.ctx.files.imageCount = VISION_TURN_IMAGES + 10
+      const shown = await h.call('read', { file_path: `${ALICE}/photo.png` })
+      expect(images(shown)).toHaveLength(1)
+      h.ctx.files.imageCount = VISION_FITTED_IMAGES
+      expect(images(await h.call('read', { file_path: `${ALICE}/photo.png` }))).toEqual([])
+    } finally { codec.mockRestore() }
+  })
+
+  test.skipIf(!realConverter)('with or without the proxy: after the first full-size images, the next ones go smaller', async () => {
+    put(`${ALICE}/big.png`, makePng(2400, 1800))
+    const fitted = A.turn('alice', A.chat('alice'))
+    issueProxyToken(A.ctx.db, fitted, 'alice', { family: 'anthropic' })
+    const hf = handler('alice', fitted)
+    hf.ctx.files.fullCount = VISION_TURN_FULL_NEW
+    // the engine's own request must still reach the proxy (PROXY_BODY_MAX): the source sends later pictures smaller too
+    expect(jpegSize(images(await hf.call('read', { file_path: `${ALICE}/big.png` }))[0].data)).toEqual({ width: VISION_SMALL_SIDE, height: 576 })
+    put(`${ALICE}/big2.png`, makePng(2400, 1800))
+    const h = handler('alice', A.turn('alice', A.chat('alice')))
+    const first = images(await h.call('read', { file_path: `${ALICE}/big.png` }))[0]
+    expect(jpegSize(first.data)).toEqual({ width: VISION_SIDE_MAX, height: 1176 })
+    expect(h.ctx.files.fullCount).toBe(1)
+    h.ctx.files.fullCount = VISION_TURN_FULL_NEW
+    const later = images(await h.call('read', { file_path: `${ALICE}/big2.png` }))[0]
+    expect(jpegSize(later.data)).toEqual({ width: VISION_SMALL_SIDE, height: 576 })
+    expect(Buffer.from(later.data, 'base64').length).toBeLessThanOrEqual(VISION_SMALL_BYTES)
+    // the same picture read a second time in this answer comes back at full size, from the same full-size allowance
+    // (VISION_TURN_FULL with the new ones): the read tool says "up to 4 times an answer"
+    for (let k = VISION_TURN_FULL_NEW; k < VISION_TURN_FULL; k++) {
+      expect(jpegSize(images(await h.call('read', { file_path: `${ALICE}/big2.png` }))[0].data)).toEqual({ width: VISION_SIDE_MAX, height: 1176 })
+    }
+    expect(h.ctx.files.fullCount).toBe(VISION_TURN_FULL)
+    expect(jpegSize(images(await h.call('read', { file_path: `${ALICE}/big2.png` }))[0].data)).toEqual({ width: VISION_SMALL_SIDE, height: 576 })
+    // a picture that is small already, or no picture at all: null (the caller keeps what it has)
+    expect(await smallForModel(Buffer.from(later.data, 'base64'), TOOLS)).toBeNull()
+    expect(await smallForModel(fakeJpeg, TOOLS)).toBeNull()
+  })
+
+  test.skipIf(!pageRenderer)('scanned pages go smaller after the first 12 too: 36 + 20 pages over two answers stay small', async () => {
+    put(`${ALICE}/scans36.pdf`, makePagesPdf(Array.from({ length: 36 }, () => ({ image: CCITT_SCAN }))))
+    put(`${ALICE}/scans20.pdf`, makePagesPdf(Array.from({ length: 20 }, () => ({ image: CCITT_SCAN }))))
+    let b64 = 0
+    for (const [file, n] of [['scans36.pdf', 36], ['scans20.pdf', 20]] as const) {
+      const h = handler('alice', A.turn('alice', A.chat('alice'))) // a new answer each: the turn's counts start again
+      for (let p = 1; p <= n; p++) {
+        const [img] = images(await h.call('read', { file_path: `${ALICE}/${file}`, pages: String(p) }))
+        expect(img, `${file} page ${p}`).toBeDefined()
+        b64 += img.data.length
+        const { width, height } = jpegSize(img.data)!
+        if (p > VISION_TURN_FULL_NEW) {
+          expect(Math.max(width, height), `${file} page ${p}`).toBeLessThanOrEqual(VISION_SMALL_SIDE)
+          expect(Buffer.from(img.data, 'base64').length).toBeLessThanOrEqual(VISION_SMALL_BYTES)
+        } else expect(Math.max(width, height)).toBe(VISION_SIDE_MAX)
+      }
+    }
+    // what the engine carries for both answers: at most 2 x 12 full pages and 32 smaller ones, far under the proxy's limit
+    expect(b64).toBeLessThan(2 * VISION_TURN_FULL_BYTES + 32 * Math.ceil(VISION_SMALL_BYTES / 3) * 4)
+    expect(b64).toBeLessThan(PROXY_BODY_MAX / 2)
+  })
+
+  test.skipIf(!realConverter)('six answers heavy with photos in one engine session stay under what one request may carry', async () => {
+    // a noisy photo: about 1 MB as the model's JPEG, like a phone photo
+    let seed = 7
+    const noise = () => { seed = (seed * 1103515245 + 12345) & 0x7fffffff; return seed & 255 }
+    const photo = await A.ctx.files.modelImage('noise.png', pngOf(1800, 1350, () => [noise(), noise(), noise()]))
+    expect(photo.length).toBeGreaterThan(500_000)
+    const codec = spyOn(A.ctx.files, 'modelImage').mockResolvedValue(photo)
+    try {
+      for (let i = 0; i < 30; i++) put(`${ALICE}/ph-${i}.png`, makePng(8, 8))
+      // what the engine session brings into each answer: no slimming (the worst case), and a session past half the caps
+      // is not kept (chat/turn.ts stashSession), so the answer after it starts fresh
+      let carried = { count: 0, bytes: 0 }
+      let resumed = 0
+      for (const [answer, n] of [10, 30, 6, 20, 8, 30].entries()) {
+        const turn = A.turn('alice', A.chat('alice'))
+        const h = handler('alice', turn)
+        h.ctx.files.carriedImages = carried.count
+        h.ctx.files.carriedBytes = carried.bytes
+        let shown = 0
+        for (let i = 0; i < n; i++) shown += images(await h.call('read', { file_path: `${ALICE}/ph-${i}.png` })).length
+        const caps = turnImageCaps(A.ctx.db, turn)
+        const request = carried.bytes + b64Len(h.ctx.files.imageBytes)
+        expect(request, `answer ${answer + 1}`).toBeLessThanOrEqual(caps.bytes)
+        expect(request).toBeLessThan(PROXY_BODY_MAX)
+        expect(carried.count + h.ctx.files.imageCount).toBeLessThanOrEqual(caps.images)
+        expect(shown, `answer ${answer + 1}: every photo shown`).toBe(n)
+        const kept = { count: carried.count + h.ctx.files.imageCount, bytes: request }
+        if (carried.count) resumed++
+        carried = sessionPicturesKept(kept, caps) ? kept : { count: 0, bytes: 0 }
+      }
+      expect(resumed).toBeGreaterThan(0) // some answers did carry an earlier answer's pictures
     } finally { codec.mockRestore() }
   })
 
@@ -313,7 +472,7 @@ describe('per-turn image budget', () => {
       h.ctx.files.imageCount = VISION_TURN_IMAGES - 2
       const r = await h.call('read', { file_path: `${ALICE}/scans.pdf` })
       expect(images(r)).toHaveLength(2)
-      expect(texts(r).match(/image limit/g)).toHaveLength(2)
+      expect(texts(r).match(/as many as one answer can hold/g)).toHaveLength(2)
       expect(page.mock.calls.length).toBe(2)
     } finally { page.mockRestore() }
   })
@@ -449,8 +608,17 @@ describe('no pixels: team switch off, the API engine, a connection without a tur
       expect(texts(api)).toContain('reads text only')
       A.ctx.db.query("UPDATE users SET locale = 'ko' WHERE id = 'alice'").run()
       const ko = await handler('alice', turn).call('read', { file_path: `${ALICE}/photo.png` })
-      expect(texts(ko)).toContain('API 엔진')
+      expect(texts(ko)).toContain('글자만 읽어서')
       A.ctx.db.query("UPDATE users SET locale = 'en' WHERE id = 'alice'").run()
+      // a model that takes images (engine/api-vision.ts; chat/turn.ts marks its turn): the pixels go, as for Claude Code
+      setApiVisionTurn(turn, true)
+      try {
+        const seen = await handler('alice', turn).call('read', { file_path: `${ALICE}/photo.png` })
+        expect(images(seen)).toHaveLength(1)
+        expect(texts(seen)).not.toContain('reads text only')
+      } finally { setApiVisionTurn(turn, false) }
+      expect(images(await handler('alice', turn).call('read', { file_path: `${ALICE}/photo.png` }))).toEqual([])
+      codec.mockClear()
       const remote = await A.ctx.files.call('read', { file_path: `${ALICE}/photo.png` }, A.toolCtx('alice', null))
       expect(remote.content).toBeUndefined()
       expect(remote.text).toContain('carries text only')

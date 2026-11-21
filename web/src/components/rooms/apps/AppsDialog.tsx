@@ -16,12 +16,13 @@
 // Stripe, Shopify and Zendesk are Other apps with a preset; the screens show them as their service (lib/roomApps.ts
 // serviceOf): the picker's groups with "Needs: …", their guides (PresetSteps), switches, signing and warnings.
 import clsx from 'clsx'
-import { AlertCircle, Check, ChevronLeft, ChevronRight, ExternalLink, Info, PauseCircle, Plus } from 'lucide-react'
+import { AlertCircle, Check, ChevronLeft, ChevronRight, ExternalLink, ImageUp, Info, PauseCircle, Plus, Smile, X } from 'lucide-react'
 import { Fragment, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import { limitResetText } from '@mycel/shared'
 import { ROOM_APP_NAME_MAX, roomAppFormsScript, type RoomApp, type RoomAppCard, type RoomAppList } from '@mycel/shared/api'
 import { api, API, errorText } from '../../../lib/api'
+import { PHOTO_ACCEPT, squarePhoto } from '../../../lib/avatar'
 import { dateBucket, formatNumber, formatShortDateTime, intlTag } from '../../../lib/format'
 import { appStatus, FORM_SERVICES, isPreset, kindOf, MORE_SERVICES, needsOf, notSetUp, NOTHING_YET, PICKER_GROUPS, serviceOf, signingOf, switchesOf, type AppService } from '../../../lib/roomApps'
 import { useLocale, useT } from '../../../i18n'
@@ -30,8 +31,11 @@ import { useRoomApps, type AppsStart } from '../../../store/roomApps'
 import { isOwner, useMe } from '../../../store/session'
 import { toast } from '../../../store/ui'
 import { ListRow } from '../../list/List'
-import { Button, confirmDialog, IconButton, inputCls, Modal, Skeleton, Switch, TextAction } from '../../ui'
+import { Button, confirmDialog, IconButton, inputCls, Modal, Skeleton, Switch, TextAction, useMediaQuery } from '../../ui'
+import { useDevicePick } from '../../DevicePick'
+import { EmojiPanel } from '../../EmojiPicker'
 import { AppCardText } from '../AppCard'
+import { MenuButton, type MenuItem } from '../MenuButton'
 import { useRoomTitle } from '../RoomIcon'
 import { AppTile, SenderTag } from './AppParts'
 import { CopyButton, copyFrom, Fold, Step, useFlash, useNothingYet, useVendor } from './GuideParts'
@@ -97,7 +101,9 @@ export function AppsDialog({ roomId, start }: { roomId: string; start: AppsStart
   const room = useRooms((s) => s.rooms.find((r) => r.id === roomId) ?? null)
   const roomTitle = useRoomTitle()
   const [error, setError] = useState<string | null>(null)
-  const [stack, setStack] = useState<View[]>(start.view === 'auto' ? [] : [start])
+  // a new app's guide opened from elsewhere (Connectors: ?apps=add:<service>) has the picker under it, so Back offers
+  // the other services
+  const [stack, setStack] = useState<View[]>(start.view === 'auto' ? [] : start.view === 'guide' && !start.appId ? [{ view: 'pick' }, start] : [start])
   const pickerPlace = useRef<PickerPlace>({ more: null, scroll: 0 })
   const close = () => useRoomApps.getState().close()
   // the list once when the dialog opens (and for another room); after that only useLive polls, while an app waits.
@@ -146,7 +152,7 @@ export function AppsDialog({ roomId, start }: { roomId: string; start: AppsStart
             </IconButton>
           )}
           {/* one app's settings: its mark, the name it was given and, small, which kind it is */}
-          {view?.view === 'settings' && app && <AppTile service={svc(app)} size="title" />}
+          {view?.view === 'settings' && app && <AppTile service={svc(app)} app={app} size="title" />}
           <span className="truncate" data-testid="apps-title">{title}</span>
           {view?.view === 'settings' && app && app.name !== kindLabel(svc(app)) && (
             <span className="shrink-0 text-xs font-normal text-muted" data-testid="apps-title-kind">{kindLabel(svc(app))}</span>
@@ -287,7 +293,7 @@ function AppList({ list, onOpen, onAdd }: { list: RoomAppList; onOpen: (id: stri
             <ListRow
               key={a.id}
               onClick={() => onOpen(a.id)}
-              lead={<AppTile service={svc(a)} size="row" />}
+              lead={<AppTile service={svc(a)} app={a} size="row" />}
               strong
               name={a.name}
               meta={a.leaverKnows ? <span className="text-warn">{t('roomApps.leaverKnows')}</span>
@@ -427,6 +433,71 @@ function NameField({ value, onChange, onCommit, error, testId }: { value: string
   )
 }
 
+/** A plain Other app's icon (docs/decisions/20261116-other-app-icon.md): its tile and one "Change icon" menu: Upload an
+ * image (cut to a square and scaled in the browser as a profile photo, lib/avatar.ts; the server checks again), Pick an
+ * emoji, and Remove icon (back to its name's first letter) while it has one. Only shown to the people who manage the
+ * room's apps (this dialog's rule); the server checks again. */
+function IconField({ roomId, app }: { roomId: string; app: RoomApp }) {
+  const t = useT()
+  const locale = useLocale()
+  const file = useRef<HTMLInputElement>(null)
+  // the picker sits under the whole row, its right edge on the dialog's (by the narrow button it ran out of the dialog)
+  const row = useRef<HTMLDivElement>(null)
+  const [picking, setPicking] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const done = (a: RoomApp) => {
+    useRoomApps.getState().put(a)
+    useRooms.getState().appIconChanged(roomId, a.id, a.icon)
+  }
+  const run = async (f: () => Promise<RoomApp>) => {
+    setBusy(true)
+    try { done(await f()) } catch (e) { toast({ level: 'error', text: errorText(e, locale, t('error.network')) }) } finally { setBusy(false) }
+  }
+  const params = { id: roomId, appId: app.id }
+  const upload = async (picked: File | undefined) => {
+    if (file.current) file.current.value = ''
+    if (!picked) return
+    const p = await squarePhoto(picked)
+    if (!p) return toast({ level: 'error', text: t('roomApps.iconProblem') })
+    URL.revokeObjectURL(p.url)
+    await run(() => api.call(API.putRoomAppIcon, { params, query: { type: p.type }, body: p.blob }))
+  }
+  // a phone: 사진 보관함 and 파일 in place of the upload row (components/DevicePick.tsx), never iOS's raw menu
+  const phone = useMediaQuery('(max-width: 767.98px)')
+  const device = useDevicePick({ onFiles: (f) => void upload(f[0]), accept: PHOTO_ACCEPT, camera: false, testIds: 'apps-icon' })
+  const items: MenuItem[] = [
+    ...(phone ? device.items : [{ label: t('roomApps.iconUpload'), icon: <ImageUp size={14} aria-hidden />, onSelect: () => file.current?.click(), testId: 'apps-icon-upload' }]),
+    { label: t('roomApps.iconEmoji'), icon: <Smile size={phone ? 18 : 14} className={phone ? 'text-muted' : undefined} aria-hidden />, onSelect: () => setPicking(true), testId: 'apps-icon-emoji' },
+    ...(app.icon ? [{ label: t('roomApps.iconRemove'), icon: <X size={phone ? 18 : 14} className={phone ? 'text-muted' : undefined} aria-hidden />, onSelect: () => void run(() => api.call(API.deleteRoomAppIcon, { params })), testId: 'apps-icon-remove' }] : []),
+  ]
+  return (
+    <div ref={row} className="flex items-center gap-3" data-testid="apps-icon">
+      <AppTile service="other" app={app} size="face" />
+      <MenuButton
+        label={t('roomApps.iconChange')}
+        icon={<span data-testid="apps-icon-change-label">{t('roomApps.iconChange')}</span>}
+        buttonClassName="h-auto! min-h-6 rounded-md p-0! text-sm font-medium text-accent-text! hover:underline hover:bg-transparent! max-md:min-h-11"
+        startAligned
+        compact
+        items={busy ? items.map((it) => ({ ...it, disabled: true })) : items}
+        testId="apps-icon-change"
+      />
+      <input ref={file} type="file" accept={PHOTO_ACCEPT} className="hidden" onChange={(e) => void upload(e.target.files?.[0])} data-testid="apps-icon-file" />
+      {phone && device.inputs}
+      {picking && (
+        <EmojiPanel
+          anchor={row.current}
+          title={t('roomApps.iconEmoji')}
+          recents={false}
+          selected={app.icon && 'emoji' in app.icon ? [app.icon.emoji] : []}
+          onClose={() => setPicking(false)}
+          onPick={(emoji) => { setPicking(false); void run(() => api.call(API.setRoomAppEmoji, { params, body: { emoji } })) }}
+        />
+      )}
+    </div>
+  )
+}
+
 /** Save a new name for an app: on screen at once, the old one back when the server refuses it. */
 function useRename(roomId: string, app: RoomApp | null) {
   const locale = useLocale()
@@ -479,7 +550,7 @@ function HowToSend({ getAddress, className }: { getAddress: () => Promise<string
 }
 
 // ---------------- a preview of the app's messages (no message is posted) ----------------
-function ExamplePreview({ service, name }: { service: AppService; name: string }) {
+function ExamplePreview({ service, name, app }: { service: AppService; name: string; app: RoomApp | null }) {
   const t = useT()
   // Other's card is its text (a title and a line); the services' have a kind line and a status line too
   const head = service !== 'other'
@@ -494,7 +565,7 @@ function ExamplePreview({ service, name }: { service: AppService; name: string }
     <div className="space-y-2 rounded-lg border border-line p-3" data-testid="apps-preview">
       <p className="text-xs text-muted">{t('roomApps.previewLead')}</p>
       <div className="flex gap-2.5">
-        <AppTile service={service} size="face" className="mt-0.5" />
+        <AppTile service={service} app={{ id: app?.id ?? null, name, icon: app?.icon }} size="face" className="mt-0.5" />
         <div className="min-w-0 flex-1">
           <p className="flex min-w-0 items-baseline gap-1.5 text-sm"><span className="truncate font-medium text-ink">{name}</span><SenderTag /></p>
           <AppCardText m={{ app: ref, appCard: card, body: '' }} />
@@ -755,7 +826,7 @@ function Guide({ roomId, service, app, step, onAdded, onDone }: { roomId: string
           </Fold>
         )}
       </div>
-      {preview && <ExamplePreview service={service} name={app?.name ?? (service === 'other' && name.trim() ? name.trim() : t(`roomApps.kind.${service}`))} />}
+      {preview && <ExamplePreview service={service} app={app} name={app?.name ?? (service === 'other' && name.trim() ? name.trim() : t(`roomApps.kind.${service}`))} />}
       <div className="flex flex-wrap items-center justify-end gap-2">
         <Button variant="ghost" onClick={() => setPreview((p) => !p)} aria-expanded={preview} data-testid="apps-example">{preview ? t('roomApps.hideExample') : t('roomApps.showExample')}</Button>
         <Button variant={used ? 'primary' : 'secondary'} onClick={onDone} data-testid="apps-done">{t('roomApps.done')}</Button>
@@ -910,7 +981,8 @@ function Settings({ roomId, roomName, app, available, onGuide, onRemoved }: { ro
         <Warnings items={warnings} />
         {error && <p className="text-xs text-danger" role="alert" data-testid="apps-save-failed">{t('roomApps.saveFailed')}</p>}
       </div>
-      <section className="border-t border-line px-5 py-3 max-sm:px-4">
+      <section className="space-y-3 border-t border-line px-5 py-3 max-sm:px-4">
+        {service === 'other' && <IconField roomId={roomId} app={app} />}
         <NameField value={name} onChange={(x) => { setName(x); rename.setError(null) }} onCommit={() => void rename.save(name)} error={rename.error} testId="apps-name" />
       </section>
       {/* the switches, when there is a choice (Other has one kind of message) */}

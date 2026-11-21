@@ -10,7 +10,7 @@ import { DECK2_KINDS, DECK_ACCENTS_MAX, DECK_FIGURE_FOR, DECK_STRUCTURAL, type D
 import type { WebPart } from './web'
 import type { AppContext } from '../context'
 import type { ToolCtx } from '../files/service'
-import { readCompanyProfile } from '../onboarding/profile'
+import { profileFactsJson, readCompanyProfile } from '../onboarding/profile'
 import { authorize } from '../policy/authorize'
 import { readRegular } from '../files/store'
 import { hasNumber, host, LOGO_MIN_PX, numbersIn, readPicture, signVariants, sourceText, spaced, squash } from '../promo-video/spec'
@@ -162,7 +162,7 @@ export async function readSources(ctx: AppContext, t: ToolCtx, list: string[], p
   for (const raw of list) {
     try {
       const x = authorize(ctx.files.fx, ctx.files.rules(), t.user, raw.replace(/^\/+/, ''), 'read', { mustExist: true })
-      if (own(crypto.createHash('sha256').update(readRegular(x.abs, 60 * 1024 * 1024).bytes).digest('hex'))) problems.push(`source "${raw}" is an intro deck this tool made; name the material it was made from instead`)
+      if (own(crypto.createHash('sha256').update(readRegular(x.abs, 60 * 1024 * 1024, x.st).bytes).digest('hex'))) problems.push(`source "${raw}" is an intro deck this tool made; name the material it was made from instead`)
     } catch { /* sourceText said why */ }
   }
   return src
@@ -290,8 +290,8 @@ export function checkSlide(ctx: AppContext, t: ToolCtx, plan: Plan, src: Sources
   if (!fig && stub.figure && s.kind !== 'about' && s.kind !== 'proof') problems.push(where(`figure: the outline planned a ${stub.figure} here`))
   if (s.kind === 'about' && !fig && !(s.facts?.length)) problems.push(where('give a figure (hub, compare or figures) or the facts'))
   const profile = profileOf(ctx, t)
-  const profileText = profile ? spaced(JSON.stringify(profile)) : ''
-  const known = (x: string) => src.tight.includes(squash(x)) || (profile ? squash(JSON.stringify(profile)).includes(squash(x)) : false)
+  const profileText = profile ? spaced(profileFactsJson(profile)) : ''
+  const known = (x: string) => src.tight.includes(squash(x)) || (profile ? squash(profileFactsJson(profile)).includes(squash(x)) : false)
   // numbers, claims and headlines
   for (const [w, text] of slideTexts2(s)) {
     if (['email', 'phone', 'website'].includes(w)) continue

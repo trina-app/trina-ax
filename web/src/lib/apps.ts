@@ -52,12 +52,15 @@ export function phoneApps(links: AppDownloads, c: AppClient): { rows: AppRow[]; 
 }
 
 /**
- * The desktop apps, Mac then Windows. A Mac with the edition's App Store listing gets only the App Store, everywhere
- * (also on the desktop app from the team server's own row): no installer file from the team server, which is unsigned,
- * brings a macOS security warning and does not update by itself (owner, 2026-11-11). Otherwise a row offers the team
- * server's installers, else the edition's store listing, else its download page. A store build offers no installer
+ * The desktop apps, Mac then Windows. A Mac with the edition's App Store listing or download page gets only that,
+ * everywhere (also on the desktop app from the team server's own row): no installer file from the team server, which
+ * is unsigned, brings a macOS security warning and does not update by itself (owner, 2026-11-11). The download page
+ * offers the signed, notarized dmg, which updates by itself and finds work files on the computer; the Mac App Store
+ * build does neither, so the Trina edition names no App Store listing any more (owner 2026-11-15;
+ * docs/decisions/20261116-desktop-first-onboarding.md). Otherwise a row offers the team server's installers, else the
+ * edition's store listing, else its download page. A store build offers no installer
  * file at all (lib/downloads.ts offeredDownloads; the other computer's row is the listing or the page) and its own row
- * is "This app" with the store's line instead of an action. Without a Mac App Store listing (another edition, a
+ * is "This app" with the store's line instead of an action. Without a Mac App Store listing or a download page (a
  * self-hosted build) the desktop app from the team server marks its own row "This app" and offers the server's
  * installers there. A browser on a Mac or a Windows PC, and the desktop app, keep this computer's row even with nothing
  * to get (it says the server has no such app). Other rows with nothing to offer are left out; with nothing to get at
@@ -68,7 +71,7 @@ export function computerApps(links: AppDownloads, c: AppClient, files: DownloadI
     const thisDevice = c.kind !== 'mobile' && c.here === os
     const thisApp = thisDevice && c.kind === 'desktop'
     const listing = c.store && thisApp ? null : linkFor(links, os, appleBuild(c))
-    if (os === 'mac' && listing?.kind === 'store') return [{ os, action: listing, thisApp, thisDevice }]
+    if (os === 'mac' && listing) return [{ os, action: listing, thisApp, thisDevice }]
     const items = c.store ? [] : files.filter((d) => d.platform === os)
     const action: AppAction | null = items.length ? { kind: 'files', items } : thisApp ? null : listing
     return action || thisDevice ? [{ os, action, thisApp, thisDevice }] : []

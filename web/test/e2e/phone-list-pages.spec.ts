@@ -2,13 +2,13 @@
 // docs/AGENTS/plan/20261110-1336-phone-admin-list.md), at 390×844 in a real browser: no page is wider than the screen
 // (also in Spanish), each page's main button is on the first screen, and its filters open from one Filters button.
 // Then each page's own fix: Groups' compact rows, Folder permissions' switch under Filters beside By folder / By
-// person, Providers' accounts on tap, Connectors' rows with a 44 px +, AI apps' 44 px targets (Plugins' page is #388's
+// person, AI providers' accounts on tap, Connectors' rows with a 44 px +, AI apps' 44 px targets (Plugins' page is #388's
 // cards now), Slack's 44 px targets, Usage's range with Filters and Group by in the breakdown, Activity log's kinds under
-// Filters, Settings › Providers named in the bar, Settings › Usage's period under its line. A computer keeps every page
+// Filters, Settings › AI providers named in the bar, Settings › Usage's period under its line. A computer keeps every page
 // as it was.
 import { expect, test, type Locator, type Page } from '@playwright/test'
 import { DICTS } from '../../src/i18n'
-import { reset, signIn } from './helpers'
+import { phoneTabs, reset, signIn } from './helpers'
 
 test.use({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true, locale: 'en-US' })
 
@@ -95,19 +95,20 @@ test.describe('each page', () => {
 
   test('Folder permissions: Folders / What a person can open on their own row, the search under them', async ({ page }) => {
     await page.goto('/admin/folders')
-    const views = page.getByRole('tablist', { name: t['admin.folders'] })
+    // the row, or the picker where this font has no room for the words (helpers.ts phoneTabs)
+    const views = await phoneTabs(page, t['admin.folders'])
     // the two views take the row
-    expect(Math.round((await box(views)).width)).toBeGreaterThanOrEqual(390 - 34)
+    expect(Math.round((await box(views.control)).width)).toBeGreaterThanOrEqual(390 - 34)
     await expect(page.getByTestId('folders-search')).toBeInViewport()
     await expect(page.locator('[data-testid="folders-row"][data-path="finance"]')).toBeVisible()
     await tall(page.locator('[data-testid="folders-row"][data-path="finance"]').getByTestId('folders-share'))
     await fits(page)
     // the views still switch, with no history added (PR 1a)
-    await views.getByRole('tab', { name: t['folders.tabPerson'] }).click()
+    await views.choose(t['folders.tabPerson'])
     await expect(page.getByTestId('access-person-search')).toBeVisible()
   })
 
-  test('Providers: one row per engine; its accounts and Add account are on its own page', async ({ page }) => {
+  test('AI providers: one row per engine; its accounts and Add account are on its own page', async ({ page }) => {
     await page.goto('/admin/providers')
     // a row that opens the engine's page (TC-267: no accordion on a phone)
     const claude = page.locator('[data-testid="engine-row"][data-engine="claude-code"]')
@@ -120,7 +121,7 @@ test.describe('each page', () => {
     await expect(page.getByTestId('provider-add-claude')).toBeVisible()
   })
 
-  test('Providers: an account that needs a look stays in sight under a closed row', async ({ page }) => {
+  test('AI providers: an account that needs a look stays in sight under a closed row', async ({ page }) => {
     // the team's one Claude account needs signing in again (the mock has none, so the list is answered here)
     await page.route('**/api/admin/credentials', async (route) => {
       const res = await route.fetch()
@@ -147,8 +148,15 @@ test.describe('each page', () => {
       await page.goto(path)
       const card = page.locator('[data-testid="connector-card"][data-id="notion"]')
       await expect(card).toBeVisible()
-      // the Connectors page's row (a 44 px tap and its hairline)
-      expect((await box(card)).height).toBeLessThanOrEqual(72)
+      // the Connectors page's row (a 44 px tap and its hairline); Notion also has a conversation app, so since #1043 its
+      // "Add to a conversation" line sits under the row, inside the card (docs/decisions/20261116-connector-card-room-apps.md)
+      const row = card.getByTestId('connector-open').locator('xpath=..')
+      expect((await box(row)).height).toBeLessThanOrEqual(72)
+      const roomApp = card.getByTestId('connector-room-app')
+      await expect(roomApp).toHaveAttribute('data-service', 'notion')
+      // under the row (it tucks 6 px into the row's bottom padding: -mt-1.5)
+      expect((await box(roomApp)).y).toBeGreaterThanOrEqual((await box(row)).y + (await box(row)).height - 8)
+      expect((await box(card)).height).toBeLessThanOrEqual((await box(row)).height + (await box(roomApp)).height + 2)
       expect(await card.evaluate((el) => getComputedStyle(el).backgroundColor)).toBe('rgba(0, 0, 0, 0)')
       await tall(card.getByTestId('connector-add'))
     }
@@ -215,7 +223,7 @@ test.describe('each page', () => {
     await expect(page).toHaveURL(/\/admin\/audit$/)
   })
 
-  test('Settings › Providers: the bar names it, and the card has no frame', async ({ page }) => {
+  test('Settings › AI providers: the bar names it, and the card has no frame', async ({ page }) => {
     await page.goto('/settings/providers')
     await expect(page.getByTestId('settings-section-title')).toHaveText(t['settings.providers'])
     const card = page.getByTestId('my-providers').locator('xpath=ancestor::section[1]')

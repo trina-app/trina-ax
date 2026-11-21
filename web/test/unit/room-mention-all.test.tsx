@@ -6,7 +6,7 @@
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test } from 'bun:test'
 import { act } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
-import type { Me, Room, UserRef } from '@mycel/shared/api'
+import { uuidv7, type Me, type Room, type UserRef } from '@mycel/shared/api'
 import { LOCALES, translate, useLocaleStore } from '../../src/i18n'
 import { RoomComposer } from '../../src/components/rooms/RoomComposer'
 import { RoomMessages } from '../../src/components/rooms/RoomMessages'
@@ -64,7 +64,8 @@ describe('the sound', () => {
     expect(ring({ message: { mentionsAll: true, author: ME } })).toBe(false)
     expect(ring({ room: { kind: 'team', muted: false, notify: { own: 'off', byDefault: 'mentions', level: 'off' } }, message: { mentionsAll: true } })).toBe(false)
     const quiet = { threadReplies: true, quietHours: { on: true, start: '00:00', end: '23:59', weekends: true }, timeZone: 'UTC' }
-    expect(ring({ alerts: quiet, message: { mentionsAll: true } })).toBe(false)
+    // a fixed Wednesday noon, never the real clock: the window ends at 23:59, so at 23:59:30 UTC the real "now" is outside it
+    expect(ring({ alerts: quiet, now: Date.parse('2026-11-04T12:00:00Z'), message: { mentionsAll: true } })).toBe(false)
   })
 })
 
@@ -73,6 +74,8 @@ const locale = useLocaleStore.getState().locale
 const status = useSession.getState().status
 const realFetch = globalThis.fetch
 let sent: { body: string; mentions: string[]; mentionsAll?: boolean }[] = []
+/** PATCH /api/me bodies (my preferences) */
+let saved: { prefs: Record<string, unknown> }[] = []
 const live = new Set<Mounted>()
 /** a wait for something the page does (never a fixed time), well inside each test's own time (DOM_TEST_MS) */
 const WAIT = 4000
@@ -104,8 +107,9 @@ const setValue = Object.getOwnPropertyDescriptor(FakeElement.prototype, 'value')
 type Box = FakeElement & { value: string; selectionStart: number; selectionEnd: number }
 
 /** the box of a room of this kind with these members, me signed in with this role */
-async function open(o: { kind?: Room['kind']; role?: 'owner' | 'admin' | 'member'; members?: UserRef[] } = {}) {
-  useSession.setState({ status: { kind: 'signed-in', me: { user: { id: ME.id, name: ME.name, role: o.role ?? 'member' }, server: {} } as unknown as Me } })
+async function open(o: { kind?: Room['kind']; role?: 'owner' | 'admin' | 'member'; members?: UserRef[]; prefs?: Record<string, unknown> } = {}) {
+  useSession.setState({ status: { kind: 'signed-in', me: { user: { id: ME.id, name: ME.name, role: o.role ?? 'member', prefs: o.prefs ?? {} }, server: {} } as unknown as Me } })
+  saved = []
   const members = o.members ?? [ME, BEN, CY]
   const r = room({ kind: o.kind ?? 'team', ...(o.kind === 'dm' || o.kind === 'all' || o.kind === 'group' ? { groupId: null, name: null } : {}), memberCount: members.length })
   sent = []
@@ -115,6 +119,16 @@ async function open(o: { kind?: Room['kind']; role?: 'owner' | 'admin' | 'member
       const b = JSON.parse(String(init.body))
       sent.push(b)
       return new Response(JSON.stringify(message({ roomId: r.id, seq: 9, author: ME, body: b.body, mentions: b.mentions, ...(b.mentionsAll ? { mentionsAll: true } : {}) })), { status: 201, headers: { 'content-type': 'application/json' } })
+    }
+    if (init?.method === 'PATCH' && path === '/api/me') {
+      const b = JSON.parse(String(init.body))
+      saved.push(b)
+      const cur = useSession.getState().status
+      const prefs = { ...(cur.kind === 'signed-in' ? cur.me.user.prefs : {}), ...b.prefs }
+      // a whole account, as the server answers (the client checks its shape)
+      const me = { user: { id: ME.id, username: ME.id, name: ME.name, email: null, role: o.role ?? 'member', locale: 'ko', localeChoice: null, mustChangePassword: false, prefs }, groups: [],
+        team: { name: 'Acme', defaultLocale: 'ko' }, session: { id: uuidv7(), client: 'web', expiresAt: '2026-12-04T00:00:00.000Z' }, server: { version: '0', dev: false, timeZone: 'Asia/Seoul' } }
+      return new Response(JSON.stringify(me), { status: 200, headers: { 'content-type': 'application/json' } })
     }
     return new Response(JSON.stringify({ error: { code: 'not_found', message: 'no' } }), { status: 404, headers: { 'content-type': 'application/json' } })
   }) as typeof fetch
@@ -168,7 +182,7 @@ test('the first row: its word and how many it notifies; found by any word, not b
   await m.until(() => m.find('mention-menu'), 'the @ list', WAIT)
   expect(rows(m)).toEqual([`all:전체${ko('rooms.mentionAllHint', { n: 2 })}`, 'BBen', 'CCy Park'])
   // everyone but me (QA N3: the header's "멤버 3명" counts me too, so the words say "다른")
-  expect(ko('rooms.mentionAllHint', { n: 2 })).toBe('이 방의 다른 2명에게 알림')
+  expect(ko('rooms.mentionAllHint', { n: 2 })).toBe('이 대화의 다른 2명에게 알림')
   expect(en('rooms.mentionAllHint', { n: 2 })).toBe('notify the other 2 people here')
   for (const q of ['all', 'channel', 'everyone', '전체']) {
     await act(async () => { setValue.call(box, ''); box.setSelectionRange(0, 0); box.dispatchEvent(new FakeEvent('input', { bubbles: true })); box.dispatchEvent(new FakeEvent('keyup', { bubbles: true })) })
@@ -287,6 +301,62 @@ test('10 people or more: the send asks first, in one line in the box (취소 kee
   await typeText(box, '그냥 글')
   await m.click('room-send')
   await m.until(() => sent.length === 3, 'a plain send', WAIT)
+}, DOM_TEST_MS)
+
+test('"Don\'t ask again" (QA TC-4864): ticked and sent, it is saved as my preference and the next "@전체" goes with no question', async () => {
+  const { m, box } = await open({ members: [ME, ...people(11)] })
+  const pickAll = async () => {
+    await typeText(box, '@all')
+    await m.until(() => rows(m)[0]?.startsWith('all:'), 'the row', WAIT)
+    await key(box, 'Enter')
+    await m.settle()
+    await typeText(box, '공지')
+  }
+  expect(ko('rooms.mentionAllNoAsk')).toBe('더 이상 묻지 않기')
+  expect(en('rooms.mentionAllNoAsk')).toBe("Don't ask again")
+  await pickAll()
+  await m.click('room-send')
+  expect(m.get('room-mention-all-no-ask').textContent).toContain(ko('rooms.mentionAllNoAsk'))
+  // not ticked: 취소 saves nothing, and the tick starts empty again
+  const tick = () => m.get('room-mention-all-no-ask').querySelector('input') as unknown as FakeElement & { checked: boolean }
+  expect(tick().checked).toBe(false)
+  await act(async () => { Object.getOwnPropertyDescriptor(Object.getPrototypeOf(tick()), 'checked')!.set!.call(tick(), true) })
+  await m.click(tick())
+  expect(tick().checked).toBe(true)
+  await m.click('room-mention-all-send')
+  await m.until(() => sent.length === 1 && saved.length === 1, 'the send and the save', WAIT)
+  expect(saved[0]).toEqual({ prefs: { mentionAllAsk: 'off' } })
+  await m.until(() => { const st = useSession.getState().status; return st.kind === 'signed-in' && st.me.user.prefs.mentionAllAsk === 'off' }, 'the account', WAIT)
+  // the next one: sent at once, nothing asked
+  await pickAll()
+  await m.click('room-send')
+  await m.until(() => sent.length === 2, 'the second send', WAIT)
+  expect(sent[1]).toMatchObject({ mentionsAll: true })
+  expect(m.find('room-mention-all-confirm')).toBeNull()
+  expect(saved).toHaveLength(1)
+}, DOM_TEST_MS)
+
+test('the preference already off (any room, any device): no question; Cancel without the tick saves nothing', async () => {
+  const off = await open({ members: [ME, ...people(11)], prefs: { mentionAllAsk: 'off' } })
+  await typeText(off.box, '@전체')
+  await off.m.until(() => rows(off.m)[0]?.startsWith('all:'), 'the row', WAIT)
+  await key(off.box, 'Enter')
+  await off.m.settle()
+  await off.m.click('room-send')
+  await off.m.until(() => sent.length === 1, 'the send', WAIT)
+  expect(off.m.find('room-mention-all-confirm')).toBeNull()
+  await off.m.unmount()
+  const { m, box } = await open({ members: [ME, ...people(11)] })
+  await typeText(box, '@전체')
+  await m.until(() => rows(m)[0]?.startsWith('all:'), 'the row', WAIT)
+  await key(box, 'Enter')
+  await m.settle()
+  await m.click('room-send')
+  await m.click('room-mention-all-cancel')
+  await m.click('room-send')
+  await m.click('room-mention-all-send')
+  await m.until(() => sent.length === 1, 'the send', WAIT)
+  expect(saved).toEqual([])
 }, DOM_TEST_MS)
 
 test('fewer than 10: no question', async () => {

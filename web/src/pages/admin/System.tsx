@@ -13,7 +13,7 @@ import clsx from 'clsx'
 import { settingDesc, settingName } from '../../components/settings/SettingRow'
 import { createContext, useCallback, useContext, useEffect, useId, useState, type ReactNode } from 'react'
 import { Link, Navigate, useLocation, useParams } from 'react-router-dom'
-import type { ConnectionMode, LastRestore, PlanStatus } from '@mycel/shared/api'
+import type { ConnectionMode, LastRestore, PlanStatus, StorageBreakdown } from '@mycel/shared/api'
 import { api, API } from '../../lib/api'
 import { formatDateTime, formatRelative, formatSize } from '../../lib/format'
 import { useLocale, useT, type MessageKey } from '../../i18n'
@@ -31,7 +31,7 @@ import { isOwner, useMeStrict } from '../../store/session'
 import { safeHref } from '../../lib/safeLinks'
 import { noPurchaseLinks } from '../../lib/desktop'
 import { addressToTell, teamAddressShown } from '../../lib/team-address'
-import { goBackOffered, releaseCannotRead, releasePaused } from '../../lib/updateOutcome'
+import { goBackOffered, releaseCannotRead, releaseHeld, releasePaused, updateCheckText } from '../../lib/updateOutcome'
 import { Tooltip } from '../../components/Tooltip'
 
 const STATUS_ICON = { ok: CheckCircle2, warn: CircleAlert, fail: CircleX, unknown: CircleHelp } as const
@@ -274,7 +274,7 @@ function SystemSections({ office, shown, focus }: { office: Office; shown: Syste
 function Health({ rev }: { rev: number }) {
   const t = useT()
   const locale = useLocale()
-  // with the engines whose version or lockdown test only shows here (Home and Providers leave it out, plain.ts); the
+  // with the engines whose version or lockdown test only shows here (Home and AI providers leave it out, plain.ts); the
   // phone's Admin list keeps the checks for a minute (overview.tsx): this read makes those old
   const state = useLoad(async () => {
     const [d, e] = await Promise.all([api.call(API.diagnostics), api.call(API.engines).catch(() => null)])
@@ -344,8 +344,10 @@ function Health({ rev }: { rev: number }) {
               <Rows testId="system-facts" className="mt-3 border-t border-line">
                 <Row label={t('system.host')}>{d.host.hostname} ({d.host.os}/{d.host.arch})</Row>
                 <Row label={t('system.queue')}>{t('system.queueLine', { running: d.queue.running, queued: d.queue.queued, max: d.queue.concurrency })}</Row>
-                <Row label={t('system.freeSpace')}>{t('system.freeSpaceValue', { team: formatSize(d.disk.teamFolderFreeBytes, locale), data: formatSize(d.disk.dataFreeBytes, locale) })}</Row>
+                <Row label={t('system.freeSpace')}>{t('system.freeSpaceValue', { team: d.disk.teamFolderFreeBytes === null ? '—' : formatSize(d.disk.teamFolderFreeBytes, locale), data: d.disk.dataFreeBytes === null ? '—' : formatSize(d.disk.dataFreeBytes, locale) })}</Row>
               </Rows>
+              {/* the operator turned on error reports (system/error-reports.ts): one plain line, the host only */}
+              {d.errorReports && <p className="mt-3 text-xs text-muted" data-testid="error-reports-line">{t('system.errorReports', { host: d.errorReports.host })}</p>}
               <p className="mt-2 text-xs text-faint">{t('system.generatedAt', { date: formatDateTime(d.generatedAt, locale) })}</p>
             </>
           )
@@ -355,7 +357,12 @@ function Health({ rev }: { rev: number }) {
   )
 }
 
-const STORAGE_PARTS = ['team', 'history', 'trash', 'backups', 'models', 'data', 'app', 'other'] as const
+// rooms: the files sent in conversations, one number (absent from an older server: no line, never a made-up 0)
+const STORAGE_PARTS = ['team', 'rooms', 'history', 'trash', 'backups', 'models', 'data', 'app', 'other'] as const
+/** The storage card's lines, in order: a part the server did not send is left out. */
+export function storageLines(b: StorageBreakdown): [(typeof STORAGE_PARTS)[number], number][] {
+  return STORAGE_PARTS.flatMap((k) => (b[k] === undefined ? [] : [[k, b[k]] as [(typeof STORAGE_PARTS)[number], number]]))
+}
 const LEVEL_TONE = { ok: 'ok', warn: 'warn', high: 'warn', full: 'danger' } as const
 
 /** Storage use of the team disk (system/storage.ts): one line with the state, a thin bar, then what uses the space. */
@@ -393,14 +400,16 @@ function Storage() {
               {s.breakdown && (
                 // two columns of quiet rows; a wide gap, so one column's size does not run into the next column's name
                 <ul className="grid gap-x-10 sm:grid-cols-2" data-testid="storage-breakdown">
-                  {STORAGE_PARTS.map((k) => (
-                    <li key={k} className="flex justify-between gap-4 border-b border-line py-1.5">
+                  {storageLines(s.breakdown).map(([k, bytes]) => (
+                    <li key={k} className="flex justify-between gap-4 border-b border-line py-1.5" data-testid={`storage-part-${k}`}>
                       <span className="min-w-0 text-muted">{t(`storage.part.${k}`)}</span>
-                      <span className="shrink-0 tabular-nums">{formatSize(s.breakdown![k], locale)}</span>
+                      <span className="shrink-0 tabular-nums">{formatSize(bytes, locale)}</span>
                     </li>
                   ))}
                 </ul>
               )}
+              {/* the people who sent files in conversations clean them up; the owner and admins can ask them all at once */}
+              {!!s.breakdown?.rooms && <AskCleanup askedAt={s.cleanupAskedAt ?? null} />}
               {/* any kept bytes (KB under 1 MB): a small set-aside folder is still on the disk (QA TC-2284) */}
               {!!s.breakdown?.kept && s.breakdown.kept > 0 && <p className="text-xs text-faint" data-testid="storage-kept">{t('storage.kept', { size: formatSize(s.breakdown.kept, locale) })}</p>}
               {(s.measuredAt || s.planDiskGiB !== null) && (
@@ -415,6 +424,31 @@ function Storage() {
         }}
       </Loadable>
     </Card>
+  )
+}
+
+/** "Ask people to clean up" (system/storage-cleanup.ts; docs/decisions/20261116-room-files-cleanup.md): a notice to each
+ * person whose files in conversations take the most space. The page never learns who or how many. Once a day for the
+ * team: then "Asked today" for every admin. */
+function AskCleanup({ askedAt }: { askedAt: string | null }) {
+  const t = useT()
+  const [asked, setAsked] = useState(askedAt)
+  const [busy, setBusy] = useState(false)
+  useEffect(() => setAsked(askedAt), [askedAt])
+  const ask = async () => {
+    const ok = await confirmDialog({ title: t('storage.askConfirmTitle'), body: t('storage.askConfirmBody'), confirm: t('storage.askConfirm') })
+    if (!ok) return
+    setBusy(true)
+    try { setAsked((await api.call(API.askStorageCleanup)).askedAt) }
+    catch { toast({ level: 'error', text: t('storage.askFailed') }) }
+    finally { setBusy(false) }
+  }
+  return (
+    <div className="max-sm:[&>button]:w-full">
+      <Button size="sm" busy={busy} disabled={!!asked} onClick={() => void ask()} data-testid="storage-ask-cleanup">
+        {asked ? t('storage.askedToday') : t('storage.askCleanup')}
+      </Button>
+    </div>
   )
 }
 
@@ -814,7 +848,7 @@ function Update() {
   const phone = useMediaQuery(PHONE)
   // a phone's list: the version, or the new one waiting
   const u0 = state.data
-  useRowNote('updates', !u0 ? null : u0.available && !u0.managed && !releasePaused(u0) && !releaseCannotRead(u0) ? { badge: { text: t('system.available', { version: u0.available.version }), tone: 'accent' } } : { value: u0.current })
+  useRowNote('updates', !u0 ? null : u0.available && !u0.managed && !releasePaused(u0) && !releaseCannotRead(u0) && !releaseHeld(u0) ? { badge: { text: t('system.available', { version: u0.available.version }), tone: 'accent' } } : { value: u0.current })
   return (
     <Card id="system-updates" title={t('system.updates')}>
       <Loadable state={state} lines={2}>
@@ -847,14 +881,28 @@ function Update() {
                     // a paused release, or one that cannot open this server's data: the server refuses it, so no
                     // button (Admin › Home says the same; QA TC-361)
                     u.needsRoot || releasePaused(u) || releaseCannotRead(u) ? undefined : (
-                      <Button variant="primary" size="sm" disabled={!!install.jobId} onClick={() => setAsk('update')}>
-                        <Upload size={14} aria-hidden /> {t('system.installUpdate')}
-                      </Button>
+                      // on hold after a failed try: no "Install update" for the same version; "Try this version again"
+                      // asks first (what failed, what a new try does)
+                      releaseHeld(u) ? (
+                        <Button variant="secondary" size="sm" disabled={!!install.jobId} onClick={() => setAsk('retry')} data-testid="update-retry">
+                          <RotateCcw size={14} aria-hidden /> {t('system.retryShort')}
+                        </Button>
+                      ) : (
+                        <Button variant="primary" size="sm" disabled={!!install.jobId} onClick={() => setAsk('update')}>
+                          <Upload size={14} aria-hidden /> {t('system.installUpdate')}
+                        </Button>
+                      )
                     )
                   }
                 >
                   {releasePaused(u) ? <span className="font-medium" data-testid="update-paused">{t('adminHome.update.paused', { version: u.available.version })}</span>
                     : releaseCannotRead(u) ? <span className="font-medium" data-testid="update-cannot-read">{t('adminHome.update.cannotRead', { version: u.available.version })}</span>
+                    : releaseHeld(u) ? (
+                      <>
+                        <span className="font-medium" data-testid="update-held">{t('system.held', { version: u.available.version })}</span>
+                        <span className="mt-1 block text-xs text-muted" data-testid="update-held-why">{u.holdReason ? t('system.heldWhy', { reason: u.holdReason }) : t('system.heldNoReason')}</span>
+                      </>
+                    )
                     : <span className="font-medium">{t('system.available', { version: u.available.version })}</span>}
                   <ReleaseNotes notes={u.available.notes} />
                   {u.available.needsBackupRestoreToRollBack && <span className="mt-1 block text-xs text-warn">{t('system.oneWay')}</span>}
@@ -864,7 +912,7 @@ function Update() {
               ) : (
                 <Row label={t('system.row.status')} long>
                   {u.feed === false ? (phone ? <><span className="text-muted">{t('system.noFeedShort')}</span><OnComputer className="mt-2" text={t('admin.onComputerNoFeed')} testId="update-on-computer" /></>
-                    : <span className="text-muted"><LearnMore short={t('system.noFeedShort')} long={t('system.noFeed')} /></span>) : <span className="text-muted" data-testid={u.checkFailed ? 'update-check-failed' : undefined}>{t(u.checkFailed ? 'system.checkFailed' : 'system.upToDate')}</span>}
+                    : <span className="text-muted"><LearnMore short={t('system.noFeedShort')} long={t('system.noFeed')} /></span>) : <span className="text-muted" data-testid={u.checkFailed ? 'update-check-failed' : !u.lastCheckedAt ? 'update-not-checked' : undefined}>{t(updateCheckText(u))}</span>}
                 </Row>
               )}
               {u.auto && !u.managed && (

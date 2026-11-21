@@ -16,6 +16,7 @@ import { REMOTE_MCP_SPECS } from './remote-mcp-cases'
 import { PLUGIN_SPECS } from './plugin-cases'
 import { ROOM_SPECS } from './rooms-cases'
 import { ROOM_APP_SPECS } from './room-apps-cases'
+import { ROOM_CATEGORY_SPECS } from './room-categories-cases'
 import { SLACK_SPECS } from './slack-cases'
 import { PROMO_VIDEO_SPECS } from './promo-video-cases'
 import { INTRO_DECK_SPECS } from './intro-deck-cases'
@@ -23,6 +24,9 @@ import { SKILL_SHARE_SPECS } from './skill-share-cases'
 import { ONBOARDING_FILES_SPECS } from './onboarding-files-cases'
 import { FILE_LIST_SPECS } from './file-list-cases'
 import { NAV_FOLDER_CANARY, NAV_FOLDER_SPECS } from './nav-folders-cases'
+import { FILE_SHARE_SPECS } from './file-share-cases'
+import { ACCESS_REQUEST_SPECS } from './access-request-cases'
+import { LINK_NAME_SPECS } from './link-names-cases'
 import { inviterOnlyByName, MISC_LAST_SPECS, MISC_SPECS } from './misc-cases'
 
 type Build = (c: Client, w: World) => Promise<Resp>
@@ -45,6 +49,7 @@ type Scope =
   | 'members'         // members only: owners and admins have their own way (members contribute, docs/DECISIONS.md "MC")
   | 'byLevel'         // nothing beyond the auth level (admin/owner endpoints, self-ish lists)
   | 'room-dm'         // the DM of alice and erin: only those two (not the owner, not an admin)
+  | 'team-chat'       // Team plan's shared chat: its project's members alice and erin (not the owner or an admin: they are no members)
   | 'room-group'      // the group chat of alice, erin and frank: alice and erin (frank still has to change his password)
   | 'room-all-admins' // the everyone room's apps: its owners and admins (everyone is in it; members are refused)
   | 'nobody'          // a resource of nobody (an unknown sign-in id): 4xx for everyone, after the auth level
@@ -93,7 +98,7 @@ function scopeAllows(scope: Scope, who: Who): boolean {
     case 'skills-manager': case 'admins': return who === 'owner' || who === 'admin'
     case 'own-owner': return who === 'owner'
     case 'members': return who === 'memberIn' || who === 'memberOut' || who === 'other'
-    case 'room-dm': case 'room-group': return who === 'memberIn' || who === 'other'
+    case 'room-dm': case 'room-group': case 'team-chat': return who === 'memberIn' || who === 'other'
     case 'room-all-admins': return who === 'owner' || who === 'admin'
     case 'nobody': return false
   }
@@ -125,6 +130,7 @@ export const SPECS: Record<string, Spec> = {
   ...PLUGIN_SPECS,
   ...ROOM_SPECS,
   ...ROOM_APP_SPECS,
+  ...ROOM_CATEGORY_SPECS,
   ...SLACK_SPECS,
   ...PROMO_VIDEO_SPECS,
   ...INTRO_DECK_SPECS,
@@ -132,6 +138,9 @@ export const SPECS: Record<string, Spec> = {
   ...ONBOARDING_FILES_SPECS,
   ...FILE_LIST_SPECS,
   ...NAV_FOLDER_SPECS,
+  ...FILE_SHARE_SPECS,
+  ...ACCESS_REQUEST_SPECS,
+  ...LINK_NAME_SPECS,
   ...MISC_SPECS,
   // ---- auth / me (self or public) ----
   setupStatus: { build: (c) => c.get('/api/setup'), scope: 'byLevel' },
@@ -179,6 +188,11 @@ export const SPECS: Record<string, Spec> = {
     } },
   acceptInvite: { skipPositive: true, build: (c, w) => c.post(`/api/invites/${w.ids.inviteToken}/accept`, { username: 'newbie' + Math.random().toString(36).slice(2, 7), name: 'New Bie', password: 'Fresh-pass-Owl-3321-xy' }), scope: 'byLevel' },
   passwordResetInfo: { build: (c, w) => c.get(`/api/password-resets/${w.ids.resetToken}`), scope: 'byLevel' },
+  // the desktop app's one-time sign-in code (server/src/auth/app-signin.ts): every signed-in person makes their own (a
+  // guest is off the list); a made-up code signs nobody in
+  appSignIn: { build: (c) => c.post('/api/auth/app-signin'), scope: 'byLevel' },
+  redeemAppSignIn: { skipPositive: true, build: (c) => c.post('/api/auth/app-signin/redeem', { code: 'A'.repeat(43) }), scope: 'byLevel',
+    check: (r, _w, who) => { if (r.status < 300) throw new Error(`${who}: a made-up app sign-in code signed in: ${r.text}`) } },
   completePasswordReset: { skipPositive: true, build: (c, w) => c.post(`/api/password-resets/${w.ids.resetToken}`, { password: 'Changed-pass-Fox-9087-qq' }), scope: 'byLevel',
     todo: {}, },
 
@@ -217,8 +231,21 @@ export const SPECS: Record<string, Spec> = {
   listMessages: { build: (c, w) => c.get(`/api/chats/${w.ids.chatA}/messages`), scope: 'own-alice-chat' },
   sendMessage: { build: (c, w) => c.post(`/api/chats/${w.ids.chatA}/messages`, { clientMessageId: cm(), attachmentIds: [], content: 'hi from intruder' }), scope: 'own-alice-chat',
     check: (r, w, who) => { if (who !== 'memberIn' && r.status < 300) throw new Error(`${who} posted into alice's chat`) } },
+  // how many of my messages wait in a shared chat (chat/shared-waiting.ts): Team plan's shared chat, for its members
+  // only (everyone else: the 404 of a missing chat); 0, so the place is gone again after each case
+  putChatWaiting: { build: (c, w) => c.put(`/api/chats/${w.ids.teamChat}/waiting`, { count: 0 }), scope: 'team-chat' },
   stop: { build: (c, w) => c.post(`/api/chats/${w.ids.chatA}/stop`), scope: 'own-alice-chat' },
   messageSources: { build: (c, w) => c.get(`/api/chats/${w.ids.chatA}/messages/${w.ids.assistantMsg}/sources`), scope: 'own-alice-chat' },
+  // threads on AI answers (chat/threads.ts): alice's chat is private, so it has no thread (a 404 for alice too, after the
+  // permission check); everyone else the 404 of a missing chat, and nothing is posted or deleted. The roles x states of
+  // a shared chat: tests/security/shared-project-chats.test.ts, people-shared-chats.test.ts
+  listChatThread: { build: (c, w) => c.get(`/api/chats/${w.ids.chatA}/messages/${w.ids.assistantMsg}/thread`), scope: 'own-alice-chat', allowNotFound: true },
+  sendChatThreadReply: { build: (c, w) => c.post(`/api/chats/${w.ids.chatA}/messages/${w.ids.assistantMsg}/thread`, { text: 'hi from intruder', clientId: cm() }), scope: 'own-alice-chat',
+    check: (r, _w, who) => { if (r.status < 300) throw new Error(`${who} replied under an answer of a private chat`) } },
+  deleteChatThreadReply: { build: (c, w) => c.del(`/api/chats/${w.ids.chatA}/thread-replies/${w.ids.assistantMsg}`), scope: 'own-alice-chat',
+    check: (r, _w, who) => { if (r.status < 300) throw new Error(`${who} deleted a reply that is not there`) } },
+  markChatThreadRead: { build: (c, w) => c.post(`/api/chats/${w.ids.chatA}/messages/${w.ids.assistantMsg}/thread/read`, { upTo: w.ids.userMsg }), scope: 'own-alice-chat',
+    check: (r, _w, who) => { if (r.status < 300) throw new Error(`${who} marked a question as a read reply`) } },
   // "대화방에 보내기": alice's answer to the DM she shares with erin. Only alice; her chat used her own project folder, so
   // she is asked first ("confirm": how many, never who) and nothing is sent without confirm: true
   shareAnswerToRoom: { build: (c, w) => c.post(`/api/chats/${w.ids.chatA}/messages/${w.ids.assistantMsg}/share-to-room`, { roomId: w.ids.dmRoom, clientMessageId: cm() }), scope: 'own-alice-chat',
@@ -251,6 +278,14 @@ export const SPECS: Record<string, Spec> = {
       // (her chat is in her personal project: refused for that before the empty list is looked at)
       if (who === 'memberIn' && !['needs_people', 'project_personal'].includes(r.json?.error?.params?.reason)) throw new Error(`alice was refused for another reason: ${r.text}`)
     } },
+  // the Share dialog's check while picking (QA TC-3092): never a probe for anyone but the chat's creator
+  previewChatAudience: { build: (c, w) => c.post(`/api/chats/${w.ids.chatA}/audience/preview`, { subjects: [{ subjectType: 'user', subjectId: 'bob' }] }), scope: 'own-alice-chat',
+    check: (r, _w, who) => {
+      if (who !== 'memberIn' && r.status < 300) throw new Error(`${who} previewed alice's chat`)
+      if (who !== 'memberIn' && who !== 'anon' && who !== 'pwchange' && r.status !== 404) throw new Error(`${who} learned more than "not found" about alice's chat: ${r.status}`)
+      // (her chat is in her personal project: refused for that, as a save)
+      if (who === 'memberIn' && r.json?.error?.params?.reason !== 'project_personal') throw new Error(`alice was refused for another reason: ${r.text}`)
+    } },
   hideChat: { build: (c, w) => c.post(`/api/chats/${w.ids.chatA}/hide`), scope: 'own-alice-chat',
     check: (r, _w, who) => {
       if (r.status < 300) throw new Error(`${who} hid alice's own chat`)
@@ -270,6 +305,10 @@ export const SPECS: Record<string, Spec> = {
   listTurnRequests: { build: (c, w) => c.get(`/api/chats/${w.ids.chatB}/requests`), scope: 'own-alice-chat' },
   answerTurn: { build: (c, w) => c.post(`/api/turns/${w.ids.turnB}/answer`, { kind: 'ask_user', requestId: w.ids.requestB, answer: 'from intruder' }), scope: 'own-alice-chat',
     check: (r, w, who) => { if (who !== 'memberIn' && r.status < 300) throw new Error(`${who} answered alice's card`) } },
+  // the whole text of a folded card detail (chat/card-fold.ts): alice's own open card only. Hers has no folded text,
+  // so she meets a 404 (the text itself: tests/unit/limits-api-images-cards.test.ts); nobody else may get a 2xx
+  turnRequestDetail: { build: (c, w) => c.get(`/api/turns/${w.ids.turnB}/requests/${w.ids.requestB}/details/0`), scope: 'own-alice-chat', allowNotFound: true,
+    check: (r, w, who) => { if (who !== 'memberIn' && r.status < 300) throw new Error(`${who} read alice's card text`) } },
   // an open connect_service card of alice's turn (buildWorld's connectCard option, which the matrix sets): only alice
   // may finish it. A skip is enough to show who reaches it: anyone else who got through would close it (2xx). Alice's
   // own skip runs in phase 2 and closes it (or meets a card whose time ran out: 409).
@@ -528,10 +567,17 @@ export const SPECS: Record<string, Spec> = {
   getJob: { build: (c, w) => c.get(`/api/jobs/${w.ids.jobAlice}`), scope: 'own-alice' },
   cancelJob: { build: (c, w) => c.post(`/api/jobs/${w.ids.jobAlice}/cancel`), scope: 'own-alice' },
   transcribe: { build: (c, w) => c.req('POST', '/api/transcribe', undefined, { form: tform(w.ids.chatA) }), scope: 'own-alice-chat' },
+  // voice input while recording: the same chat check as a whole recording (alice's chat only); the world has voice input
+  // off, so an allowed caller's piece is refused (409) too
+  transcribePiece: { skipPositive: true, build: (c, w) => c.req('POST', '/api/transcribe/piece', undefined, { form: tform(w.ids.chatA) }), scope: 'own-alice-chat' },
 
   // ---- browser relay (own session/window) ----
   pollCalls: { build: (c) => c.get('/api/browser/calls?windowId=win-xxxxxxxx&waitMs=1'), scope: 'self' },
   postResult: { build: (c) => c.post('/api/browser/results', { callId: 'nope', ok: false, error: 'x' }), scope: 'self',
+    check: (r) => { /* unknown call -> 404; never another window's */ } },
+  // ---- local relay: apps on the person's computer (own session/window) ----
+  pollLocalCalls: { build: (c) => c.get('/api/local-apps/calls?windowId=win-xxxxxxxx&waitMs=1'), scope: 'self' },
+  postLocalResult: { build: (c) => c.post('/api/local-apps/results', { callId: 'nope', ok: false, error: 'x' }), scope: 'self',
     check: (r) => { /* unknown call -> 404; never another window's */ } },
 
   // ---- admin (by level) ----
@@ -740,6 +786,8 @@ export const SPECS: Record<string, Spec> = {
   diagnostics: { build: (c) => c.get('/api/admin/diagnostics'), scope: 'byLevel' },
   // storage use of the team disk + the plan (admin and owner; system/storage.ts)
   storage: { build: (c) => c.get('/api/admin/storage'), scope: 'byLevel' },
+  // "Ask people to clean up" (system/storage-cleanup.ts): owner and admins; the answer is only the time, never who
+  askStorageCleanup: { build: (c) => c.post('/api/admin/storage/ask-cleanup'), scope: 'byLevel', check: (r) => { if (r.status === 200 && Object.keys(JSON.parse(r.text)).join() !== 'askedAt') throw new Error('the answer says more than when') } },
   // the plan card (admin and owner) and the operator's notices (everyone signed in, filtered by role): system/managed.ts
   plan: { build: (c) => c.get('/api/admin/plan'), scope: 'byLevel' },
   managedNotices: { build: (c) => c.get('/api/managed/notices'), scope: 'byLevel' },
@@ -747,11 +795,17 @@ export const SPECS: Record<string, Spec> = {
   startUpdate: { skipPositive: true, build: (c) => c.post('/api/admin/update', { password: 'wrong-pass' }), scope: 'byLevel' },
   // office mode automatic updates (admin and owner): status is null outside office mode; "now" re-asks the password
   officeUpdateStatus: { build: (c) => c.get('/api/admin/office-update'), scope: 'byLevel' },
+  officeClaudeMcpNotice: { build: (c) => c.get('/api/admin/office-claude-mcp-notice'), scope: 'byLevel' },
   officeUpdateAction: { skipPositive: true, build: (c) => c.post('/api/admin/office-update', { action: 'now', password: 'wrong-pass' }), scope: 'byLevel' },
   listBackups: { build: (c) => c.get('/api/admin/backups'), scope: 'byLevel' },
   startBackup: { build: (c) => c.post('/api/admin/backup', { scope: 'db' }), scope: 'byLevel' },
   startRestore: { skipPositive: true, build: (c) => c.post('/api/admin/restore', { backupId: 'nope', password: 'wrong' }), scope: 'byLevel' },
   startExport: { build: (c) => c.post('/api/admin/export', { what: ['memories'], password: '' }), scope: 'byLevel' },
+  // Settings › Export (QA AP-038): every member exports only their own chats; the ZIP of a job only for its maker (a job
+  // with no ZIP, or anyone else's: the same 404)
+  // (skipPositive: phase 2 runs it after deleteUser removed erin (other); the deny side is still judged)
+  startMyExport: { skipPositive: true, build: (c) => c.post('/api/me/export'), scope: 'self' },
+  myExportDownload: { build: (c, w) => c.get(`/api/me/export/${w.ids.jobAlice}/download`), scope: 'own-alice', allowNotFound: true },
   connection: { build: (c) => c.get('/api/admin/connection'), scope: 'byLevel' },
   // connected folders (owner only; adding one asks for the password again)
   listConnected: { build: (c) => c.get('/api/admin/connected'), scope: 'byLevel' },
@@ -766,7 +820,7 @@ export const SPECS: Record<string, Spec> = {
 // multipart helpers
 function uform(folder: string, name: string): FormData { const f = new FormData(); f.set('folder', folder); f.set('name', name); f.set('file', new File([Buffer.from('x')], name)); return f }
 function aform(chatId: string, name: string): FormData { const f = new FormData(); f.set('chatId', chatId); f.set('name', name); f.set('file', new File([png()], name, { type: 'image/png' })); return f }
-function tform(chatId: string): FormData { const f = new FormData(); f.set('chatId', chatId); f.set('file', new File([Buffer.from('RIFF')], 'a.wav', { type: 'audio/wav' })); return f }
+function tform(chatId: string | undefined): FormData { const f = new FormData(); if (chatId) f.set('chatId', chatId); f.set('file', new File([Buffer.from('RIFF')], 'a.wav', { type: 'audio/wav' })); return f }
 const png = () => Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64')
 
 export function allCases(): Case[] {

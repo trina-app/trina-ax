@@ -15,32 +15,42 @@
  *                              (../common/update-verify.ts verificationRequired; a packaged app always checks)
  *   MYCEL_DESKTOP_TEST_FILE_CHOOSER  1: answer the team page's file input with the app's own dialog, as the Mac App
  *                              Store build does (common/file-chooser.ts)
+ *   MYCEL_DESKTOP_TEST_DOWNLOADS  a folder that stands in for the computer's Downloads folder (main/downloads.ts)
+ *   MYCEL_DESKTOP_TEST_PASSWORD_STORE  Linux: gnome-libsecret | kwallet5 | kwallet6, the keyring Chromium uses (Playwright's
+ *                              Electron loader sets --password-store=basic, Electron's fixed-key fallback, which "Apps on
+ *                              your computer" refuses to seal settings with)
  */
 import { existsSync, readFileSync } from 'node:fs'
 import { dirname, extname, join, normalize, resolve, sep } from 'node:path'
-import { app, clipboard, ClipboardItem, Menu, nativeImage, nativeTheme, protocol, session, shell, type IpcMainEvent, type IpcMainInvokeEvent, ipcMain, type MenuItemConstructorOptions } from 'electron'
-import { DESKTOP_BRIDGE_GLOBAL, DESKTOP_BRIDGE_VERSION, PRODUCT } from '@mycel/shared'
-import { BrowserCall } from '@mycel/shared/api'
+import { app, clipboard, ClipboardItem, dialog, Menu, nativeImage, nativeTheme, protocol, session, shell, type IpcMainEvent, type IpcMainInvokeEvent, ipcMain, type MenuItemConstructorOptions, type WebContents } from 'electron'
+import { APP_DOWNLOADS, DESKTOP_BRIDGE_GLOBAL, DESKTOP_BRIDGE_VERSION, PRODUCT } from '@mycel/shared'
+import { BrowserCall, LocalCall, LOCAL_APPS_BRIDGE_VERSION, type LocalResult } from '@mycel/shared/api'
 import { errorResult } from '../common/browser-result'
 import { asUiLocale, DEFAULT_UI_LOCALE, STRINGS, t, type UiKey, type UiLocale } from '../common/i18n'
 import { isOwnUiUrl, isTrustedAppSender, UI_SCHEME } from '../common/trust'
 import { LINK_SCHEME, linkFromArgv } from '../common/address'
-import { partitionFor } from '../common/teams'
+import { dataDirName, partitionFor } from '../common/teams'
 import { NO_KIT, parseKit, type Kit } from '../common/kit'
 import { answersFileChoosers } from '../common/file-chooser'
 import { DOCK_DOT, dockBadgeOf } from '../common/notify'
 import { clipboardPng } from '../common/context-menu'
 import { storeBuild } from '../common/update'
 import { windowsAppUserModelId } from '../common/app-id'
+import { refusesUnsandboxed, registersLinkHandler } from '../common/linux'
 import { AppWindow, type AllowAllOutcome } from './app-window'
 import { workFilesVersion } from './work-files'
 import { scanAsk } from '../common/work-files'
 import { WORK_FILES_WIDE_VERSION } from '@mycel/shared'
 import { debug } from './debug'
 import { HostClassifier } from './pane/classify'
+import { openExternal } from './security'
 import { asSiteAccess } from '../common/site-permissions'
 import { TeamsStore } from './teams-store'
 import { DesktopUpdater } from './updater'
+import { onLaunch, takeResume } from './update-launch'
+import { SignInReturn } from '../common/sign-in-return'
+import { LocalAppsHost } from './local-apps'
+import { DictationHost } from './dictation'
 
 // the folder of the bundled main.cjs (Bun inlines __dirname at build time, so look for it at run time):
 // packaged = <app.asar>/dist, `electron .` = desktop/dist, `electron dist/main.cjs` = that file's folder
@@ -64,8 +74,9 @@ app.setName(PRODUCT.displayName)
 const aumid = windowsAppUserModelId({ platform: process.platform, windowsStore: process.windowsStore })
 if (aumid) app.setAppUserModelId(aumid)
 // the settings folder keeps its first name (PRODUCT.desktopDataDir) when the product is renamed: Electron would
-// otherwise take the new name and every desk would forget its teams, window and language
-app.setPath('userData', process.env.MYCEL_DESKTOP_USER_DATA || join(app.getPath('appData'), PRODUCT.desktopDataDir))
+// otherwise take the new name and every desk would forget its teams, window and language. A development run keeps its
+// own folder next to it (common/teams.ts dataDirName): its dev teams never reach the installed app.
+app.setPath('userData', process.env.MYCEL_DESKTOP_USER_DATA || join(app.getPath('appData'), dataDirName(PRODUCT.desktopDataDir, app.isPackaged)))
 
 // Sandboxed srcdoc frames (artifacts, previews) stay in the team page's renderer process, so the page-level
 // document-start script that removes RTCPeerConnection reaches them before their own scripts run. Electron's
@@ -73,6 +84,9 @@ app.setPath('userData', process.env.MYCEL_DESKTOP_USER_DATA || join(app.getPath(
 // Trade-off recorded in docs/DECISIONS.md: origin isolation (opaque origin, CSP) stays; process isolation of
 // sandboxed frames is given up.
 app.commandLine.appendSwitch('disable-features', 'IsolateSandboxedIframes')
+// development and tests only: a Linux keyring instead of the --password-store=basic that a test launcher may have set
+const testStore = dev && process.platform === 'linux' ? process.env.MYCEL_DESKTOP_TEST_PASSWORD_STORE : undefined
+if (testStore && ['gnome-libsecret', 'kwallet5', 'kwallet6'].includes(testStore)) app.commandLine.appendSwitch('password-store', testStore)
 
 const testPublic = new Set(
   dev
@@ -108,13 +122,30 @@ protocol.registerSchemesAsPrivileged([{ scheme: UI_SCHEME, privileges: { standar
 // to the first one ('second-instance' below) and exits at once. app.quit() did not: will-quit holds the first quit back
 // to write cookies, so the second app could still reach whenReady, open a window, start the updater and write
 // teams.json next to the first one. app.exit skips will-quit; and the second app sets up nothing (`primary`).
-const primary = app.requestSingleInstanceLock()
-if (!primary) app.exit(0)
+// A packaged AppImage that its AppRun started without Chromium's sandbox (user namespaces blocked, Ubuntu 24.04): one
+// dialog that points to the .deb, then quit, before anything else is set up (common/linux.ts refusesUnsandboxed)
+const linuxStart = { platform: process.platform, packaged: app.isPackaged, env: process.env }
+const unsandboxed = refusesUnsandboxed({ ...linuxStart, noSandbox: app.commandLine.hasSwitch('no-sandbox') })
+if (unsandboxed) app.whenReady().then(refuseUnsandboxed)
+let primary = !unsandboxed && app.requestSingleInstanceLock()
+if (!primary && !unsandboxed) app.exit(0)
+// an update an earlier run left ready (./update-launch.ts): while ShipIt is still installing this app, this start steps
+// aside at once (ShipIt drops the update when the app is open again; a waiter opens the new version when it is done)
+let updateFailed: string | null = null
+if (primary && (app.isPackaged || process.env.MYCEL_DESKTOP_UPDATE_TEST) && !storeBuild(process)) {
+  const d = onLaunch({ userData: app.getPath('userData'), version: app.getVersion(), platform: process.platform, execPath: process.execPath })
+  if (d.kind === 'wait') {
+    primary = false
+    app.releaseSingleInstanceLock()
+    app.exit(0)
+  } else if (d.kind === 'failed' && d.notice) updateFailed = d.pending.version
+}
 
 // Links from outside (`trina-ax://open?url=<team link>`, the web's "앱에서 열기"; docs/DECISIONS.md "First run, phase 2"):
 // the packaged app answers the scheme (the dmg, Mac App Store and Microsoft Store builds also declare it in their
 // manifests: electron-builder.config.ts protocols). A development run does not take it over unless asked.
-if (primary && app.isPackaged) app.setAsDefaultProtocolClient(LINK_SCHEME)
+// On Linux only the .deb registers it (its menu entry, extraMetadata.desktopName); an AppImage has no entry to name.
+if (primary && registersLinkHandler(linuxStart)) app.setAsDefaultProtocolClient(LINK_SCHEME)
 else if (primary && process.env.MYCEL_DESKTOP_REGISTER_SCHEME === '1' && process.argv[1]) app.setAsDefaultProtocolClient(LINK_SCHEME, process.execPath, [resolve(process.argv[1])])
 /** a link that started the app (Windows, Linux: its command line; macOS: open-url before the window exists) */
 let launchLink: string | null = linkFromArgv(process.argv)
@@ -135,7 +166,31 @@ if (primary) app.on('open-url', (e, url) => {
   onLink(url)
 })
 
+/** "install the .deb" (refusesUnsandboxed above): the language last picked in this app, else English */
+async function refuseUnsandboxed() {
+  console.warn('[desktop] the AppImage was started without the sandbox: not running')
+  let L: UiLocale = DEFAULT_UI_LOCALE
+  try { L = new TeamsStore(app.getPath('userData')).loadLocale() ?? kit.locale ?? DEFAULT_UI_LOCALE } catch {}
+  const buttons = APP_DOWNLOADS.page ? [t(L, 'sandbox.download'), t(L, 'sandbox.quit')] : [t(L, 'sandbox.quit')]
+  try {
+    const r = await dialog.showMessageBox({ type: 'error', title: t(L, 'sandbox.title'), message: t(L, 'sandbox.message', { app: PRODUCT.displayName }), detail: t(L, 'sandbox.detail'), buttons, defaultId: 0, cancelId: buttons.length - 1, noLink: true })
+    if (APP_DOWNLOADS.page && r.response === 0) await shell.openExternal(APP_DOWNLOADS.page)
+  } catch (e) {
+    console.warn('[desktop] sandbox dialog', (e as Error).message)
+  }
+  app.exit(0)
+}
+
 let win: AppWindow | undefined
+/** a connector sign-in's one-time return address on 127.0.0.1, for the team the window shows (common/sign-in-return.ts) */
+const signInReturn = new SignInReturn({ current: () => win?.team?.origin })
+/** apps on this computer as connectors (main/local-apps.ts): made when the app is ready (its user data folder) */
+let localApps: LocalAppsHost | undefined
+// voice input transcribed on this Mac (main/dictation.ts): the page that started the recording gets its words
+let dictationPage: WebContents | null = null
+const dictation = new DictationHost({
+  send: (ev) => { if (dictationPage && !dictationPage.isDestroyed()) dictationPage.send('bridge:dictation-event', ev) },
+})
 const updater = new DesktopUpdater({
   team: () => (win?.team && win.app ? { id: win.team.id, origin: win.team.origin } : null),
   window: () => win?.win ?? null,
@@ -145,6 +200,8 @@ const updater = new DesktopUpdater({
     if (origin && win?.app) void win.app.webContents.loadURL(`${origin}/settings/apps`)
   },
   changed: () => buildMenu(),
+  // no window (closed on a Mac, the app still running): nothing on screen to lose, and it comes back without one shown
+  restartBlockers: async () => (win ? win.restartBlockers() : { pageBusy: false, browserTabs: 0, resume: { page: null, window: 'none', at: Date.now() } }),
 })
 // Language of the app's own screens, menus and prompts: what the team page last reported (its person's choice, else
 // the team default) or what was picked on the team list; before either, a kit build's language, else English. Not the
@@ -194,6 +251,7 @@ function serveUi(req: Request): Response {
 const fromShell = (e: IpcMainEvent | IpcMainInvokeEvent) => Boolean(win && e.sender === win.shell.webContents && e.senderFrame && isOwnUiUrl(e.senderFrame.url))
 const fromChrome = (e: IpcMainEvent | IpcMainInvokeEvent) => Boolean(win && e.sender === win.chrome.webContents && e.senderFrame && isOwnUiUrl(e.senderFrame.url))
 const fromHostbar = (e: IpcMainEvent | IpcMainInvokeEvent) => Boolean(win && e.sender === win.hostbar.webContents && e.senderFrame && isOwnUiUrl(e.senderFrame.url))
+const fromFindBar = (e: IpcMainEvent | IpcMainInvokeEvent) => Boolean(win && e.sender === win.findBar.view.webContents && e.senderFrame && isOwnUiUrl(e.senderFrame.url))
 const fromApp = (e: IpcMainEvent | IpcMainInvokeEvent) =>
   Boolean(
     win &&
@@ -206,7 +264,7 @@ const fromApp = (e: IpcMainEvent | IpcMainInvokeEvent) =>
 function registerIpc() {
   ipcMain.on('ui:strings', (e) => {
     const L = locale()
-    e.returnValue = fromShell(e) || fromChrome(e) || fromHostbar(e) ? { locale: L, strings: STRINGS[L] } : null
+    e.returnValue = fromShell(e) || fromChrome(e) || fromHostbar(e) || fromFindBar(e) ? { locale: L, strings: STRINGS[L] } : null
   })
   // welcome / team list
   ipcMain.handle('ui:welcome-state', (e) => (fromShell(e) ? win!.welcomeState() : null))
@@ -220,6 +278,11 @@ function registerIpc() {
   // the host strip above the team's sign-in pages
   ipcMain.handle('ui:hostbar-state', (e) => (fromHostbar(e) ? win!.hostbarState() : null))
   ipcMain.on('ui:hostbar-teams', (e) => fromHostbar(e) && win!.showWelcome())
+  // the find bar (Cmd/Ctrl+F): its text, next / previous, close (main/find-bar.ts)
+  ipcMain.handle('ui:find-state', (e) => (fromFindBar(e) ? win!.findBar.state() : null))
+  ipcMain.on('ui:find-query', (e, text: unknown) => fromFindBar(e) && typeof text === 'string' && win!.findBar.query(text))
+  ipcMain.on('ui:find-step', (e, forward: unknown) => fromFindBar(e) && win!.findBar.step(forward !== false))
+  ipcMain.on('ui:find-close', (e) => fromFindBar(e) && win!.findBar.close(true))
   ipcMain.handle('ui:remove-team', (e, id: string) => (fromShell(e) ? win!.removeTeam(String(id)) : null))
   ipcMain.on('ui:open-team', (e, id: string) => fromShell(e) && void win!.openTeam(String(id)))
   // screen ④: the person's answer for the host it showed (AppWindow.answerLink)
@@ -230,6 +293,7 @@ function registerIpc() {
   ipcMain.on('ui:back', (e) => fromShell(e) && win!.back())
   ipcMain.on('ui:set-locale', (e, l: unknown) => fromShell(e) && setUiLocale(asUiLocale(l)))
   ipcMain.on('ui:retry', (e) => fromShell(e) && win!.retry())
+  ipcMain.on('ui:offline-left', (e) => fromShell(e) && win!.leftOffline())
   // pane toolbar
   ipcMain.handle('ui:pane-state', (e) => (fromChrome(e) ? (win!.pane?.state() ?? null) : null))
   ipcMain.on('ui:pane-navigate', (e, url: string) => fromChrome(e) && void win!.pane?.userNavigate(String(url)))
@@ -238,12 +302,22 @@ function registerIpc() {
   ipcMain.on('ui:pane-select', (e, id: string) => fromChrome(e) && win!.pane?.selectTab(String(id)))
   ipcMain.on('ui:pane-close-tab', (e, id: string) => fromChrome(e) && win!.pane?.closeTab(String(id)))
   ipcMain.on('ui:pane-close', (e) => fromChrome(e) && win!.pane?.hide())
+  // ↗ in the toolbar: the page on screen in the person's own browser (security.ts openExternal: http/https only)
+  ipcMain.on('ui:pane-open-external', (e) => {
+    const url = fromChrome(e) ? win!.pane?.externalUrl() : null
+    if (url) openExternal(url)
+  })
   ipcMain.on('ui:pane-stop', (e) => fromChrome(e) && win!.pane?.stop())
   ipcMain.on('ui:pane-answer', (e, a: { id?: string; decision?: string }) => {
     if (!fromChrome(e) || !a?.id) return
     win!.pane?.answer(String(a.id), a.decision === 'always' ? 'always' : a.decision === 'once' ? 'once' : 'deny')
   })
-  ipcMain.on('ui:pane-toolbar-height', (e, h: number) => fromChrome(e) && Number.isFinite(h) && win!.pane?.setToolbarHeight(h))
+  ipcMain.on('ui:pane-toolbar-height', (e, h: number) => {
+    if (!fromChrome(e) || !Number.isFinite(h)) return
+    win!.pane?.setToolbarHeight(h)
+    // the toolbar rendered: the browser may be drawn under it (AppWindow.chromeUp)
+    win!.chromeUp()
+  })
   // the edge handle between the team page and the browser (AppWindow.paneDrag / paneKey)
   ipcMain.handle('ui:pane-width', (e) => (fromChrome(e) ? win!.paneWidth() : null))
   ipcMain.on('ui:pane-drag', (e, phase: unknown, edgeX: unknown) => {
@@ -262,8 +336,39 @@ function registerIpc() {
   // team page bridge (shared/src/desktop-bridge.ts); store: a Mac App Store or Microsoft Store build, where Settings >
   // Apps offers no installer
   ipcMain.on('bridge:info', (e) => {
-    e.returnValue = fromApp(e) ? { global: DESKTOP_BRIDGE_GLOBAL, bridgeVersion: DESKTOP_BRIDGE_VERSION, appVersion: app.getVersion(), platform: process.platform, store: storeBuild(process), workFiles: workFilesVersion({ platform: process.platform, mas: process.mas }), workFilesWide: workFilesVersion({ platform: process.platform, mas: process.mas }) ? WORK_FILES_WIDE_VERSION : 0 } : null
+    e.returnValue = fromApp(e) ? { global: DESKTOP_BRIDGE_GLOBAL, bridgeVersion: DESKTOP_BRIDGE_VERSION, appVersion: app.getVersion(), platform: process.platform, store: storeBuild(process), workFiles: workFilesVersion({ platform: process.platform, mas: process.mas }), workFilesWide: workFilesVersion({ platform: process.platform, mas: process.mas }) ? WORK_FILES_WIDE_VERSION : 0, downloads: !process.mas, localApps: process.mas ? 0 : LOCAL_APPS_BRIDGE_VERSION, dictation: process.mas ? 0 : dictation.version() } : null
   })
+  // voice input on this Mac (main/dictation.ts): the team page's top frame only; the sound comes in as samples, the
+  // words go back to that page alone, and a reload or another page ends its recording
+  const dictationLanguage = (v: unknown) => (typeof v === 'string' ? v.slice(0, 8) : '')
+  ipcMain.handle('bridge:dictation-check', (e, lang: unknown) => (fromApp(e) && !process.mas ? dictation.check(dictationLanguage(lang)) : { state: 'unavailable' }))
+  ipcMain.handle('bridge:dictation-install', (e, lang: unknown) => {
+    if (!fromApp(e) || process.mas) return 'failed'
+    const language = dictationLanguage(lang)
+    const page = e.sender
+    return dictation.install(language, (percent) => { if (!page.isDestroyed()) page.send('bridge:dictation-progress', { language, percent }) })
+  })
+  ipcMain.handle('bridge:dictation-start', async (e, lang: unknown) => {
+    if (!fromApp(e) || process.mas) return null
+    const page = e.sender
+    if (dictationPage !== page) {
+      dictationPage = page
+      // both go once either fires (a page reloaded ten times keeps no stale listeners)
+      const end = () => {
+        page.off('destroyed', end)
+        page.off('did-navigate', end)
+        if (dictationPage === page) { dictation.stopAll(); dictationPage = null }
+      }
+      page.once('destroyed', end)
+      page.once('did-navigate', end)
+    }
+    return dictation.start(dictationLanguage(lang))
+  })
+  // a refused microphone is turned on again in System Settings (a fixed address; the page names nothing)
+  ipcMain.on('bridge:mic-settings', (e) => { if (fromApp(e) && process.platform === 'darwin') void shell.openExternal('x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone').catch(() => {}) })
+  ipcMain.on('bridge:dictation-push', (e, id: unknown, samples: unknown) => fromApp(e) && e.sender === dictationPage && typeof id === 'number' && samples instanceof Float32Array && dictation.push(id, samples))
+  ipcMain.on('bridge:dictation-stop', (e, id: unknown) => fromApp(e) && e.sender === dictationPage && typeof id === 'number' && dictation.stop(id))
+  ipcMain.on('bridge:dictation-cancel', (e, id: unknown) => fromApp(e) && e.sender === dictationPage && typeof id === 'number' && dictation.cancel(id))
   ipcMain.handle('bridge:browser-run', async (e, raw: unknown) => {
     const call = BrowserCall.safeParse(raw)
     const callId = typeof (raw as { callId?: unknown })?.callId === 'string' ? (raw as { callId: string }).callId.slice(0, 100) : 'invalid'
@@ -277,12 +382,30 @@ function registerIpc() {
     return pane.run(call.data)
   })
   ipcMain.on('bridge:browser-cancel', (e, callId: string) => fromApp(e) && win!.pane?.cancel(String(callId)))
+  // apps on this computer (main/local-apps.ts): only the open team's page, for that team; the app's own dialog asks
+  // before a command runs, and the page never answers it
+  ipcMain.handle('bridge:local-run', async (e, raw: unknown): Promise<LocalResult> => {
+    const callId = typeof (raw as { callId?: unknown })?.callId === 'string' ? (raw as { callId: string }).callId.slice(0, 100) : 'invalid'
+    const team = fromApp(e) ? win?.team?.id : undefined
+    if (!team || !localApps) return { callId, ok: false, failure: 'not_desktop', error: 'no team is open in the desktop app' }
+    const call = LocalCall.safeParse(raw)
+    if (!call.success) return { callId, ok: false, failure: 'failed', error: 'malformed call' }
+    return localApps.apps.call(team, call.data)
+  })
+  ipcMain.on('bridge:local-cancel', (e, callId: unknown) => fromApp(e) && typeof callId === 'string' && localApps?.apps.cancel(callId.slice(0, 100)))
+  ipcMain.on('bridge:local-stop', (e, id: unknown) => {
+    const team = fromApp(e) ? win?.team?.id : undefined
+    if (team && typeof id === 'string') localApps?.apps.stop(team, id.slice(0, 100))
+  })
+  ipcMain.handle('bridge:local-running', (e) => { const team = fromApp(e) ? win?.team?.id : undefined; return team && localApps ? localApps.apps.runningIds(team) : [] })
+  ipcMain.handle('bridge:local-settings', (e, id: unknown, values: unknown) => { const team = fromApp(e) ? win?.team?.id : undefined; return team && localApps ? localApps.setSettings(team, id, values) : 'unavailable' })
+  ipcMain.handle('bridge:local-setting-names', (e, id: unknown) => { const team = fromApp(e) ? win?.team?.id : undefined; return team && localApps ? localApps.settingNames(team, id) : [] })
   ipcMain.on('bridge:pane', (e, what: string) => {
     if (!fromApp(e) || !win?.pane) return
     // the team page's Browser entry: the person's own (common/keyboard-focus.ts keyboardTaken)
     if (what === 'open' || what === 'close' || what === 'toggle') win.paneByPerson(what)
   })
-  ipcMain.handle('bridge:pane-state', (e) => (fromApp(e) ? (win!.pane?.state() ?? null) : null))
+  ipcMain.handle('bridge:pane-state', (e) => (fromApp(e) ? win!.paneStateForPage() : null))
   ipcMain.handle('bridge:connection', (e) => (fromApp(e) ? win!.connection() : null))
   ipcMain.on('bridge:notify', (e, n: { title?: string; body?: string; tag?: unknown; open?: unknown; read?: unknown }) => fromApp(e) && win!.notify({ title: String(n?.title ?? ''), body: String(n?.body ?? ''), tag: n?.tag, open: n?.open, read: n?.read }))
   // Settings › Notifications' "Test notification": shown while focused too, with the app's own words (the page gives
@@ -300,11 +423,12 @@ function registerIpc() {
   })
   ipcMain.handle('bridge:focus', (e) => (fromApp(e) ? win!.teamFocused() : false))
   ipcMain.on('bridge:open-teams', (e) => fromApp(e) && win!.showWelcome())
-  // the team page's "다른 팀으로 전환": the OS menu's own team list as a menu under the pointer (the page never sees it)
-  ipcMain.on('bridge:team-menu', (e) => {
-    if (!fromApp(e) || !win) return
-    Menu.buildFromTemplate(teamMenuItems()).popup({ window: win.win })
-  })
+  // the team page's "다른 팀으로 전환" from a page that still asks for the menu under the pointer (team servers before
+  // 2026-11-15): the app's own team screen as well. The floating menu over the rail is gone (owner 2026-11-15); the OS
+  // menu's 팀 keeps every team and ⌘1–9.
+  ipcMain.on('bridge:team-menu', (e) => fromApp(e) && win!.showWelcome())
+  // the team page draws the address and "Switch team" under its sign-in card: no strip above it there
+  ipcMain.on('bridge:host-line', (e, drawn: unknown) => fromApp(e) && win?.setPageHostLine(drawn === true))
   ipcMain.on('bridge:set-locale', (e, l: unknown) => fromApp(e) && setUiLocale(asUiLocale(l)))
   // 이미지 복사 (the image viewer, a picture's right-click menu): the PNG the page read through its own file routes goes on
   // the computer's clipboard as a picture; nothing is fetched here. Bytes that are no PNG the system can draw: false
@@ -326,6 +450,9 @@ function registerIpc() {
   })
   // the welcome steps' team files: the folder picked last gave nothing to read; 'mac-blocked' when macOS privacy kept the
   // app out of it (a word, never the error's text)
+  // downloads with no save window: the page says it shows the notice, and asks for a saved file by its number only
+  ipcMain.on('bridge:downloads-ready', (e) => fromApp(e) && win!.downloads.pageReady(e.sender))
+  ipcMain.on('bridge:download-show', (e, id: unknown) => fromApp(e) && typeof id === 'number' && Number.isSafeInteger(id) && win!.downloads.show(id))
   ipcMain.handle('bridge:folder-problem', (e, name: unknown) => (fromApp(e) && e.senderFrame ? win!.folderProblem(e.senderFrame.origin, String(name ?? '').slice(0, 1024)) : null))
 
   // "Find work files on this computer" (main/work-files.ts): the page only asks; the app shows its own dialog, looks in
@@ -338,14 +465,25 @@ function registerIpc() {
   ipcMain.on('bridge:work-files-full-disk-settings', (e) => fromApp(e) && win!.workFiles.openFullDiskSettings())
   ipcMain.on('bridge:work-files-relaunch', (e) => { if (fromApp(e)) void win!.workFiles.relaunch() })
   ipcMain.on('bridge:work-files-stop', (e) => fromApp(e) && win!.workFiles.stop())
-  ipcMain.handle('bridge:work-files-read', (e, id: unknown) => (fromApp(e) && e.senderFrame ? win!.workFiles.read(e.senderFrame.origin, String(id ?? '').slice(0, 100)) : { ok: false, reason: 'unknown' }))
+  // TC-3300: the files the person ticked, asked again in the app's own window before any is read (ids only, never a path)
+  ipcMain.handle('bridge:work-files-add', (e, ids: unknown) => (fromApp(e) && e.senderFrame && Array.isArray(ids) && ids.length <= 100 && ids.every((id) => typeof id === 'string' && /^[A-Za-z0-9_-]{1,64}$/.test(id)) ? win!.workFiles.add(e.senderFrame.origin, ids as string[]) : { state: 'refused' }))
+  // a file coming from its cloud first: the page hears so while it waits (bridge:work-files-reading, to the asking frame)
+  const readWorkFile = (frame: Electron.WebFrameMain, fileId: string) =>
+    win!.workFiles.read(frame.origin, fileId, (cloud) => { try { if (!frame.isDestroyed() && !frame.detached) frame.send('bridge:work-files-reading', { id: fileId, cloud }) } catch { /* the page is gone */ } })
+  ipcMain.handle('bridge:work-files-read', (e, id: unknown) => (fromApp(e) && e.senderFrame ? readWorkFile(e.senderFrame, String(id ?? '').slice(0, 100)) : { ok: false, reason: 'unknown' }))
   ipcMain.on('bridge:work-files-settings', (e) => fromApp(e) && win!.workFiles.openSettings())
   // "Choose it yourself": a folder macOS kept the app out of, picked in the system's folder window (only a root's id)
   ipcMain.handle('bridge:work-files-pick', (e, id: unknown) => (fromApp(e) && e.senderFrame && (id === 'documents' || id === 'desktop' || id === 'downloads') ? win!.workFiles.pickRoot(e.senderFrame.origin, id) : { state: 'unavailable' }))
+  // "Choose a folder…" (MAN-057): any folder the person picks in the system's folder window, after a look (no path from the page)
+  ipcMain.handle('bridge:work-files-pick-folder', (e) => (fromApp(e) && e.senderFrame ? win!.workFiles.pickFolder(e.senderFrame.origin) : { state: 'unavailable' }))
 
   // Settings > Browser on the team page (shared/src/desktop-bridge.ts DesktopBrowserSettings): read the setting, go
   // back to asking, remove one always-allowed site, clear them all. Nothing here makes the browser more open: "all" is
   // only a request, committed by the person's click on the app's own dialog (AppWindow.requestAllowAll).
+  // a connector sign-in's return address: only for the team page's top frame at the team's own address (not its pinned
+  // direct one), and it goes only there (common/sign-in-return.ts)
+  ipcMain.handle('bridge:sign-in-return-open', (e) => (fromApp(e) && e.senderFrame && e.senderFrame.origin === win?.team?.origin ? signInReturn.open(e.senderFrame.origin) : null))
+  ipcMain.on('bridge:sign-in-return-close', (e, port: unknown) => fromApp(e) && typeof port === 'number' && signInReturn.close(port))
   ipcMain.handle('bridge:browser-settings', (e) => (fromApp(e) ? (win!.browserSettings() ?? null) : null))
   ipcMain.handle('bridge:browser-access', async (e, v: unknown): Promise<AllowAllOutcome> => {
     if (!fromApp(e) || !win?.pane) return 'unavailable'
@@ -369,8 +507,7 @@ function registerIpc() {
 
 // ------------------------------------------------------------------ menu
 
-/** The 팀 menu's items: every team (⌘1–9, the open one ticked), then "팀 목록…" (add a team). One list for the OS menu
- * and the team page's "다른 팀으로 전환" (bridge:team-menu). */
+/** The OS menu's 팀 items: every team (⌘1–9, the open one ticked), then "팀 목록…" (add a team). */
 function teamMenuItems(): MenuItemConstructorOptions[] {
   const tr = (k: UiKey) => t(locale(), k)
   const teamItems: MenuItemConstructorOptions[] = (win?.teamList() ?? []).map((x, i) => ({
@@ -392,7 +529,13 @@ function buildMenu() {
       : []),
     // every item carries its label from the app's own strings: a role's default label follows the OS language,
     // which would mix two languages in one menu (docs/DECISIONS.md "언어")
-    { label: tr('menu.edit'), submenu: [{ role: 'undo', label: tr('menu.undo') }, { role: 'redo', label: tr('menu.redo') }, { type: 'separator' }, { role: 'cut', label: tr('menu.cut') }, { role: 'copy', label: tr('menu.copy') }, { role: 'paste', label: tr('menu.paste') }, { role: 'selectAll', label: tr('menu.selectAll') }] },
+    { label: tr('menu.edit'), submenu: [{ role: 'undo', label: tr('menu.undo') }, { role: 'redo', label: tr('menu.redo') }, { type: 'separator' }, { role: 'cut', label: tr('menu.cut') }, { role: 'copy', label: tr('menu.copy') }, { role: 'paste', label: tr('menu.paste') }, { role: 'selectAll', label: tr('menu.selectAll') },
+      // the find bar over the screen in front (main/find-bar.ts); a page that takes Cmd/Ctrl+F itself keeps it: the menu
+      // only gets a key the page left (common/find-bar.ts)
+      { type: 'separator' },
+      { id: 'find', label: tr('menu.find'), accelerator: 'CmdOrCtrl+F', click: () => win?.find('open') },
+      { id: 'find-next', label: tr('menu.findNext'), accelerator: 'CmdOrCtrl+G', click: () => win?.find('next') },
+      { id: 'find-prev', label: tr('menu.findPrev'), accelerator: 'Shift+CmdOrCtrl+G', click: () => win?.find('prev') }] },
     {
       label: tr('menu.view'),
       submenu: [
@@ -409,8 +552,8 @@ function buildMenu() {
     },
     // one item for the list and adding a team: both were the same screen
     { label: tr('menu.team'), submenu: teamMenuItems() },
-    // a downloaded update (Windows): installs on quit, or now from here
-    ...(updater.ready ? [{ label: tr('update.ready.menu'), click: () => updater.restartNow() }] : []),
+    // a downloaded update (Windows, Mac): installs on quit or by itself when idle, or now from here
+    ...(updater.ready ? [{ label: tr('update.ready.menu'), click: () => { updater.restartNow() } }] : []),
     {
       label: tr('menu.window'),
       role: 'windowMenu',
@@ -418,7 +561,9 @@ function buildMenu() {
         { role: 'minimize', label: tr('menu.minimize') },
         ...(process.platform === 'darwin'
           ? [{ role: 'zoom' as const, label: tr('menu.zoom') }, { type: 'separator' as const }, { role: 'front' as const, label: tr('menu.front') }]
-          : [{ role: 'close' as const, label: tr('menu.close') }]),
+          : [{ role: 'close' as const, label: tr('menu.close') },
+              // no tray: closing the last window quits, and Linux had no other way to say Quit (Windows: Alt+F4)
+              ...(process.platform === 'linux' ? [{ type: 'separator' as const }, { role: 'quit' as const, label: tr('menu.quit'), accelerator: 'Ctrl+Q' }] : [])]),
       ],
     },
   ]
@@ -429,6 +574,18 @@ function buildMenu() {
 
 async function createWindow() {
   store = new TeamsStore(app.getPath('userData'))
+  localApps ??= new LocalAppsHost({
+    userData: app.getPath('userData'),
+    parent: () => (win && !win.win.isDestroyed() ? win.win : null),
+    locale,
+    teamLabel: (team) => win?.teamList().find((x) => x.id === team)?.label ?? '',
+    // Settings shows whether the program runs now: told to the open team's page
+    onChange: (team, id, running) => { if (win?.team?.id === team && win.app && !win.app.webContents.isDestroyed()) win.app.webContents.send('bridge:local-running', { id, running }) },
+    // Connect pressed after the check stopped waiting: the open team's page checks the connection again
+    onConfirmed: (team, id) => { if (win?.team?.id === team && win.app && !win.app.webContents.isDestroyed()) win.app.webContents.send('bridge:local-confirmed', { id }) },
+  })
+  // the app restarted by itself to install an update: the page and window come back as they were (once)
+  const resume = takeResume(app.getPath('userData'))
   win = new AppWindow({
     store,
     locale,
@@ -439,18 +596,22 @@ async function createWindow() {
     suggestedTeam: kit.team,
     answerFileChoosers: answersFileChoosers(process.mas === true, app.isPackaged, process.env.MYCEL_DESKTOP_TEST_FILE_CHOOSER),
     macAppStore: process.mas === true,
+    // the Mac App Store build may not write to Downloads without the save window: it keeps the window
+    downloadsDir: () => (process.mas ? null : (!app.isPackaged && process.env.MYCEL_DESKTOP_TEST_DOWNLOADS) || app.getPath('downloads')),
     onTeamsChanged: () => buildMenu(),
+    quietStart: resume?.window,
   })
   win.win.on('closed', () => {
     // quitting closes the window before will-quit: keep which team it showed (its cookies are written on quit)
     lastTeam = win?.team?.id ?? lastTeam
     win = undefined
+    signInReturn.close()
   })
   buildMenu()
   const initial = dev ? process.env.MYCEL_DESKTOP_TEAM : undefined
   // set by the developer for this run: no "not run by us" question
   if (initial) await win.addTeam(initial, true)
-  else await win.openLast()
+  else if (await win.openLast(resume?.page ?? null, launchLink)) launchLink = null
   if (launchLink) {
     const link = launchLink
     launchLink = null
@@ -479,6 +640,8 @@ if (primary) {
     registerIpc()
     await createWindow()
     updater.start()
+    // still the old version after the update was installed twice on quit: one plain line with the download page
+    if (updateFailed) void updater.offerDownload(updateFailed)
   })
 
   app.on('second-instance', (_e, argv) => {
@@ -494,9 +657,12 @@ if (primary) {
     if (!win) void createWindow()
   })
   // write cookies of the open team (page and browser) to disk before quitting (lastTeam, flushed: above)
-  app.on('before-quit', () => debug('before-quit'))
+  app.on('before-quit', () => { debug('before-quit'); localApps?.apps.stopAll(); dictation.stopAll() })
   app.on('will-quit', (e) => {
     debug('will-quit', flushed)
+    // every program an app on this computer started ends with the app: asked to stop first (before-quit, and here),
+    // killed on the last pass, after which no timer of the app runs to finish one that ignored it
+    localApps?.apps.stopAll(undefined, flushed)
     if (flushed) return
     e.preventDefault()
     const id = win?.team?.id ?? lastTeam

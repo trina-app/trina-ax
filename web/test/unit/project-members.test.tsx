@@ -68,6 +68,11 @@ const en = (key: Parameters<typeof translate>[1], vars?: Record<string, string |
 const state = (m: Mounted, id: string) => m.get(id).getAttribute('data-state')
 const dialog = (o: { onSaved?: (p: Project) => void } = {}) =>
   mount(<MemoryRouter><ProjectMembersDialog project={project()} onClose={() => {}} onSaved={o.onSaved ?? (() => {})} /><DialogHost /></MemoryRouter>)
+/** Save, once the dry run of these picks is here (one press: Save waits for it) */
+async function save(m: Mounted) {
+  await m.until(() => !m.get('project-members-save').hasAttribute('disabled'), 'Save on', 3000)
+  await m.click('project-members-save')
+}
 async function addBob(m: Mounted) {
   await m.type('project-participants-search', 'bob')
   await m.click(await m.until(() => m.find('participant-add-user-bob'), 'Bob to add', 2000))
@@ -110,7 +115,7 @@ describe('the members now', () => {
     // × keeps the row, struck through, until the save; 되돌리기 brings it back
     await m.click('participant-remove-user-sora')
     expect(state(m, 'participant-user-sora')).toBe('removed')
-    expect(m.get('project-members-save').hasAttribute('disabled')).toBe(false)
+    await m.until(() => !m.get('project-members-save').hasAttribute('disabled'), 'Save on', 3000)
     await m.click('participant-undo-user-sora')
     expect(state(m, 'participant-user-sora')).toBe('member')
     expect(m.get('project-members-save').hasAttribute('disabled')).toBe(true)
@@ -231,7 +236,7 @@ describe('saving', () => {
     await m.until(() => m.find('participant-user-sora'), 'the members', 2000)
     await m.click('participant-remove-user-sora')
     await addBob(m)
-    await m.click('project-members-save')
+    await save(m)
     const box = await m.until(() => m.find('project-widen-confirm'), 'the confirm', 2000)
     expect(box.textContent).toContain(en('projects.widenBody', { n: 1 }))
     expect(box.textContent).toContain(en('projects.widenFilesOthers', { n: 12, m: 5 }))
@@ -260,7 +265,7 @@ describe('saving', () => {
     const m = await dialog({ onSaved: () => { saved++ } })
     await m.until(() => m.find('participant-user-sora'), 'the members', 2000)
     await m.click('participant-remove-user-sora')
-    await m.click('project-members-save')
+    await save(m)
     const lose = await m.until(() => m.find('project-narrow-line'), 'who loses access', 2000)
     expect(lose.textContent).toBe(en('projects.loseAccess', { n: 1, names: 'Sora' }))
     expect(m.html()).toContain(en('projects.changeTitle'))
@@ -276,7 +281,7 @@ describe('saving', () => {
       const n = await dialog({ onSaved: () => { saved++ } })
       await n.until(() => n.find('participant-user-sora'), 'the members', 2000)
       await n.click('participant-remove-user-sora')
-      await n.click('project-members-save')
+      await save(n)
       const box = await n.until(() => n.find('project-widen-confirm'), 'the confirm', 2000)
       expect(box.textContent).toContain(en(line === 'project-adds-floor' ? 'projects.addsFloor' : 'projects.restoresCreator'))
       expect(box.textContent).toContain(en('projects.narrowBody', { n: 1 }))
@@ -289,6 +294,37 @@ describe('saving', () => {
       expect(saved).toBe(1)
       await n.unmount()
     }
+  })
+
+  test('taking people out of a project with a chat room says they lose the room and its history too (QA TC-6128)', async () => {
+    signedIn('member')
+    routes = {
+      'GET /api/people': () => json(200, PEOPLE),
+      [`GET /api/projects/${P1}/access`]: () => json(200, access()),
+      'POST /api/projects/access-preview': () => json(200, preview({ people: 2, removed: 1, removedNames: ['Sora'] })),
+    }
+    const m = await mount(<MemoryRouter><ProjectMembersDialog project={project({ folderPath: 'projects/Acme launch' })} onClose={() => {}} onSaved={() => {}} /><DialogHost /></MemoryRouter>)
+    await m.until(() => m.find('participant-user-sora'), 'the members', 2000)
+    await m.click('participant-remove-user-sora')
+    await save(m)
+    const line = await m.until(() => m.find('project-lose-room'), 'the chat room line', 2000)
+    expect(line.textContent).toBe("They also lose the project's chat room and its history.")
+    expect(line.textContent).toBe(en('projects.loseRoom', { n: 1 }))
+    // Korean says 대화방, the same word as the project's Chat room button (projects.room.open)
+    expect(translate('ko', 'projects.loseRoom', { n: 1 })).toContain('대화방')
+    expect(translate('ko', 'projects.loseRoom', { n: 1 })).toContain(translate('ko', 'projects.room.open'))
+    // Spanish reads right for one person or several (no "pierden" after "1 persona pierde")
+    expect(translate('es', 'projects.loseRoom', { n: 1 })).toBe(translate('es', 'projects.loseRoom', { n: 2 }))
+    expect(translate('es', 'projects.loseRoom', { n: 1 })).not.toContain('pierden')
+    await m.unmount()
+    // a personal project has no chat room: only the access line
+    const q = await mount(<MemoryRouter><ProjectMembersDialog project={project({ folderPath: 'users/mia/Acme launch' })} onClose={() => {}} onSaved={() => {}} /><DialogHost /></MemoryRouter>)
+    await q.until(() => q.find('participant-user-sora'), 'the members', 2000)
+    await q.click('participant-remove-user-sora')
+    await save(q)
+    await q.until(() => q.find('project-narrow-line'), 'who loses access', 2000)
+    expect(q.find('project-lose-room')).toBeNull()
+    await q.unmount()
   })
 
   test('after a save the project is read again: its count and whether anyone else sees it by a rule (the line under the box)', async () => {
@@ -309,7 +345,7 @@ describe('saving', () => {
       const m = await mount(<MemoryRouter><ProjectMembersDialog project={project({ audience: 3, alone: true })} onClose={() => {}} onSaved={(p) => { saved = p }} /><DialogHost /></MemoryRouter>)
       await m.until(() => m.find('participant-user-sora'), 'the members', 2000)
       await m.click('participant-remove-user-sora')
-      await m.click('project-members-save')
+      await save(m)
       await m.click(await m.until(() => m.find('dialog-confirm'), 'who loses access', 2000))
       await m.until(() => saved, 'the save', 2000)
       expect(calls(`GET /api/projects/${P1}`)).toHaveLength(1)
@@ -332,7 +368,7 @@ describe('saving', () => {
     await m.until(() => m.find('participant-user-sora'), 'the members', 2000)
     conflict = true
     await m.click('participant-remove-user-sora')
-    await m.click('project-members-save')
+    await save(m)
     await m.click(await m.until(() => m.find('dialog-confirm'), 'who loses access', 2000))
     await m.until(() => m.html().includes('Someone changed who sees this project'), 'the message', 2000)
     await m.until(() => m.find('participant-user-bob')?.getAttribute('data-state') === 'member', 'Bob, added by someone else', 2000)
@@ -352,7 +388,9 @@ describe('a project not changed here', () => {
       // (its creator no longer changes them: the member reads that an admin does)
       const m = await mount(<MemoryRouter><ProjectMembersDialog project={project({ folderPath: 'shared/acme', creatorChangesMembers: false })} onClose={() => {}} onSaved={() => {}} /></MemoryRouter>)
       const line = await m.until(() => m.find('project-members-locked'), 'the line', 2000)
-      expect(line.textContent).toBe(role === 'admin' ? en('projects.legacyNote') : en('projects.membersByAdmins'))
+      // an admin: where to change it, with the way there (it moved here from the page's old Members line)
+      expect(line.textContent).toBe(role === 'admin' ? `${en('projects.legacyNote')} ${en('projects.otherRulesLink')}` : en('projects.membersByAdmins'))
+      if (role === 'admin') expect(line.querySelector('a')?.getAttribute('href')).toBe(`/admin/folders?folder=${encodeURIComponent('shared/acme')}`)
       // no folder path in the words
       expect(line.textContent).not.toContain('shared/acme')
       expect(m.find('project-participants')).toBeNull()
@@ -406,14 +444,14 @@ describe('members only (docs/DECISIONS.md "Project contents only for members")',
     await m.click('project-other-rule-remove-group-g-leads')
     expect(m.get('project-other-rule-group-g-leads').getAttribute('data-state')).toBe('removed')
     expect(m.find('participant-group-g-leads')).toBeNull()
-    expect(m.get('project-members-save').hasAttribute('disabled')).toBe(false)
+    await m.until(() => !m.get('project-members-save').hasAttribute('disabled'), 'Save on', 3000)
     await m.until(() => m.get('project-access-summary').textContent === en('projects.whoMembers', { n: 2 }), 'the count without it', 2000)
     // 되돌리기, then × again
     await m.click('project-other-rule-undo-group-g-leads')
     expect(m.get('project-other-rule-group-g-leads').getAttribute('data-state')).toBe('own')
     expect(m.get('project-members-save').hasAttribute('disabled')).toBe(true)
     await m.click('project-other-rule-remove-group-g-leads')
-    await m.click('project-members-save')
+    await save(m)
     // taking it out only narrows: asked as a change (who loses it), then saved with removeRules
     await m.click(await m.until(() => m.find('dialog-confirm'), 'the confirm', 2000))
     await m.until(() => saved, 'the save', 2000)
@@ -456,7 +494,7 @@ describe('members only (docs/DECISIONS.md "Project contents only for members")',
     await m.until(() => m.find('participant-user-sora'), 'the members', 2000)
     await m.type('project-participants-search', 'olga')
     await m.click(await m.until(() => m.find('participant-add-user-olga'), 'me to add', 2000))
-    await m.click('project-members-save')
+    await save(m)
     const box = await m.until(() => m.find('project-add-me-confirm'), 'the Add me confirm', 2000)
     expect(m.html()).toContain(en('projects.addMeTitle', { name: 'Acme launch' }))
     expect(box.textContent).toBe(en('projects.addMeBody'))
@@ -465,7 +503,7 @@ describe('members only (docs/DECISIONS.md "Project contents only for members")',
     await m.click(m.get('dialog-confirm').parentElement!.querySelector('button')!)
     await m.settle(30)
     expect(calls(`PUT /api/projects/${P1}/participants`)).toEqual([])
-    await m.click('project-members-save')
+    await save(m)
     await m.until(() => m.find('project-add-me-confirm'), 'asked again', 2000)
     await m.click('dialog-confirm')
     await m.until(() => saved, 'the save', 2000)
@@ -480,16 +518,72 @@ describe('members only (docs/DECISIONS.md "Project contents only for members")',
       'GET /api/admin/groups': () => json(200, { items: [] }),
       [`GET /api/projects/${P1}/access`]: () => json(200, access()),
       'POST /api/projects/access-preview': () => json(200, preview({ people: 4, added: 1, contentsHidden: true })),
+      [`PUT /api/projects/${P1}/participants`]: () => json(200, access({ rulesHash: 'h2' })),
+      [`GET /api/projects/${P1}`]: () => json(200, project({ audience: 4 })),
+    }
+    let saved: Project | null = null
+    const m = await dialog({ onSaved: (p) => { saved = p } })
+    await m.until(() => m.find('participant-user-sora'), 'the members', 2000)
+    await addBob(m)
+    // one press (QA TC-3092): what they will see is in place before Save, no confirm after it
+    const box = await m.until(() => m.find('project-widen-inline'), 'the lines in place', 3000)
+    expect(box.textContent).toContain(en('projects.widenBody', { n: 1 }))
+    expect(box.textContent).toContain(en('projects.othersSee'))
+    expect(box.textContent).toContain(en('projects.widenNotice'))
+    expect(translate('ko', 'projects.othersSee')).toBe('이 사람들은 파일과 채팅을 보게 돼요.')
+    expect(box.textContent).not.toContain(en('projects.widenFiles', { n: 0 }))
+    expect(box.querySelectorAll('li').length).toBe(1)
+    await save(m)
+    await m.until(() => saved, 'saved in one press', 2000)
+    expect(m.find('project-widen-confirm')).toBeNull()
+    expect(calls(`PUT /api/projects/${P1}/participants`).length).toBe(1)
+    await m.unmount()
+  })
+
+  test('only people added, the same counts but another line (a skill renamed): the confirm comes back (the whole lines are compared)', async () => {
+    signedIn('member')
+    let names = ['견적서']
+    routes = {
+      'GET /api/people': () => json(200, PEOPLE),
+      [`GET /api/projects/${P1}/access`]: () => json(200, access()),
+      'POST /api/projects/access-preview': () => json(200, preview({ people: 4, added: 1, skills: 1, skillNames: names })),
+      [`PUT /api/projects/${P1}/participants`]: () => json(200, access({ rulesHash: 'h2' })),
+      [`GET /api/projects/${P1}`]: () => json(200, project({ audience: 4 })),
     }
     const m = await dialog()
     await m.until(() => m.find('participant-user-sora'), 'the members', 2000)
     await addBob(m)
-    await m.click('project-members-save')
+    await m.until(() => m.find('project-widen-inline')?.textContent?.includes('견적서'), 'the lines in place', 3000)
+    names = ['견적-현장']
+    await save(m)
     const box = await m.until(() => m.find('project-widen-confirm'), 'the confirm', 2000)
-    expect(box.textContent).toContain(en('projects.othersSee'))
-    expect(translate('ko', 'projects.othersSee')).toBe('이 사람들은 파일과 채팅을 보게 돼요.')
-    expect(box.textContent).not.toContain(en('projects.widenFiles', { n: 0 }))
-    expect(box.querySelectorAll('li').length).toBe(1)
+    expect(box.textContent).toContain('견적-현장')
+    expect(calls(`PUT /api/projects/${P1}/participants`)).toEqual([])
+    await m.unmount()
+  })
+
+  test('only people added, but the save\'s own dry run says more than the lines in place: the confirm comes back (never past what was shown)', async () => {
+    signedIn('member')
+    let files = 2
+    routes = {
+      'GET /api/people': () => json(200, PEOPLE),
+      [`GET /api/projects/${P1}/access`]: () => json(200, access()),
+      'POST /api/projects/access-preview': () => json(200, preview({ people: 4, added: 1, files })),
+      [`PUT /api/projects/${P1}/participants`]: () => json(200, access({ rulesHash: 'h2' })),
+      [`GET /api/projects/${P1}`]: () => json(200, project({ audience: 4 })),
+    }
+    let saved: Project | null = null
+    const m = await dialog({ onSaved: (p) => { saved = p } })
+    await m.until(() => m.find('participant-user-sora'), 'the members', 2000)
+    await addBob(m)
+    await m.until(() => m.find('project-widen-inline'), 'the lines in place', 3000)
+    files = 9
+    await save(m)
+    const box = await m.until(() => m.find('project-widen-confirm'), 'the confirm', 2000)
+    expect(box.textContent).toContain(en('projects.widenFiles', { n: 9 }))
+    expect(calls(`PUT /api/projects/${P1}/participants`)).toEqual([])
+    await m.click('dialog-confirm')
+    await m.until(() => saved, 'the save', 2000)
     await m.unmount()
   })
 })

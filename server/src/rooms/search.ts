@@ -32,13 +32,14 @@
 // is full; a word no name holds reads every name once), each candidate's message found by its key
 // (tests/unit/b-rooms-file-search.test.ts times 20,000). The cursor is below the page's last hit (a file they see).
 import type { Database } from 'bun:sqlite'
-import { searchWords } from '@mycel/shared'
-import { ROOM_REF_RE, ROOM_SEARCH_PAGE_MAX, ROOM_SEARCH_SNIPPET_MAX, type RoomFileSearchHit, type RoomFileSearchPage, type RoomSearchHit, type RoomSearchPage, type RoomSearchRoom } from '@mycel/shared/api'
+import { nameMatch, nearBudget, nearMatch, parseSearch, particleNext, type SearchParts } from '@mycel/shared'
+import { RECENT_ROOM_FILES_MAX, ROOM_REF_RE, ROOM_SEARCH_PAGE_MAX, ROOM_SEARCH_SNIPPET_MAX, type MyRoomFilesPage, type RecentRoomFiles, type RoomFilesPage, type RoomFileSearchHit, type RoomFileSearchPage, type RoomSearchFilters, type RoomSearchHit, type RoomSearchPage, type RoomSearchRoom, type RoomSearchSort, type UserRef } from '@mycel/shared/api'
 import { decodeCursor, encodeCursor } from '../chat/store'
 import { fail } from '../http/errors'
-import { myRooms, type Mine } from './reader'
+import { reachFilter } from '../auth/guests'
+import { myRooms, ROOM_EVERYONE_WORDS, titleOf, type Mine } from './reader'
 import { unescapeMarkdown } from './apps/card'
-import { canSee, fileOut, hiddenAmong, messagesOut, MSG_COLS, refsOf, roomNaming, SEE_MEMBER_SQL, type FileRow, type MessageRow } from './store'
+import { canSee, filesOutFor, hiddenAmong, MENTIONS_SQL, messagesOut, MSG_COLS, refsOf, roomNaming, SEE_MEMBER_SQL, type FileRow, type MessageRow } from './store'
 
 /** hits a page gives by default */
 export const ROOM_SEARCH_DEFAULT = 20
@@ -50,33 +51,120 @@ const COLS = MSG_COLS.split(', ').map((c) => `m.${c}`).join(', ')
 const fold = (s: string) => s.replace(/[A-Z]/g, (c) => c.toLowerCase())
 const likeArg = (q: string) => `%${q.replace(/[\\%_]/g, (c) => `\\${c}`)}%`
 
-export interface SearchInput { q: string; cursor?: string; limit?: number }
+/** room: only that one of my rooms ("This conversation"; resolveFilters) */
+export interface SearchInput { q: string; cursor?: string; limit?: number; sort?: RoomSearchSort; room?: string }
+
+/** "Best match" ranks this many of the newest matches a person sees (bounded: a page never sorts a whole room's
+ * history); past them the pages go on newest first */
+export const RELEVANT_POOL = 300
+/** a near match (typing mistakes) looks at this many candidates of the index, the most alike first */
+const NEAR_POOL = 2000
+
+/** "me" in from: and mentions: (나 in Korean) */
+const isMe = (v: string) => v.toLowerCase() === 'me' || v === '나'
+
+/** The people `from:` names: "me"; a username or a name, exactly (any case); else every person whose name or username
+ * holds it (nameMatch: Korean initials too). At most 50. Only people the searcher may see (guests.ts reachFilter: a
+ * guest only the people of their places, a member no guest outside theirs), and of the accounts no longer in use only
+ * those still in one of the searcher's rooms: anyone else reads as a name nobody has (no list of the team through it). */
+function fromPeople(db: Database, userId: string, v: string, roomIds: string): UserRef[] {
+  if (isMe(v)) return db.query('SELECT id, name FROM users WHERE id = ?').all(userId) as UserRef[]
+  const reach = reachFilter(db, userId)
+  const all = (db.query(`SELECT id, username, name FROM users u WHERE (u.status = 'active' AND u.deleted_at IS NULL)
+      OR EXISTS (SELECT 1 FROM room_members rm WHERE rm.user_id = u.id AND rm.room_id IN (SELECT value FROM json_each(?))) ORDER BY name, id`)
+    .all(roomIds) as { id: string; username: string; name: string }[]).filter((u) => reach(u.id))
+  const low = v.toLowerCase().replace(/\s+/g, ' ')
+  const exact = all.filter((u) => u.username.toLowerCase() === low || u.name.toLowerCase().replace(/\s+/g, ' ') === low)
+  const some = exact.length ? exact : all.filter((u) => u.username.toLowerCase().includes(low) || nameMatch(u.name, v) !== null)
+  return some.slice(0, 50).map((u) => ({ id: u.id, name: u.name }))
+}
+
+/** The rooms of mine `in:` names: by the name the app shows (roomNaming: a 1:1 chat is the other person, by name or
+ * username), exactly first, else every room whose name holds it; "everyone" and its words for the everyone room. */
+type Named = { m: Mine; names: string[] }
+/** Each of my rooms with the names in: matches it by, read once per search */
+function roomNames(db: Database, userId: string, mine: Map<string, Mine>): Named[] {
+  const usernames = new Map((db.query('SELECT id, username FROM users').all() as { id: string; username: string }[]).map((u) => [u.id, u.username]))
+  return [...mine.values()].map((m) => {
+    const n = roomNaming(db, m.room, userId)
+    const names = m.room.kind === 'dm'
+      ? n.peers.flatMap((p) => [p.name, usernames.get(p.id) ?? ''])
+      : m.room.kind === 'all' ? [n.name ?? '', ...ROOM_EVERYONE_WORDS] : [n.name ?? titleOf({ kind: m.room.kind, ...n })]
+    return { m, names: names.filter(Boolean) }
+  })
+}
+function inRooms(named: Named[], v: string): Mine[] {
+  const low = v.toLowerCase().replace(/\s+/g, ' ')
+  const exact = named.filter((x) => x.names.some((n) => n.toLowerCase().replace(/\s+/g, ' ') === low))
+  return (exact.length ? exact : named.filter((x) => x.names.some((n) => nameMatch(n, v) !== null))).map((x) => x.m)
+}
+
+/** How well a message matches, for "best match": the whole text in that order (a phrase, the words together: 4), each
+ * word as a whole word (2; a Korean particle after it counts as its end) and as typed (1), a short message over a long
+ * one (up to 0.5), and how recent it is (up to 1, halved in a month): a whole word from April above a part of a word
+ * from yesterday ("회의" finds "내일 회의 10시" before "회의실 예약"). */
+export function matchScore(body: string, parts: SearchParts, createdAt: string, now = Date.now()): number {
+  const b = fold(body)
+  let s = 0
+  const whole = fold(parts.words.join(' '))
+  if (parts.words.length > 1 && b.includes(whole)) s += 4
+  parts.words.forEach((w, i) => {
+    const f = fold(w), t = fold(parts.terms[i]!)
+    if (b.includes(f)) s += 1
+    // as a word of its own (a Korean particle after it counts as its end)
+    const at = b.indexOf(t)
+    if (at >= 0) {
+      const before = at === 0 ? '' : b[at - 1]!, after = b.slice(at + t.length)
+      if (!/[\p{L}\p{N}]/u.test(before) && (!after || /^[^\p{L}\p{N}]/u.test(after) || (HANGUL.test(t) && particleNext(after)))) s += 2
+    }
+  })
+  s += 0.5 / (1 + [...body].length / 200)
+  const days = Math.max(0, (now - Date.parse(createdAt)) / 86_400_000)
+  return s + 1 / (1 + days / 30)
+}
+const HANGUL = /[가-힣]$/u
 
 export function searchRoomMessages(db: Database, userId: string, o: SearchInput): RoomSearchPage {
-  // (NUL ends an FTS5 query string; the contract refuses it, this keeps the function safe on its own)
-  const q = o.q.replace(/\u0000/g, '').normalize('NFC').trim()
-  const cur = decodeCursor(o.cursor, ['r'])
-  if (o.cursor && (!cur || !/^\d{1,18}$/.test(cur.r))) fail('validation', undefined, { fields: { 'query.cursor': 'invalid cursor' } })
+  const parts = parseSearch(o.q)
+  const sort: RoomSearchSort = o.sort ?? 'recent'
+  // a cursor: {r} below a message (newest first), or {o, t, n} a place in a "best match" order, with that order's pool
+  // (its newest message t) and time n, so every page of it ranks the same messages the same way
+  const cur = decodeCursor(o.cursor, ['r']) ?? decodeCursor(o.cursor, ['o', 't', 'n'])
+  const bad = !!o.cursor && (!cur || ('r' in cur ? !/^\d{1,18}$/.test(cur.r)
+    : sort !== 'relevant' || !/^\d{1,4}$/.test((cur as { o: string }).o) || !/^\d{1,18}$/.test((cur as { t: string }).t) || !/^\d{1,15}$/.test((cur as { n: string }).n)))
+  if (bad) fail('validation', undefined, { fields: { 'query.cursor': 'invalid cursor' } })
   const limit = Math.min(ROOM_SEARCH_PAGE_MAX, Math.max(1, o.limit ?? ROOM_SEARCH_DEFAULT))
   const mine = new Map(myRooms(db, userId).map((m) => [m.room.id, m]))
-  const words = searchWords(q)
-  if (!words.length || !mine.size) return { items: [], rooms: [], nextCursor: null }
-  // the words of 3 characters or more: one MATCH, each a phrase (a quote inside doubled), all of them; none: the
-  // trigram LIKE with the longest word (wildcards in it are matched exactly by the check on the body)
-  const long = words.filter((w) => [...w].length >= 3)
-  const find = long.length ? 'room_messages_fts MATCH ?' : 'f.body LIKE ?'
-  const findArg = long.length ? long.map((w) => `"${w.replace(/"/g, '""')}"`).join(' AND ') : `%${words.reduce((a, b) => ([...b].length > [...a].length ? b : a))}%`
-  // who sees what is decided here, on each message's own room's member row (SEE_MEMBER_SQL: SEE_SQL with that row's
-  // values): the page, its LIMIT and the cursor below only ever count or name messages the person sees. CROSS JOIN keeps
-  // SQLite on the index first, newest first: never a walk of the rooms' messages.
-  const rows = db.query(`SELECT f.rowid AS r, ${COLS} FROM room_messages_fts f CROSS JOIN room_messages m ON m.rowid = f.rowid
-    CROSS JOIN room_members mm ON mm.room_id = m.room_id AND mm.user_id = ?
-    WHERE ${find} AND f.rowid < ? AND m.room_id IN (SELECT value FROM json_each(?)) AND m.deleted_at IS NULL AND m.event IS NULL
-      AND ${SEE_MEMBER_SQL} AND ${words.map(() => "m.body LIKE ? ESCAPE '\\'").join(' AND ')} ORDER BY f.rowid DESC LIMIT ?`)
-    .all(userId, findArg, cur ? Number(cur.r) : Number.MAX_SAFE_INTEGER, JSON.stringify([...mine.keys()]), ...words.map(likeArg), limit + 1) as (MessageRow & { r: number })[]
-  const page = rows.slice(0, limit)
-  // more: a hit past the page; the next page goes on below this page's last (a message they see)
-  const nextCursor = rows.length > limit ? encodeCursor({ r: String(page.at(-1)!.r) }) : null
+  const f = resolveFilters(db, userId, mine, parts, o.room)
+  const empty: RoomSearchPage = { items: [], rooms: [], nextCursor: null, ...(f.out ? { filters: f.out } : {}) }
+  if ((!parts.terms.length && !f.filtered) || !f.rooms.length || f.authors?.length === 0) return empty
+  const q = candidates(parts, f)
+  const before = cur && 'r' in cur ? Number(cur.r) : Number.MAX_SAFE_INTEGER
+  let page: (MessageRow & { r: number })[]
+  let nextCursor: string | null = null
+  let near = false
+  if (sort === 'relevant' && !(cur && 'r' in cur)) {
+    // the newest RELEVANT_POOL matches they see, best first; the cursor is a place in that order, then (past the pool)
+    // the newest first below its oldest
+    const placed = cur && 'o' in cur ? (cur as { o: string; t: string; n: string }) : null
+    const pool = q.rows(db, placed ? Number(placed.t) + 1 : Number.MAX_SAFE_INTEGER, RELEVANT_POOL)
+    const now = placed ? Number(placed.n) : Date.now()
+    const ranked = pool.map((row) => ({ row, s: matchScore(row.body, parts, row.created_at, now) })).sort((a, b) => b.s - a.s || b.row.r - a.row.r).map((x) => x.row)
+    const at = placed ? Number(placed.o) : 0
+    page = ranked.slice(at, at + limit)
+    if (at + limit < ranked.length) nextCursor = encodeCursor({ o: String(at + limit), t: placed?.t ?? String(Math.max(...pool.map((x) => x.r))), n: String(now) })
+    else if (pool.length === RELEVANT_POOL) nextCursor = encodeCursor({ r: String(Math.min(...pool.map((x) => x.r))) })
+  } else {
+    const rows = q.rows(db, before, limit + 1)
+    page = rows.slice(0, limit)
+    // more: a hit past the page; the next page goes on below this page's last (a message they see)
+    nextCursor = rows.length > limit ? encodeCursor({ r: String(page.at(-1)!.r) }) : null
+  }
+  // nothing: a near match, once (the first page), for words of four letters or more (typing mistakes)
+  if (!page.length && !cur && parts.terms.some((t, i) => !parts.phrases[i] && nearBudget(t) > 0)) {
+    page = nearRows(db, parts, f).slice(0, limit)
+    near = page.length > 0
+  }
   // and canSee, the same rule in code, on each with its member row as the rooms read it (a second check)
   const kept: { row: MessageRow; mine: Mine }[] = []
   for (const { r: _r, ...row } of page) {
@@ -86,50 +174,168 @@ export function searchRoomMessages(db: Database, userId: string, o: SearchInput)
   // each room's hits as its member sees them in the room
   const shown = new Map<string, RoomSearchHit>()
   const named: RoomSearchRoom[] = []
+  const marks = near ? parts.words : parts.terms
   for (const m of new Set(kept.map((h) => h.mine))) {
     for (const msg of messagesOut(db, kept.filter((h) => h.mine === m).map((h) => h.row), m.me, false)) {
       if (msg.withheld || msg.deletedAt || msg.event || !msg.body) continue
       shown.set(msg.id, {
         id: msg.id, roomId: msg.roomId, threadRootId: msg.threadRootId ?? null, authorKind: msg.authorKind,
         author: msg.authorKind === 'ai' ? null : msg.author, askedBy: msg.authorKind === 'ai' ? msg.askedBy : null,
-        markdown: msg.authorKind === 'ai' || !!msg.sharedAnswer, snippet: snippetOf(msg.app ? unescapeMarkdown(msg.body) : msg.body, words), createdAt: msg.createdAt,
+        markdown: msg.authorKind === 'ai' || !!msg.sharedAnswer, snippet: snippetOf(msg.app ? unescapeMarkdown(msg.body) : msg.body, marks), createdAt: msg.createdAt,
         ...(msg.app ? { app: msg.app } : {}),
       })
     }
     named.push({ id: m.room.id, kind: m.room.kind, ...roomNaming(db, m.room, userId) })
   }
   const items = kept.map((h) => shown.get(h.row.id)).filter((x): x is RoomSearchHit => !!x)
-  return { items, rooms: named.filter((r) => items.some((i) => i.roomId === r.id)), nextCursor }
+  return { items, rooms: named.filter((r) => items.some((i) => i.roomId === r.id)), nextCursor: near ? null : nextCursor, ...(near ? { near: true } : {}), ...(f.out ? { filters: f.out } : {}) }
 }
 
-/** The room files query for `words` words (parameters: the person, their rooms as JSON, each word's LIKE, the cursor's
- * file rowid when `after`, the LIMIT). CROSS JOIN keeps SQLite on room_files, newest first by rowid: no sort, and a page
- * stops when it is full (a plain JOIN walked every message of the person's rooms and sorted: seconds on a million
- * messages, the independent review measured). Exported for the test that reads its plan. */
-export const roomFilesSql = (words: number, after: boolean) => `SELECT f.rowid AS fr, f.id AS file_id, ${COLS} FROM room_files f
+interface Filters {
+  /** the rooms searched: mine, or those in: names */
+  rooms: Mine[]
+  /** from: the authors (null: anyone; empty: nobody of that name) */
+  authors: string[] | null
+  /** mentions:me: only the messages that mention the person (store.ts MENTIONS_SQL: by name, or @everyone by someone
+   * else) */
+  mentions: boolean
+  filtered: boolean
+  /** what the filters were read as (for the app to say it) */
+  out: RoomSearchFilters | null
+  userId: string
+}
+/** The filters of the text (from:, in:, mentions:) and `room` ("This conversation"), read against my rooms only: each
+ * one narrows `mine` (myRooms: the rooms I am in now, not archived, a guest's as the guest rules give them), never
+ * widens it. `room` is looked up in `mine` alone (a room I left, an archived one, one not mine: none, roomGone) and
+ * with in: it is both. A bare `room` is a filter too (only room messages and files are searched). */
+function resolveFilters(db: Database, userId: string, mine: Map<string, Mine>, parts: SearchParts, room?: string): Filters {
+  if (!parts.from.length && !parts.in.length && !parts.mentions.length && !room) return { rooms: [...mine.values()], authors: null, mentions: false, filtered: false, out: null, userId }
+  const missing: string[] = []
+  let authors: UserRef[] | null = null
+  if (parts.from.length) {
+    const found = new Map<string, UserRef>()
+    const ids = JSON.stringify([...mine.keys()])
+    for (const v of parts.from) { const p = fromPeople(db, userId, v, ids); if (!p.length) missing.push(`from:${v}`); for (const x of p) found.set(x.id, x) }
+    authors = [...found.values()]
+  }
+  let rooms = [...mine.values()]
+  if (parts.in.length) {
+    const found = new Map<string, Mine>()
+    const named = roomNames(db, userId, mine)
+    for (const v of parts.in) { const r = inRooms(named, v); if (!r.length) missing.push(`in:${v}`); for (const x of r) found.set(x.room.id, x) }
+    rooms = [...found.values()]
+  }
+  // mentions: me (or 나) only; another name reads as nobody (nothing found), as a from: that names nobody does
+  const others = parts.mentions.filter((v) => !isMe(v))
+  for (const v of others) missing.push(`mentions:${v}`)
+  const mentions = parts.mentions.length > 0
+  const here = room ? mine.get(room) : undefined
+  const roomGone = !!room && !here
+  // in: lists what it named (the label); "This conversation" narrows that list too but is never named (the chip says it)
+  const inList = rooms
+  if (room) rooms = here && rooms.includes(here) ? [here] : []
+  return {
+    rooms: others.length ? [] : rooms, authors: authors ? authors.map((a) => a.id) : null, mentions, filtered: true, userId,
+    out: {
+      from: (authors ?? []).slice(0, 10), in: parts.in.length ? inList.slice(0, 10).map((m) => ({ id: m.room.id, kind: m.room.kind, ...roomNaming(db, m.room, userId) })) : [], missing,
+      ...(mentions ? { mentions: true } : {}), ...(roomGone ? { roomGone: true } : {}),
+    },
+  }
+}
+
+/** The candidates' query: who sees what decided in it (SEE_MEMBER_SQL on each message's own room's member row), so a
+ * page, its LIMIT and a cursor only ever count or name messages the person sees. Every term matched again on the body
+ * (LIKE … ESCAPE: any case of A–Z, % and _ as themselves): an index row out of step can never bring a message without
+ * them. Newest first by rowid, so a page stops as soon as it is full. */
+function candidates(parts: SearchParts, f: Filters) {
+  const terms = parts.terms
+  // the terms of 3 characters or more: one MATCH, each a phrase (a quote inside doubled), all of them; none: the trigram
+  // LIKE with the longest term; no term (filters only): the rooms' messages themselves
+  const long = terms.filter((w) => [...w].length >= 3)
+  const roomIds = JSON.stringify(f.rooms.map((m) => m.room.id))
+  const who = whoSql(f)
+  const check = terms.map(() => " AND m.body LIKE ? ESCAPE '\\'").join('')
+  if (!terms.length) {
+    const sql = `SELECT m.rowid AS r, ${COLS} FROM room_messages m CROSS JOIN room_members mm ON mm.room_id = m.room_id AND mm.user_id = ?
+      WHERE m.rowid < ? AND m.room_id IN (SELECT value FROM json_each(?)) AND m.deleted_at IS NULL AND m.event IS NULL AND m.body <> ''
+        AND ${SEE_MEMBER_SQL}${who} ORDER BY m.rowid DESC LIMIT ?`
+    return { rows: (db: Database, before: number, n: number) => db.query(sql).all(f.userId, before, roomIds, ...whoArgs(f), n) as (MessageRow & { r: number })[] }
+  }
+  const find = long.length ? 'room_messages_fts MATCH ?' : 'f.body LIKE ?'
+  const findArg = long.length ? long.map(ftsPhrase).join(' AND ') : `%${terms.reduce((a, b) => ([...b].length > [...a].length ? b : a))}%`
+  // CROSS JOIN keeps SQLite on the index first, newest first: never a walk of the rooms' messages
+  const sql = `SELECT f.rowid AS r, ${COLS} FROM room_messages_fts f CROSS JOIN room_messages m ON m.rowid = f.rowid
+    CROSS JOIN room_members mm ON mm.room_id = m.room_id AND mm.user_id = ?
+    WHERE ${find} AND f.rowid < ? AND m.room_id IN (SELECT value FROM json_each(?)) AND m.deleted_at IS NULL AND m.event IS NULL
+      AND ${SEE_MEMBER_SQL}${who}${check} ORDER BY f.rowid DESC LIMIT ?`
+  return { rows: (db: Database, before: number, n: number) => db.query(sql).all(f.userId, findArg, before, roomIds, ...whoArgs(f), ...terms.map(likeArg), n) as (MessageRow & { r: number })[] }
+}
+const ftsPhrase = (w: string) => `"${w.replace(/"/g, '""')}"`
+/** from: (the authors) and mentions:me as SQL on room_messages `m`, and their parameters in the same order */
+const whoSql = (f: Pick<Filters, 'authors' | 'mentions'>) =>
+  `${f.authors ? ` AND m.author_kind = 'user' AND m.author_id IN (${f.authors.map(() => '?').join(',')})` : ''}${f.mentions ? ` AND ${MENTIONS_SQL}` : ''}`
+const whoArgs = (f: Pick<Filters, 'authors' | 'mentions' | 'userId'>) => [...(f.authors ?? []), ...(f.mentions ? [f.userId, f.userId] : [])]
+
+/** Near matches (nothing matched as typed): the index's rows that share the most three-letter pieces with the words (its
+ * own rank, NEAR_POOL of them, who sees them decided in the query as above), each word then in the text as typed or with
+ * at most nearBudget typing mistakes (nearMatch), newest first. */
+function nearRows(db: Database, parts: SearchParts, f: Filters): (MessageRow & { r: number })[] {
+  const grams = new Set<string>()
+  for (const t of parts.terms) { const c = [...fold(t)]; for (let i = 0; i + 3 <= c.length; i++) grams.add(c.slice(i, i + 3).join('')) }
+  if (!grams.size) return []
+  const roomIds = JSON.stringify(f.rooms.map((m) => m.room.id))
+  const who = whoSql(f)
+  // the index ranks its own rows first (NEAR_POOL, the most alike), then who sees them is decided on those
+  const rows = db.query(`SELECT c.rowid AS r, ${COLS} FROM (SELECT rowid FROM room_messages_fts WHERE room_messages_fts MATCH ? ORDER BY rank LIMIT ?) c
+    CROSS JOIN room_messages m ON m.rowid = c.rowid
+    CROSS JOIN room_members mm ON mm.room_id = m.room_id AND mm.user_id = ?
+    WHERE m.room_id IN (SELECT value FROM json_each(?)) AND m.deleted_at IS NULL AND m.event IS NULL
+      AND ${SEE_MEMBER_SQL}${who}`)
+    .all([...grams].map(ftsPhrase).join(' OR '), NEAR_POOL, f.userId, roomIds, ...whoArgs(f)) as (MessageRow & { r: number })[]
+  return rows.filter((row) => parts.terms.every((t, i) => fold(row.body).includes(fold(t)) || (!parts.phrases[i] && (nearMatch(row.body, parts.words[i]!) || nearMatch(row.body, t)))))
+    .sort((a, b) => b.r - a.r)
+}
+
+/** The room files query for `words` terms (parameters: the person, the rooms searched as JSON, each author when
+ * `authors`, the person twice when `mentions` (mentions:me: the message the file was sent with mentions them), each
+ * term's LIKE, the cursor's file rowid when `after`, the LIMIT). CROSS JOIN keeps SQLite on room_files,
+ * newest first by rowid: no sort, and a page stops when it is full (a plain JOIN walked every message of the person's
+ * rooms and sorted: seconds on a million messages, the independent review measured; `+f.room_id` keeps one room's index,
+ * room_files_by_room, out of it for the same reason). Exported for the test that reads its plan. */
+export const roomFilesSql = (words: number, after: boolean, authors = 0, mentions = false) => `SELECT f.rowid AS fr, f.id AS file_id, ${COLS} FROM room_files f
     CROSS JOIN room_messages m ON m.id = f.message_id AND m.room_id = f.room_id
     CROSS JOIN room_members mm ON mm.room_id = m.room_id AND mm.user_id = ?
-    WHERE f.message_id IS NOT NULL AND f.room_id IN (SELECT value FROM json_each(?)) AND m.deleted_at IS NULL AND m.event IS NULL
-      AND ${SEE_MEMBER_SQL} AND ${Array.from({ length: words }, () => "f.name LIKE ? ESCAPE '\\'").join(' AND ')}${after ? ' AND f.rowid < ?' : ''} ORDER BY f.rowid DESC LIMIT ?`
+    WHERE f.message_id IS NOT NULL AND +f.room_id IN (SELECT value FROM json_each(?)) AND m.deleted_at IS NULL AND m.event IS NULL
+      AND ${SEE_MEMBER_SQL}${authors ? ` AND m.author_kind = 'user' AND m.author_id IN (${Array.from({ length: authors }, () => '?').join(',')})` : ''}${mentions ? ` AND ${MENTIONS_SQL}` : ''}${Array.from({ length: words }, () => " AND f.name LIKE ? ESCAPE '\\'").join('')}${after ? ' AND f.rowid < ?' : ''} ORDER BY f.rowid DESC LIMIT ?`
 
+/** Files sent in my rooms by name: every term of the text (parseSearch: a word without its particle or ending, a
+ * quoted phrase as it is), in the rooms in: names (and `room`), sent by the people from: names and with a message that
+ * mentions me (mentions:me), when the text has them (only filters: every file of those rooms or people). */
 export function searchRoomFiles(db: Database, userId: string, o: SearchInput): RoomFileSearchPage {
-  const words = searchWords(o.q.replace(/\u0000/g, ''))
+  const parts = parseSearch(o.q)
   const cur = decodeCursor(o.cursor, ['f'])
   if (o.cursor && (!cur || !/^\d{1,18}$/.test(cur.f))) fail('validation', undefined, { fields: { 'query.cursor': 'invalid cursor' } })
   const limit = Math.min(ROOM_SEARCH_PAGE_MAX, Math.max(1, o.limit ?? ROOM_SEARCH_DEFAULT))
   const mine = new Map(myRooms(db, userId).map((m) => [m.room.id, m]))
-  if (!words.length || !mine.size) return { items: [], rooms: [], nextCursor: null }
+  const f = resolveFilters(db, userId, mine, parts, o.room)
+  const empty: RoomFileSearchPage = { items: [], rooms: [], nextCursor: null, ...(f.out ? { filters: f.out } : {}) }
+  if ((!parts.terms.length && !f.filtered) || !f.rooms.length || f.authors?.length === 0) return empty
   // who sees the message is decided in the query, as for a message found by its text (SEE_MEMBER_SQL on its room's
   // member row)
-  const rows = db.query(roomFilesSql(words.length, !!cur))
-    .all(userId, JSON.stringify([...mine.keys()]), ...words.map(likeArg), ...(cur ? [Number(cur.f)] : []), limit + 1) as (MessageRow & { fr: number; file_id: string })[]
+  const rows = db.query(roomFilesSql(parts.terms.length, !!cur, f.authors?.length ?? 0, f.mentions))
+    .all(userId, JSON.stringify(f.rooms.map((m) => m.room.id)), ...whoArgs(f), ...parts.terms.map(likeArg), ...(cur ? [Number(cur.f)] : []), limit + 1) as (MessageRow & { fr: number; file_id: string })[]
   const page = rows.slice(0, limit)
   // more: a hit past the page; the next page goes on below this page's last row of the query (a file they see), not
   // the last one kept below
   const last = page.at(-1)
   const nextCursor = rows.length > limit && last ? encodeCursor({ f: String(last.fr) }) : null
-  // canSee on each (a second check), then, per room, what messagesOut would withhold from its member (one of their
-  // hidden old answers or in its thread: a third check), as the room shows it: never a withheld message's files
+  return { ...fileHits(db, userId, mine, page), nextCursor, ...(f.out ? { filters: f.out } : {}) }
+}
+
+/** The files of a page of rows of the room files query, as the room shows them, and their rooms: canSee on each (a
+ * second check), then, per room, what messagesOut would withhold from its member (one of their hidden old answers or
+ * in its thread: a third check): never a withheld message's files. */
+function fileHits(db: Database, userId: string, mine: Map<string, Mine>, page: (MessageRow & { file_id: string })[]): { items: RoomFileSearchHit[]; rooms: RoomSearchRoom[] } {
   const seen = page.filter((h) => { const m = mine.get(h.room_id); return !!m && canSee(db, h, m.me) })
   const withheld = new Set<string>()
   for (const roomId of new Set(seen.map((h) => h.room_id))) for (const id of hiddenAmong(db, seen.filter((h) => h.room_id === roomId), mine.get(roomId)!.me)) withheld.add(id)
@@ -138,13 +344,99 @@ export function searchRoomFiles(db: Database, userId: string, o: SearchInput): R
   const files = new Map(kept.length ? (db.query(`SELECT * FROM room_files WHERE id IN (${kept.map(() => '?').join(',')})`).all(...kept.map((h) => h.file_id)) as FileRow[]).map((f) => [f.id, f]) : [])
   const people = refsOf(db, kept.map((h) => (h.author_kind === 'ai' ? null : h.author_id)))
   const items: RoomFileSearchHit[] = []
-  for (const h of kept) {
-    const f = files.get(h.file_id)
-    if (!f || f.message_id !== h.id || f.room_id !== h.room_id) continue
-    items.push({ file: fileOut(f), messageId: h.id, roomId: h.room_id, threadRootId: h.thread_root_id ?? null, author: h.author_kind === 'ai' || !h.author_id ? null : people.get(h.author_id) ?? null, createdAt: h.created_at })
+  // a project room's file (kept in the team folder): only while this person reads it now, as it is now
+  const hits = kept.filter((h) => { const f = files.get(h.file_id); return !!f && f.message_id === h.id && f.room_id === h.room_id })
+  const shown = filesOutFor(db, hits.map((h) => files.get(h.file_id)!), userId)
+  for (const [i, h] of hits.entries()) {
+    const file = shown[i]!
+    if (file.state) continue
+    items.push({ file, messageId: h.id, roomId: h.room_id, threadRootId: h.thread_root_id ?? null, author: h.author_kind === 'ai' || !h.author_id ? null : people.get(h.author_id) ?? null, createdAt: h.created_at })
   }
   const rooms: RoomSearchRoom[] = [...new Set(items.map((i) => i.roomId))].map((id) => { const m = mine.get(id)!; return { id, kind: m.room.kind, ...roomNaming(db, m.room, userId) } })
-  return { items, rooms, nextCursor }
+  return { items, rooms }
+}
+
+/** Mine only: the rows of the rooms I am in now, of a message of mine that is sent, not deleted and that I see. */
+const MINE_WHERE = () => `f.user_id = ? AND f.message_id IS NOT NULL AND m.author_kind = 'user' AND m.author_id = f.user_id
+  AND f.room_id IN (SELECT value FROM json_each(?)) AND m.deleted_at IS NULL AND m.event IS NULL AND ${SEE_MEMBER_SQL} AND ${NOT_REF_SQL}`
+const MINE_FROM = `room_files f CROSS JOIN room_messages m ON m.id = f.message_id AND m.room_id = f.room_id
+    CROSS JOIN room_members mm ON mm.room_id = m.room_id AND mm.user_id = f.user_id`
+/** ...and never a file kept in the team folder (a project room's: it is a project file, managed in Files; deleting it
+ * here would not free room storage, docs/decisions/20261120-project-is-room.md D3) */
+const NOT_REF_SQL = 'NOT EXISTS (SELECT 1 FROM room_file_refs rr WHERE rr.room_file_id = f.id)'
+
+/** "Files you sent" (docs/decisions/20261116-room-files-cleanup.md): my files in the rooms I am in now, of my messages
+ * I still see, largest first (equal sizes oldest first: the index's own order), by the index room_files_by_sender
+ * (migration 414); the cursor is the last row's (size, rowid). totalBytes: all of them together, with the first page.
+ * The same checks as the search on each row. */
+export function listMyRoomFiles(db: Database, userId: string, o: { cursor?: string; limit?: number }): MyRoomFilesPage {
+  const cur = decodeCursor(o.cursor, ['s', 'f'])
+  if (o.cursor && (!cur || !/^\d{1,18}$/.test(cur.s) || !/^\d{1,18}$/.test(cur.f))) fail('validation', undefined, { fields: { 'query.cursor': 'invalid cursor' } })
+  const limit = Math.min(ROOM_SEARCH_PAGE_MAX, Math.max(1, o.limit ?? ROOM_SEARCH_DEFAULT))
+  const mine = new Map(myRooms(db, userId).map((m) => [m.room.id, m]))
+  if (!mine.size) return { items: [], rooms: [], nextCursor: null, totalBytes: 0 }
+  const ids = JSON.stringify([...mine.keys()])
+  const rows = db.query(`SELECT f.rowid AS fr, f.size AS fsize, f.id AS file_id, ${COLS} FROM ${MINE_FROM}
+    WHERE ${MINE_WHERE()}${cur ? ' AND (f.size < ? OR (f.size = ? AND f.rowid > ?))' : ''} ORDER BY f.size DESC, f.rowid LIMIT ?`)
+    .all(userId, ids, ...(cur ? [Number(cur.s), Number(cur.s), Number(cur.f)] : []), limit + 1) as (MessageRow & { fr: number; fsize: number; file_id: string })[]
+  const page = rows.slice(0, limit)
+  const last = page.at(-1)
+  const nextCursor = rows.length > limit && last ? encodeCursor({ s: String(last.fsize), f: String(last.fr) }) : null
+  // the total with the first page only (a later page answers 0: the app keeps the first one's)
+  const total = cur ? 0 : (db.query(`SELECT COALESCE(SUM(f.size), 0) AS n FROM ${MINE_FROM} WHERE ${MINE_WHERE()}`).get(userId, ids) as { n: number }).n
+  return { ...fileHits(db, userId, mine, page), nextCursor, totalBytes: total }
+}
+
+/** One room's sent files query (parameters: the person, the room, the cursor's file rowid when `after`, the LIMIT): by
+ * the index room_files_by_room, newest first by rowid with no sort. Exported for the test that reads its plan. */
+export const roomFileListSql = (after: boolean) => `SELECT f.rowid AS fr, f.id AS file_id, ${COLS} FROM room_files f INDEXED BY room_files_by_room
+    CROSS JOIN room_messages m ON m.id = f.message_id AND m.room_id = f.room_id
+    CROSS JOIN room_members mm ON mm.room_id = m.room_id AND mm.user_id = ?
+    WHERE f.room_id = ? AND f.message_id IS NOT NULL AND m.deleted_at IS NULL AND m.event IS NULL AND ${SEE_MEMBER_SQL}${after ? ' AND f.rowid < ?' : ''} ORDER BY f.rowid DESC LIMIT ?`
+
+/** A room's Files list (docs/decisions/20261120-project-is-room.md D8): the files sent in one of my rooms with a message
+ * I see now, newest first by rowid (as the search), by the index room_files_by_room (migration 431); the cursor is the
+ * last row's rowid. The same checks as the search on each row (SEE_MEMBER_SQL in the query, then fileHits: canSee, a
+ * hidden answer or its thread, a file kept in the team folder only while I read it there, otherwise left out). The room
+ * must be one of mine (myRooms: not archived, not a trashed project's, a guest's as the guest rules give them): else 404.
+ * The caller (Rooms.listFiles) refuses a project's room first. */
+export function listRoomFiles(db: Database, userId: string, roomId: string, o: { cursor?: string; limit?: number }): RoomFilesPage {
+  const cur = decodeCursor(o.cursor, ['f'])
+  if (o.cursor && (!cur || !/^\d{1,18}$/.test(cur.f))) fail('validation', undefined, { fields: { 'query.cursor': 'invalid cursor' } })
+  const limit = Math.min(ROOM_SEARCH_PAGE_MAX, Math.max(1, o.limit ?? ROOM_SEARCH_DEFAULT))
+  const m = myRooms(db, userId).find((x) => x.room.id === roomId)
+  if (!m) return fail('not_found')
+  const rows = db.query(roomFileListSql(!!cur)).all(userId, roomId, ...(cur ? [Number(cur.f)] : []), limit + 1) as (MessageRow & { fr: number; file_id: string })[]
+  const page = rows.slice(0, limit)
+  const last = page.at(-1)
+  const nextCursor = rows.length > limit && last ? encodeCursor({ f: String(last.fr) }) : null
+  return { items: fileHits(db, userId, new Map([[roomId, m]]), page).items, nextCursor }
+}
+
+/** candidates read per walk of recentRoomFiles, and walks at most (rows a check leaves out are walked past) */
+const RECENT_POOL = 25
+const RECENT_WALKS = 4
+
+/** ⌘K before anything is typed (D8): the newest files of all my rooms with the search's own query and checks
+ * (searchRoomFiles with no words: roomFilesSql, then fileHits), at most RECENT_ROOM_FILES_MAX. A project room's file kept
+ * in the team folder is in it only while I can open it there (filesOutFor: one I cannot is left out, never shown as
+ * unavailable). Rows the checks leave out are walked past, a bounded number of times. */
+export function recentRoomFiles(db: Database, userId: string): RecentRoomFiles {
+  const mine = new Map(myRooms(db, userId).map((m) => [m.room.id, m]))
+  if (!mine.size) return { items: [], rooms: [] }
+  const ids = JSON.stringify([...mine.keys()])
+  const items: RoomFileSearchHit[] = []
+  let before: number | null = null
+  for (let walk = 0; walk < RECENT_WALKS && items.length < RECENT_ROOM_FILES_MAX; walk++) {
+    const rows = db.query(roomFilesSql(0, before !== null)).all(userId, ids, ...(before !== null ? [before] : []), RECENT_POOL) as (MessageRow & { fr: number; file_id: string })[]
+    if (!rows.length) break
+    items.push(...fileHits(db, userId, mine, rows).items)
+    if (rows.length < RECENT_POOL) break
+    before = rows.at(-1)!.fr
+  }
+  const kept = items.slice(0, RECENT_ROOM_FILES_MAX)
+  const rooms: RoomSearchRoom[] = [...new Set(kept.map((i) => i.roomId))].map((id) => { const m = mine.get(id)!; return { id, kind: m.room.kind, ...roomNaming(db, m.room, userId) } })
+  return { items: kept, rooms }
 }
 
 /** The text around the first match (the word found first, `q` a word or the words), on one line: room links as

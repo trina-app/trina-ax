@@ -78,24 +78,30 @@ git push origin v0.3.0-beta.1
 | 1 | prepare | 태그 = 버전 확인, 태그의 커밋이 main에 있는지, 채널 결정, 필수 서명 키와 선택적인 Cloudflare 토큰이 있는지, **서명 키의 공개키가 `RELEASE_CHANNEL.keys`에 있는지**(다른 제품 키면 여기서 바로 실패), 태그 메시지 → 릴리스 노트, 단계적 배포(`Rollout:` 줄, `release-ci.ts rollout`) | 키 확인 단계만 |
 | 2 | test | `ci.yml` 전체: typecheck, native, 단위, fuzz, 웹, 중계, 리눅스 T1(amd64·arm64), 리눅스 묶음 L19 + verify-bundle, 설치 T2 | 없음 |
 | 2 | build-linux | 리눅스 kit amd64(ubuntu-24.04)·arm64(ubuntu-24.04-arm): whisper, native, 웹, `build-bundle.ts --os linux --strict`(서명 없이) | 없음 |
-| 2 | build-office | 사무실 zip(macos-15, 또는 `mac_runner` 입력·레포 변수 `RELEASE_MAC_RUNNER`; 두 맥 프로세서 universal, `bun run build:office`) | 없음 |
+| 2 | build-mac-whisper | Apple 실리콘 사무실 맥의 whisper-cli(`mac-whisper.yml`, build-office와 같은 러너): 고정한 whisper.cpp를 Metal·OpenMP 없이 빌드, 말한 문장을 받아쓰는지 확인, Developer ID 서명(hardened runtime), Apple 공증(아래 "whisper-cli for the office Mac") | 맥 서명 비밀값 5개 |
+| 2→3 | build-office | 사무실 zip(macos-15, 또는 `mac_runner` 입력·레포 변수 `RELEASE_MAC_RUNNER`, self-hosted 릴리스 맥은 13장; 두 맥 프로세서 universal, `bun run build:office -- --whisper …`). build-mac-whisper를 기다려 그 whisper-cli를 `app/bin/darwin-arm64/`에 넣는다 | 없음 |
 | 2 | build-windows | 윈도우 설치 파일 + `latest.yml`(windows-2025, `desktop dist:win`, 버전은 태그 것). 레포 변수 `WINDOWS_SIGNING_*`가 있으면 Microsoft Artifact Signing으로 서명하고 `signtool verify /pa`로 확인한다(11장), 없으면 서명 없이 | Azure 로그인(OIDC, 저장된 비밀번호 없음; 비밀값은 id 둘뿐) |
 | 2 | build-mac-app | 맥 앱(`mac-app.yml`, build-office와 같은 러너): dmg + 업데이트 zip + `latest-mac.yml`. Developer ID로 서명, hardened runtime, Apple 공증, staple, Gatekeeper 확인(아래 "Mac app") | 맥 서명 비밀값 5개 |
-| 3 | publish | 리눅스 묶음 서명(manifest.sig) → 사무실 피드(`publish.ts`, 맥 앱이 있으면 `--mac`) → 서버 피드(`publish-server.ts`) → `SHA256SUMS` + `.sig` | 키 + Cloudflare 토큰 |
-| 4 | github-release | 태그 이름으로 Release. 자산: 리눅스 kit 2개, 사무실 zip, 윈도우 설치 파일, 맥 dmg, `SHA256SUMS`, `SHA256SUMS.sig`. beta는 prerelease | 없음(`contents: write`만) |
+| 2 | build-linux-desktop | 리눅스 데스크톱 앱(ubuntu-24.04, `desktop dist:linux`, 버전은 태그 것): x64·arm64의 `.deb`와 AppImage, `latest-linux.yml`·`latest-linux-arm64.yml`. 서명 없음. office_only에서도 돈다. 실패해도 릴리스를 막지 않는다(`docs/decisions/20261119-linux-desktop-app.md`) | 없음 |
+| 3 | publish | 리눅스 묶음 서명(manifest.sig) → 사무실 피드(`publish.ts`, 맥 앱이 있으면 `--mac`, 리눅스 데스크톱 앱이 있으면 `--linux`) → 서버 피드(`publish-server.ts`) → `SHA256SUMS` + `.sig` | 키 + Cloudflare 토큰 |
+| 4 | github-release | 태그 이름으로 Release. 자산: 리눅스 kit 2개, 사무실 zip, 윈도우 설치 파일, 맥 dmg, 리눅스 `.deb`·AppImage 4개, `SHA256SUMS`, `SHA256SUMS.sig`. beta는 prerelease | 없음(`contents: write`만) |
 | 5 | build-ami | stable만, publish와 github-release 뒤: 새 팀 서버 이미지(AMI)를 만드는 `team-image.yml`을 그 태그로 시작한다(10장). 레포 변수 `AWS_ROLE_ARN`이 없으면 notice만 남기고 끝난다. 실패해도 릴리스는 실패로 치지 않는다 | 없음(`actions: write`만) |
 
-2의 다섯 job은 동시에 돈다. publish는 시험과 리눅스 빌드가 통과해야 시작한다(사무실·윈도우 빌드가 실패하면 6장 "Desktop builds missing").
+2의 job은 동시에 돈다(build-office만 build-mac-whisper 뒤). publish는 시험과 리눅스 빌드가 통과해야 시작한다(사무실·윈도우 빌드가 실패하면 6장 "Desktop builds missing").
 
-- **맥 데스크톱 앱(dmg)은 0.5.5부터 서명·공증되어 들어간다.** build-mac-app이 실패해도 사무실 피드는 `mac` 없이 나가고, "Re-run failed jobs"가 통과하면 같은 버전의 목록에 맥 앱이 더해진다. Mac App Store판은 따로다(`editions/trina/mac-app-store`).
+- **맥 데스크톱 앱(dmg)은 0.5.6부터 서명·공증되어 들어간다.** build-mac-app이 실패해도 사무실 피드는 `mac` 없이 나가고, "Re-run failed jobs"가 통과하면 같은 버전의 목록에 맥 앱이 더해진다. Mac App Store판은 따로다(`editions/trina/mac-app-store`).
+- **dev에서 T1이 빨개지면 이슈가 열린다.** 리눅스 job(T1·L19·T2)은 dev에 push할 때만 돌아서(PR·머지 큐에는 없음) 빨간 채로 아무도 모르고 릴리스를 막은 적이 있다(2026-11-18/19, 약 4시간, 0.5.17). `t1-alert.yml`이 CI가 끝난 뒤(`workflow_run`, dev push만) 그 실행의 T1 job 두 개(amd64·arm64)를 API로 읽어, 하나라도 실패하면 `T1 attack suite red on dev` 이슈 하나를 열거나(이미 열려 있으면 댓글), 커밋·실패한 FAIL 줄·실행 링크를 적고 자기 job도 빨갛게 만든다. 뒤의 dev push에서 T1이 둘 다 통과하면 그 이슈를 스스로 닫는다. 기본 토큰만 쓴다(`issues: write`, 로그를 읽는 `actions: read`, 이 워크플로에만). 취소된 실행(더 새 push)과 T1이 끝까지 돌지 않은 실행은 건너뛴다.
+  - **`ci.yml`에 넣지 않는다.** release.yml·msstore.yml이 `ci.yml`을 `contents: read`로만 부르고, 불린 워크플로는 부른 쪽보다 많은 권한을 받을 수 없다. 0.5.19 릴리스가 ci.yml 안의 `t1-alert` job(`issues: write`) 때문에 `startup_failure`로 시작조차 못 했다. `ci.yml`은 `contents: read`만 쓴다. `tests/unit/workflow-permissions.test.ts`가 `uses: ./.github/workflows/…`로 불리는 모든 워크플로의 job 권한이 부른 job의 권한 안에 드는지 본다.
+  - **`workflow_run`은 기본 브랜치(main)에 있는 파일로 돈다.** 그래서 `t1-alert.yml`을 바꾸면 다음 릴리스로 main에 들어가야 효과가 있다(그 전까지 dev의 T1 알림은 main에 있는 판으로 돈다; main에 아직 없으면 알림이 없다). `branches: [dev]`는 CI 실행의 브랜치로 거르고, 여기서 `github.ref`는 늘 main이라 dev인지 판단에 쓰지 않는다. job은 `github.event.workflow_run`의 `event == push`·`head_branch == dev`·같은 레포인지를 본다(포크의 dev 브랜치 PR, 머지 큐 `gh-readonly-queue/dev/…`는 제외).
+  Why: T1 is not in the merge queue or PRs, so a red T1 on dev is invisible until a release; the issue (opened/commented on red, closed on the next green dev push) is the alarm. It is a separate `workflow_run` workflow because a job asking for `issues: write` inside the reusable ci.yml made the `contents: read` release call fail at start-up (v0.5.19, run 44517924801). It uses no secret; the Discord webhook of `ci-notify.yml` is main-only and optional.
 - 시험·빌드·배포는 모두 태그가 가리키는 같은 커밋으로 한다. publish와 github-release는 시작할 때 태그가 아직 그 커밋인지 다시 보고, 태그가 옮겨졌으면 멈춘다.
 
 ### 업데이트 주소의 파일
 
 | 경로 | 무엇 | 캐시 |
 |---|---|---|
-| `<officeDir>/<channel>.json` | 사무실 맥의 서명된 목록(사무실 zip, 윈도우 설치 파일, 맥 앱 `mac`) | 안 함 |
-| `<officeDir>/<version>/…` | 사무실 zip, 윈도우 설치 파일, `latest.yml`, 맥 dmg, 맥 업데이트 zip, `latest-mac.yml` | 영구 |
+| `<officeDir>/<channel>.json` | 사무실 맥의 서명된 목록(사무실 zip, 윈도우 설치 파일, 맥 앱 `mac`, 리눅스 데스크톱 앱 `linux`) | 안 함 |
+| `<officeDir>/<version>/…` | 사무실 zip, 윈도우 설치 파일, `latest.yml`, 맥 dmg, 맥 업데이트 zip, `latest-mac.yml`, 리눅스 `.deb`·AppImage(x64·arm64), `latest-linux.yml`, `latest-linux-arm64.yml` | 영구 |
 | `server/<channel>.json` + `.sig` | 리눅스 서버의 채널 머리. 아래 `release.json`과 같은 바이트 | 안 함 |
 | `server/<version>/release.json` + `.sig` | 그 버전의 릴리스 정보(`mycel-ctl update --version`) | 안 함 |
 | `server/<version>/manifest-linux-<arch>.json` + `.sig` | 묶음의 서명된 파일 목록(다음 릴리스가 root 파일 변경을 판단) | 안 함 |
@@ -109,7 +115,7 @@ Worker(`scripts/release/worker.js`)는 이 경로만 읽기 전용으로 내준�
 ### 설치에 닿는 방법
 
 - 사무실 맥: 매일 밤 `<feed>/<officeDir>/<channel>.json`을 본다(`docs/OFFICE.md` 6장).
-- 데스크톱 앱(윈도우, 그리고 0.5.5부터 서명된 맥 dmg): 피드를 직접 보지 않는다. 팀 서버(리눅스·호스팅은 `system/windows-app.ts`, 사무실 맥은 업데이트 6단계)가 서명된 목록을 확인한 뒤 설치 파일(맥은 업데이트 zip)과 `latest.yml`/`latest-mac.yml`, 그 목록을 `/downloads/`에 둔다. 앱은 4시간마다 `/downloads/`를 보고, 받은 파일이 서명된 목록에 있는 것과 같을 때만 설치한다(맥은 그다음 Squirrel.Mac이 같은 Developer ID 팀의 서명인지 한 번 더 본다).
+- 데스크톱 앱(윈도우, 그리고 0.5.6부터 서명된 맥 dmg): 피드를 직접 보지 않는다. 팀 서버(리눅스·호스팅은 `system/windows-app.ts`, 사무실 맥은 업데이트 6단계)가 서명된 목록을 확인한 뒤 설치 파일(맥은 업데이트 zip)과 `latest.yml`/`latest-mac.yml`, 그 목록을 `/downloads/`에 둔다. 앱은 4시간마다 `/downloads/`를 보고, 받은 파일이 서명된 목록에 있는 것과 같을 때만 설치한다(맥은 그다음 Squirrel.Mac이 같은 Developer ID 팀의 서명인지 한 번 더 본다).
 - 리눅스 서버: `<feed>/server/<channel>.json`과 `.sig`를 본다.
   - 앱만 바뀐 릴리스는 서버가 업데이트 창(기본 03:00–05:00) 안에서 스스로 적용한다. stable은 그 서버의 차례가 온 뒤다(아래 "단계적 배포"; root 타이머·사무실 맥도 같다).
   - root 부분(실행기·샌드박스·유닛, root가 따로 두는 1A 프로그램 `mycel-safeops`·`pandoc`)이 바뀐 릴리스는 `mycel-update.timer`(15분마다 확인, 팀의 업데이트 시간 안에서)가 적용한다.
@@ -217,6 +223,20 @@ Worker(`scripts/release/worker.js`)는 이 경로만 읽기 전용으로 내준�
 5. (권장) **태그 보호**: 쓰기 권한이 있는 사람은 누구나 `v*` 태그로 배포를 시작할 수 있다. GitHub 요금제가 rulesets를 지원하면 `v*` 태그 만들기·옮기기·지우기를 관리자만 하게 한다.
 6. **environment `release`**: release.yml의 prepare와 publish job은 `environment: release`를 쓴다(2026-10-28). 공개 레포는 요금제와 관계없이 environment 보호 규칙을 쓸 수 있다. Settings → Environments → `release`에서 (1) 배포 허용 대상을 `v*` 태그와 `main`(feed.yml)으로 제한하고, (2) 두 비밀값을 레포 비밀값에서 이 environment로 옮긴다(권장). 승인자는 두지 않는다: 태그 push가 승인이다(대표 결정 2026-11-14). environment가 없으면 GitHub이 보호 없이 새로 만든다(레포 비밀값은 그대로 쓰인다). 2026-11-14 설정됨(10장 "처음 한 번").
 
+### whisper-cli for the office Mac
+
+Apple 실리콘(M1 이상) 사무실 맥은 키 없이 음성 입력과 녹음·영상 읽기를 맥 안에서 한다(`docs/decisions/20261116-mac-local-speech.md`). 그 whisper-cli는 사무실 zip에만 들어간다(`app/bin/darwin-arm64/whisper-cli`; 설치하면 `app/bin/`). 데스크톱 dmg, 인텔 맥, 리눅스 kit에는 넣지 않는다.
+
+1. `scripts/macos/build-whisper.sh --out dist/mac-whisper`: 리눅스와 같은 whisper.cpp 태그와 sha256(`scripts/linux/downloads.ts`), Metal 켬(셰이더는 프로그램 안: `GGML_METAL_EMBED_LIBRARY`), OpenMP·BLAS 끔, arm64만, macOS 13 이상, 시스템 라이브러리만 링크(otool로 확인).
+2. `bun scripts/release/mac-whisper.ts smoke`: `say`로 만든 영어 문장을 tiny 모델(sha256 고정)로 받아쓰는지 본다.
+3. `sign`(맥 앱과 같은 Developer ID Application, 서명 id `app.trina.ax.whisper-cli`, hardened runtime, timestamp), `notarize`(`notarytool submit --wait`, Accepted가 아니면 실패; 맨 프로그램은 staple할 수 없어 Gatekeeper가 티켓을 온라인으로 찾는다), `check`.
+4. 아티팩트 `mac-whisper`(tar, 파일 모드 유지). build-office가 받아 `build-office.ts --whisper`로 넣고, 넣기 전에 서명·팀·hardened runtime·arm64·시스템 라이브러리를 다시 검사한다. 그 sha256은 zip의 `app/licenses/manifest.json`(다른 프로그램과 같이)에, zip 전체의 sha256은 서명된 사무실 피드 목록에 들어간다.
+
+- 사무실 zip 자체는 공증하지 않는다(설치 스크립트가 격리 속성을 지운다). whisper-cli는 따로 공증되어 있다.
+- PR에서 `scripts/macos/build-whisper.sh`, `scripts/release/mac-whisper.ts`, 이 워크플로를 바꾸면 서명 없이 빌드와 받아쓰기만 한다(비밀값은 PR에 가지 않는다).
+- 실패하면 build-office도 돌지 않는다(사무실 zip이 이 릴리스에 없다, 6장 "Desktop builds missing"). 리눅스 릴리스는 기다리지 않는다.
+- whisper.cpp 버전을 올릴 때: `downloads.ts`의 태그와 sha256, 두 build-whisper.sh의 `VER`, `versions.json`.
+
 ### 맥 앱 (Mac app)
 
 다운로드용 맥 앱(dmg)은 Developer ID Application 인증서(Trina Inc., 팀 `YWW96288YY`)로 서명하고 Apple이 공증한다. 처음 열 때 "확인되지 않은 개발자" 경고가 없다. 만드는 곳: `.github/workflows/mac-app.yml`(release.yml의 build-mac-app이 부른다; Actions → Mac app → Run workflow는 아무 브랜치·태그로 같은 파일을 만들고 검사만 하며 아무것도 올리지 않는다).
@@ -225,7 +245,7 @@ Worker(`scripts/release/worker.js`)는 이 경로만 읽기 전용으로 내준�
 2. `bun run --cwd desktop dist:mac:release`: `desktop/electron-builder.devid.config.ts`. hardened runtime, `build-resources/entitlements.mac*.plist`(JIT, 마이크), 샌드박스 없음. electron-builder가 앱을 공증하고 staple한 뒤 dmg(서명)와 업데이트 zip, `latest-mac.yml`을 만든다. appId는 기본 `com.treesoop.mycel`(Mac App Store판 `app.trina.ax`와 다르다).
 3. `bun scripts/release/mac-app.ts desktop/release`: 앱과 zip 안의 앱을 검사(codesign --strict, 팀, hardened runtime, 샌드박스 아님, `spctl -a -vv`, `stapler validate`, 같은 cdhash), dmg를 `notarytool submit --wait`로 공증하고 staple, `spctl -a -vvv -t install`, `stapler validate`, 그리고 staple로 바뀐 dmg의 sha512·크기를 `latest-mac.yml`에 다시 쓴다.
 
-비밀값(레포 비밀값, build-mac-app만 본다). 값은 화면에 내지 않고 파일에서 바로 넣는다:
+비밀값(레포 비밀값, build-mac-app과 build-mac-whisper만 본다). 값은 화면에 내지 않고 파일에서 바로 넣는다:
 
 | 이름 | 무엇 |
 |---|---|
@@ -273,6 +293,7 @@ gh secret set APPLE_API_ISSUER_ID --repo trina-app/trina-ax
 | "Re-run all jobs"나 workflow_dispatch로 다시 | 새로 빌드한 파일은 이미 올라간 것과 내용이 달라 거부된다 | 새 버전으로 태그 |
 | build-office가 맥 러너를 못 받아 데스크톱만 빠짐(2026-11-12 v0.5.2, 11-13 v0.5.3), 그 run을 더는 다시 돌릴 수 없음 | 서버 피드는 나갔고 사무실 피드(윈도우·맥 zip)는 이전 릴리스에 남는다 | Actions → Release → Run workflow, "Use workflow from"과 tag는 그 태그, **office_only** 체크. 테스트·리눅스 빌드·서버 피드는 건너뛰고 사무실 zip과 윈도우 설치 파일만 빌드해 사무실 피드에 올린다(리눅스 파일은 GitHub Release에서 받아 SHA256SUMS에만 넣는다). 맥 러너가 또 없으면 **mac_runner**에 `macos-15-intel`(다른 러너 풀; Go·swiftc가 두 프로세서를 같이 빌드해 같은 universal zip). 기본값은 레포 변수 `RELEASE_MAC_RUNNER`, 없으면 macos-15. 이 입력은 이 변경이 들어간 뒤의 태그부터 있다 |
 | build-mac-app 실패(맥 러너 없음, 공증 거절, 비밀값 없음) | 사무실 피드는 `mac` 없이 나간다. 맥 앱은 이전 버전 그대로 | 로그를 본다: 공증 거절이면 `notarytool log <id>`가 로그에 있다. 고친 뒤 그 run에서 "Re-run failed jobs": publish가 같은 버전의 목록에 `mac`을 더한다(`versionManifestAction`) |
+| build-linux-desktop 실패 | 사무실 피드는 `linux` 없이 나가고 GitHub Release의 "Downloads not in this release yet" 줄에 "Linux (desktop app)"가 붙는다. 리눅스 데스크톱 앱은 이전 버전 그대로 | 로그를 본다. 고친 뒤 그 run에서 "Re-run failed jobs": publish가 같은 버전의 목록에 `linux`를 더하고(`versionManifestAction`), 모든 다운로드가 있으면 그 줄을 지운다 |
 | github-release | 피드는 이미 끝남 | "Re-run failed jobs" |
 | 맥 파일이 이미 피드에 올라간 릴리스를 "Re-run all jobs" | 맥 빌드는 할 때마다 다시 서명·공증해서 dmg·zip 바이트가 달라진다. publish.ts가 거부한다 | 이런 릴리스는 **"Re-run failed jobs"만** 쓴다. 맥만 다시 만들어야 하면 새 버전으로 태그 |
 | 잘못된 버전이 나감 | 설치는 뒤로 가지 않는다. stable이면 단계적 배포로 첫날은 약 10%만 받았다 | **먼저 멈춘다: `bun scripts/release/hosting.ts hold stable --reason "…"`** (아래 "배포 멈추기"). 아직 받지 않은 서버·사무실은 지금 버전에 머문다. 그다음 고친 새 버전을 태그 메시지 `Rollout: all`로 낸다(2장 "단계적 배포"). 리눅스 서버는 새 버전이 켜지지 않으면 이전 버전으로 스스로 돌아가고 7일간 다시 시도하지 않는다. 사무실 맥도 되돌린다(`docs/OFFICE.md`). |
@@ -398,14 +419,14 @@ prepare는 비밀값의 키가 목록에 없으면 멈춘다. 그래서 2를 건
    2. GitHub Release의 서명된 `*-linux-amd64.tar.gz` kit를 받아 `SHA256SUMS.sig`로 확인한다. `mycel-enroll`·`mycel-link`는 같은 태그에서 빌드한다(`native/build.sh`, 고정 Go).
    3. AWS 로그인: GitHub OIDC(`aws-actions/configure-aws-credentials`, SHA 고정). 저장된 AWS 키는 어디에도 없다. 세션은 4시간.
    4. `scripts/image/build-ami.sh`로 ap-northeast-2에서 AMI를 만든다(`--tag ax:built-by=release-ci`). 같은 릴리스의 앞선 시도가 만든 AMI가 있으면 그것을 쓴다.
-   5. `build-ami.sh --manifest-v2 --copy-to ap-southeast-1`(키 없이): 싱가포르로 복사하고 v2 목록을 쓴다. 그다음 짧은 서명 단계가 목록에 릴리스 키로 서명한다(`ax-template-v1\n<templateVersion>\n<sha256>`, 스크립트·hostd와 같은 메시지). 키는 그 단계의 몇 초 동안만 `$RUNNER_TEMP`의 600 파일로 있고 바로 지운다. 이 템플릿의 서명된 목록이 피드에 이미 있으면(앞선 시도가 목록까지 올리고 멈춤) 새로 만들지 않고 그것을 받아 쓴다. 새로 만들면 `builtAt`이 달라 피드가 받지 않는다.
+   5. `build-ami.sh --manifest-v2 --copy-to ap-southeast-1 --copy-to us-east-1`(키 없이, `AMI_COPY_TO`): 싱가포르와 버지니아로 차례로 복사하고 v2 목록을 쓴다. 그다음 짧은 서명 단계가 목록에 릴리스 키로 서명한다(`ax-template-v1\n<templateVersion>\n<sha256>`, 스크립트·hostd와 같은 메시지). 키는 그 단계의 몇 초 동안만 `$RUNNER_TEMP`의 600 파일로 있고 바로 지운다. 이 템플릿의 서명된 목록이 피드에 이미 있으면(앞선 시도가 목록까지 올리고 멈춤) 새로 만들지 않고 그것을 받아 쓴다. 새로 만들면 `builtAt`이 달라 피드가 받지 않는다.
    6. `scripts/release/publish-ami.ts`: 목록, `.sha256`, `.sig`를 `server/<version>/`에 올리고 마지막에 `team-image.json`을 올린다. 올리기 전에 서명을 이 제품의 키로 확인하고, 피드에 다른 바이트가 있으면 덮어쓰지 않고 멈춘다.
-   7. `scripts/image/ami-prune.sh`: 지역마다 CI가 만든 이미지(`ax:managed=ami` + `ax:built-by=release-ci`) 중 최근 3개 릴리스의 것만 남기고 나머지는 등록 해제 + 스냅샷 삭제. 순서는 만든 날짜가 아니라 `ax:template`의 버전 순서다(옛 태그로 손으로 돌린 run이 새 릴리스의 이미지를 밀어내지 않는다). 방금 올린 이미지, 손으로 만든 이미지, `ax:keep=true` 태그가 있는 이미지, 아직 인스턴스가 쓰는 이미지, EC2 launch template(최신·기본 버전)이 쓰는 이미지는 지우지 않는다. launch template을 읽지 못하면 그 지역에서는 아무것도 지우지 않는다.
+   7. `scripts/image/ami-prune.sh`: 지역마다 CI가 만든 이미지(`ax:managed=ami` + `ax:built-by=release-ci`) 중 필요 없는 것만 등록 해제 + 스냅샷 삭제. 무엇을 남길지는 `scripts/image/ami-prune-select.ts`가 정하고(단위 시험 `tests/unit/image-ami-prune.test.ts`), 이미지마다 남기는 이유를 모두 로그에 쓴다. 다음 중 하나라도 맞으면 남긴다: 방금 올린 이미지, `ax:keep=true` 태그, `ax:in-use` 태그(`false`가 아닌 값), 최근 5개 **릴리스**(`AMI_KEEP`, 이미지 수가 아니라 `ax:template`의 버전 순서, 그 릴리스의 이미지는 모두), 만든 지 14일이 안 된 이미지(`AMI_MIN_AGE_DAYS`, 호스팅 롤아웃이 도는 동안 컨트롤 플레인은 앞 릴리스로 새 팀을 만든다), 14일이 지난 이미지 중 가장 새 릴리스(나이는 빌드부터 세므로, 14일 안에 릴리스가 많이 나와도 컨트롤 플레인이 아직 쓸 수 있는 판), 아직 인스턴스가 쓰는 이미지, EC2 launch template(최신·기본 버전)이 쓰는 이미지, 지워지지 않은 인스턴스나 EBS 볼륨에 그 `ax:template` 태그가 있는 이미지(hostd가 팀 인스턴스와 루트 볼륨에 단다. `ax:template`·`ax:in-use`는 이 저장소 밖(trina-cloud)에서 다는 태그라, 없으면 이미지 id로 찾은 것만 보호된다. `resolve:ssm:`으로 이미지를 적은 launch template은 맞추지 못한다). launch template·인스턴스·볼륨·이미지를 읽지 못하면 그 지역에서는 아무것도 지우지 않는다. 2026-11-20: 0.5.21 run이 그때 규칙(최근 3개 이미지)으로 0.5.16 이미지(서울·버지니아)를 지웠는데, 컨트롤 플레인이 아직 그 템플릿으로 새 팀을 만들고 있어 새 팀 만들기가 `InvalidAMIID.NotFound`로 실패했다.
    8. 취소·실패하면 마지막 단계가 상태 파일로 `build-ami.sh --cleanup`을 돌려 빌더·작업 볼륨·보안 그룹을 지운다. 상태 파일은 `ami-build-state` 아티팩트로도 남긴다(7일).
 
 컨트롤 플레인은 `<feed>/server/<version>/team-image.json`을 읽어 목록 URL을 알고, 목록의 `.sig`를 `TRINA_RELEASE_KEYS`로 확인한다(trina-cloud F1c).
 
-**네트워크.** 빌더는 러너에서 SSH로 다룬다. 빌드마다 보안 그룹을 새로 만들어 그 러너의 주소(/32)에서만 22번을 열고, 끝나면 지운다. 로그인 키·호스트 키도 빌드마다 새로 만든다. 그래서 `AMI_SUBNET_ID`의 서브넷은 인터넷 게이트웨이로 가는 경로가 있고 NACL이 22번 인바운드를 모든 곳(0.0.0.0/0, GitHub 러너 주소는 매번 다르다)에서, 응답 포트를 허용해야 한다. 기본 VPC의 서브넷이면 그대로 된다. 팀 서브넷은 안 된다(NACL이 SSH를 막는다). SSM으로 바꾸지 않은 이유: Debian AMI에는 SSM 에이전트가 없고, 빌더에 인스턴스 프로필을 주려면 역할에 `iam:PassRole`과 상시 프로필이 필요하다. SSH 방식은 상시로 열린 것이 없다.
+**네트워크.** 빌더는 러너에서 SSH로 다룬다. 빌드마다 보안 그룹을 새로 만들어 그 러너의 주소(/32)에서만 22번을 열고, 끝나면 지운다. 로그인 키·호스트 키도 빌드마다 새로 만든다. 그래서 `AMI_SUBNET_ID`의 서브넷은 인터넷 게이트웨이로 가는 경로가 있고 NACL이 22번 인바운드를 모든 곳(0.0.0.0/0, GitHub 러너 주소는 매번 다르다)에서, 응답 포트를 허용해야 한다. 기본 VPC의 서브넷이면 그대로 된다. 팀 서브넷은 안 된다(NACL이 SSH를 막는다). `AMI_SUBNET_ID`에 같은 VPC의 다른 영역 서브넷을 쉼표로 이어 적으면(`subnet-…(2a),subnet-…(2c),subnet-…(2b)`) 그 순서로 시도한다: 한 영역에 빌더 용량이 없으면(`InsufficientInstanceCapacity`, 2026-11-17 v0.5.11) 같은 보안 그룹으로 다음 서브넷에서 빌더를 띄우고 작업 볼륨도 그 영역에 만든다. 거절된 `RunInstances`는 아무것도 만들지 않으며, 보안 그룹은 전처럼 끝에, 실패하면 정리 단계가 지운다. 권한 정책의 `BuilderLaunchIntoTheBuildSubnet`에도 그 서브넷들을 넣어야 한다. SSM으로 바꾸지 않은 이유: Debian AMI에는 SSM 에이전트가 없고, 빌더에 인스턴스 프로필을 주려면 역할에 `iam:PassRole`과 상시 프로필이 필요하다. SSH 방식은 상시로 열린 것이 없다.
 
 ### 처음 한 번 (대표)
 
@@ -426,7 +447,7 @@ prepare는 비밀값의 키가 목록에 없으면 멈춘다. 그래서 2를 건
 4. **GitHub OIDC 공급자**(계정에 아직 없으면): IAM → Identity providers → OpenID Connect, URL `https://token.actions.githubusercontent.com`, audience `sts.amazonaws.com`.
 5. **역할을 만든다**(예: `trina-team-image-ci`).
    - 신뢰 정책: [`docs/runbooks/team-image-trust-policy.json`](runbooks/team-image-trust-policy.json). `<ACCOUNT_ID>`를 바꾼다. subject가 `repo:trina-app/trina-ax:environment:release:job_workflow_ref:trina-app/trina-ax/.github/workflows/team-image.yml@refs/tags/v*` 또는 immutable 꼴 `repo:trina-app@349611973/trina-ax@1436599521:environment:release:job_workflow_ref:trina-app/trina-ax/.github/workflows/team-image.yml@refs/tags/v*`인 토큰만 받는다(`StringLike`에 두 값의 목록, 3이 필요). 즉 environment `release`의 `team-image.yml`이 `v*` 태그에서 돌 때만이다. fork PR은 OIDC 토큰을 받지 못한다. 이 조건은 1·2(태그 대상 제한, 태그 ruleset)와 함께여야 뜻이 있다: `v*` 태그를 만들 수 있는 사람은 그 태그의 `team-image.yml`을 바꿀 수 있다.
-   - 권한 정책: [`docs/runbooks/team-image-iam-policy.json`](runbooks/team-image-iam-policy.json). `<ACCOUNT_ID>`, `<AMI_SUBNET_ID>`, 그 서브넷의 `<AMI_VPC_ID>`를 바꾼다. 두 지역(ap-northeast-2, ap-southeast-1) 밖은 모두 거부. 만드는 것은 `ax:managed=ami-build`(빌더·작업 볼륨·보안 그룹) 또는 `ax:managed=ami` + `ax:built-by=release-ci`(AMI·스냅샷) 태그를 달아야만 되고, 지우기·종료·등록 해제는 그 태그가 있는 것만 된다. 빌더는 아마존 목록의 공개 이미지(`ec2:Owner` `amazon` + `ec2:Public` `true`)로만, 작업 볼륨은 Debian 계정(136693071363)의 스냅샷으로만 만든다(다른 스냅샷으로 볼륨을 만들어 읽을 수 없다). 조건이 둘로 나뉜 이유: Debian 공개 AMI 같은 아마존 목록 이미지는 요청의 `ec2:Owner`가 계정 번호가 아니라 `"amazon"`이고, 그 루트 스냅샷은 `ec2:Owner`가 소유 계정 번호(136693071363)이며 `ec2:Public`이 없다(v0.5.5 첫 실행이 `RunInstances`, 다음 실행이 `CreateVolume`에서 거부됨). Debian 이미지 고르기는 `build-ami.sh`가 소유자 136693071363으로 한다. IAM 권한(`iam:*`, `PassRole`)은 없다.
+   - 권한 정책: [`docs/runbooks/team-image-iam-policy.json`](runbooks/team-image-iam-policy.json). `<ACCOUNT_ID>`, `<AMI_SUBNET_ID>`, 그 서브넷의 `<AMI_VPC_ID>`를 바꾼다. `<AMI_SUBNET_ID_2C>`, `<AMI_SUBNET_ID_2B>`는 같은 VPC의 2c·2b 서브넷이다(2026-11-17부터 운영 역할 `trina-team-image-ci`에 세 서브넷이 다 들어 있다). 다른 영역 서브넷을 쓰지 않으면 그 줄들은 지운다. 세 지역(ap-northeast-2, ap-southeast-1, us-east-1) 밖은 모두 거부. `AMI_COPY_TO`에 지역을 더하기 전에 운영 역할 `trina-team-image-ci`의 이 목록에 먼저 더한다(아니면 복사가 거부되고 run 전체가 실패한다). 만드는 것은 `ax:managed=ami-build`(빌더·작업 볼륨·보안 그룹) 또는 `ax:managed=ami` + `ax:built-by=release-ci`(AMI·스냅샷) 태그를 달아야만 되고, 지우기·종료·등록 해제는 그 태그가 있는 것만 된다. 빌더는 아마존 목록의 공개 이미지(`ec2:Owner` `amazon` + `ec2:Public` `true`)로만, 작업 볼륨은 Debian 계정(136693071363)의 스냅샷으로만 만든다(다른 스냅샷으로 볼륨을 만들어 읽을 수 없다). 조건이 둘로 나뉜 이유: Debian 공개 AMI 같은 아마존 목록 이미지는 요청의 `ec2:Owner`가 계정 번호가 아니라 `"amazon"`이고, 그 루트 스냅샷은 `ec2:Owner`가 소유 계정 번호(136693071363)이며 `ec2:Public`이 없다(v0.5.5 첫 실행이 `RunInstances`, 다음 실행이 `CreateVolume`에서 거부됨). Debian 이미지 고르기는 `build-ami.sh`가 소유자 136693071363으로 한다. IAM 권한(`iam:*`, `PassRole`)은 없다.
    - 최대 세션 시간(MaxSessionDuration)을 **4시간**(14400초)으로 올린다. 워크플로가 4시간을 요청한다.
    - 계정의 EBS 기본 암호화 키가 고객 관리 키(CMK)면 그 키의 `kms:CreateGrant`, `kms:Decrypt`, `kms:GenerateDataKeyWithoutPlaintext`, `kms:ReEncrypt*`, `kms:DescribeKey`를 더한다(AWS 관리 키 `aws/ebs`면 필요 없다).
 6. **레포 변수**(Settings → Secrets and variables → Actions → Variables, 비밀값이 아니다):
@@ -447,14 +468,14 @@ prepare는 비밀값의 키가 목록에 없으면 멈춘다. 그래서 2를 건
 | 복사·서명·올리기 | AMI는 남아 있다 | Re-run failed jobs. 같은 릴리스의 AMI를 다시 쓰고(아직 `pending`이면 기다린다), 복사는 client token으로 두 번 생기지 않는다. 목록이 이미 피드에 있으면 그것을 받아 쓰고 `team-image.json`만 올린다 |
 | publish-ami: `names another image already` | 그 릴리스에 다른 이미지가 이미 올라가 있다 | 덮어쓰지 않는다. 다음 릴리스를 기다리거나 사람이 본다 |
 
-**정리(최근 3개)**: 컨트롤 플레인이 새 팀에 쓰는 템플릿은 최근 3개 릴리스 안에 있어야 한다(자동 템플릿, F1c). CI는 컨트롤 플레인의 설정을 읽지 못한다. 오래된 이미지를 남기려면 `aws ec2 create-tags --resources ami-… <snap-…> --tags Key=ax:keep,Value=true`(두 지역 모두).
+**정리(최근 5개 릴리스, 14일)**: 컨트롤 플레인이 새 팀에 쓰는 템플릿은 최근 5개 릴리스 안에 있거나 만든 지 14일이 안 됐어야 한다(자동 템플릿, F1c). CI는 컨트롤 플레인의 설정을 읽지 못한다. 컨트롤 플레인이나 hostd가 쓰는 템플릿의 AMI에 `ax:in-use=<쓰는 곳>`을 달면 CI가 남긴다(아직 아무도 달지 않는다). 무엇을 지울지 미리 보려면 `scripts/image/ami-prune.sh --dry-run --account <id> --region …`. 오래된 이미지를 남기려면 `aws ec2 create-tags --resources ami-… <snap-…> --tags Key=ax:keep,Value=true`(모든 지역).
 
 ### 비용 (한 번 빌드)
 
 - 빌더 t3a.medium 약 30–45분 ≈ $0.04, 작업·루트 볼륨 gp3 20 GiB × 2 약 1시간 ≈ $0.01, 공인 IPv4 1시간 ≈ $0.005.
-- 싱가포르 복사: 지역 간 전송 약 $0.08/GB × 실제 쓴 블록(이미지 약 4–6 GB) ≈ $0.3–0.5.
-- 합 **≈ $0.4–0.6 / 빌드**. GitHub 러너는 공개 레포라 무료.
-- 보관: 스냅샷 약 $0.05/GB-월 × 4–6 GB × 2지역 × 최근 3개 ≈ **월 $1.2–1.8**(정리가 그 이상 쌓이지 않게 한다).
+- 싱가포르·버지니아 복사: 지역 간 전송 약 $0.08/GB(서울에서 나가는 쪽) × 실제 쓴 블록(이미지 약 4–6 GB) × 2지역 ≈ $0.6–1.0.
+- 합 **≈ $0.7–1.1 / 빌드**. GitHub 러너는 공개 레포라 무료.
+- 보관: 스냅샷 약 $0.05/GB-월 × 4–6 GB × 3지역 × 최근 5개 릴리스(14일 안에 더 나왔으면 그만큼 더) ≈ **월 $3–4.5**(정리가 그 이상 쌓이지 않게 한다).
 
 ## 11. 윈도우 코드 서명 (Microsoft Artifact Signing)
 
@@ -524,6 +545,239 @@ certificate does not skip it; an EV certificate would not either, and Artifact S
 
 - Basic 월 정액 하나(위). 서명은 한 릴리스에 파일 서너 개라 한도(5,000)에 닿지 않는다. 앱 등록·OIDC는 무료. 다른 Azure 리소스는 만들지 않는다.
 - 해지: 계정을 지우면 청구가 멈춘다(이미 서명한 파일은 그대로 유효). 조직 확인은 구독에 남으니 따로 지운다.
+
+## 12. 데스크톱 검사 (PR, desktop.yml)
+
+Desktop checks on pull requests: `.github/workflows/desktop.yml`. ci.yml은 리눅스만 돌므로, 데스크톱 앱이 바뀔 수 있는 PR
+(`desktop/**`, `shared/**`, `editions/trina/branding/**`, `scripts/release-notices.ts`, `scripts/ci/dmg-check.ts`,
+`scripts/ci/windows-install-check.ps1`, `scripts/ci/linux-install-check.sh`, `scripts/ci/appimage-runtime-check.sh`, offline·hwp spec이 쓰는 `web/test/mock/**`·`web/test/e2e/offline-server.ts`, `package.json`, `bun.lock`, 이 워크플로)에만 아래 여섯 job이 돈다. 비밀값은 쓰지 않는다
+(서명 없음). 필수 검사가 아니다: 필수 검사는 ci.yml의 것 그대로다. 빨간 데스크톱 job은 병합 전에 읽는다.
+결정: `docs/decisions/20261116-desktop-checks.md`.
+
+| job | runner | 하는 일 | 실패 때 artifact |
+|---|---|---|---|
+| Desktop e2e (macOS) | macos-15-intel (레포 변수 `DESKTOP_MAC_RUNNER`로 바꾼다) | `desktop/e2e/ci.config.ts`: 데스크톱 Playwright 전부(desktop.spec, work-files, work-files-wide, work-consent, folder-window …). 만든 홈·데이터 폴더만 쓴다. 가짜 팀 이름(`acme.localhost` …)을 `/etc/hosts`에 넣고 web 빌드와 rhwp를 준비한다. 전체 25분 한도, 재시도 1번 | `desktop-e2e-mac` (`desktop/e2e/.work/`: html 리포트, fixture 로그) |
+| Mac dmg | e2e와 같은 러너 | 서명 없는 universal `dist:mac` → `scripts/ci/dmg-check.ts` | 늘 `desktop-dmg` (dmg, 3일) |
+| Windows installer | windows-2025 | 서명 없는 NSIS 둘(`<version>-ci.1`, `-ci.2`) → `scripts/ci/windows-install-check.ps1` | 늘 `desktop-windows-install-logs` |
+| Linux packages (install, update over, uninstall) | ubuntu-24.04 | 서명 없는 빌드 둘: `-ci.2`는 `dist:linux` 그대로(.deb·AppImage, x64·arm64), `-ci.1`은 x64 .deb → `scripts/ci/appimage-runtime-check.sh`: 두 AppImage 런타임에 버전 없는 라이브러리(`libz.so` 같은 것) 없음(`readelf -d`), x86_64는 Fedora 42 컨테이너에서 `--appimage-version` → `scripts/ci/linux-install-check.sh full`: 설치(파일, 메뉴 항목, `trina-ax://` 형식, `Icon=` 이름의 256·512 px PNG와 scalable SVG, 올라간 AppArmor 프로필) → xvfb에서 시작, 첫 창, 샌드박스(`--no-sandbox` 없음, 렌더러가 제 user namespace), 링크 처리기 → 덮어 설치(버전, 처리기, 데이터 폴더) → 제거(파일·메뉴·프로필·처리기 없음, 데이터는 남음) → AppImage는 `.deb` 안내 창을 띄우고 끝나야 한다 | 늘 `desktop-linux-install-logs`; arm64 .deb와 AppImage는 `desktop-linux-arm64-deb` |
+| Linux package (arm64: install and start) | ubuntu-24.04-arm | arm64 AppImage 런타임 검사(Fedora 42 컨테이너에서 `--appimage-version`), 위 job의 arm64 .deb를 설치, xvfb에서 시작(첫 창, 샌드박스), 제거. 빌드는 하지 않는다 | 늘 `desktop-linux-arm64-logs` |
+| Desktop e2e (Linux, subset) | ubuntu-24.04 | `desktop/e2e/linux.config.ts`: smoke, desktop, quit, settings, language, offline, update, local-apps. 맥 e2e처럼 가짜 팀 이름, web 빌드, rhwp. xvfb + `dbus-run-session` + 비밀번호를 준 `gnome-keyring-daemon --unlock`(빈 비밀번호면 login 모음이 생기지 않는다; local-apps.spec이 설정을 봉인한다), `XDG_CURRENT_DESKTOP=GNOME`. node_modules의 Electron에는 AppArmor 프로필이 없어 이 run만 `kernel.apparmor_restrict_unprivileged_userns=0`, `--no-sandbox`는 쓰지 않는다. dev push에도 돈다 | `desktop-e2e-linux` |
+
+- **맥 job은 Intel 맥(macos-15-intel)에서 돈다.** 2026-11-16 08:30 UTC 뒤로 arm64 `macos-15` job은 러너를 하나도 받지 못하고
+  취소됐다("The job was not acquired by Runner of type hosted even after multiple attempts", "Due to capacity constraints, jobs
+  targeting macOS arm64 runners may experience longer queue times"). 테스트가 깨진 것이 아니라 GitHub의 arm64 맥 부족이다. Intel
+  맥은 다른 풀이다. arm64가 돌아오면 레포 변수 `DESKTOP_MAC_RUNNER=macos-15`로 커밋 없이 되돌린다. 캐시 키에 `runner.arch`가 있어
+  두 프로세서의 Electron·rhwp가 섞이지 않는다.
+
+- **dmg 검사는 설정을 읽는다.** 형식(`dmg.format`, 기본 UDZO), 볼륨 이름(`dmg.title`), 파일 시스템(`dmg.filesystem`, 없으면 설치된
+  electron-builder의 기본: 26.0.17까지 APFS, 26.0.18부터 HFS+), `dmg.contents`의 위치(`.DS_Store`의 Iloc), 배경 그림(`dmg.background`, 없으면
+  build-resources의 background.tiff|png, 없으면 electron-builder 기본 그림)이 볼륨에 있는지(`.background/<파일>` 또는 26.0.18부터 `/.background.<확장자>`; `@2x` 그림이 옆에 있으면 TIFF 하나), `.DS_Store`가 그 파일을 가리키는지, 창이 그림 배경인지, 아이콘·글자
+  크기. 값을 검사에 적지 않으므로 dmg 설정을 바꾸는 PR(#1036, #985)은 검사를 고칠 필요가 없다. 설정과 결과가 다르면 실패한다.
+- **윈도우 검사는 실제 PC를 쓰지 않는다.** 순서: 깨끗한 runner 프로필 확인 → `/S` 설치(제거 항목·파일·바로가기, 서명 상태
+  NotSigned/Valid 보고) → 버린 데이터 폴더(`MYCEL_DESKTOP_USER_DATA`)로 앱 실행, `trina-ax://` 처리기 확인 → 업데이터와 같은
+  `--updated /S --force-run`으로 덮어 설치(새 버전, 처리기 유지, 앱 재시작) → 조용한 제거(항목·파일·바로가기·처리기 삭제, 데이터는 남음).
+- **리눅스 검사는 Ubuntu 24.04의 샌드박스 규칙을 직접 켠다.** 스크립트가 `kernel.apparmor_restrict_unprivileged_userns=1`을 설정한다:
+  러너 이미지가 바뀌어도 .deb는 제 AppArmor 프로필로 샌드박스를 쓰고, AppImage는 AppRun이 `--no-sandbox`를 붙여 앱이 거절해야 한다.
+  AppImage의 자체 업데이트(받기, 서명된 릴리스와 대조, 끝날 때 교체)는 업데이터 설정과 `verifyInstaller`의 단위 테스트와 QA 행이
+  맡는다(살아 있는 업데이트 시험에는 서명된 가짜 피드가 필요하다). 결정: `docs/decisions/20261119-linux-desktop-app.md`.
+- **Electron이 안 끝나도 job은 멈추지 않는다.** 단독 fixture는 `desktop/e2e/fixture-run.ts`로 돌린다: 결과 줄이 나오면 SIGKILL로 끝낸다
+  (#1015). 로그는 `desktop/e2e/.work/logs/`.
+- **비용**: 공개 레포라 hosted runner는 무료. 경로 필터, PR마다 `cancel-in-progress`, bun 저장소와 Electron·electron-builder 내려받기 캐시.
+  dev push에는 e2e job만 경로 필터 없이 돈다(PR 필터에서 빠진 `web/src` 변경이 offline·HWP 데스크톱 시험을 깨면 병합 직후에 보인다). 뒤의 병합이 앞의 run을 멈춘다.
+- **실패했을 때**: e2e는 artifact의 html 리포트와 fixture 로그를 본다. dmg는 step summary의 `FAIL` 줄이 설정의 어느 값과 다른지 말한다
+  (artifact의 dmg를 열어 본다; 서명이 없으니 우클릭 › 열기). 윈도우는 step summary와 `install-check.log`. 설치 파일이 0이 아닌 코드로 끝나면 만든 electron-builder 버전, sha256, Application 이벤트 로그(`installer-crash-events.txt`)를 남긴다(QA TC-3590). 재시도는 없다: 설치 파일이 죽으면 사람에게도 죽을 수 있다.
+- 손으로 돌리기: `bun run --cwd desktop dist:mac:arm64 && bun scripts/ci/dmg-check.ts desktop/release` (맥),
+  `cd desktop && bun build.ts && bunx playwright test -c e2e/ci.config.ts`; 리눅스(Ubuntu 24.04, sudo):
+  `bun run --cwd desktop dist:linux && scripts/ci/linux-install-check.sh full <old.deb> <new.deb> <new.AppImage>`
+  (환경 변수는 desktop.yml의 linux-packages job).
+
+## 13. 릴리스용 맥 러너 (self-hosted, 사무실 맥)
+
+GitHub hosted macOS 풀에 러너가 없어 릴리스의 맥 job(사무실 zip, 맥 앱, whisper-cli)이 계속 취소될 때 쓰는, 사무실 맥 한 대의
+self-hosted 러너. 이 레포는 공개라 누구나 PR을 열 수 있다. 그래서 이 러너는 **v\* 태그의 release.yml만** 받고, job마다 새 일회용
+러너를 쓴다. When GitHub's hosted macOS pools have no capacity, the release's Mac jobs run on one office Mac. Only release.yml at a
+v\* tag may use it, each job gets a fresh one-time runner, and the runner account cannot reach the rest of the Mac.
+
+**지금 상태: 꺼져 있음 (준비만, 2026-11-17).** hosted 맥 러너가 돌아와 0.5.11은 hosted에서 빌드·서명·공증됐다. 이 맥에는 아무것도
+설치되지 않았다(계정, 볼륨, 데몬, GitHub 러너 등록 없음). 레포 변수 `RELEASE_MAC_RUNNER`는 없다(2026-11-17 19:49Z에 지움; 기본
+macos-15). 워크플로 변경은 그 변수가 `trina-mac-release`일 때만 이 러너를 고르므로, 쓰지 않는 동안 아무 비용도 없다. Status: off; nothing is installed. The workflows pick this runner only when
+`RELEASE_MAC_RUNNER=trina-mac-release`.
+
+**켜기는 대표만 (owner only).** 러너 등록(`root-steps.sh`/`setup.sh`)과 `RELEASE_MAC_RUNNER` 변경은 대표가 그때 명시적으로 OK한 뒤에만
+한다. 에이전트·릴리스 담당이 스스로 켜지 않는다. Switching on is owner-only: no registration and no variable change without the owner's
+explicit OK at that time.
+
+**켜기 전에 반드시 (mandatory before switching on)** — 하나라도 아니면 켜지 않는다:
+
+1. **러너 쪽 문(host-side gate)**: job-started hook(`/Library/TrinaCI/job-started.sh`)이 release.yml at v\* 태그(main에 있는 커밋)가 아닌
+   job을 step 전에 거절하고 그 job을 끝낸다. setup.sh가 설치하고, 일회성 데몬 검사가 "hook refusal kills Runner.Worker" PASS로 확인한다.
+2. **러너를 워크플로로 제한(runner group / selected workflows)**: 요금제가 허락하면 runner group을 "Selected workflows: release.yml at
+   refs/tags/v\*"로 제한하고 러너를 그 그룹에 둔다. 2026-11-17 현재 조직은 Free 요금제라(`gh api orgs/trina-app --jq .plan.name` = free) custom runner group이 없다.
+   그동안은 1·3·4와 라벨로 막고, 요금제가 바뀌면 이것을 먼저 한다.
+3. **fork PR 승인**: 레포 설정 "Require approval for all outside collaborators"(API `approval_policy: all_external_contributors`).
+   2026-11-17에 켰다. 켜기 전에 `gh api repos/trina-app/trina-ax/actions/permissions/fork-pr-contributor-approval`로 다시 확인한다.
+4. **레포 러너만**: 러너는 이 레포(trina-app/trina-ax)에만 등록한다. 조직(org) 러너로 절대 등록하지 않는다. supervisor는
+   `repos/trina-app/trina-ax/actions/runners/generate-jitconfig`만 부른다.
+
+각 job의 첫 step "Release Mac runner guard"는 **덧붙인 방어(defense in depth)일 뿐**이다. fork PR이 워크플로를 고쳐 이 라벨을 고르면
+그 step은 없으니, 막는 것은 위 1–4다.
+
+**켜기 (switch on, hosted 맥이 다시 없을 때, 대표 OK 뒤)**: 위 1–4를 확인하고, 아래 "설치" 1–3(토큰, 받기,
+`sudo bash ~/.tfx/mac-runner/root-steps.sh` = `setup.sh`)이 모두 PASS면 `gh variable set RELEASE_MAC_RUNNER --repo trina-app/trina-ax --body
+trina-mac-release`. **끄기**: 변수를 지우거나(기본 macos-15) hosted 라벨로 바꾸고, 러너도 멈춘다(`sudo launchctl bootout
+system/app.trina.ci.runner`, 기다리던 러너 등록은 "지우기" 2). 변수만 바꾸면 릴리스는 hosted로 가지만, 설치된 러너는 이 라벨을 고른
+job을 계속 기다린다(1이 막는다). 완전히 치우려면 "지우기".
+
+**누가 쓸 수 있나 (who may run on it)**
+
+- 라벨은 `trina-mac-release` 하나뿐인 레포 러너(`trina-mac-<시각>`). `self-hosted`·`macOS`·`ARM64` 라벨이 없어 `runs-on: [self-hosted]`
+  같은 job은 닿지 않는다. 조직이 Free 요금제라 runner group(워크플로 제한)은 없다.
+- 쓰는 job: release.yml의 build-office, build-mac-app(mac-app.yml), build-mac-whisper(mac-whisper.yml). 레포 변수
+  `RELEASE_MAC_RUNNER=trina-mac-release`로 고른다(Run workflow의 `mac_runner` 입력이 먼저). mac-app.yml·mac-whisper.yml은
+  release.yml이 v\* 태그에서 부를 때만 이 변수를 본다(`github.workflow_ref`는 부른 쪽). PR(Desktop e2e, unsigned dmg 검사,
+  whisper-cli PR 검사)과 그 워크플로들의 Run workflow는 hosted에 남는다.
+- 문 두 겹: (1) 러너의 job-started hook(`/Library/TrinaCI/job-started.sh`, 워크플로가 건너뛸 수 없다; 이것이 진짜 문)과 (2) 각 job의
+  첫 step "Release Mac runner guard"(self-hosted에서만; 덧붙인 방어, fork가 고친 워크플로에는 없다). 둘 다 `github.repository == trina-app/trina-ax`, 이벤트 push 또는 workflow_dispatch,
+  ref `refs/tags/v*`, `github.workflow_ref`가 `trina-app/trina-ax/.github/workflows/release.yml@refs/tags/v*`일 때만 통과한다. hook은
+  태그의 커밋이 main에 있는지도 본다(공개 API `compare/main...<sha>`가 identical/behind; prepare와 같은 규칙). 태그 ruleset을 건너뛸 수
+  있는 사람(maintain·admin)이 아무 커밋에 태그를 달아 자기 release.yml을 가져오는 길을 막는다. hook이 거절하면 그 job의
+  `Runner.Worker`를 바로 끝낸다(`if: always()` step도 돌지 않는다).
+- 레포 설정: 바깥 기여자의 fork PR 워크플로는 모두 승인이 있어야 돈다(`approval_policy: all_external_contributors`, 2026-11-17).
+- v\* 태그는 태그 ruleset으로 막혀 있다(10장). 그래도 maintain·admin 역할은 ruleset을 건너뛸 수 있다. 이 맥에서 도는 코드는 main에
+  들어간(리뷰된) 커밋뿐이다.
+- 남는 것: 거절당할 job도 러너를 잠깐 차지한다(한 번에 하나).
+
+**격리 (isolation)**
+
+- 계정 `_trinaci`: 숨김, 일반(관리자 아님), 자기 그룹(staff 아님), 암호·로그인 셸 없음, `cron.deny`·`at.deny`에 있다. 러너는 이
+  계정으로 돈다(관리자 계정이 아니다). 관리자 홈(750, staff)에는 그룹이 달라 못 들어가고, `_trinaci` deny ACL을 하나 더 둔다.
+- 러너와 모든 step은 샌드박스 `runner.sb` 안에서 돈다: `/Users` 아래 전부 금지, `/Volumes`는 자기 볼륨과 빌드가 붙이는 dmg
+  (`/Volumes/Trina AX …`)만, `/tmp`·`/private/var/tmp` 전부 금지(다른 세션의 파일과 로컬 DB 소켓; TMPDIR은 볼륨에 있다), localhost TCP 금지,
+  `launchctl`·`crontab`·`at` 실행 금지.
+- pf(`com.apple/260.trina-ci`, 루트 데몬 `app.trina.ci.pf`가 부팅 때와 1분마다 올린다)가 이 계정의 소켓에서 lo0의 모든 것(샌드박스가
+  이름 붙이지 못하는 `::ffff:127.0.0.1` 같은 IPv4-mapped 주소 포함), 이 맥 자신의 주소, LAN(IPv4 사설 대역, 이 맥 IPv6 주소의 /64), Tailscale, link-local로 가는 TCP/UDP를 막는다. 인터넷은 열려 있다. pf 규칙이
+  이번 부팅에 올라가지 않았으면 러너를 시작하지 않는다.
+- **이 계정에는 인증서도 키도 암호도 없다.** 서명은 지금처럼 레포 비밀값(`MAC_DEVELOPER_ID_P12_*`, `APPLE_API_*`, "맥 앱" 절)으로
+  job마다 `$RUNNER_TEMP`에 키체인을 만들고 끝에 지운다.
+- 이 맥에 있는 비밀은 하나: 일회용 러너를 받아 오는 fine-grained 토큰(trina-app-admin, 저장소 trina-ax 하나, Administration: Read and
+  write). `/Library/TrinaCI/secrets/github-auth.header`(root 600)에 있고 러너 계정은 읽지 못한다. curl이 파일에서 바로 읽는다(argv에 없다).
+- 남는 위험: 무언가 pf를 `com.apple` anchor 없이 다시 올리면 다음 1분 검사까지 pf 규칙이 빠진다(샌드박스의 localhost·소켓 차단은 그대로).
+
+**매번 새로 (ephemeral)**
+
+루트 데몬 `app.trina.ci.runner`(`/Library/TrinaCI/supervisor.sh`)가 job 하나마다:
+
+1. `_trinaci`의 프로세스를 모두 끝내고(kill -9), launchd job·crontab·`/tmp`의 파일·Apple 임시/캐시 폴더를 지우고, 볼륨의 HOME,
+   TMPDIR, 러너 폴더를 통째로 지운다. 남는 것이 있으면 job을 더 받지 않는다(로그에 남긴다).
+2. root 소유 원본(`/Library/TrinaCI/runner-dist`)에서 러너 폴더를 새로 복사한다(`.env`에 job hook, `.path`). 이 폴더는 `_trinaci`
+   소유다: 러너가 일회용 등록을 거기에 쓰고, GitHub이 새 버전을 내면 그 안에서 스스로 업데이트한다. 어차피 job 뒤에 통째로 지운다.
+3. GitHub에 일회용(JIT) 러너 설정을 받아(`generate-jitconfig`) `_trinaci`로 샌드박스 안에서 돌린다. 러너는 job 하나를 받고 끝나며,
+   supervisor가 그 등록을 지운다(job을 받지 않고 끝난 것도). job이 러너 자격 증명을 읽어도 그 job이 끝나면 쓸모가 없다. 1분 안에
+   끝나면(업데이트 실패, GitHub 오류) 5분 쉰다. job이 붙인 디스크 이미지도 떼고, 계정의 `/var/folders` 폴더 전체를 지운다.
+
+job 사이에 남는 도구 캐시(setup-bun, setup-go, bun 캐시, 내려받은 actions)는 없다. job-completed hook도 같은 것을 지운다(보조).
+
+**디스크 (disk)**
+
+- 맥 빌드 한 번에 약 15 GB(체크아웃·node_modules ~3 GB, Electron 두 아키텍처와 universal 앱·dmg·zip, Go·bun). 계정의 HOME, TMPDIR,
+  러너는 따로 만든 APFS 볼륨 `TrinaCI`(쿼터 60 GB, `nobrowse`라 Finder·데스크톱에 안 보인다)에 있다. 빌드가 시스템 디스크를 채울 수
+  없다. supervisor는 25 GB, job-started hook은 20 GB가 안 남았으면 job을 받지 않는다. 시스템 디스크에 남는 것(`/tmp`, Apple 임시 폴더)은
+  매 job 뒤에 지운다. 로그는 50 MB에서 한 번 돌린다.
+- 데몬은 `Nice 5`. 한 번에 job 하나(릴리스의 맥 job 셋은 차례로 돈다; 맥 앱은 공증 때문에 한 시간 넘게 걸린다).
+- Node.js는 하나의 목록(`scripts/system/packages.json`의 darwin-arm64 버전, 주소, sha256)을 그대로 따라 root 소유로 `/Library/TrinaCI/node`에 둔다. setup.sh는 Node.js를 따로 고정하지 않는다. Homebrew(관리자 소유)는 PATH에 없다.
+
+**설치 (setup, 관리자, sudo 한 번)**
+
+1. 토큰: trina-app-admin → Settings → Developer settings → Fine-grained tokens → Generate. Resource owner `trina-app`, Only select
+   repositories `trina-ax`, Repository permissions → **Administration: Read and write**. 만료일은 정한다(만료 전에 2·3을 다시).
+2. 받기(sha256은 setup.sh가 확인한다):
+
+```sh
+mkdir -p ~/.tfx/mac-runner-stage && cd ~/.tfx/mac-runner-stage
+curl -fsSLO https://github.com/actions/runner/releases/download/v2.338.2/actions-runner-osx-arm64-2.338.2.tar.gz
+curl -fsSLO "$(jq -r '.artifacts.node.platforms["darwin-arm64"].url' <레포>/scripts/system/packages.json)"   # Node.js: 목록의 주소
+```
+
+3. 실행(토큰은 숨긴 입력으로 묻는다; 파일로 주면 읽고 지운다). 여러 번 돌려도 된다:
+
+```sh
+sudo bash <레포>/scripts/macos/release-runner/setup.sh
+```
+
+setup.sh는 두 번 검사한다: 관리자의 sudo로 한 번, 그리고 job과 같은 맥락(일회성 LaunchDaemon `app.trina.ci.selftest`, SessionCreate,
+`_trinaci`로 샌드박스 안, `selftest.sh`)에서 한 번(인터넷, swiftc, notarytool, node, job 키체인에 .p12 넣기와 key partition list,
+`/Volumes/Trina AX …`에 dmg 붙이기; 그리고 막혀야 할 것: localhost와 `::ffff:` 주소, LAN, `/tmp`, `/Users`, hook이 거절하면
+`Runner.Worker`가 끝나는지). codesign 자체는 믿을 수 있는 인증서가 있어야 해서 첫 릴리스 job이 진짜 검사다. 끝에 `PASS`/`FAIL`을 찍는다(관리자 홈·`.ssh`·키체인·토큰을 못 읽음, crontab·launchctl 안 됨, localhost·LAN 차단,
+인터넷·swiftc·notarytool·node·job 키체인·dmg 붙이기는 됨, 일회용 러너가 job을 기다림). 그 뒤 GitHub → Settings → Actions → Runners에
+`trina-mac-…`가 Idle인지 보고 레포 변수 `RELEASE_MAC_RUNNER`를 `trina-mac-release`로 바꾼다. hosted로 돌아가려면 변수를
+`macos-15`(또는 `macos-15-intel`)로 되돌린다. 커밋은 필요 없다.
+
+러너 업데이트: 새 actions/runner가 나오면 일회용 러너가 job마다 스스로 내려받아 업데이트한다(느려질 뿐). setup.sh의
+`RUNNER_VERSION`·`RUNNER_SHA256`을 새 릴리스로 바꾸고 새 tarball을 받아 setup.sh를 다시 돌리면 그 시간이 없어진다.
+
+로그: `/private/var/log/trina-ci/runner.log`(supervisor와 러너), `/private/var/log/trina-ci/pf.log`.
+
+**지우기 (removal)**
+
+```sh
+# 1) 이 맥에서: 데몬 둘, _trinaci의 프로세스·launchd job·crontab, pf 규칙과 우리 pf 참조, 관리자 홈의 deny ACL, cron/at deny 줄,
+#    /Library/TrinaCI(저장된 토큰 포함), 로그, TrinaCI 볼륨(/etc/fstab 줄도), _trinaci 계정과 그룹
+sudo bash <레포>/scripts/macos/release-runner/remove.sh
+# 2) GitHub: 남은 일회용 러너 등록(기다리던 것이 offline으로 남는다)을 지우고 hosted로 돌린다(sudo 필요 없음)
+export GH_TOKEN=$(gh auth token -u trina-app-admin)
+for id in $(gh api repos/trina-app/trina-ax/actions/runners --jq '.runners[] | select(.name | startswith("trina-mac-")) | .id'); do
+  gh api -X DELETE "repos/trina-app/trina-ax/actions/runners/$id"; done
+gh variable delete RELEASE_MAC_RUNNER --repo trina-app/trina-ax   # unset = hosted macos-15
+# 3) fine-grained 토큰을 GitHub에서 지운다(trina-app-admin → Settings → Developer settings → Fine-grained tokens)
+```
+
+손으로 하나씩 하려면(remove.sh가 하는 것): `sudo launchctl bootout system/app.trina.ci.runner`, `sudo launchctl bootout system/app.trina.ci.pf`,
+`sudo rm /Library/LaunchDaemons/app.trina.ci.{runner,pf}.plist`, `_trinaci`의 프로세스를 pid로 끝내기, `sudo pfctl -a com.apple/260.trina-ci -F all`,
+`sudo chmod -a "user:_trinaci deny list,search,readattr,readextattr,readsecurity" ~`, `/usr/lib/cron/cron.deny`·`at.deny`에서 `_trinaci` 줄 지우기,
+`sudo chflags -R nouchg /Library/TrinaCI /Volumes/TrinaCI && sudo rm -rf /Library/TrinaCI /private/var/log/trina-ci`,
+`sudo diskutil apfs deleteVolume TrinaCI`(그리고 `/etc/fstab`의 그 UUID 줄), `sudo dscl . -delete /Users/_trinaci`, `sudo dscl . -delete /Groups/_trinaci`.
+이 계정에는 키체인이 따로 없다(job 키체인은 job이 지운다).
+
+## 14. 웹 브라우저 시험 guard set (merge queue, 참고용)
+
+web e2e(Playwright, 2,400개쯤, 한 worker로 ~1.7시간)는 dev push마다 feature-map.yml이 돌리지만 필수 검사가 아니어서, 2026-11-17에
+30개가 아무도 모르게 깨져 있었다. 그래서 병합 큐의 항목(`merge_group`)마다 그중 작은 묶음(**guard set**)을 돌린다.
+
+- **어디서**: ci.yml의 따로 된 job `e2e-guard`("web e2e guard (advisory)"). 자기 checkout, bun install, web 빌드를 하고 guard를 돌린다
+  (native·HWP·pandoc은 필요 없다). `merge_group`에서만 돌고 PR·push에서는 건너뛴다.
+- **무엇을**: `bun run --cwd web e2e:guard` (web/package.json): Chromium, worker 하나(모의 팀 서버가 상태를 함께 쓴다). 휴대폰 글꼴은
+  feature-map.yml과 같다(Roboto를 sans-serif·system-ui로, `web/test/e2e/fonts/phone-font.conf`).
+- **참고용(advisory)**: 이 job은 `check`의 needs에 없어서 아무것도 이것을 요구하지 않는다. 빨개도 큐 항목은 기다리지 않고, 필수 검사
+  "typecheck, native, unit, fast fuzz, web, relay"의 판정은 전과 같다. guard step에는 자체 10분 한도가 있다(job 20분). 결과는 run summary에
+  통과/실패와 실패한 `spec:line` 표로 남고, 실패하면 artifact `web-e2e-guard-results`(trace, 스크린샷, 7일)가 생긴다.
+- **지금 묶음**: 6개 파일 `phone-targets`, `rail.spec`, `session-markers`, `chat-list-folds`, `chat-project-ask-access`,
+  `mentions-only-count` (67개 시험, Linux에서 ~3.5분; 설치와 web 빌드까지 job 전체 ~7분). 앞의 넷은 dev에서 실패하는 동안 빠져 있다가 drift 수정(#1224)
+  뒤에 다시 들어왔다(2026-11-17, dev bad5009a3에서 67 통과).
+- **필수로 올리기**: 큐에서 guard가 연속으로 ~20번 초록이면 `e2e-guard`를 `check`의 needs와 그 step의 판정에 넣는다(필수 이름은 `check`
+  그대로라 ruleset은 안 바꾼다).
+  그 전에 빨간 guard는 읽기만 하고 기다리지 않는다. 깨진 spec은 고치거나(제품 버그) 시험을 고친다(의도한 변경). 묶음에서 빼는 것은 마지막 수단이다.
+- **손으로**: 전체는 `bun run e2e:web`. Linux와 같은 글꼴로 돌리려면 Docker(`mcr.microsoft.com/playwright:v1.64.1-noble` + Bun 1.3.12 +
+  fonts-roboto-unhinted + phone-font.conf)에서 `bun run build:web` 뒤 `cd web && bun run e2e:guard`.
+
+## 15. dev의 웹 e2e (Feature map, feature-map.yml)
+
+`.github/workflows/feature-map.yml`: dev push마다 웹 Playwright 전체(`web/playwright.config.ts`, chromium + webkit, 모의 팀 서버)를
+리눅스 4 shard(shard마다 worker 1개: 모의 서버가 상태를 공유한다)로 돌리고, QA 시트 Features 탭을 고친다(`docs/FEATURES.md`).
+PR·merge queue에는 돌지 않고 필수 검사도 아니다. 따로 밤마다 도는 워크플로는 없다(4f 결정, 2026-11-17).
+
+- **언제**: dev push 중 웹 e2e 결과나 기능 지도가 바뀔 수 있는 경로만: `web/**`, `shared/**`, `server/**`, `mobile/src/**`·`tests/lib/**`
+  (모의 서버와 spec이 import한다), `resources/**`(skill-packs, promo-video, hwp), `scripts/hwp-bundle.ts`·`scripts/release-notices.ts`·
+  `versions.json`·`tsconfig.json`(빌드), `scripts/linux/apparmor-bwrap.in`(변환 격리), `docs/features.ts`·`scripts/features/**`(Features 탭),
+  요약 스크립트, `package.json`, `bun.lock`, 워크플로 자신. 경로 목록은 `tests/unit/ci-web-e2e-summary.test.ts`가 모의 서버·spec의 import와 맞춰 본다. 손으로: `gh workflow run feature-map.yml --ref dev`.
+- **한 번에 하나, 도는 run은 취소하지 않는다**: `concurrency: feature-map-<브랜치>`, `cancel-in-progress: false`. 하나가 돌고 하나만
+  기다리며, 더 새 push가 기다리는 run을 바꾼다(기다리던 run은 job 없이 끝나 러너를 쓰지 않는다). 러너를 아끼는 것은 위의 경로 필터다:
+  run 하나가 러너 ~4개를 30–40분 쓴다. 모든 run이 끝까지 돌므로 이슈는 끝까지 시험한 가장 새 dev 머리를 보여 준다. 시트 쓰기도 중간에 끊기지 않는다. 시트(Features 탭)는 dev run에서만 쓴다: 다른 브랜치를 손으로 돌려도 dev와 겹쳐 쓰지 않는다.
+- **요약과 이슈** (job `summary`, dev push만): shard의 blob 리포트를 `playwright merge-reports`로 합쳐 run summary에 합계와 실패한
+  spec:line·첫 오류 줄을 쓴다(`scripts/ci/web-e2e-summary.ts`). 라벨 `web-e2e-dev`가 붙은 이슈 하나("Web e2e on dev: N failing
+  (날짜, sha)")를 빨간 run에서 열거나 고치고(제목·본문; 댓글은 실패 수가 바뀔 때만), 초록 run에서 닫는다. 모든 shard가 끝까지 돈 run만 이슈를 건드린다
+  (취소된 run·shard는 아니다). `issues: write`는 이 job에만 있다. 합친 HTML 리포트(`playwright-report`)와 shard별 실패 trace는 7일 보관.
+- **리눅스 글꼴**: Roboto를 휴대폰 글꼴로 쓴다(`web/test/e2e/fonts/phone-font.conf`). 크기를 재는 spec(phone-targets, 44 px 검사)은
+  건너뛰지 않는다. 리눅스에서만 실패하면 러너 글꼴·픽셀 탓일 수 있으니 맥에서 다시 돌려 본 뒤 회귀로 판단한다.
 
 ## User-facing release notes
 

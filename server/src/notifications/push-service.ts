@@ -19,17 +19,20 @@ import { roomNoticeOut } from '../rooms/inbox'
 import { chatAnswerWanted } from './chat-answers'
 import { chatShareLabel, chatShareWanted } from './chat-shares'
 import { roomAppPushWanted } from '../rooms/apps/notice'
+import { fileSharePushWanted } from '../files/share-push'
+import { accessRequestPushWanted } from '../chat/access-requests'
+import { chatThreadWanted } from '../chat/threads'
 import { readPushConfig, pushConfigKey, type PushConfig } from './push-config'
 import { bounded, createPushTransport, pushFailure, validatePushSubscription, type PushSubscription, type PushTransport } from './push-transport'
 import { pushBadge } from './push-badge'
 import { readNativePushConfig } from './push-gateway-setting'
-import { phoneDecision, type PhoneDecision } from './away'
+import { decidePhone, type PhoneDecision } from './away'
 import { createNativeTransport, labelCode, nativeConfigKey, validNativeDevice, type NativeDevice, type NativePushConfig, type NativeTransport } from './push-native'
 /** config: Web Push (VAPID); native: the push gateway for the phone app. Either may be off; both share one queue.
  * badge: the recipient's count for the phone app's icon at send time (push-badge.ts; null: none sent). */
 export interface PushOptions {config:()=>PushConfig|null;transport:PushTransport;native:()=>NativePushConfig|null;nativeTransport:NativeTransport;now:()=>number;requestTimeoutMs?:number;badge:(userId:string)=>number|null
 /** away.ts: a push to this person's phone app now goes, is cancelled (they are at Trina) or waits for the warm-up */
-phoneDecision:(userId:string)=>PhoneDecision}
+phoneDecision:(userId:string)=>PhoneDecision&{reason?:string}}
 /** kind 'native': a phone app device token (migration 243), delivered through the push gateway, not Web Push. */
 type Subscription={id:string;user_id:string;session_id:string;secret_enc:string;key_version:number;config_key:string;created_at:string;endpoint_hash:string;kind:'web'|'native';label_hash?:string|null}
 type Delivery={notification_id:string;subscription_id:string;attempts:number;expires_at:string;config_key:string}
@@ -62,6 +65,18 @@ const SOURCES=[
   // an app in a room the person manages paused for the day (migration 352): while unread, the app still paused and the
   // person still in its room (rooms/apps/notice.ts)
   {inbox:'room_app_notices',deliveries:'room_app_push_deliveries',only:'',unread:'read_at IS NULL',wanted:(_db:Database,id:string,now:number,ctx:AppContext)=>roomAppPushWanted(ctx,id,now),due:'?'},
+  // a file, or several in one press, shared with me by name (migration 356; a group's or the whole team's people get the
+  // Inbox row alone): while unread, outside my quiet hours, while a file of it still opens for me; and someone asking to
+  // open a file I answer for, while the request waits and I may still answer it. Both with "File sharing" on (migration
+  // 358, files/share-push.ts)
+  {inbox:'file_share_notices',deliveries:'file_share_push_deliveries',only:"AND ((event_type='file.shared' AND named=1) OR event_type='file.access_requested')",unread:'read_at IS NULL',wanted:(_db:Database,id:string,now:number,ctx:AppContext)=>fileSharePushWanted(ctx,id,now),due:'?'},
+  // someone asking to open a chat or project I answer for (migration 411; chat/access-requests.ts): while it waits and I
+  // may still answer it, outside my quiet hours, "File sharing" on, at most FILE_REQUEST_PUSHES_PER_DAY a day together
+  // with the file requests
+  {inbox:'access_request_notices',deliveries:'access_request_push_deliveries',only:"AND event_type='access.requested'",unread:'read_at IS NULL',wanted:(_db:Database,id:string,now:number,ctx:AppContext)=>accessRequestPushWanted(ctx,id,now),due:'?'},
+  // a reply in a chat thread I follow (migration 408): after its wait (someone with the thread on screen reads it
+  // first), while unread, its reply still there, outside my quiet hours and the thread still mine to see (chat/threads.ts)
+  {inbox:'chat_thread_notices',deliveries:'chat_thread_push_deliveries',only:'',unread:'read_at IS NULL',wanted:(_db:Database,id:string,now:number,ctx:AppContext)=>chatThreadWanted(ctx,id,now),due:'MAX(?,n.push_at)'},
 ] as const
 type Source=typeof SOURCES[number]
 export class PushService {
@@ -76,7 +91,7 @@ export class PushService {
   /** label requests with the right key per device this minute (in memory: a restart forgets it) */
   private labelUse=new Map<string,{since:number;n:number}>()
   constructor(readonly ctx:AppContext,options:Partial<PushOptions>={}){
-    this.o={config:()=>readPushConfig(ctx),transport:createPushTransport(),native:()=>readNativePushConfig(ctx),nativeTransport:createNativeTransport({dataDir:ctx.config.dataDir}),now:Date.now,badge:userId=>pushBadge(ctx,userId),phoneDecision:userId=>phoneDecision(ctx,userId),...options}
+    this.o={config:()=>readPushConfig(ctx),transport:createPushTransport(),native:()=>readNativePushConfig(ctx),nativeTransport:createNativeTransport({dataDir:ctx.config.dataDir}),now:Date.now,badge:userId=>pushBadge(ctx,userId),phoneDecision:userId=>{const d=decidePhone(ctx,userId);return {...d.decision,reason:d.reason}},...options}
     this.secrets=path.join(ctx.config.dataDir,'secrets','push');this.vault=new Vault(this.secrets)
     this.unlisten=onPushCancellation(ctx,scope=>{
       const f=this.flight
@@ -290,10 +305,12 @@ export class PushService {
       // after a start it waits once for the windows to reconnect. Never the owner's locked password check.
       if(row.kind==='native'&&row.attempts===0&&allowed.event!=='owner.reauth_locked'){
         const d=this.o.phoneDecision(row.user_id)
+        // one line per phone push decided (owner 2026-11-19: "why did my phone ring at the Mac?" must be answerable from
+        // the log): the notice kind, send / cancel / wait and what the server knew; never what the notice says
+        this.ctx.log.info('phone push decision',{event:allowed.event,decision:d.kind,reason:d.reason??'n/a',user:row.user_id,device:row.subscription_id.slice(-6)})
         if(d.kind==='wait'){this.ctx.db.query(`UPDATE ${src.deliveries} SET next_at=? WHERE notification_id=? AND subscription_id=? AND state='pending'`).run(this.iso(d.until),row.notification_id,row.subscription_id);continue}
         if(d.kind==='cancel'){
           this.ctx.db.query(`UPDATE ${src.deliveries} SET state='cancelled',lease_until=NULL WHERE notification_id=? AND subscription_id=? AND state='pending'`).run(row.notification_id,row.subscription_id)
-          this.ctx.log.debug('push delivery cancelled',{kind:'native',reason:'at_trina'})
           continue
         }
       }

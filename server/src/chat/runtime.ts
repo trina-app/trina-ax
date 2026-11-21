@@ -2,6 +2,8 @@
 // edit / regenerate, stop, restart recovery, chat-trash purge, and the shared pieces turns need (hub, browser
 // relay, engines, settings). Installed by the chats route module's init(); other B modules reach it with
 // getChatRuntime(ctx).
+import { reportTurnEnd } from '../system/error-reports'
+import { dropChatMedia } from '../integrations/connections/media'
 import { chatFilesOf } from './chat-files'
 import type { Database } from 'bun:sqlite'
 import fs from 'node:fs'
@@ -15,8 +17,10 @@ import { newId } from '../db'
 import { Schedules } from './schedules'
 import { Hub, type HubOptions } from '../realtime/hub'
 import { BrowserRelay, type BrowserRelayOptions } from '../realtime/browser-relay'
+import { LocalRelay } from '../realtime/local-relay'
 import { startPresence, type Presence, type PresenceOptions } from '../realtime/presence'
 import { startRoomTyping } from '../rooms/typing'
+import { startLooking, type Looking } from '../realtime/looking'
 import { ChatStore, type ChatRow, type MessageRow } from './store'
 import { LocalEngines, safeModel, type EngineProvider } from './engines'
 import { STALL_TIMEOUT_MS, TurnExec, composeMessage, type LauncherStop, type TurnSpec } from './turn'
@@ -32,12 +36,16 @@ import { QueueStore } from './queue-store'
 import { launcherStatus } from '../native'
 import { MCP_TOOL_TIMEOUT_MS } from '../engine/claude'
 import { maskStoredTitles, placeholderTitle } from './title'
-import { redactorFor } from '../integrations/connections/redact'
+import { hideKeysInStoredMemories, redactorFor } from '../integrations/connections/redact'
+import { findKeysInOldFiles } from '../integrations/connections/file-scan'
 import { memoryLines } from './prompt'
 import { isInternalChat } from './internal-chats'
 import { unsharePeopleChecked } from './people-guard'
 import { Audiences, chatView, chatWriters, isSharedRow, labelledTranscript, peopleFor, messageFor, recordOlderAnswers, severalAuthors, unshareUncheckedChats } from './shared'
+import { publishDoneToOthers } from './live-answer'
 import { newAnswerRecord } from './shared-answers'
+import { SharedWaiting } from './shared-waiting'
+import { answersToSave, answerWords, closeChatQuestions, labelsHidden, hasOpenQuestion, readyAnswers, reopenAnswers, saveAnswered, type AnsweredQuestion } from './open-questions'
 
 export const DEFAULT_CONCURRENCY = 3
 export const DEFAULT_ASK_USER_TIMEOUT_MS = 10 * 60_000
@@ -121,6 +129,10 @@ export interface ChatRuntimeOptions {
   /** Status-only polling while installed startup waits for an idle launcher. */
   recoveryPollMs?: number
   askUserTimeoutMs?: number
+  /** the server's safety cards wait after the answer ends (chat/open-questions.ts CARD_LATER_TOOLS; default on). The
+   * test harness turns it off for the tests of each card's own logic, which then wait inside the call as a Slack
+   * question's card does; tests/unit/b-safety-cards-wait.test.ts runs with it on */
+  safetyCardsWait?: boolean
   timeZone?: string
   /** tests: a fixed --max-turns instead of the team setting */
   maxEngineTurns?: number
@@ -186,6 +198,12 @@ export function stopTurnsIn(ctx: AppContext, userId: string, chatIds: readonly s
   return runtimes.get(ctx)?.stopUserTurnsIn(userId, chatIds) ?? 0
 }
 
+/** Any access changed (admin/folders.ts afterAccessChange): every running answer of a shared chat works out who gets its
+ * live text again before its next piece (chat/live-answer.ts). */
+export function forgetLiveViewers(ctx: AppContext): void {
+  runtimes.get(ctx)?.forgetLiveViewers()
+}
+
 /** settings table: key -> JSON value (tab 1). Unknown / bad values fall back to the default. */
 export function readSetting<T>(db: AppContext['db'], key: string, ok: (v: unknown) => v is T, fallback: T): T {
   try {
@@ -203,13 +221,21 @@ export class ChatRuntime {
   readonly schedules: Schedules
   readonly hub: Hub
   readonly relay: BrowserRelay
+  /** apps on the person's computer (realtime/local-relay.ts; integrations/connections/local.ts) */
+  readonly localRelay: LocalRelay
   readonly presence: Presence
+  /** what each open window shows now, in memory only (realtime/looking.ts): the AI's looking_at tool reads it */
+  readonly looking: Looking
+  /** who has messages waiting in each shared chat, and since when (shared-waiting.ts): the order they go in */
+  readonly sharedWaiting = new SharedWaiting()
   readonly engines: EngineProvider
   /** how long an engine that has the turn may produce nothing before the turn ends (STALL_TIMEOUT_MS; a test may
    * change it). One answer has no time limit (docs/DECISIONS.md "No time limit on one answer"). */
   stallTimeoutMs: number
   /** an answer that ran this long tells the person when it ends (LONG_ANSWER_MS; a test may change it) */
   longAnswerMs: number
+  /** the server's safety cards wait after the answer ends (ChatRuntimeOptions.safetyCardsWait; tests may switch it) */
+  safetyCardsWait: boolean
   readonly queueStore: QueueStore
   readonly queueEpoch = newId()
   private queueRevision = 0
@@ -300,13 +326,16 @@ export class ChatRuntime {
     }
     this.hub = new Hub(ctx, o.hub)
     this.relay = new BrowserRelay(this.hub, ctx.log.child({ c: 'browser' }), o.relay)
+    this.localRelay = new LocalRelay(this.hub, ctx.log.child({ c: 'local-apps' }), o.relay ? { windowGoneMs: o.relay.windowGoneMs, sweepMs: o.relay.sweepMs, pollStaleMs: o.relay.pollStaleMs, repollMs: o.relay.repollMs } : {})
     // online status from the same windows (docs/DECISIONS.md "접속 상태")
     this.presence = startPresence(this.hub, ctx, o.presence)
     // "Alice is typing…" in rooms, on the same sockets (docs/DECISIONS.md "입력 중 표시")
     startRoomTyping(this.hub, ctx)
+    this.looking = startLooking(this.hub, ctx)
     this.engines = o.engines ?? new LocalEngines(ctx)
     this.stallTimeoutMs = o.stallTimeoutMs ?? STALL_TIMEOUT_MS
     this.longAnswerMs = o.longAnswerMs ?? LONG_ANSWER_MS
+    this.safetyCardsWait = o.safetyCardsWait ?? true
     this.queueStore = new QueueStore(ctx.db)
     this.lastConcurrency = this.concurrency()
     // Plan updates can arrive outside the settings route. Lower C never kills existing turns.
@@ -333,6 +362,22 @@ export class ChatRuntime {
       const masked = maskStoredTitles(ctx.db)
       if (masked) this.log.info('chat titles that looked like secrets were masked', { n: masked })
     } catch (e) { this.log.warn('masking chat titles failed', { err: e }) }
+    // memories the AI saved with a stored connection key in them, before remember hid it (redact.ts): once, a moment
+    // after start (the connections service reads the keys)
+    const memoryScan = setTimeout(() => {
+      try {
+        const hidden = hideKeysInStoredMemories(ctx)
+        if (hidden) this.log.info('stored keys in memories were hidden', { n: hidden })
+      } catch (e) { this.log.warn('hiding stored keys in memories failed', { err: e }) }
+      // then files the AI saved earlier with a stored key in them: their person is told, nothing is rewritten
+      // (connections/file-scan.ts); counts only in the log
+      void findKeysInOldFiles(ctx, { stopped: () => stopped }).then((r) => {
+        if (r.found || !r.done) this.log.info('older AI-made files checked for stored keys', { scanned: r.scanned, found: r.found, people: r.people, done: r.done })
+      }, (e) => { if (!stopped) this.log.warn('checking older AI-made files for stored keys failed', { err: e }) })
+    }, 5_000)
+    ;(memoryScan as { unref?: () => void }).unref?.()
+    let stopped = false
+    ctx.onClose(() => { stopped = true; clearTimeout(memoryScan) })
     // engine folders a launcher did not take before the last stop (chat/forget.ts)
     const retry = setTimeout(() => { void retryPendingForgets(ctx) }, 30_000)
     ;(retry as { unref?: () => void }).unref?.()
@@ -361,9 +406,9 @@ export class ChatRuntime {
     return Math.min(MAX_ASK_USER_TIMEOUT_MS, readSetting(this.db, 'ask_user_timeout_sec', isInt(30, 900), DEFAULT_ASK_USER_TIMEOUT_MS / 1000) * 1000)
   }
   chatTrashDays(): number { return readSetting(this.db, 'chatTrashRetentionDays', isInt(1, 365), DEFAULT_CHAT_TRASH_DAYS) }
-  /** tool rounds per answer (Claude Code --max-turns): Admin > Team settings answerStepLimit, default 150. Read when an
-   * answer starts, so a change applies to the next answer. Sub-agents keep MAX_SUBAGENT_TURNS each (chat/subagents.ts);
-   * the API engine keeps its own 30 rounds (engine/api-agent.ts) */
+  /** tool rounds per answer (Claude Code --max-turns): Admin > Team settings answerStepLimit, default 500. Read when an
+   * answer starts, so a change applies to the next answer. Each sub-agent gets the answer's cap (chat/turn.ts subagentLaunch);
+   * the API engine gets the same cap (chat/turn.ts answerStepCap; limits audit 1 #31: it kept its own 30 rounds) */
   get maxEngineTurns(): number {
     return this.engineTurnsOverride ?? readSetting(this.db, 'answerStepLimit', isInt(ANSWER_STEP_LIMIT_MIN, ANSWER_STEP_LIMIT_MAX), DEFAULT_MAX_ENGINE_TURNS)
   }
@@ -402,9 +447,12 @@ export class ChatRuntime {
   }
   /** The AI of this chat waits for the person: an open card every window shows (a card for one desktop window only
    * is that window's, not the chat list's). */
-  waitsForPerson(chatId: string): boolean {
+  waitsForPerson(chatId: string, userId?: string): boolean {
     const turnId = this.activeTurn(chatId)
-    return !!turnId && !!this.execFor(turnId)?.openRequests().some((r) => !r.window)
+    const exec = turnId ? this.execFor(turnId) : undefined
+    if (exec && (userId === undefined || exec.spec.userId === userId) && exec.openRequests().some((r) => !r.window)) return true
+    // or a question of the AI that waits after its answer ended (chat/open-questions.ts): `userId`'s own, when given
+    return hasOpenQuestion(this.db, chatId, userId)
   }
   execForMessage(messageId: string): TurnExec | undefined {
     for (const e of this.running.values()) if (e.spec.assistantId === messageId) return e
@@ -534,8 +582,12 @@ export class ChatRuntime {
     return n
   }
   queuedCount() { return this.queued.length }
+  /** Every running answer works out who gets its live text again (chat/live-answer.ts). */
+  forgetLiveViewers() { for (const e of this.running.values()) e.forgetLiveViewers() }
   /** Stop every running and queued turn of one person (account disabled / deleted). */
   stopUserTurns(userId: string): number {
+    // (their account is off: nobody's live text reaches them any more)
+    this.forgetLiveViewers()
     this.db.query('UPDATE schedules SET pending_due_at=NULL, retry_at=NULL, enabled=0 WHERE user_id=?').run(userId)
     const chats = new Set([...this.running.values()].map((e) => e.spec).concat(this.queued).filter((s) => s.userId === userId).map((s) => s.chatId))
     let n = 0
@@ -545,7 +597,11 @@ export class ChatRuntime {
 
   /** Stop this person's running and queued turns in these chats (they lost the chats: stopTurnsIn). */
   stopUserTurnsIn(userId: string, chatIds: readonly string[]): number {
+    // their messages waiting there no longer hold a place in line (shared-waiting.ts)
+    this.sharedWaiting.dropUser(userId, chatIds)
     const lost = new Set(chatIds)
+    // an answer running there for someone else goes on, but its live text no longer reaches them (chat/live-answer.ts)
+    for (const e of this.running.values()) if (lost.has(e.spec.chatId)) e.forgetLiveViewers()
     const chats = new Set([...this.running.values()].map((e) => e.spec).concat(this.queued).filter((s) => s.userId === userId && lost.has(s.chatId)).map((s) => s.chatId))
     let n = 0
     // (stopChat stops the chat's running turn first: only while that one is theirs, never another person's)
@@ -710,7 +766,9 @@ export class ChatRuntime {
     }
   }
   private runExec(exec: TurnExec) {
-    exec.run().catch((err) => this.log.error('turn run failed', { err, turn: exec.id }))
+    // the opt-in error report of a failed or timed-out turn reads the saved end state after the turn's own end
+    // (system/error-reports.ts; nothing happens when reports are off)
+    exec.run().catch((err) => this.log.error('turn run failed', { err, turn: exec.id })).finally(() => { try { reportTurnEnd(this.db, exec.id) } catch { /* never breaks a turn */ } })
   }
   /** A turn stopped before its engine launched (Stop, a deleted chat, shutdown): it leaves the gate and runs now, which
    * only ends it (TurnExec.run skips the engine once stopReason is set), so its slot comes back at once. After the
@@ -741,6 +799,7 @@ export class ChatRuntime {
       {
         const row = this.store.messageRow(spec.assistantId), chatRow = this.store.chatRow(spec.chatId)
         if (row && chatRow) this.hub.publish(spec.userId, { type: 'message.done', data: { chatId: spec.chatId, messageId: spec.assistantId, status: 'error', message: messageFor(this, chatRow, row, spec.userId, spec.locale) } })
+        if (row && chatRow) publishDoneToOthers(this, spec.chatId, spec.assistantId, spec.userId, 'error')
       }
       this.publishChat(spec.userId, spec.chatId, 'updated')
     } catch (e) {
@@ -774,6 +833,39 @@ export class ChatRuntime {
     this.queueRevision++
     this.positions.delete(exec.id)
     this.schedule()
+  }
+  /**
+   * The person answered every AI question of an answer while that answer was still ending (routes/chats.ts answerLater
+   * keeps the answers and leaves the next turn to this): once the chat is free, the next turn starts with them, as that
+   * answer's own person and app (its turn row). Called when an answer ends (TurnExec.finish), when a quarantined slot is
+   * let go (probeQuarantined) and after start-up recovery (a restart between the answer and the end): the answers are
+   * in the database, so none is lost. `chatId`: that chat only. A turn that cannot start (the queue is full, the chat is
+   * gone) opens its cards again (chat/open-questions.ts).
+   */
+  startAnsweredTurns(chatId?: string) {
+    const rows = (chatId
+      ? this.db.query('SELECT DISTINCT message_id, user_id, chat_id, turn_id FROM open_questions WHERE chat_id = ? AND answer IS NOT NULL').all(chatId)
+      : this.db.query('SELECT DISTINCT message_id, user_id, chat_id, turn_id FROM open_questions WHERE answer IS NOT NULL').all()) as { message_id: string; user_id: string; chat_id: string; turn_id: string }[]
+    for (const q of rows) {
+      if (this.activeTurn(q.chat_id) || this.endingUnconfirmed(q.chat_id)) continue
+      const ready = readyAnswers(this.db, q.message_id, q.user_id)
+      if (!ready) continue
+      const t = this.db.query('SELECT window_id, client_kind, engine, model FROM turns WHERE id = ?').get(q.turn_id) as { window_id: string | null; client_kind: string | null; engine: EngineId; model: string | null } | null
+      const chat = this.store.chatRow(q.chat_id)
+      try {
+        if (!chat || chat.deleted_at || !t) throw new Error('the chat is gone')
+        const locale = this.userLocale(q.user_id)
+        const hidden = labelsHidden(this.db, isSharedRow(chat), q.message_id)
+        // a browser site's call runs again in the window whose browser it was for
+        this.createTurn({ chat, userId: q.user_id, locale, windowId: ready.window ?? t.window_id, clientKind: t.client_kind, engine: t.engine, model: t.model,
+          user: { parentId: q.message_id, content: answerWords(ready.answers, ready.requests, locale, hidden), attachments: [], clientMessageId: `answer-${ready.requests.at(-1)!.requestId}` },
+          answered: answersToSave(ready.answers, ready.requests, locale, hidden) })
+      } catch (e) {
+        this.log.warn('the answer to the AI\'s question could not start the next turn', { err: e, turn: q.turn_id })
+        for (const r of reopenAnswers(this.db, q.message_id, q.user_id)) this.hub.publish(q.user_id, { type: 'turn.request', data: r })
+        try { this.publishChat(q.user_id, q.chat_id, 'updated') } catch {}
+      }
+    }
   }
   /** An engine whose termination is unproven still owns its slot (and its chat) until turnFinished confirms it, or
    * probeQuarantined finds the engine gone or the bounded wait over. */
@@ -822,6 +914,8 @@ export class ChatRuntime {
         else this.log.warn('quarantined turn slot released: engine gone', { turn: id, reason })
         this.turnFinished(exec)
         try { this.publishChat(exec.spec.userId, exec.spec.chatId, 'updated') } catch (err) { this.log.warn('chat update after a released slot failed', { err, turn: id }) }
+        // its questions answered while it was ending: the next turn starts now (chat/open-questions.ts)
+        try { this.startAnsweredTurns(exec.spec.chatId) } catch (err) { this.log.warn('starting an answered turn failed', { err, turn: id }) }
       }
     } catch (err) {
       this.log.error('quarantine probe failed', { err })
@@ -852,6 +946,7 @@ export class ChatRuntime {
     const row = this.store.messageRow(spec.assistantId)
     const chatRow = this.store.chatRow(chatId)
     if (row && chatRow) this.hub.publish(spec.userId, { type: 'message.done', data: { chatId, messageId: spec.assistantId, status: 'stopped', message: messageFor(this, chatRow, row, spec.userId, spec.locale) } })
+    if (row && chatRow) publishDoneToOthers(this, chatId, spec.assistantId, spec.userId, 'stopped')
     this.publishChat(spec.userId, chatId, 'updated')
     this.schedule()
     this.publishPositions()
@@ -868,9 +963,15 @@ export class ChatRuntime {
     chat: ChatRow | (() => ChatRow); userId: string; locale: Locale; windowId: string | null; clientKind: string | null
     engine: EngineId; model: string | null
     substitutedFrom?: EngineId
-    user?: { parentId: string | null; content: string; attachments: Attachment[]; clientMessageId: string }
+    /** the person's device time zone (TurnSpec.timeZone) */
+    timeZone?: string
+    /** `parentId` a function: read inside the admission transaction from the chat `chat()` returned (a scheduled run that
+     * continues an existing chat under its newest answer) */
+    user?: { parentId: string | null | ((chat: ChatRow) => string | null); content: string; attachments: Attachment[]; clientMessageId: string }
     answerTo?: MessageRow
     scheduled?: { id: string; dueAt: string; commit(chatId: string): void }
+    /** the user message answers the AI's open questions (chat/open-questions.ts): the engine message names them */
+    answered?: AnsweredQuestion[]
   }): TurnStarted {
     // A resend is a read even during drain or at capacity. It never gets a new ticket.
     if (typeof o.chat !== 'function' && o.user) {
@@ -892,6 +993,7 @@ export class ChatRuntime {
     const turnId = newId(), now = new Date().toISOString()
     let userMessageId = o.answerTo?.id ?? '', assistantId = '', queueSeq = 0
     let chat!: ChatRow
+    let closedQuestions: ReturnType<typeof closeChatQuestions> = []
     this.db.transaction(() => {
       this.checkQueueRoom(o.userId, o.locale)
       chat = typeof o.chat === 'function' ? o.chat() : o.chat
@@ -899,10 +1001,15 @@ export class ChatRuntime {
       if (this.activeTurn(chat.id) || this.db.query("SELECT 1 FROM turns WHERE chat_id=? AND status IN ('queued','running')").get(chat.id))
         throw new HttpError('conflict')
       queueSeq = this.queueStore.admit(o.userId)
+      // the next quiet moment gives the first in line a fresh grace period (shared-waiting.ts)
+      this.sharedWaiting.turnStarted(chat.id)
       if (o.user) {
-        userMessageId = this.store.insertMessage({ chatId: chat.id, parentId: o.user.parentId, role: 'user', authorId: o.userId, content: o.user.content,
+        userMessageId = this.store.insertMessage({ chatId: chat.id, parentId: typeof o.user.parentId === 'function' ? o.user.parentId(chat) : o.user.parentId, role: 'user', authorId: o.userId, content: o.user.content,
           attachments: o.user.attachments, status: 'done', clientMessageId: o.user.clientMessageId, autoSent: !!o.scheduled })
+        if (o.answered?.length) saveAnswered(this.db, userMessageId, o.answered)
       }
+      // the AI's questions still open here go: answered ones with this turn, the rest because the chat went on
+      closedQuestions = closeChatQuestions(this.db, chat.id)
       assistantId = this.store.insertMessage({ chatId: chat.id, parentId: userMessageId, role: 'assistant', authorId: null, content: '', status: 'streaming',
         turnId, engine: o.engine, model: o.model })
       // a shared chat's answer is recorded from the moment it exists: what it reads, who saw the chat then (an answer
@@ -924,7 +1031,9 @@ export class ChatRuntime {
       o.scheduled?.commit(chat.id)
     })()
     const spec: TurnSpec & QueueTiming = { turnId, chatId: chat.id, userId: o.userId, assistantId, userMessageId, windowId: o.windowId, clientKind: o.clientKind, engine: o.engine, model: o.model, locale: o.locale,
-      queueSeq, ...(o.substitutedFrom ? { substitutedFrom: o.substitutedFrom } : {}) }
+      queueSeq, ...(o.substitutedFrom ? { substitutedFrom: o.substitutedFrom } : {}), ...(o.timeZone ? { timeZone: o.timeZone } : {}) }
+    // what the sending window shows at this moment, for looking_at (realtime/looking.ts; never for a scheduled run)
+    if (o.windowId && !o.scheduled) this.looking.snapshot(turnId, o.userId, o.windowId)
     // as the person who sent it sees them (a shared chat: chat/shared.ts messageFor)
     const asSender = (id: string) => messageFor(this, chat, this.store.messageRow(id)!, o.userId, o.locale)
     const userMessage = o.user ? asSender(userMessageId) : null
@@ -932,6 +1041,7 @@ export class ChatRuntime {
     // Admission is already durable. Notification failure must not leave it outside the live queue.
     this.enqueue(spec)
     try {
+    for (const q of closedQuestions) this.hub.publish(q.userId, { type: 'turn.request.closed', data: { turnId: q.turnId, requestId: q.requestId, reason: q.answered ? 'answered' : 'turn_ended' } })
     if (o.scheduled) this.publishChat(o.userId, chat.id, 'created')
     if (userMessage) this.hub.publish(o.userId, { type: 'message.created', data: { chatId: chat.id, message: userMessage } })
     this.hub.publish(o.userId, { type: 'message.created', data: { chatId: chat.id, message: assistantMessage } })
@@ -998,9 +1108,9 @@ export class ChatRuntime {
   }
   /** The ids of the person's memories the AI gets now: the newest MEMORIES_FOR_PROMPT that fit in the memory block
    * (prompt.ts memoryLines). The others are kept and listed, not given to the AI (Settings › 메모리 says so). */
-  memoriesInUse(userId: string): Set<string> {
+  memoriesInUse(userId: string, memoryTokens?: number): Set<string> {
     const rows = this.memoriesForPrompt(userId)
-    return new Set(rows.slice(0, memoryLines(rows).length).map((r) => r.id))
+    return new Set(rows.slice(0, memoryLines(rows, memoryTokens).length).map((r) => r.id))
   }
   /** The chat's project as the turn sees it: only while the person can still read the project folder (tab 2
    * "권한 회수": a project stays attached to the chat, but its name, folder and instructions stop reaching the AI), and
@@ -1023,11 +1133,11 @@ export class ChatRuntime {
     return !(project.instructionsAuthor === userId && project.instructionsAuthored === project.instructions)
   }
   /** Messages of a branch up to `leafId` (inclusive), for a fresh engine session. */
-  history(leafId: string | null, shared: { runner: string; withheld: ReadonlySet<string> } | null = null): { role: 'user' | 'assistant'; content: string }[] {
+  history(leafId: string | null, shared: { runner: string; withheld: ReadonlySet<string> } | null = null): { id: string; role: 'user' | 'assistant'; content: string }[] {
     // a shared project chat (chat/shared.ts): who wrote each message, the attachments as the person whose turn it is
     // may see them now, and nothing of an answer hidden from them (chat/shared-answers.ts)
     if (shared) return labelledTranscript(this.store, leafId, shared.runner, shared.withheld)
-    return this.store.pathTo(leafId).filter((m) => m.content.trim() || m.role === 'user').map((m) => ({ role: m.role, content: m.role === 'user' ? composeMessage(m, this.store.attachmentsOf(m)) : m.content }))
+    return this.store.pathTo(leafId).filter((m) => m.content.trim() || m.role === 'user').map((m) => ({ id: m.id, role: m.role, content: m.role === 'user' ? composeMessage(m, this.store.attachmentsOf(m)) : m.content }))
   }
 
   siteGranted(userId: string, host: string): boolean {
@@ -1064,6 +1174,8 @@ export class ChatRuntime {
     // an old room AI session (chats.room_id, docs/DECISIONS.md "Room @트리나 code removed") is not one of the person's
     // chats (not in the Trina list)
     if (r?.room_id) return
+    // gone, in the trash or no longer shared: nobody's messages wait there any more (shared-waiting.ts)
+    if (!r || r.deleted_at || change === 'deleted' || !isSharedRow(r)) this.sharedWaiting.drop(chatId)
     // a shared project chat: everyone who sees it now gets it as they see it (chat/shared.ts); what is worth telling
     // (a card, a long answer) and a window's own change are only for the person whose turn it is (`userId`)
     if (r && isSharedRow(r)) {
@@ -1194,6 +1306,12 @@ export class ChatRuntime {
     }
     this.recovering = false
     this.schedule()
+    this.answeredAfterRecovery()
+  }
+
+  /** after start-up recovery: answers given while their answer was ending, cut off by the restart (startAnsweredTurns) */
+  private answeredAfterRecovery() {
+    try { this.startAnsweredTurns() } catch (err) { this.log.warn('starting answered turns after recovery failed', { err }) }
   }
 
   private async checkRecoveryLauncher(): Promise<void> {
@@ -1206,6 +1324,7 @@ export class ChatRuntime {
       this.recovering = false
       this.log.info('queue recovery launcher confirmed idle')
       this.schedule()
+      this.answeredAfterRecovery()
       return
     }
     const state = !status ? 'launcher_unreachable' : status.liveTurns === undefined ? 'launcher_unknown' : 'launcher_busy'
@@ -1255,6 +1374,8 @@ export class ChatRuntime {
     })()
     // the files kept with a chat shared with people (chat/chat-files.ts): their rows went with the chat, their folder now
     try { chatFilesOf(this.ctx).removeChat(chatId) } catch (e) { this.log.warn('chat files not removed (the sweep tries again)', { err: e }) }
+    // the files its connections' answers and Gmail attachments left (integrations/connections/media.ts; else 24 hours)
+    try { dropChatMedia(this.ctx.engineConfig.dataDir, chatId) } catch (e) { this.log.warn('connection files not removed (the hourly sweep takes them)', { err: e }) }
   }
 
   /** Stop taking new turns and wait for the running ones (planned restart / update). */
@@ -1293,6 +1414,7 @@ export class ChatRuntime {
       for (const e of execs) e.interruptForRequeue(cause)
       await Promise.race([Promise.all(execs.map((e) => e.done)), Bun.sleep(6000)])
       this.relay.close()
+      this.localRelay.close()
       this.hub.close()
     })()
     return this.shutdownP

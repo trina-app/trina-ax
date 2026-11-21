@@ -26,11 +26,14 @@ interface UiState {
   searchOpen: boolean
   /** what search opened on: 'rooms' from a phone's 대화 tab (its rooms, people and messages), else everything */
   searchScope: 'rooms' | null
+  /** the room search opened in, with "This conversation" on (⌘F in a room or a thread, the room menu's Search in this
+   * conversation: lib/searchKeys.ts); null otherwise */
+  searchHere: string | null
   toast: (t: Omit<Toast, 'id'>) => number
   dismiss: (id: number) => void
   setConn: (s: ConnState) => void
   setUpdateReady: (v: boolean) => void
-  setSearchOpen: (v: boolean, scope?: 'rooms') => void
+  setSearchOpen: (v: boolean, scope?: 'rooms', here?: string | null) => void
 }
 
 let nextId = 1
@@ -51,6 +54,7 @@ export const useUi = create<UiState>((set, get) => ({
   updateReady: false,
   searchOpen: false,
   searchScope: null,
+  searchHere: null,
   toast(t) {
     const id = nextId++
     for (const match of holds) { try { if (match(t)) return id } catch { /* a broken match holds nothing */ } }
@@ -61,7 +65,7 @@ export const useUi = create<UiState>((set, get) => ({
   dismiss: (id) => set((s) => ({ toasts: s.toasts.filter((x) => x.id !== id) })),
   setConn: (conn) => set({ conn }),
   setUpdateReady: (updateReady) => set({ updateReady }),
-  setSearchOpen: (searchOpen, scope) => set({ searchOpen, searchScope: searchOpen ? (scope ?? null) : null }),
+  setSearchOpen: (searchOpen, scope, here) => set({ searchOpen, searchScope: searchOpen ? (scope ?? null) : null, searchHere: searchOpen ? (here ?? null) : null }),
 }))
 
 export const toast = (t: Omit<Toast, 'id'>) => useUi.getState().toast(t)

@@ -1,0 +1,13 @@
+# pf rules of the self-hosted release Mac runner (docs/RELEASE-CI.md 13). Installed root-owned as
+# /Library/TrinaCI/pf.anchor and loaded by /Library/TrinaCI/pf-load.sh (every minute) into anchor com.apple/260.trina-ci
+# (the stock /etc/pf.conf evaluates com.apple/*; it is never edited). Only sockets of the runner account _trinaci
+# match: it may reach the internet (GitHub, Apple's notary service, bun/Go/Electron downloads) but not this Mac's own
+# addresses (servers bound to *: or to the LAN address), loopback, the LAN (IPv4 private ranges, the /64s of this
+# Mac's global IPv6 addresses: table trina_ci_lan6, filled by pf-load.sh), Tailscale's range or link-local addresses.
+# DNS needs nothing here: name lookups go through mDNSResponder (root), not these sockets.
+table <trina_ci_lan6> persist
+# loopback in any address family (also IPv4-mapped IPv6 such as ::ffff:127.0.0.1, which the sandbox cannot name)
+block drop out quick on lo0 proto { tcp, udp } all user _trinaci
+block drop out quick inet proto { tcp, udp } from any to { self, 127.0.0.0/8, 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 169.254.0.0/16, 100.64.0.0/10 } user _trinaci
+block drop out quick inet6 proto { tcp, udp } from any to { self, ::1, fc00::/7, fe80::/10 } user _trinaci
+block drop out quick inet6 proto { tcp, udp } from any to <trina_ci_lan6> user _trinaci

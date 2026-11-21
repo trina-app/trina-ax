@@ -12,7 +12,7 @@ import { useEffect, useRef, useState } from 'react'
 import { API, type DriveAdminStatus, type DriveFlow, type DriveShare, type DriveShareFolder, type IntegrationAccess } from '@mycel/shared/api'
 import { api, ApiError } from '../../lib/api'
 import { openExternal } from '../../lib/mobile'
-import { driveSignInUrl, openSignInWindow, reserveSignInWindow, signInPlace } from '../../lib/driveSignIn'
+import { desktopOpenUrl, driveSignInUrl, openSignInWindow, reserveSignInWindow, signInPlace } from '../../lib/driveSignIn'
 import { isEmptyAccess } from '../../lib/integrations'
 import { useT } from '../../i18n'
 import { useMeStrict } from '../../store/session'
@@ -23,6 +23,7 @@ import { CardMenu } from './AppConnectorCard'
 import { AccessPicker } from './IntegrationDialog'
 import { DriveLogo } from './DriveConnector'
 import { BrowserWait } from './BrowserWait'
+import { DialogSignInActions, GoogleAccountBlock } from './GoogleAccount'
 import { googleLink } from './googleLink'
 import { useWaitLimit } from '../../lib/signInWait'
 import { useAdminGroups, useAdminUsers } from '../../store/adminPeople'
@@ -68,7 +69,7 @@ function useShareFlow() {
       setUrl(href)
       setFlow({ flowId: r.flowId, state: 'pending', account: null, expiresAt: r.expiresAt, reason: null })
       if (place === 'phone') await openExternal(href, { purpose: 'google-oauth' })
-      else openSignInWindow(place, popup.current, href)
+      else openSignInWindow(place, popup.current, (place === 'desktop' && desktopOpenUrl(r, globalThis.location?.origin)) || href)
     } catch { if (g === generation.current) { setError(true); popup.current?.close() } }
     finally { if (g === generation.current) setBusy(false) }
   }
@@ -216,7 +217,7 @@ function DriveShareDialog({ share, reconnect, groups, users, onClose, onSaved }:
       footer={step === 'settings' ? <>
         <Button onClick={() => void close()} disabled={busy}>{t('common.cancel')}</Button>
         <Button variant="primary" busy={busy} disabled={!name.trim()} onClick={() => void save()} data-testid="drive-share-save">{t('common.save')}</Button>
-      </> : <Button onClick={() => void close()}>{t('common.cancel')}</Button>}>
+      </> : <DialogSignInActions ready={f.flow?.state === 'ready'} busy={f.busy} onCancel={() => void close()} onConfirm={() => void confirm()} testId="drive-share" />}>
       <div className="space-y-4" data-testid="drive-share-dialog" data-step={step}>
         {step === 'connect' && <>
           <p className="text-sm text-muted">{t('driveShare.intro')}</p>
@@ -224,12 +225,12 @@ function DriveShareDialog({ share, reconnect, groups, users, onClose, onSaved }:
           {!f.inProgress && <Button variant="primary" busy={f.busy} onClick={() => void f.start(share?.id)} data-testid="drive-share-google">{t('drive.openGoogle')}</Button>}
           {f.flow && f.flow.state !== 'ready' && f.inProgress && (
             <BrowserWait google text={t('drive.waitingShort')} testId="drive-share-waiting" retryTestId="drive-share-retry-flow" cancelTestId="drive-share-cancel-flow" busy={f.busy}
-              onRetry={() => void f.start(share?.id)} onCancel={() => void f.cancel()} link={googleLink({ popupBlocked: f.popupBlocked, authorizationUrl: f.url }, t('drive.openGoogle'))} />
+              onRetry={() => void f.start(share?.id)} link={googleLink({ popupBlocked: f.popupBlocked, authorizationUrl: f.url }, t('drive.openGoogle'))} />
           )}
           {f.flow?.state === 'ready' && (
-            <div className="flex flex-wrap items-center gap-2 rounded-xl border border-line px-3 py-2 text-sm" data-testid="drive-share-confirm-step">
-              <span role="status" className="min-w-0 flex-1">{t('drive.confirmAccount')} <span className="font-medium" data-testid="drive-share-account">{[f.flow.account?.name, f.flow.account?.email].filter(Boolean).join(' · ')}</span></span>
-              <Button size="sm" variant="primary" busy={f.busy} onClick={() => void confirm()} data-testid="drive-share-confirm">{t('drive.confirm')}</Button>
+            <div className="space-y-2" data-testid="drive-share-confirm-step">
+              <p role="status" className="text-sm font-medium text-ink">{t('drive.confirmTeamAccount')}</p>
+              <GoogleAccountBlock account={f.flow.account} testId="drive-share-account" busy={f.busy} onOther={() => void f.start(share?.id)} />
             </div>
           )}
           {f.error && !f.inProgress && <p className="text-sm text-danger" role="alert">{t(f.timedOut ? 'connect.wait.timedOut' : 'drive.failed')}</p>}

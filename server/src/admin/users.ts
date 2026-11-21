@@ -6,7 +6,7 @@ import { projectJoinsOfNewAccount } from '../chat/project-joins'
 import path from 'node:path'
 import type { Context } from 'hono'
 import type { z } from 'zod'
-import { tempPasswordCharsOk } from '@mycel/shared'
+import { ARCHIVE_DIR, tempPasswordCharsOk } from '@mycel/shared'
 import type { CreateUserBody, EndedConnection, HandoverConnectionRef, Locale, ResetPasswordBody, Role, UpdateUserBody, User } from '@mycel/shared/api'
 import type { AppContext } from '../context'
 import type { AppEnv } from '../http/env'
@@ -20,6 +20,8 @@ import { USER_COLS, deriveUserId, ensurePersonalFolder, existingGroups, getUser,
 import { audit } from './audit'
 import { cancelLoginsOf } from '../credentials/login'
 import { connectionsChanged, existingCredentialsOf } from '../credentials/store'
+import { folderReadersLost } from '../files/folder-shares'
+import { ownerFolderGrantees } from '../files/share-readers'
 import { afterAccessChange, captureState, foldersWithRuleOf, keepProjectFloors, originKeepers, resetEngineSessions } from './folders'
 import { forgetUserName, stopTurnsOf } from '../chat/runtime'
 import { getTeamSettings, LOCALE_CHANGED } from './settings'
@@ -40,7 +42,7 @@ import { afterPrune, pruneAssignments, type Pruned } from '../credentials/assign
 import { liveStatusOf, statusGoneWithAccount } from '../auth/status-messages'
 import { accountDeactivated } from '../tools/web-allow-all'
 import { pruneMemberAllows } from '../integrations/connections/store'
-import { GUEST_ONE_PLACE_MSG, GUEST_ROLE_MSG, assertGuestFree, placeOut, seenBy } from '../auth/guests'
+import { GUEST_ONE_PLACE_MSG, GUEST_ROLE_MSG, assertGuestFree, emailUsedByOther, isGuest, placeOut, seenBy } from '../auth/guests'
 
 type In<T extends z.ZodType> = z.output<T>
 
@@ -168,13 +170,17 @@ export function updateUser(c: Context<AppEnv>, ctx: AppContext, id: string, b: I
     const args: (string | null)[] = []
     const set = (col: string, v: string | null, key: string) => { sets.push(`${col} = ?`); args.push(v); changed[key] = v }
     if (b.name !== undefined) set('name', b.name, 'name')
+    // a guest's e-mail: not one another account here gives, compared as in Settings › Profile (auth/guests.ts
+    // emailUsedByOther; docs/decisions/20261116-admin-guest-email-unique.md). Guest status is read from the database
+    // here, inside the write; members may still share an address, as before
+    if (b.email !== undefined && b.email !== null && isGuest(ctx.db, id) && emailUsedByOther(ctx.db, id, b.email)) fail('conflict', msg('emailInUse', locale), { params: { reason: 'email_in_use' }, fields: { 'body.email': 'email_in_use' } })
     if (b.email !== undefined) set('email', b.email, 'email')
     if (b.role !== undefined && b.role !== target.role) set('role', b.role, 'role')
     if (b.status !== undefined && b.status !== target.status) set('status', b.status, 'status')
     if (sets.length) ctx.db.query(`UPDATE users SET ${sets.join(', ')} WHERE id = ?`).run(...args, id)
     // a guest switched on or off by hand (also "off" again while the server had them off): an admin decided, so a
     // restored place never switches them on by itself (admin/guests.ts returnGuestsWithPlace)
-    if (b.status !== undefined && target.role === 'guest') ctx.db.query('UPDATE guests SET off_with_place = NULL WHERE user_id = ?').run(id)
+    if (b.status !== undefined && target.role === 'guest') ctx.db.query('UPDATE guests SET off_with_place = NULL, left_at = NULL WHERE user_id = ?').run(id)
     // their own open reset links end with the account (and stay ended if it is enabled again), and with a new role: a
     // link the owner or the server Mac made for a member would otherwise sign its holder in as the new admin
     if (changed.status === 'disabled' || changed.role !== undefined) revokeResetLinksFor(ctx.db, id, authOf(ctx).now())
@@ -214,9 +220,14 @@ export function updateUser(c: Context<AppEnv>, ctx: AppContext, id: string, b: I
   if (changed.status === 'disabled') {
     // their "Allow all websites" for the AI's web reads goes off for good (audited when it was on)
     accountDeactivated(ctx.db, id, auth.user.id)
+    // a guest switched off: their window (open now, or opened later) shows the guest's screen before any password (guest
+    // walkthrough S6)
+    if (target.role === 'guest') noteRemovedSignIns(ctx, id, 'removed')
     authOf(ctx).endUserSessions(id, 'disabled')
     stopTurnsOf(ctx, id)
     resetEngineSessions(ctx, id)
+    // their folder shares open for nobody while they are off: the people on them start fresh AI sessions
+    folderReadersLost(ctx.db, ownerFolderGrantees(ctx.db, id))
   }
   // their running AI sign-ins: disabled, all of them; made a member, the team's (their own personal ones are theirs to keep)
   if (changed.status === 'disabled' || changed.role === 'member') { const cc = existingCredentialsOf(ctx); if (cc) cancelLoginsOf(cc, id, { teamOnly: changed.status !== 'disabled' }) }
@@ -259,7 +270,8 @@ export function revokeResetLinksBy(ctx: AppContext, userId: string): number {
   return ctx.db.query('UPDATE password_resets SET used_at = ? WHERE created_by = ? AND used_at IS NULL').run(new Date().toISOString(), userId).changes
 }
 
-export const ARCHIVE_DIR: Record<Locale, string> = { ko: '보관된 계정', en: 'Archived accounts', id: 'Akun diarsipkan', ja: "アーカイブ済みアカウント", es: "Cuentas archivadas", zh: "已归档账号" }
+// (the names live in shared/src/folder-labels.ts: files/share-places.ts reads the same table)
+export { ARCHIVE_DIR }
 
 /**
  * Personal folder of a deleted member: 'transfer' moves users/<id>/ into the owner's personal folder (only the
@@ -395,6 +407,8 @@ export async function removeAccount(ctx: AppContext, o: RemoveAccountOptions): P
   const target = liveUser(ctx, id)
   const before = captureState(ctx.db)
   const now = new Date(authOf(ctx).now()).toISOString()
+  // their folder shares end with the account: the people on them start fresh AI sessions (read before the rows go)
+  const shareLost = ownerFolderGrantees(ctx.db, id)
   // their sign-ins at services through connections made from templates: read now, the services told after the delete
   let revokeSignIns = () => {}
   try { revokeSignIns = integrationsOf(ctx).signInsToRevoke(id) } catch (e) { log.warn('sign-ins of a deleted member could not be read for revoking', { err: e, userId: id }) }
@@ -467,10 +481,12 @@ export async function removeAccount(ctx: AppContext, o: RemoveAccountOptions): P
   afterPrune(ctx, actor, pruned)
   if (requested) settleDeletionRequestNotices(ctx, id)
   // their open windows are told on the sign-in page that the account was removed, not "signed out elsewhere" (TC-1974)
-  noteRemovedSignIns(ctx, id)
+  // a guest's window says so in the guest's words, with the team's name (guest walkthrough S6)
+  noteRemovedSignIns(ctx, id, isGuest(ctx.db, id) ? 'removed' : undefined)
   authOf(ctx).endUserSessions(id, 'revoked')
   stopTurnsOf(ctx, id)
   resetEngineSessions(ctx, id)
+  folderReadersLost(ctx.db, shareLost)
   revokeInvitesBy(ctx, id)
   revokeResetLinksBy(ctx, id)
   revokeTeamLinksBy(ctx, id)
@@ -652,6 +668,8 @@ export function disableAccount(ctx: AppContext, id: string, actorId: string | nu
   ctx.services.realtime.forgetReplay(id)
   statusGoneWithAccount(ctx, !!liveStatusOf(ctx.db, id, new Date(), true), [seen])
   accountDeactivated(ctx.db, id, actorId)
+  // a guest out of their place: 'left' when they left it themselves (guest walkthrough S5), else taken out (S6)
+  if (isGuest(ctx.db, id)) noteRemovedSignIns(ctx, id, actorId === id ? 'left' : 'removed')
   authOf(ctx).endUserSessions(id, 'disabled')
   stopTurnsOf(ctx, id)
   resetEngineSessions(ctx, id)

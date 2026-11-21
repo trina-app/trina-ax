@@ -2,6 +2,7 @@
 // refusals and why a connection check failed (lastError, stored as a code and put into words for each reader).
 import type { Locale } from '@mycel/shared/api'
 import { dropDoubleHonorifics } from '@mycel/shared/honorific'
+import { KO_PARTICLE_PATTERN, koParticle } from '@mycel/shared/ko-particle'
 
 type T = Record<Locale, string>
 const t = (ko: string, en: string, id: string, ja: string, es: string, zh: string): T => ({ ko, en, id, ja, es, zh })
@@ -12,6 +13,12 @@ export const TEXT = {
   confirm: t('AI가 {name}에 이 내용을 보내려고 해요: {what}', 'The AI wants to send this to {name}: {what}', 'AI ingin mengirim ini ke {name}: {what}', "AIが{name}に次の内容を送ろうとしています：{what}", "La IA quiere enviar esto a {name}: {what}", "AI 想把这个发送到{name}：{what}"),
   // an HTTP API call: {what} is what its method does (methodDELETE …), so the sentence names a request, not "this"
   confirmRequest: t('AI가 {name}에 이 요청을 보내려고 해요: {what}', 'The AI wants to send this request to {name}: {what}', 'AI ingin mengirim permintaan ini ke {name}: {what}', "AIが{name}に次のリクエストを送ろうとしています：{what}", "La IA quiere enviar esta solicitud a {name}: {what}", "AI 想向{name}发送这个请求：{what}"),
+  // a shared chat: a tool the service marks read-only whose name Trina cannot read as a look-up (read-mark.ts 'unsure',
+  // QA TC-4900): {what} is the tool's title
+  unsureConfirm: t('AI가 {name}에서 이 작업을 하려고 해요: {what}. {name} 쪽에서는 읽기만 한다고 하지만, 트리나는 이름만으로는 확인할 수 없어요. 보낼 내용을 아래에서 확인해 주세요.', 'The AI wants to use this at {name}: {what}. {name} says it only reads, but Trina can’t tell from its name. Check what it sends below.', 'AI ingin memakai ini di {name}: {what}. {name} bilang ini hanya membaca, tetapi Trina tidak bisa memastikannya dari namanya. Periksa yang dikirim di bawah.', "AIが{name}でこれを使おうとしています：{what}。{name}は読み取るだけだとしていますが、トリナには名前から確かめられません。送る内容を下で確認してください。", "La IA quiere usar esto en {name}: {what}. {name} dice que solo lee, pero Trina no puede comprobarlo por su nombre. Revise abajo lo que envía.", "AI 想在{name}使用：{what}。{name}说它只读取，但 Trina 无法从名称确认。请在下方查看要发送的内容。"),
+  unsureOnce: t('이번만 허용', 'Allow once', 'Izinkan sekali', "今回だけ許可", "Permitir una vez", "允许一次"),
+  unsureAlways: t('이 대화에서 항상', 'Always in this chat', 'Selalu di obrolan ini', "この会話では常に", "Siempre en este chat", "在此对话中始终允许"),
+  unsureNo: t('실행하지 않기', 'Don’t run', 'Jangan jalankan', "実行しない", "No ejecutar", "不运行"),
   nothing: t('(보낼 내용 없음)', '(nothing)', '(tidak ada)', "（なし）", "(nada)", "（无）"),
   // a value on the card's lines (card-lines.ts): an empty text, yes / no, nothing
   valueEmpty: t('(비어 있음)', '(empty)', '(kosong)', "（空）", "(vacío)", "（空）"),
@@ -31,6 +38,8 @@ export const TEXT = {
   cardChange: t('{name}에서 무언가 바꾸기', 'Change something in {name}', 'Mengubah sesuatu di {name}', "{name}で何かを変更する", "Cambiar algo en {name}", "在{name}中做更改"),
   ask: t('보낼까요?', 'Send it?', 'Kirim?', "送信しますか？", "¿Enviarlo?", "要发送吗？"),
   checkBelow: t('보낼 내용 전체와 받는 곳을 아래에서 확인해 주세요.', 'Check everything it sends, and where it goes, below.', 'Periksa semua yang dikirim, dan tujuannya, di bawah.', "送信内容全体と送信先を下で確認してください。", "Revise abajo todo lo que envía y a dónde va.", "请在下方查看要发送的全部内容和发送到哪里。"),
+  // the card's first line for a team file the call attaches (team-attach.ts): its name, size and place follow
+  attachedFile: t('첨부할 팀 파일', 'Team file to attach', 'File tim yang dilampirkan', "添付するチームのファイル", "Archivo del equipo que se adjunta", "要附加的团队文件"),
   sendsLabel: t('보낼 내용', 'What it sends', 'Yang dikirim', "送信内容", "Lo que envía", "发送的内容"),
   // the room card's request for a read (TurnTool.card): it sends nothing of the person's, it reads (QA TC-285)
   readsLabel: t('읽어 올 내용', 'What it reads', 'Yang dibaca', "読み取る内容", "Lo que lee", "读取的内容"),
@@ -61,6 +70,12 @@ export const TEXT = {
   // API refusals
   personalOff: t('팀 설정에서 개인 연결 추가가 꺼져 있어요.', 'Your team turned off adding personal connections.', 'Tim Anda mematikan penambahan koneksi pribadi.', "チームが個人接続の追加を無効にしました。", "Su equipo desactivó la posibilidad de añadir conexiones personales.", "你的团队已关闭添加个人连接。"),
   tooMany: t('연결은 {n}개까지 만들 수 있어요.', 'You can have at most {n} connections.', 'Paling banyak {n} koneksi.', "接続は最大{n}件です。", "Puede tener como máximo {n} conexiones.", "最多只能有{n}个连接。"),
+  // a person's own connections that work, at the most (service.ts MAX_PERSONAL); waiting ones do not count
+  tooManyWorking: t('작동하는 내 연결은 {n}개까지 만들 수 있어요.', 'You can have at most {n} working connections of your own.', 'Paling banyak {n} koneksi pribadi yang berfungsi.', "使える個人接続は最大{n}件です。", "Puede tener como máximo {n} conexiones propias que funcionan.", "最多只能有{n}个可用的个人连接。"),
+  // MAX_PERSONAL_WAITING connections wait for their first sign-in and none may make room for a new one (each was tried in
+  // the last hour, or has its own app, which never goes: service.ts makeRoom). True in both cases: sign in to one or
+  // remove one.
+  tooManyWaiting: t('첫 로그인을 기다리는 연결이 {n}개 있어요. 더 추가하려면 그중 하나에 로그인하거나 하나를 지워 주세요.', '{n} connections are still waiting for their first sign-in. To add another, sign in to one of them or remove one.', 'Ada {n} koneksi yang masih menunggu login pertama. Untuk menambah lagi, login ke salah satunya atau hapus satu.', "最初のログインを待っている接続が{n}件あります。追加するには、どれかにログインするか1件削除してください。", "Hay {n} conexiones que aún esperan su primer inicio de sesión. Para añadir otra, inicie sesión en una de ellas o elimine una.", "有{n}个连接还在等待首次登录。要再添加，请登录其中一个或删除一个。"),
   slugTaken: t('이 짧은 이름은 이미 쓰고 있어요.', 'This short name is already in use.', 'Nama pendek ini sudah dipakai.', "この短縮名は使用されています。", "Este nombre corto ya está en uso.", "这个简称已被使用。"),
   keyNeedsKeyAuth: t('키는 API 키 방식에서만 넣을 수 있어요.', 'A key can only be set when the connection uses an API key.', 'Kunci hanya bisa diisi bila koneksi memakai kunci API.', "キーを設定できるのはAPIキーを使う接続のみです。", "Solo se puede establecer una clave cuando la conexión usa una clave de API.", "只有使用 API 密钥的连接才能设置密钥。"),
   allowTeamOnly: t('"묻지 않고 실행"은 팀 연결에서만 고를 수 있어요.', '"Run without asking" is for team connections only.', '"Jalankan tanpa bertanya" hanya untuk koneksi tim.', "「確認なしで実行」はチームの接続でのみ選べます。", "\"Ejecutar sin preguntar\" solo está disponible para conexiones del equipo.", "“不询问直接运行”仅适用于团队连接。"),
@@ -80,8 +95,11 @@ export const TEXT = {
   toolsMcpOnly: t('도구를 하나씩 켜고 끄는 것은 MCP 서버 연결에서만 할 수 있어요.', 'Single tools can be turned on and off for MCP server connections only.', 'Alat satu per satu hanya bisa dinyalakan dan dimatikan untuk koneksi server MCP.', "ツールを個別にオン・オフできるのはMCPサーバー接続のみです。", "Solo se pueden activar y desactivar herramientas una a una en conexiones a servidores MCP.", "只有 MCP 服务器连接可以单独打开或关闭工具。"),
   // an admin's request to a member to connect a service as their own connection (requests.ts)
   requestNotice: t('관리자가 {name} 연결을 요청했어요(주소: {host}). 이 주소가 정말 {name}의 주소인지 확인한 뒤 내 키나 로그인으로 연결해 주세요.', 'An admin asked you to connect {name} at {host}. Check that {host} is really {name}\'s address before you connect it with your own key or sign-in.', 'Admin meminta Anda menghubungkan {name} di {host}. Pastikan {host} memang alamat {name} sebelum menghubungkannya dengan kunci atau login Anda sendiri.', "管理者が{name}（{host}）の接続を依頼しました。{host}が本当に{name}のアドレスか確認してから、ご自身のキーまたはログインで接続してください。", "Un administrador le pidió conectar {name} en {host}. Compruebe que {host} es de verdad la dirección de {name} antes de conectarlo con su propia clave o inicio de sesión.", "管理员请你连接位于{host}的{name}。用你自己的密钥或登录连接之前，请确认{host}确实是{name}的地址。"),
+  // signing in again to a member's own connection while the team has them off (service.ts authorize, QA TC-2930)
+  personalOffSignIn: t('팀에서 개인 연결을 꺼 두어서 지금은 다시 로그인할 수 없어요. 이 연결은 대화에서 쓰이지 않아요.', 'Your team has turned off personal connections, so you cannot sign in again now. This connection is not used in chats.', 'Tim Anda mematikan koneksi pribadi, jadi Anda tidak bisa login lagi sekarang. Koneksi ini tidak dipakai di obrolan.', "チームが個人接続を無効にしているため、今はもう一度ログインできません。この接続はチャットでは使われません。", "Su equipo desactivó las conexiones personales, así que ahora no puede volver a iniciar sesión. Esta conexión no se usa en los chats.", "你的团队已关闭个人连接，所以现在无法重新登录。这个连接不会在对话中使用。"),
   requestPersonalOff: t('지금은 직원이 개인 연결을 추가할 수 없어요. 먼저 팀 설정에서 "직원이 개인 연결을 추가할 수 있음"을 켜 주세요.', 'Members cannot add their own connections now. First turn on "Members can add their own connections" in Team settings.', 'Anggota tidak bisa menambah koneksi sendiri sekarang. Nyalakan dulu "Anggota dapat menambah koneksi pribadi" di Pengaturan tim.', "現在、メンバーは個人接続を追加できません。先にチーム設定で「メンバーによる個人接続の追加を許可」をオンにしてください。", "Ahora los miembros no pueden añadir sus propias conexiones. Active primero «Los miembros pueden añadir sus propias conexiones» en la configuración del equipo.", "成员现在不能添加自己的连接。请先在“团队设置”中打开“成员可以添加自己的连接”。"),
   requestNoUser: t('이 팀에서 쓰고 있는 계정이 아니에요.', 'This is not an active account of the team.', 'Ini bukan akun aktif di tim.', "このチームの有効なアカウントではありません。", "No es una cuenta activa del equipo.", "这不是团队中的有效账号。"),
+  requestGuest: t('게스트에게는 연결을 요청할 수 없어요.', "Guests can't be asked to connect a service.", 'Tamu tidak bisa diminta menghubungkan layanan.', "ゲストには接続を依頼できません。", "No se puede pedir a un invitado que conecte un servicio.", "不能请访客连接服务。"),
   requestNoName: t('보이는 글자가 있는 이름을 넣어 주세요.', 'Enter a name with at least one visible character.', 'Masukkan nama dengan setidaknya satu karakter yang terlihat.', "表示できる文字を含む名前を入力してください。", "Introduzca un nombre con al menos un carácter visible.", "请输入至少包含一个可见字符的名称。"),
   requestDuplicate: t('이 사람에게 같은 주소로 보낸 요청이 아직 기다리고 있어요.', 'A request for this address is already waiting for this person.', 'Permintaan untuk alamat ini sudah menunggu orang ini.', "このアドレスへの依頼がすでにこの人の返答を待っています。", "Ya hay una solicitud para esta dirección esperando a esta persona.", "这个地址已有一个请求在等这个人处理。"),
   requestTooMany: t('한 사람에게 요청은 {n}개까지 기다릴 수 있어요.', 'At most {n} requests can wait for one person.', 'Paling banyak {n} permintaan bisa menunggu satu orang.', "1人に対して待機できる依頼は最大{n}件です。", "Como máximo {n} solicitudes pueden esperar a una persona.", "一个人最多只能有{n}个等待中的请求。"),
@@ -109,9 +127,12 @@ export const TEXT = {
   // the service's own answer
   callbackClient: t('서비스가 이 앱의 Client ID나 Secret을 받아들이지 않았어요. 이 창을 닫고, 연결 편집의 고급에서 Secret을 확인한 뒤 다시 로그인해 주세요.', 'The service did not accept this app’s Client ID or Secret. Close this window, check the Secret under Advanced when you edit the connection, then sign in again.', 'Layanan tidak menerima Client ID atau Secret aplikasi ini. Tutup jendela ini, periksa Secret di Lanjutan saat mengedit koneksi, lalu login lagi.', "サービスがこのアプリのクライアントIDまたはシークレットを受け付けませんでした。このウィンドウを閉じ、接続の編集の「詳細設定」でシークレットを確認してから、もう一度ログインしてください。", "El servicio no aceptó el ID de cliente ni el secreto de esta aplicación. Cierre esta ventana, revise el secreto en Avanzado al editar la conexión y vuelva a iniciar sesión.", "服务没有接受这个应用的客户端 ID 或密钥。请关闭这个窗口，编辑连接时在“高级”中检查密钥，然后重新登录。"),
   callbackClientTemplate: t('서비스가 이 연결에 쓰는 앱의 Client ID나 Secret을 받아들이지 않았어요. 이 창을 닫고, 이 연결을 설정한 사람에게 Client ID와 Secret을 확인해 달라고 요청해 주세요.', 'The service did not accept the Client ID or Secret of the app this connection uses. Close this window and ask the person who set up this connection to check its Client ID and Secret.', 'Layanan tidak menerima Client ID atau Secret aplikasi yang dipakai koneksi ini. Tutup jendela ini dan minta orang yang menyiapkan koneksi ini untuk memeriksa Client ID dan Secret-nya.', "サービスが、この接続で使うアプリのクライアントIDまたはシークレットを受け付けませんでした。このウィンドウを閉じ、この接続を設定した人にクライアントIDとシークレットの確認を依頼してください。", "El servicio no aceptó el ID de cliente ni el secreto de la aplicación que usa esta conexión. Cierre esta ventana y pida a quien configuró esta conexión que revise su ID de cliente y su secreto.", "服务没有接受这个连接所用应用的客户端 ID 或密钥。请关闭这个窗口，请设置这个连接的人检查它的客户端 ID 和密钥。"),
-  callbackDenied: t('서비스에서 접근을 허용하지 않았어요. 연결하려면 이 창을 닫고 앱에서 다시 로그인해 주세요.', 'Access was not allowed at the service. To connect, close this window and sign in again from the app.', 'Akses tidak diizinkan di layanan. Untuk menghubungkan, tutup jendela ini lalu login lagi dari aplikasi.', "サービスでアクセスが許可されませんでした。接続するには、このウィンドウを閉じてアプリからもう一度ログインしてください。", "No se permitió el acceso en el servicio. Para conectar, cierre esta ventana y vuelva a iniciar sesión desde la aplicación.", "服务没有允许访问。要连接的话，请关闭这个窗口，从应用重新登录。"),
+  // the person chose Cancel or Deny at the service (its answer "access_denied"): stopped, not refused (QA TC-3859)
+  callbackDenied: t('서비스 화면에서 로그인이 취소됐어요. 연결하려면 이 창을 닫고 앱에서 다시 로그인해 주세요.', 'The sign-in was stopped at the service. To connect, close this window and sign in again from the app.', 'Login dihentikan di layanan. Untuk menghubungkan, tutup jendela ini lalu login lagi dari aplikasi.', "サービス側でログインが中止されました。接続するには、このウィンドウを閉じてアプリからもう一度ログインしてください。", "El inicio de sesión se detuvo en el servicio. Para conectar, cierre esta ventana y vuelva a iniciar sesión desde la aplicación.", "登录在该服务中被取消了。要连接的话，请关闭这个窗口，从应用重新登录。"),
   callbackChanged: t('로그인하는 동안 연결 설정이 바뀌었어요. 이 창을 닫고 앱에서 다시 로그인해 주세요.', 'The connection’s settings changed while you were signing in. Close this window and sign in again from the app.', 'Pengaturan koneksi berubah saat Anda login. Tutup jendela ini lalu login lagi dari aplikasi.', "ログイン中に接続の設定が変更されました。このウィンドウを閉じて、アプリからもう一度ログインしてください。", "La configuración de la conexión cambió mientras iniciaba sesión. Cierre esta ventana y vuelva a iniciar sesión desde la aplicación.", "登录期间连接的设置被更改了。请关闭这个窗口，从应用重新登录。"),
   callbackCancelled: t('앱에서 이 로그인을 취소했어요. 이 창을 닫고, 연결하려면 앱에서 다시 연결해 주세요.', 'This sign-in was cancelled in the app. Close this window; to connect, connect again from the app.', 'Login ini dibatalkan di aplikasi. Tutup jendela ini; untuk menghubungkan, hubungkan lagi dari aplikasi.', "このサインインはアプリでキャンセルされました。このウィンドウを閉じ、接続するにはアプリからもう一度接続してください。", "Este inicio de sesión se canceló en la aplicación. Cierre esta ventana; para conectar, vuelva a conectar desde la aplicación.", "这次登录已在应用中取消。请关闭此窗口；如需连接，请在应用中重新连接。"),
+  // the sign-in window was allowed after its 10 minutes (service.ts FLOW_TTL) ran out
+  callbackExpired: t('로그인 시간이 지났어요. 이 창을 닫고 앱에서 다시 연결해 주세요.', 'The sign-in expired. Close this window and connect again from the app.', 'Waktu login sudah habis. Tutup jendela ini lalu hubungkan lagi dari aplikasi.', "ログインの有効期限が切れました。このウィンドウを閉じて、アプリからもう一度接続してください。", "El inicio de sesión caducó. Cierre esta ventana y vuelva a conectar desde la aplicación.", "登录已过期。请关闭这个窗口，从应用重新连接。"),
   callbackExchange: t('서비스가 로그인을 마무리하지 못했어요. 이 창을 닫고 앱에서 다시 로그인해 주세요.', 'The service did not finish the sign-in. Close this window and sign in again from the app.', 'Layanan tidak menyelesaikan login. Tutup jendela ini lalu login lagi dari aplikasi.', "サービスがログインを完了できませんでした。このウィンドウを閉じて、アプリからもう一度ログインしてください。", "El servicio no terminó el inicio de sesión. Cierre esta ventana y vuelva a iniciar sesión desde la aplicación.", "服务没有完成登录。请关闭这个窗口，从应用重新登录。"),
   // the sign-in worked at the service, but the person already has as many working connections of their own as they may
   // (service.ts MAX_PERSONAL): nothing is stored
@@ -122,6 +143,11 @@ export const TEXT = {
   timeout: t('서비스가 30초 안에 답하지 않았어요.', 'The service did not answer within 30 seconds.', 'Layanan tidak menjawab dalam 30 detik.', "サービスが30秒以内に応答しませんでした。", "El servicio no respondió en 30 segundos.", "服务在30秒内没有回应。"),
   // its tools/list kept coming but did not end in time (mcp.ts MCP_LIST_TIMEOUT_MS)
   list_timeout: t('서비스가 90초 안에 도구 목록을 다 보내지 않았어요.', 'The service did not send its whole tool list within 90 seconds.', 'Layanan tidak mengirim seluruh daftar alatnya dalam 90 detik.', "サービスが90秒以内にツール一覧をすべて送信しませんでした。", "El servicio no envió su lista completa de herramientas en 90 segundos.", "服务没有在90秒内发送完整的工具列表。"),
+  // a tool call that sent nothing for mcp.ts MCP_CALL_IDLE_MS (a call past MCP_CALL_TIMEOUT_MS marks nothing: service.ts statusOf)
+  call_idle: t('서비스의 도구가 5분 동안 아무것도 보내지 않아 호출을 멈췄어요.', 'A tool of the service sent nothing for 5 minutes, so the call was stopped.', 'Alat layanan tidak mengirim apa pun selama 5 menit, jadi panggilan dihentikan.', "サービスのツールが5分間何も送信しなかったため、呼び出しを停止しました。", "Una herramienta del servicio no envió nada durante 5 minutos, así que se detuvo la llamada.", "服务的工具 5 分钟内没有发送任何内容，因此已停止调用。"),
+  // a call past MCP_CALL_TIMEOUT_MS: the AI is told; never stored on the connection (service.ts statusOf), the words are
+  // here because every Reason has them
+  call_timeout: t('서비스의 도구가 15분 안에 끝나지 않아 호출을 멈췄어요.', 'A tool of the service did not finish within 15 minutes, so the call was stopped.', 'Alat layanan tidak selesai dalam 15 menit, jadi panggilan dihentikan.', "サービスのツールが15分以内に終わらなかったため、呼び出しを停止しました。", "Una herramienta del servicio no terminó en 15 minutos, así que se detuvo la llamada.", "服务的工具没有在 15 分钟内完成，因此已停止调用。"),
   private_address: t('사내망이나 이 서버의 주소에는 연결할 수 없어요. 인터넷의 공개 주소를 넣어 주세요.', 'Addresses on the office network or of this server cannot be used. Use a public internet address.', 'Alamat di jaringan kantor atau server ini tidak bisa dipakai. Pakai alamat publik di internet.', "社内ネットワークやこのサーバーのアドレスは使用できません。公開インターネットアドレスを使ってください。", "No se pueden usar direcciones de la red interna ni de este servidor. Use una dirección pública de internet.", "不能使用办公室网络或这台服务器上的地址。请使用公网地址。"),
   blocked_port: t('https 기본 포트(443)만 쓸 수 있어요.', 'Only the standard https port (443) can be used.', 'Hanya port https standar (443) yang bisa dipakai.', "標準のhttpsポート（443）のみ使用できます。", "Solo se puede usar el puerto https estándar (443).", "只能使用标准 https 端口（443）。"),
   tls: t('서비스의 보안 인증서를 확인하지 못했어요.', 'The service’s security certificate could not be verified.', 'Sertifikat keamanan layanan tidak dapat diverifikasi.', "サービスのセキュリティ証明書を確認できませんでした。", "No se pudo verificar el certificado de seguridad del servicio.", "无法验证服务的安全证书。"),
@@ -144,9 +170,27 @@ export const TEXT = {
     'Layanan ini hanya mengizinkan login dari aplikasi yang sudah disetujuinya, dan aplikasi ini belum disetujui. Hanya layanan itu yang bisa mengubahnya, jadi untuk sekarang layanan ini belum bisa dihubungkan di sini.',
     "このサービスは承認したアプリだけにログインを許可しており、このアプリはまだ承認されていません。変更できるのはサービス側だけのため、今はここで接続できません。",
     "Este servicio solo permite iniciar sesión a las aplicaciones que ha aprobado, y todavía no ha aprobado esta. Solo el servicio puede cambiarlo, así que por ahora no se puede conectar aquí.", "这项服务只允许它批准过的应用登录，而这个应用还没有获得批准。只有该服务能改变这一点，所以目前无法在这里连接。"),
+  // the service refused every app for the team's https address but takes one on the person's computer (Canva, Intercom,
+  // Square: oauth.ts loopbackClient), and this sign-in came from the web or the phone app: the desktop app connects it.
+  // {name}: the connection's name
+  oauth_desktop_only: t('{name}은(는) 컴퓨터에 설치한 앱에서만 로그인할 수 있어요. 트리나 데스크톱 앱을 열고 거기서 연결해 주세요.',
+    '{name} only lets you sign in from an app on your computer. Open the Trina desktop app and connect it there.',
+    '{name} hanya mengizinkan login dari aplikasi di komputer Anda. Buka aplikasi desktop Trina dan hubungkan di sana.',
+    "{name}には、パソコンにインストールしたアプリからしかログインできません。トリナのデスクトップアプリを開いて、そこで接続してください。",
+    "{name} solo permite iniciar sesión desde una aplicación instalada en su ordenador. Abra la aplicación de escritorio de Trina y conéctelo allí.",
+    "{name}只允许从电脑上安装的应用登录。请打开 Trina 桌面应用，在那里连接。"),
   // the registration answered 429 (oauth.ts register): too many apps registered there just now
   oauth_busy: t('서비스가 지금 너무 바빠요. 몇 분 뒤에 다시 연결해 주세요.', 'The service is too busy right now. Try connecting again in a few minutes.', 'Layanan sedang terlalu sibuk. Coba hubungkan lagi beberapa menit lagi.', "サービスが現在混み合っています。数分後にもう一度接続してください。", "El servicio está demasiado ocupado ahora. Vuelva a conectarlo en unos minutos.", "服务现在太忙了。请过几分钟再连接。"),
   oauth_failed: t('로그인을 마치지 못했어요. 다시 시도해 주세요.', 'Signing in did not finish. Try again.', 'Login tidak selesai. Coba lagi.', "ログインを完了できませんでした。再試行してください。", "No se completó el inicio de sesión. Vuelva a intentarlo.", "登录没有完成。请重试。"),
+  // an app on the person's computer (local.ts): the reasons its check stored, and the refusals of its API
+  local_offline: t('이 연결은 추가한 컴퓨터의 데스크톱 앱에서만 쓸 수 있어요. 그 컴퓨터에서 열어 확인해 주세요.', 'This works only from the desktop app on the computer where you added it. Open it there to check it.', 'Ini hanya berfungsi dari aplikasi desktop di komputer tempat Anda menambahkannya. Buka di sana untuk memeriksanya.', "これは、追加したパソコンのデスクトップアプリからのみ使えます。そのパソコンで開いて確認してください。", "Solo funciona desde la aplicación de escritorio en el ordenador donde la añadió. Ábrala allí para comprobarla.", "只能在添加它的那台电脑上的桌面应用中使用。请在那台电脑上打开并检查。"),
+  local_declined: t('이 컴퓨터에서 연결하지 않았어요(취소를 눌렀어요). 다시 확인을 누르면 다시 물어봐요.', 'It is not connected on this computer: Cancel was chosen. Press Check again to be asked again.', 'Belum terhubung di komputer ini: Batal dipilih. Tekan Periksa lagi agar ditanya lagi.', "このパソコンでは接続されていません（キャンセルが選ばれました）。「もう一度確認」を押すと、もう一度確認します。", "No está conectada en este ordenador: se eligió Cancelar. Pulse Comprobar de nuevo para que se lo vuelva a preguntar.", "在这台电脑上没有连接：选择了取消。按“重新检查”会再次询问。"),
+  // the desktop app's "Connect this program?" was still open when the check stopped waiting (local.ts 'unconfirmed')
+  local_confirm: t('데스크톱 앱에서 확인을 기다리고 있어요. 거기서 연결을 눌러 주세요.', 'Waiting for you to confirm in the desktop app. Press Connect there.', 'Menunggu konfirmasi Anda di aplikasi desktop. Tekan Hubungkan di sana.', "デスクトップアプリでの確認を待っています。そこで「接続」を押してください。", "Esperando su confirmación en la aplicación de escritorio. Pulse Conectar allí.", "正在等待你在桌面应用中确认。请在那里按“连接”。"),
+  local_failed: t('이 컴퓨터에서 프로그램을 시작하지 못했어요. 명령을 확인한 뒤 다시 확인을 눌러 주세요.', 'The program could not start on this computer. Check the command, then press Check again.', 'Program tidak dapat dimulai di komputer ini. Periksa perintahnya, lalu tekan Periksa lagi.', "このパソコンでプログラムを起動できませんでした。コマンドを確認してから「もう一度確認」を押してください。", "El programa no pudo iniciarse en este ordenador. Revise el comando y pulse Comprobar de nuevo.", "程序无法在这台电脑上启动。请检查命令，然后按“重新检查”。"),
+  localOff: t('팀에서 내 컴퓨터의 앱 연결을 꺼 두었어요. 관리자에게 알려 주세요.', 'Your team turned off apps on your computer. Tell your admin.', 'Tim Anda menonaktifkan aplikasi di komputer Anda. Beri tahu admin Anda.', "チームで「パソコンのアプリ」がオフになっています。管理者に知らせてください。", "Su equipo desactivó las aplicaciones de su ordenador. Avise a su administrador.", "你的团队关闭了“电脑上的应用”。请告诉管理员。"),
+  localFixed: t('내 컴퓨터의 앱에는 바꿀 주소, 키, 로그인이 없어요.', 'An app on your computer has no address, key or sign-in to change.', 'Aplikasi di komputer Anda tidak punya alamat, kunci, atau login untuk diubah.', "パソコンのアプリには、変更できるアドレス、キー、ログインがありません。", "Una aplicación de su ordenador no tiene dirección, clave ni inicio de sesión que cambiar.", "电脑上的应用没有可以更改的地址、密钥或登录。"),
+  localHidden: t('보이지 않는 문자가 들어 있어요. 다시 입력해 주세요.', 'It has characters that cannot be seen. Type it again.', 'Ada karakter yang tidak terlihat. Ketik ulang.', "見えない文字が含まれています。もう一度入力してください。", "Contiene caracteres que no se ven. Escríbalo de nuevo.", "其中有看不见的字符。请重新输入。"),
   // the same reasons for someone who cannot fix them (reasonText): a member on a team connection, or on a connection made
   // from a team template for its address (QA TC-235). No admin is named (members never see who the admins are)
   addressMember: t('서비스에 연결하지 못했어요. 관리자에게 알려 주세요.', 'Could not reach the service. Tell your admin.', 'Tidak dapat menghubungi layanan. Beri tahu admin Anda.', "サービスに接続できませんでした。管理者に知らせてください。", "No se pudo conectar con el servicio. Avise a su administrador.", "无法连接到服务。请告诉你的管理员。"),
@@ -183,30 +227,38 @@ export const FIELD_WORDS: Record<string, T> = {
   folder: t('폴더', 'Folder', 'Folder', "フォルダー", "Carpeta", "文件夹"),
 }
 /** a reason a connection check failed (integrations.last_error holds "<reason>" or "<reason>:<status>") */
-export type Reason = 'unreachable' | 'timeout' | 'list_timeout' | 'private_address' | 'blocked_port' | 'tls' | 'refused' | 'no_secret' | 'sign_in' | 'redirect'
-  | 'http_status' | 'not_mcp' | 'too_large' | 'oauth_unsupported' | 'oauth_no_registration' | 'oauth_no_registration_member' | 'oauth_approved_apps_only' | 'oauth_busy' | 'oauth_failed' | 'key_unsafe'
+export type Reason = 'unreachable' | 'timeout' | 'list_timeout' | 'call_idle' | 'call_timeout' | 'private_address' | 'blocked_port' | 'tls' | 'refused' | 'no_secret' | 'sign_in' | 'redirect'
+  | 'http_status' | 'not_mcp' | 'too_large' | 'oauth_unsupported' | 'oauth_no_registration' | 'oauth_no_registration_member' | 'oauth_approved_apps_only' | 'oauth_desktop_only' | 'oauth_busy' | 'oauth_failed' | 'key_unsafe' | 'local_offline' | 'local_declined' | 'local_confirm' | 'local_failed'
+
+/** a placeholder and a Korean particle mark right after it ("{name}은(는)"), as the web app's i18n format reads them */
+const PARTICLE_AFTER = new RegExp(`\\{(\\w+)\\}(${KO_PARTICLE_PATTERN})?`, 'g')
 
 export const say = (key: TextKey, locale: Locale, vars: Record<string, string | number> = {}) =>
-  // no second honorific after a name that has one ("{by}님이" with 대표님, shared/src/honorific.ts)
-  dropDoubleHonorifics(TEXT[key][locale] ?? TEXT[key].en, vars).replace(/\{(\w+)\}/g, (all, k: string) => (k in vars ? String(vars[k]) : all))
+  // no second honorific after a name that has one ("{by}님이" with 대표님, shared/src/honorific.ts); a Korean particle
+  // after a value in the form the value takes when read aloud ("Canva는", "Intercom은": shared/src/ko-particle.ts)
+  dropDoubleHonorifics(TEXT[key][locale] ?? TEXT[key].en, vars).replace(PARTICLE_AFTER, (all, k: string, mark?: string) => {
+    if (!(k in vars)) return all
+    const v = String(vars[k])
+    return v + (mark ? (locale === 'ko' ? koParticle(v, mark) : mark) : '')
+  })
 
 /** Reasons whose fix is the connection's address (or that read as such: a reason this server does not know). */
 const ADDRESS_REASONS: ReadonlySet<string> = new Set<Reason>(['unreachable', 'private_address', 'blocked_port', 'redirect', 'not_mcp'])
 /** Reasons whose fix is the connection's key or sign-in. */
-const KEY_REASONS: ReadonlySet<string> = new Set<Reason>(['refused', 'no_secret', 'sign_in', 'oauth_unsupported', 'oauth_no_registration', 'oauth_approved_apps_only', 'oauth_failed'])
+const KEY_REASONS: ReadonlySet<string> = new Set<Reason>(['refused', 'no_secret', 'sign_in', 'oauth_unsupported', 'oauth_no_registration', 'oauth_approved_apps_only', 'oauth_desktop_only', 'oauth_failed'])
 
 /**
  * The stored code in words ("refused:401" -> "The service did not accept the key ... (HTTP 401)"), for a reader who can
- * fix it. `can`: what this reader can change (store.ts view): the address (whoever manages the connection, not on one
+ * fix it (`name`: the connection's, for a reason that names it). `can`: what this reader can change (store.ts view): the address (whoever manages the connection, not on one
  * made from a team template) and the key or sign-in (whoever manages it). A reason only someone else can fix says what
  * happened and "Tell your admin." instead of "Check the address" (QA TC-235).
  */
-export function reasonText(code: string | null, locale: Locale, can: { address: boolean; key: boolean } = { address: true, key: true }): string | null {
+export function reasonText(code: string | null, locale: Locale, can: { address: boolean; key: boolean } = { address: true, key: true }, name?: string): string | null {
   if (!code) return null
   const [reason, status] = code.split(':')
   const known = !!reason && reason in TEXT
   if (!can.address && (!known || ADDRESS_REASONS.has(reason!))) return say('addressMember', locale)
   if (!can.key && KEY_REASONS.has(reason!)) return say('keyMember', locale)
   if (!known) return say('unreachable', locale)
-  return say(reason as TextKey, locale, { status: status ?? '?' })
+  return say(reason as TextKey, locale, { status: status ?? '?', ...(name ? { name } : {}) })
 }

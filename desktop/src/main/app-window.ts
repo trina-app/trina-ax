@@ -7,12 +7,12 @@
 //   shell view (welcome.html) covers everything when no team is open, the team list is shown, or the team
 //   server cannot be reached.
 import { app as electronApp, BaseWindow, dialog, nativeTheme, net, Notification, powerMonitor, session, WebContentsView, type Session } from 'electron'
-import { readSystemActivity, SYSTEM_ACTIVITY_EVERY_MS, type SystemActivity } from '../common/system-activity'
+import { COMPUTER_REPORT_PATH, ComputerReporter, readSystemActivity, SYSTEM_ACTIVITY_EVERY_MS, type SystemActivity } from '../common/system-activity'
 import { join } from 'node:path'
 import { applyMePolicy } from '../common/me-policy'
 import { PRODUCT, WEB_ALLOW_ALL_RISK, type DesktopConnection, type DesktopPaneState } from '@mycel/shared'
-import { Health, Me } from '@mycel/shared/api'
-import { asksOutside, checkTeam, desktopPagePath, firstRunLinks, hostLineNow, hostOf, originOf, parseTeamAddress, readDesktopLink, teamLabel, type AddressError, type HealthAnswer } from '../common/address'
+import { API, CSRF_HEADER, Health, Me } from '@mycel/shared/api'
+import { answersAgain, asksOutside, certTrouble, checkTeam, desktopPagePath, firstRunLinks, hostLineNow, hostOf, isShownTeamStart, isSignInPath, signInCode, officeCertPage, offlineRetryDelay, onThisComputer, originOf, parseTeamAddress, readDesktopLink, retypablePath, startupLinkTarget, teamLabel, type AddressError, type CertTrouble, type HealthAnswer } from '../common/address'
 import { LinkGate, type WakeAnswer } from '@mycel/shared/team-link'
 import { t, type UiKey, type UiLocale } from '../common/i18n'
 import { teamHostnames } from '../common/browser-block'
@@ -20,6 +20,7 @@ import { SitePermissions, type SiteSettings } from '../common/site-permissions'
 import { browserOwnerChange, type MeResult } from '../common/browser-owner'
 import { addTeam, findTeam, partitionFor, removeTeam, sortedTeams, touchTeam, updateTeam, type DirectInfo, type TeamEntry, type TeamsFile } from '../common/teams'
 import { isTrustedAppSender, UI_ORIGIN } from '../common/trust'
+import { askConsent, consentMemoryFile } from './work-consent-window'
 import { openDialogChoice } from '../common/file-chooser'
 import { makeNotifier, platformNotifyDeps, type NotifyInput } from '../common/notify'
 import { directFromConnectInfo, fetchConnectInfo, lanFailureCode, lanFailureToReport, mirrorSessionCookie, pinCertificates, probeDirect, reportLanFailure, type ProbeResult } from './direct'
@@ -28,12 +29,17 @@ import { HostClassifier, sessionResolver } from './pane/classify'
 import { APP_WEB_PREFERENCES, guardAppView, guardUiView, hardenAppSession } from './security'
 import { attachContextMenu, contextMenuOpen } from './context-menu'
 import { keyboardBack, keyboardTaken, keyboardTarget } from '../common/keyboard-focus'
+import { CHROME_RELOAD_DELAY_MS, CHROME_RELOAD_WINDOW_MS, CHROME_RELOADS, chromeRecovery } from '../common/pane-chrome'
 import { paneFromEdge, paneGrab, paneKeyWidth, paneLimits, paneWidthFor, readPaneFraction, settlePane } from '../common/pane-width'
 import type { FolderGrants } from '../common/folder-access'
 import { WorkFilesController } from './work-files'
 import type { TeamsStore } from './teams-store'
 import { clearFailed, clearSessionData, type ClearResult } from './clear-session'
 import { debug } from './debug'
+import { DirectDownloads } from './downloads'
+import { PAGE_BUSY_GLOBAL, resumePage, type Resume, type ResumeWindow } from '../common/update-guard'
+import { findTarget } from '../common/find-bar'
+import { FindBar } from './find-bar'
 
 export type Mode = 'welcome' | 'team' | 'offline'
 
@@ -42,7 +48,8 @@ export interface WelcomeState {
   teams: { id: string; label: string; origin: string; current: boolean }[]
   /** a team is open behind the welcome screen (the back button returns to it) */
   canGoBack: boolean
-  offline: { address: string } | null
+  /** `auto`: the app looks again by itself and opens the team when it answers (watchOffline) */
+  offline: { address: string; auto: boolean } | null
   /** a kit build's team address, filled in on the first-run screen while no team is remembered (common/kit.ts) */
   suggested: string | null
   /** the "no team yet" screen offers [팀 만들기] (not in the Mac App Store build: App Review 3.1.1) */
@@ -61,7 +68,7 @@ export interface WelcomeState {
  * hosted service and not remembered yet: the screen asks once, then calls again with `confirmed`. */
 export type AddTeamResult =
   | { ok: true; teamId: string }
-  | { ok: false; error: AddressError | 'unreachable' | 'notTeamServer' | 'teamUnknown' | 'suspended' | 'wakeTimeout' | 'confirmOutside' | 'renamed' | 'cancelled'; message: string; host?: string; next?: string }
+  | { ok: false; error: AddressError | 'unreachable' | 'certUntrusted' | 'certInvalid' | 'notTeamServer' | 'teamUnknown' | 'suspended' | 'wakeTimeout' | 'confirmOutside' | 'renamed' | 'cancelled'; message: string; host?: string; next?: string }
 
 /**
  * How a request from the team page's Settings > Browser to turn on "Allow all websites" ended (bridge
@@ -75,6 +82,8 @@ export interface AppWindowOptions {
   locale: () => UiLocale
   distDir: string
   pageScript: string
+  /** the app restarted by itself to install an update: the window as it was then, without taking the focus */
+  quietStart?: ResumeWindow
   appVersion: string
   classifier: HostClassifier
   /** a kit build's team address (common/kit.ts), or null */
@@ -83,6 +92,9 @@ export interface AppWindowOptions {
   answerFileChoosers?: boolean
   /** the Mac App Store build: no signup link on the first-run screen (common/address.ts firstRunLinks) */
   macAppStore?: boolean
+  /** the computer's Downloads folder, where the team page's downloads go with no save window (main/downloads.ts);
+   * null keeps the save window (the Mac App Store build) */
+  downloadsDir?: () => string | null
   /** the team list changed (the menu is rebuilt) */
   onTeamsChanged(): void
 }
@@ -103,6 +115,8 @@ export class AppWindow {
   readonly chrome: WebContentsView
   /** the team address above the team's sign-in pages, drawn by the app (hostbar.html): a page cannot fake it */
   readonly hostbar: WebContentsView
+  /** Cmd/Ctrl+F: the find bar over the view it searches (main/find-bar.ts) */
+  readonly findBar: FindBar
   app?: WebContentsView
   pane?: BrowserPane
   team?: TeamEntry
@@ -127,6 +141,8 @@ export class AppWindow {
   private recheckTimer?: NodeJS.Timeout
   private lastCheck = 0
   private configuredSessions = new WeakSet<Session>()
+  /** the team page's downloads: straight into Downloads, the page shows the notice (main/downloads.ts) */
+  readonly downloads = new DirectDownloads({ dir: () => this.o.downloadsDir?.() ?? null })
   /** each team page session's folder window picks (common/folder-access.ts), forgotten when the person changes */
   private folderGrants = new WeakMap<Session, FolderGrants>()
   /** "Find work files on this computer" (./work-files.ts): the app's own consent dialog, the look, the reads by id */
@@ -134,7 +150,22 @@ export class AppWindow {
     win: () => (this.win.isDestroyed() ? null : this.win),
     locale: () => this.o.locale(),
     progress: (p) => this.send(this.app, 'bridge:work-files-progress', p),
+    consent: (parent, view) => askConsent({ parent, preload: join(this.o.distDir, 'preload-consent.cjs'), view }),
+    lastInput: () => this.appInputAt,
+    assistive: () => electronApp.accessibilitySupportEnabled,
+    memory: consentMemoryFile(join(electronApp.getPath('userData'), 'work-files-consent.json')),
+    reading: (n) => {
+      if (n === this.reading) return
+      this.reading = n
+      this.layout()
+      this.sendHostbar()
+    },
   })
+  /** when the person last pressed a key or the mouse on the team page (Electron's input events: no page script makes
+   * them); Find work files reads it (WorkFilesController.add, a remembered yes) */
+  private appInputAt = 0
+  /** files added by Find work files and still being read: the strip above the page says so while there are any */
+  private reading = 0
   /** system notifications for the team page (common/notify.ts): unfocused only, one per tag, a click opens its
    * address; a team switch closes them all */
   private notifier = makeNotifier({
@@ -174,6 +205,37 @@ export class AppWindow {
   /** the team answered GET /api/me for a signed-in person (fetchTeamInfo); until then the host strip is on, on every
    * page (a page can look like a sign-in page at any address) */
   private signedIn = false
+  /** the browser toolbar's page is not drawn (still loading, failed, or its renderer ended): the browser is not shown
+   * (a page with no toolbar above it has no ✕), and the toolbar loads again (common/pane-chrome.ts) */
+  private chromeDown = true
+  private chromeFailures: number[] = []
+  private chromeRetry?: ReturnType<typeof setTimeout>
+  /** the toolbar's current document: loaded, failed, and which one (a check that answers late is for an older one) */
+  private chromeLoaded = false
+  private chromeLoadFailed = false
+  private chromeNav = 0
+  /** the computer's own use to the open team's server, while signed in (common/system-activity.ts ComputerReporter) */
+  private readonly computerReporter = new ComputerReporter({
+    team: () => (this.app && this.team && this.currentOrigin ? { origin: this.currentOrigin, signedIn: this.signedIn } : null),
+    post: async (origin, body) => {
+      const app = this.app
+      if (!app || app.webContents.isDestroyed()) return 0
+      const res = await app.webContents.session.fetch(origin + COMPUTER_REPORT_PATH, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', [CSRF_HEADER]: '1' },
+        body: JSON.stringify(body),
+        signal: AbortSignal.timeout(5000),
+      })
+      return res.status
+    },
+    signedOut: () => { void this.refreshTeamInfo() },
+  })
+  /** this team's pages draw the address and "Switch team" under their sign-in card (DesktopBridge.hostLine): no strip
+   * above them on the sign-in paths. Kept until another team is opened, so a sign-out or reload does not jump. */
+  private pageHostLine = false
+  /** the team openLast opened at start when its address is on this computer (common/address.ts onThisComputer): until
+   * its page loads, a failed load goes to the first-run screen with the team list, not to the offline card */
+  private startupLocal: string | null = null
   /** /api/me answered for this team page (either way), and the short wait after the page loaded is over: until one of
    * them, a page that is not a sign-in page gets no strip yet, so a signed-in open does not jump (shared hostLineNow) */
   private meAnswered = false
@@ -182,8 +244,21 @@ export class AppWindow {
   /** screen ④: the link from outside that waits for a yes (shared/src/team-link.ts LinkGate) */
   private linkGate = new LinkGate()
   private linkError: string | null = null
+  /** the "isn't answering" line (offline.localStart) and the team it names: the line goes when that team leaves the list */
+  private localStart: { team: string; line: string } | null = null
   /** addTeam is waiting for a sleeping trial team to start (WelcomeState.waking) */
   private waking = false
+  /** the "cannot reach the team server" card looks again by itself (watchOffline): its timer, how many looks so far
+   * (the waits grow, common/address.ts offlineRetryDelay), and a number that changes whenever the watch stops, so a
+   * look still under way does nothing afterwards */
+  private offlineTimer?: NodeJS.Timeout
+  private offlineTries = 0
+  private offlineWatch = 0
+  /** the watch is on (a wait or a look under way): the card says the app keeps trying only then */
+  private offlineWatching = false
+  /** the app itself opened the team again after a look that answered: if that load fails too (the server answers but
+   * its page does not load), the looks end there, so the page does not open and fail over and over */
+  private offlineReopened = false
   /** that wait, which Cancel stops (cancelWake, or No on ④) */
   private wakeRun: { stopped: boolean } | null = null
   /** the view that had the keyboard last (its own focus event; the pane reports its tabs) and whether it is the in-app
@@ -223,6 +298,16 @@ export class AppWindow {
       attachContextMenu(v.webContents, { window: this.win, locale: o.locale, allowedOrigins: () => [] })
       this.watchKeys(v, v === this.chrome)
     }
+    this.findBar = new FindBar({
+      win: this.win,
+      distDir: o.distDir,
+      locale: o.locale,
+      focusBar: () => this.keysTo(this.findBar.view, 'find bar'),
+      focusTarget: (v) => {
+        if (this.shownViews().includes(v)) this.keysTo(v, 'find bar closed')
+      },
+    })
+    this.watchKeys(this.findBar.view, false)
     // the browser toolbar's view: transparent where it reaches over the team page's edge (the edge's grab strip,
     // common/pane-width.ts); its page paints the toolbar and the area under it in the theme's own colours
     this.chrome.setBackgroundColor('#00000000')
@@ -233,27 +318,66 @@ export class AppWindow {
     nativeTheme.on('updated', themed)
     this.win.on('closed', () => nativeTheme.off('updated', themed))
     // the computer's own use for the team page's "in use" (common/system-activity.ts): another app in front or the
-    // in-app browser is still the person at the computer; a locked screen is not
-    const tellSystem = (a: SystemActivity | null) => { if (a && this.app && !this.win.isDestroyed()) this.send(this.app, 'bridge:system-activity', a) }
+    // in-app browser is still the person at the computer; a locked screen is not. Told to the page and, from here (a
+    // window in the back is throttled: its page may say nothing for minutes), to the open team's server while signed in
+    // (docs/decisions/20261116-away-os-idle.md: no phone push while the computer is in use)
+    const tellSystem = (a: SystemActivity | null) => {
+      if (a && this.app && !this.win.isDestroyed()) this.send(this.app, 'bridge:system-activity', a)
+      void this.computerReporter.report(a)
+    }
     const systemActivity = setInterval(() => tellSystem(readSystemActivity(powerMonitor)), SYSTEM_ACTIVITY_EVERY_MS)
     // a lock or an unlock is told at once, not at the next poll (macOS and Windows send these; elsewhere the poll sees it)
     const onLock = () => tellSystem({ locked: true, idleMs: 0 })
     const onUnlock = () => tellSystem(readSystemActivity(powerMonitor) ?? { locked: false, idleMs: 0 })
     powerMonitor.on('lock-screen', onLock)
     powerMonitor.on('unlock-screen', onUnlock)
+    // going to sleep without a lock: nobody at it either (the phone must not wait for the report to go stale)
+    powerMonitor.on('suspend', onLock)
+    powerMonitor.on('resume', onUnlock)
     this.win.on('closed', () => {
       clearInterval(systemActivity)
       powerMonitor.off('lock-screen', onLock)
       powerMonitor.off('unlock-screen', onUnlock)
+      powerMonitor.off('suspend', onLock)
+      powerMonitor.off('resume', onUnlock)
     })
     void this.shell.webContents.loadURL(`${UI_ORIGIN}/welcome.html`)
-    void this.chrome.webContents.loadURL(`${UI_ORIGIN}/pane.html`)
+    this.loadChrome()
     // a (re)loaded toolbar page knows nothing yet: tell it the edge again, also when the width has not changed since a
-    // message it may have missed while loading (else its edge could stay hidden until the width changes)
+    // message it may have missed while loading (else its edge could stay hidden until the width changes). The browser
+    // is drawn again only once the toolbar has drawn its ✕ (chromeUp), not when its page merely finished loading.
     this.chrome.webContents.on('did-finish-load', () => {
+      // Chromium also finishes the error document after did-fail-load: that is not the toolbar
+      if (this.chromeLoadFailed || this.chrome.webContents.getURL() !== `${UI_ORIGIN}/pane.html`) return
+      this.chromeLoaded = true
       this.paneWidthTold = ''
       this.sendPaneWidth()
+      this.checkChromeDrawn()
     })
+    // a new toolbar document committed (a load again, or any other reload of it): the browser waits for it to draw.
+    // On commit, not on start: a navigation away from the toolbar that is stopped (security.ts guardUiView, a drop on
+    // it) never replaces the document and must not hide the browser
+    this.chrome.webContents.on('did-navigate', () => {
+      this.chromeNav++
+      this.chromeLoadFailed = false
+      this.chromeLoaded = false
+      if (!this.chromeDown) {
+        this.chromeDown = true
+        this.tellPageOpen()
+        this.layout()
+      }
+    })
+    // the toolbar's page did not load or its renderer ended: load it again (common/pane-chrome.ts)
+    this.chrome.webContents.on('did-fail-load', (_e, code, _desc, _url, isMainFrame) => {
+      if (!isMainFrame || code === -3) return
+      this.chromeLoadFailed = true
+      this.chromeFailed(`load ${code}`)
+    })
+    this.chrome.webContents.on('render-process-gone', (_e, d) => {
+      this.chromeLoaded = false
+      if (d.reason !== 'clean-exit') this.chromeFailed(d.reason)
+    })
+    this.win.on('closed', () => clearTimeout(this.chromeRetry))
     void this.hostbar.webContents.loadURL(`${UI_ORIGIN}/hostbar.html`)
     this.win.on('resize', () => this.layout())
     this.win.on('focus', () => {
@@ -270,6 +394,7 @@ export class AppWindow {
       // close the views while the window still exists (WebContentsView contents are not closed with it)
       this.disposeTeam()
       for (const v of [this.shell, this.chrome, this.hostbar]) if (!v.webContents.isDestroyed()) v.webContents.close()
+      this.findBar.dispose()
       debug('window closed, team disposed')
     })
     // back to the window (Cmd-Tab, the dock, a notification's click): the keyboard goes back where it was
@@ -278,7 +403,13 @@ export class AppWindow {
     })
     this.win.on('focus', () => this.keysBack())
     this.layout()
-    this.shell.webContents.once('did-finish-load', () => this.win.show())
+    // after an update restart by itself the window comes back as it was and never takes the focus (quietStart)
+    this.shell.webContents.once('did-finish-load', () => {
+      const q = this.o.quietStart
+      if (!q) return this.win.show()
+      this.win.showInactive()
+      if (q !== 'shown') this.win.minimize()
+    })
   }
 
   // ------------------------------------------------------------------ teams
@@ -299,12 +430,29 @@ export class AppWindow {
       mode: this.mode,
       teams: this.teamList().map((x) => ({ id: x.id, label: x.label, origin: x.origin, current: x.id === this.team?.id })),
       canGoBack: Boolean(this.team && this.app),
-      offline: this.mode === 'offline' && this.team ? { address: this.team.origin } : null,
+      offline: this.mode === 'offline' && this.team ? { address: this.team.origin, auto: this.offlineWatching } : null,
       suggested: this.teamList().length ? null : (this.o.suggestedTeam ?? null),
       signup: firstRunLinks({ macAppStore: this.o.macAppStore === true, korean: false }).signup !== null,
       link: (() => { const l = this.linkGate.pending(); return l ? { id: l.id, host: l.host, hosted: l.hosted } : null })(),
       linkError: this.linkError,
       waking: this.waking,
+    }
+  }
+
+  /** POST the Drive sign-in code to the team on screen with this app's own session (server google-drive/app-return.ts);
+   * the server finishes only a flow this session started. Nothing else is sent, nothing is kept. */
+  private async claimSignIn(code: string) {
+    const app = this.app, origin = this.team?.origin
+    if (!app || app.webContents.isDestroyed() || !origin) return
+    try {
+      await app.webContents.session.fetch(origin + API.claimDriveFlow.path, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', [CSRF_HEADER]: '1' },
+        body: JSON.stringify({ code }),
+        signal: AbortSignal.timeout(10_000),
+      })
+    } catch (e) {
+      console.warn('[desktop] sign-in code', (e as Error).message)
     }
   }
 
@@ -318,6 +466,12 @@ export class AppWindow {
   offerLink(raw: string) {
     if (this.openLinkedPage(raw)) return
     const p = readDesktopLink(raw)
+    // a Google Drive sign-in's one-time code for the team on screen: this app's own session finishes it (the page's
+    // wait then shows the account to confirm); the window comes forward (main.ts onLink)
+    const code = this.app && this.mode !== 'offline' ? signInCode(raw, this.team?.origin) : null
+    if (code) return void this.claimSignIn(code)
+    // the team on screen, its start: only the window comes forward (main.ts onLink), the page stays as it is
+    if (this.app && this.mode !== 'offline' && isShownTeamStart(raw, this.team?.origin)) return
     if (p?.ok) {
       this.linkGate.put(p)
       this.linkError = null
@@ -343,7 +497,9 @@ export class AppWindow {
     }
     if (!offer) return null
     this.sendWelcome()
-    return this.addTeam(offer.origin + offer.entryPath, true)
+    // the page goes along as it was read from the link (readDesktopLink): the address alone goes through the box's
+    // rules again, which refuse a one-time sign-in link's page (`/app-signin#c=…`)
+    return this.addTeam(offer.origin, true, offer.entryPath)
   }
 
   /**
@@ -372,8 +528,16 @@ export class AppWindow {
   }
 
   /** The host strip's state: the team address the app connected to (punycode), never the office-network address. */
-  hostbarState(): { host: string } | null {
-    return this.team ? { host: hostOf(this.team.origin) } : null
+  hostbarState(): { host: string; reading?: number } | null {
+    if (!this.team) return null
+    // the strip is the team address on the sign-in pages; else, while Find work files reads added files, that
+    return this.hostLine() || !this.reading ? { host: hostOf(this.team.origin) } : { host: hostOf(this.team.origin), reading: this.reading }
+  }
+  private hostLine() {
+    // A sign-in page that draws the address and "Switch team" under its card itself (hostLine) gets no strip: the
+    // address once, next to the form (owner 2026-11-15). Off the sign-in paths the strip stays until /api/me answers.
+    const pageLine = this.pageHostLine && isSignInPath(this.pagePath)
+    return !pageLine && hostLineNow({ path: this.pagePath, signedIn: this.signedIn, answered: this.meAnswered, waited: this.stripWaited })
   }
 
   private sendWelcome() {
@@ -391,12 +555,23 @@ export class AppWindow {
     if (this.wakeRun) this.wakeRun.stopped = true
   }
 
-  async addTeam(address: string, confirmed = false): Promise<AddTeamResult> {
+  /** `linkPath`: the page of a link screen ④ confirmed (answerLink), already read by readDesktopLink; else the page of
+   * what was typed. */
+  async addTeam(address: string, confirmed = false, linkPath?: string): Promise<AddTeamResult> {
     this.linkError = null
-    const p = parseTeamAddress(address)
+    const parsed = parseTeamAddress(address)
     const L = this.o.locale()
-    if (!p.ok) return { ok: false, error: p.error, message: t(L, `err.${p.error}` as UiKey) }
+    if (!parsed.ok) return { ok: false, error: parsed.error, message: t(L, `err.${parsed.error}` as UiKey) }
+    const p = linkPath ? { ...parsed, entryPath: linkPath } : parsed
     const fail = (error: 'unreachable' | 'notTeamServer' | 'teamUnknown' | 'suspended' | 'wakeTimeout'): AddTeamResult => ({ ok: false, error, message: t(L, `err.${error}` as UiKey, { name: p.name ?? p.host }) })
+    // the server's certificate is not one this computer trusts (an office server whose certificate is not installed
+    // here yet): said as that, with where to get it, never as "check your internet connection" (QA TC-3452). Nothing is
+    // connected: the certificate check itself is untouched.
+    const failCert = (trouble: CertTrouble): AddTeamResult => {
+      const page = trouble === 'untrusted' ? officeCertPage(p.origin) : null
+      const key: UiKey = trouble === 'invalid' ? 'err.certInvalid' : page ? 'err.certUntrusted' : 'err.certUntrustedNoPage'
+      return { ok: false, error: trouble === 'invalid' ? 'certInvalid' : 'certUntrusted', message: t(L, key, { page: page ?? '' }) }
+    }
     let c
     const run = { stopped: false }
     this.wakeRun = run
@@ -412,8 +587,9 @@ export class AppWindow {
         now: Date.now,
         stopped: () => run.stopped,
       })
-    } catch {
-      return fail('unreachable')
+    } catch (e) {
+      const trouble = certTrouble(e)
+      return trouble ? failCert(trouble) : fail('unreachable')
     } finally {
       if (this.wakeRun === run) this.wakeRun = null
       if (this.waking) {
@@ -427,7 +603,7 @@ export class AppWindow {
     const origin = c.origin
     const known = this.teams.teams.find((x) => x.origin === origin)
     // the person sees the new address before it is remembered
-    if (origin !== p.origin && !known) return { ok: false, error: 'renamed', message: t(L, 'err.renamed', { host: hostOf(origin) }), host: hostOf(origin), next: origin + p.entryPath }
+    if (origin !== p.origin && !known) return { ok: false, error: 'renamed', message: t(L, 'err.renamed', { host: hostOf(origin) }), host: hostOf(origin), next: origin + retypablePath(p.entryPath) }
     if (asksOutside({ hosted: p.hosted, dev: p.dev, known: Boolean(known), confirmed })) return { ok: false, error: 'confirmOutside', message: t(L, 'outside.body'), host: hostOf(origin) }
     const r = addTeam(this.teams, origin, teamLabel(origin), this.o.store.newTeamId(), new Date().toISOString())
     if (!r.existed) this.saveTeams(r.file)
@@ -438,6 +614,12 @@ export class AppWindow {
   async removeTeam(id: string): Promise<void> {
     const team = findTeam(this.teams, id)
     if (!team) return
+    // the "isn't answering" line named this team: it goes with it (QA of #990: it stayed after the last team was removed)
+    if (this.localStart?.team === id) {
+      // only while that line is still the one shown (a refused link may have replaced it)
+      if (this.linkError === this.localStart.line) this.linkError = null
+      this.localStart = null
+    }
     if (this.team?.id === id) {
       this.disposeTeam()
       this.team = undefined
@@ -453,6 +635,9 @@ export class AppWindow {
   }
 
   showWelcome() {
+    this.stopOfflineWatch()
+    this.offlineTries = 0
+    this.offlineReopened = false
     this.mode = 'welcome'
     this.layout()
     this.sendWelcome()
@@ -469,16 +654,48 @@ export class AppWindow {
     }
   }
 
-  async openLast() {
+  /** `resume`: the page the app showed before it restarted by itself to update (./update-launch.ts takeResume) */
+  async openLast(resume: Resume['page'] = null, link: string | null = null): Promise<boolean> {
+    // a chat link that started the app opens its page at the first load (a message sent to a page still loading is lost)
+    const target = startupLinkTarget(link, this.teams.teams)
+    if (target) {
+      await this.openTeam(target.id, target.path, { startup: true })
+      return true
+    }
+    if (resume && findTeam(this.teams, resume.teamId)) {
+      await this.openTeam(resume.teamId, resume.path, { startup: true })
+      return false
+    }
     const last = findTeam(this.teams, this.teams.lastTeamId) ?? this.teamList()[0]
-    if (last) await this.openTeam(last.id)
+    if (last) await this.openTeam(last.id, '/', { startup: true })
     else this.showWelcome()
+    return false
   }
 
-  /** Open a remembered team; `entryPath` is the page a pasted link leads to ('/invite/<t>', '/join#t=<t>'), else '/'. */
-  async openTeam(id: string, entryPath = '/') {
+  /** What an update restart would lose now (DesktopUpdater.idleRestart): whether the team page says a reload would lose
+   * something (web/src/lib/reload-guard.ts; null when it cannot say or does not answer within 5 s), pages in the in-app
+   * browser; and the page and window state to come back to afterwards. */
+  async restartBlockers(): Promise<{ pageBusy: boolean | null; browserTabs: number; resume: Resume }> {
+    const browserTabs = this.pane?.state().tabs.length ?? 0
+    const window = this.win.isDestroyed() || !this.win.isVisible() ? 'none' : this.win.isMinimized() ? 'minimized' : 'shown'
+    const app = this.app
+    if (!app || app.webContents.isDestroyed() || !this.team) return { pageBusy: false, browserTabs, resume: { page: null, window, at: Date.now() } }
+    const wc = app.webContents
+    let pageBusy: boolean | null = null
+    try {
+      const ask = wc.executeJavaScript(`(() => { const f = window.${PAGE_BUSY_GLOBAL}; return typeof f === 'function' ? !!f() : null })()`)
+      const r: unknown = await Promise.race([ask, new Promise((r) => setTimeout(() => r(null), 5000))])
+      pageBusy = typeof r === 'boolean' ? r : null
+    } catch {}
+    return { pageBusy, browserTabs, resume: { page: resumePage(this.team.id, wc.getURL(), [this.currentOrigin]), window, at: Date.now() } }
+  }
+
+  /** Open a remembered team; `entryPath` is the page a pasted link leads to ('/invite/<t>', '/join#t=<t>'), else '/'.
+   * `startup`: the app opens it by itself at start (openLast), nobody picked it. */
+  async openTeam(id: string, entryPath = '/', o: { startup?: boolean } = {}) {
     const team = findTeam(this.teams, id)
     if (!team) return
+    this.startupLocal = o.startup && onThisComputer(team.origin) ? id : null
     // a team view takes over: a link that waited on ④ waits no more (it would come back confirmable later)
     this.linkGate.clear()
     this.linkError = null
@@ -499,7 +716,10 @@ export class AppWindow {
     this.meAnswered = false
     this.stripWaited = false
     clearTimeout(this.stripTimer)
+    // a server updated since the last open may have the computer report now (common/system-activity.ts)
+    this.computerReporter.reset()
     this.stripTimer = undefined
+    this.pageHostLine = false
     this.sendHostbar()
 
     const appSes = session.fromPartition(partitionFor(id, 'app'))
@@ -507,6 +727,8 @@ export class AppWindow {
     const app = new WebContentsView({ webPreferences: { ...APP_WEB_PREFERENCES, session: appSes, preload: join(this.o.distDir, 'preload-app.cjs') } })
     app.setBackgroundColor('#FFFFFF')
     this.app = app
+    // a press on another team's page never counts for this one (Find work files: WorkFilesController.add)
+    this.appInputAt = 0
     this.watchKeys(app, false)
     // a right-click: copy a photo, a link or text (Electron shows no menu of its own)
     attachContextMenu(app.webContents, { window: this.win, locale: this.o.locale, allowedOrigins: () => this.allowedOrigins() })
@@ -525,7 +747,23 @@ export class AppWindow {
         void this.loadOrigin(this.team.origin, path)
         return
       }
+      // the app opened a team on this computer by itself at start (a developer's server, often not running, e.g. data
+      // a dev build left in the same settings folder): the first-run screen with the team list and a line, not the
+      // offline card. The team stays in the list; opening it from there shows the card with [다시 시도].
+      if (this.startupLocal === this.team.id) {
+        const address = hostOf(this.team.origin)
+        this.startupLocal = null
+        const line = t(this.o.locale(), 'offline.localStart', { address })
+        this.localStart = { team: this.team.id, line }
+        this.disposeTeam()
+        this.team = undefined
+        this.linkError = line
+        this.showWelcome()
+        return
+      }
       this.mode = 'offline'
+      if (this.offlineReopened) this.offlineReopened = false
+      else this.watchOffline()
       this.layout()
       this.sendWelcome()
       // not in front of another app when the network drops while the person is there (as in showWelcome)
@@ -534,7 +772,8 @@ export class AppWindow {
     let navigationFailed = false
     app.webContents.on('did-fail-load', (_e, code, _desc, url, isMainFrame) => {
       if (!isMainFrame || code === -3) return // -3: aborted (a new navigation replaced it)
-      debug('team page failed to load', code, url)
+      // without the fragment: a one-time sign-in link carries its code there (/app-signin#c=…)
+      debug('team page failed to load', code, url.split('#')[0])
       navigationFailed = true
       failedNavigation(url)
     })
@@ -558,7 +797,11 @@ export class AppWindow {
       ).catch(() => false)
       if (this.app !== app || app.webContents.isDestroyed() || navigation !== loaded || navigationFailed) return
       if (offline === true) { failedNavigation(url); return }
+      // the team answered: a later failure is the offline card, as for any team
+      if (originOf(url)) this.startupLocal = null
       if (this.mode === 'offline' && originOf(app.webContents.getURL())) this.mode = 'team'
+      // the team page is back: the next time it cannot be reached, the looks start from the short wait again
+      if (originOf(url)) { this.stopOfflineWatch(); this.offlineTries = 0; this.offlineReopened = false }
       this.layout()
       // A request started before navigation may still carry the signed-out/previous session.
       void this.ensureBrowserOwner()
@@ -594,7 +837,10 @@ export class AppWindow {
       {
         win: this.win,
         chrome: this.chrome,
-        onOpenChange: () => this.layout(),
+        onOpenChange: () => {
+          this.chromeOnOpen(false)
+          this.layout()
+        },
         onState: (s) => this.sendPaneState(s),
         onPrompts: (p) => this.send(this.chrome, 'ui:pane-prompts', p),
         onActivity: (a) => this.send(this.chrome, 'ui:pane-activity', a),
@@ -606,6 +852,8 @@ export class AppWindow {
         teamHosts: () => teamHostnames(this.teams.teams),
         onKeys: (view) => this.tabKeys(view),
         onPersonActed: (view) => this.personActed(true, view),
+        overlays: () => (this.findBar.open ? [this.findBar.view] : []),
+        onLayout: () => this.placeFind(),
       },
       browserSes,
       this.o.pageScript,
@@ -634,6 +882,8 @@ export class AppWindow {
     // the team page is on screen: macOS's one question about notifications comes now, not with the first notification
     // (that one only comes while the window is in the back, when nobody sees the question)
     if (this.app === app) this.notifier.ask()
+    // the team went back to the list meanwhile (a dev team on this computer that did not answer at start)
+    if (this.app !== app) return
     this.scheduleRecheck()
     void this.learnDirect()
   }
@@ -646,7 +896,47 @@ export class AppWindow {
   }
 
   retry() {
+    // the person's own Try again: the app's own look, if one is under way, does nothing more
+    this.stopOfflineWatch()
+    this.offlineTries = 0
+    this.offlineReopened = false
     void this.reload()
+  }
+
+  /**
+   * The full-page "cannot reach the team server" card looks again by itself (QA TC-3453: it stayed until someone
+   * pressed Try again, although the server was back): one GET /api/health of the team's address after 5, 10, 20 and
+   * then every 30 seconds (common/address.ts offlineRetryDelay), and the team opens again as soon as it answers, as
+   * Try again does. It stops when the card is left: Other teams (leftOffline), the team list, another team, the team
+   * removed, the window closed, or the page back. One reopening that fails although the server answered ends the looks
+   * too (offlineReopened): Try again is the person's then.
+   */
+  private watchOffline() {
+    if (this.offlineTimer || !this.team) return
+    this.offlineWatching = true
+    const id = this.team.id, origin = this.team.origin
+    const watch = this.offlineWatch
+    const still = () => watch === this.offlineWatch && !this.win.isDestroyed() && this.mode === 'offline' && this.team?.id === id
+    this.offlineTimer = setTimeout(() => {
+      this.offlineTimer = undefined
+      if (!still()) return
+      void fetchHealth(origin).then((r) => answersAgain(origin, r), () => false).then((back) => {
+        if (!still()) return
+        if (back) { this.offlineReopened = true; void this.reload() }
+        else this.watchOffline()
+      })
+    }, offlineRetryDelay(this.offlineTries++))
+  }
+  private stopOfflineWatch() {
+    clearTimeout(this.offlineTimer)
+    this.offlineTimer = undefined
+    this.offlineWatching = false
+    this.offlineWatch++
+  }
+  /** "Other teams" on the cannot-reach card: the person left it, so the team does not open under them later. */
+  leftOffline() {
+    this.stopOfflineWatch()
+    this.offlineTries = 0
   }
 
   /**
@@ -703,6 +993,7 @@ export class AppWindow {
 
   private disposeTeam() {
     clearInterval(this.recheckTimer)
+    this.stopOfflineWatch()
     // a look of this team page: its ids read nothing any more, one still running gives nothing
     this.workFiles.forget()
     // the team's notifications name its chats and open its addresses: none outlives the team page (session markers),
@@ -711,6 +1002,8 @@ export class AppWindow {
     if (process.platform === 'darwin') electronApp.setBadgeCount(0)
     this.pane?.dispose()
     this.pane = undefined
+    // this computer leaves the team: its server hears it at once, not after the last report goes stale (phone rule)
+    this.computerReporter.farewell()
     if (this.app) {
       const wc = this.app.webContents
       if (!this.win.isDestroyed() && this.win.contentView.children.includes(this.app)) this.win.contentView.removeChildView(this.app)
@@ -728,6 +1021,7 @@ export class AppWindow {
   private configureAppSession(ses: Session) {
     if (this.configuredSessions.has(ses)) return
     this.configuredSessions.add(ses)
+    this.downloads.attach(ses)
     this.folderGrants.set(ses, hardenAppSession(ses, () => this.allowedOrigins(), (why) => this.folderRefused(why)))
     pinCertificates(
       ses,
@@ -1069,12 +1363,97 @@ export class AppWindow {
 
   // ----------------------------------------------------------------- layout
 
+  // ------------------------------------------------- the browser toolbar's own page
+
+  private loadChrome() {
+    if (this.win.isDestroyed() || this.chrome.webContents.isDestroyed()) return
+    this.chrome.webContents.loadURL(`${UI_ORIGIN}/pane.html`).catch(() => {})
+  }
+
+  /**
+   * The toolbar's page is gone (common/pane-chrome.ts): the browser is not drawn until it is back. It loads again a few
+   * times; past that the browser closes (the AI's tabs keep running, as after ✕) and the next time it is opened, by the
+   * person or the AI's next step, the toolbar is tried again.
+   */
+  private chromeFailed(why: string) {
+    if (this.win.isDestroyed() || this.chrome.webContents.isDestroyed()) return
+    debug('browser toolbar failed', why)
+    if (!this.chromeDown) {
+      this.chromeDown = true
+      this.tellPageOpen()
+    }
+    this.layout()
+    if (this.chromeRetry) return
+    const r = chromeRecovery(this.chromeFailures, Date.now())
+    this.chromeFailures = r.failures
+    if (r.action === 'close') {
+      this.pane?.hide()
+      return
+    }
+    this.chromeRetry = setTimeout(() => {
+      this.chromeRetry = undefined
+      this.loadChrome()
+    }, CHROME_RELOAD_DELAY_MS)
+  }
+
+  /**
+   * The toolbar's page drew its controls (its ✕ is there; also told by every toolbar height it reports, main.ts): the
+   * browser is drawn from now on, and the questions waiting for the person are told again (they are told only when they
+   * change, so a toolbar loaded again would not have them).
+   */
+  chromeUp() {
+    if (!this.chromeDown || !this.chromeLoaded || this.chromeLoadFailed || this.win.isDestroyed()) return
+    this.chromeDown = false
+    this.paneWidthTold = ''
+    this.pane?.resendPrompts()
+    this.tellPageOpen()
+    this.layout()
+  }
+
+  /** The browser opened while its toolbar is down and no load again is waiting: try it now. */
+  private chromeOnOpen(byPerson: boolean) {
+    if (!this.chromeDown || this.chromeRetry || !this.pane?.open || this.chrome.webContents.isLoading()) return
+    // the AI's steps open the browser again and again: they wait for the budget; the person's 🌐 always tries
+    if (!byPerson && this.chromeFailures.filter((t) => Date.now() - t < CHROME_RELOAD_WINDOW_MS).length >= CHROME_RELOADS) return
+    this.loadChrome()
+  }
+
+  /** Did the toolbar's page draw its ✕? Yes: the browser is drawn (chromeUp); no, or no answer: as a failed load. */
+  private checkChromeDrawn() {
+    const nav = this.chromeNav
+    const failed = (why: string) => nav === this.chromeNav && this.chromeFailed(why)
+    this.chrome.webContents
+      .executeJavaScript(`!!document.querySelector('#toolbar [data-testid="pane-close"]')`)
+      .then((drawn) => {
+        if (nav !== this.chromeNav) return
+        if (drawn === true) this.chromeUp()
+        else failed('not drawn')
+      })
+      .catch(() => failed('check failed'))
+  }
+
+  /** The pane's state for the team page: open only while it is drawn (its 🌐 shows what the person sees). */
+  paneStateForPage(): DesktopPaneState | null {
+    const s = this.pane?.state()
+    return s ? { ...s, open: s.open && !this.chromeDown } : null
+  }
+
+  private tellPageOpen() {
+    const s = this.paneStateForPage()
+    if (s) this.send(this.app, 'bridge:pane-state', s)
+  }
+
+  /** the browser is drawn: it is open and its toolbar is there */
+  private paneShown(): boolean {
+    return this.mode === 'team' && !!this.app && !!this.pane?.open && !this.chromeDown
+  }
+
   // ------------------------------------------------- the in-app browser's width
 
   /** The browser's width now (0: closed) and its limits, in this window. */
   paneWidth(): { now: number; min: number; max: number; grab: number } {
     const [w] = this.win.isDestroyed() ? [0] : this.win.getContentSize()
-    const now = this.mode === 'team' && this.app && this.pane?.open ? paneWidthFor(this.paneFraction, w) : 0
+    const now = this.paneShown() ? paneWidthFor(this.paneFraction, w) : 0
     return { now, ...paneLimits(w), grab: now ? paneGrab(w - now) : 0 }
   }
 
@@ -1180,22 +1559,57 @@ export class AppWindow {
       hide(this.hostbar)
       this.pane?.setBounds(null)
       show(this.shell, { x: 0, y: 0, width: w, height: h })
+      this.placeFind()
       this.sendPaneWidth()
       this.sendFocus()
       return
     }
     hide(this.shell)
     // the browser's remembered share of the window, within its limits (common/pane-width.ts)
-    const pw = this.pane?.open ? paneWidthFor(this.paneFraction, w) : 0
+    const pw = this.paneShown() ? paneWidthFor(this.paneFraction, w) : 0
     // the team address above the page (drawn by the app): on the sign-in pages, and on every page until the team said
     // who is signed in
-    const top = hostLineNow({ path: this.pagePath, signedIn: this.signedIn, answered: this.meAnswered, waited: this.stripWaited }) ? HOSTBAR_HEIGHT : 0
+    // or, while Find work files reads the files the person added, "Trina is reading N files from this computer"
+    const top = this.hostLine() || this.reading ? HOSTBAR_HEIGHT : 0
     if (top) show(this.hostbar, { x: 0, y: 0, width: Math.max(0, w - pw), height: top })
     else hide(this.hostbar)
     show(this.app, { x: 0, y: top, width: Math.max(0, w - pw), height: Math.max(0, h - top) })
     this.pane?.setBounds(pw ? { x: w - pw, y: 0, width: pw, height: h } : null)
+    this.placeFind()
     this.sendPaneWidth()
     this.sendFocus()
+  }
+
+  // ------------------------------------------------------------------- find
+
+  /** Edit › Find… (Cmd/Ctrl+F), Find Next (Cmd/Ctrl+G), Find Previous (Shift+Cmd/Ctrl+G): the find bar over the view
+   * the person is in (common/find-bar.ts findTarget). Next / previous with the bar closed open it, as Find does. */
+  find(what: 'open' | 'next' | 'prev') {
+    if (this.win.isDestroyed()) return
+    const bar = this.findBar
+    if (what !== 'open' && bar.open) return bar.step(what === 'next')
+    const target = findTarget({
+      shown: this.shownViews(),
+      last: this.keys?.view,
+      bar: bar.view,
+      searching: bar.target,
+      toolbar: this.chrome,
+      paneTab: this.pane?.shownTab(),
+      strip: this.hostbar,
+      page: this.mode === 'team' && this.app ? this.app : undefined,
+      screen: this.shell,
+    })
+    if (target) void bar.show(target)
+  }
+
+  /** On every layout: the find bar over its view's corner, or closed when that view left the window (the team list over
+   * the team page, the browser closed, another tab, another team). */
+  private placeFind() {
+    const bar = this.findBar
+    const t = bar.target
+    if (!t) return
+    if (t.webContents.isDestroyed() || !this.win.contentView.children.includes(t)) return bar.close(false)
+    bar.place()
   }
 
   /** Is the person looking at the team page (DesktopBridge.focus, docs/DECISIONS.md "화면에 연 대화는 울리지 않는다")?
@@ -1224,6 +1638,8 @@ export class AppWindow {
   private watchKeys(view: WebContentsView, inPane: boolean) {
     const wc = view.webContents
     wc.on('focus', () => {
+      // the find bar's page outside the window (closed) never holds the keyboard
+      if (view === this.findBar.view && !this.findBar.open) return
       // a press in the browser toolbar (its edge handle) takes the keyboard first: remember where it was (keysAfterDrag)
       if (view === this.chrome) this.beforeToolbarFocus = { keys: this.keys, at: Date.now() }
       this.keysAt(view, inPane)
@@ -1231,9 +1647,11 @@ export class AppWindow {
     // where the person acts: a key or a mouse press in this view
     wc.on('before-input-event', (_e, i) => {
       if (i.type !== 'keyUp') this.personActed(inPane)
+      if (i.type === 'keyDown' && view === this.app) this.appInputAt = Date.now()
     })
     wc.on('before-mouse-event', (_e, m) => {
       if (m.type !== 'mouseDown') return
+      if (view === this.app) this.appInputAt = Date.now()
       if (view === this.chrome) {
         // the view took the keyboard for this very press (its focus event came just before, and no other press in it
         // since), or had it already
@@ -1259,9 +1677,14 @@ export class AppWindow {
     const pane = this.pane
     if (!pane) return
     if (what === 'open' || (what === 'toggle' && !pane.open)) this.personActed(true)
-    if (what === 'open') pane.show()
+    // open but not drawn (its toolbar is loading again): the person asks to see it, so try the toolbar now rather
+    // than close a browser they cannot see (the team page shows it closed, paneStateForPage)
+    if (what !== 'close' && pane.open && this.chromeDown) this.chromeOnOpen(true)
+    else if (what === 'open') pane.show()
     else if (what === 'close') pane.hide()
     else pane.toggle()
+    // the person opened it: the toolbar is tried now even after the few loads again (an AI step waits for those)
+    if (what !== 'close' && pane.open) this.chromeOnOpen(true)
   }
 
   /** A tab of the in-app browser got the keyboard: a page load there does not take it from where the person is
@@ -1288,7 +1711,7 @@ export class AppWindow {
   /** the window's views on screen that could have the keyboard */
   private shownViews(): WebContentsView[] {
     const children = this.win.contentView.children
-    return [this.shell, this.chrome, this.hostbar, this.app, this.pane?.shownTab()].filter((v): v is WebContentsView => !!v && !v.webContents.isDestroyed() && children.includes(v))
+    return [this.shell, this.chrome, this.hostbar, this.app, this.pane?.shownTab(), this.findBar.view].filter((v): v is WebContentsView => !!v && !v.webContents.isDestroyed() && children.includes(v))
   }
 
   /** the window has the focus and no dialog or right-click menu of the app is open over it */
@@ -1297,7 +1720,7 @@ export class AppWindow {
   }
 
   private keysTo(view: WebContentsView, why: string) {
-    const name = view === this.app ? 'team page' : view === this.chrome ? 'browser toolbar' : view === this.shell ? 'app screen' : view === this.hostbar ? 'host strip' : 'browser tab'
+    const name = view === this.app ? 'team page' : view === this.chrome ? 'browser toolbar' : view === this.shell ? 'app screen' : view === this.hostbar ? 'host strip' : view === this.findBar.view ? 'find bar' : 'browser tab'
     debug('keyboard to', name, why)
     this.giving = view
     try {
@@ -1367,7 +1790,16 @@ export class AppWindow {
     this.send(this.shell, 'ui:locale', payload)
     this.send(this.chrome, 'ui:locale', payload)
     this.send(this.hostbar, 'ui:locale', payload)
+    this.findBar.localeChanged(payload)
     this.updateTitle()
+  }
+
+  /** This team's pages draw (true) or no longer draw (false) their own address line under the sign-in card
+   * (DesktopBridge.hostLine). */
+  setPageHostLine(drawn: boolean) {
+    if (!this.app || drawn === this.pageHostLine) return
+    this.pageHostLine = drawn
+    this.layout()
   }
 
   /** The team page moved: the host strip shows on its sign-in pages, and on every page until /api/me answered. */
@@ -1390,6 +1822,8 @@ export class AppWindow {
     this.signedIn = signedIn
     this.meAnswered = true
     this.layout()
+    // signed in to the open team: its server hears about this computer now, not at the next 30 s tick
+    if (signedIn) void this.computerReporter.report(readSystemActivity(powerMonitor))
   }
 
   private sendHostbar() {
@@ -1404,7 +1838,7 @@ export class AppWindow {
 
   private sendPaneState(s: DesktopPaneState) {
     this.send(this.chrome, 'ui:pane-state', s)
-    this.send(this.app, 'bridge:pane-state', s)
+    this.send(this.app, 'bridge:pane-state', { ...s, open: s.open && !this.chromeDown })
     this.layout()
   }
 

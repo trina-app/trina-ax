@@ -18,6 +18,10 @@ import { fileUrl, saveBlob } from '../lib/api'
 import { classifyImage, classifyLink, isDisplayableImagePath, prepareMarkdown, teamLinkTarget } from '../lib/markdown'
 import { footnotesTooHeavy, lineEnds, personWords, tableTooBig, protectMentions, remarkCapDepth, remarkFootnotesAsText, remarkGfmNoFootnotes, tooHeavyForMarkdown, type MessageMention } from '../lib/messageMarkdown'
 import { LinkedText, RoomLink } from './rooms/MessageText'
+import { capBlankLines } from '../lib/blankLines'
+import { useLinkHosts } from './rooms/MessageLinkChip'
+import { AppLinkChip } from './AppLinkChip'
+import { appLinkRef, labelIsAddress } from '../lib/appLinks'
 import { previewKind } from '../lib/preview'
 import type { SourceLoc } from '@mycel/shared/api'
 import { openFilePreview, openTeamFile, type PreviewFile } from '../lib/sidePanel'
@@ -28,10 +32,14 @@ import { externalImageHintKey } from '../lib/appWording'
 import { toast } from '../store/ui'
 import { useCopy, useEdgeFade } from './ui'
 import { Tooltip } from './Tooltip'
+import { useGuestFolderHref } from './GuestView'
+import { guestAppHref } from '../lib/guests'
 import { useViewerItem } from './ImageViewer'
 import { teamImageItem } from '../lib/imageViewer'
 import { useDarkTheme } from '../lib/theme'
+import { useGrantedLink } from '../lib/grantedLink'
 import { keepPunctuation } from '../lib/keepPunctuation'
+import { PersonButton } from './PersonCard'
 
 const mathRemark = [remarkMath, { singleDollarTextMath: true }] as const
 const mathRehype = [rehypeKatex, { throwOnError: false, strict: false, trust: false, maxExpand: 500 }] as const
@@ -282,7 +290,7 @@ const useLinkTarget = (path: string) => teamLinkTarget(path, useContext(Openable
 function TeamFileLink({ path, at, children }: { path: string; at?: SourceLoc; children: ReactNode }) {
   const t = useT()
   const target = useLinkTarget(path)
-  if (target.kind === 'locked') return <LockedFile>{children}</LockedFile>
+  if (target.kind === 'locked') return <LockedFile path={path}>{children}</LockedFile>
   const copy = target.kind === 'copy' ? target.copy : null
   const canPreview = previewKind(copy?.name ?? path) !== null
   return (
@@ -304,9 +312,28 @@ function TeamFileLink({ path, at, children }: { path: string; at?: SourceLoc; ch
  * Hover or keyboard focus says why ("열 수 없어요: 옮겨졌거나 지워졌거나 권한이 없어요"); a tap or click says it too (a toast:
  * touch has no tooltip). Nothing of the file is loaded and nothing says whether it exists, so the words name every
  * reason: a file moved after the message was sent is locked too (QA TC-063). */
-function LockedFile({ children }: { children: ReactNode }) {
+/** An address inside the app in an answer. A guest has no 파일 screen (App.tsx NotForGuests: /files goes Home): a folder
+ * link opens their project's files screen, or is plain text where no screen of theirs lists it. */
+function AppLink({ href, children }: { href: string; children: ReactNode }) {
+  const guestFolder = useGuestFolderHref()
+  const to = guestFolder ? guestAppHref(href, guestFolder) : href
+  return to ? <Link to={to}>{children}</Link> : <span>{children}</span>
+}
+
+function LockedFile({ children, path }: { children: ReactNode; path?: string }) {
   const t = useT()
   const why = t('rooms.fileNoAccess')
+  // shared with me since (the sender's "Let them view", docs/decisions/20261116-ai-share-who-can-open.md): the folder
+  // still does not let me in, the file's own link does
+  const link = useGrantedLink(path)
+  if (link) {
+    return (
+      <Link to={`/f/${link}`} className="not-prose inline rounded-sm text-left font-medium text-accent-text underline decoration-accent-text/40 underline-offset-2 [overflow-wrap:anywhere] hover:decoration-accent-text" title={t('common.preview')} data-testid="team-file-shared-link">
+        <FileText className="mr-0.5 inline-block size-[0.95em] shrink-0 align-[-0.125em]" aria-hidden />
+        {children}
+      </Link>
+    )
+  }
   return (
     <Tooltip label={why} description>
       <button
@@ -381,18 +408,7 @@ const origin = () => (typeof location === 'undefined' ? 'http://localhost' : loc
 const COMPONENTS: Components = {
   table: ({ children }) => <CopyableTable>{children}</CopyableTable>,
   td: ({ node, className, ...props }) => <td {...props} className={clsx(className, isNumberCell(cellText(node)) && 'whitespace-nowrap tabular-nums') || undefined} />,
-  a: ({ href, children }) => {
-    const l = classifyLink(href, origin())
-    if (l.kind === 'team-file') return <TeamFileLink path={l.path} at={l.at}>{children}</TeamFileLink>
-    if (l.kind === 'app') return <Link to={l.href}>{children}</Link>
-    if (l.kind === 'external')
-      return (
-        <a href={l.href} target="_blank" rel="noopener noreferrer nofollow" referrerPolicy="no-referrer">
-          {children}
-        </a>
-      )
-    return <span>{children}</span>
-  },
+  a: ({ href, children }) => <AnswerLink href={href}>{children}</AnswerLink>,
   pre: ({ node, children }) => {
     const c = codeOf(node)
     if (!c) return <pre className="overflow-x-auto">{children}</pre>
@@ -406,6 +422,34 @@ const COMPONENTS: Components = {
     if (k.kind === 'external') return <ExternalImage href={k.href} host={k.host} alt={alt} />
     return <span className="text-faint">[{alt}]</span>
   },
+}
+
+/** The text of a link's label when it is only text (an autolinked address is one string, or an array of one). */
+const labelText = (children: ReactNode): string | null => (typeof children === 'string' ? children : Array.isArray(children) && children.length === 1 && typeof children[0] === 'string' ? children[0] : null)
+
+/** A link in an answer. A bare address of something in this app (a chat, a project, a conversation, a file link, a
+ * folder or a file) is a chip with its name for this viewer (AppLinkChip.tsx); a link with its own words keeps them. In
+ * a room (OpenableFiles set) a team file keeps its lock-or-copy rule (TeamFileLink). */
+function AnswerLink({ href, children }: { href: string | undefined; children: ReactNode }) {
+  const hosts = useLinkHosts()
+  const openable = useContext(OpenableFiles)
+  const label = labelText(children)
+  const app = href && label !== null && labelIsAddress(label, href) ? appLinkRef(href, hosts, origin()) : null
+  if (app && !(app.kind === 'file' && openable !== null)) return <AppLinkChip link={app} />
+  return <AnswerLinkPlain href={href}>{children}</AnswerLinkPlain>
+}
+
+function AnswerLinkPlain({ href, children }: { href: string | undefined; children: ReactNode }) {
+  const l = classifyLink(href, origin())
+  if (l.kind === 'team-file') return <TeamFileLink path={l.path} at={l.at}>{children}</TeamFileLink>
+  if (l.kind === 'app') return <AppLink href={l.href}>{children}</AppLink>
+  if (l.kind === 'external')
+    return (
+      <a href={l.href} target="_blank" rel="noopener noreferrer nofollow" referrerPolicy="no-referrer">
+        {children}
+      </a>
+    )
+  return <span>{children}</span>
 }
 /** An assistant answer's Markdown: the top-level quotes labelQuotes named get a copy button each; other quotes stay
  * plain quotes, as in files, docs, artifacts and the rest of the app. */
@@ -585,6 +629,13 @@ function AnswerMarkdown({ text, streaming, className, size, copyQuotes }: { text
  * answers' card that opens it in a new tab, a team file a link (TeamImagesAsLinks), anything else its words. No math
  * ("3~5$" and prices are a chat's words) and no single-tilde strike ("3~5분"); a Mermaid fence is code. */
 const COMPONENTS_PERSON: Components = {
+  // an @mention of a person (lib/messageMarkdown.ts `data-person`): the name opens their card (PersonCard.tsx); "@all",
+  // and a name the directory does not list, stay words
+  span: ({ node, className, children, ...rest }) => {
+    const id = node?.properties?.dataPerson
+    if (typeof id !== 'string') return <span className={className} {...rest}>{children}</span>
+    return <PersonButton user={{ id, name: '' }} look="mention" className={className} testId="room-mention-person">{children}</PersonButton>
+  },
   table: COMPONENTS.table,
   td: COMPONENTS.td,
   // a plain address (lib/messageMarkdown.ts) breaks after its slashes as before; a Markdown link shows its label
@@ -605,7 +656,8 @@ const COMPONENTS_PERSON: Components = {
 const REMARK_PERSON = [[remarkGfmNoFootnotes, { singleTilde: false }] as never, remarkCjkFriendly]
 
 /** `mentions`: the names the message mentions (lib/messageMarkdown.ts); `after`: a mark after the words ("edited"),
- * on the last line when that is a paragraph. */
+ * on the last line when that is a paragraph. Blank lines show as typed (lib/messageMarkdown.ts keepBlankLines): a
+ * paragraph has no margin of its own, since two paragraphs always have a blank line, now its empty line, between them. */
 export const PersonMarkdown = memo(function PersonMarkdown({ text, mentions, className, after }: { text: string; mentions: MessageMention[]; className?: string; after?: ReactNode }) {
   // (one element while the words and the names are the same, whatever else changes: a new "edited" mark or a new list
   // of the same names does not read the Markdown again)
@@ -625,7 +677,7 @@ export const PersonMarkdown = memo(function PersonMarkdown({ text, mentions, cla
   // (if it cannot be drawn: its words, as a message being sent shows them)
   const plain = (
     <div className={clsx('whitespace-pre-wrap break-words text-reading leading-reading text-ink', className)} data-testid="message-markdown" data-plain="">
-      <LinkedText text={text} />
+      <LinkedText text={capBlankLines(text)} />
       {after}
     </div>
   )
@@ -636,7 +688,9 @@ export const PersonMarkdown = memo(function PersonMarkdown({ text, mentions, cla
       <TeamImagesAsLinks.Provider value>
         <div
           className={clsx(
-            'answer prose max-w-none break-words text-reading leading-reading text-ink prose-headings:mt-3 prose-headings:mb-1 prose-headings:font-semibold prose-h1:text-lg prose-h2:text-base prose-h3:text-reading prose-p:my-1 prose-blockquote:font-normal prose-code:rounded prose-code:bg-subtle prose-code:px-1 prose-code:py-0.5 prose-code:text-[0.85em] prose-code:font-normal prose-code:box-decoration-clone prose-code:before:content-none prose-code:after:content-none prose-ol:my-1 prose-ul:my-1 prose-li:my-0 prose-hr:my-3 prose-table:my-0 prose-th:bg-subtle prose-th:px-3 prose-th:py-1.5 prose-td:px-3 prose-td:py-1.5 [&>*:first-child]:mt-0 [&>*:last-child]:mb-0 max-md:[&_li_:is(ul,ol)]:pl-4 max-md:[&_li_li]:pl-0.5 [&_a]:[unicode-bidi:isolate]',
+            'answer prose max-w-none break-words text-reading leading-reading text-ink prose-headings:mt-3 prose-headings:mb-1 prose-headings:font-semibold prose-h1:text-lg prose-h2:text-base prose-h3:text-reading prose-p:my-0 prose-blockquote:font-normal prose-code:rounded prose-code:bg-subtle prose-code:px-1 prose-code:py-0.5 prose-code:text-[0.85em] prose-code:font-normal prose-code:box-decoration-clone prose-code:before:content-none prose-code:after:content-none prose-ol:my-1 prose-ul:my-1 prose-li:my-0 prose-hr:my-3 prose-table:my-0 prose-th:bg-subtle prose-th:px-3 prose-th:py-1.5 prose-td:px-3 prose-td:py-1.5 [&>*:first-child]:mt-0 [&>*:last-child]:mb-0 max-md:[&_li_:is(ul,ol)]:pl-4 max-md:[&_li_li]:pl-0.5 [&_a]:[unicode-bidi:isolate]',
+            // (around empty lines the blocks have no margin of their own: the gap is the lines typed; QA TC-4967)
+            '[&_[data-blank-lines]+*]:mt-0 [&_*:has(+[data-blank-lines])]:mb-0',
             after != null && '[&>p:nth-last-child(2)]:inline',
             className,
           )}

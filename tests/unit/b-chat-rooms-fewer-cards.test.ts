@@ -129,8 +129,36 @@ const labels = (done: { steps?: { tool?: string; label: string }[] }, tool: stri
 const WHY = "Messages from your conversations (other people's words) came in here, so changes are asked first. "
 const OWN = 'saved without asking: your own folder'
 const ONCE = 'allowed once in this answer'
-const ALWAYS = 'allowed: always in this room'
+const ALWAYS = 'allowed: always in this conversation'
 const WEB = { webSearch: { query: 'q4 news', hits: [{ title: 'News', url: 'https://news.example/a' }] } }
+
+describe('an explicit "save it" (docs/decisions/20261116-room-link-save-one-prompt.md, QA TC-3830)', () => {
+  test('the side chat saves a new file into the room\'s folder with no card; an existing file, a skill or a request without "save" still ask', async () => {
+    const roomId = await teamRoom()
+    await send('erin', roomId, '회의록: 부스 2개, 배너 1개')
+    const dir = folder()
+    const tag = uuidv7().slice(-6)
+    const chat = await sideChat('alice', roomId)
+    const saved = await run('alice', chat, `방금 회의록 파일로 저장해줘\n${fake(roomRead(roomId), write(`${dir}/notes-${tag}.md`, '부스 2개\n'), { say: 'saved' })}`)
+    expect(saved.cards).toHaveLength(0)
+    expect(read(`${dir}/notes-${tag}.md`)).toBe('부스 2개\n')
+    // an existing file: the card (an explicit save adds files, it never overwrites one without the person)
+    put(`${dir}/old-${tag}.md`, 'old\n')
+    const over = await run('alice', chat, `회의록 저장해줘\n${fake(write(`${dir}/old-${tag}.md`, 'new\n'), { say: 'x' })}`)
+    expect(over.cards).toHaveLength(1)
+    expect(read(`${dir}/old-${tag}.md`)).toBe('old\n')
+    // a skill: the card
+    const skill = await run('alice', chat, `save it\n${fake(write(`users/alice/skills/s-${tag}/SKILL.md`, '---\nname: s\ndescription: x\n---\nx\n'), { say: 'x' })}`)
+    expect(skill.cards).toHaveLength(1)
+    // "don't save" is no save
+    const not = await run('alice', chat, `저장하지 말고 요약만 해줘\n${fake(write(`${dir}/not-${tag}.md`, 'x\n'), { say: 'x' })}`)
+    expect(not.cards).toHaveLength(1)
+    // no save in the person's own words: the card
+    const plain = await run('alice', chat, `요약해줘\n${fake(write(`${dir}/other-${tag}.md`, 'x\n'), { say: 'x' })}`)
+    expect(plain.cards).toHaveLength(1)
+    expect(exists(`${dir}/other-${tag}.md`)).toBe(false)
+  })
+})
 
 describe('my own folder after a room read', () => {
   test('flow (a): the side chat sums up the room into my folder: no card, the step says why; a fix of that file in the same answer too', async () => {
@@ -374,7 +402,7 @@ describe('what counts as outside', () => {
 })
 
 describe('the tools that refuse after a room read', () => {
-  test('no cover reaches a skill folder; delete_files still refuses; a path an AI put in the trash is no new file', async () => {
+  test('no cover reaches a skill folder; delete_files asks on its own card; a path an AI put in the trash is no new file', async () => {
     const roomId = await teamRoom()
     const dir = folder()
     const tag = uuidv7().slice(-6)
@@ -388,11 +416,12 @@ describe('the tools that refuse after a room read', () => {
     const chat = await sideChat('alice', roomId)
     let n = 0
     const r = await run('alice', chat, fake(roomRead(roomId), write(`${dir}/a.md`), write(`${dir}/b.md`), write(`groups/marketing/skills/planted-${tag}/SKILL.md`, '---\nname: planted\ndescription: x\n---\nx\n'), write(gone, 'planted\n'), { tool: 'delete_files', args: { paths: [`${dir}/a.md`] } }, { say: 'done' }), () => (n++ === 0 ? 'allow' : 'skip'))
-    expect(r.cards.map((c) => c.question.includes(`${W(dir)}: a.md`) ? 'team' : c.question.includes('skills/planted') ? 'skill' : c.question.includes(gone) ? 'trashed' : 'other')).toEqual(['team', 'skill', 'trashed'])
+    expect(r.cards.map((c) => c.question.includes(`${W(dir)}: a.md`) ? 'team' : c.question.includes('skills/planted') ? 'skill' : c.question.includes(gone) ? 'trashed' : c.question.includes('to the trash') ? 'delete' : 'other')).toEqual(['team', 'skill', 'trashed', 'delete'])
     expect(read(`${dir}/b.md`)).toBe('made by the AI\n')
     expect(exists(`groups/marketing/skills/planted-${tag}`)).toBe(false)
     expect(exists(gone)).toBe(false)
-    // delete_files refuses after a room read, before any card, and nothing goes
+    // delete_files after a room read: its own card every time (limits audit N20), the room line first; a no keeps it
+    expect(r.cards.at(-1)!.question.startsWith("Messages from your conversations (other people's words) came in here")).toBe(true)
     const del = (h.ctx.db.query("SELECT ok, summary FROM tool_events WHERE turn_id = ? AND tool = 'delete_files'").get(r.turnId) as { ok: number; summary: string })
     expect(del.ok).toBe(0)
     expect(exists(`${dir}/a.md`)).toBe(true)

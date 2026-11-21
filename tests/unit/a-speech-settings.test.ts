@@ -140,7 +140,7 @@ describe('not chosen: the team key turns voice input on', () => {
     const s = await owner.call('PATCH', '/api/admin/settings', { auditRetentionDays: 120 })
     expect(s.speechProvider).toBe('openrouter')
     expect(s.aiMediaTranscripts).toBeNull()
-    expect(mediaTranscriptsOn(s, 16, false)).toBe(false)
+    expect(mediaTranscriptsOn(s, { hosted: false, hostedKey: false, mac: false, bigEnough: true })).toBe(false)
     expect(stored()).toBeNull()
   })
   test("an admin's 'off' wins over the key; without the choice the key counts again", async () => {
@@ -169,7 +169,8 @@ describe('not chosen: the team key turns voice input on', () => {
 
 describe("'local' needs whisper-cli and ffmpeg on this server", () => {
   const voice = async () => (await member.client.call('GET', '/api/me')).team.voiceInput
-  const tools = (whisperBin: string | null, ffmpegBin: string | null) => Object.assign(h.ctx.files.speech, { whisperBin, ffmpegBin })
+  // as on Linux or an Intel Mac (an Apple silicon Mac needs no ffmpeg: the Mac test below)
+  const tools = (whisperBin: string | null, ffmpegBin: string | null) => Object.assign(h.ctx.files.speech, { whisperBin, ffmpegBin, mac: null })
 
   test('without either the mic stays hidden (it used to show and fail every recording), and the settings screen names what is missing', async () => {
     await owner.call('PATCH', '/api/admin/settings', { speechProvider: 'local' })
@@ -185,6 +186,22 @@ describe("'local' needs whisper-cli and ffmpeg on this server", () => {
     tools('/usr/bin/true', '/usr/bin/true')
     expect(await voice()).toBe(true)
     expect((await owner.call('GET', '/api/admin/speech-host')).localMissing).toEqual([])
+  })
+  test('an Apple silicon Mac: no ffmpeg needed (macOS decodes), recordings come as WAV; Team settings says it is this Mac', async () => {
+    await owner.call('PATCH', '/api/admin/settings', { speechProvider: 'local' })
+    Object.assign(h.ctx.files.speech, { whisperBin: '/usr/bin/true', ffmpegBin: null, mac: { afinfo: '/usr/bin/afinfo', afconvert: '/usr/bin/afconvert', avconvert: null } })
+    try {
+      expect(await voice()).toBe(true)
+      expect((await member.client.call('GET', '/api/me')).team.voiceInputWav).toBe(true)
+      const host = await owner.call('GET', '/api/admin/speech-host')
+      expect(host.localMissing).toEqual([])
+      expect(host.localMac).toBe(true)
+      // the small model is not in this test's data folder: the first use downloads it
+      expect(host.localModelMb).toBe(488)
+      // ffmpeg there (Homebrew): the browser's own recording, as before
+      Object.assign(h.ctx.files.speech, { ffmpegBin: '/usr/bin/true' })
+      expect((await member.client.call('GET', '/api/me')).team.voiceInputWav).toBeUndefined()
+    } finally { tools('/usr/bin/true', '/usr/bin/true') }
   })
   test('the tools do not matter for OpenRouter', async () => {
     tools(null, null)

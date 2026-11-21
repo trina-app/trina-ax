@@ -126,7 +126,7 @@ export function demoConfig(base: UserConfig): UserConfig {
     plugins: [demoBaseSource(), ...(base.plugins ?? []), demoPages()],
     resolve: {
       alias: [
-        { find: /^node:(fs|os|path|zlib)$/, replacement: shim('node.ts') },
+        { find: /^node:(fs|os|path|zlib|async_hooks)$/, replacement: shim('node.ts') },
         { find: /^.*\/server\/src\/credentials\/seal$/, replacement: shim('server-stubs.ts') },
         { find: /^.*\/server\/src\/routes\/web-static$/, replacement: shim('server-stubs.ts') },
         { find: '@demo-content', replacement: contentFile() },

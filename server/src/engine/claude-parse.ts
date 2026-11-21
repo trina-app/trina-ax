@@ -2,11 +2,27 @@
 // (ideas from Saram run.ts: text from stream_event deltas, tool steps from assistant messages, errors from result).
 import type { AgentStats, EngineEvent, EngineErrorCode } from '@mycel/shared'
 
+/** the conversation no longer fits the model (Anthropic "prompt is too long: N tokens > M maximum", "input length and
+ * `max_tokens` exceed context limit"; OpenAI "context_length_exceeded", "maximum context length", Codex "exceeds the
+ * context window"; Claude Code "Conversation too long"; Anthropic's request_too_large: a fresh start sends less) */
+export const CONTEXT_FULL = /prompt is too long|context[ _](window|length|limit)|context_length_exceeded|maximum context|too many tokens|conversation (is )?too long|request_too_large|request too large/
+
+/** a per-minute token limit (Anthropic / OpenAI TPM: "too many tokens per minute", "Request too large for gpt-4o on
+ * tokens per min"): a rate limit, never a full conversation, though it says "too many tokens" or "request too large" */
+const PER_MINUTE = /per min|\btpm\b|per minute|rate.?limit/
+/** the text says the conversation does not fit (CONTEXT_FULL), and is not a per-minute limit */
+export const contextFull = (text: string): boolean => { const m = text.toLowerCase(); return CONTEXT_FULL.test(m) && !PER_MINUTE.test(m) }
+
 export function classifyError(msg: string): EngineErrorCode {
   const m = msg.toLowerCase()
-  if (/not logged in|authentication|invalid api key|401|unauthorized|oauth/.test(m)) return 'auth'
-  if (/rate.?limit|429|overloaded|usage limit|quota/.test(m)) return 'rate_limit'
-  if (/prompt is too long|context|too many tokens/.test(m)) return 'context'
+  // the error class or the leading text, never a number inside an id (a request_id with "401" in it is not a sign-in error)
+  if (/not logged in|authentication_error|authentication_failed|authentication failed|failed to authenticate|invalid api key|invalid x-api-key|oauth token (has expired|has been revoked|is invalid)|please run \/login|\bunauthorized\b/.test(m)
+    || /(^|\bapi error:?\s*|\bstatus:?\s*)401\b/.test(m.trim())) return 'auth'
+  // only what the providers say when the conversation does not fit (limits audit 2 #13): "context" alone matched any
+  // error that named a context ("execution context destroyed", a tool's "context" field) and ended the answer as full.
+  // Before the limit check: a token count such as "214290 tokens" holds "429"
+  if (contextFull(m)) return 'context'
+  if (/rate.?limit|\b429\b|overloaded|usage limit|quota/.test(m) || PER_MINUTE.test(m)) return 'rate_limit'
   if (/refus/.test(m)) return 'refused'
   if (/timed? ?out|timeout/.test(m)) return 'timeout'
   return 'crash'
@@ -86,6 +102,10 @@ export class ClaudeStreamParser {
       this.init = ev
       if (ev.session_id) { this.sessionId = ev.session_id; out.push({ type: 'session', sessionId: ev.session_id }) }
       out.push({ type: 'init', tools: strings(ev.tools), agents: strings(ev.agents), mcpServers: Array.isArray(ev.mcp_servers) ? strings(ev.mcp_servers.map((m: any) => m?.name)) : [] })
+    } else if (ev.type === 'system' && !parent && (ev.subtype === 'compact_boundary' || ev.subtype === 'microcompact_boundary')) {
+      // the main AI's session dropped text it saw (a compaction): reads made before it no longer allow a whole-file
+      // replace (chat/carried-reads.ts); a sub-agent never replaces a whole file from an earlier read anyway
+      out.push({ type: 'compacted' })
     } else if (ev.type === 'system' && (ev.subtype === 'task_progress' || ev.subtype === 'task_notification')) {
       const stats = agentStats(ev.usage)
       if (typeof ev.tool_use_id === 'string' && stats) out.push({ type: 'agent_progress', id: ev.tool_use_id, stats })

@@ -1,6 +1,6 @@
 // Gmail, Google Calendar, Google Docs and Google Sheets for one person (docs/GOOGLE-APPS.md; the API is
 // shared/src/api/google-apps.ts): one Google sign-in per app, the same steps as Google Drive's (useSignInFlow): Connect
-// opens Google at once, back from it one line asks to confirm the account, then the app is connected. Its page
+// opens Google at once, back from it a question and the account (GoogleAccount.tsx) ask to confirm it, then the app is connected. Its page
 // (GoogleAppDetail, AppDetail.tsx) then shows Connected and ⋯ (Settings: ask before each change, or Always allow;
 // Reconnect; Disconnect). An app that cannot be connected says why in plain words, an admin gets the way to set it up,
 // and a member whose team has not set it up asks an admin to add it (AskAdmin.tsx). In the phone app nothing signs in to
@@ -12,7 +12,7 @@ import { Link } from 'react-router-dom'
 import { API, type GoogleAppId, type GoogleAppView } from '@mycel/shared/api'
 import { api } from '../../lib/api'
 import { mobileApp } from '../../lib/mobile'
-import { builtInLogo, builtInName, canChange, categoryKey, aboutKey, GOOGLE, GOOGLE_APP_ORDER, GOOGLE_PRIVACY, GOOGLE_TERMS, lineKey, toolWords, unavailableKeys, developerKey } from '../../lib/googleApps'
+import { builtInLogo, builtInName, canChange, categoryKey, aboutKey, GOOGLE, GOOGLE_APP_ORDER, GOOGLE_PRIVACY, GOOGLE_TERMS, lineKey, toolWords, unavailableKeys, developerKey, signInFailedKey, showUnverifiedHint } from '../../lib/googleApps'
 import { useT } from '../../i18n'
 import { isAdmin, useMe } from '../../store/session'
 import { toast } from '../../store/ui'
@@ -24,6 +24,8 @@ import { BrowserWait } from './BrowserWait'
 import { googleLink } from './googleLink'
 import { AppDetail } from './AppDetail'
 import { AskAdminAction, type AskState } from './AskAdmin'
+import { GoogleUnverifiedNote } from './GoogleUnverifiedNote'
+import { GoogleAccountBlock } from './GoogleAccount'
 
 const opsFor = (app: GoogleAppId, current: () => Promise<GoogleAppView>): SignInOps<GoogleAppView> => ({
   authorize: () => api.call(API.authorizeGoogleApp, { params: { app }, body: {} }),
@@ -104,22 +106,29 @@ export function useGoogleApps() {
 }
 export type GoogleAppsState = ReturnType<typeof useGoogleApps>
 
-/** The steps of a sign-in under way, under the page's header: waiting for Google (with its link, and Cancel), then the
- * account to confirm. */
-export function SignInSteps({ d, testId, failed }: { d: GoogleAppFlowState; testId: string; failed: string }) {
+/** The steps of a sign-in under way, under the page's header: waiting for Google (with its link, Try again and Cancel),
+ * then the question and the account to confirm, with Connect this account and Cancel. `inDialog`: the steps of a dialog
+ * (GoogleAppTeam.tsx), whose footer holds Cancel and Connect this account (GoogleAccount.tsx DialogSignInActions); `question`: the line
+ * above the account there. */
+export function SignInSteps({ d, testId, failed, inDialog, question }: { d: GoogleAppFlowState; testId: string; failed: string; inDialog?: boolean; question?: string }) {
   const t = useT()
   const flow = d.inProgress ? d.flow : null
   return (
     <>
       {flow && flow.state !== 'ready' && (
         <BrowserWait google framed text={t('drive.waitingShort')} testId={`${testId}-waiting`} retryTestId={`${testId}-retry-wait`} cancelTestId={`${testId}-cancel`} busy={d.busy}
-          onRetry={() => void d.start()} onCancel={() => void d.cancel()} link={googleLink(d, t('drive.openGoogle'))} />
+          onRetry={() => void d.start()} onCancel={inDialog ? undefined : () => void d.cancel()} link={googleLink(d, t('drive.openGoogle'))} />
       )}
       {flow?.state === 'ready' && (
-        <div className="flex flex-wrap items-center gap-2 rounded-xl border border-accent/40 bg-accent-soft/40 px-3 py-2 text-sm" data-testid={`${testId}-confirm-step`}>
-          <span role="status" className="min-w-0 flex-[1_1_14rem]">{t('drive.confirmAccount')} <span className="font-medium break-all" data-testid={`${testId}-account`}>{[flow.account?.name, flow.account?.email].filter(Boolean).join(' · ')}</span></span>
-          <Button size="sm" variant="primary" busy={d.busy} onClick={() => void d.complete()} data-testid={`${testId}-confirm`}>{t('drive.confirm')}</Button>
-          <Button size="sm" variant="ghost" disabled={d.busy} onClick={d.cancel} data-testid={`${testId}-cancel`}>{t('common.cancel')}</Button>
+        <div className="space-y-2" data-testid={`${testId}-confirm-step`}>
+          <p role="status" className="text-sm font-medium text-ink">{question ?? t('drive.confirmAccount')}</p>
+          <GoogleAccountBlock account={flow.account} testId={`${testId}-account`} busy={d.busy} onOther={inDialog ? () => void d.start() : undefined} />
+          {!inDialog && (
+            <div className="flex flex-wrap items-center gap-2 pt-1">
+              <Button size="sm" variant="primary" busy={d.busy} onClick={() => void d.complete()} data-testid={`${testId}-confirm`}>{t('drive.confirm')}</Button>
+              <Button size="sm" variant="ghost" disabled={d.busy} onClick={d.cancel} data-testid={`${testId}-cancel`}>{t('common.cancel')}</Button>
+            </div>
+          )}
         </div>
       )}
       {d.error && !flow && <p className="text-sm text-danger" role="alert" data-testid={`${testId}-error`}>{d.reason === 'timeout' ? t('connect.wait.timedOut') : failed}</p>}
@@ -211,7 +220,9 @@ export function GoogleAppDetail({ v, g, ask }: { v: GoogleAppView; g: GoogleApps
               {admin && v.reason === 'not_set_up' && <> <Link to={`/admin/connectors?app=${v.id}`} className="font-medium text-accent-text underline underline-offset-2" data-testid="gapp-admin-link">{t('gapps.setUpLink', { name })}</Link></>}
             </Note>
           )}
-          <SignInSteps d={d} testId="gapp" failed={t(d.reason === 'scope_denied' ? 'gapps.scopeDenied' : 'drive.failed')} />
+          {/* before Google opens: Google may call Trina's shared app unverified (QA TC-2957) */}
+          {showUnverifiedHint(v) && v.available && !flow && !ask && !inApp && v.status !== 'connected' && <GoogleUnverifiedNote />}
+          <SignInSteps d={d} testId="gapp" failed={t(signInFailedKey(d.reason))} />
         </>}
         about={t(aboutKey(v.id))}
         canChange={canChange(v.tools)} asks={v.writePolicy}
@@ -236,9 +247,11 @@ export function Note({ children, tone, testId, reason }: { children: React.React
 function GoogleAppSettings({ v, busy, onPolicy, onClose }: { v: GoogleAppView; busy: boolean; onPolicy: (p: 'ask' | 'allow') => void; onClose: () => void }) {
   const t = useT()
   const name = builtInName(v.id)
+  // the team turned Always allow off: it asks again after something from outside (QA TC-2944)
+  const alwaysOff = useMe()?.team.alwaysAllowOff === true
   const opts = [
     { id: 'ask' as const, label: t('gapps.policy.ask'), line: t('gapps.policy.askLine') },
-    { id: 'allow' as const, label: t('gapps.policy.allow'), line: t('gapps.policy.allowLine', { name }) },
+    { id: 'allow' as const, label: t('gapps.policy.allow'), line: t(alwaysOff ? 'gapps.policy.allowLineOff' : 'gapps.policy.allowLine', { name }) },
   ]
   return (
     <Modal open title={t('gapps.settingsTitle', { name })} onClose={onClose} width={440}

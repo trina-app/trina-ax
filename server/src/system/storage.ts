@@ -8,7 +8,7 @@
 // not smaller than the disk: the real disk, as before.
 //
 // Levels: below 80% ok; from 80% the owner and admins are told (a notice, at most once per 24 h, audited as
-// storage.warn); from 90% diagnostics warn; from 95% diagnostics fail. Writes into the team folder are refused (507
+// storage.warn; and a notice kept in their Inbox at 80% and again at 95%, at most once per 24 h each); from 90% diagnostics warn; from 95% diagnostics fail. Writes into the team folder are refused (507
 // storage_full) when the free space minus the write would drop under max(512 MiB, 2% of the disk): AI write / edit /
 // make_file, file saves, uploads, chat attachments. The refusal applies where the resource limits apply (Linux, a plan:
 // system/limits.ts); a Mac keeps its own checks (upload sessions' 1 GB margin, backups' 2 GB) and behaviour.
@@ -25,7 +25,9 @@
 // real disk of that size.
 //
 // What uses the space (Admin > System) is measured 5 minutes after start and then hourly, walking the folders with a
-// pause every 1000 entries: team (the team folder without .system, with room files, chat files and the files of deleted chats and rooms kept 30 days: also shown as `kept`), history (.system/history), trash (.system/trash),
+// pause every 1000 entries: team (the team folder without .system, with the AI chats' files and the files of deleted
+// chats and rooms kept 30 days: also shown as `kept`), rooms (the files sent in conversations, .system/rooms: one number,
+// never per person or conversation), history (.system/history), trash (.system/trash),
 // backups (.system/backups + data/backups), models (data/models), data (the rest of the server data), app (installed
 // versions), other (what is left: the engine folders the server account cannot read, the OS).
 import fs from 'node:fs'
@@ -37,6 +39,8 @@ import { ToolError } from '../policy/errors'
 import { getSetting, setSetting, teamTimeZone } from '../admin/settings'
 import { limitsActive, planDiskBytes, planManageUrl } from './limits'
 import { zonedParts } from './time-zone'
+import { cleanupAskedAt } from './storage-cleanup-asked'
+import { DISK_RESERVE_MAX, diskReserve, diskStat } from './disk-stat'
 
 const MIB = 1024 * 1024
 export const RESERVE_MIN_BYTES = 512 * MIB
@@ -47,6 +51,8 @@ export const FULL_PERCENT = 95
 const SNAPSHOT_MS = 30_000
 const ALERT_EVERY_MS = 24 * 3600_000
 export const ALERT_KEY = 'system.storageWarnAt'
+/** when the Inbox notice for 80 % / 95 % was last kept (ISO time), apart from the toast's ALERT_KEY */
+export const NOTICE_KEY = { 80: 'system.storageNoticeAt.80', 95: 'system.storageNoticeAt.95' } as const
 /** when usage first went over the plan's limit (ISO time; null or missing = not over) */
 export const GRACE_KEY = 'system.storageOverSince'
 /** when the owner and admins were last told that a grace period started (ISO time) */
@@ -65,8 +71,11 @@ export function reserveBytes(total: number): number { return Math.max(RESERVE_MI
 
 /** Where the Mac's rule decides (a Mac, dev, anything but a Linux production install: system/ops.ts): under this much
  * free space answers, uploads and saves can fail and the disk check fails. The storage card uses it too, so the card
- * never says "여유 있음" on a small disk the check below it calls almost full (QA TC-209). */
-export function absoluteFloor(total: number): number { return Math.max(10 * 1024 ** 3, total * 0.05) }
+ * never says "여유 있음" on a small disk the check below it calls almost full (QA TC-209). 5% of the disk, at least
+ * 10 GiB, capped at the reserve's own cap (disk-stat.ts DISK_RESERVE_MAX, 10 GiB) as diskReserve is: without the cap a
+ * 1.8 TB disk with 91 GB free (5% is 92 GB) showed as read-only in the ops checks while every AI write still worked. */
+export const ABSOLUTE_FLOOR_MIN = 10 * 1024 ** 3
+export function absoluteFloor(total: number): number { return Math.max(ABSOLUTE_FLOOR_MIN, Math.min(total * 0.05, DISK_RESERVE_MAX)) }
 
 /** An error from a full disk: ENOSPC / EDQUOT from the file system, SQLITE_FULL ("database or disk is full") from the
  * database, also as the cause of another error. */
@@ -83,7 +92,7 @@ export const DISK_FULL_TEXT = /\bENOSPC\b|no space left on device|disk quota exc
 
 /** Is one of these folders' disks (almost) out of space right now (fresh statfs)? For telling a crash apart from a
  * full disk after the fact: under `floor` (64 MiB) nothing works reliably. */
-export function diskAlmostFull(paths: string[], floor = 64 * MIB, statfs: (p: string) => StatFs = (p) => fs.statfsSync(p)): boolean {
+export function diskAlmostFull(paths: string[], floor = 64 * MIB, statfs: (p: string) => StatFs = (p) => diskStat(p)): boolean {
   for (const p of paths) {
     try { if (snapshotOf(statfs(p)).freeBytes < floor) return true } catch {}
   }
@@ -115,7 +124,7 @@ function memoryStore(): GuardStore {
 /** Set by the ops service at start (and by tests): which file system, how to read it, whether writes are refused,
  * where the grace state is kept (without a store: in memory only), the clock. */
 export function configureStorageGuard(c: { root: string; statfs?: (p: string) => StatFs; enforce?: () => boolean; store?: GuardStore; now?: () => number } | null) {
-  guard = c ? { root: c.root, statfs: c.statfs ?? ((p) => fs.statfsSync(p)), enforce: c.enforce ?? limitsActive, store: c.store ?? memoryStore(), now: c.now ?? Date.now } : null
+  guard = c ? { root: c.root, statfs: c.statfs ?? ((p) => diskStat(p)), enforce: c.enforce ?? limitsActive, store: c.store ?? memoryStore(), now: c.now ?? Date.now } : null
   cached = null
 }
 
@@ -240,16 +249,31 @@ export function storageRefusesWrites(): boolean {
   return !!r && !r.ok
 }
 
-/** The AI's writes (write, edit, make_file): a tool error the AI can tell the person about. */
+/** Free space the AI's writes always leave where the plan's guard does not decide (a Mac without a plan: Office Mac,
+ * the desktop app): the one reserve of system/disk-stat.ts diskReserve, max(2 GiB, min(5% of the disk, 10 GiB))
+ * (docs/decisions/20261118-limits-caps.md) */
+export const simpleFloorBytes = diskReserve
+
+/** Is there room for `bytes` more by the simple floor (fresh statfs of the team folder)? null when no guard is set up or
+ * the disk cannot be read. */
+export function simpleRoom(bytes: number): boolean | null {
+  if (!guard) return null
+  const s = storageSnapshot(true)
+  if (!s) return null
+  return s.freeBytes - Math.max(0, bytes) >= simpleFloorBytes(s.totalBytes)
+}
+
+/** The AI's writes (write, edit, make_file): a tool error the AI can tell the person about. Where the plan's guard is
+ * off (storageRoom null), the simple floor still keeps the disk from filling up through one long answer. */
 export function assertStorageRoomForAI(bytes: number): void {
   const r = storageRoom(bytes)
-  if (!r || r.ok) return
+  if (r ? r.ok : simpleRoom(bytes) !== false) return
   throw new ToolError('the team\'s storage is full: nothing can be saved until space is freed (empty the trash or delete files; an admin sees the details in Admin > System)', 'storage_full')
 }
 
 // ---------------- the monitor (ops service) ----------------
 type Measure = StorageBreakdown
-const ZERO: Measure = { kept: 0, team: 0, history: 0, trash: 0, backups: 0, models: 0, data: 0, app: 0, other: 0 }
+const ZERO: Measure = { kept: 0, rooms: 0, team: 0, history: 0, trash: 0, backups: 0, models: 0, data: 0, app: 0, other: 0 }
 
 /** Bytes on disk of a folder tree (lstat blocks × 512; links not followed), yielding every 1000 entries. */
 export async function treeBytes(dir: string, skip: (abs: string) => boolean = () => false): Promise<number> {
@@ -284,6 +308,9 @@ export interface MonitorOptions {
   notify: (message: Record<Locale, string>) => void
   /** the Mac's absolute rule decides the disk check here (not a Linux production install): the card follows it */
   absoluteRule?: () => boolean
+  /** keep a notice in the Inbox of the owner and admins (notifications/service.ts notifyStorageFilling): from 80 %, and
+   * again from 95 %, at most once per 24 h each; `roomsBytes` the files in conversations as last measured */
+  record?: (threshold: 80 | 95, percent: number, roomsBytes: number | null, at: string) => void
   /** storage.warn, or storage.grace when a grace period starts */
   audit: (detail: Record<string, unknown>, action?: 'storage.warn' | 'storage.grace') => void
 }
@@ -326,12 +353,15 @@ export class StorageMonitor {
       const t = this.o.teamRoot, d = this.o.dataDir
       const sys = path.join(t, '.system')
       const m: Measure = { ...ZERO }
-      // the team's own files, and the files sent in its chat rooms (kept in .system/rooms, rooms/files.ts)
+      // the team's own files and the AI chats' files (.system/chat-files)
       // + the files of deleted chats and rooms, kept 30 days (chat-files-orphans, rooms-orphans): on the disk, so counted
       // here (they would fall under "other") and told apart in `kept`
       const kept = await treeBytes(path.join(sys, 'chat-files-orphans')) + await treeBytes(path.join(sys, 'rooms-orphans'))
-      m.team = await treeBytes(t, (a) => a === sys) + await treeBytes(path.join(sys, 'rooms')) + await treeBytes(path.join(sys, 'chat-files')) + kept
+      m.team = await treeBytes(t, (a) => a === sys) + await treeBytes(path.join(sys, 'chat-files')) + kept
       m.kept = kept
+      // the files sent in conversations (rooms/files.ts), a line of their own
+      const rooms = await treeBytes(path.join(sys, 'rooms'))
+      m.rooms = rooms
       m.history = await treeBytes(path.join(sys, 'history'))
       m.trash = await treeBytes(path.join(sys, 'trash'))
       m.backups = await treeBytes(path.join(sys, 'backups')) + await treeBytes(path.join(d, 'backups'))
@@ -341,7 +371,7 @@ export class StorageMonitor {
       // the real value, not the capped view: "other" is what is left on the real disk
       const s = storageSnapshot(true)
       // m.kept is part of m.team
-      const known = m.team + m.history + m.trash + m.backups + m.models + m.data + m.app
+      const known = m.team + rooms + m.history + m.trash + m.backups + m.models + m.data + m.app
       m.other = s ? Math.max(0, s.usedBytes - known) : 0
       this.breakdown = m
       this.measuredAt = new Date(this.now()).toISOString()
@@ -375,6 +405,7 @@ export class StorageMonitor {
     // a state kept after a dip under the limit tells nobody: the team is not over now
     if (since !== null && isOver(s.usedBytes, s.totalBytes) && this.tellGrace(s, since, refusedBy(real, 0, since))) return true
     if (levelOf(s.percent) === 'ok') return false
+    this.keepNotice(s.percent)
     const last = getSetting<string>(this.o.db, ALERT_KEY)
     if (last && this.now() - Date.parse(last) < ALERT_EVERY_MS) return false
     setSetting(this.o.db, ALERT_KEY, new Date(this.now()).toISOString())
@@ -382,6 +413,24 @@ export class StorageMonitor {
     this.o.audit({ percent: s.percent, freeBytes: s.freeBytes, totalBytes: s.totalBytes })
     this.o.notify({ ko: ALERT.ko(p), en: ALERT.en(p), id: ALERT.id(p), ja: ALERT.ja(p), es: ALERT.es(p), zh: ALERT.zh(p) })
     return true
+  }
+
+  /** From 80 %: a notice kept in the Inbox of the owner and admins, so one who was away still finds it (the toast only
+   * reaches who is online). Its own clock per threshold: 80 % today and 95 % an hour later are both told; each again at
+   * most once per 24 h while the disk stays there (a 95 % notice holds back the 80 % one too). The grace-period message
+   * above does not hold it back: it comes on the next check. */
+  private keepNotice(percent: number) {
+    // whole percent, as the storage card rounds it: the threshold and the words never disagree
+    const shown = Math.round(percent)
+    if (!this.o.record || shown < WARN_PERCENT) return
+    const threshold = shown >= FULL_PERCENT ? 95 : 80
+    const last = getSetting<string>(this.o.db, NOTICE_KEY[threshold])
+    if (last && this.now() - Date.parse(last) < ALERT_EVERY_MS) return
+    const at = new Date(this.now()).toISOString()
+    setSetting(this.o.db, NOTICE_KEY[threshold], at)
+    // a 95 % notice counts for 80 % too: a dip to 90 % the same day says nothing new
+    if (threshold === 95) setSetting(this.o.db, NOTICE_KEY[80], at)
+    this.o.record(threshold, shown, this.breakdown?.rooms ?? null, at)
   }
 
   /** GET /api/admin/storage */
@@ -397,6 +446,7 @@ export class StorageMonitor {
       writesRefused: state.writesRefused, graceEndsAt: state.graceEndsAt,
       breakdown: this.breakdown, measuredAt: this.measuredAt,
       planDiskGiB: disk === null ? null : disk / 1024 ** 3,
+      cleanupAskedAt: cleanupAskedAt(this.o.db, new Date(this.now())),
     }
   }
 }

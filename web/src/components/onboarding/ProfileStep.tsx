@@ -9,7 +9,8 @@
 //   so to the AI).
 // When the site can't be read (or there is none): paste a text (the same draft, from the text; the one primary) or
 // answer three questions (무엇을 파나요 / 누구에게 / 어떤 말투로), which go straight to the same review. While it reads,
-// the step offers nothing but "later" (docs/DECISIONS.md "W2"): a reading that fails opens that fallback by itself,
+// the step offers nothing at first, and after READING_EXIT_MS one quiet "Don't wait, go on" (owner 2026-11-20; before,
+// "later" from the start, docs/DECISIONS.md "W2"): a reading that fails opens that fallback by itself,
 // naming what could not be read (the website or the pasted text) with "다시 시도", which reads the same input again.
 // `autoSave` (the welcome steps): a website reading whose draft has a one-line intro is saved as it came, with the
 // same body as the review's save, and the step is done; the welcome page then shows one line of it with "고치기", which
@@ -18,12 +19,18 @@
 // one-line intro and a save that fails keep the review too. There the review's one button is "저장하고 계속"
 // (`continueWith`): it saves and goes on (the brand materials, docs/DECISIONS.md "W6"), with the line under it that says
 // what goes where; Admin › Team settings keeps 저장.
+// The three answers go to the same AI draft as a pasted text while an AI answers (it writes the one-line intro from
+// them, which the team's invitations quote); the person's own answers stay as typed. Without AI, or when that draft
+// fails, they go straight to the review, the intro taken from the first line of the answer about products.
+// `keep` (the welcome steps): the reading and the review are kept in this tab's sessionStorage, so a reload comes back
+// to them instead of the website question (a save, or going back to the website, clears it).
 // A draft is an AI answer: with no AI the person can use (GET /api/me/ai-access, stream A), the step says so with A's
 // connect button instead of starting one, and the three questions (no AI needed) stay open.
 import { useEffect, useId, useRef, useState, type ReactNode } from 'react'
 import { Check, ExternalLink, Globe, Loader2, Minus, X } from 'lucide-react'
-import { normalizeWebsite, PROFILE_DRAFT_PAGES_MAX, PROFILE_FIELDS, PROFILE_LIMITS, PROFILE_TEXT_MAX, profileName, type CompanyProfile, type CompanyProfileInput, type ProfileDraftPage, type ProfileDraftState, type ProfileField, type ProfileSource } from '@mycel/shared/api'
-import { api, API, errorText } from '../../lib/api'
+import { normalizeWebsite, profileLineFrom, PROFILE_DRAFT_PAGES_MAX, PROFILE_FIELDS, PROFILE_LIMITS, PROFILE_TEXT_MAX, profileName, type CompanyProfile, type CompanyProfileInput, type ProfileDraftPage, type ProfileDraftState, type ProfileField, type ProfileSource } from '@mycel/shared/api'
+import { api, API, errorText, isApiError } from '../../lib/api'
+import { PROFILE_DRAFT_PREFIX } from '../../lib/localData'
 import { setupSite } from '../../lib/setupLink'
 import { useLocale, useT, type MessageKey } from '../../i18n'
 import { useAiAccess } from '../../store/aiAccess'
@@ -54,6 +61,8 @@ export interface ProfileStepProps {
    * what fails stays on the review with its reason, and the same button saves again and goes on. No toast: the next
    * step says it. Without it (Admin › Team settings, 고치기): the plain 저장. */
   continueWith?: { label: string; note?: (website: string) => ReactNode; extra?: ReactNode; disabled?: boolean; onSaved: (profile: CompanyProfile) => Promise<void> }
+  /** keep the reading and the review across a reload of this tab (the welcome steps; never with `initial`) */
+  keep?: boolean
 }
 
 /** what a draft is read from: the website, or the text the person pasted */
@@ -61,7 +70,9 @@ type DraftInput = { website: string } | { text: string }
 
 type Phase =
   | { kind: 'site' }
-  | { kind: 'reading'; chatId: string; source: 'website' | 'text'; site: string | null; website: string; input: DraftInput }
+  /** `typed`: the three answers this text draft was made from (they stay as typed; the AI adds the name and the
+   * one-line intro) */
+  | { kind: 'reading'; chatId: string; source: 'website' | 'text'; site: string | null; website: string; input: DraftInput; typed?: Typed; at?: number }
   /** `failed`: a reading that did not give a draft (what it read, the answer's error); null: chosen ("홈페이지가 없어요",
    * 뒤로) or no AI */
   | { kind: 'fallback'; failed: { input: DraftInput; error: string | null } | null }
@@ -69,6 +80,32 @@ type Phase =
   | { kind: 'questions' }
   /** `from`: 'answers' after the three typed answers (nothing was read: its title says to check what was typed) */
   | { kind: 'review'; from?: 'answers' }
+
+/** the three answers as the profile keeps them */
+type Typed = Pick<CompanyProfileInput, 'products' | 'audience' | 'tone'>
+
+/** The one-line intro from the answer about products when nothing else wrote it (shared with the server's draft). */
+export const lineFrom = profileLineFrom
+/** The three answers' draft waits at most this long for the AI's intro: then the review, with the products' first line. */
+export const TYPED_WAIT_MS = 20_000
+/** A reading still under way after this long (its start, kept across a reload): the one quiet way on ("Don't wait, go
+ * on") shows. Before it, nothing but the reading (owner 2026-11-20: no "Do this later" while the AI works). */
+export const READING_EXIT_MS = 90_000
+
+/** What a reload brings back (`keep`): the reading under way or the review with its draft, in this tab only. */
+interface Kept { phase: Extract<Phase, { kind: 'reading' | 'review' }>; draft: CompanyProfileInput }
+const keptKey = (userId: string) => `${PROFILE_DRAFT_PREFIX}${userId}`
+export function readKept(key: string): Kept | null {
+  try {
+    const v = JSON.parse(sessionStorage.getItem(key) ?? 'null') as Kept | null
+    if (!v || typeof v !== 'object' || !v.draft || typeof v.draft !== 'object' || !v.phase) return null
+    if (v.phase.kind === 'review' || (v.phase.kind === 'reading' && typeof v.phase.chatId === 'string')) return { phase: v.phase, draft: { ...blank(), ...v.draft } }
+    return null
+  } catch { return null }
+}
+function writeKept(key: string, v: Kept | null) {
+  try { if (v) sessionStorage.setItem(key, JSON.stringify(v)); else sessionStorage.removeItem(key) } catch { /* private mode: nothing kept */ }
+}
 
 const POLL_MS = 2500
 /** after a step event of the draft chat (realtime): ask again this soon (the tool call reaches the server a moment after
@@ -116,16 +153,25 @@ export function tidyProfile(p: CompanyProfileInput): CompanyProfileInput {
   return out
 }
 
-export default function ProfileStep({ onDone, onSkip, skipLabel, initial, initialWebsite, autoSave, onRead, continueWith }: ProfileStepProps) {
+export default function ProfileStep({ onDone, onSkip, skipLabel, initial, initialWebsite, autoSave, onRead, continueWith, keep }: ProfileStepProps) {
   const t = useT()
   const locale = useLocale()
-  const [phase, setPhase] = useState<Phase>(initial ? { kind: 'review' } : { kind: 'site' })
+  const me = useMe()
+  // kept across a reload: only while there is no saved profile to start from
+  const keyOf = keep && !initial && me ? keptKey(me.user.id) : null
+  const [kept] = useState(() => (keyOf ? readKept(keyOf) : null))
+  const [phase, setPhase] = useState<Phase>(initial ? { kind: 'review' } : kept?.phase ?? { kind: 'site' })
   const [site, setSite] = useState(() => initial?.website || initialWebsite || setupSite() || '')
   const [siteError, setSiteError] = useState<string | null>(null)
   // the company name starts as the team's name (Admin › Team settings) when the profile has none: one less thing to type
-  const teamName = useMe()?.team.name ?? ''
+  const teamName = me?.team.name ?? ''
   const named = (d: CompanyProfileInput): CompanyProfileInput => ({ ...d, name: profileName(d, teamName) })
-  const [draft, setDraft] = useState<CompanyProfileInput>(() => named(initial ? { ...initial } : blank()))
+  const [draft, setDraft] = useState<CompanyProfileInput>(() => named(initial ? { ...initial } : kept?.draft ?? blank()))
+  // the reading and the review, kept as they change; any other phase starts over after a reload
+  useEffect(() => {
+    if (!keyOf) return
+    writeKept(keyOf, phase.kind === 'reading' || phase.kind === 'review' ? { phase, draft } : null)
+  }, [keyOf, phase, draft])
   const [text, setText] = useState('')
   const [answers, setAnswers] = useState({ what: '', who: '', tone: '' })
   const [busy, setBusy] = useState(false)
@@ -147,19 +193,26 @@ export default function ProfileStep({ onDone, onSkip, skipLabel, initial, initia
     heading.current?.focus()
   }, [phase.kind])
 
-  const start = async (body: DraftInput) => {
+  /** The three answers straight to the review (no AI, or its draft failed): as typed, the intro from the products. */
+  const typedReview = (typed: Typed) => {
+    setDraft((d) => ({ ...d, website: d.website || normalizeWebsite(site) || '', ...typed, oneLine: lineFrom(typed.products), sources: [] }))
+    setPhase({ kind: 'review', from: 'answers' })
+  }
+
+  const start = async (body: DraftInput, typed?: Typed) => {
     setBusy(true)
     setError(null)
     try {
       // asked again right before: a draft without AI would only fail after a while
       await useAiAccess.getState().load(true)
-      if (!useAiAccess.getState().usable) { setPhase({ kind: 'fallback', failed: null }); return }
+      if (!useAiAccess.getState().usable) { if (typed) typedReview(typed); else setPhase({ kind: 'fallback', failed: null }); return }
       const r = await api.call(API.startProfileDraft, { body })
       if (r.website) setDraft((d) => ({ ...d, website: r.website }))
       setActivity({ steps: [], writing: false, assets: null })
-      setPhase({ kind: 'reading', chatId: r.chatId, source: 'website' in body ? 'website' : 'text', site: r.site, website: r.website, input: body })
+      setPhase({ kind: 'reading', chatId: r.chatId, source: 'website' in body ? 'website' : 'text', site: r.site, website: r.website, input: body, ...(typed ? { typed } : {}), at: Date.now() })
     } catch (e) {
-      setError(errorText(e, locale, t('error.network')))
+      if (typed) typedReview(typed)
+      else setError(errorText(e, locale, t('error.network')))
     } finally {
       setBusy(false)
     }
@@ -199,15 +252,35 @@ export default function ProfileStep({ onDone, onSkip, skipLabel, initial, initia
             const first = !latest.current.hadProfile && (await api.call(API.getCompanyProfile).then((r) => !r.profile, () => false))
             if (first) { await saveAsRead(read); return }
           }
+          if (phase.typed) {
+            // the person's own answers stay as typed: the AI gave the name and the one-line intro
+            // only the name and the one-line intro come from the AI; the rest (avoid, the sources) stays the typed draft's
+            const typed = phase.typed
+            const oneLine = read.oneLine.trim() || lineFrom(typed.products)
+            setDraft((prev) => named({ ...prev, ...typed, name: read.name?.trim() || prev.name, oneLine, website: prev.website || normalizeWebsite(site) || '',
+              sources: [...prev.sources.filter((x) => x.field !== 'name' && x.field !== 'oneLine'), ...read.sources.filter((x) => x.field === 'name' || x.field === 'oneLine')] }))
+            setPhase({ kind: 'review', from: 'answers' })
+            return
+          }
           setDraft((prev) => named({ ...read, website: read.website || prev.website }))
           setPhase({ kind: 'review' })
           return
         }
+        if (phase.typed) { typedReview(phase.typed); return }
         setPhase({ kind: 'fallback', failed: { input: phase.input, error: s.status === 'failed' ? s.error : null } })
         // the answer may have failed for want of AI (a connection removed): the fallback then offers the button
         if (s.status === 'failed') void useAiAccess.getState().load(true)
-      } catch {
-        if (!stopped) schedule(POLL_MS * 2)
+      } catch (e) {
+        if (stopped) return
+        // the draft chat is gone (deleted, or a kept reading from before a reset): never read it again; the kept draft
+        // goes (the phase change writes it anew), and the answers' review or the fallback opens
+        if (isApiError(e, 'not_found')) {
+          stopped = true
+          if (phase.typed) typedReview(phase.typed)
+          else setPhase({ kind: 'fallback', failed: { input: phase.input, error: null } })
+          return
+        }
+        schedule(POLL_MS * 2)
       } finally {
         inFlight = false
         again = false
@@ -215,8 +288,22 @@ export default function ProfileStep({ onDone, onSkip, skipLabel, initial, initia
     }
     const off = chatActivity.on((id) => { if (id !== phase.chatId || stopped) return; if (inFlight) again = true; else schedule(NUDGE_MS) })
     schedule(POLL_MS)
-    return () => { stopped = true; clearTimeout(timer); off() }
+    // the three answers wait at most TYPED_WAIT_MS for the AI's intro, then the review as typed
+    const wait = phase.typed ? setTimeout(() => { if (!stopped) { stopped = true; typedReview(phase.typed!) } }, TYPED_WAIT_MS) : undefined
+    return () => { stopped = true; clearTimeout(timer); clearTimeout(wait); off() }
   }, [phase])
+
+  // a reading past READING_EXIT_MS: the quiet way on shows (a kept reading from before this field counts from now)
+  const [late, setLate] = useState(false)
+  const readingAt = phase.kind === 'reading' ? phase.at ?? null : null
+  useEffect(() => {
+    setLate(false)
+    if (phase.kind !== 'reading') return
+    const left = (readingAt ?? Date.now()) + READING_EXIT_MS - Date.now()
+    if (left <= 0) { setLate(true); return }
+    const t = setTimeout(() => setLate(true), left)
+    return () => clearTimeout(t)
+  }, [phase.kind, readingAt])
 
   const readSite = () => {
     const w = normalizeWebsite(site)
@@ -236,6 +323,7 @@ export default function ProfileStep({ onDone, onSkip, skipLabel, initial, initia
     try {
       if (body.website && !normalizeWebsite(body.website)) throw new Error(t('onboarding.profile.siteInvalid'))
       const saved = await api.call(API.saveCompanyProfile, { body })
+      if (keyOf) writeKept(keyOf, null)
       latest.current.onDone(saved)
     } catch (e) {
       setDraft(named(read))
@@ -253,6 +341,7 @@ export default function ProfileStep({ onDone, onSkip, skipLabel, initial, initia
     setError(null)
     try {
       const saved = await api.call(API.saveCompanyProfile, { body })
+      if (keyOf) writeKept(keyOf, null)
       // the welcome steps: saved and on in one press (the brand materials); the next step says it, no toast
       if (continueWith) await continueWith.onSaved(saved)
       else {
@@ -326,12 +415,28 @@ export default function ProfileStep({ onDone, onSkip, skipLabel, initial, initia
           )}
         </div>
         <div>
-          <DraftActivity source={phase.source} site={phase.site} steps={activity.steps} writing={activity.writing} assets={activity.assets} />
-          <p className="mt-3 text-xs text-faint">{t('onboarding.profile.readingHint')}</p>
+          <DraftActivity source={phase.source} site={phase.site} steps={activity.steps} writing={activity.writing} assets={activity.assets} typed={!!phase.typed} />
+          {!phase.typed && <p className="mt-3 text-xs text-faint">{t('onboarding.profile.readingHint')}</p>}
         </div>
-        {/* only "나중에 하기" while it reads (docs/DECISIONS.md "W2"): the chat and the written path are not offered here;
-            a reading that fails opens the fallback (paste a text, three questions) by itself */}
-        {skip && <div className="flex justify-end">{skip}</div>}
+        {/* the three answers: the review now, without the AI's intro (it waits at most TYPED_WAIT_MS anyway) */}
+        {phase.typed && (
+          <Button variant="secondary" className="max-sm:w-full" onClick={() => typedReview(phase.typed!)} data-testid="profile-step-skip-to-review">
+            {t('onboarding.profile.skipToReview')}
+          </Button>
+        )}
+        {/* nothing to press while it reads (owner 2026-11-20: no "나중에 하기" while the AI works); past READING_EXIT_MS one
+            quiet way on. The reading goes on on the server: the kept reading (`keep`) saves its draft when the step opens
+            again in this window. A reading that fails opens the fallback (paste a text, three questions, later) by itself */}
+        {/* Admin › Team settings keeps its 취소 throughout: a cancel there loses nothing */}
+        {skip && !autoSave && <div className="flex justify-end">{skip}</div>}
+        {onSkip && autoSave && late && (
+          <div className="flex flex-wrap items-center justify-end gap-x-3 gap-y-1" data-testid="profile-step-reading-exit">
+            <p className="min-w-0 flex-[1_1_14rem] text-xs text-faint">{t('onboarding.profile.skipWaitingHint')}</p>
+            <Button variant="ghost" className="max-sm:w-full" onClick={onSkip} data-testid="profile-step-skip-waiting">
+              {t('onboarding.profile.skipWaiting')}
+            </Button>
+          </div>
+        )}
       </div>
     )
 
@@ -403,8 +508,12 @@ export default function ProfileStep({ onDone, onSkip, skipLabel, initial, initia
   if (phase.kind === 'questions') {
     const any = !!(answers.what.trim() || answers.who.trim() || answers.tone.trim())
     const next = () => {
-      setDraft((d) => ({ ...d, website: d.website || normalizeWebsite(site) || '', products: answers.what.trim().slice(0, PROFILE_LIMITS.products), audience: answers.who.trim().slice(0, PROFILE_LIMITS.audience), tone: toneChips(answers.tone), sources: [] }))
-      setPhase({ kind: 'review', from: 'answers' })
+      const typed: Typed = { products: answers.what.trim().slice(0, PROFILE_LIMITS.products), audience: answers.who.trim().slice(0, PROFILE_LIMITS.audience), tone: toneChips(answers.tone) }
+      // no AI: straight to the review; else the AI writes the name and the one-line intro from the answers first
+      if (noAi || !(typed.products || typed.audience)) return typedReview(typed)
+      const text = [[t('onboarding.profile.qWhat'), typed.products], [t('onboarding.profile.qWho'), typed.audience], [t('onboarding.profile.qTone'), typed.tone.join(', ')]]
+        .filter(([, v]) => v).map(([q, v]) => `${q}\n${v}`).join('\n\n')
+      void start({ text }, typed)
     }
     return (
       <form className="space-y-4" onSubmit={(e) => { e.preventDefault(); if (any) next() }} data-testid="profile-step-questions">
@@ -419,7 +528,7 @@ export default function ProfileStep({ onDone, onSkip, skipLabel, initial, initia
           <input className={inputCls} value={answers.tone} onChange={(e) => setAnswers({ ...answers, tone: e.target.value })} maxLength={120} />
         </Field>
         <div className="flex flex-wrap items-center gap-2">
-          <Button type="submit" variant="primary" disabled={!any}>
+          <Button type="submit" variant="primary" busy={busy} disabled={!any}>
             {t('onboarding.profile.next')}
           </Button>
           <Button type="button" variant="ghost" onClick={() => setPhase({ kind: 'fallback', failed: null })}>
@@ -503,7 +612,7 @@ const clipTitle = (s: string, max = 40) => (s.length > max ? s.slice(0, max - 1)
  * pages for the brand folder ("로고와 이미지 3개 가져옴"), then "회사 소개 정리 중" while it writes. Pasted text has one
  * line.
  */
-export function DraftActivity({ source, site, steps, writing, assets }: { source: 'website' | 'text'; site: string | null; steps: readonly ProfileDraftPage[]; writing: boolean; assets?: Pick<DraftAssets, 'images' | 'logo'> | null }) {
+export function DraftActivity({ source, site, steps, writing, assets, typed }: { source: 'website' | 'text'; site: string | null; steps: readonly ProfileDraftPage[]; writing: boolean; assets?: Pick<DraftAssets, 'images' | 'logo'> | null; typed?: boolean }) {
   const t = useT()
   const max = PROFILE_DRAFT_PAGES_MAX
   const spin = <Loader2 size={14} className="animate-spin text-faint" aria-hidden />
@@ -531,7 +640,7 @@ export function DraftActivity({ source, site, steps, writing, assets }: { source
     <ul className="space-y-1.5 text-label" aria-label={t('onboarding.profile.activity.label')} aria-live="polite" data-testid="profile-activity">
       {source === 'website'
         ? line('intro', idle ? spin : <Globe size={14} className="text-faint" aria-hidden />, t('onboarding.profile.activity.intro', { site: site ?? '', max }), 'text-muted', 'profile-activity-intro')
-        : line('text', spin, t('onboarding.profile.activity.text'), 'text-ink')}
+        : line('text', spin, t(typed ? 'onboarding.profile.activity.answers' : 'onboarding.profile.activity.text'), 'text-ink')}
       {source === 'website' && steps.map(page)}
       {source === 'website' && assets && assets.images > 0 && line('images', <Check size={14} className="text-ok" aria-hidden />, imagesLine(t, assets), 'text-muted', 'profile-activity-images')}
       {source === 'website' && writing && line('writing', spin, t('onboarding.profile.activity.writing'), 'text-ink', 'profile-activity-writing')}

@@ -10,7 +10,9 @@ The team folder has five folders at the top, and the Files screen names them in 
 (`shared/`, 전사 공유 in Korean) is the company's material that everyone on the team sees: the setup's company intro,
 brand and meeting notes and the first company files go there, and forms and templates such as quotes and reports go in
 `shared/Templates/` (`shared/양식/` on a Korean team; the AI starts there when it makes that kind of document).
-**Groups** (`groups/`, 부서 in Korean) have one folder per department, seen by its people; **Projects** (`projects/`)
+**Groups** (`groups/`, 부서 in Korean) have one folder per department, seen by its people; in a
+group's room, **Files** next to the room's name opens that folder (for those who can see it), and Back returns to
+the room; **Projects** (`projects/`)
 one folder per project; **Team skills** (`skills/`) the skills and rules everyone's AI follows; **Personal** (`users/`)
 each person's own folder (**My folder**). Ask the AI to tidy up and finished work moves into an `Archive` folder (`보관`)
 of its area. Only the names on screen change; the paths stay as they are.
@@ -35,7 +37,7 @@ Read [permissions and data flows](security-and-permissions.md). Give [IT](for-ad
 
 ## Cost and help
 
-Self-hosted software is free; hardware, operations and provider costs are separate. Free 14-day trial on Trina hosting (AWS Seoul), then a monthly plan; AI usage is billed separately by the account you connect. During the free trial the server turns off when nobody uses it, and starting it again takes about a minute; paid plans stay on all the time. [Current prices and enquiries](https://ax.trina.app/#pricing) · [Support](../SUPPORT.md).
+Self-hosted software is free; hardware, operations and provider costs are separate. Free 14-day trial on Trina hosting (AWS Seoul, Virginia or Singapore), then a monthly plan; AI usage is billed separately by the account you connect. During the free trial the server turns off when nobody uses it, and starting it again takes about a minute; paid plans stay on all the time. [Current prices and enquiries](https://ax.trina.app/#pricing) · [Support](../SUPPORT.md).
 
 ## Real demo screens
 

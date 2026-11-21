@@ -184,7 +184,7 @@ test.describe('on a slow connection', () => {
     await reset(page)
     await signIn(page)
     await page.goto('/files?path=marketing')
-    await expect(page.getByTestId('folder-upload-button')).toBeEnabled()
+    await expect(page.getByTestId('upload-button')).toBeEnabled()
     await slowUploads(page, 300_000)
     await page.getByTestId('folder-input').setInputFiles(dir)
     await expect(page.getByTestId('folder-upload')).toContainText('private-folder')
@@ -202,7 +202,7 @@ test.describe('on a slow connection', () => {
     await reset(page)
     await signIn(page)
     await page.goto('/files?path=marketing')
-    await expect(page.getByTestId('folder-upload-button')).toBeEnabled()
+    await expect(page.getByTestId('upload-button')).toBeEnabled()
     await record(page, '[data-testid="folder-upload"]')
     await slowUploads(page, 600_000)
     await page.getByTestId('folder-input').setInputFiles(dir)
@@ -317,7 +317,7 @@ test.describe('without the service worker', () => {
     await reset(page)
     await signIn(page)
     await page.goto('/files?path=marketing')
-    await expect(page.getByTestId('folder-upload-button')).toBeEnabled()
+    await expect(page.getByTestId('upload-button')).toBeEnabled()
     let first = true
     await page.route(/\/api\/files\/upload$/, (route) => {
       if (!first) return route.continue()

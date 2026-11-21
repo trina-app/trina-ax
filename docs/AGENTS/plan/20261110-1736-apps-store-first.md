@@ -1,5 +1,7 @@
 # Settings › Apps: the Mac row offers the App Store first
 
+> Superseded (2026-11-19): since 2026-11-15 the Mac row leads to the download page (signed dmg) and the Trina edition names no Mac App Store listing, see [docs/decisions/20261116-desktop-first-onboarding.md](../../decisions/20261116-desktop-first-onboarding.md).
+
 - Date (UTC): 2026-11-10 17:36
 - Branch: `fix/apps-store-first`
 - Status: done

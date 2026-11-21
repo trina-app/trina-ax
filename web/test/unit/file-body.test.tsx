@@ -13,7 +13,7 @@ import { aiName } from '../../src/lib/tabs'
 import type { PreviewFile } from '../../src/lib/sidePanel'
 import { useSession } from '../../src/store/session'
 import type { Me } from '@mycel/shared/api'
-import { installDom, mount, removeDom, type Mounted } from './dom-host'
+import { FakeEvent, installDom, mount, removeDom, type Mounted } from './dom-host'
 
 const en = (k: Parameters<typeof translate>[1], p?: Record<string, string | number>) => translate('en', k, p)
 const locale = useLocaleStore.getState().locale
@@ -183,6 +183,10 @@ test('the card, busy and error states from the bytes read', async () => {
 
   const loading = await body(room, { kind: 'pdf', blob: null, error: null, downloadOnly: false })
   expect(loading.container.textContent).toContain(en('common.loading'))
+  // the wait is one shared block that fills the preview area and centres the spinner and its words (TC-4751)
+  const wait = loading.container.querySelector('[data-testid="preview-loading"]')
+  expect(wait?.getAttribute('role')).toBe('status')
+  for (const c of ['h-full', 'items-center', 'justify-center']) expect(wait?.getAttribute('class')?.split(' ')).toContain(c)
 })
 
 test('a picture opens the image viewer alone, or the caller\'s viewer when it passes one', async () => {
@@ -196,4 +200,68 @@ test('a picture opens the image viewer alone, or the caller\'s viewer when it pa
   await theirs.click('file-panel-image')
   expect(opened).toBe(1)
   expect(getImageViewer()).toBeNull()
+})
+
+// docs/decisions/20261118-audit2-web-limits.md: audio, video and a PDF past what is read whole play / open from the
+// file's own address (the player and pdf.js ask for parts with Range), so no size is "too large" for them
+test('audio and video play from the file\'s address at once, never read whole here; one that cannot play says so', async () => {
+  globalThis.fetch = (async (input: RequestInfo | URL) => {
+    fetched.push(String(input))
+    return new Response('', { status: 500 })
+  }) as typeof fetch
+  fetched = []
+  const film: PreviewFile = { source: 'team', path: 'videos/all-hands.mp4', name: 'all-hands.mp4' }
+  const video = await draw(film)
+  const src = video.get('preview-video').getAttribute('src')!
+  const u = new URL(src, 'http://team.localhost')
+  expect(u.pathname).toBe('/api/files/download')
+  expect([u.searchParams.get('path'), u.searchParams.get('disposition')]).toEqual(['videos/all-hands.mp4', 'inline'])
+  // the address and the session only: no key, no token
+  expect([...u.searchParams.keys()].sort()).toEqual(['disposition', 'path'])
+  // on its own dark stage, never on a document's paper (QA TC-5367; the layout: e2e media-preview-stage.spec.ts)
+  expect(video.get('media-stage').getAttribute('data-kind')).toBe('video')
+  expect(video.get('media-stage').className).toContain('bg-[#0d0d0c]')
+  const call = await draw({ source: 'room', roomId: 'r1', fileId: 'f1', name: 'call.m4a' })
+  expect(call.get('preview-audio').getAttribute('src')).toBe('/api/rooms/r1/files/f1')
+  const kept = await draw({ source: 'chat', chatId: 'c1', fileId: 'f2', name: 'clip.webm' })
+  expect(kept.get('preview-video').getAttribute('src')).toBe('/api/chats/c1/files/f2')
+  // nothing was fetched into memory (the old 60 MB limit came from reading it whole)
+  expect(fetched).toEqual([])
+  // a format this browser cannot play, or an address refused: the notice and Download
+  kept.get('preview-video').dispatchEvent(new FakeEvent('error'))
+  await kept.settle()
+  expect(kept.get('preview-cant-play').textContent).toContain(en('preview.cantPlay'))
+  expect(kept.find('preview-cant-play-download')).not.toBeNull()
+})
+
+test('a PDF is read whole up to 50 MB; past it pdf.js reads it from its address (no "too large")', async () => {
+  const sizes: Record<string, number> = {}
+  globalThis.fetch = (async (input: RequestInfo | URL) => {
+    const u = String(input)
+    fetched.push(u)
+    const size = Object.entries(sizes).find(([p]) => u.includes(encodeURIComponent(p)) || u.includes(p))?.[1] ?? 10
+    // a Content-Length over the limit: refused at once, nothing more read
+    return new Response(new Uint8Array(Math.min(size, 10)), { headers: { 'content-type': 'application/pdf', 'content-length': String(size) } })
+  }) as typeof fetch
+  fetched = []
+  sizes['/api/rooms/r1/files/big'] = 400 * 1024 * 1024
+  sizes['/api/rooms/r1/files/small'] = 10
+  function Loaded({ file }: { file: PreviewFile }) {
+    const loaded = useFileBlob(file)
+    return <p data-testid="loaded" data-stream={loaded.stream ?? ''} data-blob={loaded.blob ? String(loaded.blob.size) : ''} data-error={loaded.error?.kind ?? ''}>{bodyRenderer(loaded)}</p>
+  }
+  const big = await show(<Loaded file={{ source: 'room', roomId: 'r1', fileId: 'big', name: 'scan.pdf' }} />)
+  await big.until(() => big.get('loaded').getAttribute('data-stream') !== '', 'the address')
+  expect(big.get('loaded').getAttribute('data-stream')).toBe('/api/rooms/r1/files/big')
+  expect(big.get('loaded').getAttribute('data-error')).toBe('')
+  expect(big.get('loaded').textContent).toBe('pdf')
+  const small = await show(<Loaded file={{ source: 'room', roomId: 'r1', fileId: 'small', name: 'memo.pdf' }} />)
+  await small.until(() => small.get('loaded').getAttribute('data-blob') !== '', 'the bytes')
+  expect(small.get('loaded').getAttribute('data-stream')).toBe('')
+  // an Office file has no streaming viewer: past 50 MB it is still "too large", with Download
+  sizes['/api/rooms/r1/files/deck'] = 60 * 1024 * 1024
+  const deck = await show(<Loaded file={{ source: 'room', roomId: 'r1', fileId: 'deck', name: 'deck.pptx' }} />)
+  await deck.until(() => deck.get('loaded').getAttribute('data-error') !== '', 'the refusal')
+  expect(deck.get('loaded').getAttribute('data-error')).toBe('large')
+  expect(deck.get('loaded').getAttribute('data-stream')).toBe('')
 })

@@ -117,7 +117,7 @@ describe('Home without AI', () => {
     try {
       await m.until(() => m.find('welcome-ai-claude'), 'the card')
       expect(m.get('no-ai-card').getAttribute('data-action')).toBe('connect_team')
-      expect(m.get('no-ai-card').textContent).toContain(ko('welcome.ai.title'))
+      expect(m.get('no-ai-line').textContent).toBe(ko('home.noAi.connect'))
       expect(m.find('welcome-resume')).toBeNull()
       expect(m.find('team-goal')).toBeNull()
       expect(m.find('ai-access-banner')).toBeNull()
@@ -136,7 +136,7 @@ describe('Home without AI', () => {
     } finally { await m.unmount() }
   })
 
-  test('the owner with AI: on a phone the quiet row (회사 소개 saved: it opens 내 스킬, 2/4 of the phone\'s four), nothing recorded; on a computer no row on Home', async () => {
+  test('the owner with AI: on a phone the quiet row (회사 소개 saved: it opens 내 스킬, 2/4 of the phone\'s four), nothing recorded; on a computer the same row at the top (2/5)', async () => {
     signIn('owner')
     access = { usable: true, action: 'connect_team', requested: false }
     progress = { ...putOff(), steps: { profile: 'done', result: null, invite: null } }
@@ -154,25 +154,89 @@ describe('Home without AI', () => {
     useWelcome.getState().reset()
     m = await home()
     try {
-      await m.until(() => called('GET /api/onboarding/goal').length || useWelcome.getState().loaded, 'Home\'s top')
-      await m.settle(40)
-      expect(m.find('welcome-resume')).toBeNull()
+      // the team setup's row at the top on a computer too (docs/decisions/20261120-my-setup-card.md): the goal waits
+      await m.until(() => m.find('welcome-resume'), 'the row')
+      expect(m.get('welcome-resume-link').textContent).toBe(rowText(2, 5))
+      expect(m.find('team-goal')).toBeNull()
+      // one thing: no "Ready in your team" under it on a computer
+      await m.settle(60)
+      expect(m.find('team-prepared')).toBeNull()
     } finally { await m.unmount() }
   })
 
-  test('a member: "팀장이 AI를 연결하면 바로 쓸 수 있어요" alone; their own connection only where allowed (an admin connects for the team, like the owner)', async () => {
+  test('a member: "아직 쓸 수 있는 AI가 없어요" alone; their own connection only where allowed (an admin connects for the team, like the owner)', async () => {
     for (const [role, action] of [['member', 'ask_owner'], ['member', 'connect_own']] as const) {
       signIn(role)
       access = { usable: false, action, requested: false }
       const m = await home()
       try {
         await m.until(() => m.find('no-ai-card'), 'the card')
-        expect(m.get('no-ai-card').textContent).toContain(ko('aiConnect.member'))
-        expect(m.get('ai-access-button').textContent).toBe(ko('aiAccess.askOwner'))
+        expect(m.get('no-ai-line').textContent).toBe(ko('home.noAi.member'))
+        expect(m.get('ai-access-button').textContent).toBe(ko('home.noAi.ask'))
         expect(!!m.find('no-ai-own')).toBe(action === 'connect_own')
         expect(m.find('ai-access-banner')).toBeNull()
         expect(m.find('team-goal')).toBeNull()
         expect(called('GET /api/questions/often-asked')).toEqual([])
+      } finally { await m.unmount() }
+      calls = []
+      useAiAccess.getState().reset()
+    }
+  })
+
+  test('the line sits under the greeting, right over the box, not on top of the page (QA TC-5447)', async () => {
+    for (const [role, action] of [['owner', 'connect_team'], ['member', 'ask_owner']] as const) {
+      signIn(role)
+      access = { usable: false, action, requested: false }
+      markStepsSeen('olga')
+      const m = await home()
+      try {
+        await m.until(() => m.find('no-ai-card'), 'the line')
+        expect(m.get('home-top').querySelector('[data-testid="no-ai-card"]')).toBeNull()
+        expect(m.get('home-head').querySelector('[data-testid="no-ai-card"]')).not.toBeNull()
+        const head = m.get('home-head')
+        const kids = head.children
+        expect(kids.findIndex((k) => k.localName === 'h1')).toBeLessThan(kids.findIndex((k) => k.getAttribute('data-testid') === 'no-ai-card'))
+      } finally { await m.unmount() }
+      calls = []
+      useAiAccess.getState().reset()
+    }
+  })
+
+  test('typed anyway without AI: nothing is sent, the line under the box says why and the text stays (owner and member words)', async () => {
+    for (const [role, action, key] of [['owner', 'connect_team', 'home.noAi.typed'], ['member', 'ask_owner', 'home.noAi.typedMember']] as const) {
+      signIn(role)
+      access = { usable: false, action, requested: false }
+      markStepsSeen('olga')
+      const m = await home()
+      try {
+        await m.until(() => m.find('no-ai-card') && m.find('composer-input'), 'the line and the box')
+        expect(m.find('composer-blocked')).toBeNull()
+        await m.type('composer-input', '이번 주 회의록 정리해 줘')
+        await m.until(() => m.find('composer-blocked'), 'the line under the box')
+        expect(m.get('composer-blocked').textContent).toBe(ko(key))
+        expect((m.get('send') as unknown as { disabled: boolean }).disabled).toBe(true)
+        await m.click('send')
+        await m.settle(20)
+        expect(calls.filter((c) => c.key === 'POST /api/chats' || c.key.includes('/messages'))).toEqual([])
+        expect((m.get('composer-input') as unknown as { value: string }).value).toBe('이번 주 회의록 정리해 줘')
+      } finally { await m.unmount() }
+      calls = []
+      localStorage.clear()
+      useAiAccess.getState().reset()
+    }
+  })
+
+  test('connected but used up until a known time (QA TC-5192): no "connect an AI" card for anyone; the answer itself says until when', async () => {
+    for (const [role, action] of [['owner', 'connect_team'], ['member', 'ask_owner'], ['member', 'connect_own']] as const) {
+      signIn(role)
+      access = { usable: false, action, requested: false, limitedUntil: '2026-11-21T07:00:00.000Z' } as typeof access
+      const m = await home()
+      try {
+        await m.until(() => useAiAccess.getState().loaded, 'the access read')
+        await m.until(() => m.find('home-box') ?? m.find('chat-input') ?? document.querySelector('textarea'), 'the box')
+        expect(useAiAccess.getState()).toMatchObject({ usable: true, limitedUntil: '2026-11-21T07:00:00.000Z' })
+        expect(m.find('no-ai-card')).toBeNull()
+        expect(m.find('ai-access-banner')).toBeNull()
       } finally { await m.unmount() }
       calls = []
       useAiAccess.getState().reset()

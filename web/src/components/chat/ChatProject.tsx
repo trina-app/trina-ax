@@ -4,7 +4,8 @@
 // can see the project). Its first row "+ 새 프로젝트" makes a project named after the chat (NewProjectDialog.tsx: the name
 // only, mine alone) and moves the chat in, with 되돌리기 in the toast (docs/DECISIONS.md "Making a project"). Each
 // project says who sees it ("나만", "4명"), not its folder. A chat moved into a team project arrives private, with no
-// switch here (QA TC-1075): the project page's "chats only you see" line is the one place to share it. The name comes from
+// switch here (QA TC-1075); the dialog says so when such a project is picked and offers "Move and share", which moves
+// it and opens the share confirm (QA MAN-003). The project page's "chats only you see" line also shares it. The name comes from
 // store/projects.ts, so a rename saved anywhere in this window shows at once;
 // it is asked again when the window comes back to the front (a rename on another device). A project the person cannot
 // see (404: no read access any more, or its folder in the trash) shows nothing.
@@ -19,6 +20,8 @@ import { useProjects } from '../../store/projects'
 import { toast } from '../../store/ui'
 import { Button, Modal, Skeleton } from '../ui'
 import { changeChat } from './chatActions'
+import { mayShareChat, openShareChat } from './ShareChat'
+import { useSession } from '../../store/session'
 import { NewProjectDialog } from '../NewProjectDialog'
 import { whoSeesProject } from '../projectWho'
 
@@ -179,13 +182,35 @@ export function MoveToProjectDialog({ chat, onClose, onMoved }: { chat: Chat; on
     return () => { live = false }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+  // a team project the chat would arrive in privately (TC-1075: a move never shares): the dialog says so before Save
+  // and offers "Move and share", which moves it and then opens the share confirm (TC-1073: it can't be undone, the
+  // focus on Cancel). QA MAN-003: the 8-second toast after the move was missed, and the project's people could not see
+  // the chat
+  const safeOpsNow = (() => { const st = useSession.getState().status; return st.kind === 'signed-in' && !!st.me.server?.allChatsConfidential })()
+  const target = projects?.find((p) => p.id === selected)
+  const staysPrivate = !!target && selected !== chat.projectId && mayShareChat(chat, target, safeOpsNow)
+  const moveAndShare = async () => {
+    const to = target
+    if (!to) return
+    onClose()
+    const r = await moveChat(chat, to.id, onMoved)
+    if (!r.ok || !r.newest) return
+    openShareChat(chat.id)
+  }
   const save = async () => {
     const to = projects?.find((p) => p.id === selected)
     const text = to ? t('chat.project.moved', { name: to.name }) : t('chat.project.removed')
     // the row moves and the dialog closes at once; a refusal puts the chat back with the server's words in a toast
     onClose()
     const r = await moveChat(chat, selected, onMoved)
-    if (r.ok && r.newest) toast({ level: 'success', text })
+    if (!r.ok || !r.newest) return
+    // into a team project it arrives private (docs/DECISIONS.md "Team project chats shared by default": a moved chat is
+    // never shared by the move): said at the move, with the one way to share it (docs/decisions/
+    // 20261116-ai-share-who-can-open.md). The share flow asks before it shares: sharing cannot be undone
+    const st = useSession.getState().status
+    const safeOps = st.kind === 'signed-in' && !!st.me.server?.allChatsConfidential
+    if (to && mayShareChat({ ...chat, ...r.reply }, to, safeOps)) toast({ level: 'success', text: t('chat.project.movedPrivate', { name: to.name }), ms: 8000, action: { label: t('stepFix.shareProject'), run: () => openShareChat(chat.id) } })
+    else toast({ level: 'success', text })
   }
   if (making) return <NewProjectDialog initialName={chat.title ?? ''} onClose={() => setMaking(false)} onMade={(p) => void madeAndMove(p)} />
   return (
@@ -198,9 +223,14 @@ export function MoveToProjectDialog({ chat, onClose, onMoved }: { chat: Chat; on
           <Button variant="ghost" onClick={onClose}>
             {t('common.cancel')}
           </Button>
-          <Button variant="primary" disabled={!projects || selected === chat.projectId} onClick={() => void save()} data-testid="chat-project-save">
+          <Button variant={staysPrivate ? 'secondary' : 'primary'} disabled={!projects || selected === chat.projectId} onClick={() => void save()} data-testid="chat-project-save">
             {t('common.save')}
           </Button>
+          {staysPrivate && (
+            <Button variant="primary" onClick={() => void moveAndShare()} data-testid="chat-project-save-share">
+              {t('chat.project.moveAndShare')}
+            </Button>
+          )}
         </>
       }
     >
@@ -211,6 +241,11 @@ export function MoveToProjectDialog({ chat, onClose, onMoved }: { chat: Chat; on
       </button>
       {!projects && <Skeleton lines={3} />}
       {projects && <ProjectChoices projects={projects} selected={selected} current={chat.projectId} onSelect={setSelected} label={t(moveLabel(chat))} />}
+      {staysPrivate && (
+        <p className="mt-3 text-sm text-muted" data-testid="chat-project-stays-private">
+          {t('chat.project.staysPrivate')}
+        </p>
+      )}
       {error && (
         <p role="alert" className="mt-2 text-sm text-danger">
           {error}

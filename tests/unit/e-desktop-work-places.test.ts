@@ -7,8 +7,8 @@ import { describe, expect, test } from 'bun:test'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import {
-  APP_DATA_ALLOWED, appDataAllowed, cloudLabel, homeExcluded, macCloudPlaces, macDataless, messengerPlaces, parseBookmark, parseLnk, parseOfficeBookmarks,
-  parseSharedFileList, parseStatFlags, placeOf, windowsCloudPlaces, winPlaceholder, workFolders, WORK_FOLDER_WORDS,
+  APP_DATA_ALLOWED, appDataAllowed, cloudLabel, cloudProviderOf, homeExcluded, macCloudPlaces, macDataless, messengerPlaces, parseBookmark, parseLnk, parseOfficeBookmarks,
+  parseSharedFileList, parseStatFlags, parseSyncRoots, placeOf, windowsCloudPlaces, winPlaceholder, workFolders, WORK_FOLDER_WORDS,
 } from '../../desktop/src/common/work-places'
 import { parseWindowsSearch, windowsSearchScript, type IndexedFile } from '../../desktop/src/common/work-index'
 import { filesFromIndex, lookWide, scanAsk, scanRoots, WorkFileSessions, type WorkFs, type WorkRoot, type WorkStat } from '../../desktop/src/common/work-files'
@@ -149,6 +149,22 @@ describe('online-only files', () => {
     expect(winPlaceholder(0x20 | 0x400)).toBe(false) // archive + reparse point (a pinned file)
     expect(parseStatFlags('40000000\t/Users/alex/Library/CloudStorage/OneDrive-Acme/a b.pdf\n0\t/x.pdf\nnoise\n')).toEqual(new Map([['/Users/alex/Library/CloudStorage/OneDrive-Acme/a b.pdf', 0x40000000], ['/x.pdf', 0]]))
   })
+
+  test('which cloud a file comes from, by where it is (the page says "Getting it from iCloud")', () => {
+    expect(cloudProviderOf('/Users/alex/Library/Mobile Documents/com~apple~CloudDocs/Plans/a.pdf', 'darwin')).toBe('icloud')
+    expect(cloudProviderOf('/Users/alex/Library/CloudStorage/OneDrive-Acme/a.pdf', 'darwin')).toBe('onedrive')
+    expect(cloudProviderOf('/Users/alex/Library/CloudStorage/GoogleDrive-alex@acme.com/My Drive/a.pdf', 'darwin')).toBe('googleDrive')
+    expect(cloudProviderOf('/Users/alex/Library/CloudStorage/Dropbox/a.pdf', 'darwin')).toBe('dropbox')
+    expect(cloudProviderOf('/Users/alex/Library/CloudStorage/Box-Box/a.pdf', 'darwin')).toBe('box')
+    // a Mac's Documents kept in iCloud are not told by the path (the read's flag tells), nor is an app's own folder
+    expect(cloudProviderOf('/Users/alex/Documents/a.pdf', 'darwin')).toBeNull()
+    expect(cloudProviderOf('/Users/alex/Library/CloudStorage/SomeApp/a.pdf', 'darwin')).toBeNull()
+    expect(cloudProviderOf('C:\\Users\\alex\\OneDrive - Acme\\Documents\\a.docx', 'win32')).toBe('onedrive')
+    expect(cloudProviderOf('C:\\Users\\alex\\Dropbox (Acme)\\a.docx', 'win32')).toBe('dropbox')
+    expect(cloudProviderOf('C:\\Users\\alex\\iCloudDrive\\a.docx', 'win32')).toBe('icloud')
+    expect(cloudProviderOf('G:\\My Drive\\Plans\\a.docx', 'win32')).toBe('googleDrive')
+    expect(cloudProviderOf('C:\\Users\\alex\\Documents\\a.docx', 'win32')).toBeNull()
+  })
 })
 
 describe('the places', () => {
@@ -169,6 +185,16 @@ describe('the places', () => {
     ])
     const win = windowsCloudPlaces('C:\\Users\\alex', { OneDriveCommercial: 'C:\\Users\\alex\\OneDrive - Acme', OneDrive: 'C:\\Users\\alex\\OneDrive - Acme' }, ['Dropbox', 'Google Drive', 'Documents', 'OneDrive - Acme'])
     expect(win.map((p) => p.label)).toEqual(['OneDrive – Acme', 'Dropbox', 'Google Drive'])
+    // OneDrive's sync roots (the registry's MountPoint lines): each SharePoint library is a place; OneDrive itself once,
+    // and a shared folder added inside OneDrive is OneDrive's
+    const roots = parseSyncRoots('C:\\Users\\alex\\OneDrive - Acme\r\nC:\\Users\\alex\\Acme\\Acme - Documents\r\nC:\\Users\\alex\\OneDrive - Acme\\Shared plans\r\n\r\nhttps://acme.sharepoint.com/x\r\nc:\\users\\alex\\acme\\acme - documents\r\n')
+    expect(roots).toEqual(['C:\\Users\\alex\\OneDrive - Acme', 'C:\\Users\\alex\\Acme\\Acme - Documents', 'C:\\Users\\alex\\OneDrive - Acme\\Shared plans'])
+    const sp = windowsCloudPlaces('C:\\Users\\alex', { OneDriveCommercial: 'C:\\Users\\alex\\OneDrive - Acme' }, [], roots)
+    expect(sp.map((p) => [p.path, p.label])).toEqual([['C:\\Users\\alex\\OneDrive - Acme', 'OneDrive – Acme'], ['C:\\Users\\alex\\Acme\\Acme - Documents', 'Acme – Documents']])
+    expect(parseSyncRoots('')).toEqual([])
+    // a trailing backslash is the same folder; a library that only starts with OneDrive's name is its own place
+    expect(parseSyncRoots('C:\\X\\\r\nC:\\X\r\nD:\\')).toEqual(['C:\\X', 'D:\\'])
+    expect(windowsCloudPlaces('C:\\Users\\alex', { OneDrive: 'C:\\Users\\alex\\OneDrive - Acme' }, [], ['C:\\Users\\alex\\OneDrive - Acme Corp']).map((p) => p.label)).toEqual(['OneDrive – Acme', 'OneDrive – Acme Corp'])
   })
 
   test('work folders at the top of home: work words in six languages and the company\'s names, never a system or cloud folder', () => {
@@ -406,11 +432,13 @@ describe('the wide look', () => {
     const r = await filesFromIndex(root, root.path, [idx('C:\\Users\\alex\\OneDrive - Acme\\Cloud.docx', { cloud: true, size: 9000, modified: node.mtimeMs })], fs, { platform: 'win32', newId, now: () => NOW })
     const sessions = new WorkFileSessions(fs, 'win32', () => NOW)
     sessions.begin('http://team', r.found)
+    sessions.allow('http://team', [...r.found.keys()])
     expect((await sessions.read('http://team', r.files[0]!.id)).ok).toBe(true)
     // swapped after the lstat: the open is another file
     const swapped: WorkFs = { ...fs, open: async (p) => { const h = await fs.open(p); return { ...h, stat: async () => ({ ...(await h.stat()), ino: 1n }) } } }
     const s2 = new WorkFileSessions(swapped, 'win32', () => NOW)
     s2.begin('http://team', r.found)
+    s2.allow('http://team', [...r.found.keys()])
     expect(await s2.read('http://team', r.files[0]!.id)).toEqual({ ok: false, reason: 'changed' })
   })
 
@@ -482,7 +510,7 @@ describe('review of part 5', () => {
   test('Reopen only after Open Settings, while the app still has no access, never during a look; the index asks for documents only', () => {
     const ctl = readFileSync(join(import.meta.dir, '../../desktop/src/main/work-files.ts'), 'utf8')
     expect(ctl).toMatch(/async relaunch\(\) \{\s*if \(process\.platform !== 'darwin' \|\| this\.busy \|\| !this\.fullDiskSettingsAt \|\| Date\.now\(\) - this\.fullDiskSettingsAt > 15 \* 60_000\) return\s*if \(\(await this\.fullDisk\(\)\) === 'granted'\) return/)
-    expect(windowsSearchScript(['C:\\Users\\a'])).toContain("System.FileExtension IN (''.pdf'',")
+    expect(windowsSearchScript(['C:\\Users\\a'])).toContain("(System.FileExtension = ''.pdf'' OR")
   })
 })
 
@@ -498,7 +526,9 @@ describe('re-review of part 5', () => {
   test('Windows never walks OneDrive-moved folders; a Mac looks at its cloud drives before walking; enrich keeps the deadline', () => {
     const ctl = readFileSync(join(import.meta.dir, '../../desktop/src/main/work-files.ts'), 'utf8')
     expect(ctl).toContain("noWalk: (root) => root.id === 'cloud' || root.oneDrive,")
-    expect(ctl).toContain("process.platform === 'win32' ? [...others, ...folders, ...cloud] : [...others, ...cloud, ...folders]")
+    // Windows (MAN-057): the messengers' folders, then the three folders (walked, never waiting for Windows Search), then
+    // the work folders and the cloud drives
+    expect(ctl).toContain("process.platform === 'win32' ? [...messengers, ...folders, ...work, ...cloud] : [...others, ...cloud, ...folders]")
     const common = readFileSync(join(import.meta.dir, '../../desktop/src/common/work-files.ts'), 'utf8')
     expect(common).toContain('deadline: Math.min(Date.now() + FALLBACK_LIMITS.rootMs, o.deadline ?? Infinity)')
   })

@@ -14,6 +14,7 @@
 // of offering Mac and Windows files. Profile on a phone (QA TC-382): the photo centred, a tap on it changes it (the same
 // choices: a new one, or take it away), the name, job title and email as rows of one group, the username and role as
 // list rows, and Save in the bar (SettingsBar.tsx) once something changed: the same one Save of the same form.
+import { HomeCardsShowAgain, MySetupShowAgain } from '../components/onboarding/CardHide'
 import clsx from 'clsx'
 import { rowName } from '../components/list/List'
 import { Brain, KeyRound, Laptop, Loader2, LogOut, Monitor, Pencil, Plus, Send, ShieldAlert, Smartphone, Tablet, Trash2 } from 'lucide-react'
@@ -31,11 +32,13 @@ import { browser, canInstallIn, installGuideShown, isStandalone, platform } from
 import { LOCALES, useLocale, useT } from '../i18n'
 import { memoryChanged } from '../store/live'
 import { canChooseEngine, useMeStrict, useSession } from '../store/session'
+import { useFreeRoam } from '../store/demo'
 import { isGuestMe, meGuest } from '../lib/guests'
 import { peekCached, rememberCached } from '../store/listCache'
 import { useEngines } from '../store/engines'
 import { ENGINE_LABEL } from '../components/chat/EngineMenu'
 import { PhoneChoiceRow } from '../components/phone/PhoneChoice'
+import { LanguageSelect } from '../components/LanguageSelect'
 import { toast } from '../store/ui'
 import { ChangePasswordForm } from './Auth'
 import { MyCredentials } from './admin/Credentials'
@@ -50,7 +53,7 @@ import { Badge, Button, CopyButton, EmptyState, Field, IconButton, Modal, Skelet
 import { LoadError } from '../components/LoadError'
 import { SourceCodeLinks, useServerSource } from '../components/SourceCodeLink'
 import { Avatar } from '../components/Avatar'
-import { squarePhoto, type Photo } from '../lib/avatar'
+import { PHOTO_ACCEPT, squarePhoto, type Photo } from '../lib/avatar'
 import { Notifications } from '../components/settings/Notifications'
 import { DevEnvSites } from '../components/settings/DevEnvSites'
 import { AiAllowances } from '../components/settings/AiAllowances'
@@ -58,12 +61,14 @@ import { AccountDeletion, deletionRowText, useMyDeletionRequest } from '../compo
 import { InstallGuide } from '../components/settings/InstallGuide'
 import { ComputerApps, PhoneApps, downloadsSourceOf } from '../components/settings/AppList'
 import { MemoryForm } from '../components/settings/MemoryForm'
+import { MyExport } from '../components/settings/MyExport'
 import AiApps from './AiApps'
 import { PhoneListGroup, PhoneListRow } from '../components/phone/PhoneList'
 import { PhoneChecks } from '../components/phone/PhoneChecks'
 import { SettingsBarAction, useSettingsBar } from '../components/settings/SettingsBar'
 import { SettingRow } from '../components/settings/SettingRow'
 import { MenuButton } from '../components/rooms/MenuButton'
+import { useDevicePick, type DevicePick } from '../components/DevicePick'
 import { useGoBack } from '../lib/back'
 import MyUsage from '../components/settings/MyUsage'
 
@@ -90,6 +95,7 @@ export default function SettingsPane({ tab, fold }: { tab: string; fold?: Settin
       {/* the dialog decides whether the section is there (it stays after its switch is turned off) */}
       {tab === 'browser' && browserTabShown(Boolean(browser), me.team.webAllowAll, true) && <BrowserSettings bridge={browser} />}
       {tab === 'memory' && <Memories />}
+      {tab === 'export' && !isGuestMe(me) && <MyExportSection />}
       {tab === 'allowances' && <AiAllowances key={`${me.user.id}:${me.session.id}`} folded={!!fold} />}
       {/* a phone: the sites the AI may open are parts of this page (Settings' list has no rows of their own for them) */}
       {tab === 'allowances' && fold?.browser && <BrowserSettings bridge={browser} part />}
@@ -136,8 +142,11 @@ function Profile() {
   const me = useMeStrict()
   // who sees the profile, and the role line: a guest is seen only by the people of their one place and is in no group
   // (lib/guests.ts), so no "No groups" for them
-  const guestPlace = meGuest(me)?.place
-  const visible = !isGuestMe(me) ? t('profile.visible') : guestPlace?.name ? t('profile.visibleGuest', { place: guestPlace.name }) : t('profile.visibleGuestSome')
+  // a guest: the people of their group chat and/or project, by name
+  const named = (meGuest(me)?.places ?? []).filter((p) => p.name)
+  const visible = !isGuestMe(me) ? t('profile.visible')
+    : named.length === 2 ? t('profile.visibleGuestTwo', { place: named[0]!.name!, other: named[1]!.name! })
+    : named.length === 1 ? t('profile.visibleGuest', { place: named[0]!.name! }) : t('profile.visibleGuestSome')
   const groupsLine = me.groups.map((g) => g.name).join(', ') || (isGuestMe(me) ? '' : t('settings.noGroups'))
   const signedIn = useSession((s) => s.signedIn)
   const setLocale = useSession((s) => s.setLocale)
@@ -156,7 +165,10 @@ function Profile() {
   // that cannot be read leaves the plain link to the page
   const deletion = useMyDeletionRequest()
   const setDeletion = deletion.setValue
-  useEffect(() => { api.call(API.myDeletionRequest).then(setDeletion, () => {}) }, [setDeletion])
+  // a free-roam demo (store/demo.ts): the name, title and email are the demo person's and stay as they are, and the
+  // demo's account is never deleted (server/src/demo/guard.ts refuses all three); the photo, language and theme change
+  const freeRoam = useFreeRoam()
+  useEffect(() => { if (!freeRoam) api.call(API.myDeletionRequest).then(setDeletion, () => {}) }, [setDeletion, freeRoam])
   const deletionRow = deletionRowText(t, deletion.value, locale)
   // Everything here is saved with the one Save button (the other tabs' settings save at once): it shows once something
   // changed
@@ -171,6 +183,8 @@ function Profile() {
     if (!p) return setPhotoNote(t('profile.photoProblem'))
     setPhoto(p)
   }
+  // a phone: the photo's sheet starts from our device rows (components/DevicePick.tsx), never iOS's raw menu
+  const device = useDevicePick({ onFiles: (f) => void choose(f[0]), accept: PHOTO_ACCEPT, testIds: 'profile-photo' })
   const save = async (e?: React.FormEvent) => {
     e?.preventDefault()
     if (!changed || !name.trim() || busy) return
@@ -209,20 +223,20 @@ function Profile() {
                 hasPhoto={hasPhoto}
                 note={photoNote}
                 hintId={`${ids}-photo-hint`}
-                onPick={() => pick.current?.click()}
+                pick={device}
                 onRemove={removePhoto}
               />
               {/* the hints under the group: the email's and who sees what */}
               <PhoneSection className="mb-0">
-                <PhoneListGroup footer={<span id={`${ids}-email-hint`}>{t('settings.emailHint')} {visible}</span>} testId="profile-fields">
+                <PhoneListGroup footer={<span id={`${ids}-email-hint`}>{freeRoam ? t('demo.free.profileFixed') : t('settings.emailHint')} {visible}</span>} testId="profile-fields">
                   <PhoneField label={t('auth.name')} id={`${ids}-name`}>
-                    <input id={`${ids}-name`} className={phoneFieldCls} value={name} onChange={(e) => setName(e.target.value)} maxLength={100} autoComplete="name" />
+                    <input id={`${ids}-name`} className={clsx(phoneFieldCls, freeRoam && 'text-muted')} value={name} readOnly={freeRoam} onChange={(e) => setName(e.target.value)} maxLength={100} autoComplete="name" data-testid="profile-name" />
                   </PhoneField>
                   <PhoneField label={t('profile.title')} id={`${ids}-title`}>
-                    <input id={`${ids}-title`} className={phoneFieldCls} value={title} onChange={(e) => setTitle(e.target.value)} maxLength={PROFILE_TITLE_MAX} placeholder={t('profile.titleHint')} />
+                    <input id={`${ids}-title`} className={clsx(phoneFieldCls, freeRoam && 'text-muted')} value={title} readOnly={freeRoam} onChange={(e) => setTitle(e.target.value)} maxLength={PROFILE_TITLE_MAX} placeholder={freeRoam ? undefined : t('profile.titleHint')} data-testid="profile-title" />
                   </PhoneField>
                   <PhoneField label={t('settings.email')} id={`${ids}-email`}>
-                    <input id={`${ids}-email`} className={phoneFieldCls} type="email" value={email} onChange={(e) => setEmail(e.target.value)} aria-describedby={`${ids}-email-hint`} autoComplete="email" />
+                    <input id={`${ids}-email`} className={clsx(phoneFieldCls, freeRoam && 'text-muted')} type="email" value={email} readOnly={freeRoam} onChange={(e) => setEmail(e.target.value)} aria-describedby={`${ids}-email-hint`} autoComplete="email" data-testid="profile-email" />
                   </PhoneField>
                 </PhoneListGroup>
               </PhoneSection>
@@ -249,18 +263,19 @@ function Profile() {
             </div>
           </Row>
           <Row label={t('auth.name')} htmlFor={`${ids}-name`} framed>
-            <input id={`${ids}-name`} className={inputCls} value={name} onChange={(e) => setName(e.target.value)} maxLength={100} />
+            <input id={`${ids}-name`} className={clsx(inputCls, freeRoam && 'bg-subtle text-muted')} value={name} readOnly={freeRoam} onChange={(e) => setName(e.target.value)} maxLength={100} data-testid="profile-name" />
           </Row>
           <Row label={t('profile.title')} htmlFor={`${ids}-title`} framed>
-            <input id={`${ids}-title`} className={inputCls} value={title} onChange={(e) => setTitle(e.target.value)} maxLength={PROFILE_TITLE_MAX} placeholder={t('profile.titleHint')} />
+            <input id={`${ids}-title`} className={clsx(inputCls, freeRoam && 'bg-subtle text-muted')} value={title} readOnly={freeRoam} onChange={(e) => setTitle(e.target.value)} maxLength={PROFILE_TITLE_MAX} placeholder={freeRoam ? undefined : t('profile.titleHint')} data-testid="profile-title" />
           </Row>
-          <Row label={t('settings.email')} hint={t('settings.emailHint')} htmlFor={`${ids}-email`} hintId={`${ids}-email-hint`} framed>
-            <input id={`${ids}-email`} className={inputCls} type="email" value={email} onChange={(e) => setEmail(e.target.value)} aria-describedby={`${ids}-email-hint`} />
+          <Row label={t('settings.email')} hint={freeRoam ? t('demo.free.profileFixed') : t('settings.emailHint')} htmlFor={`${ids}-email`} hintId={`${ids}-email-hint`} framed>
+            <input id={`${ids}-email`} className={clsx(inputCls, freeRoam && 'bg-subtle text-muted')} type="email" value={email} readOnly={freeRoam} onChange={(e) => setEmail(e.target.value)} aria-describedby={`${ids}-email-hint`} data-testid="profile-email" />
           </Row>
           <p className="pt-3 text-xs text-muted" data-testid="profile-visible">{visible}</p>
           </>
           )}
-          <input ref={pick} type="file" accept="image/png,image/jpeg,image/webp" className="hidden" tabIndex={-1} aria-hidden data-testid="profile-photo-input" onChange={(e) => { void choose(e.target.files?.[0]); e.target.value = '' }} />
+          <input ref={pick} type="file" accept={PHOTO_ACCEPT} className="hidden" tabIndex={-1} aria-hidden data-testid="profile-photo-input" onChange={(e) => { void choose(e.target.files?.[0]); e.target.value = '' }} />
+          {phone && device.inputs}
           {changed && !bar && (
             <div className="flex justify-end pt-3 max-sm:[&>button]:w-full">
               <Button type="submit" variant="primary" busy={busy} disabled={!name.trim()} data-testid="profile-save">
@@ -307,7 +322,7 @@ function Profile() {
           </Row>
           {/* a person deletes their own account, 7 days after asking (App Store review 5.1.1(v)); a phone has it as the
               page's last row */}
-          {!phone && <Row label={t('accountDeletion.row')} hint={deletionRow.hint}>
+          {!phone && !freeRoam && <Row label={t('accountDeletion.row')} hint={deletionRow.hint}>
             {deletionRow.keep ? (
               <Button type="button" size="sm" busy={deletion.busy} onClick={() => void deletion.keep()} data-testid="account-deletion-keep">
                 {t('accountDeletion.cancel')}
@@ -321,41 +336,28 @@ function Profile() {
         </div>
         )}
       </Section>
+      {/* a Home card the person hid (My setup, the team goal, "Ready in your team"): one quiet row each that brings it back */}
+      <MySetupShowAgain className="mb-8 max-md:mb-12" />
+      <HomeCardsShowAgain cards={['goalCard', 'preparedCard']} testId="profile-home-cards" className="mb-8 max-md:mb-12" />
       {phone ? (
-        // a phone: the language as a checkmark list (the team's default first)
+        // a phone: one row "Language   한국어 ›" whose sheet holds the languages (owner 2026-11-16: no list of every language
+        // on the page), as the AI row below and Team settings' default language
         <PhoneSection className="-mt-6" testId="profile-language-part">
-          <PhoneChecks title={t('settings.language')} footer={t('settings.languageHint')} label={t('settings.language')} testId="profile-language"
-            value={me.user.localeChoice ?? 'team'}
-            options={(['team', ...LOCALES.map((l) => l.id)] as const).map((choice) => ({
-              value: choice,
-              label: choice === 'team' ? t('settings.languageTeam', { language: LOCALES.find((l) => l.id === me.team.defaultLocale)?.label ?? me.team.defaultLocale }) : LOCALES.find((l) => l.id === choice)!.label,
-              lang: choice === 'team' ? undefined : choice,
-              testId: `locale-${choice}`,
-            }))}
-            onChange={(choice) => void setLocale(choice === 'team' ? null : choice).catch((e) => toast({ level: 'error', text: errorText(e, locale, t('error.network')) }))} />
+          <PhoneListGroup footer={t('settings.languageHint')} testId="profile-language">
+            <PhoneChoiceRow list title={t('settings.language')} testId="profile-locale" value={me.user.localeChoice ?? 'team'}
+              options={(['team', ...LOCALES.map((l) => l.id)] as const).map((choice) => ({
+                value: choice,
+                label: choice === 'team' ? t('settings.languageTeam', { language: LOCALES.find((l) => l.id === me.team.defaultLocale)?.label ?? me.team.defaultLocale }) : LOCALES.find((l) => l.id === choice)!.label,
+              }))}
+              onChange={(choice) => void setLocale(choice === 'team' ? null : choice).catch((e) => toast({ level: 'error', text: errorText(e, locale, t('error.network')) }))} />
+          </PhoneListGroup>
         </PhoneSection>
       ) : (
       <Section title={t('settings.language')} desc={t('settings.languageHint')}>
-        <div className="flex flex-wrap gap-2" role="radiogroup" aria-label={t('settings.language')}>
-          {[null, ...LOCALES.map((l) => l.id)].map((choice) => {
-            const checked = (me.user.localeChoice ?? null) === choice
-            const label = choice ? LOCALES.find((l) => l.id === choice)!.label : t('settings.languageTeam', { language: LOCALES.find((l) => l.id === me.team.defaultLocale)?.label ?? me.team.defaultLocale })
-            return (
-              <button
-                key={choice ?? 'team'}
-                type="button"
-                role="radio"
-                aria-checked={checked}
-                lang={choice ?? undefined}
-                onClick={() => void setLocale(choice).catch((e) => toast({ level: 'error', text: errorText(e, locale, t('error.network')) }))}
-                className={clsx('rounded-lg border px-3 py-2 text-sm max-md:min-h-11', checked ? 'border-accent bg-accent-soft font-medium' : 'border-line hover:bg-hover')}
-                data-testid={`locale-${choice ?? 'team'}`}
-              >
-                {label}
-              </button>
-            )
-          })}
-        </div>
+        {/* one select, not a row of every language (owner 2026-11-16) */}
+        <LanguageSelect className="md:w-64" label={t('settings.language')} testId="profile-locale" value={me.user.localeChoice ?? 'team'}
+          teamDefault={t('settings.languageTeam', { language: LOCALES.find((l) => l.id === me.team.defaultLocale)?.label ?? me.team.defaultLocale })}
+          onChange={(choice) => void setLocale(choice === 'team' ? null : choice).catch((e) => toast({ level: 'error', text: errorText(e, locale, t('error.network')) }))} />
       </Section>
       )}
       {canChooseEngine(me) && <MyEngine />}
@@ -373,7 +375,7 @@ function Profile() {
       </Section>
       )}
       <TextSizeSetting />
-      {phone && (
+      {phone && !freeRoam && (
         <PhoneSection className="-mt-6">
           <PhoneListGroup title={t('accountDeletion.row')} footer={deletionRow.hint}>
             {deletionRow.keep
@@ -389,7 +391,7 @@ function Profile() {
 /** The profile's photo on a phone: the photo (or the first letter) centred, with "사진 바꾸기" ("사진 넣기" when there is
  * none) under it; one tap target for both. With a photo, a tap opens the photo choices as a sheet (a new one, or take it
  * away: the computer's two buttons); without one, it opens the photo picker. Nothing is saved before Save. */
-function PhonePhoto({ user, previewUrl, hasPhoto, note, hintId, onPick, onRemove }: { user: { id: string; name: string; avatarVersion?: number }; previewUrl: string | null; hasPhoto: boolean; note: string | null; hintId: string; onPick: () => void; onRemove: () => void }) {
+function PhonePhoto({ user, previewUrl, hasPhoto, note, hintId, pick, onRemove }: { user: { id: string; name: string; avatarVersion?: number }; previewUrl: string | null; hasPhoto: boolean; note: string | null; hintId: string; pick: DevicePick; onRemove: () => void }) {
   const t = useT()
   const face = (
     <span className="flex flex-col items-center gap-2">
@@ -403,24 +405,20 @@ function PhonePhoto({ user, previewUrl, hasPhoto, note, hintId, onPick, onRemove
   )
   return (
     <div className="flex flex-col items-center pt-2 pb-2" data-testid="profile-photo">
-      {hasPhoto ? (
-        <MenuButton
-          label={t('profile.photoChange')}
-          tip={t('profile.photo')}
-          heading={t('profile.photo')}
-          icon={face}
-          items={[
-            { label: t('profile.photoChange'), onSelect: onPick, testId: 'profile-photo-new' },
-            { label: t('profile.photoRemove'), onSelect: onRemove, danger: true, testId: 'profile-photo-remove' },
-          ]}
-          buttonClassName="rounded-2xl! px-3! py-2! text-ink! hover:bg-hover"
-          testId="profile-photo-pick"
-        />
-      ) : (
-        <button type="button" onClick={onPick} aria-label={t('profile.photoAdd')} aria-describedby={hintId} className="rounded-2xl px-3 py-2 hover:bg-hover" data-testid="profile-photo-pick">
-          {face}
-        </button>
-      )}
+      {/* our sheet: 사진 보관함, 사진 찍기, 파일 (components/DevicePick.tsx), and 삭제 when there is a photo */}
+      <MenuButton
+        label={t(hasPhoto ? 'profile.photoChange' : 'profile.photoAdd')}
+        tip={t('profile.photo')}
+        heading={t('profile.photo')}
+        icon={face}
+        items={[
+          ...pick.items,
+          ...(hasPhoto ? [{ label: t('profile.photoRemove'), icon: <Trash2 size={18} aria-hidden />, onSelect: onRemove, danger: true, testId: 'profile-photo-remove' }] : []),
+        ]}
+        describedBy={hasPhoto ? undefined : hintId}
+        buttonClassName="rounded-2xl! px-3! py-2! text-ink! hover:bg-hover"
+        testId="profile-photo-pick"
+      />
       {/* the size and kind of photo it takes, for screen readers; a photo it could not read says so */}
       <p id={hintId} className={note ? 'mt-1 text-center text-xs text-danger' : 'sr-only'} role={note ? 'alert' : undefined}>{note ?? t('profile.photoHint')}</p>
     </div>
@@ -993,6 +991,15 @@ export function Memories() {
 }
 
 /** Version, license and where the source code is (AGPL-3.0 §13). */
+function MyExportSection() {
+  const t = useT()
+  return (
+    <Section title={t('settings.export')} desc={t('myExport.desc')} page>
+      <MyExport />
+    </Section>
+  )
+}
+
 function About() {
   const t = useT()
   const info = useServerSource()
@@ -1016,7 +1023,7 @@ function Apps() {
   const kind = clientKind()
   // the device: the phone app and the desktop app say which they are; a browser, its user agent
   const os = desktop()?.platform
-  const here = kind === 'mobile' ? mobileApp()?.platform ?? platform() : os ? (os === 'darwin' ? 'mac' : os === 'win32' ? 'windows' : 'other') : platform()
+  const here = kind === 'mobile' ? mobileApp()?.platform ?? platform() : os ? (os === 'darwin' ? 'mac' : os === 'win32' ? 'windows' : os === 'linux' ? 'linux' : 'other') : platform()
   const client: AppClient = { kind, here, store }
   // a phone (the phone app, or a browser on an iPhone or Android phone; not a narrow window on a computer): the Mac and
   // Windows apps are for a computer, so the way to send the Apps page there, not their files and not the owner's hint

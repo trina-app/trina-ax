@@ -25,14 +25,18 @@ import { fail } from '../http/errors'
 import { getTeamSettings } from '../admin/settings'
 import { unsealOrFail } from '../credentials/service'
 import { credentialsOf } from '../credentials/store'
-import { cleanNotes, hiddenText, integrationsOf, MAX_PERSONAL, MAX_TEAM, normUrl, obviouslyPrivate, oneLine, personalFull } from '../integrations/connections/service'
-import { activeUser, disabledTools, getRow, isAdmin, mayUse, savedTools, selectRows, templateCovers, view, type Row, type Viewer } from '../integrations/connections/store'
+import { cleanNotes, hiddenText, integrationsOf, MAX_PERSONAL, MAX_PERSONAL_WAITING, MAX_TEAM, normUrl, obviouslyPrivate, oneLine } from '../integrations/connections/service'
+import { activeUser, disabledTools, getRow, isAdmin, mayUse, offByTeam, savedTools, selectRows, templateCovers, view, type Row, type Viewer } from '../integrations/connections/store'
 import type { Database } from 'bun:sqlite'
 import { say } from '../integrations/connections/text'
 import { googleDriveOf } from '../integrations/google-drive/oauth'
+import { googleAppsOf } from '../integrations/google-apps/service'
+import { APP_NAMES } from '../integrations/google-apps/catalog'
+import { googleAppAsked, googleAppWay } from './connect-google-app'
 import { getTemplate, templatesOf } from '../integrations/connections/templates'
 import { DRIVE_TOOL_NAMES } from '../tools/drive'
 import { tr } from './i18n'
+import { seenWhy } from './grant-reads'
 import { refusal, SCREEN } from '../policy/refusal'
 import type { TurnExec } from './turn'
 
@@ -132,6 +136,15 @@ function templateCard(t: NonNullable<ReturnType<typeof getTemplate>>, why: strin
     template: { id: t.id, version: t.version }, ...(why ? { why } : {}), expiresAt,
   }
 }
+/** The answer for a person's own connection while the team has members' own connections off (store.ts offByTeam): it is
+ * kept but not used, so the AI says why and who can change it, never that its tools are there (QA TC-2930). */
+function ownOff(name: string, viewer: Viewer, L: Locale): string {
+  const why = `This person's own connection "${name}" is not used in chats now: this team has turned off members' own connections. Its tools are not offered, and it cannot be signed in again until that is turned back on.`
+  return isAdmin(viewer.role)
+    ? `${why} This person is an admin and can turn "Members can add their own connections" back on in ${SCREEN.adminSettings(L)}, or add it for the team instead (scope team). No card was shown.`
+    : `${why} ${refusal({ done: 'No card was shown.', why: { kind: 'permission', what: 'personal connections are off for the team', grant: ['an admin'], how: `in ${SCREEN.adminSettings(L)}` }, next: 'tell the person their team has turned off their own connections and to ask an admin' })}`
+}
+
 /** The person's own connection (not from a template, not a Google app, which signs in on its own page) that needs a new
  * sign-in or key (QA TC-127): the card offers it again for that connection. */
 export function ownNeedsSignIn(r: Row | null, userId: string): boolean {
@@ -163,7 +176,9 @@ export async function connectService(exec: TurnExec, args: unknown): Promise<Too
   /** no card: the AI is told why, in words it can act on; `error`: a refusal, not information */
   const early = (text: string, code: string, error = true): ToolOut => {
     exec.patchToolStep(CONNECT_TOOL, () => ({ detail: tr(error ? 'connectNotConnected' : 'connectConnected', L) }))
-    return { content: [{ type: 'text', text }], ...(error ? { isError: true } : {}), summary: `${CONNECT_TOOL} -> no card (${code})` }
+    // a refusal always says no card was shown: the AI had already written "I'll show a connect card" (AI scenario CON-02)
+    const said = error && !/no card/i.test(text) ? `${text} No card was shown.` : text
+    return { content: [{ type: 'text', text: said }], ...(error ? { isError: true } : {}), summary: `${CONNECT_TOOL} -> no card (${code})` }
   }
   const a = ConnectServiceInput.safeParse(args)
   if (!a.success) return early(zodText(a.error), 'invalid input')
@@ -173,6 +188,16 @@ export async function connectService(exec: TurnExec, args: unknown): Promise<Too
   // Slack is never a connection: it is read through the person's Slack link (docs/SLACK.md "Marketplace-safe reading"); without
   // this the AI offered a card for Slack that does nothing (2026-11-13)
   if (target === 'service' && isSlack(a.data.name, a.data.url)) return early(`No card: Slack is not connected with connect_service. ${slackWay(db, spec.userId)}`, 'slack')
+  // Gmail, Google Calendar, Docs and Sheets are built in: their own page, never an address (AI scenario CON-01.calendar)
+  const gApp = target === 'service' && !a.data.connection && !a.data.template ? googleAppAsked(a.data.name, a.data.url) : null
+  if (gApp) {
+    let way: ReturnType<typeof googleAppWay>
+    try {
+      const v = googleAppsOf(rt.ctx).view(viewer.id, gApp)
+      way = googleAppWay({ name: APP_NAMES[gApp], status: v.status, reason: v.reason, serviceDown: v.serviceDown, shared: v.shared ?? null }, isAdmin(viewer.role), L)
+    } catch { way = { connected: false, text: `${APP_NAMES[gApp]} cannot be connected for this account now.` } }
+    return early(way.text, way.connected ? 'google app connected' : 'google app', !way.connected)
+  }
   // the person approves what the card shows, and the name and notes reach the AI in later chats: no character they
   // cannot see or that turns the text around (hiddenText)
   for (const [field, v] of [['name', a.data.name], ['notes', a.data.notes], ['why', a.data.why]] as const) {
@@ -198,10 +223,13 @@ export async function connectService(exec: TurnExec, args: unknown): Promise<Too
     // the person's own connection that needs a new sign-in or key: anyone else's is the same as none
     const r = getRow(db, a.data.connection)
     if (!r || r.scope !== 'personal' || r.owner_user_id !== viewer.id) return early('No card: there is no such connection of this person. Use the id listed under "Connected services".', 'no connection')
+    // an app on the person's computer has no sign-in or key, and only the person sets its command, in Settings on
+    // that computer (docs/decisions/20261118-local-app-connectors.md): never a card
+    if (r.local_app) return early(`${r.name} is an app on the person's computer: it has no sign-in or key, and only the person sets it up, in ${SCREEN.connectors(L, r.name)} in the desktop app on that computer. No card was shown.`, 'app on the computer')
     if (r.google_app) return early(`${r.name} signs in again on its own page: the person can do it in ${SCREEN.connectors(L, r.name)} (Reconnect). No card was shown.`, 'google app')
     if (r.template_id) return early(`"${r.name}" is made from a team template: call connect_service with template "${r.template_id}" instead.`, 'from template')
+    if (offByTeam(db, r)) return early(ownOff(r.name, viewer, L), 'personal connections off')
     if (!ownNeedsSignIn(r, viewer.id)) return early(`"${r.name}" does not need a new sign-in or key now (${stateOf(r)}). Its tools are yours in this chat; if you do not have them now, from the person's next message.`, 'connection fine', false)
-    if (!getTeamSettings(db).personalIntegrations) return early(`This person's own connection "${r.name}" needs a sign-in or a new key, but this team does not allow personal connections now (an admin turned them off), so no card was shown. Tell the person to ask an admin.`, 'personal connections off')
     existing = r
     card = reconnectCard(r, why, expiresAt())
   } else if (a.data.template) {
@@ -214,7 +242,7 @@ export async function connectService(exec: TurnExec, args: unknown): Promise<Too
   } else if (target === 'google_drive') {
     let d: ReturnType<ReturnType<typeof googleDriveOf>['status']>
     try { d = googleDriveOf(rt.ctx).status(spec.userId) } catch { return early('Google Drive cannot be connected for this account now.', 'drive unavailable') }
-    if (!d.configured) return early('Google Drive is not set up on this team server: an admin or the server\'s operator has to set it up first (docs/INTEGRATIONS.md). Tell the person; no card was shown.', 'drive not configured')
+    if (!d.configured) return early('Google Drive is not set up for this team yet: the team\'s owner or an admin has to set it up first (docs/INTEGRATIONS.md). No card was shown: tell the person in plain words that Drive cannot be connected yet and who can set it up; do not say a card is or will be shown.', 'drive not configured')
     if (d.status === 'connected') return early(`Google Drive is already connected for this person. Its tools (${DRIVE_TOOL_NAMES.join(', ')}) are yours in this chat; if you do not have them now, from the person's next message.`, 'drive connected', false)
     card = { kind: 'connect_service', requestId: uuidv7(), target, name: 'Google Drive', scope: 'personal', ...(why ? { why } : {}), expiresAt: expiresAt() }
   } else {
@@ -262,6 +290,9 @@ export async function connectService(exec: TurnExec, args: unknown): Promise<Too
     const usable = (r: Row) => r.scope === 'personal' || mayUse(db, r, viewer.id)
     const working = same.find(works)
     if (working && !usable(working)) return early(`A team connection to this address already exists and works, but this person is not among the people who may use it. An admin can change who may use it in ${SCREEN.adminMcp(L)}. No card was shown.`, 'already connected')
+    // a member's own one while the team has them off: kept, but its tools are not offered (store.ts usable), so the AI
+    // must not say they are (QA TC-2930)
+    if (working && offByTeam(db, working)) return early(ownOff(working.name, viewer, L), 'personal connections off')
     if (working) return early(`${working.scope === 'team' ? `A team connection, "${working.name}",` : `This person's own connection "${working.name}"`} is already connected to this service. Its tools are yours in this chat; if you do not have them now, from the person's next message. No card was shown.${note ? ` ${note}` : ''}`, 'already connected', false)
     const own = same.find((r) => r.scope === 'personal' && r.owner_user_id === viewer.id)
     const ownTemplate = own?.template_id ? getTemplate(db, own.template_id) : null
@@ -286,9 +317,11 @@ export async function connectService(exec: TurnExec, args: unknown): Promise<Too
         if (scope === 'personal' && !getTeamSettings(db).personalIntegrations) {
           return early(`This team does not allow personal connections now (an admin turned them off). ${isAdmin(viewer.role) ? 'This person is an admin and can add it for the team instead (scope team).' : refusal({ done: 'No card was shown.', why: { kind: 'permission', what: 'personal connections are off for the team', grant: ['an admin'], how: `in ${SCREEN.adminSettings(L)}` }, next: 'tell the person to ask an admin, or to ask for a team connection' })}`, 'personal connections off')
         }
-        const max = scope === 'personal' ? MAX_PERSONAL : MAX_TEAM
-        // the same limits Settings applies (service.ts personalFull): a sign-in connection also has the waiting cap
-        if (scope === 'personal' ? personalFull(db, viewer.id, input.data.auth) : count >= max) return early(`There are already ${max} ${scope} connections, the most there can be. One can be removed in ${scope === 'personal' ? SCREEN.connectors(L) : SCREEN.adminMcp(L)} first, then ask again.`, 'limit')
+        // the same limits Settings applies (service.ts personalRoom): waiting ones never fill the limit, and at their own
+        // cap the card's Connect replaces the oldest one that may go (only when none may go is there no card)
+        const room = scope === 'personal' ? svc.personalRoom(viewer.id, input.data.auth) : count >= MAX_TEAM ? 'working' : 'ok'
+        if (room === 'working') return early(`There are already ${scope === 'personal' ? `${MAX_PERSONAL} working personal` : `${MAX_TEAM} team`} connections, the most there can be. One can be removed in ${scope === 'personal' ? SCREEN.connectors(L) : SCREEN.adminMcp(L)} first, then ask again.`, 'limit')
+        if (room === 'waiting') return early(`${MAX_PERSONAL_WAITING} of this person's connections are still waiting for their first sign-in, and none of them can make room now (each was tried in the last hour, or has its own app). To add another, the person signs in to one of them or removes one in ${SCREEN.connectors(L)}, then asks again. No card was shown.`, 'limit')
         // one that does not work and is not this person's to fix (a team connection): an admin fixes it
         const dup = same[0]
         if (dup) {
@@ -317,7 +350,7 @@ export async function connectService(exec: TurnExec, args: unknown): Promise<Too
     return { content: json({ skipped: true, reason: 'a scheduled run: nobody is there to finish a card. Say in the result that the person can ask you to connect it in a chat.' }), summary: `${CONNECT_TOOL} -> skipped (scheduled run)` }
   }
   // after a room read this card is the call's only one (chat/turn.ts ownCard): the room card's line goes on top
-  if (exec.ownCard(CONNECT_TOOL)) card = { ...card, lead: tr('roomsSeenWhy', L) }
+  if (exec.ownCard(CONNECT_TOOL)) card = { ...card, lead: tr(seenWhy(exec, 'roomsSeenWhy'), L) }
   // a reconnect card is for the person's own connection: another key or sign-in goes to it, and Not now never removes it
   const kept: ConnectCard = { integrationId: existing?.id ?? null, running: null, changed: false, version: existing?.version ?? null, created: false }
   exec.connectCards.set(card.requestId, kept)

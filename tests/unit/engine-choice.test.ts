@@ -6,7 +6,11 @@
 // Fake engine through the real launcher; fixture: alice, erin = marketing; bob = finance; carol = admin; dana = owner.
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from 'bun:test'
 import { API, ApiError, type MemberEngineChoice } from '@mycel/shared/api'
+import fs from 'node:fs'
+import path from 'node:path'
 import { tr } from '../../server/src/chat/i18n'
+import { QUIET_CUT_NOTE } from '../../server/src/chat/prompt'
+import { textTokens } from '../../server/src/files/vision'
 import { ask, startHarness, type Harness, type TestSocket } from '../lib/b-harness'
 import { canChooseEngine, filterEnginePrefs, HOSTED_FALLBACK_SET_KEY, LIMIT_FALLBACK_KEY, limitFallbackSetting, personalDefault, readyEngines, settleHostedFallback, turnEngine } from '../../server/src/admin/engine-choice'
 
@@ -113,7 +117,7 @@ describe('enforcement', () => {
       const member = await status(h.api('alice').call(API.createChat, { body: { engine: 'codex' } }))
       expect(member).toMatchObject({ status: 409, reason: 'engine_off' })
       expect(LOCALES.map((l) => tr('engineOff', l))).toContain(member.message!)
-      expect(tr('engineOffAdmin', 'en')).toBe('This AI is turned off for the team. Turn it on in Admin › Providers, or pick another one.')
+      expect(tr('engineOffAdmin', 'en')).toBe('This AI is turned off for the team. Turn it on in Admin › AI providers, or pick another one.')
       expect((await h.api('carol').call(API.chatEngines)).engines.map((e) => e.id)).toEqual(['claude-code'])
     } finally {
       await h.api('dana').call(API.updateEngines, { body: { enabled: { codex: true } } })
@@ -220,6 +224,17 @@ describe('Claude limit -> Codex fallback', () => {
       expect(sys.done.engine).toBe('codex')
       expect(sys.done.content).toContain('team assistant')
       expect(sys.done.content).not.toContain('Agent tool')
+      // the skill tool cuts to Codex's limit once the turn moved there (10,000 tokens; Claude's 22,000 would be cut
+      // by Codex and lose the note to read on)
+      const skillAbs = path.join(h.ctx.config.teamRoot, 'skills/fallback-long/SKILL.md')
+      fs.mkdirSync(path.dirname(skillAbs), { recursive: true })
+      fs.writeFileSync(skillAbs, `---\nname: fallback-long\ndescription: d\n---\n${'F'.repeat(100_000)}\n`)
+      try {
+        const sk = await ask(h, alice, 'alice', (await h.api('alice').call(API.createChat, { body: {} })).id, fake({ claudeFail: 'rate limit exceeded' }, { tool: 'skill', args: { name: 'fallback-long' }, sayResult: true }))
+        expect(sk.done.engine).toBe('codex')
+        expect(sk.done.content).toContain(QUIET_CUT_NOTE)
+        expect(textTokens(sk.done.content)).toBeLessThanOrEqual(10_000)
+      } finally { fs.rmSync(path.dirname(skillAbs), { recursive: true, force: true }) }
       // other errors never switch
       const crash = await ask(h, alice, 'alice', chat.id, fake({ claudeFail: 'context window exceeded' }))
       expect(crash.done.engine).toBe('claude-code')

@@ -99,6 +99,50 @@ export function same(a: string, b: string): boolean {
   return s.length >= 4 && isLatin(l) && l.startsWith(s) && l.length - s.length <= 3
 }
 
+/** Common work folders across the app's languages (TC-4805: "주간회의록" never reached a "Meeting notes" folder). A file
+ * word and a folder name word of one group are the same place: the folder's name counts as covered. Korean, Chinese and
+ * Japanese words match inside a longer word ("회의록" in "주간회의록"), Latin ones as `same` does (plurals). Kept small and
+ * literal: no model call, no stemming beyond that. Non-ASCII words are escapes (patterns, not screen text). */
+const CONCEPTS: Record<string, readonly string[]> = {
+  // 회의록 미팅 (a bare 회의: MEETING_KO) / 議事録 会議 / 会议 纪要
+  meeting: ['\uD68C\uC758\uB85D', '\uBBF8\uD305', 'meeting', 'meetings', 'minutes', '\u8B70\u4E8B\u9332', '\u4F1A\u8B70', '\u4F1A\u8BAE', '\u7EAA\u8981', 'notulen', 'notulensi', 'rapat', 'actas', 'reunion', 'reuniones'],
+  // 견적 / 見積 / 报价
+  quote: ['\uACAC\uC801', 'quote', 'quotes', 'quotation', 'estimate', '\u898B\u7A4D', '\u62A5\u4EF7', 'penawaran', 'presupuesto', 'cotizacion'],
+  // 계약 / 契約 / 合同
+  contract: ['\uACC4\uC57D', 'contract', 'agreement', '\u5951\u7D04', '\u5408\u540C', 'kontrak', 'perjanjian', 'contrato'],
+  // 인보이스 세금계산서 계산서 청구서 / 請求書 / 发票
+  invoice: ['\uC778\uBCF4\uC774\uC2A4', '\uC138\uAE08\uACC4\uC0B0\uC11C', '\uACC4\uC0B0\uC11C', '\uCCAD\uAD6C\uC11C', 'invoice', 'billing', 'bills', '\u8ACB\u6C42\u66F8', '\u53D1\u7968', 'faktur', 'tagihan', 'factura'],
+  // 보고서 리포트 / 報告 / 报告
+  report: ['\uBCF4\uACE0\uC11C', '\uB9AC\uD3EC\uD2B8', 'report', '\u5831\u544A', '\u62A5\u544A', 'laporan', 'informe', 'reporte'],
+  // 디자인 / デザイン / 设计 (not 시안: it sits inside 게시안내, 실시안)
+  design: ['\uB514\uC790\uC778', 'design', '\u30C7\u30B6\u30A4\u30F3', '\u8BBE\u8BA1', 'desain', 'diseno'],
+  // 마케팅 / マーケティング / 营销
+  marketing: ['\uB9C8\uCF00\uD305', 'marketing', '\u30DE\u30FC\u30B1\u30C6\u30A3\u30F3\u30B0', '\u8425\u9500', 'pemasaran', 'mercadeo'],
+}
+const CONCEPT_LATIN = new Map<string, string>()
+const CONCEPT_CJK = new Map<string, string>()
+for (const [c, ts] of Object.entries(CONCEPTS)) for (const t0 of ts) {
+  const t = t0.normalize('NFC')
+  if (isCjk(t)) CONCEPT_CJK.set(t, c); else CONCEPT_LATIN.set(t, c)
+}
+const CJK_LENS = [...new Set([...CONCEPT_CJK.keys()].map((t) => t.length))]
+/** a Korean word ending in 회의 ("주간회의", "회의자료"), not one that only holds it ("협회의", "교회의", "사회의") */
+const MEETING_KO = /(?<![\uD611\uAD50\uC0AC])\uD68C\uC758(?:\uB85D|\uC790\uB8CC|\uC548\uAC74|\uACB0\uACFC|\uB0B4\uC6A9)?$/u
+/** The work-folder groups the words name (Set lookups, no pairwise comparison). A Latin word counts as itself or as a
+ * longer form of a whole term ("contracts", "meetings"), never a cut-off one ("repo" is not "report"). */
+export function conceptsOf(ws: readonly string[]): string[] {
+  const out = new Set<string>()
+  for (const w of ws) {
+    if (isCjk(w)) {
+      for (const L of CJK_LENS) for (let i = 0; i + L <= w.length; i++) { const c = CONCEPT_CJK.get(w.slice(i, i + L)); if (c) out.add(c) }
+      if (MEETING_KO.test(w)) out.add('meeting')
+    } else if (isLatin(w)) {
+      for (let k = Math.max(4, w.length - 3); k <= w.length; k++) { const c = CONCEPT_LATIN.get(w.slice(0, k)); if (c) out.add(c) }
+    }
+  }
+  return [...out]
+}
+
 const lineWords = (f: Fields | null): string[] => (f ? words([f.type, f.what, ...f.names].join(' ')) : [])
 
 /** The name pattern a ✕ is kept for: the name with its digit runs as '#' ("견적서_2025-03.xlsx" → "견적서_#-#.xlsx"). */
@@ -115,8 +159,12 @@ export interface Folder {
   df: Map<string, number>
   /** extension → files with it */
   exts: Map<string, number>
+  /** the work-folder groups its own name names (conceptsOf) */
+  concepts: string[]
 }
-export interface Query { name: string; words: string[]; ext: string }
+/** `concepts`: the work-folder groups of the file's own name (conceptsOf); else taken from `words` */
+export interface RankOptions { every?: boolean }
+export interface Query { name: string; words: string[]; ext: string; concepts?: string[] }
 
 export function folderOf(p: string, name: string[], files: { words: readonly string[]; ext: string }[]): Folder {
   const df = new Map<string, number>()
@@ -125,7 +173,7 @@ export function folderOf(p: string, name: string[], files: { words: readonly str
     for (const w of new Set(f.words)) df.set(w, (df.get(w) ?? 0) + 1)
     exts.set(f.ext, (exts.get(f.ext) ?? 0) + 1)
   }
-  return { path: p, name, n: files.length, df, exts }
+  return { path: p, name, n: files.length, df, exts, concepts: conceptsOf(name) }
 }
 
 /** The words of all candidates that are "the same" as each query word, found in one pass over the vocabulary (Set
@@ -167,11 +215,15 @@ function matchesOf(qwords: Set<string>, vocab: Map<string, number>): Map<string,
  *   evidence, and damped while the folder has few files (n / (n + 1)).
  * - extension: +0.1 × the share of its files with the file's extension, only once the match is over THRESHOLD (it
  *   ranks; it never makes a suggestion).
+ * - a folder whose own name is one of the common work folders the file's name names (CONCEPTS: "Meeting notes" for
+ *   "주간회의록.md") counts as its name fully covered.
+ * `opts.every`: the confidence is the lowest over the queries, not the mean: one folder must fit every file (a room
+ * message's files go to one folder on the save sheet).
  * `dropped`: folders the person ✕'d for these files. They are scored like any other and taken out only at the end, so a
  * ✕ never promotes a weaker folder: the best one (and RELATIVE of it) is still the bar, and their files still make a
  * word common rather than rare.
  */
-export function rank(queries: readonly Query[], folders: readonly Folder[], dropped: (path: string) => boolean = () => false): { path: string; confidence: number }[] {
+export function rank(queries: readonly Query[], folders: readonly Folder[], dropped: (path: string) => boolean = () => false, opts: RankOptions = {}): { path: string; confidence: number }[] {
   if (!queries.length) return []
   const vocab = new Map<string, number>()
   for (const f of folders) for (const [w, k] of f.df) vocab.set(w, (vocab.get(w) ?? 0) + k)
@@ -180,13 +232,16 @@ export function rank(queries: readonly Query[], folders: readonly Folder[], drop
   const total = new Map<string, number>()
   for (const w of qwords) total.set(w, (M.get(w) ?? []).reduce((s, t) => s + (vocab.get(t) ?? 0), 0))
   const out: { path: string; confidence: number }[] = []
+  const qc = queries.map((q) => new Set(q.concepts ?? conceptsOf(q.words)))
   for (const f of folders) {
     // files of this folder holding each query word (its matches summed, at most all its files)
     const here = new Map<string, number>()
     for (const w of qwords) here.set(w, Math.min(f.n, (M.get(w) ?? []).reduce((s, t) => s + (f.df.get(t) ?? 0), 0)))
     let sum = 0
-    for (const q of queries) {
-      const covered = f.name.length ? f.name.filter((t) => q.words.some((w) => w === t || (same(w, t) && (t.length > 2 || (here.get(w) ?? 0) > 0)))).length / f.name.length : 0
+    let low = Infinity
+    for (const [i, q] of queries.entries()) {
+      const named = f.concepts.some((c) => qc[i]!.has(c))
+      const covered = named ? 1 : f.name.length ? f.name.filter((t) => q.words.some((w) => w === t || (same(w, t) && (t.length > 2 || (here.get(w) ?? 0) > 0)))).length / f.name.length : 0
       const nameScore = covered >= 1 ? 0.85 : covered * 0.6
       let miss = 1
       if (f.n) for (const w of q.words) {
@@ -197,8 +252,9 @@ export function rank(queries: readonly Query[], folders: readonly Folder[], drop
       let s = 1 - (1 - nameScore) * (1 - fileScore)
       if (s >= THRESHOLD && q.ext && f.n) s += 0.1 * ((f.exts.get(q.ext) ?? 0) / f.n)
       sum += s
+      low = Math.min(low, s)
     }
-    const confidence = sum / queries.length
+    const confidence = opts.every ? low : sum / queries.length
     if (confidence >= THRESHOLD) out.push({ path: f.path, confidence })
   }
   out.sort((a, b) => b.confidence - a.confidence || a.path.localeCompare(b.path))
@@ -287,7 +343,7 @@ function recentFolders(files: TeamFiles, user: Principal, rules: RuleSet, skip: 
 
 const started = new Map<string, number[]>()
 /** Count one request for `userId`, or 429 when they made too many in the last minute. */
-function admit(userId: string) {
+export function admitSuggest(userId: string) {
   const now = Date.now()
   const times = (started.get(userId) ?? []).filter((t) => t > now - RATE_WINDOW_MS)
   if (times.length >= SUGGEST_RATE_MAX) {
@@ -300,7 +356,7 @@ function admit(userId: string) {
 
 /** The Move picker's suggestions for `paths` (each readable by the person, else the policy's not-found). */
 export async function moveSuggestions(files: TeamFiles, userId: string, paths: readonly string[]): Promise<MoveSuggestions> {
-  admit(userId)
+  admitSuggest(userId)
   const user = files.principal(userId)
   const rules = files.rules()
   const items = [...new Set(paths)].map((p) => authorize(files.fx, rules, user, p, 'read', { mustExist: true }))
@@ -312,20 +368,50 @@ export async function moveSuggestions(files: TeamFiles, userId: string, paths: r
   const queries: Query[] = items.filter((a) => a.st?.isFile()).slice(0, FILES_SCORED).map((a) => {
     const name = nameOf(a.rel)
     const { stem, ext } = splitName(name)
-    return { name, words: [...new Set([...words(stem), ...lineWords(lines(a.rel))])].slice(0, WORDS_PER_FILE), ext }
+    // the work-folder group by the file's own name, not its file-list description
+    return { name, words: [...new Set([...words(stem), ...lineWords(lines(a.rel))])].slice(0, WORDS_PER_FILE), ext, concepts: conceptsOf(words(stem)) }
   })
+  return await suggestFor(files, user, rules, lines, queries, items.slice(0, FILES_SCORED).map((a) => nameOf(a.rel)), skip, moved)
+}
+
+/** The suggested and recent folders for `queries` (files named `names`): the walk of the folders `user` can write, the
+ * rank, the person's ✕ and their recent folders. Shared by the Move picker and a room file's "Save to team folder"
+ * (rooms/save-to-team.ts), whose files are not in the team folder yet. */
+async function suggestFor(files: TeamFiles, user: Principal, rules: RuleSet, lines: (rel: string) => Fields | null, queries: readonly Query[], names: readonly string[], skip: (rel: string) => boolean = () => false, moved: readonly string[] = [], opts: RankOptions = {}): Promise<MoveSuggestions> {
   // ✕ for any of the files' names (suggestion_dismissals)
-  const no = dismissed(files, userId)
-  const names = items.slice(0, FILES_SCORED).map((a) => nameOf(a.rel))
+  const no = dismissed(files, user.id)
   const wasDismissed = (folder: string) => names.some((n) => no.has(dismissKey(folder, n)))
   let suggested: MoveSuggestions['suggested'] = []
   if (queries.some((q) => q.words.length)) {
-    suggested = rank(queries, await candidates(files, user, rules, lines, skip, moved), wasDismissed)
+    suggested = rank(queries, await candidates(files, user, rules, lines, skip, moved), wasDismissed, opts)
   }
   // a folder ✕'d for these files is not under "최근" either (it would read as still suggested)
   const taken = new Set(suggested.map((s) => s.path))
   const recent = recentFolders(files, user, rules, (rel) => skip(rel) || taken.has(rel) || wasDismissed(rel)).map((p) => ({ path: p }))
   return { suggested, recent }
+}
+
+/** Words a file brings besides its own name (a room file's room name and message): after the file's own, up to this */
+export const CONTEXT_WORDS = 8
+
+/**
+ * Suggested and recent folders for files that are not in the team folder yet (a room file before "Save to team folder"):
+ * each by its name and the words of where it was sent (`context`, after the name's own words). The same rate limit, walk
+ * and rank as the Move picker; nothing is read that the person could not see there.
+ */
+export async function suggestForNames(files: TeamFiles, userId: string, items: readonly { name: string; context?: string }[], opts: RankOptions = {}): Promise<MoveSuggestions> {
+  const user = files.principal(userId)
+  const rules = files.rules()
+  const lines = (() => { try { return fileListOf(files.ctx).lineFields(user, rules) } catch { return () => null } })()
+  const scored = items.slice(0, FILES_SCORED)
+  const queries: Query[] = scored.map((it) => {
+    const { stem, ext } = splitName(it.name)
+    const own = words(stem).slice(0, WORDS_PER_FILE)
+    const more = it.context ? words(it.context).filter((w) => !own.includes(w)).slice(0, CONTEXT_WORDS) : []
+    // the work-folder group by the file's own name only (a room named "Design" does not make every file a design)
+    return { name: it.name, words: [...own, ...more], ext, concepts: conceptsOf(own) }
+  })
+  return await suggestFor(files, user, rules, lines, queries, scored.map((it) => it.name), undefined, undefined, opts)
 }
 
 /** ✕ on a suggestion: never this folder again for files named like these (per person). The folder must be one they can

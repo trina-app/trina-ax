@@ -131,12 +131,14 @@ test('marks: 대화 counts conversations, 활동 the notices that are not conver
     { ...base, id: id(4), kind: 'team', name: '조용한 방', groupId: id(22), unreadCount: 7, muted: true },
   ]
   expect((await page.request.post('/__test/rooms', { data: { rooms } })).ok()).toBeTruthy()
-  await expect(page.getByTestId('rail-chats-mark')).toHaveAttribute('data-n', '3')
+  // the DM and 영업팀's mention: 마케팅팀's 12 plain messages in a channel at "Mentions only" (its default) make it bold
+  // only, no number (57c35ca3a, docs/decisions/20261116-mentions-only-no-count.md); the muted room adds nothing
+  await expect(page.getByTestId('rail-chats-mark')).toHaveAttribute('data-n', '2')
   await expect(page.getByTestId('rail-activity-mark')).toHaveAttribute('data-n', '3')
   await expect(page.getByTestId('rail-files-mark')).toHaveCount(0)
   // a screen reader hears the place first, then its mark in words (the number itself is hidden from it)
   const named = (first: string, then: string) => new RegExp(`^${first}\\s*, ${then}$`)
-  await expect(page.getByTestId('rail-chats')).toHaveAccessibleName(named(t['tabs.chats'], t['rail.unreadRooms'].replace('{n}', '3')))
+  await expect(page.getByTestId('rail-chats')).toHaveAccessibleName(named(t['tabs.chats'], t['rail.unreadRooms'].replace('{n}', '2')))
   await expect(page.getByTestId('rail-activity')).toHaveAccessibleName(named(t['inbox.title'], t['notifications.unread'].replace('{count}', '3')))
   await openRail(page, 'chats')
   await expect(page.getByTestId('chats-panel').getByTestId('rooms-activity-unread')).toContainText('2')
@@ -203,11 +205,13 @@ test('owner: the logo opens the team menu (Invite, Admin); the photo menu has st
   await expect(menu).not.toContainText(t['sidebar.admin'])
 })
 
-test('member: the logo and team name are not a button; no Admin anywhere on the rail; same places', async ({ page }) => {
+test('member: the logo opens the team menu with Switch team only; no Admin anywhere on the rail; same places', async ({ page }) => {
   await start(page, 1280, MEMBER)
-  await expect(page.getByTestId('team-menu')).toHaveCount(0)
-  await expect(page.getByTestId('team-header')).toContainText('Acme')
+  await expect(page.getByTestId('team-menu')).toContainText('Acme')
   await expect(page.getByTestId('rail')).not.toContainText(t['sidebar.admin'])
+  await page.getByTestId('team-menu').click()
+  await expect(page.getByTestId('team-dropdown').getByRole('menuitem')).toHaveText([t['teamMenu.switch']])
+  await page.keyboard.press('Escape')
   await page.getByTestId('account-menu').click()
   await expect(page.getByTestId('account-role')).toHaveText(t['role.member'])
   await page.keyboard.press('Escape')

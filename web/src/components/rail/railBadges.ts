@@ -3,18 +3,19 @@
 // - 트리나: a dot from the session markers' AI part (store/sessionMarkers.ts useAttention): an amber "?" while an AI chat
 //   waits on me, else an accent dot while one has an answer I have not seen. No number: the window title and the Dock
 //   carry the number.
-// - 대화: how many conversations have something unread (muted and hidden ones left out, as the phone's 대화 tab leaves
-//   them out), not how many messages. A mention or a followed thread's reply
-//   is inside its room's count already; when only Activity's conversation rows are unread (a room read since, a notice
-//   left), a dot, so 멘션·스레드 never loses its mark when 활동 stops counting it.
+// - 대화: how many conversations count (shared roomCounts: muted and hidden ones left out, and a room at 멘션만 only
+//   once a message mentions me, in a thread too; plain messages there only make its row bold), not how many messages.
+//   A followed thread's reply without a mention counts nowhere here (docs/decisions/20261119-room-unread-after-read.md):
+//   it is a 멘션·스레드 row. When only Activity's conversation rows are unread (a followed reply, a room read since, a
+//   notice left), a dot, so 멘션·스레드 never loses its mark when 활동 stops counting it.
 // - 활동: the unread notices that are not conversation rows (store/inbox.ts useNoticeUnread), the same number as the
 //   phone's 나 tab.
 // - 파일: none.
-import { roomUnread, type Room } from '@mycel/shared/api'
+import { roomCounts, type CountedRoomFields, type Room } from '@mycel/shared/api'
 
 export type RailMark = { kind: 'ask' } | { kind: 'dot' } | { kind: 'count'; n: number } | null
 
-type CountedRoom = Pick<Room, 'unreadCount' | 'muted'> & Partial<Pick<Room, 'threadsUnread' | 'hidden'>>
+type CountedRoom = CountedRoomFields & Partial<Pick<Room, 'hidden'>>
 
 /** 트리나's mark: `chats` = AI chats that need me, `chatAsk` = one of them is a "?" (attentionCount) */
 export function aiMark(a: { chats: number; chatAsk: boolean }): RailMark {
@@ -22,9 +23,9 @@ export function aiMark(a: { chats: number; chatAsk: boolean }): RailMark {
   return a.chatAsk ? { kind: 'ask' } : { kind: 'dot' }
 }
 
-/** how many of my conversations have something unread (muted and hidden ones not counted) */
+/** how many of my conversations count (roomCounts; hidden ones not counted) */
 export function unreadRooms(rooms: readonly CountedRoom[]): number {
-  return rooms.filter((r) => !r.muted && !r.hidden && roomUnread(r) > 0).length
+  return rooms.filter((r) => !r.hidden && roomCounts(r).counts).length
 }
 
 /** 대화's mark: the count of unread conversations, else a dot for unread mention/thread notices (`roomNotices`) */

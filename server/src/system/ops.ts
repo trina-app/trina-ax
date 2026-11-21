@@ -20,7 +20,7 @@ import { BackupManager } from './backup'
 import { checkEngines, type EngineLogin } from './engines'
 import { codexLoginState, launcherStatus } from '../native'
 import { connectionStatus } from './connection'
-import { diskSpace, resolveLayout, type InstallLayout } from './layout'
+import { diskSpaceOrUnknown, primeDiskSpace, resolveLayout, type InstallLayout } from './layout'
 import { M as MAC_M, tr, uptimeText } from './messages'
 import { engineSockets, maxSocketPathBytes, probeSocket, tooLongSockets, underSandboxDeniedTmp } from './sockets'
 import { compareVersions, UpdateManager } from './update'
@@ -32,6 +32,7 @@ import { configurePlan, currentPlan, effectiveConcurrency, planDiskBytes, planFi
 import { configureNotices, noticesFileProblem } from './managed'
 import { feature, hostKind, isHosted } from './deployment'
 import { pruneOld } from './retention'
+import { errorReports } from './error-reports'
 import { cleanDevenv } from './devenv-clean'
 import { busyOwners, srtConfig } from '../devenv/srt/runner'
 import { activityFacts, configureActivityStore } from './activity'
@@ -43,6 +44,12 @@ import { zonedParts } from './time-zone'
 import { refreshWindowsApp, WINDOWS_EVERY_MS, WINDOWS_FIRST_MS, WINDOWS_TEXT, windowsAppFeedOf, windowsDiagnostic, type WindowsAppResult } from './windows-app'
 import { getChatRuntime } from '../chat/runtime'
 import { egressSettled, egressStatus, EXIT_ADDRESS_URL, exitAddressCheckOff } from '../tools/egress'
+import { diskStat, unknownChanged } from './disk-stat'
+import { notifyStorageFilling } from '../notifications/service'
+
+/** the bootstrap's history detail of a version kept although the AI engine could not start on this server
+ * (native/cmd/mycel-bootstrap/enginecheck.go engineHostDetail; the same words) */
+export const ENGINE_HOST_DETAIL = 'kept, but the AI engine could not start on this server: '
 
 /** after a failed nightly backup, the next try waits this long */
 export const DAILY_BACKUP_RETRY_MS = 60 * 60_000
@@ -112,6 +119,10 @@ export class OpsService {
     })
     // the team disk (system/storage.ts): writes are refused near full where the resource limits apply; the grace state
     // of a team over its plan's limit is kept in the settings table
+    // where statfs cannot be believed (an Intel Mac, disk-stat.ts), df runs once now in the background, so the first
+    // upload or chat turn after a start already has a free-space answer
+    void primeDiskSpace(this.layout.dataDir)
+    void primeDiskSpace(this.layout.teamRoot)
     configureStorageGuard({
       root: this.layout.teamRoot, now: o.now ? () => this.now().getTime() : undefined,
       store: { get: (k) => getSetting<string | null>(ctx.db, k) ?? null, set: (k, v) => setSetting(ctx.db, k, v) },
@@ -120,6 +131,7 @@ export class OpsService {
       db: ctx.db, teamRoot: this.layout.teamRoot, dataDir: this.layout.dataDir, appDir: this.layout.appDir, now: o.now ? () => this.now().getTime() : undefined,
       absoluteRule: () => !(this.platform() === 'linux' && ctx.config.mode === 'prod'),
       audit: (detail, action = 'storage.warn') => audit(ctx.db, { actor: null, action, target: null, detail }),
+      record: (threshold, percent, roomsBytes, at) => notifyStorageFilling(ctx, threshold, percent, roomsBytes, at),
       notify: (m) => {
         try {
           const admins = ctx.db.query("SELECT id, locale FROM users WHERE role IN ('owner','admin') AND status = 'active' AND deleted_at IS NULL").all() as { id: string; locale: Locale | null }[]
@@ -173,6 +185,24 @@ export class OpsService {
         window: null, running: 0, history: this.updates.history(), lastAttempt: last, rootVersion: this.updates.rootVersion(), rootHold, ignoreWindow: true,
         channel: this.ctx.config.update.channel, canRead })
       return d.go ? null : d.why === 'cannot_read' ? 'cannot_read' : d.why === 'paused' ? 'paused' : d.why === 'rollout' ? 'rollout' : d.why === 'held' ? 'failed' : null
+    } catch { return null }
+  }
+
+  /** Why the available release is on hold after a failed try (hold failed / root_failed): the detail the bootstrap
+   * recorded for its last failed try, else root's. null: none recorded. (QA TC-3843) */
+  updateHoldReason(): string | null {
+    try {
+      const feed = this.updates.lastFeed()
+      if (!feed) return null
+      const v = feed.version
+      const rootFail = this.rootUpdateFailure()
+      const within = (at: string) => this.now().getTime() - Date.parse(at) < 7 * 86_400_000
+      const h = [...this.updates.history()].reverse().find((x) => within(x.at) && x.result !== 'ok' && (x.to === v || (x.result === 'rolled_back' && x.from === v)) && x.detail)
+      let detail = h?.detail ?? null
+      if (!detail && rootFail?.version === v) {
+        try { const j = JSON.parse(fs.readFileSync(path.join(this.layout.rootDir!, 'update-failed.json'), 'utf8')) as { detail?: unknown }; detail = typeof j.detail === 'string' && j.detail ? j.detail : null } catch {}
+      }
+      return detail ? (detail.length > 300 ? `${detail.slice(0, 299)}…` : detail) : null
     } catch { return null }
   }
 
@@ -467,15 +497,30 @@ export class OpsService {
     }
 
     // disk (tab 7 "디스크 단계")
-    const team = diskSpace(L.teamRoot), data = diskSpace(L.dataDir)
-    const diskCheck = (id: string, label: string, d: { free: number; total: number }) => {
+    // null: the free space could not be read (system/disk-stat.ts): a warning, not an error that stops the whole report
+    // (and with it the menubar status file)
+    await Promise.all([primeDiskSpace(L.teamRoot), primeDiskSpace(L.dataDir)])
+    const read = (where: string) => {
+      let error: unknown = null
+      const d = diskSpaceOrUnknown(where, (err) => { error = err })
+      // once per change, not on every diagnostics or menubar status run
+      if (unknownChanged(`ops:${where}`, d === null)) {
+        if (d === null) this.ctx.log.warn('could not read the free disk space', { where, err: error })
+        else this.ctx.log.info('the free disk space can be read again', { where })
+      }
+      return d
+    }
+    const team = read(L.teamRoot), data = read(L.dataDir)
+    const diskCheck = (id: string, label: string, d: { free: number; total: number } | null) => {
+      if (!d) return add(id, 'disk', label, 'warn', t(M.diskUnknown))
       const pct = d.total ? Math.round((d.free / d.total) * 100) : 0
       const ro = absoluteFloor(d.total)
       if (d.free < ro) add(id, 'disk', label, 'fail', t(M.diskReadOnly(d.free)))
       else if (pct < 15) add(id, 'disk', label, 'warn', t(M.diskLow(d.free, pct)))
       else add(id, 'disk', label, 'ok', t(M.diskOk(d.free, pct)))
     }
-    if (this.platform() === 'linux' && prod) this.linuxStorage(add, t, team, data)
+    // Linux: each readable disk by its levels (the team disk by the plan's view), even when the other cannot be read
+    if (this.platform() === 'linux' && prod) this.linuxStorage(add, t, team, data, t(M.diskUnknown))
     else {
       diskCheck('disk.team', t(M.diskTeam), team)
       diskCheck('disk.data', t(M.diskData), data)
@@ -622,6 +667,8 @@ export class OpsService {
       else if (h && recent && h.result === 'rolled_back' && h.from && h.to === this.ctx.version && compareVersions(h.from, h.to) < 0) add('update', 'update', t(M.update), 'ok', t(M.goBackBounced(h.from, h.to, !this.updates.canRead(h.from), h.detail ?? '')))
       else if (h && recent && h.result !== 'ok') add('update', 'update', t(M.update), 'warn', t(M.updateRolledBack(h.to, h.detail ?? '')))
       // went forward again after a failed start (detail "started again after …"): the version plus that it recovered
+      // kept although the AI engine could not start, for a reason of this server (native/cmd/mycel-bootstrap engineHostDetail)
+      else if (h && recent && h.result === 'ok' && h.detail?.startsWith(ENGINE_HOST_DETAIL)) add('update', 'update', t(M.update), 'warn', t(M.updateEngineHost(this.ctx.version, h.detail.slice(ENGINE_HOST_DETAIL.length))))
       else if (h && recent && h.result === 'ok' && h.detail?.startsWith('started again')) add('update', 'update', t(M.update), 'ok', `${t(M.updateOk(this.ctx.version))}. ${t(h.detail === 'started again after it was stopped' ? M.updateRestarted : M.updateRecovered)}`)
       else add('update', 'update', t(M.update), 'ok', t(M.updateOk(this.ctx.version)))
       const us = this.updates.status()
@@ -676,12 +723,14 @@ export class OpsService {
       if (sp) add('system_packages', 'update', t(SYSTEM_PACKAGES_TEXT.label), sp.status, t(sp.text))
     }
 
+    const bytesOrNull = (v: number | undefined) => (v === undefined ? null : Math.max(0, Math.floor(v)))
     return {
       version: this.ctx.version,
       host: { os: `${process.platform} ${os.release()}`, arch: process.arch, hostname: os.hostname() },
-      disk: { teamFolderFreeBytes: Math.max(0, Math.floor(cappedSnapshot()?.freeBytes ?? team.free)), dataFreeBytes: Math.max(0, Math.floor(data.free)) },
+      disk: { teamFolderFreeBytes: bytesOrNull(cappedSnapshot()?.freeBytes ?? team?.free), dataFreeBytes: bytesOrNull(data?.free) },
       queue: q,
       checks,
+      ...(errorReports() ? { errorReports: { host: errorReports()!.host } } : {}),
       generatedAt: this.now().toISOString(),
     }
   }
@@ -696,10 +745,10 @@ export class OpsService {
 
   /** Linux: the team disk by its levels (system/storage.ts) instead of the Mac's absolute 10 GB rule. */
   private linuxStorage(add: (id: string, group: string, label: string, status: CheckStatus, detail: string | null) => void, t: (x: Parameters<typeof tr>[1]) => string,
-    team: { free: number; total: number }, data: { free: number; total: number }) {
+    team: { free: number; total: number } | null, data: { free: number; total: number } | null, unknownText: string) {
     const one = (id: string, d: { free: number; total: number }) => {
       let real
-      try { real = snapshotOf(fs.statfsSync(id === 'disk.team' ? this.layout.teamRoot : this.layout.dataDir)) } catch { real = { totalBytes: d.total, freeBytes: d.free, usedBytes: d.total - d.free, percent: d.total ? Math.round(((d.total - d.free) / d.total) * 1000) / 10 : 0 } }
+      try { real = snapshotOf(diskStat(id === 'disk.team' ? this.layout.teamRoot : this.layout.dataDir)) } catch { real = { totalBytes: d.total, freeBytes: d.free, usedBytes: d.total - d.free, percent: d.total ? Math.round(((d.total - d.free) / d.total) * 1000) / 10 : 0 } }
       // the team disk by the view the writes are judged by (the plan's bytes on a larger disk), or Admin shows ok while
       // writes are refused
       const s = id === 'disk.team' ? planView(real) : real
@@ -720,9 +769,12 @@ export class OpsService {
       else add(id, 'disk', t(ML.storage), 'ok', t(ML.storageOk(s.freeBytes, pct)))
       return real
     }
-    const real = one('disk.team', team)
+    if (!team) add('disk.team', 'disk', t(ML.storage), 'warn', unknownText)
+    const real = team ? one('disk.team', team) : null
     // the data folder is on the same disk in every Linux install; a separate one gets its own line
-    if (data.total !== team.total || data.free !== team.free) one('disk.data', data)
+    if (!data) add('disk.data', 'disk', t(ML.storage), 'warn', unknownText)
+    else if (!team || data.total !== team.total || data.free !== team.free) one('disk.data', data)
+    if (!real) return
     const plan = planDiskBytes()
     // a disk smaller than the plan means that a grow failed. A larger one is normal after a move to a smaller plan (a
     // Proxmox disk cannot shrink), and the plan's bytes are enforced in software (system/storage.ts).
@@ -842,20 +894,28 @@ export class OpsService {
     return 120 + (crypto.createHash('sha256').update(installId(this.ctx.db)).digest().readUInt16BE(0) % 180)
   }
 
-  /** Nightly backup: once a day after the start time in the team's time zone (or any time when the last one is over
-   * 30 h old). */
+  /** Nightly backup (QA TC-4755): the first one right after install (no daily backup yet); after that once a night: when
+   * the last daily backup was in an earlier night than now. The night of an instant is the team-local date of (wall
+   * time - start), so a server that is on runs at the start time (03:00, or the hosted tenant's window start) every
+   * night, and one that was off at the start time runs at the first check after it is back. A start near midnight is one
+   * night across the date change; a DST night that repeats an hour does not run twice, and one that skips the start
+   * hour runs at the first check after it. The night of the last one must be earlier than tonight (not only differ). Backups dated after now (a clock that ran ahead and was set back) do not
+   * count. The old rule ("20 h since the last one and after the start time") was true until midnight, and the backup
+   * time walked 4 h earlier every day into working hours. */
   shouldRunDailyBackup(): boolean {
     const now = this.now()
-    const last = this.backups.metas().filter((m) => m.kind === 'daily').at(-1)
-    const age = last ? now.getTime() - Date.parse(last.createdAt) : Infinity
-    if (age < 20 * 3600_000) return false
+    const last = this.backups.metas().filter((m) => m.kind === 'daily' && Date.parse(m.createdAt) <= now.getTime()).at(-1)
     // a failed attempt waits an hour (this check runs every 10 minutes; without the wait a backup that keeps failing
-    // read and compressed the whole team folder six times an hour)
+    // read and compressed the whole team folder six times an hour); an error dated after now does not block
     const err = this.backups.lastError()
     const errAt = err ? Date.parse(err.at) : NaN
-    if (Number.isFinite(errAt) && now.getTime() - errAt < DAILY_BACKUP_RETRY_MS && (!last || errAt > Date.parse(last.createdAt))) return false
-    const p = zonedParts(now, teamTimeZone(this.ctx.db))
-    return p.h * 60 + p.min >= this.backupStartMinute() || age > 30 * 3600_000
+    if (Number.isFinite(errAt) && errAt <= now.getTime() && now.getTime() - errAt < DAILY_BACKUP_RETRY_MS && (!last || errAt > Date.parse(last.createdAt))) return false
+    if (!last) return true
+    const tz = teamTimeZone(this.ctx.db), start = this.backupStartMinute()
+    const night = (t: Date) => { const q = zonedParts(t, tz); return new Date(Date.UTC(q.y, q.m - 1, q.d, q.h, q.min) - start * 60_000).toISOString().slice(0, 10) }
+    // later, not only different: on the night clocks go back, a start inside the repeated hour (02:30) sees the date
+    // before for the next half hour (02:00–02:29 the second time); that must not count as a new night
+    return night(now) > night(new Date(last.createdAt))
   }
 
   start() {

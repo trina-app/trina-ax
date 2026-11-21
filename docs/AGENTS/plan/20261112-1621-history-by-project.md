@@ -1,5 +1,7 @@
 # Trina history grouped by project, like the Claude Code desktop sidebar (TC-424)
 
+> Superseded (2026-11-19): Trina history went back to one flat recent list on 2026-11-14 (Group by defaults to None; by project only when picked), see [20261113-1936-fullcheck-findings.md](20261113-1936-fullcheck-findings.md) and "Trina history: Group by defaults to None" in [docs/DECISIONS.md](../../DECISIONS.md).
+
 - Date (UTC): 2026-11-12 16:21
 - Branch: `feat/history-by-project`
 - Status: done (layout of the sidebar still open with the owner)

@@ -1,11 +1,12 @@
 // Desktop app end to end: the real Electron app (dist/), real browser pane over CDP, fake team servers that speak
 // the shared WebSocket contract (browser.call -> browser.ack / browser.result), and a fixture website.
-import { readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { expect, test, type ElectronApplication } from '@playwright/test'
 import { PRODUCT } from '@mycel/shared'
-import {
-  ACME, activityLog, addTeam, answer, BAD, bindWindow, BETA, call, cancel, chrome, close, LAN, launch, newTurn, newUserData, OFFICE_SITE, result, run, SHOP, siteHits, skew, tabPage, teamPage, text, view, welcome, signIn } from './helpers'
+import { ACME, activityLog, addTeam, answer, BAD, bindWindow, BETA, call, cancel, chrome, close, LAN, launch, newTurn, newUserData, OFFICE_SITE, result, run, SHOP, siteHits, skew, tabPage, teamPage, text, view, welcome, signIn, stopLeftoverApps } from './helpers'
+
+stopLeftoverApps()
 
 const refOf = (s: string, label: string) => {
   const line = s.split('\n').find((l) => l.includes(label))
@@ -82,6 +83,30 @@ test.describe('team address and window', () => {
       await close(app)
     }
   })
+  test('an office address whose certificate is not installed on this computer says so, with the certificate page; nothing is connected (QA TC-3452)', async () => {
+    const userData = newUserData('en')
+    const app = await launch(userData)
+    try {
+      const w = await welcome(app)
+      // the fake office server's own https address: its certificate is signed by nothing this computer trusts
+      await w.locator('#address').fill('https://127.0.0.1:19154')
+      await w.getByRole('button', { name: 'Continue', exact: true }).click()
+      await expect(w.getByTestId('address-error')).toHaveText('This computer does not have the office certificate yet, so the app cannot check the team server. Open http://127.0.0.1:19153 in a web browser, or follow the desk card, install the certificate, then try again.')
+      await expect(w.getByTestId('address-error')).not.toContainText('internet')
+      // not remembered, not opened, and no "connect anyway"
+      await expect(w.getByTestId('team')).toHaveCount(0)
+      await expect(w.getByRole('button', { name: 'Connect', exact: true })).toHaveCount(0)
+      expect(existsSync(join(userData, 'teams.json')) ? teamsJson(userData).teams : []).toEqual([])
+      expect(app.windows().some((p) => p.url().startsWith('https://127.0.0.1:19154'))).toBe(false)
+      // a closed port is still "cannot reach"
+      await w.locator('#address').fill('https://127.0.0.1:19159')
+      await w.getByRole('button', { name: 'Continue', exact: true }).click()
+      await expect(w.getByTestId('address-error')).toHaveText('Cannot reach the team server. Check the address and your internet connection.')
+    } finally {
+      await close(app)
+    }
+  })
+
   test('the artifact receiver opened as the whole page (an opaque origin at the team address) gets no bridge (QA TC-220)', async () => {
     const app = await launch(newUserData())
     try {
@@ -100,7 +125,28 @@ test.describe('team address and window', () => {
     }
   })
 
-  test('an unreachable team server shows the offline screen with retry and the team list', async () => {
+  test('the "isn\'t answering" line goes when the team it names is removed (QA of #990)', async () => {
+    const userData = newUserData()
+    const id = 'a1b2c3d4e5f60718'
+    writeFileSync(join(userData, 'teams.json'), JSON.stringify({ version: 1, lastTeamId: id, teams: [{ id, origin: 'http://gone.localhost:19159', label: '데모 팀', addedAt: new Date().toISOString(), lastOpenedAt: null, direct: null }] }))
+    const app = await launch(userData)
+    try {
+      const w = await welcome(app)
+      await expect(w.getByTestId('address-error')).toContainText('gone.localhost:19159')
+      const row = w.getByTestId('team')
+      await row.getByRole('button', { name: /메뉴$/ }).click()
+      await row.getByRole('menuitem', { name: /목록에서 지우기/ }).click()
+      await w.getByTestId('remove-confirm').getByRole('button', { name: '지우기' }).click()
+      // the last team is gone: a plain "Join your team", no line about a team that is no longer there
+      await expect(w.getByTestId('team')).toHaveCount(0)
+      await expect(w.getByTestId('address-error')).toHaveText('')
+      await expect(w.locator('#address')).toBeVisible()
+    } finally {
+      await close(app)
+    }
+  })
+
+  test('an unreachable team server: the team list at start (on this computer), the offline screen with retry when opened', async () => {
     const userData = newUserData()
     let app = await launch(userData)
     try {
@@ -115,6 +161,14 @@ test.describe('team address and window', () => {
     app = await launch(userData)
     try {
       const w = await welcome(app)
+      // opened by the app itself at start, on this computer (a dev server left in the settings, 0.5.7 DMG): the
+      // first-run screen with the team list and a line, never the offline card as the first screen
+      await expect(w.getByTestId('address-error')).toHaveText('이 컴퓨터의 gone.localhost:19159 서버가 응답하지 않아요. 팀을 고르거나 새로 참여하세요.')
+      await expect(w.getByTestId('offline')).toHaveCount(0)
+      await expect(w.locator('#address')).toBeVisible()
+      await expect(w.getByTestId('team')).toHaveCount(1)
+      // the person opens it: now the offline card with [다시 시도], as for any team
+      await w.getByTestId('team-open').click() // the whole row opens the team (#974)
       await expect(w.getByTestId('offline')).toContainText('팀 서버에 연결할 수 없어요')
       await expect(w.getByTestId('offline')).toContainText('http://gone.localhost:19159')
       await w.getByRole('button', { name: '다시 시도' }).click()
@@ -128,7 +182,65 @@ test.describe('team address and window', () => {
   })
 })
 
+test.describe('switching team (owner 2026-11-15)', () => {
+  /** the host strip above the team page: attached to the window, and its height */
+  const strip = (app: ElectronApplication) => app.evaluate(({ BaseWindow }) => {
+    const v = BaseWindow.getAllWindows()[0]?.contentView.children.find((c: any) => c.webContents?.getURL().endsWith('/hostbar.html')) as Electron.WebContentsView | undefined
+    return v ? v.getBounds().height : 0
+  })
+  test('a sign-in page that draws its own line drops the strip; every switch opens the team screen, no menu', async () => {
+    const app = await launch(newUserData())
+    try {
+      await addTeam(app, 'acme.localhost:19151', ACME)
+      await addTeam(app, 'beta.localhost:19152', BETA)
+      const beta = await view(app, (u) => u.startsWith(BETA))
+      // signed out on a sign-in path: the app's strip shows the address
+      await beta.evaluate(() => history.pushState(null, '', '/login'))
+      await expect.poll(() => strip(app)).toBe(36)
+      // the page draws the address and "Switch team" under its card: the strip goes, also after a reload (no jump), and
+      // comes back when the page says it no longer draws it
+      await beta.evaluate(() => (window as any).mycelDesktop.hostLine(true))
+      await expect.poll(() => strip(app)).toBe(0)
+      await beta.reload()
+      await beta.evaluate(() => history.pushState(null, '', '/login'))
+      await expect.poll(() => strip(app)).toBe(0)
+      await beta.evaluate(() => (window as any).mycelDesktop.hostLine(false))
+      await expect.poll(() => strip(app)).toBe(36)
+      await beta.evaluate(() => (window as any).mycelDesktop.hostLine(true))
+      // off the sign-in paths the page's word does not hide the strip
+      await beta.evaluate(() => { history.pushState(null, '', '/signin'); (window as any).mycelDesktop.hostLine(true) })
+      await expect.poll(() => strip(app)).toBe(36)
+      // "Switch team" (and an older page's teamMenu): the team screen with the list, never a menu under the pointer
+      await app.evaluate(({ Menu }) => {
+        ;(globalThis as any).__popups = 0
+        const popup = Menu.prototype.popup
+        Menu.prototype.popup = function (this: Electron.Menu, ...a: any[]) { (globalThis as any).__popups++; return popup.apply(this, a as any) }
+      })
+      for (const how of ['openTeams', 'teamMenu'] as const) {
+        await beta.evaluate((how) => (window as any).mycelDesktop[how](), how)
+        const w = await welcome(app)
+        await expect(w.getByTestId('team')).toHaveCount(2)
+        await expect(w.getByRole('button', { name: '돌아가기' })).toBeVisible()
+        await w.getByRole('button', { name: '돌아가기' }).click()
+        // back on the team it came from
+        await expect.poll(() => app.evaluate(({ BaseWindow }) => BaseWindow.getAllWindows()[0]!.contentView.children.map((c: any) => new URL(c.webContents?.getURL() ?? 'about:blank').host).filter((h: string) => h && h !== 'app'))).toContain('beta.localhost:19152')
+        await expect.poll(() => app.evaluate(({ BaseWindow }) => BaseWindow.getAllWindows()[0]!.contentView.children.some((c: any) => c.webContents?.getURL().endsWith('/welcome.html')))).toBe(false)
+      }
+      expect(await app.evaluate(() => (globalThis as any).__popups)).toBe(0)
+      // a team in the list opens it
+      await beta.evaluate(() => (window as any).mycelDesktop.openTeams())
+      await (await welcome(app)).getByTestId('team').filter({ hasText: 'acme' }).getByTestId('team-open').click()
+      await teamPage(app, ACME)
+    } finally {
+      await close(app)
+    }
+  })
+})
+
 test.describe('browser tools over the team WebSocket', () => {
+  // one app for the group, and later tests use what earlier ones left (the pane open, allowed sites): a retry must
+  // run the whole group again from beforeAll, never one test in a fresh app
+  test.describe.configure({ mode: 'serial' })
   let app: ElectronApplication
   test.beforeAll(async () => {
     app = await launch(newUserData())
@@ -297,6 +409,9 @@ test.describe('browser tools over the team WebSocket', () => {
 })
 
 test.describe('what the in-app browser never opens', () => {
+  // one app for the group, and later tests use what earlier ones left (the pane open, allowed sites): a retry must
+  // run the whole group again from beforeAll, never one test in a fresh app
+  test.describe.configure({ mode: 'serial' })
   let app: ElectronApplication
   test.beforeAll(async () => {
     app = await launch(newUserData())
@@ -470,7 +585,11 @@ test.describe('office network and allowed sites', () => {
       await (await view(app, (u) => u.startsWith(BETA))).evaluate(() => (window as any).mycelDesktop.openTeams())
       const w = await welcome(app)
       const acmeRow = w.getByTestId('team').filter({ hasText: 'acme' })
-      await acmeRow.getByRole('button', { name: /목록에서 지우기/ }).click()
+      // the open team: a quiet "지금 사용 중" on its row only
+      await expect(w.getByTestId('team').filter({ hasText: 'beta' }).getByTestId('team-current')).toHaveText('지금 사용 중')
+      await expect(acmeRow.getByTestId('team-current')).toHaveCount(0)
+      await acmeRow.getByRole('button', { name: /메뉴$/ }).click()
+      await acmeRow.getByRole('menuitem', { name: /목록에서 지우기/ }).click()
       await w.getByTestId('remove-confirm').getByRole('button', { name: '지우기' }).click()
       await expect(w.getByTestId('team')).toHaveCount(1)
       expect(teamsJson(userData).teams.map((x) => x.origin)).toEqual([BETA])

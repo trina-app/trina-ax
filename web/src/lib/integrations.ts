@@ -2,8 +2,9 @@
 // data, its checks (the same limits as shared/src/api/integrations.ts, so most mistakes show before anything is sent),
 // the request bodies it becomes, and the checks on what the server sends back (the sign-in address).
 // Keys are write-only: the form only ever holds a key the person is typing now; a stored one is `hasSecret`.
-import { ApiError, ERROR_MESSAGES, INTEGRATION_TOOLS_OLD_MAX, type Integration, type IntegrationAccess, type IntegrationAuth, type IntegrationInput, type IntegrationKind, type IntegrationPatch, type IntegrationRequestInput, type IntegrationRequestState, type IntegrationStatus, type IntegrationTemplate, type OAuthClientInput, type OAuthClientView, type WritePolicy } from '@mycel/shared/api'
+import { ApiError, ERROR_MESSAGES, INTEGRATION_TOOLS_OLD_MAX, type Integration, type IntegrationAccess, type IntegrationAuth, type IntegrationInput, type RemoteIntegrationKind as IntegrationKind, type IntegrationPatch, type IntegrationRequestInput, type IntegrationRequestState, type IntegrationStatus, type IntegrationTemplate, type OAuthClientInput, type OAuthClientView, type WritePolicy } from '@mycel/shared/api'
 import type { MessageKey } from '../i18n'
+import { desktop } from './desktop'
 
 /** how the connection proves who it is: sign in at the service (an API: with your own app), a key, or nothing */
 export type SignInMethod = 'oauth' | 'key' | 'none'
@@ -74,8 +75,10 @@ export function emptyForm(kind: IntegrationKind = 'mcp', access: IntegrationAcce
 
 /** the form for editing `i` (no key in it: a stored key stays on the server) */
 export function formFrom(i: Integration): IntegrationForm {
+  // an app on the computer is never edited here (it has no address, key or sign-in): its own page changes it
+  const kind = i.kind === 'local' ? 'mcp' : i.kind
   return {
-    kind: i.kind,
+    kind,
     name: i.name,
     url: i.url,
     method: i.auth === 'oauth' ? 'oauth' : i.auth === 'none' ? 'none' : 'key',
@@ -86,7 +89,7 @@ export function formFrom(i: Integration): IntegrationForm {
     notes: i.notes ?? '',
     writePolicy: i.writePolicy,
     access: i.scope === 'team' ? i.access ?? NOBODY : null,
-    ...appFields(i.oauthClient, i.kind, i.auth),
+    ...appFields(i.oauthClient, kind, i.auth),
   }
 }
 
@@ -332,7 +335,7 @@ export { canonicalService } from '@mycel/shared'
 
 /** Why a sign-in did not finish, as the server records it (server/src/integrations/connections/service.ts FlowFailure),
  * in words: an own app's Client ID or Secret refused (the person's own: check it under Advanced; a template's: ask who set
- * it up), access not allowed, the connection changed meanwhile, a newer
+ * it up), stopped at the service by the person (Cancel or Deny there), the connection changed meanwhile, a newer
  * sign-in. Any other code (an error at the token address, one this build does not know) is the plain "could not sign
  * in": a code is never shown. */
 export function flowReasonKey(reason: string | null): MessageKey {
@@ -350,6 +353,22 @@ export function flowReasonKey(reason: string | null): MessageKey {
 
 /** sign-in (OAuth) is offered: a connection with sign-in that the person manages (an MCP server, or an API with its own app) */
 export const canSignIn = (i: Integration) => i.auth === 'oauth' && i.canManage
+
+/** Sign in is offered on a connection's page (ConnectionPage.tsx, in Settings and in Admin alike): whoever manages it
+ * (canSignIn: a team connection only for an admin, the rule the server keeps), on a computer, while the team has not
+ * turned members' own connections off. `readOnly`: Settings shows a team connection without managing it (Admin does);
+ * the one sign-in it still offers is one only an app on the computer can do (`oauth_desktop_only`), when this window is
+ * that app (`computer`: lib/desktop.ts signsInOnComputer), so an admin in the desktop app is not sent to "open the
+ * desktop app" (QA TC-4794). */
+export function signInOffered(i: Integration, where: { readOnly?: boolean; phone: boolean; computer: boolean }): boolean {
+  if (!canSignIn(i) || where.phone || i.personalOff) return false
+  return !where.readOnly || computerSignIn(i, where.computer)
+}
+
+/** Waiting for a sign-in that only an app on the computer can do (`oauth_desktop_only`, never signed in), and this
+ * window is such an app: the page offers it here instead of the server's "open the desktop app". */
+export const computerSignIn = (i: Pick<Integration, 'lastErrorReason' | 'hasSecret'>, computer: boolean) =>
+  computer && i.lastErrorReason === 'oauth_desktop_only' && !i.hasSecret
 
 /** Personal connections first, then team ones; each by name. */
 export function splitByScope(items: Integration[]): { mine: Integration[]; team: Integration[] } {
@@ -445,9 +464,29 @@ export function awaitingFirstSignIn(i: Pick<Integration, 'auth' | 'hasSecret'>):
 }
 
 /** What a connection's line in Connectors' "Your connectors" says (own and made from a team template alike):
+ * the team has members' own connections off → "Off", whatever its state (not used, not signed in again: QA TC-2930);
  * never signed in → "로그인 필요" like its page (QA TC-205), never "Connected" or "Reconnect"; a lapsed sign-in →
  * Reconnect; any other problem → Needs attention. */
-export function connectionRowStatus(i: Pick<Integration, 'auth' | 'hasSecret' | 'status'>): 'signin' | 'connected' | 'reconnect' | 'attention' {
+/** An app on a computer read away from it: its last check came from somewhere else (another computer), or this window
+ * is not the desktop app at all (the web, the phone app: the server never checks it from there, so its last state is
+ * the desktop's "Connected", which would read as usable here). Not a fault, so it never shows as an error; it says
+ * where it works instead (ConnectionPage, ConnectorRow). A real failure on the computer stays one. */
+export const awayFromComputer = (i: Pick<Integration, 'kind' | 'lastErrorReason'> & Partial<Pick<Integration, 'status'>>): boolean =>
+  i.kind === 'local' && (i.lastErrorReason === 'local_offline' || (i.status === 'connected' && !desktop()?.localApps))
+
+export function connectionRowStatus(i: Pick<Integration, 'auth' | 'hasSecret' | 'status' | 'personalOff'> & Partial<Pick<Integration, 'kind' | 'lastErrorReason'>>): 'off' | 'signin' | 'connected' | 'reconnect' | 'attention' | 'elsewhere' {
+  if (i.personalOff) return 'off'
+  if (i.kind && awayFromComputer({ kind: i.kind, lastErrorReason: i.lastErrorReason, status: i.status })) return 'elsewhere'
   if (awaitingFirstSignIn(i)) return 'signin'
   return i.status === 'connected' ? 'connected' : i.status === 'needs_auth' ? 'reconnect' : 'attention'
+}
+
+/** The address a sign-in returns to (its redirect_uri's host: the one a service's admins allow, QA TC-4770), from the
+ * service's sign-in address; this page's host when that does not say. */
+export function signInReturnHost(authorizationUrl: string | null | undefined): string {
+  try {
+    const back = new URL(authorizationUrl ?? '').searchParams.get('redirect_uri')
+    if (back) return new URL(back).host
+  } catch { /* not an address: this page's */ }
+  return typeof location === 'undefined' ? '' : location.host
 }

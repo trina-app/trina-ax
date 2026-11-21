@@ -24,7 +24,8 @@
 //   6. the release's Windows desktop installer + latest.yml into data/downloads (index.json), so the desks' app
 //      (electron-updater, generic provider) updates from the office's own Mac (offerWindows; a Linux team server does
 //      the same after each of its updates, system/windows-app.ts); and the release's Mac update zip + latest-mac.yml
-//      (offerMac), so the desks' Developer ID signed Mac app updates the same way
+//      (offerMac), so the desks' Developer ID signed Mac app updates the same way; and the Linux AppImages + latest-linux.yml
+//      and latest-linux-arm64.yml (offerLinux), so the desks' AppImages update the same way
 //
 // data/, team/, tls/ and config/ are never touched by an update (the installer keeps them; the rollback moves only
 // app folders). The updater's own files live in <home>/update/: settings.json (channel, time, paused), state.json
@@ -41,12 +42,15 @@ import { compareVersions } from '../system/update'
 import { DEFAULT_UPDATE_WINDOW, inWindow } from '../system/update-job'
 import { newerHeadSeen, rolloutTurn, type RolloutTurn } from '../system/rollout'
 import { CHANNELS, decide, DEFAULT_FEED, fileUrl, manifestUrl, OFFICE_RELEASE_KEYS, ReleaseError, verifyRelease, VERSION_RE, type Channel, type OfficeRelease, type ReleaseFile } from './release'
-import { addInstaller, ensureDir, MAC_ZIP_RE, macOfferedIn, planAdd, readIndex } from './desktop'
+import { addInstaller, ensureDir, LINUX_APPIMAGE_RE, LINUX_APPS, LINUX_ARCHS, LINUX_DEB_RE, linuxOfferedIn, MAC_ZIP_RE, macOfferedIn, planAdd, readIndex, ymlFiles, type LinuxArch } from './desktop'
 import { reserveBytes, snapshotOf } from '../system/storage'
 import { loadSettings, officePaths, type OfficeSettings } from './settings'
+import { agentCommand } from './login-item'
 import { PRODUCT } from '@mycel/shared'
 import { isMigrating, MIGRATE_WAIT_MS, probeHealth, type HealthAnswer } from './health'
 import { dbReaderLevel, healFile, recoveryAdvice, releaseIn, unreadablePrevious, UNREADABLE } from './forward'
+import { diskStat, DiskSpaceUnknown } from '../system/disk-stat'
+import { primeDiskSpace } from '../system/layout'
 
 // ---- settings and state ------------------------------------------------------------------------------------------
 
@@ -299,7 +303,8 @@ const xml = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replac
  * log line (update-cli.ts `update run`). PATH has Claude Code's folder (the new installer checks it). */
 export function updatePlist(s: OfficeSettings, envPath: string): string {
   const p = officePaths(s.home)
-  const args = [path.join(s.home, 'app', 'bin', 'bun'), path.join(s.home, 'app', 'server', 'src', 'office.js'), 'update', 'run', '--home', s.home]
+  // <home>/bin/<product name> when the installation has it (./login-item.ts: the name under Login Items), else app/bin/bun
+  const args = [agentCommand(s.home), path.join(s.home, 'app', 'server', 'src', 'office.js'), 'update', 'run', '--home', s.home]
   const env: Record<string, string> = { PATH: envPath, HOME: os.homedir(), LANG: 'ko_KR.UTF-8', NO_COLOR: '1', TEAMAX_HOME: s.home, ...(s.claudeBin ? { TEAMAX_CLAUDE_BIN: s.claudeBin } : {}) }
   return `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -347,6 +352,17 @@ export interface OfficeUpdateView {
   desktop: UpdateState['desktop']
 }
 
+/** A result that is over: an update to `about` that failed or was rolled back, while a newer version than
+ * `about` is installed now (office-install.sh by hand after it). clearStaleFailure clears the record only when the
+ * installer saw the server answer, and only a run that got as far as installing (lastUpdate); a server that answered
+ * after the installer's wait, or a run that failed at its backup, left "last: failed 0.5.7" under a running 0.5.8
+ * (QA TC-3761). The same version is not over: a failed update can leave its own version in app/ with no way back.
+ * 'refused' is never over: it is today's answer about a feed that offers an older version (no downgrades). */
+export function resultIsOver(current: string | null, kind: string, about: string | null): boolean {
+  if (!current || !about || !VERSION_RE.test(current) || !VERSION_RE.test(about)) return false
+  return (kind === 'failed' || kind === 'rolled-back') && compareVersions(current, about) > 0
+}
+
 export function updateView(home: string, o: { now?: Date; agentInstalled?: boolean } = {}): OfficeUpdateView {
   const set = readUpdateSettings(home)
   const st = readUpdateState(home)
@@ -359,7 +375,11 @@ export function updateView(home: string, o: { now?: Date; agentInstalled?: boole
   return {
     current, channel: set.channel, paused: set.paused, time: sched.window.slice(0, 5), window: sched.window, windowSource: sched.source, timeZone: sched.timeZone,
     nextWindowAt: agentInstalled && next ? next.toISOString() : null,
-    lastCheckAt: st.lastCheckAt, last: st.last, available, lastUpdate: st.lastUpdate,
+    lastCheckAt: st.lastCheckAt,
+    // what is shown is the current result: never an old failed update under a newer installed version
+    last: st.last && resultIsOver(current, st.last.kind, st.last.version) ? null : st.last,
+    available,
+    lastUpdate: st.lastUpdate && resultIsOver(current, st.lastUpdate.result, st.lastUpdate.to) ? null : st.lastUpdate,
     running: st.running ? { since: st.running.since, step: st.running.step ?? 'check', phase: st.running.phase, target: st.running.target } : null,
     requested: fs.existsSync(updatePaths(home).request), agentInstalled, desktop: st.desktop,
   }
@@ -493,7 +513,8 @@ export function manifestForFolder(dir: string, r: OfficeRelease): SignedText | u
   const win = readIndex(dir).some((i) => i.platform === 'windows' && compareVersions(i.version, r.windows?.version ?? r.version) > 0)
   const m = macOfferedIn(dir)
   const mac = !!m && compareVersions(m.version, r.mac?.version ?? r.version) > 0
-  return win || mac ? undefined : s
+  const linux = linuxOfferedIn(dir).some((l) => compareVersions(l.version, r.linux?.version ?? r.version) > 0)
+  return win || mac || linux ? undefined : s
 }
 
 /** Download a release file into `dir`, checking size and SHA-256 on the way. Returns the file. `o.sha512` gets the
@@ -727,11 +748,17 @@ export function placeSignedManifest(dir: string, s: SignedText | undefined) {
 }
 
 /** Room for `bytes` more next to `p`: what is left keeps the reserve below which the team folder refuses writes
- * (system/storage.ts: max(512 MiB, 2% of the disk)), so a download never takes the team's last space. */
-export function roomFor(p: string, bytes: number, statfs: StatfsLike = (x) => fs.statfsSync(x)): { ok: boolean; freeBytes: number; needBytes: number } {
+ * (system/storage.ts: max(512 MiB, 2% of the disk)), so a download never takes the team's last space.
+ * Free space that could not be read (system/disk-stat.ts DiskSpaceUnknown) is not "no room": ok with freeBytes null, and
+ * the download itself fails on a disk that is really full (QA TC-3099). */
+export function roomFor(p: string, bytes: number, statfs: StatfsLike = (x) => diskStat(x)): { ok: boolean; freeBytes: number | null; needBytes: number } {
   let at = path.resolve(p)
   while (!fs.existsSync(at) && path.dirname(at) !== at) at = path.dirname(at)
-  const s = snapshotOf(statfs(at))
+  let s
+  try { s = snapshotOf(statfs(at)) } catch (e) {
+    if (e instanceof DiskSpaceUnknown) return { ok: true, freeBytes: null, needBytes: bytes }
+    throw e
+  }
   const needBytes = bytes + reserveBytes(s.totalBytes)
   return { ok: s.freeBytes >= needBytes, freeBytes: s.freeBytes, needBytes }
 }
@@ -757,8 +784,9 @@ export async function offerWindows(dir: string, tmp: string, w: WindowsRelease, 
   // release's: that file alone (pinned by the signed manifest) is put right; the 110 MB file is not fetched or read again
   const listed = items.find((i) => i.platform === 'windows' && i.file === w.installer.file && i.version === w.version && i.sha256 === w.installer.sha256)
   const inPlace = !!listed && (() => { try { return fs.statSync(path.join(dir, w.installer.file)).size === w.installer.size } catch { return false } })()
+  if (!o.statfs) await primeDiskSpace(tmp)
   const room = roomFor(tmp, (inPlace ? 0 : w.installer.size) + w.latestYml.size, o.statfs)
-  if (!room.ok) return { kind: 'no-room', message: `not enough disk space for the Windows app ${w.version} (${Math.ceil(room.needBytes / 1048576)} MB needed with the reserve, ${Math.floor(room.freeBytes / 1048576)} MB free)` }
+  if (!room.ok) return { kind: 'no-room', message: `not enough disk space for the Windows app ${w.version} (${Math.ceil(room.needBytes / 1048576)} MB needed with the reserve, ${Math.floor((room.freeBytes ?? 0) / 1048576)} MB free)` }
   fs.rmSync(tmp, { recursive: true, force: true })
   if (inPlace) {
     try {
@@ -845,8 +873,9 @@ export async function offerMac(dir: string, tmp: string, m: MacRelease, d: Pick<
     placeSignedManifest(dir, o.signed)
     return { kind: 'current', version: m.version }
   }
+  if (!o.statfs) await primeDiskSpace(tmp)
   const room = roomFor(tmp, (inPlace ? 0 : m.zip.size) + m.latestYml.size, o.statfs)
-  if (!room.ok) return { kind: 'no-room', message: `not enough disk space for the Mac app ${m.version} (${Math.ceil(room.needBytes / 1048576)} MB needed with the reserve, ${Math.floor(room.freeBytes / 1048576)} MB free)` }
+  if (!room.ok) return { kind: 'no-room', message: `not enough disk space for the Mac app ${m.version} (${Math.ceil(room.needBytes / 1048576)} MB needed with the reserve, ${Math.floor((room.freeBytes ?? 0) / 1048576)} MB free)` }
   if (!MAC_ZIP_RE.test(m.zip.file)) throw new UpdateFailure(`${m.zip.file} is not a Mac app update zip name`)
   fs.rmSync(tmp, { recursive: true, force: true })
   try {
@@ -881,22 +910,32 @@ const MAC_ZIP_SEEN = '.mac-zip.json'
 
 /** `dir/<zip>` has the release's bytes: by the remembered SHA-256 while size and time are unchanged, else read again */
 export function macZipMatches(dir: string, zip: ReleaseFile): boolean {
-  const f = path.join(dir, zip.file)
+  return fileMatches(dir, zip, MAC_ZIP_SEEN)
+}
+
+/** `dir/<f.file>` has the release's bytes, by the SHA-256 remembered in `dir/<seenName>` (never served) while its size
+ * and time are unchanged, else read again */
+function fileMatches(dir: string, rf: ReleaseFile, seenName: string): boolean {
+  const f = path.join(dir, rf.file)
   let st: fs.Stats
   try { st = fs.statSync(f) } catch { return false }
-  if (st.size !== zip.size) return false
+  if (st.size !== rf.size) return false
   let seen: { file?: string; size?: number; mtimeMs?: number; sha256?: string } = {}
-  try { seen = JSON.parse(fs.readFileSync(path.join(dir, MAC_ZIP_SEEN), 'utf8')) } catch {}
-  if (seen.file === zip.file && seen.size === st.size && seen.mtimeMs === st.mtimeMs) return seen.sha256 === zip.sha256
+  try { seen = JSON.parse(fs.readFileSync(path.join(dir, seenName), 'utf8')) } catch {}
+  if (seen.file === rf.file && seen.size === st.size && seen.mtimeMs === st.mtimeMs) return seen.sha256 === rf.sha256
   const sha = sha256File(f)
-  rememberMacZip(dir, zip.file, sha)
-  return sha === zip.sha256
+  remember(dir, rf.file, sha, seenName)
+  return sha === rf.sha256
 }
 
 function rememberMacZip(dir: string, file: string, sha256: string) {
+  remember(dir, file, sha256, MAC_ZIP_SEEN)
+}
+
+function remember(dir: string, file: string, sha256: string, seenName: string) {
   try {
     const st = fs.statSync(path.join(dir, file))
-    fs.writeFileSync(path.join(dir, MAC_ZIP_SEEN), JSON.stringify({ file, size: st.size, mtimeMs: st.mtimeMs, sha256 }), { mode: 0o600 })
+    fs.writeFileSync(path.join(dir, seenName), JSON.stringify({ file, size: st.size, mtimeMs: st.mtimeMs, sha256 }), { mode: 0o600 })
   } catch {}
 }
 
@@ -931,6 +970,130 @@ export function checkLatestMacYml(text: string, version: string, zip: { file: st
     else if (e.url === dmg.file) { if (e.size !== dmg.size || (dmg.sha512 !== undefined && e.sha512 !== dmg.sha512)) throw new UpdateFailure(`latest-mac.yml: ${dmg.file} sha512 or size does not match`) }
     else throw new UpdateFailure(`latest-mac.yml file urls must be just ${zip.file} and ${dmg.file}`)
   }
+}
+
+/** Offer the release's Linux AppImages to the desks: data/downloads/<AppImage> and latest-linux(-arm64).yml. */
+export async function deliverLinux(home: string, r: OfficeRelease, d: Pick<UpdateDeps, 'fetch' | 'log'>, o: { statfs?: StatfsLike } = {}): Promise<string | null> {
+  const l = r.linux
+  if (!l) { try { dropUnnamedLinux(path.join(officePaths(home).data, 'downloads'), r, d.log) } catch {} ; return null }
+  let res: LinuxOffer
+  try { res = await offerLinux(path.join(officePaths(home).data, 'downloads'), path.join(updatePaths(home).download, 'linux'), l, d, { ...o, signed: manifestForFolder(path.join(officePaths(home).data, 'downloads'), r) }) }
+  finally { try { fs.rmdirSync(updatePaths(home).download) } catch {} }
+  if (res.kind === 'no-room') throw new UpdateFailure(res.message)
+  if (res.kind === 'offered') d.log(`Linux app ${l.version} update offered to the desks (${l.appImageX64.file}, ${l.appImageArm64.file}, ${LINUX_APPS.x64.yml}, ${LINUX_APPS.arm64.yml})`)
+  return res.kind === 'offered' ? l.version : null
+}
+
+export type LinuxRelease = NonNullable<OfficeRelease['linux']>
+export type LinuxOffer = MacOffer
+
+/** the AppImage and the yml of one processor in a Linux release */
+const linuxParts = (l: LinuxRelease, arch: LinuxArch) => arch === 'x64' ? { appImage: l.appImageX64, yml: l.latestYml } : { appImage: l.appImageArm64, yml: l.latestYmlArm64 }
+const linuxSeen = (arch: LinuxArch) => `.linux-${arch}.json`
+
+/**
+ * Put a verified release's two Linux AppImages and their latest-linux.yml / latest-linux-arm64.yml into the downloads
+ * folder `dir`, so the desks' AppImages (electron-updater's AppImage updater, generic provider = <team address>/downloads/)
+ * update from their own team server, like the Mac app (offerMac). The .deb files are not copied: a .deb only says that a
+ * new version is out. Every file is downloaded into `tmp` with size and SHA-256 checked against the signed manifest, each
+ * yml must list exactly its AppImage (version, sha512, size) in `files:`, and everything is checked before the folder
+ * changes; the AppImages are moved in under their own names, the signed manifest is placed, the yml files come last
+ * (they never name a file that is not there), then older AppImages go. index.json is not changed: routes/downloads.ts
+ * serves an AppImage only while a yml names it. The app installs it only after the signed release names its SHA-256
+ * (desktop/src/common/update-verify.ts).
+ */
+export async function offerLinux(dir: string, tmp: string, l: LinuxRelease, d: Pick<UpdateDeps, 'fetch' | 'log'>, o: { statfs?: StatfsLike; signed?: SignedText } = {}): Promise<LinuxOffer> {
+  const now = linuxOfferedIn(dir)
+  const newer = now.find((x) => compareVersions(x.version, l.version) > 0)
+  if (newer) return { kind: 'newer', version: newer.version }
+  for (const arch of LINUX_ARCHS) {
+    const p = linuxParts(l, arch)
+    if (!LINUX_APPS[arch].appImageRe.test(p.appImage.file)) throw new UpdateFailure(`${p.appImage.file} is not a Linux ${arch} AppImage name`)
+    if (p.yml.file !== LINUX_APPS[arch].yml) throw new UpdateFailure(`${p.yml.file} is not ${LINUX_APPS[arch].yml}`)
+  }
+  const inPlace = Object.fromEntries(LINUX_ARCHS.map((a) => [a, fileMatches(dir, linuxParts(l, a).appImage, linuxSeen(a))])) as Record<LinuxArch, boolean>
+  const ymlSame = (a: LinuxArch) => { try { return sha256File(path.join(dir, LINUX_APPS[a].yml)) === linuxParts(l, a).yml.sha256 } catch { return false } }
+  if (LINUX_ARCHS.every((a) => inPlace[a] && ymlSame(a) && now.some((x) => x.arch === a && x.appImage === linuxParts(l, a).appImage.file))) {
+    placeSignedManifest(dir, o.signed)
+    return { kind: 'current', version: l.version }
+  }
+  if (!o.statfs) await primeDiskSpace(tmp)
+  const bytes = LINUX_ARCHS.reduce((n, a) => n + (inPlace[a] ? 0 : linuxParts(l, a).appImage.size) + linuxParts(l, a).yml.size, 0)
+  const room = roomFor(tmp, bytes, o.statfs)
+  if (!room.ok) return { kind: 'no-room', message: `not enough disk space for the Linux app ${l.version} (${Math.ceil(room.needBytes / 1048576)} MB needed with the reserve, ${Math.floor((room.freeBytes ?? 0) / 1048576)} MB free)` }
+  fs.rmSync(tmp, { recursive: true, force: true })
+  const temps: string[] = []
+  try {
+    // every file downloaded and checked first: nothing in the folder changes when one of them is wrong
+    const got: { arch: LinuxArch; img: string | null; yml: string }[] = []
+    for (const arch of LINUX_ARCHS) {
+      const p = linuxParts(l, arch)
+      let img512 = ''
+      const img = inPlace[arch] ? null : await download(p.appImage, path.join(tmp, arch), d, { sha512: (b) => { img512 = b } })
+      if (inPlace[arch]) img512 = sha256File(path.join(dir, p.appImage.file), 'sha512', 'base64')
+      const yml = await download(p.yml, path.join(tmp, arch), d)
+      checkLatestLinuxYml(fs.readFileSync(yml, 'utf8'), l.version, { file: p.appImage.file, sha512: img512, size: p.appImage.size }, LINUX_APPS[arch].yml)
+      got.push({ arch, img, yml })
+    }
+    ensureDir(dir)
+    const ymlTemps = got.map((g) => {
+      const t = path.join(dir, `.${LINUX_APPS[g.arch].yml}.tmp-${process.pid}`)
+      temps.push(t)
+      fs.copyFileSync(g.yml, t)
+      fs.chmodSync(t, 0o600)
+      return { arch: g.arch, t }
+    })
+    for (const g of got) {
+      if (!g.img) continue
+      const p = linuxParts(l, g.arch)
+      const ti = path.join(dir, `.${p.appImage.file}.tmp-${process.pid}`)
+      temps.push(ti)
+      try { fs.renameSync(g.img, ti) } catch (e) { if ((e as NodeJS.ErrnoException).code !== 'EXDEV') throw e; fs.copyFileSync(g.img, ti) }
+      fs.chmodSync(ti, 0o600)
+      if (fs.statSync(ti).size !== p.appImage.size) throw new UpdateFailure(`${p.appImage.file} changed while it was offered`)
+      fs.renameSync(ti, path.join(dir, p.appImage.file))
+      remember(dir, p.appImage.file, p.appImage.sha256, linuxSeen(g.arch))
+    }
+    placeSignedManifest(dir, o.signed)
+    for (const y of ymlTemps) fs.renameSync(y.t, path.join(dir, LINUX_APPS[y.arch].yml))
+    // the AppImages of older releases (only names of that form; never what a yml names now)
+    const keep = new Set(LINUX_ARCHS.map((a) => linuxParts(l, a).appImage.file))
+    for (const f of fs.readdirSync(dir)) if (!keep.has(f) && LINUX_APPIMAGE_RE.test(f)) fs.rmSync(path.join(dir, f), { force: true })
+  } finally {
+    for (const t of temps) fs.rmSync(t, { force: true })
+    fs.rmSync(tmp, { recursive: true, force: true })
+  }
+  return { kind: 'offered', version: l.version }
+}
+
+/** A release without a Linux app after one with it: the folder stops offering the older AppImages (the yml files, the
+ * AppImages they name), like dropUnnamedMac. Not when the folder offers a newer Linux app than the release. */
+export function dropUnnamedLinux(dir: string, r: OfficeRelease, log: (s: string) => void = () => {}) {
+  if (r.linux) return
+  const now = linuxOfferedIn(dir)
+  if (!now.length || now.some((x) => compareVersions(x.version, r.version) > 0)) return
+  for (const x of now) {
+    fs.rmSync(path.join(dir, LINUX_APPS[x.arch].yml), { force: true })
+    fs.rmSync(path.join(dir, x.appImage), { force: true })
+    fs.rmSync(path.join(dir, linuxSeen(x.arch)), { force: true })
+  }
+  log(`Linux app ${now[0]!.version} update no longer offered: release ${r.version} has no Linux app`)
+}
+
+/** electron-updater's latest-linux.yml (or latest-linux-arm64.yml) of the Linux app: the version, and a `files:` list
+ * that holds the AppImage with its sha512 and size, and otherwise only the .deb that electron-builder puts in the same
+ * yml (in no fixed order, so `path:` is either of them and is not what is checked; the AppImage updater picks the
+ * AppImage entry) */
+export function checkLatestLinuxYml(text: string, version: string, appImage: { file: string; sha512: string; size: number }, name: string = LINUX_APPS.x64.yml) {
+  const val = (k: string) => ymlValue(text, k)
+  if (val('version') !== version) throw new UpdateFailure(`${name} names version ${val('version')}, not ${version}`)
+  const entries = ymlFiles(text)
+  const img = entries.filter((e) => e.url === appImage.file)
+  if (img.length !== 1) throw new UpdateFailure(`${name} lists no ${appImage.file}`)
+  if (img[0]!.sha512 !== appImage.sha512 || img[0]!.size !== appImage.size) throw new UpdateFailure(`${name}: ${appImage.file} sha512 or size does not match`)
+  for (const e of entries) if (e.url !== appImage.file && !LINUX_DEB_RE.test(e.url)) throw new UpdateFailure(`${name} file urls must be just ${appImage.file} and its .deb`)
+  const p = val('path')
+  if (p !== null && !entries.some((e) => e.url === p)) throw new UpdateFailure(`${name} names ${p}, which its files list does not hold`)
 }
 
 /** a top-level `key: value` of latest.yml (quotes off) */
@@ -1010,6 +1173,7 @@ export async function runUpdate(home: string, o: RunOptions): Promise<RunResult>
       if (o.reason !== 'check') patchUpdateState(home, (s) => { s.deferred = null })
       if (o.reason !== 'check') await deliverWindows(home, r, d).catch((e) => d.log(`Windows app not offered: ${(e as Error).message}`))
       if (o.reason !== 'check') await deliverMac(home, r, d).catch((e) => d.log(`Mac app update not offered: ${(e as Error).message}`))
+      if (o.reason !== 'check') await deliverLinux(home, r, d).catch((e) => d.log(`Linux app update not offered: ${(e as Error).message}`))
       return finish({ kind: 'up-to-date', version: current, message: null })
     }
     if (o.reason === 'check') return finish({ kind: 'available', version: r.version, message: null })
@@ -1148,6 +1312,7 @@ async function install(home: string, current: string, r: OfficeRelease, d: Updat
   fs.rmSync(healFile(home), { force: true })
   await deliverWindows(home, r, d).catch((e) => d.log(`Windows app not offered: ${(e as Error).message}`))
   await deliverMac(home, r, d).catch((e) => d.log(`Mac app update not offered: ${(e as Error).message}`))
+  await deliverLinux(home, r, d).catch((e) => d.log(`Linux app update not offered: ${(e as Error).message}`))
   return { kind: 'updated', version: target, message: `${current} → ${target}` }
 }
 

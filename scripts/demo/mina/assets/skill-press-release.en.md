@@ -8,7 +8,7 @@ metadata:
 # Press release draft
 
 ## Sources
-- Company facts from `shared/Company intro.md`, product and dates from the campaign brief.
+- Company facts from `shared/Company intro.md`, the product from the campaign brief. Leave the date as "[date]".
 
 ## Format
 1. **Headline**: under 12 words, what is coming out and when.

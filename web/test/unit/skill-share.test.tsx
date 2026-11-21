@@ -529,11 +529,13 @@ describe('/skills/share/:id: proposals, the setup, merges', () => {
       expect(text(m, 'skill-review-source')).toContain('스킬 10개 (프로젝트 1곳 포함)')
       expect(m.find('skill-review-other-folder')).toBeNull()
       expect(text(m, 'skills-tools')).toContain(ko('welcome.skills.tools', { n: 1, names: 'Linear' }))
+      // a sign-in tool: each teammate signs in, no "own key" (QA tracking TC-2980)
+      expect(text(m, 'skills-tools')).toContain(ko('welcome.skills.toolsNoteSignIn'))
     } finally { await m.unmount() }
   })
 
   test('a Claude Code proposal: its source line, the projects, the tools line; the tools go when ticked', async () => {
-    ccItems = [shareOf({ id: CC_ID, source: 'claude_code', where: null, projects: 2, tools: [{ name: 'Notion', url: 'https://mcp.notion.com/mcp', auth: 'oauth', header: null, templateId: null, error: null }, { name: 'Linear', url: 'https://mcp.linear.app/mcp', auth: 'oauth', header: null, templateId: null, error: null }] })]
+    ccItems = [shareOf({ id: CC_ID, source: 'claude_code', where: null, projects: 2, tools: [{ name: 'Notion', url: 'https://mcp.notion.com/mcp', auth: 'bearer', header: null, templateId: null, error: null }, { name: 'Linear', url: 'https://mcp.linear.app/mcp', auth: 'oauth', header: null, templateId: null, error: null }] })]
     const m = await page(CC_ID, 'admin')
     try {
       await m.until(() => m.find('skill-review')?.getAttribute('data-status') === 'ready', 'the proposal')
@@ -543,7 +545,8 @@ describe('/skills/share/:id: proposals, the setup, merges', () => {
       // no "다른 폴더" for a Claude Code proposal
       expect(m.find('skill-review-other-folder')).toBeNull()
       expect(text(m, 'skills-tools')).toContain(ko('welcome.skills.tools', { n: 2, names: 'Notion, Linear' }))
-      expect(text(m, 'skills-tools')).toContain(ko('welcome.skills.toolsNote'))
+      // one takes a key, one signs in: the note names both (QA tracking TC-2980)
+      expect(text(m, 'skills-tools')).toContain(ko('welcome.skills.toolsNoteMixed'))
       // each address is shown as it will be stored, so a key in it can be seen
       expect(text(m, 'skills-tools-urls')).toContain('Notion · ')
       await tick(m, m.get('skills-tools-check'))
@@ -551,7 +554,7 @@ describe('/skills/share/:id: proposals, the setup, merges', () => {
       await m.until(() => m.find('skill-review')?.getAttribute('data-status') === 'applied', 'what went in')
       expect(called(`POST /api/skill-shares/${CC_ID}/apply`)[0]!.body).toEqual({ skills: [{ name: 'weekly-report', action: 'add' }, { name: 'quote-draft', action: 'add' }, { name: 'meeting-notes', action: 'merge' }], rule: false, tools: ['Notion', 'Linear'] })
       const done = (globalThis.document as any).body.querySelectorAll('[data-testid="skill-done-row"]') as FakeElement[]
-      expect(done.filter((r) => r.getAttribute('data-kind') === 'tool').map((r) => r.textContent)).toEqual([`Notion${ko('welcome.skills.doneTool')}`, `Linear${ko('welcome.skills.doneTool')}`])
+      expect(done.filter((r) => r.getAttribute('data-kind') === 'tool').map((r) => r.textContent)).toEqual([`Notion${ko('welcome.skills.doneTool')}`, `Linear${ko('welcome.skills.doneToolSignIn')}`])
     } finally { await m.unmount() }
   })
 
@@ -618,6 +621,7 @@ describe('/skills/share/:id: proposals, the setup, merges', () => {
       expect(m.get('skill-review-source').getAttribute('data-state')).toBe('folder')
       expect(text(m, 'skill-review-source')).toContain(ko('welcome.skills.found', { n: 10 }).replace('{where}', '.codex'))
       expect(text(m, 'skills-tools')).toContain(ko('welcome.skills.tools', { n: 1, names: 'Notion' }))
+      expect(text(m, 'skills-tools')).toContain(ko('welcome.skills.toolsNote'))
     } finally { await m.unmount() }
   })
 })

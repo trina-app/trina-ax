@@ -11,6 +11,8 @@ import { z } from 'zod'
 import type { Locale } from '@mycel/shared/api'
 import type { AppContext } from '../context'
 import { ToolError } from '../policy/errors'
+import { authorize } from '../policy/authorize'
+import { privateToMe } from '../files/share-readers'
 import { cardNext, cardReason, refusal } from '../policy/refusal'
 import { componentC } from '../team-files/component'
 import { placeProduced } from './make-file'
@@ -140,6 +142,20 @@ export function registerHiggsfield(ctx: AppContext, reg: ToolRegistry): boolean 
           why: cardReason(end), next: end === 'declined' ? 'ask what to change' : cardNext(end),
         }))
       }
+      // a path the AI chose (save_as): the wider-audience card before anything is made or spent, when more people can see
+      // it than what this chat read (a folder the person shares included), as make_file does. Outside a chat (nobody to
+      // ask) only a place nobody else reads. The default users/<id>/videos/ is never shared
+      if (a.save_as) {
+        const asked = a.save_as.replace(/\.mp4$/i, '') + '.mp4'
+        if (t.confirmWidening) {
+          const no = await t.confirmWidening(asked, [])
+          if (no) throw new ToolError(no)
+        } else {
+          let segs: string[] = []
+          try { segs = authorize(ctx.files.fx, ctx.files.rules(), t.user, asked, 'write', { mustExist: false, createDirs: true }).segs } catch { /* placeProduced reports it */ }
+          if (segs.length && !privateToMe(ctx.db, t.user.id, segs)) throw new ToolError('outside a chat a video is saved only where nobody else can see it: leave save_as out')
+        }
+      }
       const r = await runHiggsfield({ key, endpoint, idempotencyKey: `${t.turnId ?? 'x'}-${Bun.hash(a.prompt + a.duration + a.aspect_ratio + a.resolution)}`, body: { prompt: a.prompt, duration: a.duration, aspect_ratio: a.aspect_ratio, resolution: a.resolution } })
       const work = fs.mkdtempSync(path.join(os.tmpdir(), 'mycel-hf-'))
       try {
@@ -147,7 +163,7 @@ export function registerHiggsfield(ctx: AppContext, reg: ToolRegistry): boolean 
         // a local stand-in API (MYCEL_HIGGSFIELD_API, testing only) serves its result from a local address over http
         const size = await downloadVideo(r.videoUrl, tmp, { blockedIps: () => egressOf(ctx).ips, signal: t.signal, ...(process.env.MYCEL_HIGGSFIELD_API ? { httpsOnly: false, testAllow: () => true } : {}) })
         const target = (a.save_as?.replace(/\.mp4$/i, '') ?? `users/${t.user.id}/videos/${slug(a.prompt)}`) + '.mp4'
-        const made = await placeProduced(ctx, componentC(ctx).files, t, target.split('/').filter(Boolean), tmp, 'generate_video')
+        const made = await placeProduced(ctx, componentC(ctx).files, t, target.split('/').filter(Boolean), tmp, 'generate_video', undefined, { thisAnswerOnly: true })
         return {
           text: `Saved the video: ${made.path} (${(size / 1048576).toFixed(1)} MB, ${a.duration} s, ${a.aspect_ratio}, ${a.resolution}). Higgsfield request ${r.requestId}.`,
           summary: `generate_video -> ${made.path} (${size} B, request ${r.requestId})`,

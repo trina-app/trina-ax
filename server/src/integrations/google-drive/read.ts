@@ -128,10 +128,19 @@ export type DriveImage = (name: string, bytes: Uint8Array, signal?: AbortSignal)
 /** A PDF's pages without a text layer: a Drive read gives text only (no OCR, docs/DECISIONS.md "AI sees images and PDF pages"). */
 const SCANNED_NOTE = 'Some pages have no text layer (scans or pictures), so their content is not in this text. To see them, ask the person to attach the file in the chat or add it to the team folder, then read it with pages.'
 
-/** Read a file. With a scope (a team share), only a file inside: a shortcut is judged by its target, and a file
- * outside answers as if it were not there. */
-export async function readDrive(conn: DriveConn, a: z.output<typeof DriveReadInput>, tools: Tools, signal?: AbortSignal, image?: DriveImage, scope?: FolderScope) {
-  let id = a.fileId
+/** A Google document, sheet or presentation saved as a file (save_connector_file): the Office file it exports to, not
+ * the text a read gets */
+const SAVE_EXPORTS: Record<string, { mime: string; ext: string }> = {
+  'application/vnd.google-apps.document': { mime: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', ext: 'docx' },
+  'application/vnd.google-apps.spreadsheet': EXPORTS['application/vnd.google-apps.spreadsheet']!,
+  'application/vnd.google-apps.presentation': EXPORTS['application/vnd.google-apps.presentation']!,
+}
+
+/** The file behind an id, its bytes fetched: a shortcut is followed to its target; with a scope (a team share) only a
+ * file inside, and a file outside answers as if it were not there. Google's own formats come exported (`exports`).
+ * Size caps: the server's read limit, 32 MB, and 10 MB for an export (Google's own export limit). */
+async function fetchDrive(conn: DriveConn, fileId: string, exports: Record<string, { mime: string; ext: string }>, signal?: AbortSignal, scope?: FolderScope) {
+  let id = fileId
   const anc = scope ? new Ancestry(conn, scope, signal) : null
   const visited = new Set<string>()
   for (let depth = 0; depth < 5; depth++) {
@@ -146,26 +155,60 @@ export async function readDrive(conn: DriveConn, a: z.output<typeof DriveReadInp
     }
     if (anc && !(await anc.inside(item))) throw new DriveError('not_found', 404)
     if (item.capabilities?.canDownload !== true) throw new DriveError('not_downloadable', 403)
-    const ex = EXPORTS[item.mimeType]
+    const ex = exports[item.mimeType]
     if (!ex && item.mimeType.startsWith('application/vnd.google-apps.')) throw new DriveError('unsupported_format')
-    const max = Math.min(readMaxBytes(), 32 * 1024 * 1024, ex ? 10 * 1024 * 1024 : Infinity)
+    const max = Math.min(readMaxBytes(), DRIVE_FILE_MAX_BYTES, ex ? DRIVE_EXPORT_MAX_BYTES : Infinity)
     if (item.size && Number(item.size) > max) throw new DriveError('too_large', 413)
     const r = await conn.api(`files/${id}${ex ? '/export' : ''}`, ex ? { mimeType: ex.mime } : { alt: 'media', supportsAllDrives: 'true' }, max, signal)
-    const imageExt = IMAGE_MIME[item.mimeType]
-    if (imageExt && image && !ex) {
-      let shown: { jpeg?: Buffer; text: string }
-      try { checkAbort(signal); shown = await image(`image.${imageExt}`, r.bytes, signal) }
-      catch (e) { if (signal?.aborted) throw new DriveError('cancelled', 409); throw new DriveError('conversion_failed') }
-      r.assertCurrent(); checkAbort(signal)
-      return { ...publicItem(item), text: shown.text.slice(0, a.maxChars), truncated: shown.text.length > a.maxChars, ...(shown.jpeg ? { image: shown.jpeg } : {}) }
-    }
-    let text: string
-    const ext = ex?.ext ?? DOWNLOAD_EXT[item.mimeType]
-    try { checkAbort(signal); text = await extractText(ext ? `document.${ext}` : item.name, r.bytes, tools, signal) }
-    catch (e) { if (signal?.aborted) throw new DriveError('cancelled', 409); throw new DriveError('conversion_failed') }
-    r.assertCurrent(); checkAbort(signal)
-    const scanned = ext === 'pdf' && looksScanned(text)
-    return { ...publicItem(item), text: text.slice(0, a.maxChars), truncated: text.length > a.maxChars, ...(scanned ? { note: SCANNED_NOTE } : {}) }
+    return { item, ex, r }
   }
   throw new DriveError('shortcut_loop')
+}
+export const DRIVE_FILE_MAX_BYTES = 32 * 1024 * 1024
+export const DRIVE_EXPORT_MAX_BYTES = 10 * 1024 * 1024
+
+/** A Drive file's original bytes to save into the team folder (save_connector_file): the file as it is, a Google
+ * document, sheet or presentation as .docx, .xlsx or .pptx; its name with that extension. */
+export async function driveOriginal(conn: DriveConn, fileId: string, signal?: AbortSignal, scope?: FolderScope) {
+  const { item, ex, r } = await fetchDrive(conn, fileId, SAVE_EXPORTS, signal, scope)
+  r.assertCurrent(); checkAbort(signal)
+  let name = clean(item.name).trim()
+  if (ex && !name.toLowerCase().endsWith(`.${ex.ext}`)) name = `${name || 'document'}.${ex.ext}`
+  return { id: item.id, name, mimeType: ex?.mime ?? item.mimeType, bytes: Buffer.from(r.bytes), webViewLink: publicItem(item).webViewLink }
+}
+
+/** Read a file. With a scope (a team share), only a file inside: a shortcut is judged by its target, and a file
+ * outside answers as if it were not there. */
+export async function readDrive(conn: DriveConn, a: z.output<typeof DriveReadInput>, tools: Tools, signal?: AbortSignal, image?: DriveImage, scope?: FolderScope) {
+  const { item, ex, r } = await fetchDrive(conn, a.fileId, EXPORTS, signal, scope)
+  const imageExt = IMAGE_MIME[item.mimeType]
+  if (imageExt && image && !ex) {
+    let shown: { jpeg?: Buffer; text: string }
+    try { checkAbort(signal); shown = await image(`image.${imageExt}`, r.bytes, signal) }
+    catch (e) { if (signal?.aborted) throw new DriveError('cancelled', 409); throw new DriveError('conversion_failed') }
+    r.assertCurrent(); checkAbort(signal)
+    return { ...publicItem(item), ...part(shown.text, a), ...(shown.jpeg ? { image: shown.jpeg } : {}) }
+  }
+  let text: string
+  const ext = ex?.ext ?? DOWNLOAD_EXT[item.mimeType]
+  try { checkAbort(signal); text = await extractText(ext ? `document.${ext}` : item.name, r.bytes, tools, signal) }
+  catch (e) { if (signal?.aborted) throw new DriveError('cancelled', 409); throw new DriveError('conversion_failed') }
+  r.assertCurrent(); checkAbort(signal)
+  const scanned = ext === 'pdf' && looksScanned(text)
+  return { ...publicItem(item), ...part(text, a), ...(scanned ? { note: SCANNED_NOTE } : {}) }
+}
+
+/** The part of a file's text a read asked for: from `offset`, at most `maxChars`. Cut: the whole length and the
+ * offset to go on at, like the team files' read with offset/limit (TC-4984: a long Drive file had no way past its
+ * first 100,000 characters). */
+export function part(text: string, a: { maxChars: number; offset?: number }): { text: string; truncated: boolean; offset?: number; totalChars?: number; next?: string } {
+  const from = Math.min(a.offset ?? 0, text.length)
+  const end = from + a.maxChars
+  const cut = end < text.length
+  return {
+    text: text.slice(from, end), truncated: cut,
+    ...(from > 0 || cut ? { offset: from, totalChars: text.length } : {}),
+    ...(cut ? { next: `The text was cut at character ${end} of ${text.length}: call drive_read again with offset ${end} to read on.` } : {}),
+    ...(from > 0 && from >= text.length ? { next: `offset ${a.offset} is past the end of the text (${text.length} characters).` } : {}),
+  }
 }

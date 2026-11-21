@@ -73,7 +73,7 @@ const menuItems = async (m: Mounted) => {
 }
 
 describe('the page of a project I manage without being a member', () => {
-  test('one quiet block with Add me, the Members row; no box, files, instructions or Trina history; Rename and Move to trash', async () => {
+  test('one quiet block with Add me, Share in the title row; no box, files, instructions or Trina history; Rename and Move to trash', async () => {
     signedIn('owner')
     routes = {
       [`GET /api/projects/${P1}`]: () => json(200, outside()),
@@ -91,8 +91,10 @@ describe('the page of a project I manage without being a member', () => {
       for (const id of ['composer-input', 'project-instructions', 'project-files', 'project-summary']) expect({ id, shown: !!m.find(id) }).toEqual({ id, shown: false })
       expect(calls('GET /api/files/tree')).toEqual([])
       expect(m.html()).not.toContain('projects/acme-legal')
-      // the Members row: its count and Manage
-      expect(m.get('project-members').textContent).toBe(`${en('projects.participants')}${en('projects.membersN', { n: 2 })}${en('projects.manage')}`)
+      // the title row: who is in it and Share (docs/DECISIONS.md "Share in the project's title row"); no side column
+      await m.until(() => m.find('project-share'), 'Share', 2000)
+      expect(m.get('project-share').textContent?.trim()).toBe(en('projects.share'))
+      expect(m.find('project-members')).toBeNull()
       // no Trina history with "Ask here" under it: nobody can ask here (QA TC-1066); my own chats stay in my lists
       await m.settle(30)
       expect(m.find('project-chats')).toBeNull()
@@ -222,7 +224,7 @@ describe('in the trash', () => {
       expect(note.textContent).toContain(en('projects.inTrash'))
       expect(m.find('project-restore')).not.toBeNull()
       expect(m.get('project-delete-for-good').textContent).toBe(en('projects.deleteForGood'))
-      expect(m.find('project-members')).toBeNull()
+      expect(m.find('project-share-row')).toBeNull()
       expect(m.find('composer-input')).toBeNull()
       // no Delete or Rename beside Delete for good: the name is plain text
       expect(m.find('project-menu')).toBeNull()
@@ -289,7 +291,7 @@ describe('in the trash', () => {
       expect(m.container.ownerDocument!.body.querySelector('[data-testid="project-delete-shared"]')?.textContent).toBe('Its shared chats go to their creators\' "Deleted history" for 7 days.')
       expect(translate('ko', 'projects.deleteForGoodShared', { days: 7, trash: translate('ko', 'sidebar.trash') })).toBe('공유 채팅은 만든 사람의 "삭제한 기록"에 7일 동안 있어요.')
       expect(translate('ko', 'projects.deleteForGoodBody')).toBe('파일도 함께 지워지고 되돌릴 수 없어요.')
-      expect(translate('ko', 'projects.deleteForGoodTitle', { name: '주간 보고' })).toBe("'주간 보고'을(를) 완전히 삭제할까요?")
+      expect(translate('ko', 'projects.deleteForGoodTitle', { name: '주간 보고' })).toBe("'주간 보고' 프로젝트를 완전히 삭제할까요?")
       await m.click('dialog-confirm')
       await m.until(() => m.find('elsewhere'), 'the list', 2000)
       expect(calls(`DELETE /api/projects/${P1}`)).toHaveLength(1)
@@ -313,7 +315,7 @@ describe('in the trash, to its members (QA TC-1060, TC-1062, TC-1066)', () => {
       expect(m.get('project-trashed-by').textContent).toMatch(/^Moved to the trash by Bob on .+\.$/)
       expect(m.get('project-trash-restores').textContent).toBe('An admin or Bob, who made it, can restore it.')
       expect(translate('ko', 'projects.trashRestoresCreator', { name: 'Bob' })).toBe('관리자나 만든 사람(Bob님)이 되돌릴 수 있어요.')
-      for (const id of ['project-restore', 'project-delete-for-good', 'project-menu', 'project-members', 'project-chats', 'composer-input', 'project-members-only', 'project-files', 'project-instructions'])
+      for (const id of ['project-restore', 'project-delete-for-good', 'project-menu', 'project-share-row', 'project-share', 'project-chats', 'composer-input', 'project-members-only', 'project-files', 'project-instructions'])
         expect({ id, shown: !!m.find(id) }).toEqual({ id, shown: false })
       expect(m.html()).not.toContain('My old notes')
       expect(calls('GET /api/files/tree')).toEqual([])

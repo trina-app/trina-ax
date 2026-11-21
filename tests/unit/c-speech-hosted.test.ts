@@ -58,6 +58,8 @@ beforeAll(async () => {
   const t = C().transcribe
   t.openRouterUrl = `http://127.0.0.1:${fake.port}/api/v1/audio/transcriptions`
   t.ffmpegBin = null
+  // as on Linux: an Apple silicon Mac decodes with its own programs instead (mac-local-speech.test.ts)
+  t.mac = null
   A.ctx.db.query("UPDATE users SET locale = 'en' WHERE id IN ('alice','bob')").run()
   fs.mkdirSync(path.join(A.team, 'users/alice'), { recursive: true })
 })
@@ -90,11 +92,13 @@ describe('defaults with the hosting key', () => {
     expect(getTeamSettings(A.ctx.db).speechProvider).toBe('openrouter')
     expect(voiceInputOn(A.ctx.db, F().speech)).toBe(true)
     expect(speechKeySource(A.ctx.db)).toBe('hosted')
-    expect(mediaTranscriptsDefault('openrouter', 2, true)).toBe(true)
-    expect(mediaTranscriptsDefault('openrouter', 16, false)).toBe(false)
-    expect(mediaTranscriptsOn({ speechProvider: 'openrouter', aiMediaTranscripts: null }, 2, true)).toBe(true)
-    expect(mediaTranscriptsOn({ speechProvider: 'openrouter', aiMediaTranscripts: false }, 2, true)).toBe(false)
-    expect(mediaTranscriptsOn({ speechProvider: 'off', aiMediaTranscripts: null }, 2, true)).toBe(false)
+    expect(mediaTranscriptsDefault('openrouter', { hosted: true, hostedKey: true, mac: false, bigEnough: false })).toBe(true)
+    expect(mediaTranscriptsDefault('openrouter', { hosted: false, hostedKey: false, mac: false, bigEnough: true })).toBe(false)
+    expect(mediaTranscriptsOn({ speechProvider: 'openrouter', aiMediaTranscripts: null }, { hosted: true, hostedKey: true, mac: false, bigEnough: false })).toBe(true)
+    expect(mediaTranscriptsOn({ speechProvider: 'openrouter', aiMediaTranscripts: false }, { hosted: true, hostedKey: true, mac: false, bigEnough: false })).toBe(false)
+    expect(mediaTranscriptsOn({ speechProvider: 'off', aiMediaTranscripts: null }, { hosted: true, hostedKey: true, mac: false, bigEnough: false })).toBe(false)
+    // this server knows it is hosted from the hosting key alone (the plan may come later)
+    expect(F().transcriptsHost().hosted).toBe(true)
   })
   test("an admin's choice wins, 'off' too; without the hosting key the default is 'off' again", () => {
     updateTeamSettings(A.ctx.db, { speechProvider: 'off' })
@@ -112,7 +116,7 @@ describe('defaults with the hosting key', () => {
     // before: off once the hosting service took its key away; now the team's key turns it on (a choice still wins)
     expect(getTeamSettings(A.ctx.db).speechProvider).toBe('openrouter')
     expect(voiceInputOn(A.ctx.db, F().speech)).toBe(true)
-    expect(mediaTranscriptsOn(getTeamSettings(A.ctx.db), 2, false)).toBe(false)
+    expect(mediaTranscriptsOn(getTeamSettings(A.ctx.db), { hosted: false, hostedKey: false, mac: false, bigEnough: true })).toBe(false)
     updateTeamSettings(A.ctx.db, { speechProvider: 'off' })
     expect(voiceInputOn(A.ctx.db, F().speech)).toBe(false)
   })
@@ -333,7 +337,14 @@ describe('video reads with the hosting key', () => {
     const out = await read(put('h2.mp4'))
     expect(hits).toEqual([])
     expect(F().mediaAudio).not.toHaveBeenCalled()
-    expect(out.text).toContain("This month's 10 free hours of transcription are used up")
+    expect(out.text).toContain("This month's speech-to-text allowance (10 hours) is used up, so the sound was not turned into text. It comes back on the 1st. To get more now, the team owner can change the plan, or an admin can add the team's own OpenRouter key")
+  })
+  test('a piece that does not fit in the hours left is not sent (security review of #1335: before, the last seconds let a whole piece go)', async () => {
+    // 1 s left; the video's piece is 18 s
+    chargeHostedSpeech(A.ctx.db, DEFAULT_FREE_SEC - 1)
+    const out = await read(put('h2b.mp4'))
+    expect(hits).toEqual([])
+    expect(out.text).toContain("This month's speech-to-text allowance (10 hours) is used up")
   })
   test("the note names the plan's hours (Business: 200), in the person's language", async () => {
     setPlanForTests(hostedPlan(200))
@@ -341,10 +352,10 @@ describe('video reads with the hosting key', () => {
     const out = await read(put('h4.mp4'))
     expect(hits).toEqual([])
     expect(F().mediaAudio).not.toHaveBeenCalled()
-    expect(out.text).toContain("This month's 200 free hours of transcription are used up")
+    expect(out.text).toContain("This month's speech-to-text allowance (200 hours) is used up")
     A.ctx.db.query("UPDATE users SET locale = 'ko' WHERE id = 'alice'").run()
     try {
-      expect((await read(put('h5.mp4'))).text).toContain('이번 달 무료 받아쓰기 200시간을 다 써서')
+      expect((await read(put('h5.mp4'))).text).toContain('이번 달 받아쓰기 시간(200시간)을 다 써서')
     } finally { A.ctx.db.query("UPDATE users SET locale = 'en' WHERE id = 'alice'").run() }
   })
   test('one pool: voice input, a video read and an audio read count together, and a used-up pool stops them all', async () => {
@@ -359,14 +370,20 @@ describe('video reads with the hosting key', () => {
     chargeHostedSpeech(A.ctx.db, DEFAULT_FREE_SEC)
     hits.length = 0
     expect((await voice()).error!.message).toContain('free hours of transcription are used up')
-    expect((await read(put('pool2.mp4'))).text).toContain('free hours of transcription are used up')
+    expect((await read(put('pool2.mp4'))).text).toContain('speech-to-text allowance (10 hours) is used up')
     expect(hits).toEqual([])
   })
-  test("with the team's own key it is off by default again (the team picks where its files' sound goes)", async () => {
+  test("with the team's own key it is off by default, on a hosted server too (coordinator, 2026-11-19: the sound would go out at the team's cost); an admin can turn it on", async () => {
     writeSpeechKey(credentialsOf(A.ctx), TEAM)
+    expect(F().transcriptsHost()).toMatchObject({ hosted: true, hostedKey: false })
     const out = await read(put('h3.mp4'))
     expect(hits).toEqual([])
     expect(out.text).toContain('does not turn video sound into text')
+    updateTeamSettings(A.ctx.db, { aiMediaTranscripts: true })
+    expect((await read(put('h3b.mp4'))).text).toContain('hello from the hosted key')
+    expect(hits.map((h) => h.auth)).toEqual([`Bearer ${TEAM}`])
+    expect(hostedSpeechUsage(A.ctx.db).usedSec).toBe(0)
+    updateTeamSettings(A.ctx.db, { aiMediaTranscripts: null })
   })
 })
 
@@ -527,7 +544,9 @@ describe('a read whose month runs out on the way', () => {
     const out = await F().call('read', { file_path: rel }, A.toolCtx('alice', A.turn('alice', A.chat('alice'))))
     expect(hits.length).toBe(1)
     expect(out.text).toContain('the first piece')
-    expect(out.text).toContain("This month's 10 free hours of transcription are used up")
+    // the text made so far stays, and the note says plainly how far it got and how to get more
+    expect(out.text).toContain("This month's speech-to-text allowance (10 hours) is used up, so the sound was turned into text only up to 10:00.0. The text up to there is kept.")
+    expect(out.text).toContain('the team owner can change the plan')
     expect(out.text).not.toContain('The transcript failed')
   })
 })

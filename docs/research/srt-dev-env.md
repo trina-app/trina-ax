@@ -91,12 +91,26 @@ person and their AI may open in the file tools.
 - The engine's own working folder (`<agent root>/<chatId>`) is not used: it belongs to the engine account (0700), and
   srt runs as the server account.
 
+### 0.3a Shared chats (2026-11-18)
+
+A shared chat (a team project's chat, shared by default since 2026-11-13, or a chat shared with people and groups) gets
+the dev environment too (`docs/decisions/20261118-devenv-shared-chats.md`). Everyone in it sees the command and its
+output, so its run is fenced: it reads only folders that the person AND everyone who sees the chat now may read (the
+project folder of a project chat; any common team folder, read-only, in a people chat), writes only in the project
+folder where the person may write, never a personal folder (the person's own neither), with a home and logs per command
+(removed when it ends) and, in a people chat, a work folder per chat and set of people (never the private one). No
+jobs, dev servers or login commands there. The view is built again for every command and checked while it runs (at once
+after an access change).
+
 ### 0.4 Per person, per chat, per team
 
 | Thing | Key |
 |---|---|
 | HOME, TMPDIR, caches (`<base>/devenv/home/<userId>`) | person |
 | logs, command output, exit files (`<base>/devenv/logs/<userId>`, `$TRINA_LOGS`) | person: another person's job log can hold text from folders this person cannot open |
+| HOME, caches and command output of a shared chat's runs (`<base>/devenv/chat-home/<chatId>/<runId>`, `<base>/devenv/chat-logs/<chatId>/<runId>`) | command, removed when it ends (section 0.3a) |
+| TMPDIR of a shared chat's command (`<base>/devenv/rt/<runId>`: short, srt's bridge sockets there must fit the 107-byte unix socket path) | command, removed when it ends |
+| work folder of a shared chat with no project (`<base>/devenv/work-shared/<chatId>/<key of its people>`) | chat and its people (section 0.3a) |
 | log names of jobs and dev servers | person |
 | waiting jobs: at most 3 | person |
 | one foreground command at a time | root folder (the change window needs it) |
@@ -140,7 +154,10 @@ Q0 is answered (owner, 2026-11-04): option (b), built in `srt/access.ts` (0.2). 
   B's AI runs it later with B's access. Q0 (b) closes this for every folder except the starting folder: there a run
   cannot write (attack A28, A28b). The project folder itself stays shared among the people who may write it. That is
   the purpose of a project, the change window records each change there (who, which command), and srt's fixed denies
-  (`.git/hooks`, `.git/config`, `.bashrc`, ...) hold in the starting folder.
+  (`.git/hooks`, `.git/config`, `.bashrc`, ...) hold in the starting folder. Those denies hold only for a `.git` that exists as a run starts
+  (QA TC-4939): since 2026-11-18 every run's git runs no repository hook and reads no global config, a git wrapper
+  refuses a call when the repository's settings name a program, and a project folder's runs have a home of their own
+  (`docs/decisions/20261118-devenv-git-hooks.md`).
 - **Data can leave through the allowed sites** (review, 2026-11-04). GitHub, npm and PyPI accept uploads. A prompt
   injection can give the AI a token of the attacker and have it `git push` or `npm publish` every file the person may
   read. The allowlist stops unknown hosts only. The warning text must say this.
@@ -476,7 +493,9 @@ CREATE INDEX dev_env_jobs_waiting ON dev_env_jobs(started_at) WHERE state = 'wai
 
 - Each dev server is its own srt run in its own scope, with no time limit of its own.
 - Each srt run has its own network namespace and pid space. **A later command cannot reach the dev server.** The tool
-  text tells the AI to test in one command: `npm run dev & sleep 5; curl -s localhost:3000; kill %1`.
+  text tells the AI to test in one command: `npm run dev & sleep 5; curl -s localhost:3000; kill %1`. (Changed
+  2026-11-18: a later command of the same chat reaches it through `mycel-sandbox port-bridge`,
+  [decisions/20261118-devenv-shared-jobs-mac-localhost.md](../decisions/20261118-devenv-shared-jobs-mac-localhost.md).)
 - Idle stop: the tracker stops a dev server after `idleStopMin` (default 30) with no preview request and less than 2 %
   CPU (from `cpu.stat` of the scope). Reason `idle`, no notice.
 - Maximum life: 8 hours (`RuntimeMaxSec`). Reason `timeout`.

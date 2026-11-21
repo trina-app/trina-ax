@@ -7,7 +7,7 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { MemoryRouter } from 'react-router-dom'
 import { GoogleAppAdminStatus, GoogleAppFlow, GoogleAppView, type DriveConnection, type GoogleAppId } from '@mycel/shared/api'
 import { DICTS } from '../../src/i18n'
-import { aboutKey, BUILT_IN_ORDER, canChange, categoryKey, driveCardState, fits, googleAppCardState, isBuiltIn, isGoogleApp, lineKey, unavailableKeys } from '../../src/lib/googleApps'
+import { aboutKey, BUILT_IN_ORDER, canChange, categoryKey, driveCardState, fits, googleAppCardState, isBuiltIn, isGoogleApp, lineKey, unavailableKeys, signInFailedKey, showUnverifiedHint } from '../../src/lib/googleApps'
 import { GoogleAppDetail, type GoogleAppsState } from '../../src/components/integrations/GoogleAppConnector'
 import { GOOGLE_APP_IDS, MockGoogleApps, MOCK_GOOGLE_TOOLS } from '../mock/googleApps'
 
@@ -146,5 +146,45 @@ describe('a Google app\'s page', () => {
     expect(off).toContain('data-reason="not_set_up"')
     expect(page(view({ status: 'needs_reconnect' }))).toContain('data-testid="gapp-reconnect"')
     expect(page(view({ status: 'connected', serviceDown: true }))).toContain('data-testid="gapp-service-down"')
+  })
+
+  test('Trina\'s shared Google app: one line before Google opens about its "unverified" screen; never for a company\'s own app or once connected (QA TC-2957)', () => {
+    expect(page(view({ hostedApp: true }))).toContain('data-testid="google-unverified"')
+    expect(page(view({ hostedApp: true }))).toContain('Advanced')
+    expect(page(view({ hostedApp: true, status: 'needs_reconnect' }))).toContain('data-testid="google-unverified"')
+    expect(page(view({ hostedApp: false }))).not.toContain('data-testid="google-unverified"')
+    expect(page(view())).not.toContain('data-testid="google-unverified"')
+    expect(page(view({ hostedApp: true, status: 'connected' }))).not.toContain('data-testid="google-unverified"')
+    expect(page(view({ hostedApp: true, available: false, reason: 'service_limited' }))).not.toContain('data-testid="google-unverified"')
+  })
+
+  test('a failed sign-in in words: cancelled at Google is "cancelled", not "could not complete" (QA TC-2979)', () => {
+    const fail = (reason: string | null) => renderToStaticMarkup(<MemoryRouter><GoogleAppDetail v={view()} g={{ ...g([view()]), flows: { ...g([view()]).flows, gmail: { ...flow, error: true, reason } } } as unknown as GoogleAppsState} /></MemoryRouter>)
+    expect(fail('consent_denied')).toContain(DICTS.en['gapps.cancelled'])
+    expect(fail('consent_denied')).not.toContain(DICTS.en['drive.failed'])
+    expect(fail('scope_denied')).toContain(DICTS.en['gapps.scopeDenied'])
+    expect(fail('provider_unavailable')).toContain(DICTS.en['drive.failed'])
+    expect(fail('google_app_signin_limit')).toContain(DICTS.en['gapps.tooManySignIns'])
+  })
+})
+
+describe('Google sign-in words', () => {
+  test('a reason to its line, and the unverified line only for the shared app', () => {
+    expect(signInFailedKey('consent_denied')).toBe('gapps.cancelled')
+    expect(signInFailedKey('consent_denied_service')).toBe('gapps.deniedService')
+    expect(signInFailedKey('scope_denied')).toBe('gapps.scopeDenied')
+    expect(signInFailedKey(null)).toBe('drive.failed')
+    // the server's limit of 20 sign-ins an hour (QA TC-3034)
+    expect(signInFailedKey('google_app_signin_limit')).toBe('gapps.tooManySignIns')
+    expect(signInFailedKey('drive_signin_limit')).toBe('gapps.tooManySignIns')
+    // the hosting service's or Google's own "busy" (a 503): the general line, it passes soon
+    expect(signInFailedKey('drive_rate_limited')).toBe('drive.failed')
+    expect(signInFailedKey('google_app_rate_limited')).toBe('drive.failed')
+    expect(showUnverifiedHint({ hostedApp: true })).toBe(true)
+    expect(showUnverifiedHint({})).toBe(false)
+    expect(showUnverifiedHint(null)).toBe(false)
+    for (const [locale, dict] of Object.entries(DICTS)) for (const k of ['gapps.cancelled', 'gapps.deniedService', 'gapps.tooManySignIns', 'google.unverifiedHint']) {
+      expect({ locale, k, text: !!(dict as Record<string, string>)[k]?.trim() }).toEqual({ locale, k, text: true })
+    }
   })
 })

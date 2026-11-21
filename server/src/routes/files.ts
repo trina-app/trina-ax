@@ -2,12 +2,16 @@
 // Implements: FILES (tree, content, save, download, upload, mkdir, move, delete, history, restore, trash, attachments,
 // team-file references and the picker's find / recent, upload sessions). Contract: shared/src/api/files.ts. Logic: server/src/team-files/*, server/src/uploads/*.
 import { registerConnectionsAccountCleanup } from '../integrations/account-cleanup'
-import fs from 'node:fs'
 import path from 'node:path'
 import { API, CONTENT_SHA_HEADER } from '@mycel/shared/api'
 import { fileError, mapErrors } from '../team-files/errors'
 import { HeicPreviews, isHeic, noPreviewError } from '../files/heic-preview'
 import { componentC } from '../team-files/component'
+import { fileSharesOf, registerFileShareCleanup } from '../files/shares'
+import { folderSharesOf } from '../files/folder-shares'
+import { undoShares } from '../files/share-undo'
+import { streamChecked } from '../team-files/stream-checked'
+import { shareFixesOf } from '../files/share-fixes'
 import { contentDisposition, streamFile } from '../team-files/download'
 import { embedNarrower } from '../team-files/embed'
 import { htmlPdfDownload, saveHtmlPdf } from '../team-files/html-pdf-save'
@@ -15,7 +19,8 @@ import { authorize } from '../policy/authorize'
 import { searchFileContents } from '../team-files/content-search'
 import { findFiles, recentFiles } from '../team-files/find'
 import { dismissMoveSuggestion, moveSuggestions } from '../team-files/move-suggest'
-import { hashFile, writeTemp } from '../team-files/place'
+import type { SpooledFile } from '../http/multipart'
+import { assertGuestUploadSize } from '../uploads/guest-limit'
 import { registerCTools } from '../tools'
 import { HwpError } from '../files/hwp-engine'
 import { ToolError } from '../policy/errors'
@@ -26,6 +31,7 @@ import { registerGoogleAppsRoutes } from './google-apps'
 import { googleAppsOf } from '../integrations/google-apps/service'
 import { installServiceRequests } from '../integrations/service-requests'
 import { registerIntegrationRoutes } from './integrations'
+import { requestsOf } from '../integrations/connections/requests'
 import { registerIntegrations } from '../integrations/connections/tools'
 import { registerPluginRoutes } from './plugins'
 import { pluginsOf } from '../plugins/manager'
@@ -43,6 +49,8 @@ export const filesRoutes: RouteModule = {
   owner: 'C',
   init(ctx) {
     componentC(ctx)
+    // a deleted account's file shares (files/shares.ts)
+    registerFileShareCleanup(ctx)
     // a deleted account's Drive sign-in, sign-in flows and Slack link go with it (auth/account-removal.ts)
     registerConnectionsAccountCleanup(ctx)
     // plugins before the tools: hwp_render asks it whether the HWP plugin is usable; it also installs the team-folder
@@ -55,6 +63,8 @@ export const filesRoutes: RouteModule = {
     try { googleAppsOf(ctx) } catch (e) { ctx.log.error('Google apps failed to start; they stay off', { err: e }) }
     // a member's ask to add an app: closed once it is set up somewhere else too (integrations/service-requests.ts)
     installServiceRequests(ctx)
+    // requests to connect sent to guests before they were refused end once, at start (connections/requests.ts)
+    try { requestsOf(ctx).endGuestRequests() } catch (e) { ctx.log.warn('ending connection requests to guests failed', { err: e }) }
     // the file list: its nightly check and its hooks on moves and access changes (file-list/service.ts); a broken
     // sidecar never stops the server here
     try { fileListOf(ctx) } catch (e) { ctx.log.error('file list failed to start; it stays off', { err: e }) }
@@ -86,15 +96,9 @@ export const filesRoutes: RouteModule = {
       }
     }
     const svc = C.files
-    const tmpDir = path.join(ctx.config.dataDir, 'uploads', 'tmp')
-    /** a small upload (multipart, ≤ 50 MB, already in memory) -> server temp file + sha256 */
-    const spool = async (file: File) => {
-      const p = await writeTemp(tmpDir, file)
-      return { p, sha: await hashFile(p) }
-    }
     /** A part of another size than the sender read lost bytes on the way (WebKit bug 319985 sends none at all): it stops
      * here, before it takes a name or replaces a file. An empty file that says so is an upload like any other. */
-    const assertWhole = (file: File, size: number | undefined) => {
+    const assertWhole = (file: SpooledFile, size: number | undefined) => {
       if (size !== undefined && size !== file.size) fileError('validation', 'incompleteUpload', { 'body.file': `expected ${size} bytes, got ${file.size}` })
     }
 
@@ -126,7 +130,7 @@ export const filesRoutes: RouteModule = {
       // consumers that request attachment bytes without the explicit preview flag.
       // Headerless API/native clients may still perform an authorized download.
       ctx.files.quarantine.assertDownload(f.abs, c.req.raw.headers)
-      return streamFile({ abs: f.abs, name: f.name, req: c.req.raw, disposition: query.disposition, via: c.get('info')?.via })
+      return streamFile({ abs: f.abs, seen: f.st, name: f.name, req: c.req.raw, disposition: query.disposition, via: c.get('info')?.via })
     }))
 
     // HEIC / HEIF photos (QA R2-FMT-10): browsers cannot draw them, so the file panel shows a JPEG made on the server
@@ -140,7 +144,7 @@ export const filesRoutes: RouteModule = {
       const noPreview = (reason: 'no_preview' | 'busy' = 'no_preview') => fileError('unavailable', reason === 'busy' ? 'previewBusy' : 'noPreview', undefined, { reason })
       if (!isHeic(f.name)) return noPreview()
       let r: Awaited<ReturnType<typeof previews.jpeg>>
-      try { r = await previews.jpeg(f.abs, { user: auth.user.id, signal: c.req.raw.signal }) } catch (e) {
+      try { r = await previews.jpeg(f.abs, { user: auth.user.id, signal: c.req.raw.signal, seen: f.st }) } catch (e) {
         if (noPreviewError(e)) {
           ctx.log.debug('HEIC preview failed', { err: e })
           return noPreview((e as ToolError).code === 'busy' ? 'busy' : 'no_preview')
@@ -184,28 +188,64 @@ export const filesRoutes: RouteModule = {
 
     kit.handle(API.upload, ({ c, body, auth }) => mapErrors(c.get('locale'), async () => {
       assertWhole(body.file, body.fields.size)
+      // a guest's own limit (one request carries at most 50 MB, under the smallest guest limit; kept in step with it)
+      assertGuestUploadSize(ctx.db, auth.user.id, body.file.size)
       assertStorageRoom(body.file.size)
-      const { p, sha } = await spool(body.file)
-      try {
-        // the same file at that name already (a retry whose answer was lost, photos picked again): kept, no "(2)"
-        return await svc.placeUpload(auth.user.id, body.fields.folder, body.fields.name ?? (body.file.name || 'file'), p, body.fields.onExists, sha, undefined, { keepSame: true })
-      } finally { fs.rmSync(p, { force: true }) }
+      // the body is on disk already, hashed on the way (http/multipart.ts); the kit removes what is left of the temp file
+      // the same file at that name already (a retry whose answer was lost, photos picked again): kept, no "(2)"
+      return await svc.placeUpload(auth.user.id, body.fields.folder, body.fields.name ?? (body.file.name || 'file'), body.file.path, body.fields.onExists, body.file.sha256, undefined, { keepSame: true })
     }, 'name'))
 
     kit.handle(API.mkdir, ({ c, body, auth }) => mapErrors(c.get('locale'), () => svc.mkdir(auth.user.id, body.path)))
     kit.handle(API.move, ({ c, body, auth }) => mapErrors(c.get('locale'), () => svc.move(auth.user.id, body.from, body.to, body.onExists, { confirm: body.confirm, skillsOk: body.skillsOk, askWiden: body.askWiden }), 'to'))
-    kit.handle(API.copy, ({ c, body, auth }) => mapErrors(c.get('locale'), () => svc.copy(auth.user.id, body.from, body.to, { baseSha256: body.baseSha256, dryRun: body.dryRun, onExists: body.onExists }), 'to'))
+    kit.handle(API.copy, ({ c, body, auth }) => mapErrors(c.get('locale'), () => svc.copy(auth.user.id, body.from, body.to, { baseSha256: body.baseSha256, dryRun: body.dryRun, onExists: body.onExists, confirm: body.confirm === true }), 'to'))
     kit.handle(API.remove, ({ c, query, auth }) => mapErrors(c.get('locale'), () => svc.remove(auth.user.id, query.path)))
     // an AI-saved version names its chat only when the caller may open that chat now (chat/version-chats.ts)
     kit.handle(API.history, ({ c, query, auth }) => mapErrors(c.get('locale'), async () => withChatLinks(auth.user.id, await svc.history(auth.user.id, query.path))))
     kit.handle(API.versionDownload, ({ c, params, auth }) => mapErrors(c.get('locale'), () => {
       const v = svc.versionFile(auth.user.id, params.versionId)
       ctx.files.quarantine.assertDownload(v.abs, c.req.raw.headers)
-      return streamFile({ abs: v.abs, name: v.name, req: c.req.raw, disposition: 'attachment', via: c.get('info')?.via })
+      return streamFile({ abs: v.abs, seen: v.st, name: v.name, req: c.req.raw, disposition: 'attachment', via: c.get('info')?.via })
     }))
-    kit.handle(API.restoreVersion, ({ c, body, auth }) => mapErrors(c.get('locale'), () => svc.restoreVersion(auth.user.id, body.path, body.versionId)))
+    // a file shared one by one (files/shares.ts; docs/DECISIONS.md "A member shares their own files"): the link, the
+    // dialog, the link page and its bytes, the request and its answer; Admin's counts and the team owner's Remove all
+    const shares = fileSharesOf(ctx)
+    const folders = folderSharesOf(ctx)
+    kit.handle(API.fileLink, ({ c, body, auth }) => mapErrors(c.get('locale'), () => shares.linkFor(auth.user.id, body.path)))
+    kit.handle(API.fileShares, ({ c, query, auth }) => mapErrors(c.get('locale'), () => shares.view(auth.user.id, query.path, c.get('locale'))))
+    kit.handle(API.putFileShares, ({ c, body, auth }) => mapErrors(c.get('locale'), () => shares.put(auth.user.id, body.path, body.add, body.remove, c.get('locale'), 'dialog', { stop: body.stop, resume: body.resume }).view))
+    kit.handle(API.undoFileShares, ({ c, body, auth }) => mapErrors(c.get('locale'), () => undoShares(ctx, auth.user.id, body.id, c.get('locale'))))
+    kit.handle(API.shareCards, ({ c, body, auth }) => mapErrors(c.get('locale'), () => ({ items: shares.cards(auth.user.id, body.ids, c.get('locale')) })))
+    kit.handle(API.shareFilesBatch, ({ c, body, auth }) => mapErrors(c.get('locale'), () => shares.shareMany(auth.user.id, body.paths, body.add, c.get('locale'))))
+    kit.handle(API.sharedBatch, ({ c, params, auth }) => mapErrors(c.get('locale'), () => shares.batchPage(auth.user.id, params.id)))
+    kit.handle(API.sharedWithMe, ({ c, query, auth }) => mapErrors(c.get('locale'), () => shares.sharedWithMe(auth.user.id, query.cursor, query.limit)))
+    kit.handle(API.sharedFile, ({ c, params, auth }) => mapErrors(c.get('locale'), () => shares.page(auth.user.id, params.id)))
+    kit.handle(API.sharedFileDownload, ({ c, params, query, auth }) => mapErrors(c.get('locale'), () => {
+      // the current bytes only, checked on every request (a removed person loses it at once); nothing else by id
+      if (query.sub !== undefined) {
+        // a file inside a shared folder (files/folder-shares.ts): `sub` on a file link is refused there (404). The
+        // bytes come from the one descriptor that is proven to be the file just checked (team-files/stream-checked.ts)
+        const f = folders.file(auth.user.id, params.id, query.sub, c.get('locale'))
+        ctx.files.quarantine.assertDownload(f.abs, c.req.raw.headers)
+        return streamChecked({ abs: f.abs, expect: f.expect, name: f.name, req: c.req.raw, disposition: query.disposition })
+      }
+      const o = shares.open(auth.user.id, params.id)
+      if (o.kind !== 'open') throw new HttpError('not_found')
+      ctx.files.quarantine.assertDownload(o.abs, c.req.raw.headers)
+      return streamFile({ abs: o.abs, seen: o.st, name: o.name, req: c.req.raw, disposition: query.disposition, via: c.get('info')?.via })
+    }))
+    kit.handle(API.sharedFolderList, ({ c, params, query, auth }) => mapErrors(c.get('locale'), () => folders.list(auth.user.id, params.id, query.sub, query.cursor, query.limit, c.get('locale'))))
+    kit.handle(API.sharedFolderEntry, ({ c, params, query, auth }) => mapErrors(c.get('locale'), () => folders.entry(auth.user.id, params.id, query.sub, c.get('locale'))))
+    kit.handle(API.requestFileAccess, ({ c, params, body, auth }) => mapErrors(c.get('locale'), () => shares.request(auth.user.id, params.id, body.message, c.get('locale'))))
+    kit.handle(API.answerFileRequest, ({ c, params, body, auth }) => mapErrors(c.get('locale'), () => shares.answer(auth.user.id, params.id, body.answer, c.get('locale'))))
+    // one-tap next steps under an AI step (files/share-fixes.ts), and a path link opened through a share
+    kit.handle(API.runShareFix, ({ c, params, auth }) => mapErrors(c.get('locale'), () => shareFixesOf(ctx).run(auth.user.id, params.id, c.get('locale'))))
+    kit.handle(API.grantedFileLink, ({ c, query, auth }) => mapErrors(c.get('locale'), () => ({ id: shares.grantedLinkId(auth.user.id, query.path) })))
+    kit.handle(API.fileSharesCount, ({ c }) => mapErrors(c.get('locale'), () => shares.counts()))
+    kit.handle(API.removeAllFileShares, ({ c, auth }) => mapErrors(c.get('locale'), () => shares.removeAll(auth.user.id, c.get('locale'))))
+    kit.handle(API.restoreVersion, ({ c, body, auth }) => mapErrors(c.get('locale'), () => svc.restoreVersion(auth.user.id, body.path, body.versionId, { confirm: body.confirm === true })))
     kit.handle(API.trash, ({ c, query, auth }) => mapErrors(c.get('locale'), () => svc.trash(auth.user.id, { mine: query.mine, cursor: query.cursor, limit: query.limit })))
-    kit.handle(API.restoreTrash, ({ c, params, auth }) => mapErrors(c.get('locale'), () => svc.restoreTrash(auth.user.id, params.id)))
+    kit.handle(API.restoreTrash, ({ c, params, query, auth }) => mapErrors(c.get('locale'), () => svc.restoreTrash(auth.user.id, params.id, { confirm: query.confirm === true })))
     kit.handle(API.purgeTrash, ({ c, params, auth }) => mapErrors(c.get('locale'), () => {
       // a team project's own folder: deleted for good as the project is (DELETE /api/projects/:id), its shared chats to
       // their creators' trash and its row gone, never only its folder (docs/DECISIONS.md "A team project in the trash")
@@ -222,19 +262,17 @@ export const filesRoutes: RouteModule = {
     // ---------------- attachments ----------------
     kit.handle(API.uploadAttachment, ({ c, body, auth }) => mapErrors(c.get('locale'), async () => {
       assertWhole(body.file, body.fields.size)
+      assertGuestUploadSize(ctx.db, auth.user.id, body.file.size)
       assertStorageRoom(body.file.size)
-      const { p, sha } = await spool(body.file)
-      try {
-        const a = await C.attachments.create(auth.user.id, body.fields.chatId, body.fields.name ?? (body.file.name || 'file'), p, sha)
-        // the request was dropped while the file was put in place (its chip taken out): the box never learns its id, so a
-        // file a shared chat put in its project folder goes to the trash again
-        if (c.req.raw.signal.aborted) C.attachments.discardSaved(auth.user.id, a)
-        return a
-      } finally { fs.rmSync(p, { force: true }) }
+      const a = await C.attachments.create(auth.user.id, body.fields.chatId, body.fields.name ?? (body.file.name || 'file'), body.file.path, body.file.sha256)
+      // the request was dropped while the file was put in place (its chip taken out): the box never learns its id, so a
+      // file a shared chat put in its project folder goes to the trash again
+      if (c.req.raw.signal.aborted) C.attachments.discardSaved(auth.user.id, a)
+      return a
     }, 'name'))
     kit.handle(API.attachmentThumbnail, ({ c, params, auth }) => mapErrors(c.get('locale'), () => {
       const t = C.attachments.thumbnail(auth.user.id, params.id)
-      if ('abs' in t) return streamFile({ abs: t.abs, name: t.name, req: c.req.raw, disposition: 'inline', via: c.get('info')?.via })
+      if ('abs' in t) return streamFile({ abs: t.abs, seen: t.st, name: t.name, req: c.req.raw, disposition: 'inline', via: c.get('info')?.via })
       // a team-file reference: the bytes were read through the descriptor that was checked (no second open by path)
       const etag = `"${t.etag}"`
       const headers = new Headers({ 'Content-Type': t.mime, 'ETag': etag, 'Cache-Control': 'private, no-cache', 'X-Content-Type-Options': 'nosniff',

@@ -14,7 +14,7 @@ These docs are built for people and for AI agents. Every page has a plain Markdo
 
 Each page has a **Copy page** button. Its menu also has **View as Markdown** and **Copy llms.txt link**.
 
-The user guide (Getting started and Use Trina AX) is also in Simplified Chinese under `/zh/`, with its own `zh/llms.txt`, `zh/llms-full.txt` and Markdown copies. Its source is `docs/site/zh/`: the same file names, a `nav.json` with translated titles, and the app's Chinese labels from `web/src/i18n/zh.ts`. A page with a Chinese twin names it with `hreflang` and has a link to it. The other pages are English only; the Chinese navigation marks them （英文）.
+The user guide (Getting started and Use Trina AX) is also in Korean, Simplified Chinese, Japanese, Spanish and Indonesian, under `/ko/`, `/zh/`, `/ja/`, `/es/` and `/id/`, each with its own `llms.txt`, `llms-full.txt` and Markdown copies (for example `zh/llms.txt`). The source of each is `docs/site/<lang>/`: the same file names, a `nav.json` with translated titles, and the app's labels in that language from `web/src/i18n/<lang>.ts`. The languages are listed in one place, `LANGS` in `scripts/docs/site.ts`. A page names its twins in the other languages with `hreflang`, and every page has a language menu to the same page in each language (or that language's docs home). The other pages are English only; each translation's navigation marks them as English, for example （英文） or (영어).
 
 ## Format of llms.txt
 

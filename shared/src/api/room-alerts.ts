@@ -42,12 +42,13 @@ export const RoomAlertSettings = z.object({
 export type RoomAlertSettings = z.infer<typeof RoomAlertSettings>
 
 /** The level that applies to me in a room: its own when I set one, else my default for its kind ('team' and 'all' are
- * the rooms everyone is put in; any other kind is a conversation of picked people). */
-export function roomLevel(kind: string, own: RoomNotifyLevel | null | undefined, def: RoomNotifyDefault | null | undefined): RoomNotifyLevel {
+ * the rooms everyone is put in, and so is a project's chat room, `projectRoom`: Room.project.room, its people follow the
+ * project; any other kind is a conversation of picked people). */
+export function roomLevel(kind: string, own: RoomNotifyLevel | null | undefined, def: RoomNotifyDefault | null | undefined, projectRoom = false): RoomNotifyLevel {
   if (own) return own
   if (def === 'none') return 'off'
   if (def === 'all') return 'all'
-  return kind === 'team' || kind === 'all' ? 'mentions' : 'all'
+  return kind === 'team' || kind === 'all' || projectRoom ? 'mentions' : 'all'
 }
 
 export interface RoomAlertInput {

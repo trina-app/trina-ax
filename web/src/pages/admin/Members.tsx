@@ -38,7 +38,8 @@ import { toast } from '../../store/ui'
 import { LOCALES, useLocale, useT, type MessageKey } from '../../i18n'
 import { isOwner, useMeStrict } from '../../store/session'
 import QrCode from '../../components/QrCode'
-import { Badge, Button, CopyButton, Field, IconButton, Modal, confirmDialog, inputCls, noKeyRepeat, useMediaQuery } from '../../components/ui'
+import { Badge, Button, CopyButton, Field, IconButton, Modal, TabPanel, confirmDialog, inputCls, noKeyRepeat, useMediaQuery } from '../../components/ui'
+import { LanguageSelect } from '../../components/LanguageSelect'
 import { PageActions } from '../../components/PageActions'
 import { PhoneFilters } from '../../components/PhoneFilters'
 import { CompactRow } from '../../components/CompactRow'
@@ -60,9 +61,11 @@ import { AdminBarActions, BarAdd, BarMore } from './barActions'
 import { confirmOriginKept } from './originKept'
 import { loadAdminInvites, readAdmin, useAdminGroups, useAdminRead, useAdminUsersNoAi } from '../../store/adminPeople'
 import { GuestsSection } from './Guests'
+import { GuestChoiceButtons, GuestChoiceForm, GuestChoicePanel, InviteKindTabs, useGuestChoice, type InviteKind } from '../../components/GuestInviteChoice'
 import { BudgetForm, budgetExceeded, budgetLimitText, budgetUsedText, loadBudgets, personBudgets } from './BudgetForm'
 import { inviteGuestName } from '../../lib/guests'
 import { useProjects } from '../../store/projects'
+import { isPrivateChannel } from '../../lib/rooms'
 import { useRooms } from '../../store/rooms'
 import { useRoomTitle } from '../../components/rooms/RoomIcon'
 
@@ -131,7 +134,9 @@ export default function Members() {
   const leadCard = useHandover((s) => s.state?.card ?? null)
   useLeadOffered()
   // the person an inbox entry points at (?member=<id>): marked, and scrolled to once
-  const focusId = useSearchParams()[0].get('member')
+  const [params] = useSearchParams()
+  const focusId = params.get('member')
+  const initialRole = params.get('role')
   const scrolled = useRef<string | null>(null)
   const focusRow = useCallback((el: HTMLElement | null) => {
     if (!el || scrolled.current === focusId) return
@@ -156,9 +161,14 @@ export default function Members() {
   const roomTitle = useRoomTitle()
   const guestWhere = (pl: NonNullable<Invite['guestPlace']>) => {
     const room = pl.kind === 'room' ? myRooms.find((r) => r.id === pl.id) : undefined
-    // a project's name comes with the link (Invite.guestPlace.name); a room's only when I am in it
-    const name = pl.kind === 'project' ? pl.name || projectsById[pl.id]?.name : room && roomTitle(room)
-    return name ? t(pl.kind === 'room' ? 'guest.admin.room' : 'guest.admin.project', { place: name }) : t(pl.kind === 'room' ? 'guest.admin.inviteRoom' : 'guest.admin.inviteProject')
+    // the place's name comes with the link (Invite.guestPlace.name; an older server sent a project's only); a room
+    // with no name of its own: its title when I am in it (guest walkthrough S8)
+    const name = pl.name || (pl.kind === 'project' ? projectsById[pl.id]?.name : room && roomTitle(room))
+    // the server's name is a room's own (a private channel); a title from my rooms list is a group DM's unless it has one
+    const groupDm = pl.kind === 'room' && !pl.name && !!room && !isPrivateChannel(room)
+    // a guest's room is always a group room: a private channel when it has a name of its own, else a group chat. So a
+    // room the server sent no name for (and I am not in) is a group chat, not "a private channel or group chat"
+    return name ? t(pl.kind === 'room' ? (groupDm ? 'guest.admin.roomGroup' : 'guest.admin.room') : 'guest.admin.project', { place: name }) : t(pl.kind === 'room' ? 'guest.admin.inviteRoomGroup' : 'guest.admin.inviteProject')
   }
   // only the links that still work: a used or expired one says nothing new (the person is in the lists below)
   const openInvites = invites.data && openInviteLinks(invites.data)
@@ -233,7 +243,8 @@ export default function Members() {
 
   // search and role filter (like the Claude Console's Members): they narrow what is loaded, nothing is asked again
   const [query, setQuery] = useState('')
-  const [roleFilter, setRoleFilter] = useState<RoleFilter>('all')
+  // ?role=guest (Admin Home's Guests card) opens the list filtered to guests
+  const [roleFilter, setRoleFilter] = useState<RoleFilter>(() => (initialRole === 'guest' ? 'guest' : 'all'))
   const q = query.trim().toLocaleLowerCase(locale)
   const shown = (list: User[]) => list.filter((u) => (roleFilter === 'all' || u.role === roleFilter) && matches(q, locale, u.name, u.username, u.email))
   /** the owner changes roles (members ↔ admins) right in the row, on anyone but themselves; everyone else reads it */
@@ -576,6 +587,10 @@ export default function Members() {
             setCreated(c)
             void invites.reload()
           }}
+          onGuestDone={() => {
+            setInviteOpen(false)
+            void invites.reload()
+          }}
         />
       )}
       {created && <InviteCreated invite={created} onClose={() => setCreated(null)} />}
@@ -744,10 +759,18 @@ function ScheduleReviews() {
   )
 }
 
-function InviteDialog({ groups, onClose, onCreated }: { groups: Group[]; onClose: () => void; onCreated: (c: CreatedInvite) => void }) {
+/** Invite to team: a team member (a link with a role, groups and how long it works) or a guest (docs/DECISIONS.md "Guests
+ * from Admin › Invite to team"): the shared Guest half (components/GuestInviteChoice.tsx, also in "Invite people"): the
+ * one place they join, then the guest invite form of the rooms and projects, whose Cancel comes back here. A full plan
+ * says so in place of the places. */
+function InviteDialog({ groups, onClose, onCreated, onGuestDone }: { groups: Group[]; onClose: () => void; onCreated: (c: CreatedInvite) => void; onGuestDone: () => void }) {
   const t = useT()
   const act = useAction()
   const me = useMeStrict()
+  const [kind, setKind] = useState<InviteKind>('member')
+  const kinds = useId()
+  const guest = kind === 'guest'
+  const choice = useGuestChoice(guest)
   const [role, setRole] = useState<MemberRole>('member')
   const [groupIds, setGroupIds] = useState<string[]>([])
   const [days, setDays] = useState(7)
@@ -766,12 +789,14 @@ function InviteDialog({ groups, onClose, onCreated }: { groups: Group[]; onClose
   }, [offered])
   const leadGroupId = welcome?.teamGroup?.id
   const shownGroupIds = flagged ? (leadGroupId && groups.some((g) => g.id === leadGroupId) ? [leadGroupId] : []) : groupIds
+  if (choice.place) return <GuestChoiceForm choice={choice} onDone={onGuestDone} />
   return (
     <Modal
       open
       onClose={onClose}
-      title={t('members.invite')}
-      footer={
+      // titled by what is picked, never "Invite to team" over "Someone from outside the team" (walkthrough N1)
+      title={t(guest ? 'guest.invite.title' : 'members.inviteTitleMember')}
+      footer={guest ? <GuestChoiceButtons choice={choice} admin onClose={onClose} /> : (
         <>
           <Button variant="ghost" onClick={onClose}>
             {t('common.cancel')}
@@ -792,9 +817,11 @@ function InviteDialog({ groups, onClose, onCreated }: { groups: Group[]; onClose
             <Plus size={14} aria-hidden /> {t(flagged ? 'handover.makeLink' : 'members.createLink')}
           </Button>
         </>
-      }
+      )}
     >
-      <div className="space-y-4">
+      <InviteKindTabs value={kind} onChange={setKind} panels={kinds} />
+      {guest ? <GuestChoicePanel choice={choice} panels={kinds} admin /> : (
+      <TabPanel base={kinds} value="member" className="space-y-4">
         {offered && <LeadFlag checked={lead} onChecked={setLead} label={leadFor} onLabel={setLeadFor} />}
         <fieldset disabled={flagged} className="space-y-4 disabled:opacity-60" data-testid="invite-settings">
           <Field label={t('members.role')}>
@@ -822,7 +849,8 @@ function InviteDialog({ groups, onClose, onCreated }: { groups: Group[]; onClose
             <NewPersonPreview role={role} groupIds={groupIds} groups={groups} />
           </>
         )}
-      </div>
+      </TabPanel>
+      )}
     </Modal>
   )
 }
@@ -1154,14 +1182,8 @@ function EditMember({ user, groups, canChangeRole, onClose, onSaved }: { user: U
           <RoleSelect value={role} onChange={setRole} disabled={!canChangeRole} />
         </Field>
         <Field label={t('settings.language')}>
-          <select className={inputCls} value={language} onChange={(e) => setLanguage(e.target.value as Locale | '')} data-testid="member-locale">
-            <option value="">{t('settings.languageTeam', { language: LOCALES.find((l) => l.id === teamDefault)?.label ?? teamDefault })}</option>
-            {LOCALES.map((l) => (
-              <option key={l.id} value={l.id} lang={l.id}>
-                {l.label}
-              </option>
-            ))}
-          </select>
+          <LanguageSelect value={language || 'team'} onChange={(v) => setLanguage(v === 'team' ? '' : v)} testId="member-locale"
+            teamDefault={t('settings.languageTeam', { language: LOCALES.find((l) => l.id === teamDefault)?.label ?? teamDefault })} />
         </Field>
         <div>
           <p className="mb-1.5 text-label font-medium">{t('admin.groups')}</p>

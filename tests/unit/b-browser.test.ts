@@ -8,11 +8,12 @@ import { API } from '@mycel/shared/api'
 import { startHarness, type Harness, type TestSocket } from '../lib/b-harness'
 import { hostOf, isPrivateHost, privateIp } from '../../server/src/realtime/private-net'
 import { urlsOf } from '../../server/src/realtime/browser-tools'
-import { VISION_TURN_IMAGES } from '../../server/src/files/vision'
+import { VISION_FITTED_IMAGES, VISION_TURN_IMAGES } from '../../server/src/files/vision'
 import { hwpPluginOn } from '../lib/hwp-plugin'
 import { setWebAllowAll } from '../../server/src/tools/web-allow-all'
 import { buildTurnContext, buildTurnPrompt, NO_BROWSER_RULE, type PromptInput } from '../../server/src/chat/prompt'
 import { loadPrincipal } from '../../server/src/policy/access'
+import { mp4Available } from '../../server/src/promo-video/render'
 
 setDefaultTimeout(30_000)
 const fake = (...ds: unknown[]) => ds.map((d) => '@fake ' + JSON.stringify(d)).join('\n')
@@ -75,7 +76,11 @@ describe('browser tools', () => {
     const d = await web.next('message.done', (f) => f.data.messageId === r.assistantMessage.id, 20_000)
     // file tools, B's tools (set_title: the chat's first message; edit_files) and C's registered tools (make_file, edit_hwp, share_file,
     // artifact, web_fetch, save_url, schedule_*, promo_video, intro_deck, move_skill, post_to_room), skill and find_skills; no browser tools
-    expect(d.data.message.content).toBe('artifact,ask_user,change_project_members,connect_service,copy_files,delete_files,edit,edit_files,edit_hwp,find_skills,forget,glob,grep,intro_deck,list,make_file,move_files,move_skill,post_to_room,promo_video,read,remember,rename_file,room_file,room_read,rooms,save_room_file,save_url,schedule_create,schedule_delete,schedule_list,set_title,share_file,skill,skill_files,web_fetch,write')
+    // save_promo_video only where this server can render the MP4 (promo-video/render.ts mp4Available: a Mac dev server),
+    // so a Linux CI runner does not get it
+    const got = d.data.message.content.split(',')
+    expect(got.includes('save_promo_video')).toBe(mp4Available(h.ctx))
+    expect(got.filter((x: string) => x !== 'save_promo_video').join(',')).toBe('artifact,ask_user,change_folder_access,change_project_members,comment_docx,connect_service,copy_files,delete_files,edit,edit_files,edit_hwp,edit_office,edit_pdf,find_skills,forget,glob,grep,intro_deck,list,looking_at,make_file,make_zip,merge_pdfs,move_files,move_skill,post_to_room,promo_video,query_data,read,remember,rename_file,rename_files,resize_images,room_file,room_read,rooms,save_connector_file,save_room_file,save_url,schedule_create,schedule_delete,schedule_list,set_title,share_file,share_folder,share_with_person,shared_with_me,skill,skill_files,split_pdf,stamp_pdf,stop_sharing,todo_write,unzip_file,web_fetch,who_can_open,write')
     const r2 = await send(fake({ echo: 'tools' }), { window: 'win-desk-gone1', client: 'desktop' })(chat.id)
     const d2 = await web.next('message.done', (f) => f.data.messageId === r2.assistantMessage.id, 20_000)
     expect(d2.data.message.content).not.toContain('navigate')
@@ -158,6 +163,36 @@ describe('browser tools', () => {
     } finally { stop() }
   })
 
+  test('a browser site card waits after the answer (docs/decisions/20261119-safety-cards-wait.md): for that window only, and the answer opens it once in that window', async () => {
+    const stop = serve(desk, (c) => ({ callId: c.callId, ok: true, content: [{ type: 'text', text: 'wiki page' }] }))
+    // the window's browser was asked to open the address (each call once)
+    const calls = () => desk.frames.filter((f) => f.type === 'browser.call' && JSON.stringify(f.data.call.args).includes('192.168.10.9')).length
+    h.rt().safetyCardsWait = true
+    try {
+      const chat = await h.api('alice').call(API.createChat, { body: {} })
+      const r = await send(fake({ tool: 'navigate', args: { url: 'http://192.168.10.9/wiki' }, sayResult: true }))(chat.id)
+      const card = await desk.next('turn.request', (f) => f.data.turnId === r.turnId)
+      expect(card.data.request).toMatchObject({ kind: 'browser_site', host: '192.168.10.9' })
+      const d = await desk.next('message.done', (f) => f.data.messageId === r.assistantMessage.id, 20_000)
+      expect(JSON.parse(d.data.message.content)).toMatchObject({ waiting_for_user: true })
+      expect(calls()).toBe(0)
+      // after the answer ended: listed for the desktop window only, from the database
+      expect((await h.api('alice', { window: DESK }).call(API.listTurnRequests, { params: { id: chat.id } })).items.map((x) => x.request.requestId)).toEqual([card.data.request.requestId])
+      expect((await h.api('alice', { window: 'win-web-00001' }).call(API.listTurnRequests, { params: { id: chat.id } })).items).toEqual([])
+      // answered from that window only (another window of the same person: refused, the card stays)
+      const elsewhere = await h.req('alice', `/api/turns/${r.turnId}/answer`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-mycel-window': 'win-web-00001' }, body: JSON.stringify({ kind: 'browser_site', requestId: card.data.request.requestId, decision: 'always' }) })
+      expect(elsewhere.status).toBe(409)
+      await h.api('alice', { window: DESK, client: 'desktop' }).call(API.answerTurn, { params: { id: r.turnId }, body: { kind: 'browser_site', requestId: card.data.request.requestId, decision: 'once' } })
+      const u = await desk.next('message.created', (f) => f.data.chatId === chat.id && f.data.message.parentId === r.assistantMessage.id, 20_000)
+      expect(u.data.message.content).toBe('Allow once')
+      const a = await desk.next('message.created', (f) => f.data.chatId === chat.id && f.data.message.parentId === u.data.message.id, 20_000)
+      await desk.next('message.done', (f) => f.data.messageId === a.data.message.id, 30_000)
+      // the call ran again once, in that window's browser; "once" is not remembered
+      expect(calls()).toBe(1)
+      expect(h.ctx.db.query("SELECT host FROM browser_site_grants WHERE user_id = 'alice' AND host = '192.168.10.9'").all()).toEqual([])
+    } finally { h.rt().safetyCardsWait = false; stop() }
+  })
+
   test('shared screenshot: saved in the chat attachment folder, shown under the step, image goes to the engine', async () => {
     const stop = serve(desk, (c) => ({ callId: c.callId, ok: true, content: [{ type: 'image', mime: 'image/png', data: PNG, shareToChat: true }] }))
     try {
@@ -196,16 +231,18 @@ describe('browser tools', () => {
         expect(m.steps.find((s) => s.tool === 'computer')!.images?.length).toBe(1)
       } finally { h.ctx.db.query("DELETE FROM settings WHERE key = 'aiVision'").run() }
     } finally { stop() }
-    // the per-turn budget (40 images): screenshots past it get the note in their place, once per call. A batch result
-    // holds at most 20 images: the first two batches use the budget up, the third gets the note
+    // the per-turn budget: this turn's requests pass the model proxy, which fits each request's pictures
+    // (proxy/fit-images.ts), so screenshots go on past what one request may hold (VISION_TURN_IMAGES, the cap of a turn
+    // the proxy does not fit) up to the safety cap. A batch result holds at most 20 images: six batches give 120
     const stopMany = serve(desk, (c) => ({ callId: c.callId, ok: true, content: Array.from({ length: 20 }, () => ({ type: 'image', mime: 'image/png', data: PNG })) }))
     try {
       const batch = (say: boolean) => ({ tool: 'browser_batch', args: { actions: [{ name: 'computer', input: { action: 'screenshot' } }] }, inspectImages: true, sayResult: say })
-      const [first, third] = (await ask(batch(true), { say: ' | ' }, batch(false), batch(true))).content.split(' | ').map((x) => JSON.parse(x))
+      const [first, sixth] = (await ask(batch(true), { say: ' | ' }, batch(false), batch(false), batch(false), batch(false), batch(true))).content.split(' | ').map((x) => JSON.parse(x))
       expect(first.images).toHaveLength(20)
-      expect(VISION_TURN_IMAGES).toBe(40)
-      expect(third.images).toEqual([])
-      expect(third.text.match(/image limit/g)).toHaveLength(1)
+      expect(VISION_TURN_IMAGES).toBe(90)
+      expect(VISION_FITTED_IMAGES).toBeGreaterThan(120)
+      expect(sixth.images).toHaveLength(20)
+      expect(sixth.text).not.toContain('as many as one answer can hold')
     } finally { stopMany() }
   })
 

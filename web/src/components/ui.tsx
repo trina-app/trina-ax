@@ -2,7 +2,7 @@
 // back to where it was (tab 5 "접근성").
 import clsx from 'clsx'
 import { Check, ChevronDown, CircleAlert, Copy, ExternalLink, Loader2, X } from 'lucide-react'
-import { cloneElement, createContext, isValidElement, useCallback, useContext, useEffect, useId, useLayoutEffect, useRef, useState, type AnchorHTMLAttributes, type ButtonHTMLAttributes, type ReactNode } from 'react'
+import { cloneElement, createContext, isValidElement, useCallback, useContext, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type AnchorHTMLAttributes, type ButtonHTMLAttributes, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { create } from 'zustand'
 import { useT } from '../i18n'
@@ -176,6 +176,21 @@ export function Spinner({ className, label }: { className?: string; label?: stri
   )
 }
 
+/** The wait inside a file preview (the side panel, the Files screen, a chat's file, the full-page viewer, a shared
+ * link): the spinner and its words in the middle of the preview area, whatever the viewer behind it is. It fills the
+ * scroll box it sits in (`h-full`, at least 10rem when that box has no height of its own), so the paper page around it
+ * keeps its size when the file appears. `overlay`: for a viewer that draws into a host beside it (a Word file, slides, a
+ * PDF's pages): it takes no space, it lies over the `relative` box around that host (which is as tall as the scroll
+ * box, `min-h-full`), so content already drawn never moves when the wait ends. */
+export function PreviewLoading({ label, overlay, testId = 'preview-loading' }: { label: string; overlay?: boolean; testId?: string }) {
+  return (
+    <div role="status" className={clsx('flex items-center justify-center gap-2 p-6 text-sm text-faint', overlay ? 'pointer-events-none absolute inset-0' : 'h-full min-h-40 w-full')} data-testid={testId}>
+      <Loader2 size={14} className="animate-spin" aria-hidden />
+      <span>{label}</span>
+    </div>
+  )
+}
+
 /** A wait people can see (QA TC-2132): the spinner, what it waits for, and under it how long it can take (`hint`: a
  * truthful limit, from the constant that ends the wait). One `status` region for both lines. */
 export function WaitLine({ text, hint, className, testId }: { text: ReactNode; hint?: ReactNode; className?: string; testId?: string }) {
@@ -214,7 +229,7 @@ export function Skeleton({ lines = 3, className }: { lines?: number; className?:
 /** `screen`: the page's whole content is this empty state (an empty folder, no projects yet, not found): its line is a
  * display heading (24px, 22px on phones). Without it (a search with no match, an empty list inside a card, a pane or a
  * dialog) the line is a section title (17px). */
-export function EmptyState({ icon, title, children, screen }: { icon?: ReactNode; title: string; children?: ReactNode; screen?: boolean }) {
+export function EmptyState({ icon, title, children, screen }: { icon?: ReactNode; title: ReactNode; children?: ReactNode; screen?: boolean }) {
   return (
     <div className="flex flex-col items-center justify-center gap-2 px-6 py-12 text-center">
       {icon && <div className="text-faint">{icon}</div>}
@@ -339,6 +354,22 @@ export function useFocusTrap(ref: React.RefObject<HTMLElement | null>, open: boo
   }, [open, ref])
 }
 
+/** The footer of the Modal around it, set by what is inside (a step of a dialog whose buttons change with it): its
+ * buttons go to the Modal's footer row, which stays in sight under the scrolling body (the sheet's bottom padding and
+ * the phone's safe area kept), the same row as Modal's `footer`. Outside a Modal: drawn where it is. */
+const ModalFooterSlot = createContext<{ slot: HTMLElement | null; use: (on: boolean) => void } | null>(null)
+export function ModalFooter({ children }: { children: ReactNode }) {
+  const ctx = useContext(ModalFooterSlot)
+  const use = ctx?.use
+  useLayoutEffect(() => {
+    if (!use) return
+    use(true)
+    return () => use(false)
+  }, [use])
+  if (!ctx) return <>{children}</>
+  return ctx.slot ? createPortal(children, ctx.slot) : null
+}
+
 export function Modal({ open, onClose, title, children, width = 480, footer, returnTo }: { open: boolean; onClose: () => void; title: ReactNode; children: ReactNode; width?: number; footer?: ReactNode; returnTo?: HTMLElement | null }) {
   const t = useT()
   const ref = useRef<HTMLDivElement>(null)
@@ -346,6 +377,12 @@ export function Modal({ open, onClose, title, children, width = 480, footer, ret
   useFocusTrap(ref, open, onClose, returnTo)
   // phones: Back closes the dialog (the one on top first), not the page under it (lib/backCloses.ts)
   useOverlayEntry(open, onClose)
+  // a footer set from inside (ModalFooter): its row, and how many ask for it
+  const [slot, setSlot] = useState<HTMLElement | null>(null)
+  const [inner, setInner] = useState(0)
+  const use = useCallback((on: boolean) => setInner((n) => n + (on ? 1 : -1)), [])
+  const slotCtx = useMemo(() => ({ slot, use }), [slot, use])
+  const hasFooter = !!footer || inner > 0
   if (!open) return null
   return (
     // in <body>, so a dialog opened from inside another dialog (Settings) is not inside it: the one below goes inert
@@ -363,7 +400,7 @@ export function Modal({ open, onClose, title, children, width = 480, footer, ret
         aria-labelledby={titleId}
         tabIndex={-1}
         // phones: below the status bar; without a footer the body keeps clear of the home indicator itself
-        className={clsx('flex max-h-[min(calc(var(--app-h,100dvh)*0.92),calc(var(--app-h,100dvh)-var(--safe-top)-0.5rem))] w-full flex-col rounded-t-2xl bg-surface text-ink shadow-xl outline-none [--sticky-bg:var(--c-surface)] sm:max-h-[calc(100dvh-2rem)] sm:rounded-2xl', !footer && 'max-sm:pb-[var(--safe-bottom)]')}
+        className={clsx('flex max-h-[min(calc(var(--app-h,100dvh)*0.92),calc(var(--app-h,100dvh)-var(--safe-top)-0.5rem))] w-full flex-col rounded-t-2xl bg-surface text-ink shadow-xl outline-none [--sticky-bg:var(--c-surface)] sm:max-h-[calc(100dvh-2rem)] sm:rounded-2xl', !hasFooter && 'max-sm:pb-[var(--safe-bottom)]')}
         style={{ maxWidth: width }}
         onMouseDown={(e) => e.stopPropagation()}
       >
@@ -375,8 +412,8 @@ export function Modal({ open, onClose, title, children, width = 480, footer, ret
             <X size={18} />
           </IconButton>
         </div>
-        <div className="scroll-thin min-h-0 overflow-y-auto overscroll-contain p-5 max-sm:px-4">{children}</div>
-        {footer && <div className="flex shrink-0 flex-wrap items-center justify-end gap-2 border-t border-line px-5 py-3 pb-[max(0.75rem,var(--safe-bottom))] max-sm:px-4">{footer}</div>}
+        <div className="scroll-thin min-h-0 overflow-y-auto overscroll-contain p-5 max-sm:px-4"><ModalFooterSlot.Provider value={slotCtx}>{children}</ModalFooterSlot.Provider></div>
+        <div ref={setSlot} className={clsx('shrink-0 flex-wrap items-center justify-end gap-2 border-t border-line px-5 py-3 pb-[max(0.75rem,var(--safe-bottom))] max-sm:px-4', hasFooter ? 'flex' : 'hidden')} data-testid="modal-footer">{footer}</div>
       </div>
     </div>,
     typeof document === 'undefined' ? null : document.body,
@@ -401,6 +438,14 @@ export function menuOpener(): HTMLElement | null {
 }
 
 /** `cancel`: the words of the button that keeps things as they are (Cancel by default; "Keep editing" for a discard). */
+/** Close the dialog on screen as cancelled (a link in its body that goes elsewhere: the dialog goes with it). */
+export function cancelDialog() {
+  const { req, set } = useDialogs.getState()
+  if (!req) return
+  set(null)
+  if (req.kind === 'confirm') req.resolve(false)
+  else req.resolve(null)
+}
 export function confirmDialog(o: { title: string; body?: ReactNode; confirm: string; cancel?: string; danger?: boolean }): Promise<boolean> {
   const returnTo = menuOpener()
   return new Promise((resolve) => useDialogs.getState().set({ kind: 'confirm', ...o, returnTo, resolve }))
@@ -474,11 +519,14 @@ export function DialogHost() {
 }
 
 // ---------------- toasts ----------------
-/** Phones: how far above the window's bottom edge the highest bottom bar starts (the tab bar, a message box: marked
- * data-bottom-bar), so toasts sit above it instead of over it. null on wider screens or with no bar on screen. While a
+/** How far above the window's bottom edge the highest bottom bar starts (the tab bar, a message box with the line under
+ * it: marked data-bottom-bar), so toasts sit above it instead of over it. On a phone every bar counts; on a wider screen
+ * only a bar under the toasts' column (the right edge, TOAST_COLUMN wide), so a message box beside the column moves
+ * nothing. null with no such bar on screen. While a
  * toast shows it is measured again, one frame after anything that can move the bars has settled: a resize of the
  * window or the visual viewport (the phone keyboard), a bar resizing, and the page changing under it (another route
  * mounts another bar). */
+const TOAST_COLUMN = 12 + 384
 function useBottomBarLift(toasts: unknown[]) {
   const [lift, setLift] = useState<number | null>(null)
   useLayoutEffect(() => {
@@ -490,7 +538,9 @@ function useBottomBarLift(toasts: unknown[]) {
     const measure = () => {
       frame = 0
       const phone = typeof window.matchMedia === 'function' && !window.matchMedia('(min-width: 768px)').matches
-      const els = phone ? [...document.querySelectorAll<HTMLElement>('[data-bottom-bar]')] : []
+      // (the column of the toasts on a wider screen: right-3, w-96)
+      const columnLeft = window.innerWidth - TOAST_COLUMN
+      const els = [...document.querySelectorAll<HTMLElement>('[data-bottom-bar]')].filter((el) => phone || el.getBoundingClientRect().right > columnLeft)
       // watch the bars only when they are other elements than before: observing again makes the observer report again,
       // which would measure again every frame
       if (els.length !== watched.length || els.some((el, i) => el !== watched[i])) {
@@ -563,6 +613,7 @@ export function Toaster() {
           ) : x.action && (
             <button
               type="button"
+              data-testid="toast-link"
               className="shrink-0 rounded-md px-2 py-0.5 font-medium underline underline-offset-2"
               onClick={() => {
                 x.action!.run()

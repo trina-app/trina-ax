@@ -47,14 +47,28 @@ export function placeWords(dir: string, w: PlaceWords, sep = ' › '): string {
 export type TrashKind = 'file' | 'folder' | 'project'
 
 /** An item's name and where it was: "Hello" · "My projects", "price-sheet.xlsx" · "Company-wide › Sales". */
-export function trashPlace(it: Pick<TrashItem, 'originalPath' | 'type' | 'project'>, w: PlaceWords): { name: string; where: string; kind: TrashKind } {
+export function trashPlace(it: Pick<TrashItem, 'originalPath' | 'type' | 'project'>, w: PlaceWords, full = false): { name: string; where: string; kind: TrashKind } {
   const path = it.originalPath
   const folder = it.type === 'folder'
   // a team project's own folder, which went to the trash with its project: the server names the project (QA TC-1061;
   // the person may not see it in their projects list, which has none in the trash)
-  if (folder && it.project) return { name: it.project.name, where: placeWords(parentPath(path), w), kind: 'project' }
+  // `full`: the whole folder path, for a project that shares its name with another one in the trash
+  if (folder && it.project) return { name: it.project.name, where: placeWords(full ? path : parentPath(path), w), kind: 'project' }
   const project = folder ? w.projects.find((p) => p.folderPath.normalize('NFC') === path.normalize('NFC')) : undefined
   return { name: project?.name ?? baseName(path), where: placeWords(parentPath(path), w), kind: project ? 'project' : folder ? 'folder' : 'file' }
+}
+
+/** The rows of trashed projects that share a name with another trashed project (letter case and Unicode form as people
+ * read them): a row shows its whole folder path then, so two "Launch" rows can be told apart (QA TC-4971). */
+export function sameNamedProjects(groups: readonly TrashGroup[]): Set<string> {
+  const byName = new Map<string, string[]>()
+  for (const g of groups) {
+    const pr = g.items[0]?.project
+    if (!pr) continue
+    const k = pr.name.normalize('NFC').toLowerCase()
+    byName.set(k, [...(byName.get(k) ?? []), g.key])
+  }
+  return new Set([...byName.values()].filter((keys) => keys.length > 1).flat())
 }
 
 export interface TrashGroup {

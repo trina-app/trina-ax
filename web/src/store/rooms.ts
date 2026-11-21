@@ -11,19 +11,27 @@
 // could not resume reloads through resync (components/rooms/useRoomsSync).
 import { create } from 'zustand'
 import { emojiForm } from '@mycel/shared'
-import { ROOM_REACTION_EMOJI_MAX, roomLevel, roomTimelineCursor, uuidv7, type Room, type RoomAlertSettings, type ShareAnswerToRoomResult, type RoomNotifyLevel, type RoomFile, type RoomLastMessage, type RoomMember, type RoomMessage, type RoomQuote, type RoomReaction, type RoomReadState, type RoomThreadReadState, type RoomThreadSummary, type ServerEvent } from '@mycel/shared/api'
+import { ROOM_REACTION_EMOJI_MAX, roomLevel, roomTimelineCursor, uuidv7, type Room, type RoomAlertSettings, type ShareAnswerToRoomResult, type RoomNotifyLevel, type RoomFile, type RoomLastMessage, type RoomMember, type RoomMessage, type RoomQuote, type RoomAppIcon, type RoomReaction, type RoomReadState, type RoomThreadReadState, type RoomThreadSummary, type ServerEvent } from '@mycel/shared/api'
 import { api, API, ApiError, errorText, isApiError } from '../lib/api'
 import { waitForUpdate, waitsForUpdate } from '../lib/serverUpdating'
 import { noteRecent } from '../lib/emoji'
 import { optimistic, optimisticPending } from '../lib/optimistic'
 import { mentionsMe, newestSeq, type PickedMention } from '../lib/rooms'
 import { draftKey, readDraft, writeDraft } from '../lib/localData'
+import { pruneRoomUploads } from './roomUploads'
 import { navigateTo } from '../lib/nav'
 import { lastHeard, LIVE_QUIET_MS } from '../lib/realtime'
 import { currentLocale, t } from '../i18n'
 import { useSession } from './session'
 import { useSideChats } from './sideChats'
+import { keepSideChatOpen } from '../lib/sideChatOpenKeep'
 import { toast, useUi } from './ui'
+import { forgetRoomFiles } from './listCache'
+import { Emitter } from '../lib/emitter'
+
+/** a message deleted in a room (mine here, or anyone's from the room.message.updated event): its files leave the room's
+ * Files list (components/rooms/RoomFilesPanel.tsx) */
+export const roomMessageGone = new Emitter<{ roomId: string; messageId: string }>()
 
 export type RoomEvent = Extract<ServerEvent, { type: 'room.message' | 'room.message.updated' | 'room.read' | 'room.thread' | 'room.reactions' | 'room.updated' }>
 
@@ -250,6 +258,16 @@ export function withThreadSummary(d: RoomsData, roomId: string, rootId: string, 
   }) }
 }
 
+/** An app's own icon changed (its settings, docs/decisions/20261116-other-app-icon.md): every message of it on screen
+ * shows the new one (undefined: its letter again). Other people's windows read it with the room's next page. */
+export function withAppIcon(d: RoomsData, roomId: string, appId: string, icon: RoomAppIcon | undefined): RoomsData {
+  return { ...d, ...mapMessages(d, roomId, (x) => {
+    if (x.app?.id !== appId) return x
+    const { icon: _old, ...app } = x.app
+    return { ...x, app: icon ? { ...app, icon } : app }
+  }) }
+}
+
 /** The reactions on a message changed (room.reactions, my own toggle, its answer). */
 export function withReactions(d: RoomsData, roomId: string, messageId: string, reactions: RoomReaction[]): RoomsData {
   return { ...d, ...mapMessages(d, roomId, (x) => {
@@ -378,9 +396,10 @@ interface RoomsState extends RoomsData {
    * (components/rooms/RoomComposer.tsx takes it) */
   returned: Record<string, PendingSend>
   /** what the room page shows on its right besides a thread (which is in the address): 'trina', its Trina side chat
-   * (components/rooms/SideChatPanel.tsx); none: nothing, or the thread. Gone when the page leaves the room. */
-  side: Record<string, 'trina'>
-  setSide: (roomId: string, side: 'trina' | null) => void
+   * (components/rooms/SideChatPanel.tsx), or 'files', the room's Files list (components/rooms/RoomFilesPanel.tsx), in
+   * the same place: one at a time; none: nothing, or the thread. Gone when the page leaves the room. */
+  side: Record<string, RoomSide>
+  setSide: (roomId: string, side: RoomSide | null) => void
   loadRooms: () => Promise<void>
   /** null: not one of my rooms (gone from the list) */
   fetchRoom: (id: string) => Promise<Room | null>
@@ -420,6 +439,8 @@ interface RoomsState extends RoomsData {
   remove: (roomId: string, messageId: string) => Promise<void>
   /** "Remove preview" on my own message: that link's card goes for everyone (a failure says so in a toast) */
   hidePreview: (roomId: string, messageId: string, linkedMessageId: string) => Promise<void>
+  /** an app's icon changed: its messages on screen show the new one */
+  appIconChanged: (roomId: string, appId: string, icon: RoomAppIcon | undefined) => void
   /** put my reaction on a message, or take it off (shown at once; the server's answer wins) */
   react: (roomId: string, messageId: string, emoji: string, on: boolean) => Promise<void>
   /** my read place in the room moved to seq: the badge goes at once; a failure puts it back without a word (asked
@@ -433,6 +454,9 @@ interface RoomsState extends RoomsData {
   openDm: (userId: string) => Promise<Room>
   /** a new group chat of me and these people (docs/DECISIONS.md "그룹 대화와 방 이름") */
   createGroup: (userIds: string[], name: string | null) => Promise<Room>
+  /** a team project's own chat room (POST /api/projects/:id/room: made the first time; docs/decisions/
+   * 20261120-project-is-room.md), put in my list */
+  openProjectRoom: (projectId: string) => Promise<Room>
   /** the room's own name ('' or null: the server's name). On screen at once; a failure puts the old name back with a
    * toast (lib/optimistic.ts). Never rejects: false when it failed and nothing newer of it was made since (the field
    * can open again with the name typed) */
@@ -460,6 +484,14 @@ interface RoomsState extends RoomsData {
   resync: () => Promise<void>
   handleEvent: (ev: RoomEvent) => void
   reset: () => void
+}
+
+/** what shows on a room page's right besides a thread: my Trina side chat or the room's Files list */
+export type RoomSide = 'trina' | 'files'
+/** The side chat of a room opened or closed, kept for this tab (lib/sideChatOpenKeep.ts); nothing when signed out. */
+function keepSide(roomId: string, open: boolean) {
+  const st = useSession.getState().status
+  if (st.kind === 'signed-in') keepSideChatOpen(st.me.user.id, roomId, open)
 }
 
 const EMPTY: Pick<RoomsState, 'rooms' | 'openRoomId' | 'timeline' | 'threadViews' | 'kept' | 'loaded' | 'failed' | 'alerts' | 'members' | 'pending' | 'returned' | 'side'> = { rooms: [], openRoomId: null, timeline: null, threadViews: {}, kept: {}, loaded: false, failed: null, alerts: null, members: {}, pending: {}, returned: {}, side: {} }
@@ -664,6 +696,11 @@ export function onDeviceChange(key: string | null, value: string | null) {
 const asked = new Map<string, number>()
 /** rooms I am leaving from this window: their "removed" event is no news here */
 const leaving = new Set<string>()
+/** I am leaving this room another way (a project's chat room: leaving its project): its "removed" is no news here */
+export function markLeaving(roomId: string) {
+  leaving.add(roomId)
+  setTimeout(() => leaving.delete(roomId), 10_000)
+}
 /** The member list read last per room: an answer to an older read, or to one from before the list was dropped (a members
  * change, a resync), does not put an old list back. */
 const memberReads = new Map<string, number>()
@@ -820,9 +857,13 @@ export const useRooms = create<RoomsState>((set, get) => {
         setPending(roomId, (list) => list.filter((x) => x.clientMessageId !== p.clientMessageId))
         // team files I may no longer open: the server took those copies out (params.files), so they do not come back
         const out = e.body.params?.reason === 'team_file_access' ? new Set(String(e.body.params.files ?? '').split(',')) : null
-        const back = out ? { ...p, files: p.files.filter((f) => !out.has(f.id)) } : p
+        // a file the server no longer has as mine to send (not sent within a day and removed, or sent from another tab
+        // meanwhile; likelier since a reload brings a box's files back, store/roomUploads.ts): the words come back
+        // without the files, which could only be refused again, and the line says to attach them again
+        const gone = !out && !!e.body.fields?.['body.fileIds'] && p.files.length > 0
+        const back = out ? { ...p, files: p.files.filter((f) => !out.has(f.id)) } : gone ? { ...p, files: [] } : p
         set((s) => ({ returned: { ...s.returned, [placeKey(roomId, p.threadRootId)]: back } }))
-        toast({ level: 'warn', text: error })
+        toast({ level: 'warn', text: gone ? t('rooms.filesGone') : error })
         return
       }
       setPending(roomId, (list) => list.map((x) => (x.clientMessageId === p.clientMessageId ? { ...x, state: 'failed', error } : x)))
@@ -853,6 +894,7 @@ export const useRooms = create<RoomsState>((set, get) => {
       } catch (e) {
         if (isApiError(e, 'not_found') || isApiError(e, 'forbidden')) {
           set((s) => withoutRoom(s, id))
+          forgetRoomFiles(id)
           return null
         }
         throw e
@@ -861,6 +903,9 @@ export const useRooms = create<RoomsState>((set, get) => {
 
     setSide(roomId, side) {
       set((s) => (side ? (s.side[roomId] === side ? {} : { side: { ...s.side, [roomId]: side } }) : { side: omit(s.side, roomId) }))
+      // the side chat kept for this tab, so a reload opens it again (lib/sideChatOpenKeep.ts, QA TC-4963); the Files list
+      // is never opened again by a reload
+      keepSide(roomId, side === 'trina')
     },
 
     open(roomId) {
@@ -884,8 +929,9 @@ export const useRooms = create<RoomsState>((set, get) => {
     },
 
     close(roomId, place = null) {
-      // the page's right side goes with it, as the page's own state did
+      // the page's right side goes with it, as the page's own state did (and is not opened again by a reload)
       set((s) => ({ side: omit(s.side, roomId) }))
+      keepSide(roomId, false)
       if (get().openRoomId !== roomId) return
       timelineGen++
       // kept for going back: a timeline read to the newest (not a window around an older message, not one still being
@@ -1180,6 +1226,7 @@ export const useRooms = create<RoomsState>((set, get) => {
 
     async remove(roomId, messageId) {
       await api.call(API.deleteRoomMessage, { params: { id: roomId, messageId } })
+      roomMessageGone.emit({ roomId, messageId })
       // the room.message.updated event says the same; show it at once
       const m = findMessage(get(), roomId, messageId)
       if (m) {
@@ -1199,6 +1246,10 @@ export const useRooms = create<RoomsState>((set, get) => {
         if (m) patchMessages((s) => withUpdatedMessage(s, roomId, m))
         toast({ level: 'error', text: errorText(e, currentLocale(), t('error.network')) })
       }
+    },
+
+    appIconChanged(roomId, appId, icon) {
+      patchMessages((s) => withAppIcon(s, roomId, appId, icon))
     },
 
     async react(roomId, messageId, picked, on) {
@@ -1286,6 +1337,12 @@ export const useRooms = create<RoomsState>((set, get) => {
       return room
     },
 
+    async openProjectRoom(projectId) {
+      const room = await api.call(API.openProjectRoom, { params: { id: projectId } })
+      set((s) => withRoom(s, keepPending(s, room)))
+      return room
+    },
+
     async rename(roomId, name) {
       const next = name?.trim() || null
       // on screen at once (the header, the list, the members dialog); a failure puts the old name back and says so
@@ -1316,6 +1373,7 @@ export const useRooms = create<RoomsState>((set, get) => {
         // in place of the room I left: Back leads to where I was before it
         if (get().openRoomId === roomId) navigateTo('/rooms', { replace: true })
         set((s) => ({ ...withoutRoom(s, roomId), members: omit(s.members, roomId), pending: omit(s.pending, roomId), side: omit(s.side, roomId), ...(s.openRoomId === roomId ? { openRoomId: null } : {}) }))
+        forgetRoomFiles(roomId)
         useSideChats.getState().drop(roomId)
         forgetRoomOnDevice(roomId)
       } finally {
@@ -1417,6 +1475,7 @@ export const useRooms = create<RoomsState>((set, get) => {
           return
         }
         case 'room.message.updated':
+          if (ev.data.message.deletedAt) roomMessageGone.emit({ roomId: ev.data.roomId, messageId: ev.data.message.id })
           // my edit of it still on its way: the screen has the newer text, the edit's own answer decides (a delete
           // still goes through)
           if (!ev.data.message.deletedAt && optimisticPending(editKey(ev.data.roomId, ev.data.message.id))) return
@@ -1438,6 +1497,8 @@ export const useRooms = create<RoomsState>((set, get) => {
             forgetKeptThreads(roomId)
             const wasOpen = get().openRoomId === roomId
             set((s) => ({ ...withoutRoom(s, roomId), members: omit(s.members, roomId), pending: omit(s.pending, roomId), side: omit(s.side, roomId), ...(wasOpen ? { openRoomId: null } : {}) }))
+            // and its files from ⌘K's kept recent list (store/listCache.ts)
+            forgetRoomFiles(roomId)
             useSideChats.getState().drop(roomId)
             forgetRoomOnDevice(roomId)
             if (wasOpen) {
@@ -1522,3 +1583,10 @@ useRooms.subscribe(() => {
 if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
   window.addEventListener('storage', (e) => onDeviceChange(e.key, e.newValue))
 }
+
+// my room list changed: the uploads of a room that is no longer in it stop (store/roomUploads.ts). Only once the list is
+// loaded: an empty list before that says nothing about my rooms.
+useRooms.subscribe((s, before) => {
+  if (!s.loaded || s.rooms === before.rooms) return
+  pruneRoomUploads((id) => s.rooms.some((r) => r.id === id))
+})

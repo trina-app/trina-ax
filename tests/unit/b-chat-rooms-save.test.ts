@@ -1,5 +1,5 @@
 // A person's own AI chat saves a file sent in one of their rooms into the team folder (docs/DECISIONS.md "내 AI 채팅에서
-// 대화방 파일 저장"): save_room_file with the room's and the file's ids, through the fake engine, the real launcher and
+// 대화 파일 저장"): save_room_file with the room's and the file's ids, through the fake engine, the real launcher and
 // gate. Covered: a member's PDF from a team room into shared/ with one card (the wider-audience card naming the room,
 // with the rooms-seen line and what the call saves), the same bytes saved, the step, the audit line and the file
 // event; a "no" saves nothing; a new file in the person's own folder goes without a card (docs/DECISIONS.md "대화방을
@@ -90,7 +90,7 @@ function putWithFile(roomId: string, fileId: string, o: { ai?: { askedBy: string
   return { id, seq }
 }
 const newChat = async (user: string) => (await h.api(user).call(API.createChat, { body: {} })).id
-type Card = { requestId: string; question: string; options?: { value: string }[]; buttons?: boolean; details?: { fields?: { name: string; value: string }[]; text?: string }[] }
+type Card = { requestId: string; question: string; note?: string; options?: { value: string }[]; buttons?: boolean; details?: { fields?: { name: string; value: string }[]; text?: string }[] }
 /** one turn; each card it raises is answered by `answer` ("skip" by default); its cards, steps and answer */
 async function run(user: string, chatId: string, content: string, answer: (c: Card) => string = () => 'skip') {
   const r = await h.api(user).call(API.sendMessage, { params: { id: chatId }, body: { content, clientMessageId: cm(), attachmentIds: [] } })
@@ -173,14 +173,17 @@ describe('saving a room file from my own chat', () => {
     const { file, bytes } = await sentPdf('erin', roomId)
     const chat = await newChat('alice')
     const r = await run('alice', chat, `leads 방에 올린 사업자 등록증, 다른 사람들도 다 볼 수 있게 저장해줘\n${fake({ tool: 'room_read', args: { room: roomId } }, save(roomId, file.id, 'shared/company/'))}`, () => 'save')
-    // shared/ is wider than the room: the wider-audience card, the rooms-seen line in front, with what the call saves
+    // shared/ is wider than the room: the wider-audience card, the rooms-seen line under its buttons (QA TC-4815), with
+    // what the call saves
     expect(r.cards).toHaveLength(1)
     const c = r.cards[0]!
     expect(c.options?.map((o) => o.value)).toEqual(['save', '__always', 'skip'])
-    expect(c.question).toStartWith('Messages from your conversations (other people\'s words) came in here, so changes are asked first. ')
-    expect(c.question).toContain(`messages of the room '${name}'`)
+    expect(c.question).toStartWith(`Save to ${W(`shared/company/${file.name}`)} (`)
+    expect(c.note).toStartWith('Messages from your conversations (other people\'s words) came in here, so changes are asked first.')
+    expect(c.question).toContain(`messages of the conversation '${name}'`)
     expect(c.question).toContain(W(`shared/company/${file.name}`))
     const fields = c.details?.[0]?.fields ?? []
+    // (not a whole file written: the Action row stays, so the card says what the call does; review of #1240)
     expect(fields.map((f) => f.name)).toEqual(['Action', 'File', 'Save as'])
     expect(fields[0]!.value).toBe('Save conversation file')
     // the file by its name, its room as alice sees it, who sent it, when and how big; never its id
@@ -206,8 +209,11 @@ describe('saving a room file from my own chat', () => {
 
     // the same file again, in a later answer: the file there was not read in it, so a copy goes next to it
     fs.writeFileSync(at(saved), 'changed by someone\n')
-    const again = await run('alice', chat, fake(save(roomId, file.id, 'shared/company/')), () => 'save')
+    // (saving the same room's file into the same folder was allowed above for this chat: the wider-audience question is
+    // not asked again, docs/decisions/20261117-card-approved-once-per-chat.md; the room's own card still is)
+    const again = await run('alice', chat, fake(save(roomId, file.id, 'shared/company/')), (c) => (c.options?.some((o) => o.value === 'save') ? 'save' : 'allow'))
     expect(again.cards).toHaveLength(1)
+    expect(again.cards[0]!.options?.map((o) => o.value)).toEqual(['allow', '__always', 'skip'])
     expect(fs.readFileSync(at(saved), 'utf8')).toBe('changed by someone\n')
     expect(again.done.content).toContain(`${saved} already existed and was not read in this turn, so this was saved as a copy next to it`)
     const copy = / from that room as (shared\/company\/.+?) \(\d+ bytes\)/.exec(again.done.content)?.[1]
@@ -246,6 +252,24 @@ describe('saving a room file from my own chat', () => {
     expect(again.cards[0]!.question).toContain(`Save conversation file · ${file.name}`)
     expect(fs.readFileSync(at(`users/alice/second-${file.name}`), 'utf8')).toBe('mine\n')
     for (const f of [`downloads/${file.name}`, `second-${file.name}`]) fs.rmSync(at(`users/alice/${f}`), { force: true })
+  })
+
+  test('a room file over 50 MB is copied whole, in pieces (second limits audit N38, TC-4974)', async () => {
+    const roomId = await teamRoom(['alice', 'erin'])
+    // 60 MB: refused before as "larger than 50 MB"; a room takes up to 1 GB
+    const bytes = Buffer.alloc(60 * 1024 * 1024, 7)
+    bytes.write(uuidv7(), 0)
+    const name = `site-video-${uuidv7().slice(-6)}.bin`
+    const f = await upload('erin', roomId, name, bytes)
+    await send('erin', roomId, 'the raw footage', { fileIds: [f.id] })
+    const chat = await newChat('alice')
+    const r = await run('alice', chat, fake(save(roomId, f.id)), () => 'allow')
+    expect(r.done.content).not.toContain('larger than')
+    expect(saveLine(r.turnId)).toMatchObject({ ok: 1 })
+    const saved = at(`users/alice/downloads/${name}`)
+    expect(fs.statSync(saved).size).toBe(bytes.length)
+    expect(sha(fs.readFileSync(saved))).toBe(sha(bytes))
+    fs.rmSync(saved, { force: true })
   })
 
   test('a refusal marks the chat too: room names it may show (several rooms match) never reach an unmarked chat', async () => {

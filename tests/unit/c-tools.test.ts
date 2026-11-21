@@ -12,6 +12,7 @@ import { cellValue, formulaOf, markdownTables, parseCsv } from '../../server/src
 import { toolRegistry } from '../../server/src/tools/registry'
 import { which } from '../../server/src/config'
 import { makeCApp, type CApp, type Person } from '../lib/c-app'
+import { mp4Available } from '../../server/src/promo-video/render'
 import { hwpPluginOn } from '../lib/hwp-plugin'
 
 // make_file runs pandoc / typst / the xlsx writer in child processes: seconds on a busy machine
@@ -37,9 +38,12 @@ describe('registry', () => {
     const h = makeHandler(A.ctx.files, A.ctx.db, A.toolCtx('alice'))
     const r = await h({ jsonrpc: '2.0', id: 1, method: 'tools/list' })
     const names = r.result.tools.map((t: any) => t.name)
-    expect(names).toEqual(['list', 'glob', 'grep', 'read', 'write', 'edit', 'make_file', 'edit_hwp', 'share_file', 'artifact', 'web_fetch', 'save_url', 'move_files', 'copy_files', 'rename_file', 'schedule_create', 'schedule_list', 'schedule_delete', 'promo_video', 'intro_deck'])
+    // save_promo_video only where this server can render the MP4 (promo-video/render.ts mp4Available: a Mac dev server)
+    const offered: string[] = names
+    expect(offered.includes('save_promo_video')).toBe(mp4Available(A.ctx))
+    expect(offered.filter((n) => n !== 'save_promo_video')).toEqual(['list', 'glob', 'grep', 'read', 'write', 'edit', 'make_file', 'edit_hwp', 'stamp_pdf', 'edit_pdf', 'merge_pdfs', 'split_pdf', 'resize_images', 'unzip_file', 'make_zip', 'query_data', 'share_file', 'artifact', 'web_fetch', 'save_url', 'comment_docx', 'edit_office', 'move_files', 'copy_files', 'rename_file', 'rename_files', 'schedule_create', 'schedule_list', 'schedule_delete', 'save_connector_file', 'promo_video', 'intro_deck'])
     const mf = r.result.tools.find((t: any) => t.name === 'make_file')
-    expect(mf.inputSchema.properties.format.enum).toEqual(['docx', 'pptx', 'xlsx', 'pdf', 'hwpx'])
+    expect(mf.inputSchema.properties.format.enum).toEqual(['docx', 'pptx', 'xlsx', 'pdf', 'hwpx', 'png'])
     expect(() => toolRegistry(A.ctx.files).register({ name: 'make_file', description: '', input: mf as any, run: () => ({ text: '', summary: '' }) })).toThrow('registered twice')
   })
   test('invalid input and errors come back as tool errors and are audited', async () => {
@@ -58,7 +62,11 @@ describe('registry', () => {
 describe('share_file', () => {
   test('relative links that are checked again with the viewer\'s session', async () => {
     const r = await call('alice', null, 'share_file', { path: 'groups/marketing/campaign-brief.md', mode: 'preview' })
-    expect(r.text.split('\n')[0]).toBe('/files/view?path=groups%2Fmarketing%2Fcampaign-brief.md')
+    // a file's preview link is its /f/<id> link (TC-3093): it opens for whoever can open the file, others get Ask for access
+    expect(r.text.split('\n')[0]).toMatch(/^\/f\/[A-Za-z0-9_-]{22}$/)
+    expect(r.text).toContain('gives nobody access')
+    // a folder keeps the path link
+    expect((await call('alice', null, 'share_file', { path: 'groups/marketing', mode: 'preview' })).text.split('\n')[0]).toBe('/files/view?path=groups%2Fmarketing')
     const d = await call('alice', null, 'share_file', { path: 'shared/handbook.pdf', mode: 'download' })
     const url = d.text.split('\n')[0]!
     expect(url).toBe('/api/files/download?path=shared%2Fhandbook.pdf&disposition=attachment')
@@ -160,14 +168,15 @@ describe('make_file', () => {
     expect(wb.Sheets['지역별']!.B5.f).toBeUndefined()
     // read / grep show a formula cell as its formula, not as a blank
     const text = await extractText('f.xlsx', fs.readFileSync(path.join(A.team, 'users/alice/out/f.xlsx')), { pandoc: null, pdftotext: null, ocr: null } as any)
-    expect(text).toContain('서울\t10\t20\t30\t40\t100') // a simple formula is stored with its result (formula-values.ts)
+    // a simple formula is stored with its result (formula-values.ts), and read shows both (QA TC-4918)
+    expect(text).toContain('서울\t10\t20\t30\t40\t=SUM(B2:E2) → 100')
     expect(wb.Sheets['지역별']!.F2.v).toBe(100)
     expect(wb.Sheets['지역별']!.F2.f).toBe('SUM(B2:E2)')
     expect(text).toContain('=XLOOKUP(')
 
     for (const [bad, why] of [
       ["=cmd|'/c calc'!A1", 'DDE'], ['=SUM([1]Sheet1!A1)', 'other files'], ['=[1]Sheet1!A1+1', 'other files'], ["='C:\\x\\[b.xlsx]S'!A1", 'other files'],
-      ['=HYPERLINK("https://example.com","x")', 'HYPERLINK'], ['=WEBSERVICE("https://example.com")', 'WEBSERVICE'], ['=SUM(INDIRECT("A1"))', 'INDIRECT'],
+      ['=HYPERLINK("file:///C:/Windows/calc.exe","x")', 'HYPERLINK may point only to a web page'], ['=WEBSERVICE("https://example.com")', 'WEBSERVICE'], ['=SUM(INDIRECT("A1"))', 'INDIRECT'],
     ]) {
       const e = await call('alice', null, 'make_file', { content: `a,b\n1,"${bad!.replace(/"/g, '""')}"\n`, format: 'xlsx', output: 'users/alice/out/bad.xlsx' })
       expect(e.isError, bad).toBe(true)
@@ -183,6 +192,71 @@ describe('make_file', () => {
     expect(formulaOf("'S (1)'!A1+SUM(A1:A2)")).toEqual({ formula: "'S (1)'!A1+SUM(A1:A2)" })
     expect([cellValue('=SUM(A1:A2)'), cellValue("'=x"), cellValue('='), cellValue("'quoted'")]).toEqual([{ formula: 'SUM(A1:A2)' }, '=x', '=', "'quoted'"])
   })
+  test('xlsx formulas: HYPERLINK to the web, mail and this workbook; never a file, a share or a link from a cell (TC-4993)', async () => {
+    const ok = [
+      'HYPERLINK("https://example.com/report?id=3","Report")',
+      'HYPERLINK("http://example.com")',
+      'HYPERLINK("https://example.com/item/"&A2,A2)',
+      'HYPERLINK("mailto:sales@example.com?subject=Hi&cc=a@example.com","Mail us")',
+      'HYPERLINK("#Sheet2!A1","Go")',
+      `HYPERLINK("#'Q3 sales'!B2:C9","Q3")`,
+      'HYPERLINK("#Total")',
+      'IF(A1>0,HYPERLINK("https://example.com","yes"),"no")',
+      'HYPERLINK( "https://example.com" , "x")',
+      'HYPERLINK("https://example.com/"&IF(A1>2,"a","b"),"y")',
+      // a comparison inside parentheses only adds TRUE or FALSE to the address: still a web link
+      'HYPERLINK("https://example.com/"&(A1>2),"y")',
+      'IF(HYPERLINK("https://example.com/"&A2,"x")="x",1,2)',
+    ]
+    for (const f of ok) expect(formulaOf(f), f).toHaveProperty('formula')
+    expect(formulaOf('hyperlink("https://example.com","x")')).toEqual({ formula: 'HYPERLINK("https://example.com","x")' })
+    const refused: [string, string][] = [
+      ['HYPERLINK("file:///C:/Windows/System32/calc.exe","x")', 'HYPERLINK may point only to a web page'],
+      ['HYPERLINK("\\\\server\\share\\a.xlsx","x")', 'Windows sign-in'],
+      ['HYPERLINK("//server/share/a.xlsx")', 'This link is "//server/share/a.xlsx"'],
+      ['HYPERLINK("..\\x.exe")', 'backslashes'],
+      ['HYPERLINK("report.xlsx")', 'This link is "report.xlsx"'],
+      ['HYPERLINK("javascript:alert(1)")', 'HYPERLINK may point only'],
+      ['HYPERLINK("ms-word:ofe|u|https://example.com/a.docx")', 'HYPERLINK may point only'],
+      ['HYPERLINK("search-ms:query=x")', 'HYPERLINK may point only'],
+      ['HYPERLINK(A2,"x")', 'in "double quotes"'],
+      ['HYPERLINK(""&A2)', 'HYPERLINK may point only'],
+      ['HYPERLINK("file:"&A2)', 'HYPERLINK may point only'],
+      ['HYPERLINK("#"&A2)', 'HYPERLINK may point only'],
+      ['HYPERLINK(IF(A1,"https://example.com","file:///x"))', 'in "double quotes"'],
+      ['HYPERLINK("https://exa mple.com")', 'spaces'],
+      ['HYPERLINK("https://")', 'HYPERLINK may point only'],
+      ['HYPERLINK("mailto:a@example.com?attach=C:/x")', 'subject, body, cc, bcc and to'],
+      // review of #1337: a mail link with & could add &attach=...; a comparison makes the link TRUE/FALSE
+      ['HYPERLINK("mailto:"&B2,"Mail")', 'Write a mail link out whole'],
+      ['HYPERLINK("mailto:a@example.com?subject=x"&"&attach=C:/x")', 'Write a mail link out whole'],
+      ['HYPERLINK("https://example.com/"&A1="x","y")', 'not with a comparison'],
+      ['HYPERLINK("https://example.com/"&A1<>"","y")', 'not with a comparison'],
+      ['HYPERLINK("#[other.xlsx]Sheet1!A1")', 'place in this workbook'],
+      ['_xludf.HYPERLINK("https://example.com")', 'no prefix'],
+      [`N("")&'x"'!A1&HYPERLINK("http://evil.example/","x")&'y"'!A1`, 'sheet names'],
+    ]
+    for (const [f, why] of refused) {
+      const r = formulaOf(f)
+      expect(r, f).toHaveProperty('error')
+      expect((r as { error: string }).error, f).toContain(why)
+      expect((r as { notFormula?: true }).notFormula, f).toBeUndefined()
+    }
+    // through make_file: the link is a real formula in the saved workbook; a file link saves nothing
+    const r = await call('alice', null, 'make_file', { content: '| Item | Link |\n|---|---|\n| A-1 | =HYPERLINK("https://example.com/item/"&A2,"open") |\n| mail | =HYPERLINK("mailto:sales@example.com","Mail us") |\n', format: 'xlsx', output: 'users/alice/out/links.xlsx' })
+    expect(r.isError, r.text).toBe(false)
+    // a formula Excel calculates on open has no stored value: read with stubs to see it
+    const wb = XLSX.read(fs.readFileSync(path.join(A.team, 'users/alice/out/links.xlsx')), { sheetStubs: true })
+    const ws = wb.Sheets[wb.SheetNames[0]!]!
+    expect(ws.B2.f).toBe('HYPERLINK("https://example.com/item/"&A2,"open")')
+    expect(ws.B3.f).toBe('HYPERLINK("mailto:sales@example.com","Mail us")')
+    const bad = await call('alice', null, 'make_file', { content: '| Link |\n|---|\n| =HYPERLINK("file://fileserver/finance/q3.xlsx","Q3") |\n', format: 'xlsx', output: 'users/alice/out/badlink.xlsx' })
+    expect(bad.isError).toBe(true)
+    expect(bad.text).toContain('Windows sign-in')
+    expect(bad.text).toContain('cell A2')
+    expect(fs.existsSync(path.join(A.team, 'users/alice/out/badlink.xlsx'))).toBe(false)
+  })
+
   test('xlsx formulas: quotes in quoted sheet names do not hide blocked parts (review bypass)', async () => {
     // a '"' inside a 'quoted sheet name' must not open a string literal that hides the code after it
     const bypass = [
@@ -296,10 +370,17 @@ describe('make_file', () => {
       }
     } finally { srv.stop(true) }
   })
-  test('policy: output needs write access, template must live under skills/', async () => {
+  test('policy: output needs write access, template is any file the person can read', async () => {
     expect((await call('alice', null, 'make_file', { content: '# x', format: 'docx', output: 'skills/x.docx' })).text).toContain('read-only')
     expect((await call('alice', null, 'make_file', { content: '# x', format: 'docx', output: 'groups/finance/x.docx' })).text).toContain('not found or no access')
-    expect((await call('alice', null, 'make_file', { content: '# x', format: 'docx', output: 'users/alice/t.docx', template: 'groups/marketing/brand-guidelines.docx' })).text).toContain('skills/')
+    // a readable team document outside skills/ is a template (docs/decisions/20261118-any-file-template.md)
+    const own = await call('alice', null, 'make_file', { content: '# x', format: 'docx', output: 'users/alice/t0.docx', template: 'groups/marketing/brand-guidelines.docx' })
+    expect(own.isError, own.text).toBe(false)
+    // one the person cannot read is not, and says nothing about the file
+    const hidden = await call('alice', null, 'make_file', { content: '# x', format: 'docx', output: 'users/alice/t1.docx', template: 'groups/finance/board-memo.docx' })
+    expect(hidden.isError).toBe(true)
+    expect(hidden.text).toContain('not found or no access')
+    expect((await call('alice', null, 'make_file', { content: '# x', format: 'docx', output: 'users/alice/t2.docx', template: 'groups/marketing' })).text).toContain('folder')
     fs.copyFileSync(path.join(A.team, 'groups/marketing/brand-guidelines.docx'), path.join(A.team, 'skills/ref.docx'))
     expect((await call('alice', null, 'make_file', { content: '# x', format: 'docx', output: 'users/alice/t.docx', template: 'skills/ref.docx' })).isError).toBe(false)
     expect((await call('alice', null, 'make_file', { source: 'groups/finance/budget.md', format: 'docx', output: 'users/alice/b.docx' })).text).toContain('not found or no access')

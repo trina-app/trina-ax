@@ -1,5 +1,5 @@
 import type { ActivityTab, InboxNotification, NotificationEventType, NotificationPreferences, ScheduleRunOutcome } from '@mycel/shared/api'
-import { guestDetail, placePeople, roleSql } from '../auth/guests'
+import { invitedPlace, placeName, placePeopleOf, roleSql } from '../auth/guests'
 import { outcomeEvent, storedRunOutcome } from '../chat/schedule-outcome'
 import type { AppContext } from '../context'
 import { newId } from '../db'
@@ -28,8 +28,12 @@ import { handoverNoticeOut, isHandoverEvent, type HandoverEvent } from '../admin
 import { serviceRequestOut } from '../integrations/service-request-notices'
 import { inPeopleAudience, isPeopleRow } from '../chat/chat-audience'
 import { redactorFor } from '../integrations/connections/redact'
+import { FILE_SCAN_VERSION, storedKeyFilesOf } from '../integrations/connections/file-scan'
 import { datedSql } from '../auth/deletion-requests'
 import { CHAT_ANSWER_COALESCE_MS, CHAT_ANSWER_PUSH_DELAY_MS, CHAT_CARD_PUSH_DELAY_MS, chatOpenFor, type ChatAnswerKind } from './chat-answers'
+import { fileSharesOf } from '../files/shares'
+import { accessRequestsOf } from '../chat/access-requests'
+import { CHAT_THREAD_PUSH_DELAY_MS, chatThreadNoticeOut } from '../chat/threads'
 
 /** At most this many template notices per 30-second backstop pass (security review 2, #1). */
 const OFFER_BATCH = 500
@@ -60,11 +64,21 @@ const isTemplateEvent = (e: NotificationEventType): e is TemplateNoticeEvent => 
 /** a reconnect notice's source: the template and the version its address, sign-in method or header changed to (one
  * notice per change, never one per member's dropped row) */
 const reconnectSource = (templateId: string, version: number) => `${templateId}.v${version}`
+/** A member a template no longer covers lost their connection made from it (QA TC-2980): the reconnect notice's table and
+ * event type (so no new CHECK value), its own source: the template id and the connection that went */
+const leftSource = (templateId: string, connectionId: string) => `${templateId}.left.${connectionId}`
+const LEFT_SOURCE = /\.left\.[^.]+$/
+/** the template id of a template notice's source (reconnectSource, leftSource, or the bare id) */
+const templateOfSource = (sourceId: string) => sourceId.replace(LEFT_SOURCE, '').replace(/\.v\d+$/, '')
 export type ServiceRequestEvent = Extract<NotificationEventType, 'service.request' | 'service.ready'>
 const isServiceRequestEvent = (e: NotificationEventType): e is ServiceRequestEvent => e === 'service.request' || e === 'service.ready'
 export type HostingNoticeEvent = Extract<NotificationEventType, 'hosting.key_copied' | 'hosting.exported' | 'relay.address_moved'>
 const isHostingEvent = (e: NotificationEventType): e is HostingNoticeEvent => e === 'hosting.key_copied' || e === 'hosting.exported' || e === 'relay.address_moved'
-const tableOf = (e: NotificationEventType) => e === 'chat.answer_done' ? 'chat_answer_notices' : isSkillEvent(e) ? 'skill_notices' : isDevEnvEvent(e) ? 'dev_env_notices' : e === 'integration.request' ? 'integration_request_notices' : e === 'onboarding.ai_request' ? 'onboarding_notices' : e === 'team.joined' ? 'team_join_notices' : e === 'onboarding.first_run' ? 'onboarding_goal_notices' : isRoomEvent(e) ? 'room_notices' : e === 'account.deletion_request' ? 'account_deletion_notices' : e === 'account.deletion_due' ? 'account_deletion_due_notices' : isTemplateEvent(e) ? 'integration_template_notices' : e === 'drive.share_reconnect' ? 'drive_share_notices' : e === 'skills.merge_waiting' ? 'skill_merge_notices' : e === 'credential.change' ? 'credential_change_notices' : isHandoverEvent(e) ? 'handover_notices' : e === 'project.joined' ? 'project_notices' : e === 'chat.shared' ? 'chat_share_notices' : isServiceRequestEvent(e) ? 'service_request_notices' : e === 'account.reset_link' ? 'reset_link_notices' : isHostingEvent(e) ? 'hosting_notices' : e === 'room_app.paused' ? 'room_app_notices' : e === 'room_app.leaver' ? 'room_app_leaver_notices' : 'notification_inbox'
+export type FileShareEvent = Extract<NotificationEventType, 'file.shared' | 'file.access_requested' | 'file.access_answered' | 'file.unshared_by_move'>
+const isFileShareEvent = (e: NotificationEventType): e is FileShareEvent => e === 'file.shared' || e === 'file.access_requested' || e === 'file.access_answered' || e === 'file.unshared_by_move'
+export type AccessRequestEvent = Extract<NotificationEventType, 'access.requested' | 'access.answered'>
+const isAccessRequestEvent = (e: NotificationEventType): e is AccessRequestEvent => e === 'access.requested' || e === 'access.answered'
+const tableOf = (e: NotificationEventType) => e === 'chat.answer_done' ? 'chat_answer_notices' : isSkillEvent(e) ? 'skill_notices' : isDevEnvEvent(e) ? 'dev_env_notices' : e === 'integration.request' ? 'integration_request_notices' : e === 'onboarding.ai_request' ? 'onboarding_notices' : e === 'team.joined' ? 'team_join_notices' : e === 'onboarding.first_run' ? 'onboarding_goal_notices' : isRoomEvent(e) ? 'room_notices' : e === 'account.deletion_request' ? 'account_deletion_notices' : e === 'account.deletion_due' ? 'account_deletion_due_notices' : isTemplateEvent(e) ? 'integration_template_notices' : e === 'drive.share_reconnect' ? 'drive_share_notices' : e === 'skills.merge_waiting' ? 'skill_merge_notices' : e === 'credential.change' ? 'credential_change_notices' : isHandoverEvent(e) ? 'handover_notices' : e === 'project.joined' ? 'project_notices' : e === 'chat.shared' ? 'chat_share_notices' : e === 'service.closed' ? 'service_request_closed_notices' : e === 'files.stored_key' ? 'stored_key_file_notices' : isServiceRequestEvent(e) ? 'service_request_notices' : e === 'account.reset_link' ? 'reset_link_notices' : isHostingEvent(e) ? 'hosting_notices' : e === 'engine.start_failed' ? 'engine_start_notices' : e === 'storage.filling' || e === 'storage.cleanup' ? 'storage_notices' : e === 'room_app.paused' ? 'room_app_notices' : e === 'room_app.leaver' ? 'room_app_leaver_notices' : isFileShareEvent(e) ? 'file_share_notices' : isAccessRequestEvent(e) ? 'access_request_notices' : e === 'chat.thread_reply' ? 'chat_thread_notices' : 'notification_inbox'
 /** One inbox over the tables: skill notices (migration 211, R2-SKILL-12), dev environment notices (migration 219),
  * requests to connect a service (migration 220), a member's request for an AI connection (migration 231), joins
  * through the team invite link (migration 111), a member's first run of a team skill during the 7-day team goal
@@ -74,10 +88,11 @@ const tableOf = (e: NotificationEventType) => e === 'chat.answer_done' ? 'chat_a
  * steps, the skills to merge that waited for it (migration 253), and the handover's (a join with the owner's lead link,
  * a transfer, a locked password check: migration 270), someone who started to see a team project (migration 284) and
  * a member's ask to add an app with its answer (migration 343), a password reset link made for the person (migration 119)
- * and the hosting service's copies of the team's key or data, or the team address moved away (migration 120), and an
+ * and the hosting service's copies of the team's key or data, or the team address moved away (migration 120), the AI
+ * that could not start on this server (migration 127), the team's disk filling up (migration 702), and an
  * app in a room that paused for the day (migration 299) and someone who left who still knows an app's address (migration 352)
  * have their own tables, because notification_inbox has a fixed event_type CHECK list and tables are never rebuilt. */
-const NOTICE_TABLES = ['notification_inbox', 'skill_notices', 'dev_env_notices', 'integration_request_notices', 'onboarding_notices', 'team_join_notices', 'onboarding_goal_notices', 'room_notices', 'account_deletion_notices', 'account_deletion_due_notices', 'integration_template_notices', 'drive_share_notices', 'skill_merge_notices', 'credential_change_notices', 'handover_notices', 'project_notices', 'service_request_notices', 'reset_link_notices', 'hosting_notices', 'room_app_notices', 'room_app_leaver_notices', 'chat_answer_notices', 'chat_share_notices'] as const
+const NOTICE_TABLES = ['notification_inbox', 'skill_notices', 'dev_env_notices', 'integration_request_notices', 'onboarding_notices', 'team_join_notices', 'onboarding_goal_notices', 'room_notices', 'account_deletion_notices', 'account_deletion_due_notices', 'integration_template_notices', 'drive_share_notices', 'skill_merge_notices', 'credential_change_notices', 'handover_notices', 'project_notices', 'service_request_notices', 'service_request_closed_notices', 'stored_key_file_notices', 'reset_link_notices', 'hosting_notices', 'engine_start_notices', 'storage_notices', 'room_app_notices', 'room_app_leaver_notices', 'chat_answer_notices', 'chat_share_notices', 'file_share_notices', 'chat_thread_notices', 'access_request_notices'] as const
 const union = (tables: readonly string[]) => `(${tables.map((t) => `SELECT id,user_id,event_type,source_id,created_at,read_at,suppressed FROM ${t}`).join(' UNION ALL ')})`
 const INBOX = union(NOTICE_TABLES)
 /** What the Inbox lists and counts besides the rooms' notices, newest first: every other notice. The rooms' notices
@@ -109,24 +124,76 @@ export class Notifications {
       .run(newId(), userId, event, sourceId, at, enabled ? 0 : 1)
     if (r.changes && enabled) this.signal(userId)
   }
+  /** Something changed in this person's Inbox that the app should read again (chat/threads.ts: a thread read, a
+   * notice gone with its reply). Metadata only. */
+  changed(userId: string) { this.signal(userId) }
+  /** A reply in a thread I follow under an AI answer of a shared chat (chat/threads.ts sendReply; the caller checked that
+   * I still see the thread). One unread notice per thread: while one is open, a new reply updates it in place (the
+   * newest replier and reply; its time and push stay those of the first), so a burst of replies is one row and one
+   * push; once read, the next reply makes a new one. Shown always; the push waits CHAT_THREAD_PUSH_DELAY_MS and follows
+   * "Replies in threads I'm part of" (chat/threads.ts chatThreadWanted). */
+  chatThreadReply(userId: string, o: { chatId: string; rootId: string; replyId: string; by: string; mention?: boolean }, at = new Date().toISOString()) {
+    if (!this.active(userId)) return
+    // `mention`: this reply mentions them (docs/decisions/20261118-chat-thread-mentions.md): the notice keeps its FIRST
+    // mention (mention_id), the start of the replies the Inbox looks through for one that still mentions them
+    // (chat/threads.ts mentionerOf), so a deleted mention falls back to another one still there
+    const mention = o.mention ? o.replyId : null
+    const up = this.ctx.db.query('UPDATE chat_thread_notices SET by_user=?, reply_id=?, mention_id=COALESCE(mention_id, ?) WHERE user_id=? AND source_id=? AND read_at IS NULL').run(o.by, o.replyId, mention, userId, o.rootId)
+    if (!up.changes) this.ctx.db.query(`INSERT INTO chat_thread_notices(id,user_id,event_type,source_id,chat_id,by_user,reply_id,created_at,push_at,suppressed,mention_id)
+      VALUES(?,?,'chat.thread_reply',?,?,?,?,?,?,0,?)`).run(newId(), userId, o.rootId, o.chatId, o.by, o.replyId, at, new Date(Date.parse(at) + CHAT_THREAD_PUSH_DELAY_MS).toISOString(), mention)
+    this.signal(userId)
+  }
+  /** A file shared with me, an access request to answer, a decline of mine, or my file's grants removed by someone
+   * else's move (files/shares.ts; docs/DECISIONS.md "A member shares their own files"). Activity only, shown always.
+   * `rearm`: the same source again brings its row back up as unread (a new request, a share again after a removal).
+   * `named`: a file shared with the person by name (not through a group or the whole team): that notice is also pushed
+   * (push-service.ts, files/share-push.ts; migration 356), as a request to open a file is (named or not). Several files in one press are one notice (source 'b:<id>'). */
+  fileShareNotice(userId: string, event: FileShareEvent, sourceId: string, rearm: boolean, named = false) {
+    if (!this.active(userId)) return
+    const at = new Date().toISOString()
+    const r = this.ctx.db.query('INSERT INTO file_share_notices(id,user_id,event_type,source_id,created_at,suppressed,named) VALUES(?,?,?,?,?,0,?) ON CONFLICT(user_id,event_type,source_id) DO ' + (rearm ? 'UPDATE SET created_at = excluded.created_at, read_at = NULL, named = MAX(named, excluded.named)' : 'NOTHING'))
+      .run(newId(), userId, event, sourceId, at, named ? 1 : 0)
+    // a new request to open the same file (the last one answered or closed: request() makes no second waiting one) is
+    // pushed again: the finished deliveries of the row's earlier request go, so the next round queues it anew. Bounded
+    // by the request limits (files/shares.ts: one waiting per file and asker, 5 a day per owner, 20 an hour per asker)
+    if (r.changes && rearm && event === 'file.access_requested') this.ctx.db.query(`DELETE FROM file_share_push_deliveries WHERE state IN ('sent','failed','cancelled')
+      AND notification_id = (SELECT id FROM file_share_notices WHERE user_id = ? AND event_type = ? AND source_id = ?)`).run(userId, event, sourceId)
+    if (r.changes) this.signal(userId)
+  }
+  /** Someone asks to open a chat or project the person answers for, or the answer to the person's own ask
+   * (chat/access-requests.ts; migration 411). Activity only, shown always; `rearm`: a new ask brings the row back up
+   * unread, and its finished pushes go so the next round pushes it again (as a file request's). */
+  accessRequestNotice(userId: string, event: AccessRequestEvent, sourceId: string, rearm: boolean) {
+    if (!this.active(userId)) return
+    const r = this.ctx.db.query('INSERT INTO access_request_notices(id,user_id,event_type,source_id,created_at,suppressed) VALUES(?,?,?,?,?,0) ON CONFLICT(user_id,event_type,source_id) DO ' + (rearm ? 'UPDATE SET created_at = excluded.created_at, read_at = NULL' : 'NOTHING'))
+      .run(newId(), userId, event, sourceId, new Date().toISOString())
+    if (r.changes && rearm && event === 'access.requested') this.ctx.db.query(`DELETE FROM access_request_push_deliveries WHERE state IN ('sent','failed','cancelled')
+      AND notification_id = (SELECT id FROM access_request_notices WHERE user_id = ? AND event_type = ? AND source_id = ?)`).run(userId, event, sourceId)
+    if (r.changes) this.signal(userId)
+  }
   /** A skill suggestion to review, or the review result of an own suggestion. The source is the suggestion id only. */
   skillNotice(userId: string, event: SkillNoticeEvent, suggestionId: string, createdAt = new Date().toISOString()) {
     this.record(userId, event, suggestionId, createdAt)
   }
   /** A DM message, an @mention or a reply in a followed thread in a room (rooms/service.ts notify). The source is the
-   * message id only, never its text. No second notice of the same kind while one of that room's timeline (or, for a
-   * reply, of that thread: `threadRootId`) is still unread (one per unread run: a burst of messages or mentions is one
-   * notice and one push); reading the room, or the thread, marks them read. Whether there is a notice at all is the
-   * room's level for the person (Rooms.notify). `quiet`: made inside their quiet hours (docs/DECISIONS.md "대화방 알림
-   * 설정"): kept, never pushed (room_notices.quiet), and it does not hold back the room's next notice once the quiet
-   * hours are over (that one pushes); while they last, any unread notice of the run holds the next one back. True when
-   * a notice that may ring was recorded now (not a quiet one): the room.message to the person says so, and the desktop
-   * app tells the same ones (docs/DECISIONS.md "Session markers"). A notice that holds a message back records it as the
-   * newest of its run (`seq`; last_seq / last_at): the Inbox's row shows the run and sits where it ends (rooms/inbox.ts). */
-  roomNotice(userId: string, event: RoomNoticeEvent, messageId: string, roomId: string, at = new Date().toISOString(), threadRootId: string | null = null, quiet = false, seq?: number): boolean {
+   * message id only, never its text. Every message that alerts the person is a notice of its own and so a push of its
+   * own, as in Slack and KakaoTalk (docs/decisions/20261120-push-every-message.md: before, a burst of messages or
+   * mentions was one notice and one push, and the phone stayed silent for the rest); the iPhone groups them under the
+   * room (the notification's thread). Reading the room, or the thread, marks them read; the Inbox makes one row of a
+   * place's unread notices (rooms/inbox.ts). Whether there is a notice at all is the room's level for the person
+   * (Rooms.notify). `quiet`: made inside their quiet hours (docs/DECISIONS.md "대화방 알림 설정"): kept, never pushed
+   * (room_notices.quiet), one per unread run (any unread notice of the place holds the next quiet one back, which is
+   * recorded as the newest of its run: `seq`; last_seq / last_at, so the Inbox's row sits where the run ends); it never
+   * holds back a notice made once the quiet hours are over (that one pushes). True when a notice that may ring was
+   * recorded now (not a quiet one): the room.message to the person says so, and the desktop app tells the same ones
+   * (docs/DECISIONS.md "Session markers"). `run`: an app's message (rooms/apps; an app may post a burst of 30, then one a
+   * second) stays one per unread run as before, as a quiet one does, so an app cannot ring a phone 30 times in a row or
+   * run into the gateway's 20 a minute per device (review of #108, finding 2); only an unread notice that may ring holds
+   * it back. */
+  roomNotice(userId: string, event: RoomNoticeEvent, messageId: string, roomId: string, at = new Date().toISOString(), threadRootId: string | null = null, quiet = false, seq?: number, run = false): boolean {
     if (!this.active(userId) || at < this.cutoff()) return false
-    const open = this.ctx.db.query(`SELECT n.id FROM room_notices n JOIN room_messages m ON m.id=n.source_id WHERE n.user_id=? AND n.room_id=? AND n.event_type=? AND n.read_at IS NULL AND n.suppressed=0 AND n.created_at>=?
-      AND m.thread_root_id IS ? AND (n.quiet=0 OR ?=1) AND ${NOT_SKIPPED('room_push_deliveries')} ORDER BY n.created_at DESC, n.id DESC LIMIT 1`).get(userId, roomId, event, this.cutoff(), threadRootId, quiet ? 1 : 0) as { id: string } | null
+    const open = quiet || run ? this.ctx.db.query(`SELECT n.id FROM room_notices n JOIN room_messages m ON m.id=n.source_id WHERE n.user_id=? AND n.room_id=? AND n.event_type=? AND n.read_at IS NULL AND n.suppressed=0 AND n.created_at>=?
+      AND m.thread_root_id IS ? AND (n.quiet=0 OR ?=1) AND ${NOT_SKIPPED('room_push_deliveries')} ORDER BY n.created_at DESC, n.id DESC LIMIT 1`).get(userId, roomId, event, this.cutoff(), threadRootId, quiet ? 1 : 0) as { id: string } | null : null
     if (open) {
       // only for the kinds the Inbox lists (a mention, a reply: rooms/inbox.ts; a DM's message is no row). No signal: the
       // Inbox's count is the same, and an open Inbox reads its rows again as the rooms change
@@ -236,6 +303,18 @@ export class Notifications {
   serviceReady(userId: string, requestId: string, at = new Date().toISOString()) {
     this.record(userId, 'service.ready', requestId, at, true)
   }
+  /** A member's ask closed without the app (an admin's Dismiss, or the 30 days): one quiet notice for them that they may
+   * ask again (the source is the request's id; QA TC-2946). Inbox only, never an OS push. */
+  serviceClosed(userId: string, requestId: string, at = new Date().toISOString()) {
+    this.record(userId, 'service.closed', requestId, at, true)
+  }
+  /** Files the AI saved earlier that still hold one of the person's stored connection keys (integrations/connections/
+   * file-scan.ts, QA TC-3082): one notice per person and scan version (source `scan-v<version>`, so a later version of
+   * the scan can tell them again), listing them when shown. Activity only, never an OS push, shown whatever the
+   * preferences say. */
+  storedKeyFiles(userId: string, at = new Date().toISOString()) {
+    this.record(userId, 'files.stored_key', `scan-v${FILE_SCAN_VERSION}`, at, true)
+  }
   /** Who handles the asks changed (the 30-second check): someone no longer an active owner or admin loses the notices
    * (nothing there is theirs to do), and an owner or admin made since gets the notice of each app asked for now. */
   syncServiceRequests() {
@@ -266,6 +345,32 @@ export class Notifications {
    * for it (QA TC-348, TC-350). The words are the event's own; nothing else is stored or read. */
   hostingNotice(userId: string, event: HostingNoticeEvent, sourceId: string, createdAt = new Date().toISOString()) {
     this.record(userId, event, sourceId, createdAt, true)
+  }
+  /** The AI could not start on this server (chat/turn.ts engineStartFailed; source: the failed turn). Shown always: every
+   * answer of the team fails until an owner or admin has the server fixed (QA TC-3521). */
+  engineStartNotice(userId: string, sourceId: string, createdAt = new Date().toISOString()) {
+    this.record(userId, 'engine.start_failed', sourceId, createdAt, true)
+  }
+  /** The team's disk is 80 % or 95 % full (system/storage.ts checkAlert; source: '<80|95>:<time>'). Shown always: the
+   * owner and admins are the only ones who can free the space, and the live toast missed whoever was away. Inbox only,
+   * no push. `roomsBytes`: the files in conversations as last measured (one number, never a name). */
+  storageNotice(userId: string, sourceId: string, percent: number, roomsBytes: number | null, createdAt = new Date().toISOString()) {
+    if (!this.active(userId) || createdAt < this.cutoff()) return
+    const id = newId()
+    const r = this.ctx.db.query("INSERT INTO storage_notices(id,user_id,event_type,source_id,created_at,suppressed,percent,rooms_bytes) VALUES(?,?,'storage.filling',?,?,0,?,?) ON CONFLICT(user_id,event_type,source_id) DO NOTHING")
+      .run(id, userId, sourceId, createdAt, Math.max(0, Math.min(100, Math.round(percent))), roomsBytes === null ? null : Math.max(0, Math.floor(roomsBytes)))
+    if (!r.changes) return
+    // one current fact: a full disk for days is one unread row, not one a day (the older ones count as read)
+    this.ctx.db.query("UPDATE storage_notices SET read_at=? WHERE user_id=? AND event_type='storage.filling' AND read_at IS NULL AND id<>?").run(createdAt, userId, id)
+    this.signal(userId)
+  }
+  /** An owner or admin asked the people whose files in conversations take the most space to tidy them
+   * (system/storage-cleanup.ts; source: the team's day, so one a day; `by`: who asked). Shown always, Activity only. */
+  storageCleanupNotice(userId: string, sourceId: string, by: string, createdAt = new Date().toISOString()) {
+    if (!this.active(userId) || createdAt < this.cutoff()) return
+    const r = this.ctx.db.query("INSERT INTO storage_notices(id,user_id,event_type,source_id,created_at,suppressed,by_user) VALUES(?,?,'storage.cleanup',?,?,0,?) ON CONFLICT(user_id,event_type,source_id) DO NOTHING")
+      .run(newId(), userId, sourceId, createdAt, by)
+    if (r.changes) this.signal(userId)
   }
   /** 팀장 넘기기 (admin/handover.ts): a join with the owner's lead link (source: the invite; also pushed), a transfer
    * (source: the transfer, to both people and the other admins), a locked password check (source: its window). Shown
@@ -444,6 +549,12 @@ export class Notifications {
   templateReconnect(userId: string, templateId: string, version: number, at = new Date().toISOString()) {
     this.record(userId, 'integration.template_reconnect', reconnectSource(templateId, version), at, true)
   }
+  /** A template no longer covers the member (an admin narrowed who it is for, maybe with a new address, or they left one
+   * of its groups), so their own connection made from it went: one plain notice that they no longer have it, never a
+   * "connect it again". One per connection that went. Shown always, like the others. */
+  templateLeft(userId: string, templateId: string, connectionId: string, at = new Date().toISOString()) {
+    this.record(userId, 'integration.template_reconnect', leftSource(templateId, connectionId), at, true)
+  }
   /** A Drive shared with the team stopped (its admin left, or Google signed it out): every active admin is told to sign
    * in again, once per episode (`sourceId`: the share and its version). Shown always: members lose the folders. */
   driveShareReconnect(sourceId: string, at = new Date().toISOString()) {
@@ -454,6 +565,8 @@ export class Notifications {
   reconcile(userId?: string) {
     const db = this.ctx.db
     for (const table of NOTICE_TABLES) db.query(`DELETE FROM ${table} WHERE created_at < ?`).run(this.cutoff())
+    // a Share press of several files (migration 356) goes with its last notice
+    db.query("DELETE FROM file_share_batches WHERE created_at < ? AND NOT EXISTS(SELECT 1 FROM file_share_notices n WHERE n.event_type = 'file.shared' AND n.source_id = 'b:' || file_share_batches.id)").run(this.cutoff())
     this.settleIntegrationRequests(userId)
     this.settleAiRequests(userId)
     if (!userId) this.openDeletionRequests()
@@ -534,7 +647,7 @@ export class Notifications {
    * project it is shown while the person can see the project; with none, projectId and projectName are ''. */
   private devEnvRunOut(row: Row, base: InboxNotification): InboxNotification {
     const db = this.ctx.db
-    const run = db.query('SELECT project_id,name,chat_id,exit_code,end_note,log_tail,end_reason FROM dev_env_runs WHERE id=? AND user_id=?').get(row.source_id, row.user_id) as { project_id: string | null; name: string; chat_id: string | null; exit_code: number | null; end_note: string; log_tail: string; end_reason: string } | null
+    const run = db.query('SELECT project_id,name,chat_id,exit_code,end_reason FROM dev_env_runs WHERE id=? AND user_id=?').get(row.source_id, row.user_id) as { project_id: string | null; name: string; chat_id: string | null; exit_code: number | null; end_reason: string } | null
     if (!run) return base
     const project = run.project_id ? db.query('SELECT name,folder_path,trashed_with FROM projects WHERE id=?').get(run.project_id) as { name: string; folder_path: string; trashed_with: string | null } | null : null
     if (project) {
@@ -543,8 +656,10 @@ export class Notifications {
         authorize(this.ctx.files.fx, this.ctx.files.rules(), this.ctx.files.principal(row.user_id), project.folder_path, 'read')
       } catch { return base }
     }
-    const chat = run.chat_id ? db.query('SELECT id FROM chats WHERE id=? AND user_id=? AND deleted_at IS NULL').get(run.chat_id, row.user_id) as { id: string } | null : null
-    const job = { name: run.name, exitCode: run.exit_code, note: run.end_note, tail: run.log_tail, ...(run.end_reason && run.end_reason !== 'exit' ? { reason: run.end_reason } : {}) }
+    const chat = run.chat_id ? db.query('SELECT id,title FROM chats WHERE id=? AND user_id=? AND deleted_at IS NULL').get(run.chat_id, row.user_id) as { id: string; title: string } | null : null
+    // the result in plain words (done or not, in which chat): never the log or the English end note, which stay in the
+    // job's row for the AI of that chat (the people reading Activity are not developers)
+    const job = { name: run.name, exitCode: run.exit_code, ...(run.end_reason && run.end_reason !== 'exit' ? { reason: run.end_reason } : {}), ...(chat?.title ? { chatTitle: chat.title } : {}) }
     return { ...base, chatId: chat?.id ?? null, link: chat ? 'chat' : project ? 'project' : null, devEnv: { projectId: project ? run.project_id! : '', projectName: project?.name ?? '', job } }
   }
   /** `rows`: the Inbox's list, whose room notices are rows (roomRows) with the first line of their newest message; a
@@ -559,6 +674,8 @@ export class Notifications {
         ...(contribution ? { contribution } : {}) }
     }
     if (isDevEnvEvent(row.event_type)) return this.devEnvOut(row)
+    if (isFileShareEvent(row.event_type)) return fileSharesOf(this.ctx).noticeOut(row)
+    if (isAccessRequestEvent(row.event_type)) return accessRequestsOf(this.ctx).noticeOut(row)
     // an AI chat's answer (what a push opens): the chat while the person may still open it, nothing else
     if (row.event_type === 'chat.answer_done') {
       const n = this.ctx.db.query('SELECT chat_id FROM chat_answer_notices WHERE id=?').get(row.id) as { chat_id: string } | null
@@ -587,7 +704,10 @@ export class Notifications {
     // a member's ask to add an app: for an owner or admin, who asks (the newest asker by name, and how many others)
     // while any request waits, else who asked in the round that ended; the app only for someone who is neither now.
     // The asker's answer: the app, to connect (never who set it up)
-    if (isServiceRequestEvent(row.event_type)) return serviceRequestOut(this.ctx.db, row)
+    if (isServiceRequestEvent(row.event_type) || row.event_type === 'service.closed') return serviceRequestOut(this.ctx.db, row)
+    // older AI-made files with one of my stored keys in them: how many, and the ones I may open now (never the key)
+    if (row.event_type === 'files.stored_key') return { id: row.id, eventType: row.event_type, sourceId: row.source_id, code: row.event_type, createdAt: row.created_at, readAt: row.read_at, chatId: null, link: null, outcome: null,
+      keyFiles: storedKeyFilesOf(this.ctx, row.user_id) }
     // the owner sees who asks (a name, nothing else) and goes to Admin › AI connections
     if (row.event_type === 'onboarding.ai_request') {
       const notReady = row.source_id.startsWith(NOT_READY_SOURCE)
@@ -606,6 +726,9 @@ export class Notifications {
       return { id: row.id, eventType: row.event_type, sourceId: row.source_id, code: row.event_type, createdAt: row.created_at, readAt: row.read_at, chatId: sees ? c!.id : null, link: sees ? 'chat' : null, outcome: null,
         chatShared: { name: u?.name ?? null, title: title || null, ...(sees ? {} : { gone: true as const }) } }
     }
+    // a reply in a thread I follow under an AI answer of a shared chat: who and which chat, read now while I still see the
+    // thread (chat/threads.ts); else no name, title or link
+    if (row.event_type === 'chat.thread_reply') return chatThreadNoticeOut(this.ctx, row)
     // who started to see a project, and the project while the reader still sees it (its contents' rule, canSeeProject)
     if (row.event_type === 'project.joined') {
       const a = this.ctx.db.query("SELECT detail FROM audit_log WHERE id = ? AND action = 'project.member_gained'").get(Number(row.source_id)) as { detail: string | null } | null
@@ -621,14 +744,16 @@ export class Notifications {
     // the name of who joined, while the account is there (a deleted one keeps the entry without a name)
     if (row.event_type === 'team.joined') {
       const u = this.ctx.db.query('SELECT name FROM users WHERE id=? AND deleted_at IS NULL').get(row.source_id) as { name: string } | null
-      // a guest joined their one place, not the team: "X joined 'Quote prep' as a guest" (auth/guests.ts guestDetail). The
-      // place's name as it is now, only to a reader who is in that place or is the owner or an admin (who see it in
-      // Admin › Guests anyway); an inviter who left it reads "a group chat" / "a project", never a later rename
-      const place = u ? guestDetail(this.ctx.db, row.source_id)?.place : undefined
+      // a guest joined the place their invite opened, not the team: "X joined 'Quote prep' as a guest"
+      // (auth/guests.ts invitedPlace). The place's name as it is now, only to a reader who is in that place or is the
+      // owner or an admin (who see it in Admin › Guests anyway); an inviter who left it reads "a group chat" / "a
+      // project", never a later rename. A second place they were added to later is not this notice's
+      const invited = u ? invitedPlace(this.ctx.db, row.source_id) : null
+      const place = invited ? { ...invited, name: placeName(this.ctx.db, invited) } : undefined
       // Its link: the owner and admins keep Admin › Members (no id); anyone else, the place itself while they are in it
       // (its id), else nowhere (null): Admin is not theirs
       const staff = !!place && isStaff(this.ctx.db, row.user_id)
-      const inPlace = !!place && !staff && placePeople(this.ctx.db, row.source_id).has(row.user_id)
+      const inPlace = !!place && !staff && placePeopleOf(this.ctx.db, row.source_id, place).has(row.user_id)
       const named = staff || inPlace
       return { id: row.id, eventType: row.event_type, sourceId: row.source_id, code: row.event_type, createdAt: row.created_at, readAt: row.read_at, chatId: null, link: null, outcome: null,
         ...(u ? { joined: { name: u.name, ...(place ? { guestPlace: { kind: place.kind, name: named ? place.name : '', ...(staff ? {} : { id: inPlace ? place.id : null }) } } : {}) } } : {}) }
@@ -656,7 +781,7 @@ export class Notifications {
         ...(n ? { firstRun: { member: u?.name ?? null, skill: goalSkillTitle(this.ctx, row.user_id, n.skill_path), runners: n.runners, target: GOAL_PEOPLE } } : {}) }
     }
     // an admin's change to the team's AI, told to the owners, or to a member's own connection: who, what, the name (the
-    // text is the page's); the owners' open Admin › Providers
+    // text is the page's); the owners' open Admin › AI providers
     if (row.event_type === 'credential.change') {
       const n = this.ctx.db.query('SELECT actor_name, action, subject FROM credential_change_notices WHERE id=?').get(row.id) as { actor_name: string; action: string; subject: string } | null
       const own = !!n && n.action.startsWith('personal_')
@@ -677,6 +802,23 @@ export class Notifications {
       const roomAppLeaver = roomAppLeaverOut(this.ctx, row.user_id, row.source_id)
       return { id: row.id, eventType: row.event_type, sourceId: row.source_id, code: row.event_type, createdAt: row.created_at, readAt: row.read_at, chatId: null, link: roomAppLeaver?.roomId ? 'room' : null, outcome: null,
         ...(roomAppLeaver ? { roomAppLeaver } : {}) }
+    }
+    // the AI could not start on this server: the words say what to do, no link (the health page is the owner's only)
+    if (row.event_type === 'engine.start_failed') return { id: row.id, eventType: row.event_type, sourceId: row.source_id, code: row.event_type, createdAt: row.created_at, readAt: row.read_at, chatId: null, link: null, outcome: null }
+    // the disk filling: how full it was and the files in conversations then, and the storage card, while the reader is
+    // still the owner or an admin; one demoted since gets the plain words only (no number of the team's files, no link)
+    if (row.event_type === 'storage.filling') {
+      const staff = isStaff(this.ctx.db, row.user_id)
+      const n = staff ? this.ctx.db.query('SELECT percent, rooms_bytes FROM storage_notices WHERE id=?').get(row.id) as { percent: number | null; rooms_bytes: number | null } | null : null
+      return { id: row.id, eventType: row.event_type, sourceId: row.source_id, code: row.event_type, createdAt: row.created_at, readAt: row.read_at, chatId: null, link: staff ? 'admin_storage' : null, outcome: null,
+        ...(n && n.percent !== null ? { storage: { percent: n.percent, roomsBytes: n.rooms_bytes } } : {}) }
+    }
+    // asked to tidy my files in conversations: who asked while that account is active (else "An admin"); my own files
+    if (row.event_type === 'storage.cleanup') {
+      const n = this.ctx.db.query('SELECT by_user FROM storage_notices WHERE id=?').get(row.id) as { by_user: string | null } | null
+      const by = n?.by_user ? this.ctx.db.query("SELECT name FROM users WHERE id=? AND status='active' AND deleted_at IS NULL").get(n.by_user) as { name: string } | null : null
+      return { id: row.id, eventType: row.event_type, sourceId: row.source_id, code: row.event_type, createdAt: row.created_at, readAt: row.read_at, chatId: null, link: 'sent_files', outcome: null,
+        cleanup: { by: by ? plainLabel(by.name, 80) : null } }
     }
     if (isHostingEvent(row.event_type)) return { id: row.id, eventType: row.event_type, sourceId: row.source_id, code: row.event_type, createdAt: row.created_at, readAt: row.read_at, chatId: null, link: null, outcome: null }
     if (row.event_type === 'account.reset_link') {
@@ -700,21 +842,27 @@ export class Notifications {
       return { id: row.id, eventType: row.event_type, sourceId: row.source_id, code: row.event_type, createdAt: row.created_at, readAt: row.read_at, chatId: null, link: shown ? 'admin_connectors' : null, outcome: null,
         ...(shown ? { driveShare: { id: share!.id, name: share!.name } } : {}) }
     }
-    // a connection template: its id and name while it is there and still for this person (Settings › MCP opens it);
-    // a reconnect notice's source is the template id and its version (reconnectSource)
+    // a connection template: its id, name and whether it is a sign-in while it is there (the words follow: sign in again
+    // or enter the key again; QA TC-2980), and a link (Settings › Connectors opens it) only while it is still for this
+    // person. One it no longer covers keeps its name, which they were told before. A reconnect notice's source is the
+    // template id and its version (reconnectSource); the "no longer for you" notice's, leftSource (templateLeft)
     if (isTemplateEvent(row.event_type)) {
-      const id = row.event_type === 'integration.template_reconnect' ? row.source_id.replace(/\.v\d+$/, '') : row.source_id
-      const t = this.ctx.db.query('SELECT id, name FROM integration_templates WHERE id=?').get(id) as { id: string; name: string } | null
-      const shown = t && templateCovers(this.ctx.db, t.id, row.user_id)
-      return { id: row.id, eventType: row.event_type, sourceId: row.source_id, code: row.event_type, createdAt: row.created_at, readAt: row.read_at, chatId: null, link: shown ? 'integrations' : null, outcome: null,
-        ...(shown ? { template: { id: t!.id, name: t!.name } } : {}) }
+      const id = row.event_type === 'integration.template_reconnect' ? templateOfSource(row.source_id) : row.source_id
+      const left = row.event_type === 'integration.template_reconnect' && LEFT_SOURCE.test(row.source_id)
+      const t = this.ctx.db.query('SELECT id, name, auth FROM integration_templates WHERE id=?').get(id) as { id: string; name: string; auth: string } | null
+      const linked = !!t && !left && templateCovers(this.ctx.db, t.id, row.user_id)
+      return { id: row.id, eventType: row.event_type, sourceId: row.source_id, code: row.event_type, createdAt: row.created_at, readAt: row.read_at, chatId: null, link: linked ? 'integrations' : null, outcome: null,
+        ...(t ? { template: { id: t.id, name: t.name, ...(t.auth === 'oauth' ? { signIn: true as const } : {}) } } : {}),
+        ...(left ? { templateLeft: true as const } : {}) }
     }
     // a scheduled run that did not start for want of the owner's own key for a template: which one (by the name it had
     // then), and Settings › MCP to connect it
     if (row.event_type === 'schedule.failure') {
       const skip = this.ctx.db.query('SELECT template_id, template_name, schedule_id FROM schedule_template_skips WHERE id=? AND user_id=?').get(row.source_id, row.user_id) as { template_id: string; template_name: string; schedule_id: string } | null
-      if (skip) return { id: row.id, eventType: row.event_type, sourceId: row.source_id, code: row.event_type, createdAt: row.created_at, readAt: row.read_at, chatId: null, link: 'integrations', outcome: 'failed', needsKey: { templateId: skip.template_id, name: skip.template_name },
-        ...this.scheduleOf(row.user_id, skip.schedule_id) }
+      // a template members sign in to (OAuth) says so, not "your own key" (QA TC-3052); a removed template keeps the key words
+      const signIn = skip ? (this.ctx.db.query('SELECT auth FROM integration_templates WHERE id=?').get(skip.template_id) as { auth: string } | null)?.auth === 'oauth' : false
+      if (skip) return { id: row.id, eventType: row.event_type, sourceId: row.source_id, code: row.event_type, createdAt: row.created_at, readAt: row.read_at, chatId: null, link: 'integrations', outcome: 'failed',
+        needsKey: { templateId: skip.template_id, name: skip.template_name, ...(signIn ? { signIn: true as const } : {}) }, ...this.scheduleOf(row.user_id, skip.schedule_id) }
       // a run whose project its owner no longer sees: says so, no link (the project is not theirs to open now)
       const gone = this.ctx.db.query('SELECT schedule_id, project_id FROM schedule_project_skips WHERE id=? AND user_id=?').get(row.source_id, row.user_id) as { schedule_id: string; project_id: string } | null
       if (gone) return { id: row.id, eventType: row.event_type, sourceId: row.source_id, code: row.event_type, createdAt: row.created_at, readAt: row.read_at, chatId: null, link: null, outcome: 'failed', projectGone: true,
@@ -728,6 +876,14 @@ export class Notifications {
     if (row.event_type === 'schedule.failure' && row.source_id.startsWith(REVIEW_SOURCE)) {
       // paused tasks to check again: the schedules list, never a chat
       return { id: row.id, eventType: row.event_type, sourceId: row.source_id, code: row.event_type, createdAt: row.created_at, readAt: row.read_at, chatId: null, link: null, outcome: null, review: true }
+    }
+    // a person's own connection other than Google Drive (connections/service.ts tellSignInAgain, source "<id>_<ms>"): its
+    // name and its page while it is still theirs (QA TC-2945); Google Drive's and a removed one's: the generic line
+    if (row.event_type === 'connection.reconnect') {
+      const id = /^(.+)_\d+$/.exec(row.source_id)?.[1]
+      const c = id ? this.ctx.db.query("SELECT id, name, google_app FROM integrations WHERE id=? AND scope='personal' AND owner_user_id=?").get(id, row.user_id) as { id: string; name: string; google_app: string | null } | null : null
+      if (c) return { id: row.id, eventType: row.event_type, sourceId: row.source_id, code: row.event_type, createdAt: row.created_at, readAt: row.read_at, chatId: null, link: 'connections', outcome: null,
+        connection: { id: c.id, name: plainLabel(c.name), googleApp: c.google_app } }
     }
     let schedule: Pick<InboxNotification, 'schedule'> = {}
     if (row.event_type !== 'connection.reconnect') {
@@ -798,7 +954,10 @@ export class Notifications {
     // Not a room I muted: the 대화 tab does not count it (lib/rooms.ts totalUnread), so its row counts on 나 instead
     const counted = rooms.filter((r) => r.counted)
     const roomUnreadCount = counted.filter((r) => !r.muted).length
-    return { items: selected.map(r => this.out(r)), nextCursor: merged.length > limit && last ? encodeCursor({ t: last.sort_at, id: last.id }) : null, unreadCount: n + counted.length, roomUnreadCount, noticeUnreadCount: n }
+    // a "shared with you" notice whose file no longer opens drops out once it is read (docs/decisions/20261120-file-share-gone-notice.md):
+    // an unread one stays to say so once; the cursor is the rows', so the next page starts after it either way
+    const items = selected.map(r => this.out(r)).filter((x) => !(x.eventType === 'file.shared' && x.fileShare?.gone && x.readAt))
+    return { items, nextCursor: merged.length > limit && last ? encodeCursor({ t: last.sort_at, id: last.id }) : null, unreadCount: n + counted.length, roomUnreadCount, noticeUnreadCount: n }
   }
   get(userId: string, id: string): InboxNotification {
     if (!this.active(userId)) throw new HttpError('not_found')
@@ -901,6 +1060,28 @@ export function notifyHosting(ctx: AppContext, event: HostingNoticeEvent, source
     for (const id of ids) notificationsOf(ctx).hostingNotice(id, event, sourceId)
   } catch { ctx.log.warn('hosting notification recording failed') }
 }
+/** The AI could not start on this server (chat/turn.ts engineStartFailed): one Inbox notice to each active owner and
+ * admin per breakage, not per failed answer. A notice made since the last answer that worked means they were told
+ * already; one that works arms it again. Never throws: the answer's own error is what matters. */
+export function notifyEngineStartFailed(ctx: AppContext, turnId: string) {
+  try {
+    const ok = (ctx.db.query("SELECT MAX(ended_at) AS at FROM turns WHERE status = 'done'").get() as { at: string | null } | null)?.at ?? ''
+    if (ctx.db.query('SELECT 1 FROM engine_start_notices WHERE created_at > ? LIMIT 1').get(ok)) return
+    const ids = (ctx.db.query("SELECT id FROM users WHERE role IN ('owner', 'admin') AND status = 'active' AND deleted_at IS NULL").all() as { id: string }[]).map((u) => u.id)
+    const at = new Date().toISOString()
+    for (const id of ids) notificationsOf(ctx).engineStartNotice(id, turnId, at)
+  } catch { ctx.log.warn('engine start notification recording failed') }
+}
+/** The team's disk is filling (system/storage.ts checkAlert): one Inbox notice to each active owner and admin (never a
+ * member or guest: they cannot free the space). The caller decides how often (once a day per threshold). Never throws:
+ * the toast and the audit row happened anyway. */
+export function notifyStorageFilling(ctx: AppContext, threshold: 80 | 95, percent: number, roomsBytes: number | null, at = new Date().toISOString()) {
+  try {
+    // a guest's users.role is 'member' (auth/guests.ts), so this is the owner and the admins only, as for the engine notice
+    const ids = (ctx.db.query("SELECT id FROM users WHERE role IN ('owner', 'admin') AND status = 'active' AND deleted_at IS NULL").all() as { id: string }[]).map((u) => u.id)
+    for (const id of ids) notificationsOf(ctx).storageNotice(id, `${threshold}:${at}`, percent, roomsBytes, at)
+  } catch { ctx.log.warn('storage notification recording failed') }
+}
 /** The owner or an admin (the guest-aware role: auth/guests.ts roleSql). */
 function isStaff(db: AppContext['db'], userId: string): boolean {
   return !!db.query(`SELECT 1 FROM users WHERE id = ? AND ${roleSql()} IN ('owner', 'admin')`).get(userId)
@@ -952,6 +1133,10 @@ export function notifyTemplateReconnect(ctx: AppContext, userId: string, templat
   try { notificationsOf(ctx).templateReconnect(userId, templateId, version) }
   catch { ctx.log.warn('template reconnect notice deferred') }
 }
+export function notifyTemplateLeft(ctx: AppContext, userId: string, templateId: string, connectionId: string) {
+  try { notificationsOf(ctx).templateLeft(userId, templateId, connectionId) }
+  catch { ctx.log.warn('template left notice deferred') }
+}
 /** A member asked to add an app: told to each owner and admin (one notice per person and app). */
 export function notifyServiceRequested(ctx: AppContext, userIds: Iterable<string>, service: string) {
   for (const userId of new Set(userIds)) {
@@ -962,6 +1147,14 @@ export function notifyServiceRequested(ctx: AppContext, userIds: Iterable<string
 export function notifyServiceReady(ctx: AppContext, userId: string, requestId: string) {
   try { notificationsOf(ctx).serviceReady(userId, requestId) }
   catch { ctx.log.warn('app ready notice deferred') }
+}
+export function notifyServiceClosed(ctx: AppContext, userId: string, requestId: string) {
+  try { notificationsOf(ctx).serviceClosed(userId, requestId) }
+  catch { ctx.log.warn('app request closed notice deferred') }
+}
+export function notifyStoredKeyFiles(ctx: AppContext, userId: string) {
+  try { notificationsOf(ctx).storedKeyFiles(userId) }
+  catch { ctx.log.warn('stored key files notice deferred') }
 }
 export function syncServiceRequestNotices(ctx: AppContext) {
   try { notificationsOf(ctx).syncServiceRequests() }

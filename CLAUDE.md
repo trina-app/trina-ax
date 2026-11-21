@@ -5,7 +5,8 @@ Instructions for coding agents that work in this repository.
 - Product id in code is `mycel` (folders, sockets, `MYCEL_*` environment variables). Trina branding is in
   `editions/trina/branding/` and is applied at build time to `shared/src/source.ts` and
   `shared/src/release-channel.ts`.
-- Read [docs/REPOSITORY-RULES.md](docs/REPOSITORY-RULES.md) before you add a feature. Design decisions are in
+- Read [docs/REPOSITORY-RULES.md](docs/REPOSITORY-RULES.md) before you add a feature. Design decisions are one file
+  each in [docs/decisions/](docs/decisions/README.md) (since 2026-11-16) and, before that, in the archive
   [docs/DECISIONS.md](docs/DECISIONS.md); file ownership by area is in [docs/WORKPLAN.md](docs/WORKPLAN.md).
 - Do not commit secrets, customer data, real customer addresses or personal paths.
 - Licence: AGPL-3.0-only, except `shared/src/cloud-protocol/` (MIT). Keep LICENSE, NOTICE and dependency notices.
@@ -25,18 +26,22 @@ Instructions for coding agents that work in this repository.
   `<timestamp>-<feature>.md` (`date -u +%Y%m%d-%H%M`, e.g. `20261107-0830-room-message-links.md`) and commit it as the
   first commit on the branch. Format and template: [docs/AGENTS/README.md](docs/AGENTS/README.md). Link the plan in
   the PR.
-- `dev` takes merges without waiting for full CI. Before you merge, run `bun run typecheck`, `bun run check:i18n`
-  and the unit tests for the area you changed.
+- `dev` has a merge queue ([docs/REPOSITORY-RULES.md](docs/REPOSITORY-RULES.md) "PR이 dev에 들어가는 길"). Before you
+  push, run `bun run check:prepush` and the unit tests for the area you changed. After review, put the PR in the queue
+  with `bun run queue <number> <reviewed head SHA>`; never `gh pr merge` and never `--admin`. The queue runs the full
+  CI and merges when it is green.
 - Changelog: do not edit `CHANGELOG.md` in a PR. Put the PR's user-visible notes in a new file
   `changes/<topic>.md` (rules: [changes/README.md](changes/README.md)), so two PRs never conflict on "## Unreleased".
   CI's `bun run check:docs` fails a PR that adds a line there.
+- Decisions: do not add to `docs/DECISIONS.md` (the archive). Write each new decision as a new file
+  `docs/decisions/<YYYYMMDD>-<topic>.md` with its header (rules: [docs/decisions/README.md](docs/decisions/README.md)).
+  `bun run check:docs` fails a PR that adds a section or lines to `docs/DECISIONS.md`.
 - Keep PRs small. Before you add a migration, check the highest number in `server/migrations/` on `dev`: two files
   with one number stop the server.
 - After a merge into `dev`, CI (`.github/workflows/dev-build.yml`) builds the server bundle (about 5 minutes) and the
-  dev server installs it within 1 minute: https://potenlab.trina.app (Lightsail `trina-ax-test-1`). Test there, with
-  test data only.
-- If the new build fails its health check, the dev server goes back to the last good build by itself. Status:
-  `/var/lib/trina-dev-update/status.json` on the dev server.
+  QA server installs it: https://qa.trina.app (fictional QA team). Test there, with test data only.
+- If the new build fails its health check, the QA server goes back to the last good build by itself. Status:
+  `/var/lib/trina-dev-update/status.json` on the QA server.
 - `main` and releases: only through a PR `dev -> main` with full CI green. Only the release owner merges it and cuts
   a release.
 - Never deploy a dev build to potanlab.trina.app or any customer server. Never use the release key for dev builds.

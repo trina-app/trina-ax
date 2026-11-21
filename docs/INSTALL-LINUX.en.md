@@ -66,6 +66,70 @@ People join by pasting the invite link (or the team link) into the app's first s
 - **The team address** is in Settings › Apps for everyone signed in, with a copy button.
 - **Tapped links**: the apps open `*.trina.app` invite links directly (universal links, app links). On a domain of your own a tapped link opens the browser; the join page's **Open in the app** (`trina-ax://open?url=…`) opens the desktop or phone app. Either way the app first asks "Connect to {host}?" and loads nothing before the answer.
 
+## Desktop app on Linux
+
+This part is about the team's desktop app on a Linux computer, not the server. It is built for x64 and arm64. Get it
+from the website's download page or from the [latest GitHub Release](https://github.com/trina-app/trina-ax/releases/latest),
+and pick by system:
+
+| File | For | Updates |
+|---|---|---|
+| `Trina-AX-<v>-linux-amd64.deb`, `Trina-AX-<v>-linux-arm64.deb` | Ubuntu 24.04, Debian 12 and 13 and systems built on them | the app says when a new version is out; install the new .deb over the old one |
+| `Trina-AX-<v>-linux-x86_64.AppImage`, `Trina-AX-<v>-linux-arm64.AppImage` | other distributions (Fedora, Arch, …) | by itself, from your team server, after the signed release names the file; it is replaced when the app quits |
+
+**The .deb** (open it in App Center, or from a terminal):
+
+```sh
+sudo apt install ./Trina-AX-<v>-linux-amd64.deb
+```
+
+It adds the app to the app grid, makes `trina-ax://` links (the web's **Open in the app**) open it, and installs an
+AppArmor profile (`/etc/apparmor.d/trina-ax`), so Chromium's sandbox can run where Ubuntu 24.04 blocks user namespaces.
+`sudo apt remove trina-ax` takes all of that away. Your data stays in `~/.config/Team AX`; delete that folder to
+remove it too.
+
+**The AppImage:**
+
+```sh
+chmod +x Trina-AX-<v>-linux-x86_64.AppImage
+./Trina-AX-<v>-linux-x86_64.AppImage
+```
+
+- **FUSE:** the AppImage mounts itself with FUSE's `fusermount3` (or `fusermount`). GNOME and KDE desktops have it; on a
+  minimal system install `fuse3` (`sudo dnf install fuse3` on Fedora, `sudo pacman -S fuse3` on Arch, `sudo apt install
+  fuse3` on Debian and Ubuntu). It needs no FUSE 2 library. AppImages of 0.5.18 and earlier still need FUSE 2: on Fedora
+  the `fuse` package (it brings `fusermount` and `fuse-libs`; `fuse-libs` alone is not enough), `fuse2` on Arch,
+  `libfuse2t64` on Ubuntu 24.04. They update themselves to the new kind.
+- **Sandbox:** the app runs only inside Chromium's sandbox. Where the system blocks user namespaces for programs without
+  an AppArmor profile (Ubuntu 24.04 and later), the AppImage cannot use it: the app says "Install the .deb instead" and
+  quits. Use the .deb there. An AppImage started with `--no-sandbox` by hand is refused the same way. Never start the
+  .deb's app with `--no-sandbox` either.
+- It adds no menu entry and no link handler. Use the .deb if you want `trina-ax://` links.
+- For self-updates, keep the file in a folder you can write to (for example `~/Applications`).
+
+**Keyring:** "Apps on your computer" keeps setting values (tokens, keys) in the system keyring through the Secret
+Service: GNOME Keyring or KWallet. Without one in your session (for example a bare window manager, or Xfce without
+`gnome-keyring`), the settings are not saved and the app says so; the connection still works without them. Your sign-in
+cookies are protected by the same keyring when there is one, as in Chrome. On a desktop Chromium does not recognise
+(for example sway or i3), Electron may skip a running keyring; start the app with
+`--password-store=gnome-libsecret` (or `kwallet6`) there.
+
+**Check a download** against the release's signed checksums (from a version's GitHub Release):
+
+```sh
+V=<version> # for example 0.5.18
+BASE="https://github.com/trina-app/trina-ax/releases/download/v$V"
+F="Trina-AX-$V-linux-amd64.deb"
+curl -fLO "$BASE/$F" -fLO "$BASE/SHA256SUMS" -fLO "$BASE/SHA256SUMS.sig"
+sha256sum --ignore-missing -c SHA256SUMS
+# the signature of SHA256SUMS, with this repository's release keys (needs Bun)
+git clone --depth 1 --branch "v$V" https://github.com/trina-app/trina-ax trina-ax-src
+bun trina-ax-src/scripts/release/release-ci.ts verify-sums SHA256SUMS
+```
+
+`verify-sums` checks `SHA256SUMS.sig` with the release keys in the source of that version, then every file listed in
+`SHA256SUMS` that is in the same folder. The in-app updates check the same release signature by themselves.
+
 ## Download, verify, check
 
 Use a new download directory. Resolve the latest release once and use the same version for all files:
@@ -116,6 +180,52 @@ The installer takes its system packages from one list in the kit (`app/<version>
 - **Versions**: the distribution release is pinned (Debian 12 or 13, Ubuntu 24.04), and each package may have a minimum version that is checked after the install. The newest version of that release is installed, security updates included; exact versions are not pinned, because mirrors drop superseded versions.
 - `--minimal` is kept for `repair` and `update`; `--no-minimal` adds the default groups back. `--skip-apt` installs no packages (they must be there); the browser is still downloaded unless `--minimal`.
 
+### Behind an HTTP proxy
+
+Use this when the server reaches the internet only through a company proxy (checked on 2026-11-16 with squid on Debian 13, QA TC-2860). Replace `http://proxy.example:3128` with your proxy. The proxy must allow `CONNECT` to port 443 of these hosts: `cdn-aws.deb.debian.org` (or your distribution's mirror), `github.com`, `release-assets.githubusercontent.com`, `registry.npmjs.org`, `nodejs.org`, `storage.googleapis.com`, `pypi.org`, `files.pythonhosted.org`, `downloads.claude.ai`, `updates.trina.app`, and your AI provider (for example `api.anthropic.com`).
+
+1. apt: `sudo` does not pass your shell's proxy variables to apt. Give apt its own setting:
+
+   ```sh
+   printf 'Acquire::http::Proxy "http://proxy.example:3128";\nAcquire::https::Proxy "http://proxy.example:3128";\n' | sudo tee /etc/apt/apt.conf.d/95proxy
+   ```
+
+2. The installer: set the variables in your shell, then run it with `sudo -E` (without `-E`, `sudo` drops them and the engine and package downloads fail):
+
+   ```sh
+   export https_proxy=http://proxy.example:3128 http_proxy=http://proxy.example:3128 no_proxy=127.0.0.1,localhost
+   export HTTPS_PROXY=$https_proxy HTTP_PROXY=$http_proxy NO_PROXY=$no_proxy
+   sudo -E ./install-linux.sh install --from . --engine claude --engine codex
+   ```
+
+   Use `sudo -E` also for `repair`, `update` and `sudo -E mycel-ctl update`.
+
+3. The server: add the same variables to `/etc/default/mycel` (the server's environment file; `/etc/default/<id>` with `--id`), then restart the server. Keep `127.0.0.1,localhost` in `NO_PROXY`: the server talks to its own model proxy on 127.0.0.1.
+
+   ```sh
+   sudo tee -a /etc/default/mycel <<'ENV'
+   HTTPS_PROXY=http://proxy.example:3128
+   HTTP_PROXY=http://proxy.example:3128
+   NO_PROXY=127.0.0.1,localhost
+   https_proxy=http://proxy.example:3128
+   http_proxy=http://proxy.example:3128
+   no_proxy=127.0.0.1,localhost
+   ENV
+   sudo systemctl restart mycel-server
+   ```
+
+   Without this, the AI key check stays at "Checking…" and answers stay at "Thinking…". With it, the AI calls go through the proxy. The release feed check uses the same variables: if Admin › System says "Could not reach the update server", check that the proxy allows `updates.trina.app`.
+
+4. The root update timer (`mycel-update.service`) does not read `/etc/default/mycel`. Give it the proxy with a drop-in:
+
+   ```sh
+   sudo mkdir -p /etc/systemd/system/mycel-update.service.d
+   printf '[Service]\nEnvironment=HTTPS_PROXY=http://proxy.example:3128 NO_PROXY=127.0.0.1,localhost\n' | sudo tee /etc/systemd/system/mycel-update.service.d/proxy.conf
+   sudo systemctl daemon-reload
+   ```
+
+Not through the proxy yet: the server's check of its own public address (`https://updates.trina.app/ip`) and the web pages the AI opens connect directly. Behind a proxy that is the only way out, Admin › System says "Public address of the server: Not known": every web address the AI opens asks a person, and scheduled tasks open none. Admin › System says "Not checked yet" before the server's first check of the release feed, and "Could not reach the update server" when a check failed (for example when the proxy does not allow `updates.trina.app`).
+
 ## First run
 
 The server has no screen, so you open the setup page from your own computer through an SSH tunnel:
@@ -133,12 +243,12 @@ Then create the owner, team name and language; verify the team timezone. Once th
 Then follow **permissions → AI connection → invite the team → first skill → first backup**:
 
 1. Admin → Groups/Folders: assign sources and verify access with two pilot accounts.
-2. Owner → Admin → Providers: connect an authorized Claude or Codex account/API key. On fresh teams one company connection can serve the whole team by default; saved choices persist. Personal connections take priority; connection consent is separate. This setting is not permission under provider terms. Use HTTPS for credential setup.
+2. Owner → Admin → AI providers: connect an authorized Claude or Codex account/API key. On fresh teams one company connection can serve the whole team by default; saved choices persist. Personal connections take priority; connection consent is separate. This setting is not permission under provider terms. Use HTTPS for credential setup.
 3. Configure an HTTPS address before inviting colleagues. A separately installed tunnel/reverse proxy must reach `127.0.0.1:47820`; register its hostname with `sudo ./install-linux.sh repair --public-host team.example.com`. Tunnel credentials are managed outside this installer. Official relay registration needs an issued connection code; it is not a free hostname signup.
 4. Invite a small group, copy a [starter skill](../examples/README.md), and review its result against sources.
 5. Make a backup and practice [restore](BACKUP-RESTORE.md) before real rollout.
 
-Claude Code on other models (DeepSeek, Kimi, GLM and others through OpenRouter or a provider's Anthropic-compatible API): set `engine.anthropicGateway` in `/var/lib/mycel/config/server.json`, restart with `sudo systemctl restart mycel-server`, and add the gateway's key in Admin → Providers. Conversations then go to the gateway provider and the model's vendor, and Claude subscription connections are off. [Anthropic-compatible gateway](CONFIGURATION.md#anthropic-compatible-gateway).
+Claude Code on other models (DeepSeek, Kimi, GLM and others through OpenRouter or a provider's Anthropic-compatible API): set `engine.anthropicGateway` in `/var/lib/mycel/config/server.json`, restart with `sudo systemctl restart mycel-server`, and add the gateway's key in Admin → AI providers. Conversations then go to the gateway provider and the model's vendor, and Claude subscription connections are off. [Anthropic-compatible gateway](CONFIGURATION.md#anthropic-compatible-gateway).
 
 ## Upgrade and rollback
 
@@ -192,6 +302,17 @@ you updated it.
   instead (`office/<version>/<channel>.json`, kept on the feed for every release from 0.2.19 on).
 - Office mode (Mac) does the same with its own update agent. A hosted tenant does only the run after each start (the
   hosted service's update restarts it), from its own feed; its owner sees the result in Diagnostics.
+
+## Memory limit of the server
+
+The server unit (`<id>-server.service`) may use at most 75% of the machine's memory, without swap
+(`MemoryMax=75%`, `MemorySwapMax=0`). It is a safety net: if the server ever keeps memory it should have given back,
+the kernel ends it at that limit and it starts again within seconds, instead of the whole machine running out of memory
+and hanging. Normal use stays well below it (uploads, document converters and printing have their own smaller limits).
+The update that brings this changes the unit: it is a root update (the update timer, or `sudo mycel-ctl update`), and
+the limit applies at the latest when the server restarts. A hosted plan sets its own server limit, which wins (the
+"no swap" applies there too). To check:
+`systemctl show <id>-server -p MemoryMax`.
 
 ## Safe PowerPoint (safe operations 1A, optional)
 

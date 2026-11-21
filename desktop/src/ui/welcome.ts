@@ -22,6 +22,8 @@ function takeState(s: WelcomeState) {
   // ④ appears: an error from before (a refused link, an address that failed) is not about this link
   if (s.link && s.link.id !== state.link?.id) error = ''
   const newLinkError = s.linkError && s.linkError !== state.linkError && !s.link
+  // the line was taken back (the team it named left the list): it leaves the screen too, unless something else replaced it
+  if (state.linkError && !s.linkError && error === state.linkError) error = ''
   state = s
   // a link from outside that cannot open a team: said on ① (never over ④)
   if (newLinkError) {
@@ -56,7 +58,17 @@ addEventListener('keydown', (e: KeyboardEvent) => {
     render()
     document.getElementById('address')?.focus()
   } else if (view !== 'main') show('main')
+  else if (menuFor) closeMenu(true)
+  else if (confirming) closeConfirm()
 })
+
+/** the remove question closes without removing: the keyboard goes back to that row's "···" */
+function closeConfirm() {
+  const id = confirming
+  confirming = null
+  render()
+  if (id) document.getElementById(`team-more-${id}`)?.focus()
+}
 
 function offline() {
   return h(
@@ -65,6 +77,8 @@ function offline() {
     h('div', { class: 'brand' }, tr('app.name')),
     h('h1', { id: 'offline-title' }, tr('offline.title')),
     h('p', { class: 'sub' }, tr('offline.body', { address: state.offline!.address })),
+    // the app looks again by itself (main/app-window.ts watchOffline) and opens the team when it answers (QA TC-3453)
+    state.offline!.auto ? h('p', { class: 'sub', role: 'status', 'data-testid': 'offline-auto' }, tr('offline.auto')) : null,
     h(
       'div',
       { class: 'actions' },
@@ -74,6 +88,8 @@ function offline() {
         {
           type: 'button',
           onclick: () => {
+            // the card is left: the app stops looking again by itself (it would open the team under the list)
+            ui.welcome.leftOffline()
             state = { ...state, mode: 'welcome' }
             render()
           },
@@ -130,7 +146,7 @@ function welcome() {
     autocomplete: 'url',
     spellcheck: 'false',
     placeholder: tr('welcome.placeholder'),
-    'aria-describedby': 'welcome-sub address-error',
+    'aria-describedby': state.teams.length ? 'address-error' : 'welcome-sub address-error',
     'aria-invalid': error ? 'true' : undefined,
     value: draft,
     oninput: (e: Event) => {
@@ -156,6 +172,34 @@ function welcome() {
     waking(),
     h('p', { id: 'address-error', class: 'error', role: 'alert', 'data-testid': 'address-error' }, error),
   )
+  const helpLinks = h(
+    'p',
+    { class: 'help-links' },
+    h('button', { type: 'button', class: 'link', 'data-testid': 'no-address', onclick: () => show('unknown') }, tr('welcome.noAddress')),
+    h('span', { 'aria-hidden': 'true' }, ' · '),
+    h('button', { type: 'button', class: 'link', 'data-testid': 'no-team', onclick: () => show('none') }, tr('welcome.noTeam')),
+  )
+  // the bottom line: [돌아가기] (a quiet link, when a team is open behind this screen) and the language, both small
+  const foot = h(
+    'div',
+    { class: 'foot' },
+    state.canGoBack ? h('button', { type: 'button', class: 'link quiet', 'data-testid': 'welcome-back', onclick: () => ui.welcome.back() }, tr('welcome.back')) : h('span'),
+    languagePicker(),
+  )
+  // remembered teams: they come first (the usual thing here is opening one), the box for another address under them
+  if (state.teams.length) {
+    return h(
+      'section',
+      { class: 'card', 'aria-label': tr('app.name') },
+      h('div', { class: 'brand' }, tr('app.name')),
+      teamList(),
+      h('h2', { class: 'another', id: 'another-title' }, tr('welcome.another')),
+      form,
+      outside ? outsideBox(outside) : null,
+      helpLinks,
+      foot,
+    )
+  }
   return h(
     'section',
     { class: 'card', 'aria-labelledby': 'welcome-title' },
@@ -164,16 +208,8 @@ function welcome() {
     h('p', { class: 'sub', id: 'welcome-sub' }, tr('welcome.subtitle')),
     form,
     outside ? outsideBox(outside) : null,
-    h(
-      'p',
-      { class: 'help-links' },
-      h('button', { type: 'button', class: 'link', 'data-testid': 'no-address', onclick: () => show('unknown') }, tr('welcome.noAddress')),
-      h('span', { 'aria-hidden': 'true' }, ' · '),
-      h('button', { type: 'button', class: 'link', 'data-testid': 'no-team', onclick: () => show('none') }, tr('welcome.noTeam')),
-    ),
-    state.teams.length ? teamList() : null,
-    state.canGoBack ? h('div', { class: 'actions' }, h('button', { type: 'button', onclick: () => ui.welcome.back() }, tr('welcome.back'))) : null,
-    languagePicker(),
+    helpLinks,
+    foot,
   )
 }
 
@@ -308,38 +344,128 @@ function languagePicker() {
   return h('label', { class: 'language', for: 'ui-locale' }, tr('welcome.language'), select)
 }
 
+/** a team's address as people read it: without "https://" */
+const shortOrigin = (origin: string) => origin.replace(/^https?:\/\//, '')
+
+const SVG = 'http://www.w3.org/2000/svg'
+/** a small line icon (lucide's check, ellipsis), drawn in the text colour */
+function glyph(kind: 'check' | 'more') {
+  const svg = document.createElementNS(SVG, 'svg')
+  for (const [k, v] of Object.entries({ viewBox: '0 0 24 24', width: '16', height: '16', fill: 'none', stroke: 'currentColor', 'stroke-width': '2', 'stroke-linecap': 'round', 'stroke-linejoin': 'round', 'aria-hidden': 'true' })) svg.setAttribute(k, v)
+  const parts = kind === 'check' ? [['path', { d: 'M20 6 9 17l-5-5' }]] : [['circle', { cx: '5', cy: '12', r: '1' }], ['circle', { cx: '12', cy: '12', r: '1' }], ['circle', { cx: '19', cy: '12', r: '1' }]]
+  for (const [tag, attrs] of parts as [string, Record<string, string>][]) {
+    const el = document.createElementNS(SVG, tag)
+    for (const [k, v] of Object.entries(attrs)) el.setAttribute(k, v)
+    svg.append(el)
+  }
+  return svg
+}
+
+/** the team whose "···" menu is open */
+let menuFor: string | null = null
+function closeMenu(focusButton: boolean) {
+  const id = menuFor
+  menuFor = null
+  render()
+  if (focusButton && id) document.getElementById(`team-more-${id}`)?.focus()
+}
+addEventListener('mousedown', (e) => {
+  if (menuFor && !(e.target as Element).closest?.('.row-menu, .more')) closeMenu(false)
+})
+
+/**
+ * The remembered teams, as a workspace switcher: one row per team (its initial, its name, its address small under it),
+ * the whole row opens the team; the open one has a quiet check and "지금 사용 중" (a click on it goes back to it);
+ * "목록에서 지우기" is in the row's "···" menu. The rows take the web app's list row (web/src/components/list/List.tsx
+ * ListRow: 15px name, 13px faint meta, 8px rounded hover fill).
+ */
 function teamList() {
   return h(
     'section',
     { class: 'teams', 'aria-labelledby': 'teams-title' },
-    h('h2', { id: 'teams-title' }, tr('welcome.saved')),
+    h('h1', { id: 'teams-title' }, tr('welcome.saved')),
     h(
       'ul',
       { 'data-testid': 'team-list' },
       ...state.teams.map((t) =>
         h(
           'li',
-          { 'data-testid': 'team', 'data-team-id': t.id },
+          { 'data-testid': 'team', 'data-team-id': t.id, class: menuFor === t.id ? 'menu-open' : undefined },
           h(
             'button',
-            { class: 'open', type: 'button', 'aria-label': `${tr('welcome.open')}: ${t.label}`, onclick: () => ui.welcome.open(t.id) },
-            t.label,
-            h('span', { class: 'origin' }, t.origin),
+            {
+              class: 'team-row',
+              type: 'button',
+              id: `team-row-${t.id}`,
+              'data-testid': 'team-open',
+              'aria-current': t.current ? 'true' : undefined,
+              title: t.origin,
+              onclick: () => ui.welcome.open(t.id),
+            },
+            h('span', { class: 'initial', 'aria-hidden': 'true' }, (Array.from(t.label.trim())[0] ?? '?').toLocaleUpperCase()),
+            h('span', { class: 'words' }, h('span', { class: 'name' }, t.label), h('span', { class: 'origin' }, shortOrigin(t.origin))),
+            t.current ? h('span', { class: 'current', 'data-testid': 'team-current' }, glyph('check'), tr('welcome.current')) : null,
           ),
-          t.current ? h('span', { class: 'tag' }, tr('welcome.current')) : null,
           h(
             'button',
             {
               type: 'button',
-              class: 'danger',
-              'aria-label': `${tr('welcome.remove')}: ${t.label}`,
+              class: 'more',
+              id: `team-more-${t.id}`,
+              'aria-label': tr('welcome.more', { team: t.label }),
+              title: tr('welcome.more', { team: t.label }),
+              'aria-haspopup': 'menu',
+              'aria-expanded': menuFor === t.id ? 'true' : 'false',
               onclick: () => {
-                confirming = t.id
+                if (menuFor === t.id) return closeMenu(true)
+                menuFor = t.id
                 render()
+                document.querySelector<HTMLElement>('.row-menu [role="menuitem"]')?.focus()
               },
             },
-            tr('welcome.remove'),
+            glyph('more'),
           ),
+          menuFor === t.id
+            ? h(
+                'div',
+                {
+                  class: 'row-menu',
+                  role: 'menu',
+                  'aria-label': tr('welcome.more', { team: t.label }),
+                  onkeydown: (e: Event) => {
+                    const k = (e as KeyboardEvent).key
+                    if (k === 'Escape') {
+                      e.preventDefault()
+                      e.stopPropagation()
+                      closeMenu(true)
+                    } else if (k === 'Tab') {
+                      // focus moves on as usual; the menu closes after it
+                      menuFor = null
+                      setTimeout(() => {
+                        const at = document.activeElement?.id
+                        render()
+                        if (at) document.getElementById(at)?.focus()
+                      })
+                    }
+                  },
+                },
+                h(
+                  'button',
+                  {
+                    type: 'button',
+                    role: 'menuitem',
+                    'aria-label': `${tr('welcome.remove')}: ${t.label}`,
+                    onclick: () => {
+                      menuFor = null
+                      confirming = t.id
+                      render()
+                      document.getElementById('remove-cancel')?.focus()
+                    },
+                  },
+                  tr('welcome.remove'),
+                ),
+              )
+            : null,
         ),
       ),
     ),
@@ -352,11 +478,20 @@ function confirmBox(id: string) {
   if (!team) return null
   return h(
     'div',
-    { class: 'confirm', role: 'alertdialog', 'aria-label': tr('welcome.remove'), 'data-testid': 'remove-confirm' },
-    h('p', {}, tr('welcome.removeConfirm', { team: team.label })),
+    { class: 'confirm', role: 'alertdialog', 'aria-label': tr('welcome.remove'), 'aria-describedby': 'remove-body', 'data-testid': 'remove-confirm' },
+    h('p', { id: 'remove-body' }, tr('welcome.removeConfirm', { team: team.label })),
     h(
       'div',
       { class: 'row' },
+      h(
+        'button',
+        {
+          type: 'button',
+          id: 'remove-cancel',
+          onclick: closeConfirm,
+        },
+        tr('welcome.cancel'),
+      ),
       h(
         'button',
         {
@@ -365,20 +500,11 @@ function confirmBox(id: string) {
           onclick: async () => {
             confirming = null
             await ui.welcome.remove(id)
+            // the list comes back without it: the keyboard goes to the first team left, or the box
+            ;(document.querySelector<HTMLElement>('.team-row') ?? document.getElementById('address'))?.focus()
           },
         },
         tr('welcome.removeYes'),
-      ),
-      h(
-        'button',
-        {
-          type: 'button',
-          onclick: () => {
-            confirming = null
-            render()
-          },
-        },
-        tr('welcome.cancel'),
       ),
     ),
   )
@@ -397,6 +523,8 @@ ui.welcome.onState((s) => {
 void ui.welcome.state().then((s) => {
   if (s) takeState(s)
   render()
-  document.getElementById('address')?.focus()
+  // no saved team: the box, ready to type in. Saved teams: nothing is focused (no ring on a row the person did not
+  // pick); Tab reaches the first row
+  if (!state.teams.length) document.getElementById('address')?.focus()
 })
 render()

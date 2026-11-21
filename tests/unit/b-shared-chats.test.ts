@@ -18,12 +18,13 @@ import { FILE_TOOLS } from '@mycel/shared'
 import { startHarness, type Harness, type TestSocket } from '../lib/b-harness'
 import { legacyProject, oldProject } from '../lib/legacy-project'
 import { waitFor } from '../lib/wait'
-import { resetEngineSessions } from '../../server/src/chat/runtime'
+import { resetEngineSessions, stopTurnsIn } from '../../server/src/chat/runtime'
 import { sharedTranscriptText, unshareUncheckedChats } from '../../server/src/chat/shared'
 import { markConfidentialTurn } from '../../server/src/safe-ops/confidential'
 import { chatUrls } from '../../server/src/tools/url-gate'
 import { setLauncherForgetForTests } from '../../server/src/chat/forget'
 import { SHARED_TOOLS } from '../../server/src/rooms/ai-tools'
+import { PROJECT_SEARCH_NOTE } from '../../server/src/chat/search-path'
 import { buildSubagentPrompt, buildTurnContext, buildTurnPrompt, SHARED_PROMPT_SECTIONS, subagentPromptSections, turnContextSections, turnPromptSections, type PromptInput } from '../../server/src/chat/prompt'
 import { loadPrincipal } from '../../server/src/policy/access'
 import { runExport } from '../../server/src/system/export'
@@ -213,7 +214,7 @@ describe('who sees a shared chat', () => {
 
 // ---------------- turns are their sender's ----------------
 describe("each turn is its sender's", () => {
-  test("bob continues alice's chat: his turn, his usage, the chat's engine stays alice's; alice gets the chat, not his live answer", async () => {
+  test("bob continues alice's chat: his turn, his usage, the chat's engine stays alice's; alice gets his answer live, never his own things", async () => {
     const chat = await newShared()
     await ask('alice', chat.id, 'q1\n' + fake({ say: 'a1' }))
     const before = ws.alice!.frames.length
@@ -228,10 +229,14 @@ describe("each turn is its sender's", () => {
     expect(answerB.usage).not.toBeNull()
     expect(forAlice.find((m) => m.content.startsWith('q2 from bob'))?.author).toEqual({ id: 'bob', name: 'Bob Lee' })
     expect(db().query('SELECT engine FROM chats WHERE id = ?').get(chat.id)).toEqual({ engine: 'claude-code' })
-    // alice heard the chat change, never bob's text, steps or card
+    // alice heard the chat change and got bob's answer as it was written and when it ended, as she sees it (no usage;
+    // docs/decisions/20261118-shared-chat-live-answers.md); never his busy notice, queue position or card
     const later = ws.alice!.frames.slice(before)
     expect(later.some((f) => f.type === 'chat.updated' && f.data.chatId === chat.id)).toBe(true)
-    expect(later.some((f) => (f.type === 'message.delta' || f.type === 'message.step' || f.type === 'message.done' || f.type === 'message.created') && (f.data as { chatId: string }).chatId === chat.id)).toBe(false)
+    expect(later.some((f) => f.type === 'message.delta' && f.data.messageId === r.done.id)).toBe(true)
+    const doneForAlice = later.find((f) => f.type === 'message.done' && f.data.messageId === r.done.id) as Extract<ServerFrame, { type: 'message.done' }> | undefined
+    expect([doneForAlice?.data.message.content, doneForAlice?.data.message.usage]).toEqual(['a2 for bob', null])
+    expect(later.some((f) => (f.type === 'turn.busy' || f.type === 'queue.position' || f.type === 'turn.request' || f.type === 'message.created') && (f.data as { chatId: string }).chatId === chat.id)).toBe(false)
   })
 
   test('one turn at a time: 409 shared_chat_busy names the runner; only the runner stops it or sees its cards', async () => {
@@ -249,6 +254,119 @@ describe("each turn is its sender's", () => {
     expect((await h.api('bob').call(API.listTurnRequests, { params: { id: chat.id } })).items).toEqual([])
     expect((await h.api('alice').call(API.stop, { params: { id: chat.id } })).stopped).toBe(true)
     await ws.alice!.next('message.done', (f) => f.data.messageId === slow.assistantMessage.id, 15_000)
+  })
+
+  const putWaiting = (user: string, chatId: string, count: number) => h.api(user).call(API.putChatWaiting, { params: { id: chatId }, body: { count } })
+  const waitingFor = async (user: string, chatId: string) => (await h.api(user).call(API.getChat, { params: { id: chatId } })).shared?.waiting
+  const idle = (chatId: string) => waitFor(() => h.rt().activeTurn(chatId) === null, { timeoutMs: 5000 })
+
+  test('waiting messages of two people: the one who queued first sends first (409 shared_chat_next), the others see only how many people wait', async () => {
+    const chat = await newShared()
+    const slow = await send('alice', chat.id, 'slow\n' + fake({ sleep: 5000 }, { say: 'done slowly' }))
+    await waitFor(() => (h.rt().activeTurnUser(chat.id) === 'alice'), { timeoutMs: 5000 })
+    // bob queues first, then alice's own one; each is told how many other people wait (not how many messages)
+    await putWaiting('bob', chat.id, 2)
+    expect(await waitingFor('alice', chat.id)).toBe(1)
+    expect(await waitingFor('bob', chat.id)).toBeUndefined()
+    // alice sent a moment ago: a say of hers this soon is refused (a late refresh must not make a new place), her
+    // browser says it again a few seconds later
+    const soon = await errOf(putWaiting('alice', chat.id, 1))
+    expect([soon.status, soon.body.params?.reason]).toEqual([409, 'waiting_after_send'])
+    expect(await waitingFor('bob', chat.id)).toBeUndefined()
+    await Bun.sleep(3100)
+    await putWaiting('alice', chat.id, 1)
+    expect(await waitingFor('bob', chat.id)).toBe(1)
+    await ws.alice!.next('message.done', (f) => f.data.messageId === slow.assistantMessage.id, 15_000)
+    await idle(chat.id)
+    // the answer ended: alice's browser tries first, but bob waited longer; the refusal names nobody
+    const next = await errOf(send('alice', chat.id, 'mine'))
+    expect([next.status, next.body.params?.reason]).toEqual([409, 'shared_chat_next'])
+    expect(next.body.message).toBe("Someone else's message has been waiting longer. Yours goes after it.")
+    expect(next.body.message).not.toContain('Bob')
+    // someone who never queued is refused the same way (theirs would jump the line)
+    const jump = await asMember('carol', 'read', () => errOf(send('carol', chat.id, 'me first')))
+    expect([jump.status, jump.body.params?.reason]).toEqual([409, 'shared_chat_next'])
+    const asks = await ask('bob', chat.id, 'bob 1+2\n' + fake({ say: 'b' }))
+    // bob sent: his place is gone, alice is first now; a refresh of his that comes right after his send gives no place
+    expect(await waitingFor('alice', chat.id)).toBeUndefined()
+    await idle(chat.id)
+    expect((await errOf(putWaiting('bob', chat.id, 1))).body.params?.reason).toBe('waiting_after_send')
+    expect(await waitingFor('alice', chat.id)).toBeUndefined()
+    const mine = await ask('alice', chat.id, 'mine\n' + fake({ say: 'a' }))
+    expect(mine.started.userMessage!.parentId).toBe(asks.done.id)
+    await idle(chat.id)
+    await putWaiting('bob', chat.id, 0)
+    expect(await waitingFor('alice', chat.id)).toBeUndefined()
+  })
+
+  test('a first place nobody uses holds the chat only for the grace period, then goes to the back', async () => {
+    const chat = await newShared()
+    await ask('alice', chat.id, 'q\n' + fake({ say: 'a' }))
+    const before = h.rt().sharedWaiting.graceMs
+    h.rt().sharedWaiting.graceMs = 400
+    h.rt().sharedWaiting.afterSendMs = 0
+    try {
+      // bob's browser says he waits but never sends (another chat is on screen, or a script)
+      await putWaiting('bob', chat.id, 1)
+      await putWaiting('alice', chat.id, 1)
+      expect((await errOf(send('alice', chat.id, 'q2'))).body.params?.reason).toBe('shared_chat_next')
+      await Bun.sleep(500)
+      // his refresh keeps him in line, but at the back: alice goes
+      await putWaiting('bob', chat.id, 1)
+      const r = await ask('alice', chat.id, 'q2\n' + fake({ say: 'a2' }))
+      expect(r.done.status).toBe('done')
+      await idle(chat.id)
+      // and he holds back nobody else either, until he sends
+      const free = await asMember('carol', 'read', async () => { const x = await ask('carol', chat.id, 'q3\n' + fake({ say: 'a3' })); await idle(chat.id); return x })
+      expect(free.done.status).toBe('done')
+    } finally { h.rt().sharedWaiting.graceMs = before; h.rt().sharedWaiting.afterSendMs = 3000 }
+    await putWaiting('bob', chat.id, 0)
+    await putWaiting('alice', chat.id, 0)
+  })
+
+  test('the waiting route: a guest, someone outside the project and someone taken out get the 404; a removed member\'s place goes; a burst is limited', async () => {
+    const chat = await newShared()
+    await ask('alice', chat.id, 'q\n' + fake({ say: 'a' }))
+    // erin does not see the project: the same 404 as no chat
+    expect((await errOf(putWaiting('erin', chat.id, 1))).status).toBe(404)
+    // a guest opens no shared chat but their own
+    db().query('UPDATE users SET guest = 1 WHERE id = ?').run('bob')
+    try { expect((await errOf(putWaiting('bob', chat.id, 1))).status).toBe(404) } finally { db().query('UPDATE users SET guest = 0 WHERE id = ?').run('bob') }
+    // carol waits as a member, then is taken out: her place goes with her access (admin/folders.ts afterAccessChange ->
+    // stopTurnsIn), and her calls get the 404
+    await asMember('carol', 'read', () => putWaiting('carol', chat.id, 1))
+    expect(await waitingFor('alice', chat.id)).toBe(1)
+    stopTurnsIn(h.ctx, 'carol', [chat.id])
+    expect(await waitingFor('alice', chat.id)).toBeUndefined()
+    expect((await errOf(putWaiting('carol', chat.id, 1))).status).toBe(404)
+    // at most 30 a minute per person and chat
+    let limited: ApiError | null = null
+    for (let i = 0; i < 40 && !limited; i++) { try { await putWaiting('bob', chat.id, i % 2) } catch (e) { limited = e as ApiError } }
+    expect(limited?.status).toBe(429)
+    // deleting the chat drops every place in it
+    await Bun.sleep(3100)
+    await putWaiting('alice', chat.id, 1)
+    await h.api('alice').call(API.deleteChat, { params: { id: chat.id } })
+    expect(h.rt().sharedWaiting.othersCount(chat.id, 'bob')).toBe(0)
+  })
+
+  test('a waiting message goes under the newest end of the branch its sender last saw (`after`), not a version someone switched to', async () => {
+    const chat = await newShared()
+    const one = await ask('alice', chat.id, 'q1\n' + fake({ say: 'a1' }))
+    const re = await h.api('alice').call(API.regenerate, { params: { id: chat.id, messageId: one.started.assistantMessage.id }, body: {} })
+    await ws.alice!.next('message.done', (f) => f.data.messageId === re.assistantMessage.id, 30_000)
+    await idle(chat.id)
+    // bob saw the newer version end; someone switches the chat back to the first one before his message goes
+    await h.api('alice').call(API.selectBranch, { params: { id: chat.id }, body: { messageId: one.started.assistantMessage.id } })
+    const r = await h.api('bob').call(API.sendMessage, { params: { id: chat.id }, body: { content: 'this too', after: re.assistantMessage.id, clientMessageId: cm(), attachmentIds: [] } })
+    expect(r.userMessage!.parentId).toBe(re.assistantMessage.id)
+    await ws.bob!.next('message.done', (f) => f.data.messageId === r.assistantMessage.id, 30_000)
+    await idle(chat.id)
+    // turns that came since are kept: alice's newer turn on that branch, then bob's after it
+    const a2 = await ask('alice', chat.id, 'q2\n' + fake({ say: 'a2' }))
+    const r2 = await h.api('bob').call(API.sendMessage, { params: { id: chat.id }, body: { content: 'and this', after: r.assistantMessage.id, clientMessageId: cm(), attachmentIds: [] } })
+    expect(r2.userMessage!.parentId).toBe(a2.done.id)
+    await ws.bob!.next('message.done', (f) => f.data.messageId === r2.assistantMessage.id, 30_000)
   })
 
   test("another version is not picked while someone's answer runs: 409 branch_while_answering, the branch stays (audit row 7)", async () => {
@@ -414,6 +532,39 @@ describe('the read card', () => {
     expect(cards()).toBe(n)
   })
 
+  test('a search that stayed in the project folder says so once; path "/" looks through every folder behind the card (FIND-01)', async () => {
+    const chat = await newShared()
+    // no path: the result says only the project folder was searched, and how to look further, naming no folder
+    const quiet = await ask('alice', chat.id, fake({ tool: 'grep', args: { pattern: 'Autumn|Falcon' }, sayResult: true }, { tool: 'glob', args: { pattern: '**/*.md', path: '' }, sayResult: true }))
+    expect(quiet.done.content).toContain(PROJECT_SEARCH_NOTE)
+    // once a turn
+    expect(quiet.done.content.split(PROJECT_SEARCH_NOTE).length).toBe(2)
+    expect(PROJECT_SEARCH_NOTE).not.toMatch(/groups|marketing|users\//)
+    // a search that names the project folder itself says it too (once a turn)
+    const named = await ask('alice', chat.id, fake({ tool: 'glob', args: { pattern: '**/*', path: 'projects/falcon' }, sayResult: true }))
+    expect(named.done.content).toContain(PROJECT_SEARCH_NOTE)
+    // "/": the team root as alice can open it, without her own folder; marketing is not bob's, so the card asks first
+    const wide = await askWithCard('alice', chat.id, fake({ tool: 'grep', args: { pattern: 'Autumn|Draft Q4', path: '/' }, sayResult: true }), 'share')
+    expect((wide.card as { question: string }).question).not.toContain('your personal folder')
+    expect(wide.done.content).toContain('groups/marketing/campaign-brief.md')
+    expect(wide.done.content).not.toContain('users/alice')
+    const wideGlob = await askWithCard('alice', chat.id, fake({ tool: 'glob', args: { pattern: '**/*.md', path: '/' }, sayResult: true }), 'share')
+    expect(wideGlob.done.content).toContain('groups/marketing/campaign-brief.md')
+    expect(wideGlob.done.content).not.toContain('users/alice')
+    expect(wide.done.content).not.toContain(PROJECT_SEARCH_NOTE)
+    // a no reads nothing from there
+    const no = await askWithCard('alice', chat.id, fake({ tool: 'glob', args: { pattern: '**/campaign-brief.md', path: '/' }, sayResult: true }), 'skip')
+    expect(no.done.content).not.toContain('campaign-brief')
+  })
+
+  test('sharing with a group the asker is not in says the plain limit first, before any file rule (SHR-01)', async () => {
+    const chat = await newShared()
+    const r = await ask('alice', chat.id, fake({ tool: 'share_with_person', args: { paths: ['users/alice/todo.md'], people: ['finance team'] }, sayResult: true }))
+    expect(r.done.content).toContain('the user is not in a group by that name, and a member shares files only with groups they are in')
+    expect(r.done.content).toContain('sharing it with the people of that group by name')
+    expect(r.done.content).not.toContain('a file is shared only when the user named it')
+  })
+
   test("an admin's listing that shows names others cannot see asks first", async () => {
     // an admin who is not a member makes no chat in it (not found); as a member, her listing of the root asks
     expect((await errOf(newShared('carol'))).status).toBe(404)
@@ -469,7 +620,12 @@ describe('the read card', () => {
 // ---------------- tools and instructions ----------------
 describe('what a shared turn has', () => {
   test('SHARED_TOOLS keeps out the person\'s own and the room tools; a turn offers nothing else', async () => {
-    for (const t of ['remember', 'forget', 'set_title', 'connect_service', 'room_read', 'rooms', 'room_file', 'save_room_file', 'drive_search', 'schedule_create', 'box_shell']) expect(SHARED_TOOLS.has(t)).toBe(false)
+    for (const t of ['remember', 'forget', 'set_title', 'connect_service', 'room_read', 'rooms', 'room_file', 'save_room_file', 'drive_search']) expect(SHARED_TOOLS.has(t)).toBe(false)
+    // in a shared chat everything is shared (docs/decisions/20261118-shared-schedules-any-frequency.md): schedules and
+    // videos, behind the asker's own cards and with this chat's gates
+    for (const t of ['schedule_create', 'schedule_list', 'schedule_delete', 'generate_video', 'promo_video', 'save_promo_video']) expect(SHARED_TOOLS.has(t)).toBe(true)
+    // commands: fenced to what everyone in the chat may read (docs/decisions/20261118-devenv-shared-chats.md)
+    expect(SHARED_TOOLS.has('box_shell')).toBe(true)
     const chat = await newShared()
     const r = await ask('alice', chat.id, fake({ echo: 'tools' }))
     const offered = r.done.content.split(',').map((t) => t.replace(/^mcp__team__/, ''))
@@ -479,13 +635,15 @@ describe('what a shared turn has', () => {
   })
 
   test('the instructions: only SHARED_PROMPT_SECTIONS, nothing about the person; the transcript says who wrote what', async () => {
-    expect(Object.entries(SHARED_PROMPT_SECTIONS).filter(([, ok]) => !ok).map(([id]) => id).sort()).toEqual(['browser', 'connected', 'memories', 'sideRoom'])
+    expect(Object.entries(SHARED_PROMPT_SECTIONS).filter(([, ok]) => !ok).map(([id]) => id).sort()).toEqual(['browser', 'memories', 'sideRoom', 'situation'])
     const user = loadPrincipal(db(), 'alice')!
     const input: PromptInput = {
       user, groupNames: ['ZZ-GROUP-CANARY'], locale: 'en', timeZone: 'UTC', memories: [{ id: 'm1', text: 'MEMORY-CANARY' }],
       project: { name: 'Falcon', folderPath: 'projects/falcon', instructions: 'PROJECT-INSTR' }, browser: true,
       tools: ['make_file', 'search'], history: [{ role: 'user', content: 'earlier' }], connected: '## Connected services\nCONN-CANARY', subagents: true, now: new Date('2026-11-07T09:00:00Z'),
       shared: { project: 'Falcon', audience: 4, asker: user.name }, roomReadable: (rel) => !rel.startsWith('groups/marketing') && !rel.startsWith('users/'), skillChanges: 'SKILL-CHANGES',
+      // where things are in the app (chat/app-map.ts): its shared form, the same for everyone here
+      appMap: { view: 'shared', managed: false, devEnv: false, office: false },
     }
     const built: [ReturnType<typeof turnPromptSections>, string][] = [
       [turnPromptSections(h.ctx.files, input), buildTurnPrompt(h.ctx.files, input)],
@@ -494,9 +652,12 @@ describe('what a shared turn has', () => {
     ]
     for (const [sections, prompt] of built) {
       for (const sec of sections) if (sec.text) expect({ id: sec.id, in: prompt.includes(sec.text) }).toEqual({ id: sec.id, in: SHARED_PROMPT_SECTIONS[sec.id] === true })
-      for (const canary of ['MEMORY-CANARY', 'CONN-CANARY', 'ZZ-GROUP-CANARY', 'role member', 'groups/marketing']) expect({ canary, in: prompt.includes(canary) }).toEqual({ canary, in: false })
+      // (the connections section is there since 2026-11-18, in its shared form: tests/unit/b-shared-chat-connections.test.ts)
+      expect(prompt.includes('CONN-CANARY')).toBe(true)
+      for (const canary of ['MEMORY-CANARY', 'ZZ-GROUP-CANARY', 'role member', 'groups/marketing']) expect({ canary, in: prompt.includes(canary) }).toEqual({ canary, in: false })
     }
     expect(buildTurnPrompt(h.ctx.files, input)).toContain('## Shared project chat')
+    expect(buildTurnPrompt(h.ctx.files, input)).toContain('## Where things are in the app')
     // a fresh session of bob's gets the transcript with who wrote each message
     const chat = await newShared()
     await ask('alice', chat.id, 'ALICE-QUESTION\n' + fake({ say: 'answer one' }))
@@ -670,18 +831,33 @@ describe('review fixes', () => {
     }
   })
 
-  test("a card's answer, another person's error code and the queue place stay with the runner", async () => {
+  test("the AI's question in a shared chat: the asker's card only, answered only by them, the answer their message; another person's error code and the queue place stay with the runner", async () => {
     const chat = await newShared()
     const started = await send('alice', chat.id, fake({ tool: 'ask_user', args: { question: 'Your note?', allowText: true }, sayResult: true }))
     const card = await cardOf('alice', started.turnId)
-    // while alice's card is open: bob sees who is answering and that it waits, never the turn or its place
+    // while alice's answer runs: bob sees who is answering, never the turn or its place
     const q = await h.api('bob').call(API.getChatQueue, { params: { id: chat.id } })
     expect([q.turnId, q.messageId, q.position]).toEqual([null, null, null])
-    expect((await h.api('bob').call(API.getChat, { params: { id: chat.id } })).shared?.answering).toEqual({ name: 'Alice Kim', waiting: true })
-    await h.api('alice').call(API.answerTurn, { params: { id: started.turnId }, body: { kind: 'ask_user', requestId: card.data.request.requestId, answer: 'ALICE-PRIVATE-CARD-ANSWER' } })
+    // the answer ends with the card open (chat/open-questions.ts): it waits for alice alone
     await ws.alice!.next('message.done', (f) => f.data.messageId === started.assistantMessage.id, 20_000)
-    const bobSteps = JSON.stringify((await messages('bob', chat.id)).find((m) => m.id === started.assistantMessage.id)!.steps)
-    expect(bobSteps).not.toContain('ALICE-PRIVATE-CARD-ANSWER')
+    await waitFor(() => h.rt().runState(chat.id) === 'idle', { timeoutMs: 10_000 })
+    expect((await h.api('alice').call(API.listTurnRequests, { params: { id: chat.id } })).items.map((x) => x.request.requestId)).toEqual([card.data.request.requestId])
+    expect((await h.api('bob').call(API.listTurnRequests, { params: { id: chat.id } })).items).toEqual([])
+    expect((await h.api('alice').call(API.getChat, { params: { id: chat.id } })).waiting).toBe(true)
+    expect((await h.api('bob').call(API.getChat, { params: { id: chat.id } })).waiting).toBeUndefined()
+    expect(ws.bob!.frames.some((f) => f.type === 'turn.request' && f.data.request.requestId === card.data.request.requestId)).toBe(false)
+    // only alice may answer it: bob cannot, by alice's turn or by the question
+    const bobTry = await h.req('bob', `/api/turns/${started.turnId}/answer`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ kind: 'ask_user', requestId: card.data.request.requestId, answer: 'BOB-ANSWER' }) })
+    expect(bobTry.status).toBe(404)
+    expect(h.ctx.db.query('SELECT answer FROM open_questions WHERE request_id = ?').get(card.data.request.requestId)).toEqual({ answer: null })
+    await h.api('alice').call(API.answerTurn, { params: { id: started.turnId }, body: { kind: 'ask_user', requestId: card.data.request.requestId, answer: 'ALICE-CARD-ANSWER' } })
+    // her answer is her message in the chat (in a shared chat everything is shared: owner 2026-11-19), and the AI goes on
+    const u = await ws.alice!.next('message.created', (f) => f.data.chatId === chat.id && f.data.message.parentId === started.assistantMessage.id, 20_000)
+    expect(u.data.message).toMatchObject({ role: 'user', content: 'ALICE-CARD-ANSWER' })
+    const a = await ws.alice!.next('message.created', (f) => f.data.chatId === chat.id && f.data.message.parentId === u.data.message.id, 20_000)
+    await ws.alice!.next('message.done', (f) => f.data.messageId === a.data.message.id, 30_000)
+    const bobSees = (await messages('bob', chat.id)).find((m) => m.id === u.data.message.id)!
+    expect(bobSees).toMatchObject({ content: 'ALICE-CARD-ANSWER', author: { id: 'alice' } })
     const failed = await ask('bob', chat.id, fake({ fail: 'rate limit exceeded' }))
     expect((await messages('alice', chat.id)).find((m) => m.id === failed.done.id)!.error?.code).toBe('internal')
     expect(failed.done.error?.code).not.toBe('internal')

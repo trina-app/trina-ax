@@ -6,13 +6,16 @@ import clsx from 'clsx'
 import { Loader2, ShieldAlert, WifiOff } from 'lucide-react'
 import { lazy, Suspense, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { matchPath, Outlet, useLocation, useNavigate } from 'react-router-dom'
+import { useReportLooking } from './LookingReporter'
 import { PRODUCT } from '@mycel/shared'
 import { useOverlayEntry } from '../lib/backCloses'
 import { mayReloadNow } from '../lib/reload-guard'
 import { setNavigator } from '../lib/nav'
-import { closeSidePanel, escapeAction, expandable, keepsFilePanel, openArtifact, panelExpandedNow, panelGuarded, setPanelExpanded, setSidePanel, typingOnPhone, usePanelExpanded, usePanelRefusals, useSidePanel } from '../lib/sidePanel'
+import { closeSidePanel, escapeAction, expandable, getSidePanel, keepsFilePanel, openArtifact, panelExpandedNow, panelGuarded, setPanelExpanded, setSidePanel, typingOnPhone, usePanelExpanded, usePanelRefusals, useSidePanel } from '../lib/sidePanel'
 import { useImageViewer } from '../lib/imageViewer'
 import { newChatPath } from '../lib/newChat'
+import { searchShortcut } from '../lib/searchKeys'
+import { platform } from '../lib/pwa'
 import { useT } from '../i18n'
 import { useChats } from '../store/chats'
 import { useMe } from '../store/session'
@@ -31,6 +34,7 @@ import { WebPushAsk } from './WebPushAsk'
 import { useRoomsSync } from './rooms/useRoomsSync'
 import { ChunkErrorBoundary } from './ChunkErrorBoundary'
 import { DemoBar, useDemoInfo } from './demo/Demo'
+import { DemoLimitDialog } from './demo/FreeRoam'
 import { Spinner, useMediaQuery } from './ui'
 import SidePanelFrame from './SidePanelFrame'
 import { RailColumns } from './rail/RailColumns'
@@ -41,6 +45,8 @@ const BrowserPanel = lazy(() => import('./BrowserPanel'))
 
 export default function Layout() {
   const t = useT()
+  // what this window shows, told to the server for the AI's looking_at tool (the one place that reports it)
+  useReportLooking()
   const setSearchOpen = useUi((s) => s.setSearchOpen)
   const panel = useSidePanel()
   // "크게 보기" (lib/sidePanel.ts): the panel takes the page's place beside the rail; the page stays mounted, hidden
@@ -59,13 +65,31 @@ export default function Layout() {
     return () => setNavigator(null)
   }, [navigate])
 
-  // keyboard: ⌘/Ctrl+K search, ⌘/Ctrl+Shift+O new chat, Esc: a big side panel back side by side, then closed
+  // keyboard: ⌘/Ctrl+K and ⌘/Ctrl+F search (lib/searchKeys.ts), ⌘/Ctrl+Shift+O new chat, Esc: a big side panel back
+  // side by side, then closed
   useEffect(() => {
     const h = (e: KeyboardEvent) => {
       const mod = e.metaKey || e.ctrlKey
-      if (mod && e.key.toLowerCase() === 'k') {
+      const ui = useUi.getState()
+      const box = document.querySelector<HTMLElement>('[data-testid="search-palette"]')
+      const panelNow = getSidePanel()
+      const key = searchShortcut(e, {
+        open: ui.searchOpen,
+        // another dialog (the image and file viewer is one too): ⌘F is left alone. Not a room's thread or side chat drawn
+        // as a sheet in a narrow window (pages/Room.tsx data-sheet): that is the conversation itself
+        dialog: !!document.querySelector('[role="dialog"]:not([data-testid="search-palette"]):not([data-sheet])'),
+        path: window.location.pathname,
+        reading: panelNow?.kind === 'file' || panelNow?.kind === 'artifact',
+        mac: platform() === 'mac' || platform() === 'ios',
+      })
+      if (key.do === 'open') {
         e.preventDefault()
-        setSearchOpen(true)
+        setSearchOpen(true, undefined, key.here)
+      } else if (key.do === 'focus') {
+        e.preventDefault()
+        const input = box?.querySelector<HTMLInputElement>('input[role="combobox"]')
+        input?.focus()
+        input?.select()
       } else if (mod && e.shiftKey && e.key.toLowerCase() === 'o') {
         e.preventDefault()
         navigate(newChatPath())
@@ -189,7 +213,7 @@ export default function Layout() {
         </main>
         {panel && (
           // beside an open thread (a file a reply links to) the panel leaves the room and the thread their minimums
-          <SidePanelFrame besideThread={!!matchPath('/rooms/:roomId/t/:messageId', location.pathname)} expanded={big}>
+          <SidePanelFrame besideThread={!!(matchPath('/rooms/:roomId/t/:messageId', location.pathname) || matchPath('/c/:chatId/t/:messageId', location.pathname))} expanded={big}>
             <ChunkErrorBoundary resetKey={panel.kind === 'file' ? `file:${panel.key}` : panel.kind === 'artifact' ? `artifact:${panel.chatId}:${panel.artifactKey}:${panel.versionId ?? ''}` : panel.kind}>
               <Suspense fallback={<Spinner className="p-6" />}>
                 {panel.kind === 'artifact' && <ArtifactPanel chatId={panel.chatId} artifactKey={panel.artifactKey} versionId={panel.versionId} onClose={closeSidePanel} />}
@@ -203,6 +227,8 @@ export default function Layout() {
       <SearchDialog />
       {/* "Invite people" from the team menu or ⌘K (TeamMenu.tsx): one dialog for the window */}
       <TeamInviteDialog />
+      {/* a free-roam demo at its limit (components/demo/FreeRoam.tsx): one dialog for the window */}
+      <DemoLimitDialog />
       <UpdateWatcher />
       <AttentionTitle />
     </div>

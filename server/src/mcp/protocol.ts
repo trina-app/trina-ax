@@ -4,12 +4,13 @@ import { EDIT_FILES_TOOL, EditFilesInput, FILE_TOOLS } from '@mycel/shared'
 import type { Database } from 'bun:sqlite'
 import type { FileService, ToolCtx } from '../files/service'
 import { toolRegistry } from '../tools/registry'
-import { loadPrincipal } from '../policy/access'
+import { loadPrincipal, withHiddenFolders } from '../policy/access'
 import { authorize } from '../policy/authorize'
 import type { TurnToolSet } from '../turns'
 import { confidentialTurn, localTool } from '../safe-ops/confidential'
 import { safeText } from '../safe-ops/strings'
 import { cardEndShort, endOfText } from '../policy/refusal'
+import { KeyRefusal, KEYS_HIDDEN_NOTE } from '../integrations/connections/hide-args'
 
 const toolList = Object.entries(FILE_TOOLS).map(([name, t]) => {
   const schema = z.toJSONSchema(t.input as any, { target: 'draft-7' }) as any
@@ -24,6 +25,10 @@ export function toolUseIdOf(params: unknown): string | null {
   const id = meta && typeof meta === 'object' ? (meta as Record<string, unknown>)['claudecode/toolUseId'] : undefined
   return typeof id === 'string' && id.length > 0 && id.length <= 200 ? id : null
 }
+
+/** The tools a turn's tools/list gives: the file tools and the turn's own (or every registered one). */
+export const listedTools = (files: FileService, extra?: TurnToolSet): { name: string; description: string; inputSchema: unknown }[] =>
+  [...toolList, ...(extra ? extra.list() : toolRegistry(files).list())]
 
 export function makeHandler(files: FileService, db: Database, ctx: ToolCtx, extra?: TurnToolSet) {
   const insert = db.query('INSERT INTO tool_events (turn_id, user_id, tool, summary, ok, tool_use_id, parent_tool_use_id) VALUES (?,?,?,?,?,?,?)')
@@ -52,15 +57,36 @@ export function makeHandler(files: FileService, db: Database, ctx: ToolCtx, extr
     // person as loaded for it, as when calls ran one at a time, and its agent's state
     const callCtx: ToolCtx = { ...ctx, user, files: call.files }
     const caller = { files: call.files }
+    // a chat turn: the person's stored connection keys in what this tool saves or sends to a connected service are
+    // hidden before any check, card, write or call (integrations/connections/hide-args.ts, QA TC-3041, TC-3081); the
+    // AI is told after the call
+    // what the AI is told after the call when something was hidden (null: nothing was)
+    let hidden: string | null = null
+    if (extra?.hideKeys) {
+      try {
+        const h = extra.hideKeys(name, params?.arguments ?? {})
+        if (h.hidden) { params = { ...params, arguments: h.args }; hidden = h.note ?? KEYS_HIDDEN_NOTE }
+      } catch (e) {
+        // a call to a connected service whose data cannot be sent with the key taken out (a file's base64), or whose
+        // person's stored keys cannot all be read now: not sent
+        if (e instanceof KeyRefusal) {
+          audit.run(ctx.turnId, ctx.user.id, name.slice(0, 64), `${name} -> not sent (${e.short})`, 0)
+          return failed(e.message)
+        }
+        audit.run(ctx.turnId, ctx.user.id, name.slice(0, 64), `${name} -> not run (the key check failed)`, 0)
+        return failed('What you gave this tool could not be checked for stored keys, so nothing was saved or sent. Try again.')
+      }
+    }
+    const withNote = (r: CallResult): CallResult => (hidden && !r.result.isError ? { ...r, result: { ...r.result, content: [...r.result.content, { type: 'text', text: hidden }] } } : r)
     if (extra?.has(name)) {
       const out: Awaited<ReturnType<TurnToolSet['call']>> = await extra.call(name, params?.arguments ?? {}, caller).catch((e) => ({ content: [{ type: 'text' as const, text: 'Error: internal error' }], isError: true, summary: `${name} -> internal: ${String(e?.message ?? e).slice(0, 200)}` }))
       audit.run(ctx.turnId, ctx.user.id, name.slice(0, 64), out.summary.slice(0, 1000), out.isError ? 0 : 1)
       // a room file's content (room_file) is checked again before it goes, as a read's is below
       if (out.beforeDelivery) {
         try { out.beforeDelivery() } catch { return failed(safeText(db, ctx.user.id, 'changed')) }
-        return { result: { content: out.content, ...(out.isError ? { isError: true as const } : {}) }, beforeDelivery: out.beforeDelivery }
+        return withNote({ result: { content: out.content, ...(out.isError ? { isError: true as const } : {}) }, beforeDelivery: out.beforeDelivery })
       }
-      return { result: { content: out.content, ...(out.isError ? { isError: true as const } : {}) } }
+      return withNote({ result: { content: out.content, ...(out.isError ? { isError: true as const } : {}) } })
     }
     const registry = extra ? null : toolRegistry(files)
     // fail closed: a check that throws stops the save
@@ -74,12 +100,12 @@ export function makeHandler(files: FileService, db: Database, ctx: ToolCtx, extr
     const out = registry?.has(name) ? await registry.call(name, params?.arguments ?? {}, callCtx) : await files.call(name, params?.arguments ?? {}, callCtx)
     audit.run(ctx.turnId, ctx.user.id, name.slice(0, 64), out.summary.slice(0, 1000), out.isError ? 0 : 1)
     let note: string | void = ''
-    try { note = extra?.afterFileTool?.(name, !!out.isError, params?.arguments, out.text) } catch {}
+    try { note = extra?.afterFileTool?.(name, !!out.isError, params?.arguments, out.text, caller) } catch {}
     try { out.beforeDelivery?.() } catch {
       return failed(safeText(db,ctx.user.id,'changed'))
     }
     const content = out.content ?? [{ type: 'text', text: out.text }, ...(out.images ?? [])]
-    return { result: { content: note ? [...content, { type: 'text', text: note }] : content, ...(out.isError ? { isError: true as const } : {}) }, beforeDelivery: out.beforeDelivery }
+    return withNote({ result: { content: note ? [...content, { type: 'text', text: note }] : content, ...(out.isError ? { isError: true as const } : {}) }, beforeDelivery: out.beforeDelivery })
   }
 
   /**
@@ -152,7 +178,7 @@ export function makeHandler(files: FileService, db: Database, ctx: ToolCtx, extr
       // file tools first, then the extra tools. A chat turn brings its own set (`extra`: B's tools plus every
       // ctx.services.turnTools entry, which includes C's registry tools). Without one (stage-1 turns, direct
       // tests) the tools other components registered in tools/registry.ts are served as they are.
-      case 'tools/list': return reply({ tools: [...toolList, ...(extra ? extra.list() : toolRegistry(files).list())] })
+      case 'tools/list': return reply({ tools: listedTools(files, extra) })
       case 'tools/call': {
         const name = String(msg.params?.name ?? '')
         if(confidentialTurn(db,ctx.turnId) && !localTool(name)) return reply({content:[{type:'text',text:safeText(db,ctx.user.id,'external')}],isError:true})
@@ -161,8 +187,12 @@ export function makeHandler(files: FileService, db: Database, ctx: ToolCtx, extr
         try { ended = extra?.callStarted?.() } catch {}
         try {
           // the batch of edits a chat turn offers: each file goes through callTool below as its own edit call
-          if (name === EDIT_FILES_TOOL && extra?.has(name)) return reply(await editFiles(msg.params))
-          const r = await callTool(msg.params)
+          // a shared project chat: its sub-folders some of its people may not open are not there for the person in this
+          // call, the read card and every tool alike (policy/access.ts withHiddenFolders; fails closed in the turn)
+          let hiddenScope: ReturnType<NonNullable<TurnToolSet['hiddenFolders']>> = null
+          try { hiddenScope = extra?.hiddenFolders?.() ?? null } catch { return reply(failed('The call could not be checked, so nothing was read or changed. Try again.').result) }
+          if (name === EDIT_FILES_TOOL && extra?.has(name)) return reply(await withHiddenFolders(hiddenScope, () => editFiles(msg.params)))
+          const r = await withHiddenFolders(hiddenScope, () => callTool(msg.params))
           const response = reply(r.result)
           if (r.beforeDelivery) Object.defineProperty(response, 'beforeDelivery', { value: r.beforeDelivery })
           return response

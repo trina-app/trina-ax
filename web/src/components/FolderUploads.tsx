@@ -3,13 +3,16 @@
 // and the row is there when they come back. The work itself is lib/folderUpload.ts.
 import { FolderUp, Loader2, X } from 'lucide-react'
 import { UPLOAD_SESSION_MAX } from '@mycel/shared/api'
+import { myUploadMaxNow } from '../store/session'
 import { api, API, errorText } from '../lib/api'
 import { FolderUpload, type FolderFailure, type FolderPlan, type FolderUploadCalls } from '../lib/folderUpload'
 import { useRuns, type Run } from '../lib/folderRuns'
 import { formatSize } from '../lib/format'
+import { workReadReason } from '../lib/workFiles'
 import { useFolderWords } from '../lib/folderLabels'
 import { baseName } from '../lib/paths'
 import { cancelUpload, uploadFile, uploadLabel } from '../lib/upload'
+import { FromCloudLine } from './FromCloud'
 import { useLocale, useT } from '../i18n'
 import { Button, IconButton, ProgressBar } from './ui'
 import { StoragePlansLink, storagePlansUrl } from './StoragePlansLink'
@@ -31,10 +34,12 @@ useRuns.subscribe((s) => {
   else window.removeEventListener('beforeunload', stay)
 })
 
+const fileMax = () => myUploadMaxNow(UPLOAD_SESSION_MAX)
 const target = (path: string) => ({ kind: 'path', path, onExists: 'rename' }) as const
 
 const calls: FolderUploadCalls = {
-  maxFileSize: UPLOAD_SESSION_MAX,
+  // a guest: the team's guest limit, as it is when the folder is dropped
+  get maxFileSize() { return fileMax() },
   mkdir: (path, signal) => api.call(API.mkdir, { body: { path }, signal }),
   isFolder: (path, signal) => api.call(API.tree, { query: { path, limit: 1 }, signal }).then(() => true, () => false),
   upload: (file, path, signal, onProgress) => uploadFile(file, target(path), { client: api, signal, onProgress }),
@@ -123,8 +128,11 @@ function FolderRow({ item, here }: { item: Run; here: string }) {
   // the row says the end and each failure aloud (a refusal has its own alert below)
   const said = running ? (v.failed ? `${title}: ${failed}` : '') : `${title}: ${t('files.folderUpload.ended', { done: v.done, total: v.total })}${v.failed ? ` ${failed}` : ''}`
   const reason = (f: FolderFailure) => {
+    // a file of Find work files: the desktop app's reason (changed or gone since the look …), not the browser's (TC-219)
+    const why = workReadReason(f.error, t)
+    if (why) return why
     if (f.local === 'unreadable') return t('files.folderUpload.unreadable')
-    if (f.local === 'tooLarge') return t('files.folderUpload.tooLarge', { size: formatSize(UPLOAD_SESSION_MAX, locale) })
+    if (f.local === 'tooLarge') return t('files.folderUpload.tooLarge', { size: formatSize(fileMax(), locale) })
     if (f.local) return t(`files.name.${f.local}`)
     return errorText(f.error, locale, t('error.network'))
   }
@@ -159,7 +167,8 @@ function FolderRow({ item, here }: { item: Run; here: string }) {
       {running && (
         <ProgressBar value={pct / 100} label={v.name ?? t('files.folderUpload.label')} />
       )}
-      {running && now && (
+      {running && now?.cloud && <FromCloudLine active={[now]} className="truncate text-faint" />}
+      {running && now && !now.cloud && (
         <p className="truncate text-faint">
           {now.name} · {uploadLabel(now, t)}
         </p>

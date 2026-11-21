@@ -136,7 +136,7 @@ export class ScheduleCover {
     if (s.type === 'integration') return `the team connection ${getRow(db, s.id)?.name ?? '?'}`
     if (s.type === 'drive_share') return 'a Google Drive shared with the team'
     if (s.type === 'slack') return 'messages the user read in Slack'
-    if (s.type === 'chat') return 'files sent in a shared chat'
+    if (s.type === 'chat') return 'files or comments in a shared chat'
     return `the name ${s.path}`
   }
 
@@ -266,8 +266,9 @@ export class ScheduleCover {
     if (!last?.sha256) return true
     try {
       const abs = path.join(this.host.rt.files.fx.root, ...rel.split('/'))
-      if (fs.lstatSync(abs).size > UNRECORDED_HASH_MAX) return true
-      return sha256Regular(abs) !== last.sha256
+      const st = fs.lstatSync(abs)
+      if (st.size > UNRECORDED_HASH_MAX) return true
+      return sha256Regular(abs, st) !== last.sha256
     } catch { return true }
   }
 

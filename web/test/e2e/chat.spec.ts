@@ -280,7 +280,7 @@ test('an error answer offers retry', async ({ page }) => {
 })
 
 // owner decision 2026-11-11: the AI cannot start. A member reads "not ready yet" with [Tell an admin] (then "Told"); the
-// owner reads their own words with [Connect AI], which opens Admin › AI accounts. "Try again" stays for both.
+// owner reads their own words with [Connect AI], which opens Admin › AI providers. "Try again" stays for both.
 test('the AI cannot start: a member tells an admin with one button', async ({ page }) => {
   await reset(page)
   await signIn(page, BOB)
@@ -413,7 +413,7 @@ for (const legacy of [false, true]) {
       await expect(error).toContainText(text.ko)
       for (const locale of ['id', 'en'] as const) {
         await page.goto('/settings/profile')
-        await page.getByTestId(`locale-${locale}`).click()
+        await page.getByTestId('profile-locale').selectOption(locale)
         await expect(page.locator('html')).toHaveAttribute('lang', locale)
         await page.goto(chatUrl)
         await expect(error).toContainText(text[locale])
@@ -437,7 +437,7 @@ for (const [fixture, fallback] of [['unknown', 'Unknown upstream failure'], ['fu
     const chatUrl = page.url()
     for (const locale of ['id', 'en']) {
       await page.goto('/settings/profile')
-      await page.getByTestId(`locale-${locale}`).click()
+      await page.getByTestId('profile-locale').selectOption(locale)
       await expect(page.locator('html')).toHaveAttribute('lang', locale)
       await page.goto(chatUrl)
       await expect(lastAnswer(page).getByTestId('answer-error')).toContainText(fallback!)

@@ -32,7 +32,7 @@
 // room_messages (author_kind 'ai', asked_by = who asked); an unposted private preview (visibility 'private') is filtered
 // everywhere (canSee / SEE_SQL) and makes no notice (notify()).
 import type { Database } from 'bun:sqlite'
-import { DEFAULT_LOCALE, inQuietHours, roomAlert, roomLevel, ROOM_GROUP_MAX, ROOM_REACTION_EMOJI_MAX, type Locale, type RoomAlertSettings, type RoomNotifyLevel, type Room, type RoomMember, type RoomMessage, type RoomMessagesPage, type RoomReaction, type RoomReactionEmoji, type RoomReadState, type RoomFileSearchPage, type RoomSearchPage, type RoomThreadPage, type RoomThreadReadState, type ServerEventInput, type MessageLinkAudience } from '@mycel/shared/api'
+import { DEFAULT_LOCALE, inQuietHours, roomAlert, roomLevel, ROOM_GROUP_MAX, ROOM_REACTION_EMOJI_MAX, type Locale, type RoomAlertSettings, type RoomNotifyLevel, type Room, type RoomMember, type RoomMessage, type RoomMessagesPage, type RoomReaction, type RoomReactionEmoji, type RoomReadState, type RoomFileSearchPage, type MyRoomFilesPage, type RecentRoomFiles, type RoomFilesPage, type RoomSearchPage, type RoomThreadPage, type RoomThreadReadState, type ServerEventInput, type MessageLinkAudience } from '@mycel/shared/api'
 import { cardLinks, keptAfterEdit, snapshotOf, snapshotOut, prepareLinkPreviews, readStored, seesLinked, snapshotAllowed, snapshotsAtSend, wipeSnapshotsOf, writeStored } from './link-previews'
 import { decodeCursor, encodeCursor } from '../chat/store'
 import type { AppContext } from '../context'
@@ -47,18 +47,21 @@ import { teamTimeZone } from '../admin/settings'
 import { welcomeTeamGroupId } from '../onboarding/welcome'
 import { alertSettings, ownLevel, setOwnLevel } from './alerts'
 import {
-  canSee, groupName, isHiddenFor, mayManageApps, LIST_SQL, seenSeq, seesFrom, hideable, isOwnerOrAdmin, managerOf, mayRename, roomAuditRef, memberRow, members, membersOut, messageRow, messagesOut, MSG_COLS, reactionsOf, roomOut, roomRow, seeArgs, setRoomPathCheck, sharedAnswerOf,
+  canSee, groupName, isHiddenFor, mayManageApps, LIST_SQL, seenSeq, seesFrom, hideable, isOwnerOrAdmin, managerOf, mayRename, roomAuditRef, memberRow, members, membersOut, messageRow, messagesOut, MSG_COLS, reactionsOf, roomOut, roomRow, rulesOnce, seeArgs, setRoomPathCheck, sharedAnswerOf,
   dmPeerGone, lastSeqFor, MENTIONS_SQL, refsOf, PIN_COUNTS_SQL, pinOf, threadable, threadSummary, threadsUnread, TIMELINE_SQL, unreadCount,
   type EventData, type MemberRow, type MessageRow, type RoomRow,
 } from './store'
 import { roomFilesOf } from './files'
-import { historyKinds, openHistories } from './history'
+import { roomFileRefsOf } from './file-refs'
+import { historyRoom, openHistories } from './history'
 import { countedUnreadIn } from './inbox'
-import { searchRoomFiles, searchRoomMessages, type SearchInput } from './search'
+import { searchRoomFiles, searchRoomMessages, type SearchInput, listMyRoomFiles, listRoomFiles, recentRoomFiles } from './search'
 import { tr } from '../chat/i18n'
 import { roomMentionAllIn } from '@mycel/shared/api'
-import { loadPrincipal } from '../policy/access'
-import { assertGuestMayJoin, guestsAmong, isGuest, placePeople, sharesPlace } from '../auth/guests'
+import { loadPrincipal, RuleSet, type Principal } from '../policy/access'
+import { dropLinksInTx, linkedRoomSeats, linkedRoomsOf, linkedSightFlips } from './project-link'
+import { activePeople, isHeld, isProjectRoom, followNames, linkedRows, NOT_HELD_SQL, openInTx, plan, refuseInProjectRoom, settleLinkedInTx, type ProjectRoomScope } from './project-room'
+import { claimGuestRoom, guestsAmong, isGuest, sharesPlace } from '../auth/guests'
 import { afterGuestsLeft, dmPairOk } from './guest-reach'
 import { authorize, visiblePath } from '../policy/authorize'
 
@@ -87,7 +90,7 @@ export interface SendInput { body: string; replyToId?: string | null; threadRoot
 /** `via`: 'ai' when the AI's post_to_room sent it after the person's yes on its card (chat/post-to-room.ts); absent: the
  * button under an answer. `plain`: post_to_room's own_words, the person's own message with no AI-answer quote (no
  * answer_at; checked and audited as a share). `openedDm`: the post made the 1:1 chat (audited as a flag, nobody named). */
-export interface SharedAnswerMark { at: number; cut: boolean; people: number; confirmed?: boolean; scope: string; via?: 'ai'; plain?: boolean; openedDm?: boolean }
+export interface SharedAnswerMark { at: number; cut: boolean; people: number; confirmed?: boolean; scope: string; via?: 'ai'; plain?: boolean; openedDm?: boolean; /** sent at once under the person's own "Always allow" for room posts (the button: chat/answer-share.ts) */ always?: boolean }
 /** Nobody: what everyone who sees a message without being in it or following anything sees (one copy for most members). */
 const NOBODY: MemberRow = { room_id: '', user_id: '', joined_at: '', last_read_seq: 0, visible_from_seq: 0, history_from_seq: 0, muted: 0, notify_level: null, hidden_at: null }
 
@@ -114,11 +117,14 @@ export class Rooms {
     const room = roomRow(this.db, roomId)
     let me = room && !room.archived_at ? memberRow(this.db, roomId, userId) : null
     if (!room || !me) return fail('not_found')
+    // a project's room while the project is in the trash: held as it is, refused like a room that is not there
+    // (rooms/project-room.ts)
+    if (room.kind === 'group' && isHeld(this.db, roomId)) return fail('not_found')
     // a DM whose two no longer share a guest's place: closed to both, as if it were not there (rooms/guest-reach.ts)
     if (!dmPairOk(this.db, room.kind, room.dm_key)) return fail('not_found')
     // a team room or the everyone room whose history is not open to me yet (rooms/history.ts): now, before anything is
     // read; a failure leaves me seeing it from my join on
-    if ((me.history_from_seq === null || me.history_recheck) && historyKinds(room.kind)) {
+    if ((me.history_from_seq === null || me.history_recheck) && historyRoom(this.db, room)) {
       // (through openHistories: a walk that keeps failing waits before it is tried again)
       try { openHistories(this.ctx, { userId, roomId }) } catch (e) { this.ctx.log.warn('room history not opened', { err: e }) }
       me = memberRow(this.db, roomId, userId) ?? me
@@ -174,7 +180,8 @@ export class Rooms {
   roomEvent(roomId: string, change: 'added' | 'updated' | 'members', only?: ReadonlySet<string>) {
     const room = roomRow(this.db, roomId)
     if (!room) return
-    this.fanout(roomId, (m) => (only && !only.has(m.user_id) ? null : { type: 'room.updated', data: { roomId, change, room: roomOut(this.db, room, m) } }))
+    const rules = rulesOnce(this.db)
+    this.fanout(roomId, (m) => (only && !only.has(m.user_id) ? null : { type: 'room.updated', data: { roomId, change, room: roomOut(this.db, room, m, undefined, rules) } }))
   }
   /** People whose own signals a bulk read holds back (hold): their rooms to send one room.updated each at the end. */
   private held = new Map<string, Set<string>>()
@@ -210,9 +217,11 @@ export class Rooms {
   listed(userId: string): Room[] {
     const rows = this.db.query(`SELECT r.*, m.user_id, m.joined_at, m.last_read_seq, m.visible_from_seq, m.history_from_seq, m.muted, m.notify_level, m.hidden_at,
       EXISTS (SELECT 1 FROM room_hidden_answers h WHERE h.room_id = m.room_id AND h.user_id = m.user_id) has_hidden FROM rooms r JOIN room_members m ON m.room_id = r.id
-      WHERE m.user_id = ? AND r.archived_at IS NULL`).all(userId) as (RoomRow & MemberRow)[]
+      WHERE m.user_id = ? AND r.archived_at IS NULL AND ${NOT_HELD_SQL('r')}`).all(userId) as (RoomRow & MemberRow)[]
     const prefs = getPreferences(this.db, userId)
-    const out = rows.filter((r) => dmPairOk(this.db, r.kind, r.dm_key)).map((r) => roomOut(this.db, r, { ...r, room_id: r.id }, prefs))
+    // the folder rules once for the whole list (a team room's Files button, rooms/store.ts groupFolderFor)
+    const rules = rulesOnce(this.db)
+    const out = rows.filter((r) => dmPairOk(this.db, r.kind, r.dm_key)).map((r) => roomOut(this.db, r, { ...r, room_id: r.id }, prefs, rules))
     const rank = (k: Room['kind']) => (k === 'all' ? 0 : k === 'team' ? 1 : 2)
     return out.sort((a, b) => (b.activityAt.localeCompare(a.activityAt)) || rank(a.kind) - rank(b.kind) || a.id.localeCompare(b.id))
   }
@@ -227,7 +236,7 @@ export class Rooms {
     if (otherId === userId) fail('validation', undefined, { fields: { 'body.userId': 'yourself' } })
     const other = this.db.query("SELECT id FROM users WHERE id = ? AND status = 'active' AND deleted_at IS NULL").get(otherId)
     if (!other) fail('not_found')
-    // a guest and the people of their one place only, both ways (auth/guests.ts): anyone else reads as unknown
+    // a guest and the people of their places only, both ways (auth/guests.ts): anyone else reads as unknown
     if (!sharesPlace(this.db, userId, otherId)) fail('not_found')
     const key = [userId, otherId].sort().join('|')
     const find = () => this.db.query("SELECT id FROM rooms WHERE kind = 'dm' AND dm_key = ?").get(key) as { id: string } | null
@@ -258,13 +267,31 @@ export class Rooms {
     return this.get(userId, found.id)
   }
 
-  /** A group chat of me and `userIds` (at least two others, active people of this team; not audited). Its name is
-   * optional: without one the app shows the other members' names. Everyone in it sees it from its first line. */
-  createGroup(userId: string, userIds: readonly string[], name?: string | null, locale: Locale = 'en'): Room {
-    // a guest makes no group chat: their one place is the one they were invited to
+  /** A group room of me and `userIds` (active people of this team; not audited). With a name it is a private channel
+   * (at least one other person); without one a group DM (at least two others), named after its people in the app, and
+   * a group DM of exactly these people that I am in already is opened instead of a second one
+   * (docs/decisions/20261117-named-groups-private-channels.md). Everyone in it sees it from its first line. */
+  createGroup(userId: string, userIds: readonly string[], name?: string | null, locale: Locale = 'en', inTx?: (roomId: string) => void): Room {
+    // a guest makes no group chat: a member puts them into one (one group chat at most)
     if (isGuest(this.db, userId)) fail('forbidden')
     const others = [...new Set(userIds)].filter((id) => id !== userId)
-    if (others.length < 2) fail('validation', undefined, { fields: { 'body.userIds': 'at least two other people' } })
+    const named = !!name?.trim()
+    if (others.length < (named ? 1 : 2)) fail('validation', undefined, { fields: { 'body.userIds': named ? 'at least one other person' : 'at least two other people' } })
+    if (!named && others.length + 1 <= ROOM_GROUP_MAX) {
+      const everyone = [userId, ...others]
+      const same = this.db
+        .query(
+          `SELECT r.id FROM rooms r WHERE r.kind = 'group' AND r.archived_at IS NULL AND (r.name IS NULL OR TRIM(r.name) = '')
+             AND (SELECT COUNT(*) FROM room_members m WHERE m.room_id = r.id) = ?
+             AND (SELECT COUNT(*) FROM room_members m WHERE m.room_id = r.id AND m.user_id IN (${everyone.map(() => '?').join(', ')})) = ?
+           ORDER BY r.activity_at DESC LIMIT 1`,
+        )
+        .get(everyone.length, ...everyone, everyone.length) as { id: string } | null
+      if (same) {
+        this.unhide(same.id, [userId])
+        return this.get(userId, same.id)
+      }
+    }
     if (others.length + 1 > ROOM_GROUP_MAX) fail('validation', undefined, { fields: { 'body.userIds': `at most ${ROOM_GROUP_MAX} people` } })
     this.assertActive(others)
     // it lands in up to 99 people's lists: the same budget as sending, and at most GROUPS_PER_HOUR an hour
@@ -272,21 +299,23 @@ export class Rooms {
     const made = (this.groupsMade.get(userId) ?? []).filter((x) => x > t - HOUR_MS)
     if (made.length >= GROUPS_PER_HOUR) {
       const wait = Math.max(1, Math.ceil((made[0]! + HOUR_MS - t) / 1000))
-      fail('rate_limited', tr('roomGroupLimit', locale, { n: String(GROUPS_PER_HOUR), minutes: String(Math.ceil(wait / 60)) }), { retryAfter: wait })
+      fail('rate_limited', tr(named ? 'roomChannelLimit' : 'roomGroupLimit', locale, { n: String(GROUPS_PER_HOUR), minutes: String(Math.ceil(wait / 60)) }), { retryAfter: wait })
     }
     this.takeSendToken(userId)
     made.push(t)
     this.groupsMade.set(userId, made)
     const id = newId(), now = nowIso()
     this.db.transaction(() => {
-      // a new group chat is a second place for any guest in it (409 guest_one_place), checked in this write
-      for (const g of guestsAmong(this.db, others)) assertGuestMayJoin(this.db, g, { kind: 'room', id }, locale)
+      // a guest already in another group chat is refused (409 guest_one_place); else this one becomes theirs, in this write
+      for (const g of guestsAmong(this.db, others)) claimGuestRoom(this.db, g, id, locale)
       this.db.query("INSERT INTO rooms (id, kind, created_by, created_at, activity_at, name) VALUES (?, 'group', ?, ?, ?, ?)").run(id, userId, now, now, name?.trim() || null)
       const add = this.db.query('INSERT INTO room_members (room_id, user_id, joined_at) VALUES (?, ?, ?)')
       for (const u of [userId, ...others]) add.run(id, u, now)
       this.eventLine(id, userId, { type: 'created', userIds: others }, now)
       // not audited: the audit log is the admins' to read, and they must not learn who talks to whom
-    })()
+      // (a caller's own step in this same write: a throw rolls back the room, its members and a guest's claim)
+      inTx?.(id)
+    }).immediate()
     this.roomEvent(id, 'added')
     return this.get(userId, id)
   }
@@ -302,6 +331,8 @@ export class Rooms {
     const { room, me } = this.mine(userId, roomId)
     // a guest changes only their own level, never the room's name
     if (b.name !== undefined && isGuest(this.db, userId)) fail('forbidden')
+    // a project's room is named after the project (rooms/project-room.ts followNames)
+    if (b.name !== undefined) refuseInProjectRoom(this.db, room, DEFAULT_LOCALE)
     if (b.name !== undefined) this.rename(userId, room, b.name)
     const level = b.notifyLevel !== undefined ? b.notifyLevel : b.muted === true ? 'off' : b.muted === false ? (ownLevel(me) === 'off' ? null : ownLevel(me)) : undefined
     if (level !== undefined) {
@@ -388,10 +419,13 @@ export class Rooms {
   }
 
   /** '' or null: back to the server's name; a team room given its group's own name follows the group again. Team rooms
-   * and the everyone room: audited (room.rename), as their other changes are; a group chat not. */
+   * and the everyone room: audited (room.rename), as their other changes are; a group chat not. A group room that has a
+   * name is a private channel and keeps one: emptying it is refused (400 validation), so a channel never turns back
+   * into a group DM; a group DM can still be given a name (docs/decisions/20261117-named-groups-private-channels.md). */
   private rename(userId: string, room: RoomRow, raw: string | null) {
     if (!mayRename(this.db, room, userId)) fail('forbidden')
     let name = raw?.trim() || null
+    if (!name && room.kind === 'group' && room.name?.trim()) fail('validation', undefined, { fields: { 'body.name': 'a private channel needs a name' } })
     if (name && room.kind === 'team' && name === groupName(this.db, room)) name = null
     if ((room.name ?? null) === name) return
     // each rename is a line in the room: the same budget as sending
@@ -432,20 +466,23 @@ export class Rooms {
     const { room } = this.mine(userId, roomId)
     // a team room follows its group and the everyone room the team; a DM keeps its two (the app makes a new group chat)
     if (room.kind !== 'group') fail('forbidden')
+    // a project's room: its people are the project's (Manage people on the project)
+    refuseInProjectRoom(this.db, room, locale)
     const ids = [...new Set(userIds)].filter((id) => id !== userId)
     if (!ids.length) fail('validation', undefined, { fields: { 'body.userIds': 'nobody to add' } })
     this.assertActive(ids)
-    // a guest adds only people of their one place (this group chat is it, or they are not in it)
-    if (isGuest(this.db, userId)) { const mine = placePeople(this.db, userId); if (ids.some((id) => !mine.has(id))) fail('forbidden') }
+    // a guest adds nobody: their group chat's people are in it already, and their project's people are not theirs to
+    // bring in (docs/DECISIONS.md "Guests: one group chat and one project")
+    if (isGuest(this.db, userId)) fail('forbidden')
     const inRoom = new Set(members(this.db, roomId).map((m) => m.user_id))
     const fresh = ids.filter((id) => !inRoom.has(id))
     if (!fresh.length) return this.get(userId, roomId)
     if (inRoom.size + fresh.length > ROOM_GROUP_MAX) fail('validation', undefined, { fields: { 'body.userIds': `at most ${ROOM_GROUP_MAX} people` } })
     this.takeSendToken(userId)
     const line = this.db.transaction(() => {
-      // a guest is in one place only (auth/guests.ts): this group chat is theirs, or they are refused (409
-      // guest_one_place), checked in the same write as the insert
-      for (const g of guestsAmong(this.db, fresh)) assertGuestMayJoin(this.db, g, { kind: 'room', id: roomId }, locale)
+      // a guest is in one group chat at most (auth/guests.ts): one already in another is refused (409 guest_one_place),
+      // else this one becomes theirs, checked in the same write as the insert
+      for (const g of guestsAmong(this.db, fresh)) claimGuestRoom(this.db, g, roomId, locale)
       return this.addInTx(roomId, userId, fresh)
     }).immediate()
     this.announceAdded(roomId, fresh, line)
@@ -454,6 +491,8 @@ export class Rooms {
   /** Put people into a group chat inside the caller's write (no events): their member rows and the "added" line by
    * `actorId`. The caller sends announceAdded after the commit. */
   addInTx(roomId: string, actorId: string, ids: readonly string[]): string {
+    // a project's room: its people are put in by the sync alone (rooms/project-room.ts), never by an invite or a guest link
+    refuseInProjectRoom(this.db, { id: roomId, kind: 'group' }, DEFAULT_LOCALE)
     const now = nowIso()
     const add = this.db.query('INSERT INTO room_members (room_id, user_id, joined_at, last_read_seq, visible_from_seq) SELECT id, ?, ?, last_seq, last_seq FROM rooms WHERE id = ?')
     for (const u of ids) add.run(u, now, roomId)
@@ -464,22 +503,26 @@ export class Rooms {
     const added = new Set(ids)
     this.roomEvent(roomId, 'added', added)
     const r = roomRow(this.db, roomId)!
-    this.fanout(roomId, (m) => (added.has(m.user_id) ? null : { type: 'room.updated', data: { roomId, change: 'members', room: roomOut(this.db, r, m) } }))
+    const rules = rulesOnce(this.db)
+    this.fanout(roomId, (m) => (added.has(m.user_id) ? null : { type: 'room.updated', data: { roomId, change: 'members', room: roomOut(this.db, r, m, undefined, rules) } }))
     this.messageEvent('room.message', messageRow(this.db, roomId, line)!)
   }
 
   /** Leave a group chat (team rooms and the everyone room follow the groups, a DM keeps its two: 403). */
-  leave(userId: string, roomId: string): void {
+  leave(userId: string, roomId: string, locale: Locale = DEFAULT_LOCALE): void {
     const { room } = this.mine(userId, roomId)
     if (room.kind !== 'group') fail('forbidden')
+    // a project's room: leaving it is leaving the project (POST /api/projects/:id/leave)
+    refuseInProjectRoom(this.db, room, locale)
     this.dropMembers(room.id, [{ userId, actor: userId, event: { type: 'left' } }])
   }
 
   /** Take `targetId` out of a group chat: its manager may, and so may an owner or admin who is in it; never oneself
    * (that is leaving). Anyone else in it: 403. */
-  removeMember(userId: string, roomId: string, targetId: string): void {
+  removeMember(userId: string, roomId: string, targetId: string, locale: Locale = DEFAULT_LOCALE): void {
     const { room } = this.mine(userId, roomId)
     if (room.kind !== 'group') fail('forbidden')
+    refuseInProjectRoom(this.db, room, locale)
     if (targetId === userId) fail('validation', undefined, { fields: { 'params.userId': 'yourself: leave the room instead' } })
     if (managerOf(this.db, room) !== userId && !isOwnerOrAdmin(this.db, userId)) fail('forbidden')
     if (!memberRow(this.db, roomId, targetId)) fail('not_found')
@@ -502,6 +545,8 @@ export class Rooms {
       const left = (this.db.query('SELECT COUNT(*) n FROM room_members WHERE room_id = ?').get(roomId) as { n: number }).n
       if (!left) {
         this.db.query('UPDATE rooms SET archived_at = ? WHERE id = ? AND archived_at IS NULL').run(now, roomId)
+        // its project link goes with it (rooms/project-link.ts), audited by the project only
+        dropLinksInTx(this.db, { roomId })
         return { lines, archived: true }
       }
       for (const o of out) lines.push(this.eventLine(roomId, o.actor, o.event, now))
@@ -516,11 +561,12 @@ export class Rooms {
       this.ctx.services.realtime.forgetReplay(u)
       this.ctx.services.realtime.publish(u, { type: 'room.updated', data: { roomId, change: 'removed', room: null } })
     }
-    // a guest out of their one place is switched off (owner decision 2026-11-14)
+    // a guest out of every place of theirs is switched off (owner decisions 2026-11-14, 2026-11-15)
     afterGuestsLeft(this.ctx, gone, actorId)
     if (r.archived) return
     const room = roomRow(this.db, roomId)
-    if (room) this.fanout(roomId, (m) => ({ type: 'room.updated', data: { roomId, change: 'members', room: roomOut(this.db, room, m) } }))
+    const rules = rulesOnce(this.db)
+    if (room) this.fanout(roomId, (m) => ({ type: 'room.updated', data: { roomId, change: 'members', room: roomOut(this.db, room, m, undefined, rules) } }))
     for (const id of r.lines) this.messageEvent('room.message', messageRow(this.db, roomId, id)!)
   }
 
@@ -560,6 +606,59 @@ export class Rooms {
   members(userId: string, roomId: string): RoomMember[] {
     this.mine(userId, roomId)
     return membersOut(this.db, roomId)
+  }
+
+  // ---------------- a project's own chat room (rooms/project-room.ts) ----------------
+  /** POST /api/projects/:id/room: the project's room, made the first time (its people the project's readers, named after
+   * it), for someone who reads the project (else 404 like a missing project). A 0.5.21 link of the project is settled
+   * first. When made, every member gets it; when it was there, the caller is put in it if the sync had not yet. */
+  openProjectRoom(userId: string, projectId: string, locale: Locale = DEFAULT_LOCALE): Room {
+    let r: ReturnType<typeof openInTx>
+    try {
+      r = this.db.transaction(() => openInTx(this.db, userId, projectId, locale)).immediate()
+    } catch (e) {
+      // the same project's room made at the same moment by another process (the unique index): the write rolled back,
+      // theirs is the one
+      if (!/UNIQUE constraint failed/.test(String((e as Error)?.message ?? e))) throw e
+      r = { roomId: '', created: false, settled: null }
+    }
+    const roomId = r.roomId || (this.db.query("SELECT room_id FROM room_project_links WHERE project_id = ? AND mode = 'room'").get(projectId) as { room_id: string } | null)?.room_id
+    if (!roomId) return fail('not_found')
+    if (r.settled) this.afterSettled([r.settled])
+    if (r.created) this.roomEvent(roomId, 'added')
+    else if (!memberRow(this.db, roomId, userId)) this.sync({ projects: { ids: [projectId] } })
+    return this.get(userId, roomId)
+  }
+
+  /** After the 0.5.21 links were settled (rooms/project-room.ts settleLinkedInTx): each member gets the room as they see
+   * it now (a project room, or a plain channel without its project), and a converted room its line. */
+  private afterSettled(settled: readonly (ReturnType<typeof settleLinkedInTx>)[]) {
+    for (const x of settled) {
+      if (!x) continue
+      try {
+        this.roomEvent(x.roomId, 'updated')
+        if (x.state === 'converted') this.messageEvent('room.message', messageRow(this.db, x.roomId, x.line)!)
+      } catch (e) { this.ctx.log.warn('a settled project link was not told', { err: e }) }
+    }
+  }
+
+  /** A project changed in a way its room shows (renamed, repointed, to the trash, back, deleted for good): its room takes
+   * the project's name, a project back from the trash gets its people put right (they may have changed meanwhile), and
+   * each member gets the room as they see it; while the project is in the trash its room is held, so they lose it from
+   * their lists (removed) until it is back. Never throws. */
+  projectsChanged(projectIds: readonly string[], rooms: readonly string[] = []) {
+    try {
+      followNames(this.db, projectIds)
+      if (projectIds.length) this.sync({ projects: { ids: projectIds } })
+      for (const roomId of new Set([...linkedRoomsOf(this.db, projectIds), ...rooms])) {
+        if (isHeld(this.db, roomId)) {
+          for (const m of members(this.db, roomId)) {
+            this.ctx.services.realtime.forgetReplay(m.user_id)
+            this.ctx.services.realtime.publish(m.user_id, { type: 'room.updated', data: { roomId, change: 'removed', room: null } })
+          }
+        } else this.roomEvent(roomId, 'updated')
+      }
+    } catch (e) { this.ctx.log.warn('project rooms not told', { err: e }) }
   }
 
   // ---------------- messages ----------------
@@ -613,6 +712,27 @@ export class Rooms {
     return searchRoomFiles(this.db, userId, o)
   }
 
+  /** "Files you sent": my own files in my rooms, largest first (rooms/search.ts listMyRoomFiles); my team rooms'
+   * histories opened first, as for the search. */
+  listMyFiles(userId: string, o: { cursor?: string; limit?: number }): MyRoomFilesPage {
+    this.syncFor(userId)
+    return listMyRoomFiles(this.db, userId, o)
+  }
+
+  /** A room's Files list (rooms/search.ts listRoomFiles): a room of mine (mine(): its history opened first, as on
+   * read), never a project's chat room (its files are the project's, in Files: 404, as for a room I am not in). */
+  listFiles(userId: string, roomId: string, o: { cursor?: string; limit?: number }): RoomFilesPage {
+    const { room } = this.mine(userId, roomId)
+    if (room.kind === 'group' && isProjectRoom(this.db, room.id)) return fail('not_found')
+    return listRoomFiles(this.db, userId, roomId, o)
+  }
+  /** ⌘K before anything is typed: the newest files of my rooms (rooms/search.ts recentRoomFiles), my team rooms'
+   * histories opened first, as for the search. */
+  recentFiles(userId: string): RecentRoomFiles {
+    this.syncFor(userId)
+    return recentRoomFiles(this.db, userId)
+  }
+
   /** Team files a person copied in with a phone's attach sheet (rooms/files.ts teamCopy), now sent in message
    * `messageId`: one audit row each (room.team_file), by its team path, with the room as room audits name it (a DM's or
    * group chat's kind only) and how many other members could not open the team file at the send (never who, never the
@@ -631,7 +751,10 @@ export class Rooms {
   /** Send as `userId` (the author is always the signed-in person). Same clientMessageId again: the first message. A
    * With threadRootId it is a reply in that message's thread (see the top of this file).
    * `answer` (chat/answer-share.ts only, never a request's body): the message carries an answer of my own AI chat. It
-   * mentions nobody (nor "@전체", whatever its text says: "@Name" in the answer is the AI's words), and never quotes a message (replyToId); it may be a reply in a thread (a side
+   * mentions nobody (nor "@전체", whatever its text says: "@Name" in the answer is the AI's words), unless the AI's
+   * post_to_room sent it (`via: 'ai'`): then the people it picked from the room's members on the server's records, kept
+   * as for any send (docs/decisions/20261118-ai-post-real-mentions.md), and "@전체" by the same rule as a person's, read
+   * in the person's own part of it. It never quotes a message (replyToId); it may be a reply in a thread (a side
    * chat's answer to a question about a message: threadRootId, never "also to the room"); its files are linked files
    * attached.
    * `carried` (connectors/remote-mcp/rooms.ts only): what an AI app's connection had read, kept for later members. */
@@ -640,12 +763,15 @@ export class Rooms {
     const again = this.db.query(`SELECT ${MSG_COLS} FROM room_messages WHERE room_id = ? AND author_id = ? AND client_id = ?`).get(roomId, userId, b.clientMessageId) as MessageRow | null
     if (again) return messagesOut(this.db, [again], memberRow(this.db, roomId, userId)!)[0]!
     if (dmPeerGone(this.db, room)) fail('conflict', tr('roomPeerGone', o.locale ?? DEFAULT_LOCALE))
-    // a DM with a guest goes on only while both are in that guest's one place
+    // a DM with a guest goes on only while both are in one of that guest's places
     if (!dmPairOk(this.db, room.kind, room.dm_key)) fail('forbidden')
     // a reply goes in a thread or quotes (an older app), never both; "also to the room" is a thread reply's
     if (b.threadRootId && b.replyToId) fail('validation', undefined, { fields: { 'body.replyToId': 'not with threadRootId' } })
     if (b.alsoInRoom && !b.threadRootId) fail('validation', undefined, { fields: { 'body.alsoInRoom': 'only with threadRootId' } })
-    if (b.mentionsAll && !answer) this.mayMentionAll(room, userId, b.body, o.locale)
+    // (the AI's post_to_room: its mentions are the person's, in their own part of the message, before the AI's quote)
+    const aiPost = answer?.via === 'ai'
+    const mayMention = !answer || aiPost
+    if (b.mentionsAll && mayMention) this.mayMentionAll(room, userId, answer && !answer.plain ? b.body.slice(0, answer.at) : b.body, o.locale)
     if (!answer) this.takeSendToken(userId)
     if (b.replyToId) {
       const q = messageRow(this.db, roomId, b.replyToId)
@@ -658,7 +784,7 @@ export class Rooms {
       if (!root) fail('validation', undefined, { fields: { 'body.threadRootId': 'not a message of this room to answer in a thread' } })
     }
     if (answer && (b.replyToId || b.alsoInRoom || answer.at < 0 || answer.at > b.body.length)) fail('validation')
-    const mentions = answer ? [] : this.validMentions(roomId, userId, b.mentions)
+    const mentions = mayMention ? this.validMentions(roomId, userId, b.mentions, aiPost) : []
     const fileIds = [...new Set(b.fileIds)]
     if (fileIds.length) {
       const n = (this.db.query(`SELECT COUNT(*) n FROM room_files WHERE room_id = ? AND user_id = ? AND message_id IS NULL AND id IN (${fileIds.map(() => '?').join(',')})`).get(roomId, userId, ...fileIds) as { n: number }).n
@@ -684,10 +810,10 @@ export class Rooms {
       // join the room later (rooms/history.ts)
       this.db.query(`INSERT INTO room_messages (id, room_id, seq, author_kind, author_id, visibility, body, reply_to_id, mentions, client_id, created_at, thread_root_id, thread_root_seq, also_in_room, mentions_all, answer_at, answer_cut, source_scope, link_previews)
         VALUES (?, ?, ?, 'user', ?, 'room', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(id, roomId, seq, userId, b.body, b.replyToId ?? null, JSON.stringify(mentions), b.clientMessageId, now, root?.id ?? null, root?.seq ?? null, root && b.alsoInRoom ? 1 : 0,
-        b.mentionsAll && !answer ? 1 : 0, answer && !answer.plain ? answer.at : null, answer?.cut && !answer.plain ? 1 : 0, answer ? answer.scope : carried ?? null, writeStored({ snapshots }))
+        b.mentionsAll && mayMention ? 1 : 0, answer && !answer.plain ? answer.at : null, answer?.cut && !answer.plain ? 1 : 0, answer ? answer.scope : carried ?? null, writeStored({ snapshots }))
       // an answer of my own AI chat: audited without its content or anyone's name; a DM's or group chat's id would let
       // admins see who talks to whom, so only its kind (store.ts roomAuditRef)
-      if (answer) audit(this.db, { actor: userId, action: 'room.answer_share', target: id, detail: { ...roomAuditRef(room), people: answer.people, confirmed: answer.confirmed ?? answer.people > 0, cut: answer.cut, files: fileIds.length, ...(answer.via ? { via: answer.via } : {}), ...(answer.plain ? { ownWords: true } : {}), ...(answer.openedDm ? { openedDm: true } : {}) } })
+      if (answer) audit(this.db, { actor: userId, action: 'room.answer_share', target: id, detail: { ...roomAuditRef(room), people: answer.people, confirmed: answer.confirmed ?? answer.people > 0, cut: answer.cut, files: fileIds.length, ...(answer.via ? { via: answer.via } : {}), ...(answer.plain ? { ownWords: true } : {}), ...(answer.openedDm ? { openedDm: true } : {}), ...(answer.always ? { always: true } : {}), ...(mentions.length ? { mentions: mentions.length } : {}), ...(b.mentionsAll && aiPost ? { mentionsAll: true } : {}) } })
       if (fileIds.length) this.db.query(`UPDATE room_files SET message_id = ? WHERE id IN (${fileIds.map(() => '?').join(',')})`).run(id, ...fileIds)
       // sending in the room means I have seen the room up to here (KakaoTalk): my read position moves to my message;
       // a reply moves my place in its thread instead (the room may be out of sight, on a phone it is)
@@ -999,10 +1125,12 @@ export class Rooms {
     if (!roomMentionAllIn(body)) fail('validation', undefined, { fields: { 'body.mentionsAll': 'no @everyone mention in the text' } })
   }
 
-  /** The people picked as mentions, kept only when they are in the room (never myself), in the order given. */
-  private validMentions(roomId: string, userId: string, ids: readonly string[]): string[] {
+  /** The people picked as mentions, kept only when they are in the room (never myself), in the order given. `active`:
+   * also only active accounts (the AI's post_to_room, whose card may have waited while someone's account was turned off). */
+  private validMentions(roomId: string, userId: string, ids: readonly string[], active = false): string[] {
     const inRoom = new Set(members(this.db, roomId).map((m) => m.user_id))
-    return [...new Set(ids)].filter((id) => id !== userId && inRoom.has(id))
+    const ok = (id: string) => !active || !!this.db.query("SELECT 1 FROM users WHERE id = ? AND status = 'active' AND deleted_at IS NULL").get(id)
+    return [...new Set(ids)].filter((id) => id !== userId && inRoom.has(id) && ok(id))
   }
 
   // ---------------- reading ----------------
@@ -1039,14 +1167,16 @@ export class Rooms {
   markNoticesRead(userId: string, roomId: string, seq: number) {
     // a notice whose run goes on past seq (it held a later message back: last_seq) stays unread: what came after is not
     // read yet, and no other notice stands for it (rooms/inbox.ts)
+    // EXISTS by the message's primary key, per unread notice (a person has few): `source_id IN (SELECT ... WHERE room_id
+    // AND seq <= ?)` made SQLite list every message of the room first, on every post and every open (TC-4772)
     const r = this.db.query(`UPDATE room_notices SET read_at = ? WHERE user_id = ? AND room_id = ? AND read_at IS NULL AND (last_seq IS NULL OR last_seq <= ?)
-      AND source_id IN (SELECT m.id FROM room_messages m WHERE m.room_id = ? AND m.seq <= ? AND ${TIMELINE_SQL})`).run(nowIso(), userId, roomId, seq, roomId, seq)
+      AND EXISTS (SELECT 1 FROM room_messages m WHERE m.id = room_notices.source_id AND m.room_id = ? AND m.seq <= ? AND ${TIMELINE_SQL})`).run(nowIso(), userId, roomId, seq, roomId, seq)
     if (r.changes) this.notifySignal(userId)
   }
   /** My notices of the replies in this thread up to `seq` count as read. */
   markThreadNoticesRead(userId: string, roomId: string, rootId: string, seq: number) {
     const r = this.db.query(`UPDATE room_notices SET read_at = ? WHERE user_id = ? AND room_id = ? AND read_at IS NULL AND (last_seq IS NULL OR last_seq <= ?)
-      AND source_id IN (SELECT id FROM room_messages WHERE room_id = ? AND thread_root_id = ? AND seq <= ?)`).run(nowIso(), userId, roomId, seq, roomId, rootId, seq)
+      AND EXISTS (SELECT 1 FROM room_messages m WHERE m.id = room_notices.source_id AND m.room_id = ? AND m.thread_root_id = ? AND m.seq <= ?)`).run(nowIso(), userId, roomId, seq, roomId, rootId, seq)
     if (r.changes) this.notifySignal(userId)
   }
 
@@ -1055,8 +1185,9 @@ export class Rooms {
    * docs/DECISIONS.md "대화방 알림 설정"). By default a DM or group chat message notifies the others (code room.dm: a
    * message for me), an @mention each person mentioned (room.mention), a reply in a thread its followers (room.dm too:
    * the push is the same generic line); a room at 모든 메시지 notifies every message of its timeline, one at 끄기 (or a
-   * default of 받지 않음) nothing. Only people who see it. One unread notice of each kind per room (and thread) and person
-   * (Notifications.roomNotice). Inside a person's quiet hours the notice is kept but marked quiet: never pushed.
+   * default of 받지 않음) nothing. Only people who see it. Each such message is a notice (and a push) of its own; an app's
+   * message, and one inside a person's quiet hours, only while nothing of that kind is unread in the room (and thread)
+   * for the person (Notifications.roomNotice). Inside a person's quiet hours the notice is kept but marked quiet: never pushed.
    * Private messages (the AI's previews) and event lines notify nobody; an AI answer not the person who asked. The
    * notice is the message id only. Returns who got a notice that may ring, and which (Notifications.roomNotice): the
    * room.message to each of them says so (docs/DECISIONS.md "Session markers"). Never throws: it runs before the
@@ -1100,6 +1231,7 @@ export class Rooms {
     if (row.visibility !== 'room' || row.deleted_at || row.event || row.app_quiet) return out
     const room = roomRow(this.db, row.room_id)
     if (!room) return out
+    const projectRoom = room.kind === 'group' && isProjectRoom(this.db, room.id)
     // a room I still hide (unhideFor did not bring it back) tells me nothing
     const ms = members(this.db, row.room_id).filter((m) => m.user_id !== row.author_id && !(row.author_kind === 'ai' && m.user_id === row.asked_by) && canSee(this.db, row, m) && !m.hidden_at)
     if (!ms.length) return out
@@ -1111,12 +1243,12 @@ export class Rooms {
     for (const m of ms) {
       const p = prefs.get(m.user_id)!
       const alert = roomAlert({
-        level: roomLevel(room.kind, ownLevel(m), p.roomLevel), mentioned: mentioned.has(m.user_id) || !!row.mentions_all, reply: !!row.thread_root_id,
+        level: roomLevel(room.kind, ownLevel(m), p.roomLevel, projectRoom), mentioned: mentioned.has(m.user_id) || !!row.mentions_all, reply: !!row.thread_root_id,
         alsoInRoom: !!row.also_in_room, following: !!followers?.has(m.user_id), threadReplies: p.roomThreadReplies,
       })
       if (!alert) continue
       const event: RoomNoticeEvent = alert === 'mention' ? 'room.mention' : 'room.dm'
-      try { if (n.roomNotice(m.user_id, event, row.id, row.room_id, row.created_at, row.thread_root_id, inQuietHours(p.quietHours, tz, at), row.seq)) out.set(m.user_id, event) }
+      try { if (n.roomNotice(m.user_id, event, row.id, row.room_id, row.created_at, row.thread_root_id, inQuietHours(p.quietHours, tz, at), row.seq, !!row.app_id)) out.set(m.user_id, event) }
       catch (e) { this.ctx.log.warn('room notice not recorded', { err: e }) }
     }
     return out
@@ -1128,9 +1260,11 @@ export class Rooms {
     if (Date.now() - this.lastSync < 2000) return
     this.syncNow()
   }
-  syncNow() {
+  /** `projects`: which project rooms this pass puts right too (rooms/project-room.ts ProjectRoomScope; 'all' also settles
+   * the 0.5.21 links); none: the team rooms, the everyone room and gone accounts only. */
+  syncNow(projects?: ProjectRoomScope) {
     this.lastSync = Date.now()
-    try { this.sync() } catch (e) { this.ctx.log.error('room sync failed', { err: e }) }
+    try { this.sync(projects ? { projects } : {}) } catch (e) { this.ctx.log.error('room sync failed', { err: e }) }
   }
   /** Before someone's rooms are read for their AI chat (chat/room-tools.ts): their team rooms and the everyone room put
    * right first when they are out of step (a group left a moment ago is applied before anything is read). */
@@ -1159,18 +1293,43 @@ export class Rooms {
    * notices and their replay buffer. A team room whose group was deleted is archived with no members. Audited.
    * Group chats: who is in one is never changed here, nor any room's own name, except that a disabled or deleted
    * account leaves (an event line, not audited; the last one out archives it).
+   * A project's chat room (rooms/project-room.ts), with `projects`: its members = the project's readers for the rooms in
+   * that scope (a gone account leaves it on every pass, without a line, and it is never archived for being empty). With
+   * 'all' the 0.5.21 linked channels are settled first (after the gone accounts left them).
    */
-  sync(): void {
+  sync(o: { projects?: ProjectRoomScope } = {}): void {
     const db = this.db, now = nowIso()
     const added = new Map<string, string[]>(), removed = new Map<string, string[]>()
+    // the project rooms' own (audited by their project, not as a team room)
+    const pAdded = new Map<string, string[]>(), pRemoved = new Map<string, string[]>()
     const groupOut = new Map<string, { users: string[]; r: { lines: string[]; archived: boolean } }>()
+    const settled: ReturnType<typeof settleLinkedInTx>[] = []
+    const push = (m: Map<string, string[]>, k: string, v: string) => (m.get(k) ?? m.set(k, []).get(k)!).push(v)
     db.transaction(() => {
-      const gone = db.query(`SELECT m.room_id, m.user_id FROM room_members m JOIN rooms r ON r.id = m.room_id JOIN users u ON u.id = m.user_id
-        WHERE r.kind = 'group' AND r.archived_at IS NULL AND (u.status <> 'active' OR u.deleted_at IS NOT NULL) ORDER BY m.room_id, m.joined_at, m.user_id`).all() as { room_id: string; user_id: string }[]
+      const gone = db.query(`SELECT m.room_id, m.user_id, EXISTS (SELECT 1 FROM room_project_links l WHERE l.room_id = m.room_id AND l.mode = 'room') project_room FROM room_members m JOIN rooms r ON r.id = m.room_id JOIN users u ON u.id = m.user_id
+        WHERE r.kind = 'group' AND r.archived_at IS NULL AND (u.status <> 'active' OR u.deleted_at IS NOT NULL) ORDER BY m.room_id, m.joined_at, m.user_id`).all() as { room_id: string; user_id: string; project_room: number }[]
       const byRoom = new Map<string, string[]>()
-      for (const g of gone) (byRoom.get(g.room_id) ?? byRoom.set(g.room_id, []).get(g.room_id)!).push(g.user_id)
+      for (const g of gone) {
+        // a project's room: they are no reader of it any more; out like anyone the project lost (no line, never archived)
+        if (g.project_room) { this.forgetMember(g.room_id, g.user_id); push(pRemoved, g.room_id, g.user_id); continue }
+        push(byRoom, g.room_id, g.user_id)
+      }
       for (const [roomId, users] of byRoom) {
         groupOut.set(roomId, { users, r: this.dropMembers(roomId, users.map((u) => ({ userId: u, actor: u, event: { type: 'left' as const } })), true) })
+      }
+      // a project's chat room follows the project's readers (rooms/project-room.ts): the 0.5.21 links settled at start,
+      // then the rooms in scope put right, bounded to the changed folders' projects except at start
+      if (o.projects) {
+        const rules = RuleSet.load(db)
+        const people = activePeople(db)
+        if (o.projects === 'all') for (const roomId of linkedRows(db)) settled.push(settleLinkedInTx(db, roomId, rules, people))
+        const add = db.query('INSERT INTO room_members (room_id, user_id, joined_at, last_read_seq, visible_from_seq) SELECT id, ?, ?, last_seq, last_seq FROM rooms WHERE id = ?')
+        for (const x of plan(db, o.projects, rules, people)) {
+          const fresh = [...x.want].filter((u) => !x.have.has(u)), out = [...x.have].filter((u) => !x.want.has(u))
+          for (const u of fresh) { add.run(u, now, x.roomId); push(pAdded, x.roomId, u) }
+          for (const u of out) { this.forgetMember(x.roomId, u); push(pRemoved, x.roomId, u) }
+          if (fresh.length || out.length) audit(db, { actor: null, action: 'room.members', target: x.projectId, detail: { room: { kind: 'group' }, via: 'project', added: fresh, removed: out } })
+        }
       }
       if (!db.query("SELECT 1 FROM rooms WHERE kind = 'all'").get()) {
         const id = newId()
@@ -1198,7 +1357,7 @@ export class Rooms {
         db.query('UPDATE rooms SET archived_at = ? WHERE id = ?').run(now, r.id)
         audit(db, { actor: null, action: 'room.archive', target: r.id, detail: { kind: 'team', reason: 'group_deleted' } })
       }
-      // guests (users.guest = 1) are in neither: they reach only their one place (auth/guests.ts)
+      // guests (users.guest = 1) are in neither: they reach only their places (auth/guests.ts)
       const want = `SELECT r.id room_id, u.id user_id FROM rooms r JOIN users u ON u.status = 'active' AND u.deleted_at IS NULL AND u.guest = 0 WHERE r.kind = 'all' AND r.archived_at IS NULL
         UNION SELECT r.id, g.user_id FROM rooms r JOIN group_members g ON g.group_id = r.group_id JOIN users u ON u.id = g.user_id AND u.status = 'active' AND u.deleted_at IS NULL AND u.guest = 0
           WHERE r.kind = 'team' AND r.archived_at IS NULL`
@@ -1216,6 +1375,9 @@ export class Rooms {
         audit(db, { actor: null, action: 'room.members', target: id, detail: { via: 'groups', added: added.get(id) ?? [], removed: removed.get(id) ?? [] } })
       }
     })()
+    // the project rooms' people are told like a team room's
+    for (const [k, v] of pAdded) for (const u of v) push(added, k, u)
+    for (const [k, v] of pRemoved) for (const u of v) push(removed, k, u)
     // a team room's or the everyone room's history opens to who joined it (rooms/history.ts), before they are told:
     // their first list already has it. Then anyone still waiting (an upgrade, a row an older build made), for a while
     let opened: { roomId: string; userId: string }[] = []
@@ -1238,9 +1400,11 @@ export class Rooms {
       const fresh = new Set(added.get(roomId) ?? [])
       if (fresh.size) this.roomEvent(roomId, 'added', fresh)
       const room = roomRow(db, roomId)
-      if (room) this.fanout(roomId, (m) => (fresh.has(m.user_id) ? null : { type: 'room.updated', data: { roomId, change: 'members', room: roomOut(db, room, m) } }))
+      const rules = rulesOnce(db)
+      if (room) this.fanout(roomId, (m) => (fresh.has(m.user_id) ? null : { type: 'room.updated', data: { roomId, change: 'members', room: roomOut(db, room, m, undefined, rules) } }))
     }
     this.historiesOpened(opened, added)
+    if (settled.length) this.afterSettled(settled)
   }
 
   /** A history that opened (or showed more) for someone already in the room: their windows read its messages again
@@ -1275,6 +1439,8 @@ export function roomsOf(ctx: AppContext): Rooms {
     services.set(ctx, s)
     // an AI answer's file links: shown as links only to people who may open the file now (store.ts openableFor)
     setRoomPathCheck(ctx.db, (userId) => fileOpener(ctx, userId))
+    // a project room's files kept in the team folder, as each viewer may see them now (rooms/file-refs.ts)
+    roomFileRefsOf(ctx)
   }
   return s
 }
@@ -1306,7 +1472,65 @@ export function noTeamRoom(db: Database, groupId: string) {
   audit(db, { actor: null, action: 'room.archive', target: id, detail: { kind: 'team', groupId, reason: 'team_group' } })
 }
 
-/** After groups, roles or accounts changed (admin/folders.ts afterAccessChange): rooms follow at once. Never throws. */
-export function syncRoomsNow(ctx: AppContext) {
-  try { roomsOf(ctx).sync() } catch (e) { ctx.log.error('room sync failed', { err: e }) }
+/** The team rooms these people sit in now, as `<roomId> <userId>` (groupFoldersChanged's "in the room before the
+ * change": read before the rooms' sync). One query per 500 people. Never throws (an empty set: nobody is told). */
+export function teamRoomSeats(ctx: AppContext, userIds: readonly string[]): Set<string> {
+  const out = new Set<string>()
+  try {
+    for (let i = 0; i < userIds.length; i += 500) {
+      const part = userIds.slice(i, i + 500)
+      const rows = ctx.db.query(`SELECT m.room_id, m.user_id FROM room_members m JOIN rooms r ON r.id = m.room_id
+        WHERE r.kind = 'team' AND r.archived_at IS NULL AND m.user_id IN (${part.map(() => '?').join(',')})`).all(...part) as { room_id: string; user_id: string }[]
+      for (const r of rows) out.add(`${r.room_id} ${r.user_id}`)
+    }
+  } catch (e) { ctx.log.warn('team room seats not read', { err: e }) }
+  // and the private channels linked to a project they sit in (groupFoldersChanged's second pass)
+  for (const seat of linkedRoomSeats(ctx.db, userIds)) out.add(seat)
+  return out
+}
+
+/**
+ * After folder access changed (admin/folders.ts afterAccessChange, after syncRoomsNow): the team rooms whose header Files
+ * button (Room.groupFolder, store.ts groupFolderFor) now shows or hides for someone send that member room.updated, each
+ * built for them, so the button follows without a reload (QA TC-3848). Bounded twice: only rooms whose group folder is
+ * at, under or above a folder whose access changed for someone (`changed`; a folder below it can make it listable,
+ * canList), and in those only `seats` (teamRoomSeats, read before the sync) of the people whose access changed: never
+ * the room's other members, so a change at the team root costs a check per changed person and room, not per member.
+ * Someone not in the room before the change (they joined with it) is skipped: the sync's `added` carries the room as
+ * they see it. Someone the sync took out, or no longer an active account, is skipped too. Never throws.
+ */
+export function groupFoldersChanged(ctx: AppContext, before: { principals: readonly Principal[]; rules: RuleSet }, after: { principals: readonly Principal[]; rules: RuleSet }, changed: readonly string[], seats: ReadonlySet<string>) {
+  if (!changed.length || !seats.size) return
+  try {
+    const db = ctx.db
+    const near = (f: string, p: string) => p === '' || f === p || f.startsWith(p + '/') || p.startsWith(f + '/')
+    const byRoom = new Map<string, string[]>()
+    for (const seat of seats) {
+      const [roomId, userId] = seat.split(' ') as [string, string]
+      ;(byRoom.get(roomId) ?? byRoom.set(roomId, []).get(roomId)!).push(userId)
+    }
+    const folderOfRoom = db.query("SELECT f.path FROM rooms r JOIN groups g ON g.id = r.group_id JOIN folders f ON f.id = g.folder_id WHERE r.id = ? AND r.kind = 'team' AND r.archived_at IS NULL")
+    const stillIn = db.query('SELECT 1 FROM room_members WHERE room_id = ? AND user_id = ?')
+    const was = new Map(before.principals.map((p) => [p.id, p])), now = new Map(after.principals.map((p) => [p.id, p]))
+    for (const [roomId, users] of byRoom) {
+      const f = (folderOfRoom.get(roomId) as { path: string } | null)?.path
+      if (!f || !changed.some((p) => near(f, p))) continue
+      const segs = f.split('/')
+      const flipped = new Set<string>()
+      for (const u of users) {
+        const pb = was.get(u), pa = now.get(u)
+        if (pb && pa && stillIn.get(roomId, u) && before.rules.canList(pb, segs) !== after.rules.canList(pa, segs)) flipped.add(u)
+      }
+      if (flipped.size) roomsOf(ctx).roomEvent(roomId, 'updated', flipped)
+    }
+    // the second pass: a private channel linked to a project (rooms/project-link.ts), for whoever's answer for the
+    // project's folder changed, to open it (its Files button) or to save into it (Save to project), bounded the same way
+    for (const [roomId, flipped] of linkedSightFlips(db, before, after, changed, seats)) roomsOf(ctx).roomEvent(roomId, 'updated', flipped)
+  } catch (e) { ctx.log.warn('team room folder buttons not sent', { err: e }) }
+}
+
+/** After groups, roles or accounts changed (admin/folders.ts afterAccessChange): rooms follow at once, and the project
+ * rooms whose project folder is at, under or above a folder whose access changed (`paths`). Never throws. */
+export function syncRoomsNow(ctx: AppContext, paths: readonly string[] = []) {
+  try { roomsOf(ctx).sync(paths.length ? { projects: { paths } } : {}) } catch (e) { ctx.log.error('room sync failed', { err: e }) }
 }

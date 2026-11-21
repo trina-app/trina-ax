@@ -3,10 +3,11 @@
 // Contract: shared/src/api/chats.ts. The person's own chats, and the shared project chats they see (chat/shared.ts
 // chatFor); "not yours" and "missing" are both not_found.
 import { registerChatAccountCleanup } from '../chat/account-cleanup'
+import { accessRequestsOf } from '../chat/access-requests'
 import { markTeamShares } from '../chat/team-shares'
 import { redactorFor } from '../integrations/connections/redact'
 import { searchWords } from '@mycel/shared'
-import { API, WINDOW_HEADER, type Attachment, type Chat, type EngineId, type Locale, type Message, type UserRef } from '@mycel/shared/api'
+import { ACCESS_TARGET_ID, API, WINDOW_HEADER, type Attachment, type Chat, type EngineId, type Locale, type Message, type UserRef } from '@mycel/shared/api'
 import type { Context } from 'hono'
 import type { RouteModule } from './module'
 import type { AppContext } from '../context'
@@ -29,20 +30,23 @@ import { componentC } from '../team-files/component'
 import { mapErrors } from '../team-files/errors'
 import { afterAccessChange, captureState, dropProjectMarker, ensureFolderRow, rulesOf, validateRules, writeFolderAccess } from '../admin/folders'
 import '../admin/guest-hooks'
+import '../admin/devenv-hooks'
 import { disablePlacelessGuests } from '../admin/guests'
 import { atLeast, type Principal } from '../policy/access'
 import { audit } from '../admin/audit'
 import { tr } from '../chat/i18n'
+import { answersToSave, answerWords, cardAnswerOk, labelsHidden, openQuestion, openQuestionsOf, recordAnswer } from '../chat/open-questions'
 import { noLongerMember } from '../chat/project-joins'
 import { chatEnginesFor, checkChatEngineChange, newChatEngine, turnEngine, type TurnEngine } from '../admin/engine-choice'
 import { budgetBlock } from '../admin/budgets'
 import { viewSources } from '../files/sources'
 import { shareAnswerToRoom } from '../chat/answer-share'
+import { deleteReply, listThread, markRead as markThreadRead, sendReply, threadSummaries } from '../chat/threads'
 import { roomsOf } from '../rooms/service'
 import { confirmMac } from '../chat/confirm-key'
 import { WIDENING_PAGE } from '../chat/widening'
 import { shareChat } from '../chat/share-chat'
-import { chatAudienceView, chatWidening, checkWideningAdd, hideChat, peopleSharedChatsOf, putChatAudience, unhideOnOpen } from '../chat/people-share'
+import { chatAudienceView, chatWidening, checkWideningAdd, hideChat, peopleSharedChatsOf, previewChatAudience, putChatAudience, unhideOnOpen } from '../chat/people-share'
 import { IN_PEOPLE_AUDIENCE_SQL, NOT_HIDDEN_SQL, resolveSubjects } from '../chat/chat-audience'
 import { finishCard } from '../chat/connect-service'
 import { refuseDraftAttachments } from '../onboarding/draft'
@@ -56,14 +60,21 @@ import { Audiences, accountSeesProject, chatFor, memberWhileTrashed, chatPeople,
 import { AnswerSight, type ChatHit } from '../chat/shared-answers'
 import { safeOpsEnabled } from '../safe-ops/runner'
 import { deleteProjectForGood } from '../chat/project-delete'
+import { dropLinksInTx } from '../rooms/project-link'
+import { roomForViewer } from '../rooms/project-room'
 import { dropChatPins, dropUnseenPins, pin, pinsOf, unpin } from '../chat/pins'
 import { chatFoldersChanged, dropChatFolderItems, folderChatFilter } from '../chat/nav-folders'
 import { chatGroups, otherChats } from '../chat/chat-groups'
 import { adoptLeftoverFolders } from '../chat/members-only-once'
 import { dismissUpdateNotice, joinUpdateNoticeProjects, updateNoticeProjects } from '../chat/old-projects'
 import { askSkillsOn, recordSkillsOn, skillsUnder } from '../skills/switch-on'
+import { canonicalTimeZone } from '../system/time-zone'
 
 const WINDOW_RE = /^[A-Za-z0-9_-]{8,64}$/
+/** The sender's device time zone for the turn (TurnSpec.timeZone, QA TC-4549), by its canonical IANA name: a name this
+ * server does not know, or an offset, is dropped (the team's zone is used), never a refusal (an older browser's list
+ * may differ from the server's). */
+export const turnZone = (z: string | undefined) => canonicalTimeZone(z) ?? undefined
 export const windowOf = (c: Context<AppEnv>) => { const w = c.req.header(WINDOW_HEADER); return w && WINDOW_RE.test(w) ? w : null }
 const likeEscape = (s: string) => s.replace(/[\\%_]/g, (m) => '\\' + m)
 
@@ -190,7 +201,10 @@ function messagesPage(rt: ChatRuntime, chat: ChatRow, cursor: string | undefined
   }
   const start = Math.max(0, end - limit)
   const slice = pathRows.slice(start, end)
-  return { items: slice.map((m) => messageFor(rt, chat, m, viewer, locale, view)), nextCursor: start > 0 ? encodeCursor({ before: slice[0]!.id }) : null }
+  const items = slice.map((m) => messageFor(rt, chat, m, viewer, locale, view))
+  // threads under the finished answers I see (chat/threads.ts): their summaries, read once for the page
+  const threads = threadSummaries(rt.db, items.filter((m) => m.role === 'assistant' && !m.withheld && (m.status === 'done' || m.status === 'stopped')).map((m) => m.id), viewer)
+  return { items: threads.size ? items.map((m) => { const th = threads.get(m.id); return th ? { ...m, thread: th } : m }) : items, nextCursor: start > 0 ? encodeCursor({ before: slice[0]!.id }) : null }
 }
 
 /** The turn's engine and model: the chat's (or the team default when the admin switched it off); a choice in the
@@ -208,7 +222,7 @@ function messageInChat(rt: ChatRuntime, chatId: string, id: string): MessageRow 
 /** A used-up "block" budget of this person stops the turn before it is queued (tab 5 "사용 한도 도달"). */
 function checkBudget(ctx: AppContext, userId: string, locale: Locale): void {
   const b = budgetBlock(ctx.db, userId, locale)
-  if (b) fail('budget_exceeded', b.message, { params: { resetsAt: b.resetsAt } })
+  if (b) fail('budget_exceeded', b.message, { params: b.params })
 }
 
 /** One turn at a time per chat. A shared chat busy with someone else's question: 409 shared_chat_busy, naming them
@@ -220,6 +234,30 @@ function busyCheck(rt: ChatRuntime, a: ChatAccess, locale: Locale, me: string) {
   const runner = rt.activeTurnUser(a.row.id)
   if (a.shared && runner && runner !== me) fail('conflict', tr('sharedChatBusy', locale, { name: rt.store.userRef(runner)?.name ?? '' }), { params: { reason: 'shared_chat_busy' } })
   fail('conflict', tr('turnInProgress', locale))
+}
+
+/** A send in a shared chat goes after the messages of whoever has waited longer (chat/shared-waiting.ts): 409
+ * shared_chat_next (naming nobody); that browser keeps its messages waiting and tries again. */
+function nextCheck(rt: ChatRuntime, a: ChatAccess, locale: Locale, me: string) {
+  if (!a.shared) return
+  if (rt.sharedWaiting.ahead(a.row.id, me)) fail('conflict', tr('sharedChatNext', locale), { params: { reason: 'shared_chat_next' } })
+}
+
+/** PUT /api/chats/:id/waiting: at most this many a minute per person and chat (the browser says it every 15 s and on
+ * each change) */
+const WAITING_PER_MINUTE = 30
+const waitingCallsOf = new WeakMap<AppContext, Map<string, number[]>>()
+function waitingLimit(ctx: AppContext, key: string, now = Date.now()): void {
+  const calls = waitingCallsOf.get(ctx) ?? new Map<string, number[]>()
+  waitingCallsOf.set(ctx, calls)
+  const recent = (calls.get(key) ?? []).filter((t) => now - t < 60_000)
+  if (recent.length >= WAITING_PER_MINUTE) {
+    calls.set(key, recent)
+    fail('rate_limited', undefined, { retryAfter: Math.max(1, Math.ceil((60_000 - (now - recent[0]!)) / 1000)) })
+  }
+  recent.push(now)
+  calls.set(key, recent)
+  if (calls.size > 10_000) for (const [k, ts] of calls) if (!ts.some((t) => now - t < 60_000)) calls.delete(k)
 }
 
 /** Switching versions (selectBranch) waits for the chat's answer, whoever asked: one plain 409 for everyone. */
@@ -278,8 +316,12 @@ export const chatsRoutes: RouteModule = {
         const out = rt.store.toProject(r, false, { audience: aud.of(r).length, ...shared })
         return { ...out, instructions: '', member: false as const, canManage, canDelete, ...inTrash, ...membersView(ctx, r, p, canManage, creators, aud, { member: false }) }
       }
-      return { ...rt.store.toProject(r, canEdit, projectShare(ctx.db, ctx.files, r, aud, viewer)), canManage, canDelete, ...membersView(ctx, r, p, canManage, creators, aud), ...leaveState(ctx, r, p, aud) }
+      // its own chat room (rooms/project-room.ts): for someone who reads it
+      return { ...rt.store.toProject(r, canEdit, projectShare(ctx.db, ctx.files, r, aud, viewer)), canManage, canDelete, ...membersView(ctx, r, p, canManage, creators, aud), ...leaveState(ctx, r, p, aud), ...roomForViewer(ctx.db, r, viewer) }
     }
+    /** the folder rules once per list of projects (one Audiences per list) */
+    const listRules = new WeakMap<Audiences, ReturnType<typeof ctx.files.rules>>()
+    const rulesOfList = (aud: Audiences) => { let r = listRules.get(aud); if (!r) { r = ctx.files.rules(); listRules.set(aud, r) } return r }
     /** A project the caller reads, or with `manage` one they manage: else 404 (the same answer as no project).
      * `trashed`: also a team project in the trash the caller is a member of (its card and page, its restore by its
      * creator); only where the answer is its name and state, never its contents. */
@@ -587,6 +629,8 @@ export const chatsRoutes: RouteModule = {
         unfiled = dropChatFolderItems(ctx.db, [chat.id])
       })()
       chatFoldersChanged(ctx, unfiled)
+      // (an answer still ending there sends nobody else its live text: chat/live-answer.ts)
+      rt.forgetLiveViewers()
       if (a.shared && !a.creator) audit(ctx.db, { actor: auth.user.id, action: 'chat.delete', target: chat.id, detail: { shared: true, projectId: chat.project_id } })
       rt.publishChat(auth.user.id, chat.id, 'deleted')
       return { id: chat.id, deletedAt: now.toISOString(), purgeAt: new Date(now.getTime() + rt.chatTrashDays() * 86400_000).toISOString() }
@@ -652,12 +696,47 @@ export const chatsRoutes: RouteModule = {
       return shareAnswerToRoom(ctx, auth.user.id, a.row, m, body, c.get('locale'))
     })
 
+    // threads on AI answers in shared chats (chat/threads.ts: the chat first, as for every chat route, then one gate,
+    // threadAccess, for the answer and the rest; people only, the AI never reads them)
+    kit.handle(API.listChatThread, ({ c, params, query, auth }) => {
+      chatOf(rt, c, auth, params.id, 'view', { deleted: true })
+      return listThread(rt, auth.user.id, params.id, params.messageId, query, c.get('locale'))
+    })
+    kit.handle(API.sendChatThreadReply, ({ c, params, body, auth }) => {
+      chatOf(rt, c, auth, params.id, 'continue')
+      return sendReply(ctx, rt, auth.user.id, params.id, params.messageId, body, c.get('locale'))
+    })
+    kit.handle(API.deleteChatThreadReply, ({ c, params, auth }) => {
+      chatOf(rt, c, auth, params.id, 'view')
+      deleteReply(ctx, rt, auth.user.id, params.id, params.replyId, c.get('locale'))
+    })
+    kit.handle(API.markChatThreadRead, ({ c, params, body, auth }) => {
+      chatOf(rt, c, auth, params.id, 'view', { deleted: true })
+      markThreadRead(ctx, rt, auth.user.id, params.id, params.messageId, body.upTo, c.get('locale'))
+    })
+
     // "프로젝트 멤버와 공유": my private chat in a team project that shares its chats becomes a shared chat, after a check
     // of what it contains, every branch (chat/share-chat.ts); a shared chat answers 409 already_shared to whoever sees it
     kit.handle(API.shareChat, ({ c, params, body, auth }) => shareChat(ctx, rt, auth.user.id, chatOf(rt, c, auth, params.id, 'view'), body, c.get('locale')))
     // Share for a chat outside projects (chat/people-share.ts): who sees it, its creator's save, a recipient's "Hide
     // from my list". Anyone who cannot see the chat gets the 404 of a missing chat first (chatFor)
     kit.handle(API.getChatAudience, ({ c, params, auth }) => chatAudienceView(ctx, rt, auth.user.id, chatOf(rt, c, auth, params.id, 'view')))
+    // the Share dialog's check while picking (QA TC-3092): the dry-run limit (60 a minute), as the project dry run
+    kit.handle(API.previewChatAudience, ({ c, params, body, auth }) => {
+      previewLimit(ctx, auth.user.id)
+      return previewChatAudience(ctx, rt, auth.user.id, chatOf(rt, c, auth, params.id, 'view'), body, c.get('locale'))
+    })
+    // "Ask for access" on a chat's or project's link (chat/access-requests.ts; docs/decisions/
+    // 20261116-chat-project-ask-access.md): what the page offers, the ask, and the answer in Activity
+    const access = accessRequestsOf(ctx)
+    const accessKind = (kind: string, id: string): 'chat' | 'project' => {
+      if (kind !== 'chat' && kind !== 'project') fail('validation', undefined, { fields: { 'params.kind': 'chat or project' } })
+      if (!ACCESS_TARGET_ID.test(id)) fail('not_found')
+      return kind as 'chat' | 'project'
+    }
+    kit.handle(API.linkAccess, ({ c, params, auth }) => access.view(auth.user.id, accessKind(params.kind, params.id), params.id, c.get('locale')))
+    kit.handle(API.requestLinkAccess, ({ c, params, body, auth }) => access.request(auth.user.id, accessKind(params.kind, params.id), params.id, body.message, c.get('locale')))
+    kit.handle(API.answerAccessRequest, ({ c, params, body, auth }) => access.answer(auth.user.id, params.id, body.answer, body.confirmKey, c.get('locale')))
     kit.handle(API.putChatAudience, ({ c, params, body, auth }) => putChatAudience(ctx, rt, auth.user.id, chatOf(rt, c, auth, params.id, 'view'), body, c.get('locale')))
     const hidden = (c: Context<AppEnv>, auth: AuthInfo, a: ChatAccess, hide: boolean): Chat => {
       hideChat(ctx, auth.user.id, a, hide, c.get('locale'))
@@ -691,7 +770,11 @@ export const chatsRoutes: RouteModule = {
       const again = rt.existingTurn(chat.id, body.clientMessageId, auth.user.id)
       if (again) return again
       busy(a, c.get('locale'), auth.user.id)
-      const parentId = body.parentId === undefined ? chat.active_leaf_id : body.parentId
+      nextCheck(rt, a, c.get('locale'), auth.user.id)
+      // a waiting message of a shared chat (`after`: the end its sender last saw): under the newest end of that branch,
+      // so turns that came since are kept and a version someone switched to meanwhile is not where it lands
+      const after = body.parentId === undefined && body.after ? messageInChat(rt, chat.id, body.after) : null
+      const parentId = after ? rt.store.newestLeafUnder(chat.id, after.id) : body.parentId === undefined ? chat.active_leaf_id : body.parentId
       if (parentId) {
         const p = messageInChat(rt, chat.id, parentId)
         if (p.role !== 'assistant') fail('validation', tr('badParent', c.get('locale')), { fields: { 'body.parentId': 'must be an answer' } })
@@ -703,12 +786,26 @@ export const chatsRoutes: RouteModule = {
       checkBudget(ctx, auth.user.id, c.get('locale'))
       const { engine, model, substitutedFrom } = pickEngine(ctx, rt, auth, chat, body, c.get('locale'))
       try {
-        return rt.createTurn({ chat, userId: auth.user.id, locale: rt.userLocale(auth.user.id), windowId: windowOf(c), clientKind: auth.session.client, engine, model, substitutedFrom,
+        const started = rt.createTurn({ chat, userId: auth.user.id, locale: rt.userLocale(auth.user.id), windowId: windowOf(c), clientKind: auth.session.client, engine, model, substitutedFrom, timeZone: turnZone(body.timeZone),
           user: { parentId, content: body.content, attachments: atts, clientMessageId: body.clientMessageId } })
+        // sent: their place in line is gone (more of theirs waiting go to the back); the others hear how many still wait
+        if (a.shared && rt.sharedWaiting.sent(chat.id, auth.user.id)) rt.publishChat(auth.user.id, chat.id, 'updated')
+        return started
       } catch (e) {
         if (isClientIdClash(e)) { const r = rt.existingTurn(chat.id, body.clientMessageId, auth.user.id); if (r) return r }
         throw e
       }
+    })
+
+    // how many of my messages wait in a shared chat (chat/shared-waiting.ts); the others hear how many wait in all
+    kit.handle(API.putChatWaiting, ({ c, params, body, auth }) => {
+      const a = chatOf(rt, c, auth, params.id, 'continue')
+      if (!a.shared) return
+      waitingLimit(ctx, `${auth.user.id}:${a.row.id}`)
+      // just after their own send: not taken (a refresh that left before it); 409 waiting_after_send, said again later
+      if (body.count > 0 && rt.sharedWaiting.tooSoon(a.row.id, auth.user.id)) fail('conflict', undefined, { params: { reason: 'waiting_after_send', retryAfter: 4 } })
+      // the others hear it only when someone starts or stops waiting (Chat.shared.waiting counts people)
+      if (rt.sharedWaiting.declare(a.row.id, auth.user.id, body.count)) rt.publishChat(a.row.user_id, a.row.id, 'updated')
     })
 
     // a shared chat: only the person whose turn it is stops it
@@ -732,7 +829,7 @@ export const chatsRoutes: RouteModule = {
       busy(a, c.get('locale'), auth.user.id)
       checkBudget(ctx, auth.user.id, c.get('locale'))
       const { engine, model, substitutedFrom } = pickEngine(ctx, rt, auth, chat, body, c.get('locale'))
-      return rt.createTurn({ chat, userId: auth.user.id, locale: rt.userLocale(auth.user.id), windowId: windowOf(c), clientKind: auth.session.client, engine, model, substitutedFrom, answerTo: question })
+      return rt.createTurn({ chat, userId: auth.user.id, locale: rt.userLocale(auth.user.id), windowId: windowOf(c), clientKind: auth.session.client, engine, model, substitutedFrom, timeZone: turnZone(body.timeZone), answerTo: question })
     })
 
     // a shared chat: one's own messages only
@@ -750,7 +847,7 @@ export const chatsRoutes: RouteModule = {
       checkBudget(ctx, auth.user.id, c.get('locale'))
       const { engine, model, substitutedFrom } = pickEngine(ctx, rt, auth, chat, body, c.get('locale'))
       try {
-        return rt.createTurn({ chat, userId: auth.user.id, locale: rt.userLocale(auth.user.id), windowId: windowOf(c), clientKind: auth.session.client, engine, model, substitutedFrom,
+        return rt.createTurn({ chat, userId: auth.user.id, locale: rt.userLocale(auth.user.id), windowId: windowOf(c), clientKind: auth.session.client, engine, model, substitutedFrom, timeZone: turnZone(body.timeZone),
           user: { parentId: target.parent_id, content: body.content, attachments: atts, clientMessageId: body.clientMessageId } })
       } catch (e) {
         if (isClientIdClash(e)) { const r = rt.existingTurn(chat.id, body.clientMessageId, auth.user.id); if (r) return r }
@@ -775,12 +872,47 @@ export const chatsRoutes: RouteModule = {
     kit.handle(API.listTurnRequests, ({ c, params, auth }) => {
       const a = chatOf(rt, c, auth, params.id, 'view')
       const chat = a.row
-      if (a.shared && rt.activeTurnUser(chat.id) !== auth.user.id) return { items: [] }
+      // the AI's questions that wait after their answer ended (chat/open-questions.ts): the caller's own only
+      const later = openQuestionsOf(ctx.db, chat.id, auth.user.id, windowOf(c))
+      if (a.shared && rt.activeTurnUser(chat.id) !== auth.user.id) return { items: later }
       const turnId = rt.activeTurn(chat.id)
       const exec = turnId ? rt.execFor(turnId) : undefined
-      if (!exec) return { items: [] }
-      return { items: exec.cardsFor(windowOf(c)) }
+      return { items: [...(exec ? exec.cardsFor(windowOf(c)) : []), ...later] }
     })
+
+    /**
+     * The answer of an AI question that waited after its answer ended (chat/open-questions.ts). With other questions of
+     * that answer still open it is kept; with the last one the chat's next turn starts from the asking answer, its user
+     * message the answers (Claude resumes its session there). The chat must still take a message from the caller now
+     * (access, no other answer running, the budget): else the card stays open and the error says why.
+     */
+    const answerLater = (c: Context<AppEnv>, auth: AuthInfo, turnId: string, requestId: string, q: NonNullable<ReturnType<typeof openQuestion>>, value: unknown) => {
+      const locale = c.get('locale')
+      const a = chatOf(rt, c, auth, q.chatId, 'continue')
+      messageInChat(rt, a.row.id, q.messageId)
+      // the answer that asked is still ending (its last words): the runtime starts the next turn once it has ended
+      // (ChatRuntime.startAnsweredTurns); any other answer running in the chat holds the card open
+      const asking = rt.activeTurn(a.row.id) === turnId
+      if (!asking) { busy(a, locale, auth.user.id); nextCheck(rt, a, locale, auth.user.id) }
+      checkBudget(ctx, auth.user.id, locale)
+      // a safety card: its own buttons only, as before (its call runs again with this answer)
+      if (!cardAnswerOk(q.request, value)) fail('validation', tr('answerNotOption', locale))
+      const r = recordAnswer(ctx.db, requestId, value)
+      if (r.state === 'closed') fail('conflict', tr('requestClosed', locale))
+      if (r.state === 'waiting') { rt.hub.publish(auth.user.id, { type: 'turn.request.closed', data: { turnId, requestId, reason: 'answered' } }); return }
+      // the answer that asked is still ending: kept in the database, the card closes when the next turn starts
+      // (ChatRuntime.startAnsweredTurns: at that answer's end, a quarantined slot's release, or after a restart)
+      if (asking) return
+      const ready = r as Extract<typeof r, { state: 'ready' }>
+      try {
+        const { engine, model, substitutedFrom } = pickEngine(ctx, rt, auth, a.row, {}, locale)
+        const hidden = labelsHidden(ctx.db, a.shared, q.messageId)
+        // a browser site's call runs again in the window whose browser it was for
+        rt.createTurn({ chat: a.row, userId: auth.user.id, locale: rt.userLocale(auth.user.id), windowId: ready.window ?? windowOf(c), clientKind: auth.session.client, engine, model, substitutedFrom,
+          user: { parentId: q.messageId, content: answerWords(ready.answers, ready.requests, rt.userLocale(auth.user.id), hidden), attachments: [], clientMessageId: `answer-${requestId}` },
+          answered: answersToSave(ready.answers, ready.requests, rt.userLocale(auth.user.id), hidden) })
+      } catch (e) { ready.undo(); throw e }
+    }
 
     /** the caller's own turn (another person's and a missing one are both not_found) */
     const ownTurn = (id: string, auth: AuthInfo) => {
@@ -794,9 +926,26 @@ export const chatsRoutes: RouteModule = {
       // a connect_service card is finished only through /connect: what comes here reaches the AI
       if (exec?.openRequest(body.requestId)?.kind === 'connect_service') fail('conflict', tr('requestClosed', c.get('locale')))
       const value = body.kind === 'ask_user' ? body.answer : body.decision
+      // the AI's question that waits after its answer ended: the answer starts the chat's next turn
+      // (or a safety card that waits the same way, its call kept: chat/open-questions.ts)
+      const later = !exec?.openRequest(body.requestId) ? openQuestion(ctx.db, params.id, body.requestId, auth.user.id) : null
+      if (later && later.request.kind !== body.kind) fail('conflict', tr('requestClosed', c.get('locale')))
+      // a card for one desktop window (a browser site) is answered from that window only, as when it waited in its call
+      if (later?.window && windowOf(c) !== later.window) fail('conflict', tr('requestClosed', c.get('locale')))
+      if (later) return answerLater(c, auth, params.id, body.requestId, later, value)
       const done = exec ? exec.answer(body.requestId, body.kind, value) : 'closed'
       if (done === 'closed') fail('conflict', tr('requestClosed', c.get('locale')))
       if (done === 'not_an_option') fail('validation', tr('answerNotOption', c.get('locale')))
+    })
+
+    // a card's long text (chat/card-fold.ts): the turn's own person, while the card is open
+    kit.handle(API.turnRequestDetail, ({ params, auth }) => {
+      const exec = ownTurn(params.id, auth)
+      const i = /^\d{1,2}$/.test(params.index) ? Number(params.index) : -1
+      const text = exec && i >= 0 ? exec.cardDetailText(params.requestId, i) : null
+      // no such open card or folded detail: the same answer as another person's turn
+      if (text === null) fail('not_found')
+      return { text: text! }
     })
 
     // a connect_service card (chat/connect-service.ts): the key arrives sealed for 'integration.secret' and goes into the
@@ -870,9 +1019,11 @@ export const chatsRoutes: RouteModule = {
       const made = makeProjectFolder(ctx, { id, name: slug ?? body.name, locale })
       try {
         db.transaction(() => {
+          // the project row first: a guest among its people takes it as their project in the rules' write
+          // (auth/guests.ts claimGuestProject finds the project by its folder)
+          insert(made.path, true)
           const row = ensureFolderRow(db, made.path)
           writeFolderAccess(db, row.id, { rules, limited: true }, auth.user.id)
-          insert(made.path, true)
           audit(db, { actor: auth.user.id, action: 'project.create', target: id, detail: { name: body.name, folderPath: made.path, rules } })
         })()
       } catch (e) { unmakeProjectFolder(ctx, made); throw e }
@@ -904,7 +1055,7 @@ export const chatsRoutes: RouteModule = {
     // start seeing although they miss a place one used. Whoever may change its members; another viewer of it 403, anyone
     // else 404. The first page takes a room-send token (no free probe of who may read what, as the share check); next
     // pages carry a cursor signed over the target, the participants, the people who gain it and the position
-    kit.handle(API.wideningAnswers, ({ c, body, auth }) => {
+    kit.handle(API.wideningAnswers, async ({ c, body, auth }) => {
       const locale = c.get('locale')
       const p = principal(ctx, auth)
       // one chat's (the Share dialog, chat/people-share.ts chatWidening): its creator only; anyone else who sees it 403,
@@ -926,7 +1077,7 @@ export const chatsRoutes: RouteModule = {
         }
         // every page from the room-send budget (429), as for a project
         roomsOf(ctx).takeSendToken(auth.user.id)
-        const res = chatWidening(ctx, p, a.row, body.add, { before, limit: body.limit ?? WIDENING_PAGE }, locale)
+        const res = await chatWidening(ctx, p, a.row, body.add, { before, limit: body.limit ?? WIDENING_PAGE }, locale)
         return { total: res.total, totalCapped: res.totalCapped, items: res.items, nextCursor: res.nextRowid === null ? null : encodeCursor({ r: String(res.nextRowid), m: confirmMac(ctx, cstate(res.nextRowid)) }) }
       }
       const r = projectFor(p, body.target.projectId, true)
@@ -1119,6 +1270,8 @@ export const chatsRoutes: RouteModule = {
       if (skillsOn?.names.length) recordSkillsOn(ctx.db, auth.user.id, folder, skillsOn.paths, { id: r!.id, name: next.name }, 'project_folder')
       const after = rt.store.projectRow(r!.id)!
       if (after.instructions !== r!.instructions) notifyInstructionsChanged(ctx, after, auth.user)
+      // its linked channel shows its name and folder (rooms/project-link.ts): its members get the room again
+      if (after.name !== r!.name || after.folder_path !== r!.folder_path || after.trashed_with !== r!.trashed_with) roomsOf(ctx).projectsChanged([r!.id])
       // a project in the trash that an admin pointed at a folder is back as a restore brings it back: its paused tasks
       // and shared chats (chat/project-restore.ts; QA TC-1014, TC-1015). Since when: its folder's trash item, or (purged
       // since) the project's own trash record
@@ -1205,6 +1358,8 @@ export const chatsRoutes: RouteModule = {
           // and then the project stays too; nothing is lost). Already gone from disk: nothing to remove
           const abs = path.join(ctx.files.fx.root, ...r.folder_path.split('/'))
           if (fs.existsSync(abs) && !componentC(ctx).files.removeEmptyFolder(p.id, r.folder_path)) fail('conflict', tr('projectNotEmpty', locale), { params: { reason: 'project_not_empty' } })
+          // (a personal project never links a channel; any row goes with it all the same, explicitly)
+          dropLinksInTx(ctx.db, { projectId: r.id })
           ctx.db.query('DELETE FROM projects WHERE id = ?').run(r.id)
           audit(ctx.db, { actor: auth.user.id, action: 'project.delete', target: r.id, detail: null })
         })()

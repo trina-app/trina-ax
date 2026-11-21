@@ -174,9 +174,11 @@ test('a name changed since the messages were read shows at once: the directory h
     await act(async () => { usePeople.setState({ byId: { [BEN.id]: { id: BEN.id, name: 'Benjamin Park' } } as never }) })
     const html = m.html()
     // the run's name and the quote's; the @mention keeps the words Cy typed, still marked as a mention
-    expect(count(html, 'Benjamin Park')).toBe(2)
+    // (as words: Ben is in the directory now, so his photo, name and mention are also buttons named "About Benjamin
+    // Park", components/PersonCard.tsx)
+    expect(count(html, '>Benjamin Park<')).toBe(2)
     expect(html).not.toMatch(/>Ben</)
-    expect(html).toMatch(/<span class="[^"]*font-medium[^"]*">@Ben<\/span>/)
+    expect(html).toMatch(/<button[^>]*class="[^"]*font-medium[^"]*"[^>]*>@Ben<\/button>/)
   } finally {
     await m.unmount()
     usePeople.getState().reset()
@@ -305,12 +307,12 @@ test('reactions: a chip per emoji with its count, mine marked and pressed, who r
   }
 })
 
-test("a room's badge counts the threads I follow with new replies; '@' when one of them mentions me", async () => {
+test("a room's badge counts its timeline, not the threads I follow with new replies (QA TC-5363); '@' when one of them mentions me", async () => {
   const { UnreadBadge } = await import('../../src/components/nav/RoomsList')
   const { room } = await import('./rooms-fixtures')
-  expect(renderToStaticMarkup(<UnreadBadge room={room({ unreadCount: 0, threadsUnread: 2 })} testId="b" />)).toContain('<span aria-hidden="true">2</span>')
-  expect(renderToStaticMarkup(<UnreadBadge room={room({ unreadCount: 1, threadsUnread: 2 })} testId="b" />)).toContain('<span aria-hidden="true">3</span>')
-  expect(renderToStaticMarkup(<UnreadBadge room={room({ unreadCount: 0, threadsUnread: 1, mentioned: true })} testId="b" />)).toContain('<span aria-hidden="true">@</span>')
+  expect(renderToStaticMarkup(<UnreadBadge room={room({ kind: 'group', unreadCount: 0, threadsUnread: 2 })} testId="b" />)).toBe('')
+  expect(renderToStaticMarkup(<UnreadBadge room={room({ kind: 'group', unreadCount: 1, threadsUnread: 2 })} testId="b" />)).toContain('<span aria-hidden="true">1</span>')
+  expect(renderToStaticMarkup(<UnreadBadge room={room({ kind: 'group', unreadCount: 0, threadsUnread: 1, mentioned: true })} testId="b" />)).toContain('<span aria-hidden="true">@</span>')
 })
 
 test('an old answer hidden from me is one faint line: who asked it, no text, menu, reactions, thread or sources', () => {
@@ -360,4 +362,23 @@ test('an answer\'s own quotes go without the typography\'s marks: a shared answe
   expect(shared).toContain('<blockquote>')
   expect(shared).toContain('&quot;Let&#x27;s move the review to 3 pm&quot;')
   expect(shared).not.toMatch(/[“”]/)
+})
+
+test('a post the AI made for a person mentions people for real: "@Name" in their line is marked, the quote is not (docs/decisions/20261118-ai-post-real-mentions.md)', () => {
+  // as the server stores post_to_room's message: the mentions in the person's line before the AI's quote
+  const head = '@Cy Park'
+  const answer = 'Forwarding a mail from the supplier. Ask @Ben too.'
+  const html = render([message({ roomId: R, seq: 1, author: ME, body: `${head}\n\n${answer}`, sharedAnswer: { at: head.length + 2, cut: false }, mentions: [CY.id] })])
+  const note = html.slice(0, html.indexOf('data-testid="room-shared-answer"'))
+  expect(note).toMatch(/<span class="font-medium text-accent-text">@Cy Park<\/span>/)
+  // inside the AI's quote a name is the AI's words: never marked (Ben is not mentioned either)
+  const quote = /data-testid="room-shared-answer"[\s\S]*?<\/figure>/.exec(html)![0]
+  expect(quote).toContain('Ask @Ben too.')
+  expect(quote).not.toContain('text-accent-text">@Ben')
+  // the same text with no mention stored (a button's share, an older post): plain
+  const plain = render([message({ roomId: R, seq: 1, author: ME, body: `${head}\n\n${answer}`, sharedAnswer: { at: head.length + 2, cut: false }, mentions: [] })])
+  expect(plain).not.toContain('text-accent-text">@Cy Park')
+  // "@everyone" the server kept (the asker wrote it): marked like a typed one
+  const all = render([message({ roomId: R, seq: 1, author: BEN, body: `@everyone\n\n${answer}`, sharedAnswer: { at: '@everyone'.length + 2, cut: false }, mentions: [], mentionsAll: true })])
+  expect(all).toContain('data-mention="all">@everyone</span>')
 })

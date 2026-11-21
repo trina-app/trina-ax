@@ -8,7 +8,8 @@ import { translate, useLocaleStore } from '../../src/i18n'
 import { BottomTabs } from '../../src/components/BottomTabs'
 import { Rail } from '../../src/components/rail/Rail'
 import { activityMark, aiMark, chatsMark, unreadRooms } from '../../src/components/rail/railBadges'
-import { panelState } from '../../src/components/rail/railPanel'
+import { PANEL_ALWAYS_BOTH_PX, panelState } from '../../src/components/rail/railPanel'
+import { THREE_MIN } from '../../src/lib/roomColumns'
 import { useInbox } from '../../src/store/inbox'
 import { useChats } from '../../src/store/chats'
 import { useRooms } from '../../src/store/rooms'
@@ -26,9 +27,11 @@ describe('marks', () => {
   })
 
   test('대화: conversations with something unread (not messages), muted and hidden left out; a dot for mention rows only', () => {
-    const rooms = [room({ unreadCount: 12 }), room({ unreadCount: 0, threadsUnread: 2 }), room({ unreadCount: 4, muted: true }), room({ unreadCount: 3, hidden: true }), room()]
-    expect(unreadRooms(rooms)).toBe(2)
-    expect(chatsMark(rooms, 5)).toEqual({ kind: 'count', n: 2 })
+    // the second, a channel at its default (mentions only) with plain messages, is only bold: not counted; nor is the
+    // third, read to its end with a followed thread's new replies (they are in 멘션·스레드: QA TC-5363)
+    const rooms = [room({ kind: 'group', unreadCount: 12 }), room({ unreadCount: 7 }), room({ unreadCount: 0, threadsUnread: 2 }), room({ unreadCount: 4, muted: true }), room({ unreadCount: 3, hidden: true }), room()]
+    expect(unreadRooms(rooms)).toBe(1)
+    expect(chatsMark(rooms, 5)).toEqual({ kind: 'count', n: 1 })
     // a hidden room does not mark the rail (it shows nowhere)
     expect(chatsMark([room({ unreadCount: 1, hidden: true })], 0)).toBeNull()
     // a mention row unread in Activity, its room read meanwhile: still a mark on 대화
@@ -49,6 +52,16 @@ describe('panel', () => {
     expect(panelState({ wide: false, crowded: true, hidden: false })).toBe('folded')
     expect(panelState({ wide: false, crowded: false, hidden: true })).toBe('hidden')
     expect(panelState({ wide: false, crowded: true, hidden: true })).toBe('hidden')
+  })
+  test('a room with its thread and side chat both open: folded below 1448 px, whatever the person chose; back when one closes', () => {
+    // (`both`: the two are open and the window is narrower than PANEL_ALWAYS_BOTH_PX)
+    expect(panelState({ wide: true, crowded: true, hidden: false, both: true })).toBe('folded')
+    expect(panelState({ wide: true, crowded: true, hidden: true, both: true })).toBe('folded')
+    expect(panelState({ wide: false, crowded: true, hidden: false, both: true })).toBe('folded')
+    expect(panelState({ wide: false, crowded: true, hidden: true, both: true })).toBe('hidden')
+    expect(panelState({ wide: true, crowded: true, hidden: false, both: false })).toBe('shown')
+    // the rail at its widest, the list at its widest and the three columns
+    expect(PANEL_ALWAYS_BOTH_PX).toBe(88 + 300 + THREE_MIN)
   })
 })
 
@@ -88,7 +101,7 @@ describe('Rail', () => {
 
   const draw = async (role: 'owner' | 'member', path: string) => {
     useSession.setState({ status: { kind: 'signed-in', me: me(role) } } as never)
-    useRooms.setState({ rooms: [room({ unreadCount: 3 }), room({ unreadCount: 1, mentioned: true }), room({ unreadCount: 9, muted: true })], loaded: true, failed: null })
+    useRooms.setState({ rooms: [room({ kind: 'group', unreadCount: 3 }), room({ unreadCount: 6 }), room({ unreadCount: 1, mentioned: true }), room({ unreadCount: 9, muted: true })], loaded: true, failed: null })
     const m = await mount(<MemoryRouter initialEntries={[path]}><Rail showList={false} /></MemoryRouter>)
     // the notices' count arrives from GET /api/notifications
     await m.until(() => m.find('rail-activity-mark'), 'the notices counted')
@@ -152,11 +165,13 @@ describe('Rail', () => {
     }
   })
 
-  test("a member's logo and team name are not a button; Admin is nowhere on the rail", async () => {
+  // the owner 2026-11-18: a member's logo opens the team menu too (다른 팀으로 전환), with no admin item in it
+  test("a member's logo is the team menu's button (closed); Admin is nowhere on the rail", async () => {
     const m = await draw('member', '/files')
     try {
-      expect(m.container.querySelector('[data-testid="team-menu"]')).toBeNull()
-      expect(m.get('team-header').textContent).toContain('Acme')
+      expect(m.get('team-menu').tagName.toLowerCase()).toBe('button')
+      expect(m.get('team-menu').textContent).toContain('Acme')
+      expect(m.find('team-dropdown')).toBeNull()
       expect(m.get('rail-files').getAttribute('aria-current')).toBe('page')
       expect(m.container.textContent).not.toContain(ko('sidebar.admin'))
     } finally {

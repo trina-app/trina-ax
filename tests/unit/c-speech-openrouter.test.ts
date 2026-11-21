@@ -13,7 +13,9 @@ import { OPENROUTER_MAX_BYTES, OPENROUTER_STT_PROVIDERS, openRouterRouting, pars
 import { languageCode } from '../../server/src/jobs/speech-language'
 import { setSetting } from '../../server/src/admin/settings'
 import { makeCApp, type CApp } from '../lib/c-app'
+import type { TranscribeConfig } from '../../server/src/jobs/transcribe'
 import { which } from '../../server/src/config'
+import { pieceWav } from '@mycel/shared/speech-pieces'
 
 const KEY = 'sk-or-v1-FAKE-TEST-KEY-CANARY-0123456789abcdef'
 
@@ -30,13 +32,15 @@ const fake = Bun.serve({
     return reply(body)
   },
 })
-let saved: { url: string; ffmpeg: string | null }
+let saved: { url: string; ffmpeg: string | null; mac: TranscribeConfig['mac'] }
 beforeAll(async () => {
   A = await makeCApp('c-speech-or')
   const t = C().transcribe
-  saved = { url: t.openRouterUrl, ffmpeg: t.ffmpegBin }
+  saved = { url: t.openRouterUrl, ffmpeg: t.ffmpegBin, mac: t.mac ?? null }
   t.openRouterUrl = `http://127.0.0.1:${fake.port}/api/v1/audio/transcriptions`
   t.ffmpegBin = null
+  // a server without ffmpeg as on Linux (an Apple silicon Mac decodes with its own programs: mac-local-speech.test.ts)
+  t.mac = null
   // the job speaks the person's language: English here, Korean in one test below
   A.ctx.db.query("UPDATE users SET locale = 'en' WHERE id = 'alice'").run()
 })
@@ -44,6 +48,7 @@ afterAll(async () => {
   const t = C().transcribe
   t.openRouterUrl = saved.url
   t.ffmpegBin = saved.ffmpeg
+  t.mac = saved.mac
   await A.close()
   fake.stop(true)
 })
@@ -62,6 +67,24 @@ async function run(bytes: Uint8Array, name = 'voice.wav', fields: Record<string,
   expect(r.status).toBe(202)
   return (await C().jobs.wait(r.body.jobId))!
 }
+
+describe('a recording with no speech (QA TC-4581): no stray word, "Nothing was recognized" in the app', () => {
+  test('silence: nothing is sent, the job is done with no text', async () => {
+    const job = await run(pieceWav(new Float32Array(3 * 16000)))
+    expect(job.status, JSON.stringify(job.error)).toBe('done')
+    expect((job.result as { text: string }).text).toBe('')
+    expect(hits).toEqual([])
+  })
+  test('a beep heard as "Thank you." with a high no_speech_prob: no text', async () => {
+    reply = () => Response.json({ text: ' Thank you.', language: 'en', duration: 1, segments: [{ start: 0, end: 1, text: ' Thank you.', avg_logprob: -0.5, no_speech_prob: 0.8 }] })
+    try {
+      const job = await run(pieceWav(Float32Array.from({ length: 16000 }, (_, i) => 0.5 * Math.sin(2 * Math.PI * 1000 * i / 16000))))
+      expect(job.status, JSON.stringify(job.error)).toBe('done')
+      expect(job.result).toMatchObject({ text: '', segments: [] })
+      expect(hits).toHaveLength(1)
+    } finally { reply = () => Response.json({ text: 'hello' }) }
+  })
+})
 
 describe('speech provider', () => {
   test("default 'off': the job fails at once and OpenRouter is not called", async () => {

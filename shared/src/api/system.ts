@@ -3,7 +3,7 @@
 import { z } from 'zod'
 import { IsoTime, JobAccepted } from './common'
 import { UserRef } from './entities'
-import { empty, endpoint } from './endpoint'
+import { empty, endpoint, stream } from './endpoint'
 import { SourceCodeOffer } from '../source'
 
 export const Health = z.object({
@@ -36,7 +36,8 @@ export type DiagnosticCheck = z.infer<typeof DiagnosticCheck>
 export const Diagnostics = z.object({
   version: z.string(),
   host: z.object({ os: z.string(), arch: z.string(), hostname: z.string() }),
-  disk: z.object({ teamFolderFreeBytes: z.number().int().nonnegative(), dataFreeBytes: z.number().int().nonnegative() }),
+  // null: the free space could not be read (server/src/system/disk-stat.ts); the disk checks then warn
+  disk: z.object({ teamFolderFreeBytes: z.number().int().nonnegative().nullable(), dataFreeBytes: z.number().int().nonnegative().nullable() }),
   queue: z.object({ running: z.number().int(), queued: z.number().int(), concurrency: z.number().int(),
     queuePolicyVersion: z.number().int().optional(), waitingUsers: z.number().int().optional(), oldestWaitMs: z.number().nonnegative().optional(),
     maxRunningPerUser: z.number().int().optional(), quarantined: z.number().int().optional(), deferredSchedules: z.number().int().optional(),
@@ -47,6 +48,9 @@ export const Diagnostics = z.object({
     rejected: z.object({ queue_full: z.number().int(), queue_full_user: z.number().int(), draining: z.number().int() }).optional(),
   }),
   checks: z.array(DiagnosticCheck),
+  /** the operator turned on error reports (MYCEL_ERROR_REPORT_URL): the receiver's host name only, for the line
+   * "Error reports are sent to <host>". Absent: off (or an older server) */
+  errorReports: z.object({ host: z.string() }).optional(),
   generatedAt: IsoTime,
 })
 export type Diagnostics = z.infer<typeof Diagnostics>
@@ -89,6 +93,9 @@ export const UpdateStatus = z.object({
    * higher reader level): it waits for a newer release and is not offered. null/absent: nothing holds it. Absent from
    * older servers. */
   hold: z.enum(['paused', 'rollout', 'failed', 'root_failed', 'cannot_read']).nullable().optional(),
+  /** with hold failed / root_failed: why the last try of this release failed or was rolled back (what the bootstrap or
+   * root recorded, cut to 300 characters); null/absent: not recorded. Absent from older servers. */
+  holdReason: z.string().max(300).nullable().optional(),
   /** staged roll-out of a stable release (server/src/system/rollout.ts): the feed's newer release reaches this
    * server's automatic updates at this time ("this server's turn"; it comes with hold 'rollout'); null: this release's
    * roll-out leaves the server out. Absent when nothing waits for it (and from older servers). "Update now" does not wait. */
@@ -215,6 +222,9 @@ const Bytes = z.number().nonnegative()
 export const StorageBreakdown = z.object({
   /** of team: files of deleted chats and rooms, kept 30 days before they are removed (absent from an older server) */
   kept: Bytes.optional(),
+  /** files sent in conversations (<team>/.system/rooms; not in `team`). One number for the whole team, never split by
+   * person or conversation (docs/decisions/20261116-room-files-storage-line.md). Absent from an older server */
+  rooms: Bytes.optional(),
   team: Bytes, history: Bytes, trash: Bytes, backups: Bytes, models: Bytes, data: Bytes, app: Bytes, other: Bytes })
 export type StorageBreakdown = z.infer<typeof StorageBreakdown>
 export const StorageStatus = z.object({
@@ -237,6 +247,9 @@ export const StorageStatus = z.object({
   measuredAt: IsoTime.nullable(),
   /** the plan's disk (the hosted cloud), else null. The rest of the plan: GET /api/admin/plan */
   planDiskGiB: z.number().nullable(),
+  /** when an owner or admin last pressed "Ask people to clean up", while it is still that day in the team's time zone
+   * (the button then reads "Asked today"); null otherwise; absent from an older server. Never who was asked. */
+  cleanupAskedAt: IsoTime.nullable().optional(),
 })
 export type StorageStatus = z.infer<typeof StorageStatus>
 
@@ -297,10 +310,14 @@ export const SYSTEM = {
   startBackup: endpoint({ method: 'POST', path: '/api/admin/backup', auth: 'owner', owner: 'G', status: 202, body: StartBackupBody, response: JobAccepted, summary: 'Back up now (VACUUM INTO + team folder manifest diff).' }),
   startRestore: endpoint({ method: 'POST', path: '/api/admin/restore', auth: 'owner-reauth', owner: 'G', status: 202, body: StartRestoreBody, response: JobAccepted, summary: 'Restore a backup (everything after it is lost; the UI shows how much).' }),
   startExport: endpoint({ method: 'POST', path: '/api/admin/export', auth: 'owner', owner: 'G', status: 202, body: StartExportBody, response: JobAccepted, summary: 'Export chats / memories / files (optionally password-encrypted with age).' }),
+  // Settings › Export (QA AP-038): every member, their own chats only (docs/decisions/20261120-export-my-chats.md)
+  startMyExport: endpoint({ method: 'POST', path: '/api/me/export', auth: 'user', owner: 'G', status: 202, response: JobAccepted, summary: "A ZIP of the caller's own AI chats (Markdown + JSON per chat, attachments as links), built on the server. Never a chat of somebody else, also not one shared with the caller. One at a time per person (409 busy). Result: MyExportResult." }),
+  myExportDownload: endpoint({ method: 'GET', path: '/api/me/export/:jobId/download', auth: 'user', owner: 'G', response: stream(false), summary: "The ZIP of the caller's own export job, for 24 hours after it is made (404 for anyone else's job and after that)." }),
   connection: endpoint({ method: 'GET', path: '/api/admin/connection', auth: 'owner', owner: 'G', response: ConnectionStatus, summary: 'Relay / direct connection state (from the relay client, component F).' }),
   connectInfo: endpoint({ method: 'GET', path: '/api/connect-info', auth: 'user', owner: 'G', response: ConnectInfo, summary: 'Office-network address and certificate fingerprint for the desktop app (pinning).' }),
   lanFailure: endpoint({ method: 'POST', path: '/api/connect-info/lan-failure', auth: 'user', owner: 'G', status: 204, body: LanFailureBody, response: empty, summary: 'The desktop app could not use the office address (shown in Diagnostics).' }),
   updateConnection: endpoint({ method: 'PUT', path: '/api/admin/connection', auth: 'owner-reauth', owner: 'G', body: UpdateConnectionBody, response: ConnectionStatus, summary: 'Change the connection mode.' }),
+  askStorageCleanup: endpoint({ method: 'POST', path: '/api/admin/storage/ask-cleanup', auth: 'admin', owner: 'G', response: z.object({ askedAt: IsoTime }), summary: 'Ask the people whose files in conversations take the most space (over 1 GB each, else over 100 MB) to delete what they no longer need: an Activity notice each. Once a day for the team (a second press that day sends nothing). The answer and the audit row never say who or how many.' }),
   storage: endpoint({ method: 'GET', path: '/api/admin/storage', auth: 'admin', owner: 'G', response: StorageStatus, summary: 'Storage use of the team disk (statfs), what uses it, the plan\'s disk when there is one.' }),
   plan: endpoint({ method: 'GET', path: '/api/admin/plan', auth: 'admin', owner: 'G', response: PlanStatus, summary: 'The plan (plan.json): limits, what the team uses of them, where to change it. null without a plan file.' }),
   managedNotices: endpoint({ method: 'GET', path: '/api/managed/notices', auth: 'user', owner: 'G', response: ManagedNotices, summary: 'The operator\'s notices (notices.json) meant for the caller\'s role, in the caller\'s language.' }),

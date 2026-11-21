@@ -20,10 +20,11 @@ export const QUICK_REACTIONS: readonly string[] = ['✅', '👀', '👍']
 
 const BTN = 'inline-flex size-7 items-center justify-center rounded-md text-faint transition hover:bg-hover hover:text-ink'
 
-/** `onAsk`: "Ask Trina about this" (✦): the room's side chat opens with this message quoted */
-export function MessageHoverBar({ roomId, m, below = false, reactOn, onThread, onAsk, more }: { roomId: string; m: RoomMessage; below?: boolean; reactOn: boolean; onThread?: () => void; onAsk?: () => void; more: MenuItem[] }) {
+/** `react`: the room message that takes reactions here (none: a reply in a shared chat's thread, which has none, only
+ * ⋮). `onAsk`: "Ask Trina about this" (✦): the room's side chat opens with this message quoted */
+export function MessageHoverBar({ react = null, below = false, onThread, onAsk, more }: { react?: { roomId: string; m: RoomMessage } | null; below?: boolean; onThread?: () => void; onAsk?: () => void; more: MenuItem[] }) {
   const t = useT()
-  const mine = new Set((m.reactions ?? []).filter((r) => r.mine).map((r) => r.emoji))
+  const mine = new Set((react?.m.reactions ?? []).filter((r) => r.mine).map((r) => r.emoji))
   return (
     <div
       role="toolbar"
@@ -44,19 +45,19 @@ export function MessageHoverBar({ roomId, m, below = false, reactOn, onThread, o
       data-testid="message-hover-bar"
       data-below={below ? '' : undefined}
     >
-      {reactOn &&
+      {react &&
         QUICK_REACTIONS.map((e) => {
           const on = mine.has(e)
           const label = t(on ? 'rooms.reactRemove' : 'rooms.reactWith', { emoji: e })
           return (
             <Tooltip key={e} label={label}>
-              <button type="button" aria-label={label} aria-pressed={on} onClick={() => void useRooms.getState().react(roomId, m.id, e, !on)} className={clsx(BTN, 'text-base leading-none', on && 'bg-accent-soft')} data-testid="hover-react" data-emoji={e}>
+              <button type="button" aria-label={label} aria-pressed={on} onClick={() => void useRooms.getState().react(react.roomId, react.m.id, e, !on)} className={clsx(BTN, 'text-base leading-none', on && 'bg-accent-soft')} data-testid="hover-react" data-emoji={e}>
                 <span aria-hidden>{e}</span>
               </button>
             </Tooltip>
           )
         })}
-      {reactOn && <ReactionPicker roomId={roomId} m={m} buttonClassName={BTN} below={below} />}
+      {react && <ReactionPicker roomId={react.roomId} m={react.m} buttonClassName={BTN} below={below} />}
       {onThread && (
         <Tooltip label={t('rooms.replyInThread')}>
           <button type="button" aria-label={t('rooms.replyInThread')} onClick={onThread} className={BTN} data-testid="message-thread">

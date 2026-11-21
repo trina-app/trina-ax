@@ -1,5 +1,5 @@
 // "Trina isn't ready yet" (chat error engine_missing: the AI cannot start here): one button by who reads it
-// (docs/DECISIONS.md, owner 2026-11-11). The owner and admins go to the page that connects the AI (Admin › AI accounts,
+// (docs/DECISIONS.md, owner 2026-11-11). The owner and admins go to the page that connects the AI (Admin › AI providers,
 // /admin/providers); a member tells them with one press (POST /api/me/ai-not-ready/tell: an Inbox notice to the owner(s)
 // and admins, at most once an hour, the server's limit), and the button says so ("Told"). "Told" stays after a reload
 // until that hour has passed: it is read from the server's own record (GET /api/me/ai-access notReadyTold, owner

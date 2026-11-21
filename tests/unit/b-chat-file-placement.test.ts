@@ -8,7 +8,7 @@ import { ARCHIVE_FOLDER } from '@mycel/shared'
 import { API, Locale } from '@mycel/shared/api'
 import { ask, startHarness, type Harness, type TestSocket } from '../lib/b-harness'
 import { buildSubagentPrompt, buildTurnContext, buildTurnPrompt, filePlacementRule, SUBAGENT_PLACEMENT_RULE, templatesFolder, type PromptInput } from '../../server/src/chat/prompt'
-import { areaSubfolders, looseArea, placementNote, plainFolderName, PLACEMENT_FOLDERS_MAX } from '../../server/src/chat/file-placement'
+import { areaSubfolders, looseArea, ONLY_NAMED, placementNote, plainFolderName, PLACEMENT_FOLDERS_MAX } from '../../server/src/chat/file-placement'
 
 setDefaultTimeout(60_000)
 const fake = (...ds: unknown[]) => ds.map((d) => '@fake ' + JSON.stringify(d)).join('\n')
@@ -149,6 +149,8 @@ describe('folder names in the note', () => {
     expect(note).not.toContain('gone.md')
     expect(note).not.toContain('todo.md')
     expect(note).not.toContain('etc-link') // a link in shared/
+    // only the new file it names: never its source or other files there (AI flow FL-15, 2026-11-17)
+    expect(note).toEndWith(ONLY_NAMED)
     expect(placementNote(h.ctx.files, h.ctx.files.principal('alice'), ['users/alice/todo.md'])).toBe('')
   })
 })
@@ -256,4 +258,45 @@ describe('the note in a chat turn', () => {
     expect(r.done.content).not.toContain(NOTE)
   })
 
+  // AI flow FL-15 (2026-11-17): asked for a PDF of a deck in groups/마케팅/, the AI got the note for the PDF, made a
+  // folder nobody asked for and moved the PDF and the deck into it. A file made from one in the same folder stays there.
+  test('a file made from a file in the same folder gets none; made from a file elsewhere it does', async () => {
+    put('groups/marketing/deck-notes.md', '# Launch\n\n- one\n')
+    const beside = await ask(h, socks.alice!, 'alice', await chat('alice'), fake(
+      { tool: 'make_file', args: { format: 'docx', source: 'groups/marketing/deck-notes.md', output: 'groups/marketing/deck-notes.docx' }, sayResult: true }))
+    expect(beside.done.status).toBe('done')
+    expect(has('groups/marketing/deck-notes.docx')).toBe(true)
+    expect(beside.done.content).not.toContain(NOTE)
+
+    put('groups/marketing/campaigns/brief.md', '# Brief\n')
+    const away = await ask(h, socks.alice!, 'alice', await chat('alice'), fake(
+      { tool: 'make_file', args: { format: 'docx', source: 'groups/marketing/campaigns/brief.md', output: 'groups/marketing/brief.docx' }, sayResult: true }))
+    expect(has('groups/marketing/brief.docx')).toBe(true)
+    expect(away.done.content).toContain(`${NOTE} "groups/marketing/brief.docx" was saved directly in "groups/marketing/"`)
+    expect(away.done.content).toContain(ONLY_NAMED)
+  })
+
+  test('the rule: a file made from another goes next to it; nothing the user did not ask about is moved', () => {
+    expect(RULE).toContain('A file made from another one (a PDF of a deck, a copy in another format) goes next to it unless the user names another place.')
+    expect(RULE).toContain('Never move, rename or regroup files the user did not ask about.')
+  })
+
+  // AI flow FL-15, always mode on dev 552bcfd56: a new deck made next to the team's deck it had read got the note, and
+  // a turn later the AI made "발표자료" and moved the deck there unasked. A new file beside a file of its kind that the
+  // turn read there follows the folder's own way: no note. Another kind, or nothing read there, still gets it.
+  test('a new file beside a file of the same kind the turn read there gets none', async () => {
+    put('groups/marketing/team-deck.md', '# Team deck\n')
+    const beside = await ask(h, socks.alice!, 'alice', await chat('alice'), fake(
+      { tool: 'read', args: { file_path: 'groups/marketing/team-deck.md' } }, write('groups/marketing/new-deck.md')))
+    expect(beside.done.content).toContain('Created groups/marketing/new-deck.md')
+    expect(beside.done.content).not.toContain(NOTE)
+    const other = await ask(h, socks.alice!, 'alice', await chat('alice'), fake(
+      { tool: 'read', args: { file_path: 'groups/marketing/team-deck.md' } }, write('groups/marketing/new-deck.html', '<h1>x</h1>\n')))
+    expect(other.done.content).toContain(`${NOTE} "groups/marketing/new-deck.html" was saved directly in "groups/marketing/"`)
+    // a file of the same kind read in another folder (a subfolder) does not count: the note comes
+    put('groups/marketing/campaigns/plan.md', '# Plan\n')
+    const away = await ask(h, socks.alice!, 'alice', await chat('alice'), fake(
+      { tool: 'read', args: { file_path: 'groups/marketing/campaigns/plan.md' } }, write('groups/marketing/plan-copy.md')))
+    expect(away.done.content).toContain(`${NOTE} "groups/marketing/plan-copy.md" was saved directly in "groups/marketing/"`)
+  })
 })

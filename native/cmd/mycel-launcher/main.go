@@ -238,7 +238,12 @@ var (
 	localCodex = flag.Bool("local-codex", false, "sandbox, with --local-login: also allow the account's ~/.codex/auth.json and ~/.codex/packages")
 	// the server starts this launcher itself (dev / local-login) and holds our stdin open: when the server dies, even
 	// by kill -9, the pipe closes and we stop every turn and exit instead of staying behind as an orphan
-	exitWithParent = flag.Bool("exit-with-parent", false, "stop all turns and exit when stdin closes (the starting server is gone)")
+	// with --local-login and a sandbox profile: the Claude login broker (keychain.go) keeps its socket and the engines'
+	// `security` link here; default <folder of --tools-sock>/kc (its parent folders are open to engines already)
+	keychainDir = flag.String("keychain-dir", "", "with --local-login and --sandbox-profile: folder of the Claude login broker (default <tools-sock folder>/kc)")
+	// tests only: a JSON file {service: value} stands in for the login keychain (the real one is never opened)
+	keychainTestStore = flag.String("keychain-test-store", "", "tests only: JSON file that stands in for the login keychain")
+	exitWithParent    = flag.Bool("exit-with-parent", false, "stop all turns and exit when stdin closes (the starting server is gone)")
 )
 
 // stopAllAndExit ends every live turn (SIGTERM to its process group, SIGKILL after 5 s) and exits.
@@ -328,6 +333,11 @@ func engineCommandWith(cmdPath string, args []string, chat, sessDir string, so s
 		"USER_HOME":   resolvePath(accountHome),
 		"SESSION_DIR": resolvePath(filepath.Clean(sessDir)),
 		"LOGIN_TTY":   so.tty,
+		// the Claude login broker (keychain.go): only for the account's own login, never a sign-in
+		"KEYCHAIN_DIR": "",
+	}
+	if ll == "1" {
+		params["KEYCHAIN_DIR"] = kcDir
 	}
 	text, err := os.ReadFile(*sandboxProfile)
 	if err != nil {
@@ -460,6 +470,23 @@ func main() {
 			os.Exit(2)
 		}
 	}
+	if *localLogin && *sandboxProfile != "" {
+		// the engines' Claude login goes through the broker; /usr/bin/security and the keychain are closed to them
+		dir := *keychainDir
+		if dir == "" {
+			dir = filepath.Join(filepath.Dir(resolvePath(*toolsSock)), "kc")
+		}
+		var store kcStore
+		if *keychainTestStore != "" {
+			store = fileStore{path: *keychainTestStore}
+		}
+		// office mode (a model proxy with its refresh terminator): the engine sees a placeholder refresh token
+		if err := startKeychainBroker(dir, resolvePath(*bridgePath), store, *proxyPort > 0); err != nil {
+			fmt.Fprintln(os.Stderr, "mycel-launcher: Claude login broker:", err)
+			os.Exit(2)
+		}
+		kcDir = resolvePath(dir)
+	}
 	if *dedicated {
 		if err := checkDedicated(); err != nil {
 			fmt.Fprintln(os.Stderr, "mycel-launcher:", err)
@@ -540,8 +567,14 @@ func serve(c *net.UnixConn) {
 	case "prepare-stop": // ending.go
 		prepareStop(line, o)
 		return
+	case "sandbox-check": // enginecheck.go: the bootstrap, after an update
+		sandboxCheckOp(o)
+		return
 	case "codex-status":
 		codexStatus(o)
+		return
+	case "claude-refresh-token", "claude-refresh-rotated": // keychain.go: the proxy's refresh terminator (server only)
+		kcRefreshOp(probe.Op, line, o)
 		return
 	case "codex-logout":
 		codexLogout(o)
@@ -882,6 +915,12 @@ func run(req *request, o *out, r *bufio.Reader) error {
 		env = append(env, fdVar+"=3")
 		wantBaseURL = true
 	}
+	// a Claude turn with the account's own login reads it through the broker (keychain.go), not /usr/bin/security
+	// (not a Codex turn, not one with a model proxy token: those never use the account's own Claude login)
+	kcTurn := kcDir != "" && !localCodexTurn && req.CodexHome == nil && !req.CodexAuth && tokenRead == nil
+	if kcTurn {
+		env = kcEnv(env)
+	}
 	if wantBaseURL && *proxyPort > 0 {
 		env = append(env, fmt.Sprintf("ANTHROPIC_BASE_URL=http://127.0.0.1:%d", *proxyPort))
 	}
@@ -919,6 +958,10 @@ func run(req *request, o *out, r *bufio.Reader) error {
 	pid := cmd.Process.Pid
 	live.add(pid)
 	defer live.del(pid)
+	if kcTurn {
+		kcTurns.add(pid)
+		defer kcTurns.del(pid)
+	}
 	o.send(map[string]any{"ev": "started", "pid": pid, "pgid": pid})
 	te.started(pid, stop) // Linux: disk watch
 	killGroup := func(sig syscall.Signal) { _ = syscall.Kill(-pid, sig) }

@@ -1,4 +1,4 @@
-// Admin › Providers (/admin/providers, in the Connections group; it was "AI engines" plus a separate "AI connections"
+// Admin › AI providers (/admin/providers, in the Connections group; it was "AI engines" plus a separate "AI connections"
 // page, and /admin/engines and /admin/credentials lead here; QA TC-191 made it as quiet as Team settings): one row per
 // engine (Claude Code, Codex, API): its provider's mark, its name, one state and the on/off switch, what is missing in
 // one line. Under it, the provider's accounts in the order they are used, with Add account (the owner or an admin; the
@@ -13,17 +13,21 @@
 import clsx from 'clsx'
 import { ChevronRight } from 'lucide-react'
 import { useEffect, useId, useState, type ReactNode } from 'react'
-import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
+import { useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
+import { setupReturnStep } from '../../lib/welcome'
 import { CompactRow } from '../../components/CompactRow'
+import { SupportDetails } from '../../components/SupportDetails'
 import type { EngineId, EngineStatus } from '@mycel/shared/api'
 import { api, API } from '../../lib/api'
 import { optimistic, optimisticPending, optimisticPendingKeys } from '../../lib/optimistic'
 import { formatDateTime } from '../../lib/format'
 import { useLocale, useT } from '../../i18n'
-import { isAdmin, useMeStrict } from '../../store/session'
+import { isAdmin, isOwner, useMeStrict } from '../../store/session'
+import { API_PRESETS, apiSaveKey, ownerOnlyAddress } from './apiEngineRules'
+export { API_PRESETS }
 import { Badge, Button, Field, Switch, inputCls, useMediaQuery } from '../../components/ui'
 import { AdminPageHeader, Loadable, useAction, useLoad } from './common'
-import { ENGINE_FAMILY, HowOrderWorks, ProviderAccounts, ProviderLogo, accountsNeedLook, addAccountBelow, useTeamCredentials, type ProviderMark } from './Credentials'
+import { ENGINE_FAMILY, ProviderAccounts, ProviderLogo, accountsNeedLook, addAccountBelow, useTeamCredentials, type ProviderMark } from './Credentials'
 import { ExtLink } from '../../components/integrations/AppDetail'
 import { useEngines } from '../../store/engines'
 import { enginesChanged } from '../../store/live'
@@ -92,7 +96,6 @@ export default function Engines() {
                 addBelow={!!ENGINE_FAMILY[engine.id] && addAccountBelow(tc, ENGINE_FAMILY[engine.id]!)}
                 initiallyOpen checking={checking === engine.id} onCheck={() => void check(engine.id)} onToggle={(v) => void toggle(engine.id, v)} onApiSaved={apiSaved} />
             </ul>
-            {tc.state.data && ENGINE_FAMILY[engine.id] && <HowOrderWorks />}
           </section>
         ) : null}
       </Loadable>
@@ -129,7 +132,6 @@ export default function Engines() {
                 />
               ))}
             </ul>}
-            {tc.state.data && !phone && <HowOrderWorks pricesAsOf={tc.state.data.pricesAsOf} />}
           </>
         )}
       </Loadable>
@@ -154,8 +156,10 @@ function engineState(t: ReturnType<typeof useT>, e: EngineStatus): { ok: boolean
 function EngineLink({ e, look }: { e: EngineStatus; look: boolean }) {
   const t = useT()
   const st = engineState(t, e)
+  // opened from the welcome steps: the engine's page keeps their way back (on a phone it is the page's one back)
+  const { state } = useLocation()
   return (
-    <CompactRow testId="engine-row" data={{ 'data-engine': e.id, 'data-look': look ? 'true' : undefined }} to={`/admin/providers/${e.id}`}
+    <CompactRow testId="engine-row" data={{ 'data-engine': e.id, 'data-look': look ? 'true' : undefined }} to={`/admin/providers/${e.id}`} state={setupReturnStep(state) ? state : undefined}
       lead={<ProviderLogo mark={ENGINE_MARK[e.id]} small />} title={<span className="text-ink">{e.label}</span>}
       chip={<span className="flex items-center gap-3">
         {e.enabled ? <Badge tone={st.ok && !look ? 'ok' : 'warn'}>{st.text}</Badge> : <span className="text-xs text-faint">{t('appConnectors.off')}</span>}
@@ -242,6 +246,8 @@ function EngineRow({ e, accounts, addBelow = false, accountsShown, phone, page, 
           {e.beta && <p className="text-xs leading-relaxed text-muted" data-testid="engine-beta"><span className="font-medium text-warn">{t('engines.beta')}</span> · {hint}</p>}
           {!e.beta && hint && <p className="text-xs leading-relaxed text-muted">{hint}</p>}
           {ok && e.detail && !technical && <p className="text-xs text-muted" data-testid="engine-ok-detail">{e.detail}</p>}
+          {/* a failed check: what the engine printed, for support, closed by default (the line above says what to do) */}
+          {e.errorDetail && <SupportDetails text={e.errorDetail} testId="engine-error-detail" />}
           <div className="space-y-0.5 text-xs text-faint">
             <p>{[e.version && `v${e.version}`, mode].filter(Boolean).join(' · ')}</p>
             {models && <p>{t('engines.models', { list: models })}</p>}
@@ -254,17 +260,6 @@ function EngineRow({ e, accounts, addBelow = false, accountsShown, phone, page, 
     </li>
   )
 }
-
-/** Presets of the API engine's address (any OpenAI-compatible Chat Completions API works with "custom"). */
-/** `keys`: where that provider's API keys are made (QA TC-2312, the same kind of link as Add account's and Voice input's);
- * Ollama runs on this computer and needs none. */
-export const API_PRESETS = [
-  { id: 'openai', label: 'OpenAI', baseUrl: 'https://api.openai.com/v1', model: 'gpt-5.4-mini', keys: 'https://platform.openai.com/api-keys' },
-  { id: 'anthropic', label: 'Claude API (Anthropic)', baseUrl: 'https://api.anthropic.com/v1', model: 'claude-sonnet-5-5', keys: 'https://platform.claude.com/settings/keys' },
-  { id: 'gemini', label: 'Google Gemini', baseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai', model: 'gemini-2.5-flash', keys: 'https://aistudio.google.com/apikey' },
-  { id: 'openrouter', label: 'OpenRouter', baseUrl: 'https://openrouter.ai/api/v1', model: 'openai/gpt-5.4-mini', keys: 'https://openrouter.ai/keys' },
-  { id: 'ollama', label: 'Ollama (this Mac)', baseUrl: 'http://127.0.0.1:11434/v1', model: 'qwen3:8b', keys: null },
-] as const
 
 /** The Model field after the provider changes to `presetId` (QA TC-2440): that provider's own default model, unless the
  * field holds a model the person typed themselves (not empty and not any provider's default), which is kept. Before, an
@@ -295,16 +290,19 @@ export function ApiKeyHint({ preset }: { preset: string }) {
 function ApiEngineForm({ onSaved }: { onSaved: () => void }) {
   const t = useT()
   const act = useAction()
+  const owner = isOwner(useMeStrict())
   const state = useLoad(() => api.call(API.getApiEngine))
-  const [form, setForm] = useState<{ baseUrl: string; model: string; label: string; key: string; password: string } | null>(null)
+  const [form, setForm] = useState<{ baseUrl: string; model: string; label: string; key: string; password: string; vision: 'auto' | 'on' | 'off' } | null>(null)
   useEffect(() => {
-    if (state.data && !form) setForm({ baseUrl: state.data.baseUrl ?? '', model: state.data.model ?? '', label: state.data.label ?? '', key: '', password: '' })
+    if (state.data && !form) setForm({ baseUrl: state.data.baseUrl ?? '', model: state.data.model ?? '', label: state.data.label ?? '', key: '', password: '', vision: state.data.vision?.choice ?? 'auto' })
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state.data])
   const preset = API_PRESETS.find((p) => p.baseUrl === form?.baseUrl)?.id ?? 'custom'
+  // "Reads pictures": only for the saved model, and only while its server does not say (server engine/api-vision.ts)
+  const askVision = !!form && state.data?.vision?.detected === null && form.baseUrl.trim() === state.data.baseUrl && form.model.trim() === state.data.model
   const save = async (key?: string | null) => {
     if (!form) return
-    const r = await act(() => api.call(API.putApiEngine, { body: { baseUrl: form.baseUrl.trim(), model: form.model.trim(), label: form.label.trim() || undefined, ...(key !== undefined ? { key } : {}), password: form.password } }), t('common.saved'))
+    const r = await act(() => api.call(API.putApiEngine, { body: { baseUrl: form.baseUrl.trim(), model: form.model.trim(), label: form.label.trim() || undefined, ...(key !== undefined ? { key } : {}), ...(askVision ? { vision: form.vision === 'auto' ? null : form.vision } : {}), password: form.password } }), t('common.saved'))
     if (r) { state.setData(r); setForm({ ...form, key: '', password: '' }); onSaved() }
   }
   return (
@@ -318,12 +316,16 @@ function ApiEngineForm({ onSaved }: { onSaved: () => void }) {
               const p = API_PRESETS.find((x) => x.id === e.target.value)
               if (p) setForm({ ...form, baseUrl: p.baseUrl, model: presetModel(form.model, p.id) })
             }}>
-              {API_PRESETS.map((p) => <option key={p.id} value={p.id}>{p.label}</option>)}
+              {API_PRESETS.map((p) => {
+                const ownerOnly = !owner && ownerOnlyAddress(p.baseUrl)
+                return <option key={p.id} value={p.id} disabled={ownerOnly}>{ownerOnly ? t('engines.api.ownerOnlyOption', { name: p.label }) : p.label}</option>
+              })}
               <option value="custom">{t('engines.api.custom')}</option>
             </select>
           </Field>
           <Field label={t('engines.api.baseUrl')}>
             <input className={inputCls} value={form.baseUrl} onChange={(e) => setForm({ ...form, baseUrl: e.target.value })} placeholder="https://…/v1" />
+            {!owner && ownerOnlyAddress(form.baseUrl) && <p className="mt-1 text-xs text-muted" data-testid="api-engine-owner-only">{t('engines.api.ownerOnlyHint')}</p>}
           </Field>
           <Field label={t('engines.api.model')}>
             <input className={inputCls} value={form.model} onChange={(e) => setForm({ ...form, model: e.target.value })} />
@@ -337,11 +339,23 @@ function ApiEngineForm({ onSaved }: { onSaved: () => void }) {
             </Field>
             <ApiKeyHint preset={preset} />
           </div>
+          {askVision && (
+            <div>
+              <Field label={t('engines.api.vision')}>
+                <select className={inputCls} value={form.vision} onChange={(e) => setForm({ ...form, vision: e.target.value as 'auto' | 'on' | 'off' })} data-testid="api-engine-vision">
+                  <option value="auto">{t('engines.api.visionUnknown')}</option>
+                  <option value="on">{t('engines.api.visionOn')}</option>
+                  <option value="off">{t('engines.api.visionOff')}</option>
+                </select>
+              </Field>
+              <p className="mt-1 text-xs text-muted">{t('engines.api.visionHint')}</p>
+            </div>
+          )}
           <Field label={t('credentials.reauth')}>
             <input type="password" autoComplete="current-password" className={inputCls} value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} data-testid="api-engine-password" />
           </Field>
           <div className="flex items-end gap-2">
-            <Button disabled={!form.baseUrl.trim() || !form.model.trim() || !form.password} onClick={() => void save(form.key.trim() ? form.key.trim() : undefined)}>{t('engines.api.save')}</Button>
+            <Button disabled={!form.baseUrl.trim() || !form.model.trim() || !form.password} onClick={() => void save(apiSaveKey({ typed: form.key, savedBaseUrl: state.data?.baseUrl ?? null, baseUrl: form.baseUrl, hasKey: !!state.data?.hasKey }))}>{t('engines.api.save')}</Button>
             {state.data?.hasKey && <Button variant="ghost" disabled={!form.password} onClick={() => void save(null)}>{t('engines.api.keyRemove')}</Button>}
           </div>
         </div>

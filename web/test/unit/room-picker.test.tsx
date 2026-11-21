@@ -17,6 +17,8 @@ const ko = (k: Parameters<typeof translate>[1], p?: Record<string, string | numb
 const GROUP = { id: uuidv7(), name: '디자인팀' }
 const LONG = { id: 'long', name: '아주아주긴이름을가진디자인팀의팀장님' }
 const team = room({ kind: 'team', groupId: GROUP.id, name: GROUP.name })
+// a group an admin sees in Admin › Groups whose channel is not in their list; one of its members' accounts is gone
+const OTHER = { id: uuidv7(), name: '영업팀' }
 const me = { user: { id: ME.id, username: ME.id, name: ME.name, email: null, role: 'member', locale: 'ko', localeChoice: null, mustChangePassword: false, prefs: {} }, groups: [GROUP],
   team: { name: 'Acme', defaultLocale: 'ko' }, session: { id: uuidv7(), client: 'web', expiresAt: '2026-12-04T00:00:00.000Z' }, server: { version: '0', dev: false } } as unknown as Me
 
@@ -32,6 +34,7 @@ beforeAll(() => {
     const key = `${init?.method ?? 'GET'} ${String(input).split('?')[0]}`
     const body = typeof init?.body === 'string' ? JSON.parse(init.body) : null
     sent.push({ key, body })
+    if (key === 'GET /api/admin/groups') return json({ items: [{ id: OTHER.id, name: OTHER.name, description: null, memberIds: [ME.id, BEN.id, CY.id, 'gone'] }] })
     if (key === `GET /api/rooms/${team.id}/members`) return json({ items: [ME, BEN, CY].map((user) => ({ user, joinedAt: '2026-11-05T00:00:00.000Z' })) })
     if (key === 'POST /api/rooms') return json(room({ kind: body.kind, name: body.name ?? null, peers: [BEN] }), 201)
     if (key.startsWith('POST /api/rooms/') && key.endsWith('/members')) return json(room({ kind: 'group' }))
@@ -50,8 +53,8 @@ afterAll(() => {
   useLocaleStore.setState({ locale })
 })
 
-async function open(mode?: Parameters<typeof PeoplePicker>[0]['mode']) {
-  useSession.setState({ status: { kind: 'signed-in', me } } as never)
+async function open(mode?: Parameters<typeof PeoplePicker>[0]['mode'], who: Me = me) {
+  useSession.setState({ status: { kind: 'signed-in', me: who } } as never)
   const people = [ME, BEN, CY, LONG]
   usePeople.setState({ people, byId: Object.fromEntries(people.map((p) => [p.id, p])), loaded: true, failed: false })
   useRooms.setState({ rooms: [team], loaded: true })
@@ -86,21 +89,44 @@ test('one person ticked opens our DM; the name field shows only with two or more
   }
 })
 
-test('a group ticks its people at once (me left out); two or more make a group chat with the name typed', async () => {
+test('New message: a group ticks its people at once (me left out); two or more make a group DM, with no name field', async () => {
   const { m, tick, rowOf } = await open()
   try {
-    // the group lists its people that can be picked (me not counted)
-    expect(rowOf('picker-group', GROUP.name).textContent).toContain(ko('rooms.picker.groupCount', { n: 2 }))
+    // channels are under the Chats list's word for them, each with the count its header shows: the team room's
+    // memberCount, me included, in the same word (TC-3935); ticking it ticks the two others
+    expect(m.container.ownerDocument!.body.textContent).toContain(ko('rooms.section.team'))
+    expect(rowOf('picker-group', GROUP.name).textContent).toContain(ko('rooms.members', { n: team.memberCount }))
+    expect(team.memberCount).toBe(3)
+    expect(m.container.ownerDocument!.body.textContent).toContain(ko('rooms.newChat'))
     // I am never in the list
     expect(m.container.ownerDocument!.body.querySelectorAll('[data-testid="people-row"]').map((r) => r.textContent)).not.toContain(ME.name)
     await tick('picker-group', GROUP.name)
     expect(m.get('picker-count').textContent).toBe(ko('rooms.picker.selected', { n: 2 }))
-    expect(m.get('picker-go').textContent).toBe(ko('rooms.picker.createGroup'))
-    await m.type('picker-name', '  주간 회의 ')
+    expect(m.get('picker-go').textContent).toBe(ko('rooms.picker.start'))
+    // a group DM has no name of its own (a name makes a private channel: Create a channel)
+    expect(m.find('picker-name')).toBeNull()
     await tick('people-row', LONG.name)
     await m.click('picker-go')
     await m.until(() => sent.find((s) => s.key === 'POST /api/rooms'), 'the request')
-    expect(sent.find((s) => s.key === 'POST /api/rooms')!.body).toEqual({ kind: 'group', userIds: [BEN.id, CY.id, LONG.id], name: '주간 회의' })
+    expect(sent.find((s) => s.key === 'POST /api/rooms')!.body).toEqual({ kind: 'group', userIds: [BEN.id, CY.id, LONG.id] })
+  } finally {
+    await m.unmount()
+  }
+})
+
+test('Create a channel: the name is required; one person is enough; it is sent with the name (a private channel)', async () => {
+  const { m, tick } = await open({ kind: 'channel' })
+  try {
+    expect(m.container.ownerDocument!.body.textContent).toContain(ko('rooms.section.newChannel'))
+    await tick('people-row', BEN.name)
+    expect(m.get('picker-go').textContent).toBe(ko('rooms.picker.createPrivate'))
+    // no name yet: nothing to create
+    expect(m.get('picker-go').getAttribute('disabled')).not.toBeNull()
+    await m.type('picker-name', '  주간 회의 ')
+    expect(m.get('picker-go').getAttribute('disabled')).toBeNull()
+    await m.click('picker-go')
+    await m.until(() => sent.find((s) => s.key === 'POST /api/rooms'), 'the request')
+    expect(sent.find((s) => s.key === 'POST /api/rooms')!.body).toEqual({ kind: 'group', userIds: [BEN.id], name: '주간 회의' })
   } finally {
     await m.unmount()
   }
@@ -129,7 +155,7 @@ test('inviting into a group chat leaves out the people already in it', async () 
     expect(names.some((n) => n.includes('Cy Park'))).toBe(true)
     expect(m.find('picker-name')).toBeNull()
     await tick('people-row', 'Cy Park')
-    expect(m.get('picker-go').textContent).toBe(ko('rooms.picker.invite'))
+    expect(m.get('picker-go').textContent).toBe(ko('rooms.info.addPeople'))
     await m.click('picker-go')
     await m.until(() => sent.find((s) => s.key === `POST /api/rooms/${chat.id}/members`), 'the request')
     expect(sent.find((s) => s.key === `POST /api/rooms/${chat.id}/members`)!.body).toEqual({ userIds: [CY.id] })
@@ -143,6 +169,16 @@ test("a DM's 초대하기 whose other person is gone ticks nobody: no count, not
   try {
     expect(m.get('picker-count').textContent).toBe('')
     expect(m.get('picker-go').hasAttribute('disabled')).toBe(true)
+  } finally {
+    await m.unmount()
+  }
+})
+
+test('an admin\'s group whose channel is not in their list counts its active people, me included, as a channel header would (TC-3935)', async () => {
+  const admin = { ...me, user: { ...me.user, role: 'admin' } } as unknown as Me
+  const { m, rowOf } = await open(undefined, admin)
+  try {
+    expect(rowOf('picker-group', OTHER.name).textContent).toContain(ko('rooms.members', { n: 3 }))
   } finally {
     await m.unmount()
   }

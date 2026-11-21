@@ -45,6 +45,8 @@ export const FOLDER_SYSTEM: FolderSystem = {
   home: () => app.getPath('home'),
   realpath: (path) => inTime(realpath(path)),
   identity: (path) => inTime(stat(path, { bigint: true })).then((s) => ({ dev: s.dev, ino: s.ino })),
+  systemFolders: () =>
+    process.platform === 'win32' ? ['SystemRoot', 'windir', 'ProgramFiles', 'ProgramFiles(x86)', 'ProgramW6432', 'ProgramData', 'APPDATA', 'LOCALAPPDATA'].map((k) => process.env[k] ?? '').filter(Boolean) : [],
   readable: async (path) => {
     const dir = await opendir(path)
     try {

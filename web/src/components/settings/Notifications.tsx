@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { Bell } from 'lucide-react'
 import { Link } from 'react-router-dom'
-import { isGoogleRequestable, type InboxNotification, type Locale, type NotificationPreferences } from '@mycel/shared/api'
+import { fileBatchUrl, fileLinkUrl, isGoogleRequestable, type InboxNotification, type Locale, type NotificationPreferences } from '@mycel/shared/api'
 import { api, API, errorText } from '../../lib/api'
-import { connectorHref, CONNECTORS_HOME } from '../../lib/connectors'
+import { connectionHref, connectorHref, CONNECTORS_HOME } from '../../lib/connectors'
 import { firstRunText } from '../../lib/teamGoal'
+import { formatSize } from '../../lib/format'
 import { useLocale, useT } from '../../i18n'
 import { accessChanged, reloadAsked } from '../../store/live'
 import { peekCached, rememberCached } from '../../store/listCache'
@@ -19,6 +20,7 @@ import { PrefRow, PrefSection } from './PrefRows'
 import { RoomNotifySettings } from './RoomNotifySettings'
 import { PhoneGatewayRow } from './PhoneGatewayRow'
 import { isAdmin, useMe } from '../../store/session'
+import { useFreeRoam } from '../../store/demo'
 import { roomNoticeLink } from './RoomNoticeRow'
 import { handoverNoticeNode } from '../handover/HandoverNotice'
 import { isolate } from '../handover/isolate'
@@ -28,8 +30,9 @@ import { leaverNoticeLink, leaverNoticeText, pausedNoticeLink, pausedNoticeText 
 /** 작업·연결 알림: the server's switches for what is not a conversation (the rooms' are in RoomNotifySettings).
  * chatAnswers: a push when an answer in my own AI chat needs me (docs/DECISIONS.md "AI 답변 알림"); chatShares: a push
  * when someone shares a chat with me by name (docs/DECISIONS.md "Chats shared with me: a push that names the sharer";
- * a server from before it leaves it out: no row) */
-const workKeys = ['chatAnswers', 'chatShares', 'scheduleSuccess', 'scheduleFailure', 'connectionReconnect', 'skillSuggestions'] as const
+ * a server from before it leaves it out: no row); fileShares: a push when someone shares a file with me by name or asks to
+ * open a file I answer for (docs/decisions/20261116-file-share-push-gaps.md; an older server leaves it out: no row) */
+const workKeys = ['chatAnswers', 'chatShares', 'fileShares', 'scheduleSuccess', 'scheduleFailure', 'connectionReconnect', 'skillSuggestions'] as const
 
 /** A conversation notice from a server that does not say where and why (RoomNoticeRow does), or one whose message I may
  * no longer read: who wrote it when the server still names them, no text. */
@@ -60,17 +63,15 @@ export const integrationsLink = (item: Pick<InboxNotification, 'sourceId' | 'tem
   return template ? `${CONNECTORS_HOME}?template=${encodeURIComponent(template)}` : `${CONNECTORS_HOME}?request=${encodeURIComponent(item.sourceId)}`
 }
 
-export type DevEnvEndReason = 'timeout' | 'oom' | 'stopped' | 'idle' | 'disk' | 'setting' | 'expired' | 'lost'
-export const END_REASONS: ReadonlySet<string> = new Set<DevEnvEndReason>(['timeout', 'oom', 'stopped', 'idle', 'disk', 'setting', 'expired', 'lost'])
-
-/** The text of a dev environment notice: with the job while the person can still see its project. A notice of the
- * removed box runner has no job: the generic text of its event. */
-const devEnvText = (item: InboxNotification, t: ReturnType<typeof useT>) => {
-  const d = item.devEnv
-  // a job with no exit code says why it ended (a reason the page does not know is the old text)
-  if (d?.job && d.job.exitCode === null && d.job.reason && END_REASONS.has(d.job.reason)) return t('notifications.event.dev_env.jobReason', { name: d.job.name, why: t(`devEnv.end.${d.job.reason as DevEnvEndReason}`) })
-  if (d?.job) return d.job.exitCode === null ? t('notifications.event.dev_env.jobNoCode', { name: d.job.name }) : t('notifications.event.dev_env.jobEnded', { name: d.job.name, code: d.job.exitCode })
-  return t(`notifications.event.${item.code as 'dev_env.job' | 'dev_env.box'}`)
+/** The text of a dev environment notice: the result in plain words (done, or not), with the chat it was asked in while
+ * the person can open it. No job name, exit code, reason or log: the people reading it are not developers, and the log
+ * stays in the chat for its AI. A notice of the removed box runner has no job: the generic text of its event. */
+const devEnvText = (item: InboxNotification, t: ReturnType<typeof useT>, locale: Locale): ReactNode => {
+  const job = item.devEnv?.job
+  if (!job) return t(`notifications.event.${item.code as 'dev_env.job' | 'dev_env.box'}`)
+  const ok = job.exitCode === 0
+  if (job.chatTitle) return isolate(locale, ok ? 'notifications.event.dev_env.jobDoneIn' : 'notifications.event.dev_env.jobFailedIn', { title: job.chatTitle }, ['title'])
+  return t(ok ? 'notifications.event.dev_env.jobDone' : 'notifications.event.dev_env.jobFailed')
 }
 
 type T = ReturnType<typeof useT>
@@ -80,6 +81,8 @@ type T = ReturnType<typeof useT>
 const serviceRequestText = (item: InboxNotification, sr: NonNullable<InboxNotification['serviceRequest']>, t: T) => {
   const service = requestableName(sr.service)
   if (item.code === 'service.ready') return t('notifications.event.service.readyNamed', { service })
+  // closed without the app (an admin's Dismiss, or the 30 days): they may ask again (QA TC-2946)
+  if (item.code === 'service.closed') return t(sr.closed === 'expired' ? 'notifications.event.service.expiredNamed' : 'notifications.event.service.dismissedNamed', { service })
   if (!sr.name) return t('notifications.event.service.requestSomeone', { service })
   return sr.others ? t('notifications.event.service.requestMore', { name: sr.name, n: sr.others, service }) : t('notifications.event.service.requestNamed', { name: sr.name, service })
 }
@@ -110,7 +113,23 @@ export const resetLinkText = (r: NonNullable<InboxNotification['resetLink']>, t:
 export function joinedText(j: NonNullable<InboxNotification['joined']>, t: T): string {
   if (!j.guestPlace) return t('teamLink.joinedNotice', { name: j.name })
   if (j.guestPlace.name) return t('teamLink.joinedGuest', { name: j.name, place: j.guestPlace.name })
-  return t(j.guestPlace.kind === 'project' ? 'teamLink.joinedGuestProject' : 'teamLink.joinedGuestChat', { name: j.name })
+  if (j.guestPlace.kind === 'project') return t('teamLink.joinedGuestProject', { name: j.name })
+  // no name and the reader is in the place or is an admin (id is not null): the room has no name of its own, a group chat;
+  // for anyone else the room may be a private channel the reader cannot see, so the general words
+  return t(j.guestPlace.id !== null ? 'teamLink.joinedGuestGroup' : 'teamLink.joinedGuestChat', { name: j.name })
+}
+
+/** A team template's notice (QA TC-2980): it is ready, it changed (sign in again with your own account, or enter your
+ * own key again: as the template signs in), or it is no longer for me. With its name while the template is there. */
+export function templateText(item: Pick<InboxNotification, 'code' | 'template' | 'templateLeft'>, t: T): string {
+  const tp = item.template
+  if (item.templateLeft) return tp ? t('notifications.event.integration.template_leftNamed', { name: tp.name }) : t('notifications.event.integration.template_left')
+  if (item.code === 'integration.template_reconnect') {
+    if (!tp) return t('notifications.event.integration.template_reconnect')
+    return t(tp.signIn ? 'notifications.event.integration.template_reconnectNamedSignIn' : 'notifications.event.integration.template_reconnectNamed', { name: tp.name })
+  }
+  if (!tp) return t('notifications.event.integration.template')
+  return t(tp.signIn ? 'notifications.event.integration.templateNamedSignIn' : 'notifications.event.integration.templateNamed', { name: tp.name })
 }
 
 /** The words of a notice of the app's own. A scheduled run names its task while the task is there (the person's own
@@ -119,7 +138,7 @@ export function noticeText(item: InboxNotification, t: T, locale: Locale): React
   if (item.handover) return handoverNoticeNode(locale, item.handover)
   if (item.code === 'credential.change' && item.credentialChange) return credentialChangeText(item.credentialChange, t)
   if (item.code === 'room.dm' || item.code === 'room.mention') return roomText(item, t)
-  if (item.code === 'dev_env.job' || item.code === 'dev_env.box') return devEnvText(item, t)
+  if (item.code === 'dev_env.job' || item.code === 'dev_env.box') return devEnvText(item, t, locale)
   // "tried to use Trina but it isn't set up yet" (POST /api/me/ai-not-ready/tell), with the name while the account is there
   if (item.code === 'onboarding.ai_request' && item.notReady) return item.requester ? t('notifications.event.onboarding.ai_notReadyNamed', { name: item.requester.name }) : t('notifications.event.onboarding.ai_notReady')
   if (item.code === 'onboarding.ai_request' && item.requester) return t('notifications.event.onboarding.ai_requestNamed', { name: item.requester.name })
@@ -130,6 +149,13 @@ export function noticeText(item: InboxNotification, t: T, locale: Locale): React
   // a chat shared with me (docs/DECISIONS.md "Chats shared with people and groups"): who shared it while their account is
   // there; one I no longer see says so (no title, no link)
   if (item.code === 'chat.shared' && item.chatShared) return item.chatShared.gone ? t('notifications.event.chat.sharedGone') : item.chatShared.name ? t('notifications.event.chat.sharedNamed', { name: item.chatShared.name }) : t('notifications.event.chat.shared')
+  // a reply in a thread I follow under an AI answer of a shared chat: who and which chat while I still see it; else it
+  // says so with nothing of it
+  // a reply of it mentions me (docs/decisions/20261118-chat-thread-mentions.md): "mentioned you", by who did
+  if (item.code === 'chat.thread_reply' && item.chatThread?.mention && !item.chatThread.gone) return item.chatThread.name && item.chatThread.title ? isolate(locale, 'notifications.event.chat.thread_mentionNamed', { name: item.chatThread.name, title: item.chatThread.title }, ['name', 'title']) : t('notifications.event.chat.thread_mention')
+  if (item.code === 'chat.thread_reply') return !item.chatThread || item.chatThread.gone ? t('notifications.event.chat.thread_replyGone') : item.chatThread.name && item.chatThread.title ? isolate(locale, 'notifications.event.chat.thread_replyNamed', { name: item.chatThread.name, title: item.chatThread.title }, ['name', 'title']) : t('notifications.event.chat.thread_reply')
+  if (item.code.startsWith('file.')) return fileShareText(item, t)
+  if (item.code === 'access.requested' || item.code === 'access.answered') return accessRequestText(item, t)
   if (item.code === 'onboarding.first_run') return firstRunText(t, locale, item)
   if (item.code === 'account.deletion_request') return deletionNoticeText(t, item, locale)
   if (item.code === 'account.deletion_due') return deletionDueText(t, item, locale)
@@ -139,12 +165,25 @@ export function noticeText(item: InboxNotification, t: T, locale: Locale): React
   if (item.code === 'room_app.leaver' && item.roomAppLeaver) return leaverNoticeText(item.roomAppLeaver, t)
   if (item.code === 'integration.request' && item.request) return t('notifications.event.integration.requestNamed', { name: item.request.name, host: item.request.host })
   if (item.code === 'drive.share_reconnect' && item.driveShare) return t('notifications.event.drive.share_reconnectNamed', { name: item.driveShare.name })
-  if ((item.code === 'service.request' || item.code === 'service.ready') && item.serviceRequest) return serviceRequestText(item, item.serviceRequest, t)
-  if (item.template) return t(item.code === 'integration.template_reconnect' ? 'notifications.event.integration.template_reconnectNamed' : 'notifications.event.integration.templateNamed', { name: item.template.name })
+  if ((item.code === 'service.request' || item.code === 'service.ready' || item.code === 'service.closed') && item.serviceRequest) return serviceRequestText(item, item.serviceRequest, t)
+  // older AI-made files with a saved key in them (QA TC-3082): how many I may open now; none: they moved or went
+  if (item.code === 'files.stored_key' && item.keyFiles) return item.keyFiles.n ? t('notifications.event.files.stored_keyN', { n: item.keyFiles.n }) : t('notifications.event.files.stored_keyGone')
+  // an own connection other than Google Drive that needs a sign-in again, by its name (QA TC-2945)
+  if (item.code === 'connection.reconnect' && item.connection) return t('notifications.event.connection.reconnectNamed', { name: item.connection.name })
+  if (item.code === 'integration.template' || item.code === 'integration.template_reconnect') return templateText(item, t)
+  // the team's disk is filling (owners and admins): how full, and the files in conversations once measured (none: not
+  // named); one no
+  // longer an admin gets no numbers and falls through to the plain words below
+  if (item.code === 'storage.filling' && item.storage) return !item.storage.roomsBytes
+    ? t('notifications.event.storage.fillingPct', { pct: item.storage.percent })
+    : t('notifications.event.storage.fillingRooms', { pct: item.storage.percent, size: formatSize(item.storage.roomsBytes, locale) })
+  // asked to tidy my files in conversations: who asked while their account is there
+  if (item.code === 'storage.cleanup') return item.cleanup?.by ? t('notifications.event.storage.cleanupNamed', { name: item.cleanup.by }) : t('notifications.event.storage.cleanup')
   const title = item.schedule?.title
+  // a sign-in template: the member signs in with their own account; a key template: their own key (QA TC-3052)
   if (item.code === 'schedule.failure' && item.needsKey) return title
-    ? isolate(locale, 'notifications.event.schedule.needsKeyNamed', { title, name: item.needsKey.name }, ['title', 'name'])
-    : t('notifications.event.schedule.needsKey', { name: item.needsKey.name })
+    ? isolate(locale, item.needsKey.signIn ? 'notifications.event.schedule.needsSignInNamed' : 'notifications.event.schedule.needsKeyNamed', { title, name: item.needsKey.name }, ['title', 'name'])
+    : t(item.needsKey.signIn ? 'notifications.event.schedule.needsSignIn' : 'notifications.event.schedule.needsKey', { name: item.needsKey.name })
   // a task paused because only the project's members can use it now (the owner or an admin who may add themselves):
   // it starts again once they do (docs/DECISIONS.md "Projects from before the update: one card, Add me to these")
   if (item.code === 'schedule.failure' && item.projectGone && item.membersOnly) return title
@@ -166,22 +205,81 @@ export function noticeText(item: InboxNotification, t: T, locale: Locale): React
   return t(`notifications.event.${item.code}`)
 }
 
+/** The 'file.*' notices (QA TC-3093, docs/DECISIONS.md "A member shares their own files"): who and which file while
+ * they are there; `gone`: the file (or the request) is no longer there, without its name. A decline names no file. */
+export function fileShareText(item: InboxNotification, t: T): string {
+  const f = item.fileShare
+  const code = item.code as 'file.shared' | 'file.access_requested' | 'file.access_answered' | 'file.unshared_by_move'
+  if (code === 'file.access_answered') return t('notifications.event.file.access_answered')
+  // several files in one press (docs/decisions/20261116-file-share-everyone.md): "Mina shared 5 files with you"
+  if (code === 'file.shared' && f && !f.gone && f.count && f.batchId) return f.by ? t('notifications.event.file.sharedMany', { by: f.by, n: f.count }) : t('notifications.event.file.sharedManyNoName', { n: f.count })
+  if (code === 'file.shared' && (!f || f.gone || !f.name)) return fileGoneText(f, t)
+  if (!f || f.gone || !f.name) return t(`notifications.event.${code}`)
+  // a folder (folder sharing): shared with me; to its owner, paused (the folder on the server is not the one shared) or
+  // ended (their move put it where nothing is shared)
+  if (f.folder === 'paused') return t('notifications.event.file.folderPaused', { name: f.name })
+  if (f.folder === 'ended') return t('notifications.event.file.folderEnded', { name: f.name })
+  if (!f.by) return t(`notifications.event.${code}`)
+  if (code === 'file.shared' && f.folder === 'shared') return t('notifications.event.file.sharedFolder', { by: f.by, name: f.name })
+  if (code === 'file.shared') return t('notifications.event.file.sharedNamed', { by: f.by, name: f.name })
+  // asked for someone else ("Ask <owner>" under an AI step): who would get it
+  if (code === 'file.access_requested' && f.for) return t('notifications.event.file.access_requestedFor', { by: f.by, name: f.name, for: f.for })
+  if (code === 'file.access_requested') return t('notifications.event.file.access_requestedNamed', { by: f.by, name: f.name })
+  return t('notifications.event.file.unshared_by_moveNamed', { by: f.by, name: f.name })
+}
+
+/** A file (or folder) shared with me that no longer opens (docs/decisions/20261120-file-share-gone-notice.md): who shared
+ * it while their account is there, and why when the server knows; never its name. */
+function fileGoneText(f: InboxNotification['fileShare'], t: T): string {
+  const folder = f?.folder === 'shared'
+  const line = f?.by
+    ? t(folder ? 'notifications.event.file.goneFolderBy' : 'notifications.event.file.goneBy', { by: f.by })
+    : t(folder ? 'notifications.event.file.goneFolder' : 'notifications.event.file.gone')
+  return f?.why ? `${line} ${t(`notifications.event.file.goneWhy.${f.why}`)}` : line
+}
+
+/** A request to open my chat or project, and the answer to mine (docs/decisions/20261116-chat-project-ask-access.md):
+ * who and which while they are there; a decline names nothing; added to a project: its name while I see it. */
+export function accessRequestText(item: InboxNotification, t: T): string {
+  const a = item.accessRequest
+  if (item.code === 'access.answered') {
+    if (a?.state !== 'approved') return t('notifications.event.access.answered')
+    return a.name && !a.gone ? t('notifications.event.access.addedToProject', { name: a.name }) : t('notifications.event.access.addedToProjectGone')
+  }
+  if (!a || a.gone || !a.by) return t('notifications.event.access.requested')
+  if (a.kind === 'project' && a.name) return t('notifications.event.access.requestedProject', { by: a.by, name: a.name })
+  if (a.kind === 'chat') return a.name ? t('notifications.event.access.requestedChat', { by: a.by, name: a.name }) : t('notifications.event.access.requestedChatUntitled', { by: a.by })
+  return t('notifications.event.access.requested')
+}
+
 /** Where a notice of the app's own opens, with its link's test id: the result chat of a scheduled run, the page of the
  * rest. Null: nowhere (a source I may no longer read, a notice that only tells), and its row is no link. */
 export function noticeLink(item: InboxNotification): { to: string; testId: string } | null {
   if (item.link === 'chat' && item.chatId) return { to: `/c/${encodeURIComponent(item.chatId)}`, testId: 'notification-chat-link' }
+  // a chat thread's reply opens the thread (/c/<chat>/t/<answer>) while I still see it
+  if (item.link === 'chat_thread' && item.chatThread?.chatId && item.chatThread.rootId && !item.chatThread.gone) return { to: `/c/${encodeURIComponent(item.chatThread.chatId)}/t/${encodeURIComponent(item.chatThread.rootId)}`, testId: 'notification-chat-thread-link' }
+  // a file shared with me, or one of mine moved: its link page while it is there (a request answers in the row instead)
+  if (item.link === 'file' && item.fileShare?.linkId && !item.fileShare.gone && item.code !== 'file.access_requested') return { to: fileLinkUrl(item.fileShare.linkId), testId: 'notification-file-link' }
+  // several files in one press: their list
+  if (item.link === 'file' && item.fileShare?.batchId && !item.fileShare.gone && item.code === 'file.shared') return { to: fileBatchUrl(item.fileShare.batchId), testId: 'notification-file-batch-link' }
   // an app that paused: its settings in its room, while I am in it
   if (item.code === 'room_app.paused') { const to = pausedNoticeLink(item.roomApp); return to ? { to, testId: 'notification-room-app-link' } : null }
   if (item.code === 'room_app.leaver') { const to = leaverNoticeLink(item.roomAppLeaver); return to ? { to, testId: 'notification-room-app-leaver-link' } : null }
   if (item.link === 'room' && item.room) return { to: roomNoticeLink(item.room), testId: 'notification-room-link' }
   if (item.link === 'project' && item.devEnv) return { to: `/projects/${encodeURIComponent(item.devEnv.projectId)}`, testId: 'notification-project-link' }
+  // added to a project I asked to join: the project, while I see it
+  if (item.code === 'access.answered' && item.link === 'project' && item.accessRequest?.targetId && !item.accessRequest.gone) return { to: `/projects/${encodeURIComponent(item.accessRequest.targetId)}`, testId: 'notification-access-project-link' }
   if (item.code === 'project.joined' && item.projectJoined?.project) return { to: `/projects/${encodeURIComponent(item.projectJoined.project.id)}`, testId: 'notification-project-link' }
   if (item.review) return { to: '/scheduled', testId: 'notification-review-link' }
   if (item.saveLapsed) return { to: '/scheduled', testId: 'notification-save-lapsed-link' }
+  // an own connection other than Google Drive: its own page (a Google app's, or the connection's)
+  if (item.code === 'connection.reconnect' && item.connection) return { to: item.connection.googleApp ? connectorHref(item.connection.googleApp) : connectionHref(item.connection.id), testId: 'notification-connection-link' }
   if (item.link === 'connections') return { to: connectorHref('google-drive'), testId: 'notification-connections-link' }
   // a member's ask: the app's setup while one waits (an owner or admin), the app's page once it is ready (the member)
   if (item.code === 'service.request' && item.serviceRequest?.open) return { to: serviceSetupLink(item.serviceRequest.service), testId: 'notification-service-request-link' }
   if (item.code === 'service.ready' && item.serviceRequest) return { to: connectorHref(item.serviceRequest.service), testId: 'notification-service-ready-link' }
+  // closed without the app: its page, where they may ask again
+  if (item.code === 'service.closed' && item.serviceRequest) return { to: connectorHref(item.serviceRequest.service), testId: 'notification-service-closed-link' }
   if (item.link === 'integrations') return { to: integrationsLink(item), testId: item.template || item.needsKey ? 'notification-template-link' : 'notification-request-link' }
   if (item.link === 'admin_connectors') return { to: '/admin/connectors?drive=1', testId: 'notification-drive-share-link' }
   if (item.link === 'admin_credentials') return { to: '/admin/providers', testId: item.code === 'credential.change' ? 'notification-credential-link' : 'notification-ai-request-link' }
@@ -198,6 +296,10 @@ export function noticeLink(item: InboxNotification): { to: string; testId: strin
   if (item.link === 'account_deletion') return { to: '/settings/account/delete', testId: 'notification-deletion-due-link' }
   if (item.link === 'admin_members') return { to: `/admin/members?member=${encodeURIComponent(item.sourceId)}`, testId: 'notification-deletion-link' }
   if (item.link === 'skills') return { to: skillsLink(item), testId: 'notification-skills-link' }
+  // the disk filling: the storage card (a phone's System › Storage; a computer lands on the card)
+  if (item.link === 'admin_storage') return { to: '/admin/system/storage', testId: 'notification-storage-link' }
+  // asked to tidy my files in conversations: Files you sent
+  if (item.link === 'sent_files') return { to: '/sent-files', testId: 'notification-sent-files-link' }
   return null
 }
 
@@ -207,6 +309,9 @@ export function Notifications() {
   const t = useT(), locale = useLocale()
   const sound = useRoomSoundOn()
   const admin = isAdmin(useMe())
+  // a free-roam demo (store/demo.ts): no phone notifications and no push to this device (server/src/demo/guard.ts
+  // refuses web push and phone devices); the inbox and the rooms' and work's choices stay
+  const freeRoam = useFreeRoam()
   // a phone counts each unread thing once across its tabs: the 나 tab's count, without the conversation rows that 대화
   // counts (store/inbox.ts); a computer, the whole Inbox
   const phone = useMediaQuery('(max-width: 767.98px)')
@@ -288,7 +393,7 @@ export function Notifications() {
     {/* "Phone notifications" (docs/DECISIONS.md "Phone notifications when I'm away"): the person's own choice, for every
         device; a server from before it leaves it out (no row). Owners and admins also choose where the whole team's
         phone notifications go (docs/DECISIONS.md "Owners and admins choose where phone notifications go") */}
-    {(preferences?.phoneWhen || admin) && <PrefSection title={t('notifications.section.phone')} testId="notifications-phone">
+    {(preferences?.phoneWhen || admin) && !freeRoam && <PrefSection title={t('notifications.section.phone')} testId="notifications-phone">
       {preferences?.phoneWhen && <PrefRow id="np-phone-away" title={t('notifications.phoneAway')} desc={t('notifications.phoneAwayDesc')}
         control={<Switch id="np-phone-away" external describedBy="np-phone-away-desc" checked={preferences.phoneWhen === 'away'} onChange={v => void update({ phoneWhen: v ? 'away' : 'always' })} label={t('notifications.phoneAway')} testId="notification-phone-away" />} />}
       {admin && <PhoneGatewayRow />}
@@ -298,7 +403,8 @@ export function Notifications() {
     <PrefSection title={t('notifications.section.device')} testId="notifications-device">
       <PrefRow id="np-sound" title={t('notifications.sound')} desc={t('notifications.soundDesc')}
         control={<Switch id="np-sound" external describedBy="np-sound-desc" checked={sound} onChange={changeRoomSound} label={t('notifications.sound')} testId="notification-sound" />} />
-      {isDesktop() ? <DesktopNotifications /> : <PushNotifications />}
+      {/* a free-roam demo: no push to this device (server/src/demo/guard.ts refuses web push and phone devices) */}
+      {freeRoam ? null : isDesktop() ? <DesktopNotifications /> : <PushNotifications />}
     </PrefSection>
   </section>
 }

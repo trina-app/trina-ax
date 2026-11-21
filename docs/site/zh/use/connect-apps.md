@@ -19,14 +19,14 @@ Trina AX 可以连接两类东西：
 
 | 你想做的事 | 由谁操作 | 在 Trina AX 中的位置 | 指南 |
 |---|---|---|---|
-| 让 AI 能回答问题 | 所有者或管理员 | **管理 › AI 提供商** | [AI 账号](ai-accounts.md) |
-| 用你自己的 Claude 或 ChatGPT 账号回答你自己的问题 | 你（在团队允许时） | **设置 › AI 账号** | [AI 账号](ai-accounts.md#你自己的账号) |
+| 让 AI 能回答问题 | 所有者或管理员 | **管理 › AI 提供商** | [AI 提供商](ai-accounts.md) |
+| 用你自己的 Claude 或 ChatGPT 账号回答你自己的问题 | 你（在团队允许时） | **设置 › AI 提供商** | [AI 提供商](ai-accounts.md#你自己的账号) |
 | 让 AI 读取你的 Google Drive、Gmail、日历、文档或表格 | 你 | **设置 › 连接器** | [Google 应用](google-apps.md) |
 | 在 Google 的登录页面上显示公司名称 | 使用 Google Workspace 的公司的管理员 | **管理 › 已连接的应用** › 某个 Google 应用 | [使用公司自己的 Google 应用](google-own-app.md) |
 | 在 Slack 中向 Trina AX 提问 | 管理员操作一次，然后每人操作一次 | **管理 › 已连接的应用 › Slack** | [Slack](slack.md) |
 | 让 AI 使用 Notion、Linear、Atlassian、Figma、GitHub 等应用 | 你为自己设置，管理员为团队设置 | **设置 › 连接器**或**管理 › 已连接的应用** | [Notion、Linear 等应用](mcp.md) |
 | 让 AI 使用公司自己的系统（API），或需要用你自己的登录应用的服务，例如 NAVER WORKS | 管理员 | **管理 › 已连接的应用** › **通过地址添加** | [公司自己的 API](api-connections.md) |
-| 在 Claude 或 ChatGPT 中使用你在 Trina AX 中的文件 | 你 | **设置 › Trina AX MCP** | [Team AX MCP 连接器](../../agents/mcp-connector.md)（英文） |
+| 在 Claude 或 ChatGPT 中使用你在 Trina AX 中的文件 | 你 | **设置 › Trina AX MCP** | [Trina AX MCP 连接器](../../agents/mcp-connector.md)（英文） |
 
 要打开**设置**，点左侧栏底部你的头像，再点**设置**（在手机上是**我**标签页）。所有者和管理员在同一个菜单中还能看到**管理**。
 
@@ -59,7 +59,7 @@ Trina AX 可以连接两类东西：
 
 | | 个人 | 团队 |
 |---|---|---|
-| 在哪里创建 | **设置 › 连接器**或**设置 › AI 账号** | **管理 › 已连接的应用**或**管理 › AI 提供商** |
+| 在哪里创建 | **设置 › 连接器**或**设置 › AI 提供商** | **管理 › 已连接的应用**或**管理 › AI 提供商** |
 | 谁使用 | 只有你，在你自己的对话中 | 管理员选择的人：所有人、小组或个人 |
 | 谁能看到密钥 | 谁都看不到，管理员也看不到 | 谁都看不到：管理员只能看到已保存了密钥，看不到密钥本身 |
 

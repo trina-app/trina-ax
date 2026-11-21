@@ -109,20 +109,35 @@ describe('the staged roll-out (tag message "Rollout: all", the manual run\'s inp
     expect(rolloutOf(`Rollout: all\n${NOTES}`, 'tag').rollout).toBe('all')
     expect(rolloutOf(NOTES, '').rollout).toBe('staged')
   })
-  test('the CLI rewrites the notes file and prints rollout= for $GITHUB_OUTPUT', async () => {
-    const f = path.join(T, 'notes.md')
-    fs.writeFileSync(f, `Rollout: all\n\n${NOTES}`)
+  test('the CLI only reads the tag message, writes the notes to --notes-out and prints rollout= for $GITHUB_OUTPUT', async () => {
+    const msg = path.join(T, 'tag-message.md')
+    const notes = path.join(T, 'notes.md')
+    fs.writeFileSync(msg, `Rollout: all\n\n${NOTES}`)
     const out: string[] = []
-    await main(['rollout', f, ''], (s) => out.push(s))
+    await main(['rollout', msg, '', '--notes-out', notes], (s) => out.push(s))
     expect(out.join('')).toBe('rollout=all\n')
-    expect(fs.readFileSync(f, 'utf8')).toBe(NOTES)
+    expect(fs.readFileSync(notes, 'utf8')).toBe(NOTES)
+    expect(fs.readFileSync(msg, 'utf8')).toBe(`Rollout: all\n\n${NOTES}`)
     out.length = 0
-    await main(['rollout', f], (s) => out.push(s))
+    await main(['rollout', notes], (s) => out.push(s))
     expect(out.join('')).toBe('rollout=staged\n')
+  })
+  test('checking a drafted tag message never changes it (0.5.20 was tagged without its "Rollout: all" line)', async () => {
+    const draft = path.join(T, 'tag-draft.txt')
+    const text = `${NOTES}\nRollout: all\n`
+    fs.writeFileSync(draft, text)
+    const out: string[] = []
+    await main(['rollout', draft], (s) => out.push(s))
+    await main(['rollout', draft, 'tag'], (s) => out.push(s))
+    expect(out.join('')).toBe('rollout=all\nrollout=all\n')
+    expect(fs.readFileSync(draft, 'utf8')).toBe(text)
+    await expect(main(['rollout', draft, '--notes-out', draft])).rejects.toThrow(/another file/)
+    await expect(main(['rollout', draft, '--notes-out'])).rejects.toThrow(/usage/)
+    expect(fs.readFileSync(draft, 'utf8')).toBe(text)
   })
   test('the workflow passes it from the tag message (or the input) to both feeds', () => {
     const wf = fs.readFileSync(path.join(ROOT, '.github/workflows/release.yml'), 'utf8')
-    expect(wf).toContain('bun scripts/release/release-ci.ts rollout notes/notes.md "$INPUT_ROLLOUT" | tee -a "$GITHUB_OUTPUT"')
+    expect(wf).toContain('bun scripts/release/release-ci.ts rollout notes/tag-message.md "$INPUT_ROLLOUT" --notes-out notes/notes.md | tee -a "$GITHUB_OUTPUT"')
     expect(wf).toContain('rollout: ${{ steps.notes.outputs.rollout }}')
     expect(wf).toContain('ROLLOUT: ${{ needs.prepare.outputs.rollout }}')
     const publishes = wf.split('\n').filter((l) => /bun scripts\/release\/publish(-server)?\.ts --channel/.test(l))
@@ -155,6 +170,37 @@ describe('desktop downloads only (office_only) and the Mac runner', () => {
     expect(dl.run).toContain('for a in amd64 arm64')
     const names = yaml.jobs.publish!.steps!.map((s) => s.name)
     expect(names.indexOf('The published Linux files (office_only)')).toBeLessThan(names.indexOf('Office feed (zip + Windows installer)'))
+  })
+  test('the Linux desktop app rides along: built without secrets (office_only too), published only when it passed, never holding back the release', () => {
+    const job = yaml.jobs['build-linux-desktop']! as { if?: string; needs?: unknown; 'runs-on'?: string; environment?: unknown; steps?: { name?: string; run?: string; with?: Record<string, string> }[] }
+    expect(job.if).toBeUndefined()
+    expect(job.needs).toBe('prepare')
+    expect(job['runs-on']).toBe('ubuntu-24.04')
+    expect(job.environment).toBeUndefined()
+    expect(JSON.stringify(job)).not.toContain('secrets.')
+    const build = job.steps!.find((x) => x.run?.includes('dist:linux'))!
+    expect(build.run).toContain('bun run --cwd desktop dist:linux -- "-c.extraMetadata.version=$VERSION"')
+    expect(build.run).toContain('bun scripts/plugins/release-check.ts desktop/dist desktop/release')
+    expect(build.run).toContain('for y in latest-linux.yml latest-linux-arm64.yml')
+    const up = job.steps!.find((x) => x.with?.name === 'release-linux-desktop')!
+    for (const f of ['*-linux-amd64.deb', '*-linux-arm64.deb', '*-linux-x86_64.AppImage', '*-linux-arm64.AppImage', 'latest-linux.yml', 'latest-linux-arm64.yml']) expect(up.with!.path).toContain(`desktop/release/${f}`)
+    // publish waits for it but does not need it to pass; the office feed's condition never names it
+    const pub = yaml.jobs.publish! as { needs?: string[]; if?: string }
+    expect(pub.needs).toContain('build-linux-desktop')
+    expect(pub.if).not.toContain('build-linux-desktop')
+    expect(step('publish', 'Office feed (zip + Windows installer)').if).not.toContain('linux-desktop')
+    const feed = step('publish', 'Office feed (zip + Windows installer)').run!
+    // the Linux build is checked first (publish.ts --check-linux); one that fails is left out, never fails the feed step
+    expect(feed).toContain('if [ "${{ steps.desktop.outputs.linux_desktop }}" = true ]; then linux=(--linux in/release-linux-desktop); fi')
+    const which = step('publish', 'Which desktop builds are here').run!
+    expect(which).toContain('! bun scripts/release/publish.ts --check-linux in/release-linux-desktop --version "$VERSION"')
+    expect(which.indexOf('--check-linux')).toBeLessThan(which.indexOf('echo "linux_desktop=$LINUX_DESKTOP_OK" >> "$GITHUB_OUTPUT"'))
+    expect(wf.split('\n').filter((l) => /bun scripts\/release\/publish\.ts --channel/.test(l)).every((l) => l.includes('"${linux[@]}"'))).toBe(true)
+    expect(step('publish', 'Which desktop builds are here').run).toContain('build-linux-desktop did not pass: no Linux desktop app in this release')
+    expect(step('publish', 'SHA256SUMS and its signature').run).toContain('cp in/release-linux-desktop/*.deb in/release-linux-desktop/*.AppImage assets/')
+    const gh = step('github-release', 'Create the release (or add the files to it on a re-run)').run!
+    expect(gh).toContain('missing+=("Linux (desktop app)")')
+    expect(gh).toContain('[ "$LINUX_DESKTOP_OK" = true ]; then')
   })
   test('the office zip runner: the input, else the repository variable, else macos-15', () => {
     expect(yaml.jobs['build-office']!['runs-on']).toBe("${{ inputs.mac_runner || vars.RELEASE_MAC_RUNNER || 'macos-15' }}")

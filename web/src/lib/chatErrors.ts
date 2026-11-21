@@ -1,13 +1,13 @@
 // A failed answer's words, by who reads it (docs/DECISIONS.md "Plain words in errors, cards and steps"). Everyone reads
 // what happened and who to tell; the owner and admins, who can fix it, read where instead: the admin menu's own words
-// (Admin › AI accounts, Admin › System › Health), so the path follows the menu when it is renamed. No engine, proxy, API
+// (Admin › AI providers, Admin › System › Health), so the path follows the menu when it is renamed. No engine, proxy, API
 // or HTTP code in any of them; the provider's status stays in the error's params for diagnostics.
 import type { ChatErrorReason } from '@mycel/shared/api'
 import type { MessageKey } from '../i18n'
 import { noAiErrorKey } from './aiAccess'
 
 type Role = 'owner' | 'admin' | 'member' | 'guest' | undefined
-/** where the owner or an admin fixes it: the AI accounts (Admin › AI accounts, `admin.providers`), the server's health (Admin › System ›
+/** where the owner or an admin fixes it: the AI accounts (Admin › AI providers, `admin.providers`), the server's health (Admin › System ›
  * Health, the owner's page only), or the server page with its storage card (Admin › System, which admins see too) */
 type Where = 'providers' | 'health' | 'system'
 
@@ -26,7 +26,7 @@ const ADMIN_FIX: Partial<Record<ChatErrorReason, Where>> = {
   network_protection_off: 'health',
 }
 
-/** The admin menu's words for a place, in the language on screen: "관리자 › AI 계정". */
+/** The admin menu's words for a place, in the language on screen: "관리자 › AI 제공사". */
 export function adminPath(t: (key: MessageKey) => string, where: Where): string {
   return (where === 'providers' ? [t('admin.title'), t('admin.providers')] : where === 'system' ? [t('admin.title'), t('admin.system')] : [t('admin.title'), t('admin.system'), t('system.health')]).join(' › ')
 }
@@ -37,12 +37,23 @@ export function adminPath(t: (key: MessageKey) => string, where: Where): string 
  * sees it), else the words everyone reads. `where`: the place that fills {path} (adminPath), or null when the words name
  * none.
  */
-export function chatErrorText(reason: ChatErrorReason, role: Role, noAi: boolean): { key: MessageKey; where: Where | null } {
+export function chatErrorText(reason: ChatErrorReason, role: Role, noAi: boolean, until = false): { key: MessageKey; where: Where | null } {
+  // the AI usage ran out for longer than an hour (params.until: when it starts again, which `until` says is known):
+  // everyone reads until when; the owner and admins read that another AI account in Admin › AI providers goes on now,
+  // a member to ask an admin for more (owner report 2026-11-19: it read "for now, try again a bit later")
+  if (reason === 'usage_used_up') {
+    const admin = role === 'owner' || role === 'admin'
+    if (admin) return { key: until ? 'chat.error.admin.usage_used_up_until' : 'chat.error.admin.usage_used_up', where: 'providers' }
+    return { key: until ? 'chat.error.usage_used_up_until' : 'chat.error.usage_used_up', where: null }
+  }
   const noAiKey = noAiErrorKey(reason, role, noAi)
   if (noAiKey) return { key: noAiKey, where: reason === 'credential_unusable' ? 'providers' : null }
   // the AI cannot start (owner decision 2026-11-11): "Trina isn't ready yet" for a member with [Tell an admin], the
   // owner and admins' own words with [Connect AI] (components/chat/NotReadyButton.tsx); no menu path in either
   if (reason === 'engine_missing') return { key: role === 'owner' || role === 'admin' ? 'chat.error.admin.engine_missing' : 'chat.error.engine_missing', where: null }
+  // the AI could not start on the server (QA TC-3521): the owner and admins read that a retry won't help and who fixes
+  // it; no menu path, the health page does not show it
+  if (reason === 'engine_start_failed' && (role === 'owner' || role === 'admin')) return { key: 'chat.error.admin.engine_start_failed', where: null }
   const where = ADMIN_FIX[reason]
   const fixes = where === 'health' ? role === 'owner' : role === 'owner' || role === 'admin'
   if (where && fixes) return { key: `chat.error.admin.${reason}` as MessageKey, where }

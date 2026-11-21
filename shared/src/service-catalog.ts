@@ -1,6 +1,7 @@
 // The app's list of known services (the "Discover" list of Connectors): each service's own name and its official MCP
 // address. Every one is an MCP server that signs in with OAuth (dynamic client registration), as the list's entries
-// answered on 2026-11-02 (docs/INTEGRATIONS.md "Discover"). The web adds its logos and descriptions
+// answered on 2026-11-02 (docs/INTEGRATIONS.md "Discover"), except GitHub (`serverApp`), which registers no apps: it signs
+// in through the GitHub App this server holds (docs/INTEGRATIONS.md "GitHub"). The web adds its logos and descriptions
 // (web/src/lib/connectors.ts); the server uses the same list so that the AI's connect card for a known service always
 // goes to the official address (server/src/chat/connect-service.ts, docs/DECISIONS.md "The chat's connect card trusts
 // the app's list"). One list, here only.
@@ -10,7 +11,9 @@ export const SERVICE_CATALOG = [
   // https://developer.atlassian.com/cloud/rovo-mcp/ (2026-11-12) gives v2; the v1 address still works for users outside
   // the v2 rollout cohort (https://developer.atlassian.com/cloud/rovo-mcp/changelog/), so a connection saved there
   // stays Atlassian's
-  { id: 'atlassian', name: 'Atlassian', url: 'https://mcp.atlassian.com/v2/mcp', otherUrls: ['https://mcp.atlassian.com/v1/mcp'], aliases: ['아틀라시안', 'jira', '지라', 'confluence', '컨플루언스'] },
+  // its organization admins keep a list of the domains allowed to sign in (Atlassian Administration > Rovo MCP server >
+  // Domains); a team's address that is not on it gets "Your admin has blocked this domain" and no Accept (QA TC-4770)
+  { id: 'atlassian', name: 'Atlassian', url: 'https://mcp.atlassian.com/v2/mcp', otherUrls: ['https://mcp.atlassian.com/v1/mcp'], adminAllowsDomains: true, aliases: ['아틀라시안', 'jira', '지라', 'confluence', '컨플루언스'] },
   // https://www.canva.dev/blog/developers/canva-mcp-ga/ (2026-10-27) gives https://api.canva.com/connect/v1/mcp, signed
   // in with "your app's OAuth client" (no dynamic client registration there); the list keeps mcp.canva.com/mcp, which
   // still signs in without an app of one's own, and counts the documented one as Canva's too
@@ -26,6 +29,10 @@ export const SERVICE_CATALOG = [
   { id: 'calendly', name: 'Calendly', url: 'https://mcp.calendly.com' },
   { id: 'clickup', name: 'ClickUp', url: 'https://mcp.clickup.com/mcp', aliases: ['클릭업'] },
   { id: 'cloudinary', name: 'Cloudinary', url: 'https://asset-management.mcp.cloudinary.com/mcp' },
+  // https://github.com/github/github-mcp-server (docs/remote-server.md): GitHub's own remote MCP server. No dynamic client
+  // registration (github-mcp-server issue #1404), so it signs in through the server's GitHub App
+  // (server/src/integrations/github/app.ts); a user token of a GitHub App or an OAuth app is accepted (checked 2026-11-20)
+  { id: 'github', name: 'GitHub', url: 'https://api.githubcopilot.com/mcp/', serverApp: 'github', aliases: ['깃허브', 'ギットハブ'] },
   { id: 'gitlab', name: 'GitLab', url: 'https://gitlab.com/api/v4/mcp', aliases: ['깃랩'] },
   { id: 'indeed', name: 'Indeed', url: 'https://mcp.indeed.com/claude/mcp', ambiguous: true },
   { id: 'intercom', name: 'Intercom', url: 'https://mcp.intercom.com/mcp', ambiguous: true },
@@ -91,6 +98,20 @@ export function officialService(url: string): CatalogService | undefined {
   if (u.protocol !== 'https:' || u.username || u.password || u.search || u.hash) return undefined
   const path = u.pathname.replace(/\/+$/, '')
   return SERVICE_CATALOG.find((c) => officialUrls(c).some((x) => { const o = new URL(x); return o.host === u.host && o.pathname.replace(/\/+$/, '') === path }))
+}
+
+/** A listed service whose organization admins must allow the team's address before anyone can sign in (Atlassian):
+ * the sign-in wait says what its "blocked this domain" page means. */
+export function adminAllowsDomains(url: string): boolean {
+  const c = officialService(url)
+  return !!c && 'adminAllowsDomains' in c && c.adminAllowsDomains === true
+}
+
+/** The listed service that signs in through an app this server holds rather than one it registers (GitHub): its id, or
+ * null. Only at its exact official address (officialService), so the server's app never signs in for another address. */
+export function serverAppAt(url: string): 'github' | null {
+  const c = officialService(url)
+  return c && 'serverApp' in c ? c.serverApp : null
 }
 
 /** Two addresses that are official addresses of the same listed service (Atlassian's v1 and v2): one service, never a

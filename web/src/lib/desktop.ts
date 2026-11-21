@@ -32,6 +32,12 @@ export const noPurchaseLinks = (bridge: DesktopBridge | null = desktop()): boole
  * .claude for a folder input); every other desktop build, the Microsoft Store one too, picks like a browser. */
 export const answersFileInputs = (bridge: DesktopBridge | null = desktop()): boolean => storeApp(bridge) && bridge?.platform === 'darwin'
 
+/** "could not keep the settings safely" (apps on this computer); on Linux, when the system had no keyring for the app,
+ * with what it needs (GNOME Keyring or KWallet) */
+export function settingsNotKeptKey(result: string | undefined, platform: string | undefined = desktop()?.platform) {
+  return result === 'unavailable' && platform === 'linux' ? 'localApps.settingsNotKeptLinux' as const : 'localApps.settingsNotKept' as const
+}
+
 // ---- pane state, shared by every component that shows it (one subscription to the desktop app)
 const CLOSED: DesktopPaneState = { open: false, tabs: [], driving: false }
 let paneState: DesktopPaneState = CLOSED
@@ -66,3 +72,30 @@ export function usePaneState(): DesktopPaneState {
 /** What this window signs in as. The server offers browser tools only to turns sent from a desktop-app session
  * (its window has the pane), so sign-in inside the desktop app must say so. */
 export const clientKind = (): 'web' | 'desktop' | 'mobile' => (isDesktop() ? 'desktop' : mobileApp() ? 'mobile' : 'web')
+
+/** This window signs in at a service that takes only an app on the computer (Canva, Intercom, Square; the server's
+ * `oauth_desktop_only`): a desktop app with the one-time return address that openSignInReturn opens. Outside the desktop
+ * app, and in one from before that address, the page says to open the desktop app instead (QA TC-4794). */
+export const signsInOnComputer = (bridge: DesktopBridge | null = desktop()): boolean => typeof bridge?.signInReturn?.open === 'function'
+
+/** The desktop app's one-time return address for a connector sign-in (DesktopBridge.signInReturn: a service that takes
+ * only an app on the computer, such as Canva): its port, or null outside the desktop app, in an app from before it, or
+ * when the app could not open one. */
+export async function openSignInReturn(bridge: DesktopBridge | null = desktop()): Promise<number | null> {
+  try {
+    const port = await bridge?.signInReturn?.open()
+    return typeof port === 'number' && Number.isInteger(port) && port >= 1024 && port <= 65535 ? port : null
+  } catch {
+    return null
+  }
+}
+
+/** Close that return address (the sign-in did not need it, ended or was cancelled); it closes by itself after use too. */
+export function closeSignInReturn(port: number | null, bridge: DesktopBridge | null = desktop()) {
+  if (port === null) return
+  try {
+    bridge?.signInReturn?.close(port)
+  } catch {
+    /* the app closes it by itself after 10 minutes */
+  }
+}

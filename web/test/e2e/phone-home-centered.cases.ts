@@ -5,7 +5,7 @@
 // 있는데" — the keyboard never comes up by itself, so the tab bar stays until the person taps the box.
 // The row's steps, at 390×844 and 360×780 (touch):
 // 1–2. Open the app (트리나 tab) and look without touching: the mark and the greeting in the middle third of the free
-//      space; the card above the tab bar holds + · the engine picker (two or more engines; TC-182: none with one) · mic
+//      space; the card above the tab bar holds + · the engine picker (two or more engines, or one with two or more models: AP-032) · mic
 //      · send, each taking taps from 44 px; no "기본 AI" line outside the card; nothing focused; the tab bar shows.
 // 3.   Tap the box: it has the focus; the keyboard up (the iPhone app's WebView and Android shrink the window, iOS
 //      Safari only visualViewport: lib/viewport.ts), the card sits right on it and the tab bar goes; the keyboard put
@@ -256,7 +256,7 @@ const STATES: { name: string; open: (page: Page) => Promise<void>; ready: (page:
     ready: (page) => page.getByTestId('often-asked').or(page.getByTestId('team-prepared')),
   },
   {
-    // no AI answers a member yet: the no-AI card at the top, the team's suggestions read-only
+    // no AI answers a member yet: the no-AI line under the greeting (QA TC-5447), the team's suggestions read-only
     name: 'member-no-ai',
     open: async (page) => {
       await teamWithSkills(page)
@@ -264,7 +264,7 @@ const STATES: { name: string; open: (page: Page) => Promise<void>; ready: (page:
       await signIn(page, BOB)
       await openTab(page, 'ai')
     },
-    ready: (page) => page.getByTestId('home-top').locator(':scope > *').first(),
+    ready: (page) => page.getByTestId('home-head').getByTestId('no-ai-card'),
   },
   {
     // the owner's team with no skills and no files yet: 스킬 넣기 · 팀 파일 넣기
@@ -279,7 +279,7 @@ const STATES: { name: string; open: (page: Page) => Promise<void>; ready: (page:
   },
 ]
 
-/** nothing on Home overlaps: the one thing at the top, the mark, the greeting, the suggestions and the card, in that
+/** nothing on Home overlaps: the one thing at the top, the mark, the greeting, the no-AI line, the suggestions and the card, in that
  * order down the page (measured scrolled to the end, where the docked card is in its own place: a page taller than the
  * screen scrolls under it); no page wider than the phone. Returns whether the page scrolls. */
 async function noOverlap(page: Page) {
@@ -290,11 +290,14 @@ async function noOverlap(page: Page) {
     const at = (el: HTMLElement | null, name: string) => {
       if (!el) return null
       const r = el.getBoundingClientRect()
+      // only for screen readers (sr-only: 1 px, clipped) is not drawn: the phone's greeting under the welcome card since
+      // #929 (eb6527d6a, "the card says hello"); its 1 px box sits wherever the flex column puts it
+      if (r.width <= 1 && r.height <= 1 && getComputedStyle(el).position === 'absolute') return null
       // where it is in the scrolled page, so a long page scrolled to its top still counts
       return r.height > 0 ? { name, top: r.top + scroll.scrollTop, bottom: r.bottom + scroll.scrollTop } : null
     }
     return {
-      list: [at(q('[data-testid="home-top"]'), 'top'), at(q('[data-testid="home-mark"]'), 'mark'), at(q('h1'), 'greeting'), at(q('[data-testid="home-tail"]'), 'suggestions'), at(q('[data-testid="home-dock"]'), 'card')].filter((x) => !!x),
+      list: [at(q('[data-testid="home-top"]'), 'top'), at(q('[data-testid="home-mark"]'), 'mark'), at(q('h1'), 'greeting'), at(q('[data-testid="no-ai-card"]'), 'no-AI line'), at(q('[data-testid="home-tail"]'), 'suggestions'), at(q('[data-testid="home-dock"]'), 'card')].filter((x) => !!x),
       wide: document.documentElement.scrollWidth > innerWidth || scroll.scrollWidth > scroll.clientWidth,
       scrolls: scroll.scrollHeight > scroll.clientHeight + 1,
     }
@@ -396,13 +399,13 @@ export function homeCenteredCases() {
         await cardOnTabs(page)
       })
 
-      test('TC-182 with the card: one engine on, no picker in it; + · mic · send stay', async ({ page }) => {
+      test('AP-032 with the card: one engine on with two models, the picker stays in it with + · mic · send', async ({ page }) => {
         await reset(page)
         await signIn(page)
         await call(page, 'PATCH', '/api/admin/engines', { enabled: { codex: false } })
         await page.goto('/')
         await expect(page.getByTestId('composer-tools')).toBeVisible()
-        await oneCard(page, false)
+        await oneCard(page, true)
         await cardOnTabs(page)
       })
 
@@ -417,6 +420,8 @@ export function homeCenteredCases() {
             await notFocused(page)
             // the AI's mark over the greeting, except under the welcome card that fills the top
             if (state.name === 'member-welcome') await expect(page.getByTestId('home-mark')).toHaveCount(0)
+            // and the greeting, there only for screen readers: the card says hello (#929)
+            if (state.name === 'member-welcome') await expect(page.locator('h1')).toHaveClass(/\bsr-only\b/)
             else await expect(page.getByTestId('home-mark').locator('[data-trina-star]')).toBeVisible()
             const scrolls = await noOverlap(page)
             // only the invited person's welcome card (its steps' rows) is taller than the screen

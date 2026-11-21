@@ -9,6 +9,11 @@
 //                        'browser'), and what a personal external-service connection or personal Google Drive returned
 //                        (via 'connection'). A row without via is own-folder content, or (a scope written before via
 //                        existed) any of the three
+//   {type:'user', id, share}  users/<id>/… inside a folder that person shares (files/folder-shares.ts), where the
+//                        people on the share could open it: its readers are the person and the share's people now
+//                        (files/share-readers.ts). Only while a receiver could open it (receiverSees); anything else
+//                        inside the folder is the plain own-folder source. An older build ignores `share` and reads
+//                        the source as "only that person", which asks more often, never less
 //   {type:'integration', id}  what a team external-service connection returned: its viewers are the active people its
 //                        access rules allow today (integrations/connections/store.ts)
 //   {type:'drive_share', id}  what a Google Drive an admin shares with the team returned: its viewers are the active
@@ -48,21 +53,35 @@ import { writeFolderAccess } from '../admin/folders'
 import { getRow, usersOf } from '../integrations/connections/store'
 import { shareRow, shareUsers } from '../integrations/google-drive/shares'
 import { isPeopleRow, peopleAudience } from './chat-audience'
+import { readersAt, shareAbove, shareSourceReaders } from '../files/share-readers'
+import { PROJECT_ROOM_SQL } from '../rooms/project-room'
 
-export type ReadSource = { type: 'folder'; id: string } | { type: 'user'; id: string; via?: 'browser' | 'connection' } | { type: 'root' } | { type: 'integration'; id: string } | { type: 'drive_share'; id: string } | { type: 'room'; id: string; fromSeq?: number } | { type: 'name'; path: string }
+/** SQL: rooms/history.ts HISTORY_ROOM_SQL (a team room, the everyone room, a project's room), here without importing
+ * history.ts (which imports this module). */
+const HISTORY_ROOM_SQL = (r: string): string => `(${r}.kind IN ('team', 'all') OR (${r}.kind = 'group' AND ${PROJECT_ROOM_SQL(r)}))`
+
+export type ReadSource = { type: 'folder'; id: string } | { type: 'user'; id: string; via?: 'browser' | 'connection'; share?: string } | { type: 'root' } | { type: 'integration'; id: string } | { type: 'drive_share'; id: string } | { type: 'room'; id: string; fromSeq?: number } | { type: 'name'; path: string }
   | { type: 'chat'; id: string }
   | { type: 'slack'; id: string; userId: string; kind?: 'channel' | 'private' | 'dm' | 'group'; name?: string }
 
 /** One string per source (deduplication, and what the person already allowed for a folder in this turn). */
-export const sourceKey = (s: ReadSource) => (s.type === 'root' ? 'root' : s.type === 'room' ? `room:${s.id}:${s.fromSeq ?? 0}` : s.type === 'name' ? `name:${s.path}` : s.type === 'user' && s.via ? `user:${s.id}:${s.via}` : `${s.type}:${s.id}`)
+export const sourceKey = (s: ReadSource) => (s.type === 'root' ? 'root' : s.type === 'room' ? `room:${s.id}:${s.fromSeq ?? 0}` : s.type === 'name' ? `name:${s.path}` : s.type === 'user' && s.via ? `user:${s.id}:${s.via}` : s.type === 'user' && s.share ? `user:${s.id}:share:${s.share}` : `${s.type}:${s.id}`)
 const key = sourceKey
-/** One string per place as a card names it: a person's folder, browser and personal connections are one ("my folder") */
-const placeKey = (s: ReadSource) => (s.type === 'user' ? `user:${s.id}` : key(s))
+/** One string per place whose readers are judged once: a person's folder, browser and personal connections are one
+ * (only that person reads them); what came from inside a folder they share is its own place per share (its readers are
+ * the share's people too). The card names them all "my files" once (the label is deduplicated after the check): a read
+ * from a shared folder never hides a later read from the person's private files (security review 1, C1). */
+export const placeKey = (s: ReadSource) => (s.type === 'user' ? (s.share && !s.via ? `user:${s.id}:share:${s.share}` : `user:${s.id}`) : key(s))
 
 /** The source of a team-folder file (relative path with actual names). */
 export function sourceOf(db: Database, rules: RuleSet, rel: string): ReadSource {
   const segs = rel.split('/').filter(Boolean)
-  if (segs[0] === 'users' && segs.length >= 2) return { type: 'user', id: segs[1]! }
+  if (segs[0] === 'users' && segs.length >= 2) {
+    // inside a folder the person shares, and where its people could open it (receiverSees, in shareAbove): the share's
+    // own source; anything else in their files (a hidden or project place inside the folder too) is theirs alone
+    const share = segs.length >= 3 ? shareAbove(db, segs) : null
+    return share ? { type: 'user', id: segs[1]!, share } : { type: 'user', id: segs[1]! }
+  }
   const ruled = new Set(rules.boundaryFolders())
   // in the members-only zone the owner's and admins' access changes at projects/<name> too (docs/DECISIONS.md "Project
   // contents only for members"): a read there is never keyed to projects/ or the root, where admins read everything
@@ -149,12 +168,17 @@ function activePeople(db: Database): Principal[] {
 /** Who may read what came from this source, under today's rules. A folder row that is gone: nobody (asks). `reader`:
  * the person whose read it was (a room source: what is hidden from them was never given to them). */
 export function viewersOf(db: Database, rules: RuleSet, s: ReadSource, people: Principal[], reader?: string | null): Set<string> {
-  if (s.type === 'user') return new Set(people.some((p) => p.id === s.id) ? [s.id] : [])
+  if (s.type === 'user') {
+    const out = new Set(people.some((p) => p.id === s.id) ? [s.id] : [])
+    // from inside a folder the person shares: its people now too, while the share is live and not paused
+    if (s.share && !s.via) for (const id of shareSourceReaders(db, s.share)) if (people.some((p) => p.id === id)) out.add(id)
+    return out
+  }
   if (s.type === 'integration') return usersOf(db, s.id)
   if (s.type === 'drive_share') return shareRow(db, s.id) ? shareUsers(db, s.id) : new Set()
   if (s.type === 'slack') return new Set(people.some((p) => p.id === s.userId) ? [s.userId] : [])
   if (s.type === 'room') return roomViewers(db, s.id, people, s.fromSeq, reader)
-  if (s.type === 'chat') return chatViewers(db, s.id, people)
+  if (s.type === 'chat') return chatViewers(db, s.id, people, rules)
   if (s.type === 'name') { const segs = nameSegs(s.path); return new Set(people.filter((p) => rules.canList(p, segs)).map((p) => p.id)) }
   let segs: string[] = []
   if (s.type === 'folder') {
@@ -165,12 +189,44 @@ export function viewersOf(db: Database, rules: RuleSet, s: ReadSource, people: P
   return new Set(people.filter((p) => atLeast(rules.access(p, segs), 'read')).map((p) => p.id))
 }
 
-/** Who sees a chat's own files now (chat/chat-files.ts): a chat shared with people, its people; else its creator alone
- * (a chat gone: nobody). Only active people of `people`. */
-export function chatViewers(db: Database, chatId: string, people: Principal[]): Set<string> {
-  const c = db.query('SELECT id, user_id, people_shared_at, project_id FROM chats WHERE id = ?').get(chatId) as { id: string; user_id: string; people_shared_at: string | null; project_id: string | null } | null
+/** How many active people may read what came from `s` now (viewersOf): the wider-audience card's "(3 people)" beside
+ * each source (docs/decisions/20261117-ai-save-my-files-default.md). */
+export function sourceViewerCount(db: Database, rules: RuleSet, s: ReadSource, reader?: string | null): { n: number; onlyReader: boolean } {
+  const v = viewersOf(db, rules, s, activePeople(db), reader)
+  return { n: v.size, onlyReader: v.size === 1 && !!reader && v.has(reader) }
+}
+
+/** Who may open a team path now, as people are counted on screen: the active people (`people`, loaded once by the
+ * caller for several paths) the folder rules and a folder share let read it (files/share-readers.ts readersAt), and
+ * whether that is the whole team: every active person who is not a guest (`teamSize` of them). The save's audience
+ * line (chat/save-audience.ts) says it from this, never from a guess. */
+export function pathAudience(db: Database, rules: RuleSet, segs: readonly string[], people: readonly Principal[]): { ids: Set<string>; wholeTeam: boolean; teamSize: number } {
+  const ids = readersAt(db, rules, segs, people)
+  const team = people.filter((p) => p.role !== 'guest')
+  return { ids, wholeTeam: team.length > 1 && team.every((p) => ids.has(p.id)), teamSize: team.length }
+}
+
+/** The active people for pathAudience, once per tool result; null on a team larger than `max` (the walk is skipped, as
+ * files/access-routes.ts folderAccess does). */
+export function audiencePeople(db: Database, max: number): Principal[] | null {
+  const n = (db.query("SELECT COUNT(*) n FROM users WHERE status = 'active' AND deleted_at IS NULL").get() as { n: number }).n
+  return n > max ? null : activePeople(db)
+}
+
+/** Who sees a chat's own files and its answers' comments now (chat/chat-files.ts, chat/answer-comments.ts): a chat shared
+ * with people, its people; a team project's shared chat (with `rules`), whoever may read the project's folder now (none
+ * while it is in the trash), guests but its creator left out, as chat/shared.ts Audiences.ofChat; else its creator
+ * alone (a chat gone: nobody). Only active people of `people`. */
+export function chatViewers(db: Database, chatId: string, people: Principal[], rules?: RuleSet): Set<string> {
+  const c = db.query('SELECT id, user_id, people_shared_at, project_id, shared_at FROM chats WHERE id = ?').get(chatId) as { id: string; user_id: string; people_shared_at: string | null; project_id: string | null; shared_at: string | null } | null
   if (!c) return new Set()
-  const ids = isPeopleRow(c) ? peopleAudience(db, c) : [c.user_id]
+  let ids = isPeopleRow(c) ? peopleAudience(db, c) : [c.user_id]
+  if (!isPeopleRow(c) && rules && c.shared_at && c.project_id) {
+    const p = db.query('SELECT folder_path, trashed_with FROM projects WHERE id = ?').get(c.project_id) as { folder_path: string; trashed_with: string | null } | null
+    const segs = !p ? null : p.folder_path === '' ? [] : p.folder_path.split('/')
+    const guests = new Set((db.query('SELECT id FROM users WHERE guest = 1').all() as { id: string }[]).map((r) => r.id))
+    ids = !p || p.trashed_with !== null || !segs ? [] : people.filter((x) => (x.id === c.user_id || !guests.has(x.id)) && atLeast(rules.access(x, segs), 'read')).map((x) => x.id)
+  }
   return new Set(ids.filter((id) => people.some((p) => p.id === id)))
 }
 
@@ -190,9 +246,9 @@ export function roomViewers(db: Database, roomId: string, people?: Principal[], 
  * sending to people who cannot read a source, never past those (chat/answer-share.ts). */
 export function viewersByHistory(db: Database, roomId: string, people?: Principal[], fromSeq?: number, reader?: string | null): { see: Set<string>; hiddenFrom: Set<string> } {
   const rows = db.query(`SELECT m.user_id, (m.user_id <> ?4 AND EXISTS (SELECT 1 FROM room_hidden_answers h WHERE h.room_id = m.room_id AND h.user_id = m.user_id AND h.see_seq >= ?3)) hid,
-      (r.kind IN ('team', 'all') AND m.history_from_seq IS NULL AND m.visible_from_seq >= ?2) waits
+      (${HISTORY_ROOM_SQL('r')} AND m.history_from_seq IS NULL AND m.visible_from_seq >= ?2) waits
     FROM room_members m JOIN rooms r ON r.id = m.room_id WHERE m.room_id = ?1 AND r.archived_at IS NULL
-      AND (COALESCE(m.history_from_seq, m.visible_from_seq) < ?2 OR (r.kind IN ('team', 'all') AND m.history_from_seq IS NULL))`)
+      AND (COALESCE(m.history_from_seq, m.visible_from_seq) < ?2 OR (${HISTORY_ROOM_SQL('r')} AND m.history_from_seq IS NULL))`)
     .all(roomId, fromSeq ?? Number.MAX_SAFE_INTEGER, fromSeq ?? 0, reader ?? '') as { user_id: string; hid: number; waits: number }[]
   const active = new Set((people ?? activePeople(db)).map((p) => p.id))
   const see = new Set<string>(), hiddenFrom = new Set<string>()
@@ -221,7 +277,8 @@ export function widening(db: Database, chatId: string | null, targetSegs: string
   const rules = RuleSet.load(db)
   const people = activePeople(db)
   const reader = chatId ? (db.query('SELECT user_id FROM chats WHERE id = ?').get(chatId) as { user_id: string } | null)?.user_id ?? null : null
-  const target = people.filter((p) => atLeast(rules.access(p, targetSegs), 'read')).map((p) => p.id)
+  // the target's readers: the folder rules, and a folder share's people when the target is inside one
+  const target = [...readersAt(db, rules, targetSegs, people)]
   const narrower = sources.filter((s, i) => sources.findIndex((x) => placeKey(x) === placeKey(s)) === i)
     .filter((s) => { const v = viewersOf(db, rules, s, people, reader); return target.some((id) => !v.has(id)) })
   return narrower.length ? { narrower, targetViewers: target.length } : null
@@ -262,7 +319,7 @@ export function roomWidening(db: Database, roomId: string, sources: ReadSource[]
   // who will see it: everyone in the room; for a thread reply those who see its first message: in a team room or the
   // everyone room every member to whom it is not hidden (one whose history is not open yet too: it opens to them, and
   // then they see the thread), elsewhere who was in the room before it (the same audience)
-  const history = !!db.query("SELECT 1 FROM rooms WHERE id = ? AND kind IN ('team', 'all')").get(roomId)
+  const history = !!db.query(`SELECT 1 FROM rooms r WHERE r.id = ? AND ${HISTORY_ROOM_SQL('r')}`).get(roomId)
   const target = (db.query(`SELECT m.user_id FROM room_members m WHERE m.room_id = ?1 AND (?3 OR COALESCE(m.history_from_seq, m.visible_from_seq) < ?2)
       AND NOT EXISTS (SELECT 1 FROM room_hidden_answers h WHERE h.room_id = m.room_id AND h.user_id = m.user_id AND h.message_id = ?4)`)
     .all(roomId, root?.seq ?? Number.MAX_SAFE_INTEGER, history || !root ? 1 : 0, root?.id ?? '') as { user_id: string }[]).map((r) => r.user_id)

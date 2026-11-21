@@ -7,7 +7,9 @@
 // icon while nobody else wrote; docs/DECISIONS.md "Faces in every chat list"), and only what the person may do is
 // offered. A file from the computer is saved
 // in the project folder ("채팅 첨부") with one line under the chips saying so; ✕ before sending puts it in the trash. While
-// someone else's question is answered the box keeps the text with a line saying whose; the read card goes to the person
+// someone else's question is answered a line above the box says whose, and a message sent then waits under the
+// conversation (with its files and their line) and goes after it; two people's waiting messages go in the order they
+// were queued, the others seeing only how many wait (docs/decisions/20261118-shared-chat-queued-sends.md); the read card goes to the person
 // who asked, the others see that it waits for them. The line under every box says who sees the chat ("나만 봐요", "나와
 // 관리자만 봐요" or how many; docs/DECISIONS.md "Who sees it, always") and opens the members dialog for whoever may change them.
 // At 1440 and 390 px wide, with axe on each screen. The mock (test/mock/server.ts, "shared project chats"): "hold" keeps
@@ -32,7 +34,9 @@ async function audit(page: Page, where: string) {
 }
 
 /** A team project on marketing/, its setting on (or off) */
-const NOT_FOUND_WHY = '만든 사람만 볼 수 있는 채팅이거나, 삭제됐거나, 내가 멤버가 아닌 프로젝트의 채팅일 수 있어요. 링크를 보낸 사람에게 나와 공유해 달라고 해 주세요.'
+// a private (🔒) chat of a team project can never be asked for: the link page's one plain line, no button, no reason
+// (efcb894aa, docs/decisions/20261116-chat-project-ask-access.md)
+const CANT_ASK = '여기에는 권한을 요청할 수 없어요. 링크를 보낸 사람에게 물어보세요.'
 async function project(page: Page, share = true) {
   const r = await post(page, '/api/projects', { name: 'Launch', scope: 'team', folderPath: 'marketing', instructions: '' })
   expect(r.status()).toBe(201)
@@ -77,6 +81,17 @@ for (const vp of [{ name: '1440', phone: false, use: { viewport: { width: 1440, 
       const page = await ctx.newPage()
       await signIn(page, BOB)
       return page
+    }
+    /** SHOT_DIR=<dir>: a screenshot of this screen, light and dark */
+    const shotIf = async (p: Page, name: string) => {
+      const dir = process.env.SHOT_DIR
+      if (!dir) return
+      for (const scheme of ['light', 'dark'] as const) {
+        await p.emulateMedia({ colorScheme: scheme })
+        await p.waitForTimeout(200)
+        await p.screenshot({ path: `${dir}/queue-${name}-${vp.name}-${scheme}.png` })
+      }
+      await p.emulateMedia({ colorScheme: 'light' })
     }
     /** the line under the box that says who sees the chat: the row under the box on a computer, under it on a phone */
     const seenLine = (page: Page) => page.getByTestId(vp.phone ? 'composer-phone-footer' : 'composer-footer')
@@ -131,12 +146,14 @@ for (const vp of [{ name: '1440', phone: false, use: { viewport: { width: 1440, 
       const chatId = page.url().split('/c/')[1]!
       await expect(page.getByTestId('assistant-message')).toHaveAttribute('data-status', 'done')
       await expect(page.getByTestId('chat-shared')).toHaveCount(0)
-      // Bob: not on the project page, its link is the page every chat that cannot be opened gets
+      // Bob: not on the project page; its link says it cannot be asked for, and nothing of it
       const b = await bob(browser)
       await b.goto(`/projects/${id}`)
       await expect(b.getByTestId('project-chats-empty')).toBeVisible()
       await b.goto(`/c/${chatId}`)
-      await expect(b.getByTestId('chat-not-found-why')).toHaveText(NOT_FOUND_WHY)
+      await expect(b.getByTestId('link-access-cant-ask-line')).toHaveText(CANT_ASK)
+      await expect(b.getByTestId('link-access-ask-button')).toHaveCount(0)
+      await expect(b.getByTestId('link-access-cant-ask')).not.toContainText('내 메일')
       await b.context().close()
       // back on the project: the row has a lock, a line offers to share it, and the next new chat starts shared again
       await page.goto(`/projects/${id}`)
@@ -206,7 +223,7 @@ for (const vp of [{ name: '1440', phone: false, use: { viewport: { width: 1440, 
       expect(msgs.items).toEqual([])
       const b = await bob(browser)
       await b.goto(`/c/${sent}`)
-      await expect(b.getByTestId('chat-not-found-why')).toBeVisible()
+      await expect(b.getByTestId('link-access-cant-ask-line')).toHaveText(CANT_ASK)
       await b.context().close()
     })
 
@@ -567,20 +584,25 @@ for (const vp of [{ name: '1440', phone: false, use: { viewport: { width: 1440, 
       await b.goto(`/c/${chatId}`)
       await expect(b.getByTestId('assistant-message')).toHaveAttribute('data-status', 'done')
 
-      // Olga's question runs: Bob's box keeps his text and says whose turn it is
+      // Olga's question runs: Bob's box says whose turn it is, and what he sends now waits for it (no Stop: not his)
       await b.getByTestId('composer-input').fill('나도 물어볼게')
       await page.getByTestId('composer-input').fill('hold 일정표 다시 봐 줘')
       await page.getByTestId('send').click()
       await expect(page.getByTestId('stop')).toBeVisible()
       const hold = b.getByTestId('composer-hold')
-      await expect(hold).toHaveText('Olga님의 질문에 답하는 중이에요. 끝나면 보낼 수 있어요.')
-      await expect(b.getByTestId('send')).toBeDisabled()
+      await expect(hold).toHaveText('Olga님의 질문에 답하는 중이에요. 지금 보내면 답이 끝난 뒤에 보낼게요.')
+      await expect(b.getByTestId('send')).toHaveCount(0)
       await expect(b.getByTestId('stop')).toHaveCount(0)
-      await expect(b.getByTestId('send-later')).toHaveCount(0)
+      await expect(b.getByTestId('send-later')).toBeVisible()
       await expect(b.getByTestId('composer-input')).toHaveValue('나도 물어볼게')
       await expect(b.getByTestId('composer-input')).toHaveAccessibleDescription(/Olga님의 질문에 답하는 중이에요/)
-      // the question appears for him (no live text): read again when the turn started
+      // the question appears for him (read again when the turn started), and the answer as it is written (QA TC-4961,
+      // docs/decisions/20261118-shared-chat-live-answers.md): the first half while it is still running
       await expect(b.getByTestId('user-message').last()).toContainText('hold 일정표 다시 봐 줘')
+      await expect(b.getByTestId('assistant-message').last()).toHaveAttribute('data-status', 'streaming')
+      await expect(b.getByTestId('assistant-message').last()).toContainText('네, 정리했어요.')
+      await expect(b.getByTestId('assistant-message').last()).not.toContainText('안내 문구는')
+      await shotIf(b, 'bob-live')
       await audit(b, 'queue line')
       // the server says the same to a send or a stop of his
       const busy = await post(b, `/api/chats/${chatId}/messages`, { content: 'x', clientMessageId: uuidv7() })
@@ -595,6 +617,7 @@ for (const vp of [{ name: '1440', phone: false, use: { viewport: { width: 1440, 
       await expect(b.getByTestId('assistant-message').last()).toContainText('출시는 다음 주 화요일이에요')
       await expect(b.getByTestId('composer-input')).toHaveValue('나도 물어볼게')
       await expect(b.getByTestId('send')).toBeEnabled()
+      await b.getByTestId('composer-input').fill('')
 
       // the read card: Olga's to answer, Bob sees that it waits for her
       await page.getByTestId('composer-input').fill('readcard 3분기 숫자 알려 줘')
@@ -621,6 +644,67 @@ for (const vp of [{ name: '1440', phone: false, use: { viewport: { width: 1440, 
       await expect(page.getByTestId('assistant-message').last()).toHaveAttribute('data-status', 'done')
       await expect(page.getByTestId('assistant-message').last()).toContainText('그 파일은 읽지 않았어요')
       await expect(b.getByTestId('assistant-message').last()).toContainText('그 파일은 읽지 않았어요')
+      await b.context().close()
+    })
+
+    test('queued sends: Bob\'s message with a file waits for Olga\'s answer, two people\'s go in the order they were queued, a reload keeps them', async ({ page, browser }) => {
+      await reset(page)
+      await signIn(page)
+      const id = await project(page)
+      const chatId = await sharedChat(page, id, '출시 일정 정리해 줘')
+      await page.goto(`/c/${chatId}`)
+      const b = await bob(browser)
+      await b.goto(`/c/${chatId}`)
+      await expect(b.getByTestId('assistant-message')).toHaveAttribute('data-status', 'done')
+
+      // Olga's question runs; Bob attaches a file from his computer and says "이것도": it waits under the conversation
+      await page.getByTestId('composer-input').fill('hold 일정표 다시 봐 줘')
+      await page.getByTestId('send').click()
+      await expect(b.getByTestId('composer-hold')).toBeVisible()
+      await b.getByTestId('file-input').setInputFiles({ name: 'plan-v2.zip', mimeType: 'application/zip', buffer: Buffer.from('PK\u0005\u0006' + '\u0000'.repeat(18)) })
+      await expect(b.getByTestId('shared-upload-line')).toBeVisible()
+      await b.getByTestId('composer-input').fill('이것도')
+      // (a phone makes a new line with Enter: the clock button queues it there)
+      if (vp.phone) await b.getByTestId('send-later').click()
+      else await b.getByTestId('composer-input').press('Enter')
+      const outbox = b.getByTestId('outbox')
+      await expect(outbox.getByTestId('outbox-text')).toHaveText('이것도')
+      await expect(outbox.getByText('plan-v2.zip')).toBeVisible()
+      await expect(outbox.getByTestId('outbox-upload-line')).toHaveText('프로젝트 폴더(채팅 첨부)에 저장돼요 · 2명이 볼 수 있어요')
+      await expect(outbox.getByTestId('outbox-status')).toHaveText('답이 끝나면 보낼게요.')
+      await expect(b.getByTestId('composer-input')).toHaveValue('')
+      // Olga sees only that one message waits, never its text or file
+      await expect(page.getByTestId('outbox-others')).toHaveText('다른 사람 1명의 메시지가 보내기를 기다리고 있어요.')
+      await expect(page.getByText('이것도')).toHaveCount(0)
+      await expect(page.getByText('plan-v2.zip')).toHaveCount(0)
+      await audit(b, 'queued in a shared chat')
+      // Olga queues one too, after Bob; the server sends Bob's first
+      await page.getByTestId('composer-input').fill('그리고 요약도')
+      // (a phone makes a new line with Enter: the clock button queues it there)
+      if (vp.phone) await page.getByTestId('send-later').click()
+      else await page.getByTestId('composer-input').press('Enter')
+      await expect(page.getByTestId('outbox').getByTestId('outbox-text')).toHaveText('그리고 요약도')
+      await expect(b.getByTestId('outbox-others')).toHaveText('다른 사람 1명의 메시지가 보내기를 기다리고 있어요.')
+      // a reload keeps Bob's waiting message, still waiting for the answer
+      await b.reload()
+      await expect(b.getByTestId('outbox').getByTestId('outbox-text')).toHaveText('이것도')
+      await expect(b.getByTestId('outbox').getByTestId('outbox-status')).toHaveText('답이 끝나면 보낼게요.')
+      await shotIf(b, 'bob-queued')
+      await shotIf(page, 'olga-sees-count')
+
+      expect((await post(page, '/__test/shared-release', { chatId })).ok()).toBeTruthy()
+      // Bob's goes first (with its file), then Olga's in the next turn: one turn each, in order
+      const questions = (p: Page) => p.getByTestId('user-message')
+      await expect(questions(page).nth(2)).toContainText('이것도')
+      await expect(questions(page).nth(2)).toContainText('plan-v2.zip')
+      await expect(questions(page).nth(3)).toContainText('그리고 요약도')
+      await expect(questions(b).nth(3)).toContainText('그리고 요약도')
+      await expect(b.getByTestId('outbox')).toHaveCount(0)
+      await expect(page.getByTestId('outbox')).toHaveCount(0)
+      await expect(b.getByTestId('outbox-others')).toHaveCount(0)
+      // one conversation, no second version made by the waiting messages
+      await expect(page.getByTestId('assistant-message').last()).toHaveAttribute('data-status', 'done')
+      await expect(page.getByTestId('branch-nav')).toHaveCount(0)
       await b.context().close()
     })
 
@@ -676,8 +760,10 @@ for (const vp of [{ name: '1440', phone: false, use: { viewport: { width: 1440, 
       expect((await post(page, '/__test/revoke', { path: 'marketing' })).ok()).toBeTruthy()
       await expect(bobRow).toHaveCount(0)
       await expect(inList).toHaveCount(0)
-      // the open chat turns into the not-found page at once: no old messages, no box that cannot send (QA TC-961)
-      await expect(b3.getByTestId('chat-not-found')).toBeVisible()
+      // the open chat turns at once into the page of a chat he cannot open: no old messages, no box that cannot send
+      // (QA TC-961); since efcb894aa that page is Ask for access (to join the project), with nothing of the chat
+      await expect(b3.getByTestId('link-access-ask')).toBeVisible()
+      await expect(b3.getByTestId('link-access-ask')).not.toContainText('출시 체크리스트')
       await expect(b3.getByTestId('messages')).toHaveCount(0)
       const after = frames.slice(from).map((f) => JSON.parse(f) as { type: string; data?: { chatId?: string; change?: string; chat?: unknown } }).filter((f) => f.data?.chatId === chatId)
       expect(after.map((f) => [f.type, f.data!.change, f.data!.chat])).toEqual([['chat.updated', 'deleted', null]])
@@ -756,18 +842,22 @@ for (const vp of [{ name: '1440', phone: false, use: { viewport: { width: 1440, 
       expect([move.status(), await reason(move)]).toEqual([409, 'shared_chat_move'])
       await page.goto(`/c/${chatId}`)
 
-      // a send refused in the moment (someone else's question began just before): the text stays, with the reason
+      // a send refused in the moment (someone else's question began just before): it waits under the conversation like
+      // any message sent during an answer, nothing shows as failed, and it goes once the server takes it
       await page.route(`**/api/chats/${chatId}/messages`, (r) => r.request().method() === 'POST'
         ? r.fulfill({ status: 409, json: { error: { code: 'conflict', message: 'Bob님의 질문에 답하는 중이에요. 끝나면 보낼 수 있어요.', params: { reason: 'shared_chat_busy' } } } })
         : r.fallback())
       await page.getByTestId('composer-input').fill('하나 더')
       await page.getByTestId('send').click()
-      await expect(page.getByRole('alert').filter({ hasText: 'Bob님의 질문에 답하는 중이에요.' })).toBeVisible()
-      await expect(page.getByTestId('composer-input')).toHaveValue('하나 더')
+      await expect(page.getByTestId('outbox').getByTestId('outbox-text')).toHaveText('하나 더')
+      await expect(page.getByTestId('composer-input')).toHaveValue('')
       await expect(page.getByTestId('user-message')).toHaveCount(1)
       await expect(page.getByTestId('send-failed')).toHaveCount(0)
       await audit(page, 'refused send')
       await page.unroute(`**/api/chats/${chatId}/messages`)
+      await expect(page.getByTestId('user-message')).toHaveCount(2)
+      await expect(page.getByTestId('outbox')).toHaveCount(0)
+      await expect(page.getByTestId('assistant-message').last()).toHaveAttribute('data-status', 'done')
 
       // deleting the project says its shared chat goes to its creator's trash, by the trash's name; no red line
       await page.goto(`/projects/${id}`)
@@ -777,14 +867,18 @@ for (const vp of [{ name: '1440', phone: false, use: { viewport: { width: 1440, 
       await expect(page.getByTestId('project-delete-shared')).toHaveCount(0)
       await page.getByRole('dialog').getByRole('button', { name: '취소' }).click()
       // a project in place keeps its folder (docs/DECISIONS.md "Projects live only in projects/"): no folder to choose;
-      // an admin reads on its 멤버 line that this older project is outside projects/ (where its members are changed)
+      // an admin reads in the members dialog (who sees it, in the title row) that this older project is outside
+      // projects/, with the way to where its members are changed
       await page.getByTestId('project-menu').click()
       await page.getByTestId('project-edit').click()
       await expect(page.getByTestId('project-folder-choose')).toHaveCount(0)
       await page.getByRole('dialog').getByRole('button', { name: '취소' }).click()
-      await expect(page.getByTestId('project-members-manage')).toHaveCount(0)
-      await page.getByTestId('project-members-toggle').click()
-      await expect(page.getByTestId('project-members-hint')).toContainText('관리자 › 폴더 권한')
+      await expect(page.getByTestId('project-share')).toHaveCount(0)
+      await page.getByTestId('project-who-sees').click()
+      await expect(page.getByRole('dialog').getByTestId('project-members-locked')).toContainText('관리자 › 폴더 권한')
+      await expect(page.getByRole('dialog').getByTestId('project-members-locked').getByRole('link')).toHaveAttribute('href', /^\/admin\/folders\?folder=/)
+      await page.keyboard.press('Escape')
+      await expect(page.getByRole('dialog')).toHaveCount(0)
 
       // safe operations (1A): a shared chat is read-only, and says where to ask instead
       expect((await post(page, '/__test/confidential', { all: true })).ok()).toBeTruthy()
@@ -893,24 +987,25 @@ for (const vp of [{ name: '1440', phone: false, use: { viewport: { width: 1440, 
       expect((await patch(page, `/api/projects/${id}`, { shareChats: true })).ok()).toBeTruthy()
       await page.goto(`/projects/${id}`)
       await expect(boxLine(page)).toHaveAccessibleDescription('새 채팅은 나만 볼 수 있어요.')
-      // the 멤버 line says the same words
-      await expect(page.getByTestId('project-members')).toContainText('나만 봐요')
+      // the title row says the same words
+      await expect(page.getByTestId('project-who-sees')).toHaveText('나만 봐요')
       // one quiet chip in the box's row (QA TC-1401), on a phone too: no taller than the row's other buttons
       await expect(page.getByTestId('composer-tools').getByTestId('only-me-toggle')).toBeVisible()
       expect((await boxLine(page).boundingBox())!.height).toBeLessThanOrEqual(36)
       await audit(page, 'project box, only me')
       await shots(page, 'project-only-me')
-      // Olga may change the members: the 멤버 line's 관리 opens the dialog; Bob added (the confirm first)
-      await page.getByTestId('project-members-manage').click()
+      // Olga may change the members: Share in the title row opens the dialog; Bob added (one press)
+      await page.getByTestId('project-share').click()
       await expect(page.getByTestId('project-members-dialog')).toBeVisible()
       await page.getByTestId('project-participants-search').fill('Bob')
       await page.getByTestId('participant-add-user-bob').click()
+      // one press (QA TC-3092): only people added, what they will see in place
+      await expect(page.getByTestId('project-widen-inline')).toBeVisible()
       await page.getByTestId('project-members-save').click()
-      await page.getByTestId('dialog-confirm').click()
       await expect(page.getByRole('dialog')).toHaveCount(0)
       await expect(boxLine(page)).toHaveAccessibleDescription('지금 시작하는 채팅은 이 프로젝트의 2명이 보고 이어 쓸 수 있어요.')
-      // the 멤버 line: its members (Olga and Bob)
-      await expect(page.getByTestId('project-members')).toContainText('멤버2명')
+      // the title row: its members' faces (Olga and Bob)
+      await expect(page.getByTestId('project-people-header').getByTestId('project-header-face')).toHaveCount(2)
 
       // the open chat says it in the same place, and its line opens the same dialog: Bob out again, only me
       await page.getByTestId('composer-input').fill('주간 보고 정리해 줘')
@@ -945,14 +1040,15 @@ for (const vp of [{ name: '1440', phone: false, use: { viewport: { width: 1440, 
       expect((await b.request.patch(`/api/projects/${own}`, { headers: H, data: { shareChats: true } })).ok()).toBeTruthy()
       await b.goto(`/projects/${own}`)
       await expect(boxLine(b)).toHaveAccessibleDescription('새 채팅은 나만 볼 수 있어요.')
-      await expect(b.getByTestId('project-members')).toContainText('나만 봐요')
+      await expect(b.getByTestId('project-who-sees')).toHaveText('나만 봐요')
       await shots(b, 'project-member-alone')
-      // Bob in Olga's project (Olga changes its members): the count, nothing to open
+      // Bob in Olga's project (Olga changes its members): the faces, no Share
       const theirs = ((await (await post(page, '/api/projects', { name: 'With Bob', scope: 'team', instructions: '', participants: [{ subjectType: 'user', subjectId: 'bob' }] })).json()) as { id: string }).id
       expect((await patch(page, `/api/projects/${theirs}`, { shareChats: true })).ok()).toBeTruthy()
       await b.goto(`/projects/${theirs}`)
       await expect(boxLine(b)).toHaveAccessibleDescription('지금 시작하는 채팅은 이 프로젝트의 2명이 보고 이어 쓸 수 있어요.')
-      await expect(b.getByTestId('project-members')).toContainText('2명')
+      await expect(b.getByTestId('project-people-header').getByTestId('project-header-face')).toHaveCount(2)
+      await expect(b.getByTestId('project-share')).toHaveCount(0)
       await audit(b, 'project box, a member who cannot change the members')
       await b.context().close()
     })

@@ -1,8 +1,10 @@
 // Wires the WebSocket to the stores: one RealtimeClient per signed-in window.
 import { PRODUCT } from '@mycel/shared'
 import type { CredentialLogin, FileChange, Memory, ServerEvent, ServerEventData } from '@mycel/shared/api'
-import { renewWindowId, windowId } from '../lib/api'
+import { api, API, renewWindowId, windowId } from '../lib/api'
+import { guestRemoval } from '../lib/signedOut'
 import { BrowserRelay } from '../lib/browserRelay'
+import { LocalRelay } from '../lib/localRelay'
 import { browserSettingsBridge, desktop } from '../lib/desktop'
 import { openTeamFile } from '../lib/sidePanel'
 import { conflictText, toldHere } from '../lib/conflictNotice'
@@ -12,9 +14,12 @@ import { Emitter } from '../lib/emitter'
 import { defaultWsBase, RealtimeClient, type ConnState } from '../lib/realtime'
 import { startActivity } from '../lib/presence'
 import { setTypingOut } from '../lib/roomTyping'
+import { lookingConnected, setLookingOut } from '../lib/lookingAt'
 import { t } from '../i18n'
 import { useChats } from './chats'
 import { useDeckBuilds } from './deckBuilds'
+import { demoAnswerEnded } from './demo'
+import { useChatThreads } from './chatThreads'
 import { useAiAccess } from './aiAccess'
 import { useEngines } from './engines'
 import { transferredHere, useHandover } from './handover'
@@ -35,6 +40,9 @@ export const filesChanged = new Emitter<FileChange[]>()
 export const memoryChanged = new Emitter<{ change: 'created' | 'updated' | 'deleted' | 'cleared'; memory: Memory | null }>()
 /** an admin changed folder rules, groups or roles in a way that changes what this person sees (tab 5 "권한 회수") */
 export const accessChanged = new Emitter<void>()
+/** some file share changed somewhere (file_shares_changed: content-free, to every member, at most one a second;
+ * docs/decisions/20261116-files-shared-with-me.md): Files › Shared with me reads again while it is on screen */
+export const fileSharesChanged = new Emitter<void>()
 /** a team skill changed, was suggested or reviewed: the team skills screens reload */
 export const skillsChanged = new Emitter<void>()
 /** Metadata-only inbox/preferences changed in this person's account. */
@@ -65,6 +73,8 @@ export const chatActivity = new Emitter<string>()
 
 let client: RealtimeClient | null = null
 let relay: BrowserRelay | null = null
+/** apps on this computer (lib/localRelay.ts) */
+let localRelay: LocalRelay | null = null
 /** this window's own activity for the team's online status (lib/presence.ts) */
 let activity: ReturnType<typeof startActivity> | null = null
 let firstServerVersion: string | null = null
@@ -81,6 +91,8 @@ export function serverHello(serverVersion: string) {
 /** replay: the server sent it again after a reconnect (lib/realtime.ts); it is applied, but nothing rings for it */
 export function dispatch(ev: ServerEvent, meta: { replay: boolean } = { replay: false }) {
   if (ev.type === 'message.step' || ev.type === 'message.done') chatActivity.emit(ev.data.chatId)
+  // a free-roam demo's meter and limit (store/demo.ts): read again after each answer, at once when one hit the limit
+  if (ev.type === 'message.done' && ev.data.message.role === 'assistant' && !meta.replay) demoAnswerEnded(ev.data.message.error)
   switch (ev.type) {
     case 'queue.position':
       useChats.getState().handleEvent(ev)
@@ -100,6 +112,10 @@ export function dispatch(ev: ServerEvent, meta: { replay: boolean } = { replay: 
     case 'turn.request.closed':
     case 'artifact.updated':
       useChats.getState().handleEvent(ev)
+      return
+    case 'chat.thread':
+      // a thread under an AI answer of a shared chat (store/chatThreads.ts): its replies and the line under the answer
+      useChatThreads.getState().handleEvent(ev.data)
       return
     case 'deck.progress':
       // an intro deck being built (docs/DECISIONS.md "D2", round 2): the chat's block and the panel (its end is told
@@ -156,9 +172,20 @@ export function dispatch(ev: ServerEvent, meta: { replay: boolean } = { replay: 
         notificationsChanged.emit()
         return
       }
+      if (ev.data.code === 'file_shares_changed') {
+        // quiet: an open Shared with me reads again (nothing is read while it is not on screen)
+        fileSharesChanged.emit()
+        return
+      }
       if (ev.data.code === 'integrations_changed') {
         // quiet: the inbox notice says what to do (connect it again); an open Connectors page drops the old row
         integrationsChanged.emit()
+        return
+      }
+      if (ev.data.code === 'skills_changed') {
+        // quiet: what waits for my review in Team skills changed by someone else's doing (another reviewer registered or
+        // turned down a suggestion, a share to my group was applied or dismissed): the count and the lists read again
+        skillsChanged.emit()
         return
       }
       if (ev.data.code === 'room_alerts_changed') {
@@ -206,6 +233,11 @@ export function dispatch(ev: ServerEvent, meta: { replay: boolean } = { replay: 
       }
       if (ev.data.code === 'project_people_changed') {
         for (const id of ev.data.message.split(',')) if (id) projectPeopleChanged.emit(id)
+        return
+      }
+      if (ev.data.code === 'guest_file_limit_changed') {
+        // an admin changed the largest file a guest may send in a chat: this guest's room box follows (Me.team.uploadMaxBytes)
+        void useSession.getState().refreshMe()
         return
       }
       if (ev.data.code === 'speech_changed') {
@@ -263,6 +295,12 @@ export function dispatch(ev: ServerEvent, meta: { replay: boolean } = { replay: 
     case 'browser.cancel':
       relay?.cancel(ev.data.callId)
       return
+    case 'local.call':
+      localRelay?.handleCall(ev.data.call)
+      return
+    case 'local.cancel':
+      localRelay?.cancel(ev.data.callId)
+      return
     case 'navFolders.changed':
       navFoldersChanged.emit(ev.data.kind)
       return
@@ -273,7 +311,17 @@ export function dispatch(ev: ServerEvent, meta: { replay: boolean } = { replay: 
         // elsewhere"); docs/DECISIONS.md "Guests: only what they were invited to"
         const st = useSession.getState().status
         const me = st.kind === 'signed-in' ? st.me : null
-        if (ev.data.reason === 'disabled' && isGuestMe(me)) useSession.getState().signedOut('removed', me!.team.name)
+        if (ev.data.reason === 'disabled' && isGuestMe(me)) {
+          // whether they left their place themselves or were taken out is the server's to say (the 401's params.guest):
+          // asked first, so the screen never says "no longer in" for a moment before "You left" (QA TC-3225)
+          const team = me!.team.name
+          // (the link closing right after may have signed out as "expired" meanwhile: this event knows better)
+          const still = () => { const st = useSession.getState().status; return st.kind === 'signed-in' || (st.kind === 'signed-out' && (st.reason === 'expired' || st.reason === 'ended')) }
+          api.call(API.me).then(
+            () => { if (still()) useSession.getState().signedOut('removed', team) },
+            (e) => { if (!still()) return; const g = guestRemoval(e); useSession.getState().signedOut(g?.how ?? 'removed', g?.team ?? team) },
+          )
+        }
         else useSession.getState().signedOut('ended')
       }
       return
@@ -313,13 +361,18 @@ export function startLive() {
     onHello: ({ serverVersion }) => {
       // the server takes a window that has just connected as in use: say how this one is
       activity?.connected()
+      // ...and knows nothing of what it shows (lib/lookingAt.ts): the current screen once more
+      lookingConnected()
       serverHello(serverVersion)
     },
   })
   relay = new BrowserRelay((f) => client?.send(f))
+  localRelay = new LocalRelay((f) => client?.send(f))
   activity = startActivity((state) => client?.send({ type: 'presence', state }), desktop()?.systemActivity?.onChange, !!desktop())
   // this window's "typing" in a room's box (lib/roomTyping.ts decides when; dropped while disconnected)
   setTypingOut((roomId, threadRootId, typing) => client?.send({ type: 'room.typing', roomId, threadRootId, typing }))
+  // what this window shows now, for the AI's looking_at tool (lib/lookingAt.ts decides when; never queued)
+  setLookingOut((f) => client?.send(f) ?? false)
   client.start()
   // neither the session markers nor the room sound ever stop the live updates
   try { startSessionMarkers() } catch { /* no markers' extras in this window */ }
@@ -339,9 +392,11 @@ export function stopLive() {
   client?.stop()
   client = null
   relay = null
+  localRelay = null
   usePresence.getState().clear()
   useTyping.getState().clear()
   setTypingOut(() => {})
+  setLookingOut(null)
   window.removeEventListener('online', nudge)
   document.removeEventListener('visibilitychange', onVisible)
 }
