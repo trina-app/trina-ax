@@ -31,6 +31,13 @@ describe('NarrationHold', () => {
     return out === '끝.'
   }
 
+  // demo re-test 11-22: a Korean banner answer began "Try with a full team path." (the AI's next try after a tool
+  // error; no tool's text says it)
+  test("the AI's next try after an error is a note: dropped before a call; said to people, kept", () => {
+    for (const line of ['Try with a full team path.', 'Try again with the project folder.', 'Retry using the full path.']) expect(dropped(line), line).toBe(true)
+    for (const line of ['Try our new yuzu ginger tea.', 'Try the menu at the café.']) expect(dropped(line), line).toBe(false)
+  })
+
   test('a Korean answer: the English line before a tool call is dropped, with its separator', () => {
     expect(run(ko(), [{ text: 'Only one thread exists; check it.' }, 'tool', { text: '\n\n' }, { text: '토요일 배송은 퀵으로만 가능해요.' }, 'end']))
       .toBe('토요일 배송은 퀵으로만 가능해요.')
@@ -294,6 +301,11 @@ describe('NarrationHold', () => {
     // text often written in English in a Korean chat, and a message that quotes English
     for (const m of ['슬로건 하나 만들어줘', '커밋 메시지 써줘', '저장 버튼 문구 정해줘', '이 문장 "Work smarter, together" 다듬어줘', '버튼 이름: Save all changes 로 바꿔'])
       expect(narrationScript('ko', m), m).toBeNull()
+    // ...unless the message gives the new words in Korean (demo re-test 11-22: "Try with a full team path." opened the
+    // answer to a banner request)
+    for (const m of ["배너 문구를 '작지 않아 큰 햇살이야!'로 바꿔줘", '헤드라인 문구 작지 않아 큰 햇살이야!로 바꿔 줘', '버튼 문구 "지금 사러 가기"로'])
+      expect(narrationScript('ko', m), m).toBe('ko')
+    expect(narrationScript('ja', 'ボタンの文言を「今すぐ購入」に')).toBe('ja')
     // short or mixed messages: the app language, unless the message before was in Latin words
     for (const m of ['ok', 'continue', '👍', '', 'Q3 revenue was up 12% and costs fell.\n이거 요약해줘'])
       expect(narrationScript('ko', m), m).toBe('ko')

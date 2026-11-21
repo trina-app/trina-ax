@@ -303,6 +303,8 @@ describe('Home\'s suggestions', () => {
       expect(m.get('free-roam-chips').querySelectorAll('button').length).toBe(3)
       expect(m.get('free-roam-chips').getAttribute('aria-label')).toBe('Things to try')
       expect(m.find('free-roam-chip-busy')).toBeNull()
+      // the phone keyboard up (lib/viewport.ts .keyboard-open): the chips go (review of #293; e2e demo-free-roam.spec.ts)
+      expect(m.get('free-roam-chips').getAttribute('class')).toContain('in-[.keyboard-open]:hidden')
     } finally { await m.unmount() }
     useDemo.setState({ out: true })
     const n = await mount(<MemoryRouter><FreeRoamChips info={INFO} /></MemoryRouter>)

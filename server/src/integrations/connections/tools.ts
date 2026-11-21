@@ -35,9 +35,10 @@ import { pinForm } from '../../chat/schedule-scope'
 import { approved, approvalsFor, dropApprovals, noteApproval } from '../../chat/card-approvals'
 import { HIDDEN } from './hide'
 import { MAIL_FIELD_WORDS, say } from './text'
-import { cardLines, fieldWord, methodWord, toolKindOf, toolTitle, type CardLine, type FieldWords } from './card-lines'
+import { cardLines, fieldWord, methodWord, toolKindOf, toolTitle, type CardLine, type FieldWords, type ToolKind } from './card-lines'
 import { activeDemoFakes } from '../../demo/fakes'
 import { HIGGSFIELD_HOSTS } from '../../demo/fakes/higgsfield'
+import { withDemoChat } from '../../demo/fakes/scope'
 import { readKind, readsHere } from './read-mark'
 import type { RemoteTool } from './mcp'
 import { byName, checkArgs, deferredLines, DEFERRED_LIST_BUDGET, FIND_TOOLS_DEFAULT, FIND_TOOLS_MAX, matchTools, oneLine, type FindEntry } from './deferred'
@@ -289,6 +290,9 @@ export function practiceRow(row: Pick<Row, 'google_app' | 'url'>): boolean {
   if (row.google_app) return true
   try { return HIGGSFIELD_HOSTS.has(new URL(row.url).hostname) } catch { return false }
 }
+/** A connection's ToolKind for the words of its tools on steps and cards (card-lines.ts toolTitle): the Google Workspace
+ * library, or the demo's Higgsfield (demo re-test 11-22: "Higgsfield · Generate image" in a Korean chat) */
+const kindOf = (row: Pick<Row, 'google_app' | 'url'>): ToolKind | undefined => toolKindOf(row) ?? (practiceRow(row) ? 'demo-higgsfield' : undefined)
 
 /** The argument of an app on the person's computer that its program reads as a script on stdin (a declared CLI tool:
  * ego lite's run_script), for the card's code block; none for any other connection or tool. */
@@ -694,7 +698,7 @@ async function unsureGate(ctx: AppContext, row: Row, t: RemoteTool, args: unknow
   const shown = argLines(args ?? {}, L)
   const marks = opaqueParts([text, ...shown.fields.map((f) => f.value)].join('\n'))
   const details = [{ label: say('sendsLabel', L), text: text.trim() ? text : say('nothing', L), ...(shown.fields.length ? { fields: shown.fields } : {}), ...(marks.length ? { marks } : {}), ...(shown.exact ? { exact: true as const } : {}) }]
-  const question = say('unsureConfirm', L, { name: row.name, what: toolTitle(t, L, toolKindOf(row)) })
+  const question = say('unsureConfirm', L, { name: row.name, what: toolTitle(t, L, kindOf(row)) })
   const no = (end: CardEnd) => new CallError(refusal({
     done: end === 'declined' ? `The user did not allow this, so ${t.name} of ${row.name} did not run.` : `${t.name} of ${row.name} did not run.`,
     why: cardReason(end), also: 'Do not try it another way',
@@ -941,7 +945,7 @@ function toolDescription(row: Row, tool: RemoteTool): string {
 /** A connection tool's step: the connection and the tool by its title ("Notion · Create page"; a Google library tool in
  * the turn's language, "Gmail · 메일 찾기"), never its id or the AI's arguments (docs/DECISIONS.md "Plain words in errors,
  * cards and steps"; the card before a write shows every value). */
-const stepOf = (row: Row, tool: Pick<RemoteTool, 'name' | 'title'>, L?: Locale) => `${row.name} · ${toolTitle(tool, L, toolKindOf(row))}`
+const stepOf = (row: Row, tool: Pick<RemoteTool, 'name' | 'title'>, L?: Locale) => `${row.name} · ${toolTitle(tool, L, kindOf(row))}`
 
 /** An app on the person's computer (local.ts): its calls go only to the desktop window this turn was sent from, and
  * only from the main AI (a sub-agent never drives the person's computer, like the in-app browser). */
@@ -1027,7 +1031,7 @@ function mcpTool(ctx: AppContext, b: BuildCtx, row: Row, tool: RemoteTool, name:
           // the files to attach come first on the card, by name, size and place; the rest shows the handles as sent
           const withFiles = (L: Locale, l: { fields: CardLine[]; exact: boolean }) => (files.length ? { ...l, fields: [...attachedLines(ctx, files, L, tc.userId), ...l.fields] } : l)
           sent = { text: JSON.stringify(args ?? {}, null, 2), fields: withFiles(tc.locale, { fields: recipientFields(args), exact: false }).fields, dest: pinTargets(args), raw: args, lines: (L) => withFiles(L, argLines(args ?? {}, L, scriptArg(current, t.name), fieldWordsOf(current!))), tool: t.name, ...(files.length ? { attach: files.map((f) => f.rel) } : {}) }
-          const answer = await gate(ctx, current, (L) => toolTitle(t, L, toolKindOf(current!)), sent, b, tc)
+          const answer = await gate(ctx, current, (L) => toolTitle(t, L, kindOf(current!)), sent, b, tc)
           confirmed = answer !== false
           // a write that names a draft the person saw on a card: that draft may have changed (chat/card-approvals.ts)
           dropMade(ctx, current, args)
@@ -1052,7 +1056,9 @@ function mcpTool(ctx: AppContext, b: BuildCtx, row: Row, tool: RemoteTool, name:
           recheckTeamFiles(ctx, tc, files)
           sending = withTeamFiles(args, files)
         }
-        const r = await svc.callTool(current, t.name, sending, tc.signal, current.local_app ? localVia(ctx, tc, current) : null).catch((e) => {
+        // withDemoChat: a demo fake knows the chat it answers for (demo/fakes/scope.ts)
+        const calling = current
+        const r = await withDemoChat(chat, () => svc.callTool(calling, t.name, sending, tc.signal, calling.local_app ? localVia(ctx, tc, calling) : null)).catch((e) => {
           // an attachment whose answer was cut off at the size limit: said plainly (the connection is fine)
           if (current!.google_app && t.name === ATTACHMENT_TOOL && e instanceof CallError && e.kind === 'too_large') throw new CallError(tooLargeMessage(fileName), 'attachment too large')
           throw e

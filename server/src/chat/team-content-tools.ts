@@ -32,6 +32,8 @@ export function teamContentTools(): ReadonlySet<string> {
   PROMO_TOOL,
   // the promo video saved as a file (promo-video/save.ts): the same render, placed in the team folder
   'save_promo_video',
+  // the demo's banner words (tools/demo-banner.ts): the AI's own words over a prepared photo, saved as a team file
+  'change_banner_text',
   // the intro deck (intro-deck/tool.ts): the same, team files in, the chat's artifact out
   DECK_TOOL,
   // a sub-task: its own steps are checked one by one

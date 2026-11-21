@@ -7,7 +7,23 @@ import { describe, expect, test } from 'bun:test'
 import { Locale } from '@mycel/shared/api'
 import { catalog } from '../../server/src/integrations/google-apps/catalog'
 import { cardLines, fieldWord, toolKindOf, toolTitle } from '../../server/src/integrations/connections/card-lines'
-import { GOOGLE_TOOL_WORDS, MAIL_FIELD_WORDS } from '../../server/src/integrations/connections/text'
+import { DEMO_HIGGSFIELD_TOOL_WORDS, GOOGLE_TOOL_WORDS, MAIL_FIELD_WORDS } from '../../server/src/integrations/connections/text'
+import { HIGGSFIELD_TOOLS } from '../../server/src/demo/fakes/higgsfield'
+
+// demo re-test 11-22: the demo's Higgsfield step stayed "Higgsfield · Generate image" in a Korean chat
+describe("the demo Higgsfield's tool titles", () => {
+  test('every fake tool in all six languages; a real Higgsfield connection keeps its own title', () => {
+    expect(toolTitle({ name: 'generate_image', title: 'Generate image' }, 'ko', 'demo-higgsfield')).toBe('이미지 만들기')
+    expect(toolTitle({ name: 'generate_image', title: 'Generate image' }, 'en', 'demo-higgsfield')).toBe('Generate image')
+    expect(toolTitle({ name: 'generate_image', title: 'Generate image' }, 'ko')).toBe('Generate image')
+    // a tool the fake does not list keeps the service's title
+    expect(toolTitle({ name: 'upscale_image', title: 'Upscale image' }, 'ko', 'demo-higgsfield')).toBe('Upscale image')
+    for (const tool of HIGGSFIELD_TOOLS) {
+      for (const L of Locale.options) expect({ tool: tool.name, L, ok: !!DEMO_HIGGSFIELD_TOOL_WORDS[tool.name]?.[L]?.trim() }).toEqual({ tool: tool.name, L, ok: true })
+      expect(DEMO_HIGGSFIELD_TOOL_WORDS[tool.name]!.en).toBe(tool.title)
+    }
+  })
+})
 
 describe('tool titles', () => {
   test('a Gmail tool on the library connection in the person\'s language', () => {
