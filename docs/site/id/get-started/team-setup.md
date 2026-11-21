@@ -30,9 +30,10 @@ Gmail. Setiap baris menawarkan salah satu atau kedua cara berikut:
 
 - **Hubungkan untuk tim** (tombol di kanan). Anda masuk sekali dengan satu akun, dan seluruh tim memakai satu koneksi
   itu, seperti kotak surat bersama yang bisa dibuka semua orang di satu tim. Notion membuka halaman masuk Notion sendiri
-  di jendela baru. Slack membuka halamannya di Admin › Aplikasi terhubung ([Slack](../use/slack.md)). Google Drive dan
-  Gmail membuka dialog yang dipakai Admin › Aplikasi terhubung: **Lanjutkan di Google**, masuk dengan akun Google
-  bersama (misalnya `sales@acme.com`), lalu pilih siapa yang boleh memakainya.
+  di jendela baru. Slack membuka halamannya di Admin › Aplikasi terhubung ([Slack](../use/slack.md)). Gmail membuka
+  dialog yang dipakai Admin › Aplikasi terhubung: **Lanjutkan di Google**, masuk dengan akun Google bersama (misalnya
+  `sales@acme.com`), lalu pilih siapa yang boleh memakainya. Google Drive membuka dialog lain, **Bagikan Google Drive
+  dengan tim**: cara masuknya sama, dan Anda juga memilih folder mana dari akun itu yang boleh dipakai tim.
 - **Minta tiap orang menghubungkan sendiri** (sakelar di bawah keterangan baris Notion dan baris Google). Tidak ada yang
   dihubungkan sekarang. Alat itu tampil paling atas di **Pengaturan › Konektor** semua orang, dengan tanda **Tim meminta
   Anda menghubungkan**, dan setiap orang masuk dengan akunnya sendiri, seperti setiap orang menambahkan Gmail-nya sendiri

@@ -59,7 +59,7 @@ An **engine** is the AI program that answers (you pick it once; most teams keep 
 | API | Experimental. Uses a configured API address, model and key. |
 
 An **AI connection** is the account an engine uses: a Claude subscription, an API key or a ChatGPT sign-in. Like the
-SIM card in a phone, the engine needs one to work, and the company behind it (Anthropic or OpenAI) bills that account. Connections can be personal, or shared by a group or the whole team.
+SIM card in a phone, the engine needs one to work, and the company behind the key or account bills it. Connections can be personal, or shared by a group or the whole team.
 
 ## MCP and other connections
 

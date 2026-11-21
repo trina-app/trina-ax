@@ -59,7 +59,7 @@ Skill memberi tahu AI cara tim Anda mengerjakan suatu tugas. Skill tidak pernah 
 | API | Eksperimental. Memakai alamat API, model, dan kunci yang sudah diatur. |
 
 **Koneksi AI** adalah akun yang dipakai mesin: langganan Claude, kunci API, atau login ChatGPT. Seperti
-kartu SIM di ponsel, mesin butuh satu koneksi agar bisa bekerja, dan perusahaan di baliknya (Anthropic atau OpenAI) menagih akun itu. Koneksi bisa bersifat pribadi, atau dipakai bersama oleh satu grup atau seluruh tim.
+kartu SIM di ponsel, mesin butuh satu koneksi agar bisa bekerja, dan perusahaan di balik kunci atau akun itu yang menagihnya. Koneksi bisa bersifat pribadi, atau dipakai bersama oleh satu grup atau seluruh tim.
 
 ## MCP dan koneksi lain
 

@@ -11,8 +11,7 @@ and logo ("Acme admin"), and every page says "Applies to everyone in Acme" above
 To open Admin on a computer:
 
 1. Choose your team's logo, at the top of the bar on the left. The team menu opens: the team's address, **Invite
-   people** and **Admin**. (For members the menu has
-   neither.)
+   people**, **Admin** and **Switch team**. (Members see only the address and **Switch team**.)
 2. Choose **Admin**. It opens on **Home**, which lists what needs attention first.
 
 ⌘K (Ctrl+K on Windows) and "Admin" finds it too. On a phone, open the **Me** tab, then **Admin**.

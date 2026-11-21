@@ -10,8 +10,8 @@ koneksi tim, koneksi Anda sendiri ada di **Pengaturan › Konektor**.
 
 Untuk membuka Admin di komputer:
 
-1. Pilih logo tim Anda, di bagian atas bilah kiri. Menu tim terbuka: alamat tim, **Undang orang**, dan **Admin**.
-   (Bagi anggota, menu ini tidak berisi keduanya.)
+1. Pilih logo tim Anda, di bagian atas bilah kiri. Menu tim terbuka: alamat tim, **Undang orang**, **Admin**, dan
+   **Ganti tim**. (Anggota hanya melihat alamat dan **Ganti tim**.)
 2. Pilih **Admin**. Admin terbuka di **Beranda**, yang mencantumkan apa yang perlu diperhatikan lebih dulu.
 
 ⌘K (Ctrl+K di Windows) dengan "Admin" juga menemukannya. Di ponsel, buka tab **Saya**, lalu **Admin**.

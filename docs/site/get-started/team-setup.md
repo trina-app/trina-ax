@@ -30,9 +30,10 @@ Each row offers one or both of two ways:
 
 - **Connect for the team** (the button on the right). You sign in once with one account, and the whole team uses
   that one connection, like a shared mailbox everyone in a team can open. Notion opens Notion's own sign-in page in a
-  new window. Slack opens its page in Admin › Connected apps ([Slack](../use/slack.md)). Google Drive and Gmail open
-  the dialog Admin › Connected apps uses: **Continue with Google**, sign in with the shared Google account (such as
-  `sales@acme.com`), then pick who may use it.
+  new window. Slack opens its page in Admin › Connected apps ([Slack](../use/slack.md)). Gmail opens the dialog
+  Admin › Connected apps uses: **Continue with Google**, sign in with the shared Google account (such as
+  `sales@acme.com`), then pick who may use it. Google Drive opens a different one, **Share a Google Drive with the
+  team**: the same sign-in, and you also choose which of that account's folders the team may use.
 - **Ask everyone to connect their own** (the switch under Notion's and the Google rows' line). Nothing is connected
   now. The tool comes first in everyone's **Settings › Connectors**, marked **Team asks you to connect**, and each
   person signs in with their own account, the way each person adds their own Gmail on their own phone. It blocks

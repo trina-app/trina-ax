@@ -31,9 +31,10 @@ y Gmail. Cada fila ofrece una de dos formas, o las dos:
 - **Conectar para el equipo** (el botón de la derecha). Usted inicia sesión una vez con una cuenta y todo el equipo usa
   esa única conexión, como un buzón compartido que todos los de un equipo pueden abrir. Notion abre su propia página de
   inicio de sesión en una ventana nueva. Slack abre su página en Administración › Apps conectadas
-  ([Slack](../use/slack.md)). Google Drive y Gmail abren el diálogo que usa Administración › Apps conectadas:
+  ([Slack](../use/slack.md)). Gmail abre el diálogo que usa Administración › Apps conectadas:
   **Continuar con Google**, inicie sesión con la cuenta de Google compartida (como `sales@acme.com`) y luego elija
-  quién puede usarla.
+  quién puede usarla. Google Drive abre otro distinto, **Compartir un Google Drive con el equipo**: el mismo inicio de
+  sesión, y además elige qué carpetas de esa cuenta puede usar el equipo.
 - **Pedir que cada uno conecte la suya** (el interruptor bajo la línea de Notion y de las filas de Google). Ahora no se
   conecta nada. La herramienta aparece primero en **Configuración › Conectores** de todos, marcada **El equipo pide
   conectarla**, y cada persona inicia sesión con su propia cuenta, igual que cada uno añade su propio Gmail en su

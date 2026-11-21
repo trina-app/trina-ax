@@ -59,7 +59,7 @@ Un **motor** es el programa de IA que responde (se elige una vez; la mayoría de
 | API | Experimental. Usa una dirección de API, un modelo y una clave configurados. |
 
 Una **conexión de IA** es la cuenta que usa un motor: una suscripción de Claude, una clave de API o un inicio de sesión de ChatGPT. Como la
-tarjeta SIM de un teléfono, el motor necesita una para funcionar, y la empresa que está detrás (Anthropic u OpenAI) factura esa cuenta. Las conexiones pueden ser personales o compartidas por un grupo o por todo el equipo.
+tarjeta SIM de un teléfono, el motor necesita una para funcionar, y la empresa que está detrás de la clave o la cuenta la factura. Las conexiones pueden ser personales o compartidas por un grupo o por todo el equipo.
 
 ## MCP y otras conexiones
 

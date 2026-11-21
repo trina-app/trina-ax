@@ -12,8 +12,8 @@ página: Administración › Apps conectadas son las conexiones del equipo; las 
 Para abrir Administración en un ordenador:
 
 1. Elija el logotipo de su equipo, en la parte superior de la barra de la izquierda. Se abre el menú del equipo: la
-   dirección del equipo, **Invitar a personas** y **Administración**. (Para los miembros, el menú no muestra
-   ninguna de las dos opciones.)
+   dirección del equipo, **Invitar a personas**, **Administración** y **Cambiar de equipo**. (Los miembros ven solo la
+   dirección y **Cambiar de equipo**.)
 2. Elija **Administración**. Se abre en **Inicio**, que enumera primero lo que requiere atención.
 
 ⌘K (Ctrl+K en Windows) y "Administración" también la encuentran. En un teléfono, abra la pestaña **Yo** y luego
