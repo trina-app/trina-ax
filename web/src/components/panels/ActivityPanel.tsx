@@ -36,9 +36,9 @@ const AUTO_PAGES = 9
 const PAGE = 30
 
 /** A notice opens as itself in the main area (not at its link) when it has no page of its own or carries what only its
- * own view shows: a handover's buttons, a job's log, an ask to add an app with its button, a paused room app's Resume now. */
+ * own view shows: a handover's buttons, an ask to add an app with its button, a paused room app's Resume now. */
 export function opensAsItself(item: InboxNotification): boolean {
-  return !noticeLink(item) || !!item.handover || !!item.devEnv?.job?.tail || (item.code === 'service.request' && !!item.serviceRequest?.open)
+  return !noticeLink(item) || !!item.handover || (item.code === 'service.request' && !!item.serviceRequest?.open)
     // an app paused in a room that can still be resumed: its Resume now (components/rooms/apps/PausedNotice.tsx)
     || (item.code === 'room_app.paused' && !!item.roomApp?.canResume && !!item.roomApp.pausedUntil)
 }

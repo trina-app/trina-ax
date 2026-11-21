@@ -269,7 +269,8 @@ function ChatView({ chatId, threadRoot }: { chatId: string; threadRoot: string |
   const messages = thread.messages
   const running = runningMessage(messages)
 
-  // ?answer=: scroll to it and light it for a moment, once it is read; gone (or hidden from me): say so
+  // ?answer=: scroll to it and mark it (`data-focused`, no look: only the place) for a moment, once it is read; gone (or
+  // hidden from me): say so
   const focused = useRef(false)
   useEffect(() => {
     if (!focusAnswer || focused.current || loading || loadError) return
@@ -536,7 +537,8 @@ function ChatView({ chatId, threadRoot }: { chatId: string; threadRoot: string |
     navigate(`/c/${chatId}/t/${id}`, { replace: !!threadRoot, state: { fromChat: threadRoot ? fromChat : true, focus, here: true } })
   }
   // a thread opened from outside this chat (an Activity row, a push tap, a link): the chat goes to the answer it is under
-  // and lights it for a moment, reading older pages to find it (lib/linkedAnswer.ts); one opened here leaves it as it was
+  // and marks it (`data-focused`, no look) for a moment, reading older pages to find it (lib/linkedAnswer.ts); one opened
+  // here leaves it as it was
   const lightAnswer = (id: string) => {
     const el = scroller.current?.querySelector<HTMLElement>(`[data-message-id="${CSS.escape(id)}"]`)
     if (!el) return
