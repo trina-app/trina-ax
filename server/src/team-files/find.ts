@@ -2,7 +2,7 @@
 // decided by the same functions as the file screen's tree and the AI's glob tool: allowedRoots() picks the folders
 // ripgrep may enter (hidden sub-folders are excluded before anything is opened) and visiblePath() checks every hit
 // again (name rules, server folders, read access, regular single-link file). Nothing else is ever listed. A name matches
-// when it holds every word of the text, in any order and any case (shared/src/search-text.ts searchWords, as ⌘K's room
+// when it holds every word of the text (any of its forms: searchForms), in any order and any case (shared/src/search-text.ts searchWords, as ⌘K's room
 // files and messages: "budget q4" finds "Q4 Budget.xlsx"). ⌘K also asks for folders (`folders`): the folders the file
 // screen would show the caller (siblingVisible), found by a walk of folders only (QA TC-230: "주간" found no folder).
 // When no file or folder name holds every word, the names with every word as typed or with a typing mistake
@@ -12,7 +12,7 @@
 // (docs/decisions/20261121-search-near-every-word.md).
 import fs from 'node:fs'
 import path from 'node:path'
-import { nearMatcher, nearPossible, searchWords } from '@mycel/shared'
+import { nearMatcher, nearPossible, searchForms, searchWords } from '@mycel/shared'
 import type { FileEntry, FileList } from '@mycel/shared/api'
 import { allowedRoots, excludeArgs, runRg } from '../files/search'
 import { authorize, siblingVisible, visiblePath } from '../policy/authorize'
@@ -44,8 +44,9 @@ export async function findFiles(files: TeamFiles, userId: string, q: string, bas
   if (!b.st!.isDirectory()) throw new ToolError(`'${b.rel}' is a file`, 'not_folder')
   const { roots, excludes } = allowedRoots(files.fx, rules, user, b.segs)
   if (!roots.length) return { items: [], truncated: false }
-  const words = searchWords(q).map(fold)
-  const terms = words.map((w) => ({ forms: [w] }))
+  // each word any of its forms (searchForms: "보고서를" finds "보고서.pdf", "reports" "report.pdf")
+  const words = searchWords(q).map((w) => searchForms(w).map(fold))
+  const terms = words.map((fs) => ({ forms: fs }))
   const nearOk = nearPossible(terms)
   let names: string[] = []
   // the names that do not hold every word, for a near match when none does
@@ -55,7 +56,7 @@ export async function findFiles(files: TeamFiles, userId: string, q: string, bas
     const rel = rec.replace(/^\.\//, '')
     const name = rel.slice(rel.lastIndexOf('/') + 1)
     const folded = fold(name)
-    if (!words.every((w) => folded.includes(w))) {
+    if (!words.every((fs) => fs.some((w) => folded.includes(w)))) {
       if (nearOk && !names.length && rest.length < NEAR_NAMES) rest.push(rel)
       return
     }
@@ -103,7 +104,7 @@ type FolderHits = { rel: string; st: fs.Stats }[] & { scanCut?: boolean; near?: 
 
 /** Folders under `base` whose name holds every word (and, with `score`, those whose name matches near), among those the file screen shows the caller (siblingVisible:
  * name rules, server folders, may list it). Only listable folders are entered; links are not followed. */
-async function findFolders(files: TeamFiles, user: ReturnType<TeamFiles['principal']>, rules: ReturnType<TeamFiles['rules']>, base: string[], words: string[], score: ((name: string) => number | null) | null): Promise<FolderHits> {
+async function findFolders(files: TeamFiles, user: ReturnType<TeamFiles['principal']>, rules: ReturnType<TeamFiles['rules']>, base: string[], words: string[][], score: ((name: string) => number | null) | null): Promise<FolderHits> {
   const out: FolderHits = []
   // with `score`: also the folders whose name matches near (out.near: the caller takes them when no name holds every word)
   const near: FolderHits = []
@@ -119,7 +120,7 @@ async function findFolders(files: TeamFiles, user: ReturnType<TeamFiles['princip
       const segs = [...dir, e.name]
       queue.push(segs)
       const folded = fold(e.name)
-      if (!words.every((w) => folded.includes(w))) {
+      if (!words.every((fs) => fs.some((w) => folded.includes(w)))) {
         if (score && !out.length && near.length < FOLDER_HIT_CAP && score(e.name) !== null) try { near.push({ rel: segs.join('/'), st: fs.lstatSync(path.join(files.root, ...segs)) }) } catch {}
         continue
       }

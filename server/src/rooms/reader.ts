@@ -22,9 +22,10 @@ import { dmPairOk } from './guest-reach'
 import type { Database } from 'bun:sqlite'
 import { NOT_HELD_SQL } from './project-room'
 import { reachFilter } from '../auth/guests'
-import { isStatusEmoji } from '@mycel/shared'
+import { findForm, isStatusEmoji, searchForms } from '@mycel/shared'
 import { isUuid7, ROOM_MENTIONS_MAX, ROOM_REF_RE, type Room, type RoomKind, type RoomMessage } from '@mycel/shared/api'
 import { neutralizeTags } from '../chat/prompt'
+import { formsWhere } from '../search-forms'
 import { unescapeMarkdown } from './apps/card'
 import { zonedParts, zonedToUtc } from '../system/time-zone'
 import { liveStatuses, statusForAi } from '../auth/status-messages'
@@ -91,19 +92,22 @@ const strip = (s: string) => {
  * of that type by their name's ending (or, for pictures, their kind); `any`: any file at all. Matching data, not screen
  * text. */
 const FILE_TYPE_WORDS: { re: RegExp; ext?: string[]; image?: true; any?: true }[] = [{ re: /^(엑셀|excel|xlsx?|csv|스프레드시트|spreadsheet|시트|sheet)$/i, ext: ['xlsx', 'xls', 'xlsm', 'csv', 'ods'] }, { re: /^(pdf|피디에프)$/i, ext: ['pdf'] }, { re: /^(워드|docx?)$/i, ext: ['docx', 'doc', 'odt'] }, { re: /^(한글|hwpx?)$/i, ext: ['hwp', 'hwpx'] }, { re: /^(ppt|pptx|파워포인트|powerpoint|슬라이드|slides?|deck)$/i, ext: ['pptx', 'ppt', 'odp'] }, { re: /^(사진|이미지|그림|스크린샷|캡처|image|images|photo|photos|picture|screenshot|png|jpe?g|heic)$/i, image: true, ext: ['png', 'jpg', 'jpeg', 'heic', 'heif', 'gif', 'webp', 'bmp', 'tif', 'tiff'] }, { re: /^(파일|첨부|첨부파일|file|files|attachment|attachments)$/i, any: true }]
-const likeOf = (w: string) => `%${w.replace(/[\\%_]/g, (c) => `\\${c}`)}%`
 /** One search word as SQL on room_messages `m`: in the message's text or in the name of a file sent with it (or, for a
- * file type word with `types`, a file of that type). */
+ * file type word with `types`, a file of that type). With `types` (the AI's search, not the grep hint's count) the word
+ * is any of its forms (shared searchForms: without a Korean particle or an English ending, a Korean verb's other forms:
+ * "보낸" finds "보냈어요"), as ⌘K finds it. */
 function wordWhere(w: string, types = true): { sql: string; args: string[] } {
   const t = types ? FILE_TYPE_WORDS.find((x) => x.re.test(w)) : undefined
-  const fileCond = ["f.name LIKE ? ESCAPE '\\'"]
-  const args = [likeOf(w), likeOf(w)]
+  const forms = types ? searchForms(w) : [w]
+  const body = formsWhere('m.body', forms), name = formsWhere('f.name', forms)
+  const fileCond = [name.sql]
+  const args = [...body.args, ...name.args]
   if (t?.any) fileCond.push('1')
   if (t?.image) fileCond.push("f.kind = 'image'")
   for (const e of t?.ext ?? []) { fileCond.push("f.name LIKE ? ESCAPE '\\'"); args.push(`%.${e}`) }
   // (a project room's file kept in the team folder is not found by the name it was sent with: it may have been
   // renamed, or be one the person cannot open now)
-  return { sql: `(m.body LIKE ? ESCAPE '\\' OR EXISTS (SELECT 1 FROM room_files f WHERE f.message_id = m.id AND f.room_id = m.room_id AND NOT EXISTS (SELECT 1 FROM room_file_refs rr WHERE rr.room_file_id = f.id) AND (${fileCond.join(' OR ')})))`, args }
+  return { sql: `(${body.sql} OR EXISTS (SELECT 1 FROM room_files f WHERE f.message_id = m.id AND f.room_id = m.room_id AND NOT EXISTS (SELECT 1 FROM room_file_refs rr WHERE rr.room_file_id = f.id) AND (${fileCond.join(' OR ')})))`, args }
 }
 /** A message that came with at least one file */
 const HAS_FILE_SQL = 'EXISTS (SELECT 1 FROM room_files f WHERE f.message_id = m.id AND f.room_id = m.room_id)'
@@ -573,7 +577,8 @@ function excerpt(body: string, words: string[]): string {
   const max = 400
   if (body.length <= max) return body
   const lower = body.toLocaleLowerCase()
-  const at = words.length ? Math.max(0, lower.indexOf(words[0]!.toLocaleLowerCase())) : 0
+  // where the first word is, in any of its forms (searchForms)
+  const at = words.length ? Math.max(0, findForm(lower, searchForms(words[0]!.toLocaleLowerCase()))?.at ?? lower.indexOf(words[0]!.toLocaleLowerCase())) : 0
   const start = Math.max(0, at - 150)
   return `${start > 0 ? '…' : ''}${body.slice(start, start + max)}${start + max < body.length ? '…' : ''}`
 }

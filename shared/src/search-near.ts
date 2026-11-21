@@ -166,8 +166,8 @@ export function nearMatcher(terms: readonly NearTerm[]): (text: string) => numbe
 
 /** The words of a search read by parseSearch (shared/src/search-text.ts) as nearMatcher's terms: each word as typed and
  * by its part (searchStem), a quoted phrase only as typed */
-export const nearTermsOf = (parts: { words: readonly string[]; terms: readonly string[]; phrases: readonly boolean[] }): NearTerm[] =>
-  parts.words.map((w, i) => ({ forms: [w, parts.terms[i] ?? w], exact: !!parts.phrases[i] }))
+export const nearTermsOf = (parts: { words: readonly string[]; terms: readonly string[]; phrases: readonly boolean[]; forms?: readonly (readonly string[])[] }): NearTerm[] =>
+  parts.words.map((w, i) => ({ forms: [...new Set([w, parts.terms[i] ?? w, ...(parts.phrases[i] ? [] : parts.forms?.[i] ?? [])])], exact: !!parts.phrases[i] }))
 
 /** May a near pass find more than the search as typed did (a word that may have a typing mistake)? */
 export const nearPossible = (terms: readonly NearTerm[]): boolean => terms.some((t) => !t.exact && t.forms.some((f) => nearWordBudget(f) > 0))

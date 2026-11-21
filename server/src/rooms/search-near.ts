@@ -23,7 +23,7 @@ const ftsPhrase = (w: string) => `"${w.replace(/"/g, '""')}"`
 const likeOf = (w: string) => `%${w.replace(/[\\%_]/g, (c) => `\\${c}`)}%`
 const HANGUL_ONLY = /^[\uac00-\ud7a3]+$/u
 /** what a near match reads of a search's text (parseSearch) */
-type Words = Pick<SearchParts, 'words' | 'terms' | 'phrases'>
+type Words = Pick<SearchParts, 'words' | 'terms' | 'phrases'> & Partial<Pick<SearchParts, 'forms'>>
 
 /** May a near pass find anything the search as typed did not (a word that may have a typing mistake)? */
 export const nearSearchable = (parts: Words): boolean => nearPossible(nearTermsOf(parts))
