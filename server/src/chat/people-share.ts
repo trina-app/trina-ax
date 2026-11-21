@@ -19,9 +19,15 @@
 // the rollback guard passes them: chat/people-guard.ts), every earlier answer recorded with the people who see it now
 // (chat/shared-answers.ts), and the creator's computer uploads in it copied to the chat's own files (chat/chat-files.ts
 // copyEarlier), which everyone in it sees; later computer uploads go there directly (Chat.shared.canUpload).
+//
+// "Share the files from this chat too?" (docs/decisions/20261121-share-chat-files.md): the files the chat made in its
+// creator's own folder (chat/chat-files-share.ts madeFilesOf) are listed to the creator in the check (madeFiles) and,
+// for a chat already shared, in the audience view. The key binds each (path, sha256). A save with `withFiles` reads
+// them again at the press, hashes the bytes it read, and copies them into the chat attached to the answers that made
+// them; anything changed answers "confirm" again and copies nothing.
 import fs from 'node:fs'
 import path from 'node:path'
-import type { ChatAudience, ChatAudiencePreview, Locale, PutChatAudienceResult, ShareCheck } from '@mycel/shared/api'
+import type { ChatAudience, ChatAudiencePreview, ChatMadeFile, Locale, PutChatAudienceResult, ShareCheck } from '@mycel/shared/api'
 import { CHAT_AUDIENCE_MAX } from '@mycel/shared/api'
 import type { AppContext } from '../context'
 import { fail } from '../http/errors'
@@ -50,9 +56,17 @@ import { notificationsOf } from '../notifications/service'
 import { chatFilesOf } from './chat-files'
 import { pollSrt } from '../devenv/jobs'
 import { devEnvFlag } from '../devenv/setting'
+import { personLocale } from '../files/media-text'
+import { closeFileAsks, copyMade, madeFilesOf, madeState, readVerified, type MadeFile } from './chat-files-share'
 
 const isAdmin = (role: string | undefined) => role === 'owner' || role === 'admin'
 const subjectKey = (s: AudienceSubject) => `${s.type}:${s.id}`
+/** The Share step's list, in the creator's words (the folder as the Files screen names it). */
+const madeOut = (ctx: AppContext, files: readonly MadeFile[], L: Locale, me: string): ChatMadeFile[] =>
+  files.map((f) => ({ name: f.name, place: placeWords(ctx.db, f.path.slice(0, f.path.lastIndexOf('/')), L, me), size: f.size }))
+/** The key of a save with `withFiles` that brings nobody new in (a chat already shared): over the files and their bytes. */
+const filesKeyOf = (ctx: AppContext, userId: string, chatId: string, files: readonly MadeFile[]) =>
+  confirmMac(ctx, { kind: 'chat.files', v: 1, userId, chatId, made: madeState(files) })
 
 /** The entries someone adds to a chat's audience, checked (the save and the widening list: the same rule): an active
  * person; a group that exists and, for a member, one of their own (admins any). Else 400 unknown_subject. */
@@ -121,7 +135,10 @@ export function chatAudienceView(ctx: AppContext, rt: ChatRuntime, userId: strin
     }
   }
   const groups = subjects.some((s) => s.type === 'group')
-  return { kind: 'people', canEdit: a.creator, by, subjects: rows, ...(!groups || full ? { count: peopleAudience(db, r).length } : {}) }
+  // the creator: the files this chat made in my own folder that are not in the chat yet (the already-shared step)
+  const made = a.creator ? madeFilesOf(ctx, r) : []
+  const files = made.length ? { madeFiles: madeOut(ctx, made, personLocale(db, userId), userId), madeFilesKey: filesKeyOf(ctx, userId, r.id, made) } : {}
+  return { kind: 'people', canEdit: a.creator, by, subjects: rows, ...(!groups || full ? { count: peopleAudience(db, r).length } : {}), ...files }
 }
 
 /**
@@ -170,11 +187,12 @@ function gainedBy(ctx: AppContext, chat: ChatRow, add: readonly { subjectType: '
 /** The checks of the last minute (the preview, the widening list): the same list against the same chat, rules and
  * people answers from here, so 60 previews a minute never hash big files 60 times. A save never reads it. */
 const CHECK_CACHE_MS = 60_000
-const checksOf = new WeakMap<AppContext, Map<string, { at: number; value: Promise<{ f: AudienceFindings; earlierFiles: number }> }>>()
+type Findings = { f: AudienceFindings; earlierFiles: number; made: MadeFile[] }
+const checksOf = new WeakMap<AppContext, Map<string, { at: number; value: Promise<Findings> }>>()
 
 /** What the people `newPeople` (ids) would see that they could not before, with the answers whose records they miss
  * (chat/widening.ts), as `viewer` (its creator) may be told it, and the earlier uploads a first share shows them. */
-async function findingsFor(ctx: AppContext, viewer: Principal, chat: ChatRow, newPeople: readonly string[], o: { cache?: string } = {}): Promise<{ f: AudienceFindings; earlierFiles: number }> {
+async function findingsFor(ctx: AppContext, viewer: Principal, chat: ChatRow, newPeople: readonly string[], o: { cache?: string } = {}): Promise<Findings> {
   const compute = async () => {
     const db = ctx.db
     const gained = newPeople.map((id) => loadPrincipal(db, id)).filter((x): x is Principal => !!x)
@@ -184,7 +202,9 @@ async function findingsFor(ctx: AppContext, viewer: Principal, chat: ChatRow, ne
     const f = await checkAudience(ctx, viewer.id, chat.id, newPeople, { sharedAt: chat.people_shared_at ?? chat.shared_at ?? null, recorded })
     // a first share also shows them the creator's earlier computer uploads (copied: chat/chat-files.ts)
     const earlierFiles = isPeopleRow(chat) ? 0 : await chatFilesOf(ctx).earlierUploads(chat.id)
-    return { f, earlierFiles }
+    // the files the chat made in my own folder (the Share step), for its creator only
+    const made = viewer.id === chat.user_id ? madeFilesOf(ctx, chat) : []
+    return { f, earlierFiles, made }
   }
   if (!o.cache) return compute()
   const now = Date.now()
@@ -235,14 +255,20 @@ export async function chatWidening(ctx: AppContext, viewer: Principal, chat: Cha
 }
 
 /** The dialog's counts of a check. */
-const checkOf = (added: number, f: AudienceFindings, earlierFiles: number): ShareCheck => ({
-  added, memoryAnswers: f.memoryAnswers.length, fileAnswers: f.fileAnswers.length, accountAnswers: f.accountAnswers.length,
-  places: f.places, otherPlaces: f.otherPlaces, roomsUnseen: f.roomsUnseen, unchecked: f.unchecked.length, ...(earlierFiles ? { earlierFiles } : {}),
+const checkOf = (ctx: AppContext, added: number, x: Findings, L: Locale, me: string): ShareCheck => ({
+  added, memoryAnswers: x.f.memoryAnswers.length, fileAnswers: x.f.fileAnswers.length, accountAnswers: x.f.accountAnswers.length,
+  places: x.f.places, otherPlaces: x.f.otherPlaces, roomsUnseen: x.f.roomsUnseen, unchecked: x.f.unchecked.length, ...(x.earlierFiles ? { earlierFiles: x.earlierFiles } : {}),
+  ...(x.made.length ? { madeFiles: madeOut(ctx, x.made, L, me) } : {}),
+})
+/** A check with nothing in it but the files (a chat already shared: the step on its own). */
+const filesCheck = (ctx: AppContext, made: readonly MadeFile[], L: Locale, me: string): ShareCheck => ({
+  added: 0, memoryAnswers: 0, fileAnswers: 0, accountAnswers: 0, places: [], otherPlaces: false, roomsUnseen: false, unchecked: 0,
+  ...(made.length ? { madeFiles: madeOut(ctx, made, L, me) } : {}),
 })
 /** The key a save of `wanted` must carry: over the list, the people it brings, every answer id each warning is about
  * (not counts), the places, the earlier uploads and every message of every branch. */
-const keyOf = (ctx: AppContext, userId: string, chatId: string, wanted: readonly AudienceSubject[], f: AudienceFindings, earlierFiles: number, messages: readonly string[]) =>
-  confirmMac(ctx, { kind: 'chat.audience', v: 2, userId, chatId, subjects: wanted.map(subjectKey).sort(), ...findingsState(f), earlierFiles, messages })
+const keyOf = (ctx: AppContext, userId: string, chatId: string, wanted: readonly AudienceSubject[], x: Findings, messages: readonly string[]) =>
+  confirmMac(ctx, { kind: 'chat.audience', v: 3, userId, chatId, subjects: wanted.map(subjectKey).sort(), ...findingsState(x.f), earlierFiles: x.earlierFiles, made: madeState(x.made), messages })
 
 /** The list as asked, without repeats or me (the creator is always in it, never an entry); at most CHAT_AUDIENCE_MAX. */
 function wantedOf(subjects: readonly { subjectType: 'user' | 'group'; subjectId: string }[], userId: string, locale: Locale): { wanted: AudienceSubject[]; seen: Set<string> } {
@@ -295,10 +321,10 @@ export async function previewChatAudience(ctx: AppContext, rt: ChatRuntime, user
   const plan = planOf(ctx, rt, userId, me, a, wanted, seen, locale)
   const empty: ShareCheck = { added: 0, memoryAnswers: 0, fileAnswers: 0, accountAnswers: 0, places: [], otherPlaces: false, roomsUnseen: false, unchecked: 0 }
   if (!plan.newPeople.length) return { check: empty, previewKey: '' }
-  const { f, earlierFiles } = await findingsFor(ctx, me, plan.r, plan.newPeople, { cache: checkCacheKey(ctx, userId, plan.r.id, plan.before, wanted, plan.newPeople) })
+  const x = await findingsFor(ctx, me, plan.r, plan.newPeople, { cache: checkCacheKey(ctx, userId, plan.r.id, plan.before, wanted, plan.newPeople) })
   // someone new would see a room it read but for old answers hidden from them: never shown, as a save says
-  if (f.hidden) fail('conflict', tr('chatShareHidden', locale), { params: { reason: 'share_hidden' } })
-  return { check: checkOf(plan.newPeople.length, f, earlierFiles), previewKey: keyOf(ctx, userId, plan.r.id, wanted, f, earlierFiles, plan.before.messages) }
+  if (x.f.hidden) fail('conflict', tr('chatShareHidden', locale), { params: { reason: 'share_hidden' } })
+  return { check: checkOf(ctx, plan.newPeople.length, x, locale, userId), previewKey: keyOf(ctx, userId, plan.r.id, wanted, x, plan.before.messages) }
 }
 
 /** What a save is made against, read synchronously: the chat's entries, the people who see it now and every message of
@@ -316,7 +342,7 @@ function stateOf(ctx: AppContext, r: ChatRow) {
 const same = (a: ReturnType<typeof stateOf>, b: ReturnType<typeof stateOf>) => JSON.stringify(a) === JSON.stringify(b)
 
 /** PUT /api/chats/:id/audience. `a`: the caller's chat as chatFor found it ('view'). */
-export async function putChatAudience(ctx: AppContext, rt: ChatRuntime, userId: string, a: ChatAccess, body: { subjects: { subjectType: 'user' | 'group'; subjectId: string }[]; confirmKey?: string }, locale: Locale): Promise<PutChatAudienceResult> {
+export async function putChatAudience(ctx: AppContext, rt: ChatRuntime, userId: string, a: ChatAccess, body: { subjects: { subjectType: 'user' | 'group'; subjectId: string }[]; confirmKey?: string; withFiles?: boolean }, locale: Locale): Promise<PutChatAudienceResult> {
   const db = ctx.db
   // from the room-send budget first (429): the check is no free probe of who may read what
   roomsOf(ctx).takeSendToken(userId)
@@ -330,6 +356,18 @@ export async function putChatAudience(ctx: AppContext, rt: ChatRuntime, userId: 
     if (!added.length && !removed.length) {
       // nothing to change; a private chat with nobody picked asks for someone first
       if (!before.shared) fail('validation', tr('chatShareNeedsPeople', locale), { params: { reason: 'needs_people' } })
+      // a chat already shared: "Share with files" on its own (the files the chat made in my own folder)
+      if (body.withFiles) {
+        const made = madeFilesOf(ctx, r)
+        const key = filesKeyOf(ctx, userId, r.id, made)
+        if (body.confirmKey !== key) return { status: 'confirm', check: filesCheck(ctx, made, locale, userId), confirmKey: key, reason: body.confirmKey === undefined ? 'unchecked' : 'changed' }
+        const v = made.length ? await readVerified(ctx, r, made) : { files: [], notCopied: 0 }
+        if (!v) { const again = madeFilesOf(ctx, r); return { status: 'confirm', check: filesCheck(ctx, again, locale, userId), confirmKey: filesKeyOf(ctx, userId, r.id, again), reason: 'changed' } }
+        const filesAdded = await copyMade(ctx, r, v.files, 'share')
+        if (filesAdded) rt.publishChat(userId, r.id, 'updated')
+        const out = rt.store.chatRow(r.id) ?? r
+        return { status: 'saved', chat: chatView(rt, userId, out), audience: chatAudienceView(ctx, rt, userId, { ...a, row: out }), ...(filesAdded ? { filesAdded } : {}), ...(v.notCopied ? { filesNotCopied: v.notCopied } : {}) }
+      }
       return { status: 'saved', chat: chatView(rt, userId, r), audience: chatAudienceView(ctx, rt, userId, { ...a, row: r }) }
     }
 
@@ -338,18 +376,39 @@ export async function putChatAudience(ctx: AppContext, rt: ChatRuntime, userId: 
     // it, or with another state's, nothing is saved and the answer is the check (docs/DECISIONS.md "Share in one press")
     let confirm: PutChatAudienceResult | null = null
     let checked: AudienceFindings | null = null
+    // the files a "Share with files" copies: the ones the key was made over (checked again at the press, below)
+    let madeSeen: MadeFile[] = []
     if (newPeople.length) {
-      const { f, earlierFiles } = await findingsFor(ctx, me, r, newPeople)
+      const x = await findingsFor(ctx, me, r, newPeople)
       // (from here on nothing waits: the state read now is the one saved)
       const now = stateOf(ctx, rt.store.chatRow(r.id) ?? fail('not_found'))
       if (!same(now, before)) continue
       // someone new would see a room it read but for old answers hidden from them: never shown, confirmed or not
-      if (f.hidden) fail('conflict', tr('chatShareHidden', locale), { params: { reason: 'share_hidden' } })
-      const key = keyOf(ctx, userId, r.id, wanted, f, earlierFiles, before.messages)
-      if (body.confirmKey !== key) confirm = { status: 'confirm', check: checkOf(newPeople.length, f, earlierFiles), confirmKey: key, reason: body.confirmKey === undefined ? 'unchecked' : 'changed' }
-      checked = f
+      if (x.f.hidden) fail('conflict', tr('chatShareHidden', locale), { params: { reason: 'share_hidden' } })
+      const key = keyOf(ctx, userId, r.id, wanted, x, before.messages)
+      if (body.confirmKey !== key) confirm = { status: 'confirm', check: checkOf(ctx, newPeople.length, x, locale, userId), confirmKey: key, reason: body.confirmKey === undefined ? 'unchecked' : 'changed' }
+      checked = x.f
+      madeSeen = x.made
+    } else if (body.withFiles && before.shared) {
+      // only removals, and the files: the files' own key
+      const made = madeFilesOf(ctx, r)
+      const key = filesKeyOf(ctx, userId, r.id, made)
+      if (body.confirmKey !== key) confirm = { status: 'confirm', check: filesCheck(ctx, made, locale, userId), confirmKey: key, reason: body.confirmKey === undefined ? 'unchecked' : 'changed' }
+      madeSeen = made
     }
     if (confirm) return confirm
+    // "Share with files": the press reads each file again from its descriptor and hashes the bytes it read. Anything
+    // different from what the key was made over: nothing is saved or copied, the step is asked again
+    let verified: Awaited<ReturnType<typeof readVerified>> = null
+    if (body.withFiles && madeSeen.length) {
+      verified = await readVerified(ctx, r, madeSeen)
+      if (!verified) {
+        if (newPeople.length) continue
+        const again = madeFilesOf(ctx, r)
+        return { status: 'confirm', check: filesCheck(ctx, again, locale, userId), confirmKey: filesKeyOf(ctx, userId, r.id, again), reason: 'changed' }
+      }
+      if (!same(stateOf(ctx, rt.store.chatRow(r.id) ?? fail('not_found')), before)) continue
+    }
 
     // S7: the people who lose it stop first (their running or queued turn there would go on with their access and its
     // live text would reach them)
@@ -388,6 +447,8 @@ export async function putChatAudience(ctx: AppContext, rt: ChatRuntime, userId: 
         db.query('DELETE FROM chat_list_hidden WHERE chat_id = ?').run(r.id)
       }
       for (const id of lost) db.query('DELETE FROM chat_list_hidden WHERE chat_id = ? AND user_id = ?').run(r.id, id)
+      // their waiting asks to add a file of this chat go with them (everyone's when it is mine alone again)
+      closeFileAsks(db, r.id, everyone ? null : lost)
       // who saw it, before or after this save: a link of someone who loses it later says why (chat/chat-audience.ts)
       rememberAudience(db, r.id, new Set([...nowPeople, ...afterPeople]), at)
       // counts only: no names, no content
@@ -408,6 +469,11 @@ export async function putChatAudience(ctx: AppContext, rt: ChatRuntime, userId: 
     // could not be shared, filesNotCopied)
     let filesNotCopied = 0
     if (first) { try { filesNotCopied = (await chatFilesOf(ctx).copyEarlier(r.id)).notCopied } catch (e) { ctx.log.warn('earlier uploads of a shared chat not copied', { err: e }) } }
+    // "Share with files": the files checked at the press, into the chat (attached to the answers that made them)
+    let filesAdded = 0
+    if (verified && !everyone) {
+      try { filesAdded = await copyMade(ctx, r, verified.files, 'share'); filesNotCopied += verified.notCopied } catch (e) { ctx.log.warn('files of a shared chat not added', { err: e }); filesNotCopied += verified.files.length + verified.notCopied }
+    }
     // a running answer there works out who gets its live text again, now that the change is saved (chat/live-answer.ts)
     rt.forgetLiveViewers()
     // the people who lost it: their windows drop it (its id alone, nothing of it)
@@ -434,7 +500,7 @@ export async function putChatAudience(ctx: AppContext, rt: ChatRuntime, userId: 
       return { name, groups }
     }).filter((k) => k.name && k.groups.length)
     const out = rt.store.chatRow(r.id)!
-    return { status: 'saved', chat: chatView(rt, userId, out), audience: chatAudienceView(ctx, rt, userId, { ...a, row: out, kind: isPeopleRow(out) ? 'people' : null, shared: isPeopleRow(out) }), ...(filesNotCopied ? { filesNotCopied } : {}), ...(keptThrough.length ? { keptThrough } : {}) }
+    return { status: 'saved', chat: chatView(rt, userId, out), audience: chatAudienceView(ctx, rt, userId, { ...a, row: out, kind: isPeopleRow(out) ? 'people' : null, shared: isPeopleRow(out) }), ...(filesNotCopied ? { filesNotCopied } : {}), ...(filesAdded ? { filesAdded } : {}), ...(keptThrough.length ? { keptThrough } : {}) }
   }
   return fail('conflict', tr('chatShareBusy', locale), { params: { reason: 'chat_busy' } })
 }

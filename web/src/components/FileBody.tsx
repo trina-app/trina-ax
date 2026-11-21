@@ -38,6 +38,7 @@ import { fileRead, keptFile, sameBytes } from '../store/teamFiles'
 import { Button, PreviewLoading, useMediaQuery } from './ui'
 import { Tooltip } from './Tooltip'
 import { useViewerItem } from './ImageViewer'
+import { ChatFileAsk } from './ChatFileAsk'
 
 const HwpView = lazy(() => import('./viewers/HwpView'))
 const PdfView = lazy(() => import('./viewers/PdfView'))
@@ -240,6 +241,9 @@ export default function FileBody({ file, loaded, width, download, onRetry, openP
         </Button>
       </div>
     )
+  // a file link of a chat shared with people that does not open for me: maybe its creator can add it to the chat
+  if (renderer === 'error' && error?.kind === 'missing' && file.source === 'team' && file.chatId)
+    return <ChatFileAsk chatId={file.chatId} path={file.path} fallback={error.text} />
   if (renderer === 'error')
     return (
       <p className={error?.kind === 'other' ? 'p-6 text-sm text-danger' : 'p-6 text-sm text-muted'} role="alert">

@@ -285,6 +285,9 @@ export const InboxNotification = z.object({
     note: z.string().optional(), requestId: z.string().optional(),
     state: z.enum(['pending', 'approved', 'declined', 'closed']).optional(),
     canAnswer: z.literal(true).optional(), gone: z.literal(true).optional(),
+    /** a chat ask for one of its files (docs/decisions/20261121-share-chat-files.md): its name as the chat recorded it.
+     * The answer [Add to the chat] copies it into the chat; on 'access.answered', approved: it was added */
+    file: z.object({ name: z.string() }).optional(),
   }).optional(),
   /** 'skill.suggested' for a batch of skill folders a member sent (docs/DECISIONS.md "MC"; for the owners and admins):
    * who sent it, while their account is there, and how many skills it held. "민준 님이 스킬 2개를 팀에 올리자고 했어요";

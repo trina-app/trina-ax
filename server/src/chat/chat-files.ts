@@ -151,6 +151,18 @@ export class ChatFiles {
     return { ...chatFileAttachment(row), ...(row.size !== received ? { receivedSize: received } : {}) }
   }
 
+  /** A copy of a file the chat made in its creator's own folder (chat/chat-files-share.ts copyMade: its bytes read and
+   * checked there), kept as a file of this chat sent by `userId`; the caller attaches it to the answer that made it. */
+  async keepCopy(userId: string, chatId: string, name: string, bytes: Uint8Array, kind: Attachment['kind']): Promise<ChatFileRow> {
+    const id = newId()
+    await fs.promises.mkdir(this.dir(chatId), { recursive: true, mode: 0o700 })
+    const dst = this.abs({ chat_id: chatId, id })
+    try {
+      await fs.promises.writeFile(dst, bytes, { flag: 'wx', mode: 0o600 })
+      return await this.record(userId, chatId, id, name, dst, createHash('sha256').update(bytes).digest('hex'), null, kind)
+    } catch (e) { this.removeFiles({ chat_id: chatId, id }); throw e }
+  }
+
   /** The row of a file just put at `dst` (its preview made first). */
   private async record(userId: string, chatId: string, id: string, name: string, dst: string, sha256: string, copiedFrom: string | null, kind: Attachment['kind'], thumbFrom?: string | null): Promise<ChatFileRow> {
     const quarantined = this.ctx.files.quarantine.hasHash(sha256)
