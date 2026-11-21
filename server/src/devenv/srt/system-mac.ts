@@ -202,7 +202,7 @@ export function macSystem(c: MacConfig, host: MacHost = (sharedHost ??= realMacH
       if (!slot) throw new Error('busy: every dev slot account is in use; try again in a minute')
       const port = c.portBase + slot.index + 1
       const release = () => reserved.delete(`${c.base}\0${slot.account}`)
-      try { await grant(s.writable ?? []) } catch (e) { release(); throw e }
+      try { await grant([...(s.writable ?? []), ...(s.readable ?? [])]) } catch (e) { release(); throw e }
       // the reach ports: each the port of the slot that the named run still has (checked right before this run's state
       // is written, with no await between: a slot given to another run since has no state of the named run any more),
       // never the run's own (srt-mac.mjs refuses anything else)
