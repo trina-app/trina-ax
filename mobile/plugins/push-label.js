@@ -35,7 +35,7 @@ function checkExpoNotifications(projectRoot) {
     && /protected open suspend fun createNotification\(notification: Notification, notificationBehavior: NotificationBehaviorRecord\?\): android\.app\.Notification/.test(presentation)
     // our receiver declares the actions expo-notifications' has; a new one there must be added to ours
     && sameActions(manifest)
-  if (!ok) throw new Error('push-label: expo-notifications changed its Android FCM service; update modules/push-label (LabelMessagingService)')
+  if (!ok) throw new Error('push-label: expo-notifications changed its Android FCM service, NotificationsService receiver or ExpoPresentationDelegate; update modules/push-label (LabelMessagingService, LabelNotificationsService)')
 }
 
 /** expo-notifications' receiver lists exactly the actions modules/push-label's receiver lists. */

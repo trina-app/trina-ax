@@ -60,21 +60,28 @@
   signatures they use, and the pure helpers (plain, teamOrigin, named, title) were run on the JVM;
   `PushLabelModule.kt`, the manifest merge and `assembleDebug` were not (they need NDK 27.1).
 - Version impact: **minor** (a new optional gateway key, a new phone behaviour; no migration).
-- **Lock screen: as the iPhone's default (2026-11-21, the recommendation taken under the owner's standing order).** A
-  locked Android phone shows each named room push with only the gateway's generic title and line; who, where and the
-  first line show once the phone is unlocked, as the iPhone's default Show Previews "When Unlocked" does. The
-  notification is `VISIBILITY_PRIVATE` with a public version built from `data.title` / `data.message` (the generic
-  words the gateway already sends to Google; never the team's answer). expo-notifications' builder has no field for a
-  public version, so the module adds it after expo-notifications built the notification: `LabelNotificationsService`
-  extends expo-notifications' `NotificationsService` (the broadcast receiver that posts every notification) with a
-  presentation delegate whose `createNotification` sets `visibility` and `publicVersion`. `plugins/push-label.js`
-  removes expo-notifications' receiver from the manifest, so ours is the only one; it stops the prebuild when
-  expo-notifications changes the receiver's or the delegate's shape or the receiver's actions (ours lists the same).
-  Android's own setting still applies on top: "hide sensitive content" shows the same generic words, "don't show"
-  shows nothing. Before 11-21 this was open: with Android's default "show all content", the lock screen showed who
-  and where. A group's summary (expo-notifications' `postGroupSummary`) carries the children's titles in its
-  InboxStyle; from Android 7 (this app's minimum) a group shows its children, each with its own public version, and
-  the summary's content is not drawn (to check on the device).
+- **Lock screen (2026-11-21): a generic public version; the default does NOT match the iPhone yet.** Asked: a locked
+  Android phone shows only the generic words, the full words once unlocked, as the iPhone's default Show Previews
+  "When Unlocked". Built: each named room push is `VISIBILITY_PRIVATE` with a public version from `data.title` /
+  `data.message` (the generic words the gateway already sends to Google; never the team's answer).
+  `LabelNotificationsService` extends expo-notifications' `NotificationsService` (the broadcast receiver that posts
+  every notification) with a presentation delegate whose `createNotification` adds it; `plugins/push-label.js` removes
+  expo-notifications' receiver from the manifest and stops the prebuild when the receiver's or the delegate's shape or
+  the receiver's actions change.
+  - **What it does and does not do.** Android draws a public version only when the phone is set to hide sensitive
+    content on the lock screen; then it now shows the generic words instead of "Contents hidden". With Android's
+    default "show all content" (stock Android, One UI, MIUI) a private notification is drawn in full on the lock
+    screen, so a locked phone still shows who, where and (with preview on) the first line. No app API forces redaction
+    under "show all content". This was found by the review of the change (2026-11-21), before any device test.
+  - **To match the iPhone's default (not built, next step):** when the phone is locked at post time
+    (`KeyguardManager.isDeviceLocked`), post the generic words and swap in the team's words after the unlock. A manifest
+    receiver no longer gets `USER_PRESENT` (Android 8+), so the swap needs a live process: a re-post when the app
+    opens, or a WorkManager job. `VISIBILITY_SECRET` (hidden entirely while locked) is the simple alternative, but it is
+    not "generic words".
+  - The group summary (expo-notifications' private `postGroupSummary`) has no public version and lists the children's
+    titles; from Android 7 a group draws its children, but some skins and watches draw the summary. Check on a device.
+  - Notifications already in the shade at the update (Android 7–11) tap and dismiss through intents aimed at the
+    removed receiver class, so those taps do nothing; alarms are registered again at `MY_PACKAGE_REPLACED`. Transitional.
 - **Review fixes (2026-11-21):** the body and room group above; a team that did not answer makes the next minute's
   pushes skip the ask (FCM hands this app's messages over one at a time, 4 s each); spaces collapse as Swift's
   `isWhitespace` does (`\p{Z}` too); a default vibration on Android 7; no empty `Cookie` header; `tag` in the data;
