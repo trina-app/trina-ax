@@ -74,7 +74,8 @@ test('채널 만들기 asks for a name; 새 메시지 has no name field', async 
     return route.fulfill({ status: 201, contentType: 'application/json', body: JSON.stringify({ error: { code: 'validation', message: 'not in this mock' } }) })
   })
   await start(page)
-  await panel(page).getByTestId('rooms-new-channel').click()
+  await panel(page).getByTestId('rooms-channels-add').click()
+  await page.getByTestId('rooms-new-channel').click()
   const dialog = page.getByRole('dialog')
   await expect(dialog.getByRole('heading')).toHaveText(t['rooms.section.newChannel'])
   // the name first, labelled, with the focus

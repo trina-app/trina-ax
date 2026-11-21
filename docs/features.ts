@@ -52,8 +52,8 @@ export const FEATURES: Feature[] = [
   // ---------------- AI chat ----------------
   { id: 'chat.conversation', name: 'Chat with the AI: send, stream, stop', area: 'AI chat', endpoints: ['createChat', 'getChat', 'listMessages', 'sendMessage', 'putChatWaiting', 'stop', 'getChatQueue', 'markChatSeen'], screens: ['/c/:chatId'] },
   { id: 'chat.list', name: 'Chat history: rename, pin, delete, restore', area: 'AI chat', endpoints: ['listChats', 'listChatGroups', 'updateChat', 'deleteChat', 'restoreChat', 'pinChat', 'unpinChat'], screens: ['/trash'] },
-  { id: 'chat.list-folders', name: 'List folders: my own folders for AI chats and conversations', area: 'AI chat', endpoints: ['*NavFolder*', 'setChatFolder', 'setRoomFolder'] },
-  { id: 'rooms.categories', name: 'Conversation categories: the team\'s own, made by admins, for the Chats list', area: 'AI chat', endpoints: ['*RoomCategor*', 'setRoomCategory'] },
+  { id: 'chat.list-folders', name: 'List folders: my own folders for AI chats, and my sidebar sections for conversations', area: 'AI chat', endpoints: ['*NavFolder*', 'setChatFolder', 'setRoomFolder'] },
+  { id: 'rooms.categories', name: 'Conversation categories (team-wide, made by admins): no longer shown in the app since sidebar sections; kept on the server until a cleanup', area: 'AI chat', endpoints: ['*RoomCategor*', 'setRoomCategory'] },
   { id: 'chat.edit-regenerate', name: 'Edit a question, regenerate, answer branches', area: 'AI chat', endpoints: ['editMessage', 'regenerate', 'selectBranch'] },
   { id: 'chat.cards', name: 'AI questions, confirmations and connect cards in a turn', area: 'AI chat', endpoints: ['listTurnRequests', 'answerTurn', 'connectTurn', 'turnRequestDetail'] },
   { id: 'chat.sources', name: 'Answer sources', area: 'AI chat', endpoints: ['messageSources'] },

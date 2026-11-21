@@ -367,13 +367,15 @@ export const InboxNotification = z.object({
   /** 'schedule.failure' only: scheduled tasks nobody confirmed were paused until their owner checks them again
    * (Settings › Scheduled tasks, "다시 확인"); older servers omit it */
   review: z.boolean().optional(),
-  /** 'dev_env.job' only, while the person can see the project. The text stays in the job's own row, not in the inbox.
-   * exitCode null: no exit code is known; note says why, in English. reason: why the job ended (timeout, oom, stopped,
-   * disk, setting, expired, lost; older rows omit it). A job from a chat with no project has projectId and projectName
-   * ''. 'dev_env.box' (a stop of the removed box runner) never has it. */
+  /** 'dev_env.job' only, while the person can see the project. The text stays in the job's own row, not in the inbox:
+   * the notice says the result in plain words (done when exitCode is 0, else not), never the log. reason: why the job
+   * ended (timeout, oom, stopped, disk, setting, expired, lost; older rows omit it). chatTitle: the title of the chat it
+   * was started in, while the person can open it. note and tail: older servers only (the English end note and the log
+   * tail); the web shows neither. A job from a chat with no project has projectId and projectName ''. 'dev_env.box' (a
+   * stop of the removed box runner) never has it. */
   devEnv: z.object({
     projectId: z.string(), projectName: z.string(),
-    job: z.object({ name: z.string(), exitCode: z.number().int().nullable(), note: z.string(), tail: z.string(), reason: z.string().optional() }).optional(),
+    job: z.object({ name: z.string(), exitCode: z.number().int().nullable(), note: z.string().optional(), tail: z.string().optional(), reason: z.string().optional(), chatTitle: z.string().optional() }).optional(),
   }).optional(),
 })
 export type InboxNotification = z.infer<typeof InboxNotification>
