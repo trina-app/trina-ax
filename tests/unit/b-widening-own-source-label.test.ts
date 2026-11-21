@@ -21,7 +21,8 @@ const fake = (...ds: unknown[]) => ds.map((d) => '@fake ' + JSON.stringify(d)).j
 const cm = () => 'cm-' + crypto.randomUUID()
 /** the label for a place the person cannot see, in alice's (English) and bob's (Korean) words */
 const OTHER = tr('sharedScopeOther', 'en')
-const OTHER_KO = tr('sharedScopeOther', 'ko')
+/** the card's line for sources the asker cannot see, in bob's Korean words (#283: widenWhyHidden, "…{m}명은 열 수 없는 곳에서…") */
+const HIDDEN_KO = (m: number) => tr('widenWhyHidden', 'ko', { m: String(m) })
 
 let h: Harness, svc: FakeServices
 const ws: Record<string, TestSocket> = {}
@@ -79,10 +80,11 @@ test('the asker\'s own team connection that the other member may not use: the ca
   expect(r.questions).toHaveLength(1)
   const q = r.questions[0]!
   // the check is unchanged: two people see the folder, bob may not use Deck Images
-  expect(q).toContain('06_contact.svg (2 people)')
-  expect(q).toContain('1 of them')
-  // the place is alice's own: named, with how many may see it
-  expect(q).toContain('Deck Images (only you)')
+  expect(q).toContain('Save 06_contact.svg to')
+  expect(q).toContain('where 2 people can see it')
+  // the place is alice's own: named in the "Trina made it from {source}" line, with how many cannot open it
+  expect(q).toContain('Trina made it from Deck Images, which 1 of them can’t open.')
+  expect(q).not.toContain(tr('widenSourceHidden', 'en'))
   expect(q).not.toContain(OTHER)
   expect(saved(target)).toBe(true)
 })
@@ -93,10 +95,9 @@ test('the other member saving after that read: still asked, and the connection s
   const target = `${folder}/svg_output/07_bob.svg`
   const r = await run('bob', chat, save(target))
   expect(r.questions).toHaveLength(1)
-  // (bob's screen language is Korean: "(2명)… 그중 1명은 …")
-  expect(r.questions[0]).toContain('(2명)')
-  expect(r.questions[0]).toContain('1명')
-  expect(r.questions[0]).toContain(OTHER_KO)
+  // (bob's screen language is Korean: "2명이 볼 수 있는 곳이에요. … 그중 1명은 열 수 없는 곳에서 …")
+  expect(r.questions[0]).toContain('2명이 볼 수 있는 곳')
+  expect(r.questions[0]).toContain(HIDDEN_KO(1))
   expect(r.questions[0]).not.toContain('Deck Images')
   expect(saved(target)).toBe(true)
 })
@@ -129,7 +130,7 @@ test('a room part bob sees: named on his card (shared/ has more readers than the
   const target = `shared/label-room-${++n}.svg`
   const r = await run('bob', chat, save(target))
   expect(r.questions).toHaveLength(1)
-  expect(r.questions[0]).not.toContain(OTHER_KO)
+  expect(r.questions[0]).not.toContain(HIDDEN_KO(1))
   expect(r.questions[0]).toContain('Erin')
 })
 
@@ -138,6 +139,6 @@ test('a room part with a later answer hidden from bob: not named to him', async 
   const target = `shared/label-room-${++n}.svg`
   const r = await run('bob', chat, save(target))
   expect(r.questions).toHaveLength(1)
-  expect(r.questions[0]).toContain(OTHER_KO)
+  expect(r.questions[0]).toContain(tr('widenWhyHidden', 'ko', { m: '3' }))
   expect(r.questions[0]).not.toContain('Erin')
 })
