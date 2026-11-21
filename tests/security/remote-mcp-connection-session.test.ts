@@ -18,9 +18,9 @@ async function setup(name: string) {
   const svc = new RemoteOAuth(h.ctx.db, { origin })
   const client = svc.register({ client_name: 'Claude', redirect_uris: [redirect] })
   const authOf = async (c: Client) => (await h.auth.resolve(new Request('http://team.localhost', { headers: { cookie: c.cookie! } }), { ip: '10.0.0.7', via: 'test' }))!
-  const connect = async (c: Client) => {
+  const connect = async (c: Client, scope = 'mcp:read offline_access') => {
     const auth = await authOf(c)
-    const id = new URL(svc.authorize({ client_id: client.client_id, redirect_uri: redirect, response_type: 'code', code_challenge_method: 'S256', code_challenge: challenge(verifier), resource: origin + '/mcp', scope: 'mcp:read offline_access' })).searchParams.get('id')!
+    const id = new URL(svc.authorize({ client_id: client.client_id, redirect_uri: redirect, response_type: 'code', code_challenge_method: 'S256', code_challenge: challenge(verifier), resource: origin + '/mcp', scope })).searchParams.get('id')!
     const code = new URL(svc.decide(id, auth, true).redirectUrl).searchParams.get('code')!
     const tokens = svc.token({ client_id: client.client_id, grant_type: 'authorization_code', code, code_verifier: verifier, redirect_uri: redirect, resource: origin + '/mcp' })
     return { tokens, grant: svc.authenticate(tokens.access_token) }
@@ -115,4 +115,32 @@ test('a replay of a refresh token spent 8 days ago still ends the connection', a
   const current = r
   expect(() => f.refresh(spent)).toThrow('invalid_grant')
   expect(() => f.refresh(current)).toThrow('invalid_grant')
+})
+
+// docs/decisions/20261121-mcp-refresh-without-offline-access.md: a refresh token for an app that did not ask for
+// offline_access keeps every protection between people that the asked-for one has
+test('without offline_access: the refresh token is the person\'s own, for its app only, and ends with their access', async () => {
+  const f = await setup('no-offline')
+  const mia = await f.connect(f.mia.client, 'mcp:read'), ben = await f.connect(f.ben.client, 'mcp:read')
+  expect(mia.tokens.refresh_token).toMatch(/^tax_mcp_r_/)
+  // a refresh stays on the person's own connection and scopes
+  const next = f.refresh(mia.tokens.refresh_token!)
+  const g = f.svc.authenticate(next.access_token)
+  expect(g).toMatchObject({ id: mia.grant.id, user_id: f.mia.id })
+  expect(JSON.parse(g.scopes)).toEqual(['mcp:read', 'offline_access'])
+  // another app cannot use it, and Ben's connection is untouched by Mia's tokens
+  const other = f.svc.register({ client_name: 'Other', redirect_uris: [redirect] })
+  expect(() => f.refresh(next.refresh_token!, other.client_id)).toThrow('invalid_grant')
+  expect(f.svc.authenticate(ben.tokens.access_token).user_id).toBe(f.ben.id)
+  // a late replay ends Mia's connection only
+  const t0 = Date.now(); f.svc.now = () => t0 + REFRESH_REUSE_MS + 1
+  expect(() => f.refresh(mia.tokens.refresh_token!)).toThrow('invalid_grant')
+  expect(() => f.refresh(next.refresh_token!)).toThrow('invalid_grant')
+  expect(f.svc.authenticate(f.refresh(ben.tokens.refresh_token!).access_token).user_id).toBe(f.ben.id)
+  // losing access ends it: Ben deactivated, his refresh token is refused
+  f.svc.now = Date.now
+  const benNext = f.refresh((await f.connect(f.ben.client, 'mcp:read')).tokens.refresh_token!)
+  f.h.ctx.db.query("UPDATE users SET status='disabled' WHERE id=?").run(f.ben.id)
+  expect(() => f.refresh(benNext.refresh_token!)).toThrow('invalid_grant')
+  expect(() => f.svc.authenticate(benNext.access_token)).toThrow('invalid_token')
 })

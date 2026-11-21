@@ -55,7 +55,7 @@ test('an owner or admin gets mcp:admin without asking or ticking; what the body 
   expect(f.oauth.metadata().scopes_supported).toContain('mcp:admin')
   // the app asked for read only (what claude.ai and Claude Code ask): the owner's connection manages groups anyway
   const plain = await f.connect(f.owner.cookie!, 'mcp:read', {})
-  expect(plain).toMatchObject({ asked: ['mcp:read'], optional: ['mcp:write', 'mcp:rooms', 'mcp:rooms.write'], admin: true, scope: 'mcp:read mcp:admin' })
+  expect(plain).toMatchObject({ asked: ['mcp:read'], optional: ['mcp:write', 'mcp:rooms', 'mcp:rooms.write'], admin: true, scope: 'mcp:read mcp:admin offline_access' })
   // `admin: false` from the page (or a forged body) changes nothing
   const off = await f.connect(f.owner.cookie!, ALL, { admin: false })
   expect(off.scope).toBe('mcp:read mcp:write mcp:admin offline_access')
@@ -63,13 +63,13 @@ test('an owner or admin gets mcp:admin without asking or ticking; what the body 
   expect(on.scope).toBe('mcp:read mcp:write mcp:admin offline_access')
   // an admin too, with write unticked
   const admin = await f.connect(f.helper.client.cookie!, 'mcp:read', { write: false })
-  expect(admin).toMatchObject({ optional: ['mcp:write', 'mcp:rooms', 'mcp:rooms.write'], admin: true, scope: 'mcp:read mcp:admin' })
+  expect(admin).toMatchObject({ optional: ['mcp:write', 'mcp:rooms', 'mcp:rooms.write'], admin: true, scope: 'mcp:read mcp:admin offline_access' })
   expect(f.names(admin.token)).toEqual(['list', 'glob', 'grep', 'read', 'create_download_link', 'skills_list', ...GROUP])
   expect(f.audits('remote_mcp.connected').map(a => a.detail)).toEqual([
-    { scopes: ['mcp:read', 'mcp:admin'], asked: ['mcp:read'], app: 'MCP app' },
+    { scopes: ['mcp:read', 'mcp:admin', 'offline_access'], asked: ['mcp:read'], app: 'MCP app' },
     { scopes: ['mcp:read', 'mcp:write', 'mcp:admin', 'offline_access'], asked: ['mcp:read', 'mcp:write', 'mcp:admin', 'offline_access'], app: 'MCP app' },
     { scopes: ['mcp:read', 'mcp:write', 'mcp:admin', 'offline_access'], asked: ['mcp:read', 'mcp:write', 'mcp:admin', 'offline_access'], app: 'MCP app' },
-    { scopes: ['mcp:read', 'mcp:admin'], asked: ['mcp:read'], app: 'MCP app' },
+    { scopes: ['mcp:read', 'mcp:admin', 'offline_access'], asked: ['mcp:read'], app: 'MCP app' },
   ])
   // made an admin after consent and before the decision: the role at the decision counts (and the reverse)
   const auth = (await f.h.auth.resolve(new Request('http://team.localhost', { headers: { cookie: f.reader.client.cookie! } }), { ip: '10.0.0.7', via: 'test' }))!
@@ -77,7 +77,7 @@ test('an owner or admin gets mcp:admin without asking or ticking; what the body 
   expect(f.oauth.consent(id, auth).admin).toBe(false)
   f.h.ctx.db.query("UPDATE users SET role = 'admin' WHERE id = ?").run(f.reader.id)
   const code = new URL(f.oauth.decide(id, auth, true).redirectUrl).searchParams.get('code')!
-  expect(f.oauth.token({ client_id: f.client.client_id, code, grant_type: 'authorization_code', code_verifier: verifier, redirect_uri: redirect, resource: f.oauth.resource() }).scope).toBe('mcp:read mcp:admin')
+  expect(f.oauth.token({ client_id: f.client.client_id, code, grant_type: 'authorization_code', code_verifier: verifier, redirect_uri: redirect, resource: f.oauth.resource() }).scope).toBe('mcp:read mcp:admin offline_access')
 })
 
 test('the group tools have the right annotations', async () => {
@@ -103,7 +103,7 @@ test('a member never gets mcp:admin, whatever the app asked or the body says, an
   // asked for read only: the member may still tick write, never group management
   const r1 = await f.connect(f.reader.client.cookie!, 'mcp:read', { write: true, admin: true })
   expect(r1.optional).toEqual(['mcp:write', 'mcp:rooms', 'mcp:rooms.write'])
-  expect(r1.scope).toBe('mcp:read mcp:write')
+  expect(r1.scope).toBe('mcp:read mcp:write offline_access')
   expect(f.names(m.token).filter(n => GROUP.includes(n))).toEqual([])
   for (const name of GROUP) {
     const r = await f.call(m.token, name, name === 'group_create' ? { name: 'Sneaky' } : {})
