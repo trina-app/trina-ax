@@ -1048,7 +1048,8 @@ describe('a command follows the person, not the project', () => {
     // Q0 (b): only the project folder is writable. Falcon is seen by bob (finance) and the admins too, so a folder they
     // may not read (groups/marketing, her own users/alice) is hidden in the run: nothing of it can be copied into falcon
     // a home of her own for this project folder (QA TC-4939, config.ts projectHome)
-    expect(s.filesystem.allowWrite).toEqual([t(FALCON), projectHome(devBase, 'alice', FALCON)])
+    // ...and the chat's own work folder, $TRINA_WORK, for downloads and scratch (docs/decisions/20261121-ai-scratch-files.md)
+    expect(s.filesystem.allowWrite).toEqual([t(FALCON), projectHome(devBase, 'alice', FALCON), chatWork(devBase, chatFalcon)])
     expect(s.filesystem.allowRead).toEqual(expect.arrayContaining([t('skills'), t('shared')]))
     for (const p of [...s.filesystem.allowRead, ...s.filesystem.allowWrite]) for (const no of ['groups/marketing', 'users/alice']) expect(p.startsWith(t(no))).toBe(false)
     expect(s.filesystem.denyRead).toEqual(expect.arrayContaining([devBase, h.team, t('users'), t('.system')]))
@@ -1127,7 +1128,7 @@ describe('a command follows the person, not the project', () => {
   test('the environment is the listed keys only: nothing from the server\'s environment', async () => {
     await alice().call({ command: 'echo x' })
     const env = [...runs.values()][0]!.spec.env
-    expect(env).toEqual(runEnv({ base: devBase, userId: 'alice', teamRoot: h.team, work: null, platform: 'linux', projectFolder: FALCON }))
+    expect(env).toEqual(runEnv({ base: devBase, userId: 'alice', teamRoot: h.team, work: chatWork(devBase, chatFalcon), platform: 'linux', projectFolder: FALCON }))
     expect(JSON.stringify(env)).not.toContain('CANARY-ENV')
     expect(Object.keys(env).some((k) => k.startsWith('MYCEL'))).toBe(false)
   })

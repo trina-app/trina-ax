@@ -330,8 +330,10 @@ function noteSharedRun(ctx: AppContext, space: Space, run: RunWrites, s: SharedS
   if (!s || !p) throw new Error('the person cannot use the dev environment now')
   const folders = sharedReadable(ctx.files.rules(), p, run, s, projectZoneFolders(ctx.files.fx.root).map((z) => z.join('/')))
   if (!space.shared.noteReads(folders, s.audience.map((q) => q.id))) throw new Error('what this command may read could not be recorded')
-  // a shared chat's work folder: what the server copied into it for these people joins the answer again
-  if (run.start === null && space.chatId && !noteCopiedIn(space.shared, space.chatId, space.root)) throw new Error('what was copied into this work folder could not be recorded')
+  // a shared chat's work folder (a shared project chat's scratch folder too): what the server copied into it for these
+  // people joins the answer again
+  const workRoot = run.start === null ? space.root : scratchOf(ctx, srtConfig(), space, s)
+  if (workRoot && space.chatId && !noteCopiedIn(space.shared, space.chatId, workRoot)) throw new Error('what was copied into this work folder could not be recorded')
 }
 
 /** What was copied into a shared chat's work folder (`workRoot`, its folder for one key: sharedWorkOf) joins this
@@ -451,12 +453,33 @@ export function spaceOf(ctx: AppContext, o: { userId: string; chatId: string | n
  * folder is not there yet (no command ran). Its real path and its path as made. For read and save_work_file (chat/work-files.ts). */
 export function workFolderAt(ctx: AppContext, o: { userId: string; chatId: string | null; project: { id: string; folderPath: string } | null; shared?: SharedRun }): { real: string; path: string } | null {
   const s = spaceAt(ctx, o, false)
-  if (!s || !inWorkFolder(srtConfig(), s)) return null
+  if (!s) return null
+  // a project chat's commands start in the project folder; their scratch folder ($TRINA_WORK, scratchOf) is chat:work/
+  const c = srtConfig()
+  const root = inWorkFolder(c, s) ? s.root : scratchOf(ctx, c, s)
+  if (!root) return null
   try {
-    const st = fs.lstatSync(s.root)
+    const st = fs.lstatSync(root)
     if (!st.isDirectory()) return null
-    return { real: fs.realpathSync(s.root), path: s.root }
+    return { real: fs.realpathSync(root), path: root }
   } catch { return null }
+}
+
+/**
+ * The scratch folder of a project chat's runs ($TRINA_WORK next to the project folder; docs/decisions/
+ * 20261121-ai-scratch-files.md): downloads, clones, tool installs and previews go there, never into the team's project
+ * folder. Not a team folder and not recorded. A person's own chat: the chat's private work folder (chatWork). A shared
+ * project chat: a work folder of its own for the people who see it now (sharedWorkOf, never the private one), as for a
+ * shared chat with no project. Null: no chat, or the people cannot be loaded. `make`: create it (a run), else only name it.
+ */
+export function scratchOf(ctx: AppContext, c: SrtConfig, space: Space, scope?: SharedScopeNow | null, make = false): string | null {
+  if (!space.chatId) return null
+  const root = space.shared ? sharedWorkOf(ctx, space.chatId, space.userId, space.shared, scope) : chatWork(c.base, space.chatId)
+  if (root && make) {
+    fs.mkdirSync(path.dirname(root), { recursive: true, mode: 0o700 })
+    fs.mkdirSync(root, { recursive: true, mode: 0o700 })
+  }
+  return root
 }
 
 /** The folder that holds every work folder of a shared chat (one per people and view: sharedWork), or null */
@@ -646,7 +669,8 @@ async function settingsFor(ctx: AppContext, c: SrtConfig, space: Space, runId: s
   const view = personView(ctx, space.userId, run, space.shared, scope)
   if (!view) throw new Error('the person cannot use the dev environment now')
   if (!rootAllowed(ctx, c, space, view)) throw new Error('the person cannot open the folder of this chat now')
-  const work = run.start === null ? space.root : null
+  // a run in a project folder gets the chat's scratch folder too (scratchOf): writable, $TRINA_WORK, not a team folder
+  const work = run.start === null ? space.root : scratchOf(ctx, c, space, scope, true)
   const hosts = teamHosts(ctx)
   // only this person's sites and switch: another person's never reach this run
   const person = personNetNow(ctx, space.userId)
@@ -666,10 +690,11 @@ async function settingsFor(ctx: AppContext, c: SrtConfig, space: Space, runId: s
     serverPaths: serverPaths(ctx),
     connectedSources: connectedSources(ctx),
     platform: runPlatform(),
-    // a copy's stage folder: only for a run in the work folder (a copy never goes into a team folder this way)
-    stage: stage && work ? stage : null,
+    // a copy's stage folder: only for a run that starts in the work folder (a copy never goes into a team folder this
+    // way, nor into a project chat's scratch folder)
+    stage: stage && run.start === null ? stage : null,
   }
-  if (stage && !work) throw new Error('a copy goes only into a chat\'s work folder')
+  if (stage && run.start !== null) throw new Error('a copy goes only into a chat\'s work folder')
   const settings = srtSettings(input)
   const problems = settingsProblems(settings, input)
   if (problems.length) {

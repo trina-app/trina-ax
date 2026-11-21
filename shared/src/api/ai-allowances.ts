@@ -24,7 +24,7 @@ export type RoomFilesAllowance = z.infer<typeof RoomFilesAllowance>
 /** The kinds of the AI's cards a person can answer with "Always allow" (docs/DECISIONS.md "Always allow on every card",
  * server/src/chat/always-allow.ts). After that answer the card of that kind is not raised for them again in the chats
  * they watch, until they take it back here. */
-export const CARD_ALWAYS_KINDS = ['room_change', 'remember', 'save_wider', 'post_to_room', 'shared_read', 'shared_save', 'move_files', 'skill_files', 'skill_save', 'delete_files', 'project_members', 'video', 'big_download', 'share_files', 'post_files', 'share_folder', 'folder_access'] as const
+export const CARD_ALWAYS_KINDS = ['room_change', 'remember', 'save_wider', 'post_to_room', 'shared_read', 'shared_save', 'move_files', 'skill_files', 'skill_save', 'delete_files', 'project_members', 'video', 'big_download', 'share_files', 'post_files', 'share_folder', 'folder_access', 'bulk_files'] as const
 export const CardAlwaysKind = z.enum(CARD_ALWAYS_KINDS)
 export type CardAlwaysKind = z.infer<typeof CardAlwaysKind>
 
