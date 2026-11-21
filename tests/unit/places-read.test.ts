@@ -198,6 +198,80 @@ describe('refusals', () => {
   })
 })
 
+describe('review fixes (adversarial review of P1)', () => {
+  test('grep of chat:files/ runs its pattern in ripgrep: a backtracking pattern ends at once, ripgrep syntax, a bad one says so', async () => {
+    const chat = await sharedChat()
+    const a = await upload('alice', chat, 'xs.txt', 'x'.repeat(5000) + '\nfound \\d here\nline 42 here\n')
+    await run('alice', chat, `x\n${fake({ say: 'ok' })}`, [a.body.id])
+    const t = Date.now()
+    const slow = await run('bob', chat, `${fake({ tool: 'grep', args: { pattern: '(x+x+)+y', path: 'chat:files/' }, sayResult: true })}`)
+    expect(Date.now() - t).toBeLessThan(20_000)
+    expect(slow.content).toContain('No matches found')
+    const re = await run('bob', chat, `${fake({ tool: 'grep', args: { pattern: '\\bline \\d+\\b', path: 'chat:files/', output_mode: 'content' }, sayResult: true })}`)
+    expect(re.content).toContain(`${chatFilePath(a.body.id, 'xs.txt')}:3:line 42 here`)
+    const bad = await run('bob', chat, `${fake({ tool: 'grep', args: { pattern: '(unclosed', path: 'chat:files/' }, sayResult: true })}`)
+    expect(bad.content).toContain('Invalid regular expression')
+  })
+
+  test('a chat file read through read counts as other people\'s words, as chat_file does', async () => {
+    const chat = await sharedChat()
+    const up = await upload('bob', chat, 'bob.txt', 'BOB WROTE THIS')
+    await run('bob', chat, `mine\n${fake({ say: 'ok' })}`, [up.body.id])
+    // the chat is no longer shared: its files stay, and other people's words matter again (Always allow cards)
+    await share('alice', chat, [])
+    for (const args of [{ tool: 'read', args: { file_path: chatFilePath(up.body.id, 'bob.txt') } }, { tool: 'grep', args: { pattern: 'BOB', path: 'chat:files/' } }]) {
+      db().query('UPDATE chats SET others_words = 0 WHERE id = ?').run(chat)
+      const r = await run('alice', chat, `${fake({ ...args, sayResult: true })}`)
+      expect(r.content).toContain(args.tool === 'read' ? 'BOB WROTE THIS' : 'bob.txt')
+      expect((db().query('SELECT others_words FROM chats WHERE id = ?').get(chat) as { others_words: number }).others_words).toBe(1)
+    }
+  })
+
+  test('write and edit of a chat place are refused before any card (a room card after a room read)', async () => {
+    const { chat, file } = await sent('w2.txt', 'W')
+    db().query('UPDATE chats SET rooms_seen = 1 WHERE id = ?').run(chat)
+    for (const c of [
+      { tool: 'write', args: { file_path: 'chat:files/new.txt', content: 'X' }, says: 'not changed in place' },
+      { tool: 'edit', args: { file_path: chatFilePath(file, 'w2.txt'), old_string: 'W', new_string: 'X' }, says: 'not changed in place' },
+      { tool: 'write', args: { file_path: 'chat:work/a.txt', content: 'X' }, says: 'box_shell' },
+      { tool: 'edit', args: { file_path: 'room:files/a.txt', old_string: 'a', new_string: 'b' }, says: 'room files are not paths yet' },
+      { tool: 'edit_files', args: { file_paths: ['shared/none.md', 'chat:files/w2.txt'], old_string: 'W', new_string: 'X' }, says: 'Leave it out of file_paths' },
+    ]) {
+      const r = await run('bob', chat, `${fake({ tool: c.tool, args: c.args, sayResult: true })}`)
+      expect(r.cards).toHaveLength(0)
+      expect(r.content).toContain(c.says)
+    }
+  })
+
+  test('a file carried only by a hidden answer (k) is not listed, globbed or searched either', async () => {
+    const { chat, file } = await sent('k2.txt', 'K2 SECRET')
+    const ans = db().query("SELECT id FROM messages WHERE chat_id = ? AND role = 'assistant' ORDER BY created_at DESC LIMIT 1").get(chat) as { id: string }
+    const att = db().query("SELECT attachments FROM messages WHERE chat_id = ? AND role = 'user' AND attachments LIKE ?").get(chat, `%${file}%`) as { attachments: string }
+    db().query('UPDATE messages SET attachments = ? WHERE id = ?').run(att.attachments, ans.id)
+    db().query("UPDATE messages SET attachments = '[]' WHERE chat_id = ? AND role = 'user' AND attachments LIKE ?").run(chat, `%${file}%`)
+    setAnswerReads(db(), chat, ans.id, [{ c: ['alice', 'bob', 'erin'], s: [{ type: 'integration', id: 'x' }], k: 1 }])
+    const l = await run('alice', chat, `${fake({ tool: 'list', args: { path: 'chat:files/' }, sayResult: true })}`)
+    expect(l.content).not.toContain('k2.txt')
+    const g = await run('alice', chat, `${fake({ tool: 'glob', args: { pattern: '*.txt', path: 'chat:files/' }, sayResult: true })}`)
+    expect(g.content).not.toContain('k2.txt')
+    const s = await run('alice', chat, `${fake({ tool: 'grep', args: { pattern: 'K2', path: 'chat:files/', output_mode: 'content' }, sayResult: true })}`)
+    expect(s.content).not.toContain('K2 SECRET')
+  })
+
+  test('the Share check does not count an answer that read a chat file as one using files a newcomer cannot open', async () => {
+    for (const how of ['chat_file', 'read']) {
+      const { chat, file } = await sent('n.txt', 'N TEXT')
+      const call = how === 'read' ? { tool: 'read', args: { file_path: chatFilePath(file, 'n.txt') } } : { tool: 'chat_file', args: { file } }
+      const r = await run('bob', chat, `${fake({ ...call, sayResult: true })}`)
+      expect(r.content).toContain('N TEXT')
+      expect(readScope(db(), chat)).toContainEqual({ type: 'chat', id: chat })
+      const res = await put('alice', chat, [{ subjectType: 'user', subjectId: 'bob' }, { subjectType: 'group', subjectId: 'marketing' }, { subjectType: 'user', subjectId: 'carol' }])
+      expect(res.status).toBe('confirm')
+      if (res.status === 'confirm') expect(res.check.fileAnswers).toBe(0)
+    }
+  })
+})
+
 describe('one way to open a chat file', () => {
   test('only chat/chat-files.ts names the chat files\' storage', () => {
     const root = path.join(import.meta.dir, '../../server/src')
