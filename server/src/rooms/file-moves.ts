@@ -41,9 +41,10 @@ import path from 'node:path'
 import { PRODUCT } from '@mycel/shared'
 import type { AppContext } from '../context'
 import { newId, nowIso } from '../db'
-import { sha256Regular } from '../files/store'
+import { fileEvent, sha256Regular } from '../files/store'
 import { atLeast, loadPrincipal, RuleSet, type Principal } from '../policy/access'
 import { badSegment } from '../policy/names'
+import { publishChanges } from '../team-files/changes'
 import { componentC } from '../team-files/component'
 import { FileError } from '../team-files/errors'
 import { sharedUploadPlace, type SharedUploadPlace } from '../uploads/shared-chat'
@@ -415,7 +416,9 @@ export class RoomFileMoves {
       const found = this.findPlaced(row, this.placedFolder(row))
       if (found?.kind === 'placed') {
         if (why === 'failed' || why === 'disk_full') return this.commit(row, found.rel)
+        const size = fs.lstatSync(this.abs(found.rel)).size
         putHome(this.abs(found.rel))
+        this.leftProject(row, f, found.rel, size)
       }
       if (found?.kind === 'tmp') putHome(found.abs)
     }
@@ -423,6 +426,16 @@ export class RoomFileMoves {
     this.set(row.id, { state: 'kept', staged: null, reason: why })
     this.tellMessage(f.id)
     return 'kept'
+  }
+
+  /** A placed file taken back out of the project's folder: a delete in its history and a change for the lists and
+   * search, as any other removal of a team file (its upload event stays; a later findPlaced checks the bytes there). */
+  private leftProject(row: MoveRow, f: { id: string; room_id: string }, rel: string, size: number) {
+    try {
+      fileEvent(this.db, { turnId: null, userId: row.actor, path: rel, action: 'delete', size, detail: { attachment: f.id, roomId: f.room_id, movedBack: row.id } })
+      const u = this.db.query('SELECT id, name FROM users WHERE id = ?').get(row.actor) as { id: string; name: string } | null
+      publishChanges(this.ctx, [{ path: rel, action: 'delete', by: u ?? { id: row.actor, name: row.actor }, turnId: null }])
+    } catch (e) { this.ctx.log.warn('a file taken back to the conversation was not told', { err: e, move: row.id }) }
   }
 
   /** The project's Chat attachments folder as the actor would be given it (only to look for a placed file). */
@@ -504,11 +517,15 @@ export class RoomFileMoves {
   /**
    * At start, before the first run: the staging folder's files are the mover's. One of a row still open stays (the run
    * goes on with it); one whose row is settled: the very file at its team path (a second link) is unlinked, a kept
-   * file's bytes go back to room storage when they are not there, anything else is left and logged. The rooms with moves
-   * are looked at for their closing line after the first run.
+   * file's bytes go back to room storage when they are not there (its `staged` cleared), a kept file whose message was
+   * deleted meanwhile (restore_failed, then the message went) is deleted, anything else is left and logged. The rooms
+   * with moves are looked at for their closing line after the first run.
    */
-  reconcile(): { unlinked: number; restored: number; left: number } {
-    const out = { unlinked: 0, restored: 0, left: 0 }
+  reconcile(): { unlinked: number; restored: number; removed: number; left: number } {
+    const out = { unlinked: 0, restored: 0, removed: 0, left: 0 }
+    // a kept row whose message is gone needs nothing staged: its file (when there) is removed in the loop, the column
+    // cleared here either way (the next start then finds nothing to keep)
+    const goneKept = this.db.query("SELECT id FROM room_file_moves WHERE state = 'kept' AND staged IS NOT NULL AND room_file_id IS NULL").all() as { id: string }[]
     for (const r of this.db.query('SELECT DISTINCT room_id FROM room_file_moves').all() as { room_id: string }[]) this.touched.add(r.room_id)
     let names: string[] = []
     try { names = fs.readdirSync(this.stagingRoot()) } catch { return out }
@@ -527,10 +544,12 @@ export class RoomFileMoves {
       if (row?.state === 'kept' && row.room_file_id) {
         const f = this.db.query('SELECT id, room_id FROM room_files WHERE id = ?').get(row.room_file_id) as { id: string; room_id: string } | null
         const home = f ? this.roomAbs(f.room_id, f.id) : null
-        if (home && !fs.existsSync(home)) { fs.mkdirSync(path.dirname(home), { recursive: true, mode: 0o700 }); fs.renameSync(abs, home); out.restored++; continue }
+        if (home && !fs.existsSync(home)) { fs.mkdirSync(path.dirname(home), { recursive: true, mode: 0o700 }); fs.renameSync(abs, home); this.set(row.id, { staged: null }); out.restored++; continue }
       }
+      if (row?.state === 'kept' && !row.room_file_id && row.staged && this.abs(row.staged) === abs) { fs.rmSync(abs, { force: true }); out.removed++; continue }
       out.left++
     }
+    for (const r of goneKept) this.set(r.id, { staged: null })
     if (out.left) this.ctx.log.warn('files left in the room moves folder', { left: out.left })
     return out
   }

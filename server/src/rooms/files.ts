@@ -650,7 +650,8 @@ export class RoomFiles {
     // rooms/file-moves.ts, whose bytes are in .system/room-moves/)
     const rows = this.ctx.db.query('SELECT id, room_id FROM room_files f WHERE NOT EXISTS (SELECT 1 FROM room_file_refs rr WHERE rr.room_file_id = f.id)').all() as Pick<FileRow, 'id' | 'room_id'>[]
     const known = new Set(rows.map((r) => `${r.room_id}/${r.id}`))
-    const staged = new Set((this.ctx.db.query("SELECT room_file_id FROM room_file_moves WHERE state IN ('placing', 'cleanup') AND room_file_id IS NOT NULL").all() as { room_file_id: string }[]).map((r) => r.room_file_id))
+    // (a kept row still staged, restore_failed: its bytes are there too until the mover's reconcile puts them back)
+    const staged = new Set((this.ctx.db.query("SELECT room_file_id FROM room_file_moves WHERE (state IN ('placing', 'cleanup') OR (state = 'kept' AND staged IS NOT NULL)) AND room_file_id IS NOT NULL").all() as { room_file_id: string }[]).map((r) => r.room_file_id))
     for (const r of rows) if (!staged.has(r.id) && !fs.existsSync(path.join(this.dir(r.room_id), r.id))) out.missingFiles++
     // a file moved to a project's folder whose room storage path is the very same file (a second link to it): unlinked,
     // never set aside as an orphan (the team file stays)
