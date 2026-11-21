@@ -18,7 +18,7 @@ import { devenvPaths } from '../../server/src/devenv/srt/config'
 import type { SrtSystem, UnitInfo } from '../../server/src/devenv/srt/system'
 import type { DevEnvPlan } from '../../server/src/devenv/srt/plan'
 import { newConsent, saveTeamSetting, teamSetting } from '../../server/src/devenv/setting'
-import { answerWithFiles, labelledTranscript } from '../../server/src/chat/shared'
+import { answerWithFiles, labelledTranscript, sharedCopiesNote } from '../../server/src/chat/shared'
 import { ChatStore } from '../../server/src/chat/store'
 import { saveWorkFileTool } from '../../server/src/chat/work-file-tool'
 import { TurnExec } from '../../server/src/chat/turn'
@@ -113,7 +113,7 @@ describe('save_work_file in a chat shared with people', () => {
     const p = await run('alice', chat, fake({ tool: 'save_work_file', args: { path: 'out/frame.png' }, sayResult: true }))
     expect(p.attachments.find((a) => a.name === 'frame.png')).toMatchObject({ kind: 'image', origin: 'ai' })
     // the next answer's transcript names the file by its id, so save_chat_file can take it later
-    const transcript = labelledTranscript(new ChatStore(h.ctx.db), p.messageId, 'erin', new Set())
+    const transcript = labelledTranscript(new ChatStore(h.ctx.db), p.messageId, 'erin', new Set(), true)
     expect(transcript.map((m) => m.content).join('\n')).toContain(`file_id=${att.id}`)
   })
 
@@ -186,9 +186,22 @@ describe('the rules around it', () => {
 
   test('the transcript line names only chat files', () => {
     const a = { id: '01a1fc0c-bb3a-74b5-a134-7fcbe2e1b208', name: 'clip.mp4', path: '', size: 9, mime: 'video/mp4', kind: 'video', source: 'chat', origin: 'ai' } as Attachment
-    expect(answerWithFiles('Done.', [a])).toContain('file_id=01a1fc0c-bb3a-74b5-a134-7fcbe2e1b208')
-    expect(answerWithFiles('Done.', [{ ...a, source: 'team', path: 'shared/x' }])).toBe('Done.')
+    expect(answerWithFiles('Done.', [a], true)).toContain('file_id=01a1fc0c-bb3a-74b5-a134-7fcbe2e1b208')
+    expect(answerWithFiles('Done.', [{ ...a, source: 'team', path: 'shared/x' }], true)).toBe('Done.')
     // a shared copy (share-chat-files) is named by sharedCopiesNote, not here too
-    expect(answerWithFiles('Done.', [{ ...a, origin: 'shared-copy' }])).toBe('Done.')
+    expect(answerWithFiles('Done.', [{ ...a, origin: 'shared-copy' }], true)).toBe('Done.')
+  })
+
+  test('QA TC-6778: the attachment notes say "everyone" only while other people see the chat', () => {
+    const a = { id: '01a1fc0c-bb3a-74b5-a134-7fcbe2e1b208', name: 'clip.mp4', path: '', size: 9, mime: 'video/mp4', kind: 'video', source: 'chat', origin: 'ai' } as Attachment
+    expect(answerWithFiles('Done.', [a], true)).toContain('attached these files for everyone in the chat')
+    const mine = answerWithFiles('Done.', [a], false)
+    expect(mine).toContain('This answer attached these files to this chat:')
+    expect(mine).toContain('file_id=01a1fc0c-bb3a-74b5-a134-7fcbe2e1b208')
+    expect(mine).not.toMatch(/everyone/i)
+    const copy = { ...a, origin: 'shared-copy' } as Attachment
+    expect(sharedCopiesNote([copy], true)).toContain('kept with this chat for everyone in it')
+    expect(sharedCopiesNote([copy], false)).toContain('kept with this chat: a link')
+    expect(sharedCopiesNote([copy], false)).not.toMatch(/everyone/i)
   })
 })
