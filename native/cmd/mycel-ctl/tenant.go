@@ -63,7 +63,7 @@ type tenant struct {
 	hup           func()
 	liveTurns     func() (int, error)
 	sleep         func(time.Duration)
-	asServerFn    func(stdin []byte, args ...string) error
+	asServerFn    func(stdin []byte, args ...string) ([]byte, error)
 }
 
 // tenantTestHook lets tests replace the parts that need a real server, launcher or systemd.
@@ -101,7 +101,7 @@ func (t *tenant) open(args []string) (int, error) {
 	t.serverStarted = t.serverStartedAtSystemd
 	t.hup = t.hupServer
 	t.liveTurns = func() (int, error) { return (&updater{e: t.e, in: t.in}).launcherLiveTurns() }
-	t.asServerFn = t.asServer
+	t.asServerFn = t.asServerOut
 	if tenantTestHook != nil {
 		tenantTestHook(t)
 	}
@@ -245,23 +245,31 @@ func (t *tenant) hupServer() {
 
 // asServer runs this program again as the server account (server-write / server-config-merge).
 func (t *tenant) asServer(stdin []byte, args ...string) error {
+	_, err := t.asServerOut(stdin, args...)
+	return err
+}
+
+// asServerOut is asServer that also returns what the program printed on stdout (at most 64 KiB).
+func (t *tenant) asServerOut(stdin []byte, args ...string) ([]byte, error) {
 	srv, err := lookupAccount(t.in.ServerUser)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	self, err := os.Executable()
 	if err != nil {
-		return err
+		return nil, err
 	}
 	cmd := exec.Command(self, append(args, "--base", t.e.base)...)
 	cmd.Env = []string{"PATH=/usr/bin:/bin"}
 	cmd.Dir = "/"
 	cmd.Stdin = bytes.NewReader(stdin)
 	cmd.SysProcAttr = &syscall.SysProcAttr{Credential: &syscall.Credential{Uid: uint32(srv.uid), Gid: uint32(srv.gid), Groups: []uint32{}}}
-	if out, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("%s as %s: %v %s", args[0], t.in.ServerUser, err, strings.TrimSpace(string(out)))
+	var out, errb bytes.Buffer
+	cmd.Stdout, cmd.Stderr = &limitedBuffer{b: &out, max: 64 << 10}, &limitedBuffer{b: &errb, max: 64 << 10}
+	if err := cmd.Run(); err != nil {
+		return nil, fmt.Errorf("%s as %s: %v %s", args[0], t.in.ServerUser, err, strings.TrimSpace(out.String()+" "+errb.String()))
 	}
-	return nil
+	return out.Bytes(), nil
 }
 
 // ---------------------------------------------------------------- the commands
@@ -332,7 +340,7 @@ func cmdSetServerConfig(e *env, args []string) (int, error) {
 	if err := checkServerConfigPatch(m); err != nil {
 		return 1, err
 	}
-	if err := t.asServerFn(raw, "server-config-merge"); err != nil {
+	if _, err := t.asServerFn(raw, "server-config-merge"); err != nil {
 		return 1, err
 	}
 	restarted, err := t.restart()
@@ -421,7 +429,7 @@ func cmdRelayRegistrationSet(e *env, args []string) (int, error) {
 		return 1, fmt.Errorf("relayRegistration: a field is not valid")
 	}
 	file, _ := json.Marshal(r)
-	if err := t.asServerFn(append(file, '\n'), "server-write", "--file", "data/relay/registration.json"); err != nil {
+	if _, err := t.asServerFn(append(file, '\n'), "server-write", "--file", "data/relay/registration.json"); err != nil {
 		return 1, err
 	}
 	if _, err := t.restart(); err != nil {
@@ -833,12 +841,114 @@ func cmdErrorReportsSet(e *env, args []string) (int, error) {
 	return t.out(map[string]any{"ok": true, "changed": changed, "restarted": restarted})
 }
 
+// githubAppFile: where the server reads its GitHub App (server/src/integrations/github/app.ts githubAppFile, the
+// Linux layout's <base>/secrets), relative to the base.
+const githubAppFile = "secrets/integrations/github/app.json"
+
+// The GitHub App's values (shared/src/cloud-protocol GitHubAppFile). app.ts reads the same names with rules at least
+// this wide; the secret is printable ASCII without spaces, so the file (written without HTML escapes) stays below
+// app.ts's 16 KiB.
+var (
+	githubClientIDRE = regexp.MustCompile(`^[A-Za-z0-9._-]{1,128}$`)
+	githubSecretRE   = regexp.MustCompile(`^[!-~]+$`) // and at most 4096 (Go's regexp repeats at most 1000)
+	githubSlugRE     = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,99}$`)
+)
+
+// githubApp is the file's shape (field order fixed, so the same values always give the same bytes).
+type githubApp struct {
+	ClientID     string `json:"clientId"`
+	ClientSecret string `json:"clientSecret"`
+	Slug         string `json:"slug,omitempty"`
+}
+
+// parseGitHubApp checks one GitHubAppFile: exactly these keys, each a string that matches its rule.
+func parseGitHubApp(m map[string]json.RawMessage) (githubApp, error) {
+	var a githubApp
+	for k := range m {
+		if k != "clientId" && k != "clientSecret" && k != "slug" {
+			return a, fmt.Errorf("stdin must be { clientId, clientSecret, slug? }")
+		}
+	}
+	str := func(k string) (string, bool) {
+		var v string
+		raw, ok := m[k]
+		return v, ok && json.Unmarshal(raw, &v) == nil
+	}
+	var ok bool
+	if a.ClientID, ok = str("clientId"); !ok || !githubClientIDRE.MatchString(a.ClientID) {
+		return a, fmt.Errorf("clientId: not a GitHub App client ID")
+	}
+	if a.ClientSecret, ok = str("clientSecret"); !ok || len(a.ClientSecret) > 4096 || !githubSecretRE.MatchString(a.ClientSecret) {
+		return a, fmt.Errorf("clientSecret: 1 to 4096 printable characters without spaces")
+	}
+	if _, has := m["slug"]; has {
+		if a.Slug, ok = str("slug"); !ok || !githubSlugRE.MatchString(a.Slug) {
+			return a, fmt.Errorf("slug: not a GitHub App name")
+		}
+	}
+	return a, nil
+}
+
+// github-app-set < { clientId, clientSecret, slug? }: the hosting service's GitHub App for this team server's GitHub
+// connector, written to <base>/secrets/integrations/github/app.json by the server account (file 0600, folder 0700,
+// replaced atomically, never through a link). The server reads the file at each request: no restart. The same values
+// again change nothing (changed false), so the hosting service may send it as often as it likes.
+// The secret is never in an argument, an error or the answer { ok, changed }.
+func cmdGitHubAppSet(e *env, args []string) (int, error) {
+	t := newTenant(e, "github-app-set")
+	if c, err := t.open(args); err != nil {
+		return c, err
+	}
+	// 32 KiB: a secret of 4096 characters is up to six times that once escaped (\u003c)
+	_, m, err := t.stdinJSON(32 << 10)
+	if err != nil {
+		return 1, err
+	}
+	app, err := parseGitHubApp(m)
+	if err != nil {
+		return 1, err
+	}
+	// no HTML escaping (json.Marshal writes < > & as 6 bytes each): the file stays below app.ts's 16 KiB
+	var file bytes.Buffer
+	enc := json.NewEncoder(&file)
+	enc.SetEscapeHTML(false)
+	if err := enc.Encode(app); err != nil {
+		return 1, err
+	}
+	if file.Len() > 16<<10 {
+		return 1, fmt.Errorf("the app file would be over 16 KiB")
+	}
+	raw, err := t.asServerFn(file.Bytes(), "server-write", "--file", githubAppFile)
+	if err != nil {
+		return 1, err
+	}
+	var r struct {
+		Changed *bool `json:"changed"`
+	}
+	if json.Unmarshal(bytes.TrimSpace(raw), &r) != nil || r.Changed == nil {
+		return 1, fmt.Errorf("server-write did not say whether the file changed")
+	}
+	return t.out(struct {
+		OK      bool `json:"ok"`
+		Changed bool `json:"changed"`
+	}{true, *r.Changed})
+}
+
 // ---------------------------------------------------------------- as the server account
 
+// serverWriteTarget: a file server-write may replace, its mode, and its folder's mode (0 = leave an existing folder's
+// mode as it is).
+type serverWriteTarget struct{ mode, dirMode os.FileMode }
+
 // serverWriteTargets: the only files server-write may replace (relative to the base).
-var serverWriteTargets = map[string]os.FileMode{"data/relay/registration.json": 0o600}
+var serverWriteTargets = map[string]serverWriteTarget{
+	"data/relay/registration.json": {mode: 0o600},
+	githubAppFile:                  {mode: 0o600, dirMode: 0o700},
+}
 
 // cmdServerWrite (internal, run as the server account by asServer): replace one allowed file atomically with stdin.
+// Prints {"changed":false} and writes nothing when the file already holds these bytes with its mode, else
+// {"changed":true}. Never prints what it writes.
 func cmdServerWrite(e *env, args []string) (int, error) {
 	fs := flag.NewFlagSet("server-write", flag.ContinueOnError)
 	e.flags(fs)
@@ -846,7 +956,7 @@ func cmdServerWrite(e *env, args []string) (int, error) {
 	if err := fs.Parse(args); err != nil {
 		return 2, usageError{err.Error()}
 	}
-	mode, ok := serverWriteTargets[*file]
+	tg, ok := serverWriteTargets[*file]
 	if !ok || os.Geteuid() == 0 {
 		return 2, usageError{"internal: an allowed file, as the server account"}
 	}
@@ -855,10 +965,36 @@ func cmdServerWrite(e *env, args []string) (int, error) {
 		return 1, err
 	}
 	p := filepath.Join(e.base, *file)
-	if err := os.MkdirAll(filepath.Dir(p), 0o700); err != nil {
+	dir := filepath.Dir(p)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return 1, err
 	}
-	return 0, writeOwnFile(p, b, mode)
+	if tg.dirMode != 0 {
+		var st unix.Stat_t
+		if err := unix.Lstat(dir, &st); err != nil {
+			return 1, err
+		}
+		if st.Mode&unix.S_IFMT != unix.S_IFDIR {
+			return 1, fmt.Errorf("%s is not a folder", dir)
+		}
+		if os.FileMode(st.Mode&0o7777) != tg.dirMode {
+			if err := os.Chmod(dir, tg.dirMode); err != nil {
+				return 1, err
+			}
+		}
+	}
+	if cur, err := readOwnFile(p, 1<<20); err == nil && bytes.Equal(cur, b) {
+		var st unix.Stat_t
+		if unix.Lstat(p, &st) == nil && os.FileMode(st.Mode&0o7777) == tg.mode && st.Nlink == 1 {
+			fmt.Fprintln(e.stdout, `{"changed":false}`)
+			return 0, nil
+		}
+	}
+	if err := writeOwnFile(p, b, tg.mode); err != nil {
+		return 1, err
+	}
+	fmt.Fprintln(e.stdout, `{"changed":true}`)
+	return 0, nil
 }
 
 // cmdServerConfigMerge (internal, as the server account): merge the checked patch into config/server.json, keeping
