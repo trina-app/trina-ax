@@ -65,21 +65,22 @@ function Status({ busy, error, what }: { busy: boolean; error: string | null; wh
  * down to fit (lib/docxFit.ts), never up. */
 export function DocxView({ blob, width }: { blob: Blob; width: number }) {
   const t = useT()
-  // the widest page at scale 1, measured once after each render
-  const [page, setPage] = useState(0)
+  // the widest page at scale 1, measured once after each render: a new object each time, so a next file whose pages
+  // are as wide as the last one's still gets its zoom (renderAsync draws a new wrapper)
+  const [page, setPage] = useState<{ w: number }>({ w: 0 })
   const { ref, error, busy } = useRender(async (el) => {
     const { renderAsync } = await import('docx-preview')
     // no external resources: docx-preview renders embedded images from the file itself
     await renderAsync(blob, el, undefined, { inWrapper: true, ignoreLastRenderedPageBreak: true, renderComments: false, renderAltChunks: false, useBase64URL: true })
     fixRenderedBullets(el)
     const wrapper = el.querySelector<HTMLElement>('.docx-wrapper')
-    setPage(wrapper ? docxPageWidth(wrapper) : 0)
+    setPage({ w: wrapper ? docxPageWidth(wrapper) : 0 })
   }, [blob])
   // CSS zoom (not a transform): the scroll height follows the smaller pages
   useLayoutEffect(() => {
     const wrapper = ref.current?.querySelector<HTMLElement>('.docx-wrapper')
     if (!wrapper) return
-    const z = docxFitZoom(width, page)
+    const z = docxFitZoom(width, page.w)
     if (z < 1) wrapper.style.setProperty('zoom', String(z))
     else wrapper.style.removeProperty('zoom')
   }, [ref, width, page])
