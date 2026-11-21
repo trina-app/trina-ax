@@ -36,7 +36,7 @@ const MINA = path.resolve(import.meta.dir, '..', 'mina')
 const ASSETS = path.join(MINA, 'assets')
 
 /** the languages Steepling is written in: one snapshot each (demo-gate's pool.locales picks the live ones), and the
- * free-roam sign-in page's languages (web/src/lib/freeRoam.ts FREE_ROAM_LOCALES, kept equal by a unit test) */
+ * free-roam sign-in page's languages (web/src/lib/freeRoam.ts FREE_ROAM_LOCALES, kept equal by a unit test; one instance offers its own and English) */
 export const STEEPLING_LOCALES = ['en', 'ko', 'ja', 'zh', 'es', 'id'] as const
 export type SteeplingLocale = (typeof STEEPLING_LOCALES)[number]
 export interface SteeplingWords { story: Strings; more: FreeRoamStrings; rich: RichWords }

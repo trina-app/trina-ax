@@ -49,7 +49,7 @@ The cast, names, company, project, skills, files and pictures come from `scripts
   the same in Korean).
 - **Dates**: no calendar dates and no launch-month names, not even for the launch (it is "Monday", the offer runs
   "two weeks"): the banners travel as files, so a date in them goes stale. Everything else is relative ("today", "last
-  week"), so a snapshot built on another day still reads right. `tests/unit/demo-story-no-dates.test.ts` checks it.
+  week"), so a snapshot built on another day still reads right. No day of the month either ("the 23rd", 23일, 23日). `tests/unit/demo-story-no-dates.test.ts` checks it.
 
 ## Fake Gmail, Drive and Higgsfield
 

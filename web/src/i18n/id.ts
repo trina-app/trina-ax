@@ -4308,7 +4308,7 @@ export const id: Record<MessageKey, string> = {
   "demo.free.bar": "Anda adalah {name} di {company}, perusahaan rekaan. Coba apa saja.",
   "demo.free.tryLabel": "Hal untuk dicoba",
   "demo.free.practice": "Koneksi latihan",
-  "demo.free.practiceTip": "Gmail, Google Drive, dan Higgsfield di sini hanya untuk latihan: tidak ada yang benar-benar terkirim, dan gambar baru diambil dari kumpulan yang sudah disiapkan.",
+  "demo.free.practiceTip": "Gmail, Google Drive, dan Higgsfield di sini hanya untuk latihan: email tidak pernah benar-benar terkirim, dan gambar baru diambil dari kumpulan yang sudah disiapkan.",
   "demo.free.chip.posts": "Buat postingan media sosial untuk minggu depan",
   "demo.free.chip.reply": "Cek balasan Chris",
   "demo.free.chip.assets": "Apa isi folder Brand assets kita?",

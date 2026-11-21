@@ -4251,7 +4251,7 @@ export const zh: Record<MessageKey, string> = {
   "demo.free.bar": "你是虚构公司{company}的{name}。随便试试吧。",
   "demo.free.tryLabel": "可以试试",
   "demo.free.practice": "练习用连接",
-  "demo.free.practiceTip": "这里的 Gmail、Google 云端硬盘和 Higgsfield 是练习用的，不会真的发送，也不会真的新建内容。",
+  "demo.free.practiceTip": "这里的 Gmail、Google 云端硬盘和 Higgsfield 是练习用的：邮件不会真的发出，新图片从准备好的一组图片中挑选。",
   "demo.free.chip.posts": "做下周的社交媒体帖子",
   "demo.free.chip.reply": "看看克里斯的回复",
   "demo.free.chip.assets": "我们的品牌素材文件夹里有什么？",

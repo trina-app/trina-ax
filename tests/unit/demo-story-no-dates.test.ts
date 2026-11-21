@@ -2,7 +2,8 @@
 // calendar dates: the launch is "Monday" and the offer runs "two weeks". The banners travel as files (Files, chat, the
 // Gmail draft, the free-roam team folder), so a date written into the story goes stale the day it passes and the
 // campaign looks over (scripts/demo/steepling/README.md, "Dates"). Lean on purpose: November/December in each
-// language's forms, 11월/12월/11月/12月, ISO dates and n/n or n.n ranges. Older history ("October was our best month")
+// language's forms, 11월/12월/11月/12月, ISO dates, n/n or n.n ranges, and a day of the month on its own ("the 23rd",
+// 23일, 23日, "el 23", "tanggal 23"; a span of days like "2日ほど" or "8일 걸렸어요" is not a date). Older history ("October was our best month")
 // still reads as history, so other months are left alone.
 import { describe, expect, test } from 'bun:test'
 import fs from 'node:fs'
@@ -70,6 +71,18 @@ const ANY_MONTH: RegExp[] = [
 ]
 ALL.push(...SINCE)
 
+/** a day of the month without its month ("on track for the 23rd?", "23일 일정"), in every language. A span of days
+ * ("2日ほど", "8일 걸렸어요", "10日前", "1日以内") is not one: the words after the number tell them apart. */
+const DAY = '(?:[1-9]|[12]\\d|3[01])'
+const DAYS: RegExp[] = [
+  new RegExp(`\\b${DAY}(?:st|nd|rd|th)\\b`),
+  new RegExp(`(?<![\\d.,])${DAY}\\s*일(?!\\s*(?:정도|동안|간|만에|이내|째|전|후|뒤|걸|까지\\s*걸|이상|씩|에\\s*한))`),
+  new RegExp(`(?<![\\d.,])${DAY}\\s*[日号](?!\\s*(?:ほど|以内|以上|前|後|間|がかり|かか|も|分|中|内|天|左右|ごと|おき|に一))`),
+  new RegExp(`\\bel (?:día )?${DAY}(?![\\d%.,:])\\b`, 'i'),
+  new RegExp(`\\btanggal ${DAY}\\b`, 'i'),
+]
+ALL.push(...DAYS)
+
 /** month names that are written lower case in a language (so matched without case) */
 const BY_LOCALE: Record<string, RegExp[]> = {
   es: [/\b(noviembre|diciembre|nov|dic)\b/i],
@@ -136,5 +149,23 @@ describe('the demo story has no calendar dates', () => {
     expect(caught('23 nov – 6 dic', 'es')).toBe(true)
     expect(caught('23 Nov – 6 Des', 'id')).toBe(true)
     for (const s of ['4.0 stars', '$11.90 for 10 bags', 'Bun 1.3.12', '월 40박스', '2日ほど', '월요일', '1200×628', '1:1 and 9:16']) expect(caught(s)).toBe(false)
+  })
+
+  test('a day of the month on its own fails in every language; a span of days does not', () => {
+    const caught = (s: string, loc: string) => [...ALL, ...(BY_LOCALE[loc] ?? [])].some((r) => r.test(visible(s)))
+    // each language's leftover from before Monday (the en and ko lines said "the 23rd" and "23일 일정" until 2026-11-21)
+    const day: Record<(typeof STEEPLING_LOCALES)[number], string> = {
+      en: `  'mkt.track': 'Quick check: are we on track for the 23rd?',`,
+      ko: `  'mkt.track': '하나만 확인할게요. 23일 일정 문제없죠?',`,
+      ja: `  'mkt.track': 'ひとつだけ確認です。23日の予定どおりですよね？',`,
+      zh: `  'mkt.track': '确认一下：23号上市没问题吧？',`,
+      es: `  'mkt.track': 'Una pregunta rápida: ¿vamos bien para el 23?',`,
+      id: `  'mkt.track': 'Cek satu hal ya: kita aman untuk tanggal 23, kan?',`,
+    }
+    for (const l of STEEPLING_LOCALES) expect(caught(day[l], l), l).toBe(true)
+    for (const s of ['on the 1st', 'by the 2nd', '5일까지 보내 주세요', '6日まで', '23日に', '23日发布', 'el día 6', 'El 23 de noviembre', 'Tanggal 6']) expect(caught(s, 'en'), s).toBe(true)
+    // the same lines as written now, and spans of days the story keeps
+    for (const s of ['Quick check: are we on track for Monday?', '하나만 확인할게요. 월요일 일정 문제없죠?', 'ふつうは2日ほど', '보통은 2일 정도', '차는 좋은데 도착까지 8일 걸렸어요.', '10일 전', '10日前', '営業日1日以内に返信',
+      '届くまで8日かかりました。', 'ローンチの3日前', '1日がかりで撮影', '최대 8일까지 걸렸어요', 'el 20% de descuento', 'el lunes', 'Top 3 posts', '4.0 stars']) expect(caught(s, 'en'), s).toBe(false)
   })
 })

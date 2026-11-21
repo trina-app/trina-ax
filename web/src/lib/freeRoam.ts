@@ -22,10 +22,21 @@ export function mayBeDemoServer(me: Me | null | undefined): boolean {
 
 export const isFreeRoam = (info: DemoInfo | null | undefined): info is DemoInfo & { kind: 'freeRoam' } => info?.kind === 'freeRoam'
 
-/** The languages a free-roam demo has (its sign-in page offers only these, QA TC-5621): the ones the demo company is
- * written in and a snapshot can be built in, scripts/demo/steepling/make.ts STEEPLING_LOCALES (demo-gate keeps one
- * snapshot per language; tests/unit/demo-company-seed.test.ts keeps the two lists equal). */
+/** The languages a free-roam demo can be in: the ones the demo company is written in and a snapshot can be built in,
+ * scripts/demo/steepling/make.ts STEEPLING_LOCALES (demo-gate keeps one snapshot per language;
+ * tests/unit/demo-company-seed.test.ts keeps the two lists equal). One instance's sign-in page offers fewer:
+ * freeRoamSignInLocales. */
 export const FREE_ROAM_LOCALES: readonly Locale[] = ['en', 'ko', 'ja', 'zh', 'es', 'id']
+
+/**
+ * The languages one free-roam instance's sign-in page offers (QA TC-5621): its own (the team default its snapshot was
+ * built in, GET /api/setup `defaultLocale`) and English. Not every one of FREE_ROAM_LOCALES: demo-gate runs only some
+ * live (`pool.locales`, en and ko by default), and an en or ko instance has no ja, zh, es or id screens of its company.
+ * Not known (an older server, a failed request): English only.
+ */
+export function freeRoamSignInLocales(own: Locale | null | undefined): readonly Locale[] {
+  return own && own !== 'en' && FREE_ROAM_LOCALES.includes(own) ? ['en', own] : ['en']
+}
 
 /** the meter starts to speak at this share of the demo limit */
 export const METER_FROM = 0.8
