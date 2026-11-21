@@ -38,6 +38,7 @@ import { MAIL_FIELD_WORDS, say } from './text'
 import { cardLines, fieldWord, methodWord, toolKindOf, toolTitle, type CardLine, type FieldWords } from './card-lines'
 import { activeDemoFakes } from '../../demo/fakes'
 import { HIGGSFIELD_HOSTS } from '../../demo/fakes/higgsfield'
+import { withDemoChat } from '../../demo/fakes/scope'
 import { readKind, readsHere } from './read-mark'
 import type { RemoteTool } from './mcp'
 import { byName, checkArgs, deferredLines, DEFERRED_LIST_BUDGET, FIND_TOOLS_DEFAULT, FIND_TOOLS_MAX, matchTools, oneLine, type FindEntry } from './deferred'
@@ -1052,7 +1053,9 @@ function mcpTool(ctx: AppContext, b: BuildCtx, row: Row, tool: RemoteTool, name:
           recheckTeamFiles(ctx, tc, files)
           sending = withTeamFiles(args, files)
         }
-        const r = await svc.callTool(current, t.name, sending, tc.signal, current.local_app ? localVia(ctx, tc, current) : null).catch((e) => {
+        // withDemoChat: a demo fake knows the chat it answers for (demo/fakes/scope.ts)
+        const calling = current
+        const r = await withDemoChat(chat, () => svc.callTool(calling, t.name, sending, tc.signal, calling.local_app ? localVia(ctx, tc, calling) : null)).catch((e) => {
           // an attachment whose answer was cut off at the size limit: said plainly (the connection is fine)
           if (current!.google_app && t.name === ATTACHMENT_TOOL && e instanceof CallError && e.kind === 'too_large') throw new CallError(tooLargeMessage(fileName), 'attachment too large')
           throw e

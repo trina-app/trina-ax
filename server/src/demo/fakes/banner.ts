@@ -36,7 +36,15 @@ const Words = z.object({
 export type BannerWords = z.infer<typeof Words>
 const Box = z.tuple([z.number().min(0).max(1), z.number().min(0).max(1), z.number().min(0).max(1), z.number().min(0).max(1)])
 const Photo = z.object({ file: z.string().regex(/^[\w.-]+\.(jpg|jpeg|png)$/), label: Box.nullable() })
-const Scene = z.object({ id: z.string().regex(/^[\w-]{1,40}$/), words: z.array(z.string().max(40)).max(60), photos: z.partialRecord(z.enum(BANNER_SIZES), Photo) })
+const Scene = z.object({
+  id: z.string().regex(/^[\w-]{1,40}$/),
+  /** what a prompt is matched against, here and for generate_image's photo of this scene (higgsfield.ts loadPictures):
+   * every demo language's words (scripts/demo/steepling/banner/kit.ts SCENE_WORDS) */
+  words: z.array(z.string().max(40)).max(80),
+  photos: z.partialRecord(z.enum(BANNER_SIZES), Photo),
+  /** the file name of this scene's generate_image photo in <content>/higgsfield/ (a kit from before 11-22 has none) */
+  picture: z.string().min(1).max(300).refine((n) => !/[\\/]/.test(n) && !n.startsWith('.'), 'a file name').optional(),
+})
 export const BannerKitFile = z.object({
   lang: z.enum(['en', 'ko', 'ja', 'zh', 'es', 'id']),
   brand: z.string().max(60),

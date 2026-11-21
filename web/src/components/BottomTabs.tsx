@@ -2,8 +2,8 @@
 // tabs: 트리나 · 대화 · 파일 · 나", "Projects: a place of their own"): 트리나 (the AI: its list first, a new chat behind
 // its button), 대화 (rooms, DMs and group chats), 프로젝트 (every project, panels/ProjectsPanel.tsx), 파일 (the team folder's places), 나 (Settings, opened on its list: 활동 and, for admins, Admin on top).
 // lib/tabs.ts says which tab an address belongs to and which one the app opens on. A hairline above, no frame; the tab
-// on screen in ink and medium weight. Each label stays on one line, cut with "…" when a language's word does not fit a
-// fifth of a narrow phone at a large text size. Each unread thing counted once (QA TC-256): on 대화 the rail's own mark
+// on screen in ink and medium weight. Each label takes at most two lines (a long word may break), cut with "…" after
+// the second when a language's words do not fit a fifth of a narrow phone at a large text size. Each unread thing counted once (QA TC-256): on 대화 the rail's own mark
 // (rail/railBadges.ts chatsMark: how many conversations have something unread, a dot when only a mention/thread notice
 // is, the same number the computer shows), on 나 the unread Inbox notices that are not about a
 // conversation (store/inbox.ts useNoticeUnread), on 트리나 the AI chats' mark (a dot, amber while a chat waits on me, else

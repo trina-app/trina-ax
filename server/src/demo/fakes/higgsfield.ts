@@ -3,8 +3,8 @@
 // job_display, show_generations, balance. A banner's words are not changed here: that is the server's own
 // change_banner_text (banners.ts, tools/demo-banner.ts), since nothing goes to Higgsfield for it (owner, 11-22).
 // generate_image answers at once with a canned picture picked by the words of
-// the prompt from the content folder's higgsfield/ pictures (their file names are the keywords: "yuzu-ginger-window.jpg"),
-// no picture when none matches, a built-in one when the folder has none; the picture comes inline (connections/media.ts
+// the prompt from the content folder's higgsfield/ pictures (their file names are the keywords: "yuzu-ginger-window.jpg",
+// plus the words of their scene in the banner kit, every demo language: banner.ts, kit.json), no picture when none matches, a built-in one when the folder has none; the picture comes inline (connections/media.ts
 // keeps it for save_connector_file) and at a download address only this fake answers (tools/download.ts). A video is refused. No credits are ever used.
 import fs from 'node:fs'
 import path from 'node:path'
@@ -13,6 +13,8 @@ import type { RemoteTool } from '../../integrations/connections/mcp'
 import type { NetRequest } from '../../integrations/connections/net'
 import type { FakeState, Generation } from './state'
 import { answerMcp, str, text, type FakeTool, type McpResult } from './mcp'
+import { loadBannerKit, type BannerKitFile } from './banner'
+import { demoChat } from './scope'
 
 /** the hosts of the Higgsfield MCP connection this fake answers */
 export const HIGGSFIELD_HOSTS = new Set(['mcp.higgsfield.ai'])
@@ -31,10 +33,12 @@ const INLINE_MAX = 4 * 1024 * 1024
 const PICTURE_MAX = 20 * 1024 * 1024
 const MIME: Record<string, string> = { '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp' }
 
-interface Picture { name: string; words: string[]; mime: string; read: () => Buffer }
+/** `words`: its file name's; `keywords`: its scene's in the banner kit (kit.json scenes[].picture), every demo language */
+interface Picture { name: string; words: string[]; keywords?: string[]; mime: string; read: () => Buffer }
 
-/** the canned pictures of the content folder (higgsfield/*.png|jpg|jpeg|webp) */
-export function loadPictures(content: string | null): Picture[] {
+/** the canned pictures of the content folder (higgsfield/*.png|jpg|jpeg|webp), each with its scene's words from the
+ * banner kit when the kit names it */
+export function loadPictures(content: string | null, kit: BannerKitFile | null = loadBannerKit(content)): Picture[] {
   if (!content) return []
   const dir = path.join(content, PICTURES_DIR)
   let names: string[] = []
@@ -45,21 +49,28 @@ export function loadPictures(content: string | null): Picture[] {
     if (!mime || name.startsWith('.')) continue
     const file = path.join(dir, name)
     try { if (!fs.statSync(file).isFile() || fs.statSync(file).size > PICTURE_MAX) continue } catch { continue }
-    out.push({ name, mime, words: words(path.basename(name, path.extname(name))), read: () => fs.readFileSync(file) })
+    const scene = kit?.scenes.find((s) => s.picture?.normalize('NFC') === name.normalize('NFC'))
+    const keywords = scene ? [...new Set(scene.words.map((w) => w.toLowerCase().normalize('NFC')).filter((w) => w.length > 1))] : undefined
+    out.push({ name, mime, words: words(path.basename(name, path.extname(name))), ...(keywords?.length ? { keywords } : {}), read: () => fs.readFileSync(file) })
   }
   return out
 }
 
-const words = (s: string) => s.toLowerCase().split(/[^\p{L}\p{N}]+/u).filter((w) => w.length > 1)
+const words = (s: string) => s.normalize('NFC').toLowerCase().split(/[^\p{L}\p{N}]+/u).filter((w) => w.length > 1)
+/** Japanese and Chinese: no spaces between words, so such a word is found inside the prompt (Korean has spaces, and a
+ * one-syllable Korean word found inside others would match nearly anything) */
+const unspaced = (w: string) => /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}]/u.test(w)
 
-/** The picture whose name shares the most words with the prompt (the first on a tie), or null when none shares a word.
- * Before 11-22 no match gave the first picture: asked for a scene the demo does not have, the visitor got the same
- * prepared photo twice and two copies of it in their files (QA A4). */
+/** The picture whose name and scene words share the most with the prompt (the first on a tie), or null when none
+ * shares a word: a word of the prompt, or a Japanese or Chinese word found anywhere in it. Before 11-22 no match gave
+ * the first picture: asked for a scene the demo does not have, the visitor got the same prepared photo twice and two
+ * copies of it in their files (QA A4). */
 export function pickPicture(pictures: readonly Picture[], prompt: string): Picture | null {
   const want = new Set(words(prompt))
+  const whole = prompt.normalize('NFC').toLowerCase()
   let best: Picture | null = null, score = 0
   for (const p of pictures) {
-    const s = p.words.filter((w) => want.has(w)).length
+    const s = [...new Set([...p.words, ...(p.keywords ?? [])])].filter((w) => want.has(w) || (unspaced(w) && whole.includes(w))).length
     if (s > score) { best = p; score = s }
   }
   return best
@@ -71,7 +82,8 @@ const sceneWords = (p: Picture) => p.words.filter((w) => /^[a-z]+$/.test(w)).sli
 export function noPictureText(prompt: string, pictures: readonly Picture[]): string {
   return `No prepared photo matches '${prompt.replace(/\s+/g, ' ').slice(0, 200)}'. Nothing was made. Prepared scenes: ${pictures.map(sceneWords).join('; ')}. For a banner on one of them, use change_banner_text with scene.`
 }
-/** what generate_image says when the closest photo is the one it gave last time: nothing new, nothing to save again */
+/** what generate_image says when the closest photo is the one it gave last time in this chat: nothing new, nothing to
+ * save again */
 export function samePictureText(prompt: string, job: string, pictures: readonly Picture[]): string {
   return `The closest prepared photo for '${prompt.replace(/\s+/g, ' ').slice(0, 200)}' is the one already given as job ${job}. Nothing new was made; do not save it again. Prepared scenes: ${pictures.map(sceneWords).join('; ')}.`
 }
@@ -162,11 +174,13 @@ export class FakeHiggsfield {
     // all (the built-in data): the built-in picture
     const pick = pickPicture(this.pictures, prompt)
     if (this.pictures.length && !pick) return text(noPictureText(prompt, this.pictures), true)
-    // the same prepared photo as the last one Higgsfield gave: no second copy (QA A4: the AI asked again and the visitor
-    // got the same photo twice, saved twice)
-    const lastOwn = [...this.state.get().generations].reverse().find(ownJob)
+    // the same prepared photo as the last one Higgsfield gave in this chat: no second copy (QA A4: the AI asked again
+    // and the visitor got the same photo twice, saved twice). Another chat or project asking for it gets it: that is a
+    // new request (review of #293). No chat known: never refused.
+    const chat = demoChat()
+    const lastOwn = chat ? [...this.state.get().generations].reverse().find((g) => ownJob(g) && g.chat === chat) : undefined
     if (pick && lastOwn?.picture === pick.name) return text(samePictureText(prompt, lastOwn.id, this.pictures), true)
-    const g: Generation = { id: this.state.nextId('job'), prompt, model: str(a.model, 100) || 'demo-image', picture: pick?.name ?? 'built-in', mime: pick?.mime ?? 'image/png', createdAt: new Date().toISOString() }
+    const g: Generation = { id: this.state.nextId('job'), prompt, model: str(a.model, 100) || 'demo-image', picture: pick?.name ?? 'built-in', mime: pick?.mime ?? 'image/png', createdAt: new Date().toISOString(), ...(chat ? { chat } : {}) }
     this.state.update((d) => { d.generations.push(g) })
     const b = this.bytesOf(g)
     return { content: [{ type: 'text', text: JSON.stringify({ ...this.view(g), photo: PREPARED_PHOTO, next: SAVE_NEXT }) }, ...(b.bytes.length <= INLINE_MAX ? [{ type: 'image' as const, data: b.bytes.toString('base64'), mimeType: b.mime }] : [])] }
