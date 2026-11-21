@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-21 18:34
 - Branch: `docs/friendly-screens-a`
-- Status: in progress
+- Status: done
 - Where: docs/site (all six languages), scripts/docs/screenshots.ts, docs/site/images. Why: the owner asked whether
   the docs are friendly; the readers are non-developers, and the hard steps need plain numbered steps and pictures.
 - Version impact: none (documentation and the docs screenshot script only)
@@ -46,4 +46,7 @@ Screenshots use the mock server's fictional team "Acme" only.
 
 ## Result
 
-(filled in at the end)
+The 11 pages in six languages, as planned. Eight new mock shots in scripts/docs/screenshots.ts (English only; zh uses its
+existing localized account-menu picture). Fixed fact: connect-apps said Admin is in the menu under your photo; it is in
+the team menu, and members see neither Invite people nor Admin there. Third-party screens (Google consent, Slack
+approve, Claude approve, Google Admin console) are text only. The PR link is in the PR itself.
