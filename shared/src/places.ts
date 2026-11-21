@@ -47,8 +47,10 @@ export function parsePlace(input: unknown): Place | null {
   return { kind: 'chatFiles', id: null, name: segs[0]! }
 }
 
-/** The path the AI is told for a chat file (the transcript, results): by id, so two files of one name never mix */
-export const chatFilePath = (id: string, name: string) => `chat:files/${id}/${name.replace(/[\r\n/\\]+/g, ' ').trim() || 'file'}`
+/** The path the AI is told for a chat file (the transcript, results): by id, so two files of one name never mix. The
+ * name is anyone's in the chat and goes inside our blocks (<attachments>, a tool result): no "<", ">", quote or line
+ * break, so it never closes a block or opens one (the id finds the file; the name part is only read by people) */
+export const chatFilePath = (id: string, name: string) => `chat:files/${id}/${name.replace(/[\r\n\u2028\u2029/\\<>"]+/g, ' ').trim() || 'file'}`
 
 /** The work-folder path in the chat place form */
 export const workPlacePath = (rel: string) => (rel ? `chat:work/${rel}` : 'chat:work/')
