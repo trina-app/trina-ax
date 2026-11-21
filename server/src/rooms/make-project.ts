@@ -100,12 +100,13 @@ function guestsBlocked(db: Database, members: readonly Member[]): UserRef[] {
   return members.filter((m) => m.guest && heldProject(db, m.id) !== null).map((m) => ({ id: m.id, name: m.name }))
 }
 
-/** The name field's first value: the room's own name, or for an unnamed group chat the names its row shows. */
-function suggestedName(db: Database, room: RoomRow, members: readonly Member[], viewer: string): string {
+/** The name field's first value: the room's own name, or for an unnamed group chat "New project" in the caller's
+ * language (QA TC-6955: the other people's names, "Mina, Olga", made a poor project and folder name; the field opens
+ * selected, so typing replaces it, and a taken name steps to "-2" as any other). */
+function suggestedName(room: RoomRow, locale: Locale): string {
   const own = room.name?.trim()
   if (own) return own
-  const names = members.filter((m) => m.id !== viewer).map((m) => m.name).join(', ')
-  return [...names].slice(0, PROJECT_NAME_MAX).join('').trim()
+  return tr('makeProjectDefaultName', locale)
 }
 
 /** GET /api/rooms/:id/make-project: what the confirm shows. */
@@ -113,10 +114,10 @@ export function makeProjectInfo(ctx: AppContext, p: Principal, roomId: string, t
   const db = ctx.db
   const room = roomFor(ctx, p, roomId)
   // permission first: who may not make a project is refused as such, before anything is said about the room
-  assertMayCreateTeamProject(db, p, locale)
+  assertMayCreateTeamProject(db, p, locale, 'projectsAdminsOnlyRoom')
   if (!convertible(db, room)) notConvertible(ctx, p, room.id, locale)
   const members = activeMembers(db, room.id)
-  const suggested = suggestedName(db, room, members, p.id)
+  const suggested = suggestedName(room, locale)
   const name = (typed ?? suggested).normalize('NFC').trim()
   const err = nameError(name, locale)
   const stepped = err ? '' : projectFolderName(path.join(ctx.files.fx.root, 'projects'), 'projects', takenProjectPaths(db), name, newId())
@@ -139,7 +140,7 @@ export function makeProject(ctx: AppContext, p: Principal, roomId: string, body:
   const rooms = roomsOf(ctx)
   const room = roomFor(ctx, p, roomId)
   // permission first: who may not make a project is refused as such, before anything is said about the room
-  assertMayCreateTeamProject(db, p, locale)
+  assertMayCreateTeamProject(db, p, locale, 'projectsAdminsOnlyRoom')
   if (!convertible(db, room)) notConvertible(ctx, p, room.id, locale)
   if (safeOpsEnabled()) fail('conflict', tr('sharedChatSafeOps', locale), { params: { reason: 'safe_ops' } })
   const name = body.name.normalize('NFC').trim()

@@ -42,8 +42,8 @@ export { isProjectsFolder }
 /** May this person make a team project (a new projects/<name>)? The owner and admins always; members unless the team
  * lets only admins (TeamSettings.projectCreators). */
 export const mayCreateTeamProject = (db: Database, p: Principal): boolean => isAdminRole(p) || getTeamSettings(db).projectCreators !== 'admins'
-export function assertMayCreateTeamProject(db: Database, p: Principal, locale: Locale): void {
-  if (!mayCreateTeamProject(db, p)) fail('forbidden', tr('projectsAdminsOnly', locale), { params: { reason: 'projects_admins_only' } })
+export function assertMayCreateTeamProject(db: Database, p: Principal, locale: Locale, words: 'projectsAdminsOnly' | 'projectsAdminsOnlyRoom' = 'projectsAdminsOnly'): void {
+  if (!mayCreateTeamProject(db, p)) fail('forbidden', tr(words, locale), { params: { reason: 'projects_admins_only' } })
 }
 
 const key = (x: { subjectType: string; subjectId: string | null }) => `${x.subjectType}:${x.subjectId ?? ''}`

@@ -49,19 +49,20 @@ test('Discover: the Google ones first (QA TC-138, also not set up), the rest beh
   await expect(detail.getByTestId('connector-tools-more')).toHaveAttribute('aria-expanded', 'true')
   await expect(detail.getByTestId('app-tool').last()).toHaveText('notion-calendar-cancel-events')
   await expect(detail.getByTestId('connector-tools-link')).toBeVisible()
-  await detail.getByTestId('connector-connect').click()
-  const dialog = page.getByRole('dialog')
-  await expect(dialog.getByTestId('connector-summary')).toContainText('https://mcp.notion.com/mcp')
-  // one column: no type or sign-in cards up front, they are under Advanced
-  await expect(dialog.getByTestId('integration-advanced')).toHaveAttribute('aria-expanded', 'false')
-  await expect(dialog.getByTestId('integration-write-ask')).toBeHidden()
-  // Advanced is the word only (QA TC-187): no summary next to it
-  await expect(dialog.getByTestId('integration-advanced')).toHaveText('고급')
-  await dialog.getByRole('button', { name: '취소' }).click()
   // back: the list again
   await detail.getByTestId('app-breadcrumb-connectors').click()
   await expect(page).toHaveURL(/\/connectors$/)
   await discover(page)
+  // Connect is one click (QA TC-6928): the connection is made and the sign-in opens, with no dialog showing its address
+  await page.context().route('https://mcp.notion.com/**', (r) => r.fulfill({ contentType: 'text/html', body: '<p>Synthetic sign-in</p>' }))
+  await page.goto('/connectors/notion')
+  const sent = page.waitForRequest((r) => r.url().endsWith('/api/integrations') && r.method() === 'POST')
+  const popup = page.waitForEvent('popup')
+  await page.getByTestId('connector-detail').getByTestId('connector-connect').click()
+  expect((await sent).postDataJSON()).toMatchObject({ kind: 'mcp', name: 'Notion', url: 'https://mcp.notion.com/mcp', auth: 'oauth', writePolicy: 'ask' })
+  await popup
+  await expect(page).toHaveURL(/\/connectors\/mcp\//)
+  await expect(page.getByTestId('integration-save')).toHaveCount(0)
   expect(realErrors(errors)).toEqual([])
 })
 
@@ -280,6 +281,8 @@ test('Admin: Add picks an app from Discover, or a custom app last', async ({ pag
     await expect(dialog.locator(':focus')).toHaveCount(1)
   }
   await expect(dialog.getByRole('heading', { name: 'Notion 추가' })).toBeVisible()
+  // the catalog's address is under Advanced, not up front (QA TC-6928)
+  await expect(dialog.getByTestId('connector-summary')).toBeHidden()
   await expect(dialog.getByTestId('connector-summary')).toHaveText('주소: https://mcp.notion.com/mcp')
   await expect(dialog.getByTestId('integration-name')).toHaveCount(0)
   await expect(dialog.getByTestId('integration-save')).toHaveText('저장하고 로그인')

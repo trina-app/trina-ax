@@ -546,13 +546,27 @@ idle minutes; a 404 for it starts a new one.
   and a desktop try at a server that refused 127.0.0.1. Both reasons count as refused tries. A desktop app from before
   this sends no port and keeps `oauth_approved_apps_only`; so does the Mac App Store build when its App Sandbox (no
   `network.server` entitlement) refuses the listener (expected, not tried on a store build yet). The browser that comes
-  back must be signed in to the team, as for every desktop sign-in (below).
+  back finishes in the app, as for every desktop sign-in (below).
 - The sign-in flow (`integration_oauth_flows`) lives 10 minutes, at most 20 per person per hour, bound to the person and
   the session that started it (polling `GET /api/integrations/flows/:id` needs that session); the state is stored hashed,
   the verifier and client details encrypted. A connection change while it is pending (version) fails it. For a team
   connection the sign-in is an admin's and the account is then used by everyone its rules name.
-- The callback `GET /api/integrations/oauth/callback` needs a live browser session of the **same person** (any of their
-  sessions); a browser without one, or another person's, changes nothing and the flow stays pending. The page is static
+- The callback `GET /api/integrations/oauth/callback` finishes at once in a live browser session of the **same person**
+  (any of their sessions); one signed in as someone else is refused, nothing exchanged ("This browser is signed in as
+  someone else. Sign out here, or go back to the app and press Connect again.", the flow stays pending). A sign-in
+  started in the **desktop app** whose return comes in a browser with no session (the system browser has none of the
+  app's) is held for the app on this
+  computer (docs/decisions/20261121-connect-browser-handoff.md, the pattern of `google-drive/app-return.ts`): the code
+  is exchanged, the tokens stay sealed in the flow (`exchanging`, reason `held`, read as `pending` by its poll, 5
+  minutes), and the page gives a one-time code (32 random bytes, only its hash sealed) only in the fragment of the
+  desktop app's link (`trina-ax://open?url=<team>/#code=…`, opened by itself and by "Back to the app"), names whose
+  account it joins and says not to send it on. The app posts it with its own session to the one claim address
+  (`POST /api/integrations/google-drive/claim`, which tries Drive, the Google apps, then connections); only the session
+  that started the flow redeems it, once, then the same checks and store as a direct return. A used, late, unknown or
+  another session's code is refused; Cancel, a new try or the end of its 5 minutes revoke the held tokens (best
+  effort). The same return opened again never gives a second code. A web or phone sign-in in a browser without the
+  person's session changes nothing and the flow stays pending ("This link expired. Go back to the app and press
+  Connect again."). The page is static
   text in the person's language ("you can close this window") with `no-store`, `no-referrer` and a CSP that allows only
   its own hashed `window.close()`; the code and state are never put anywhere else. A sign-in the service did not finish
   says why in plain words, on that page and on the connection's row (never the reason code, the service's answer or a
@@ -679,8 +693,8 @@ or paste ([decision](decisions/20261120-github-connector.md)).
   repositories on GitHub's installation page (`https://github.com/apps/<slug>/installations/new`), linked from the
   connection's page ("Choose on GitHub"); an organization's owner installs it there, or a member asks
   them to (GitHub's own request flow). No picker of our own.
-- **Without the file** the card says "Not set up yet" (a member can ask an admin; an owner or admin reads that the
-  operator adds the app, or that they can add GitHub in Admin › Connected apps with their own GitHub App), and a
+- **Without the file** the card says "Not set up yet" (a member can ask an admin; an owner or admin reads, in plain
+  words, that adding the company's own GitHub App in Admin › Connected apps turns it on), and a
   sign-in fails with "registers no apps" as before. The GitHub dialog keeps Advanced › "Sign in with my own app" (hidden
   for other listed services), so an admin there makes GitHub a team template or team connection with the company's own
   GitHub App (its callback: the server's own address). A member's page then says "Your team set up GitHub. Connect it
@@ -837,9 +851,10 @@ in a chip after the name; on Connectors **Your connectors**: the built-in apps c
 what the team provides, with a Team label, each with one status and its page a click away, read-only for a team one),
 then **Discover**, what is not connected yet: the built-in apps and MCP servers to add by name
 (`web/src/lib/connectors.ts`). The search filters every section. An entry is
-only a name and an address for the add dialog: nothing about it is special on the server, the person still chooses what
-the AI may change, an admin still chooses who may use it, and the sign-in, checks and asking are those of any other
-connection. "Add connection" and the link under the list take any MCP server or API by its address.
+only a name and an address: nothing about it is special on the server. A person's own Connect (its page, or + on its
+card) is one click: the connection is made with "ask before changes" and its sign-in opens; what the AI may change is
+set on the connection's page (QA TC-6928). The add dialog stays for the phone app and Admin, where an admin chooses who
+may use it, with the address under Advanced. The sign-in, checks and asking are those of any other connection. "Add connection" and the link under the list take any MCP server or API by its address.
 
 The services come from the remote servers listed on [mcpservers.org](https://mcpservers.org/remote-mcp-servers), starting
 with its featured ones and those with a curated logo. A listing is not enough: a service is listed here only if it

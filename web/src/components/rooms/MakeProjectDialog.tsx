@@ -1,9 +1,10 @@
 // "Make it a project" (docs/decisions/20261121-make-project-from-room.md; plan docs/AGENTS/plan/
 // 20261121-0619-structure-polish.md A): a group chat (a named private channel or an unnamed group chat) becomes a new
 // team project. One dialog, nothing else to choose: the project's name (the conversation's name, or for an unnamed one
-// the names its row shows: MakeProjectInfo.suggestedName), what happens (its N members become the project's people, its
-// files move to {name} › Chat attachments, people added later see messages from now on, and they can open these files),
-// the "-2" note when another project has the name, how many files stay in the conversation only, and a guest who holds
+// "New project", selected: MakeProjectInfo.suggestedName; an emptied field says "Enter a project name."), what happens
+// (its N members become the project's people, its files move to {folder name} › Chat attachments, the "-2" one when
+// another project has the name, people added later see messages from now on, and they can open these files), the "-2"
+// note when another project has the name, how many files stay in the conversation only, and a guest who holds
 // another place blocks it (an admin gets a link to them in Admin, a member is told to ask an admin). The read
 // (GET /api/rooms/:id/make-project) is asked again as the name is typed (its checks: the folder name, a name another
 // project has, a name a project may not have) and after the server says the people changed (409 members_changed).
@@ -54,7 +55,7 @@ const clean = (name: string) => name.normalize('NFC').trim()
 
 /** Why a name cannot be a new project's, as the server's make-project read says it (server/src/rooms/make-project.ts
  * nameError), for the DM dialog, which has no read: too long, or an AI instructions file's or the file list's name.
- * An empty name only turns the button off, as in the convert dialog. */
+ * An empty name turns the button off and says "Enter a project name." in the dialog, as in the convert dialog. */
 export function projectNameProblem(name: string): 'nameLong' | 'nameReserved' | null {
   const n = clean(name)
   if ([...n].length > PROJECT_NAME_MAX) return 'nameLong'
@@ -130,7 +131,8 @@ export function MakeProjectDialog({ roomId, onClose }: { roomId: string; onClose
   // the checks shown only for what is in the field now (the next read follows the typing)
   // (against the trimmed field: a re-read after a 409 answers for the trimmed name)
   const fresh = checked === typed
-  const nameError = fresh && typed ? info?.nameError : undefined
+  // an emptied field says why the button is off (QA TC-6954); the server's checks for anything typed
+  const nameError = name !== null && !typed ? t('rooms.makeProject.nameEmpty') : fresh && typed ? info?.nameError : undefined
   const ready = !!info && !!typed && !nameError && !blocked.length && !gone
   const make = async () => {
     if (!ready || busy || !info) return
@@ -181,7 +183,8 @@ export function MakeProjectDialog({ roomId, onClose }: { roomId: string; onClose
             <input ref={input} className={inputCls} value={name ?? ''} onChange={(e) => setName(e.target.value)} maxLength={PROJECT_NAME_MAX} aria-describedby={hintId} data-testid="make-project-name" />
           </Field>
           <div id={hintId} className="space-y-2 text-muted">
-            <p data-testid="make-project-body">{t('rooms.makeProject.body', { n: info.members.length, name: typed || info.suggestedName, folder })}</p>
+            {/* the folder the project gets: the "-2" one the hint names when another project has the name (QA TC-6953) */}
+            <p data-testid="make-project-body">{t('rooms.makeProject.body', { n: info.members.length, name: (fresh && info.nameTaken && info.folderName) || typed || '…', folder })}</p>
             <p data-testid="make-project-later">{t('rooms.makeProject.laterFiles')}</p>
             {info.filesStaying > 0 && <p data-testid="make-project-staying">{t('rooms.makeProject.staying', { n: info.filesStaying })}</p>}
           </div>
@@ -237,7 +240,7 @@ export function DmProjectDialog({ peer, onClose }: { peer: UserRef; onClose: () 
   }, [])
   const typed = clean(name)
   const problem = projectNameProblem(name)
-  const nameError = problem === 'nameLong' ? t('rooms.makeProject.nameLong', { n: PROJECT_NAME_MAX }) : problem === 'nameReserved' ? t('rooms.makeProject.nameReserved') : undefined
+  const nameError = !typed ? t('rooms.makeProject.nameEmpty') : problem === 'nameLong' ? t('rooms.makeProject.nameLong', { n: PROJECT_NAME_MAX }) : problem === 'nameReserved' ? t('rooms.makeProject.nameReserved') : undefined
   const make = async () => {
     if (!typed || problem || busy) return
     setBusy(true)

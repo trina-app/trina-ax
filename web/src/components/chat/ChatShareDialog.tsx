@@ -18,7 +18,8 @@
 // preview's key, and the server saves only with the key of what they would see now. A failed preview says so in grey
 // and Share still works: the server answers with the check instead of saving (never a silent share), it shows in place
 // with "Check this, then press Share again", as it does when something changed since the preview. Taking everyone out
-// says the chat becomes mine alone again. The fixed note under it all says what sharing means.
+// says the chat and its files become mine alone again, and then nothing else: no fixed note, no Copy link (QA TC-6951).
+// The fixed note under it all says what sharing means.
 //
 // "Share the files from this chat too?" (docs/decisions/20261121-share-chat-files.md): when the chat made files in my
 // own folder that the people in it can't open (the check's madeFiles while adding people; the audience's madeFiles on a
@@ -227,7 +228,9 @@ export function ChatShareDialog({ chat, onClose, initial, personal = false, retu
       const text = r.filesAdded
         ? (!saved.length && others ? t('chat.shareFiles.doneWith', { n: others, files: r.filesAdded }) : t('chat.shareFiles.added', { n: r.filesAdded }))
         : !saved.length && others ? t('chat.share.done', { n: others }) : t('chat.share.saved')
-      toast({ level: 'success', text, ms: 10_000, action: { label: t('rooms.menu.copyLink'), run: () => void copyLink(r.chat) } })
+      // a chat that became mine alone again: no link to send (QA TC-6951)
+      const alone = removesAll && !r.filesAdded
+      toast({ level: 'success', text, ms: 10_000, ...(alone ? {} : { action: { label: t('rooms.menu.copyLink'), run: () => void copyLink(r.chat) } }) })
       // the copies are on their answers now: the chat read again, so its links open them (one file, not two)
       if (r.filesAdded && useChats.getState().threads[chat.id]) void useChats.getState().loadThread(chat.id).catch(() => {})
       // a first share: my earlier files from the computer that could not go with it (too large, no room, changed since)
@@ -314,14 +317,17 @@ export function ChatShareDialog({ chat, onClose, initial, personal = false, retu
         <>
           {error && <p role="alert" className="mr-auto w-full text-sm break-keep text-danger" data-testid="chat-share-error">{error}</p>}
           {updating && !error && <CalmNotice className="mr-auto w-full" testId="chat-share-updating" state="updating" icon={<Loader2 size={16} className="animate-spin" />} title={t('chat.share.updating')} />}
-          {copyButton}
+          {/* no link for a chat that becomes mine alone (QA TC-6951); a phone's files step keeps its footer to its two
+              buttons (QA TC-6945): the saved toast has Copy link */}
+          {!removesAll && !(phone && filesStep) && copyButton}
           {/* a visible way out besides ✕ (asks first with unsaved changes, as ✕ does) */}
           {/* a phone: Cancel as wide as its word, the main button the rest */}
           {filesStep ? (
             <>
-              {/* without files: a save of the picks as they are; nothing changed (a chat already shared): just close */}
-              <Button disabled={busy || checking} onClick={() => (dirty ? void save() : onClose())} className="max-sm:min-w-0 max-sm:flex-1" data-testid="chat-share-without-files">{t('chat.shareFiles.without')}</Button>
-              <Button variant="primary" busy={busy} disabled={checking} onClick={() => void save(true)} className="max-sm:min-w-0 max-sm:flex-1" data-testid="chat-share-with-files">{t('chat.shareFiles.with')}</Button>
+              {/* without files: a save of the picks as they are; nothing changed (a chat already shared): just close. A
+                  phone: one full-width button a row, the main one first (QA TC-6945) */}
+              <Button disabled={busy || checking} onClick={() => (dirty ? void save() : onClose())} className="max-sm:order-2 max-sm:w-full" data-testid="chat-share-without-files">{t('chat.shareFiles.without')}</Button>
+              <Button variant="primary" busy={busy} disabled={checking} onClick={() => void save(true)} className="max-sm:order-1 max-sm:w-full" data-testid="chat-share-with-files">{t('chat.shareFiles.with')}</Button>
             </>
           ) : (
             <>
@@ -378,8 +384,9 @@ export function ChatShareDialog({ chat, onClose, initial, personal = false, retu
                 </p>
               ))}
               {removesAll && <p className="text-sm leading-6 break-keep text-warn" data-testid="chat-share-only-you">{t('chat.share.onlyYou')}</p>}
-              {/* the fixed note; shorter while a warning says the rest */}
-              <p className="text-sm leading-6 break-keep text-faint" data-testid="chat-share-note">{t(stake ? 'chat.share.noteShort' : 'chat.share.note')}</p>
+              {/* the fixed note; shorter while a warning says the rest; none for a chat that becomes mine alone, whose line
+                  says it all (QA TC-6951) */}
+              {!removesAll && <p className="text-sm leading-6 break-keep text-faint" data-testid="chat-share-note">{t(stake ? 'chat.share.noteShort' : 'chat.share.note')}</p>}
             </>
           )}
         </div>

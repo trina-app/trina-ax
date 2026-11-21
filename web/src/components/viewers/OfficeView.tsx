@@ -2,6 +2,7 @@
 // @aiden0z/pptx-renderer (Apache-2.0), SheetJS. Ported from Saram web/src/components/viewers/OfficeView.tsx.
 import { fixRenderedBullets } from '../../lib/docxBullets'
 import { docxFitZoom, docxPageWidth } from '../../lib/docxFit'
+import { defaultDocxPages } from '../../lib/docxPage'
 import clsx from 'clsx'
 import { useEffect, useLayoutEffect, useRef, useState, type RefObject } from 'react'
 import type { CellObject } from 'xlsx'
@@ -73,7 +74,10 @@ export function DocxView({ blob, width }: { blob: Blob; width: number }) {
     // no external resources: docx-preview renders embedded images from the file itself
     await renderAsync(blob, el, undefined, { inWrapper: true, ignoreLastRenderedPageBreak: true, renderComments: false, renderAltChunks: false, useBase64URL: true })
     fixRenderedBullets(el)
+    // a file with no page of its own (make_file's .docx) gets Word's default page and margins (lib/docxPage.ts),
+    // before the page width is measured for the fit zoom
     const wrapper = el.querySelector<HTMLElement>('.docx-wrapper')
+    if (wrapper) defaultDocxPages(wrapper)
     setPage({ w: wrapper ? docxPageWidth(wrapper) : 0 })
   }, [blob])
   // CSS zoom (not a transform): the scroll height follows the smaller pages

@@ -170,7 +170,9 @@ describe('refusals', () => {
   test('a personal chat with no chat files: chat:files/ says where its attachments are', async () => {
     const c = await h.api('alice').call(API.createChat, { body: {} })
     const r = await run('alice', c.id, `${fake({ tool: 'read', args: { file_path: 'chat:files/x.txt' }, sayResult: true })}`)
-    expect(r.content).toContain('<attachments>')
+    // plain words the AI may pass on (QA TC-6941): no files of its own, and where an attached file is read from
+    expect(r.content).toContain('This chat has no files of its own')
+    expect(r.content).not.toContain('<attachments>')
   })
   test('write and edit of a chat file, list of a chat file, room:, chat:other: plain words, nothing done', async () => {
     const { chat, file } = await sent('w.txt', 'W')

@@ -114,6 +114,19 @@ test('a file from this computer is drawn by its kind', async () => {
   expect(md.html()).toContain('Weekly')
 })
 
+test('a 0-byte text file says it is empty, never a blank panel (QA TC-6957)', async () => {
+  for (const name of ['empty.md', 'empty.txt', 'empty.csv', 'empty.json']) {
+    const m = await draw(local(name, ''))
+    await m.until(() => m.find('preview-empty'), `the empty line of ${name}`)
+    expect(m.get('preview-empty').textContent).toBe(en('preview.empty'))
+  }
+  expect(en('preview.empty')).toBe('This file is empty.')
+  // one character is a file with content
+  const one = await draw(local('one.txt', 'x'))
+  await one.until(() => one.container.querySelector('pre')?.textContent === 'x', 'the text')
+  expect(one.find('preview-empty')).toBeNull()
+})
+
 test('no preview here: the card with the download, never a request', async () => {
   globalThis.fetch = (async (input: RequestInfo | URL) => {
     fetched.push(String(input))

@@ -138,11 +138,11 @@ describe('Settings on a phone', () => {
     }
   })
 
-  test('a computer keeps its start (the first button) and has no photo row', async () => {
+  test('a computer starts on the title too (not the ✕: no tip or ring when opened by its address, QA TC-6927) and has no photo row', async () => {
     phone = false
     const m = await dialog('/settings')
     try {
-      expect(heading(m).getAttribute('data-autofocus')).toBeNull()
+      expect(heading(m).getAttribute('data-autofocus')).toBe('')
       // a computer's list is the sections only (the phone list with the photo row is drawn on a phone only)
       expect(m.find('settings-me')).toBeNull()
     } finally {

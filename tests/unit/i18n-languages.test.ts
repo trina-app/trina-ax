@@ -169,6 +169,7 @@ const KOREAN_ALLOWED: Record<string, { why: string; also?: RegExp }> = {
   'server/src/system/windows-app.ts': { why: 'the Windows app line in diagnostics (ko next to en/id/ja/es)' },
   'shared/src/tools.ts': { why: 'a Korean example project name in a tool description the AI reads (not screen text)', also: /e\.g\. "견적"/ },
   'server/src/system/system-packages.ts': { why: 'the system packages line in diagnostics (ko next to en/id/ja/es)' },
+  'server/src/notifications/push-secrets.ts': { why: 'the push secrets folder line in diagnostics (ko next to en/id/ja/es)' },
   'server/src/system/messages.ts': { why: 'diagnostics texts (ko next to en/id/ja/es)' },
   'server/src/team-files/errors.ts': { why: 'file errors (ko next to en/id/ja/es)' },
   'server/src/team-files/place.ts': { why: 'restored names (ko next to en/id/ja/es)', also: /복원됨\|/ },
