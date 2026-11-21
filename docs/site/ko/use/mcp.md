@@ -114,6 +114,8 @@ Trina AX로 돌아오면 줄에 **연결됨**이 보여요. AI는 뭔가 바꾸�
   같은 **헤더 이름**.
 :::
 
+![GitHub로 채운 팀 서비스 추가 창: 주소 https://api.githubcopilot.com/mcp/, 키를 보낼 헤더 Authorization: Bearer (기본), 키, 그리고 고급의 팀 공용 키 하나, MCP 서버, API 키, 매번 묻기](../../images/connect/add-by-address-key.webp "토큰으로 연결한 GitHub")
+
 창의 칸은 이래요.
 
 | 칸 | 넣을 것 |

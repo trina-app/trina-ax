@@ -118,6 +118,8 @@ Any app that publishes an "MCP server" address can be added, even if it isn't in
   app's help names one, such as `X-API-Key`.
 :::
 
+![Add an app for the team, filled in for GitHub: the address https://api.githubcopilot.com/mcp/, Header for the key Authorization: Bearer (default), the Key, and under Advanced: For the team (one key), MCP server, API key, Ask every time](../images/connect/add-by-address-key.webp "GitHub with a token")
+
 The dialog's fields:
 
 | Field | What to put there |

@@ -110,6 +110,8 @@ GitHub 会问这个应用可以打开哪些仓库。只选 AI 需要的，AI 只
   `X-API-Key`，还需要**请求头名称**。
 :::
 
+![为团队添加应用对话框，按 GitHub 填写：地址 https://api.githubcopilot.com/mcp/、密钥使用的请求头 Authorization: Bearer（默认）、密钥，以及高级下的供团队使用（一个密钥）、MCP服务器、API密钥、每次都询问](../../images/connect/add-by-address-key.webp "用令牌连接 GitHub")
+
 对话框中的各项：
 
 | 项目 | 填什么 |

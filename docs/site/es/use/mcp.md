@@ -120,6 +120,8 @@ aparece? Pida a un administrador que lo añada."
   encabezado** si la ayuda de la app indica uno, como `X-API-Key`.
 :::
 
+![Añadir una app para el equipo, rellenado para GitHub: la dirección https://api.githubcopilot.com/mcp/, Encabezado para la clave Authorization: Bearer (predeterminado), la Clave y, en Avanzado: para el equipo (una clave), Servidor MCP, Clave de API, Preguntar cada vez](../../images/connect/add-by-address-key.webp "GitHub con un token")
+
 Los campos del cuadro:
 
 | Campo | Qué poner |

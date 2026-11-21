@@ -120,6 +120,8 @@ daftar? Minta admin untuk menambahkannya."
   bantuan aplikasi menyebutkannya, seperti `X-API-Key`.
 :::
 
+![Add an app for the team, diisi untuk GitHub: alamat https://api.githubcopilot.com/mcp/, Header for the key Authorization: Bearer (default), Key, dan di bawah Advanced: For the team (one key), MCP server, API key, Ask every time](../../images/connect/add-by-address-key.webp "GitHub dengan token")
+
 Kolom-kolom di dialog:
 
 | Kolom | Yang diisi |

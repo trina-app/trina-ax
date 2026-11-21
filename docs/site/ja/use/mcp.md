@@ -101,6 +101,8 @@ Trina AX に戻ると、行に **接続済み** と表示されます。AI は�
 - キーを使う場合：アプリの設定（「API keys」「Tokens」「Developer」）で作る **キー** と、アプリのヘルプに `X-API-Key` などの名前があれば **ヘッダー名**。
 :::
 
+![GitHub 用に入力したチーム用アプリの追加画面：アドレス https://api.githubcopilot.com/mcp/、キーを送るヘッダー Authorization: Bearer（既定）、キー、詳細設定にチーム用（キー 1 つ）、MCPサーバー、APIキー、毎回確認](../../images/connect/add-by-address-key.webp "トークンでつなぐ GitHub")
+
 ダイアログの欄：
 
 | 欄 | 入れるもの |
