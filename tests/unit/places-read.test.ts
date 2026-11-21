@@ -15,6 +15,8 @@ import { readScope } from '../../server/src/chat/read-scope'
 import { setAnswerReads } from '../../server/src/chat/shared-answers'
 import { roomsOf } from '../../server/src/rooms/service'
 import { TurnFiles } from '../../server/src/files/service'
+import { chatFilesOf } from '../../server/src/chat/chat-files'
+import { carriedByHiddenAnswer, visibleChatFiles } from '../../server/src/chat/chat-file-tool'
 
 setDefaultTimeout(90_000)
 const fake = (...ds: unknown[]) => ds.map((d) => '@fake ' + JSON.stringify(d)).join('\n')
@@ -270,6 +272,47 @@ describe('review fixes (adversarial review of P1)', () => {
       expect(res.status).toBe('confirm')
       if (res.status === 'confirm') expect(res.check.fileAnswers).toBe(0)
     }
+  })
+})
+
+describe('versions and the hidden-answer check (batch P1 x P4, QA TC-6567)', () => {
+  // a message carries a chain by its root's id; a version's own id is on no message, so the hidden-answer check must
+  // look at the chain's root, or a file changed once escapes it
+  test('a changed file carried only by a hidden answer (k) is not read, listed, globbed or searched by any of its ids', async () => {
+    const { chat, file } = await sent('kv.txt', 'KV ONE')
+    const v = await chatFilesOf(h.ctx).putVersion('alice', chat, file, { bytes: new TextEncoder().encode('KV TWO SECRET') })
+    expect(v.row.id).not.toBe(file)
+    const ans = db().query("SELECT id FROM messages WHERE chat_id = ? AND role = 'assistant' ORDER BY created_at DESC LIMIT 1").get(chat) as { id: string }
+    const att = db().query("SELECT attachments FROM messages WHERE chat_id = ? AND role = 'user' AND attachments LIKE ?").get(chat, `%${file}%`) as { attachments: string }
+    db().query('UPDATE messages SET attachments = ? WHERE id = ?').run(att.attachments, ans.id)
+    db().query("UPDATE messages SET attachments = '[]' WHERE chat_id = ? AND role = 'user' AND attachments LIKE ?").run(chat, `%${file}%`)
+    setAnswerReads(db(), chat, ans.id, [{ c: ['alice', 'bob', 'erin'], s: [{ type: 'integration', id: 'x' }], k: 1 }])
+    expect(carriedByHiddenAnswer(db(), chat, file)).toBe(true)
+    expect(carriedByHiddenAnswer(db(), chat, v.row.id)).toBe(true)
+    expect(visibleChatFiles(h.ctx, 'alice', chat).map((f) => f.name)).not.toContain('kv.txt')
+    for (const id of [file, v.row.id]) {
+      const r = await run('alice', chat, `${fake({ tool: 'read', args: { file_path: chatFilePath(id, 'kv.txt') }, sayResult: true })}`)
+      expect(r.content).not.toContain('KV TWO SECRET')
+      expect(r.content).not.toContain('KV ONE')
+    }
+    const l = await run('alice', chat, `${fake({ tool: 'list', args: { path: 'chat:files/' }, sayResult: true })}`)
+    expect(l.content).not.toContain('kv.txt')
+    const g = await run('alice', chat, `${fake({ tool: 'glob', args: { pattern: '*.txt', path: 'chat:files/' }, sayResult: true })}`)
+    expect(g.content).not.toContain('kv.txt')
+    const s = await run('alice', chat, `${fake({ tool: 'grep', args: { pattern: 'KV', path: 'chat:files/', output_mode: 'content' }, sayResult: true })}`)
+    expect(s.content).not.toContain('KV TWO SECRET')
+  })
+
+  test('a changed file anyone may open is listed once, by its chain id, with its newest bytes', async () => {
+    const { chat, file } = await sent('kv2.txt', 'KV2 ONE')
+    await chatFilesOf(h.ctx).putVersion('alice', chat, file, { bytes: new TextEncoder().encode('KV2 TWO') })
+    const seen = visibleChatFiles(h.ctx, 'bob', chat).filter((f) => f.name === 'kv2.txt')
+    expect(seen.length).toBe(1)
+    const l = await run('alice', chat, `${fake({ tool: 'list', args: { path: 'chat:files/' }, sayResult: true })}`)
+    expect(l.content).toContain(chatFilePath(file, 'kv2.txt'))
+    const s = await run('alice', chat, `${fake({ tool: 'grep', args: { pattern: 'KV2', path: 'chat:files/', output_mode: 'content' }, sayResult: true })}`)
+    expect(s.content).toContain('KV2 TWO')
+    expect(s.content).not.toContain('KV2 ONE')
   })
 })
 
