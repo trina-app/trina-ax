@@ -546,6 +546,7 @@ export const en: Record<MessageKey, string> = {
   'chat.error.proxy_down': CHAT_ERROR_MESSAGES.proxy_down.en,
   'chat.error.user_disabled': CHAT_ERROR_MESSAGES.user_disabled.en,
   'chat.error.no_credential': CHAT_ERROR_MESSAGES.no_credential.en,
+  'chat.error.guest_no_ai': CHAT_ERROR_MESSAGES.guest_no_ai.en,
   'chat.error.credential_unusable': CHAT_ERROR_MESSAGES.credential_unusable.en,
   'chat.error.model_not_found': CHAT_ERROR_MESSAGES.model_not_found.en,
   'chat.error.endpoint_unreachable': CHAT_ERROR_MESSAGES.endpoint_unreachable.en,

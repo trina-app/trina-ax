@@ -195,6 +195,42 @@ describe('TC-4829: a failed step the answer does not mention', () => {
     expect(failedStepsNote(f.tools(), 'Done.', 'en')).toBe("Some steps didn't work: Read.")
   })
 
+  test('TC-6938: a refused save that a later step made or handed over another way is not a failure', () => {
+    const f = new FailedSteps()
+    // write to the work folder is refused on purpose; a command makes the file; copy_files hands it over
+    f.note('write', { file_path: 'chat:work/report.txt', content: 'x' }, false)
+    expect(f.tools()).toEqual(['write'])
+    f.note('box_shell', { command: 'cd "$TRINA_WORK" && printf "hi" > report.txt' }, true)
+    expect(f.tools()).toEqual([])
+    expect(failedStepsNote(f.tools(), 'Here is report.txt.', 'en')).toBeNull()
+    // the same through copy_files alone (paths name the file)
+    const g = new FailedSteps()
+    g.note('write', { file_path: '$TRINA_WORK/out/summary.md', content: 'x' }, false)
+    g.note('copy_files', { paths: ['chat:work/out/summary.md'], to_folder: 'chat:files/' }, true)
+    expect(g.tools()).toEqual([])
+    // a read of the file or a command about another file does not settle it
+    const h = new FailedSteps()
+    h.note('write', { file_path: 'chat:work/report.txt', content: 'x' }, false)
+    h.note('read', { file_path: 'chat:work/report.txt' }, true)
+    h.note('box_shell', { command: 'ls > old-report.txt.bak' }, true)
+    expect(h.tools()).toEqual(['write'])
+    // a failed box_shell does not settle it either, nor a command that only reads the file
+    h.note('box_shell', { command: 'echo > report.txt' }, false)
+    expect(h.tools()).toEqual(['write', 'box_shell'])
+    // (a later command that works settles the failed command, as before, but only reads report.txt: the save stays)
+    h.note('box_shell', { command: 'cat report.txt && rm -f report.txt' }, true)
+    expect(h.tools()).toEqual(['write'])
+    // cp into the work folder keeps the name
+    h.note('box_shell', { command: 'cp /tmp/report.txt "$TRINA_WORK/"' }, true)
+    expect(h.tools()).toEqual([])
+    // a refused save of a team file stays a failure, whatever else made a file of that name
+    const k = new FailedSteps()
+    k.note('edit', { file_path: 'projects/A/budget.xlsx' }, false)
+    k.note('write', { file_path: 'users/me/budget.xlsx', content: 'x' }, true)
+    k.note('box_shell', { command: 'python3 make.py -o budget.xlsx' }, true)
+    expect(k.tools()).toEqual(['edit'])
+  })
+
   test('the line: server words only, nothing when the answer already says something failed', () => {
     expect(failedStepsNote(['write'], 'Done.', 'en')).toBe("One step didn't work: Save.")
     expect(failedStepsNote(['write', 'read'], 'Done.', 'en')).toBe("Some steps didn't work: Save, Read.")

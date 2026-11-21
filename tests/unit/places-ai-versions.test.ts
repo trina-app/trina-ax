@@ -327,7 +327,7 @@ describe('who may', () => {
     const ctx = { user: h.ctx.files.principal('bob'), turnId: null, files: new TurnFiles() }
     const w = await svc.call('write', { file_path: p, content: 'M2' }, ctx)
     const e = await svc.call('edit', { file_path: p, old_string: 'M1', new_string: 'M2' }, ctx)
-    for (const o of [w, e]) { expect(o.isError).toBe(true); expect(o.text).toContain('main assistant of its Trina chat') }
+    for (const o of [w, e]) { expect(o.isError).toBe(true); expect(o.text).toContain('only from inside its own Trina chat'); expect(o.text).not.toContain('main assistant') }
     expect(versionsOf(chat, file)).toBe(1)
   })
 
