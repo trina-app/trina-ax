@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-21 18:21
 - Branch: `fix/room-composer-placeholder`
-- Status: in progress
+- Status: done
 - Where: web (rooms). Why: the owner did not understand the empty room's placeholder "메시지 · ✦로 따로 묻기"
 - Version impact: patch, a wording fix with no new feature
 
@@ -43,3 +43,7 @@ shorter than before, so it still fits on one line.
 
 ## Result
 
+As planned. The composer always shows `rooms.placeholder` (thread: `rooms.threadPlaceholder`); `rooms.placeholderEmptySide`
+and the composer's `empty` prop are removed; `sideChat.open` says "(only you see it)" in all six languages. The phone
+e2e that checked the old line now checks the new one still fits at 390 px. Not changed: the server's refusal text that
+names the side panel ("✦ {name}에게 따로 묻기", server/src/policy/refusal.ts).
