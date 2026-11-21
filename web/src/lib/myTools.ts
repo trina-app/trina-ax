@@ -23,7 +23,8 @@ export interface ToolOffer { id: string; kind: ToolKind; state: ToolState }
 export interface ToolFacts {
   /** TeamSettings.recommendedTools (undefined: not sent) */
   recommended: readonly string[] | null | undefined
-  drive: { configured: boolean; mine: boolean } | null
+  /** `team`: an admin shares a Drive with this person (DriveConnection.teamShares) */
+  drive: { configured: boolean; mine: boolean; team?: boolean } | null
   google: readonly { id: string; available: boolean; mine: boolean; team: boolean }[]
   /** the person may add their own connections (IntegrationList.personalAllowed) */
   listedAllowed: boolean
@@ -33,7 +34,7 @@ export interface ToolFacts {
 }
 
 function offer(id: string, f: ToolFacts): ToolOffer | null {
-  if (id === 'google-drive') return f.drive?.configured ? { id, kind: 'drive', state: f.drive.mine ? 'mine' : 'open' } : null
+  if (id === 'google-drive') return f.drive?.configured ? { id, kind: 'drive', state: f.drive.mine ? 'mine' : f.drive.team ? 'team' : 'open' } : null
   if (isGoogleApp(id)) {
     const g = f.google.find((x) => x.id === id)
     if (!g) return null

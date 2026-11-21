@@ -1,4 +1,4 @@
-// "팀 추천" (docs/decisions/20261120-team-vs-personal-onboarding.md; the list and its helpers: shared/src/api/
+// "각자 연결하도록 권하기" (was "팀 추천") (docs/decisions/20261120-team-vs-personal-onboarding.md; the list and its helpers: shared/src/api/
 // team-tools.ts): the tools an owner or admin recommends to the team, read and changed here for the welcome steps'
 // 팀이 쓸 도구 and a tool's page in Settings › Connectors. Everyone else reads it from GET /api/integrations.
 import { useCallback, useEffect, useRef, useState } from 'react'

@@ -166,8 +166,8 @@ export function DriveAdminSettings({ onStatus }: { onStatus: (s: DriveAdminStatu
 }
 
 /** Connect (Google sign-in, confirm the account), then name, folders and who may use it; or change an existing share,
- * or sign in again for one (`reconnect`). */
-function DriveShareDialog({ share, reconnect, groups, users, onClose, onSaved }: {
+ * or sign in again for one (`reconnect`). Also opened from the welcome steps' Tools step (onboarding/ToolsStep.tsx). */
+export function DriveShareDialog({ share, reconnect, groups, users, onClose, onSaved }: {
   share?: DriveShare; reconnect?: boolean; groups: Parameters<typeof AccessPicker>[0]['groups']; users: Parameters<typeof AccessPicker>[0]['users']
   onClose: () => void; onSaved: () => void
 }) {
