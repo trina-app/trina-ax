@@ -20,6 +20,14 @@ export const HIGGSFIELD_HOSTS = new Set(['mcp.higgsfield.ai'])
 export const MEDIA_HOST = 'higgsfield-media.demo.invalid'
 export const PICTURES_DIR = 'higgsfield'
 export const VIDEO_REFUSED = 'Video isn\'t available in the demo'
+/** Said in every picture's result, where the AI reads it as it answers (QA TC-6792: the system prompt alone did not make
+ * it say so): one short sentence, the photo's origin. */
+export const PREPARED_PHOTO = "This photo is one of the demo's prepared photos: no new photo was made."
+/** a banner's photo is a prepared one too; only its words were drawn */
+export const PREPARED_BANNER = "The photo under the words is one of the demo's prepared photos: only the words were drawn new."
+/** what the AI does with a picture next (QA TC-6791: the banner showed nowhere and was saved only when asked again):
+ * saved into the team folder and named as a Markdown image, which is how a picture appears in the chat */
+export const SAVE_NEXT = 'Save it now with save_connector_file (the mcp-file handle below) into the project\'s folder, then show it in the answer as a Markdown image.'
 /** a canned picture larger than this is not sent inline (it still downloads) */
 const INLINE_MAX = 4 * 1024 * 1024
 const PICTURE_MAX = 20 * 1024 * 1024
@@ -90,12 +98,12 @@ export function builtInPicture(): Buffer {
 /** The fake's tool list (what tools/list answers). Also what the snapshot's Higgsfield connection keeps as its saved
  * tools (routes/demo-builder.ts, integrations.tools_json): with none saved the AI had no image tool (QA TC-5559). */
 export const HIGGSFIELD_TOOLS = [
-  { name: 'generate_image', title: 'Generate image', readOnly: false, description: 'Generate an image from a text prompt. Returns the finished job with the picture. The picture has no words in it: put words on it with make_banner.',
+  { name: 'generate_image', title: 'Generate image', readOnly: false, description: 'Generate an image from a text prompt. In the demo it picks the closest of the demo\'s prepared photos (no new photo is made). Returns the finished job with the picture: save it with save_connector_file right away and show it in the answer. The picture has no words in it: put words on it with make_banner.',
     inputSchema: { type: 'object', properties: { prompt: { type: 'string', description: 'what the picture shows' }, aspect_ratio: { type: 'string', enum: ['1:1', '16:9', '9:16', '4:3', '3:4'] }, model: { type: 'string' }, count: { type: 'integer', minimum: 1, maximum: 4 } }, required: ['prompt'] } },
   { name: 'make_banner', title: 'Make banner', readOnly: false,
     description: 'Make a finished ad banner: a text-free product photo with real type on it in the brand\'s fonts and colours (headline, the line under it, the offer badge, the button). ' +
       'Use it to make a banner and to CHANGE A BANNER\'S WORDS: call it again with only the words that change (e.g. only `headline`); every word you leave out, and the photo, stay as on the last banner make_banner made (the launch banner at first). ' +
-      'The words are a layer of their own, so nothing has to be generated again. Returns the finished job with the picture (PNG).',
+      'The words are a layer of their own, so nothing has to be generated again; the photo is one of the demo\'s prepared photos. Returns the finished job with the picture (PNG): save it with save_connector_file right away and show it in the answer.',
     inputSchema: { type: 'object', properties: {
       size: { type: 'string', enum: ['1200x628', '1080x1080', '1080x1920'], description: 'web banner 1200x628 (default), Instagram square 1080x1080, story 1080x1920' },
       scene: { type: 'string', description: 'which photo, in a few words: one glass by the window (default), two glasses, the pouch close up, a café table' },
@@ -165,7 +173,7 @@ export class FakeHiggsfield {
     const g: Generation = { id: this.state.nextId('job'), prompt, model: str(a.model, 100) || 'demo-image', picture: pick?.name ?? 'built-in', mime: pick?.mime ?? 'image/png', createdAt: new Date().toISOString() }
     this.state.update((d) => { d.generations.push(g) })
     const b = this.bytesOf(g)
-    return { content: [{ type: 'text', text: JSON.stringify(this.view(g)) }, ...(b.bytes.length <= INLINE_MAX ? [{ type: 'image' as const, data: b.bytes.toString('base64'), mimeType: b.mime }] : [])] }
+    return { content: [{ type: 'text', text: JSON.stringify({ ...this.view(g), photo: PREPARED_PHOTO, next: SAVE_NEXT }) }, ...(b.bytes.length <= INLINE_MAX ? [{ type: 'image' as const, data: b.bytes.toString('base64'), mimeType: b.mime }] : [])] }
   }
 
   /** make_banner: the kit's photo for this size and scene under the words. Words not given, and the photo, are the last
@@ -205,7 +213,7 @@ export class FakeHiggsfield {
     const g: Generation = { id, prompt, model: 'banner', picture: rel, mime: 'image/png', createdAt: new Date().toISOString(), banner: { size, scene: scene.id, words } }
     this.state.update((d) => { d.generations.push(g) })
     this.pruneBanners(dir)
-    const view = { ...this.view(g), banner: { size, scene: scene.id, words: { headline: words.headline, subline: words.subline, eyebrow: words.eyebrow, badge: words.badge, badge_note: words.badgeNote, button: words.cta } } }
+    const view = { ...this.view(g), banner: { size, scene: scene.id, words: { headline: words.headline, subline: words.subline, eyebrow: words.eyebrow, badge: words.badge, badge_note: words.badgeNote, button: words.cta } }, photo: PREPARED_BANNER, next: SAVE_NEXT }
     return { content: [{ type: 'text', text: JSON.stringify(view) }, ...(png.length <= INLINE_MAX ? [{ type: 'image' as const, data: png.toString('base64'), mimeType: 'image/png' }] : [])] }
   }
 

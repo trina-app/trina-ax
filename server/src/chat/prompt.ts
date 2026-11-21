@@ -1125,10 +1125,13 @@ export function demoRule(company: string, fakes = false, banner = false): string
  * found the AI saying it had "shot a new photo with Higgsfield", and then refusing to change a banner's words. Said in
  * the visitor's language like every answer. */
 export const DEMO_FAKES_NOTE = 'Gmail, Google Drive and Higgsfield here are practice copies with made-up data. ' +
-  "Higgsfield's generate_image picks the closest of a prepared set of photos (no new photo is made): say you picked a prepared photo, never that you shot or generated a new one. " +
+  // QA TC-6792: say it, in one short sentence, every time (the tool's result says it too)
+  "Higgsfield's generate_image picks the closest of a prepared set of photos (no new photo is made): say in one short sentence that the photo comes from the demo's prepared photos, never that you shot or generated a new one. " +
+  // QA TC-6791: a connection's picture shows in the chat only once it is a team file named as a Markdown image
+  "Save every picture Higgsfield returns right away, without being asked: save_connector_file with its mcp-file handle into the folder of this chat's project (else the user's own folder), then show it in your answer as a Markdown image, ![<name>](/api/files/download?path=<team path, URL-encoded>), so it appears in the chat. " +
   'Mail is never really sent: after sending, say it went to the practice mailbox.'
 /** with the demo's banner kit (demo/fakes/banner.ts): banner words are a layer the AI can change */
-export const DEMO_BANNER_NOTE = "Banner words are a separate text layer: to change a banner's headline, line, badge or button, call Higgsfield's make_banner with the words that change (the others and the photo stay as on the last banner it made) and save the new picture; just do it, never say the words cannot be changed."
+export const DEMO_BANNER_NOTE = "Banner words are a separate text layer: to change a banner's headline, line, badge or button, call Higgsfield's make_banner with the words that change (the others and the photo stay as on the last banner it made), then save and show the new banner like any Higgsfield picture; its photo is one of the demo's prepared photos too. Just do it, never say the words cannot be changed."
 
 /** The dev environment is on but broken (QA TC-4924: box_shell was offered, failed every call, and the AI said "try
  * again in a few minutes"). Said once, in plain words; the reason itself is for an admin, on the dev environment page. */
