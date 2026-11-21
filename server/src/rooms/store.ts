@@ -230,8 +230,9 @@ export const fileOut = (f: FileRow): RoomFile => ({
  * database). Without one, such a file is "unavailable" to everyone (fails closed). */
 const refViews = new WeakMap<Database, (viewerId: string) => (f: FileRow) => RoomFile>()
 export function setRoomRefView(db: Database, view: (viewerId: string) => (f: FileRow) => RoomFile) { refViews.set(db, view) }
-/** The room files as `viewerId` sees them, in order: a room-stored file as it was sent (fileOut), one kept in the team
- * folder as it is now for them (a member of its room the caller checked). */
+/** The room files as `viewerId` sees them, in order: a room-stored file as it was sent (fileOut; "Only in this
+ * conversation", roomOnly, in a room whose files otherwise go to a team folder: rooms/team-place.ts roomHasTeamPlace),
+ * one kept in the team folder as it is now for them (a member of its room the caller checked). */
 export function filesOutFor(db: Database, rows: readonly FileRow[], viewerId: string): RoomFile[] {
   if (!rows.length) return []
   const refs = new Set<string>()
@@ -649,9 +650,10 @@ export function roomOut(db: Database, room: RoomRow, viewer: MemberRow, prefs: P
   // alert default follow the project
   const projectRoom = room.kind === 'group' && isProjectRoom(db, room.id)
   const project = projectRoom ? projectForViewer(db, room, viewer.user_id, rules, memberCount) : undefined
-  // a room whose files go to a team folder (rooms/team-place.ts): whether it still holds files of its own (its Files
-  // list), and whether files of a conversation made a project are still moving (rooms/file-moves.ts)
-  const roomFiles = projectRoom && hasRoomStoredFiles(db, room)
+  // a room whose files go to a team folder (rooms/team-place.ts: a project's chat room, a department's room with a
+  // folder): whether it still holds files of its own (its Files list), and whether files of a conversation made a
+  // project are still moving (rooms/file-moves.ts)
+  const roomFiles = (projectRoom || room.kind === 'team') && hasRoomStoredFiles(db, room)
   const filesMoving = projectRoom && filesMovingIn(db, room.id)
   return {
     id: room.id, kind: room.kind, name, canRename: !projectRoom && mayRename(db, room, viewer.user_id), managerId: projectRoom ? null : managerOf(db, room), canManageApps: mayManageApps(db, room, viewer.user_id), groupId: room.kind === 'team' ? room.group_id : null, memberCount,

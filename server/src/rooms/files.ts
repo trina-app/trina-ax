@@ -24,8 +24,10 @@
 // 287), so the same unchanged file picked again in the same room gets that copy back, and a person's unsent copies are
 // capped (TEAM_COPIES_UNSENT_MAX): a small request cannot fill the team's disk with 50 MB copies kept for a day.
 // A project's chat room (rooms/project-room.ts) keeps no bytes here (docs/decisions/20261120-project-is-room.md D3): a
-// file sent from the computer there goes into the project's Chat attachments folder (createInProject: the project's
-// shared chat's place and checks, uploads/shared-chat.ts), and a team file picked there stays where it is (teamRef);
+// file sent from the computer there goes into the project's Chat attachments folder (createInTeamFolder: the project's
+// shared chat's place and checks, uploads/shared-chat.ts), and a team file picked there stays where it is (teamRef). A
+// department's team room puts a file from the computer in its group folder's Chat attachments the same way, when that
+// folder fits (rooms/team-place.ts teamPlaceFor; else room storage, never a refusal);
 // either way the row carries a room_file_refs row (rooms/file-refs.ts) that follows the file and is checked on every
 // show and read. One rule on every path that deletes room files (removeForMessage, discardUnsent, sweep's unsent
 // uploads, purgeArchived): the row goes (its reference with it), and nothing on disk is deleted for a row kept in the
@@ -65,11 +67,12 @@ import { SAFE_OPS_TEXT } from '../safe-ops/strings'
 import { canSee, fileOut, memberRow, messageRow, roomRow, type FileRow } from './store'
 import { roomFileRefsOf, type RoomRefRow } from './file-refs'
 import { projectRoomLink } from './project-room'
-import { sharedUploadPlace } from '../uploads/shared-chat'
+import { roomHasTeamPlace, teamPlaceFor, type TeamPlace } from './team-place'
+import { safeName } from './file-moves'
+import { instructionFile } from '../team-files/ai-trash'
 import { otherRefTo } from '../uploads/ref-follow'
 import { ATTACH_RATE_MAX, hashChecked } from '../uploads/team-refs'
-import { instructionFile } from '../team-files/ai-trash'
-import { FileError, httpError } from '../team-files/errors'
+import { FileError } from '../team-files/errors'
 import { componentC } from '../team-files/component'
 
 /** How a room file was made (room_files.origin, migration 433): from the computer, a phone's team pick, a copy of a team
@@ -78,7 +81,7 @@ export type RoomFileOrigin = 'upload' | 'team_copy' | 'answer_copy'
 /** A name a room file never takes in a team folder (a project's Chat attachments): an instruction file's (CLAUDE.md,
  * AGENTS.md, GEMINI.md, SKILL.md: the project AI would follow it) or the folder's file list's (_FILES.md). Such a name
  * gets the next free one, "CLAUDE (2).md" (team-files placeUpload `taken`). */
-export const takenInTeamPlace = (name: string): boolean => instructionFile(name) || isFileListName(name)
+export const takenInTeamPlace = (name: string): boolean => instructionFile(name) || /^CLAUDE\.local\.md$/i.test(name) || isFileListName(name)
 
 /** An upload not sent in a message within a day is removed. */
 export const UNSENT_FILE_MS = 24 * 3600_000
@@ -173,10 +176,14 @@ export class RoomFiles {
   async create(userId: string, roomId: string, name: string, src: string, sha256: string, o: { roomStorage?: boolean; origin?: RoomFileOrigin } = {}): Promise<RoomFile> {
     this.member(userId, roomId)
     const clean = this.cleanName(name)
-    // a project's chat room: into the project's Chat attachments folder (a copy fromTeamFile makes for an answer stays a
-    // room copy: it is there for the members who cannot open the team file)
-    const link = o.roomStorage ? null : projectRoomLink(this.ctx.db, roomId)
-    if (link) return this.createInProject(userId, roomId, link.project_id, clean, src, sha256)
+    // a project's chat room: into the project's Chat attachments folder; a department's team room: into its group
+    // folder's, when that fits (rooms/team-place.ts teamPlaceFor; a copy fromTeamFile makes for an answer stays a room
+    // copy: it is there for the members who cannot open the team file)
+    let place = o.roomStorage ? null : teamPlaceFor(this.ctx, roomId, userId)
+    // a department room never refuses a file: bytes on the download-only list stay in room storage, as before (they
+    // never become a team file the AI could be handed)
+    if (place?.via === 'group' && this.ctx.files.quarantine.hasHash(sha256)) place = null
+    if (place) return this.createInTeamFolder(userId, roomId, place, clean, src, sha256)
     const id = newId()
     fs.mkdirSync(this.dir(roomId), { recursive: true, mode: 0o700 })
     const dst = this.abs({ room_id: roomId, id })
@@ -223,28 +230,28 @@ export class RoomFiles {
     }
     this.ctx.db.query(`INSERT INTO room_files (id, room_id, user_id, name, size, mime, kind, width, height, sha256, thumb, created_at, origin)
       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(id, roomId, userId, clean, size, mimeOf(clean) ?? 'application/octet-stream', kind, dims?.width ?? null, dims?.height ?? null, stored, thumb ? 1 : 0, nowIso(), o.origin ?? 'upload')
-    return fileOut(this.ctx.db.query('SELECT * FROM room_files WHERE id = ?').get(id) as FileRow)
+    const out = fileOut(this.ctx.db.query('SELECT * FROM room_files WHERE id = ?').get(id) as FileRow)
+    // the uploader is told it stayed in the conversation where files otherwise go to a team folder
+    const room = roomRow(this.ctx.db, roomId)
+    return room && roomHasTeamPlace(this.ctx.db, room) ? { ...out, roomOnly: true } : out
   }
 
   /**
-   * A file from the computer in a project's chat room (docs/decisions/20261120-project-is-room.md D3): placed by the
-   * person in the project's Chat attachments folder as a Files-screen upload of theirs, with the project's shared chat's
-   * place and checks (uploads/shared-chat.ts sharedUploadPlace: write access there, 403 shared_upload_read_only
-   * otherwise; the folder made when missing; a taken name, an instruction file's name or the file list's (_FILES.md) gets the next free one, "(2)": takenInTeamPlace;
-   * never an overwrite). Its upload event carries { attachment, roomId } (the file's history reads "Sent in the chat
+   * A file from the computer in a project's chat room (docs/decisions/20261120-project-is-room.md D3) or a department's
+   * team room whose folder fits (docs/AGENTS/plan/20261121-0619-structure-polish.md B; rooms/team-place.ts): placed by the
+   * person in the Chat attachments folder `place` as a Files-screen upload of theirs, with the shared chat's place and
+   * checks (uploads/shared-chat.ts chatAttachmentsPlace: write access there, for a project 403 shared_upload_read_only
+   * otherwise; the folder made when missing; a taken name, an instruction file's name or the file list's (_FILES.md) gets
+   * the next free one, "(2)": takenInTeamPlace; a name the team folder refuses gets a safe one, rooms/file-moves.ts
+   * safeName; never an overwrite). Its upload event carries { attachment, roomId } (the file's history reads "Sent in the chat
    * room"). The room's limits stay (maxFor), a picture's metadata is cut out first as for any room photo, and bytes on
    * the download-only list are refused (they never become a team file the AI could be handed). The room keeps no bytes:
    * the row gets a room_file_refs row. A row that cannot be made sends the placed file to the trash.
    */
-  private async createInProject(userId: string, roomId: string, projectId: string, clean: string, src: string, sha256: string): Promise<RoomFile> {
+  private async createInTeamFolder(userId: string, roomId: string, place: TeamPlace, clean: string, src: string, sha256: string): Promise<RoomFile> {
     const db = this.ctx.db
     const locale = personLocale(db, userId)
     const team = componentC(this.ctx).files
-    let place: { folder: string; exists: boolean }
-    try { place = sharedUploadPlace(db, { fx: this.ctx.files.fx, rules: () => this.ctx.files.rules(), principal: (id) => this.ctx.files.principal(id) }, userId, { project_id: projectId }) } catch (e) {
-      if (e instanceof FileError && e.params?.reason === 'shared_upload_read_only') throw httpError('forbidden', 'sharedUploadReadOnly', locale, undefined, { reason: 'shared_upload_read_only' })
-      throw e
-    }
     if (this.ctx.files.quarantine.hasHash(sha256)) fail('unavailable', SAFE_OPS_TEXT.quarantined[locale], { params: { reason: 'quarantined' } })
     const head = Buffer.alloc(64 * 1024)
     const fd = fs.openSync(src, 'r')
@@ -269,7 +276,7 @@ export class RoomFiles {
       try { team.mkdir(userId, place.folder) } catch (e) { if (!(e instanceof FileError && e.key === 'exists')) throw e }
     }
     const id = newId()
-    const entry = await team.placeUpload(userId, place.folder, clean, src, 'rename', stored, { action: 'upload', detail: { attachment: id, roomId } }, { taken: takenInTeamPlace })
+    const entry = await team.placeUpload(userId, place.folder, safeName(clean), src, 'rename', stored, { action: 'upload', detail: { attachment: id, roomId } }, { taken: takenInTeamPlace })
     const at = path.join(team.root, ...entry.path.split('/'))
     let placed: fs.Stats | null = null
     try { placed = fs.lstatSync(at) } catch { /* gone already: refused below */ }
@@ -288,7 +295,7 @@ export class RoomFiles {
       try {
         const now = fs.lstatSync(at)
         if (placed && now.ino === placed.ino && now.dev === placed.dev) team.remove(userId, entry.path)
-      } catch (err) { this.ctx.log.warn('a project room upload whose row failed could not go to the trash', { err }) }
+      } catch (err) { this.ctx.log.warn('a room upload kept in the team folder whose row failed could not go to the trash', { err }) }
       throw e
     }
     return this.refs().view(userId, db.query('SELECT * FROM room_files WHERE id = ?').get(id) as FileRow)
