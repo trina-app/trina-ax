@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-21 00:40
 - Branch: `fix/aside-old-cli-account-list`
-- Status: in progress
+- Status: done
 - Where: desktop/src/common/local-apps.ts. Why: the desktop app runs the listed Aside connector (see docs/REPOSITORY-RULES.md)
 - Version impact: patch, a bug fix in the desktop app's Aside connector with no new interface
 
@@ -48,4 +48,7 @@ the result is the same as before (no account found).
 
 ## Result
 
-Filled in at the end.
+Built as planned: `asideAccountLines` reads the plain lines, `asideAccountList` and `asideAccountsWithProfiles`
+fall back to it, and `asideAccountsOut` runs `aside account list` when `--json` printed nothing. Accounts now carry
+`hasProfiles` (the plain lines name profiles by label, not id). The new unit test fails with the old code with
+exactly ASIDE_SIGNED_OUT. PR linked in the PR description.
