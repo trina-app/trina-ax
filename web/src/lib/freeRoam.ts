@@ -30,7 +30,7 @@ export const FREE_ROAM_LOCALES: readonly Locale[] = ['en', 'ko', 'ja', 'zh', 'es
 
 /**
  * The languages one free-roam instance's sign-in page offers (QA TC-5621): its own (the team default its snapshot was
- * built in, GET /api/setup `defaultLocale`) and English. Not every one of FREE_ROAM_LOCALES: demo-gate runs only some
+ * built in, GET /api/demo `locale`: demo-gate denies GET /api/setup, QA TC-6790) and English. Not every one of FREE_ROAM_LOCALES: demo-gate runs only some
  * live (`pool.locales`, en and ko by default), and an en or ko instance has no ja, zh, es or id screens of its company.
  * Not known (an older server, a failed request): English only.
  */

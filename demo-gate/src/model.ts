@@ -58,9 +58,17 @@ export function isPromptTooLong(status: number, body: string): boolean {
 
 export interface Usage { input_tokens?: number; output_tokens?: number; cache_creation_input_tokens?: number; cache_read_input_tokens?: number }
 const n = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) && v > 0 ? v : 0)
-/** uncached input + cache writes + output + 0.1 × cache reads (the plan's weight) */
+/** uncached input + cache writes + output + 0.1 × cache reads (the plan's weight): the account's true use, for the
+ * daily cap, the stats and the log */
 export function weighted(u: Usage): number {
   return Math.round(n(u.input_tokens) + n(u.cache_creation_input_tokens) + n(u.output_tokens) + 0.1 * n(u.cache_read_input_tokens))
+}
+/** what the instance counts against the visitor's demo limit (server credentials/broker.ts `record`, shared
+ * DEMO_CACHE_READ_WEIGHT / DEMO_CACHE_WRITE_WEIGHT; no shared imports here, change both together): cache writes at
+ * 0.1 too, so a fresh copy's system prompt and tools written to the cache are not the visitor's question. The gate's
+ * per-visitor backstop counts the same, or it would stop a visitor whose bar still says questions are left. */
+export function visitorWeighted(u: Usage): number {
+  return Math.round(n(u.input_tokens) + 0.1 * n(u.cache_creation_input_tokens) + n(u.output_tokens) + 0.1 * n(u.cache_read_input_tokens))
 }
 /** usage fields of message_start (input, cache) and message_delta (running output total): later values win */
 export function mergeUsage(into: Usage, u: unknown): void {

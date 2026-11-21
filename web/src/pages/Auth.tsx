@@ -35,7 +35,7 @@ import { signedOutLine } from '../lib/signedOut'
 import { DemoStart, useDemoInfo } from '../components/demo/Demo'
 import { FreeRoamStart } from '../components/demo/FreeRoam'
 import { freeRoamSignInLocales } from '../lib/freeRoam'
-import { useFreeRoam } from '../store/demo'
+import { useDemo, useFreeRoam } from '../store/demo'
 
 /** The password rule's minimum (server: server/src/auth/passwords.ts, the same 8 everywhere). */
 export const PASSWORD_MIN = 8
@@ -87,7 +87,9 @@ export function LanguageSwitcher() {
   const pick = useSession((s) => s.pickLocale)
   // a free-roam demo: only the instance's own language and English (lib/freeRoam.ts freeRoamSignInLocales)
   const freeRoam = useFreeRoam()
-  const own = useMe()?.team.defaultLocale ?? teamDefaultLocale()
+  // the instance's own language: the account's team, else GET /api/demo (the gate denies GET /api/setup, QA TC-6790)
+  const demoOwn = useDemo((s) => s.info?.locale ?? null)
+  const own = useMe()?.team.defaultLocale ?? demoOwn ?? teamDefaultLocale()
   return (
     <label className="mt-6 flex items-center justify-center gap-2 text-xs text-faint">
       {t('settings.language')}

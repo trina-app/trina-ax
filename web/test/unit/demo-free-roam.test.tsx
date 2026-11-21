@@ -13,7 +13,7 @@ import { demoAnswerKey, demoMeter, demoQuestionsLeft, demoReason, FREE_ROAM_HIDD
 import { micState } from '../../src/lib/voice'
 import { settingsTabs } from '../../src/pages/settingsTabs'
 import { demoAnswerEnded, freeRoamNow, useDemo } from '../../src/store/demo'
-import { canChooseEngine, useSession } from '../../src/store/session'
+import { canChooseEngine, teamDefaultLocale, useSession } from '../../src/store/session'
 import { installDom, mount, removeDom } from './dom-host'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { AvailableSkillsList } from '../../src/components/AvailableSkills'
@@ -481,5 +481,35 @@ describe('what a free-roam visitor is not offered', () => {
       asFreeRoam(false)
       expect((await options()).length).toBeGreaterThan(2)
     } finally { useLocaleStore.getState().setLocale('en') }
+  })
+
+  test('signed out on a ja instance behind the gate: GET /api/setup denied, the language comes from GET /api/demo (QA TC-6790)', async () => {
+    // the gate as deployed: /api/setup is "Not available in the demo." (demo-gate DENY_PATHS), /api/demo goes through
+    const before = globalThis.fetch
+    const asked: string[] = []
+    globalThis.fetch = (async (input: RequestInfo | URL) => {
+      const url = String(input)
+      asked.push(new URL(url, 'http://x').pathname)
+      if (url.includes('/api/me')) return json(401, { error: { code: 'unauthorized', message: 'sign in' } })
+      if (url.includes('/api/setup')) return json(404, { error: { code: 'not_found', message: 'Not available in the demo.' } })
+      if (url.endsWith('/api/demo')) return json(200, { ...INFO, current: null, locale: 'ja' })
+      return json(404, { error: { code: 'not_found', message: 'not found' } })
+    }) as typeof fetch
+    try {
+      useSession.getState().reset()
+      useSession.setState({ status: { kind: 'loading' } } as never)
+      await useSession.getState().load()
+      expect(asked).toContain('/api/setup')
+      expect(asked).toContain('/api/demo')
+      expect(useSession.getState().status.kind).toBe('signed-out')
+      expect(teamDefaultLocale()).toBe('ja')
+      expect(useLocaleStore.getState().locale).toBe('ja')
+      const m = await mount(<LanguageSwitcher />)
+      try { expect([...m.html().matchAll(/<option value="([a-z]+)"/g)].map((x) => x[1]).sort()).toEqual(['en', 'ja']) } finally { await m.unmount() }
+    } finally {
+      globalThis.fetch = before
+      useSession.getState().reset()
+      useLocaleStore.getState().setLocale('en')
+    }
   })
 })
