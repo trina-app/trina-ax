@@ -53,7 +53,7 @@ import QueuedMessages from '../chat/QueuedMessages'
 import { ArrowUp, ChevronLeft, CirclePause, Clock, ExternalLink, Eye, History, Loader2, Paperclip, SquarePen, X } from 'lucide-react'
 import clsx from 'clsx'
 import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { MESSAGE_ATTACHMENTS_MAX, MESSAGE_TEXT_MAX, SIDE_CHAT_QUICK, SIDE_QUICK_FILE, SIDE_QUICK_MESSAGE, THREAD_LINE, threadRefToken, type Chat, type EngineId } from '@mycel/shared/api'
 import { oneLineName } from '@mycel/shared'
 import { api, API, errorText, isApiError } from '../../lib/api'
@@ -75,6 +75,7 @@ import { useTextSize } from '../../lib/textSize'
 import { useLocale, useT } from '../../i18n'
 import { useChats } from '../../store/chats'
 import { useRooms } from '../../store/rooms'
+import { projectRoomOf } from '../../lib/rooms'
 import { useMeStrict, useSession } from '../../store/session'
 import { sideChatOnScreen } from '../../store/sessionMarkers'
 import { SEED_KEYS_MAX, sideChatOf, useSideChats, type SideChatState } from '../../store/sideChats'
@@ -332,6 +333,11 @@ export function SideChatPanel({ roomId, roomTitle, onClose, seed = null, frame =
   // ...and only the group chat they were invited to: beside a 1:1 chat it reads nothing of the room, so that panel has no
   // room starters or "Looking at" line and says to quote or paste instead
   const roomUnread = guest && meGuest(me)?.room?.id !== roomId
+  // a project's chat room (for a viewer who can open the project): the empty chat says it is private and where the
+  // project's people ask together, the project page (docs/decisions/20261121-sidebar-projects-group.md). A guest, who
+  // does not see a project's AI chats, keeps their own line
+  const roomProject = useRooms((s) => projectRoomOf(s.rooms.find((r) => r.id === roomId) ?? {}))
+  const projectHint = !guest && roomProject ? roomProject : null
   // and until it is made (ai-access answers usable), no starters or quick asks: nothing would answer them, so the
   // "Connect my AI" line is the one thing to do here
   const guestWaits = useAiAccess((s) => guestOwn && !(s.loaded && s.usable))
@@ -756,7 +762,11 @@ export function SideChatPanel({ roomId, roomTitle, onClose, seed = null, frame =
                     <Eye size={12} aria-hidden className="shrink-0" /><span className="truncate">{t('sideChat.context', { room: roomTitle })}</span>
                   </span>
                 )}
-                <p className="max-w-[280px] text-sm text-muted" data-testid="side-chat-intro">{t(chipOn ? 'sideChat.emptyThread' : 'sideChat.empty', { name })}</p>
+                {!chipOn && projectHint ? (
+                  <ProjectSideHint project={projectHint} />
+                ) : (
+                  <p className="max-w-[280px] text-sm text-muted" data-testid="side-chat-intro">{t(chipOn ? 'sideChat.emptyThread' : 'sideChat.empty', { name })}</p>
+                )}
               </>)}
               {/* (no starters while no AI answers a guest: they would only fail; components/GuestView.tsx) */}
               {!quoted && !guestNoAi && !guestWaits && !roomUnread && (
@@ -968,5 +978,20 @@ export function SideChatPanel({ roomId, roomTitle, onClose, seed = null, frame =
     <RoomSideColumn label={t('sideChat.title', { name })} testId="room-side-chat" divider="side-chat">
       {body}
     </RoomSideColumn>
+  )
+}
+
+/** The empty ✦ side chat of a project's chat room: "Only you see this. To ask where {project}'s people see it, ask on the
+ * project page.", the project page a link to it (/projects/<id>). */
+export function ProjectSideHint({ project }: { project: { id: string; name: string } }) {
+  const t = useT()
+  const page = t('sideChat.projectPage')
+  const text = t('sideChat.emptyProject', { project: project.name, page })
+  const at = text.lastIndexOf(page)
+  const link = <Link to={`/projects/${project.id}`} className="font-medium text-ink underline underline-offset-2" data-testid="side-chat-project-link">{page}</Link>
+  return (
+    <p className="max-w-[280px] text-sm break-keep text-muted" data-testid="side-chat-intro" data-project="">
+      {at < 0 ? text : <>{text.slice(0, at)}{link}{text.slice(at + page.length)}</>}
+    </p>
   )
 }

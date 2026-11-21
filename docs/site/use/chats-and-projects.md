@@ -225,6 +225,37 @@ and click **✕** (or choose **Remove preview** in the message's menu).
 
 ![Chats on a phone: Mentions & threads, channels, a group chat and a direct message, with the five tabs at the bottom](../images/chats/rooms-phone.webp "Chats on a phone")
 
+### Where your conversations are listed
+
+The Chats list has the same order on a computer and on a phone: **Pinned**, then your own sections, then **Channels**,
+**Projects** and **Direct messages**.
+
+- **Projects** holds each team project's own chat room, by name, with a folder icon. A project's room shows there once
+  someone writes in it; until then you open it from the project. It has no **+**: you make projects on the Projects page
+  or from a conversation (see [Make a conversation a project](#make-a-conversation-a-project)).
+- A conversation shows in one place only. A project room you pin, or drag into one of your sections, leaves Projects.
+  Drag it onto the **Projects** header to put it back.
+- When a project goes to the trash, its room leaves the list. Restoring the project brings it back.
+
+### A department's room and its folder
+
+Each department (a group in **Admin › Groups**) has its own channel. When the department has a folder you can open, the
+top of its channel shows a folder button with the department's name: it opens that folder in Files.
+
+- **A file you send there goes into the department folder's Chat attachments folder**, so the department's files are in
+  one place. Under the file's name the chat says where it went, for example "Sales › Chat attachments".
+- A file stays in the conversation only, marked **Only in this conversation**, when more people than the department can
+  open the folder, when someone in the channel cannot open Chat attachments, or when you can only view the folder. The
+  channel then also has **Files**, which lists those files.
+- **Deleting a message deletes only the message.** A file in the department folder stays there, and the confirm says
+  where; delete it in Files if you want it gone.
+- Admins can open every team folder, so they can open these files in Files too, even when they are not in the
+  department. They do not see the conversation.
+- People who join the department later can open every file already in its Chat attachments folder, but not the
+  earlier messages, as in a project.
+- When the department's folder is inside a project, files sent in the channel stay in the conversation.
+- Files sent before this change stay in the channel, in its **Files** list.
+
 ### Guests
 
 Someone from outside the team, such as an agency or a client, can join a private channel, a group chat or a project as a guest, and be
@@ -305,7 +336,7 @@ files, so there is one list of people and one place for files.
   the room is made and named after the project. A small chat icon on the project's row in **Projects**, with a dot
   while something is unread, and **Chat room** at the top of the project's AI chats open it too.
 - At the top of the room, the folder button with the project's name opens the project's page: its files and its AI
-  chats. The room appears under **Channels**, with a folder icon, once someone writes in it.
+  chats. The room appears under **Projects** in the Chats list, with a folder icon, once someone writes in it.
 - **Who is in it** follows the project. Adding someone to the project adds them to the room, and they see its whole
   history; taking someone out of the project takes them out of the room. The members dialog says so before you add
   anyone. To change who is in it, open the room's name at the top, then **Manage people** (for whoever may change the
@@ -316,6 +347,38 @@ files, so there is one list of people and one place for files.
   Files if you want it gone.
 - Trina in the room's side chat saves new documents in the project's folder, and the project's AI chats can read the
   room. Both see the same people, so nothing is asked about who can see it.
+- The room's **✦** side chat stays private to you. When it is empty, it says so and links to the project's page, where the
+  project's people ask Trina together.
+- When the project's people are exactly the people of one department, the start of the room and its info say "Same
+  people as #Sales. Keep Atlas talk here.", with a link to the department's channel.
+
+### Make a conversation a project
+
+A private channel or a group chat that turns into real work can become a project, with its history.
+
+1. Open the conversation's **⋯** (at the top, on its row in the list, or by pressing and holding the row on a phone) and
+   choose **Make it a project**. You see it if you may make team projects; in a team where only admins make them, a
+   member does not.
+2. Check the name. It starts as the conversation's name (for a group chat without one, the names of its people). If
+   another project already has that name, the new folder gets "-2", and the dialog says so.
+3. Read what happens, then choose **Make project**:
+   - Everyone in the conversation becomes one of the project's people.
+   - Files sent in the conversation move to the project's **Chat attachments** folder. A file that not everyone in the
+     conversation could see (for example one sent before someone joined) stays in the conversation, and the dialog says
+     how many.
+   - People added to the project later see messages from then on, and they can open the moved files.
+
+The conversation stays open and is now the project's chat room, with the project's folder button at the top and a line
+that says who made it a project. While the files move, the top says **Moving files…**; a second line says how many moved
+and how many stayed. A file that stayed is marked **Only in this conversation**, and the room keeps a **Files** list for
+those files.
+
+Your pins, sections, notifications and read place stay as they were. If someone joins or leaves while the dialog is open,
+it says **The people changed** and shows the new count. A guest who already has a project blocks it: an admin makes them a
+team member first.
+
+In a direct message, the **⋯** has **New project with** and the person's name instead. It makes a new project for the two
+of you, with its own chat room. The direct message stays as it is.
 
 ## Find anything
 

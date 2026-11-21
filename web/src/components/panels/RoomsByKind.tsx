@@ -14,14 +14,16 @@
 // My sections (docs/decisions/20261121-personal-sidebar-sections.md, nav/SidebarSections.tsx) come between 고정 and
 // 채널, each a top-level section like 채널: its "⋯" (SectionMenu), the conversations I keep in it by latest activity,
 // and, empty, a line that says how to fill it. A conversation shows in one place only: pinned › its section › its
-// kind. A row dragged onto a section goes in; onto the 채널 or 다이렉트 메시지 header it comes out.
+// kind. A row dragged onto a section goes in; onto the 채널, 프로젝트 or 다이렉트 메시지 header it comes out.
+// 프로젝트 (docs/decisions/20261121-sidebar-projects-group.md) sits between 채널 and 다이렉트 메시지: each team project's
+// own chat room (Room.projectRoom) by name, no "+", shown while I have one listed anywhere.
 import clsx from 'clsx'
 import { EyeOff, Pin } from 'lucide-react'
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { Link, useLocation } from 'react-router-dom'
 import type { NavFolder, Room } from '@mycel/shared/api'
 import { useLocale, useT } from '../../i18n'
-import { pinnedRooms, shownInLists } from '../../lib/rooms'
+import { isProjectRoom, pinnedRooms, shownInLists } from '../../lib/rooms'
 import { useRooms } from '../../store/rooms'
 import { DROP_OVER, RoomFolderPillView, roomFolderBold, roomFolderPill } from '../nav/NavFolders'
 import { SectionEmpty, SectionMenu, useSectionDrop, useSections } from '../nav/SidebarSections'
@@ -36,7 +38,7 @@ const ROW_PX = 30
 
 const noop = () => {}
 
-export type Section = { key: 'pinned' | 'team' | 'dm'; rooms: Room[]; folder?: undefined } | { key: 'folder'; rooms: Room[]; folder: NavFolder }
+export type Section = { key: 'pinned' | 'team' | 'project' | 'dm'; rooms: Room[]; folder?: undefined } | { key: 'folder'; rooms: Room[]; folder: NavFolder }
 
 /** The sections in their order, each with its rooms (no empty kind section: withKinds adds them; every section of
  * mine, empty or not, after 고정). A room is in one place: pinned › the section it is in (one of `folders`, my list
@@ -114,10 +116,13 @@ export function RoomsByKind() {
 }
 
 /** The kind sections, Channels and Direct messages, always there (empty when every conversation of theirs is pinned or
- * in a section): their header holds the "+" and takes a dragged row out of its section. */
+ * in a section): their header holds the "+" and takes a dragged row out of its section. Projects between them while I
+ * have a listed project room anywhere, pinned or in a section of mine too, so a project room can always be dropped back
+ * (docs/decisions/20261121-sidebar-projects-group.md). */
 export function withKinds(sections: Section[]): Section[] {
-  const kind = (key: 'team' | 'dm'): Section => sections.find((s) => s.key === key) ?? { key, rooms: [] }
-  return [...sections.filter((s) => s.key === 'pinned' || s.key === 'folder'), kind('team'), kind('dm')]
+  const kind = (key: 'team' | 'project' | 'dm'): Section => sections.find((s) => s.key === key) ?? { key, rooms: [] }
+  const projects = sections.some((s) => s.rooms.some(isProjectRoom))
+  return [...sections.filter((s) => s.key === 'pinned' || s.key === 'folder'), kind('team'), ...(projects ? [kind('project')] : []), kind('dm')]
 }
 
 /** a section's fold key in the account's folds (panels/folds.ts): my sections keep the key of the phone's list */

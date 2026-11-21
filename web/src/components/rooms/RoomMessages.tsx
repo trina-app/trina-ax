@@ -35,7 +35,8 @@
 import clsx from 'clsx'
 import { Copy, Download, FileText, FileX, FolderCheck, FolderInput, Link2, MessageSquareText, Pencil, Trash2, X } from 'lucide-react'
 import { createContext, Fragment, useContext, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ClipboardEvent, type ReactNode } from 'react'
-import { parseMessageLinks, ROOM_QUOTE_EXCERPT_MAX, type Room, type RoomFile, type RoomMessage, type RoomQuote, type UserRef } from '@mycel/shared/api'
+import { CHAT_FILES_FOLDER } from '@mycel/shared'
+import { DEFAULT_LOCALE, parseMessageLinks, ROOM_QUOTE_EXCERPT_MAX, type Room, type RoomFile, type RoomMessage, type RoomQuote, type UserRef } from '@mycel/shared/api'
 import { errorText, roomFileUrl, startDownload } from '../../lib/api'
 import { formatDateTime, formatSize } from '../../lib/format'
 import { copiedMessages } from '../../lib/messageCopy'
@@ -309,19 +310,37 @@ function useViewerWhere(roomId: string): string | null {
   return room.kind === 'dm' ? t('viewer.inDm', { name }) : room.kind === 'group' ? t('viewer.inGroup', { room: name }) : t('viewer.inRoom', { room: name })
 }
 
+/** A department's team room whose files go to its group's folder (Room.groupFolder, for a viewer who can open it;
+ * docs/decisions/20261121-department-room-files.md): the group's name and its folder, so a file's place reads
+ * "{group} › Chat attachments". null for every other room. */
+function useGroupFolderBase(roomId: string): { name: string; folderPath: string } | null {
+  const folderPath = useRooms((s) => { const r = s.rooms.find((x) => x.id === roomId); return r?.kind === 'team' ? r.groupFolder ?? null : null })
+  const name = useRooms((s) => s.rooms.find((x) => x.id === roomId)?.name ?? '')
+  return useMemo(() => (folderPath ? { name: name || (folderPath.split('/').pop() ?? folderPath), folderPath } : null), [folderPath, name])
+}
+
+/** A file's place under a folder of its room (`base`: a project's or a group's): "{name} › Chat attachments", or null
+ * when the file is not under it. */
+export function placeUnder(path: string, base: { name: string; folderPath: string } | null): string | null {
+  if (!base) return null
+  const folder = path.slice(0, Math.max(0, path.lastIndexOf('/')))
+  if (folder !== base.folderPath && !folder.startsWith(base.folderPath + '/')) return null
+  return [base.name, ...folder.slice(base.folderPath.length + 1).split('/').filter(Boolean)].join(' › ')
+}
+
 /** A message's files that stay when it is deleted: kept in the team folder where I can open them (RoomFile.teamPath).
  * None for room-stored files (an ordinary room, a converted channel's older files): they go with the message. */
 export const keptFiles = (m: Pick<RoomMessage, 'files'>): RoomFile[] => m.files.filter((f) => f.teamFile && f.teamPath)
 
 /** The delete confirm's words for a message whose files are kept in the team folder (RoomFile.teamPath): the message
- * goes for everyone, and "The file stays in <project> › Chat attachments.", that place a link to the folder the file is
- * in now (it closes the confirm and opens it). `others`: the message also has files kept in the room, which go with it. */
+ * goes for everyone, and "The file stays in <project> › Chat attachments." (a department's room: "<group> › Chat
+ * attachments"), that place a link to the folder the file is in now (it closes the confirm and opens it). `others`: the
+ * message also has files kept in the room, which go with it. */
 export function FileStaysLines({ project, at, n, others = false }: { project: Pick<NonNullable<Room['project']>, 'name' | 'folderPath'> | null; at: string; n: number; others?: boolean }) {
   const t = useT()
   const folder = at.slice(0, Math.max(0, at.lastIndexOf('/')))
-  // the place as people read it: the project's name for its folder, then the folders under it
-  const under = project && folder.startsWith(project.folderPath + '/') ? folder.slice(project.folderPath.length + 1) : null
-  const label = (under !== null ? [project!.name, ...under.split('/')] : folder.split('/')).join(' › ')
+  // the place as people read it: the project's (or the department's) name for its folder, then the folders under it
+  const label = placeUnder(at, project) ?? folder.split('/').join(' › ')
   const href = `/files?path=${encodeURIComponent(folder)}`
   const parts = t('rooms.deleteFileStays', { n, place: '\u0000' }).split('\u0000')
   const place = (
@@ -342,14 +361,16 @@ function EventLine({ m }: { m: RoomMessage }) {
   const t = useT()
   const locale = useLocale()
   const nameOf = useNameOf()
+  const team = useMe()?.team.defaultLocale
   if (!m.event) return null
-  const text = eventText(m.event, m.author, { t, nameOf: (u) => nameOf(u) ?? t('rooms.goneUser') })
-  // a project link line for someone who can open the project: its name opens the project page
+  const text = eventText(m.event, m.author, { t, nameOf: (u) => nameOf(u) ?? t('rooms.goneUser'), folder: CHAT_FILES_FOLDER[team ?? DEFAULT_LOCALE] })
+  // a project link line, or "… made this conversation the project {name}", for someone who can open the project: its
+  // name opens the project page
   const e = m.event
-  const project = (e.type === 'project_linked' || e.type === 'project_unlinked') ? e.project : null
+  const project = (e.type === 'project_linked' || e.type === 'project_unlinked' || e.type === 'project_made') ? e.project : null
   let body: ReactNode = text
-  if (project && (e.type === 'project_linked' || e.type === 'project_unlinked')) {
-    const parts = t(projectEventKey(e), { actor: nameOf(m.author) ?? t('rooms.goneUser'), name: '\u0000' }).split('\u0000')
+  if (project && (e.type === 'project_linked' || e.type === 'project_unlinked' || e.type === 'project_made')) {
+    const parts = t(e.type === 'project_made' ? 'rooms.event.projectMade' : projectEventKey(e), { actor: nameOf(m.author) ?? t('rooms.goneUser'), name: '\u0000' }).split('\u0000')
     body = parts.length === 2 ? <>{parts[0]}<a href={`/projects/${project.id}`} onClick={(ev) => { if (ev.metaKey || ev.ctrlKey || ev.shiftKey) return; ev.preventDefault(); navigateTo(`/projects/${project.id}`) }} className="font-medium text-muted underline underline-offset-2 hover:text-ink" data-testid="room-event-project">{project.name}</a>{parts[1]}</> : text
   }
   return (
@@ -371,6 +392,7 @@ function MessageRow({ roomId, m, mine, names, members, meId, editing, inBox = fa
   const app = m.app ?? null
   const room = useRooms((s) => (app ? s.rooms.find((r) => r.id === roomId) ?? null : null))
   const roomProject = useRooms((s) => projectRoomOf(s.rooms.find((r) => r.id === roomId) ?? {}))
+  const groupBase = useGroupFolderBase(roomId)
   // an earlier AI answer: the person who asked puts it away; an owner or admin any answer they see; an app's message:
   // whoever manages the room's apps (the server's rooms/service.ts removable)
   const removable = mine || (ai && !!meId && (m.askedBy?.id === meId || me?.user.role === 'owner' || me?.user.role === 'admin')) || (!!app && mayManageApps(room, me))
@@ -434,7 +456,7 @@ function MessageRow({ roomId, m, mine, names, members, meId, editing, inBox = fa
     // per file (RoomFile.teamPath: a file kept in the team folder that I can open there): those stay, and the line links
     // to where they are; a room-stored file (a converted channel's older files) goes with the message as before
     const kept = keptFiles(m)
-    const body = kept.length ? <FileStaysLines project={roomProject} at={kept[0]!.teamPath!} n={kept.length} others={kept.length < m.files.length} /> : t('rooms.deleteBody')
+    const body = kept.length ? <FileStaysLines project={roomProject ?? groupBase} at={kept[0]!.teamPath!} n={kept.length} others={kept.length < m.files.length} /> : t('rooms.deleteBody')
     const ok = await confirmDialog({ title: app ? t('roomApps.deleteTitle', { app: app.name }) : t('rooms.deleteTitle'), body, confirm: t('common.delete'), danger: true })
     if (!ok) return
     await useRooms
@@ -659,13 +681,24 @@ function RoomPicture({ roomId, f, siblings }: { roomId: string; f: RoomFile; sib
   const viewer = useViewerItem(make)
   // a picture has no icons of its own: "Save to team folder" is in its menu (right-click, long press)
   const fileMenu = useRoomFileMenu(f, make(useViewerMeta()), useRoomFileSave(roomId, f, siblings))
+  const label = f.roomOnly ? `${t('rooms.openImage', { name: f.name })} · ${t('rooms.file.roomOnly')}` : t('rooms.openImage', { name: f.name })
+  const picture = (
+    <Tooltip label={label}>
+      <button type="button" ref={viewer.ref} onClick={(e) => !fileMenu.guard(e) && viewer.open()} {...fileMenu.bind} aria-label={label} className="overflow-hidden rounded-lg border border-line" data-testid="room-image" data-file-name={f.name} data-room-only={f.roomOnly ? '' : undefined}>
+        <RoomThumb f={f} src={roomFileUrl(roomId, f.id, { thumb: '1' })} />
+      </button>
+    </Tooltip>
+  )
   return (
     <>
-      <Tooltip label={t('rooms.openImage', { name: f.name })}>
-        <button type="button" ref={viewer.ref} onClick={(e) => !fileMenu.guard(e) && viewer.open()} {...fileMenu.bind} aria-label={t('rooms.openImage', { name: f.name })} className="overflow-hidden rounded-lg border border-line" data-testid="room-image" data-file-name={f.name}>
-          <RoomThumb f={f} src={roomFileUrl(roomId, f.id, { thumb: '1' })} />
-        </button>
-      </Tooltip>
+      {/* a picture kept in the room where files otherwise go to a team folder: "Only in this conversation" in its name
+          and as a quiet caption under it, at every width (a phone has no tooltip) */}
+      {f.roomOnly ? (
+        <span className="inline-flex max-w-full flex-col items-start gap-0.5">
+          {picture}
+          <span className="text-xs text-faint" aria-hidden data-testid="room-image-room-only">{t('rooms.file.roomOnly')}</span>
+        </span>
+      ) : picture}
       {fileMenu.menu}
     </>
   )
@@ -688,6 +721,7 @@ function FileChip({ roomId, f, siblings }: { roomId: string; f: RoomFile; siblin
   const fileMenu = useRoomFileMenu(f, make(useViewerMeta()), team)
   const download = () => startDownload(roomFileUrl(roomId, f.id, { download: '1' }), f.name)
   const opens = roomFileOpens(f, me)
+  const groupBase = useGroupFolderBase(roomId)
   return (
     <span className="group/chip inline-flex max-w-full items-stretch rounded-xl border border-line bg-surface text-xs" data-testid="room-file" data-opens={opens ? '' : undefined} data-file-name={f.name} {...fileMenu.bind}>
       {fileMenu.menu}
@@ -695,11 +729,20 @@ function FileChip({ roomId, f, siblings }: { roomId: string; f: RoomFile; siblin
         <FileText size={15} className="shrink-0 text-muted" aria-hidden />
         <span className="max-w-[220px] truncate font-medium text-ink">{f.name}</span>
         <span className="shrink-0 text-faint">{formatSize(f.size, locale)}</span>
+        {/* kept in the room where files otherwise go to a team folder (RoomFile.roomOnly), at every width: a phone shows
+            the short words ("Here only") so the name keeps its room, and hears the whole label */}
+        {f.roomOnly && (
+          <span className="shrink-0 text-faint" data-testid="room-file-room-only">
+            <span className="max-md:hidden">{t('rooms.file.roomOnly')}</span>
+            <span className="md:hidden" aria-hidden>{t('rooms.file.roomOnlyShort')}</span>
+            <span className="sr-only md:hidden">{t('rooms.file.roomOnly')}</span>
+          </span>
+        )}
         {/* what the name does: a preview (a file without one opens its card, named by its name alone) */}
         {opens && <span className="sr-only">{t('common.preview')}</span>}
       </button>
       {/* in the team folder where I can open it: a quiet link to it (its folder's name; the whole place in the tooltip) */}
-      {team?.saved && <InTeamLink path={team.saved} onOpen={team.open} />}
+      {team?.saved && <InTeamLink path={team.saved} onOpen={team.open} place={f.teamFile ? placeUnder(team.saved, groupBase) : null} />}
       {/* not there yet: a small save icon beside the download, seen only on hover and keyboard focus with a mouse; its
           place is kept (a fixed 24px) so the chip never changes width and a row of chips never re-wraps; on a touch
           screen it is not there at all (the long-press menu has it) */}
@@ -720,11 +763,12 @@ function FileChip({ roomId, f, siblings }: { roomId: string; f: RoomFile; siblin
 }
 
 /** A room file in the team folder where I can open it: its folder's name, the whole place in the tooltip and the
- * accessible name ("In team folder · Company-wide › Acme › Quotes"); a tap opens the file. */
-function InTeamLink({ path, onOpen }: { path: string; onOpen: () => void }) {
+ * accessible name ("In team folder · Company-wide › Acme › Quotes"); a tap opens the file. `place`: a department room's
+ * file in its group's folder reads "{group} › Chat attachments" (placeUnder). */
+function InTeamLink({ path, onOpen, place }: { path: string; onOpen: () => void; place?: string | null }) {
   const t = useT()
   const found = folderOfPath(path, useFolderWords())
-  const where = found
+  const where = place ? { short: place, full: found.full } : found
   const label = t('rooms.save.inTeam', { folder: where.full })
   return (
     <Tooltip label={label}>
