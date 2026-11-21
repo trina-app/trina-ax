@@ -77,10 +77,27 @@ skills**, then **Trina history** (your pinned chats first, then newest first, by
 
 Trina chats have no folders. To keep chats about one piece of work together, put them in a [project](#projects).
 
-The **Chats** list has **Conversation folders** for channels and direct messages. A folder sorts your list, nothing more:
-it holds no files and never changes who sees a conversation. Make one with **New folder**, then use a conversation's
-**···** › **Move to folder**. A folder's **···** renames it, moves it up or down, or deletes it; deleting a folder keeps
-its conversations in your list.
+In the **Chats** list you can group channels and direct messages into your own **sections**, like the sidebar sections
+in Slack. A section only sorts your own list: it holds no files, nobody else sees it, and it never changes who is in a
+conversation.
+
+1. Open **Chats** on the bar on the left.
+2. Point at **Channels** and press the **+** at the end of that line. A small menu opens with **Create a channel** and
+   **New section**.
+3. Choose **New section**, type a name (for example "Clients") and press **Create**.
+4. A list of your conversations opens. Tick the ones you want and press **Add 2 conversations** (the number follows what
+   you tick), or **Skip** to fill it later.
+
+You see the new section in your Chats list, above **Channels**, with the conversations you picked.
+
+![The Chats list with the + beside Channels pressed: a small menu with Create a channel and New section](../images/chats/channels-add.webp "New section, from the + beside Channels")
+
+- **Move one conversation:** on its row, choose **···** › **Move to section** and pick the section (or **New section…**).
+  On a computer you can also drag the row onto a section. **Remove from section** puts it back under **Channels** or
+  **Direct messages**.
+- **Change a section:** its **···** has **Add conversations**, **Rename section**, **Move up**, **Move down** and
+  **Delete section**. Deleting a section only removes the heading: its conversations go back to **Channels** and
+  **Direct messages**.
 
 ## Several chats at once
 
@@ -169,11 +186,11 @@ Conversations in **Chats** (channels and direct messages) are pinned the same wa
 **···**: pinned ones come first, with a small pin after the name, in every list of conversations, on a computer and in the phone's **Chats** tab.
 Only you see your pins. A pin goes when you leave the conversation or hide it. You can pin up to 50 conversations.
 
-The **Chats** list shows every conversation: your pins, your folders, then **Channels** (the Everyone channel first, then
+The **Chats** list shows every conversation: your pins, your sections, then **Channels** (the Everyone channel first, then
 by name; private channels have a lock) and **Direct messages** (one-to-one chats and group chats without a name together, the latest first, each with the members' faces). Conversations you hid are behind **Hidden conversations (N)**.
 
-The **+** beside **Channels** is **Create a channel**: pick people and give it a name, and it is a private channel that
-only they see. The **+** beside **Direct messages** is **New message**: pick one person for a direct message, or several
+The **+** beside **Channels** opens a small menu. **Create a channel**: pick people and give it a name, and it is a
+private channel that only they see. **New section** makes one of your own sections, as described above under Folders. The **+** beside **Direct messages** is **New message**: pick one person for a direct message, or several
 for a group chat named after them (if you already have one with exactly those people, it opens). To turn a group chat
 into a private channel, choose **···** › **Turn into a private channel** and give it a name.
 
@@ -327,6 +344,20 @@ Start a chat from the project's page, or move a chat in with **Move to project**
   people can open it, and a line under it says so. You need write access to the project folder (without it, **+**
   offers team files only); **✕** before sending moves the file to the trash.
 
+### Keep one project chat to yourself
+
+A new chat in a team project is shared with everyone in the project, like a document you create in a shared Google
+Drive folder. To ask something only you should see:
+
+1. Open the project's page.
+2. In the message box, look right after **+**: the chip says who will see the chat, for example **👥 3 people**.
+3. Press the chip. It changes to **🔒 Only me**.
+4. Type your question and send it.
+
+The chat shows a lock in the project's list and in your Trina history: only you see it. The next new chat in the project
+starts shared again, so check the chip each time. To share it later, choose **Share with project members** in the
+chat's menu.
+
 ### A project's chat room
 
 Every team project has its own chat room. The project's people are the room's people, and its files are the project's
@@ -388,7 +419,17 @@ Press ⌘K (Ctrl+K on Windows) or choose **Search** under **Ask Trina** to find 
 
 ## Deleted chats
 
-Deleting a chat moves it to **Deleted history**, where you can bring it back for 7 days by default. Admins can choose 1 to 365 days.
+Deleting a chat moves it to **Deleted history**, like the Recently Deleted album on an iPhone: you can bring it back for
+7 days by default. Admins can choose 1 to 365 days.
+
+To bring a chat back:
+
+1. Open **Trina** on the bar on the left. On a phone, open the **Trina** tab and press **☰** at the top.
+2. Press the **⋯** at the end of the **Trina history** heading and choose **Deleted history**. On a phone,
+   **Deleted history** is at the bottom of the menu.
+3. Find the chat (each row says when it was deleted) and press **Restore**.
+
+The row leaves the list, and the chat is back in your Trina history.
 
 - A shared chat goes to the **Deleted history** of the person who made it. When a project's creator or an admin deletes someone else's shared chat, it is in their **Deleted history** too, for as long as they can still bring it back.
 - Deleting a project for good moves its shared chats to the **Deleted history** of the people who made them. Brought back, such a chat is its maker's alone, without a project.

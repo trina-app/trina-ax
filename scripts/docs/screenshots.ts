@@ -222,6 +222,12 @@ const SHOTS: Shot[] = [
     await blur(p)
   }, crop: DIALOG },
   { file: 'chats/rooms-phone', set: 'acme', path: '/rooms', phone: true, as: JORDAN },
+  // the Channels header's + (Create a channel, New section): your own sections in Chats (docs: Your sections)
+  { file: 'chats/channels-add', set: 'acme', path: '/rooms', as: JORDAN, prepare: click('[data-testid="rooms-channels-add"]'), clip: { x: 0, y: 0, width: 360, height: 520 } },
+  // a conversation's bell at the top right: Notify me about, with Default, All messages, Mentions only and Off
+  { file: 'settings/room-notify', set: 'acme', path: '/rooms', as: JORDAN, prepare: async (p) => {
+    await openRoom('Marketing')(p); await p.locator('[data-testid="room-notify"]').first().click(); await p.waitForTimeout(500)
+  }, clip: { x: 1040, y: 0, width: 400, height: 230 } },
   { file: 'chats/projects-panel', set: 'acme', path: '/projects', as: JORDAN },
   { file: 'chats/project', set: 'acme', path: '/projects', as: JORDAN, prepare: async (p) => { await p.locator('[data-testid="project-card"]').first().click(); await p.waitForTimeout(1200); await restMouse(p) }, crop: 'main', maxHeight: 440 },
   // Share (the brand-voice chat is shared with Priya; the campaign summary is not, and adding Priya shows the check in place)
@@ -243,6 +249,22 @@ const SHOTS: Shot[] = [
     await p.locator('[data-testid="folders-share"]').nth(2).click(); await p.waitForTimeout(1500)
     await blur(p)
   }, crop: DIALOG },
+  // a file's own Share (Files › the file's ⋯ › Share), as the owner: Add people or groups, People with access
+  { file: 'files/file-share', set: 'acme', path: '/files?path=shared', prepare: async (p) => {
+    await p.locator('[data-testid="file-row"]').filter({ hasText: /onboarding/i }).first().locator('[data-testid="file-menu"]').first().click(); await p.waitForTimeout(400)
+    await p.locator('[data-testid="file-share"]').first().click(); await p.waitForTimeout(1200)
+    // the demo runs at 127.0.0.1, so the dialog adds the "this computer only" note under Copy link: people never see it
+    await p.evaluate((s) => document.querySelector(s)?.remove(), '[data-testid="local-link-note"]')
+    await blur(p)
+  }, crop: DIALOG },
+  // a folder's Share with Settings › Limit access turned on: who loses access, before anything is saved
+  { file: 'files/limit-access', set: 'acme', path: '/files?path=shared', prepare: async (p) => {
+    await p.locator('[data-testid="file-row"]').filter({ hasText: /handbook/i }).first().locator('[data-testid="file-menu"]').first().click(); await p.waitForTimeout(400)
+    await p.locator('[data-testid="folder-access-menu"]').first().click(); await p.waitForTimeout(1500)
+    // the switch's own input is visually hidden (a label draws it): pressed as a person's click would
+    await p.evaluate((s) => (document.querySelector(s) as HTMLElement | null)?.click(), '[data-testid="sharing-limit"]'); await p.waitForTimeout(1800)
+    await blur(p)
+  }, crop: DIALOG },
   { file: 'files/by-person', set: 'acme', path: '/admin/folders', prepare: async (p) => {
     await p.getByText(T('folders.tabPerson'), { exact: true }).first().click(); await p.waitForTimeout(800)
     await p.locator('main').getByText('Jordan Lee', { exact: true }).first().click(); await p.waitForTimeout(1000)
@@ -261,10 +283,21 @@ const SHOTS: Shot[] = [
   { file: 'scheduled/list', set: 'acme', path: '/scheduled', as: JORDAN },
   { file: 'scheduled/task', set: 'acme', path: '/scheduled', as: JORDAN, prepare: async (p) => { await p.locator('main a[href^="/scheduled/"]').first().click(); await p.waitForTimeout(1000) }, crop: 'main', maxHeight: 560 },
   { file: 'scheduled/new-task', set: 'acme', path: '/scheduled', as: JORDAN, prepare: async (p) => { await p.getByRole('button', { name: new RegExp(T('scheduled.newTask')) }).first().click(); await p.waitForTimeout(500) }, crop: 'main', maxHeight: 260 },
+  // New task › From a template: the Create a scheduled task dialog
+  { file: 'scheduled/template', set: 'acme', path: '/scheduled', as: JORDAN, prepare: async (p) => {
+    await p.locator('[data-testid="new-task"]').first().click(); await p.waitForTimeout(400)
+    await p.locator('[data-testid="new-task-template"]').first().click(); await p.waitForTimeout(900)
+    await blur(p)
+  }, crop: DIALOG },
   { file: 'scheduled/list-phone', set: 'acme', path: '/scheduled', phone: true, as: JORDAN },
   // Usage
   { file: 'usage/mine', set: 'acme', path: '/settings/usage', as: JORDAN, prepare: blur, crop: '[data-testid="settings-dialog"]' },
   { file: 'usage/team', set: 'acme', path: '/admin/usage', crop: 'main' },
+  // Admin › Team settings › Usage limits › Add limit: Applies to, Period, Token limit, Spending limit, When exceeded
+  { file: 'usage/limit-dialog', set: 'acme', path: '/admin/settings#ai-limits', prepare: async (p) => {
+    await p.locator('[data-testid="budget-new"]').first().click(); await p.waitForTimeout(700)
+    await blur(p)
+  }, crop: DIALOG },
   // Admin (the owner)
   { file: 'admin/team-menu', set: 'acme', path: '/', prepare: click('[data-testid="sidebar-team"]'), crop: '[data-testid="team-dropdown"]' },
   { file: 'admin/home', set: 'acme', path: '/admin' },
