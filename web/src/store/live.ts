@@ -67,8 +67,6 @@ export const reloadAsked = new Emitter<'reset' | 'resync'>()
 export const chatChanged = new Emitter<ServerEventData<'chat.updated'>>()
 /** my list folders changed (navFolders.changed, docs/DECISIONS.md "List folders"): the Trina list reads its groups again */
 export const navFoldersChanged = new Emitter<'chats' | 'rooms'>()
-/** the team's conversation categories changed (roomCategories.changed): the Chats list reads them again */
-export const roomCategoriesChanged = new Emitter<void>()
 /** an answer of this chat took a step or ended (message.step / message.done), also for a chat no screen has open: the
  * company profile step asks for its draft's pages right away instead of at its next poll */
 export const chatActivity = new Emitter<string>()
@@ -305,9 +303,6 @@ export function dispatch(ev: ServerEvent, meta: { replay: boolean } = { replay: 
       return
     case 'navFolders.changed':
       navFoldersChanged.emit(ev.data.kind)
-      return
-    case 'roomCategories.changed':
-      roomCategoriesChanged.emit()
       return
     case 'session.ended':
       // after the person's own sign-out in this window the event (or the 4401 close) can still arrive: keep that screen
