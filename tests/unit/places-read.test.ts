@@ -225,6 +225,21 @@ describe('review fixes (adversarial review of P1)', () => {
       expect((db().query('SELECT others_words FROM chats WHERE id = ?').get(chat) as { others_words: number }).others_words).toBe(1)
     }
   })
+
+  test('write and edit of a chat place are refused before any card (a room card after a room read)', async () => {
+    const { chat, file } = await sent('w2.txt', 'W')
+    db().query('UPDATE chats SET rooms_seen = 1 WHERE id = ?').run(chat)
+    for (const c of [
+      { tool: 'write', args: { file_path: 'chat:files/new.txt', content: 'X' }, says: 'not changed in place' },
+      { tool: 'edit', args: { file_path: chatFilePath(file, 'w2.txt'), old_string: 'W', new_string: 'X' }, says: 'not changed in place' },
+      { tool: 'write', args: { file_path: 'chat:work/a.txt', content: 'X' }, says: 'box_shell' },
+      { tool: 'edit', args: { file_path: 'room:files/a.txt', old_string: 'a', new_string: 'b' }, says: 'room files are not paths yet' },
+    ]) {
+      const r = await run('bob', chat, `${fake({ tool: c.tool, args: c.args, sayResult: true })}`)
+      expect(r.cards).toHaveLength(0)
+      expect(r.content).toContain(c.says)
+    }
+  })
 })
 
 describe('one way to open a chat file', () => {
