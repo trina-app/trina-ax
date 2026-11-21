@@ -124,6 +124,8 @@ export class RoomFileMoves {
   private people: Principal[] | null = null
   /** rooms whose moves changed: checked for their closing line after a run */
   private touched = new Set<string>()
+  /** touched only by the start's reconcile (old, settled rooms): checked for their closing line, but nobody is told the room changed */
+  private quiet = new Set<string>()
   constructor(readonly ctx: AppContext) {}
 
   private get db() { return this.ctx.db }
@@ -145,12 +147,13 @@ export class RoomFileMoves {
     const ins = this.db.query("INSERT INTO room_file_moves (id, room_file_id, room_id, project_id, actor, sender, state, sha256, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?)")
     for (const f of moving) ins.run(newId(), f.id, roomId, projectId, actor, f.user_id, f.sha256, now, now)
     this.touched.add(roomId)
+    this.quiet.delete(roomId)
     return { moving: moving.length, staying }
   }
 
   /** Run soon (after a conversion), unless `auto` is off. */
   kick(roomId?: string) {
-    if (roomId) this.touched.add(roomId)
+    if (roomId) { this.touched.add(roomId); this.quiet.delete(roomId) }
     if (!this.auto) return
     if (this.running) { this.again = true; return }
     if (this.timer) return
@@ -181,6 +184,7 @@ export class RoomFileMoves {
       const row = this.row(id)
       if (!row) continue
       this.touched.add(row.room_id)
+      this.quiet.delete(row.room_id)
       let end: StepEnd
       try { end = await this.step(row) } catch (e) {
         if (e instanceof MoveCrash) throw e
@@ -491,17 +495,19 @@ export class RoomFileMoves {
   /** The rooms whose moves are all settled get their closing line once: how many moved, how many stay. */
   private closeSettled() {
     const rooms = [...this.touched]
+    const quiet = new Set(this.quiet)
     this.touched.clear()
+    this.quiet.clear()
     for (const roomId of rooms) {
-      try { this.close(roomId) } catch (e) { this.ctx.log.warn('the files-moved line was not written', { err: e }) }
+      try { this.close(roomId, quiet.has(roomId)) } catch (e) { this.ctx.log.warn('the files-moved line was not written', { err: e }) }
     }
   }
 
-  private close(roomId: string) {
+  private close(roomId: string, quiet = false) {
     if (this.db.query(`SELECT 1 FROM room_file_moves WHERE room_id = ? AND (${WORK_SQL}) LIMIT 1`).get(roomId)) return
     try { this.closeLine(roomId) } finally {
       // the moves have settled: every member's Room loses filesMoving ("Moving files…") now, line or no line
-      if (roomRow(this.db, roomId)) roomsOf(this.ctx).roomEvent(roomId, 'updated')
+      if (!quiet && roomRow(this.db, roomId)) roomsOf(this.ctx).roomEvent(roomId, 'updated')
     }
   }
 
@@ -532,7 +538,7 @@ export class RoomFileMoves {
     // a kept row whose message is gone needs nothing staged: its file (when there) is removed in the loop, the column
     // cleared here either way (the next start then finds nothing to keep)
     const goneKept = this.db.query("SELECT id FROM room_file_moves WHERE state = 'kept' AND staged IS NOT NULL AND room_file_id IS NULL").all() as { id: string }[]
-    for (const r of this.db.query('SELECT DISTINCT room_id FROM room_file_moves').all() as { room_id: string }[]) this.touched.add(r.room_id)
+    for (const r of this.db.query('SELECT DISTINCT room_id FROM room_file_moves').all() as { room_id: string }[]) { this.touched.add(r.room_id); this.quiet.add(r.room_id) }
     let names: string[] = []
     try { names = fs.readdirSync(this.stagingRoot()) } catch { return out }
     for (const n of names) {

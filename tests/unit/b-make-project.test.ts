@@ -279,8 +279,16 @@ test('a conversation made a project and a room opened on purpose are listed; the
   const lazy = await mia.client.call('POST', '/api/projects', { name: 'Lazy', participants: [{ subjectType: 'user', subjectId: nora.id }] })
   const lazyRoom = await mia.client.call('POST', `/api/projects/${lazy.id}/room`)
   expect(lazyRoom.listed).toBeUndefined()
-  // opened on purpose afterwards: listed, and it stays so when opened again the plain way
+  // opened on purpose afterwards: listed, every member's list is told once, and it stays so when opened again the plain way
+  const sent: { to: string; ev: any }[] = []
+  h.ctx.services.realtime.publishEach = (build) => {
+    for (const r of h.ctx.db.query('SELECT id FROM users').all() as { id: string }[]) { const ev = build(r.id); if (ev) sent.push({ to: r.id, ev }) }
+  }
   expect((await mia.client.call('POST', `/api/projects/${lazy.id}/room?listed=1`)).listed).toBe(true)
+  expect(sent.some((e) => e.to === nora.id && e.ev.type === 'room.updated' && e.ev.data.roomId === lazyRoom.id && e.ev.data.room.listed === true)).toBe(true)
+  sent.length = 0
+  await mia.client.call('POST', `/api/projects/${lazy.id}/room?listed=1`)
+  expect(sent.length).toBe(0)
   expect((await nora.client.call('POST', `/api/projects/${lazy.id}/room`)).listed).toBe(true)
   const dm = await mia.client.call('POST', '/api/projects', { name: 'With Nora', participants: [{ subjectType: 'user', subjectId: nora.id }] })
   const dmRoom = await mia.client.call('POST', `/api/projects/${dm.id}/room?listed=1`)

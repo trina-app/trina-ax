@@ -627,7 +627,8 @@ export class Rooms {
     if (!roomId) return fail('not_found')
     if (r.settled) this.afterSettled([r.settled])
     if (r.created) this.roomEvent(roomId, 'added')
-    else if (!memberRow(this.db, roomId, userId)) this.sync({ projects: { ids: [projectId] } })
+    else if (r.listedNow) this.roomEvent(roomId, 'updated')
+    if (!r.created && !memberRow(this.db, roomId, userId)) this.sync({ projects: { ids: [projectId] } })
     return this.get(userId, roomId)
   }
 

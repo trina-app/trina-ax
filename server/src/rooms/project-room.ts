@@ -157,7 +157,7 @@ export function plan(db: Database, scope: ProjectRoomScope, rules: RuleSet, peop
  * 409 project_not_linkable. A 'linked' row of this project is settled first (D7). The room is named after the project,
  * its members the project's readers, everyone seeing it from its first line. Audited when made (project.room 'created').
  */
-export function openInTx(db: Database, userId: string, projectId: string, locale: Locale, listed = false): { roomId: string; created: boolean; settled: ReturnType<typeof settleLinkedInTx> } {
+export function openInTx(db: Database, userId: string, projectId: string, locale: Locale, listed = false): { roomId: string; created: boolean; settled: ReturnType<typeof settleLinkedInTx>; listedNow?: boolean } {
   const p = projectRow(db, projectId)
   const who = loadPrincipal(db, userId)
   const rules = RuleSet.load(db)
@@ -169,8 +169,9 @@ export function openInTx(db: Database, userId: string, projectId: string, locale
   const found = db.query("SELECT l.room_id, r.archived_at FROM room_project_links l JOIN rooms r ON r.id = l.room_id WHERE l.project_id = ? AND l.mode = 'room'").get(p.id) as { room_id: string; archived_at: string | null } | null
   // opened on purpose ("New project with"): listed from the start, also a room the project page made first
   if (found && !found.archived_at) {
-    if (listed) db.query("UPDATE room_project_links SET listed = 1 WHERE room_id = ?").run(found.room_id)
-    return { roomId: found.room_id, created: false, settled }
+    // (listedNow: it was unlisted: every member's list is told)
+    const flipped = listed && db.query("UPDATE room_project_links SET listed = 1 WHERE room_id = ? AND listed = 0").run(found.room_id).changes > 0
+    return { roomId: found.room_id, created: false, settled, ...(flipped ? { listedNow: true } : {}) }
   }
   // an archived room's row never blocks a new one
   if (found) db.query('DELETE FROM room_project_links WHERE room_id = ?').run(found.room_id)
