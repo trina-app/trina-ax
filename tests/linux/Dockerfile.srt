@@ -3,7 +3,8 @@
 # from scripts/dev-env/srt/package-lock.json in /opt/trina/srt/<version>, run-wrap in /opt/trina/devenv. No systemd: the
 # driver runs srt with no scope (memory, CPU, polkit and systemd lines run on the VM). Run it with tests/linux/srt-run.ts
 # (--privileged: bwrap's user namespaces and mounts). The same image runs tests/linux/srt-subagent.ts (sub-agents' and
-# skills' commands through the real box_shell tool), in a container of its own.
+# skills' commands through the real box_shell tool), in a container of its own, and tests/linux/srt-work-write.ts (the
+# server's safe write into a work folder) in a third.
 FROM oven/bun:1.3.12-debian
 ARG TARGETARCH
 RUN apt-get update && apt-get install -y --no-install-recommends bubblewrap socat ripgrep curl xz-utils ca-certificates \
@@ -41,5 +42,5 @@ COPY server/migrations /opt/mycel/server/migrations
 COPY server/assets /opt/mycel/server/assets
 COPY resources /opt/mycel/resources
 COPY tests/lib /opt/mycel/tests/lib
-COPY tests/linux/srt-attack.ts tests/linux/srt-subagent.ts tests/linux/sweep-as.ts /opt/mycel/tests/linux/
+COPY tests/linux/srt-attack.ts tests/linux/srt-subagent.ts tests/linux/srt-work-write.ts tests/linux/sweep-as.ts /opt/mycel/tests/linux/
 CMD ["bun", "/opt/mycel/tests/linux/srt-attack.ts"]

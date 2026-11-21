@@ -23,6 +23,8 @@ export interface SpawnSpec {
   stderrFile: string
   /** the folders the run may write (the settings' allowWrite). macOS gives them the dev accounts' ACL again first */
   writable?: string[]
+  /** folders the run only reads that macOS gives the dev accounts' ACL too: a copy's stage folder (devenv/work-write.ts) */
+  readable?: string[]
   /** macOS: the runs (and their slot ports) on localhost this run may connect to besides its own port, the chat's own
    * running jobs and dev servers (srt/runner.ts reachTargets; srt-mac.mjs TRINA_REACH_PORTS). A port counts only while
    * that run still has the slot, and the slot is not given to another run while this one lives. Linux reaches them
