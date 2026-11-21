@@ -50,7 +50,8 @@ import { teamDefaultLocale, teamTimeZone } from '../admin/settings'
 import { ext, officeWorkerText, officeWorkerWrite } from '../files/extract'
 import { DOCX_TEMPLATE_CHECK_MODE, PPTX_TEMPLATE_CHECK_MODE } from '../files/office-template'
 import { DOCX_LINK_CHECK_MODE, PPTX_LINK_CHECK_MODE, XLSX_LINK_CHECK_MODE } from '../files/office-links-check'
-import { PPTX_HTML_MODE, type SlidesHtml } from '../files/pptx-html'
+import { deckPdf, type DrawnDeck } from '../files/deck-pdf'
+import type { SlidesHtml } from '../files/pptx-html'
 import { encodeHwpxRequest, firstDifference, HWPX_TEMPLATE_MAX, HWPX_WRITE_MODE, hwpxExpectedLines, hwpxReadLines } from '../files/hwpx-check'
 import { readForMakeFile, readThisAnswer, type ToolCtx } from '../files/service'
 import { conflictCopyName, fileEvent, readRegular, recordConflictCopy, sha256 } from '../files/store'
@@ -499,32 +500,19 @@ export class MakeFile {
     if (why || !browser) throw new ToolError(`this server cannot make a PDF of a deck (${why ?? 'no headless browser is installed'}); nothing was saved. Tell the user so, and that PowerPoint or Keynote can (File > Export > PDF); never rewrite the slides as a document instead`, 'html_pdf_unavailable')
     const { bytes } = readRegular(src.abs, MAX_DECK, src.st)
     this.ctx.files.quarantine.assertBytes(bytes)
-    const drawn = JSON.parse((await officeWorkerWrite(PPTX_HTML_MODE, bytes, c.signal)).toString('utf8')) as SlidesHtml
-    // the page sits next to the deck under a name of its own: its pictures are answered only from the deck's
-    const page = [...src.segs.slice(0, -1), `${src.segs.at(-1)}.slides.html`].join('/')
-    const folder = page.slice(0, page.lastIndexOf('/') + 1)
-    const toTool = (e: unknown) => (e instanceof HtmlPdfError ? new ToolError(htmlPdfErrorText(e), `html_pdf_${e.code}`) : e)
-    let release: () => void
-    try { release = await renderSlot(c.user.id, c.signal) } catch (e) { throw toTool(e) }
-    let printed: Awaited<ReturnType<typeof renderHtmlPdf>>
-    try {
-      printed = await renderHtmlPdf({
-        browser, html: Buffer.from(drawn.html, 'utf8'), page, workBase: this.ctx.config.dataDir, fonts: serverFontDirs(), signal: c.signal,
-        limits: { maxHtmlBytes: Math.max(HTML_PDF_LIMITS.maxHtmlBytes, 32 * 1024 * 1024) },
-        asset: (p) => {
-          const name = p.startsWith(folder) ? p.slice(folder.length) : ''
-          const b64 = /^m\d+\.[a-z]+$/.test(name) ? drawn.media[name] : undefined
-          return b64 ? Buffer.from(b64, 'base64') : null
-        },
-      })
-    } catch (e) { throw toTool(e) } finally { release() }
+    // drawn in the office worker, printed by the isolated browser; the pictures are the deck's own (files/deck-pdf.ts)
+    let drawn: DrawnDeck
+    try { drawn = await deckPdf(bytes, { user: c.user.id, workBase: this.ctx.config.dataDir, signal: c.signal }) } catch (e) {
+      throw e instanceof HtmlPdfError ? new ToolError(htmlPdfErrorText(e), `html_pdf_${e.code}`) : e
+    }
+    const printed = { pdf: drawn.pdf, pages: drawn.pages }
     const work = makeWorkDir(path.join(this.ctx.config.dataDir, 'work'))
     try {
       const produced = path.join(work, 'out.pdf')
       fs.writeFileSync(produced, printed.pdf, { flag: 'wx', mode: 0o600 })
       await this.checkWidening(c, out.rel, out.segs, [src.rel])
-      const made = await placeProduced(this.ctx, this.files, c, out.segs, produced, 'make_file', undefined, { detail: { from: src.rel, pages: printed.pages, slides: drawn.slides } })
-      return { ...made, html: { pages: printed.pages, blocked: [], blockedCount: 0, scripts: false, deck: { slides: drawn.slides, hidden: drawn.hidden, notDrawn: drawn.notDrawn } } }
+      const made = await placeProduced(this.ctx, this.files, c, out.segs, produced, 'make_file', undefined, { detail: { from: src.rel, pages: printed.pages, slides: drawn.pages } })
+      return { ...made, html: { pages: printed.pages, blocked: [], blockedCount: 0, scripts: false, deck: { slides: drawn.pages, hidden: drawn.hidden, notDrawn: drawn.notDrawn } } }
     } finally { fs.rmSync(work, { recursive: true, force: true }) }
   }
 

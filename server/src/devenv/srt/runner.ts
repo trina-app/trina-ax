@@ -423,6 +423,23 @@ export function rootAllowed(ctx: AppContext, c: SrtConfig, space: Space, view: F
  * (`shared.within`) runs only in its project folder (null when the person cannot read it now); a chat shared with
  * people and groups only in its work folder. */
 export function spaceOf(ctx: AppContext, o: { userId: string; chatId: string | null; project: { id: string; folderPath: string } | null; shared?: SharedRun }): Space | null {
+  return spaceAt(ctx, o, true)
+}
+
+/** The chat's work folder that box_shell's commands of this person use now (spaceOf's choice exactly, made nowhere),
+ * or null: the commands run in a project folder (a team folder `read` reaches), the person cannot use it, or the
+ * folder is not there yet (no command ran). Its real path and its path as made. For read and save_work_file (chat/work-files.ts). */
+export function workFolderAt(ctx: AppContext, o: { userId: string; chatId: string | null; project: { id: string; folderPath: string } | null; shared?: SharedRun }): { real: string; path: string } | null {
+  const s = spaceAt(ctx, o, false)
+  if (!s || !inWorkFolder(srtConfig(), s)) return null
+  try {
+    const st = fs.lstatSync(s.root)
+    if (!st.isDirectory()) return null
+    return { real: fs.realpathSync(s.root), path: s.root }
+  } catch { return null }
+}
+
+function spaceAt(ctx: AppContext, o: { userId: string; chatId: string | null; project: { id: string; folderPath: string } | null; shared?: SharedRun }, make: boolean): Space | null {
   const c = srtConfig()
   const view = personView(ctx, o.userId)
   if (!view) return null
@@ -442,8 +459,10 @@ export function spaceOf(ctx: AppContext, o: { userId: string; chatId: string | n
     if (!w) return null
     root = w
   } else root = chatWork(c.base, o.chatId)
-  fs.mkdirSync(path.dirname(root), { recursive: true, mode: 0o700 })
-  fs.mkdirSync(root, { recursive: true, mode: 0o700 })
+  if (make) {
+    fs.mkdirSync(path.dirname(root), { recursive: true, mode: 0o700 })
+    fs.mkdirSync(root, { recursive: true, mode: 0o700 })
+  }
   return { userId: o.userId, chatId: o.chatId, projectId: o.project?.id ?? null, root, ...shared }
 }
 
