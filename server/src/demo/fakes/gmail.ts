@@ -149,6 +149,44 @@ export function parseQuery(query: string): Query {
   return seq('', null)
 }
 
+/** Gmail's keys and values the demo mailbox does not keep (dates, sizes, categories, Drive links, snoozed …) */
+const UNTRACKED_KEYS = new Set(['newer_than', 'older_than', 'after', 'before', 'newer', 'older', 'category', 'filename', 'list', 'size', 'larger', 'smaller', 'deliveredto', 'rfc822msgid'])
+const TRACKED: Record<string, readonly string[]> = { is: ['unread', 'read', 'starred', 'important'], has: ['attachment'] }
+/** `in:` values that are no label: drafts picks the list to search (FakeGmail.search), anywhere means every mail */
+const IN_NOT_LABEL = ['anywhere', 'drafts', 'draft', 'snoozed', 'chats']
+const tracked = ({ key, value }: Term) => {
+  const v = value.toLowerCase()
+  if (UNTRACKED_KEYS.has(key)) return false
+  if (key === 'in') return !IN_NOT_LABEL.includes(v)
+  return TRACKED[key] ? TRACKED[key]!.includes(v) : true
+}
+
+/**
+ * The query without the words the demo does not keep, so they neither narrow nor (negated) remove every mail:
+ * `-category:promotions`, `a OR older_than:30d` → `a`. null: nothing left to check (matches every mail). An empty
+ * `{}` the visitor typed stays (it matches nothing, as in Gmail).
+ */
+export function pruneQuery(q: Query): Query | null {
+  switch (q.t) {
+    case 'term': return tracked(q.term) ? q : null
+    case 'not': { const of = pruneQuery(q.of); return of ? { t: 'not', of } : null }
+    case 'and': case 'or': {
+      if (q.of.length === 0) return q
+      const of = q.of.map(pruneQuery).filter((x): x is Query => x !== null)
+      return of.length ? { t: q.t, of } : null
+    }
+  }
+}
+
+/** `in:drafts` asked for, and not under a - (`-in:drafts` is the other mail) */
+function wantsDrafts(q: Query): boolean {
+  switch (q.t) {
+    case 'term': return q.term.key === 'in' && /^drafts?$/i.test(q.term.value)
+    case 'not': return false
+    case 'and': case 'or': return q.of.some(wantsDrafts)
+  }
+}
+
 function evalQuery(q: Query, term: (t: Term) => boolean): boolean {
   switch (q.t) {
     case 'term': return term(q.term)
@@ -166,12 +204,27 @@ const HANGUL = /\p{Script=Hangul}/u
 const KO_ENDINGS = ['님에게서', '님한테서', '님께서', '님에게', '님한테', '님이랑', '님하고', '님이', '님은', '님의', '님을', '님도', '님께', '님', '씨가', '씨는', '씨의', '씨',
   '에게서', '한테서', '께서', '에게', '한테', '이랑', '하고', '이', '가', '은', '는', '을', '를', '의', '께', '도', '랑', '과', '와']
 
-/** `value` in `text` (both as words): the whole run of words, else each word, a Hangul word also without its ending */
+const JAPANESE = /[\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Han}]/u
+/** Japanese honorifics at the end of a name, then the same with から / に / の … after them ("クリスさんから" → "クリス") */
+const JA_HONORIFICS = ['さん', '様', 'さま', '氏', 'くん', '君', 'ちゃん']
+const JA_ENDINGS = [...JA_HONORIFICS.flatMap((h) => ['から', 'より', 'に', 'へ', 'の', 'は', 'が', 'と', 'も'].map((p) => h + p)), ...JA_HONORIFICS, 'から', 'より']
+  .sort((a, b) => b.length - a.length)
+
+/** `w` without one of `endings`, if what is left is found in `text` (at least 2 letters, or 1 kanji: 林様 → 林) */
+const withoutEnding = (text: string, w: string, endings: readonly string[]) => endings.some((e) => {
+  if (!w.endsWith(e)) return false
+  const rest = w.slice(0, -e.length)
+  return (rest.length >= 2 || (rest.length === 1 && /\p{Script=Han}/u.test(rest))) && text.includes(rest)
+})
+
+/** `value` in `text` (both as words): the whole run of words, else each word, a Hangul or Japanese word also without its ending */
 function found(text: string, value: string): boolean {
   const v = words(value).trim()
   if (!v || text.includes(v)) return true
-  if (!HANGUL.test(v)) return false
-  return v.split(' ').every((w) => text.includes(w) || KO_ENDINGS.some((e) => w.length - e.length >= 2 && w.endsWith(e) && text.includes(w.slice(0, -e.length))))
+  const ko = HANGUL.test(v)
+  const ja = JAPANESE.test(v)
+  if (!ko && !ja) return false
+  return v.split(' ').every((w) => text.includes(w) || (ko && withoutEnding(text, w, KO_ENDINGS)) || (ja && withoutEnding(text, w, JA_ENDINGS)))
 }
 
 function matchTerm(m: StoredMail, { key, value }: Term, me: string): boolean {
@@ -183,12 +236,10 @@ function matchTerm(m: StoredMail, { key, value }: Term, me: string): boolean {
     case 'cc': return person(m.cc)
     case 'bcc': return person(m.bcc)
     case 'subject': return found(words(m.subject), value)
-    case 'in': return v === 'anywhere' || v === 'drafts' || v === 'draft' || m.labels.some((l) => l.toLowerCase() === v)
-    case 'label': return m.labels.some((l) => l.toLowerCase() === v)
-    case 'is': return v === 'unread' ? m.labels.includes('UNREAD') : v === 'read' ? !m.labels.includes('UNREAD') : v === 'starred' ? m.labels.includes('STARRED') : v === 'important' ? m.labels.includes('IMPORTANT') : true
-    case 'has': return v === 'attachment' ? !!m.attachments?.length : true
-    // Gmail's other keys: not kept in the demo mailbox, so they do not narrow
-    case 'newer_than': case 'older_than': case 'after': case 'before': case 'category': case 'filename': case 'list': case 'size': case 'larger': case 'smaller': case 'deliveredto': case 'rfc822msgid': return true
+    // (keys and values the demo does not keep never get here: pruneQuery drops them)
+    case 'in': case 'label': return m.labels.some((l) => l.toLowerCase() === v)
+    case 'is': return v === 'read' ? !m.labels.includes('UNREAD') : m.labels.includes(v.toUpperCase())
+    case 'has': return !!m.attachments?.length
     case '': return found(words([m.from, m.to, m.cc, m.subject, m.body].join(' ')), value)
     // not a key ("Re:banner"): the whole word
     default: return found(words([m.from, m.to, m.cc, m.subject, m.body].join(' ')), `${key}:${value}`)
@@ -223,13 +274,16 @@ export class FakeGmail {
    * joined by AND, OR / |, ( ), { } (any of) and - (not), also after a key (`from:(a OR b)`). Names and addresses are
    * compared word by word, as Gmail does, so `from:Chris`, `from:"Chris Walker"`, `from:크리스` and the address all
    * find "크리스 워커 <chris.walker@fieldnote.example>"; a Hangul word that is not found is tried again without a
-   * Korean honorific or particle at its end ("크리스님" → "크리스", QA TC-6712). `me` is the mailbox's own address.
+   * Korean honorific or particle at its end ("크리스님" → "크리스", QA TC-6712), a Japanese word without さん, 様, 氏,
+   * くん or ちゃん ("クリスさん" → "クリス"). Keys and values the demo does not keep (dates, categories, Drive links,
+   * snoozed …) are left out of the query, also after a -, so they never remove mail. `me` is the mailbox's own address.
    */
   search(query: string): StoredMail[] {
-    const q = parseQuery(query)
-    const drafts = /(?:^|[\s({])in:drafts?(?=$|[\s)}])/i.test(query)
+    const parsed = parseQuery(query)
+    const q = pruneQuery(parsed)
     const me = this.me.email
-    return (drafts ? this.drafts() : this.messages()).filter((m) => evalQuery(q, (t) => matchTerm(m, t, me)))
+    const all = wantsDrafts(parsed) ? this.drafts() : this.messages()
+    return q ? all.filter((m) => evalQuery(q, (t) => matchTerm(m, t, me))) : all
   }
 
   private show(m: StoredMail): string {

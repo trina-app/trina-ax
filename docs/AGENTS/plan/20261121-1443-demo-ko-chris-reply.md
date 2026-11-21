@@ -59,3 +59,9 @@ Built as planned. The search in `gmail.ts` now parses the query (`parseQuery`) a
 Korean-ending fallback; unknown `key:` words are searched as plain text, Gmail keys the demo does not keep (filename:,
 size:, ...) do not narrow. `tests/unit/demo-gmail-search.test.ts` runs 53 cases on the en and ko seeds; before the fix
 `from:크리스님`, `from:"Chris Walker"` (ko), OR, brackets, braces and `to:me` found nothing.
+
+Review follow-up: Japanese honorifics (さん, 様, 氏, くん, ちゃん, also with から/の … after them) are dropped like the
+Korean endings. Keys and values the demo does not keep (dates, category:, has:drive, is:snoozed, in:snoozed …) are
+now taken out of the query (`pruneQuery`) instead of counting as true, so `-category:promotions` no longer removes
+every mail and `a OR older_than:30d` is `a`. `in:drafts` is read from the parsed query, so it works at the start, in
+brackets and in any case, and `-in:drafts` searches the other mail.
