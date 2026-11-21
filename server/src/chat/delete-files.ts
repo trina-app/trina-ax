@@ -38,7 +38,7 @@ import { ownHistory, ownMade, OWN_TRASH_MAX_ENTRIES } from './own-files'
 export const DELETE_FILES_TOOL = 'delete_files'
 
 export const DELETE_FILES_DESCRIPTION = 'Move files or folders of the team drive to the team trash, only when the user asked you to delete them, or to clean up files you made yourself in this chat (downloads, tools, previews that should not have gone into a team folder). ' +
-  'Files you made yourself in this chat, which nobody else changed, go to the trash without a card, in a shared chat too, up to 50,000 files and folders per call. ' +
+  'Files you made yourself in this chat, which nobody else changed, go to the trash without a card, in a shared chat too, up to 50,000 files and folders per call; in a shared chat only those can go. ' +
   'Give their full paths, all of them in one call when several go: one card lists them all. The user confirms on a card that lists every item, how many files each folder holds, whose files they are, ' +
   'who loses them and until when they can be restored. Nothing is deleted for good: the trash keeps them for the team\'s set number of days. ' +
   'Not for top-level folders, group, project or rule folders, skill folders, other people\'s folders or chat attachments; at most 200 files and folders per call, counted inside folders, for anything else.'
@@ -78,7 +78,7 @@ const GUEST_SCREEN = 'they can ask again in a chat of their own (for project fil
 export const DELETE_REFUSAL = {
   scheduled: `${NONE}: a scheduled run has nobody to confirm the delete card. Tell the user ${SCREEN}, or to ask in a chat, where they confirm on a card.`,
   template: `${NONE}: an approved scheduled template only reads its folder and writes reports. Tell the user ${SCREEN}.`,
-  shared: `${NONE}: the AI does not delete files in a shared project chat (everyone in the project writes and reads it). Tell the user to ask in their own AI chat, or that ${SCREEN}.`,
+  shared: `${NONE}: in a shared chat the AI puts in the trash only files it made itself in this chat for this user (nobody else changed them), and these are not all such files (everyone here writes and reads this chat). Tell the user to ask in their own AI chat, or that ${SCREEN}.`,
   others: `${NONE}: other people's messages are in this chat, and one of them could ask for the delete. Tell the user to ask in a new chat of their own, or that ${SCREEN}.`,
   roomsSeen: `${NONE}: this is a scheduled run, and this chat holds messages from the user's team chat rooms or quotes another person's message (other people's words): a delete then needs the user's yes on its card, which a scheduled run cannot show. Tell the user to ask in a chat, or that ${SCREEN}.`,
   sharedFile: `${NONE}: this is a scheduled run, and this chat read ${SHARED_FILE_SOURCE}: a delete then needs the user's yes on its card, which a scheduled run cannot show. Tell the user to ask in a chat, or that ${SCREEN}.`,
@@ -103,8 +103,10 @@ export function deleteFilesRefusal(exec: Pick<DeleteExec, 'spec' | 'shared' | 'r
   if (exec.templateRun) return 'template'
   // a scheduled run has nobody to answer the card: only the person's own "Always allow" for deletes lets it go on (owner 2026-11-14)
   if (exec.spec.clientKind === 'schedule' && alwaysHere(exec.alwaysPlace?.(), 'delete_files') !== 'on') return 'scheduled'
-  if (exec.shared) return 'shared'
+  // confidential before shared: a shared chat that is confidential too says 'confidential', which the AI's own files
+  // never go past (OWN_OVERRIDES)
   if (confidentialChat(exec.rt.db, exec.spec.chatId)) return 'confidential'
+  if (exec.shared) return 'shared'
   // kept (the one part that protects other people's data): in a chat other people write in, anyone there could ask for
   // a delete of files only the asker may delete, and the asker's yes would answer someone else's request
   if (exec.otherAuthors) return 'others'
