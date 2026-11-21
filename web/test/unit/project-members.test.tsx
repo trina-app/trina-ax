@@ -310,9 +310,12 @@ describe('saving', () => {
     const line = await m.until(() => m.find('project-lose-room'), 'the chat room line', 2000)
     expect(line.textContent).toBe("They also lose the project's chat room and its history.")
     expect(line.textContent).toBe(en('projects.loseRoom', { n: 1 }))
-    // Korean says 대화방, never 채팅방
-    expect(translate('ko', 'projects.loseRoom', { n: 1 })).toContain('대화방')
-    expect(translate('ko', 'projects.loseRoom', { n: 1 })).not.toContain('채팅방')
+    // Korean says 채팅방, the same word as the project's Chat room button (projects.room.open)
+    expect(translate('ko', 'projects.loseRoom', { n: 1 })).toContain('채팅방')
+    expect(translate('ko', 'projects.loseRoom', { n: 1 })).toContain(translate('ko', 'projects.room.open'))
+    // Spanish reads right for one person or several (no "pierden" after "1 persona pierde")
+    expect(translate('es', 'projects.loseRoom', { n: 1 })).toBe(translate('es', 'projects.loseRoom', { n: 2 }))
+    expect(translate('es', 'projects.loseRoom', { n: 1 })).not.toContain('pierden')
     await m.unmount()
     // a personal project has no chat room: only the access line
     const q = await mount(<MemoryRouter><ProjectMembersDialog project={project({ folderPath: 'users/mia/Acme launch' })} onClose={() => {}} onSaved={() => {}} /><DialogHost /></MemoryRouter>)

@@ -1435,7 +1435,7 @@ export const es: Record<MessageKey, string> = {
   "projects.changeTitle": "¿Cambiar los miembros?",
   "projects.narrowBody": "{n, plural, one {# persona dejará} other {# personas dejarán}} de ver este proyecto.",
   "projects.loseAccess": "{n, plural, one {# persona pierde} other {# personas pierden}} el acceso: {names}",
-  "projects.loseRoom": "También pierden la sala de chat del proyecto y su historial.",
+  "projects.loseRoom": "También se pierde el acceso a la sala de chat del proyecto y a su historial.",
   "projects.guestsOff": "{n, plural, one {La cuenta del invitado se desactiva: ya no puede iniciar sesión.} other {Las cuentas de # invitados se desactivan: ya no pueden iniciar sesión.}}",
   "projects.addsFloor": "Al guardar, solo los miembros de aquí podrán ver este proyecto. Quien lo veía hasta ahora sin ser miembro dejará de verlo.",
   "projects.restoresCreator": "Quien creó el proyecto vuelve a ser miembro.",

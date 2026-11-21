@@ -75,7 +75,7 @@ import { Tooltip } from '../components/Tooltip'
 import { PresenceDot, PresenceText } from '../components/Presence'
 import { StatusDmLine } from '../components/StatusMessage'
 import { usePresenceOf } from '../store/presence'
-import { IncludesGuests } from '../components/GuestTag'
+import { IncludesGuests, useGuestCount } from '../components/GuestTag'
 import { useGuestAiOff } from '../components/GuestView'
 
 /** Was the room opened by a choice (a tap, a link, a notice: a room I hid is shown again), not by the history's back or
@@ -147,6 +147,8 @@ function RoomView({ roomId, threadId, badThread }: { roomId: string; threadId: s
   const guestNoAi = useGuestAiOff()
   const members = useMemo(() => (roomMembers ?? []).map((m) => m.user), [roomMembers])
   const memberIds = useMemo(() => (roomMembers ?? []).map((m) => m.user.id), [roomMembers])
+  // the header's count line is cut short on a phone: its full text stays on hover (QA TC-6127)
+  const headerGuests = useGuestCount(memberIds)
   // someone who joined while the room is open: the directory says whether they are a guest (the tag, "Includes 1 guest")
   useReadPeopleFor(memberIds)
   const [missing, setMissing] = useState(false)
@@ -583,7 +585,7 @@ function RoomView({ roomId, threadId, badThread }: { roomId: string; threadId: s
               {peerId && <PresenceText userId={peerId} offline />}
               {!wide && muted && <BellOff size={13} className="shrink-0 self-center text-faint" role="img" aria-label={t('rooms.notify.button', { level: t('rooms.notify.off') })} data-testid="room-muted" />}
               {room && room.kind !== 'dm' && (
-                <span className="shrink-0 text-xs font-normal text-faint max-md:min-w-0 max-md:shrink max-md:basis-full max-md:truncate max-md:leading-4" data-testid="room-member-count">
+                <span className="shrink-0 text-xs font-normal text-faint max-md:min-w-0 max-md:shrink max-md:basis-full max-md:truncate max-md:leading-4" title={t('rooms.members', { n: room.memberCount }) + (headerGuests ? ` · ${t('guest.includes', { n: headerGuests })}` : '')} data-testid="room-member-count">
                   {t('rooms.members', { n: room.memberCount })}
                   {/* "· Includes 1 guest" (components/GuestTag.tsx): people from outside the team are in it */}
                   <IncludesGuests ids={roomMembers?.map((m) => m.user.id)} prefix=" · " short={!wide} />

@@ -1460,7 +1460,7 @@ export const id: Record<MessageKey, string> = {
   "projects.changeTitle": "Ubah anggota?",
   "projects.narrowBody": "{n} orang tidak akan melihat proyek ini lagi.",
   "projects.loseAccess": "{n} orang kehilangan akses: {names}",
-  "projects.loseRoom": "Mereka juga kehilangan ruang obrolan proyek dan riwayatnya.",
+  "projects.loseRoom": "Yang dikeluarkan juga kehilangan akses ke ruang obrolan proyek dan riwayatnya.",
   "projects.guestsOff": "{n, plural, one {Akun tamunya dimatikan: dia tidak bisa masuk lagi.} other {Akun {n} tamu dimatikan: mereka tidak bisa masuk lagi.}}",
   "projects.addsFloor": "Setelah disimpan, hanya anggota di sini yang bisa melihat proyek ini. Siapa pun yang selama ini bisa melihatnya tanpa menjadi anggota tidak bisa lagi.",
   "projects.restoresCreator": "Pembuat proyek ditambahkan kembali sebagai anggota.",

@@ -1433,7 +1433,7 @@ export const zh: Record<MessageKey, string> = {
   "projects.changeTitle": "更改成员？",
   "projects.narrowBody": "{n, plural, one {#人} other {#人}}将不再能看到这个项目。",
   "projects.loseAccess": "{n, plural, one {#人失去} other {#人失去}}权限：{names}",
-  "projects.loseRoom": "他们也将无法再看到项目的聊天室及其历史记录。",
+  "projects.loseRoom": "被移出的人也将无法再看到项目的聊天室及其历史记录。",
   "projects.guestsOff": "{n, plural, one {访客的账号将被关闭，无法再登录。} other {# 位访客的账号将被关闭，无法再登录。}}",
   "projects.addsFloor": "保存后，只有这里的成员能看到这个项目。之前不是成员但能看到的人将无法再看到。",
   "projects.restoresCreator": "项目创建者会重新被添加为成员。",
