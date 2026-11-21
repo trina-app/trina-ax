@@ -1209,7 +1209,7 @@ describe('the later steps and the end', () => {
       // every level of shared/, never its notes or brand folders
       expect(fact('files')).toBe(' · 파일 3개')
       expect(read).not.toContain('shared/회의록')
-      expect(fact('tools')).toBe(' · Google Drive 각자 연결 권함')
+      expect(fact('tools')).toBe(' · Google Drive 각자 연결하도록 권했어요')
       expect(fact('invite')).toBe(' · 팀 링크를 만들었어요 · 2명 들어왔어요')
       // no "'견적서 쓰기' 먼저 써 보기" any more: 내 설정 시작 is the one primary
       expect(m.find('welcome-done-try')).toBeNull()
@@ -1442,7 +1442,7 @@ describe('the later steps and the end', () => {
     }
   }, 30_000)
 
-  test('팀이 쓸 도구: Google Drive and the Google apps both ways: [팀으로 연결] opens the shared-account dialog Admin › Connectors uses (Drive share, Gmail team account), a connected team account shows which account and 연결됨 and makes the primary; the 각자 연결하도록 권하기 switch stays on the row', async () => {
+  test('팀이 쓸 도구: Google Drive and Gmail both ways: [팀으로 연결] opens the shared-account dialog Admin › Connectors uses (Drive share, Gmail team account), a connected team account shows which account and 연결됨 and makes the primary; the 각자 연결하도록 권하기 switch stays on the row', async () => {
     signIn('owner')
     progress = ran({ steps: { profile: 'done', result: null, skills: 'done', files: 'done', tools: null, invite: null } })
     const GMAIL = { id: 'gmail', configured: true, source: 'service', canSetUp: false, blocked: 'hosted', redirectUri: null, driveAppAvailable: false, apis: [], membersCanConnect: true, connectedMembers: 0,
@@ -1463,7 +1463,7 @@ describe('the later steps and the end', () => {
     try {
       await m.until(() => row('gmail')?.getAttribute('data-team') === 'connected' && row('google-drive')?.getAttribute('data-team') === 'available' || null, 'the Google rows')
       // Drive: no shared account yet: what each way means, [팀으로 연결] and the switch
-      expect(line('google-drive')).toBe('팀으로 연결하면 공유 Google 계정 하나의 파일을 모두가 같이 써요. 각자 연결하면 자기 계정을 써요.')
+      expect(line('google-drive')).toBe('공유 계정 하나, 또는 각자 자기 계정')
       expect(row('google-drive')!.querySelector('[data-testid="welcome-tools-team-connect"]')!.textContent).toBe('팀으로 연결')
       expect(row('google-drive')!.querySelector('[data-testid="welcome-tools-recommend"]')).not.toBeNull()
       // Gmail: its shared account, who uses it, 연결됨; the switch still there
@@ -1471,14 +1471,12 @@ describe('the later steps and the end', () => {
       expect(row('gmail')!.querySelector('[data-testid="welcome-tools-team-on"]')!.textContent).toContain('연결됨')
       expect(row('gmail')!.querySelector('[data-testid="welcome-tools-team-connect"]')).toBeNull()
       expect(row('gmail')!.querySelector('[data-testid="welcome-tools-recommend"]')).not.toBeNull()
-      // Google Calendar too: no shared account yet, [팀으로 연결] and the switch
-      expect(row('calendar')!.getAttribute('data-team')).toBe('available')
-      expect(line('calendar')).toBe('팀으로 연결하면 공유 Google 계정 하나를 모두가 같이 써요. 각자 연결하면 자기 계정을 써요.')
-      expect(row('calendar')!.querySelector('[data-testid="welcome-tools-recommend"]')).not.toBeNull()
       // Notion: [팀으로 연결] and the same switch (a person may connect their own Notion too); Slack has no own connection
       expect(row('notion')!.querySelector('[data-testid="welcome-tools-team-connect"]')).not.toBeNull()
       expect(row('notion')!.querySelector('[data-testid="welcome-tools-recommend"]')).not.toBeNull()
-      expect([...m.container.querySelectorAll('[data-testid="welcome-tools-service"]')].map((x: any) => x.getAttribute('data-id'))).toEqual(['notion', 'google-drive', 'gmail', 'calendar'])
+      expect([...m.container.querySelectorAll('[data-testid="welcome-tools-service"]')].map((x: any) => x.getAttribute('data-id'))).toEqual(['notion', 'google-drive', 'gmail'])
+      // Calendar, Docs and Sheets stay out of the step (lean: 다른 도구 보기 and Admin have them)
+      expect(row('calendar')).toBeNull()
       // a team account that works counts as done: the primary
       expect(m.get('welcome-tools-next').textContent).toBe('다음: 팀원 초대')
       // Drive's [팀으로 연결]: the Drive share dialog of Admin › Connectors, nothing signed in or made by the click
