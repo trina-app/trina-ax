@@ -5,9 +5,14 @@
 // when it holds every word of the text, in any order and any case (shared/src/search-text.ts searchWords, as ⌘K's room
 // files and messages: "budget q4" finds "Q4 Budget.xlsx"). ⌘K also asks for folders (`folders`): the folders the file
 // screen would show the caller (siblingVisible), found by a walk of folders only (QA TC-230: "주간" found no folder).
+// When no file or folder name holds every word, the names with every word as typed or with a typing mistake
+// (shared/src/search-near.ts nearMatcher: "quarterly reprot" finds "Quarterly report.xlsx"), the best first, then the
+// newest: the same names listed and checked, only the words matched more loosely. Either way the names whose words are
+// whole come first, then a word's start, inside a word, near; the newest first among the same
+// (docs/decisions/20261121-search-near-every-word.md).
 import fs from 'node:fs'
 import path from 'node:path'
-import { searchWords } from '@mycel/shared'
+import { nearMatcher, nearPossible, searchWords } from '@mycel/shared'
 import type { FileEntry, FileList } from '@mycel/shared/api'
 import { allowedRoots, excludeArgs, runRg } from '../files/search'
 import { authorize, siblingVisible, visiblePath } from '../policy/authorize'
@@ -29,6 +34,8 @@ const FOLDER_HIT_CAP = 5000
 /** folders looked at for folder names, at most (a walk of folders only; files are not opened) */
 const FOLDER_SCAN = 20_000
 const fold = (s: string) => s.normalize('NFC').toLowerCase()
+/** names kept for a near match while the listing runs (those that do not hold every word), at most */
+export const NEAR_NAMES = 20_000
 
 export async function findFiles(files: TeamFiles, userId: string, q: string, base: string, limit: number, o: { folders?: boolean } = {}): Promise<FileList> {
   const user = files.principal(userId)
@@ -38,16 +45,42 @@ export async function findFiles(files: TeamFiles, userId: string, q: string, bas
   const { roots, excludes } = allowedRoots(files.fx, rules, user, b.segs)
   if (!roots.length) return { items: [], truncated: false }
   const words = searchWords(q).map(fold)
-  const names: string[] = []
+  const terms = words.map((w) => ({ forms: [w] }))
+  const nearOk = nearPossible(terms)
+  let names: string[] = []
+  // the names that do not hold every word, for a near match when none does
+  const rest: string[] = []
   const cfg = files.ctx.files.cfg
   const r = await runRg(cfg.rg, [...RG_LIST, ...excludeArgs(excludes), '--', ...roots], files.root, '\0', (rec) => {
     const rel = rec.replace(/^\.\//, '')
     const name = rel.slice(rel.lastIndexOf('/') + 1)
     const folded = fold(name)
-    if (!words.every((w) => folded.includes(w))) return
+    if (!words.every((w) => folded.includes(w))) {
+      if (nearOk && !names.length && rest.length < NEAR_NAMES) rest.push(rel)
+      return
+    }
     names.push(rel)
     if (names.length >= CANDIDATE_CAP) return false
   }, cfg.grepTimeoutMs)
+  const grade = words.length ? nearMatcher(terms) : null
+  const score = nearOk ? grade : null
+  // folders first: there are few, and the one asked for must not fall behind thirty files
+  let dirs: FolderHits = o.folders ? await findFolders(files, user, rules, b.segs, words, names.length || !score ? null : score) : []
+  // near: no file and no folder holds every word; each name's score, the best first
+  const near = !names.length && !dirs.length && !!score
+  const rank = new Map<string, number>()
+  if (near) {
+    for (const rel of rest) { const s = score(rel.slice(rel.lastIndexOf('/') + 1)); if (s !== null) rank.set(rel, s) }
+    names = [...rank.keys()].sort((a, b) => rank.get(a)! - rank.get(b)!).slice(0, CANDIDATE_CAP)
+    const cut = dirs.scanCut
+    dirs = dirs.near ?? []
+    dirs.scanCut = cut
+  }
+  // every name's grade (whole words, then a word's start, inside a word, near), the best first, then the newest
+  if (grade) {
+    for (const rel of names) if (!rank.has(rel)) rank.set(rel, grade(rel.slice(rel.lastIndexOf('/') + 1)) ?? 2)
+    for (const d of dirs) rank.set(d.rel, grade(d.rel.slice(d.rel.lastIndexOf('/') + 1)) ?? 2)
+  }
   // every listed file passes visiblePath (same rules and principal); the checks run in chunks so one broad search
   // never holds the server
   const hits: { rel: string; st: fs.Stats }[] = []
@@ -59,21 +92,22 @@ export async function findFiles(files: TeamFiles, userId: string, q: string, bas
       if (hits.length >= HIT_CAP) break
     }
   }
-  const byTime = (x: { rel: string; st: fs.Stats }, y: { rel: string; st: fs.Stats }) => y.st.mtimeMs - x.st.mtimeMs || x.rel.localeCompare(y.rel)
+  const byTime = (x: { rel: string; st: fs.Stats }, y: { rel: string; st: fs.Stats }) => (rank.get(x.rel) ?? 0) - (rank.get(y.rel) ?? 0) || y.st.mtimeMs - x.st.mtimeMs || x.rel.localeCompare(y.rel)
   hits.sort(byTime)
-  // folders first: there are few, and the one asked for must not fall behind thirty files
-  const dirs: FolderHits = o.folders ? await findFolders(files, user, rules, b.segs, words) : []
   dirs.sort(byTime)
   const all = [...dirs, ...hits]
   return { items: all.slice(0, limit).map((h) => files.entry(user, rules, h.rel.split('/'), h.st)), truncated: all.length > limit || r.killed !== null || !!dirs.scanCut }
 }
 
-type FolderHits = { rel: string; st: fs.Stats }[] & { scanCut?: boolean }
+type FolderHits = { rel: string; st: fs.Stats }[] & { scanCut?: boolean; near?: FolderHits }
 
-/** Folders under `base` whose name holds every word, among those the file screen shows the caller (siblingVisible:
+/** Folders under `base` whose name holds every word (and, with `score`, those whose name matches near), among those the file screen shows the caller (siblingVisible:
  * name rules, server folders, may list it). Only listable folders are entered; links are not followed. */
-async function findFolders(files: TeamFiles, user: ReturnType<TeamFiles['principal']>, rules: ReturnType<TeamFiles['rules']>, base: string[], words: string[]): Promise<FolderHits> {
+async function findFolders(files: TeamFiles, user: ReturnType<TeamFiles['principal']>, rules: ReturnType<TeamFiles['rules']>, base: string[], words: string[], score: ((name: string) => number | null) | null): Promise<FolderHits> {
   const out: FolderHits = []
+  // with `score`: also the folders whose name matches near (out.near: the caller takes them when no name holds every word)
+  const near: FolderHits = []
+  if (score) out.near = near
   const queue: string[][] = [base]
   for (let seen = 0; queue.length; seen++) {
     if (seen >= FOLDER_SCAN) { out.scanCut = true; break }
@@ -85,7 +119,10 @@ async function findFolders(files: TeamFiles, user: ReturnType<TeamFiles['princip
       const segs = [...dir, e.name]
       queue.push(segs)
       const folded = fold(e.name)
-      if (!words.every((w) => folded.includes(w))) continue
+      if (!words.every((w) => folded.includes(w))) {
+        if (score && !out.length && near.length < FOLDER_HIT_CAP && score(e.name) !== null) try { near.push({ rel: segs.join('/'), st: fs.lstatSync(path.join(files.root, ...segs)) }) } catch {}
+        continue
+      }
       try { out.push({ rel: segs.join('/'), st: fs.lstatSync(path.join(files.root, ...segs)) }) } catch {}
       if (out.length >= FOLDER_HIT_CAP) return out
     }
