@@ -7274,6 +7274,8 @@ export const ko = {
   "rooms.makeProject.guestAsk": "먼저 관리자에게 {guest}님을 팀원으로 바꿔 달라고 요청하세요.",
   "rooms.makeProject.guestOpen": "관리자 › 멤버·초대에서 열기",
   "rooms.makeProject.changed": "사람이 바뀌었어요",
+  "rooms.makeProject.already": "이 대화방은 방금 프로젝트가 되었어요.",
+  "rooms.makeProject.alreadyOpen": "프로젝트 열기",
   "rooms.makeProject.dmBody": "나와 {name}님이 프로젝트 사람들이 돼요. 프로젝트에는 대화방이 따로 생겨요.",
   "rooms.makeProject.made": "{name} 프로젝트를 만들었어요.",
   "rooms.filesMoving": "파일 옮기는 중…",
