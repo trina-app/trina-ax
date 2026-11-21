@@ -11,10 +11,13 @@ import { ipTag, type GateLog } from './log.ts'
 import { PAGE_CSP, localeOf, renderPage, type PageKind } from './pages.ts'
 import type { Instance, Pool } from './pool.ts'
 import type { GateState } from './state.ts'
+import type { GateStats } from './stats.ts'
 import type { UpstreamStatus } from './upstream.ts'
 
 export const VISITOR_COOKIE = '__Host-tdg'
 const MAX_FORM = 16 * 1024
+/** a question the visitor asks in the demo (a chat message), counted when the instance answers 2xx */
+const QUESTION_RE = /^\/api\/chats\/[^/]+\/messages$/
 
 /** Paths a visitor never reaches (lower-cased path). The instance fences these too (PR A); this is the outer wall. */
 export const DENY_PATHS: RegExp[] = [
@@ -138,12 +141,13 @@ export interface PublicDeps {
   log: GateLog
   pool: Pool
   state: GateState
+  stats: GateStats
   paused: () => boolean
   upstreamStatus: () => UpstreamStatus
 }
 
 export function createPublic(d: PublicDeps) {
-  const { cfg, log, pool, state } = d
+  const { cfg, log, pool, state, stats } = d
   /** visitor cookie value -> instance id (memory: a gate restart ends every session; the sweeper removes the rest) */
   const visitors = new Map<string, string>()
   const publicHost = new URL(cfg.publicOrigin).hostname
@@ -233,20 +237,24 @@ export function createPublic(d: PublicDeps) {
     const tag = ipTag(ip)
     const { inst: current } = visitorOf(req)
     if (current) { res.writeHead(303, { location: '/', 'cache-control': 'no-store' }); return res.end() }
-    if (d.paused() || pool.liveCount() >= cfg.pool.maxLive) return page(res, 503, 'busy', locale)
+    if (d.paused()) { stats.bump(locale, 'refusedPaused'); return page(res, 503, 'busy', locale) }
+    if (pool.liveCount() >= cfg.pool.maxLive) { stats.bump(locale, 'refusedFull'); return page(res, 503, 'busy', locale) }
     const limit = state.startRefusal(ip, cfg.limits.startsPerHour, cfg.limits.startsPerDay)
-    if (limit) { log.info('start refused: limit', { visitor: tag, limit }); return page(res, 429, 'limit', locale) }
-    if (!(await turnstileOk(form.get('cf-turnstile-response') ?? '', ip))) { log.info('start refused: turnstile', { visitor: tag }); return page(res, 400, 'check', locale) }
+    if (limit) { stats.bump(locale, 'refusedLimit'); log.info('start refused: limit', { visitor: tag, limit }); return page(res, 429, 'limit', locale) }
+    if (!(await turnstileOk(form.get('cf-turnstile-response') ?? '', ip))) { stats.bump(locale, 'turnstileFail'); log.info('start refused: turnstile', { visitor: tag }); return page(res, 400, 'check', locale) }
+    stats.bump(locale, 'turnstilePass')
     const got = pool.take(locale, ip)
     if (typeof got === 'string') {
       log.info('start refused', { visitor: tag, reason: got })
+      stats.bump(locale, got === 'ip_live' ? 'refusedLimit' : got === 'paused' ? 'refusedPaused' : 'refusedFull')
       return got === 'ip_live' ? page(res, 429, 'limit', locale) : page(res, 503, 'busy', locale)
     }
     state.noteStart(ip)
     const cookies = await persona(got)
-    if (!cookies) { await pool.end(got, 'persona_failed'); return page(res, 502, 'error', locale) }
+    if (!cookies) { stats.bump(locale, 'startFailed'); await pool.end(got, 'persona_failed'); return page(res, 502, 'error', locale) }
     const token = crypto.randomBytes(32).toString('base64url')
     visitors.set(token, got.id)
+    stats.bump(locale, 'starts')
     log.info('visitor started', { visitor: tag, instance: got.id, locale })
     res.writeHead(303, { location: '/', 'cache-control': 'no-store', 'set-cookie': [visitorCookie(token, Math.round(cfg.pool.ttlHours * 3600)), ...cookies] })
     res.end()
@@ -263,6 +271,7 @@ export function createPublic(d: PublicDeps) {
     if (!inst) { res.writeHead(303, { location: '/', 'cache-control': 'no-store' }); return res.end() }
     const cookies = await persona(inst)
     if (!cookies) return json(res, 502, { error: { code: 'internal' } })
+    stats.bump(inst.locale, 'resumes')
     log.info('visitor resumed', { instance: inst.id })
     res.writeHead(303, { location: '/', 'cache-control': 'no-store', 'set-cookie': cookies })
     res.end()
@@ -281,8 +290,10 @@ export function createPublic(d: PublicDeps) {
     })
   }
 
-  function proxyHttp(req: http.IncomingMessage, res: http.ServerResponse, inst: Instance) {
+  function proxyHttp(req: http.IncomingMessage, res: http.ServerResponse, inst: Instance, onStatus?: (status: number) => void) {
+    inst.lastSeenAt = Date.now()
     const up = http.request({ host: '127.0.0.1', port: inst.port, method: req.method, path: req.url, headers: requestHeaders(req, inst.port, false) }, (r) => {
+      try { onStatus?.(r.statusCode ?? 502) } catch {}
       const headers: Record<string, string | string[]> = {}
       for (const [k, v] of Object.entries(r.headers)) {
         if (v === undefined || HOP.has(k)) continue
@@ -305,6 +316,20 @@ export function createPublic(d: PublicDeps) {
       if (req.method === 'GET' && isLoopback(req.socket.remoteAddress) && !(cfg.clientIpHeader && req.headers[cfg.clientIpHeader])) return health(res)
       return notInDemo(res)
     }
+    if (url.pathname === '/__demo/stats') {
+      // the same check as health: local operators only
+      if (req.method === 'GET' && isLoopback(req.socket.remoteAddress) && !(cfg.clientIpHeader && req.headers[cfg.clientIpHeader])) {
+        return json(res, 200, { days: stats.read(Number(url.searchParams.get('days') ?? 30)), distinctStarters24h: state.distinctStarters() })
+      }
+      return notInDemo(res)
+    }
+    if (url.pathname === '/__demo/go/start-free') {
+      // the free-roam app's "Start free" button (the demo file's signupUrl): counted, then on to pricing
+      if (req.method !== 'GET' && req.method !== 'HEAD') return json(res, 405, { error: { code: 'method_not_allowed' } })
+      if (req.method === 'GET') stats.bump(visitorOf(req).inst?.locale, 'startFree')
+      res.writeHead(302, { location: cfg.links.pricing, 'cache-control': 'no-store', 'referrer-policy': 'same-origin' })
+      return res.end()
+    }
     if (url.pathname === '/__demo/status') {
       const o = req.headers.origin
       const cors: Record<string, string> = o && cfg.links.statusOrigins.includes(o) ? { 'access-control-allow-origin': o, vary: 'Origin' } : {}
@@ -323,7 +348,10 @@ export function createPublic(d: PublicDeps) {
     if (verdict === 'bad') return json(res, 400, { error: { code: 'bad_request' } })
     if (verdict === 'deny') return notInDemo(res)
     const { token, inst } = visitorOf(req)
-    if (inst) return proxyHttp(req, res, inst)
+    if (inst) {
+      const question = req.method === 'POST' && QUESTION_RE.test(url.pathname)
+      return proxyHttp(req, res, inst, question ? (s) => { if (s >= 200 && s < 300) stats.bump(inst.locale, 'questions') } : undefined)
+    }
     const locale = localeOf(url.searchParams.get('lang'), req.headers['accept-language'])
     if (url.pathname !== '/') {
       if (url.pathname.startsWith('/api/')) return json(res, 401, { error: { code: 'unauthorized' } })
@@ -331,7 +359,8 @@ export function createPublic(d: PublicDeps) {
     }
     if (req.method !== 'GET' && req.method !== 'HEAD') return json(res, 405, { error: { code: 'method_not_allowed' } })
     if (token) return page(res, 200, 'ended', locale, { 'set-cookie': visitorCookie('', 0) })
-    if (!pool.available(locale)) return page(res, 200, 'busy', locale)
+    if (!pool.available(locale)) { if (req.method === 'GET') stats.bump(locale, 'busyShown'); return page(res, 200, 'busy', locale) }
+    if (req.method === 'GET') stats.bump(locale, 'landing')
     return page(res, 200, 'landing', locale)
   }
 
@@ -350,6 +379,11 @@ export function createPublic(d: PublicDeps) {
     if (!inst) return refuse('401 Unauthorized')
     // the upgrade request goes on as it came (minus the gate cookie and the edge headers); then bytes both ways
     const up = net.connect(inst.port, '127.0.0.1')
+    inst.lastSeenAt = Date.now()
+    inst.sockets = (inst.sockets ?? 0) + 1
+    let open = true
+    const closed = () => { if (open) { open = false; inst.sockets = Math.max(0, (inst.sockets ?? 1) - 1); inst.lastSeenAt = Date.now() } }
+    sock.on('close', closed)
     up.on('error', () => sock.destroy())
     up.on('connect', () => {
       const lines = [`${req.method} ${req.url} HTTP/1.1`]

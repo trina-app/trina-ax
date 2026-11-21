@@ -42,6 +42,7 @@ bun run test:demo-gate                                          # the suite (nee
 touch /var/demo-gate/PAUSE                                      # kill switch: no starts, model requests stopped
 rm /var/demo-gate/PAUSE                                         # back on (read within a second)
 curl -s http://127.0.0.1:19190/__demo/health                     # on the host only
+curl -s "http://127.0.0.1:19190/__demo/stats?days=30" | jq      # daily totals, on the host only
 ```
 
 Settings: [`gate.example.json`](gate.example.json). Relative paths are read from the file's folder. The two secrets
@@ -96,7 +97,9 @@ removed by the sweeper (once they are an hour old).
 | `POST /__demo/start` | form `lang`, `cf-turnstile-response`; our Origin only; limits, Turnstile, a warm instance, `POST /api/demo/persona {key:"newHire"}` on it (server to server, `Origin: <publicOrigin>`), its Set-Cookie (`__Host-sid`) with Secure forced, no Domain and, for a `__Host-` cookie, Path=/, 303 to `/` |
 | `POST /__demo/resume` | our Origin only; a visitor with a live instance (by the gate cookie) is signed in as the new hire again on that instance, the same persona call as start, 303 to `/`. "Continue as Mina" after signing out: sign-in with a password is fenced in the demo, so this is the only way back |
 | `GET /__demo/status` | `{available}` for the scripted demo's button |
-| `GET /__demo/health` | pool, live, streams, daily tokens, snapshot age, upstream state; loopback peers without the tunnel's client IP header only |
+| `GET /__demo/health` | pool, live, streams, daily tokens, snapshot age, upstream state (with `upstream.limits`: the account's unified 5h/7d utilization as fractions, status, reset, seenAt); loopback peers without the tunnel's client IP header only |
+| `GET /__demo/stats?days=30` | the daily totals (`stateDir/stats.json`, 0600, 400 days kept) per UTC day and locale (`en`, `ko`, `-` when unknown): `landing`, `busyShown`, `refusedPaused`, `refusedFull`, `refusedLimit`, `turnstilePass`, `turnstileFail`, `starts`, `startFailed`, `resumes`, `questions` (a 2xx `POST /api/chats/:id/messages`), `hitLimit` (once per visitor, at the instance's own demo limit), `startFree`, `tokens` (weighted) and time active (last request or WebSocket close minus start) as `dur.lt2m`, `dur.2to10m`, `dur.10to30m`, `dur.30to60m`, `dur.60mPlus`; plus `distinctStarters24h` (the count of the start limits' keyed hashes). **No visitor ids**: counters only, never an address, hash or cookie. Same check as health |
+| `GET /__demo/go/start-free` | the free-roam app's "Start free" button (the demo file's `signupUrl`, `scripts/demo/steepling/make.ts`): counts `startFree` with the visitor's locale, 302 to `links.pricing` |
 | everything else | proxied to the visitor's instance (HTTP and WebSocket); refused first: `/api/admin*`, `/api/setup*`, `/api/credential*`, `/api/me/credential*`, invites, guest invites, team links, password resets, `/api/auth/password`, `/api/demo/persona`, integration OAuth callbacks, `/oauth*`, `/mcp`, `/connector-uploads`, `/connector-downloads`, and the web pages `/invite`, `/join`, `/reset-password`, `/setup` |
 
 ## The model upstream

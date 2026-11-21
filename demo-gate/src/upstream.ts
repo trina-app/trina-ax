@@ -15,6 +15,7 @@ import {
 } from './model.ts'
 import type { Instance } from './pool.ts'
 import type { GateState } from './state.ts'
+import type { GateStats } from './stats.ts'
 
 const PATH_RE = /^\/i\/([0-9a-f]{8})\.([A-Za-z0-9_-]{43})(\/v1\/messages(?:\/count_tokens)?)$/
 const MAX_BODY = 64 * 1024 * 1024
@@ -46,11 +47,81 @@ export interface UpstreamDeps {
   cfg: GateConfig
   log: GateLog
   state: GateState
+  stats: GateStats
   paused: () => boolean
   instance: (id: string, secret: string) => Instance | null
 }
 
-export interface UpstreamStatus { streams: number; waiting: number; cooldownUntil: string | null; lastStatus: number | null; credentialRefusedAt: string | null }
+export interface UpstreamStatus { streams: number; waiting: number; cooldownUntil: string | null; lastStatus: number | null; credentialRefusedAt: string | null; limits: UnifiedLimits }
+
+/** The account's unified rate-limit windows as last seen: only numbers and status words, never another header. */
+export interface UnifiedLimits {
+  /** 5-hour / 7-day window use as a fraction (0.42 = 42 %) */
+  utilization5h: number | null
+  utilization7d: number | null
+  status: string | null
+  resetAt: string | null
+  /** every unified window the response named (e.g. "5h", "7d", "7d_opus"): utilization, status, reset */
+  windows: Record<string, { utilization?: number; status?: string; resetAt?: string }>
+  seenAt: string | null
+}
+
+const UNIFIED = 'anthropic-ratelimit-unified-'
+const WINDOW_RE = /^anthropic-ratelimit-unified-([a-z0-9_]{1,24}(?:-[a-z0-9_]{1,24})?)-(utilization|status|reset)$/
+const WORD_RE = /^[a-z_]{1,32}$/
+const MAX_WINDOWS = 8
+
+export const emptyLimits = (): UnifiedLimits => ({ utilization5h: null, utilization7d: null, status: null, resetAt: null, windows: {}, seenAt: null })
+
+const fraction = (v: string | null | undefined): number | undefined => {
+  if (v == null || !/^\s*[0-9]+(?:\.[0-9]+)?\s*$/.test(v)) return undefined
+  const n = Number(v)
+  return Number.isFinite(n) && n >= 0 && n <= 100 ? n : undefined
+}
+const word = (v: string | null | undefined): string | undefined => {
+  const w = v?.trim().toLowerCase()
+  return w && WORD_RE.test(w) ? w : undefined
+}
+/** a reset time: unix seconds (what Anthropic sends) or an ISO date; anything else is dropped */
+const resetIso = (v: string | null | undefined): string | undefined => {
+  const t = v?.trim()
+  if (!t) return undefined
+  const ms = /^[0-9]{9,11}$/.test(t) ? Number(t) * 1000 : /^\d{4}-\d{2}-\d{2}T[\d:.]+(Z|[+-]\d{2}:\d{2})$/.test(t) ? Date.parse(t) : NaN
+  return Number.isFinite(ms) ? new Date(ms).toISOString() : undefined
+}
+
+/** Read the unified rate-limit headers of one response; null when it carried none. Other headers are never read. */
+export function parseUnifiedLimits(h: Headers | Record<string, string | string[] | undefined>, now = Date.now()): UnifiedLimits | null {
+  const get = (k: string): string | undefined => {
+    if (h instanceof Headers) return h.get(k) ?? undefined
+    const v = h[k]
+    return Array.isArray(v) ? v[0] : v
+  }
+  const names: string[] = []
+  if (h instanceof Headers) h.forEach((_v, k) => { if (k.startsWith(UNIFIED)) names.push(k) })
+  else for (const k of Object.keys(h)) if (k.toLowerCase().startsWith(UNIFIED)) names.push(k.toLowerCase())
+  if (!names.length) return null
+  const out = emptyLimits()
+  out.status = word(get(UNIFIED + 'status')) ?? null
+  out.resetAt = resetIso(get(UNIFIED + 'reset')) ?? null
+  for (const k of names.sort()) {
+    const m = WINDOW_RE.exec(k)
+    if (!m) continue
+    const [, name, kind] = m as unknown as [string, string, 'utilization' | 'status' | 'reset']
+    if (!out.windows[name] && Object.keys(out.windows).length >= MAX_WINDOWS) continue
+    const v = get(k)
+    const val = kind === 'utilization' ? fraction(v) : kind === 'status' ? word(v) : resetIso(v)
+    if (val === undefined) continue
+    const w = (out.windows[name] ??= {}) as Record<string, number | string>
+    w[kind === 'reset' ? 'resetAt' : kind] = val
+  }
+  for (const [name, w] of Object.entries(out.windows)) if (!Object.keys(w).length) delete out.windows[name]
+  out.utilization5h = out.windows['5h']?.utilization ?? null
+  out.utilization7d = out.windows['7d']?.utilization ?? null
+  if (out.status === null && out.utilization5h === null && out.utilization7d === null && !Object.keys(out.windows).length) return null
+  out.seenAt = new Date(now).toISOString()
+  return out
+}
 
 export function createUpstream(d: UpstreamDeps) {
   const sem = new Semaphore(d.cfg.limits.maxStreams)
@@ -65,6 +136,7 @@ export function createUpstream(d: UpstreamDeps) {
   let cooldownUntil = 0
   let lastStatus: number | null = null
   let credentialRefusedAt: number | null = null
+  let limits = emptyLimits()
   let cred: { mtime: number; value: string } | null = null
   const credential = (): string => {
     const st = fs.statSync(d.cfg.ai.credentialFile)
@@ -83,6 +155,8 @@ export function createUpstream(d: UpstreamDeps) {
   /** read the account's limit headers here (never passed on): a rejected window or a 429 pauses calls for a while */
   const noteLimits = (h: Headers, status: number) => {
     const now = Date.now()
+    const seen = parseUnifiedLimits(h, now)
+    if (seen) limits = seen
     let until = 0
     if (h.get('anthropic-ratelimit-unified-status') === 'rejected') {
       const reset = Number(h.get('anthropic-ratelimit-unified-reset'))
@@ -97,9 +171,13 @@ export function createUpstream(d: UpstreamDeps) {
 
   const count = (inst: Instance, u: Usage) => {
     const w = weighted(u)
-    if (w <= 0) return
-    inst.tokens += w
-    d.state.addTokens(w)
+    if (w > 0) {
+      inst.tokens += w; d.state.addTokens(w); d.stats.bump(inst.locale, 'tokens', w)
+      // the instance's own demo limit (the gate's cap without its margin): counted once per visitor
+      if (!inst.hitLimit && inst.cap > 0 && inst.tokens >= inst.cap / d.cfg.limits.instanceCapMargin) { inst.hitLimit = true; d.stats.bump(inst.locale, 'hitLimit') }
+    }
+    // one line per completed request, to work out later how much of the account's window one visitor uses
+    d.log.info('upstream usage', { instance: inst.id, tokens: Math.max(0, w), u5h: limits.utilization5h, u7d: limits.utilization7d })
   }
 
   async function handle(req: http.IncomingMessage, res: http.ServerResponse) {
@@ -242,7 +320,7 @@ export function createUpstream(d: UpstreamDeps) {
   return {
     server,
     status(): UpstreamStatus {
-      return { streams: sem.active, waiting: sem.waiting, cooldownUntil: cooldownUntil > Date.now() ? new Date(cooldownUntil).toISOString() : null, lastStatus, credentialRefusedAt: credentialRefusedAt ? new Date(credentialRefusedAt).toISOString() : null }
+      return { streams: sem.active, waiting: sem.waiting, cooldownUntil: cooldownUntil > Date.now() ? new Date(cooldownUntil).toISOString() : null, lastStatus, credentialRefusedAt: credentialRefusedAt ? new Date(credentialRefusedAt).toISOString() : null, limits: structuredClone(limits) }
     },
   }
 }
