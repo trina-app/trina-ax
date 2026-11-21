@@ -759,13 +759,10 @@ test('Discover: a listed service in two clicks, marked once added; anything else
   await expect(page.getByTestId('connector-discover')).toBeVisible()
   await expect(page.getByRole('button', { name: 'Linear 추가' })).toHaveCount(0)
   await page.getByTestId('connector-show-all').click()
-  await page.getByRole('button', { name: 'Figma 추가' }).click()
-  await expect(dialog.getByRole('heading', { name: 'Figma 추가' })).toBeVisible()
-  await expect(page.getByTestId('connector-summary')).toContainText('https://mcp.figma.com/mcp')
-  await expect(page.getByTestId('integration-access')).toHaveCount(0)
+  // one click (QA TC-6928): no dialog, no question about who may use it
   const own = page.waitForRequest((r) => r.url().endsWith('/api/integrations') && r.method() === 'POST')
   const ownSignIn = page.waitForEvent('popup')
-  await page.getByTestId('integration-save').click()
+  await page.getByRole('button', { name: 'Figma 추가' }).click()
   expect((await own).postDataJSON()).toMatchObject({ kind: 'mcp', name: 'Figma', url: 'https://mcp.figma.com/mcp', auth: 'oauth', writePolicy: 'ask' })
   await ownSignIn
   // his new connection's page: his own, so ⋯ manages it

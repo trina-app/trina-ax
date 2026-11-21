@@ -454,3 +454,12 @@ input[type="checkbox"], input[type="radio"] { accent-color: var(--c-accent); }
 .docx-host .docx-wrapper { background: var(--c-subtle); padding: 12px; }
 .docx-host .docx-wrapper > section { margin: 0 auto 12px; box-shadow: var(--c-shadow); }
 
+
+/* a room message a link, a notice or a quote's name goes to (components/rooms/RoomMessages.tsx data-highlight): a
+   neutral background for a moment that fades, so the line is found on a long list (QA TC-6922). No accent colour or box
+   (owner 2026-11-21); with reduced motion it shows still and goes when the mark does. */
+@keyframes room-lit { 0%, 40% { background-color: var(--c-hover); } 100% { background-color: transparent; } }
+[data-testid="room-message"][data-highlight] { animation: room-lit 2400ms ease-out; }
+@media (prefers-reduced-motion: reduce) {
+  [data-testid="room-message"][data-highlight] { animation: none; background-color: var(--c-hover); }
+}

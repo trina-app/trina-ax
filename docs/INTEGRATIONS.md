@@ -679,8 +679,8 @@ or paste ([decision](decisions/20261120-github-connector.md)).
   repositories on GitHub's installation page (`https://github.com/apps/<slug>/installations/new`), linked from the
   connection's page ("Choose on GitHub"); an organization's owner installs it there, or a member asks
   them to (GitHub's own request flow). No picker of our own.
-- **Without the file** the card says "Not set up yet" (a member can ask an admin; an owner or admin reads that the
-  operator adds the app, or that they can add GitHub in Admin › Connected apps with their own GitHub App), and a
+- **Without the file** the card says "Not set up yet" (a member can ask an admin; an owner or admin reads, in plain
+  words, that adding the company's own GitHub App in Admin › Connected apps turns it on), and a
   sign-in fails with "registers no apps" as before. The GitHub dialog keeps Advanced › "Sign in with my own app" (hidden
   for other listed services), so an admin there makes GitHub a team template or team connection with the company's own
   GitHub App (its callback: the server's own address). A member's page then says "Your team set up GitHub. Connect it

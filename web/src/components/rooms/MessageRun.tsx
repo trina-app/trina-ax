@@ -23,8 +23,8 @@ const dayOf = (iso: string, locale: Locale) => new Intl.DateTimeFormat(intlTag(l
 export const WORDS = 'select-text pointer-coarse:select-none'
 
 /** One message of a run: a rounded row that lights up under the pointer, with its menu open, or with the keyboard's
- * focus in it (`lit`: being edited in the box below; a message a link or a quote's jump goes to is not lit, only scrolled
- * to: owner 2026-11-21) */
+ * focus in it (`lit`: being edited in the box below; a message a link or a quote's jump goes to is not lit: it gets a
+ * neutral background that fades, index.css room-lit, and no accent box: owner 2026-11-21, QA TC-6922) */
 export const messageRowClass = (lit: boolean) =>
   clsx('group relative -mx-2 rounded-lg px-2 py-0.5 transition select-none pointer-coarse:[-webkit-touch-callout:none]', lit ? 'bg-accent-soft' : 'hover:bg-subtle has-[[role=menu]]:bg-subtle has-[[aria-expanded=true]]:bg-subtle has-[:focus-visible]:bg-subtle')
 

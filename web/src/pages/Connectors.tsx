@@ -31,10 +31,10 @@ import { Check, Plus, Search } from 'lucide-react'
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from 'react'
 import { Navigate, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { isRecommendable, isRecommended, isRequestableService, recommendedFirst, type Integration, type IntegrationList, type MyIntegrationTemplate } from '@mycel/shared/api'
-import { errorText } from '../lib/api'
-import { connectionHref, connectorFor, connectorHref, connectorLogo, CONNECTORS, CONNECTORS_HOME, customConnectorAction, isConnected, servesAt, type Connector } from '../lib/connectors'
+import { api, API, errorText } from '../lib/api'
+import { connectionHref, connectorAuth, connectorFor, connectorHref, connectorLogo, CONNECTORS, CONNECTORS_HOME, customConnectorAction, isConnected, servesAt, type Connector } from '../lib/connectors'
 import { aboutKey, builtInLogo, builtInName, BUILT_IN_ORDER, driveCardState, DRIVE_TOOL_LIST, fits, GOOGLE, GOOGLE_PRIVACY, GOOGLE_TERMS, googleAppCardState, isGoogleApp, lineKey, unavailableKeys, type BuiltInId } from '../lib/googleApps'
-import { connectionRowStatus, splitByScope } from '../lib/integrations'
+import { connectionRowStatus, emptyForm, splitByScope, toInput } from '../lib/integrations'
 import { useLocale, useT } from '../i18n'
 import { putCached, readIntegrations, SHARED, useCachedRead } from '../store/listCache'
 import { integrationsChanged, notificationsChanged, reloadAsked } from '../store/live'
@@ -51,7 +51,7 @@ import { SlackAccount } from '../components/settings/SlackAccount'
 import { SettingsHold } from '../components/settings/SettingsBar'
 import { MyRequests } from '../components/integrations/AnswerDialog'
 import { IntegrationDialog } from '../components/integrations/IntegrationDialog'
-import { useIntegrationActions } from '../components/integrations/IntegrationRow'
+import { reserveSignInWindow, useIntegrationActions } from '../components/integrations/IntegrationRow'
 import { ConnectionPage, ListedServicePage } from '../components/integrations/ConnectionPage'
 import { createLocalApp, localAppsBridge } from '../components/integrations/LocalApp'
 import { localAppById, localAppLogo, localAppOf, localAppSpec, LISTED_LOCAL_APPS, type LocalAppEntry } from '../lib/localApps'
@@ -118,7 +118,31 @@ function useConnectorsState() {
     } finally { setLocalBusy(null) }
   }
   const local = { busy: localBusy, error: localError, connect: (a: LocalAppEntry) => void connectLocal(a) }
-  return { list, drive, google, asks, requests, reload, actions, dialog, setDialog, admin, local }
+  // a listed service (GitHub, Notion …): Connect is one click, as for a built-in app (QA TC-6928). Its name and address
+  // are the catalog's and it signs in at the service, so there is nothing to ask first: the connection is made and the
+  // sign-in window (reserved during the click) goes to the service. The phone app makes connections on a computer
+  // (the dialog says so); a failure stays on the page, by the button
+  const [listedBusy, setListedBusy] = useState<string | null>(null)
+  const [listedError, setListedError] = useState<{ id: string; text: string } | null>(null)
+  const connectListed = async (c: Connector) => {
+    if (listedBusy) return
+    if (mobileApp() || connectorAuth(c) !== 'oauth') return setDialog({ connector: c })
+    const win = reserveSignInWindow()
+    setListedBusy(c.id)
+    setListedError(null)
+    try {
+      const i = await api.call(API.createIntegration, { body: toInput({ ...emptyForm('mcp'), name: c.name, url: c.url }) })
+      actions.saved(i, { window: win }, true)
+      navigate(connectionHref(i.id))
+    } catch (e) {
+      win?.close()
+      setListedError({ id: c.id, text: errorText(e, locale, t('error.network')) })
+      // from the list's +: to the service's page, where the error is said
+      if (window.location.pathname !== connectorHref(c.id)) navigate(connectorHref(c.id))
+    } finally { setListedBusy(null) }
+  }
+  const listed = { busy: listedBusy, error: listedError, connect: (c: Connector) => void connectListed(c) }
+  return { list, drive, google, asks, requests, reload, actions, dialog, setDialog, admin, local, listed }
 }
 type ConnectorsState = ReturnType<typeof useConnectorsState>
 const Ctx = createContext<ConnectorsState | null>(null)
@@ -189,7 +213,7 @@ function useSetupReturnState() {
 function ConnectorsHome() {
   const t = useT()
   const navigate = useNavigate()
-  const { list, drive, google, asks, requests, actions, setDialog, admin, local } = useConnectors()
+  const { list, drive, google, asks, requests, actions, setDialog, admin, local, listed: listedConnect } = useConnectors()
   const hosted = useMe()?.server.deployment === 'hosted'
   // a free-roam demo (store/demo.ts): what the demo has connected, read-only; nothing to connect, ask for or set up
   const freeRoam = useFreeRoam()
@@ -251,7 +275,7 @@ function ConnectorsHome() {
     id: c.id, name: c.name, line: t(`integrations.catalog.${c.id}`), logo: connectorLogo(c),
     state: isConnected(c, urls) ? 'added' as const : notSetUp(c) ? 'off' as const : 'available' as const,
     ...(notSetUp(c) ? { setUp: true } : {}),
-    onOpen: () => navigate(connectorHref(c.id)), onAdd: () => setDialog({ connector: c }),
+    onOpen: () => navigate(connectorHref(c.id)), onAdd: () => listedConnect.connect(c),
   })) : []
   // the team turned own connections off: a member who searches still finds a listed service, with "Ask admin to add it"
   // in place of + (its page has the button), never "Nothing matches" (QA TC-2932); not in Discover without a search
@@ -502,7 +526,7 @@ function DrivePage() {
 /** A listed service's page (its connection, once there is one, with everything its row offers). */
 function ListedPage({ c }: { c: Connector }) {
   const t = useT()
-  const { list, setDialog, asks, admin } = useConnectors()
+  const { list, asks, admin, listed } = useConnectors()
   const mine = list.data ? splitByScope(list.data.items).mine : []
   const have = mine.filter((i) => servesAt(c, i.url))
   // a member whose team has no working connection to it they may use (at any of its official addresses): ask an admin
@@ -525,9 +549,10 @@ function ListedPage({ c }: { c: Connector }) {
   return (
     <McpShell>
       <ListedServicePage inSettings c={c} state={askFor ? 'ask' : 'available'}
-        actions={own ? <Button variant="primary" onClick={() => setDialog({ connector: c })} data-testid="connector-connect">{t('aiApps.connect')}</Button>
+        actions={own ? <Button variant="primary" busy={listed.busy === c.id} onClick={() => listed.connect(c)} data-testid="connector-connect">{t('aiApps.connect')}</Button>
           : askFor ? <AskAdminAction state={asks.stateOf(askFor)} busy={asks.busy === askFor} onAsk={() => void asks.ask(askFor, c.name)} onWithdraw={() => void asks.withdraw(askFor)} /> : null}
-        status={askFor ? <ListedAsk asks={asks} service={askFor} name={c.name} inline={own} />
+        status={listed.error?.id === c.id ? <Note tone="warn" testId="connector-connect-error">{listed.error.text}</Note>
+          : askFor ? <ListedAsk asks={asks} service={askFor} name={c.name} inline={own} />
           : viaTemplate ? <Note testId="connector-github-template">{t('connectors.github.viaTemplate')}</Note>
           : notSetUp && admin ? <Note testId="connector-github-not-set-up">{t('connectors.github.notSetUpAdmin')}</Note> : undefined}
         about={t('connectors.mcp.about', { name: c.name })} />

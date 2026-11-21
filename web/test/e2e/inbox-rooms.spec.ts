@@ -88,8 +88,9 @@ test('a thread row says who and where with the newest line and the count; a clic
   const picked = page.getByTestId('room-thread').locator('[data-highlight]')
   await expect(picked).toContainText(TARGET.body)
   await expect(picked).toBeInViewport()
-  // only the place: no tinted background on the message (owner 2026-11-21)
-  expect(await picked.evaluate((el) => getComputedStyle(el).backgroundColor)).toBe('rgba(0, 0, 0, 0)')
+  // a neutral background for a moment that fades (QA TC-6922), never an accent box (owner 2026-11-21)
+  expect(await picked.evaluate((el) => [getComputedStyle(el).animationName, getComputedStyle(el).outlineStyle])).toEqual(['room-lit', 'none'])
+  await expect(picked).not.toHaveClass(/bg-accent-soft/)
   // the room in the middle: at the message the thread is under (40 later messages below it), lit, not at the bottom
   // (docs/decisions/20261120-notif-open-parent-message.md)
   const parent = page.getByTestId('room-scroller').locator('[data-highlight]')

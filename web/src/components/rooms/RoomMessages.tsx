@@ -138,13 +138,14 @@ function RoomThumb({ f, src }: { f: RoomFile; src: string }) {
 /** Where the list is: the room's timeline, or the thread panel's root, or its replies. */
 export type ListVariant = 'timeline' | 'root' | 'reply'
 
-/** How long a message picked out by a link (an Inbox row) keeps its `data-highlight` mark. The mark has no look: the
- * list only scrolls to the message (owner 2026-11-21: no coloured box, only the place). */
+/** How long a message picked out by a link (an Inbox row) keeps its `data-highlight` mark: a neutral background that
+ * fades (index.css `room-lit`, QA TC-6922), so the line is found on a long list; no accent colour or box (owner
+ * 2026-11-21). */
 export const HIGHLIGHT_MS = 2400
 
 /** `dayBefore`: the time of what is shown above the list (a thread's root): no second date line for that same day.
  * `highlight`: a message a link points at (an Inbox row: pages/Room.tsx ?m=): once it is on the list it is scrolled to
- * the middle and marked (`data-highlight`, no look) for a moment, once. */
+ * the middle and marked (`data-highlight`, a fading background) for a moment, once. */
 /** `onAskTrina`: "Ask Trina about this" on a message (the room's side chat opens with it quoted) */
 export function RoomMessages({ roomId, messages, pending, meId, members, onThread, onAskTrina, onAskFile, variant = 'timeline', dayBefore = null, highlight = null, highlightKey = null }: { roomId: string; messages: RoomMessage[]; pending: PendingSend[]; meId: string | null; members: UserRef[]; onThread?: (rootId: string, focus?: boolean) => void; onAskTrina?: (m: RoomMessage) => void; onAskFile?: (seed: SideSeed) => void; variant?: ListVariant; dayBefore?: string | null; highlight?: string | null; highlightKey?: string | null }) {
   // a picture's or file's 트리나에게 묻기 (its right-click menu): where this list asks about a message, it asks about a
@@ -179,7 +180,7 @@ export function RoomMessages({ roomId, messages, pending, meId, members, onThrea
   }, [byId, members])
   // the message a link points at, inside this list (the same message can be in the timeline and in its thread, a reply
   // sent to the room too): after the list has gone to its bottom (the page's layout effect), once. Like a quote's jump
-  // below, only the place: the message is marked (`data-highlight`) for a moment, with no colour or box
+  // below: the message is marked (`data-highlight`) for a moment, a neutral background that fades (no accent or box)
   const list = useRef<HTMLDivElement>(null)
   const [lit, setLit] = useState<string | null>(null)
   const mark = (id: string) => {
@@ -383,7 +384,7 @@ function EventLine({ m }: { m: RoomMessage }) {
 
 /** A root's thread under it: up to 3 faces, "답글 3개", the last reply's time; a dot when a thread I follow has replies I
  * have not read. One tap opens the thread. */
-function MessageRow({ roomId, m, mine, names, members, meId, editing, inBox = false, highlighted = false, onEdit, onEditDone, onEditAgain, onThread, onAskTrina, variant, onJump, barBelow = false }: { roomId: string; m: RoomMessage; mine: boolean; names: Map<string, string>; members: UserRef[]; meId: string | null; editing: boolean; /** being edited in the box at the bottom (a phone): marked */ inBox?: boolean; /** picked out by a link or a quote's jump: marked, with no look */ highlighted?: boolean; onEdit: () => void; onEditDone: () => void; onEditAgain: () => void; onThread?: (rootId: string, focus?: boolean) => void; onAskTrina?: (m: RoomMessage) => void; variant: ListVariant; onJump?: () => void; barBelow?: boolean }) {
+function MessageRow({ roomId, m, mine, names, members, meId, editing, inBox = false, highlighted = false, onEdit, onEditDone, onEditAgain, onThread, onAskTrina, variant, onJump, barBelow = false }: { roomId: string; m: RoomMessage; mine: boolean; names: Map<string, string>; members: UserRef[]; meId: string | null; editing: boolean; /** being edited in the box at the bottom (a phone): marked */ inBox?: boolean; /** picked out by a link or a quote's jump: a background that fades (index.css room-lit) */ highlighted?: boolean; onEdit: () => void; onEditDone: () => void; onEditAgain: () => void; onThread?: (rootId: string, focus?: boolean) => void; onAskTrina?: (m: RoomMessage) => void; variant: ListVariant; onJump?: () => void; barBelow?: boolean }) {
   const t = useT()
   const locale = useLocale()
   const deleted = !!m.deletedAt
