@@ -291,7 +291,7 @@ export function steepling(locale: SteeplingLocale): Steepling {
     // the team skills and the company profile were set up with the team, not changed lately
     recentHidden: ['skills'],
     // the scripted demo's own sign-up address (scripts/demo/mina/story.ts end.signup)
-    freeRoam: { suggestions: x.suggestions, signupUrl: 'https://ax.trina.app/pricing' },
+    freeRoam: { suggestions: x.suggestions, signupUrl: 'https://demo.trina.app/__demo/go/start-free' },
   }
 
   // ---- the fake Gmail (server/src/demo/fakes/gmail.ts): Mina's mailbox. The mail to Chris in Sent, his reply in the

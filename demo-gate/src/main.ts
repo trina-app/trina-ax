@@ -9,6 +9,7 @@ import { createLog } from './log.ts'
 import { Pool } from './pool.ts'
 import { createPublic } from './public.ts'
 import { GateState } from './state.ts'
+import { GateStats } from './stats.ts'
 import { createUpstream } from './upstream.ts'
 
 function listen(server: http.Server, host: string, port: number): Promise<number> {
@@ -41,11 +42,18 @@ async function main() {
     return pauseSeen.on
   }
   const state = new GateState(cfg.stateDir)
+  const stats = new GateStats(cfg.stateDir)
   let upstreamPort = cfg.upstreamListen.port
   const pool = new Pool(cfg, log, () => `http://127.0.0.1:${upstreamPort}`, paused)
-  const upstream = createUpstream({ cfg, log, state, paused, instance: (id, secret) => pool.bySecret(id, secret) })
+  // time active, never instance lifetime: an instance lives on to its ttl whether the visitor is there or not
+  pool.onEnded = (inst, why) => {
+    if (!inst.assignedAt || why === 'persona_failed') return
+    const last = inst.sockets ? Date.now() : inst.lastSeenAt ?? inst.assignedAt
+    stats.duration(inst.locale, last - inst.assignedAt)
+  }
+  const upstream = createUpstream({ cfg, log, state, stats, paused, instance: (id, secret) => pool.bySecret(id, secret) })
   upstreamPort = await listen(upstream.server, cfg.upstreamListen.host, cfg.upstreamListen.port)
-  const pub = createPublic({ cfg, log, pool, state, paused, upstreamStatus: () => upstream.status() })
+  const pub = createPublic({ cfg, log, pool, state, stats, paused, upstreamStatus: () => upstream.status() })
   const publicPort = await listen(pub.server, cfg.listen.host, cfg.listen.port)
   pool.start()
   log.info('gate started', { publicPort, upstreamPort, mode: cfg.ai.mode, codeVersion: cfg.pool.codeVersion, maxLive: cfg.pool.maxLive })
@@ -60,6 +68,7 @@ async function main() {
     upstream.server.close()
     await pool.stop()
     state.flush()
+    stats.flush()
     process.exit(0)
   }
   process.on('SIGTERM', () => void stop('SIGTERM'))

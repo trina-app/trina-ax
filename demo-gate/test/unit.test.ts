@@ -14,6 +14,7 @@ import { localeOf, renderPage } from '../src/pages.ts'
 import { asInstanceUser, groupsBelow, ownsGroup, runMode, sudoStartArgv } from '../src/pool.ts'
 import { cookiesForInstance, pathVerdict, secureCookie, visitorAddress, withNoTransform } from '../src/public.ts'
 import { GateState } from '../src/state.ts'
+import { GateStats, KEEP_DAYS, durationBucket } from '../src/stats.ts'
 import { parseUnifiedLimits } from '../src/upstream.ts'
 // the instance's own reading of upstream answers: the gate's answers must never mark its AI connection
 import { accountRefusal } from '../../server/src/proxy/anthropic-refusal.ts'
@@ -342,5 +343,76 @@ describe('Cache-Control no-transform', () => {
     expect(withNoTransform('private,max-age=60')).toBe('private, max-age=60, no-transform')
     expect(withNoTransform(['no-cache', 'must-revalidate'])).toBe('no-cache, must-revalidate, no-transform')
     expect(withNoTransform('No-Transform, max-age=5')).toBe('No-Transform, max-age=5')
+  })
+})
+
+describe('daily stats (stats.ts)', () => {
+  const DAY = 24 * 3600_000
+  test('duration buckets: edges', () => {
+    const m = 60_000
+    expect(durationBucket(-5)).toBe('dur.lt2m')
+    expect(durationBucket(0)).toBe('dur.lt2m')
+    expect(durationBucket(2 * m - 1)).toBe('dur.lt2m')
+    expect(durationBucket(2 * m)).toBe('dur.2to10m')
+    expect(durationBucket(10 * m - 1)).toBe('dur.2to10m')
+    expect(durationBucket(10 * m)).toBe('dur.10to30m')
+    expect(durationBucket(30 * m)).toBe('dur.30to60m')
+    expect(durationBucket(60 * m - 1)).toBe('dur.30to60m')
+    expect(durationBucket(60 * m)).toBe('dur.60mPlus')
+    expect(durationBucket(10 * 60 * m)).toBe('dur.60mPlus')
+  })
+  test('counts per UTC day and locale; the day rolls over at UTC midnight; unknown locale is "-"', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'tdg-stats-'))
+    try {
+      const s = new GateStats(dir)
+      const late = Date.parse('2026-11-20T23:59:59.000Z')
+      s.bump('en', 'starts', 1, late)
+      s.bump('en', 'starts', 1, late)
+      s.bump('ko', 'questions', 1, late)
+      s.bump('xx', 'startFree', 1, late)
+      s.bump(undefined, 'landing', 1, late)
+      s.bump('en', 'tokens', 0, late) // nothing for zero
+      s.duration('en', 5 * 60_000, late)
+      s.bump('en', 'starts', 1, late + 1000)
+      const r = s.read(30, late + 1000)
+      expect(r).toEqual({
+        '2026-11-20': { en: { starts: 2, 'dur.2to10m': 1 }, ko: { questions: 1 }, '-': { startFree: 1, landing: 1 } },
+        '2026-11-21': { en: { starts: 1 } },
+      })
+      expect(Object.keys(s.read(1, late + 1000))).toEqual(['2026-11-21'])
+    } finally { fs.rmSync(dir, { recursive: true, force: true }) }
+  })
+  test('saved (0600) and read back; days older than 400 are dropped', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'tdg-stats-'))
+    try {
+      const now = Date.now()
+      const s = new GateStats(dir)
+      s.bump('en', 'starts', 3, now)
+      s.bump('en', 'starts', 1, now - (KEEP_DAYS + 5) * DAY)
+      s.bump('ko', 'landing', 1, now - (KEEP_DAYS - 2) * DAY)
+      s.flush(now)
+      const file = path.join(dir, 'stats.json')
+      expect(fs.statSync(file).mode & 0o777).toBe(0o600)
+      const s2 = new GateStats(dir)
+      const all = s2.read(KEEP_DAYS, now)
+      expect(Object.keys(all).length).toBe(2)
+      expect(all[new Date(now).toISOString().slice(0, 10)]).toEqual({ en: { starts: 3 } })
+      expect(JSON.stringify(all)).not.toContain(new Date(now - (KEEP_DAYS + 5) * DAY).toISOString().slice(0, 10))
+      // a broken file is no crash: the gate starts with empty stats
+      fs.writeFileSync(file, '{not json')
+      expect(new GateStats(dir).read(30, now)).toEqual({})
+    } finally { fs.rmSync(dir, { recursive: true, force: true }) }
+  })
+  test('distinct starters in the last 24 hours come from the start hashes', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'tdg-state-'))
+    try {
+      const s = new GateState(dir)
+      const now = Date.now()
+      s.noteStart('203.0.113.1', now - 2 * DAY)
+      s.noteStart('203.0.113.2', now - 1000)
+      s.noteStart('203.0.113.2', now - 500)
+      s.noteStart('203.0.113.3', now - 100)
+      expect(s.distinctStarters(now)).toBe(2)
+    } finally { fs.rmSync(dir, { recursive: true, force: true }) }
   })
 })

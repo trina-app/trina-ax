@@ -15,6 +15,7 @@ import {
 } from './model.ts'
 import type { Instance } from './pool.ts'
 import type { GateState } from './state.ts'
+import type { GateStats } from './stats.ts'
 
 const PATH_RE = /^\/i\/([0-9a-f]{8})\.([A-Za-z0-9_-]{43})(\/v1\/messages(?:\/count_tokens)?)$/
 const MAX_BODY = 64 * 1024 * 1024
@@ -46,6 +47,7 @@ export interface UpstreamDeps {
   cfg: GateConfig
   log: GateLog
   state: GateState
+  stats: GateStats
   paused: () => boolean
   instance: (id: string, secret: string) => Instance | null
 }
@@ -169,7 +171,11 @@ export function createUpstream(d: UpstreamDeps) {
 
   const count = (inst: Instance, u: Usage) => {
     const w = weighted(u)
-    if (w > 0) { inst.tokens += w; d.state.addTokens(w) }
+    if (w > 0) {
+      inst.tokens += w; d.state.addTokens(w); d.stats.bump(inst.locale, 'tokens', w)
+      // the instance's own demo limit (the gate's cap without its margin): counted once per visitor
+      if (!inst.hitLimit && inst.cap > 0 && inst.tokens >= inst.cap / d.cfg.limits.instanceCapMargin) { inst.hitLimit = true; d.stats.bump(inst.locale, 'hitLimit') }
+    }
     // one line per completed request, to work out later how much of the account's window one visitor uses
     d.log.info('upstream usage', { instance: inst.id, tokens: Math.max(0, w), u5h: limits.utilization5h, u7d: limits.utilization7d })
   }

@@ -706,3 +706,80 @@ describe.skipIf(skip)('gate: pool', () => {
     } finally { await g.stop() }
   })
 })
+
+describe.skipIf(skip)('gate: daily stats', () => {
+  const today = () => new Date().toISOString().slice(0, 10)
+  const stats = async (g: Gate) => (await (await fetch(`${g.base}/__demo/stats`)).json()) as { days: Record<string, Record<string, Record<string, number>>>; distinctStarters24h: number }
+  const en = async (g: Gate) => (await stats(g)).days[today()]?.en ?? {}
+
+  test('a landing, start, question, Start free, the demo limit, refusals; local only; no address or hash in stats.json', async () => {
+    const g = await startGate({ upstream: upstream.url, turnstile: turnstile.url, locales: ['en'], pool: { maxLive: 1 }, demo: { limitTokens: 1000 } })
+    try {
+      await warm(g)
+      // local operators only, as health
+      expect((await fetch(`${g.base}/__demo/stats`)).status).toBe(200)
+      expect((await fetch(`${g.base}/__demo/stats`, { headers: { 'cf-connecting-ip': '203.0.113.1' } })).status).toBe(404)
+      expect((await stats(g)).days).toEqual({})
+
+      const v = visitor('203.0.113.40')
+      expect((await get(g, v, '/?lang=en')).status).toBe(200)
+      expect((await startVisit(g, v, { token: 'bad' })).status).toBe(400)
+      expect((await startVisit(g, v)).status).toBe(303)
+      // a question: a chat message the instance takes (2xx); reading the messages is not one
+      expect((await get(g, v, '/api/chats/c1/messages', { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' })).status).toBe(200)
+      expect((await get(g, v, '/api/chats/c1/messages')).status).toBe(200)
+      // "Start free" in the app: counted with the visitor's locale, then on to the plans
+      const sf = await get(g, v, '/__demo/go/start-free')
+      expect(sf.status).toBe(302)
+      expect(sf.headers.get('location')).toBe('https://ax.trina.app/pricing')
+      // and with no session at all (counted as '-')
+      expect((await get(g, visitor(), '/__demo/go/start-free')).status).toBe(302)
+
+      // the instance's demo limit (1000; the gate's cap is 1200): crossed once, counted once
+      const live = await liveInstance(g)
+      const u = instanceUpstream(g, live.id)
+      upstream.set(() => Response.json({ type: 'message', usage: { input_tokens: 600, output_tokens: 0 } }))
+      expect((await msg(u)).status).toBe(200)
+      expect((await msg(u)).status).toBe(200) // 1200: over the demo limit, at the gate's cap
+      expect((await msg(u)).status).toBe(403)
+
+      // the pool is full (maxLive 1): the next visitor sees busy, a start is refused as full
+      const v2 = visitor('203.0.113.41')
+      expect(await (await get(g, v2, '/')).text()).not.toContain('cf-turnstile')
+      expect((await startVisit(g, v2)).status).toBe(503)
+      // PAUSE: a start refused as paused
+      fs.writeFileSync(g.pauseFile, '')
+      await Bun.sleep(1100)
+      expect((await startVisit(g, v2)).status).toBe(503)
+      fs.rmSync(g.pauseFile)
+
+      const c = await en(g)
+      expect(c).toMatchObject({ landing: 1, turnstileFail: 1, turnstilePass: 1, starts: 1, questions: 1, startFree: 1, hitLimit: 1, tokens: 1200, busyShown: 1, refusedFull: 1, refusedPaused: 1 })
+      expect((await stats(g)).days[today()]!['-']).toEqual({ startFree: 1 })
+      expect((await stats(g)).distinctStarters24h).toBe(1)
+
+      // stats.json: counters only, never an address or the start limits' hashes
+      const file = path.join(g.root, 'state', 'stats.json')
+      await until(() => fs.existsSync(file) && fs.readFileSync(file, 'utf8').includes('refusedPaused'), 3000, 'stats saved')
+      const saved = fs.readFileSync(file, 'utf8')
+      expect(saved).not.toContain('203.0.113.')
+      const hashes = Object.keys(JSON.parse(fs.readFileSync(path.join(g.root, 'state', 'state.json'), 'utf8')).starts)
+      expect(hashes.length).toBe(1)
+      for (const h of hashes) expect(saved).not.toContain(h)
+    } finally { await g.stop() }
+  })
+
+  test('an ended instance records one time-active bucket', async () => {
+    const g = await startGate({ upstream: upstream.url, turnstile: turnstile.url, locales: ['en'], pool: { ttlHours: 2 / 3600 } })
+    try {
+      await warm(g)
+      const v = visitor()
+      expect((await startVisit(g, v)).status).toBe(303)
+      const e = await (await get(g, v, '/echo')).json() as { dir: string }
+      await until(() => !fs.existsSync(e.dir), 8000, 'instance removed')
+      const c = await en(g)
+      expect(c['dur.lt2m']).toBe(1)
+      expect(Object.keys(c).filter((k) => k.startsWith('dur.'))).toEqual(['dur.lt2m'])
+    } finally { await g.stop() }
+  })
+})

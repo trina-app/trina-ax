@@ -45,6 +45,12 @@ export interface Instance {
   tokens: number
   /** the gate's own cap for this instance: its demo limit (GET /api/demo cap) × limits.instanceCapMargin */
   cap: number
+  /** the visitor used up their demo limit (counted once in the day's stats) */
+  hitLimit?: boolean
+  /** the visitor's last request or WebSocket close: time active = lastSeenAt - assignedAt */
+  lastSeenAt?: number
+  /** the visitor's open WebSockets */
+  sockets?: number
 }
 
 export interface Manifest { codeVersion: string; locale: Locale; createdAt: string; config: string; demoFile: string }
@@ -138,6 +144,8 @@ export class Pool {
   private mode: RunMode
   private recordsDir: string
   private logsDir: string
+  /** called once when a live instance ends (the gate's daily stats; the pool does not know them) */
+  onEnded: ((inst: Instance, why: string) => void) | null = null
   constructor(cfg: GateConfig, log: GateLog, upstreamUrl: () => string, paused: () => boolean) {
     this.cfg = cfg; this.log = log; this.upstreamUrl = upstreamUrl; this.paused = paused
     this.mode = runMode(cfg, process.getuid?.() ?? -1)
@@ -189,6 +197,7 @@ export class Pool {
     const now = Date.now()
     inst.state = 'live'
     inst.assignedAt = now
+    inst.lastSeenAt = now
     inst.expiresAt = now + this.cfg.pool.ttlHours * 3600_000
     inst.ip = ip
     this.log.info('instance live', { instance: inst.id, locale })
@@ -456,6 +465,7 @@ export class Pool {
     if (inst.state === 'stopping' && !inst.proc) { this.forget(inst); return }
     const was = inst.state
     inst.state = 'stopping'
+    if (was === 'live') try { this.onEnded?.(inst, why) } catch {}
     const proc = inst.proc
     const leader = proc && proc.pid && proc.exitCode === null && proc.signalCode === null ? proc.pid : null
     this.signal(inst.pgids, inst.dir, 'SIGTERM', leader)

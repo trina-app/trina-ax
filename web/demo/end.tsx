@@ -3,6 +3,10 @@
 // line that the live demo is busy and the plans link alone, as before. In the guide line's end line and in the end popup.
 import { Button } from '../src/components/ui'
 import type { LiveState } from './live'
+import { beacon } from './beacon'
+
+const trySent = () => beacon('try_click')
+const signupSent = () => beacon('cta_click', 'signup:demo_end')
 
 export interface EndLinks {
   signup: { label: string; url: string }
@@ -27,9 +31,9 @@ export function EndLineLinks(e: EndLinks) {
     return (
       <span className="demo-end-links">
         {e.state === 'available'
-          ? <a className="demo-next" href={e.live!.url} data-testid="demo-try-live">{e.live!.label} →</a>
+          ? <a className="demo-next" href={e.live!.url} onClick={trySent} data-testid="demo-try-live">{e.live!.label} →</a>
           : <span className="demo-next demo-wait" aria-busy="true" data-testid="demo-try-live-checking">{e.live!.label}</span>}
-        <a className="demo-plans" href={e.signup.url} target="_blank" rel="noopener" data-testid="demo-signup">{e.signup.label} →</a>
+        <a className="demo-plans" href={e.signup.url} target="_blank" rel="noopener" onClick={signupSent} data-testid="demo-signup">{e.signup.label} →</a>
       </span>
     )
   }
@@ -42,7 +46,7 @@ export function EndLineLinks(e: EndLinks) {
           <Retry {...e} testId="demo-live-retry" />
         </span>
       )}
-      <a className="demo-next" href={e.signup.url} target="_blank" rel="noopener" data-testid="demo-signup">{e.signup.label} →</a>
+      <a className="demo-next" href={e.signup.url} target="_blank" rel="noopener" onClick={signupSent} data-testid="demo-signup">{e.signup.label} →</a>
     </>
   )
 }
@@ -55,8 +59,8 @@ export function EndPopupButtons(e: EndLinks & { close: string; restart: string; 
     return (
       <>
         <Button onClick={e.onClose} data-testid="demo-popup-close">{e.close}</Button>
-        <Button onClick={() => open(e.signup.url)} data-testid="demo-popup-signup">{e.signup.label}</Button>
-        <Button variant="primary" busy={e.state === 'checking'} disabled={e.state !== 'available'} onClick={() => go(e.live!.url)} data-testid="demo-popup-try-live">{e.live!.label}</Button>
+        <Button onClick={() => { signupSent(); open(e.signup.url) }} data-testid="demo-popup-signup">{e.signup.label}</Button>
+        <Button variant="primary" busy={e.state === 'checking'} disabled={e.state !== 'available'} onClick={() => { trySent(); go(e.live!.url) }} data-testid="demo-popup-try-live">{e.live!.label}</Button>
       </>
     )
   }
@@ -64,7 +68,7 @@ export function EndPopupButtons(e: EndLinks & { close: string; restart: string; 
     <>
       <Button onClick={e.onRestart} data-testid="demo-popup-restart">{e.restart}</Button>
       <Button onClick={e.onClose} data-testid="demo-popup-close">{e.close}</Button>
-      <Button variant="primary" onClick={() => open(e.signup.url)} data-testid="demo-popup-signup">{e.signup.label}</Button>
+      <Button variant="primary" onClick={() => { signupSent(); open(e.signup.url) }} data-testid="demo-popup-signup">{e.signup.label}</Button>
     </>
   )
 }
