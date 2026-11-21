@@ -375,7 +375,8 @@ addEventListener('mousedown', (e) => {
 
 /**
  * The remembered teams, as a workspace switcher: one row per team (its initial, its name, its address small under it),
- * the whole row opens the team; the open one has a quiet check and "지금 사용 중" (a click on it goes back to it);
+ * the whole row opens the team and every other team shows an outlined "열기"; the open one has a quiet check and
+ * "지금 사용 중" (a click on it goes back to it);
  * "목록에서 지우기" is in the row's "···" menu. The rows take the web app's list row (web/src/components/list/List.tsx
  * ListRow: 15px name, 13px faint meta, 8px rounded hover fill).
  */
@@ -399,12 +400,20 @@ function teamList() {
               id: `team-row-${t.id}`,
               'data-testid': 'team-open',
               'aria-current': t.current ? 'true' : undefined,
+              // another team: "Open {team}", its address read after it; the open team: its name, address and "Current"
+              'aria-label': t.current ? undefined : tr('welcome.openTeam', { team: t.label }),
+              'aria-describedby': t.current ? undefined : `team-origin-${t.id}`,
               title: t.origin,
               onclick: () => ui.welcome.open(t.id),
             },
             h('span', { class: 'initial', 'aria-hidden': 'true' }, (Array.from(t.label.trim())[0] ?? '?').toLocaleUpperCase()),
-            h('span', { class: 'words' }, h('span', { class: 'name' }, t.label), h('span', { class: 'origin' }, shortOrigin(t.origin))),
-            t.current ? h('span', { class: 'current', 'data-testid': 'team-current' }, glyph('check'), tr('welcome.current')) : null,
+            h('span', { class: 'words' }, h('span', { class: 'name' }, t.label), h('span', { class: 'origin', id: `team-origin-${t.id}` }, shortOrigin(t.origin))),
+            // the open team: a quiet check; every other team: a visible "Open" (user feedback: a row did not say a
+            // click opens it), drawn as the plain outlined button, never the orange one Continue uses. It is part of
+            // the row's one button, so the whole row still opens the team with one tab stop.
+            t.current
+              ? h('span', { class: 'current', 'data-testid': 'team-current' }, glyph('check'), tr('welcome.current'))
+              : h('span', { class: 'open-pill', 'data-testid': 'team-open-pill', 'aria-hidden': 'true' }, tr('welcome.open')),
           ),
           h(
             'button',

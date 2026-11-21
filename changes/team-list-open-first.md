@@ -1,0 +1,1 @@
+- Desktop app, **Your teams**: every team other than the open one now shows an **Open** button on its row, so it is clear that the row switches to that team. A click anywhere on the row still opens it. The open team keeps its check and **Current**, and **Remove from list** stays in the row's ··· menu with its confirmation. On a touch screen the ··· is larger.

@@ -245,6 +245,23 @@ h1 {
   font-size: 13px;
   color: var(--faint);
 }
+/* another team's "Open": the plain outlined button (button above), smaller, inside the row's one button; it darkens
+   with the row's hover or focus. Never the accent: Continue is the one orange button on this screen. */
+.team-row .open-pill {
+  flex: none;
+  padding: 3px 12px;
+  border: 1px solid var(--field-border);
+  border-radius: 8px;
+  background: var(--panel);
+  font-size: 13px;
+  line-height: 18px;
+  font-weight: 500;
+  color: var(--text);
+}
+.team-row:hover .open-pill,
+.team-row:focus-visible .open-pill {
+  border-color: var(--text);
+}
 /* the row's "···": at its right, faint until the row is hovered or focused (full on a touch screen) */
 .teams .more {
   position: absolute;
@@ -276,6 +293,16 @@ h1 {
 @media (pointer: coarse) {
   .teams .more {
     opacity: 1;
+    width: 44px;
+    height: 44px;
+    right: 2px;
+  }
+  .team-row {
+    min-height: 56px;
+    padding-right: 50px;
+  }
+  .team-row .open-pill {
+    padding: 6px 14px;
   }
 }
 .row-menu {
