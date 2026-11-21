@@ -12,7 +12,9 @@ export type PreviewFile =
    * not open for me offers to ask the chat's creator to add it (components/ChatFileAsk.tsx) */
   | { source: 'team'; path: string; name: string; at?: SourceLoc; chatId?: string }
   | { source: 'room'; roomId: string; fileId: string; name: string }
-  | { source: 'chat'; chatId: string; fileId: string; name: string }
+  /** `version`: an earlier version of the chat's file (its number), opened from the panel's versions list; absent: the
+   * newest (components/FilePanel.tsx) */
+  | { source: 'chat'; chatId: string; fileId: string; name: string; version?: number }
   | { source: 'local'; name: string; blob: Blob }
 
 export type SidePanel =

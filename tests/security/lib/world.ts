@@ -114,6 +114,8 @@ export interface World {
     allRoom: string; allApp: string; dmApp: string
     /** Team plan's shared chat, its trashed file and an old version of its plan.md */
     teamChat: string; trashTeam: string; teamVersion: string
+    /** alice's chat shared with frank and its chat file (a chain of two versions) */
+    peopleChat: string; chatFile: string
   }
   sockets: Record<'alice' | 'bob' | 'carol' | 'dana' | 'erin', Socket>
 }
@@ -279,6 +281,19 @@ export async function buildWorld(inst: Instance, options: { sharedSubscriptions?
     requestConnect = c.data.request.requestId
   }
   const bobChat = (await bob.ok('POST', '/api/chats', { title: 'bob chat' })).id
+  // a chat of alice's shared with frank (the pwchange persona: locked out until he changes it), whose question carries a
+  // chat file with a second version (chat/chat-file-edit.ts): a real chain, for the versions / save / restore cases
+  const peopleChat = (await alice.ok('POST', '/api/chats', { title: 'people chat' })).id
+  const frankOnly = [{ subjectType: 'user', subjectId: 'frank' }]
+  const pv = await alice.ok('POST', `/api/chats/${peopleChat}/audience/preview`, { subjects: frankOnly })
+  await alice.ok('PUT', `/api/chats/${peopleChat}/audience`, { subjects: frankOnly, confirmKey: pv.previewKey })
+  const noteForm = new FormData()
+  noteForm.set('chatId', peopleChat)
+  noteForm.set('file', new File(['notes v1\n'], 'notes.md', { type: 'text/markdown' }))
+  const chatFile = (await alice.ok('POST', '/api/uploads', undefined, { form: noteForm })).id
+  const sentP = await alice.ok('POST', `/api/chats/${peopleChat}/messages`, { clientMessageId: cm(), attachmentIds: [chatFile], content: fake({ say: 'noted' }) })
+  await sockets.alice.next('message.done', (f) => f.data.messageId === sentP.assistantMessage.id, 30_000)
+  await alice.ok('PUT', `/api/chats/${peopleChat}/files/${chatFile}/content`, { content: 'notes v2\n' })
 
   // ---------------- uploads, jobs, sessions, invites ----------------
   const uploadAlice = (await alice.ok('POST', '/api/upload-sessions', { target: { kind: 'path', path: `users/alice/${C.aliceUploadName}.bin`, onExists: 'rename' }, size: 10, sha256: sha('0123456789') })).id
@@ -329,7 +344,7 @@ export async function buildWorld(inst: Instance, options: { sharedSubscriptions?
       artifact, memory, attachment: att.id, aliceRef, projAlice, projFalcon, projMkt, projShared, projTeam, uploadAlice, jobAlice, jobSystem,
       aliceVersion, finVersion, trashAlice, trashFin, aliceSession, invite: inv.invite.id, inviteToken: inv.token,
       resetToken: reset.token, budget, bobChat, suggestion, teamCredential, aliceOwnCredential, dmRoom, dmMsg, dmMsgDel, dmFile,
-      groupRoom, groupLeaveRoom, teamChat, trashTeam, teamVersion, scheduleAlice, allRoom, allApp, dmApp,
+      groupRoom, groupLeaveRoom, teamChat, trashTeam, teamVersion, scheduleAlice, allRoom, allApp, dmApp, peopleChat, chatFile,
     },
   }
 }

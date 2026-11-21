@@ -43,6 +43,9 @@ export const SHARED_TOOLS: ReadonlySet<string> = new Set([
   // Word comments on a team .docx (tools/comment-docx.ts; limits audit 1 #22): a team file in, a new version or a new
   // .docx out, as edit_hwp; the document counts as read (chat/tools.ts), a new file goes through the write gates
   'comment_docx',
+  // a Word, Excel or PowerPoint file of this chat changed in place: a new version of the chat file (P4,
+  // docs/decisions/20261121-ai-edits-chat-files.md); a team file is not changed from a shared chat (chat/tools.ts)
+  'edit_office',
   // many renames in one call (tools/file-moves.ts), like rename_file: what each names counts as read (namedPaths)
   'rename_files',
   // the original of a Gmail attachment the asker's connection gave in this chat (tools/save-connector-file.ts; drive:

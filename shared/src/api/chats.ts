@@ -4,13 +4,39 @@ import { UserId, Uuid7 } from '../ids'
 import { Access, EngineId, IsoTime, PageQuery, QueryBool, RelPath, page } from './common'
 import { endpoint, empty, stream } from './endpoint'
 import { SealedSecret } from './credentials'
-import { AudienceSplit, Chat, ChatThreadReply, MESSAGE_ATTACHMENTS_MAX, MESSAGE_TEXT_MAX, Message, MessageSources, Project, SubjectType, UserRef } from './entities'
+import { AudienceSplit, Chat, ChatFileVersion, ChatThreadReply, MESSAGE_ATTACHMENTS_MAX, MESSAGE_TEXT_MAX, Message, MessageSources, Project, SubjectType, UserRef } from './entities'
 import { ANSWER_NOTE_MAX, AnswerShareConfirm, AnswerSharePlace, ROOM_FILES_MAX, ROOM_MENTIONS_MAX, ROOM_MESSAGE_MAX, RoomMessage } from './rooms'
 import { IntegrationStatus } from './integrations'
 import { TurnRequest } from './ws'
 
 /** GET /api/chats/:id/files/:fileId: thumb=1 an image's preview, download=1 as an attachment */
-export const ChatFileQuery = z.object({ thumb: QueryBool.optional(), download: QueryBool.optional() })
+export const ChatFileQuery = z.object({
+  thumb: QueryBool.optional(), download: QueryBool.optional(),
+  /** an earlier version by its number (ChatFileVersion.version); absent: the newest */
+  version: z.coerce.number().int().positive().max(1_000_000).optional(),
+})
+
+// ---------------- a chat's file edited in place, with versions (docs/AGENTS/plan/20261121-1206-chat-file-edit-versions.md) ----
+/** At most this many characters a save of a chat's text file carries (10 MB of text, as a team file's) */
+export const CHAT_FILE_EDIT_MAX = 10 * 1024 * 1024
+/** GET /api/chats/:id/files/:fileId/versions: the chain's versions (oldest first) and whether I may edit it now */
+export const ChatFileVersions = z.object({
+  items: z.array(ChatFileVersion),
+  /** a text file (md, txt, csv, html, json) of a chat shared with people (not a project chat), not in the trash, safe
+   * operations off, not on the download-only list: the panel offers the pencil and Restore */
+  canEdit: z.boolean(),
+})
+export type ChatFileVersions = z.infer<typeof ChatFileVersions>
+/** PUT /api/chats/:id/files/:fileId/content: the whole new text, and the version the editor read */
+export const SaveChatFileBody = z.object({
+  content: z.string().max(CHAT_FILE_EDIT_MAX),
+  /** the head's id when the editor opened (ChatFileVersion.id); someone saved since: the result is `beside` */
+  baseVersion: Uuid7.optional(),
+})
+/** A save or a restore: the new newest version; `beside` when someone else saved after the version the editor read
+ * (both are kept: theirs is the one before this in the list) */
+export const ChatFileSaved = z.object({ version: ChatFileVersion, beside: z.boolean() })
+export type ChatFileSaved = z.infer<typeof ChatFileSaved>
 
 // ---------------- an answer sent to a room ("대화방에 보내기") ----------------
 export const ShareAnswerToRoomBody = z.object({
@@ -678,7 +704,10 @@ export const CHATS = {
   userSharedChats: endpoint({ method: 'GET', path: '/api/admin/users/:id/shared-chats', auth: 'admin', owner: 'B', response: z.object({ sharedChats: z.number().int().nonnegative() }), summary: 'For the delete-account dialog: how many chats this person shared with people and groups hold other people\'s messages. Deleting the account deletes them for good after the retention period (disabling it keeps them). A count, nothing else.' }),
   hideChat: endpoint({ method: 'POST', path: '/api/chats/:id/hide', auth: 'user', owner: 'B', response: Chat, summary: '"Hide from my list": a chat someone shared with me leaves my chat lists, for me only (search still finds it); opening it (POST /api/chats/:id/seen) or DELETE brings it back. Its creator gets 400 chat_hide_creator.' }),
   unhideChat: endpoint({ method: 'DELETE', path: '/api/chats/:id/hide', auth: 'user', owner: 'B', response: Chat, summary: 'Bring a chat I hid from my list back.' }),
-  chatFile: endpoint({ method: 'GET', path: '/api/chats/:id/files/:fileId', auth: 'user', owner: 'B', query: ChatFileQuery, response: stream(true), summary: 'A file from the computer kept with a chat shared with people and groups (Attachment source chat), for whoever sees the chat now (checked on every read: anyone else, a removed person included, gets the 404 of a missing chat); one not sent in a message yet only for its sender. thumb=1 for an image preview, download=1 as an attachment. Inline, a page or script type is sent as text/plain with a sandbox CSP: never a page of the app. A file on the safety check\'s download-only list is sent only with download=1 (503 quarantined otherwise).' }),
+  chatFile: endpoint({ method: 'GET', path: '/api/chats/:id/files/:fileId', auth: 'user', owner: 'B', query: ChatFileQuery, response: stream(true), summary: 'A file from the computer kept with a chat shared with people and groups (Attachment source chat), for whoever sees the chat now (checked on every read: anyone else, a removed person included, gets the 404 of a missing chat); one not sent in a message yet only for its sender. thumb=1 for an image preview, download=1 as an attachment, version=n an earlier version (the newest without it; one pruned or not of this chain: 404). Inline, a page or script type is sent as text/plain with a sandbox CSP: never a page of the app. A file on the safety check\'s download-only list is sent only with download=1 (503 quarantined otherwise).' }),
+  chatFileVersions: endpoint({ method: 'GET', path: '/api/chats/:id/files/:fileId/versions', auth: 'user', owner: 'B', response: ChatFileVersions, summary: 'The versions of a file kept with a chat shared with people (any id of its chain), oldest first: who saved each (or the AI for whom), when, its size; the newest marked head. canEdit: I may save a new version now. Anyone who may not open the file (the chat not theirs to see, an upload not sent yet, a file carried only by answers hidden from them) gets the 404 of a missing one: never a version, its name or how many.' }),
+  saveChatFile: endpoint({ method: 'PUT', path: '/api/chats/:id/files/:fileId/content', auth: 'user', owner: 'B', body: SaveChatFileBody, response: ChatFileSaved, summary: 'Save a text file of a chat shared with people as its new version (md, txt, csv, html, json; at most 10 MB): whoever may open the file and sees the chat. Nothing is overwritten: the chain keeps its last 20 versions. baseVersion: the version the editor read; someone saved since: beside true (both kept). 409 chat_file_read_only for a project chat, a chat in the trash or a file that is not text; 409 safe_ops while safe operations are on; the 404 of a missing file for anyone who may not open it. Each person in the chat sees the change on its file tiles. At most 30 saves and restores a minute per person (429 with retryAfter). Audited (chat.file_version).' }),
+  restoreChatFileVersion: endpoint({ method: 'POST', path: '/api/chats/:id/files/:fileId/versions/:version/restore', auth: 'user', owner: 'B', response: ChatFileSaved, summary: 'Restore version :version of a file kept with a chat shared with people: a new newest version with its bytes; nothing is deleted. The same rights, refusals and limit as a save. Audited (chat.file_restore).' }),
   listChatThread: endpoint({ method: 'GET', path: '/api/chats/:id/messages/:messageId/thread', auth: 'user', owner: 'B', query: ListChatThreadQuery, response: ChatThreadPage, summary: 'The thread under a finished AI answer of a shared chat I see: the answer as I see it and a page of the replies (newest page first, oldest first within it). People only: the AI never reads replies. A chat I do not see, a missing or hidden answer, a question or another chat\'s answer: the same 404. canReply false with readOnlyReason while safe operations are on, the chat is in the trash or no longer shared.' }),
   sendChatThreadReply: endpoint({ method: 'POST', path: '/api/chats/:id/messages/:messageId/thread', auth: 'user', owner: 'B', status: 201, body: SendChatThreadReplyBody, response: ChatThreadReply, summary: 'Reply under a finished answer (done or stopped) of a shared chat I may continue, as myself. The same clientId again returns the first reply. Access is checked before the sending budget (429 with retryAfter, the rooms\' budget); at most 500 replies (409 thread_full). The answer\'s asker and everyone who replied get one Inbox notice per unread thread, and a push while "Replies in threads I\'m part of" is on.' }),
   deleteChatThreadReply: endpoint({ method: 'DELETE', path: '/api/chats/:id/thread-replies/:replyId', auth: 'user', owner: 'B', response: empty, status: 204, summary: 'Delete a reply for everyone (no undo): its author, or whoever may moderate the chat (a project chat: its creator or a project editor; a chat shared with people: its creator). A moderator\'s delete is audited with ids only. A reply of another chat: 404.' }),

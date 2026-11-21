@@ -122,7 +122,7 @@ import { makeHandler } from '../mcp/protocol'
 import { hasCredentialFor, resolveCredential, SOON_MS, type CredEngine } from '../credentials/resolve'
 import { connectionRoute } from '../credentials/access'
 import { isGuestUser } from '../credentials/guest-ai'
-import { mayAttachChatFile, resolvePlace } from '../files/places'
+import { mayAttachChatFile, mayWriteChatVersion, resolvePlace } from '../files/places'
 import { chatPlaces } from './place-ctx'
 import { situationOf } from './situation'
 import { appMapView } from './app-map'
@@ -335,6 +335,10 @@ export function limitError(locale: Locale, retryAt: string | null | undefined, n
   const e = engineError('usage_used_up', locale, secs)
   return { ...e, params: { ...e.params, until: new Date(at).toISOString() } }
 }
+
+/** The tools whose chat-file target is a new version of an existing chat file (P4: chat/chat-file-write.ts, edit_office
+ * without output), not a new file attached to the answer */
+export const CHAT_VERSION_TOOLS: ReadonlySet<string> = new Set(['write', 'edit', 'edit_office'])
 
 export class TurnExec {
   content = ''
@@ -4166,10 +4170,15 @@ export class TurnExec {
    * the shared read card asks first. Outside a chat shared with people the resolver refused the output already.
    */
   private async confirmChatTarget(sources: readonly string[], read: readonly ReadSource[], tool: string, main = true): Promise<string | null> {
-    // who may attach here (the resolver's words: a project chat's folder, My files, a sub-agent): refused before any card,
-    // so a call that cannot attach never asks the person anything
-    const may = mayAttachChatFile({ ...chatPlaces(this, this.files).ctx, main })
-    if (may !== true) return `Not attached (${tool}): ${may}`
+    // a new version of an existing chat file (write, edit, edit_office in place: P4) or a new file attached: who may
+    // (the resolver's words: a project chat's folder, My files, a sub-agent, a k answer) is refused before any card, so
+    // a call that cannot save there never asks the person anything
+    const version = CHAT_VERSION_TOOLS.has(tool)
+    const ctx = { ...chatPlaces(this, this.files).ctx, main }
+    const may = version ? mayWriteChatVersion(ctx) : mayAttachChatFile(ctx)
+    if (may !== true) return `Not ${version ? 'changed' : 'attached'} (${tool}): ${may}`
+    // a personal chat's own file (a chat made private again): only its creator sees it, so nothing to weigh
+    if (version && this.shared?.kind !== 'people') return null
     if (this.shared?.kind !== 'people') return refusal({ done: 'Nothing was attached.', why: { kind: 'failed', what: 'this chat\'s files' }, next: 'save it in a team folder instead' })
     const rules = this.rt.files.rules()
     let me: Principal
@@ -4180,7 +4189,7 @@ export class TurnExec {
       try { list.push(sourceOf(this.rt.db, rules, authorize(this.rt.files.fx, rules, me, p, 'read').rel)) } catch { /* the tool reports it */ }
     }
     const no = await this.sharedReadRefusal(tool, null, { step: false, sources: list })
-    return no ? this.sharedReadText(`Not attached (${tool}): nothing was attached to this answer.`, no) : null
+    return no ? this.sharedReadText(version ? `Not changed (${tool}): the chat file was left as it was.` : `Not attached (${tool}): nothing was attached to this answer.`, no) : null
   }
 
   /**
