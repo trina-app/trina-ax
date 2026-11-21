@@ -168,6 +168,17 @@ describe('memory: queued answers wait while memory is short', () => {
     setAvailableMemoryForTests(MEMORY_HEADROOM_MIB + 2 * turnMemoryEstimateMiB())
     expect(memoryAdmission(0, 3)).toBe(2)
   })
+  test('a plan without its memory figures (older or partial record) uses the estimate: answers still start (#254 queue)', () => {
+    setLimitsPlatformForTests('linux')
+    setPlanForTests({ storageGiB: 10 } as never)
+    expect(turnMemoryEstimateMiB()).toBe(TURN_MEMORY_ESTIMATE_MIB)
+    setAvailableMemoryForTests(MEMORY_HEADROOM_MIB + 10 * TURN_MEMORY_ESTIMATE_MIB)
+    expect(memoryAdmission(0, 3)).toBe(3)
+    setAvailableMemoryForTests(0)
+    expect(memoryAdmission(0, 3)).toBe(1)
+    setPlanForTests(undefined)
+    setLimitsPlatformForTests(null)
+  })
   test('a Mac without a plan, or unknown memory, keeps the concurrency limit', () => {
     setLimitsPlatformForTests('darwin')
     setPlanForTests(null)
