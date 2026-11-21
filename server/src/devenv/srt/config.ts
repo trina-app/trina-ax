@@ -428,7 +428,8 @@ export function resolveRunCwd(root: string, rel: string): string | null {
 
 /** The dev environment's Python on Linux: a venv with the system's site-packages (scripts/system/packages.json python
  * python-pptx; docs/decisions/20261121-box-python-libs.md). First on a run's PATH: python3 there has apt's libraries plus
- * python-pptx and matplotlib, and pip install X goes into the run's home (a venv has no PEP 668 marker). */
+ * python-pptx and matplotlib. It is read-only in a run, and the user site stays off (PYTHONNOUSERSITE, git-guard.ts):
+ * other packages go into a venv of the folder (python3 -m venv .venv). */
 export const BOX_PYTHON_BIN = '/opt/trina/python/python-pptx/current/bin'
 /** Node libraries of a run (pptxgenjs, docx: scripts/dev-env/srt/node-libs.package-lock.json), on NODE_PATH */
 export const BOX_NODE_LIBS = '/opt/trina/node-libs/current/node_modules'
@@ -452,14 +453,12 @@ export function runEnv(i: EnvInput): Record<string, string> {
   const node = path.dirname(i.nodeBin ?? SRT_PATHS.node)
   const boxPython = i.boxPython !== undefined ? i.boxPython : !mac && there(BOX_PYTHON_BIN) ? BOX_PYTHON_BIN : null
   const nodeLibs = i.nodeLibs !== undefined ? i.nodeLibs : there(BOX_NODE_LIBS) ? BOX_NODE_LIBS : null
-  // what pip install --user (and pip install in the box's Python) puts in the home: its programs
-  const userBin = path.join(home, '.local', 'bin')
   return {
     // macOS: Trina's Python 3 (install-srt-mac.sh), git and make of the Command Line Tools directly (the /usr/bin stubs
     // run xcrun, which needs the developer folder that xcode-select names), Homebrew's programs when the Mac has them
     // (MAC_SYSTEM_READ_PATHS); /usr/local is not readable there
     // the git wrapper first (git-guard.ts): every git call checks the repository's settings
-    PATH: mac ? `${devenvPaths(i.base).bin}:${node}:/opt/trina/python3/bin:${userBin}:/Library/Developer/CommandLineTools/usr/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin` : `${devenvPaths(i.base).bin}:${node}:${boxPython ? `${boxPython}:` : ''}${userBin}:/usr/local/bin:/usr/bin:/bin`,
+    PATH: mac ? `${devenvPaths(i.base).bin}:${node}:/opt/trina/python3/bin:/Library/Developer/CommandLineTools/usr/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin` : `${devenvPaths(i.base).bin}:${node}:${boxPython ? `${boxPython}:` : ''}/usr/local/bin:/usr/bin:/bin`,
     ...(nodeLibs ? { NODE_PATH: nodeLibs } : {}),
     HOME: home,
     // srt's own temp files (proxy sockets) land here too. A server-only TMPDIR for the srt process was tried (S7,

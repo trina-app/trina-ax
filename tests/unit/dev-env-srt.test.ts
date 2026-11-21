@@ -523,15 +523,16 @@ describe('the srt settings file', () => {
     expect(runEnv({ base: BASE, userId: 'alice', teamRoot: TEAM, work: chatWork(BASE, 'c1') }).TRINA_WORK).toBe(`${BASE}/devenv/work/c1`)
     expect(() => personHome(BASE, '../bob')).toThrow()
   })
-  test('the box\'s libraries (docs/decisions/20261121-box-python-libs.md): the Python venv first on PATH, NODE_PATH, the home\'s .local/bin', () => {
+  test('the box\'s libraries (docs/decisions/20261121-box-python-libs.md): the Python venv first on PATH, NODE_PATH', () => {
     const o = { base: BASE, userId: 'alice', teamRoot: TEAM, work: null, platform: 'linux' as const }
     const e = runEnv({ ...o, boxPython: BOX_PYTHON_BIN, nodeLibs: BOX_NODE_LIBS })
-    // the git wrapper and node first, then the box's Python (python3 and pip there), then what pip install --user made
-    expect(e.PATH).toBe(`${BASE}/devenv/bin:/opt/trina/node/bin:${BOX_PYTHON_BIN}:${e.HOME}/.local/bin:/usr/local/bin:/usr/bin:/bin`)
+    // the git wrapper and node first, then the box's Python (python3 there); the user site stays off (planted .pth files)
+    expect(e.PATH).toBe(`${BASE}/devenv/bin:/opt/trina/node/bin:${BOX_PYTHON_BIN}:/usr/local/bin:/usr/bin:/bin`)
+    expect(e.PYTHONNOUSERSITE).toBe('1')
     expect(e.NODE_PATH).toBe(BOX_NODE_LIBS)
     // a server without them (an older install, --minimal): the system's python3 and no NODE_PATH
     const none = runEnv({ ...o, boxPython: null, nodeLibs: null })
-    expect(none.PATH).toBe(`${BASE}/devenv/bin:/opt/trina/node/bin:${none.HOME}/.local/bin:/usr/local/bin:/usr/bin:/bin`)
+    expect(none.PATH).toBe(`${BASE}/devenv/bin:/opt/trina/node/bin:/usr/local/bin:/usr/bin:/bin`)
     expect(none.NODE_PATH).toBeUndefined()
     // the paths are what the list and install-srt.sh make, and readable in a run (SYSTEM_READ_PATHS has /opt/trina)
     const list = JSON.parse(fs.readFileSync(path.join(REPO, 'scripts/system/packages.json'), 'utf8'))
@@ -551,7 +552,7 @@ describe('the srt settings file', () => {
     for (const n of [...BOX_PYTHON_LIBS, ...BOX_NODE_LIB_NAMES]) expect(boxLibsText('linux')).toContain(n)
     for (const n of BOX_NODE_LIB_NAMES) expect(boxLibsText('darwin')).toContain(n)
     expect(boxLibsText('darwin')).not.toContain('pandas') // a Mac team server's Python has none of them yet
-    for (const t of [boxLibsText('linux'), boxLibsText('darwin')]) expect(t).toContain('pip install and npm install work')
+    for (const t of [boxLibsText('linux'), boxLibsText('darwin')]) expect(t).toContain('python3 -m venv .venv')
     expect(srtShellDescription(false)).toContain(boxLibsText())
     expect(sharedShellDescription(false)).toContain(boxLibsText())
   })

@@ -75,7 +75,7 @@ const devServerText = (preview: boolean, reach: boolean = reachSupported()) => r
 export const boxLibsText = (platform: DevPlatform = runPlatform()) => (platform === 'darwin'
   ? `Already installed: node with ${BOX_NODE_LIB_NAMES.join(' and ')} (require them); python3 has no extra libraries yet, so pip install what you need. `
   : `Already installed: python3 with ${BOX_PYTHON_LIBS.join(', ')}; node with ${BOX_NODE_LIB_NAMES.join(' and ')} (require them). `)
-  + 'pip install and npm install work for anything else (pip install puts it in the command\'s home; a folder\'s own .venv or node_modules works too). '
+  + 'For anything else use the folder: npm install, or a venv (python3 -m venv .venv && .venv/bin/pip install <package>); a plain pip install has nowhere to write. '
 /** The tool text (docs/research/srt-dev-env.md section 7). The dev environment is not locked to a project: the command
  * gets the folder access of the person of this chat. */
 export const srtShellDescription = (preview: boolean) => 'Run a shell command in the dev environment (bash, git, node, npm, python3, pip, ffmpeg, chromium) on the team server. '

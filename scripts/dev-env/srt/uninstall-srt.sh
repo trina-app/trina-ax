@@ -26,7 +26,7 @@ if grep -qsx "# install=$ID" "$TEMPLATE"; then rm -f "$TEMPLATE"; fi
 # runtime limits of runs that never started (a run removes its own when it ends)
 rm -rf /run/systemd/system.control/trina-dev@*.service.d /etc/systemd/system.control/trina-dev@*.service.d
 rm -f "/etc/polkit-1/rules.d/60-$ID-devenv.rules" "/etc/systemd/system/$ID-devenv.slice"
-rm -rf /opt/trina/devenv /opt/trina/srt /opt/trina/node /opt/trina/node-v*
+rm -rf /opt/trina/devenv /opt/trina/srt /opt/trina/node /opt/trina/node-v* /opt/trina/node-libs
 rmdir /opt/trina 2>/dev/null || true
 systemctl daemon-reload
 systemctl restart "$ID-server.service" || true

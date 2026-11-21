@@ -1,8 +1,8 @@
-# The dev environment's Python has the common document and chart libraries, and pip install works there
+# The dev environment's Python and Node have the common document and chart libraries
 
 - Date (UTC): 2026-11-21 10:31
 - Branch: `fix/box-python-libs`
-- Status: in progress
+- Status: done
 - Where: scripts/system (the one list), scripts/dev-env/srt, server/src/devenv. Why: the box is the AI's shell; what
   it offers is set by the list and the run's environment (docs/REPOSITORY-RULES.md)
 - Version impact: patch: a fix to what the existing dev environment offers; a root update (the list changes)
@@ -35,10 +35,10 @@ In:
 2. Linux, pinned wheels: a Python program `python-pptx` in /opt/trina/python/python-pptx (the list's existing venv
    mechanism) made with `--system-site-packages` (a new list key `systemSite`): python-pptx 1.0.2, typing-extensions,
    matplotlib 3.10.9 and its pure or small deps (contourpy, cycler, fonttools, kiwisolver, pyparsing). Resolved
-   against Debian 12's numpy/Pillow/lxml, so one set fits every release. ~17 MiB download, ~60 MiB on disk.
-3. The run's PATH starts with that venv's bin: `python3`/`pip` there see apt's libraries plus the venv's, and since a
-   system-site venv has the user site on and no PEP 668 marker, `pip install X` installs into the run's HOME, as on a
-   developer's machine. A server without the venv keeps today's PATH.
+   against Debian 12's numpy/Pillow/lxml, so one set fits every release. ~17 MiB download, ~90 MiB on disk.
+3. The run's PATH starts with that venv's bin: `python3` there sees apt's libraries plus the venv's. A server without
+   the venv keeps today's PATH. (Tried: letting `pip install X` go into the run's home. The user site is off on purpose,
+   `PYTHONNOUSERSITE` for QA TC-4939, so other packages go into a venv of the folder, which the tool text says.)
 4. install-srt.sh installs the devenv group's Python programs too (it installs the group's apt packages already).
 5. Node: pptxgenjs and docx from a pinned package-lock (scripts/dev-env/node-libs), `npm ci --ignore-scripts` into
    /opt/trina/node-libs/<lock sha12> with a link current, by install-srt.sh and install-srt-mac.sh; `NODE_PATH` in the
@@ -52,13 +52,13 @@ works there today).
 
 1. This plan.
 2. Tests: list rules (systemSite, the new packages, the program in the devenv group), runEnv PATH/NODE_PATH, tool text,
-   a Docker test that imports every library inside srt and runs `pip install` (tests/linux).
+   a Docker test that imports every library inside srt and installs a PyPI package into a folder's venv (tests/linux).
 3. The change; changes/box-python-libs.md; decision file.
 
 ## Decisions
 
-docs/decisions/20261121-box-python-libs.md: what the box preinstalls, and `pip install` works in a run (no new
-network policy: PyPI was allowed already).
+docs/decisions/20261121-box-python-libs.md: what the box preinstalls (no new network policy: PyPI was allowed
+already).
 
 ## Risks
 
@@ -72,4 +72,8 @@ import test with srt 0.0.81 on colima.
 
 ## Result
 
-(at the end)
+Built as planned, except step 3: a plain `pip install X` does not go into the run's home (the user site stays off,
+QA TC-4939); the tool text points to a venv of the folder. Linux: apt +~90 MiB, the venv ~90 MiB (~17 MiB download),
+Node ~31 MiB. Verified inside srt 0.0.81 in Docker on Debian 12, Debian 13 and Ubuntu 24.04 by hand, and in the srt
+attack suite (LIB1-LIB3, all attacks and the 19 sub-agent cases held). The Mac team server's Python libraries are left
+for later.

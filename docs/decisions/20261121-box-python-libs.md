@@ -1,4 +1,4 @@
-# The dev environment has the common document and chart libraries, and pip install works in it
+# The dev environment has the common document and chart libraries ready
 
 - Date: 2026-11-21
 - Status: accepted
@@ -21,9 +21,11 @@
     builds where Debian has them (security updates); pinned wheels by sha256 where it does not, resolved against
     Debian 12's versions so one set fits every release. Debian's own matplotlib is not used: it pulls scipy, sympy and
     tk (+180 to +640 MiB).
-  - `pip install X` works in a run: a venv has no PEP 668 marker and, with the system's site-packages, the user site
-    on, so pip installs into the run's home (`~/.local`, whose bin is on PATH). Same reach as before: PyPI only through
-    srt's proxy, a team with No network still has none. No new network policy.
+  - Another package from PyPI goes into a venv of the folder (`python3 -m venv .venv && .venv/bin/pip install X`), as
+    on any Debian machine; the tool text says so. A plain `pip install X` still cannot write (the box's venv is
+    read-only, and the user site stays off: `PYTHONNOUSERSITE`, QA TC-4939, a planted .pth file in a home must not run
+    in a person's other runs). Same reach as before: PyPI only through srt's proxy, a team with No network has none. No
+    new network policy.
   - Node: pptxgenjs 4.0.1 and docx 9.15.3 from scripts/dev-env/srt/node-libs.package-lock.json (npm ci
     --ignore-scripts) in /opt/trina/node-libs/<lock sha12>, on `NODE_PATH` of a run, Linux and Mac.
   - box_shell's tool text names what is installed in one line, so the AI does not find out by trial.
@@ -32,6 +34,6 @@
 - **Left out.** The Python libraries on a Mac team server (/opt/trina/python3 has none; pip install works there). Debian's
   scipy and sympy. A pip or npm mirror.
 - **Tests.** tests/unit/system-packages.test.ts (systemSite, the venv flag), tests/unit/dev-env-srt.test.ts (PATH,
-  NODE_PATH, tool text), tests/linux/srt-attack.ts L1-L3 (every library loads inside srt, a deck with a chart, pip
-  install into the home, a shared chat's fresh home).
+  NODE_PATH, tool text), tests/linux/srt-attack.ts LIB1-LIB3 (every library loads inside srt, a deck with a chart, a
+  PyPI package into a folder's venv, a shared chat's fresh home).
 - **Version impact.** patch: the dev environment offers more; a root update (the list changed).

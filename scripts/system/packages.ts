@@ -36,7 +36,7 @@ export interface Artifact { version: string; for: string; revoked?: string[]; pl
  * wheel a list system can use; scripts/system/python-lock.ts writes them from the project's uv.lock) */
 export interface PythonProgram { version: string; for: string; python: string; program: string; requirements: Record<string, string>
   /** true: the venv sees the system's site-packages (python3 -m venv --system-site-packages), for the dev environment's
-   * Python: apt's libraries plus the venv's, and pip installs into the run's home (a venv has no PEP 668 marker) */
+   * Python: apt's libraries plus the venv's */
   systemSite?: boolean }
 export interface PackageList {
   format: 1

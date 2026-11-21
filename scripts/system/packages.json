@@ -276,7 +276,7 @@
   "python": {
     "python-pptx": {
       "version": "1.0.2",
-      "for": "the dev environment's Python (server/src/devenv/srt/config.ts boxPythonBin): a venv with the system's site-packages, first on a run's PATH, so python3 there has apt's libraries (the devenv group) plus python-pptx and matplotlib, and pip install X goes into the run's home. Resolved with uv against Debian 12's numpy 1.24.2, Pillow 9.4.0, lxml 4.9.2, XlsxWriter 3.0.2, python-dateutil 2.8.2 and packaging 23.0 (the oldest of the list's systems), which come from apt and are not pinned here",
+      "for": "the dev environment's Python (server/src/devenv/srt/config.ts BOX_PYTHON_BIN): a venv with the system's site-packages, first on a run's PATH, so python3 there has apt's libraries (the devenv group) plus python-pptx and matplotlib. Resolved with uv against Debian 12's numpy 1.24.2, Pillow 9.4.0, lxml 4.9.2, XlsxWriter 3.0.2, python-dateutil 2.8.2 and packaging 23.0 (the oldest of the list's systems), which come from apt and are not pinned here",
       "python": ">=3.11",
       "program": "python",
       "systemSite": true,
