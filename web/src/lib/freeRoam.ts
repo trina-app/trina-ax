@@ -2,7 +2,7 @@
 // docs/decisions/20261119-demo-free-roam-a.md). One visitor's own server behind demo-gate, signed in as the demo's one
 // person, with the real AI until the demo limit. These are the plain rules the screens share; nothing here talks to the
 // server (store/demo.ts reads GET /api/demo, components/demo/FreeRoam.tsx draws it).
-import { DEMO_BUSY_REASON, DEMO_LIMIT_REASON, DEMO_REST_REASON, type ApiErrorBody, type DemoInfo, type Locale, type Me } from '@mycel/shared/api'
+import { DEMO_BUSY_REASON, DEMO_LIMIT_REASON, DEMO_QUESTION_TOKENS, DEMO_REST_REASON, type ApiErrorBody, type DemoInfo, type Locale, type Me } from '@mycel/shared/api'
 import type { MessageKey } from '../i18n'
 
 /**
@@ -39,6 +39,16 @@ export function demoMeter(used: number | undefined, cap: number | undefined): { 
   if (share >= 1) return { out: true, low: true, leftPct: 0 }
   const left = (1 - share) * 100
   return { out: false, low: share >= METER_FROM, leftPct: Math.min(20, Math.max(5, Math.ceil(left / 5) * 5)) }
+}
+
+/**
+ * About how many questions the visitor has left: floor((cap - used) / DEMO_QUESTION_TOKENS), never below 0. Null when
+ * the bar says nothing about it: no limit known, or from METER_FROM on, where the meter's "About N% left" takes over
+ * (one count at a time, and never "about 0 questions" while the AI still answers).
+ */
+export function demoQuestionsLeft(used: number | undefined, cap: number | undefined): number | null {
+  if (!cap || cap <= 0 || used === undefined || !Number.isFinite(used) || demoMeter(used, cap).low) return null
+  return Math.max(0, Math.floor((cap - Math.max(0, used)) / DEMO_QUESTION_TOKENS))
 }
 
 /** The bar's built-in suggestions when the demo file has none of its own (en and ko, the demo's first languages; the

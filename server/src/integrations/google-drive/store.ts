@@ -14,7 +14,7 @@ export interface Tokens { accessToken: string; refreshToken: string; expiresAt: 
  * app's own session finish a sign-in Google answered in a browser without a session (app-return.ts) */
 export interface FlowSecret { verifier: string; tokens?: Tokens; account?: Account; scopes?: string[]; go?: { hash: string; url: string }; claim?: { hash: string; until: number } }
 export interface ConnectionRow { id: string; user_id: string; config_key: string; account: string; scopes: string; secret_enc: string; key_version: number; status: 'connected' | 'needs_reconnect'; version: number; expires_at: string; updated_at: string }
-export interface FlowRow { id: string; user_id: string; session_id: string; state_hash: string; config_key: string; state: DriveFlow['state']; secret_enc: string | null; key_version: number; account: string | null; reason: string | null; expires_at: string; purpose: 'personal' | 'share'; share_id: string | null }
+export interface FlowRow { id: string; user_id: string; session_id: string; state_hash: string; config_key: string; state: DriveFlow['state']; secret_enc: string | null; key_version: number; account: string | null; reason: string | null; expires_at: string; purpose: 'personal' | 'share'; share_id: string | null; created_at?: string }
 
 export class DriveStore {
   vault: Vault

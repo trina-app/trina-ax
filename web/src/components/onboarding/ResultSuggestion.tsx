@@ -4,8 +4,7 @@
 //   - what the server says for the newest answer (server/src/onboarding/suggestions.ts): the same person ran the
 //     same team skill for the 2nd time → "매주 이 시간에 자동으로 받을까요?" [예약하기], which asks the AI in this chat to
 //     schedule the same request every week at this time (the AI's schedule card is how tasks are made: the person sees
-//     the title, the time and the whole request and confirms there); a long report-like answer → [PPT로 만들기], which
-//     sends "이 내용을 PPT로 만들어 줘"; an owner's or admin's answer that used team files and ran no team skill, when S's
+//     the title, the time and the whole request and confirms there); an owner's or admin's answer that used team files and ran no team skill, when S's
 //     rules let it become one → "이 방식대로 팀 스킬로 만들까요?" [팀 스킬로 만들기], which opens the skill card
 //     (SkillShareCard: the draft, then [팀에 공유] and the invite with that skill; docs/DECISIONS.md "S", "W3": the card
 //     had no entry since the first result shares the pack's own skill).
@@ -13,13 +12,14 @@
 //     올릴래요?" [올리기], which opens the member's skill folder pick (components/skills/ContributeSheet.tsx) with a link
 //     to the team folder when they can write it; on a phone the line offers only that folder ("팀 폴더 열기"), and the
 //     server leaves the line out there when there is none (it is asked with phone=1).
+// A long report-like answer no longer offers slides (docs/decisions/20261121-remove-slides-offer.md).
 // Closing one (X) closes it for good for this person (stored on the server). Acting on one hides it under that answer.
 // From 768px it is a slim box with a primary button; on a phone one frameless line over the message box, its action a
 // text button at the end of the sentence (a box and a big button there sat on top of the message box).
 // The promo video from the intro deck (`deck-video`, docs/DECISIONS.md "D2") is not built yet: the server never sends it
 // while DECK_VIDEO_SUGGESTION is off, and this line shows nothing for it.
 import clsx from 'clsx'
-import { CalendarClock, FolderUp, Presentation, Sparkles, X } from 'lucide-react'
+import { CalendarClock, FolderUp, Sparkles, X } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import type { SavedSkillDraft, ResultSuggestion as Suggestion } from '@mycel/shared/api'
@@ -36,7 +36,6 @@ import { SkillShareCard } from './SkillShareCard'
 const WORDS = {
   schedule: { text: 'resultTip.schedule.text', act: 'resultTip.schedule.act' },
   'team-skill': { text: 'resultTip.teamSkill.text', act: 'resultTip.teamSkill.act' },
-  ppt: { text: 'resultTip.ppt.text', act: 'resultTip.ppt.act' },
   contribute: { text: 'resultTip.contribute.text', act: 'resultTip.contribute.act' },
 } as const satisfies Record<Exclude<Suggestion['kind'], 'deck-video'>, { text: MessageKey; act: MessageKey }>
 /** A phone has no folder picking: the member's line offers only the team folder there. */
@@ -90,7 +89,6 @@ export function ResultSuggestion({ chatId, messages, busy, onSend }: { chatId: s
   const act = () => {
     setDone(lastId)
     if (s.kind === 'team-skill') return setCard(lastId)
-    if (s.kind === 'ppt') return onSend(t('resultTip.ppt.message'))
     if (s.kind === 'contribute') {
       // a phone: the team folder (Files uploads there); a computer: the skill folder pick, the folder link inside it
       if (phone) return s.folder ? navigate(`/files?path=${encodeURIComponent(s.folder)}`) : undefined
@@ -106,7 +104,7 @@ export function ResultSuggestion({ chatId, messages, busy, onSend }: { chatId: s
   }
   // a phone without a team folder has nothing to offer here (an older server may still send the line)
   if (s.kind === 'contribute' && phone && !s.folder) return bar
-  const Icon = s.kind === 'ppt' ? Presentation : s.kind === 'team-skill' ? Sparkles : s.kind === 'contribute' ? FolderUp : CalendarClock
+  const Icon = s.kind === 'team-skill' ? Sparkles : s.kind === 'contribute' ? FolderUp : CalendarClock
   const words = s.kind === 'contribute' && phone ? CONTRIBUTE_PHONE : WORDS[s.kind]
   return (
     <>

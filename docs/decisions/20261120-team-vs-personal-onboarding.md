@@ -13,7 +13,7 @@
     row makes one team-scope connection that everyone may use (`POST /api/admin/integrations`, access everyone),
     from the list: nothing to type. It then signs in at Notion for the team, in the window reserved during the
     click. Slack's row shows 연결됨 only while Slack is connected (`state` connected). Added but not connected, it
-    shows [다시 연결]; not added, [팀으로 연결]. Both open its own page in Admin › Connectors, and the steps' way back
+    shows [다시 연결]; not added, [팀으로 연결]. Both open its own page in Admin › Connected apps, and the steps' way back
     goes with them.
   - **A team pick** ([팀 추천] switch), for a tool each person connects with their own account: Google Drive where this
     server has it, Gmail where it can be connected. It is saved at once in `TeamSettings.recommendedTools`. A failed
@@ -21,7 +21,7 @@
   - Then one quiet "다른 도구 보기" link to Settings › Connectors, the full list. There, the page of a tool each
     person connects has the same switch for an owner or admin ("팀에 추천하기"). Notion and Slack never get it: they
     are team connections here.
-  - The line under the title says where each is changed later: "팀 연결은 관리자 › 커넥터, 추천은 각 도구 페이지에서
+  - The line under the title says where each is changed later: "팀 연결은 관리자 › 연결한 서비스, 추천은 각 도구 페이지에서
     바꿀 수 있어요".
 - **No personal sign-in in this step.** Nothing here makes the owner's own connection.
 - **Team picks gate nothing.** Recommended tools come first in everyone's Settings › Connectors, marked "팀 추천", in
@@ -54,7 +54,7 @@
   (`welcome.tools.driveLine`, `confirm`, `yes`, `other`, `connected`, `popupBlocked`, `driveUnavailable`,
   `driveNotConnected`), and so are the end screen's `welcome.done.deck`, `deckPhone`, `try`, `later` and `write`.
 - **Left out:** the Home "내 도구 연결하기" card and the Home order (another change reads `recommendedTools`). Also
-  left out: a team-pick switch in Admin › Connectors, and any change to the Google Drive consent and return pages
+  left out: a team-pick switch in Admin › Connected apps, and any change to the Google Drive consent and return pages
   (another change).
 - Tests: tests/unit/c-recommended-tools.test.ts (clean list, audit by value), web/test/unit/welcome.test.tsx (팀이 쓸 도구, 준비 끝),
   web/test/e2e/welcome-tools.spec.ts, welcome-skills.spec.ts, welcome-notes.spec.ts, phone-welcome-flow.cases.ts.

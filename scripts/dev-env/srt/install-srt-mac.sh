@@ -127,6 +127,26 @@ for old in "$OPT"/srt/*/; do
 done
 install -o root -g wheel -m 755 "$HERE/run-wrap-mac" "$OPT/devenv/run-wrap-mac"
 
+# ---- Node libraries a run has without npm install (pptxgenjs, docx; NODE_PATH of a run): node-libs.package-lock.json
+# next to this file, npm ci --ignore-scripts into /opt/trina/node-libs/<sha12>. A failure is a note: a run still works ----
+if [ -f "$HERE/node-libs.package-lock.json" ] && [ -f "$HERE/node-libs.package.json" ]; then
+  NL_KEY=$(shasum -a 256 "$HERE/node-libs.package-lock.json" | cut -c1-12); NL_DIR=$OPT/node-libs/$NL_KEY
+  if [ ! -f "$NL_DIR/.done" ]; then
+    say "node libraries ($NL_KEY)"
+    install -d -o root -g wheel -m 755 "$OPT/node-libs"
+    NEW=$(mktemp -d "$OPT/node-libs/.new.XXXXXX")
+    cp "$HERE/node-libs.package.json" "$NEW/package.json"; cp "$HERE/node-libs.package-lock.json" "$NEW/package-lock.json"
+    if ( cd "$NEW" && env -i HOME="$NEW" PATH="$OPT/node/bin:/usr/bin:/bin" "$OPT/node/bin/npm" ci --ignore-scripts --omit=dev --no-audit --no-fund --cache "$NEW/.npm" >/dev/null ); then
+      rm -rf "$NEW/.npm"; touch "$NEW/.done"; chown -R root:wheel "$NEW"; chmod -R a+rX,go-w "$NEW"
+      rm -rf "$NL_DIR"; mv "$NEW" "$NL_DIR"
+    else rm -rf "$NEW"; say "note: npm ci of the node libraries failed; a run's node has no extra libraries"; fi
+  fi
+  if [ -f "$NL_DIR/.done" ]; then
+    ln -sfn "$NL_KEY" "$OPT/node-libs/current"
+    for old in "$OPT"/node-libs/*/; do old=${old%/}; [ -L "$old" ] || [ "${old##*/}" = "$NL_KEY" ] || rm -rf "$old"; done
+  fi
+fi
+
 # ---- the dev slot accounts and their group ----
 used_ids() { { dscl . -list /Users UniqueID; dscl . -list /Groups PrimaryGroupID; } | awk '{print $2}' | sort -n -u; }
 free_id() { local n; for n in $(seq 450 499); do used_ids | grep -qx "$n" || { echo "$n"; return 0; }; done; return 1; }

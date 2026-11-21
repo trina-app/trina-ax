@@ -80,6 +80,15 @@ export function parseError(s: string | null): ApiErrorBody | null {
 }
 
 /** A team-file reference with everything about the file blanked (deleted, or not readable for the viewer). */
+/** A message's attachment as a client gets it: a chat's copy of its creator's file (chat/chat-files-share.ts) without
+ * its `fromSha256` (the server's own re-check), and with `from` (a path in the creator's own folder) only for the
+ * creator. Anything else as it is. */
+export function copyForViewer(a: Attachment & { fromSha256?: string }, creator: boolean): Attachment {
+  if (a.origin !== 'shared-copy') return a
+  const { fromSha256: _s, from, ...rest } = a
+  return creator && from ? { ...rest, from } : rest
+}
+
 export const blankTeamAttachment = (a: Pick<Attachment, 'id'>): Attachment => ({ id: a.id, name: '', path: '', size: 0, mime: 'application/octet-stream', kind: 'other', source: 'team', unavailable: true })
 
 /**
@@ -132,7 +141,13 @@ export class ChatStore {
 
   /** A message's attachments for the chat's owner (the only person who sees its messages), team references re-checked. */
   attachmentsOf(r: Pick<MessageRow, 'chat_id' | 'attachments'> & { author_id?: string | null }, viewer?: string): Attachment[] {
-    const atts = json<Attachment[]>(r.attachments, [])
+    let atts = json<Attachment[]>(r.attachments, [])
+    // a chat's copy of its creator's file (chat/chat-files-share.ts): its sha256 is the server's alone, and the path it
+    // came from (in the creator's own folder) only for the creator (review L2)
+    if (atts.some((a) => a.origin === 'shared-copy')) {
+      const creator = (this.db.query('SELECT user_id FROM chats WHERE id = ?').get(r.chat_id) as { user_id: string } | null)?.user_id
+      atts = atts.map((a) => copyForViewer(a, viewer === undefined || viewer === creator))
+    }
     // a shared chat (chat/shared.ts): as this viewer may see them, whoever attached them. A file kept with a chat shared
     // with people (chat/chat-files.ts) only for whoever sees it by that rule (not a project's people the chat got later)
     if (viewer !== undefined) {

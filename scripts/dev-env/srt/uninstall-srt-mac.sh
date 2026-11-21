@@ -65,7 +65,7 @@ if dscl . -read "/Groups/$PREFIX" >/dev/null 2>&1; then dseditgroup -o delete "$
 
 # /opt/trina: only when no other install has a dev environment here
 if ! ls /etc/sudoers.d/*-devenv >/dev/null 2>&1; then
-  rm -rf "$OPT/srt" "$OPT/devenv" "$OPT"/node-v* "$OPT/node" "$OPT"/python3-* "$OPT/python3"
+  rm -rf "$OPT/srt" "$OPT/devenv" "$OPT"/node-v* "$OPT/node" "$OPT/node-libs" "$OPT"/python3-* "$OPT/python3"
   rmdir "$OPT" 2>/dev/null || true
 fi
 say "done"

@@ -253,9 +253,10 @@ export function ProjectList() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [phone])
-  // a team project in the trash: its card stays for its members, "In trash" (Project.wasMember, QA TC-1060); the owner
-  // and admins who are not members restore it from Files › Trash, so no card of it for them here (QA TC-1061)
-  const shown = useMemo(() => items?.filter((p) => !p.inTrash || !!p.wasMember) ?? null, [items])
+  // a team project in the trash: no card (the owner, 2026-11-21: "지운 게 저렇게 보여야해?"); the Projects list beside
+  // the page has it under its Trash row (panels/ProjectsTrash.tsx, docs/decisions/20261121-projects-trash-out-of-list.md),
+  // and a link to it still opens its in-the-trash note
+  const shown = useMemo(() => items?.filter((p) => !p.inTrash) ?? null, [items])
   const renamed = (r: Project) => setItems((xs) => xs.map((x) => (x.id === r.id ? { ...x, ...r } : x)))
   const onDeleted = (p: Project, i: number) => (d: Exclude<Deleted, null>) => {
     // in the trash: the card stays, saying so
@@ -300,9 +301,9 @@ export function ProjectList() {
             projects the owner or an admin only manages (not a member: their name and members only) */}
         {(() => {
           const groups: { key: string; label: string; list: Project[]; quiet?: boolean }[] = [
-            { key: 'team', label: t('projectsPanel.team'), list: (shown ?? []).filter((p) => (p.member !== false || p.inTrash) && !onlyMine(p)) },
+            { key: 'team', label: t('projectsPanel.team'), list: (shown ?? []).filter((p) => p.member !== false && !onlyMine(p)) },
             { key: 'mine', label: t('projectsPanel.mine'), list: (shown ?? []).filter((p) => p.member !== false && onlyMine(p)) },
-            { key: 'other', label: t('projects.otherTeam'), list: (shown ?? []).filter((p) => p.member === false && !p.inTrash), quiet: true },
+            { key: 'other', label: t('projects.otherTeam'), list: (shown ?? []).filter((p) => p.member === false), quiet: true },
           ]
           return groups.filter((g) => g.list.length).map((g) => (
             <section key={g.key} aria-labelledby={`projects-${g.key}`} className="mt-6 first:mt-0" data-testid={`projects-section-${g.key}`}>

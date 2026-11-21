@@ -83,6 +83,7 @@ describe('the list (scripts/system/packages.json)', () => {
       ['no venv module', (l) => { delete l.groups['google-apps']!.packages!['python3-venv'] }, /needs the package python3-venv in the group/],
       ['a program nobody has', (l) => { l.groups['google-apps']!.python = ['nosuch'] }, /no python program nosuch/],
       ['a python floor', (l) => { l.python!['workspace-mcp']!.python = '3.11' }, /python must be ">=3.N"/],
+      ['systemSite not true', (l) => { (l.python!['python-pptx'] as { systemSite?: unknown }).systemSite = 'yes' }, /systemSite is true or left out/],
     ]
     for (const [name, change, want] of cases) {
       const l = clone()
@@ -95,8 +96,10 @@ describe('the list (scripts/system/packages.json)', () => {
     expect(groupsFor(LIST, ['minimal'])).toEqual(['core', 'documents', 'media'])
     expect(groupsFor(LIST, ['default'])).toEqual(['core', 'documents', 'media', 'fonts', 'devenv', 'browser', 'google-apps'])
     // Gmail, Calendar, Docs and Sheets (the Google Workspace library): every default install, never --minimal
-    expect(pythonsFor(LIST, ['default'])).toEqual(['workspace-mcp'])
+    // and the dev environment's Python (a venv with the system's site-packages: docs/decisions/20261121-box-python-libs.md)
+    expect(pythonsFor(LIST, ['default'])).toEqual(['python-pptx', 'workspace-mcp'])
     expect(pythonsFor(LIST, ['minimal'])).toEqual([])
+    expect(pythonsFor(LIST, ['devenv'])).toEqual(['python-pptx'])
     for (const g of ['image', 'srt']) expect(LIST.groups[g]!.install).toBe('on-request')
     expect(LIST.groups.browser!.artifacts).toEqual(['chrome-headless-shell'])
     expect(LIST.groups.srt!.artifacts).toEqual(['node', 'srt'])
@@ -537,10 +540,10 @@ pk_fetch https://example.com/x "" "" "${d}/x" || echo no-hash-refused`, { PK_BUN
   })
 
   test('python programs: the readers, the requirements pip gets, the pin', () => {
-    const r = lib('pk_load; pk_pythons default; pk_pythons minimal; pk_py workspace-mcp version; pk_py workspace-mcp python; pk_py workspace-mcp program; pk_py nosuch version || echo none', { PK_BUN: process.execPath })
+    const r = lib('pk_load; pk_pythons default; pk_pythons minimal; pk_py workspace-mcp version; pk_py workspace-mcp python; pk_py workspace-mcp program; pk_py workspace-mcp site || echo no-site; pk_py python-pptx site; pk_py nosuch version || echo none', { PK_BUN: process.execPath })
     expect(r.err).toBe('')
     const y = LIST.python!['workspace-mcp']!
-    expect(r.out.trim().split('\n')).toEqual(['workspace-mcp', y.version, y.python.slice(2), y.program, 'none'])
+    expect(r.out.trim().split('\n')).toEqual(['python-pptx workspace-mcp'.split(' '), y.version, y.python.slice(2), y.program, 'no-site', '1', 'none'].flat())
     const req = lib('pk_load; pk_python_requirements workspace-mcp', { PK_BUN: process.execPath })
     expect(req.err).toBe('')
     expect(req.out).toBe(pythonRequirements(LIST, 'workspace-mcp'))
@@ -599,8 +602,9 @@ pk_fetch https://example.com/x "" "" "${d}/x" || echo no-hash-refused`, { PK_BUN
     fs.writeFileSync(path.join(bin, 'python3'), [
       '#!/bin/bash', `R="${d}"`,
       'if [ "$1" = -c ]; then case "$2" in *version_info*) [ ! -e "$R/old" ] ;; *) echo 3.9.0 ;; esac; exit; fi',
-      '[ "$1 $2" = "-m venv" ] || exit 2',
-      'mkdir -p "$3/bin" && cp "$R/pip.sh" "$3/bin/python" && chmod 755 "$3/bin/python"', '',
+      '[ "$1 $2" = "-m venv" ] || exit 2', 'shift 2',
+      'if [ "$1" = --system-site-packages ]; then shift; mkdir -p "$1"; touch "$1/system-site"; fi',
+      'mkdir -p "$1/bin" && cp "$R/pip.sh" "$1/bin/python" && chmod 755 "$1/bin/python"', '',
     ].join('\n'), { mode: 0o755 })
     const dest = path.join(d, 'python', 'workspace-mcp')
     const calls = () => fs.existsSync(path.join(d, 'pip-calls')) ? fs.readFileSync(path.join(d, 'pip-calls'), 'utf8').trim().split('\n') : []
@@ -646,6 +650,24 @@ pk_fetch https://example.com/x "" "" "${d}/x" || echo no-hash-refused`, { PK_BUN
     expect(names()).toEqual(['.previous', 'current', pyKey(l2), pyKey(l3)].sort())
     fs.rmSync(p.d, { recursive: true, force: true })
    }, 120_000)
+
+  test('python programs: systemSite makes a venv with the system\'s site-packages, in a folder of its own', () => {
+    const p = fakePython()
+    const dest = path.join(p.d, 'python', 'python-pptx')
+    const r = lib(`pk_load; pk_python_install "${dest}" python-pptx`, p.env)
+    expect(r.err).toBe('')
+    expect(r.out.trim()).toBe(`${dest}/current/bin/python`)
+    const key = fs.readlinkSync(path.join(dest, 'current'))
+    expect(fs.existsSync(path.join(dest, key, 'system-site'))).toBe(true)
+    // pip got exactly the list's wheels (the marker line is a comment pip skips), and it is part of the folder's sha
+    const got = fs.readFileSync(path.join(dest, key, 'got-requirements'), 'utf8')
+    expect(got).toBe(pythonRequirements(LIST, 'python-pptx') + '# --system-site-packages\n')
+    expect(key).toBe(`${LIST.python!['python-pptx']!.version}-${new Bun.CryptoHasher('sha256').update(got).digest('hex').slice(0, 12)}`)
+    // workspace-mcp stays a venv of its own, without the system's packages
+    expect(lib(`pk_load; pk_python_install "${p.dest}" workspace-mcp >/dev/null`, p.env).code).toBe(0)
+    expect(fs.existsSync(path.join(p.dest, fs.readlinkSync(path.join(p.dest, 'current')), 'system-site'))).toBe(false)
+    fs.rmSync(p.d, { recursive: true, force: true })
+  })
 
   test('python programs: prepare builds the venv and leaves current; install in the same run only switches', () => {
     const p = fakePython()

@@ -1,13 +1,13 @@
 // The one suggestion under a result (docs/DECISIONS.md "X — Lean onboarding"; server/src/onboarding/suggestions.ts):
 // the same person running the same team skill for the 2nd time gets "매주 이 시간에 자동으로 받을까요?" when its work
-// comes back every week (metadata `recurring: weekly`, "S"), a long report-like answer gets [PPT로 만들기], never both,
-// and a suggestion the person closed never comes back for them. The promo video from the intro deck (`deck-video`,
+// comes back every week (metadata `recurring: weekly`, "S"); a long report-like answer gets nothing (it offered slides
+// until docs/decisions/20261121-remove-slides-offer.md); a suggestion the person closed never comes back for them. The promo video from the intro deck (`deck-video`,
 // docs/DECISIONS.md "D2") is in the contract but never offered while DECK_VIDEO_SUGGESTION is off.
 import { afterEach, expect, test } from 'bun:test'
 import fs from 'node:fs'
 import path from 'node:path'
 import { addMember, harness, withOwner, type Harness } from './a-lib'
-import { DECK_ARTIFACT_KEY, DECK_VIDEO_SUGGESTION, PPT_SUGGEST_CHARS, ResultSuggestion } from '@mycel/shared/api'
+import { DECK_ARTIFACT_KEY, DECK_VIDEO_SUGGESTION, ResultSuggestion } from '@mycel/shared/api'
 
 let h: Harness
 afterEach(async () => { await h?.close() })
@@ -85,26 +85,18 @@ test('the same skill a 2nd time: schedule it; not after a failed or a scheduled 
   expect((await ask(mia.client, answer(mia.id, { skill: ad })))?.kind).toBe('schedule')
 })
 
-test('a long report-like answer: PPT; code is not prose; a short one is none, whatever skill ran (no pack report skill any more); schedule first, never both', async () => {
+test('a long report-like answer: no slides offer any more, whatever skill ran; the 2nd run of weekly work still gets the schedule', async () => {
   const { owner, ownerId } = await setup()
-  const long = '## 이번 주\n' + '가'.repeat(PPT_SUGGEST_CHARS)
-  expect(await ask(owner, answer(ownerId, { content: long }))).toEqual({ kind: 'ppt', key: 'ppt' })
-  expect(await ask(owner, answer(ownerId, { content: 'short' }))).toBeNull()
-  expect(await ask(owner, answer(ownerId, { content: '```ts\n' + 'x'.repeat(PPT_SUGGEST_CHARS * 2) + '\n```\nDone.' }))).toBeNull()
-  // an old copy of the marketing pack's weekly report (docs/DECISIONS.md "DS3"): a short answer is no report now
-  const report = { path: REPORT, name: 'weekly-report' }
-  expect(await ask(owner, answer(ownerId, { skill: report, content: 'A short weekly report.' }))).toBeNull()
-  // the 2nd run of weekly work with a long answer: the schedule wins, one suggestion only
+  const long = '## 이번 주\n' + '가'.repeat(4000)
+  expect(await ask(owner, answer(ownerId, { content: long }))).toBeNull()
+  expect(await ask(owner, answer(ownerId, { skill: { path: REPORT, name: 'weekly-report' }, content: long }))).toBeNull()
   skillFile(WEEKLY, '  recurring: weekly\n')
   const weekly = { path: WEEKLY, name: 'weekly-notes' }
   answer(ownerId, { skill: weekly })
   expect((await ask(owner, answer(ownerId, { skill: weekly, content: long })))?.kind).toBe('schedule')
-  // an answer still running or a scheduled run's answer: nothing
-  expect(await ask(owner, answer(ownerId, { content: long, status: 'running' }))).toBeNull()
-  expect(await ask(owner, answer(ownerId, { content: long, scheduleId: 'sched-2' }))).toBeNull()
-  // closing PPT closes it for every later answer of this person
-  await owner.call('POST', '/api/onboarding/suggestion/dismiss', { key: 'ppt' })
-  expect(await ask(owner, answer(ownerId, { content: long }))).toBeNull()
+  // the contract has no such kind, and its key is not one to close
+  expect(ResultSuggestion.safeParse({ kind: 'ppt', key: 'ppt' }).success).toBe(false)
+  expect((await owner.try('POST', '/api/onboarding/suggestion/dismiss', { key: 'ppt' })).status).toBe(400)
 })
 
 test('own chats only; keys are checked', async () => {
@@ -113,8 +105,8 @@ test('own chats only; keys are checked', async () => {
   expect((await mia.client.try('GET', `/api/onboarding/suggestion?chatId=${a.chatId}&messageId=${a.messageId}`)).status).toBe(404)
   expect((await owner.try('GET', `/api/onboarding/suggestion?chatId=${a.chatId}&messageId=nope`)).status).toBe(200)
   expect((await owner.try('GET', '/api/onboarding/suggestion?chatId=nope&messageId=nope')).status).toBe(404)
-  for (const key of ['', 'schedule:', 'schedule:shared/x.md', 'other', 'ppt\nmore']) expect((await owner.try('POST', '/api/onboarding/suggestion/dismiss', { key })).status, key).toBe(400)
-  expect((await owner.try('POST', '/api/onboarding/suggestion/dismiss', { key: 'ppt', extra: 1 })).status).toBe(400)
+  for (const key of ['', 'schedule:', 'schedule:shared/x.md', 'other', 'ppt', 'team-skill\nmore']) expect((await owner.try('POST', '/api/onboarding/suggestion/dismiss', { key })).status, key).toBe(400)
+  expect((await owner.try('POST', '/api/onboarding/suggestion/dismiss', { key: 'team-skill', extra: 1 })).status).toBe(400)
 })
 
 test('only weekly work: never one-off work such as ad copy; the metadata decides, a file without the line is not weekly (an old pack copy included)', async () => {
@@ -151,8 +143,8 @@ test('the promo video from the intro deck: off, so never offered (not under a de
     return a
   }
   expect(await ask(owner, deck())).toBeNull()
-  // a long answer under a deck still gets what it got before (never the video line)
-  expect(await ask(owner, deck('가'.repeat(PPT_SUGGEST_CHARS)))).toEqual({ kind: 'ppt', key: 'ppt' })
+  // a long answer under a deck: nothing either (never the video line)
+  expect(await ask(owner, deck('가'.repeat(4000)))).toBeNull()
   // the contract knows the kind (for when it is on), and its key can be closed
   expect(ResultSuggestion.parse({ kind: 'deck-video', key: 'deck-video' })).toEqual({ kind: 'deck-video', key: 'deck-video' })
   expect((await owner.try('POST', '/api/onboarding/suggestion/dismiss', { key: 'deck-video' })).status).toBe(204)

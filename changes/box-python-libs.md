@@ -1,0 +1,1 @@
+- The AI's dev environment on a Linux team server now has python-pptx, python-docx, openpyxl, Pillow, matplotlib, pandas, reportlab and pypdf ready, and pptxgenjs and docx for Node, so it builds decks, documents and charts with the usual libraries instead of writing files by hand. For anything else the AI is told to make a venv in the folder.

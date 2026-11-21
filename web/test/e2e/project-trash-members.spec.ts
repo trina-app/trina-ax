@@ -1,7 +1,8 @@
 // A team project in the trash (docs/DECISIONS.md "A team project in the trash: its members keep its card", QA TC-1060,
 // TC-1061, TC-1062, TC-1063, TC-1064, TC-1066), at 1440 and 390 px, with axe on each screen:
-// - Bob, a member of Olga's "Spring Launch": its card stays, "in the trash"; its page says who moved it there and that an
-//   admin or Olga can restore it, with no buttons, contents or Trina history; a link to its shared chat says the same;
+// - Bob, a member of Olga's "Spring Launch": no card or row of it (docs/decisions/20261121-projects-trash-out-of-list.md),
+//   the list's Trash has it, without Restore; its page says who moved it there and that an admin or Olga can restore it,
+//   with no buttons, contents or Trina history; a link to its shared chat says the same;
 // - Bob's own "Bob Notes": the card's "Move to trash", then Restore on its page and in Files › Trash ("Bob Notes ·
 //   Projects", the project icon);
 // - Dana, an admin who is not a member: no card of it on Projects; Files › Trash has it with Restore and Delete for good,
@@ -58,13 +59,16 @@ for (const vp of VPS) {
     expect(chat.shared).toBeTruthy()
     expect((await olga.request.delete(`/api/projects/${spring.id}`, { headers: H })).ok()).toBeTruthy()
 
-    // ---- Bob, a member: the card stays, "in the trash"; the page says who moved it and who can restore it
+    // ---- Bob, a member: no card or row of it (docs/decisions/20261121-projects-trash-out-of-list.md); the page says who
+    // moved it and who can restore it
     const bob = await person(browser, vp.use, BOB)
     const notes = (await (await bob.request.post('/api/projects', { headers: H, data: { name: 'Bob Notes', scope: 'team', participants: [{ subjectType: 'user', subjectId: 'olga' }], instructions: '' } })).json()) as { id: string }
     await bob.goto('/projects')
     const row = (name: string) => bob.getByTestId(vp.phone ? 'projects-panel-row' : 'project-card').filter({ hasText: name })
-    await expect(row('Spring Launch')).toContainText(t['chat.project.inTrash'])
-    await expect(row('Spring Launch')).not.toContainText('secret dates')
+    await expect(row('Bob Notes')).toHaveCount(1)
+    await expect(row('Spring Launch')).toHaveCount(0)
+    // Spring Launch is not his to restore: no Trash row yet
+    await expect(bob.getByTestId('projects-trash-row')).toHaveCount(0)
     // the card's menu moves Bob's own project to the trash, and says so (QA TC-1064); a phone's list has no card menu
     if (!vp.phone) {
       await row('Bob Notes').hover()
@@ -77,9 +81,21 @@ for (const vp of VPS) {
       expect((await bob.request.delete(`/api/projects/${notes.id}`, { headers: H })).ok()).toBeTruthy()
       await bob.reload()
     }
-    await expect(row('Bob Notes')).toContainText(t['chat.project.inTrash'])
+    // Bob Notes leaves the list too; the list's Trash (his own one he may restore) has both, Restore on his own only
+    await expect(row('Bob Notes')).toHaveCount(0)
+    const trashRow = bob.getByTestId('projects-trash-row')
+    await expect(trashRow.getByTestId('projects-trash-count')).toHaveText('2')
     await audit(bob, 'member projects')
     await shoot(bob, 'member-projects', vp.name)
+    await trashRow.click()
+    const trashed = bob.getByRole('dialog').getByTestId('projects-trash-item')
+    await expect(trashed.filter({ hasText: 'Bob Notes' }).getByTestId('projects-trash-restore')).toBeVisible()
+    await expect(trashed.filter({ hasText: 'Spring Launch' }).getByTestId('projects-trash-moved')).toContainText('Moved to the trash by Olga on')
+    await expect(trashed.filter({ hasText: 'Spring Launch' }).getByTestId('projects-trash-restore')).toHaveCount(0)
+    await expect(bob.getByRole('dialog')).not.toContainText('secret dates')
+    await audit(bob, 'member projects trash')
+    await shoot(bob, 'member-projects-trash', vp.name)
+    await bob.keyboard.press('Escape')
 
     await bob.goto(`/projects/${spring.id}`)
     const note = bob.getByTestId('project-in-trash')
@@ -122,9 +138,10 @@ for (const vp of VPS) {
     await expect(bob.getByTestId('project-in-trash')).toHaveCount(0)
     await expect(bob.getByTestId('project-chats')).toBeVisible()
 
-    // ---- Dana, an admin who is not a member: no card; Files › Trash has it (QA TC-1061)
+    // ---- Dana, an admin who is not a member: no card; the list's Trash and Files › Trash have it (QA TC-1061)
     const dana = await person(browser, vp.use, DANA)
     await dana.goto('/projects')
+    await expect(dana.getByTestId('projects-trash-count')).toHaveText('1')
     await expect(dana.getByText('Spring Launch')).toHaveCount(0)
     await dana.goto('/files?view=trash')
     const springRow = dana.locator('[data-testid="trash-item"][data-kind="project"]').filter({ hasText: 'Spring Launch' })

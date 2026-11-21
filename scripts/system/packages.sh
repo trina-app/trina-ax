@@ -64,7 +64,7 @@ for (const [g, v] of Object.entries(j.groups)) {
 }
 for (const [n, a] of Object.entries(j.artifacts)) for (const [p, x] of Object.entries(a.platforms)) t("F", n, p, a.version, x.url, x.sha256, x.size, x.dir)
 for (const [n, a] of Object.entries(j.artifacts)) for (const v of a.revoked ?? []) t("X", n, v)
-for (const [n, y] of Object.entries(j.python ?? {})) t("Y", n, y.version, y.python.replace(/^>=/, ""), y.program)
+for (const [n, y] of Object.entries(j.python ?? {})) t("Y", n, y.version, y.python.replace(/^>=/, ""), y.program, y.systemSite ? 1 : "")
 for (const [n, y] of Object.entries(j.python ?? {})) for (const [r, h] of Object.entries(y.requirements)) t("W", n, r, h)
 console.log(o.join("\n"))'
 PK_JQ='def f: if . == null or . == "" then "-" else tostring end;
@@ -81,7 +81,7 @@ if .format != 1 then error("format \(.format)") else . end
     (.artifacts | to_entries[] | .key as $n | .value.version as $ver | .value.platforms | to_entries[]
       | ["F", $n, .key, $ver, .value.url, .value.sha256, .value.size, .value.dir]),
     (.artifacts | to_entries[] | .key as $n | (.value.revoked // [])[] | ["X", $n, .]),
-    ((.python // {}) | to_entries[] | ["Y", .key, .value.version, (.value.python | sub("^>="; "")), .value.program]),
+    ((.python // {}) | to_entries[] | ["Y", .key, .value.version, (.value.python | sub("^>="; "")), .value.program, (if .value.systemSite then 1 else null end)]),
     ((.python // {}) | to_entries[] | .key as $n | .value.requirements | to_entries[] | ["W", $n, .key, .value]) )
 | map(f) | join("\t")'
 
@@ -553,10 +553,10 @@ pk_pythons() {
   local g; g=$(pk_groups "$@") || return 1
   pk__lines | awk -F'\t' -v gs="$(pk__words "$g")" '$1 == "GY" && index(gs, " " $2 " ") && !seen[$3]++ { print $3 }'
 }
-# pk_py NAME FIELD: version | python (the floor, 3.N) | program
+# pk_py NAME FIELD: version | python (the floor, 3.N) | program | site (1: a venv with the system's site-packages)
 pk_py() {
   local col v
-  case "$2" in version) col=3 ;; python) col=4 ;; program) col=5 ;; *) pk_err "pk_py: field $2"; return 1 ;; esac
+  case "$2" in version) col=3 ;; python) col=4 ;; program) col=5 ;; site) col=6 ;; *) pk_err "pk_py: field $2"; return 1 ;; esac
   v=$(pk__lines | awk -F'\t' -v n="$1" -v c="$col" '$1 == "Y" && $2 == n { print $c; exit }')
   [ -n "$v" ] && [ "$v" != - ] || return 1
   echo "$v"
@@ -580,14 +580,17 @@ pk_python_check() {
   rm -rf "$w"
   return $rc
 }
-# the pin of NAME: PY_V PY_MIN PY_PROG PY_SHA PY_KEY, and the requirements in the file PY_REQ (the caller removes it)
+# the pin of NAME: PY_V PY_MIN PY_PROG PY_SITE PY_SHA PY_KEY, and the requirements in the file PY_REQ (the caller removes it)
 pk__python_pin() {
   PY_V=$(pk_py "$1" version) && PY_MIN=$(pk_py "$1" python) && PY_PROG=$(pk_py "$1" program) \
     || { pk_err "the list has no python program $1"; return 1; }
   [[ "$PY_V" =~ ^[0-9][0-9A-Za-z.!+]*$ ]] && [[ "$PY_MIN" =~ ^3\.[0-9]+$ ]] && [[ "$PY_PROG" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]] \
     || { pk_err "python $1: bad version, python or program in the list"; return 1; }
+  PY_SITE=$(pk_py "$1" site 2>/dev/null || true)
   PY_REQ=$(mktemp) || return 1
   pk_python_requirements "$1" > "$PY_REQ" || { rm -f "$PY_REQ"; pk_err "python $1: no requirements in the list"; return 1; }
+  # a venv with the system's site-packages is another venv than one without: its own folder and sha
+  [ "$PY_SITE" != 1 ] || echo "# --system-site-packages" >> "$PY_REQ"
   PY_SHA=$(pk_sha256 "$PY_REQ") PY_KEY="$PY_V-$(pk_sha256 "$PY_REQ" | cut -c1-12)"
 }
 # pk_python_install DEST NAME: the pinned venv in DEST/<version>-<sha12>, current -> it when its program starts. Prints
@@ -618,7 +621,7 @@ pk__python_build_locked() {
     # (a venv cannot be moved: it is built in its folder, finished when .sha256 is written)
     [ ! -L "$dir" ] || { pk_err "$dir is a link"; return 1; }
     rm -rf "$dir"
-    "$py" -m venv "$dir" >/dev/null 2>&1 || { rm -rf "$dir"; pk_err "python $name: python3 -m venv failed (apt-get install python3-venv)"; return 1; }
+    "$py" -m venv ${PY_SITE:+--system-site-packages} "$dir" >/dev/null 2>&1 || { rm -rf "$dir"; pk_err "python $name: python3 -m venv failed (apt-get install python3-venv)"; return 1; }
     for k in http_proxy https_proxy no_proxy HTTP_PROXY HTTPS_PROXY NO_PROXY; do [ -z "${!k:-}" ] || env+=("$k=${!k}"); done
     if ! pk__bounded "${PK_FETCH_BUDGET:-480}" env -i PATH=/usr/bin:/bin HOME="$dir" LANG=C.UTF-8 ${env[@]+"${env[@]}"} \
       "$dir/bin/python" -I -m pip install --isolated --no-cache-dir --disable-pip-version-check --no-input --quiet \
