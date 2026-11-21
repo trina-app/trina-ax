@@ -8,13 +8,22 @@ import net from 'node:net'
 import { isLocale, type GateConfig, type Locale } from './config.ts'
 import { readSecretFile } from './config.ts'
 import { ipTag, type GateLog } from './log.ts'
-import { PAGE_CSP, localeOf, renderPage, type PageKind } from './pages.ts'
+import { PAGE_CSP, localeOf, renderPage, type LimitReason, type PageKind } from './pages.ts'
 import type { Instance, Pool } from './pool.ts'
 import type { GateState } from './state.ts'
 import type { GateStats } from './stats.ts'
 import type { UpstreamStatus } from './upstream.ts'
 
 export const VISITOR_COOKIE = '__Host-tdg'
+/** the language cookie the web app writes (web/src/i18n/index.ts); the gate reads it and sets it on a start */
+export const LOCALE_COOKIE = 'mycel_locale'
+/** Sent only on a successful new start, so the next visitor in the same browser never sees the last one's drafts,
+ * attachments or send queue (every demo copy has the same user id, and the web app keys those by user id). Exactly
+ * "storage": origin-scoped, cookies untouched (the session cookies set in the same response survive). Never "*",
+ * "cookies" or "cache": in Chrome "cookies" clears the whole registrable domain (trina.app). */
+export const CLEAR_STORAGE = '"storage"'
+/** where a successful new start lands: the web app sees `fresh=1` and runs its sign-out cleanup of the tab's storage */
+export const FRESH_START_PATH = '/?fresh=1'
 const MAX_FORM = 16 * 1024
 /** a question the visitor asks in the demo (a chat message), counted when the instance answers 2xx */
 const QUESTION_RE = /^\/api\/chats\/[^/]+\/messages$/
@@ -168,8 +177,11 @@ export function createPublic(d: PublicDeps) {
     return { token, inst: null }
   }
   const visitorCookie = (v: string, maxAge: number) => `${VISITOR_COOKIE}=${v}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=${maxAge}`
+  /** not HttpOnly: the web app writes the same cookie with the same attributes. `locale` is a checked Locale (localeOf) */
+  const localeCookie = (locale: Locale) => `${LOCALE_COOKIE}=${locale}; Path=/; Max-Age=31536000; SameSite=Lax; Secure`
+  const cookieLocale = (req: http.IncomingMessage) => parseCookies(req.headers.cookie).get(LOCALE_COOKIE) ?? null
 
-  const page = (res: http.ServerResponse, status: number, kind: PageKind, locale: Locale, extra: Record<string, string | string[]> = {}) => {
+  const page = (res: http.ServerResponse, status: number, kind: PageKind, locale: Locale, extra: Record<string, string | string[]> = {}, limit?: LimitReason) => {
     res.writeHead(status, {
       'content-type': 'text/html; charset=utf-8', 'cache-control': withNoTransform('no-store'), 'content-security-policy': PAGE_CSP,
       'x-content-type-options': 'nosniff',
@@ -177,7 +189,7 @@ export function createPublic(d: PublicDeps) {
       // and start()/resume() refuse that (403). Other sites still get no referrer.
       'referrer-policy': 'same-origin', 'x-robots-tag': 'noindex', ...extra,
     })
-    res.end(renderPage(kind, locale, { siteKey: cfg.turnstile.siteKey, links: cfg.links }))
+    res.end(renderPage(kind, locale, { siteKey: cfg.turnstile.siteKey, links: cfg.links, limit }))
   }
   const json = (res: http.ServerResponse, status: number, body: unknown, extra: Record<string, string> = {}) => {
     res.writeHead(status, { 'content-type': 'application/json', 'cache-control': 'no-store', ...extra })
@@ -232,7 +244,7 @@ export function createPublic(d: PublicDeps) {
     if ((origin && origin !== cfg.publicOrigin) || req.headers['sec-fetch-site'] === 'cross-site') return json(res, 403, { error: { code: 'forbidden' } })
     const form = await readForm(req)
     if (!form) return json(res, 413, { error: { code: 'too_large' } })
-    const locale = localeOf(form.get('lang'), req.headers['accept-language'], cfg.pool.locales)
+    const locale = localeOf(form.get('lang'), req.headers['accept-language'], cfg.pool.locales, cookieLocale(req))
     const ip = ipOf(req)
     const tag = ipTag(ip)
     const { inst: current } = visitorOf(req)
@@ -240,14 +252,14 @@ export function createPublic(d: PublicDeps) {
     if (d.paused()) { stats.bump(locale, 'refusedPaused'); return page(res, 503, 'busy', locale) }
     if (pool.liveCount() >= cfg.pool.maxLive) { stats.bump(locale, 'refusedFull'); return page(res, 503, 'busy', locale) }
     const limit = state.startRefusal(ip, cfg.limits.startsPerHour, cfg.limits.startsPerDay)
-    if (limit) { stats.bump(locale, 'refusedLimit'); log.info('start refused: limit', { visitor: tag, limit }); return page(res, 429, 'limit', locale) }
+    if (limit) { stats.bump(locale, 'refusedLimit'); log.info('start refused: limit', { visitor: tag, limit }); return page(res, 429, 'limit', locale, {}, limit) }
     if (!(await turnstileOk(form.get('cf-turnstile-response') ?? '', ip))) { stats.bump(locale, 'turnstileFail'); log.info('start refused: turnstile', { visitor: tag }); return page(res, 400, 'check', locale) }
     stats.bump(locale, 'turnstilePass')
     const got = pool.take(locale, ip)
     if (typeof got === 'string') {
       log.info('start refused', { visitor: tag, reason: got })
       stats.bump(locale, got === 'ip_live' ? 'refusedLimit' : got === 'paused' ? 'refusedPaused' : 'refusedFull')
-      return got === 'ip_live' ? page(res, 429, 'limit', locale) : page(res, 503, 'busy', locale)
+      return got === 'ip_live' ? page(res, 429, 'limit', locale, {}, 'ip_live') : page(res, 503, 'busy', locale)
     }
     state.noteStart(ip)
     const cookies = await persona(got)
@@ -256,7 +268,12 @@ export function createPublic(d: PublicDeps) {
     visitors.set(token, got.id)
     stats.bump(locale, 'starts')
     log.info('visitor started', { visitor: tag, instance: got.id, locale })
-    res.writeHead(303, { location: '/', 'cache-control': 'no-store', 'set-cookie': [visitorCookie(token, Math.round(cfg.pool.ttlHours * 3600)), ...cookies] })
+    // `fresh=1`: the web app clears the tab's own per-user keys on this first load and drops the parameter. Clear-Site-Data
+    // is not enough on its own: WebKit (Safari) ignores it on this redirect (checked by hand 2026-11-22; Chrome honours it)
+    res.writeHead(303, {
+      location: FRESH_START_PATH, 'cache-control': 'no-store', 'clear-site-data': CLEAR_STORAGE,
+      'set-cookie': [visitorCookie(token, Math.round(cfg.pool.ttlHours * 3600)), localeCookie(locale), ...cookies],
+    })
     res.end()
   }
 
@@ -352,7 +369,7 @@ export function createPublic(d: PublicDeps) {
       const question = req.method === 'POST' && QUESTION_RE.test(url.pathname)
       return proxyHttp(req, res, inst, question ? (s) => { if (s >= 200 && s < 300) stats.bump(inst.locale, 'questions') } : undefined)
     }
-    const locale = localeOf(url.searchParams.get('lang'), req.headers['accept-language'], cfg.pool.locales)
+    const locale = localeOf(url.searchParams.get('lang'), req.headers['accept-language'], cfg.pool.locales, cookieLocale(req))
     if (url.pathname !== '/') {
       if (url.pathname.startsWith('/api/')) return json(res, 401, { error: { code: 'unauthorized' } })
       res.writeHead(303, { location: '/', 'cache-control': 'no-store' }); return res.end()

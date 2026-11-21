@@ -9,7 +9,10 @@
 import { create } from 'zustand'
 import { DEMO_LIMIT_REASON, type ApiErrorBody, type DemoInfo, type DemoPersonaKey } from '@mycel/shared/api'
 import { api, API, isApiError, onDemoLimit } from '../lib/api'
-import { demoMeter, demoReason, isFreeRoam } from '../lib/freeRoam'
+import { demoMeter, demoReason, isFreeRoam, takeFreshStart } from '../lib/freeRoam'
+import { clearLocalData } from '../lib/localData'
+import { forgetStepsSeen } from '../lib/welcome'
+import { forgetPersonInTab } from './session'
 
 /** set when the viewer switched person at least once in this tab: the new hire's screen then offers the same question */
 const SWITCHED_KEY = 'mycel.demo.switched'
@@ -47,7 +50,14 @@ export const useDemo = create<State>((set, get) => ({
   load() {
     if (get().loaded) return Promise.resolve(get().info)
     inflight ??= api.call(API.demoInfo).then(
-      (info) => { set({ loaded: true, info }); noteUse(info, false); return info },
+      (info) => {
+        // a new visitor (the gate's start opened `/?fresh=1`): nothing of the previous visitor of this browser, before
+        // any screen of the app mounts (App.tsx shows its splash until this is loaded)
+        if (isFreeRoam(info)) freshStart()
+        set({ loaded: true, info })
+        noteUse(info, false)
+        return info
+      },
       (e) => {
         // 404: no demo here; anything else: show the normal app rather than half a demo
         if (!isApiError(e, 'not_found')) console.warn('demo info', e)
@@ -76,6 +86,33 @@ export const useDemo = create<State>((set, get) => ({
   },
   closeLimit() { set({ limitOpen: false }) },
 }))
+
+/** The tab's own keys of this app (sessionStorage `mycel.*`: the box's chips, draft chats, the limit dialog seen, the
+ * rail's places); none of them belongs to a new visitor. */
+function forgetTabKeys() {
+  try {
+    for (let i = sessionStorage.length - 1; i >= 0; i--) {
+      const k = sessionStorage.key(i)
+      if (k?.startsWith('mycel.')) sessionStorage.removeItem(k)
+    }
+  } catch { /* storage blocked: nothing kept to forget */ }
+}
+
+/**
+ * Free roam, opened with `?fresh=1` (lib/freeRoam.ts takeFreshStart): the sign-out cleanup, as the account menu's
+ * sign-out runs it (lib/logout.ts): unsent drafts, queued sends and uploads (localStorage), the box's chips and draft
+ * chats (store/session.ts forgetPersonInTab), and the tab's own keys. Every demo copy has the same user id, so without
+ * this a draft or a queued message of the previous visitor in this browser would show up (or be sent) on this copy.
+ * Harmless when the parameter never comes. True when it ran.
+ */
+export function freshStart(o: { loc?: Pick<Location, 'href'>; history?: Pick<History, 'replaceState' | 'state'> } = {}): boolean {
+  if (!takeFreshStart(o.loc, o.history)) return false
+  clearLocalData()
+  forgetPersonInTab()
+  forgetStepsSeen()
+  forgetTabKeys()
+  return true
+}
 
 /** what GET /api/demo says about the limit: used up opens the dialog once; `live`: read again after an answer, so the
  * limit was reached on this page (a reload at the limit keeps only the line) */

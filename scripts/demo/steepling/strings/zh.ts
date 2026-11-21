@@ -5,7 +5,7 @@ import type { FreeRoamStrings } from './en'
 
 export const zh: FreeRoamStrings = {
   groups: {
-    marketing: '活动、社媒、banner 和商品页',
+    marketing: '活动、社媒、横幅和商品页',
     operations: { name: '运营', description: '订单、发货、客户咨询' },
     sales: { name: '销售', description: '咖啡馆和办公室供货' },
     shop: { name: '线上商城', description: '商城运营和订阅' },
@@ -42,7 +42,7 @@ export const zh: FreeRoamStrings = {
     },
     {
       path: 'groups/线上商城/商城日程.md',
-      text: '# 商城日程\n\n演示用的示例内容。\n\n- 上市日（周一）7:00：上线上新 banner（柚子姜，8 折）\n- 第二周的周日：上市优惠结束\n- 每天：下午 2 点前的订单当天发货\n',
+      text: '# 商城日程\n\n演示用的示例内容。\n\n- 上市日（周一）7:00：上线上新横幅（柚子姜，8 折）\n- 第二周的周日：上市优惠结束\n- 每天：下午 2 点前的订单当天发货\n',
     },
     {
       path: 'groups/市场部/竞品笔记.md',
@@ -55,7 +55,7 @@ export const zh: FreeRoamStrings = {
     sara: '我是 Sara Jensen，Steepling 的市场负责人。',
   },
 
-  memory: 'Mina 在柚子姜上市这周加入市场部，从 Leo 手里接过 banner 和社媒的工作。',
+  memory: 'Mina 在柚子姜上市这周加入市场部，从 Leo 手里接过横幅和社媒的工作。',
 
   profile: {
     oneLine: 'Steepling 做冷泡茶包：丢进冷水里，几个小时后就能喝。',
@@ -72,16 +72,16 @@ export const zh: FreeRoamStrings = {
     { from: 'aiko', minutesAgo: 2 * 1440 + 200, text: 'Harbour Beans 把下一单加了一倍 ☕' },
   ],
   marketingBefore: [
-    { from: 'sara', minutesAgo: 6 * 1440 + 30, text: '这周同步：柚子姜上市简报放到团队文件夹了。Leo，banner 第一稿麻烦周三前给我。' },
+    { from: 'sara', minutesAgo: 6 * 1440 + 30, text: '这周同步：柚子姜上市简报放到团队文件夹了。Leo，横幅第一稿麻烦周三前给我。' },
     { from: 'leo', minutesAgo: 6 * 1440 + 20, text: '好的 👍' },
   ],
-  shareNote: '周一上市用的 banner、方图和快拍都做好了 👇',
-  leoDm: 'Mina 欢迎！之前的 banner 文件都在上市项目里。有不懂的随时问我 🙂',
+  shareNote: '周一上市用的横幅、方图和快拍都做好了 👇',
+  leoDm: 'Mina 欢迎！之前的横幅文件都在上市项目里。有不懂的随时问我 🙂',
   bannerThread: '@Mina Lee 结霜窗边的感觉很好。方图版也发给 Omar，让他放到商城页面上。',
   launchDay: {
     name: '上市当天',
     messages: [
-      { from: 'omar', text: '周一早上 7 点，新 banner 我来上到商城。' },
+      { from: 'omar', text: '周一早上 7 点，新横幅我来上到商城。' },
       { from: 'sara', text: '好。Mina 的最终文件在项目里。' },
       { from: 'tom', text: '运营这边接单准备好了 📦' },
     ],
@@ -117,7 +117,7 @@ export const zh: FreeRoamStrings = {
       body: 'Mina 你好，\n\n欢迎入职！账号都准备好了。周一上市的资料都在上市项目里，十点一起喝杯咖啡吧。\n\nSara',
     },
     specs: {
-      subject: '柚子姜上市 banner 尺寸',
+      subject: '柚子姜上市横幅尺寸',
       body: 'Leo 你好，\n\n柚子姜上市这次用网页 1200×628、Instagram 1080×1080。周五前把最终版发给我，周一起就上线。\n\n谢谢！\nChris\nFieldnote Studio',
     },
     replyBody: 'Mina 你好，\n\n欢迎入职！{reply}\n\nChris\nFieldnote Studio',
@@ -128,7 +128,7 @@ export const zh: FreeRoamStrings = {
   },
 
   drive: [
-    { id: 'media-plan', name: 'Fieldnote 柚子姜上市媒体计划', mimeType: 'application/vnd.google-apps.spreadsheet', folder: 'Fieldnote', minutesAgo: 9 * 1440, text: '渠道,尺寸,开始,时长,预算\n网页 banner,1200×628,上市日（周一）,2 周,1200 美元\nInstagram,1080×1080,上市日（周一）,2 周,800 美元\nInstagram 快拍,1080×1920,上市日（周一）,1 周,400 美元\n' },
+    { id: 'media-plan', name: 'Fieldnote 柚子姜上市媒体计划', mimeType: 'application/vnd.google-apps.spreadsheet', folder: 'Fieldnote', minutesAgo: 9 * 1440, text: '渠道,尺寸,开始,时长,预算\n网页横幅,1200×628,上市日（周一）,2 周,1200 美元\nInstagram,1080×1080,上市日（周一）,2 周,800 美元\nInstagram 快拍,1080×1920,上市日（周一）,1 周,400 美元\n' },
     { id: 'photo-ideas', name: '上市照片创意', mimeType: 'application/vnd.google-apps.document', folder: '', minutesAgo: 4 * 1440, text: '上市照片创意\n\n- 结霜的窗边，晨光\n- 绿色包装袋放在冰杯旁边\n- 照片里不放文字\n' },
   ],
 
@@ -142,8 +142,8 @@ export const zh: FreeRoamStrings = {
   },
 
   suggestions: [
-    { label: '写下周的社媒文案', prompt: '用三版社媒文案技能，帮我给 下周.md（社媒日历项目）里的两个空档写初稿' },
-    { label: '汇总客户评价', prompt: '用客户评价汇总技能，整理一下 评价 十月–十一月.csv（客户评价项目）' },
+    { label: '写下周的社媒文案', prompt: '帮我给下周社媒日历里的两个空档写初稿' },
+    { label: '汇总客户评价', prompt: '整理一下最近两个月的客户评价' },
     { label: 'Chris 回复了吗？', prompt: 'Chris 回我的邮件了吗？帮我看看 Gmail' },
   ],
 }

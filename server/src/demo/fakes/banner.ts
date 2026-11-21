@@ -1,8 +1,8 @@
-// The demo's banner kit (the fake Higgsfield's make_banner, higgsfield.ts): a banner is two layers, a text-free product
+// The demo's banner kit (the server's own change_banner_text, banners.ts and tools/demo-banner.ts): a banner is two layers, a text-free product
 // photo made in advance and its words (headline, the line under it, the offer badge, the button), so a visitor who asks
 // to change the words gets a new banner back instead of "the text is baked into the picture" (owner, 11-21).
 //
-//   <content>/higgsfield/banner/kit.json      the language, the brand, the launch banner's words, the scenes
+//   <content>/higgsfield/banner/kit.json      the language, the brand, the launch banner's words and scene, the scenes
 //   <content>/higgsfield/banner/bg-*.jpg      each scene's photo per size (scripts/demo/steepling/banner/)
 //   <content>/higgsfield/banner/fonts/        the brand guide's type (SIL Open Font License 1.1)
 //
@@ -43,6 +43,9 @@ export const BannerKitFile = z.object({
   pouchName: z.string().max(60),
   pouchKind: z.string().max(60),
   words: Words,
+  /** the launch banner's scene: the first banner (before any was drawn) uses its photo, so changing only the words of
+   * the seeded banner keeps its photo (QA 11-22 A3). A kit from before 11-22 has none: the first scene then. */
+  defaultScene: z.string().regex(/^[\w-]{1,40}$/).optional(),
   scenes: z.array(Scene).min(1).max(20),
 })
 export type BannerKitFile = z.infer<typeof BannerKitFile>
@@ -107,10 +110,36 @@ const SANS: Record<BannerKitFile['lang'], string[]> = {
 const fontList = (l: string[]) => `(${l.map((f) => typstString(f)).join(', ')})`
 const latin = (lang: string) => lang === 'en' || lang === 'es' || lang === 'id'
 
+/** No one word alone on a last line (QA 11-22 A3: "했어요." alone under the headline): in a line of three words or
+ * more the last two stay together (a no-break space in Latin, one box in Korean). */
+export const NBSP = '\u00a0'
+/** a Korean word longer than this (Latin letters) may still break inside, so it never runs off the banner */
+const KEEP_WORD_MAX = 16
+/** the last two words are kept together only up to this width (Latin letters) */
+const GLUE_MAX = 24
+/** One line's pieces that never break inside (Korean and Latin): its words, the last two as one piece when the line
+ * has three words or more. Japanese and Chinese break anywhere: no pieces. */
+export function unbrokenPieces(line: string, lang: string): string[] {
+  if (lang === 'ja' || lang === 'zh') return []
+  const w = line.split(/\s+/).filter(Boolean)
+  if (w.length >= 3 && visualLength(w.slice(-2).join(' ')) <= GLUE_MAX) w.splice(-2, 2, w.slice(-2).join(lang === 'ko' ? ' ' : NBSP))
+  return w
+}
+const glueLatin = (line: string) => unbrokenPieces(line, 'en').join(' ')
+/** One Korean line as typst markup that breaks only between words, as the web's `word-break: keep-all` (typst alone
+ * breaks between any two Hangul letters: "따뜻\n함을"). Each piece is a box; a very long single word stays breakable. */
+function keepAll(line: string): string {
+  return unbrokenPieces(line, 'ko').map((x) => (x.includes(' ') || visualLength(x) <= KEEP_WORD_MAX ? `#box(${typstString(x)})` : `#{${typstString(x)}}`)).join(' ')
+}
+/** a text block's lines as typst markup (inside [ ]): Korean keeps words whole, Latin glues the last two words */
+function linesContent(text: string, lang: string, line: (l: string) => string = (l) => `#{${typstString(l)}}`): string {
+  return text.split('\n').map((l) => l.trim()).filter(Boolean).map((l) => (lang === 'ko' ? keepAll(l.replace(/\*/g, '')) : line(latin(lang) ? glueLatin(l) : l))).join('#linebreak()')
+}
+
 /** the headline as typst markup (inside [ ]): lines, *italic* words (Latin only; elsewhere they stay upright, as campaign.html) */
 function headlineContent(text: string, lang: string): string {
   const lines = text.split('\n').map((l) => l.trim()).filter(Boolean).slice(0, 4)
-  return lines.map((line) => {
+  return linesContent(lines.join('\n'), lang, (line) => {
     const parts: string[] = []
     const re = /\*([^*]+)\*/g
     let at = 0, m: RegExpExecArray | null
@@ -121,13 +150,46 @@ function headlineContent(text: string, lang: string): string {
     }
     if (at < line.length) parts.push(typstString(line.slice(at).replace(/\*/g, '')))
     return parts.map((p) => `#{${p}}`).join('')
-  }).join('#linebreak()')
+  })
 }
 
 /** a text's width in Latin letters: a CJK letter counts two */
 const visualLength = (t: string) => [...t.trim()].reduce((n, c) => n + (/[\u1100-\u11ff\u2e80-\u9fff\uac00-\ud7a3\uf900-\ufaff\uff00-\uffef]/.test(c) ? 2 : 1), 0)
 /** the type scale for a text longer than its layout was made for (`limit` Latin letters): area-preserving, at least `min` */
 const fit = (t: string, limit: number, min: number) => { const n = visualLength(t); return n <= limit ? 1 : Math.max(min, Math.sqrt(limit / n)) }
+
+/** the headline's room: three lines at the layout's size (the launch banner's headline takes two) */
+export const HEADLINE_LINES = 3
+/** About how many lines a headline takes at `size` pt in a `width` pt block, or Infinity when a piece that never
+ * breaks (unbrokenPieces) is wider than the block: a Latin letter is about 0.42 em of the brand serif, a CJK letter
+ * 1 em; Korean and Latin wrap between pieces, Japanese and Chinese anywhere. */
+export function headlineLines(text: string, lang: string, size: number, width: number): number {
+  const unit = (latin(lang) ? 0.42 : 0.5) * size
+  let n = 0
+  for (const line of text.replace(/\*/g, '').split('\n').map((l) => l.trim()).filter(Boolean).slice(0, 4)) {
+    const pieces = unbrokenPieces(line, lang)
+    if (!pieces.length) { n += Math.max(1, Math.ceil((visualLength(line) * unit) / width)); continue }
+    let rows = 1, at = 0
+    for (const w of pieces) {
+      const len = visualLength(w) * unit
+      if (len > width) {
+        // only a long single Korean word breaks inside (keepAll); any other piece would run off the banner
+        if (lang !== 'ko' || w.includes(' ') || visualLength(w) <= KEEP_WORD_MAX) return Infinity
+        rows += Math.ceil(len / width) - (at ? 0 : 1); at = len % width; continue
+      }
+      if (at && at + unit + len > width) { rows++; at = len } else at += (at ? unit : 0) + len
+    }
+    n += rows
+  }
+  return Math.max(1, n)
+}
+/** The headline's type scale: the layout's size (so changing the words keeps the size of the last banner's headline)
+ * unless the words would take more room than HEADLINE_LINES lines of it; then the largest scale that fits, at least 0.3.
+ * Before 11-22 any headline longer than the launch one got smaller (QA A3: a slightly longer line shrank the title). */
+export function headlineScale(text: string, lang: string, size: number, width: number): number {
+  for (let k = 20; k > 6; k--) if (headlineLines(text, lang, size * (k / 20), width) * (k / 20) <= HEADLINE_LINES) return k / 20
+  return 0.3
+}
 
 interface Layout {
   wash: { dir: 'ltr' | 'ttb'; stops: [number, number][] }
@@ -162,6 +224,8 @@ export function bannerTypst(kit: BannerKitFile, size: BannerSize, photo: { label
   const out: string[] = [
     `#set page(width: ${W}pt, height: ${H}pt, margin: 0pt)`,
     `#set text(font: ${sans}, lang: ${typstString(lang === 'zh' ? 'zh' : lang)}, fill: rgb("#1B1F1C"))`,
+    // no one word alone on a last line (with the glue of linesContent), lines broken over the whole paragraph
+    '#set text(costs: (runt: 500%, orphan: 300%, widow: 300%))', '#set par(linebreaks: "optimized")',
     '#let green = rgb("#1F4D3A")', '#let deep = rgb("#163a2b")', '#let cream = rgb("#F6F1E7")', '#let yuzu = rgb("#F2B630")', '#let ink = rgb("#1B1F1C")',
     `#place(top + left, image(${typstString(bg)}, width: ${W}pt, height: ${H}pt, fit: "cover"))`,
     `#place(top + left, rect(width: ${W}pt, height: ${H}pt, stroke: none, fill: gradient.linear(${[...L.wash.stops, [0, 100] as [number, number]].map(([a, p]) => `(rgb(246, 241, 231, ${Math.round(a * 255)}), ${p}%)`).join(', ')}, dir: ${L.wash.dir})))`,
@@ -188,8 +252,10 @@ export function bannerTypst(kit: BannerKitFile, size: BannerSize, photo: { label
     ? `#place(top + center, dy: ${L.logo.y}pt)[#${logo}]`
     : `#place(top + left, dx: ${L.logo.x}pt, dy: ${L.logo.y}pt)[#${logo}]`)
   // the copy: eyebrow, headline, the line under it
-  // long words get smaller type, so every word stays on the banner (the layout is made for the launch banner's)
-  const h1 = Math.round((isLatin ? L.h1 : L.h1Ko) * fit(words.headline, 40, 0.3))
+  // the headline keeps the layout's size while it fits in HEADLINE_LINES lines; longer words get smaller type, so every
+  // word stays on the banner
+  const h1Base = isLatin ? L.h1 : L.h1Ko
+  const h1 = Math.round(h1Base * headlineScale(words.headline, lang, h1Base, L.copy.w))
   const sub = Math.round(L.sub * fit(words.subline, 90, 0.4) * 10) / 10
   const h1Font = isLatin ? `font: ${serif}, weight: 600, tracking: -0.018em` : `font: ${serif}, weight: 600, tracking: ${lang === 'ko' ? '-0.035em' : '0.01em'}`
   // CSS line boxes: .98 (Latin, Fraunces) and 1.2 (CJK) of the size, the glyphs inside them
@@ -198,7 +264,7 @@ export function bannerTypst(kit: BannerKitFile, size: BannerSize, photo: { label
   const parts: string[] = []
   if (words.eyebrow.trim()) parts.push(`text(size: ${L.eyebrow}pt, weight: 700, tracking: ${isLatin ? '0.2em' : '0.12em'}, fill: green.transparentize(15%), upper(${typstString(words.eyebrow.trim())}))`, `v(${L.h1Gap}pt)`)
   if (words.headline.trim()) parts.push(`block(par(leading: ${lead}em, text(size: ${h1}pt, ${h1Font}, fill: deep, ${edges}, [${headlineContent(words.headline, lang)}])))`)
-  if (words.subline.trim()) parts.push(`v(${L.subGap + 4}pt)`, `block(width: ${L.subW}pt, par(leading: 0.55em, text(size: ${sub}pt, weight: 500, fill: ink.transparentize(18%), ${typstString(words.subline.trim())})))`)
+  if (words.subline.trim()) parts.push(`v(${L.subGap + 4}pt)`, `block(width: ${L.subW}pt, par(leading: 0.55em, text(size: ${sub}pt, weight: 500, fill: ink.transparentize(18%), [${linesContent(words.subline, lang)}])))`)
   // the badge and the button
   const r0 = L.row
   const pillLen = visualLength(words.badge + words.badgeNote + words.cta)

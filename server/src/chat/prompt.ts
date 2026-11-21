@@ -817,10 +817,19 @@ export const FILE_LIST_RULE = 'Each folder may have a _FILES.md that lists what 
  * none. "Answer in English unless the user writes in another language" let a Korean request from a person whose app is
  * in English get an English answer in a shared project chat full of English tool results (AI scenario SKL-03.project,
  * 2026-11-17). */
-export const answerLanguageLine = (locale: Locale, subagent = false) => subagent
+export const answerLanguageLine = (locale: Locale, subagent = false) => (subagent
   // a sub-agent's "message" is the assistant's task text, often English: it keeps the app language first
   ? `Answer in ${LANGUAGE[locale]} unless the user writes in another language or asks otherwise.`
-  : `Answer in the language the user writes their message in, even when it is not their app's language (${LANGUAGE[locale]}); in ${LANGUAGE[locale]} only when the message has no language of its own (just a file, a link or a name). If they ask for another language, use that.`
+  : `Answer in the language the user writes their message in, even when it is not their app's language (${LANGUAGE[locale]}); in ${LANGUAGE[locale]} only when the message has no language of its own (just a file, a link or a name). If they ask for another language, use that.`) +
+  (ADDRESS_RULE[locale] ? ` ${ADDRESS_RULE[locale]}` : '')
+
+/** How to address the person, by app language (owner decision 11-22, demo QA F17): Spanish and Indonesian answers use
+ * the formal register, as the app's own words do (usted, Anda). Every es/id team gets it, not only the demo. Said only
+ * for those two languages, so the other languages' instructions do not grow. */
+export const ADDRESS_RULE: Partial<Record<Locale, string>> = {
+  es: 'When you answer in Spanish, address the user formally as usted (never tú).',
+  id: 'When you answer in Indonesian, address the user formally as Anda (never kamu or aku).',
+}
 
 /** After the answer-language line: the short text between tool calls is in the answer too (docs/DECISIONS.md "One
  * language in the answer"; A9 S17: Korean answers began with "Verify:" or "Let me check…"). What the person asks for in
@@ -1129,9 +1138,18 @@ export const DEMO_FAKES_NOTE = 'Gmail, Google Drive and Higgsfield here are prac
   "Higgsfield's generate_image picks the closest of a prepared set of photos (no new photo is made): say in one short sentence that the photo comes from the demo's prepared photos, never that you shot or generated a new one. " +
   // QA TC-6791: a connection's picture shows in the chat only once it is a team file named as a Markdown image
   "Save every picture Higgsfield returns right away, without being asked: save_connector_file with its mcp-file handle into the folder of this chat's project (else the user's own folder), then show it in your answer as a Markdown image, ![<name>](/api/files/download?path=<team path, URL-encoded>), so it appears in the chat. " +
-  'Mail is never really sent: after sending, say it went to the practice mailbox.'
-/** with the demo's banner kit (demo/fakes/banner.ts): banner words are a layer the AI can change */
-export const DEMO_BANNER_NOTE = "Banner words are a separate text layer: to change a banner's headline, line, badge or button, call Higgsfield's make_banner with the words that change (the others and the photo stay as on the last banner it made), then save and show the new banner like any Higgsfield picture; its photo is one of the demo's prepared photos too. Just do it, never say the words cannot be changed."
+  'Mail is never really sent: after sending, say it went to the practice mailbox. ' +
+  // QA 11-22 B3: "open it" linked to drive.google.com/file/d/tracker/view, Google's "file does not exist" page
+  'Practice Drive files have no web address: name the file and its folder, never write a drive.google.com link. ' +
+  // QA 11-22 A4: asked for a scene the demo does not have, the AI asked twice and got the same photo twice
+  'When a new scene is not among the prepared photos, say so in one line and offer the prepared ones; do not try again.'
+/** with the demo's banner kit (demo/fakes/banners.ts): banner words are a layer the AI changes with the server's own
+ * change_banner_text (tools/demo-banner.ts), never through Higgsfield (owner, 11-22: the visitor got Higgsfield's send
+ * card for a headline). A short phrase right after a banner is its new headline: the owner's "작지 않아 큰 햇살이야!"
+ * got a clarifying question instead of the banner. */
+export const DEMO_BANNER_NOTE = "Banner words are a text layer drawn here on the server: to change a banner's headline, line, badge or button, call change_banner_text with only the words that change (the others and the photo stay as on the last banner; give scene only when the user asks for another of the prepared photos); nothing is sent to Higgsfield. Use Higgsfield's generate_image only for a new background, photo or scene. " +
+  "A short phrase sent right after a banner is its new headline: apply it at once without asking, then offer to undo. " +
+  "change_banner_text saves the banner; show it with the Markdown image its result gives (its photo is one of the demo's prepared photos). Never say the words cannot be changed."
 
 /** The dev environment is on but broken (QA TC-4924: box_shell was offered, failed every call, and the AI said "try
  * again in a few minutes"). Said once, in plain words; the reason itself is for an admin, on the dev environment page. */

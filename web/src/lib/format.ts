@@ -71,11 +71,17 @@ export function formatRelative(iso: string, locale: Locale, now = Date.now()): s
   const diff = (new Date(iso).getTime() - now) / 1000
   const rtf = new Intl.RelativeTimeFormat(TAG[locale], { numeric: 'auto' })
   const abs = Math.abs(diff)
-  if (abs < 45) return rtf.format(0, 'second')
-  if (abs < 3600) return rtf.format(Math.round(diff / 60), 'minute')
-  if (abs < 86400) return rtf.format(Math.round(diff / 3600), 'hour')
-  if (abs < 86400 * 7) return rtf.format(Math.round(diff / 86400), 'day')
+  const say = (n: number, unit: Intl.RelativeTimeFormatUnit) => cjkTight(rtf.format(n, unit), locale)
+  if (abs < 45) return say(0, 'second')
+  if (abs < 3600) return say(Math.round(diff / 60), 'minute')
+  if (abs < 86400) return say(Math.round(diff / 3600), 'hour')
+  if (abs < 86400 * 7) return say(Math.round(diff / 86400), 'day')
   return formatDate(iso, locale)
+}
+
+/** ja and zh write "3時間前", not ICU's "3 時間前" (QA 2026-11-22 C10): no space between a number and the word after it. */
+export function cjkTight(s: string, locale: Locale): string {
+  return locale === 'ja' || locale === 'zh' ? s.replace(/(\d)[\s ]+(?=\D)/gu, '$1') : s
 }
 
 /** History groups by date: today / yesterday / last 7 days / last 30 days / older. */
