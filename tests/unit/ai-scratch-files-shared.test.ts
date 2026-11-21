@@ -69,4 +69,14 @@ describe('QA TC-7332: delete_files in a shared project chat', () => {
     expect(fs.existsSync(abs(his))).toBe(true)
     expect(cards('alice')).toBe(before)
   })
+
+  test('a file alice\'s AI made that bob then changed in this chat is not hers alone any more: refused, nothing moved', async () => {
+    const f = `${folder}/draft.md`
+    await ask('alice', fake({ tool: 'write', args: { file_path: f, content: '# draft\n' }, sayResult: true }))
+    await ask('bob', fake({ tool: 'read', args: { file_path: f } }, { tool: 'write', args: { file_path: f, content: '# draft v2\n' }, sayResult: true }))
+    expect(fs.readFileSync(abs(f), 'utf8')).toContain('draft v2')
+    const no = await ask('alice', `delete draft.md\n${fake({ tool: 'delete_files', args: { paths: [f] }, sayResult: true })}`)
+    expect(no.content).toContain(DELETE_REFUSAL.shared)
+    expect(fs.existsSync(abs(f))).toBe(true)
+  })
 })

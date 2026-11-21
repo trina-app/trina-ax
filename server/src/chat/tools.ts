@@ -237,11 +237,12 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
   }
   for (const t of bTools(exec)) add(t)
   for (const t of skillTools(exec, () => tools.has(BOX_SHELL_TOOL))) add(t)
-  // the team trash behind the server's card (chat/delete-files.ts): not offered in shared, confidential or draft
-  // chats (add() above) nor in an approved template run (its scope is fixed), refused up front everywhere else but the
-  // person's own chat with the person there
+  // the team trash behind the server's card (chat/delete-files.ts): not offered in confidential or draft chats (add()
+  // above) nor in an approved template run (its scope is fixed); in a shared chat (SHARED_TOOLS) only the AI's own files
+  // of this chat go (no card), anything else is refused up front, as everywhere but the person's own chat with the
+  // person there (docs/decisions/20261121-ai-scratch-files.md rule 4, QA TC-7332)
   if (!exec.templateRun) add(deleteFilesTool(exec))
-  // a team project's members behind the server's card (chat/project-members.ts): like delete_files, not offered in
+  // a team project's members behind the server's card (chat/project-members.ts): not offered in
   // shared, confidential or draft chats (add() above) nor in an approved template run, refused up front
   // everywhere else but the person's own chat with the person there
   if (!exec.templateRun) add(projectMembersTool(exec))

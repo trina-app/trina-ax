@@ -102,10 +102,10 @@ export function deleteFilesRefusal(exec: Pick<DeleteExec, 'spec' | 'shared' | 'r
   if (exec.restricted) return 'restricted'
   if (exec.templateRun) return 'template'
   // a scheduled run has nobody to answer the card: only the person's own "Always allow" for deletes lets it go on (owner 2026-11-14)
-  if (exec.spec.clientKind === 'schedule' && alwaysHere(exec.alwaysPlace?.(), 'delete_files') !== 'on') return 'scheduled'
-  // confidential before shared: a shared chat that is confidential too says 'confidential', which the AI's own files
-  // never go past (OWN_OVERRIDES)
+  // confidential before scheduled and shared: a confidential chat always says 'confidential', which the AI's own files
+  // never go past (OWN_OVERRIDES); review of the TC-7332 fix
   if (confidentialChat(exec.rt.db, exec.spec.chatId)) return 'confidential'
+  if (exec.spec.clientKind === 'schedule' && alwaysHere(exec.alwaysPlace?.(), 'delete_files') !== 'on') return 'scheduled'
   if (exec.shared) return 'shared'
   // kept (the one part that protects other people's data): in a chat other people write in, anyone there could ask for
   // a delete of files only the asker may delete, and the asker's yes would answer someone else's request
