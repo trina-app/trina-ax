@@ -40,6 +40,7 @@ import { whoSeesProject } from '../projectWho'
 import { ListIcon, ListRow } from '../list/List'
 import { PanelFrame, PanelSection, panelRow } from './PanelFrame'
 import { useGroupsRead } from './TrinaList'
+import { hasProjectRoom, ProjectRowRoom, useProjectRoom } from '../rooms/ProjectRoomButton'
 
 export function ProjectsPanel() {
   const t = useT()
@@ -186,6 +187,8 @@ function ProjectRow({ project: p, selected, meta, onMembers, onGone, fold, menti
     void fn()
   }
   const items = useProjectMenuItems(p, { testId: 'projects-panel', select, onMembers, onDeleted: (d) => d === 'gone' && onGone() })
+  const room = hasProjectRoom(p)
+  const unread = useProjectRoom(p).unread > 0
   return (
     <>
     <ListRow
@@ -200,10 +203,14 @@ function ProjectRow({ project: p, selected, meta, onMembers, onGone, fold, menti
       nameTestId="projects-panel-name"
       metaTestId="projects-panel-meta"
       // the ▸ sits in the section's indent, left of the icon (a phone: the row makes room for it)
-      rowClass={fold ? 'max-md:!pl-12' : undefined}
+      rowClass={clsx(fold && 'max-md:!pl-12', room && '!pr-16 max-md:!pr-11', room && unread && 'max-md:!pr-20')}
       end={mention ? <MentionPill mention={mention} testId="projects-panel-mentions" /> : undefined}
       menu={
-        fold && (
+        <>
+        {/* the project's chat room: a small chat icon before the "···", a dot while something is unread
+            (rooms/ProjectRoomButton.tsx; docs/decisions/20261120-project-is-room.md D5) */}
+        {room && <span className="absolute inset-y-0 right-8 flex items-center max-md:right-11"><ProjectRowRoom project={p} /></span>}
+        {fold && (
           <Tooltip label={t(fold.open ? 'projectsPanel.fold.close' : 'projectsPanel.fold.open', { name: p.name })}>
           <button
             type="button"
@@ -216,7 +223,8 @@ function ProjectRow({ project: p, selected, meta, onMembers, onGone, fold, menti
             <ChevronRight size={14} className={clsx('transition-transform motion-reduce:transition-none', fold.open && 'rotate-90')} aria-hidden />
           </button>
           </Tooltip>
-        )
+        )}
+        </>
       }
     />
     {chats}

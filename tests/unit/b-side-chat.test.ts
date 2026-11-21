@@ -204,10 +204,11 @@ test('has read rooms (chat/read-rooms.ts): a room read, a side chat, or a quote 
   expect(read(plain, undefined)).toBe(false)
 })
 
-// A private channel linked to a team project (docs/decisions/20261119-channel-project-link.md D7): the side chat saves
-// new documents in the project's folder for an asker who can open and write it; the guest check runs first; no write,
-// a project in the trash or outside projects/ fall back to the usual order; the prompt line quotes and cuts the name.
-test('a linked channel: the save place is the project folder, guest first, fallbacks, the prompt line', async () => {
+// A project's own chat room (docs/decisions/20261119-channel-project-link.md D7, kept by 20261120-project-is-room.md D4):
+// the side chat saves new documents in the project's folder for an asker who can open and write it; the guest check runs
+// first; a plain channel, no write, a project in the trash or outside projects/ fall back to the usual order; the prompt
+// line quotes and cuts the name.
+test('a project room: the save place is the project folder, guest first, fallbacks, the prompt line', async () => {
   h = await harness('b-side-chat-linked')
   const owner = await withOwner(h)
   const mia = await addMember(h, owner, { username: 'mia' })
@@ -215,24 +216,26 @@ test('a linked channel: the save place is the project folder, guest first, fallb
   const otto = await addMember(h, owner, { username: 'otto' })
   const long = 'Launch "site" <b>' + 'x'.repeat(83)
   const project = await mia.client.call('POST', '/api/projects', { name: long, participants: [{ subjectType: 'user', subjectId: nora.id }] })
-  const room = await mia.client.call('POST', '/api/rooms', { kind: 'group', userIds: [nora.id, otto.id], name: 'Launch talk' })
-  await mia.client.call('PUT', `/api/rooms/${room.id}/project`, { projectId: project.id })
+  const room = await mia.client.call('POST', `/api/projects/${project.id}/room`)
+  const plain = await mia.client.call('POST', '/api/rooms', { kind: 'group', userIds: [nora.id, otto.id], name: 'Launch talk' })
   const folder = (h.ctx.db.query('SELECT folder_path FROM projects WHERE id = ?').get(project.id) as { folder_path: string }).folder_path
-  const side = async (c: typeof mia, id: string) => sideRoomOf(h.ctx.db, (await c.client.call('POST', '/api/chats', { sideRoomId: room.id })).id, id, h.ctx.files)!
+  const side = async (c: typeof mia, id: string, roomId: string = room.id) => sideRoomOf(h.ctx.db, (await c.client.call('POST', '/api/chats', { sideRoomId: roomId })).id, id, h.ctx.files)!
   const n = await side(nora, nora.id)
   expect(n.saveIn).toBe(folder)
   expect(n.project).toEqual({ name: long, folderPath: folder })
   const text = sideRoomSection(n)
   expect(text).toContain('This channel is linked to the project "')
   expect(text).not.toContain('<b>')
-  expect(text).not.toContain('"site"')
+  // (the room is named after the project now: the project's line is the one that quotes and cuts it)
+  const projectLine = text.split('\n').find((l) => l.includes('linked to the project'))!
+  expect(projectLine).not.toContain('"site"')
   expect(text).toContain(`save new documents and media from this channel in the project's folder ${folder}/`)
   expect(text).toContain('Who can open the new file now')
   // the name is cut to 100 characters inside the quotes
   const quoted = /linked to the project "([^"]*)"/.exec(text)![1]!
   expect(quoted.length).toBeLessThanOrEqual(100)
-  // otto (not in the project): the usual order, no project line
-  const o = await side(otto, otto.id)
+  // a plain channel (otto is not in the project): the usual order, no project line
+  const o = await side(otto, otto.id, plain.id)
   expect(o.project).toBeUndefined()
   expect(o.saveIn).not.toBe(folder)
   expect(sideRoomSection(o)).not.toContain('linked to the project')
@@ -241,9 +244,9 @@ test('a linked channel: the save place is the project folder, guest first, fallb
   h.ctx.db.query("UPDATE folder_rules SET access = 'read' WHERE folder_id = ? AND subject_type = 'user' AND subject_id = ?").run(f, nora.id)
   expect((await side(nora, nora.id)).project).toBeUndefined()
   h.ctx.db.query("UPDATE folder_rules SET access = 'write' WHERE folder_id = ? AND subject_type = 'user' AND subject_id = ?").run(f, nora.id)
-  // the project in the trash: falls back
+  // the project in the trash: its room is held, so no side chat opens on it at all
   h.ctx.db.query("UPDATE projects SET trashed_with = 'x' WHERE id = ?").run(project.id)
-  expect((await side(nora, nora.id)).project).toBeUndefined()
+  expect((await nora.client.try('POST', '/api/chats', { sideRoomId: room.id })).status).toBe(404)
   h.ctx.db.query('UPDATE projects SET trashed_with = NULL WHERE id = ?').run(project.id)
   // a folder outside projects/<name> (an admin repointed it): falls back
   h.ctx.db.query("UPDATE projects SET folder_path = 'shared' WHERE id = ?").run(project.id)
@@ -252,7 +255,7 @@ test('a linked channel: the save place is the project folder, guest first, fallb
   expect((await side(nora, nora.id)).project?.folderPath).toBe(folder)
 })
 
-test('a guest asking in a linked channel: their own folder, before anything else', async () => {
+test('a guest asking in a project room: their own folder, before anything else', async () => {
   h = await harness('b-side-chat-linked-guest')
   const owner = await withOwner(h)
   const mia = await addMember(h, owner, { username: 'mia' })
@@ -260,8 +263,8 @@ test('a guest asking in a linked channel: their own folder, before anything else
   const project = await mia.client.call('POST', '/api/projects', { name: 'Launch', participants: [{ subjectType: 'user', subjectId: nora.id }] })
   const { addGuest } = await import('./guest-lib')
   const g = await addGuest(h, mia.client, { username: 'gus', place: { kind: 'project', id: project.id } })
-  const room = await mia.client.call('POST', '/api/rooms', { kind: 'group', userIds: [nora.id, g.id], name: 'With the client' })
-  await mia.client.call('PUT', `/api/rooms/${room.id}/project`, { projectId: project.id })
+  const room = await mia.client.call('POST', `/api/projects/${project.id}/room`)
+  expect(room.memberCount).toBe(3)
   const { savePlaceFor } = await import('../../server/src/chat/side-room')
   expect(savePlaceFor(h.ctx.db, h.ctx.files, { id: room.id, kind: 'group', group_id: null }, g.id)).toEqual({ path: `users/${g.id}` })
   expect(savePlaceFor(h.ctx.db, h.ctx.files, { id: room.id, kind: 'group', group_id: null }, nora.id).project).toBe('Launch')

@@ -206,8 +206,8 @@ export function steepling(locale: SteeplingLocale): Steepling {
       { username: 'tom', opens: [s.paths.companyIntro, groupFile('operations'), fileAt('p3.reviews')], closed: [banner, brief, leadershipFile] },
       { username: 'daniel', opens: [leadershipFile, banner, groupFile('sales')], closed: [] },
     ],
-    // the launch day group chat is the launch project's channel; each new project has its own (only a private channel
-    // links to a project)
+    // each project gets its own chat room (`channel`: the seed opens it, docs/decisions/20261120-project-is-room.md); the
+    // group chats named there (the launch day one, each new project's) stay group chats
     projects: [
       { name: P, instructions: s.project.description, by: 'sara', members: [{ group: MKT }], channel: 'launch-day' },
       ...(Object.keys(PROJECTS) as ProjectId[]).map((id) => ({

@@ -294,23 +294,26 @@ Mulai chat dari halaman proyek, atau pindahkan chat ke dalamnya dengan **Pindahk
   bisa membukanya, dan sebuah baris di bawahnya menyebutkan hal itu. Anda memerlukan akses tulis ke folder proyek (tanpanya, **+**
   hanya menawarkan file tim); **✕** sebelum mengirim memindahkan file itu ke sampah.
 
-### Saluran untuk proyek
+### Ruang obrolan proyek
 
-Proyek tim bisa punya satu saluran privat: orang-orang proyek mengobrol di sana, dan file tersimpan di satu tempat, yaitu folder proyek.
+Setiap proyek tim punya ruang obrolannya sendiri. Orang-orang proyek adalah orang-orang ruang itu, dan filenya adalah
+file proyek: satu daftar orang, satu tempat untuk file.
 
-- **Buat saluran** di kotak **Saluran** pada halaman proyek membuat saluran privat dengan orang-orang proyek sudah
-  dicentang (Anda bisa menghapus centang siapa pun). **Tautkan saluran** menautkan salah satu saluran privat Anda. Anda
-  juga bisa menautkannya dari saluran: buka namanya di atas, lalu pilih **Tautkan ke proyek**.
-- Di saluran yang tertaut, **File** di atas membuka folder proyek. Dokumen atau gambar yang dikirim di sana punya
-  **Simpan ke proyek**: satu klik menyimpan salinannya di folder proyek, dan **Urungkan** di pesan yang muncul
-  membatalkannya. Jenis file lain, dan file yang tampak pribadi, menanyakan dulu tempat menyimpannya.
-- Trina di obrolan samping saluran menyimpan dokumen baru yang Anda minta di folder proyek. Jika orang di luar saluran
-  bisa membuka folder itu, Trina bertanya dulu.
-- Hanya orang yang bisa membuka proyek yang melihat namanya, tombol **File**, dan **Simpan ke proyek**. Orang lain di
-  saluran hanya melihat bahwa saluran ditautkan ke sebuah proyek. Anggota proyek melihat nama saluran di halaman proyek.
-- Anggota saluran dan anggota proyek tetap terpisah: menambahkan orang ke salah satunya tidak menambahkannya ke yang lain.
-- **Lepaskan tautan** ada di info saluran dan di halaman proyek. File yang disimpan ke proyek tetap di sana; file yang
-  dikirim di saluran tetap di saluran.
+- **Ruang obrolan** di halaman proyek (di ponsel, baris di bawah nama proyek) membuka ruangnya. Pertama kali, ruang itu
+  dibuat dan diberi nama proyek. Ikon obrolan kecil di baris proyek pada **Proyek** (dengan titik saat ada yang belum
+  dibaca) dan **Ruang obrolan** di atas chat AI proyek juga membukanya.
+- Di atas ruang, tombol folder dengan nama proyek membuka halaman proyek: file dan chat AI-nya. Ruang muncul di
+  **Saluran**, dengan ikon folder, setelah seseorang menulis di sana.
+- **Siapa yang ada di dalamnya mengikuti proyek.** Menambahkan orang ke proyek menambahkannya ke ruang, dan ia melihat
+  seluruh riwayatnya; mengeluarkan orang dari proyek mengeluarkannya dari ruang. Dialog anggota mengatakannya sebelum
+  Anda menambahkan siapa pun. Untuk mengubahnya, buka nama ruang di atas, lalu **Kelola orang** (bagi yang boleh
+  mengubah orang-orang proyek). **Bisukan** membuat ruang tenang; **Keluar dari proyek** keluar dari proyek dan ruangnya.
+- **File yang Anda kirim di sana masuk ke folder Lampiran obrolan proyek**, tempat orang-orang proyek menemukannya di
+  halaman File. Orang yang hanya bisa melihat proyek bisa menulis pesan, tetapi tidak bisa menambahkan file.
+- **Menghapus pesan hanya menghapus pesan.** Filenya tetap di Lampiran obrolan proyek; hapus di File jika ingin
+  menghilangkannya.
+- Trina di obrolan samping ruang menyimpan dokumen baru di folder proyek, dan chat AI proyek bisa membaca ruang itu.
+  Keduanya dilihat orang yang sama, jadi tidak ada pertanyaan soal siapa yang bisa melihat.
 
 ## Menemukan apa saja
 

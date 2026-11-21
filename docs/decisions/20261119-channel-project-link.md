@@ -1,7 +1,7 @@
 # A private channel linked to a team project: one folder, the project's
 
 - Date: 2026-11-19
-- Status: accepted
+- Status: superseded by [A team project is its own chat room](20261120-project-is-room.md) (its `linkedProjectPlain` no-card rule is kept there)
 - Supersedes: for one case only, the "a project or managed folder … still asks" line of
   [20261116-room-link-save-one-prompt](20261116-room-link-save-one-prompt.md): in a linked channel's own side chat, a
   new document or media file in the linked project's folder that the person's own message asked to save needs no room

@@ -116,8 +116,6 @@ export function expectation(route: string, scope: Scope, who: Who): Exp {
   if (route === 'roomFileHwpPreview' && scope === 'room-dm' && scopeAllows(scope, who)) return 'pass-auth'
   // "Resume now" on an app that is not paused: the owner and an admin pass the checks and get 409 not_paused
   if (route === 'resumeRoomApp' && scopeAllows(scope, who)) return 'pass-auth'
-  // a channel for Team plan: its members pass the checks and get 201, or 409 once it has a channel (project_has_channel)
-  if ((route === 'createProjectChannel' || route === 'linkRoomProject' || route === 'undoRoomSave') && scopeAllows(scope, who)) return 'pass-auth'
   if (scope === 'users-alice') return usersAliceAllows(who) ? 'allow' : 'deny'
   return scopeAllows(scope, who) ? 'allow' : 'deny'
 }

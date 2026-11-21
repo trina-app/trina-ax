@@ -14,12 +14,12 @@
 // loaded yet too (POST /api/notifications/read, the same tab rule: activityTabHas).
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import clsx from 'clsx'
-import { AtSign, Bell, BellRing, Check, CheckCheck, Hash, Inbox, Lock, MessageCircle, MessagesSquare, Search, Settings, X } from 'lucide-react'
+import { AtSign, Bell, BellRing, Check, CheckCheck, Folder, Hash, Inbox, Lock, MessageCircle, MessagesSquare, Search, Settings, X } from 'lucide-react'
 import { Link, Navigate, useSearchParams } from 'react-router-dom'
 import { activityTabHas, type ActivityTab, type InboxNotification } from '@mycel/shared/api'
 import { api, API, errorText } from '../lib/api'
 import { intlTag, localDay } from '../lib/format'
-import { badgeText, isPrivateChannel } from '../lib/rooms'
+import { badgeText, isPrivateChannel, isProjectRoom } from '../lib/rooms'
 import { aiName } from '../lib/tabs'
 import { activityInChats, CHATS_ACTIVITY } from '../lib/screens'
 import { keepPendingReads, markAllNoticesRead, markNoticeRead, noticeReadAsked, noticeReadKey, useActivityUnread } from '../store/inbox'
@@ -470,7 +470,7 @@ function RoomRow({ item, onOpen }: { item: RoomNotice; onOpen: () => void }) {
   const unread = !item.readAt
   const n = item.room.count ?? 1
   // a private channel (a named group room) has its lock, as in the Chats list
-  const PlaceIcon = item.room.thread ? MessagesSquare : listed && isPrivateChannel(listed) ? Lock : item.room.kind === 'dm' || item.room.kind === 'group' ? MessageCircle : Hash
+  const PlaceIcon = item.room.thread ? MessagesSquare : listed && isProjectRoom(listed) ? Folder : listed && isPrivateChannel(listed) ? Lock : item.room.kind === 'dm' || item.room.kind === 'group' ? MessageCircle : Hash
   return (
     <li data-testid="notification-item">
       <Link to={roomNoticeLink(item.room)} onClick={onOpen} className={rowCls} data-testid="notification-room-row" data-unread={unread ? '' : undefined}>

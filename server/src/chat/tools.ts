@@ -59,7 +59,7 @@ import { DRAFT_FILE_REFUSAL, draftToolRefusal, draftUrlRefusal } from '../onboar
 import { namedPaths, SEARCH_TOOLS, SHARED_TOOLS, WRITE_TARGET_ARGS } from '../rooms/ai-tools'
 import { steerableWriteRefusal } from './shared-run'
 import { SKILL_DRAFT_FILE_REFUSAL } from '../onboarding/skill-draft'
-import { roomReadTools } from './room-tools'
+import { projectRoomOfChat, projectRoomTools, roomReadTools } from './room-tools'
 import { hintsHere, roomHint } from './room-hint'
 import { fileNote, fileNoteOnce } from './file-notes'
 import { skillFilesTool } from './skill-files'
@@ -187,7 +187,7 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
   const cards = new Map<string, NonNullable<TurnTool['card']>>()
   const templateWrites = new Set<string>()
   /** a room session's connection tools: the asker's own Google apps (integrations/connections/tools.ts) */
-  const add = (t: Tool, o: { connection?: boolean } = {}): boolean => {
+  const add = (t: Tool, o: { connection?: boolean; projectRoom?: boolean } = {}): boolean => {
     // a company profile draft (onboarding/draft.ts): web_fetch is its only tool besides the refused file tools, and a
     // draft from pasted text has none
     if (exec.profileDraft && (t.name !== 'web_fetch' || exec.profileDraft.scope.source !== 'website')) return false
@@ -214,7 +214,8 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
     // a shared project chat (chat/shared.ts): its allowlist (rooms/ai-tools.ts), and the connection tools built for it
     // (each call behind the asker's card where some people here could not see the answer:
     // docs/decisions/20261118-shared-chat-connections.md)
-    if (exec.shared && !SHARED_TOOLS.has(t.name) && !o.connection) return false
+    // (and a project's shared chat reads its own chat room: projectRoomTools, scoped to that one room)
+    if (exec.shared && !SHARED_TOOLS.has(t.name) && !o.connection && !o.projectRoom) return false
     if (t.name in FILE_TOOLS || tools.has(t.name)) { exec.rt.log.warn('turn tool name taken, skipped', { tool: t.name }); return false }
     tools.set(t.name, t)
     if (t.label) labels.set(t.name, t.label.bind(t))
@@ -237,6 +238,13 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
   // keeps those to their own tools) nor in an approved scheduled template's run (its scope is fixed; it would refuse
   // them anyway)
   if (!exec.templateRun && !exec.shared) for (const t of roomReadTools(exec)) add(t)
+  // a project's shared chat reads that project's own chat room, and no other (chat/room-tools.ts projectRoomTools:
+  // room_read and room_file for its one room id, only what everyone who sees the chat sees there; no rooms list, no
+  // save; docs/decisions/20261120-project-is-room.md D4)
+  else if (!exec.templateRun && exec.shared?.kind === 'project') {
+    const roomId = projectRoomOfChat(exec)
+    if (roomId) for (const t of projectRoomTools(exec, roomId)) add(t, { projectRoom: true })
+  }
   // a file sent from the computer in a chat shared with people (chat/chat-file-tool.ts): read as this person while they
   // see the chat; only where the chat holds such files or is shared with people. save_chat_file copies one into the team
   // folder behind the wider-audience card (docs/decisions/20261118-chat-files-full-read-and-save.md)

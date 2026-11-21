@@ -1,7 +1,8 @@
-// A linked channel follows its project live (rooms/project-link.ts; docs/decisions/20261119-channel-project-link.md D4
-// "Live", D5): room.updated to the channel's members, each built for them, on link, unlink, a project rename, the project
-// to the trash (only the channels of the projects it marked), restored, deleted for good; and after an access change, to
-// whoever's answer to open the project folder or to save into it changed (bounded: a folder elsewhere sends nothing).
+// A project's room follows its project live (rooms/project-room.ts, project-link.ts; docs/decisions/
+// 20261120-project-is-room.md): room.updated to the room's members, each built for them, on a project rename (the room's
+// name too), the project to the trash (the room leaves their lists: held), restored (back), deleted for good (gone); and
+// after an access change, to whoever's answer to save into the project folder changed, or who lost or gained the room
+// (bounded: a folder elsewhere sends nothing).
 import { afterEach, expect, setDefaultTimeout, test } from 'bun:test'
 import { afterAccessChange, captureState } from '../../server/src/admin/folders'
 import { addMember, harness, RecordingHub, withOwner, type Harness } from './a-lib'
@@ -26,16 +27,16 @@ async function setup(name: string) {
   const otto = await addMember(h, owner, { username: 'otto' })
   const launch = await mia.client.call('POST', '/api/projects', { name: 'Launch site', participants: [user(nora.id)] })
   const other = await mia.client.call('POST', '/api/projects', { name: 'Other', participants: [] })
-  const channel = await mia.client.call('POST', '/api/rooms', { kind: 'group', userIds: [nora.id, otto.id], name: 'Launch talk' })
+  const channel = await mia.client.call('POST', `/api/projects/${launch.id}/room`)
   const hub = new FanoutHub()
   hub.users = [mia.id, nora.id, otto.id]
   h.ctx.services.realtime = hub
-  /** the room.updated 'updated' of this channel since the last look: who got it and their Room.project */
+  /** the room.updated of this room since the last look: who got it and their room (null: removed) */
   const sent = (roomId = channel.id) => {
-    const out = new Map<string, { project?: { id: string; name: string; canSave: boolean } }>()
+    const out = new Map<string, { name?: string; project?: { id: string; name: string; canSave: boolean } } | null>()
     for (const e of hub.events.splice(0)) {
       const ev = e.data as { type: string; data: { roomId: string; change?: string; room: any } }
-      if (ev.type === 'room.updated' && ev.data.roomId === roomId && ev.data.change === 'updated' && ev.data.room) out.set(e.target, ev.data.room)
+      if (ev.type === 'room.updated' && ev.data.roomId === roomId && (ev.data.change === 'updated' || ev.data.change === 'removed' || ev.data.change === 'added')) out.set(e.target, ev.data.change === 'removed' ? null : ev.data.room)
     }
     return out
   }
@@ -43,45 +44,38 @@ async function setup(name: string) {
   return { owner, mia, nora, otto, launch, other, channel, hub, sent, folder }
 }
 
-test('link, unlink, rename, trash (only its channels), restore and delete for good each tell the channel', async () => {
+test('rename, trash (held: removed from lists), restore and delete for good each tell the room', async () => {
   const { owner, mia, nora, otto, launch, other, channel, sent } = await setup('b-rooms-project-link-live')
-  const ch2 = await mia.client.call('POST', '/api/rooms', { kind: 'group', userIds: [nora.id], name: 'Other talk' })
-  await mia.client.call('PUT', `/api/rooms/${ch2.id}/project`, { projectId: other.id })
-  sent(); sent(ch2.id)
-  await mia.client.call('PUT', `/api/rooms/${channel.id}/project`, { projectId: launch.id })
-  let got = sent()
-  expect(got.get(nora.id)!.project?.id).toBe(launch.id)
-  expect(got.get(otto.id)!.project).toBeUndefined()
-  // a rename: the new name, live
+  const room2 = await mia.client.call('POST', `/api/projects/${other.id}/room`)
+  sent(); sent(room2.id)
+  // a rename: the new name, live, the room's own name too
   await mia.client.call('PATCH', `/api/projects/${launch.id}`, { name: 'Launch 2' })
-  got = sent()
+  let got = sent()
   expect(got.get(nora.id)!.project?.name).toBe('Launch 2')
-  // to the trash: the button goes; the other project's channel hears nothing
-  sent(ch2.id)
+  expect(got.get(nora.id)!.name).toBe('Launch 2')
+  expect(got.has(otto.id)).toBe(false)
+  // to the trash: the room leaves the members' lists; the other project's room hears nothing
+  sent(room2.id)
   expect((await mia.client.try('DELETE', `/api/projects/${launch.id}`)).status).toBe(204)
   got = sent()
   expect(got.has(nora.id)).toBe(true)
-  expect(got.get(nora.id)!.project).toBeUndefined()
-  expect(sent(ch2.id).size).toBe(0)
+  expect(got.get(nora.id)).toBeNull()
+  expect(sent(room2.id).size).toBe(0)
   // restored: back
   expect((await mia.client.try('POST', `/api/projects/${launch.id}/restore`)).status).toBe(200)
   got = sent()
   expect(got.get(nora.id)!.project?.id).toBe(launch.id)
-  // unlink: gone
-  expect((await nora.client.try('DELETE', `/api/rooms/${channel.id}/project`)).status).toBe(204)
-  expect(sent().get(mia.id)!.project).toBeUndefined()
-  // delete for good (the other project: to the trash, then the owner deletes it): its channel told, stays a channel
+  // delete for good (the other project: to the trash, then the owner deletes it): its room gone for its members
   expect((await mia.client.try('DELETE', `/api/projects/${other.id}`)).status).toBe(204)
-  sent(ch2.id)
+  sent(room2.id)
   expect((await owner.try('DELETE', `/api/projects/${other.id}`)).status).toBe(204)
-  const last = sent(ch2.id)
-  expect(last.has(nora.id)).toBe(true)
-  expect(last.get(nora.id)!.project).toBeUndefined()
+  const last = sent(room2.id)
+  expect(last.has(mia.id)).toBe(true)
+  expect(last.get(mia.id)).toBeNull()
 })
 
-test('access changes: read lost, write lost only, write back, a folder elsewhere: only whose answer changed', async () => {
+test('access changes: write lost only, write back, read lost, a folder elsewhere: only whose answer changed', async () => {
   const { mia, nora, otto, launch, channel, sent, folder } = await setup('b-rooms-project-link-live-access')
-  await mia.client.call('PUT', `/api/rooms/${channel.id}/project`, { projectId: launch.id })
   sent()
   const fid = (h.ctx.db.query('SELECT id FROM folders WHERE path = ?').get(folder) as { id: string }).id
   const change = (access: 'read' | 'write' | null) => {
@@ -90,7 +84,7 @@ test('access changes: read lost, write lost only, write back, a folder elsewhere
     if (access) h.ctx.db.query("INSERT INTO folder_rules (id, folder_id, subject_type, subject_id, access) VALUES (?, ?, 'user', ?, ?)").run(crypto.randomUUID(), fid, nora.id, access)
     afterAccessChange(h.ctx, before, { actor: mia.id, target: folder })
   }
-  // write lost only: Save to project goes, the button stays; nobody else told
+  // write lost only: Save to project goes, the room stays; nobody else told
   change('read')
   let got = sent()
   expect([...got.keys()]).toEqual([nora.id])
@@ -100,16 +94,17 @@ test('access changes: read lost, write lost only, write back, a folder elsewhere
   got = sent()
   expect([...got.keys()]).toEqual([nora.id])
   expect(got.get(nora.id)!.project?.canSave).toBe(true)
-  // read lost (taken out of the project on its page): the button goes
+  // read lost (taken out of the project on its page): nora loses the room; otto (never in it) hears nothing
   const access = await mia.client.call('GET', `/api/projects/${launch.id}/access`)
   await mia.client.call('PUT', `/api/projects/${launch.id}/participants`, { participants: [], expectedHash: access.rulesHash })
   got = sent()
   expect(got.has(nora.id)).toBe(true)
-  expect(got.get(nora.id)!.project).toBeUndefined()
+  expect(got.get(nora.id)).toBeNull()
   expect(got.has(otto.id)).toBe(false)
-  // a folder elsewhere: nothing for the channel
+  // a folder elsewhere: nothing for the room
   const before = captureState(h.ctx.db)
   h.ctx.db.query("INSERT INTO folders (id, path) VALUES (?, 'shared/plans')").run(crypto.randomUUID())
   afterAccessChange(h.ctx, before, { actor: mia.id, target: 'shared/plans' })
   expect(sent().size).toBe(0)
+  void channel
 })

@@ -46,6 +46,7 @@ import { hasPeopleList, PeopleList, useProjectPeople } from './ProjectPeople'
 import { GuestInviteDialog, InviteGuestRow, OnePlaceNote, onePlaceOf, useGuestsElsewhere } from './GuestInvite'
 import { isGuestMe } from '../lib/guests'
 import { isGuestNow } from './GuestTag'
+import { hasProjectRoom } from './rooms/ProjectRoomButton'
 import { AccessSummary, ParticipantPicker, participantKey, ruleKey, sameParticipants, useAccessCount, useParticipantOptions, widenLines, type ParticipantOption, type RuleRef } from './ProjectParticipants'
 
 /** the members a save sends: the participants without the creator (the server always keeps the creator) */
@@ -69,13 +70,14 @@ export function namesLine(t: ReturnType<typeof useT>, names: readonly string[], 
 
 /** The confirm: who gains it and what they will see, how many lose it, the rule the save adds; false when cancelled.
  * `names`: the people and groups being added, as picked (the widening line). */
-export function confirmMembers(t: ReturnType<typeof useT>, p: ProjectAccessPreview, names = '', guestsOff = 0): Promise<boolean> {
+export function confirmMembers(t: ReturnType<typeof useT>, p: ProjectAccessPreview, names = '', guestsOff = 0, room = false): Promise<boolean> {
   const lines = p.added ? [...widenLines(t, p), ...(p.hiddenAnswers && names ? [t('chat.share.widen', { n: p.hiddenAnswers, names })] : [])] : []
   return confirmDialog({
     title: p.added ? t('projects.widenTitle') : t('projects.changeTitle'),
     body: (
       <div className="space-y-2" data-testid="project-widen-confirm">
         {p.added > 0 && <p>{t('projects.widenBody', { n: p.added })}</p>}
+        {p.added > 0 && room && <p data-testid="project-widen-room">{t('projects.widenRoom')}</p>}
         {lines.length > 0 && <ul className="list-disc space-y-0.5 pl-5">{lines.map((l) => <li key={l}>{l}</li>)}</ul>}
         <ChangeLines t={t} p={p} guestsOff={guestsOff} />
         {p.added > 0 && <p className="text-faint">{t('projects.widenNotice')}</p>}
@@ -252,7 +254,7 @@ export function ProjectMembersDialog({ project, onClose, onSaved, initial }: { p
       const addsOnlyMe = !!me && adds.length === 1 && adds[0]!.subjectType === 'user' && adds[0]!.subjectId === me.user.id && p.added <= 1
       // only people added, and the same as the lines in place: Save was the confirmation
       const oneP = !addsOnlyMe && onlyAdds(p) && removedGuests === 0 && !!shownPreview && seenOf(t, shownPreview) === seenOf(t, p)
-      if (!oneP && (addsOnlyMe ? !(await confirmAddMe(t, project.name, p)) : asksFirst(p) && !(await confirmMembers(t, p, addedNames, removedGuests)))) return
+      if (!oneP && (addsOnlyMe ? !(await confirmAddMe(t, project.name, p)) : asksFirst(p) && !(await confirmMembers(t, p, addedNames, removedGuests, hasProjectRoom(project))))) return
       const a = await api.call(API.putProjectParticipants, { params: { id: project.id }, body: { participants, expectedHash: access!.rulesHash, ...removeRules } })
       shown(a)
       // the project as the server sees it now: how many see it, and whether anyone else does by a rule (Project.alone:
@@ -331,6 +333,8 @@ export function ProjectMembersDialog({ project, onClose, onSaved, initial }: { p
             {shownPreview && shownPreview.added > 0 && (
               <div className="space-y-1 text-sm leading-6 break-keep text-muted" data-testid="project-widen-inline">
                 <p>{t('projects.widenBody', { n: shownPreview.added })}</p>
+                {/* a team project's chat room: its whole history comes with it (docs/decisions/20261120-project-is-room.md D2) */}
+                {hasProjectRoom(project) && <p data-testid="project-widen-room">{t('projects.widenRoom')}</p>}
                 {widenLines(t, shownPreview).length > 0 && <ul className="list-disc space-y-0.5 pl-5">{widenLines(t, shownPreview).map((l) => <li key={l}>{l}</li>)}</ul>}
                 <p className="text-faint">{t('projects.widenNotice')}</p>
               </div>

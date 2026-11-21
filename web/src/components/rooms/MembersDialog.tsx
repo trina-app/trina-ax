@@ -4,14 +4,18 @@
 // read position; photo and title from the people directory; the manager marked, and "…" › 내보내기 on a row for the
 // manager and owners or admins in it). 대화방 나가기 is in the room's "⋯" only (RoomMenu.tsx), not here a second time.
 // The lists' rows (components/list/List.tsx ListRow, a list of people's face box), no boxes. A bottom sheet on phones (Modal).
+// A project's own chat room (Room.project.room; docs/decisions/20261120-project-is-room.md D5): one line says whose room
+// it is, then Manage people (the project's members dialog, for whoever may change them), Mute and Leave project in place
+// of the name, 초대하기 and 내보내기: its people are the project's.
 // Each picture carries the person's online dot, mine too (components/Presence.tsx; docs/DECISIONS.md "접속 상태").
-import { Pencil, Plus, UserMinus } from 'lucide-react'
-import { useState } from 'react'
-import { ROOM_NAME_MAX, type Room, type RoomMember } from '@mycel/shared/api'
-import { errorText } from '../../lib/api'
+import { Bell, BellOff, LogOut, Pencil, Plus, UserMinus, Users } from 'lucide-react'
+import { useEffect, useState } from 'react'
+import { Link, useNavigate } from 'react-router-dom'
+import { ROOM_NAME_MAX, type Project, type Room, type RoomMember } from '@mycel/shared/api'
+import { api, API, errorText } from '../../lib/api'
 import { useLocale, useT } from '../../i18n'
 import { usePeople } from '../../store/people'
-import { useRooms } from '../../store/rooms'
+import { markLeaving, useRooms } from '../../store/rooms'
 import { useMe } from '../../store/session'
 import { toast } from '../../store/ui'
 import { PresenceFace, PresenceText } from '../Presence'
@@ -24,7 +28,11 @@ import { GuestTagFor, isGuestNow } from '../GuestTag'
 import { isGuestMe } from '../../lib/guests'
 import { isPrivateChannel } from '../../lib/rooms'
 import { PersonButton } from '../PersonCard'
-import { RoomProjectRow } from './ProjectLink'
+import { ProjectMembersDialog } from '../ProjectMembersDialog'
+import { useLeaveProject } from '../LeaveProject'
+import { useProjects } from '../../store/projects'
+import { roomNotify } from './RoomNotifyMenu'
+import { isProjectRoom, projectRoomOf } from '../../lib/rooms'
 
 export function MembersDialog({ open, onClose, room, members, meId, onInvite }: { open: boolean; onClose: () => void; room: Room | null; members: RoomMember[] | undefined; meId: string | null; onInvite: () => void }) {
   const t = useT()
@@ -34,8 +42,10 @@ export function MembersDialog({ open, onClose, room, members, meId, onInvite }: 
   const sorted = members ? [...members].sort((a, b) => Number(b.user.id === meId) - Number(a.user.id === meId) || Number(b.user.id === room?.managerId) - Number(a.user.id === room?.managerId) || a.user.name.localeCompare(b.user.name)) : null
   const group = room?.kind === 'group'
   const locked = !!room && isPrivateChannel(room)
+  // a project's chat room: its people are the project's (managed there)
+  const projectRoom = !!room && isProjectRoom(room)
   // the manager, and an owner or admin who is in it, take someone out (never themselves: they leave)
-  const mayRemove = group && !!meId && (room?.managerId === meId || me?.user.role === 'owner' || me?.user.role === 'admin')
+  const mayRemove = group && !projectRoom && !!meId && (room?.managerId === meId || me?.user.role === 'owner' || me?.user.role === 'admin')
   const remove = async (id: string, name: string) => {
     if (!room) return
     const ok = await confirmDialog({ title: t('rooms.info.removeTitle', { name }), body: t(isGuestNow(id) ? (locked ? 'rooms.info.removeBodyGuestPrivate' : 'rooms.info.removeBodyGuest') : 'rooms.info.removeBody'), confirm: t('rooms.info.remove'), danger: true })
@@ -46,11 +56,10 @@ export function MembersDialog({ open, onClose, room, members, meId, onInvite }: 
     <Modal open={open} onClose={onClose} title={sorted ? `${t('rooms.membersTitle')} · ${sorted.length}` : t('rooms.membersTitle')} width={400}>
       <div className="-mx-5 -my-5 divide-y divide-line max-sm:-mx-4" data-testid="room-info">
         {room?.canRename && <NameRow room={room} />}
-        {/* a private channel's project (components/rooms/ProjectLink.tsx): linked, or Link to a project */}
-        {room && <RoomProjectRow room={room} onGo={onClose} />}
+        {room && projectRoom && <ProjectRoomInfo room={room} project={projectRoomOf(room)} onGo={onClose} />}
         {/* the lists' rows (components/list/List.tsx, a list of people: the face box), inset so the words line up
             with the dialog's 20px (16px on a phone) */}
-        {(group || room?.kind === 'dm') && !isGuestMe(me) && (
+        {(group || room?.kind === 'dm') && !projectRoom && !isGuestMe(me) && (
           <ul className="px-2 py-1 max-sm:px-1">
             <ListRow onClick={onInvite} face icon={<Plus />} name={<span className="text-ink">{t(locked ? 'rooms.info.invitePrivate' : 'rooms.info.addPeople')}</span>} testId="room-invite" />
           </ul>
@@ -172,5 +181,61 @@ function NameRow({ room }: { room: Room }) {
         </Button>
       </div>
     </form>
+  )
+}
+
+/** A project's chat room: whose room it is (the project's name opens its page), then Manage people for whoever may
+ * change the project's members, Mute (the quiet way out) and Leave project (the full one; Room.project.leave, off for
+ * the last person). Who may change the members is the project's own (read when the info opens). A member who cannot open
+ * the project now (no Room.project) reads the line without its name, and Mute. */
+function ProjectRoomInfo({ room, project: rp, onGo }: { room: Room; project: NonNullable<Room['project']> | null; onGo: () => void }) {
+  const t = useT()
+  const navigate = useNavigate()
+  const [p, setP] = useState<Project | null>(() => (rp ? useProjects.getState().byId[rp.id] ?? null : null))
+  const [managing, setManaging] = useState(false)
+  const leave = useLeaveProject()
+  useEffect(() => {
+    if (!rp) return
+    let live = true
+    api.call(API.getProject, { params: { id: rp.id } }).then((x) => live && setP(x), () => {})
+    return () => { live = false }
+  }, [rp?.id])
+  const muted = roomNotify(room).level === 'off'
+  const parts = t('rooms.project.info', { name: '\u0000' }).split('\u0000')
+  const leaveIt = async () => {
+    if (!rp) return
+    // the room's own "removed" that follows is no news here
+    markLeaving(room.id)
+    if (await leave({ id: rp.id, name: rp.name } as Project)) { onGo(); navigate('/rooms', { replace: true }) }
+  }
+  return (
+    <div data-testid="room-info-project">
+      <p className="px-5 py-3 text-sm break-words text-muted max-sm:px-4" data-testid="room-info-project-line">
+        {!rp ? t('rooms.project.infoUnnamed') : parts.length === 2 ? <>{parts[0]}<Link to={`/projects/${rp.id}`} onClick={onGo} className="font-medium text-ink hover:underline" data-testid="room-info-project-name">{rp.name}</Link>{parts[1]}</> : t('rooms.project.info', { name: rp.name })}
+      </p>
+      <ul className="px-2 pb-1 max-sm:px-1">
+        {p?.membersEditable && <ListRow onClick={() => setManaging(true)} face icon={<Users />} name={<span className="text-ink">{t('rooms.project.manage')}</span>} testId="room-info-manage" />}
+        <ListRow
+          onClick={() => void useRooms.getState().setNotifyLevel(room.id, muted ? null : 'off')}
+          face
+          icon={muted ? <Bell /> : <BellOff />}
+          name={<span className="text-ink">{t(muted ? 'rooms.project.unmute' : 'rooms.project.mute')}</span>}
+          testId="room-info-mute"
+        />
+        {rp?.leave && (
+          <ListRow
+            onClick={rp.leave === 'last' ? undefined : () => void leaveIt()}
+            disabled={rp.leave === 'last'}
+            face
+            icon={<LogOut className="text-danger" />}
+            name={<span className={rp.leave === 'last' ? 'text-faint' : 'text-danger'}>{t('projects.leave')}</span>}
+            meta={rp.leave === 'last' ? t('projects.leaveLast') : undefined}
+            metaWrap
+            testId="room-info-leave"
+          />
+        )}
+      </ul>
+      {managing && p && <ProjectMembersDialog project={p} onClose={() => setManaging(false)} onSaved={(x) => { setP(x); useProjects.getState().put(x) }} />}
+    </div>
   )
 }

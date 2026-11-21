@@ -1,13 +1,14 @@
-// The linked project's narrow no-card rule (docs/decisions/20261119-channel-project-link.md D7; chat/turn.ts
-// linkedProjectPlain), with the fake engine through the real launcher and gate. In a linked channel's own ✦ side chat,
-// when the person's own message asked to save, a NEW document or media file in the linked project's folder needs no room
-// card; the wider-audience card is kept when people outside the channel can open it. Everything else asks as before:
-// no ask in the person's own words (a room message steering the save), code and config names, an instruction file, a
-// dotfile, an existing file, a subfolder with an extra reader, another project's folder, a chat that is not that
-// channel's side chat, a link removed before the call.
+// The project room's narrow no-card rule (docs/decisions/20261119-channel-project-link.md D7, kept by
+// docs/decisions/20261120-project-is-room.md D4; chat/turn.ts linkedProjectPlain), with the fake engine through the real
+// launcher and gate. In a project room's own ✦ side chat, when the person's own message asked to save, a NEW document or
+// media file in the project's folder needs no room card; the room's people are the project's people, so no
+// wider-audience card fires either. Everything else asks as before: no ask in the person's own words (a room message
+// steering the save), code and config names, an instruction file, a dotfile, an existing file, a subfolder with an
+// extra reader (also under "Always allow" for saving wider), another project's folder, a chat that is not that room's
+// side chat, a link gone before the call.
 //
 // The fixture team: alice and erin in marketing, bob in finance, carol admin, dana owner. The project "Launch" is alice's
-// with erin (owners and admins outside it read nothing in it); the channel is alice and erin.
+// with erin (owners and admins outside it read nothing in it); its room is alice and erin.
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from 'bun:test'
 import fs from 'node:fs'
 import path from 'node:path'
@@ -30,15 +31,13 @@ afterAll(async () => { for (const s of Object.values(ws)) s.close(); await h.clo
 
 const at = (rel: string) => path.join(h.team, rel)
 const exists = (rel: string) => fs.existsSync(at(rel))
-const json = (body: unknown, method = 'PUT') => ({ method, headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) })
 let n = 0
-/** a project of alice with these people and a private channel of alice and erin linked to it: the channel, its folder */
+/** a project of alice with these people and its own chat room (its people): the room, its folder */
 async function linked(people: string[] = ['erin']): Promise<{ roomId: string; root: string; projectId: string }> {
   const project = await h.api('alice').call(API.createProject, { body: { name: `Launch ${++n}`, participants: people.map((u) => ({ subjectType: 'user' as const, subjectId: u })), instructions: '' } })
-  const room = await h.api('alice').call(API.createRoom, { body: { kind: 'group', userIds: ['erin'], name: `Launch talk ${n}` } }) as Room
-  const r = await h.req('alice', `/api/rooms/${room.id}/project`, json({ projectId: project.id }))
-  expect(r.status).toBe(200)
-  return { roomId: room.id, root: ((await r.json()) as Room).project!.folderPath, projectId: project.id }
+  const room = await h.api('alice').call(API.openProjectRoom, { params: { id: project.id } }) as Room
+  expect(room.project?.room).toBe(true)
+  return { roomId: room.id, root: room.project!.folderPath, projectId: project.id }
 }
 async function send(user: string, roomId: string, body: string): Promise<RoomMessage> {
   return await h.api(user).call(API.sendRoomMessage, { params: { id: roomId }, body: { body, clientMessageId: cm(), mentions: [], fileIds: [] } })
@@ -67,7 +66,7 @@ async function run(user: string, chatId: string, content: string) {
 const roomRead = (room: string) => ({ tool: 'room_read', args: { room } })
 const write = (file_path: string, content = 'made by the AI\n') => ({ tool: 'write', args: { file_path, content } })
 
-describe('the linked channel\'s side chat', () => {
+describe('the project room\'s side chat', () => {
   test('"save the summary as a file", everyone in the channel in the project: new documents in the project folder, no card', async () => {
     const { roomId, root } = await linked()
     await send('erin', roomId, 'Booth: 2 tables, 1 banner')
@@ -90,16 +89,14 @@ describe('the linked channel\'s side chat', () => {
     expect(exists(`${root}/planted-${tag}.md`)).toBe(false)
   })
 
-  test('the project has people outside the channel: the wider-audience card asks, the room card does not', async () => {
+  test('the project\'s people are the room\'s people: no wider-audience card either (bob is in both)', async () => {
     const { roomId, root } = await linked(['erin', 'bob'])
     await send('erin', roomId, 'Booth: 2 tables')
     const chat = await sideChat('alice', roomId)
     const tag = uuidv7().slice(-6)
     const r = await run('alice', chat, `save the summary as a file\n${fake(roomRead(roomId), write(`${root}/wide-${tag}.md`, 'x\n'), { say: 'x' })}`)
-    expect(r.cards).toHaveLength(1)
-    // the wider-audience card (who else sees it), not the room card's "messages from your conversations" question
-    expect(r.cards[0]!.question).not.toContain('came in here')
-    expect(exists(`${root}/wide-${tag}.md`)).toBe(false)
+    expect(r.cards).toHaveLength(0)
+    expect(exists(`${root}/wide-${tag}.md`)).toBe(true)
   })
 
   test('code, config, instruction files, dotfiles, an existing file, a subfolder with an extra reader, another project: a card each', async () => {
@@ -124,7 +121,7 @@ describe('the linked channel\'s side chat', () => {
     for (const t of targets) expect(exists(t)).toBe(false)
   })
 
-  test('not that channel\'s side chat, or the link removed before the call: the card', async () => {
+  test('not that room\'s side chat, or the link gone before the call: the card', async () => {
     const { roomId, root } = await linked()
     await send('erin', roomId, 'notes')
     const tag = uuidv7().slice(-6)
@@ -133,24 +130,29 @@ describe('the linked channel\'s side chat', () => {
     const a = await run('alice', own, `save it as a file\n${fake(roomRead(roomId), write(`${root}/own-${tag}.md`, 'x\n'), { say: 'x' })}`)
     expect(a.cards.length).toBeGreaterThanOrEqual(1)
     expect(exists(`${root}/own-${tag}.md`)).toBe(false)
-    // the link goes: the side chat asks again
+    // the link goes (an older build's unlink after a rollback): the side chat asks again
     const chat = await sideChat('alice', roomId)
-    expect((await h.req('alice', `/api/rooms/${roomId}/project`, { method: 'DELETE' })).status).toBe(204)
+    h.ctx.db.query('DELETE FROM room_project_links WHERE room_id = ?').run(roomId)
     const b = await run('alice', chat, `save it as a file\n${fake(roomRead(roomId), write(`${root}/gone-${tag}.md`, 'x\n'), { say: 'x' })}`)
     expect(b.cards.length).toBeGreaterThanOrEqual(1)
     expect(exists(`${root}/gone-${tag}.md`)).toBe(false)
   })
 
-  test('a person\'s "Always allow" for saving wider alone never skips the card: the combined card still asks (review of #69, VD)', async () => {
-    const { roomId, root } = await linked(['erin', 'bob'])
+  test('a person\'s "Always allow" for saving wider alone never skips the card: a subfolder with an extra reader still asks (review of #69, VD)', async () => {
+    const { roomId, root } = await linked(['erin'])
     await send('erin', roomId, 'Booth: 2 tables')
+    const tag = uuidv7().slice(-6)
+    const sub = `${root}/wide-${tag}`
+    fs.mkdirSync(at(sub), { recursive: true })
+    const fid = 'f_' + crypto.randomUUID()
+    h.ctx.db.query('INSERT INTO folders (id, path) VALUES (?, ?)').run(fid, sub)
+    h.ctx.db.query("INSERT INTO folder_rules (id, folder_id, subject_type, subject_id, access) VALUES (?, ?, 'user', 'bob', 'read')").run(crypto.randomUUID(), fid)
     h.ctx.db.query("INSERT INTO card_always_allow (user_id, kind, created_at) VALUES ('alice', 'save_wider', ?) ON CONFLICT DO NOTHING").run(new Date().toISOString())
     try {
       const chat = await sideChat('alice', roomId)
-      const tag = uuidv7().slice(-6)
-      const r = await run('alice', chat, `save the summary as a file\n${fake(roomRead(roomId), write(`${root}/wide-${tag}.md`, 'x\n'), { say: 'x' })}`)
-      expect(r.cards).toHaveLength(1)
-      expect(exists(`${root}/wide-${tag}.md`)).toBe(false)
+      const r = await run('alice', chat, `save the summary as a file\n${fake(roomRead(roomId), write(`${sub}/wide.md`, 'x\n'), { say: 'x' })}`)
+      expect(r.cards.length).toBeGreaterThanOrEqual(1)
+      expect(exists(`${sub}/wide.md`)).toBe(false)
     } finally { h.ctx.db.query("DELETE FROM card_always_allow WHERE user_id = 'alice'").run() }
   })
 

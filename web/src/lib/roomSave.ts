@@ -60,26 +60,3 @@ export function saveRefusalKey(e: unknown): 'rooms.save.skillsFolder' | 'rooms.s
   return null
 }
 
-// ---------------- Save to project (docs/decisions/20261119-channel-project-link.md D6) ----------------
-/** Can the project save go in one click: every file still to save is a document or media kind by its name
- * (shared plain-kinds: no script, config, dotfile, instruction file) and none looks personal. Else the sheet opens with
- * the project's folder picked. `plain`: the name test (isProjectPlainName), passed in to keep this file free of it. */
-export function oneClickOk(plan: PlanFiles, plain: (name: string) => boolean, instruction: (name: string) => boolean = instructionName): boolean {
-  const todo = filesToSave(plan)
-  return todo.length > 0 && todo.every((f) => !f.sensitive && plain(f.name) && !instruction(f.name))
-}
-/** CLAUDE.md, AGENTS.md and the like: the server's instructionLike names; always the sheet. */
-export const instructionName = (name: string) => /^(claude|agents|gemini|skill)\.md$/i.test(name.normalize('NFKC').trim())
-
-/** The files a one-click save sends: each file still to save, a copy of another once (it follows that file). */
-export const oneClickIds = (plan: PlanFiles) => filesToSave(plan).map((f) => f.id)
-
-/** The copies Undo may take back: the ones this save made (`existed` false) that came with an Undo token (one-click). */
-export const undoableCopies = (saved: RoomSaveResult['saved']): { path: string; token: string }[] =>
-  saved.flatMap((s) => (!s.existed && s.undo ? [{ path: s.path, token: s.undo }] : []))
-
-/** Is a saved path inside the linked project's folder (the chip then says "In project · <name>")? */
-export const inProjectFolder = (path: string, folder: string) => path === folder || path.startsWith(folder.replace(/\/+$/, '') + '/')
-
-/** The server said the files need the sheet (409 needs_sheet: a name not on the one-click list). */
-export const needsSheet = (e: unknown) => e instanceof ApiError && e.body.params?.reason === 'needs_sheet'
