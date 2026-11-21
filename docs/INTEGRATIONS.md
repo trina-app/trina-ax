@@ -693,8 +693,8 @@ or paste ([decision](decisions/20261120-github-connector.md)).
   repositories on GitHub's installation page (`https://github.com/apps/<slug>/installations/new`), linked from the
   connection's page ("Choose on GitHub"); an organization's owner installs it there, or a member asks
   them to (GitHub's own request flow). No picker of our own.
-- **Without the file** the card says "Not set up yet" (a member can ask an admin; an owner or admin reads that the
-  operator adds the app, or that they can add GitHub in Admin › Connected apps with their own GitHub App), and a
+- **Without the file** the card says "Not set up yet" (a member can ask an admin; an owner or admin reads, in plain
+  words, that adding the company's own GitHub App in Admin › Connected apps turns it on), and a
   sign-in fails with "registers no apps" as before. The GitHub dialog keeps Advanced › "Sign in with my own app" (hidden
   for other listed services), so an admin there makes GitHub a team template or team connection with the company's own
   GitHub App (its callback: the server's own address). A member's page then says "Your team set up GitHub. Connect it
@@ -851,9 +851,10 @@ in a chip after the name; on Connectors **Your connectors**: the built-in apps c
 what the team provides, with a Team label, each with one status and its page a click away, read-only for a team one),
 then **Discover**, what is not connected yet: the built-in apps and MCP servers to add by name
 (`web/src/lib/connectors.ts`). The search filters every section. An entry is
-only a name and an address for the add dialog: nothing about it is special on the server, the person still chooses what
-the AI may change, an admin still chooses who may use it, and the sign-in, checks and asking are those of any other
-connection. "Add connection" and the link under the list take any MCP server or API by its address.
+only a name and an address: nothing about it is special on the server. A person's own Connect (its page, or + on its
+card) is one click: the connection is made with "ask before changes" and its sign-in opens; what the AI may change is
+set on the connection's page (QA TC-6928). The add dialog stays for the phone app and Admin, where an admin chooses who
+may use it, with the address under Advanced. The sign-in, checks and asking are those of any other connection. "Add connection" and the link under the list take any MCP server or API by its address.
 
 The services come from the remote servers listed on [mcpservers.org](https://mcpservers.org/remote-mcp-servers), starting
 with its featured ones and those with a curated logo. A listing is not enough: a service is listed here only if it

@@ -36,7 +36,7 @@ import { Link, Navigate, useLocation, useNavigate, useNavigationType, useParams,
 import { isUuid7, type RoomMember, type RoomMessage } from '@mycel/shared/api'
 import { isApiError } from '../lib/api'
 import { lookingAt, onWindowFocus } from '../lib/attention'
-import { isPrivateChannel, readUpTo, roomFilesButtonShown, roomEmptyKey, threadClosing, threadOpening, timelineTarget, pushedMessagePath } from '../lib/rooms'
+import { isPrivateChannel, readUpTo, roomFilesButtonShown, roomEmptyKey, threadClosing, threadOpening, timelineTarget, pushedMessagePath, withoutTarget } from '../lib/rooms'
 import { roomColumns, useElementWidth } from '../lib/roomColumns'
 import { getSidePanel } from '../lib/sidePanel'
 import { PANEL_ALWAYS_BOTH_PX } from '../components/rail/railPanel'
@@ -301,11 +301,25 @@ function RoomView({ roomId, threadId, badThread }: { roomId: string; threadId: s
     const to = threadOpening(roomId, id, { threadId, fromRoom })
     navigate(to.path, { replace: to.replace, state: { ...to.state, here: true } })
   }, [navigate, roomId, threadId, fromRoom, fitsThree, setSideOpen])
+  // a thread closed by a step back lands on the room's own entry, which may still name the message a link opened it at
+  // (?m=): that is put away there (replace, the entry stays where it is in the history), so a reload does not jump
+  // back to it (QA TC-6923)
+  const dropTarget = useRef(false)
   const closeThread = useCallback(() => {
     const to = threadClosing(roomId, fromRoom)
-    if (to === -1) navigate(-1)
-    else navigate(to.path, { replace: to.replace })
+    if (to === -1) {
+      // a second close (Esc pressed twice, a key held down) before the step back has landed would step past the room
+      if (dropTarget.current) return
+      dropTarget.current = true
+      navigate(-1)
+    } else navigate(to.path, { replace: to.replace })
   }, [navigate, roomId, fromRoom])
+  useEffect(() => {
+    if (threadId || !dropTarget.current) return
+    dropTarget.current = false
+    const search = withoutTarget(location.search)
+    if (search !== location.search) navigate({ pathname: location.pathname, search, hash: location.hash }, { replace: true, state: location.state })
+  }, [threadId, location, navigate])
   // "View" under an answer the side chat sent to a thread: the thread at the reply, in place of the one that is open
   // (the thread's ✕ still steps back to the room once). Where the side chat would hide it (over the thread; three
   // columns that do not fit), the side chat steps aside as a hand-off: ✦ brings the same chat back
@@ -335,7 +349,7 @@ function RoomView({ roomId, threadId, badThread }: { roomId: string; threadId: s
   // three columns): the keyboard goes into the panel that opened and, when the room shows again, back to where it was
   // in the room; Esc closes one panel a press: the one the keyboard is in, else the side chat first, then the thread
   // (not while a menu or dialog of its own is open, nor while an input method composes). Beside the room, as columns,
-  // Esc closes nothing: there it belongs to the mention list, an edit, a menu
+  // the effect after this one closes the thread (QA TC-6923)
   const covering = wide && ((sheet && !!(threadId || rightOpen)) || pair || over)
   // a room under panels is out of sight: nothing in it is read (tryRead)
   const covered = useRef(covering)
@@ -367,7 +381,7 @@ function RoomView({ roomId, threadId, badThread }: { roomId: string; threadId: s
     let preview = false
     const onKeyFirst = (e: KeyboardEvent) => { if (e.key === 'Escape') preview = !!getSidePanel() && !document.querySelector('[role="dialog"]') }
     const onKey = (e: KeyboardEvent) => {
-      if (e.key !== 'Escape' || e.defaultPrevented || e.isComposing || e.keyCode === 229 || preview || document.querySelector('[role="menu"], [role="dialog"]:not([data-sheet])')) return
+      if (e.key !== 'Escape' || e.repeat || e.defaultPrevented || e.isComposing || e.keyCode === 229 || preview || document.querySelector('[role="menu"], [role="dialog"]:not([data-sheet])')) return
       e.preventDefault()
       const inThread = pair && !!document.activeElement?.closest('[data-testid="room-thread"]')
       if (threadId && (inThread || !rightOpen)) closeThread()
@@ -380,6 +394,28 @@ function RoomView({ roomId, threadId, badThread }: { roomId: string; threadId: s
       window.removeEventListener('keydown', onKey)
     }
   }, [covering, pair, threadId, rightOpen, closeThread, closeRight])
+  // a thread beside the room, as a column: Esc closes it, except while the keyboard types in the room (its box, an edit:
+  // Esc there stays theirs). Below 768 px the thread is the whole screen, and the side chat or the files over it close
+  // first (QA TC-6923)
+  useEffect(() => {
+    if (covering || !threadId) return
+    let preview = false
+    const onKeyFirst = (e: KeyboardEvent) => { if (e.key === 'Escape') preview = !!getSidePanel() && !document.querySelector('[role="dialog"]') }
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape' || e.repeat || e.defaultPrevented || e.isComposing || e.keyCode === 229 || preview || document.querySelector('[role="menu"], [role="dialog"]:not([data-sheet])')) return
+      const at = document.activeElement
+      if (wide && at instanceof HTMLElement && (at.isContentEditable || at.matches('input, textarea, select')) && !at.closest('[data-testid="room-thread"]')) return
+      e.preventDefault()
+      if (!wide && rightOpen) closeRight()
+      else closeThread()
+    }
+    window.addEventListener('keydown', onKeyFirst, true)
+    window.addEventListener('keydown', onKey)
+    return () => {
+      window.removeEventListener('keydown', onKeyFirst, true)
+      window.removeEventListener('keydown', onKey)
+    }
+  }, [covering, threadId, wide, rightOpen, closeThread, closeRight])
   usePeopleList()
   // a private channel: its project (Room.project) is read again when the window comes back, so a project renamed or
   // one I can no longer open shows without a reload

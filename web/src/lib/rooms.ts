@@ -412,6 +412,14 @@ export function highlightNow(seen: Set<string>, highlight: string | null, navKey
   seen.add(k)
   return true
 }
+/** An address's query without the message a link picked out (?m=), the rest kept as it was: "" when nothing is left. */
+export function withoutTarget(search: string): string {
+  const q = new URLSearchParams(search)
+  if (!q.has('m')) return search
+  q.delete('m')
+  const rest = q.toString()
+  return rest ? `?${rest}` : ''
+}
 /** Closing it: one step back when the room is that step, else to the room in place of the thread. */
 export const threadClosing = (roomId: string, fromRoom: boolean): -1 | { path: string; replace: true } => (fromRoom ? -1 : { path: `/rooms/${roomId}`, replace: true })
 

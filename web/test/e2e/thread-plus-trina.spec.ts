@@ -4,7 +4,7 @@
 // in a narrower row; the side chat over the thread on a phone, with ‹ back to the thread. The side chat's box says
 // "Looking at this thread": with the chip on a question goes with a thread line (the thread's id, no message text), its
 // bubble shows a "Thread" mark, its answer offers Send to thread; ✕ takes the chip off and the next question is about
-// the room; the thread opened again brings it back. Esc closes one panel a press where they cover the room. The room
+// the room; the thread opened again brings it back. Esc closes one panel a press where they cover the room, and the thread beside it (QA TC-6923). The room
 // through page.route (rooms-mock.ts), the chats and answers by the mock server.
 import AxeBuilder from '@axe-core/playwright'
 import { expect, test, type Locator, type Page } from '@playwright/test'
@@ -235,11 +235,14 @@ test('1024: the thread and the side chat share the row over the room; Esc closes
   await expect(side).toHaveCount(0)
   await expect(thread).toBeVisible()
   await expect(roomEl).not.toHaveAttribute('inert', /.*/)
-  // Esc beside the room closes nothing (as before)
+  // Esc beside the room, the keyboard back in the thread's box: it closes the thread too (QA TC-6923; it closed nothing)
+  await expect(thread.locator('textarea').first()).toBeFocused()
   await page.keyboard.press('Escape')
-  await expect(thread).toBeVisible()
+  await expect(thread).toHaveCount(0)
 
   // again, the keyboard in the thread's box: Esc closes the thread, the side chat stays beside the room
+  await page.goto(`/rooms/${ROOM_ID}/t/${ROOT}`)
+  await expect(thread.getByTestId('room-message').first()).toBeVisible()
   await page.getByTestId('room-side-chat-button').click()
   await expect(pageEl).toHaveAttribute('data-columns', 'pair')
   await thread.locator('textarea').first().focus()

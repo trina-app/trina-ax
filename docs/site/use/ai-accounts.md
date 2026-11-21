@@ -72,14 +72,24 @@ the notice above**.
 
 ![Add account with Claude subscription chosen: how it works, Name, Used by, the notice with its checkbox, Make it in a terminal instead, and Connect Claude subscription](../images/connect/ai-claude-subscription.webp "Claude subscription")
 
+For the team (in Admin), a subscription can be picked only after the owner turns on **Allow shared subscriptions** in
+**Admin › Team settings**, under **Members' own accounts**. Until then the dialog says "Shared subscriptions are off."
+
 #### Approve at Claude
-Choose **Connect Claude subscription**. After a few seconds, **Open Claude to approve** appears (or **Copy link**, to
-open it in the browser where you are signed in to Claude). Claude's own page opens: check that it shows the account you
-mean, and approve.
+1. Choose **Connect Claude subscription**. After a few seconds the dialog shows **Open Claude to approve**, **Copy
+   link** and an empty box.
+2. Choose **Open Claude to approve**. Claude's own page opens in a new tab. (If you are signed in to Claude in another
+   browser, choose **Copy link** instead and open the link there.)
+3. On Claude's page, sign in if it asks, check that it shows the account you mean, and approve. Claude then shows a
+   code.
+
+![Add account after Connect Claude subscription: Open Claude to approve, Copy link, the box Paste the code Claude shows after you approve, and Connect](../images/connect/ai-claude-code.webp "Approve at Claude, then paste the code")
 
 #### Paste the code
-Claude then shows a code. Copy all of it (it has a `#` in the middle) into **Paste the code Claude shows after you
-approve**. Trina AX says **Connected · Claude subscription**.
+1. On Claude's page, copy the whole code with its copy button (it has a `#` in the middle).
+2. Go back to the Trina AX tab, paste it into **Paste the code Claude shows after you approve**, and choose
+   **Connect**.
+3. Trina AX says **Connected · Claude subscription**, and the account appears in the Claude Code row.
 :::
 
 Your Claude password never reaches Trina AX: you sign in on Claude's own page, and Trina AX keeps only the access Claude
@@ -125,8 +135,10 @@ In **Admin › AI providers**, choose **Add account** in the **Codex** row, then
 ![Add account with ChatGPT plan chosen: Name, Used by, the notice with its checkbox and Start sign-in](../images/connect/ai-chatgpt.webp "ChatGPT plan")
 
 #### Enter the code at OpenAI
-Trina AX shows **Open the ChatGPT sign-in page** and **Enter this code (within 15 minutes)**. Open the page, sign in with the
-ChatGPT account, type the code and approve.
+1. Trina AX shows **Open the ChatGPT sign-in page** and, under **Enter this code (within 15 minutes)**, a short code
+   such as `WXYZ-12AB3` with a copy button.
+2. Open the page. Sign in at OpenAI with the ChatGPT account.
+3. Type or paste the code there and approve. Keep the Trina AX tab open: it moves on by itself.
 
 #### Done
 Trina AX shows **Connected · ChatGPT** with the plan's name. If you signed in with another account than the one you

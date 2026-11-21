@@ -171,11 +171,14 @@ Google 页面上的这一行都是一样的。
 
 ## 可选：在管理控制台信任应用
 
-如果公司限制了哪些应用可以使用 Google 账号，需要由 Google Workspace 超级管理员把这个应用标记为可信。在
-[管理控制台](https://admin.google.com/)（Admin console）中，打开**安全性 › 访问权限和数据控制 › API 控件**（Security › Access and
-data control › API controls），然后选择**管理第三方应用访问权限**（Manage Third-Party App Access）› **配置新应用**（Configure new
-app）。搜索客户端 ID（在下载的文件中），选中它，并设为**可信**（Trusted）。如果不这样做，大家连接时可能会看到
-`admin_policy_enforced`。
+如果公司限制了哪些应用可以使用 Google 账号，需要由 Google Workspace 超级管理员把这个应用标记为可信。如果不这样做，大家连接时可能会看到 `admin_policy_enforced`。
+
+1. 找到应用的客户端 ID。它在你下载的 JSON 文件中 `"client_id":` 的后面，也在[客户端](https://console.cloud.google.com/auth/clients)（Clients）中该客户端的页面上。它以 `.apps.googleusercontent.com` 结尾。
+2. 以超级管理员身份登录[管理控制台](https://admin.google.com/)（Admin console）。
+3. 在左侧菜单中，依次打开**安全性**（Security）、**访问权限和数据控制**（Access and data control）、**API 控件**（API controls）。
+4. 选择**管理第三方应用访问权限**（Manage Third-Party App Access），然后选择**配置新应用**（Configure new app）。
+5. 把客户端 ID 粘贴到搜索框中，并在列表中选择你的应用。
+6. 选择它适用于谁（通常是整个组织），设为**可信**（Trusted），最后选择**配置**（Configure；这是 Google 的最后一个按钮，名称可能略有不同）。
 
 ## Trina AX 保存什么
 

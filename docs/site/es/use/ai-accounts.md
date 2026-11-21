@@ -74,14 +74,25 @@ aviso y marque **He leído el aviso anterior**.
 
 ![Añadir cuenta con Suscripción de Claude elegida: cómo funciona, Nombre, Usada por, el aviso con su casilla, Crearlo en una terminal y Conectar suscripción de Claude](../../images/connect/ai-claude-subscription.webp "Suscripción de Claude")
 
+Para el equipo (en Administración), solo se puede elegir una suscripción después de que el propietario active **Permitir
+compartir suscripciones** en **Administración › Configuración del equipo**, en **Cuentas propias de los miembros**.
+Hasta entonces el diálogo dice "El uso compartido de suscripciones está desactivado."
+
 #### Apruebe en Claude
-Elija **Conectar suscripción de Claude**. A los pocos segundos aparece **Abrir Claude para aprobar** (o **Copiar enlace**,
-para abrirlo en el navegador donde tiene la sesión de Claude iniciada). Se abre la propia página de Claude: compruebe
-que muestra la cuenta que quiere usar y apruebe.
+1. Elija **Conectar suscripción de Claude**. A los pocos segundos el diálogo muestra **Abrir Claude para aprobar**,
+   **Copiar enlace** y un cuadro vacío.
+2. Elija **Abrir Claude para aprobar**. La propia página de Claude se abre en una pestaña nueva. (Si tiene la sesión de
+   Claude iniciada en otro navegador, elija **Copiar enlace** y abra el enlace allí).
+3. En la página de Claude, inicie sesión si se lo pide, compruebe que muestra la cuenta que quiere usar y apruebe.
+   Claude muestra entonces un código.
+
+![Añadir cuenta después de Conectar suscripción de Claude: Abrir Claude para aprobar, Copiar enlace, el cuadro Pegue el código que muestra Claude después de aprobar, y Conectar](../../images/connect/ai-claude-code.webp "Apruebe en Claude y pegue el código")
 
 #### Pegue el código
-Claude muestra entonces un código. Cópielo entero (tiene un `#` en medio) en **Pegue el código que muestra Claude después
-de aprobar**. Trina AX indica **Conectado · Suscripción de Claude**.
+1. En la página de Claude, copie el código completo con su botón de copiar (tiene un `#` en medio).
+2. Vuelva a la pestaña de Trina AX, péguelo en **Pegue el código que muestra Claude después de aprobar** y elija
+   **Conectar**.
+3. Trina AX indica **Conectado · Suscripción de Claude**, y la cuenta aparece en la fila de Claude Code.
 :::
 
 Su contraseña de Claude nunca llega a Trina AX: usted inicia sesión en la propia página de Claude, y Trina AX solo guarda
@@ -127,8 +138,10 @@ En **Administración › Proveedores de IA**, elija **Añadir cuenta** en la fil
 ![Añadir cuenta con Plan de ChatGPT elegido: Nombre, Usada por, el aviso con su casilla e Iniciar sesión](../../images/connect/ai-chatgpt.webp "Plan de ChatGPT")
 
 #### Escriba el código en OpenAI
-Trina AX muestra **Abra la página de inicio de sesión de ChatGPT** e **Introduzca este código (en 15 minutos)**. Abra la
-página, inicie sesión con la cuenta de ChatGPT, escriba el código y apruebe.
+1. Trina AX muestra **Abra la página de inicio de sesión de ChatGPT** y, debajo de **Introduzca este código (en 15
+   minutos)**, un código corto como `WXYZ-12AB3` con un botón de copiar.
+2. Abra la página. Inicie sesión en OpenAI con la cuenta de ChatGPT.
+3. Escriba o pegue allí el código y apruebe. Deje abierta la pestaña de Trina AX: avanza sola.
 
 #### Listo
 Trina AX muestra **Conectado · ChatGPT** con el nombre del plan. Si inició sesión con otra cuenta distinta de la que

@@ -29,8 +29,14 @@ Trina AX에는 두 가지를 연결해요.
 | AI가 회사 시스템(API)이나 NAVER WORKS처럼 내 로그인 앱이 필요한 서비스를 쓰게 하기 | 관리자 | **관리자 › 연결한 서비스** › **주소로 직접 추가** | [회사 API](api-connections.md) |
 | Claude나 ChatGPT에서 Trina AX 파일 쓰기 | 나 | **설정 › Trina AX MCP** | [Trina AX MCP 커넥터](../../agents/mcp-connector.md) (영어) |
 
-**설정**은 왼쪽 막대 맨 아래에 있는 내 사진을 누른 뒤 **설정**을 고르면 열려요(폰에서는 **나** 탭). 팀장과
-관리자에게는 같은 메뉴에 **관리자**도 있어요.
+### 설정과 관리자는 어디에 있나요
+
+- **설정**(내 연결): 왼쪽 막대 맨 아래의 내 사진을 누르고 **설정**을 골라요. 폰에서는 **나** 탭을 열어요. 설정은 페이지
+  위에 열리고, 목록의 **연결** 아래에 **커넥터**와 **AI 제공사**가 있어요.
+- **관리자**(팀의 연결, 팀장과 관리자용): 왼쪽 막대 맨 위의 팀 로고를 누르고 **관리자**를 골라요. [관리자](admin.md)를
+  참고해요.
+
+![내 사진을 누르면 나오는 메뉴: 내 이름과 역할, 자리 비움으로 표시(Show me as away), 상태 설정(Set your status), 설정(Settings), 로그아웃(Sign out)](../../images/settings/account-menu.webp "내 사진 메뉴")
 
 ![Acme 멤버의 설정 › 커넥터(Settings › Connectors): 둘러보기(Discover)에 Google Drive, Notion, Linear 같은 앱이 + 버튼과 함께 있고, 목록 아래에 "Not listed? Ask an admin to add it."이 있어요](../../images/connect/member-connectors.webp "설정 › 커넥터")
 
