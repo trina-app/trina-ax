@@ -111,13 +111,32 @@ export function asideSuggestedAccount(answer: Record<string, unknown>): string |
   return null
 }
 
-/** The accounts `aside account list --json` shows with browser profiles, signed-in ones first ("u2"), without `not`. */
+/** The accounts `aside account list --json` (or its plain lines, asideAccountLines) shows with browser profiles,
+ * signed-in ones first ("u2"), without `not`. */
 export function asideAccountsWithProfiles(json: string, not: string | null = null): string[] {
-  try {
-    const v = JSON.parse(json) as { accounts?: { id?: unknown; hasSession?: unknown; profileBindings?: unknown[] }[] }
-    const list = (Array.isArray(v.accounts) ? v.accounts : []).filter((a) => typeof a.id === 'number' && Array.isArray(a.profileBindings) && a.profileBindings.length > 0)
-    return list.sort((a, b) => Number(b.hasSession === true) - Number(a.hasSession === true)).map((a) => `u${a.id as number}`).filter((u) => u !== not)
-  } catch { return [] }
+  const list = asideAccountList(json).accounts.filter((a) => a.hasProfiles)
+  return list.sort((a, b) => Number(b.signedIn) - Number(a.signedIn)).map((a) => a.id).filter((u) => u !== not)
+}
+
+/** An older Aside CLI (1.26.1023, seen 2026-11-21) has no `--json` on `aside account list` ("unknown option '--json'"):
+ * its plain lines, one per account, the current one with `*` ("* u1  Local Account  signed out  profiles: none",
+ * "  u2  name@example.com  signed in  profiles: Profile 1, Profile 2", then "  provider: google"). They name profiles by
+ * label, not id, so profileIds stays empty and hasProfiles says whether it has any. null: not those lines. */
+export function asideAccountLines(text: string): ReturnType<typeof asideAccountList> | null {
+  const accounts: ReturnType<typeof asideAccountList>['accounts'] = []
+  let current: string | null = null
+  for (const line of text.split(/\r?\n/)) {
+    const m = /^\s*(\*)?\s*u(\d+)\s+(.*)$/.exec(line)
+    if (!m) continue
+    const at = m[3]!.search(/\bprofiles:/)
+    if (at < 0) continue
+    const status = m[3]!.slice(0, at)
+    const profiles = m[3]!.slice(at + 'profiles:'.length).trim()
+    const id = `u${m[2]}`
+    if (m[1]) current = id
+    accounts.push({ id, signedIn: /\bsigned in\b/i.test(status), profileIds: [], hasProfiles: profiles !== '' && !/^none$/i.test(profiles) })
+  }
+  return accounts.length ? { current, accounts } : null
 }
 
 /** Aside's profiles belong to its accounts (`aside account list`), and one `aside mcp` reaches only the profiles of the
@@ -129,16 +148,18 @@ export function asideAccountsWithProfiles(json: string, not: string | null = nul
  * nothing added on top of Aside's own interface. */
 export interface AsideProfile { profileId: string; label: string | null; connected: boolean | null; account: string }
 
-/** The accounts `aside account list --json` shows ("u0" …), each with the profile ids bound to it, and the current one. */
-export function asideAccountList(json: string): { current: string | null; accounts: { id: string; signedIn: boolean; profileIds: string[] }[] } {
+/** The accounts `aside account list --json` shows ("u0" …), each with the profile ids bound to it, and the current one
+ * (the plain lines of an older Aside CLI without --json: asideAccountLines). */
+export function asideAccountList(json: string): { current: string | null; accounts: { id: string; signedIn: boolean; profileIds: string[]; hasProfiles: boolean }[] } {
   try {
     const v = JSON.parse(json) as { currentAccountId?: unknown; accounts?: { id?: unknown; hasSession?: unknown; profileBindings?: { profileId?: unknown }[] }[] }
     const accounts = (Array.isArray(v.accounts) ? v.accounts : []).filter((a) => typeof a.id === 'number').map((a) => ({
       id: `u${a.id as number}`, signedIn: a.hasSession === true,
       profileIds: (Array.isArray(a.profileBindings) ? a.profileBindings : []).map((b) => (typeof b?.profileId === 'string' ? b.profileId : '')).filter(Boolean),
+      hasProfiles: Array.isArray(a.profileBindings) && a.profileBindings.length > 0,
     }))
     return { current: typeof v.currentAccountId === 'number' ? `u${v.currentAccountId}` : null, accounts }
-  } catch { return { current: null, accounts: [] } }
+  } catch { return asideAccountLines(json) ?? { current: null, accounts: [] } }
 }
 
 /** The profiles in a browser_profiles answer or in `aside host profiles --json` ({"profiles":[{profileId,label,connected}]}),
@@ -694,14 +715,14 @@ export class LocalApps {
    * older Aside without it: the profile ids its account list binds to the account). */
   private async asideList(team: string, call: LocalCall, mine: NonNullable<ReturnType<typeof asideProfilesIn>>): Promise<{ main: string | null; all: AsideProfile[] }> {
     const ck = this.k(team, call.connectionId)
-    const list = asideAccountList(await this.runAside(team, call, ['account', 'list', '--json']))
+    const list = asideAccountList(await this.asideAccountsOut(team, call))
     if (list.current) this.asideCurrent.set(ck, list.current)
     // a plain `aside mcp` keeps the account it took at its first call: Aside's current one the first time it is read
     const r = this.running.get(ck)
     if (r && !r.exited && !r.account && !r.pinned && list.current) r.pinned = list.current
     const main = r && !r.exited ? this.asideMain(r, ck) : list.current ?? this.asideCurrent.get(ck) ?? null
     const mineIds = new Set(mine.map((p) => p.profileId))
-    const others = await Promise.all(list.accounts.filter((a) => a.id !== main && a.profileIds.length > 0).map(async (a) => {
+    const others = await Promise.all(list.accounts.filter((a) => a.id !== main && a.hasProfiles).map(async (a) => {
       const listed = asideProfilesIn(await this.runAside(team, call, ['host', 'profiles', '--account', a.id, '--json']))
       return (listed ?? a.profileIds.map((profileId) => ({ profileId, label: null, connected: null }))).map((p) => ({ ...p, account: a.id }))
     }))
@@ -732,7 +753,14 @@ export class LocalApps {
 
   /** The listed Aside's accounts with browser profiles (`aside account list --json`, the same program, no shell). */
   private async asideAccounts(team: string, call: LocalCall, not: string | null): Promise<string[]> {
-    return asideAccountsWithProfiles(await this.runAside(team, call, ['account', 'list', '--json']), not)
+    return asideAccountsWithProfiles(await this.asideAccountsOut(team, call), not)
+  }
+
+  /** What `aside account list --json` printed; an older Aside CLI without --json fails it, so then its plain lines
+   * (`aside account list`, asideAccountLines). */
+  private async asideAccountsOut(team: string, call: LocalCall): Promise<string> {
+    const json = await this.runAside(team, call, ['account', 'list', '--json'])
+    return json.trim() ? json : this.runAside(team, call, ['account', 'list'])
   }
 
   /** The listed Aside program once with these arguments (no shell, 10 s at most): what it printed ('' when it failed). */
