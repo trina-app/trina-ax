@@ -42,18 +42,24 @@ function rowOwn(r: Row, userId: string, chatId: string): boolean {
  * Is every item of the plan the AI's own in this chat (see the head of this file)? `why`: the first item that is not,
  * for the audit line. Reads the history and lstat only.
  */
+/** The recorded history of `rel` and everything below it, when all of it is this person's in this chat (the first half
+ * of ownMade, without the disk: cheap, so a path that is not own is told before anything is walked). */
+export function ownHistory(db: Database, o: { userId: string; chatId: string }, rel: string): { own: true; firstAt: number; recorded: Set<string> } | { own: false; why: string } {
+  // the item and everything below it: "<rel>/" up to "<rel>0" ('0' follows '/')
+  const rows = db.query('SELECT e.path, e.action, e.user_id, e.detail, e.at, t.chat_id FROM file_events e LEFT JOIN turns t ON t.id = e.turn_id WHERE e.path = ? OR (e.path >= ? AND e.path < ?) ORDER BY e.id').all(rel, rel + '/', rel + '0') as Row[]
+  if (!rows.length) return { own: false, why: `${rel}: no recorded history` }
+  if (rows[0]!.action !== 'create') return { own: false, why: `${rel}: its history does not start with a create` }
+  const bad = rows.find((r) => !rowOwn(r, o.userId, o.chatId))
+  if (bad) return { own: false, why: `${rel}: ${bad.path} was changed by someone else or outside this chat` }
+  return { own: true, firstAt: Date.parse(rows[0]!.at), recorded: new Set(rows.map((r) => r.path)) }
+}
+
 export function ownMade(db: Database, teamRoot: string, o: { userId: string; chatId: string }, plan: Pick<AiTrashPlan, 'items'>): { own: true } | { own: false; why: string } {
   if (!plan.items.length) return { own: false, why: 'nothing planned' }
-  const q = db.query('SELECT e.path, e.action, e.user_id, e.detail, e.at, t.chat_id FROM file_events e LEFT JOIN turns t ON t.id = e.turn_id WHERE e.path = ? OR (e.path >= ? AND e.path < ?) ORDER BY e.id')
   for (const item of plan.items) {
-    // the item and everything below it: "<rel>/" up to "<rel>0" ('0' follows '/')
-    const rows = q.all(item.rel, item.rel + '/', item.rel + '0') as Row[]
-    if (!rows.length) return { own: false, why: `${item.rel}: no recorded history` }
-    if (rows[0]!.action !== 'create') return { own: false, why: `${item.rel}: its history does not start with a create` }
-    const bad = rows.find((r) => !rowOwn(r, o.userId, o.chatId))
-    if (bad) return { own: false, why: `${item.rel}: ${bad.path} was changed by someone else or outside this chat` }
-    const firstAt = Date.parse(rows[0]!.at)
-    const recorded = new Set(rows.map((r) => r.path))
+    const hist = ownHistory(db, o, item.rel)
+    if (!hist.own) return hist
+    const { firstAt, recorded } = hist
     const born = new Map<string, boolean>()
     const bornLater = (rel: string) => {
       let b = born.get(rel)

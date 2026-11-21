@@ -109,6 +109,8 @@ describe('a project chat has a scratch folder ($TRINA_WORK)', () => {
     expect(run.settings.filesystem.allowWrite).toContain(w)
     const named = [...run.settings.filesystem.allowRead, ...run.settings.filesystem.allowWrite]
     expect(named.some((p) => p === scratch() || p.startsWith(path.join(base, 'devenv', 'work') + '/'))).toBe(false)
+    // read, list, glob and grep reach it as chat:work/ there too (review M3)
+    expect(workFolderAt(h.ctx, { userId: 'alice', chatId: chat, project: P, shared: sharedRun(['alice', 'bob'], P.folderPath) })?.path).toBe(w)
     // other people in the chat (bob left it): another folder
     const n = runs.length
     await shell({ shared: sharedRun(['alice'], P.folderPath) }).call('echo ok')
@@ -184,6 +186,15 @@ describe('the bulk guard', () => {
     fs.rmSync(abs(`${P.folderPath}/docs`), { recursive: true, force: true })
   })
 
+  test('what else changed while the card waited (a job writing) is recorded as background, not lost (review M2)', async () => {
+    const s = shell({ keep: async () => { fs.writeFileSync(abs(`${P.folderPath}/job-out.txt`), 'job\n'); return false } })
+    await s.call(make(600, 'm2/x'))
+    expect(fs.existsSync(abs(`${P.folderPath}/m2`))).toBe(false)
+    const row = h.ctx.db.query("SELECT detail FROM file_events WHERE path = ? AND action = 'create' ORDER BY id DESC LIMIT 1").get(`${P.folderPath}/job-out.txt`) as { detail: string } | null
+    expect(JSON.parse(row!.detail)).toMatchObject({ via: 'dev_env', background: true })
+    fs.rmSync(abs(`${P.folderPath}/job-out.txt`), { force: true })
+  })
+
   test('a sub-agent cannot keep them: no card, they move', async () => {
     let asked = 0
     const s = shell({ keep: async () => { asked++; return true } })
@@ -213,6 +224,8 @@ describe('the bulk guard', () => {
     fs.mkdirSync(path.join(root, 'p/new/deep'), { recursive: true })
     const ch = (p: string) => ({ path: `p/${p}`, action: 'create' as const, before: null, after: null, size: 1 })
     expect(movableRoots(root, 'p', [ch('new/deep/a'), ch('new/b'), ch('old/c'), ch('top.txt')], t0)).toEqual(['new', 'old/c', 'top.txt'])
+    // a teammate's file saved into the new folder during the command: that folder never moves whole (review L2)
+    expect(movableRoots(root, 'p', [ch('new/deep/a'), ch('new/b')], t0, ['p/new/deep/a', 'p/new/b', 'p/new/theirs.md'])).toEqual(['new/b', 'new/deep'])
     fs.rmSync(root, { recursive: true, force: true })
   })
 })
@@ -303,7 +316,7 @@ describe('delete_files and the AI\'s own files', () => {
     for (let i = 0; i < 260; i++) { put(`${rel}/f${i}.txt`); ev(t, 'alice', `${rel}/f${i}.txt`) }
     const { exec, main } = execOf()
     const r = await deleteFilesTool(exec).call({ paths: [rel] }, main)
-    expect(r.isError).toBeUndefined()
+    expect(r.isError, out(r as never)).toBeUndefined()
     expect(fs.existsSync(abs(rel))).toBe(false)
   })
 

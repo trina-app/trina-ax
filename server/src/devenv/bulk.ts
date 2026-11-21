@@ -24,6 +24,9 @@ export const BULK_FILES = 500
 /** new bytes of one answer in a project folder before the card (200 MB) */
 export const BULK_BYTES = 200 * 1024 * 1024
 
+/** how long the bulk card waits: the project folder's other commands wait while it is open (no answer: the files move) */
+export const BULK_CARD_MS = 120_000
+
 /** What one answer's commands added to project folders so far, and whether the person said keep. */
 export interface BulkState { files: number; bytes: number; kept: boolean }
 export const newBulkState = (): BulkState => ({ files: 0, bytes: 0, kept: false })
@@ -55,8 +58,16 @@ export function overBulk(st: BulkState, files: number, bytes: number): boolean {
  * that was born while the command ran (birth time at or after `startedMs`), else the file itself. Nested ones go once.
  * Only lstat on the server (nothing followed, nothing opened).
  */
-export function movableRoots(teamRoot: string, project: string, created: readonly Change[], startedMs: number): string[] {
+export function movableRoots(teamRoot: string, project: string, created: readonly Change[], startedMs: number, present: Iterable<string> = []): string[] {
   const projAbs = path.join(teamRoot, project)
+  // a folder that holds any file this command did not create (a teammate's save during the command) never moves whole
+  const made = new Set(created.map((c) => c.path))
+  const mixed = new Set<string>()
+  for (const p of present) {
+    if (made.has(p) || !p.startsWith(project + '/')) continue
+    const parts = p.slice(project.length + 1).split('/')
+    for (let i = 1; i < parts.length; i++) mixed.add(parts.slice(0, i).join('/'))
+  }
   const born = new Map<string, boolean>()
   const bornNow = (rel: string) => {
     let b = born.get(rel)
@@ -74,7 +85,7 @@ export function movableRoots(teamRoot: string, project: string, created: readonl
     let root = rel
     for (let i = 1; i < parts.length; i++) {
       const d = parts.slice(0, i).join('/')
-      if (bornNow(d)) { root = d; break }
+      if (!mixed.has(d) && bornNow(d)) { root = d; break }
     }
     roots.add(root)
   }
@@ -99,12 +110,12 @@ export function moveScript(listName: string, dest: string): string {
  * Returns the team paths that are gone from the project folder now (the window leaves them out of its record) and
  * where they went (`$TRINA_WORK/<dest>`), or why nothing moved.
  */
-export async function moveToScratch(ctx: AppContext, o: { space: Space; project: string; created: readonly Change[]; startedMs: number; signal?: AbortSignal }): Promise<{ moved: Set<string>; dest: string } | { moved: Set<string>; error: string }> {
+export async function moveToScratch(ctx: AppContext, o: { space: Space; project: string; created: readonly Change[]; startedMs: number; present?: readonly string[]; signal?: AbortSignal }): Promise<{ moved: Set<string>; dest: string } | { moved: Set<string>; error: string }> {
   const none = new Set<string>()
   const c = srtConfig()
   const scratch = scratchOf(ctx, c, o.space, undefined, true)
   if (!scratch) return { moved: none, error: 'this chat has no work folder now' }
-  const roots = movableRoots(ctx.files.fx.root, o.project, o.created, o.startedMs)
+  const roots = movableRoots(ctx.files.fx.root, o.project, o.created, o.startedMs, o.present ?? [])
   if (!roots.length) return { moved: none, error: 'nothing to move' }
   const stamp = new Date().toISOString().replace(/[-:]/g, '').replace(/\..*$/, '').replace('T', '-')
   const dest = `from-project/${stamp}`
@@ -114,21 +125,26 @@ export async function moveToScratch(ctx: AppContext, o: { space: Space; project:
   try { fs.writeFileSync(path.join(scratch, listName), roots.map((r) => r + '\0').join(''), { flag: 'wx', mode: 0o600 }) } catch (e) { return { moved: none, error: `the list could not be written (${(e as Error).message})` } }
   const r = await runCommand(ctx, { space: o.space, cwd: '', command: moveScript(listName, dest), shown: 'move new files to the work folder', timeoutMs: 600_000, ...(o.signal ? { signal: o.signal } : {}) })
   try { fs.rmSync(path.join(scratch, listName), { force: true }) } catch {}
-  if (!r.ok) return { moved: none, error: r.message.slice(0, 300) }
-  // what is gone from the project folder now (lstat only): every created file under a root that went
+  // what is gone from the project folder now (lstat only), also after a failed or stopped move (part of it may have
+  // gone): every created file under a root that went
   const projAbs = path.join(ctx.files.fx.root, o.project)
-  const gone = new Set(roots.filter((rel) => { try { fs.lstatSync(path.join(projAbs, rel)); return false } catch { return true } }))
+  const gone = roots.filter((rel) => { try { fs.lstatSync(path.join(projAbs, rel)); return false } catch { return true } })
   const moved = new Set<string>()
   for (const ch of o.created) {
     const rel = ch.path.slice(o.project.length + 1)
-    if ([...gone].some((g) => rel === g || rel.startsWith(g + '/'))) moved.add(ch.path)
+    if (gone.some((g) => rel === g || rel.startsWith(g + '/'))) moved.add(ch.path)
   }
+  if (!r.ok) return { moved, error: r.message.slice(0, 300) }
   if (!moved.size) return { moved, error: r.value.stderr.slice(0, 300) || 'nothing moved' }
   return { moved, dest }
 }
 
 /** The audit row of a bulk decision. */
 export function auditBulk(ctx: AppContext, o: { userId: string; turnId: string; chatId: string | null; projectId: string | null; files: number; bytes: number; decision: 'keep' | 'move' | 'kept_before' | 'move_failed'; asked: boolean; moved?: number; dest?: string }) {
+  // never throws: after a move the window must still leave out what went
+  try { auditRow(ctx, o) } catch (e) { ctx.log?.warn?.('dev env bulk audit row failed', { err: e }) }
+}
+function auditRow(ctx: AppContext, o: Parameters<typeof auditBulk>[1]) {
   audit(ctx.db, { actor: o.userId, action: 'dev_env.bulk_files', target: o.projectId, detail: { turnId: o.turnId, chatId: o.chatId, files: o.files, bytes: o.bytes, decision: o.decision, asked: o.asked, ...(o.moved !== undefined ? { moved: o.moved } : {}), ...(o.dest ? { dest: o.dest } : {}) } })
 }
 

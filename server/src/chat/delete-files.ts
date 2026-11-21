@@ -33,7 +33,7 @@ import { readRooms } from './read-rooms'
 import type { Tool } from './tools'
 import type { TurnExec } from './turn'
 import { alwaysHere, withAlways } from './always-allow'
-import { ownMade, OWN_TRASH_MAX_ENTRIES } from './own-files'
+import { ownHistory, ownMade, OWN_TRASH_MAX_ENTRIES } from './own-files'
 
 export const DELETE_FILES_TOOL = 'delete_files'
 
@@ -173,6 +173,8 @@ export function deleteCard(plan: AiTrashPlan, L: Locale, timeZone: string, now =
 
 export function deleteFilesTool(exec: DeleteExec): Tool {
   const { rt, spec } = exec
+  /** the last own-files plan (ownPlan), kept a moment between the up-front check and the call */
+  let lastOwn: { key: string; at: number; plan: AiTrashPlan | null } | null = null
   // a guest (credentials/guest-ai.ts): the card, the result and the refusals say what a guest can reach
   const guest = isGuestUser(rt.db, spec.userId)
   const state = (): CardState => { let s = cardStates.get(exec); if (!s) cardStates.set(exec, s = { declined: false, open: false }); return s }
@@ -218,6 +220,7 @@ export function deleteFilesTool(exec: DeleteExec): Tool {
 
   /** The AI's own files go to the trash at once (the moves check the plan again: TeamFiles.trashAiPlan). */
   function trashOwn(plan: AiTrashPlan, auditCall: Audit) {
+    lastOwn = null
     const svc = componentC(rt.ctx).files
     const user = exec.livePrincipal()
     // the history again right before the move: the plan was made a moment ago, a teammate may have saved since
@@ -245,14 +248,23 @@ export function deleteFilesTool(exec: DeleteExec): Tool {
     return { content: [{ type: 'text' as const, text }], summary: `${DELETE_FILES_TOOL} -> ${done.trashed.length}/${plan.items.length} of the AI's own files to the trash (${plan.entries} entries, no card)` }
   }
 
-  /** The plan of these paths when every item is the AI's own in this chat (chat/own-files.ts), else null. */
+  /** The plan of these paths when every item is the AI's own in this chat (chat/own-files.ts), else null. The history
+   * is checked first (cheap), and only then is anything walked; the plan is kept a moment for the call right after the
+   * up-front check (refuse, then call) and made again after that. */
   function ownPlan(paths: readonly string[]): AiTrashPlan | null {
+    const key = JSON.stringify(paths)
+    if (lastOwn && lastOwn.key === key && Date.now() - lastOwn.at < 5_000) return lastOwn.plan
+    let plan: AiTrashPlan | null = null
     try {
       const user = exec.livePrincipal()
-      const planned = componentC(rt.ctx).files.planAiTrash(user.id, paths, { maxEntries: OWN_TRASH_MAX_ENTRIES })
-      if ('refused' in planned) return null
-      return ownMade(rt.db, rt.files.fx.root, { userId: user.id, chatId: spec.chatId }, planned.plan).own ? planned.plan : null
-    } catch { return null }
+      const who = { userId: user.id, chatId: spec.chatId }
+      if (paths.every((p) => ownHistory(rt.db, who, p.replace(/^\/+|\/+$/g, '')).own)) {
+        const planned = componentC(rt.ctx).files.planAiTrash(user.id, paths, { maxEntries: OWN_TRASH_MAX_ENTRIES, noHistory: true })
+        if (!('refused' in planned) && ownMade(rt.db, rt.files.fx.root, who, planned.plan).own) plan = planned.plan
+      }
+    } catch { plan = null }
+    lastOwn = { key, at: Date.now(), plan }
+    return plan
   }
 
   async function run(args: unknown, files: unknown, auditCall: Audit) {

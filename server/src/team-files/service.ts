@@ -1686,8 +1686,9 @@ export class TeamFiles {
    * spelling of the same entry) and items inside a listed folder go once. Every entry is walked and counted, inside
    * folders too, and the walk stops past AI_TRASH_MAX_ENTRIES (a ToolError). Nothing changes.
    */
-  planAiTrash(userId: string, paths: readonly string[], o: { maxEntries?: number } = {}): { plan: AiTrashPlan } | { refused: { path: string; error: string }[] } {
-    // the AI's own files of this chat (chat/own-files.ts) may go in larger numbers: the caller checks that first
+  planAiTrash(userId: string, paths: readonly string[], o: { maxEntries?: number; noHistory?: boolean } = {}): { plan: AiTrashPlan } | { refused: { path: string; error: string }[] } {
+    // the AI's own files of this chat (chat/own-files.ts) may go in larger numbers: the caller checks that first. Their
+    // plan needs no "made or changed by others" (noHistory: own files have nobody else in their history, checked there)
     const max = o.maxEntries ?? AI_TRASH_MAX_ENTRIES
     const user = this.principal(userId)
     const rules = this.rules()
@@ -1729,7 +1730,7 @@ export class TeamFiles {
       }
       const aud = this.aiAudience(rules, user.id, f.r.segs)
       for (const id of aud.readers) { lost.add(id); if (!aud.writers.includes(id)) noRestore.add(id) }
-      for (const e of entries) if (e.kind === 'file') this.historyPeople(user, rules, e.rel ? `${f.r.rel}/${e.rel}` : f.r.rel, others)
+      if (!o.noHistory) for (const e of entries) if (e.kind === 'file') this.historyPeople(user, rules, e.rel ? `${f.r.rel}/${e.rel}` : f.r.rel, others)
       items.push({
         rel: f.r.rel, kind: f.isDir ? 'folder' : 'file',
         files: f.isDir ? entries.filter((e) => e.kind !== 'dir').length : 0, folders: entries.filter((e) => e.rel && e.kind === 'dir').length,

@@ -40,7 +40,7 @@ import { addTicket, armTicket, commandWaitFor, FULL_MESSAGE, releaseCommand, wai
 import { newId } from '../db'
 import { inOthersSkills } from '../skills/script-copies'
 import { hideProxyLogin } from './srt/proxy-login'
-import { auditBulk, bulkFolders, mb, moveToScratch, newBulkState, overBulk, type BulkAsk, type BulkState } from './bulk'
+import { auditBulk, BULK_FILES, bulkFolders, mb, moveToScratch, newBulkState, overBulk, type BulkAsk, type BulkState } from './bulk'
 
 export const BOX_SHELL_TOOL = 'box_shell'
 
@@ -126,7 +126,7 @@ export const sharedShellDescription = (project: boolean) => 'Run a shell command
  * $TRINA_WORK next to the project folder; only finished files go into the team's folder. */
 export const PROJECT_SCRATCH_TEXT = 'Put downloads, git clones, tools and their installs (a venv, node_modules), previews and every other scratch file in $TRINA_WORK, and run downloaded code from there. '
   + 'Put only the finished files the person asked for (the deck, the PDF) in the project folder, for example cp $TRINA_WORK/out/deck.pptx ./; never a downloaded repository or tool, and nothing into the team\'s skills or another team folder, unless the person asks for exactly that. Say where third-party code came from and its licence. '
-  + 'When one answer adds many new files to the project folder, the person is asked whether to keep them there or move them to $TRINA_WORK. '
+  + 'A download or clone as a job (job=true) goes in $TRINA_WORK too: cd $TRINA_WORK first. When one answer adds many new files to the project folder, the person is asked whether to keep them there or move them to $TRINA_WORK. '
 
 /** this server shows previews: a preview origin is set and the runner can forward a port (systemd scopes) */
 export const previewReady = () => !!previewBase() && previewSupported()
@@ -283,13 +283,17 @@ async function srtShell(h: BoxShellHost, input: BoxShellInput, o: { space: Space
   if (o.tracked) {
     const tracked = o.tracked
     w = await withChangeWindow(ctx, tracked, { userId: h.userId, turnId: h.turnId }, { command: input.command.slice(0, 500) }, run, {
-      bulk: (changes, startedMs) => bulkGuard(h, { space, project: tracked, changes, startedMs, notes }),
+      bulk: (changes, startedMs, present) => bulkGuard(h, { space, project: tracked, changes, startedMs, present, notes }),
     }).finally(() => slot?.release())
     // a sub-agent's command does not use up the main AI's "changed by other people" note or the login card's check
     // (both are the main AI's; the helper never sees the card)
     if (!h.helper) markSeen(ctx, o.tracked.id, h.userId)
   } else w = { ...NO_WINDOW, value: await run() }
   notes.push(...await o.jobNotes())
+  // a job or dev server that added many files to the project folder since the last command (not guarded: moving a
+  // running job's files would break it): the AI is told where such output belongs
+  const bgNew = o.tracked ? w.background.filter((c) => c.action === 'create').length : 0
+  if (bgNew > BULK_FILES) notes.push(`A job or dev server of this project added ${bgNew} new files to the project folder since the last command. Downloads, clones and other scratch belong in $TRINA_WORK: tell the person, and use $TRINA_WORK for such jobs from now on.`)
   const out = w.value
   const result = !out.r.ok ? { error: out.r.message.slice(0, 300) }
     : out.kind === 'exit' && out.r.ok ? { code: out.r.value.code, signal: out.r.value.signal, ms: out.r.value.ms }
@@ -350,7 +354,7 @@ async function srtShell(h: BoxShellHost, input: BoxShellInput, o: { space: Space
  * the person whether to keep them; no answer or "move" moves the command's new files to the chat's scratch folder.
  * Returns the team paths that went (the window does not record them). The AI gets a note either way.
  */
-async function bulkGuard(h: BoxShellHost, o: { space: Space; project: ProjectRef; changes: Change[]; startedMs: number; notes: string[] }): Promise<Set<string>> {
+async function bulkGuard(h: BoxShellHost, o: { space: Space; project: ProjectRef; changes: Change[]; startedMs: number; present: readonly string[]; notes: string[] }): Promise<Set<string>> {
   const st = h.bulk ?? newBulkState()
   const created = o.changes.filter((c) => c.action === 'create')
   const bytes = created.reduce((n, c) => n + (c.size ?? 0), 0)
@@ -367,7 +371,7 @@ async function bulkGuard(h: BoxShellHost, o: { space: Space; project: ProjectRef
     o.notes.push(`The person chose to keep the ${created.length} new files (${mb(bytes)} MB) of this command in the project folder.`)
     return none
   }
-  const r = await moveToScratch(h.ctx, { space: o.space, project: o.project.folderPath, created, startedMs: o.startedMs, signal: h.signal })
+  const r = await moveToScratch(h.ctx, { space: o.space, project: o.project.folderPath, created, startedMs: o.startedMs, present: o.present, signal: h.signal })
   const left = created.filter((c) => !r.moved.has(c.path))
   st.files += left.length; st.bytes += left.reduce((n, c) => n + (c.size ?? 0), 0)
   if ('error' in r) {

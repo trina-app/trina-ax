@@ -21,8 +21,10 @@
 - **Rule 2, bulk guard:** when one answer's commands add more than 500 files or 200 MB of new files to a project folder,
   the command that crosses the line asks the person before its new files are recorded: keep them in the project folder,
   or move them to this chat's work folder (`$TRINA_WORK/from-project/<time>/`). "Always allow" (kind `bulk_files`) is
-  on the first card and keeps them without asking from then on (the owner's Rule A: Always allow is final). No answer
-  (a scheduled run without that choice, a sub-agent, a timeout) moves them. Only the files that command created move,
+  on the first card and keeps them without asking from then on (the owner's Rule A: Always allow is final). The card
+  waits 2 minutes (the project's other commands wait meanwhile); no answer (a scheduled run without that choice, a
+  sub-agent, the timeout) moves them. A folder born during the command moves whole only when every file in it is the
+  command's; what else changed while the card waited (a job's output) is recorded as background, not lost. Only the files that command created move,
   in the sandbox (a command with the AI's own folders), never by a server rename; a changed file never moves.
 - **Rule 3, the summary card:** an answer's file summary lists at most 100 files; the rest come as a count per folder
   (`FileChangeSummary.more`). The header says the full count. A viewer of a shared chat sees only the folders whose files
@@ -38,7 +40,9 @@
   to keep. The guard catches a command that ignores the tool text; the card keeps the person's say, and Always allow
   ends the asking.
 - **Left out:** a guard while a command runs (it acts at the end, before the files are recorded); changes found between
-  commands (a job's output) are not guarded; folders the snapshot skips (node_modules, .venv …) are not counted. The
+  commands (a job's output) are not moved, since that would break a running job: the AI gets a note when a job added
+  more than 500 files, and the tool text sends job downloads to `$TRINA_WORK`; folders the snapshot skips
+  (node_modules, .venv …) are not counted. The
   files already on potenlab are not touched: the owner deletes `projects/테스트 프로젝트/_tools` on the Files screen.
 - **Tests:** `tests/unit/ai-scratch-files.test.ts` (scratch folder in project runs, tool text, bulk guard and move,
   summary cap, own-file deletes) and `tests/unit/ai-scratch-files-security.test.ts`.

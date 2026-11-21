@@ -330,8 +330,10 @@ function noteSharedRun(ctx: AppContext, space: Space, run: RunWrites, s: SharedS
   if (!s || !p) throw new Error('the person cannot use the dev environment now')
   const folders = sharedReadable(ctx.files.rules(), p, run, s, projectZoneFolders(ctx.files.fx.root).map((z) => z.join('/')))
   if (!space.shared.noteReads(folders, s.audience.map((q) => q.id))) throw new Error('what this command may read could not be recorded')
-  // a shared chat's work folder: what the server copied into it for these people joins the answer again
-  if (run.start === null && space.chatId && !noteCopiedIn(space.shared, space.chatId, space.root)) throw new Error('what was copied into this work folder could not be recorded')
+  // a shared chat's work folder (a shared project chat's scratch folder too): what the server copied into it for these
+  // people joins the answer again
+  const workRoot = run.start === null ? space.root : scratchOf(ctx, srtConfig(), space, s)
+  if (workRoot && space.chatId && !noteCopiedIn(space.shared, space.chatId, workRoot)) throw new Error('what was copied into this work folder could not be recorded')
 }
 
 /** What was copied into a shared chat's work folder (`workRoot`, its folder for one key: sharedWorkOf) joins this

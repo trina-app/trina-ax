@@ -129,6 +129,8 @@ export interface ConfirmExtra {
   /** the kind of card this is for "Always allow" (chat/always-allow.ts): a yes / no card of the turn's person offers it,
    * and once picked, the card is not raised again (confirm and confirmWhy answer yes at once) */
   always?: CardAlwaysKind
+  /** a shorter wait than the turn's card timeout (no answer by then: the card ends as unanswered) */
+  timeoutMs?: number
 }
 
 /** The person behind a chat turn, as far as a tool needs them. */

@@ -146,7 +146,8 @@ function workSources(exec: TurnExec, wf: WorkFolder | null): ReadSource[] {
 function noteWorkRead(exec: TurnExec): boolean {
   const d = exec.devEnv
   if (!d?.shared) return true
-  const space = spaceOf(exec.rt.ctx, { userId: exec.spec.userId, chatId: exec.spec.chatId, project: null, shared: d.shared })
+  // a shared project chat: its runs' space (the project folder) with its scratch folder (srt/runner.ts scratchOf)
+  const space = spaceOf(exec.rt.ctx, { userId: exec.spec.userId, chatId: exec.spec.chatId, project: d.project ? { id: d.project.id, folderPath: d.project.folderPath } : null, shared: d.shared })
   if (!space || !noteSharedReads(exec.rt.ctx, space)) return false
   addSources(exec.rt.db, exec.spec.chatId, [{ type: 'chat', id: exec.spec.chatId }])
   return true

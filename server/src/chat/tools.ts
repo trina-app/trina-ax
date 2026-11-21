@@ -83,7 +83,7 @@ import { SHARE_JUDGE_REFUSAL } from '../skills/share-judge'
 import { FILE_RANK_REFUSAL } from '../onboarding/file-rank'
 import { mergeTargets, SHARE_MERGE_REFUSAL } from '../skills/share-merge'
 import { deleteFilesTool } from './delete-files'
-import { bulkCard } from '../devenv/bulk'
+import { BULK_CARD_MS, bulkCard } from '../devenv/bulk'
 import { placeWords } from './place-words'
 import { projectMembersTool } from './project-members'
 import { folderAccessOff, folderAccessTool } from './folder-access-tool'
@@ -321,7 +321,8 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
       // on (kind bulk_files); a scheduled run asks nobody (false unless that choice was made)
       keepBulk: async (ask) => {
         const card = bulkCard(ask, exec.spec.locale, (p) => placeWords(exec.rt.db, p, exec.spec.locale, exec.spec.userId))
-        return person.confirm(card.question, card.keep, card.move, { always: 'bulk_files', details: card.details })
+        // a short wait: the project's other commands wait while the card is open (no answer: the files move)
+        return person.confirm(card.question, card.keep, card.move, { always: 'bulk_files', details: card.details, timeoutMs: BULK_CARD_MS })
       },
       confirm: async (question, options, details) => (person.choose
         ? person.choose(question, options, { details: [{ label: 'Changes', text: details.join('\n') }] })
@@ -619,7 +620,8 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
       if (work && exec.shared && exec.files.workFolder?.()) {
         if (!(caller ? caller.files === exec.files : true)) return { refusal: 'Only the main assistant opens the work folder.', summary: `${name} -> refused: work folder (sub-agent)` }
         const d = exec.devEnv
-        const space = d?.shared ? spaceOf(exec.rt.ctx, { userId: exec.spec.userId, chatId: exec.spec.chatId, project: null, shared: d.shared }) : null
+        // a shared project chat: its runs' space (the project folder) with its scratch folder (srt/runner.ts scratchOf)
+        const space = d?.shared ? spaceOf(exec.rt.ctx, { userId: exec.spec.userId, chatId: exec.spec.chatId, project: d.project ? { id: d.project.id, folderPath: d.project.folderPath } : null, shared: d.shared }) : null
         if (!space || !noteSharedReads(exec.rt.ctx, space)) return { refusal: 'The work folder of this chat cannot be opened now (the people of this chat changed, or the dev environment is off).', summary: `${name} -> refused: work folder not recorded (shared chat)` }
         addSources(exec.rt.db, exec.spec.chatId, [{ type: 'chat', id: exec.spec.chatId }])
       }
@@ -768,13 +770,14 @@ const LIVE_CLIENTS: ReadonlySet<string> = new Set(['web', 'desktop', 'mobile'])
 export function turnPerson(exec: TurnExec): TurnPerson {
   // the value picked (one of the card's own answers, never free text), or null with why there was none
   const pick = async (question: string, options: { label: string; value: string }[], extra?: ConfirmExtra): Promise<{ value: string | null; missing: CardAnswer['missing'] }> => {
+    const wait = extra?.timeoutMs ? Math.min(extra.timeoutMs, exec.rt.askUserTimeoutMs()) : exec.rt.askUserTimeoutMs()
     const { value: answer, missing } = await exec.askPerson({
       kind: 'ask_user', origin: 'server', requestId: uuidv7(), question, options,
-      multiple: false, allowText: false, expiresAt: new Date(Date.now() + exec.rt.askUserTimeoutMs()).toISOString(),
+      multiple: false, allowText: false, expiresAt: new Date(Date.now() + wait).toISOString(),
       ...(extra?.details?.length ? { details: extra.details } : {}),
       ...(extra?.buttons && options.length === 3 ? { buttons: true as const } : {}),
       ...(extra?.note ? { note: extra.note } : {}),
-    } as TurnRequest, { timeoutMs: exec.rt.askUserTimeoutMs() })
+    } as TurnRequest, { timeoutMs: wait })
     const v = Array.isArray(answer) && answer.length === 1 ? answer[0] : answer
     return { value: typeof v === 'string' && options.some((o) => o.value === v) ? v : null, missing }
   }
