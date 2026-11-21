@@ -11,6 +11,8 @@
 //   changed in place by edit_pdf without output (stamp-pdf.ts madeThisTurn; docs/decisions/20261117-stamp-own-fresh-pdf.md);
 // - every result carries the bytes of what it is made from: the wider-audience check of make_file (confirmSources);
 // - never into a skill folder.
+import { authorizeOutput } from '../files/place-output'
+import { isReservedPlace } from '@mycel/shared/places'
 import fs from 'node:fs'
 import { pdfOutputPath } from './make-file-path'
 import path from 'node:path'
@@ -119,7 +121,7 @@ function target(files: TeamFiles, c: ToolCtx, output: string | undefined, dir: s
   if (output !== undefined && output.trim() !== '') {
     rel = pdfOutputPath(output)
   } else rel = [...dir, freeName(path.join(files.fx.root, ...dir), `${base.replace(/\.pdf$/i, '')} (${word}).pdf`)].join('/')
-  const out = authorize(files.fx, files.rules(), c.user, rel, 'write', { mustExist: false, createDirs: true })
+  const out = authorizeOutput(files.fx, files.rules(), c, rel, { mustExist: false, createDirs: true })
   if (out.exists && out.st!.isDirectory()) throw new ToolError(`'${out.rel}' is a folder; give a file name ending in .pdf`, 'is_folder')
   if (skillRootOf(out.rel)) throw new ToolError('a PDF made here is not saved in a skill folder; save it in a project or the person\'s own folder')
   return out
@@ -222,7 +224,9 @@ export async function splitPdfFile(ctx: AppContext, files: TeamFiles, c: ToolCtx
     }
     const word = PDF_WORDS.part[teamDefaultLocale(ctx.db)] ?? 'part'
     const base = src.rel.split('/').at(-1)!.replace(/\.pdf$/i, '')
-    const folder = a.output_folder?.trim() ? authorize(files.fx, files.rules(), c.user, a.output_folder.trim().replace(/\/+$/, ''), 'write', { mustExist: false, createDirs: true }).segs : src.rel.split('/').slice(0, -1)
+    const wanted = a.output_folder?.trim().replace(/\/+$/, '')
+    // chat:files/ as the folder: each part is attached to this answer (its output check: authorizeOutput in target())
+    const folder = wanted ? (isReservedPlace(wanted) ? wanted.split('/') : authorize(files.fx, files.rules(), c.user, wanted, 'write', { mustExist: false, createDirs: true }).segs) : src.rel.split('/').slice(0, -1)
     const outs = specs.map((_, i) => {
       const dir = path.join(files.fx.root, ...folder)
       const name = fs.existsSync(dir) ? freeName(dir, `${base} (${word} ${i + 1}).pdf`) : `${base} (${word} ${i + 1}).pdf`

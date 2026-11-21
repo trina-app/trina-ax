@@ -56,6 +56,7 @@ import { _resetQueue, cancelTicket, endOrphanTickets, grantTicket, heldCommands,
 import { directSystem, systemdSystem, type Forwarder, type SrtSystem } from './system'
 import { macConfig, macSystem } from './system-mac'
 import { END_NOTE, endRow, type EndReason } from './end'
+import { forgetCopiedIn, readCopiedIn, type CopiedGroup } from './copied-in'
 
 export const MAX_WAITING_PER_PERSON = 3
 export const MAX_WAITING_SERVER = 10
@@ -81,6 +82,10 @@ export interface SharedRun {
   /** what a run is about to read (sharedReadable), with who sees the chat as its view was made: the answer records it
    * (chat/shared-answers.ts). false: not recorded, and the run does not start */
   noteReads(folders: readonly string[], audience: readonly string[]): boolean
+  /** what was copied into this chat's work folder for its people now (srt/copied-in.ts): each group joins the answer's
+   * record again, as a group a read card's yes covered (y). false: not recorded, and the run does not start. Absent: a
+   * run that cannot record them (it does not start while the folder holds a copy) */
+  noteCopied?(groups: readonly CopiedGroup[]): boolean
 }
 export interface Space { userId: string; chatId: string | null; projectId: string | null; root: string; shared?: SharedRun
   /** a shared chat's run: the key of its logs folder (sharedLogKey), set when the run is made */
@@ -325,6 +330,21 @@ function noteSharedRun(ctx: AppContext, space: Space, run: RunWrites, s: SharedS
   if (!s || !p) throw new Error('the person cannot use the dev environment now')
   const folders = sharedReadable(ctx.files.rules(), p, run, s, projectZoneFolders(ctx.files.fx.root).map((z) => z.join('/')))
   if (!space.shared.noteReads(folders, s.audience.map((q) => q.id))) throw new Error('what this command may read could not be recorded')
+  // a shared chat's work folder: what the server copied into it for these people joins the answer again
+  if (run.start === null && space.chatId && !noteCopiedIn(space.shared, space.chatId, space.root)) throw new Error('what was copied into this work folder could not be recorded')
+}
+
+/** What was copied into a shared chat's work folder (`workRoot`, its folder for one key: sharedWorkOf) joins this
+ * answer's record again (srt/copied-in.ts): every run on that key does it (noteSharedRun), and so does every read or
+ * listing of the folder by the file tools (chat:work/). True when nothing was copied there. False when the record
+ * cannot be read or written, or this run cannot record it: the caller does not run or read (fails closed). */
+export function noteCopiedIn(shared: SharedRun | undefined, chatId: string, workRoot: string): boolean {
+  if (!shared) return true
+  let groups: CopiedGroup[]
+  try { groups = readCopiedIn(srtConfig().base, chatId, workRoot) } catch { return false }
+  if (!groups.length) return true
+  if (!shared.noteCopied) return false
+  try { return shared.noteCopied(groups) } catch { return false }
 }
 
 /** A shared chat's turn is about to give the AI results of the chat's jobs (their log tails): what a run there may read
@@ -510,7 +530,7 @@ export function dropRowRun(r: Pick<RunRow, 'shared_key' | 'chat_id' | 'user_id' 
   dropSharedRun(srtConfig(), { userId: r.user_id, chatId: r.chat_id, shared: NOBODY }, runId)
 }
 
-interface RunSpec { runId: string; space: Space; cwd: string; command: string; network: 'open' | 'offline'; once: readonly string[]; limits: { cpus: number; memoryMiB: number; pids: number }; runtimeMaxSec: number; stdoutFile: string; stderrFile: string }
+interface RunSpec { runId: string; space: Space; cwd: string; command: string; network: 'open' | 'offline'; once: readonly string[]; limits: { cpus: number; memoryMiB: number; pids: number }; runtimeMaxSec: number; stdoutFile: string; stderrFile: string; stage?: string }
 
 function prepare(c: SrtConfig, space: Pick<Space, 'userId' | 'chatId' | 'shared' | 'root' | 'logKey'>, runId: string, teamRoot: string) {
   const p = devenvPaths(c.base)
@@ -571,7 +591,7 @@ const snapshotNow = (ctx: AppContext, userId: string): NetSnapshot => netSnapsho
 
 /** The settings of a run, checked; throws with the reason when the run must not start. `once`: the sites allowed once
  * for this run (the turn's, or the row's). */
-async function settingsFor(ctx: AppContext, c: SrtConfig, space: Space, runId: string, network: 'open' | 'offline', once: readonly string[] = []) {
+async function settingsFor(ctx: AppContext, c: SrtConfig, space: Space, runId: string, network: 'open' | 'offline', once: readonly string[] = [], stage?: string) {
   const run = runWrites(ctx, c, space)
   // a shared chat: what the run may read joins the answer's record first, with who sees the chat now
   // (the view below is made for the same people as the record)
@@ -602,7 +622,10 @@ async function settingsFor(ctx: AppContext, c: SrtConfig, space: Space, runId: s
     serverPaths: serverPaths(ctx),
     connectedSources: connectedSources(ctx),
     platform: runPlatform(),
+    // a copy's stage folder: only for a run in the work folder (a copy never goes into a team folder this way)
+    stage: stage && work ? stage : null,
   }
+  if (stage && !work) throw new Error('a copy goes only into a chat\'s work folder')
   const settings = srtSettings(input)
   const problems = settingsProblems(settings, input)
   if (problems.length) {
@@ -638,7 +661,7 @@ async function spawnRun(ctx: AppContext, c: SrtConfig, s: RunSpec): Promise<{ pi
   let dropGuard = () => {}
   let unsweep = () => {}
   try {
-    const { settings, work, pins, places, hash, net } = await settingsFor(ctx, c, s.space, s.runId, s.network, s.once)
+    const { settings, work, pins, places, hash, net } = await settingsFor(ctx, c, s.space, s.runId, s.network, s.once, s.stage)
     // the pinned entries and the folders to lock, in the run's own guard folder (made new, read-only in the run, removed
     // when it ends: never the TMPDIR, which an earlier run of the person can swap for a link), done by the command's
     // first line
@@ -674,7 +697,7 @@ async function spawnRun(ctx: AppContext, c: SrtConfig, s: RunSpec): Promise<{ pi
     const sp = await c.system.spawn({
     runId: s.runId, id: c.id, cwd, env: runEnv({ base: c.base, userId: s.space.userId, teamRoot: ctx.files.fx.root, work, platform: runPlatform(), sharedChat: runOwner(s.space).sharedChat, runId: s.runId, projectFolder: runOwner(s.space, s.runId, ctx.files.fx.root).projectFolder, logKey: runOwner(s.space).logKey }),
     limits: { cpus: s.limits.cpus, memoryMiB: s.limits.memoryMiB, pids: s.limits.pids, runtimeMaxSec: s.runtimeMaxSec }, exitFile, settingsFile, command: guard ? `${guard}\n${command}` : command,
-    stdoutFile: s.stdoutFile, stderrFile: s.stderrFile, full: isFull(settings), writable: settings.filesystem.allowWrite,
+    stdoutFile: s.stdoutFile, stderrFile: s.stderrFile, full: isFull(settings), writable: settings.filesystem.allowWrite, ...(s.stage ? { readable: [s.stage] } : {}),
     ...(runPlatform() === 'darwin' && reach.length ? { reach: reach.map((t) => ({ runId: t.runId, port: t.port })) } : {}),
     })
     const bridges = bridged.length ? startBridges(ctx, c, s.runId, bridged) : null
@@ -898,7 +921,9 @@ export function runProblem(ctx: AppContext): string | null {
 }
 
 /** A foreground command: the call waits for it. The answer is a RunExit (srt/types.ts), which tool.ts reads. */
-export async function runCommand(ctx: AppContext, o: { space: Space; cwd: string; command: string; shown?: string; timeoutMs: number; signal?: AbortSignal; once?: readonly string[]; redact?: (s: string) => string }): Promise<{ ok: true; value: RunExit } | { ok: false; message: string }> {
+export async function runCommand(ctx: AppContext, o: { space: Space; cwd: string; command: string; shown?: string; timeoutMs: number; signal?: AbortSignal; once?: readonly string[]; redact?: (s: string) => string
+  /** a copy into the work folder (devenv/work-write.ts): its stage folder, read-only in this run */
+  stage?: string }): Promise<{ ok: true; value: RunExit } | { ok: false; message: string }> {
   const c = srtConfig()
   const lim = limitsFor(ctx)
   if (!lim.ok) return lim
@@ -920,7 +945,7 @@ export async function runCommand(ctx: AppContext, o: { space: Space; cwd: string
     try {
       const sp = await spawnRun(ctx, c, {
         runId, space: o.space, cwd: o.cwd, command: o.command, network: lim.l.network, once: o.once ?? [],
-        limits: lim.l, runtimeMaxSec: Math.ceil(o.timeoutMs / 1000) + 30, stdoutFile: out, stderrFile: err,
+        limits: lim.l, runtimeMaxSec: Math.ceil(o.timeoutMs / 1000) + 30, stdoutFile: out, stderrFile: err, ...(o.stage ? { stage: o.stage } : {}),
       })
       a.pid = sp.pid
       a.access = accessHashFrom(ctx, o.space.userId, sp.hash)
@@ -1099,7 +1124,7 @@ async function startRow(ctx: AppContext, row: RunRow): Promise<{ ok: true } | { 
       endRow(ctx, row.id, { code: null, reason: 'setting', tail: '', lastLine: '' })
       return { ok: false, message: 'the people of this chat or their access changed; run it again' }
     }
-    space = { ...space, shared: { ...space.shared!, noteReads: () => true } }
+    space = { ...space, shared: { ...space.shared!, noteReads: () => true, noteCopied: () => true } }
   }
   prepare(c, space, runId, ctx.files.fx.root)
   rm(log)
@@ -1503,6 +1528,7 @@ export function forgetChatWork(chatId: string) {
   let dirs: string[]
   try { dirs = [chatWork(base, chatId), path.join(devenvPaths(base).workShared, chatWork(base, chatId).split(path.sep).pop()!), chatHome(base, chatId), chatLogs(base, chatId)] } catch { return }
   for (const d of dirs) try { fs.rmSync(d, { recursive: true, force: true }) } catch {}
+  forgetCopiedIn(base, chatId)
 }
 
 /** People and chats with a run now (this process's, or a waiting or running row), for the disk clean-up

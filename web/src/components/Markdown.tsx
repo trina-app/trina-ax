@@ -9,7 +9,7 @@ import { fromHtml } from 'hast-util-from-html'
 import { Check, ChevronRight, Copy, Download, FileText, ImageOff, ExternalLink, Lock } from 'lucide-react'
 import { Component, createContext, memo, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import ReactMarkdown, { type Components } from 'react-markdown'
-import { Link } from 'react-router-dom'
+import { Link, useParams } from 'react-router-dom'
 import rehypeKatex from 'rehype-katex'
 import remarkCjkFriendly from 'remark-cjk-friendly'
 import remarkGfm from 'remark-gfm'
@@ -321,6 +321,29 @@ function TeamFileLink({ path, at, children }: { path: string; at?: SourceLoc; ch
   )
 }
 
+/** A file of a chat (an answer's attached file, docs/AGENTS/plan/20261121-0652-places-outputs.md): the same chip as a
+ * team file's, opening the chat file's viewer (its bytes behind the chat's own file route and its checks). A link by the
+ * AI's own name (chat:files/<id>/<name>) is of the chat on screen; with no chat on screen it is its words only. */
+function ChatFileLink({ chatId, fileId, name, children }: { chatId: string | null; fileId: string; name: string | null; children: ReactNode }) {
+  const t = useT()
+  const here = useParams().chatId ?? null
+  const chat = chatId ?? here
+  if (!chat) return <span>{children}</span>
+  const shown = (name ?? '').trim() || 'file'
+  return (
+    <button
+      type="button"
+      onClick={() => openFilePreview({ source: 'chat', chatId: chat, fileId, name: shown })}
+      className="not-prose inline rounded-sm text-left font-medium text-accent-text underline decoration-accent-text/40 underline-offset-2 [overflow-wrap:anywhere] hover:decoration-accent-text"
+      title={previewKind(shown) !== null ? t('common.preview') : t('preview.unsupportedShort')}
+      data-testid="chat-file-chip"
+    >
+      <FileText className="mr-0.5 inline-block size-[0.95em] shrink-0 align-[-0.125em]" aria-hidden />
+      {children}
+    </button>
+  )
+}
+
 /** A team file this viewer may not open (a room message's link or picture): its name after a lock, where a link would be.
  * Hover or keyboard focus says why ("열 수 없어요: 옮겨졌거나 지워졌거나 권한이 없어요"); a tap or click says it too (a toast:
  * touch has no tooltip). Nothing of the file is loaded and nothing says whether it exists, so the words name every
@@ -456,6 +479,7 @@ function AnswerLink({ href, children }: { href: string | undefined; children: Re
 function AnswerLinkPlain({ href, children }: { href: string | undefined; children: ReactNode }) {
   const l = classifyLink(href, origin())
   if (l.kind === 'team-file') return <TeamFileLink path={l.path} at={l.at}>{children}</TeamFileLink>
+  if (l.kind === 'chat-file') return <ChatFileLink chatId={l.chatId} fileId={l.fileId} name={l.name ?? labelText(children)}>{children}</ChatFileLink>
   if (l.kind === 'app') return <AppLink href={l.href}>{children}</AppLink>
   if (l.kind === 'external')
     return (
@@ -573,6 +597,8 @@ const REHYPE_ANSWER = [hideHtmlComments, labelQuotes, keepPunctuation, mathRehyp
 /** Keep the react-markdown default URL check (javascript: etc. become empty), but let our own download links through. */
 export function urlTransform(url: string): string {
   if (/^(https?:|mailto:|tel:|\/|#|\.|data:image\/(png|jpeg|gif|webp);)/i.test(url)) return url
+  // a chat file by the AI's own name (chat:files/<id>/<name>): a chip (AnswerLinkPlain), never a link with that scheme
+  if (/^chat:files\//i.test(url)) return url
   if (!/^[a-z][a-z0-9+.-]*:/i.test(url)) return url // relative
   return ''
 }

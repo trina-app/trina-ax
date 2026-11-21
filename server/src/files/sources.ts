@@ -9,6 +9,7 @@
 // viewer's access now (authorize + visiblePath, the file screen's own test, like team-file attachments,
 // uploads/team-refs.ts): a file they cannot open now (access taken away, deleted, moved) is only counted, without its
 // name or path. The list is shown on the screen only: it is not sent in notifications, exports or files.
+import { isReservedPlace } from '@mycel/shared/places'
 import type { Database } from 'bun:sqlite'
 import type { MessageSourceFile, MessageSources, SourceLoc } from '@mycel/shared/api'
 import { SourceLoc as SourceLocSchema } from '@mycel/shared/api'
@@ -33,7 +34,8 @@ export class SourceLog {
    * looked at (none: the file as a whole). Paths are team paths as the policy resolved them for the person.
    */
   note(path: string, via: SourceVia, o: { agent: string | null; locs?: (SourceLoc | null | undefined)[]; sha256?: string | null }): void {
-    if (!path || path.split('/').some((s) => s === '' || s === '.' || s === '..')) return
+    // a chat place is never an answer's team source (its file is on the chat already)
+    if (!path || isReservedPlace(path) || path.split('/').some((s) => s === '' || s === '.' || s === '..')) return
     let e = this.files.get(path)
     if (!e) {
       if (this.files.size >= SOURCE_FILES_MAX) return
@@ -74,8 +76,8 @@ export function sourceCount(db: Database, messageId: string): number {
 }
 
 /** A team path that is the team's (not a person's own folder, not skills/ or a server folder): what the answer's
- * receipt counts as "팀 파일". */
-export const isTeamFilePath = (p: string): boolean => !!p && !/^(users|skills|\.system)(\/|$)/.test(p)
+ * receipt counts as "팀 파일". A chat place (chat:files/…, chat:work/…; shared/src/places.ts) never is. */
+export const isTeamFilePath = (p: string): boolean => !!p && !/^(users|skills|\.system)(\/|$)/.test(p) && !isReservedPlace(p)
 
 /** The team files of an answer's list (isTeamFilePath), as recorded. */
 export function teamSourcePaths(db: Database, messageId: string): string[] {

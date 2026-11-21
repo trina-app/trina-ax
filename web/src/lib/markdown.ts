@@ -2,6 +2,7 @@
 // Ported from Saram web/src/lib/markdown.ts.
 import remend from 'remend'
 import { FILE_VIEW_PATH, locFromQuery, type SourceLoc } from '@mycel/shared/api'
+import { parsePlace } from '@mycel/shared/places'
 
 // $…$ is math when (as in pandoc) the opening $ is followed and the closing $ preceded by a non-space, and the closing
 // $ is not followed by a digit: "$1$", "$x^2$" are math; "$5 coupon and $10 off" is not.
@@ -44,6 +45,9 @@ export function prepareMarkdown(text: string, streaming?: boolean) {
 
 export type LinkKind =
   | { kind: 'team-file'; path: string; at?: SourceLoc }
+  /** a file of a chat (an answer's attached file): /c/<chat>?file=<id>, or chat:files/<id>/<name> of the chat on screen
+   * (chatId null) */
+  | { kind: 'chat-file'; chatId: string | null; fileId: string; name: string | null }
   | { kind: 'external'; href: string }
   | { kind: 'app'; href: string }
   | { kind: 'blocked' }
@@ -69,6 +73,9 @@ export function fileViewTarget(p: string, q?: URLSearchParams): { kind: 'file'; 
  */
 export function classifyLink(href: string | undefined, origin: string): LinkKind {
   if (!href) return { kind: 'blocked' }
+  // the AI's own name of a chat file (chat:files/<id>/<name>): a chip of the chat it is in, never an unknown scheme
+  const place = parsePlace(href.replace(/%2F/gi, '/'))
+  if (place) return place.kind === 'chatFiles' && place.id ? { kind: 'chat-file', chatId: null, fileId: place.id, name: place.name || null } : { kind: 'blocked' }
   let u: URL
   try { u = new URL(href, origin) } catch { return { kind: 'blocked' } }
   if (u.origin === origin) {
@@ -80,6 +87,10 @@ export function classifyLink(href: string | undefined, origin: string): LinkKind
       return path ? { kind: 'team-file', path } : { kind: 'blocked' }
     }
     if (u.pathname.startsWith('/api/')) return { kind: 'blocked' }
+    // a chat file's link (the produce tools' /c/<chat>?file=<id>): its viewer, beside this page
+    const chat = /^\/c\/([A-Za-z0-9_-]+)$/.exec(u.pathname)
+    const file = u.searchParams.get('file')
+    if (chat && file && /^[A-Za-z0-9_-]+$/.test(file)) return { kind: 'chat-file', chatId: chat[1]!, fileId: file, name: null }
     if (u.pathname === FILE_VIEW_PATH) {
       const path = u.searchParams.get('path')
       if (path === null) return { kind: 'app', href: '/files' }

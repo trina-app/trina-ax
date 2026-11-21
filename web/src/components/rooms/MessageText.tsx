@@ -119,7 +119,8 @@ export function RoomLink({ href, text, oneLine, menu, children }: { href: string
   // link with its own words keeps them.
   const app = !preview && (children === undefined || labelIsAddress(children, href)) ? appLinkRef(href, hosts, origin()) : null
   if (app) return <AppLinkInWords link={app} words={words} props={props} held={held} />
-  if (l.kind === 'blocked') return <>{children ?? text}</>
+  // a chat file is opened from its own chat only (a room message shows its words)
+  if (l.kind === 'blocked' || l.kind === 'chat-file') return <>{children ?? text}</>
   // a guest has no 파일 screen (/files goes Home): their project's files screen, else plain text (lib/guests.ts)
   const appHref = l.kind !== 'app' ? null : guestFolder ? guestAppHref(l.href, guestFolder) : l.href
   if (l.kind === 'app' && !appHref) return <>{words}</>

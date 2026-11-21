@@ -2714,6 +2714,8 @@ export const id: Record<MessageKey, string> = {
   'audit.act.chat.file_add': "Berkas dikirim di obrolan bersama",
   'audit.act.chat.files_copied': "Berkas sebelumnya disalin ke obrolan bersama",
   'audit.act.chat.files_added': "Berkas buatan obrolan ditambahkan ke obrolan bersama",
+  'audit.act.chat.file_version': "File chat diubah (versi baru)",
+  'audit.act.chat.file_restore': "File chat dipulihkan ke versi sebelumnya",
   'audit.act.group.create': 'Membuat grup',
   'audit.act.group.update': 'Mengubah grup',
   'audit.act.group.delete': 'Menghapus grup',

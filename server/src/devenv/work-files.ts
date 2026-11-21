@@ -19,8 +19,8 @@ import { openFilePath } from './snapshot'
 export interface WorkFolder { real: string; path: string }
 
 const C = fs.constants
-/** "$TRINA_WORK/…" and "${TRINA_WORK}/…" */
-const PREFIX = /^\$\{?TRINA_WORK\}?(?=\/|$)/
+/** "$TRINA_WORK/…", "${TRINA_WORK}/…" and the chat place form "chat:work/…" (shared/src/places.ts) */
+const PREFIX = /^(?:\$\{?TRINA_WORK\}?|chat:work)(?=\/|$)/i
 
 /** Does this path name the work folder (by its variable)? */
 export const namesWorkFolder = (p: unknown): boolean => typeof p === 'string' && PREFIX.test(p.trim())
@@ -115,4 +115,81 @@ const readAt = (fd: number, buf: Buffer, length: number, position: number) =>
 async function writeAll(fd: number, piece: Buffer) {
   let off = 0
   while (off < piece.length) off += await new Promise<number>((resolve, reject) => fs.write(fd, piece, off, piece.length - off, null, (e, n) => (e ? reject(e) : resolve(n))))
+}
+
+// ---------------- list, glob and grep of the work folder (chat:work/, plan 20261121-0615 P2) ----------------
+// Names only for a listing (nothing is opened), and a grep opens each file like copyWorkFile does (O_NOFOLLOW, one link,
+// the kernel's path of the open file inside the work folder). A link is shown as a link and never followed. Each folder
+// is read by its path after its real path was checked to be exactly where the walk expects it, and checked again after
+// its readdir: a folder swapped for a link in between shows nothing of it.
+
+export interface WorkEntry { rel: string; kind: 'file' | 'folder' | 'link' | 'other'; size: number; mtime: string }
+
+/** entries a walk looks at, at most (glob, grep) */
+export const WORK_WALK_MAX = 5000
+/** a grep opens text files of at most this size */
+export const WORK_GREP_FILE_MAX = 4 * 1024 * 1024
+/** a grep searches at most this much text in all (the files are copied for ripgrep first) */
+export const WORK_GREP_TOTAL_MAX = 64 * 1024 * 1024
+
+/** The entries directly in `rel` ('' for the folder itself), sorted by name; ToolError for a missing or non-folder. */
+export function workEntries(wf: WorkFolder, rel: string): WorkEntry[] {
+  const root = wf.real.replace(/\/+$/, '')
+  const dir = rel ? path.join(root, ...rel.split('/')) : root
+  const shown = shownWorkPath(rel)
+  const expect = () => {
+    let real: string
+    try { real = fs.realpathSync(dir) } catch { throw new ToolError(`'${shown}' was not found in this chat's work folder`, 'not_found') }
+    if (real !== dir) throw new Denied(`'${shown}' is not inside this chat's work folder (a link on the way is not followed)`)
+    if (!fs.lstatSync(dir).isDirectory()) throw new ToolError(`'${shown}' is a file; read it with read`, 'not_folder')
+  }
+  expect()
+  let names: fs.Dirent[]
+  try { names = fs.readdirSync(dir, { withFileTypes: true }) } catch { throw new ToolError(`'${shown}' cannot be listed`, 'not_found') }
+  expect()
+  const out: WorkEntry[] = []
+  for (const e of names.sort((a, b) => (a.name < b.name ? -1 : 1))) {
+    if (e.name.includes('\u0000')) continue
+    let st: fs.Stats
+    try { st = fs.lstatSync(path.join(dir, e.name)) } catch { continue }
+    const kind = st.isSymbolicLink() ? 'link' : st.isDirectory() ? 'folder' : st.isFile() ? 'file' : 'other'
+    out.push({ rel: rel ? `${rel}/${e.name}` : e.name, kind, size: kind === 'file' ? st.size : 0, mtime: st.mtime.toISOString() })
+  }
+  return out
+}
+
+/** Every entry under `rel` (folders first walked in name order), at most `max`; `more` when the walk stopped there.
+ * Links are listed and never entered. */
+export function walkWork(wf: WorkFolder, rel: string, max = WORK_WALK_MAX): { entries: WorkEntry[]; more: boolean } {
+  const entries: WorkEntry[] = []
+  const todo = [rel]
+  while (todo.length) {
+    const at = todo.shift()!
+    let list: WorkEntry[]
+    try { list = workEntries(wf, at) } catch (e) { if (at === rel) throw e; continue }
+    for (const e of list) {
+      if (entries.length >= max) return { entries, more: true }
+      entries.push(e)
+      if (e.kind === 'folder') todo.push(e.rel)
+    }
+  }
+  return { entries, more: false }
+}
+
+/** The text of a small work-folder file, opened as copyWorkFile opens one (nothing followed), or null when it is not a
+ * regular file inside the work folder or is larger than `max`. */
+export function readWorkSmall(wf: WorkFolder, rel: string, max = WORK_GREP_FILE_MAX): Buffer | null {
+  let fd: number
+  try { fd = fs.openSync(path.join(wf.real, rel), C.O_RDONLY | C.O_NOFOLLOW | (C.O_NONBLOCK ?? 0)) } catch { return null }
+  try {
+    const st = fs.fstatSync(fd)
+    if (!st.isFile() || st.nlink > 1 || st.size > max) return null
+    let real: string | null = null
+    try { real = openFilePath(fd) } catch { real = null }
+    if (!real || !real.startsWith(wf.real.replace(/\/+$/, '') + '/')) return null
+    const buf = Buffer.alloc(st.size)
+    let pos = 0
+    while (pos < st.size) { const n = fs.readSync(fd, buf, pos, st.size - pos, pos); if (n <= 0) break; pos += n }
+    return buf.subarray(0, pos)
+  } finally { fs.closeSync(fd) }
 }
