@@ -248,7 +248,7 @@ describe('the panel: a file link that does not open, and the ask', () => {
     expect(bobs.find((i) => i.code === 'access.answered')).toMatchObject({ link: 'chat', chatId: c.id, accessRequest: { state: 'approved', file: { name: '견적서.pdf.md' } } })
     // the transcript tells bob's AI the copy's file_id, and chat_file reads it as bob
     const rt = getChatRuntime(h.ctx)
-    const t = labelledTranscript(rt.store, c.answer, 'bob', new Set())
+    const t = labelledTranscript(rt.store, c.answer, 'bob', new Set(), true)
     expect(t.find((m) => m.id === c.answer)!.content).toContain(`file_id=${copy!.id}`)
     const r = await ask('bob', c.id, `${fake({ tool: 'chat_file', args: { file: copy!.id }, sayResult: true })}`)
     expect(r.done.content).toContain('견적 금액 6,000')
