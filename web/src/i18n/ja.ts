@@ -2670,6 +2670,7 @@ export const ja: Record<MessageKey, string> = {
   'audit.act.chat.audience': "共有チャットを見られる人を変更",
   'audit.act.chat.file_add': "共有チャットにファイルを送信",
   'audit.act.chat.files_copied': "共有チャットに以前のファイルをコピー",
+  'audit.act.chat.files_added': "チャットが作ったファイルを共有チャットに追加",
   'audit.act.group.create': "グループを作成",
   'audit.act.group.update': "グループを変更",
   'audit.act.group.delete': "グループを削除",

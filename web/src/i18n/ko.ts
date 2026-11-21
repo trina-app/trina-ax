@@ -2707,6 +2707,7 @@ export const ko = {
   'audit.act.chat.audience': "공유 채팅을 보는 사람 변경",
   'audit.act.chat.file_add': "공유 채팅에 파일 보냄",
   'audit.act.chat.files_copied': "공유 채팅에 이전 파일 복사",
+  'audit.act.chat.files_added': "대화가 만든 파일을 공유 대화에 추가",
   'audit.act.group.create': '부서 만듦',
   'audit.act.group.update': '부서 변경',
   'audit.act.group.delete': '부서 삭제',
