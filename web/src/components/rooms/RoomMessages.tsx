@@ -40,7 +40,7 @@ import { DEFAULT_LOCALE, parseMessageLinks, ROOM_QUOTE_EXCERPT_MAX, type Room, t
 import { errorText, roomFileUrl, startDownload } from '../../lib/api'
 import { formatDateTime, formatSize } from '../../lib/format'
 import { copiedMessages } from '../../lib/messageCopy'
-import { ALL_MENTION_ID, allMentionNames, eventProjectOf, eventText, type EventProject, groupRuns, highlightNow, lineBreaks, localDayKey, projectEventKey, projectRoomOf } from '../../lib/rooms'
+import { ALL_MENTION_ID, allMentionNames, eventProjectOf, eventText, groupRuns, highlightNow, lineBreaks, localDayKey, projectEventKey, projectRoomOf } from '../../lib/rooms'
 import { aiName } from '../../lib/tabs'
 import { Markdown, PersonMarkdown } from '../LazyMarkdown'
 import { AppCardText } from './AppCard'
@@ -364,11 +364,10 @@ function EventLine({ m }: { m: RoomMessage }) {
   const team = useMe()?.team.defaultLocale
   if (!m.event) return null
   const text = eventText(m.event, m.author, { t, nameOf: (u) => nameOf(u) ?? t('rooms.goneUser'), folder: CHAT_FILES_FOLDER[team ?? DEFAULT_LOCALE] })
-  // a line that names a project: its name opens the project page only while I can open it now (eventProjectOf, or for
-  // "… made this conversation the project {name}" its project); in the trash, deleted or out of my reach it is plain text
+  // a line that names a project: its name opens the project page only while I can open it now (eventProjectOf); in the
+  // trash, deleted or out of my reach it is plain text
   const e = m.event
-  const project: EventProject | null = e.type === 'project_linked' || e.type === 'project_unlinked' || e.type === 'project_room' ? eventProjectOf(e)
-    : e.type === 'project_made' ? (e.project ? { state: 'open', id: e.project.id, name: e.project.name } : { state: 'hidden' }) : null
+  const project = e.type === 'project_linked' || e.type === 'project_unlinked' || e.type === 'project_room' || e.type === 'project_made' ? eventProjectOf(e) : null
   let body: ReactNode = text
   if (project?.state === 'open' && (e.type === 'project_linked' || e.type === 'project_unlinked' || e.type === 'project_room' || e.type === 'project_made')) {
     const parts = t(e.type === 'project_made' ? 'rooms.event.projectMade' : projectEventKey(e), { actor: nameOf(m.author) ?? t('rooms.goneUser'), name: '\u0000' }).split('\u0000')

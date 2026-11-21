@@ -92,15 +92,19 @@ export function eventText(e: RoomEventLine, author: UserRef | null, w: EventWord
       return p.state === 'open' || p.state === 'trash' ? w.t(k, { actor, name: p.name }) : w.t(k, { actor })
     }
     // a conversation made a project by the author (docs/decisions/20261121-make-project-from-room.md): the project's
-    // name for a viewer who can open it now, else "a project"
-    case 'project_made':
-      return e.project ? w.t('rooms.event.projectMade', { actor, name: e.project.name }) : w.t('rooms.event.projectMadeUnnamed', { actor })
+    // name for a viewer who can open it, else without a name
+    case 'project_made': {
+      const p = eventProjectOf(e)
+      return p.state === 'open' ? w.t('rooms.event.projectMade', { actor, name: p.name }) : w.t('rooms.event.projectMadeUnnamed', { actor })
+    }
     // its files' move ended (written by the server): how many went to the project's Chat attachments, and only when
     // some stayed, how many stayed in the conversation
     case 'project_files_moved': {
       const folder = w.folder ?? 'Chat attachments'
-      if (e.kept > 0) return e.project ? w.t('rooms.event.filesMovedKept', { n: e.moved, m: e.kept, name: e.project.name, folder }) : w.t('rooms.event.filesMovedKeptUnnamed', { n: e.moved, m: e.kept, folder })
-      return e.project ? w.t('rooms.event.filesMoved', { n: e.moved, name: e.project.name, folder }) : w.t('rooms.event.filesMovedUnnamed', { n: e.moved, folder })
+      const name = eventProjectOf(e)
+      const n = name.state === 'open' ? name.name : null
+      if (e.kept > 0) return n ? w.t('rooms.event.filesMovedKept', { n: e.moved, m: e.kept, name: n, folder }) : w.t('rooms.event.filesMovedKeptUnnamed', { n: e.moved, m: e.kept, folder })
+      return n ? w.t('rooms.event.filesMoved', { n: e.moved, name: n, folder }) : w.t('rooms.event.filesMovedUnnamed', { n: e.moved, folder })
     }
     case 'unknown':
       return w.t('rooms.event.unknown')
@@ -117,7 +121,7 @@ export type ProjectEventKey = `rooms.event.${(typeof LINE_WORD)[ProjectLineType]
  * one resolver): 'open' its name now and a link; 'trash' its name now as plain text; 'deleted'; 'hidden' I cannot
  * open it ("a project": never a name, so never a renamed one). An older server's line is 'open' or 'hidden'. */
 export type EventProject = { state: 'open'; id: string; name: string } | { state: 'trash'; name: string } | { state: 'deleted' } | { state: 'hidden' }
-export function eventProjectOf(e: ProjectEventLine): EventProject {
+export function eventProjectOf(e: Pick<ProjectEventLine, 'project' | 'projectGone'>): EventProject {
   if (e.project) return { state: 'open', id: e.project.id, name: e.project.name }
   const g = e.projectGone
   if (g?.state === 'trash') return g.name ? { state: 'trash', name: g.name } : { state: 'hidden' }

@@ -389,13 +389,12 @@ export const RoomEventLine = z.discriminatedUnion('type', [
    * `project` as for project_linked */
   z.object({ type: z.literal('project_room'), ...EventProject }),
   /** the author made this conversation (a group chat) the team project `project` (POST /api/rooms/:id/make-project,
-   * docs/decisions/20261121-make-project-from-room.md). `project` only for a viewer who can open that project now, else
-   * null (the line says "a project"); no `projectGone` */
-  z.object({ type: z.literal('project_made'), project: z.object({ id: Uuid7, name: z.string() }).nullable() }),
+   * docs/decisions/20261121-make-project-from-room.md). `project` as for project_linked */
+  z.object({ type: z.literal('project_made'), ...EventProject }),
   /** written by the server (author null) when the files of a conversation made a project finished moving: `moved` went
    * to the project's Chat attachments, `kept` stayed in this conversation (labelled roomOnly). `project` as for
-   * project_made */
-  z.object({ type: z.literal('project_files_moved'), project: z.object({ id: Uuid7, name: z.string() }).nullable(),
+   * project_linked */
+  z.object({ type: z.literal('project_files_moved'), ...EventProject,
     moved: z.number().int().nonnegative(), kept: z.number().int().nonnegative() }),
   /** a line this build cannot read (a newer build's, or a damaged one): said neutrally, without who did it */
   z.object({ type: z.literal('unknown') }),

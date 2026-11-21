@@ -213,9 +213,6 @@ function projectOut(v: EventProjectView | undefined): Pick<Extract<RoomEventLine
   return { project: null }
 }
 
-/** The project of a line that names it only while this viewer can open it (project_made, project_files_moved): else null. */
-const openProject = (v: EventProjectView | undefined): { id: string; name: string } | null => (v?.state === 'open' ? { id: v.id, name: v.name } : null)
-
 /** The event line as the app gets it: the people by name as they are now (an account that is gone is left out); a
  * project as it is now for this viewer (`projects`, rooms/project-link.ts eventProjectsFor). */
 function eventOut(e: EventData, people: Map<string, UserRef>, projects: Map<string, EventProjectView> = new Map()): RoomEventLine {
@@ -227,10 +224,8 @@ function eventOut(e: EventData, people: Map<string, UserRef>, projects: Map<stri
     case 'left': return { type: 'left' }
     case 'joined': return { type: 'joined' }
     case 'removed': return { type: 'removed', user: people.get(e.userId) ?? null }
-    case 'project_linked': case 'project_unlinked': case 'project_room': return { type: e.type, ...projectOut(projects.get(e.projectId)) }
-    // a conversation made a project, and its files' move: named only while this viewer can open the project, else null
-    case 'project_made': return { type: 'project_made', project: openProject(projects.get(e.projectId)) }
-    case 'project_files_moved': return { type: 'project_files_moved', project: openProject(projects.get(e.projectId)), moved: e.moved, kept: e.kept }
+    case 'project_linked': case 'project_unlinked': case 'project_room': case 'project_made': return { type: e.type, ...projectOut(projects.get(e.projectId)) }
+    case 'project_files_moved': return { type: 'project_files_moved', ...projectOut(projects.get(e.projectId)), moved: e.moved, kept: e.kept }
   }
 }
 
