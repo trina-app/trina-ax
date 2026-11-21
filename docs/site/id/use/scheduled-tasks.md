@@ -13,12 +13,37 @@ Mulai 0.4.0, tugas terjadwal punya halaman sendiri, **Terjadwal**: sebuah baris 
 
 ## Membuat tugas
 
-Pilih **Tugas baru**. Ada dua cara:
+Buka **Terjadwal** di dekat bagian atas daftar Trina Anda lalu tekan **Tugas baru** di kanan atas. Menu kecil menawarkan
+dua cara:
 
 ![Menu New task dengan Describe it in a chat dan From a template](../../images/scheduled/new-task.webp "Tugas baru")
 
-- **Jelaskan di chat.** Misalnya: "Setiap Senin pukul 9.00, ringkas catatan minggu lalu di shared/sales." AI membuat jadwalnya dan menampilkannya.
-- **Dari templat.** Pilih templat, isi folder dan waktunya, lalu simpan.
+### Jelaskan di chat
+
+1. Pilih **Jelaskan di chat**. Chat baru terbuka dengan "Setiap hari kerja pukul 09.00, " sudah ada di kotak pesan.
+2. Selesaikan kalimatnya dengan kata-kata Anda sendiri lalu kirim. Misalnya: "Setiap Senin pukul 09.00, ringkas catatan
+   minggu lalu di shared/sales."
+3. AI menampilkan kartu berisi nama tugas, kapan tugas itu berulang, dan seluruh instruksinya. Periksa, lalu tekan
+   **Buat**. (Kalau tugas itu bisa mengirim sesuatu ke koneksi tim, kartu menawarkan **Buat, boleh mengirim ke layanan
+   itu** dan **Buat, jangan kirim ke layanan terhubung** sebagai gantinya.) **Jangan buat** tidak membuat apa pun.
+
+Chat menyebutkan bahwa tugas sudah dibuat, dan tugas itu sekarang ada di halaman **Terjadwal** beserta waktu jalan
+berikutnya.
+
+### Dari templat
+
+1. Pilih **Dari templat**. Jendela **Buat tugas terjadwal** terbuka.
+2. Di bawah **Tugas**, pilih apa yang dilakukannya: **Daftar file harian dan saran pengaturan** atau **Ringkasan
+   mingguan**.
+3. Tekan **Pilih folder** di bawah **Folder untuk dibaca** lalu pilih folder yang harus dibacanya.
+4. Periksa **Folder laporan saya** (tempat laporan disimpan, di folder Anda sendiri) dan atur **Waktu berjalan** (dan
+   **Hari** untuk yang mingguan). Waktunya mengikuti zona waktu tim, yang tampil di bawahnya.
+5. Tekan **Buat tugas terjadwal**.
+
+Muncul pesan "Tugas terjadwal dibuat.", dan tugas itu ada di daftar. Membuatnya belum menjalankan AI; setiap kali
+berjalan, tugas memakai koneksi AI Anda dan batas pemakaian Anda.
+
+![Create a scheduled task: Task, Folder to read dengan Choose a folder, My report folder, Run time dengan zona waktu di bawahnya, dan Create scheduled task](../../images/scheduled/template.webp "Dari templat")
 
 ## Yang bisa dilakukan saat tugas berjalan
 

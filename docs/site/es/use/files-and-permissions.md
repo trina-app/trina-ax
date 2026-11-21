@@ -44,7 +44,24 @@ El cuadro indica quién gana o pierde acceso. Nada cambia hasta que guarda. Dar 
 
 El acceso se suma, como en Google Drive: lo que da una carpeta se añade a lo que dan las carpetas superiores. No se puede elegir un rol inferior a ese; la fila indica de dónde viene el rol superior ("Editor desde "Toda la empresa"").
 
-Para dar a una carpeta menos acceso que las carpetas superiores, active **Configuración › Limitar el acceso**. Entonces solo la abren las personas y grupos añadidos allí. **Acceso quitado** muestra a las personas que pueden abrir la carpeta superior pero no esta; **Añadir** devuelve a una como Lector. Al volver a desactivar el límite, cualquier rol inferior al de las carpetas superiores sube a ese nivel.
+### Dar a una carpeta menos acceso que la carpeta superior
+
+Normalmente una carpeta deja entrar a todas las personas que deja entrar la carpeta superior. Para reservar una carpeta
+a menos personas (por ejemplo una carpeta `budget` dentro de `Toda la empresa`), limítela:
+
+1. Abra el cuadro **Compartir** de la carpeta (**Archivos** y luego **⋯** › **Compartir** de la carpeta).
+2. Abajo, en **Configuración**, active el interruptor **Limitar el acceso**.
+3. Lea la línea encima de **Guardar**. Nombra a quien ya no podrá abrir la carpeta, por ejemplo "Se quitará el acceso a
+   Alex Kim, Dana Brooks, Jordan Lee y 3 más". Todavía no ha cambiado nada.
+4. Añada en **Añadir personas y grupos** a las personas y grupos que deben conservar el acceso.
+5. Pulse **Guardar**.
+
+Ahora solo abren la carpeta las personas y grupos de la lista, además del propietario y los administradores. En
+**Administración › Permisos de carpetas** la carpeta aparece como **Limitada**, y **Acceso quitado** en su cuadro muestra a
+las personas que pueden abrir la carpeta superior pero no esta; **Añadir** devuelve a una como Lector. Al volver a
+desactivar el límite, cualquier rol inferior al de las carpetas superiores sube a ese nivel.
+
+![El cuadro Compartir de la carpeta handbook con Limitar el acceso activado: Acceso general Restringido y, encima de Guardar, una línea que dice que se quitará el acceso a Alex Kim, Dana Brooks, Jordan Lee y 3 más](../../images/files/limit-access.webp "Limitar el acceso, antes de guardar")
 
 El propietario y los administradores siempre pueden abrir las carpetas del equipo, salvo los proyectos de los que no son miembros. Aparecen como una sola fila **Gestor**.
 
@@ -68,7 +85,18 @@ Después de la actualización que hizo que el acceso se sume, algunas carpetas m
 
 ## Compartir un archivo
 
-Puede compartir un archivo suyo con las personas que elija, sin cambiar quién puede abrir su carpeta: **Archivos › ⋯ de un archivo › Compartir**. Añada personas o grupos y pulse **Compartir**. Pueden ver el archivo y descargarlo; no ven el resto de la carpeta. Cada persona que añada lo ve en **Actividad**.
+Puede compartir un archivo suyo con las personas que elija, sin cambiar quién puede abrir su carpeta, como cuando
+comparte un solo archivo de Google Drive. Pueden ver el archivo y descargarlo; no ven el resto de la carpeta.
+
+1. Abra **Archivos** y busque el archivo.
+2. Pase el puntero sobre su fila y pulse **⋯** al final (o haga clic derecho en la fila), luego elija **Compartir**.
+3. Escriba un nombre en **Añadir personas o grupos** y elija la persona o el grupo. Puede añadir varios.
+4. Pulse **Compartir**. (Antes de añadir a nadie, el botón dice **Listo**).
+
+Las personas que añadió aparecen ahora en **Personas con acceso** con **Puede ver**. Cada una recibe un aviso en
+**Actividad**, y el archivo aparece en sus **Archivos › Compartidos conmigo**.
+
+![El cuadro Compartir de un archivo: Añadir personas o grupos, Personas con acceso con el propietario, una línea que dice que quienes pueden abrir la carpeta también pueden abrir este archivo, Copiar enlace y Listo](../../images/files/file-share.webp "Compartir un solo archivo")
 
 - **Todo el equipo** es la primera opción en **Añadir personas o grupos**. Antes de pulsar **Compartir**, una línea avisa de que todo el equipo podrá abrir el archivo, también quienes se unan después. Los invitados nunca. Cuenta como una de las 50 personas y grupos con los que se puede compartir un archivo.
 - Si comparte varios archivos a la vez (por ejemplo en el último paso de **Buscar archivos de trabajo en este ordenador**), cada persona recibe un solo aviso en **Actividad**, «Mina compartió 5 archivos con usted», que abre la lista de esos archivos. Quien añada por su nombre recibe además un aviso en el teléfono.
@@ -127,7 +155,10 @@ Cuando dice «resume esto» o «responde en ese hilo» sin dar un nombre, Trina 
 
 - **Subir**: suba archivos o carpetas enteras desde la pantalla Archivos.
 - **Descargar**: en la aplicación de escritorio, un archivo que descargue va directamente a la carpeta Descargas de su ordenador, y un aviso ofrece **Mostrar en la carpeta**. Si ya hay un archivo con el mismo nombre, se conserva: el nuevo se guarda como "nombre (1)". En un navegador, el navegador decide dónde se guardan las descargas.
-- **Historial de versiones**: cada cambio guarda una versión que puede abrir o restaurar.
+- **Historial de versiones**: cada cambio guarda una versión que puede abrir o restaurar, como el historial de versiones
+  de Google Docs. Para volver a una versión anterior: en la fila del archivo elija **⋯** › **Historial de versiones**,
+  busque la versión que quiere, pulse **Restaurar** y confirme con **Restaurar**. Un mensaje dice "Se restauró v3." (el
+  número de la versión). El contenido que tenía antes se guarda como una versión nueva, así que siempre puede volver a él.
 - **Papelera**: **Archivos › Papelera** muestra lo que puede restaurar, por nombre y por el lugar en el que estaba ("price-sheet.xlsx · Toda la empresa › Sales"). Un archivo eliminado más de una vez es una sola fila con sus copias: **Restaurar** recupera la más reciente, y al abrir la fila puede restaurar cualquier otra copia. Si la lista incluye elementos eliminados por otras personas, **Eliminado por mí** muestra solo los suyos. Los elementos se eliminan definitivamente después del periodo de conservación del equipo (Administración › Configuración del equipo, 30 días de forma predeterminada); cada fila indica cuándo.
 - **Formatos**: la IA lee el texto de archivos PDF, Office y HWP/HWPX, y ve las fotos y las páginas escaneadas como imágenes (los administradores pueden desactivarlo). Los servidores Linux no ejecutan OCR.
 - **Confirmación**: cuando la IA fuera a escribir contenido restringido en un lugar donde lo pueden ver más personas, el servidor pregunta antes.

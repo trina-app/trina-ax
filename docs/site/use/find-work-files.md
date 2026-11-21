@@ -109,7 +109,8 @@ questions come one after the other, one per folder.
 
 ![macOS asks: “Trina AX” would like to access files in your Documents folder. Looks for work files here. File contents stay on this Mac until you choose to add them. Don't Allow, Allow](../images/find-work-files/macos-question.webp "macOS asks for each folder")
 
-macOS remembers your answer, so it asks only once per folder.
+macOS remembers your answer, so it asks only once per folder, the same way an iPhone asks once before an app may see
+your photos.
 
 ## Pick the files
 

@@ -5,7 +5,8 @@ description: Bring someone from outside the team into a private channel or group
 
 A **guest** is someone from outside your team, such as a client, a partner or a freelancer. A guest is in at most one
 private channel or group chat, and one project, and sees nothing else in the team: no other chats, no team files, no other projects, no
-team skills. They don't take a seat on your plan.
+team skills. They don't take a seat on your plan. If you know Slack, it is like a guest who is invited to a single
+channel.
 
 | | A team member | A guest |
 |---|---|---|

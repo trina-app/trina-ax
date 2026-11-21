@@ -76,10 +76,27 @@ tim**, lalu **Riwayat Trina** (chat yang disematkan lebih dulu, lalu yang terbar
 
 Chat Trina tidak punya folder. Untuk mengumpulkan chat tentang satu pekerjaan, masukkan ke dalam [proyek](#proyek).
 
-Daftar **Obrolan** punya **Folder obrolan** untuk saluran dan pesan langsung. Folder hanya merapikan daftar Anda, tidak lebih:
-folder tidak menyimpan file dan tidak pernah mengubah siapa yang melihat sebuah percakapan. Buat folder dengan **Folder baru**, lalu pakai
-**···** › **Pindahkan ke folder** pada sebuah percakapan. Menu **···** pada folder bisa mengganti nama, memindahkannya ke atas atau ke bawah, atau menghapusnya; menghapus folder tetap menyimpan
-percakapannya di daftar Anda.
+Di daftar **Obrolan** Anda bisa mengelompokkan saluran dan pesan langsung ke dalam **bagian** Anda sendiri, seperti
+bagian di sidebar Slack. Bagian hanya merapikan daftar Anda sendiri: bagian tidak menyimpan file, tidak dilihat orang lain,
+dan tidak pernah mengubah siapa yang ada di sebuah percakapan.
+
+1. Buka **Obrolan** di bilah kiri.
+2. Arahkan penunjuk ke **Saluran** dan tekan **+** di ujung baris itu. Menu kecil terbuka dengan **Buat saluran** dan
+   **Bagian baru**.
+3. Pilih **Bagian baru**, ketik nama (misalnya "Klien"), lalu tekan **Buat**.
+4. Daftar percakapan Anda terbuka. Centang yang Anda inginkan lalu tekan **Tambahkan 2 percakapan** (angkanya mengikuti
+   yang Anda centang), atau **Lewati** untuk mengisinya nanti.
+
+Bagian baru tampil di daftar Obrolan Anda, di atas **Saluran**, berisi percakapan yang Anda pilih.
+
+![Daftar Obrolan dengan + di samping Saluran ditekan: menu kecil dengan Create a channel dan New section](../../images/chats/channels-add.webp "Bagian baru, dari + di samping Saluran")
+
+- **Memindahkan satu percakapan:** di barisnya, pilih **···** › **Pindahkan ke bagian** lalu pilih bagiannya (atau
+  **Bagian baru…**). Di komputer Anda juga bisa menyeret barisnya ke sebuah bagian. **Keluarkan dari bagian**
+  mengembalikannya ke bawah **Saluran** atau **Pesan langsung**.
+- **Mengubah bagian:** menu **···** pada bagian berisi **Tambahkan percakapan**, **Ganti nama bagian**, **Pindah ke atas**,
+  **Pindah ke bawah**, dan **Hapus bagian**. Menghapus bagian hanya menghapus judulnya: percakapannya kembali ke
+  **Saluran** dan **Pesan langsung**.
 
 ## Beberapa chat sekaligus
 
@@ -166,11 +183,12 @@ Percakapan di **Obrolan** (saluran dan pesan langsung, termasuk obrolan grup) di
 **···** milik percakapan itu: yang disematkan tampil lebih dulu, dengan pin kecil setelah namanya, di setiap daftar percakapan, di komputer maupun di tab **Obrolan** ponsel.
 Hanya Anda yang melihat sematan Anda. Sematan hilang saat Anda keluar dari percakapan atau menyembunyikannya. Anda bisa menyematkan sampai 50 percakapan.
 
-Daftar **Obrolan** menampilkan setiap percakapan: sematan Anda, folder Anda, lalu **Saluran** (saluran Semua lebih dulu, lalu
+Daftar **Obrolan** menampilkan setiap percakapan: sematan Anda, bagian Anda, lalu **Saluran** (saluran Semua lebih dulu, lalu
 menurut nama; saluran privat bergembok) dan **Pesan langsung** (obrolan 1:1 dan obrolan grup tanpa nama digabung, yang terbaru lebih dulu, masing-masing dengan wajah para anggotanya). Percakapan yang Anda sembunyikan ada di balik **Percakapan tersembunyi (N)**.
 
-Tanda **+** di samping **Saluran** adalah **Buat saluran**: pilih orang dan beri nama, maka jadilah saluran privat yang
-hanya bisa dilihat mereka. Tanda **+** di samping **Pesan langsung** adalah **Pesan baru**: pilih satu orang untuk pesan
+Tanda **+** di samping **Saluran** membuka menu kecil. **Buat saluran**: pilih orang dan beri nama, maka jadilah saluran
+privat yang hanya bisa dilihat mereka. **Bagian baru** membuat salah satu bagian Anda sendiri, seperti dijelaskan di atas
+di bawah judul Folder. Tanda **+** di samping **Pesan langsung** adalah **Pesan baru**: pilih satu orang untuk pesan
 langsung, atau beberapa orang untuk obrolan grup dengan nama mereka (jika sudah ada obrolan dengan orang yang persis sama,
 obrolan itu yang dibuka). Untuk menjadikan obrolan grup saluran privat, pilih **···** › **Jadikan saluran privat** dan beri nama.
 
@@ -325,6 +343,20 @@ Mulai chat dari halaman proyek, atau pindahkan chat ke dalamnya dengan **Pindahk
   bisa membukanya, dan sebuah baris di bawahnya menyebutkan hal itu. Anda memerlukan akses tulis ke folder proyek (tanpanya, **+**
   hanya menawarkan file tim); **✕** sebelum mengirim memindahkan file itu ke sampah.
 
+### Menyimpan satu chat proyek hanya untuk Anda
+
+Chat baru di proyek tim dibagikan ke semua orang di proyek, seperti dokumen yang Anda buat di folder Google Drive
+bersama. Untuk menanyakan sesuatu yang hanya boleh Anda lihat:
+
+1. Buka halaman proyek.
+2. Di kotak pesan, lihat tepat setelah **+**: chip menunjukkan siapa yang akan melihat chat, misalnya **👥 3 orang**.
+3. Tekan chip itu. Chip berubah menjadi **🔒 Hanya saya**.
+4. Ketik pertanyaan Anda lalu kirim.
+
+Chat menampilkan gembok di daftar proyek dan di Riwayat Trina Anda: hanya Anda yang melihatnya. Chat baru berikutnya di
+proyek kembali dibagikan, jadi periksa chip setiap kali. Untuk membagikannya nanti, pilih **Bagikan dengan anggota
+proyek** di menu chat.
+
 ### Percakapan proyek
 
 Setiap proyek tim punya percakapannya sendiri. Orang di percakapan itu adalah orang di proyek, dan filenya adalah
@@ -386,7 +418,17 @@ Tekan ⌘K (Ctrl+K di Windows) atau pilih **Cari** di bawah **Tanya Trina** untu
 
 ## Chat yang dihapus
 
-Menghapus chat memindahkannya ke **Riwayat terhapus**, tempat Anda bisa mengembalikannya selama 7 hari secara bawaan. Admin bisa memilih 1 sampai 365 hari.
+Menghapus chat memindahkannya ke **Riwayat terhapus**, seperti album Baru Dihapus di iPhone: Anda bisa mengembalikannya
+selama 7 hari secara bawaan. Admin bisa memilih 1 sampai 365 hari.
+
+Untuk mengembalikan chat:
+
+1. Buka **Trina** di bilah kiri. Di ponsel, buka tab **Trina** dan tekan **☰** di bagian atas.
+2. Tekan **⋯** di ujung judul **Riwayat Trina** lalu pilih **Riwayat terhapus**. Di ponsel, **Riwayat terhapus** ada di
+   bagian bawah menu.
+3. Cari chatnya (setiap baris menyebutkan kapan chat itu dihapus) lalu tekan **Pulihkan**.
+
+Baris itu hilang dari daftar, dan chatnya kembali ada di Riwayat Trina Anda.
 
 - Chat bersama masuk ke **Riwayat terhapus** milik orang yang membuatnya. Jika pembuat proyek atau admin menghapus chat bersama milik orang lain, chat itu juga ada di **Riwayat terhapus** mereka, selama mereka masih bisa mengembalikannya.
 - Menghapus proyek secara permanen memindahkan chat bersamanya ke **Riwayat terhapus** milik orang yang membuatnya. Setelah dikembalikan, chat tersebut hanya milik pembuatnya, tanpa proyek.
