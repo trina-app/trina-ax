@@ -22,7 +22,7 @@ const ids = (g: FakeGmail, q: string) => g.search(q).map((m) => m.id)
 /** what an AI sends to find Chris's reply, in either language */
 const CHRIS = ['from:Chris', 'from:chris', 'chris', 'from:chris.walker@fieldnote.example', 'chris.walker@fieldnote.example', 'from:"Chris Walker"',
   'from:Chris is:unread', 'in:inbox from:Chris newer_than:1d', 'from:(Chris)', 'from:chris OR from:크리스', 'from:(크리스 OR Chris)', '{from:chris from:크리스}',
-  'from:크리스 | from:chris', 'from:fieldnote', 'to:me from:chris']
+  'from:크리스 | from:chris', 'from:fieldnote', 'to:me from:chris', 'chris OR 크리스', '"chris" OR "크리스"', '(from:chris OR from:크리스) newer_than:7d']
 const CHRIS_KO = ['from:크리스', 'from:크리스님', '크리스', '크리스님', 'from:"크리스 워커"', 'from:크리스 워커', 'from:크리스님이', '크리스님한테서', 'from:크리스 is:unread']
 
 for (const locale of ['en', 'ko'] as const) {

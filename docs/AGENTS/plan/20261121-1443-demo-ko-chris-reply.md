@@ -16,7 +16,8 @@ the header, and ran every word as AND:
 - `from:크리스님` (the chip says "크리스님이", the AI keeps the honorific) finds nothing: "크리스님" is not in
   "크리스 워커 <chris.walker@fieldnote.example>".
 - `from:"Chris Walker"` finds nothing in Korean: the address is `chris.walker`, with a dot.
-- `from:크리스 OR from:Chris`, `from:(크리스 OR Chris)`, `{from:크리스 from:Chris}` find nothing in either language:
+- `chris OR 크리스` (what the failing answer says it searched), `from:크리스 OR from:Chris`, `from:(크리스 OR Chris)`,
+  `{from:크리스 from:Chris}` find nothing in either language:
   OR, brackets and braces were read as words to find.
 - `from:me` / `to:me` find nothing.
 
@@ -56,5 +57,5 @@ nothing and that AND still narrows.
 
 Built as planned. The search in `gmail.ts` now parses the query (`parseQuery`) and matches terms word by word with the
 Korean-ending fallback; unknown `key:` words are searched as plain text, Gmail keys the demo does not keep (filename:,
-size:, ...) do not narrow. `tests/unit/demo-gmail-search.test.ts` runs 47 cases on the en and ko seeds; before the fix
+size:, ...) do not narrow. `tests/unit/demo-gmail-search.test.ts` runs 53 cases on the en and ko seeds; before the fix
 `from:크리스님`, `from:"Chris Walker"` (ko), OR, brackets, braces and `to:me` found nothing.
