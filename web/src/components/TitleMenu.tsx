@@ -20,8 +20,10 @@ export interface TitleMenuItem {
   hint?: string
 }
 
-/** heading: the name is the page's heading (the chat screen), with this test id; the menu itself stays outside it */
-export function TitleMenu({ name, items, testId, heading }: { name: string; items: TitleMenuItem[]; testId: string; heading?: string }) {
+/** heading: the name is the page's heading (the chat screen), with this test id; the menu itself stays outside it.
+ * compact: a phone's name with a line under it (a shared chat's "Shared by"): the button only as tall as its text, its
+ * 44px tap box from touch-hit, so both lines fit the 56px bar. */
+export function TitleMenu({ name, items, testId, heading, compact = false }: { name: string; items: TitleMenuItem[]; testId: string; heading?: string; compact?: boolean }) {
   const phone = useMediaQuery('(max-width: 767.98px)')
   // a phone's sheet: opened as a click would, the keyboard back on the name when it closes
   const [sheet, setSheet] = useState(0)
@@ -60,7 +62,7 @@ export function TitleMenu({ name, items, testId, heading }: { name: string; item
       aria-expanded={phone ? undefined : open}
       aria-current="page"
       onClick={() => (phone ? setSheet((n) => n + 1) : setOpen((v) => !v))}
-      className="flex max-w-full min-w-0 items-center gap-1 rounded-md px-1.5 py-1 hover:bg-hover max-md:min-h-11"
+      className={clsx('flex max-w-full min-w-0 items-center gap-1 rounded-md px-1.5 hover:bg-hover', compact ? 'touch-hit' : 'py-1 max-md:min-h-11')}
       data-testid={testId}
     >
       <span className="truncate" title={name}>{name}</span>

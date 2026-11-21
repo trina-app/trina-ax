@@ -49,14 +49,14 @@ export const sharedByOf = (chat: Partial<Pick<Chat, 'shared'>> | null | undefine
   chat?.shared?.kind === 'people' && chat.shared.by.id !== me ? chat.shared.by : null
 
 /** The chat header's "Shared by {name}" with their face: after the title on a computer, a second muted line under it on
- * a phone (`line`; it sits in the title button's lower padding, so the bar stays 48px, and taps go to the title). */
+ * a phone (`line`: 4px under the compact title, in a 56px bar; taps pass through to the title's 44px tap box). */
 export function SharedByLine({ by, line = false }: { by: UserRef; line?: boolean }) {
   const t = useT()
   const face = useFaceOf()(by)
   const name = useNameOf()(by) ?? by.name
   const words = t('chat.sharedBy', { name })
   return (
-    <span title={words} className={clsx('flex min-w-0 items-center gap-1.5 text-muted', line ? 'pointer-events-none -mt-3 max-w-full justify-center px-1.5 text-xs' : 'shrink-[3] pl-1 text-sm')} data-testid="chat-shared-by">
+    <span title={words} className={clsx('flex min-w-0 items-center gap-1.5 text-muted', line ? 'pointer-events-none mt-1 max-w-full justify-center px-1.5 text-xs' : 'shrink-[3] pl-1 text-sm')} data-testid="chat-shared-by">
       <Avatar user={{ ...face, name }} size={line ? 14 : 18} />
       <span className="truncate">{words}</span>
     </span>
