@@ -183,6 +183,10 @@ describe('sources and pictures resolve through their own place', () => {
     const att = r.attachments.find((a) => a.name === 'brief.docx')!
     expect(att).toBeTruthy()
     expect(docxHas(pic, chatFileAbs(chat, att.id))).toBe(true)
+    // the picture written as the app's link to it (a real model did, QA TC-6460): the same chat file
+    const l = await run('alice', chat, fake({ tool: 'make_file', args: { format: 'docx', content: `# L\n\n![l](/files/view?path=${encodeURIComponent(`chat:files/${logo.id}/logo.png`)})`, output: 'chat:files/linked.docx' }, sayResult: true }))
+    const la = l.attachments.find((a) => a.name === 'linked.docx')!
+    expect(docxHas(pic, chatFileAbs(chat, la.id))).toBe(true)
     // into the asker's own folder (fewer people than the chat): no card, a team file
     const t = await run('alice', chat, fake({ tool: 'make_file', args: { format: 'docx', source: `chat:files/${md.id}/brief.md`, output: 'users/alice/brief.docx' }, sayResult: true }))
     expect(t.cards).toHaveLength(0)

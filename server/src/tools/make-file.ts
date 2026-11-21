@@ -601,7 +601,7 @@ export class MakeFile {
     let bytes = 0
     const fx = this.files.fx
     const rules = this.files.rules()
-    const where = base.kind === 'work' ? 'files in this chat\'s work folder (chat:work/), given by a path relative to the document' : base.kind === 'chatFiles' ? 'files of this chat (chat:files/<name>)' : 'files in the team folder you can read, given by a relative path (no web addresses or absolute paths)'
+    const where = base.kind === 'work' ? 'files in this chat\'s work folder (chat:work/), given by a path relative to the document' : base.kind === 'chatFiles' ? 'files of this chat (chat:files/<name>)' : c.places ? 'files in the team folder you can read, given by a relative path, or files of this chat by their chat place path (chat:files/<file_id>/<name>, chat:work/<path>); no web addresses, links or absolute paths' : 'files in the team folder you can read, given by a relative path (no web addresses or absolute paths)'
     const bad = (target: string, why: string): never => { throw new ToolError(`image '${target.slice(0, 200)}': ${why}. Images must be ${where}.`) }
     /** a picture of a chat place, copied through its one safe open */
     const fromPlace = async (target: string, place: string, x: string): Promise<string> => {
@@ -619,6 +619,10 @@ export class MakeFile {
     const local = async (target: string): Promise<string> => {
       let decoded = target
       try { decoded = decodeURIComponent(target) } catch { /* keep */ }
+      // a chat place written as the app's file link (/files/view?path=chat:files/…: QA TC-6460, a real model did): the
+      // place itself, through the resolver like any chat: reference
+      const linked = /^\/files\/view\?path=([^&#]+)/.exec(decoded)
+      if (linked && isReservedPlace(linked[1]!)) { decoded = linked[1]!; target = decoded }
       const named = isReservedPlace(decoded) ? parsePlace(decoded) : null
       if (!named && (/^[a-z][a-z0-9+.-]*:/i.test(target) || target.startsWith('//'))) bad(target, 'web addresses are not fetched')
       if (target.startsWith('/') || target.startsWith('~') || target.startsWith('\\')) bad(target, 'absolute paths are not allowed')
