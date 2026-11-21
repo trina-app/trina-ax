@@ -83,6 +83,10 @@ export function eventText(e: RoomEventLine, author: UserRef | null, w: EventWord
     // written by the server, so no actor
     case 'project_room':
       return e.project ? w.t('rooms.event.projectRoomNamed', { name: e.project.name }) : w.t('rooms.event.projectRoom')
+    // a conversation made a project, and its files' move (docs/AGENTS/plan/20261121-0619-structure-polish.md A): their
+    // own words come with the web part of the plan; until then the neutral line
+    case 'project_made':
+    case 'project_files_moved':
     case 'unknown':
       return w.t('rooms.event.unknown')
   }
