@@ -11,6 +11,7 @@
 //   tellChat    the carrying messages' tiles again, to each person with a window open, as they may see them (never an
 //               answer hidden from them): their "Updated by" line and size follow at once
 import { CHAT_FILE_EDIT_MAX, type ChatFileSaved, type ChatFileVersions } from '@mycel/shared/api'
+import type { ChatRow } from './store'
 import { fail } from '../http/errors'
 import { safeOpsEnabled } from '../safe-ops/runner'
 import { personLocale } from '../files/media-text'
@@ -49,14 +50,43 @@ export function editState(rt: ChatRuntime, userId: string, chat: ChatRowLike, fi
   return { items, canEdit: readOnlyWhy(rt, chat, o.root, o.row) === null }
 }
 
-function assertEditable(rt: ChatRuntime, userId: string, chat: ChatRowLike, fileId: string): ChatFileRow {
+/** At most this many saves and restores per person a minute (429 with retryAfter), counted only once the person may
+ * edit the file (someone it is hidden from gets the 404 first, never a 429 that says it is there) */
+export const CHAT_FILE_SAVES_PER_MINUTE = 30
+const saves = new WeakMap<ChatRuntime, Map<string, number[]>>()
+function saveLimit(rt: ChatRuntime, userId: string, at = Date.now()): void {
+  const all = saves.get(rt) ?? saves.set(rt, new Map()).get(rt)!
+  const recent = (all.get(userId) ?? []).filter((x) => at - x < 60_000)
+  if (recent.length >= CHAT_FILE_SAVES_PER_MINUTE) {
+    all.set(userId, recent)
+    fail('rate_limited', undefined, { retryAfter: Math.max(1, Math.ceil((60_000 - (at - recent[0]!)) / 1000)) })
+  }
+  recent.push(at)
+  all.set(userId, recent)
+  if (all.size > 10_000) for (const [k, ts] of all) if (!ts.some((x) => at - x < 60_000)) all.delete(k)
+}
+
+/** The chat's row as it is now (not the one the route read): a chat moved to a project or made private since is not a
+ * place to save (S2 review I1) */
+const chatNow = (rt: ChatRuntime, chatId: string): ChatRowLike => (rt.store.chatRow(chatId) as ChatRow | null) ?? fail('not_found')
+
+function assertEditable(rt: ChatRuntime, userId: string, chatIn: ChatRowLike, fileId: string): ChatFileRow {
   // may not open it: the 404 of a missing file, before anything says what it is
-  const o = chatFilesOf(rt.ctx).open(userId, chat.id, fileId, false)
+  const o = chatFilesOf(rt.ctx).open(userId, chatIn.id, fileId, false)
+  const chat = chatNow(rt, chatIn.id)
   const why = readOnlyWhy(rt, chat, o.root, o.row)
   const locale = personLocale(rt.db, userId)
   if (why === 'safe_ops') fail('conflict', tr('sharedChatSafeOps', locale), { params: { reason: 'safe_ops' } })
   if (why) fail('conflict', tr('chatFileReadOnly', locale), { params: { reason: 'chat_file_read_only' } })
+  saveLimit(rt, userId)
   return o.root
+}
+
+/** Right before putVersion, in the same synchronous step: still a chat shared with people, not a project chat, not in
+ * the trash (S2 review I1). ChatFiles' own check at the insert covers who may open it. */
+function stillPeopleChat(rt: ChatRuntime, userId: string, chatId: string): void {
+  const c = chatNow(rt, chatId)
+  if (!isPeopleRow(c) || c.deleted_at) fail('conflict', tr('chatFileReadOnly', personLocale(rt.db, userId)), { params: { reason: 'chat_file_read_only' } })
 }
 
 const saved = (rt: ChatRuntime, r: PutVersionResult): ChatFileSaved => ({ version: chatFileVersion(rt.db, r.row, true), beside: r.beside })
@@ -64,7 +94,9 @@ const saved = (rt: ChatRuntime, r: PutVersionResult): ChatFileSaved => ({ versio
 /** A person's save of the whole text (putVersion: the chain's root name, limits, storage, pruning, audit) */
 export async function saveText(rt: ChatRuntime, userId: string, chat: ChatRowLike, fileId: string, content: string, baseVersion?: string): Promise<ChatFileSaved> {
   const root = assertEditable(rt, userId, chat, fileId)
-  const r = await chatFilesOf(rt.ctx).putVersion(userId, chat.id, root.id, { bytes: new TextEncoder().encode(content) }, baseVersion ? { expectHead: baseVersion } : {})
+  const bytes = new TextEncoder().encode(content)
+  stillPeopleChat(rt, userId, chat.id)
+  const r = await chatFilesOf(rt.ctx).putVersion(userId, chat.id, root.id, { bytes }, baseVersion ? { expectHead: baseVersion } : {})
   tellChat(rt, chat.id, root.id)
   return saved(rt, r)
 }
@@ -72,6 +104,7 @@ export async function saveText(rt: ChatRuntime, userId: string, chat: ChatRowLik
 /** Restore version `n`: a new head with its bytes */
 export async function restoreTo(rt: ChatRuntime, userId: string, chat: ChatRowLike, fileId: string, n: number): Promise<ChatFileSaved> {
   const root = assertEditable(rt, userId, chat, fileId)
+  stillPeopleChat(rt, userId, chat.id)
   const r = await chatFilesOf(rt.ctx).restore(userId, chat.id, root.id, n)
   tellChat(rt, chat.id, root.id)
   return saved(rt, r)

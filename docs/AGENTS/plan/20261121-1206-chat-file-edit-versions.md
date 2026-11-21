@@ -74,3 +74,9 @@ to someone the chain is hidden from. Re-share in `chat-files-share.ts copyMade`:
 `putVersion` (audit `chat.files_updated`) and its stored `fromSha256` moves on. Web: FilePanel pencil/editor for chat
 text files, a history row ("Updated by … · Versions (n)"), the list with Open / Restore, the earlier-version bar; the
 tile line in AttachmentView. Not done (P4's side): the AI's own `putVersion` in a turn tells no other window.
+
+Security review (33b9f78bd), fixed: M1 `madeFilesOf` leaves out a path any later `update` of which came from an answer
+hidden from someone in the chat or being added (it was only the creating answer); L1 the save takes up to
+4 × CHAT_FILE_EDIT_MAX of JSON; L2 a changed original over CHAT_FILE_MAX is not offered or versioned, and one failed copy
+or version no longer leaves the others unattached; L3 30 saves and restores a minute per person; I1 the chat row is read
+again right before putVersion; I2 the permission matrix runs the three routes on a real chain.

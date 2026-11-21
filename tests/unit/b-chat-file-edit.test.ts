@@ -9,6 +9,7 @@ import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from '
 import { API, type Attachment, type ChatFileSaved, type ChatFileVersions, type PutChatAudienceResult } from '@mycel/shared/api'
 import { startHarness, type Harness, type TestSocket } from '../lib/b-harness'
 import { chatFilesOf } from '../../server/src/chat/chat-files'
+import { CHAT_FILE_SAVES_PER_MINUTE } from '../../server/src/chat/chat-file-edit'
 import { setAnswerReads } from '../../server/src/chat/shared-answers'
 
 setDefaultTimeout(60_000)
@@ -124,6 +125,30 @@ describe('edit a chat file from the web', () => {
     expect(((await (await versions('alice', c.chatId, c.rootId)).json()) as ChatFileVersions).canEdit).toBe(false)
     expect(await reason(await save('alice', c.chatId, c.rootId, 'x'))).toBe('chat_file_read_only')
     expect((await save('bob', c.chatId, c.rootId, 'x')).status).toBe(404)
+  })
+})
+
+describe('the save route\'s limits (S2 review L1, L3)', () => {
+  test('a 5 MB text saves (the JSON limit is the edit limit\'s, not the default 1 MB)', async () => {
+    const c = await sharedCopy('big.txt', 'small')
+    const big = 'x'.repeat(5 * 1024 * 1024)
+    const r = await save('alice', c.chatId, c.rootId, big)
+    expect(r.status).toBe(200)
+    expect(((await r.json()) as ChatFileSaved).version.size).toBe(big.length)
+  })
+
+  test('saves and restores are limited per person a minute (429 with retryAfter); someone it is hidden from still gets 404', async () => {
+    const c = await sharedCopy('busy.md', 'v1', [bob, erin])
+    let limited: Response | null = null
+    for (let i = 0; i < CHAT_FILE_SAVES_PER_MINUTE + 1 && !limited; i++) {
+      const r = i % 2 ? await save('erin', c.chatId, c.rootId, `v${i}`) : await restore('erin', c.chatId, c.rootId, 1)
+      if (r.status === 429) limited = r
+      else expect(r.status).toBe(200)
+    }
+    expect(limited).not.toBeNull()
+    expect(((await limited!.json()) as { error: { retryAfter?: number } }).error.retryAfter).toBeGreaterThan(0)
+    // bob is not limited by erin's
+    expect((await save('bob', c.chatId, c.rootId, 'bob')).status).toBe(200)
   })
 })
 

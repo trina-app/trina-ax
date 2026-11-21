@@ -7,7 +7,7 @@ import { accessRequestsOf } from '../chat/access-requests'
 import { markTeamShares } from '../chat/team-shares'
 import { redactorFor } from '../integrations/connections/redact'
 import { searchWords } from '@mycel/shared'
-import { ACCESS_TARGET_ID, API, WINDOW_HEADER, type Attachment, type Chat, type EngineId, type Locale, type Message, type UserRef } from '@mycel/shared/api'
+import { ACCESS_TARGET_ID, API, CHAT_FILE_EDIT_MAX, WINDOW_HEADER, type Attachment, type Chat, type EngineId, type Locale, type Message, type UserRef } from '@mycel/shared/api'
 import type { Context } from 'hono'
 import type { RouteModule } from './module'
 import type { AppContext } from '../context'
@@ -781,7 +781,7 @@ export const chatsRoutes: RouteModule = {
       return a.row
     }
     kit.handle(API.chatFileVersions, ({ c, params, auth }) => editState(rt, auth.user.id, keptChat(auth, chatOf(rt, c, auth, params.id, 'view')), params.fileId))
-    kit.handle(API.saveChatFile, ({ c, params, body, auth }) => saveText(rt, auth.user.id, keptChat(auth, chatOf(rt, c, auth, params.id, 'view')), params.fileId, body.content, body.baseVersion))
+    kit.handle(API.saveChatFile, ({ c, params, body, auth }) => saveText(rt, auth.user.id, keptChat(auth, chatOf(rt, c, auth, params.id, 'view')), params.fileId, body.content, body.baseVersion), { jsonLimit: 4 * CHAT_FILE_EDIT_MAX + 64 * 1024 })
     kit.handle(API.restoreChatFileVersion, ({ c, params, auth }) => {
       const row = keptChat(auth, chatOf(rt, c, auth, params.id, 'view'))
       const n = /^[1-9]\d{0,6}$/.test(params.version) ? Number(params.version) : fail('not_found')
