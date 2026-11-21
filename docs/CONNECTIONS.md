@@ -53,7 +53,7 @@ Ranked by how visible they are.
 5. **GitHub docs were out of date (fixed in this PR).** `docs/site/use/mcp.md:20` and `connect-apps.md` say GitHub needs a personal access
    token and an address; the code signs in through the server's GitHub App and lists GitHub in Discover
    (`service-catalog.ts`, `en.ts:3420`).
-6. **Fixed in #227 and to recheck:** `docs/site/get-started/team-setup.md:28` (all languages) says the shared Google account is made in Admin, not on that step; #234 now offers it on the step, so that line needs an update to match.
+6. **Fixed in #227 and #234:** `docs/site/get-started/team-setup.md:28` (all languages) now says the Google rows on the step offer both Connect for the team (shared Google account) and the ask-everyone switch.
 7. **Fixed by #234:** Notion has the switch now; only Slack is excluded (`team-tools.ts:18`).
 8. **Chat cards cover team scope only for MCP services**; Google apps and Drive never get a team option from a chat
    (`connect-google-app.ts`, `connect-service.ts:134,161`).
