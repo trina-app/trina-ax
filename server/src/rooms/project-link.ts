@@ -9,7 +9,7 @@
 // name the project only to a viewer who can open it. Audit rows name the project only, never the room (store.ts
 // roomAuditRef: a group room by its kind).
 import type { Database } from 'bun:sqlite'
-import type { Room } from '@mycel/shared/api'
+import { Uuid7, type Room } from '@mycel/shared/api'
 import { CHAT_FILES_FOLDER } from '@mycel/shared'
 import { atLeast, inProjectZone, loadPrincipal, RuleSet, type Principal } from '../policy/access'
 import { audit } from '../admin/audit'
@@ -105,6 +105,8 @@ export function sameAsGroupOf(db: Database, roomId: string): SameAsGroup | null 
     ORDER BY g.name, g.id`).all(n) as { room_id: string; group_id: string; name: string }[]
   const shared = db.query(`SELECT COUNT(*) n FROM (${ACTIVE_MEMBERS('a')}) x WHERE x.user_id IN (${ACTIVE_MEMBERS('b')})`)
   for (const c of candidates) {
+    // (ids the API cannot carry, a hand-made or test row: never a 500 for the whole room)
+    if (!Uuid7.safeParse(c.group_id).success || !Uuid7.safeParse(c.room_id).success) continue
     if ((shared.get(roomId, c.room_id) as { n: number }).n === n) return { groupId: c.group_id, name: c.name, roomId: c.room_id }
   }
   return null

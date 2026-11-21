@@ -143,20 +143,20 @@ async function teamRoomFolderCases(w: World) {
   teamRoomFolderChecked = true
   const db = w.inst.ctx.db
   const alice = w.as.memberIn
-  const teamRoom = (db.query("SELECT id FROM rooms WHERE kind = 'team' AND group_id = ? AND archived_at IS NULL").get(w.ids.groups.marketing) as { id: string }).id
+  const teamRoom = (db.query("SELECT id FROM rooms WHERE kind = 'team' AND group_id = ? AND archived_at IS NULL").get(w.groups.marketing) as { id: string }).id
   const upload = async (name: string) => {
     const f = new FormData()
     f.set('file', new File([new TextEncoder().encode(`team room ${name}`)], name, { type: 'text/plain' }))
     return await alice.ok('POST', `/api/rooms/${teamRoom}/files`, undefined, { form: f }) as { id: string; teamFile?: true; teamPath?: string; roomOnly?: true }
   }
-  const folderId = (db.query('SELECT f.id FROM groups g JOIN folders f ON f.id = g.folder_id WHERE g.id = ?').get(w.ids.groups.marketing) as { id: string }).id
+  const folderId = (db.query('SELECT f.id FROM groups g JOIN folders f ON f.id = g.folder_id WHERE g.id = ?').get(w.groups.marketing) as { id: string }).id
   const ruleId = crypto.randomUUID()
   db.query("INSERT INTO folder_rules (id, folder_id, subject_type, subject_id, access) VALUES (?, ?, 'user', 'bob', 'read')").run(ruleId, folderId)
   let stays: Awaited<ReturnType<typeof upload>>
   try { stays = await upload('SEC-TEAMROOM-WIDE-1b7.txt') } finally { db.query('DELETE FROM folder_rules WHERE id = ?').run(ruleId) }
   if (stays.teamFile || stays.teamPath || stays.roomOnly !== true || db.query('SELECT 1 FROM room_file_refs WHERE room_file_id = ?').get(stays.id)) throw new Error(`a team room upload with an outside reader left room storage: ${JSON.stringify(stays)}`)
   const placed = await upload('SEC-TEAMROOM-FOLDER-5d2.txt')
-  if (!placed.teamFile || !placed.teamPath?.startsWith(`${w.ids.groups.mktFolder}/`)) throw new Error(`a team room upload did not go to the group folder: ${JSON.stringify(placed)}`)
+  if (!placed.teamFile || !placed.teamPath?.startsWith(`${w.groups.mktFolder}/`)) throw new Error(`a team room upload did not go to the group folder: ${JSON.stringify(placed)}`)
   const m = await alice.ok('POST', `/api/rooms/${teamRoom}/messages`, { body: 'team room files', clientMessageId: cm(), fileIds: [stays.id, placed.id] })
   try {
     for (const who of ['memberIn', 'other', 'owner', 'admin', 'memberOut'] as const) {
@@ -170,7 +170,7 @@ async function teamRoomFolderCases(w: World) {
     for (const who of ['memberIn', 'other', 'owner', 'admin', 'memberOut', 'pwchange'] as const) {
       const r = await w.as[who].get('/api/rooms')
       if (r.status !== 200) continue
-      const id = (w.inst.ctx.db.query('SELECT id FROM users WHERE username = ?').get(USER_OF[who]!) as { id: string } | null)?.id
+      const id = (w.inst.ctx.db.query('SELECT id FROM users WHERE username = ?').get(USER_OF[who]!) as { id: string } | null)?.id ?? ''
       for (const room of (r.json?.items ?? []) as { project?: { sameAsGroup?: { roomId: string } } }[]) {
         const same = room.project?.sameAsGroup
         if (same && !db.query('SELECT 1 FROM room_members WHERE room_id = ? AND user_id = ?').get(same.roomId, id)) throw new Error(`${who}: sameAsGroup names a team room they are not in`)
