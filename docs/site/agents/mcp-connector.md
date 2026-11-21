@@ -37,7 +37,7 @@ The sign-in page lets you choose, whatever the app asked for:
 | On the page | Scope | Starts |
 |---|---|---|
 | Reading files you can open (always) | `mcp:read` | always granted |
-| Renewing access while your login lasts (when the app asks) | `offline_access` | always granted |
+| Staying connected: access renews by itself until you disconnect (whether the app asks or not) | `offline_access` | always granted |
 | **Write files** | `mcp:write` | ticked only if the app asked for it |
 | **Read conversations** | `mcp:rooms` | ticked |
 | **Write in conversations** (only with reading) | `mcp:rooms.write` | unticked |
@@ -47,7 +47,7 @@ Claude and Claude Code ask for reading only, so tick **Write files** if Claude s
 
 The sign-in accepts Claude's own callback (Claude on the web, desktop and phone), ChatGPT's connector callback (`https://chatgpt.com/connector_platform_oauth_redirect`) and a local `http://localhost/…/callback` or `http://127.0.0.1/…/callback` (Claude Code, Codex and other apps that sign in on the computer). ChatGPT has not been tried end to end yet.
 
-**Settings › Trina AX MCP** lists your connected apps, with when they connected and **Disconnect**. A connection also ends when the app session that authorized it ends.
+**Settings › Trina AX MCP** lists your connected apps, with when they connected and **Disconnect**. A connection stays until you disconnect it there. Changing your password, being signed out everywhere, losing access to the team or 90 days without use also end it; signing out of one browser does not.
 
 Admins see whether this server's connector is on in **Admin › Trina AX MCP**. The other direction, apps Trina's AI uses with
 your own account such as **Google Drive**, is **Settings › Connectors** ([Google Drive setup](https://github.com/trina-app/trina-ax/blob/main/docs/GOOGLE-DRIVE.md)).

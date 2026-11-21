@@ -305,7 +305,8 @@ export class RemoteOAuth {
    * The grant: mcp:read, plus mcp:write when `write` (left out: when the app asked for it), plus mcp:rooms when
    * `rooms` and mcp:rooms.write when `rooms` and `roomsWrite` (left out: no, whatever the app asked: a page that shows
    * no rooms box grants no rooms), plus mcp:admin when the person is an active owner or admin at this moment (no box,
-   * and nothing the page sends changes it), plus offline_access when the app asked for it. It may hold a scope the app
+   * and nothing the page sends changes it), plus offline_access always (asked for or not: the connection stays until the
+   * person disconnects it, docs/decisions/20261121-mcp-refresh-without-offline-access.md). It may hold a scope the app
    * did not ask for; the token answer's `scope` names exactly what was granted (RFC 6749 3.3), and a refresh can only
    * narrow it.
    */
@@ -335,7 +336,7 @@ export class RemoteOAuth {
       if (o.rooms === true) chosen.add(ROOMS_SCOPE)
       if (o.rooms === true && o.roomsWrite === true) chosen.add(ROOMS_WRITE_SCOPE)
       if (isTeamAdmin(this.db, auth.user.id)) chosen.add(ADMIN_SCOPE)
-      if (asked.includes('offline_access')) chosen.add('offline_access')
+      chosen.add('offline_access')
       const selected = SCOPES.filter(s => chosen.has(s))
       this.db.query('INSERT INTO remote_mcp_grants(id,client_id,user_id,session_id,resource,scopes,created_at,expires_at) VALUES(?,?,?,?,?,?,?,?)').run(grant, r.client_id, auth.user.id, anchor, r.resource, JSON.stringify(selected), this.now(), end)
       this.db.query('INSERT INTO remote_mcp_codes VALUES(?,?,?,?,?,NULL)').run(hash(code), grant, r.redirect_uri, r.challenge, this.now() + CODE_MS)
@@ -365,18 +366,17 @@ export class RemoteOAuth {
     this.db.query('UPDATE remote_mcp_grants SET expires_at=? WHERE id=?').run(end, g.id)
     return { ...g, expires_at: end }
   }
-  /** `parent`: the sha256 of the refresh token these come from (remote_mcp_token_links), none for a code exchange. */
+  /** `parent`: the sha256 of the refresh token these come from (remote_mcp_token_links), none for a code exchange.
+   * Always a refresh token too, whether the app asked for offline_access or not (ChatGPT and apps that ask for the 401
+   * header's scope do not): the person's connection stays until they disconnect it or lose access, with the rotation,
+   * retry window and replay revocation of token() (docs/decisions/20261121-mcp-refresh-without-offline-access.md). */
   private issue(g: Grant, selected: string[], parent: string | null = null) {
-    const access = secret('tax_mcp_a_'), end = Math.min(g.expires_at, this.now() + ACCESS_MS)
+    const access = secret('tax_mcp_a_'), end = Math.min(g.expires_at, this.now() + ACCESS_MS), refresh = secret('tax_mcp_r_')
     this.db.query('INSERT INTO remote_mcp_tokens VALUES(?,\'access\',?,?,NULL)').run(hash(access), g.id, end)
-    let refresh: string | undefined
-    if (selected.includes('offline_access')) {
-      refresh = secret('tax_mcp_r_')
-      this.db.query('INSERT INTO remote_mcp_tokens VALUES(?,\'refresh\',?,?,NULL)').run(hash(refresh), g.id, g.expires_at)
-    }
-    if (parent) for (const t of [access, refresh]) if (t) this.db.query('INSERT INTO remote_mcp_token_links (hash, parent) VALUES (?, ?)').run(hash(t), parent)
+    this.db.query('INSERT INTO remote_mcp_tokens VALUES(?,\'refresh\',?,?,NULL)').run(hash(refresh), g.id, g.expires_at)
+    if (parent) for (const t of [access, refresh]) this.db.query('INSERT INTO remote_mcp_token_links (hash, parent) VALUES (?, ?)').run(hash(t), parent)
     this.db.query('UPDATE remote_mcp_clients SET last_used_at=? WHERE id=?').run(this.now(), g.client_id)
-    return { access_token: access, token_type: 'Bearer', expires_in: Math.floor((end - this.now()) / 1000), scope: selected.join(' '), ...(refresh ? { refresh_token: refresh } : {}) }
+    return { access_token: access, token_type: 'Bearer', expires_in: Math.floor((end - this.now()) / 1000), scope: selected.join(' '), refresh_token: refresh }
   }
   /** `live`: liveCredential(body) was true (the app's token bucket is skipped). */
   token(body: Record<string, unknown>, live = false) {
@@ -423,8 +423,9 @@ export class RemoteOAuth {
         if (row.expires_at <= this.now()) throw invalid()
         const original = JSON.parse(g.scopes) as string[], asked = body.scope === undefined ? original : scopes(body.scope)
         if (asked.some(s => !original.includes(s))) throw new OAuthError('invalid_scope')
-        // writing in conversations goes only with reading them (decide): narrowed away with it
-        const selected = asked.filter(s => s !== ROOMS_WRITE_SCOPE || asked.includes(ROOMS_SCOPE))
+        // writing in conversations goes only with reading them (decide): narrowed away with it. Narrowing is about what
+        // the app may reach, not how long it stays: offline_access is kept (a refresh token comes either way, issue())
+        const selected = SCOPES.filter(s => (asked.includes(s) || (s === 'offline_access' && original.includes(s))) && (s !== ROOMS_WRITE_SCOPE || asked.includes(ROOMS_SCOPE)))
         // Spent refresh tokens are kept while the connection lasts (a replay of any of them, however late, ends it).
         // Access tokens that expired or were replaced, and refresh tokens that expired unused, go. The cap counts the
         // live tokens only (one chain: about two).

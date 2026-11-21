@@ -98,7 +98,7 @@ function ConnectorConsentForm() {
         <p className="text-xs font-medium text-muted">{t('connectors.always')}</p>
         <ul className="list-disc space-y-2 pl-5" data-testid="connector-granted">
           <li>{t('connectors.read')}</li>
-          {request.scopes.includes('offline_access') && <li>{t('connectors.offline')}</li>}
+          <li>{t('connectors.offline')}</li>
         </ul>
       </div>
       {request.optional.length > 0 && <fieldset className="space-y-2 text-sm" data-testid="connector-optional">
