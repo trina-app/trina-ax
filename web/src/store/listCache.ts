@@ -18,7 +18,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { create } from 'zustand'
 import { api, API } from '../lib/api'
 import { optimisticPending } from '../lib/optimistic'
-import type { Schedule } from '@mycel/shared/api'
+import type { RecentRoomFiles, Schedule } from '@mycel/shared/api'
 import { isSkillsPath } from '../lib/skillIssues'
 import { useProjects } from './projects'
 import { accessChanged, chatChanged, enginesChanged, filesChanged, integrationsChanged, reloadAsked, schedulesChanged, skillsChanged } from './live'
@@ -71,6 +71,15 @@ export function rememberCached<T>(key: string, value: T | undefined): void {
 export function putCached<T>(key: string, f: (cur: T | undefined) => T | undefined): void {
   edits.set(key, (edits.get(key) ?? 0) + 1)
   rememberCached(key, f(peekCached<T>(key)))
+}
+
+/** ⌘K's recent room files (GET /api/room-files/recent; components/SearchDialog.tsx) */
+export const RECENT_ROOM_FILES = 'search:roomFilesRecent'
+/** A room I am no longer in (left, taken out, gone): its files leave the kept recent list at once (store/rooms.ts). */
+export function forgetRoomFiles(roomId: string): void {
+  const cur = peekCached<RecentRoomFiles>(RECENT_ROOM_FILES)
+  if (!cur || !cur.items.some((i) => i.roomId === roomId)) return
+  putCached<RecentRoomFiles>(RECENT_ROOM_FILES, (c) => c && { items: c.items.filter((i) => i.roomId !== roomId), rooms: c.rooms.filter((r) => r.id !== roomId) })
 }
 
 /** Something changed on the server for every key starting with `prefix`: the next read with `minAgeMs` asks again. */
