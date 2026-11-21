@@ -536,6 +536,11 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
     },
     // edit_files (mcp/protocol.ts): after a room read one card for the whole batch, before its first file
     beforeBatch: async (name, args) => {
+      // a chat place among its files: no file tool edits one (files/service.ts placeWriteRefusal), so the batch is refused
+      // before its card asks the person (one room card for the whole batch)
+      const paths = (args as { file_paths?: unknown } | null)?.file_paths
+      const place = Array.isArray(paths) ? paths.map((p) => placeArg('edit', { file_path: p })).find(Boolean) : null
+      if (place) return { refusal: `Not done (${name}): ${placeWriteRefusal(place)} Leave it out of file_paths; nothing was changed.`, summary: `${name} -> refused: chat place` }
       const no = await exec.confirmRoomChange(name, args)
       return no ? { refusal: no, summary: `${name} -> ${roomShort(no)} (after a room read)` } : null
     },

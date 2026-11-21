@@ -234,6 +234,7 @@ describe('review fixes (adversarial review of P1)', () => {
       { tool: 'edit', args: { file_path: chatFilePath(file, 'w2.txt'), old_string: 'W', new_string: 'X' }, says: 'not changed in place' },
       { tool: 'write', args: { file_path: 'chat:work/a.txt', content: 'X' }, says: 'box_shell' },
       { tool: 'edit', args: { file_path: 'room:files/a.txt', old_string: 'a', new_string: 'b' }, says: 'room files are not paths yet' },
+      { tool: 'edit_files', args: { file_paths: ['shared/none.md', 'chat:files/w2.txt'], old_string: 'W', new_string: 'X' }, says: 'Leave it out of file_paths' },
     ]) {
       const r = await run('bob', chat, `${fake({ tool: c.tool, args: c.args, sayResult: true })}`)
       expect(r.cards).toHaveLength(0)
