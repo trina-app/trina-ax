@@ -103,7 +103,9 @@ describe('a new team skill after reading something fewer people can see', () => 
         { tool: 'write', args: { file_path: 'shared/visit-summary.md', content: 'Summary\n' }, sayResult: true },
       ), ['save'])
       expect(r.cards.length).toBe(1)
-      expect(r.cards[0]!.question).toMatch(/^Save to .+ \(\d+ (person|people)\)\? \d+ of them can’t see where it came from\.\nIt came from .+\./)
+      expect(r.cards[0]!.question).toMatch(/^Save visit-summary\.md to .+, where \d+ (person|people) can see it\?\nTrina made it from .+, which \d+ of them can’t open\./)
+      // no room read: the card's own Always allow line, the shorter one (docs/decisions/20261122-widening-card-wording.md)
+      expect((r.cards[0] as { note?: string }).note).toBe('Always allow: Trina saves like this without asking, even after reading files or web pages. Undo in Settings › Allowed for Trina.')
       expect(fs.existsSync(abs('shared/visit-summary.md'))).toBe(true)
     } finally { fs.rmSync(abs('shared/visit-summary.md'), { force: true }) }
   })

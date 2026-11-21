@@ -189,6 +189,10 @@ export const AskUserRequest = z.object({
   buttons: z.literal(true).optional(),
   /** a server check: one line under its buttons, what a choice covers */
   note: z.string().max(300).optional(),
+  /** a server check: a part of `question` (its first match) that shows `title` on hover: the wider-audience card's
+   * file name with the whole place in words (docs/decisions/20261122-widening-card-wording.md). A client that does not
+   * know this shows the question as before. */
+  placeTip: z.object({ text: z.string().min(1).max(300), title: z.string().max(1000) }).optional(),
   /** a server check before files are shared or a share is stopped (api/share-card.ts): the files and people as rows.
    * The card shows these in place of `question` and `details`, and turns into the result (`Step.shared`) */
   share: ShareCardAsk.optional(),

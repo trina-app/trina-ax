@@ -33,18 +33,18 @@ describe('fillPlurals', () => {
 
 describe('server messages', () => {
   test('the card before the AI saves where more people see it', () => {
-    expect(tr('widenConfirm', 'en', { target: 'shared', n: '1' })).toBe('Save to shared (1 person)?')
-    expect(tr('widenConfirm', 'en', { target: 't', n: '5' })).toBe('Save to t (5 people)?')
-    expect(tr('widenConfirm', 'es', { target: 't', n: '1' })).toBe('¿Guardar en t (1 persona)?')
-    expect(tr('widenConfirm', 'es', { target: 't', n: '5' })).toBe('¿Guardar en t (5 personas)?')
-    expect(tr('widenBlind', 'es', { m: '1' })).toBe('1 de ellas no puede ver de dónde viene.')
-    expect(tr('widenBlind', 'es', { m: '2' })).toBe('2 de ellas no pueden ver de dónde viene.')
-    expect(tr('widenBlindChat', 'es', { m: '2' })).toBe('2 de ellas no pueden ver la conversación de donde viene.')
-    expect(tr('widenConfirm', 'ko', { target: 't', n: '1' })).toBe('t(1명)에 저장할까요?')
+    expect(tr('widenConfirm', 'en', { file: 'a.md', area: 'shared', n: '1' })).toBe('Save a.md to shared, where 1 person can see it?')
+    expect(tr('widenConfirm', 'en', { file: 'a.md', area: 't', n: '5' })).toBe('Save a.md to t, where 5 people can see it?')
+    expect(tr('widenConfirm', 'es', { file: 'a.md', area: 't', n: '1' })).toBe('¿Guardar a.md en t, donde lo puede ver 1 persona?')
+    expect(tr('widenConfirm', 'es', { file: 'a.md', area: 't', n: '5' })).toBe('¿Guardar a.md en t, donde lo pueden ver 5 personas?')
+    expect(tr('widenWhy', 'es', { sources: 'x', m: '1' })).toBe('Trina lo hizo con x, que 1 de ellas no puede abrir.')
+    expect(tr('widenWhy', 'es', { sources: 'x', m: '2' })).toBe('Trina lo hizo con x, que 2 de ellas no pueden abrir.')
+    expect(tr('widenWhyChat', 'es', { sources: 'x', m: '2' })).toBe('Trina lo hizo con x, que 2 de ellas no pueden ver.')
+    expect(tr('widenConfirm', 'ko', { file: 'a.md', area: 't', n: '1' })).toBe('t에 a.md 저장할까요? 1명이 볼 수 있는 곳이에요.')
     expect(tr('widenFrom', 'en', { source: 'x', n: '1' })).toBe('x (1 person)')
     expect(tr('widenFrom', 'en', { source: 'x', n: '3' })).toBe('x (3 people)')
     // a value is put in as written, never read as a count
-    expect(tr('widenSource', 'en', { sources: '{n, plural, one {x} other {y}}' })).toBe('It came from {n, plural, one {x} other {y}}.')
+    expect(tr('widenWhyAll', 'en', { sources: '{n, plural, one {x} other {y}}' })).toBe('Trina made it from {n, plural, one {x} other {y}}.')
   })
   test('moving and copying files: "item" / "items", "person" / "people", "it" / "them"', () => {
     const fill = (s: string, v: Record<string, string | number>, l: string) => fillPlurals(s, v, l).replace(/\{(\w+)\}/g, (_, k) => String(v[k]))

@@ -153,7 +153,7 @@ export default function AskCard({ req, onAnswer }: { req: Pick<OpenRequest, 'req
         {/* a share or a stop (AskUserRequest.share): the files and people as rows, the card its result card becomes */}
         {r.share ? <ShareAskRows ask={r.share} titleId={`${name}-q`} /> : (
           <p id={`${name}-q`} className="mt-1 whitespace-pre-wrap text-sm font-medium [overflow-wrap:anywhere]">
-            {r.question}
+            <QuestionText r={r} />
           </p>
         )}
         {r.preview && <div className="mt-2.5"><SkillPreview p={r.preview} /></div>}
@@ -186,7 +186,7 @@ export default function AskCard({ req, onAnswer }: { req: Pick<OpenRequest, 'req
         </p>
         {r.share ? <ShareAskRows ask={r.share} titleId={`${name}-q`} /> : (
           <p id={`${name}-q`} className="mt-1 whitespace-pre-wrap text-sm font-medium [overflow-wrap:anywhere]">
-            {r.question}
+            <QuestionText r={r} />
           </p>
         )}
         {/* a project skill whose name is taken elsewhere: another name, or the one that runs (docs/DECISIONS.md "Project skills") */}
@@ -224,7 +224,7 @@ export default function AskCard({ req, onAnswer }: { req: Pick<OpenRequest, 'req
       {/* the padding sits on a wrapper: a <legend> ignores its fieldset's top padding and would touch the header */}
       <div className="px-4 pt-3.5 pb-3">
         <fieldset className="space-y-2">
-          <legend className="mb-2.5 whitespace-pre-wrap text-sm font-medium [overflow-wrap:anywhere]">{r.question}</legend>
+          <legend className="mb-2.5 whitespace-pre-wrap text-sm font-medium [overflow-wrap:anywhere]">{fromServer ? <QuestionText r={r} /> : r.question}</legend>
           {fromServer && r.preview && <SkillPreview p={r.preview} />}
           {fromServer && r.details?.length ? <Details items={r.details} full={full} /> : null}
           {options.length > 0 && (
@@ -301,6 +301,21 @@ export default function AskCard({ req, onAnswer }: { req: Pick<OpenRequest, 'req
 }
 
 interface Choice { label: string; onClick: () => void; busy?: boolean; testId?: string; value?: string }
+
+/** A server card's question, with the part the server marks (AskUserRequest.placeTip: the wider-audience card's file
+ * name) showing the whole place on hover (docs/decisions/20261122-widening-card-wording.md). */
+function QuestionText({ r }: { r: { question: string; placeTip?: { text: string; title: string } } }) {
+  const tip = r.placeTip
+  const at = tip ? r.question.indexOf(tip.text) : -1
+  if (!tip || at < 0) return <>{r.question}</>
+  return (
+    <>
+      {r.question.slice(0, at)}
+      <span title={tip.title} className="underline decoration-dotted decoration-1 underline-offset-2" data-testid="ask-place">{tip.text}</span>
+      {r.question.slice(at + tip.text.length)}
+    </>
+  )
+}
 
 /** Three choices as buttons (a room's change card, an address, a dev-environment site), given in the server's order:
  * the main one, "always", the quiet "no", and kept in that order in the page, so the keyboard and a screen reader meet

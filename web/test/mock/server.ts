@@ -101,7 +101,7 @@ import { msg as serverMsg } from '../../../server/src/auth/messages'
 import { folderKeep, isParkedRow, isTeamDefaultFolder } from '../../../server/src/admin/folder-keep'
 import { checkTeamIcon, CHAT_FILES_FOLDER, FROM_COMPUTER_DIR, offersFolderShare, stepLabel, stepText, TEAM_ICON_MAX_BYTES, WEB_ALLOW_ALL_WARNING_VERSION, type TeamIconFile } from '@mycel/shared'
 import { MSG as FILE_MSG } from '../../../server/src/team-files/errors'
-import { TEXT as CHAT_TEXT } from '../../../server/src/chat/i18n'
+import { TEXT as CHAT_TEXT, tr as chatTr } from '../../../server/src/chat/i18n'
 import { say as connectionSay } from '../../../server/src/integrations/connections/text'
 // the address card's words as server/src/tools/url-gate.ts TEXT says them (that module is not imported: it would pull the
 // server's file and connection code into the browser TypeScript program)
@@ -1945,6 +1945,18 @@ export class MockServer {
         ? { kind: 'dev_env_site', requestId, host: 'api.openweathermap.org', command: 'curl -s https://api.openweathermap.org/data/2.5/weather?q=Seoul' }
         : /browsersite/i.test(prompt)
         ? { kind: 'browser_site', requestId, url: 'http://10.0.0.5/intranet/', host: '10.0.0.5', reason: '사내 문서 페이지를 열려고 해요.' }
+        // "widenask": the save-where-more-people-can-see card in a shared project chat, its source opened by someone
+        // else (server/src/chat/turn.ts askWidening; docs/decisions/20261122-widening-card-wording.md), in the person's language
+        : /widenask/i.test(prompt)
+        ? (() => {
+          const L = user.locale as Locale
+          const file = '06_contact.svg'
+          const question = `${chatTr('widenConfirm', L, { file, area: '테스트 프로젝트', n: '2' })}\n${chatTr('widenWhyHidden', L, { m: '1' })}`
+          return { kind: 'ask_user' as const, origin: 'server' as const, requestId, allowText: false, multiple: false, buttons: true as const, question,
+            placeTip: { text: file, title: [L === 'ko' ? '프로젝트' : 'Projects', '테스트 프로젝트', '트리숲_소개자료', 'svg_output', file].join(' › ') },
+            options: [{ label: CHAT_TEXT.widenSave[L], value: 'save' }, { label: CHAT_TEXT.cardAlways[L], value: '__always' }, { label: CHAT_TEXT.widenDont[L], value: 'skip' }],
+            note: CHAT_TEXT.cardAlwaysNoteSaveWider[L] }
+        })()
         : /siteask/i.test(prompt)
         ? { kind: 'ask_user', origin: 'server', requestId, allowText: false, multiple: false,
           question: `${URL_TEXT.unseen.ko.replace('{url}', siteUrl)}\n\n${URL_TEXT.site.ko.replace('{site}', 'example.co.kr')}`,

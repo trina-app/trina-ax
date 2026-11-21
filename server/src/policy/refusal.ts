@@ -139,7 +139,8 @@ const LABEL = {
   folders: t('폴더 권한', 'Folder permissions', 'Izin folder', 'フォルダーの権限', 'Permisos de carpetas', '文件夹权限'),
   groups: t('부서', 'Groups', 'Grup', 'グループ', 'Grupos', '小组'),
   rooms: t('대화', 'Conversations', 'Percakapan', 'トーク', 'Conversaciones', '聊天'),
-  sideChat: t('✦ {name}에게 따로 묻기', '✦ Ask {name} privately', '✦ Tanya {name} secara pribadi', '✦ {name}に個別に質問', '✦ Preguntar a {name} en privado', '✦ 私下问{name}'),
+  // the ✦ button's label (web sideChat.open, PR #276)
+  sideChat: t('✦ {name}에게 묻기 (나만 봐요)', '✦ Ask {name} (only you see it)', '✦ Tanya {name} (hanya Anda yang melihat)', '✦ {name}に質問（自分だけに表示）', '✦ Preguntar a {name} (solo usted lo ve)', '✦ 问{name}（仅自己可见）'),
   // the person's own connections: Connectors, a section of Settings (web integrations.title)
   connectors: t('커넥터', 'Connectors', 'Konektor', 'コネクター', 'Conectores', '连接器'),
   // the team's: Admin › Connected apps (web admin.integrations)

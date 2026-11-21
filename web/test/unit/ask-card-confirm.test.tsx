@@ -142,3 +142,22 @@ for (const kind of ['browser_site', 'dev_env_site'] as const) {
 test('the server card is titled "확인해 주세요" in Korean', () => {
   expect(ko['ask.serverTitle']).toBe('확인해 주세요')
 })
+
+test('the wider-audience card: the file name shows the whole place on hover (placeTip), the question reads as sent', async () => {
+  installDom()
+  const request: Ask = {
+    ...serverCard([{ label: 'Save', value: 'save' }, { label: 'Don’t save', value: 'skip' }]), details: undefined,
+    question: 'Save 06_contact.svg to Acme, where 2 people can see it?\nTrina made it from a place 1 of them can’t open.',
+    placeTip: { text: '06_contact.svg', title: 'Projects › Acme › Deck › svg_output › 06_contact.svg' },
+  }
+  const m = await mount(<AskCard req={{ request }} onAnswer={async () => {}} />)
+  try {
+    const tip = m.get('ask-place')
+    expect(tip.textContent).toBe('06_contact.svg')
+    expect(tip.getAttribute('title')).toBe('Projects › Acme › Deck › svg_output › 06_contact.svg')
+    expect(m.get('ask-card').textContent).toContain('Save 06_contact.svg to Acme, where 2 people can see it?')
+  } finally {
+    await m.unmount()
+    removeDom()
+  }
+})

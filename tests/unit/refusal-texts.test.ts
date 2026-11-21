@@ -5,7 +5,7 @@ import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
 import { Database } from 'bun:sqlite'
 import { Locale } from '@mycel/shared/api'
 import {
-  cardEndShort, cardNext, cardReason, nameList, notFoundNext, readOnlyNote, reasonText, refusal, SCREEN, writeGranters, writeLimitText,
+  AI_NAME, cardEndShort, cardNext, cardReason, nameList, notFoundNext, readOnlyNote, reasonText, refusal, SCREEN, writeGranters, writeLimitText,
 } from '../../server/src/policy/refusal'
 import { readOnlyFor } from '../../server/src/chat/tools'
 import { buildTurnContext, buildTurnPrompt, confidentialRule, deleteRule, sharedSection, type PromptInput } from '../../server/src/chat/prompt'
@@ -65,7 +65,9 @@ describe('refusal()', () => {
     expect(SCREEN.connectors('ja')).toBe('Settings › Connectors ("設定 › コネクター")')
     expect(SCREEN.connectors('ko', 'Gmail')).toBe('Settings › Connectors › Gmail ("설정 › 커넥터 › Gmail")')
     expect(SCREEN.adminMcp('ko')).toBe('Admin › Connected apps ("관리자 › 연결한 서비스")')
-    expect(SCREEN.sideChat('ko')).toMatch(/^the room's side panel \("✦ .+에게 따로 묻기"\)$/)
+    expect(SCREEN.sideChat('ko')).toMatch(/^the room's side panel \("✦ .+에게 묻기 \(나만 봐요\)"\)$/)
+    // the same label as the ✦ button (web sideChat.open, PR #276), in every language
+    for (const L of Locale.options) expect(SCREEN.sideChat(L)).toBe(`the room's side panel ("✦ ${(DICTS[L] as Record<string, string>)['sideChat.open']!.replace('{name}', AI_NAME[L])}")`)
   })
 
   test('the write limits give their numbers and "continue" in the next message (B7)', () => {
