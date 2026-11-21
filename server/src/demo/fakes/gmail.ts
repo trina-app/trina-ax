@@ -161,7 +161,7 @@ function evalQuery(q: Query, term: (t: Term) => boolean): boolean {
 
 /** lowercase words, punctuation of names and addresses ("<", ".", "@") as spaces */
 const words = (s?: string) => ` ${(s ?? '').normalize('NFC').toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim()} `
-const HANGUL = /[가-힣]/
+const HANGUL = /\p{Script=Hangul}/u
 /** Korean honorifics and particles at the end of a name, longest first ("크리스님이" → "크리스") */
 const KO_ENDINGS = ['님에게서', '님한테서', '님께서', '님에게', '님한테', '님이랑', '님하고', '님이', '님은', '님의', '님을', '님도', '님께', '님', '씨가', '씨는', '씨의', '씨',
   '에게서', '한테서', '께서', '에게', '한테', '이랑', '하고', '이', '가', '은', '는', '을', '를', '의', '께', '도', '랑', '과', '와']
