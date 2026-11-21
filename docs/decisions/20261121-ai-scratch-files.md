@@ -43,7 +43,7 @@
   commands (a job's output) are not moved, since that would break a running job: the AI gets a note when a job added
   more than 500 files, and the tool text sends job downloads to `$TRINA_WORK`; folders the snapshot skips
   (node_modules, .venv …) are not counted. The
-  files already on potenlab are not touched: the owner deletes `projects/테스트 프로젝트/_tools` on the Files screen.
+  files already on potenlab are not touched: the owner deletes the project's `_tools` folder on the Files screen.
 - **Tests:** `tests/unit/ai-scratch-files.test.ts` (scratch folder in project runs, tool text, bulk guard and move,
   summary cap, own-file deletes) and `tests/unit/ai-scratch-files-security.test.ts`.
 - **Version impact:** minor (a new card and Always allow kind, a changed summary card).

@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-21 18:42
 - Branch: `fix/ai-scratch-files`
-- Status: in progress
+- Status: done
 - Where: server (devenv, chat), shared (api, tools), web (chat file summary). Why: a project chat's AI put a 13,000-file
   GitHub download into the project folder (see docs/REPOSITORY-RULES.md)
 - Version impact: minor. A new card (many new files in a project folder), a new "Always allow" kind and a changed
@@ -50,7 +50,7 @@ In:
 
 Out:
 
-- The 13k files on potenlab stay where they are (`projects/테스트 프로젝트/_tools`). The owner deletes the folder on
+- The 13k files on potenlab stay where they are (the project's `_tools` folder). The owner deletes the folder on
   the Files screen. Nothing on potenlab is changed by this PR.
 - A pre-command guard (counting writes while a command runs). The guard acts at the end of the command, before the
   files are recorded.
@@ -89,4 +89,9 @@ Out:
 
 ## Result
 
-Filled in at the end.
+Built as planned, with the line at 500 files or 200 MB (not 300 / 100 MB) so a normal build or image folder does not
+ask. After the independent review: the bulk card waits 2 minutes (the project's other commands wait while it is open),
+what else changed while it waited is recorded as background, a folder holding a file the command did not make never
+moves whole, `chat:work/` works in shared project chats, a cheap history check runs before an own-file plan walks the
+disk, and a job that adds many files to the project folder gives the AI a note (jobs are not moved). The PR link is in
+the PR.
