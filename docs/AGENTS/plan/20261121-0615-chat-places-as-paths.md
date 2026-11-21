@@ -3,15 +3,89 @@
 - Date (UTC): 2026-11-21 06:15
 - Branch: `plan/chat-places-as-paths` (plan only, off `feat/shared-chat-attach-work-file` 57e5a4b1c; the builds get
   their own branches, below)
-- Status: draft (for an independent review; the owner approved the direction, "ㄱㄱ")
+- Status: reviewed (go with changes, 2026-11-21); P1 in progress on `feat/places-resolver-read`
 - Where: server (file service, the turn's cards, tool lists, chat files, devenv work files), shared (one path parser),
   web (step labels, links). Why: the AI's core file tools are core (docs/REPOSITORY-RULES.md)
 - Version impact: **minor**. The file tools take two new kinds of path; old tools keep working as aliases; no
-  existing behaviour is narrowed; no migration of ours (S2's version column is trina-ax-78's)
+  existing behaviour is narrowed; one additive migration in P4 (`chat_files.replaces`, `root_id`)
 - Base: the end state after the merge order #198 + #195 → #207 → #200 + #199. This plan **replaces** PR2b
   `copy_to_work` and PR2c H1 (`chat:<name>` output) of
   [20261121-0334-shared-chat-attach-work-file.md](20261121-0334-shared-chat-attach-work-file.md) (fdec6fb24). Neither
   is built.
+
+## After the independent review (2026-11-21): go, with these changes
+
+This section wins wherever the text below says otherwise. The owner settled both questions: project chats keep the
+project folder as their only save place (`chat:files/` is read-only there), and `room:files/` waits until P1–P5 have
+run for a week.
+
+1. **Provenance cannot be laundered.** `chat:files/` names only `source:'chat'` rows (`chat_files`, people-shared
+   chats). A personal chat's upload (`users/<id>/.attachments/<chat>/…`) and a `source:'team'` attachment
+   (shared/src/api/entities.ts Attachment) stay **team paths**. The transcript names them by their team path, and a
+   read records `sourceOf(team path)`, never `{type:'chat'}`. A `chat:files/<name>` that would match one of them is
+   "not found". So in a personal or project chat `chat:files/` lists only what `chat_files` holds for that chat
+   (usually nothing, or the files of a chat made private again).
+2. **Versions belong to P4, which also owns the plan's only migration.** S2 (trina-ax-78) is web only and builds on it.
+   - P4 adds `chat_files.replaces` and `chat_files.root_id` (indexed), with the next free component-B number at build
+     time.
+   - `ChatFiles.putVersion` is the only code that writes a version. A web save, a restore and an AI `write`/`edit` all
+     go through it. A restore makes a new head.
+   - A chain's id is its root's file_id. Every lookup (by id, by name, a link) resolves root → head.
+   - `sent()`, `onlyOnHidden()` and the sweep look at the messages that carry the **root**.
+   - The uploader's "own unsent upload" exemption in `open()` holds only for a row with `replaces IS NULL`.
+   - `list`, `grep` and the name lookup go through a new `ChatFiles.visibleTo(userId, chatId)`, so a name carried only
+     by hidden answers never shows.
+   - The last 20 versions are kept, and pruning never removes the head. The chip says "Updated by <name>".
+3. **The work-folder write runs inside the sandbox.** Node/Bun has no `openat`, and `safe-ops/broker.ts` is Linux
+   `openat2` only, so P2 cannot write `chat:work/` from the server. Instead the server stages a read-only copy (checked
+   fd, quarantine hash checked, 0400, in a server temp folder that the run is allowed to read for this one call), and a
+   box command run with the box's own rights (`cp --no-dereference`, no clobber: `name (2).ext`) copies it into the
+   work folder. The sandbox then decides what the box can write, exactly as for any command. A macOS path in the
+   broker is the fallback if staging proves impossible on the Mac. This is a **hard prerequisite of P2**.
+4. **Consumers the inventory missed, now in section 3's work:**
+   - `files/sources.ts` `isTeamFilePath` (the used-files list, skill-draft links): `chat:` is never a team file (P1).
+   - `tools/make-file.ts` `copyImages` (~557–586): image references inside a document resolve through the resolver
+     against the source's own place, so an HTML in `chat:work/` cannot pull images from the team folder (P3).
+   - Folder copies into `chat:work/` add every `boundaryFolders()` folder under the copied folder that the person may
+     read to the sources, as `make_zip` does (P2).
+   - The `list` own-path branch in `sharedSources` (`tool === 'list' && k === 'path'`): a `chat:` list path resolves
+     before that branch (P1).
+   - #207's carried reads are keyed by file id; a chain's root id is that key (P4).
+   - The transcript lines (turn.ts ~5178 and ~5485, and 5232) name `chat:files/<name>` for `source:'chat'` only (P1).
+   - `engine/api-links.ts` LinkGuard: `/c/` joins `ROUTE`, and `key()` keeps the `file=` parameter (P3).
+5. **Copied-in provenance persists with the work folder.** A copy into a shared chat's `chat:work/` records its y
+   group under the **workspace key** (`sharedWorkOf`, runner.ts ~286–296), in a small server-side record next to the
+   key's logs. Every later run, and every `read`/`list` of that key, records the same groups again into its own answer
+   (`noteSharedReads`), so an answer made from the copy a day later still carries it. The copy-in uses `spaceOf` (which
+   creates the folder and notes the reads). P1's reads keep PR1's "look up without creating" (`workFolderAt`), and the
+   write path is the one place that may create.
+6. **P1's fail-closed rule is narrow.** Only the reserved prefixes `chat:` and `room:` change: they go to the resolver
+   or are refused. Every other `scheme:` value keeps today's handling (URLs, connector ids). A test walks every
+   PATH_ARGS key of every tool with both prefixes. **Sub-agents get no `chat:` path** (`chat_file` is in
+   PARENT_ONLY_TOOLS, subagents.ts:37): the resolver refuses there. On every call the resolver checks `livePrincipal()`
+   and `seesChatFiles()` again, because `ChatFiles.open()` does not check the chat.
+7. **An original team path maps to its copy only through #207's `file-access` lookup.** Every other route gets "not
+   found". `keepCopy`'s contract holds:
+   - bytes come only from the checked fd;
+   - `from` and `fromSha256` stay on the server, and `copyForViewer` strips them, from version rows too;
+   - a 404 on a chat-file link is generic, with no Ask button;
+   - `sharedCopiesNote` stays in the branch for answers that are not withheld (chat/shared.ts ~625).
+   The resolver never maps a team path to `chat:files/` itself.
+
+**Phasing after the review:**
+- **P1** ships fixes 1, 4 (isTeamFilePath, the transcript lines, the list branch) and 6. Reads only: `read`, `list`
+  and `grep`/`glob` of `chat:files/`, and `read` of `chat:work/` (PR1's path, now spelled `chat:work/`).
+- `list`/`grep`/`glob` of `chat:work/` move to P2.
+- **P2** needs fixes 3 and 5. **P3** needs the copyImages fix. **P4** carries fix 2 and the migration.
+
+**Also in, from the review:**
+- The web renders `[x](chat:files/…)` as a chip (Markdown.tsx ~562), not as an external link with an unknown scheme.
+- The card and place words exist in all 6 languages.
+- `rename_file`, `rename_files` and `move_files` on a chat file refuse and suggest `copy_files`.
+- A test fails if a second code path opens a chat file (anything other than `ChatFiles.open` / `visibleTo`).
+- Copies into `chat:work/` check the quarantine hash.
+- P5: the legacy-name mapping matters only for the API engine and remote MCP. Claude Code and Codex sessions get the
+  current tool list on every turn.
 
 ## Goal
 
@@ -71,7 +145,7 @@ turns a path argument into storage. Its answers:
 
 | | team path | `chat:files/…` | `chat:work/…` | `room:files/…` (ph. 6) |
 |---|---|---|---|---|
-| Storage | `authorize()` as today | `ChatFiles.open` (row, newest of the version chain from S2, sha256, quarantine) | PR1's checked work folder (`turn.workFolder()`, `copyWorkFile` safe open) | room file store |
+| Storage | `authorize()` as today | `ChatFiles.open` / `visibleTo` (row, root → head of P4's chain, sha256, quarantine), `source:'chat'` rows only | PR1's checked work folder (`turn.workFolder()`, `copyWorkFile` safe open) | room file store |
 | Readers (read scope) | `sourceOf()` as today | `{type:'chat', id}` (the chat's viewers), plus the k groups of the answers that carry it (below) | shared chat: `{type:'chat', id}` after `noteSharedReads`; personal chat: `{type:'user', id: me}` (as PR1) | `{type:'room', id}` |
 | Exists / fresh | `authorize(...).exists` | a name of this chat now | `lstat` under the checked root | room store |
 | Who may open | folder rules | `seesChatFiles` + `sent()` + #207 `onlyOnHidden` | the person of the turn, main AI, dev env on | room members |
@@ -80,14 +154,14 @@ turns a path argument into storage. Its answers:
 
 | Chat kind | `chat:files/` write (new file, or a new version of one) | `chat:work/` write (copy in) | `chat:work/` read |
 |---|---|---|---|
-| Personal (incl. a personal project chat) | read: its uploads (already team files in `users/<id>/.attachments/<chat>/`, listed by name); a write is refused with "save it in My files (users/<id>/)": the 20261117 rule stays | yes, no card (a run there already reads the person's folders) | yes |
+| Personal (incl. a personal project chat) | its uploads stay **team paths** (`users/<id>/.attachments/<chat>/`, review fix 1); `chat:files/` holds only `chat_files` rows of a chat made private again; a write is refused with "save it in My files (users/<id>/)": the 20261117 rule stays | yes, no card (a run there already reads the person's folders) | yes |
 | Shared with people | yes, no card (exactly the chat's people see it); refused in a turn that has a k group (as #200) | yes; a source not every person here may read asks the **shared read card** first | yes |
 | Shared project chat / project room side chat | no: refused with "save it in the project folder (projects/…)"; the project folder is its shared place and its commands run there | no work folder (commands run in the project folder, a team path) | n/a |
 | Room ✦ side chat | no (the room's save place is a team folder, decisions 20261117) | as the chat's kind | as the chat's kind |
 | Confidential (locked) | `chat:files/` read only (uploads are there); no write (no attach path in a locked chat) | none (box_shell is not offered) | none |
 | Guest turn | none (guests are never in a chat shared with people; GUEST_TURN_TOOLS keep their list) | none | none |
 | Scheduled run | read `chat:files/`; no write to `chat:files/` (nobody to see the attach live; the run's save folder stays its place); no work folder | none | none |
-| Sub-agent | read `chat:files/` (as `chat_file` today); no write; no work folder (PR1 rule: the main AI looks at results) | none | none |
+| Sub-agent | none: `chat:` refused (chat_file is PARENT_ONLY today; the main AI reads) | none | none |
 | Remote MCP (no turn) | none: the parser accepts the form and the resolver answers "only inside a Trina chat" | none | none |
 
 **k (hidden from newcomers).** A chat file carried only by answers that have a k group (a connection's answer,
@@ -169,11 +243,9 @@ ships with phase 3.
 
 - **Work folder, both directions: PR1's safe open, unchanged and reused.** Read: `copyWorkFile` (realpath'd root,
   `O_NOFOLLOW|O_NONBLOCK`, regular file with one link, the open fd's kernel path inside the root, no fallback), into a
-  server-only temp copy; every converter works on the copy. Write (copy in, `write`, a produce tool's output): a new
-  `writeWorkFile` with the same rules mirrored: the target folder chain is opened from the root's fd with
-  `O_NOFOLLOW|O_DIRECTORY` (created 0700 when missing), the file with `O_CREAT|O_EXCL|O_NOFOLLOW` (an existing name gets
-  `name (2).ext`, never an overwrite through a link), the fd's kernel path checked inside the root before the first
-  byte. Folder copies walk the source with the same checked open per file, skip links, and stop at the per-call limit.
+  server-only temp copy; every converter works on the copy. Write (copy in, `write`, a produce tool's output): **inside the sandbox** (review fix 3): the server stages a
+  read-only checked copy and a box command copies it in with the box's rights; the server never opens a path in the
+  work folder for writing. Folder copies walk the source with the same checked open per file, skip links, and stop at the per-call limit.
   The engine's built-in Read, Bash, Write and Edit stay denied (engine/claude.ts CLAUDE_BUILTIN_DENIED); Codex keeps
   shell disabled. The resolver is the only way in.
 - **Commands in shared chats keep their view** (devenv/srt/access.ts sharedFolderView and sharedReadable): a run still
@@ -203,9 +275,9 @@ ships with phase 3.
 
 ## 6. Migration, size limits, quota
 
-- **No migration of ours.** The path is text in existing arguments; provenance stays in the attachment JSON (`origin:
-  'ai' | 'shared-copy'`). S2's version chain (`chat_files.replaces`, trina-ax-78) is the one column this needs; phase 4
-  builds on it and adds none.
+- **One migration, in P4** (review fix 2): `chat_files.replaces`, `chat_files.root_id` (indexed), additive, the next
+  free B number at build time. P1–P3 need none: the path is text in existing arguments, provenance stays in the
+  attachment JSON (`origin: 'ai' | 'shared-copy'`).
 - **Sizes:** one constant for the AI's chat files and share-time copies (`CHAT_FILE_AI_MAX` = #207's `CHAT_COPY_MAX`,
   1 GB), people's uploads stay 50 MB (`CHAT_FILE_MAX`). Reads: the plan's read limit (1 GB for media), as today.
   Copy into `chat:work/`: each file at most the read limit, one call at most 1 GB and 2,000 files in all, plus the
@@ -224,7 +296,7 @@ path), screenshots looked at.
 | P1 | `feat/places-resolver-read` | M, ~500 | `shared/src/places.ts` (parser, shown names, 6 languages), `server/src/files/places.ts` (resolver; chat files and work folder read; one multi-binding in ToolCtx that generalizes `sharedChild` to a map, so one call may name several non-team places), `read`/`list`/`grep`/`glob` take `chat:files/` and `chat:work/`; the read-scope and card rows of section 3 for reads (incl. the fail-closed scheme line); the k rule of section 2 for reads; history shows `chat:files/<name>`; `chat_file` becomes an alias; box_shell text and prompt say `chat:work/`. Decision file. |
 | P2 | `feat/places-copy` | M, ~450 | `copy_files` among all places, files and folders (HTML plus its images folder), with `writeWorkFile`; `save_chat_file` and `save_work_file` become aliases of it; the shared read card for a copy into a shared chat's work folder (y group); copy out of `chat:work/` into `chat:files/` (attach, #200's path) or a team folder (placeProduced); the turn limits and the 1 GB / 2,000-file call limit. |
 | P3 | `feat/places-produce` | M, ~450 | `placeProduced` takes a place: `output: chat:files/<new name>` attaches, `output: chat:work/<path>` writes there; every produce tool's `source`, `template`, `images` may be any place (bound through P1's map); `write` of a new `chat:files/` or `chat:work/` text file; the link form `/c/<chat>?file=<id>` (server link guard plus the web's chat page opening the viewer); the people-shared-chat prompt rule (H1) and its decision amendment. |
-| P4 | `feat/places-edit-chat-files` (after trina-ax-78's S2 schema) | S–M, ~300 | `write`/`edit`/produce output on an existing `chat:files/<name>` = a new version (S2's chain), read-before-write by the head's sha256, a changed head = a version beside it, `read {versions}` on chat files. S2's web save (`PUT …/content`) calls the same `ChatFiles.putVersion`. |
+| P4 | `feat/places-edit-chat-files` (owns the migration; S2 web builds on it) | M, ~400 | review fix 2 in full; `write`/`edit`/produce output on an existing `chat:files/<name>` = a new version through `putVersion`, read-before-write by the head's sha256, a changed head = a version beside it, `read {versions}` on chat files. S2's web save (`PUT …/content`) and restore call the same `ChatFiles.putVersion`. |
 | P5 | `chore/places-old-tools` | S, ~150 | The old tool names leave the tool list and the prompt (`chat_file`, `save_chat_file`, `save_work_file`); `call()` still maps the old names for one release (an old session's model may call them); tool-list tests updated. |
 | P6 | `feat/places-room-files` (only if owner question 2 is yes) | S–M | `room:files/` in a room's ✦ side chat; `room_file`/`save_room_file` become aliases. |
 
@@ -276,7 +348,7 @@ Order: P1 → P2 → P3 → (S2) → P4 → P5 (→ P6). P1–P3 alone close the
    hidden from them.
 5. **Codex too:** scenarios 1 (shared) and 2 on Codex once per phase that adds a path.
 
-## 8. Owner questions (at most 2, one recommendation each)
+## 8. Owner questions (settled 2026-11-21: both as recommended)
 
 1. **A shared project chat: should `chat:files/` work there too (the AI attaches its PPTX to the answer), or does the
    project folder stay the one place?** Recommend: **the project folder stays**; the AI saves there and links it, as
@@ -294,7 +366,7 @@ Order: P1 → P2 → P3 → (S2) → P4 → P5 (→ P6). P1–P3 alone close the
 3. `origin: 'shared-copy'` copies are ordinary `chat:files/` names; Rule 3 ("the chat's copy wins in links") also holds
    for the AI: in that chat a team path whose original has a shared copy resolves, for a read, to the copy's
    `chat:files/` form and says so in the result (one line); a write to the original path stays a team write.
-4. **S2 builds on the resolver, not on a new tool:** `write`/`edit`/produce output to an existing `chat:files/<name>`
+4. **S2 (web only) builds on P4's resolver and `putVersion`, not on a new tool or column:** `write`/`edit`/produce output to an existing `chat:files/<name>`
    = a new version (`replaces` = the head's id, same name, `origin: 'ai'`, the turn's person as `user_id`). Read-before-
    write as for team files: `edit` needs a read of the head in this turn (its sha256 in readHashes under the
    `chat:files/<id>` key); if the head changed since (someone saved), the save is a new version beside it and the result
@@ -324,11 +396,12 @@ DECISIONS.md "Write only in the starting folder" (commands still write no team f
   tool is refused, and the resolver is the only place that lets `chat:` through. A test walks every PATH_ARGS tool
   with `chat:files/x` and `chat:work/x` and asserts each is resolved or refused, never passed through.
 - The work-folder write side is new code on a folder sandboxed commands write at any time (Opus review).
-- S2 must land before phase 4; if it slips, phase 4 waits and phases 1–3 still close the owner's dead ends (a new
-  name, never an overwrite).
+- P4 owns the version migration and S2 (web) builds on it; until P4, phases 1–3 still close the owner's dead ends
+  (a new name, never an overwrite).
+- P2 depends on the in-sandbox copy (review fix 3); if staging fails on a Mac server, the broker gets a macOS path first.
 - Older apps: links of the new chat-file form open the chat (the route exists); step lines are server text.
 - The five app languages (six with zh): the new place names in en, ko, es, id, ja, zh (`check:i18n`).
-- No migration; check `server/migrations/` before each PR anyway (S2 takes the next B number).
+- One migration (P4, the next free B number at build time); check `server/migrations/` on `dev` right before that PR.
 
 ## Tests
 
