@@ -4,6 +4,7 @@ import { confidentialChat, localTool } from "../safe-ops/confidential"
 // share_file, artifact, web_fetch). Served over the same MCP connection as the file tools (mcp__team__<name>).
 import { isReservedPlace, parsePlace } from '@mycel/shared/places'
 import { chatPlaces } from './place-ctx'
+import { PLACE_PRODUCE_TOOLS } from '../files/place-output'
 import { isFreeRoam } from '../app-config'
 import { freeRoamToolCallRefused, freeRoamToolFenced } from '../demo/guard'
 import { stampOutputOf } from '../tools/stamp-pdf'
@@ -1367,7 +1368,7 @@ function saveScreenshot(exec: TurnExec, b64: string, mime: string): string | nul
 }
 
 /** The produce tools whose output may be chat:files/<name> (attached to the answer: files/place-output.ts) */
-export const PLACE_PRODUCE_TOOLS: ReadonlySet<string> = new Set(['make_file', 'edit_office', 'edit_pdf', 'merge_pdfs', 'split_pdf', 'stamp_pdf', 'comment_docx', 'resize_images', 'make_zip'])
+export { PLACE_PRODUCE_TOOLS }
 
 /**
  * A call of a registered tool (not read, list, glob or grep: files/service.ts callPlace takes those) that names a chat

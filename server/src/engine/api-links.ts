@@ -42,10 +42,12 @@ export class LinkGuard {
     let u: URL
     try { u = new URL(url, 'http://team.invalid') } catch { return null }
     if (!relative && !this.origins.has(u.origin)) return null
-    if (!ROUTE.test(u.pathname)) return null
     // a chat's page is guarded only as a chat file's link, by the file it opens (/c/<chat>?file=<id>); a link to a chat
-    // alone goes through as before
-    if (u.pathname.startsWith('/c/')) { const f = u.searchParams.get('file'); return f ? `${u.pathname}|file=${f}` : null }
+    // alone goes through as before. Any spelling the app's router opens the same way (it ignores letter case and a
+    // closing slash: /C/<chat>/?file=<id>) is the same link
+    const chat = /^\/c\/([A-Za-z0-9_-]+)\/?$/i.exec(u.pathname)
+    if (chat) { const f = u.searchParams.get('file'); return f ? `/c/${chat[1]}|file=${f}` : null }
+    if (!ROUTE.test(u.pathname)) return null
     return `${u.pathname}|${u.searchParams.get('path') ?? ''}`
   }
 

@@ -68,6 +68,8 @@ export function chatPlaces(exec: TurnExec, files: TurnFiles): ChatPlaces {
       }
       throw new ToolError('not found in this chat\'s files', 'not_found')
     },
-    names() { return new Set(rows().map((r) => r.name)) },
+    // only the names this person may open (sent, or their own upload; not carried only by a hidden answer): a name taken
+    // by a file they cannot see never turns the new one into "name (2)", which would tell them it is there
+    names() { return new Set(rows().filter((r) => !carriedByHiddenAnswer(rt.db, chatId, r.id) && (r.user_id === me || store.sent(r))).map((r) => r.name)) },
   }
 }
