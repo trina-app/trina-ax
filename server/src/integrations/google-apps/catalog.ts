@@ -9,7 +9,7 @@
 // two comment tools that need full Drive access (owner decision 7). A tool the library adds in a later version is not
 // offered until it is listed here.
 import type { Database } from 'bun:sqlite'
-import type { GoogleAppId, GoogleAppTool, Locale } from '@mycel/shared/api'
+import type { GoogleAppId, GoogleAppTool } from '@mycel/shared/api'
 import type { RemoteTool } from '../connections/mcp'
 
 export const APP_IDS: readonly GoogleAppId[] = ['gmail', 'calendar', 'docs', 'sheets']
@@ -103,32 +103,6 @@ const TOOLS: Record<GoogleAppId, Entry[]> = {
     ['manage_named_range', 'Manage Named Range', true, 'Add or remove named ranges.'],
   ],
 }
-
-type Words = Record<Locale, string>
-const w = (en: string, ko: string, id: string, ja: string, es: string, zh: string): Words => ({ en, ko, id, ja, es, zh })
-/** What the step under an answer and the card before a change call a library tool, in the person's language
- * (connections/card-lines.ts toolTitle), in place of the library's English title ("Search Gmail Messages"). Gmail only
- * for now: Calendar, Docs and Sheets keep the library's title. tests/unit/google-tool-titles.test.ts: every Gmail tool
- * in every language. */
-export const TOOL_WORDS: Record<string, Words> = {
-  search_gmail_messages: w('Search mail', '메일 찾기', 'Cari email', 'メールを検索', 'Buscar correo', '搜索邮件'),
-  get_gmail_message_content: w('Read a message', '메일 읽기', 'Baca email', 'メールを読む', 'Leer un mensaje', '阅读邮件'),
-  get_gmail_messages_content_batch: w('Read messages', '메일 여러 통 읽기', 'Baca beberapa email', '複数のメールを読む', 'Leer varios mensajes', '阅读多封邮件'),
-  get_gmail_thread_content: w('Read a conversation', '메일 대화 읽기', 'Baca percakapan', 'メールのやり取りを読む', 'Leer una conversación', '阅读邮件会话'),
-  get_gmail_threads_content_batch: w('Read conversations', '메일 대화 여러 개 읽기', 'Baca beberapa percakapan', '複数のやり取りを読む', 'Leer varias conversaciones', '阅读多个邮件会话'),
-  get_gmail_attachment_content: w('Read an attachment', '첨부 파일 읽기', 'Baca lampiran', '添付ファイルを読む', 'Leer un adjunto', '阅读附件'),
-  list_gmail_labels: w('List labels', '라벨 보기', 'Lihat label', 'ラベルを見る', 'Ver etiquetas', '查看标签'),
-  list_gmail_filters: w('List filters', '필터 보기', 'Lihat filter', 'フィルタを見る', 'Ver filtros', '查看过滤器'),
-  send_gmail_message: w('Send email', '메일 보내기', 'Kirim email', 'メールを送信', 'Enviar correo', '发送邮件'),
-  draft_gmail_message: w('Save a draft', '임시 보관함에 저장', 'Simpan draf', '下書きを保存', 'Guardar un borrador', '保存草稿'),
-  modify_gmail_message_labels: w('Change labels', '라벨 바꾸기', 'Ubah label', 'ラベルを変更', 'Cambiar etiquetas', '更改标签'),
-  batch_modify_gmail_message_labels: w('Change labels on several messages', '여러 메일 라벨 바꾸기', 'Ubah label beberapa email', '複数のメールのラベルを変更', 'Cambiar etiquetas de varios mensajes', '更改多封邮件的标签'),
-  manage_gmail_label: w('Manage a label', '라벨 관리', 'Kelola label', 'ラベルを管理', 'Gestionar una etiqueta', '管理标签'),
-  manage_gmail_filter: w('Manage a filter', '필터 관리', 'Kelola filter', 'フィルタを管理', 'Gestionar un filtro', '管理过滤器'),
-}
-/** a library tool's own words in `L` (TOOL_WORDS), or null for a tool not listed there */
-export const googleToolWord = (name: string, L: Locale): string | null =>
-  Object.hasOwn(TOOL_WORDS, name) ? TOOL_WORDS[name]![L] ?? TOOL_WORDS[name]!.en : null
 
 /** "Show all tools": what the AI gets from the app (also before anyone connects) */
 export function catalog(app: GoogleAppId): GoogleAppTool[] {

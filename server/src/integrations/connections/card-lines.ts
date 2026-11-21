@@ -6,8 +6,7 @@
 import { readableToolName } from '@mycel/shared'
 import type { Locale } from '@mycel/shared/api'
 import { opaqueParts } from '../../tools/url-gate'
-import { googleToolWord } from '../google-apps/catalog'
-import { FIELD_WORDS, say, type TextKey } from './text'
+import { FIELD_WORDS, googleToolWord, say, type TextKey } from './text'
 
 /** more values than this, nested deeper, or more characters in all: no lines, the JSON open */
 export const CARD_LINES_MAX = 40
@@ -43,7 +42,7 @@ export type ToolKind = 'google-apps'
 export const toolKindOf = (row: { google_app?: string | null }): ToolKind | undefined => (row.google_app ? 'google-apps' : undefined)
 
 /** A service tool as the card and the step name it: on a Google Workspace library connection with a locale, Trina's own
- * words for the tool in that language (google-apps/catalog.ts TOOL_WORDS); else its title from the service (MCP
+ * words for the tool in that language (text.ts GOOGLE_TOOL_WORDS); else its title from the service (MCP
  * `title`, on one line, at most 80 characters, invisible and direction-changing characters out), else its id in words
  * ("create_task" -> "Create task"). The title is the service's words like its id: a service that would mislead with it
  * could also mark the tool read-only and never be asked about at all (mcp.ts toolOf). */

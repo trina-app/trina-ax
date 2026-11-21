@@ -1,13 +1,13 @@
 // A Google Workspace library tool's words on steps and cards in the person's language (free-roam demo QA 2026-11-22
-// F4; google-apps/catalog.ts TOOL_WORDS, connections/card-lines.ts toolTitle and fieldWord, text.ts MAIL_FIELD_WORDS).
+// F4; connections/text.ts GOOGLE_TOOL_WORDS, connections/card-lines.ts toolTitle and fieldWord, text.ts MAIL_FIELD_WORDS).
 // Covered: a Gmail tool on a library connection gets Trina's own words in all six languages; another MCP server keeps
 // its own title; without a locale the title is as before; the mail field words apply only on a library connection's
 // card, so another service's thread_id or references keeps its own words.
 import { describe, expect, test } from 'bun:test'
 import { Locale } from '@mycel/shared/api'
-import { catalog, TOOL_WORDS } from '../../server/src/integrations/google-apps/catalog'
+import { catalog } from '../../server/src/integrations/google-apps/catalog'
 import { cardLines, fieldWord, toolKindOf, toolTitle } from '../../server/src/integrations/connections/card-lines'
-import { MAIL_FIELD_WORDS } from '../../server/src/integrations/connections/text'
+import { GOOGLE_TOOL_WORDS, MAIL_FIELD_WORDS } from '../../server/src/integrations/connections/text'
 
 describe('tool titles', () => {
   test('a Gmail tool on the library connection in the person\'s language', () => {
@@ -29,7 +29,7 @@ describe('tool titles', () => {
 
   test('every Gmail catalog tool has all six languages', () => {
     for (const tool of catalog('gmail')) {
-      for (const L of Locale.options) expect({ tool: tool.name, L, ok: !!TOOL_WORDS[tool.name]?.[L]?.trim() }).toEqual({ tool: tool.name, L, ok: true })
+      for (const L of Locale.options) expect({ tool: tool.name, L, ok: !!GOOGLE_TOOL_WORDS[tool.name]?.[L]?.trim() }).toEqual({ tool: tool.name, L, ok: true })
     }
   })
 })

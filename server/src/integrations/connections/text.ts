@@ -236,6 +236,29 @@ export const MAIL_FIELD_WORDS: Record<string, T> = {
   inreplyto: t('답장할 메일', 'Reply to', 'Balasan untuk', "返信先のメール", "En respuesta a", "回复的邮件"),
   references: t('이전 메일', 'Earlier mail', 'Email sebelumnya', "以前のメール", "Correos anteriores", "之前的邮件"),
 }
+/** What the step under an answer and the card before a change call a Google Workspace library tool, in the person's
+ * language (card-lines.ts toolTitle), in place of the library's English title ("Search Gmail Messages"). Gmail only for
+ * now: Calendar, Docs and Sheets keep the library's title. tests/unit/google-tool-titles.test.ts: every Gmail tool of
+ * google-apps/catalog.ts in every language. */
+export const GOOGLE_TOOL_WORDS: Record<string, T> = {
+  search_gmail_messages: t('메일 찾기', 'Search mail', 'Cari email', 'メールを検索', 'Buscar correo', '搜索邮件'),
+  get_gmail_message_content: t('메일 읽기', 'Read a message', 'Baca email', 'メールを読む', 'Leer un mensaje', '阅读邮件'),
+  get_gmail_messages_content_batch: t('메일 여러 통 읽기', 'Read messages', 'Baca beberapa email', '複数のメールを読む', 'Leer varios mensajes', '阅读多封邮件'),
+  get_gmail_thread_content: t('메일 대화 읽기', 'Read a conversation', 'Baca percakapan', 'メールのやり取りを読む', 'Leer una conversación', '阅读邮件会话'),
+  get_gmail_threads_content_batch: t('메일 대화 여러 개 읽기', 'Read conversations', 'Baca beberapa percakapan', '複数のやり取りを読む', 'Leer varias conversaciones', '阅读多个邮件会话'),
+  get_gmail_attachment_content: t('첨부 파일 읽기', 'Read an attachment', 'Baca lampiran', '添付ファイルを読む', 'Leer un adjunto', '阅读附件'),
+  list_gmail_labels: t('라벨 보기', 'List labels', 'Lihat label', 'ラベルを見る', 'Ver etiquetas', '查看标签'),
+  list_gmail_filters: t('필터 보기', 'List filters', 'Lihat filter', 'フィルタを見る', 'Ver filtros', '查看过滤器'),
+  send_gmail_message: t('메일 보내기', 'Send email', 'Kirim email', 'メールを送信', 'Enviar correo', '发送邮件'),
+  draft_gmail_message: t('임시 보관함에 저장', 'Save a draft', 'Simpan draf', '下書きを保存', 'Guardar un borrador', '保存草稿'),
+  modify_gmail_message_labels: t('라벨 바꾸기', 'Change labels', 'Ubah label', 'ラベルを変更', 'Cambiar etiquetas', '更改标签'),
+  batch_modify_gmail_message_labels: t('여러 메일 라벨 바꾸기', 'Change labels on several messages', 'Ubah label beberapa email', '複数のメールのラベルを変更', 'Cambiar etiquetas de varios mensajes', '更改多封邮件的标签'),
+  manage_gmail_label: t('라벨 관리', 'Manage a label', 'Kelola label', 'ラベルを管理', 'Gestionar una etiqueta', '管理标签'),
+  manage_gmail_filter: t('필터 관리', 'Manage a filter', 'Kelola filter', 'フィルタを管理', 'Gestionar un filtro', '管理过滤器'),
+}
+/** a library tool's own words in `L` (GOOGLE_TOOL_WORDS), or null for a tool not listed there */
+export const googleToolWord = (name: string, L: Locale): string | null =>
+  Object.hasOwn(GOOGLE_TOOL_WORDS, name) ? GOOGLE_TOOL_WORDS[name]![L] ?? GOOGLE_TOOL_WORDS[name]!.en : null
 /** a reason a connection check failed (integrations.last_error holds "<reason>" or "<reason>:<status>") */
 export type Reason = 'unreachable' | 'timeout' | 'list_timeout' | 'call_idle' | 'call_timeout' | 'private_address' | 'blocked_port' | 'tls' | 'refused' | 'no_secret' | 'sign_in' | 'redirect'
   | 'http_status' | 'not_mcp' | 'too_large' | 'oauth_unsupported' | 'oauth_no_registration' | 'oauth_no_registration_member' | 'oauth_approved_apps_only' | 'oauth_desktop_only' | 'oauth_busy' | 'oauth_failed' | 'key_unsafe' | 'local_offline' | 'local_declined' | 'local_confirm' | 'local_failed'

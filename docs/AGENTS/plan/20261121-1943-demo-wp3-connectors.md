@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-21 19:43
 - Branch: `fix/demo-wp3-connectors`
-- Status: in progress
+- Status: done
 - Where: server/ (connections cards and steps, the Google library's tool words, Drive results, save_connector_file).
   Why: the card, the step and the Drive result are made on the server (docs/REPOSITORY-RULES.md)
 - Version impact: patch, user-visible fixes to card and step words and to demo Drive results, no API or data change
@@ -27,7 +27,7 @@ In:
 - F2: on a demo server with fakes (`activeDemoFakes()`), a send card for a connection the fakes answer (a Google
   Workspace library row, or a `mcp.higgsfield.ai` connection; review M7) starts with one practice line. On a demo server
   the card is the plain Send / Don't send card (no Always allow, no note). Real servers' cards stay byte-identical.
-- F4: `catalog.ts` `TOOL_WORDS` (Gmail, 6 languages); `toolTitle(tool, L?, kind?)` uses them for a Google library row;
+- F4: `text.ts` `GOOGLE_TOOL_WORDS` (Gmail, 6 languages; the words live in the language table, not in catalog.ts); `toolTitle(tool, L?, kind?)` uses them for a Google library row;
   the step (`stepOf`) and the card's `what` get the locale. Mail field words (`thread_id`, `in_reply_to`,
   `references`) only on a Google library row's card, so a Slack `thread_id` or another service's `references` keeps its
   own words.
@@ -41,7 +41,7 @@ Out:
 1. Plan and changes note (this commit).
 2. client.ts, read.ts, save-connector-file.ts (F1).
 3. text.ts `practiceLead`, `MAIL_FIELD_WORDS`; card-lines.ts `toolTitle`, `fieldWord`, `cardLines` extra words;
-   catalog.ts `TOOL_WORDS`; tools.ts gate, stepOf, argLines (F2, F4).
+   text.ts `GOOGLE_TOOL_WORDS`; tools.ts gate, stepOf, argLines (F2, F4).
 4. Tests: tests/unit/connection-card-demo.test.ts, tests/unit/google-tool-titles.test.ts.
 
 ## Risks
