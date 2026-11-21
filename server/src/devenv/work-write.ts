@@ -284,9 +284,13 @@ export function copyInScript(stageItem: string, parent: string, leaf: string, is
     `B=${shellQuote(base)}`,
     `E=${shellQuote(ext)}`,
     'mkdir -p -- "$P" 2>/dev/null; [ -d "$P" ] || { echo "TRINA-COPY:parent" >&2; exit 21; }',
+    // the name is taken atomically (mkdir, or an O_EXCL create with noclobber) before anything is copied: two copies to
+    // one name at once (parallel tool calls, two people's turns) each get their own, and a folder never lands inside
+    // another copy that took the name a moment earlier
+    isFolder ? 'take() { mkdir -- "$T" 2>/dev/null; }' : 'take() { [ ! -e "$T" ] && [ ! -L "$T" ] && (set -C; : > "$T") 2>/dev/null; }',
     'T="$P/$B$E"; i=2',
-    'while [ -e "$T" ] || [ -L "$T" ]; do [ "$i" -gt 999 ] && { echo "TRINA-COPY:names" >&2; exit 22; }; T="$P/$B ($i)$E"; i=$((i+1)); done',
-    'cp -R -P -- "$S" "$T" || { rm -rf -- "$T"; echo "TRINA-COPY:cp" >&2; exit 23; }',
+    'until take; do { [ -e "$T" ] || [ -L "$T" ]; } || { echo "TRINA-COPY:cp" >&2; exit 23; }; [ "$i" -gt 999 ] && { echo "TRINA-COPY:names" >&2; exit 22; }; T="$P/$B ($i)$E"; i=$((i+1)); done',
+    `cp -R -P -- ${isFolder ? '"$S/."' : '"$S"'} "$T" || { rm -rf -- "$T"; echo "TRINA-COPY:cp" >&2; exit 23; }`,
     'printf "TRINA-WROTE:%s\\n" "$T"',
   ].join('\n')
 }

@@ -14,7 +14,7 @@ import { forgetChatWork, runCommand, setSrtSystem, spaceOf, workFolderAt, type S
 import type { SpawnSpec, SrtSystem } from '../../server/src/devenv/srt/system'
 import { macSystem, type MacHost } from '../../server/src/devenv/srt/system-mac'
 import { newConsent, saveTeamSetting, teamSetting } from '../../server/src/devenv/setting'
-import { copiedInOf, noteCopiedIn, validWorkRel, writeIntoWork, WORK_COPY_MAX_FILES, type WorkSource } from '../../server/src/devenv/work-write'
+import { copiedInOf, copyInScript, noteCopiedIn, validWorkRel, writeIntoWork, WORK_COPY_MAX_FILES, type WorkSource } from '../../server/src/devenv/work-write'
 import { copiedInFile } from '../../server/src/devenv/srt/copied-in'
 import type { ReadSource } from '../../server/src/chat/read-scope'
 import type { CopiedGroup } from '../../server/src/devenv/srt/copied-in'
@@ -406,5 +406,28 @@ describe('review fixes (#218)', () => {
     w(team(`users/alice/${nfd}/a.txt`), 'A')
     const r = await writeIntoWork(h.ctx, personal(chat()), 'nf/', { kind: 'folder', abs: team(`users/alice/${nfd.normalize('NFC')}`) })
     expect(r.files).toBe(1)
+  })
+
+  test('two copies to the same name at once: each gets its own name, neither overwrites or lands inside the other', async () => {
+    // a cp that waits first: both scripts have looked at the name before either copies (two parallel tool calls)
+    const d = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'ww-race-')))
+    const shim = path.join(d, 'bin'); fs.mkdirSync(shim)
+    fs.writeFileSync(path.join(shim, 'cp'), '#!/bin/sh\nsleep 0.4\nexec /bin/cp "$@"\n', { mode: 0o755 })
+    const work = path.join(d, 'work'); fs.mkdirSync(work)
+    for (const k of ['a', 'b']) { w(path.join(d, `stage-${k}/item.txt`), `FILE-${k}`); w(path.join(d, `stage-${k}/dir/x.txt`), `DIR-${k}`) }
+    const both = async (item: (k: string) => string, leaf: string, folder: boolean) => {
+      const ps = ['a', 'b'].map((k) => Bun.spawn(['/bin/sh', '-c', copyInScript(item(k), 'in', leaf, folder)], { cwd: work, env: { PATH: `${shim}:/usr/bin:/bin` }, stdout: 'pipe', stderr: 'pipe' }))
+      const outs = await Promise.all(ps.map(async (p) => { await p.exited; return { code: p.exitCode, out: await new Response(p.stdout).text() } }))
+      expect(outs.map((o) => o.code)).toEqual([0, 0])
+      return outs.map((o) => /TRINA-WROTE:\.\/(.+)/.exec(o.out)![1]!)
+    }
+    const files = await both((k) => path.join(d, `stage-${k}/item.txt`), 'report.txt', false)
+    expect(new Set(files).size).toBe(2)
+    expect(files.map((f) => fs.readFileSync(path.join(work, f), 'utf8')).sort()).toEqual(['FILE-a', 'FILE-b'])
+    const dirs = await both((k) => path.join(d, `stage-${k}/dir`), 'pages', true)
+    expect(new Set(dirs).size).toBe(2)
+    expect(dirs.map((f) => listAll(path.join(work, f)))).toEqual([['x.txt'], ['x.txt']])
+    expect(dirs.map((f) => fs.readFileSync(path.join(work, f, 'x.txt'), 'utf8')).sort()).toEqual(['DIR-a', 'DIR-b'])
+    fs.rmSync(d, { recursive: true, force: true })
   })
 })
