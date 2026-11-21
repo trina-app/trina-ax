@@ -1,7 +1,7 @@
 # Chats are grouped by team categories that admins make, not by personal folders
 
 - Date: 2026-11-20
-- Status: accepted
+- Status: superseded by [Each person sorts their own Chats list into sections](20261121-personal-sidebar-sections.md)
 - Supersedes: the room kind of [List folders](../DECISIONS.md) on screen (the personal "Conversation folders")
 - Branch: feat/shared-chat-categories (the owner)
 
