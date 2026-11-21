@@ -19,7 +19,7 @@ export const plainWords = (html: string) => html.replace(/<br\s*\/?>/gi, '\n').r
  * the same words and layout): change_banner_text's first banner uses it, so a words-only change keeps the photo. */
 export const LAUNCH_SCENE = 'one-cup'
 
-/** the other scenes' photos as generate_image pictures: `10-`… so the story's `00-` photo stays the default */
+/** the other scenes' photos as generate_image pictures: `10-`… so the story's `00-` photo wins a tie */
 export const SCENE_PICTURES: Record<string, string> = {
   'two-cups': '10-two-glasses-iced-yuzu-ginger-tea-pouch-two-cups-pair-두-잔-두잔-유리잔-파우치.jpg',
   pouch: '20-pouch-close-up-packshot-yuzu-ginger-파우치-클로즈업-제품-패키지.jpg',

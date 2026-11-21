@@ -4,8 +4,8 @@
 // change_banner_text (banners.ts, tools/demo-banner.ts), since nothing goes to Higgsfield for it (owner, 11-22).
 // generate_image answers at once with a canned picture picked by the words of
 // the prompt from the content folder's higgsfield/ pictures (their file names are the keywords: "yuzu-ginger-window.jpg"),
-// no picture when none matches, a built-in one when the folder has none; the picture comes inline (connections/media.ts keeps it for save_connector_file) and at a
-// download address only this fake answers (tools/download.ts). A video is refused. No credits are ever used.
+// no picture when none matches, a built-in one when the folder has none; the picture comes inline (connections/media.ts
+// keeps it for save_connector_file) and at a download address only this fake answers (tools/download.ts). A video is refused. No credits are ever used.
 import fs from 'node:fs'
 import path from 'node:path'
 import zlib from 'node:zlib'
