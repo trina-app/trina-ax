@@ -1,8 +1,8 @@
 // Android: who and where in a room push (docs/decisions/20261121-android-push-who-where.md). The app's own
 // module (mobile/modules/push-label) replaces expo-notifications' FCM service; plugins/push-label.js removes that service
 // from the app's manifest and stops the prebuild when expo-notifications changes what the module builds on. The Kotlin
-// cannot run here, so its rules are checked in the source: the title only, never the team's body (the message's text
-// with the person's preview on), only the stored team address, no redirects, a short time box.
+// cannot run here, so its rules are checked in the source: the iPhone extension's words (the title, the team's body as
+// the text, the room as the group), only the stored team address, no redirects, a short time box.
 import { afterEach, expect, test } from 'bun:test'
 import fs from 'node:fs'
 import os from 'node:os'
@@ -62,12 +62,23 @@ test.skipIf(!expoNotifications)('the prebuild stops when expo-notifications no l
   } finally { fs.rmSync(root, { recursive: true, force: true }) }
 })
 
-test('the Kotlin keeps the iPhone extension\'s rules: title only, the stored team only, https, no redirects, a time box', () => {
+test('the Kotlin keeps the iPhone extension\'s rules: its words, the stored team only, https, no redirects, a time box', () => {
   const label = kotlin('Label.kt'), service = kotlin('LabelMessagingService.kt'), store = kotlin('LabelStore.kt')
-  // the team's answer gives the title and nothing else: the text stays the gateway's generic line
+  const swift = fs.readFileSync(path.join(mobileRoot, 'plugins/notification-service/NotificationService.swift'), 'utf8')
+  // the team's words as the iPhone takes them: the title (at most 120), the body (at most 200) as the text when there
+  // is one, else the gateway's generic line; the room as the stack
+  expect(swift).toContain('plain($0, max: 200)')
+  expect(swift).toContain('if let body = words.body { content.body = body }')
   expect(label).toContain('opt("title")')
-  expect(label).not.toContain('"body"')
+  expect(label).toContain('(o.opt("body") as? String)?.let { plain(it, 200) }?.takeIf { it.isNotEmpty() }')
+  expect(label).toContain('(o.opt("roomId") as? String)?.takeIf { isId(it) }')
   expect(service).toContain('data["message"]')
+  expect(service).toContain('.setText(team?.body ?: text)')
+  expect(service).toContain('.setGroup(team?.roomId)')
+  // a team that does not answer is not waited for again for a minute (FCM hands over one message at a time)
+  expect(label).toContain('PAUSE_AFTER_FAILURE_MS = 60_000L')
+  // spaces as Swift's isWhitespace: Unicode separators too
+  expect(label).toContain('Regex("[\\\\s\\\\p{Z}]+")')
   // the address is the stored origin; a push for another device is not asked about
   expect(label).toContain('"${access.origin}/api/push/devices/${access.deviceId}/label"')
   expect(label).toContain('if (data["device"] != access.deviceId) return null')

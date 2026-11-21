@@ -185,7 +185,7 @@ export class PushService {
     if(result.moved)cancelPushUser(this.ctx,result.moved)
     return{id:result.id,removeKey}
   }
-  /** The iPhone app's notification extension (and the Android app's messaging service, which shows only the title) asks what a room push it received says (docs/DECISIONS.md "아이폰 알림의
+  /** The iPhone app's notification extension (and the Android app's messaging service, which shows the same words) asks what a room push it received says (docs/DECISIONS.md "아이폰 알림의
    * 이름"): who and where, the same title as a browser push (rooms/inbox.ts roomNoticeOut), in the person's language, and
    * the message's first line while the person's messagePreview is on (else the generic line). No session: the label key from registration is the proof. Only for a
    * notice of this device's person that was queued for this device, still unread, still wanted by the room's level and

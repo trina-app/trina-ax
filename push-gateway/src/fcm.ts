@@ -10,8 +10,9 @@
 //
 // `label` (an app that names who and where, room codes and chat.shared only): the message is data-only, so Android
 // starts the app's messaging service even when the app is closed, and the app shows the notification itself. `data`
-// then also has the generic `title` and `message` and `channelId` 'default': expo-notifications shows those when the app
-// cannot ask its team (shared/src/cloud-protocol/push-gateway.ts "Label"). Every other message keeps the `notification`
+// then also has the generic `title` and `message`, `channelId` 'default' and `tag` = the notice id (per notice, never per
+// device, so only a resend of the same notice replaces it): expo-notifications shows those when the app cannot ask its
+// team (shared/src/cloud-protocol/push-gateway.ts "Label"). Every other message keeps the `notification`
 // block, which Android shows without the app (apps from before the label).
 import type { PushGatewaySend } from '../../shared/src/cloud-protocol/push-gateway.ts'
 import { importRs256, signJwt, type FetchLike } from './crypto.ts'
@@ -44,7 +45,9 @@ export const labelCode = (code: string) => code.startsWith('room.') || code === 
 export function fcmMessage(msg: PushGatewaySend, alert: { title: string; body: string }): Record<string, unknown> {
   const android = { priority: 'HIGH', ttl: `${msg.ttlSeconds ?? 0}s`, collapse_key: msg.notificationId }
   if (msg.label === true && labelCode(msg.code)) {
-    return { token: msg.token, data: { ...appData(msg), title: alert.title, message: alert.body, channelId: 'default' }, android }
+    // tag: the notice id, so even expo-notifications' own path (an app from before the label, or the app's fallback)
+    // gives a resend of the same notice the same notification id and replaces it, as the notification block's tag did
+    return { token: msg.token, data: { ...appData(msg), title: alert.title, message: alert.body, channelId: 'default', tag: msg.notificationId }, android }
   }
   return { token: msg.token, notification: alert, data: appData(msg), android: { ...android, notification: { channel_id: 'default', tag: msg.notificationId } } }
 }

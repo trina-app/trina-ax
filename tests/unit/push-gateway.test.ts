@@ -534,7 +534,7 @@ describe('push gateway: FCM', () => {
     expect(sent(1)).toEqual({
       token: ANDROID_TOKEN,
       // no `notification` block: Android starts the app's messaging service, which names who and where
-      data: { notificationId: 'n1', code: 'room.dm', path: '/rooms/abc123', device: 'dev-7', title: 'Trina AX', message: expect.any(String), channelId: 'default' },
+      data: { notificationId: 'n1', code: 'room.dm', path: '/rooms/abc123', device: 'dev-7', title: 'Trina AX', message: expect.any(String), channelId: 'default', tag: 'n1' },
       android: { priority: 'HIGH', ttl: '600s', collapse_key: 'n1' },
     })
     expect(sent(1).data.message.length).toBeGreaterThan(0)

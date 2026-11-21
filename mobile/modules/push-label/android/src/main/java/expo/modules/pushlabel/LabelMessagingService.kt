@@ -1,7 +1,8 @@
 // FCM's entry point for this app: expo-notifications' own service, with one change. A data-only room push (the gateway
 // sends one only to a phone that registered a label key, shared/src/cloud-protocol/push-gateway.ts "Label") is shown
-// with the team's title (who and where, Label.ask) and the gateway's generic line as its text. Everything else, and
-// every failure, goes on exactly as expo-notifications does it: the gateway's generic title and line.
+// with the team's words (Label.ask), as the iPhone's extension shows them: the title (who and where), the team's body as
+// the text when it has one (else the gateway's generic line), and one group per room. Everything else, and every
+// failure, goes on exactly as expo-notifications does it: the gateway's generic title and line.
 //
 // The notification goes through expo-notifications (NotificationsService.receive): quiet in the foreground as the app
 // asks (src/push.ts quietForeground), channel "default", and a tap reaches the app with the push's own data (the trigger
@@ -40,12 +41,15 @@ class LabelMessagingDelegate(context: Context) : FirebaseMessagingDelegate(conte
     val notificationId = data["notificationId"]?.takeIf { Label.isId(it) } ?: return null
     val generic = data["title"]?.takeIf { it.isNotEmpty() }
     val text = data["message"]?.takeIf { it.isNotEmpty() } ?: return null
-    val title = Label.ask(data, Label.access(LabelStore(context).read())) ?: generic
+    val team = Label.ask(data, Label.access(LabelStore(context).read()))
     val words = NotificationContent.Builder()
-      .setTitle(title)
-      .setText(text)
+      .setTitle(team?.title ?: generic)
+      .setText(team?.body ?: text)
+      // one stack per room, as the iPhone's threadIdentifier (expo-notifications posts the group's summary)
+      .setGroup(team?.roomId)
       .setPriority(NotificationPriority.HIGH)
       .useDefaultSound()
+      .useDefaultVibrationPattern()
       .setAutoDismiss(true)
       .build()
     return notificationId to words

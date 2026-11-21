@@ -91,8 +91,10 @@ describe('why the microphone did not start', () => {
 // QA TC-4692: Android always shows "You have a new message"; inside the Android app the setting says so.
 describe('"Show message preview" under Notifications', () => {
   test('the Android app says its notifications do not show the first line yet; a browser and the iPhone app keep the words', () => {
-    expect(messagePreviewDescKey({ platform: 'android' })).toBe('notifications.messagePreviewDescAndroid')
-    expect(messagePreviewDescKey({ platform: 'ios' })).toBe('notifications.messagePreviewDesc')
+    expect(messagePreviewDescKey({ platform: 'android', capabilities: [] })).toBe('notifications.messagePreviewDescAndroid')
+    // an Android app that asks its team for the words (push-label-v1) shows the first line as the iPhone does
+    expect(messagePreviewDescKey({ platform: 'android', capabilities: ['push-label-v1'] })).toBe('notifications.messagePreviewDesc')
+    expect(messagePreviewDescKey({ platform: 'ios', capabilities: [] })).toBe('notifications.messagePreviewDesc')
     expect(messagePreviewDescKey(null)).toBe('notifications.messagePreviewDesc')
     expect(translate('en', 'notifications.messagePreviewDescAndroid')).toContain("Android phones don't show it yet")
     for (const l of LOCALES) expect(translate(l, 'notifications.messagePreviewDescAndroid')).toMatch(/Android/)
