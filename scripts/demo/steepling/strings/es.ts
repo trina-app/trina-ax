@@ -143,8 +143,8 @@ export const es: FreeRoamStrings = {
   },
 
   suggestions: [
-    { label: 'Posts de la próxima semana', prompt: 'Usa nuestra habilidad de posts para redes y redacta los dos huecos vacíos de Próxima semana.md (proyecto Calendario de redes)' },
-    { label: 'Resumir las reseñas', prompt: 'Usa la habilidad de resumen de reseñas con Reseñas Oct–Nov.csv (proyecto Voz del cliente)' },
+    { label: 'Publicaciones de la próxima semana', prompt: 'Redacte los dos huecos vacíos del calendario de redes de la próxima semana' },
+    { label: 'Resumir las reseñas', prompt: 'Resuma las reseñas más recientes de los clientes' },
     { label: '¿Ha respondido Chris?', prompt: '¿Ha respondido Chris a mi correo? Mira en mi Gmail' },
   ],
 }
