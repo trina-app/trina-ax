@@ -1464,6 +1464,7 @@ export const ko = {
   "teamSettings.oftenAsked": "팀이 자주 묻는 질문 보여 주기",
   "teamSettings.row.oftenAskedDesc": "새 채팅의 입력창 아래에, 같은 부서나 팀에서 여러 명이 물은 질문을 일반적인 말로 보여 줘요. 누가 물었는지는 아무도 몰라요. 하루 한 번 팀 AI 계정으로 만들어요(없으면 보이지 않아요).",
   'chat.sharedLabel': "공유 채팅",
+  'chat.sharedBy': "{name}님이 공유",
   'chat.share.facesLabel': "공유 채팅 · {names}",
   "chat.shared": "공유 채팅 · {n}명이 볼 수 있어요",
   "chat.footerShared": "AI는 실수할 수 있어요. 중요한 내용은 확인해 주세요. {n}명이 이 채팅을 볼 수 있어요.",

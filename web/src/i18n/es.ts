@@ -1440,6 +1440,7 @@ export const es: Record<MessageKey, string> = {
   "teamSettings.oftenAsked": "Mostrar lo que suele preguntar el equipo",
   "teamSettings.row.oftenAskedDesc": "Bajo el cuadro de mensaje de un chat nuevo, las personas ven preguntas que hicieron varias personas de su grupo o equipo, en palabras generales. Nadie ve quién preguntó. Se crea una vez al día con la cuenta de IA del equipo; sin ella, no se muestra nada.",
   'chat.sharedLabel': "Chat compartido",
+  'chat.sharedBy': "Compartido por {name}",
   'chat.share.facesLabel': "Chat compartido · {names}",
   "chat.shared": "Chat compartido · lo pueden ver {n, plural, one {# persona} other {# personas}}",
   "chat.footerShared": "La IA puede cometer errores. Verifique la información importante. {n, plural, one {# persona puede} other {# personas pueden}} ver este chat.",

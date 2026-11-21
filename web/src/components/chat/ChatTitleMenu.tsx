@@ -53,7 +53,7 @@ export function ChatTitleMenu({ chat, title, onPin, onRename, onMove, onDelete, 
   ]
   if (!items.length)
     return (
-      <h1 className="min-w-0 truncate px-1.5 font-medium text-ink" data-testid="chat-title">
+      <h1 className="min-w-0 truncate px-1.5 font-medium text-ink" title={title} data-testid="chat-title">
         {title}
       </h1>
     )

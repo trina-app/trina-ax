@@ -5,10 +5,10 @@
 import clsx from 'clsx'
 import { Lock, ShieldAlert, Users } from 'lucide-react'
 import type { RefObject } from 'react'
-import type { Chat } from '@mycel/shared/api'
+import type { Chat, UserRef } from '@mycel/shared/api'
 import { useT } from '../../i18n'
 import { reactionWho } from '../../lib/rooms'
-import { usePeople, usePeopleList } from '../../store/people'
+import { useFaceOf, useNameOf, usePeople, usePeopleList } from '../../store/people'
 import { useMe } from '../../store/session'
 import { Avatar } from '../Avatar'
 import { FaceStack } from '../FaceStack'
@@ -39,6 +39,27 @@ export function SharedChatMark({ audience, hidden = false }: { audience: number;
         <Users size={15} aria-hidden />
       </span>
     </Tooltip>
+  )
+}
+
+/** Who shared a chat shared with people and groups with me, for its header: its creator (only they share it, so they
+ * added everyone in it: server/src/chat/people-share.ts chat_share_creator_only). Null for its creator, for a shared
+ * project chat (its header keeps "Project / Title") and for a chat of one person. */
+export const sharedByOf = (chat: Partial<Pick<Chat, 'shared'>> | null | undefined, me: string): UserRef | null =>
+  chat?.shared?.kind === 'people' && chat.shared.by.id !== me ? chat.shared.by : null
+
+/** The chat header's "Shared by {name}" with their face: after the title on a computer, a second muted line under it on
+ * a phone (`line`; it sits in the title button's lower padding, so the bar stays 48px, and taps go to the title). */
+export function SharedByLine({ by, line = false }: { by: UserRef; line?: boolean }) {
+  const t = useT()
+  const face = useFaceOf()(by)
+  const name = useNameOf()(by) ?? by.name
+  const words = t('chat.sharedBy', { name })
+  return (
+    <span title={words} className={clsx('flex min-w-0 items-center gap-1.5 text-muted', line ? 'pointer-events-none -mt-3 max-w-full justify-center px-1.5 text-xs' : 'shrink-[3] pl-1 text-sm')} data-testid="chat-shared-by">
+      <Avatar user={{ ...face, name }} size={line ? 14 : 18} />
+      <span className="truncate">{words}</span>
+    </span>
   )
 }
 

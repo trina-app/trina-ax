@@ -1440,6 +1440,7 @@ export const ja: Record<MessageKey, string> = {
   "teamSettings.oftenAsked": "チームでよくある質問を表示",
   "teamSettings.row.oftenAskedDesc": "新しいチャットの入力欄の下に、同じグループやチームの何人かが尋ねた質問を一般的な言葉で表示します。誰が尋ねたかは誰にもわかりません。1日1回チームのAIアカウントで作成します(ない場合は表示されません)。",
   'chat.sharedLabel': "共有チャット",
+  'chat.sharedBy': "{name}さんが共有",
   'chat.share.facesLabel': "共有チャット · {names}",
   "chat.shared": "共有チャット · {n, plural, one {#人} other {#人}}が閲覧できます",
   "chat.footerShared": "AIは誤ることがあります。重要な情報は確認してください。{n, plural, one {#人} other {#人}}がこのチャットを閲覧できます。",
