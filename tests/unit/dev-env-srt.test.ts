@@ -19,7 +19,7 @@ import { effectiveLimits, parsePlan, sliceValues, type DevEnvPlan } from '../../
 import { _active, newRunId, readExit, setSrtSystem, teamHosts, WAIT_MAX_MS } from '../../server/src/devenv/srt/runner'
 import { _held, _heldSkills, holdPlaceholders, holdSkillFolders, SRT_DENY_DIRS, SRT_DENY_FILES } from '../../server/src/devenv/srt/placeholders'
 import { cgroupDir, slicePath, type SpawnSpec, type SrtSystem, type UnitInfo } from '../../server/src/devenv/srt/system'
-import { JOB_DONE, JOB_FAILED, JOB_FAILED_NO_CHAT, pollSrt, runResultsForAI } from '../../server/src/devenv/jobs'
+import { JOB_DONE, JOB_DONE_NO_CHAT, JOB_FAILED, JOB_FAILED_NO_CHAT, JOB_UNKNOWN, pollSrt, runResultsForAI } from '../../server/src/devenv/jobs'
 import { mayUseDevEnv, newConsent, saveTeamSetting, teamInForce, teamSetting } from '../../server/src/devenv/setting'
 import { boxLibsText, boxShellTool, sharedShellDescription, srtShellDescription } from '../../server/src/devenv/tool'
 import { _resetUpdateWait, beginUpdateWait, endUpdateWait } from '../../server/src/system/update-wait'
@@ -1375,6 +1375,69 @@ describe('jobs and the queue (per team)', () => {
     runs.get(runIdOfRow(rows()[1]!))!.state = 'gone'
     await pollSrt(h.ctx)
     expect(rows()[1]).toMatchObject({ state: 'ended', end_reason: 'lost' })
+  })
+  test('a job that ended by itself keeps its exit code when the person\'s skills placeholder goes with it (QA TC-6586)', async () => {
+    // qa.trina.app 2026-11-21: `sleep 40 && echo done` wrote "done", but the row had no exit code and end_reason
+    // "setting". The person had no skills folder: each run holds an empty one (holdSkillFolders) and the run's access
+    // hash is made while it is there; when the last run ends it goes, and the next poll's hash differs. That check came
+    // before the exit file, so a run that had ended by itself was "stopped" and its exit file thrown away.
+    const skills = path.join(h.team, 'users', 'erin', 'skills')
+    fs.rmSync(skills, { recursive: true, force: true })
+    fs.mkdirSync(path.dirname(skills), { recursive: true })
+    for (const [code, log] of [[0, 'done\n'], [3, 'bad\n']] as const) {
+      publish.length = 0
+      await shell('erin', null, chatErin).call({ command: 'sleep', job: true, log_name: `j${code}` })
+      const row = rows().at(-1)!
+      expect(row).toMatchObject({ state: 'running' })
+      // the placeholder is there while the run lives, and the poll keeps it running
+      expect(fs.existsSync(skills)).toBe(true)
+      await pollSrt(h.ctx)
+      expect(rows().at(-1)).toMatchObject({ state: 'running' })
+      // the run ends by itself (run-wrap wrote its exit file); its end takes the placeholder away before the next poll
+      finish(runIdOfRow(row), code, log)
+      await new Promise((r) => setTimeout(r, 0))
+      expect(fs.existsSync(skills)).toBe(false)
+      await pollSrt(h.ctx)
+      expect(rows().at(-1)).toMatchObject({ state: 'ended', exit_code: code, end_reason: 'exit', end_note: '' })
+      expect(stops).not.toContain(runIdOfRow(row))
+      const notice = publish.find((p) => p.frame.data.code === 'dev_env_job')!.frame.data.message!
+      const title = (h.ctx.db.query('SELECT title FROM chats WHERE id = ?').get(chatErin) as { title: string }).title.trim()
+      const said = (done: typeof JOB_DONE, none: typeof JOB_DONE_NO_CHAT) => title ? Object.values(done).map((f) => f(title)) : Object.values(none)
+      expect(code === 0 ? said(JOB_DONE, JOB_DONE_NO_CHAT) : said(JOB_FAILED, JOB_FAILED_NO_CHAT)).toContain(notice)
+      expect(runResultsForAI(h.ctx, 'erin', chatErin).join('\n')).toContain(`Job j${code} ended with exit code ${code}.`)
+    }
+  })
+  test('a run that ends between the read of its exit file and the unit\'s state keeps its code; a code that is truly unknown is "result unknown", not a failure', async () => {
+    const title = 'Nightly export'
+    h.ctx.db.query('UPDATE chats SET title = ? WHERE id = ?').run(title, chatPlain)
+    try {
+      await alice({ project: null, chat: chatPlain }).call({ command: 'sleep', job: true, log_name: 'late' })
+      const row = rows()[0]!, runId = runIdOfRow(row)
+      // the exit file appears only once the poll has read it (as when run-wrap writes it a moment later), and the unit is
+      // gone when systemd is asked
+      const unit = fake.unit
+      fake.unit = async (id) => { if (id === runId) finish(runId, 0, 'done\n'); return unit(id) }
+      try { await pollSrt(h.ctx) } finally { fake.unit = unit }
+      expect(rows()[0]).toMatchObject({ state: 'ended', exit_code: 0, end_reason: 'exit' })
+      expect(Object.values(JOB_DONE).map((f) => f(title))).toContain(publish.find((p) => p.frame.data.code === 'dev_env_job')!.frame.data.message!)
+      // a run that is gone with no exit file and that nobody stopped: the result is not known, and it says so
+      publish.length = 0
+      await alice({ project: null, chat: chatPlain }).call({ command: 'sleep', job: true, log_name: 'gone' })
+      const gone = runs.get(runIdOfRow(rows()[1]!))!
+      fs.appendFileSync(gone.spec.stdoutFile, 'done\n')
+      gone.state = 'gone'
+      await pollSrt(h.ctx)
+      expect(rows()[1]).toMatchObject({ state: 'ended', exit_code: null, end_reason: 'lost' })
+      const live = publish.find((p) => p.frame.data.code === 'dev_env_job')!
+      expect(Object.values(JOB_UNKNOWN).map((f) => f(title))).toContain(live.frame.data.message!)
+      expect(Object.values(JOB_FAILED).map((f) => f(title))).not.toContain(live.frame.data.message!)
+      expect(live.frame.data).toMatchObject({ level: 'info' })
+      const ai = runResultsForAI(h.ctx, 'alice', chatPlain).join('\n')
+      expect(ai).toContain('Job gone ended, but its exit code is unknown')
+      expect(ai).toContain('done')
+      const item = (await h.api('alice').call(API.listNotifications, { query: {} })).items.find((i) => i.devEnv?.job?.name === 'gone')
+      expect(item).toMatchObject({ devEnv: { job: { exitCode: null, reason: 'lost' } } })
+    } finally { h.ctx.db.query("UPDATE chats SET title = '' WHERE id = ?").run(chatPlain) }
   })
   test('a finished job tells the person the result in plain words: no log, exit code or job name, and it opens the chat', async () => {
     const title = 'Launch video for Mina'

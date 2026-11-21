@@ -22,12 +22,14 @@ import { dmPairOk } from './guest-reach'
 import type { Database } from 'bun:sqlite'
 import { NOT_HELD_SQL } from './project-room'
 import { reachFilter } from '../auth/guests'
-import { isStatusEmoji } from '@mycel/shared'
+import { findForm, isStatusEmoji, searchForms } from '@mycel/shared'
 import { isUuid7, ROOM_MENTIONS_MAX, ROOM_REF_RE, type Room, type RoomKind, type RoomMessage } from '@mycel/shared/api'
 import { neutralizeTags } from '../chat/prompt'
+import { formsWhere } from '../search-forms'
 import { unescapeMarkdown } from './apps/card'
 import { zonedParts, zonedToUtc } from '../system/time-zone'
 import { liveStatuses, statusForAi } from '../auth/status-messages'
+import { nearRows } from './search-near'
 import { canSee, clipMiddle, MSG_COLS, messageRow, messagesOut, roomOut, SEE_SQL, seeArgs, seenSeq, seesFrom, sharedAnswerText, threadable, TIMELINE_SQL, type FileRow, type MemberRow, type MessageRow, type RoomRow } from './store'
 
 /** messages one read gives at most, and by default */
@@ -90,19 +92,22 @@ const strip = (s: string) => {
  * of that type by their name's ending (or, for pictures, their kind); `any`: any file at all. Matching data, not screen
  * text. */
 const FILE_TYPE_WORDS: { re: RegExp; ext?: string[]; image?: true; any?: true }[] = [{ re: /^(엑셀|excel|xlsx?|csv|스프레드시트|spreadsheet|시트|sheet)$/i, ext: ['xlsx', 'xls', 'xlsm', 'csv', 'ods'] }, { re: /^(pdf|피디에프)$/i, ext: ['pdf'] }, { re: /^(워드|docx?)$/i, ext: ['docx', 'doc', 'odt'] }, { re: /^(한글|hwpx?)$/i, ext: ['hwp', 'hwpx'] }, { re: /^(ppt|pptx|파워포인트|powerpoint|슬라이드|slides?|deck)$/i, ext: ['pptx', 'ppt', 'odp'] }, { re: /^(사진|이미지|그림|스크린샷|캡처|image|images|photo|photos|picture|screenshot|png|jpe?g|heic)$/i, image: true, ext: ['png', 'jpg', 'jpeg', 'heic', 'heif', 'gif', 'webp', 'bmp', 'tif', 'tiff'] }, { re: /^(파일|첨부|첨부파일|file|files|attachment|attachments)$/i, any: true }]
-const likeOf = (w: string) => `%${w.replace(/[\\%_]/g, (c) => `\\${c}`)}%`
 /** One search word as SQL on room_messages `m`: in the message's text or in the name of a file sent with it (or, for a
- * file type word with `types`, a file of that type). */
+ * file type word with `types`, a file of that type). With `types` (the AI's search, not the grep hint's count) the word
+ * is any of its forms (shared searchForms: without a Korean particle or an English ending, a Korean verb's other forms:
+ * "보낸" finds "보냈어요"), as ⌘K finds it. */
 function wordWhere(w: string, types = true): { sql: string; args: string[] } {
   const t = types ? FILE_TYPE_WORDS.find((x) => x.re.test(w)) : undefined
-  const fileCond = ["f.name LIKE ? ESCAPE '\\'"]
-  const args = [likeOf(w), likeOf(w)]
+  const forms = types ? searchForms(w) : [w]
+  const body = formsWhere('m.body', forms), name = formsWhere('f.name', forms)
+  const fileCond = [name.sql]
+  const args = [...body.args, ...name.args]
   if (t?.any) fileCond.push('1')
   if (t?.image) fileCond.push("f.kind = 'image'")
   for (const e of t?.ext ?? []) { fileCond.push("f.name LIKE ? ESCAPE '\\'"); args.push(`%.${e}`) }
   // (a project room's file kept in the team folder is not found by the name it was sent with: it may have been
   // renamed, or be one the person cannot open now)
-  return { sql: `(m.body LIKE ? ESCAPE '\\' OR EXISTS (SELECT 1 FROM room_files f WHERE f.message_id = m.id AND f.room_id = m.room_id AND NOT EXISTS (SELECT 1 FROM room_file_refs rr WHERE rr.room_file_id = f.id) AND (${fileCond.join(' OR ')})))`, args }
+  return { sql: `(${body.sql} OR EXISTS (SELECT 1 FROM room_files f WHERE f.message_id = m.id AND f.room_id = m.room_id AND NOT EXISTS (SELECT 1 FROM room_file_refs rr WHERE rr.room_file_id = f.id) AND (${fileCond.join(' OR ')})))`, args }
 }
 /** A message that came with at least one file */
 const HAS_FILE_SQL = 'EXISTS (SELECT 1 FROM room_files f WHERE f.message_id = m.id AND f.room_id = m.room_id)'
@@ -272,6 +277,14 @@ export function parseWhen(s: string | undefined, tz: string, end = false): strin
 const SIZE = (n: number) => (n >= 1024 * 1024 ? `${(n / 1024 / 1024).toFixed(1)} MB` : n >= 1024 ? `${Math.round(n / 1024)} KB` : `${n} B`)
 const listNames = (names: string[]) => names.map((n) => attr(n, 80)).join(', ') || 'someone no longer here'
 
+/** The project a line names, as the person may see it now: its name, "(in the trash)", deleted, or just "a project". */
+function projectWords(e: Extract<NonNullable<RoomMessage['event']>, { type: 'project_linked' | 'project_unlinked' | 'project_room' }>): string {
+  if (e.project) return `the project "${attr(e.project.name, 80)}"`
+  if (e.projectGone?.state === 'trash' && e.projectGone.name) return `the project "${attr(e.projectGone.name, 80)}" (in the trash)`
+  if (e.projectGone?.state === 'deleted') return 'a deleted project'
+  return 'a project'
+}
+
 /** An event line as a short notice (names as they are now). */
 function eventText(m: RoomMessage): string {
   const who = m.author ? attr(m.author.name, 80) : 'Someone'
@@ -283,6 +296,10 @@ function eventText(m: RoomMessage): string {
     case 'left': return `${who} left`
     case 'joined': return `${who} joined the team`
     case 'removed': return `${who} removed ${e.user ? attr(e.user.name, 80) : 'someone'}`
+    // the project as it is now for this person (rooms/project-link.ts eventProjectsFor, the one resolver)
+    case 'project_linked': return `${who} linked this channel to ${projectWords(e)}`
+    case 'project_unlinked': return `${who} unlinked this channel from ${projectWords(e)}`
+    case 'project_room': return `This channel became the chat room of ${projectWords(e)}`
     default: return "The room's details changed"
   }
 }
@@ -433,7 +450,9 @@ export function roomMatchCount(db: Database, userId: string, word: string, cap =
 
 /** The messages I can see that match, newest first: every word of `query` (any case) in the text or a file name sent
  * with it, written by `person` (or by me: from_me), with files (files), in the time between since and until; in one
- * room or all of mine (those with the latest activity, ROOM_SEARCH_ROOMS), or those `with_person` is in too. */
+ * room or all of mine (those with the latest activity, ROOM_SEARCH_ROOMS), or those `with_person` is in too. None with
+ * the words as written: those with every word as written or with a typing mistake, said as close spellings
+ * (docs/decisions/20261121-search-near-every-word.md). */
 export function searchRooms(db: Database, userId: string, tz: string, o: SearchOptions): ReadResult {
   const since = parseWhen(o.since, tz), until = parseWhen(o.until, tz, true)
   if (since === null || until === null) return { text: 'Invalid since or until: give a date ("2026-11-01") or a date and time ("2026-11-01T09:00").', seen: [], ok: false }
@@ -467,6 +486,8 @@ export function searchRooms(db: Database, userId: string, tz: string, o: SearchO
   // the positions left to look at: each room takes what it holds after my join, up to ROOM_SEARCH_SCAN, newest first
   let budget = Math.max(0, o.budget ?? ROOM_SEARCH_BUDGET)
   let skipped = 0, partly = 0
+  // each room searched and the seq its window starts after (for a near match: the same messages)
+  const floors = new Map<string, number>()
   if (authors === null || authors.length) {
     for (const mine of rooms) {
       const held = Math.max(0, mine.room.last_seq - seesFrom(mine.me))
@@ -474,6 +495,7 @@ export function searchRooms(db: Database, userId: string, tz: string, o: SearchO
       if (held > 0 && window <= 0) { skipped++; continue }
       if (window < Math.min(held, ROOM_SEARCH_SCAN)) partly++
       budget -= window
+      floors.set(mine.room.id, Math.max(0, mine.room.last_seq - window))
       const where = [`m.room_id = ?`, SEE_SQL, 'm.seq > ?', 'm.deleted_at IS NULL', 'm.event IS NULL']
       const args: (string | number)[] = [mine.room.id, ...seeArgs(mine.me), Math.max(0, mine.room.last_seq - window)]
       for (const w of words) { const x = wordWhere(w); where.push(x.sql); args.push(...x.args) }
@@ -486,6 +508,22 @@ export function searchRooms(db: Database, userId: string, tz: string, o: SearchO
     }
   }
   hits.sort((a, b) => b.row.created_at.localeCompare(a.row.created_at) || b.row.seq - a.row.seq)
+  // nothing with the words as written: the messages of the same rooms, windows and filters with every word as written or
+  // with a typing mistake (rooms/search-near.ts; text only, not file names), the closest first
+  let near = false
+  if (!hits.length && words.length && !o.files && floors.size) {
+    const parts = { words, terms: words, phrases: words.map(() => false) }
+    const byId = new Map(rooms.map((m) => [m.room.id, m]))
+    for (const row of nearRows(db, userId, rooms.filter((m) => floors.has(m.room.id)), parts)) {
+      const mine = byId.get(row.room_id)!
+      if (row.seq <= floors.get(row.room_id)! || !canSee(db, row, mine.me)) continue
+      if (authors && !(row.author_kind === 'user' && row.author_id && authors.includes(row.author_id))) continue
+      if ((since && row.created_at < since) || (until && row.created_at >= until)) continue
+      hits.push({ row, mine })
+      if (hits.length >= limit) break
+    }
+    near = hits.length > 0
+  }
   const top = hits.slice(0, limit)
   const what = [o.files ? 'that came with files' : '', words.length ? `with "${attr(words.join(' '), 200)}" (in the text or a file name)` : '', o.person !== undefined ? `by ${attr(o.person, 100)}` : '', o.from_me ? 'sent by the user' : '', o.with_person !== undefined ? `in rooms with ${attr(o.with_person, 100)}` : '', since ? `from ${localTime(since, tz)}` : '', until ? `before ${localTime(until, tz)}` : '', since || until ? `(${tz})` : ''].filter(Boolean).join(' ')
   const limits = skipped || partly
@@ -522,7 +560,8 @@ export function searchRooms(db: Database, userId: string, tz: string, o: SearchO
   }
   return {
     text: [
-      `Messages the user can see in their team chat rooms ${what}, the newest first (${top.length}${hits.length > top.length ? ` of more: narrow the search or raise limit` : ''}${o.room === undefined && rooms.length >= ROOM_SEARCH_ROOMS ? `; the ${ROOM_SEARCH_ROOMS} rooms with the latest activity were searched` : ''}). Each search looks at the newest ${ROOM_SEARCH_SCAN} messages of a room.${limits}${wordsOnly} Long messages are shown in part: read the room or thread for all of one. Times are in ${tz}.`,
+      ...(near ? [`No message the user can see has ${words.length === 1 ? 'this word' : 'all of these words'} as written. These have ${words.length === 1 ? 'it' : 'each word'} as written or with a typing mistake (close spellings), the closest first: check they are what was meant.`] : []),
+      `Messages the user can see in their team chat rooms ${what}${near ? ' (close spellings)' : ''}, ${near ? 'the closest first' : 'the newest first'} (${top.length}${hits.length > top.length ? ` of more: narrow the search or raise limit` : ''}${o.room === undefined && rooms.length >= ROOM_SEARCH_ROOMS ? `; the ${ROOM_SEARCH_ROOMS} rooms with the latest activity were searched` : ''}). Each search looks at the newest ${ROOM_SEARCH_SCAN} messages of a room.${limits}${wordsOnly} Long messages are shown in part: read the room or thread for all of one. Times are in ${tz}.`,
       DATA_NOTE,
       ...(top.some((h) => hasFiles.has(h.row.id)) ? ['Files are listed with each message ([files: name (type, size, file_id=…)]): read one with room_file (its room_id and file_id), keep a copy with save_room_file.'] : []),
       '<room_messages search="yes">', ...parts, '</room_messages>',
@@ -538,7 +577,8 @@ function excerpt(body: string, words: string[]): string {
   const max = 400
   if (body.length <= max) return body
   const lower = body.toLocaleLowerCase()
-  const at = words.length ? Math.max(0, lower.indexOf(words[0]!.toLocaleLowerCase())) : 0
+  // where the first word is, in any of its forms (searchForms)
+  const at = words.length ? Math.max(0, findForm(lower, searchForms(words[0]!.toLocaleLowerCase()))?.at ?? lower.indexOf(words[0]!.toLocaleLowerCase())) : 0
   const start = Math.max(0, at - 150)
   return `${start > 0 ? '…' : ''}${body.slice(start, start + max)}${start + max < body.length ? '…' : ''}`
 }

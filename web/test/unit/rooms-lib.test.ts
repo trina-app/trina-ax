@@ -161,7 +161,7 @@ describe('group chats and event lines', () => {
   })
 
   test('event lines read as a sentence: one honorific per name, the particle fitting the last name, a quoted name', () => {
-    const w = (loc: 'ko' | 'en' | 'ja') => ({ t: (k: any, params?: any) => translate(loc, k, params), nameOf: (u: { name: string } | null) => u?.name ?? '?' })
+    const w = (loc: 'ko' | 'en' | 'ja' | 'zh' | 'es' | 'id') => ({ t: (k: any, params?: any) => translate(loc, k, params), nameOf: (u: { name: string } | null) => u?.name ?? '?' })
     const boss = { id: 'boss', name: '대표님' }
     const kim = { id: 'kim', name: '김민지 씨' }
     expect(eventText({ type: 'added', users: [BEN, CY] }, boss, w('ko'))).toBe('대표님이 Ben님, Cy Park님을 초대했어요')
@@ -186,6 +186,22 @@ describe('group chats and event lines', () => {
     expect(eventText({ type: 'project_unlinked', project: null }, ME, w('en'))).toBe('Ada unlinked this channel from a project')
     expect(eventText({ type: 'project_unlinked', project: LS }, ME, w('en'))).toBe('Ada unlinked this channel from the project Launch site')
     expect(eventText({ type: 'project_linked', project: null }, boss, w('ko'))).toBe('대표님이 이 채널을 프로젝트에 연결했어요')
+    // the project as it is now (plan 20261121-1009-event-project-link): in the trash its name with "(in the trash)";
+    // deleted for good "a deleted project"; a trash state with no name (an outsider) reads as "a project"
+    const trash = { state: 'trash' as const, name: 'Launch v2' }, deleted = { state: 'deleted' as const }
+    expect(eventText({ type: 'project_linked', project: null, projectGone: trash }, ME, w('en'))).toBe('Ada linked this channel to the project Launch v2 (in the trash)')
+    expect(eventText({ type: 'project_unlinked', project: null, projectGone: trash }, ME, w('en'))).toBe('Ada unlinked this channel from the project Launch v2 (in the trash)')
+    expect(eventText({ type: 'project_room', project: null, projectGone: trash }, null, w('en'))).toBe('This channel is now the chat room of the project Launch v2 (in the trash)')
+    expect(eventText({ type: 'project_linked', project: null, projectGone: deleted }, ME, w('en'))).toBe('Ada linked this channel to a deleted project')
+    expect(eventText({ type: 'project_room', project: null, projectGone: deleted }, null, w('en'))).toBe('This channel was the chat room of a deleted project')
+    expect(eventText({ type: 'project_linked', project: null, projectGone: { state: 'trash', name: null } }, ME, w('en'))).toBe('Ada linked this channel to a project')
+    expect(eventText({ type: 'project_linked', project: null, projectGone: trash }, boss, w('ko'))).toBe('대표님이 이 채널을 Launch v2 프로젝트(휴지통에 있음)에 연결했어요')
+    expect(eventText({ type: 'project_linked', project: null, projectGone: deleted }, boss, w('ko'))).toBe('대표님이 이 채널을 삭제된 프로젝트에 연결했어요')
+    // every language has the new words, with {name} where the line names it
+    for (const l of ['en', 'ko', 'ja', 'zh', 'es', 'id'] as const) {
+      expect(eventText({ type: 'project_room', project: null, projectGone: trash }, null, w(l))).toContain('Launch v2')
+      expect(eventText({ type: 'project_unlinked', project: null, projectGone: deleted }, ME, w(l))).not.toContain('{')
+    }
   })
 
   test('an event line is a run of its own and ends the run before it', () => {

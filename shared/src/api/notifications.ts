@@ -368,7 +368,8 @@ export const InboxNotification = z.object({
    * (Settings › Scheduled tasks, "다시 확인"); older servers omit it */
   review: z.boolean().optional(),
   /** 'dev_env.job' only, while the person can see the project. The text stays in the job's own row, not in the inbox:
-   * the notice says the result in plain words (done when exitCode is 0, else not), never the log. reason: why the job
+   * the notice says the result in plain words (done when exitCode is 0; ended with the result unknown when it has no
+   * exitCode and reason is lost or absent; else not done), never the log. reason: why the job
    * ended (timeout, oom, stopped, disk, setting, expired, lost; older rows omit it). chatTitle: the title of the chat it
    * was started in, while the person can open it. note and tail: older servers only (the English end note and the log
    * tail); the web shows neither. A job from a chat with no project has projectId and projectName ''. 'dev_env.box' (a

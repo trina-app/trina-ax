@@ -40,7 +40,7 @@ import { DEFAULT_LOCALE, parseMessageLinks, ROOM_QUOTE_EXCERPT_MAX, type Room, t
 import { errorText, roomFileUrl, startDownload } from '../../lib/api'
 import { formatDateTime, formatSize } from '../../lib/format'
 import { copiedMessages } from '../../lib/messageCopy'
-import { ALL_MENTION_ID, allMentionNames, eventText, groupRuns, highlightNow, lineBreaks, localDayKey, projectEventKey, projectRoomOf } from '../../lib/rooms'
+import { ALL_MENTION_ID, allMentionNames, eventProjectOf, eventText, type EventProject, groupRuns, highlightNow, lineBreaks, localDayKey, projectEventKey, projectRoomOf } from '../../lib/rooms'
 import { aiName } from '../../lib/tabs'
 import { Markdown, PersonMarkdown } from '../LazyMarkdown'
 import { AppCardText } from './AppCard'
@@ -364,17 +364,18 @@ function EventLine({ m }: { m: RoomMessage }) {
   const team = useMe()?.team.defaultLocale
   if (!m.event) return null
   const text = eventText(m.event, m.author, { t, nameOf: (u) => nameOf(u) ?? t('rooms.goneUser'), folder: CHAT_FILES_FOLDER[team ?? DEFAULT_LOCALE] })
-  // a project link line, or "… made this conversation the project {name}", for someone who can open the project: its
-  // name opens the project page
+  // a line that names a project: its name opens the project page only while I can open it now (eventProjectOf, or for
+  // "… made this conversation the project {name}" its project); in the trash, deleted or out of my reach it is plain text
   const e = m.event
-  const project = (e.type === 'project_linked' || e.type === 'project_unlinked' || e.type === 'project_made') ? e.project : null
+  const project: EventProject | null = e.type === 'project_linked' || e.type === 'project_unlinked' || e.type === 'project_room' ? eventProjectOf(e)
+    : e.type === 'project_made' ? (e.project ? { state: 'open', id: e.project.id, name: e.project.name } : { state: 'hidden' }) : null
   let body: ReactNode = text
-  if (project && (e.type === 'project_linked' || e.type === 'project_unlinked' || e.type === 'project_made')) {
+  if (project?.state === 'open' && (e.type === 'project_linked' || e.type === 'project_unlinked' || e.type === 'project_room' || e.type === 'project_made')) {
     const parts = t(e.type === 'project_made' ? 'rooms.event.projectMade' : projectEventKey(e), { actor: nameOf(m.author) ?? t('rooms.goneUser'), name: '\u0000' }).split('\u0000')
     body = parts.length === 2 ? <>{parts[0]}<a href={`/projects/${project.id}`} onClick={(ev) => { if (ev.metaKey || ev.ctrlKey || ev.shiftKey) return; ev.preventDefault(); navigateTo(`/projects/${project.id}`) }} className="font-medium text-muted underline underline-offset-2 hover:text-ink" data-testid="room-event-project">{project.name}</a>{parts[1]}</> : text
   }
   return (
-    <p id={messageDomId(m.id)} className="px-6 pt-3 pb-1 text-center text-xs break-words text-faint" title={formatDateTime(m.createdAt, locale)} data-testid="room-event">
+    <p id={messageDomId(m.id)} className="px-6 pt-3 pb-1 text-center text-xs break-words text-faint" title={formatDateTime(m.createdAt, locale)} data-testid="room-event" data-project={project?.state}>
       {body}
     </p>
   )

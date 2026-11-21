@@ -1,7 +1,11 @@
 // What a search box's text means, the same in the server and the app (docs/DECISIONS.md "⌘K에서 대화방 메시지 찾기"):
 //   searchWords  the words of a query: every one must match, in any order (room messages, AI chat records, room files)
+//   searchForms  the parts of the text a word is found by: without its particle or English ending, and a Korean verb's
+//                other forms (search-ko.ts: "만든" finds "만들었어요", "작성했어요" "작성했습니다")
 //   nameMatch    a name typed in ⌘K (a room, a person): every word inside the name, in any case and width (NFKC), and a
 //                Korean initial consonant (초성) for the syllables that start with it: "ㄱㅈ" finds "견적", "ㅁㅎ" "민희"
+
+import { koVerbForms } from './search-ko'
 
 /** At most this many words of a query count (as the AI's room search, rooms/reader.ts searchRooms) */
 export const SEARCH_WORDS_MAX = 8
@@ -64,6 +68,9 @@ export interface SearchParts {
   /** what each of `words` is matched by, in the same order: a quoted phrase as typed; a word without its Korean particle
    *  or English ending (searchStem), so "회의를" finds "회의" and "deploys" finds "deployed" */
   terms: string[]
+  /** what each of `words` is found by, in the same order (searchForms): any one of these parts of the text; a quoted
+   *  phrase only itself. The first is never narrower than `terms` (it is that term or a part of it). */
+  forms: string[][]
   /** which of `words` were quoted */
   phrases: boolean[]
   /** the people named by from: (as typed, without @), and the rooms named by in: (without # or @) */
@@ -99,7 +106,8 @@ export function parseSearch(q: string): SearchParts {
     else if (word) add(word, false)
   }
   const n = Math.min(words.length, SEARCH_WORDS_MAX)
-  return { words: words.slice(0, n), phrases: phrases.slice(0, n), terms: words.slice(0, n).map((w, i) => (phrases[i] ? w : searchStem(w))), from: from.slice(0, 4), in: inn.slice(0, 4), mentions: mentions.slice(0, 4) }
+  const forms = words.slice(0, n).map((w, i) => (phrases[i] ? [w] : searchForms(w)))
+  return { words: words.slice(0, n), phrases: phrases.slice(0, n), terms: words.slice(0, n).map((w, i) => (phrases[i] ? w : searchTerm(w))), forms, from: from.slice(0, 4), in: inn.slice(0, 4), mentions: mentions.slice(0, 4) }
 }
 
 /** Korean particles and endings that follow a noun, the longest first: "회의를" is searched as "회의" */
@@ -134,6 +142,39 @@ export function searchStem(word: string): string {
   else return word
   if (/([b-df-hj-np-tv-z])\1$/.test(s) && !/(?:ll|ss|zz|ff)$/.test(s)) s = s.slice(0, -1)
   return s.length >= 3 ? s : word
+}
+
+/** What a word is shown and ranked by: searchStem, or for a Korean verb its stem ("만들었어요" → "만들", "작성했습니다"
+ *  → "작성") */
+export function searchTerm(word: string): string {
+  return koVerbForms(word).stem ?? searchStem(word)
+}
+
+/** The parts of the text a search word is found by, any one of them (docs/decisions/20261121-ko-search-forms.md): its
+ *  searchStem (a Korean particle or an English ending off: what it was found by before, so nothing it found is lost)
+ *  and, for a Korean verb or adjective, its stem and the other forms of the stem's last syllable (search-ko.ts:
+ *  "만든" → "만들", "만드는", "만듭" …; "보낸" → "보냈", "보내고" …; "작성했어요" → "작성"). None is a part of another
+ *  (that one would find nothing more); the first is searchTerm or a part of it. A–Z in lower case (LIKE's own rule). */
+export function searchForms(word: string): string[] {
+  const term = searchTerm(word)
+  const all = [term, searchStem(word), ...koVerbForms(word).forms]
+  const fold = (s: string) => foldAZ(s)
+  const uniq = [...new Set(all.map(fold))]
+  const kept = uniq.filter((f, i) => !uniq.some((g, j) => j !== i && g.length < f.length && f.includes(g)))
+  // the term (or the part of it that is kept) first
+  const head = kept.find((f) => fold(term).includes(f)) ?? kept[0]!
+  return [head, ...kept.filter((f) => f !== head)]
+}
+
+/** Does `text` hold any of `forms` (A–Z in any case)? Where the first one found starts, and which, or null. */
+export function findForm(text: string, forms: readonly string[]): { at: number; form: string } | null {
+  const t = foldAZ(text)
+  let best: { at: number; form: string } | null = null
+  for (const f of forms) {
+    const at = t.indexOf(foldAZ(f))
+    if (at >= 0 && (!best || at < best.at)) best = { at, form: f }
+  }
+  return best
 }
 
 /** Lower case for A–Z only (SQLite LIKE's own rule) */

@@ -353,6 +353,19 @@ export const RoomQuote = z.object({
 })
 export type RoomQuote = z.infer<typeof RoomQuote>
 
+/** The project an event line names, as it is now for this viewer (server/src/rooms/project-link.ts eventProjectsFor):
+ * `project` only while they can open it (its name now: a link). Else `projectGone` when there is something to say:
+ * 'trash', the project is in the trash (`name`: its name now, only for one of its people; null: "a project"), shown
+ * as plain text; 'deleted', deleted for good ("a deleted project"). Neither: "a project" (they cannot open it). Older
+ * servers never send `projectGone`. */
+const EventProject = {
+  project: z.object({ id: Uuid7, name: z.string() }).nullable(),
+  projectGone: z.discriminatedUnion('state', [
+    z.object({ state: z.literal('trash'), name: z.string().nullable() }),
+    z.object({ state: z.literal('deleted') }),
+  ]).optional(),
+}
+
 /** What an event line in a room says (a room message with `event` set: who did it is its author). It takes its place in
  * the room (a seq) but counts nowhere: no badge, no notice or push, no menu (not editable, deletable,
  * quotable or postable), never given to the AI. created: a group chat was made with these people; renamed: the room's
@@ -367,20 +380,21 @@ export const RoomEventLine = z.discriminatedUnion('type', [
   /** the author joined the team (an invite, the team link or an admin's "Add directly"): the everyone room's line, nobody notified */
   z.object({ type: z.literal('joined') }),
   /** the author linked this private channel to a team project, or unlinked it (docs/decisions/
-   * 20261119-channel-project-link.md): `project` only for a viewer who can open that project now, else null (the line
-   * says "a project") */
-  z.object({ type: z.literal('project_linked'), project: z.object({ id: Uuid7, name: z.string() }).nullable() }),
-  z.object({ type: z.literal('project_unlinked'), project: z.object({ id: Uuid7, name: z.string() }).nullable() }),
+   * 20261119-channel-project-link.md): the project as EventProject says (named and linked only for a viewer who can
+   * open it now) */
+  z.object({ type: z.literal('project_linked'), ...EventProject }),
+  z.object({ type: z.literal('project_unlinked'), ...EventProject }),
   /** a private channel linked to a team project in 0.5.21 became the project's chat room at the upgrade, its people
    * being the project's people (docs/decisions/20261120-project-is-room.md D7); written by the server (author null).
    * `project` as for project_linked */
-  z.object({ type: z.literal('project_room'), project: z.object({ id: Uuid7, name: z.string() }).nullable() }),
+  z.object({ type: z.literal('project_room'), ...EventProject }),
   /** the author made this conversation (a group chat) the team project `project` (POST /api/rooms/:id/make-project,
-   * docs/decisions/20261121-make-project-from-room.md). `project` as for project_linked */
+   * docs/decisions/20261121-make-project-from-room.md). `project` only for a viewer who can open that project now, else
+   * null (the line says "a project"); no `projectGone` */
   z.object({ type: z.literal('project_made'), project: z.object({ id: Uuid7, name: z.string() }).nullable() }),
   /** written by the server (author null) when the files of a conversation made a project finished moving: `moved` went
    * to the project's Chat attachments, `kept` stayed in this conversation (labelled roomOnly). `project` as for
-   * project_linked */
+   * project_made */
   z.object({ type: z.literal('project_files_moved'), project: z.object({ id: Uuid7, name: z.string() }).nullable(),
     moved: z.number().int().nonnegative(), kept: z.number().int().nonnegative() }),
   /** a line this build cannot read (a newer build's, or a damaged one): said neutrally, without who did it */

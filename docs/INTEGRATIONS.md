@@ -41,7 +41,7 @@ team app changes them only after its own confirmation, which an outside model ca
 읽고 쓰기").
 
 - Consent: the person chooses, whatever the app asked (MCP clients ask for the 401 header's `mcp:read` only). Reading
-  is always granted, `offline_access` when asked; **파일 쓰기** (`mcp:write`) is a checkbox for everyone, ticked at the
+  and `offline_access` (a refresh token, so the connection stays until disconnected) are always granted, asked or not; **파일 쓰기** (`mcp:write`) is a checkbox for everyone, ticked at the
   start only when the app asked for it; **대화 읽기** (`mcp:rooms`) is ticked at the start, **대화 쓰기**
   (`mcp:rooms.write`) unticked and only with reading (a page without these boxes grants neither); `mcp:admin` comes
   with every new connection of an active owner or admin (no

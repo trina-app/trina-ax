@@ -55,7 +55,7 @@ export function roomTitle(room: Pick<Room, 'kind' | 'name' | 'peers'> & Partial<
 /** The words of an event line (lib, not React: the component passes t). `person` puts a language's honorific after a
  * name ("{name}님"), `quote` puts a room name in the language's quotes. */
 export interface EventWords {
-  t: (key: 'rooms.event.invited' | 'rooms.event.invitedMore' | 'rooms.event.renamed' | 'rooms.event.renamedBack' | 'rooms.event.left' | 'rooms.event.joined' | 'rooms.event.removed' | 'rooms.event.unknown' | 'rooms.event.projectLinked' | 'rooms.event.projectLinkedNamed' | 'rooms.event.projectUnlinked' | 'rooms.event.projectUnlinkedNamed' | 'rooms.event.projectRoom' | 'rooms.event.projectRoomNamed' | 'rooms.event.projectMade' | 'rooms.event.projectMadeUnnamed' | 'rooms.event.filesMoved' | 'rooms.event.filesMovedUnnamed' | 'rooms.event.filesMovedKept' | 'rooms.event.filesMovedKeptUnnamed' | 'rooms.event.person' | 'rooms.event.quoted' | 'rooms.nameSep', params?: Record<string, string | number>) => string
+  t: (key: 'rooms.event.invited' | 'rooms.event.invitedMore' | 'rooms.event.renamed' | 'rooms.event.renamedBack' | 'rooms.event.left' | 'rooms.event.joined' | 'rooms.event.removed' | 'rooms.event.unknown' | ProjectEventKey | 'rooms.event.projectMade' | 'rooms.event.projectMadeUnnamed' | 'rooms.event.filesMoved' | 'rooms.event.filesMovedUnnamed' | 'rooms.event.filesMovedKept' | 'rooms.event.filesMovedKeptUnnamed' | 'rooms.event.person' | 'rooms.event.quoted' | 'rooms.nameSep', params?: Record<string, string | number>) => string
   nameOf: (u: UserRef | null) => string
   /** the Chat attachments folder's name in the team's language (CHAT_FILES_FOLDER), for the files' move line */
   folder?: string
@@ -81,19 +81,18 @@ export function eventText(e: RoomEventLine, author: UserRef | null, w: EventWord
       return w.t('rooms.event.joined', { actor })
     case 'removed':
       return w.t('rooms.event.removed', { actor, name: w.nameOf(e.user) })
-    // a private channel linked to a project or unlinked (docs/decisions/20261119-channel-project-link.md): the project's
-    // name only for a viewer who can open it (the server sends it then), else "a project"
+    // a line that names a project (docs/decisions/20261119-channel-project-link.md, 20261120-project-is-room.md): the
+    // project as it is now for this viewer (eventProjectOf): named while they can open it, "(in the trash)", "a deleted
+    // project", else "a project"; project_room is written by the server, so no actor
     case 'project_linked':
-    case 'project_unlinked': {
+    case 'project_unlinked':
+    case 'project_room': {
+      const p = eventProjectOf(e)
       const k = projectEventKey(e)
-      return e.project ? w.t(k, { actor, name: e.project.name }) : w.t(k, { actor })
+      return p.state === 'open' || p.state === 'trash' ? w.t(k, { actor, name: p.name }) : w.t(k, { actor })
     }
-    // a linked channel that became the project's chat room at the upgrade (docs/decisions/20261120-project-is-room.md):
-    // written by the server, so no actor
-    case 'project_room':
-      return e.project ? w.t('rooms.event.projectRoomNamed', { name: e.project.name }) : w.t('rooms.event.projectRoom')
     // a conversation made a project by the author (docs/decisions/20261121-make-project-from-room.md): the project's
-    // name for a viewer who can open it, as for project_room
+    // name for a viewer who can open it now, else "a project"
     case 'project_made':
       return e.project ? w.t('rooms.event.projectMade', { actor, name: e.project.name }) : w.t('rooms.event.projectMadeUnnamed', { actor })
     // its files' move ended (written by the server): how many went to the project's Chat attachments, and only when
@@ -108,10 +107,29 @@ export function eventText(e: RoomEventLine, author: UserRef | null, w: EventWord
   }
 }
 
-/** The words of a project link line: named when the viewer can open the project, else neutral. */
-export function projectEventKey(e: Extract<RoomEventLine, { type: 'project_linked' | 'project_unlinked' }>): 'rooms.event.projectLinked' | 'rooms.event.projectLinkedNamed' | 'rooms.event.projectUnlinked' | 'rooms.event.projectUnlinkedNamed' {
-  if (e.type === 'project_linked') return e.project ? 'rooms.event.projectLinkedNamed' : 'rooms.event.projectLinked'
-  return e.project ? 'rooms.event.projectUnlinkedNamed' : 'rooms.event.projectUnlinked'
+/** An event line that names a project. */
+export type ProjectEventLine = Extract<RoomEventLine, { type: 'project_linked' | 'project_unlinked' | 'project_room' }>
+type ProjectLineType = ProjectEventLine['type']
+const LINE_WORD = { project_linked: 'projectLinked', project_unlinked: 'projectUnlinked', project_room: 'projectRoom' } as const satisfies Record<ProjectLineType, string>
+export type ProjectEventKey = `rooms.event.${(typeof LINE_WORD)[ProjectLineType]}${'' | 'Named' | 'Trash' | 'Deleted'}`
+
+/** The project a line names, as the server read it for me now (server/src/rooms/project-link.ts eventProjectsFor, the
+ * one resolver): 'open' its name now and a link; 'trash' its name now as plain text; 'deleted'; 'hidden' I cannot
+ * open it ("a project": never a name, so never a renamed one). An older server's line is 'open' or 'hidden'. */
+export type EventProject = { state: 'open'; id: string; name: string } | { state: 'trash'; name: string } | { state: 'deleted' } | { state: 'hidden' }
+export function eventProjectOf(e: ProjectEventLine): EventProject {
+  if (e.project) return { state: 'open', id: e.project.id, name: e.project.name }
+  const g = e.projectGone
+  if (g?.state === 'trash') return g.name ? { state: 'trash', name: g.name } : { state: 'hidden' }
+  if (g?.state === 'deleted') return { state: 'deleted' }
+  return { state: 'hidden' }
+}
+
+/** The words of a project line for the project as it is now: named (open), named "(in the trash)", "a deleted
+ * project", or neutral ("a project"). */
+export function projectEventKey(e: ProjectEventLine): ProjectEventKey {
+  const s = eventProjectOf(e).state
+  return `rooms.event.${LINE_WORD[e.type]}${s === 'open' ? 'Named' : s === 'trash' ? 'Trash' : s === 'deleted' ? 'Deleted' : ''}`
 }
 
 /** Messages of one author close together share one avatar, name and time: a new run after another author, a pause

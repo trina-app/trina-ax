@@ -132,6 +132,20 @@ describe('the helpers', () => {
     expect(roomsAndPeople(many, [], ME.id, 'acme', title).map((x) => x.name)).toEqual(['acme 0', 'acme 1', 'acme 2'].slice(0, NAMED_FEW))
     expect(roomsAndPeople(many, [], ME.id, '  ', title)).toEqual([])
   })
+  test('a typing mistake in a word of a name: near names only when no name matches as typed, the closest first', () => {
+    const person = (id: string, name: string): Person => ({ id, name })
+    const people = [person('d', 'Alicea Kim'), person('a', 'Alice Kim'), person('b', 'Alicia Kimball'), person('c', 'Carol Park')]
+    const marketing = room({ name: '마케팅팀 주간 회의', activityAt: at(-3) })
+    // the closest first: "Alice" (one mistake, the whole word) before "Alicea" (one mistake in its start); "Alicia" is two
+    // mistakes from "alcie": not near
+    expect(roomsAndPeople([], people, ME.id, 'alcie kim', title).map((x) => x.name)).toEqual(['Alice Kim', 'Alicea Kim'])
+    expect(roomsAndPeople([], people, ME.id, 'kim alcie', title).map((x) => x.name)).toEqual(['Alice Kim', 'Alicea Kim'])
+    expect(roomsAndPeople([marketing], [], ME.id, '마케팅팁 주간', title).map((x) => x.name)).toEqual(['마케팅팀 주간 회의'])
+    // a name that matches as typed: no near ones with it; short words never near
+    expect(roomsAndPeople([], people, ME.id, 'alice', title).map((x) => x.name)).toEqual(['Alice Kim', 'Alicea Kim'])
+    expect(roomsAndPeople([], people, ME.id, 'alce kim', title).map((x) => x.name)).toEqual(['Alice Kim', 'Alicea Kim'])
+    expect(roomsAndPeople([], people, ME.id, 'kin', title)).toEqual([])
+  })
   test('every word marked once; nothing marked when lower case changes the length', () => {
     expect(wordSpans('견적서를 보내드렸어요', ['보내', '견적서'])).toEqual([[0, 3], [5, 7]])
     expect(wordSpans('Acme acme', ['acme', 'cm'])).toEqual([[0, 4]])

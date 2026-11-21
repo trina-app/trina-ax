@@ -1195,6 +1195,9 @@ async function rowStatus(c: SrtConfig, r: RunRow): Promise<{ running: true; tail
   }
   if (u.state === 'failed') await c.system.forget(runId)
   rm(path.join(devenvPaths(c.base).run, `${runId}.json`))
+  // run-wrap writes the exit file before its unit ends: a run that ended after the first read has it now (QA TC-6586)
+  const late = readExit(exitFile)
+  if (late !== null) { rm(exitFile); return { running: false, code: late, reason: a?.stopReason ?? 'exit', tail: readTail(log, TAIL_BYTES) } }
   const reason: EndReason = a?.stopReason ?? (u.result === 'oom-kill' ? 'oom' : u.result === 'timeout' ? 'timeout' : 'lost')
   return { running: false, code: null, reason, tail }
 }
@@ -1277,11 +1280,16 @@ async function stopRow(ctx: AppContext, r: RunRow, reason: EndReason) {
   if (r.state === 'waiting') { takeCommand(c, r.id); endRow(ctx, r.id, { code: null, reason, tail: '', lastLine: '' }); return }
   const runId = runIdOf(r.unit)
   const a = active.get(runId)
-  if (a) a.stopReason = reason
-  if (runId) await c.system.stop(runId, a?.pid)
+  // a run that already ended by itself (its exit file is there) ends with its own code, not as stopped: its end can
+  // change the access hash this stop came from (its skills placeholder goes; QA TC-6586)
+  const code = runId ? readExit(path.join(rowLogs(c, r), `${runId}.exit`)) : null
+  if (code === null) {
+    if (a) a.stopReason = reason
+    if (runId) await c.system.stop(runId, a?.pid)
+  }
   const tail = readTail(logFile(c, r), TAIL_BYTES)
   rm(path.join(rowLogs(c, r), `${runId}.exit`))
-  endRow(ctx, r.id, { code: null, reason, tail, lastLine: lastLine(tail) })
+  endRow(ctx, r.id, { code, reason: code === null ? reason : 'exit', tail, lastLine: lastLine(tail) })
   active.delete(runId); idleSince.delete(runId); closeForwarders(runId)
 }
 
