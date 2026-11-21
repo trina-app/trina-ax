@@ -1,11 +1,16 @@
 // The new-chat picker (components/rooms/PeoplePicker.tsx, docs/DECISIONS.md "그룹 대화와 방 이름"): tick people (a group
 // ticks its people now); one person opens the DM, two or more make a group chat with an optional name that shows only
-// then; inviting leaves out the people already in the chat. What it sends is checked against a fake server.
-import { afterAll, afterEach, beforeAll, expect, test } from 'bun:test'
+// then; inviting leaves out the people already in the chat. What it sends is checked against a fake server. Create a
+// channel's "Make it a project" (docs/decisions/20261121-create-channel-as-project.md): the team project with the
+// people picked, then its room opened listed; the taken-name hint; guests by the project rules.
+import { afterAll, afterEach, beforeAll, describe, expect, test } from 'bun:test'
 import { MemoryRouter } from 'react-router-dom'
 import { uuidv7, type Me } from '@mycel/shared/api'
 import { translate, useLocaleStore } from '../../src/i18n'
 import { PeoplePicker } from '../../src/components/rooms/PeoplePicker'
+import { steppedProjectFolder } from '../../src/components/rooms/MakeProjectDialog'
+import { setNavigator } from '../../src/lib/nav'
+import { useProjects } from '../../src/store/projects'
 import { usePeople } from '../../src/store/people'
 import { useRooms } from '../../src/store/rooms'
 import { useSession } from '../../src/store/session'
@@ -25,7 +30,14 @@ const me = { user: { id: ME.id, username: ME.id, name: ME.name, email: null, rol
 const realFetch = globalThis.fetch
 const locale = useLocaleStore.getState().locale
 const status = useSession.getState().status
-const sent: { key: string; body: unknown }[] = []
+const sent: { key: string; body: unknown; url: string }[] = []
+const PROJECT_ROOM = room({ kind: 'group', name: '출시 준비', peers: [BEN], projectRoom: true })
+const MADE = { id: uuidv7(), name: '출시 준비', folderPath: 'projects/출시 준비', instructions: '', createdBy: { id: ME.id, name: ME.name }, createdAt: '2026-11-22T00:00:00.000Z', canEdit: true }
+// a team project I see whose folder is projects/주간 회의 (the taken-name hint)
+const WEEKLY = { ...MADE, id: uuidv7(), name: '주간 회의', folderPath: 'projects/주간 회의' }
+// guests: one whose project place is taken, one in a group chat only (a project place free)
+const GINA = { id: 'gina', name: 'Gina', guest: true, guestPlaces: [{ kind: 'project' as const, name: 'Launch' }] }
+const RHEA = { id: 'rhea', name: 'Rhea', guest: true, guestPlaces: [{ kind: 'room' as const, name: '견적' }] }
 const json = (body: unknown, code = 200) => new Response(JSON.stringify(body), { status: code, headers: { 'content-type': 'application/json' } })
 beforeAll(() => {
   installDom()
@@ -33,7 +45,10 @@ beforeAll(() => {
   globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     const key = `${init?.method ?? 'GET'} ${String(input).split('?')[0]}`
     const body = typeof init?.body === 'string' ? JSON.parse(init.body) : null
-    sent.push({ key, body })
+    sent.push({ key, body, url: String(input) })
+    if (key === 'GET /api/projects') return json({ items: [WEEKLY] })
+    if (key === 'POST /api/projects') return json({ ...MADE, name: body.name }, 201)
+    if (key === `POST /api/projects/${MADE.id}/room`) return json(PROJECT_ROOM)
     if (key === 'GET /api/admin/groups') return json({ items: [{ id: OTHER.id, name: OTHER.name, description: null, memberIds: [ME.id, BEN.id, CY.id, 'gone'] }] })
     if (key === `GET /api/rooms/${team.id}/members`) return json({ items: [ME, BEN, CY].map((user) => ({ user, joinedAt: '2026-11-05T00:00:00.000Z' })) })
     if (key === 'POST /api/rooms') return json(room({ kind: body.kind, name: body.name ?? null, peers: [BEN] }), 201)
@@ -45,6 +60,7 @@ afterEach(() => {
   sent.length = 0
   useRooms.getState().reset()
   usePeople.setState({ people: null, byId: {}, loaded: false, failed: false })
+  useProjects.getState().reset()
   useSession.setState({ status })
 })
 afterAll(() => {
@@ -53,9 +69,9 @@ afterAll(() => {
   useLocaleStore.setState({ locale })
 })
 
-async function open(mode?: Parameters<typeof PeoplePicker>[0]['mode'], who: Me = me) {
+async function open(mode?: Parameters<typeof PeoplePicker>[0]['mode'], who: Me = me, extra: { id: string; name: string }[] = []) {
   useSession.setState({ status: { kind: 'signed-in', me: who } } as never)
-  const people = [ME, BEN, CY, LONG]
+  const people = [ME, BEN, CY, LONG, ...extra]
   usePeople.setState({ people, byId: Object.fromEntries(people.map((p) => [p.id, p])), loaded: true, failed: false })
   useRooms.setState({ rooms: [team], loaded: true })
   const m = await mount(<MemoryRouter><PeoplePicker open onClose={() => {}} mode={mode} /></MemoryRouter>)
@@ -182,4 +198,98 @@ test('an admin\'s group whose channel is not in their list counts its active peo
   } finally {
     await m.unmount()
   }
+})
+
+// a team that lets members make team projects
+const maker = { ...me, team: { ...me.team, projectCreators: 'members' } } as unknown as Me
+/** a click on a plain checkbox (the fake DOM leaves out the browser's own turn-over) */
+async function check(m: Awaited<ReturnType<typeof open>>['m'], testid: string) {
+  const box = m.get(testid)
+  const checked = Object.getOwnPropertyDescriptor(FakeElement.prototype, 'checked')!
+  await act(async () => {
+    checked.set!.call(box, !checked.get!.call(box))
+    box.dispatchEvent(new FakeEvent('click', { bubbles: true, cancelable: true }))
+  })
+}
+
+describe('Create a channel: Make it a project', () => {
+  test('only for whoever may make team projects, never in New message; off by default', async () => {
+    const a = await open({ kind: 'channel' })
+    try { expect(a.m.find('picker-as-project')).toBeNull() } finally { await a.m.unmount() }
+    const b = await open(undefined, maker)
+    try { expect(b.m.find('picker-as-project')).toBeNull() } finally { await b.m.unmount() }
+    const c = await open({ kind: 'channel' }, maker)
+    try {
+      expect(c.m.get('picker-as-project').textContent).toBe(ko('rooms.picker.asProject') + ko('rooms.picker.asProjectHint'))
+      expect(Object.getOwnPropertyDescriptor(FakeElement.prototype, 'checked')!.get!.call(c.m.get('picker-as-project-tick'))).toBe(false)
+    } finally { await c.m.unmount() }
+  })
+
+  test('ticked: Create project makes the team project with the people picked, then opens its room listed (no channel)', async () => {
+    const went: string[] = []
+    setNavigator((to) => went.push(to))
+    const { m, tick } = await open({ kind: 'channel' }, maker)
+    try {
+      await check(m, 'picker-as-project-tick')
+      await tick('people-row', BEN.name)
+      expect(m.get('picker-go').textContent).toBe(ko('rooms.picker.createProject'))
+      await m.type('picker-name', ' 출시 준비 ')
+      await m.click('picker-go')
+      await m.until(() => went.length, 'the room opened')
+      expect(sent.find((s) => s.key === 'POST /api/projects')!.body).toEqual({ name: '출시 준비', scope: 'team', instructions: '', participants: [{ subjectType: 'user', subjectId: BEN.id }] })
+      expect(sent.find((s) => s.key === `POST /api/projects/${MADE.id}/room`)!.url).toContain('listed=1')
+      expect(sent.some((s) => s.key === 'POST /api/rooms')).toBe(false)
+      expect(went).toEqual([`/rooms/${PROJECT_ROOM.id}`])
+    } finally {
+      setNavigator(null)
+      await m.unmount()
+    }
+  })
+
+  test('a name a team project I see has: the "-2" hint; a reserved name: refused; unticked: neither', async () => {
+    const { m, tick } = await open({ kind: 'channel' }, maker)
+    try {
+      await tick('people-row', BEN.name)
+      await m.type('picker-name', '주간 회의')
+      expect(m.find('picker-name-taken')).toBeNull()
+      await check(m, 'picker-as-project-tick')
+      await m.until(() => m.find('picker-name-taken'), 'the hint')
+      expect(m.get('picker-name-taken').textContent).toBe(ko('rooms.makeProject.nameTaken', { name: '주간 회의', folder: '주간 회의-\u20602' }))
+      expect(m.get('picker-go').getAttribute('disabled')).toBeNull()
+      await m.type('picker-name', 'CLAUDE.md')
+      expect(m.get('picker-name-error').textContent).toBe(ko('rooms.makeProject.nameReserved'))
+      expect(m.get('picker-go').getAttribute('disabled')).not.toBeNull()
+      await check(m, 'picker-as-project-tick')
+      expect(m.find('picker-name-error')).toBeNull()
+      expect(m.get('picker-go').getAttribute('disabled')).toBeNull()
+    } finally { await m.unmount() }
+  })
+
+  test('guests: a channel takes none; a project takes one whose project place is free, never one in another project', async () => {
+    const { m, tick, rowOf } = await open({ kind: 'channel' }, maker, [GINA, RHEA])
+    try {
+      await tick('people-row', RHEA.name)
+      // a private channel: no guest
+      expect(m.get('picker-count').textContent).toBe(ko('guest.onePlaceShort'))
+      expect(m.get('picker-go').getAttribute('disabled')).not.toBeNull()
+      await check(m, 'picker-as-project-tick')
+      // a project: Rhea (a group chat only) can come; Gina (in another project) is greyed out with no tick
+      expect(m.get('picker-count').textContent).toBe(ko('rooms.picker.selected', { n: 1 }))
+      await m.type('picker-name', '견적 프로젝트')
+      expect(m.get('picker-go').getAttribute('disabled')).toBeNull()
+      const gina = rowOf('people-row', GINA.name)
+      expect(gina.getAttribute('data-testid')).toBe('people-row')
+      expect(gina.querySelector('[data-testid="picker-tick"]')).toBeNull()
+      expect(gina.textContent).toContain(ko('guest.inProject', { place: 'Launch' }))
+    } finally { await m.unmount() }
+  })
+})
+
+test('the folder a new team project gets: the name, or "-2", "-3" past the team projects I see (letter case aside)', () => {
+  expect(steppedProjectFolder('Launch', ['projects/Other'])).toBeNull()
+  expect(steppedProjectFolder(' Launch ', ['projects/launch'])).toBe('Launch-2')
+  expect(steppedProjectFolder('Launch', ['projects/Launch', 'projects/Launch-2'])).toBe('Launch-3')
+  // only team projects' folders count (a personal one is elsewhere)
+  expect(steppedProjectFolder('Launch', ['users/ada/projects/Launch'])).toBeNull()
+  expect(steppedProjectFolder('  ', ['projects/Launch'])).toBeNull()
 })

@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-21 23:10
 - Branch: `feat/create-channel-as-project`
-- Status: in progress
+- Status: built; screenshots to the owner before the PR
 - Where: web (the people picker's channel mode, i18n, e2e). Why: the dialog is `web/src/components/rooms/PeoplePicker.tsx`;
   the project is made by the existing `POST /api/projects` and its room opened by `POST /api/projects/:id/room?listed=1`,
   so no server change.
