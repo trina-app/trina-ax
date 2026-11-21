@@ -12,6 +12,7 @@ import { API, type Attachment, type PutChatAudienceResult } from '@mycel/shared/
 import { startHarness, type Harness, type TestSocket } from '../lib/b-harness'
 import { CCITT_SCAN, makePagesPdf } from '../lib/pdf'
 import { readScope } from '../../server/src/chat/read-scope'
+import { setAnswerReads } from '../../server/src/chat/shared-answers'
 import { roomsOf } from '../../server/src/rooms/service'
 
 setDefaultTimeout(90_000)
@@ -248,6 +249,19 @@ describe('the copy counts as the chat\'s only when it is this chat\'s untouched 
     expect(await q()).toBe(0)
     fs.appendFileSync(path.join(h.team, 'users/bob/data/sales.csv'), 'east,30\n')
     expect(await q()).toBe(1)
+  })
+
+  test('review (#217): the copy of a file a connection\'s (k) answer carries still asks (newcomers never get it unasked)', async () => {
+    const { chat, file } = await sent('k-report.txt', 'QA K REPORT ' + crypto.randomUUID())
+    // the file moves from the question to the answer, and that answer read a connection (a k group): as a share copy
+    const q = db().query("SELECT id, attachments FROM messages WHERE chat_id = ? AND role = 'user' AND attachments LIKE ?").get(chat, `%${file}%`) as { id: string; attachments: string }
+    const a = db().query("SELECT id FROM messages WHERE parent_id = ? AND role = 'assistant'").get(q.id) as { id: string }
+    db().query('UPDATE messages SET attachments = ? WHERE id = ?').run(q.attachments, a.id)
+    db().query("UPDATE messages SET attachments = '[]' WHERE id = ?").run(q.id)
+    setAnswerReads(db(), chat, a.id, [{ c: ['alice', 'bob'], s: [], k: 1 }])
+    await run('bob', chat, `${fake({ tool: 'save_chat_file', args: { file, save_as: 'users/bob/k/' }, sayResult: true })}`)
+    expect(fs.existsSync(path.join(h.team, 'users/bob/k/k-report.txt'))).toBe(true)
+    expect(await readCard('bob', chat, { file_path: 'users/bob/k/k-report.txt' })).toBe(1)
   })
 
   test("another chat's copy, and a copy of an upload not sent yet, still ask", async () => {

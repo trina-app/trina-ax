@@ -43,7 +43,7 @@ import { safeOpsEnabled } from '../safe-ops/runner'
 import { personLocale } from '../files/media-text'
 import { tr } from './i18n'
 import { seesChatFiles } from './chat-files-access'
-import { withheldFrom } from './shared-answers'
+import { answerRecord, withheldFrom } from './shared-answers'
 
 /** An upload not sent in a message within a day is removed (as a room's). */
 export const UNSENT_CHAT_FILE_MS = 24 * 3600_000
@@ -173,6 +173,14 @@ export class ChatFiles {
    * sent when its root is: the messages carry the root. */
   sent(f: Pick<ChatFileRow, 'id' | 'chat_id'> & { root_id?: string | null }): boolean {
     return !!this.ctx.db.query("SELECT 1 FROM messages m, json_each(m.attachments) j WHERE m.chat_id = ? AND json_valid(m.attachments) AND json_extract(j.value, '$.id') = ? LIMIT 1").get(f.chat_id, this.chainOf(f))
+  }
+
+  /** Does an answer of its chat that carries the file's chain have a k group (chat/shared-answers.ts: a connection's
+   * answer, hidden from people who join later and may not use that connection)? Such bytes keep that protection: they
+   * are never "everyone here already has them" (chat-file-tool.ts chatFileCopyOf). By the chain (a version's id is never
+   * carried). */
+  kCarried(f: Pick<ChatFileRow, 'id' | 'chat_id'> & { root_id?: string | null }): boolean {
+    return this.carriers(f).some((id) => (answerRecord(this.ctx.db, id)?.reads ?? []).some((g) => g.k))
   }
 
   /** Every message of its chat that carries the file's root is an answer hidden from `userId` (a question never is). */
