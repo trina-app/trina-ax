@@ -182,6 +182,7 @@ const KOREAN_ALLOWED: Record<string, { why: string; also?: RegExp }> = {
   'server/src/chat/app-map-labels.ts': { why: 'the labels the AI\'s map of the app names, generated from web/src/i18n (ko next to en/id/ja/es/zh; tests/unit/ai-app-map.test.ts checks it is current)' },
   'server/src/policy/refusal.ts': { why: 'the screen names a refusal points the person to, as the app shows them (ko next to en/id/ja/es)' },
   'server/src/chat/delete-files.ts': { why: 'the delete_files card (ko next to en/id/ja/es)' },
+  'server/src/devenv/bulk.ts': { why: 'the bulk card of a project folder (ko next to en/id/ja/es/zh)' },
   'server/src/tools/schedules.ts': { why: 'the scheduled task confirmation card (ko next to en/id/ja/es)' },
   'server/src/integrations/connections/text.ts': { why: 'external-service connection texts: the confirmation card, refusals, check results (ko next to en/id/ja/es)' },
   'server/src/integrations/slack/text.ts': { why: 'what the Slack connector says in Slack and its screens\' refusals (ko next to en/id/ja/es)' },

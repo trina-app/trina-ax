@@ -1311,7 +1311,7 @@ export const ja: Record<MessageKey, string> = {
   'files.name.dots': "名前の末尾にピリオドや空白は使えません。",
   'files.name.long': "名前が長すぎます。",
   'files.summary.saved': "{n, plural, one {#個のファイルを保存} other {#個のファイルを保存}}",
-  'files.summary.more': "ほかに{folders}個のフォルダーにファイルが{n}個あります。例：",
+  'files.summary.more': "ほかに{folders, plural, one {#個} other {#個}}のフォルダーにファイルが{n, plural, one {#個} other {#個}}あります。例：",
   'files.summary.moreFolder': "{path}: {n}個",
   'files.summary.conflicts': "{n, plural, one {#個はコピーとして保存} other {#個はコピーとして保存}}",
   'files.summary.rejected': "{n}個は許可されませんでした",

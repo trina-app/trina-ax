@@ -1310,7 +1310,7 @@ export const zh: Record<MessageKey, string> = {
   "files.name.dots": "名称不能以点或空格结尾。",
   "files.name.long": "名称太长。",
   "files.summary.saved": "{n, plural, one {已保存#个文件} other {已保存#个文件}}",
-  'files.summary.more': "另有 {n} 个文件，分布在 {folders} 个文件夹中，例如：",
+  'files.summary.more': "另有{n, plural, one {#个文件} other {#个文件}}，分布在{folders, plural, one {#个文件夹} other {#个文件夹}}中，例如：",
   'files.summary.moreFolder': "{path}：{n} 个",
   "files.summary.conflicts": "{n, plural, one {#个另存为副本} other {#个另存为副本}}",
   "files.summary.rejected": "{n}个不允许",
