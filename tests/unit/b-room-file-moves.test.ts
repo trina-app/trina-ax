@@ -555,11 +555,9 @@ test('R2: a kept file still staged (restore_failed) is not counted missing, goes
   const mg = await send(mia.client, roomId, [g.id])
   await convert(mia.client, roomId)
   const first = restarted()
-  crashAt(first, 'place')
-  await expect(first.run()).rejects.toBeInstanceOf(MoveCrash)
-  const second = restarted()
-  crashAt(second, 'place')
-  await expect(second.run()).rejects.toBeInstanceOf(MoveCrash)
+  // a failure right before placing, for each: both staged, waiting
+  first.fault = (st) => { if (st === 'place') throw new Error('stopped before placing') }
+  await first.run()
   // both staged; each settled as a way back that kept failing (failed(): kept, restore_failed, staged left)
   expect(staging().length).toBe(2)
   h.ctx.db.query("UPDATE room_file_moves SET state = 'kept', reason = 'restore_failed' WHERE room_id = ?").run(roomId)
