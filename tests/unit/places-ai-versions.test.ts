@@ -25,6 +25,7 @@ import { configureStorageGuard } from '../../server/src/system/storage'
 import { setAvailableMemoryForTests, setLimitsPlatformForTests, setPlanForTests } from '../../server/src/system/limits'
 import type { TurnExec } from '../../server/src/chat/turn'
 import { sharedSection } from '../../server/src/chat/prompt'
+import { EDIT_OFFICE_DESCRIPTION } from '../../server/src/tools/edit-office'
 
 setDefaultTimeout(90_000)
 const fake = (...ds: unknown[]) => ds.map((d) => '@fake ' + JSON.stringify(d)).join('\n')
@@ -434,6 +435,36 @@ describe('independent review (PR #252)', () => {
     // unlocked again: the same save goes
     await p.version(h1.id, { bytes: enc('L2') }, h1.sha256, files)
     expect(versionsOf(c.id, att.id)).toBe(2)
+  })
+
+  test('QA TC-6778: the result of an AI save says "everyone in this chat" only in a chat shared with people', async () => {
+    // a chat only bob sees (made private again: chat files stay) and one shared with people
+    const c = await h.api('bob').call(API.createChat, { body: {} })
+    await run('bob', c.id, fake({ say: 'hi' }))
+    const tmp = `${h.ctx.config.dataDir}/work/pl-${crypto.randomUUID()}`
+    await Bun.write(tmp, 'P1')
+    const att = await store().create('bob', c.id, 'private.txt', tmp, new Bun.CryptoHasher('sha256').update('P1').digest('hex'))
+    const files = new TurnFiles()
+    const mine = { rt: getChatRuntime(h.ctx), spec: { userId: 'bob', chatId: c.id, clientKind: 'web' }, files, shared: null, hiddenFromLater: false, livePrincipal: () => ({}) } as unknown as TurnExec
+    const p = chatPlaces(mine, files)
+    const h1 = p.head(att.id, 'private.txt')
+    const v = await p.version(h1.id, { bytes: enc('P2') }, h1.sha256, files)
+    expect(v.everyone).toBe(false)
+    expect(versionText(v, 'Changed')).toContain('The new version opens from the same file under its message.')
+    expect(versionText(v, 'Changed')).not.toMatch(/everyone/i)
+
+    const { chat, file } = await sent('people.txt', 'Q1')
+    const f2 = new TurnFiles()
+    const people = { rt: getChatRuntime(h.ctx), spec: { userId: 'bob', chatId: chat, clientKind: 'web' }, files: f2, shared: { kind: 'people' }, hiddenFromLater: false, livePrincipal: () => ({}) } as unknown as TurnExec
+    const q = chatPlaces(people, f2)
+    const h2 = q.head(file, 'people.txt')
+    const w = await q.version(h2.id, { bytes: enc('Q2') }, h2.sha256, f2)
+    expect(w.everyone).toBe(true)
+    expect(versionText(w, 'Changed')).toContain('Everyone in this chat opens the new version')
+  })
+
+  test('QA TC-6778: the edit_office description promises no audience', () => {
+    expect(EDIT_OFFICE_DESCRIPTION).not.toMatch(/everyone/i)
   })
 
   test('edit_files naming one chat file twice (by id and by name) edits it once', async () => {

@@ -53,7 +53,9 @@ export interface ChatPlaces {
 /** A chat file's newest version as a writer of a new one sees it */
 export interface ChatHead { id: string; name: string; path: string; abs: string; sha256: string; size: number; quarantined: boolean; version: number }
 /** A version the AI saved: the chain's id and path (unchanged), its number, and `beside` when someone saved after the read */
-export interface ChatVersionMade { id: string; name: string; path: string; version: number; size: number; sha256: string; beside: boolean; link: string }
+/** `everyone`: the chat is seen by other people now (shared with people); false in a chat only the person sees, whose
+ * texts then say nothing of "everyone" (QA TC-6778) */
+export interface ChatVersionMade { id: string; name: string; path: string; version: number; size: number; sha256: string; beside: boolean; link: string; everyone: boolean }
 
 /** The produce tools whose output may be chat:files/<name> (attached to the answer); only their results get the chat
  * file link (chatLinksInText): another tool's text (a web page, a mail, a Drive file) is never rewritten into one */
@@ -65,7 +67,7 @@ export function versionText(m: ChatVersionMade, how: string): string {
   const beside = m.beside
     ? ` Someone saved a version of it after you read it: yours is saved as the newest version, theirs stays as the one before it (nothing was lost). Tell the user, and read it again before a next change.`
     : ''
-  return `${how} ${m.path}: saved as version ${m.version} (${m.size} bytes). The earlier versions stay (read it with versions: true to list them, version: n to read one). Everyone in this chat opens the new version from the same file under its message. Link for the user: ${link}${beside}`
+  return `${how} ${m.path}: saved as version ${m.version} (${m.size} bytes). The earlier versions stay (read it with versions: true to list them, version: n to read one). ${m.everyone ? 'Everyone in this chat opens the new version' : 'The new version opens'} from the same file under its message. Link for the user: ${link}${beside}`
 }
 
 /** The made file as a chat file: its id, name and the link the app opens (/c/<chat>?file=<id>) */
@@ -225,11 +227,12 @@ const CHAT_FILE_LINK = /(?:\/files\/view|\/api\/files\/download)\?path=chat%3Afi
  * A produce tool's result in a chat turn: its file links name the team preview route (fileShareUrl of the path it
  * returned); a file it attached to this answer (`chat:files/<id>/<name>`) gets the chat-file link /c/<chat>?file=<id>
  * instead, the one the app opens and the API engine's link guard keeps (engine/api-links.ts), and one line says where
- * the file is. Text without such a link is returned unchanged.
+ * the file is (`everyone`: the chat is seen by other people now; else that line names no one). Text without such a link
+ * is returned unchanged.
  */
-export function chatLinksInText(text: string, chatId: string): string {
+export function chatLinksInText(text: string, chatId: string, everyone: boolean): string {
   let n = 0
   const out = text.replace(CHAT_FILE_LINK, (_all, id: string) => { n++; return chatFileLink(chatId, id) })
   if (!n) return text
-  return `${out}\nThe file is attached to your answer as a file of this chat (not a team folder): everyone in this chat opens it under your answer. Say that it is attached; link it only with the link above.`
+  return `${out}\nThe file is attached to your answer as a file of this chat (not a team folder): ${everyone ? 'everyone in this chat opens it' : 'it opens'} under your answer. Say that it is attached; link it only with the link above.`
 }

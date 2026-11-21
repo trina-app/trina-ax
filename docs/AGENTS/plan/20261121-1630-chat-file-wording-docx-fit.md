@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-21 16:30
 - Branch: `fix/chat-file-wording-docx-fit`
-- Status: in progress
+- Status: done
 - Where: server/src (chat transcript, place output texts), web/src (Word preview). Why: two QA findings on batch #254
 - Version impact: patch, two small fixes with no new feature
 
@@ -48,4 +48,8 @@ CSS `zoom` (Chromium, Safari, Firefox 126+). Electron is Chromium. On an older F
 
 ## Result
 
-(at the end)
+As planned. The transcript note, the result after an AI chat-file version and the attached-file line say "everyone in
+this chat" only in a chat shared with people (or a project chat, for the attached-file line and the transcript); the
+edit_office description names no audience. The Word preview zooms to the width it is shown in (side panel, file
+viewer), measured once per render, re-applied on resize, never above 1. Checked on a private QA copy at 1440 and 390
+(the side panel: a team .docx and a chat attachment; the page fits, no sideways scroll). PR: (linked in the PR).
