@@ -139,6 +139,10 @@ export interface PromptInput {
    * the demo leaves out (demoRule) */
   demo?: { company: string } | null
   now?: Date
+  /** the API engine (docs/decisions/20261120-api-engine-stable-prompt.md): the time line is left out here and goes, to
+   * the minute, in a <turn_context> in front of the message (apiTimeContext), so the instructions stay the same from
+   * chat to chat and the provider's prompt cache reuses them. Never set for Claude Code or Codex. */
+  timeInMessage?: boolean
 }
 
 /** A shared project chat as the instructions name it. */
@@ -636,6 +640,13 @@ export function timeLine(now: Date, teamZone: string, personZone?: string | null
   return `Now: ${localTimeText(now, z)} (${z}); ${now.toISOString()} UTC. ${teamZone} is the team time zone, read from the team settings.${device} Times in tool results are UTC unless the result names their time zone (those in ${z} are ready as they are): when you mention a time to the user, give it in ${z}.`
 }
 
+/** The API engine's time line, in front of the person's message (PromptInput.timeInMessage): the time to the minute,
+ * so two messages in the same minute read the same. */
+export function apiTimeContext(now: Date, teamZone: string, personZone?: string | null): string {
+  const minute = new Date(Math.floor(now.getTime() / 60_000) * 60_000)
+  return `<turn_context>\n${timeLine(minute, teamZone, personZone).replace(/:00\.000Z UTC\./, 'Z UTC.')}\n</turn_context>`
+}
+
 const WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
 const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December']
 
@@ -849,7 +860,7 @@ function personLines(files: FileService, i: PromptInput, subagent = false): stri
     i.confidential ? confidentialRule(i.confidential) : '',
     !subagent && i.devEnvDown ? devEnvDownRule(i.devEnvDown, i.locale) : '',
     !subagent && i.demo ? demoRule(i.demo.company) : '',
-    timeLine(now, i.timeZone, i.personTimeZone),
+    i.timeInMessage ? '' : timeLine(now, i.timeZone, i.personTimeZone),
     answerLanguageLine(i.locale, subagent),
     // last, after the time line (it changes every minute): the instructions before that line stay as they were
     subagent ? SUBAGENT_LANGUAGE_RULE : LANGUAGE_RULE,

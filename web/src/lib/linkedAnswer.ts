@@ -15,3 +15,7 @@ export function linkedStep(o: { id: string; ids: readonly string[]; hasOlder: bo
   if (o.ids.includes(o.id)) return 'show'
   return o.hasOlder && o.tries < LINKED_PAGES ? 'older' : 'none'
 }
+
+/** Closing a thread puts the focus back on the answer's thread line (QA TC-3888) without scrolling to it: a reader who
+ * scrolled the chat elsewhere while the thread was open stays where they are (the browser's focus() would scroll). */
+export const focusInPlace = (el: HTMLElement | null): void => el?.focus({ preventScroll: true })
