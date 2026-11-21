@@ -1,1 +1,0 @@
-- Opening a message from a link (an Activity row, a thread link, a search result, a quote's name) now only scrolls to it. The orange box and tinted background around it are gone.
