@@ -169,6 +169,8 @@ export class ChatFiles {
     let stored = sha256
     let kind = attachmentKind(clean)
     if (kind === 'image') {
+      // a picture is read whole to be cleaned: at most an upload's size (a 1 GB ".png" never sits in memory)
+      if (size > SMALL_UPLOAD_MAX) throw new ToolError(`this picture is ${(size / 1024 ** 2).toFixed(0)} MB; a picture attached to an answer may be at most ${SMALL_UPLOAD_MAX / 1024 ** 2} MB. Make it smaller`, 'too_large')
       // a picture: its place and camera cut out, as an upload's (a picture that cannot be cleaned is not attached)
       const pic = cleanPicture(clean, new Uint8Array(fs.readFileSync(src)), this.ctx.files.quarantine.hasHash(sha256))
       if (!pic) throw new ToolError('this picture could not be read, so it was not attached', 'unreadable')

@@ -21,7 +21,8 @@ import { newConsent, saveTeamSetting, teamSetting } from '../../server/src/deven
 import { answerWithFiles, labelledTranscript } from '../../server/src/chat/shared'
 import { ChatStore } from '../../server/src/chat/store'
 import { saveWorkFileTool } from '../../server/src/chat/work-file-tool'
-import type { TurnExec } from '../../server/src/chat/turn'
+import { TurnExec } from '../../server/src/chat/turn'
+import { chatFilesOf } from '../../server/src/chat/chat-files'
 import { namedPaths } from '../../server/src/rooms/ai-tools'
 
 setDefaultTimeout(90_000)
@@ -116,6 +117,19 @@ describe('save_work_file in a chat shared with people', () => {
     expect(transcript.map((m) => m.content).join('\n')).toContain(`file_id=${att.id}`)
   })
 
+  test('a real attach holds the k-group guard for its whole copy and lets it go after (beginAttach)', async () => {
+    const proto = TurnExec.prototype as unknown as { beginAttach: () => () => void }
+    const orig = proto.beginAttach
+    const seen: string[] = []
+    proto.beginAttach = function (this: unknown) { const rel = orig.call(this); seen.push('begin'); return () => { seen.push('release'); rel() } }
+    try {
+      const { chat } = await sharedChatWith({ 'out/b.mp4': new Uint8Array(2048) })
+      const r = await run('alice', chat, fake({ tool: 'save_work_file', args: { path: '$TRINA_WORK/out/b.mp4' }, sayResult: true }))
+      expect(r.content).toContain('Attached')
+      expect(seen).toEqual(['begin', 'release'])
+    } finally { proto.beginAttach = orig }
+  })
+
   test('save_as is refused there, before anything is copied', async () => {
     const { chat } = await sharedChatWith({ 'a.txt': 'A' })
     const r = await run('alice', chat, fake({ tool: 'save_work_file', args: { path: '$TRINA_WORK/a.txt', save_as: 'shared/' }, sayResult: true }))
@@ -138,6 +152,27 @@ describe('the rules around it', () => {
     const t = saveWorkFileTool(exec, () => ({ real: '/nowhere', path: '/nowhere' }), 'chat')
     const r = t.refuse!({ path: '$TRINA_WORK/a.mp4' })
     expect(r?.summary).toContain('hidden from later people')
+  })
+
+  test('while a file is being attached, a connection answer hidden from later people cannot join the answer (no race)', () => {
+    // noteSharedReads with kept (a k group) is refused while an attach is under way (beginAttach) and after it landed
+    const note = (TurnExec.prototype as unknown as { noteSharedReads: (...a: unknown[]) => boolean }).noteSharedReads
+    const begin = (TurnExec.prototype as unknown as { beginAttach: () => () => void }).beginAttach
+    const self = { shared: { kind: 'people' }, attachedFiles: 0, attaching: 0, sharedReads: new Map() } as Record<string, unknown>
+    const release = begin.call(self)
+    expect(note.call(self, [{ type: 'url', url: 'https://example.com' }], ['alice', 'erin'], false, true)).toBe(false)
+    expect((self.sharedReads as Map<string, unknown>).size).toBe(0)
+    release(); release()
+    expect(self.attaching).toBe(0)
+  })
+
+  test('a picture over 50 MB is not read whole to be cleaned: refused', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'wfa-pic-'))
+    const src = path.join(dir, 'big.png')
+    fs.writeFileSync(src, makePng(4, 4)); fs.truncateSync(src, 51 * 1024 * 1024)
+    const chat = await h.api('alice').call(API.createChat, { body: {} })
+    await expect(chatFilesOf(h.ctx).createFromAi('alice', chat.id, 'big.png', src, 'x'.repeat(64))).rejects.toThrow('at most 50 MB')
+    fs.rmSync(dir, { recursive: true, force: true })
   })
 
   test('its work-folder path is no team path: no read card for it in a shared chat (namedPaths)', () => {

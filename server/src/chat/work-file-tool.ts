@@ -158,6 +158,10 @@ export function saveWorkFileTool(exec: TurnExec, where: () => WorkFolder | null,
     const space = spaceOf(rt.ctx, { userId: me, chatId: spec.chatId, project: null, shared: d.shared })
     if (!space || !noteSharedReads(rt.ctx, space)) return { ...text('Not attached: the people of this chat changed, or the dev environment is off. Run the command again.', true), summary: `${SAVE_WORK_FILE_TOOL} -> refused: not recorded` }
     addSources(rt.db, spec.chatId, [{ type: 'chat', id: spec.chatId }])
+    // from here until the file is on the answer, no connection's answer hidden from later people joins it (a call
+    // running beside this one is refused), and one recorded before is seen by the check right after
+    const release = exec.beginAttach()
+    if (exec.hiddenFromLater) { release(); return { ...text('Not attached: this answer now holds a connected service\'s answer that people added later may not see.', true), summary: `${SAVE_WORK_FILE_TOOL} -> refused: answer hidden from later people` } }
     const base = path.join(rt.ctx.engineConfig.dataDir, 'work')
     fs.mkdirSync(base, { recursive: true, mode: 0o700 })
     const work = fs.mkdtempSync(path.join(base, 'work-file-'))
@@ -166,7 +170,8 @@ export function saveWorkFileTool(exec: TurnExec, where: () => WorkFolder | null,
       const left = Math.min(CHAT_FILE_AI_MAX, Math.max(0, max.bytes - files.bytesWritten))
       if (files.filesWritten.size >= max.files) throw new ToolError(`this answer saved its most files already (${max.files}); attach it in the next answer`, 'too_many')
       const tmp = path.join(work, 'file')
-      const got = await copyWorkFile(first, checked.rel, tmp, left, exec.abort.signal).catch((e) => {
+      // the team disk near full: refused before the copy is made (createFromAi checks again)
+      const got = await copyWorkFile(first, checked.rel, tmp, left, exec.abort.signal, { beforeCopy: assertStorageRoomForAI }).catch((e) => {
         if (e instanceof ToolError && e.code === 'too_large') throw new ToolError(`${shown} is larger than what can be attached now (at most ${(left / 1024 ** 2).toFixed(0)} MB in this answer; a file attached to an answer is at most ${CHAT_FILE_AI_MAX / 1024 ** 3} GB). Make it smaller (a lower bitrate or a shorter cut)`, 'too_large')
         throw e
       })
@@ -185,7 +190,7 @@ export function saveWorkFileTool(exec: TurnExec, where: () => WorkFolder | null,
       exec.abort.signal.throwIfAborted()
       if (e instanceof ToolError || e instanceof Denied) return { ...text(`Not attached: ${e.message}`, true), summary: `${SAVE_WORK_FILE_TOOL} -> refused: ${e instanceof Denied ? 'access denied' : e.code}` }
       throw e
-    } finally { fs.rmSync(work, { recursive: true, force: true }) }
+    } finally { release(); fs.rmSync(work, { recursive: true, force: true }) }
   }
 
   async function save(files: TurnFiles, a: Args, plannedTarget: string | undefined, args: unknown) {

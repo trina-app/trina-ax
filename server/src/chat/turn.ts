@@ -2303,14 +2303,24 @@ export class TurnExec {
     return out
   }
 
-  /** A chat file the AI attached to this answer (chat/work-file-tool.ts): into the answer row's attachments at once (a
-   * chat file counts as sent only when a message names it: chat/chat-files.ts sent(); the unsent sweep takes one that is
-   * not), then live to the person of the turn and to everyone who sees the chat, each as they may see it. */
   /** files the AI attached to this answer (attachToAnswer) */
   private attachedFiles = 0
+  /** attaches under way (beginAttach): the copy and the preview take a while, and a connection call running beside them
+   * must not make the answer a hidden one before the file lands (noteSharedReads refuses a k group meanwhile) */
+  private attaching = 0
   /** Does this answer hold a k group (a connection's answer hidden from people added later: chat/shared-answers.ts)?
    * Then no file is attached to it: a hidden answer must not carry a file everyone in the chat can open by its id. */
   get hiddenFromLater(): boolean { return [...this.sharedReads.values()].some((x) => x.k) }
+  /** An attach starts (before its copy): from now on no k group joins this answer until the returned release. The
+   * caller checks hiddenFromLater after this, so a k group recorded before it is seen too. */
+  beginAttach(): () => void {
+    this.attaching++
+    let done = false
+    return () => { if (!done) { done = true; this.attaching-- } }
+  }
+  /** A chat file the AI attached to this answer (chat/work-file-tool.ts): into the answer row's attachments at once (a
+   * chat file counts as sent only when a message names it: chat/chat-files.ts sent(); the unsent sweep takes one that is
+   * not), then live to the person of the turn and to everyone who sees the chat, each as they may see it. */
   attachToAnswer(att: Attachment) {
     const db = this.rt.db
     this.attachedFiles++
@@ -3591,9 +3601,9 @@ export class TurnExec {
    * fails closed). */
   private noteSharedReads(sources: readonly ReadSource[], audience: readonly string[], yes = false, kept = false): boolean {
     if (!this.shared || !sources.length) return true
-    // an answer that already attached a file for everyone here (attachToAnswer) never becomes one hidden from people
-    // added later (a k group): that connection's answer is not read into it (fails closed, the call is refused)
-    if (kept && this.attachedFiles > 0) return false
+    // an answer that already attached a file for everyone here (attachToAnswer), or is attaching one now (beginAttach),
+    // never becomes one hidden from people added later (a k group): that connection's answer is not read into it (fails closed, the call is refused)
+    if (kept && this.attachedFiles + this.attaching > 0) return false
     const c = [...new Set(audience)].sort()
     const k = `${yes ? 'y' : ''}${kept ? 'k' : ''}|${c.join(',')}`
     let g = this.sharedReads.get(k)
