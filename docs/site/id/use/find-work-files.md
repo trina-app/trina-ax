@@ -84,7 +84,8 @@ datang satu per satu, satu untuk setiap folder.
 
 ![macOS bertanya: “Trina AX” would like to access files in your Documents folder. Looks for work files here. File contents stay on this Mac until you choose to add them. Don't Allow, Allow](../../images/find-work-files/macos-question.webp "macOS bertanya untuk setiap folder")
 
-macOS mengingat jawaban Anda, jadi hanya bertanya sekali untuk setiap folder.
+macOS mengingat jawaban Anda, jadi hanya bertanya sekali untuk setiap folder, sama seperti iPhone bertanya sekali sebelum
+sebuah aplikasi boleh melihat foto Anda.
 
 ## Memilih file
 

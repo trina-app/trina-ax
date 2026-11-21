@@ -5,6 +5,25 @@ description: Ubah cara kerja tim Anda menjadi instruksi SKILL.md yang bisa dipak
 
 Skill adalah prosedur yang bisa dipakai ulang dalam sebuah file `SKILL.md`. Skill memberi tahu AI cara tim Anda mengerjakan suatu tugas. Skill tidak melatih model dan tidak pernah memberi akses tambahan.
 
+Anggap saja seperti kartu resep yang disimpan di folder bersama: "cara kami menulis laporan mingguan", "cara kami menjawab
+pertanyaan harga". Siapa pun yang AI-nya bisa membaca folder itu mendapat resep yang sama, jadi jawaban semua orang
+mengikuti langkah yang sama.
+
+## Mengusulkan skill ke tim
+
+Anggota tidak bisa langsung menambahkan skill tim, tetapi bisa mengusulkannya. Pengelola skill yang memutuskan.
+
+1. Di bawah jawaban AI yang Anda sukai, arahkan penunjuk ke jawaban itu dan tekan tombol penanda **Usulkan sebagai skill**
+   (namanya muncul saat Anda mengarahkan penunjuk). Untuk file di folder Anda sendiri, pilih **⋯** › **Usulkan sebagai
+   skill** di barisnya di **File**.
+2. Jendela **Usulkan sebagai skill tim** terbuka. Periksa **Nama skill** (menjadi `/nama` di chat), **Deskripsi (satu
+   kalimat)**, dan **Langkah**, lalu pilih **Folder** tempat skill itu disimpan.
+3. Tekan **Usulkan**.
+
+Muncul pesan "Skill diusulkan. Anda akan diberi tahu setelah ditinjau." Usulan itu menunggu di **Skill tim › Usulan
+saya**, dan pengelola skill melihatnya di bawah **Perlu ditinjau**. Setelah mereka mendaftarkannya, AI semua orang bisa
+memakainya.
+
 ## Memakai skill
 
 - Di chat, ketik `/` lalu pilih skill, atau tulis `/nama-skill` di pesan Anda.
@@ -70,7 +89,8 @@ Proyek tim di `projects/<project>/` bisa punya skill sendiri di folder `skills/`
 
 :::steps
 #### Buat foldernya
-Buat `skills/<name>/` di File. Namanya memakai huruf kecil (dalam bahasa apa pun), angka, dan tanda hubung tunggal, tanpa spasi, titik, atau huruf kapital, dan harus sama dengan nama folder.
+Hanya pengelola skill. Di **File**, buka **Skill tim** lalu tekan **Folder baru** di bilah alat, ketik nama skill, lalu
+tekan **Buat**: ini membuat `skills/<name>/`. Namanya memakai huruf kecil (dalam bahasa apa pun), angka, dan tanda hubung tunggal, tanpa spasi, titik, atau huruf kapital, dan harus sama dengan nama folder.
 
 #### Tulis SKILL.md
 Mulai dengan header, lalu prosedurnya.
