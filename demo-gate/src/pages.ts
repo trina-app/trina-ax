@@ -11,13 +11,14 @@ interface Words {
   limitH: string; limitP: string; checkH: string; checkP: string; errorH: string; errorP: string
 }
 
-/** Screen text (the only place with Korean in this service). */
+/** Screen text (the only place with Korean in this service). `note`'s "about 8 questions" is the demo limit (300k)
+ * over shared/src/api/demo.ts DEMO_QUESTION_TOKENS (35k): change both together. Questions, never tokens. */
 export const WORDS: Record<Locale, Words> = {
   en: {
     title: 'Try it yourself',
     landingH: 'Now try it yourself',
     landingP: "You get your own copy of the demo team. You're Mina, the new hire: ask the AI anything, open the files and rooms, and look around. Nothing you do here reaches real people.",
-    note: 'Your copy is kept for 24 hours.',
+    note: 'You can ask Trina about 8 questions. Your copy stays for 24 hours.',
     start: 'Start',
     busyH: 'The live demo is busy right now',
     busyP: 'Every demo copy is in use. Watch the guided demo, or see the plans.',
@@ -37,7 +38,7 @@ export const WORDS: Record<Locale, Words> = {
     title: '직접 써 보기',
     landingH: '이제 직접 써 보세요',
     landingP: '데모 팀을 나만의 사본으로 드려요. 새로 들어온 미나가 되어 AI에게 무엇이든 물어보고, 파일과 대화방을 둘러보세요. 여기서 한 일은 실제 사람에게 가지 않아요.',
-    note: '사본은 24시간 동안 남아 있어요.',
+    note: '트리나에게 8번 정도 물어볼 수 있어요. 사본은 24시간 동안 남아 있어요.',
     start: '시작하기',
     busyH: '지금은 체험 데모가 꽉 찼어요',
     busyP: '모든 데모 사본을 누군가 쓰고 있어요. 안내 데모를 보거나 요금제를 살펴보세요.',
@@ -112,7 +113,7 @@ ${turnstile ? `<script src="${TURNSTILE_SCRIPT}" async defer></script>` : ''}
   main { width:100%; max-width:440px; background:var(--card); border:1px solid var(--line); border-radius:16px; padding:32px 28px; }
   h1 { font-size:24px; line-height:1.3; margin:0 0 12px; letter-spacing:-.01em; }
   p { margin:0 0 20px; color:var(--dim); }
-  .note { font-size:14px; margin:16px 0 0; }
+  .note { font-size:14px; margin:16px 0 0; text-wrap:balance; word-break:keep-all; }
   form { display:flex; flex-direction:column; gap:16px; align-items:stretch; }
   .row { display:flex; gap:12px; flex-wrap:wrap; }
   .primary, .secondary { display:inline-flex; justify-content:center; align-items:center; min-height:44px; padding:0 20px; border-radius:10px;

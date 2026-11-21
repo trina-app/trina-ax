@@ -4307,6 +4307,7 @@ export const en: Record<MessageKey, string> = {
   "demo.free.chip.reply": "Check Chris's reply",
   "demo.free.chip.assets": "What's in our Brand assets folder?",
   "demo.free.meter": "About {pct}% of your demo AI left",
+  "demo.free.left": "{n, plural, one {About # question left} other {About # questions left}}",
   "demo.free.limit.title": "You've used this demo's AI",
   "demo.free.limit.body": "Everything you made stays here to look around.",
   "demo.free.limit.start": "Start free",

@@ -9,7 +9,7 @@ import { translate, useLocaleStore } from '../../src/i18n'
 import { DemoBar, useDemoInfo } from '../../src/components/demo/Demo'
 import { DemoLimitDialog, DemoLimitNotice, FreeRoamStart } from '../../src/components/demo/FreeRoam'
 import { api, API, ApiError, errorText } from '../../src/lib/api'
-import { demoAnswerKey, demoMeter, demoReason, FREE_ROAM_HIDDEN_PAGES, freeRoamSuggestions, mayBeDemoServer, resumeFreeRoam } from '../../src/lib/freeRoam'
+import { demoAnswerKey, demoMeter, demoQuestionsLeft, demoReason, FREE_ROAM_HIDDEN_PAGES, freeRoamSuggestions, mayBeDemoServer, resumeFreeRoam } from '../../src/lib/freeRoam'
 import { micState } from '../../src/lib/voice'
 import { settingsTabs } from '../../src/pages/settingsTabs'
 import { demoAnswerEnded, freeRoamNow, useDemo } from '../../src/store/demo'
@@ -116,6 +116,27 @@ describe('the meter', () => {
     // nothing known: nothing said
     expect(demoMeter(undefined, undefined)).toEqual({ out: false, low: false, leftPct: 100 })
   })
+  test('questions left: floor(remaining / 35k) until the meter takes over at 80 %; nothing known, nothing said', () => {
+    expect(demoQuestionsLeft(0, 300_000)).toBe(8)
+    expect(demoQuestionsLeft(1_000, 300_000)).toBe(8)
+    expect(demoQuestionsLeft(90_000, 300_000)).toBe(6)
+    expect(demoQuestionsLeft(235_000, 300_000)).toBe(1)
+    expect(demoQuestionsLeft(239_999, 300_000)).toBe(1)
+    expect(demoQuestionsLeft(240_000, 300_000)).toBeNull()
+    expect(demoQuestionsLeft(300_000, 300_000)).toBeNull()
+    expect(demoQuestionsLeft(-5, 300_000)).toBe(8)
+    // a small limit: never below 0
+    expect(demoQuestionsLeft(0, 20_000)).toBe(0)
+    expect(demoQuestionsLeft(undefined, 300_000)).toBeNull()
+    expect(demoQuestionsLeft(0, undefined)).toBeNull()
+    expect(demoQuestionsLeft(0, 0)).toBeNull()
+  })
+  test('the words: questions, never tokens; one and many; ko', () => {
+    expect(en('demo.free.left', { n: 8 })).toBe('About 8 questions left')
+    expect(en('demo.free.left', { n: 1 })).toBe('About 1 question left')
+    expect(translate('ko', 'demo.free.left', { n: 8 })).toBe('질문 8번 정도 남았어요')
+    for (const l of ['en', 'ko', 'id', 'ja', 'es', 'zh'] as const) expect(translate(l, 'demo.free.left', { n: 8 })).not.toMatch(/token|토큰|トークン|令牌/i)
+  })
 })
 
 describe('the suggestions', () => {
@@ -139,11 +160,22 @@ describe('the bar', () => {
     const m = await mount(<MemoryRouter><DemoBar /></MemoryRouter>)
     try {
       await m.until(() => m.find('free-roam-bar'), 'the bar')
-      expect(m.get('free-roam-who').textContent).toBe("You're Mina at Steepling, a made-up company. Try anything.")
+      expect(m.get('free-roam-who').textContent).toBe("You're Mina at Steepling, a made-up company. Try anything. About 8 questions left")
+      expect(m.get('free-roam-left').textContent).toBe('About 8 questions left')
       expect(m.get('free-roam-chips').querySelectorAll('button').length).toBe(3)
       expect(m.find('free-roam-meter')).toBeNull()
       expect(m.find('demo-switch')).toBeNull()
       expect(m.find('demo-bar')).toBeNull()
+    } finally { await m.unmount() }
+  })
+
+  test('the questions left follow what is used', async () => {
+    demoAnswer = { ...INFO, used: 90_000 }
+    const m = await mount(<MemoryRouter><DemoBar /></MemoryRouter>)
+    try {
+      await m.until(() => m.find('free-roam-left'), 'the count')
+      expect(m.get('free-roam-left').textContent).toBe('About 6 questions left')
+      expect(m.find('free-roam-meter')).toBeNull()
     } finally { await m.unmount() }
   })
 
@@ -154,6 +186,8 @@ describe('the bar', () => {
       await m.until(() => m.find('free-roam-meter'), 'the meter')
       expect(m.get('free-roam-meter').textContent).toBe('About 20% of your demo AI left')
       expect(m.get('free-roam-meter').textContent).not.toMatch(/token/i)
+      // one count at a time: the questions left give way to the meter
+      expect(m.find('free-roam-left')).toBeNull()
     } finally { await m.unmount() }
     useDemo.setState({ loaded: false, info: null, out: false })
     demoAnswer = { ...INFO, used: 300_000 }

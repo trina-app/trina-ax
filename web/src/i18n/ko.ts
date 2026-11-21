@@ -4305,6 +4305,7 @@ export const ko = {
   "demo.free.chip.reply": "크리스 답장 확인해 줘",
   "demo.free.chip.assets": "브랜드 자료 폴더에 뭐가 있어?",
   "demo.free.meter": "데모 AI가 {pct}% 정도 남았어요",
+  "demo.free.left": "질문 {n}번 정도 남았어요",
   "demo.free.limit.title": "이 데모의 AI를 다 썼어요",
   "demo.free.limit.body": "만든 건 모두 여기 그대로 있어요. 마음껏 둘러보세요.",
   "demo.free.limit.start": "무료로 시작하기",

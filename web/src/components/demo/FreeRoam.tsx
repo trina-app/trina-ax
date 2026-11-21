@@ -3,7 +3,8 @@
 // rules). Lean on purpose: one thin bar, one dialog at the limit, one line under the AI's message boxes.
 //
 // - FreeRoamBar: in place of the demo bar at the top (in the page's flow, so it never covers a message box): "You're
-//   Mina at Steepling, a made-up company. Try anything." and 2-3 suggestions; a tap SENDS one as a new chat, as the
+//   Mina at Steepling, a made-up company. Try anything." with "About 8 questions left" (lib/freeRoam.ts
+//   demoQuestionsLeft) and 2-3 suggestions; a tap SENDS one as a new chat, as the
 //   scripted demo's questions on Home do (DemoQuestions), since the bar is on every screen and a box to fill may not be.
 //   From 80 % of the limit one quiet line "About 20% of your demo AI left"; at the limit the suggestions go.
 // - DemoLimitDialog: "You've used this demo's AI", the app's own Modal (a bottom sheet on phones), Start free / Look around.
@@ -17,7 +18,7 @@ import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import type { DemoInfo } from '@mycel/shared/api'
 import { useT, type MessageKey } from '../../i18n'
-import { demoMeter, freeRoamSuggestions, isFreeRoam, resumeFreeRoam } from '../../lib/freeRoam'
+import { demoMeter, demoQuestionsLeft, freeRoamSuggestions, isFreeRoam, resumeFreeRoam } from '../../lib/freeRoam'
 import { useChats } from '../../store/chats'
 import { useDemo } from '../../store/demo'
 import { useMe } from '../../store/session'
@@ -35,6 +36,7 @@ export function FreeRoamBar({ info }: { info: DemoInfo }) {
   const out = useDemo((s) => s.out)
   const [sending, setSending] = useState<string | null>(null)
   const meter = demoMeter(info.used, info.cap)
+  const left = demoQuestionsLeft(info.used, info.cap)
   const person = personOf(info)
   const chips = out || meter.out ? [] : freeRoamSuggestions(info, t)
   const ask = async (text: string) => {
@@ -53,6 +55,10 @@ export function FreeRoamBar({ info }: { info: DemoInfo }) {
     <div role="note" className="flex flex-wrap items-center gap-x-3 gap-y-1 bg-accent-soft px-3 py-1 text-xs text-accent-text" data-testid="free-roam-bar">
       <span className="min-w-0 font-medium max-md:basis-full" data-testid="free-roam-who">
         {t('demo.free.bar', { name: person?.name ?? '', company: info.company })}
+        {left !== null && !out && (
+          // how much they can still ask, in questions (never tokens): for visitors who skipped the gate's landing too
+          <>{' '}<span className="ml-0.5 whitespace-nowrap font-normal text-muted" data-testid="free-roam-left">{t('demo.free.left', { n: left })}</span></>
+        )}
       </span>
       {chips.length > 0 && (
         // the chips wrap, on phones too: at most three (lib/freeRoam.ts SUGGESTIONS_MAX), so two short rows at most. A row

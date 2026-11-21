@@ -4249,6 +4249,7 @@ export const zh: Record<MessageKey, string> = {
   "demo.free.chip.reply": "看看克里斯的回复",
   "demo.free.chip.assets": "我们的品牌素材文件夹里有什么？",
   "demo.free.meter": "演示AI还剩约{pct}%",
+  "demo.free.left": "还能问大约{n, plural, one {#个} other {#个}}问题",
   "demo.free.limit.title": "你已用完此演示的AI",
   "demo.free.limit.body": "你做的所有内容都还在这里，可以随便看看。",
   "demo.free.limit.start": "免费开始",
