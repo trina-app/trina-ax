@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-21 02:48
 - Branch: `fix/jump-no-highlight`
-- Status: in progress
+- Status: done
 - Where: web. Why: a web-only look change (see docs/REPOSITORY-RULES.md)
 - Version impact: patch, a small visual fix with no new feature and no API change
 
@@ -43,3 +43,6 @@ chat threads.
 
 ## Result
 
+Built as planned in https://github.com/trina-app/trina-ax/pull/196. AI chat answers keep `data-focused` and room
+messages `data-highlight` as short-lived marks with no look; a quote's jump now uses the same mark instead of its
+own tint. AssistantMessage is not touched.
