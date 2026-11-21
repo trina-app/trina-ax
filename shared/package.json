@@ -33,6 +33,7 @@
     "./skill-roots": "./src/skill-roots.ts",
     "./release-manifest": "./src/release-manifest.ts",
     "./sentry-report": "./src/sentry-report.ts",
-    "./speech-pieces": "./src/speech-pieces.ts"
+    "./speech-pieces": "./src/speech-pieces.ts",
+    "./places": "./src/places.ts"
   }
 }
