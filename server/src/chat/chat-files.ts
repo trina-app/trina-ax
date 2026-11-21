@@ -19,7 +19,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { createHash } from 'node:crypto'
-import { SMALL_UPLOAD_MAX, type Attachment } from '@mycel/shared/api'
+import { CHAT_FILE_AI_MAX, SMALL_UPLOAD_MAX, type Attachment } from '@mycel/shared/api'
 import { PRODUCT } from '@mycel/shared'
 import type { AppContext } from '../context'
 import { newId, nowIso } from '../db'
@@ -34,7 +34,8 @@ import { mimeOf } from '../team-files/service'
 import { attachmentKind } from '../uploads/attachments'
 import { displaySize, makeThumbnail } from '../uploads/image'
 import { cleanImage, imageFormat, PHOTO, plainPicture } from '../uploads/metadata'
-import { assertStorageRoom } from '../system/storage'
+import { assertStorageRoom, assertStorageRoomForAI } from '../system/storage'
+import { ToolError } from '../policy/errors'
 import { fileError } from '../team-files/errors'
 import { personLocale } from '../files/media-text'
 import { tr } from './i18n'
@@ -149,6 +150,41 @@ export class ChatFiles {
     audit(this.ctx.db, { actor: userId, action: 'chat.file_add', target: chatId, detail: { size: row.size, kind: row.kind } })
     // the sender checks the upload arrived whole against what was received, not against the cleaned picture (QA TC-2023)
     return { ...chatFileAttachment(row), ...(row.size !== received ? { receivedSize: received } : {}) }
+  }
+
+  /**
+   * The AI's file for its answer in a chat shared with people (chat/work-file-tool.ts, save_work_file): `src` is a
+   * server-only temp file it made (moved here, never read whole except a picture, whose metadata is cut out first as an
+   * upload's), at most CHAT_FILE_AI_MAX, with room in the team's storage. `userId` is the person whose turn it is (the
+   * file is theirs as an upload would be). The caller puts it into the answer's attachments at once (sent()). Audited.
+   * ToolError with plain words for the AI.
+   */
+  async createFromAi(userId: string, chatId: string, name: string, src: string, sha256: string): Promise<Attachment> {
+    const clean = name.normalize('NFC').replace(/[\u0000-\u001f]/g, '').trim()
+    const bad = !clean || clean.includes('/') || clean.includes('\\') ? 'not a file name' : badSegment(clean)
+    if (bad) throw new ToolError(`'${clean}' cannot be a file name here: ${bad}`, 'bad_name')
+    const size = fs.statSync(src).size
+    if (size > CHAT_FILE_AI_MAX) throw new ToolError(`the file is ${(size / 1024 ** 2).toFixed(0)} MB; a file attached to an answer may be at most ${CHAT_FILE_AI_MAX / 1024 ** 3} GB. Make it smaller (a lower bitrate or a shorter cut)`, 'too_large')
+    assertStorageRoomForAI(size)
+    let stored = sha256
+    let kind = attachmentKind(clean)
+    if (kind === 'image') {
+      // a picture: its place and camera cut out, as an upload's (a picture that cannot be cleaned is not attached)
+      const pic = cleanPicture(clean, new Uint8Array(fs.readFileSync(src)), this.ctx.files.quarantine.hasHash(sha256))
+      if (!pic) throw new ToolError('this picture could not be read, so it was not attached', 'unreadable')
+      kind = pic.kind
+      if (pic.changed) { fs.writeFileSync(src, pic.bytes); stored = createHash('sha256').update(pic.bytes).digest('hex') }
+    }
+    const id = newId()
+    fs.mkdirSync(this.dir(chatId), { recursive: true, mode: 0o700 })
+    const dst = this.abs({ chat_id: chatId, id })
+    try { fs.renameSync(src, dst) } catch { fs.copyFileSync(src, dst); fs.rmSync(src, { force: true }) }
+    fs.chmodSync(dst, 0o600)
+    const t = new Date()
+    fs.utimesSync(dst, t, t)
+    const row = await this.record(userId, chatId, id, clean, dst, stored, null, kind)
+    audit(this.ctx.db, { actor: userId, action: 'chat.file_add', target: chatId, detail: { size: row.size, kind: row.kind, by: 'ai' } })
+    return { ...chatFileAttachment(row), origin: 'ai' }
   }
 
   /** The row of a file just put at `dst` (its preview made first). */

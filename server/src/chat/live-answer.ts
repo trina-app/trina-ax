@@ -20,6 +20,7 @@
 // (TurnExec.noteSharedReads), after every access change (admin/folders.ts afterAccessChange, ChatRuntime.stopUserTurnsIn)
 // and when an account is turned off (stopUserTurns); only among the people who saw the chat when its first piece went
 // out. A check that fails gives nobody (fails closed).
+import type { Attachment } from '@mycel/shared/api'
 import type { MessageStatus, Step } from '@mycel/shared/api'
 import { personLocale } from '../files/media-text'
 import { formChars, type Redactor } from '../integrations/connections/redact'
@@ -142,6 +143,16 @@ export class LiveAnswer {
     }
     const ids = this.viewers().map((v) => v.id)
     if (ids.length) this.rt.hub.publishOpen(ids, { type: 'message.delta', data })
+  }
+
+  /** The answer's attached files changed (the AI attached one): each viewer gets them as they may see them now. */
+  attachments(stored: string) {
+    for (const v of this.viewers()) {
+      if (!this.rt.hub.hasOpenWindow(v.id)) continue
+      let atts: Attachment[]
+      try { atts = this.rt.store.attachmentsOf({ chat_id: this.chatId, attachments: stored, author_id: null }, v.id) } catch { continue }
+      this.rt.hub.publishOpen([v.id], { type: 'message.attachments', data: { chatId: this.chatId, messageId: this.messageId, attachments: atts } })
+    }
   }
 
   /** A step started, changed or ended, as each viewer sees it in the finished answer (viewers who see it alike share one

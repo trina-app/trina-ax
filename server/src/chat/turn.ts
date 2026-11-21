@@ -2303,6 +2303,32 @@ export class TurnExec {
     return out
   }
 
+  /** A chat file the AI attached to this answer (chat/work-file-tool.ts): into the answer row's attachments at once (a
+   * chat file counts as sent only when a message names it: chat/chat-files.ts sent(); the unsent sweep takes one that is
+   * not), then live to the person of the turn and to everyone who sees the chat, each as they may see it. */
+  /** files the AI attached to this answer (attachToAnswer) */
+  private attachedFiles = 0
+  /** Does this answer hold a k group (a connection's answer hidden from people added later: chat/shared-answers.ts)?
+   * Then no file is attached to it: a hidden answer must not carry a file everyone in the chat can open by its id. */
+  get hiddenFromLater(): boolean { return [...this.sharedReads.values()].some((x) => x.k) }
+  attachToAnswer(att: Attachment) {
+    const db = this.rt.db
+    this.attachedFiles++
+    const tx = db.transaction(() => {
+      const row = db.query('SELECT attachments FROM messages WHERE id = ?').get(this.spec.assistantId) as { attachments: string } | null
+      if (!row) throw new Error('the answer is gone')
+      let list: Attachment[] = []
+      try { const v = JSON.parse(row.attachments); if (Array.isArray(v)) list = v } catch {}
+      const json = JSON.stringify([...list, att])
+      db.query('UPDATE messages SET attachments = ? WHERE id = ?').run(json, this.spec.assistantId)
+      return json
+    })
+    const stored = tx()
+    const mine = this.rt.store.attachmentsOf({ chat_id: this.spec.chatId, attachments: stored, author_id: null }, this.spec.userId)
+    this.rt.hub.publish(this.spec.userId, { type: 'message.attachments', data: { chatId: this.spec.chatId, messageId: this.spec.assistantId, attachments: mine } })
+    this.live?.attachments(stored)
+  }
+
   private publishStep(stored: StoredStep) {
     // the person whose turn it is sees the line they caused, paths included (a shared chat stores it aside)
     const step: Step = stored.sv ? { ...publicStep(stored), label: stored.sv.label } : { ...stored }
@@ -3565,6 +3591,9 @@ export class TurnExec {
    * fails closed). */
   private noteSharedReads(sources: readonly ReadSource[], audience: readonly string[], yes = false, kept = false): boolean {
     if (!this.shared || !sources.length) return true
+    // an answer that already attached a file for everyone here (attachToAnswer) never becomes one hidden from people
+    // added later (a k group): that connection's answer is not read into it (fails closed, the call is refused)
+    if (kept && this.attachedFiles > 0) return false
     const c = [...new Set(audience)].sort()
     const k = `${yes ? 'y' : ''}${kept ? 'k' : ''}|${c.join(',')}`
     let g = this.sharedReads.get(k)
