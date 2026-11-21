@@ -259,9 +259,11 @@ describe('the copy counts as the chat\'s only when it is this chat\'s untouched 
     db().query('UPDATE messages SET attachments = ? WHERE id = ?').run(q.attachments, a.id)
     db().query("UPDATE messages SET attachments = '[]' WHERE id = ?").run(q.id)
     setAnswerReads(db(), chat, a.id, [{ c: ['alice', 'bob'], s: [], k: 1 }])
-    await run('bob', chat, `${fake({ tool: 'save_chat_file', args: { file, save_as: 'users/bob/k/' }, sayResult: true })}`)
-    expect(fs.existsSync(path.join(h.team, 'users/bob/k/k-report.txt'))).toBe(true)
-    expect(await readCard('bob', chat, { file_path: 'users/bob/k/k-report.txt' })).toBe(1)
+    // in the batch with P1/P2 (chat/places-copy.ts chatFileToTeam: ChatFiles.kCarried, by the chain) such a file is
+    // not copied at all, so no copy of it can reach a newcomer unasked (chatFileCopyOf's own kCarried check stays)
+    const r = await run('bob', chat, `${fake({ tool: 'save_chat_file', args: { file, save_as: 'users/bob/k/' }, sayResult: true })}`)
+    expect(r.content).toContain('kept from some people')
+    expect(fs.existsSync(path.join(h.team, 'users/bob/k/k-report.txt'))).toBe(false)
   })
 
   test("another chat's copy, and a copy of an upload not sent yet, still ask", async () => {

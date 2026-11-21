@@ -316,8 +316,9 @@ describe('review findings (QA TC-6201 … TC-6204)', () => {
     await expect(copyWorkFile({ real: root, path: root }, 'v.mp4', path.join(outside, 'd'), 1 << 20, undefined, { beforeCopy: full })).rejects.toThrow(/storage full/)
     expect(seen).toEqual([2048])
     expect(fs.existsSync(path.join(outside, 'd'))).toBe(false)
-    // the tool passes the team disk check (system/storage.ts) as that hook
-    expect(fs.readFileSync(path.join(import.meta.dir, '../../server/src/chat/work-file-tool.ts'), 'utf8')).toContain('beforeCopy: assertStorageRoomForAI')
+    // the tool passes the team disk check (system/storage.ts) as that hook: its routes are copy_files' own since P2
+    // (chat/places-copy.ts workToTeam and workToChat), so both copies there take it
+    expect(fs.readFileSync(path.join(import.meta.dir, '../../server/src/chat/places-copy.ts'), 'utf8').split('beforeCopy: assertStorageRoomForAI').length - 1).toBe(2)
     fs.rmSync(root, { recursive: true, force: true }); fs.rmSync(outside, { recursive: true, force: true })
   })
 
