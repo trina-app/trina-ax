@@ -111,7 +111,9 @@ export function saveWorkFileTool(exec: TurnExec, where: () => WorkFolder | null,
   }
 
   return {
-    name: SAVE_WORK_FILE_TOOL, description: mode === 'chat' ? SAVE_WORK_FILE_CHAT_DESCRIPTION : SAVE_WORK_FILE_DESCRIPTION, inputSchema: schema(SaveWorkFileInput),
+    name: SAVE_WORK_FILE_TOOL, description: mode === 'chat' ? SAVE_WORK_FILE_CHAT_DESCRIPTION : SAVE_WORK_FILE_DESCRIPTION,
+    // a chat shared with people has no place to pick: its schema has no save_as (a call that gives one is refused)
+    inputSchema: schema(mode === 'chat' ? SaveWorkFileInput.omit({ save_as: true }) : SaveWorkFileInput),
     label(args: unknown, locale: Locale) {
       const a = SaveWorkFileInput.safeParse(args)
       const verb = FILE_STEP_VERB[SAVE_WORK_FILE_TOOL]![locale]

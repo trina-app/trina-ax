@@ -22,6 +22,7 @@ import { answerWithFiles, labelledTranscript } from '../../server/src/chat/share
 import { ChatStore } from '../../server/src/chat/store'
 import { saveWorkFileTool } from '../../server/src/chat/work-file-tool'
 import type { TurnExec } from '../../server/src/chat/turn'
+import { namedPaths } from '../../server/src/rooms/ai-tools'
 
 setDefaultTimeout(90_000)
 const PLAN: DevEnvPlan = { format: 1, plan: 'team', maxRunning: 3, cpus: 1, memoryMiB: 1024, pids: 256, diskGiB: 4, network: 'open' }
@@ -137,6 +138,11 @@ describe('the rules around it', () => {
     const t = saveWorkFileTool(exec, () => ({ real: '/nowhere', path: '/nowhere' }), 'chat')
     const r = t.refuse!({ path: '$TRINA_WORK/a.mp4' })
     expect(r?.summary).toContain('hidden from later people')
+  })
+
+  test('its work-folder path is no team path: no read card for it in a shared chat (namedPaths)', () => {
+    expect(namedPaths('save_work_file', { path: '$TRINA_WORK/out/a.mp4' })).toEqual([])
+    expect(namedPaths('save_work_file', { path: '$TRINA_WORK/a', save_as: 'shared/x' })).toEqual([{ key: 'save_as', value: 'shared/x' }])
   })
 
   test('the AI cap is 1 GB; uploads keep 50 MB', () => {
