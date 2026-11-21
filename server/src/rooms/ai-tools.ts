@@ -24,6 +24,8 @@ export const ROOM_FILE_TOOLS: ReadonlySet<string> = new Set([
   'room_file', 'save_room_file',
   // many renames in one call (tools/file-moves.ts), like rename_file
   'rename_files',
+  // the demo's banner words (tools/demo-banner.ts): the AI's own words over a prepared photo, nothing from outside
+  'change_banner_text',
 ])
 
 /**
@@ -81,6 +83,10 @@ export const SHARED_TOOLS: ReadonlySet<string> = new Set([
   // videos (tools/higgsfield.ts behind the asker's card; promo-video/: the chat's artifact, its material and pictures
   // weighed by the read card like any named file, namedPaths)
   'generate_video', 'promo_video', 'save_promo_video',
+  // the demo's banner words (tools/demo-banner.ts; offered only on a demo with a banner kit): a local tool like make_file,
+  // the banner saved into the project's folder through the write gates (WRITE_TARGET_ARGS, SAVE_CARD_TOOLS). Missing
+  // here, a shared project chat never had it: the AI took 13 steps and saved a junk SVG (demo re-test 11-22)
+  'change_banner_text',
 ])
 
 /** The arguments that name where a call writes, per tool: a shared chat's read card counts them only when something

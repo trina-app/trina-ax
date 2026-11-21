@@ -6,7 +6,7 @@
 import { readableToolName } from '@mycel/shared'
 import type { Locale } from '@mycel/shared/api'
 import { opaqueParts } from '../../tools/url-gate'
-import { FIELD_WORDS, googleToolWord, say, type TextKey } from './text'
+import { demoHiggsfieldToolWord, FIELD_WORDS, googleToolWord, say, type TextKey } from './text'
 
 /** more values than this, nested deeper, or more characters in all: no lines, the JSON open */
 export const CARD_LINES_MAX = 40
@@ -37,7 +37,8 @@ const NAME_MAX = 40
 const clip = (s: string, n: number) => (s.length > n ? s.slice(0, n - 1) + '…' : s)
 
 /** what kind of connection a tool belongs to, for its words: the Google Workspace library (Gmail, Calendar, Docs, Sheets) */
-export type ToolKind = 'google-apps'
+/** 'demo-higgsfield': a Higgsfield connection a demo server's fakes answer (tools.ts practiceRow) */
+export type ToolKind = 'google-apps' | 'demo-higgsfield'
 /** A connection row's ToolKind (Row.google_app set: the Google Workspace library) */
 export const toolKindOf = (row: { google_app?: string | null }): ToolKind | undefined => (row.google_app ? 'google-apps' : undefined)
 
@@ -47,8 +48,8 @@ export const toolKindOf = (row: { google_app?: string | null }): ToolKind | unde
  * ("create_task" -> "Create task"). The title is the service's words like its id: a service that would mislead with it
  * could also mark the tool read-only and never be asked about at all (mcp.ts toolOf). */
 export function toolTitle(tool: { name: string; title?: string | null }, L?: Locale, kind?: ToolKind): string {
-  if (L && kind === 'google-apps') {
-    const own = googleToolWord(tool.name, L)
+  if (L && kind) {
+    const own = kind === 'google-apps' ? googleToolWord(tool.name, L) : demoHiggsfieldToolWord(tool.name, L)
     if (own) return own
   }
   const title = (tool.title ?? '').slice(0, 1000).normalize('NFKC').replace(/[\s\p{Zl}\p{Zp}]+/gu, ' ').replace(INVISIBLE_ALL, '').replace(/ {2,}/g, ' ').trim()

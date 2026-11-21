@@ -300,18 +300,20 @@ describe("Steepling's Higgsfield: a scene it has no photo for (QA 11-22 A4)", ()
       const r = await call(h, prompt)
       expect(r.isError, prompt).toBe(true)
       expect(r.images).toBe(0)
-      expect(r.text).toBe(noPictureText(prompt, loadPictures(dir)))
+      expect(r.text).toBe(noPictureText(loadPictures(dir)))
       expect(r.text).toContain('Nothing was made')
-      expect(r.text).toContain('Prepared scenes: yuzu ginger tea pouch iced glass frosted window; two glasses iced')
-      expect(r.text).toContain('change_banner_text with scene')
+      // one line to pass on, naming the prepared scenes (no kit here: by their photos' words)
+      expect(r.text).toContain('exactly this one line')
+      expect(r.text).toContain('The demo has no photo of that scene. Prepared scenes: yuzu ginger tea pouch iced glass frosted window, two glasses iced')
+      expect(r.text.split('\n').length).toBe(1)
       expect(r.text).not.toContain('mcp-file:')
     }
     expect(state.get().generations).toEqual([])
-    // "눈 내리는 창가" shares "창가" (window) with the story photo, a frosted window: that photo, once; asked again, no
-    // second copy (A4 got it twice and saved it twice)
-    const first = await inChat('chat-a', '눈 내리는 창가')
+    // "창가 아침 햇살" (window, morning light): the story photo, once; asked again, no second copy (A4 got it twice and
+    // saved it twice)
+    const first = await inChat('chat-a', '창가 아침 햇살')
     expect([first.isError, first.images]).toEqual([false, 1])
-    const again = await inChat('chat-a', '눈 내리는 창가, 다른 느낌으로')
+    const again = await inChat('chat-a', '창가 아침 햇살, 다른 느낌으로')
     expect([again.isError, again.images]).toEqual([true, 0])
     expect(again.text).toContain('Nothing new was made; do not save it again')
     expect(state.get().generations.length).toBe(1)
@@ -372,6 +374,52 @@ describe("Steepling's Higgsfield: a scene it has no photo for (QA 11-22 A4)", ()
     expect([none.isError, none.images, none.text.includes('Nothing was made')]).toEqual([true, 0, true])
     expect(state.get().generations.length).toBe(1)
     fs.rmSync(dir, { recursive: true, force: true })
+  })
+
+  // demo re-test 11-22: "snowy café at night" got a photo that shared one word with the AI's English prompt, saved as
+  // users/mina/file-89c455.jpg, and the answer ran several lines. Only scene-defining words count now, and a scene
+  // element no photo has (snow, night) is no match; the tool then gives one line in the demo's language.
+  test('a scene the demo does not have gets no photo in every language; real scenes still match', async () => {
+    for (const lang of ['en', 'ko', 'ja', 'es', 'zh', 'id'] as const) {
+      const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pics-'))
+      fs.mkdirSync(path.join(dir, 'higgsfield', 'banner'), { recursive: true })
+      for (const n of [HIGGSFIELD_PICTURE, ...Object.values(SCENE_PICTURES)]) fs.writeFileSync(path.join(dir, 'higgsfield', n), 'x')
+      fs.writeFileSync(path.join(dir, 'higgsfield', 'banner', 'kit.json'), JSON.stringify(bannerKit(lang)))
+      const pics = loadPictures(dir)
+      const snowy: Record<string, string[]> = {
+        en: ['snowy café at night', 'A cozy café table with a glass of iced yuzu ginger tea, snow falling outside the window at night'],
+        ko: ['눈 내리는 밤의 카페', '눈 오는 밤 카페 테이블 위 유자 진저 한 잔'],
+        ja: ['雪の夜のカフェ', '雪が降る夜、カフェのテーブルに柚子ジンジャー'],
+        es: ['una cafetería nevada de noche', 'mesa de cafetería con nieve por la noche'],
+        zh: ['雪夜的咖啡馆'], id: ['kafe bersalju di malam hari'],
+      }
+      for (const p of snowy[lang]!) expect(pickPicture(pics, p), `${lang}: ${p}`).toBeNull()
+      // the AI's English prompt, whatever the visitor's language
+      const real: [string, string][] = [
+        ['Iced yuzu ginger tea in a glass by a frosted window, morning light', HIGGSFIELD_PICTURE],
+        ['two glasses of yuzu ginger', SCENE_PICTURES['two-cups']!],
+        ['Close-up packshot of the yuzu ginger pouch', SCENE_PICTURES.pouch!],
+        ['A marble cafe table with the yuzu ginger tea', SCENE_PICTURES.cafe!],
+        ['카페 테이블 위 유자 진저', SCENE_PICTURES.cafe!], ['유자 진저 두 잔', SCENE_PICTURES['two-cups']!],
+        ['dos vasos de té de yuzu', SCENE_PICTURES['two-cups']!], ['グラス二杯の柚子ジンジャー', SCENE_PICTURES['two-cups']!],
+      ]
+      for (const [p, want] of real) expect(pickPicture(pics, p)?.name.normalize('NFC'), `${lang}: ${p}`).toBe(want.normalize('NFC'))
+      // common words alone pick nothing: "two", "dos", "friends", the product, a colour
+      for (const p of ['two', 'dos amigos', 'friends together', 'yuzu ginger tea', 'a green and yellow photo']) expect(pickPicture(pics, p), `${lang}: ${p}`).toBeNull()
+      // through the tool: no picture, no job, one line in the demo's language naming the prepared scenes
+      const state = new FakeState(fs.mkdtempSync(path.join(os.tmpdir(), 'pics-state-')))
+      const h = new FakeHiggsfield(pics, state, lang)
+      const r = await call(h, snowy[lang]![0]!)
+      expect([r.isError, r.images]).toEqual([true, 0])
+      expect(r.text.split('\n').length).toBe(1)
+      expect(state.get().generations).toEqual([])
+      const line = { en: 'The demo has no photo of that scene. Prepared scenes: one glass by a frosted window, two glasses, the pouch up close, a café table.',
+        ko: '데모에는 그 장면 사진이 없어요. 준비된 장면: 창가의 한 잔, 두 잔, 파우치 클로즈업, 카페 테이블.',
+        ja: 'デモにはその場面の写真がありません。用意してある場面：窓辺のグラス一杯、グラス二杯、パウチのクローズアップ、カフェのテーブル。',
+        es: 'La demo no tiene una foto de esa escena. Escenas preparadas: un vaso junto a la ventana, dos vasos, la bolsa de cerca, una mesa de cafetería.' } as Record<string, string>
+      if (line[lang]) expect(r.text.endsWith(`: ${line[lang]}`), r.text).toBe(true)
+      fs.rmSync(dir, { recursive: true, force: true })
+    }
   })
 })
 

@@ -35,32 +35,34 @@ export const HIGGSFIELD_PICTURE = '00-yuzu-ginger-tea-pouch-iced-glass-frosted-w
 /** Each scene's words in the other demo languages (scenes.json, made by make-backgrounds.py, holds English and Korean):
  * the photo names hold only English and Korean, so without these a Japanese, Chinese, Spanish or Indonesian prompt
  * matched no photo (review of #293). Japanese and Chinese words are found inside the prompt (no spaces between words
- * there: higgsfield.ts pickPicture), so each is two characters or more. The tea's own name is the launch scene's
- * only, as the story photo carries it in its file name. */
+ * there: higgsfield.ts pickPicture), so each is two characters or more. Only words that set the scene apart (demo
+ * re-test 11-22): the product, counts alone ("dos", "dua"), friends and sharing are never a scene's word
+ * (higgsfield.ts NOT_SCENE_WORDS); a count with its object is a phrase ("dos vasos") and counts each of its words. */
 export const SCENE_WORDS: Record<string, readonly string[]> = {
   'one-cup': [
-    '一杯', 'グラス', '窓辺', '窓際', '朝日', '朝の光', '曇りガラス', '柚子', 'ゆず', '生姜', 'ジンジャー', 'アイス',
-    '玻璃杯', '窗边', '窗前', '早晨', '晨光', '磨砂', '姜茶', '冰饮',
-    'vaso', 'taza', 'ventana', 'mañana', 'escarchada', 'jengibre', 'helado',
-    'gelas', 'cangkir', 'jendela', 'pagi', 'jahe', 'dingin',
+    '一杯', 'グラス', '窓辺', '窓際', '朝日', '朝の光', '曇りガラス',
+    '玻璃杯', '窗边', '窗前', '早晨', '晨光', '磨砂',
+    'vaso', 'taza', 'ventana', 'mañana', 'escarchada',
+    'gelas', 'cangkir', 'jendela', 'pagi',
   ],
   'two-cups': [
-    '二杯', '2杯', '二つ', 'ふたつ', 'ペア', '一緒', '友達', '乾杯',
-    '两杯', '一对', '一起', '朋友', '分享', '干杯',
-    'dos', 'vasos', 'tazas', 'pareja', 'juntos', 'amigos', 'compartir',
-    'dua', 'berdua', 'bersama', 'teman', 'berbagi',
+    // "グラス二杯" also holds the launch scene's "グラス": the whole phrase counts too
+    '二杯', '2杯', '二つ', 'ふたつ', 'ペア', '乾杯', 'グラス二杯', '二杯のグラス',
+    '两杯', '一对', '干杯',
+    'two glasses', 'two cups', 'dos vasos', 'dos tazas', 'vasos', 'tazas', 'pareja',
+    'dua gelas', 'dua cangkir', 'berdua',
   ],
   pouch: [
-    'パウチ', 'パッケージ', '商品', '製品', 'クローズアップ', '接写',
-    '包装', '袋装', '产品', '特写', '茶包',
-    'bolsa', 'paquete', 'envase', 'empaque', 'producto',
-    'kemasan', 'kantong', 'produk', 'bungkus',
+    'パウチ', 'パッケージ', 'クローズアップ', '接写',
+    '包装', '袋装', '特写', '茶包',
+    'bolsa', 'paquete', 'envase', 'empaque',
+    'kemasan', 'kantong', 'bungkus',
   ],
   cafe: [
-    'カフェ', '喫茶店', 'テーブル', '大理石', '店頭', '店内', '取引先', 'パートナー',
-    '咖啡馆', '咖啡店', '桌子', '桌面', '门店', '合作',
-    'cafetería', 'mesa', 'mármol', 'tienda', 'socios',
-    'kafe', 'meja', 'marmer', 'toko', 'mitra', 'kedai',
+    'カフェ', '喫茶店', 'テーブル', '大理石', '店頭', '店内',
+    '咖啡馆', '咖啡店', '桌子', '桌面', '门店',
+    'cafetería', 'mesa', 'mármol', 'tienda',
+    'kafe', 'meja', 'marmer', 'toko', 'kedai',
   ],
 }
 
