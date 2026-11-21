@@ -140,7 +140,7 @@ function ChatsSection({ s, shown, folded }: { s: Section; shown: Room[]; folded:
       count={s.rooms.length}
       {...foldedLook(s.rooms, 'chats-panel-section-pill')}
       keep={folded && shown.length ? <RoomRows rooms={shown} section={s.key} /> : undefined}
-      action={s.folder ? <SectionMenu section={s.folder} count={s.rooms.length} buttonClassName="size-6" /> : s.key === 'pinned' ? undefined : <RoomSectionAction section={s.key} />}
+      action={s.folder ? <SectionMenu section={s.folder} buttonClassName="size-6" /> : s.key === 'pinned' ? undefined : <RoomSectionAction section={s.key} />}
       labelTestId="chats-panel-label"
       // a row's open menu is drawn past the section's box: content-visibility clips what is inside (it contains paint),
       // so the section is drawn plainly while one is open

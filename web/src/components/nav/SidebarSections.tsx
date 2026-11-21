@@ -20,7 +20,7 @@ import { create } from 'zustand'
 import { graphemeCount, NAV_FOLDER_NAME_MAX, NavFolderName, type NavFolder, type Room } from '@mycel/shared/api'
 import { useT } from '../../i18n'
 import { listedRoom } from '../../lib/rooms'
-import { createFolder, deleteFolder, fileRoom, moveFolder, nameTaken, renameFolder, useNavFolders } from '../../store/navFolders'
+import { createFolder, deleteFolder, fileRoom, moveFolder, nameTaken, renameFolder, roomFolderErrorText, useNavFolders } from '../../store/navFolders'
 import { useRooms } from '../../store/rooms'
 import { toast } from '../../store/ui'
 import { Button, confirmDialog, inputCls, Modal, promptDialog } from '../ui'
@@ -49,13 +49,30 @@ function nameCheck(t: T, except?: string) {
 /** the live copy of a section (its name may have changed since a menu was drawn) */
 const liveSection = (id: string): NavFolder | null => useNavFolders.getState().folders?.find((f) => f.id === id) ?? null
 
+/** One move a toast can take back: the conversation, the section it went to (null: out) and where it was. */
+type Move = { roomId: string; to: string | null; back: string | null }
+
+/** Undo of a toast's moves. A conversation moved again since (by me, here or in another window) is left where it is
+ * now, and one whose section went away stays out of it: the toast never undoes a later change or asks for a section
+ * that is gone, and says so in one line instead. */
+export async function undoMoves(t: T, moves: Move[]) {
+  const now = (id: string) => useRooms.getState().rooms.find((r) => r.id === id)?.folderId ?? null
+  const can = moves.filter((m) => now(m.roomId) === m.to && (!m.back || !!liveSection(m.back)))
+  if (can.length < moves.length) toast({ level: 'info', text: t('sidebarSections.undoStale') })
+  const done = await Promise.all(can.map((m) => fileRoom(m.roomId, m.back, { quiet: true })))
+  const failed = done.filter((r) => !r.ok)
+  if (failed.length) toast({ level: 'error', text: roomFolderErrorText((failed[0] as { error: unknown }).error) })
+}
+
 /** What changes my sections, each with its question; a move says where it went in a toast with Undo. */
 export function useSectionActions() {
   const t = useT()
-  /** where a conversation went (or that it came out), with Undo back to where it was */
+  /** where a conversation went (or that it came out), with Undo back to where it was; a pinned one stays under Pinned,
+   * and the toast says so (it shows in its section once unpinned) */
   const said = (roomId: string, to: NavFolder | null, from: NavFolder | null) => {
-    const text = to ? t('sidebarSections.moved', { name: to.name }) : from ? t('sidebarSections.removed', { name: from.name }) : null
-    if (text) toast({ level: 'success', text, action: { label: t('common.undo'), run: () => void fileRoom(roomId, from?.id ?? null) } })
+    const pinned = !!useRooms.getState().rooms.find((r) => r.id === roomId)?.pinnedAt
+    const text = to ? t(pinned ? 'sidebarSections.movedPinned' : 'sidebarSections.moved', { name: to.name }) : from ? t('sidebarSections.removed', { name: from.name }) : null
+    if (text) toast({ level: 'success', text, action: { label: t('common.undo'), run: () => void undoMoves(t, [{ roomId, to: to?.id ?? null, back: from?.id ?? null }]) } })
   }
   const act = {
     /** "New section": a name, then made; `thenAdd`: Add conversations opens on it right after (null: cancelled or refused) */
@@ -71,9 +88,12 @@ export function useSectionActions() {
       if (!name?.trim() || name.trim() === f.name) return
       await renameFolder(f, name.trim())
     },
-    /** asks first only when something is in it (`count`: what I see in it now) */
-    async remove(f: NavFolder, count: number) {
-      if (count > 0 && !(await confirmDialog({ title: t('sidebarSections.deleteTitle', { name: f.name }), body: t('sidebarSections.deleteBody', { n: count }), confirm: t('sidebarSections.delete'), danger: true }))) return
+    /** Always asks first: what is in it is counted from every conversation of mine in it, pinned ones too (a hidden one
+     * is not on this device, so a section that looks empty may still hold one: it is never deleted without a word). */
+    async remove(f: NavFolder) {
+      const n = useRooms.getState().rooms.filter((r) => r.folderId === f.id).length
+      const body = n > 0 ? t('sidebarSections.deleteBody', { n }) : t('sidebarSections.deleteBodyNone')
+      if (!(await confirmDialog({ title: t('sidebarSections.deleteTitle', { name: f.name }), body, confirm: t('sidebarSections.delete'), danger: true }))) return
       await deleteFolder(f)
     },
     async move(f: NavFolder, by: -1 | 1) {
@@ -83,6 +103,8 @@ export function useSectionActions() {
     async file(roomId: string, to: NavFolder | null) {
       const was = useRooms.getState().rooms.find((r) => r.id === roomId)?.folderId ?? null
       if ((to?.id ?? null) === was) return
+      // a section deleted meanwhile (another window; a menu drawn before): nothing to move into
+      if (to && !liveSection(to.id)) return void toast({ level: 'info', text: t('sidebarSections.gone') })
       const from = was ? liveSection(was) : null
       const r = await fileRoom(roomId, to?.id ?? null)
       if (r.ok && r.newest) said(roomId, to, from)
@@ -138,16 +160,19 @@ export function AddConversationsDialog({ section, onClose }: { section: NavFolde
     if (!ids.length) return onClose()
     setBusy(true)
     const before = new Map(ids.map((id) => [id, rooms.find((r) => r.id === id)?.folderId ?? null]))
-    const done = await Promise.all(ids.map((id) => fileRoom(id, section.id)))
+    // each one quietly: one line below says what was refused, not a toast each
+    const done = await Promise.all(ids.map((id) => fileRoom(id, section.id, { quiet: true })))
     setBusy(false)
     onClose()
     const moved = ids.filter((_, i) => done[i]!.ok)
+    const refused = done.filter((r) => !r.ok) as { error: unknown }[]
     if (moved.length)
       toast({
         level: 'success',
         text: t('sidebarSections.movedMany', { n: moved.length, name: live.name }),
-        action: { label: t('common.undo'), run: () => void Promise.all(moved.map((id) => fileRoom(id, before.get(id) ?? null))) },
+        action: { label: t('common.undo'), run: () => void undoMoves(t, moved.map((id) => ({ roomId: id, to: section.id, back: before.get(id) ?? null }))) },
       })
+    if (refused.length) toast({ level: 'error', text: t('sidebarSections.addFailed', { n: refused.length, reason: roomFolderErrorText(refused[0]!.error) }) })
   }
   return (
     <Modal
@@ -193,8 +218,8 @@ export function AddConversationsDialog({ section, onClose }: { section: NavFolde
 
 // ---------------- a section's header ----------------
 
-/** A section's "⋯": Add conversations, Rename, Move up, Move down, Delete section. `count`: what I see in it. */
-export function SectionMenu({ section, count, className, buttonClassName }: { section: NavFolder; count: number; className?: string; buttonClassName?: string }) {
+/** A section's "⋯": Add conversations, Rename, Move up, Move down, Delete section. */
+export function SectionMenu({ section, className, buttonClassName }: { section: NavFolder; className?: string; buttonClassName?: string }) {
   const t = useT()
   const act = useSectionActions()
   const list = useSections()
@@ -204,7 +229,7 @@ export function SectionMenu({ section, count, className, buttonClassName }: { se
     { label: t('sidebarSections.rename'), icon: <Pencil size={14} aria-hidden />, onSelect: () => void act.rename(section), testId: 'section-menu-rename' },
     ...(i > 0 ? [{ label: t('navFolders.moveUp'), icon: <ArrowUp size={14} aria-hidden />, onSelect: () => void act.move(section, -1), testId: 'section-menu-up' }] : []),
     ...(i >= 0 && i < list.length - 1 ? [{ label: t('navFolders.moveDown'), icon: <ArrowDown size={14} aria-hidden />, onSelect: () => void act.move(section, 1), testId: 'section-menu-down' }] : []),
-    { label: t('sidebarSections.delete'), icon: <Trash2 size={14} aria-hidden />, danger: true, onSelect: () => void act.remove(section, count), testId: 'section-menu-delete' },
+    { label: t('sidebarSections.delete'), icon: <Trash2 size={14} aria-hidden />, danger: true, onSelect: () => void act.remove(section), testId: 'section-menu-delete' },
   ]
   return <MenuButton label={t('sidebarSections.menu', { name: section.name })} tip={t('sidebarSections.menu', { name: section.name })} items={items} compact className={className} buttonClassName={buttonClassName} sheetTitle={section.name} testId="section-menu" />
 }

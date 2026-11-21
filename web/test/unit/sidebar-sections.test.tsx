@@ -6,7 +6,9 @@ import { describe, expect, test } from 'bun:test'
 import type { NavFolder, Room } from '@mycel/shared/api'
 import { translate } from '../../src/i18n'
 import { foldOf, roomsByKind, withKinds } from '../../src/components/panels/RoomsByKind'
+import { ApiError } from '@mycel/shared/api'
 import { canSection } from '../../src/components/nav/SidebarSections'
+import { roomFolderErrorText } from '../../src/store/navFolders'
 
 const room = (id: string, o: Partial<Room> = {}) => ({ id, kind: 'team', name: id, unreadCount: 0, threadsUnread: 0, mentioned: false, muted: false, activityAt: '2026-11-21T00:00:00.000Z', ...o }) as Room
 const section = (id: string, name: string, position: number): NavFolder => ({ id, kind: 'rooms', name, position, count: 0, top: [] })
@@ -34,11 +36,11 @@ describe('sections in the Chats list', () => {
 })
 
 describe('the words', () => {
-  const keys = ['new', 'newFromMove', 'nameLabel', 'onlyYou', 'create', 'rename', 'addTitle', 'addButton', 'skip', 'add', 'addNone', 'search', 'inOther', 'emptyComputer', 'emptyPhone', 'moveTo', 'remove', 'heading', 'moved', 'movedMany', 'removed', 'delete', 'deleteTitle', 'deleteBody', 'nameTaken', 'menu', 'addMenu'] as const
+  const keys = ['new', 'newFromMove', 'nameLabel', 'onlyYou', 'create', 'rename', 'addTitle', 'addButton', 'skip', 'add', 'addNone', 'search', 'inOther', 'emptyComputer', 'emptyPhone', 'moveTo', 'remove', 'heading', 'moved', 'movedMany', 'removed', 'delete', 'deleteTitle', 'deleteBody', 'nameTaken', 'menu', 'addMenu', 'full', 'sectionFull', 'hiddenRoom', 'gone', 'undoStale', 'movedPinned', 'deleteBodyNone', 'addFailed'] as const
   test('every key in every language, filled in, and never a folder', () => {
     for (const l of ['en', 'ko', 'id', 'ja', 'es', 'zh'] as const)
       for (const k of keys) {
-        const v = translate(l, `sidebarSections.${k}`, { name: 'Bots', n: 3 })
+        const v = translate(l, `sidebarSections.${k}`, { name: 'Bots', n: 3, reason: 'x' })
         expect(v).not.toBe(`sidebarSections.${k}`)
         expect(v).not.toContain('{')
         expect(v.toLowerCase()).not.toMatch(/folder|폴더|carpeta|フォルダ|文件夹/)
@@ -50,5 +52,19 @@ describe('the words', () => {
     expect(translate('en', 'sidebarSections.deleteBody', { n: 1 })).toBe('Its conversation goes back to Channels and Direct messages. Only your sidebar changes.')
     expect(translate('en', 'sidebarSections.addButton', { n: 2 })).toBe('Add 2 conversations')
     expect(translate('ko', 'sidebarSections.new')).toBe('새 섹션')
+  })
+})
+
+describe("the server's refusals in the Chats list say section, never folder", () => {
+  // the server's words say "folder" (server/src/chat/i18n.ts navFolders*); the web says them again by their reason
+  const refusal = (code: string, reason?: string) => new ApiError(409, { code, message: 'You can have up to 30 folders here.', ...(reason ? { params: { reason } } : {}) } as never)
+  test('each reason, and a section that is gone', () => {
+    for (const [reason, key] of [['nav_folders_full', 'full'], ['nav_folder_name_taken', 'nameTaken'], ['nav_folder_full', 'sectionFull'], ['room_hidden', 'hiddenRoom']] as const) {
+      const text = roomFolderErrorText(refusal('conflict', reason))
+      expect(text).not.toMatch(/folder|폴더/i)
+      expect(text.length).toBeGreaterThan(5)
+      void key
+    }
+    expect(roomFolderErrorText(refusal('not_found'))).not.toMatch(/folder|폴더/i)
   })
 })

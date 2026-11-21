@@ -37,6 +37,6 @@ Plan: docs/AGENTS/plan/20261121-0114-sidebar-categories-redo.md.
   - Emoji.
   - Admin-shared starter sections.
   - The Trina AI-chat folders, which are unchanged.
-- **Tests:** web/test/unit/nav-folders.test.tsx, the web e2e nav-folders.spec.ts, tests/unit/b-nav-folders.test.ts
+- **Tests:** web/test/unit/sidebar-sections.test.tsx, web/test/unit/nav-folders.test.tsx, the web e2e sidebar-sections.spec.ts, tests/unit/b-nav-folders.test.ts
   (unchanged).
 - **Version impact:** minor (a feature comes back with new ways to use it; no API change).

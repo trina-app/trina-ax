@@ -214,7 +214,7 @@ PR is needed.
 - `bun run typecheck`, `bun run check:i18n`, `bun run check:docs`, `bun run check:prepush`.
 - Unit tests: `web/test/unit/nav-folders.test.tsx` (sections, flattening, drag out) and a new
   `add-conversations-dialog.test.tsx`.
-- Web e2e (`nav-folders.spec.ts`, restored and extended):
+- Web e2e (`sidebar-sections.spec.ts`, in place of the old `nav-folders.spec.ts`):
   - create from "+", then add 2 channels and 1 DM;
   - drag in, between and out;
   - Move to section › New section… from the phone sheet at 390 and from the header;

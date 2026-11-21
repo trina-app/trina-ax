@@ -125,7 +125,7 @@ export default function Rooms() {
                 foldId={s.folder ? `room-folder:${s.folder.id}` : undefined}
                 label={s.folder ? s.folder.name : s.key === 'pinned' ? t('chat.pinned') : t(SECTION_WORD[s.key])}
                 {...foldedLook(s.rooms, 'rooms-section-pill')}
-                action={s.folder ? <SectionMenu section={s.folder} count={s.rooms.length} /> : s.key === 'pinned' ? undefined : <RoomSectionAction section={s.key} />}
+                action={s.folder ? <SectionMenu section={s.folder} /> : s.key === 'pinned' ? undefined : <RoomSectionAction section={s.key} />}
                 // 10 px on a phone, not 8: the ⊕ (24 px) takes taps from a 44 px box (touch-hit), 10 px past its
                 // edge; any less and that box sticks out of the list, which then drags sideways (QA TC-4833)
                 headClassName="pr-2.5 pl-2 sm:pr-4 sm:pl-4"
