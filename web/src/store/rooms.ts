@@ -1356,8 +1356,7 @@ export const useRooms = create<RoomsState>((set, get) => {
       let r: MakeProjectResult
       try { r = await api.call(API.makeProject, { params: { id: roomId }, body: { name, membersHash } }) } finally { if (making.get(roomId) === heard) making.delete(roomId) }
       // a project room's word that nothing moves any more is the newer one (filesMoving only ever goes from true to off)
-      const settled = heard.room?.projectRoom && !heard.room.filesMoving
-      const room = settled ? (({ filesMoving: _, ...rest }) => rest)(r.room) : r.room
+      const room = heard.room?.projectRoom && !heard.room.filesMoving ? heard.room : r.room
       set((s) => withRoom(s, keepPending(s, room)))
       return r
     },

@@ -311,7 +311,7 @@ describe('chat:files/', () => {
     const r = await run('alice', chat, copy(['users/alice/proposal/proposal.html'], 'chat:files/'))
     expect(r.content).toContain('Save files in your own folder')
     // a chat made private again (QA TC-6959): the refusal says nothing is attached here and a file there is just linked
-    expect(r.content).toContain('a chat only you see attaches no files')
+    expect(r.content).toContain('A chat only you see attaches no files')
     expect(r.content).toContain('link them in your answer; a file already there needs nothing more')
   })
 })

@@ -70,6 +70,9 @@ test('after the cap pruned versions, one quiet line says why the numbers jump; n
     await m.click(await m.until(() => m.find('file-versions-toggle'), 'Versions'))
     await m.until(() => m.find('file-versions'), 'the list')
     expect(m.get('file-versions-pruned').textContent).toBe(en('chatFile.olderRemoved', { n: 19 }))
+    // where the numbers jump: between version 9 and version 1 (newest first)
+    const order = [...m.get('file-versions').children].map((li) => li.getAttribute('data-version') ?? 'note')
+    expect(order.slice(-3)).toEqual(['9', 'note', '1'])
     expect(en('chatFile.olderRemoved', { n: 19 })).toBe('Older versions were removed: only the first version and the 19 newest are kept.')
     // no small fixed box: the list may take most of the panel
     expect(m.get('file-versions').getAttribute('class')).not.toContain('max-h-64')
@@ -115,6 +118,10 @@ test('someone saves while I edit: a quiet line names them with View; my save bes
   try {
     await m.click(await m.until(() => m.find('file-edit'), 'the pencil'))
     await m.until(() => m.find('file-editor'), 'the editor')
+    expect(m.find('file-editor-newer')).toBeNull()
+    // my own save reaching the chat late is no news (the version I opened, by me)
+    tile({ by: 'mia', byName: 'Mia', at: '2026-11-21T10:00:00.000Z', version: 2 })
+    await Bun.sleep(20)
     expect(m.find('file-editor-newer')).toBeNull()
     // Bob saves: the chat's tile changes while I am editing
     tile({ by: 'bob', byName: 'Bob', at: '2026-11-21T10:05:00.000Z', version: 3 })
