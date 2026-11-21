@@ -296,7 +296,7 @@ Mulai chat dari halaman proyek, atau pindahkan chat ke dalamnya dengan **Pindahk
 
 ### Percakapan proyek
 
-Setiap proyek tim punya percakapannya sendiri. Orang-orang proyek adalah orang-orang percakapan itu, dan filenya adalah
+Setiap proyek tim punya percakapannya sendiri. Orang di percakapan itu adalah orang di proyek, dan filenya adalah
 file proyek: satu daftar orang, satu tempat untuk file.
 
 - **Percakapan** di halaman proyek (di ponsel, baris di bawah nama proyek) membuka percakapannya. Pertama kali, percakapan itu
@@ -307,7 +307,7 @@ file proyek: satu daftar orang, satu tempat untuk file.
 - **Siapa yang ada di dalamnya mengikuti proyek.** Menambahkan orang ke proyek menambahkannya ke percakapan, dan ia melihat
   seluruh riwayatnya; mengeluarkan orang dari proyek mengeluarkannya dari percakapan. Dialog anggota mengatakannya sebelum
   Anda menambahkan siapa pun. Untuk mengubahnya, buka nama percakapan di atas, lalu **Kelola orang** (bagi yang boleh
-  mengubah orang-orang proyek). **Bisukan** membuat percakapan tenang; **Keluar dari proyek** keluar dari proyek dan percakapannya.
+  mengubah orang-orang proyek). **Bisukan** mematikan notifikasinya; **Keluar dari proyek** keluar dari proyek dan percakapannya.
 - **File yang Anda kirim di sana masuk ke folder Lampiran obrolan proyek**, tempat orang-orang proyek menemukannya di
   halaman File. Orang yang hanya bisa melihat proyek bisa menulis pesan, tetapi tidak bisa menambahkan file.
 - **Menghapus pesan hanya menghapus pesan.** Filenya tetap di Lampiran obrolan proyek; hapus di File jika ingin
