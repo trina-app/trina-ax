@@ -246,6 +246,8 @@ describe('A: the confirm', () => {
       await m.type('make-project-name', '   ')
       await m.until(() => m.html().includes(en('rooms.makeProject.nameEmpty')), 'the empty-name line')
       expect(en('rooms.makeProject.nameEmpty')).toBe('Enter a project name.')
+      // the body names no project while there is none
+      expect(text(m, 'make-project-body')).toContain('move to … › Chat attachments')
       expect(m.get('make-project-confirm').hasAttribute('disabled')).toBe(true)
     } finally { await m.unmount() }
     const d = await mount(<MemoryRouter><DmProjectDialog peer={{ id: BEN.id, name: BEN.name }} onClose={() => {}} /></MemoryRouter>)

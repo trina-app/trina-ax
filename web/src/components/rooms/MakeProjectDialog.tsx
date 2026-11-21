@@ -184,7 +184,7 @@ export function MakeProjectDialog({ roomId, onClose }: { roomId: string; onClose
           </Field>
           <div id={hintId} className="space-y-2 text-muted">
             {/* the folder the project gets: the "-2" one the hint names when another project has the name (QA TC-6953) */}
-            <p data-testid="make-project-body">{t('rooms.makeProject.body', { n: info.members.length, name: (fresh && info.nameTaken && info.folderName) || typed || info.suggestedName, folder })}</p>
+            <p data-testid="make-project-body">{t('rooms.makeProject.body', { n: info.members.length, name: (fresh && info.nameTaken && info.folderName) || typed || '…', folder })}</p>
             <p data-testid="make-project-later">{t('rooms.makeProject.laterFiles')}</p>
             {info.filesStaying > 0 && <p data-testid="make-project-staying">{t('rooms.makeProject.staying', { n: info.filesStaying })}</p>}
           </div>

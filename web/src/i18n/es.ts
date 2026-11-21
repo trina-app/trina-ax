@@ -993,6 +993,7 @@ export const es: Record<MessageKey, string> = {
   "chatFile.backToNewest": "Volver a la más reciente",
   "chatFile.restored": "La versión {n} vuelve a ser la más reciente. No se eliminó nada.",
   "chatFile.restoredPruned": "La versión {n} vuelve a ser la más reciente. Se eliminó la versión {old} para conservar {kept} versiones.",
+  "chatFile.restoredMoved": "La versión {n} vuelve a ser la más reciente. Se eliminó su entrada anterior de la lista para conservar {kept} versiones.",
   "chatFile.olderRemoved": "Se eliminaron versiones antiguas: solo se conservan la primera versión y las {n} más recientes.",
   "chatFile.savedBeside": "Guardado. Otra persona guardó mientras editaba; su versión sigue en Versiones.",
   "chatFile.savedBesideBy": "Guardado. {name} guardó mientras editaba; su versión sigue en Versiones.",

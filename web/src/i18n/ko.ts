@@ -1034,6 +1034,7 @@ export const ko = {
   "chatFile.backToNewest": "최신 버전 보기",
   "chatFile.restored": "버전 {n}을 최신 버전으로 되돌렸어요. 지운 건 없어요.",
   "chatFile.restoredPruned": "버전 {n}을 최신 버전으로 되돌렸어요. 버전을 {kept}개까지만 두려고 버전 {old}은 지웠어요.",
+  "chatFile.restoredMoved": "버전 {n}을 최신 버전으로 되돌렸어요. 버전을 {kept}개까지만 두려고 목록에 있던 예전 항목은 지웠어요.",
   "chatFile.olderRemoved": "오래된 버전은 지워졌어요. 첫 버전과 최신 {n}개만 남아요.",
   "chatFile.savedBeside": "저장했어요. 고치는 사이에 다른 사람도 저장해서, 그 버전은 버전 목록에 남아 있어요.",
   "chatFile.savedBesideBy": "저장했어요. 고치는 사이에 {name}도 저장해서, 그 버전은 버전 목록에 남아 있어요.",

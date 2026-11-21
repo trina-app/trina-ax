@@ -104,6 +104,13 @@ test('a restore at the cap says which version went to keep 20; below it, "Nothin
     await m.click(again.querySelector('[data-testid="file-version-restore"]')!)
     await m.until(() => useUi.getState().toasts.length > 0, 'the toast')
     expect(useUi.getState().toasts.at(-1)!.text).toBe(en('chatFile.restored', { n: 20 }))
+    // restoring the oldest kept one at the cap: its own old entry is what went, said so (not "version 20 was removed")
+    useUi.setState({ toasts: [] })
+    pruned = [20]
+    const third = await m.until(() => m.container.querySelectorAll('[data-testid="file-version-row"]').find((r) => r.getAttribute('data-version') === '20'), 'version 20')
+    await m.click(third.querySelector('[data-testid="file-version-restore"]')!)
+    await m.until(() => useUi.getState().toasts.length > 0, 'the toast')
+    expect(useUi.getState().toasts.at(-1)!.text).toBe('Version 20 restored as the newest. Its old entry in the list was removed to keep 20 versions.')
   } finally { await m.unmount() }
 })
 

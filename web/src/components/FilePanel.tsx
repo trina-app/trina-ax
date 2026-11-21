@@ -265,7 +265,10 @@ export default function FilePanel({ file, onClose }: { file: PreviewFile; onClos
     setRestoring(n)
     try {
       const r = await api.call(API.restoreChatFileVersion, { params: { id: file.chatId, fileId: file.fileId, version: String(n) } })
-      toast({ level: 'success', text: r.pruned?.length ? t('chatFile.restoredPruned', { n, old: r.pruned.join(t('rooms.nameSep')), kept: CHAT_FILE_VERSIONS_KEPT }) : t('chatFile.restored', { n }) })
+      // (restoring the oldest kept one at the cap: its own old entry is what goes)
+      toast({ level: 'success', text: !r.pruned?.length ? t('chatFile.restored', { n })
+        : r.pruned.includes(n) ? t('chatFile.restoredMoved', { n, kept: CHAT_FILE_VERSIONS_KEPT })
+        : t('chatFile.restoredPruned', { n, old: r.pruned.join(t('rooms.nameSep')), kept: CHAT_FILE_VERSIONS_KEPT }) })
       setShownVersion(null)
       setRev((v) => v + 1)
     } catch (e) {

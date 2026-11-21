@@ -993,6 +993,7 @@ export const ja: Record<MessageKey, string> = {
   "chatFile.backToNewest": "最新に戻る",
   "chatFile.restored": "バージョン {n} を最新に戻しました。削除されたものはありません。",
   "chatFile.restoredPruned": "バージョン {n} を最新に戻しました。{kept} 件までに保つため、バージョン {old} を削除しました。",
+  "chatFile.restoredMoved": "バージョン {n} を最新に戻しました。{kept} 件までに保つため、一覧にあった元の項目は削除しました。",
   "chatFile.olderRemoved": "古いバージョンは削除されました。最初のバージョンと最新の {n} 件だけが残ります。",
   "chatFile.savedBeside": "保存しました。編集中にほかの人も保存したため、その版はバージョンの一覧に残っています。",
   "chatFile.savedBesideBy": "保存しました。編集中に{name}も保存したため、その版はバージョンの一覧に残っています。",

@@ -1035,6 +1035,7 @@ export const en: Record<MessageKey, string> = {
   "chatFile.backToNewest": "Back to newest",
   "chatFile.restored": "Version {n} restored as the newest. Nothing was deleted.",
   "chatFile.restoredPruned": "Version {n} restored as the newest. Version {old} was removed to keep {kept} versions.",
+  "chatFile.restoredMoved": "Version {n} restored as the newest. Its old entry in the list was removed to keep {kept} versions.",
   "chatFile.olderRemoved": "Older versions were removed: only the first version and the {n} newest are kept.",
   "chatFile.savedBeside": "Saved. Someone else saved while you were editing; their version is kept in Versions.",
   "chatFile.savedBesideBy": "Saved. {name} saved while you were editing; their version is kept in Versions.",

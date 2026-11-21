@@ -1035,6 +1035,7 @@ export const id: Record<MessageKey, string> = {
   "chatFile.backToNewest": "Kembali ke yang terbaru",
   "chatFile.restored": "Versi {n} kembali menjadi yang terbaru. Tidak ada yang dihapus.",
   "chatFile.restoredPruned": "Versi {n} kembali menjadi yang terbaru. Versi {old} dihapus agar tetap {kept} versi.",
+  "chatFile.restoredMoved": "Versi {n} kembali menjadi yang terbaru. Entri lamanya di daftar dihapus agar tetap {kept} versi.",
   "chatFile.olderRemoved": "Versi lama sudah dihapus: hanya versi pertama dan {n} versi terbaru yang disimpan.",
   "chatFile.savedBeside": "Tersimpan. Orang lain juga menyimpan saat Anda mengedit; versinya tetap ada di Versi.",
   "chatFile.savedBesideBy": "Tersimpan. {name} juga menyimpan saat Anda mengedit; versinya tetap ada di Versi.",
