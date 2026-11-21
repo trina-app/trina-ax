@@ -83,6 +83,8 @@ import { SHARE_JUDGE_REFUSAL } from '../skills/share-judge'
 import { FILE_RANK_REFUSAL } from '../onboarding/file-rank'
 import { mergeTargets, SHARE_MERGE_REFUSAL } from '../skills/share-merge'
 import { deleteFilesTool } from './delete-files'
+import { bulkCard } from '../devenv/bulk'
+import { placeWords } from './place-words'
 import { projectMembersTool } from './project-members'
 import { folderAccessOff, folderAccessTool } from './folder-access-tool'
 import { readRooms } from './read-rooms'
@@ -315,6 +317,12 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
       caller: (files) => callerOf(files, exec.files),
       redact: (s) => exec.redact(s),
       unattended: person.unattended,
+      // the bulk card (devenv/bulk.ts): keep many new files in the project folder? "Always allow" keeps them from then
+      // on (kind bulk_files); a scheduled run asks nobody (false unless that choice was made)
+      keepBulk: async (ask) => {
+        const card = bulkCard(ask, exec.spec.locale, (p) => placeWords(exec.rt.db, p, exec.spec.locale, exec.spec.userId))
+        return person.confirm(card.question, card.keep, card.move, { always: 'bulk_files', details: card.details })
+      },
       confirm: async (question, options, details) => (person.choose
         ? person.choose(question, options, { details: [{ label: 'Changes', text: details.join('\n') }] })
         : (await person.confirm(question, options[0]!.label, options[1]!.label, { details: [{ label: 'Changes', text: details.join('\n') }] })) ? options[0]!.value : null),

@@ -20,6 +20,7 @@ import { CLAUDE_AGENT_TOOL_NAMES, FILE_STEP_VERB, FILE_TOOLS, isUuid7, readableT
 import { recordSent, webEcho } from '../tools/connection-urls'
 import { carriesAddress, normUrl, rememberUrls } from '../tools/url-gate'
 import { GUEST_ANSWER_STEP_LIMIT, UNATTENDED_ANSWER_STEP_LIMIT } from '@mycel/shared/api'
+import { FILE_SUMMARY_LIST_MAX } from '@mycel/shared/api'
 import type { ApiErrorBody, Attachment, ConfirmDetail as ConfirmDetailT, EngineId, FileChange, FileChangeSummary, Locale, MessageStatus, OpenTurnRequest, Step, TurnRequest, TurnStopReason } from '@mycel/shared/api'
 import { buildClaudeLaunch, SUBSCRIPTION_DEFAULT_MODEL, type ClaudeConf } from '../engine/claude'
 import { buildCodexLaunch, CODEX_VERSION, prepareCodexTurn, type CodexConf } from '../engine/codex'
@@ -5372,7 +5373,18 @@ export function fileSummaryOf(rows: readonly FileEventRow[]): FileChangeSummary 
     else if (r.action === 'rejected') rejected.push({ path: r.path.slice(0, 1024), reason: String(d.reason ?? 'denied').slice(0, 300) })
   }
   if (!saved.size && !conflicts.length && !rejected.length) return null
-  return { saved: [...saved.values()], conflicts, rejected }
+  // many files (a download or a build in a project folder): the list keeps the first ones, the rest are counted by
+  // their folder, so the card says the real number without carrying (or drawing) thousands of rows
+  const all = [...saved.values()]
+  if (all.length <= FILE_SUMMARY_LIST_MAX) return { saved: all, conflicts, rejected }
+  const byFolder = new Map<string, number>()
+  for (const s of all.slice(FILE_SUMMARY_LIST_MAX)) {
+    const dir = s.path.includes('/') ? s.path.slice(0, s.path.lastIndexOf('/')) : ''
+    if (dir) byFolder.set(dir, (byFolder.get(dir) ?? 0) + 1)
+  }
+  const folders = [...byFolder.entries()].sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : 1)).slice(0, 2000).map(([path, count]) => ({ path, count }))
+  const count = folders.reduce((n, f) => n + f.count, 0)
+  return { saved: all.slice(0, FILE_SUMMARY_LIST_MAX), conflicts, rejected, ...(count ? { more: { count, folders } } : {}) }
 }
 
 function parseJson(s: string | null): Record<string, unknown> {

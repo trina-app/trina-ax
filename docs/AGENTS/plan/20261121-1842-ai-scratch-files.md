@@ -38,7 +38,7 @@ In:
 - The tool text: downloads, clones, tool installs (venv, node_modules), previews and other scratch go in
   `$TRINA_WORK`; only the finished files the person asked for go in the project folder. Third-party code is used from
   there, with its source and licence named; it is not put into team or skills folders unless the person asks.
-- The bulk guard: when one answer's commands add more than 300 files or 100 MB of new files to a project folder, the
+- The bulk guard: when one answer's commands add more than 500 files or 200 MB of new files to a project folder, the
   person gets a card before those files are recorded: keep them in the project folder, or move them to this chat's work
   folder. "Always allow" (keep, never ask again) is on the first card. No answer (a scheduled run, a sub-agent, time out)
   moves them. Only the files that command created move; changed files stay.

@@ -10,7 +10,8 @@ import { useFolderWords } from '../../lib/folderLabels'
 import { Button } from '../ui'
 
 export function summaryCounts(f: FileChangeSummary) {
-  return { saved: f.saved.length, conflicts: f.conflicts.length, rejected: f.rejected.length }
+  // a long list keeps its first files; the rest come as a count per folder (FileChangeSummary.more)
+  return { saved: f.saved.length + (f.more?.count ?? 0), conflicts: f.conflicts.length, rejected: f.rejected.length }
 }
 
 // defaultOpen: tests render the open list without a click
@@ -38,6 +39,16 @@ export default function FileSummary({ files, onAskOwnFolder, disabled, defaultOp
               </button>
             </li>
           ))}
+          {files.more && files.more.count > 0 && (
+            <li className="pt-1 text-xs text-faint" data-testid="file-summary-more">
+              <div>{t('files.summary.more', { n: files.more.count, folders: files.more.folders.length })}</div>
+              <ul className="mt-0.5 space-y-0.5">
+                {files.more.folders.slice(0, 5).map((f) => (
+                  <li key={f.path} className="truncate" title={f.path}>{t('files.summary.moreFolder', { path: words.path(f.path, ' › '), n: f.count })}</li>
+                ))}
+              </ul>
+            </li>
+          )}
           {files.conflicts.map((x) => (
             <li key={x.copyPath} className="text-xs">
               <span className="text-warn">{t('files.summary.conflictLine')}</span>{' '}

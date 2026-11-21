@@ -92,7 +92,11 @@ export interface WindowResult<T> { value: T; changes: Change[]; background: Chan
  * Run `fn` (one box command) inside a change window of the project folder. Commands of one project wait for each
  * other. `background` = what changed since the last window (attributed to the person of the last command).
  */
-export function withChangeWindow<T>(ctx: AppContext, project: { id: string; folderPath: string }, by: Actor, extra: Record<string, unknown>, fn: () => Promise<T>): Promise<WindowResult<T>> {
+/** `bulk` (devenv/bulk.ts): called with the command's changes before they are recorded; it may move the files the
+ * command created out of the folder and returns the team paths that are gone, which are then not recorded. */
+export interface WindowOptions { bulk?(changes: Change[], startedMs: number): Promise<Set<string>> }
+
+export function withChangeWindow<T>(ctx: AppContext, project: { id: string; folderPath: string }, by: Actor, extra: Record<string, unknown>, fn: () => Promise<T>, opts: WindowOptions = {}): Promise<WindowResult<T>> {
   const s = state(ctx, project.id, project.folderPath)
   const run = async (): Promise<WindowResult<T>> => {
     const root = ctx.files.fx.root
@@ -104,14 +108,26 @@ export function withChangeWindow<T>(ctx: AppContext, project: { id: string; fold
     const outside = new Map<string, { sha256: string; userId: string; turnId: string | null }>()
     s.outside = outside
     let value: T
+    // the start of the command: a folder born after it is the command's (devenv/bulk.ts movableRoots)
+    const startedMs = Date.now()
     // the snapshot after runs even when the command failed or was stopped: what it wrote is still there
     try { value = await fn() } finally { s.outside = null }
-    const end = takeSnapshot(root, project.folderPath, start, s.store)
-    s.store.save(end)
-    s.lastActor = by
+    let end = takeSnapshot(root, project.folderPath, start, s.store)
     // a file the command changed AND someone else saved during the command: changes from the outside save are not
     // the box's (they are already recorded by the file layer), only the difference from it is
-    const changes = diffSnapshots(start, end).filter((c) => { const o = outside.get(c.path); return !o || o.sha256 !== c.after })
+    let changes = diffSnapshots(start, end).filter((c) => { const o = outside.get(c.path); return !o || o.sha256 !== c.after })
+    // many new files: the bulk guard may move them to the chat's scratch folder first; what went is not recorded, and
+    // the folder as it is now becomes the next window's start
+    if (opts.bulk && changes.some((c) => c.action === 'create')) {
+      let gone = new Set<string>()
+      try { gone = await opts.bulk(changes, startedMs) } catch (e) { ctx.log.warn('dev env bulk guard failed', { err: e }) }
+      if (gone.size) {
+        changes = changes.filter((c) => !gone.has(c.path))
+        end = takeSnapshot(root, project.folderPath, end, s.store)
+      }
+    }
+    s.store.save(end)
+    s.lastActor = by
     const conflicts: string[] = []
     for (const c of changes) {
       const o = outside.get(c.path)

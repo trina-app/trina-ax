@@ -1686,7 +1686,9 @@ export class TeamFiles {
    * spelling of the same entry) and items inside a listed folder go once. Every entry is walked and counted, inside
    * folders too, and the walk stops past AI_TRASH_MAX_ENTRIES (a ToolError). Nothing changes.
    */
-  planAiTrash(userId: string, paths: readonly string[]): { plan: AiTrashPlan } | { refused: { path: string; error: string }[] } {
+  planAiTrash(userId: string, paths: readonly string[], o: { maxEntries?: number } = {}): { plan: AiTrashPlan } | { refused: { path: string; error: string }[] } {
+    // the AI's own files of this chat (chat/own-files.ts) may go in larger numbers: the caller checks that first
+    const max = o.maxEntries ?? AI_TRASH_MAX_ENTRIES
     const user = this.principal(userId)
     const rules = this.rules()
     const refused: { path: string; error: string }[] = []
@@ -1707,13 +1709,13 @@ export class TeamFiles {
     for (const f of found) if (!uniq.has(key(f.r.rel))) uniq.set(key(f.r.rel), f)
     const all = [...uniq.values()]
     const listed = all.filter((f) => !all.some((g) => g !== f && g.isDir && key(f.r.rel).startsWith(key(g.r.rel) + '/')))
-    const tooMany = `more than ${AI_TRASH_MAX_ENTRIES} files and folders (everything inside a folder counts), so nothing was moved to the trash. Ask the user to delete fewer at once, or to delete it on the Files screen`
+    const tooMany = `more than ${max} files and folders (everything inside a folder counts), so nothing was moved to the trash. Ask the user to delete fewer at once, or to delete it on the Files screen`
     let total = 0
     const items: AiTrashItem[] = []
     const lost = new Set<string>(), noRestore = new Set<string>(), others = new Set<string>()
     for (const f of listed) {
       let entries: Stamp[] | null
-      try { entries = stampTree(f.r.abs, AI_TRASH_MAX_ENTRIES - total) } catch { return { refused: [{ path: f.r.rel, error: 'it could not be read through' }] } }
+      try { entries = stampTree(f.r.abs, max - total) } catch { return { refused: [{ path: f.r.rel, error: 'it could not be read through' }] } }
       if (!entries) throw new ToolError(tooMany, 'too_many')
       total += entries.length
       // inside a folder too: no skill root, no chat attachments, no instruction file, nothing a plugin manages
