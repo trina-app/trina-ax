@@ -744,6 +744,16 @@ export const chatsRoutes: RouteModule = {
     kit.handle(API.linkAccess, ({ c, params, auth }) => access.view(auth.user.id, accessKind(params.kind, params.id), params.id, c.get('locale')))
     kit.handle(API.requestLinkAccess, ({ c, params, body, auth }) => access.request(auth.user.id, accessKind(params.kind, params.id), params.id, body.message, c.get('locale')))
     kit.handle(API.answerAccessRequest, ({ c, params, body, auth }) => access.answer(auth.user.id, params.id, body.answer, body.confirmKey, c.get('locale')))
+    // a file link of a chat shared with people that does not open for me (docs/decisions/20261121-share-chat-files.md):
+    // what I can do (ask its creator to add it), and the ask. Anyone who cannot see the chat: its 404 first
+    kit.handle(API.chatFileAccess, ({ c, params, query, auth }) => {
+      chatOf(rt, c, auth, params.id, 'view')
+      return access.fileView(auth.user.id, params.id, query.path)
+    })
+    kit.handle(API.requestChatFile, ({ c, params, body, auth }) => {
+      chatOf(rt, c, auth, params.id, 'view')
+      return access.fileRequest(auth.user.id, params.id, body.path, c.get('locale'))
+    })
     kit.handle(API.putChatAudience, ({ c, params, body, auth }) => putChatAudience(ctx, rt, auth.user.id, chatOf(rt, c, auth, params.id, 'view'), body, c.get('locale')))
     const hidden = (c: Context<AppEnv>, auth: AuthInfo, a: ChatAccess, hide: boolean): Chat => {
       hideChat(ctx, auth.user.id, a, hide, c.get('locale'))

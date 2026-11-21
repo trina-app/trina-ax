@@ -439,6 +439,12 @@ export function workFolderAt(ctx: AppContext, o: { userId: string; chatId: strin
   } catch { return null }
 }
 
+/** Do box_shell's commands of this person in this chat run in a work folder (made or not yet), not in a project folder? */
+export function runsInWorkFolder(ctx: AppContext, o: { userId: string; chatId: string | null; project: { id: string; folderPath: string } | null; shared?: SharedRun }): boolean {
+  const s = spaceAt(ctx, o, false)
+  return !!s && inWorkFolder(srtConfig(), s)
+}
+
 function spaceAt(ctx: AppContext, o: { userId: string; chatId: string | null; project: { id: string; folderPath: string } | null; shared?: SharedRun }, make: boolean): Space | null {
   const c = srtConfig()
   const view = personView(ctx, o.userId)

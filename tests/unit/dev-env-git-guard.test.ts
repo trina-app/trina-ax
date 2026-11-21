@@ -47,7 +47,7 @@ describe('the environment of every run', () => {
     fs.writeFileSync(path.join(home, '.gitconfig'), '[user]\n\tname = PLANTED\n')
     expect(dec(plainGit(d, ['config', 'user.name'], home).stdout)).toContain('PLANTED')
     expect(runGit(d, ['config', 'user.name'], home).out).not.toContain('PLANTED')
-    expect(gitEnv()).toMatchObject({ NPM_CONFIG_USERCONFIG: '/dev/null', PIP_CONFIG_FILE: '/dev/null', PYTHONNOUSERSITE: '1', GIT_CONFIG_GLOBAL: '/dev/null' })
+    expect(gitEnv()).toMatchObject({ NPM_CONFIG_USERCONFIG: '/dev/null', PIP_CONFIG_FILE: '/dev/null', PYTHONNOUSERSITE: '1', PYTHONUSERBASE: '/dev/null/python-user', GIT_CONFIG_GLOBAL: '/dev/null' })
     const e = gitEnv()
     const pairs = Array.from({ length: Number(e.GIT_CONFIG_COUNT) }, (_, i) => `${e[`GIT_CONFIG_KEY_${i}`]}=${e[`GIT_CONFIG_VALUE_${i}`]}`)
     expect(pairs).toEqual(expect.arrayContaining(['core.hooksPath=/dev/null', 'safe.bareRepository=explicit', 'credential.helper=']))

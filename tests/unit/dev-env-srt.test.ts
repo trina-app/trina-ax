@@ -14,14 +14,14 @@ import { legacyProjectFolder, oldProject } from '../lib/legacy-project'
 import { CANARIES, EXPECTED } from '../lib/fixtures'
 import { RuleSet, type Access, type Principal } from '../../server/src/policy/access'
 import { folderView, runMayWrite, runSkillFolders, viewAccess, type FolderView } from '../../server/src/devenv/srt/access'
-import { DENIED_NAMES, DENIED_RANGES, DENIED_SYSTEM_PATHS, ETC_SECRETS, RUN_ID_RE, SYSTEM_READ_PATHS, isFull, SRT_PATHS, SRT_VERSION, TEMPLATE_UNIT_RE, UNIT_RE, chatWork, personHome, personLogs, projectHome, runEnv, runIdOfUnit, scopeArgv, serverFilesOutsideBase, settingsProblems, srtArgv, srtSettings, unitArgs, unitLimits, unitName } from '../../server/src/devenv/srt/config'
+import { BOX_NODE_LIBS, BOX_NODE_LIB_NAMES, BOX_PYTHON_BIN, BOX_PYTHON_LIBS, DENIED_NAMES, DENIED_RANGES, DENIED_SYSTEM_PATHS, ETC_SECRETS, RUN_ID_RE, SYSTEM_READ_PATHS, isFull, SRT_PATHS, SRT_VERSION, TEMPLATE_UNIT_RE, UNIT_RE, chatWork, personHome, personLogs, projectHome, runEnv, runIdOfUnit, scopeArgv, serverFilesOutsideBase, settingsProblems, srtArgv, srtSettings, unitArgs, unitLimits, unitName } from '../../server/src/devenv/srt/config'
 import { effectiveLimits, parsePlan, sliceValues, type DevEnvPlan } from '../../server/src/devenv/srt/plan'
 import { _active, newRunId, readExit, setSrtSystem, teamHosts, WAIT_MAX_MS } from '../../server/src/devenv/srt/runner'
 import { _held, _heldSkills, holdPlaceholders, holdSkillFolders, SRT_DENY_DIRS, SRT_DENY_FILES } from '../../server/src/devenv/srt/placeholders'
 import { cgroupDir, slicePath, type SpawnSpec, type SrtSystem, type UnitInfo } from '../../server/src/devenv/srt/system'
 import { JOB_DONE, JOB_DONE_NO_CHAT, JOB_FAILED, JOB_FAILED_NO_CHAT, JOB_UNKNOWN, pollSrt, runResultsForAI } from '../../server/src/devenv/jobs'
 import { mayUseDevEnv, newConsent, saveTeamSetting, teamInForce, teamSetting } from '../../server/src/devenv/setting'
-import { boxShellTool } from '../../server/src/devenv/tool'
+import { boxLibsText, boxShellTool, sharedShellDescription, srtShellDescription } from '../../server/src/devenv/tool'
 import { _resetUpdateWait, beginUpdateWait, endUpdateWait } from '../../server/src/system/update-wait'
 import { fullInternet, grantUserSite, setFullInternet, userSites } from '../../server/src/devenv/sites'
 import { configureStorageGuard } from '../../server/src/system/storage'
@@ -522,6 +522,42 @@ describe('the srt settings file', () => {
     expect(e.TRINA_TEAM).toBe(TEAM)
     expect(runEnv({ base: BASE, userId: 'alice', teamRoot: TEAM, work: chatWork(BASE, 'c1') }).TRINA_WORK).toBe(`${BASE}/devenv/work/c1`)
     expect(() => personHome(BASE, '../bob')).toThrow()
+  })
+  test('the box\'s libraries (docs/decisions/20261121-box-python-libs.md): the Python venv first on PATH, NODE_PATH', () => {
+    const o = { base: BASE, userId: 'alice', teamRoot: TEAM, work: null, platform: 'linux' as const }
+    const e = runEnv({ ...o, boxPython: BOX_PYTHON_BIN, nodeLibs: BOX_NODE_LIBS })
+    // the git wrapper and node first, then the box's Python (python3 there); the user site stays off (planted .pth files)
+    expect(e.PATH).toBe(`${BASE}/devenv/bin:/opt/trina/node/bin:${BOX_PYTHON_BIN}:/usr/local/bin:/usr/bin:/bin`)
+    expect(e.PYTHONNOUSERSITE).toBe('1')
+    // and pip install --user has nowhere to write (PEP 668 does not stop it in a venv)
+    expect(e.PYTHONUSERBASE).toBe('/dev/null/python-user')
+    expect(e.NODE_PATH).toBe(BOX_NODE_LIBS)
+    // a server without them (an older install, --minimal): the system's python3 and no NODE_PATH
+    const none = runEnv({ ...o, boxPython: null, nodeLibs: null })
+    expect(none.PATH).toBe(`${BASE}/devenv/bin:/opt/trina/node/bin:/usr/local/bin:/usr/bin:/bin`)
+    expect(none.NODE_PATH).toBeUndefined()
+    // the paths are what the list and install-srt.sh make, and readable in a run (SYSTEM_READ_PATHS has /opt/trina)
+    const list = JSON.parse(fs.readFileSync(path.join(REPO, 'scripts/system/packages.json'), 'utf8'))
+    expect(BOX_PYTHON_BIN).toBe('/opt/trina/python/python-pptx/current/bin')
+    expect(list.python['python-pptx'].systemSite).toBe(true)
+    expect(list.groups.devenv.python).toEqual(['python-pptx'])
+    expect(SYSTEM_READ_PATHS).toContain('/opt/trina')
+    const srt = fs.readFileSync(path.join(REPO, 'scripts/dev-env/srt/install-srt.sh'), 'utf8')
+    expect(srt).toContain('for PY in $(pk_pythons devenv); do')
+    expect(srt).toContain('ln -sfn "$NL_KEY" "$OPT/node-libs/current"')
+    expect(fs.readFileSync(path.join(REPO, 'scripts/dev-env/srt/install-srt-mac.sh'), 'utf8')).toContain('ln -sfn "$NL_KEY" "$OPT/node-libs/current"')
+    // the node libraries' lock pins what the tool text names, from npm's registry only
+    const lock = JSON.parse(fs.readFileSync(path.join(REPO, 'scripts/dev-env/srt/node-libs.package-lock.json'), 'utf8'))
+    for (const n of BOX_NODE_LIB_NAMES) expect(lock.packages[`node_modules/${n}`]?.integrity).toMatch(/^sha512-/)
+    for (const [k, v] of Object.entries(lock.packages as Record<string, { resolved?: string }>)) if (k) expect(v.resolved).toStartWith('https://registry.npmjs.org/')
+    // the tool text names every library, in one line
+    for (const n of [...BOX_PYTHON_LIBS, ...BOX_NODE_LIB_NAMES]) expect(boxLibsText('linux')).toContain(n)
+    for (const n of BOX_NODE_LIB_NAMES) expect(boxLibsText('darwin')).toContain(n)
+    expect(boxLibsText('darwin')).not.toContain('pandas') // a Mac team server's Python has none of them yet
+    expect(boxLibsText('darwin')).not.toContain('so pip install') // Trina's python3 there is read-only too: a venv
+    for (const t of [boxLibsText('linux'), boxLibsText('darwin')]) expect(t).toContain('python3 -m venv .venv')
+    expect(srtShellDescription(false)).toContain(boxLibsText())
+    expect(sharedShellDescription(false)).toContain(boxLibsText())
   })
 })
 

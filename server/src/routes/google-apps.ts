@@ -84,9 +84,10 @@ export function registerGoogleAppsRoutes(kit: RouteKit, ctx: AppContext) {
     try { r = await svc().callbackOutcome({ state: c.req.query('state'), code: c.req.query('code'), error: c.req.query('error'), handoff: c.req.query('handoff') }, auth ? { userId: auth.user.id, sessionId: auth.session.id } : undefined) } catch {}
     c.header('Cache-Control', 'no-store'); c.header('Referrer-Policy', 'no-referrer')
     c.header('Content-Security-Policy', GOOGLE_RETURN_CSP)
-    // in the person's language, with why it did not work (google-drive/callback-page.ts); static words and a same-origin
-    // link only: never carry code or state into a link or a native deep link
-    const page = googleReturnPage(googleReturnOf(r, !!auth), cc.get('locale'))
+    // in the person's language, with why it did not work (google-drive/callback-page.ts); static words and same-origin
+    // links only (a sign-in started in an app: the app's own link to this team, a desktop one with its one-time code in
+    // the fragment): never carry Google's code or the state into a link
+    const page = googleReturnPage(googleReturnOf(r, !!auth), cc.get('locale'), { app: r.app, origin: new URL(c.req.url).origin, code: r.ok ? r.code : undefined, who: r.ok ? r.who : undefined, google: r.ok ? r.google : undefined })
     return c.html(page.html, page.status)
   })
 }

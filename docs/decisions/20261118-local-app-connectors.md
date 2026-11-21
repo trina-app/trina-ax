@@ -151,6 +151,26 @@
   moved to an account, stops the `--account` ones beside it that are no longer needed. A `profile_id` no account has
   is looked for once a minute at most.
 
+## Aside's reads (2026-11-21)
+
+- **The owner hit it:** the AI listed Aside's browser profiles with `{}` and Trina showed the write card: "The AI wants
+  to send this to Aside: Browser profiles … What it sends: `{}`", with "Always allow every change in Aside". The owner:
+  "저거 보내는게 맞아?". Nothing is sent and nothing changes.
+- **Why it asked:** a connection tool is a read only when the service marks it (`readOnlyHint`, mcp.ts). Aside
+  1.26.1115 marks none of its four tools (no annotations in `tools/list`), so all four counted as changes.
+- **Rule:** the listed Aside connector (exactly `aside mcp`) gets Trina's own read list, as a Google app keeps Trina's
+  own catalog and ego lite's `read_guide` is marked in its preset (`LOCAL_APP_PRESETS` `reads`, `presetReads`):
+  `browser_profiles` (profile ids, labels, connected or not) and `memory_search` (the person's own Aside notes). They
+  run with no card, like any other connection's reads ("asking is the same as for other connections", "no stricter
+  than Aside itself"). Claude Code, the floor, asks once for a tool and never again for it; Trina asked on every list,
+  in words about sending and changing. `repl` (JavaScript in the logged-in browser) and `exec` (Aside's browser agent)
+  open pages and act: they keep the card.
+- **Not guessed from names:** a command the person typed (even `aside mcp --account u2`) and every other program get no
+  list, only the program's own mark; a new or renamed Aside tool is a change. Names alone are not trusted (the
+  shared-chat review, [20261118-shared-readonly-tools.md](20261118-shared-readonly-tools.md)).
+- **Applied when the saved list is read** (`store.ts savedTools`), so a connection added before this change gets it at
+  once. A local connection is never in a shared chat, a room or a schedule, so the shared-chat read rules do not apply.
+
 ## Open questions
 
 - **Keeping the known tools list up to date.** Who checks a tool's command shape, and how a new version reaches desktop

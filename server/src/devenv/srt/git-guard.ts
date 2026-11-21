@@ -19,6 +19,9 @@
 // The command line wins over these settings (`git -c core.hooksPath=…`, GIT_CONFIG_COUNT of its own, --config-env): the
 // hooks themselves are never executable in a shared folder (hook-sweep.ts, QA TC-5348).
 
+/** Python's user base in a run: under /dev/null, so no `pip install --user` can write it (a file is no folder) */
+export const NO_USER_BASE = '/dev/null/python-user'
+
 /** git, npm and Python settings of every run: nothing from a repository or the home runs by itself. */
 export function gitEnv(): Record<string, string> {
   const cfg: [string, string][] = [
@@ -40,8 +43,10 @@ export function gitEnv(): Record<string, string> {
     GIT_CONFIG_GLOBAL: '/dev/null',
     // these win over core.pager, core.editor, sequence.editor and core.askPass of a repository
     GIT_PAGER: 'cat', PAGER: 'cat', GIT_EDITOR: 'true', GIT_SEQUENCE_EDITOR: 'true', GIT_ASKPASS: '/bin/false', GIT_TERMINAL_PROMPT: '0',
-    // npm's ~/.npmrc, pip's config and Python's user site-packages (usercustomize, .pth files) in the home
-    NPM_CONFIG_USERCONFIG: '/dev/null', PIP_CONFIG_FILE: '/dev/null', PYTHONNOUSERSITE: '1',
+    // npm's ~/.npmrc, pip's config and Python's user site-packages (usercustomize, .pth files) in the home. The user
+    // base is a path nothing can create: in the box's venv (docs/decisions/20261121-box-python-libs.md) PEP 668 does not
+    // stop `pip install --user`, which would write into the home a package no run loads
+    NPM_CONFIG_USERCONFIG: '/dev/null', PIP_CONFIG_FILE: '/dev/null', PYTHONNOUSERSITE: '1', PYTHONUSERBASE: NO_USER_BASE,
   }
 }
 

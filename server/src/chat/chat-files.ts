@@ -19,7 +19,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { createHash } from 'node:crypto'
-import { SMALL_UPLOAD_MAX, type Attachment } from '@mycel/shared/api'
+import { CHAT_FILE_AI_MAX, SMALL_UPLOAD_MAX, type Attachment } from '@mycel/shared/api'
 import { PRODUCT } from '@mycel/shared'
 import type { AppContext } from '../context'
 import { newId, nowIso } from '../db'
@@ -34,11 +34,13 @@ import { mimeOf } from '../team-files/service'
 import { attachmentKind } from '../uploads/attachments'
 import { displaySize, makeThumbnail } from '../uploads/image'
 import { cleanImage, imageFormat, PHOTO, plainPicture } from '../uploads/metadata'
-import { assertStorageRoom } from '../system/storage'
+import { assertStorageRoom, assertStorageRoomForAI } from '../system/storage'
+import { ToolError } from '../policy/errors'
 import { fileError } from '../team-files/errors'
 import { personLocale } from '../files/media-text'
 import { tr } from './i18n'
 import { seesChatFiles } from './chat-files-access'
+import { withheldFrom } from './shared-answers'
 
 /** An upload not sent in a message within a day is removed (as a room's). */
 export const UNSENT_CHAT_FILE_MS = 24 * 3600_000
@@ -116,6 +118,14 @@ export class ChatFiles {
     return !!this.ctx.db.query("SELECT 1 FROM messages m, json_each(m.attachments) j WHERE m.chat_id = ? AND json_valid(m.attachments) AND json_extract(j.value, '$.id') = ? LIMIT 1").get(f.chat_id, f.id)
   }
 
+  /** Every message of its chat that carries the file is an answer hidden from `userId` (a question never is). */
+  private onlyOnHidden(userId: string, f: Pick<ChatFileRow, 'id' | 'chat_id'>): boolean {
+    const carriers = (this.ctx.db.query("SELECT DISTINCT m.id FROM messages m, json_each(m.attachments) j WHERE m.chat_id = ? AND json_valid(m.attachments) AND json_extract(j.value, '$.id') = ?").all(f.chat_id, f.id) as { id: string }[]).map((m) => m.id)
+    if (!carriers.length) return false
+    const hidden = withheldFrom(this.ctx.db, this.ctx.files.rules(), f.chat_id, userId)
+    return carriers.every((id) => hidden.has(id))
+  }
+
   /** Does `userId` see the chat of a chat file now: one shared with people they are in (not in the trash, unless it is
    * theirs), or their own chat (one made private again keeps its files for its creator; the trash too)? The same rule
    * as chatFor 'view' with deleted chats allowed for their creator. */
@@ -149,6 +159,68 @@ export class ChatFiles {
     audit(this.ctx.db, { actor: userId, action: 'chat.file_add', target: chatId, detail: { size: row.size, kind: row.kind } })
     // the sender checks the upload arrived whole against what was received, not against the cleaned picture (QA TC-2023)
     return { ...chatFileAttachment(row), ...(row.size !== received ? { receivedSize: received } : {}) }
+  }
+
+  /**
+   * The AI's file for its answer in a chat shared with people (chat/work-file-tool.ts, save_work_file): `src` is a
+   * server-only temp file it made (moved here, never read whole except a picture, whose metadata is cut out first as an
+   * upload's), at most CHAT_FILE_AI_MAX, with room in the team's storage. `userId` is the person whose turn it is (the
+   * file is theirs as an upload would be). The caller puts it into the answer's attachments at once (sent()). Audited.
+   * ToolError with plain words for the AI.
+   */
+  async createFromAi(userId: string, chatId: string, name: string, src: string, sha256: string): Promise<Attachment> {
+    const clean = name.normalize('NFC').replace(/[\u0000-\u001f]/g, '').trim()
+    const bad = !clean || clean.includes('/') || clean.includes('\\') ? 'not a file name' : badSegment(clean)
+    if (bad) throw new ToolError(`'${clean}' cannot be a file name here: ${bad}`, 'bad_name')
+    const size = fs.statSync(src).size
+    if (size > CHAT_FILE_AI_MAX) throw new ToolError(`the file is ${(size / 1024 ** 2).toFixed(0)} MB; a file attached to an answer may be at most ${CHAT_FILE_AI_MAX / 1024 ** 3} GB. Make it smaller (a lower bitrate or a shorter cut)`, 'too_large')
+    assertStorageRoomForAI(size)
+    let stored = sha256
+    let kind = attachmentKind(clean)
+    if (kind === 'image') {
+      // a picture is read whole to be cleaned: at most an upload's size (a 1 GB ".png" never sits in memory)
+      if (size > SMALL_UPLOAD_MAX) throw new ToolError(`this picture is ${(size / 1024 ** 2).toFixed(0)} MB; a picture attached to an answer may be at most ${SMALL_UPLOAD_MAX / 1024 ** 2} MB. Make it smaller`, 'too_large')
+      // a picture: its place and camera cut out, as an upload's (a picture that cannot be cleaned is not attached)
+      const pic = cleanPicture(clean, new Uint8Array(fs.readFileSync(src)), this.ctx.files.quarantine.hasHash(sha256))
+      if (!pic) throw new ToolError('this picture could not be read, so it was not attached', 'unreadable')
+      kind = pic.kind
+      if (pic.changed) { fs.writeFileSync(src, pic.bytes); stored = createHash('sha256').update(pic.bytes).digest('hex') }
+    }
+    const id = newId()
+    fs.mkdirSync(this.dir(chatId), { recursive: true, mode: 0o700 })
+    const dst = this.abs({ chat_id: chatId, id })
+    try { fs.renameSync(src, dst) } catch { fs.copyFileSync(src, dst); fs.rmSync(src, { force: true }) }
+    fs.chmodSync(dst, 0o600)
+    const t = new Date()
+    fs.utimesSync(dst, t, t)
+    const row = await this.record(userId, chatId, id, clean, dst, stored, null, kind)
+    audit(this.ctx.db, { actor: userId, action: 'chat.file_add', target: chatId, detail: { size: row.size, kind: row.kind, by: 'ai' } })
+    return { ...chatFileAttachment(row), origin: 'ai' }
+  }
+
+  /** A copy of a file the chat made in its creator's own folder (chat/chat-files-share.ts copyMade: its bytes read and
+   * checked there), kept as a file of this chat sent by `userId`; the caller attaches it to the answer that made it. */
+  async keepCopy(userId: string, chatId: string, name: string, src: { file: string } | { bytes: Uint8Array }, kind: Attachment['kind']): Promise<ChatFileRow> {
+    const id = newId()
+    await fs.promises.mkdir(this.dir(chatId), { recursive: true, mode: 0o700 })
+    const dst = this.abs({ chat_id: chatId, id })
+    try {
+      let sha: string
+      if ('bytes' in src) {
+        await fs.promises.writeFile(dst, src.bytes, { flag: 'wx', mode: 0o600 })
+        sha = createHash('sha256').update(src.bytes).digest('hex')
+      } else {
+        // a checked temp file (up to the copy cap): moved into place, hashed by streaming
+        try { await fs.promises.rename(src.file, dst) } catch { await fs.promises.copyFile(src.file, dst, fs.constants.COPYFILE_EXCL) }
+        await fs.promises.chmod(dst, 0o600)
+        const t = new Date()
+        await fs.promises.utimes(dst, t, t)
+        const h = createHash('sha256')
+        for await (const chunk of fs.createReadStream(dst)) h.update(chunk as Buffer)
+        sha = h.digest('hex')
+      }
+      return await this.record(userId, chatId, id, name, dst, sha, null, kind)
+    } catch (e) { this.removeFiles({ chat_id: chatId, id }); throw e }
   }
 
   /** The row of a file just put at `dst` (its preview made first). */
@@ -195,6 +267,9 @@ export class ChatFiles {
     const f = this.ctx.db.query('SELECT * FROM chat_files WHERE id = ? AND chat_id = ?').get(fileId, chatId) as ChatFileRow | null
     if (!f) return fail('not_found')
     if (f.user_id !== userId && !this.sent(f)) fail('not_found')
+    // a file carried only by answers hidden from this person (chat/shared-answers.ts: a copy of a file such an answer
+    // made, docs/decisions/20261121-share-chat-files.md): not theirs to open, as the answer is not (review M1)
+    if (f.user_id !== userId && this.onlyOnHidden(userId, f)) fail('not_found')
     const quarantined = this.ctx.files.quarantine.hasHash(f.sha256)
     if (thumb) {
       if (f.thumb === 'jpg' || f.thumb === 'png') {

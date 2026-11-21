@@ -90,6 +90,9 @@ export function buildVectors() {
         { command: 'error-reports-set', args: {}, stdin: { url: 'https://0000000000000000aaaaaaaaaaaaaaaa@errors.example.invalid/1' } },
         { command: 'error-reports-set', args: {}, stdin: { url: 'https://0000000000000000aaaaaaaaaaaaaaaa@o0.ingest.example.invalid:8443/prefix/42' } },
         { command: 'error-reports-set', args: {}, stdin: { url: null } },
+        // the hosting service's GitHub App (fake values), with and without its name
+        { command: 'github-app-set', args: {}, stdin: { clientId: 'Iv23liTestVectorOnly0', clientSecret: '0000000000000000000000000000000000000000', slug: 'example-app' } },
+        { command: 'github-app-set', args: {}, stdin: { clientId: 'Iv1.0123456789abcdef', clientSecret: 'not-a-secret_!#$%&()*+,./:;<=>?@[]^`{|}~' } },
       ],
       refused: [
         { command: 'sh', args: {}, stdin: null, why: 'not a command' },
@@ -116,6 +119,18 @@ export function buildVectors() {
         { command: 'error-reports-set', args: {}, stdin: { url: null, extra: 1 }, why: 'unknown stdin field' },
         { command: 'error-reports-set', args: {}, stdin: {}, why: 'url is required' },
         { command: 'error-reports-set', args: { url: 'https://0000000000000000aaaaaaaaaaaaaaaa@errors.example.invalid/1' }, stdin: null, why: 'the key goes on stdin only' },
+        { command: 'github-app-set', args: {}, stdin: { clientId: 'Iv23liTestVectorOnly0' }, why: 'clientSecret is required' },
+        { command: 'github-app-set', args: {}, stdin: { clientSecret: '0000000000000000000000000000000000000000' }, why: 'clientId is required' },
+        { command: 'github-app-set', args: {}, stdin: { clientId: 'Iv23liTestVectorOnly0', clientSecret: '' }, why: 'an empty secret' },
+        { command: 'github-app-set', args: {}, stdin: { clientId: 'Iv23liTestVectorOnly0', clientSecret: 'two words' }, why: 'a space in the secret' },
+        { command: 'github-app-set', args: {}, stdin: { clientId: 'Iv23liTestVectorOnly0', clientSecret: 'line\nbreak' }, why: 'a newline in the secret' },
+        { command: 'github-app-set', args: {}, stdin: { clientId: 'Iv23liTestVectorOnly0', clientSecret: 'x'.repeat(4097) }, why: 'a secret over 4096 characters' },
+        { command: 'github-app-set', args: {}, stdin: { clientId: '../../etc', clientSecret: '0000000000000000000000000000000000000000' }, why: 'clientId rule' },
+        { command: 'github-app-set', args: {}, stdin: { clientId: 'Iv23liTestVectorOnly0', clientSecret: '0000000000000000000000000000000000000000', slug: 'Example App' }, why: 'slug rule' },
+        { command: 'github-app-set', args: {}, stdin: { clientId: 'Iv23liTestVectorOnly0', clientSecret: '0000000000000000000000000000000000000000', path: '/etc/shadow' }, why: 'unknown stdin field' },
+        { command: 'github-app-set', args: {}, stdin: { clientId: 'Iv23liTestVectorOnly0', clientSecret: 0 }, why: 'the secret is a string' },
+        { command: 'github-app-set', args: {}, stdin: null, why: 'the app goes on stdin' },
+        { command: 'github-app-set', args: { clientSecret: '0000000000000000000000000000000000000000' }, stdin: { clientId: 'Iv23liTestVectorOnly0', clientSecret: '0000000000000000000000000000000000000000' }, why: 'the secret goes on stdin only' },
       ],
     },
     enroll: {

@@ -34,7 +34,10 @@ export interface Artifact { version: string; for: string; revoked?: string[]; pl
 /** a Python program in a venv of its own (packages.sh pk_python_install): its version, the Python it needs (">=3.N"),
  * the program in the venv's bin/, and every wheel it installs as "name==version": "sha256 sha256 ..." (one sha256 per
  * wheel a list system can use; scripts/system/python-lock.ts writes them from the project's uv.lock) */
-export interface PythonProgram { version: string; for: string; python: string; program: string; requirements: Record<string, string> }
+export interface PythonProgram { version: string; for: string; python: string; program: string; requirements: Record<string, string>
+  /** true: the venv sees the system's site-packages (python3 -m venv --system-site-packages), for the dev environment's
+   * Python: apt's libraries plus the venv's */
+  systemSite?: boolean }
 export interface PackageList {
   format: 1
   _about?: string[]
@@ -149,7 +152,8 @@ export function listProblems(j: unknown, opts: { linux?: boolean } = {}): string
     const at = `python ${n}`
     if (!GROUP.test(n)) p.push(`${at}: bad name`)
     if (!y || typeof y !== 'object') { p.push(`${at}: not an object`); continue }
-    for (const k of extra(y, ['version', 'for', 'python', 'program', 'requirements'])) p.push(`${at}: unknown key ${k}`)
+    for (const k of extra(y, ['version', 'for', 'python', 'program', 'requirements', 'systemSite'])) p.push(`${at}: unknown key ${k}`)
+    if (y.systemSite !== undefined && y.systemSite !== true) p.push(`${at}: systemSite is true or left out`)
     if (typeof y.version !== 'string' || !PY_VERSION.test(y.version)) p.push(`${at}: no version`)
     if (typeof y.for !== 'string' || !y.for) p.push(`${at}: say what it is for ("for")`)
     if (typeof y.python !== 'string' || !/^>=3\.[0-9]+$/.test(y.python)) p.push(`${at}: python must be ">=3.N" (the oldest Python it runs on)`)
@@ -222,7 +226,7 @@ export function flatLines(l: PackageList): string {
   }
   for (const [n, a] of Object.entries(l.artifacts)) for (const [p, x] of Object.entries(a.platforms)) t('F', n, p, a.version, x.url, x.sha256, x.size, x.dir)
   for (const [n, a] of Object.entries(l.artifacts)) for (const v of a.revoked ?? []) t('X', n, v)
-  for (const [n, y] of Object.entries(l.python ?? {})) t('Y', n, y.version, y.python.replace(/^>=/, ''), y.program)
+  for (const [n, y] of Object.entries(l.python ?? {})) t('Y', n, y.version, y.python.replace(/^>=/, ''), y.program, y.systemSite ? 1 : '')
   for (const [n, y] of Object.entries(l.python ?? {})) for (const [r, h] of Object.entries(y.requirements)) t('W', n, r, h)
   return o.join('\n')
 }

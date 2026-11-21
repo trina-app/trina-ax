@@ -22,8 +22,17 @@
 //
 // A request whose asker now opens the chat or project (shared with them another way) settles as approved when it is
 // read; one whose chat or project went, as closed.
+//
+// One file of a chat shared with people (docs/decisions/20261121-share-chat-files.md): someone in the chat whose file
+// link does not open asks its creator to add it (GET/POST /api/chats/:id/file-access). The same table, kind 'chat',
+// target '<chat id>/<32 hex of the path's sha256>' (chat/chat-files-share.ts fileAskTarget), the path and the name the
+// chat recorded in `message` as JSON (never shown as a note). Only for a path madeFilesOf lists for the chat; every
+// other case is the one answer 'no'. The ask is untrusted: [Add to the chat] runs the Share step's own check again
+// (madeFilesOf, the bytes read and hashed) and copies only then. It settles as approved once the chat has the file, as
+// closed once the asker no longer sees the chat or the file no longer qualifies; leaving the chat closes it at once
+// (people-share.ts closeFileAsks).
 import type { Database } from 'bun:sqlite'
-import { FILE_REQUESTS_PER_HOUR, FILE_REQUESTS_PER_OWNER_DAY, inQuietHours, plainLabel, type AccessKind, type AccessRequestAnswer, type InboxNotification, type LinkAccessRequestResult, type LinkAccessView, type Locale } from '@mycel/shared/api'
+import { FILE_REQUESTS_PER_HOUR, FILE_REQUESTS_PER_OWNER_DAY, inQuietHours, plainLabel, type AccessKind, type AccessRequestAnswer, type ChatFileAccess, type InboxNotification, type LinkAccessRequestResult, type LinkAccessView, type Locale } from '@mycel/shared/api'
 import type { AppContext } from '../context'
 import { audit } from '../admin/audit'
 import { teamTimeZone } from '../admin/settings'
@@ -43,6 +52,20 @@ import { accessEditable, projectAccess, saveParticipants } from './project-acces
 import { canSeeProject, isTeamProject, mayEditProject, mayManageProject } from './projects'
 import type { ChatRow, ProjectRow } from './store'
 import { ACCESS_REQUEST_TEXT } from './access-request-text'
+import { isPeopleRow } from './chat-audience'
+import { copyMade, copyOf, fileAskChat, fileAskTarget, madeFilesOf, readVerified } from './chat-files-share'
+
+/** What a file ask holds in `message`: the path and the name the chat recorded. */
+const fileAskOf = (q: Pick<RequestRow, 'kind' | 'target_id' | 'message'>): { chatId: string; path: string; name: string } | null => {
+  const chatId = q.kind === 'chat' ? fileAskChat(q.target_id) : null
+  if (!chatId || !q.message) return null
+  try {
+    const v = JSON.parse(q.message) as { path?: unknown; name?: unknown }
+    return typeof v.path === 'string' && typeof v.name === 'string' && fileAskTarget(chatId, v.path) === q.target_id ? { chatId, path: v.path, name: v.name } : null
+  } catch { return null }
+}
+/** A link's path as the chat's records name it (no leading or trailing slash). */
+const relOf = (p: string) => p.normalize('NFC').replace(/^\/+|\/+$/g, '')
 
 type State = 'pending' | 'approved' | 'declined' | 'closed'
 interface RequestRow { id: string; kind: AccessKind; target_id: string; requester_id: string; owner_id: string; message: string | null; state: State; created_at: string }
@@ -147,6 +170,11 @@ export class AccessRequests {
    * confidential, safe operations off) with its creator there; a project still there, out of the trash and a team
    * project. A project whose answerers are all gone for a moment keeps its requests (an admin may come back). */
   private answerable(q: RequestRow): boolean {
+    const file = fileAskOf(q)
+    if (file) {
+      const r = this.rt.store.chatRow(file.chatId)
+      return !!r && !r.deleted_at && isPeopleRow(r) && this.chatAnswerers(r).length > 0 && this.chatOpens(q.requester_id, r.id) && madeFilesOf(this.ctx, r, { only: file.path }).length > 0
+    }
     if (q.kind === 'chat') {
       const r = this.rt.store.chatRow(q.target_id)
       return !!r && !peopleShareRefusal(this.ctx, r) && !safeOpsEnabled() && !confidentialChat(this.db, r.id) && this.chatAnswerers(r).length > 0
@@ -162,7 +190,10 @@ export class AccessRequests {
     return !!r && this.projectOpens(me, r)
   }
   /** The asker opens the request's target now. */
-  private askerOpens(q: Pick<RequestRow, 'kind' | 'target_id' | 'requester_id'>): boolean {
+  private askerOpens(q: Pick<RequestRow, 'kind' | 'target_id' | 'requester_id' | 'message'>): boolean {
+    // a file ask: the chat has the file now (and the asker still sees the chat)
+    const file = fileAskOf(q)
+    if (file) return !!copyOf(this.ctx, file.chatId, file.path, q.requester_id) && this.chatOpens(q.requester_id, file.chatId)
     const p = loadPrincipal(this.db, q.requester_id)
     return !!p && this.opens(p, q.kind, q.target_id)
   }
@@ -250,9 +281,73 @@ export class AccessRequests {
     return { status: 'sent', askedAt: created }
   }
 
+  // ---------------- one file of a chat shared with people ----------------
+  /** What the asker may ask about `path` in `chatId` (the route checked they see the chat), or null: the one 'no'. */
+  private fileAskable(userId: string, chatId: string, path: string) {
+    const me = loadPrincipal(this.db, userId)
+    const r = this.rt.store.chatRow(chatId)
+    // a guest is never in a chat shared with people; the creator opens their own files
+    if (!me || me.role === 'guest' || !r || r.deleted_at || !isPeopleRow(r) || r.user_id === userId || !this.chatOpens(userId, chatId)) return null
+    const creator = loadPrincipal(this.db, r.user_id)
+    if (!creator || creator.role === 'guest') return null
+    const rel = relOf(path)
+    // a copy on an answer hidden from me, or a file such an answer made: the one 'no' (review M1)
+    const copy = copyOf(this.ctx, chatId, rel, userId)
+    if (copy) return { r, rel, creator, copy, made: null }
+    const made = madeFilesOf(this.ctx, r, { only: rel })[0]
+    return made ? { r, rel, creator, copy: null, made } : null
+  }
+
+  /** GET /api/chats/:id/file-access. One answer, 'no', for every case it cannot help with. */
+  fileView(userId: string, chatId: string, path: string): ChatFileAccess {
+    this.readLimit(userId)
+    const x = this.fileAskable(userId, chatId, path)
+    if (!x) return { status: 'no' }
+    if (x.copy) return { status: 'copy', fileId: x.copy.id, name: x.copy.name }
+    const asked = this.waiting('chat', fileAskTarget(chatId, x.rel), userId)
+    return asked ? { status: 'asked', askedAt: asked.created_at, by: x.creator.name, name: x.made!.name } : { status: 'ask', by: x.creator.name, name: x.made!.name }
+  }
+
+  /** POST /api/chats/:id/file-access: the ask, to the chat's creator. */
+  fileRequest(userId: string, chatId: string, path: string, L: Locale): LinkAccessRequestResult {
+    this.readLimit(userId)
+    const x = this.fileAskable(userId, chatId, path)
+    if (!x) return fail('not_found')
+    if (x.copy) return { status: 'open' }
+    const target = fileAskTarget(chatId, x.rel)
+    const waiting = this.waiting('chat', target, userId)
+    if (waiting) return { status: 'already', askedAt: waiting.created_at }
+    this.limits(userId, x.r.user_id, L)
+    const created = now()
+    this.db.query('INSERT INTO access_requests (id, kind, target_id, requester_id, owner_id, message, state, created_at) VALUES (?,?,?,?,?,?,?,?)')
+      .run(newId(), 'chat', target, userId, x.r.user_id, JSON.stringify({ path: x.rel, name: x.made!.name }), 'pending', created)
+    // ids only: never the path or the name
+    audit(this.db, { actor: userId, action: 'access.request', target: `chat:${chatId}`, detail: { kind: 'chat', via: 'chat_file' } })
+    this.notify(x.r.user_id, 'access.requested', `chat:${target}:${userId}`, true)
+    return { status: 'sent', askedAt: created }
+  }
+
+  /** The file requests' limits, counted over both tables (files/shares.ts request): 429 past them. */
+  private limits(userId: string, owner: string, L: Locale): void {
+    const at = Date.now()
+    const hourAgo = new Date(at - 3600_000).toISOString(), dayAgo = new Date(at - 86400_000).toISOString()
+    const count = (sql: string, ...args: string[]) => (this.db.query(sql).get(...args) as { n: number }).n
+    const hour = count('SELECT COUNT(*) n FROM access_requests WHERE requester_id = ? AND created_at > ?', userId, hourAgo)
+      + count('SELECT COUNT(*) n FROM file_access_requests WHERE requester_id = ? AND created_at > ?', userId, hourAgo)
+    const day = count('SELECT COUNT(*) n FROM access_requests WHERE requester_id = ? AND owner_id = ? AND created_at > ?', userId, owner, dayAgo)
+      + count("SELECT COUNT(*) n FROM file_access_requests WHERE requester_id = ? AND COALESCE(owner_id, '') = ? AND created_at > ?", userId, owner, dayAgo)
+    if (hour >= FILE_REQUESTS_PER_HOUR || day >= FILE_REQUESTS_PER_OWNER_DAY) fail('rate_limited', msg('tooMany', L), { retryAfter: 3600 })
+  }
+
   // ---------------- the answer ----------------
   /** May `me` share the request's target with its asker now? */
   private mayAnswer(me: Principal, q: RequestRow): boolean {
+    // a file ask: the chat's creator, whose own file it is
+    const file = fileAskOf(q)
+    if (file) {
+      const r = this.rt.store.chatRow(file.chatId)
+      return !!r && !r.deleted_at && isPeopleRow(r) && r.user_id === me.id && me.role !== 'guest'
+    }
     if (q.kind === 'chat') {
       const r = this.rt.store.chatRow(q.target_id)
       return !!r && this.sharesChat(me, r)
@@ -287,6 +382,23 @@ export class AccessRequests {
       audit(this.db, { actor: userId, action: 'access.declined', target, detail: { kind: q.kind } })
       this.notify(q.requester_id, 'access.answered', q.id, false)
       return { state: 'declined' }
+    }
+    const file = fileAskOf(q)
+    if (file) {
+      // untrusted: the Share step's own check again, for that one path (madeFilesOf), and the bytes read and hashed
+      const r = this.rt.store.chatRow(file.chatId)!
+      const made = madeFilesOf(this.ctx, r, { only: file.path })
+      const v = made.length ? await readVerified(this.ctx, r, made, { only: file.path }) : null
+      if (!v || !v.files.length) {
+        this.db.query("UPDATE access_requests SET state = 'closed', decided_at = ? WHERE id = ? AND state = 'pending'").run(now(), q.id)
+        return { state: 'closed' }
+      }
+      await copyMade(this.ctx, r, v.files, 'request')
+      this.db.query("UPDATE access_requests SET state = 'approved', decided_by = ?, decided_at = ? WHERE id = ? AND state = 'pending'").run(userId, now(), q.id)
+      audit(this.db, { actor: userId, action: 'access.approved', target: `chat:${file.chatId}`, detail: { kind: 'chat_file' } })
+      this.rt.publishChat(userId, file.chatId, 'updated')
+      this.notify(q.requester_id, 'access.answered', q.id, false)
+      return { state: 'approved' }
     }
     if (q.kind === 'chat') {
       const rt = this.rt
@@ -326,10 +438,12 @@ export class AccessRequests {
     const me = loadPrincipal(this.db, userId)
     if (!row || !me) return null
     const q = this.settle(row)
-    const name = kind === 'chat' ? this.rt.store.chatRow(target) : this.rt.store.projectRow(target)
+    const file = fileAskOf(q)
+    const chatId = file?.chatId ?? target
+    const name = kind === 'chat' ? this.rt.store.chatRow(chatId) : this.rt.store.projectRow(target)
     if (!name || (kind === 'chat' && (name as ChatRow).deleted_at)) return null
     const title = kind === 'chat' ? (name as ChatRow).title : (name as ProjectRow).name
-    return { request: q, kind, target, asker, title, may: this.mayAnswer(me, q) }
+    return { request: q, kind, target: kind === 'chat' ? chatId : target, asker, title, may: this.mayAnswer(me, q), file }
   }
 
   /** The push of a request (push-service.ts): while it waits, this person may answer it and the asker is active. */
@@ -348,6 +462,13 @@ export class AccessRequests {
     if (row.event_type === 'access.answered') {
       const q = this.db.query(`SELECT ${COLS} FROM access_requests WHERE id = ? AND requester_id = ?`).get(row.source_id, row.user_id) as RequestRow | null
       if (!q) return gone
+      // a file of a chat added: the file's name and the chat, while the asker still sees it
+      const file = fileAskOf(q)
+      if (file && q.state === 'approved') {
+        if (!this.chatOpens(row.user_id, file.chatId)) return gone
+        const c = this.rt.store.chatRow(file.chatId)
+        return { ...base, chatId: file.chatId, link: 'chat', accessRequest: { kind: 'chat', by: null, name: c?.title ? plainLabel(c.title, 120) : null, targetId: file.chatId, state: 'approved', file: { name: plainLabel(file.name, 200) } } }
+      }
       // a decline says nothing about the chat or project (as a file's)
       if (q.state !== 'approved' || q.kind !== 'project') return { ...base, link: null, accessRequest: { kind: null, by: null, name: null, targetId: null, state: 'declined' } }
       const r = this.rt.store.projectRow(q.target_id)
@@ -364,7 +485,7 @@ export class AccessRequests {
     const q = a.request
     return {
       ...base, link: null,
-      accessRequest: { kind: a.kind, by: nameOf(a.asker), name: a.title ? plainLabel(a.title, 120) : null, targetId: a.target, ...(q.message ? { note: q.message } : {}), requestId: q.id, state: q.state, ...(a.may && q.state === 'pending' ? { canAnswer: true as const } : {}) },
+      accessRequest: { kind: a.kind, by: nameOf(a.asker), name: a.title ? plainLabel(a.title, 120) : null, targetId: a.target, ...(q.message && !a.file ? { note: q.message } : {}), ...(a.file ? { file: { name: plainLabel(a.file.name, 200) } } : {}), requestId: q.id, state: q.state, ...(a.may && q.state === 'pending' ? { canAnswer: true as const } : {}) },
     }
   }
 }

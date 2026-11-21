@@ -104,6 +104,8 @@ for (const width of [1440, 390] as const) {
         await page.goto('/')
         const bar = page.getByTestId('free-roam-bar')
         await expect(bar).toContainText("You're Mina at Steepling, a made-up company. Try anything.")
+        // how much they can still ask, in questions: floor((300k - 1k) / 35k)
+        await expect(page.getByTestId('free-roam-left')).toHaveText('About 8 questions left')
         if (width === 1440) await expect(page.getByTestId('sidebar-team')).toHaveText('Steepling')
         // no mic in the box (voice is fenced), though the team's voice input is on
         await expect(page.getByTestId('voice-button')).toHaveCount(0)
@@ -137,7 +139,26 @@ for (const width of [1440, 390] as const) {
         used.now = 250_000
         await page.reload()
         await expect(page.getByTestId('free-roam-meter')).toHaveText('About 20% of your demo AI left')
+        // one count at a time: the meter takes over from the questions left
+        await expect(page.getByTestId('free-roam-left')).toHaveCount(0)
         await shot(page, `${at}-3-meter`)
+      })
+
+      test('the bar in Korean: the questions left, within the width', async ({ page }) => {
+        await reset(page, { teamLocale: 'ko', usersFollowTeam: true })
+        await freeRoam(page, { now: 1_000 })
+        await signInAsMina(page)
+        await page.goto('/')
+        const bar = page.getByTestId('free-roam-bar')
+        await expect(page.getByTestId('free-roam-left')).toHaveText('질문 8번 정도 남았어요')
+        const b = (await bar.boundingBox())!
+        expect(b.x + b.width).toBeLessThanOrEqual(width + 0.5)
+        expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width)
+        for (const c of await page.getByTestId('free-roam-chip').all()) {
+          const r = (await c.boundingBox())!
+          expect(r.x + r.width).toBeLessThanOrEqual(width + 0.5)
+        }
+        await shot(page, `${at}-2-bar-ko`)
       })
 
       test('a suggestion is sent as a new chat', async ({ page }) => {

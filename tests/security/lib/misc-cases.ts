@@ -186,7 +186,7 @@ export const MISC_SPECS: Record<string, Spec> = {
       if (r.status !== 204) return
       const kept = w.inst.ctx.db.query("SELECT user_id FROM suggestion_dismissals WHERE key = 'deck-video'").all() as { user_id: string }[]
       if (!kept.some((x) => x.user_id === USER_OF[who])) throw new Error(`${who}: the dismissal was not kept for the caller`)
-      const spoof = await w.as[who].req('POST', '/api/onboarding/suggestion/dismiss', { key: 'ppt', userId: 'alice' })
+      const spoof = await w.as[who].req('POST', '/api/onboarding/suggestion/dismiss', { key: 'team-skill', userId: 'alice' })
       if (spoof.status !== 400) throw new Error(`${who}: a body naming a person was not refused: ${spoof.status}`)
     } },
 

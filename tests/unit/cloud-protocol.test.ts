@@ -8,7 +8,7 @@ import {
   checkTeamName, keyRotationString as relayRotate, registerSigningString as relayRegister, verifyB64,
 } from '@mycel/shared/relay-protocol'
 import {
-  EnrollFile, EnrollRequest, EnrollResponse, ErrorReportsResult, NoticesFile, OPS_SCOPES, OpsClaimRequestSchema, OpsCreateTeamRequestSchema,
+  EnrollFile, EnrollRequest, EnrollResponse, ErrorReportsResult, GitHubAppFile, GitHubAppResult, NoticesFile, OPS_SCOPES, OpsClaimRequestSchema, OpsCreateTeamRequestSchema,
   OpsHoldRequestSchema, OpsKeyRequestSchema, OpsMaintenanceRequestSchema, OpsNoticeRequestSchema, OpsRenameRequestSchema,
   OpsSuspendRequestSchema, PlanFile, PlanResources, CredentialKind, CLOUD_DEFAULT_CREDENTIAL_KINDS, ReleaseFeed, RelayRegistrationFile, TENANT_COMMANDS, TeamSlug, TenantOnboarding, TenantStatus, EnrollStatus,
   canonicalJson, enrollResponseProblem, keyRotationString, onlySnapshotRollback, opsScopeFor, parseClaimRequest,
@@ -18,6 +18,7 @@ import {
 } from '@mycel/shared/cloud-protocol'
 import { CredentialKind as ApiCredentialKind, Username as ApiUsername } from '@mycel/shared/api'
 import { parseDsn } from '@mycel/shared/sentry-report'
+import { parseGitHubApp } from '../../server/src/integrations/github/app'
 import { buildVectors } from '../../shared/src/cloud-protocol/vectors.ts'
 import { VECTORS_FILE, vectorsText } from '../../scripts/cloud-protocol-vectors.ts'
 
@@ -73,9 +74,9 @@ describe('cloud-protocol: tenant commands', () => {
     expect(tenantCommandProblem('idle-wait', { max: { $gt: 1 } }, null)).not.toBeNull()
     expect(tenantCommandProblem('reset-link', { owner: true, username: 'kim' }, null)).not.toBeNull()
   })
-  test('the fifteen commands of control-plane 3.5.3, the hosting service\'s speech and error report keys, the owner recovery claim and the data disk grow', () => {
+  test('the fifteen commands of control-plane 3.5.3, the hosting service\'s speech and error report keys and GitHub App, the owner recovery claim and the data disk grow', () => {
     expect(Object.keys(TENANT_COMMANDS).sort()).toEqual([
-      'apply-plan', 'backup-prepare', 'backup-upload', 'credentials-escrow-out', 'data-grow', 'error-reports-set', 'export', 'hosted-speech-key-set', 'idle-wait', 'notices-set',
+      'apply-plan', 'backup-prepare', 'backup-upload', 'credentials-escrow-out', 'data-grow', 'error-reports-set', 'export', 'github-app-set', 'hosted-speech-key-set', 'idle-wait', 'notices-set',
       'owner-recovery-claimed', 'prepare-stop', 'relay-key-proof', 'relay-registration-set', 'reset-link', 'set-server-config', 'setup-token-rotate',
       'status', 'update',
     ])
@@ -91,6 +92,20 @@ describe('cloud-protocol: tenant commands', () => {
     expect(ErrorReportsResult.safeParse({ ok: true, changed: true }).success).toBe(false)
     expect(tenantCommandArgv('error-reports-set', {})).toEqual(['error-reports-set', '--json'])
     expect(tenantCommandTimeoutSec('error-reports-set', {})).toBe(120)
+  })
+  test('github-app-set: every app the gate lets through is one the server reads, its file far below 16 KiB; the answer shape', () => {
+    const apps = V.tenantCommands.allowed.filter((c) => c.command === 'github-app-set').map((c) => c.stdin)
+    expect(apps.length).toBeGreaterThan(1)
+    for (const a of apps) expect(parseGitHubApp(a)).toEqual(a as never)
+    const big = { clientId: 'x'.repeat(128), clientSecret: '"'.repeat(4096), slug: 'a'.repeat(100) }
+    expect(GitHubAppFile.safeParse(big).success).toBe(true)
+    expect(parseGitHubApp(big)).not.toBeNull()
+    expect(Buffer.byteLength(JSON.stringify(big) + '\n')).toBeLessThan(16_384)
+    for (const s of ['tab\there', 'é', '\u0000', ' lead']) expect(GitHubAppFile.safeParse({ clientId: 'Iv1.x', clientSecret: s }).success).toBe(false)
+    expect(GitHubAppResult.safeParse({ ok: true, changed: false }).success).toBe(true)
+    expect(GitHubAppResult.safeParse({ ok: true }).success).toBe(false)
+    expect(tenantCommandArgv('github-app-set', {})).toEqual(['github-app-set', '--json'])
+    expect(tenantCommandTimeoutSec('github-app-set', {})).toBe(30)
   })
   test('argv and timeouts', () => {
     for (const a of V.tenantCommandArgv) expect(tenantCommandArgv(a.command as TenantCommandName, a.args as never)).toEqual(a.argv)

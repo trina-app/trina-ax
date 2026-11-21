@@ -3,11 +3,14 @@
 // (a chat) or Add (a project) and Decline in the row, as a file's request (components/FileRequestNotice.tsx). A chat's
 // first share with someone asks first, with the Share dialog's own warning lines (components/ShareWarning.tsx), and
 // shares only after the yes. After: what was done; the chat or project gone meanwhile: that, without buttons.
+// An ask to add one file of my chat shared with people (`file`, docs/decisions/20261121-share-chat-files.md): [Add to
+// the chat] and Decline; the server checks the file again and copies it into the chat, or closes the ask.
 import { useState } from 'react'
 import type { InboxNotification } from '@mycel/shared/api'
 import { api, API, errorText } from '../lib/api'
 import { useLocale, useT } from '../i18n'
 import { toast } from '../store/ui'
+import { useChats } from '../store/chats'
 import { shareWarningLines } from './ShareWarning'
 import { Button, confirmDialog } from './ui'
 
@@ -35,6 +38,8 @@ export function AccessRequestExtras({ item, onRead, onChanged }: { item: InboxNo
         if (r.state === 'confirm') return
       }
       setState(r.state)
+      // a file added to my chat: the chat, when open here, is read again so its link opens the copy
+      if (r.state === 'approved' && a.file && a.targetId && useChats.getState().threads[a.targetId]) void useChats.getState().loadThread(a.targetId).catch(() => {})
       onRead()
       onChanged()
     } catch (e) {
@@ -44,7 +49,7 @@ export function AccessRequestExtras({ item, onRead, onChanged }: { item: InboxNo
     }
   }
   const gone = a.gone || state === 'closed'
-  const done = state === 'approved' ? t(a.kind === 'project' ? 'accessRequest.addedProject' : 'accessRequest.sharedChat', { by: a.by ?? '' })
+  const done = state === 'approved' ? t(a.file ? 'accessRequest.addedFile' : a.kind === 'project' ? 'accessRequest.addedProject' : 'accessRequest.sharedChat', { by: a.by ?? '' })
     : state === 'declined' ? t('accessRequest.declined') : gone ? t('accessRequest.gone') : null
   return (
     <div className="mt-1 space-y-2" data-testid="access-request" data-kind={a.kind ?? undefined} data-state={gone ? 'closed' : state}>
@@ -53,7 +58,7 @@ export function AccessRequestExtras({ item, onRead, onChanged }: { item: InboxNo
         <p className="text-xs text-muted" data-testid="access-request-done">{done}</p>
       ) : state === 'pending' && a.canAnswer ? (
         <div className="flex flex-wrap items-center gap-2">
-          <Button size="sm" variant="primary" busy={busy === 'approve'} disabled={!!busy} onClick={() => void answer('approve')} data-testid="access-request-share">{t(a.kind === 'project' ? 'accessRequest.add' : 'accessRequest.share')}</Button>
+          <Button size="sm" variant="primary" busy={busy === 'approve'} disabled={!!busy} onClick={() => void answer('approve')} data-testid="access-request-share">{t(a.file ? 'accessRequest.addToChat' : a.kind === 'project' ? 'accessRequest.add' : 'accessRequest.share')}</Button>
           <Button size="sm" busy={busy === 'decline'} disabled={!!busy} onClick={() => void answer('decline')} data-testid="access-request-decline">{t('accessRequest.decline')}</Button>
         </div>
       ) : null}

@@ -14,6 +14,7 @@ of srt by it.
 | `install-srt.sh` | (run as root) | packages, node, srt, the files below, a run check, then the server drop-in |
 | `uninstall-srt.sh` | (run as root) | removes all of it; `--purge` also deletes `<base>/devenv` |
 | `package.json`, `package-lock.json` | `/opt/trina/srt/<version>/` | the pinned srt and its dependencies, with integrity hashes |
+| `node-libs.package.json`, `node-libs.package-lock.json` | `/opt/trina/node-libs/<sha12>/` (link `current`) | Node libraries a run has without npm install (pptxgenjs, docx), on `NODE_PATH` (docs/decisions/20261121-box-python-libs.md) |
 | `run-wrap` | `/opt/trina/devenv/run-wrap` | the run's arguments file (`--unit`), rlimits, `oom_score_adj`, the exit file |
 | `srt-full.mjs` | `/opt/trina/srt/<version>/full.mjs` | srt's CLI for a person's Full internet: allows host names only, never an IP address or a local name |
 | `devenv-run.service.in` | `/etc/systemd/system/trina-dev@.service` | the run template: the server account, the devenv slice, the server unit's sandbox lines, `OOMPolicy=kill`, an 8 h 10 min ceiling |

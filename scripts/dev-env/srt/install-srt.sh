@@ -9,6 +9,8 @@
 #     tarball the list pins (version, sha256);
 #   - srt in /opt/trina/srt/<version> (the list's version) from the pinned package-lock.json (npm ci --ignore-scripts),
 #     root-owned;
+#   - the libraries a run has without pip or npm install: the devenv group's Python programs in /opt/trina/python
+#     (python-pptx, matplotlib) and node-libs.package-lock.json in /opt/trina/node-libs (pptxgenjs, docx);
 #   - /opt/trina/devenv/run-wrap, the run template /etc/systemd/system/trina-dev@.service (each run is one instance;
 #     docs/DECISIONS.md "Dev environment on srt: runs as template units"), the polkit rule for the run units, the
 #     <ID>-devenv.slice with the plan caps;
@@ -187,6 +189,33 @@ for old in "$OPT"/srt/*/; do
   old=${old%/}; [ "$old" = "$SRT_DIR" ] && continue
   if ! grep -qs "$old/" /proc/[0-9]*/cmdline 2>/dev/null; then rm -rf "$old"; else say "kept $old: a run still uses it"; fi
 done
+
+# ---- the libraries a run has without pip or npm install (docs/decisions/20261121-box-python-libs.md) ----
+# Python: the devenv group's Python programs (python-pptx: a venv with the system's site-packages, first on a run's PATH;
+# pinned wheels by sha256). Node: pptxgenjs and docx from node-libs.package-lock.json (next to this file) in /opt/trina/node-libs/<sha12>
+# (NODE_PATH of a run). Without them a run still works (python3 and node without these libraries): a failure is a note.
+for PY in $(pk_pythons devenv); do
+  if [ "$BOOT" = 1 ] && [ ! -e "$OPT/python/$PY/current" ]; then say "note: no python $PY (--boot downloads nothing)"; continue; fi
+  if PYPATH=$(pk_python_install "$OPT/python/$PY" "$PY"); then say "python: $PY $(pk_py "$PY" version) ($PYPATH)"
+  else say "note: python $PY not installed; a run's python3 has the system's libraries only"; fi
+done
+if [ -f "$HERE/node-libs.package-lock.json" ] && [ -f "$HERE/node-libs.package.json" ]; then
+  NL_KEY=$(pk_sha256 "$HERE/node-libs.package-lock.json" | cut -c1-12); NL_DIR=$OPT/node-libs/$NL_KEY
+  if [ ! -f "$NL_DIR/.done" ] && [ "$BOOT" = 0 ]; then
+    say "node libraries ($NL_KEY)"
+    install -d -o root -g root -m 755 "$OPT/node-libs"
+    NEW=$(mktemp -d "$OPT/node-libs/.new.XXXXXX")
+    cp "$HERE/node-libs.package.json" "$NEW/package.json"; cp "$HERE/node-libs.package-lock.json" "$NEW/package-lock.json"
+    if ( cd "$NEW" && HOME=/root PATH="$OPT/node/bin:/usr/bin:/bin" npm ci --ignore-scripts --omit=dev --no-audit --no-fund --cache "$NEW/.npm" >/dev/null ); then
+      rm -rf "$NEW/.npm"; touch "$NEW/.done"; chown -R root:root "$NEW"; chmod -R a+rX,go-w "$NEW"
+      rm -rf "$NL_DIR"; mv "$NEW" "$NL_DIR"
+    else rm -rf "$NEW"; say "note: npm ci of the node libraries failed; a run's node has no extra libraries"; fi
+  fi
+  if [ -f "$NL_DIR/.done" ]; then
+    ln -sfn "$NL_KEY" "$OPT/node-libs/current"
+    for old in "$OPT"/node-libs/*/; do old=${old%/}; [ -L "$old" ] || [ "${old##*/}" = "$NL_KEY" ] || rm -rf "$old"; done
+  fi
+fi
 
 # ---- run-wrap, then (not in image mode) the polkit rule, the slice and the run template ----
 install -d -o root -g root -m 755 "$OPT/devenv"
