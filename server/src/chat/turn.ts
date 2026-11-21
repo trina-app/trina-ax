@@ -2818,7 +2818,11 @@ export class TurnExec {
       if (!this.shared) addSources(this.rt.db, this.spec.chatId, [{ type: 'user', id: this.spec.userId }])
       tool = 'box_shell'
     }
-    this.noteOthersTool(tool)
+    // the chat's files (chat:files/…, shared/src/places.ts) are what people sent in this chat: other people's words, as
+    // chat_file counts them (a read through the file tools must not skip what chat_file marks)
+    const named = input && typeof input === 'object' ? (input as { file_path?: unknown; path?: unknown }) : {}
+    const chatFiles = ['read', 'list', 'glob', 'grep'].includes(tool) && parsePlace(tool === 'read' ? named.file_path : named.path)?.kind === 'chatFiles'
+    this.noteOthersTool(chatFiles ? 'chat_file' : tool)
     // what the in-app browser showed (pages the person is signed in to) counts as seen by this person only (tab 7)
     if (BROWSER_TOOL_NAMES.has(tool)) addSources(this.rt.db, this.spec.chatId, [{ type: 'user', id: this.spec.userId, via: 'browser' }])
     if (tool === 'WebSearch' || tool === 'web_search' || tool === 'web_fetch' || BROWSER_TOOL_NAMES.has(tool)) return this.taint()

@@ -211,6 +211,20 @@ describe('review fixes (adversarial review of P1)', () => {
     const bad = await run('bob', chat, `${fake({ tool: 'grep', args: { pattern: '(unclosed', path: 'chat:files/' }, sayResult: true })}`)
     expect(bad.content).toContain('Invalid regular expression')
   })
+
+  test('a chat file read through read counts as other people\'s words, as chat_file does', async () => {
+    const chat = await sharedChat()
+    const up = await upload('bob', chat, 'bob.txt', 'BOB WROTE THIS')
+    await run('bob', chat, `mine\n${fake({ say: 'ok' })}`, [up.body.id])
+    // the chat is no longer shared: its files stay, and other people's words matter again (Always allow cards)
+    await share('alice', chat, [])
+    for (const args of [{ tool: 'read', args: { file_path: chatFilePath(up.body.id, 'bob.txt') } }, { tool: 'grep', args: { pattern: 'BOB', path: 'chat:files/' } }]) {
+      db().query('UPDATE chats SET others_words = 0 WHERE id = ?').run(chat)
+      const r = await run('alice', chat, `${fake({ ...args, sayResult: true })}`)
+      expect(r.content).toContain(args.tool === 'read' ? 'BOB WROTE THIS' : 'bob.txt')
+      expect((db().query('SELECT others_words FROM chats WHERE id = ?').get(chat) as { others_words: number }).others_words).toBe(1)
+    }
+  })
 })
 
 describe('one way to open a chat file', () => {
