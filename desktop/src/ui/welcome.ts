@@ -172,18 +172,19 @@ function welcome() {
     waking(),
     h('p', { id: 'address-error', class: 'error', role: 'alert', 'data-testid': 'address-error' }, error),
   )
+  // the two help views: quiet text buttons (muted, no underline, a hover fill like the team rows), never orange links;
+  // their text lines up with the box above (the button's own inset reaches out past the card's text column)
   const helpLinks = h(
-    'p',
+    'div',
     { class: 'help-links' },
-    h('button', { type: 'button', class: 'link', 'data-testid': 'no-address', onclick: () => show('unknown') }, tr('welcome.noAddress')),
-    h('span', { 'aria-hidden': 'true' }, ' · '),
-    h('button', { type: 'button', class: 'link', 'data-testid': 'no-team', onclick: () => show('none') }, tr('welcome.noTeam')),
+    h('button', { type: 'button', class: 'ghost', 'data-testid': 'no-address', onclick: () => show('unknown') }, tr('welcome.noAddress')),
+    h('button', { type: 'button', class: 'ghost', 'data-testid': 'no-team', onclick: () => show('none') }, tr('welcome.noTeam')),
   )
-  // the bottom line: [돌아가기] (a quiet link, when a team is open behind this screen) and the language, both small
+  // the bottom line: [돌아가기] (the same quiet button, when a team is open behind this screen) and the language
   const foot = h(
     'div',
     { class: 'foot' },
-    state.canGoBack ? h('button', { type: 'button', class: 'link quiet', 'data-testid': 'welcome-back', onclick: () => ui.welcome.back() }, tr('welcome.back')) : h('span'),
+    state.canGoBack ? h('button', { type: 'button', class: 'ghost', 'data-testid': 'welcome-back', onclick: () => ui.welcome.back() }, tr('welcome.back')) : h('span'),
     languagePicker(),
   )
   // remembered teams: they come first (the usual thing here is opening one), the box for another address under them

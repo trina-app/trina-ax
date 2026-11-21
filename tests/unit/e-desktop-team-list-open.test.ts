@@ -48,3 +48,18 @@ describe('desktop team list: Open first, Remove in the menu', () => {
     expect(STRINGS.en['welcome.openTeam']).toBe('Open {team}')
   })
 })
+
+describe('desktop welcome: quiet help actions and Back', () => {
+  test('the two help views and Back are the same quiet button: no orange underlined links, no dot between them', () => {
+    expect(welcome).toContain("h('button', { type: 'button', class: 'ghost', 'data-testid': 'no-address'")
+    expect(welcome).toContain("h('button', { type: 'button', class: 'ghost', 'data-testid': 'no-team'")
+    expect(welcome).toContain("h('button', { type: 'button', class: 'ghost', 'data-testid': 'welcome-back'")
+    expect(welcome).not.toContain("h('span', { 'aria-hidden': 'true' }, ' · ')")
+    const ghost = css.slice(css.indexOf('button.ghost {'), css.indexOf('}', css.indexOf('button.ghost {')))
+    expect(ghost).toContain('color: var(--muted)')
+    expect(ghost).toContain('border: none')
+    expect(ghost).not.toMatch(/accent|underline/)
+    // 44px on a touch screen
+    expect(css).toMatch(/@media \(pointer: coarse\) \{\s*button\.ghost \{\s*min-height: 44px;/)
+  })
+})

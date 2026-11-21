@@ -364,13 +364,14 @@ h2.another {
   display: flex;
   align-items: center;
   gap: 8px;
-  font-size: 12px;
+  font-size: 13px;
   color: var(--muted);
 }
 .language select {
+  min-height: 32px;
   border: 1px solid var(--field-border);
-  border-radius: 6px;
-  padding: 3px 6px;
+  border-radius: 8px;
+  padding: 5px 8px;
   background: var(--bg);
   color: inherit;
   font: inherit;
@@ -385,19 +386,41 @@ button.link {
   text-decoration: underline;
   text-underline-offset: 2px;
 }
-.help-links {
-  margin: 4px 0 0;
+/* the welcome screen's quiet actions (the two help views, Back): muted text, no border, no underline, the team rows'
+   hover fill; lighter than Continue and the rows. The 10px inset reaches out past the card's text column, so the words
+   line up with the box and the list. */
+button.ghost {
+  border: none;
+  background: transparent;
+  padding: 6px 10px;
+  min-height: 32px;
+  border-radius: 8px;
+  font-size: 13px;
+  line-height: 20px;
   color: var(--muted);
+  text-align: left;
 }
-/* the bottom line's [돌아가기]: small, muted, no underline until hovered */
-button.link.quiet {
-  font-size: 12px;
-  color: var(--muted);
-  text-decoration: none;
-}
-button.link.quiet:hover {
+button.ghost:hover {
+  background: var(--hover);
   color: var(--text);
-  text-decoration: underline;
+}
+.help-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 4px;
+  margin: 0 -10px;
+}
+.foot button.ghost {
+  margin-left: -10px;
+}
+@media (pointer: coarse) {
+  button.ghost {
+    min-height: 44px;
+    padding: 12px 10px;
+  }
+  .language select {
+    min-height: 44px;
+  }
 }
 .steps {
   margin: 4px 0 18px;
