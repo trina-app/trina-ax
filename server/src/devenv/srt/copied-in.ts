@@ -15,7 +15,7 @@ import { SAFE_ID_RE, devenvPaths } from './config'
 /** One copy's read group: the people who saw the chat when it was copied in, and what it was copied from. */
 export interface CopiedGroup { c: string[]; s: ReadSource[] }
 
-/** groups kept for one key at most (a copy past it is refused: never a record that forgets) */
+/** groups (distinct audiences) kept for one key at most (a copy past it is refused: never a record that forgets) */
 export const COPIED_GROUPS_MAX = 500
 
 const isSource = (v: unknown): v is ReadSource => !!v && typeof v === 'object' && typeof (v as { type?: unknown }).type === 'string'
@@ -48,19 +48,31 @@ export function readCopiedIn(base: string, chatId: string, workRoot: string): Co
   })
 }
 
-const groupKey = (g: CopiedGroup) => JSON.stringify([[...g.c].sort(), g.s.map((x) => JSON.stringify(x)).sort()])
+const peopleKey = (c: readonly string[]) => JSON.stringify([...new Set(c)].sort())
+const sourceKey = (x: ReadSource) => JSON.stringify(x)
 
-/** Add a copy's group to the record (atomically; the same group once). Throws when it cannot be written. */
+/** Add a copy's group to the record (atomically). Copies for the same people share one group, its sources joined: an
+ * answer records groups of one audience as one anyway (chat/turn.ts noteSharedReads), so nothing is lost, and a chat
+ * that copies often never meets the cap (it counts distinct audiences). Throws when it cannot be written. */
 export function addCopiedIn(base: string, chatId: string, workRoot: string, group: CopiedGroup): void {
   const file = copiedInFile(base, chatId, workRoot)
   if (!file) throw new Error('not a shared chat\'s work folder')
   const now = readCopiedIn(base, chatId, workRoot)
-  const g = { c: [...new Set(group.c)].sort(), s: group.s }
-  if (now.some((x) => groupKey(x) === groupKey(g))) return
-  if (now.length >= COPIED_GROUPS_MAX) throw new Error('too many copies into this work folder are recorded')
+  const c = [...new Set(group.c)].sort()
+  const at = now.findIndex((x) => peopleKey(x.c) === peopleKey(c))
+  let next: CopiedGroup[]
+  if (at >= 0) {
+    const have = new Set(now[at]!.s.map(sourceKey))
+    const add = group.s.filter((x) => { const k = sourceKey(x); if (have.has(k)) return false; have.add(k); return true })
+    if (!add.length) return
+    next = now.map((x, i) => (i === at ? { c: x.c, s: [...x.s, ...add] } : x))
+  } else {
+    if (now.length >= COPIED_GROUPS_MAX) throw new Error('too many copies into this work folder are recorded')
+    next = [...now, { c, s: [...new Map(group.s.map((x) => [sourceKey(x), x])).values()] }]
+  }
   fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 })
   const tmp = `${file}.${process.pid}.${crypto.randomBytes(4).toString('hex')}`
-  fs.writeFileSync(tmp, JSON.stringify([...now, g]), { mode: 0o600, flag: 'wx' })
+  fs.writeFileSync(tmp, JSON.stringify(next), { mode: 0o600, flag: 'wx' })
   fs.renameSync(tmp, file)
 }
 

@@ -15,7 +15,7 @@ import type { SpawnSpec, SrtSystem } from '../../server/src/devenv/srt/system'
 import { macSystem, type MacHost } from '../../server/src/devenv/srt/system-mac'
 import { newConsent, saveTeamSetting, teamSetting } from '../../server/src/devenv/setting'
 import { copiedInOf, copyInScript, noteCopiedIn, validWorkRel, writeIntoWork, WORK_COPY_MAX_FILES, type WorkSource } from '../../server/src/devenv/work-write'
-import { copiedInFile } from '../../server/src/devenv/srt/copied-in'
+import { addCopiedIn, COPIED_GROUPS_MAX, copiedInFile, readCopiedIn } from '../../server/src/devenv/srt/copied-in'
 import type { ReadSource } from '../../server/src/chat/read-scope'
 import type { CopiedGroup } from '../../server/src/devenv/srt/copied-in'
 
@@ -429,5 +429,19 @@ describe('review fixes (#218)', () => {
     expect(dirs.map((f) => listAll(path.join(work, f)))).toEqual([['x.txt'], ['x.txt']])
     expect(dirs.map((f) => fs.readFileSync(path.join(work, f, 'x.txt'), 'utf8')).sort()).toEqual(['DIR-a', 'DIR-b'])
     fs.rmSync(d, { recursive: true, force: true })
+  })
+
+  test('a shared chat that copies often: copies for the same people share one group, so the 500 cap never stops copying', () => {
+    const id = chat()
+    const root = path.join(devenvPaths(base).workShared, id, 'k1')
+    for (let i = 0; i < COPIED_GROUPS_MAX + 20; i++) addCopiedIn(base, id, root, { c: ['bob', 'alice'], s: [{ type: 'user', id: `u${i}` }] })
+    const g = readCopiedIn(base, id, root)
+    expect(g).toHaveLength(1)
+    expect(g[0]!.c).toEqual(['alice', 'bob'])
+    expect(g[0]!.s).toHaveLength(COPIED_GROUPS_MAX + 20)
+    // the same source again adds nothing; other people get a group of their own
+    addCopiedIn(base, id, root, { c: ['alice', 'bob'], s: [{ type: 'user', id: 'u0' }] })
+    addCopiedIn(base, id, root, { c: ['alice'], s: [{ type: 'user', id: 'u0' }] })
+    expect(readCopiedIn(base, id, root).map((x) => x.s.length)).toEqual([COPIED_GROUPS_MAX + 20, 1])
   })
 })
