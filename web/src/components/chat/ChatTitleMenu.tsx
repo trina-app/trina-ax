@@ -30,7 +30,7 @@ import { moveLabel } from './ChatProject'
 
 type MenuChat = Pick<Chat, 'projectId'> & Partial<Pick<Chat, 'id' | 'title' | 'shared' | 'confidential' | 'deletedAt' | 'pinnedAt' | 'sideRoomId' | 'schedule'>>
 
-export function ChatTitleMenu({ chat, title, onPin, onRename, onMove, onDelete, onPrivately, onHide }: { chat: MenuChat; title: string; onPin?: () => void; onRename?: () => void; onMove?: () => void; onDelete?: () => void; onPrivately?: () => void; onHide?: () => void }) {
+export function ChatTitleMenu({ chat, title, compact, onPin, onRename, onMove, onDelete, onPrivately, onHide }: { chat: MenuChat; title: string; compact?: boolean; onPin?: () => void; onRename?: () => void; onMove?: () => void; onDelete?: () => void; onPrivately?: () => void; onHide?: () => void }) {
   const t = useT()
   const me = useMe()
   const safeOps = !!me?.server.allChatsConfidential
@@ -57,5 +57,5 @@ export function ChatTitleMenu({ chat, title, onPin, onRename, onMove, onDelete, 
         {title}
       </h1>
     )
-  return <TitleMenu name={title} heading="chat-title" testId="chat-menu" items={items} />
+  return <TitleMenu name={title} heading="chat-title" testId="chat-menu" items={items} compact={compact} />
 }

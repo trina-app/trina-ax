@@ -1,8 +1,9 @@
 // The header of a chat someone shared with me by name or group (components/chat/SharedChat.tsx SharedByLine; plan
 // docs/AGENTS/plan/20261121-0510-shared-chat-header-sharer.md): its name, truncated on one line with the whole name as
 // a tooltip, and "{name}님이 공유" with their face, after the title on a computer and as a second line under it on a
-// phone, inside the same 48px bar. Its creator sees no "shared by"; a shared project chat keeps "Project / Title" and
-// nothing new. At 1440 and 390 px wide; SHOTS_DIR=<dir> takes each header light and dark.
+// phone, where the bar grows to 56px so the title, the line and the border are at least 4px apart (QA 1121, plan
+// docs/AGENTS/plan/20261121-1207-shared-by-header-390.md). Its creator sees no "shared by"; a shared project chat keeps
+// "Project / Title" and nothing new; both stay one 48px bar. At 1440 and 390 px wide; SHOTS_DIR=<dir> takes each header light and dark.
 import { expect, test, type Browser, type Page } from '@playwright/test'
 import { CSRF_HEADER, uuidv7 } from '@mycel/shared/api'
 import { reset, signIn } from './helpers'
@@ -51,12 +52,24 @@ for (const vp of [{ name: '1440', phone: false, use: { viewport: { width: 1440, 
       await signIn(page, BOB)
       return page
     }
-    /** the header stays one 48px bar, the title on one line */
-    async function oneBar(page: Page) {
-      expect((await page.getByTestId('chat-bar').boundingBox())!.height).toBeLessThanOrEqual(49)
+    /** the header is one bar of this height (48px; 56px on a phone with the sharer line), the title on one line */
+    async function oneBar(page: Page, height = 48) {
+      expect(Math.round((await page.getByTestId('chat-bar').boundingBox())!.height)).toBe(height)
       const title = page.getByTestId('chat-title')
       const lineHeight = await title.evaluate((el) => parseFloat(getComputedStyle(el).lineHeight) || 20)
       expect((await title.locator('span').first().boundingBox())!.height).toBeLessThanOrEqual(lineHeight + 2)
+    }
+    /** a phone's two lines: at least 4px from the bar's top to the title, from the title to the line and from the line
+     * to the bottom border; the messages start below the bar */
+    async function roomyLines(page: Page) {
+      const bar = (await page.getByTestId('chat-bar').boundingBox())!
+      const border = await page.getByTestId('chat-bar').evaluate((el) => parseFloat(getComputedStyle(el).borderBottomWidth) || 0)
+      const name = (await page.getByTestId('chat-title').locator('span').first().boundingBox())!
+      const by = (await page.getByTestId('chat-shared-by').boundingBox())!
+      expect(name.y - bar.y).toBeGreaterThanOrEqual(4)
+      expect(by.y - (name.y + name.height)).toBeGreaterThanOrEqual(4)
+      expect(bar.y + bar.height - border - (by.y + by.height)).toBeGreaterThanOrEqual(4)
+      expect((await page.getByTestId('messages').boundingBox())!.y).toBeGreaterThanOrEqual(bar.y + bar.height - 0.5)
     }
 
     test('a recipient sees the title and who shared it; its creator does not', async ({ page, browser }) => {
@@ -75,7 +88,8 @@ for (const vp of [{ name: '1440', phone: false, use: { viewport: { width: 1440, 
       await expect(by.locator('.truncate')).toHaveText('Olga님이 공유')
       await expect(by).toHaveAttribute('title', 'Olga님이 공유')
       await expect(b.getByTestId('chat-shared')).toBeVisible()
-      await oneBar(b)
+      await oneBar(b, vp.phone ? 56 : 48)
+      if (vp.phone) await roomyLines(b)
       // on a phone it is the line under the title; on a computer, in the title's row
       const titleBox = (await b.getByTestId('chat-title').boundingBox())!
       const byBox = (await by.boundingBox())!
@@ -85,9 +99,9 @@ for (const vp of [{ name: '1440', phone: false, use: { viewport: { width: 1440, 
       await expect(b.getByTestId('chat-bar')).not.toContainText('Bob')
       // the title still opens its menu (the line under it on a phone lets taps through)
       if (vp.phone) {
-        // a tap on the line under the title reaches the title's button
+        // a tap on the line under the title reaches the title's button (its 44px tap box, touch-hit)
         const top = byBox.y + 2
-        expect(top).toBeLessThan(titleBox.y + titleBox.height)
+        expect(top).toBeLessThan(titleBox.y + titleBox.height / 2 + 22)
         await b.touchscreen.tap(byBox.x + byBox.width / 2, top)
       } else await b.getByTestId('chat-menu').click()
       await expect(b.getByTestId('chat-copy-link')).toBeVisible()
