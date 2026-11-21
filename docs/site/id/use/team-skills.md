@@ -60,7 +60,7 @@ Skill grup ditulis oleh anggota grup, bukan oleh pengelola skill tim: apa yang d
 
 ## Skill proyek
 
-Proyek tim di `projects/<project>/` bisa punya skill sendiri di folder `skills/`-nya, satu folder dengan `SKILL.md` per skill. AI hanya memakainya di chat proyek itu (chat Anda, chat bersama, dan tugas terjadwal di proyek), tidak pernah di ruang obrolan atau chat Anda yang lain. **Skill tim** menampilkan satu bagian per proyek, **Dari proyek <proyek>**, dan menu `/` menandainya di dalam proyek.
+Proyek tim di `projects/<project>/` bisa punya skill sendiri di folder `skills/`-nya, satu folder dengan `SKILL.md` per skill. AI hanya memakainya di chat proyek itu (chat Anda, chat bersama, dan tugas terjadwal di proyek), tidak pernah di percakapan atau chat Anda yang lain. **Skill tim** menampilkan satu bagian per proyek, **Dari proyek <proyek>**, dan menu `/` menandainya di dalam proyek.
 
 - Siapa pun yang bisa menulis di folder proyek bisa menambah atau mengubahnya; AI bertanya lebih dulu lewat kartu yang menyebut nama proyek, dan setiap perubahan dicatat dengan nama proyek.
 - Skill proyek hanya menambah nama baru. Nama yang sudah dipakai tim, grup, atau Anda sendiri ditandai **Nama sama: seluruh tim** di halaman itu, dan kartu AI menawarkan nama lain alih-alih menyimpan skill yang tidak akan pernah berjalan.

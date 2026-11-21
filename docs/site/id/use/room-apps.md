@@ -1,9 +1,9 @@
 ---
-title: Aplikasi di ruang obrolan
-description: Biarkan Sentry, GitHub, Google Forms, Stripe, Jira, HubSpot, atau layanan lain mengirim kabar terbaru ke ruang obrolan, sebagai kartu yang dilihat semua orang di ruang itu.
+title: Aplikasi di percakapan
+description: Biarkan Sentry, GitHub, Google Forms, Stripe, Jira, HubSpot, atau layanan lain mengirim kabar terbaru ke percakapan, sebagai kartu yang dilihat semua orang di percakapan itu.
 ---
 
-Ruang obrolan bisa menerima kabar terbaru dari layanan yang sudah dipakai tim Anda: jawaban baru dari **Google Forms**, error dari
+Percakapan bisa menerima kabar terbaru dari layanan yang sudah dipakai tim Anda: jawaban baru dari **Google Forms**, error dari
 **Sentry**, pull request dan pemeriksaan yang gagal dari **GitHub**, atau apa pun yang bisa mengirim pesan ke Webhook URL.
 Kabar itu datang sebagai kartu dari aplikasinya, dengan logo dan label **APP**, tidak pernah sebagai orang. Kabar berulang tentang hal yang sama (error
 yang sama, pull request yang sama, jawaban yang diedit) masuk ke satu utas di bawah kartu pertama, dan baris status kartu pertama
@@ -11,13 +11,13 @@ berubah seiring perkembangannya.
 
 ## Menambahkan aplikasi
 
-1. Buka ruang obrolan, lalu **⋯ › Tambah aplikasi**.
+1. Buka percakapan, lalu **⋯ › Tambah aplikasi**.
 2. Pilih layanan. Layanan dikelompokkan: **Formulir** (Google Forms, Typeform, Tally, Jotform), **Pembayaran & pesanan**
    (Stripe, Shopify), **Kerja** (Notion, Zendesk, Jira, HubSpot), dan **Untuk developer** (GitHub, Sentry). **Tampilkan layanan
    lain** membuka beberapa layanan lagi (Toss Payments, Channel Talk, PortOne). **Aplikasi lain**, di urutan terakhir, menerima apa saja. Layanan yang memerlukan paket atau peran tertentu menyebutkannya di barisnya (misalnya *Perlu: paket Notion berbayar*).
    Aplikasi lain diberi nama lebih dulu (misalnya *Peringatan backup*): pesan-pesannya tampil dengan nama itu.
 3. Tekan **Salin** di samping Webhook URL (Google Forms: **Salin kode**) lalu ikuti langkah bernomor di layanan tersebut.
-   Tidak ada yang ditambahkan ke ruang obrolan sampai Anda menyalin, jadi Anda bisa melihat-lihat dulu lalu menutup panduannya.
+   Tidak ada yang ditambahkan ke percakapan sampai Anda menyalin, jadi Anda bisa melihat-lihat dulu lalu menutup panduannya.
 4. Panduan menampilkan apa yang terjadi secara langsung: *Menunggu pesan pertama*, *Terhubung*, atau alasan kiriman terakhir tidak ditampilkan.
    Setelah dua menit tanpa kiriman, **Belum ada apa-apa?** menampilkan kesalahan yang biasa terjadi pada layanan itu dan cara mengirim tes.
    **Tampilkan contoh** menunjukkan, di dalam panduan, seperti apa pesan-pesannya nanti. Tidak ada yang dikirim.
@@ -26,23 +26,23 @@ Anda juga bisa mulai dari **Pengaturan › Konektor**. Sentry, Notion, Stripe, d
 **Tambah ke percakapan** di bawah barisnya. Hanya percakapan tempat Anda boleh menambah aplikasi yang muncul; pilih
 satu dan percakapan itu terbuka dengan panduan layanan tersebut. Jika belum ada, mulai satu dengan **Pesan baru**.
 
-![Add an app: pesannya muncul di ruang obrolan untuk semua orang di sana, lalu Google Forms, Other app, GitHub dan Sentry](../../images/room-apps/picker.webp "Tambah aplikasi")
+![Add an app: pesannya muncul di percakapan untuk semua orang di sana, lalu Google Forms, Other app, GitHub dan Sentry](../../images/room-apps/picker.webp "Tambah aplikasi")
 
 Siapa yang bisa melakukannya: di saluran (termasuk saluran Semua), owner dan admin saluran itu; di pesan langsung (obrolan 1:1 atau obrolan grup), siapa pun di dalamnya.
-Semua orang lain di ruang obrolan melihat kartunya, membalas di utasnya, dan bertanya ke Trina tentangnya. Mengetuk nama aplikasi
+Semua orang lain di percakapan melihat kartunya, membalas di utasnya, dan bertanya ke Trina tentangnya. Mengetuk nama aplikasi
 menunjukkan siapa yang memasangnya.
 
-Semua orang di ruang obrolan melihat pesan aplikasi, termasuk orang yang bergabung belakangan. Pilih ruang obrolan dengan hati-hati: laporan error atau
+Semua orang di percakapan melihat pesan aplikasi, termasuk orang yang bergabung belakangan. Pilih percakapan dengan hati-hati: laporan error atau
 jawaban formulir bisa berisi data pelanggan.
 
-### Di dalam ruang obrolan
+### Di dalam percakapan
 
 Setiap kabar adalah kartu di bawah nama aplikasi, dengan label **APP**, apa yang terjadi, baris status, dan tautan untuk membukanya di
-layanan tersebut. Balasan masuk ke utas kartu, sama seperti pesan lainnya. Chat samping **✦** di ruang obrolan menawarkan **Apa yang terjadi
-hari ini?** (ruang Google Forms juga menawarkan **Ringkas jawaban hari ini**), yang merangkum pesan-pesan aplikasi dengan hal yang perlu ditangani lebih dulu; di dalam utas, chat samping menawarkan **Ringkas utas
+layanan tersebut. Balasan masuk ke utas kartu, sama seperti pesan lainnya. Chat samping **✦** di percakapan menawarkan **Apa yang terjadi
+hari ini?** (percakapan Google Forms juga menawarkan **Ringkas jawaban hari ini**), yang merangkum pesan-pesan aplikasi dengan hal yang perlu ditangani lebih dulu; di dalam utas, chat samping menawarkan **Ringkas utas
 ini**.
 
-![Ruang obrolan dengan kartu dari Sentry, GitHub dan formulir pendaftaran, masing-masing berlabel APP, dan chat samping ✦ terbuka dengan What happened today?, Catch up, Anything for me? dan Summarize](../../images/room-apps/side-chat.webp "Kartu aplikasi dan chat samping")
+![Percakapan dengan kartu dari Sentry, GitHub dan formulir pendaftaran, masing-masing berlabel APP, dan chat samping ✦ terbuka dengan What happened today?, Catch up, Anything for me? dan Summarize](../../images/room-apps/side-chat.webp "Kartu aplikasi dan chat samping")
 
 ### Google Forms
 
@@ -81,7 +81,7 @@ di layanan itu, dengan nama menu seperti yang dipakai layanan tersebut. Singkatn
   ([workflow HubSpot](https://knowledge.hubspot.com/workflows/how-do-i-use-webhooks-with-hubspot-workflows)). Kontak
   menampilkan nama dan perusahaannya, tidak pernah email atau nomor teleponnya.
 
-Jawaban formulir tampil di ruang obrolan apa adanya, termasuk alamat email; file yang diunggah hanya ditampilkan namanya (Google
+Jawaban formulir tampil di percakapan apa adanya, termasuk alamat email; file yang diunggah hanya ditampilkan namanya (Google
 Forms: hanya jumlahnya, sehingga skrip tidak memerlukan akses ke Drive Anda). Kartu pembayaran
 dan pesanan menampilkan nama pelanggan (dan kota untuk Shopify), tidak pernah email, nomor telepon, atau kartunya.
 
@@ -134,7 +134,7 @@ dengan contoh untuk disalin:
 curl -X POST -H 'Content-Type: application/json' -d '{"text":"Hello from my app"}' <Webhook URL>
 ```
 
-Aplikasi lain menampilkan huruf pertama namanya di atas warnanya sendiri, jadi beberapa aplikasi lain dalam satu ruangan tidak terlihat sama. Untuk memakai gambar, buka pengaturannya dan pilih **Ganti ikon**: **Unggah gambar** (PNG, JPEG, atau WebP; dipotong menjadi persegi) atau **Pilih emoji**. **Hapus ikon** mengembalikan hurufnya. Ikon tampil di semua pesan aplikasi itu, termasuk yang lama. Pesan tidak bisa mengubah nama atau ikon aplikasi: kolom seperti `username`, `icon_url`, dan `icon_emoji` milik Slack atau `avatar_url` milik Discord diabaikan, jadi apa pun yang dikirim ke Webhook URL tidak bisa menyamar sebagai orang atau aplikasi lain.
+Aplikasi lain menampilkan huruf pertama namanya di atas warnanya sendiri, jadi beberapa aplikasi lain dalam satu percakapan tidak terlihat sama. Untuk memakai gambar, buka pengaturannya dan pilih **Ganti ikon**: **Unggah gambar** (PNG, JPEG, atau WebP; dipotong menjadi persegi) atau **Pilih emoji**. **Hapus ikon** mengembalikan hurufnya. Ikon tampil di semua pesan aplikasi itu, termasuk yang lama. Pesan tidak bisa mengubah nama atau ikon aplikasi: kolom seperti `username`, `icon_url`, dan `icon_emoji` milik Slack atau `avatar_url` milik Discord diabaikan, jadi apa pun yang dikirim ke Webhook URL tidak bisa menyamar sebagai orang atau aplikasi lain.
 
 ### GitHub
 
@@ -166,7 +166,7 @@ Anda harus menjadi owner atau manager di Sentry.
 
 ## Pengaturan
 
-**⋯ › Integrasi** menampilkan aplikasi di ruang obrolan di bawah **Aplikasi**, dengan **Tambah Aplikasi**. Halaman satu aplikasi berisi:
+**⋯ › Integrasi** menampilkan aplikasi di percakapan di bawah **Aplikasi**, dengan **Tambah Aplikasi**. Halaman satu aplikasi berisi:
 
 - Siapa yang memasangnya, dan **Cara menghubungkan** (langkah-langkahnya lagi).
 - **Baris status**: pesan terakhir, *Dijeda*, *Menunggu pesan pertama*, atau, setelah **Buat ulang** dan sampai
@@ -176,7 +176,7 @@ Anda harus menjadi owner atau manager di Sentry.
   mengirim* (**Buat lebih aman**).
 - **Ganti ikon** (aplikasi lain): gambar atau emoji sebagai pengganti huruf pertama namanya, atau **Hapus ikon**.
 - **Nama**: nama yang menyertai pesan-pesannya.
-- **Tampilkan di ruangan ini**: jenis kabar yang dikirim (untuk aplikasi yang mengirim lebih dari satu jenis). Event opsional yang
+- **Tampilkan di percakapan ini**: jenis kabar yang dikirim (untuk aplikasi yang mengirim lebih dari satu jenis). Event opsional yang
   belum pernah Anda atur di layanan itu (misalnya refund di Shopify) menampilkan *Belum diatur di Shopify*, dengan tautan ke langkah tersebut.
 - **Kirim dengan tenang**: satu baris pendek, tanpa tanda belum dibaca atau peringatan.
 - **Cara mengirim** (Aplikasi lain).
@@ -189,7 +189,7 @@ Anda harus menjadi owner atau manager di Sentry.
 ## Batas
 
 Satu aplikasi mengirim paling banyak 500 pesan per hari (Google Forms: 500 jawaban). Setelah itu aplikasi dijeda sampai tengah malam (zona waktu
-tim Anda): ruang obrolan mendapat satu baris, dan orang yang mengelolanya mendapat pemberitahuan di **Aktivitas** (juga di ponsel dan browser mereka) dengan **Lanjutkan sekarang**
+tim Anda): percakapan mendapat satu baris, dan orang yang mengelolanya mendapat pemberitahuan di **Aktivitas** (juga di ponsel dan browser mereka) dengan **Lanjutkan sekarang**
 (satu kali per hari). Semua aplikasi tim bersama-sama mengirim paling banyak 5.000 pesan per hari: setelah itu semua aplikasi dijeda sampai
 tengah malam, dan baris serta pemberitahuannya berbunyi *Aplikasi tim Anda mencapai 5.000 pesan hari ini*, tanpa **Lanjutkan sekarang**. Jawaban
 formulir yang dilewati tetap ada di tab Responses formulir itu. Kartu berupa teks biasa: tidak ada isinya yang bisa menyebut seseorang,
@@ -198,6 +198,6 @@ menjalankan sesuatu, atau menyembunyikan tautan.
 ## Jika aplikasi tidak bisa menjangkau server
 
 Aplikasi memerlukan koneksi dari luar untuk mengirim pesan ke tim Anda. Tim yang di-hosting dan server yang memakai relay Trina sudah
-memilikinya. Server yang hanya ada di jaringan kantor tidak: **Tambah aplikasi** di ruang obrolan menyebutkannya, dan owner bisa **Nyalakan
+memilikinya. Server yang hanya ada di jaringan kantor tidak: **Tambah aplikasi** di percakapan menyebutkannya, dan owner bisa **Nyalakan
 koneksi** di **Admin › Sistem › Koneksi**. Server dengan alamat publik sendiri dan daftar negara atau jaringan
 tetap menerima pesan aplikasi dari mana saja; Admin › Sistem › Koneksi menyebutkannya.
