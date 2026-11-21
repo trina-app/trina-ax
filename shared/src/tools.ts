@@ -541,6 +541,12 @@ export const SaveChatFileInput = z.strictObject({
   file: z.string().min(1).max(300).describe('The file\'s id from the message ("file_id=…"); a name is not taken, as two files may share one.'),
   save_as: saveAs,
 })
+/** save_work_file: a copy of a file box_shell's commands made in this chat's work folder ($TRINA_WORK), put into the
+ * team folder (server/src/chat/work-file-tool.ts) */
+export const SaveWorkFileInput = z.strictObject({
+  path: z.string().trim().min(1).max(1000).describe('The finished file in this chat\'s work folder: "$TRINA_WORK/out/promo.mp4" (or its path relative to the work folder).'),
+  save_as: z.string().max(300).optional().describe('Team path to save to, e.g. "groups/marketing/videos/promo.mp4"; a path ending in "/" keeps the file\'s own name ("shared/videos/"). Default: the user\'s own folder (users/<you>/).'),
+})
 /** post_to_room in a person's own chat (server/src/chat/post-to-room.ts): a message to one of their rooms, a reply in a
  * thread there, or to a teammate (a 1:1 chat, made on the yes when there is none), posted as theirs after their yes on
  * the server's card */
@@ -688,6 +694,7 @@ export const OTHER_TOOLS = {
   chat_file: { input: ChatFileInput, output: TextOutput },
   save_room_file: { input: SaveRoomFileInput, output: TextOutput },
   save_chat_file: { input: SaveChatFileInput, output: TextOutput },
+  save_work_file: { input: SaveWorkFileInput, output: TextOutput },
   post_to_room: { input: PostToRoomInput, output: TextOutput },
   share_with_person: { input: ShareWithPersonInput, output: TextOutput },
   stop_sharing: { input: StopSharingInput, output: TextOutput },

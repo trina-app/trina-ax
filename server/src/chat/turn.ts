@@ -40,6 +40,7 @@ import { nameFromUrl } from '../tools/save-url'
 import { instructionLike, patternName, teamSegs, type RenameAt } from '../tools/rename-pattern'
 import { badSegment, hiddenEntry } from '../policy/names'
 import { isRunPlaceholder } from '../devenv/srt/placeholders'
+import { isWorkPath, namesWorkFolder, shownWorkPath, workRel } from '../devenv/work-files'
 import { mayReplace, TurnFiles } from '../files/service'
 import { saveSources } from '../files/sources'
 import { fileSharesOf } from '../files/shares'
@@ -277,7 +278,7 @@ const EMPTY_SHA256 = sha256(new Uint8Array(0))
 /** Tools that patch their own step exactly once per call (chat/room-tools.ts label): a cover's step words go with it. */
 const SELF_LABELLED_TOOLS = new Set(['save_room_file', 'save_chat_file'])
 /** Tools that copy a file kept outside the team folder (a room's, a chat's): only their widen hook knows the target */
-const WIDEN_TARGET_TOOLS = new Set(['save_room_file', 'save_chat_file'])
+const WIDEN_TARGET_TOOLS = new Set(['save_room_file', 'save_chat_file', 'save_work_file'])
 
 /** how many times one answer goes on after a connect (each needs another card the person finished) */
 export const CONTINUE_MAX = 2
@@ -2034,16 +2035,19 @@ export class TurnExec {
         if (HIDDEN_STEP_TOOLS.has(tool)) return
         const kind = ENGINE_TEXT_STEP_KIND(tool)
         // a search whose query is not known yet (Codex names it at the end) shows as running, not as "Web search: "
+        // a read of the work folder shows $TRINA_WORK/…, never the server's absolute path, and names no team path
+        const work = this.workRead(tool, e.input) ? this.workShown(e.input) : null
         const label = kind === 'web_search' ? (queryOf(e.input) ? tr('webSearch', this.spec.locale, { q: queryOf(e.input) }) : tr('webSearchRunning', this.spec.locale))
+          : work !== null ? stepLabel(tool, { ...(e.input as object), file_path: work }, this.spec.locale, BROWSER_TOOL_NAMES)
           : this.toolSet?.stepLabel(tool, e.input, this.spec.locale) ?? stepLabel(tool, e.input, this.spec.locale, BROWSER_TOOL_NAMES)
         if (kind === 'web_search') { const q = (e.input as { query?: unknown } | null)?.query; this.searchQueries.set(e.id, typeof q === 'string' ? q : '') }
         // a sub-agent's step goes under its sub-task (parentId); the tools that patch their step are the main AI's only
         // a shared chat: a line that names team paths keeps them aside (sharedStep; shown to whoever may see them)
-        const step = this.addStep({ id: e.id, kind, tool, ...this.sharedStep(tool, e.input, label), status: 'running', ...(e.parentId ? { parentId: e.parentId } : {}) })
+        const step = this.addStep({ id: e.id, kind, tool, ...(work !== null ? { label } : this.sharedStep(tool, e.input, label)), status: 'running', ...(e.parentId ? { parentId: e.parentId } : {}) })
         const waiting = e.parentId ? undefined : this.pendingPatches.get(tool)?.shift()
         if (waiting) { this.patched.add(step.id); this.updateStep(step.id, waiting(step)) }
         this.noteTaint(tool, e.input)
-        this.noteRoomTool(tool)
+        this.noteRoomTool(tool, e.input)
         return
       }
       case 'tool_end': {
@@ -2780,6 +2784,13 @@ export class TurnExec {
   }
   /** web results, browser pages, files outside the person's own folder = content someone else wrote */
   noteTaint(tool: string, input: unknown) {
+    // a read of the chat's work folder brings in what commands made there (pages they fetched too): as box_shell
+    if (this.workRead(tool, input)) {
+      // ...and its content is the person's (a work folder may hold anything they can read; a shared chat's: what all
+      // its people may read, recorded as the chat in chat/tools.ts): a later save where more people read asks first
+      if (!this.shared) addSources(this.rt.db, this.spec.chatId, [{ type: 'user', id: this.spec.userId }])
+      tool = 'box_shell'
+    }
     this.noteOthersTool(tool)
     // what the in-app browser showed (pages the person is signed in to) counts as seen by this person only (tab 7)
     if (BROWSER_TOOL_NAMES.has(tool)) addSources(this.rt.db, this.spec.chatId, [{ type: 'user', id: this.spec.userId, via: 'browser' }])
@@ -2796,8 +2807,22 @@ export class TurnExec {
   /** A tool outside the team's own words (rooms/ai-tools.ts OWN_CHAT_TEAM_TOOLS: the engine's web search, a page, a
    * connection, the browser, anything unknown) marks the chat as having used something from outside for the rest of
    * its session; then no room card is skipped there. */
-  noteRoomTool(tool: string) {
+  noteRoomTool(tool: string, input?: unknown) {
+    if (this.workRead(tool, input)) tool = 'box_shell'
     if (!OWN_CHAT_TEAM_TOOLS.has(tool)) this.markOutside()
+  }
+  /** how a work-folder read's path shows ($TRINA_WORK/…): never the server's absolute path */
+  private workShown(input: unknown): string {
+    const p = String((input as { file_path?: unknown } | null)?.file_path ?? '')
+    const wf = this.files.workFolder?.() ?? null
+    try { const rel = wf ? workRel(p, wf) : namesWorkFolder(p) ? p.trim().replace(/^\$\{?TRINA_WORK\}?\/*/, '') : null; return rel === null ? '$TRINA_WORK/…' : shownWorkPath(rel) } catch { return '$TRINA_WORK/…' }
+  }
+  /** a read call that names the chat's work folder (devenv/work-files.ts), by its variable or its absolute path */
+  workRead(tool: string, input: unknown): boolean {
+    if (tool !== 'read') return false
+    const p = (input && typeof input === 'object' ? (input as { file_path?: unknown }).file_path : undefined)
+    if (namesWorkFolder(p)) return true
+    try { return isWorkPath(p, this.files.workFolder?.() ?? null) } catch { return true }
   }
 
   /**
@@ -4064,8 +4089,8 @@ export class TurnExec {
    * `extraSources`, files a tool copies from), the server asks the person (never left to the AI's own ask_user).
    * Returns the refusal text for the tool, or null to go ahead. Paths the policy refuses are left to the tool.
    */
-  async confirmWidening(target: string, extraSources: string[] = [], binding?: string, call?: { tool: string; args: unknown; main?: boolean }): Promise<string | null> {
-    const need = this.widenNeed(target, extraSources, binding)
+  async confirmWidening(target: string, extraSources: string[] = [], binding?: string, call?: { tool: string; args: unknown; main?: boolean }, read: readonly ReadSource[] = []): Promise<string | null> {
+    const need = this.widenNeed(target, extraSources, binding, read)
     if (!need) return null
     // a scheduled run: its task's card may have said yes to saving there (chat/schedule-cover.ts); `call` is the tool call
     // that saves (its claim on an absent path, its step); only the tools a card may cover (never save_url, a video or
@@ -5375,6 +5400,13 @@ export function roomChangeWrites(tool: string, input: unknown, tree: (p: string)
       const want = str(a.save_as).trim()
       const folder = !want ? `users/${me}/downloads/` : want.endsWith('/') ? want : null
       return { targets: folder === null ? [want] : [`${folder}${str(a.file)}`], shown: false }
+    }
+    case 'save_work_file': {
+      // a work-folder file (chat/work-file-tool.ts): its own name for a folder or none (the person's own folder)
+      const want = str(a.save_as).trim()
+      const name = str(a.path).split('/').pop() ?? ''
+      const folder = !want ? `users/${me}/` : want.endsWith('/') ? want : null
+      return { targets: folder === null ? [want] : [`${folder}${name}`], shown: false }
     }
     case 'move_files': case 'copy_files': {
       const to = teamSegs(a.to_folder) ?? []
