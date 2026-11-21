@@ -379,10 +379,6 @@ export const Attachment = z.object({
   /** 'team': a reference to a team-folder file; 'chat': a file from the computer kept with a chat shared with people and
    * groups (its people open it through the chat); absent: an upload */
   source: z.enum(['upload', 'team', 'chat']).optional(),
-  /** a chat file (source 'chat'): who put it there when not a person's upload: 'ai', the AI attached it to its answer
-   * (server/src/chat/work-file-tool.ts); 'shared-copy', a copy of a file from before the chat was shared. Absent: a
-   * person's upload */
-  origin: z.enum(['ai', 'shared-copy']).optional(),
   /** team references: sha256 of the content when it was attached */
   sha256: z.string().regex(/^[0-9a-f]{64}$/).optional(),
   /** team references: the content changed since it was attached (the AI gets the current version) */

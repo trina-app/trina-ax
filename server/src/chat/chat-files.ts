@@ -54,7 +54,7 @@ export const CHAT_FILE_ORPHAN_KEEP_MS = 30 * 86400_000
 export const CHAT_FILE_MAX = SMALL_UPLOAD_MAX
 /** At most this big for a file the AI keeps with a chat, or a version the AI writes (chat/chat-files-share.ts
  * CHAT_COPY_MAX is the same number) */
-export const CHAT_FILE_AI_MAX = 1024 * 1024 * 1024
+export { CHAT_FILE_AI_MAX }
 /** The rows a chain keeps (putVersion): the root (the chain's id, which messages carry) and the newest versions, at
  * most this many in all; the head is never pruned */
 export const CHAT_FILE_VERSIONS_KEPT = 20
