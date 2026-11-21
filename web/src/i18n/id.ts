@@ -6081,6 +6081,11 @@ export const id: Record<MessageKey, string> = {
   "projectsPanel.fold.failed": "Obrolan tidak dapat dimuat. Buka proyeknya untuk mencoba lagi.",
   "projectsPanel.team": "Proyek tim",
   "projectsPanel.mine": "Proyek saya",
+  // the Trash row at the bottom of the Projects list and its dialog (components/panels/ProjectsTrash.tsx)
+  "projectsPanel.trash": "Sampah",
+  "projectsPanel.trashLabel": "Sampah, {n} proyek",
+  "projectsPanel.trashTitle": "Proyek di Sampah",
+  "projectsPanel.trashEmpty": "Tidak ada proyek di Sampah",
   "projects.meta.me": "Hanya saya",
   "projects.otherTeam": "Proyek tim lainnya",
   "projects.newName": "Nama",

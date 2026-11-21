@@ -6081,6 +6081,11 @@ export const ko = {
   "projectsPanel.fold.failed": "대화를 불러오지 못했어요. 프로젝트를 열어 다시 시도해 주세요.",
   "projectsPanel.team": "팀 프로젝트",
   "projectsPanel.mine": "내 프로젝트",
+  // the Trash row at the bottom of the Projects list and its dialog (components/panels/ProjectsTrash.tsx)
+  "projectsPanel.trash": "휴지통",
+  "projectsPanel.trashLabel": "휴지통, 프로젝트 {n}개",
+  "projectsPanel.trashTitle": "휴지통에 있는 프로젝트",
+  "projectsPanel.trashEmpty": "휴지통에 프로젝트가 없어요",
   "projects.meta.me": "나만",
   "projects.otherTeam": "다른 팀 프로젝트",
   "projects.newName": "이름",
