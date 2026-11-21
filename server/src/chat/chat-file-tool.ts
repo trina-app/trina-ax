@@ -25,6 +25,7 @@ import type { McpContent } from '../turns'
 import { NO_CHAT_PLACE, type ChatPlaceHooks, type ReadArgs, type ToolCtx, type ToolOutput, type TurnFiles } from '../files/service'
 import { apart } from '../files/apart'
 import type { SharedChild } from '../files/shared-folder-reads'
+import { RG_BASE, runRg } from '../files/search'
 import { readRegular } from '../files/store'
 import { visionBlock } from '../files/vision'
 import { authorize, type Authorized } from '../policy/authorize'
@@ -325,7 +326,10 @@ export function saveChatFileTool(exec: TurnExec): Tool {
  * hidden answers carry), so a name the person may not open never shows.
  */
 export function visibleChatFiles(ctx: TurnExec['rt']['ctx'], userId: string, chatId: string): ChatFileRow[] {
-  return chatFilesOf(ctx).visibleTo(userId, chatId).map((v) => v.head)
+  // one entry per chain (its newest version) through ChatFiles.visibleTo; a file read refuses (carried by a hidden
+  // answer: readChatFile) is not listed, globbed or searched either, checked on the chain's root id (the id messages
+  // carry: a version's own id is on no message, QA TC-6567)
+  return chatFilesOf(ctx).visibleTo(userId, chatId).filter((v) => !carriedByHiddenAnswer(ctx.db, chatId, v.id)).map((v) => v.head)
 }
 
 /** Is every message of the chat that carries this file an answer with a k group (chat/shared-answers.ts: a connection's
@@ -390,11 +394,9 @@ export function chatPlaceHooks(exec: TurnExec): ChatPlaceHooks {
       seen()
       return { text: hits.length ? hits.slice(0, 100).map(line).join('\n') + (hits.length > 100 ? '\n(Results are truncated. Use a more specific pattern.)' : '') : 'No files found', summary: `glob chat:files/ -> ${hits.length} files` }
     },
-    grep(_ctx, a) {
+    async grep(_ctx, a) {
       const no = live()
       if (no) return fail(no, 'grep chat:files/ -> refused')
-      let re: RegExp
-      try { re = new RegExp(a.pattern, a['-i'] ? 'iu' : 'u') } catch { return fail('Invalid regular expression.', 'grep chat:files/ -> invalid pattern') }
       let only: InstanceType<typeof Bun.Glob> | null = null
       try { only = a.glob ? new Bun.Glob(a.glob.replace(/^\*\*\//, '')) : null } catch { return fail('Invalid glob.', 'grep chat:files/ -> invalid glob') }
       const store = chatFilesOf(rt.ctx)
@@ -402,6 +404,9 @@ export function chatPlaceHooks(exec: TurnExec): ChatPlaceHooks {
       const ctxN = a['-C'] ?? 0, before = a['-B'] ?? ctxN, after = a['-A'] ?? ctxN
       const out: string[] = []
       const skipped: string[] = []
+      // the pattern runs in ripgrep, as a team grep's does (its syntax, its linear-time engine, one deadline for the
+      // call): never as a JavaScript RegExp in the server, where a pattern like (x+x+)+y stops every team's requests
+      const until = Date.now() + rt.ctx.files.cfg.grepTimeoutMs
       for (const f of visible()) {
         const e = path.extname(f.name).slice(1).toLowerCase()
         if (only && !only.match(f.name)) continue
@@ -412,14 +417,23 @@ export function chatPlaceHooks(exec: TurnExec): ChatPlaceHooks {
         if (o.quarantined) continue
         let lines: string[]
         try { lines = readRegular(o.abs, GREP_FILE_MAX).bytes.toString('utf8').split(/\r?\n/) } catch { continue }
-        const p = chatFilePath(chainIdOf(f), f.name)
-        const at = lines.flatMap((l, i) => (re.test(l) ? [i] : []))
+        const left = until - Date.now()
+        if (left <= 0) return fail('The search took too long. Use a more specific pattern.', 'grep chat:files/ -> timeout')
+        const at: number[] = []
+        const r = await runRg(rt.ctx.files.cfg.rg, [...RG_BASE, '--line-number', '--no-filename', '--no-heading', '--color', 'never', ...(a['-i'] ? ['-i'] : []), '-e', a.pattern, '--', path.basename(o.abs)], path.dirname(o.abs), '\n', (rec) => {
+          const m = /^(\d+):/.exec(rec)
+          if (m) at.push(Number(m[1]) - 1)
+        }, left, { signal: exec.abort.signal })
+        if (r.killed === 'timeout') return fail('The search took too long. Use a more specific pattern.', 'grep chat:files/ -> timeout')
+        if (r.killed === 'abort') return fail('The search was stopped.', 'grep chat:files/ -> stopped')
+        if (r.code === 2) return fail(`Invalid regular expression${r.err ? `: ${neutralizeTags(r.err.split('\n').find((l) => l.trim()) ?? '').slice(0, 200)}` : '.'}`, 'grep chat:files/ -> invalid pattern')
         if (!at.length) continue
+        const p = chatFilePath(chainIdOf(f), f.name)
         if (mode === 'files_with_matches') { out.push(p); continue }
         if (mode === 'count') { out.push(`${p}:${at.length}`); continue }
         const show = new Set<number>()
         for (const i of at) for (let j = Math.max(0, i - before); j <= Math.min(lines.length - 1, i + after); j++) show.add(j)
-        for (const j of [...show].sort((x, y) => x - y)) out.push(`${p}:${a['-n'] === false ? '' : `${j + 1}:`}${neutralizeTags(lines[j]!.slice(0, 2000))}`)
+        for (const j of [...show].sort((x, y) => x - y)) out.push(`${p}:${a['-n'] === false ? '' : `${j + 1}:`}${neutralizeTags((lines[j] ?? '').slice(0, 2000))}`)
       }
       seen()
       const from = a.offset ?? 0, n = a.head_limit ?? 200

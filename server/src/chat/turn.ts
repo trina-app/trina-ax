@@ -2832,7 +2832,11 @@ export class TurnExec {
       if (!this.shared) addSources(this.rt.db, this.spec.chatId, [{ type: 'user', id: this.spec.userId }])
       tool = 'box_shell'
     }
-    this.noteOthersTool(tool)
+    // the chat's files (chat:files/…, shared/src/places.ts) are what people sent in this chat: other people's words, as
+    // chat_file counts them (a read through the file tools must not skip what chat_file marks)
+    const named = input && typeof input === 'object' ? (input as { file_path?: unknown; path?: unknown }) : {}
+    const chatFiles = ['read', 'list', 'glob', 'grep'].includes(tool) && parsePlace(tool === 'read' ? named.file_path : named.path)?.kind === 'chatFiles'
+    this.noteOthersTool(chatFiles ? 'chat_file' : tool)
     // what the in-app browser showed (pages the person is signed in to) counts as seen by this person only (tab 7)
     if (BROWSER_TOOL_NAMES.has(tool)) addSources(this.rt.db, this.spec.chatId, [{ type: 'user', id: this.spec.userId, via: 'browser' }])
     if (tool === 'WebSearch' || tool === 'web_search' || tool === 'web_fetch' || BROWSER_TOOL_NAMES.has(tool)) return this.taint()
@@ -3715,9 +3719,12 @@ export class TurnExec {
     // every path the call names, nested ones too (edit_pdf's operations, merge_pdfs' list: namedPaths)
     for (const { key: k, value: v } of namedPaths(tool, a)) {
       // a chat place (chat:files/…, chat:work/…; shared/src/places.ts): its readers are the chat's people, never a team
-      // folder's; a call that may not take it is refused before this (chat/chat-places.ts placeRefusal). Never skipped as a
-      // web address below (plan 20261121-0615-chat-places-as-paths.md, review fix 6)
-      if (isReservedPlace(v)) { if (!writes.has(k)) out.push({ type: 'chat', id: this.spec.chatId }); continue }
+      // folder's; a call that may not take it is refused before this (chat/tools.ts placeRefusal). Never taken as a team
+      // path or a web address below (plan 20261121-0615-chat-places-as-paths.md, review fix 6). It adds nothing to the
+      // answer's record: whoever sees the chat, someone added later too, sees its files, so a {type:'chat'} there would
+      // make the Share check count this answer as one that used files a newcomer cannot open (chat_file records none
+      // either). The read itself joins the chat to the read scope (chat/chat-file-tool.ts).
+      if (isReservedPlace(v)) continue
       // a listing's own folder: below, by the names it shows
       if (tool === 'list' && k === 'path') continue
       const w = writes.has(k)
