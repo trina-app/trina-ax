@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-21 18:52
 - Branch: `fix/demo-banner-local-tool`
-- Status: in progress
+- Status: done
 - Where: server (demo fakes, tools, prompt), shared (step labels), web (step family). Why: the free-roam demo filed
   banner text editing under the fake Higgsfield connector (see docs/REPOSITORY-RULES.md)
 - Version impact: patch. A demo-only fix: no API, data or setting changes.
@@ -60,4 +60,8 @@ tests, web demo-free-roam.
 
 ## Result
 
-(to fill in)
+Built as planned. `change_banner_text` lives in server/src/tools/demo-banner.ts (registered in tools/index.ts, exposed
+to turns, available only when `demoFakesOf(ctx).banners.ready`); the drawing moved to server/src/demo/fakes/banners.ts.
+The step reads "배너 글자 바꾸기 · 작지 않아 큰 햇살이야!". The banner is saved straight into the project folder
+(`banner-<size>-<id>.png`), so the AI no longer needs save_connector_file for it. tests/unit/c-reader-counters.test.ts
+lists the new file's `users/` fallback.
