@@ -1,1 +1,0 @@
-- A long answer no longer shows "Turn this into slides too?" above the message box. You can still ask for slides in the chat.
