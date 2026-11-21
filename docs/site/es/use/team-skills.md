@@ -60,7 +60,7 @@ Una habilidad de grupo la escriben los miembros del grupo, no los responsables d
 
 ## Habilidades de proyecto
 
-Un proyecto del equipo en `projects/<project>/` puede tener habilidades propias en su carpeta `skills/`, una carpeta con un `SKILL.md` por habilidad. La IA las usa solo en los chats de ese proyecto (los suyos, los compartidos y las tareas programadas del proyecto), nunca en las salas ni en sus otros chats. **Habilidades del equipo** muestra una sección por proyecto, **Del proyecto <proyecto>**, y el menú `/` las marca dentro del proyecto.
+Un proyecto del equipo en `projects/<project>/` puede tener habilidades propias en su carpeta `skills/`, una carpeta con un `SKILL.md` por habilidad. La IA las usa solo en los chats de ese proyecto (los suyos, los compartidos y las tareas programadas del proyecto), nunca en las conversaciones ni en sus otros chats. **Habilidades del equipo** muestra una sección por proyecto, **Del proyecto <proyecto>**, y el menú `/` las marca dentro del proyecto.
 
 - Quien puede escribir en la carpeta del proyecto puede añadirlas o cambiarlas; la IA pregunta antes con una tarjeta, con el nombre del proyecto, y cada cambio se registra con el nombre del proyecto.
 - Una habilidad de proyecto solo añade nombres nuevos. Un nombre que ya usan el equipo, un grupo o usted aparece marcado en la página como **Mismo nombre: todo el equipo**, y la tarjeta de la IA ofrece otro nombre en lugar de guardar una habilidad que nunca se ejecutaría.
