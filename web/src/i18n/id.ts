@@ -7224,6 +7224,7 @@ export const id: Record<MessageKey, string> = {
   "rooms.makeProject.made": "{name} sekarang menjadi proyek.",
   "rooms.filesMoving": "Memindahkan file…",
   "rooms.file.roomOnly": "Hanya di percakapan ini",
+  "rooms.file.roomOnlyShort": "Hanya di sini",
   "rooms.event.projectMade": "{actor} menjadikan percakapan ini proyek {name}.",
   "rooms.event.projectMadeUnnamed": "{actor} menjadikan percakapan ini sebuah proyek.",
   "rooms.event.filesMoved": "{n} file dipindahkan ke {name} › {folder}.",

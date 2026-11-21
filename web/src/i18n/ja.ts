@@ -7180,6 +7180,7 @@ export const ja: Record<MessageKey, string> = {
   "rooms.makeProject.made": "「{name}」をプロジェクトにしました。",
   "rooms.filesMoving": "ファイルを移動中…",
   "rooms.file.roomOnly": "このトークだけ",
+  "rooms.file.roomOnlyShort": "ここだけ",
   "rooms.event.projectMade": "{actor}さんがこのトークをプロジェクト「{name}」にしました。",
   "rooms.event.projectMadeUnnamed": "{actor}さんがこのトークをプロジェクトにしました。",
   "rooms.event.filesMoved": "{n, plural, one {#件のファイル} other {#件のファイル}}を{name} › {folder}に移動しました。",

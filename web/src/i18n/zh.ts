@@ -7152,6 +7152,7 @@ export const zh: Record<MessageKey, string> = {
   "rooms.makeProject.made": "「{name}」现在是项目了。",
   "rooms.filesMoving": "正在移动文件…",
   "rooms.file.roomOnly": "仅在此聊天中",
+  "rooms.file.roomOnlyShort": "仅在此处",
   "rooms.event.projectMade": "{actor} 将此聊天设为项目「{name}」。",
   "rooms.event.projectMadeUnnamed": "{actor} 将此聊天设为了项目。",
   "rooms.event.filesMoved": "{n, plural, one {# 个文件} other {# 个文件}}已移到 {name} › {folder}。",

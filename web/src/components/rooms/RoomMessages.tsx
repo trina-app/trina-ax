@@ -729,9 +729,15 @@ function FileChip({ roomId, f, siblings }: { roomId: string; f: RoomFile; siblin
         <FileText size={15} className="shrink-0 text-muted" aria-hidden />
         <span className="max-w-[220px] truncate font-medium text-ink">{f.name}</span>
         <span className="shrink-0 text-faint">{formatSize(f.size, locale)}</span>
-        {/* kept in the room where files otherwise go to a team folder (RoomFile.roomOnly), at every width: on a phone the
-            name gives way first */}
-        {f.roomOnly && <span className="shrink-0 text-faint" data-testid="room-file-room-only">{t('rooms.file.roomOnly')}</span>}
+        {/* kept in the room where files otherwise go to a team folder (RoomFile.roomOnly), at every width: a phone shows
+            the short words ("Here only") so the name keeps its room, and hears the whole label */}
+        {f.roomOnly && (
+          <span className="shrink-0 text-faint" data-testid="room-file-room-only">
+            <span className="max-md:hidden">{t('rooms.file.roomOnly')}</span>
+            <span className="md:hidden" aria-hidden>{t('rooms.file.roomOnlyShort')}</span>
+            <span className="sr-only md:hidden">{t('rooms.file.roomOnly')}</span>
+          </span>
+        )}
         {/* what the name does: a preview (a file without one opens its card, named by its name alone) */}
         {opens && <span className="sr-only">{t('common.preview')}</span>}
       </button>

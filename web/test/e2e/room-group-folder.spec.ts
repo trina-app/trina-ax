@@ -134,7 +134,7 @@ test('an upload lands in {group} › Chat attachments and the header keeps one b
   await send('salaries.pdf')
   await page.reload()
   const kept = page.getByTestId('room-file').filter({ hasText: 'salaries.pdf' })
-  await expect(kept.getByTestId('room-file-room-only')).toHaveText('Only in this conversation')
+  await expect(kept.getByTestId('room-file-room-only')).toContainText('Only in this conversation')
   await expect(kept.getByTestId('room-file-in-team')).toHaveCount(0)
   await page.getByTestId('room-files-button').click()
   const rows = page.getByTestId('room-files-row')

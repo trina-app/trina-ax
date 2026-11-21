@@ -113,10 +113,10 @@ for (const vp of VIEWPORTS) {
       await expect(page.getByTestId('room-files-moving')).toHaveCount(0)
       await expect(page.getByTestId('room-event').filter({ hasText: '1 file moved to Launch crew › Chat attachments. 1 stayed in this conversation.' })).toHaveCount(1)
       await page.reload()
-      // seen at every width (a phone too: the name gives way first)
+      // seen at every width (a phone: the short words)
       const kept = page.getByTestId('room-file').filter({ hasText: 'before-erin.pdf' })
       await expect(kept.getByTestId('room-file-room-only')).toBeVisible()
-      await expect(kept.getByTestId('room-file-room-only')).toHaveText('Only in this conversation')
+      await expect(kept.getByTestId('room-file-room-only')).toContainText(vp.phone ? 'Here only' : 'Only in this conversation')
       expect((await kept.boundingBox())!.width).toBeLessThanOrEqual(page.viewportSize()!.width)
       // the 📁 button first, then Files: the list shows only the file that stayed
       await expect(page.getByTestId('room-project')).toBeVisible()

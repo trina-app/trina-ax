@@ -7227,6 +7227,7 @@ export const en: Record<MessageKey, string> = {
   "rooms.makeProject.made": "{name} is a project now.",
   "rooms.filesMoving": "Moving files…",
   "rooms.file.roomOnly": "Only in this conversation",
+  "rooms.file.roomOnlyShort": "Here only",
   "rooms.event.projectMade": "{actor} made this conversation the project {name}.",
   "rooms.event.projectMadeUnnamed": "{actor} made this conversation a project.",
   "rooms.event.filesMoved": "{n, plural, one {# file moved} other {# files moved}} to {name} › {folder}.",

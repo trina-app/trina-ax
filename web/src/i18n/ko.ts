@@ -7224,6 +7224,7 @@ export const ko = {
   "rooms.makeProject.made": "{name} 프로젝트를 만들었어요.",
   "rooms.filesMoving": "파일 옮기는 중…",
   "rooms.file.roomOnly": "이 대화방에만 있어요",
+  "rooms.file.roomOnlyShort": "여기에만",
   "rooms.event.projectMade": "{actor}님이 이 대화방을 {name} 프로젝트로 만들었어요.",
   "rooms.event.projectMadeUnnamed": "{actor}님이 이 대화방을 프로젝트로 만들었어요.",
   "rooms.event.filesMoved": "파일 {n}개를 {name} › {folder}(으)로 옮겼어요.",

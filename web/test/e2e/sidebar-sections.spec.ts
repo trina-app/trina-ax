@@ -250,7 +250,7 @@ test("a computer (1440): a project in the trash takes its room out of Projects; 
   expect(opened.ok()).toBeTruthy()
   const rid = ((await opened.json()) as { id: string }).id
   // it shows under Projects once someone writes in it
-  expect((await page.request.post(`/api/rooms/${rid}/messages`, { headers: H, data: { body: 'kickoff' } })).ok()).toBeTruthy()
+  expect((await page.request.post(`/api/rooms/${rid}/messages`, { headers: H, data: { body: 'kickoff', clientMessageId: `cm-${uuidv7()}`, mentions: [], fileIds: [] } })).ok()).toBeTruthy()
   await page.goto('/')
   await page.getByTestId('rail-chats').click()
   const projects = panelSection(page, 'project')
