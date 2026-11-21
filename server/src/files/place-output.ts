@@ -24,7 +24,8 @@ import type { RuleSet } from '../policy/access'
 import { assertStorageRoomForAI } from '../system/storage'
 import { checkRegular, hashFile } from '../team-files/place'
 import { mayAttachChatFile, PLACE_WORDS, resolvePlace, type ResolveCtx } from './places'
-import type { ToolCtx } from './service'
+import type { ToolCtx, TurnFiles } from './service'
+import type { VersionSource } from '../chat/chat-files'
 import { turnWriteLimits } from './turn-write-limits'
 
 /** The chat's places for one tool call (chat/place-ctx.ts builds it from the turn; absent outside a chat turn) */
@@ -38,11 +39,34 @@ export interface ChatPlaces {
   open(id: string | null, name: string): { abs: string; name: string; quarantined: boolean; sha256: string; id: string }
   /** names of this chat's files now (a new attach never takes one) */
   names(): Set<string>
+  /** the chat file a new version would replace (P4): who may change it here (files/places.ts mayWriteChatVersion, the
+   * person continuing the chat), the chain by any of its ids or its exact name (an older answer's id: its newest
+   * version), never one a hidden answer alone or a k answer carries; its head as the person may open it now. Throws a
+   * ToolError in plain words. */
+  head(id: string | null, name: string): ChatHead
+  /** save `src` as the newest version of the chain `id` (ChatFiles.putVersion, origin 'ai', the turn's write limits and
+   * the storage check), every rule of head() checked again first; `read`: the sha256 the AI read it with (another head
+   * since then makes the result `beside`: nothing is lost) */
+  version(id: string, src: VersionSource, read: string, files: Pick<TurnFiles, 'bytesWritten' | 'filesWritten' | 'readHashes'>): Promise<ChatVersionMade>
 }
+
+/** A chat file's newest version as a writer of a new one sees it */
+export interface ChatHead { id: string; name: string; path: string; abs: string; sha256: string; size: number; quarantined: boolean; version: number }
+/** A version the AI saved: the chain's id and path (unchanged), its number, and `beside` when someone saved after the read */
+export interface ChatVersionMade { id: string; name: string; path: string; version: number; size: number; sha256: string; beside: boolean; link: string }
 
 /** The produce tools whose output may be chat:files/<name> (attached to the answer); only their results get the chat
  * file link (chatLinksInText): another tool's text (a web page, a mail, a Drive file) is never rewritten into one */
 export const PLACE_PRODUCE_TOOLS: ReadonlySet<string> = new Set(['make_file', 'edit_office', 'edit_pdf', 'merge_pdfs', 'split_pdf', 'stamp_pdf', 'comment_docx', 'resize_images', 'make_zip'])
+
+/** What the AI is told after a new version: where it is, that the old one stays, and a save beside someone else's */
+export function versionText(m: ChatVersionMade, how: string): string {
+  const link = `[${m.name}](${m.link})`
+  const beside = m.beside
+    ? ` Someone saved a version of it after you read it: yours is saved as the newest version, theirs stays as the one before it (nothing was lost). Tell the user, and read it again before a next change.`
+    : ''
+  return `${how} ${m.path}: saved as version ${m.version} (${m.size} bytes). The earlier versions stay (read it with versions: true to list them, version: n to read one). Everyone in this chat opens the new version from the same file under its message. Link for the user: ${link}${beside}`
+}
 
 /** The made file as a chat file: its id, name and the link the app opens (/c/<chat>?file=<id>) */
 export interface ChatMade { chatId: string; id: string; name: string; link: string }

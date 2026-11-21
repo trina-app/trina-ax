@@ -12,7 +12,9 @@
 //   compressed bytes (read here from the central directory without expanding anything), only parts of the kinds an
 //   edit may touch changed, and a fresh worker reads the old and the new file: every changed XML part is well-formed,
 //   and the text reads as before except what the changes report (paragraphs; every cell of every sheet).
-import { authorizeOutput } from '../files/place-output'
+import { authorizeOutput, readPlaceFile, versionText, type ChatHead, type ChatVersionMade } from '../files/place-output'
+import { PLACE_WORDS } from '../files/places'
+import { parsePlace } from '@mycel/shared/places'
 import fs from 'node:fs'
 import path from 'node:path'
 import { z } from 'zod'
@@ -41,7 +43,7 @@ const text = (max: number) => z.string().max(max)
 const occ = { occurrence: z.number().int().min(1).max(100_000).optional().describe('Which place (1-based, reading order) when the text is in several'), all: z.boolean().optional().describe('Every place the text is in') }
 const cellV = z.union([z.string().max(32_767), z.number(), z.boolean(), z.null()])
 export const EditOfficeInput = z.strictObject({
-  file_path: z.string().min(1).max(1000).describe('The .docx, .xlsx or .pptx to change (read it in this chat first)'),
+  file_path: z.string().min(1).max(1000).describe('The .docx, .xlsx or .pptx to change (read it in this chat first): a team path, or a chat file chat:files/<file_id>/<name>'),
   changes: z.array(z.union([
     z.strictObject({
       find: text(5000).min(1).describe('Exact text from ONE paragraph (Word, PowerPoint), as read shows it, without Markdown marks'),
@@ -75,7 +77,8 @@ export const EDIT_OFFICE_DESCRIPTION =
   'PowerPoint: find/replace (optionally on one slide), shape_text, duplicate_slide, add_slide (from a layout), replace_picture. ' +
   'Slide, table and row numbers are as you read them, never after another change in the same call. When a change cannot be made exactly, ' +
   'nothing is saved and the reason says what to give instead (shape, layout and picture names are listed there). ' +
-  'Without `output` the result is a new version of the same file (the previous one stays in its history).'
+  'Without `output` the result is a new version of the same file (the previous one stays in its history). ' +
+  'A file of this chat (chat:files/<file_id>/<name>) is changed the same way: without `output` it gets a new version that everyone in the chat opens, and the earlier version stays (read with versions: true).'
 
 const KIND: Record<string, OfficeKind> = { docx: 'docx', xlsx: 'xlsx', pptx: 'pptx' }
 /** a replacement picture: these names only, at most 20 MB each and PICTURES_TOTAL_MAX together in one call */
@@ -144,7 +147,26 @@ export function officePartsMismatch(kind: OfficeKind, a: Uint8Array, b: Uint8Arr
   return null
 }
 
-export interface EditedOffice { path: string; size: number; sha256: string; conflictCopyOf?: string; source: string; inPlace: boolean; report: EditReport; kind: OfficeKind }
+export interface EditedOffice { path: string; size: number; sha256: string; conflictCopyOf?: string; source: string; inPlace: boolean; report: EditReport; kind: OfficeKind; chatVersion?: ChatVersionMade }
+
+/** edit_office's document when it is a chat file: in place (no output) the chain's head as a new version's writer may
+ * have it (ChatPlaces.head), else a server-only copy read through the resolver (readPlaceFile). `rel` is its chat place
+ * path (the read-before-write key: chat:files/<id>/<name>), `bytes` what the tool works on. */
+async function chatSource(ctx: AppContext, c: ToolCtx, a: Input, place: NonNullable<ReturnType<typeof parsePlace>>): Promise<{ rel: string; abs: string; st?: fs.Stats; bytes: Buffer; head?: ChatHead }> {
+  if (place.kind !== 'chatFiles' || (!place.id && !place.name)) throw new ToolError('edit_office changes a team file or one of this chat\'s files (chat:files/<file_id>/<name>)', 'bad_place')
+  if (!c.places) throw new ToolError(PLACE_WORDS.noChat, 'no_chat')
+  if (a.output === undefined) {
+    const head = c.places.head(place.id, place.name ?? '')
+    if (head.quarantined) throw new ToolError(`'${head.name}' is held by the team's safety check, so it is not changed`, 'held')
+    if (head.size > OFFICE_EDIT_MAX) throw new ToolError(`'${head.name}' is larger than ${OFFICE_EDIT_MAX / 1024 / 1024} MB, too large to change here`)
+    return { rel: head.path, abs: head.abs, bytes: readRegular(head.abs, OFFICE_EDIT_MAX).bytes, head }
+  }
+  const work = makeWorkDir(path.join(ctx.config.dataDir, 'work'))
+  try {
+    const f = await readPlaceFile(ctx, c, a.file_path, OFFICE_EDIT_MAX, work)
+    return { rel: f.place, abs: f.local, bytes: readRegular(f.local, OFFICE_EDIT_MAX).bytes }
+  } finally { fs.rmSync(work, { recursive: true, force: true }) }
+}
 
 /** Excel values as make_file reads them (tools/make-file.ts cellValue): "1,234" a number, "007" text, a formula checked
  * (nothing that reaches outside the workbook), "=3 days" text. */
@@ -160,18 +182,22 @@ function excelValue(v: unknown, i: number): unknown {
 export async function editOffice(ctx: AppContext, c: ToolCtx, a: Input): Promise<EditedOffice> {
   const files = componentC(ctx).files
   const fx = files.fx
-  const src = authorize(fx, files.rules(), c.user, a.file_path, 'read')
-  if (src.st!.isDirectory()) throw new ToolError(`'${src.rel}' is a folder`, 'is_folder')
+  // a chat file (chat:files/…, P4): without output it gets a new version (ChatPlaces.head / version: who may, the file
+  // there); with an output a new file is made from it (its bytes through the resolver's one safe open)
+  const chatSrc = parsePlace(a.file_path)
+  const src = chatSrc ? await chatSource(ctx, c, a, chatSrc) : authorize(fx, files.rules(), c.user, a.file_path, 'read')
+  if (src.st?.isDirectory()) throw new ToolError(`'${src.rel}' is a folder`, 'is_folder')
   const kind = KIND[ext(src.rel)]
   if (!kind) throw new ToolError(`edit_office changes .docx, .xlsx and .pptx files only${/^(doc|xls|ppt|odt|ods|odp)$/.test(ext(src.rel)) ? ' (this older or OpenDocument format cannot be changed here; offer to make a new .docx, .xlsx or .pptx with make_file)' : ''}; use edit for text files, edit_hwp for Hangul documents and make_file for new documents`)
   if (checkRegular(src.abs).size > OFFICE_EDIT_MAX) throw new ToolError(`'${src.rel}' is larger than ${OFFICE_EDIT_MAX / 1024 / 1024} MB, too large to change here`)
-  const { bytes } = readRegular(src.abs, OFFICE_EDIT_MAX, src.st)
+  const { bytes } = 'bytes' in src ? { bytes: src.bytes } : readRegular(src.abs, OFFICE_EDIT_MAX, src.st)
   const seen = c.files.readHashes.get(src.rel)
   if (!seen) throw new ToolError(`read '${src.rel}' first (with read) before changing it`, 'not_read')
   if (seen !== sha256(bytes)) throw new ToolError(`'${src.rel}' was changed after you read it; read it again and give the changes for what it says now`, 'conflict')
   const outRel = a.output === undefined ? src.rel : editOfficeOutput(a.output, src.rel)
   if (inSkills(outRel)) throw new ToolError('Office files cannot be saved in a skills folder (skills/: skills and rules people\'s AI follow); give another output')
-  const out = authorizeOutput(fx, files.rules(), c, outRel, { mustExist: a.output === undefined, createDirs: true })
+  const head = 'head' in src ? src.head : null
+  const out = head ? { rel: head.path, segs: ['chat:files', head.id, head.name], exists: false, st: undefined } : authorizeOutput(fx, files.rules(), c, outRel, { mustExist: a.output === undefined, createDirs: true })
   if (out.exists && out.st!.isDirectory()) throw new ToolError(`'${out.rel}' is a folder`, 'is_folder')
   const inPlace = out.rel === src.rel
 
@@ -235,6 +261,13 @@ export async function editOffice(ctx: AppContext, c: ToolCtx, a: Input): Promise
   try {
     const produced = path.join(work, `out.${kind}`)
     fs.writeFileSync(produced, file, { flag: 'wx', mode: 0o600 })
+    if (head) {
+      // the chat file's new version (ChatFiles.putVersion through the turn's chat places: every rule again, origin 'ai')
+      c.user = ctx.files.principal(c.user.id)
+      c.beforePlace?.()
+      const v = await c.places!.version(head.id, { bytes: file }, seen, c.files)
+      return { path: v.path, size: v.size, sha256: v.sha256, source: src.rel, inPlace: true, report, kind, chatVersion: v }
+    }
     const made = await placeProduced(ctx, files, c, out.segs, produced, EDIT_OFFICE_TOOL)
     return { path: made.path, size: made.size, sha256: made.sha256, conflictCopyOf: made.conflictCopyOf, source: src.rel, inPlace, report, kind }
   } finally { fs.rmSync(work, { recursive: true, force: true }) }
@@ -243,7 +276,8 @@ export async function editOffice(ctx: AppContext, c: ToolCtx, a: Input): Promise
 const APP: Record<OfficeKind, string> = { docx: 'Word', xlsx: 'Excel', pptx: 'PowerPoint' }
 export function editOfficeText(r: EditedOffice): string {
   const link = `[${r.path.split('/').pop()}](${fileShareUrl(r.path, 'preview')})`
-  const where = r.conflictCopyOf
+  const where = r.chatVersion ? versionText(r.chatVersion, 'Changed')
+    : r.conflictCopyOf
     ? `'${r.conflictCopyOf}' was changed by someone else in the meantime, so the result was saved as '${r.path}' and the original left as it was. Tell the user about both.`
     : r.inPlace ? `Saved a new version of ${r.path}; the previous version is in its file history. Link for the user: ${link}`
     : `Saved ${r.path}; ${r.source} is unchanged. Link for the user: ${link}`

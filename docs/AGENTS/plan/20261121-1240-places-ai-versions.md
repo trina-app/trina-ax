@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-21 12:40
 - Branch: `feat/places-ai-versions` (off `batch/20261121-places` 4bf6f1a9e, PR #230; rebased on `dev` once #230 is in)
-- Status: in progress
+- Status: done
 - Where: server (chat places, the file tools' chat branch, edit_office), shared (tool descriptions). Why: the AI's core
   file tools are core (docs/REPOSITORY-RULES.md)
 - Version impact: **minor**. write, edit, edit_files and edit_office take an existing chat file; nothing that worked
@@ -76,4 +76,17 @@ None new: the parent plan's fix 2 and the owner's 2026-11-21 answer (project cha
 
 ## Result
 
-(at the end)
+- Built as planned: `write`, `edit`, `edit_files` and `edit_office` (no output) on an existing chat file save a new
+  version (chat/chat-file-write.ts, chat/place-ctx.ts `head` / `version`, files/places.ts `mayWriteChatVersion`);
+  `read` takes `versions: true` and `version: n` on a chat file; a read with `chat_file` counts as read too.
+- Added on the way: edit_office is offered in chats shared with people, for the chat's own files only (it was not
+  offered there at all: decision 20261121-office-edit-in-place "left for later"); a team Office file is refused there
+  in plain words. Decision: docs/decisions/20261121-ai-edits-chat-files.md.
+- S2 security review (race): `PutVersionOptions.recheck`, called synchronously right before the insert; the AI's save
+  passes its gate (the turn's rule plus the chat as the database has it then: continued by the person, not a project
+  chat). A failed recheck removes the written bytes. Tests flip the gate between the write and the insert.
+- The live-update seam is `chat/chat-file-version-hook.ts`; S2's `tellChat` registers with `listenChatFileVersions`.
+- QA on a private copy with a real engine (OpenRouter): "첨부한 견적서의 날짜를 12월 1일로 고쳐 줘" on an attached .docx
+  in a shared chat gave version 2 (견적일 2026년 12월 1일), the other member downloaded the new file and saw the chip's
+  "Updated" by the AI. Seen with gemini-2.5-flash: it changed the quote on a plain "here is the quote" message
+  (version 2, the original kept); the model's doing, not a server check.
