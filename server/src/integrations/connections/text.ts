@@ -11,6 +11,9 @@ export const TEXT = {
   // the card before a call that changes something at the service: {what} is the tool's title (MCP `title`, else its id
   // in words) or, for an HTTP API, what the method does (methodPost …); card-lines.ts
   confirm: t('AI가 {name}에 이 내용을 보내려고 해요: {what}', 'The AI wants to send this to {name}: {what}', 'AI ingin mengirim ini ke {name}: {what}', "AIが{name}に次の内容を送ろうとしています：{what}", "La IA quiere enviar esto a {name}: {what}", "AI 想把这个发送到{name}：{what}"),
+  // a demo server's card for a connection its fakes answer (server/src/demo/fakes: Gmail, Higgsfield): first, so the
+  // visitor knows nothing leaves (tools.ts gate)
+  practiceLead: t('연습용 연결이에요. 실제로는 아무것도 나가지 않아요.', 'This is a practice connection: nothing really goes out.', 'Ini koneksi latihan: tidak ada yang benar-benar dikirim.', "これは練習用の接続です。実際には何も送信されません。", "Esta es una conexión de práctica: en realidad no se envía nada.", "这是练习用的连接：实际上不会发送任何内容。"),
   // an HTTP API call: {what} is what its method does (methodDELETE …), so the sentence names a request, not "this"
   confirmRequest: t('AI가 {name}에 이 요청을 보내려고 해요: {what}', 'The AI wants to send this request to {name}: {what}', 'AI ingin mengirim permintaan ini ke {name}: {what}', "AIが{name}に次のリクエストを送ろうとしています：{what}", "La IA quiere enviar esta solicitud a {name}: {what}", "AI 想向{name}发送这个请求：{what}"),
   // a shared chat: a tool the service marks read-only whose name Trina cannot read as a look-up (read-mark.ts 'unsure',
@@ -122,7 +125,25 @@ export const TEXT = {
   // the page the browser lands on after signing in at the service (the app watches the sign-in by itself)
   callbackTitle: t('로그인', 'Sign-in', 'Login', "ログイン", "Iniciar sesión", "登录"),
   callbackOk: t('로그인했어요. 이 창을 닫고 앱으로 돌아가세요.', 'Signed in. You can close this window and go back to the app.', 'Sudah login. Anda bisa menutup jendela ini dan kembali ke aplikasi.', "ログインしました。このウィンドウを閉じてアプリに戻ってください。", "Sesión iniciada. Puede cerrar esta ventana y volver a la aplicación.", "已登录。你可以关闭这个窗口，回到应用。"),
-  callbackFail: t('로그인을 마치지 못했어요. 이 창을 닫고, 이 브라우저에서 같은 계정으로 로그인한 뒤 앱에서 다시 시작해 주세요.', 'The sign-in could not be completed. Close this window, sign in to the same team account in this browser, then start again from the app.', 'Login tidak dapat diselesaikan. Tutup jendela ini, login ke akun tim yang sama di browser ini, lalu mulai lagi dari aplikasi.', "ログインを完了できませんでした。このウィンドウを閉じ、このブラウザーで同じチームアカウントにログインしてから、アプリでやり直してください。", "No se pudo completar el inicio de sesión. Cierre esta ventana, inicie sesión en la misma cuenta del equipo en este navegador y vuelva a empezar desde la aplicación.", "无法完成登录。请关闭这个窗口，在这个浏览器中登录同一个团队账号，然后从应用重新开始。"),
+  // a return no sign-in here may finish: the address was used or ran out, or this browser is not the starter's for a
+  // sign-in started on the web or the phone (one started in the desktop app finishes in the app: callbackHeld)
+  callbackFail: t('이 링크는 만료됐어요. 앱으로 돌아가서 연결을 다시 눌러 주세요.', 'This link expired. Go back to the app and press Connect again.', 'Tautan ini sudah kedaluwarsa. Kembali ke aplikasi dan tekan Hubungkan lagi.', "このリンクは期限切れです。アプリに戻って、もう一度「接続」を押してください。", "Este enlace caducó. Vuelva a la aplicación y pulse Conectar de nuevo.", "这个链接已过期。请回到应用，再按一次“连接”。"),
+  // a sign-in started in the desktop app, answered in a browser without the starter's session: the app on this computer
+  // finishes it with the one-time code in the button's link (service.ts hold, routes/integrations.ts)
+  callbackHeldTitle: t('{product} 앱으로 돌아가서 마치세요', 'Go back to {product} to finish', 'Kembali ke {product} untuk menyelesaikan', "{product} に戻って完了してください", "Vuelva a {product} para terminar", "回到 {product} 完成连接"),
+  callbackHeld: t('{name} 연결이 거의 끝났어요. 아래 버튼을 눌러 앱으로 돌아가면 끝나요. 다시 로그인할 필요는 없어요.', 'Connecting {name} is almost done. Press the button to go back to the app and finish. You don’t need to sign in again.', 'Menghubungkan {name} hampir selesai. Tekan tombol untuk kembali ke aplikasi dan menyelesaikannya. Anda tidak perlu login lagi.', "{name} の接続はもうすぐ完了します。ボタンを押してアプリに戻ると完了します。もう一度ログインする必要はありません。", "La conexión de {name} casi está lista. Pulse el botón para volver a la aplicación y terminar. No necesita iniciar sesión otra vez.", "{name} 快连接好了。按下按钮回到应用即可完成，不需要再次登录。"),
+  callbackHeldWho: t('연결할 {product} 계정: {person} (@{username})', '{product} account it joins: {person} (@{username})', 'Akun {product} yang dihubungkan: {person} (@{username})', "接続先の {product} アカウント：{person}（@{username}）", "Cuenta de {product} a la que se une: {person} (@{username})", "要连接的 {product} 账号：{person}（@{username}）"),
+  callbackHeldOwnApp: t('이 링크는 내 컴퓨터의 {product} 앱에서만 여세요. 다른 사람에게 보내지 마세요. 내 계정이 아니면 이 창을 닫으세요.', 'Open this link only in your own {product} app. Don’t send it to anyone. If this is not your account, close this window.', 'Buka tautan ini hanya di aplikasi {product} milik Anda. Jangan kirim ke siapa pun. Jika ini bukan akun Anda, tutup jendela ini.', "このリンクは自分の {product} アプリでだけ開いてください。誰にも送らないでください。自分のアカウントでなければ、このウィンドウを閉じてください。", "Abra este enlace solo en su propia aplicación {product}. No se lo envíe a nadie. Si no es su cuenta, cierre esta ventana.", "只在你自己的 {product} 应用中打开这个链接，不要发给任何人。如果这不是你的账号，请关闭这个窗口。"),
+  // the return page's headings and its one next step on the web
+  callbackOkTitle: t('연결됐어요', 'Connected', 'Terhubung', "接続しました", "Conectado", "已连接"),
+  callbackNotTitle: t('연결하지 못했어요', 'Not connected', 'Tidak terhubung', "接続できませんでした", "No se conectó", "未连接"),
+  callbackOtherTitle: t('이 브라우저에서는 마칠 수 없어요', 'This browser can’t finish it', 'Browser ini tidak bisa menyelesaikannya', "このブラウザーでは完了できません", "Este navegador no puede terminarlo", "这个浏览器无法完成"),
+  callbackOpenConnectors: t('커넥터 열기', 'Open Connectors', 'Buka Konektor', "コネクタを開く", "Abrir conectores", "打开连接器"),
+  callbackBackToApp: t('앱으로 돌아가기', 'Back to the app', 'Kembali ke aplikasi', "アプリに戻る", "Volver a la aplicación", "返回应用"),
+  // the return came to a browser signed in to the team as someone else than who started: refused (service.ts callback)
+  callbackOtherAccount: t('이 브라우저는 다른 사람 계정으로 로그인돼 있어요. 여기서 로그아웃하거나, 앱으로 돌아가서 연결을 다시 눌러 주세요.', 'This browser is signed in as someone else. Sign out here, or go back to the app and press Connect again.', 'Browser ini login sebagai orang lain. Keluar di sini, atau kembali ke aplikasi dan tekan Hubungkan lagi.', "このブラウザーは別の人のアカウントでログインしています。ここでログアウトするか、アプリに戻ってもう一度「接続」を押してください。", "Este navegador tiene la sesión iniciada con otra persona. Cierre la sesión aquí, o vuelva a la aplicación y pulse Conectar de nuevo.", "这个浏览器登录的是别人的账号。请在这里退出登录，或者回到应用再按一次“连接”。"),
+  // the same sign-in's return opened again while it waits for the app: never a second code
+  callbackHanded: t('이 연결은 앱에서 마치기를 기다리고 있어요. 처음 열린 페이지에서 ‘앱으로 돌아가기’를 누르거나, 앱으로 돌아가서 연결을 다시 눌러 주세요.', 'This connection is waiting for the app. Press “Back to the app” on the first page that opened, or go back to the app and press Connect again.', 'Koneksi ini menunggu aplikasi. Tekan “Kembali ke aplikasi” di halaman pertama yang terbuka, atau kembali ke aplikasi dan tekan Hubungkan lagi.', "この接続はアプリでの完了を待っています。最初に開いたページで「アプリに戻る」を押すか、アプリに戻ってもう一度「接続」を押してください。", "Esta conexión espera a la aplicación. Pulse «Volver a la aplicación» en la primera página que se abrió, o vuelva a la aplicación y pulse Conectar de nuevo.", "这个连接正在等待应用完成。请在最先打开的页面上按“返回应用”，或者回到应用再按一次“连接”。"),
   // a sign-in the service did not finish (CallbackResult.reason): what happened, in plain words, and what to do; never
   // the service's own answer
   callbackClient: t('서비스가 이 앱의 Client ID나 Secret을 받아들이지 않았어요. 이 창을 닫고, 연결 편집의 고급에서 Secret을 확인한 뒤 다시 로그인해 주세요.', 'The service did not accept this app’s Client ID or Secret. Close this window, check the Secret under Advanced when you edit the connection, then sign in again.', 'Layanan tidak menerima Client ID atau Secret aplikasi ini. Tutup jendela ini, periksa Secret di Lanjutan saat mengedit koneksi, lalu login lagi.', "サービスがこのアプリのクライアントIDまたはシークレットを受け付けませんでした。このウィンドウを閉じ、接続の編集の「詳細設定」でシークレットを確認してから、もう一度ログインしてください。", "El servicio no aceptó el ID de cliente ni el secreto de esta aplicación. Cierre esta ventana, revise el secreto en Avanzado al editar la conexión y vuelva a iniciar sesión.", "服务没有接受这个应用的客户端 ID 或密钥。请关闭这个窗口，编辑连接时在“高级”中检查密钥，然后重新登录。"),
@@ -137,7 +158,6 @@ export const TEXT = {
   // the sign-in worked at the service, but the person already has as many working connections of their own as they may
   // (service.ts MAX_PERSONAL): nothing is stored
   callbackLimit: t('이미 작동하는 내 연결이 {n}개라 더 연결할 수 없어요. 하나를 지운 뒤 앱에서 다시 로그인해 주세요.', 'You already have {n} working connections of your own, the most you can have. Remove one, then sign in again from the app.', 'Anda sudah punya {n} koneksi pribadi yang berfungsi, jumlah maksimum. Hapus satu, lalu login lagi dari aplikasi.', "使える個人接続がすでに上限の{n}件あります。1件削除してから、アプリでもう一度ログインしてください。", "Ya tiene {n} conexiones propias que funcionan, el máximo. Elimine una y vuelva a iniciar sesión desde la aplicación.", "你已有 {n} 个可用的个人连接，已达上限。请删除一个后，再从应用中重新登录。"),
-  callbackLogin: t('팀 계정에 로그인', 'Sign in to the team account', 'Login ke akun tim', "チームアカウントにログイン", "Iniciar sesión en la cuenta del equipo", "登录团队账号"),
   // why a check failed (lastError)
   unreachable: t('서비스에 연결하지 못했어요. 주소를 확인해 주세요.', 'Could not reach the service. Check the address.', 'Tidak dapat menghubungi layanan. Periksa alamatnya.', "サービスに接続できませんでした。アドレスを確認してください。", "No se pudo conectar con el servicio. Revise la dirección.", "无法连接到服务。请检查地址。"),
   timeout: t('서비스가 30초 안에 답하지 않았어요.', 'The service did not answer within 30 seconds.', 'Layanan tidak menjawab dalam 30 detik.', "サービスが30秒以内に応答しませんでした。", "El servicio no respondió en 30 segundos.", "服务在30秒内没有回应。"),
@@ -226,6 +246,36 @@ export const FIELD_WORDS: Record<string, T> = {
   parent: t('넣을 곳', 'Where it goes', 'Tempat tujuan', "追加先", "Dónde va", "放到哪里"),
   folder: t('폴더', 'Folder', 'Folder', "フォルダー", "Carpeta", "文件夹"),
 }
+/** A mail call's argument names in words, only on a Google Workspace library connection's card (card-lines.ts fieldWord
+ * `extra`): another service's `thread_id` (a chat thread) or `references` keeps its own words. */
+export const MAIL_FIELD_WORDS: Record<string, T> = {
+  threadid: t('메일 대화', 'Conversation', 'Percakapan', "メールのやり取り", "Conversación", "邮件会话"),
+  inreplyto: t('답장할 메일', 'Reply to', 'Balasan untuk', "返信先のメール", "En respuesta a", "回复的邮件"),
+  references: t('이전 메일', 'Earlier mail', 'Email sebelumnya', "以前のメール", "Correos anteriores", "之前的邮件"),
+}
+/** What the step under an answer and the card before a change call a Google Workspace library tool, in the person's
+ * language (card-lines.ts toolTitle), in place of the library's English title ("Search Gmail Messages"). Gmail only for
+ * now: Calendar, Docs and Sheets keep the library's title. tests/unit/google-tool-titles.test.ts: every Gmail tool of
+ * google-apps/catalog.ts in every language. */
+export const GOOGLE_TOOL_WORDS: Record<string, T> = {
+  search_gmail_messages: t('메일 찾기', 'Search mail', 'Cari email', 'メールを検索', 'Buscar correo', '搜索邮件'),
+  get_gmail_message_content: t('메일 읽기', 'Read a message', 'Baca email', 'メールを読む', 'Leer un mensaje', '阅读邮件'),
+  get_gmail_messages_content_batch: t('메일 여러 통 읽기', 'Read messages', 'Baca beberapa email', '複数のメールを読む', 'Leer varios mensajes', '阅读多封邮件'),
+  get_gmail_thread_content: t('메일 대화 읽기', 'Read a conversation', 'Baca percakapan', 'メールのやり取りを読む', 'Leer una conversación', '阅读邮件会话'),
+  get_gmail_threads_content_batch: t('메일 대화 여러 개 읽기', 'Read conversations', 'Baca beberapa percakapan', '複数のやり取りを読む', 'Leer varias conversaciones', '阅读多个邮件会话'),
+  get_gmail_attachment_content: t('첨부 파일 읽기', 'Read an attachment', 'Baca lampiran', '添付ファイルを読む', 'Leer un adjunto', '阅读附件'),
+  list_gmail_labels: t('라벨 보기', 'List labels', 'Lihat label', 'ラベルを見る', 'Ver etiquetas', '查看标签'),
+  list_gmail_filters: t('필터 보기', 'List filters', 'Lihat filter', 'フィルタを見る', 'Ver filtros', '查看过滤器'),
+  send_gmail_message: t('메일 보내기', 'Send email', 'Kirim email', 'メールを送信', 'Enviar correo', '发送邮件'),
+  draft_gmail_message: t('임시 보관함에 저장', 'Save a draft', 'Simpan draf', '下書きを保存', 'Guardar un borrador', '保存草稿'),
+  modify_gmail_message_labels: t('라벨 바꾸기', 'Change labels', 'Ubah label', 'ラベルを変更', 'Cambiar etiquetas', '更改标签'),
+  batch_modify_gmail_message_labels: t('여러 메일 라벨 바꾸기', 'Change labels on several messages', 'Ubah label beberapa email', '複数のメールのラベルを変更', 'Cambiar etiquetas de varios mensajes', '更改多封邮件的标签'),
+  manage_gmail_label: t('라벨 관리', 'Manage a label', 'Kelola label', 'ラベルを管理', 'Gestionar una etiqueta', '管理标签'),
+  manage_gmail_filter: t('필터 관리', 'Manage a filter', 'Kelola filter', 'フィルタを管理', 'Gestionar un filtro', '管理过滤器'),
+}
+/** a library tool's own words in `L` (GOOGLE_TOOL_WORDS), or null for a tool not listed there */
+export const googleToolWord = (name: string, L: Locale): string | null =>
+  Object.hasOwn(GOOGLE_TOOL_WORDS, name) ? GOOGLE_TOOL_WORDS[name]![L] ?? GOOGLE_TOOL_WORDS[name]!.en : null
 /** a reason a connection check failed (integrations.last_error holds "<reason>" or "<reason>:<status>") */
 export type Reason = 'unreachable' | 'timeout' | 'list_timeout' | 'call_idle' | 'call_timeout' | 'private_address' | 'blocked_port' | 'tls' | 'refused' | 'no_secret' | 'sign_in' | 'redirect'
   | 'http_status' | 'not_mcp' | 'too_large' | 'oauth_unsupported' | 'oauth_no_registration' | 'oauth_no_registration_member' | 'oauth_approved_apps_only' | 'oauth_desktop_only' | 'oauth_busy' | 'oauth_failed' | 'key_unsafe' | 'local_offline' | 'local_declined' | 'local_confirm' | 'local_failed'

@@ -482,6 +482,50 @@ export function scratchOf(ctx: AppContext, c: SrtConfig, space: Space, scope?: S
   return root
 }
 
+/** The folder that holds every work folder of a shared chat (one per people and view: sharedWork), or null */
+function sharedWorkTop(chatId: string | null): string | null {
+  if (!chatId) return null
+  try { return path.dirname(sharedWork(srtConfig().base, chatId, 'k')) } catch { return null }
+}
+
+/** How a shared chat's work folder relates to the ones made for its earlier people (QA TC-6936): its commands start in a
+ * folder keyed by who sees the chat and what they may open (sharedWorkOf), so a change of people starts a new one.
+ *   fresh  an earlier folder is there and the one for the people now is not made yet: the files made before are not here
+ *   after  the folder now was made after the earlier ones were last changed (a file asked for may have been made before)
+ *   null   a personal chat, nothing earlier, or the earlier folder is the newer one (the people changed back)
+ * Only names and times of the folders are looked at; nothing in them is opened. */
+export function workFolderChange(ctx: AppContext, o: { userId: string; chatId: string | null; shared?: SharedRun }): 'fresh' | 'after' | null {
+  if (!o.shared || !o.chatId) return null
+  const top = sharedWorkTop(o.chatId)
+  if (!top) return null
+  let names: string[]
+  try { names = fs.readdirSync(top) } catch { return null }
+  const now = sharedWorkOf(ctx, o.chatId, o.userId, o.shared)
+  const mine = now ? path.basename(now) : null
+  const old = names.filter((n) => n !== mine)
+  if (!old.length) return null
+  let born: number | null = null
+  try { if (now) { const st = fs.lstatSync(now); born = st.isDirectory() ? (st.birthtimeMs || st.ctimeMs) : null } } catch { born = null }
+  if (born === null) return 'fresh'
+  let last = 0
+  for (const n of old) { try { last = Math.max(last, fs.lstatSync(path.join(top, n)).mtimeMs) } catch {} }
+  return born >= last ? 'after' : null
+}
+
+/** Is `p` an absolute path inside an earlier work folder of this shared chat (not the one its commands use now)? */
+export function inOldWorkFolder(ctx: AppContext, o: { userId: string; chatId: string | null; shared?: SharedRun }, p: string): boolean {
+  if (!o.shared || !o.chatId || !p.startsWith('/')) return false
+  const top = sharedWorkTop(o.chatId)
+  if (!top) return false
+  const tops = [top]
+  try { tops.push(fs.realpathSync(top)) } catch {}
+  const at = tops.find((t) => p.startsWith(t.replace(/\/+$/, '') + '/'))
+  if (!at) return false
+  const key = p.slice(at.replace(/\/+$/, '').length + 1).split('/')[0]
+  const now = sharedWorkOf(ctx, o.chatId, o.userId, o.shared)
+  return !!key && key !== (now ? path.basename(now) : null)
+}
+
 /** Do box_shell's commands of this person in this chat run in a work folder (made or not yet), not in a project folder? */
 export function runsInWorkFolder(ctx: AppContext, o: { userId: string; chatId: string | null; project: { id: string; folderPath: string } | null; shared?: SharedRun }): boolean {
   const s = spaceAt(ctx, o, false)

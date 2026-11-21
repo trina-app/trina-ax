@@ -38,32 +38,46 @@ export function freeRoamSignInLocales(own: Locale | null | undefined): readonly 
   return own && own !== 'en' && FREE_ROAM_LOCALES.includes(own) ? ['en', own] : ['en']
 }
 
-/** the meter starts to speak at this share of the demo limit */
-export const METER_FROM = 0.8
-
 /**
- * The demo limit as the visitor reads it: nothing until 80 %, then "About N% of your demo AI left" (N in steps of 5,
- * rounded up so it never says 0 before the end), and `out` once it is used up.
+ * Whether the demo limit is used up (`out`): the limit dialog opens and every AI message box stops (store/demo.ts).
+ * Nothing known: not out. The bar says what is left in questions only (demoQuestionsLeft): the % meter went with the
+ * QA of 2026-11-22, which read "About 20% of your demo AI left" as vague.
  */
-export function demoMeter(used: number | undefined, cap: number | undefined): { out: boolean; low: boolean; leftPct: number } {
-  if (!cap || cap <= 0 || used === undefined || !Number.isFinite(used)) return { out: false, low: false, leftPct: 100 }
-  const share = Math.max(0, used) / cap
-  if (share >= 1) return { out: true, low: true, leftPct: 0 }
-  const left = (1 - share) * 100
-  return { out: false, low: share >= METER_FROM, leftPct: Math.min(20, Math.max(5, Math.ceil(left / 5) * 5)) }
+export function demoMeter(used: number | undefined, cap: number | undefined): { out: boolean } {
+  if (!cap || cap <= 0 || used === undefined || !Number.isFinite(used)) return { out: false }
+  return { out: Math.max(0, used) >= cap }
 }
 
 /**
- * About how many questions the visitor has left: floor((cap - used) / DEMO_QUESTION_TOKENS), never below 0. Null when
- * the bar says nothing about it: no limit known, or from METER_FROM on, where the meter's "About N% left" takes over
- * (one count at a time, and never "about 0 questions" while the AI still answers).
+ * About how many questions the visitor has left: floor((cap - used) / DEMO_QUESTION_TOKENS), never below 0, right to the
+ * end (0 while the AI still answers reads "Almost out of questions"). Null when the bar says nothing about it: no limit
+ * known, or the limit is used up (the line under the box says so).
  */
 export function demoQuestionsLeft(used: number | undefined, cap: number | undefined): number | null {
-  if (!cap || cap <= 0 || used === undefined || !Number.isFinite(used) || demoMeter(used, cap).low) return null
+  if (!cap || cap <= 0 || used === undefined || !Number.isFinite(used) || demoMeter(used, cap).out) return null
   return Math.max(0, Math.floor((cap - Math.max(0, used)) / DEMO_QUESTION_TOKENS))
 }
 
-/** The bar's built-in suggestions when the demo file has none of its own (en and ko, the demo's first languages; the
+/** The gate's new start opens the app at `/?fresh=1` (demo-gate, the successful start's 303). */
+export const FRESH_PARAM = 'fresh'
+
+/**
+ * A new visitor's first page on a free-roam instance: the address carries `?fresh=1`. Every demo copy comes from one
+ * snapshot, so every copy has the same user id, and what this browser keeps per user id (unsent drafts, queued sends,
+ * the box's chips) would be the previous visitor's (QA 2026-11-22 D2). True when the parameter was there; it leaves the
+ * address at once (history.replaceState, the router's own state kept), so a reload is not a new start.
+ */
+export function takeFreshStart(loc: Pick<Location, 'href'> | undefined = globalThis.location, history: Pick<History, 'replaceState' | 'state'> | undefined = globalThis.history): boolean {
+  if (!loc?.href) return false
+  let url: URL
+  try { url = new URL(loc.href) } catch { return false }
+  if (url.searchParams.get(FRESH_PARAM) !== '1') return false
+  url.searchParams.delete(FRESH_PARAM)
+  try { history?.replaceState(history.state, '', `${url.pathname}${url.search}${url.hash}`) } catch { /* the address keeps it; the cleanup still runs */ }
+  return true
+}
+
+/** Home's built-in suggestions when the demo file has none of its own (en and ko, the demo's first languages; the
  * others read the English ones through the i18n tables). */
 export const BUILT_IN_SUGGESTIONS: readonly MessageKey[] = ['demo.free.chip.posts', 'demo.free.chip.reply', 'demo.free.chip.assets']
 export const SUGGESTIONS_MAX = 3
@@ -72,7 +86,7 @@ export const SUGGESTIONS_MAX = 3
 export interface FreeRoamSuggestion { label: string; prompt: string }
 
 /**
- * The bar's 2-3 suggestions: the demo's own (GET /api/demo `freeRoam.suggestions`, from the demo content, in the
+ * Home's 2-3 suggestions (under the message box): the demo's own (GET /api/demo `freeRoam.suggestions`, from the demo content, in the
  * company's language: a label for the chip and the prompt it sends), else the person's questions from the demo file,
  * else the built-in ones (their words are the label and the prompt).
  */

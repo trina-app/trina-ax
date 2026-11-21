@@ -131,7 +131,9 @@ export async function saveConnectorFile(ctx: AppContext, a: Input, t: ToolCtx): 
     const named = nameFor(result.name, bytes)
     if (named === null) throw new ToolError('the file is a program or a script, so it was not saved')
     name = named
-    from = result.webViewLink
+    // where it came from: its Drive link, or on a demo server (no real Drive address) its name marked as Drive's, never
+    // a bare file name that something reading `url` could take for a relative link
+    from = result.webViewLink ?? `Google Drive: ${name}`
     type = result.mimeType
     ctx.files.events.emit('external', { turnId: t.turnId, userId: t.user.id, source: 'save_connector_file', url: from })
   }

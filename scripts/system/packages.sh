@@ -279,6 +279,11 @@ pk_apt_space() {
 # update unit, nor its TimeoutStartSec can stop it mid-transaction (systemd stops a unit's whole cgroup; a setsid child
 # would go with it), and its output goes to PK_APT_LOG, never through a pipe a dying caller could close. Elsewhere (an
 # administrator's installer, a chroot image build: systemd-run would reach the host's systemd there) apt runs directly.
+# A direct apt run suspends needrestart (NEEDRESTART_SUSPEND=1; the hosted image has it with restart = 'a'): its caller
+# may be install-srt.sh inside `mycel-ctl update`, whose own mycel-ctl the root step just replaced, a process with a
+# deleted binary in the guest agent's cgroup (mycel-link.service). needrestart then restarted mycel-link, and the restart
+# killed the update before its sync (0.6.0 on hosted teams, 2026-11-21). The restarts wait for the next apt run that
+# does not suspend them (the sync's own unit, unattended-upgrades): needrestart keeps its marker until then.
 PK_APT_LOG=${PK_APT_LOG:-/var/log/trina-packages-apt.log}
 PK_SYSTEMD_DIR=${PK_SYSTEMD_DIR:-/run/systemd/system}
 pk__apt() {  # apt-get ARG...
@@ -291,7 +296,7 @@ pk__apt() {  # apt-get ARG...
     systemd-run --quiet --wait --collect --unit="trina-packages-apt-$$-${RANDOM}" -p "StandardOutput=append:$PK_APT_LOG" \
       -p "StandardError=append:$PK_APT_LOG" "${env[@]}" apt-get "$@"
   else
-    DEBIAN_FRONTEND=noninteractive apt-get "$@" >/dev/null
+    DEBIAN_FRONTEND=noninteractive NEEDRESTART_SUSPEND=1 apt-get "$@" >/dev/null
   fi
 }
 # pk_apt_install [APT-OPTION...] -- PACKAGE...: apt-get update (once per run), a free-space check, and install without

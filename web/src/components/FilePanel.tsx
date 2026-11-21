@@ -17,11 +17,11 @@
 // cannot write gets the same PDF as a download (GET /api/files/html-pdf).
 import clsx from 'clsx'
 import { Download, FileDown, FileText, FolderOpen, History, Loader2, Paperclip, Pencil, RotateCcw, UserPlus, X } from 'lucide-react'
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { api, API, chatFileUrl, fetchChatFileBlob, fileUrl, isApiError, roomFileUrl, saveBlob, startDownload, errorText } from '../lib/api'
-import type { ChatFileVersions } from '@mycel/shared/api'
-import { chatTextEditable, headUpdated, updatedLine, versionBy } from '../lib/chatFileVersions'
+import type { Attachment, ChatFileVersions } from '@mycel/shared/api'
+import { CHAT_FILE_VERSIONS_KEPT, chatTextEditable, headUpdated, updatedLine, versionBy } from '../lib/chatFileVersions'
 import { formatRelative, formatSize } from '../lib/format'
 import { useChats } from '../store/chats'
 import { extOf, parentPath } from '../lib/paths'
@@ -122,6 +122,18 @@ function useLiveVersion(file: PreviewFile): string | null {
   })
 }
 
+/** Who saved the newest version of a chat file as the chat on screen has it (Attachment.updated; the store's own object,
+ * so it is the same while nothing changed), for the editor's "<name> saved a newer version" line; null: none known */
+function useLiveUpdated(file: PreviewFile): NonNullable<Attachment['updated']> | null {
+  const chatId = file.source === 'chat' ? file.chatId : null
+  const fileId = file.source === 'chat' ? file.fileId : null
+  return useChats((s) => {
+    if (!chatId) return null
+    for (const m of s.threads[chatId]?.messages ?? []) for (const a of m.attachments ?? []) if (a.id === fileId) return a.updated ?? null
+    return null
+  })
+}
+
 export default function FilePanel({ file, onClose }: { file: PreviewFile; onClose: () => void }) {
   const t = useT()
   const locale = useLocale()
@@ -142,12 +154,15 @@ export default function FilePanel({ file, onClose }: { file: PreviewFile; onClos
   // add it to the chat" ask, components/ChatFileAsk.tsx, and the "can't be found, or you don't have access" line). The
   // header keeps the name and Close only: no file action that needs the file, nothing about where it is.
   const noAccess = error?.kind === 'missing'
-  const [editing, setEditing] = useState<{ base: string; text: string; draft: string } | null>(null)
+  // `from`: the number and time of the version the editor opened (a chat's file), so a newer save by someone else shows
+  // in the editor at once (QA TC-6956); `theirs`: that version's text, opened with View
+  const [editing, setEditing] = useState<{ base: string; text: string; draft: string; from?: { version: number; at: string }; theirs?: string | null } | null>(null)
   const [saving, setSaving] = useState(false)
   const [loadingEdit, setLoadingEdit] = useState(false)
   const [restoring, setRestoring] = useState<number | null>(null)
   const versions = useChatFileVersions(file, rev)
   const live = useLiveVersion(file)
+  const liveBy = useLiveUpdated(file)
   const canEdit = file.source === 'team' && !!kind && EDITABLE.includes(kind)
   // a chat's file: text, the server's yes, and the newest version on screen (an earlier one is restored, not edited)
   const canEditChat = file.source === 'chat' && !!kind && EDITABLE.includes(kind) && chatTextEditable(file.name) && !!versions?.canEdit && !shownVersion
@@ -218,7 +233,7 @@ export default function FilePanel({ file, onClose }: { file: PreviewFile; onClos
       const b = await fetchChatFileBlob(file.chatId, file.fileId, MAX_TEXT, undefined, { truncate: true })
       if (b.size > MAX_TEXT) return toast({ level: 'warn', text: t('preview.editTooLarge') })
       const text = await b.text()
-      setEditing({ base: head.id, text, draft: text })
+      setEditing({ base: head.id, text, draft: text, from: { version: head.version, at: head.createdAt } })
     } catch (e) {
       toast({ level: 'error', text: errorText(e, locale, t('error.network')) })
     } finally {
@@ -232,7 +247,10 @@ export default function FilePanel({ file, onClose }: { file: PreviewFile; onClos
       const r = await api.call(API.saveChatFile, { params: { id: file.chatId, fileId: file.fileId }, body: { content: editing.draft, baseVersion: editing.base } })
       setPanelGuard(null)
       setEditing(null)
-      toast(r.beside ? { level: 'warn', text: t('chatFile.savedBeside') } : { level: 'success', text: t('preview.saved') })
+      // someone saved in between: theirs is kept, named, and View opens it (QA TC-6956)
+      const theirs = r.beside ? r.besideOf : undefined
+      toast(theirs ? { level: 'warn', text: t('chatFile.savedBesideBy', { name: versionBy(t, theirs) }), action: { label: t('chatFile.view'), run: () => setShownVersion(theirs.version) } }
+        : r.beside ? { level: 'warn', text: t('chatFile.savedBeside') } : { level: 'success', text: t('preview.saved') })
       setRev((v) => v + 1)
     } catch (e) {
       toast({ level: 'error', text: errorText(e, locale, t('error.network')) })
@@ -240,19 +258,38 @@ export default function FilePanel({ file, onClose }: { file: PreviewFile; onClos
       setSaving(false)
     }
   }
-  /** "Restore this version": a new newest version with its bytes; nothing is deleted */
+  /** "Restore this version": a new newest version with its bytes; at the cap the oldest after the first goes, and the
+   * notice says which (QA TC-6949) */
   const restore = async (n: number) => {
     if (file.source !== 'chat' || restoring !== null) return
     setRestoring(n)
     try {
-      await api.call(API.restoreChatFileVersion, { params: { id: file.chatId, fileId: file.fileId, version: String(n) } })
-      toast({ level: 'success', text: t('chatFile.restored', { n }) })
+      const r = await api.call(API.restoreChatFileVersion, { params: { id: file.chatId, fileId: file.fileId, version: String(n) } })
+      // (restoring the oldest kept one at the cap: its own old entry is what goes)
+      toast({ level: 'success', text: !r.pruned?.length ? t('chatFile.restored', { n })
+        : r.pruned.includes(n) ? t('chatFile.restoredMoved', { n, kept: CHAT_FILE_VERSIONS_KEPT })
+        : t('chatFile.restoredPruned', { n, old: r.pruned.join(t('rooms.nameSep')), kept: CHAT_FILE_VERSIONS_KEPT }) })
       setShownVersion(null)
       setRev((v) => v + 1)
     } catch (e) {
       toast({ level: 'error', text: errorText(e, locale, t('error.network')) })
     } finally {
       setRestoring(null)
+    }
+  }
+  // someone else saved while I edit: the chat's newest version is past the one the editor opened (a higher number, or the
+  // AI's same-answer save of it later), and not my own save: their name, and View
+  const past = (u: NonNullable<Attachment['updated']>, f: { version: number; at: string }) => u.version > f.version || (u.version === f.version && u.at > f.at)
+  const newer = editing?.from && file.source === 'chat' && liveBy && past(liveBy, editing.from) && !(liveBy.by === me?.user.id && !liveBy.ai) ? liveBy : null
+  const viewTheirs = async () => {
+    if (!editing || file.source !== 'chat' || !newer) return
+    if (typeof editing.theirs === 'string') return setEditing({ ...editing, theirs: null })
+    try {
+      const b = await fetchChatFileBlob(file.chatId, file.fileId, MAX_TEXT, undefined, { truncate: true, version: newer.version })
+      const text = await b.text()
+      setEditing((e) => (e ? { ...e, theirs: text } : e))
+    } catch (e) {
+      toast({ level: 'error', text: errorText(e, locale, t('error.network')) })
     }
   }
   const unsaved = !!editing && editing.draft !== editing.text
@@ -464,6 +501,17 @@ export default function FilePanel({ file, onClose }: { file: PreviewFile; onClos
       <div ref={body} className="min-h-0 flex-1 overflow-auto bg-subtle/50">
         {editing ? (
           <div className="flex h-full flex-col gap-2 p-3">
+            {newer && (
+              <div className="rounded-lg border border-line bg-surface px-3 py-2 text-xs text-muted" role="status" data-testid="file-editor-newer">
+                <span className="break-words">{t('chatFile.newerWhileEditing', { name: versionBy(t, { byName: newer.byName, ...(newer.ai ? { ai: true as const } : {}) }) })}</span>{' '}
+                <button type="button" onClick={() => void viewTheirs()} className="touch-hit font-medium text-accent-text underline-offset-2 hover:underline" data-testid="file-editor-newer-view">
+                  {typeof editing.theirs === 'string' ? t('chatFile.hide') : t('chatFile.view')}
+                </button>
+                {typeof editing.theirs === 'string' ? (
+                  <pre className="mt-2 max-h-40 overflow-auto rounded border border-line bg-subtle/50 p-2 font-mono text-code leading-5 whitespace-pre-wrap text-ink" data-testid="file-editor-theirs">{editing.theirs}</pre>
+                ) : null}
+              </div>
+            )}
             <textarea
               aria-label={t('preview.editorLabel', { name: file.name })}
               className="min-h-0 flex-1 resize-none rounded-lg border border-field-border bg-surface p-3 font-mono text-code leading-5 text-ink focus:border-accent focus:ring-1 focus:ring-accent focus:outline-none"
@@ -504,11 +552,14 @@ function ChatFileHistory({ versions, shown, open, setOpen, restoring, onOpen, on
   const old = shown ? versions.items.find((v) => v.version === shown) : null
   // newest first in the list
   const rows = [...versions.items].reverse()
+  // the newest kept besides the first, when the cap pruned the ones between (0: no gap)
+  const gap = versions.items.length > 1 && (versions.items[1]?.version ?? 2) > 2 ? versions.items.length - 1 : 0
   return (
     <div className="border-b border-line bg-surface text-xs" data-testid="file-panel-history">
       <div className="flex min-h-9 items-center gap-2 px-3 py-1.5">
         <History size={14} className="shrink-0 text-faint" aria-hidden />
-        <span className="min-w-0 flex-1 truncate text-muted" data-testid="file-panel-updated">{updatedLine(t, locale, who)}</span>
+        {/* wraps rather than cutting the name ("Trina for Q…" and "Trina for QA Member Two" look alike: QA TC-6952) */}
+        <span className="min-w-0 flex-1 break-words text-muted" title={updatedLine(t, locale, who)} data-testid="file-panel-updated">{updatedLine(t, locale, who)}</span>
         <button type="button" onClick={() => setOpen(!open)} aria-expanded={open} className="touch-hit shrink-0 rounded-md px-2 py-1 font-medium text-accent-text hover:bg-accent-soft" data-testid="file-versions-toggle">
           {t('chatFile.versions', { count: versions.items.length })}
         </button>
@@ -525,9 +576,12 @@ function ChatFileHistory({ versions, shown, open, setOpen, restoring, onOpen, on
         </div>
       )}
       {open && (
-        <ol className="max-h-64 overflow-auto border-t border-line" aria-label={t('chatFile.versionsLabel')} data-testid="file-versions">
+        <VersionsList>
           {rows.map((v) => (
-            <li key={v.id} className={clsx('flex flex-wrap items-center gap-x-2 gap-y-1 px-3 py-2 [&+&]:border-t [&+&]:border-line', shown === v.version && 'bg-accent-soft/40')} data-testid="file-version-row" data-version={v.version}>
+            <Fragment key={v.id}>
+            {/* after the cap pruned some (the numbers jump from 1 to 9), one quiet line where they jump (QA TC-6950) */}
+            {gap > 0 && v.version === 1 && <li className="px-3 py-2 text-faint [&+&]:border-t [&+&]:border-line" data-testid="file-versions-pruned">{t('chatFile.olderRemoved', { n: gap })}</li>}
+            <li className={clsx('flex flex-wrap items-center gap-x-2 gap-y-1 px-3 py-2 [&+&]:border-t [&+&]:border-line', shown === v.version && 'bg-accent-soft/40')} data-testid="file-version-row" data-version={v.version}>
               <span className="min-w-0 flex-1">
                 <span className="font-medium text-ink" id={`file-version-${v.id}`}>{t('chatFile.versionN', { n: v.version })}</span>
                 {v.head && <span className="ml-1.5 rounded border border-line px-1 text-micro text-muted">{t('chatFile.current')}</span>}
@@ -542,9 +596,39 @@ function ChatFileHistory({ versions, shown, open, setOpen, restoring, onOpen, on
                 </span>
               )}
             </li>
+            </Fragment>
           ))}
-        </ol>
+        </VersionsList>
       )}
+    </div>
+  )
+}
+
+/** The versions' rows: as tall as most of the panel (no small fixed box: QA TC-6948), and a fade at the bottom while
+ * more rows are below. */
+function VersionsList({ children }: { children: ReactNode }) {
+  const t = useT()
+  const list = useRef<HTMLOListElement>(null)
+  const [more, setMore] = useState(false)
+  const measure = () => {
+    const el = list.current
+    if (el) setMore(el.scrollHeight - el.scrollTop - el.clientHeight > 4)
+  }
+  // the rows may change (a restore, a save): measured again after each render; the box's own size by an observer
+  useLayoutEffect(measure)
+  useLayoutEffect(() => {
+    const el = list.current
+    if (!el || typeof ResizeObserver === 'undefined') return
+    const ro = new ResizeObserver(measure)
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [])
+  return (
+    <div className="relative border-t border-line">
+      <ol ref={list} onScroll={measure} className="max-h-[min(60vh,36rem)] overflow-auto" aria-label={t('chatFile.versionsLabel')} data-testid="file-versions">
+        {children}
+      </ol>
+      {more && <div className="pointer-events-none absolute inset-x-0 bottom-0 h-8 bg-gradient-to-t from-surface to-transparent" aria-hidden data-testid="file-versions-more" />}
     </div>
   )
 }

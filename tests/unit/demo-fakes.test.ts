@@ -22,8 +22,9 @@ import { DRIVE_CONFIG } from '../lib/fake-google-drive'
 import { activeDemoFakes, demoFakesOf, DEMO_OFFLINE_TEXT, type DemoFakes } from '../../server/src/demo/fakes'
 import { demoOffline } from '../../server/src/demo/fakes/offline'
 import { FakeState, STATE_DIR, STATE_FILE } from '../../server/src/demo/fakes/state'
-import { HIGGSFIELD_TOOLS, loadPictures, MEDIA_HOST, pickPicture, PREPARED_PHOTO, SAVE_NEXT, VIDEO_REFUSED } from '../../server/src/demo/fakes/higgsfield'
+import { FakeHiggsfield, HIGGSFIELD_TOOLS, loadPictures, MEDIA_HOST, noPictureText, pickPicture, PREPARED_PHOTO, SAVE_NEXT, VIDEO_REFUSED } from '../../server/src/demo/fakes/higgsfield'
 import { HIGGSFIELD_PICTURE } from '../../scripts/demo/steepling/make'
+import { SCENE_PICTURES } from '../../scripts/demo/steepling/banner/kit'
 import { googleAppsOf, type GoogleApps } from '../../server/src/integrations/google-apps/service'
 import { workspaceLibraryOf } from '../../server/src/integrations/google-apps/library'
 import { refreshGoogleApp } from '../../server/src/integrations/google-apps/tokens'
@@ -153,11 +154,13 @@ describe('Gmail', () => {
     const no = asker('no')
     const r1 = await turn('alice', { person: no }).call('my_gmail__send_gmail_message', { to: 'chris.walker@fieldnote.example', subject: 'Thanks', body: 'See you Monday' })
     expect(r1.isError).toBe(true)
-    expect(no.choices).toEqual([['Send once', 'Always allow', 'Don’t send']])
+    // a demo server's card is Send / Don't send, no Always allow (connection-card-demo.test.ts)
+    expect(no.choices).toEqual([])
+    expect(no.asked).toHaveLength(1)
     expect(fakes.gmail.sent()).toHaveLength(0)
     const yes = asker('yes')
     const r2 = await turn('alice', { person: yes }).call('my_gmail__send_gmail_message', { to: 'chris.walker@fieldnote.example', subject: 'Thanks', body: 'See you Monday' })
-    expect(yes.choices).toHaveLength(1)
+    expect(yes.asked).toHaveLength(1)
     expect(r2.isError).toBe(false)
     expect(r2.text).toMatch(/Email sent! Message ID: m[a-z0-9]+/)
     expect(fakes.gmail.sent()).toHaveLength(1)
@@ -224,7 +227,10 @@ describe('Higgsfield', () => {
     expect(r.body.status).toBe('connected')
     carolHiggsfield = r.body.id
     const t = turn('alice', { person: asker('yes') })
-    expect([...t.tools.keys()].filter((n) => n.startsWith('team_higgsfield__')).sort()).toEqual(['team_higgsfield__balance', 'team_higgsfield__generate_image', 'team_higgsfield__generate_video', 'team_higgsfield__job_display', 'team_higgsfield__make_banner', 'team_higgsfield__show_generations'])
+    expect([...t.tools.keys()].filter((n) => n.startsWith('team_higgsfield__')).sort()).toEqual(['team_higgsfield__balance', 'team_higgsfield__generate_image', 'team_higgsfield__generate_video', 'team_higgsfield__job_display', 'team_higgsfield__show_generations'])
+    // a banner's words are the server's own change_banner_text (tools/demo-banner.ts), never a Higgsfield tool; with the
+    // built-in data (no banner kit) it is not offered at all
+    expect(toolRegistry(A.ctx.files).available('change_banner_text')).toBe(false)
     expect((await t.call('team_higgsfield__balance', {})).text).toContain('credits')
     const g = await t.call('team_higgsfield__generate_image', { prompt: 'a pouch of yuzu ginger tea by a frosted window' })
     expect(g.isError).toBe(false)
@@ -232,11 +238,10 @@ describe('Higgsfield', () => {
     // QA TC-6792 / TC-6791: the result says the photo is a prepared one, and that it is saved and shown next
     expect(g.text).toContain(PREPARED_PHOTO)
     expect(g.text).toContain(SAVE_NEXT)
-    for (const n of ['generate_image', 'make_banner']) {
-      const d = HIGGSFIELD_TOOLS.find((x) => x.name === n)!.description
-      expect(d, n).toContain("demo's prepared photos")
-      expect(d, n).toContain('save_connector_file right away')
-    }
+    const desc = HIGGSFIELD_TOOLS.find((x) => x.name === 'generate_image')!.description
+    expect(desc).toContain("demo's prepared photos")
+    expect(desc).toContain('save_connector_file right away')
+    expect(desc).toContain('change_banner_text')
     expect(g.text).toMatch(/mcp-file:[A-Za-z0-9_-]{22}/)
     const job = /"job_id":"(job[a-z0-9]+)"/.exec(g.text)?.[1]
     expect(job).toBeTruthy()
@@ -259,17 +264,56 @@ describe('Higgsfield', () => {
     const p = (name: string) => ({ name, mime: 'image/jpeg', words: name.replace(/\.\w+$/, '').split('-'), read: () => Buffer.alloc(0) })
     const pics = [p('office-desk.jpg'), p('yuzu-ginger-window.jpg'), p('iced-tea-glass.jpg')]
     expect(pickPicture(pics, 'Yuzu ginger pouch by a frosted window')!.name).toBe('yuzu-ginger-window.jpg')
-    expect(pickPicture(pics, 'something else')!.name).toBe('office-desk.jpg')
+    // no word in common: no picture (QA 11-22 A4: it gave the first one, the same photo again)
+    expect(pickPicture(pics, 'something else')).toBeNull()
     expect(pickPicture([], 'x')).toBeNull()
-    // Steepling's story photo: named "00-…" so it sorts first and stays the default for a prompt no name matches, with
-    // the story's words in English and Korean (the review of the richer Steepling)
+    // Steepling's story photo: named "00-…" so it sorts first and wins a tie, with the story's words in English and
+    // Korean (the review of the richer Steepling)
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pics-'))
     fs.mkdirSync(path.join(dir, 'higgsfield'))
     for (const n of [HIGGSFIELD_PICTURE, 'zz-office-desk.jpg']) fs.writeFileSync(path.join(dir, 'higgsfield', n), 'x')
     const story = loadPictures(dir)
     expect(story[0]!.name.normalize('NFC')).toBe(HIGGSFIELD_PICTURE.normalize('NFC'))
-    for (const prompt of ['유자 진저 파우치, 창가 아침 햇살', 'Yuzu ginger pouch by a frosted window', '새 배경 만들어 줘']) expect(pickPicture(story, prompt)!.name.normalize('NFC'), prompt).toBe(HIGGSFIELD_PICTURE.normalize('NFC'))
+    for (const prompt of ['유자 진저 파우치, 창가 아침 햇살', 'Yuzu ginger pouch by a frosted window']) expect(pickPicture(story, prompt)!.name.normalize('NFC'), prompt).toBe(HIGGSFIELD_PICTURE.normalize('NFC'))
+    expect(pickPicture(story, '새 배경 만들어 줘')).toBeNull()
     expect(pickPicture(story, 'an office desk')!.name).toBe('zz-office-desk.jpg')
+    fs.rmSync(dir, { recursive: true, force: true })
+  })
+})
+
+describe("Steepling's Higgsfield: a scene it has no photo for (QA 11-22 A4)", () => {
+  const call = async (h: FakeHiggsfield, prompt: string) => {
+    const r = await h.tools.find((t) => t.name === 'generate_image')!.call({ prompt })
+    return { isError: !!r.isError, text: r.content.filter((c) => c.type === 'text').map((c) => (c as { text: string }).text).join('\n'), images: r.content.filter((c) => c.type === 'image').length }
+  }
+  test('no matching photo: no picture, no job, nothing to save, and the prepared scenes named', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pics-'))
+    fs.mkdirSync(path.join(dir, 'higgsfield'))
+    for (const n of [HIGGSFIELD_PICTURE, ...Object.values(SCENE_PICTURES)]) fs.writeFileSync(path.join(dir, 'higgsfield', n), 'x')
+    const state = new FakeState(fs.mkdtempSync(path.join(os.tmpdir(), 'pics-state-')))
+    const h = new FakeHiggsfield(loadPictures(dir), state)
+    for (const prompt of ['눈 내리는 밤 거리', 'a snowy mountain cabin at night']) {
+      const r = await call(h, prompt)
+      expect(r.isError, prompt).toBe(true)
+      expect(r.images).toBe(0)
+      expect(r.text).toBe(noPictureText(prompt, loadPictures(dir)))
+      expect(r.text).toContain('Nothing was made')
+      expect(r.text).toContain('Prepared scenes: yuzu ginger tea pouch iced glass frosted window; two glasses iced')
+      expect(r.text).toContain('change_banner_text with scene')
+      expect(r.text).not.toContain('mcp-file:')
+    }
+    expect(state.get().generations).toEqual([])
+    // "눈 내리는 창가" shares "창가" (window) with the story photo, a frosted window: that photo, once; asked again, no
+    // second copy (A4 got it twice and saved it twice)
+    const first = await call(h, '눈 내리는 창가')
+    expect([first.isError, first.images]).toEqual([false, 1])
+    const again = await call(h, '눈 내리는 창가, 다른 느낌으로')
+    expect([again.isError, again.images]).toEqual([true, 0])
+    expect(again.text).toContain('Nothing new was made; do not save it again')
+    expect(state.get().generations.length).toBe(1)
+    // another scene is still there
+    const cafe = await call(h, 'cafe table')
+    expect([cafe.isError, cafe.images]).toEqual([false, 1])
     fs.rmSync(dir, { recursive: true, force: true })
   })
 })

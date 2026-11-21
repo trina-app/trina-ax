@@ -1,30 +1,34 @@
 // A free-roam demo on screen (docs/decisions/20261119-demo-free-roam-web.md): one visitor's own server behind demo-gate,
 // signed in as the demo's person, with the real AI until the demo limit (store/demo.ts reads it, lib/freeRoam.ts has the
-// rules). Lean on purpose: one thin bar, one dialog at the limit, one line under the AI's message boxes.
+// rules). Lean on purpose: one thin bar, the suggestions under Home's box, one dialog at the limit, one line under the
+// AI's message boxes.
 //
 // - FreeRoamBar: in place of the demo bar at the top (in the page's flow, so it never covers a message box): "You're
-//   Mina at Steepling, a made-up company. Try anything." with "About 8 questions left" (lib/freeRoam.ts
-//   demoQuestionsLeft) and 2-3 suggestions; a tap SENDS one as a new chat, as the
-//   scripted demo's questions on Home do (DemoQuestions), since the bar is on every screen and a box to fill may not be.
-//   A quiet "Practice connections" label (the full sentence in its tooltip) says Gmail, Drive and Higgsfield are the demo's.
-//   From 80 % of the limit one quiet line "About 20% of your demo AI left"; at the limit the suggestions go.
-// - DemoLimitDialog: "You've used this demo's AI", the app's own Modal (a bottom sheet on phones), Start free / Look around.
+//   Mina at Steepling, a made-up company." with "About 8 questions left" (lib/freeRoam.ts demoQuestionsLeft, in
+//   questions right to the end: "Almost out of questions" at 0), a small "Gmail, Drive, Higgsfield: practice only" button
+//   whose tap or click opens the whole sentence (a tooltip never shows on a touch screen: QA 2026-11-22 F3), and one
+//   quiet "Start free" link at the end. One line on a computer; on a 390 px phone three short rows, 56 px at most (QA
+//   2026-11-22 F9: it was 120 to 145 px tall with the chips).
+// - FreeRoamChips: Home's 2-3 suggestions under the message box (pages/Home.tsx, free roam, not in a project); a tap
+//   SENDS one as a new chat, as the scripted demo's questions do (DemoQuestions). Nowhere else (owner, 2026-11-22).
+// - DemoLimitDialog: "You've used all your questions", the app's own Modal (a bottom sheet on phones), Start free / Look
+//   around.
 // - DemoLimitNotice: under an AI message box once the limit is used up (the box does not send): one line and Start free.
 // - FreeRoamStart: the sign-in page's one action, "Continue as Mina": demo-gate signs the visitor back in
 //   (POST /__demo/resume; its start page when that fails).
-// - FreeRoamUnavailable: a page a visitor cannot use here (the admin pages, the dev environment): one line.
+// - FreeRoamUnavailable: a page a visitor cannot use here (the admin pages, the dev environment): one line and Back to
+//   Home.
 import clsx from 'clsx'
-import { CirclePause } from 'lucide-react'
-import { useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { CirclePause, ExternalLink, Loader2 } from 'lucide-react'
+import { useEffect, useId, useRef, useState } from 'react'
+import { Link, useNavigate } from 'react-router-dom'
 import type { DemoInfo } from '@mycel/shared/api'
 import { useT, type MessageKey } from '../../i18n'
-import { demoMeter, demoQuestionsLeft, freeRoamSuggestions, isFreeRoam, resumeFreeRoam } from '../../lib/freeRoam'
+import { demoQuestionsLeft, freeRoamSuggestions, isFreeRoam, resumeFreeRoam } from '../../lib/freeRoam'
 import { useChats } from '../../store/chats'
 import { useDemo } from '../../store/demo'
 import { useMe } from '../../store/session'
 import { CalmNotice } from '../LoadError'
-import { Tooltip } from '../Tooltip'
 import { Button, LinkButton, Modal } from '../ui'
 
 /** the demo's one person (the gate signs the visitor in as them) */
@@ -32,15 +36,105 @@ const personOf = (info: DemoInfo) => (info.current ? info.personas.find((p) => p
 
 export function FreeRoamBar({ info }: { info: DemoInfo }) {
   const t = useT()
+  const out = useDemo((s) => s.out)
+  const left = out ? null : demoQuestionsLeft(info.used, info.cap)
+  const person = personOf(info)
+  return (
+    // `relative`: the practice sentence opens under the bar on a phone, across its width. A computer: one line (who you
+    // are · the count · practice ……… Start free). A 390 px phone: three short rows, 56 px at most (who you are; the count
+    // ……… Start free; practice), measured in all six languages (test/e2e/demo-free-roam.spec.ts): two rows cannot hold
+    // the four in es and id, and ", a made-up company" is never cut
+    <div role="note" className="relative flex flex-wrap items-center gap-x-3 bg-accent-soft px-3 py-1 text-xs leading-4 text-accent-text" data-testid="free-roam-bar">
+      {/* never cut: ", a made-up company" is what keeps the demo from misleading anyone */}
+      <span className="min-w-0 font-medium max-md:basis-full" data-testid="free-roam-who">
+        {t('demo.free.bar', { name: person?.name ?? '', company: info.company })}
+      </span>
+      {left !== null && (
+        // how much they can still ask, in questions (never tokens), right to the end: for visitors who skipped the gate's
+        // landing too
+        <span role="status" className="whitespace-nowrap text-muted" data-testid="free-roam-left">
+          {left > 0 ? t('demo.free.left', { n: left }) : t('demo.free.almostOut')}
+        </span>
+      )}
+      <PracticeLabel />
+      {/* one quiet text link at the end (owner, QA 2026-11-22 F8): the end of the line on a computer, of the count's row
+          on a phone; a new tab, so the visitor's copy stays open. Out: the limit dialog and the line under the box have
+          their own */}
+      {info.signupUrl && !out && (
+        <a
+          href={info.signupUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="ml-auto inline-flex shrink-0 items-center gap-1 rounded font-medium whitespace-nowrap underline-offset-2 outline-none hover:underline focus-visible:ring-2 focus-visible:ring-accent"
+          data-testid="free-roam-bar-start-free"
+        >
+          {t('demo.free.limit.start')}
+          <ExternalLink size={12} aria-hidden />
+        </a>
+      )}
+    </div>
+  )
+}
+
+/** "Gmail, Drive, Higgsfield: practice only": a small text button; a tap or click opens the whole sentence under it
+ * (demo.free.practiceTip), Esc or a tap outside closes it. Not the shared Tooltip, which never opens on a touch screen
+ * (components/Tooltip.tsx), so a phone never read it (QA 2026-11-22 F3). */
+function PracticeLabel() {
+  const t = useT()
+  const [open, setOpen] = useState(false)
+  const wrap = useRef<HTMLSpanElement>(null)
+  const button = useRef<HTMLButtonElement>(null)
+  const id = useId()
+  useEffect(() => {
+    if (!open) return
+    const away = (e: PointerEvent) => { if (!wrap.current?.contains(e.target as Node)) setOpen(false) }
+    const esc = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return
+      e.stopPropagation()
+      setOpen(false)
+      button.current?.focus()
+    }
+    document.addEventListener('pointerdown', away, true)
+    document.addEventListener('keydown', esc, true)
+    return () => {
+      document.removeEventListener('pointerdown', away, true)
+      document.removeEventListener('keydown', esc, true)
+    }
+  }, [open])
+  return (
+    // a computer: the sentence opens under the label (this span is its anchor); a phone: under the bar, its full width
+    <span ref={wrap} className="max-md:order-last max-md:basis-full md:relative">
+      <button
+        ref={button}
+        type="button"
+        aria-expanded={open}
+        aria-controls={id}
+        onClick={() => setOpen((o) => !o)}
+        className="rounded text-left text-muted underline decoration-dotted underline-offset-2 outline-none hover:text-accent-text focus-visible:ring-2 focus-visible:ring-accent"
+        data-testid="free-roam-practice"
+      >
+        {t('demo.free.practice')}
+      </button>
+      {open && (
+        <span
+          id={id}
+          role="note"
+          className="absolute top-full z-50 mt-1 block rounded-lg border border-line bg-surface p-3 text-xs leading-relaxed text-ink shadow-lg max-md:inset-x-3 md:left-0 md:w-80"
+          data-testid="free-roam-practice-tip"
+        >
+          {t('demo.free.practiceTip')}
+        </span>
+      )}
+    </span>
+  )
+}
+
+/** Send a suggestion as a new chat, then open it; `sending`: the one on its way (the others dim, it spins). */
+function useAskAsNewChat() {
   const me = useMe()
   const navigate = useNavigate()
   const send = useChats((s) => s.send)
-  const out = useDemo((s) => s.out)
   const [sending, setSending] = useState<string | null>(null)
-  const meter = demoMeter(info.used, info.cap)
-  const left = demoQuestionsLeft(info.used, info.cap)
-  const person = personOf(info)
-  const chips = out || meter.out ? [] : freeRoamSuggestions(info, t)
   const ask = async (text: string) => {
     if (sending || !me) return
     setSending(text)
@@ -53,50 +147,38 @@ export function FreeRoamBar({ info }: { info: DemoInfo }) {
       setSending(null)
     }
   }
+  return { sending, ask }
+}
+
+/** Home's suggestions for a free-roam visitor, under the message box (pages/Home.tsx): round buttons that wrap (at most
+ * three, lib/freeRoam.ts SUGGESTIONS_MAX); none once the questions are used up. */
+export function FreeRoamChips({ info }: { info: DemoInfo }) {
+  const t = useT()
+  const out = useDemo((s) => s.out)
+  const { sending, ask } = useAskAsNewChat()
+  const chips = out ? [] : freeRoamSuggestions(info, t)
+  if (!chips.length) return null
   return (
-    <div role="note" className="flex flex-wrap items-center gap-x-3 gap-y-1 bg-accent-soft px-3 py-1 text-xs text-accent-text" data-testid="free-roam-bar">
-      <span className="min-w-0 font-medium max-md:basis-full" data-testid="free-roam-who">
-        {t('demo.free.bar', { name: person?.name ?? '', company: info.company })}
-        {left !== null && !out && (
-          // how much they can still ask, in questions (never tokens): for visitors who skipped the gate's landing too
-          <>{' '}<span className="ml-0.5 whitespace-nowrap font-normal text-muted" data-testid="free-roam-left">{t('demo.free.left', { n: left })}</span></>
-        )}
-        {/* Gmail, Drive and Higgsfield are the demo's fakes: said up front, quietly (a short label, the whole sentence on hover and
-            focus and to screen readers), never a card */}
-        {' '}
-        <Tooltip label={t('demo.free.practiceTip')} description>
-          <span tabIndex={0} className="ml-0.5 whitespace-nowrap rounded font-normal text-muted underline decoration-dotted underline-offset-2 outline-none focus-visible:ring-2 focus-visible:ring-accent" data-testid="free-roam-practice">
-            {t('demo.free.practice')}
-          </span>
-        </Tooltip>
-      </span>
-      {chips.length > 0 && (
-        // the chips wrap, on phones too: at most three (lib/freeRoam.ts SUGGESTIONS_MAX), so two short rows at most. A row
-        // that scrolled sideways cut the third chip at a 390px screen's edge, and even with a fading edge it read as the
-        // end of the list (QA TC-5622). Hidden while the keyboard is up, so the message box keeps the room
-        <ul aria-label={t('demo.free.tryLabel')} className="-mx-1 flex min-w-0 flex-1 flex-wrap gap-1.5 px-1 py-0.5 in-[.keyboard-open]:hidden max-md:order-2" data-testid="free-roam-chips">
-          {chips.map((c) => (
-            <li key={c.label} className="shrink-0">
-              <button
-                type="button"
-                disabled={!!sending}
-                onClick={() => void ask(c.prompt)}
-                className={clsx('rounded-full border border-line bg-surface px-2.5 py-1 text-xs text-ink transition hover:bg-hover max-md:min-h-8', sending && sending !== c.prompt && 'opacity-50')}
-                data-testid="free-roam-chip"
-              >
-                {c.label}
-              </button>
-            </li>
-          ))}
-        </ul>
-      )}
-      {meter.low && !meter.out && !out && (
-        // phones: its own short line under who you are (beside the suggestions it squeezed them), before the suggestions
-        <span role="status" className="shrink-0 text-muted max-md:order-1 max-md:basis-full md:ml-auto" data-testid="free-roam-meter">
-          {t('demo.free.meter', { pct: meter.leftPct })}
-        </span>
-      )}
-    </div>
+    <ul aria-label={t('demo.free.tryLabel')} className="mt-4 flex flex-wrap justify-center gap-2 max-md:mt-0 max-md:mb-3 max-md:justify-start" data-testid="free-roam-chips">
+      {chips.map((c) => {
+        const busy = sending === c.prompt
+        return (
+          <li key={c.label} className="min-w-0">
+            <button
+              type="button"
+              disabled={!!sending}
+              aria-busy={busy || undefined}
+              onClick={() => void ask(c.prompt)}
+              className={clsx('inline-flex min-h-8 max-w-full items-center gap-1.5 rounded-full border border-line bg-surface px-3 py-1 text-left text-sm text-ink transition hover:bg-hover disabled:cursor-default max-md:min-h-9', sending && !busy && 'opacity-50')}
+              data-testid="free-roam-chip"
+            >
+              {busy && <Loader2 size={14} className="shrink-0 animate-spin" aria-hidden data-testid="free-roam-chip-busy" />}
+              {c.label}
+            </button>
+          </li>
+        )
+      })}
+    </ul>
   )
 }
 
@@ -138,8 +220,9 @@ export function DemoLimitDialog() {
   )
 }
 
-/** Under an AI message box (the chat's, Home's, a room's ✦ side chat) once the demo's AI is used up: the box does not
- * send; one calm line and Start free. People-to-people messages in rooms go on as before. */
+/** Under an AI message box (the chat's, Home's, a room's ✦ side chat) once the questions are used up: the box does not
+ * send; one calm line ("You can still look around everything here": the teammates are made up and never answer, so no
+ * promise about messages with people) and Start free. */
 export function DemoLimitNotice({ className, testId = 'free-roam-out' }: { className?: string; testId?: string }) {
   const t = useT()
   const info = useDemo((s) => s.info)
@@ -170,12 +253,16 @@ export function FreeRoamStart({ info, go }: { info: DemoInfo; go?: (to: string) 
   )
 }
 
-/** A page a free-roam visitor cannot use (the admin pages; the dev environment says so in its own words). */
+/** A page a free-roam visitor cannot use (the admin pages; the dev environment says so in its own words): one line and
+ * the way back to Home (QA 2026-11-22 F20: /admin was a dead end). */
 export function FreeRoamUnavailable({ what = 'demo.free.fenced' }: { what?: Extract<MessageKey, 'demo.free.fenced' | 'demo.free.devEnv'> }) {
   const t = useT()
   return (
-    <div className="flex h-full items-center justify-center p-6">
+    <div className="flex h-full flex-col items-center justify-center gap-3 p-6">
       <p className="text-center text-sm text-muted" data-testid="free-roam-unavailable">{t(what)}</p>
+      <Link to="/" className="inline-flex min-h-6 items-center rounded-md text-sm font-medium text-accent-text hover:underline max-md:min-h-11" data-testid="free-roam-back-home">
+        {t('demo.free.backHome')}
+      </Link>
     </div>
   )
 }

@@ -59,7 +59,8 @@ import { cleanAiTitle, graphemes, setAiTitle, titleToolOffered } from './title'
 import { recordSent } from '../tools/connection-urls'
 import { BOX_SHELL_TOOL, boxShellTool, callerOf } from '../devenv/tool'
 import { mayUseDevEnv } from '../devenv/setting'
-import { noteSharedReads, runsInWorkFolder, spaceOf, workFolderAt } from '../devenv/srt/runner'
+import { inOldWorkFolder, noteSharedReads, runsInWorkFolder, spaceOf, workFolderAt, workFolderChange } from '../devenv/srt/runner'
+import { NO_WORK_WORDS, workUnavailableText } from '../devenv/work-files'
 import { saveWorkFileTool } from './work-file-tool'
 import { COPY_FILES_TOOL, stagePlaceInput, withPlaces } from './places-copy'
 import { connectService } from './connect-service'
@@ -346,6 +347,18 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
       return workFolderAt(exec.rt.ctx, { userId: exec.spec.userId, chatId: exec.spec.chatId, project: d.project ? { id: d.project.id, folderPath: d.project.folderPath } : null, ...(d.shared ? { shared: d.shared } : {}) })
     }
     exec.files.workFolder = where
+    // why there is none now, the same words for every spelling of its path (devenv/work-files.ts NO_WORK_WORDS)
+    const at0 = { userId: exec.spec.userId, chatId: exec.spec.chatId, ...(d.shared ? { shared: d.shared } : {}) }
+    const change = () => { try { return workFolderChange(exec.rt.ctx, at0) } catch { return null } }
+    exec.files.workWhy = () => {
+      if (!mayUseDevEnv(exec.rt.db, exec.rt.files, exec.spec.userId)) return 'off'
+      let here = false
+      try { here = runsInWorkFolder(exec.rt.ctx, { ...at0, project: d.project ? { id: d.project.id, folderPath: d.project.folderPath } : null }) } catch { here = false }
+      if (!here) return 'elsewhere'
+      return change() === 'fresh' ? 'changed' : 'none'
+    }
+    exec.files.workRenewed = () => change() === 'after'
+    exec.files.workOldPath = (p) => { try { return inOldWorkFolder(exec.rt.ctx, at0, p) } catch { return false } }
     // the hand-over: only where the commands run in a work folder (not a project folder, which is a team folder
     // already); a personal chat saves into the team folder, a chat shared with people attaches it to the answer
     const at = { userId: exec.spec.userId, chatId: exec.spec.chatId, project: d.project ? { id: d.project.id, folderPath: d.project.folderPath } : null, ...(d.shared ? { shared: d.shared } : {}) }
@@ -618,11 +631,11 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
       const work = exec.workRead(name, args)
       // (no work folder yet: the read itself refuses, and nothing is made here)
       if (work && exec.shared && exec.files.workFolder?.()) {
-        if (!(caller ? caller.files === exec.files : true)) return { refusal: 'Only the main assistant opens the work folder.', summary: `${name} -> refused: work folder (sub-agent)` }
+        if (!(caller ? caller.files === exec.files : true)) return { refusal: NO_WORK_WORDS.helper, summary: `${name} -> refused: work folder (sub-agent)` }
         const d = exec.devEnv
         // a shared project chat: its runs' space (the project folder) with its scratch folder (srt/runner.ts scratchOf)
         const space = d?.shared ? spaceOf(exec.rt.ctx, { userId: exec.spec.userId, chatId: exec.spec.chatId, project: d.project ? { id: d.project.id, folderPath: d.project.folderPath } : null, shared: d.shared }) : null
-        if (!space || !noteSharedReads(exec.rt.ctx, space)) return { refusal: 'The work folder of this chat cannot be opened now (the people of this chat changed, or the dev environment is off).', summary: `${name} -> refused: work folder not recorded (shared chat)` }
+        if (!space || !noteSharedReads(exec.rt.ctx, space)) return { refusal: workUnavailableText(exec.files.workWhy?.()), summary: `${name} -> refused: work folder not recorded (shared chat)` }
         addSources(exec.rt.db, exec.spec.chatId, [{ type: 'chat', id: exec.spec.chatId }])
       }
       if (exec.shared && !work) {

@@ -29,6 +29,7 @@ import { egressOf, egressSettled } from './egress'
 import { registerCommentDocx } from './comment-docx'
 import { registerEditOffice } from './edit-office'
 import { registerHiggsfield } from './higgsfield'
+import { DEMO_BANNER_TOOL, registerDemoBanner } from './demo-banner'
 import { registerPromoVideo } from '../promo-video/tool'
 import { registerIntroDeck } from '../intro-deck/tool'
 import { registerScheduleTools, SCHEDULE_TOOL_NAMES } from './schedules'
@@ -77,8 +78,10 @@ export function registerCTools(ctx: AppContext, o: { fetch?: FetchOptions; saveU
         const r = await reg.call(name, args, t.files)
         // a file attached to this answer (output: chat:files/<name>): its link is the chat's, never a team preview link
         // (a produce tool's own result only: a web page, a mail or a Drive file that holds such a link stays as it is)
-        const chat = PLACE_PRODUCE_TOOLS.has(name) ? t.files.places?.ctx.chatId : undefined
-        const text = chat ? chatLinksInText(r.text, chat) : r.text
+        // ("everyone in this chat" only where other people see the chat now: QA TC-6778)
+        const places = PLACE_PRODUCE_TOOLS.has(name) ? t.files.places : undefined
+        const kind = places?.ctx.chatKind
+        const text = places?.ctx.chatId ? chatLinksInText(r.text, places.ctx.chatId, kind === 'people' || kind === 'project') : r.text
         return { content: [{ type: 'text', text }, ...(r.images ?? [])], ...(r.isError ? { isError: true } : {}), summary: r.summary }
       },
     })
@@ -409,4 +412,7 @@ export function registerCTools(ctx: AppContext, o: { fetch?: FetchOptions; saveU
   exposeToTurns('intro_deck')
   // Higgsfield video (tools/higgsfield.ts): only when an admin put the team's key in <data>/secrets/higgsfield.key
   if (registerHiggsfield(ctx, reg)) exposeToTurns('generate_video')
+  // the free-roam demo's banner words (tools/demo-banner.ts): a local tool, offered only on a demo with a banner kit
+  registerDemoBanner(ctx, reg)
+  exposeToTurns(DEMO_BANNER_TOOL)
 }

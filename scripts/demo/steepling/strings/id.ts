@@ -143,8 +143,8 @@ export const id: FreeRoamStrings = {
   },
 
   suggestions: [
-    { label: 'Buat draf postingan minggu depan', prompt: 'Pakai skill postingan media sosial kita untuk menulis draf dua slot kosong di Minggu depan.md (proyek Kalender media sosial)' },
-    { label: 'Rangkum ulasan pelanggan', prompt: 'Pakai skill rangkuman ulasan pelanggan untuk Ulasan dua bulan terakhir.csv (proyek Suara pelanggan)' },
+    { label: 'Buat draf postingan minggu depan', prompt: 'Tuliskan draf untuk dua slot kosong di kalender media sosial minggu depan' },
+    { label: 'Rangkum ulasan pelanggan', prompt: 'Rangkum ulasan pelanggan terbaru' },
     { label: 'Chris sudah balas?', prompt: 'Apakah Chris sudah membalas emailku? Cek Gmail-ku' },
   ],
 }

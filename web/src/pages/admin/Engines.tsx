@@ -23,7 +23,7 @@ import { optimistic, optimisticPending, optimisticPendingKeys } from '../../lib/
 import { formatDateTime } from '../../lib/format'
 import { useLocale, useT } from '../../i18n'
 import { isAdmin, isOwner, useMeStrict } from '../../store/session'
-import { API_PRESETS, apiSaveKey, ownerOnlyAddress } from './apiEngineRules'
+import { API_PRESETS, apiSaveKey, ownerOnlyAddress, presetLabel } from './apiEngineRules'
 export { API_PRESETS }
 import { Badge, Button, Field, Switch, inputCls, useMediaQuery } from '../../components/ui'
 import { AdminPageHeader, Loadable, useAction, useLoad } from './common'
@@ -184,7 +184,9 @@ function EngineRow({ e, accounts, addBelow = false, accountsShown, phone, page, 
   // Admin › System › Diagnostics (plain.ts)
   const technical = technicalEngineState(e.status)
   const ok = e.status === 'ok' || technical
-  const mode = e.authMode === 'api-key' && !e.provider ? t('engines.api.key') : t(`engines.mode.${e.authMode}`, { provider: e.provider ?? '' })
+  // a key-less API engine (Ollama on the server's computer) says so, not "API key" (QA TC-6924)
+  const mode = e.authMode === 'api-key' && e.keyless ? [t('engines.api.noKeyNeeded'), e.provider].filter(Boolean).join(' · ')
+    : e.authMode === 'api-key' && !e.provider ? t('engines.api.key') : t(`engines.mode.${e.authMode}`, { provider: e.provider ?? '' })
   const checked = e.checkedAt && t('engines.checkedAt', { date: formatDateTime(e.checkedAt, locale) })
   const models = e.models.map((m) => m.label).join(', ')
   // what to know about this engine; the row shows it when opened
@@ -314,7 +316,7 @@ function ApiEngineForm({ onSaved }: { onSaved: () => void }) {
           <Field label={t('engines.api.preset')}>
             <select className={inputCls} value={preset} onChange={(e) => {
               const p = API_PRESETS.find((x) => x.id === e.target.value)
-              if (p) setForm({ ...form, baseUrl: p.baseUrl, model: presetModel(form.model, p.id) })
+              if (p) setForm({ ...form, baseUrl: p.baseUrl, model: presetModel(form.model, p.id), label: presetLabel(form.label, { model: form.model, from: preset, to: p.id }) })
             }}>
               {API_PRESETS.map((p) => {
                 const ownerOnly = !owner && ownerOnlyAddress(p.baseUrl)

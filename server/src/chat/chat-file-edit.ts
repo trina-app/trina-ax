@@ -7,7 +7,7 @@
 //               chat shared with people (a project chat's save place is its project folder: read-only here), not in
 //               the trash, safe operations off, not on the download-only list, at most CHAT_FILE_EDIT_MAX
 //   saveText    a person's save: the whole text as putVersion's bytes; `beside` when someone saved after baseVersion
-//   restoreTo   version n's bytes as a new head (ChatFiles.restore): nothing is deleted
+//   restoreTo   version n's bytes as a new head (ChatFiles.restore); at the cap the oldest after the first goes (pruned)
 //   tellChat    the carrying messages' tiles again, to each person with a window open, as they may see them (never an
 //               answer hidden from them): their "Updated by" line and size follow at once. The AI's saves reach it
 //               through chat/chat-file-version-hook.ts (tellChatOnAiVersions)
@@ -91,7 +91,12 @@ function stillPeopleChat(rt: ChatRuntime, userId: string, chatId: string): void 
   if (!isPeopleRow(c) || c.deleted_at) fail('conflict', tr('chatFileReadOnly', personLocale(rt.db, userId)), { params: { reason: 'chat_file_read_only' } })
 }
 
-const saved = (rt: ChatRuntime, r: PutVersionResult): ChatFileSaved => ({ version: chatFileVersion(rt.db, r.row, true), beside: r.beside })
+// beside: the version saved in between (theirs), so the notice names them and opens it (QA TC-6956); pruned: the
+// versions this save removed at the cap (QA TC-6949)
+const saved = (rt: ChatRuntime, r: PutVersionResult): ChatFileSaved => ({
+  version: chatFileVersion(rt.db, r.row, true), beside: r.beside,
+  ...(r.beside ? { besideOf: chatFileVersion(rt.db, r.replaced, false) } : {}), ...(r.pruned.length ? { pruned: r.pruned } : {}),
+})
 
 /** A person's save of the whole text (putVersion: the chain's root name, limits, storage, pruning, audit) */
 export async function saveText(rt: ChatRuntime, userId: string, chat: ChatRowLike, fileId: string, content: string, baseVersion?: string): Promise<ChatFileSaved> {

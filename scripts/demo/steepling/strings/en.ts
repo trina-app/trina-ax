@@ -63,7 +63,7 @@ export const en = {
 
   profile: {
     oneLine: 'Steepling makes cold-brew tea bags: drop one in cold water and it is ready in a few hours.',
-    products: 'Steepling Cold Brew Tea in 6 flavours ($9.90 for 10 bags); the winter-only Yuzu Ginger blend ($11.90 for 10 bags)',
+    products: 'Steepling Cold Brew Tea in 6 flavors ($9.90 for 10 bags); the winter-only Yuzu Ginger blend ($11.90 for 10 bags)',
     audience: 'People who like tea without the kettle; cafés and offices',
     tone: ['Calm and warm', 'Plain and friendly', 'No hype'],
     avoid: '"Best" or "number one", and numbers we cannot back up',
@@ -159,8 +159,8 @@ export const en = {
 
   /** the free-roam bar: what a tap asks */
   suggestions: [
-    { label: 'Draft next week\'s posts', prompt: 'Use our social posts skill to draft the two empty slots in Next week.md (Social calendar project)' },
-    { label: 'Summarise customer reviews', prompt: 'Use the customer review summary skill on Reviews Oct–Nov.csv (Customer voice project)' },
+    { label: 'Draft next week\'s posts', prompt: 'Draft the two empty slots in next week\'s social calendar' },
+    { label: 'Summarize customer reviews', prompt: 'Summarize the latest customer reviews' },
     { label: 'Did Chris reply?', prompt: 'Did Chris reply to my email? Check my Gmail' },
   ],
 }

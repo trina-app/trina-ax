@@ -27,6 +27,7 @@ import { say, type Reason, type TextKey } from './text'
 import { NOTIFICATION_RETENTION_MS, notifyConnectionReconnect, notifyTemplateLeft, notifyTemplateReconnect } from '../../notifications/service'
 import { refreshGoogleApp } from '../google-apps/tokens'
 import { serverAppAt } from '@mycel/shared'
+import { CLAIM_MS, newToken, tokenHash, tokenMatches } from '../google-drive/app-return'
 import { GITHUB_AUTHORIZE_URL, GITHUB_TOKEN_URL, githubAppOf, githubAppView, revokeGitHubToken } from '../github/app'
 import { APP_NAMES, appTools } from '../google-apps/catalog'
 import { downMessage, libraryRequest, LibraryDown } from '../google-apps/transport'
@@ -91,7 +92,14 @@ interface FlowSecret {
   pinOnto?: { json: string; enc: string | null } | null; appVersion?: number | null; own?: 'mine' | 'template' | boolean
   /** signed in through the server's GitHub App (serverApp): kept with the tokens, so refreshes use that app as it is now */
   serverApp?: 'github'
+  /** a desktop sign-in answered in a browser without the starter's session (hold): the tokens, waiting for the app's
+   * one-time code (`claim`: its sha256, never the code) until `until` (ms) */
+  held?: { tokens: OAuthTokens; claim: string; until: number }
 }
+/** integration_oauth_flows.reason of a flow whose result waits for the desktop app's code (state 'exchanging') */
+const HELD = 'held'
+/** the OAuth secret a held result's tokens would have been stored as (to revoke them when never claimed) */
+const heldSecret = (s: FlowSecret, tokens: OAuthTokens): OAuthSecret => ({ type: 'oauth', server: s.server, client: s.client, resource: s.resource, scope: s.scope, tokens, ...(s.serverApp ? { serverApp: s.serverApp } : {}) })
 /** Why a sign-in did not finish (integration_oauth_flows.reason, IntegrationFlow.reason; the app says it in words,
  * web/src/lib/integrations.ts flowReasonKey): the person said no at the service (denied), the answer was not one we
  * can use (invalid), the connection or its app changed meanwhile (changed), an own app's client ID or secret was
@@ -103,7 +111,13 @@ interface FlowSecret {
 export type FlowFailure = 'denied' | 'invalid' | 'changed' | 'client' | 'client_template' | 'exchange' | 'superseded' | 'cancelled' | 'limit' | 'expired'
 /** The sign-in window's answer: done, or why not (null: not a sign-in this browser may finish, e.g. not signed in to
  * the team here, or the link was used already) */
-export type CallbackResult = { ok: true } | { ok: false; reason: FlowFailure | null }
+export type CallbackResult =
+  /** `held`: a desktop sign-in waiting for the app on this computer: the one-time code for the page's app link (its
+   * fragment only), whose account it joins and the connection's name */
+  | { ok: true; held?: { code: string; who: { name: string; username: string }; name: string } }
+  /** `handed`: the return of a sign-in whose code already went to the first page (go back to the app);
+   * `otherAccount`: this browser is signed in to the team as someone else than who started (refused) */
+  | { ok: false; reason: FlowFailure | null; handed?: true; otherAccount?: true; from?: string | null }
 /** the token address refused the client itself (RFC 6749 5.2), not the code */
 const CLIENT_REFUSED = new Set(['invalid_client', 'unauthorized_client'])
 /** an own app's client secret as sealed (clientAad, templateClientAad) */
@@ -1142,6 +1156,8 @@ export class Integrations {
   }
   sweep() {
     const now = iso(this.now())
+    // a held result never claimed: its tokens are revoked (best effort) before they are dropped
+    this.dropHeld(this.db.query("SELECT * FROM integration_oauth_flows WHERE expires_at<=? AND state='exchanging' AND reason=? AND secret_enc IS NOT NULL").all(now, HELD) as FlowRow[])
     this.db.query("UPDATE integration_oauth_flows SET state='expired', secret_enc=NULL WHERE expires_at<=? AND state IN ('pending','exchanging')").run(now)
     this.db.query('DELETE FROM integration_oauth_flows WHERE expires_at<?').run(iso(this.now() - 86_400_000))
   }
@@ -1227,11 +1243,14 @@ export class Integrations {
     let sealed
     try { sealed = this.box.seal(flowAad({ id: flowId, user_id: viewer.id }), secret) } catch { return fail('unavailable', say('key_unsafe', L)) }
     const expiresAt = iso(this.now() + FLOW_TTL)
+    // a result of an earlier try still held for the desktop app is replaced too (its tokens revoked)
+    const replaced = this.db.query("SELECT * FROM integration_oauth_flows WHERE user_id=? AND integration_id=? AND state='exchanging' AND reason=?").all(viewer.id, id, HELD) as FlowRow[]
     this.db.transaction(() => {
-      this.db.query("UPDATE integration_oauth_flows SET state='failed', reason='superseded', secret_enc=NULL WHERE user_id=? AND integration_id=? AND state='pending'").run(viewer.id, id)
+      this.db.query("UPDATE integration_oauth_flows SET state='failed', reason='superseded', secret_enc=NULL WHERE user_id=? AND integration_id=? AND (state='pending' OR (state='exchanging' AND reason=?))").run(viewer.id, id, HELD)
       this.db.query(`INSERT INTO integration_oauth_flows (id, integration_id, integration_version, user_id, session_id, state_hash, state, secret_enc, key_version, expires_at, created_at)
         VALUES (?,?,?,?,?,?,'pending',?,?,?,?)`).run(flowId, id, row.version, viewer.id, session, hash(state), sealed.enc, sealed.keyVersion, expiresAt, iso(this.now()))
     })()
+    this.dropHeld(replaced)
     return { flowId, authorizationUrl: authorizationUrl(secret, state, challenge), expiresAt, ...(client.redirectUri.startsWith('http://127.0.0.1:') ? { loopback: true } : {}) }
   }
 
@@ -1300,6 +1319,8 @@ export class Integrations {
     this.sweep()
     const f = this.db.query('SELECT * FROM integration_oauth_flows WHERE id=?').get(id) as FlowRow | null
     if (!f || f.user_id !== userId || f.session_id !== session) return fail('not_found')
+    // held for the app's code: still waiting, as far as the app's screen is concerned
+    if (f.state === 'exchanging' && f.reason === HELD) return { flowId: f.id, state: 'pending', expiresAt: f.expires_at, reason: null }
     return { flowId: f.id, state: f.state, expiresAt: f.expires_at, reason: f.reason }
   }
 
@@ -1308,14 +1329,28 @@ export class Integrations {
    * open cannot connect it later (QA TC-1417). Already answered or over: nothing changes. */
   cancelFlow(userId: string, session: string, id: string) {
     this.liveSession(userId, session)
-    const f = this.db.query('SELECT user_id, session_id FROM integration_oauth_flows WHERE id=?').get(id) as Pick<FlowRow, 'user_id' | 'session_id'> | null
+    const f = this.db.query('SELECT * FROM integration_oauth_flows WHERE id=?').get(id) as FlowRow | null
     if (!f || f.user_id !== userId || f.session_id !== session) return fail('not_found')
-    this.db.query("UPDATE integration_oauth_flows SET state='failed', reason='cancelled', secret_enc=NULL WHERE id=? AND state='pending'").run(id)
+    // a result held for the app's code is cancelled too: its tokens are revoked, and the code is refused afterwards
+    const held = f.state === 'exchanging' && f.reason === HELD
+    if (this.db.query("UPDATE integration_oauth_flows SET state='failed', reason='cancelled', secret_enc=NULL WHERE id=? AND (state='pending' OR (state='exchanging' AND reason=?))").run(id, HELD).changes && held) this.dropHeld([f])
   }
 
-  /** The browser comes back from the service. It must be signed in as the same person who started (any of their live
-   * sessions); a flow started by someone else, or a browser without a session, changes nothing. */
+  /** The browser comes back from the service. A browser signed in as the same person who started (any of their live
+   * sessions) finishes it at once; one signed in as someone else is refused (otherAccount). A sign-in started in the
+   * DESKTOP app whose return comes in a browser with no session (the system browser has none of the app's) is held for
+   * the app on this computer (hold, google-drive/app-return.ts's pattern): the code is exchanged now, the tokens stay sealed in the flow,
+   * and only the starter's own session finishes it with the one-time code (claim). Anything else changes nothing: a web
+   * or phone sign-in needs the person's browser session, as before (docs/decisions/20261121-connect-browser-handoff.md). */
   async callback(q: { state?: string; code?: string; error?: string; iss?: string }, browser?: { userId: string; sessionId: string }): Promise<CallbackResult> {
+    const r = await this.answerReturn(q, browser)
+    if (r.ok || !q.state || !/^[A-Za-z0-9_-]{43}$/.test(q.state)) return r
+    // where the sign-in started (desktop, web, mobile), so the page offers the one next step that fits ("Back to the
+    // app" only for the desktop app); nothing else about the flow
+    const f = this.db.query('SELECT session_id FROM integration_oauth_flows WHERE state_hash=?').get(hash(q.state)) as { session_id: string } | null
+    return { ...r, from: f ? this.clientOf(f.session_id) : null }
+  }
+  private async answerReturn(q: { state?: string; code?: string; error?: string; iss?: string }, browser?: { userId: string; sessionId: string }): Promise<CallbackResult> {
     this.sweep()
     const no: CallbackResult = { ok: false, reason: null }
     if (!q.state || !/^[A-Za-z0-9_-]{43}$/.test(q.state)) return no
@@ -1325,9 +1360,17 @@ export class Integrations {
     // its 10 minutes ran out (sweep) before the service sent the browser back: said to the person who started it, who is
     // signed in here, instead of "sign in to the same team account" (QA TC-2936)
     if (f?.state === 'expired' && browser?.userId === f.user_id) return { ok: false, reason: 'expired' }
+    // the same return opened again while the first one's code waits for the app: never a second code, nothing finished
+    // here (whoever brings the state again, the starter included, gets only "go back to the app")
+    if (f?.state === 'exchanging' && f.reason === HELD) return { ok: false, reason: null, handed: true }
     if (!f || f.state !== 'pending') return no
-    if (!browser || browser.userId !== f.user_id) return no
-    try { this.liveSession(browser.userId, browser.sessionId); this.liveSession(f.user_id, f.session_id) } catch { return no }
+    // signed in here as someone else: refused and said so, as for Drive and the Google apps (coordinator 2026-11-22);
+    // the flow stays pending, so the person can sign out here or press Connect again in the app
+    if (browser && browser.userId !== f.user_id) return { ok: false, reason: null, otherAccount: true }
+    const direct = !!browser
+    const held = !direct && this.clientOf(f.session_id) === 'desktop'
+    if (!direct && !held) return no
+    try { if (direct) this.liveSession(browser!.userId, browser!.sessionId); this.liveSession(f.user_id, f.session_id) } catch { return no }
     if (!this.db.query("UPDATE integration_oauth_flows SET state='exchanging' WHERE id=? AND state='pending'").run(f.id).changes) return no
     const failed = (reason: FlowFailure): CallbackResult => { this.db.query("UPDATE integration_oauth_flows SET state='failed', reason=?, secret_enc=NULL WHERE id=? AND state='exchanging'").run(reason, f.id); return { ok: false, reason } }
     try {
@@ -1339,20 +1382,8 @@ export class Integrations {
       // RFC 9207: an "iss" in the answer must name the server we started at: the one found, or the given sign-in
       // address's (oauth.ts issuerMatches)
       if (q.iss && !issuerMatches(q.iss, s.server)) return failed('invalid')
-      const row = getRow(this.db, f.integration_id)
-      const viewer = activeUser(this.db, f.user_id)
-      if (!row || !viewer || row.version !== f.integration_version || row.auth !== 'oauth') return failed('changed')
-      if (row.scope === 'personal' ? row.owner_user_id !== viewer.id : !isAdmin(viewer.role)) return failed('changed')
-      // made from a template: still for this member (authorize checked when the sign-in started)
-      const covered = (r: Row) => !r.template_id || templateCovers(this.db, r.template_id, viewer.id)
-      // the app is still the one this sign-in started with: a template's app that changed meanwhile (its version; the
-      // same secret entered again can bring its stored text back to what it was before an address was remembered), or a
-      // token address another sign-in that worked remembered meanwhile (the client secret does not go to this one)
-      const appMoved = (r: Row) => (s.appVersion != null && this.appSource(r)?.version !== s.appVersion) || (!!s.client.clientSecret && this.pinnedElsewhere(r, s.server.tokenEndpoint))
-      if (!covered(row) || appMoved(row)) return failed('changed')
-      // a first sign-in would make this person's own connections that work one more than MAX_PERSONAL
-      const overLimit = (r: Row) => countsAsOwn(r) && isWaiting(r) && !!r.owner_user_id && personalCounts(this.db, r.owner_user_id).settled >= MAX_PERSONAL
-      if (overLimit(row)) return failed('limit')
+      const pre = this.stillFor(f, s)
+      if (typeof pre === 'string') return failed(pre)
       let tokens: OAuthTokens
       try { tokens = await tokenRequest(s, { grant_type: 'authorization_code', code: q.code, redirect_uri: s.client.redirectUri, code_verifier: s.verifier, ...(s.resource ? { resource: s.resource } : {}) }, this.net, this.now()) }
       // the service's answer is never kept or shown (it may repeat what was sent): only whether it refused the app
@@ -1360,44 +1391,137 @@ export class Integrations {
         if (!s.own || !(e instanceof GrantError) || !CLIENT_REFUSED.has(e.message)) return failed('exchange')
         return failed(s.own === 'template' ? 'client_template' : 'client')
       }
-      const cur = getRow(this.db, row.id)
-      if (!cur || cur.version !== row.version || !covered(cur)) return failed('changed')
-      const sealed = this.box.seal(connectionAad(cur), { type: 'oauth', server: s.server, client: s.client, resource: s.resource, scope: s.scope, tokens, ...(s.serverApp ? { serverApp: s.serverApp } : {}) } satisfies OAuthSecret)
-      const old = cur.secret_enc ? this.tryOpen(cur) : null
-      let kept = false, limited = false
-      this.db.transaction(() => {
-        // checked again with the write: of two sign-ins whose exchanges overlapped, the one that comes second keeps no
-        // tokens (their refreshes would send the client secret to an address the app does not remember)
-        if (appMoved(cur)) return
-        if (overLimit(cur)) { limited = true; return }
-        kept = true
-        const stored = this.db.query("UPDATE integrations SET secret_enc=?, key_version=?, status='needs_auth', last_error=NULL, version=version+1, updated_at=? WHERE id=? AND version=?")
-          .run(sealed.enc, sealed.keyVersion, iso(this.now()), cur.id, cur.version).changes
-        // done once the check below has ended (the app reads the connection again when the flow says completed, and
-        // would find it still waiting for a sign-in)
-        // and the check may take up to its deadline: the flow gets a new lifetime from now, so a poll after the first one
-        // ended does not find it expired (sweep) while it is only waiting for the check
-        this.db.query("UPDATE integration_oauth_flows SET secret_enc=NULL, expires_at=? WHERE id=?").run(iso(this.now() + FLOW_TTL), f.id)
-        // whose sign-in a team connection serves on (팀장 넘기기 reads it; a personal one is its owner's anyway), only when
-        // these tokens are the ones stored now
-        if (stored && cur.scope === 'team') this.db.query("INSERT INTO team_sign_ins (kind, target_id, user_id, at) VALUES ('team_connection', ?, ?, ?) ON CONFLICT(kind, target_id) DO UPDATE SET user_id = excluded.user_id, at = excluded.at").run(cur.id, viewer.id, iso(this.now()))
-        // the sign-in worked: its token address is where the app's secret may go from now on
-        if (stored && s.pinOnto) this.pinFound(cur, s.pinOnto, s.server.tokenEndpoint)
-      })()
-      // its tokens are dropped, not revoked: revoking would send the client secret once more to the address that lost
-      if (!kept) return failed(limited ? 'limit' : 'changed')
-      // the tokens are kept: whatever happens next, the sign-in is done, marked once the check has ended
-      try {
-        this.dropClient(cur.id)
-        audit(this.db, { actor: viewer.id, action: 'integration.update', target: cur.id, detail: { ...auditDetail(cur), changed: ['signIn'], secret: 'replaced' } })
-        // made from an admin's request (requests.ts): the request is connected now that the member signed in (its
-        // bookkeeping never undoes a sign-in that worked)
-        try { requestSignedIn(this.db, cur, viewer.id, iso(this.now())) } catch (err) { this.ctx.log.warn('connection request not marked connected', { err }) }
-        if (old?.type === 'oauth' && old.tokens.refreshToken !== tokens.refreshToken) void this.revokeTokens(old)
-        await this.check(getRow(this.db, cur.id)!)
-      } finally { this.db.query("UPDATE integration_oauth_flows SET state='completed', secret_enc=NULL WHERE id=?").run(f.id) }
-      return { ok: true }
+      if (held) return this.hold(f, s, tokens, pre.row)
+      return await this.keep(f, s, pre.row, pre.viewer, tokens, failed)
     } catch { return failed('exchange') }
+  }
+
+  /** where a flow's session started: 'desktop', 'web', 'mobile' (sessions.client), or null when the session is gone */
+  private clientOf(session: string): string | null {
+    return (this.db.query('SELECT client FROM sessions WHERE id=?').get(session) as { client: string | null } | null)?.client ?? null
+  }
+
+  /** The connection a sign-in started on is still the one it may finish (checked before the code is exchanged, and again
+   * when the desktop app claims a held result): the same version and sign-in, the person still its owner (or an admin
+   * for a team one), a template still for them, the app unchanged, and not over MAX_PERSONAL. */
+  private stillFor(f: FlowRow, s: FlowSecret): { row: Row; viewer: Viewer } | FlowFailure {
+    const row = getRow(this.db, f.integration_id)
+    const viewer = activeUser(this.db, f.user_id)
+    if (!row || !viewer || row.version !== f.integration_version || row.auth !== 'oauth') return 'changed'
+    if (row.scope === 'personal' ? row.owner_user_id !== viewer.id : !isAdmin(viewer.role)) return 'changed'
+    if (!this.coveredFor(row, viewer.id) || this.appMoved(row, s)) return 'changed'
+    if (this.overLimit(row)) return 'limit'
+    return { row, viewer }
+  }
+  /** made from a template: still for this member (authorize checked when the sign-in started) */
+  private coveredFor(r: Row, userId: string) { return !r.template_id || templateCovers(this.db, r.template_id, userId) }
+  /** the app is still the one this sign-in started with: a template's app that changed meanwhile (its version; the same
+   * secret entered again can bring its stored text back to what it was before an address was remembered), or a token
+   * address another sign-in that worked remembered meanwhile (the client secret does not go to this one) */
+  private appMoved(r: Row, s: FlowSecret) { return (s.appVersion != null && this.appSource(r)?.version !== s.appVersion) || (!!s.client.clientSecret && this.pinnedElsewhere(r, s.server.tokenEndpoint)) }
+  /** a first sign-in would make this person's own connections that work one more than MAX_PERSONAL */
+  private overLimit(r: Row) { return countsAsOwn(r) && isWaiting(r) && !!r.owner_user_id && personalCounts(this.db, r.owner_user_id).settled >= MAX_PERSONAL }
+
+  /** Keep the tokens of a sign-in that worked on its connection (a return in the starter's browser, or the desktop app's
+   * claim of a held result) and check the connection; the flow is `completed` once that check has ended. */
+  private async keep(f: FlowRow, s: FlowSecret, row: Row, viewer: Viewer, tokens: OAuthTokens, failed: (reason: FlowFailure) => CallbackResult): Promise<CallbackResult> {
+    const cur = getRow(this.db, row.id)
+    if (!cur || cur.version !== row.version || !this.coveredFor(cur, viewer.id)) return failed('changed')
+    const sealed = this.box.seal(connectionAad(cur), { type: 'oauth', server: s.server, client: s.client, resource: s.resource, scope: s.scope, tokens, ...(s.serverApp ? { serverApp: s.serverApp } : {}) } satisfies OAuthSecret)
+    const old = cur.secret_enc ? this.tryOpen(cur) : null
+    let kept = false, limited = false
+    this.db.transaction(() => {
+      // checked again with the write: of two sign-ins whose exchanges overlapped, the one that comes second keeps no
+      // tokens (their refreshes would send the client secret to an address the app does not remember)
+      if (this.appMoved(cur, s)) return
+      if (this.overLimit(cur)) { limited = true; return }
+      kept = true
+      const stored = this.db.query("UPDATE integrations SET secret_enc=?, key_version=?, status='needs_auth', last_error=NULL, version=version+1, updated_at=? WHERE id=? AND version=?")
+        .run(sealed.enc, sealed.keyVersion, iso(this.now()), cur.id, cur.version).changes
+      // done once the check below has ended (the app reads the connection again when the flow says completed, and
+      // would find it still waiting for a sign-in)
+      // and the check may take up to its deadline: the flow gets a new lifetime from now, so a poll after the first one
+      // ended does not find it expired (sweep) while it is only waiting for the check
+      this.db.query("UPDATE integration_oauth_flows SET secret_enc=NULL, reason=NULL, expires_at=? WHERE id=?").run(iso(this.now() + FLOW_TTL), f.id)
+      // whose sign-in a team connection serves on (팀장 넘기기 reads it; a personal one is its owner's anyway), only when
+      // these tokens are the ones stored now
+      if (stored && cur.scope === 'team') this.db.query("INSERT INTO team_sign_ins (kind, target_id, user_id, at) VALUES ('team_connection', ?, ?, ?) ON CONFLICT(kind, target_id) DO UPDATE SET user_id = excluded.user_id, at = excluded.at").run(cur.id, viewer.id, iso(this.now()))
+      // the sign-in worked: its token address is where the app's secret may go from now on
+      if (stored && s.pinOnto) this.pinFound(cur, s.pinOnto, s.server.tokenEndpoint)
+    })()
+    // its tokens are dropped, not revoked: revoking would send the client secret once more to the address that lost
+    if (!kept) return failed(limited ? 'limit' : 'changed')
+    // the tokens are kept: whatever happens next, the sign-in is done, marked once the check has ended
+    try {
+      this.dropClient(cur.id)
+      audit(this.db, { actor: viewer.id, action: 'integration.update', target: cur.id, detail: { ...auditDetail(cur), changed: ['signIn'], secret: 'replaced' } })
+      // made from an admin's request (requests.ts): the request is connected now that the member signed in (its
+      // bookkeeping never undoes a sign-in that worked)
+      try { requestSignedIn(this.db, cur, viewer.id, iso(this.now())) } catch (err) { this.ctx.log.warn('connection request not marked connected', { err }) }
+      if (old?.type === 'oauth' && old.tokens.refreshToken !== tokens.refreshToken) void this.revokeTokens(old)
+      await this.check(getRow(this.db, cur.id)!)
+    } finally { this.db.query("UPDATE integration_oauth_flows SET state='completed', secret_enc=NULL WHERE id=?").run(f.id) }
+    return { ok: true }
+  }
+
+  /** A desktop sign-in answered in a browser without the starter's session: the tokens stay sealed in the flow
+   * (`exchanging`, reason HELD, nothing stored on the connection, its life CLAIM_MS) with the hash of a one-time code
+   * (32 random bytes) that the page hands only to the desktop app, in its link's fragment. */
+  private hold(f: FlowRow, s: FlowSecret, tokens: OAuthTokens, row: Row): CallbackResult {
+    const code = newToken(), until = this.now() + CLAIM_MS
+    const sealed = this.box.seal(flowAad(f), { ...s, held: { tokens, claim: tokenHash(code), until } } satisfies FlowSecret)
+    if (!this.db.query("UPDATE integration_oauth_flows SET secret_enc=?, key_version=?, reason=?, expires_at=? WHERE id=? AND state='exchanging'").run(sealed.enc, sealed.keyVersion, HELD, iso(until), f.id).changes) {
+      void this.revokeTokens(heldSecret(s, tokens))
+      return { ok: false, reason: null }
+    }
+    const who = this.db.query('SELECT name, username FROM users WHERE id=?').get(f.user_id) as { name: string; username: string } | null
+    return { ok: true, held: { code, who: who ?? { name: '', username: '' }, name: row.name } }
+  }
+
+  /** A held result that is never claimed (run out, cancelled, replaced, refused at the claim): its tokens are revoked
+   * at the service, best effort; they are dropped here either way. */
+  private dropHeld(rows: FlowRow[]) {
+    for (const f of rows) {
+      let s: FlowSecret
+      try { s = this.box.open<FlowSecret>(flowAad(f), f.secret_enc, f.key_version) } catch { continue }
+      if (s.held) void this.revokeTokens(heldSecret(s, s.held.tokens)).catch(() => false)
+    }
+  }
+
+  /** The desktop app brings the one-time code of a sign-in held for it (routes/drive.ts: the one claim address the app
+   * posts every code to tries Google Drive, the Google apps, then this). Only a held flow of THIS person and session; the
+   * code is used up at once. Then the same checks and store as a return in the person's browser. A code this does not
+   * know: null (the route's "used or expired" refusal). A late one ends its flow. */
+  async claim(user: string, session: string, code: string): Promise<IntegrationFlow | null> {
+    this.sweep()
+    const rows = this.db.query("SELECT * FROM integration_oauth_flows WHERE user_id=? AND session_id=? AND state='exchanging' AND reason=? AND secret_enc IS NOT NULL").all(user, session, HELD) as FlowRow[]
+    for (const f of rows) {
+      let s: FlowSecret
+      try { s = this.box.open<FlowSecret>(flowAad(f), f.secret_enc, f.key_version) } catch { continue }
+      if (!s.held || !tokenMatches(code, s.held.claim)) continue
+      // single use: only the first claim takes it (reason HELD -> NULL), whatever happens next
+      if (!this.db.query("UPDATE integration_oauth_flows SET reason=NULL WHERE id=? AND state='exchanging' AND reason=?").run(f.id, HELD).changes) return null
+      const failed = (reason: FlowFailure): CallbackResult => { this.db.query("UPDATE integration_oauth_flows SET state='failed', reason=?, secret_enc=NULL WHERE id=? AND state='exchanging'").run(reason, f.id); return { ok: false, reason } }
+      const refuse = (reason: FlowFailure) => { this.dropHeld([f]); failed(reason) }
+      if (this.now() > s.held.until) { refuse('expired'); return this.flowView(f.id) }
+      // the route checked the session already; one that ended meanwhile ends the flow (an answer, never a 500)
+      try { this.liveSession(user, session) } catch { refuse('changed'); return this.flowView(f.id) }
+      const pre = this.stillFor(f, s)
+      if (typeof pre === 'string') {
+        // the app's token address changed meanwhile: dropped, not revoked (as keep: revoking would send the client
+        // secret once more to the address that lost)
+        const now = getRow(this.db, f.integration_id)
+        if (now && this.appMoved(now, s)) failed(pre); else refuse(pre)
+        return this.flowView(f.id)
+      }
+      try { await this.keep(f, s, pre.row, pre.viewer, s.held.tokens, failed) } catch { failed('exchange') }
+      return this.flowView(f.id)
+    }
+    return null
+  }
+  private flowView(id: string): IntegrationFlow | null {
+    const f = this.db.query('SELECT * FROM integration_oauth_flows WHERE id=?').get(id) as FlowRow | null
+    return f ? { flowId: f.id, state: f.state, expiresAt: f.expires_at, reason: f.reason } : null
   }
 }
 

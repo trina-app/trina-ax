@@ -100,20 +100,20 @@ folder, where the gate starts it). The server's fakes read it (`server/src/demo/
 names (`00-yuzu-ginger-tea-pouch-…-유자-진저-…jpg`: `00-` so it sorts first and stays the default for a prompt no name
 matches, with the story's words in English and Korean; `10-`, `20-`, `30-` the banner kit's other scenes).
 
-`fakes/higgsfield/banner/`: the banner kit for the fake's `make_banner` (server/src/demo/fakes/banner.ts), written by
+`fakes/higgsfield/banner/`: the banner kit for the server's own `change_banner_text` (server/src/demo/fakes/banner.ts, banners.ts; never a Higgsfield tool), written by
 `banner/kit.ts`. A banner is two layers, so a visitor can change its words and get a new banner back:
 
 - a text-free photo per scene and size (`bg-<scene>-<size>.jpg`; `assets/banner/`, cut by
   `banner/make-backgrounds.py` from Higgsfield photos made once: one glass by the window = the story's photos, two
   glasses, the pouch close up (no square), a café table; the pouch's blank label is printed by the template);
 - the words, `kit.json`: the story's banner words (`scripts/demo/mina/source/banners/copy.<locale>.json`), the first
-  banner's; after that a word make_banner is not given, and the photo, stay as on the last banner it made (the state
+  banner's; after that a word change_banner_text is not given, and the photo, stay as on the last banner it made (the state
   keeps the newest 30 pictures). Each scene's words pick it ("two cups", "두 잔" → two glasses);
 - `fonts/`: Fraunces, Noto Serif KR and Noto Sans KR (SIL Open Font License 1.1, licences beside them), subset to Latin
   and the 2,350 common Hangul syllables; other letters fall back to the server's fonts.
 
 typst draws it (the server's PDF converter), in the converters' isolation. The demo rule tells the AI the pictures come
-from a prepared set and that it can change a banner's words with make_banner (server/src/chat/prompt.ts DEMO_FAKES_NOTE).
+from a prepared set and that it can change a banner's words with change_banner_text (server/src/chat/prompt.ts DEMO_BANNER_NOTE).
 
 The Drive connection belongs to a Google client set up when it was made: the builder writes a made-up one to
 `<base>/secrets/integrations/google-drive/client.json` before the server starts (nothing uses it; the fake answers

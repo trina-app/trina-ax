@@ -23,8 +23,9 @@ import { mayWriteChatVersion, PLACE_WORDS, type ResolveCtx } from '../../server/
 import { FileService, TurnFiles } from '../../server/src/files/service'
 import { configureStorageGuard } from '../../server/src/system/storage'
 import { setAvailableMemoryForTests, setLimitsPlatformForTests, setPlanForTests } from '../../server/src/system/limits'
-import type { TurnExec } from '../../server/src/chat/turn'
+import { TurnExec } from '../../server/src/chat/turn'
 import { sharedSection } from '../../server/src/chat/prompt'
+import { EDIT_OFFICE_DESCRIPTION } from '../../server/src/tools/edit-office'
 
 setDefaultTimeout(90_000)
 const fake = (...ds: unknown[]) => ds.map((d) => '@fake ' + JSON.stringify(d)).join('\n')
@@ -249,6 +250,29 @@ describe('the gate again at the insert (S2 security review: the bytes take time)
   })
 })
 
+describe('a k mark after a save in the same answer (QA TC-6962 / TC-6835)', () => {
+  test('an answer that saved a chat file version never becomes a k answer: a connection\'s answer after it is refused', async () => {
+    // a real save first: the version is opened through its chain's root by everyone who sees the root, so its answer
+    // must stay one they may see. TurnFiles.chatVersionsMade is set in the same step as the version's row.
+    const { chat, file } = await sent('k-after.txt', 'K1')
+    const files = new TurnFiles()
+    const exec = { rt: getChatRuntime(h.ctx), spec: { userId: 'bob', chatId: chat, clientKind: 'web' }, files, shared: { kind: 'people' }, hiddenFromLater: false, livePrincipal: () => ({}) } as unknown as TurnExec
+    const p = chatPlaces(exec, files)
+    const h1 = p.head(file, 'k-after.txt')
+    await p.version(h1.id, { bytes: enc('K2') }, h1.sha256, files)
+    expect(files.chatVersionsMade.size).toBe(1)
+    // the connection's k group (noteSharedReads kept) is refused for this answer, as after an attached file
+    const note = (TurnExec.prototype as unknown as { noteSharedReads: (...a: unknown[]) => boolean }).noteSharedReads
+    const self = { shared: { kind: 'people' }, attachedFiles: 0, attaching: 0, files, sharedReads: new Map() } as Record<string, unknown>
+    expect(note.call(self, [{ type: 'url', url: 'https://example.com' }], ['alice', 'bob'], false, true)).toBe(false)
+    expect((self.sharedReads as Map<string, unknown>).size).toBe(0)
+    // an answer without a version is not held back by this rule (the k group joins it; the record write is its own)
+    const fresh = { shared: { kind: 'people' }, attachedFiles: 0, attaching: 0, files: new TurnFiles(), sharedReads: new Map(), rt: { db: db(), log: { warn: () => {} } }, spec: { chatId: chat, assistantId: 'none' }, id: 't' } as Record<string, unknown>
+    note.call(fresh, [{ type: 'url', url: 'https://example.com' }], ['alice', 'bob'], false, true)
+    expect([...(fresh.sharedReads as Map<string, { k?: boolean }>).values()].some((g) => g.k)).toBe(true)
+  })
+})
+
 describe('who may', () => {
   const ctxOf = (kind: ResolveCtx['chatKind'], o: { main?: boolean; hidden?: boolean; chatId?: string | null } = {}): ResolveCtx =>
     ({ db: db(), userId: 'bob', chatId: o.chatId === undefined ? 'c-x' : o.chatId, main: o.main ?? true, chatKind: kind, hiddenGroup: !!o.hidden, live: () => true })
@@ -303,7 +327,7 @@ describe('who may', () => {
     const ctx = { user: h.ctx.files.principal('bob'), turnId: null, files: new TurnFiles() }
     const w = await svc.call('write', { file_path: p, content: 'M2' }, ctx)
     const e = await svc.call('edit', { file_path: p, old_string: 'M1', new_string: 'M2' }, ctx)
-    for (const o of [w, e]) { expect(o.isError).toBe(true); expect(o.text).toContain('main assistant of its Trina chat') }
+    for (const o of [w, e]) { expect(o.isError).toBe(true); expect(o.text).toContain('only from inside its own Trina chat'); expect(o.text).not.toContain('main assistant') }
     expect(versionsOf(chat, file)).toBe(1)
   })
 
@@ -434,6 +458,36 @@ describe('independent review (PR #252)', () => {
     // unlocked again: the same save goes
     await p.version(h1.id, { bytes: enc('L2') }, h1.sha256, files)
     expect(versionsOf(c.id, att.id)).toBe(2)
+  })
+
+  test('QA TC-6778: the result of an AI save says "everyone in this chat" only in a chat shared with people', async () => {
+    // a chat only bob sees (made private again: chat files stay) and one shared with people
+    const c = await h.api('bob').call(API.createChat, { body: {} })
+    await run('bob', c.id, fake({ say: 'hi' }))
+    const tmp = `${h.ctx.config.dataDir}/work/pl-${crypto.randomUUID()}`
+    await Bun.write(tmp, 'P1')
+    const att = await store().create('bob', c.id, 'private.txt', tmp, new Bun.CryptoHasher('sha256').update('P1').digest('hex'))
+    const files = new TurnFiles()
+    const mine = { rt: getChatRuntime(h.ctx), spec: { userId: 'bob', chatId: c.id, clientKind: 'web' }, files, shared: null, hiddenFromLater: false, livePrincipal: () => ({}) } as unknown as TurnExec
+    const p = chatPlaces(mine, files)
+    const h1 = p.head(att.id, 'private.txt')
+    const v = await p.version(h1.id, { bytes: enc('P2') }, h1.sha256, files)
+    expect(v.everyone).toBe(false)
+    expect(versionText(v, 'Changed')).toContain('The new version opens from the same file under its message.')
+    expect(versionText(v, 'Changed')).not.toMatch(/everyone/i)
+
+    const { chat, file } = await sent('people.txt', 'Q1')
+    const f2 = new TurnFiles()
+    const people = { rt: getChatRuntime(h.ctx), spec: { userId: 'bob', chatId: chat, clientKind: 'web' }, files: f2, shared: { kind: 'people' }, hiddenFromLater: false, livePrincipal: () => ({}) } as unknown as TurnExec
+    const q = chatPlaces(people, f2)
+    const h2 = q.head(file, 'people.txt')
+    const w = await q.version(h2.id, { bytes: enc('Q2') }, h2.sha256, f2)
+    expect(w.everyone).toBe(true)
+    expect(versionText(w, 'Changed')).toContain('Everyone in this chat opens the new version')
+  })
+
+  test('QA TC-6778: the edit_office description promises no audience', () => {
+    expect(EDIT_OFFICE_DESCRIPTION).not.toMatch(/everyone/i)
   })
 
   test('edit_files naming one chat file twice (by id and by name) edits it once', async () => {

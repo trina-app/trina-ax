@@ -157,7 +157,7 @@ import { CONTENT_KINDS, fileTimelineWalk, selfAndAbove } from '../files/timeline
 import { audienceOf, chatAudienceOf, isSharedRow, messageFor, stashWrittenBy } from './shared'
 import { LiveAnswer, publishDoneToOthers } from './live-answer'
 import { answerRecord, setAnswerReads, setLeftOut, withheldFrom, type ReadGroup } from './shared-answers'
-import { missingReaders, readScope } from './read-scope'
+import { missingReaders, readScope, viewersOf } from './read-scope'
 import { clearChatFolder } from './forget'
 import { publicStep, type ChatRow, type ProjectRow, type StoredStep } from './store'
 import { inPeopleAudience, isPeopleRow, peopleAudience } from './chat-audience'
@@ -789,7 +789,7 @@ export class TurnExec {
     // server's own sign-in (a self-hosted install without AI connections): "no AI connection", before anything starts
     if (isGuestUser(rt.db, spec.userId)) {
       const managedHere = spec.engine === 'claude-code' ? confs.claude?.authMode === 'managed' && !!confs.claude.modelProxy : spec.engine === 'codex' ? confs.codex?.auth === 'managed' : false
-      if (!managedHere) { this.error = engineError('no_credential', spec.locale); return }
+      if (!managedHere) { this.error = engineError('guest_no_ai', spec.locale); return }
     }
     const route = this.route(confs)
     const engine: EngineId = route === 'claude-code' || route === 'codex' ? route : spec.engine
@@ -1012,7 +1012,7 @@ export class TurnExec {
     }
     // the branch's text for a fresh session; in a chat several people wrote in, as this person may see it (chat/shared.ts)
     const several = !!this.shared || othersWrote
-    const historyOf = (leaf: string | null): HistoryItem[] => rt.history(leaf, several ? { runner: spec.userId, withheld: this.sharedWithheld } : null)
+    const historyOf = (leaf: string | null): HistoryItem[] => rt.history(leaf, several ? { runner: spec.userId, withheld: this.sharedWithheld, everyone: !!this.shared } : null)
     // a summary of the older part (docs/decisions/20261118-limits-context-summary.md): not for a guest (their tighter
     // limits stay), a confidential chat (only team files go to the AI there) or a draft chat (no team content)
     const summaryOn = !guestTurn && !confidential && !this.restricted
@@ -1073,7 +1073,7 @@ export class TurnExec {
       // a guest: their places and who invited them (prompt.ts guestSection), no team-wide text
       guest: guestPrompt,
       devEnvDown: this.devEnvDown,
-      demo: freeRoam ? { company: rt.ctx.config.demo!.company, fakes: !!rt.ctx.config.demo!.fakes, banner: !!demoFakesOf(rt.ctx)?.higgsfield.hasBanner } : null,
+      demo: freeRoam ? { company: rt.ctx.config.demo!.company, fakes: !!rt.ctx.config.demo!.fakes, banner: !!demoFakesOf(rt.ctx)?.banners.ready } : null,
     })
     // what a general-purpose sub-agent may use, and the instructions every sub-agent gets (memories and history never)
     let turnTools = [...Object.keys(FILE_TOOLS), ...extraTools]
@@ -2872,9 +2872,10 @@ export class TurnExec {
   /** a read call that names the chat's work folder (devenv/work-files.ts), by its variable or its absolute path */
   workRead(tool: string, input: unknown): boolean {
     // list, glob and grep take chat:work/ too (P2): a listing or a search there brings in what commands made
-    if (tool === 'list' || tool === 'glob' || tool === 'grep') return namesWorkFolder((input && typeof input === 'object' ? (input as { path?: unknown }).path : undefined))
-    if (tool !== 'read') return false
-    const p = (input && typeof input === 'object' ? (input as { file_path?: unknown }).file_path : undefined)
+    // (every spelling, as the file tools take them: the variable, chat:work/ and the folder's absolute path, QA TC-6936)
+    const list = tool === 'list' || tool === 'glob' || tool === 'grep'
+    if (!list && tool !== 'read') return false
+    const p = input && typeof input === 'object' ? (list ? (input as { path?: unknown }).path : (input as { file_path?: unknown }).file_path) : undefined
     if (namesWorkFolder(p)) return true
     try { return isWorkPath(p, this.files.workFolder?.() ?? null) } catch { return true }
   }
@@ -3620,8 +3621,11 @@ export class TurnExec {
   private noteSharedReads(sources: readonly ReadSource[], audience: readonly string[], yes = false, kept = false): boolean {
     if (!this.shared || !sources.length) return true
     // an answer that already attached a file for everyone here (attachToAnswer), or is attaching one now (beginAttach),
-    // never becomes one hidden from people added later (a k group): that connection's answer is not read into it (fails closed, the call is refused)
-    if (kept && this.attachedFiles + this.attaching > 0) return false
+    // never becomes one hidden from people added later (a k group): that connection's answer is not read into it (fails closed, the call is refused).
+    // Nor one that saved a version of a chat file (TurnFiles.chatVersionsMade, set in the same synchronous step as the
+    // version's row, whose gate refuses a k answer): that version is opened through its chain's root by everyone who
+    // sees the root, so the answer that wrote it must stay one they may see (QA TC-6962 / TC-6835)
+    if (kept && this.attachedFiles + this.attaching + (this.files?.chatVersionsMade.size ?? 0) > 0) return false
     const c = [...new Set(audience)].sort()
     const k = `${yes ? 'y' : ''}${kept ? 'k' : ''}|${c.join(',')}`
     let g = this.sharedReads.get(k)
@@ -3904,7 +3908,7 @@ export class TurnExec {
     const pendingKey = [...keys].sort().join('\u0000')
     let pending = this.sharedPending.get(pendingKey)
     if (!pending) {
-      pending = this.askSharedRead(tool, missing, audience.length, skillUse, kind.save).finally(() => this.sharedPending.delete(pendingKey))
+      pending = this.askSharedRead(tool, missing, audience.length, skillUse, kind.save, input).finally(() => this.sharedPending.delete(pendingKey))
       this.sharedPending.set(pendingKey, pending)
     }
     const decision = await pending
@@ -3916,17 +3920,22 @@ export class TurnExec {
   }
 
   /** The card itself and its audit row: 'shared' = "읽고 공유하기" (a save card: "저장하기"), else why not. */
-  private async askSharedRead(tool: string, missing: { source: ReadSource; missing: string[] }[], audience: number, skillUse = false, save = false): Promise<SharedDecision> {
+  private async askSharedRead(tool: string, missing: { source: ReadSource; missing: string[] }[], audience: number, skillUse = false, save = false, input: unknown = null): Promise<SharedDecision> {
     const L = this.spec.locale
     const labels = { mine: tr('sharedScopeMine', L), root: tr('scopeRoot', L), room: tr('scopeRoom', L), chat: tr('scopeChatFiles', L) }
     const places = [...new Set(missing.map((m) => sourceLabel(this.rt.db, m.source, this.spec.userId, labels, { ownNames: true, place: (p) => this.place(p) })))]
     const who = new Set(missing.flatMap((m) => m.missing))
+    const copy = !skillUse && !save ? copyCardFiles(tool, input, L) : null
     const scheduled = this.spec.clientKind === 'schedule'
     const { value: answer, missing: none } = await this.askAlways(save ? 'shared_save' : 'shared_read', {
       kind: 'ask_user', origin: 'server', requestId: crypto.randomUUID(),
       // a group's skill some of them may not use (not in the group): "…cannot use this skill" (they may see the place);
       // a save into a place that is there already: "…wants to save a file in" (nothing is read from it)
-      question: tr(skillUse ? 'sharedSkillConfirm' : save ? (SAVE_CARD_TOOLS[tool] === 'many' ? 'sharedSaveManyConfirm' : 'sharedSaveConfirm') : 'sharedReadConfirm', L, { sources: places.join(', '), n: String(audience), m: String(who.size) }),
+      // a copy into this chat's work folder or its files: which files, and that everyone in the chat sees them there
+      // (QA TC-6939: "wants to read your personal folder" read as the whole folder)
+      question: copy
+        ? tr(copy.to === 'work' ? 'sharedCopyWorkConfirm' : 'sharedCopyChatConfirm', L, { sources: places.join(', '), files: copy.files, n: String(audience), m: String(who.size) })
+        : tr(skillUse ? 'sharedSkillConfirm' : save ? (SAVE_CARD_TOOLS[tool] === 'many' ? 'sharedSaveManyConfirm' : 'sharedSaveConfirm') : 'sharedReadConfirm', L, { sources: places.join(', '), n: String(audience), m: String(who.size) }),
       options: [{ label: tr(save ? 'sharedSaveYes' : 'sharedReadYes', L), value: 'share' }, { label: tr(save ? 'sharedSaveNo' : 'sharedReadNo', L), value: 'skip' }], multiple: false, allowText: false,
       expiresAt: new Date(Date.now() + this.rt.askUserTimeoutMs()).toISOString(),
     } as TurnRequest & { options: { label: string; value: string }[] }, 'share')
@@ -3961,6 +3970,9 @@ export class TurnExec {
    */
   async confirmSharedConnection(c: { id: string; key: string; name: string; sources: ReadSource[] }): Promise<string | null> {
     if (!this.shared) return null
+    // this answer saved a version of a chat file (everyone who sees the file opens it), so it never becomes one hidden
+    // from people added later (noteSharedReads): said as it is, never "could not check" (QA TC-6962)
+    if ((this.files?.chatVersionsMade.size ?? 0) > 0) return `Nothing was fetched from ${neutralizeTags(c.name)}: this answer already saved a new version of a file of this chat, which everyone in it opens, so what a connected service returns cannot join this answer. Answer without it; the user can ask for it in a new message. Next time, use connected services before you change a chat file.`
     const failed = () => this.sharedConnText(c.name, 'failed')
     // at most a few rounds: a card answered while more people came to see the chat asks once more for them
     for (let round = 0; round < 3; round++) {
@@ -4298,11 +4310,16 @@ export class TurnExec {
    * change too. Returns the refusal for the tool and how the card ended, or null. */
   private async askWidening(need: WidenNeed, o: { binding?: string; details?: ConfirmDetailT[]; extra?: string; why?: string; room?: boolean } = {}): Promise<{ text: string; end: CardEnd } | null> {
     const L = this.spec.locale
-    const { from, fromForAi, chats } = this.widenSources(need)
-    // one plain question: the place and how many can see it there, how many of them cannot see where it came from, and
-    // on its own line where it came from with how many can see that (QA TC-4815; the facts of PR #1232's words)
-    const blind = need.blind > 0 ? ` ${tr(chats ? 'widenBlindChat' : 'widenBlind', L, { m: String(need.blind) })}` : ''
-    const question = `${tr('widenConfirm', L, { target: this.place(need.segs.join('/')), n: String(need.viewers) })}${blind}\n${tr('widenSource', L, { sources: from })}`
+    const { plain, fromForAi, chats, allHidden } = this.widenSources(need)
+    // the question first, the place by a short name and how many can see it there; then one line why: what Trina made
+    // it from (a source the person cannot see is never named) and how many of those people cannot open that
+    // (docs/decisions/20261122-widening-card-wording.md; the facts of QA TC-4815 and PR #1232)
+    const short = this.shortPlace(need.segs)
+    const m = String(need.blind)
+    const why = need.blind <= 0 ? tr('widenWhyAll', L, { sources: plain })
+      : allHidden ? tr('widenWhyHidden', L, { m })
+        : tr(chats ? 'widenWhyChat' : 'widenWhy', L, { sources: plain, m })
+    const question = `${tr('widenConfirm', L, { file: short.file, area: short.area, n: String(need.viewers) })}\n${why}`
     // `room`: this card is the room's card too (confirmRoomChange). Its "Always allow" is the person's own for both kinds
     // at once (changes after a room read, and saves where more people can see): a person who meets this card first can
     // reach it here (owner 2026-11-14, QA TC-1292); it is offered while the room kind is off (with both on there is no card)
@@ -4314,6 +4331,8 @@ export class TurnExec {
       // the place in words, not its path; a PowerPoint's SHA-256 (safe operations) is not on the card: the approval is
       // bound to those bytes on the server (o.binding, safe-ops/publication.ts) and the hash is in the activity log
       kind: 'ask_user', origin: 'server', requestId: crypto.randomUUID(), question: question + (o.extra?.trim() ? `\n${o.extra.trim()}` : ''),
+      // the whole place in words when the person points at the file's name
+      placeTip: { text: short.file, title: short.full },
       options: [{ label: tr('widenSave', L), value: 'save' }, { label: tr('widenDont', L), value: 'skip' }], multiple: false, allowText: false,
       ...(o.why ? { note: o.why } : {}),
       ...(o.details?.length ? { details: o.details } : {}),
@@ -4344,7 +4363,7 @@ export class TurnExec {
    * the server's name only (any member of a group chat may set its own name). A shared chat's read scope also holds what
    * other people's turns read there (also once it stopped being shared: a deleted project's chat, the rollback guard): a
    * place this person cannot see themselves is not named to them. */
-  private widenSources(need: WidenNeed): { from: string; fromForAi: string; chats: boolean } {
+  private widenSources(need: WidenNeed): { from: string; plain: string; fromForAi: string; chats: boolean; allHidden: boolean } {
     const me = this.livePrincipal()
     const L = this.spec.locale
     const labels = { mine: tr('scopeMine', L), root: tr('scopeRoot', L), room: tr('scopeRoom', L), chat: tr('scopeChatFiles', L) }
@@ -4362,7 +4381,30 @@ export class TurnExec {
     }
     // every source a conversation the person sees (a room, a chat, Slack): "the chat it came from"; else "where it came from"
     const chats = need.narrower.every((s) => (s.type === 'room' || s.type === 'chat' || s.type === 'slack') && !hidden(s))
-    return { from: [...new Set(need.narrower.map(counted))].join(', '), fromForAi: [...new Set(need.narrower.map((s) => label(s, false)))].join(', '), chats }
+    // the wider-audience card's one line names each source without its count, and one the person cannot see only as
+    // "a place only some people here can open" (askWidening)
+    const plainOf = (s: ReadSource) => (hidden(s) ? tr('widenSourceHidden', L) : label(s, true))
+    return {
+      from: [...new Set(need.narrower.map(counted))].join(', '), plain: [...new Set(need.narrower.map(plainOf))].join(', '),
+      fromForAi: [...new Set(need.narrower.map((s) => label(s, false)))].join(', '), chats, allHidden: need.narrower.every(hidden),
+    }
+  }
+
+  /** A place on the wider-audience card by a short name (docs/decisions/20261122-widening-card-wording.md): the file's
+   * name and the area it is in (its project or group by name, "My files", someone's folder, a top folder in words, the
+   * team folder's top), and the whole place in words (placeWords) for the hover. A path that steps up keeps its words. */
+  shortPlace(segs: string[]): { file: string; area: string; full: string } {
+    const L = this.spec.locale
+    const path = segs.join('/')
+    const full = this.place(path)
+    const file = segs.at(-1) ?? full
+    const dir = segs.slice(0, -1)
+    const [top, second] = dir
+    if (!top) return { file, area: tr('scopeRoot', L), full }
+    if (dir.some((s) => s === '.' || s === '..')) return { file, area: this.place(dir.join('/')), full }
+    if (top === 'users' && second) return { file, area: this.place(`users/${second}`), full }
+    if ((top === 'projects' || top === 'groups') && second) return { file, area: second, full }
+    return { file, area: this.place(top), full }
   }
 
   /** A yes to saving where more people can see (askWidening, or the skill card that carries it): these sources for that
@@ -4391,7 +4433,12 @@ export class TurnExec {
       const row = this.rt.db.query('SELECT path FROM folders WHERE id = ?').get(s.id) as { path: string } | null
       return !!row && rules.canList(me, row.path ? row.path.split('/') : [])
     }
-    return false
+    // a connection, a Drive the team shares, a room or Slack: when the person is among its readers by the read scope's
+    // own test (they may use that connection, see that part of the room, read it with their own Slack). Their own call
+    // to a team connection the other people of a project chat may not use was "a place someone else opened" (owner,
+    // 2026-11-22; docs/decisions/20261121-widening-false-positive-project.md). The reader is the chat's (its read scope's
+    // own, chatReader), not this person: a room part whose later answer is hidden from them is not named to them
+    return viewersOf(this.rt.db, rules, s, [me], this.chatReader()).has(me.id)
   }
 
   // ---------------- team skills (skills/guard.ts) ----------------
@@ -5678,4 +5725,21 @@ export function skillFolderOf(rel: string): string | null {
   const segs = rel.split('/')
   const depth = root.kind === 'team' ? 1 : 3
   return segs.length > depth + 1 && segs[depth] ? segs.slice(0, depth + 1).join('/') : null
+}
+
+/** copy_files into this chat's work folder or its files, for the shared read card (QA TC-6939): where to, and the files
+ * by name (at most three, each its last part, cut at 60 characters) or how many. null for any other call. */
+export function copyCardFiles(tool: string, input: unknown, locale: Locale): { to: 'work' | 'chat'; files: string } | null {
+  if (tool !== 'copy_files' || !input || typeof input !== 'object') return null
+  const a = input as { paths?: unknown; to_folder?: unknown }
+  const place = parsePlace(a.to_folder)
+  const to = place?.kind === 'work' ? 'work' : place?.kind === 'chatFiles' ? 'chat' : null
+  if (!to || !Array.isArray(a.paths)) return null
+  const names = [...new Set(a.paths.flatMap((p) => {
+    if (typeof p !== 'string') return []
+    const n = p.replace(/\/+$/, '').split('/').pop()?.replace(/[\u0000-\u001f\u007f<>]+/g, ' ').trim() ?? ''
+    return n ? [n.length > 60 ? n.slice(0, 59) + '…' : n] : []
+  }))]
+  if (!names.length) return null
+  return { to, files: names.length <= 3 ? names.join(', ') : tr('sharedCopyCount', locale, { n: String(names.length) }) }
 }

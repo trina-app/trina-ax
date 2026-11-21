@@ -41,6 +41,7 @@ export function chatPlaces(exec: TurnExec, files: TurnFiles): ChatPlaces {
     // read at every check: a connection's answer may join this answer while a conversion runs
     get hiddenGroup() { return exec.hiddenFromLater },
     workFolder: files.workFolder,
+    workWhy: files.workWhy,
     live: () => { try { exec.livePrincipal(); return true } catch { return false } },
   }
   /** this chat's files the person may open now, one per chain (its newest version), newest change first
@@ -91,7 +92,7 @@ export function chatPlaces(exec: TurnExec, files: TurnFiles): ChatPlaces {
       files.readHashes.set(h.path, made.row.sha256)
       addSources(rt.db, chatId, [{ type: 'chat', id: chatId }])
       onChatFileVersion(chatId, h.id)
-      return { id: h.id, name: h.name, path: h.path, version: made.row.version ?? 1, size: made.row.size, sha256: made.row.sha256, beside: made.beside, link: chatFileLink(chatId, h.id) }
+      return { id: h.id, name: h.name, path: h.path, version: made.row.version ?? 1, size: made.row.size, sha256: made.row.sha256, beside: made.beside, link: chatFileLink(chatId, h.id), everyone: chatKindOf(exec) === 'people' }
     },
   }
 

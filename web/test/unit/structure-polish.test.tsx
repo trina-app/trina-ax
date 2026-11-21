@@ -227,11 +227,64 @@ describe('A: the confirm', () => {
     try {
       await m.until(() => m.html().includes('Launch-2'), 'the -2 line')
       expect(m.html()).toContain(en('rooms.makeProject.nameTaken', { name: 'Launch', folder: 'Launch-2' }))
+      // the body names the same folder as the hint (QA TC-6953)
+      expect(text(m, 'make-project-body')).toContain('Launch-2 › Chat attachments')
       expect(text(m, 'make-project-staying')).toBe('3 files stay in the conversation only, because not everyone here can see them.')
       await m.type('make-project-name', 'CLAUDE.md')
       await m.until(() => m.html().includes('A project can’t have this name.'), 'the refusal', 3000)
       expect(m.get('make-project-confirm').hasAttribute('disabled')).toBe(true)
     } finally { await m.unmount() }
+  })
+
+  test('an emptied name says why the button is off (QA TC-6954)', async () => {
+    signIn()
+    routes = { [`GET /api/rooms/${RID}/make-project`]: () => json(info()) }
+    const m = await dialog()
+    try {
+      await m.until(() => m.find('make-project-body'), 'the body')
+      expect(m.html()).not.toContain(en('rooms.makeProject.nameEmpty'))
+      await m.type('make-project-name', '   ')
+      await m.until(() => m.html().includes(en('rooms.makeProject.nameEmpty')), 'the empty-name line')
+      expect(en('rooms.makeProject.nameEmpty')).toBe('Enter a project name.')
+      // the body names no project while there is none
+      expect(text(m, 'make-project-body')).toContain('move to … › Chat attachments')
+      expect(m.get('make-project-confirm').hasAttribute('disabled')).toBe(true)
+    } finally { await m.unmount() }
+    const d = await mount(<MemoryRouter><DmProjectDialog peer={{ id: BEN.id, name: BEN.name }} onClose={() => {}} /></MemoryRouter>)
+    try {
+      await d.type('make-project-name', '')
+      await d.until(() => d.html().includes(en('rooms.makeProject.nameEmpty')), 'the empty-name line (a 1:1)')
+      expect(d.get('make-project-confirm').hasAttribute('disabled')).toBe(true)
+    } finally { await d.unmount() }
+  })
+
+  test('"Moving files…" clears when the moves settle before the answer arrives (QA TC-6946)', async () => {
+    signIn()
+    const moving = projRoom(RID, 'Launch', { filesMoving: true })
+    const settled = projRoom(RID, 'Launch')
+    routes = {
+      [`GET /api/rooms/${RID}/make-project`]: () => json(info()),
+      // the moves settle and say so (room.updated without filesMoving) while the answer, read before them, is on its way
+      [`POST /api/rooms/${RID}/make-project`]: () => {
+        useRooms.getState().handleEvent({ type: 'room.updated', data: { roomId: RID, change: 'updated', room: settled } } as never)
+        return json({ project: { id: PID, name: 'Launch', folderPath: 'projects/Launch', instructions: '', createdBy: ME, createdAt: at(0), canEdit: true }, room: moving }, 201)
+      },
+    }
+    const closed: number[] = []
+    const m = await mount(<MemoryRouter><MakeProjectDialog roomId={RID} onClose={() => closed.push(1)} /></MemoryRouter>)
+    try {
+      await m.until(() => m.find('make-project-body'), 'the body')
+      await m.click('make-project-confirm')
+      await m.until(() => closed.length === 1, 'made')
+      const r = useRooms.getState().rooms.find((x) => x.id === RID)!
+      expect(r.projectRoom).toBe(true)
+      expect(r.filesMoving).toBeUndefined()
+    } finally { await m.unmount() }
+    // nothing heard meanwhile: the answer's word stands (the moves still run)
+    useRooms.getState().reset()
+    routes[`POST /api/rooms/${RID}/make-project`] = () => json({ project: { id: PID, name: 'Launch', folderPath: 'projects/Launch', instructions: '', createdBy: ME, createdAt: at(0), canEdit: true }, room: moving }, 201)
+    await useRooms.getState().makeProject(RID, 'Launch', 'h1')
+    expect(useRooms.getState().rooms.find((x) => x.id === RID)?.filesMoving).toBe(true)
   })
 
   test('a guest in another place: the button is off; an admin gets the link to them in Admin, a member is told to ask', async () => {
@@ -427,6 +480,8 @@ describe('A: the event lines', () => {
     expect(eventText({ type: 'project_files_moved', project, moved: 1, kept: 2 }, null, w('en'))).toBe('1 file moved to Atlas › Chat attachments. 2 stayed in this conversation.')
     expect(eventText({ type: 'project_files_moved', project: null, moved: 2, kept: 0 }, null, w('en'))).toBe("2 files moved to the project's Chat attachments.")
     expect(eventText({ type: 'project_files_moved', project, moved: 3, kept: 1 }, null, w('ko'))).toBe('파일 3개를 Atlas › 채팅 첨부로 옮겼어요. 1개는 이 대화방에 남았어요.')
+    // another project had the name: the folder the files are in, the "-2" one (QA TC-6953)
+    expect(eventText({ type: 'project_files_moved', project: { ...project, folder: 'Atlas-2' }, moved: 1, kept: 0 }, null, w('en'))).toBe('1 file moved to Atlas-2 › Chat attachments.')
   })
 })
 

@@ -84,7 +84,8 @@ export function Rail({ showList }: { showList: boolean }) {
                     {icon(item, lit)}
                     <Mark mark={marks[item]} item={item} />
                   </span>
-                  <span className="block w-full truncate px-0.5 text-center">{label[item]}</span>
+                  {/* up to two lines, never an ellipsis: ja "プロジェクト", "アクティビティ" were cut (QA 2026-11-22 F15) */}
+                  <span className="line-clamp-2 w-full px-0.5 text-center leading-tight [overflow-wrap:anywhere]" data-testid="rail-label">{label[item]}</span>
                   <MarkWords mark={marks[item]} item={item} />
                 </Link>
               </Tooltip>

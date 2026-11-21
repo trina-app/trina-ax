@@ -92,8 +92,41 @@ function stepKey(tool: string, args: unknown): string {
   return `${CHANGES_FILE.has(tool) ? 'change' : tool}|${target}`
 }
 
+/** A failed write or edit of the work folder (chat:work/…, $TRINA_WORK/…), which the file tools refuse on purpose and
+ * steer to a command or copy_files (QA TC-6938: write to chat:work/report.txt refused, then a box_shell command made
+ * report.txt and copy_files attached it; the answer still said "One step didn't work: Save."). Only these are settled by
+ * another route: a refused save of a team file stays a failure whatever else the answer did. */
+const WORK_TARGET = /^(?:chat:work\/|\$TRINA_WORK\/|\$\{TRINA_WORK\}\/)/i
+
+/** The last part of a path ("chat:work/out/report.txt" -> "report.txt"), lower case; null for none */
+const fileName = (p: string) => p.replace(/^["']|["']$/g, '').split('/').filter(Boolean).pop()?.toLowerCase() ?? null
+
+/** The files a successful call made or handed over, by name: a command's outputs (after >, >>, tee or -o, and the target
+ * of cp or mv), copy_files' and save_work_file's files, make_file's output. Nothing it only read or listed. */
+function madeNames(tool: string, args: unknown): string[] {
+  const a = (args && typeof args === 'object' ? args : {}) as Record<string, unknown>
+  const out: string[] = []
+  const add = (v: unknown) => { const n = typeof v === 'string' ? fileName(v) : null; if (n) out.push(n) }
+  if (tool === 'box_shell' && typeof a.command === 'string') {
+    for (const m of a.command.matchAll(/(?:>>?|\btee\s+(?:-a\s+)?|\s-o\s*)\s*("[^"]+"|'[^']+'|[^\s;|&<>()]+)/g)) add(m[1])
+    for (const part of a.command.split(/&&|\|\||[;|\n]/)) {
+      const words = part.trim().split(/\s+/).filter((w) => w && !w.startsWith('-'))
+      if ((words[0] === 'cp' || words[0] === 'mv') && words.length >= 3) {
+        const to = words[words.length - 1]!.replace(/^["']|["']$/g, '')
+        // into a folder ("…/out/"): the files keep their names
+        if (to.endsWith('/') || WORK_TARGET.test(to + '/') && !/\.[^/]+$/.test(to)) words.slice(1, -1).forEach(add)
+        else add(to)
+      }
+    }
+  }
+  if (tool === 'copy_files' && Array.isArray(a.paths)) a.paths.forEach(add)
+  if (tool === 'save_work_file') add(a.path)
+  if (tool === 'make_file') add(a.output)
+  return out
+}
+
 /** The answer's tool calls that failed and were not done again with success afterwards (same tool or a change of the
- * same file, same target). */
+ * same file, same target), nor superseded by a later call that made or handed over the same file another way. */
 export class FailedSteps {
   private readonly open = new Map<string, string>()
 
@@ -101,6 +134,13 @@ export class FailedSteps {
     const key = stepKey(tool, args)
     if (ok) {
       this.open.delete(key)
+      // a refused save into the work folder whose file a later step made or handed over by another route: the outcome
+      // stands (WORK_TARGET)
+      const made = madeNames(tool, args)
+      if (made.length) for (const k of [...this.open.keys()]) {
+        const target = k.startsWith('change|') ? k.slice('change|'.length) : ''
+        if (WORK_TARGET.test(target) && made.includes(fileName(target) ?? '')) this.open.delete(k)
+      }
       // a call with a target also settles the same tool's earlier failure that had none (bad arguments the first time)
       this.open.delete(`${key.slice(0, key.indexOf('|'))}|`)
       // a file made or changed after a read that failed (often "not found" before it was created) settles the read

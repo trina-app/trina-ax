@@ -269,7 +269,7 @@ describe('deleting a project', () => {
     const save = await send('bob', chat.id, fake({ tool: 'write', args: { file_path: 'shared/acme-widen.md', content: 'x' } }, { say: 'done' }))
     const card = await ws.bob!.next('turn.request', (f) => f.data.turnId === save.turnId, 15_000)
     const question = (card.data.request as { question: string }).question
-    expect(question).toContain('이 채팅에서 다른 사람이 연 곳')
+    expect(question).toMatch(/\n트리나가 그중 \d+명은 열 수 없는 곳에서 가져와 만들었어요\.$/)
     expect(question).not.toContain('marketing')
     await h.api('bob').call(API.answerTurn, { params: { id: save.turnId }, body: { kind: 'ask_user', requestId: card.data.request.requestId, answer: 'skip' } })
     await ws.bob!.next('message.done', (f) => f.data.messageId === save.assistantMessage.id, 30_000)

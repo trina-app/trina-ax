@@ -256,6 +256,22 @@ test('a safety check the server raised has its own header, never the "AI asks" o
   await expect(card).toHaveCount(0)
 })
 
+test('the save-where-more-people-can-see card asks first, says why in one line, and shows the whole place on hover', async ({ page }) => {
+  // docs/decisions/20261122-widening-card-wording.md: the mock builds it from the server's own words (chat/i18n.ts)
+  await reset(page)
+  await signIn(page)
+  await ask(page, 'widenask please')
+  const card = page.getByTestId('ask-card')
+  await expect(card).toHaveAttribute('data-origin', 'server')
+  await expect(card).toContainText('테스트 프로젝트에 06_contact.svg 저장할까요? 2명이 볼 수 있는 곳이에요.')
+  await expect(card).toContainText('트리나가 그중 1명은 열 수 없는 곳에서 가져와 만들었어요.')
+  await expect(card).not.toContainText('다른 사람이 연 곳')
+  await expect(card.getByTestId('ask-place')).toHaveAttribute('title', '프로젝트 › 테스트 프로젝트 › 트리숲_소개자료 › svg_output › 06_contact.svg')
+  await expect(card.getByTestId('ask-note')).toHaveText('항상 허용하면 파일이나 웹페이지를 읽은 뒤에도 묻지 않고 저장해요. 설정 › 트리나에게 허용한 것에서 되돌릴 수 있어요.')
+  await card.getByRole('button', { name: '저장하지 않기', exact: true }).click()
+  await expect(card).toHaveCount(0)
+})
+
 test('ask_user card is back after a page reload and the answer still reaches the turn', async ({ page }) => {
   await reset(page)
   await signIn(page)

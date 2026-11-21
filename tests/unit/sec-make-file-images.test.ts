@@ -70,7 +70,7 @@ describe('make_file: embedded images are sources of the new file', () => {
     expect(r.cards.length).toBe(1)
     expect(r.cards[0]!.origin).toBe('server')
     expect(r.cards[0]!.question).toContain('부서 › finance')
-    expect(r.cards[0]!.question).toContain('전사 공유 › q-update.docx')
+    expect(r.cards[0]!.question).toContain('전사 공유에 q-update.docx 저장할까요?')
     expect(r.content).toContain('did not allow saving')
     expect(exists('shared/q-update.docx')).toBe(false)
     // the image joined the chat's read scope, so later saves in this chat take it into account
