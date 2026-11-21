@@ -41,7 +41,7 @@ export interface Instance {
   expiresAt?: number
   /** the visitor's address (memory only: the per-address live limit) */
   ip?: string
-  /** weighted tokens this instance used */
+  /** tokens this instance used as its demo limit counts them (model.ts visitorWeighted: cache writes at 0.1) */
   tokens: number
   /** the gate's own cap for this instance: its demo limit (GET /api/demo cap) × limits.instanceCapMargin */
   cap: number

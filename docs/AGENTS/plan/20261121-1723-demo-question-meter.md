@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-21 17:23
 - Branch: `fix/demo-question-meter`
-- Status: in progress
+- Status: done
 - Where: server/ (the demo limit's count), shared/ (the weights), demo-gate/ (its per-visitor backstop). Why: the
   instance counts the visitor's limit, the gate keeps its own copy of that count (see docs/REPOSITORY-RULES.md)
 - Version impact: patch, a fix to how the demo counts its limit, no new feature or API
@@ -56,4 +56,12 @@ demo-free-roam.
 
 ## Result
 
-(filled in at the end)
+- Cache writes count 0.1 for the visitor (instance and the gate's backstop); the gate's day, stats and utilization stay
+  true. `DEMO_QUESTION_TOKENS` stays 35k (starts at 8; a cold first question of 87,609 true tokens now counts 22,539
+  and leaves 7). The gate's `upstream usage` lines now carry the usage fields for the next measurement.
+- Measured: gate stats 11-21 ko 9 questions / 407,098 true tokens (45k each, old weight); the gate log itself is
+  root-only on this Mac. Trina engine transcripts on this Mac: cache writes 40-60 % of a warm question, ~90 % of a cold
+  one; a 13-request deck task 146k old weight, 96k new.
+- The 409: the old test sent a real message under the limit. With socket paths that fit (a short checkout, not a long
+  worktree), the local engine really starts and is still answering at the next send, so busyCheck (409) runs before the
+  budget check. The test now asks budgetBlock for "under" and sends once, at the limit, in a fresh chat.

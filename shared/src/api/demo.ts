@@ -106,13 +106,20 @@ export type DemoFile = z.infer<typeof DemoFile>
 export const DEMO_LIMIT_DEFAULT = 300_000
 /**
  * freeRoam: what one question to the AI costs in the demo limit on average (weighted tokens), so the screen can say
- * "about N questions" and never "tokens". Measured on demo.trina.app (11-20): a warm question 27k-38k, the very first
- * one on a cold cache about 90k; 35k is the warm middle, so DEMO_LIMIT_DEFAULT reads as about 8 questions. demo-gate's
- * landing says "about 8" in its own words (demo-gate/src/pages.ts, no shared imports there): change both together.
+ * "about N questions" and never "tokens". The demo limit counts cache reads and cache writes at 0.1
+ * (DEMO_CACHE_READ_WEIGHT, DEMO_CACHE_WRITE_WEIGHT): a copy's first question writes the system prompt and the tools to
+ * the cache (about 90k true tokens on demo.trina.app, 11-20), and that cold start is not the visitor's question. In
+ * those weights a typical question is about 20k-25k, the first one about the same, a banner edit about two; 35k keeps
+ * DEMO_LIMIT_DEFAULT reading as "about 8" from the start (floor(300k / 35k)) and the first question leaves "about 7".
+ * demo-gate's landing says "about 8" in its own words (demo-gate/src/pages.ts, no shared imports there): change both
+ * together. docs/decisions/20261121-demo-meter-cache-writes.md
  */
 export const DEMO_QUESTION_TOKENS = 35_000
 /** freeRoam: the weight of a cache read in the demo limit */
 export const DEMO_CACHE_READ_WEIGHT = 0.1
+/** freeRoam: the weight of a cache write in the demo limit (the visitor's meter only; demo-gate's daily cap counts it
+ * fully) */
+export const DEMO_CACHE_WRITE_WEIGHT = 0.1
 /** freeRoam: one upload's largest file, and all uploads of an instance together */
 export const DEMO_UPLOAD_FILE_MAX = 10 * 1024 * 1024
 export const DEMO_UPLOAD_TOTAL_MAX = 100 * 1024 * 1024

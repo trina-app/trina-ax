@@ -11,7 +11,7 @@ import { readSecretFile } from './config.ts'
 import type { GateLog } from './log.ts'
 import {
   BUDGET_STATUS, FORWARD_REQUEST_HEADERS, NEUTRAL_HEADERS, NEUTRAL_STATUS, SseRewriter, allowedResponseHeaders, betaFor,
-  budgetError, isPromptTooLong, mergeUsage, neutralError, pinModel, weighted, type Usage,
+  budgetError, isPromptTooLong, mergeUsage, neutralError, pinModel, visitorWeighted, weighted, type Usage,
 } from './model.ts'
 import type { Instance } from './pool.ts'
 import type { GateState } from './state.ts'
@@ -170,14 +170,22 @@ export function createUpstream(d: UpstreamDeps) {
   }
 
   const count = (inst: Instance, u: Usage) => {
+    // the day, the stats and the log: the account's true use (cache writes counted fully)
     const w = weighted(u)
-    if (w > 0) {
-      inst.tokens += w; d.state.addTokens(w); d.stats.bump(inst.locale, 'tokens', w)
+    if (w > 0) { d.state.addTokens(w); d.stats.bump(inst.locale, 'tokens', w) }
+    // the visitor: what the instance counts against its demo limit (cache writes at 0.1, model.ts visitorWeighted)
+    const v = visitorWeighted(u)
+    if (v > 0) {
+      inst.tokens += v
       // the instance's own demo limit (the gate's cap without its margin): counted once per visitor
       if (!inst.hitLimit && inst.cap > 0 && inst.tokens >= inst.cap / d.cfg.limits.instanceCapMargin) { inst.hitLimit = true; d.stats.bump(inst.locale, 'hitLimit') }
     }
-    // one line per completed request, to work out later how much of the account's window one visitor uses
-    d.log.info('upstream usage', { instance: inst.id, tokens: Math.max(0, w), u5h: limits.utilization5h, u7d: limits.utilization7d })
+    // one line per completed request, to work out later how much of the account's window one visitor uses and what one
+    // question costs (the usage fields as the API reported them: counts only)
+    d.log.info('upstream usage', {
+      instance: inst.id, tokens: Math.max(0, w), visitor: Math.max(0, v), u5h: limits.utilization5h, u7d: limits.utilization7d,
+      in: u.input_tokens ?? 0, cw: u.cache_creation_input_tokens ?? 0, cr: u.cache_read_input_tokens ?? 0, out: u.output_tokens ?? 0,
+    })
   }
 
   async function handle(req: http.IncomingMessage, res: http.ServerResponse) {
