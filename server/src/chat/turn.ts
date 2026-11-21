@@ -854,6 +854,8 @@ export class TurnExec {
         within: this.shared.kind === 'project' ? this.shared.project.folder_path : null,
         audience: () => this.sharedAudience(),
         noteReads: (folders, audience) => { const rules = rt.files.rules(); return this.noteSharedReads(folders.map((f) => sourceOf(rt.db, rules, f)), audience) },
+        // what was copied into the work folder for these people (devenv/srt/copied-in.ts): a read card's yes covered it
+        noteCopied: (groups) => groups.every((g) => this.noteSharedReads(g.s, g.c, true)),
       } : undefined
       // only while it works (QA TC-4924): a broken or missing install is told to the AI once instead (devEnvDownRule)
       if (mayUseDevEnv(rt.db, rt.files, spec.userId)) {

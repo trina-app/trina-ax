@@ -78,8 +78,17 @@ export function devenvPaths(base: string) {
     /** the files of a run's first line (srt/mounts.ts writePins), one folder per run that the server makes fresh and
      * removes when the run ends; read-only in that run, not there in any other */
     guard: path.join(root, 'guard'),
+    /** what the server copies into a work folder (devenv/work-write.ts): one folder per copy, made fresh, read-only in the
+     * one run that copies it in (the stage input of srtSettings), removed when the copy ends */
+    stage: path.join(root, 'stage'),
+    /** what was copied into a shared chat's work folder, per chat and workspace key (srt/copied-in.ts); server-only */
+    copiedIn: path.join(root, 'copied-in'),
   }
 }
+
+/** Is `p` one copy's stage folder (a folder right in <base>/devenv/stage with a safe name)? */
+export const isStageFolder = (base: string, p: string | null | undefined): p is string =>
+  !!p && path.dirname(p) === devenvPaths(base).stage && SAFE_ID_RE.test(path.basename(p))
 /** HOME, TMPDIR and the caches of one person's runs (read and write) */
 export const personHome = (base: string, userId: string) => path.join(devenvPaths(base).home, safeId(userId))
 /** the logs of one person's runs (the sandbox reads them, never writes them) */
@@ -256,6 +265,8 @@ export interface SettingsInput {
   /** linux (default: this machine) or darwin: the host lists, and on macOS no open localhost (allowLocalBinding false;
    * srt-mac.mjs adds the run's own port) */
   platform?: DevPlatform
+  /** a copy into the work folder (devenv/work-write.ts): its stage folder, readable and never writable in this run */
+  stage?: string | null
 }
 
 const abs = (teamRoot: string, rel: string) => (rel === '' ? teamRoot : path.join(teamRoot, rel))
@@ -285,7 +296,7 @@ export function srtSettings(i: SettingsInput) {
     ...(i.serverPaths ?? []).filter((p) => !inside(p, i.base)), ...fixedHidden, ...i.view.denyRead.filter((r) => platform === 'linux' || r !== 'users').map((r) => abs(i.teamRoot, r)),
     ...writeInRead.map((w) => abs(i.teamRoot, w))])
   const guard = platform === 'linux' ? runGuard(i.base, i.runId) : null
-  const allowRead = uniq([...i.view.read, ...i.view.write].map((r) => abs(i.teamRoot, r)).concat([home, logs, devenvPaths(i.base).bin], i.work ? [i.work] : [], guard ? [guard] : [], host.read))
+  const allowRead = uniq([...i.view.read, ...i.view.write].map((r) => abs(i.teamRoot, r)).concat([home, logs, devenvPaths(i.base).bin], i.work ? [i.work] : [], guard ? [guard] : [], isStageFolder(i.base, i.stage) ? [i.stage] : [], host.read))
   return {
     filesystem: {
       denyRead: uniq(deny.concat((i.connectedSources ?? []).filter((src) => !hiddenBy(deny, allowRead, src)))),
@@ -334,7 +345,7 @@ const hidden = (s: ReturnType<typeof srtSettings>, p: string) => hiddenBy(s.file
 
 /** Checks that a settings file keeps the rules of the design. Returns the problems (empty = good). The runner calls it
  * before every spawn, so a bug in the builder does not reach srt. */
-export function settingsProblems(s: ReturnType<typeof srtSettings>, i: Pick<SettingsInput, 'base' | 'teamRoot' | 'userId' | 'work' | 'serverPaths' | 'start' | 'connectedSources' | 'platform' | 'sharedChat' | 'runId'>): string[] {
+export function settingsProblems(s: ReturnType<typeof srtSettings>, i: Pick<SettingsInput, 'base' | 'teamRoot' | 'userId' | 'work' | 'serverPaths' | 'start' | 'connectedSources' | 'platform' | 'sharedChat' | 'runId' | 'stage'>): string[] {
   const out: string[] = []
   const platform = i.platform ?? devPlatform()
   const host = hostLists(platform)
@@ -374,7 +385,12 @@ export function settingsProblems(s: ReturnType<typeof srtSettings>, i: Pick<Sett
     if (inside(w, i.teamRoot) && !inside(w, own) && !(start !== null && inside(w, start))) out.push(`a team folder outside the starting folder is writable: ${w}`)
   }
   const guard = platform === 'linux' ? runGuard(i.base, i.runId) : null
-  for (const r of s.filesystem.allowRead) if (!allowed(r, [logs, devenvPaths(i.base).bin, ...(guard ? [guard] : []), ...host.read])) out.push(`a path that a run may not read: ${r}`)
+  // a copy's stage folder (devenv/work-write.ts): only one right in <base>/devenv/stage, only as the input names it
+  if (i.stage != null && !isStageFolder(i.base, i.stage)) out.push(`a stage folder outside the base folder's devenv/stage: ${i.stage}`)
+  const stage = isStageFolder(i.base, i.stage) ? [i.stage] : []
+  for (const r of s.filesystem.allowRead) if (!allowed(r, [logs, devenvPaths(i.base).bin, ...(guard ? [guard] : []), ...stage, ...host.read])) out.push(`a path that a run may not read: ${r}`)
+  // the stage folder is only ever read in a run: the copy goes into the work folder with the run's own rights
+  for (const w of s.filesystem.allowWrite) if (inside(w, devenvPaths(i.base).stage) || inside(devenvPaths(i.base).stage, w)) out.push(`a stage folder is writable: ${w}`)
   // the run's first-line files are read-only in it
   for (const w of s.filesystem.allowWrite) if (inside(w, devenvPaths(i.base).guard) || inside(devenvPaths(i.base).guard, w)) out.push(`the run's guard folder is writable: ${w}`)
   // the server's programs are read-only in a run (a run that could write the git wrapper would switch it off)
