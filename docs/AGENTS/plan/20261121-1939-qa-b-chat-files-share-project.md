@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-21 19:39
 - Branch: `fix/qa-b-chat-files-share-project`
-- Status: in progress
+- Status: done
 - Where: web (file panel, Share dialog, Make it a project dialog, rooms store), server (chat file versions, make-project,
   chat audience, turn). Why: fixes of QA rows TC-6945..6962 on code already in dev (see docs/REPOSITORY-RULES.md)
 - Version impact: patch: wording, layout and small behaviour fixes of shipped features; no new feature, no migration
@@ -78,4 +78,9 @@ and web unit tests.
 
 ## Result
 
-Filled in at the end.
+Built as planned, plus what the independent review asked for: the editor's "saved a newer version" line shows only
+for a save past the version the editor opened and not my own; the restore notice says "20" from a constant; the
+pruned line sits where the numbers jump (between the oldest kept and version 1); a connection call after a chat file
+save in the same answer gets its own words ("this answer already saved a new version of a file of this chat…")
+instead of "could not check"; ko/ja put no honorific on the AI's name; the closing line and the body name the "-2"
+folder through a new optional EventProject.folder. TC-6846 is left to PR #265; TC-6958 needs no change (model error).
