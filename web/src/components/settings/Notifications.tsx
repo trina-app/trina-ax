@@ -63,17 +63,15 @@ export const integrationsLink = (item: Pick<InboxNotification, 'sourceId' | 'tem
   return template ? `${CONNECTORS_HOME}?template=${encodeURIComponent(template)}` : `${CONNECTORS_HOME}?request=${encodeURIComponent(item.sourceId)}`
 }
 
-export type DevEnvEndReason = 'timeout' | 'oom' | 'stopped' | 'idle' | 'disk' | 'setting' | 'expired' | 'lost'
-export const END_REASONS: ReadonlySet<string> = new Set<DevEnvEndReason>(['timeout', 'oom', 'stopped', 'idle', 'disk', 'setting', 'expired', 'lost'])
-
-/** The text of a dev environment notice: with the job while the person can still see its project. A notice of the
- * removed box runner has no job: the generic text of its event. */
-const devEnvText = (item: InboxNotification, t: ReturnType<typeof useT>) => {
-  const d = item.devEnv
-  // a job with no exit code says why it ended (a reason the page does not know is the old text)
-  if (d?.job && d.job.exitCode === null && d.job.reason && END_REASONS.has(d.job.reason)) return t('notifications.event.dev_env.jobReason', { name: d.job.name, why: t(`devEnv.end.${d.job.reason as DevEnvEndReason}`) })
-  if (d?.job) return d.job.exitCode === null ? t('notifications.event.dev_env.jobNoCode', { name: d.job.name }) : t('notifications.event.dev_env.jobEnded', { name: d.job.name, code: d.job.exitCode })
-  return t(`notifications.event.${item.code as 'dev_env.job' | 'dev_env.box'}`)
+/** The text of a dev environment notice: the result in plain words (done, or not), with the chat it was asked in while
+ * the person can open it. No job name, exit code, reason or log: the people reading it are not developers, and the log
+ * stays in the chat for its AI. A notice of the removed box runner has no job: the generic text of its event. */
+const devEnvText = (item: InboxNotification, t: ReturnType<typeof useT>, locale: Locale): ReactNode => {
+  const job = item.devEnv?.job
+  if (!job) return t(`notifications.event.${item.code as 'dev_env.job' | 'dev_env.box'}`)
+  const ok = job.exitCode === 0
+  if (job.chatTitle) return isolate(locale, ok ? 'notifications.event.dev_env.jobDoneIn' : 'notifications.event.dev_env.jobFailedIn', { title: job.chatTitle }, ['title'])
+  return t(ok ? 'notifications.event.dev_env.jobDone' : 'notifications.event.dev_env.jobFailed')
 }
 
 type T = ReturnType<typeof useT>
@@ -140,7 +138,7 @@ export function noticeText(item: InboxNotification, t: T, locale: Locale): React
   if (item.handover) return handoverNoticeNode(locale, item.handover)
   if (item.code === 'credential.change' && item.credentialChange) return credentialChangeText(item.credentialChange, t)
   if (item.code === 'room.dm' || item.code === 'room.mention') return roomText(item, t)
-  if (item.code === 'dev_env.job' || item.code === 'dev_env.box') return devEnvText(item, t)
+  if (item.code === 'dev_env.job' || item.code === 'dev_env.box') return devEnvText(item, t, locale)
   // "tried to use Trina but it isn't set up yet" (POST /api/me/ai-not-ready/tell), with the name while the account is there
   if (item.code === 'onboarding.ai_request' && item.notReady) return item.requester ? t('notifications.event.onboarding.ai_notReadyNamed', { name: item.requester.name }) : t('notifications.event.onboarding.ai_notReady')
   if (item.code === 'onboarding.ai_request' && item.requester) return t('notifications.event.onboarding.ai_requestNamed', { name: item.requester.name })

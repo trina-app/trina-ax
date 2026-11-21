@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-21 02:50
 - Branch: `fix/devenv-job-notice-plain`
-- Status: in progress
+- Status: done
 - Where: server/src/devenv/jobs.ts, server/src/notifications/service.ts, shared/src/api/notifications.ts, web Activity.
   Why: the Activity notice of a dev environment job is the only place a non-developer sees it (see docs/REPOSITORY-RULES.md)
 - Version impact: patch. A notice reads differently and shows less; no API or data is added that clients must handle.
@@ -51,4 +51,10 @@ Older web clients read `job.tail` with `?.`: an absent tail shows no block. No m
 notifications unit tests, tests/security/project-trash-state.test.ts.
 
 ## Result
+
+Built as planned. The live notice's words are server tables (JOB_DONE, JOB_FAILED and their no-chat forms in
+server/src/devenv/jobs.ts); Activity's are web keys notifications.event.dev_env.jobDone/jobDoneIn/jobFailed/jobFailedIn.
+The old keys (jobEnded, jobNoCode, jobReason) and devEnv.end.* went, as nothing else used them. The unit test is in
+tests/unit/dev-env-srt.test.ts ("a finished job tells the person the result in plain words"); the 1440 shots come from
+web/test/e2e/devenv-job-notice.spec.ts (BEFORE=1 on a dev build for the before shots).
 

@@ -1,8 +1,8 @@
 // Long commands of the dev environment (docs/DECISIONS.md "Dev environment: disk floor, jobs, CPU as activity", "Dev
 // environment on srt, behind a flag"). box_shell with job: true starts a background command that has an exit status and
 // a log (srt/runner.ts, the rows in dev_env_runs). The tracker polls the runner while one runs and picks up open rows
-// after a restart. When a job ends, the person who started it gets a notice with the exit code, the log tail and a link
-// to the chat; an audit line is written; and the next box_shell call in that chat gives the AI the result. The AI does
+// after a restart. When a job ends, the person who started it gets a plain notice of the result (no code, no log) and a
+// link to the chat; an audit line is written; and the next box_shell call in that chat gives the AI the result. The AI does
 // not go on by itself.
 //
 // dev_env_jobs and dev_env_stops are the tables of the removed box runner (docs/DECISIONS.md "Dev environment: box
@@ -21,9 +21,8 @@ import { END_NOTE, setEnder, type EndReason } from './srt/end'
 
 export const JOB_POLL_MS = 10_000
 const JOB_KEEP_MS = 30 * 86400_000
-/** the end of the log that goes to the AI and into the live notice */
+/** the end of the log that goes to the AI */
 const AI_TAIL = 2000
-const NOTICE_TAIL = 300
 /** the last log line on the project page */
 const LINE_MAX = 300
 
@@ -34,15 +33,48 @@ function localeOf(db: Database, userId: string): Locale {
   return v.success ? v.data : teamDefaultLocale(db)
 }
 
-const JOB_ENDED: Record<Locale, (name: string, code: string) => string> = {
-  ko: (n, c) => `개발 환경 작업 ${n}이(가) 끝났어요 (종료 코드 ${c}).`,
-  en: (n, c) => `Dev environment job ${n} ended (exit code ${c}).`,
-  id: (n, c) => `Pekerjaan lingkungan pengembangan ${n} selesai (kode keluar ${c}).`,
-  ja: (n, c) => `開発環境のジョブ ${n} が終了しました（終了コード ${c}）。`,
-  es: (n, c) => `El trabajo ${n} del entorno de desarrollo terminó (código de salida ${c}).`,
-  zh: (n, c) => `开发环境任务 ${n} 已结束（退出代码 ${c}）。`,
+/** What the person who started a job hears when it ends (the live notice): the result in plain words, about the chat they
+ * asked in. No command or job name, no exit code, no log: the people are not developers, and the log stays for the AI
+ * of that chat (runResultsForAI) and the chat's step details. A chat title is the person's own words. */
+export const JOB_DONE: Record<Locale, (title: string) => string> = {
+  ko: (t) => `‘${t}’에서 부탁한 작업을 트리나가 마쳤어요.`,
+  en: (t) => `Trina finished the job you asked for in “${t}”.`,
+  id: (t) => `Trina sudah menyelesaikan pekerjaan yang Anda minta di “${t}”.`,
+  ja: (t) => `「${t}」で頼んだ作業をトリナが終えました。`,
+  es: (t) => `Trina terminó el trabajo que pidió en «${t}».`,
+  zh: (t) => `你在“${t}”中交给 Trina 的任务已完成。`,
 }
-const NO_CODE: Record<Locale, string> = { ko: '알 수 없음', en: 'not known', id: 'tidak diketahui', ja: '不明', es: 'desconocido', zh: '未知' }
+export const JOB_FAILED: Record<Locale, (title: string) => string> = {
+  ko: (t) => `‘${t}’에서 부탁한 작업을 트리나가 끝내지 못했어요. 채팅에서 확인해 보세요.`,
+  en: (t) => `Trina couldn't finish the job you asked for in “${t}”. Check the chat.`,
+  id: (t) => `Trina tidak bisa menyelesaikan pekerjaan yang Anda minta di “${t}”. Lihat di obrolan.`,
+  ja: (t) => `「${t}」で頼んだ作業をトリナが終えられませんでした。チャットで確認してください。`,
+  es: (t) => `Trina no pudo terminar el trabajo que pidió en «${t}». Revíselo en el chat.`,
+  zh: (t) => `你在“${t}”中交给 Trina 的任务没能完成。请在对话中查看。`,
+}
+/** a job of a chat that is gone (or has no title): the same words with no chat */
+export const JOB_DONE_NO_CHAT: Record<Locale, string> = {
+  ko: '부탁한 작업을 트리나가 마쳤어요.',
+  en: 'Trina finished a job you asked for.',
+  id: 'Trina sudah menyelesaikan pekerjaan yang Anda minta.',
+  ja: '頼んだ作業をトリナが終えました。',
+  es: 'Trina terminó un trabajo que pidió.',
+  zh: '你交给 Trina 的任务已完成。',
+}
+export const JOB_FAILED_NO_CHAT: Record<Locale, string> = {
+  ko: '부탁한 작업을 트리나가 끝내지 못했어요.',
+  en: "Trina couldn't finish a job you asked for.",
+  id: 'Trina tidak bisa menyelesaikan pekerjaan yang Anda minta.',
+  ja: '頼んだ作業をトリナが終えられませんでした。',
+  es: 'Trina no pudo terminar un trabajo que pidió.',
+  zh: '你交给 Trina 的任务没能完成。',
+}
+/** the live notice's words: failed is anything but exit code 0 (no code: a limit, a stop, the queue) */
+export function jobNoticeText(locale: Locale, ok: boolean, chatTitle: string | null): string {
+  const title = chatTitle?.trim()
+  if (title) return (ok ? JOB_DONE : JOB_FAILED)[locale](title)
+  return (ok ? JOB_DONE_NO_CHAT : JOB_FAILED_NO_CHAT)[locale]
+}
 const clipEnd = (s: string, max: number) => (s.length > max ? '...' + s.slice(-max) : s)
 
 /** Log text of a running job as it may be kept. The command can be in the middle of a stored secret, and hide knows only
@@ -80,20 +112,11 @@ export function startJobTracker(ctx: AppContext): { stop(): void } {
 
 // ---------------- the runs (dev_env_runs) ----------------
 // The rows of runs belong to a person and a chat, with or without a project. When a job ends, the person who
-// started it gets a notice with the exit code, the log tail and a link to the chat; the AI of that chat gets the result
+// started it gets a plain notice of the result (done or not) with a link to the chat; the AI of that chat gets the result
 // on its next box_shell call. Only that person and that chat: the log can hold text from folders other people cannot
 // open. A shared chat's job saw only what everyone in the chat may open: its result goes to the next box_shell call of
 // anyone in that chat while the people and their view are the same (runResultsForAI sharedKey). A dev server ends with
 // no notice.
-
-const RUN_ENDED_NOTE: Record<Locale, (name: string, why: string) => string> = {
-  ko: (n, w) => `개발 환경 작업 ${n}: ${w}`,
-  en: (n, w) => `Dev environment job ${n}: ${w}`,
-  id: (n, w) => `Pekerjaan lingkungan pengembangan ${n}: ${w}`,
-  ja: (n, w) => `開発環境のジョブ ${n}: ${w}`,
-  es: (n, w) => `Trabajo ${n} del entorno de desarrollo: ${w}`,
-  zh: (n, w) => `开发环境任务 ${n}：${w}`,
-}
 
 function endRun(ctx: AppContext, row: RunRow, end: { code: number | null; note: string; tail: string; lastLine: string; reason: EndReason }) {
   const at = new Date().toISOString()
@@ -110,11 +133,10 @@ function endRun(ctx: AppContext, row: RunRow, end: { code: number | null; note: 
     seconds: Math.round((Date.parse(at) - Date.parse(row.started_at)) / 1000), runner: 'srt',
   } })
   if (row.kind === 'server') return
-  const locale = localeOf(ctx.db, row.user_id)
-  const code = end.code === null ? NO_CODE[locale] : String(end.code)
-  const text = end.code === null && end.reason !== 'exit' ? RUN_ENDED_NOTE[locale](row.name, end.note) : JOB_ENDED[locale](row.name, code)
-  const link = row.chat_id ? `/c/${encodeURIComponent(row.chat_id)}` : row.project_id ? `/projects/${encodeURIComponent(row.project_id)}` : '/'
-  const message = [text, clipEnd(tail, NOTICE_TAIL)].filter(Boolean).join('\n')
+  // the chat's title while it is there (the person started the job in it); the toast opens the chat
+  const chat = row.chat_id ? ctx.db.query('SELECT title FROM chats WHERE id = ? AND deleted_at IS NULL').get(row.chat_id) as { title: string } | null : null
+  const message = jobNoticeText(localeOf(ctx.db, row.user_id), end.code === 0, chat?.title ?? null)
+  const link = chat ? `/c/${encodeURIComponent(row.chat_id!)}` : row.project_id ? `/projects/${encodeURIComponent(row.project_id)}` : '/'
   try {
     ctx.services.realtime.publish(row.user_id, { type: 'notice', data: { level: end.code === 0 ? 'info' : 'warn', code: 'dev_env_job', message, link } })
   } catch (err) { ctx.log.warn('dev env job notice failed', { err }) }
