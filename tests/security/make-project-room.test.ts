@@ -70,6 +70,26 @@ test('a guest member, an admin outside and a member outside: refused, nothing na
   await gus.client.call('POST', `/api/rooms/${roomId}/leave`)
 })
 
+test('the confirm\'s read is no probe of project folders: admins-only teams refuse it, a clash is named only for a project one reads, and it is rate limited', async () => {
+  const { updateTeamSettings } = await import('../../server/src/admin/settings')
+  updateTeamSettings(h.ctx.db, { projectCreators: 'admins' })
+  const refused = await get(mia.client, `/api/rooms/${roomId}/make-project?name=${encodeURIComponent('Anything')}`)
+  expect(refused.status).toBe(403)
+  expect(refused.text).not.toContain('folderName')
+  updateTeamSettings(h.ctx.db, { projectCreators: 'members' })
+  // a project of the admin's that mia cannot read, and one of her own
+  await ada.client.call('POST', '/api/projects', { name: K.name + ' hidden', participants: [] })
+  await mia.client.call('POST', '/api/projects', { name: 'Mine to see', participants: [] })
+  const hidden = await mia.client.call('GET', `/api/rooms/${roomId}/make-project?name=${encodeURIComponent(K.name + ' hidden')}`)
+  expect(hidden).toMatchObject({ nameTaken: false, folderName: K.name + ' hidden' })
+  const own = await mia.client.call('GET', `/api/rooms/${roomId}/make-project?name=${encodeURIComponent('Mine to see')}`)
+  expect(own).toMatchObject({ nameTaken: true, folderName: 'Mine to see-2' })
+  // a burst: the dry run's limit per person (nora, so mia's budget stays for the conversion below)
+  let limited = 0
+  for (let i = 0; i < 70; i++) if ((await nora.client.raw('GET', `/api/rooms/${roomId}/make-project?name=p${i}`)).status === 429) limited++
+  expect(limited).toBeGreaterThan(0)
+})
+
 test('after the move: a former member gets 404, a member excluded from a narrowed Chat attachments sees "unavailable"', async () => {
   const i = await mia.client.call('GET', `/api/rooms/${roomId}/make-project`)
   // the file sent before otto joined stays in the conversation

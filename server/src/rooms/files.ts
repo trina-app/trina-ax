@@ -557,10 +557,11 @@ export class RoomFiles {
     return { abs, name: f.name, quarantined, sha256: f.sha256 }
   }
 
-  /** Where a room file on its way to a project's folder is staged now (rooms/file-moves.ts 'placing'), when its room
+  /** Where a room file on its way to a project's folder is staged now (rooms/file-moves.ts 'placing', or a way back
+   * that failed: 'kept' restore_failed, until the next start puts it back), when its room
    * storage path is empty; else null. */
   private stagedOf(f: Pick<FileRow, 'id' | 'room_id'>): string | null {
-    const m = this.ctx.db.query("SELECT id, staged, ino, dev FROM room_file_moves WHERE room_file_id = ? AND state IN ('placing', 'cleanup') AND staged IS NOT NULL").get(f.id) as { id: string; staged: string; ino: number | null; dev: number | null } | null
+    const m = this.ctx.db.query("SELECT id, staged, ino, dev FROM room_file_moves WHERE room_file_id = ? AND state IN ('placing', 'cleanup', 'kept') AND staged IS NOT NULL").get(f.id) as { id: string; staged: string; ino: number | null; dev: number | null } | null
     if (!m || fs.existsSync(path.join(this.dir(f.room_id), f.id))) return null
     const at = path.join(this.ctx.files.fx.root, ...m.staged.split('/'))
     if (fs.existsSync(at)) return at

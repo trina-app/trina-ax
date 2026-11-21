@@ -42,14 +42,14 @@ import { PRODUCT } from '@mycel/shared'
 import type { AppContext } from '../context'
 import { newId, nowIso } from '../db'
 import { sha256Regular } from '../files/store'
-import { atLeast, loadPrincipal, RuleSet } from '../policy/access'
+import { atLeast, loadPrincipal, RuleSet, type Principal } from '../policy/access'
 import { badSegment } from '../policy/names'
 import { componentC } from '../team-files/component'
 import { FileError } from '../team-files/errors'
 import { sharedUploadPlace, type SharedUploadPlace } from '../uploads/shared-chat'
 import { roomFileRefsOf } from './file-refs'
 import { takenInTeamPlace } from './files'
-import { systemLine } from './project-room'
+import { activePeople, readersOf, systemLine } from './project-room'
 import { roomsOf } from './service'
 import { messageRow, roomRow, SEE_MEMBER_SQL, type FileRow } from './store'
 
@@ -117,6 +117,10 @@ export class RoomFileMoves {
   auto = process.env.NODE_ENV !== 'test'
   private running: Promise<RunResult> | null = null
   private timer: ReturnType<typeof setTimeout> | null = null
+  /** a kick while a pass runs: one more pass after it (its rows were not in the running pass's list) */
+  private again = false
+  /** the active people, loaded once per pass (placeFor's check that only the project's people read the folder) */
+  private people: Principal[] | null = null
   /** rooms whose moves changed: checked for their closing line after a run */
   private touched = new Set<string>()
   constructor(readonly ctx: AppContext) {}
@@ -146,7 +150,9 @@ export class RoomFileMoves {
   /** Run soon (after a conversion), unless `auto` is off. */
   kick(roomId?: string) {
     if (roomId) this.touched.add(roomId)
-    if (!this.auto || this.timer) return
+    if (!this.auto) return
+    if (this.running) { this.again = true; return }
+    if (this.timer) return
     this.timer = setTimeout(() => { this.timer = null; void this.run().catch((e) => this.ctx.log.warn('room file moves failed', { err: e })) }, 0)
     ;(this.timer as { unref?: () => void }).unref?.()
   }
@@ -156,7 +162,11 @@ export class RoomFileMoves {
   run(budgetMs = MOVE_BUDGET_MS): Promise<RunResult> {
     if (this.running) return this.running
     this.running = (async () => {
-      try { return await this.pass(budgetMs) } finally { this.running = null }
+      try { return await this.pass(budgetMs) } finally {
+        this.running = null
+        this.people = null
+        if (this.again) { this.again = false; this.kick() }
+      }
     })()
     return this.running
   }
@@ -181,25 +191,52 @@ export class RoomFileMoves {
     return out
   }
 
-  /** A failure of one row: counted; disk full or the same failure MOVE_TRIES_MAX times sends the file back. */
+  /** A failure of one row: counted. Disk full or the same failure MOVE_TRIES_MAX times: a moving file goes back to
+   * the conversation; a 'cancelled' row (its trash failed) or a 'cleanup' row (its way back failed) is settled as it
+   * is and logged, so the room's moves end (a staged file of a settled cleanup stays readable from there, and the next
+   * start's reconcile puts it back). */
   private failed(id: string, e: unknown): StepEnd {
     const code = (e as NodeJS.ErrnoException)?.code
-    const full = code === 'ENOSPC' || code === 'EDQUOT' || (e as { code?: string })?.code === 'storage_full'
+    const full = code === 'ENOSPC' || code === 'EDQUOT' || code === 'SQLITE_FULL' || (e as { code?: string })?.code === 'storage_full'
     const row = this.row(id)
     if (!row) return 'wait'
-    // (a pending row's tries go up here; a placing row's went up when it was staged or tried again)
-    const tries = row.state === 'pending' ? row.tries + 1 : row.tries
+    // (a placing row's tries went up when it was staged or tried again; every other state's go up here)
+    const tries = row.state === 'placing' ? row.tries : row.tries + 1
     this.set(id, { tries, reason: String(code ?? (e as Error)?.name ?? 'error').slice(0, 40) })
-    this.ctx.log.warn('a room file did not move', { err: e, move: id, tries })
+    this.ctx.log.warn('a room file did not move', { err: e, move: id, tries, state: row.state })
+    if (row.state === 'cancelled' || row.state === 'cleanup') {
+      if (tries < MOVE_TRIES_MAX) return 'wait'
+      if (row.state === 'cancelled') {
+        this.set(id, { staged: null, placed_path: null, ino: null, dev: null, reason: 'trash_failed' })
+        this.ctx.log.error('a deleted message\'s moved file could not go to the trash; left where it is', { move: id, path: row.placed_path })
+        return 'cancelled'
+      }
+      this.set(id, { state: 'kept', reason: 'restore_failed' })
+      this.ctx.log.error('a room file could not go back to the conversation; it stays readable from the room moves folder', { move: id, staged: row.staged })
+      return 'kept'
+    }
     if (!full && tries < MOVE_TRIES_MAX) return 'wait'
     try { return this.backToRoom(this.row(id)!, full ? 'disk_full' : 'failed') } catch (err) { this.ctx.log.warn('a room file could not go back to the conversation', { err, move: id }); return 'wait' }
+  }
+
+  /** Is the file at `abs` this move's bytes: a single-link regular file of the room file's size (when the row is still
+   * there to say it) and of its sha256. Every adoption and every trash of a found file asks this first (an inode
+   * number can be used again by another file). */
+  private sameBytes(row: MoveRow, abs: string): boolean {
+    try {
+      const st = fs.lstatSync(abs)
+      if (!st.isFile() || st.nlink !== 1) return false
+      const size = row.room_file_id ? (this.db.query('SELECT size FROM room_files WHERE id = ?').get(row.room_file_id) as { size: number } | null)?.size ?? null : null
+      if (size !== null && st.size !== size) return false
+      return sha256Regular(abs, st) === row.sha256
+    } catch { return false }
   }
 
   private async step(row: MoveRow): Promise<StepEnd> {
     if (row.state === 'cancelled') return this.cleanCancelled(row)
     if (row.state === 'cleanup') return this.backToRoom(row, row.reason ?? 'failed')
     const f = row.room_file_id ? this.db.query('SELECT * FROM room_files WHERE id = ?').get(row.room_file_id) as FileRow | null : null
-    if (!f) { this.set(row.id, { state: 'cancelled' }); return this.cleanCancelled(this.row(row.id)!) }
+    if (!f) { this.set(row.id, { state: 'cancelled', tries: 0 }); return this.cleanCancelled(this.row(row.id)!) }
     // 1. still wanted?
     const want = this.wanted(row, f)
     if (want === 'wait') return 'wait'
@@ -286,6 +323,19 @@ export class RoomFileMoves {
       const p = loadPrincipal(this.db, m.user_id)
       if (p && !atLeast(rules.access(p, segs), 'read')) return 'narrowed'
     }
+    // and nobody else: the confirm promised the files go to the project's people. A folder wider than the project (a
+    // rule on Chat attachments for someone outside it) keeps the file in the conversation; the owner and admins are as
+    // anywhere else (projects/<name> is limited, so they read it only as its people)
+    const project = this.db.query('SELECT folder_path FROM projects WHERE id = ?').get(row.project_id) as { folder_path: string } | null
+    if (!project) return 'project_gone'
+    const people = (this.people ??= activePeople(this.db))
+    const inProject = readersOf(rules, people, { folder_path: project.folder_path, trashed_with: null })
+    for (const x of readersOf(rules, people, { folder_path: place.folder, trashed_with: null })) {
+      if (inProject.has(x)) continue
+      const p = people.find((y) => y.id === x)
+      if (p && (p.role === 'owner' || p.role === 'admin')) continue
+      return 'wider'
+    }
     return place
   }
 
@@ -293,12 +343,8 @@ export class RoomFileMoves {
    * bytes), else by its inode among the folder's entries (a temp name: placeUpload stopped halfway). */
   private findPlaced(row: MoveRow, folder: string | null): { kind: 'placed'; rel: string } | { kind: 'tmp'; abs: string } | null {
     const ev = this.db.query("SELECT path FROM file_events WHERE action = 'upload' AND json_extract(detail, '$.moved') = ? ORDER BY id DESC LIMIT 1").get(row.id) as { path: string } | null
-    if (ev) {
-      try {
-        const st = fs.lstatSync(this.abs(ev.path))
-        if (st.isFile() && st.nlink === 1 && ((row.ino !== null && st.ino === row.ino && st.dev === row.dev) || sha256Regular(this.abs(ev.path)) === row.sha256)) return { kind: 'placed', rel: ev.path }
-      } catch { /* moved on since: by its inode below */ }
-    }
+    // (each match must hold this move's bytes: sameBytes)
+    if (ev && this.sameBytes(row, this.abs(ev.path))) return { kind: 'placed', rel: ev.path }
     if (row.ino === null || !folder) return null
     let names: string[] = []
     try { names = fs.readdirSync(this.abs(folder)) } catch { return null }
@@ -306,7 +352,7 @@ export class RoomFileMoves {
       const abs = path.join(this.abs(folder), n)
       try {
         const st = fs.lstatSync(abs)
-        if (!st.isFile() || st.ino !== row.ino || st.dev !== row.dev) continue
+        if (!st.isFile() || st.ino !== row.ino || st.dev !== row.dev || !this.sameBytes(row, abs)) continue
         return n.startsWith(PRODUCT.tmpPrefix) ? { kind: 'tmp', abs } : { kind: 'placed', rel: `${folder}/${n}` }
       } catch { /* gone meanwhile */ }
     }
@@ -343,26 +389,38 @@ export class RoomFileMoves {
   }
 
   /** The staged bytes go back to room storage (a 'cleanup' row first, so a crash meanwhile goes on here), then kept. A
-   * file already placed (nothing staged, nothing in the room) is adopted instead when its message is still there. */
+   * file already placed (nothing staged, nothing in the room; its bytes checked) is adopted when the move failed for the
+   * disk's sake (failed, disk_full); for any other reason (the folder narrowed or wider, the file no longer seen by
+   * everyone, the room no longer the project's) it is renamed back to room storage, never left in the project. */
   private backToRoom(row: MoveRow, reason: string): StepEnd {
-    if (row.state !== 'cleanup') this.set(row.id, { state: 'cleanup', reason })
+    // (a cleanup resumed after a stop keeps the reason it was given)
+    const why = row.state === 'cleanup' ? (row.reason ?? reason) : reason
+    if (row.state !== 'cleanup') this.set(row.id, { state: 'cleanup', reason: why, tries: 0 })
     const f = row.room_file_id ? this.db.query('SELECT id, room_id FROM room_files WHERE id = ?').get(row.room_file_id) as { id: string; room_id: string } | null : null
-    if (!f) { this.set(row.id, { state: 'cancelled' }); return this.cleanCancelled(this.row(row.id)!) }
+    if (!f) { this.set(row.id, { state: 'cancelled', tries: 0 }); return this.cleanCancelled(this.row(row.id)!) }
     const staged = this.abs(row.staged ?? this.stagedRel(row.id))
     const home = this.roomAbs(f.room_id, f.id)
+    const putHome = (from: string) => { fs.mkdirSync(path.dirname(home), { recursive: true, mode: 0o700 }); fs.renameSync(from, home) }
     if (fs.existsSync(staged)) {
-      if (!fs.existsSync(home)) {
-        fs.mkdirSync(path.dirname(home), { recursive: true, mode: 0o700 })
-        fs.renameSync(staged, home)
-      } else fs.rmSync(staged, { force: true })
+      if (!fs.existsSync(home)) putHome(staged)
+      else {
+        // both there: the staged one is this move's own bytes only when it is the inode the move took; then it is the
+        // file (it replaces what is at home), else it is left for the start's reconcile to report
+        let st: fs.Stats | null = null
+        try { st = fs.lstatSync(staged) } catch { /* gone */ }
+        if (st && row.ino !== null && st.ino === row.ino && st.dev === row.dev) putHome(staged)
+        else this.ctx.log.warn('a staged room file is not the one the move took; left in the room moves folder', { move: row.id })
+      }
     } else if (!fs.existsSync(home)) {
       const found = this.findPlaced(row, this.placedFolder(row))
-      if (found?.kind === 'placed') return this.commit(row, found.rel)
-      if (found?.kind === 'tmp') { fs.mkdirSync(path.dirname(home), { recursive: true, mode: 0o700 }); fs.renameSync(found.abs, home) }
+      if (found?.kind === 'placed') {
+        if (why === 'failed' || why === 'disk_full') return this.commit(row, found.rel)
+        putHome(this.abs(found.rel))
+      }
+      if (found?.kind === 'tmp') putHome(found.abs)
     }
     this.db.query('UPDATE room_files SET thumb = 0 WHERE id = ?').run(f.id)
-    // (a cleanup resumed after a stop keeps the reason it was given)
-    this.set(row.id, { state: 'kept', staged: null, reason: row.state === 'cleanup' ? (row.reason ?? reason) : reason })
+    this.set(row.id, { state: 'kept', staged: null, reason: why })
     this.tellMessage(f.id)
     return 'kept'
   }
@@ -387,14 +445,16 @@ export class RoomFileMoves {
     if (found?.kind === 'placed') {
       let st: fs.Stats | null = null
       try { st = fs.lstatSync(this.abs(found.rel)) } catch { /* gone already */ }
-      if (st?.isFile() && (row.ino === null || (st.ino === row.ino && st.dev === row.dev))) {
+      // only the very file this move placed: its inode and its bytes
+      if (st?.isFile() && (row.ino === null || (st.ino === row.ino && st.dev === row.dev)) && this.sameBytes(row, this.abs(found.rel))) {
         const team = componentC(this.ctx).files
         let trashed = false
         for (const who of [row.sender, row.actor]) {
           if (!who || trashed) continue
           try { team.remove(who, found.rel); trashed = true } catch { /* the next */ }
         }
-        if (!trashed) throw new Error('a cancelled move\'s file could not go to the trash')
+        // neither may write there now: the server puts it in the trash itself, in the actor's name
+        if (!trashed) team.remove(row.actor, found.rel, null, { system: true })
       }
     }
     this.set(row.id, { staged: null, placed_path: null, ino: null, dev: null })

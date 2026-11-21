@@ -1040,6 +1040,8 @@ export const chatsRoutes: RouteModule = {
     // (admins included) and guests: 404; not a group chat, archived or a project room already: 409 not_convertible
     kit.handle(API.makeProjectInfo, ({ c, params, query, auth }) => {
       c.header('Cache-Control', 'no-store')
+      // asked again as the name is typed: the dry run's limit per person (QA TC-1408's rule), a burst beyond it 429
+      previewLimit(ctx, auth.user.id)
       return makeProjectInfo(ctx, principal(ctx, auth), params.id, query.name, c.get('locale'))
     })
     kit.handle(API.makeProject, ({ c, params, body, auth }) => {

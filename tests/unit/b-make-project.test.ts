@@ -133,8 +133,10 @@ test('outsiders, admins outside and the owner get 404; members changed since the
   expect(await status(make(mia.client, roomId, 'Launch', i.membersHash))).toMatchObject({ status: 409, reason: 'members_changed' })
   expect(projects()).toBe(0)
   expect(projectDirs()).toEqual([])
-  updateTeamSettings(h.ctx.db, { projectCreators: 'admins' })
   const j = await info(mia.client, roomId)
+  updateTeamSettings(h.ctx.db, { projectCreators: 'admins' })
+  // the confirm's read and the conversion alike
+  expect(await status(info(mia.client, roomId))).toMatchObject({ status: 403, reason: 'projects_admins_only' })
   expect(await status(make(mia.client, roomId, 'Launch', j.membersHash))).toMatchObject({ status: 403, reason: 'projects_admins_only' })
   // the name is checked as a new project's
   updateTeamSettings(h.ctx.db, { projectCreators: 'members' })

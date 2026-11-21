@@ -11,7 +11,7 @@ import { afterEach, expect, setDefaultTimeout, test } from 'bun:test'
 import crypto from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
-import { CHAT_FILES_FOLDER } from '@mycel/shared'
+import { CHAT_FILES_FOLDER, PRODUCT } from '@mycel/shared'
 import type { RoomFile } from '@mycel/shared/api'
 import { ensureFolderRow, writeFolderAccess } from '../../server/src/admin/folders'
 import { teamDefaultLocale } from '../../server/src/admin/settings'
@@ -382,4 +382,131 @@ test('the quota line moves: the rooms folder shrinks, the team folder holds the 
   expect(before - size(roomsDir)).toBe(200_000)
   expect(fs.statSync(at(`${chat}/big.txt`)).size).toBe(200_000)
   expect(size(path.join(h.ctx.files.fx.root, '.system', 'room-moves'))).toBe(0)
+})
+
+// review of #221 (crash review probes A–D, P4): each turned into the behaviour it must have
+test('C1: an error inside installFile after its first rename keeps the only copy: back at staging, placed on the next pass', async () => {
+  const { mia, nora, roomId } = await setup('b-room-file-moves-install-error')
+  const f = await up(mia.id, roomId, 'deck.pdf', 'the only copy')
+  await send(mia.client, roomId, [f.id])
+  const { chat } = await convert(mia.client, roomId)
+  const orig = fs.chmodSync
+  let once = false
+  ;(fs as any).chmodSync = (p: fs.PathLike, m: fs.Mode) => {
+    // team-files/place.ts installFile: the chmod of its temp name, after src was renamed there
+    if (!once && String(p).includes(PRODUCT.tmpPrefix)) { once = true; const e = new Error('EPERM') as NodeJS.ErrnoException; e.code = 'EPERM'; throw e }
+    return orig(p, m)
+  }
+  try { await restarted().run() } finally { (fs as any).chmodSync = orig }
+  expect(once).toBe(true)
+  expect(moveOf(f.id).state).toBe('placing')
+  expect(fs.readFileSync(at(moveOf(f.id).staged), 'utf8')).toBe('the only copy')
+  expect((await fileGet(nora.client, roomId, f.id)).body).toBe('the only copy')
+  await restarted().run()
+  expect(moveOf(f.id).state).toBe('done')
+  expect(fs.readFileSync(at(`${chat}/deck.pdf`), 'utf8')).toBe('the only copy')
+  expect((await fileGet(nora.client, roomId, f.id)).body).toBe('the only copy')
+  expect(staging()).toEqual([])
+})
+
+test('C2: an inode used again by another file is never adopted (size and sha256 checked)', async () => {
+  const { mia, nora, roomId } = await setup('b-room-file-moves-inode-reuse')
+  const f = await up(mia.id, roomId, 'deck.pdf', 'mine')
+  await send(mia.client, roomId, [f.id])
+  const { chat } = await convert(mia.client, roomId)
+  const first = restarted()
+  crashAt(first, 'place')
+  await expect(first.run()).rejects.toBeInstanceOf(MoveCrash)
+  // the bytes are gone and another person's file now has the inode number the move recorded
+  fs.rmSync(at(moveOf(f.id).staged))
+  if (!fs.existsSync(at(chat))) componentC(h.ctx).files.mkdir(mia.id, chat)
+  fs.writeFileSync(at(`${chat}/nora-private.txt`), 'someone else')
+  const st = fs.lstatSync(at(`${chat}/nora-private.txt`))
+  h.ctx.db.query('UPDATE room_file_moves SET ino = ?, dev = ? WHERE id = ?').run(st.ino, st.dev, moveOf(f.id).id)
+  await restarted().run()
+  expect(moveOf(f.id)).toMatchObject({ state: 'kept', reason: 'lost' })
+  expect(refOf(f.id)).toBeNull()
+  expect(fs.readFileSync(at(`${chat}/nora-private.txt`), 'utf8')).toBe('someone else')
+  void nora
+})
+
+test('C3: a placed, uncommitted file whose folder was narrowed meanwhile goes back to the conversation, not into the project', async () => {
+  const { mia, nora, roomId } = await setup('b-room-file-moves-narrowed-placed')
+  const f = await up(mia.id, roomId, 'deck.pdf', 'deck')
+  await send(mia.client, roomId, [f.id])
+  const { chat } = await convert(mia.client, roomId)
+  const first = restarted()
+  crashAt(first, 'commit')
+  await expect(first.run()).rejects.toBeInstanceOf(MoveCrash)
+  expect(fs.existsSync(at(`${chat}/deck.pdf`))).toBe(true)
+  h.ctx.db.transaction(() => writeFolderAccess(h.ctx.db, ensureFolderRow(h.ctx.db, chat).id, { rules: [{ subjectType: 'user', subjectId: mia.id, access: 'write' }], limited: true }, mia.id))()
+  await restarted().run()
+  expect(moveOf(f.id)).toMatchObject({ state: 'kept', reason: 'narrowed' })
+  expect(refOf(f.id)).toBeNull()
+  expect(fs.existsSync(at(`${chat}/deck.pdf`))).toBe(false)
+  expect(roomStore(roomId)).toEqual([f.id])
+  expect((await fileGet(nora.client, roomId, f.id)).body).toBe('deck')
+})
+
+test('C4: a deleted message\'s placed file leaves the project even when nobody may write there; a trash that keeps failing is settled', async () => {
+  const { mia, nora, roomId } = await setup('b-room-file-moves-cancel-trash')
+  const f = await up(mia.id, roomId, 'deck.pdf', 'deck')
+  const m = await send(mia.client, roomId, [f.id])
+  const g = await up(mia.id, roomId, 'other.pdf', 'other')
+  const mg = await send(mia.client, roomId, [g.id])
+  const { chat, project } = await convert(mia.client, roomId)
+  const first = restarted()
+  // both placed, neither committed (a failure right after placeUpload, for each)
+  first.fault = (s) => { if (s === 'commit') throw new Error('stopped after placing') }
+  await first.run()
+  expect(fs.readdirSync(at(chat)).sort()).toEqual(['deck.pdf', 'other.pdf'])
+  // f: both may only read now; the server trashes it itself
+  h.ctx.db.query("UPDATE folder_rules SET access = 'read' WHERE subject_type = 'user' AND folder_id = (SELECT id FROM folders WHERE path = ?)").run(project.folderPath)
+  await mia.client.call('DELETE', `/api/rooms/${roomId}/messages/${m.id}`)
+  await mia.client.call('DELETE', `/api/rooms/${roomId}/messages/${mg.id}`)
+  const team = componentC(h.ctx).files as any
+  const orig = team.remove.bind(team)
+  // g: every trash fails
+  team.remove = (who: string, rel: string, turn: string | null, o: any) => { if (rel.endsWith('other.pdf')) throw new Error('denied'); return orig(who, rel, turn, o) }
+  try { for (let i = 0; i < 8; i++) await restarted().run() } finally { team.remove = orig }
+  expect(fs.readdirSync(at(chat))).toEqual(['other.pdf'])
+  const rows = h.ctx.db.query('SELECT sha256, state, reason, placed_path, staged, ino FROM room_file_moves WHERE room_id = ? ORDER BY sha256').all(roomId) as any[]
+  const bySha = new Map(rows.map((r) => [r.sha256, r]))
+  expect(bySha.get(sha('deck'))).toMatchObject({ state: 'cancelled', placed_path: null, staged: null, ino: null })
+  expect(bySha.get(sha('other'))).toMatchObject({ state: 'cancelled', reason: 'trash_failed', placed_path: null, staged: null, ino: null })
+  // settled: the room's moves end (nothing moved, nothing stays: no closing line is needed) and a rerun is a no-op
+  expect(await restarted().run()).toEqual({ done: 0, kept: 0, cancelled: 0, left: 0 })
+  expect((await nora.client.call('GET', `/api/rooms/${roomId}`)).filesMoving).toBeUndefined()
+})
+
+test('P4: a Chat attachments folder wider than the project keeps the file in the conversation', async () => {
+  const { mia, otto, roomId } = await setup('b-room-file-moves-wider')
+  const f = await up(mia.id, roomId, 'deck.pdf', 'deck')
+  await send(mia.client, roomId, [f.id])
+  const { chat } = await convert(mia.client, roomId)
+  if (!fs.existsSync(at(chat))) componentC(h.ctx).files.mkdir(mia.id, chat)
+  // otto is no project person but reads Chat attachments by a rule of its own
+  h.ctx.db.query("INSERT INTO folder_rules (id, folder_id, subject_type, subject_id, access, updated_at) VALUES (?, ?, 'user', ?, 'read', ?)").run(crypto.randomUUID(), ensureFolderRow(h.ctx.db, chat).id, otto.id, new Date().toISOString())
+  await restarted().run()
+  expect(moveOf(f.id)).toMatchObject({ state: 'kept', reason: 'wider' })
+  expect(fs.readdirSync(at(chat))).toEqual([])
+  expect(roomStore(roomId)).toEqual([f.id])
+})
+
+test('nit: going back with both a staged and a room copy keeps the move\'s own inode only', async () => {
+  const { mia, nora, roomId } = await setup('b-room-file-moves-both')
+  const f = await up(mia.id, roomId, 'deck.pdf', 'original')
+  await send(mia.client, roomId, [f.id])
+  await convert(mia.client, roomId)
+  const first = restarted()
+  crashAt(first, 'place')
+  await expect(first.run()).rejects.toBeInstanceOf(MoveCrash)
+  // something else appeared at the room path meanwhile; the move then fails for good
+  fs.writeFileSync(path.join(h.ctx.files.fx.root, '.system', 'rooms', roomId, f.id), 'stray')
+  const m = restarted()
+  m.fault = (s) => { if (s === 'place') { const e = new Error('full') as NodeJS.ErrnoException; e.code = 'SQLITE_FULL'; throw e } }
+  await m.run()
+  expect(moveOf(f.id)).toMatchObject({ state: 'kept', reason: 'disk_full' })
+  expect((await fileGet(nora.client, roomId, f.id)).body).toBe('original')
+  expect(staging()).toEqual([])
 })

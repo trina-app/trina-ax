@@ -6,11 +6,15 @@
 // sees move to the project's Chat attachments afterwards (rooms/file-moves.ts). The room id stays, so each person's pin,
 // hidden state, mute, read position, section, threads, reactions and apps stay.
 //
-// Checks, in this order: an active member who is not a guest (else 404, admins outside included); convertible (else 409
-// not_convertible, again inside the write: two conversions at once give one project and one 409, the loser's folder
-// unmade); may make team projects (403); safe operations off (409 safe_ops); the name (422); no guest who holds another
-// project (409 guest_one_place with guestId); inside the write the active members still hash to what the confirm showed
-// (409 members_changed).
+// Checks, in this order: an active member who is not a guest (else 404 from Rooms.mine, admins outside included, and
+// an archived room is one nobody is in; a guest never gets here: the guest gate refuses both endpoints with 403,
+// http/route.ts GUEST_ENDPOINTS); convertible (else 409 not_convertible, again inside the write: two conversions at
+// once give one project and one 409, the loser's folder unmade); may make team projects (403, the GET too); safe
+// operations off (409 safe_ops); the name (422); no guest who holds another project (409 guest_one_place with
+// guestId); inside the write the active members still hash to what the confirm showed (409 members_changed).
+// The GET is rate limited like the project access dry run (routes/chats.ts previewLimit) and names a clash of the name
+// with another project's folder only when the caller reads that project: otherwise it answers the name as typed, so
+// it never tells which project folders exist.
 // Steps, as POST /api/projects team (routes/chats.ts): captureState, the folder (outside the write: it touches the disk),
 // then one immediate write: the gone accounts leave the room, the project row, its people's rules (writeFolderAccess
 // limited; a guest takes it as their project there, auth/guests.ts claimGuestProject), the room renamed, a 'linked' row
@@ -31,7 +35,7 @@ import { afterAccessChange, captureState, ensureFolderRow, validateRules, writeF
 import { GUEST_ONE_PLACE_MSG, heldProject } from '../auth/guests'
 import { tr } from '../chat/i18n'
 import { assertMayCreateTeamProject, checkParticipants, makeProjectFolder, newProjectRules, unmakeProjectFolder } from '../chat/project-access'
-import { assertFolderFree, canRead, projectFolderName, takenProjectPaths } from '../chat/projects'
+import { assertFolderFree, canRead, projectFolderName, projectOnFolder, takenProjectPaths } from '../chat/projects'
 import { markTeamShares } from '../chat/team-shares'
 import { getPreferences } from '../notifications/preferences'
 import { RuleSet, type Principal } from '../policy/access'
@@ -95,16 +99,22 @@ export function makeProjectInfo(ctx: AppContext, p: Principal, roomId: string, t
   const db = ctx.db
   const room = roomFor(ctx, p, roomId)
   if (!convertible(db, room)) notConvertible(locale)
+  assertMayCreateTeamProject(db, p, locale)
   const members = activeMembers(db, room.id)
   const suggested = suggestedName(db, room, members, p.id)
   const name = (typed ?? suggested).normalize('NFC').trim()
   const err = nameError(name, locale)
-  const folderName = err ? '' : projectFolderName(path.join(ctx.files.fx.root, 'projects'), 'projects', takenProjectPaths(db), name, newId())
+  const stepped = err ? '' : projectFolderName(path.join(ctx.files.fx.root, 'projects'), 'projects', takenProjectPaths(db), name, newId())
+  // the folder name steps around another project's folder ("-2"): said only when the caller reads that project
+  // (assertFolderFree's mayName rule); any other reason to step (a folder or a project they cannot see) stays unsaid
+  const clash = !err && stepped !== name ? projectOnFolder(db, ctx.files.fx.caseInsensitive, `projects/${name}`) : null
+  const told = !!clash && canRead(ctx.files, p, clash.folderPath)
+  const folderName = err ? '' : told ? stepped : name
   const files = splitFiles(ctx, room.id)
   return {
     suggestedName: suggested, members: members.map((m) => ({ id: m.id, name: m.name })), guestsBlocked: guestsBlocked(db, members),
     filesMoving: files.moving.length, filesStaying: files.staying, membersHash: membersHash(members.map((m) => m.id)),
-    folderName, nameTaken: !err && folderName !== name, ...(err ? { nameError: err } : {}),
+    folderName, nameTaken: told, ...(err ? { nameError: err } : {}),
   }
 }
 
