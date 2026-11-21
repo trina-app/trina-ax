@@ -11,6 +11,9 @@ export const TEXT = {
   // the card before a call that changes something at the service: {what} is the tool's title (MCP `title`, else its id
   // in words) or, for an HTTP API, what the method does (methodPost …); card-lines.ts
   confirm: t('AI가 {name}에 이 내용을 보내려고 해요: {what}', 'The AI wants to send this to {name}: {what}', 'AI ingin mengirim ini ke {name}: {what}', "AIが{name}に次の内容を送ろうとしています：{what}", "La IA quiere enviar esto a {name}: {what}", "AI 想把这个发送到{name}：{what}"),
+  // a demo server's card for a connection its fakes answer (server/src/demo/fakes: Gmail, Higgsfield): first, so the
+  // visitor knows nothing leaves (tools.ts gate)
+  practiceLead: t('연습용 연결이에요. 실제로는 아무것도 나가지 않아요.', 'This is a practice connection: nothing really goes out.', 'Ini koneksi latihan: tidak ada yang benar-benar dikirim.', "これは練習用の接続です。実際には何も送信されません。", "Esta es una conexión de práctica: en realidad no se envía nada.", "这是练习用的连接：实际上不会发送任何内容。"),
   // an HTTP API call: {what} is what its method does (methodDELETE …), so the sentence names a request, not "this"
   confirmRequest: t('AI가 {name}에 이 요청을 보내려고 해요: {what}', 'The AI wants to send this request to {name}: {what}', 'AI ingin mengirim permintaan ini ke {name}: {what}', "AIが{name}に次のリクエストを送ろうとしています：{what}", "La IA quiere enviar esta solicitud a {name}: {what}", "AI 想向{name}发送这个请求：{what}"),
   // a shared chat: a tool the service marks read-only whose name Trina cannot read as a look-up (read-mark.ts 'unsure',
@@ -225,6 +228,13 @@ export const FIELD_WORDS: Record<string, T> = {
   project: t('프로젝트', 'Project', 'Proyek', "プロジェクト", "Proyecto", "项目"),
   parent: t('넣을 곳', 'Where it goes', 'Tempat tujuan', "追加先", "Dónde va", "放到哪里"),
   folder: t('폴더', 'Folder', 'Folder', "フォルダー", "Carpeta", "文件夹"),
+}
+/** A mail call's argument names in words, only on a Google Workspace library connection's card (card-lines.ts fieldWord
+ * `extra`): another service's `thread_id` (a chat thread) or `references` keeps its own words. */
+export const MAIL_FIELD_WORDS: Record<string, T> = {
+  threadid: t('메일 대화', 'Conversation', 'Percakapan', "メールのやり取り", "Conversación", "邮件会话"),
+  inreplyto: t('답장할 메일', 'Reply to', 'Balasan untuk', "返信先のメール", "En respuesta a", "回复的邮件"),
+  references: t('이전 메일', 'Earlier mail', 'Email sebelumnya', "以前のメール", "Correos anteriores", "之前的邮件"),
 }
 /** a reason a connection check failed (integrations.last_error holds "<reason>" or "<reason>:<status>") */
 export type Reason = 'unreachable' | 'timeout' | 'list_timeout' | 'call_idle' | 'call_timeout' | 'private_address' | 'blocked_port' | 'tls' | 'refused' | 'no_secret' | 'sign_in' | 'redirect'
