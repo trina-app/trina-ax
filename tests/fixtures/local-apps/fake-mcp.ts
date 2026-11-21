@@ -7,6 +7,8 @@
 // With FAKE_ASIDE_PROFILES ({"u0":[{profileId,label}],…}, current account FAKE_ASIDE_CURRENT) it is like Aside with
 // several accounts that each have profiles: browser_profiles lists only the started account's, repl and exec refuse a
 // profile_id or session of another account, and `host profiles --account uN --json` prints that account's profiles.
+// FAKE_ASIDE_NO_LIST_JSON: like an older Aside CLI, `account list --json` fails and `account list` prints plain lines
+// (accounts in FAKE_ASIDE_SIGNED_IN, comma-separated, are signed in).
 import { createInterface } from 'node:readline'
 
 let inits = 0
@@ -14,6 +16,16 @@ const PROFILES = process.env.FAKE_ASIDE_PROFILES ? JSON.parse(process.env.FAKE_A
 const CURRENT = process.env.FAKE_ASIDE_CURRENT ?? 'u1'
 const at = process.argv.indexOf('--account')
 const account = at > 0 ? process.argv[at + 1]! : PROFILES ? CURRENT : 'u1'
+if (process.argv[2] === 'account' && process.argv[3] === 'list' && process.env.FAKE_ASIDE_NO_LIST_JSON) {
+  // like Aside CLI 1.26.1023: no --json on `account list`, only its plain lines
+  if (process.argv.includes('--json')) { process.stderr.write("error: unknown option '--json'\n"); process.exit(1) }
+  for (const [u, ps] of Object.entries(PROFILES ?? {})) {
+    const signedIn = process.env.FAKE_ASIDE_SIGNED_IN?.split(',').includes(u)
+    process.stdout.write(`${u === CURRENT ? '*' : ' '} ${u}  ${signedIn ? `${u}@example.com` : 'Local Account'}  ${signedIn ? 'signed in' : 'signed out'}  profiles: ${ps.length ? ps.map((p) => p.label).join(', ') : 'none'}\n`)
+    if (signedIn) process.stdout.write('  provider: google\n')
+  }
+  process.exit(0)
+}
 if (process.argv[2] === 'account' && process.argv[3] === 'list') {
   const generated = PROFILES && { currentAccountId: Number(CURRENT.slice(1)), accounts: Object.entries(PROFILES).map(([u, ps]) => ({ id: Number(u.slice(1)), hasSession: u === CURRENT, profileBindings: ps.map((p) => ({ profileId: p.profileId })) })) }
   process.stdout.write(process.env.FAKE_ASIDE_ACCOUNTS ?? JSON.stringify(generated ?? { accounts: [] }))
