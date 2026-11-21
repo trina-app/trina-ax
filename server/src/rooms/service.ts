@@ -52,6 +52,7 @@ import {
   type EventData, type MemberRow, type MessageRow, type RoomRow,
 } from './store'
 import { roomFilesOf } from './files'
+import { hasRoomStoredFiles, roomHasTeamPlace } from './team-place'
 import { roomFileRefsOf } from './file-refs'
 import { historyRoom, openHistories } from './history'
 import { countedUnreadIn } from './inbox'
@@ -720,10 +721,16 @@ export class Rooms {
   }
 
   /** A room's Files list (rooms/search.ts listRoomFiles): a room of mine (mine(): its history opened first, as on
-   * read), never a project's chat room (its files are the project's, in Files: 404, as for a room I am not in). */
+   * read), never a project's chat room (its files are the project's, in Files: 404, as for a room I am not in). A
+   * department room whose files go to its folder (rooms/team-place.ts): only the files it still holds itself, and 404
+   * while it holds none (Room.roomFiles). */
   listFiles(userId: string, roomId: string, o: { cursor?: string; limit?: number }): RoomFilesPage {
     const { room } = this.mine(userId, roomId)
     if (room.kind === 'group' && isProjectRoom(this.db, room.id)) return fail('not_found')
+    if (roomHasTeamPlace(this.db, room)) {
+      if (!hasRoomStoredFiles(this.db, room.id)) return fail('not_found')
+      return listRoomFiles(this.db, userId, roomId, { ...o, roomStoredOnly: true })
+    }
     return listRoomFiles(this.db, userId, roomId, o)
   }
   /** ⌘K before anything is typed: the newest files of my rooms (rooms/search.ts recentRoomFiles), my team rooms'

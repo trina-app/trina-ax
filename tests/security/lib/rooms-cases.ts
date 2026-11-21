@@ -1,7 +1,7 @@
 import { CSRF_HEADER } from '@mycel/shared/api'
 import type { Spec } from './cases'
 import { leaks } from './matrix'
-import { C, PNG, type World } from './world'
+import { C, PNG, USER_OF, type World } from './world'
 import { atLeast } from '../../../server/src/policy/access'
 import { findRoomFile, readRoom } from '../../../server/src/rooms/reader'
 
@@ -125,6 +125,61 @@ async function roomFilesCases(w: World) {
   if (rec.status !== 200 || !rec.text.includes(guestName)) throw new Error(`a guest's recent: ${rec.status} ${rec.text.slice(0, 200)}`)
   for (const x of [C.dmFileName, leftName, refName]) if (rec.text.includes(x)) throw new Error(`a guest's recent names ${x}`)
   if ((rec.json?.rooms as { id: string }[]).some((r) => r.id !== chat)) throw new Error('a guest\'s recent names another room')
+}
+/**
+ * Once, for a department's team room (docs/AGENTS/plan/20261121-0619-structure-polish.md B; rooms/team-place.ts): the
+ * marketing room (alice and erin):
+ *   - an upload while the group folder has a reader outside the room (bob, by a person rule) stays in room storage: no
+ *     team file, no room_file_refs row, "Only in this conversation";
+ *   - an upload without one goes to the folder's Chat attachments; the room's file endpoint gives it to alice and erin
+ *     only: the admin and the owner outside the room (who read the folder in Files, as accepted) and bob get 404;
+ *   - Room.project.sameAsGroup (Team plan's people are marketing's) is in nobody's room list or room unless they are in
+ *     marketing's room.
+ * The messages are deleted again (the folder file stays, as a deleted message's folder file does).
+ */
+let teamRoomFolderChecked = false
+async function teamRoomFolderCases(w: World) {
+  if (teamRoomFolderChecked) return
+  teamRoomFolderChecked = true
+  const db = w.inst.ctx.db
+  const alice = w.as.memberIn
+  const teamRoom = (db.query("SELECT id FROM rooms WHERE kind = 'team' AND group_id = ? AND archived_at IS NULL").get(w.ids.groups.marketing) as { id: string }).id
+  const upload = async (name: string) => {
+    const f = new FormData()
+    f.set('file', new File([new TextEncoder().encode(`team room ${name}`)], name, { type: 'text/plain' }))
+    return await alice.ok('POST', `/api/rooms/${teamRoom}/files`, undefined, { form: f }) as { id: string; teamFile?: true; teamPath?: string; roomOnly?: true }
+  }
+  const folderId = (db.query('SELECT f.id FROM groups g JOIN folders f ON f.id = g.folder_id WHERE g.id = ?').get(w.ids.groups.marketing) as { id: string }).id
+  const ruleId = crypto.randomUUID()
+  db.query("INSERT INTO folder_rules (id, folder_id, subject_type, subject_id, access) VALUES (?, ?, 'user', 'bob', 'read')").run(ruleId, folderId)
+  let stays: Awaited<ReturnType<typeof upload>>
+  try { stays = await upload('SEC-TEAMROOM-WIDE-1b7.txt') } finally { db.query('DELETE FROM folder_rules WHERE id = ?').run(ruleId) }
+  if (stays.teamFile || stays.teamPath || stays.roomOnly !== true || db.query('SELECT 1 FROM room_file_refs WHERE room_file_id = ?').get(stays.id)) throw new Error(`a team room upload with an outside reader left room storage: ${JSON.stringify(stays)}`)
+  const placed = await upload('SEC-TEAMROOM-FOLDER-5d2.txt')
+  if (!placed.teamFile || !placed.teamPath?.startsWith(`${w.ids.groups.mktFolder}/`)) throw new Error(`a team room upload did not go to the group folder: ${JSON.stringify(placed)}`)
+  const m = await alice.ok('POST', `/api/rooms/${teamRoom}/messages`, { body: 'team room files', clientMessageId: cm(), fileIds: [stays.id, placed.id] })
+  try {
+    for (const who of ['memberIn', 'other', 'owner', 'admin', 'memberOut'] as const) {
+      const r = await w.as[who].get(`/api/rooms/${teamRoom}/files/${placed.id}?download=1`)
+      const inRoom = who === 'memberIn' || who === 'other'
+      if (inRoom !== (r.status === 200)) throw new Error(`${who}: a team room's folder file answered ${r.status}`)
+      if (!inRoom && r.text.includes('team room SEC-TEAMROOM')) throw new Error(`${who}: a team room's file leaked`)
+    }
+    // sameAsGroup: only ever to someone in that team room
+    await alice.ok('POST', `/api/projects/${w.ids.projTeam}/room`)
+    for (const who of ['memberIn', 'other', 'owner', 'admin', 'memberOut', 'pwchange'] as const) {
+      const r = await w.as[who].get('/api/rooms')
+      if (r.status !== 200) continue
+      const id = (w.inst.ctx.db.query('SELECT id FROM users WHERE username = ?').get(USER_OF[who]!) as { id: string } | null)?.id
+      for (const room of (r.json?.items ?? []) as { project?: { sameAsGroup?: { roomId: string } } }[]) {
+        const same = room.project?.sameAsGroup
+        if (same && !db.query('SELECT 1 FROM room_members WHERE room_id = ? AND user_id = ?').get(same.roomId, id)) throw new Error(`${who}: sameAsGroup names a team room they are not in`)
+      }
+      if (who === 'memberIn' && !((r.json?.items ?? []) as { project?: { sameAsGroup?: { roomId: string } } }[]).some((x) => x.project?.sameAsGroup?.roomId === teamRoom)) throw new Error('alice: Team plan\'s room does not say it has marketing\'s people')
+    }
+  } finally {
+    await alice.ok('DELETE', `/api/rooms/${teamRoom}/messages/${m.id}`)
+  }
 }
 const form = () => { const f = new FormData(); f.set('file', new File([PNG], 'room.png', { type: 'image/png' })); return f }
 export const ROOM_SPECS: Record<string, Spec> = {
@@ -350,7 +405,7 @@ export const ROOM_SPECS: Record<string, Spec> = {
     build: (c, w) => c.get(`/api/rooms/${w.ids.dmRoom}/files`), scope: 'room-dm',
     check: async (r, w, who) => {
       if ((who === 'memberIn' || who === 'other') && (r.status !== 200 || !r.text.includes(C.dmFileName))) throw new Error(`${who}: the DM's list answered ${r.status} without its file`)
-      if (who === 'memberIn') await roomFilesCases(w)
+      if (who === 'memberIn') { await roomFilesCases(w); await teamRoomFolderCases(w) }
     },
   },
   // ⌘K's recent files: each person's own rooms; the DM's file only for its two people (the canary check for the rest)

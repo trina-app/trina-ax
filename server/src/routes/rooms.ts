@@ -101,7 +101,7 @@ export const roomsRoutes: RouteModule = {
 
     // a small file in one request (larger ones: an upload session with target room, uploads/sessions.ts). The body was
     // streamed to a temp file and hashed on the way (http/multipart.ts); create() moves it into the room's folder (a
-    // project's chat room: into the project's Chat attachments folder, rooms/files.ts createInProject)
+    // project's chat room or a department's team room: into its Chat attachments folder, rooms/files.ts createInTeamFolder)
     kit.handle(API.uploadRoomFile, async ({ c, auth, params, body }) => {
       // the same checks as a chat attachment: the whole part arrived, there is room on the disk
       if (body.fields.size !== undefined && body.fields.size !== body.file.size) fail('validation', undefined, { fields: { 'body.file': `expected ${body.fields.size} bytes, got ${body.file.size}` } })

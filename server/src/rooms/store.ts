@@ -24,6 +24,7 @@ import { iconsOf } from './apps/icon'
 import { linkPreviewsFor, prepareLinkPreviews, type LinkPrep } from './link-previews'
 import { eventProjectsFor, projectForViewer } from './project-link'
 import { isProjectRoom, NOT_HELD_SQL } from './project-room'
+import { hasRoomStoredFiles, roomHasTeamPlace } from './team-place'
 import { answerFilePaths, RoomEventLine, ROOM_QUOTE_EXCERPT_MAX, ROOM_REACTION_NAMES, type Room, type RoomFile, type RoomKind, type RoomLastMessage, type RoomMember, type RoomMessage, type RoomQuote, type RoomReaction, type RoomThreadSummary, type UserRef, RoomAppKind, RoomAppPreset, type RoomAppRef } from '@mycel/shared/api'
 
 export const MAX_UNREAD = 999
@@ -217,8 +218,9 @@ export const fileOut = (f: FileRow): RoomFile => ({
  * database). Without one, such a file is "unavailable" to everyone (fails closed). */
 const refViews = new WeakMap<Database, (viewerId: string) => (f: FileRow) => RoomFile>()
 export function setRoomRefView(db: Database, view: (viewerId: string) => (f: FileRow) => RoomFile) { refViews.set(db, view) }
-/** The room files as `viewerId` sees them, in order: a room-stored file as it was sent (fileOut), one kept in the team
- * folder as it is now for them (a member of its room the caller checked). */
+/** The room files as `viewerId` sees them, in order: a room-stored file as it was sent (fileOut; "Only in this
+ * conversation", roomOnly, in a room whose files otherwise go to a team folder: rooms/team-place.ts roomHasTeamPlace),
+ * one kept in the team folder as it is now for them (a member of its room the caller checked). */
 export function filesOutFor(db: Database, rows: readonly FileRow[], viewerId: string): RoomFile[] {
   if (!rows.length) return []
   const refs = new Set<string>()
@@ -226,9 +228,17 @@ export function filesOutFor(db: Database, rows: readonly FileRow[], viewerId: st
     const part = rows.slice(i, i + 500)
     for (const r of db.query(`SELECT room_file_id FROM room_file_refs WHERE room_file_id IN (${part.map(() => '?').join(',')})`).all(...part.map((f) => f.id)) as { room_file_id: string }[]) refs.add(r.room_file_id)
   }
-  if (!refs.size) return rows.map(fileOut)
+  // each room asked once
+  const placed = new Map<string, boolean>()
+  const roomOnly = (roomId: string) => {
+    let v = placed.get(roomId)
+    if (v === undefined) { const r = roomRow(db, roomId); v = !!r && roomHasTeamPlace(db, r); placed.set(roomId, v) }
+    return v
+  }
+  const stored = (f: FileRow): RoomFile => (roomOnly(f.room_id) ? { ...fileOut(f), roomOnly: true } : fileOut(f))
+  if (!refs.size) return rows.map(stored)
   const view = refViews.get(db)?.(viewerId)
-  return rows.map((f) => (!refs.has(f.id) ? fileOut(f) : view ? view(f) : { id: f.id, name: '', size: 0, mime: 'application/octet-stream', kind: 'other', thumb: false, teamFile: true, state: 'unavailable' }))
+  return rows.map((f) => (!refs.has(f.id) ? stored(f) : view ? view(f) : { id: f.id, name: '', size: 0, mime: 'application/octet-stream', kind: 'other', thumb: false, teamFile: true, state: 'unavailable' }))
 }
 
 /** The rows of a list that are hidden from `viewer` (one of their hidden old answers, or in its thread). */
@@ -630,6 +640,8 @@ export function roomOut(db: Database, room: RoomRow, viewer: MemberRow, prefs: P
   // alert default follow the project
   const projectRoom = room.kind === 'group' && isProjectRoom(db, room.id)
   const project = projectRoom ? projectForViewer(db, room, viewer.user_id, rules, memberCount) : undefined
+  // a department room whose files go to its folder: its Files list only while it still holds files of its own
+  const roomFiles = roomHasTeamPlace(db, room) && hasRoomStoredFiles(db, room.id)
   return {
     id: room.id, kind: room.kind, name, canRename: !projectRoom && mayRename(db, room, viewer.user_id), managerId: projectRoom ? null : managerOf(db, room), canManageApps: mayManageApps(db, room, viewer.user_id), groupId: room.kind === 'team' ? room.group_id : null, memberCount,
     peers,
@@ -645,6 +657,7 @@ export function roomOut(db: Database, room: RoomRow, viewer: MemberRow, prefs: P
     ...(groupFolder ? { groupFolder } : {}),
     ...(project ? { project } : {}),
     ...(projectRoom ? { projectRoom: true as const } : {}),
+    ...(roomFiles ? { roomFiles: true as const } : {}),
   }
 }
 
