@@ -311,7 +311,7 @@ export class Hub implements RealtimeHub {
     // there since (QA TC-3788). A chat that left their list ('deleted', 'purged') carries nothing of it and goes through
     const chats = new Set<string>()
     for (const { ev } of entries) {
-      if (ev.type === 'message.created' || ev.type === 'message.delta' || ev.type === 'message.step' || ev.type === 'message.done' || ev.type === 'turn.busy' || ev.type === 'queue.position' || ev.type === 'artifact.updated' || ev.type === 'turn.request' || ev.type === 'deck.progress') chats.add(ev.data.chatId)
+      if (ev.type === 'message.created' || ev.type === 'message.delta' || ev.type === 'message.step' || ev.type === 'message.attachments' || ev.type === 'message.done' || ev.type === 'turn.busy' || ev.type === 'queue.position' || ev.type === 'artifact.updated' || ev.type === 'turn.request' || ev.type === 'deck.progress') chats.add(ev.data.chatId)
       else if (ev.type === 'chat.updated' && ev.data.change !== 'deleted' && ev.data.change !== 'purged') chats.add(ev.data.chatId)
     }
     try {

@@ -55,7 +55,7 @@ import { cleanAiTitle, graphemes, setAiTitle, titleToolOffered } from './title'
 import { recordSent } from '../tools/connection-urls'
 import { BOX_SHELL_TOOL, boxShellTool, callerOf } from '../devenv/tool'
 import { mayUseDevEnv } from '../devenv/setting'
-import { noteSharedReads, spaceOf, workFolderAt } from '../devenv/srt/runner'
+import { noteSharedReads, runsInWorkFolder, spaceOf, workFolderAt } from '../devenv/srt/runner'
 import { saveWorkFileTool } from './work-file-tool'
 import { connectService } from './connect-service'
 import { DRAFT_FILE_REFUSAL, draftToolRefusal, draftUrlRefusal } from '../onboarding/draft'
@@ -317,7 +317,13 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
       return workFolderAt(exec.rt.ctx, { userId: exec.spec.userId, chatId: exec.spec.chatId, project: d.project ? { id: d.project.id, folderPath: d.project.folderPath } : null, ...(d.shared ? { shared: d.shared } : {}) })
     }
     exec.files.workFolder = where
-    if (!d.shared) add(saveWorkFileTool(exec, where))
+    // the hand-over: only where the commands run in a work folder (not a project folder, which is a team folder
+    // already); a personal chat saves into the team folder, a chat shared with people attaches it to the answer
+    const at = { userId: exec.spec.userId, chatId: exec.spec.chatId, project: d.project ? { id: d.project.id, folderPath: d.project.folderPath } : null, ...(d.shared ? { shared: d.shared } : {}) }
+    let work = false
+    try { work = runsInWorkFolder(exec.rt.ctx, at) } catch { work = false }
+    if (work && !d.shared) add(saveWorkFileTool(exec, where, 'folder'))
+    else if (work && exec.shared?.kind === 'people') add(saveWorkFileTool(exec, where, 'chat'))
   }
   if (exec.browser) for (const t of PANE_TOOLS) add(browserTool(exec, t.name as BrowserToolName, t.description, t.inputSchema as unknown as Record<string, unknown>))
   // per-person tools (external-service connections), built from saved data at the start of the turn
