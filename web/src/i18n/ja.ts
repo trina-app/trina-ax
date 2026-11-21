@@ -7168,6 +7168,8 @@ export const ja: Record<MessageKey, string> = {
   "rooms.makeProject.body": "{n, plural, one {メンバー#人} other {メンバー#人}}がプロジェクトのメンバーになります。ここで送ったファイルは{name} › {folder}に移動します。あとから追加された人は、これからのメッセージを見られます。",
   "rooms.makeProject.laterFiles": "あとからプロジェクトに追加された人も、これらのファイルを開けます。",
   "rooms.makeProject.nameTaken": "「{name}」というプロジェクトはすでにあります。このプロジェクトはファイルで「{folder}」になります。",
+  "rooms.makeProject.nameLong": "プロジェクト名は{n}文字までです。",
+  "rooms.makeProject.nameReserved": "その名前はAIの指示ファイルの名前なので使えません。別の名前にしてください。",
   "rooms.makeProject.staying": "{n, plural, one {#件のファイルは、ここにいる全員が見られるわけではないため、このトークだけに残ります。} other {#件のファイルは、ここにいる全員が見られるわけではないため、このトークだけに残ります。}}",
   "rooms.makeProject.confirm": "プロジェクトを作成",
   "rooms.makeProject.guestFirst": "先に{guest}さんをチームメンバーにしてください。",

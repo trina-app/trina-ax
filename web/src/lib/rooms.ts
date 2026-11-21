@@ -23,6 +23,13 @@ export const isPrivateChannel = (room: Pick<Room, 'kind' | 'name'>): boolean => 
  * project's, and its files go to the project: no Add people, Remove, Rename, Leave or guest invites in it. */
 export const isProjectRoom = (room: Partial<Pick<Room, 'project' | 'projectRoom'>>): boolean => !!room.projectRoom || !!room.project?.room
 
+/** The room's Files button in its header (docs/decisions/20261121-department-room-files.md): a room whose files go to a
+ * team folder (a project's room, by projectRoom even for a member who cannot open the project; a department's team
+ * room with a folder I can open) shows it only while it holds files of its own (Room.roomFiles); every other room
+ * always. The server answers 404 for a project room's list. */
+export const roomFilesButtonShown = (room: Partial<Pick<Room, 'project' | 'projectRoom' | 'kind' | 'groupFolder' | 'roomFiles'>>): boolean =>
+  isProjectRoom(room) || (room.kind === 'team' && !!room.groupFolder) ? !!room.roomFiles : true
+
 /** A project room's project, as I can open it now; null for every other room (and for a member who cannot open it). */
 export const projectRoomOf = (room: Partial<Pick<Room, 'project'>>): NonNullable<Room['project']> | null => (room.project?.room ? room.project : null)
 

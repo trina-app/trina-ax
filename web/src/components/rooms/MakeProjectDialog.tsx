@@ -14,7 +14,7 @@
 import { useEffect, useId, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { CHAT_FILES_FOLDER } from '@mycel/shared'
-import { DEFAULT_LOCALE, type MakeProjectInfo, type UserRef } from '@mycel/shared/api'
+import { DEFAULT_LOCALE, isFileListName, type MakeProjectInfo, type UserRef } from '@mycel/shared/api'
 import { create } from 'zustand'
 import { api, API, ApiError, errorText } from '../../lib/api'
 import { navigateTo } from '../../lib/nav'
@@ -46,6 +46,19 @@ export function MakeProjectHost() {
 /** The reason of a 409 (ApiError params.reason), or its code. */
 const conflictOf = (e: unknown): string | null => (e instanceof ApiError && e.status === 409 ? String(e.body.params?.reason ?? e.code) : null)
 
+/** A name as the server checks it (NFC, trimmed). */
+const clean = (name: string) => name.normalize('NFC').trim()
+
+/** Why a name cannot be a new project's, as the server's make-project read says it (server/src/rooms/make-project.ts
+ * nameError), for the DM dialog, which has no read: too long, or an AI instructions file's or the file list's name.
+ * An empty name only turns the button off, as in the convert dialog. */
+export function projectNameProblem(name: string): 'nameLong' | 'nameReserved' | null {
+  const n = clean(name)
+  if ([...n].length > PROJECT_NAME_MAX) return 'nameLong'
+  if (/^(CLAUDE|AGENTS|GEMINI|SKILL)\.md$/i.test(n) || isFileListName(n)) return 'nameReserved'
+  return null
+}
+
 /** The Chat attachments folder's name in the team's language (the folder the server makes). */
 function useChatFolder() {
   const team = useMe()?.team.defaultLocale
@@ -65,28 +78,36 @@ export function MakeProjectDialog({ roomId, onClose }: { roomId: string; onClose
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [changed, setChanged] = useState(false)
+  // 409 not_convertible: it is not a group chat any more (archived, made a project elsewhere): nothing to make
+  const [gone, setGone] = useState(false)
   const input = useRef<HTMLInputElement>(null)
   const hintId = useId()
   // each read in turn: an older answer never replaces a newer one
   const life = useRef(0)
-  const read = async (typed?: string) => {
+  const read = async (typed?: string): Promise<MakeProjectInfo | null> => {
     const n = ++life.current
     try {
       const x = await api.call(API.makeProjectInfo, { params: { id: roomId }, query: typed === undefined ? {} : { name: typed } })
-      if (n !== life.current) return
+      if (n !== life.current) return null
       setInfo(x)
-      setChecked(typed ?? x.suggestedName)
+      // an earlier error (a 429, a dropped connection) is over
+      setError(null)
+      setChecked(clean(typed ?? x.suggestedName))
       // the first read fills the field with the suggestion
       setName((cur) => cur ?? x.suggestedName.slice(0, PROJECT_NAME_MAX))
+      return x
     } catch (e) {
-      if (n === life.current) setError(errorText(e, locale, t('error.network')))
+      if (n !== life.current) return null
+      if (conflictOf(e) === 'not_convertible') setGone(true)
+      setError(errorText(e, locale, t('error.network')))
+      return null
     }
   }
   useEffect(() => void read(), [roomId])
   // the name's checks follow the field (a short pause after the last key)
   useEffect(() => {
-    if (name === null || !info || name === checked) return
-    const id = setTimeout(() => void read(name), 250)
+    if (name === null || !info || clean(name) === checked) return
+    const id = setTimeout(() => void read(clean(name)), 250)
     return () => clearTimeout(id)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [name])
@@ -97,12 +118,13 @@ export function MakeProjectDialog({ roomId, onClose }: { roomId: string; onClose
     input.current?.focus()
     input.current?.select?.()
   }, [filled])
-  const typed = (name ?? '').normalize('NFC').trim()
+  const typed = clean(name ?? '')
   const blocked = info?.guestsBlocked ?? []
   // the checks shown only for what is in the field now (the next read follows the typing)
-  const fresh = checked === name
+  // (against the trimmed field: a re-read after a 409 answers for the trimmed name)
+  const fresh = checked === typed
   const nameError = fresh && typed ? info?.nameError : undefined
-  const ready = !!info && !!typed && !nameError && !blocked.length
+  const ready = !!info && !!typed && !nameError && !blocked.length && !gone
   const make = async () => {
     if (!ready || busy || !info) return
     setBusy(true)
@@ -117,8 +139,13 @@ export function MakeProjectDialog({ roomId, onClose }: { roomId: string; onClose
       // someone joined or left since the read, or a guest took another place: read again, the person looks again
       if (why === 'members_changed' || why === 'guest_one_place') {
         setChanged(why === 'members_changed')
-        await read(typed)
-      } else setError(errorText(e, locale, t('error.network')))
+        const x = await read(typed)
+        // a guest took another place, yet the read shows no one blocked (it changed again): the server's words
+        if (why === 'guest_one_place' && x && !x.guestsBlocked.length) setError(errorText(e, locale, t('error.network')))
+      } else {
+        if (why === 'not_convertible') setGone(true)
+        setError(errorText(e, locale, t('error.network')))
+      }
       setBusy(false)
     }
   }
@@ -187,21 +214,31 @@ export function DmProjectDialog({ peer, onClose }: { peer: UserRef; onClose: () 
     input.current?.focus()
     input.current?.select?.()
   }, [])
-  const typed = name.normalize('NFC').trim()
+  const typed = clean(name)
+  const problem = projectNameProblem(name)
+  const nameError = problem === 'nameLong' ? t('rooms.makeProject.nameLong', { n: PROJECT_NAME_MAX }) : problem === 'nameReserved' ? t('rooms.makeProject.nameReserved') : undefined
   const make = async () => {
-    if (!typed || busy) return
+    if (!typed || problem || busy) return
     setBusy(true)
     setError(null)
+    let p
     try {
-      const p = await api.call(API.createProject, { body: { name: typed, scope: 'team', instructions: '', participants: [{ subjectType: 'user', subjectId: peer.id }] } })
-      useProjects.getState().see(p)
-      const room = await useRooms.getState().openProjectRoom(p.id)
-      toast({ level: 'success', text: t('rooms.makeProject.made', { name: p.name }) })
-      onClose()
-      navigateTo(`/rooms/${room.id}`)
+      p = await api.call(API.createProject, { body: { name: typed, scope: 'team', instructions: '', participants: [{ subjectType: 'user', subjectId: peer.id }] } })
     } catch (e) {
       setError(errorText(e, locale, t('error.network')))
       setBusy(false)
+      return
+    }
+    useProjects.getState().see(p)
+    toast({ level: 'success', text: t('rooms.makeProject.made', { name: p.name }) })
+    onClose()
+    // the project is made: its room opens, or, when that fails, the project page (whose Chat room opens it); never a
+    // second try that would make a second project
+    try {
+      const room = await useRooms.getState().openProjectRoom(p.id)
+      navigateTo(`/rooms/${room.id}`)
+    } catch {
+      navigateTo(`/projects/${p.id}`)
     }
   }
   return (
@@ -214,14 +251,14 @@ export function DmProjectDialog({ peer, onClose }: { peer: UserRef; onClose: () 
           <Button variant="ghost" onClick={onClose}>
             {t('common.cancel')}
           </Button>
-          <Button variant="primary" busy={busy} disabled={!typed} onClick={() => void make()} data-testid="make-project-confirm">
+          <Button variant="primary" busy={busy} disabled={!typed || !!problem} onClick={() => void make()} data-testid="make-project-confirm">
             {t('rooms.makeProject.confirm')}
           </Button>
         </>
       }
     >
       <form onSubmit={(e) => { e.preventDefault(); void make() }} className="space-y-3 text-sm break-keep" data-testid="make-project">
-        <Field label={t('rooms.makeProject.name')}>
+        <Field label={t('rooms.makeProject.name')} error={nameError}>
           <input ref={input} className={inputCls} value={name} onChange={(e) => setName(e.target.value)} maxLength={PROJECT_NAME_MAX} aria-describedby={hintId} data-testid="make-project-name" />
         </Field>
         <p id={hintId} className="text-muted" data-testid="make-project-body">{t('rooms.makeProject.dmBody', { name: peer.name })}</p>

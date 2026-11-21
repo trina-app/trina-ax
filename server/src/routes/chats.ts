@@ -1037,7 +1037,7 @@ export const chatsRoutes: RouteModule = {
 
     // "Make it a project" on a conversation (rooms/make-project.ts; shared/src/api/rooms.ts): what the confirm shows, and
     // the conversion itself, answered with the new project and the room as the caller sees them. Anyone not in the room
-    // (admins included) and guests: 404; not a group chat, archived or a project room already: 409 not_convertible
+    // (admins outside included): 404; guests: 403 (the guest gate, http/route.ts); not a group chat, archived or a project room already: 409 not_convertible
     kit.handle(API.makeProjectInfo, ({ c, params, query, auth }) => {
       c.header('Cache-Control', 'no-store')
       // asked again as the name is typed: the dry run's limit per person (QA TC-1408's rule), a burst beyond it 429

@@ -361,8 +361,8 @@ function EventLine({ m }: { m: RoomMessage }) {
   const t = useT()
   const locale = useLocale()
   const nameOf = useNameOf()
-  if (!m.event) return null
   const team = useMe()?.team.defaultLocale
+  if (!m.event) return null
   const text = eventText(m.event, m.author, { t, nameOf: (u) => nameOf(u) ?? t('rooms.goneUser'), folder: CHAT_FILES_FOLDER[team ?? DEFAULT_LOCALE] })
   // a project link line, or "… made this conversation the project {name}", for someone who can open the project: its
   // name opens the project page
@@ -682,14 +682,23 @@ function RoomPicture({ roomId, f, siblings }: { roomId: string; f: RoomFile; sib
   // a picture has no icons of its own: "Save to team folder" is in its menu (right-click, long press)
   const fileMenu = useRoomFileMenu(f, make(useViewerMeta()), useRoomFileSave(roomId, f, siblings))
   const label = f.roomOnly ? `${t('rooms.openImage', { name: f.name })} · ${t('rooms.file.roomOnly')}` : t('rooms.openImage', { name: f.name })
+  const picture = (
+    <Tooltip label={label}>
+      <button type="button" ref={viewer.ref} onClick={(e) => !fileMenu.guard(e) && viewer.open()} {...fileMenu.bind} aria-label={label} className="overflow-hidden rounded-lg border border-line" data-testid="room-image" data-file-name={f.name} data-room-only={f.roomOnly ? '' : undefined}>
+        <RoomThumb f={f} src={roomFileUrl(roomId, f.id, { thumb: '1' })} />
+      </button>
+    </Tooltip>
+  )
   return (
     <>
-      {/* a picture kept in the room where files otherwise go to a team folder: "Only in this conversation" in its name */}
-      <Tooltip label={label}>
-        <button type="button" ref={viewer.ref} onClick={(e) => !fileMenu.guard(e) && viewer.open()} {...fileMenu.bind} aria-label={label} className="overflow-hidden rounded-lg border border-line" data-testid="room-image" data-file-name={f.name} data-room-only={f.roomOnly ? '' : undefined}>
-          <RoomThumb f={f} src={roomFileUrl(roomId, f.id, { thumb: '1' })} />
-        </button>
-      </Tooltip>
+      {/* a picture kept in the room where files otherwise go to a team folder: "Only in this conversation" in its name
+          and as a quiet caption under it, at every width (a phone has no tooltip) */}
+      {f.roomOnly ? (
+        <span className="inline-flex max-w-full flex-col items-start gap-0.5">
+          {picture}
+          <span className="text-xs text-faint" aria-hidden data-testid="room-image-room-only">{t('rooms.file.roomOnly')}</span>
+        </span>
+      ) : picture}
       {fileMenu.menu}
     </>
   )
@@ -720,9 +729,9 @@ function FileChip({ roomId, f, siblings }: { roomId: string; f: RoomFile; siblin
         <FileText size={15} className="shrink-0 text-muted" aria-hidden />
         <span className="max-w-[220px] truncate font-medium text-ink">{f.name}</span>
         <span className="shrink-0 text-faint">{formatSize(f.size, locale)}</span>
-        {/* kept in the room where files otherwise go to a team folder (RoomFile.roomOnly) */}
-        {f.roomOnly && <span className="shrink-0 text-faint max-md:hidden" data-testid="room-file-room-only">{t('rooms.file.roomOnly')}</span>}
-        {f.roomOnly && <span className="sr-only md:hidden">{t('rooms.file.roomOnly')}</span>}
+        {/* kept in the room where files otherwise go to a team folder (RoomFile.roomOnly), at every width: on a phone the
+            name gives way first */}
+        {f.roomOnly && <span className="shrink-0 text-faint" data-testid="room-file-room-only">{t('rooms.file.roomOnly')}</span>}
         {/* what the name does: a preview (a file without one opens its card, named by its name alone) */}
         {opens && <span className="sr-only">{t('common.preview')}</span>}
       </button>

@@ -15,10 +15,11 @@ import { uuidv7, type MakeProjectInfo, type Me, type NavFolder, type Room } from
 import { translate, useLocaleStore } from '../../src/i18n'
 import { foldOf, roomsByKind, RoomsByKind, withKinds } from '../../src/components/panels/RoomsByKind'
 import { roomMenuActions } from '../../src/components/rooms/RoomMenu'
-import { MakeProjectDialog } from '../../src/components/rooms/MakeProjectDialog'
+import { DmProjectDialog, MakeProjectDialog, projectNameProblem } from '../../src/components/rooms/MakeProjectDialog'
 import { SameAsGroupLine } from '../../src/components/rooms/MembersDialog'
 import { ProjectSideHint } from '../../src/components/rooms/SideChatPanel'
-import { eventText, shownInLists } from '../../src/lib/rooms'
+import { eventText, roomFilesButtonShown, shownInLists } from '../../src/lib/rooms'
+import { setNavigator } from '../../src/lib/nav'
 import { useNavFolders } from '../../src/store/navFolders'
 import { useRooms } from '../../src/store/rooms'
 import { mayMakeTeamProject, useSession } from '../../src/store/session'
@@ -280,6 +281,135 @@ describe('A: the confirm', () => {
       expect(useRooms.getState().rooms.find((r) => r.id === RID)?.projectRoom).toBe(true)
       expect(useUi.getState().toasts.at(-1)?.text).toBe('Launch is a project now.')
     } finally { await m.unmount() }
+  })
+})
+
+describe('A: the confirm, when the server says no', () => {
+  const RID = '01900000-0000-7000-8000-0000000005d2'
+  const GUEST = { id: 'gus', name: 'Gus' }
+  const info = (o: Partial<MakeProjectInfo> = {}): MakeProjectInfo => ({ suggestedName: 'Launch', members: [ME, BEN, CY], guestsBlocked: [], filesMoving: 2, filesStaying: 0, membersHash: 'h1', folderName: 'Launch', nameTaken: false, ...o })
+  const conflict = (reason: string, message: string, more: Record<string, string> = {}) => json({ error: { code: 'conflict', message, params: { reason, ...more } } }, 409)
+
+  test('409 not_convertible: the server\'s words, and Make project stays off', async () => {
+    signIn()
+    routes = {
+      [`GET /api/rooms/${RID}/make-project`]: () => json(info()),
+      [`POST /api/rooms/${RID}/make-project`]: () => conflict('not_convertible', 'This conversation can no longer be made a project.'),
+    }
+    const m = await mount(<MemoryRouter><MakeProjectDialog roomId={RID} onClose={() => {}} /></MemoryRouter>)
+    try {
+      await m.until(() => m.find('make-project-body'), 'the body')
+      await m.click('make-project-confirm')
+      await m.until(() => m.find('make-project-error'), 'the error')
+      expect(m.get('make-project-error').textContent).toBe('This conversation can no longer be made a project.')
+      expect(m.get('make-project-confirm').hasAttribute('disabled')).toBe(true)
+    } finally { await m.unmount() }
+  })
+
+  test('409 guest_one_place when the read again shows no blocked guest: the server\'s words; with one, the guest line', async () => {
+    signIn()
+    let blocked = false
+    routes = {
+      [`GET /api/rooms/${RID}/make-project`]: () => json(info(blocked ? { members: [ME, BEN, GUEST], guestsBlocked: [GUEST] } : {})),
+      [`POST /api/rooms/${RID}/make-project`]: () => conflict('guest_one_place', 'Gus is already in another place.', { guestId: 'gus' }),
+    }
+    const m = await mount(<MemoryRouter><MakeProjectDialog roomId={RID} onClose={() => {}} /></MemoryRouter>)
+    try {
+      await m.until(() => m.find('make-project-body'), 'the body')
+      await m.click('make-project-confirm')
+      await m.until(() => m.find('make-project-error'), 'the server\'s words')
+      expect(m.get('make-project-error').textContent).toBe('Gus is already in another place.')
+      expect(m.find('make-project-guest')).toBeNull()
+      blocked = true
+      await m.click('make-project-confirm')
+      await m.until(() => m.find('make-project-guest'), 'the guest line')
+      expect(m.find('make-project-error')).toBeNull()
+      expect(m.get('make-project-confirm').hasAttribute('disabled')).toBe(true)
+    } finally { await m.unmount() }
+  })
+
+  test('a read that works again clears an earlier error (a 429)', async () => {
+    signIn()
+    let reads = 0
+    routes = { [`GET /api/rooms/${RID}/make-project`]: (_b, url) => (++reads === 2 ? json({ error: { code: 'rate_limited', message: 'Slow down a little.' } }, 429) : json(info(url.includes('name=') ? { folderName: 'X' } : {}))) }
+    const m = await mount(<MemoryRouter><MakeProjectDialog roomId={RID} onClose={() => {}} /></MemoryRouter>)
+    try {
+      await m.until(() => m.find('make-project-body'), 'the body')
+      await m.type('make-project-name', 'Spring')
+      await m.until(() => m.find('make-project-error'), 'the 429', 3000)
+      await m.type('make-project-name', 'Spring launch')
+      await m.until(() => !m.find('make-project-error'), 'the error cleared', 3000)
+    } finally { await m.unmount() }
+  })
+
+  test('after a 409 the checks follow the trimmed name: the "-2" line stays for "Launch " with a space', async () => {
+    signIn()
+    let reads = 0
+    routes = {
+      [`GET /api/rooms/${RID}/make-project`]: () => json(info({ nameTaken: true, folderName: 'Launch-2', membersHash: ++reads === 1 ? 'h1' : 'h2' })),
+      [`POST /api/rooms/${RID}/make-project`]: () => conflict('members_changed', 'The people changed.'),
+    }
+    const m = await mount(<MemoryRouter><MakeProjectDialog roomId={RID} onClose={() => {}} /></MemoryRouter>)
+    try {
+      await m.until(() => m.html().includes('Launch-2'), 'the -2 line')
+      await m.type('make-project-name', 'Launch ')
+      await m.click('make-project-confirm')
+      await m.until(() => m.find('make-project-changed'), 'the people changed')
+      await m.until(() => reads >= 2, 'read again')
+      expect(m.html()).toContain(en('rooms.makeProject.nameTaken', { name: 'Launch', folder: 'Launch-2' }))
+    } finally { await m.unmount() }
+  })
+})
+
+describe('A: New project with {name} (a 1:1)', () => {
+  const PEER = { id: BEN.id, name: BEN.name }
+  const project = { id: PID, name: 'Ben', folderPath: 'projects/Ben', instructions: '', createdBy: ME, createdAt: at(0), canEdit: true }
+  test('the room cannot be opened after the project is made: the project page opens, and no second project is made', async () => {
+    signIn()
+    const went: string[] = []
+    setNavigator((to) => went.push(to))
+    let creates = 0
+    routes = {
+      'POST /api/projects': () => { creates++; return json(project, 201) },
+      [`POST /api/projects/${PID}/room`]: () => json({ error: { code: 'internal', message: 'x' } }, 500),
+    }
+    const closed: number[] = []
+    const m = await mount(<MemoryRouter><DmProjectDialog peer={PEER} onClose={() => closed.push(1)} /></MemoryRouter>)
+    try {
+      await m.click('make-project-confirm')
+      await m.until(() => went.length === 1, 'went somewhere', 3000)
+      expect(went).toEqual([`/projects/${PID}`])
+      expect(closed).toEqual([1])
+      expect(creates).toBe(1)
+    } finally { await m.unmount(); setNavigator(null) }
+  })
+
+  test('the name checks: an AI instructions file\'s name inline, the button off; an empty name, the button off', async () => {
+    signIn()
+    const m = await mount(<MemoryRouter><DmProjectDialog peer={PEER} onClose={() => {}} /></MemoryRouter>)
+    try {
+      await m.type('make-project-name', 'CLAUDE.md')
+      await m.until(() => m.html().includes(en('rooms.makeProject.nameReserved')), 'the refusal')
+      expect(m.get('make-project-confirm').hasAttribute('disabled')).toBe(true)
+      await m.type('make-project-name', '   ')
+      await m.until(() => !m.html().includes(en('rooms.makeProject.nameReserved')), 'the refusal gone')
+      expect(m.get('make-project-confirm').hasAttribute('disabled')).toBe(true)
+    } finally { await m.unmount() }
+    expect(projectNameProblem('_files.md')).toBe('nameReserved')
+    expect(projectNameProblem('x'.repeat(101))).toBe('nameLong')
+    expect(projectNameProblem(' Launch ')).toBeNull()
+  })
+})
+
+describe('the Files button of a room whose files go to a team folder', () => {
+  test('a project room (by projectRoom too) and a department room with its folder: only with files of its own; others always', () => {
+    expect(roomFilesButtonShown({ projectRoom: true })).toBe(false)
+    expect(roomFilesButtonShown({ projectRoom: true, roomFiles: true })).toBe(true)
+    expect(roomFilesButtonShown({ project: { id: PID, name: 'L', folderPath: 'projects/L', canSave: true, room: true } })).toBe(false)
+    expect(roomFilesButtonShown({ kind: 'team', groupFolder: 'groups/Sales' })).toBe(false)
+    expect(roomFilesButtonShown({ kind: 'team', groupFolder: 'groups/Sales', roomFiles: true })).toBe(true)
+    expect(roomFilesButtonShown({ kind: 'team' })).toBe(true)
+    expect(roomFilesButtonShown({ kind: 'group' })).toBe(true)
   })
 })
 

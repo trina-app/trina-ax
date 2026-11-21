@@ -183,6 +183,34 @@ describe('the room\'s Files list', () => {
     } finally { await m.unmount() }
   })
 
+  test('a project room of a member who cannot open the project (projectRoom only): no Files button; with files of its own, the list', async () => {
+    const r = room({ kind: 'group', name: 'Launch site', groupId: null, projectRoom: true })
+    serveRoom(r, () => json({ error: { code: 'not_found', message: 'x' } }, 404))
+    let m = await roomPage(r.id)
+    try {
+      await m.until(() => m.find('room-header'), 'the header', 3000)
+      expect(m.find('room-project')).toBeNull()
+      expect(m.find('room-files-button')).toBeNull()
+    } finally { await m.unmount() }
+    const kept = room({ kind: 'group', name: 'Launch site', groupId: null, projectRoom: true, roomFiles: true })
+    serveRoom(kept, () => json({ items: [hit(kept.id, 'stayed.pdf')], nextCursor: null }))
+    m = await roomPage(kept.id)
+    try {
+      await m.until(() => m.find('room-files-button'), 'the Files button', 3000)
+    } finally { await m.unmount() }
+  })
+
+  test('a 404 for the list (a team room whose folder I cannot see): the empty list, not a load error', async () => {
+    const r = room({ kind: 'team', name: 'Sales', groupId: uuidv7() })
+    serveRoom(r, () => json({ error: { code: 'not_found', message: 'x' } }, 404))
+    useRooms.getState().setSide(r.id, 'files')
+    const m = await roomPage(r.id)
+    try {
+      await m.until(() => m.find('room-files')?.textContent?.includes(en('rooms.files.empty')), 'the empty list', 3000)
+      expect(m.get('room-files').textContent).not.toContain(en('rooms.files.loadError'))
+    } finally { await m.unmount() }
+  })
+
   test('the list could not be read: says so, and Try again reads it again', async () => {
     const r = room({ kind: 'group', name: 'Flaky', groupId: null })
     let fail = true

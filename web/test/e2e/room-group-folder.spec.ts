@@ -141,6 +141,18 @@ test('an upload lands in {group} › Chat attachments and the header keeps one b
   await expect(rows).toHaveCount(1)
   await expect(rows.first()).toHaveAttribute('data-file-name', 'salaries.pdf')
   await expect(rows.first()).toContainText('Only in this conversation')
+
+  // deleting the message of the file in the folder deletes only the message: the confirm says where the file stays
+  const msg = page.getByTestId('room-message').filter({ has: chip })
+  await msg.hover()
+  await msg.getByTestId('message-more').click()
+  await page.getByTestId('message-delete').click()
+  await expect(page.getByTestId('room-delete-file-stays')).toContainText('The file stays in leads › Chat attachments.')
+  await expect(page.getByTestId('room-delete-file-place')).toHaveAttribute('href', `/files?path=${encodeURIComponent('groups/leads/Chat attachments')}`)
+  await page.getByTestId('dialog-confirm').click()
+  await expect(page.getByTestId('room-file').filter({ hasText: 'agenda.pdf' })).toHaveCount(0)
+  const after = (await (await page.request.get(`/api/files/tree?path=${encodeURIComponent('groups/leads/Chat attachments')}`, { headers: H })).json()) as { entries: { name: string }[] }
+  expect(after.entries.map((e) => e.name)).toContain('agenda.pdf')
 })
 
 test.describe('a phone', () => {

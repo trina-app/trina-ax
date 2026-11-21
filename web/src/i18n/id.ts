@@ -7212,6 +7212,8 @@ export const id: Record<MessageKey, string> = {
   "rooms.makeProject.body": "{n} anggotanya menjadi orang-orang proyek. File yang dikirim di sini dipindahkan ke {name} › {folder}. Orang yang ditambahkan nanti melihat pesan mulai sekarang.",
   "rooms.makeProject.laterFiles": "Orang yang ditambahkan ke proyek nanti bisa membuka file ini.",
   "rooms.makeProject.nameTaken": "Proyek bernama {name} sudah ada; proyek ini akan menjadi {folder} di File.",
+  "rooms.makeProject.nameLong": "Nama proyek paling banyak {n} karakter.",
+  "rooms.makeProject.nameReserved": "Nama itu adalah nama berkas instruksi AI. Pilih nama lain.",
   "rooms.makeProject.staying": "{n} file tetap hanya di percakapan ini, karena tidak semua orang di sini bisa melihatnya.",
   "rooms.makeProject.confirm": "Buat proyek",
   "rooms.makeProject.guestFirst": "Jadikan {guest} anggota tim terlebih dahulu.",

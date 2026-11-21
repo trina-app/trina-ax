@@ -239,3 +239,30 @@ test('a phone (390): the Conversations tab has Projects too, in the same place',
   await expect(phoneSection(page, 'project').getByTestId('rooms-row')).toHaveCount(1)
   await expect(phoneSection(page, 'project')).toContainText(t['rooms.section.project'])
 })
+
+test("a computer (1440): a project in the trash takes its room out of Projects; Restore brings it back", async ({ page }) => {
+  await start(page, 1440, [room('디자인', { activityAt: ago(1) })])
+  const H = { [CSRF_HEADER]: '1' }
+  const made = await page.request.post('/api/projects', { headers: H, data: { name: 'Atlas', scope: 'team', participants: [{ subjectType: 'user', subjectId: 'bob' }], instructions: '' } })
+  expect(made.status()).toBe(201)
+  const pid = ((await made.json()) as { id: string }).id
+  const opened = await page.request.post(`/api/projects/${pid}/room`, { headers: H })
+  expect(opened.ok()).toBeTruthy()
+  const rid = ((await opened.json()) as { id: string }).id
+  // it shows under Projects once someone writes in it
+  expect((await page.request.post(`/api/rooms/${rid}/messages`, { headers: H, data: { body: 'kickoff' } })).ok()).toBeTruthy()
+  await page.goto('/')
+  await page.getByTestId('rail-chats').click()
+  const projects = panelSection(page, 'project')
+  await expect(names(projects)).toHaveText(['Atlas'])
+  expect((await page.request.delete(`/api/projects/${pid}`, { headers: H })).ok()).toBeTruthy()
+  await page.reload()
+  await page.getByTestId('rail-chats').click()
+  await expect(panelSection(page, 'team')).toBeVisible()
+  await expect(cp(page).getByTestId('sidebar-room-row').filter({ hasText: 'Atlas' })).toHaveCount(0)
+  await expect(projects).toHaveCount(0)
+  expect((await page.request.post(`/api/projects/${pid}/restore`, { headers: H })).ok()).toBeTruthy()
+  await page.reload()
+  await page.getByTestId('rail-chats').click()
+  await expect(names(panelSection(page, 'project'))).toHaveText(['Atlas'])
+})

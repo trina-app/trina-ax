@@ -7212,6 +7212,8 @@ export const ko = {
   "rooms.makeProject.body": "이 대화방의 {n}명이 프로젝트 사람들이 돼요. 여기서 보낸 파일은 {name} › {folder}(으)로 옮겨져요. 나중에 들어온 사람은 지금부터의 메시지를 봐요.",
   "rooms.makeProject.laterFiles": "나중에 프로젝트에 추가된 사람도 이 파일을 열 수 있어요.",
   "rooms.makeProject.nameTaken": "{name} 프로젝트가 이미 있어요. 이 프로젝트는 파일에서 {folder}(으)로 보여요.",
+  "rooms.makeProject.nameLong": "프로젝트 이름은 {n}자까지 쓸 수 있어요.",
+  "rooms.makeProject.nameReserved": "이 이름은 AI 지침 파일 이름이라 쓸 수 없어요. 다른 이름을 골라 주세요.",
   "rooms.makeProject.staying": "파일 {n}개는 여기 있는 모두가 볼 수 있는 게 아니라서 이 대화방에만 남아요.",
   "rooms.makeProject.confirm": "프로젝트 만들기",
   "rooms.makeProject.guestFirst": "먼저 {guest}님을 팀원으로 바꿔 주세요.",

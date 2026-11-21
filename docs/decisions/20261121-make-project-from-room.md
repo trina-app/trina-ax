@@ -23,9 +23,9 @@
     some do. A guest who already holds another place blocks it before anything is sent: an admin gets a link to them in
     Admin › Members & invites, a member is told to ask an admin.
   - **The write.** `GET /api/rooms/:id/make-project` (members, guests who block, files moving and staying, the folder
-    name, `membersHash`), then `POST` with `{ name, membersHash }`: 404 for anyone not in it (admins and guests
-    included), 409 `not_convertible`, 403 without the right, 409 `safe_ops`, 409 `members_changed` when the members are
-    not the ones shown (the web says "The people changed" and reads again), 409 `guest_one_place`. The room keeps its id,
+    name, `membersHash`), then `POST` with `{ name, membersHash }`: 404 for anyone not in it (admins outside
+    included); 403 for guests (the guest gate, never open to them); 409 `not_convertible`, 403 without the right,
+    409 `safe_ops`, 409 `members_changed` when the members are not the ones shown (the web says "The people changed" and reads again), 409 `guest_one_place`. The room keeps its id,
     so pins, hidden state, mute, read place, sections, threads, reactions and apps stay; each member keeps their start
     and alert level.
   - **After.** The room stays open as the project's room (the project's folder button in the header), with one event

@@ -7215,6 +7215,8 @@ export const en: Record<MessageKey, string> = {
   "rooms.makeProject.body": "Its {n, plural, one {# member becomes} other {# members become}} the project's people. Files sent here move to {name} › {folder}. People added later see messages from now on.",
   "rooms.makeProject.laterFiles": "People added to the project later can open these files.",
   "rooms.makeProject.nameTaken": "A project called {name} already exists; this one will be {folder} in Files.",
+  "rooms.makeProject.nameLong": "A project name can be at most {n} characters.",
+  "rooms.makeProject.nameReserved": "That name is an AI instructions file's name. Pick another name.",
   "rooms.makeProject.staying": "{n, plural, one {# file stays in the conversation only, because not everyone here can see it.} other {# files stay in the conversation only, because not everyone here can see them.}}",
   "rooms.makeProject.confirm": "Make project",
   "rooms.makeProject.guestFirst": "Make {guest} a team member first.",

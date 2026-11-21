@@ -10,7 +10,7 @@
 import { ChevronLeft, File as FileIcon, Files, Image as ImageIcon, X } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { RoomFileSearchHit, RoomFilesPage } from '@mycel/shared/api'
-import { api, API, errorText } from '../../lib/api'
+import { api, API, ApiError, errorText } from '../../lib/api'
 import { formatSize, listTime } from '../../lib/format'
 import { roomFileItem, type ViewerMetaValue } from '../../lib/imageViewer'
 import { useLocale, useT } from '../../i18n'
@@ -41,7 +41,10 @@ export function RoomFilesPanel({ roomId, refresh, onClose }: { roomId: string; r
       const p = await api.call(API.listRoomFiles, { params: { id: roomId }, query: {} })
       if (n === life.current) take(p, false)
     } catch (e) {
-      if (n === life.current) setError(errorText(e, locale, t('error.network')))
+      // 404: no list for me here (a project room's or a department room's files are in its folder): an empty list,
+      // not a load error
+      if (n === life.current && e instanceof ApiError && e.status === 404) take({ items: [], nextCursor: null }, false)
+      else if (n === life.current) setError(errorText(e, locale, t('error.network')))
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [roomId])

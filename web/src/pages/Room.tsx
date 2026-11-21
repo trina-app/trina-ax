@@ -36,7 +36,7 @@ import { Link, Navigate, useLocation, useNavigate, useNavigationType, useParams,
 import { isUuid7, type RoomMember, type RoomMessage } from '@mycel/shared/api'
 import { isApiError } from '../lib/api'
 import { lookingAt, onWindowFocus } from '../lib/attention'
-import { isPrivateChannel, readUpTo, roomEmptyKey, threadClosing, threadOpening, timelineTarget, pushedMessagePath } from '../lib/rooms'
+import { isPrivateChannel, readUpTo, roomFilesButtonShown, roomEmptyKey, threadClosing, threadOpening, timelineTarget, pushedMessagePath } from '../lib/rooms'
 import { roomColumns, useElementWidth } from '../lib/roomColumns'
 import { getSidePanel } from '../lib/sidePanel'
 import { PANEL_ALWAYS_BOTH_PX } from '../components/rail/railPanel'
@@ -561,7 +561,7 @@ function RoomView({ roomId, threadId, badThread }: { roomId: string; threadId: s
   const muted = !!room && roomNotify(room).level === 'off'
   // the room's files go to a team folder, whose button comes first (a project's room; a department's room with a folder
   // I can open): its Files list only while it holds files of its own (Room.roomFiles)
-  const folderFirst = !!room && (!!room.project?.room || (room.kind === 'team' && !!room.groupFolder))
+  const folderButton = !!room && (!!room.project?.room || (room.kind === 'team' && !!room.groupFolder))
 
   return (
     <div ref={page} className="relative flex h-full" data-columns={columns ?? undefined} data-testid="room-page">
@@ -639,9 +639,9 @@ function RoomView({ roomId, threadId, badThread }: { roomId: string; threadId: s
               20261120-project-is-room.md D8), for a channel, a 1:1 and a group chat. Beside a folder button above only
               while the room still holds files of its own (Room.roomFiles: older ones, ones that stayed when it became a
               project, uploads that fell back), which the list then shows alone. A phone: the icon alone */}
-          {room && (!folderFirst || room.roomFiles) && (
+          {room && roomFilesButtonShown(room) && (
             <Tooltip label={t('rooms.files.open')}>
-              <button type="button" onClick={toggleFiles} aria-pressed={filesOpen} aria-label={t('rooms.files.open')} className={buttonClass({ variant: 'ghost', size: 'sm', className: clsx('touch-hit shrink-0 max-md:px-0', !folderFirst && 'max-md:ml-auto', filesOpen && 'bg-hover') })} data-testid="room-files-button">
+              <button type="button" onClick={toggleFiles} aria-pressed={filesOpen} aria-label={t('rooms.files.open')} className={buttonClass({ variant: 'ghost', size: 'sm', className: clsx('touch-hit shrink-0 max-md:px-0', !folderButton && 'max-md:ml-auto', filesOpen && 'bg-hover') })} data-testid="room-files-button">
                 <Files size={15} aria-hidden />
                 <span className="max-md:hidden">{t('rooms.groupFiles')}</span>
               </button>
