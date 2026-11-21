@@ -15,20 +15,34 @@ const fake = (...ds: unknown[]) => ds.map((d) => '@fake ' + JSON.stringify(d)).j
 /** the clock (the time line's local and ISO time) is the only part that differs from run to run */
 const stable = (s: string) => s
   .replace(/Now: [A-Z][a-z]+day, [A-Z][a-z]+ \d{1,2}, \d{4} at \d{1,2}:\d{2} [AP]M \(([^)]+)\); \d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z UTC\./g, 'Now: <local time> ($1); <iso time> UTC.')
+/** what this computer can do changes two parts, the same on dev and on this branch: whether a headless browser prints
+ * HTML and decks to PDF (make_file's words, the instructions' make_file line) and whether a promo video can be saved as
+ * an MP4 (save_promo_video, only on a development Mac). Both are held the same on every computer: no browser, and
+ * save_promo_video left out of the recorded list (review on #181: the macOS recording differed from Linux CI there) */
+const HOST_ONLY_TOOLS = new Set(['save_promo_video'])
+const browserBefore = process.env.MYCEL_HTML_PDF_BROWSER
 let h: Harness
 const sockets: Record<string, TestSocket> = {}
 
 beforeAll(async () => {
+  process.env.MYCEL_HTML_PDF_BROWSER = 'none'
   h = await startHarness({ name: 'engine-prompt-pin' })
   for (const u of ['alice', 'dana']) { sockets[u] = await h.ws(u, { windowId: `win-pin-${u}` }); await sockets[u]!.next('hello') }
 })
-afterAll(async () => { for (const s of Object.values(sockets)) s.close(); await h?.close() })
+afterAll(async () => {
+  for (const s of Object.values(sockets)) s.close()
+  await h?.close()
+  if (browserBefore === undefined) delete process.env.MYCEL_HTML_PDF_BROWSER
+  else process.env.MYCEL_HTML_PDF_BROWSER = browserBefore
+})
 
 async function echo(user: string, engine: 'claude-code' | 'codex', what: 'system' | 'toolSchemas'): Promise<string> {
   const chat = await h.api(user).call(API.createChat, { body: { engine } })
   const { done } = await ask(h, sockets[user]!, user, chat.id, fake({ echo: what }))
   expect(done.status).toBe('done')
-  return stable(String(done.content))
+  const text = String(done.content)
+  if (what === 'toolSchemas') return JSON.stringify((JSON.parse(text) as { name: string }[]).filter((t) => !HOST_ONLY_TOOLS.has(t.name)))
+  return stable(text)
 }
 
 for (const engine of ['claude-code', 'codex'] as const) for (const user of ['alice', 'dana']) for (const what of ['system', 'toolSchemas'] as const) {
