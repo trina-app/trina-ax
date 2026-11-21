@@ -166,6 +166,23 @@ for (const vp of VIEWPORTS) {
       } finally { await ctx.close() }
     })
 
+    test('a guest in the room: the member line stays on one line, the header the same height as without (QA TC-6127)', async ({ page }) => {
+      const id = await start(page)
+      await openRoom(page, id)
+      const header = page.getByTestId('room-header')
+      const plain = (await header.boundingBox())!.height
+      expect((await page.request.post('/__test/guest', { data: { id: 'gina', name: 'Gina', place: { kind: 'project', id }, ai: { mode: 'none' } } })).ok()).toBeTruthy()
+      await page.reload()
+      await expect(page.getByTestId('room-title')).toHaveText(NAME)
+      await expect(page.getByTestId('includes-guests')).toBeVisible()
+      // a phone: "· 1 guest" (short); a computer: "Includes 1 guest"
+      await expect(page.getByTestId('includes-guests')).toHaveText(vp.phone ? ' · 1 guest' : ' · Includes 1 guest')
+      expect((await header.boundingBox())!.height).toBe(plain)
+      const count = page.getByTestId('room-member-count')
+      expect((await count.boundingBox())!.height).toBeLessThanOrEqual(vp.phone ? 16 : 20)
+      await shot(page, 'room-guest-header')
+    })
+
     test('the project\'s AI chat: Chat room in its header', async ({ page }) => {
       const id = await start(page)
       const c = await page.request.post('/api/chats', { headers: H, data: { title: 'Plan', projectId: id } })

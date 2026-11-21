@@ -143,6 +143,7 @@ export const es: Record<MessageKey, string> = {
   'role.guest': "Invitado",
   // guest invites, phase 2 (docs/DECISIONS.md "Guest invites, phase 2: the screens"): the invite, the Guest tag, a guest's own view, Admin › Members › Guests
   "guest.includes": "{n, plural, one {Incluye # invitado} other {Incluye # invitados}}",
+  "guest.includesShort": "{n, plural, one {# invitado} other {# invitados}}",
   "guest.invite.row": "Invitar a un invitado",
   "guest.invite.rowRoom": "De fuera del equipo · solo ve este chat de grupo",
   "guest.invite.rowRoomPrivate": "De fuera del equipo · solo ve este canal privado",
@@ -1435,6 +1436,7 @@ export const es: Record<MessageKey, string> = {
   "projects.changeTitle": "¿Cambiar los miembros?",
   "projects.narrowBody": "{n, plural, one {# persona dejará} other {# personas dejarán}} de ver este proyecto.",
   "projects.loseAccess": "{n, plural, one {# persona pierde} other {# personas pierden}} el acceso: {names}",
+  "projects.loseRoom": "También se pierde el acceso a la sala de chat del proyecto y a su historial.",
   "projects.guestsOff": "{n, plural, one {La cuenta del invitado se desactiva: ya no puede iniciar sesión.} other {Las cuentas de # invitados se desactivan: ya no pueden iniciar sesión.}}",
   "projects.addsFloor": "Al guardar, solo los miembros de aquí podrán ver este proyecto. Quien lo veía hasta ahora sin ser miembro dejará de verlo.",
   "projects.restoresCreator": "Quien creó el proyecto vuelve a ser miembro.",

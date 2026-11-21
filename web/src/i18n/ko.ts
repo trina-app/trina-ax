@@ -145,6 +145,7 @@ export const ko = {
   'role.guest': '게스트',
   // guest invites, phase 2 (docs/DECISIONS.md "Guest invites, phase 2: the screens"): the invite, the Guest tag, a guest's own view, Admin › Members › Guests
   "guest.includes": "게스트 {n}명 포함",
+  "guest.includesShort": "게스트 {n}명",
   "guest.invite.row": "게스트 초대",
   "guest.invite.rowRoom": "외부 사람 · 이 그룹 대화만 봐요",
   "guest.invite.rowRoomPrivate": "외부 사람 · 이 비공개 채널만 봐요",
@@ -1459,6 +1460,7 @@ export const ko = {
   "projects.changeTitle": "멤버를 바꿀까요?",
   "projects.narrowBody": "{n}명은 더 이상 이 프로젝트를 못 봐요.",
   "projects.loseAccess": "{n}명이 더 이상 볼 수 없어요: {names}",
+  "projects.loseRoom": "프로젝트 채팅방과 지난 대화도 더 이상 볼 수 없어요.",
   "projects.guestsOff": "{n, plural, one {게스트 계정이 꺼져요. 더 이상 로그인할 수 없어요.} other {게스트 {n}명의 계정이 꺼져요. 더 이상 로그인할 수 없어요.}}",
   "projects.addsFloor": "저장하면 여기 있는 멤버만 이 프로젝트를 볼 수 있어요. 멤버가 아닌데 지금까지 보던 사람은 더 볼 수 없어요.",
   "projects.restoresCreator": "만든 사람도 다시 멤버로 들어가요.",

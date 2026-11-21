@@ -146,6 +146,7 @@ export const id: Record<MessageKey, string> = {
   'role.guest': 'Tamu',
   // guest invites, phase 2 (docs/DECISIONS.md "Guest invites, phase 2: the screens"): the invite, the Guest tag, a guest's own view, Admin › Members › Guests
   "guest.includes": "Termasuk {n} tamu",
+  "guest.includesShort": "{n} tamu",
   "guest.invite.row": "Undang tamu",
   "guest.invite.rowRoom": "Dari luar tim · hanya melihat obrolan grup ini",
   "guest.invite.rowRoomPrivate": "Dari luar tim · hanya melihat saluran privat ini",
@@ -1460,6 +1461,7 @@ export const id: Record<MessageKey, string> = {
   "projects.changeTitle": "Ubah anggota?",
   "projects.narrowBody": "{n} orang tidak akan melihat proyek ini lagi.",
   "projects.loseAccess": "{n} orang kehilangan akses: {names}",
+  "projects.loseRoom": "Yang dikeluarkan juga kehilangan akses ke ruang obrolan proyek dan riwayatnya.",
   "projects.guestsOff": "{n, plural, one {Akun tamunya dimatikan: dia tidak bisa masuk lagi.} other {Akun {n} tamu dimatikan: mereka tidak bisa masuk lagi.}}",
   "projects.addsFloor": "Setelah disimpan, hanya anggota di sini yang bisa melihat proyek ini. Siapa pun yang selama ini bisa melihatnya tanpa menjadi anggota tidak bisa lagi.",
   "projects.restoresCreator": "Pembuat proyek ditambahkan kembali sebagai anggota.",

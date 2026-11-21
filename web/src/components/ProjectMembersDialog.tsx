@@ -79,7 +79,7 @@ export function confirmMembers(t: ReturnType<typeof useT>, p: ProjectAccessPrevi
         {p.added > 0 && <p>{t('projects.widenBody', { n: p.added })}</p>}
         {p.added > 0 && room && <p data-testid="project-widen-room">{t('projects.widenRoom')}</p>}
         {lines.length > 0 && <ul className="list-disc space-y-0.5 pl-5">{lines.map((l) => <li key={l}>{l}</li>)}</ul>}
-        <ChangeLines t={t} p={p} guestsOff={guestsOff} />
+        <ChangeLines t={t} p={p} guestsOff={guestsOff} room={room} />
         {p.added > 0 && <p className="text-faint">{t('projects.widenNotice')}</p>}
       </div>
     ),
@@ -88,7 +88,7 @@ export function confirmMembers(t: ReturnType<typeof useT>, p: ProjectAccessPrevi
 }
 
 /** What else a save does that the person did not choose here: how many lose it, the rule it adds or puts back. */
-function ChangeLines({ t, p, guestsOff = 0 }: { t: ReturnType<typeof useT>; p?: ProjectAccessPreview; guestsOff?: number }) {
+function ChangeLines({ t, p, guestsOff = 0, room = false }: { t: ReturnType<typeof useT>; p?: ProjectAccessPreview; guestsOff?: number; room?: boolean }) {
   if (!p) return null
   return (
     <>
@@ -97,6 +97,8 @@ function ChangeLines({ t, p, guestsOff = 0 }: { t: ReturnType<typeof useT>; p?: 
           {p.removedNames?.length ? t('projects.loseAccess', { n: p.removed, names: namesLine(t, p.removedNames, p.removed) }) : t('projects.narrowBody', { n: p.removed })}
         </p>
       )}
+      {/* a team project's chat room goes with the access, history included (QA TC-6128; mirrors the add dialog's widenRoom) */}
+      {p.removed > 0 && room && <p className="break-keep" data-testid="project-lose-room">{t('projects.loseRoom', { n: p.removed })}</p>}
       {guestsOff > 0 && <p className="break-keep" data-testid="project-guests-off">{t('projects.guestsOff', { n: guestsOff })}</p>}
       {p.addsFloor && <p className="break-keep" data-testid="project-adds-floor">{t('projects.addsFloor')}</p>}
       {p.restoresCreator && <p className="break-keep" data-testid="project-restores-creator">{t('projects.restoresCreator')}</p>}

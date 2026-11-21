@@ -296,6 +296,37 @@ describe('saving', () => {
     }
   })
 
+  test('taking people out of a project with a chat room says they lose the room and its history too (QA TC-6128)', async () => {
+    signedIn('member')
+    routes = {
+      'GET /api/people': () => json(200, PEOPLE),
+      [`GET /api/projects/${P1}/access`]: () => json(200, access()),
+      'POST /api/projects/access-preview': () => json(200, preview({ people: 2, removed: 1, removedNames: ['Sora'] })),
+    }
+    const m = await mount(<MemoryRouter><ProjectMembersDialog project={project({ folderPath: 'projects/Acme launch' })} onClose={() => {}} onSaved={() => {}} /><DialogHost /></MemoryRouter>)
+    await m.until(() => m.find('participant-user-sora'), 'the members', 2000)
+    await m.click('participant-remove-user-sora')
+    await save(m)
+    const line = await m.until(() => m.find('project-lose-room'), 'the chat room line', 2000)
+    expect(line.textContent).toBe("They also lose the project's chat room and its history.")
+    expect(line.textContent).toBe(en('projects.loseRoom', { n: 1 }))
+    // Korean says 채팅방, the same word as the project's Chat room button (projects.room.open)
+    expect(translate('ko', 'projects.loseRoom', { n: 1 })).toContain('채팅방')
+    expect(translate('ko', 'projects.loseRoom', { n: 1 })).toContain(translate('ko', 'projects.room.open'))
+    // Spanish reads right for one person or several (no "pierden" after "1 persona pierde")
+    expect(translate('es', 'projects.loseRoom', { n: 1 })).toBe(translate('es', 'projects.loseRoom', { n: 2 }))
+    expect(translate('es', 'projects.loseRoom', { n: 1 })).not.toContain('pierden')
+    await m.unmount()
+    // a personal project has no chat room: only the access line
+    const q = await mount(<MemoryRouter><ProjectMembersDialog project={project({ folderPath: 'users/mia/Acme launch' })} onClose={() => {}} onSaved={() => {}} /><DialogHost /></MemoryRouter>)
+    await q.until(() => q.find('participant-user-sora'), 'the members', 2000)
+    await q.click('participant-remove-user-sora')
+    await save(q)
+    await q.until(() => q.find('project-narrow-line'), 'who loses access', 2000)
+    expect(q.find('project-lose-room')).toBeNull()
+    await q.unmount()
+  })
+
   test('after a save the project is read again: its count and whether anyone else sees it by a rule (the line under the box)', async () => {
     signedIn('member')
     let read: Project | null = project({ audience: 4 })
