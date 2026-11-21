@@ -84,7 +84,7 @@ macOS가 그 폴더에 대해 물어봐요. "“Trina AX”이(가) 사용자의
 
 ![macOS의 질문: “Trina AX” would like to access files in your Documents folder(문서 폴더 접근 요청). 여기서 업무 파일을 찾고, 파일 내용은 넣기 전까지 이 Mac에 남는다는 이유. Don't Allow(허용 안 함), Allow(허용)](../../images/find-work-files/macos-question.webp "macOS가 폴더마다 물어봐요")
 
-macOS는 답을 기억해서, 폴더마다 한 번만 물어봐요.
+macOS는 답을 기억해서, 폴더마다 한 번만 물어봐요. iPhone에서 앱이 사진을 보기 전에 한 번 묻는 것과 같아요.
 
 ## 파일 고르기
 

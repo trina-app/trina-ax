@@ -5,6 +5,22 @@ description: Turn how your team works into reusable SKILL.md instructions, gover
 
 A skill is a reusable procedure in a `SKILL.md` file. It tells the AI how your team does a task. It does not train the model and never grants extra access.
 
+Think of it as a recipe card kept in a shared folder: "how we write a weekly report", "how we answer a price question".
+Anyone whose AI can read the folder gets the same recipe, so everyone's answers follow the same steps.
+
+## Suggest a skill to the team
+
+Members can't add team skills directly, but they can suggest one. A skill manager decides.
+
+1. Under an AI answer you liked, point at the answer and press the bookmark button **Suggest as skill** (the name shows
+   when you point at it). For a file in your own folder, choose **⋯** › **Suggest as skill** on its row in **Files**.
+2. The **Suggest as a team skill** window opens. Check **Skill name** (it becomes `/name` in chat), the
+   **Description (one sentence)** and the **Steps**, and pick the **Folder** it should go in.
+3. Press **Suggest**.
+
+A message says "Skill suggested. You will hear when it is reviewed." It waits in **Team skills › My suggestions**, and
+a skill manager sees it under **To review**. Once they register it, everyone's AI can use it.
+
 ## Use a skill
 
 - In a chat, type `/` and pick a skill, or write `/skill-name` in your message.
@@ -70,7 +86,8 @@ A team project in `projects/<project>/` can have skills of its own in its `skill
 
 :::steps
 #### Make the folder
-Create `skills/<name>/` in Files. The name uses lowercase letters (in any language), digits and single hyphens, with no spaces, dots or capitals, and matches the folder name.
+Skill managers only. In **Files**, open **Team skills** and press **New folder** in the toolbar, type the
+skill's name and press **Create**: this makes `skills/<name>/`. The name uses lowercase letters (in any language), digits and single hyphens, with no spaces, dots or capitals, and matches the folder name.
 
 #### Write SKILL.md
 Start with a header, then the procedure.

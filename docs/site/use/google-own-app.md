@@ -182,9 +182,16 @@ the app that made it.
 ## Optional: trust the app in the Admin console
 
 If your company limits which apps may use Google accounts, a Google Workspace super admin marks the app as trusted.
-In the [Admin console](https://admin.google.com/), open **Security › Access and data control › API controls**, then
-**Manage Third-Party App Access** › **Configure new app**. Search for the client ID (it is in the downloaded file),
-choose it, and set **Trusted**. Without this, people may see `admin_policy_enforced` when they connect.
+Without this, people may see `admin_policy_enforced` when they connect.
+
+1. Find the app's client ID. It is in the JSON file you downloaded, after `"client_id":`, and on the client's page in
+   [Clients](https://console.cloud.google.com/auth/clients). It ends with `.apps.googleusercontent.com`.
+2. Sign in to the [Admin console](https://admin.google.com/) as a super admin.
+3. In the menu on the left, open **Security**, then **Access and data control**, then **API controls**.
+4. Choose **Manage Third-Party App Access**, then **Configure new app**.
+5. Paste the client ID into the search box and choose your app in the list.
+6. Choose who it applies to (usually the whole organization), set **Trusted**, and finish with **Configure** (Google's
+   last button; its name can differ a little).
 
 ## What Trina AX keeps
 

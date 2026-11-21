@@ -5,7 +5,8 @@ description: Ajak orang dari luar tim ke saluran privat atau obrolan grup dan pr
 
 **Tamu** adalah orang dari luar tim Anda, misalnya klien, mitra, atau pekerja lepas. Tamu berada di paling banyak satu
 saluran privat atau obrolan grup, dan satu proyek, dan tidak melihat apa pun lainnya di tim: tidak ada obrolan lain, file tim, proyek lain,
-atau skill tim. Tamu tidak memakai kursi di paket Anda.
+atau skill tim. Tamu tidak memakai kursi di paket Anda. Kalau Anda kenal Slack, tamu ini seperti tamu yang diundang ke satu
+saluran saja.
 
 | | Anggota tim | Tamu |
 |---|---|---|

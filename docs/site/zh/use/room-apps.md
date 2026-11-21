@@ -10,7 +10,9 @@ description: 让 Sentry、GitHub、Google Forms 或其他任何服务把更新�
 
 ## 添加应用
 
-1. 打开聊天，然后选择 **⋯ › 添加应用**。
+1. 打开聊天，点右上角（铃铛旁边）的 **⋯**，然后选择 **添加应用**。如果看不到它，说明你不能在这里添加应用：在频道中，
+   只有频道的所有者和管理员可以添加（见下文）。聊天里有了应用以后，这一项会显示为 **集成 · 1**（应用的数量），点开是应用列表，
+   里面有 **添加应用**。
 2. 选择一个服务。服务分组列出：**表单**（Google 表单、Typeform、Tally、Jotform）、**付款与订单**（Stripe、Shopify）、
    **工作**（Notion、Zendesk、Jira、HubSpot）和 **开发者**（GitHub、Sentry）。**显示更多服务** 会打开另外几个（Toss
    Payments、Channel Talk、PortOne）。最后的 **其他应用** 可以接入其他任何服务。需要特定方案或角色
