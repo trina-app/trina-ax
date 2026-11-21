@@ -1,4 +1,4 @@
-// The Steepling demo story (scripted demo in 6 languages, free roam en/ko, the built-in Gmail and Drive fakes) has no
+// The Steepling demo story (scripted demo and free roam in 6 languages, the built-in Gmail and Drive fakes) has no
 // calendar dates: the launch is "Monday" and the offer runs "two weeks". The banners travel as files (Files, chat, the
 // Gmail draft, the free-roam team folder), so a date written into the story goes stale the day it passes and the
 // campaign looks over (scripts/demo/steepling/README.md, "Dates"). Lean on purpose: November/December in each
@@ -7,6 +7,8 @@
 import { describe, expect, test } from 'bun:test'
 import fs from 'node:fs'
 import path from 'node:path'
+import { STEEPLING_LOCALES } from '../../scripts/demo/steepling/make'
+import { OWN_SKILLS } from '../../scripts/demo/steepling/rich'
 
 const ROOT = path.join(import.meta.dir, '..', '..')
 
@@ -35,10 +37,39 @@ const ALL: RegExp[] = [
   /\b(Nov|Dec|November|December)\b/, // English names are case-sensitive: "dec" and "nov" are not words a story uses
   /1[12]\s*월/,
   /1[12]\s*月/,
+  /十[一二]\s*月/, // Chinese months in characters: 十一月, 十二月
   /\b20\d\d-\d\d-\d\d\b/,
   /(?<![\d./])(1[0-2]|0?[1-9])\/\d{1,2}(?![\d/])/, // 11/23, 23/11 (a "/" only: "4.0 stars" and "$11.90" are not dates)
   /(?<![\d.])\d{1,2}\.\d{1,2}\s*[–~]/, // the Korean and Chinese range "11.23 ~ 12.6"
 ]
+/** "since <a month>" in every language: a story that started in a named month goes stale as surely as a launch date
+ * (the live ko caption said "8월부터" until 2026-11-21) */
+const EN_MONTHS = 'January|February|March|April|May|June|July|August|September|October|November|December'
+const ES_MONTHS = 'enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|setiembre|octubre|noviembre|diciembre'
+const ID_MONTHS = 'Januari|Februari|Maret|April|Mei|Juni|Juli|Agustus|September|Oktober|November|Desember'
+const CN_MONTH = '(?:[一二三四五六七八九]|十[一二]?)\\s*月'
+const SINCE: RegExp[] = [
+  new RegExp(`\\b(since|from|starting in) (${EN_MONTHS})\\b`, 'i'),
+  /(?<![\d.])(1[0-2]|0?[1-9])\s*월\s*(부터|이후)/,
+  /(?<![\d.])(1[0-2]|0?[1-9])\s*月\s*(から|以来|起|开始)/,
+  /从\s*(1[0-2]|0?[1-9])\s*月/,
+  new RegExp(`从\\s*${CN_MONTH}|${CN_MONTH}\\s*(以来|起|开始)`),
+  new RegExp(`\\b(desde|a partir de) (${ES_MONTHS})\\b`, 'i'),
+  new RegExp(`\\b(sejak|mulai) (${ID_MONTHS})\\b`, 'i'),
+]
+/** the scripted story's own copy (its captions, mail and banners travel as files and pictures): no month at all, by name
+ * or by number, in any language; Steepling's lived-in history ("the October summary") keeps its past months */
+const STORY = /^scripts\/demo\/mina\//
+const ANY_MONTH: RegExp[] = [
+  new RegExp(`\\b(${EN_MONTHS})\\b`),
+  /(?<![\d.])(1[0-2]|0?[1-9])\s*월(?!요일)/,
+  /(?<![\d.])(1[0-2]|0?[1-9])\s*月(?!曜)/,
+  new RegExp(CN_MONTH),
+  new RegExp(`\\b(${ES_MONTHS})\\b`, 'i'),
+  new RegExp(`\\b(${ID_MONTHS})\\b`),
+]
+ALL.push(...SINCE)
+
 /** month names that are written lower case in a language (so matched without case) */
 const BY_LOCALE: Record<string, RegExp[]> = {
   es: [/\b(noviembre|diciembre|nov|dic)\b/i],
@@ -47,7 +78,11 @@ const BY_LOCALE: Record<string, RegExp[]> = {
 
 /** the customer-review history in free roam (file "Reviews Oct–Nov.csv" and its month column) reads as the past, not as a
  * campaign window: kept, as the review of this change decided (slow drift, its own change if ever) */
-const ALLOWED = [/Oct–Nov|10–11월/, /^\s*\['(Nov|11월)',/]
+const ALLOWED = [/Oct–Nov|10–11월|十月–十一月/, /^\s*\['(Nov|11월|十一月)',/]
+
+/** a line's words, without a leading record key (`'cv.november': ...`): the keys are rich.ts's shared English ids, never
+ * shown, so only the values are checked (the same key is written plainly in every language) */
+const visible = (line: string) => line.replace(/^\s*'[\w.-]+':\s*/, '')
 
 const localeOf = (f: string) => /(?:^|[./])(en|ko|ja|zh|es|id)\.(?:ts|md|json)$/.exec(f)?.[1]
 
@@ -56,16 +91,38 @@ describe('the demo story has no calendar dates', () => {
     expect(files.length).toBeGreaterThan(60)
     expect(files).toContain('scripts/demo/mina/source/banners/copy.ja.json')
     expect(files).toContain('scripts/demo/steepling/strings/rich.ko.ts')
+    // every language Steepling is written in: its words, its richer team's words, its own skills
+    for (const l of STEEPLING_LOCALES) {
+      expect(files).toContain(`scripts/demo/steepling/strings/${l}.ts`)
+      expect(files).toContain(`scripts/demo/steepling/strings/rich.${l}.ts`)
+      for (const k of OWN_SKILLS) expect(files).toContain(`scripts/demo/steepling/assets/skill-${k}.${l}.md`)
+    }
+  })
+
+  test('a record key is not words, but a month in its value still is, in every language', () => {
+    const hit = (line: string, loc: string) => [...ALL, ...(BY_LOCALE[loc] ?? [])].some((r) => r.test(visible(line)))
+    for (const l of STEEPLING_LOCALES) expect(hit(`  'cv.november': 'This month so far: 7 reviews',`, l), l).toBe(false)
+    const months: Record<(typeof STEEPLING_LOCALES)[number], string> = {
+      en: 'Launch on Nov 23', ko: '11월 23일 런칭', ja: '12月6日まで', zh: '十二月六日截止', es: 'Lanzamiento el 23 de noviembre', id: 'Peluncuran 23 November',
+    }
+    for (const l of STEEPLING_LOCALES) expect(hit(`  'cv.launch': '${months[l]}',`, l), l).toBe(true)
+
+    // "since <month>" anywhere, in every language (the ko caption's "8월부터")
+    for (const line of ['drinking this since August', '저희 팀은 8월부터 몰래', 'チームでは8月からこっそり', '我们团队从 8 月就在', '从八月起', 'lo bebemos desde agosto', 'sudah minum sejak Agustus']) expect(hit(line, 'en'), line).toBe(true)
+    // and in the scripted story's copy, any month at all; Monday stays a word
+    const story = (line: string) => ANY_MONTH.some((r) => r.test(line))
+    for (const line of ['busy August', '바빴던 8월', '忙しかった8月', '八月辛苦了', 'un agosto de trabajo', 'bulan Agustus']) expect(story(line), line).toBe(true)
+    for (const line of ['월요일부터', '月曜日から', 'from Monday', 'for months', '몇 달 전부터']) expect(story(line) || hit(line, 'en'), line).toBe(false)
   })
 
   test('no file names a launch-window date', () => {
     const hits: string[] = []
     for (const f of files) {
-      const rules = [...ALL, ...(BY_LOCALE[localeOf(f) ?? ''] ?? [])]
+      const rules = [...ALL, ...(BY_LOCALE[localeOf(f) ?? ''] ?? []), ...(STORY.test(f) ? ANY_MONTH : [])]
       fs.readFileSync(path.join(ROOT, f), 'utf8').split('\n').forEach((line, i) => {
         if (ALLOWED.some((a) => a.test(line))) return
         for (const r of rules) {
-          const m = r.exec(line)
+          const m = r.exec(visible(line))
           if (m) hits.push(`${f}:${i + 1} "${m[0]}": ${line.trim().slice(0, 120)}`)
         }
       })

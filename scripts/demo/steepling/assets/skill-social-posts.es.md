@@ -1,6 +1,6 @@
 ---
 name: social-posts
-description: Posts para redes. Redacta nuestros posts para redes sobre un producto o una novedad, o rellena los huecos vacíos del calendario de redes (tres opciones por hueco: tranquila, divertida y con la oferta primero). Úsela para "escribe un post", "posts de la próxima semana", "texto para redes" y peticiones parecidas.
+description: Posts para redes. Redacta nuestros posts para redes sobre un producto o una novedad, o rellena los huecos vacíos del calendario de redes (tres opciones por hueco, una tranquila, una divertida y una con la oferta primero). Úsela para "escribe un post", "posts de la próxima semana", "texto para redes" y peticiones parecidas.
 metadata:
   title: Posts para redes
 ---

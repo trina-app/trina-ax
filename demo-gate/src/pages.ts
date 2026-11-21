@@ -5,7 +5,7 @@ import { LOCALES, isLocale, type Locale } from './config.ts'
 export type PageKind = 'landing' | 'busy' | 'ended' | 'limit' | 'check' | 'error'
 
 interface Words {
-  title: string; landingH: string; landingP: string; note: string; start: string
+  title: string; landingH: string; landingP: string; note: string; practice: string; start: string
   busyH: string; busyP: string; guided: string; plans: string
   endedH: string; endedP: string; again: string
   limitH: string; limitP: string; checkH: string; checkP: string; errorH: string; errorP: string
@@ -19,6 +19,7 @@ export const WORDS: Record<Locale, Words> = {
     landingH: 'Now try it yourself',
     landingP: "You get your own copy of the demo team. You're Mina, the new hire: ask the AI anything, open the files and rooms, and look around. Nothing you do here reaches real people.",
     note: 'You can ask Trina about 8 questions. Your copy stays for 24 hours.',
+    practice: 'Gmail, Google Drive and Higgsfield here are practice copies: nothing is really sent, and new pictures come from a prepared set.',
     start: 'Start',
     busyH: 'The live demo is busy right now',
     busyP: 'Every demo copy is in use. Watch the guided demo, or see the plans.',
@@ -39,6 +40,7 @@ export const WORDS: Record<Locale, Words> = {
     landingH: '이제 직접 써 보세요',
     landingP: '데모 팀을 나만의 사본으로 드려요. 새로 들어온 미나가 되어 AI에게 무엇이든 물어보고, 파일과 대화방을 둘러보세요. 여기서 한 일은 실제 사람에게 가지 않아요.',
     note: '트리나에게 8번 정도 물어볼 수 있어요. 사본은 24시간 동안 남아 있어요.',
+    practice: '여기 Gmail·Google Drive·Higgsfield는 연습용이에요. 실제로 보내거나 새로 만들지 않아요.',
     start: '시작하기',
     busyH: '지금은 체험 데모가 꽉 찼어요',
     busyP: '모든 데모 사본을 누군가 쓰고 있어요. 안내 데모를 보거나 요금제를 살펴보세요.',
@@ -59,6 +61,7 @@ export const WORDS: Record<Locale, Words> = {
     landingH: 'さあ、実際に使ってみましょう',
     landingP: 'デモチームのあなた専用のコピーをお渡しします。新しく入社したミナになって、AIになんでも聞いたり、ファイルやルームを開いたりして、自由に見て回ってください。ここでの操作が実在の人に届くことはありません。',
     note: 'トリナには8回ほど質問できます。コピーは24時間残ります。',
+    practice: 'ここのGmail・Googleドライブ・Higgsfieldは練習用です。実際に送信したり、新しく作ったりはしません。',
     start: 'はじめる',
     busyH: 'ただいまライブデモが混み合っています',
     busyP: 'デモのコピーはすべて使用中です。ガイド付きデモを見るか、料金プランをご覧ください。',
@@ -79,6 +82,7 @@ export const WORDS: Record<Locale, Words> = {
     landingH: '现在亲自试试吧',
     landingP: '你会得到一份属于自己的演示团队副本。你是新入职的 Mina：可以向 AI 提任何问题，打开文件和聊天室，随便看看。你在这里做的任何操作都不会发给真实的人。',
     note: '你可以向 Trina 提大约 8 个问题。副本会保留 24 小时。',
+    practice: '这里的 Gmail、Google 云端硬盘和 Higgsfield 是练习用的，不会真的发送，也不会真的新建内容。',
     start: '开始',
     busyH: '在线演示现在人有点多',
     busyP: '所有演示副本都在使用中。你可以先看引导演示，或者看看价格方案。',
@@ -99,6 +103,7 @@ export const WORDS: Record<Locale, Words> = {
     landingH: 'Ahora pruébelo usted mismo',
     landingP: 'Recibe su propia copia del equipo de la demostración. Usted es Mina, la nueva incorporación: pregúntele lo que quiera a la IA, abra los archivos y las salas, y eche un vistazo. Nada de lo que haga aquí llega a personas reales.',
     note: 'Puede hacerle a Trina unas 8 preguntas. Su copia se guarda durante 24 horas.',
+    practice: 'Gmail, Google Drive y Higgsfield aquí son de práctica: no se envía nada de verdad y las imágenes nuevas salen de un conjunto preparado.',
     start: 'Empezar',
     busyH: 'La demostración en vivo está ocupada ahora mismo',
     busyP: 'Todas las copias de la demostración están en uso. Vea la demostración guiada o consulte los planes.',
@@ -119,6 +124,7 @@ export const WORDS: Record<Locale, Words> = {
     landingH: 'Sekarang coba sendiri',
     landingP: 'Anda mendapat salinan tim demo milik Anda sendiri. Anda adalah Mina, karyawan baru: tanyakan apa saja ke AI, buka file dan ruang obrolan, lalu lihat-lihat. Apa pun yang Anda lakukan di sini tidak sampai ke orang sungguhan.',
     note: 'Anda bisa bertanya ke Trina sekitar 8 kali. Salinan Anda disimpan selama 24 jam.',
+    practice: 'Gmail, Google Drive, dan Higgsfield di sini hanya untuk latihan: tidak ada yang benar-benar terkirim, dan gambar baru diambil dari kumpulan yang sudah disiapkan.',
     start: 'Mulai',
     busyH: 'Demo langsung sedang penuh',
     busyP: 'Semua salinan demo sedang dipakai. Tonton demo terpandu, atau lihat paket harga.',
@@ -171,7 +177,7 @@ export function renderPage(kind: PageKind, locale: Locale, o: { siteKey: string;
     </div>`
   let h = '', p = '', body = '', turnstile = false
   switch (kind) {
-    case 'landing': h = w.landingH; p = w.landingP; body = startForm(w.start, true) + `<p class="note">${esc(w.note)}</p>`; turnstile = true; break
+    case 'landing': h = w.landingH; p = w.landingP; body = startForm(w.start, true) + `<p class="note">${esc(w.note)}</p><p class="note practice">${esc(w.practice)}</p>`; turnstile = true; break
     case 'check': h = w.checkH; p = w.checkP; body = startForm(w.start, true); turnstile = true; break
     case 'ended': h = w.endedH; p = w.endedP; body = startForm(w.again, true); turnstile = true; break
     case 'busy': h = w.busyH; p = w.busyP; body = away; break
@@ -196,6 +202,7 @@ ${turnstile ? `<script src="${TURNSTILE_SCRIPT}" async defer></script>` : ''}
   h1 { font-size:24px; line-height:1.3; margin:0 0 12px; letter-spacing:-.01em; }
   p { margin:0 0 20px; color:var(--dim); }
   .note { font-size:14px; margin:16px 0 0; text-wrap:balance; word-break:keep-all; }
+  .note.practice { margin-top:6px; }
   form { display:flex; flex-direction:column; gap:16px; align-items:stretch; }
   .row { display:flex; gap:12px; flex-wrap:wrap; }
   .primary, .secondary { display:inline-flex; justify-content:center; align-items:center; min-height:44px; padding:0 20px; border-radius:10px;

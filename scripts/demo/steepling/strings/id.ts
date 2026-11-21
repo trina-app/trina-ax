@@ -62,7 +62,7 @@ export const id: FreeRoamStrings = {
     oneLine: 'Steepling membuat kantong teh cold brew: celupkan satu ke air dingin, dan dalam beberapa jam sudah siap diminum.',
     products: 'Steepling Cold Brew Tea dalam 6 rasa (US$9,90 isi 10 kantong); blend Yuzu Jahe edisi musim dingin (US$11,90 isi 10 kantong)',
     audience: 'Orang yang suka teh tanpa repot rebus air; kafe dan kantor',
-    tone: ['Tenang dan hangat', 'Sederhana dan ramah', 'Tanpa membesar-besarkan'],
+    tone: ['Tenang dan hangat', 'Sederhana dan ramah', 'Tidak berlebihan'],
     avoid: '"Terbaik" atau "nomor satu", dan angka yang tidak bisa kami buktikan',
   },
 

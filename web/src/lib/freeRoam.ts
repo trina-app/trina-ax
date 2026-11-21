@@ -23,8 +23,9 @@ export function mayBeDemoServer(me: Me | null | undefined): boolean {
 export const isFreeRoam = (info: DemoInfo | null | undefined): info is DemoInfo & { kind: 'freeRoam' } => info?.kind === 'freeRoam'
 
 /** The languages a free-roam demo has (its sign-in page offers only these, QA TC-5621): the ones the demo company is
- * written in, scripts/demo/steepling/make.ts STEEPLING_LOCALES (demo-gate keeps one snapshot per language). */
-export const FREE_ROAM_LOCALES: readonly Locale[] = ['en', 'ko']
+ * written in and a snapshot can be built in, scripts/demo/steepling/make.ts STEEPLING_LOCALES (demo-gate keeps one
+ * snapshot per language; tests/unit/demo-company-seed.test.ts keeps the two lists equal). */
+export const FREE_ROAM_LOCALES: readonly Locale[] = ['en', 'ko', 'ja', 'zh', 'es', 'id']
 
 /** the meter starts to speak at this share of the demo limit */
 export const METER_FROM = 0.8

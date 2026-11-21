@@ -213,6 +213,15 @@ describe('pages', () => {
     const ko = renderPage('landing', 'ko', { siteKey: 'k', links })
     expect(en).toContain('<p class="note">You can ask Trina about 8 questions. Your copy stays for 24 hours.</p>')
     expect(ko).toContain('<p class="note">트리나에게 8번 정도 물어볼 수 있어요. 사본은 24시간 동안 남아 있어요.</p>')
+    // under it, that Gmail, Drive and Higgsfield are practice copies (the owner: say it up front), in every language
+    expect(en).toContain('<p class="note practice">Gmail, Google Drive and Higgsfield here are practice copies: nothing is really sent, and new pictures come from a prepared set.</p>')
+    expect(ko).toContain('<p class="note practice">여기 Gmail·Google Drive·Higgsfield는 연습용이에요. 실제로 보내거나 새로 만들지 않아요.</p>')
+    for (const l of LOCALES) {
+      const html = renderPage('landing', l, { siteKey: 'k', links })
+      expect(html.indexOf('class="note practice"'), l).toBeGreaterThan(html.indexOf('class="note"'))
+      for (const name of ['Gmail', 'Higgsfield']) expect(WORDS[l].practice, l).toContain(name)
+    }
+    for (const k of ['busy', 'ended', 'limit'] as const) expect(renderPage(k, 'en', { siteKey: 'k', links })).not.toContain('practice copies')
     // every language says about 8 questions and 24 hours, never tokens
     for (const l of LOCALES) {
       expect(WORDS[l].note, l).toContain('8')

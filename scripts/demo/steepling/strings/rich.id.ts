@@ -115,7 +115,7 @@ export const richId = {
   'cv.quote-ok': 'Boleh. Nama depan saja (Hana). Kolom "Boleh dikutip" juga sudah kutambahkan di file.',
   'cv.courier': 'Pengiriman yang telat di pertengahan bulan lalu karena rute kurir berubah. Sekarang sudah normal.',
   'cv.refunds': 'Refund untuk kantong sobek sudah beres: 6 pesanan, total US$59,40.',
-  'cv.\u006eovember': 'Bulan ini sejauh ini 7 ulasan, 0 kantong sobek 🎉 Peppermint tetap paling laris.',
+  'cv.november': 'Bulan ini sejauh ini 7 ulasan, 0 kantong sobek 🎉 Peppermint tetap paling laris.',
   'cv.works': 'Pouch baru berhasil nih. Bagus.',
   'cv.file': 'File ulasan sudah diperbarui, sekarang 30 baris (bulan lalu dan bulan ini).',
   'cv.faq': 'Aku tambahkan jawaban "berapa lama harus direndam?" ke FAQ toko. Itu pertanyaan yang paling sering masuk.',

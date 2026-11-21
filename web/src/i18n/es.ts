@@ -4263,6 +4263,8 @@ export const es: Record<MessageKey, string> = {
   "demo.signIn.title": "Demo de la empresa ficticia {company}",
   "demo.free.bar": "Usted es {name} en {company}, una empresa inventada. Pruebe lo que quiera.",
   "demo.free.tryLabel": "Ideas para probar",
+  "demo.free.practice": "Conexiones de práctica",
+  "demo.free.practiceTip": "Gmail, Google Drive y Higgsfield aquí son de práctica: no se envía nada de verdad y las imágenes nuevas salen de un conjunto preparado.",
   "demo.free.chip.posts": "Haz las publicaciones para redes de la próxima semana",
   "demo.free.chip.reply": "Revisa la respuesta de Chris",
   "demo.free.chip.assets": "¿Qué hay en nuestra carpeta Brand assets?",

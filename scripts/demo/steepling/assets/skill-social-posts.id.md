@@ -1,6 +1,6 @@
 ---
 name: social-posts
-description: Postingan media sosial. Menulis draf postingan untuk satu produk atau kabar, atau mengisi slot kosong di kalender media sosial (tiga pilihan tiap slot: tenang, jenaka, fokus promo). Pakai untuk "buatkan postingan", "postingan minggu depan", "copy media sosial", dan sejenisnya.
+description: Postingan media sosial. Menulis draf postingan untuk satu produk atau kabar, atau mengisi slot kosong di kalender media sosial (tiga pilihan tiap slot, yaitu tenang, jenaka, dan fokus promo). Pakai untuk "buatkan postingan", "postingan minggu depan", "copy media sosial", dan sejenisnya.
 metadata:
   title: Postingan media sosial
 ---
