@@ -1,6 +1,6 @@
-// The gate's own pages (landing with Turnstile + Start, busy, session ended, start refusals), en and ko. Static HTML,
+// The gate's own pages (landing with Turnstile + Start, busy, session ended, start refusals), in the six languages. Static HTML,
 // no script of our own: the only script is Cloudflare Turnstile's widget on the landing page.
-import type { Locale } from './config.ts'
+import { LOCALES, isLocale, type Locale } from './config.ts'
 
 export type PageKind = 'landing' | 'busy' | 'ended' | 'limit' | 'check' | 'error'
 
@@ -11,7 +11,7 @@ interface Words {
   limitH: string; limitP: string; checkH: string; checkP: string; errorH: string; errorP: string
 }
 
-/** Screen text (the only place with Korean in this service). `note`'s "about 8 questions" is the demo limit (300k)
+/** Screen text (the only place with words other than English in this service). `note`'s "about 8 questions" is the demo limit (300k)
  * over shared/src/api/demo.ts DEMO_QUESTION_TOKENS (35k): change both together. Questions, never tokens. */
 export const WORDS: Record<Locale, Words> = {
   en: {
@@ -54,17 +54,99 @@ export const WORDS: Record<Locale, Words> = {
     errorH: '데모를 시작하지 못했어요',
     errorP: '잠시 뒤 다시 해 주세요.',
   },
+  ja: {
+    title: '実際に使ってみる',
+    landingH: 'さあ、実際に使ってみましょう',
+    landingP: 'デモチームのあなた専用のコピーをお渡しします。新しく入社したミナになって、AIになんでも聞いたり、ファイルやルームを開いたりして、自由に見て回ってください。ここでの操作が実在の人に届くことはありません。',
+    note: 'トリナには8回ほど質問できます。コピーは24時間残ります。',
+    start: 'はじめる',
+    busyH: 'ただいまライブデモが混み合っています',
+    busyP: 'デモのコピーはすべて使用中です。ガイド付きデモを見るか、料金プランをご覧ください。',
+    guided: 'ガイド付きデモを見る',
+    plans: '料金プランを見る',
+    endedH: 'デモの時間が終わりました',
+    endedP: 'デモのコピーは24時間だけ残ります。いつでも新しく始められます。',
+    again: 'もう一度はじめる',
+    limitH: 'デモをすでに何度か始めています',
+    limitP: 'しばらくしてからもう一度お試しいただくか、料金プランをご覧ください。',
+    checkH: 'ブラウザの確認が完了しませんでした',
+    checkP: '確認が終わるまで待ってから、「はじめる」を押してください。',
+    errorH: 'デモを開始できませんでした',
+    errorP: '少し時間をおいてから、もう一度お試しください。',
+  },
+  zh: {
+    title: '亲自试试',
+    landingH: '现在亲自试试吧',
+    landingP: '你会得到一份属于自己的演示团队副本。你是新入职的 Mina：可以向 AI 提任何问题，打开文件和聊天室，随便看看。你在这里做的任何操作都不会发给真实的人。',
+    note: '你可以向 Trina 提大约 8 个问题。副本会保留 24 小时。',
+    start: '开始',
+    busyH: '在线演示现在人有点多',
+    busyP: '所有演示副本都在使用中。你可以先看引导演示，或者看看价格方案。',
+    guided: '看引导演示',
+    plans: '查看价格方案',
+    endedH: '你的演示已结束',
+    endedP: '演示副本只保留 24 小时。你随时可以重新开始。',
+    again: '重新开始',
+    limitH: '你已经开始过好几次演示了',
+    limitP: '请稍后再试，或者看看价格方案。',
+    checkH: '浏览器验证没有完成',
+    checkP: '请等验证完成后，再点击“开始”。',
+    errorH: '演示没能启动',
+    errorP: '请稍后再试。',
+  },
+  es: {
+    title: 'Pruébelo usted mismo',
+    landingH: 'Ahora pruébelo usted mismo',
+    landingP: 'Recibe su propia copia del equipo de la demostración. Usted es Mina, la nueva incorporación: pregúntele lo que quiera a la IA, abra los archivos y las salas, y eche un vistazo. Nada de lo que haga aquí llega a personas reales.',
+    note: 'Puede hacerle a Trina unas 8 preguntas. Su copia se guarda durante 24 horas.',
+    start: 'Empezar',
+    busyH: 'La demostración en vivo está ocupada ahora mismo',
+    busyP: 'Todas las copias de la demostración están en uso. Vea la demostración guiada o consulte los planes.',
+    guided: 'Ver la demostración guiada',
+    plans: 'Ver planes',
+    endedH: 'Su sesión de demostración ha terminado',
+    endedP: 'Las copias de la demostración se guardan durante 24 horas. Puede empezar una nueva cuando quiera.',
+    again: 'Empezar de nuevo',
+    limitH: 'Ya ha empezado la demostración varias veces',
+    limitP: 'Vuelva a intentarlo más tarde o consulte los planes.',
+    checkH: 'No pudimos completar la verificación del navegador',
+    checkP: 'Espere a que termine la verificación y pulse Empezar.',
+    errorH: 'No se pudo iniciar la demostración',
+    errorP: 'Vuelva a intentarlo dentro de un rato.',
+  },
+  id: {
+    title: 'Coba sendiri',
+    landingH: 'Sekarang coba sendiri',
+    landingP: 'Anda mendapat salinan tim demo milik Anda sendiri. Anda adalah Mina, karyawan baru: tanyakan apa saja ke AI, buka file dan ruang obrolan, lalu lihat-lihat. Apa pun yang Anda lakukan di sini tidak sampai ke orang sungguhan.',
+    note: 'Anda bisa bertanya ke Trina sekitar 8 kali. Salinan Anda disimpan selama 24 jam.',
+    start: 'Mulai',
+    busyH: 'Demo langsung sedang penuh',
+    busyP: 'Semua salinan demo sedang dipakai. Tonton demo terpandu, atau lihat paket harga.',
+    guided: 'Tonton demo terpandu',
+    plans: 'Lihat paket',
+    endedH: 'Sesi demo Anda sudah berakhir',
+    endedP: 'Salinan demo disimpan selama 24 jam. Anda bisa memulai yang baru kapan saja.',
+    again: 'Mulai lagi',
+    limitH: 'Anda sudah beberapa kali memulai demo',
+    limitP: 'Coba lagi nanti, atau lihat paket harga.',
+    checkH: 'Pemeriksaan browser belum selesai',
+    checkP: 'Tunggu sampai pemeriksaan selesai, lalu tekan Mulai.',
+    errorH: 'Demo tidak bisa dimulai',
+    errorP: 'Coba lagi sebentar lagi.',
+  },
 }
 
-/** ?lang= wins; else the browser's first language that is ko or en; else en */
-export function localeOf(query: string | null, acceptLanguage: string | undefined): Locale {
-  if (query === 'ko' || query === 'en') return query
+/** ?lang= wins; else the browser's first language that is one of ours; else en. Only `allowed` (the live
+ * pool.locales): a language the gate has no snapshot for falls back to en (or the first allowed one). */
+export function localeOf(query: string | null, acceptLanguage: string | undefined, allowed: readonly Locale[] = LOCALES): Locale {
+  const ok = (l: string | null | undefined): l is Locale => isLocale(l) && allowed.includes(l)
+  if (ok(query)) return query
   for (const part of (acceptLanguage ?? '').split(',')) {
-    const tag = part.trim().split(';')[0]!.toLowerCase()
-    if (tag.startsWith('ko')) return 'ko'
-    if (tag.startsWith('en')) return 'en'
+    const tag = part.trim().split(';')[0]!.toLowerCase().split('-')[0]
+    // a browser tag the gate does not serve is skipped: the next one may be
+    if (ok(tag)) return tag
   }
-  return 'en'
+  return allowed.includes('en') || !allowed.length ? 'en' : allowed[0]!
 }
 
 const esc = (s: string) => s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!)

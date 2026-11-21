@@ -3,6 +3,7 @@
 // start is one visitor session (a visitor gets one instance), so per-visitor flags live on the in-memory Instance.
 import fs from 'node:fs'
 import path from 'node:path'
+import { isLocale } from './config.ts'
 import { utcDay } from './state.ts'
 
 export const KEEP_DAYS = 400
@@ -23,10 +24,10 @@ export type StatKey =
   | 'landing' | 'busyShown' | 'refusedPaused' | 'refusedFull' | 'refusedLimit' | 'turnstilePass' | 'turnstileFail'
   | 'starts' | 'startFailed' | 'resumes' | 'questions' | 'hitLimit' | 'startFree' | 'tokens' | (typeof DURATION_BUCKETS)[number]
 
-/** day -> locale ('en', 'ko' or '-') -> counter -> value */
+/** day -> locale (one of LOCALES, or '-') -> counter -> value */
 export type StatDays = Record<string, Record<string, Record<string, number>>>
 
-const localeKey = (l: string | null | undefined) => (l === 'en' || l === 'ko' ? l : '-')
+const localeKey = (l: string | null | undefined) => (isLocale(l) ? l : '-')
 
 export class GateStats {
   private file: string

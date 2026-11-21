@@ -5,7 +5,7 @@
 import crypto from 'node:crypto'
 import http from 'node:http'
 import net from 'node:net'
-import type { GateConfig, Locale } from './config.ts'
+import { isLocale, type GateConfig, type Locale } from './config.ts'
 import { readSecretFile } from './config.ts'
 import { ipTag, type GateLog } from './log.ts'
 import { PAGE_CSP, localeOf, renderPage, type PageKind } from './pages.ts'
@@ -232,7 +232,7 @@ export function createPublic(d: PublicDeps) {
     if ((origin && origin !== cfg.publicOrigin) || req.headers['sec-fetch-site'] === 'cross-site') return json(res, 403, { error: { code: 'forbidden' } })
     const form = await readForm(req)
     if (!form) return json(res, 413, { error: { code: 'too_large' } })
-    const locale = localeOf(form.get('lang'), req.headers['accept-language'])
+    const locale = localeOf(form.get('lang'), req.headers['accept-language'], cfg.pool.locales)
     const ip = ipOf(req)
     const tag = ipTag(ip)
     const { inst: current } = visitorOf(req)
@@ -334,7 +334,7 @@ export function createPublic(d: PublicDeps) {
       const o = req.headers.origin
       const cors: Record<string, string> = o && cfg.links.statusOrigins.includes(o) ? { 'access-control-allow-origin': o, vary: 'Origin' } : {}
       const l = url.searchParams.get('lang')
-      return json(res, 200, { available: pool.available(l === 'ko' || l === 'en' ? l : undefined) }, cors)
+      return json(res, 200, { available: pool.available(isLocale(l) ? l : undefined) }, cors)
     }
     if (url.pathname === '/__demo/start') {
       if (req.method !== 'POST') { res.writeHead(303, { location: '/' }); return res.end() }
@@ -352,7 +352,7 @@ export function createPublic(d: PublicDeps) {
       const question = req.method === 'POST' && QUESTION_RE.test(url.pathname)
       return proxyHttp(req, res, inst, question ? (s) => { if (s >= 200 && s < 300) stats.bump(inst.locale, 'questions') } : undefined)
     }
-    const locale = localeOf(url.searchParams.get('lang'), req.headers['accept-language'])
+    const locale = localeOf(url.searchParams.get('lang'), req.headers['accept-language'], cfg.pool.locales)
     if (url.pathname !== '/') {
       if (url.pathname.startsWith('/api/')) return json(res, 401, { error: { code: 'unauthorized' } })
       res.writeHead(303, { location: '/', 'cache-control': 'no-store' }); return res.end()

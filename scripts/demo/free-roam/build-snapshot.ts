@@ -1,7 +1,7 @@
 // The free-roam demo's snapshot (docs/AGENTS/plan/20261119-1538-demo-free-roam-c.md): a whole base folder of a seeded
 // development server, the END of the scripted story, that the demo gate clones once per visitor (demo-gate/src/pool.ts).
 //
-//   bun scripts/demo/free-roam/build-snapshot.ts --content steepling|<content dir> --locale en|ko --out <snapshots dir>
+//   bun scripts/demo/free-roam/build-snapshot.ts --content steepling|<content dir> --locale en|ko|ja|zh|es|id --out <snapshots dir>
 //       [--name <name>] [--no-verify]
 //
 // It writes <snapshots dir>/<locale>/<name>/ (name: the UTC time, YYYYMMDD-HHMMSS) with
@@ -31,7 +31,7 @@ import { baseConfig, baseLayout, cloneBase, freePort, shortTemp, SNAPSHOT_CONFIG
 const ROOT = path.resolve(import.meta.dir, '..', '..', '..')
 /** the snapshot team's default model (Admin › AI engines; the alias, which Claude Code resolves to its Sonnet) */
 export const SNAPSHOT_MODEL = 'sonnet'
-export const USAGE ='Usage: bun scripts/demo/free-roam/build-snapshot.ts --content steepling|<dir> --locale en|ko --out <snapshots dir> [--name <name>] [--no-verify]'
+export const USAGE ='Usage: bun scripts/demo/free-roam/build-snapshot.ts --content steepling|<dir> --locale en|ko|ja|zh|es|id --out <snapshots dir> [--name <name>] [--no-verify]'
 
 export interface Manifest {
   codeVersion: string
