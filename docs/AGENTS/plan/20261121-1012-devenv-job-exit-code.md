@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-21 10:12
 - Branch: `fix/devenv-job-exit-code`
-- Status: in progress
+- Status: done
 - Where: server/src/devenv (jobs.ts, srt/runner.ts), web inbox text. Why: a finished job was told as "couldn't finish"
 - Version impact: patch (a bug fix in how a job's end is recorded and told; no API or schema change)
 
@@ -48,3 +48,7 @@ rowStatus; tool.ts is not touched. Six app languages for the new words.
 
 ## Result
 
+Built as planned. runner.ts: stopRow ends an already-ended run with its own code; rowStatus reads the exit file
+again. jobs.ts: "ended, result unknown" (JOB_UNKNOWN, jobOutcome) for the notice and the AI; the web inbox the same
+(six languages). Two unit tests in tests/unit/dev-env-srt.test.ts reproduce both races (the first gave exactly the qa
+row: exit_code null, end_reason setting) and pass now. tool.ts not touched.
