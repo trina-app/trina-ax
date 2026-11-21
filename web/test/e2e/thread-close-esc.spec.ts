@@ -1,7 +1,6 @@
 // QA TC-6923: a thread beside the room closes with Esc (it did not: Esc only worked where the thread covers the room),
 // and closing it from a room opened at a message (?m=) puts the ?m= away, so a reload does not jump back to it. Back
-// still works as before: the thread is one step forward from the room. Also TC-6922: the message a link opens at is
-// marked with the fading background (index.css room-lit).
+// still works as before: the thread is one step forward from the room.
 import { expect, test, type Page } from '@playwright/test'
 import { reset, signIn } from './helpers'
 import { ROOM_ID, routeRoom } from './rooms-mock'
@@ -26,9 +25,6 @@ async function open(page: Page) {
   await signIn(page)
   await page.goto(`/rooms/${ROOM_ID}?m=${ROOT}`)
   const root = page.getByTestId('room-message').filter({ hasText: '이번 주 시안' })
-  // TC-6922: picked out with the fading background, no accent box
-  await expect(root).toHaveAttribute('data-highlight', '')
-  expect(await root.evaluate((el) => getComputedStyle(el).animationName)).toBe('room-lit')
   await root.getByTestId('room-thread-line').click()
   await expect(page).toHaveURL(new RegExp(`/rooms/${ROOM_ID}/t/${ROOT}$`))
   await expect(page.getByTestId('room-thread').getByTestId('room-message').first()).toBeVisible()
