@@ -18,7 +18,7 @@ Trina AX 把团队的文件、技能和工具集中在一台服务器上。每�
 
 https://github.com/user-attachments/assets/91eddc7b-a90d-4b3a-b95c-840f5faadf0c
 
-<p align="center"><sub>入职第一天，新员工的 AI 能做什么？80 秒短片。</sub><br>开源（AGPL-3.0）· 自托管免费，不限人数<br><br><a href="https://github.com/trina-app/trina-ax?tab=readme-ov-file"><img src="docs/images/readme/v4/star-zh.png" height="44" alt="在 GitHub 上为 Trina AX 点 Star"></a><br><sub>然后点页面顶部的 ☆ Star。点个 Star 能让更多团队发现 Trina AX。</sub></p>
+<p align="center"><sub>入职第一天，新员工的 AI 能做什么？80 秒短片。</sub><br>开源（AGPL-3.0）· 自托管免费，不限人数<br><br><a href="https://github.com/trina-app/trina-ax?tab=readme-ov-file"><img src="docs/images/readme/v4/star-zh.png" height="44" alt="在 GitHub 上为 Trina AX 点 Star"></a><br><sub>点开后，再点页面顶部的 ☆ Star。Star 越多，知道 Trina AX 的团队就越多。</sub></p>
 
 <br>
 
@@ -38,9 +38,9 @@ https://github.com/user-attachments/assets/91eddc7b-a90d-4b3a-b95c-840f5faadf0c
 | **Google。** 把 Drive 文件夹共享给团队，或为 Gmail、Calendar、Docs 和 Sheets 接入一个团队账号（共享邮箱或日历）。 | 你选定的人可以在自己的对话里使用。每个人也可以另外接入自己的 Google 账号。 |
 | **应用。** 应用列表里的 Higgsfield、Notion、Linear、Figma 等，或填地址接入任意 MCP 服务器（比如 Bright Data）。 | 每个人的对话里都能用这个应用的工具：可以共用一个团队账号登录，也可以各自用自己的账号登录。 |
 | **公司 API。** 一个地址、一个密钥和几行说明。 | AI 可以调用你们自己的系统，范围仅限这个地址。 |
-| **Slack。** 所有者或管理员添加一次。 | 在私信里，或在邀请了 Trina 的频道里问它，按你本人的权限回答。 |
+| **Slack。** 所有者或管理员添加一次。 | 在私信里，或在邀请了 Trina 的频道里提问，Trina 按你本人的权限回答。 |
 | **技能。** 写一个 `SKILL.md`，或直接导入你 `.claude`、`.codex` 文件夹里的技能。 | 每个人的 AI 都按同样的步骤做。输入 `/` 就能用。 |
-| **团队文件。** 一个团队云盘：全公司、小组、项目、团队技能和个人文件夹。 | 每个人的 AI 都从团队文件开始，只打开这个人有权打开的内容。 |
+| **团队文件。** 一个团队云盘：全公司、小组、项目、团队技能和个人文件夹。 | 每个人的 AI 都从团队文件开始，只打开本人有权打开的内容。 |
 
 <table>
 <tr>
@@ -60,13 +60,13 @@ https://github.com/user-attachments/assets/91eddc7b-a90d-4b3a-b95c-840f5faadf0c
 
 **同事做到一半，你接着往下做。** 在团队项目里打开同事的 AI 会话，之前的对话和回答都看得到，马上就能接着问。新的回答按提问者本人的权限处理。其他会话也能像 Google Drive 里的文件一样，共享给个人或小组。
 
-<img src="docs/images/readme/v4/shared-sessions.gif" width="100%" alt="Mina 打开 Sam 的项目会话，接着修改卡片新闻；她的提问按她自己的权限处理。">
+<img src="docs/images/readme/v4/shared-sessions.gif" width="100%" alt="Mina 打开 Sam 的项目会话，接着修改图文卡片；她的提问按她自己的权限处理。">
 
-**在任何对话旁边问 Trina，一键发到群里。** 侧边聊天只有你能看到；点一下，Trina 的回答就发到群里。
+**在任何聊天旁边问 Trina，回答一键发出。** 侧边聊天只有你能看到；点一下，Trina 的回答就发到聊天里。
 
-<img src="docs/images/readme/v4/room-share.gif" width="100%" alt="在 Expo booth crew 对话里，Mina 在只有她能看到的侧边聊天里请 Trina 把参展规定做成清单，再把它发到对话里。">
+<img src="docs/images/readme/v4/room-share.gif" width="100%" alt="在 Expo booth crew 聊天里，Mina 在只有她能看到的侧边聊天里请 Trina 把参展规定做成清单，再发到这个聊天里。">
 
-**每个人的 AI 只看到这个人能打开的内容。** Mina 打不开 Finance，她的 AI 也打不开。[权限如何运作](docs/PERMISSIONS.md)
+**每个人的 AI，只能看到本人能打开的内容。** Mina 打不开 Finance，她的 AI 也打不开。[权限说明](docs/PERMISSIONS.md)
 
 <img src="docs/images/readme/v4/folder-access.gif" width="100%" alt="管理员修改谁能打开 Sales 文件夹，然后查看 Mina 能打开哪些：Finance 不在她的列表里。">
 
@@ -79,19 +79,18 @@ https://github.com/user-attachments/assets/91eddc7b-a90d-4b3a-b95c-840f5faadf0c
 </tr>
 <tr>
 <td width="50%"><b>用量与上限。</b> 按人显示回答数、token 和预估费用；token 上限可按人、小组或团队设置。<br><br><img src="docs/images/readme/v4/usage.webp" alt="管理员用量页面：每个人的 token、回答数和预估费用"></td>
-<td width="50%"><b>全局搜索。</b> 用 ⌘K 搜索聊天、历史、项目、文件、技能和定时任务。<br><br><img src="docs/site/images/search/palette.webp" alt="搜索聊天、历史、项目、文件、技能和定时任务的 ⌘K 搜索"></td>
+<td width="50%"><b>全局搜索。</b> 用 ⌘K 搜索聊天、历史、项目、文件、技能和定时任务。<br><br><img src="docs/site/images/search/palette.webp" alt="⌘K 搜索：聊天、历史、项目、文件、技能和定时任务"></td>
 </tr>
 <tr>
-<td colspan="2"><b>像 Slack 一样的团队聊天，自带 Trina AI。</b> 全员频道、小组频道、私密频道、私信、群聊、话题和 @提及，网页、桌面和手机都能用；在任何对话旁边，都能打开只有你能看到的聊天问 Trina。<br><br><img src="docs/images/readme/v4/team-chat.webp" alt="团队聊天中的 Marketing 频道：左侧是频道和私信，有表情回应和 @提及、发到频道里的一条回答，右侧打开了一个话题"></td>
+<td colspan="2"><b>像 Slack 一样的团队聊天，自带 Trina AI。</b> 全员频道、小组频道、私密频道、私信、群聊、话题和 @提及都有，网页、桌面和手机都能用。在任何聊天旁边，都能打开只有你能看到的侧边聊天问 Trina。<br><br><img src="docs/images/readme/v4/team-chat.webp" alt="团队聊天中的 Marketing 频道：左侧是频道和私信，还有表情回应、@提及和发到频道里的一条回答，右侧打开了一个话题"></td>
 </tr>
 </table>
 
 - **每次改动都会保留。** 不管是人改的还是 AI 改的，任何版本都能恢复。
 - **内置浏览器。** 在桌面应用里，Trina 会在聊天旁边的面板中打开网页、阅读、点击、填表，你可以看着它操作，点 Stop 随时停下。打开新网站前会先问你，除非你已允许所有网站。
-- **应用动态推送到对话里。** Sentry、GitHub、Stripe、Jira 和 HubSpot 的动态以卡片推送。
-- **会议纪要。** Mac 应用（macOS 14.4 及以上）可以为 Zoom、Meet 和 Teams 通话做纪要。
+- **应用动态推送到聊天里。** Sentry、GitHub、Stripe、Jira 和 HubSpot 的动态以卡片推送。
 - **查找工作文件。** 桌面应用在你的电脑上找出最近的工作文件，只添加你选中的。
-- **文档。** 读取韩文（HWP/HWPX）正文，预览 PDF 和 PowerPoint。
+- **文档。** 读取韩文 HWP/HWPX 文档的文字，预览 PDF 和 PowerPoint。
 - **多端可用。** Mac、Windows、Linux、iPhone、Android 和任意浏览器都能用，界面支持六种语言。
 
 <br>
@@ -102,8 +101,8 @@ https://github.com/user-attachments/assets/91eddc7b-a90d-4b3a-b95c-840f5faadf0c
 
 - **在线试用：** 无需安装，用一个虚构团队体验（AI 已关闭）。[打开演示](https://ax.trina.app/demo/zh/)
 - **Trina 托管：** 不用自己运维服务器。免费试用 14 天，之后按月订阅。[价格](https://ax.trina.app/pricing)
-- **应用：** [Mac、Windows、Linux、iPhone、Android](https://ax.trina.app/download)，或任何浏览器。
-- **自托管：** 部署在你们自己的 Linux 服务器、Docker 或办公室的 Mac 上，免费。[Linux](docs/INSTALL-LINUX.en.md) · [Docker](docs/INSTALL-DOCKER.md) · [办公室 Mac](docs/OFFICE.en.md) · [用 AI 助手安装](docs/INSTALL-LINUX.en.md#install-with-your-ai-agent)
+- **应用：** [Mac、Windows、Linux、iPhone、Android](https://ax.trina.app/download)，也可以直接用浏览器。
+- **自托管：** 部署在你们自己的 Linux 服务器、Docker 或办公室的 Mac 上，免费。[Linux](docs/INSTALL-LINUX.en.md) · [Docker](docs/INSTALL-DOCKER.md) · [办公室 Mac](docs/OFFICE.en.md) · [用 AI Agent 安装](docs/INSTALL-LINUX.en.md#install-with-your-ai-agent)
 
 <b>用 Docker 自托管</b>（Linux，或装了 OrbStack 的 Mac）
 
@@ -132,7 +131,7 @@ bun install --frozen-lockfile && bun run demo   # → http://127.0.0.1:19760 · 
 
 一台服务器以 Claude Code 和 Codex 为引擎。每个文件请求，不管来自人还是他的 AI，都要经过服务器上的同一道权限检查。在 Linux 服务器上，引擎以专用账号运行在 bubblewrap、Landlock 和 seccomp 沙箱里，shell 和内置文件工具都已关闭，只能通过 Trina 的工具打开文件。[安全与权限](docs/security-and-permissions.md)
 
-Trina 提供的是工作空间，不是 AI 本身：请接入你们获得授权的 Claude 或 OpenAI 账号与套餐。AI 用量按你接入的账号计费。
+Trina 提供的是工作空间，不是 AI 本身：请接入你们获得授权的 Claude 或 OpenAI 账号与套餐。AI 费用记在你接入的账号上。
 
 <details>
 <summary><b>数据、限制和我们不承诺的事</b></summary>
@@ -145,7 +144,7 @@ Trina 提供的是工作空间，不是 AI 本身：请接入你们获得授权�
 - 没有任何安全认证；不保证回答完美，不保证一定省钱，也不会自动做出法务、财务或人事决策。输出结果和部署边界请自行审核。
 - Linux 服务器不做 OCR：AI 会把照片和扫描页面当作图片来看，但无法按文字搜索。办公室 Mac 暂不支持读取视频。
 - 任何团队都能读取 HWP/HWPX 的文字；[预览和新建韩文（Hangul）文档](resources/hwp/README.md)需要可选的 HWP Preview 插件（macOS，或 glibc 2.39 及以上的 Linux；不支持 Debian 12）。
-- 连接：优先使用本人符合条件的连接，然后依次是分配给本人、小组和整个团队的连接。新建的 Trina 团队默认可以让一个公司连接供整个团队使用；已经保存过的选择保持不变。**这个软件设置并不代表你获得了 Anthropic 或 OpenAI 条款下的许可。** [连接详情](docs/FAQ.md)
+- 连接：优先使用本人符合条件的连接，然后依次是分配给本人、小组和整个团队的连接。新建的 Trina 团队默认允许整个团队共用一个公司连接；已经保存过的选择保持不变。**这个软件设置并不代表 Anthropic 或 OpenAI 的条款允许你这样用。** [连接详情](docs/FAQ.md)
 - Linux 自托管需要 Debian 12/13 或 Ubuntu 24.04、启用 cgroup v2 的 systemd、amd64 或 arm64 架构、4 GB 内存和 20 GB 磁盘。安装、升级和从备份恢复都由你们的 IT 团队负责。
 
 </details>
@@ -156,7 +155,7 @@ Trina 提供的是工作空间，不是 AI 本身：请接入你们获得授权�
 
 ## 社区
 
-如果 Trina AX 对你的团队有帮助，欢迎在 GitHub 上点个 ⭐，让更多团队找到它。
+如果 Trina AX 对你的团队有帮助，欢迎在 GitHub 上点个 Star ⭐，让更多团队找到它。
 
 [Discord](https://discord.gg/zUVfSR8MVk) · [X](https://x.com/trina_ax) · [版本发布](https://github.com/trina-app/trina-ax/releases/latest) · [更新日志](CHANGELOG.md) · [获取支持](SUPPORT.md) · [参与贡献](CONTRIBUTING.md) · [安全](SECURITY.md) · [开发](docs/DEVELOPMENT.md) · [配置](docs/CONFIGURATION.md) · [llms.txt](llms.txt)
 
@@ -168,6 +167,6 @@ Trina 提供的是工作空间，不是 AI 本身：请接入你们获得授权�
 
 ## 开源协议
 
-本项目基于 [AGPL-3.0-only](LICENSE) 协议开源，可免费使用，也可以商用。如果你通过网络提供修改后的版本，需要向这些用户公开对应的源代码。云端协议（cloud protocol）部分单独采用 MIT 许可证（[许可证全文](shared/src/cloud-protocol/LICENSE)）。[声明](NOTICE) · [第三方声明](docs/THIRD-PARTY-NOTICES.md)
+本项目基于 [AGPL-3.0-only](LICENSE) 协议开源，可免费使用，也可以商用。如果你通过网络提供修改后的版本，需要向这些用户公开对应的源代码。云端通信协议（cloud protocol）的代码单独采用 MIT 许可证（[许可证全文](shared/src/cloud-protocol/LICENSE)）。[声明](NOTICE) · [第三方声明](docs/THIRD-PARTY-NOTICES.md)
 
 Claude Code 和 Codex 各有其使用条款；本项目并未获得 Anthropic 或 OpenAI 的认可或背书。Claude 是 Anthropic 的商标。
