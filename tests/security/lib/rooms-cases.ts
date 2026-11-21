@@ -159,9 +159,10 @@ async function roomFilesCases(w: World) {
  *   - an upload while the group folder has a reader outside the room (bob, by a person rule) stays in room storage: no
  *     team file, no room_file_refs row, "Only in this conversation";
  *   - an upload without one goes to the folder's Chat attachments; the room's file endpoint gives it to alice and erin
- *     only: the admin and the owner outside the room (who read the folder in Files, as accepted) and bob get 404;
- *   - Room.project.sameAsGroup (Team plan's people are marketing's) is in nobody's room list or room unless they are in
- *     marketing's room.
+ *     only: the admin and the owner outside the room (who read the folder in Files, as accepted) and bob get 404, for
+ *     the file and for the room's Files list;
+ *   - Room.project.sameAsGroup (Team plan's people are marketing's) is in nobody's room list, GET /api/rooms/:id or
+ *     room.updated unless they are in marketing's room.
  * The messages are deleted again (the folder file stays, as a deleted message's folder file does).
  */
 let teamRoomFolderChecked = false
@@ -192,8 +193,33 @@ async function teamRoomFolderCases(w: World) {
       if (inRoom !== (r.status === 200)) throw new Error(`${who}: a team room's folder file answered ${r.status}`)
       if (!inRoom && r.text.includes('team room SEC-TEAMROOM')) throw new Error(`${who}: a team room's file leaked`)
     }
-    // sameAsGroup: only ever to someone in that team room
-    await alice.ok('POST', `/api/projects/${w.ids.projTeam}/room`)
+    // the team room's Files list: 404 for everyone outside the room (it lists the file kept in room storage)
+    for (const who of ['owner', 'admin', 'memberOut'] as const) {
+      const r = await w.as[who].get(`/api/rooms/${teamRoom}/files`)
+      if (r.status !== 404 || r.text.includes('SEC-TEAMROOM')) throw new Error(`${who}: a team room's Files list answered ${r.status} to someone outside it`)
+    }
+    // sameAsGroup: only ever to someone in that team room, in the room list, the room itself and room.updated
+    const marks = Object.fromEntries(Object.entries(w.sockets).map(([k, s]) => [k, s.frames.length]))
+    const projectRoom = (await alice.ok('POST', `/api/projects/${w.ids.projTeam}/room`)) as { id: string }
+    const inTeamRoom = (username: string) => {
+      const id = (db.query('SELECT id FROM users WHERE username = ?').get(username) as { id: string } | null)?.id ?? ''
+      return (roomId: string) => !!db.query('SELECT 1 FROM room_members WHERE room_id = ? AND user_id = ?').get(roomId, id)
+    }
+    for (const who of ['memberIn', 'other', 'owner', 'admin', 'memberOut', 'pwchange'] as const) {
+      const r = await w.as[who].get(`/api/rooms/${projectRoom.id}`)
+      const same = (r.json?.project as { sameAsGroup?: { roomId: string } } | undefined)?.sameAsGroup
+      if (same && !inTeamRoom(USER_OF[who]!)(same.roomId)) throw new Error(`${who}: GET /api/rooms/:id names a team room they are not in`)
+      if (r.status === 200 && who !== 'memberIn' && who !== 'other') throw new Error(`${who}: opened a project room they are not in (${r.status})`)
+    }
+    // every room.updated sent since the project room was made (its members' copies of it, the sync's fan-out): none
+    // names a team room to someone outside it (the sockets are alice, bob, carol, dana and erin)
+    await new Promise((r) => setTimeout(r, 300))
+    for (const [name, sock] of Object.entries(w.sockets)) {
+      for (const f of sock.frames.slice(marks[name])) {
+        const same = (f as { type: string; data?: { room?: { project?: { sameAsGroup?: { roomId: string } } } } }).data?.room?.project?.sameAsGroup
+        if (f.type === 'room.updated' && same && !inTeamRoom(name)(same.roomId)) throw new Error(`${name}: room.updated names a team room they are not in`)
+      }
+    }
     for (const who of ['memberIn', 'other', 'owner', 'admin', 'memberOut', 'pwchange'] as const) {
       const r = await w.as[who].get('/api/rooms')
       if (r.status !== 200) continue

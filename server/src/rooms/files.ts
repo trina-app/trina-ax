@@ -81,7 +81,7 @@ export type RoomFileOrigin = 'upload' | 'team_copy' | 'answer_copy'
 /** A name a room file never takes in a team folder (a project's Chat attachments): an instruction file's (CLAUDE.md,
  * AGENTS.md, GEMINI.md, SKILL.md: the project AI would follow it) or the folder's file list's (_FILES.md). Such a name
  * gets the next free one, "CLAUDE (2).md" (team-files placeUpload `taken`). */
-export const takenInTeamPlace = (name: string): boolean => instructionFile(name) || isFileListName(name)
+export const takenInTeamPlace = (name: string): boolean => instructionFile(name) || /^CLAUDE\.local\.md$/i.test(name) || isFileListName(name)
 
 /** An upload not sent in a message within a day is removed. */
 export const UNSENT_FILE_MS = 24 * 3600_000

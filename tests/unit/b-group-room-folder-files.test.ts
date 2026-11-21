@@ -92,7 +92,9 @@ test('an upload lands in <group folder>/Chat attachments with a ref ("(2)", inst
   const b = await up(mia.id, roomId, 'brief.pdf', 'second brief')
   const c = await up(mia.id, roomId, 'CLAUDE.md', '# not instructions')
   const d = await up(mia.id, roomId, '_FILES.md', '# not the file list')
-  expect([a.name, b.name, c.name, d.name]).toEqual(['brief.pdf', 'brief (2).pdf', 'CLAUDE (2).md', '_FILES (2).md'])
+  const e = await up(mia.id, roomId, 'CLAUDE.local.md', '# not local instructions')
+  expect([a.name, b.name, c.name, d.name, e.name]).toEqual(['brief.pdf', 'brief (2).pdf', 'CLAUDE (2).md', '_FILES (2).md', 'CLAUDE.local (2).md'])
+  expect(fs.existsSync(at(`${chat}/CLAUDE.local.md`))).toBe(false)
   expect(a).toMatchObject({ teamFile: true, teamPath: `${chat}/brief.pdf` })
   expect(a.roomOnly).toBeUndefined()
   expect(fs.existsSync(at(`${chat}/CLAUDE.md`))).toBe(false)
@@ -279,6 +281,34 @@ test('a renamed group and folder, a deleted group, a folder widened after an upl
   expect(teamPlaceFor(h.ctx, roomId, mia.id)).toBeNull()
 })
 
+test('a group folder moved inside projects/<name>/ keeps the room\'s uploads in room storage: that project\'s guest reads nothing new', async () => {
+  const { owner, mia, nora, folder, roomId, chatName } = await setup('b-group-room-folder-projects-zone')
+  // the department's people are the project's people too, so every other check would pass
+  const p = await owner.call('POST', '/api/projects', { name: 'Launch', scope: 'team', participants: [mia.id, nora.id].map((id) => ({ subjectType: 'user', subjectId: id, access: 'write' })) })
+  const projectFolder = (h.ctx.db.query('SELECT folder_path FROM projects WHERE id = ?').get(p.id) as { folder_path: string }).folder_path
+  const gus = await addGuest(h, owner, { username: 'gus', place: { kind: 'project', id: p.id } })
+  // an admin moves the department's folder into the project's folder (the group follows its folder_id)
+  const ownerId = (h.ctx.db.query("SELECT id FROM users WHERE role = 'owner'").get() as { id: string }).id
+  const moved = `${projectFolder}/leads`
+  team().move(ownerId, folder.path, moved, 'fail')
+  expect((h.ctx.db.query('SELECT f.path FROM folders f WHERE f.id = ?').get(folder.id) as { path: string }).path).toBe(moved)
+  // two layers: the projects zone alone sends it to room storage (teamPlaceFor), and the guest's own person rule on the
+  // project folder counts as a reader outside the room as well (widerThanRoom counts a named guest)
+  expect(widerThanRoom(h.ctx.db, RuleSet.load(h.ctx.db), roomId, (h.ctx.db.query('SELECT group_id FROM rooms WHERE id = ?').get(roomId) as { group_id: string }).group_id, `${moved}/${chatName}`)).toBe(true)
+  // the guest's policy reaches the projects zone: they may read what lands there
+  expect(teamPlaceFor(h.ctx, roomId, mia.id)).toBeNull()
+  const f = await up(mia.id, roomId, 'leads-only.txt', 'for the department only')
+  expect(f.teamFile).toBeUndefined()
+  expect(f.roomOnly).toBe(true)
+  expect(refRow(f.id)).toBeNull()
+  expect(fs.existsSync(at(`${moved}/${chatName}/leads-only.txt`))).toBe(false)
+  expect(await canRead(gus.id, `${moved}/${chatName}/leads-only.txt`)).toBe(false)
+  expect(h.ctx.db.query('SELECT 1 FROM room_members WHERE room_id = ? AND user_id = ?').get(roomId, gus.id)).toBeNull()
+  // moved back out of the zone: uploads go to the folder again
+  team().move(ownerId, moved, folder.path, 'fail')
+  expect((await up(mia.id, roomId, 'back.txt')).teamFile).toBe(true)
+})
+
 test('the welcome steps\' team group has no room; the everyone room never has a folder', async () => {
   const { mia } = await setup('b-group-room-folder-welcome')
   const ownerId = (h.ctx.db.query("SELECT id FROM users WHERE role = 'owner'").get() as { id: string }).id
@@ -352,11 +382,13 @@ test('the check reads only the rule subjects: 2,000 people within 20 ms', async 
   const checks = performance.now() - t
   console.log(`team place check with 2,000 people: median ${runs[2]!.toFixed(2)} ms, checks alone ${checks.toFixed(2)} ms`)
   expect(runs[2]!).toBeLessThan(20)
+  expect(checks).toBeLessThan(20)
   // the slow path of membersRead (no group rule reaching it: each member judged) stays within it too
   for (const u of ['mia', 'nora']) db.query('INSERT INTO group_members (group_id, user_id) SELECT ?, id FROM users WHERE username = ?').run(others.id, u)
   await setRules(owner, folder.path, [{ subjectType: 'group', subjectId: others.id, access: 'write' }])
   const slowRules = RuleSet.load(db)
-  // the median of five, as above: one run on a busy machine can stall on the scheduler, not on the check
+  membersRead(db, slowRules, roomId, group.id, chat)
+  // warmed up, then the median of five, as above: one run on a busy machine can stall on the scheduler, not on the check
   const slowRuns: number[] = []
   for (let i = 0; i < 5; i++) {
     const slow = performance.now()
