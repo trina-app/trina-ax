@@ -25,6 +25,13 @@
 // Badge:    `badge` (optional) is the recipient's count of things that need them (the app icon's number), a whole number
 //           only: APNs `aps.badge`; not sent to FCM (Android launchers add up each notification's count). A gateway from before it refuses the
 //           key (invalid_body); the team server then sends the same push without it.
+// Label:    `label: true` (optional, Android only, room codes and `chat.shared` only) says the app builds this
+//           notification itself (docs/decisions/20261121-android-push-who-where.md): the FCM message is
+//           data-only (no `notification` block), so the app runs even when it is closed, asks its own team server for
+//           who and where (and the first line, as on the iPhone) and shows those words. The generic title and line are in `data` as
+//           `title` and `message`, with `channelId` and `tag` (the notice id) (expo-notifications shows them when the app cannot ask). The team server sends it only
+//           for a device that registered a label key (an app with push-label-v1 on Android). A gateway from before it
+//           refuses the key (invalid_body); the team server then sends the same push without it (the generic line).
 
 export const PUSH_GATEWAY_SEND_PATH = '/v1/send'
 export const PUSH_GATEWAY_HEALTH_PATH = '/health'
@@ -64,6 +71,8 @@ export interface PushGatewaySend {
   tag?: string
   /** the recipient's count of things that need them, for the app icon (0 clears it); a number, never what they are */
   badge?: number
+  /** Android: the app builds the notification itself from a data-only message (Label above); never sent for iOS */
+  label?: true
 }
 
 /** Error codes and their HTTP status. Every answer is JSON: { ok: true } (200) or { ok: false, error: <code> }. */
@@ -103,7 +112,7 @@ const CODE_RE = /^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*){1,3}$/
 const CODE_MAX = 64
 const PATH_RE = /^\/(?:[A-Za-z0-9_-]+(?:\/[A-Za-z0-9_-]+)*)?$/
 const PATH_MAX = 200
-const SEND_KEYS = ['v', 'platform', 'environment', 'token', 'notificationId', 'code', 'locale', 'path', 'ttlSeconds', 'tag', 'badge']
+const SEND_KEYS = ['v', 'platform', 'environment', 'token', 'notificationId', 'code', 'locale', 'path', 'ttlSeconds', 'tag', 'badge', 'label']
 
 export function validPushToken(platform: PushPlatform, token: unknown): boolean {
   if (typeof token !== 'string') return false
@@ -160,6 +169,10 @@ export function parsePushGatewaySend(raw: unknown): PushGatewaySend | null {
   if ('badge' in o) {
     if (!validPushBadge(o.badge)) return null
     out.badge = o.badge
+  }
+  if ('label' in o) {
+    if (o.label !== true || platform !== 'android') return null
+    out.label = true
   }
   return out
 }

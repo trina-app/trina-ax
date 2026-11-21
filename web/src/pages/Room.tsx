@@ -36,7 +36,7 @@ import { Link, Navigate, useLocation, useNavigate, useNavigationType, useParams,
 import { isUuid7, type RoomMember, type RoomMessage } from '@mycel/shared/api'
 import { isApiError } from '../lib/api'
 import { lookingAt, onWindowFocus } from '../lib/attention'
-import { isPrivateChannel, readUpTo, roomEmptyKey, threadClosing, threadOpening, timelineTarget, pushedMessagePath } from '../lib/rooms'
+import { isPrivateChannel, readUpTo, roomFilesButtonShown, roomEmptyKey, threadClosing, threadOpening, timelineTarget, pushedMessagePath } from '../lib/rooms'
 import { roomColumns, useElementWidth } from '../lib/roomColumns'
 import { getSidePanel } from '../lib/sidePanel'
 import { PANEL_ALWAYS_BOTH_PX } from '../components/rail/railPanel'
@@ -50,7 +50,7 @@ import { findMessage, keptFor, keptPlace, placeKey, useRooms, type PendingSend, 
 import { useMe } from '../store/session'
 import { useUi } from '../store/ui'
 import { sideChatOf, useSideChats } from '../store/sideChats'
-import { MembersDialog } from '../components/rooms/MembersDialog'
+import { MembersDialog, SameAsGroupLine } from '../components/rooms/MembersDialog'
 import { PeoplePicker, type PickerMode } from '../components/rooms/PeoplePicker'
 import { RoomComposer } from '../components/rooms/RoomComposer'
 import { messageDomId, RoomMessages } from '../components/rooms/RoomMessages'
@@ -559,6 +559,9 @@ function RoomView({ roomId, threadId, badThread }: { roomId: string; threadId: s
   const nextThread = room && room.threadsUnread > 0 && room.nextThreadId && room.nextThreadId !== threadId ? room.nextThreadId : null
   const threadsLabel = nextThread ? t('rooms.threadsUnread', { n: room!.threadsUnread }) : ''
   const muted = !!room && roomNotify(room).level === 'off'
+  // the room's files go to a team folder, whose button comes first (a project's room; a department's room with a folder
+  // I can open): its Files list only while it holds files of its own (Room.roomFiles)
+  const folderButton = !!room && (!!room.project?.room || (room.kind === 'team' && !!room.groupFolder))
 
   return (
     <div ref={page} className="relative flex h-full" data-columns={columns ?? undefined} data-testid="room-page">
@@ -604,33 +607,44 @@ function RoomView({ roomId, threadId, badThread }: { roomId: string; threadId: s
                   {t('rooms.members', { n: room.memberCount })}
                   {/* "· Includes 1 guest" (components/GuestTag.tsx): people from outside the team are in it */}
                   <IncludesGuests ids={roomMembers?.map((m) => m.user.id)} prefix=" · " short={!wide} />
+                  {/* a conversation made a project whose files are still on their way to Chat attachments (Room.filesMoving):
+                      quiet, on the count's line, gone when the move ends (its closing line says how it went) */}
+                  {room.filesMoving && <span data-testid="room-files-moving">{` · ${t('rooms.filesMoving')}`}</span>}
                 </span>
               )}
             </button>
           </h1>
-          {/* Files: the room's Files list on its right (components/rooms/RoomFilesPanel.tsx; docs/decisions/
-              20261120-project-is-room.md D8), for a channel, a 1:1 and a group chat (a project's chat room has the
-              project's button in this place instead). A team room of a group with a folder I can open has that folder's
-              link at the top of the list (Room.groupFolder). A phone: the icon alone, at the end of the line beside ✦ */}
-          {room && !room.project?.room && (
-            <Tooltip label={t('rooms.files.open')}>
-              <button type="button" onClick={toggleFiles} aria-pressed={filesOpen} aria-label={t('rooms.files.open')} className={buttonClass({ variant: 'ghost', size: 'sm', className: clsx('touch-hit shrink-0 max-md:ml-auto max-md:px-0', filesOpen && 'bg-hover') })} data-testid="room-files-button">
-                <Files size={15} aria-hidden />
-                <span className="max-md:hidden">{t('rooms.groupFiles')}</span>
-              </button>
-            </Tooltip>
-          )}
-          {/* a project's own chat room (Room.project.room; docs/decisions/20261120-project-is-room.md D5): in the Files
-              button's place, Open project (its folder icon and the words; the project's name in the tooltip: the room's
+          {/* the folder this room's files go to, first (docs/decisions/20261121-department-room-files.md): a project's
+              own chat room has Open project (its folder icon and the words; the project's name in the tooltip: the room's
               name above is the project's already), which opens the project page (its folder, Chat attachments included,
-              and its AI chats); no Files button of its own: its files are the project's. A phone: the folder icon alone,
-              at the end of the line beside ✦ */}
-          {room?.project?.room && !room.groupFolder && (
+              and its AI chats); a department's team room with a folder I can open has 📁 {group} (Room.groupFolder),
+              which opens that folder in Files. A phone: the folder icon alone, at the end of the line beside ✦ */}
+          {room?.project?.room && (
             <Tooltip label={t('rooms.project.openTip', { name: room.project.name })}>
               <Link to={`/projects/${room.project.id}`} aria-label={t('rooms.project.open')} className={buttonClass({ variant: 'ghost', size: 'sm', className: 'touch-hit shrink-0 max-md:ml-auto max-md:px-0' })} data-testid="room-project">
                 <Folder size={15} className="shrink-0" aria-hidden />
                 <span className="max-md:hidden" data-testid="room-project-label">{t('rooms.project.open')}</span>
               </Link>
+            </Tooltip>
+          )}
+          {room && !room.project?.room && room.kind === 'team' && room.groupFolder && (
+            <Tooltip label={t('rooms.groupFilesTip', { name: room.groupFolder.split('/').pop() ?? room.groupFolder })}>
+              <Link to={`/files?path=${encodeURIComponent(room.groupFolder)}`} aria-label={t('rooms.groupFilesTip', { name: room.groupFolder.split('/').pop() ?? room.groupFolder })} className={buttonClass({ variant: 'ghost', size: 'sm', className: 'touch-hit min-w-0 shrink max-md:ml-auto max-md:px-0' })} data-testid="room-group-folder">
+                <Folder size={15} className="shrink-0" aria-hidden />
+                <span className="truncate max-md:hidden">{title(room)}</span>
+              </Link>
+            </Tooltip>
+          )}
+          {/* Files: the room's Files list on its right (components/rooms/RoomFilesPanel.tsx; docs/decisions/
+              20261120-project-is-room.md D8), for a channel, a 1:1 and a group chat. Beside a folder button above only
+              while the room still holds files of its own (Room.roomFiles: older ones, ones that stayed when it became a
+              project, uploads that fell back), which the list then shows alone. A phone: the icon alone */}
+          {room && roomFilesButtonShown(room) && (
+            <Tooltip label={t('rooms.files.open')}>
+              <button type="button" onClick={toggleFiles} aria-pressed={filesOpen} aria-label={t('rooms.files.open')} className={buttonClass({ variant: 'ghost', size: 'sm', className: clsx('touch-hit shrink-0 max-md:px-0', !folderButton && 'max-md:ml-auto', filesOpen && 'bg-hover') })} data-testid="room-files-button">
+                <Files size={15} aria-hidden />
+                <span className="max-md:hidden">{t('rooms.groupFiles')}</span>
+              </button>
             </Tooltip>
           )}
           </div>
@@ -686,6 +700,13 @@ function RoomView({ roomId, threadId, badThread }: { roomId: string; threadId: s
             <div className="pt-4">
               <LoadError error={timeline.error} onRetry={() => useRooms.getState().loadNewest(roomId)} what="room-messages" />
             </div>
+          )}
+          {/* the room's start (its first messages are loaded): a project room with the same people as a department's
+              says so, and where this project's talk goes (Room.project.sameAsGroup) */}
+          {timeline && !timeline.loading && !timeline.error && !timeline.nextCursor && room?.project?.sameAsGroup && (
+            <p className="px-6 pt-3 pb-1 text-center text-xs break-words text-faint">
+              <SameAsGroupLine project={room.project} />
+            </p>
           )}
           {timeline && !timeline.loading && !timeline.error && !messages.length && !pending.length && <p className="py-12 text-center text-sm text-muted">{t(roomEmptyKey(room))}</p>}
           {/* the timeline's pictures: ← → in the image viewer walks through these (the thread panel has its own) */}
@@ -744,7 +765,7 @@ function RoomView({ roomId, threadId, badThread }: { roomId: string; threadId: s
     {filesOpen && (
       <RoomSideColumn label={t('rooms.files.title')} testId="room-files-panel" divider={both || sheet ? undefined : 'side-chat'} shared={columns === 'three'}
         className={pair ? PAIR_SIDE : sheet || over ? SHEET : undefined} modal={sheet && !pair} data-sheet={sheet || pair || over ? '' : undefined}>
-        <RoomFilesPanel key={roomId} roomId={roomId} refresh={last?.id ?? null} groupFolder={room?.groupFolder ?? null} onClose={closeFiles} />
+        <RoomFilesPanel key={roomId} roomId={roomId} refresh={last?.id ?? null} onClose={closeFiles} />
       </RoomSideColumn>
     )}
     {sideOpen && (

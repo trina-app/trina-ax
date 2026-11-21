@@ -10,7 +10,7 @@
 // `badge`: the request's count for the app icon (iOS shows it only when the person allowed badges).
 import { validPushBadge, type PushGatewaySend } from '../../shared/src/cloud-protocol/push-gateway.ts'
 import { importEs256, sha256Hex, signJwt, type FetchLike } from './crypto.ts'
-import { appData, type CredentialAlarm, type SendOutcome } from './fcm.ts'
+import { appData, labelCode, type CredentialAlarm, type SendOutcome } from './fcm.ts'
 
 export interface ApnsConfig {
   keyId: string
@@ -48,7 +48,7 @@ export const APNS_CREDENTIAL_REASONS = new Set([
 
 /** Room notices (room.dm, room.mention, …): the app's extension may put who and where in the title; a chat shared with
  * the person by name (chat.shared): who shared it. Nothing else. */
-export const mutableCode = (code: string) => code.startsWith('room.') || code === 'chat.shared'
+export const mutableCode = labelCode
 
 /** APNs apns-collapse-id is at most 64 bytes; a longer notification id collapses by its hash. */
 async function collapseId(notificationId: string): Promise<string> {

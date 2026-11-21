@@ -610,6 +610,14 @@ test('push-label-v1: the page registers the hash of the app\'s label key with th
     setMobilePushSession('user:labels-3')
     await settle(() => messages.some(m => m.type === 'push-registered'))
     expect(bodies.at(-1)).toEqual({ consent: true, ...iosToken })
+    // an Android app with push-label-v1 (its messaging service names who and where) registers its hash too
+    messages = []
+    const androidToken = { platform: 'android' as const, token: 'fcm:' + 'A'.repeat(140), environment: 'production' as const }
+    handler = m => { if (m.type === 'push-permission') reply(m, { permission: 'granted' }); else if (m.type === 'push-token') reply(m, { push: androidToken, labelHash }); else reply(m) }
+    win.mycelMobile = { ...config, platform: 'android', capabilities: [...today, PUSH_LABEL_CAPABILITY] }
+    setMobilePushSession('user:labels-4')
+    await settle(() => messages.some(m => m.type === 'push-registered'))
+    expect(bodies.at(-1)).toEqual({ consent: true, ...androidToken, labelHash })
   } finally { globalThis.fetch = realFetch; setMobilePushSession(null) }
 })
 

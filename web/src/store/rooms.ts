@@ -11,7 +11,7 @@
 // could not resume reloads through resync (components/rooms/useRoomsSync).
 import { create } from 'zustand'
 import { emojiForm } from '@mycel/shared'
-import { ROOM_REACTION_EMOJI_MAX, roomLevel, roomTimelineCursor, uuidv7, type Room, type RoomAlertSettings, type ShareAnswerToRoomResult, type RoomNotifyLevel, type RoomFile, type RoomLastMessage, type RoomMember, type RoomMessage, type RoomQuote, type RoomAppIcon, type RoomReaction, type RoomReadState, type RoomThreadReadState, type RoomThreadSummary, type ServerEvent } from '@mycel/shared/api'
+import { ROOM_REACTION_EMOJI_MAX, roomLevel, roomTimelineCursor, uuidv7, type Room, type MakeProjectResult, type RoomAlertSettings, type ShareAnswerToRoomResult, type RoomNotifyLevel, type RoomFile, type RoomLastMessage, type RoomMember, type RoomMessage, type RoomQuote, type RoomAppIcon, type RoomReaction, type RoomReadState, type RoomThreadReadState, type RoomThreadSummary, type ServerEvent } from '@mycel/shared/api'
 import { api, API, ApiError, errorText, isApiError } from '../lib/api'
 import { waitForUpdate, waitsForUpdate } from '../lib/serverUpdating'
 import { noteRecent } from '../lib/emoji'
@@ -457,6 +457,9 @@ interface RoomsState extends RoomsData {
   /** a team project's own chat room (POST /api/projects/:id/room: made the first time; docs/decisions/
    * 20261120-project-is-room.md), put in my list */
   openProjectRoom: (projectId: string) => Promise<Room>
+  /** this group chat made a new team project (POST /api/rooms/:id/make-project; docs/decisions/
+   * 20261121-make-project-from-room.md): the room as it is now (renamed, the project's chat room) put in my list */
+  makeProject: (roomId: string, name: string, membersHash: string) => Promise<MakeProjectResult>
   /** the room's own name ('' or null: the server's name). On screen at once; a failure puts the old name back with a
    * toast (lib/optimistic.ts). Never rejects: false when it failed and nothing newer of it was made since (the field
    * can open again with the name typed) */
@@ -1341,6 +1344,12 @@ export const useRooms = create<RoomsState>((set, get) => {
       const room = await api.call(API.openProjectRoom, { params: { id: projectId } })
       set((s) => withRoom(s, keepPending(s, room)))
       return room
+    },
+
+    async makeProject(roomId, name, membersHash) {
+      const r = await api.call(API.makeProject, { params: { id: roomId }, body: { name, membersHash } })
+      set((s) => withRoom(s, keepPending(s, r.room)))
+      return r
     },
 
     async rename(roomId, name) {

@@ -112,7 +112,7 @@ const ios: PushToken = { platform: 'ios', token: 'ab'.repeat(32), environment: '
 const base: MobileConfig = { protocol: 1, platform: 'ios', appVersion: '1.0.1', nonce: 'a'.repeat(64), generation: 1, capabilities: [...MOBILE_CAPABILITIES, PUSH_CAPABILITY, PUSH_REGISTERED_CAPABILITY] }
 const msg = (o: object) => JSON.stringify({ v: 1, nonce: base.nonce, generation: 1, id: 'request-0001', ...o })
 
-test('push-label-v1: the token reply carries the label key\'s hash, only with the capability and only on iOS', async () => {
+test('push-label-v1: the token reply carries the label key\'s hash, only with the capability (iOS and Android)', async () => {
   const hash = sha256('k'.repeat(43))
   const bridge = (token: PushToken, labelHash: () => Promise<string | null>): PushBridge => ({ token: async () => token, registered: async () => {}, labelHash })
   const withLabels = new MobileReceiver(ORIGIN, { ...base, capabilities: [...base.capabilities, PUSH_LABEL_CAPABILITY] }, new FileTransfers(io), async () => {}, bridge(ios, async () => hash))
@@ -121,7 +121,8 @@ test('push-label-v1: the token reply carries the label key\'s hash, only with th
   expect((await without.receive(msg({ type: 'push-token' }), ORIGIN))!.labelHash).toBeUndefined()
   const android = new MobileReceiver(ORIGIN, { ...base, platform: 'android', capabilities: [...base.capabilities, PUSH_LABEL_CAPABILITY] }, new FileTransfers(io), async () => {},
     bridge({ platform: 'android', token: 'fcm:' + 'A'.repeat(140), environment: 'production' }, async () => hash))
-  expect((await android.receive(msg({ type: 'push-token' }), ORIGIN))!.labelHash).toBeUndefined()
+  // Android's messaging service (builds from 1.0.11 on) names who and where too
+  expect((await android.receive(msg({ type: 'push-token' }), ORIGIN))!.labelHash).toBe(hash)
   // a keychain that refuses, or something that is no hash: the token still goes, without a hash
   for (const failing of [async () => { throw new Error('keychain') }, async () => null, async () => 'not-a-hash']) {
     const r = new MobileReceiver(ORIGIN, { ...base, capabilities: [...base.capabilities, PUSH_LABEL_CAPABILITY] }, new FileTransfers(io), async () => {}, bridge(ios, failing as () => Promise<string | null>))

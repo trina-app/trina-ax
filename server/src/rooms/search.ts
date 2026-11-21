@@ -42,6 +42,7 @@ import { myRooms, ROOM_EVERYONE_WORDS, titleOf, type Mine } from './reader'
 import { nearRows, nearSearchable } from './search-near'
 import { unescapeMarkdown } from './apps/card'
 import { canSee, filesOutFor, hiddenAmong, MENTIONS_SQL, messagesOut, MSG_COLS, refsOf, roomNaming, SEE_MEMBER_SQL, type FileRow, type MessageRow } from './store'
+import { NOT_MOVING_SQL, ROOM_STORED_SQL } from './team-place'
 
 /** hits a page gives by default */
 export const ROOM_SEARCH_DEFAULT = 20
@@ -392,24 +393,25 @@ export function listMyRoomFiles(db: Database, userId: string, o: { cursor?: stri
 
 /** One room's sent files query (parameters: the person, the room, the cursor's file rowid when `after`, the LIMIT): by
  * the index room_files_by_room, newest first by rowid with no sort. Exported for the test that reads its plan. */
-export const roomFileListSql = (after: boolean) => `SELECT f.rowid AS fr, f.id AS file_id, ${COLS} FROM room_files f INDEXED BY room_files_by_room
+export const roomFileListSql = (after: boolean, roomStoredOnly = false) => `SELECT f.rowid AS fr, f.id AS file_id, ${COLS} FROM room_files f INDEXED BY room_files_by_room
     CROSS JOIN room_messages m ON m.id = f.message_id AND m.room_id = f.room_id
     CROSS JOIN room_members mm ON mm.room_id = m.room_id AND mm.user_id = ?
-    WHERE f.room_id = ? AND f.message_id IS NOT NULL AND m.deleted_at IS NULL AND m.event IS NULL AND ${SEE_MEMBER_SQL}${after ? ' AND f.rowid < ?' : ''} ORDER BY f.rowid DESC LIMIT ?`
+    WHERE f.room_id = ? AND f.message_id IS NOT NULL AND m.deleted_at IS NULL AND m.event IS NULL AND ${SEE_MEMBER_SQL}${roomStoredOnly ? ` AND ${ROOM_STORED_SQL} AND ${NOT_MOVING_SQL}` : ''}${after ? ' AND f.rowid < ?' : ''} ORDER BY f.rowid DESC LIMIT ?`
 
 /** A room's Files list (docs/decisions/20261120-project-is-room.md D8): the files sent in one of my rooms with a message
  * I see now, newest first by rowid (as the search), by the index room_files_by_room (migration 431); the cursor is the
  * last row's rowid. The same checks as the search on each row (SEE_MEMBER_SQL in the query, then fileHits: canSee, a
  * hidden answer or its thread, a file kept in the team folder only while I read it there, otherwise left out). The room
  * must be one of mine (myRooms: not archived, not a trashed project's, a guest's as the guest rules give them): else 404.
- * The caller (Rooms.listFiles) refuses a project's room first. */
-export function listRoomFiles(db: Database, userId: string, roomId: string, o: { cursor?: string; limit?: number }): RoomFilesPage {
+ * The caller (Rooms.listFiles) decides a project's room first: no list, or `roomStoredOnly` (only the files the room keeps
+ * itself, rooms/team-place.ts, not those on their way to the project's folder). */
+export function listRoomFiles(db: Database, userId: string, roomId: string, o: { cursor?: string; limit?: number }, x: { roomStoredOnly?: boolean } = {}): RoomFilesPage {
   const cur = decodeCursor(o.cursor, ['f'])
   if (o.cursor && (!cur || !/^\d{1,18}$/.test(cur.f))) fail('validation', undefined, { fields: { 'query.cursor': 'invalid cursor' } })
   const limit = Math.min(ROOM_SEARCH_PAGE_MAX, Math.max(1, o.limit ?? ROOM_SEARCH_DEFAULT))
   const m = myRooms(db, userId).find((x) => x.room.id === roomId)
   if (!m) return fail('not_found')
-  const rows = db.query(roomFileListSql(!!cur)).all(userId, roomId, ...(cur ? [Number(cur.f)] : []), limit + 1) as (MessageRow & { fr: number; file_id: string })[]
+  const rows = db.query(roomFileListSql(!!cur, !!x.roomStoredOnly)).all(userId, roomId, ...(cur ? [Number(cur.f)] : []), limit + 1) as (MessageRow & { fr: number; file_id: string })[]
   const page = rows.slice(0, limit)
   const last = page.at(-1)
   const nextCursor = rows.length > limit && last ? encodeCursor({ f: String(last.fr) }) : null

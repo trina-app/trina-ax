@@ -6432,6 +6432,12 @@ export class MockServer {
       this.rooms = (body.rooms as unknown[]).map((r) => Room.parse(r))
       for (const r of this.rooms) this.publish({ type: 'room.updated', data: { roomId: r.id, change: 'updated', room: r } })
     }
+    else if (p === '/__test/make-project') {
+      if (Array.isArray(body.stay)) this.makeProjectStay = new Set(body.stay as string[])
+      if (Array.isArray(body.blocked)) this.makeProjectBlocked = new Set(body.blocked as string[])
+      if (typeof body.hold === 'boolean') this.makeProjectHold = body.hold
+      if (body.release === true) { const run = this.makeProjectHeld; this.makeProjectHeld = null; run?.() }
+    }
     else if (p === '/__test/widening') this.widening = (body.items as unknown[]).map((x) => WideningAnswer.parse(x))
     else if (p === '/__test/share-changed') {
       // something changed since the last "confirm" (someone joined, lost access): its key is stale
@@ -6538,6 +6544,13 @@ export class MockServer {
   projectRooms = new Map<string, string>()
   /** a room file's team path in a project room (room file id → path) */
   projectRoomFiles = new Map<string, string>()
+  /** files kept in a converted room's storage ("Only in this conversation") */
+  roomOnlyFiles = new Set<string>()
+  /** POST /__test/make-project: file names that stay, guests who block, and a held move */
+  makeProjectStay = new Set<string>()
+  makeProjectBlocked = new Set<string>()
+  makeProjectHold = false
+  makeProjectHeld: (() => void) | null = null
   readonly projectRoomsInstalled = this.installProjectRooms()
   /** the project of a project room */
   projectOfRoom(roomId: string): Project | null {
@@ -6566,6 +6579,11 @@ export class MockServer {
     this.reset = (o) => {
       this.projectRooms = new Map()
       this.projectRoomFiles = new Map()
+      this.roomOnlyFiles = new Set()
+      this.makeProjectStay = new Set()
+      this.makeProjectBlocked = new Set()
+      this.makeProjectHold = false
+      this.makeProjectHeld = null
       return baseReset(o)
     }
     const roomOf = (c: Ctx) => {
@@ -6604,12 +6622,15 @@ export class MockServer {
     // "deleted" while not there (in the trash; a restore brings them back)
     const fileNow = (f: RoomFile, u: User): RoomFile => {
       const path = this.projectRoomFiles.get(f.id)
-      if (!path) return f
+      if (!path) return this.roomOnlyFiles.has(f.id) ? { ...f, roomOnly: true } : f
       if (!this.files.has(path)) return { ...f, name: '', size: 0, teamFile: true, state: 'deleted' }
       return this.access(path, u) === 'none' ? { ...f, name: '', size: 0, teamFile: true, state: 'unavailable' } : { ...f, teamFile: true, teamPath: path }
     }
+    // a department's team room with a folder (docs/decisions/20261121-department-room-files.md): its uploads go to the
+    // group folder's Chat attachments, as a project room's go to the project's (server/src/rooms/files.ts teamPlaceFor)
+    const groupFolderOf = (roomId: string) => { const r = this.rooms.find((x) => x.id === roomId); return r?.kind === 'team' && r.groupFolder ? r.groupFolder : null }
     over('listRoomMessages', (c, base) => {
-      if (!this.projectOfRoom(c.params.id)) return base(c)
+      if (!this.projectOfRoom(c.params.id) && !groupFolderOf(c.params.id)) return base(c)
       roomOf(c)
       const r = base(c) as { items: RoomMessage[] }
       return { ...r, items: r.items.map((m) => ({ ...m, files: m.files.map((f) => fileNow(f, c.user)) })) }
@@ -6634,6 +6655,26 @@ export class MockServer {
       const data = new Uint8Array(await c.file!.arrayBuffer())
       const name = c.body.name ?? c.file!.name
       const id = uuidv7()
+      const group = p ? null : groupFolderOf(r.id)
+      // a department's room: into the group folder's Chat attachments, unless the file is one a test keeps in the room
+      // (POST /__test/make-project {stay}: a wider folder rule, a narrowed Chat attachments, a read-only uploader), which
+      // stays in room storage, "Only in this conversation"
+      if (group) {
+        if (this.makeProjectStay.has(name)) {
+          this.roomOnlyFiles.add(id)
+          r.roomFiles = true
+          const base = this.rooms.find((x) => x.id === r.id)
+          if (base) base.roomFiles = true
+        } else {
+          const folder = `${group}/${CHAT_FILES_FOLDER[this.settings.defaultLocale as Locale] ?? CHAT_FILES_FOLDER.en}`
+          if (!this.files.has(folder)) this.files.set(folder, { type: 'folder', mtime: now() })
+          const dot = name.lastIndexOf('.')
+          let path = `${folder}/${name}`
+          for (let n = 2; this.files.has(path); n++) path = `${folder}/${dot > 0 ? `${name.slice(0, dot)} (${n})${name.slice(dot)}` : `${name} (${n})`}`
+          this.putFile(path, data)
+          this.projectRoomFiles.set(id, path)
+        }
+      }
       if (p) {
         const folder = `${p.folderPath}/${CHAT_FILES_FOLDER[this.settings.defaultLocale as Locale] ?? CHAT_FILES_FOLDER.en}`
         if (this.access(folder, c.user) !== 'write') fail('forbidden', 403, undefined, undefined, { reason: 'shared_upload_read_only' })
@@ -6647,7 +6688,7 @@ export class MockServer {
       const mime = c.file!.type || mimeOf(name) || 'application/octet-stream'
       const file: RoomFile = { id, name, size: data.byteLength, mime, kind: mime.startsWith('image/') ? 'image' : 'document', thumb: false }
       sentFiles.set(id, file)
-      if (!p) sentBytes.set(id, { data, mime })
+      if (!p && !this.projectRoomFiles.has(id)) sentBytes.set(id, { data, mime })
       return { status: 201, body: file }
     }
     h.sendRoomMessage = (c) => {
@@ -6680,6 +6721,106 @@ export class MockServer {
       const n = path ? this.files.get(path) : undefined
       if (!n || n.type !== 'file') fail('not_found', 404)
       return new Response(n!.data! as unknown as BodyInit, { headers: { 'content-type': mimeOf(path!) ?? 'application/octet-stream' } })
+    }
+    // ---- "Make it a project" (POST /api/rooms/:id/make-project, short: server/src/rooms/make-project.ts) ----
+    // A group chat of mine (not a project's room) becomes a team project: its members are the project's people, the room
+    // is renamed and becomes the project's chat room, and its files move to the project's Chat attachments (at once, or
+    // held until POST /__test/make-project {release: true} when {hold: true} was set: Room.filesMoving meanwhile). A file
+    // whose name is in {stay: [...]} stays in the room (RoomFile.roomOnly; the room's Files list then lists it:
+    // Room.roomFiles). {blocked: [userId]}: those members are guests in another place (409 guest_one_place).
+    // The members hash is the sorted member ids: a change of the room's peers since the read answers 409 members_changed.
+    const membersOf = (r: Room, u: User) => [{ id: u.id, name: u.name }, ...r.peers]
+    const hashOf = (ids: { id: string }[]) => ids.map((x) => x.id).sort().join(',')
+    const convertible = (c: Ctx) => {
+      if (c.user.role === 'guest') fail('not_found', 404)
+      const r = this.rooms.find((x) => x.id === c.params.id) ?? fail('not_found', 404)
+      if (r!.kind !== 'group' || this.projectOfRoom(r!.id)) fail('conflict', 409, undefined, undefined, { reason: 'not_convertible' })
+      return r!
+    }
+    const folderFor = (name: string) => {
+      let n = name
+      for (let i = 2; this.files.has(`projects/${n}`) || this.projects.some((x) => x.folderPath === `projects/${n}`); i++) n = `${name}-${i}`
+      return n
+    }
+    const badName = (name: string) => (!name.trim() ? 'Enter a name.' : name.length > 100 ? 'The name is too long.' : /^(claude|agents|gemini|skill)\.md$/i.test(name.trim()) ? 'A project can’t have this name.' : undefined)
+    const roomFilesOf = (roomId: string) => (this.roomMessages.get(roomId) ?? []).filter((m) => !m.deletedAt && !m.event && m.visibility === 'room').flatMap((m) => m.files)
+    const finishMove = (r: Room, p: Project, actorId: string) => {
+      const folder = `${p.folderPath}/${CHAT_FILES_FOLDER[this.settings.defaultLocale as Locale] ?? CHAT_FILES_FOLDER.en}`
+      if (!this.files.has(folder)) this.files.set(folder, { type: 'folder', mtime: now() })
+      let moved = 0, kept = 0
+      for (const f of roomFilesOf(r.id)) {
+        const bytes = sentBytes.get(f.id)
+        if (this.makeProjectStay.has(f.name) || !bytes) { kept++; this.roomOnlyFiles.add(f.id); continue }
+        const dot = f.name.lastIndexOf('.')
+        let path = `${folder}/${f.name}`
+        for (let n = 2; this.files.has(path); n++) path = `${folder}/${dot > 0 ? `${f.name.slice(0, dot)} (${n})${f.name.slice(dot)}` : `${f.name} (${n})`}`
+        this.putFile(path, bytes.data)
+        this.projectRoomFiles.set(f.id, path)
+        sentBytes.delete(f.id)
+        moved++
+      }
+      delete r.filesMoving
+      if (kept) r.roomFiles = true
+      else delete r.roomFiles
+      const list = this.roomMessages.get(r.id) ?? []
+      const seq = Math.max(r.lastSeq, 0, ...list.map((x) => x.seq)) + 1
+      const line = RoomMessage.parse({ id: uuidv7(), roomId: r.id, seq, authorKind: 'user', author: null, askedBy: null, visibility: 'room', body: '', replyTo: null, mentions: [], files: [], createdAt: now(), editedAt: null, deletedAt: null, event: { type: 'project_files_moved', project: { id: p.id, name: p.name }, moved, kept } })
+      list.push(line)
+      this.roomMessages.set(r.id, list)
+      Object.assign(r, { lastSeq: seq })
+      this.publish({ type: 'room.message', data: { roomId: r.id, message: line } })
+      const actor = this.users.find((u) => u.id === actorId)
+      if (actor) this.publish({ type: 'room.updated', data: { roomId: r.id, change: 'updated', room: this.projectRoomFor(r, actor) } })
+    }
+    h.makeProjectInfo = (c) => {
+      const r = convertible(c)
+      const members = membersOf(r, c.user)
+      const suggestedName = r.name ?? r.peers.map((x) => x.name).join(', ')
+      const name = String(c.query.name ?? suggestedName).normalize('NFC').trim()
+      const folderName = folderFor(name)
+      const files = roomFilesOf(r.id)
+      const staying = files.filter((f) => this.makeProjectStay.has(f.name) || !sentBytes.has(f.id)).length
+      const nameError = badName(name)
+      return { suggestedName, members, guestsBlocked: members.filter((m) => this.makeProjectBlocked.has(m.id)), filesMoving: files.length - staying, filesStaying: staying, membersHash: hashOf(members), folderName, nameTaken: folderName !== name, ...(nameError ? { nameError } : {}) }
+    }
+    h.makeProject = (c) => {
+      const r = convertible(c)
+      if (c.user.role === 'member' && this.settings.projectCreators === 'admins') fail('forbidden', 403, undefined, undefined, { reason: 'projects_admins_only' })
+      const members = membersOf(r, c.user)
+      if (hashOf(members) !== c.body.membersHash) fail('conflict', 409, 'The people in this conversation changed.', undefined, { reason: 'members_changed' })
+      const guest = members.find((m) => this.makeProjectBlocked.has(m.id))
+      if (guest) fail('conflict', 409, undefined, undefined, { reason: 'guest_one_place', guestId: guest.id })
+      const name = String(c.body.name).normalize('NFC').trim()
+      const bad = badName(name)
+      if (bad) fail('validation', 400, bad)
+      const folderPath = `projects/${folderFor(name)}`
+      for (const d of ['projects', folderPath]) if (!this.files.has(d)) this.files.set(d, { type: 'folder', mtime: now() })
+      this.projectMembers.set(folderPath, { creator: c.user.id, participants: r.peers.map((x) => ({ subjectType: 'user' as const, subjectId: x.id })), version: 1 })
+      const p: Project = { id: uuidv7(), name, folderPath, instructions: '', createdBy: { id: c.user.id, name: c.user.name }, createdAt: now(), canEdit: true }
+      this.projects.push(p)
+      this.projectRooms.set(p.id, r.id)
+      r.name = name
+      const list = this.roomMessages.get(r.id) ?? []
+      const seq = Math.max(r.lastSeq, 0, ...list.map((x) => x.seq)) + 1
+      const line = RoomMessage.parse({ id: uuidv7(), roomId: r.id, seq, authorKind: 'user', author: { id: c.user.id, name: c.user.name }, askedBy: null, visibility: 'room', body: '', replyTo: null, mentions: [], files: [], createdAt: now(), editedAt: null, deletedAt: null, event: { type: 'project_made', project: { id: p.id, name } } })
+      list.push(line)
+      this.roomMessages.set(r.id, list)
+      Object.assign(r, { lastSeq: seq, lastReadSeq: seq, activityAt: line.createdAt, lastMessage: { id: line.id, seq, author: line.author, excerpt: '', fileCount: 0, deleted: false, createdAt: line.createdAt } })
+      this.publish({ type: 'room.message', data: { roomId: r.id, message: line } })
+      if (this.makeProjectHold) {
+        r.filesMoving = true
+        this.makeProjectHeld = () => finishMove(r, p, c.user.id)
+      } else finishMove(r, p, c.user.id)
+      return { status: 201, body: { project: this.sharedProjectOut(p, c.user), room: this.projectRoomFor(r, c.user) } }
+    }
+    // a project room's Files list: only the files kept in the room (Room.roomFiles), each roomOnly; none: 404
+    const baseList = h.listRoomFiles!
+    h.listRoomFiles = (c) => {
+      if (!this.projectOfRoom(c.params.id) && !groupFolderOf(c.params.id)) return baseList(c)
+      const r = roomOf(c)
+      if (!r.roomFiles) fail('not_found', 404)
+      const all = (this.roomMessages.get(r.id) ?? []).filter((m) => !m.deletedAt && !m.event && m.visibility === 'room').flatMap((m) => m.files.filter((f) => this.roomOnlyFiles.has(f.id)).map((file) => ({ m, file: { ...file, roomOnly: true as const } })))
+      return { items: all.map(({ m, file }) => ({ file, messageId: m.id, roomId: m.roomId, threadRootId: m.threadRootId ?? null, author: m.author, createdAt: m.createdAt })), nextCursor: null }
     }
     // the four above answer project rooms; any other room falls through to what was there, and where there was nothing
     // they answer it too (a plain room's file is kept with the room: the room Files list spec sends and opens them;

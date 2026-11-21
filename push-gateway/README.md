@@ -42,7 +42,11 @@ service. It runs on Bun with its state in one SQLite file, behind a TLS terminat
     shows who shared it (never the chat's title); older builds show the generic line. The gateway never sees a name; the generic alert stays as the fallback (an app without the extension, or an
     extension that gets no answer, shows it).
   - Android: FCM `data` is the same keys as flat strings, and never a key named `body` or `tag` (expo-notifications uses
-    `data.tag` as the notification id, so the request's `tag` travels as `device`).
+    `data.tag` as the notification id, so the request's `tag` travels as `device`). With the request's optional
+    `label: true` (Android only; the team server sends it for an app that names who and where) a room code or
+    `chat.shared` goes data-only: no `notification` block, and `data` also has the generic `title`, `message` and
+    `channelId: 'default'`. The app's messaging service then asks its own team for the title; the gateway still never
+    sees a name. A gateway from before `label` refuses it (`invalid_body`) and the team server sends the push without it.
 - The app icon's number: the request's optional `badge` (a whole number 0 to 9999, the recipient's count of things that
   need them, computed by the team server) becomes `aps.badge` on iOS (0 clears the icon). Android gets none: its launchers count the
   notifications in the tray and add up their `notification_count`, so a total on each push would be counted again and

@@ -106,6 +106,7 @@ export const FEATURES: Feature[] = [
   { id: 'rooms.files', name: 'Files in a room', area: 'Rooms', endpoints: ['uploadRoomFile', 'attachRoomTeamFile', 'roomFile', 'roomFileHwpPreview', 'roomSavedFiles', 'roomSavePlan', 'saveRoomFilesToTeam'] },
   { id: 'rooms.project-link', name: 'A private channel linked to a team project (retired in 0.5.22: the endpoints answer 410)', area: 'Rooms', endpoints: ['linkRoomProject', 'unlinkRoomProject', 'createProjectChannel', 'undoRoomSave'] },
   { id: 'rooms.project-room', name: 'A team project\'s own chat room (its people are the project\'s people)', area: 'Rooms', endpoints: ['openProjectRoom'] },
+  { id: 'rooms.make-project', name: 'Make a conversation a project (its members become the project\'s people, its files move to the project)', area: 'Rooms', endpoints: ['makeProjectInfo', 'makeProject'] },
   { id: 'rooms.search', name: 'Search messages and files of rooms', area: 'Rooms', endpoints: ['searchRoomMessages', 'searchRoomFiles'] },
   { id: 'rooms.sent-files', name: 'Files you sent: my own files in rooms, largest first, delete', area: 'Rooms', endpoints: ['listMyRoomFiles'], screens: ['/sent-files'] },
   { id: 'rooms.files-list', name: 'A room\'s Files list, and recent room files in search', area: 'Rooms', endpoints: ['listRoomFiles', 'recentRoomFiles'] },
