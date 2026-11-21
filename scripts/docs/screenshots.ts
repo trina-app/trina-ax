@@ -316,7 +316,7 @@ const SHOTS: Shot[] = [
   }, crop: DIALOG },
   { file: 'setup/tools-step', set: 'mock', path: '/welcome', mock: { slack: { admin: SLACK_NEW }, googleApps: [{ app: 'gmail', client: 'app' }] }, prepare: async (p) => {
     // 회사 소개, 스킬 and 팀 파일 put off, as the owner would on the way to the Tools step
-    await p.locator('[data-testid="welcome-profile"]').getByRole('button', { name: T('welcome.later') }).click(); await p.waitForTimeout(700)
+    await p.locator('[data-testid="welcome-profile"]').locator('button').filter({ hasText: T('welcome.later') }).first().click(); await p.waitForTimeout(700)
     await p.locator('[data-testid="skills-later"]').click(); await p.waitForTimeout(700)
     await p.locator('[data-testid="welcome-later"]').click(); await p.waitForTimeout(1200)
     await restMouse(p)

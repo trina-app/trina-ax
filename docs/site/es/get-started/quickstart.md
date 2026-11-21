@@ -42,7 +42,12 @@ Abra http://127.0.0.1:19760 e inicie sesión como `alice` con `teamax-demo-1`. L
 ![La página de inicio de sesión de Trina AX, con los campos Nombre de usuario y Contraseña (Username, Password) y el botón Iniciar sesión (Sign in)](../../images/quickstart/sign-in.webp "La página de inicio de sesión")
 
 #### Compruebe los permisos de carpetas
-Abra **Archivos → Toda la empresa → 팀-용어집.md**. Luego inicie sesión como `bob` en una ventana privada. Bob ve el grupo de finanzas, pero no el de marketing.
+1. En la barra de la izquierda, elija **Archivos**, luego la carpeta **Toda la empresa** y luego **팀-용어집.md** (el
+   glosario del equipo de demostración). Se abre en el panel lateral.
+2. Abra una ventana privada (en Chrome, ⌘⇧N en un Mac o Ctrl+Shift+N en Linux), abra la misma dirección e inicie sesión
+   como `bob`.
+3. Vuelva a elegir **Archivos**. Bob ve la carpeta del grupo de finanzas, pero no la del grupo de marketing. Como en
+   Google Drive, una carpeta que usted no puede abrir no aparece en gris: simplemente no está.
 
 ![Archivos: las carpetas del equipo junto a la barra de la izquierda, la carpeta compartida abierta y el archivo del glosario en el panel lateral](../../images/quickstart/files-glossary.webp "El archivo del glosario, abierto en Archivos")
 :::

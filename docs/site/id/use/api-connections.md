@@ -31,8 +31,11 @@ memerlukan kode di sini.
 
 :::steps
 #### Buka dialognya
-Di **Admin › Aplikasi terhubung**, pilih **Tambahkan lewat alamatnya** di bawah Jelajahi. Buka **Lanjutan** lalu atur
-**Jenis** ke **API** dan **Cara masuk** ke **Kunci API**.
+1. Pilih logo tim Anda di bagian atas bilah kiri, lalu **Admin › Aplikasi terhubung**.
+2. Gulir ke akhir **Jelajahi**. Di bawah daftar, di samping "Tidak ada di daftar?", pilih **Tambahkan lewat alamatnya**.
+   Dialog **Tambah aplikasi untuk tim** terbuka.
+3. Di dekat bagian bawah dialog, buka **Lanjutan** (bagian ini terlipat). Atur **Jenis** ke **API** dan **Cara masuk**
+   ke **Kunci API**. Dialog lalu menampilkan kolom-kolom di bawah ini.
 
 #### Isi kolom-kolomnya
 - **Nama**: nama yang dilihat orang di chat, misalnya "AI PM".
@@ -81,10 +84,12 @@ akunnya sendiri.
 
 :::steps
 #### Buka dialognya di Trina AX lebih dulu
-Di **Admin › Aplikasi terhubung**, pilih **Tambahkan lewat alamatnya**, buka **Lanjutan**, atur **Siapa yang
-menghubungkan** ke **Milik tiap anggota**, **Jenis** ke **API** (atau **Server MCP**), dan **Cara masuk** ke **Masuk
-(OAuth)**. Untuk MCP server, nyalakan juga **Login dengan aplikasi saya**. Dialog sekarang menampilkan **Alamat
-pengalihan untuk didaftarkan di aplikasi Anda pada layanan** dengan tombol salin. Salin alamat itu.
+1. Di **Admin › Aplikasi terhubung**, pilih **Tambahkan lewat alamatnya** (di bawah daftar **Jelajahi**).
+2. Buka **Lanjutan** lalu atur **Siapa yang menghubungkan** ke **Milik tiap anggota**, **Jenis** ke **API** (atau
+   **Server MCP**), dan **Cara masuk** ke **Masuk (OAuth)**. Untuk MCP server, nyalakan juga **Login dengan aplikasi
+   saya**.
+3. Dialog sekarang menampilkan **Alamat pengalihan untuk didaftarkan di aplikasi Anda pada layanan**, dengan tombol
+   salin. Salin dengan tombol itu, bukan dengan memilih teksnya, dan biarkan dialog tetap terbuka.
 
 #### Buat aplikasinya di layanan
 Di konsol pengembang layanan itu, buat aplikasi (mungkin disebut "OAuth app", "client", atau "integration"). Tempel
