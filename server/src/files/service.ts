@@ -28,12 +28,12 @@ import { ext, extractText, isOffice, officeWorkerWrite, utf16Kind, utf16Text } f
 import { decodePagesResult, encodePagesRequest, PDF_PAGES_MODE } from './pdf-pages'
 import { formFieldsText } from './pdf-form'
 import { PDF_GATE } from './big-inputs'
-import { globFiles, grepFiles, OfficeCache } from './search'
+import { globFiles, grepFiles, OfficeCache, runRg } from './search'
 import { exactText, fitsOneRead, memoLines, numberedLines, prettyAllowed, prettyJsonView, READ_TEXT_CHARS, ReadViews } from './read-lines'
 import type { VirtualFile, VirtualFiles } from './virtual'
 import { SOURCE_LOCS_MAX, SourceLog } from './sources'
 import { apart } from './apart'
-import { copyWorkFile, isWorkPath, namesWorkFolder, readWorkSmall, shownWorkPath, walkWork, workEntries, workRel, WORK_WALK_MAX, type WorkFolder } from '../devenv/work-files'
+import { copyWorkFile, isWorkPath, namesWorkFolder, readWorkSmall, shownWorkPath, walkWork, workEntries, workRel, WORK_GREP_TOTAL_MAX, WORK_WALK_MAX, type WorkFolder } from '../devenv/work-files'
 import { locsOfRange } from './locations'
 import type { SourceLoc } from '@mycel/shared/api'
 import { atomicWrite, conflictCopyName, fileEvent, moveToTrash, readHead, readRegular, recordConflictCopy, saveVersion, sha256 } from './store'
@@ -596,7 +596,7 @@ export class FileService {
     if (place.kind === 'reserved') throw new ToolError(`${place.why}.`, 'bad_path')
     if (place.kind === 'work') {
       if (tool === 'read') return null
-      if (tool === 'list' || tool === 'glob' || tool === 'grep') return this.workPlace(tool, rawArgs, ctx, place.rel)
+      if (tool === 'list' || tool === 'glob' || tool === 'grep') return await this.workPlace(tool, rawArgs, ctx, place.rel)
       throw new ToolError('The work folder is changed by your box_shell commands, and files come into it with copy_files (to_folder "chat:work/…"); write and edit do not change it.', 'bad_path')
     }
     if (tool === 'write' || tool === 'edit') throw new ToolError('A chat file is not changed in place yet: read it, then save a changed copy into a team folder (write, or save_chat_file for its bytes).', 'read_only')
@@ -621,7 +621,7 @@ export class FileService {
    * read and what was copied in (chat/tools.ts beforeFileTool: exec.workRead → noteSharedReads) before this runs.
    * Its names and lines came from commands: information, never instructions.
    */
-  private workPlace(tool: 'list' | 'glob' | 'grep', rawArgs: unknown, ctx: ToolCtx, rel: string): ToolOutput {
+  private async workPlace(tool: 'list' | 'glob' | 'grep', rawArgs: unknown, ctx: ToolCtx, rel: string): Promise<ToolOutput> {
     const wf = ctx.sharedChild ? null : ctx.files.workFolder?.() ?? null
     if (!wf) throw new ToolError("This chat has no work folder here (no command ran in it yet, the dev environment is off, the people of the chat changed, or this is a sub-agent).", 'not_found')
     const shown = workPlacePath(rel)
@@ -646,34 +646,67 @@ export class FileService {
       return { text: (hits.length ? hits.slice(0, 100).map(line).join('\n') + (hits.length > 100 ? '\n(Results are truncated. Use a more specific pattern.)' : '') : 'No files found') + cut, summary: `glob ${shown} -> ${hits.length} files` }
     }
     const a = GrepInput.parse(rawArgs)
-    let re: RegExp
-    try { re = new RegExp(a.pattern, a['-i'] ? 'iu' : 'u') } catch { throw new ToolError('Invalid regular expression.', 'bad_pattern') }
     let only: InstanceType<typeof Bun.Glob> | null = null
     try { only = a.glob ? new Bun.Glob(a.glob.replace(/^\*\*\//, '')) : null } catch { throw new ToolError('Invalid glob.', 'bad_pattern') }
     const mode = a.output_mode ?? 'files_with_matches'
     const ctxN = a['-C'] ?? 0, before = a['-B'] ?? ctxN, after = a['-A'] ?? ctxN
+    // the pattern runs in ripgrep (linear time, a time limit), never in the server's own regex engine: a pattern the AI
+    // gives must not stop the server (review of P2: "(a+)+$" over one long line in a work file did). The files are the
+    // checked copies (readWorkSmall), at most WORK_GREP_TOTAL_MAX in all, in a folder of this call only.
+    const staging = path.join(this.cfg.dataDir, 'search-inputs')
+    fs.mkdirSync(staging, { recursive: true, mode: 0o700 })
+    const dir = fs.mkdtempSync(path.join(staging, 'work-'))
     const out: string[] = []
-    for (const e of walk.entries) {
-      if (e.kind !== 'file') continue
-      const name = e.rel.split('/').pop()!
-      if (only && !only.match(name) && !only.match(e.rel)) continue
-      if (a.type && ext(name) !== a.type) continue
-      const buf = readWorkSmall(wf, e.rel)
-      if (!buf || buf.subarray(0, 8000).includes(0)) continue
-      const lines = buf.toString('utf8').split(/\r?\n/)
-      const at = lines.flatMap((l, i) => (re.test(l) ? [i] : []))
-      if (!at.length) continue
-      const p = workPlacePath(e.rel)
-      if (mode === 'files_with_matches') { out.push(p); continue }
-      if (mode === 'count') { out.push(`${p}:${at.length}`); continue }
-      const show = new Set<number>()
-      for (const i of at) for (let j = Math.max(0, i - before); j <= Math.min(lines.length - 1, i + after); j++) show.add(j)
-      for (const j of [...show].sort((x, y) => x - y)) out.push(`${p}:${a['-n'] === false ? '' : `${j + 1}:`}${lines[j]!.slice(0, 2000)}`)
-    }
+    let cutBytes = false, timedOut = false
+    try {
+      const staged: { rel: string; lines: string[] }[] = []
+      let used = 0
+      for (const e of walk.entries) {
+        if (e.kind !== 'file') continue
+        const name = e.rel.split('/').pop()!
+        if (only && !only.match(name) && !only.match(e.rel)) continue
+        if (a.type && ext(name) !== a.type) continue
+        if (used + e.size > WORK_GREP_TOTAL_MAX) { cutBytes = true; break }
+        const buf = readWorkSmall(wf, e.rel)
+        if (!buf || buf.subarray(0, 8000).includes(0)) continue
+        if (used + buf.length > WORK_GREP_TOTAL_MAX) { cutBytes = true; break }
+        used += buf.length
+        fs.writeFileSync(path.join(dir, `f${staged.length}`), buf, { mode: 0o600, flag: 'wx' })
+        staged.push({ rel: e.rel, lines: buf.toString('utf8').split(/\r?\n/) })
+      }
+      const hits = new Map<number, number[]>()
+      let bad = ''
+      if (staged.length) {
+        const args = ['--no-config', '-uu', '-a', '--null', '-n', '--no-heading', '-H', '--max-columns', '1', ...(a['-i'] ? ['-i'] : []), '-e', a.pattern, '--', '.']
+        const res = await runRg(this.cfg.rg, args, dir, '\n', (rec) => {
+          const z = rec.indexOf('\0')
+          const m = z >= 0 ? /^\.?\/?f(\d+)$/.exec(rec.slice(0, z)) : null
+          const n = m ? /^(\d+):/.exec(rec.slice(z + 1)) : null
+          if (!m || !n) return
+          const k = Number(m[1]), list = hits.get(k) ?? []
+          list.push(Number(n[1]) - 1)
+          hits.set(k, list)
+        }, this.cfg.grepTimeoutMs, ctx.signal ? { signal: ctx.signal } : {})
+        if (res.code === 2 && !hits.size) bad = res.err
+        timedOut = res.killed === 'timeout'
+      }
+      if (bad) throw new ToolError('Invalid regular expression.', 'bad_pattern')
+      for (const [k, f] of staged.entries()) {
+        const at = hits.get(k)
+        if (!at?.length) continue
+        const p = workPlacePath(f.rel)
+        if (mode === 'files_with_matches') { out.push(p); continue }
+        if (mode === 'count') { out.push(`${p}:${at.length}`); continue }
+        const show = new Set<number>()
+        for (const i of at) for (let j = Math.max(0, i - before); j <= Math.min(f.lines.length - 1, i + after); j++) show.add(j)
+        for (const j of [...show].sort((x, y) => x - y)) out.push(`${p}:${a['-n'] === false ? '' : `${j + 1}:`}${f.lines[j]!.slice(0, 2000)}`)
+      }
+    } finally { fs.rmSync(dir, { recursive: true, force: true }) }
+    const limits = `${cutBytes ? `\n(Only the first ${WORK_GREP_TOTAL_MAX / 1024 ** 2} MB of text were searched: name a folder inside it.)` : ''}${timedOut ? '\n(The search took too long and was stopped: use a simpler pattern or name a folder inside it.)' : ''}`
     const from = a.offset ?? 0, n = a.head_limit ?? 200
     const page = out.slice(from, from + n)
     const more = out.length > from + n ? `\n(more: grep again with offset ${from + n})` : ''
-    return { text: `${page.length ? `${note}\n${page.join('\n')}` : 'No matches found'}${more}${cut}`, summary: `grep ${shown} -> ${out.length} ${mode === 'content' ? 'lines' : 'files'}` }
+    return { text: `${page.length ? `${note}\n${page.join('\n')}` : 'No matches found'}${more}${cut}${limits}`, summary: `grep ${shown} -> ${out.length} ${mode === 'content' ? 'lines' : 'files'}` }
   }
 
   // ---------------- list ----------------

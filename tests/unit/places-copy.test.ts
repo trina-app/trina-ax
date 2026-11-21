@@ -312,3 +312,34 @@ describe('chat:files/', () => {
     expect(r.content).toContain('save files in your own folder')
   })
 })
+
+describe('review of P2 (adversarial)', () => {
+  test('copy_files ["users"] (or "users/") into a shared chat\'s chat:work/ asks for the asker\'s own folder; no = nothing copied', async () => {
+    for (const top of ['users', 'users/']) {
+      const chat = await shared()
+      const r = await run('alice', chat, copy([top], 'chat:work/in/'), () => 'skip')
+      // before the fix: no card, users/alice/secret.txt landed in the shared work folder, recorded only as the name "users"
+      expect(r.cards.length, top).toBe(1)
+      expect(fs.existsSync(path.join(devenvPaths(base).workShared, chat))).toBe(false)
+      const y = await run('alice', chat, copy([top], 'chat:work/in/'), shareYes)
+      expect(y.cards.length, top).toBe(1)
+      expect(copiedInOf(chat, sharedWork(chat))[0]!.s).toContainEqual({ type: 'user', id: 'alice' })
+    }
+  })
+
+  test('grep of chat:work/ runs the pattern in ripgrep: a backtracking pattern over a long line does not stop the server', async () => {
+    // (the server's own regex engine gives up on each such line after seconds: 15 lines held the whole server for most of
+    // a minute before the fix)
+    w('users/alice/long/aaa.txt', `${('a'.repeat(200) + 'b\n').repeat(15)}PLAIN line\n`)
+    const chat = await personal()
+    await run('alice', chat, copy(['users/alice/long'], 'chat:work/'))
+    const t = Date.now()
+    const s = await run('alice', chat, fake({ tool: 'grep', args: { pattern: '(a+)+$', path: 'chat:work/' }, sayResult: true }))
+    expect(Date.now() - t).toBeLessThan(20_000)
+    expect(s.content).toContain('No matches found')
+    const c = await run('alice', chat, fake({ tool: 'grep', args: { pattern: 'plain', '-i': true, path: 'chat:work/', output_mode: 'content' }, sayResult: true }))
+    expect(c.content).toContain('chat:work/long/aaa.txt:16:PLAIN line')
+    const bad = await run('alice', chat, fake({ tool: 'grep', args: { pattern: '(', path: 'chat:work/' }, sayResult: true }))
+    expect(bad.content).toContain('Invalid regular expression')
+  })
+})
