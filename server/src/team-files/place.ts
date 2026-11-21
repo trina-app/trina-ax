@@ -108,15 +108,19 @@ export function ensureParents(root: string, segs: string[]) {
 /**
  * Move the file at `src` (server-owned, outside the team folder or in .system) to team path `segs`, replacing a
  * regular file there. Same volume: rename. Other volume: copy into a temp name next to the target first.
+ * A failure after the source was renamed into the temp name puts it back at `src` (the temp name may be the only copy
+ * of the bytes: rooms/file-moves.ts); when even that fails, the temp file is left where it is (the mover finds it by
+ * its inode) rather than deleted. A copy (keepSource, another volume) is removed as before.
  */
 export function installFile(root: string, segs: string[], src: string, o: { keepSource?: boolean } = {}) {
   ensureParents(root, segs)
   const dir = path.join(root, ...segs.slice(0, -1))
   const target = path.join(dir, segs[segs.length - 1]!)
   const tmp = tmpName(dir)
+  let renamed = false
   if (o.keepSource) fs.copyFileSync(src, tmp, C.COPYFILE_EXCL | C.COPYFILE_FICLONE)
   else {
-    try { fs.renameSync(src, tmp) } catch (e: any) {
+    try { fs.renameSync(src, tmp); renamed = true } catch (e: any) {
       if (e.code !== 'EXDEV') throw e
       fs.copyFileSync(src, tmp, C.COPYFILE_EXCL)
       fs.rmSync(src, { force: true })
@@ -130,7 +134,11 @@ export function installFile(root: string, segs: string[], src: string, o: { keep
       if (!st.isFile() || st.nlink > 1) throw new Denied('target is not a regular file')
     } catch (e: any) { if (e instanceof Denied) throw e }
     fs.renameSync(tmp, target)
-  } catch (e) { fs.rmSync(tmp, { force: true }); throw e }
+  } catch (e) {
+    if (!renamed) fs.rmSync(tmp, { force: true })
+    else try { fs.renameSync(tmp, src) } catch { /* left at its temp name: never the only copy deleted */ }
+    throw e
+  }
 }
 
 /**

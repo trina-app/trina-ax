@@ -19,6 +19,7 @@ import { keptMediaCache } from '../auth/media-key'
 import { mapErrors } from '../team-files/errors'
 import { savedFiles, savePlan, saveToTeam } from '../rooms/save-to-team'
 import { assertRoomUpload } from '../rooms/project-room'
+import { roomFileMovesOf } from '../rooms/file-moves'
 
 export const roomsRoutes: RouteModule = {
   name: 'rooms',
@@ -31,6 +32,11 @@ export const roomsRoutes: RouteModule = {
     try { rooms.sync({ projects: 'all' }) } catch (e) { ctx.log.error('room sync failed', { err: e }) }
     // after a restore the database and the team folder can be from different moments: rows and files are matched
     try { roomFilesOf(ctx).reconcile() } catch (e) { ctx.log.error('room file reconcile failed', { err: e }) }
+    // a conversation made a project moves its files to the project's Chat attachments (rooms/file-moves.ts): what a stop
+    // left in its staging folder is looked at first, then the moves go on (here, and on the tick below)
+    const moves = roomFileMovesOf(ctx)
+    try { moves.reconcile() } catch (e) { ctx.log.error('room file moves reconcile failed', { err: e }) }
+    if (moves.auto) void moves.run().catch((e) => ctx.log.warn('room file moves failed', { err: e }))
     // once, a minute after start: the JPEG thumbnails of transparent pictures sent before become PNG ones (rooms/files.ts
     // refreshThumbs)
     if (process.env.NODE_ENV !== 'test') {
@@ -39,7 +45,11 @@ export const roomsRoutes: RouteModule = {
       ;(later as { unref?: () => void }).unref?.()
       ctx.onClose(() => { clearTimeout(later); stop.abort() })
     }
-    const tick = setInterval(() => { rooms.syncNow('all'); try { roomFilesOf(ctx).sweep() } catch (e) { ctx.log.warn('room file sweep failed', { err: e }) } }, 60_000)
+    const tick = setInterval(() => {
+      rooms.syncNow('all')
+      try { roomFilesOf(ctx).sweep() } catch (e) { ctx.log.warn('room file sweep failed', { err: e }) }
+      if (moves.auto) void moves.run().catch((e) => ctx.log.warn('room file moves failed', { err: e }))
+    }, 60_000)
     ;(tick as { unref?: () => void }).unref?.()
     ctx.onClose(() => clearInterval(tick))
   },
@@ -60,7 +70,8 @@ export const roomsRoutes: RouteModule = {
     kit.handle(API.listMyRoomFiles, ({ c, auth, query }) => { c.header('Cache-Control', 'no-store'); return rooms.listMyFiles(auth.user.id, query) })
     // ⌘K before anything is typed: the newest files of my rooms (rooms/search.ts recentRoomFiles), the same checks
     kit.handle(API.recentRoomFiles, ({ c, auth }) => { c.header('Cache-Control', 'no-store'); return rooms.recentFiles(auth.user.id) })
-    // a room's Files list (rooms/search.ts listRoomFiles): not for a project's chat room (404; its files are the project's)
+    // a room's Files list (rooms/search.ts listRoomFiles): a project's chat room lists only the files it keeps itself
+    // (room storage: files that stayed when a conversation was made a project), and has none without them (404)
     kit.handle(API.listRoomFiles, ({ c, auth, params, query }) => { c.header('Cache-Control', 'no-store'); return rooms.listFiles(auth.user.id, params.id, query) })
     // the screen's language for a refusal ("@트리나" asks nothing: docs/DECISIONS.md "Room @트리나 code removed")
     kit.handle(API.sendRoomMessage, ({ c, auth, params, body }) => rooms.send(auth.user.id, params.id, body, { locale: c.get('locale'), ...(body.showMessages?.length ? { showMessages: body.showMessages } : {}) }))
@@ -101,7 +112,7 @@ export const roomsRoutes: RouteModule = {
 
     // a small file in one request (larger ones: an upload session with target room, uploads/sessions.ts). The body was
     // streamed to a temp file and hashed on the way (http/multipart.ts); create() moves it into the room's folder (a
-    // project's chat room: into the project's Chat attachments folder, rooms/files.ts createInProject)
+    // project's chat room or a department's team room: into its Chat attachments folder, rooms/files.ts createInTeamFolder)
     kit.handle(API.uploadRoomFile, async ({ c, auth, params, body }) => {
       // the same checks as a chat attachment: the whole part arrived, there is room on the disk
       if (body.fields.size !== undefined && body.fields.size !== body.file.size) fail('validation', undefined, { fields: { 'body.file': `expected ${body.fields.size} bytes, got ${body.file.size}` } })

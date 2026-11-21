@@ -84,6 +84,7 @@ export const FEATURE_SCOPE: Record<string, Scope> = {
   'rooms.project-link': { reach: 'none', why: 'retired in 0.5.22 (its endpoints answer 410): a project has its own chat room, rooms.project-room' },
   // the person opens the project's room on screens; the side chat's save into the project's folder is rooms.files' save (tests/unit/b-linked-project-no-card.test.ts)
   'rooms.project-room': { reach: 'explains' },
+  'rooms.make-project': { reach: 'explains' },
   'rooms.search': { reach: 'acts', tools: ['room_read', 'rooms'] },
   'rooms.activity': { reach: 'explains' },
   'rooms.apps': { reach: 'explains' },

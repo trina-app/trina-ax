@@ -153,3 +153,29 @@ test('a guest of the project in a converted channel: still in their place, and m
   expect((await g.client.try('GET', `/api/rooms/${ch.id}`)).status).toBe(200)
   expect((await g.client.try('GET', `/api/rooms/${chat.body.id}`)).status).toBe(200)
 })
+
+test('settleLinkedInTx with `made` (make-project): the line is the person\'s project_made and the audit via made; without it the start pass is unchanged', async () => {
+  const { mia, nora, launch } = await setup('b-project-room-migrate-made')
+  const a = await mia.client.call('POST', '/api/rooms', { kind: 'group', userIds: [nora.id], name: 'Made here' })
+  const b = await mia.client.call('POST', '/api/rooms', { kind: 'group', userIds: [nora.id], name: 'At start' })
+  const other = await mia.client.call('POST', '/api/projects', { name: 'Second', participants: [user(nora.id)] })
+  linkRow(a.id, launch.id, mia.id)
+  const db = h.ctx.db
+  const { settleLinkedInTx, activePeople } = await import('../../server/src/rooms/project-room')
+  const { RuleSet } = await import('../../server/src/policy/access')
+  const made = db.transaction(() => settleLinkedInTx(db, a.id, RuleSet.load(db), activePeople(db), { actor: mia.id, via: 'made' }))()
+  expect(made?.state).toBe('converted')
+  const line = db.query('SELECT author_id, event FROM room_messages WHERE id = ?').get((made as { line: string }).line) as { author_id: string; event: string }
+  expect(line.author_id).toBe(mia.id)
+  expect(JSON.parse(line.event)).toEqual({ type: 'project_made', projectId: launch.id, by: mia.id })
+  expect(audits().at(-1)).toMatchObject({ actor_id: mia.id, target: launch.id })
+  expect(JSON.parse(audits().at(-1)!.detail)).toEqual({ room: { kind: 'group' }, via: 'made' })
+  // the start pass: by the system, project_room, via converted
+  linkRow(b.id, other.id, mia.id)
+  start()
+  const startLine = db.query("SELECT author_id, event FROM room_messages WHERE room_id = ? AND event IS NOT NULL ORDER BY seq DESC LIMIT 1").get(b.id) as { author_id: string | null; event: string }
+  expect(startLine.author_id).toBeNull()
+  expect(JSON.parse(startLine.event)).toEqual({ type: 'project_room', projectId: other.id })
+  expect(JSON.parse(audits().at(-1)!.detail)).toEqual({ room: { kind: 'group' }, via: 'converted' })
+  expect(audits().at(-1)!.actor_id).toBeNull()
+})

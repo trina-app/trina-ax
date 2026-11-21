@@ -92,9 +92,9 @@ Cada chat de su lista de chats de Trina muestra como máximo una marca, en el ex
 | Anillo gris | La IA está respondiendo, o la respuesta espera su turno. |
 | Punto, título en negrita | Una respuesta nueva que todavía no ha abierto. |
 
-Al abrir un chat desaparece su punto, y también el **?** de una respuesta que falló o se detuvo, en todos los dispositivos. Una sección plegada conserva la marca más fuerte de los chats que contiene. Una sala muestra **?** en lugar de su recuento mientras la IA espera allí su respuesta.
+Al abrir un chat desaparece su punto, y también el **?** de una respuesta que falló o se detuvo, en todos los dispositivos. Una sección plegada conserva la marca más fuerte de los chats que contiene. Una conversación muestra **?** en lugar de su recuento mientras la IA espera allí su respuesta.
 
-Mientras la pestaña del navegador está en segundo plano, su título cuenta los chats y las salas que le necesitan, por ejemplo "(2) Trina". La app de escritorio muestra el mismo número en el Dock de un Mac, y una notificación cuando se abre una tarjeta o termina una respuesta de más de un minuto mientras usted mira otra cosa; al hacer clic se abre ese chat. Las tareas programadas solo reciben la marca; una pregunta hecha desde Slack se responde allí, así que su chat no recibe punto. **Trina** en la barra de la izquierda (en un teléfono, la pestaña **Trina**) muestra **?** o un punto cuando un chat le necesita, **Chats** muestra **?** mientras la IA espera su respuesta en una sala, y en un teléfono aparece en la app un mensaje corto con **Abrir**.
+Mientras la pestaña del navegador está en segundo plano, su título cuenta los chats y las conversaciones que le necesitan, por ejemplo "(2) Trina". La app de escritorio muestra el mismo número en el Dock de un Mac, y una notificación cuando se abre una tarjeta o termina una respuesta de más de un minuto mientras usted mira otra cosa; al hacer clic se abre ese chat. Las tareas programadas solo reciben la marca; una pregunta hecha desde Slack se responde allí, así que su chat no recibe punto. **Trina** en la barra de la izquierda (en un teléfono, la pestaña **Trina**) muestra **?** o un punto cuando un chat le necesita, **Chats** muestra **?** mientras la IA espera su respuesta en una conversación, y en un teléfono aparece en la app un mensaje corto con **Abrir**.
 
 ## Compartir un chat
 
@@ -187,25 +187,25 @@ Para traer a alguien de fuera del equipo, elija **Invitar a un invitado** al añ
 
 ![La lista Chats: Menciones e hilos, Canales con Todos (Everyone) y Marketing, y Mensajes directos con una conversación de grupo y un mensaje directo](../../images/chats/rooms-list.webp "La lista Chats")
 
-#### Preguntar a Trina junto a una sala
+#### Preguntar a Trina junto a una conversación
 
-El botón **✦** arriba de una sala abre al lado un chat lateral con Trina. Solo usted ve este chat, y la IA
-responde con lo que usted puede abrir. Cuando vale la pena compartir una respuesta, **Enviar a la sala** debajo de ella la pone en la sala como mensaje suyo
-(**Enviar al hilo** si preguntó sobre un mensaje). Si algunas personas de la sala no pueden abrir un archivo que usó la respuesta,
+El botón **✦** arriba de una conversación abre al lado un chat lateral con Trina. Solo usted ve este chat, y la IA
+responde con lo que usted puede abrir. Cuando vale la pena compartir una respuesta, **Enviar** debajo de ella la pone en la conversación como mensaje suyo
+(**Enviar al hilo** si preguntó sobre un mensaje). Si algunas personas de la conversación no pueden abrir un archivo que usó la respuesta,
 la app se lo dice antes y espera su confirmación.
 
 Con un hilo abierto, **✦** abre el chat lateral junto al hilo y los dos siguen en pantalla (en una ventana pequeña la
-sala les deja el sitio). El cuadro del chat lateral dice entonces **Viendo este hilo**: su pregunta trata de ese hilo y la
+conversación les deja el sitio). El cuadro del chat lateral dice entonces **Viendo este hilo**: su pregunta trata de ese hilo y la
 respuesta puede ir directamente a él. Pulse **✕** en esa línea para preguntar sobre toda la conversación.
 
 ![El canal Marketing: un mensaje que menciona a Jordan, un hilo con 2 respuestas y la respuesta de Trina enviada desde el chat lateral](../../images/chats/room.webp "Un canal")
 
 #### Responder en un hilo
 
-**Responder en el hilo** en un mensaje mantiene una conversación aparte debajo de él, para que la sala se lea con facilidad. La sala muestra cuántas
-respuestas tiene un hilo; **Enviar también a la sala** pone una respuesta también en la sala.
+**Responder en el hilo** en un mensaje mantiene un intercambio aparte debajo de él, para que la conversación se lea con facilidad. La conversación muestra cuántas
+respuestas tiene un hilo; **Enviar también a la conversación** pone una respuesta también en la conversación.
 
-![Un hilo abierto junto a la sala: el primer mensaje y sus respuestas, con un cuadro para responder](../../images/chats/thread.webp "Un hilo")
+![Un hilo abierto junto a la conversación: el primer mensaje y sus respuestas, con un cuadro para responder](../../images/chats/thread.webp "Un hilo")
 
 #### Enlazar a un mensaje
 
@@ -226,14 +226,14 @@ y haga clic en **✕** (o elija **Quitar vista previa** en el menú del mensaje)
 La lista de Chats tiene el mismo orden en un ordenador y en un teléfono: **Fijados**, luego sus propias secciones, luego
 **Canales**, **Proyectos** y **Mensajes directos**.
 
-- **Proyectos** reúne la sala de chat de cada proyecto del equipo, por nombre, con un icono de carpeta. La sala aparece
+- **Proyectos** reúne la conversación de cada proyecto del equipo, por nombre, con un icono de carpeta. Aparece
   cuando alguien escribe en ella; hasta entonces se abre desde el proyecto. No tiene **+**: los proyectos se crean en la
   página Proyectos o desde una conversación (vea [Convertir una conversación en proyecto](#convertir-una-conversación-en-proyecto)).
-- Una conversación aparece en un solo lugar. Una sala de proyecto que fija o arrastra a una de sus secciones sale de
+- Una conversación aparece en un solo lugar. Una conversación de proyecto que fija o arrastra a una de sus secciones sale de
   Proyectos. Arrástrela al encabezado **Proyectos** para devolverla.
-- Cuando un proyecto va a la papelera, su sala sale de la lista. Al restaurar el proyecto, vuelve.
+- Cuando un proyecto va a la papelera, su conversación sale de la lista. Al restaurar el proyecto, vuelve.
 
-### La sala de un departamento y su carpeta
+### El canal de un departamento y su carpeta
 
 Cada departamento (un grupo en **Administración › Grupos**) tiene su propio canal. Cuando el departamento tiene una
 carpeta que usted puede abrir, arriba en su canal aparece un botón de carpeta con el nombre del departamento: abre esa
@@ -322,29 +322,29 @@ Empiece un chat desde la página del proyecto, o lleve un chat a él con **Mover
   pueden abrirlo, y una línea debajo lo indica. Necesita permiso de escritura en la carpeta del proyecto (sin él, **+**
   solo ofrece archivos del equipo); **✕** antes de enviar mueve el archivo a la papelera.
 
-### La sala de chat del proyecto
+### La conversación del proyecto
 
-Cada proyecto del equipo tiene su propia sala de chat. Las personas del proyecto son las personas de la sala, y sus
+Cada proyecto del equipo tiene su propia conversación. Las personas del proyecto son las personas de la conversación, y sus
 archivos son los del proyecto: una sola lista de personas y un solo lugar para los archivos.
 
-- **Sala de chat** en la página del proyecto (en un teléfono, una fila bajo el nombre del proyecto) abre la sala. La
+- **Conversación** en la página del proyecto (en un teléfono, una fila bajo el nombre del proyecto) abre la conversación. La
   primera vez se crea con el nombre del proyecto. Un pequeño icono de chat en la fila del proyecto en **Proyectos** (con
-  un punto si hay algo sin leer) y **Sala de chat** arriba en los chats de IA del proyecto también la abren.
-- Arriba en la sala, el botón de carpeta con el nombre del proyecto abre la página del proyecto: sus archivos y sus
-  chats de IA. La sala aparece en **Proyectos** en la lista de Chats, con un icono de carpeta, cuando alguien escribe en ella.
-- **Quién está en ella sigue al proyecto.** Añadir a alguien al proyecto lo añade a la sala, y ve todo su historial;
-  sacarlo del proyecto lo saca de la sala. El diálogo de miembros lo dice antes de añadir a nadie. Para cambiarlo, abra
-  el nombre de la sala arriba y luego **Gestionar personas** (para quien puede cambiar las personas del proyecto).
-  **Silenciar** deja la sala en silencio; **Salir del proyecto** sale del proyecto y de su sala.
+  un punto si hay algo sin leer) y **Conversación** arriba en los chats de IA del proyecto también la abren.
+- Arriba en la conversación, el botón de carpeta con el nombre del proyecto abre la página del proyecto: sus archivos y sus
+  chats de IA. La conversación aparece en **Proyectos** en la lista de Chats, con un icono de carpeta, cuando alguien escribe en ella.
+- **Quién está en ella sigue al proyecto.** Añadir a alguien al proyecto lo añade a la conversación, y ve todo su historial;
+  sacarlo del proyecto lo saca de la conversación. El diálogo de miembros lo dice antes de añadir a nadie. Para cambiarlo, abra
+  el nombre de la conversación arriba y luego **Gestionar personas** (para quien puede cambiar las personas del proyecto).
+  **Silenciar** deja la conversación en silencio; **Salir del proyecto** sale del proyecto y de su conversación.
 - **Un archivo que envía allí va a la carpeta Adjuntos del chat del proyecto**, donde las personas del proyecto lo
   encuentran en Archivos. Quien solo puede ver el proyecto puede escribir mensajes, pero no añadir archivos.
 - **Eliminar un mensaje elimina solo el mensaje.** Su archivo se queda en Adjuntos del chat del proyecto; elimínelo en
   Archivos si quiere que desaparezca.
-- Trina en el chat lateral de la sala guarda los documentos nuevos en la carpeta del proyecto, y los chats de IA del
-  proyecto pueden leer la sala. Ambos los ven las mismas personas, así que no se pregunta quién puede verlo.
-- El chat lateral **✦** de la sala es solo suyo. Cuando está vacío, lo dice y enlaza a la página del proyecto, donde las
+- Trina en el chat lateral de la conversación guarda los documentos nuevos en la carpeta del proyecto, y los chats de IA del
+  proyecto pueden leer la conversación. Ambos los ven las mismas personas, así que no se pregunta quién puede verlo.
+- El chat lateral **✦** de la conversación es solo suyo. Cuando está vacío, lo dice y enlaza a la página del proyecto, donde las
   personas del proyecto preguntan a Trina juntas.
-- Cuando las personas del proyecto son exactamente las de un departamento, el inicio de la sala y su información dicen
+- Cuando las personas del proyecto son exactamente las de un departamento, el inicio de la conversación y su información dicen
   "Las mismas personas que #Ventas. Hablen de Atlas aquí.", con un enlace al canal del departamento.
 
 ### Convertir una conversación en proyecto
@@ -363,17 +363,17 @@ Un canal privado o un chat de grupo que se convierte en trabajo real puede pasar
      conversación, y el diálogo dice cuántos.
    - Quienes se añadan al proyecto después verán los mensajes desde entonces y podrán abrir los archivos movidos.
 
-La conversación sigue abierta y ahora es la sala de chat del proyecto, con el botón de carpeta del proyecto arriba y una
+La conversación sigue abierta y ahora es la conversación del proyecto, con el botón de carpeta del proyecto arriba y una
 línea que dice quién la convirtió en proyecto. Mientras se mueven los archivos, arriba dice **Moviendo archivos…**; una
 segunda línea dice cuántos se movieron y cuántos se quedaron. Un archivo que se quedó lleva **Solo en esta
-conversación**, y la sala conserva una lista **Archivos** con esos archivos.
+conversación**, y la conversación conserva una lista **Archivos** con esos archivos.
 
 Sus fijados, secciones, notificaciones y lugar de lectura no cambian. Si alguien entra o sale mientras el diálogo está
 abierto, dice **Las personas cambiaron** y muestra el nuevo número. Un invitado que ya tiene un proyecto lo impide: un
 administrador lo convierte primero en miembro del equipo.
 
 En un mensaje directo, el **⋯** tiene en su lugar **Nuevo proyecto con** y el nombre de la persona. Crea un proyecto
-nuevo para los dos, con su propia sala de chat. El mensaje directo queda como está.
+nuevo para los dos, con su propia conversación. El mensaje directo queda como está.
 
 ## Encontrar cualquier cosa
 

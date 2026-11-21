@@ -1,1 +1,0 @@
-- A project's chat room header stays on one line on a phone ("3 members · 1 guest"), and the "Change the members?" confirm now says that people removed from a project also lose its chat room and its history.

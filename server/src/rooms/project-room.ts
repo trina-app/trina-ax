@@ -70,12 +70,12 @@ export function readersOf(rules: RuleSet, people: readonly Principal[], p: Pick<
   return new Set(people.filter((x) => atLeast(rules.access(x, segs), 'read')).map((x) => x.id))
 }
 
-/** An event line by the system inside the caller's write (Rooms.eventLine's rule: the room's next seq). */
-function systemLine(db: Database, roomId: string, e: Record<string, unknown>, now: string): string {
+/** An event line inside the caller's write (Rooms.eventLine's rule: the room's next seq), by the system or by `author`. */
+export function systemLine(db: Database, roomId: string, e: Record<string, unknown>, now: string, author: string | null = null): string {
   const id = newId()
   const seq = (db.query('UPDATE rooms SET last_seq = last_seq + 1 WHERE id = ? RETURNING last_seq').get(roomId) as { last_seq: number }).last_seq
   db.query(`INSERT INTO room_messages (id, room_id, seq, author_kind, author_id, visibility, body, mentions, created_at, event)
-    VALUES (?, ?, ?, 'user', NULL, 'room', '', '[]', ?, ?)`).run(id, roomId, seq, now, JSON.stringify(e))
+    VALUES (?, ?, ?, 'user', ?, 'room', '', '[]', ?, ?)`).run(id, roomId, seq, author, now, JSON.stringify(e))
   return id
 }
 
@@ -88,8 +88,12 @@ const projectRow = (db: Database, id: string): LinkedProjectRow | null => db.que
  * project's readers: it becomes the project's room (each member keeps where they see it from, the floor is the room's
  * seq now, the room takes the project's name, one event line); anything else: the link row goes and the channel stays as
  * it is. Audited as project.room { via: 'converted' | 'unlinked' }. Returns what happened, with the line's id.
+ * `made` (POST /api/rooms/:id/make-project, rooms/make-project.ts): the conversation was made the project by `actor`
+ * just now; the line is theirs ({ type: 'project_made', projectId, by }) and the audit's via is 'made' (the room by its
+ * kind only). The caller treats anything but 'converted' as a refusal (its write rolls back). Without it, the start
+ * pass is as before.
  */
-export function settleLinkedInTx(db: Database, roomId: string, rules: RuleSet, people: readonly Principal[]): { roomId: string; state: 'converted'; line: string } | { roomId: string; state: 'unlinked' } | null {
+export function settleLinkedInTx(db: Database, roomId: string, rules: RuleSet, people: readonly Principal[], made?: { actor: string; via: 'made' }): { roomId: string; state: 'converted'; line: string } | { roomId: string; state: 'unlinked' } | null {
   const l = db.query("SELECT project_id FROM room_project_links WHERE room_id = ? AND mode = 'linked'").get(roomId) as { project_id: string } | null
   if (!l) return null
   const room = db.query('SELECT * FROM rooms WHERE id = ?').get(roomId) as RoomRow | null
@@ -110,8 +114,10 @@ export function settleLinkedInTx(db: Database, roomId: string, rules: RuleSet, p
   db.query('UPDATE room_members SET history_from_seq = visible_from_seq, history_recheck = 0 WHERE room_id = ?').run(roomId)
   db.query("UPDATE room_project_links SET mode = 'room', history_floor_seq = ? WHERE room_id = ?").run(room.last_seq, roomId)
   if (room.name !== p.name) db.query('UPDATE rooms SET name = ? WHERE id = ?').run(p.name, roomId)
-  const line = systemLine(db, roomId, { type: 'project_room', projectId: p.id }, now)
-  audit(db, { actor: null, action: 'project.room', target: p.id, detail: { room: roomAuditRef(room), via: 'converted' } })
+  const line = made
+    ? systemLine(db, roomId, { type: 'project_made', projectId: p.id, by: made.actor }, now, made.actor)
+    : systemLine(db, roomId, { type: 'project_room', projectId: p.id }, now)
+  audit(db, { actor: made?.actor ?? null, action: 'project.room', target: p.id, detail: { room: roomAuditRef(room), via: made ? 'made' : 'converted' } })
   return { roomId, state: 'converted', line }
 }
 
