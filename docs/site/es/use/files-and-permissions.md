@@ -47,7 +47,7 @@ El acceso se suma, como en Google Drive: lo que da una carpeta se añade a lo qu
 ### Dar a una carpeta menos acceso que la carpeta superior
 
 Normalmente una carpeta deja entrar a todas las personas que deja entrar la carpeta superior. Para reservar una carpeta
-a menos personas (por ejemplo una carpeta `budget` dentro de `Toda la empresa`), limítela:
+a menos personas (por ejemplo una carpeta `handbook` dentro de `Toda la empresa`), limítela:
 
 1. Abra el cuadro **Compartir** de la carpeta (**Archivos** y luego **⋯** › **Compartir** de la carpeta).
 2. Abajo, en **Configuración**, active el interruptor **Limitar el acceso**.

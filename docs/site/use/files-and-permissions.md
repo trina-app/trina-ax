@@ -57,7 +57,7 @@ Access adds up, as in Google Drive: what a folder gives comes on top of what the
 ### Give a folder less access than the folder above
 
 Normally a folder lets in everyone the folder above it lets in. To keep a folder for fewer people (for example a
-`budget` folder inside `Company-wide`), limit it:
+`handbook` folder inside `Company-wide`), limit it:
 
 1. Open the folder's **Share** dialog (**Files**, then the folder's **⋯** › **Share**).
 2. At the bottom, under **Settings**, turn on the **Limit access** switch.
