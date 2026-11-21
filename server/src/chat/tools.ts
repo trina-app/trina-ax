@@ -58,6 +58,7 @@ import { BOX_SHELL_TOOL, boxShellTool, callerOf } from '../devenv/tool'
 import { mayUseDevEnv } from '../devenv/setting'
 import { noteSharedReads, runsInWorkFolder, spaceOf, workFolderAt } from '../devenv/srt/runner'
 import { saveWorkFileTool } from './work-file-tool'
+import { COPY_FILES_TOOL, stagePlaceInput, withPlaces } from './places-copy'
 import { connectService } from './connect-service'
 import { DRAFT_FILE_REFUSAL, draftToolRefusal, draftUrlRefusal } from '../onboarding/draft'
 import { namedPaths, SEARCH_TOOLS, SHARED_TOOLS, WRITE_TARGET_ARGS } from '../rooms/ai-tools'
@@ -291,6 +292,12 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
     try { if (t.available && !t.available({ userId: exec.spec.userId, chatId: exec.spec.chatId, browser: exec.browser })) continue } catch { continue }
     add(wrapRegistered(exec, t))
   }
+  // copy_files between the team folder, this chat's files (chat:files/) and its work folder (chat:work/): a call that
+  // names a chat place runs the places copy (chat/places-copy.ts); any other the team copy, unchanged
+  const teamCopy = tools.get(COPY_FILES_TOOL)
+  if (teamCopy) tools.set(COPY_FILES_TOOL, withPlaces(exec, teamCopy, (files, call) => toolContext(exec, files, call).files.person))
+  // a chat place as an input file of a registered tool (query_data): the main AI only (a sub-agent's view has none)
+  exec.files.placeInput = (value, dest, max, signal) => stagePlaceInput(exec, exec.files, value, dest, max, signal)
   if (exec.devEnv) {
     const person = turnPerson(exec)
     add(boxShellTool({
@@ -784,7 +791,7 @@ function roomLinePerson(exec: TurnExec, p: TurnPerson, call: { tool: string; arg
 
 /** `call`: the tool call this context is for: a room call a grant or [이번만] let through is checked again after the
  * tool's own wider-audience card (it may have waited: make_file's pictures and template) */
-function toolContext(exec: TurnExec, files: TurnFiles, call?: { tool: string; args: unknown }): TurnToolContext {
+export function toolContext(exec: TurnExec, files: TurnFiles, call?: { tool: string; args: unknown }): TurnToolContext {
   return {
     turnId: exec.spec.turnId, chatId: exec.spec.chatId, userId: exec.spec.userId, messageId: exec.spec.assistantId, locale: exec.spec.locale,
     signal: exec.abort.signal,
@@ -1363,21 +1370,27 @@ function saveScreenshot(exec: TurnExec, b64: string, mime: string): string | nul
   }
 }
 
+/** The arguments that take a chat place (shared/src/places.ts) in tools other than the file tools (files/service.ts
+ * callPlace takes read, list, glob and grep): copy_files' sources and target (chat/places-copy.ts), query_data's inputs
+ * (tools/query-data.ts), and the old save_work_file's path. Every other path argument refuses one. */
+const PLACE_ARGS: Readonly<Record<string, readonly string[]>> = { copy_files: ['paths', 'to_folder'], query_data: ['paths'], save_work_file: ['path'] }
+
 /**
  * A call of a registered tool (not read, list, glob or grep: files/service.ts callPlace takes those) that names a chat
- * place (shared/src/places.ts) where this build does not take one: the words for the AI, or null. Only save_work_file's
- * `path` (a work-folder file) takes one so far; the copy, the produce tools and in-place edits follow (plan
- * 20261121-0615-chat-places-as-paths.md P2-P4).
+ * place (shared/src/places.ts) where this build does not take one: the words for the AI, or null. copy_files and
+ * query_data take them (P2); the produce tools and in-place edits follow (plan 20261121-0615-chat-places-as-paths.md
+ * P3-P4).
  */
 export function placeRefusal(name: string, args: unknown): string | null {
   for (const { key, value } of namedPaths(name, args)) {
     if (!isReservedPlace(value)) continue
     const place = parsePlace(value)
-    if (name === 'save_work_file' && key === 'path' && place?.kind === 'work') continue
     if (place?.kind === 'reserved') return `Not done (${name}): ${place.why}.`
+    if ((PLACE_ARGS[name] ?? []).includes(key) && !(name === 'save_work_file' && place?.kind !== 'work')) continue
+    if (name === 'move_files' || name === 'rename_file' || name === 'rename_files') return `Not done (${name}): chat files and work-folder files keep their names and places; copy one with copy_files (paths ["${value}"], to_folder a team folder, "chat:files/" or "chat:work/…") instead.`
     return place?.kind === 'work'
-      ? `Not done (${name}): this tool does not take a work-folder path (${value}) yet. Read it with read, or hand it over with save_work_file first.`
-      : `Not done (${name}): this tool does not take a chat file (${value}) yet. Copy it into a team folder with save_chat_file first, then use that copy.`
+      ? `Not done (${name}): this tool does not take a work-folder path (${value}) yet. Read it with read, or copy it into a team folder with copy_files first (to_folder a team folder), then use that copy.`
+      : `Not done (${name}): this tool does not take a chat file (${value}) yet. Copy it into a team folder with copy_files first (paths ["${value}"], to_folder a team folder), then use that copy.`
   }
   return null
 }
