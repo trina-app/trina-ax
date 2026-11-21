@@ -58,10 +58,10 @@ Tekan **Esc** atau pilih **✕**. Anda kembali ke tempat semula.
 
 ![Jendela Pengaturan: bagian-bagian di kiri, bagian Profile di kanan dengan foto, nama, jabatan, email, nama pengguna, peran, Delete account dan bahasa](../../images/settings/settings.webp "Jendela Pengaturan")
 
-**Diizinkan untuk Trina** mencantumkan hal yang Anda pilih **Selalu izinkan** pada kartu konfirmasi, serta folder ruang obrolan tempat Anda
+**Diizinkan untuk Trina** mencantumkan hal yang Anda pilih **Selalu izinkan** pada kartu konfirmasi, serta folder percakapan tempat Anda
 mengizinkan file baru. Hapus salah satunya, dan Anda akan ditanya lagi lain kali.
 
-**Browser** (di aplikasi desktop, dan di web selama **Izinkan semua situs web** menyala) berisi **Izinkan semua situs web**. Jika menyala, AI membuka situs web publik tanpa bertanya saat Anda memintanya, di chat Anda dan di ruang obrolan. Tugas terjadwal tetap bertanya. Alamat dengan rangkaian karakter panjang yang sulit dibaca atau query yang panjang tetap ditanyakan, tetapi itu hanya menangkap token yang jelas terlihat: instruksi tersembunyi di dokumen, halaman, atau pesan ruang obrolan bisa membuat AI mengirim apa pun yang bisa dibacanya ke situs mana pun. Anda juga bisa menyalakannya dari kartu alamat ("Izinkan semua situs web (matikan di Pengaturan)"). Di aplikasi desktop, sakelar yang sama juga berlaku untuk browser bawaan aplikasi, yang bertanya sekali lagi di jendelanya sendiri. Bagian ini ada selama tim Anda mengizinkannya.
+**Browser** (di aplikasi desktop, dan di web selama **Izinkan semua situs web** menyala) berisi **Izinkan semua situs web**. Jika menyala, AI membuka situs web publik tanpa bertanya saat Anda memintanya, di chat Anda dan di percakapan. Tugas terjadwal tetap bertanya. Alamat dengan rangkaian karakter panjang yang sulit dibaca atau query yang panjang tetap ditanyakan, tetapi itu hanya menangkap token yang jelas terlihat: instruksi tersembunyi di dokumen, halaman, atau pesan percakapan bisa membuat AI mengirim apa pun yang bisa dibacanya ke situs mana pun. Anda juga bisa menyalakannya dari kartu alamat ("Izinkan semua situs web (matikan di Pengaturan)"). Di aplikasi desktop, sakelar yang sama juga berlaku untuk browser bawaan aplikasi, yang bertanya sekali lagi di jendelanya sendiri. Bagian ini ada selama tim Anda mengizinkannya.
 
 Di ponsel, Pengaturan memenuhi layar. Daftar bagian tampil lebih dulu, dan **←** kembali ke daftar itu.
 
@@ -120,4 +120,4 @@ Tekan **⌘K** (Ctrl+K di Windows), atau pilih **Cari** di bawah **Tanya Trina**
 | **⌘F** (Ctrl+F) di tempat lain | Sama dengan ⌘K. |
 | **⌘F** lagi saat pencarian terbuka | Kembali ke kotak pencarian, dengan teksnya terpilih. Untuk mencari di halaman, gunakan **Edit › Cari…** di aplikasi desktop. |
 
-![Pencarian menemukan sebuah kata di pesan ruang obrolan: siapa yang menulisnya, di ruang mana, dan kapan](../../images/search/messages.webp "Pencarian juga menemukan pesan")
+![Pencarian menemukan sebuah kata di pesan percakapan: siapa yang menulisnya, di percakapan mana, dan kapan](../../images/search/messages.webp "Pencarian juga menemukan pesan")
