@@ -36,7 +36,7 @@ const ASKS_FOR_OTHER_LANGUAGE = new RegExp([
   '[\\u4E00-\\u9FFF\\u30A0-\\u30FF]語(?:で|に|版|訳)', '翻訳', '英語',
   '用[\\u4E00-\\u9FFF]{1,6}[语文語]', '[\\u4E00-\\u9FFF]{1,6}[语文]版', '翻译', '英文', '英语',
   'english', 'translat', 'spanish', 'español', 'indonesian', 'bahasa', 'french', 'german', 'vietnamese', 'japanese',
-  'chinese', 'korean', '영작', 'commit',
+  '영작', 'commit', 'chinese', 'korean',
   // the message quotes 3 or more Latin words (after ":" or in quotes)
   '[:：]\\s*[A-Za-z]+(?:[\\s,.\'-]+[A-Za-z]+){2,}', '["“\'‘「][A-Za-z]+(?:[\\s,.-]+[A-Za-z]+){2,}',
 ].join('|'), 'i')
