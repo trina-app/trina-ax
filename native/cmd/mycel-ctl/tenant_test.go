@@ -275,6 +275,69 @@ func TestTenantGitHubAppSet(t *testing.T) {
 	}
 }
 
+// github-app-set: Go's rules take every app the contract's vectors take and refuse every one they refuse; the
+// largest app the contract takes fits stdin and gives a file app.ts reads (below 16 KiB).
+func TestTenantGitHubAppVectors(t *testing.T) {
+	skipAsRoot(t)
+	b, err := os.ReadFile("../../../shared/src/cloud-protocol/vectors/vectors.json")
+	must(t, err)
+	var v struct {
+		TenantCommands struct {
+			Allowed []struct {
+				Command string          `json:"command"`
+				Stdin   json.RawMessage `json:"stdin"`
+			} `json:"allowed"`
+			Refused []struct {
+				Command string          `json:"command"`
+				Args    map[string]any  `json:"args"`
+				Stdin   json.RawMessage `json:"stdin"`
+				Why     string          `json:"why"`
+			} `json:"refused"`
+		} `json:"tenantCommands"`
+	}
+	must(t, json.Unmarshal(b, &v))
+	tb := newTestBase(t, "0.3.0")
+	f := &fakeTenant{}
+	f.install(t)
+	n := 0
+	for _, a := range v.TenantCommands.Allowed {
+		if a.Command == "github-app-set" {
+			n++
+			if code, out, errs := tb.tctl(string(a.Stdin), "github-app-set", "--json"); code != 0 || !strings.Contains(out, `"ok":true`) {
+				t.Fatalf("refused an allowed vector: %d %q %s", code, out, errs)
+			}
+			got, _ := os.ReadFile(filepath.Join(tb.base, githubAppFile))
+			var want, have map[string]any
+			_ = json.Unmarshal(a.Stdin, &want)
+			if json.Unmarshal(got, &have) != nil || fmt.Sprint(have) != fmt.Sprint(want) {
+				t.Fatalf("file %q for %s", got, a.Stdin)
+			}
+		}
+	}
+	for _, r := range v.TenantCommands.Refused {
+		if r.Command != "github-app-set" || len(r.Args) > 0 {
+			continue
+		}
+		n++
+		if code, out, _ := tb.tctl(string(r.Stdin), "github-app-set", "--json"); code == 0 || out != "" {
+			t.Fatalf("took a refused vector (%s): %q", r.Why, out)
+		}
+	}
+	if n < 10 {
+		t.Fatalf("only %d github-app-set vectors", n)
+	}
+	for _, c := range []string{`"`, `\`, `<`, `&`} {
+		bb, _ := json.Marshal(map[string]string{"clientId": strings.Repeat("x", 128), "clientSecret": strings.Repeat(c, 4096), "slug": strings.Repeat("a", 100)})
+		big := string(bb)
+		if code, out, errs := tb.tctl(big, "github-app-set", "--json"); code != 0 || !strings.Contains(out, `"ok":true`) {
+			t.Fatalf("the largest app (%s): %d %q %s", c, code, out, errs)
+		}
+		if st, _ := os.Stat(filepath.Join(tb.base, githubAppFile)); st.Size() >= 16384 {
+			t.Fatalf("file of %d bytes for %s", st.Size(), c)
+		}
+	}
+}
+
 func TestTenantAdminCommands(t *testing.T) {
 	tb := newTestBase(t, "0.3.0")
 	f := &fakeTenant{adminOut: map[string]string{

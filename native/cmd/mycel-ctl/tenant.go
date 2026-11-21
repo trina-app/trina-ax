@@ -846,7 +846,8 @@ func cmdErrorReportsSet(e *env, args []string) (int, error) {
 const githubAppFile = "secrets/integrations/github/app.json"
 
 // The GitHub App's values (shared/src/cloud-protocol GitHubAppFile). app.ts reads the same names with rules at least
-// this wide; the secret is printable ASCII without spaces, so the file stays far below app.ts's 16 KiB.
+// this wide; the secret is printable ASCII without spaces, so the file (written without HTML escapes) stays below
+// app.ts's 16 KiB.
 var (
 	githubClientIDRE = regexp.MustCompile(`^[A-Za-z0-9._-]{1,128}$`)
 	githubSecretRE   = regexp.MustCompile(`^[!-~]+$`) // and at most 4096 (Go's regexp repeats at most 1000)
@@ -898,7 +899,8 @@ func cmdGitHubAppSet(e *env, args []string) (int, error) {
 	if c, err := t.open(args); err != nil {
 		return c, err
 	}
-	_, m, err := t.stdinJSON(8 << 10)
+	// 32 KiB: a secret of 4096 characters is up to six times that once escaped (\u003c)
+	_, m, err := t.stdinJSON(32 << 10)
 	if err != nil {
 		return 1, err
 	}
@@ -906,11 +908,17 @@ func cmdGitHubAppSet(e *env, args []string) (int, error) {
 	if err != nil {
 		return 1, err
 	}
-	file, err := json.Marshal(app)
-	if err != nil {
+	// no HTML escaping (json.Marshal writes < > & as 6 bytes each): the file stays below app.ts's 16 KiB
+	var file bytes.Buffer
+	enc := json.NewEncoder(&file)
+	enc.SetEscapeHTML(false)
+	if err := enc.Encode(app); err != nil {
 		return 1, err
 	}
-	raw, err := t.asServerFn(append(file, '\n'), "server-write", "--file", githubAppFile)
+	if file.Len() > 16<<10 {
+		return 1, fmt.Errorf("the app file would be over 16 KiB")
+	}
+	raw, err := t.asServerFn(file.Bytes(), "server-write", "--file", githubAppFile)
 	if err != nil {
 		return 1, err
 	}
