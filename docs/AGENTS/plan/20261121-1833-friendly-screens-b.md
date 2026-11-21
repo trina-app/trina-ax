@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-21 18:33
 - Branch: `docs/friendly-screens-b`
-- Status: in progress
+- Status: done
 - Where: docs/site (user docs), scripts/docs/screenshots.ts (new shots). Why: the owner asked whether the docs are
   friendly; readers are non-developers at companies, and the hard steps need numbered steps and pictures.
 - Version impact: none (docs only; no app code changes)
@@ -49,4 +49,11 @@ bun run docs:build, bun run check:docs, bun run check:prepush.
 
 ## Result
 
-(filled in at the end)
+Rewrote the hard steps as numbered steps with exact labels and results, in en, ko, ja, zh, es and id: sections in
+Chats (the old "Conversation folders" text no longer matched the app), keeping a project chat to yourself, restoring a
+deleted chat, sharing one file, Limit access, version history, both ways to create a scheduled task, one conversation's
+bell, usage limits (Warn only vs Block was missing; tokens explained), suggesting a skill, making a skill folder, where
+Add an app is; plain comparisons on guests, find-work-files and index (a "Use Trina AX at work" block). Six new shots
+(chats/channels-add, settings/room-notify, files/file-share, files/limit-access, scheduled/template,
+usage/limit-dialog), English and Chinese, from the Acme demo without AI. No installer shots: docs/install is not part of
+the site. The PR link is in the PR.
