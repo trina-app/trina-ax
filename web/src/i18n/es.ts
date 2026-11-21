@@ -2671,6 +2671,8 @@ export const es: Record<MessageKey, string> = {
   'audit.act.chat.file_add': "Archivo enviado en un chat compartido",
   'audit.act.chat.files_copied': "Archivos anteriores copiados a un chat compartido",
   'audit.act.chat.files_added': "Archivos creados por el chat añadidos a un chat compartido",
+  'audit.act.chat.file_version': "Archivo de un chat cambiado (nueva versión)",
+  'audit.act.chat.file_restore': "Archivo de un chat restaurado a una versión anterior",
   'audit.act.group.create': "Creó un grupo",
   'audit.act.group.update': "Modificó un grupo",
   'audit.act.group.delete': "Eliminó un grupo",

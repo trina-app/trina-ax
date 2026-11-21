@@ -132,8 +132,11 @@ describe('output: chat:files/<name> in a chat shared with people', () => {
 
   test('the PDF tools, resize_images and make_zip take it too', async () => {
     const { chat } = await sharedChat()
-    const pdf = await run('alice', chat, fake({ tool: 'make_file', args: { format: 'pdf', content: '# One', output: 'chat:files/one.pdf' } }))
-    expect(pdf.attachments.map((a) => a.name)).toContain('one.pdf')
+    // a PDF needs pandoc and typst (the CI unit shards have neither: c-make-file-rich skips the same way)
+    if ((process.env.MYCEL_TYPST_BIN || Bun.which('typst')) && Bun.which('pandoc')) {
+      const pdf = await run('alice', chat, fake({ tool: 'make_file', args: { format: 'pdf', content: '# One', output: 'chat:files/one.pdf' } }))
+      expect(pdf.attachments.map((a) => a.name)).toContain('one.pdf')
+    }
     const z = await run('alice', chat, fake({ tool: 'make_zip', args: { paths: ['shared/public.png'], output: 'chat:files/pics.zip' }, sayResult: true }))
     expect(z.attachments.map((a) => a.name)).toContain('pics.zip')
     expect(z.content).toContain(`/c/${chat}?file=`)

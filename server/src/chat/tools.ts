@@ -299,7 +299,8 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
   const teamCopy = tools.get(COPY_FILES_TOOL)
   if (teamCopy) tools.set(COPY_FILES_TOOL, withPlaces(exec, teamCopy, (files, call) => toolContext(exec, files, call).files.person))
   // a chat place as an input file of a registered tool (query_data): the main AI only (a sub-agent's view has none)
-  exec.files.placeInput = (value, dest, max, signal) => stagePlaceInput(exec, exec.files, value, dest, max, signal)
+  // (a tool set built for a listing only, as tests and the tool-list check do, has no turn files)
+  if (exec.files) exec.files.placeInput = (value, dest, max, signal) => stagePlaceInput(exec, exec.files, value, dest, max, signal)
   if (exec.devEnv) {
     const person = turnPerson(exec)
     add(boxShellTool({

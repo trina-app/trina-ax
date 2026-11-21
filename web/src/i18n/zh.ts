@@ -2667,6 +2667,8 @@ export const zh: Record<MessageKey, string> = {
   "audit.act.chat.file_add": "在共享对话中发送了文件",
   "audit.act.chat.files_copied": "已将之前的文件复制到共享对话",
   'audit.act.chat.files_added': "已将对话生成的文件添加到共享对话",
+  'audit.act.chat.file_version': "聊天文件已更改(新版本)",
+  'audit.act.chat.file_restore': "聊天文件已恢复到早期版本",
   "audit.act.group.create": "创建了小组",
   "audit.act.group.update": "更改了小组",
   "audit.act.group.delete": "删除了小组",
