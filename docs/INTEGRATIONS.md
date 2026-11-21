@@ -661,6 +661,8 @@ or paste ([decision](decisions/20261120-github-connector.md)).
   server account (regular, one link, mode 0600, outside the team folder; `server/src/integrations/github/app.ts`),
   `{ "clientId": "Iv23…", "clientSecret": "…", "slug": "<the app's name in github.com/apps/<slug>>" }`. Read each
   time (no restart). No answer, log line or audit entry carries it; the list says only `github: { ready, installUrl }`.
+  On a hosted team server the hosting service writes it with the tenant command `github-app-set` (stdin only; the
+  server account writes the file 0600 in a 0700 folder; the same values again change nothing), from 0.5.25 on.
 - **Which connections use it.** Only one at GitHub's exact official address (`serverAppAt`: https, that host and path,
   no port, query or fragment) without an own app of its own or its template's: personal ones, team ones (an admin
   signs in) and a template's members (each with their own GitHub account). The sign-in and token addresses are GitHub's
