@@ -498,8 +498,15 @@ export class RoomFileMoves {
   }
 
   private close(roomId: string) {
+    if (this.db.query(`SELECT 1 FROM room_file_moves WHERE room_id = ? AND (${WORK_SQL}) LIMIT 1`).get(roomId)) return
+    try { this.closeLine(roomId) } finally {
+      // the moves have settled: every member's Room loses filesMoving ("Moving files…") now, line or no line
+      if (roomRow(this.db, roomId)) roomsOf(this.ctx).roomEvent(roomId, 'updated')
+    }
+  }
+
+  private closeLine(roomId: string) {
     const db = this.db
-    if (db.query(`SELECT 1 FROM room_file_moves WHERE room_id = ? AND (${WORK_SQL}) LIMIT 1`).get(roomId)) return
     const link = db.query("SELECT l.project_id FROM room_project_links l JOIN rooms r ON r.id = l.room_id WHERE l.room_id = ? AND l.mode = 'room' AND r.archived_at IS NULL").get(roomId) as { project_id: string } | null
     if (!link) return
     // only a conversation made a project (its line by a person): never a room made as a project's
@@ -511,7 +518,6 @@ export class RoomFileMoves {
     const line = db.transaction(() => systemLine(db, roomId, { type: 'project_files_moved', projectId: link.project_id, moved, kept }, nowIso())).immediate()
     const rooms = roomsOf(this.ctx)
     rooms.messageEvent('room.message', messageRow(db, roomId, line)!)
-    if (roomRow(db, roomId)) rooms.roomEvent(roomId, 'updated')
   }
 
   /**

@@ -7186,6 +7186,8 @@ export const zh: Record<MessageKey, string> = {
   "rooms.makeProject.guestAsk": "请先让管理员把{guest}设为团队成员。",
   "rooms.makeProject.guestOpen": "在 管理 › 成员与邀请 中打开",
   "rooms.makeProject.changed": "人员有变化",
+  "rooms.makeProject.already": "这个对话刚刚变成了项目。",
+  "rooms.makeProject.alreadyOpen": "打开项目",
   "rooms.makeProject.dmBody": "你和{name}将成为项目的成员。项目会有自己的聊天室。",
   "rooms.makeProject.made": "「{name}」现在是项目了。",
   "rooms.filesMoving": "正在移动文件…",

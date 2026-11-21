@@ -7214,6 +7214,8 @@ export const ja: Record<MessageKey, string> = {
   "rooms.makeProject.guestAsk": "先に管理者に{guest}さんをチームメンバーにするよう頼んでください。",
   "rooms.makeProject.guestOpen": "管理 › メンバーと招待で開く",
   "rooms.makeProject.changed": "メンバーが変わりました",
+  "rooms.makeProject.already": "このトークはたった今プロジェクトになりました。",
+  "rooms.makeProject.alreadyOpen": "プロジェクトを開く",
   "rooms.makeProject.dmBody": "あなたと{name}さんがプロジェクトのメンバーになります。プロジェクトには専用のトークができます。",
   "rooms.makeProject.made": "「{name}」をプロジェクトにしました。",
   "rooms.filesMoving": "ファイルを移動中…",

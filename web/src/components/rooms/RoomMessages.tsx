@@ -765,17 +765,28 @@ function FileChip({ roomId, f, siblings }: { roomId: string; f: RoomFile; siblin
 /** A room file in the team folder where I can open it: its folder's name, the whole place in the tooltip and the
  * accessible name ("In team folder · Company-wide › Acme › Quotes"); a tap opens the file. `place`: a department room's
  * file in its group's folder reads "{group} › Chat attachments" (placeUnder). */
-function InTeamLink({ path, onOpen, place }: { path: string; onOpen: () => void; place?: string | null }) {
+export function InTeamLink({ path, onOpen, place }: { path: string; onOpen: () => void; place?: string | null }) {
   const t = useT()
   const found = folderOfPath(path, useFolderWords())
   const where = place ? { short: place, full: found.full } : found
   const label = t('rooms.save.inTeam', { folder: where.full })
+  const cut = where.short.lastIndexOf(' › ')
+  const head = cut > 0 ? where.short.slice(0, cut) : where.short
+  const tail = cut > 0 ? where.short.slice(cut + 3) : ''
   return (
     <Tooltip label={label}>
-      <button type="button" onClick={onOpen} aria-label={label} className="touch-hit inline-flex max-w-[140px] shrink-0 items-center gap-1 px-1.5 text-faint hover:bg-hover hover:text-ink" data-testid="room-file-in-team">
+      <button type="button" onClick={onOpen} aria-label={label} className={clsx('touch-hit inline-flex shrink-0 items-center gap-1 px-1.5 text-faint hover:bg-hover hover:text-ink', tail ? 'max-w-[220px]' : 'max-w-[140px]')} data-testid="room-file-in-team">
         <FolderCheck size={13} className="shrink-0 text-accent-text" aria-hidden />
-        {/* a phone keeps the file's name readable: the icon alone, the place in its name */}
-        <span className="truncate max-md:hidden">{where.short}</span>
+        {/* a phone keeps the file's name readable: the icon alone, the place in its name. A place of several folders
+            keeps its last one whole ("Chat attachments") and cuts the name before it first (TC-6732) */}
+        {tail ? (
+          <span className="flex min-w-0 max-md:hidden" data-testid="room-file-in-team-place">
+            <span className="truncate" data-testid="room-file-in-team-head">{head}</span>
+            <span className="shrink-0 whitespace-nowrap" data-testid="room-file-in-team-tail">{` › ${tail}`}</span>
+          </span>
+        ) : (
+          <span className="truncate max-md:hidden">{where.short}</span>
+        )}
       </button>
     </Tooltip>
   )

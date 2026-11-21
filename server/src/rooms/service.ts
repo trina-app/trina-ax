@@ -613,10 +613,10 @@ export class Rooms {
   /** POST /api/projects/:id/room: the project's room, made the first time (its people the project's readers, named after
    * it), for someone who reads the project (else 404 like a missing project). A 0.5.21 link of the project is settled
    * first. When made, every member gets it; when it was there, the caller is put in it if the sync had not yet. */
-  openProjectRoom(userId: string, projectId: string, locale: Locale = DEFAULT_LOCALE): Room {
+  openProjectRoom(userId: string, projectId: string, locale: Locale = DEFAULT_LOCALE, listed = false): Room {
     let r: ReturnType<typeof openInTx>
     try {
-      r = this.db.transaction(() => openInTx(this.db, userId, projectId, locale)).immediate()
+      r = this.db.transaction(() => openInTx(this.db, userId, projectId, locale, listed)).immediate()
     } catch (e) {
       // the same project's room made at the same moment by another process (the unique index): the write rolled back,
       // theirs is the one

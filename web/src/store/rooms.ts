@@ -456,7 +456,7 @@ interface RoomsState extends RoomsData {
   createGroup: (userIds: string[], name: string | null) => Promise<Room>
   /** a team project's own chat room (POST /api/projects/:id/room: made the first time; docs/decisions/
    * 20261120-project-is-room.md), put in my list */
-  openProjectRoom: (projectId: string) => Promise<Room>
+  openProjectRoom: (projectId: string, listed?: boolean) => Promise<Room>
   /** this group chat made a new team project (POST /api/rooms/:id/make-project; docs/decisions/
    * 20261121-make-project-from-room.md): the room as it is now (renamed, the project's chat room) put in my list */
   makeProject: (roomId: string, name: string, membersHash: string) => Promise<MakeProjectResult>
@@ -1340,8 +1340,8 @@ export const useRooms = create<RoomsState>((set, get) => {
       return room
     },
 
-    async openProjectRoom(projectId) {
-      const room = await api.call(API.openProjectRoom, { params: { id: projectId } })
+    async openProjectRoom(projectId, listed) {
+      const room = await api.call(API.openProjectRoom, { params: { id: projectId }, query: listed ? { listed: '1' as const } : {} })
       set((s) => withRoom(s, keepPending(s, room)))
       return room
     },

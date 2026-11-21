@@ -91,7 +91,7 @@ test('a named channel converts: people = members, renamed, floor set, starts kep
   expect(seen.some((m) => m.body === 'before' || m.body === 'after otto')).toBe(false)
   expect(seen.some((m) => m.event?.type === 'project_made')).toBe(true)
   // converting again: not convertible
-  expect(await status(make(mia.client, roomId, 'Again', i.membersHash))).toMatchObject({ status: 409, reason: 'not_convertible' })
+  expect(await status(make(mia.client, roomId, 'Again', i.membersHash))).toMatchObject({ status: 409, reason: 'already_project' })
 })
 
 test('an unnamed group chat converts with the names its row shows; a DM, team room, everyone room, project room and archived room are refused', async () => {
@@ -113,10 +113,13 @@ test('an unnamed group chat converts with the names its row shows; a DM, team ro
   await mia.client.call('POST', `/api/rooms/${left}/leave`)
   await nora.client.call('POST', `/api/rooms/${left}/leave`)
   expect(team).toBeTruthy()
-  for (const id of [dm, team!, all, projRoom]) {
+  for (const id of [dm, team!, all]) {
     expect(await status(info(mia.client, id))).toMatchObject({ status: 409, reason: 'not_convertible' })
     expect(await status(make(mia.client, id, 'X', 'x'))).toMatchObject({ status: 409, reason: 'not_convertible' })
   }
+  // a project's own room already is one (TC-6731): its own reason, with the project
+  expect(await status(info(mia.client, projRoom))).toMatchObject({ status: 409, reason: 'already_project' })
+  expect(await status(make(mia.client, projRoom, 'X', 'x'))).toMatchObject({ status: 409, reason: 'already_project' })
   // archived: not in it any more, the same 404 as any room one is not in
   expect((await status(make(mia.client, left, 'X', 'x'))).status).toBe(404)
 })
@@ -159,7 +162,10 @@ test('two conversions at the same moment: one project, one 409, the loser\'s fol
   const i = await info(mia.client, roomId)
   const both = await Promise.all([status(make(mia.client, roomId, 'Race A', i.membersHash)), status(make(nora.client, roomId, 'Race B', i.membersHash))])
   expect(both.map((b) => b.status).sort()).toEqual([200, 409])
-  expect(both.find((b) => b.status === 409)!.reason).toBe('not_convertible')
+  // the loser is told it just became a project, with a link to it (TC-6731), not that it cannot become one
+  const loser = both.find((b) => b.status === 409)!
+  expect(loser.reason).toBe('already_project')
+  expect(loser.body.error.params.projectId).toBe((h.ctx.db.query('SELECT id FROM projects').get() as { id: string }).id)
   expect(projects()).toBe(1)
   expect(projectDirs().length).toBe(1)
   // a failure inside the write (a project row that cannot be written): no project, no folder, no link, no rules
@@ -258,4 +264,26 @@ test('the files that move get their rows; the confirm counts them', async () => 
   expect(r.room.filesMoving).toBe(true)
   const rows = h.ctx.db.query('SELECT room_file_id, state, actor, sender FROM room_file_moves WHERE room_id = ?').all(roomId)
   expect(rows).toEqual([{ room_file_id: file.id, state: 'pending', actor: mia.id, sender: mia.id }])
+})
+
+// TC-6733: a project room made on purpose is listed before its first message (Room.listed); the room a project page
+// opens the first time is not (it is listed after its first message), and "New project with" opens it with ?listed=1.
+test('a conversation made a project and a room opened on purpose are listed; the project page\'s first look is not', async () => {
+  const { mia, nora } = await setup('b-make-project-listed')
+  const roomId = await channel(mia.client, [nora.id])
+  const i = await info(mia.client, roomId)
+  const r = await make(mia.client, roomId, 'Listed one', i.membersHash)
+  expect(r.room.listed).toBe(true)
+  expect((await nora.client.call('GET', `/api/rooms/${roomId}`)).listed).toBe(true)
+  expect((await nora.client.call('GET', '/api/rooms')).items.find((x: any) => x.id === roomId).listed).toBe(true)
+  const lazy = await mia.client.call('POST', '/api/projects', { name: 'Lazy', participants: [{ subjectType: 'user', subjectId: nora.id }] })
+  const lazyRoom = await mia.client.call('POST', `/api/projects/${lazy.id}/room`)
+  expect(lazyRoom.listed).toBeUndefined()
+  // opened on purpose afterwards: listed, and it stays so when opened again the plain way
+  expect((await mia.client.call('POST', `/api/projects/${lazy.id}/room?listed=1`)).listed).toBe(true)
+  expect((await nora.client.call('POST', `/api/projects/${lazy.id}/room`)).listed).toBe(true)
+  const dm = await mia.client.call('POST', '/api/projects', { name: 'With Nora', participants: [{ subjectType: 'user', subjectId: nora.id }] })
+  const dmRoom = await mia.client.call('POST', `/api/projects/${dm.id}/room?listed=1`)
+  expect(dmRoom.listed).toBe(true)
+  expect((await nora.client.call('GET', `/api/rooms/${dmRoom.id}`)).listed).toBe(true)
 })

@@ -63,7 +63,14 @@ export const membersHash = (ids: readonly string[]): string => createHash('sha25
 function convertible(db: Database, room: Pick<RoomRow, 'id' | 'kind' | 'archived_at'>): boolean {
   return room.kind === 'group' && !room.archived_at && !db.query('SELECT 1 FROM room_project_links WHERE room_id = ?').get(room.id)
 }
-const notConvertible = (locale: Locale): never => fail('conflict', tr('roomNotConvertible', locale), { params: { reason: 'not_convertible' } })
+/** 409 for a room that cannot become a project. A room that already is one (someone else made it a project a moment ago)
+ * says so: reason already_project, with projectId when the caller reads that project (TC-6731); else not_convertible. */
+function notConvertible(ctx: AppContext, p: Principal, roomId: string, locale: Locale): never {
+  const link = ctx.db.query("SELECT l.project_id, pr.folder_path FROM room_project_links l JOIN projects pr ON pr.id = l.project_id WHERE l.room_id = ? AND l.mode = 'room'").get(roomId) as { project_id: string; folder_path: string } | null
+  if (!link) return fail('conflict', tr('roomNotConvertible', locale), { params: { reason: 'not_convertible' } })
+  const mine = canRead(ctx.files, p, link.folder_path)
+  return fail('conflict', tr('roomAlreadyProject', locale), { params: { reason: 'already_project', ...(mine ? { projectId: link.project_id } : {}) } })
+}
 const membersChanged = (locale: Locale): never => fail('conflict', tr('roomMembersChanged', locale), { params: { reason: 'members_changed' } })
 
 /** The room for an active member who is not a guest, else 404 (an outsider, an admin outside it and a guest alike). */
@@ -98,7 +105,7 @@ function suggestedName(db: Database, room: RoomRow, members: readonly Member[], 
 export function makeProjectInfo(ctx: AppContext, p: Principal, roomId: string, typed: string | undefined, locale: Locale): MakeProjectInfo {
   const db = ctx.db
   const room = roomFor(ctx, p, roomId)
-  if (!convertible(db, room)) notConvertible(locale)
+  if (!convertible(db, room)) notConvertible(ctx, p, room.id, locale)
   assertMayCreateTeamProject(db, p, locale)
   const members = activeMembers(db, room.id)
   const suggested = suggestedName(db, room, members, p.id)
@@ -123,7 +130,7 @@ export function makeProject(ctx: AppContext, p: Principal, roomId: string, body:
   const db = ctx.db
   const rooms = roomsOf(ctx)
   const room = roomFor(ctx, p, roomId)
-  if (!convertible(db, room)) notConvertible(locale)
+  if (!convertible(db, room)) notConvertible(ctx, p, room.id, locale)
   assertMayCreateTeamProject(db, p, locale)
   if (safeOpsEnabled()) fail('conflict', tr('sharedChatSafeOps', locale), { params: { reason: 'safe_ops' } })
   const name = body.name.normalize('NFC').trim()
@@ -145,7 +152,7 @@ export function makeProject(ctx: AppContext, p: Principal, roomId: string, body:
     db.transaction(() => {
       // 2 again: another conversion may have won meanwhile
       const now = roomRow(db, room.id)
-      if (!now || !convertible(db, now)) notConvertible(locale)
+      if (!now || !convertible(db, now)) notConvertible(ctx, p, room.id, locale)
       // the gone accounts leave first: the settle below compares every member row with the project's readers
       gone = rooms.dropGoneInTx(room.id)
       const members = activeMembers(db, room.id)
@@ -175,6 +182,8 @@ export function makeProject(ctx: AppContext, p: Principal, roomId: string, body:
       const settled = settleLinkedInTx(db, room.id, RuleSet.load(db), activePeople(db), { actor: p.id, via: 'made' })
       if (settled?.state !== 'converted') membersChanged(locale)
       line = (settled as { line: string }).line
+      // made on purpose: listed for everyone before its first message (rooms/project-room.ts isListedProjectRoom)
+      db.query('UPDATE room_project_links SET listed = 1 WHERE room_id = ?').run(room.id)
       for (const l of levels) setOwnLevel(db, room.id, l.userId, l.level)
       // a project room is never a guest's group-chat place: their project slot holds it now
       db.query('UPDATE guests SET room_id = NULL WHERE room_id = ?').run(room.id)

@@ -7258,6 +7258,8 @@ export const id: Record<MessageKey, string> = {
   "rooms.makeProject.guestAsk": "Minta admin untuk menjadikan {guest} anggota tim terlebih dahulu.",
   "rooms.makeProject.guestOpen": "Buka di Admin › Anggota & undangan",
   "rooms.makeProject.changed": "Orangnya berubah",
+  "rooms.makeProject.already": "Percakapan ini baru saja menjadi proyek.",
+  "rooms.makeProject.alreadyOpen": "Buka proyek",
   "rooms.makeProject.dmBody": "Anda dan {name} menjadi orang-orang proyek. Proyek ini mendapat percakapannya sendiri.",
   "rooms.makeProject.made": "{name} sekarang menjadi proyek.",
   "rooms.filesMoving": "Memindahkan file…",
