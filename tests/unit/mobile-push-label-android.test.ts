@@ -14,6 +14,7 @@ const moduleDir = path.join(mobileRoot, 'modules/push-label/android/src/main')
 const kotlin = (f: string) => fs.readFileSync(path.join(moduleDir, 'java/expo/modules/pushlabel', f), 'utf8')
 const plugin = require('../../mobile/plugins/push-label.js') as { removeExpoService(m: any): any; checkExpoNotifications(root: string): void }
 const EXPO_SERVICE = 'expo.modules.notifications.service.ExpoFirebaseMessagingService'
+const EXPO_RECEIVER = 'expo.modules.notifications.service.NotificationsService'
 
 afterEach(() => { delete process.env.MYCEL_MOBILE_EDITION; delete process.env.MYCEL_MOBILE_BUILD_NUMBER })
 
@@ -33,11 +34,15 @@ test('the manifest: expo-notifications\' service removed at the merge, once; the
   const twice = plugin.removeExpoService(once)
   expect(twice.manifest.$['xmlns:tools']).toBe('http://schemas.android.com/tools')
   expect(twice.manifest.application[0].service).toEqual([{ $: { 'android:name': 'other.Service' } }, { $: { 'android:name': EXPO_SERVICE, 'tools:node': 'remove' } }])
+  // expo-notifications' receiver goes too: ours (LabelNotificationsService) posts every notification
+  expect(twice.manifest.application[0].receiver).toEqual([{ $: { 'android:name': EXPO_RECEIVER, 'tools:node': 'remove' } }])
   expect(() => plugin.removeExpoService({ manifest: {} })).toThrow('no application')
   const own = fs.readFileSync(path.join(moduleDir, 'AndroidManifest.xml'), 'utf8')
   expect(own).toContain('android:name="expo.modules.pushlabel.LabelMessagingService"')
   expect(own).toContain('android:exported="false"')
   expect(own).toContain('com.google.firebase.MESSAGING_EVENT')
+  expect(own).toContain('android:name="expo.modules.pushlabel.LabelNotificationsService"')
+  expect(own).toContain('expo.modules.notifications.NOTIFICATION_EVENT')
   // Expo links expo-notifications as a prebuilt AAR (no ':expo-notifications' project): the module takes the AAR then
   // (a plain project(':expo-notifications') failed the first real Gradle build, 2026-11-21)
   const gradle = fs.readFileSync(path.join(mobileRoot, 'modules/push-label/android/build.gradle'), 'utf8')
@@ -55,20 +60,34 @@ test.skipIf(!expoNotifications)('the prebuild stops when expo-notifications no l
     const real = path.join(mobileRoot, 'node_modules/expo-notifications')
     const copy = path.join(root, 'node_modules/expo-notifications')
     const src = 'android/src/main/java/expo/modules/notifications'
-    for (const f of ['service/ExpoFirebaseMessagingService.kt', 'service/delegates/FirebaseMessagingDelegate.kt', 'notifications/model/RemoteNotificationContent.kt', 'notifications/model/triggers/FirebaseNotificationTrigger.kt']) {
+    for (const f of ['service/ExpoFirebaseMessagingService.kt', 'service/delegates/FirebaseMessagingDelegate.kt', 'notifications/model/RemoteNotificationContent.kt', 'notifications/model/triggers/FirebaseNotificationTrigger.kt', 'service/NotificationsService.kt', 'service/delegates/ExpoPresentationDelegate.kt']) {
       fs.mkdirSync(path.dirname(path.join(copy, src, f)), { recursive: true })
       fs.copyFileSync(path.join(real, src, f), path.join(copy, src, f))
     }
+    fs.copyFileSync(path.join(real, 'android/src/main/AndroidManifest.xml'), path.join(copy, 'android/src/main/AndroidManifest.xml'))
     fs.copyFileSync(path.join(real, 'package.json'), path.join(copy, 'package.json'))
     expect(() => plugin.checkExpoNotifications(root)).not.toThrow()
     const delegate = path.join(copy, src, 'service/delegates/FirebaseMessagingDelegate.kt')
     fs.writeFileSync(delegate, fs.readFileSync(delegate, 'utf8').replace('protected open fun createNotificationRequest', 'protected fun createNotificationRequest'))
+    expect(() => plugin.checkExpoNotifications(root)).toThrow('expo-notifications changed')
+    fs.writeFileSync(delegate, fs.readFileSync(delegate, 'utf8').replace('protected fun createNotificationRequest', 'protected open fun createNotificationRequest'))
+    expect(() => plugin.checkExpoNotifications(root)).not.toThrow()
+    // a new action on expo-notifications' receiver that ours does not list stops the prebuild too
+    const manifest = path.join(copy, 'android/src/main/AndroidManifest.xml')
+    fs.writeFileSync(manifest, fs.readFileSync(manifest, 'utf8').replace('<action android:name="android.intent.action.REBOOT" />', '<action android:name="android.intent.action.REBOOT" /><action android:name="android.intent.action.LOCKED_BOOT_COMPLETED" />'))
     expect(() => plugin.checkExpoNotifications(root)).toThrow('expo-notifications changed')
   } finally { fs.rmSync(root, { recursive: true, force: true }) }
 })
 
 test('the Kotlin keeps the iPhone extension\'s rules: its words, the stored team only, https, no redirects, a time box', () => {
   const label = kotlin('Label.kt'), service = kotlin('LabelMessagingService.kt'), store = kotlin('LabelStore.kt')
+  // the lock screen as the iPhone's default (When Unlocked): private, with the gateway's generic words as the public version
+  const lock = kotlin('LabelNotificationsService.kt')
+  expect(lock).toContain('built.visibility = NotificationCompat.VISIBILITY_PRIVATE')
+  expect(lock).toContain('built.publicVersion = builder')
+  expect(lock).toContain('data["title"]')
+  expect(lock).toContain('data["message"]')
+  expect(lock).not.toContain('Label.ask')
   const swift = fs.readFileSync(path.join(mobileRoot, 'plugins/notification-service/NotificationService.swift'), 'utf8')
   // the team's words as the iPhone takes them: the title (at most 120), the body (at most 200) as the text when there
   // is one, else the gateway's generic line; the room as the stack

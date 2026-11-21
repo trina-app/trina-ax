@@ -29,6 +29,8 @@ dependencies {
   }
   // the same version expo-notifications 58 declares (as `implementation`, so it is not on this module's classpath)
   implementation 'com.google.firebase:firebase-messaging:25.0.1'
+  // NotificationCompat for the lock screen's public version (LabelNotificationsService), the version expo-notifications 58 uses
+  implementation 'androidx.core:core:1.17.0'
 }
 
 /** The installed expo-notifications' version (the prebuilt AAR's version is the package's). */

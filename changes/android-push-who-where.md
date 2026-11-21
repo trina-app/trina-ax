@@ -3,3 +3,5 @@
   same as on the iPhone: the message's first line while "Show message preview" is on, else the general line. This
   needs the new Android app (1.0.11), this team server and the updated push gateway. Older apps keep "You have a new
   message".
+- On a locked Android phone these notifications show only the general line, as on the iPhone: who, where and the first
+  line appear once the phone is unlocked.
