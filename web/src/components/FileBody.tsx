@@ -408,6 +408,8 @@ function TextKinds({ kind, blob, name, path }: { kind: PreviewKind; blob: Blob; 
   // (and, in a frame that runs scripts, its team script files: lib/frame-scripts.ts)
   const files = useFrameFiles(page, { folder: path === null ? null : parentPath(path), embedIn: path ?? undefined, scripts: scripts === true })
   if (text === null) return null
+  // a 0-byte file: said so, never a blank panel (QA TC-6957)
+  if (blob.size === 0) return <p className="p-6 text-sm text-muted" data-testid="preview-empty">{t('preview.empty')}</p>
   const cut = blob.size > MAX_TEXT && <p className="px-4 pb-4 text-xs text-faint">{t('preview.truncated')}</p>
   if (kind === 'markdown') {
     // a leading YAML block (a SKILL.md's name and description): a quiet fields block above the page, not its first line

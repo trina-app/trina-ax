@@ -150,12 +150,56 @@ describe('the save model and every exit', () => {
     await m.click('participant-remove-user-sora')
     expect(m.get('participant-user-sora').getAttribute('data-state')).toBe('removed')
     expect(m.get('chat-share-only-you').textContent).toBe(en('chat.share.onlyYou'))
+    expect(en('chat.share.onlyYou')).toBe('Only you will see this chat and its files. People who were in it lose both.')
+    // one state, one message (QA TC-6951): no "Everyone here sees…" note and no Copy link for a chat only I will see
+    expect(m.find('chat-share-note')).toBeNull()
+    expect(m.find('chat-share-copy-link')).toBeNull()
     expect(m.get('chat-share-save').hasAttribute('disabled')).toBe(false)
     await m.click('participant-undo-user-sora')
     expect(m.get('participant-user-sora').getAttribute('data-state')).toBe('member')
     expect(m.find('chat-share-only-you')).toBeNull()
+    expect(m.find('chat-share-note')).not.toBeNull()
+    expect(m.find('chat-share-copy-link')).not.toBeNull()
     expect(m.get('chat-share-save').hasAttribute('disabled')).toBe(true)
     await m.unmount()
+  })
+
+  test('saving everyone out: the saved toast has no Copy link (QA TC-6951)', async () => {
+    const { shared: _, ...mine } = chatOut
+    routesWith(audience([SORA]), () => json(200, { status: 'saved', chat: mine, audience: audience() }))
+    useUi.setState({ toasts: [] })
+    let closed = 0
+    const m = await open(() => closed++)
+    try {
+      await m.until(() => m.find('participant-user-sora'), 'Sora', 2000)
+      await m.click('participant-remove-user-sora')
+      await m.click('chat-share-save')
+      await m.until(() => closed === 1, 'closed', 2000)
+      const t = useUi.getState().toasts.at(-1)!
+      expect(t.text).toBe(en('chat.share.saved'))
+      expect(t.action).toBeUndefined()
+    } finally { await m.unmount() }
+  })
+
+  test('the files step on a phone: its two buttons only, one a row; Copy link stays on a computer (QA TC-6945)', async () => {
+    const files = { madeFiles: [{ name: 'summary.md', place: 'My files › QA22', size: 120 }], madeFilesKey: 'mk' }
+    routesWith(audience([SORA], files))
+    const media = (globalThis as Record<string, unknown>).matchMedia
+    try {
+      let m = await open()
+      await m.until(() => m.find('chat-share-files-step'), 'the files step', 2000)
+      expect(m.find('chat-share-copy-link')).not.toBeNull()
+      await m.unmount()
+      ;(globalThis as Record<string, unknown>).matchMedia = (q: string) => ({ matches: q.includes('max-width'), addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {} })
+      m = await open()
+      await m.until(() => m.find('chat-share-files-step'), 'the files step', 2000)
+      expect(m.find('chat-share-copy-link')).toBeNull()
+      expect(m.find('chat-share-copy-link-unsaved')).toBeNull()
+      for (const id of ['chat-share-with-files', 'chat-share-without-files']) expect(m.get(id).getAttribute('class')).toContain('max-sm:w-full')
+      // the main one first on a phone
+      expect(m.get('chat-share-with-files').getAttribute('class')).toContain('max-sm:order-1')
+      await m.unmount()
+    } finally { (globalThis as Record<string, unknown>).matchMedia = media }
   })
 
   test('a failed save keeps the picks with the error above the button; a refusal says why; then it saves', async () => {

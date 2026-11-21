@@ -3619,8 +3619,11 @@ export class TurnExec {
   private noteSharedReads(sources: readonly ReadSource[], audience: readonly string[], yes = false, kept = false): boolean {
     if (!this.shared || !sources.length) return true
     // an answer that already attached a file for everyone here (attachToAnswer), or is attaching one now (beginAttach),
-    // never becomes one hidden from people added later (a k group): that connection's answer is not read into it (fails closed, the call is refused)
-    if (kept && this.attachedFiles + this.attaching > 0) return false
+    // never becomes one hidden from people added later (a k group): that connection's answer is not read into it (fails closed, the call is refused).
+    // Nor one that saved a version of a chat file (TurnFiles.chatVersionsMade, set in the same synchronous step as the
+    // version's row, whose gate refuses a k answer): that version is opened through its chain's root by everyone who
+    // sees the root, so the answer that wrote it must stay one they may see (QA TC-6962 / TC-6835)
+    if (kept && this.attachedFiles + this.attaching + this.files.chatVersionsMade.size > 0) return false
     const c = [...new Set(audience)].sort()
     const k = `${yes ? 'y' : ''}${kept ? 'k' : ''}|${c.join(',')}`
     let g = this.sharedReads.get(k)

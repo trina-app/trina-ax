@@ -103,7 +103,8 @@ export function eventText(e: RoomEventLine, author: UserRef | null, w: EventWord
     case 'project_files_moved': {
       const folder = w.folder ?? 'Chat attachments'
       const name = eventProjectOf(e)
-      const n = name.state === 'open' ? name.name : null
+      // the folder the files are in: the "-2" one when another project had the name (QA TC-6953)
+      const n = name.state === 'open' ? (e.project?.folder ?? name.name) : null
       if (e.kept > 0) return n ? w.t('rooms.event.filesMovedKept', { n: e.moved, m: e.kept, name: n, folder }) : w.t('rooms.event.filesMovedKeptUnnamed', { n: e.moved, m: e.kept, folder })
       return n ? w.t('rooms.event.filesMoved', { n: e.moved, name: n, folder }) : w.t('rooms.event.filesMovedUnnamed', { n: e.moved, folder })
     }
