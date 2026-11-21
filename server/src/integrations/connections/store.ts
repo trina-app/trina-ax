@@ -6,7 +6,7 @@ import { isGuestUser } from '../../credentials/guest-ai'
 import type { Database } from 'bun:sqlite'
 import fs from 'node:fs'
 import path from 'node:path'
-import type { GoogleAppId, Integration, IntegrationAccess, Locale, OAuthClientView, Role } from '@mycel/shared/api'
+import { presetReads, type GoogleAppId, type Integration, type IntegrationAccess, type Locale, type OAuthClientView, type Role } from '@mycel/shared/api'
 import { Vault, detectVersion } from '../../credentials/vault'
 import { audit } from '../../admin/audit'
 import { getTeamSettings } from '../../admin/settings'
@@ -275,10 +275,15 @@ export function savedTools(db: Database, row: Pick<Row, 'id' | 'tools_rev'>): re
   const lists = stateOf(db).lists
   const held = lists.get(row.id, row.tools_rev)
   if (held) return held
-  const r = db.query('SELECT tools_json, tools_rev FROM integrations WHERE id = ?').get(row.id) as { tools_json: string; tools_rev: number } | null
+  const r = db.query('SELECT tools_json, tools_rev, local_app FROM integrations WHERE id = ?').get(row.id) as { tools_json: string; tools_rev: number; local_app: string | null } | null
   if (!r) return []
   let tools: RemoteTool[] = []
   try { const v = JSON.parse(r.tools_json); if (Array.isArray(v)) tools = v } catch {}
+  // a listed app on the computer whose program marks none of its tools: Trina's own read list for that exact command
+  // (LOCAL_APP_PRESETS reads; Aside's profile list and memory search). Read here, not when checked, so a list saved
+  // before it counts at once; a new command clears tools_json, which moves tools_rev, so this cache never outlives it.
+  const reads = presetReads(localSpecOf(r))
+  if (reads.size) tools = tools.map((t) => (reads.has(t.name) && !t.readOnly ? { ...t, readOnly: true } : t))
   lists.set(row.id, r.tools_rev, freeze(tools), r.tools_json.length)
   return tools
 }
