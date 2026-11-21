@@ -143,6 +143,7 @@ export const zh: Record<MessageKey, string> = {
   "role.guest": "访客",
   // guest invites, phase 2 (docs/DECISIONS.md "Guest invites, phase 2: the screens"): the invite, the Guest tag, a guest's own view, Admin › Members › Guests
   "guest.includes": "{n, plural, one {包括 # 位访客} other {包括 # 位访客}}",
+  "guest.includesShort": "{n, plural, one {# 位访客} other {# 位访客}}",
   "guest.invite.row": "邀请访客",
   "guest.invite.rowRoom": "团队外的人 · 只能看到这个群聊",
   "guest.invite.rowRoomPrivate": "团队外的人 · 只能看到这个私密频道",
@@ -1432,6 +1433,7 @@ export const zh: Record<MessageKey, string> = {
   "projects.changeTitle": "更改成员？",
   "projects.narrowBody": "{n, plural, one {#人} other {#人}}将不再能看到这个项目。",
   "projects.loseAccess": "{n, plural, one {#人失去} other {#人失去}}权限：{names}",
+  "projects.loseRoom": "他们也将无法再看到项目的聊天室及其历史记录。",
   "projects.guestsOff": "{n, plural, one {访客的账号将被关闭，无法再登录。} other {# 位访客的账号将被关闭，无法再登录。}}",
   "projects.addsFloor": "保存后，只有这里的成员能看到这个项目。之前不是成员但能看到的人将无法再看到。",
   "projects.restoresCreator": "项目创建者会重新被添加为成员。",

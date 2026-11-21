@@ -583,10 +583,10 @@ function RoomView({ roomId, threadId, badThread }: { roomId: string; threadId: s
               {peerId && <PresenceText userId={peerId} offline />}
               {!wide && muted && <BellOff size={13} className="shrink-0 self-center text-faint" role="img" aria-label={t('rooms.notify.button', { level: t('rooms.notify.off') })} data-testid="room-muted" />}
               {room && room.kind !== 'dm' && (
-                <span className="shrink-0 text-xs font-normal text-faint max-md:basis-full max-md:leading-4" data-testid="room-member-count">
+                <span className="shrink-0 text-xs font-normal text-faint max-md:min-w-0 max-md:shrink max-md:basis-full max-md:truncate max-md:leading-4" data-testid="room-member-count">
                   {t('rooms.members', { n: room.memberCount })}
                   {/* "· Includes 1 guest" (components/GuestTag.tsx): people from outside the team are in it */}
-                  <IncludesGuests ids={roomMembers?.map((m) => m.user.id)} prefix=" · " />
+                  <IncludesGuests ids={roomMembers?.map((m) => m.user.id)} prefix=" · " short={!wide} />
                 </span>
               )}
             </button>

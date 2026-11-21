@@ -146,6 +146,7 @@ export const en: Record<MessageKey, string> = {
   'role.guest': 'Guest',
   // guest invites, phase 2 (docs/DECISIONS.md "Guest invites, phase 2: the screens"): the invite, the Guest tag, a guest's own view, Admin › Members › Guests
   "guest.includes": "{n, plural, one {Includes # guest} other {Includes # guests}}",
+  "guest.includesShort": "{n, plural, one {# guest} other {# guests}}",
   "guest.invite.row": "Invite a guest",
   "guest.invite.rowRoom": "Outside the team · sees only this group chat",
   "guest.invite.rowRoomPrivate": "Outside the team · sees only this private channel",
@@ -1459,6 +1460,7 @@ export const en: Record<MessageKey, string> = {
   "projects.changeTitle": "Change the members?",
   "projects.narrowBody": "{n, plural, one {# person} other {# people}} will no longer see this project.",
   "projects.loseAccess": "{n, plural, one {# person loses} other {# people lose}} access: {names}",
+  "projects.loseRoom": "They also lose the project's chat room and its history.",
   "projects.guestsOff": "{n, plural, one {The guest's account is switched off: they can't sign in any more.} other {The # guests' accounts are switched off: they can't sign in any more.}}",
   "projects.addsFloor": "After saving, only the members here can see this project. Anyone who could see it until now without being a member no longer can.",
   "projects.restoresCreator": "The project's creator is added back as a member.",

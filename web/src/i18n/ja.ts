@@ -143,6 +143,7 @@ export const ja: Record<MessageKey, string> = {
   'role.guest': "ゲスト",
   // guest invites, phase 2 (docs/DECISIONS.md "Guest invites, phase 2: the screens"): the invite, the Guest tag, a guest's own view, Admin › Members › Guests
   "guest.includes": "{n, plural, one {ゲスト#人を含む} other {ゲスト#人を含む}}",
+  "guest.includesShort": "{n, plural, one {ゲスト#人} other {ゲスト#人}}",
   "guest.invite.row": "ゲストを招待",
   "guest.invite.rowRoom": "チーム外の人 · このグループトークだけ見えます",
   "guest.invite.rowRoomPrivate": "チーム外の人 · このプライベートチャンネルだけ見えます",
@@ -1434,6 +1435,7 @@ export const ja: Record<MessageKey, string> = {
   "projects.changeTitle": "メンバーを変更しますか？",
   "projects.narrowBody": "{n, plural, one {#人} other {#人}}がこのプロジェクトを見られなくなります。",
   "projects.loseAccess": "{n, plural, one {#人} other {#人}}が見られなくなります：{names}",
+  "projects.loseRoom": "プロジェクトのチャットルームとこれまでの会話も見られなくなります。",
   "projects.guestsOff": "{n, plural, one {ゲストのアカウントがオフになります。サインインできなくなります。} other {ゲスト#人のアカウントがオフになります。サインインできなくなります。}}",
   "projects.addsFloor": "保存すると、ここにいるメンバーだけがこのプロジェクトを見られます。メンバーではないのにこれまで見られた人は見られなくなります。",
   "projects.restoresCreator": "プロジェクトを作った人もメンバーに戻ります。",
