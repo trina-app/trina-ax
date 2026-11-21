@@ -93,19 +93,19 @@ test('attack A: a curl desktop session phishes a victim whose browser has no ses
 })
 
 
-test('attack B: the victim\'s browser is signed in as the victim: held too, never finished there, and the victim\'s app cannot finish it', async () => {
+test('attack B: the victim\'s browser is signed in as the victim: refused, nothing exchanged, no code, nothing connected', async () => {
   const attacker = await session('bob', bob.password, 'desktop')
-  const { id, cb } = await start(attacker, bob.client)
+  const { id, flow, cb } = await start(attacker, bob.client)
   const page = await olga.raw('GET', callback(cb))
-  expect(page.status).toBe(200)
-  const code = codeOf(await page.text())!
-  expect(code).toBeTruthy()
+  expect(page.status).toBe(400)
+  const html = await page.text()
+  expect(codeOf(html)).toBeNull()
+  expect(html).toContain(say('callbackOtherAccount', 'ko'))
+  // the service's code is never exchanged: no victim tokens exist to hold or to revoke
+  expect(tokenCalls()).toBe(0)
   expect(await statusOf(bob.client, id)).toMatchObject({ hasSecret: false })
-  expect((await claim(desk, code)).status).toBe(400)
-  expect((await claim(olga, code)).status).toBe(400)
-  expect(await statusOf(bob.client, id)).toMatchObject({ hasSecret: false })
+  expect((await attacker.call('GET', `/api/integrations/flows/${flow.flowId}`)).state).toBe('pending')
 })
-
 
 test('only the session that started it: the same person\'s other desktop session is refused', async () => {
   const { id, cb } = await start(desk)

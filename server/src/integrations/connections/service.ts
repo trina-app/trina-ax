@@ -115,8 +115,9 @@ export type CallbackResult =
   /** `held`: a desktop sign-in waiting for the app on this computer: the one-time code for the page's app link (its
    * fragment only), whose account it joins and the connection's name */
   | { ok: true; held?: { code: string; who: { name: string; username: string }; name: string } }
-  /** `handed`: the return of a sign-in whose code already went to the first page (go back to the app) */
-  | { ok: false; reason: FlowFailure | null; handed?: true }
+  /** `handed`: the return of a sign-in whose code already went to the first page (go back to the app);
+   * `otherAccount`: this browser is signed in to the team as someone else than who started (refused) */
+  | { ok: false; reason: FlowFailure | null; handed?: true; otherAccount?: true }
 /** the token address refused the client itself (RFC 6749 5.2), not the code */
 const CLIENT_REFUSED = new Set(['invalid_client', 'unauthorized_client'])
 /** an own app's client secret as sealed (clientAad, templateClientAad) */
@@ -1336,9 +1337,9 @@ export class Integrations {
   }
 
   /** The browser comes back from the service. A browser signed in as the same person who started (any of their live
-   * sessions) finishes it at once. A sign-in started in the DESKTOP app whose return comes in a browser without that
-   * person's session (the system browser has none of the app's, or has someone else's) is held for the app on this
-   * computer (hold, google-drive/app-return.ts's pattern): the code is exchanged now, the tokens stay sealed in the flow,
+   * sessions) finishes it at once; one signed in as someone else is refused (otherAccount). A sign-in started in the
+   * DESKTOP app whose return comes in a browser with no session (the system browser has none of the app's) is held for
+   * the app on this computer (hold, google-drive/app-return.ts's pattern): the code is exchanged now, the tokens stay sealed in the flow,
    * and only the starter's own session finishes it with the one-time code (claim). Anything else changes nothing: a web
    * or phone sign-in needs the person's browser session, as before (docs/decisions/20261121-connect-browser-handoff.md). */
   async callback(q: { state?: string; code?: string; error?: string; iss?: string }, browser?: { userId: string; sessionId: string }): Promise<CallbackResult> {
@@ -1355,7 +1356,10 @@ export class Integrations {
     // here (whoever brings the state again, the starter included, gets only "go back to the app")
     if (f?.state === 'exchanging' && f.reason === HELD) return { ok: false, reason: null, handed: true }
     if (!f || f.state !== 'pending') return no
-    const direct = !!browser && browser.userId === f.user_id
+    // signed in here as someone else: refused and said so, as for Drive and the Google apps (coordinator 2026-11-22);
+    // the flow stays pending, so the person can sign out here or press Connect again in the app
+    if (browser && browser.userId !== f.user_id) return { ok: false, reason: null, otherAccount: true }
+    const direct = !!browser
     const held = !direct && this.clientOf(f.session_id) === 'desktop'
     if (!direct && !held) return no
     try { if (direct) this.liveSession(browser!.userId, browser!.sessionId); this.liveSession(f.user_id, f.session_id) } catch { return no }

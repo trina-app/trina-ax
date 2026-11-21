@@ -27,8 +27,11 @@ Where: `server/src/integrations/connections/{service,text}.ts` (`hold`, `claim`,
   Drive.
 - **Rule:**
   - A return in a browser signed in as the same person finishes at once, as before.
-  - A sign-in started from a **desktop** session whose return comes in a browser without that person's session (none,
-    or someone else's) is **held**: the code is exchanged now (a service's code may live only a minute), the tokens
+  - A return in a browser signed in to the team as **someone else** is refused and nothing is exchanged, as for Drive
+    and the Google apps (coordinator, 2026-11-22: one behaviour across connectors, and no phished victim's tokens to
+    revoke). The page says "This browser is signed in as someone else. Sign out here, or go back to the app and press
+    Connect again."; the flow stays pending.
+  - A sign-in started from a **desktop** session whose return comes in a browser with **no session** is **held**: the code is exchanged now (a service's code may live only a minute), the tokens
     stay sealed in the flow (`exchanging`, reason `held`, nothing on the connection, 5 minutes), and a one-time code is
     made (32 random bytes, only its sha256 in the sealed secret).
   - The page gives the code only in the **fragment** of the desktop app's link (`trina-ax://open?url=<team>/#code=…`):
@@ -39,9 +42,9 @@ Where: `server/src/integrations/connections/{service,text}.ts` (`hold`, `claim`,
     (since 0.6, 11-20); the route tries Drive, the Google apps, then connections. Only the session that started the
     flow redeems it, once (atomic), then the same checks as a direct return (the connection unchanged, still the
     person's or an admin's, the template still for them, the app unchanged, under the limit) and the same store.
-  - A phished victim's browser hands the code to the victim's own computer, whose app has the victim's session, not
-    the attacker's: nothing connects. This holds for a victim browser signed in as the victim too, so that case is held
-    rather than refused (the starter's app finishes a browser signed in as a colleague on a shared computer).
+  - A phished victim's browser without a session hands the code to the victim's own computer, whose app has the
+    victim's session, not the attacker's: nothing connects. A victim browser signed in as the victim is refused before
+    anything is exchanged.
   - The same return opened again never gives a second code ("This connection is waiting for the app").
   - Cancel, a new try, or 5 minutes without the code revoke the held tokens at the service (best effort).
   - A web or phone sign-in still needs the person's browser session (the phone app does not read a code from a link
@@ -49,15 +52,16 @@ Where: `server/src/integrations/connections/{service,text}.ts` (`hold`, `claim`,
 - **Residual risk:**
   - A person who forwards the page's link to the attacker within 5 minutes hands over their account; the page names
     the account it joins and says not to send it on, as Drive's does.
-  - A phished victim's tokens are now exchanged and, unclaimed, revoked after 5 minutes (before, the flow stopped
-    before the exchange). A service that ends the whole grant on one revocation (RFC 7009 allows it) can cut off the
-    victim's other connection with the same app: an outage, nothing taken. Accepted, as for Drive. A held result whose
+  - A phished victim whose browser has no session: their tokens are exchanged and, unclaimed, revoked after 5 minutes
+    (before, the flow stopped before the exchange). A service that ends the whole grant on one revocation (RFC 7009
+    allows it) can cut off the victim's other connection with the same app: an outage, nothing taken. Accepted, as for
+    Drive. A victim signed in to the team in that browser is refused before the exchange, so this cannot happen there. A held result whose
     app's token address moved meanwhile is dropped without revoking (the client secret never goes to the address that
     lost); one deleted with its person's account is dropped without revoking.
 - **Review:** independent security review on the branch: nothing blocking; two LOW findings fixed (a refused claim whose
-  app moved no longer revokes; a session that ended during a claim ends the flow instead of a 500), two accepted above.
+  app moved no longer revokes; a session that ended during a claim ends the flow instead of a 500), two accepted above. A third (holding for a browser signed in as someone else) was decided away: that case is refused.
 - **Tests:** `tests/unit/c-connect-app-return.test.ts` (held then claimed, a colleague's browser, web and phone, the
-  same person's browser, a changed connection, replacement) and `tests/security/connect-app-return.test.ts` (attack A:
-  curl desktop session and a victim browser without a session; attack B: a victim browser signed in as the victim;
+  same person's browser, a colleague's browser refused, a changed connection, replacement) and `tests/security/connect-app-return.test.ts` (attack A:
+  curl desktop session and a victim browser without a session; attack B: a victim browser signed in as the victim, refused with no exchange;
   replay; another session; a late code; another team; unknown code).
 - Version impact: **patch** (a fix; no contract change; older desktop apps since the claim address finish it).

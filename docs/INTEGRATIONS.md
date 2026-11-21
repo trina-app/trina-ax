@@ -552,8 +552,10 @@ idle minutes; a 404 for it starts a new one.
   the verifier and client details encrypted. A connection change while it is pending (version) fails it. For a team
   connection the sign-in is an admin's and the account is then used by everyone its rules name.
 - The callback `GET /api/integrations/oauth/callback` finishes at once in a live browser session of the **same person**
-  (any of their sessions). A sign-in started in the **desktop app** whose return comes in a browser without that
-  person's session (the system browser has none of the app's, or has someone else's) is held for the app on this
+  (any of their sessions); one signed in as someone else is refused, nothing exchanged ("This browser is signed in as
+  someone else. Sign out here, or go back to the app and press Connect again.", the flow stays pending). A sign-in
+  started in the **desktop app** whose return comes in a browser with no session (the system browser has none of the
+  app's) is held for the app on this
   computer (docs/decisions/20261121-connect-browser-handoff.md, the pattern of `google-drive/app-return.ts`): the code
   is exchanged, the tokens stay sealed in the flow (`exchanging`, reason `held`, read as `pending` by its poll, 5
   minutes), and the page gives a one-time code (32 random bytes, only its hash sealed) only in the fragment of the

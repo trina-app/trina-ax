@@ -32,7 +32,8 @@ already used for Google Drive and Gmail/Calendar/Docs/Sheets (google-drive/app-r
 
 ## Steps
 
-1. `callback`: a return in a browser that has no session of the starter (none, or someone else's), for a flow a
+1. `callback`: a browser signed in as someone else is refused ("This browser is signed in as someone else …"). A
+   return in a browser with no session, for a flow a
    **desktop** session started that is still live: exchange the code now, keep the tokens sealed in the flow
    (`exchanging`, reason `held`, life CLAIM_MS), make a one-time code (32 random bytes, only its hash sealed).
 2. The page names whose Trina account the app joins, says "open only in your own app", and gives the code only in
@@ -65,8 +66,8 @@ check:prepush, QA on a private copy of the QA team with a browser without a sess
 ## Result
 
 Built as planned. No desktop or web change: the desktop app already posts every code to the Drive claim address, which
-now tries connections last. A browser signed in as another person is held too (the starter's app finishes it; the other
-person's session cannot). Independent security review: nothing blocking; two LOW findings fixed, two accepted in the
+now tries connections last. A browser signed in as another person is refused in plain words, as for Drive and the Google
+apps (coordinator 2026-11-22); first built as held, changed after review. Independent security review: nothing blocking; two LOW findings fixed, two accepted in the
 decision. Tests: tests/unit/c-connect-app-return.test.ts, tests/security/connect-app-return.test.ts. QA on a private
 copy of the QA team (port 19843) with a stand-in OAuth service and a browser with no session: held, claimed by the
 desktop session, connected; replay, other person, attack and web-flow wording checked. Slack still asks a browser

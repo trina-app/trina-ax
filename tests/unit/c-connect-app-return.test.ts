@@ -94,17 +94,23 @@ test('desktop sign-in, system browser without a session: held for the app, the a
 })
 
 
-test('a browser signed in as another person of the team (a desktop sign-in): held for the starter\'s app, which finishes it', async () => {
-  const { id, cb } = await start(desk)
+test('a browser signed in as another person of the team (a desktop sign-in): refused in plain words, as for Drive and the Google apps; the starter can still finish', async () => {
+  const { id, flow, cb } = await start(desk)
   const page = await bob.client.raw('GET', callback(cb))
-  expect(page.status).toBe(200)
-  const code = codeOf(await page.text())!
-  // the other person cannot redeem it, the starter's app can
-  expect((await claim(bob.client, code)).status).toBe(400)
+  expect(page.status).toBe(400)
+  const html = await page.text()
+  expect(codeOf(html)).toBeNull()
+  expect(html).toContain(say('callbackOtherAccount', 'ko'))
+  expect(say('callbackOtherAccount', 'en')).toBe('This browser is signed in as someone else. Sign out here, or go back to the app and press Connect again.')
+  expect(html).not.toContain('href="/login')
+  expect(tokenCalls()).toBe(0)
+  expect(await statusOf(olga, id)).toMatchObject({ hasSecret: false })
+  expect((await desk.call('GET', `/api/integrations/flows/${flow.flowId}`)).state).toBe('pending')
+  // the same return in a browser with no session (after signing out there) is held for the starter's app
+  const code = codeOf(await (await bare(callback(cb))).text())!
   expect((await claim(desk, code)).status).toBe(200)
   expect(await statusOf(olga, id)).toMatchObject({ status: 'connected' })
 })
-
 
 test('cancel in the app ends a held result: the code is refused afterwards and its tokens revoked', async () => {
   const { id, flow, cb } = await start(desk)

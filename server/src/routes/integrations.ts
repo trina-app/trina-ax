@@ -121,6 +121,7 @@ export function registerIntegrationRoutes(kit: RouteKit, ctx: AppContext) {
       + (r.ok ? `<p>${esc(say('callbackOk', L))}</p><script>${CLOSE}</script>`
         : r.reason ? `<p>${esc(say(FAILED_TEXT[r.reason], L, { n: MAX_PERSONAL }))}</p>`
           : r.handed ? `<p>${esc(say('callbackHanded', L))}</p><p><a href="${esc(appLink(origin))}">${esc(say('callbackBackToApp', L))}</a></p>`
+            : r.otherAccount ? `<p>${esc(say('callbackOtherAccount', L))}</p>`
             : `<p>${esc(say('callbackFail', L))}</p>`), r.ok ? 200 : 400)
   })
 }
