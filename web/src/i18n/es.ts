@@ -6029,6 +6029,11 @@ export const es: Record<MessageKey, string> = {
   "projectsPanel.fold.failed": "No se pudieron cargar los chats. Abre el proyecto para volver a intentarlo.",
   "projectsPanel.team": "Proyectos del equipo",
   "projectsPanel.mine": "Mis proyectos",
+  // the Trash row at the bottom of the Projects list and its dialog (components/panels/ProjectsTrash.tsx)
+  "projectsPanel.trash": "Papelera",
+  "projectsPanel.trashCount": "{n, plural, one {# proyecto} other {# proyectos}}",
+  "projectsPanel.trashTitle": "Proyectos en la papelera",
+  "projectsPanel.trashEmpty": "No hay proyectos en la papelera",
   "projects.meta.me": "Solo yo",
   "projects.otherTeam": "Otros proyectos del equipo",
   "projects.newName": "Nombre",

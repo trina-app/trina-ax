@@ -6000,6 +6000,11 @@ export const zh: Record<MessageKey, string> = {
   "projectsPanel.fold.failed": "无法加载对话。请打开项目重试。",
   "projectsPanel.team": "团队项目",
   "projectsPanel.mine": "我的项目",
+  // the Trash row at the bottom of the Projects list and its dialog (components/panels/ProjectsTrash.tsx)
+  "projectsPanel.trash": "回收站",
+  "projectsPanel.trashCount": "{n, plural, one {#个项目} other {#个项目}}",
+  "projectsPanel.trashTitle": "回收站中的项目",
+  "projectsPanel.trashEmpty": "回收站中没有项目",
   "projects.meta.me": "仅自己",
   "projects.otherTeam": "其他团队项目",
   "projects.newName": "名称",

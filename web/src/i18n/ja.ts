@@ -6029,6 +6029,11 @@ export const ja: Record<MessageKey, string> = {
   "projectsPanel.fold.failed": "履歴を読み込めませんでした。プロジェクトを開いてもう一度お試しください。",
   "projectsPanel.team": "チームのプロジェクト",
   "projectsPanel.mine": "自分のプロジェクト",
+  // the Trash row at the bottom of the Projects list and its dialog (components/panels/ProjectsTrash.tsx)
+  "projectsPanel.trash": "ゴミ箱",
+  "projectsPanel.trashCount": "{n, plural, one {#件のプロジェクト} other {#件のプロジェクト}}",
+  "projectsPanel.trashTitle": "ゴミ箱内のプロジェクト",
+  "projectsPanel.trashEmpty": "ゴミ箱にプロジェクトはありません",
   "projects.meta.me": "自分だけ",
   "projects.otherTeam": "その他のチームのプロジェクト",
   "projects.newName": "名前",
