@@ -18,7 +18,6 @@ import { useProjects } from '../../store/projects'
 import { MoveToProjectDialog } from '../chat/ChatProject'
 import { isUnused } from '../chat/ChatState'
 import { HistoryGroups, useHistoryGroups, useSeesProject } from '../history/HistoryGroups'
-import { historyRowsGap } from '../list/List'
 import { MenuButton, menuBoxCls, menuRowCls, menuSpot, MENU_EDGE } from '../rooms/MenuButton'
 import { useMediaQuery } from '../ui'
 import { LoadError } from '../LoadError'
@@ -206,7 +205,7 @@ export function HistoryList({ onNavigate, peek, viewState, caps }: { onNavigate:
           </p>
         )}
         {byProject.ready && pinnedRows.length > 0 && (
-          <ul className={clsx('mb-2', historyRowsGap)} data-testid="ai-chats-pinned">
+          <ul className="mb-2" data-testid="ai-chats-pinned">
             {pinnedRows.map(row)}
           </ul>
         )}
@@ -217,7 +216,7 @@ export function HistoryList({ onNavigate, peek, viewState, caps }: { onNavigate:
           return rows.length > 0 && (
             <div key={key || 'all'} className="mb-2">
               {label && <h3 className="px-3 pt-2 pb-1 text-meta font-medium text-faint">{label}</h3>}
-              <ul className={historyRowsGap}>{rows}</ul>
+              <ul>{rows}</ul>
             </div>
           )
         })}

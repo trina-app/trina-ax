@@ -76,7 +76,7 @@ export function ChatItem({ chat, onNavigate, peek, onMove, projectTag = false }:
       onFocus={(e) => e.currentTarget.matches(':focus-visible') && peek.soon(chat, ref.current!, 600)}
       onBlur={peek.hide}
       onKeyDown={(e) => e.key === 'Escape' && peek.hide()}
-      rowClass={clsx('pointer-coarse:select-none pointer-coarse:[-webkit-touch-callout:none] group-has-[[aria-expanded=true]]:bg-hover', marker && 'max-md:pr-17')}
+      rowClass="pointer-coarse:select-none pointer-coarse:[-webkit-touch-callout:none] group-has-[[aria-expanded=true]]:bg-hover"
       lead={
         (chat.pinnedAt || (rights.shared && !faces) || onlyMine) && (
           <>
@@ -94,10 +94,10 @@ export function ChatItem({ chat, onNavigate, peek, onMove, projectTag = false }:
       tagTestId={project ? 'chat-row-project' : sideRoom ? 'chat-row-room' : undefined}
       end={
         marker && (
-          // one marker at the right end (session markers): its reason is part of the link's name. On a computer it sits in
-          // the "···" spot, its right edge in line with the rooms' pills above, and gives way to "···" on hover and focus;
-          // on a phone "···" always shows and it sits left of it
-          <span className="pointer-events-none absolute top-1/2 right-3 flex -translate-y-1/2 items-center group-has-[[aria-expanded=true]]:opacity-0 max-md:right-11 md:group-focus-within:opacity-0 md:group-hover:opacity-0" data-testid="chat-marker">
+          // one marker at the row's end, after the tag (session markers), as a room's unread pill in 대화 (nav/RoomsList.tsx):
+          // its reason is part of the link's name. On a computer it gives way to "···" on hover and focus; on a phone "···"
+          // always shows and it sits left of it
+          <span className="pointer-events-none flex shrink-0 items-center self-center group-has-[[aria-expanded=true]]:hidden md:group-focus-within:hidden md:group-hover:hidden" data-testid="chat-marker">
             <SessionMarker marker={marker} label={reason} />
           </span>
         )

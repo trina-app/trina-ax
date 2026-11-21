@@ -116,8 +116,8 @@ export function TaskRunsRow({ runs, projectTag = false, menuSpace = false }: { r
       }
       menuSpace={menuSpace}
       end={
-        // in the "···" spot of the chat rows around it (ChatItem's marker), else after the tag
-        <span className={clsx('flex shrink-0 items-center self-center empty:hidden', menuSpace && 'pointer-events-none absolute top-1/2 right-3 -translate-y-1/2 max-md:right-4')}>
+        // after the tag, as a chat row's marker (ChatItem) and a room's unread pill
+        <span className="flex shrink-0 items-center self-center empty:hidden">
           <TaskRunsMark runs={runs} />
         </span>
       }

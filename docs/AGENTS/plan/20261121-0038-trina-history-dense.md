@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-21 00:38
 - Branch: `fix/trina-history-dense`
-- Status: in progress
+- Status: done
 - Where: `web/src` (index.css list tokens, components/list/List.tsx). Why: the owner, 2026-11-21, with a screenshot of
   the sidebar's 트리나 기록: "여기 칸 사이 빈공간은 없애고 폰트 조금만 키워줄래?"
 - Version impact: patch. A look fix in the web app; no API, data or setting change.
@@ -33,7 +33,7 @@ Out: the phone and touch screens (phone rows stay 48px / 16px, touch screens 44p
 
 ## Decisions
 
-New: `docs/decisions/<date>-trina-history-dense.md`, superseding
+New: `docs/decisions/20261121-trina-history-like-rooms.md`, superseding
 [20261120-sidebar-history-row-spacing](../../decisions/20261120-sidebar-history-row-spacing.md).
 
 ## Risks
@@ -47,4 +47,8 @@ chat-pins, rail, phone-targets.
 
 ## Result
 
-(filled in at the end)
+The owner asked, after the first screenshots, for the history to look like the room list in 대화, and then for 14px
+names. Built: the history uses the room row's 30px box, no gap, its hover, selected and unread look; names 14px
+(`--text-row-history`); the "···" takes room only while it shows, so titles run to the tag; the marker sits after the
+tag as a room's pill. The 36px height token (`--spacing-row-history`) and the 2px gap are gone. No icon slot (the
+owner's choice). Decision: docs/decisions/20261121-trina-history-like-rooms.md. Phone unchanged.
