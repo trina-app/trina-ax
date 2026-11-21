@@ -39,10 +39,11 @@ import { turnWriteLimits } from '../files/turn-write-limits'
 import { writeLimitText } from '../policy/refusal'
 import { ToolError } from '../policy/errors'
 import { fileError } from '../team-files/errors'
+import { safeOpsEnabled } from '../safe-ops/runner'
 import { personLocale } from '../files/media-text'
 import { tr } from './i18n'
 import { seesChatFiles } from './chat-files-access'
-import { withheldFrom } from './shared-answers'
+import { answerRecord, withheldFrom } from './shared-answers'
 
 /** An upload not sent in a message within a day is removed (as a room's). */
 export const UNSENT_CHAT_FILE_MS = 24 * 3600_000
@@ -172,6 +173,14 @@ export class ChatFiles {
    * sent when its root is: the messages carry the root. */
   sent(f: Pick<ChatFileRow, 'id' | 'chat_id'> & { root_id?: string | null }): boolean {
     return !!this.ctx.db.query("SELECT 1 FROM messages m, json_each(m.attachments) j WHERE m.chat_id = ? AND json_valid(m.attachments) AND json_extract(j.value, '$.id') = ? LIMIT 1").get(f.chat_id, this.chainOf(f))
+  }
+
+  /** Does an answer of its chat that carries the file's chain have a k group (chat/shared-answers.ts: a connection's
+   * answer, hidden from people who join later and may not use that connection)? Such bytes keep that protection: they
+   * are never "everyone here already has them" (chat-file-tool.ts chatFileCopyOf). By the chain (a version's id is never
+   * carried). */
+  kCarried(f: Pick<ChatFileRow, 'id' | 'chat_id'> & { root_id?: string | null }): boolean {
+    return this.carriers(f).some((id) => (answerRecord(this.ctx.db, id)?.reads ?? []).some((g) => g.k))
   }
 
   /** Every message of its chat that carries the file's root is an answer hidden from `userId` (a question never is). */
@@ -330,7 +339,7 @@ export class ChatFiles {
   }
 
   /** The row of a file just put at `dst` (its preview made first). */
-  private async record(userId: string, chatId: string, id: string, name: string, dst: string, sha256: string, copiedFrom: string | null, kind: Attachment['kind'], thumbFrom?: string | null, chain?: { rootId: string; origin: 'ai' | null }): Promise<ChatFileRow> {
+  private async record(userId: string, chatId: string, id: string, name: string, dst: string, sha256: string, copiedFrom: string | null, kind: Attachment['kind'], thumbFrom?: string | null, chain?: { rootId: string; origin: 'ai' | null; check: () => void }): Promise<ChatFileRow> {
     const quarantined = this.ctx.files.quarantine.hasHash(sha256)
     const size = fs.statSync(dst).size
     let dims: { width: number; height: number } | null = null
@@ -352,6 +361,8 @@ export class ChatFiles {
       }
     }
     // a version: over the head as it is now (looked up in the same synchronous step as the insert), the next number
+    // and the writer may still write it (checked again here: the bytes and the preview took time)
+    chain?.check()
     const head = chain ? this.headOf(chain.rootId) : null
     if (chain && !head) throw new Error('the chain is gone')
     this.ctx.db.query(`INSERT INTO chat_files (id, chat_id, user_id, name, size, mime, kind, width, height, sha256, thumb, copied_from, created_at, root_id, replaces, version, origin)
@@ -582,22 +593,39 @@ export class ChatFiles {
    * the name).
    */
   async putVersion(userId: string, chatId: string, fileId: string, src: VersionSource, opts: PutVersionOptions = {}): Promise<PutVersionResult> {
+    return this.writeVersionOf(userId, chatId, fileId, src, opts, opts.origin === 'ai' ? CHAT_FILE_AI_MAX : CHAT_FILE_MAX)
+  }
+
+  /** May `userId` write a version in this chat now: sees it, the chat not in the trash, not read-only (safe operations
+   * on: a shared chat is read-only, as for an upload), and may open the chain. The chain's root, or 404 / 409. */
+  private writable(userId: string, chatId: string, fileId: string): ChatFileRow {
     if (!this.seesChat(userId, chatId)) return fail('not_found')
-    const { root } = this.open(userId, chatId, fileId, false)
+    if ((this.ctx.db.query('SELECT deleted_at FROM chats WHERE id = ?').get(chatId) as { deleted_at: string | null } | null)?.deleted_at) return fail('not_found')
+    if (safeOpsEnabled()) fileError('conflict', 'sharedChatSafeOps', undefined, { reason: 'safe_ops' })
+    return this.open(userId, chatId, fileId, false).root
+  }
+
+  private async writeVersionOf(userId: string, chatId: string, fileId: string, src: VersionSource, opts: PutVersionOptions, max: number): Promise<PutVersionResult> {
+    const root = this.writable(userId, chatId, fileId)
     const size = 'bytes' in src ? src.bytes.byteLength : src.st.size
-    const max = opts.origin === 'ai' ? CHAT_FILE_AI_MAX : CHAT_FILE_MAX
     if (size > max) fileError('payload_too_large', 'chatFileTooLarge', undefined, { reason: 'chat_file_too_large' })
     const key = `chat:files/${root.id}`
-    if (opts.turn) {
+    // a turn's limits: counted at once (two writes of one turn at the same time both count), given back on a failure
+    const turn = opts.turn
+    let counted: { bytes: number; key: boolean } | null = null
+    if (turn) {
       const lim = turnWriteLimits(this.ctx.engineConfig, this.ctx.db, userId)
-      if (opts.turn.bytesWritten + size > lim.bytes) throw new ToolError(writeLimitText('bytes', lim.bytes, root.name))
-      if (!opts.turn.filesWritten.has(key) && opts.turn.filesWritten.size >= lim.files) throw new ToolError(writeLimitText('files', lim.files, root.name))
+      if (turn.bytesWritten + size > lim.bytes) throw new ToolError(writeLimitText('bytes', lim.bytes, root.name))
+      if (!turn.filesWritten.has(key) && turn.filesWritten.size >= lim.files) throw new ToolError(writeLimitText('files', lim.files, root.name))
     }
-    assertStorageRoomForAI(size)
+    // the AI's (a turn's) storage refusal is words for the AI; a person's save is the HTTP storage_full
+    if (opts.origin === 'ai' || turn) assertStorageRoomForAI(size)
+    else assertStorageRoom(size)
+    if (turn) { counted = { bytes: size, key: !turn.filesWritten.has(key) }; turn.bytesWritten += size; turn.filesWritten.add(key) }
     const id = newId()
-    await fs.promises.mkdir(this.dir(chatId), { recursive: true, mode: 0o700 })
-    const dst = this.abs({ chat_id: chatId, id })
     try {
+      await fs.promises.mkdir(this.dir(chatId), { recursive: true, mode: 0o700 })
+      const dst = this.abs({ chat_id: chatId, id })
       let sha = await this.writeVersion(dst, src, size)
       let kind = attachmentKind(root.name)
       if (kind === 'image') {
@@ -607,13 +635,17 @@ export class ChatFiles {
         if (pic.changed) { await fs.promises.writeFile(dst, pic.bytes); sha = createHash('sha256').update(pic.bytes).digest('hex') }
       }
       const before = this.headOf(root.id)
-      const row = await this.record(userId, chatId, id, root.name, dst, sha, null, kind, null, { rootId: root.id, origin: opts.origin ?? null })
+      const check = () => { if (this.writable(userId, chatId, root.id).id !== root.id) fail('not_found') }
+      const row = await this.record(userId, chatId, id, root.name, dst, sha, null, kind, null, { rootId: root.id, origin: opts.origin ?? null, check })
       const replaced = (row.replaces ? this.row(row.replaces) : null) ?? before ?? root
-      if (opts.turn) { opts.turn.bytesWritten += size; opts.turn.filesWritten.add(key) }
       this.prune(root.id)
       audit(this.ctx.db, { actor: userId, action: opts.action ?? 'chat.file_version', target: chatId, detail: { size: row.size, version: row.version, ...(opts.origin ? { origin: opts.origin } : {}) } })
       return { row, replaced, beside: !!opts.expectHead && opts.expectHead !== replaced.id }
-    } catch (e) { this.removeFiles({ chat_id: chatId, id }); throw e }
+    } catch (e) {
+      this.removeFiles({ chat_id: chatId, id })
+      if (turn && counted) { turn.bytesWritten -= counted.bytes; if (counted.key) turn.filesWritten.delete(key) }
+      throw e
+    }
   }
 
   /** putVersion's bytes to `dst` (a new file, 0600), hashed as they go; a descriptor is read from 0 to exactly `size` */
@@ -678,7 +710,9 @@ export class ChatFiles {
     const fd = fs.openSync(o.abs, fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW ?? 0))
     try {
       if (fs.fstatSync(fd).ino !== st.ino) fail('not_found')
-      return await this.putVersion(userId, chatId, o.root.id, { fd, st: { size: st.size } }, { ...opts, action: 'chat.file_restore' })
+      // the bytes are the chain's own: a person may restore a version the AI wrote (up to CHAT_FILE_AI_MAX)
+      const cap = Math.max(opts.origin === 'ai' ? CHAT_FILE_AI_MAX : CHAT_FILE_MAX, Math.min(st.size, CHAT_FILE_AI_MAX))
+      return await this.writeVersionOf(userId, chatId, o.root.id, { fd, st: { size: st.size } }, { ...opts, action: 'chat.file_restore' }, cap)
     } finally { fs.closeSync(fd) }
   }
 

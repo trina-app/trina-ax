@@ -92,11 +92,12 @@ type HeadRow = { root_id: string; user_id: string; size: number; mime: string; w
 /** A message's chat files (source 'chat', carried by their chain's root id: chat/chat-files.ts putVersion) as their
  * newest version: its size, type and picture size, and who changed it (Attachment.updated). The id stays the root's,
  * so the chip and every link open the chain, which opens its head. */
-export function chatFilesAsHeads(db: Database, atts: Attachment[]): Attachment[] {
+export function chatFilesAsHeads(db: Database, chatId: string, atts: Attachment[]): Attachment[] {
   const ids = atts.filter((a) => a.source === 'chat' && !a.unavailable).map((a) => a.id)
   if (!ids.length) return atts
+  // the message's own chat only (a chain is never another chat's)
   const rows = db.query(`SELECT c.root_id, c.user_id, c.size, c.mime, c.width, c.height, c.version, c.origin, c.created_at, u.name AS by_name FROM chat_files c LEFT JOIN users u ON u.id = c.user_id
-    WHERE c.root_id IN (${ids.map(() => '?').join(',')}) ORDER BY c.version DESC, c.rowid DESC`).all(...ids) as HeadRow[]
+    WHERE c.chat_id = ? AND c.root_id IN (${ids.map(() => '?').join(',')}) ORDER BY c.version DESC, c.rowid DESC`).all(chatId, ...ids) as HeadRow[]
   if (!rows.length) return atts
   const heads = new Map<string, HeadRow>()
   for (const r of rows) if (!heads.has(r.root_id)) heads.set(r.root_id, r)
@@ -173,7 +174,7 @@ export class ChatStore {
       atts = atts.map((a) => copyForViewer(a, viewer === undefined || viewer === creator))
     }
     // a chat file changed since it was sent: its newest version (chat/chat-files.ts putVersion)
-    if (atts.some((a) => a.source === 'chat')) atts = chatFilesAsHeads(this.db, atts)
+    if (atts.some((a) => a.source === 'chat')) atts = chatFilesAsHeads(this.db, r.chat_id, atts)
     // a shared chat (chat/shared.ts): as this viewer may see them, whoever attached them. A file kept with a chat shared
     // with people (chat/chat-files.ts) only for whoever sees it by that rule (not a project's people the chat got later)
     if (viewer !== undefined) {

@@ -191,8 +191,8 @@ const BYTE_ONLY_ARGS: Readonly<Record<string, readonly string[]>> = {
  *   - the path is in the person's own folder (users/<them>/), and the newest file event there is the 'create' a
  *     save_chat_file of this chat by this person made, of exactly that chat file (nothing since: no overwrite, rename,
  *     move or restore; an earlier file at the path is never "the copy");
- *   - the chat file was sent in a message (an upload not sent yet is its sender's alone) of this chat, the person sees
- *     the chat now, and the file's bytes now hash to that chat file's sha256 (same size first).
+ *   - the chat file was sent in a message (an upload not sent yet is its sender's alone) of this chat, no answer with a
+ *     k group (a connection's, hidden from newcomers: ChatFiles.kCarried) carries it, the person sees the chat now, and the file's bytes now hash to that chat file's sha256 (same size first).
  * Everyone in the chat already has those bytes, so "split it", "unzip it" after the copy ask nothing new. Anything
  * else, or a check that fails, is false (the card asks as before). A write after this check makes a new file event and
  * is the folder's file from then on.
@@ -215,6 +215,8 @@ export function chatFileCopyOf(ctx: TurnExec['rt']['ctx'], userId: string, chatI
     const f = ctx.db.query('SELECT id, chat_id, sha256, size FROM chat_files WHERE id = ? AND chat_id = ?').get(d.chatFile, chatId) as Pick<ChatFileRow, 'id' | 'chat_id' | 'sha256' | 'size'> | null
     if (!f || f.size !== r.st.size || ev.sha256 !== f.sha256) return false
     if (!seesChatFiles(ctx.db, userId, chatId) || !chatFilesOf(ctx).sent(f) || ctx.files.quarantine.hasHash(f.sha256)) return false
+    // a file a connection's (k) answer carries is not everyone's here: its copy is read as the own folder's (the card)
+    if (chatFilesOf(ctx).kCarried(f)) return false
     return createHash('sha256').update(readRegular(r.abs, CHAT_FILE_MAX, r.st).bytes).digest('hex') === f.sha256
   } catch { return false }
 }

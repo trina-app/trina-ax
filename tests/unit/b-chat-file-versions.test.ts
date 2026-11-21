@@ -12,7 +12,9 @@ import path from 'node:path'
 import { API, type Attachment, type PutChatAudienceResult } from '@mycel/shared/api'
 import { startHarness, type Harness, type TestSocket } from '../lib/b-harness'
 import { CHAT_FILE_MAX, CHAT_FILE_VERSIONS_KEPT, chatFilesOf, UNSENT_CHAT_FILE_MS } from '../../server/src/chat/chat-files'
-import { copyForViewer } from '../../server/src/chat/store'
+import { chatFilesAsHeads, copyForViewer } from '../../server/src/chat/store'
+import { HttpError } from '../../server/src/http/errors'
+import { MIGRATIONS_DIR, SCHEMA_READER_LEVEL, SchemaTooNewError, migrate, openDb, readMigrations } from '../../server/src/db'
 import { setAnswerReads } from '../../server/src/chat/shared-answers'
 import { roomsOf } from '../../server/src/rooms/service'
 import { configureStorageGuard } from '../../server/src/system/storage'
@@ -275,5 +277,91 @@ describe('from and fromSha256 stay on the server', () => {
       expect(Object.keys(v).sort()).toEqual(expect.arrayContaining(['by', 'byName', 'createdAt', 'id', 'mime', 'name', 'size', 'version']))
       for (const k of ['from', 'fromSha256', 'sha256', 'path', 'abs']) expect(v).not.toHaveProperty(k)
     }
+  })
+})
+
+// independent review of #217 (2026-11-21)
+describe('review: what a version write re-checks', () => {
+  test('an older build cannot open the database: it would read a version as an upload never sent and sweep it', () => {
+    const m = readMigrations(MIGRATIONS_DIR).find((x) => x.name === '432_b_chat_file_versions.sql')!
+    expect(m.minCompatibleReader).toBe(9)
+    expect(SCHEMA_READER_LEVEL).toBeGreaterThanOrEqual(9)
+    expect(() => migrate(openDb(':memory:'), { readerLevel: 8 })).toThrow(SchemaTooNewError)
+  })
+
+  test('access lost while the bytes are written: nothing is kept', async () => {
+    const c = await sharedCopy('late-loss.md', 'v1', [bob, erin])
+    const p = files().putVersion('erin', c.chatId, c.rootId, { bytes: enc('erin, after she lost it') })
+    // synchronously after the call started (its first await): the answer is now hidden from erin
+    hideFromOthers(c.chatId, c.answer)
+    await expect(p).rejects.toThrow()
+    expect(files().chain(c.rootId)).toHaveLength(1)
+    expect(fs.readdirSync(path.join(files().root(), c.chatId)).filter((f) => !f.startsWith(c.rootId))).toEqual([])
+  })
+
+  test('a chat in the trash, or read-only under safe operations: no version', async () => {
+    const c = await sharedCopy('readonly.md', 'v1')
+    process.env.MYCEL_SAFE_OPS_1A = '1'
+    try {
+      await expect(files().putVersion('bob', c.chatId, c.rootId, { bytes: enc('x') })).rejects.toMatchObject({ code: 'conflict' })
+      await expect(files().restore('bob', c.chatId, c.rootId, 1)).rejects.toMatchObject({ code: 'conflict' })
+    } finally { delete process.env.MYCEL_SAFE_OPS_1A }
+    db().query('UPDATE chats SET deleted_at = ? WHERE id = ?').run(new Date().toISOString(), c.chatId)
+    try {
+      await expect(files().putVersion('alice', c.chatId, c.rootId, { bytes: enc('x') })).rejects.toMatchObject({ code: 'not_found' })
+    } finally { db().query('UPDATE chats SET deleted_at = NULL WHERE id = ?').run(c.chatId) }
+    expect(files().chain(c.rootId)).toHaveLength(1)
+  })
+
+  test('two writes of one turn at once count against its limit together; a failed write gives its share back', async () => {
+    const c = await sharedCopy('turn-race.md', 'v1')
+    const max = h.ctx.engineConfig.maxWriteBytesPerTurn
+    const half = enc('six b.')
+    const turn = { bytesWritten: max - 10, filesWritten: new Set<string>() }
+    const both = await Promise.allSettled([
+      files().putVersion('bob', c.chatId, c.rootId, { bytes: half }, { origin: 'ai', turn }),
+      files().putVersion('bob', c.chatId, c.rootId, { bytes: half }, { origin: 'ai', turn }),
+    ])
+    expect(both.map((r) => r.status).sort()).toEqual(['fulfilled', 'rejected'])
+    expect(turn.bytesWritten).toBe(max - 10 + half.byteLength)
+    const t2 = { bytesWritten: 0, filesWritten: new Set<string>() }
+    await expect(files().putVersion('erin', c.chatId, c.rootId, { bytes: enc('x') }, { origin: 'ai', turn: t2 })).rejects.toThrow()
+    expect(t2).toEqual({ bytesWritten: 0, filesWritten: new Set() })
+  })
+
+  test('a person\'s save on a full disk is the HTTP storage_full, not the AI\'s words', async () => {
+    const c = await sharedCopy('full.md', 'v1')
+    const GiB = 1024 ** 3
+    configureStorageGuard({ root: '/', statfs: () => ({ bsize: 4096, blocks: 20 * GiB / 4096, bfree: 0.1 * GiB / 4096, bavail: 0.1 * GiB / 4096 }), enforce: () => true })
+    setLimitsPlatformForTests('linux')
+    setPlanForTests(null)
+    try {
+      const e = await files().putVersion('bob', c.chatId, c.rootId, { bytes: enc('no room') }).catch((x) => x)
+      expect(e).toBeInstanceOf(HttpError)
+      expect(e.code).toBe('storage_full')
+      expect(await files().putVersion('bob', c.chatId, c.rootId, { bytes: enc('no room') }, { origin: 'ai' }).catch((x) => x)).toBeInstanceOf(ToolError)
+    } finally { configureStorageGuard(null); setLimitsPlatformForTests(null); setPlanForTests(undefined) }
+  })
+
+  test('a person may restore a version the AI wrote that is over a person\'s 50 MB', async () => {
+    const c = await sharedCopy('big.bin', 'v1')
+    const src = path.join(h.ctx.config.dataDir, 'work', `big-${crypto.randomUUID()}`)
+    fs.writeFileSync(src, '')
+    fs.truncateSync(src, CHAT_FILE_MAX + 1)
+    const fd = fs.openSync(src, 'r')
+    try { await files().putVersion('alice', c.chatId, c.rootId, { fd, st: fs.fstatSync(fd) }, { origin: 'ai' }) } finally { fs.closeSync(fd); fs.rmSync(src, { force: true }) }
+    await files().putVersion('bob', c.chatId, c.rootId, { bytes: enc('small again') })
+    const back = await files().restore('bob', c.chatId, c.rootId, 2)
+    expect(back.row).toMatchObject({ version: 4, size: CHAT_FILE_MAX + 1, user_id: 'bob' })
+    // a person's own new bytes stay at 50 MB
+    await expect(files().putVersion('bob', c.chatId, c.rootId, { fd: -1, st: { size: CHAT_FILE_MAX + 1 } })).rejects.toMatchObject({ code: 'payload_too_large' })
+  })
+
+  test('the chip\'s newest version is looked up in the message\'s own chat only', async () => {
+    const c = await sharedCopy('elsewhere.md', 'v1')
+    await files().putVersion('bob', c.chatId, c.rootId, { bytes: enc('v2') })
+    const att: Attachment = { id: c.rootId, name: 'elsewhere.md', path: '', size: 2, mime: 'text/markdown', kind: 'text', source: 'chat' }
+    expect(chatFilesAsHeads(db(), c.chatId, [att])[0]).toHaveProperty('updated')
+    expect(chatFilesAsHeads(db(), crypto.randomUUID(), [att])[0]).toEqual(att)
   })
 })
