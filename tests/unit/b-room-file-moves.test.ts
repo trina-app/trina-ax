@@ -510,3 +510,93 @@ test('nit: going back with both a staged and a room copy keeps the move\'s own i
   expect((await fileGet(nora.client, roomId, f.id)).body).toBe('original')
   expect(staging()).toEqual([])
 })
+
+// second crash review of #221
+test('R1: a cross-disk install (EXDEV) that fails after its copy keeps the source: bytes still staged, placed on the next pass', async () => {
+  const { mia, nora, roomId } = await setup('b-room-file-moves-exdev')
+  const f = await up(mia.id, roomId, 'deck.pdf', 'the only copy, across disks')
+  await send(mia.client, roomId, [f.id])
+  const { chat } = await convert(mia.client, roomId)
+  const origRename = fs.renameSync
+  const origChmod = fs.chmodSync
+  let exdev = 0, eperm = false
+  // every rename from staging to a temp name crosses disks; the first chmod of the copy fails
+  ;(fs as any).renameSync = (a: fs.PathLike, b: fs.PathLike) => {
+    if (String(a).includes(`${path.sep}room-moves${path.sep}`) && String(b).includes(PRODUCT.tmpPrefix)) { exdev++; const e = new Error('EXDEV') as NodeJS.ErrnoException; e.code = 'EXDEV'; throw e }
+    return origRename(a, b)
+  }
+  ;(fs as any).chmodSync = (p: fs.PathLike, m: fs.Mode) => {
+    if (!eperm && String(p).includes(PRODUCT.tmpPrefix)) { eperm = true; const e = new Error('EPERM') as NodeJS.ErrnoException; e.code = 'EPERM'; throw e }
+    return origChmod(p, m)
+  }
+  try {
+    await restarted().run()
+    expect([exdev, eperm]).toEqual([1, true])
+    expect(moveOf(f.id).state).toBe('placing')
+    expect(fs.readFileSync(at(moveOf(f.id).staged), 'utf8')).toBe('the only copy, across disks')
+    expect(fs.existsSync(at(chat)) ? fs.readdirSync(at(chat)) : []).toEqual([])
+    expect((await fileGet(nora.client, roomId, f.id)).body).toBe('the only copy, across disks')
+    // the next pass copies again and only then removes the staged source
+    await restarted().run()
+  } finally { (fs as any).renameSync = origRename; (fs as any).chmodSync = origChmod }
+  expect(exdev).toBe(2)
+  expect(moveOf(f.id)).toMatchObject({ state: 'done', staged: null })
+  expect(fs.readFileSync(at(`${chat}/deck.pdf`), 'utf8')).toBe('the only copy, across disks')
+  expect(fs.lstatSync(at(`${chat}/deck.pdf`)).nlink).toBe(1)
+  expect(staging()).toEqual([])
+  expect((await fileGet(nora.client, roomId, f.id)).body).toBe('the only copy, across disks')
+})
+
+test('R2: a kept file still staged (restore_failed) is not counted missing, goes back with `staged` cleared; one whose message went is deleted', async () => {
+  const { mia, nora, roomId } = await setup('b-room-file-moves-kept-staged')
+  const f = await up(mia.id, roomId, 'a.pdf', 'aaa')
+  await send(mia.client, roomId, [f.id])
+  const g = await up(mia.id, roomId, 'b.pdf', 'bbb')
+  const mg = await send(mia.client, roomId, [g.id])
+  await convert(mia.client, roomId)
+  const first = restarted()
+  crashAt(first, 'place')
+  await expect(first.run()).rejects.toBeInstanceOf(MoveCrash)
+  const second = restarted()
+  crashAt(second, 'place')
+  await expect(second.run()).rejects.toBeInstanceOf(MoveCrash)
+  // both staged; each settled as a way back that kept failing (failed(): kept, restore_failed, staged left)
+  expect(staging().length).toBe(2)
+  h.ctx.db.query("UPDATE room_file_moves SET state = 'kept', reason = 'restore_failed' WHERE room_id = ?").run(roomId)
+  // g's message is deleted afterwards: its row loses the file, the staged bytes stay behind
+  await mia.client.call('DELETE', `/api/rooms/${roomId}/messages/${mg.id}`)
+  const gRow = h.ctx.db.query('SELECT * FROM room_file_moves WHERE sha256 = ?').get(sha('bbb')) as any
+  expect(gRow).toMatchObject({ state: 'kept', room_file_id: null })
+  expect(gRow.staged).not.toBeNull()
+  // the room's own reconcile does not call f missing (its bytes are staged)
+  expect(roomFilesOf(h.ctx).reconcile().missingFiles).toBe(0)
+  expect(restarted().reconcile()).toMatchObject({ restored: 1, removed: 1, left: 0 })
+  expect(moveOf(f.id)).toMatchObject({ state: 'kept', staged: null })
+  expect(h.ctx.db.query('SELECT staged FROM room_file_moves WHERE id = ?').get(gRow.id)).toEqual({ staged: null })
+  expect(staging()).toEqual([])
+  expect(roomStore(roomId)).toEqual([f.id])
+  expect((await fileGet(nora.client, roomId, f.id)).body).toBe('aaa')
+  // a second start has nothing left to report
+  expect(restarted().reconcile()).toMatchObject({ restored: 0, removed: 0, left: 0 })
+})
+
+test('R3: a placed file taken back out of Chat attachments gets a delete in its history and a files change', async () => {
+  const { mia, roomId } = await setup('b-room-file-moves-back-event')
+  const f = await up(mia.id, roomId, 'deck.pdf', 'deck')
+  await send(mia.client, roomId, [f.id])
+  const { chat } = await convert(mia.client, roomId)
+  const first = restarted()
+  crashAt(first, 'commit')
+  await expect(first.run()).rejects.toBeInstanceOf(MoveCrash)
+  expect(fs.existsSync(at(`${chat}/deck.pdf`))).toBe(true)
+  const changed: string[][] = []
+  const onTree = (e: { paths: string[] }) => changed.push(e.paths)
+  h.ctx.files.events.on('tree-changed', onTree)
+  h.ctx.db.transaction(() => writeFolderAccess(h.ctx.db, ensureFolderRow(h.ctx.db, chat).id, { rules: [{ subjectType: 'user', subjectId: mia.id, access: 'write' }], limited: true }, mia.id))()
+  try { await restarted().run() } finally { h.ctx.files.events.off('tree-changed', onTree) }
+  expect(moveOf(f.id)).toMatchObject({ state: 'kept', reason: 'narrowed' })
+  expect(fs.existsSync(at(`${chat}/deck.pdf`))).toBe(false)
+  const ev = h.ctx.db.query("SELECT user_id, action, json_extract(detail, '$.movedBack') moved_back FROM file_events WHERE path = ? ORDER BY id DESC LIMIT 1").get(`${chat}/deck.pdf`) as any
+  expect(ev).toEqual({ user_id: mia.id, action: 'delete', moved_back: moveOf(f.id).id })
+  expect(changed.some((p) => p.includes(`${chat}/deck.pdf`))).toBe(true)
+})
