@@ -1,0 +1,1 @@
+- Demo: in the Korean free-roam demo, "크리스 답장 왔어?" now finds Chris's reply. The demo mailbox's search reads Gmail's OR, brackets and "-", matches a name in either script or the address word by word, and ignores a Korean honorific like "님" or a Japanese one like "さん". A filter the demo mailbox does not keep (a date, a category, `has:drive`) no longer hides every mail when negated.
