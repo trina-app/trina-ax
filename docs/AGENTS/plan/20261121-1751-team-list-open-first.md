@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-21 17:51
 - Branch: `fix/team-list-open-first`
-- Status: in progress
+- Status: done
 - Where: desktop/src/ui (the app's own team screen). Why: only the desktop app keeps a list of teams (docs/REPOSITORY-RULES.md)
 - Version impact: patch, a small UI fix on an existing screen with no new behaviour
 
@@ -50,4 +50,7 @@ Long team names at 390 px: the name ellipsizes before the Open. No server, migra
 
 ## Result
 
-(filled in at the end)
+Built as planned in PR https://github.com/trina-app/trina-ax/pull/273: an outlined Open (span inside the row button,
+\`welcome.open\`) on every team that is not open, accessible name "Open {team}" (\`welcome.openTeam\`, six languages) with the
+address as description, 44px ··· and 56px rows on touch screens. Remove and its confirmation are unchanged. Phone app and
+browser have no team list, so nothing changed there.
