@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-21 01:14 (revised twice on 2026-11-21 after the owner's calls)
 - Branch: `plan/sidebar-categories-redo` (this plan only); the work goes on one web PR, `feat/sidebar-sections`
-- Status: draft
+- Status: in progress (feat/sidebar-sections)
 - Where: web/ only. No server change and no migration. Why: the owner could not tell how to fill a team category. Then
   they decided the sidebar must be each person's own, as in Slack, by bringing back the personal folders and changing
   only the UI (see docs/REPOSITORY-RULES.md)

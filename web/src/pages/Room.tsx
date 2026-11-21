@@ -668,6 +668,7 @@ function RoomView({ roomId, threadId, badThread }: { roomId: string; threadId: s
             phone={wide ? undefined : { first: nextThread ? [{ label: threadsLabel, icon: <MessagesSquare size={14} aria-hidden />, onSelect: () => openThread(nextThread), testId: 'room-menu-next-thread' }] : [] }}
             dot={!wide && !!nextThread}
             label={!wide && nextThread ? `${t('rooms.menu.label')}, ${threadsLabel}` : undefined}
+            folders
           />
         )}
       </div>
