@@ -137,12 +137,13 @@ function RoomThumb({ f, src }: { f: RoomFile; src: string }) {
 /** Where the list is: the room's timeline, or the thread panel's root, or its replies. */
 export type ListVariant = 'timeline' | 'root' | 'reply'
 
-/** How long a message picked out by a link (an Inbox row) stays marked. */
+/** How long a message picked out by a link (an Inbox row) keeps its `data-highlight` mark. The mark has no look: the
+ * list only scrolls to the message (owner 2026-11-21: no coloured box, only the place). */
 export const HIGHLIGHT_MS = 2400
 
 /** `dayBefore`: the time of what is shown above the list (a thread's root): no second date line for that same day.
  * `highlight`: a message a link points at (an Inbox row: pages/Room.tsx ?m=): once it is on the list it is scrolled to
- * the middle and marked for a moment, once. */
+ * the middle and marked (`data-highlight`, no look) for a moment, once. */
 /** `onAskTrina`: "Ask Trina about this" on a message (the room's side chat opens with it quoted) */
 export function RoomMessages({ roomId, messages, pending, meId, members, onThread, onAskTrina, onAskFile, variant = 'timeline', dayBefore = null, highlight = null, highlightKey = null }: { roomId: string; messages: RoomMessage[]; pending: PendingSend[]; meId: string | null; members: UserRef[]; onThread?: (rootId: string, focus?: boolean) => void; onAskTrina?: (m: RoomMessage) => void; onAskFile?: (seed: SideSeed) => void; variant?: ListVariant; dayBefore?: string | null; highlight?: string | null; highlightKey?: string | null }) {
   // a picture's or file's 트리나에게 묻기 (its right-click menu): where this list asks about a message, it asks about a
@@ -165,7 +166,6 @@ export function RoomMessages({ roomId, messages, pending, meId, members, onThrea
     // the message stays in sight above the box (the keyboard comes up)
     requestAnimationFrame(() => list.current?.querySelector<HTMLElement>(`[id="${messageDomId(m.id)}"]`)?.scrollIntoView({ block: 'nearest' }))
   }
-  const [flash, setFlash] = useState<string | null>(null)
   const loaded = useMemo(() => new Set(messages.map((m) => m.id)), [messages])
   const byId = usePeople((s) => s.byId)
   /** a mentioned person's name: the room's member list, else the directory */
@@ -176,23 +176,28 @@ export function RoomMessages({ roomId, messages, pending, meId, members, onThrea
     for (const p of Object.values(byId)) map.set(p.id, p.name)
     return map
   }, [byId, members])
-  const jump = (id: string) => {
-    document.getElementById(messageDomId(id))?.scrollIntoView({ block: 'center', behavior: 'smooth' })
-    setFlash(id)
-    setTimeout(() => setFlash((f) => (f === id ? null : f)), 1600)
-  }
   // the message a link points at, inside this list (the same message can be in the timeline and in its thread, a reply
-  // sent to the room too): after the list has gone to its bottom (the page's layout effect), once
+  // sent to the room too): after the list has gone to its bottom (the page's layout effect), once. Like a quote's jump
+  // below, only the place: the message is marked (`data-highlight`) for a moment, with no colour or box
   const list = useRef<HTMLDivElement>(null)
   const [lit, setLit] = useState<string | null>(null)
+  const mark = (id: string) => {
+    setLit(id)
+    setTimeout(() => setLit((x) => (x === id ? null : x)), HIGHLIGHT_MS)
+  }
+  // a quote's name: to the quoted message
+  const jump = (id: string) => {
+    document.getElementById(messageDomId(id))?.scrollIntoView({ block: 'center', behavior: 'smooth' })
+    mark(id)
+  }
   // once for each place in the history that points at it (`highlightKey`): back at that place (a thread opened from it
   // closed) the reader stays where they scrolled; a notice clicked again picks it out again (lib/rooms.ts highlightNow)
   const shown = useRef(new Set<string>())
   useEffect(() => {
     if (!highlight || !loaded.has(highlight) || !highlightNow(shown.current, highlight, highlightKey)) return
     list.current?.querySelector<HTMLElement>(`[id="${messageDomId(highlight)}"]`)?.scrollIntoView({ block: 'center' })
-    setLit(highlight)
-    setTimeout(() => setLit((x) => (x === highlight ? null : x)), HIGHLIGHT_MS)
+    mark(highlight)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [highlight, highlightKey, loaded])
   const lastMine = runs.at(-1)?.messages[0]?.author?.id === meId && meId !== null && !runs.at(-1)?.messages[0]?.event
   // phones: a run's time only when it differs from the run above it ("오전 11:56" once for four messages of that minute)
@@ -217,7 +222,7 @@ export function RoomMessages({ roomId, messages, pending, meId, members, onThrea
               repeat={repeats[i]}
             >
                 {run.messages.map((m) => m.withheld ? (
-                  <WithheldRow key={m.id} m={m} flash={flash === m.id || lit === m.id} onJump={m.replyTo && loaded.has(m.replyTo.id) ? () => jump(m.replyTo!.id) : undefined} />
+                  <WithheldRow key={m.id} m={m} highlighted={lit === m.id} onJump={m.replyTo && loaded.has(m.replyTo.id) ? () => jump(m.replyTo!.id) : undefined} />
                 ) : (
                   <Fragment key={m.id}>
                     <MessageRow
@@ -229,7 +234,6 @@ export function RoomMessages({ roomId, messages, pending, meId, members, onThrea
                       meId={meId}
                       editing={editing === m.id}
                       inBox={phone && inBox[placeOf(m)] === m.id}
-                      flash={flash === m.id || lit === m.id}
                       highlighted={lit === m.id}
                       onEdit={() => startEdit(m)}
                       onEditDone={() => setEditing(null)}
@@ -358,7 +362,7 @@ function EventLine({ m }: { m: RoomMessage }) {
 
 /** A root's thread under it: up to 3 faces, "답글 3개", the last reply's time; a dot when a thread I follow has replies I
  * have not read. One tap opens the thread. */
-function MessageRow({ roomId, m, mine, names, members, meId, editing, inBox = false, flash, highlighted = false, onEdit, onEditDone, onEditAgain, onThread, onAskTrina, variant, onJump, barBelow = false }: { roomId: string; m: RoomMessage; mine: boolean; names: Map<string, string>; members: UserRef[]; meId: string | null; editing: boolean; /** being edited in the box at the bottom (a phone): marked */ inBox?: boolean; flash: boolean; highlighted?: boolean; onEdit: () => void; onEditDone: () => void; onEditAgain: () => void; onThread?: (rootId: string, focus?: boolean) => void; onAskTrina?: (m: RoomMessage) => void; variant: ListVariant; onJump?: () => void; barBelow?: boolean }) {
+function MessageRow({ roomId, m, mine, names, members, meId, editing, inBox = false, highlighted = false, onEdit, onEditDone, onEditAgain, onThread, onAskTrina, variant, onJump, barBelow = false }: { roomId: string; m: RoomMessage; mine: boolean; names: Map<string, string>; members: UserRef[]; meId: string | null; editing: boolean; /** being edited in the box at the bottom (a phone): marked */ inBox?: boolean; /** picked out by a link or a quote's jump: marked, with no look */ highlighted?: boolean; onEdit: () => void; onEditDone: () => void; onEditAgain: () => void; onThread?: (rootId: string, focus?: boolean) => void; onAskTrina?: (m: RoomMessage) => void; variant: ListVariant; onJump?: () => void; barBelow?: boolean }) {
   const t = useT()
   const locale = useLocale()
   const deleted = !!m.deletedAt
@@ -453,7 +457,7 @@ function MessageRow({ roomId, m, mine, names, members, meId, editing, inBox = fa
   return (
     <div
       id={messageDomId(m.id)}
-      className={messageRowClass(flash || inBox)}
+      className={messageRowClass(inBox)}
       data-testid="room-message"
       data-highlight={highlighted ? '' : undefined}
       data-editing={inBox ? '' : undefined}
@@ -545,10 +549,10 @@ function MessageRow({ roomId, m, mine, names, members, meId, editing, inBox = fa
 
 /** An old answer hidden from me: who asked it (an AI answer, a click goes to the question) and one faint line; a
  * person's message (an answer they shared, a message an AI app sent for them) by its author's name above it. */
-function WithheldRow({ m, flash, onJump }: { m: RoomMessage; flash: boolean; onJump?: () => void }) {
+function WithheldRow({ m, highlighted, onJump }: { m: RoomMessage; highlighted: boolean; onJump?: () => void }) {
   const t = useT()
   return (
-    <div id={messageDomId(m.id)} className={clsx('-mx-2 rounded-lg px-2 py-0.5 transition select-none', flash && 'bg-accent-soft')} data-testid="room-message" data-withheld="">
+    <div id={messageDomId(m.id)} className="-mx-2 rounded-lg px-2 py-0.5 select-none" data-testid="room-message" data-withheld="" data-highlight={highlighted ? '' : undefined}>
       {m.authorKind === 'ai' && <AskedBy m={m} onJump={onJump} />}
       <p className={clsx('text-reading leading-reading text-faint', WORDS)} data-testid="room-withheld">{t(m.authorKind === 'ai' ? 'rooms.withheldAnswer' : 'rooms.withheldMessage')}</p>
     </div>

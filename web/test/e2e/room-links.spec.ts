@@ -76,9 +76,12 @@ test("a quote's link sits above the quote's jump: the link opens the site, the r
   const [popup] = await Promise.all([page.waitForEvent('popup'), link.click()])
   expect(popup.url()).toBe(ARTIFACT)
   await popup.close()
-  // the name: to the quoted message, which lights up
+  // the name: to the quoted message, in sight and marked, with no colour (only the place: owner 2026-11-21)
   await quote.getByTestId('message-quote-jump').click({ position: { x: 12, y: 6 } })
-  await expect(page.getByTestId('room-message').nth(0)).toHaveClass(/bg-accent-soft/)
+  const quoted = page.getByTestId('room-message').nth(0)
+  await expect(quoted).toHaveAttribute('data-highlight', '')
+  await expect(quoted).toBeInViewport()
+  await expect(quoted).not.toHaveClass(/bg-accent-soft/)
 })
 
 test('a link to this team app moves inside the app, without a reload; the keyboard shows its focus ring', async ({ page }) => {
