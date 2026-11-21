@@ -226,7 +226,10 @@ const SHOTS: Shot[] = [
   { file: 'chats/channels-add', set: 'acme', path: '/rooms', as: JORDAN, prepare: click('[data-testid="rooms-channels-add"]'), clip: { x: 0, y: 0, width: 360, height: 520 } },
   // a conversation's bell at the top right: Notify me about, with Default, All messages, Mentions only and Off
   { file: 'settings/room-notify', set: 'acme', path: '/rooms', as: JORDAN, prepare: async (p) => {
-    await openRoom('Marketing')(p); await p.locator('[data-testid="room-notify"]').first().click(); await p.waitForTimeout(500)
+    await openRoom('Marketing')(p)
+    // the "ask Trina about this conversation" hint strip under the header would sit behind the menu
+    await p.evaluate((s) => document.querySelector(s)?.remove(), '[data-testid="room-ask-hint"]')
+    await p.locator('[data-testid="room-notify"]').first().click(); await p.waitForTimeout(500)
   }, clip: { x: 1040, y: 0, width: 400, height: 230 } },
   { file: 'chats/projects-panel', set: 'acme', path: '/projects', as: JORDAN },
   { file: 'chats/project', set: 'acme', path: '/projects', as: JORDAN, prepare: async (p) => { await p.locator('[data-testid="project-card"]').first().click(); await p.waitForTimeout(1200); await restMouse(p) }, crop: 'main', maxHeight: 440 },
@@ -287,6 +290,9 @@ const SHOTS: Shot[] = [
   { file: 'scheduled/template', set: 'acme', path: '/scheduled', as: JORDAN, prepare: async (p) => {
     await p.locator('[data-testid="new-task"]').first().click(); await p.waitForTimeout(400)
     await p.locator('[data-testid="new-task-template"]').first().click(); await p.waitForTimeout(900)
+    // Chromium draws a time field in the computer's region format (on a Mac set to Indonesia: "09.00"), not the page's
+    // language, and no launch option changes that: the field shows its value as plain text instead, as most regions write it
+    await p.evaluate((s) => { for (const el of document.querySelectorAll<HTMLInputElement>(s)) { const v = el.value; el.type = 'text'; el.value = v } }, 'input[type="time"]'); await p.waitForTimeout(300)
     await blur(p)
   }, crop: DIALOG },
   { file: 'scheduled/list-phone', set: 'acme', path: '/scheduled', phone: true, as: JORDAN },

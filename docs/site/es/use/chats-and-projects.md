@@ -73,7 +73,7 @@ del equipo**, luego **Historial de Trina** (primero sus chats fijados y después
 
 ![En un teléfono, ☰ en la pestaña Trina abre Buscar, Programadas, Habilidades del equipo, su historial de Trina, y Establecer su estado e Historial eliminado abajo](../../images/chats/trina-drawer-phone.webp "El historial de Trina en un teléfono")
 
-### Carpetas
+### Secciones
 
 Los chats de Trina no tienen carpetas. Para mantener juntos los chats sobre un mismo trabajo, póngalos en un [proyecto](#proyectos).
 
@@ -94,7 +94,7 @@ La nueva sección aparece en su lista Chats, encima de **Canales**, con las conv
 
 - **Mover una conversación:** en su fila, elija **···** › **Mover a una sección** y elija la sección (o **Nueva
   sección…**). En un ordenador también puede arrastrar la fila hasta una sección. **Quitar de la sección** la devuelve
-  a **Canales** o **Mensajes directos**.
+  a su sitio: **Canales**, **Proyectos** (la sala de chat de un proyecto) o **Mensajes directos**.
 - **Cambiar una sección:** su **···** tiene **Añadir conversaciones**, **Cambiar nombre de la sección**, **Subir**,
   **Bajar** y **Eliminar sección**. Eliminar una sección solo quita el encabezado: sus conversaciones vuelven a
   **Canales** y **Mensajes directos**.
@@ -187,7 +187,7 @@ por nombre; los canales privados llevan un candado) y **Mensajes directos** (los
 
 El **+** junto a **Canales** abre un menú pequeño. **Crear un canal**: elija a las personas y póngale un nombre, y será
 un canal privado que solo ellas ven. **Nueva sección** crea una de sus propias secciones, como se describe arriba en
-Carpetas. El **+** junto a **Mensajes directos** es **Nuevo mensaje**: elija a una persona para un mensaje directo,
+Secciones. El **+** junto a **Mensajes directos** es **Nuevo mensaje**: elija a una persona para un mensaje directo,
 o a varias para un chat de grupo con sus nombres (si ya tiene uno con exactamente esas personas, se abre ese). Para
 convertir un chat de grupo en canal privado, elija **···** › **Convertir en canal privado** y póngale un nombre.
 
@@ -337,7 +337,7 @@ Empiece un chat desde la página del proyecto, o lleve un chat a él con **Mover
   el nombre de la persona que la envió. Cada respuesta se ejecuta como la persona que preguntó, con su acceso. Cuando la IA va a
   leer algo que algunas de ellas no pueden abrir, se lo pregunta a usted antes (**Leer y compartir** / **No leer**).
 - **Los chats que trae o mueve al proyecto siguen siendo suyos.** La página del proyecto indica cuántos son ("1 chat que solo ve usted"), y **Elegir
-  chats para compartir** (o **Compartir con los miembros del proyecto** en el menú de un chat) los comparte. **Traer chats** mueve otros
+  chats para compartir** (o **Compartir** en el menú **⋯** de un chat) los comparte; no se puede deshacer. **Traer chats** mueve otros
   chats al proyecto.
 - **Archivos en los chats del proyecto.** Un archivo que adjunta desde su ordenador (**+**, pegándolo o soltándolo) en un chat compartido del proyecto
   se guarda en la subcarpeta **Adjuntos del chat** de la carpeta del proyecto (con el nombre en el idioma del equipo), donde las personas del proyecto
@@ -356,7 +356,8 @@ una carpeta compartida de Google Drive. Para preguntar algo que solo debe ver us
 
 El chat muestra un candado en la lista del proyecto y en su historial de Trina: solo usted lo ve. El siguiente chat nuevo
 del proyecto vuelve a empezar compartido, así que compruebe la etiqueta cada vez. Para compartirlo más tarde, elija
-**Compartir con los miembros del proyecto** en el menú del chat.
+**Compartir** en el menú **⋯** del chat (o **Compartir** arriba a la derecha del chat). Al compartirlo, los miembros del
+proyecto ven toda la conversación hasta ahora, y no se puede deshacer.
 
 ### La conversación del proyecto
 

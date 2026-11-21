@@ -72,7 +72,7 @@ tim**, lalu **Riwayat Trina** (chat yang disematkan lebih dulu, lalu yang terbar
 
 ![Di ponsel, ☰ di tab Trina membuka Search, Scheduled, Team skills, riwayat Trina Anda, serta Set your status dan Deleted history di bagian bawah](../../images/chats/trina-drawer-phone.webp "Riwayat Trina di ponsel")
 
-### Folder
+### Bagian
 
 Chat Trina tidak punya folder. Untuk mengumpulkan chat tentang satu pekerjaan, masukkan ke dalam [proyek](#proyek).
 
@@ -93,7 +93,7 @@ Bagian baru tampil di daftar Obrolan Anda, di atas **Saluran**, berisi percakapa
 
 - **Memindahkan satu percakapan:** di barisnya, pilih **···** › **Pindahkan ke bagian** lalu pilih bagiannya (atau
   **Bagian baru…**). Di komputer Anda juga bisa menyeret barisnya ke sebuah bagian. **Keluarkan dari bagian**
-  mengembalikannya ke bawah **Saluran** atau **Pesan langsung**.
+  mengembalikannya ke tempat semula: di bawah **Saluran**, **Proyek** (ruang chat sebuah proyek) atau **Pesan langsung**.
 - **Mengubah bagian:** menu **···** pada bagian berisi **Tambahkan percakapan**, **Ganti nama bagian**, **Pindah ke atas**,
   **Pindah ke bawah**, dan **Hapus bagian**. Menghapus bagian hanya menghapus judulnya: percakapannya kembali ke
   **Saluran** dan **Pesan langsung**.
@@ -188,7 +188,7 @@ menurut nama; saluran privat bergembok) dan **Pesan langsung** (obrolan 1:1 dan 
 
 Tanda **+** di samping **Saluran** membuka menu kecil. **Buat saluran**: pilih orang dan beri nama, maka jadilah saluran
 privat yang hanya bisa dilihat mereka. **Bagian baru** membuat salah satu bagian Anda sendiri, seperti dijelaskan di atas
-di bawah judul Folder. Tanda **+** di samping **Pesan langsung** adalah **Pesan baru**: pilih satu orang untuk pesan
+di bawah judul Bagian. Tanda **+** di samping **Pesan langsung** adalah **Pesan baru**: pilih satu orang untuk pesan
 langsung, atau beberapa orang untuk obrolan grup dengan nama mereka (jika sudah ada obrolan dengan orang yang persis sama,
 obrolan itu yang dibuka). Untuk menjadikan obrolan grup saluran privat, pilih **···** › **Jadikan saluran privat** dan beri nama.
 
@@ -336,7 +336,7 @@ Mulai chat dari halaman proyek, atau pindahkan chat ke dalamnya dengan **Pindahk
   nama orang yang mengirimnya. Setiap jawaban berjalan atas nama orang yang bertanya, dengan aksesnya. Saat AI akan
   membaca sesuatu yang tidak bisa dibuka sebagian dari mereka, AI menanyakan Anda dulu (**Baca dan bagikan** / **Jangan baca**).
 - **Chat yang Anda bawa atau pindahkan masuk tetap milik Anda.** Halaman proyek menyebutkan jumlahnya ("1 chat yang hanya Anda lihat"), dan **Pilih
-  obrolan untuk dibagikan** (atau **Bagikan dengan anggota proyek** di menu chat) membagikannya. **Bawa obrolan** memindahkan chat
+  obrolan untuk dibagikan** (atau **Bagikan** di menu **⋯** chat) membagikannya; berbagi tidak bisa dibatalkan. **Bawa obrolan** memindahkan chat
   lain ke dalam proyek.
 - **File di chat proyek.** File yang Anda lampirkan dari komputer (**+**, tempel, atau seret) di chat proyek bersama
   disimpan di subfolder **Lampiran obrolan** di folder proyek (namanya mengikuti bahasa tim), tempat orang-orang di proyek
@@ -354,8 +354,9 @@ bersama. Untuk menanyakan sesuatu yang hanya boleh Anda lihat:
 4. Ketik pertanyaan Anda lalu kirim.
 
 Chat menampilkan gembok di daftar proyek dan di Riwayat Trina Anda: hanya Anda yang melihatnya. Chat baru berikutnya di
-proyek kembali dibagikan, jadi periksa chip setiap kali. Untuk membagikannya nanti, pilih **Bagikan dengan anggota
-proyek** di menu chat.
+proyek kembali dibagikan, jadi periksa chip setiap kali. Untuk membagikannya nanti, pilih **Bagikan** di menu **⋯**
+chat (atau **Bagikan** di kanan atas chat). Setelah dibagikan, seluruh percakapan sejauh ini terlihat oleh anggota
+proyek, dan berbagi tidak bisa dibatalkan.
 
 ### Percakapan proyek
 

@@ -47,7 +47,7 @@ Akses bertambah, seperti di Google Drive: apa yang diberikan sebuah folder ditam
 ### Memberi folder akses lebih sedikit daripada folder di atasnya
 
 Biasanya sebuah folder mengizinkan masuk semua orang yang diizinkan oleh folder di atasnya. Untuk menyimpan sebuah folder
-bagi lebih sedikit orang (misalnya folder `budget` di dalam `Seluruh perusahaan`), batasi folder itu:
+bagi lebih sedikit orang (misalnya folder `handbook` di dalam `Seluruh perusahaan`), batasi folder itu:
 
 1. Buka dialog **Bagikan** folder itu (**File**, lalu **⋯** pada folder › **Bagikan**).
 2. Di bagian bawah, di bawah **Setelan**, nyalakan sakelar **Batasi akses**.

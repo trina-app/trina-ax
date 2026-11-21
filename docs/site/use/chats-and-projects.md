@@ -73,7 +73,7 @@ skills**, then **Trina history** (your pinned chats first, then newest first, by
 
 ![On a phone, ☰ on the Trina tab opens Search, Scheduled, Team skills, your Trina history, and Set your status and Deleted history at the bottom](../images/chats/trina-drawer-phone.webp "The Trina history on a phone")
 
-### Folders
+### Sections
 
 Trina chats have no folders. To keep chats about one piece of work together, put them in a [project](#projects).
 
@@ -93,8 +93,8 @@ You see the new section in your Chats list, above **Channels**, with the convers
 ![The Chats list with the + beside Channels pressed: a small menu with Create a channel and New section](../images/chats/channels-add.webp "New section, from the + beside Channels")
 
 - **Move one conversation:** on its row, choose **···** › **Move to section** and pick the section (or **New section…**).
-  On a computer you can also drag the row onto a section. **Remove from section** puts it back under **Channels** or
-  **Direct messages**.
+  On a computer you can also drag the row onto a section. **Remove from section** puts it back where it was: under **Channels**,
+  **Projects** (a project's chat room) or **Direct messages**.
 - **Change a section:** its **···** has **Add conversations**, **Rename section**, **Move up**, **Move down** and
   **Delete section**. Deleting a section only removes the heading: its conversations go back to **Channels** and
   **Direct messages**.
@@ -190,7 +190,7 @@ The **Chats** list shows every conversation: your pins, your sections, then **Ch
 by name; private channels have a lock) and **Direct messages** (one-to-one chats and group chats without a name together, the latest first, each with the members' faces). Conversations you hid are behind **Hidden conversations (N)**.
 
 The **+** beside **Channels** opens a small menu. **Create a channel**: pick people and give it a name, and it is a
-private channel that only they see. **New section** makes one of your own sections, as described above under Folders. The **+** beside **Direct messages** is **New message**: pick one person for a direct message, or several
+private channel that only they see. **New section** makes one of your own sections, as described above under Sections. The **+** beside **Direct messages** is **New message**: pick one person for a direct message, or several
 for a group chat named after them (if you already have one with exactly those people, it opens). To turn a group chat
 into a private channel, choose **···** › **Turn into a private channel** and give it a name.
 
@@ -337,7 +337,7 @@ Start a chat from the project's page, or move a chat in with **Move to project**
   name of the person who sent it. Each answer runs as the person who asked, with their access. When the AI is about to
   read something some of them cannot open, it asks you first (**Read and share** / **Don't read**).
 - **Chats you bring in or move in stay yours.** The project page says how many ("1 chat only you see"), and **Choose
-  chats to share** (or **Share with project members** in a chat's menu) shares them. **Bring in chats** moves other
+  chats to share** (or **Share** in a chat's **⋯** menu) shares them; sharing can't be undone. **Bring in chats** moves other
   chats in.
 - **Files in project chats.** A file you attach from your computer (**+**, a paste or a drop) in a shared project chat
   is saved in the project folder's **Chat attachments** subfolder (named in the team's language), where the project's
@@ -355,8 +355,9 @@ Drive folder. To ask something only you should see:
 4. Type your question and send it.
 
 The chat shows a lock in the project's list and in your Trina history: only you see it. The next new chat in the project
-starts shared again, so check the chip each time. To share it later, choose **Share with project members** in the
-chat's menu.
+starts shared again, so check the chip each time. To share it later, choose **Share** in the chat's **⋯** menu
+(or **Share** at the top right of the chat). Once shared, the whole chat so far is visible to the project's members, and
+sharing can't be undone.
 
 ### A project's chat room
 
