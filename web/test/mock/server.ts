@@ -6786,6 +6786,111 @@ export class MockServer {
   // file-access answers ask / asked / copy / no; an ask goes to the creator's Activity and [Add to the chat] copies it.
   chatMade = new Map<string, { answerId: string; files: { path: string; v: number }[] }>()
   readonly shareChatFilesInstalled = this.installShareChatFiles()
+  // ---------------- a chat's file edited in place, with versions (server chat/chat-file-edit.ts over ChatFiles P4) ----------
+  // A chain per chat file id (the root's: messages and links carry it), version 1 its first bytes. GET …/versions lists
+  // them (oldest first, the newest `head`) with canEdit (a text name of a chat shared with people, not one marked a
+  // project chat); PUT …/content and POST …/versions/:n/restore add a new head and send every message that carries it
+  // again (message.attachments: its tiles' "Updated by"); ?version=n reads an earlier one. Test-only:
+  // POST /__test/chat-file-hidden {fileId, from} (carried only by answers hidden from that person: 404 and left out of
+  // their messages, as the server's root-carrier rule); POST /__test/chat-file-project {chatId} (a project chat now:
+  // its chat files are read-only); POST /__test/chat-file-version {chatId, fileId, content, by, ai?} (someone else's or
+  // the AI's save).
+  chatFileChains = new Map<string, { id: string; version: number; data: Uint8Array; by: string; byName: string; at: string; ai?: true }[]>()
+  chatFileHidden = new Map<string, Set<string>>()
+  chatFileProject = new Set<string>()
+  readonly chatFileVersionsInstalled = this.installChatFileVersions()
+  private installChatFileVersions() {
+    const h = this.handlers
+    const TEXT = /\.(md|markdown|txt|csv|html?|json)$/i
+    const isKept = (chatId: string) => this.peopleChats.has(chatId) || this.peopleShared.has(chatId)
+    const carriers = (fileId: string) => this.messages.filter((m) => m.attachments.some((a) => a.id === fileId))
+    const chainOf = (chatId: string, fileId: string, userId: string) => {
+      const a = this.attachments.get(fileId)
+      if (!a || a.source !== 'chat' || !isKept(chatId) || this.chatFileHidden.get(fileId)?.has(userId)) return fail('not_found', 404)
+      let chain = this.chatFileChains.get(fileId)
+      if (!chain) {
+        const first = carriers(fileId)[0]
+        const by = first?.author ?? this.users.find((u) => u.id === (this.sharedChats.get(chatId)?.by.id ?? this.chatOwners.get(chatId))) ?? null
+        chain = [{ id: fileId, version: 1, data: a!.data as Uint8Array, by: by?.id ?? 'olga', byName: by?.name ?? 'Olga', at: first?.createdAt ?? now() }]
+        this.chatFileChains.set(fileId, chain)
+      }
+      return { a: a!, chain }
+    }
+    const out = (v: { id: string; version: number; data: Uint8Array; by: string; byName: string; at: string; ai?: true }, head: boolean, a: Attachment) =>
+      ({ id: v.id, version: v.version, name: a.name, size: v.data.byteLength, mime: a.mime, createdAt: v.at, by: v.by, byName: v.byName, ...(v.ai ? { ai: true as const } : {}), ...(head ? { head: true as const } : {}) })
+    const canEdit = (chatId: string, a: Attachment) => TEXT.test(a.name) && !this.chatFileProject.has(chatId) && !this.chats.find((x) => x.id === chatId)?.deletedAt
+    const put = (chatId: string, fileId: string, data: Uint8Array, who: { id: string; name: string }, ai?: true) => {
+      const { a, chain } = chainOf(chatId, fileId, who.id)
+      const head = chain[chain.length - 1]!
+      const v = { id: uuidv7(), version: head.version + 1, data, by: who.id, byName: who.name, at: now(), ...(ai ? { ai } : {}) }
+      chain.push(v)
+      // the root and the newest 19 (CHAT_FILE_VERSIONS_KEPT)
+      while (chain.length > 20) chain.splice(1, 1)
+      const updated = { by: v.by, byName: v.byName, at: v.at, version: v.version, ...(ai ? { ai } : {}) }
+      for (const m of carriers(fileId)) {
+        m.attachments = m.attachments.map((x) => (x.id === fileId ? { ...x, size: data.byteLength, updated } : x))
+        const ev = { type: 'message.attachments' as const, data: { chatId, messageId: m.id, attachments: m.attachments.map((x) => (({ fromSha256: _s, ...rest }) => rest)(x as Attachment & { fromSha256?: string })) } }
+        // to everyone in the chat but whom the file is hidden from (chat/chat-file-edit.ts tellChat)
+        if (this.peopleShared.has(chatId)) { const aud = this.peopleAudience(chatId); this.sharedSend((uid) => (aud.includes(uid) && !this.chatFileHidden.get(fileId)?.has(uid) ? ev : null)) }
+        else this.publish(ev)
+      }
+      return { a, chain, v, head }
+    }
+    h.chatFileVersions = (c) => {
+      const { a, chain } = chainOf(c.params.id!, c.params.fileId!, c.user.id)
+      return { items: chain.map((v, i) => out(v, i === chain.length - 1, a)), canEdit: canEdit(c.params.id!, a) }
+    }
+    h.saveChatFile = (c) => {
+      const { a } = chainOf(c.params.id!, c.params.fileId!, c.user.id)
+      if (!canEdit(c.params.id!, a)) fail('conflict', 409, "This file can't be edited here. Download it to edit it.", undefined, { reason: 'chat_file_read_only' })
+      const r = put(c.params.id!, c.params.fileId!, new TextEncoder().encode(String(c.body.content)), c.user)
+      return { version: out(r.v, true, r.a), beside: !!c.body.baseVersion && c.body.baseVersion !== r.head.id }
+    }
+    h.restoreChatFileVersion = (c) => {
+      const { a, chain } = chainOf(c.params.id!, c.params.fileId!, c.user.id)
+      if (!canEdit(c.params.id!, a)) fail('conflict', 409, "This file can't be edited here. Download it to edit it.", undefined, { reason: 'chat_file_read_only' })
+      const old = chain.find((v) => v.version === Number(c.params.version)) ?? fail('not_found', 404)
+      const r = put(c.params.id!, c.params.fileId!, old.data, c.user)
+      return { version: out(r.v, true, r.a), beside: false }
+    }
+    const baseFile = h.chatFile!
+    h.chatFile = (c) => {
+      if (this.chatFileHidden.get(c.params.fileId!)?.has(c.user.id)) fail('not_found', 404)
+      const chain = this.chatFileChains.get(c.params.fileId!)
+      if (!chain || c.query.thumb) return baseFile(c)
+      const { a } = chainOf(c.params.id!, c.params.fileId!, c.user.id)
+      const v = c.query.version ? chain.find((x) => x.version === Number(c.query.version)) ?? fail('not_found', 404) : chain[chain.length - 1]!
+      return new Response(v.data as unknown as BodyInit, { headers: { 'content-type': a.mime, 'content-disposition': c.query.download ? 'attachment' : 'inline' } })
+    }
+    // a file carried only by answers hidden from the viewer: left out of their messages (the server's attachmentsOf)
+    const baseList = h.listMessages!
+    h.listMessages = async (c) => {
+      const r = (await baseList(c)) as { items: Message[] }
+      if (!this.chatFileHidden.size) return r
+      return { ...r, items: r.items.map((m) => ({ ...m, attachments: m.attachments.filter((a) => !this.chatFileHidden.get(a.id)?.has(c.user.id)) })) }
+    }
+    const baseReset = this.reset.bind(this)
+    this.reset = (o) => { this.chatFileChains = new Map(); this.chatFileHidden = new Map(); this.chatFileProject = new Set(); baseReset(o) }
+    const baseControl = this.testControl.bind(this)
+    this.testControl = async (p, req) => {
+      if (p === '/__test/chat-file-hidden') {
+        const b = (await req.json()) as { fileId: string; from: string }
+        this.chatFileHidden.set(b.fileId, new Set([...(this.chatFileHidden.get(b.fileId) ?? []), b.from]))
+        return Response.json({ ok: true })
+      }
+      if (p === '/__test/chat-file-project') {
+        this.chatFileProject.add(((await req.json()) as { chatId: string }).chatId)
+        return Response.json({ ok: true })
+      }
+      if (p === '/__test/chat-file-version') {
+        const b = (await req.json()) as { chatId: string; fileId: string; content: string; by: string; ai?: true }
+        const u = this.users.find((x) => x.id === b.by) ?? fail('not_found', 404)
+        put(b.chatId, b.fileId, new TextEncoder().encode(b.content), u, b.ai)
+        return Response.json({ ok: true })
+      }
+      return baseControl(p, req)
+    }
+  }
   private installShareChatFiles() {
     const h = this.handlers
     const ownerOf = (chatId: string) => this.sharedChats.get(chatId)?.by.id ?? this.chatOwners.get(chatId) ?? null
@@ -8572,9 +8677,10 @@ export class MockServer {
       view(chatOf(chatId), u)
       if (this.allConfidential) fail('conflict', 409, CHAT_TEXT.sharedChatSafeOps.ko, undefined, { reason: 'safe_ops' })
     }
-    const teamOnly = (ids: string[]) => {
+    // a chat shared with people takes its own files too (server routes/chats.ts sharedAttachment: source 'chat')
+    const teamOnly = (ids: string[], chatId?: string) => {
       const atts = ids.map((id) => this.attachments.get(id)).filter((a): a is NonNullable<typeof a> => !!a)
-      if (atts.some((a) => a.source !== 'team')) fail('conflict', 409, CHAT_TEXT.sharedChatUpload.ko, undefined, { reason: 'shared_chat_upload' })
+      if (atts.some((a) => a.source !== 'team' && !(a.source === 'chat' && chatId && this.peopleShared.has(chatId)))) fail('conflict', 409, CHAT_TEXT.sharedChatUpload.ko, undefined, { reason: 'shared_chat_upload' })
       return atts.map(({ data: _d, ...rest }) => rest)
     }
     const ownOnly = (m: Message | undefined, u: User) => {
@@ -8610,7 +8716,7 @@ export class MockServer {
       if (first) fail('conflict', 409, '다른 사람의 메시지가 먼저 기다리고 있어요. 그다음에 보낼게요.', undefined, { reason: 'shared_chat_next' })
       places.delete(c.user.id)
       const chat = chatOf(c.params.id!)
-      const attachments = teamOnly(c.body.attachmentIds as string[])
+      const attachments = teamOnly(c.body.attachmentIds as string[], c.params.id)
       // `after` (a waiting message): the newest end of the branch through it
       const newestUnder = (id: string): string => { let cur = id; for (;;) { const kids = this.messages.filter((m) => m.chatId === chat.id && m.parentId === cur); if (!kids.length) return cur; cur = kids.at(-1)!.id } }
       const after = c.body.parentId === undefined && typeof c.body.after === 'string' ? (c.body.after as string) : null

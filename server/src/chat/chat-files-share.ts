@@ -252,13 +252,44 @@ export async function copyMade(ctx: AppContext, chat: { id: string; user_id: str
   const db = ctx.db
   const store = chatFilesOf(ctx)
   const kept: { file: MadeFile; att: StoredAttachment }[] = []
+  // a file copied before whose original changed since (re-share): a new version of that copy's chain (putVersion, as
+  // its creator; "Updated by" them), never a second copy. Its stored fromSha256 then names the new bytes, so it is not
+  // offered again (docs/AGENTS/plan/20261121-1206-chat-file-edit-versions.md)
+  const versioned: { file: MadeFile; rootId: string; messageId: string }[] = []
+  const earlier = copiesIn(ctx, chat.id)
+  const copyOfPath = (rel: string) => {
+    let found: { att: StoredAttachment; messageId: string } | null = null
+    for (const [k, c] of earlier) if (k.slice(0, k.indexOf('\0')) === rel && store.row(c.att.id)) found = c
+    return found
+  }
   try {
     for (const v of files) {
+      const before = copyOfPath(v.file.path)
+      if (before) {
+        if (v.tmp) {
+          const fd = fs.openSync(v.tmp, fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW ?? 0))
+          try { await store.putVersion(chat.user_id, chat.id, before.att.id, { fd, st: { size: fs.fstatSync(fd).size } }, { action: 'chat.file_version' }) } finally { fs.closeSync(fd) }
+        } else await store.putVersion(chat.user_id, chat.id, before.att.id, { bytes: v.bytes! }, { action: 'chat.file_version' })
+        versioned.push({ file: v.file, rootId: before.att.id, messageId: before.messageId })
+        continue
+      }
       const row = await store.keepCopy(chat.user_id, chat.id, v.file.name, v.tmp ? { file: v.tmp } : { bytes: v.bytes! }, v.kind)
       kept.push({ file: v.file, att: { ...chatFileAttachment(row), origin: 'shared-copy', from: v.file.path, fromSha256: v.file.sha256 } })
     }
   } finally { discardVerified({ files }) }
-  if (!kept.length) return 0
+  if (versioned.length) {
+    db.transaction(() => {
+      for (const k of versioned) {
+        const m = db.query("SELECT attachments FROM messages WHERE id = ? AND chat_id = ? AND role = 'assistant'").get(k.messageId, chat.id) as { attachments: string } | null
+        if (!m) continue
+        let atts: StoredAttachment[] = []
+        try { const v = JSON.parse(m.attachments); if (Array.isArray(v)) atts = v } catch { continue }
+        db.query('UPDATE messages SET attachments = ? WHERE id = ?').run(JSON.stringify(atts.map((a) => (a.id === k.rootId && a.origin === 'shared-copy' && a.from === k.file.path ? { ...a, fromSha256: k.file.sha256 } : a))), k.messageId)
+      }
+    })()
+    audit(db, { actor: chat.user_id, action: 'chat.files_updated', target: chat.id, detail: { count: versioned.length, via, files: versioned.map((k) => k.rootId) } })
+  }
+  if (!kept.length) return versioned.length
   db.transaction(() => {
     for (const k of kept) {
       const m = db.query("SELECT attachments FROM messages WHERE id = ? AND chat_id = ? AND role = 'assistant'").get(k.file.messageId, chat.id) as { attachments: string } | null
@@ -273,7 +304,7 @@ export async function copyMade(ctx: AppContext, chat: { id: string; user_id: str
   })()
   // a copy whose answer went meanwhile, or one attached by the other press: not sent, so the sweep takes it
   audit(db, { actor: chat.user_id, action: 'chat.files_added', target: chat.id, detail: { count: kept.length, via, files: kept.map((k) => k.att.id) } })
-  return kept.length
+  return kept.length + versioned.length
 }
 
 /** The target of an ask to add one file of a chat (chat/access-requests.ts: access_requests kind 'chat'): the chat id,

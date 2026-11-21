@@ -200,13 +200,13 @@ export function roomFileUrl(roomId: string, fileId: string, query: { download?: 
 
 /** URL of a file from the computer kept with a chat shared with people (Attachment source 'chat'; checked on every read:
  * whoever sees the chat now): `download` as an attachment, `thumb` an image's small preview. */
-export function chatFileUrl(chatId: string, fileId: string, query: { download?: '1'; thumb?: '1' } = {}): string {
+export function chatFileUrl(chatId: string, fileId: string, query: { download?: '1'; thumb?: '1'; version?: number } = {}): string {
   return api.url(API.chatFile, { params: { id: chatId, fileId }, query })
 }
 
 /** A chat file's bytes for the preview panel, never more than `max` (readBounded). */
-export async function fetchChatFileBlob(chatId: string, fileId: string, max: number, signal?: AbortSignal, o: { truncate?: boolean } = {}): Promise<Blob> {
-  const res = await api.call(API.chatFile, { params: { id: chatId, fileId }, signal })
+export async function fetchChatFileBlob(chatId: string, fileId: string, max: number, signal?: AbortSignal, o: { truncate?: boolean; version?: number } = {}): Promise<Blob> {
+  const res = await api.call(API.chatFile, { params: { id: chatId, fileId }, signal, ...(o.version ? { query: { version: o.version } } : {}) })
   return readBounded(res, max, o)
 }
 

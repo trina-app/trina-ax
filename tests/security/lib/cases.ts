@@ -7,6 +7,12 @@ import path from 'node:path'
 import { ChatQueueSnapshot, CSRF_HEADER } from '@mycel/shared/api'
 import type { Client, Resp } from './instance'
 import { authOf, enc, leaks, levelExp, type Case, type Exp } from './matrix'
+/** A chat file's versions, a save, a restore (chat/chat-file-edit.ts over ChatFiles): the read's rule; an upload's id
+ * is never a chat file (404 for alice too), and everyone else gets the 404 of a missing chat first */
+const chatFileOnly = (r: { status: number }, who: string) => {
+  if (r.status < 300) throw new Error(`${who} reached an upload's id as a chat file`)
+  if (who !== 'anon' && who !== 'pwchange' && r.status !== 404) throw new Error(`${who} learned more than "not found": ${r.status}`)
+}
 import { C, USER_OF, WHO, type Who, type World } from './world'
 import { P4_SPECS } from './p4-cases'
 import { INTEGRATION_SPECS } from './integrations-cases'
@@ -536,6 +542,14 @@ export const SPECS: Record<string, Spec> = {
       if (r.status < 300) throw new Error(`${who} opened an upload's id as a chat file`)
       if (who !== 'anon' && who !== 'pwchange' && r.status !== 404) throw new Error(`${who} learned more than "not found": ${r.status}`)
     } },
+  // a chat file's versions, a save and a restore (chat/chat-file-edit.ts over ChatFiles): the same rule as the read
+  // above; an upload's id is never a chat file, and everyone else gets the 404 of a missing chat first
+  chatFileVersions: { build: (c, w) => c.get(`/api/chats/${w.ids.chatA}/files/${w.ids.attachment}/versions`), scope: 'own-alice-chat', allowNotFound: true,
+    check: (r, _w, who) => chatFileOnly(r, who) },
+  saveChatFile: { build: (c, w) => c.put(`/api/chats/${w.ids.chatA}/files/${w.ids.attachment}/content`, { content: 'x' }), scope: 'own-alice-chat', allowNotFound: true,
+    check: (r, _w, who) => chatFileOnly(r, who) },
+  restoreChatFileVersion: { build: (c, w) => c.post(`/api/chats/${w.ids.chatA}/files/${w.ids.attachment}/versions/1/restore`), scope: 'own-alice-chat', allowNotFound: true,
+    check: (r, _w, who) => chatFileOnly(r, who) },
   // team files attached by reference (the composer's "Add from team files") and the picker's listings: each persona
   // makes an own chat and aims at a file NAME inside users/alice/ (only alice may read it; owner and admin included
   // are refused with the plain 404). find / recent list only readable files: the canary check covers every name.
