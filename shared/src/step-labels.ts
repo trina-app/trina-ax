@@ -7,6 +7,7 @@ import type { Locale } from './api/common'
 import { BRAND_FOLDER, BRAND_IMAGES_FOLDER, NOTES_FOLDER } from './api/onboarding-packs'
 import { ownFolderLabel, ownFolderWord, TOP_FOLDER_LABELS } from './folder-labels'
 import { mediaKind, type MediaKind } from './media'
+import { parsePlace } from './places'
 import { maskSecrets } from './secrets'
 import { trustedServiceName } from './service-catalog'
 
@@ -398,6 +399,10 @@ export const STEP_PLACE = {
   team: t('{team} 폴더', '{team} folder', 'Folder {team}', "{team}フォルダー", "Carpeta {team}", "{team}文件夹"),
   /** users/<id>/.attachments/<chat>/: what the person attached to the chat */
   attachments: t('첨부한 파일', 'Attachments', 'Lampiran', "添付ファイル", "Adjuntos", "附件"),
+  /** chat:files/…: the files of this chat (shared/src/places.ts) */
+  chatFiles: t('이 대화', 'This chat', 'Chat ini', "このチャット", "Este chat", "此对话"),
+  /** chat:work/…: the chat's work folder ($TRINA_WORK) */
+  work: t('작업 폴더', 'Work folder', 'Folder kerja', "作業フォルダー", "Carpeta de trabajo", "工作文件夹"),
   /** users/<id>/: an answer only ever reaches the person's own */
   own: t('내 폴더', 'My folder', 'Folder saya', "自分のフォルダー", "Mi carpeta", "我的文件夹"),
   /** shared/: the whole team's, by the name the file screen gives it (shared/src/folder-labels.ts) */
@@ -413,6 +418,13 @@ const NOTES_NAMES = nfcSet(NOTES_FOLDER)
  * (a web address, a folder these words do not name). The folder names match in any language, as a team's folders are
  * named in the team's language and the screen may be in another. */
 export function placeName(path: string, locale: Locale): string | null {
+  // a chat place (chat:files/<id>/<name>, chat:work/<path>): its words, never the file id
+  const place = parsePlace(path)
+  if (place) {
+    if (place.kind === 'chatFiles') return [STEP_PLACE.chatFiles[locale] ?? STEP_PLACE.chatFiles.en, ...(place.name ? [place.name] : [])].join(' › ')
+    if (place.kind === 'work') return [STEP_PLACE.work[locale] ?? STEP_PLACE.work.en, ...(place.rel ? place.rel.split('/') : [])].join(' › ')
+    return null
+  }
   const segs = path.normalize('NFC').replace(/^\/+|\/+$/g, '').split('/')
   if (segs.some((s) => !s)) return null
   const say = (key: keyof typeof STEP_PLACE, from: number, vars: Record<string, string> = {}) =>

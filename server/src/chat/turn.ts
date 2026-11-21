@@ -1,4 +1,5 @@
 import { confidentialChat } from "../safe-ops/confidential"
+import { chatFilePath, isReservedPlace, parsePlace } from '@mycel/shared/places'
 import { seesChatFiles } from './chat-files-access'
 import { chatFileCopyOf } from './chat-file-tool'
 import { ALWAYS_VALUE, LIVE_CLIENTS, alwaysHere, keepAlways, withAlways, type AlwaysPlace } from './always-allow'
@@ -2851,7 +2852,7 @@ export class TurnExec {
   private workShown(input: unknown): string {
     const p = String((input as { file_path?: unknown } | null)?.file_path ?? '')
     const wf = this.files.workFolder?.() ?? null
-    try { const rel = wf ? workRel(p, wf) : namesWorkFolder(p) ? p.trim().replace(/^\$\{?TRINA_WORK\}?\/*/, '') : null; return rel === null ? '$TRINA_WORK/…' : shownWorkPath(rel) } catch { return '$TRINA_WORK/…' }
+    try { const rel = wf ? workRel(p, wf) : namesWorkFolder(p) ? p.trim().replace(/^(?:\$\{?TRINA_WORK\}?|chat:work)\/*/i, '') : null; return rel === null ? '$TRINA_WORK/…' : shownWorkPath(rel) } catch { return '$TRINA_WORK/…' }
   }
   /** a read call that names the chat's work folder (devenv/work-files.ts), by its variable or its absolute path */
   workRead(tool: string, input: unknown): boolean {
@@ -3706,6 +3707,10 @@ export class TurnExec {
     const written = new Set<string>(), read = new Set<string>()
     // every path the call names, nested ones too (edit_pdf's operations, merge_pdfs' list: namedPaths)
     for (const { key: k, value: v } of namedPaths(tool, a)) {
+      // a chat place (chat:files/…, chat:work/…; shared/src/places.ts): its readers are the chat's people, never a team
+      // folder's; a call that may not take it is refused before this (chat/chat-places.ts placeRefusal). Never skipped as a
+      // web address below (plan 20261121-0615-chat-places-as-paths.md, review fix 6)
+      if (isReservedPlace(v)) { if (!writes.has(k)) out.push({ type: 'chat', id: this.spec.chatId }); continue }
       // a listing's own folder: below, by the names it shows
       if (tool === 'list' && k === 'path') continue
       const w = writes.has(k)
@@ -3733,6 +3738,8 @@ export class TurnExec {
         if (bases.some((b) => b === '' || k.startsWith(b + '/')) && readable(f.split('/'))) out.push(sourceOf(this.rt.db, rules, f))
       }
     }
+    // a listing or a search of a chat place: the chat's (pushed above), never the team root's readers
+    if ((SEARCH_TOOLS.has(tool) || tool === 'list') && isReservedPlace(a.path)) return done()
     if (SEARCH_TOOLS.has(tool) || tool === 'list') {
       const fold = (p: string) => { const n = p.normalize('NFC'); return fx.caseInsensitive ? n.toLowerCase() : n }
       const start = typeof a.path === 'string' ? a.path : ''
@@ -4028,7 +4035,9 @@ export class TurnExec {
     const a = input && typeof input === 'object' ? input as Record<string, unknown> : {}
     const paths = new Set<string>()
     for (const { value: v } of namedPaths(tool, a)) {
-      // as typed and as spelled on disk (another case or Unicode form): a viewer must be able to see every spelling
+      // as typed and as spelled on disk (another case or Unicode form): a viewer must be able to see every spelling.
+      // A chat place (chat:files/…, chat:work/…) is the chat's own: everyone who sees the step sees the chat, so it hides
+      // nothing (and a web address names no team path)
       if (v && !/^[a-z][a-z0-9+.-]*:/i.test(v)) for (const p of this.roomNames(v)) paths.add(p)
     }
     if (!paths.size) return { label }
@@ -5238,8 +5247,10 @@ export function composeMessage(m: Pick<MessageRow, 'content' | 'attachments'>, a
   // blanked) is left out: nothing about it goes to the AI
   atts = atts.filter((a) => a.source === 'team' || !a.unavailable)
   if (!atts.length) return m.content
-  // a file kept with a chat shared with people (chat/chat-files.ts) is in no team folder: chat_file reads it
-  const list = atts.map((a) => (a.source === 'chat' ? `- a file sent in this chat: "${a.name.replace(/[\r\n"<>]+/g, ' ').slice(0, 200)}" (${a.mime}, ${a.size} bytes; file_id=${a.id}; read it with chat_file)`
+  // a file kept with a chat shared with people (chat/chat-files.ts) is in no team folder: its chat place path
+  // (chat:files/<id>/<name>, shared/src/places.ts) is what read takes; a personal chat's upload (users/<id>/.attachments)
+  // and a team file stay team paths (their own readers, never the chat's)
+  const list = atts.map((a) => (a.source === 'chat' ? `- a file sent in this chat: "${a.name.replace(/[\r\n"<>]+/g, ' ').slice(0, 200)}" (${a.mime}, ${a.size} bytes; path ${chatFilePath(a.id, a.name)}: read, list and grep take it; file_id=${a.id})`
     : a.source !== 'team' ? `- ${a.path} (${a.name}, ${a.mime}, ${a.size} bytes)`
     : a.unavailable ? '- (a file from the team folder that is no longer available: it was deleted or the user can no longer open it)'
     : `- ${a.path} (${a.name}, ${a.mime}, ${a.size} bytes; from the team folder${a.changed ? '; it changed after the user attached it, this is the current version' : ''}${a.moved ? '; it was moved or renamed after the user attached it, this is where it is now' : ''})`)).join('\n')

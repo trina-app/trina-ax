@@ -1,4 +1,5 @@
 // The six file tools (list/glob/grep/read/write/edit) plus the human-side operations that share their rules.
+import { parsePlace, type Place } from '@mycel/shared/places'
 import { SKIP_OWN } from '../chat/search-path'
 import fs from 'node:fs'
 import path from 'node:path'
@@ -265,6 +266,9 @@ export class TurnFiles {
    * box_shell and whose commands run in a work folder (chat/tools.ts); null everywhere else (a sub-agent's view, remote
    * MCP, a scheduled run, a guest, a confidential chat, a project chat). Looked up again at every call. */
   workFolder: (() => WorkFolder | null) | null = null
+  /** this chat's files as the chat place chat:files/ (ChatPlaceHooks), set by a chat turn for its main AI where the chat
+   * holds chat files or is shared with people (chat/tools.ts); null everywhere else (a sub-agent's view, remote MCP) */
+  chatPlace: ChatPlaceHooks | null = null
   /** what unzip_file saved in this answer (tools/unzip.ts: its own budget instead of the two above); plain fields, so a
    * sub-agent's view (a Proxy over this object) adds to the same counts */
   unzippedBytes = 0
@@ -375,9 +379,10 @@ export class TurnFiles {
     const sub = (): CarriedReads | null => (carry && this.carried ? subagentCarried(this.carried) : null)
     const own = new ReadHashes(this.allReads, sub, { sessions: this.readSessions, session: () => null })
     return new Proxy(this, {
-      // a sub-agent (or a call whose agent is not known) never opens the chat's work folder: the main AI looks at results
-      get: (t, k) => (k === 'readHashes' ? own : k === 'agent' ? agent : k === 'agentView' ? true : k === 'carried' ? sub() : k === 'workFolder' ? null : Reflect.get(t, k, t)),
-      set: (t, k, v) => (k === 'readHashes' || k === 'agent' || k === 'agentView' || k === 'carried' || k === 'workFolder' ? false : Reflect.set(t, k, v, t)),
+      // a sub-agent (or a call whose agent is not known) never opens the chat's work folder or its files (chat:files/): the
+      // main AI looks at results
+      get: (t, k) => (k === 'readHashes' ? own : k === 'agent' ? agent : k === 'agentView' ? true : k === 'carried' ? sub() : k === 'workFolder' || k === 'chatPlace' ? null : Reflect.get(t, k, t)),
+      set: (t, k, v) => (k === 'readHashes' || k === 'agent' || k === 'agentView' || k === 'carried' || k === 'workFolder' || k === 'chatPlace' ? false : Reflect.set(t, k, v, t)),
     })
   }
 }
@@ -410,6 +415,25 @@ export interface ToolCtx {
 }
 /** how long a work-folder read keeps its copy for the checks before delivery (FileService.readWork) */
 const WORK_COPY_KEEP_MS = 5 * 60_000
+
+/** The chat place chat:files/ of a chat turn (chat/chat-file-tool.ts chatPlaceHooks): the chat's files, opened as
+ * the person of the turn while they see the chat, through ChatFiles.open only */
+export interface ChatPlaceHooks {
+  read(ctx: ToolCtx, a: ReadArgs, place: Extract<Place, { kind: 'chatFiles' }>): Promise<ToolOutput>
+  list(ctx: ToolCtx, a: { path?: string; offset?: number }): ToolOutput
+  glob(ctx: ToolCtx, a: { pattern: string; path?: string }): ToolOutput
+  grep(ctx: ToolCtx, a: ReturnType<typeof GrepInput.parse>): ToolOutput
+}
+
+/** The refusal of chat:files/ where no chat files are reachable */
+export const NO_CHAT_PLACE = "chat:files/ holds the files sent in this chat when it is shared with people; there are none here, or this is not a Trina chat's main assistant. A file someone attached to a message is listed in its <attachments> with its own path: read that path."
+
+/** The chat place a file tool's path argument names (read/write/edit: file_path; list/glob/grep: path), or null */
+export function placeArg(tool: string, rawArgs: unknown): Place | null {
+  const a = rawArgs && typeof rawArgs === 'object' ? rawArgs as Record<string, unknown> : {}
+  const v = tool === 'read' || tool === 'write' || tool === 'edit' ? a.file_path : tool === 'list' || tool === 'glob' || tool === 'grep' ? a.path : undefined
+  return parsePlace(v)
+}
 
 export interface ToolOutput { images?: { type: 'image'; mimeType: 'image/png' | 'image/jpeg'; data: string }[]; text: string; content?: McpContent[]; beforeDelivery?: () => void; isError?: boolean; summary: string }
 
@@ -535,6 +559,9 @@ export class FileService {
   // ---------------- dispatcher used by the MCP server ----------------
   async call(tool: string, rawArgs: unknown, ctx: ToolCtx): Promise<ToolOutput> {
     try {
+      // a chat place (chat:files/…, chat:work/…; shared/src/places.ts) goes to its own branch, never to the team rules
+      const place = placeArg(tool, rawArgs)
+      if (place) { const out = await this.callPlace(tool, rawArgs, ctx, place); if (out) return out }
       switch (tool) {
         case 'list': return this.list(ctx, ListInput.parse(rawArgs ?? {}))
         // a shared project chat's "/" search leaves out the person's own folder (chat/search-path.ts SKIP_OWN)
@@ -555,6 +582,35 @@ export class FileService {
       if (e instanceof ToolError) return { text: 'Error: ' + toolErrorText(this.db,ctx.user.id,e), isError: true, summary: `${tool} ${short(p)} -> error: ${e.message}` }
       return { text: 'Error: internal error', isError: true, summary: `${tool} ${short(p)} -> internal: ${String(e?.message ?? e).slice(0, 200)}` }
     }
+  }
+
+  /**
+   * A file tool's call that names a chat place (docs/decisions/20261121-chat-places-as-paths.md): chat:files/ through the
+   * chat turn's own hook (ToolCtx.files.chatPlace, set for the main AI of a chat that has chat files; chat/chat-file-
+   * tool.ts), chat:work/ by read only (the work-folder read below, readWork). Anything else under a reserved prefix is
+   * refused in plain words. null: go on as a team path (a chat:work/ read: read() resolves it).
+   */
+  private async callPlace(tool: string, rawArgs: unknown, ctx: ToolCtx, place: Place): Promise<ToolOutput | null> {
+    if (place.kind === 'reserved') throw new ToolError(`${place.why}.`, 'bad_path')
+    if (place.kind === 'work') {
+      if (tool === 'read') return null
+      throw new ToolError(tool === 'write' || tool === 'edit'
+        ? 'The work folder is changed by your box_shell commands; the file tools only read it (read chat:work/<path>).'
+        : 'List or search the work folder with box_shell (ls, grep) for now; read takes chat:work/<path>.', 'bad_path')
+    }
+    if (tool === 'write' || tool === 'edit') throw new ToolError('A chat file is not changed in place yet: read it, then save a changed copy into a team folder (write, or save_chat_file for its bytes).', 'read_only')
+    const hook = ctx.files.chatPlace
+    if (!hook || ctx.sharedChild) throw new ToolError(NO_CHAT_PLACE, 'not_found')
+    if (tool === 'read') {
+      const a = ReadInput.parse(rawArgs)
+      if (!place.id && !place.name) throw new ToolError('chat:files/ is the list of this chat\'s files: list it, then read one of them (chat:files/<file_id>/<name>).', 'is_folder')
+      return hook.read(ctx, a, place)
+    }
+    if (place.id || place.name) throw new ToolError('chat files have no folders: list chat:files/, and read a file by its path', 'not_folder')
+    if (tool === 'list') return hook.list(ctx, ListInput.parse(rawArgs ?? {}))
+    if (tool === 'glob') return hook.glob(ctx, GlobInput.parse(rawArgs))
+    if (tool === 'grep') return hook.grep(ctx, GrepInput.parse(rawArgs))
+    return null
   }
 
   // ---------------- list ----------------
@@ -2237,7 +2293,7 @@ export class FileService {
 
 /** formats that take read's `sheet` and `range` */
 const SHEET_EXT = new Set(['xlsx', 'xls', 'ods'])
-type ReadArgs = { file_path: string; offset?: number; limit?: number; char_offset?: number; pretty?: boolean; pages?: string; as_images?: boolean; sheet?: string; range?: string; time?: string; frames?: number; transcript?: boolean; versions?: boolean | number; version?: number; raw?: boolean }
+export type ReadArgs = { file_path: string; offset?: number; limit?: number; char_offset?: number; pretty?: boolean; pages?: string; as_images?: boolean; sheet?: string; range?: string; time?: string; frames?: number; transcript?: boolean; versions?: boolean | number; version?: number; raw?: boolean }
 export interface BoundSource { rel: string; bytes: Buffer; hash: string; identity: string }
 /** a provider's answer for a piece; `languageP`: how sure whisper.cpp was of the language it heard (not from
  * OpenRouter); OpenRouter's: how sure whisper was of its words, its generation id and provider (openrouter-stt.ts) */

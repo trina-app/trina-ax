@@ -10,6 +10,7 @@
 //
 // Never shared: a chat in a personal project, a chat made while safe operations (1A) are on, a confidential chat
 // (markConfidentialTurn refuses a shared one). While 1A is on, shared chats are read-only.
+import { chatFilePath } from '@mycel/shared/places'
 import type { Database } from 'bun:sqlite'
 import { CHAT_PEOPLE_SHOWN, type Attachment, type AudienceSplit, type Chat, type Locale, type UserRef } from '@mycel/shared/api'
 import { sharedCopiesOf } from './chat-files-share'
@@ -629,13 +630,14 @@ export function labelledTranscript(store: ChatStore, leafId: string | null, runn
   })
 }
 
-/** An answer's text with the chat files the AI attached to it (chat/work-file-tool.ts), by their file_id, as runner may
+/** An answer's text with the chat files the AI attached to it (chat/work-file-tool.ts), by their chat place path
+ * (chat:files/<id>/<name>, shared/src/places.ts) and file_id, as runner may
  * see them now: a later "save that video to shared/" works with save_chat_file. Nothing else of an attachment. */
 export function answerWithFiles(content: string, atts: readonly Attachment[]): string {
   // the AI's own files; a shared copy (#207) is named by sharedCopiesNote instead, never twice
   const files = atts.filter((a) => a.source === 'chat' && a.origin !== 'shared-copy' && !a.unavailable)
   if (!files.length) return content
-  const list = files.map((a) => `- "${a.name.replace(/[\r\n"<>]+/g, ' ').slice(0, 200)}" (${a.mime}, ${a.size} bytes; file_id=${a.id}; read it with chat_file, save it into a folder with save_chat_file)`).join('\n')
+  const list = files.map((a) => `- "${a.name.replace(/[\r\n"<>]+/g, ' ').slice(0, 200)}" (${a.mime}, ${a.size} bytes; path ${chatFilePath(a.id, a.name)}: read, list and grep take it; file_id=${a.id}: save it into a folder with save_chat_file)`).join('\n')
   return `${content}\n\n<attachments>\nThis answer attached these files for everyone in the chat:\n${list}\n</attachments>`
 }
 

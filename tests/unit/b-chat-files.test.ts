@@ -106,8 +106,8 @@ describe('a file from the computer in a chat shared with people', () => {
     const byName = await ask('erin', id, `${fake({ tool: 'chat_file', args: { file: 'bob.txt' }, sayResult: true })}`)
     expect(byName.done.content).toContain('from bob')
     expect(await fileText('alice', id, mine.body.id)).toBe('from bob')
-    // the message the engine got names the file and the tool, not a team path
-    expect(composeMessage({ content: 'q', attachments: JSON.stringify([mine.body]) })).toContain(`file_id=${mine.body.id}; read it with chat_file`)
+    // the message the engine got names the file by its chat place path (chat:files/<id>/<name>), not a team path
+    expect(composeMessage({ content: 'q', attachments: JSON.stringify([mine.body]) })).toContain(`path chat:files/${mine.body.id}/bob.txt: read, list and grep take it; file_id=${mine.body.id}`)
   })
 
   test('ids from elsewhere never open: another chat\'s file, an upload of a private chat; nor can they be sent', async () => {

@@ -19,8 +19,8 @@ import { openFilePath } from './snapshot'
 export interface WorkFolder { real: string; path: string }
 
 const C = fs.constants
-/** "$TRINA_WORK/…" and "${TRINA_WORK}/…" */
-const PREFIX = /^\$\{?TRINA_WORK\}?(?=\/|$)/
+/** "$TRINA_WORK/…", "${TRINA_WORK}/…" and the chat place form "chat:work/…" (shared/src/places.ts) */
+const PREFIX = /^(?:\$\{?TRINA_WORK\}?|chat:work)(?=\/|$)/i
 
 /** Does this path name the work folder (by its variable)? */
 export const namesWorkFolder = (p: unknown): boolean => typeof p === 'string' && PREFIX.test(p.trim())
