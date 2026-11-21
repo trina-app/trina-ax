@@ -1,6 +1,6 @@
 # Connecting an app from the desktop app never asks to sign in again in the browser
 
-- Date (UTC): 2026-11-22
+- Date (UTC): 2026-11-21 18:33
 - Branch: `fix/connect-browser-handoff`
 - Status: in progress
 - Where: trina-ax `server/src/integrations/connections/`, `server/src/routes/{integrations,drive}.ts`. Why: the
@@ -48,7 +48,7 @@ already used for Google Drive and Gmail/Calendar/Docs/Sheets (google-drive/app-r
 
 ## Decisions
 
-docs/decisions/20261122-connect-browser-handoff.md (extends 20261120-drive-connect-return-to-app.md to every
+docs/decisions/20261121-connect-browser-handoff.md (extends 20261120-drive-connect-return-to-app.md to every
 connection sign-in).
 
 ## Risks

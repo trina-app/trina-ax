@@ -5,7 +5,9 @@ import { API } from '@mycel/shared/api'
 import type { AppContext } from '../context'
 import type { RouteKit } from '../http/route'
 import type { AppContextC } from '../http/env'
+import { PRODUCT } from '@mycel/shared'
 import { linkBase } from '../auth/accounts'
+import { appLink } from '../integrations/google-drive/app-return'
 import { integrationsOf, MAX_PERSONAL, type CallbackResult, type FlowFailure } from '../integrations/connections/service'
 import { requestsOf } from '../integrations/connections/requests'
 import { templatesOf } from '../integrations/connections/templates'
@@ -27,8 +29,9 @@ const desktopWindow = (c: AppContextC, auth: AuthInfo): { windowId: string; turn
   const w = c.req.header('x-mycel-window') ?? ''
   return auth.session.client === 'desktop' && /^[A-Za-z0-9_-]{8,64}$/.test(w) ? { windowId: w, turnId: null } : null
 }
-/** a sign-in the service did not finish, in words (never a code, never the service's answer); one that never started
- * here (no session in this browser, a used link) says to sign in to the team account */
+/** a sign-in the service did not finish, in words (never a code, never the service's answer); one this browser may not
+ * finish (a used or expired link, a web or phone sign-in in a browser without the person's session) says to go back to
+ * the app and press Connect again */
 const FAILED_TEXT: Record<FlowFailure, TextKey> = {
   client: 'callbackClient', client_template: 'callbackClientTemplate', limit: 'callbackLimit', denied: 'callbackDenied', changed: 'callbackChanged', exchange: 'callbackExchange', invalid: 'callbackExchange', superseded: 'callbackChanged', cancelled: 'callbackCancelled',
   expired: 'callbackExpired',
@@ -96,13 +99,28 @@ export function registerIntegrationRoutes(kit: RouteKit, ctx: AppContext) {
         auth ? { userId: auth.user.id, sessionId: auth.session.id } : undefined)
     } catch {}
     const L = cc.get('locale')
+    const P = { product: PRODUCT.displayName }
     c.header('Cache-Control', 'no-store'); c.header('Referrer-Policy', 'no-referrer')
     // the only script is the one whose hash is allowed: it tries to close the window (the app watches the sign-in itself)
     c.header('Content-Security-Policy', `default-src 'none'; script-src '${CLOSE_HASH}'; frame-ancestors 'none'`)
+    const head = `<!doctype html><html lang="${L}"><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>${esc(say('callbackTitle', L))}</title>`
+    const origin = new URL(c.req.url).origin
+    // A desktop sign-in held for the app on this computer (service.ts hold): the one-time code only in the FRAGMENT of
+    // the app's own link (no server, proxy or log sees it), opened by itself and by the button. The page names whose
+    // account it joins, so a person who did not start it sees it is not theirs (docs/decisions/20261121-connect-browser-handoff.md)
+    if (r.ok && r.held) {
+      const link = appLink(origin, r.held.code)
+      return c.html(`${head}<meta http-equiv="refresh" content="0;url=${esc(link)}"><h1>${esc(say('callbackHeldTitle', L, P))}</h1>`
+        + `<p role="status">${esc(say('callbackHeld', L, { name: r.held.name }))}</p>`
+        + (r.held.who.username ? `<p data-testid="held-who">${esc(say('callbackHeldWho', L, { ...P, person: r.held.who.name, username: r.held.who.username }))}</p>` : '')
+        + `<p><a href="${esc(link)}" data-testid="held-back">${esc(say('callbackBackToApp', L))}</a></p>`
+        + `<p data-testid="held-own-app">${esc(say('callbackHeldOwnApp', L, P))}</p>`, 200)
+    }
     // static text and a same-origin link only: the code and state never go anywhere else
-    return c.html(`<!doctype html><html lang="${L}"><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>${esc(say('callbackTitle', L))}</title>`
+    return c.html(head
       + (r.ok ? `<p>${esc(say('callbackOk', L))}</p><script>${CLOSE}</script>`
         : r.reason ? `<p>${esc(say(FAILED_TEXT[r.reason], L, { n: MAX_PERSONAL }))}</p>`
-          : `<p>${esc(say('callbackFail', L))}</p><p><a href="/login" rel="noreferrer">${esc(say('callbackLogin', L))}</a></p>`), r.ok ? 200 : 400)
+          : r.handed ? `<p>${esc(say('callbackHanded', L))}</p><p><a href="${esc(appLink(origin))}">${esc(say('callbackBackToApp', L))}</a></p>`
+            : `<p>${esc(say('callbackFail', L))}</p>`), r.ok ? 200 : 400)
   })
 }

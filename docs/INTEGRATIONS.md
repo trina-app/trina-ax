@@ -546,13 +546,25 @@ idle minutes; a 404 for it starts a new one.
   and a desktop try at a server that refused 127.0.0.1. Both reasons count as refused tries. A desktop app from before
   this sends no port and keeps `oauth_approved_apps_only`; so does the Mac App Store build when its App Sandbox (no
   `network.server` entitlement) refuses the listener (expected, not tried on a store build yet). The browser that comes
-  back must be signed in to the team, as for every desktop sign-in (below).
+  back finishes in the app, as for every desktop sign-in (below).
 - The sign-in flow (`integration_oauth_flows`) lives 10 minutes, at most 20 per person per hour, bound to the person and
   the session that started it (polling `GET /api/integrations/flows/:id` needs that session); the state is stored hashed,
   the verifier and client details encrypted. A connection change while it is pending (version) fails it. For a team
   connection the sign-in is an admin's and the account is then used by everyone its rules name.
-- The callback `GET /api/integrations/oauth/callback` needs a live browser session of the **same person** (any of their
-  sessions); a browser without one, or another person's, changes nothing and the flow stays pending. The page is static
+- The callback `GET /api/integrations/oauth/callback` finishes at once in a live browser session of the **same person**
+  (any of their sessions). A sign-in started in the **desktop app** whose return comes in a browser without that
+  person's session (the system browser has none of the app's, or has someone else's) is held for the app on this
+  computer (docs/decisions/20261121-connect-browser-handoff.md, the pattern of `google-drive/app-return.ts`): the code
+  is exchanged, the tokens stay sealed in the flow (`exchanging`, reason `held`, read as `pending` by its poll, 5
+  minutes), and the page gives a one-time code (32 random bytes, only its hash sealed) only in the fragment of the
+  desktop app's link (`trina-ax://open?url=<team>/#code=…`, opened by itself and by "Back to the app"), names whose
+  account it joins and says not to send it on. The app posts it with its own session to the one claim address
+  (`POST /api/integrations/google-drive/claim`, which tries Drive, the Google apps, then connections); only the session
+  that started the flow redeems it, once, then the same checks and store as a direct return. A used, late, unknown or
+  another session's code is refused; Cancel, a new try or the end of its 5 minutes revoke the held tokens (best
+  effort). The same return opened again never gives a second code. A web or phone sign-in in a browser without the
+  person's session changes nothing and the flow stays pending ("This link expired. Go back to the app and press
+  Connect again."). The page is static
   text in the person's language ("you can close this window") with `no-store`, `no-referrer` and a CSP that allows only
   its own hashed `window.close()`; the code and state are never put anywhere else. A sign-in the service did not finish
   says why in plain words, on that page and on the connection's row (never the reason code, the service's answer or a
