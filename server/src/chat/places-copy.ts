@@ -48,7 +48,6 @@ import { assertStorageRoomForAI } from '../system/storage'
 import { copiedInOf, writeIntoWork, type WorkSource, type WorkTarget } from '../devenv/work-write'
 import { addSources, sourceKey, type ReadSource } from './read-scope'
 import { chatFilesOf, seesChatFiles, type ChatFileRow } from './chat-files'
-import { carriedByHiddenAnswer, findChatFile } from './chat-file-tool'
 import { placeWords } from './place-words'
 import { neutralizeTags } from './prompt'
 import type { Tool } from './tools'
@@ -98,12 +97,12 @@ export function resolveCtxOf(exec: TurnExec, files: TurnFiles): ResolveCtx {
 // ---------------- the routes (one each; copy_files and the old tools run them) ----------------
 
 /** A chat file into the team folder at `target` (save_chat_file's route): the wider-audience card with the chat as the
- * source, then placeProduced. `file` was found by findChatFile; it is opened again after the card. */
+ * source, then placeProduced. `file` was found by ChatFiles.find; it is opened again after the card. */
 export async function chatFileToTeam(exec: TurnExec, files: TurnFiles, o: { file: ChatFileRow; target: string; tool: string; args: unknown }): Promise<Routed> {
   const { rt, spec } = exec
   const { file, target, tool } = o
   const gone = 'That file is no longer in this chat, or the user no longer sees the chat.'
-  if (carriedByHiddenAnswer(rt.db, spec.chatId, file.id)) return { ok: false, text: `The file "${oneLine(file.name, 120)}" came with an answer that is kept from some people who may join this chat, so it is not copied.`, summary: `${tool} -> refused: carried by a hidden answer` }
+  if (chatFilesOf(rt.ctx).kCarried(file)) return { ok: false, text: `The file "${oneLine(file.name, 120)}" came with an answer that is kept from some people who may join this chat, so it is not copied.`, summary: `${tool} -> refused: carried by a hidden answer` }
   // the chat is where the bytes come from: saving where people outside it can read asks (the wider-audience card)
   const chat: ReadSource[] = [{ type: 'chat', id: spec.chatId }]
   addSources(rt.db, spec.chatId, chat)
@@ -468,9 +467,11 @@ function chatFileFor(exec: TurnExec, place: Extract<Place, { kind: 'chatFiles' }
   const notFound = `No file "${oneLine(name, 120)}" sent in this chat.`
   if (!place.id && !place.name) return 'name a file of this chat (list chat:files/ shows them), not the list itself.'
   if (!seesChatFiles(rt.db, spec.userId, spec.chatId)) return notFound
-  const f = findChatFile(exec, place.id ?? place.name, true)
+  // ChatFiles.find (over visibleTo): any id of a chain gives its newest version; a chain a k answer carries is refused
+  const store = chatFilesOf(rt.ctx)
+  const f = store.find(spec.userId, spec.chatId, place.id ?? place.name, true)?.head ?? null
   if (!f) return notFound
-  if (carriedByHiddenAnswer(rt.db, spec.chatId, f.id)) return `the file "${oneLine(f.name, 120)}" came with an answer that is kept from some people who may join this chat, so it is not copied.`
+  if (store.kCarried(f)) return `the file "${oneLine(f.name, 120)}" came with an answer that is kept from some people who may join this chat, so it is not copied.`
   if (rt.files.quarantine.hasHash(f.sha256)) return 'the team\'s safety check holds this file, so it is not copied.'
   return f
 }

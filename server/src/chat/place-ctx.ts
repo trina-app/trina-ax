@@ -11,7 +11,6 @@ import { ToolError } from '../policy/errors'
 import { confidentialChat } from '../safe-ops/confidential'
 import { chainIdOf, chatFilesOf, type ChatFileRow } from './chat-files'
 import { seesChatFiles } from './chat-files-access'
-import { carriedByHiddenAnswer } from './chat-file-tool'
 import { addSources } from './read-scope'
 import type { TurnExec } from './turn'
 
@@ -65,13 +64,13 @@ export function chatPlaces(exec: TurnExec, files: TurnFiles): ChatPlaces {
       for (const i of ids) {
         // a file carried only by an answer hidden from people who join later (k) is never read into another file: the
         // same "not found" as P1's read (chat-file-tool.ts readChatFile)
-        if (carriedByHiddenAnswer(rt.db, chatId, i)) continue
+        if (store.kCarried({ id: i, chat_id: chatId })) continue
         try { const o = store.open(me, chatId, i, false); return { abs: o.abs, name: o.name, quarantined: o.quarantined, sha256: o.sha256, id: i } } catch { /* the next of that name */ }
       }
       throw new ToolError('not found in this chat\'s files', 'not_found')
     },
     // only the names this person may open (sent, or their own upload; not carried only by a hidden answer): a name taken
     // by a file they cannot see never turns the new one into "name (2)", which would tell them it is there
-    names() { return new Set(rows().filter((r) => !carriedByHiddenAnswer(rt.db, chatId, r.id) && (r.user_id === me || store.sent(r))).map((r) => r.name)) },
+    names() { return new Set(rows().filter((r) => !store.kCarried(r) && (r.user_id === me || store.sent(r))).map((r) => r.name)) },
   }
 }

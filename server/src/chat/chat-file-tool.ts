@@ -31,7 +31,7 @@ import { visionBlock } from '../files/vision'
 import { authorize, type Authorized } from '../policy/authorize'
 import { Denied, ToolError } from '../policy/errors'
 import { inSkills } from '../skills/guard'
-import { CHAT_FILE_MAX, chainIdOf, chatFilesOf, seesChatFiles, type ChatFileRow } from './chat-files'
+import { CHAT_FILE_MAX, chainIdOf, chatFilesOf, seesChatFiles, type ChatFileRow, type VisibleChatFile } from './chat-files'
 import { neutralizeTags } from './prompt'
 import { answerRecord } from './shared-answers'
 import { addSources, type ReadSource } from './read-scope'
@@ -102,13 +102,15 @@ async function readChatFile(exec: TurnExec, files: TurnFiles, a: ChatFileReadArg
     const sees = () => seesChatFiles(rt.db, userId, chatId)
     const notFound = { ...text(`No file "${oneLine(a.file, 120)}" sent in this chat.`), summary: `${tool} -> not found` }
     if (!sees()) return notFound
-    const file = findChatFile(exec, a.file, true)
+    // through the one filtered list (ChatFiles.find, over visibleTo): any id of a chain gives its newest version
+    const ref = chatFileRef(a.file)
+    const file = ref ? store.find(userId, chatId, ref, true)?.head ?? null : null
     if (!file) return notFound
     named(file.name)
     // a file carried by an answer hidden from people who join later (a k group: a connection's answer,
     // chat/shared-answers.ts) is not read here: what it holds would reach them through this answer (fails closed; no
     // such file is made today: an attach is refused in such a turn, a share-time copy never takes one)
-    if (carriedByHiddenAnswer(rt.db, chatId, file.id)) return { ...text(`The file "${oneLine(file.name, 120)}" came with an answer that is kept from some people who may join this chat, so it is not read here.`, true), summary: `${tool} -> refused: carried by a hidden answer` }
+    if (store.kCarried(file)) return { ...text(`The file "${oneLine(file.name, 120)}" came with an answer that is kept from some people who may join this chat, so it is not read here.`, true), summary: `${tool} -> refused: carried by a hidden answer` }
     addSources(rt.db, chatId, [{ type: 'chat', id: chatId }])
     const head = `The file "${neutralizeTags(oneLine(file.name, 200))}" (${file.mime.split(';')[0]}, ${file.size} bytes, file_id=${chainIdOf(file)}), sent in this chat. ${FILE_NOTE}`
     if (rt.ctx.files.quarantine.hasHash(file.sha256)) return { ...text(`${head}\nThis file is held by the team's safety check, so it cannot be read here.`, true), summary: `${tool} -> held` }
@@ -166,15 +168,11 @@ async function readChatFile(exec: TurnExec, files: TurnFiles, a: ChatFileReadArg
     return { content, ...(out.isError ? { isError: true } : {}), summary, beforeDelivery: () => { recheck(pixels); out.beforeDelivery?.() } }
   }
 
-/** A file sent in this turn's chat that the person may open (sent in a message, or their own upload not sent yet): by
- * its id, or (`byName`) its exact name, the newest of that name. */
-export function findChatFile(exec: TurnExec, ref: string, byName: boolean): ChatFileRow | null {
-  // its chat place path too (chat:files/<id>/<name> or chat:files/<name>, shared/src/places.ts)
+/** The id or name a chat file reference names for ChatFiles.find: a file_id, "file_id=<id>", or its chat place path
+ * (chat:files/<id>/<name> or chat:files/<name>, shared/src/places.ts). '' when it names nothing. */
+export function chatFileRef(ref: string): string {
   const place = parsePlace(ref)
-  const want = place?.kind === 'chatFiles' ? (place.id ?? place.name) : ref.trim().replace(/^file_id=/, '')
-  if (!want) return null
-  // through the one filtered list (ChatFiles.visibleTo): a chain's newest version, never a name only hidden answers carry
-  return chatFilesOf(exec.rt.ctx).find(exec.spec.userId, exec.spec.chatId, want, byName)?.head ?? null
+  return place?.kind === 'chatFiles' ? (place.id ?? place.name ?? '') : ref.trim().replace(/^file_id=/, '')
 }
 
 /** The calls that only take a file's bytes, by the argument that names the file (chatFileCopyOf): plain content reads
@@ -240,7 +238,7 @@ function saveTarget(exec: TurnExec, a: SaveArgs): SaveRefusal | SaveFound {
   const id = a.file.trim().replace(/^file_id=/, '')
   if (!isUuid7(id)) return { text: 'Give the file\'s file_id (from the message\'s attachments), not its name: two files in a chat may share a name.', summary: 'save_chat_file -> refused: not a file id' }
   if (!seesChatFiles(rt.db, spec.userId, spec.chatId)) return { text: `No file "${oneLine(a.file, 120)}" sent in this chat.`, summary: 'save_chat_file -> not found' }
-  const file = findChatFile(exec, id, false)
+  const file = chatFilesOf(rt.ctx).find(spec.userId, spec.chatId, id)?.head ?? null
   if (!file) return { text: `No file "${oneLine(a.file, 120)}" sent in this chat.`, summary: 'save_chat_file -> not found' }
   if (rt.files.quarantine.hasHash(file.sha256)) return { text: 'This file is held by the team\'s safety check, so it cannot be saved.', summary: 'save_chat_file -> held' }
   const wanted = (a.save_as ?? '').trim().replace(/^\/+/, '').normalize('NFC')
@@ -279,7 +277,8 @@ export function saveChatFileTool(exec: TurnExec): Tool {
     label(args: unknown, locale: Locale) {
       const a = SaveChatFileInput.safeParse(args)
       const verb = FILE_STEP_VERB.save_chat_file![locale]
-      const f = a.success ? findChatFile(exec, a.data.file, false) : null
+      const ref = a.success ? chatFileRef(a.data.file) : ''
+      const f = ref ? chatFilesOf(exec.rt.ctx).find(exec.spec.userId, exec.spec.chatId, ref)?.head ?? null : null
       if (!a.success || !f) return verb
       const name = f.name.replace(/\s+/g, ' ').slice(0, 80)
       return a.data.save_as?.trim() ? `${verb} · ${name} → ${a.data.save_as.trim().slice(0, 80)}` : `${verb} · ${name}`
@@ -322,29 +321,6 @@ export function saveChatFileTool(exec: TurnExec): Tool {
   }
 }
 
-/**
- * The files of this chat that `userId` may open now, newest change first: one per chain, its newest version, through
- * ChatFiles.visibleTo (the one filtered list: sent in a message or their own upload not sent yet, never a chain only
- * hidden answers carry), so a name the person may not open never shows.
- */
-export function visibleChatFiles(ctx: TurnExec['rt']['ctx'], userId: string, chatId: string): ChatFileRow[] {
-  // one entry per chain (its newest version) through ChatFiles.visibleTo; a file read refuses (carried by a hidden
-  // answer: readChatFile) is not listed, globbed or searched either, checked on the chain's root id (the id messages
-  // carry: a version's own id is on no message, QA TC-6567)
-  return chatFilesOf(ctx).visibleTo(userId, chatId).filter((v) => !carriedByHiddenAnswer(ctx.db, chatId, v.id)).map((v) => v.head)
-}
-
-/** Is every message of the chat that carries this file an answer with a k group (chat/shared-answers.ts: a connection's
- * answer, hidden from people who join later and may not use that connection)? */
-export function carriedByHiddenAnswer(db: TurnExec['rt']['db'], chatId: string, fileId: string): boolean {
-  // a message carries a chain by its root's id, never a version's (chat/chat-files.ts putVersion): a version is checked
-  // as its chain
-  const root = (db.query('SELECT root_id FROM chat_files WHERE id = ? AND chat_id = ?').get(fileId, chatId) as { root_id: string | null } | null)?.root_id ?? fileId
-  const carriers = db.query("SELECT DISTINCT m.id, m.role FROM messages m, json_each(m.attachments) j WHERE m.chat_id = ? AND json_valid(m.attachments) AND json_extract(j.value, '$.id') = ?").all(chatId, root) as { id: string; role: string }[]
-  if (!carriers.length) return false
-  return carriers.some((m) => m.role !== 'user' && (answerRecord(db, m.id)?.reads ?? []).some((g) => g.k))
-}
-
 /** Text a grep of chat:files/ looks into (by name); any other kind is read with read */
 const GREP_TEXT = new Set(['txt', 'md', 'markdown', 'csv', 'tsv', 'json', 'jsonl', 'html', 'htm', 'xml', 'yaml', 'yml', 'log', 'ini', 'toml', 'svg', 'js', 'ts', 'py', 'css', 'sql', 'sh'])
 const GREP_FILE_MAX = 4 * 1024 * 1024
@@ -363,8 +339,12 @@ export function chatPlaceHooks(exec: TurnExec): ChatPlaceHooks {
     try { exec.livePrincipal() } catch { return 'Access denied: this account is disabled.' }
     return seesChatFiles(rt.db, spec.userId, spec.chatId) ? null : NO_CHAT_PLACE
   }
-  const visible = () => visibleChatFiles(rt.ctx, spec.userId, spec.chatId)
-  const line = (f: ChatFileRow) => `${chatFilePath(chainIdOf(f), f.name)} (${f.mime.split(';')[0]}, ${f.size} bytes, ${f.created_at.slice(0, 10)})`
+  const store = chatFilesOf(rt.ctx)
+  // the one filtered list (ChatFiles.visibleTo: one entry per chain, its newest version), without a chain a connection's
+  // (k) answer carries (ChatFiles.kCarried, by the chain: a version's own id is on no message, QA TC-6567): read refuses
+  // those, so they are not listed, globbed or searched either. Paths name the chain id (v.id), which a new version keeps.
+  const visible = () => store.visibleTo(spec.userId, spec.chatId).filter((v) => !store.kCarried(v.root))
+  const line = (v: VisibleChatFile) => `${chatFilePath(v.id, v.head.name)} (${v.head.mime.split(';')[0]}, ${v.head.size} bytes, ${v.head.created_at.slice(0, 10)})`
   const seen = () => addSources(rt.db, spec.chatId, [{ type: 'chat', id: spec.chatId }])
   const fail = (t: string, summary: string): ToolOutput => ({ text: t, isError: true, summary })
   return {
@@ -392,7 +372,7 @@ export function chatPlaceHooks(exec: TurnExec): ChatPlaceHooks {
       if (no) return fail(no, 'glob chat:files/ -> refused')
       let g: InstanceType<typeof Bun.Glob>
       try { g = new Bun.Glob(a.pattern.normalize('NFC').replace(/^\*\*\//, '')) } catch { return fail('Invalid glob pattern.', 'glob chat:files/ -> invalid pattern') }
-      const hits = visible().filter((f) => g.match(f.name))
+      const hits = visible().filter((v) => g.match(v.head.name))
       seen()
       return { text: hits.length ? hits.slice(0, 100).map(line).join('\n') + (hits.length > 100 ? '\n(Results are truncated. Use a more specific pattern.)' : '') : 'No files found', summary: `glob chat:files/ -> ${hits.length} files` }
     },
@@ -401,7 +381,6 @@ export function chatPlaceHooks(exec: TurnExec): ChatPlaceHooks {
       if (no) return fail(no, 'grep chat:files/ -> refused')
       let only: InstanceType<typeof Bun.Glob> | null = null
       try { only = a.glob ? new Bun.Glob(a.glob.replace(/^\*\*\//, '')) : null } catch { return fail('Invalid glob.', 'grep chat:files/ -> invalid glob') }
-      const store = chatFilesOf(rt.ctx)
       const mode = a.output_mode ?? 'files_with_matches'
       const ctxN = a['-C'] ?? 0, before = a['-B'] ?? ctxN, after = a['-A'] ?? ctxN
       const out: string[] = []
@@ -409,13 +388,14 @@ export function chatPlaceHooks(exec: TurnExec): ChatPlaceHooks {
       // the pattern runs in ripgrep, as a team grep's does (its syntax, its linear-time engine, one deadline for the
       // call): never as a JavaScript RegExp in the server, where a pattern like (x+x+)+y stops every team's requests
       const until = Date.now() + rt.ctx.files.cfg.grepTimeoutMs
-      for (const f of visible()) {
+      for (const v of visible()) {
+        const f = v.head
         const e = path.extname(f.name).slice(1).toLowerCase()
         if (only && !only.match(f.name)) continue
         if (a.type && a.type !== e) continue
-        if (!GREP_TEXT.has(e) || f.size > GREP_FILE_MAX) { skipped.push(chatFilePath(chainIdOf(f), f.name)); continue }
+        if (!GREP_TEXT.has(e) || f.size > GREP_FILE_MAX) { skipped.push(chatFilePath(v.id, f.name)); continue }
         let o: ReturnType<typeof store.open>
-        try { o = store.open(spec.userId, spec.chatId, f.id, false) } catch { continue }
+        try { o = store.open(spec.userId, spec.chatId, v.id, false) } catch { continue }
         if (o.quarantined) continue
         let lines: string[]
         try { lines = readRegular(o.abs, GREP_FILE_MAX).bytes.toString('utf8').split(/\r?\n/) } catch { continue }
@@ -430,7 +410,7 @@ export function chatPlaceHooks(exec: TurnExec): ChatPlaceHooks {
         if (r.killed === 'abort') return fail('The search was stopped.', 'grep chat:files/ -> stopped')
         if (r.code === 2) return fail(`Invalid regular expression${r.err ? `: ${neutralizeTags(r.err.split('\n').find((l) => l.trim()) ?? '').slice(0, 200)}` : '.'}`, 'grep chat:files/ -> invalid pattern')
         if (!at.length) continue
-        const p = chatFilePath(chainIdOf(f), f.name)
+        const p = chatFilePath(v.id, f.name)
         if (mode === 'files_with_matches') { out.push(p); continue }
         if (mode === 'count') { out.push(`${p}:${at.length}`); continue }
         const show = new Set<number>()

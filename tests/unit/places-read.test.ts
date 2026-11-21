@@ -16,7 +16,6 @@ import { setAnswerReads } from '../../server/src/chat/shared-answers'
 import { roomsOf } from '../../server/src/rooms/service'
 import { TurnFiles } from '../../server/src/files/service'
 import { chatFilesOf } from '../../server/src/chat/chat-files'
-import { carriedByHiddenAnswer, visibleChatFiles } from '../../server/src/chat/chat-file-tool'
 
 setDefaultTimeout(90_000)
 const fake = (...ds: unknown[]) => ds.map((d) => '@fake ' + JSON.stringify(d)).join('\n')
@@ -287,9 +286,10 @@ describe('versions and the hidden-answer check (batch P1 x P4, QA TC-6567)', () 
     db().query('UPDATE messages SET attachments = ? WHERE id = ?').run(att.attachments, ans.id)
     db().query("UPDATE messages SET attachments = '[]' WHERE chat_id = ? AND role = 'user' AND attachments LIKE ?").run(chat, `%${file}%`)
     setAnswerReads(db(), chat, ans.id, [{ c: ['alice', 'bob', 'erin'], s: [{ type: 'integration', id: 'x' }], k: 1 }])
-    expect(carriedByHiddenAnswer(db(), chat, file)).toBe(true)
-    expect(carriedByHiddenAnswer(db(), chat, v.row.id)).toBe(true)
-    expect(visibleChatFiles(h.ctx, 'alice', chat).map((f) => f.name)).not.toContain('kv.txt')
+    const store = chatFilesOf(h.ctx)
+    // by the chain: the root's id and the version's id both count as carried
+    expect(store.kCarried(store.row(file)!)).toBe(true)
+    expect(store.kCarried(v.row)).toBe(true)
     for (const id of [file, v.row.id]) {
       const r = await run('alice', chat, `${fake({ tool: 'read', args: { file_path: chatFilePath(id, 'kv.txt') }, sayResult: true })}`)
       expect(r.content).not.toContain('KV TWO SECRET')
@@ -306,14 +306,24 @@ describe('versions and the hidden-answer check (batch P1 x P4, QA TC-6567)', () 
   test('a changed file anyone may open is listed once, by its chain id, with its newest bytes', async () => {
     const { chat, file } = await sent('kv2.txt', 'KV2 ONE')
     await chatFilesOf(h.ctx).putVersion('alice', chat, file, { bytes: new TextEncoder().encode('KV2 TWO') })
-    const seen = visibleChatFiles(h.ctx, 'bob', chat).filter((f) => f.name === 'kv2.txt')
+    const seen = chatFilesOf(h.ctx).visibleTo('bob', chat).filter((v) => v.head.name === 'kv2.txt')
     expect(seen.length).toBe(1)
+    expect(seen[0]!.id).toBe(file)
+    // the old file id resolves to the head: ChatFiles.find, and a read by the first id's path gives the newest bytes
+    expect(chatFilesOf(h.ctx).find('bob', chat, file)?.head.sha256).toBe(seen[0]!.head.sha256)
+    const r = await run('alice', chat, `${fake({ tool: 'read', args: { file_path: chatFilePath(file, 'kv2.txt') }, sayResult: true })}`)
+    expect(r.content).toContain('KV2 TWO')
+    expect(r.content).not.toContain('KV2 ONE')
     const l = await run('alice', chat, `${fake({ tool: 'list', args: { path: 'chat:files/' }, sayResult: true })}`)
     expect(l.content).toContain(chatFilePath(file, 'kv2.txt'))
     const s = await run('alice', chat, `${fake({ tool: 'grep', args: { pattern: 'KV2', path: 'chat:files/', output_mode: 'content' }, sayResult: true })}`)
     expect(s.content).toContain('KV2 TWO')
     expect(s.content).not.toContain('KV2 ONE')
   })
+
+  // putVersion does not refuse a turn whose answer holds a k group by itself: its callers must (a k answer's words
+  // must not reach a version everyone in the chat opens). Nothing calls it from a turn yet (P4's tool side).
+  test.todo('a turn whose answer holds a k group cannot save a version of a chat file (the caller of putVersion refuses)', () => {})
 })
 
 describe('one way to open a chat file', () => {
