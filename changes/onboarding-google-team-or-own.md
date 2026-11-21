@@ -1,5 +1,4 @@
-- Getting started › **Tools for your team**: Google Drive, Gmail, Google Calendar, Google Docs and Google Sheets can now
-  be connected **for the team** (one shared Google account, the same dialog as Admin › Connected apps) or left for
+- Getting started › **Tools for your team**: Google Drive and Gmail can now be connected **for the team** (one shared Google account, the same dialog as Admin › Connected apps) or left for
   **each person to connect their own**. Once a team account is connected, the row shows which account and who uses it.
   Notion's row has the same choice.
 - "Team pick" and "Recommend to the team" are now one name: **Ask everyone to connect their own** (Korean: 각자 연결하도록

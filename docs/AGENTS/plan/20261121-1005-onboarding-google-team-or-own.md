@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-21 10:05
 - Branch: `fix/onboarding-google-team-or-own`
-- Status: in progress
+- Status: done
 - Where: web/ (onboarding step, Connectors wording, i18n). Why: UI only, reuses the existing team Google flows.
 - Version impact: patch (a fix to an existing onboarding screen and its wording; no new API, no migration)
 
@@ -23,11 +23,12 @@ In:
 - One name in the product: `connectors.recommendedTag` and `connectors.recommend` use the same concept wording.
 - Intro paragraph updated. All six languages.
 
-- Extra (coordinator, connections audit #227): Calendar, Docs and Sheets rows the same way; Notion gets the switch
+- Extra (coordinator, connections audit #227): Notion gets the switch
   (TEAM_CONNECT_TOOLS = Slack only); My setup counts a Drive an admin shares (DriveConnection.teamShares); the admin page
   is called by its label "Admin › Connected apps" in the welcome copy, ToolsStep comments and the 11-20 decision.
 
-Out: a grouped "Google" row (one row per app keeps the existing dialogs as they are), any new connection logic or API.
+Out: Calendar, Docs and Sheets rows (review: keep the step lean, four rows; they are in Other tools and Admin), any new
+connection logic or API.
 
 ## Steps
 
@@ -51,3 +52,7 @@ Admin (default nobody until Save), unchanged.
 
 ## Result
 
+Built as planned in PR #234: Drive and Gmail rows with [Connect for the team] (the Admin dialogs, new-or-not kept for
+the dialog's life so Cancel removes an account made there) and the renamed switch, one short line on both rows, Notion's
+switch, the shared Drive counted on My setup, and the admin page named "Admin › Connected apps". Differs from the
+first draft: Calendar, Docs and Sheets were added, then left out again in review to keep the step at four rows.

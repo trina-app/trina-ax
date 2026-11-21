@@ -5,8 +5,8 @@
 //    its own page in Admin › Connected apps): [팀으로 연결], "팀 전체가 이 연결을 같이 써요". The sign-in is the team
 //    account's, at the service, in the window reserved during the click; never the owner's own connection. Slack shows
 //    연결됨 only while it is connected (else [다시 연결] once added, [팀으로 연결] before).
-//  - a Google tool (Google Drive where this server has it; Gmail, Google Calendar, Google Docs and Google Sheets where
-//    they can be connected): both ways, on one row (owner, 11-21: "a Google account is added as a team account AND as a
+//  - a Google tool (Google Drive where this server has it, Gmail where it can be connected; Calendar, Docs and Sheets
+//    stay in "다른 도구 보기" and Admin, to keep the step lean): both ways, on one row (owner, 11-21: "a Google account is added as a team account AND as a
 //    personal account"). [팀으로 연결] on its right opens the very dialog Admin › Connected apps uses
 //    (DriveShares.tsx DriveShareDialog for Drive, GoogleAppTeam.tsx GoogleAppTeamDialog for a Google app: one shared
 //    Google account, then who may use it), where this server can do that (Drive set up; the app set up and the server
@@ -31,7 +31,7 @@ import { setupReturnState } from '../../lib/welcome'
 import { useRealPath } from '../../lib/realPath'
 import { useRecommendedTools } from '../../lib/teamTools'
 import { integrationsChanged } from '../../store/live'
-import { useLocale, useT, type MessageKey } from '../../i18n'
+import { useLocale, useT } from '../../i18n'
 import { Button, Switch, WaitLine } from '../ui'
 import { SIGN_IN_WAIT_MINUTES } from '../../lib/signInWait'
 import { LogoTile } from '../integrations/ConnectorsView'
@@ -45,10 +45,8 @@ const quietLink = 'font-medium text-ink underline decoration-line-strong underli
 /** the listed services the step connects for the team (Notion; the full list is one click away) */
 export const WELCOME_SERVICES = ['notion'] as const
 /** the Google tools the step offers (for the team, or each person's own), where this server can connect them */
-const RECOMMEND: BuiltInId[] = ['google-drive', 'gmail', 'calendar', 'docs', 'sheets']
+const RECOMMEND: BuiltInId[] = ['google-drive', 'gmail']
 type GoogleRowId = BuiltInId
-/** what a Google row's line says before a team account is connected */
-const googleLine = (id: GoogleRowId): MessageKey => (id === 'google-drive' ? 'welcome.tools.googleLineDrive' : id === 'gmail' ? 'welcome.tools.googleLineGmail' : 'welcome.tools.googleLineApp')
 const rowCls = 'flex items-center gap-3 py-3'
 const logoCls = 'size-10 rounded-xl p-2'
 const WAITING = new Set(['starting', 'pending', 'exchanging'])
@@ -96,7 +94,7 @@ export function ToolsStep({ busy, done, nextLabel, onDone, onSkip }: {
             const teamState = !g ? 'none' : g.account ? (g.ok ? 'connected' : 'needs-sign-in') : 'available'
             const line = error ?? (!g ? t('welcome.tools.ownLine', { line: r.line })
               : g.account ? t('welcome.tools.googleTeamOn', { account: g.account, who: g.who })
-                : t(googleLine(r.id)))
+                : t('welcome.tools.googleLine'))
             return (
               <li key={r.id} className={rowCls} data-testid="welcome-tools-service" data-id={r.id} data-kind="google" data-team={teamState} data-state={rec.on(r.id) ? 'recommended' : 'off'}>
                 <LogoTile src={r.logo} className={logoCls} />
@@ -303,13 +301,16 @@ function useGoogleTeam() {
 function GoogleTeamDialog({ app, google, onClose }: { app: GoogleRowId; google: ReturnType<typeof useGoogleTeam>; onClose: () => void }) {
   const groups = useAdminGroups()
   const users = useAdminUsers()
+  // what there was when the dialog opened, kept while it is open (as Admin does): a sign-in made here sets the app's
+  // team account at once (onStatus), and the dialog must still treat it as new, so its Cancel or ✕ removes it again
+  const [share] = useState(() => google.share)
+  const [isNew] = useState(() => !google.app(app)?.team)
   if (app === 'google-drive') {
-    const s = google.share
-    return <DriveShareDialog share={s ?? undefined} reconnect={!!s} groups={groups.data ?? []} users={users.data ?? []} onClose={onClose} onSaved={onClose} />
+    return <DriveShareDialog share={share ?? undefined} reconnect={!!share} groups={groups.data ?? []} users={users.data ?? []} onClose={onClose} onSaved={onClose} />
   }
   const st = google.app(app)
   if (!st) return null
-  return <GoogleAppTeamDialog app={st.id} team={st.team ?? null} step="connect" isNew={!st.team} onStatus={google.setApp} onClose={onClose} />
+  return <GoogleAppTeamDialog app={st.id} team={st.team ?? null} step="connect" isNew={isNew} onStatus={google.setApp} onClose={onClose} />
 }
 
 /** "다른 도구 보기": Settings › Connectors, the full list (Settings is a dialog over the step; its close comes back). */

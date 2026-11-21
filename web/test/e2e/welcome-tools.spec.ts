@@ -131,7 +131,7 @@ test('Google Drive and Gmail both ways: [팀으로 연결] opens the shared Goog
   const drv = page.locator('[data-testid="welcome-tools-service"][data-id="google-drive"]')
   const gm = page.locator('[data-testid="welcome-tools-service"][data-id="gmail"]')
   await expect(drv).toHaveAttribute('data-team', 'available')
-  await expect(drv.getByTestId('welcome-tools-service-line')).toHaveText('팀으로 연결하면 공유 Google 계정 하나의 파일을 모두가 같이 써요. 각자 연결하면 자기 계정을 써요.')
+  await expect(drv.getByTestId('welcome-tools-service-line')).toHaveText('공유 계정 하나, 또는 각자 자기 계정')
   await expect(drv.getByTestId('welcome-tools-team-connect')).toHaveText('팀으로 연결')
   await expect(drv.getByRole('checkbox', { name: '각자 연결하도록 권하기' })).not.toBeChecked()
   await expect(gm).toHaveAttribute('data-team', 'connected')
@@ -144,6 +144,48 @@ test('Google Drive and Gmail both ways: [팀으로 연결] opens the shared Goog
   await page.keyboard.press('Escape')
   await expect(dialog).toHaveCount(0)
   await expect(page.getByTestId('welcome-tools')).toBeVisible()
+  expect(realErrors(errors)).toEqual([])
+})
+
+test('Gmail [팀으로 연결] signed in, then Cancel at "who may use it": the account made here is removed again (the dialog stays "new" after its sign-in)', async ({ page }) => {
+  const errors = watchConsole(page)
+  await reset(page)
+  await fakeDrive(page)
+  let team: Record<string, unknown> | null = null
+  const removed: string[] = []
+  const status = () => ({ id: 'gmail', configured: true, source: 'service', canSetUp: false, blocked: 'hosted', redirectUri: null, driveAppAvailable: false, apis: [], membersCanConnect: true, connectedMembers: 0, team })
+  await page.route('**/api/integrations/google-apps', (r) => r.fulfill({ json: { apps: [{ id: 'gmail', available: true, reason: null, status: 'disconnected', account: null, writePolicy: 'ask', serviceDown: false, tools: [] }] } }))
+  await page.route('**/api/admin/google-apps', (r) => r.fulfill({ json: { apps: [status()] } }))
+  await page.route('**/api/admin/google-apps/gmail/team/authorize', (r) => r.fulfill({ json: { flowId: 'gflow', authorizationUrl: 'https://accounts.google.com/o/oauth2/v2/auth?state=synthetic', expiresAt } }))
+  await page.route('**/api/admin/google-apps/gmail/team/flows/gflow', (r) => r.request().method() === 'DELETE' ? r.fulfill({ status: 204 })
+    : r.fulfill({ json: { flowId: 'gflow', state: 'ready', account, expiresAt, reason: null } }))
+  await page.route('**/api/admin/google-apps/gmail/team/flows/gflow/complete', (r) => {
+    team = { id: 'gt-new', status: 'connected', account, access: { everyone: false, groups: [], users: [] }, usedBy: 0, connectedBy: null, connectedAt: '2026-11-21T00:00:00.000Z' }
+    return r.fulfill({ json: status() })
+  })
+  await page.route('**/api/admin/google-apps/gmail/team?**', (r) => {
+    if (r.request().method() !== 'DELETE') return r.fallback()
+    removed.push(new URL(r.request().url()).searchParams.get('id') ?? '')
+    team = null
+    return r.fulfill({ json: status() })
+  })
+  await signIn(page)
+  await toTools(page)
+  const gm = page.locator('[data-testid="welcome-tools-service"][data-id="gmail"]')
+  await expect(gm).toHaveAttribute('data-team', 'available')
+  await gm.getByTestId('welcome-tools-team-connect').click()
+  const dialog = page.getByTestId('gapp-team-dialog')
+  const popup = page.waitForEvent('popup')
+  await dialog.getByTestId('gapp-team-google').click()
+  await (await popup).close().catch(() => {})
+  await page.getByTestId('gapp-team-confirm').click()
+  await expect(dialog).toHaveAttribute('data-step', 'people')
+  // still the new-account dialog (not "Change people"): its Cancel removes the account made here
+  await expect(page.getByRole('dialog')).toContainText('Gmail 계정을 팀과 함께 쓰기')
+  await page.getByRole('dialog').getByRole('button', { name: '취소' }).click()
+  await expect(dialog).toHaveCount(0)
+  await expect.poll(() => removed).toEqual(['gt-new'])
+  await expect(gm).toHaveAttribute('data-team', 'available')
   expect(realErrors(errors)).toEqual([])
 })
 
