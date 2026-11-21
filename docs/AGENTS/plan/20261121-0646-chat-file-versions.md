@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-21 06:46
 - Branch: `feat/chat-file-versions` (off #207's head 785a2c4df; rebased on dev once #207 is in)
-- Status: in progress
+- Status: done (server core; the tool and web parts follow)
 - Where: server (`chat/chat-files.ts`, `chat/store.ts`, one migration), shared (`api/entities.ts`). Why: P4 of
   [20261121-0615-chat-places-as-paths.md](20261121-0615-chat-places-as-paths.md) ("After the independent review",
   must-fix 2 and 7); S2 of [20261121-0249-share-chat-files.md](20261121-0249-share-chat-files.md) (web) builds on it
@@ -54,4 +54,11 @@ comes with P1).
 
 ## Result
 
-(filled in at the end)
+- Migration 432 (next free B number on dev 88463fed4). Beside `replaces` and `root_id` it adds `version` (a stable
+  `version: n` after pruning) and `origin` (a version's "Trina for <person>").
+- `ChatFiles.putVersion` / `restore` / `versions` / `openVersion` / `visibleTo` / `find` / `headOf` / `chain`, and
+  `chainIdOf` for the P1 resolver and P3. `findChatFile` (chat_file, save_chat_file) goes through `find`; the transcript
+  line of chat_file and its sharedChild id name the chain's id.
+- `Attachment.updated` and `ChatFileVersion` in shared/src/api/entities.ts; `chatFilesAsHeads` in chat/store.ts.
+- Tests: tests/unit/b-chat-file-versions.test.ts (9), with the chat-files and share-chat-files tests and
+  tests/security/share-chat-files.test.ts under Bun 1.3.12; typecheck and check:prepush green.

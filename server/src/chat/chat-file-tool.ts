@@ -32,7 +32,7 @@ import { cardEndShort, endOfText } from '../policy/refusal'
 import { inSkills } from '../skills/guard'
 import { componentC } from '../team-files/component'
 import { placeProduced } from '../tools/make-file'
-import { CHAT_FILE_MAX, chatFilesOf, seesChatFiles, type ChatFileRow } from './chat-files'
+import { CHAT_FILE_MAX, chainIdOf, chatFilesOf, seesChatFiles, type ChatFileRow } from './chat-files'
 import { neutralizeTags } from './prompt'
 import { addSources, type ReadSource } from './read-scope'
 import type { Tool } from './tools'
@@ -107,7 +107,7 @@ export function chatFileTool(exec: TurnExec): Tool {
     if (!file) return notFound
     named(file.name)
     addSources(rt.db, chatId, [{ type: 'chat', id: chatId }])
-    const head = `The file "${neutralizeTags(oneLine(file.name, 200))}" (${file.mime.split(';')[0]}, ${file.size} bytes, file_id=${file.id}), sent in this chat. ${FILE_NOTE}`
+    const head = `The file "${neutralizeTags(oneLine(file.name, 200))}" (${file.mime.split(';')[0]}, ${file.size} bytes, file_id=${chainIdOf(file)}), sent in this chat. ${FILE_NOTE}`
     if (rt.ctx.files.quarantine.hasHash(file.sha256)) return { ...text(`${head}\nThis file is held by the team's safety check, so it cannot be read here.`, true), summary: 'chat_file -> held' }
     const rel = readName(chatId, file)
     const shown = `"${oneLine(file.name, 200)}"`
@@ -124,7 +124,7 @@ export function chatFileTool(exec: TurnExec): Tool {
       const segs = rel.split('/')
       return { segs, rel, abs: o.abs, exists: true, existing: segs.length, st }
     }
-    const child: SharedChild = { rel, link: shown, id: file.id, open }
+    const child: SharedChild = { rel, link: shown, id: chainIdOf(file), open }
     /** the read's words name the file as the person sees it, never the inner path */
     const swap = (t: string) => t.split(`'${rel}'`).join(shown).split(rel).join(shown)
     const recheck = (pixels: boolean) => {
@@ -166,15 +166,8 @@ export function chatFileTool(exec: TurnExec): Tool {
 /** A file sent in this turn's chat that the person may open (sent in a message, or their own upload not sent yet): by
  * its id, or (`byName`) its exact name, the newest of that name. */
 function findChatFile(exec: TurnExec, ref: string, byName: boolean): ChatFileRow | null {
-  const { rt, spec } = exec
-  const want = ref.trim().replace(/^file_id=/, '')
-  const rows = (byName
-    ? rt.db.query('SELECT * FROM chat_files WHERE chat_id = ? AND (id = ? OR name = ?) ORDER BY created_at DESC').all(spec.chatId, want, want.normalize('NFC'))
-    : rt.db.query('SELECT * FROM chat_files WHERE chat_id = ? AND id = ?').all(spec.chatId, want)) as ChatFileRow[]
-  for (const r of rows) {
-    try { chatFilesOf(rt.ctx).open(spec.userId, spec.chatId, r.id, false); return r } catch { /* not sent, or someone else's unsent one */ }
-  }
-  return null
+  // through the one filtered list (ChatFiles.visibleTo): a chain's newest version, never a name only hidden answers carry
+  return chatFilesOf(exec.rt.ctx).find(exec.spec.userId, exec.spec.chatId, ref, byName)?.head ?? null
 }
 
 /** The calls that only take a file's bytes, by the argument that names the file (chatFileCopyOf): plain content reads

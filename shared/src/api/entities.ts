@@ -400,8 +400,30 @@ export const Attachment = z.object({
    * their own link to it opens this copy. Everyone else reaches the copy through the link's panel (file-access 'copy').
    * The server keeps the original's sha256 beside it for its own re-check; that is never sent */
   from: RelPath.optional(),
+  /** a chat file (source 'chat') changed since it was sent (server chat/chat-files.ts putVersion): the newest version,
+   * which every open and link of this id gives. `by` / `byName` saved it ("Updated by <name>"), `ai` when the AI did it
+   * for them ("Trina for <name>"); `version` its number (the first file is 1). `size`, `mime`, `width`, `height` of the
+   * attachment are the newest version's. Absent: never changed */
+  updated: z.object({ by: z.string(), byName: z.string(), at: IsoTime, version: z.number().int().positive(), ai: z.literal(true).optional() }).optional(),
 })
 export type Attachment = z.infer<typeof Attachment>
+/** One version of a chat file (server ChatFiles.versions: read {versions}, the web's history). Never a hash or a path. */
+export const ChatFileVersion = z.object({
+  id: Uuid7,
+  /** 1 for the first file, then 2, 3 … (kept when older versions are pruned) */
+  version: z.number().int().positive(),
+  name: z.string(),
+  size: z.number().int().nonnegative(),
+  mime: z.string(),
+  createdAt: IsoTime,
+  /** who saved it (user id) and their name now; `ai` when the AI saved it for them */
+  by: z.string(),
+  byName: z.string(),
+  ai: z.literal(true).optional(),
+  /** the newest version (what the chip and every link open) */
+  head: z.literal(true).optional(),
+})
+export type ChatFileVersion = z.infer<typeof ChatFileVersion>
 /** At most this many attachments (uploads and team files together) per message: 100, what one model request may hold
  * in pictures (a person attaches 60 photos and asks about all of them, docs/decisions/20261118-limits-images.md). */
 export const MESSAGE_ATTACHMENTS_MAX = 100

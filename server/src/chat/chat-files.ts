@@ -19,7 +19,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { createHash } from 'node:crypto'
-import { SMALL_UPLOAD_MAX, type Attachment } from '@mycel/shared/api'
+import { SMALL_UPLOAD_MAX, type Attachment, type ChatFileVersion } from '@mycel/shared/api'
 import { PRODUCT } from '@mycel/shared'
 import type { AppContext } from '../context'
 import { newId, nowIso } from '../db'
@@ -34,7 +34,10 @@ import { mimeOf } from '../team-files/service'
 import { attachmentKind } from '../uploads/attachments'
 import { displaySize, makeThumbnail } from '../uploads/image'
 import { cleanImage, imageFormat, PHOTO, plainPicture } from '../uploads/metadata'
-import { assertStorageRoom } from '../system/storage'
+import { assertStorageRoom, assertStorageRoomForAI } from '../system/storage'
+import { turnWriteLimits } from '../files/turn-write-limits'
+import { writeLimitText } from '../policy/refusal'
+import { ToolError } from '../policy/errors'
 import { fileError } from '../team-files/errors'
 import { personLocale } from '../files/media-text'
 import { tr } from './i18n'
@@ -49,12 +52,46 @@ const ORPHAN_MS = 3600_000
 export const CHAT_FILE_ORPHAN_KEEP_MS = 30 * 86400_000
 /** At most this big in a chat shared with people (the multipart attachment limit; a chunked upload too) */
 export const CHAT_FILE_MAX = SMALL_UPLOAD_MAX
+/** At most this big for a file the AI keeps with a chat, or a version the AI writes (chat/chat-files-share.ts
+ * CHAT_COPY_MAX is the same number) */
+export const CHAT_FILE_AI_MAX = 1024 * 1024 * 1024
+/** The rows a chain keeps (putVersion): the root (the chain's id, which messages carry) and the newest versions, at
+ * most this many in all; the head is never pruned */
+export const CHAT_FILE_VERSIONS_KEPT = 20
 const THUMB_EXTS = ['png', 'jpg'] as const
 
+/**
+ * A chat file's row. Versions (migration 432, putVersion): root_id is the chain's first file (NULL on the root, whose id
+ * is the chain's id: messages, links and the AI's file_id name it), replaces the head a version was written over,
+ * version its number in the chain (NULL = 1, a root), origin 'ai' for a version the AI wrote.
+ */
 export interface ChatFileRow {
   id: string; chat_id: string; user_id: string; name: string; size: number; mime: string; kind: Attachment['kind']
   width: number | null; height: number | null; sha256: string; thumb: string | null; copied_from: string | null; created_at: string
+  root_id?: string | null; replaces?: string | null; version?: number | null; origin?: string | null
 }
+
+/** A chain as one person may see it (ChatFiles.visibleTo): its id (the root's), the root and the newest version */
+export interface VisibleChatFile { id: string; root: ChatFileRow; head: ChatFileRow; versions: number }
+/** What a version save tells its caller: the new head, the head it was written over, and `beside` when that head is not
+ * the one the caller read (someone saved in between: the new one is a version beside theirs, nothing is lost) */
+export interface PutVersionResult { row: ChatFileRow; replaced: ChatFileRow; beside: boolean }
+/** putVersion's bytes: in memory, or a descriptor the caller opened and checked (team-files/place.ts openChecked), read
+ * from offset 0 to st.size and never closed here */
+export type VersionSource = { bytes: Uint8Array } | { fd: number; st: Pick<fs.Stats, 'size'> }
+export interface PutVersionOptions {
+  /** the AI writes it: 'ai' ("Trina for <person>"); a person's save or restore: absent */
+  origin?: 'ai'
+  /** a turn writes it: its write limits count it (files/turn-write-limits.ts), as for a team file */
+  turn?: { bytesWritten: number; filesWritten: Set<string> }
+  /** the head's id the caller read; another head now makes the result `beside` */
+  expectHead?: string
+  /** audit action ('chat.file_version', or 'chat.file_restore') */
+  action?: string
+}
+
+/** A chain's id for a row (the root's file_id) */
+export const chainIdOf = (f: Pick<ChatFileRow, 'id'> & { root_id?: string | null }) => f.root_id ?? f.id
 
 /**
  * A picture's metadata (the place it was taken, the camera) cut out before other people get it, as a room's
@@ -112,17 +149,87 @@ export class ChatFiles {
   /** Does the chat hold any chat file (its AI gets chat_file then)? */
   inChat(chatId: string): boolean { return !!this.ctx.db.query('SELECT 1 FROM chat_files WHERE chat_id = ? LIMIT 1').get(chatId) }
 
-  /** Was the file sent in a message of its chat (any branch)? Until then it is its sender's alone. */
-  sent(f: Pick<ChatFileRow, 'id' | 'chat_id'>): boolean {
-    return !!this.ctx.db.query("SELECT 1 FROM messages m, json_each(m.attachments) j WHERE m.chat_id = ? AND json_valid(m.attachments) AND json_extract(j.value, '$.id') = ? LIMIT 1").get(f.chat_id, f.id)
+  /** The chain id of a file id (its root's; the id itself for a root or a file that is not a chat file's) */
+  private chainOf(f: Pick<ChatFileRow, 'id'> & { root_id?: string | null }): string {
+    if (f.root_id !== undefined) return chainIdOf(f)
+    return (this.ctx.db.query('SELECT root_id FROM chat_files WHERE id = ?').get(f.id) as { root_id: string | null } | null)?.root_id ?? f.id
+  }
+  /** A chain's rows, oldest first */
+  chain(rootId: string): ChatFileRow[] {
+    return this.ctx.db.query('SELECT * FROM chat_files WHERE id = ? OR root_id = ? ORDER BY COALESCE(version, 1), rowid').all(rootId, rootId) as ChatFileRow[]
+  }
+  /** A chain's newest version (the root when it has none) */
+  headOf(rootId: string): ChatFileRow | null {
+    return this.ctx.db.query('SELECT * FROM chat_files WHERE id = ? OR root_id = ? ORDER BY COALESCE(version, 1) DESC, rowid DESC LIMIT 1').get(rootId, rootId) as ChatFileRow | null
   }
 
-  /** Every message of its chat that carries the file is an answer hidden from `userId` (a question never is). */
-  private onlyOnHidden(userId: string, f: Pick<ChatFileRow, 'id' | 'chat_id'>): boolean {
-    const carriers = (this.ctx.db.query("SELECT DISTINCT m.id FROM messages m, json_each(m.attachments) j WHERE m.chat_id = ? AND json_valid(m.attachments) AND json_extract(j.value, '$.id') = ?").all(f.chat_id, f.id) as { id: string }[]).map((m) => m.id)
+  /** The messages of its chat that carry the file's chain (its root's id: a message never names a version) */
+  private carriers(f: Pick<ChatFileRow, 'id' | 'chat_id'> & { root_id?: string | null }): string[] {
+    return (this.ctx.db.query("SELECT DISTINCT m.id FROM messages m, json_each(m.attachments) j WHERE m.chat_id = ? AND json_valid(m.attachments) AND json_extract(j.value, '$.id') = ?").all(f.chat_id, this.chainOf(f)) as { id: string }[]).map((m) => m.id)
+  }
+
+  /** Was the file sent in a message of its chat (any branch)? Until then it is its sender's alone. A version counts as
+   * sent when its root is: the messages carry the root. */
+  sent(f: Pick<ChatFileRow, 'id' | 'chat_id'> & { root_id?: string | null }): boolean {
+    return !!this.ctx.db.query("SELECT 1 FROM messages m, json_each(m.attachments) j WHERE m.chat_id = ? AND json_valid(m.attachments) AND json_extract(j.value, '$.id') = ? LIMIT 1").get(f.chat_id, this.chainOf(f))
+  }
+
+  /** Every message of its chat that carries the file's root is an answer hidden from `userId` (a question never is). */
+  private onlyOnHidden(userId: string, f: Pick<ChatFileRow, 'id' | 'chat_id'> & { root_id?: string | null }, hidden?: () => Set<string>): boolean {
+    const carriers = this.carriers(f)
     if (!carriers.length) return false
-    const hidden = withheldFrom(this.ctx.db, this.ctx.files.rules(), f.chat_id, userId)
-    return carriers.every((id) => hidden.has(id))
+    const h = hidden ? hidden() : withheldFrom(this.ctx.db, this.ctx.files.rules(), f.chat_id, userId)
+    return carriers.every((id) => h.has(id))
+  }
+
+  /** May `userId` open the chain of `root` (a root row): sent and not only on answers hidden from them, or the
+   * uploader's own unsent upload (only a root's uploader: replaces IS NULL). The chat itself is the caller's check. */
+  private mayOpen(userId: string, root: ChatFileRow, hidden?: () => Set<string>): boolean {
+    if (root.replaces || root.root_id) return false
+    if (root.user_id === userId) return true
+    return this.sent(root) && !this.onlyOnHidden(userId, root, hidden)
+  }
+
+  /** The root of the chain a file id of this chat belongs to (a root's id or a version's), or null */
+  private rootIn(chatId: string, fileId: string): ChatFileRow | null {
+    const f = this.ctx.db.query('SELECT * FROM chat_files WHERE id = ? AND chat_id = ?').get(fileId, chatId) as ChatFileRow | null
+    if (!f) return null
+    if (!f.root_id) return f
+    return this.ctx.db.query('SELECT * FROM chat_files WHERE id = ? AND chat_id = ? AND root_id IS NULL').get(f.root_id, chatId) as ChatFileRow | null
+  }
+
+  /**
+   * The one filtered list of a chat's files for `userId` (list, grep and the name lookup; the resolver's chat:files/):
+   * one entry per chain, its head, newest change first. Nothing when they do not see the chat now. A chain sent only on
+   * answers hidden from them, or someone else's upload not sent yet, is not in it: such a name never shows.
+   */
+  visibleTo(userId: string, chatId: string): VisibleChatFile[] {
+    if (!this.seesChat(userId, chatId)) return []
+    const roots = this.ctx.db.query('SELECT * FROM chat_files WHERE chat_id = ? AND root_id IS NULL').all(chatId) as ChatFileRow[]
+    let hidden: Set<string> | null = null
+    const hiddenOnce = () => (hidden ??= withheldFrom(this.ctx.db, this.ctx.files.rules(), chatId, userId))
+    const out: VisibleChatFile[] = []
+    for (const root of roots) {
+      if (!this.mayOpen(userId, root, hiddenOnce)) continue
+      const rows = this.chain(root.id)
+      out.push({ id: root.id, root, head: rows[rows.length - 1] ?? root, versions: rows.length })
+    }
+    return out.sort((a, b) => (a.head.created_at < b.head.created_at ? 1 : a.head.created_at > b.head.created_at ? -1 : 0))
+  }
+
+  /** A chat file `userId` may open now, by its chain id, a version's id, or (`byName`) its exact name (the newest chain
+   * of that name), through visibleTo: the chain's entry (its head), or null. */
+  find(userId: string, chatId: string, ref: string, byName = false): VisibleChatFile | null {
+    const want = ref.trim().replace(/^file_id=/, '')
+    const seen = this.visibleTo(userId, chatId)
+    const byId = seen.find((v) => v.id === want) ?? (() => {
+      const r = this.row(want)
+      return r && r.chat_id === chatId && r.root_id ? seen.find((v) => v.id === r.root_id) : undefined
+    })()
+    if (byId) return byId
+    if (!byName) return null
+    const name = want.normalize('NFC')
+    return seen.find((v) => v.head.name === name || v.root.name === name) ?? null
   }
 
   /** Does `userId` see the chat of a chat file now: one shared with people they are in (not in the trash, unless it is
@@ -186,7 +293,7 @@ export class ChatFiles {
   }
 
   /** The row of a file just put at `dst` (its preview made first). */
-  private async record(userId: string, chatId: string, id: string, name: string, dst: string, sha256: string, copiedFrom: string | null, kind: Attachment['kind'], thumbFrom?: string | null): Promise<ChatFileRow> {
+  private async record(userId: string, chatId: string, id: string, name: string, dst: string, sha256: string, copiedFrom: string | null, kind: Attachment['kind'], thumbFrom?: string | null, chain?: { rootId: string; origin: 'ai' | null }): Promise<ChatFileRow> {
     const quarantined = this.ctx.files.quarantine.hasHash(sha256)
     const size = fs.statSync(dst).size
     let dims: { width: number; height: number } | null = null
@@ -207,15 +314,20 @@ export class ChatFiles {
         try { thumb = await makeThumbnail(dst, base, 320, path.join(this.ctx.config.dataDir, 'work')) } catch (e) { this.ctx.log.debug('chat file thumbnail failed', { err: e }) }
       }
     }
-    this.ctx.db.query(`INSERT INTO chat_files (id, chat_id, user_id, name, size, mime, kind, width, height, sha256, thumb, copied_from, created_at)
-      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(id, chatId, userId, name, size, mimeOf(name) ?? 'application/octet-stream', kind, dims?.width ?? null, dims?.height ?? null, sha256, thumb, copiedFrom, nowIso())
+    // a version: over the head as it is now (looked up in the same synchronous step as the insert), the next number
+    const head = chain ? this.headOf(chain.rootId) : null
+    if (chain && !head) throw new Error('the chain is gone')
+    this.ctx.db.query(`INSERT INTO chat_files (id, chat_id, user_id, name, size, mime, kind, width, height, sha256, thumb, copied_from, created_at, root_id, replaces, version, origin)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(id, chatId, userId, name, size, mimeOf(name) ?? 'application/octet-stream', kind, dims?.width ?? null, dims?.height ?? null, sha256, thumb, copiedFrom, nowIso(),
+      chain?.rootId ?? null, head?.id ?? null, head ? (head.version ?? 1) + 1 : null, chain?.origin ?? null)
     return this.row(id)!
   }
 
   /** The caller's own files of this chat among `ids` (sending or editing a message of theirs), by id. */
   ownByIds(userId: string, chatId: string, ids: readonly string[]): Map<string, Attachment> {
     if (!ids.length) return new Map()
-    const rows = this.ctx.db.query(`SELECT * FROM chat_files WHERE chat_id = ? AND user_id = ? AND id IN (${ids.map(() => '?').join(',')})`).all(chatId, userId, ...ids) as ChatFileRow[]
+    // roots only: a message carries a chain by its root's id, never a version's
+    const rows = this.ctx.db.query(`SELECT * FROM chat_files WHERE chat_id = ? AND user_id = ? AND root_id IS NULL AND id IN (${ids.map(() => '?').join(',')})`).all(chatId, userId, ...ids) as ChatFileRow[]
     return new Map(rows.map((r) => [r.id, chatFileAttachment(r)]))
   }
 
@@ -225,24 +337,28 @@ export class ChatFiles {
    * preview (or the picture itself when it is a small web image). quarantined: its bytes are on the team's
    * download-only list (the route then sends it only as a download).
    */
-  open(userId: string, chatId: string, fileId: string, thumb: boolean): { abs: string; name: string; quarantined: boolean; sha256: string; row: ChatFileRow } {
-    const f = this.ctx.db.query('SELECT * FROM chat_files WHERE id = ? AND chat_id = ?').get(fileId, chatId) as ChatFileRow | null
+  open(userId: string, chatId: string, fileId: string, thumb: boolean, opts: { version?: number } = {}): { abs: string; name: string; quarantined: boolean; sha256: string; row: ChatFileRow; root: ChatFileRow } {
+    // any id of a chain (its root's, a version's) opens the chain, checked on its root: the messages carry the root
+    const root = this.rootIn(chatId, fileId)
+    if (!root) return fail('not_found')
+    // not sent: its sender's alone (the root's uploader only, never a version's writer). A file carried only by answers
+    // hidden from this person (chat/shared-answers.ts: a copy of a file such an answer made,
+    // docs/decisions/20261121-share-chat-files.md): not theirs to open, as the answer is not (review M1)
+    if (!this.mayOpen(userId, root)) fail('not_found')
+    // the newest version, or the one asked for
+    const f = opts.version === undefined ? this.headOf(root.id) : this.chain(root.id).find((r) => (r.version ?? 1) === opts.version) ?? null
     if (!f) return fail('not_found')
-    if (f.user_id !== userId && !this.sent(f)) fail('not_found')
-    // a file carried only by answers hidden from this person (chat/shared-answers.ts: a copy of a file such an answer
-    // made, docs/decisions/20261121-share-chat-files.md): not theirs to open, as the answer is not (review M1)
-    if (f.user_id !== userId && this.onlyOnHidden(userId, f)) fail('not_found')
     const quarantined = this.ctx.files.quarantine.hasHash(f.sha256)
     if (thumb) {
       if (f.thumb === 'jpg' || f.thumb === 'png') {
         const t = `${this.thumbBase(f)}.${f.thumb}`
-        try { checkRegular(t); return { abs: t, name: `${f.name}.${f.thumb}`, quarantined, sha256: f.sha256, row: f } } catch { /* the original below */ }
+        try { checkRegular(t); return { abs: t, name: `${f.name}.${f.thumb}`, quarantined, sha256: f.sha256, row: f, root } } catch { /* the original below */ }
       }
       if (quarantined || f.kind !== 'image' || !/^(png|jpe?g|gif|webp)$/.test(ext(f.name)) || f.size > 2 * 1024 * 1024) fail('not_found')
     }
     const abs = this.abs(f)
     try { checkRegular(abs) } catch { fail('not_found') }
-    return { abs, name: f.name, quarantined, sha256: f.sha256, row: f }
+    return { abs, name: f.name, quarantined, sha256: f.sha256, row: f, root }
   }
 
   /** The attachment thumbnail by id alone (GET /api/attachments/:id/thumbnail): checked through the file's chat. */
@@ -258,9 +374,8 @@ export class ChatFiles {
    * false (someone else's, a sent one, none). */
   discard(userId: string, id: string): boolean {
     const f = this.row(id)
-    if (!f || f.user_id !== userId || this.sent(f)) return false
-    this.ctx.db.query('DELETE FROM chat_files WHERE id = ?').run(id)
-    this.removeFiles(f)
+    if (!f || f.root_id || f.user_id !== userId || this.sent(f)) return false
+    this.removeChain(f)
     return true
   }
 
@@ -410,6 +525,126 @@ export class ChatFiles {
     return { copied: copies.size, notCopied }
   }
 
+  /** A root and its versions go (rows and bytes): an upload never sent, swept or discarded. How many rows went. */
+  private removeChain(root: Pick<ChatFileRow, 'id' | 'chat_id'>): number {
+    const rows = this.ctx.db.query('SELECT id, chat_id FROM chat_files WHERE id = ? OR root_id = ?').all(root.id, root.id) as Pick<ChatFileRow, 'id' | 'chat_id'>[]
+    this.ctx.db.query('DELETE FROM chat_files WHERE id = ? OR root_id = ?').run(root.id, root.id)
+    for (const r of rows) this.removeFiles(r)
+    return rows.length
+  }
+
+  /**
+   * A new version of a chat file: the ONLY code that writes one (the AI's write and edit on chat:files/<name>, the web's
+   * save, a restore). `fileId` is any id of the chain (its root's, which messages and links carry, or a version's);
+   * `userId` must see the chat and may open the chain (ChatFiles.open's rule). The bytes are streamed to the chat's
+   * folder (never read in full, except a picture's, whose place and camera are cut out as for an upload), at most
+   * CHAT_FILE_AI_MAX for the AI's and CHAT_FILE_MAX for a person's, counted in the team's storage
+   * (assertStorageRoomForAI) and, in a turn, against its write limits. The new row replaces the head as it is at the
+   * moment of the insert (one synchronous step); a head other than `expectHead` makes the result `beside`. The chain
+   * then keeps CHAT_FILE_VERSIONS_KEPT rows (prune). Audited (chat.file_version: the chat, size, version, who; never
+   * the name).
+   */
+  async putVersion(userId: string, chatId: string, fileId: string, src: VersionSource, opts: PutVersionOptions = {}): Promise<PutVersionResult> {
+    if (!this.seesChat(userId, chatId)) return fail('not_found')
+    const { root } = this.open(userId, chatId, fileId, false)
+    const size = 'bytes' in src ? src.bytes.byteLength : src.st.size
+    const max = opts.origin === 'ai' ? CHAT_FILE_AI_MAX : CHAT_FILE_MAX
+    if (size > max) fileError('payload_too_large', 'chatFileTooLarge', undefined, { reason: 'chat_file_too_large' })
+    const key = `chat:files/${root.id}`
+    if (opts.turn) {
+      const lim = turnWriteLimits(this.ctx.engineConfig, this.ctx.db, userId)
+      if (opts.turn.bytesWritten + size > lim.bytes) throw new ToolError(writeLimitText('bytes', lim.bytes, root.name))
+      if (!opts.turn.filesWritten.has(key) && opts.turn.filesWritten.size >= lim.files) throw new ToolError(writeLimitText('files', lim.files, root.name))
+    }
+    assertStorageRoomForAI(size)
+    const id = newId()
+    await fs.promises.mkdir(this.dir(chatId), { recursive: true, mode: 0o700 })
+    const dst = this.abs({ chat_id: chatId, id })
+    try {
+      let sha = await this.writeVersion(dst, src, size)
+      let kind = attachmentKind(root.name)
+      if (kind === 'image') {
+        const pic = cleanPicture(root.name, new Uint8Array(await fs.promises.readFile(dst)), this.ctx.files.quarantine.hasHash(sha))
+        if (!pic) return fail('validation', tr('roomPhotoUnreadable', personLocale(this.ctx.db, userId)))
+        kind = pic.kind
+        if (pic.changed) { await fs.promises.writeFile(dst, pic.bytes); sha = createHash('sha256').update(pic.bytes).digest('hex') }
+      }
+      const before = this.headOf(root.id)
+      const row = await this.record(userId, chatId, id, root.name, dst, sha, null, kind, null, { rootId: root.id, origin: opts.origin ?? null })
+      const replaced = (row.replaces ? this.row(row.replaces) : null) ?? before ?? root
+      if (opts.turn) { opts.turn.bytesWritten += size; opts.turn.filesWritten.add(key) }
+      this.prune(root.id)
+      audit(this.ctx.db, { actor: userId, action: opts.action ?? 'chat.file_version', target: chatId, detail: { size: row.size, version: row.version, ...(opts.origin ? { origin: opts.origin } : {}) } })
+      return { row, replaced, beside: !!opts.expectHead && opts.expectHead !== replaced.id }
+    } catch (e) { this.removeFiles({ chat_id: chatId, id }); throw e }
+  }
+
+  /** putVersion's bytes to `dst` (a new file, 0600), hashed as they go; a descriptor is read from 0 to exactly `size` */
+  private async writeVersion(dst: string, src: VersionSource, size: number): Promise<string> {
+    const h = createHash('sha256')
+    if ('bytes' in src) {
+      await fs.promises.writeFile(dst, src.bytes, { flag: 'wx', mode: 0o600 })
+      return h.update(src.bytes).digest('hex')
+    }
+    const out = await fs.promises.open(dst, 'wx', 0o600)
+    try {
+      const buf = Buffer.alloc(Math.min(1024 * 1024, Math.max(size, 1)))
+      let off = 0
+      while (off < size) {
+        const n = await new Promise<number>((res, rej) => fs.read(src.fd, buf, 0, Math.min(buf.length, size - off), off, (err, k) => (err ? rej(err) : res(k))))
+        if (!n) break
+        h.update(buf.subarray(0, n))
+        await out.write(buf, 0, n)
+        off += n
+      }
+      if (off !== size) throw new Error('changed while read')
+    } finally { await out.close() }
+    return h.digest('hex')
+  }
+
+  /** A chain keeps CHAT_FILE_VERSIONS_KEPT rows: its root (the chain's id) and the newest; the head is never removed.
+   * Older versions go, rows and bytes. The rest go with the chat. */
+  private prune(rootId: string) {
+    const rows = this.chain(rootId)
+    const over = rows.length - CHAT_FILE_VERSIONS_KEPT
+    if (over <= 0) return
+    const head = rows[rows.length - 1]!
+    const drop = rows.filter((r) => r.id !== rootId && r.id !== head.id).slice(0, over)
+    for (const r of drop) {
+      this.ctx.db.query('DELETE FROM chat_files WHERE id = ? AND root_id = ?').run(r.id, rootId)
+      this.removeFiles(r)
+    }
+  }
+
+  /** The versions of a chain `userId` may open, oldest first (read {versions}, the web's history panel); [] when they
+   * may not. No hash, no path: what a client may know. */
+  versions(userId: string, chatId: string, fileId: string): ChatFileVersion[] {
+    if (!this.seesChat(userId, chatId)) return []
+    let root: ChatFileRow
+    try { root = this.open(userId, chatId, fileId, false).root } catch { return [] }
+    const rows = this.chain(root.id)
+    const head = rows[rows.length - 1]
+    return rows.map((r) => chatFileVersion(this.ctx.db, r, r.id === head?.id))
+  }
+
+  /** Version `n` of a chain for `userId` (read's version: n): as open, or 404 */
+  openVersion(userId: string, chatId: string, fileId: string, n: number) {
+    if (!this.seesChat(userId, chatId)) return fail('not_found')
+    return this.open(userId, chatId, fileId, false, { version: n })
+  }
+
+  /** Restore = a new head with version `n`'s bytes (putVersion: limits, storage, pruning). Nothing is overwritten. */
+  async restore(userId: string, chatId: string, fileId: string, n: number, opts: Omit<PutVersionOptions, 'action'> = {}): Promise<PutVersionResult> {
+    const o = this.openVersion(userId, chatId, fileId, n)
+    if (o.quarantined) fail('not_found')
+    const st = checkRegular(o.abs)
+    const fd = fs.openSync(o.abs, fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW ?? 0))
+    try {
+      if (fs.fstatSync(fd).ino !== st.ino) fail('not_found')
+      return await this.putVersion(userId, chatId, o.root.id, { fd, st: { size: st.size } }, { ...opts, action: 'chat.file_restore' })
+    } finally { fs.closeSync(fd) }
+  }
+
   /** The chat was deleted for good: its folder goes (its rows went with it). */
   removeChat(chatId: string) {
     this.ctx.db.query('DELETE FROM chat_files WHERE chat_id = ?').run(chatId)
@@ -426,13 +661,12 @@ export class ChatFiles {
    */
   sweep(now = Date.now()): number {
     const cutoff = new Date(now - UNSENT_CHAT_FILE_MS).toISOString()
-    const old = this.ctx.db.query('SELECT id, chat_id FROM chat_files WHERE created_at < ?').all(cutoff) as Pick<ChatFileRow, 'id' | 'chat_id'>[]
+    // roots only: a version is sent when its root is, and goes only with its root (or the chat)
+    const old = this.ctx.db.query('SELECT id, chat_id, root_id FROM chat_files WHERE created_at < ? AND root_id IS NULL').all(cutoff) as Pick<ChatFileRow, 'id' | 'chat_id' | 'root_id'>[]
     let n = 0
     for (const f of old) {
       if (this.sent(f)) continue
-      this.ctx.db.query('DELETE FROM chat_files WHERE id = ?').run(f.id)
-      this.removeFiles(f)
-      n++
+      n += this.removeChain(f)
     }
     let batch: string | null = null
     const aside = (chatId: string, name: string | null) => {
@@ -475,6 +709,15 @@ export function chatFilesOf(ctx: AppContext): ChatFiles {
   let s = services.get(ctx)
   if (!s) { s = new ChatFiles(ctx); services.set(ctx, s) }
   return s
+}
+
+/** A version as a client gets it (ChatFiles.versions): never a hash, a path or where a copy came from */
+export function chatFileVersion(db: AppContext['db'], r: ChatFileRow, head: boolean): ChatFileVersion {
+  return {
+    id: r.id, version: r.version ?? 1, name: r.name, size: r.size, mime: r.mime, createdAt: r.created_at, by: r.user_id,
+    byName: (db.query('SELECT name FROM users WHERE id = ?').get(r.user_id) as { name: string } | null)?.name ?? '',
+    ...(r.origin === 'ai' ? { ai: true } : {}), ...(head ? { head: true } : {}),
+  }
 }
 
 export { seesChatFiles }
