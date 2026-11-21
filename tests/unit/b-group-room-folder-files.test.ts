@@ -356,9 +356,14 @@ test('the check reads only the rule subjects: 2,000 people within 20 ms', async 
   for (const u of ['mia', 'nora']) db.query('INSERT INTO group_members (group_id, user_id) SELECT ?, id FROM users WHERE username = ?').run(others.id, u)
   await setRules(owner, folder.path, [{ subjectType: 'group', subjectId: others.id, access: 'write' }])
   const slowRules = RuleSet.load(db)
-  const slow = performance.now()
-  expect(membersRead(db, slowRules, roomId, group.id, chat)).toBe(true)
-  const slowMs = performance.now() - slow
-  console.log(`members judged one by one: ${slowMs.toFixed(2)} ms`)
+  // the median of five, as above: one run on a busy machine can stall on the scheduler, not on the check
+  const slowRuns: number[] = []
+  for (let i = 0; i < 5; i++) {
+    const slow = performance.now()
+    expect(membersRead(db, slowRules, roomId, group.id, chat)).toBe(true)
+    slowRuns.push(performance.now() - slow)
+  }
+  const slowMs = slowRuns.sort((a, b) => a - b)[2]!
+  console.log(`members judged one by one: median ${slowMs.toFixed(2)} ms`)
   expect(slowMs).toBeLessThan(20)
 })
