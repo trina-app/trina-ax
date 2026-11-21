@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-21 01:16
 - Branch: `fix/project-room-header-remove-warning`
-- Status: in progress
+- Status: done
 - Where: web/ (pages/Room.tsx, components/GuestTag.tsx, components/ProjectMembersDialog.tsx, i18n). Why: QA walk of #182 on a private QA copy (QA sheet TC-6127, TC-6128).
 - Version impact: patch (two small web-only UI fixes)
 
