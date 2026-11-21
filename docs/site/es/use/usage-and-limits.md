@@ -38,7 +38,25 @@ Las habilidades personales nunca se cuentan por su nombre, así que ningún admi
 
 ## Fijar límites
 
-De forma predeterminada no hay límites. Los administradores los añaden en **Administración › Configuración del equipo**, en **Límites de uso**.
+De forma predeterminada no hay límites. Un límite se cuenta en **tokens**: trozos pequeños de texto, cada uno más o menos
+tres cuartos de una palabra en inglés. Todo lo que la IA lee (su pregunta, los archivos que abre) y escribe cuenta, así
+que una respuesta que lee archivos largos usa muchos más tokens que una respuesta corta. Como un plan de datos mensual
+en un teléfono, un límite fija cuánto se puede usar en un día o en un mes.
+
+Para añadir un límite (propietarios y administradores):
+
+1. Abra **Administración › Configuración del equipo** y baje hasta **Límites de uso**.
+2. Pulse **Añadir límite**. Se abre una ventana.
+3. **Se aplica a**: **Todo el equipo**, un grupo o una persona. **Período**: **Por día** o **Por mes**.
+4. **Límite de tokens**: cuántos tokens, por ejemplo 1000000 para un millón. **Límite de gasto (USD)** es opcional: una
+   estimación de lo que costaría el mismo uso a través de la API; 0 significa sin límite de importe.
+5. **Al superar el límite**: **Solo advertir** deja que las respuestas sigan y envía un aviso; **Bloquear** detiene las
+   respuestas nuevas hasta que empiece de nuevo el periodo.
+6. Pulse **Guardar**.
+
+El límite es ahora una fila en **Límites de uso**. Cada persona, grupo o el equipo entero puede tener un límite por periodo.
+
+![Añadir límite: Se aplica a Todo el equipo, Período Por día, Límite de tokens, Límite de gasto (USD) con 0 que significa sin límite de importe, Al superar el límite Solo advertir, y Guardar](../../images/usage/limit-dialog.webp "Añadir un límite de uso")
 
 Para una sola persona es más rápido desde **Administración › Miembros e invitaciones**: abra su menú **…** y elija **Límite de uso…**. El
 cuadro ya corresponde a esa persona y se abre con el límite que tiene, junto con cuánto ha usado. Elija **Por día** o
@@ -51,4 +69,11 @@ bajo su nombre, con **Límite superado** cuando se ha agotado. En un teléfono, 
 | Un grupo | por día o por mes |
 | Todo el equipo | por día o por mes |
 
-Cuando se alcanza un límite, las personas a las que afecta no pueden empezar respuestas nuevas hasta que se reinicie el periodo. Su página de uso indica cuándo ocurrirá.
+Lo que pasa en el límite depende de **Al superar el límite**:
+
+- **Bloquear**: el propietario y los administradores reciben un aviso al 80 % y otra vez al 100 % (y también la persona,
+  cuando el límite es suyo). Al 100 %, las personas a las que afecta no pueden empezar respuestas nuevas hasta que se
+  reinicie el periodo: la medianoche para un límite diario, el día 1 del mes para un límite mensual, en la zona horaria
+  del equipo. Su página de uso indica cuándo ocurrirá.
+- **Solo advertir**: las respuestas siguen. El propietario y los administradores (y la persona, cuando el límite es suyo)
+  reciben un aviso cuando se agota.

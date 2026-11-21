@@ -73,14 +73,25 @@ centang **Saya sudah membaca pemberitahuan di atas**.
 
 ![Tambah akun dengan Claude subscription dipilih: cara kerjanya, Name, Used by, pemberitahuan dengan kotak centangnya, Make it in a terminal instead, dan Connect Claude subscription](../../images/connect/ai-claude-subscription.webp "Langganan Claude")
 
+Untuk tim (di Admin), langganan hanya bisa dipilih setelah owner menyalakan **Izinkan langganan bersama** di
+**Admin › Pengaturan tim**, di bagian **Akun milik anggota**. Sampai saat itu dialognya menampilkan "Berbagi langganan
+dinonaktifkan."
+
 #### Setujui di Claude
-Pilih **Hubungkan langganan Claude**. Setelah beberapa detik, muncul **Buka Claude untuk menyetujui** (atau **Salin
-link**, untuk membukanya di browser tempat Anda masuk ke Claude). Halaman Claude sendiri terbuka: pastikan halaman itu
-menampilkan akun yang Anda maksud, lalu setujui.
+1. Pilih **Hubungkan langganan Claude**. Setelah beberapa detik, dialog menampilkan **Buka Claude untuk menyetujui**,
+   **Salin tautan**, dan kotak kosong.
+2. Pilih **Buka Claude untuk menyetujui**. Halaman Claude sendiri terbuka di tab baru. (Jika Anda masuk ke Claude di
+   browser lain, pilih **Salin tautan** dan buka tautannya di sana.)
+3. Di halaman Claude, masuk jika diminta, pastikan halaman itu menampilkan akun yang Anda maksud, lalu setujui. Claude
+   lalu menampilkan sebuah kode.
+
+![Tambah akun setelah Connect Claude subscription: Open Claude to approve, Copy link, kotak Paste the code Claude shows after you approve, dan Connect](../../images/connect/ai-claude-code.webp "Setujui di Claude, lalu tempel kodenya")
 
 #### Tempel kodenya
-Claude lalu menampilkan sebuah kode. Salin seluruhnya (ada `#` di tengahnya) ke **Tempel kode yang ditampilkan Claude
-setelah Anda menyetujui**. Trina AX menampilkan **Terhubung · Langganan Claude**.
+1. Di halaman Claude, salin seluruh kodenya dengan tombol salinnya (ada `#` di tengahnya).
+2. Kembali ke tab Trina AX, tempelkan ke **Tempel kode yang ditampilkan Claude setelah Anda menyetujui**, lalu pilih
+   **Hubungkan**.
+3. Trina AX menampilkan **Terhubung · Langganan Claude**, dan akun itu muncul di baris Claude Code.
 :::
 
 Kata sandi Claude Anda tidak pernah sampai ke Trina AX: Anda masuk di halaman Claude sendiri, dan Trina AX hanya
@@ -126,8 +137,10 @@ pilih siapa yang memakainya, centang **Saya sudah membaca pemberitahuan di atas*
 ![Tambah akun dengan ChatGPT plan dipilih: Name, Used by, pemberitahuan dengan kotak centangnya, dan Start sign-in](../../images/connect/ai-chatgpt.webp "Paket ChatGPT")
 
 #### Masukkan kode di OpenAI
-Trina AX menampilkan **Buka halaman masuk ChatGPT** dan **Masukkan kode ini (dalam 15 menit)**. Buka alamatnya, masuk
-dengan akun ChatGPT, ketik kodenya, lalu setujui.
+1. Trina AX menampilkan **Buka halaman masuk ChatGPT** dan, di bawah **Masukkan kode ini (dalam 15 menit)**, sebuah kode
+   pendek seperti `WXYZ-12AB3` dengan tombol salin.
+2. Buka halamannya. Masuk di OpenAI dengan akun ChatGPT.
+3. Ketik atau tempel kodenya di sana, lalu setujui. Biarkan tab Trina AX tetap terbuka: tab itu lanjut dengan sendirinya.
 
 #### Selesai
 Trina AX menampilkan **Terhubung · ChatGPT** beserta nama paketnya. Jika Anda masuk dengan akun yang bukan Anda maksud,

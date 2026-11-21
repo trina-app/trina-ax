@@ -25,7 +25,28 @@ Las habilidades que preparó Trina AX, cada una con **Ejemplo**: Company slide d
 **Elegir carpeta** con documentos de la empresa. La IA sugiere los que el equipo puede usar solo a partir de los nombres de archivo, las carpetas y las fechas, y usted marca lo que se sube. No se sube nada hasta que pulse el botón. Después, la IA puede leerlos y proponer carpetas en las que ordenarlos (**¿Los ordenamos así?**). Una línea indica quién verá los archivos.
 
 #### Herramientas del equipo
-**Herramientas para su equipo** es una sola lista. Conecte una vez una herramienta para todo el equipo (**Conectar para el equipo**: Notion, o Slack en su propia página; todo el equipo comparte esa conexión), o active **Pedir que cada uno conecte la suya** (en la fila de Notion y en las de Google). Google Drive y Gmail permiten las dos cosas: **Conectar para el equipo** comparte una cuenta de Google (el mismo diálogo que Administración › Apps conectadas) y el interruptor pide a cada persona que conecte la suya. Esas herramientas aparecen primero en la lista de conectores de todos, marcadas **El equipo pide conectarla**, y no bloquean nada. **Otras herramientas** abre la lista completa, donde la página de cada herramienta tiene el mismo interruptor. En este paso nadie inicia sesión con su propia cuenta. En un teléfono este paso se omite.
+**Herramientas para su equipo** es una sola lista: Notion, Slack y, donde su servidor puede conectarlos, Google Drive
+y Gmail. Cada fila ofrece una de dos formas, o las dos:
+
+- **Conectar para el equipo** (el botón de la derecha). Usted inicia sesión una vez con una cuenta y todo el equipo usa
+  esa única conexión, como un buzón compartido que todos los de un equipo pueden abrir. Notion abre su propia página de
+  inicio de sesión en una ventana nueva. Slack abre su página en Administración › Apps conectadas
+  ([Slack](../use/slack.md)). Gmail abre el diálogo que usa Administración › Apps conectadas:
+  **Continuar con Google**, inicie sesión con la cuenta de Google compartida (como `sales@acme.com`) y luego elija
+  quién puede usarla. Google Drive abre otro distinto, **Compartir un Google Drive con el equipo**: el mismo inicio de
+  sesión, y además elige qué carpetas de esa cuenta puede usar el equipo.
+- **Pedir que cada uno conecte la suya** (el interruptor bajo la línea de Notion y de las filas de Google). Ahora no se
+  conecta nada. La herramienta aparece primero en **Configuración › Conectores** de todos, marcada **El equipo pide
+  conectarla**, y cada persona inicia sesión con su propia cuenta, igual que cada uno añade su propio Gmail en su
+  propio teléfono. No bloquea nada: cualquiera puede seguir conectando cualquier herramienta, o ninguna.
+
+![El paso Herramientas para su equipo: Notion, Slack y Gmail, cada una con Conectar para el equipo a la derecha; Notion y Gmail tienen además el interruptor Pedir que cada uno conecte la suya; Otras herramientas y Hacerlo más tarde abajo](../../images/setup/tools-step.webp "Herramientas para su equipo")
+
+Tras una conexión del equipo, la fila dice **Conectado** (una fila de Google también nombra la cuenta compartida y quién
+la usa). **Otras herramientas** abre la lista completa, donde la página de cada herramienta tiene el mismo interruptor.
+Todo esto se cambia más tarde: las conexiones del equipo en **Administración › Apps conectadas**, el interruptor de cada
+herramienta en su página de **Configuración › Conectores**. En este paso nadie inicia sesión con su propia cuenta. En un
+teléfono este paso se omite.
 
 #### Invitación
 Copie el mensaje ya preparado. Menciona una habilidad. Quienes se unen llegan a Inicio, donde una tarjeta de bienvenida dice quién les invitó y qué hacer primero; la habilidad está en **Habilidades del equipo**. Si cada persona inicia sesión en su propia IA, el mensaje lo dice. La página de invitación se ofrece en el idioma del navegador de la persona. Si otra persona ya tiene la sesión iniciada en ese ordenador, la página dice "Ya está en <nombre del equipo>" y ofrece **Cerrar sesión para unirse**, que cierra la sesión y abre el mismo enlace.

@@ -20,6 +20,18 @@ Trina AX es un espacio de trabajo con IA para la empresa. Usted configura Claude
 
 ![La app en un ordenador: la barra de la izquierda con Trina, Chats, Proyectos, Archivos y Actividad, la lista de Trina al lado y la página de inicio](../images/overview/app.webp "Trina AX en un ordenador")
 
+## Use Trina AX en el trabajo
+
+¿No es desarrollador? Empiece aquí. Cada página tiene pasos numerados con los nombres exactos de los botones e imágenes
+de las pantallas.
+
+:::cards cols=2
+- icon=message-square | [Chats y proyectos](use/chats-and-projects.md) | Pregunte a la IA, comparta un chat como un archivo de Google Drive y reúna un trabajo en un proyecto.
+- icon=folder-lock | [Archivos y permisos](use/files-and-permissions.md) | Comparta un archivo o una carpeta, y reserve una carpeta para menos personas.
+- icon=bell | [Configuración y búsqueda](use/settings-and-search.md) | Su perfil, el idioma y las notificaciones, y la búsqueda con ⌘K.
+- icon=clock | [Tareas programadas](use/scheduled-tasks.md) | Deje que la IA haga el mismo trabajo cada lunes, en unos pocos clics.
+:::
+
 ## Ruta recomendada para nuevos desarrolladores
 
 :::steps

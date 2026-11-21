@@ -38,7 +38,26 @@ Skill pribadi tidak pernah dihitung berdasarkan nama, jadi tidak ada admin yang 
 
 ## Mengatur batas
 
-Secara bawaan tidak ada batas. Admin menambahkannya di **Admin › Pengaturan tim**, di bagian **Batas pemakaian**.
+Secara bawaan tidak ada batas. Batas dihitung dalam **token**: potongan kecil teks, kira-kira tiga perempat kata bahasa
+Inggris per token. Semua yang dibaca AI (pertanyaan Anda, file yang dibukanya) dan ditulisnya ikut dihitung, jadi jawaban
+yang membaca file panjang memakai jauh lebih banyak token daripada balasan singkat. Seperti paket data bulanan di ponsel,
+batas membatasi berapa banyak yang bisa dipakai dalam sehari atau sebulan.
+
+Untuk menambahkan batas (owner dan admin):
+
+1. Buka **Admin › Pengaturan tim** lalu gulir ke **Batas pemakaian**.
+2. Tekan **Tambah batas**. Sebuah jendela terbuka.
+3. **Berlaku untuk**: **Seluruh tim**, satu grup, atau satu orang. **Periode**: **Per hari** atau **Per bulan**.
+4. **Batas token**: berapa token, misalnya 1000000 untuk satu juta. **Batas biaya (USD)** tidak wajib: perkiraan biaya
+   pemakaian yang sama lewat API; 0 berarti tanpa batas jumlah uang.
+5. **Kalau terlampaui**: **Peringatan saja** membiarkan jawaban tetap berjalan dan mengirim pemberitahuan; **Blokir**
+   menghentikan jawaban baru sampai periode berikutnya dimulai.
+6. Tekan **Simpan**.
+
+Batas itu sekarang menjadi satu baris di bawah **Batas pemakaian**. Setiap orang, grup, atau seluruh tim bisa punya satu
+batas per periode.
+
+![Add limit: Applies to Whole team, Period Per day, Token limit, Spending limit (USD) dengan 0 berarti tanpa batas jumlah uang, When exceeded Warn only, dan Save](../../images/usage/limit-dialog.webp "Menambahkan batas pemakaian")
 
 Untuk satu orang, lebih cepat dari **Admin › Anggota & undangan**: buka menu **…** orang itu dan pilih **Batas penggunaan…**. Dialog
 langsung ditujukan untuk orang itu dan terbuka dengan batas yang ia miliki, beserta berapa banyak yang sudah ia pakai. Pilih **Per hari** atau
@@ -51,4 +70,11 @@ di bawah namanya, dengan **Melebihi batas** setelah batasnya habis. Di ponsel, b
 | Satu grup | per hari atau per bulan |
 | Seluruh tim | per hari atau per bulan |
 
-Jika batas tercapai, orang yang dicakupnya tidak bisa memulai jawaban baru sampai periodenya diatur ulang. Halaman pemakaian mereka menyebutkan kapan itu terjadi.
+Apa yang terjadi saat batas tercapai bergantung pada **Kalau terlampaui**:
+
+- **Blokir**: owner dan admin mendapat pemberitahuan pada 80% dan lagi pada 100% (begitu juga orang itu, kalau batasnya
+  untuk dia). Pada 100%, orang yang dicakupnya tidak bisa memulai jawaban baru sampai periodenya diatur ulang: tengah
+  malam untuk batas harian, tanggal 1 untuk batas bulanan, menurut zona waktu tim. Halaman pemakaian mereka menyebutkan
+  kapan itu terjadi.
+- **Peringatan saja**: jawaban tetap berjalan. Owner dan admin (dan orang itu, kalau batasnya untuk dia) mendapat satu
+  pemberitahuan saat batasnya habis.

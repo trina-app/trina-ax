@@ -5,6 +5,25 @@ description: Convierta la forma de trabajar de su equipo en instrucciones SKILL.
 
 Una habilidad es un procedimiento reutilizable en un archivo `SKILL.md`. Le dice a la IA cómo hace su equipo una tarea. No entrena el modelo y nunca da acceso adicional.
 
+Piense en ella como una ficha de receta guardada en una carpeta compartida: "cómo escribimos un informe semanal", "cómo
+respondemos a una pregunta de precios". Todas las personas cuya IA puede leer la carpeta reciben la misma receta, así que
+las respuestas de todos siguen los mismos pasos.
+
+## Sugerir una habilidad al equipo
+
+Los miembros no pueden añadir habilidades del equipo directamente, pero pueden sugerir una. Decide un responsable de
+habilidades.
+
+1. Debajo de una respuesta de la IA que le gustó, pase el puntero sobre la respuesta y pulse el botón de marcador
+   **Sugerir como habilidad** (el nombre aparece al pasar el puntero). Para un archivo de su propia carpeta, elija
+   **⋯** › **Sugerir como habilidad** en su fila en **Archivos**.
+2. Se abre la ventana **Sugerir como habilidad del equipo**. Revise el **Nombre de la habilidad** (se convierte en
+   `/nombre` en el chat), la **Descripción (una frase)** y los **Pasos**, y elija la **Carpeta** donde debe ir.
+3. Pulse **Sugerir**.
+
+Un mensaje dice "Habilidad sugerida. Recibirá un aviso cuando se revise." Espera en **Habilidades del equipo › Mis
+sugerencias**, y un responsable de habilidades la ve en **Por revisar**. Cuando la registra, la IA de todos puede usarla.
+
 ## Usar una habilidad
 
 - En un chat, escriba `/` y elija una habilidad, o escriba `/nombre-de-la-habilidad` en su mensaje.
@@ -70,7 +89,8 @@ Un proyecto del equipo en `projects/<project>/` puede tener habilidades propias 
 
 :::steps
 #### Cree la carpeta
-Cree `skills/<name>/` en Archivos. El nombre usa letras minúsculas (de cualquier idioma), dígitos y guiones sueltos, sin espacios, puntos ni mayúsculas, y coincide con el nombre de la carpeta.
+Solo los responsables de habilidades. En **Archivos**, abra **Habilidades del equipo** y pulse **Nueva carpeta** en la
+barra de herramientas, escriba el nombre de la habilidad y pulse **Crear**: así se crea `skills/<name>/`. El nombre usa letras minúsculas (de cualquier idioma), dígitos y guiones sueltos, sin espacios, puntos ni mayúsculas, y coincide con el nombre de la carpeta.
 
 #### Escriba SKILL.md
 Empiece con un encabezado y luego el procedimiento.
