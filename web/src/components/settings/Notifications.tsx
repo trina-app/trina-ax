@@ -243,11 +243,13 @@ function fileGoneText(f: InboxNotification['fileShare'], t: T): string {
 export function accessRequestText(item: InboxNotification, t: T): string {
   const a = item.accessRequest
   if (item.code === 'access.answered') {
+    if (a?.state === 'approved' && a.file) return a.name && !a.gone ? t('notifications.event.access.fileAdded', { file: a.file.name, name: a.name }) : t('notifications.event.access.fileAddedUntitled', { file: a.file.name })
     if (a?.state !== 'approved') return t('notifications.event.access.answered')
     return a.name && !a.gone ? t('notifications.event.access.addedToProject', { name: a.name }) : t('notifications.event.access.addedToProjectGone')
   }
   if (!a || a.gone || !a.by) return t('notifications.event.access.requested')
   if (a.kind === 'project' && a.name) return t('notifications.event.access.requestedProject', { by: a.by, name: a.name })
+  if (a.kind === 'chat' && a.file) return a.name ? t('notifications.event.access.requestedChatFile', { by: a.by, file: a.file.name, name: a.name }) : t('notifications.event.access.requestedChatFileUntitled', { by: a.by, file: a.file.name })
   if (a.kind === 'chat') return a.name ? t('notifications.event.access.requestedChat', { by: a.by, name: a.name }) : t('notifications.event.access.requestedChatUntitled', { by: a.by })
   return t('notifications.event.access.requested')
 }

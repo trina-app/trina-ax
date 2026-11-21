@@ -188,5 +188,7 @@ describe('the rules around it', () => {
     const a = { id: '01a1fc0c-bb3a-74b5-a134-7fcbe2e1b208', name: 'clip.mp4', path: '', size: 9, mime: 'video/mp4', kind: 'video', source: 'chat', origin: 'ai' } as Attachment
     expect(answerWithFiles('Done.', [a])).toContain('file_id=01a1fc0c-bb3a-74b5-a134-7fcbe2e1b208')
     expect(answerWithFiles('Done.', [{ ...a, source: 'team', path: 'shared/x' }])).toBe('Done.')
+    // a shared copy (share-chat-files) is named by sharedCopiesNote, not here too
+    expect(answerWithFiles('Done.', [{ ...a, origin: 'shared-copy' }])).toBe('Done.')
   })
 })

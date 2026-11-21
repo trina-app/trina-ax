@@ -8,7 +8,9 @@ import type { SourceLoc } from '@mycel/shared/api'
  * a chat shared with people (read through the chat, its people only), or bytes we already have (a
  * picked file before sending). */
 export type PreviewFile =
-  | { source: 'team'; path: string; name: string; at?: SourceLoc }
+  /** `chatId`: opened from a file link of a chat shared with people (components/Markdown.tsx ChatLinks): a file that does
+   * not open for me offers to ask the chat's creator to add it (components/ChatFileAsk.tsx) */
+  | { source: 'team'; path: string; name: string; at?: SourceLoc; chatId?: string }
   | { source: 'room'; roomId: string; fileId: string; name: string }
   | { source: 'chat'; chatId: string; fileId: string; name: string }
   | { source: 'local'; name: string; blob: Blob }
@@ -117,7 +119,7 @@ export function escapeAction(s: { dialog: boolean; expanded: boolean }): 'none' 
 
 let seq = 0
 export const openFilePreview = (file: PreviewFile) => setSidePanel({ kind: 'file', file, key: ++seq })
-export const openTeamFile = (path: string, at?: SourceLoc | null) => openFilePreview({ source: 'team', path, name: path.slice(path.lastIndexOf('/') + 1), ...(at ? { at } : {}) })
+export const openTeamFile = (path: string, at?: SourceLoc | null, chatId?: string | null) => openFilePreview({ source: 'team', path, name: path.slice(path.lastIndexOf('/') + 1), ...(at ? { at } : {}), ...(chatId ? { chatId } : {}) })
 /** A file sent in a room, as the preview panel opens it. */
 export const roomPreview = (roomId: string, f: { id: string; name: string }): PreviewFile => ({ source: 'room', roomId, fileId: f.id, name: f.name })
 export const openArtifact = (chatId: string, artifactKey: string, versionId?: string) => setSidePanel({ kind: 'artifact', chatId, artifactKey, versionId })

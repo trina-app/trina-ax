@@ -29,4 +29,20 @@ export const ACCESS_REQUEST_SPECS: Record<string, Spec> = {
       if (n.n) throw new Error(`${who}: an ask on a missing chat left a request`)
     } },
   answerAccessRequest: { build: (c) => c.post(`/api/access-requests/${crypto.randomUUID()}`, { answer: 'approve' }), scope: 'nobody' },
+  // a file link of a chat shared with people (docs/decisions/20261121-share-chat-files.md), aimed at alice's private
+  // chat and a file in her own folder: only alice sees the chat, and even she gets the one generic 'no' (it is no chat
+  // shared with people, and her own file); everyone else the chat's 404, with nothing of the file
+  chatFileAccess: { build: (c, w) => c.get(`/api/chats/${w.ids.chatA}/file-access?path=${encodeURIComponent(`users/alice/${C.aliceFileName}.md`)}`), scope: 'own-alice-chat',
+    check: (r, _w, who) => {
+      nothingOfAlice(r.text, who, 'a file-access answer')
+      if (r.text.includes(C.aliceFileName) && who !== 'memberIn') throw new Error(`${who}: file-access named alice's file`)
+      if (r.status === 200 && r.json?.status !== 'no') throw new Error(`${who}: file-access answered ${r.json?.status} for a chat that is not shared with people`)
+    } },
+  // the ask: nobody, alice included (no chat shared with people, her own file); never a row
+  requestChatFile: { build: (c, w) => c.post(`/api/chats/${w.ids.chatA}/file-access`, { path: `users/alice/${C.aliceFileName}.md` }), scope: 'nobody',
+    check: (r, w, who) => {
+      nothingOfAlice(r.text, who, 'a file ask')
+      const n = w.inst.ctx.db.query("SELECT COUNT(*) n FROM access_requests WHERE target_id LIKE '%/%'").get() as { n: number }
+      if (n.n) throw new Error(`${who}: a file ask on a private chat left a request`)
+    } },
 }

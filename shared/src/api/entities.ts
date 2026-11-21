@@ -395,6 +395,15 @@ export const Attachment = z.object({
    * picture's place and camera cut out after it arrived whole: a file kept with a chat shared with people). The sender
    * checks the file arrived whole against this, `size` is what everyone opens (QA TC-2023) */
   receivedSize: z.number().int().nonnegative().optional(),
+  /** a chat file (source 'chat') the chat got without anyone sending it from their computer: 'shared-copy' is a copy of
+   * a file the chat made in its creator's own folder, added by the creator's own press when the chat was shared
+   * (docs/decisions/20261121-share-chat-files.md), attached to the answer that made it; 'ai' is the AI's own output
+   * attached to its answer (session e6). Absent: someone's upload */
+  origin: z.enum(['ai', 'shared-copy']).optional(),
+  /** 'shared-copy', for the chat's creator only (a path in their own folder): the team path it was copied from, so
+   * their own link to it opens this copy. Everyone else reaches the copy through the link's panel (file-access 'copy').
+   * The server keeps the original's sha256 beside it for its own re-check; that is never sent */
+  from: RelPath.optional(),
 })
 export type Attachment = z.infer<typeof Attachment>
 /** At most this many attachments (uploads and team files together) per message: 100, what one model request may hold

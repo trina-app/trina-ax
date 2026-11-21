@@ -40,6 +40,7 @@ import { fileError } from '../team-files/errors'
 import { personLocale } from '../files/media-text'
 import { tr } from './i18n'
 import { seesChatFiles } from './chat-files-access'
+import { withheldFrom } from './shared-answers'
 
 /** An upload not sent in a message within a day is removed (as a room's). */
 export const UNSENT_CHAT_FILE_MS = 24 * 3600_000
@@ -117,6 +118,14 @@ export class ChatFiles {
     return !!this.ctx.db.query("SELECT 1 FROM messages m, json_each(m.attachments) j WHERE m.chat_id = ? AND json_valid(m.attachments) AND json_extract(j.value, '$.id') = ? LIMIT 1").get(f.chat_id, f.id)
   }
 
+  /** Every message of its chat that carries the file is an answer hidden from `userId` (a question never is). */
+  private onlyOnHidden(userId: string, f: Pick<ChatFileRow, 'id' | 'chat_id'>): boolean {
+    const carriers = (this.ctx.db.query("SELECT DISTINCT m.id FROM messages m, json_each(m.attachments) j WHERE m.chat_id = ? AND json_valid(m.attachments) AND json_extract(j.value, '$.id') = ?").all(f.chat_id, f.id) as { id: string }[]).map((m) => m.id)
+    if (!carriers.length) return false
+    const hidden = withheldFrom(this.ctx.db, this.ctx.files.rules(), f.chat_id, userId)
+    return carriers.every((id) => hidden.has(id))
+  }
+
   /** Does `userId` see the chat of a chat file now: one shared with people they are in (not in the trash, unless it is
    * theirs), or their own chat (one made private again keeps its files for its creator; the trash too)? The same rule
    * as chatFor 'view' with deleted chats allowed for their creator. */
@@ -189,6 +198,31 @@ export class ChatFiles {
     return { ...chatFileAttachment(row), origin: 'ai' }
   }
 
+  /** A copy of a file the chat made in its creator's own folder (chat/chat-files-share.ts copyMade: its bytes read and
+   * checked there), kept as a file of this chat sent by `userId`; the caller attaches it to the answer that made it. */
+  async keepCopy(userId: string, chatId: string, name: string, src: { file: string } | { bytes: Uint8Array }, kind: Attachment['kind']): Promise<ChatFileRow> {
+    const id = newId()
+    await fs.promises.mkdir(this.dir(chatId), { recursive: true, mode: 0o700 })
+    const dst = this.abs({ chat_id: chatId, id })
+    try {
+      let sha: string
+      if ('bytes' in src) {
+        await fs.promises.writeFile(dst, src.bytes, { flag: 'wx', mode: 0o600 })
+        sha = createHash('sha256').update(src.bytes).digest('hex')
+      } else {
+        // a checked temp file (up to the copy cap): moved into place, hashed by streaming
+        try { await fs.promises.rename(src.file, dst) } catch { await fs.promises.copyFile(src.file, dst, fs.constants.COPYFILE_EXCL) }
+        await fs.promises.chmod(dst, 0o600)
+        const t = new Date()
+        await fs.promises.utimes(dst, t, t)
+        const h = createHash('sha256')
+        for await (const chunk of fs.createReadStream(dst)) h.update(chunk as Buffer)
+        sha = h.digest('hex')
+      }
+      return await this.record(userId, chatId, id, name, dst, sha, null, kind)
+    } catch (e) { this.removeFiles({ chat_id: chatId, id }); throw e }
+  }
+
   /** The row of a file just put at `dst` (its preview made first). */
   private async record(userId: string, chatId: string, id: string, name: string, dst: string, sha256: string, copiedFrom: string | null, kind: Attachment['kind'], thumbFrom?: string | null): Promise<ChatFileRow> {
     const quarantined = this.ctx.files.quarantine.hasHash(sha256)
@@ -233,6 +267,9 @@ export class ChatFiles {
     const f = this.ctx.db.query('SELECT * FROM chat_files WHERE id = ? AND chat_id = ?').get(fileId, chatId) as ChatFileRow | null
     if (!f) return fail('not_found')
     if (f.user_id !== userId && !this.sent(f)) fail('not_found')
+    // a file carried only by answers hidden from this person (chat/shared-answers.ts: a copy of a file such an answer
+    // made, docs/decisions/20261121-share-chat-files.md): not theirs to open, as the answer is not (review M1)
+    if (f.user_id !== userId && this.onlyOnHidden(userId, f)) fail('not_found')
     const quarantined = this.ctx.files.quarantine.hasHash(f.sha256)
     if (thumb) {
       if (f.thumb === 'jpg' || f.thumb === 'png') {
