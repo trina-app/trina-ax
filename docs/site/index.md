@@ -20,6 +20,17 @@ Trina AX is a company AI workspace. You set up Claude Code once on a server, and
 
 ![The app on a computer: the bar on the left with Trina, Chats, Projects, Files and Activity, the Trina list beside it, and Home](images/overview/app.webp "Trina AX on a computer")
 
+## Use Trina AX at work
+
+Not a developer? Start here. Each page has numbered steps with the exact button names and pictures of the screens.
+
+:::cards cols=2
+- icon=message-square | [Chats and projects](use/chats-and-projects.md) | Ask the AI, share a chat like a Google Drive file, and keep one piece of work in a project.
+- icon=folder-lock | [Files and permissions](use/files-and-permissions.md) | Share a file or a folder, and keep a folder for fewer people.
+- icon=bell | [Settings and search](use/settings-and-search.md) | Your profile, language and notifications, and ⌘K search.
+- icon=clock | [Scheduled tasks](use/scheduled-tasks.md) | Let the AI do the same work every Monday, in a few clicks.
+:::
+
 ## Recommended path for new developers
 
 :::steps

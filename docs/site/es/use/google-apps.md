@@ -20,20 +20,30 @@ No hay nada que copiar ni pegar: usted inicia sesión en Google.
 
 :::steps
 #### Abra la app en Conectores
-Elija su foto en la parte inferior de la barra de la izquierda, después **Configuración › Conectores**, y elija la app
-(Gmail, por ejemplo) en **Descubrir**. Su página explica qué puede hacer la IA y enumera todas las herramientas.
+1. Elija su foto en la parte inferior de la barra de la izquierda y después **Configuración**.
+2. En la lista de la izquierda, elija **Conectores**.
+3. En **Descubrir**, elija la app, **Gmail** por ejemplo. (Escriba su nombre en **Buscar apps** si no la ve).
+
+Se abre la página de la app. Explica qué puede hacer allí la IA y enumera todas las herramientas; un lápiz marca las
+herramientas que cambian algo. **Conectar** está arriba a la derecha.
+
+![La página de Gmail en Configuración › Conectores de un miembro: Solo para usted, Conectores › Gmail, el botón Conectar arriba a la derecha, lo que hace la IA con Gmail y sus herramientas](../../images/connect/google-member-connect.webp "Gmail, antes de conectar")
 
 #### Elija Conectar
-Se abre la propia página de inicio de sesión de Google (en la app de escritorio, en su navegador). Elija su cuenta.
+Se abre la propia página de inicio de sesión de Google en una ventana nueva (en la app de escritorio, en su navegador).
+Si tiene la sesión iniciada en más de una cuenta de Google, Google le pregunta cuál: elija la que quiere usar.
 
 #### Deje todas las casillas marcadas
-Google enumera lo que Trina AX puede hacer, como "Leer, redactar y enviar correos". Deje **todas** las casillas marcadas
-y elija **Continue**. Un inicio de sesión con una casilla sin marcar se rechaza: "No se marcaron algunos permisos. Vuelva
+Google muestra una página que nombra a Trina AX y enumera lo que puede hacer, una línea por permiso, como "Leer,
+redactar y enviar correos". Algunas líneas tienen una casilla. Deje **todas** las casillas marcadas y elija
+**Continue**. Un inicio de sesión con una casilla sin marcar se rechaza: "No se marcaron algunos permisos. Vuelva
 a conectar y deje todas las casillas marcadas."
 
 #### Confirme la cuenta
 De vuelta en Trina AX, compruebe la cuenta que aparece ("¿Conectar esta cuenta?") y elija **Conectar esta cuenta**. La
-página indica **Conectado como** y su dirección.
+página indica ahora **Conectado** arriba a la derecha y **Conectado como** y su dirección debajo del nombre.
+
+![La página de Gmail después de conectar: Conectado arriba a la derecha con un menú ⋯, y Conectado como bob@acme.example.com debajo del nombre](../../images/connect/google-member-connected.webp "Gmail, conectado")
 :::
 
 La lectura no pide confirmación. Antes de que la IA envíe un correo, añada un evento o edite un documento, muestra una tarjeta con todo lo
@@ -50,9 +60,31 @@ reciben un aviso, y usted recibe respuesta cuando ya puede conectar.
 ## Una cuenta de Google compartida para el equipo (administradores)
 
 Un buzón o calendario compartido, como `sales@acme.com`, se puede conectar una sola vez para las personas que lo
-necesitan. En **Administración › Apps conectadas**, abra la app de Google y, en **Ajustes del equipo › Cuenta de Google
-compartida**, elija **Conectar para el equipo**. Inicie sesión con la cuenta compartida y después elija quién la usa.
-Google Drive tiene **Compartido con el equipo** en el mismo lugar.
+necesitan, como un buzón compartido de Gmail que abren varias personas. Lo usan en sus chats sin conectar el suyo.
+
+:::steps
+#### Abra la app de Google en Administración
+Elija el logotipo de su equipo en la parte superior de la barra de la izquierda, después **Administración › Apps
+conectadas**, y elija la app de Google (Gmail, por ejemplo). Desplácese hasta **Ajustes del equipo**. La fila **Cuenta
+de Google compartida** tiene **Conectar para el equipo** a la derecha.
+
+![Los Ajustes del equipo de Gmail en Administración › Apps conectadas: Quién puede usarlo, luego Cuenta de Google compartida con el botón Conectar para el equipo, luego las API de Google](../../images/connect/google-team-row.webp "Ajustes del equipo › Cuenta de Google compartida")
+
+#### Inicie sesión con la cuenta compartida
+Elija **Conectar para el equipo**. Se abre el cuadro **Compartir una cuenta de Gmail con el equipo**. Elija **Continuar
+con Google** e inicie sesión en Google con la cuenta compartida, no con la suya. Deje todas las casillas marcadas, como
+arriba, y después compruebe la cuenta y elija **Conectar esta cuenta**.
+
+![El cuadro Compartir una cuenta de Gmail con el equipo: inicie sesión con la cuenta de Google que usará el equipo, el botón Continuar con Google y Cancelar](../../images/connect/google-team-dialog.webp "Compartir una cuenta de Gmail con el equipo")
+
+#### Elija quién la usa y guarde
+En **Quién puede usarlo**, elija a todos, grupos o personas, y elija **Guardar**. Nadie la usa hasta que guarde; si
+cierra el cuadro antes, se quita de nuevo. La fila muestra entonces la cuenta, quién la usa y quién la conectó, con un
+menú **⋯**: **Cambiar personas**, **Volver a conectar** y **Quitar**.
+:::
+
+Google Drive tiene **Compartido con el equipo** en el mismo lugar: **Compartir un Google Drive con el equipo** conecta
+una cuenta de Google y le deja elegir sus carpetas; las personas que elija las usan en sus chats.
 
 ## Configurar las apps de Google (administradores de un servidor que gestiona usted mismo)
 

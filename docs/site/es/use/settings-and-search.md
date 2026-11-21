@@ -81,13 +81,26 @@ Para el propietario y los administradores, **Teléfono › Notificaciones en el 
 **Push de Trina AX (predeterminado)**, **Desactivadas** o **Personalizado**, la dirección de su propio servicio push para su propia compilación de la
 app del teléfono. Las notificaciones en un teléfono nunca contienen el contenido de archivos ni de conversaciones.
 
-La campana de cada conversación elige su propio nivel: **Todos los mensajes**, **Solo menciones** o **Desactivadas**. Los
-canales están en **Solo menciones** salvo que lo cambie; las conversaciones directas y de grupo, en **Todos los mensajes**.
-Con **Solo menciones**, un mensaje nuevo pone el nombre de la conversación en negrita pero no suma ningún número, ni en
-la lista, ni en **Chats**, ni en el icono de la app; un mensaje que le menciona muestra **@** y cuenta. Con
-**Desactivadas**, el número es gris y no cuenta en ningún sitio.
-
 ![Configuración › Notificaciones para el propietario: la sección Teléfono con Avisos en el teléfono solo cuando no estoy y Notificaciones en el teléfono en Push de Trina AX (predeterminado), y luego Este dispositivo](../../images/settings/notifications.webp "Notificaciones")
+
+### Las notificaciones de una conversación
+
+Cada conversación puede tener su propio nivel, como cuando silencia un chat de grupo en su teléfono:
+
+1. Abra la conversación en **Chats**.
+2. Pulse la campana arriba a la derecha, junto a **✦** y **⋯**. En un teléfono, pulse **⋯** arriba y elija
+   **Ajustes de notificaciones**.
+3. En **Notificarme de esta conversación**, elija una opción: **Predeterminado (según ajustes)** (muestra lo que eso da
+   ahora a esta conversación), **Todos los mensajes**, **Solo menciones** o **Desactivadas**.
+
+La marca pasa a su elección al momento, y con **Desactivadas** la campana aparece tachada.
+
+![La campana de una conversación pulsada: Notificarme de esta conversación, con Predeterminado (según ajustes) · Solo menciones marcado, Todos los mensajes, Solo menciones y Desactivadas](../../images/settings/room-notify.webp "Las notificaciones de una conversación")
+
+Los canales están en **Solo menciones** salvo que lo cambie; las conversaciones directas y de grupo, en **Todos los
+mensajes**. Con **Solo menciones**, un mensaje nuevo pone el nombre de la conversación en negrita pero no suma ningún
+número, ni en la lista, ni en **Chats**, ni en el icono de la app; un mensaje que le menciona muestra **@** y cuenta. Con
+**Desactivadas**, el número es gris y no cuenta en ningún sitio.
 
 ## Eliminar su cuenta
 

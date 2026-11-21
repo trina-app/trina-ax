@@ -11,7 +11,10 @@ berubah seiring perkembangannya.
 
 ## Menambahkan aplikasi
 
-1. Buka percakapan, lalu **⋯ › Tambah aplikasi**.
+1. Buka percakapan lalu tekan **⋯** di kanan atas (di samping lonceng), lalu pilih **Tambah aplikasi**. Kalau Anda tidak
+   melihatnya, Anda tidak bisa menambahkan aplikasi di sini: di saluran, hanya owner dan admin saluran itu yang bisa (lihat
+   di bawah). Setelah percakapan punya aplikasi, item itu bertuliskan **Integrasi · 1** (jumlah aplikasinya) dan membuka
+   daftarnya, dengan **Tambah Aplikasi**.
 2. Pilih layanan. Layanan dikelompokkan: **Formulir** (Google Forms, Typeform, Tally, Jotform), **Pembayaran & pesanan**
    (Stripe, Shopify), **Kerja** (Notion, Zendesk, Jira, HubSpot), dan **Untuk developer** (GitHub, Sentry). **Tampilkan layanan
    lain** membuka beberapa layanan lagi (Toss Payments, Channel Talk, PortOne). **Aplikasi lain**, di urutan terakhir, menerima apa saja. Layanan yang memerlukan paket atau peran tertentu menyebutkannya di barisnya (misalnya *Perlu: paket Notion berbayar*).
