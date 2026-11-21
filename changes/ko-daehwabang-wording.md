@@ -1,0 +1,1 @@
+- 한국어에서 프로젝트 채팅방을 "대화방"으로 통일했어요. The Korean words for a project's room (button, tooltips, remove/leave warnings, room info, docs) say 대화방, the same as the rest of the app, instead of 채팅방.
