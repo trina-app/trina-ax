@@ -6,6 +6,9 @@
 // read-only refusals (not text, a chat no longer shared with people, safe operations), and a re-share of a changed
 // original as a new version of the same chain (no second copy).
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from 'bun:test'
+import fs from 'node:fs'
+import path from 'node:path'
+import { chatFilePath } from '@mycel/shared/places'
 import { API, type Attachment, type ChatFileSaved, type ChatFileVersions, type PutChatAudienceResult } from '@mycel/shared/api'
 import { startHarness, type Harness, type TestSocket } from '../lib/b-harness'
 import { chatFilesOf } from '../../server/src/chat/chat-files'
@@ -125,6 +128,40 @@ describe('edit a chat file from the web', () => {
     expect(((await (await versions('alice', c.chatId, c.rootId)).json()) as ChatFileVersions).canEdit).toBe(false)
     expect(await reason(await save('alice', c.chatId, c.rootId, 'x'))).toBe('chat_file_read_only')
     expect((await save('bob', c.chatId, c.rootId, 'x')).status).toBe(404)
+  })
+})
+
+describe('the write itself (putVersion recheck, the AI\'s versions)', () => {
+  test('the chat stops being shared with people while the bytes are written: refused, no version, no bytes left', async () => {
+    const c = await sharedCopy('race.md', 'v1')
+    const files = chatFilesOf(h.ctx) as unknown as { writeVersion: (...a: unknown[]) => Promise<string> }
+    const orig = files.writeVersion
+    const dir = path.join(chatFilesOf(h.ctx).root(), c.chatId)
+    const before = fs.readdirSync(dir).length
+    files.writeVersion = async function (this: unknown, ...a: unknown[]) {
+      const sha = await orig.apply(this, a)
+      // made alice's alone again between the checks and the insert
+      db().query('UPDATE chats SET people_shared_at = NULL WHERE id = ?').run(c.chatId)
+      return sha
+    }
+    try {
+      const r = await save('alice', c.chatId, c.rootId, 'v2 written while it changed')
+      expect(r.status).toBe(409)
+      expect(await reason(r)).toBe('chat_file_read_only')
+    } finally { files.writeVersion = orig }
+    expect(chatFilesOf(h.ctx).chain(c.rootId)).toHaveLength(1)
+    expect(fs.readdirSync(dir).length).toBe(before)
+    expect(await (await read('alice', c.chatId, c.rootId)).text()).toBe('v1')
+  })
+
+  test('a version the AI saved reaches the open windows: alice\'s tile says "Trina for bob" at once', async () => {
+    const c = await sharedCopy('agenda.md', '# agenda\n- budget\n')
+    const p = chatFilePath(c.rootId, 'agenda.md')
+    const mark = ws.alice!.frames.length
+    await ask('bob', c.chatId, `add the launch\n${fake({ tool: 'read', args: { file_path: p } }, { tool: 'edit', args: { file_path: p, old_string: '- budget', new_string: '- budget\n- launch' }, sayResult: true })}`)
+    const f = await ws.alice!.next('message.attachments', (x) => x.data.chatId === c.chatId && ws.alice!.frames.indexOf(x) >= mark && !!x.data.attachments.find((a) => a.id === c.rootId)?.updated)
+    expect(f.data.messageId).toBe(c.answer)
+    expect(f.data.attachments.find((a) => a.id === c.rootId)!.updated).toMatchObject({ by: 'bob', version: 2, ai: true })
   })
 })
 

@@ -54,7 +54,7 @@ import { refuseSkillDraftAttachments } from '../onboarding/skill-draft'
 import { refuseShareJudgeAttachments } from '../skills/share-judge'
 import { isPeopleRow } from '../chat/chat-audience'
 import { chatFilesOf } from '../chat/chat-files'
-import { editState, restoreTo, saveText } from '../chat/chat-file-edit'
+import { editState, restoreTo, saveText, tellChatOnAiVersions } from '../chat/chat-file-edit'
 import { streamFile } from '../team-files/download'
 import { SAFE_OPS_TEXT } from '../safe-ops/strings'
 import { Audiences, accountSeesProject, chatFor, memberWhileTrashed, chatPeople, chatView, isSharedRow, messageFor, messageView, projectCanShare, projectShare, rulesInPlace, severalAuthors, sharesNewChats, type ChatAccess, type ChatPeople } from '../chat/shared'
@@ -776,6 +776,8 @@ export const chatsRoutes: RouteModule = {
     // a chat's file edited in place, with versions (chat/chat-file-edit.ts over ChatFiles: the chain's root carriers,
     // seesChat; anyone who may not open it gets the 404 of a missing file). The chat's own files follow the people-shared
     // rule (seesChat), as the read above
+    // a version the AI saved reaches the open windows as a person's save does
+    tellChatOnAiVersions(rt)
     const keptChat = (auth: AuthInfo, a: ChatAccess) => {
       if (!chatFilesOf(ctx).seesChat(auth.user.id, a.row.id)) fail('not_found')
       return a.row

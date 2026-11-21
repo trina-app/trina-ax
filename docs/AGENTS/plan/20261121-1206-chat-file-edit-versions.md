@@ -1,7 +1,7 @@
 # Edit a chat's files in place, with versions (S2, web)
 
 - Date (UTC): 2026-11-21 12:06
-- Branch: `feat/chat-file-edit-versions` (on #230's head `4bf6f1a9e`; rebased onto `dev` once #230 merges)
+- Branch: `feat/chat-file-edit-versions` (on #252's head `fc0493caa`, P4-AI; #230 is replaced by #251)
 - Status: done
 - Where: web (FilePanel, the chat's file tiles, the mock), shared API, and thin routes in `server/src/routes/chats.ts`.
   Why: the owner's rule: sharing a chat is for working together, so there is no view-only; people in a chat shared with
@@ -80,3 +80,8 @@ hidden from someone in the chat or being added (it was only the creating answer)
 4 × CHAT_FILE_EDIT_MAX of JSON; L2 a changed original over CHAT_FILE_MAX is not offered or versioned, and one failed copy
 or version no longer leaves the others unattached; L3 30 saves and restores a minute per person; I1 the chat row is read
 again right before putVersion; I2 the permission matrix runs the three routes on a real chain.
+
+On #252 (P4-AI): the save and the restore pass the "chat shared with people, not a project chat, not in the trash"
+check as `PutVersionOptions.recheck` too (run at the insert, after the bytes are written: refused, the bytes go), which
+closes I1's await gap; and `tellChat` listens to `chat/chat-file-version-hook.ts`, so a version the AI saved updates the
+open windows as a person's save does. The "Out" line about the AI's writes no longer holds.

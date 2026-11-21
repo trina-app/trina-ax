@@ -9,7 +9,8 @@
 //   saveText    a person's save: the whole text as putVersion's bytes; `beside` when someone saved after baseVersion
 //   restoreTo   version n's bytes as a new head (ChatFiles.restore): nothing is deleted
 //   tellChat    the carrying messages' tiles again, to each person with a window open, as they may see them (never an
-//               answer hidden from them): their "Updated by" line and size follow at once
+//               answer hidden from them): their "Updated by" line and size follow at once. The AI's saves reach it
+//               through chat/chat-file-version-hook.ts (tellChatOnAiVersions)
 import { CHAT_FILE_EDIT_MAX, type ChatFileSaved, type ChatFileVersions } from '@mycel/shared/api'
 import type { ChatRow } from './store'
 import { fail } from '../http/errors'
@@ -20,6 +21,7 @@ import { isPeopleRow } from './chat-audience'
 import { tr } from './i18n'
 import type { ChatRuntime } from './runtime'
 import { Audiences } from './shared'
+import { listenChatFileVersions } from './chat-file-version-hook'
 import { AnswerSight } from './shared-answers'
 
 /** Names a person edits as text in the panel (the same set as the web's) */
@@ -96,7 +98,10 @@ export async function saveText(rt: ChatRuntime, userId: string, chat: ChatRowLik
   const root = assertEditable(rt, userId, chat, fileId)
   const bytes = new TextEncoder().encode(content)
   stillPeopleChat(rt, userId, chat.id)
-  const r = await chatFilesOf(rt.ctx).putVersion(userId, chat.id, root.id, { bytes }, baseVersion ? { expectHead: baseVersion } : {})
+  // and again at the insert itself (putVersion's recheck, after the bytes are written): a chat moved to a project or
+  // made private meanwhile gets no version, and the bytes go
+  const recheck = () => stillPeopleChat(rt, userId, chat.id)
+  const r = await chatFilesOf(rt.ctx).putVersion(userId, chat.id, root.id, { bytes }, { recheck, ...(baseVersion ? { expectHead: baseVersion } : {}) })
   tellChat(rt, chat.id, root.id)
   return saved(rt, r)
 }
@@ -105,9 +110,19 @@ export async function saveText(rt: ChatRuntime, userId: string, chat: ChatRowLik
 export async function restoreTo(rt: ChatRuntime, userId: string, chat: ChatRowLike, fileId: string, n: number): Promise<ChatFileSaved> {
   const root = assertEditable(rt, userId, chat, fileId)
   stillPeopleChat(rt, userId, chat.id)
-  const r = await chatFilesOf(rt.ctx).restore(userId, chat.id, root.id, n)
+  const r = await chatFilesOf(rt.ctx).restore(userId, chat.id, root.id, n, { recheck: () => stillPeopleChat(rt, userId, chat.id) })
   tellChat(rt, chat.id, root.id)
   return saved(rt, r)
+}
+
+/** The AI's new versions (chat/place-ctx.ts, through chat/chat-file-version-hook.ts) tell the chat as a person's save
+ * does: once per runtime, until its server closes. A version of another runtime's chat finds no chat row here: nothing. */
+const listening = new WeakSet<ChatRuntime>()
+export function tellChatOnAiVersions(rt: ChatRuntime): void {
+  if (listening.has(rt)) return
+  listening.add(rt)
+  const stop = listenChatFileVersions((chatId, fileId) => tellChat(rt, chatId, fileId))
+  rt.ctx.onClose(stop)
 }
 
 /** The messages of the chat that carry the chain (by its root's id) get their tiles again, for each person in the chat
