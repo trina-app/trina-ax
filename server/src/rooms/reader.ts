@@ -28,6 +28,7 @@ import { neutralizeTags } from '../chat/prompt'
 import { unescapeMarkdown } from './apps/card'
 import { zonedParts, zonedToUtc } from '../system/time-zone'
 import { liveStatuses, statusForAi } from '../auth/status-messages'
+import { nearRows } from './search-near'
 import { canSee, clipMiddle, MSG_COLS, messageRow, messagesOut, roomOut, SEE_SQL, seeArgs, seenSeq, seesFrom, sharedAnswerText, threadable, TIMELINE_SQL, type FileRow, type MemberRow, type MessageRow, type RoomRow } from './store'
 
 /** messages one read gives at most, and by default */
@@ -433,7 +434,9 @@ export function roomMatchCount(db: Database, userId: string, word: string, cap =
 
 /** The messages I can see that match, newest first: every word of `query` (any case) in the text or a file name sent
  * with it, written by `person` (or by me: from_me), with files (files), in the time between since and until; in one
- * room or all of mine (those with the latest activity, ROOM_SEARCH_ROOMS), or those `with_person` is in too. */
+ * room or all of mine (those with the latest activity, ROOM_SEARCH_ROOMS), or those `with_person` is in too. None with
+ * the words as written: those with every word as written or with a typing mistake, said as close spellings
+ * (docs/decisions/20261121-search-near-every-word.md). */
 export function searchRooms(db: Database, userId: string, tz: string, o: SearchOptions): ReadResult {
   const since = parseWhen(o.since, tz), until = parseWhen(o.until, tz, true)
   if (since === null || until === null) return { text: 'Invalid since or until: give a date ("2026-11-01") or a date and time ("2026-11-01T09:00").', seen: [], ok: false }
@@ -467,6 +470,8 @@ export function searchRooms(db: Database, userId: string, tz: string, o: SearchO
   // the positions left to look at: each room takes what it holds after my join, up to ROOM_SEARCH_SCAN, newest first
   let budget = Math.max(0, o.budget ?? ROOM_SEARCH_BUDGET)
   let skipped = 0, partly = 0
+  // each room searched and the seq its window starts after (for a near match: the same messages)
+  const floors = new Map<string, number>()
   if (authors === null || authors.length) {
     for (const mine of rooms) {
       const held = Math.max(0, mine.room.last_seq - seesFrom(mine.me))
@@ -474,6 +479,7 @@ export function searchRooms(db: Database, userId: string, tz: string, o: SearchO
       if (held > 0 && window <= 0) { skipped++; continue }
       if (window < Math.min(held, ROOM_SEARCH_SCAN)) partly++
       budget -= window
+      floors.set(mine.room.id, Math.max(0, mine.room.last_seq - window))
       const where = [`m.room_id = ?`, SEE_SQL, 'm.seq > ?', 'm.deleted_at IS NULL', 'm.event IS NULL']
       const args: (string | number)[] = [mine.room.id, ...seeArgs(mine.me), Math.max(0, mine.room.last_seq - window)]
       for (const w of words) { const x = wordWhere(w); where.push(x.sql); args.push(...x.args) }
@@ -486,6 +492,22 @@ export function searchRooms(db: Database, userId: string, tz: string, o: SearchO
     }
   }
   hits.sort((a, b) => b.row.created_at.localeCompare(a.row.created_at) || b.row.seq - a.row.seq)
+  // nothing with the words as written: the messages of the same rooms, windows and filters with every word as written or
+  // with a typing mistake (rooms/search-near.ts; text only, not file names), the closest first
+  let near = false
+  if (!hits.length && words.length && !o.files && floors.size) {
+    const parts = { words, terms: words, phrases: words.map(() => false) }
+    const byId = new Map(rooms.map((m) => [m.room.id, m]))
+    for (const row of nearRows(db, userId, rooms.filter((m) => floors.has(m.room.id)), parts)) {
+      const mine = byId.get(row.room_id)!
+      if (row.seq <= floors.get(row.room_id)! || !canSee(db, row, mine.me)) continue
+      if (authors && !(row.author_kind === 'user' && row.author_id && authors.includes(row.author_id))) continue
+      if ((since && row.created_at < since) || (until && row.created_at >= until)) continue
+      hits.push({ row, mine })
+      if (hits.length >= limit) break
+    }
+    near = hits.length > 0
+  }
   const top = hits.slice(0, limit)
   const what = [o.files ? 'that came with files' : '', words.length ? `with "${attr(words.join(' '), 200)}" (in the text or a file name)` : '', o.person !== undefined ? `by ${attr(o.person, 100)}` : '', o.from_me ? 'sent by the user' : '', o.with_person !== undefined ? `in rooms with ${attr(o.with_person, 100)}` : '', since ? `from ${localTime(since, tz)}` : '', until ? `before ${localTime(until, tz)}` : '', since || until ? `(${tz})` : ''].filter(Boolean).join(' ')
   const limits = skipped || partly
@@ -522,7 +544,8 @@ export function searchRooms(db: Database, userId: string, tz: string, o: SearchO
   }
   return {
     text: [
-      `Messages the user can see in their team chat rooms ${what}, the newest first (${top.length}${hits.length > top.length ? ` of more: narrow the search or raise limit` : ''}${o.room === undefined && rooms.length >= ROOM_SEARCH_ROOMS ? `; the ${ROOM_SEARCH_ROOMS} rooms with the latest activity were searched` : ''}). Each search looks at the newest ${ROOM_SEARCH_SCAN} messages of a room.${limits}${wordsOnly} Long messages are shown in part: read the room or thread for all of one. Times are in ${tz}.`,
+      ...(near ? [`No message the user can see has ${words.length === 1 ? 'this word' : 'all of these words'} as written. These have ${words.length === 1 ? 'it' : 'each word'} as written or with a typing mistake (close spellings), the closest first: check they are what was meant.`] : []),
+      `Messages the user can see in their team chat rooms ${what}${near ? ' (close spellings)' : ''}, ${near ? 'the closest first' : 'the newest first'} (${top.length}${hits.length > top.length ? ` of more: narrow the search or raise limit` : ''}${o.room === undefined && rooms.length >= ROOM_SEARCH_ROOMS ? `; the ${ROOM_SEARCH_ROOMS} rooms with the latest activity were searched` : ''}). Each search looks at the newest ${ROOM_SEARCH_SCAN} messages of a room.${limits}${wordsOnly} Long messages are shown in part: read the room or thread for all of one. Times are in ${tz}.`,
       DATA_NOTE,
       ...(top.some((h) => hasFiles.has(h.row.id)) ? ['Files are listed with each message ([files: name (type, size, file_id=…)]): read one with room_file (its room_id and file_id), keep a copy with save_room_file.'] : []),
       '<room_messages search="yes">', ...parts, '</room_messages>',

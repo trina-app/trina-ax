@@ -71,3 +71,33 @@ test('a narrow search is unchanged: exact matches, not truncated', async () => {
   expect(r).toMatchObject({ truncated: false })
   expect(r.items.map((i) => i.path)).toEqual(['shared/bulk/d5/bulkname-1799.md'])
 })
+
+test('a typing mistake in any word: near names when none holds every word, the closest first, still only what the caller reads', async () => {
+  const files = componentC(h.ctx).files
+  const alice = userId('alice'), bob = userId('bob')
+  write('shared/near/Quarterly report budget.xlsx'); write('shared/near/Quarterly budget reports.xlsx'); write('shared/near/견적서 Sincere.pdf')
+  write('shared/near/Marketing plans/readme.md'); write('groups/finance/Quarterly report secret.xlsx')
+  const find = async (who: string, q: string, folders = false) => (await findFiles(files, who, q, '', 20, { folders })).items.map((i) => i.path)
+  // the first, the middle and the last word
+  for (const q of ['qaurterly report budget', 'quarterly reprot budget', 'quarterly report budgte']) expect(await find(alice, q), q).toEqual(['shared/near/Quarterly report budget.xlsx', 'shared/near/Quarterly budget reports.xlsx'])
+  // Korean and English together, a mistake in either
+  expect(await find(alice, '견적서 sincre')).toEqual(['shared/near/견적서 Sincere.pdf'])
+  expect(await find(alice, '견젹서 sincere')).toEqual(['shared/near/견적서 Sincere.pdf'])
+  // exact names first, then a word's start, then near: "report" whole beats "reports"
+  expect((await find(alice, 'quarterly report budgte'))[0]).toBe('shared/near/Quarterly report budget.xlsx')
+  // folders too
+  expect(await find(alice, 'marketng plans', true)).toContain('shared/near/Marketing plans')
+  // a name the caller cannot read is never listed, near or not; its owner's group finds it
+  expect(await find(alice, 'quarterly reprot secret')).toEqual([])
+  expect(await find(bob, 'quarterly reprot secret')).toEqual(['groups/finance/Quarterly report secret.xlsx'])
+  // names that hold every word as typed: no near names with them; whole words before a word's start, then the newest
+  expect(await find(alice, 'quarterly report budget')).toEqual(['shared/near/Quarterly report budget.xlsx', 'shared/near/Quarterly budget reports.xlsx'])
+  expect(await find(alice, 'budget quarterly')).toEqual(['shared/near/Quarterly budget reports.xlsx', 'shared/near/Quarterly report budget.xlsx'])
+  // short words are never near
+  expect(await find(alice, 'quartrly rpt')).toEqual([])
+  // on the big folder (1,800 names and more): a near search of every name
+  const t = performance.now()
+  expect((await find(alice, 'bulknmae-mine')).length).toBe(0)
+  expect(await find(alice, 'bulknmae mine')).toEqual(['users/alice/bulkname-mine.md'])
+  console.log(`near name search of ${BULK}+ names: ${(performance.now() - t).toFixed(0)} ms`)
+})

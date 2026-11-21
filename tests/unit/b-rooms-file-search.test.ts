@@ -210,6 +210,24 @@ describe('how it matches', () => {
     expect(names(await search('erin', 'WORDS-FILE 견적서'.normalize('NFD')))).toEqual(['WORDS-FILE 견적서_초안.hwp'])
   })
 
+  test('a typing mistake in any word: near names when none holds every word, the closest first; who finds it unchanged', async () => {
+    const { roomId } = await teamRoom(['alice', 'erin'])
+    await sendFiles('alice', roomId, ['Quarterly report budget.xlsx', 'Quarterly budget reports.xlsx', '견적서 Sincere.pdf'])
+    for (const q of ['qaurterly report budget', 'quarterly reprot budget', 'quarterly report budgte']) {
+      const p = await search('erin', q)
+      expect(names(p), q).toEqual(['Quarterly report budget.xlsx', 'Quarterly budget reports.xlsx'])
+      expect(p.nextCursor).toBeNull()
+    }
+    expect(names(await search('erin', '견적서 sincre'))).toEqual(['견적서 Sincere.pdf'])
+    expect(names(await search('erin', '견젹서 sincere'))).toEqual(['견적서 Sincere.pdf'])
+    // every word must be there; short words never near
+    expect(await search('erin', 'quarterly reprot banana')).toEqual(EMPTY)
+    expect(await search('erin', 'qtr rpt')).toEqual(EMPTY)
+    // bob is not in the room: nothing, near or not
+    expect(await search('bob', 'quarterly reprot budget')).toEqual(EMPTY)
+    expect(await raw('bob', '견젹서 sincere')).not.toContain('Sincere')
+  })
+
   test('pages: newest first, two files of one message apart, no repeats, a cursor only at a file they see', async () => {
     const chat = await groupChat('alice', ['erin', 'carol'])
     // a file bob sees, sent before all the others (his 1:1 with alice)

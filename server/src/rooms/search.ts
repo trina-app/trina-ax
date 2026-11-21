@@ -32,12 +32,13 @@
 // is full; a word no name holds reads every name once), each candidate's message found by its key
 // (tests/unit/b-rooms-file-search.test.ts times 20,000). The cursor is below the page's last hit (a file they see).
 import type { Database } from 'bun:sqlite'
-import { nameMatch, nearBudget, nearMatch, parseSearch, particleNext, type SearchParts } from '@mycel/shared'
+import { nameMatch, nearMatcher, nearTermsOf, parseSearch, particleNext, type SearchParts } from '@mycel/shared'
 import { RECENT_ROOM_FILES_MAX, ROOM_REF_RE, ROOM_SEARCH_PAGE_MAX, ROOM_SEARCH_SNIPPET_MAX, type MyRoomFilesPage, type RecentRoomFiles, type RoomFilesPage, type RoomFileSearchHit, type RoomFileSearchPage, type RoomSearchFilters, type RoomSearchHit, type RoomSearchPage, type RoomSearchRoom, type RoomSearchSort, type UserRef } from '@mycel/shared/api'
 import { decodeCursor, encodeCursor } from '../chat/store'
 import { fail } from '../http/errors'
 import { reachFilter } from '../auth/guests'
 import { myRooms, ROOM_EVERYONE_WORDS, titleOf, type Mine } from './reader'
+import { nearRows, nearSearchable } from './search-near'
 import { unescapeMarkdown } from './apps/card'
 import { canSee, filesOutFor, hiddenAmong, MENTIONS_SQL, messagesOut, MSG_COLS, refsOf, roomNaming, SEE_MEMBER_SQL, type FileRow, type MessageRow } from './store'
 
@@ -57,8 +58,8 @@ export interface SearchInput { q: string; cursor?: string; limit?: number; sort?
 /** "Best match" ranks this many of the newest matches a person sees (bounded: a page never sorts a whole room's
  * history); past them the pages go on newest first */
 export const RELEVANT_POOL = 300
-/** a near match (typing mistakes) looks at this many candidates of the index, the most alike first */
-const NEAR_POOL = 2000
+/** a near match of a file name looks at the names of this many of the newest files sent in the rooms searched */
+export const NEAR_FILES = 5000
 
 /** "me" in from: and mentions: (나 in Korean) */
 const isMe = (v: string) => v.toLowerCase() === 'me' || v === '나'
@@ -160,9 +161,10 @@ export function searchRoomMessages(db: Database, userId: string, o: SearchInput)
     // more: a hit past the page; the next page goes on below this page's last (a message they see)
     nextCursor = rows.length > limit ? encodeCursor({ r: String(page.at(-1)!.r) }) : null
   }
-  // nothing: a near match, once (the first page), for words of four letters or more (typing mistakes)
-  if (!page.length && !cur && parts.terms.some((t, i) => !parts.phrases[i] && nearBudget(t) > 0)) {
-    page = nearRows(db, parts, f).slice(0, limit)
+  // nothing: a near match, once (the first page), every word as typed or with a typing mistake (rooms/search-near.ts),
+  // the best first
+  if (!page.length && !cur && nearSearchable(parts)) {
+    page = nearRows(db, f.userId, f.rooms, parts, { sql: whoSql(f), args: whoArgs(f) }).slice(0, limit)
     near = page.length > 0
   }
   // and canSee, the same rule in code, on each with its member row as the rooms read it (a second check)
@@ -276,33 +278,13 @@ const whoSql = (f: Pick<Filters, 'authors' | 'mentions'>) =>
   `${f.authors ? ` AND m.author_kind = 'user' AND m.author_id IN (${f.authors.map(() => '?').join(',')})` : ''}${f.mentions ? ` AND ${MENTIONS_SQL}` : ''}`
 const whoArgs = (f: Pick<Filters, 'authors' | 'mentions' | 'userId'>) => [...(f.authors ?? []), ...(f.mentions ? [f.userId, f.userId] : [])]
 
-/** Near matches (nothing matched as typed): the index's rows that share the most three-letter pieces with the words (its
- * own rank, NEAR_POOL of them, who sees them decided in the query as above), each word then in the text as typed or with
- * at most nearBudget typing mistakes (nearMatch), newest first. */
-function nearRows(db: Database, parts: SearchParts, f: Filters): (MessageRow & { r: number })[] {
-  const grams = new Set<string>()
-  for (const t of parts.terms) { const c = [...fold(t)]; for (let i = 0; i + 3 <= c.length; i++) grams.add(c.slice(i, i + 3).join('')) }
-  if (!grams.size) return []
-  const roomIds = JSON.stringify(f.rooms.map((m) => m.room.id))
-  const who = whoSql(f)
-  // the index ranks its own rows first (NEAR_POOL, the most alike), then who sees them is decided on those
-  const rows = db.query(`SELECT c.rowid AS r, ${COLS} FROM (SELECT rowid FROM room_messages_fts WHERE room_messages_fts MATCH ? ORDER BY rank LIMIT ?) c
-    CROSS JOIN room_messages m ON m.rowid = c.rowid
-    CROSS JOIN room_members mm ON mm.room_id = m.room_id AND mm.user_id = ?
-    WHERE m.room_id IN (SELECT value FROM json_each(?)) AND m.deleted_at IS NULL AND m.event IS NULL
-      AND ${SEE_MEMBER_SQL}${who}`)
-    .all([...grams].map(ftsPhrase).join(' OR '), NEAR_POOL, f.userId, roomIds, ...whoArgs(f)) as (MessageRow & { r: number })[]
-  return rows.filter((row) => parts.terms.every((t, i) => fold(row.body).includes(fold(t)) || (!parts.phrases[i] && (nearMatch(row.body, parts.words[i]!) || nearMatch(row.body, t)))))
-    .sort((a, b) => b.r - a.r)
-}
-
 /** The room files query for `words` terms (parameters: the person, the rooms searched as JSON, each author when
  * `authors`, the person twice when `mentions` (mentions:me: the message the file was sent with mentions them), each
  * term's LIKE, the cursor's file rowid when `after`, the LIMIT). CROSS JOIN keeps SQLite on room_files,
  * newest first by rowid: no sort, and a page stops when it is full (a plain JOIN walked every message of the person's
  * rooms and sorted: seconds on a million messages, the independent review measured; `+f.room_id` keeps one room's index,
  * room_files_by_room, out of it for the same reason). Exported for the test that reads its plan. */
-export const roomFilesSql = (words: number, after: boolean, authors = 0, mentions = false) => `SELECT f.rowid AS fr, f.id AS file_id, ${COLS} FROM room_files f
+export const roomFilesSql = (words: number, after: boolean, authors = 0, mentions = false) => `SELECT f.rowid AS fr, f.id AS file_id, f.name AS file_name, ${COLS} FROM room_files f
     CROSS JOIN room_messages m ON m.id = f.message_id AND m.room_id = f.room_id
     CROSS JOIN room_members mm ON mm.room_id = m.room_id AND mm.user_id = ?
     WHERE f.message_id IS NOT NULL AND +f.room_id IN (SELECT value FROM json_each(?)) AND m.deleted_at IS NULL AND m.event IS NULL
@@ -325,6 +307,14 @@ export function searchRoomFiles(db: Database, userId: string, o: SearchInput): R
   const rows = db.query(roomFilesSql(parts.terms.length, !!cur, f.authors?.length ?? 0, f.mentions))
     .all(userId, JSON.stringify(f.rooms.map((m) => m.room.id)), ...whoArgs(f), ...parts.terms.map(likeArg), ...(cur ? [Number(cur.f)] : []), limit + 1) as (MessageRow & { fr: number; file_id: string })[]
   const page = rows.slice(0, limit)
+  // nothing: a near match, once (the first page), among the names of the newest NEAR_FILES files they see (the same
+  // query without the words), every word as typed or with a typing mistake (shared/src/search-near.ts), the best first
+  if (!page.length && !cur && parts.terms.length && nearSearchable(parts)) {
+    const score = nearMatcher(nearTermsOf(parts))
+    const near = (db.query(roomFilesSql(0, false, f.authors?.length ?? 0, f.mentions)).all(userId, JSON.stringify(f.rooms.map((m) => m.room.id)), ...whoArgs(f), NEAR_FILES) as (MessageRow & { fr: number; file_id: string; file_name: string })[])
+      .map((row) => ({ row, s: score(row.file_name) })).filter((x) => x.s !== null).sort((a, b) => a.s! - b.s! || b.row.fr - a.row.fr).slice(0, limit).map((x) => x.row)
+    return { ...fileHits(db, userId, mine, near), nextCursor: null, ...(f.out ? { filters: f.out } : {}) }
+  }
   // more: a hit past the page; the next page goes on below this page's last row of the query (a file they see), not
   // the last one kept below
   const last = page.at(-1)

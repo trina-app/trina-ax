@@ -48,7 +48,7 @@ import clsx from 'clsx'
 import { Bell, BookMarked, Paperclip, Cable, CalendarClock, CalendarPlus, Check, ChevronDown, CornerDownLeft, File as FileIcon, FileSearch, Folder, FolderKanban, FolderOpen, FolderPlus, Gauge, Image as ImageIcon, Link2, MessageSquare, MoreHorizontal, Pencil, Plus, Shield, Trash2, UserPlus, X } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState, type ComponentType, type ReactNode } from 'react'
 import { matchPath, useLocation, useNavigate } from 'react-router-dom'
-import { nameMatch, parseSearch, searchWords } from '@mycel/shared'
+import { nameMatch, nearNames, parseSearch, searchWords } from '@mycel/shared'
 import { skillTitle, type Chat, type FileEntry, type Integration, type Person, type Project, type RecentRoomFiles, type Room, type RoomFileSearchHit, type RoomSearchFilters, type RoomSearchHit, type RoomSearchRoom, type RoomSearchSort, type Schedule } from '@mycel/shared/api'
 import { api, API, errorText } from '../lib/api'
 import { connectionHref, CONNECTORS_HOME } from '../lib/connectors'
@@ -227,8 +227,9 @@ export const roomFileHref = (h: Pick<RoomFileSearchHit, 'messageId' | 'roomId' |
 
 /** The rooms and people whose name matches `q` (shared/src/search-text.ts nameMatch): rooms and DMs first (a DM stands
  * for its person, named as the room list names it), then people with no DM in the list (never me); in each, the best
- * first: the whole text at the start of the name, then inside it, then by words or initial consonants; rooms by their
- * latest activity, people by name. `title`: a room's name as the app shows it (rooms/RoomIcon.tsx useRoomTitle). */
+ * first: the whole text at the start of the name, then inside it, then by words or initial consonants; when none
+ * matches so, the names with a typing mistake in a word (the fewest first); rooms by their latest activity, people by
+ * name. `title`: a room's name as the app shows it (rooms/RoomIcon.tsx useRoomTitle). */
 export function roomsAndPeople(rooms: readonly Room[], people: readonly Person[], meId: string | undefined, q: string, title: (r: Room) => string, few = NAMED_FEW): ({ room: Room; name: string } | { person: Person; name: string })[] {
   if (!q.trim()) return []
   const found: { rank: number; at: string; name: string; item: { room: Room; name: string } | { person: Person; name: string } }[] = []
@@ -243,6 +244,21 @@ export function roomsAndPeople(rooms: readonly Room[], people: readonly Person[]
     if (person.id === meId || withDm.has(person.id)) continue
     const rank = nameMatch(person.name, q)
     if (rank !== null) found.push({ rank, at: '', name: person.name, item: { person, name: person.name } })
+  }
+  // none: the names with every word as typed or with a typing mistake ("alcie kim" finds "Alice Kim"), the closest first
+  // (shared/src/search-near.ts nearNames)
+  const near = found.length ? null : nearNames(searchWords(q))
+  if (near) {
+    for (const room of rooms) {
+      const name = title(room)
+      const s = near(name)
+      if (s !== null) found.push({ rank: 3 + s, at: room.activityAt, name, item: { room, name } })
+    }
+    for (const person of people) {
+      if (person.id === meId || withDm.has(person.id)) continue
+      const s = near(person.name)
+      if (s !== null) found.push({ rank: 3 + s, at: '', name: person.name, item: { person, name: person.name } })
+    }
   }
   const isPerson = (x: (typeof found)[number]) => Number('person' in x.item)
   return found.sort((a, b) => isPerson(a) - isPerson(b) || a.rank - b.rank || b.at.localeCompare(a.at) || a.name.localeCompare(b.name)).slice(0, few).map((x) => x.item)

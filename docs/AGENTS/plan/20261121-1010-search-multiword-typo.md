@@ -2,12 +2,12 @@
 
 - Date (UTC): 2026-11-21 10:10
 - Branch: `fix/search-multiword-typo`
-- Status: in progress
+- Status: done
 - Where: trina-ax `shared/src/search-near.ts` (new), `server/src/rooms/search*.ts`, `server/src/rooms/reader.ts`,
   `server/src/team-files/find.ts`, `web/src/components/SearchDialog.tsx`. Why: the matching and ranking of searches
   (see docs/REPOSITORY-RULES.md); the tokenizer and the index are left alone.
 - Version impact: patch (a search finds more of what was meant; no API, schema or migration change that an older app
-  would notice: one optional field).
+  would notice).
 
 ## Goal
 
@@ -65,3 +65,7 @@ candidate sets. No migration.
 
 ## Result
 
+Built as planned: `shared/src/search-near.ts` (per-word grades, Hangul by jamo, a banded edit distance that also takes
+a word's start), `server/src/rooms/search-near.ts` (the room message near pass, shared by ⌘K and the AI's `rooms`
+search), near passes for room files, team files and folders, and ⌘K rooms and people. Also: team file names that match
+as typed are now ordered whole words first, then newest. Left out as planned: AI chat records, the AI's grep/glob.

@@ -342,6 +342,32 @@ describe('near matches', () => {
     expect((await search('erin', 'stg')).items).toEqual([])
     expect((await search('erin', 'NEAR-CANARZ')).items).toEqual([])
   })
+
+  test('several words: a typing mistake in the first, the middle or the last word, English and Korean; the closest first', async () => {
+    const room = await teamRoom(['alice', 'erin'])
+    await send('alice', room, 'MW-NEAR Quarterly report budget is ready')
+    await send('alice', room, 'MW-NEAR Quarterly reports and budgets, old')
+    await send('alice', room, 'MW-NEAR 견적서 Sincere 보냈습니다')
+    await send('alice', room, 'MW-NEAR 인화원 연수 일정표 공유')
+    const found = async (q: string) => { const p = await search('erin', q, { sort: 'relevant' }); return { near: p.near, items: bodies(p).filter((b) => b.includes('MW-NEAR')) } }
+    for (const q of ['qaurterly report budget', 'quarterly reprot budget', 'quarterly report budgte']) {
+      const r = await found(q)
+      expect(r.near, q).toBe(true)
+      // the whole words with one mistake before the words' starts
+      expect(r.items, q).toEqual(['MW-NEAR Quarterly report budget is ready', 'MW-NEAR Quarterly reports and budgets, old'])
+    }
+    for (const q of ['견적서 sincre', '견젹서 sincere', 'sincere 견적셔', '견적셔를 sincere 보냈습니다']) expect((await found(q)).items, q).toEqual(['MW-NEAR 견적서 Sincere 보냈습니다'])
+    expect((await found('인화원 연수 일졍표')).items).toEqual(['MW-NEAR 인화원 연수 일정표 공유'])
+    // every word must still be there
+    expect((await found('quarterly reprot banana')).items).toEqual([])
+    // short words never near; a one-letter word never inside a word
+    expect((await found('견젹 sincere')).items).toEqual([])
+    expect((await found('qtr rpt')).items).toEqual([])
+    expect((await found('x reprot budget')).items).toEqual([])
+    // who sees it is unchanged: bob is not in the room
+    expect(bodies(await search('bob', 'quarterly reprot budget')).filter((b) => b.includes('MW-NEAR'))).toEqual([])
+    expect(bodies(await search('bob', '견젹서 sincere')).filter((b) => b.includes('MW-NEAR'))).toEqual([])
+  })
 })
 
 // the size of the full-text index's tables: dbstat where this SQLite has it (the Linux Bun build of CI does not: "no such
@@ -384,6 +410,8 @@ describe('on 100,000 messages', () => {
     const qs: [string, 'relevant' | 'recent', string?][] = [
       ['견적', 'recent'], ['견적서를', 'relevant'], ['회의를', 'relevant'], ['deploys', 'relevant'], ['"quarterly budget"', 'relevant'], ['특별견적', 'relevant'],
       ['from:erin 견적서', 'relevant'], ['in:@alice', 'recent'], ['from:me 인화원', 'recent'], ['없는말입니다', 'relevant'], ['parcle', 'relevant'], ['recieve', 'relevant'], ['stagign meetnig', 'relevant'], ['qaurterly', 'relevant'],
+      // several words with one mistake, Korean by its letters (two-syllable pieces: a read of the index's text)
+      ['the qaurterly budget', 'relevant'], ['견적셔를 보내드릴게요', 'relevant'], ['특별견젹 요청', 'relevant'], ['고객사 미팅 인화원 연슈', 'relevant'],
       // the chips with no text (docs/decisions/20261120-search-shortcuts-slack.md): Sent by me, Mentions me (rare: a far
       // walk), and This conversation with them
       ['from:me', 'relevant'], ['mentions:me', 'relevant'], ['mentions:me', 'recent', room], ['from:me mentions:me', 'relevant', room], ['견적', 'relevant', room],
@@ -402,6 +430,10 @@ describe('on 100,000 messages', () => {
     const near = searchRoomMessages(db, 'bob', { q: 'parcle', sort: 'relevant' })
     expect(near.near).toBe(true)
     expect(near.items[0]!.snippet).toContain('parcel')
+    const koNear = searchRoomMessages(db, 'bob', { q: '특별견젹 요청', sort: 'relevant' })
+    expect(koNear.near).toBe(true)
+    expect(koNear.items.length).toBeGreaterThan(0)
+    for (const i of koNear.items) expect(i.snippet).toContain('특별견적 요청')
     expect(searchRoomMessages(db, 'bob', { q: '특별견적', sort: 'relevant' }).items).toHaveLength(20)
     expect(searchRoomMessages(db, 'bob', { q: 'mentions:me', sort: 'recent', room }).items).toHaveLength(Math.ceil((N - 1) / 9973))
   })
