@@ -1173,10 +1173,10 @@ export class ChatRuntime {
     return !(project.instructionsAuthor === userId && project.instructionsAuthored === project.instructions)
   }
   /** Messages of a branch up to `leafId` (inclusive), for a fresh engine session. */
-  history(leafId: string | null, shared: { runner: string; withheld: ReadonlySet<string>; everyone: boolean } | null = null): { id: string; role: 'user' | 'assistant'; content: string }[] {
+  history(leafId: string | null, shared: { runner: string; withheld: ReadonlySet<string>; everyone: boolean; copies?: ReadonlyMap<string, Pick<Attachment, 'id' | 'name'>> } | null = null): { id: string; role: 'user' | 'assistant'; content: string }[] {
     // a shared project chat (chat/shared.ts): who wrote each message, the attachments as the person whose turn it is
     // may see them now, and nothing of an answer hidden from them (chat/shared-answers.ts)
-    if (shared) return labelledTranscript(this.store, leafId, shared.runner, shared.withheld, shared.everyone)
+    if (shared) return labelledTranscript(this.store, leafId, shared.runner, shared.withheld, shared.everyone, shared.copies)
     return this.store.pathTo(leafId).filter((m) => m.content.trim() || m.role === 'user').map((m) => ({ id: m.id, role: m.role, content: m.role === 'user' ? composeMessage(m, this.store.attachmentsOf(m)) : m.content }))
   }
 

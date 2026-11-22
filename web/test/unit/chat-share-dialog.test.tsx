@@ -185,8 +185,8 @@ describe('the save model and every exit', () => {
     } finally { await m.unmount() }
   })
 
-  test('the files step: one checkbox, unticked; Save stays off until it is ticked, then saves the files alone with their key', async () => {
-    const files = { madeFiles: [{ name: 'summary.md', place: 'My files › QA22', size: 120 }], madeFilesKey: 'mk' }
+  test('the files step: one checkbox; a file made from what they can\'t open: unticked, Save off until it is ticked, then saves the files alone with their key', async () => {
+    const files = { madeFiles: [{ name: 'summary.md', place: 'My files › QA22', size: 120, private: true as const }], madeFilesKey: 'mk' }
     routesWith(audience([SORA], files), () => json(200, { status: 'saved', chat: chatOut, audience: audience([SORA]), filesAdded: 1 }))
     let closed = 0
     const m = await open(() => closed++)
@@ -214,8 +214,8 @@ describe('the save model and every exit', () => {
     } finally { await m.unmount() }
   })
 
-  test('adding someone with the files unticked: Share saves the picks without them', async () => {
-    const madeFiles = [{ name: 'summary.md', place: 'My files › QA22', size: 120 }]
+  test('adding someone with the files unticked (a file made from what they can\'t open): Share saves the picks without them', async () => {
+    const madeFiles = [{ name: 'summary.md', place: 'My files › QA22', size: 120, private: true as const }]
     routesWith(audience(), undefined, () => ({ ...NOTHING, madeFiles }))
     let closed = 0
     const m = await open(() => closed++)
@@ -231,7 +231,7 @@ describe('the save model and every exit', () => {
   })
 
   test('ticked while adding someone: Share sends the files with the preview\'s key; a change of the people unticks it; nobody in it: no box', async () => {
-    const madeFiles = [{ name: 'summary.md', place: 'My files › QA22', size: 120 }]
+    const madeFiles = [{ name: 'summary.md', place: 'My files › QA22', size: 120, private: true as const }]
     routesWith(audience([], { madeFiles, madeFilesKey: 'mk' }), undefined, () => ({ ...NOTHING, madeFiles }))
     let closed = 0
     const m = await open(() => closed++)
@@ -264,6 +264,60 @@ describe('the save model and every exit', () => {
       expect(put.withFiles).toBe(true)
       expect(put.confirmKey).toBe('pk:bob')
       expect(put.subjects.map((x) => x.subjectId)).toEqual(['bob'])
+    } finally { await m.unmount() }
+  })
+
+  test('every listed file safe (the sharer\'s own outputs): the box is ticked by default and Share sends the files (QA TC-v1d-02)', async () => {
+    const madeFiles = [{ name: 'quote.pdf', place: 'My files › Quotes', size: 900 }, { name: 'summary.md', place: 'My files › QA22', size: 120 }]
+    routesWith(audience([], { madeFiles, madeFilesKey: 'mk' }), undefined, () => ({ ...NOTHING, madeFiles, warnPicks: [] }))
+    let closed = 0
+    const m = await open(() => closed++)
+    try {
+      await addBob(m)
+      await m.until(() => m.find('chat-share-files-step'), 'the files step', 3000)
+      await ready(m)
+      expect((m.get('chat-share-files-check') as unknown as { checked: boolean }).checked).toBe(true)
+      // #322's one box and one button
+      for (const id of ['chat-share-with-files', 'chat-share-without-files']) expect(m.find(id)).toBeNull()
+      await m.click('chat-share-save')
+      await m.until(() => closed === 1, 'closed', 2000)
+      const put = sent.find((x) => x.key === `PUT ${AUD}`)!.body as { withFiles?: boolean; confirmKey?: string }
+      expect(put.withFiles).toBe(true)
+      expect(put.confirmKey).toBe('pk:bob')
+    } finally { await m.unmount() }
+  })
+
+  test('a chat already shared lists its files without a check of anyone: unticked by default, Save off', async () => {
+    routesWith(audience([SORA], { madeFiles: [{ name: 'summary.md', place: 'My files › QA22', size: 120 }], madeFilesKey: 'mk' }))
+    const m = await open()
+    try {
+      await m.until(() => m.find('chat-share-files-step'), 'the files step', 2000)
+      expect((m.get('chat-share-files-check') as unknown as { checked: boolean }).checked).toBe(false)
+      expect(m.get('chat-share-save').hasAttribute('disabled')).toBe(true)
+    } finally { await m.unmount() }
+  })
+
+  test('safe files but a check that warns (an older server without warnPicks): unticked by default', async () => {
+    const madeFiles = [{ name: 'summary.md', place: 'My files › QA22', size: 120 }]
+    routesWith(audience(), undefined, () => ({ ...NOTHING, memoryAnswers: 1, madeFiles }))
+    const m = await open()
+    try {
+      await addBob(m)
+      await m.until(() => m.find('chat-share-files-step'), 'the files step', 3000)
+      await ready(m)
+      expect((m.get('chat-share-files-check') as unknown as { checked: boolean }).checked).toBe(false)
+    } finally { await m.unmount() }
+  })
+
+  test('a pick the check warns about (warnPicks): the box is unticked by default, even for files not marked', async () => {
+    const madeFiles = [{ name: 'summary.md', place: 'My files › QA22', size: 120 }]
+    routesWith(audience(), undefined, () => ({ ...NOTHING, fileAnswers: 1, fileNames: ['plan.md · My folder'], madeFiles, warnPicks: [0] }))
+    const m = await open()
+    try {
+      await addBob(m)
+      await m.until(() => m.find('chat-share-files-step'), 'the files step', 3000)
+      await ready(m)
+      expect((m.get('chat-share-files-check') as unknown as { checked: boolean }).checked).toBe(false)
     } finally { await m.unmount() }
   })
 

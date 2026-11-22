@@ -90,6 +90,31 @@ export function copyOf(ctx: AppContext, chatId: string, rel: string, viewer: str
   return withheldFrom(ctx.db, ctx.files.rules(), chatId, viewer).has(found.messageId) ? null : found.att
 }
 
+/** A team path as a link or a tool argument writes it, in the form a copy's `from` keeps (copyMade: the made path):
+ * trimmed, NFC, no "/" or "./" in front, no "/" at the end. */
+export const copyKey = (p: string): string => p.trim().normalize('NFC').replace(/^(?:\.?\/)+/, '').replace(/\/+$/, '')
+
+/**
+ * Every copy of a chat shared with people by the path it was copied from (docs/AGENTS/plan/
+ * 20261122-0503-shared-chat-copy-paths.md): the newest copy of each path, as copyOf finds one, and none on an answer
+ * hidden from `viewer` (review M1). A path in it means the chat's copy for everyone in the chat, the AI too: its tool
+ * calls (chat/tools.ts mapPaths) and its transcript (chat/shared.ts labelledTranscript). The callers ask only in a chat
+ * shared with people now: a chat made private again keeps its copies, and its creator's paths are their own again.
+ */
+export function sharedCopyMap(ctx: AppContext, chatId: string, viewer: string): Map<string, Attachment> {
+  const out = new Map<string, Attachment>()
+  const copies = copiesIn(ctx, chatId)
+  if (!copies.size) return out
+  const hidden = withheldFrom(ctx.db, ctx.files.rules(), chatId, viewer)
+  // copiesIn is oldest first: a later copy of the same path (shared again after a change) wins, as in copyOf
+  for (const [k, c] of copies) {
+    const from = copyKey(k.slice(0, k.indexOf('\0')))
+    if (from && !hidden.has(c.messageId)) out.set(from, c.att)
+    else if (from) out.delete(from)
+  }
+  return out
+}
+
 /** The answers of a chat that are hidden from anyone among its people now (a chat shared with people) or `extra` (people
  * about to be added): a file such an answer made is never offered or copied, or the copy would show what the answer
  * hides (review M1). An answer with no record yet is recorded for exactly the people a share adds, so it hides nothing

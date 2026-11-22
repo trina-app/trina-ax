@@ -105,9 +105,10 @@ for (const vp of [{ name: '1440', use: { viewport: { width: 1440, height: 900 },
       const hint = dialog.getByTestId('chat-share-files-hint')
       await expect(hint).toHaveText('채팅에 사본이 생겨요. 원본은 그대로예요.')
       await expect(hint).toHaveAttribute('title', '원본은 내 파일에 그대로 있어요. 채팅을 삭제하면 채팅의 사본도 함께 삭제돼요.')
-      // unticked: a file leaves My files only when its owner ticks it; one Share button, no "with/without files" pair
+      // the chat's own outputs, nothing Bob can't open: ticked by default (QA TC-v1d-02); one Share button, no
+      // "with/without files" pair
       const box = dialog.getByTestId('chat-share-files-check')
-      await expect(box).not.toBeChecked()
+      await expect(box).toBeChecked()
       for (const id of ['chat-share-without-files', 'chat-share-with-files']) await expect(dialog.getByTestId(id)).toHaveCount(0)
       await expect(dialog.getByTestId('chat-share-save')).toHaveText('공유')
       await audit(page, 'share step')

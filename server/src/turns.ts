@@ -32,6 +32,9 @@ export interface TurnToolSet {
    * connected service (integrations/connections/hide-args.ts); `hidden`: something was replaced, `note`: what the AI
    * is told then. Runs before every other check; throws KeyRefusal for a call that is not sent at all */
   hideKeys?(name: string, args: unknown): { args: unknown; hidden: boolean; note?: string }
+  /** a tool call's arguments with every path that names a file copied into this shared chat as that copy's chat place
+   * path (chat/copy-paths.ts mapCopyPaths): runs first, before hideKeys and every check. `caller` says which agent */
+  mapPaths?(name: string, args: unknown, caller?: ToolCaller): unknown
   /** the folders that do not exist for the person during each tool call (a shared project chat's sub-folders not
    * everyone in it may open: chat/turn.ts sharedHiddenScope); mcp/protocol.ts runs every call inside them */
   hiddenFolders?(): import('./policy/access').HiddenFolders | null
