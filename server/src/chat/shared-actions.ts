@@ -467,6 +467,35 @@ export function asksToSend(db: Database, messageId: string): boolean {
   return asksFor(SHARE_ASK, said) || asksFor(POST_ASK, said)
 }
 
+export function fromAsker(db: Database, spec: { userMessageId: string; turnId: string }, paths: Iterable<string>): boolean {
+  const said = withoutQuoteLines(askerText(db, spec.userMessageId))
+  const attached = attachedPaths(db, spec.userMessageId)
+  for (const p of paths) if (!(attached.has(p) || namesFileLoose(said, p) || madeInTurn(db, spec.turnId, p))) return false
+  return true
+}
+
+// ---- "no card after an explicit ask" (docs/decisions/20261116-no-card-after-explicit-ask.md, QA TC-3812) ----
+// Deterministic, from the asker's own message of this turn (never another member's, never a quoted room message): the
+// request form of the action's verb and its target in the person's words, and no "don't". When unsure, the card stays.
+// Korean and Japanese words as escapes (no Korean text outside the language tables).
+const re = (parts: string[]) => new RegExp(parts.join('|'), 'iu')
+// Korean request endings after a verb stem's last syllable: 줘, 주세요, 주시겠어요, 달라 (해줘, 해 주세요 …)
+const ASK_END = '\\s?(\\uC918|\\uC8FC\\uC138\\uC694|\\uC8FC\\uC2DC\\uACA0|\\uC8FC\\uC2ED\\uC2DC\\uC624|\\uB2EC\\uB77C)'
+/** share a file with someone, as a request: 공유해줘 / 공유해 주세요, share … with, bagikan, 共有して */
+export const SHARE_ASK = re([`\\uACF5\\uC720\\s?\\uD574${ASK_END}`, `\\uACF5\\uC720\\s?\\uD574\\s?\\uB46C`, '\\bshare\\b[^\\n]{0,80}\\bwith\\b', '\\bbagikan\\b', '\\u5171\\u6709\\u3057\\u3066'])
+/** post or send to a room or a person, as a request: 올려줘, 보내줘, 전달해줘, 공유해줘, post, send … to, kirim */
+export const POST_ASK = re([`\\uC62C\\uB824${ASK_END}`, `\\uBCF4\\uB0B4${ASK_END}`, `\\uC804\\uB2EC\\s?\\uD574${ASK_END}`, `\\uACF5\\uC720\\s?\\uD574${ASK_END}`, '\\bpost (it|this|that|them|to)\\b', '\\bsend\\b[^\\n]{0,80}\\bto\\b', '\\bkirim(kan)?\\b', '\\bpublicar\\b'])
+/** change something at a connected service, as a request: 바꿔줘, 고쳐줘, 수정해줘, 추가해줘, 넣어줘, 만들어줘, 작성해줘,
+ * 업데이트해줘, 변경해줘, 등록해줘, 옮겨줘, 달아줘, update, change, add, create, make, set, move, write, edit, fix, comment */
+export const WRITE_ASK = re([`(\\uBC14\\uAFD4|\\uACE0\\uCCD0|\\uB123\\uC5B4|\\uB9CC\\uB4E4\\uC5B4|\\uC62E\\uACA8|\\uB2EC\\uC544)${ASK_END}`,
+  `(\\uC218\\uC815|\\uCD94\\uAC00|\\uC791\\uC131|\\uC5C5\\uB370\\uC774\\uD2B8|\\uBCC0\\uACBD|\\uB4F1\\uB85D)\\s?\\uD574${ASK_END}`,
+  '\\b(update|change|add|create|make|set|move|write|edit|fix|comment|ubah|tambah|buat)\\b'])
+/** "don't" in the person's words: -지 마 / -지 말 / 하지 않, 안 해, don't, do not, never, jangan, no … */
+const ASK_NOT = re(['\\uC9C0\\s?\\uB9C8', '\\uC9C0\\s?\\uB9D0', '\\uC9C0\\s?\\uC54A', "\\b(don'?t|do not|never|jangan)\\b"])
+
+/** The person's words say "don't" (a narrowing action that needs no request verb reads this alone: chat/stop-sharing.ts). */
+export const saysDont = (said: string): boolean => ASK_NOT.test(said)
+
 /** Any word about sharing, sending, showing, posting or telling others, in the six app languages: far wider than the
  * request forms above (no request ending, no target), so a side chat's "the user never asked" gate (unaskedSideShare)
  * fails open: a message with any of these keeps today's card. Korean, Japanese and Chinese as escapes. */
@@ -511,35 +540,6 @@ export function unaskedSideShare(exec: Pick<TurnExec, 'rt' | 'spec'> & Partial<P
     return `Nothing was ${what}: the user did not ask to share, send or post anything in their message, and in this side chat nothing goes to the room or its people unless they ask. Do not share, send or post it, and do not offer to: answer what they asked (say where a file you made is). They can ask you to share it, or send your answer with the button under it.`
   } catch { return null }
 }
-
-export function fromAsker(db: Database, spec: { userMessageId: string; turnId: string }, paths: Iterable<string>): boolean {
-  const said = withoutQuoteLines(askerText(db, spec.userMessageId))
-  const attached = attachedPaths(db, spec.userMessageId)
-  for (const p of paths) if (!(attached.has(p) || namesFileLoose(said, p) || madeInTurn(db, spec.turnId, p))) return false
-  return true
-}
-
-// ---- "no card after an explicit ask" (docs/decisions/20261116-no-card-after-explicit-ask.md, QA TC-3812) ----
-// Deterministic, from the asker's own message of this turn (never another member's, never a quoted room message): the
-// request form of the action's verb and its target in the person's words, and no "don't". When unsure, the card stays.
-// Korean and Japanese words as escapes (no Korean text outside the language tables).
-const re = (parts: string[]) => new RegExp(parts.join('|'), 'iu')
-// Korean request endings after a verb stem's last syllable: 줘, 주세요, 주시겠어요, 달라 (해줘, 해 주세요 …)
-const ASK_END = '\\s?(\\uC918|\\uC8FC\\uC138\\uC694|\\uC8FC\\uC2DC\\uACA0|\\uC8FC\\uC2ED\\uC2DC\\uC624|\\uB2EC\\uB77C)'
-/** share a file with someone, as a request: 공유해줘 / 공유해 주세요, share … with, bagikan, 共有して */
-export const SHARE_ASK = re([`\\uACF5\\uC720\\s?\\uD574${ASK_END}`, `\\uACF5\\uC720\\s?\\uD574\\s?\\uB46C`, '\\bshare\\b[^\\n]{0,80}\\bwith\\b', '\\bbagikan\\b', '\\u5171\\u6709\\u3057\\u3066'])
-/** post or send to a room or a person, as a request: 올려줘, 보내줘, 전달해줘, 공유해줘, post, send … to, kirim */
-export const POST_ASK = re([`\\uC62C\\uB824${ASK_END}`, `\\uBCF4\\uB0B4${ASK_END}`, `\\uC804\\uB2EC\\s?\\uD574${ASK_END}`, `\\uACF5\\uC720\\s?\\uD574${ASK_END}`, '\\bpost (it|this|that|them|to)\\b', '\\bsend\\b[^\\n]{0,80}\\bto\\b', '\\bkirim(kan)?\\b', '\\bpublicar\\b'])
-/** change something at a connected service, as a request: 바꿔줘, 고쳐줘, 수정해줘, 추가해줘, 넣어줘, 만들어줘, 작성해줘,
- * 업데이트해줘, 변경해줘, 등록해줘, 옮겨줘, 달아줘, update, change, add, create, make, set, move, write, edit, fix, comment */
-export const WRITE_ASK = re([`(\\uBC14\\uAFD4|\\uACE0\\uCCD0|\\uB123\\uC5B4|\\uB9CC\\uB4E4\\uC5B4|\\uC62E\\uACA8|\\uB2EC\\uC544)${ASK_END}`,
-  `(\\uC218\\uC815|\\uCD94\\uAC00|\\uC791\\uC131|\\uC5C5\\uB370\\uC774\\uD2B8|\\uBCC0\\uACBD|\\uB4F1\\uB85D)\\s?\\uD574${ASK_END}`,
-  '\\b(update|change|add|create|make|set|move|write|edit|fix|comment|ubah|tambah|buat)\\b'])
-/** "don't" in the person's words: -지 마 / -지 말 / 하지 않, 안 해, don't, do not, never, jangan, no … */
-const ASK_NOT = re(['\\uC9C0\\s?\\uB9C8', '\\uC9C0\\s?\\uB9D0', '\\uC9C0\\s?\\uC54A', "\\b(don'?t|do not|never|jangan)\\b"])
-
-/** The person's words say "don't" (a narrowing action that needs no request verb reads this alone: chat/stop-sharing.ts). */
-export const saysDont = (said: string): boolean => ASK_NOT.test(said)
 
 /** The asker's own words of this turn without quoted lines (a quote is someone else's words). */
 export function ownWords(said: string): string {
