@@ -162,6 +162,7 @@ if (primary && (app.isPackaged || process.env.MYCEL_DESKTOP_UPDATE_TEST) && !sto
 // manifests: electron-builder.config.ts protocols). A development run does not take it over unless asked.
 // On Linux only the .deb registers it (its menu entry, extraMetadata.desktopName); an AppImage has no entry to name.
 if (primary && registersLinkHandler(linuxStart)) app.setAsDefaultProtocolClient(LINK_SCHEME)
+else if (primary && process.env.MYCEL_DESKTOP_REGISTER_SCHEME === '1' && process.argv[1]) app.setAsDefaultProtocolClient(LINK_SCHEME, process.execPath, [resolve(process.argv[1])])
 // macOS: LaunchServices hands a link to ONE registered copy of the app with this bundle id, and old builds, mounted
 // installers or copies elsewhere on the disk may stay registered (owner's Mac 2026-11-22: 23 of them). It then starts
 // that copy instead of passing the link to this one. Register this copy again at every start, so its path is the
@@ -170,7 +171,6 @@ if (primary && app.isPackaged && process.platform === 'darwin' && !process.mas) 
   const bundle = resolve(process.execPath, '../../..')
   if (bundle.endsWith('.app')) execFile(LSREGISTER, ['-f', bundle], { timeout: 15_000 }, (e) => handoffLog(`registered this copy for ${LINK_SCHEME}: links: ${e ? 'failed' : 'ok'}`))
 }
-else if (primary && process.env.MYCEL_DESKTOP_REGISTER_SCHEME === '1' && process.argv[1]) app.setAsDefaultProtocolClient(LINK_SCHEME, process.execPath, [resolve(process.argv[1])])
 /** a link that started the app (Windows, Linux: its command line; macOS: open-url before the window exists) */
 let launchLink: string | null = linkFromArgv(process.argv)
 /** Every link goes to screen ④ (AppWindow.offerLink), never straight to a team. */

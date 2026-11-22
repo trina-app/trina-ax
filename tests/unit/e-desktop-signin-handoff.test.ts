@@ -120,3 +120,37 @@ test('main.ts: a second start on macOS forwards its open-url; the running app re
   expect(log).toContain("join(userData, 'logs', 'handoff.log')")
   expect(existsSync(join(import.meta.dir, '../../desktop/src/main/handoff-log.ts'))).toBe(true)
 })
+
+test('one connection delivers exactly one line: more lines, or a line past 4096 bytes without a newline, add nothing', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'lf-'))
+  const net = await import('node:net')
+  const send = (path: string, text: string) => new Promise<void>((resolve) => {
+    const s = net.createConnection(path)
+    s.on('error', () => resolve()); s.on('close', () => resolve())
+    s.on('connect', () => s.write(text, () => s.end()))
+  })
+  try {
+    const path = linkSocketPath(dir)!
+    const got: string[] = []
+    const server = listenForLinks(path, (l) => got.push(l))
+    await new Promise((r) => setTimeout(r, 50))
+    await send(path, 'trina-ax://one\ntrina-ax://two\ntrina-ax://three\n')
+    await new Promise((r) => setTimeout(r, 100))
+    expect(got).toEqual(['trina-ax://one'])
+    await send(path, 'trina-ax://' + 'x'.repeat(6000))
+    await new Promise((r) => setTimeout(r, 100))
+    expect(got).toEqual(['trina-ax://one'])
+    server.close()
+  } finally { rmSync(dir, { recursive: true, force: true }) }
+})
+
+test('review: the register-scheme pair stays one if/else; the claim follows no redirect and a redirect is a refusal', async () => {
+  const main = readFileSync(join(import.meta.dir, '../../desktop/src/main/main.ts'), 'utf8')
+  expect(main).toMatch(/if \(primary && registersLinkHandler\(linuxStart\)\) app\.setAsDefaultProtocolClient\(LINK_SCHEME\)\nelse if \(primary && process\.env\.MYCEL_DESKTOP_REGISTER_SCHEME === '1'/)
+  const win = readFileSync(join(import.meta.dir, '../../desktop/src/main/app-window.ts'), 'utf8')
+  expect(win).toContain("redirect: 'manual',")
+  expect(win).toContain("return res.type === 'opaqueredirect' ? 302 : res.status")
+  const r = run([302, 200])
+  expect(await r.done).toBe('refused')
+  expect(r.posts.length).toBe(1)
+})

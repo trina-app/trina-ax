@@ -462,8 +462,11 @@ export class AppWindow {
           headers: { 'content-type': 'application/json', [CSRF_HEADER]: '1' },
           body: JSON.stringify({ code: c }),
           signal: AbortSignal.timeout(10_000),
+          // the claim address never redirects: a redirect (a captive portal, a proxy) is not followed with the code,
+          // and counts as a refusal (3xx), never as a lost answer to send again
+          redirect: 'manual',
         })
-        return res.status
+        return res.type === 'opaqueredirect' ? 302 : res.status
       },
     })
   }

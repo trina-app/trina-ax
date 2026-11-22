@@ -28,16 +28,20 @@ const MAX = 4096
 export function listenForLinks(path: string, onLine: (line: string) => void): net.Server {
   try { rmSync(path, { force: true }) } catch { /* a socket a crashed run left: replaced below */ }
   const server = net.createServer((sock) => {
-    let buf = ''
+    let buf = '', done = false
     sock.setEncoding('utf8')
     sock.setTimeout(2000, () => sock.destroy())
     sock.on('error', () => sock.destroy())
+    // one line per connection, at most MAX bytes: the first line ends the connection, anything after it is dropped
     sock.on('data', (d: string) => {
+      if (done) return
       buf += d
       const i = buf.indexOf('\n')
-      if (i < 0) { if (buf.length > MAX) sock.destroy(); return }
-      sock.end()
-      if (i <= MAX) onLine(buf.slice(0, i))
+      if (i < 0 && buf.length <= MAX) return
+      done = true
+      sock.removeAllListeners('data')
+      sock.destroy()
+      if (i >= 0 && i <= MAX) onLine(buf.slice(0, i))
     })
   })
   server.on('error', () => { /* no forwarding this run: links still come in through open-url */ })
