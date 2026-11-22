@@ -9,6 +9,9 @@ import { useT } from '../../i18n'
 import { useFolderWords } from '../../lib/folderLabels'
 import { Button } from '../ui'
 
+/** the busiest folders of the rest of a long list, shown by name */
+const MORE_FOLDERS_SHOWN = 5
+
 export function summaryCounts(f: FileChangeSummary) {
   // a long list keeps its first files; the rest come as a count per folder (FileChangeSummary.more)
   return { saved: f.saved.length + (f.more?.count ?? 0), conflicts: f.conflicts.length, rejected: f.rejected.length }
@@ -34,18 +37,23 @@ export default function FileSummary({ files, onAskOwnFolder, disabled, defaultOp
           {files.saved.map((s) => (
             <li key={s.path} className="flex items-center gap-2">
               <span className="w-14 shrink-0 text-xs text-faint">{t(s.moved ? 'files.summary.moved' : s.action === 'create' ? 'files.summary.created' : 'files.summary.updated')}</span>
-              <button type="button" className="min-w-0 truncate text-left text-accent-text hover:underline" onClick={() => openTeamFile(s.path)}>
-                {s.path}
+              {/* the place in words (Projects › Falcon › notes › a.txt, as the Files screen says it), the path on hover
+                  (QA TC-7337: raw projects/… paths) */}
+              <button type="button" className="min-w-0 truncate text-left text-accent-text hover:underline" title={s.path} onClick={() => openTeamFile(s.path)}>
+                {words.path(s.path, ' › ')}
               </button>
             </li>
           ))}
           {files.more && files.more.count > 0 && (
             <li className="pt-1 text-xs text-faint" data-testid="file-summary-more">
+              {/* the count first, then each folder as "50 in Projects › Falcon › notes" (QA TC-7337: a "for example:" line
+                  that only repeated the count); past 5 folders, how many more */}
               <div>{t('files.summary.more', { n: files.more.count, folders: files.more.folders.length })}</div>
               <ul className="mt-0.5 space-y-0.5">
-                {files.more.folders.slice(0, 5).map((f) => (
+                {files.more.folders.slice(0, MORE_FOLDERS_SHOWN).map((f) => (
                   <li key={f.path} className="truncate" title={f.path}>{t('files.summary.moreFolder', { path: words.path(f.path, ' › '), n: f.count })}</li>
                 ))}
+                {files.more.folders.length > MORE_FOLDERS_SHOWN && <li>{t('files.summary.moreFolders', { n: files.more.folders.length - MORE_FOLDERS_SHOWN })}</li>}
               </ul>
             </li>
           )}

@@ -150,7 +150,7 @@ function useAskAsNewChat() {
   return { sending, ask }
 }
 
-/** Home's suggestions for a free-roam visitor, under the message box (pages/Home.tsx): round buttons that wrap (at most
+/** Home's suggestions for a free-roam visitor, by the message box (pages/Home.tsx): round buttons that wrap (at most
  * three, lib/freeRoam.ts SUGGESTIONS_MAX); none once the questions are used up. */
 export function FreeRoamChips({ info }: { info: DemoInfo }) {
   const t = useT()
@@ -159,7 +159,7 @@ export function FreeRoamChips({ info }: { info: DemoInfo }) {
   const chips = out ? [] : freeRoamSuggestions(info, t)
   if (!chips.length) return null
   return (
-    <ul aria-label={t('demo.free.tryLabel')} className="mt-4 flex flex-wrap justify-center gap-2 max-md:mt-0 max-md:mb-3 max-md:justify-start" data-testid="free-roam-chips">
+    <ul aria-label={t('demo.free.tryLabel')} className="mt-4 flex flex-wrap justify-center gap-2 max-md:mt-0 max-md:mb-3 max-md:justify-start in-[.keyboard-open]:hidden" data-testid="free-roam-chips">
       {chips.map((c) => {
         const busy = sending === c.prompt
         return (
