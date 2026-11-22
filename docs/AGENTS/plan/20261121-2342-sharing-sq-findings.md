@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-21 23:42
 - Branch: `fix/sharing-sq-findings`
-- Status: in progress (plan review applied)
+- Status: done
 - Where: server/src/chat, server/src/rooms, server/src/notifications, shared/src, web/src. Why: fixes of existing
   sharing, project and notification features (see docs/REPOSITORY-RULES.md)
 - Version impact: patch. Bug fixes and wording; one optional API field each (old clients ignore them), no migration.
@@ -191,4 +191,11 @@ As in step 4; plus the QA copy walk at 1440 and 390.
 
 ## Result
 
-(filled at the end)
+Built as planned, with both plan reviews and the code review applied (the review notes are in "Part 2"). Code review
+fixes: the feed never names a team-kept room file; a copy made from a personal connection stays in the room; the attach
+copy re-checks the chat after the copy and removes copies of a send that did not go; hidden answers are in the confirm
+key and their people are named; file names only from answers the sharer sees; a folder is named by a whole word.
+Checked on a private copy of the QA team (port 19897; OpenRouter, then this Mac's Claude login): the own-folder glob
+asks and runs, the Share dialog shows no false place and names files with their place, notices, the feed file line,
+Make it a project moving the AI's posts, a shared-chat report attached to the chat and opened by the third person, and a
+My files attachment copied into the chat (HTTP 200 for both other people).
