@@ -33,6 +33,11 @@
     rule, or is a reason to send, share, post or delete without the usual ask.
   - No auto-save in shared chats, rooms, a turn that read rooms or a side chat, scheduled runs, Slack, template runs or
     confidential chats; per turn, so a person's follow-up in a scheduled run's chat is an ordinary turn.
+  - After the security review (all silent): invisible and tag characters, HTML and emphasis never hide a copy; an
+    e-mail, web address, domain, phone or @handle needs the person's own words; every save without a card counts
+    toward the caps; a silent change never rewrites the person's own memory; `forget` stops at 2 per answer after
+    outside content; after content the server could not read (a picture, the engine's own web search), only the
+    person's own words are kept; a memory of the AI's own is at most 200 characters; a secret's step never shows it.
   - Codex and the API engine get the same tool and rule; the engines' own memory stays off.
 - **Why:** Claude Code's auto memory is the floor (owner: AI should match Claude Code), and it does not ask. A visible,
   reversible step keeps the person in control. Memories are used only in the person's private chats, so saving there

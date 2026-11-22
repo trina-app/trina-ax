@@ -215,11 +215,12 @@ describe('a turn that repeats the stored key', () => {
   // QA TC-2981: the step said "Remembered: My key is [hidden key]", the saved memory held the key (Settings › Memory,
   // the export's memories.csv). Since auto memory (docs/decisions/20261122-auto-memory.md) a memory that held a stored
   // key is not kept at all: the step says so, with the key hidden, and nothing is saved
-  test.skipIf(!native)('remember: a memory that holds a stored key is not kept; the step has the key hidden', async () => {
+  test.skipIf(!native)('remember: a memory that holds a stored key is not kept; the step says only that it was a secret', async () => {
     const before = (h.ctx.db.query("SELECT count(*) n FROM memories WHERE user_id = 'alice'").get() as { n: number }).n
     const t = await turn(['remember my key please', fake({ tool: 'remember', args: { text: `My key is ${KEY}` }, sayResult: true }, { say: 'Done.' })].join('\n'))
     const step = t.done.steps.find((s: { tool: string }) => s.tool === 'remember')
-    expect(step.label).toBe(`Not remembered: My key is ${HIDDEN}`)
+    // the step never repeats a secret, not even hidden (security review of #332, L1)
+    expect(step.label).toBe('Not remembered: a password, key or other secret')
     expect((h.ctx.db.query("SELECT count(*) n FROM memories WHERE user_id = 'alice'").get() as { n: number }).n).toBe(before)
     const listed = await h.api('alice').call(API.listMemories, {})
     const rows = h.ctx.db.query("SELECT id, text, created_at, source_chat_id FROM memories WHERE user_id = 'alice'").all() as Parameters<typeof memoriesCsv>[0]
