@@ -16,7 +16,6 @@ import { groupFolder } from '../../server/src/admin/groups'
 
 setDefaultTimeout(120_000)
 const fake = (...ds: unknown[]) => ds.map((d) => '@fake ' + JSON.stringify(d)).join('\n')
-const SEP = { say: '\n----\n' }
 const tool = (name: string, args: unknown) => ({ tool: name, args, sayResult: true })
 const QUOTE = '---\nname: quote-writer\ndescription: 거래처 견적서를 만들고 회사 직인을 찍는다. "견적서 만들어줘", "견적서에 도장 찍어줘" 같은 요청에 쓴다.\nmetadata:\n  title: 견적서 작성\n---\n\n# 견적서 작성\n\n- 회사 직인: `shared/도장/직인.png`\nQUOTE-STEPS-7c1\n'
 
@@ -65,9 +64,13 @@ async function places(user: string, memberIds: string[]): Promise<Record<string,
   return { own, project, side }
 }
 
-const lookup = (user: string, chatId: string) =>
-  send(user, chatId, fake(tool('find_skills', { query: '견적서 작성' }), SEP, tool('find_skills', { query: '견적서' }), SEP, tool('skill', { name: 'quote-writer' })))
-    .then((c) => c.split('\n----\n'))
+// one call per turn: in a Korean app a result said before the next call is interim narration and stays out of the
+// answer (chat/narration.ts narrationScript), so each result is its own turn's answer
+const lookup = async (user: string, chatId: string) => [
+  await send(user, chatId, fake(tool('find_skills', { query: '견적서 작성' }))),
+  await send(user, chatId, fake(tool('find_skills', { query: '견적서' }))),
+  await send(user, chatId, fake(tool('skill', { name: 'quote-writer' }))),
+]
 
 describe('a member finds the team skill quote-writer in every place', () => {
   test('own chat, shared project chat, room side chat: find_skills names it, the skill tool loads it', async () => {
