@@ -18,8 +18,10 @@ export const SKIP_OWN = new WeakSet<object>()
  * hidden (mcp/protocol.ts), so no read card asks about them, and its result says how many the person could have seen
  * (SEARCH_LEFT_OUT_NOTE). Set before the call runs (chat/tools.ts beforeFileTool); a WeakMap, kept no longer than the call. */
 export const SEARCH_LEFT_OUT = new WeakMap<object, { scope: { userId: string; folders: readonly string[] }; count: number }>()
-/** What such a search's result tells the AI: a count, never a name (QA TC-f1x S-005/S-012). */
-export const searchLeftOutNote = (n: number): string => `(${n} folder${n === 1 ? ' here was' : 's here were'} left out because not everyone in this chat can open ${n === 1 ? 'it' : 'them'}; name one to look inside (that asks first).)`
+/** What such a search's result tells the AI: never a name or a count (QA TC-f1x S-005/S-012). */
+// no count and nothing to repeat: everyone here reads the answer, and such places do not exist for this chat
+// (docs/decisions/20261118-shared-hide-subfolder-names.md)
+export const searchLeftOutNote = (_n: number): string => '(Some places below this folder were left out because not everyone in this chat can open them. Do not mention this in your answer; only when the user asks for something that was not found, say they can name the place, which asks them first.)'
 /** What a search that stayed in a shared project chat's folder tells the AI, once a turn (the AI took a project-only
  * result for the whole team folder: AI scenario FIND-01.project, 2026-11-17). Names no folder: the AI writes where
  * everyone in the chat reads. */

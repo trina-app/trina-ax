@@ -6245,7 +6245,7 @@ function rememberedText(label: string): string | null {
 export function cardPlaceText(text: string, L: Locale): string {
   if (!/chat:(files|work)\b/i.test(text)) return text
   const id = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
-  const worded = chatPlaceWords(text, L).replace(/chat:(files|work)((?:\s*›\s*[^›\n'"`]+)*)/gi, (_all, kind: string, rest: string) =>
+  const worded = chatPlaceWords(text, L).replace(/chat:(files|work)((?:\s*›\s*[^›\s'"`]+)*)/gi, (_all, kind: string, rest: string) =>
     chatPlaceWords(`chat:${kind}/${rest.split('›').map((x) => x.trim()).filter((x) => x && !id.test(x)).join('/')}`, L).replace(/ › $/, ''))
   return worded
 }

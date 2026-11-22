@@ -43,3 +43,7 @@ describe('server cards name chat places in words', () => {
     expect(cardPlaceWords(plain, 'ko')).toBe(plain)
   })
 })
+
+test('a destination after the place stays as written (review: the last segment took the rest of the sentence)', () => {
+  expect(cardPlaceText('Copy chat:work › out › a.png to shared/Sales now?', 'en')).toBe('Copy Work folder › out › a.png to shared/Sales now?')
+})
