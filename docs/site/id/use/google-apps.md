@@ -88,6 +88,11 @@ siapa yang memakainya, dan siapa yang menghubungkannya, dengan menu **⋯**: **U
 Google Drive memiliki **Dibagikan dengan tim** di tempat yang sama: **Bagikan Google Drive dengan tim** menghubungkan satu
 akun Google dan membiarkan Anda memilih foldernya; orang yang Anda pilih memakainya di chat.
 
+Dari chat caranya sama: saat pemilik atau admin meminta AI menghubungkan Google Drive atau Gmail (atau Calendar, Docs
+atau Sheets), kartunya juga punya **Hubungkan untuk tim**, yang membuka dialog yang sama ini. Anggota hanya melihat
+koneksi miliknya sendiri. Orang yang sudah memakai akun bersama, atau Drive yang dibagikan kepadanya, diberi tahu bahwa
+itu sudah terhubung, tanpa perlu menghubungkan apa pun.
+
 ## Menyiapkan aplikasi Google (admin server yang Anda kelola sendiri)
 
 Di tim yang di-hosting oleh Trina, masuk dengan Google sudah siap: tidak ada yang perlu disiapkan. Di server yang

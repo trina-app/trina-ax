@@ -55,6 +55,7 @@ import AskCard from './AskCard'
 import TodoCard, { todoStepOf } from './TodoCard'
 import ShareCard from './ShareCard'
 import TeamFolderCard from './TeamFolderCard'
+import MyFoldersCard from './MyFoldersCard'
 import PostedCard from './PostedCard'
 import ConnectCard from './ConnectCard'
 import { SecretWarning, useSecretHold } from './SecretWarning'
@@ -129,7 +130,9 @@ const typeOf = (name: string) => {
 /** The failed answers whose words send a member to an admin (no AI, the AI not ready; the monthly limit is the error
  * code budget_exceeded): a guest reads "ask the person who invited you" instead (lib/guests.ts). */
 // (a guest with their own sign-in reads the member's "connect your own" for the no-AI ones, with its button)
-const GUEST_ASKS: ReadonlySet<string> = new Set(['no_credential', 'credential_unusable', 'engine_missing'])
+// guest_no_ai: the server never lets this guest's turn start here (their AI choice cannot answer on this team); it reads
+// the same, as a known state: a calm notice and no Try again (QA TC-7050)
+const GUEST_ASKS: ReadonlySet<string> = new Set(['no_credential', 'credential_unusable', 'engine_missing', 'guest_no_ai'])
 
 export function BranchNav({ m, onSelect, disabled }: { m: ViewMessage; onSelect: (id: string) => void; disabled?: boolean }) {
   const t = useT()
@@ -792,6 +795,12 @@ export function AssistantMessage({
   // the AI limit used up is a known state, not a failure: a calm notice with when it starts again, and nothing to try
   // again (it would be refused until then; owner rule: never an error's look for a known state)
   const atLimit = m.status === 'error' && m.error?.code === 'budget_exceeded'
+  // a guest whose AI does not answer them (QA TC-7050): a known state too, a calm notice with no Try again (trying again
+  // fails the same way); while the guest box under the chat already says it (useGuestNoAi), no second notice here
+  const guestNoAnswer = guest && m.status === 'error' && !atLimit && !!reason && GUEST_ASKS.has(reason)
+  // (the box's own rule, GuestView useGuestNoAi, read from the store without its load: the page loads ai-access)
+  const guestOff = useAiAccess((s) => s.loaded && !s.usable && s.action !== 'connect_own')
+  const guestBox = guest && (meGuest(meNow)?.ai === 'none' || guestOff)
   // (an older limit answer may be asked again once the limit has started again)
   const limitNow = atLimit && (!resetsAt || Date.parse(resetsAt) > Date.now())
   const canRetry = !(m.status === 'error' && isLast) && !limitNow && canRegenerate
@@ -867,7 +876,7 @@ export function AssistantMessage({
         )}
         {/* what the AI did for the person, from the server's record on the step (a share, a stop, a post): where its
             confirmation card was, so that card reads as turning into this one */}
-        {m.steps.map((s) => (s.shared?.teamFolder && !s.parentId ? <TeamFolderCard key={s.id} shared={s.shared} folder={s.shared.teamFolder} /> : s.shared && !s.parentId ? <ShareCard key={s.id} shared={s.shared} fixes={s.fixes} /> : s.posted && !s.parentId ? <PostedCard key={s.id} posted={s.posted} /> : null))}
+        {m.steps.map((s) => (s.shared?.teamFolder && !s.parentId ? <TeamFolderCard key={s.id} shared={s.shared} folder={s.shared.teamFolder} /> : s.shared && !s.parentId ? <ShareCard key={s.id} shared={s.shared} fixes={s.fixes} /> : s.posted && !s.parentId ? <PostedCard key={s.id} posted={s.posted} /> : s.folders?.length && !s.parentId ? <MyFoldersCard key={s.id} folders={s.folders} more={s.moreFolders} /> : null))}
         {requests.map((r) => (r.request.kind === 'connect_service' ? <ConnectCard key={r.request.requestId} request={r.request} /> : <AskCard key={r.request.requestId} req={r} />))}
         {/* the server's next steps for this answer (Step.fixes): "3 people can't open it yet. [Let them view]" */}
         <StepFixes steps={m.steps} />
@@ -888,7 +897,14 @@ export function AssistantMessage({
             <span className="min-w-0 flex-1 py-1 leading-6 break-keep text-ink">{errText}</span>
           </div>
         )}
-        {m.status === 'error' && !atLimit && (
+        {guestNoAnswer && !guestBox && (
+          <div role="status" className="mt-3 flex flex-wrap items-start gap-2 rounded-xl border border-line bg-subtle px-3 py-2 text-sm" data-testid="answer-guest-no-ai">
+            <Info size={16} className="mt-1.5 shrink-0 text-muted" aria-hidden />
+            <span className="min-w-0 flex-[1_1_12rem] py-1 leading-6 break-keep text-ink">{errText}</span>
+            {isLast && guestOwn && isNoAiReason(reason) && <span className="ml-auto flex"><AiAccessButton /></span>}
+          </div>
+        )}
+        {m.status === 'error' && !atLimit && !guestNoAnswer && (
           <div role="alert" className="mt-3 flex flex-wrap items-start gap-2 rounded-xl bg-danger-soft px-3 py-2 text-sm text-danger" data-testid="answer-error">
             <AlertTriangle size={16} className="mt-2 shrink-0" aria-hidden />
             {/* at least ~12rem for the text: on a phone the buttons go to their own line instead of squeezing it; one
@@ -911,8 +927,10 @@ export function AssistantMessage({
           </div>
         )}
         {m.status === 'stopped' && (
-          <p className="mt-2 flex items-center gap-1.5 text-xs text-faint">
-            <Square size={11} className="fill-current" aria-hidden /> {t('chat.stopped')}
+          <p className="mt-2 flex items-center gap-1.5 text-xs text-faint" data-testid="answer-stopped" data-reason={m.stoppedFor?.reason}>
+            <Square size={11} className="shrink-0 fill-current" aria-hidden />
+            {/* stopped because its requester's account went: why, by name (QA TC-7431) */}
+            {m.stoppedFor ? t(m.stoppedFor.reason === 'requester_removed' ? 'chat.stoppedRemoved' : 'chat.stoppedDisabled', { name: m.stoppedFor.name }) : t('chat.stopped')}
           </p>
         )}
         {m.status === 'done' && m.stopReason && (

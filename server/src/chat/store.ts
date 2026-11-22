@@ -40,6 +40,8 @@ export interface MessageRow {
   /** migration 213: 1 when the AI got only the recent part of the conversation for this answer */
   history_trimmed: number
   history_small_model: number
+  /** why the answer was stopped for its requester (migration 435): their account deleted or switched off */
+  stopped_for?: string | null
 }
 export interface ProjectRow {
   id: string; name: string; folder_path: string; instructions: string; created_by: string | null; created_at: string
@@ -56,7 +58,7 @@ export interface ProjectRow {
 }
 
 export const CHAT_COLS = 'id, user_id, project_id, title, engine, model, engine_session_id, engine_session_leaf_id, session_tainted, active_leaf_id, created_at, updated_at, deleted_at, title_source, room_id, seen_at, shared_at, side_room_id, people_shared_at'
-export const MESSAGE_COLS = 'id, chat_id, parent_id, role, author_id, content, attachments, steps, status, error, turn_id, engine, model, files, client_message_id, created_at, updated_at, stop_reason, history_trimmed, history_small_model'
+export const MESSAGE_COLS = 'id, chat_id, parent_id, role, author_id, content, attachments, steps, status, error, turn_id, engine, model, files, client_message_id, created_at, updated_at, stop_reason, history_trimmed, history_small_model, stopped_for'
 export const PROJECT_COLS = 'id, name, folder_path, instructions, created_by, created_at, instructions_author, instructions_authored, trashed_with, share_chats, folder_made'
 
 /** SQLite timestamps ("2026-10-21T03:04:05.678Z" from strftime, or ISO from JS) -> ISO with offset. */
@@ -204,7 +206,7 @@ export class ChatStore {
     // a shared chat: a label names its paths only for a viewer who may see every one of them (else the words alone)
     const steps: Step[] = stored.map((s) => {
       if (earlier) {
-        const { sv: _sv, detail: _d, sources: _s, images: _i, devEnvRun: _r, posted: _p, shared: _sh, fixes: _f, tool, ...rest } = s
+        const { sv: _sv, detail: _d, sources: _s, images: _i, devEnvRun: _r, posted: _p, shared: _sh, fixes: _f, memory: _m, folders: _fo, moreFolders: _mf, tool, ...rest } = s
         return { ...rest, ...(tool && knownStepTool(tool) ? { tool } : {}), label: stepWords(s, view!.locale ?? 'en') }
       }
       if (!s.sv) return s
@@ -222,7 +224,10 @@ export class ChatStore {
       // (share_with_person too: who got which files is the runner's: chat/shared-actions.ts)
       // (the record of a share or a stop, Step.shared, names files, places and people: the runner's card alone)
       if (st.tool === 'post_to_room' || st.tool === 'share_with_person' || st.tool === 'stop_sharing' || st.tool === 'share_folder') { const { detail: _d, posted: _p, shared: _sh, ...rest } = st; steps[i] = { ...rest, label: stepWords(st, view.locale ?? 'en') }; continue }
-      if (st.detail !== undefined || st.posted !== undefined || st.shared !== undefined) { const { detail: _d, posted: _p, shared: _sh, ...rest } = st; steps[i] = rest }
+      // (a memory step's record, Step.memory: the person's own memory, never anyone else's to see)
+      if (st.detail !== undefined || st.posted !== undefined || st.shared !== undefined || st.memory !== undefined) { const { detail: _d, posted: _p, shared: _sh, memory: _m, ...rest } = st; steps[i] = rest }
+      // (the folders a my_folders step listed are the runner's own: chat/my-folders.ts)
+      if (steps[i]!.folders !== undefined) { const { folders: _fo, moreFolders: _mf, ...rest } = steps[i]!; steps[i] = rest }
     }
     // a step's next steps (Step.fixes, files/share-fixes.ts): its runner's alone, as they are now (run since, or done)
     for (let i = 0; i < steps.length; i++) {
@@ -409,6 +414,12 @@ export class ChatStore {
       branch: { index: Math.max(0, siblings.indexOf(r.id)), count: Math.max(1, siblings.length), siblingIds: siblings },
       // only when it paused at a limit: every other message keeps its earlier shape
       ...(r.role === 'assistant' && stopReasonOf(r.stop_reason) ? { stopReason: stopReasonOf(r.stop_reason) } : {}),
+      // stopped because its requester's account went (QA TC-7431): who, so the others read why
+      ...(r.role === 'assistant' && r.status === 'stopped' && (r.stopped_for === 'requester_removed' || r.stopped_for === 'requester_disabled') ? (() => {
+        const t = r.turn_id ? this.db.query('SELECT user_id FROM turns WHERE id = ?').get(r.turn_id) as { user_id: string } | null : null
+        const name = t ? this.userRef(t.user_id)?.name ?? '' : ''
+        return name ? { stoppedFor: { reason: r.stopped_for as 'requester_removed' | 'requester_disabled', name } } : {}
+      })() : {}),
       ...(r.role === 'assistant' && r.history_trimmed === 1 ? { historyTrimmed: true } : {}),
       // cut because the team's AI model reads only a short conversation (chat/history-fit.ts)
       ...(r.role === 'assistant' && r.history_trimmed === 1 && r.history_small_model === 1 ? { historySmallModel: true as const } : {}),

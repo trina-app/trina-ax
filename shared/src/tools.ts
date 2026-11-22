@@ -265,9 +265,9 @@ export const EditPdfOperation = z.union([
   }) }),
 ])
 export const EditPdfInput = z.strictObject({
-  file_path: relPath.describe('The PDF to change'),
+  file_path: relPath.describe('The PDF to change: a team path, or a file of this chat chat:files/<file_id>/<name> (read it first; without output it gets a new version)'),
   operations: z.array(EditPdfOperation).min(1).max(30).describe('Applied in order; page numbers in each are the pages at that moment'),
-  output: optRelPath.describe('Where to save the new PDF (default: "<name> (edited).pdf" next to the original; a PDF you made in this turn is changed in place)'),
+  output: optRelPath.describe('Where to save the new PDF (default: "<name> (edited).pdf" next to the original; a PDF you made in this turn, or a file of this chat, is changed in place)'),
   replace: z.boolean().optional().describe('true only when the user explicitly asks to replace the original (read it in this turn first; its old version stays in its history)'),
 })
 export const MergePdfsInput = z.strictObject({
@@ -384,8 +384,14 @@ export const ArtifactInput = z.strictObject({
 })
 export const ArtifactOutput = z.object({ key: z.string(), version: z.number().int() })
 
-export const RememberInput = z.strictObject({ text: z.string().min(1).max(2000) })
-export const RememberOutput = z.object({ id: z.string() })
+export const RememberInput = z.strictObject({
+  text: z.string().min(1).max(2000),
+  /** the id of an existing memory (from the memory block) this one updates in place, instead of adding a new one */
+  replaces: z.string().max(64).optional(),
+  /** true when the user asked in their own words to keep this; false or absent: the AI keeps it on its own judgement */
+  asked: z.union([z.boolean(), z.enum(['true', 'false'])]).optional(),
+})
+export const RememberOutput = z.object({ id: z.string().optional(), kept: z.boolean().optional(), note: z.string().optional() })
 export const ForgetInput = z.strictObject({ id: z.string() })
 export const ForgetOutput = z.object({ ok: z.literal(true) })
 
@@ -594,6 +600,9 @@ export const SharedWithMeInput = z.strictObject({
   query: z.string().trim().min(1).max(100).optional().describe('A part of the file name or of the name of the person who shared it ("quote", "Mina"). Leave it out for the newest ones.'),
   limit: z.number().int().min(1).max(20).optional().describe('How many to list (default and most: 20).'),
 })
+/** my_folders (server/src/chat/my-folders.ts; docs/decisions/20261122-demo-permission-scene.md): the folders the user's
+ * AI can see, each with its access; no parameters (the answer never depends on a path that was asked for) */
+export const MyFoldersInput = z.strictObject({})
 /** looking_at (server/src/chat/looking-at.ts): what the user has open in the app now; no parameters */
 export const LookingAtInput = z.strictObject({})
 /** answer_comments (server/src/chat/answer-comments.ts; docs/decisions/20261117-ai-reads-answer-comments.md): read-only.
@@ -701,6 +710,7 @@ export const OTHER_TOOLS = {
   share_folder: { input: ShareFolderInput, output: TextOutput },
   shared_with_me: { input: SharedWithMeInput, output: TextOutput },
   looking_at: { input: LookingAtInput, output: TextOutput },
+  my_folders: { input: MyFoldersInput, output: TextOutput },
   answer_comments: { input: AnswerCommentsInput, output: TextOutput },
   change_project_members: { input: ChangeProjectMembersInput, output: TextOutput },
   who_can_open: { input: WhoCanOpenInput, output: TextOutput },

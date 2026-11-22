@@ -27,7 +27,7 @@ import { readRegular } from '../files/store'
 import { HttpError, fail } from '../http/errors'
 import { authorize } from '../policy/authorize'
 import { Denied, ToolError } from '../policy/errors'
-import { listTeamSkills, parseSkill, sameSkillName, SKILL_FILE_MAX_BYTES } from '../chat/skills'
+import { listTeamSkills, sameSkillName, SKILL_FILE_MAX_BYTES } from '../chat/skills'
 import { readCompanyProfile } from './profile'
 import { packExample } from './skill-examples'
 import { FileError } from '../team-files/errors'
@@ -276,6 +276,26 @@ const SUMMARY: Record<string, Record<Locale, string>> = {
 /** A kept skill's one line in `locale` ('' for a name that is not one). */
 export const packSummary = (name: string, locale: Locale): string => SUMMARY[name]?.[locale] ?? ''
 
+/** Each kept skill's display name in every app language (QA TC-7962, TC-7963): the catalog, the setup step and Home show
+ * it in the viewer's language, like the one line, whatever language the installed text is in. Where a pack has text in a
+ * language this is that SKILL.md's own `title` (tests/unit/b-skill-catalog.test.ts holds them equal); the slash name
+ * never changes. */
+const TITLE: Record<string, Record<Locale, string>> = {
+  'meeting-notes': { ko: '회의록 정리', en: 'Meeting notes', id: 'Notulen rapat', ja: '議事録まとめ', es: 'Actas de reunión', zh: '会议纪要' },
+  'team-report': { ko: '주간 보고·공지', en: 'Reports & announcements', id: 'Laporan & pengumuman', ja: '週報・お知らせ', es: 'Informes y avisos', zh: '周报与通知' },
+  'customer-reply': { ko: '고객 답장', en: 'Customer replies', id: 'Balasan pelanggan', ja: 'お客様への返信', es: 'Respuestas a clientes', zh: '客户回复' },
+  'contract-review': { ko: '계약서 검토', en: 'Contract review', id: 'Tinjauan kontrak', ja: '契約書チェック', es: 'Revisión de contratos', zh: '合同审阅' },
+  humanizer: { ko: '자연스러운 글', en: 'Natural writing', id: 'Tulisan alami', ja: '自然な文章', es: 'Escritura natural', zh: '自然文风' },
+  'intro-deck': { ko: '회사 소개서', en: 'Company slide deck', id: 'Slide perusahaan', ja: '会社紹介資料', es: 'Dosier de empresa', zh: '公司介绍资料' },
+  'card-news': { ko: '카드뉴스', en: 'Promo cards', id: 'Kartu promosi', ja: '紹介カード', es: 'Tarjetas promocionales', zh: '宣传卡片' },
+  'promo-video': { ko: '홍보 영상', en: 'Promo video', id: 'Video promosi', ja: '紹介動画', es: 'Vídeo promocional', zh: '宣传视频' },
+}
+
+/** A kept skill's display name in `locale` (the name itself for one that is not a kept skill). */
+export const packTitle = (name: string, locale: Locale): string => TITLE[name]?.[locale] ?? name
+/** Whether `title` is still one a kept skill ships with (any language) or its bare name: not a title the team wrote. */
+export const isPackTitle = (name: string, title: string): boolean => title === name || Object.values(TITLE[name] ?? {}).includes(title)
+
 // The examples (EXAMPLES-PLAN.md; FLOW-v6 §2.2, §8): skill-examples.ts, which the web tests' mock server imports too.
 export { exampleBody, PACK_EXAMPLES, packExample } from './skill-examples'
 
@@ -290,8 +310,8 @@ function inTeam(ctx: AppContext, rel: string, name: string, team: { path: string
  * for a team in a language it has no text in: natural writing on a Japanese team) is offered unchecked. */
 export const setupMark = (mark: PackOnboarding | null, at: Locale, team: Locale): PackOnboarding | null => (mark === 'checked' && at !== team ? 'offered' : mark)
 
-/** The catalog as `userId` (an owner or admin) sees it: every kept skill, in CATALOG's order, in the team's language
- * (`locale`: the caller's, for the one line). */
+/** The catalog as `userId` (an owner or admin) sees it: every kept skill, in CATALOG's order, its text and example in
+ * the team's language; its name and one line in the caller's (`locale`: the viewer's UI language). */
 export function skillPackCatalog(ctx: AppContext, userId: string, locale: Locale): PackCatalog {
   const me = ctx.files.principal(userId)
   const team = teamDefaultLocale(ctx.db)
@@ -303,7 +323,7 @@ export function skillPackCatalog(ctx: AppContext, userId: string, locale: Locale
     if (!text) return []
     const path = `skills/${c.pack}/${c.name}/SKILL.md`
     return [{
-      pack: c.pack, name: c.name, path, title: parseSkill(text, path)?.title ?? c.name, description: packSummary(c.name, locale),
+      pack: c.pack, name: c.name, path, title: packTitle(c.name, locale), description: packSummary(c.name, locale),
       inTeam: inTeam(ctx, path, c.name, teamSkills), visual: c.visual, onboarding: setupMark(c.onboarding, at, team), example: packExample(at, c.name, team), locale: at, source: c.source(at),
     }]
   })

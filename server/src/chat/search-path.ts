@@ -26,3 +26,23 @@ export const inProjectOnly = (p: unknown, projectFolder: string): boolean => {
   const k = norm(p as string), d = norm(projectFolder)
   return !!d && (k === d || k.startsWith(d + '/'))
 }
+/** A glob without a path whose pattern starts with plain folder names (users/mina followed by a wildcard part): the same search with
+ * those folders as its path and the rest as its pattern (path users/mina, pattern the wildcard part; glob matches the
+ * pattern below its path, files/service.ts). A shared chat's search without a path never reaches a folder (TurnExec
+ * sharedArgs), so the folder the AI meant is named as the path, where the read card asks for it like any path (QA
+ * TC-7041: "my folder's proposal" was refused as a search without a folder). Anything else: null. The last segment
+ * stays the pattern, so a pattern that is all names ("users/mina/a.html") searches its folder for that name. */
+export function globFolderPrefix(args: unknown): { path: string; pattern: string } | null {
+  if (!args || typeof args !== 'object') return null
+  const a = args as { path?: unknown; pattern?: unknown }
+  if (!noSearchPath(a.path) || typeof a.pattern !== 'string') return null
+  const segs = a.pattern.split('/')
+  // (a backslash escapes in a glob: a segment with one is not a plain name)
+  const plain = (s: string) => s.trim() !== '' && s !== '.' && s !== '..' && !/[*?[\]{}!\\]/.test(s)
+  let n = 0
+  while (n < segs.length - 1 && plain(segs[n]!)) n++
+  if (n === 0) return null
+  const rest = segs.slice(n).join('/')
+  if (!rest.trim()) return null
+  return { path: segs.slice(0, n).join('/'), pattern: rest }
+}

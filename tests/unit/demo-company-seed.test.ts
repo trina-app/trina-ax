@@ -193,11 +193,12 @@ for (const locale of STEEPLING_LOCALES) {
       expect(listed.length - rooms.length).toBe(c.company.projects.length)
       const unread = (slug: string) => { const r = rooms.find((x) => x.id === s.rooms[slug]!.id)!; return [r.unreadCount, r.threadsUnread] }
       for (const x of c.company.rooms) expect(unread(x.slug), x.slug).toEqual(x.slug === 'customer-voice' || x.slug === 'dm-omar' ? [1, 0] : x.slug === 'social-calendar' ? [0, 1] : [0, 0])
-      // Activity 1 (Sara's reply under the banner answer) + Chats › Mentions & threads 2 (those two) + Omar's DM, by
-      // design: the room rows are not in Activity (QA TC-5700); nothing at the build's time
+      // Chats › Mentions & threads 3: those two rooms and Sara's reply under the banner answer (a chat-thread reply is a
+      // conversation row since TC-7700, not an Activity one) + Omar's DM, by design: the room rows are not in Activity
+      // (QA TC-5700); nothing at the build's time
       const inbox = await mina.call(API.listNotifications, { query: { limit: 100 } })
-      expect(inbox.noticeUnreadCount).toBe(1)
-      expect(inbox.roomUnreadCount).toBe(2)
+      expect(inbox.noticeUnreadCount).toBe(0)
+      expect(inbox.roomUnreadCount).toBe(3)
       expect(inbox.unreadCount).toBe(3)
       expect(inbox.items.every((n) => Date.parse(n.createdAt) < Date.now() - 10 * 60_000)).toBe(true)
       // the thread replies are in their threads
@@ -324,6 +325,30 @@ describe('the richer Steepling, without a server', () => {
         expect(s.prompt).not.toMatch(/\.(md|csv|xlsx)\b/i)
         expect(s.prompt).not.toMatch(/스킬|skill|スキル|技能|habilidad|keahlian/i)
       }
+    }
+  })
+
+  // the promo film's permission scene, the real product's way (docs/decisions/20261122-demo-permission-scene.md): the
+  // CEO's folder is there and closed to Mina, and a chip asks for "the management folder" in every language. The answer
+  // and the card under it (my_folders) name only what she can open: tests/unit/my-folders.test.ts
+  test('the CEO\'s folder is seeded, closed to Mina, and a Home chip asks for it', () => {
+    const chip: Record<string, string> = { en: 'Show me the management folder', ko: '경영진 폴더 보여줘', ja: '経営陣のフォルダーを見せて', zh: '给我看看管理层的文件夹', es: 'Muéstrame la carpeta de dirección', id: 'Tunjukkan folder manajemen' }
+    for (const l of STEEPLING_LOCALES) {
+      const c = made[l].company
+      const folder = steeplingWords(l).more.leadership.folder
+      const inside = made[l].files.filter((f) => f.startsWith(`${folder}/`))
+      expect(inside.length, l).toBeGreaterThan(0)
+      // limited, with no rule: only the owner (the CEO) opens it
+      expect(c.rules.find((r) => r.path === folder), l).toMatchObject({ limited: true, rules: [] })
+      expect(c.owner.username).toBe('daniel')
+      const mina = c.checks.find((k) => k.username === 'mina')!
+      for (const f of inside) {
+        expect(mina.closed, `${l} ${f}`).toContain(f)
+        expect(mina.opens, `${l} ${f}`).not.toContain(f)
+      }
+      expect(c.checks.find((k) => k.username === 'daniel')!.opens.some((f) => f.startsWith(`${folder}/`)), l).toBe(true)
+      expect(c.freeRoam?.suggestions.at(-1)?.prompt, l).toBe(chip[l])
+      expect(c.freeRoam?.suggestions.length, l).toBeLessThanOrEqual(4)
     }
   })
 

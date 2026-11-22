@@ -20,6 +20,7 @@ import { LocalCall, LocalResult } from './local-apps'
 import { ArtifactSummary, ArtifactType, Attachment, Chat, ChatThreadReply, ChatThreadSummary, Job, JobKind, Memory, Message, MessageStatus, Step, UserRef } from './entities'
 import { CredentialLogin } from './credentials'
 import { IntegrationAuth, IntegrationScope, RemoteIntegrationKind } from './integrations'
+import { GoogleAppId } from './google-apps'
 import { SkillProblem } from './skills'
 import { Room, RoomMessage, RoomReaction, RoomThreadSummary } from './rooms'
 import { DeckBuild } from './intro-deck'
@@ -206,9 +207,16 @@ export const BrowserSiteRequest = z.object({ kind: z.literal('browser_site'), re
 export const ConnectServiceRequest = z.object({
   kind: z.literal('connect_service'),
   requestId: z.string(),
-  target: z.enum(['service', 'google_drive']),
-  /** the service as people call it ("Higgsfield"); "Google Drive" for google_drive */
+  /** google_app: Gmail, Google Calendar, Docs or Sheets (`googleApp`), a card only for an owner or admin, to connect it
+   * for the team (`teamOffer`) or their own on its page; older servers send only service and google_drive */
+  target: z.enum(['service', 'google_drive', 'google_app']),
+  /** the service as people call it ("Higgsfield"); "Google Drive" for google_drive, the app's name for google_app */
   name: z.string(),
+  /** target google_app: which one */
+  googleApp: GoogleAppId.optional(),
+  /** google_drive or google_app, for an owner or admin: the card also offers Connect for the team, the same dialog as
+   * Admin › Connected apps (a shared Drive, or the team's shared Google account); older servers omit it */
+  teamOffer: z.boolean().optional(),
   /** personal: only this person uses it; team: an admin adds it for the team and picks who may use it */
   scope: IntegrationScope,
   /** target 'service': the connection the AI filled in. host = the address's host, the card's main line */
@@ -290,8 +298,10 @@ export const ServerEvent = z.discriminatedUnion('type', [
   /** the thread under an AI answer of a shared chat changed (docs/decisions/20261116-chat-answer-threads.md), to each
    * person who sees the chat and the answer now, as they see it: a reply came (`reply`), one was deleted (`replyId`), or
    * I read it on another device (`read`: only to me). `thread`: the summary under the answer for me (null: no replies
-   * left). Replayed after a reconnect only while I still see the thread (realtime/hub.ts stillVisible). */
-  ev('chat.thread', z.object({ chatId: Uuid7, rootId: Uuid7, change: z.enum(['reply', 'deleted', 'read']), reply: ChatThreadReply.optional(), replyId: Uuid7.optional(), thread: ChatThreadSummary.nullable() })),
+   * left). Replayed after a reconnect only while I still see the thread (realtime/hub.ts stillVisible). `notice`: this
+   * reply gave me a notice (chat/threads.ts sendReply: 'mention' when it mentions me, else 'reply' in a thread I
+   * follow), so the desktop app tells it as the Inbox and push do. Absent: no notice for me. */
+  ev('chat.thread', z.object({ chatId: Uuid7, rootId: Uuid7, change: z.enum(['reply', 'deleted', 'read']), reply: ChatThreadReply.optional(), replyId: Uuid7.optional(), thread: ChatThreadSummary.nullable(), notice: z.enum(['mention', 'reply']).optional() })),
   /** my list folders changed (made, renamed, reordered, deleted, a chat or room put in or taken out): read them again
    * (GET /api/nav-folders). Only to me, never to anyone else (docs/DECISIONS.md "List folders"). An older page ignores
    * it (an unknown event). */

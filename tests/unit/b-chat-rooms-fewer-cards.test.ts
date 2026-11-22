@@ -49,6 +49,9 @@ beforeAll(async () => {
       db.query(sql).run(id, g)
   }
   db.exec('PRAGMA foreign_keys = ON')
+  // remember is this file's probe for "the chat holds outside content" (its card): the switch-off path of auto memory
+  // (docs/decisions/20261122-auto-memory.md); auto memory's own checks are in auto-memory.test.ts
+  db.query("UPDATE users SET prefs = json_set(COALESCE(prefs, '{}'), '$.autoMemory', 'off')").run()
   for (const u of ['alice', 'bob', 'erin']) { ws[u] = await h.ws(u); await ws[u]!.next('hello') }
 })
 afterAll(async () => { for (const s of Object.values(ws)) s.close(); await h.close() })

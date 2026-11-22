@@ -9,7 +9,7 @@
 // touch screen a long press opens the same as a sheet with the reactions on top. Under a message: its reactions
 // (components/rooms/Reactions.tsx) and, for a root, its thread ("답글 3개 · 오후 2:10", up to 3 faces; a dot when a
 // thread I follow has new replies), which opens the thread. A reply also sent to the room says so above it. The same
-// list shows a thread's root and replies (variant). A photo's thumbnail and a file chip's name open the viewer
+// list shows a thread's root and replies (variant). A photo's thumbnail, a video's frame (RoomVideo) and a file chip's name open the viewer
 // (components/ImageViewer.tsx, like Slack's: the whole window, the pane's other pictures and files by ← →; the page's
 // ImageGroup is the timeline or the thread; docs/DECISIONS.md "The room file viewer"): a photo with its zoom, a
 // document drawn as the side panel draws it, a file with no preview here as its card with the download. The chip has a
@@ -33,7 +33,7 @@
 // over several messages copies their words as plain text, one message per block under its author and time
 // (lib/messageCopy.ts).
 import clsx from 'clsx'
-import { Copy, Download, FileText, FileX, FolderCheck, FolderInput, Link2, MessageSquareText, Pencil, Trash2, X } from 'lucide-react'
+import { Copy, Download, FileText, FileX, FolderCheck, FolderInput, Link2, MessageSquareText, Pencil, Play, Trash2, X } from 'lucide-react'
 import { createContext, Fragment, useContext, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ClipboardEvent, type ReactNode } from 'react'
 import { CHAT_FILES_FOLDER } from '@mycel/shared'
 import { DEFAULT_LOCALE, parseMessageLinks, ROOM_QUOTE_EXCERPT_MAX, type Room, type RoomFile, type RoomMessage, type RoomQuote, type UserRef } from '@mycel/shared/api'
@@ -45,7 +45,7 @@ import { aiName } from '../../lib/tabs'
 import { Markdown, PersonMarkdown } from '../LazyMarkdown'
 import { AppCardText } from './AppCard'
 import { roomPreview, type PreviewFile } from '../../lib/sidePanel'
-import { roomFileOpens } from '../../lib/preview'
+import { previewKind, roomFileOpens } from '../../lib/preview'
 import { useLocale, useT } from '../../i18n'
 import { useNameOf, usePeople } from '../../store/people'
 import { useMe } from '../../store/session'
@@ -68,6 +68,7 @@ import { Tooltip } from '../Tooltip'
 import { useViewerItem, useViewerMeta, ViewerMeta } from '../ImageViewer'
 import { roomFileItem, roomItem, type ViewerItem, type ViewerMetaValue } from '../../lib/imageViewer'
 import { itemImage, itemLink } from '../../lib/fileMenu'
+import { GALLERY_GAP_PX, GALLERY_PX, galleryRows } from '../../lib/imageGallery'
 import { askTrinaInRoom, fileSeed } from '../../lib/sideChatAsk'
 import { useFileMenu } from '../FileMenu'
 import type { SideSeed } from './SideChatPanel'
@@ -132,6 +133,19 @@ function RoomThumb({ f, src }: { f: RoomFile; src: string }) {
       }}
       className={clsx('block max-h-60 max-w-full object-cover', !loaded && 'bg-subtle')}
     />
+  )
+}
+
+/** A gallery tile's thumbnail: it fills the tile (cropped), the soft box only until it loads. Out of the flow, so the
+ * picture's own size never stretches the tile past its ratio. */
+function TileThumb({ src }: { src: string }) {
+  const [loaded, setLoaded] = useState(false)
+  return (
+    <>
+      <img src={src} alt="" loading="lazy" onLoad={() => setLoaded(true)} className={clsx('absolute inset-0 block h-full w-full object-cover', !loaded && 'bg-subtle')} />
+      {/* the picture's hairline over it: a border on the tile would add to its width and not to its height */}
+      <span aria-hidden className="pointer-events-none absolute inset-0 rounded-lg border border-line" />
+    </>
   )
 }
 
@@ -646,17 +660,48 @@ function Quote({ q, onJump }: { q: RoomQuote; onJump?: () => void }) {
 }
 
 function Files({ roomId, files }: { roomId: string; files: RoomFile[] }) {
+  const me = useMe()
+  // two or more pictures: an even gallery first, like Slack's (lib/imageGallery.ts), then the other files as chips
+  const pictures = files.filter((f) => !f.state && f.kind === 'image' && f.thumb)
+  const gallery = pictures.length > 1
+  const chips = gallery ? files.filter((f) => !pictures.includes(f)) : files
   return (
-    <div className="mt-1 mb-0.5 flex flex-wrap items-start gap-2">
-      {files.map((f) =>
-        f.state ? (
-          <GoneFile key={f.id} state={f.state} />
-        ) : f.kind === 'image' && f.thumb ? (
-          <RoomPicture key={f.id} roomId={roomId} f={f} siblings={files} />
-        ) : (
-          <FileChip key={f.id} roomId={roomId} f={f} siblings={files} />
-        ),
+    <>
+      {gallery && <PictureGallery roomId={roomId} pictures={pictures} siblings={files} />}
+      {chips.length > 0 && (
+        <div className="mt-1 mb-0.5 flex flex-wrap items-start gap-2">
+          {chips.map((f) =>
+            f.state ? (
+              <GoneFile key={f.id} state={f.state} />
+            ) : f.kind === 'image' && f.thumb ? (
+              <RoomPicture key={f.id} roomId={roomId} f={f} siblings={files} />
+            ) : roomVideoFrame(f, me) ? (
+              <RoomVideo key={f.id} roomId={roomId} f={f} siblings={files} />
+            ) : (
+              <FileChip key={f.id} roomId={roomId} f={f} siblings={files} />
+            ),
+          )}
+        </div>
       )}
+    </>
+  )
+}
+
+/** A message's pictures (two or more) in rows of one height, each cropped to fill its tile, both edges lined up
+ * (lib/imageGallery.ts). As wide as the column up to GALLERY_PX, so a phone scales it down. Each tile is the picture's
+ * own button: the viewer with the whole picture and ← →, its menu, its label. "Only in this conversation" once under it
+ * when every picture is kept in the room (a mix: in each tile's label). */
+function PictureGallery({ roomId, pictures, siblings }: { roomId: string; pictures: RoomFile[]; siblings: readonly RoomFile[] }) {
+  const t = useT()
+  const rows = useMemo(() => galleryRows(pictures), [pictures])
+  return (
+    <div className="mt-1 mb-0.5 flex w-full flex-col" style={{ maxWidth: GALLERY_PX, gap: GALLERY_GAP_PX }} data-testid="room-gallery" data-count={pictures.length}>
+      {rows.map((row, i) => (
+        <div key={i} className="flex items-start" style={{ gap: GALLERY_GAP_PX }} data-testid="room-gallery-row">
+          {row.map(({ file, ratio }) => <RoomPicture key={file.id} roomId={roomId} f={file} siblings={siblings} ratio={ratio} />)}
+        </div>
+      ))}
+      {pictures.every((f) => f.roomOnly) && <span className="text-xs text-faint" aria-hidden data-testid="room-image-room-only">{t('rooms.file.roomOnly')}</span>}
     </div>
   )
 }
@@ -674,21 +719,36 @@ function GoneFile({ state }: { state: 'deleted' | 'unavailable' }) {
   )
 }
 
-/** A photo under a message: its thumbnail opens the image viewer, with the original read through the room. */
-function RoomPicture({ roomId, f, siblings }: { roomId: string; f: RoomFile; siblings: readonly RoomFile[] }) {
+/** A photo under a message: its thumbnail opens the image viewer, with the original read through the room. `ratio`: a
+ * tile of a gallery (PictureGallery), that wide for its height, the thumbnail cropped to fill it. */
+function RoomPicture({ roomId, f, siblings, ratio }: { roomId: string; f: RoomFile; siblings: readonly RoomFile[]; ratio?: number }) {
   const t = useT()
   const make = (meta: ViewerMetaValue) => roomItem(roomId, f, meta)
   const viewer = useViewerItem(make)
   // a picture has no icons of its own: "Save to team folder" is in its menu (right-click, long press)
   const fileMenu = useRoomFileMenu(f, make(useViewerMeta()), useRoomFileSave(roomId, f, siblings))
   const label = f.roomOnly ? `${t('rooms.openImage', { name: f.name })} · ${t('rooms.file.roomOnly')}` : t('rooms.openImage', { name: f.name })
+  const tile = ratio !== undefined
+  const src = roomFileUrl(roomId, f.id, { thumb: '1' })
   const picture = (
     <Tooltip label={label}>
-      <button type="button" ref={viewer.ref} onClick={(e) => !fileMenu.guard(e) && viewer.open()} {...fileMenu.bind} aria-label={label} className="overflow-hidden rounded-lg border border-line" data-testid="room-image" data-file-name={f.name} data-room-only={f.roomOnly ? '' : undefined}>
-        <RoomThumb f={f} src={roomFileUrl(roomId, f.id, { thumb: '1' })} />
+      <button
+        type="button"
+        ref={viewer.ref}
+        onClick={(e) => !fileMenu.guard(e) && viewer.open()}
+        {...fileMenu.bind}
+        aria-label={label}
+        className={clsx('overflow-hidden rounded-lg', tile ? 'relative min-w-0' : 'border border-line')}
+        style={tile ? { aspectRatio: ratio, flexGrow: ratio, flexBasis: 0 } : undefined}
+        data-testid="room-image"
+        data-file-name={f.name}
+        data-room-only={f.roomOnly ? '' : undefined}
+      >
+        {tile ? <TileThumb src={src} /> : <RoomThumb f={f} src={src} />}
       </button>
     </Tooltip>
   )
+  if (tile) return <>{picture}{fileMenu.menu}</>
   return (
     <>
       {/* a picture kept in the room where files otherwise go to a team folder: "Only in this conversation" in its name
@@ -699,6 +759,65 @@ function RoomPicture({ roomId, f, siblings }: { roomId: string; f: RoomFile; sib
           <span className="text-xs text-faint" aria-hidden data-testid="room-image-room-only">{t('rooms.file.roomOnly')}</span>
         </span>
       ) : picture}
+      {fileMenu.menu}
+    </>
+  )
+}
+
+/** A video under a message shows a frame of it (QA TC-7239): one the browser plays here (mp4, mov, webm within the
+ * preview rules: lib/preview.ts roomFileOpens). Any other video stays a file chip. */
+export function roomVideoFrame(f: Pick<RoomFile, 'name' | 'size' | 'kind' | 'state'>, me: Parameters<typeof roomFileOpens>[1]): boolean {
+  return !f.state && previewKind(f.name) === 'video' && roomFileOpens(f, me)
+}
+
+/** A video under a message: its frame at 0.1 s, read by the browser itself (only the first parts of the file: the
+ * server makes no poster), in a picture's box (thumbBox: 16:9 until its size is known) with a play mark; a click opens
+ * the viewer's player, as a photo's thumbnail opens the photo. One this browser cannot decode becomes its file chip. */
+function RoomVideo({ roomId, f, siblings }: { roomId: string; f: RoomFile; siblings: readonly RoomFile[] }) {
+  const t = useT()
+  const me = useMe()
+  const make = (meta: ViewerMetaValue) => roomFileItem(roomId, f, me, meta)
+  const viewer = useViewerItem(make)
+  const fileMenu = useRoomFileMenu(f, make(useViewerMeta()), useRoomFileSave(roomId, f, siblings))
+  const [size, setSize] = useState<{ width: number; height: number } | null>(null)
+  const [failed, setFailed] = useState(false)
+  if (failed) return <FileChip roomId={roomId} f={f} siblings={siblings} />
+  const label = f.roomOnly ? `${t('rooms.playVideo', { name: f.name })} · ${t('rooms.file.roomOnly')}` : t('rooms.playVideo', { name: f.name })
+  const box = thumbBox(size ?? (f.width && f.height ? f : { width: 320, height: 180 }))
+  const video = (
+    <Tooltip label={label}>
+      <button type="button" ref={viewer.ref} onClick={(e) => !fileMenu.guard(e) && viewer.open()} {...fileMenu.bind} aria-label={label} className="relative block max-w-full overflow-hidden rounded-lg border border-line bg-black" style={box} data-testid="room-video" data-file-name={f.name} data-room-only={f.roomOnly ? '' : undefined}>
+        <video
+          src={`${roomFileUrl(roomId, f.id)}#t=0.1`}
+          preload="metadata"
+          muted
+          playsInline
+          tabIndex={-1}
+          aria-hidden
+          onLoadedMetadata={(e) => {
+            const { videoWidth: width, videoHeight: height } = e.currentTarget
+            if (width && height) setSize({ width, height })
+          }}
+          onError={() => setFailed(true)}
+          className="pointer-events-none block size-full object-cover"
+          data-testid="room-video-frame"
+        />
+        <span className="absolute inset-0 flex items-center justify-center" aria-hidden>
+          <span className="flex size-11 items-center justify-center rounded-full bg-black/55 text-white">
+            <Play size={20} className="translate-x-px" fill="currentColor" />
+          </span>
+        </span>
+      </button>
+    </Tooltip>
+  )
+  return (
+    <>
+      {f.roomOnly ? (
+        <span className="inline-flex max-w-full flex-col items-start gap-0.5">
+          {video}
+          <span className="text-xs text-faint" aria-hidden data-testid="room-video-room-only">{t('rooms.file.roomOnly')}</span>
+        </span>
+      ) : video}
       {fileMenu.menu}
     </>
   )

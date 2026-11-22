@@ -91,6 +91,7 @@ export const FILE_SHARE_SPECS: Record<string, Spec> = {
   // a press's list: only the person it told (alice), never bob who pressed it, the owner or an admin
   sharedBatch: { build: async (c, w) => c.get(`/api/files/shared-batch/${await bobPressForAlice(w)}`), scope: 'own-alice' },
   requestFileAccess: { build: (c) => c.post('/api/files/shared/AAAAAAAAAAAAAAAAAAAAAA/request', {}), scope: 'nobody' },
+  askFileShareFor: { build: (c) => c.post('/api/files/shared/AAAAAAAAAAAAAAAAAAAAAA/ask-for', { people: ['someone'] }), scope: 'nobody' },
   answerFileRequest: { build: (c) => c.post(`/api/files/requests/${crypto.randomUUID()}`, { answer: 'approve' }), scope: 'nobody' },
   // AI sharing (docs/decisions/20261116-ai-share-card-and-stop.md, 20261116-ai-share-who-can-open.md) and folder
   // sharing (the gate closed): an undo id, a step's next step and a shared folder's link that nobody made are 404 for

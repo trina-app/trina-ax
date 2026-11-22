@@ -117,7 +117,7 @@ export type PushEventType = z.infer<typeof PushEventType>
  * (room_app_notices; a push too: PushEventType), and room_app.leaver to the people who may manage an app in a room
  * when someone who was shown its address can no longer manage it (room_app_leaver_notices, migration 352; docs/DECISIONS.md
  * "Apps posting in rooms"). */
-export const NotificationEventType = z.enum([...PushEventType.options, 'skill.suggested', 'skill.reviewed', 'dev_env.job', 'dev_env.box', 'integration.request', 'onboarding.ai_request', 'team.joined', 'onboarding.first_run', 'account.deletion_request', 'integration.template', 'integration.template_reconnect', 'drive.share_reconnect', 'skills.merge_waiting', 'credential.change', 'owner.transferred', 'project.joined', 'service.request', 'service.ready', 'service.closed', 'files.stored_key', 'account.reset_link', 'hosting.key_copied', 'hosting.exported', 'relay.address_moved', 'engine.start_failed', 'storage.filling', 'storage.cleanup', 'account.deletion_due', 'room_app.leaver', 'file.access_answered', 'file.unshared_by_move', 'access.answered'])
+export const NotificationEventType = z.enum([...PushEventType.options, 'skill.suggested', 'skill.reviewed', 'dev_env.job', 'dev_env.box', 'integration.request', 'onboarding.ai_request', 'team.joined', 'onboarding.first_run', 'account.deletion_request', 'integration.template', 'integration.template_reconnect', 'drive.share_reconnect', 'skills.merge_waiting', 'credential.change', 'owner.transferred', 'project.joined', 'service.request', 'service.ready', 'service.closed', 'files.stored_key', 'account.reset_link', 'hosting.key_copied', 'hosting.exported', 'relay.address_moved', 'engine.start_failed', 'storage.filling', 'storage.cleanup', 'account.deletion_due', 'room_app.leaver', 'file.access_answered', 'file.unshared_by_move', 'access.answered', 'chat.lost'])
 export type NotificationEventType = z.infer<typeof NotificationEventType>
 export const InboxNotification = z.object({
   id: z.string(), eventType: NotificationEventType, sourceId: z.string(), code: NotificationEventType,
@@ -238,13 +238,19 @@ export const InboxNotification = z.object({
    * `title`: the chat's title, read now and only while I still see the chat (link 'chat' then opens it); `gone`: I no
    * longer see it ("This chat is no longer shared with you": no title, no link). Never stored text. Older servers omit it */
   chatShared: z.object({ name: z.string().nullable(), title: z.string().nullable(), gone: z.literal(true).optional() }).optional(),
+  /** 'chat.lost' only (docs/decisions/20261122-shared-chat-leave-and-lost-notices.md; chat_lost_notices): I lost a chat
+   * shared with me. `reason`: 'stopped' (its creator took me out or stopped sharing it), 'deleted' (moved to the trash)
+   * or 'account' (its creator's account was deleted; `until`: when the chat goes for good). `name`: who, by display name
+   * (a deleted account's too: the tombstone keeps it); `title` only while I still see the chat (link 'chat' then opens
+   * it). Never stored text. Older servers omit it */
+  chatLost: z.object({ reason: z.enum(['stopped', 'deleted', 'account']), name: z.string().nullable(), title: z.string().nullable(), until: IsoTime.optional() }).optional(),
   /** 'chat.thread_reply' only (docs/decisions/20261116-chat-answer-threads.md; chat_thread_notices): someone replied in a
    * thread I follow under an AI answer of a shared chat. Read now, while I still see that chat and answer (link
    * 'chat_thread' then opens /c/<chatId>/t/<rootId>): `name`, the newest replier by display name while their account is
    * there; `title`, the chat's title. `gone`: I no longer see it (no name, no title, no link). Never a reply's text.
    * `mention`: a reply of it mentions me (docs/decisions/20261118-chat-thread-mentions.md); `name` is then who mentioned
-   * me. Older servers omit it */
-  chatThread: z.object({ chatId: z.string().nullable(), rootId: z.string().nullable(), name: z.string().nullable(), title: z.string().nullable(), gone: z.literal(true).optional(), mention: z.literal(true).optional() }).optional(),
+   * me. `byId`: that person's id while `name` is given (their photo on the row). Older servers omit it */
+  chatThread: z.object({ chatId: z.string().nullable(), rootId: z.string().nullable(), name: z.string().nullable(), byId: z.string().optional(), title: z.string().nullable(), gone: z.literal(true).optional(), mention: z.literal(true).optional() }).optional(),
   /** the 'file.*' notices (docs/DECISIONS.md "A member shares their own files", file_share_notices). file.shared:
    * `by` shared `name` with me (link 'file' opens /f/<linkId>). file.access_requested (to the file's owner, or the team
    * owner and admins for a file with no owner): `by` asked to open `name`, their `note` (plain text), `requestId` and
@@ -272,6 +278,9 @@ export const InboxNotification = z.object({
      * the reader cannot open it). `by` is then who shared it, while their account is there; never the file's name.
      * Older servers omit it */
     why: z.enum(['stopped', 'deleted', 'moved']).optional(),
+    /** file.access_requested while the viewer may answer it: 'project' when the file is in a team project the person
+     * who would get it cannot open (the card says its other files stay hidden). Older servers omit it */
+    outside: z.literal('project').optional(),
   }).optional(),
   /** 'access.requested' and 'access.answered' (docs/decisions/20261116-chat-project-ask-access.md, access_request_notices).
    * access.requested (to whoever answers it): `by` asked to open the chat or project `name` (its title now), their
@@ -331,6 +340,9 @@ export const InboxNotification = z.object({
     ai: z.literal(true).optional(),
     preview: z.string().optional(),
     files: z.number().int().nonnegative().optional(),
+    /** the newest message's first file's name (one plain line), with or without text (QA TC-7049); older servers omit
+     * it and send `files` only for a message without text */
+    fileName: z.string().optional(),
     count: z.number().int().positive().optional(),
     people: z.number().int().positive().optional(),
     at: z.string().optional(),
@@ -377,6 +389,11 @@ export const InboxNotification = z.object({
   devEnv: z.object({
     projectId: z.string(), projectName: z.string(),
     job: z.object({ name: z.string(), exitCode: z.number().int().nullable(), note: z.string().optional(), tail: z.string().optional(), reason: z.string().optional(), chatTitle: z.string().optional() }).optional(),
+    /** A request whose jobs ended while its answer ran (server/src/devenv/jobs.ts tellHeldJobs): how the answer ended.
+     * done: it finished; stopped: it did not, with why (limit: the step or time limit of one answer; error; stopped:
+     * someone stopped it; restart: the server restarted; question: Trina waits for the person's answer). chatTitle as
+     * for job. Older servers omit it. */
+    request: z.object({ outcome: z.enum(['done', 'stopped']), reason: z.enum(['limit', 'error', 'stopped', 'restart', 'question']).optional(), chatTitle: z.string().optional() }).optional(),
   }).optional(),
 })
 export type InboxNotification = z.infer<typeof InboxNotification>
@@ -384,11 +401,13 @@ export type InboxNotification = z.infer<typeof InboxNotification>
 export const ActivityTab = z.enum(['all', 'dms', 'mentions', 'threads'])
 export type ActivityTab = z.infer<typeof ActivityTab>
 /** Which tabs a notice shows under besides All: a direct or group chat's under DMs, an @mention (or @everyone) under
- * Mentions, a reply in a thread under Threads (in a direct or group chat too). A notice of the app's own is under All
- * only. The page filters with it and the server marks a tab read with it (POST /api/notifications/read), so both follow
- * one rule. */
-export function activityTabHas(item: Pick<InboxNotification, 'code' | 'room'>, tab: ActivityTab): boolean {
+ * Mentions, a reply in a thread under Threads (in a direct or group chat too). A reply in a thread under a shared AI
+ * chat's answer (chat.thread_reply) is a thread reply as well: under Threads, and under Mentions while one of its
+ * replies mentions me. A notice of the app's own is under All only. The page filters with it and the server marks a
+ * tab read with it (POST /api/notifications/read), so both follow one rule. */
+export function activityTabHas(item: Pick<InboxNotification, 'code' | 'room' | 'chatThread'>, tab: ActivityTab): boolean {
   if (tab === 'all') return true
+  if (item.code === 'chat.thread_reply') return tab === 'threads' || (tab === 'mentions' && !!item.chatThread?.mention)
   const room = item.room
   if (!room || (item.code !== 'room.dm' && item.code !== 'room.mention')) return false
   if (tab === 'dms') return room.kind === 'dm' || room.kind === 'group'

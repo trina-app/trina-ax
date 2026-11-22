@@ -18,7 +18,7 @@ import { groupFolder } from '../admin/groups'
 import { teamDefaultLocale } from '../admin/settings'
 import { groupSkillsDir, isPersonalSkill, scanSkillsWithShadowed, type Skill } from '../chat/skills'
 import { readCompanyProfile } from '../onboarding/profile'
-import { CATALOG, packExample, packSummary, SKILL_PACKS, skillLocale } from '../onboarding/skill-packs'
+import { CATALOG, isPackTitle, packExample, packSummary, packTitle, SKILL_PACKS, skillLocale } from '../onboarding/skill-packs'
 import { landingSkill, readWelcome } from '../onboarding/welcome'
 import { atLeast, type Principal } from '../policy/access'
 import { authorize } from '../policy/authorize'
@@ -160,7 +160,9 @@ export function teamPrepared(ctx: AppContext, userId: string, locale: Locale): T
     // an example that cannot be read leaves the row without 예시, never without the row
     let example
     try { example = packExample(lang, c.name, team) ?? undefined } catch { example = undefined }
-    kept.set(s.path, { s, out: { path: s.path, name: s.name, title: skillTitle(s), summary: packSummary(c.name, locale) || lineOf(skillSummary(s)), ...(example ? { example, locale: lang } : {}), source: c.source(lang) } })
+    // the name in the caller's language, like the one line, unless the team wrote a title of its own (QA TC-7963)
+    const title = isPackTitle(c.name, skillTitle(s)) ? packTitle(c.name, locale) : skillTitle(s)
+    kept.set(s.path, { s, out: { path: s.path, name: s.name, title, summary: packSummary(c.name, locale) || lineOf(skillSummary(s)), ...(example ? { example, locale: lang } : {}), source: c.source(lang) } })
   }
   const others = mine.filter((s) => !kept.has(s.path)).map((s): PreparedSkill => ({ path: s.path, name: s.name, title: skillTitle(s), summary: lineOf(skillSummary(s)) }))
   let landing: string | null = null

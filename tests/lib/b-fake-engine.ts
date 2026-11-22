@@ -172,8 +172,10 @@ async function startBridge() {
   br = Bun.spawn([bridge.command, ...bridge.args], { stdin: 'pipe', stdout: 'pipe', stderr: 'pipe' })
   ;(async () => {
     let buf = ''
+    // one decoder for the whole stream: a fresh one per chunk turned a character split across two reads into U+FFFD
+    const dec = new TextDecoder()
     for await (const c of br!.stdout as ReadableStream<Uint8Array>) {
-      buf += new TextDecoder().decode(c)
+      buf += dec.decode(c, { stream: true })
       let i
       while ((i = buf.indexOf('\n')) >= 0) { const l = buf.slice(0, i); buf = buf.slice(i + 1); try { const m = JSON.parse(l); pend.get(m.id)?.(m) } catch {} }
     }

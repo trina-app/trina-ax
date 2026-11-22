@@ -50,3 +50,20 @@ test('denial never subscribes and malformed VAPID values are refused before the 
   expect(vapidBytes(publicKey)).toHaveLength(65)
   expect(() => vapidBytes('not-a-key')).toThrow('invalid push key')
 })
+
+test('signing out clears the icon badge from the window, never through the worker (QA TC-7344)', () => {
+  let cleared = 0
+  const had = Object.getOwnPropertyDescriptor(navigator, 'clearAppBadge')
+  Object.defineProperty(navigator, 'clearAppBadge', { configurable: true, value: async () => { cleared++ } })
+  try {
+    setPushSession(null)
+    cleared = 0
+    setPushSession('user-c:session-e')
+    expect(cleared).toBe(0)
+    setPushSession(null)
+    expect(cleared).toBe(1)
+    // nobody was signed in: nothing to clear
+    setPushSession(null)
+    expect(cleared).toBe(1)
+  } finally { if (had) Object.defineProperty(navigator, 'clearAppBadge', had); else Reflect.deleteProperty(navigator, 'clearAppBadge') }
+})

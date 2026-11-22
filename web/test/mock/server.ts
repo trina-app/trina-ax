@@ -125,7 +125,7 @@ import { GOOGLE_APP_IDS as GOOGLE_APP_LIST, MockGoogleApps } from './googleApps'
 import type { GoogleAppId } from '@mycel/shared/api'
 import { isGoogleRequestable, isRequestableService, SERVICE_REQUESTS_PER_DAY, type RequestableService } from '@mycel/shared/api'
 import { catalogAt as catalogAtUrl } from '@mycel/shared'
-import { packExample } from '../../../server/src/onboarding/skill-examples'
+import { packExample, viewerExample } from '../../../server/src/onboarding/skill-examples'
 import { placeholderTitle } from '../../../server/src/chat/title'
 import { planStatus, statusOut } from '../../../server/src/auth/status-plan'
 import { HttpError } from '../../../server/src/http/errors'
@@ -2169,6 +2169,20 @@ export class MockServer {
       return Array.isArray(answer) ? answer[0] : answer
     }
     const chatProject = () => this.projects.find((x) => x.id === this.chats.find((c) => c.id === chatId)?.projectId)
+    if (/management folder/i.test(prompt)) {
+      // like server/src/chat/my-folders.ts (docs/decisions/20261122-demo-permission-scene.md): the folder is not found
+      // among the person's ("not found or no access", the same for a missing and a hidden one), then my_folders and its
+      // card (Step.folders: only folders they can open). "… before": the answer as it was before, with no card.
+      const put = (x: Step) => { assistant.steps = [...assistant.steps.filter((y) => y.id !== x.id), x]; pub({ type: 'message.step', data: { chatId, messageId: assistant.id, step: x } }) }
+      const before = /before/i.test(prompt)
+      put(step({ id: 'S1', kind: 'tool', tool: 'list', label: 'List · shared/management', status: 'error', endedAt: now() }))
+      if (!before) put(step({ id: 'S2', kind: 'tool', tool: 'my_folders', label: 'Check the folders open to you', status: 'ok', endedAt: now(), folders: [
+        { path: 'shared', access: 'edit' }, { path: 'groups/Marketing', access: 'edit' }, { path: 'skills', access: 'view' }, { path: `users/${user.id}`, access: 'edit' }] }))
+      finish(before
+        ? 'I couldn\'t find a "management" folder in the files you can open. If it should be there, check the name, or ask whoever manages that folder or an admin whether you should have access.'
+        : 'I can\'t find a "management" folder among the folders open to you. If it exists, ask its owner or an admin to share it with you.')
+      return
+    }
     if (/folderaccess/i.test(prompt)) {
       // like server/src/chat/folder-access-tool.ts (docs/decisions/20261116-sharing-all-integration.md): an admin's
       // change_folder_access card, with "Always allow" (kind folder_access) and its own risk words; "folderaccess": the
@@ -4209,19 +4223,21 @@ export class MockServer {
       return { told: true as const, already }
     },
     getCompanyProfile: () => ({ profile: this.companyProfile }),
-    // the kept skills (server/src/onboarding/skill-packs.ts skillPackCatalog, short): every one in CATALOG's order, in
-    // the team's language (Korean, else English), whether the team has it (its path, or a team skill of its name), its
-    // example (the server's own, packExample, unless a test set one)
+    // the kept skills (server/src/onboarding/skill-packs.ts skillPackCatalog, short): every one in CATALOG's order, the
+    // text and example in the team's language (Korean, else English), the name and one line in the viewer's (Korean, else
+    // English), whether the team has it (its path, or a team skill of its name), its example (the server's own,
+    // packExample, unless a test set one)
     listSkillPacks: (c) => {
       if (this.packsFail) fail('internal', 500, '지금은 불러오지 못했어요')
       const ko = this.settings.defaultLocale === 'ko'
+      const viewerKo = (c.user.localeChoice ?? this.settings.defaultLocale) === 'ko'
       const team = this.skillsFor(c.user).filter((x) => x.path.startsWith('skills/'))
       return {
         profile: !!this.companyProfile,
         skills: PACK_CATALOG.map((k) => {
           const path = `skills/${k.pack}/${k.name}/SKILL.md`
           return {
-            pack: k.pack, name: k.name, path, title: ko ? k.ko : k.en, description: ko ? k.lineKo : k.lineEn,
+            pack: k.pack, name: k.name, path, title: viewerKo ? k.ko : k.en, description: viewerKo ? k.lineKo : k.lineEn,
             inTeam: this.files.has(path) || team.some((x) => x.name.toLowerCase() === k.name), visual: k.visual, onboarding: k.onboarding,
             example: Object.hasOwn(this.packExamples, k.name) ? this.packExamples[k.name] ?? null : packExample(ko ? 'ko' : 'en', k.name, this.settings.defaultLocale), locale: ko ? 'ko' : 'en',
             source: packSource(k, ko),
@@ -4242,7 +4258,8 @@ export class MockServer {
         const k = PACK_CATALOG.find((x) => x.name === name)!
         const s = mine.find((x) => x.path === `skills/${k.pack}/${k.name}/SKILL.md`)
         if (!s) return []
-        const example = Object.hasOwn(this.packExamples, k.name) ? this.packExamples[k.name] ?? undefined : packExample(ko ? 'ko' : 'en', k.name, this.settings.defaultLocale) ?? undefined
+        // the example in the viewer's own language when there is one (routes/memories.ts inViewerLanguage)
+        const example = Object.hasOwn(this.packExamples, k.name) ? this.packExamples[k.name] ?? undefined : viewerExample(c.user.localeChoice ?? this.settings.defaultLocale, k.name, ko ? 'ko' : 'en', this.settings.defaultLocale) ?? undefined
         const source = packSource(k, ko)
         return [{ path: s.path, name: s.name, title: s.title ?? s.name, summary: c.user.locale === 'ko' ? k.lineKo : k.lineEn, ...(example ? { example, locale: ko ? 'ko' as const : 'en' as const } : {}), source }]
       })
@@ -5529,10 +5546,12 @@ export class MockServer {
     listScheduleTemplates: () => ({ items: [{ id: 'daily-file-index', version: 1, repeat: 'daily' }, { id: 'weekly-summary', version: 1, repeat: 'weekly' }], timeZone: 'Asia/Seoul' }),
     listNotifications: (c) => {
       const mine = this.inbox.filter((n) => n.userId === c.user.id)
-      // no conversation rows here (the specs that need them answer GET /api/notifications themselves): only=rooms is none,
-      // only=notices all of them
-      const unread = mine.filter((n) => !n.readAt).length
-      return { items: c.query.only === 'rooms' ? [] : mine.map((n) => this.inboxItem(n)), nextCursor: null, unreadCount: unread, roomUnreadCount: 0, noticeUnreadCount: unread }
+      // no room rows here (the specs that need them answer GET /api/notifications themselves); a chat-thread notice is a
+      // conversation row (the server's CHAT_THREAD_ROW): only=rooms has those alone, only=notices all the others
+      const items = mine.map((n) => this.inboxItem(n))
+      const thread = (x: { code: string }) => x.code === 'chat.thread_reply'
+      const unread = items.filter((x) => !x.readAt).length, threadUnread = items.filter((x) => !x.readAt && thread(x)).length
+      return { items: c.query.only === 'rooms' ? items.filter(thread) : c.query.only === 'notices' ? items.filter((x) => !thread(x)) : items, nextCursor: null, unreadCount: unread, roomUnreadCount: threadUnread, noticeUnreadCount: unread - threadUnread }
     },
     getNotification: (c) => this.inboxItem(this.inbox.find((n) => n.id === c.params.id && n.userId === c.user.id) ?? fail('not_found', 404)),
     // the server's rule (server/src/notifications/service.ts readAll): All every unread notice of mine, a tab its own
@@ -5541,8 +5560,9 @@ export class MockServer {
       for (const n of this.inbox) {
         if (n.userId !== c.user.id || n.readAt) continue
         const item = this.inboxItem(n)
-        if (c.body.only === 'rooms' && !item.room) continue
-        if (c.body.only === 'notices' && item.room) continue
+        const conversation = !!item.room || item.code === 'chat.thread_reply'
+        if (c.body.only === 'rooms' && !conversation) continue
+        if (c.body.only === 'notices' && conversation) continue
         if (!activityTabHas(item, c.body.tab)) continue
         n.readAt = now()
         read++
@@ -7458,6 +7478,25 @@ export class MockServer {
       for (const id of to) this.note(id, { kind: 'file_share', code: 'file.access_requested', requestId: r.id })
       return { status: 'sent', askedAt: r.at }
     }
+    // the Share dialog's "Ask <owner>": a waiting request per person, answered by the owner as any other
+    h.askFileShareFor = (c) => {
+      if (c.user.role === 'guest') fail('not_found', 404)
+      const path = this.fileLinks.get(c.params.id!)
+      if (!path || !this.files.has(path)) fail('not_found', 404)
+      if (this.canShareFile(path!, c.user)) fail('conflict', 409, 'You can share this file yourself.', undefined, { reason: 'file_request_can_share' })
+      const ownerId = this.fileOwner(path!)
+      let asked = 0, already = 0
+      for (const userId of new Set<string>(c.body.people)) {
+        if (userId === c.user.id || !this.users.some((u) => u.id === userId && u.role !== 'guest')) continue
+        if (this.fileRequests.some((r) => r.path === path && r.userId === userId && r.state === 'pending')) { already++; continue }
+        const r = { id: uuidv7(), linkId: c.params.id!, path: path!, userId, ownerId, note: null, at: now(), state: 'pending' as const }
+        this.fileRequests.push(r)
+        asked++
+        const to = ownerId ? [ownerId] : this.users.filter((u) => u.role === 'owner' || u.role === 'admin').map((u) => u.id)
+        for (const id of to) this.note(id, { kind: 'file_share', code: 'file.access_requested', requestId: r.id })
+      }
+      return { asked, already }
+    }
     h.answerFileRequest = (c) => {
       const r = this.fileRequests.find((x) => x.id === c.params.id) ?? fail('not_found', 404)
       if (r.state !== 'pending') return { state: r.state }
@@ -8267,8 +8306,20 @@ export class MockServer {
     }
     h.hideChat = (c) => hide(c, true)
     h.unhideChat = (c) => hide(c, false)
-    // the delete-account dialog's count: the person's people-shared chats someone else wrote in
-    h.userSharedChats = (c) => ({ sharedChats: [...this.peopleShared.keys()].filter((id) => this.sharedChats.get(id)?.by.id === c.params.id && this.messages.some((m) => m.chatId === id && m.role === 'user' && m.author && m.author.id !== c.params.id)).length })
+    // "Leave this chat" (server/src/chat/people-share.ts leaveChat): by name only; the creator can't
+    h.leaveChat = (c) => {
+      const chat = sees(c.params.id!, c.user)
+      const ps = this.peopleShared.get(chat.id)
+      if (!ps || this.sharedChats.get(chat.id)?.by.id === c.user.id) return fail('validation', 400, '직접 시작한 채팅에서는 나갈 수 없어요.', undefined, { reason: 'chat_leave_creator' })
+      // in it through a listed group only: the group is the creator's to take out
+      if (!ps.subjects.some((x) => x.subjectType === 'user' && x.subjectId === c.user.id)) return fail('conflict', 409, '부서를 통해 이 채팅에 들어와 있어요.', undefined, { reason: 'chat_leave_group' })
+      this.sharedSend((uid) => (uid === c.user.id ? { type: 'chat.updated', data: { chatId: chat.id, change: 'deleted', chat: null } } : null))
+      ps.subjects = ps.subjects.filter((x) => !(x.subjectType === 'user' && x.subjectId === c.user.id))
+      this.peopleHidden.delete(`${c.user.id}:${chat.id}`)
+      return { ok: true as const }
+    }
+    // the delete-account dialog's count: the person's people-shared chats someone else sees
+    h.userSharedChats = (c) => ({ sharedChats: [...this.peopleShared.entries()].filter(([id, ps]) => this.sharedChats.get(id)?.by.id === c.params.id && ps.subjects.length > 0).length })
     // the widening list with a chat as its target: its creator only; POST /__test/widening's items
     over('wideningAnswers', (c, base) => {
       const target = c.body.target as { kind: string; chatId?: string }

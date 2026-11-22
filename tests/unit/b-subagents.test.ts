@@ -183,6 +183,8 @@ describe('the same person, the same checks', () => {
   })
 
   test('outside content a child read taints the chat: the main AI\'s remember then needs the person\'s OK', async () => {
+    // the switch off (today's card); auto memory skips copies instead (auto-memory.test.ts)
+    h.ctx.db.query("UPDATE users SET prefs = json_set(COALESCE(prefs, '{}'), '$.autoMemory', 'off') WHERE id = 'alice'").run()
     const chat = await newChat()
     const r = await h.api('alice').call(API.sendMessage, { params: { id: chat.id }, body: { content: fake({ agents: [{ id: 'toolu_T1', steps: [read('shared/glossary.md')] }] }, { tool: 'remember', args: { text: 'Likes glossaries' }, sayResult: true }), clientMessageId: cm(), attachmentIds: [] } })
     const card = await alice.next('turn.request', (f) => f.data.turnId === r.turnId, 15_000)

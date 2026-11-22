@@ -102,6 +102,8 @@ export const FILE_STEP_VERB: Record<string, T> = {
   shared_with_me: t('공유받은 파일 확인', 'Check files shared with you', 'Periksa berkas yang dibagikan kepada Anda', '共有されたファイルを確認', 'Ver archivos compartidos con usted', '查看共享给你的文件'),
   // the comments under answers in this chat (server/src/chat/answer-comments.ts)
   answer_comments: t('스레드 답글 읽기', 'Read thread replies', 'Baca balasan utas', 'スレッドの返信を読む', 'Leer respuestas del hilo', '读取话题回复'),
+  // the folders the person's AI can see, each with its access (server/src/chat/my-folders.ts): never a hidden one
+  my_folders: t('열 수 있는 폴더 확인', 'Check the folders open to you', 'Periksa folder yang bisa Anda buka', '開けるフォルダーを確認', 'Ver las carpetas que puede abrir', '查看你能打开的文件夹'),
   looking_at: t('열어 둔 화면 확인', 'Check what you have open', 'Periksa yang sedang Anda buka', '開いている画面を確認', 'Ver lo que tiene abierto', '查看你打开的内容'),
   // the AI changes a team project's members after the person's yes on its card (server/src/chat/project-members.ts):
   // "프로젝트 멤버 바꾸기 · 견적"
@@ -173,6 +175,12 @@ export const STEP_TEXT = {
   notRemembered: t('기억하지 않음: {text}', 'Not remembered: {text}', 'Tidak diingat: {text}', "記憶しませんでした：{text}", "No se recordó: {text}", "未记住：{text}"),
   /** remember while its card waits for the person's yes (a chat that read other people's content) */
   rememberAsking: t('기억할지 묻는 중: {text}', 'Asking whether to remember: {text}', 'Menanyakan apakah perlu diingat: {text}', "記憶するか確認中：{text}", "Preguntando si recordar: {text}", "正在询问是否记住：{text}"),
+  /** remember of a password, key, token or code: never kept, and its value never shown */
+  notRememberedSecret: t('기억하지 않음: 비밀번호나 키 같은 비밀 정보', 'Not remembered: a password, key or other secret', 'Tidak diingat: kata sandi, kunci, atau rahasia lain', "記憶しませんでした：パスワードやキーなどの秘密情報", "No se recordó: una contraseña, clave u otro secreto", "未记住：密码、密钥等机密信息"),
+  /** remember with `replaces`: an existing memory changed in place */
+  rememberUpdated: t('기억 고침: {text}', 'Memory updated: {text}', 'Ingatan diperbarui: {text}', "記憶を更新しました：{text}", "Memoria actualizada: {text}", "已更新记忆：{text}"),
+  /** forget, with the text of the memory it removed */
+  forgotText: t('잊음: {text}', 'Forgot: {text}', 'Dilupakan: {text}', "忘れました：{text}", "Olvidado: {text}", "已忘记：{text}"),
   forgot: t('기억 지움', 'Forgot a memory', 'Ingatan dihapus', "メモリを削除しました", "Se olvidó una memoria", "已删除一条记忆"),
   notAnswered: t('답하지 않음', 'Not answered', 'Tidak dijawab', "未回答", "Sin respuesta", "未回答"),
   /** detail of a connect_service step: the person finished the card (or it was connected already), or did not */
@@ -201,7 +209,8 @@ export const STEP_TEXT = {
   /** a fresh session's history did not fit: the older part was summarized first (server/src/chat/history-summary.ts) */
   historySummary: t('이 채팅 앞부분 요약', 'Summary of the earlier part of this chat', 'Ringkasan bagian awal obrolan ini', "このチャットの前半の要約", "Resumen de la parte anterior de este chat", "此对话前面部分的摘要"),
   demoReplay: t('데모용으로 미리 준비한 결과예요', 'Prepared in advance for the demo', 'Disiapkan sebelumnya untuk demo', "デモ用に事前に用意した結果です", "Preparado de antemano para la demostración", "为演示提前准备的结果"),
-  engineOffDefault: t('고른 AI를 지금 쓸 수 없어 팀 기본 AI로 답해요', "The chosen AI is off; answering with the team's default AI", 'AI yang dipilih sedang mati; menjawab dengan AI bawaan tim', "選んだAIは今使えないため、チームの既定のAIで回答します", "La IA elegida está desactivada; se responde con la IA predeterminada del equipo", "所选AI已关闭，改用团队默认AI回答"),
+  // plain words (QA TC-7050: "the chosen AI is off; … default AI" read as jargon)
+  engineOffDefault: t('이 채팅에서 고른 AI가 꺼져 있어서 팀이 평소 쓰는 AI가 대신 답해요', "The AI picked for this chat is turned off, so your team's usual AI is answering", 'AI yang dipilih untuk obrolan ini dimatikan, jadi AI yang biasa dipakai tim Anda yang menjawab', 'このチャットで選んだAIがオフになっているため、チームでいつも使うAIが代わりに答えます', 'La IA elegida para este chat está apagada, así que responde la IA que su equipo usa normalmente', '这个对话选的AI已关闭，所以由你们团队平常用的AI来回答'),
   /** "다른 AI로 대신 답하기": the chat's engine has no AI connection for the person, the other one has
    * (server/src/credentials/access.ts connectionRoute) */
   engineNoConnection: t('고른 AI에 연결된 계정이 없어 다른 AI로 답해요', 'The chosen AI has no account connected; answering with another AI', 'AI yang dipilih tidak punya akun terhubung; menjawab dengan AI lain', "選んだAIにアカウントが接続されていないため、別のAIで回答します", "La IA elegida no tiene una cuenta conectada; se responde con otra IA", "所选AI没有连接账号，改用另一个AI回答"),
@@ -471,15 +480,39 @@ export function placeName(path: string, locale: Locale): string | null {
 /** box_shell's spelling of the work folder: $TRINA_WORK, ${TRINA_WORK} */
 const WORK_VAR = /^(?:\$TRINA_WORK|\$\{TRINA_WORK\})(?=\/|$)/i
 
+/** a file id (a UUID) as a path segment: never shown in a worded path (QA TC-7048) */
+const ID_SEG = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+const CHAT_PLACE_QUOTED = /(['"`])chat:(files|work)\/([^'"`\n]*)\1/gi
+const CHAT_PLACE_BARE = /(^|[\s(=,:\[])chat:(files|work)\/([^\s'"`,;)\]]*)/gi
+/** One chat place in words: "This chat › 견적서.pdf", "Work folder › out › a.png"; a file id never shown */
+function chatPlaceSaid(kind: string, rest: string, locale: Locale): string {
+  const key = kind.toLowerCase() === 'work' ? 'work' : 'chatFiles'
+  const segs = rest.split('/').filter((x) => x && !ID_SEG.test(x))
+  return [STEP_PLACE[key][locale] ?? STEP_PLACE[key].en, ...segs].join(' › ')
+}
+
+/**
+ * Any text a person sees beside a step (its line, its error detail) with every chat place in words (QA TC-7048):
+ * "No file 'chat:files/<id>/견적서.pdf' …" reads "No file 'This chat › 견적서.pdf' …". A quoted place may hold spaces; a
+ * bare one ends at a space. Text without a chat place comes back as it is.
+ */
+export function chatPlaceWords(text: string, locale: Locale): string {
+  if (!/chat:(files|work)\//i.test(text)) return text
+  return text
+    .replace(CHAT_PLACE_QUOTED, (_all, q: string, kind: string, rest: string) => `${q}${chatPlaceSaid(kind, rest, locale)}${q}`)
+    .replace(CHAT_PLACE_BARE, (_all, pre: string, kind: string, rest: string) => `${pre}${chatPlaceSaid(kind, rest, locale)}`)
+}
+
 /**
  * A command line with the work folder in words (QA TC-6937): the leading `cd "$TRINA_WORK" &&` goes (a command starts
  * there anyway), and "$TRINA_WORK/out/frame1.png" reads "Work folder › out › frame1.png" (quotes kept as written).
  */
 export function shellWorkWords(command: string, locale: Locale): string {
   const w = STEP_PLACE.work[locale] ?? STEP_PLACE.work.en
-  return command
+  return chatPlaceWords(command
     .replace(/^\s*cd\s+(["']?)(?:\$TRINA_WORK|\$\{TRINA_WORK\})(?![\w])\/?\1\s*(?:&&|;)\s*/i, '')
-    .replace(/(?:\$TRINA_WORK|\$\{TRINA_WORK\})(?![\w])((?:\/[^\s"'`;|&<>()]*)?)/gi, (_all, rest: string) => [w, ...rest.split('/').filter(Boolean)].join(' › '))
+    // a file id in the path is left out (QA TC-7048: "Work folder › .. › files › 01a2005b-… › qa_demo.mp4")
+    .replace(/(?:\$TRINA_WORK|\$\{TRINA_WORK\})(?![\w])((?:\/[^\s"'`;|&<>()]*)?)/gi, (_all, rest: string) => [w, ...rest.split('/').filter((x) => x && !ID_SEG.test(x))].join(' › ')), locale)
 }
 
 /** Tools whose step line ends in a team path ("<verb> · <path>"; edit_files adds "+N", hwp_render "#page"). */
@@ -496,17 +529,22 @@ export function stepPlace(step: { tool?: string }, label: string, locale: Locale
     const at = label.indexOf(' · ')
     return { label: at < 0 ? label : label.slice(0, at + 3) + shellWorkWords(label.slice(at + 3), locale) }
   }
-  if (!PATH_STEP_TOOLS.has(step.tool ?? '')) return { label }
+  if (!PATH_STEP_TOOLS.has(step.tool ?? '')) return { label: chatPlaceWords(label, locale) }
   // a call let through without a card ends in " · <why>" (QA 2026-11-11: the 2nd and 3rd saves after one card's
   // "이번만 허용" showed their raw path): the path is before it, and the why stays after the path in words
   const cover = coverWhy(label)?.end ?? null
   const line = cover ? label.slice(0, -cover.length) : label
   const at = line.lastIndexOf(' · ')
-  if (at < 0) return { label }
+  if (at < 0) return { label: chatPlaceWords(label, locale) }
   const tail = line.slice(at + 3)
   const [, path = tail, suffix = ''] = /^(.*?)( \+\d+| #\d+)?$/s.exec(tail) ?? []
   const named = placeName(path, locale)
-  return named ? { label: `${line.slice(0, at + 3)}${named}${suffix}${cover ?? ''}`, path } : { label }
+  // a chat place is the chat's own: no tooltip with its inner path and file id (QA TC-7048)
+  if (named && parsePlace(path)) return { label: `${line.slice(0, at + 3)}${named}${suffix}${cover ?? ''}` }
+  if (named) return { label: `${line.slice(0, at + 3)}${named}${suffix}${cover ?? ''}`, path }
+  // a chat place the line names some other way (cut short, or after "->"): in words all the same
+  const worded = chatPlaceWords(label, locale)
+  return worded !== label ? { label: worded } : { label }
 }
 
 /** The " · <why>" a line ends in when its call went on without a card (COVER_STEP_KEYS, in any language), with its key,
@@ -538,7 +576,7 @@ function templateMatch(template: string, label: string): Record<string, string> 
  * language on screen, in today's words (a model id or an engine name they held is left out). Matching only. */
 const LEGACY: Partial<Record<StepTextKey, readonly string[]>> = {
   refusedRetry: ['AI가 답하지 않아 다른 모델({model})로 다시 답합니다', 'AI가 답하지 않아 다른 모델({model})로 다시 답해요', 'The AI declined; answering again with another model ({model})', 'AI menolak; menjawab ulang dengan model lain ({model})', "AIが拒否したため、別のモデル（{model}）で再回答します", "La IA rechazó la solicitud; se responde de nuevo con otro modelo ({model})"],
-  engineOffDefault: ['{from} 엔진이 꺼져 있어 팀 기본 엔진({to})으로 답합니다', '{from} 엔진이 꺼져 있어 팀 기본 엔진({to})으로 답해요', '{from} is switched off; answering with the team default ({to})', '{from} dimatikan; menjawab dengan mesin bawaan tim ({to})', "{from}が無効のため、チームの既定（{to}）で回答します", "{from} está desactivado; se responde con el predeterminado del equipo ({to})"],
+  engineOffDefault: ['고른 AI를 지금 쓸 수 없어 팀 기본 AI로 답해요', "The chosen AI is off; answering with the team's default AI", 'AI yang dipilih sedang mati; menjawab dengan AI bawaan tim', "選んだAIは今使えないため、チームの既定のAIで回答します", "La IA elegida está desactivada; se responde con la IA predeterminada del equipo", "所选AI已关闭，改用团队默认AI回答", '{from} 엔진이 꺼져 있어 팀 기본 엔진({to})으로 답합니다', '{from} 엔진이 꺼져 있어 팀 기본 엔진({to})으로 답해요', '{from} is switched off; answering with the team default ({to})', '{from} dimatikan; menjawab dengan mesin bawaan tim ({to})', "{from}が無効のため、チームの既定（{to}）で回答します", "{from} está desactivado; se responde con el predeterminado del equipo ({to})"],
   engineNoConnection: ['{from}에 쓸 AI 연결이 없어 연결된 {to}로 답해요', 'No AI connection for {from}; answering with {to}, which is connected', 'Tidak ada koneksi AI untuk {from}; menjawab dengan {to} yang terhubung', "{from}用のAI接続がないため、接続済みの{to}で回答します", "No hay conexión de IA para {from}; se responde con {to}, que sí está conectado"],
   limitFallback: ['{from} 사용 한도에 닿아 {to} 엔진으로 이어서 답합니다', '{from} 사용 한도에 닿아 {to} 엔진으로 이어서 답해요', '{from} usage limit reached; continuing with {to}', 'Batas pemakaian {from} tercapai; dilanjutkan dengan {to}', "{from}の使用量上限に達したため、{to}で続けます", "Se alcanzó el límite de uso de {from}; se continúa con {to}"],
   credentialSwitchLimit: ['사용 한도에 닿아 다른 AI 연결로 이어서 답합니다', '사용 한도에 닿아 다른 AI 연결로 이어서 답해요', 'Usage limit reached; continuing with another AI connection', 'Batas pemakaian tercapai; dilanjutkan dengan koneksi AI lain', "使用量の上限に達したため、別のAI接続で続けます", "Se alcanzó el límite de uso; se continúa con otra conexión de IA"],
@@ -608,8 +646,8 @@ export function localizeStep(step: { kind: string; tool?: string; label: string;
   else if (tool === 'context') label = retemplate(['contextRecover'], step.label, locale)
   else if (tool === 'agent') label = retemplate(['subtask'], step.label, locale)
   else if (tool === 'ask_user') label = retemplate(['asked'], step.label, locale)
-  else if (tool === 'remember') label = retemplate(['remembered', 'notRemembered', 'rememberAsking'], step.label, locale)
-  else if (tool === 'forget') label = retemplate(['forgot'], step.label, locale)
+  else if (tool === 'remember') label = retemplate(['remembered', 'notRemembered', 'rememberAsking', 'rememberUpdated', 'notRememberedSecret'], step.label, locale)
+  else if (tool === 'forget') label = retemplate(['forgotText', 'forgot'], step.label, locale)
   else if (BROWSER_STEP_VERB[tool] || step.kind === 'browser' || browserTools?.has(tool)) label = reverb(BROWSER_STEP_VERB[tool] ?? BROWSER_STEP_FALLBACK, step.label, locale, LEGACY_VERBS[tool])
   else if (tool === 'read') label = reverb(READ_MEDIA_VERB.video, step.label, locale) ?? reverb(READ_MEDIA_VERB.audio, step.label, locale) ?? reverb(READ_SLIDES_VERB, step.label, locale) ?? reverb(FILE_STEP_VERB.read!, step.label, locale)
   else if (FILE_STEP_VERB[tool]) label = reverb(FILE_STEP_VERB[tool]!, step.label, locale, LEGACY_VERBS[tool])

@@ -257,6 +257,37 @@ export function roomMessage(ev: Extract<ServerEvent, { type: 'room.message' }>, 
   if (!why || meta.replay || !desktop() || viewingHere(ev.data.roomId)) return
   laterRoom(ev.data.roomId, why, { line: noticeLine(ev.data.message), read: readToken(ev.data.message) })
 }
+// ---------------- threads under a shared chat's answers ----------------
+/** a thread's notice waiting to be told: per thread, a newer reply replaces it (a mention stays a mention) */
+const pendingThread = new Map<string, { timer: ReturnType<typeof setTimeout>; why: 'mention' | 'reply' }>()
+/** the thread is open in this window (/c/<chat>/t/<answer>) and the window is visible */
+const threadOnScreen = (chatId: string, rootId: string) =>
+  useSessionMarkers.getState().visible && typeof location !== 'undefined' && location.pathname === `/c/${chatId}/t/${rootId}`
+function tellThread(chatId: string, rootId: string, why: 'mention' | 'reply') {
+  if (threadOnScreen(chatId, rootId)) return
+  // a plain reply follows "Replies in threads I'm part of" (the server checks it too, with quiet hours, when it sets the
+  // event's notice); a mention is told as a room's mention is
+  if (why === 'reply' && useRooms.getState().alerts?.threadReplies === false) return
+  const c = useChats.getState().chats.find((x) => x.id === chatId)
+  const title = plainLabel(c?.confidential ? t('sidebar.filter.confidential') : c?.title || t('chat.untitled'), 120)
+  // the Inbox's generic words: never who or the reply's text (the row in 멘션·스레드 says who)
+  const body = t(why === 'mention' ? 'notifications.event.chat.thread_mention' : 'notifications.event.chat.thread_reply')
+  desktop()?.notify({ title, body, tag: `chat-thread-${rootId}`, open: `/c/${chatId}/t/${rootId}` })
+}
+/** A thread's change under a shared chat's answer, before its store applies it: a reply the server gave me a notice of
+ * (`notice`, chat/threads.ts sendReply) is told in the desktop app after the wait, unless the thread is on screen here;
+ * the thread read meanwhile (here or on another device) tells nothing. Never a replay. */
+export function chatThreadEvent(ev: Extract<ServerEvent, { type: 'chat.thread' }>, meta: { replay: boolean }) {
+  const { chatId, rootId, change, notice } = ev.data
+  const key = `${chatId}:${rootId}`
+  const was = pendingThread.get(key)
+  if (change === 'read') { clearTimeout(was?.timer); pendingThread.delete(key); return }
+  if (!notice || meta.replay || !desktop() || threadOnScreen(chatId, rootId)) return
+  clearTimeout(was?.timer)
+  const why = was?.why === 'mention' ? 'mention' : notice
+  pendingThread.set(key, { why, timer: setTimeout(() => { pendingThread.delete(key); tellThread(chatId, rootId, why) }, tellTiming.delayMs) })
+}
+
 /** A room changed, before the rooms store applies it: one I am out of tells nothing more. */
 export function roomUpdated(ev: Extract<ServerEvent, { type: 'room.updated' }>) {
   const { roomId, room } = ev.data
@@ -356,9 +387,10 @@ export function startSessionMarkers() {
 let phoneBadge = false
 export function stopSessionMarkers() {
   for (const off of offs.splice(0)) off()
-  for (const p of [...pendingTell.values(), ...pendingRoom.values()]) clearTimeout(p.timer)
+  for (const p of [...pendingTell.values(), ...pendingRoom.values(), ...pendingThread.values()]) clearTimeout(p.timer)
   pendingTell.clear()
   pendingRoom.clear()
+  pendingThread.clear()
   inFlight.clear()
   asked.clear()
   if (started) desktop()?.setBadgeCount?.(0)

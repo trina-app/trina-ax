@@ -41,7 +41,16 @@ export interface AudienceFindings {
   otherPlaces: boolean
   roomsUnseen: boolean
   unchecked: string[]
+  /** dev environment answers after the scope gap (their commands may have used files only the sharer opens): a warning
+   * line; the sharer's press covers them */
+  devAnswers: string[]
   hidden: boolean
+  /** the people being added whom one of the warnings is about (they miss a place or a file, or every new person for
+   * memories, personal accounts and rooms): the Share dialog names only the picks that bring one in (QA TC-7042) */
+  missing: string[]
+  /** the team paths of files the answers read that someone being added cannot open, with the answers that read each
+   * (the caller names only those the sharer may read now, of answers not hidden from them), sorted by path */
+  missedFiles: { path: string; answers: string[] }[]
   /** the provenance keys (sources and who misses each) the confirm key binds */
   sourceKeys: string[]
   /** per answer: the new people it widens to and the counted places it used (the widening list of one chat) */
@@ -64,7 +73,7 @@ function scopeGap(db: Database, chatId: string, answers: readonly { id: string; 
 }
 
 /** The answers that ran dev environment commands (a box_shell step, or the dev_env.command audit line of their turn). */
-function devAnswers(db: Database, ids: readonly string[]): Set<string> {
+function devAnswersOf(db: Database, ids: readonly string[]): Set<string> {
   const out = new Set<string>()
   if (!ids.length) return out
   const list = JSON.stringify(ids)
@@ -90,7 +99,11 @@ function memoryAnswersOf(db: Database, userId: string, answers: readonly { id: s
   const lastForget = (db.query(`SELECT MAX(m.created_at) AS at FROM messages m JOIN chats c ON c.id = m.chat_id WHERE c.user_id = ? AND m.role = 'assistant'
     AND m.steps LIKE '%"tool":"forget"%'`).get(userId) as { at: string | null }).at
   const lastGone = [lastDelete, lastForget].filter((x): x is string => !!x).sort().pop() ?? null
-  return own.filter((a) => (firstMemory !== null && a.at >= firstMemory) || (lastGone !== null && a.at <= lastGone)).map((a) => a.id)
+  // an answer that kept or changed a memory itself (its remember step names the memory's words; the memory may be its
+  // own first one, made after the answer started): docs/decisions/20261122-auto-memory.md
+  const remembered = new Set((db.query(`SELECT id FROM messages WHERE id IN (SELECT value FROM json_each(?)) AND steps LIKE '%"tool":"remember"%'`)
+    .all(JSON.stringify(own.map((a) => a.id))) as { id: string }[]).map((r) => r.id))
+  return own.filter((a) => remembered.has(a.id) || (firstMemory !== null && a.at >= firstMemory) || (lastGone !== null && a.at <= lastGone)).map((a) => a.id)
 }
 
 /** Was a personal connection or the in-app browser on for `userId` while these answers ran (`span`: the first and last
@@ -117,13 +130,17 @@ export async function checkAudience(ctx: AppContext, userId: string, chatId: str
   const answers = answersOf(db, chatId)
   const ids = answers.map((a) => a.id)
   const gap = new Set(scopeGap(db, chatId, answers))
-  const dev = devAnswers(db, ids)
+  const devRan = devAnswersOf(db, ids)
   const confidential = confidentialChat(db, chatId)
   // the scope describes the answers after the gap: its sources count for the chat (not for one answer); a confidential
   // chat's scope is not looked at (it is never shared: the callers refuse it first)
   const scope = confidential ? null : scopeWithListing(db, chatId)
   const unended = ids.length > 0 && !!db.query(`SELECT 1 FROM turns WHERE message_id IN (SELECT value FROM json_each(?)) AND status IN ('queued','running','interrupted') LIMIT 1`).get(JSON.stringify(ids))
-  const other = (scope?.sources ?? []).filter((s) => unended || !scope!.listed(s))
+  // the chat's own files and work folder ({type:'chat'} of this chat, chat/read-scope.ts): the people being added see them
+  // once they are in it (an answer hidden from one of them is `hidden` below), so they are no place they miss (QA TC-7042:
+  // a chat that only made a video warned of "Direct messages and private channels")
+  const own = (s: ReadSource) => s.type === 'chat' && s.id === chatId
+  const other = (scope?.sources ?? []).filter((s) => !own(s) && (unended || !scope!.listed(s)))
   const chat = db.query('SELECT rooms_seen FROM chats WHERE id = ?').get(chatId) as { rooms_seen: number } | null
   // it read rooms and the scope does not say which (or older answers read them before the scope began)
   const roomsUnseen = roomMessagesSeen(chat?.rooms_seen) && (gap.size > 0 || !(scope?.sources ?? []).some((s) => s.type === 'room'))
@@ -136,14 +153,17 @@ export async function checkAudience(ctx: AppContext, userId: string, chatId: str
 
   // each answer's own files that count, and who misses them
   const countedFiles = new Map<string, CountedSource>()
-  for (const c of prov.counted) for (const f of c.files) countedFiles.set(f, c)
+  for (const c of prov.counted) if (!own(c.source)) for (const f of c.files) countedFiles.set(f, c)
   const perAnswer = new Map<string, { widens: Set<string>; sources: ReadSource[] }>()
   const attributed = new Set<string>()
+  // the team files those answers read that someone new misses, by name (the warning names them: QA TC-7277, TC-7370)
+  const missedFiles = new Map<string, Set<string>>()
   if (countedFiles.size && ids.length) {
     for (const r of db.query(`SELECT message_id, path FROM message_sources WHERE message_id IN (SELECT value FROM json_each(?))`).all(JSON.stringify(ids)) as { message_id: string; path: string }[]) {
       const c = countedFiles.get(r.path)
       if (!c) continue
       attributed.add(r.path)
+      if (c.missing.length && !r.path.startsWith('chat:')) (missedFiles.get(r.path) ?? missedFiles.set(r.path, new Set()).get(r.path)!).add(r.message_id)
       const x = perAnswer.get(r.message_id) ?? perAnswer.set(r.message_id, { widens: new Set(), sources: [] }).get(r.message_id)!
       for (const id of c.missing) x.widens.add(id)
       if (!x.sources.some((s) => sourceKey(s) === c.key)) x.sources.push(c.source)
@@ -156,8 +176,11 @@ export async function checkAudience(ctx: AppContext, userId: string, chatId: str
   // the places line: what counts and is not one answer's (the scope's places, the instructions a guest's check adds)
   const places = new Map<string, AnswerSharePlace>()
   let otherPlaces = false
+  const missing = new Set<string>()
   for (const c of prov.counted) {
+    if (own(c.source)) continue
     if (!c.fromScope && [...c.files].every((f) => attributed.has(f))) continue
+    for (const id of c.missing) missing.add(id)
     // a room the scope names: its own line says rooms (roomsUnseen) only when it does not say which
     const p = pc.placeOf(c.source)
     if (p) places.set(JSON.stringify(p), p)
@@ -170,23 +193,34 @@ export async function checkAudience(ctx: AppContext, userId: string, chatId: str
   const at = new Map(answers.map((a) => [a.id, a.at]))
   const accounts = gapIds.length > 0 && personalAccountsOn(db, userId, gapIds, { first: at.get(gapIds[0]!)!, last: at.get(gapIds[gapIds.length - 1]!)! })
   const accountAnswers = accounts ? gapIds : []
-  const unchecked = ids.filter((id) => (gap.has(id) && !accounts) || (dev.has(id) && !(accounts && gap.has(id))))
+  // the scope gap without personal accounts: nothing to say (grey). A dev environment answer after the gap: what its
+  // commands used is not known, so the sharer is told in a line of its own (devAnswers, QA TC-7262) and their press
+  // covers the people in that share (a person added later or joining a group later still misses it: x, people-share.ts);
+  // one inside the gap stays unchecked
+  const unchecked = ids.filter((id) => gap.has(id) && !accounts)
+  const devAnswers = ids.filter((id) => devRan.has(id) && !gap.has(id))
   const everyone = new Set(newPeople)
-  for (const id of [...memoryAnswers, ...accountAnswers]) {
+  for (const id of [...memoryAnswers, ...accountAnswers, ...devAnswers]) {
     const x = perAnswer.get(id) ?? perAnswer.set(id, { widens: new Set(), sources: [] }).get(id)!
     for (const p of everyone) x.widens.add(p)
   }
   const sorted = (xs: Iterable<string>) => [...new Set(xs)].sort()
+  const fileAnswers = sorted([...perAnswer].filter(([id, x]) => x.widens.size && (x.sources.length || o.recorded?.has(id))).map(([id]) => id))
+  for (const id of fileAnswers) for (const p of perAnswer.get(id)!.widens) missing.add(p)
+  if (memoryAnswers.length || accountAnswers.length || devAnswers.length || otherPlaces || (roomsUnseen && newPeople.length > 0)) for (const p of newPeople) missing.add(p)
   return {
     newPeople: [...newPeople].sort(),
     memoryAnswers: sorted(memoryAnswers),
-    fileAnswers: sorted([...perAnswer].filter(([id, x]) => x.widens.size && (x.sources.length || o.recorded?.has(id))).map(([id]) => id)),
+    fileAnswers,
     accountAnswers: sorted(accountAnswers),
     places: [...places.values()],
     otherPlaces,
     roomsUnseen: roomsUnseen && newPeople.length > 0,
     unchecked: sorted(unchecked),
+    devAnswers: sorted(devAnswers),
     hidden: prov.hidden,
+    missing: sorted([...missing].filter((p) => everyone.has(p))),
+    missedFiles: [...missedFiles].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)).map(([path, ids]) => ({ path, answers: [...ids].sort() })),
     sourceKeys: prov.keys,
     perAnswer,
     use,
@@ -194,13 +228,13 @@ export async function checkAudience(ctx: AppContext, userId: string, chatId: str
 }
 
 /** Does anything put something at stake (the warning, the yellow box)? */
-export const atStake = (f: Pick<AudienceFindings, 'memoryAnswers' | 'fileAnswers' | 'accountAnswers' | 'places' | 'otherPlaces' | 'roomsUnseen'>): boolean =>
-  f.memoryAnswers.length > 0 || f.fileAnswers.length > 0 || f.accountAnswers.length > 0 || f.places.length > 0 || f.otherPlaces || f.roomsUnseen
+export const atStake = (f: Pick<AudienceFindings, 'memoryAnswers' | 'fileAnswers' | 'accountAnswers' | 'places' | 'otherPlaces' | 'roomsUnseen'> & { devAnswers?: string[] }): boolean =>
+  f.memoryAnswers.length > 0 || f.fileAnswers.length > 0 || f.accountAnswers.length > 0 || f.places.length > 0 || f.otherPlaces || f.roomsUnseen || (f.devAnswers?.length ?? 0) > 0
 
 /** What a key binds of the findings: the answer ids, not counts (a "2" seen is no yes for another 2). */
 export const findingsState = (f: AudienceFindings) => ({
   newPeople: f.newPeople, sources: f.sourceKeys, memoryAnswers: f.memoryAnswers, fileAnswers: f.fileAnswers, accountAnswers: f.accountAnswers,
-  places: f.places, otherPlaces: f.otherPlaces, roomsUnseen: f.roomsUnseen, unchecked: f.unchecked,
+  places: f.places, otherPlaces: f.otherPlaces, roomsUnseen: f.roomsUnseen, unchecked: f.unchecked, devAnswers: f.devAnswers,
 })
 
 /** A fingerprint of the folder rules (the preview cache's). */

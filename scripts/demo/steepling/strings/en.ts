@@ -162,6 +162,9 @@ export const en = {
     { label: 'Draft next week\'s posts', prompt: 'Draft the two empty slots in next week\'s social calendar' },
     { label: 'Summarize customer reviews', prompt: 'Summarize the latest customer reviews' },
     { label: 'Did Chris reply?', prompt: 'Did Chris reply to my email? Check my Gmail' },
+    // the permission scene of the promo film: a folder she cannot open reads as not found, and the card under the
+    // answer lists the folders her AI can see (docs/decisions/20261122-demo-permission-scene.md)
+    { label: 'Show me the management folder', prompt: 'Show me the management folder' },
   ],
 }
 

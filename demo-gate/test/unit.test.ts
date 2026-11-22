@@ -295,6 +295,20 @@ describe('pages', () => {
       expect(html.indexOf('class="cf-turnstile"'), l).toBeLessThan(html.indexOf('<button type="submit"'))
     }
   })
+  test('busy, limit, ended and error: the buttons fill the text column, stacked and centred (1440 px looked lopsided)', () => {
+    const links = { scriptedDemo: 'https://ax.trina.app/demo', pricing: 'https://ax.trina.app/pricing' }
+    for (const k of ['busy', 'limit', 'ended', 'error'] as const) {
+      const html = renderPage(k, 'en', { siteKey: 'k', links, limit: 'hour' })
+      const rule = (sel: string) => html.match(new RegExp(`(^|\\n)\\s*${sel.replace(/[.[\]()]/g, '\\$&')} \\{([^}]*)\\}`))?.[2] ?? ''
+      expect(html, k).toContain(`<body class="${k}">`)
+      // one column for the text and the buttons on every page but the landing
+      expect(rule('body:not(.landing) main'), k).toContain('max-width:400px')
+      // the buttons stack at the column's full width: no row that sizes its buttons on its own
+      expect(rule('.row'), k).toContain('flex-direction:column')
+      expect(rule('.row'), k).toContain('width:100%')
+      expect(html, k).not.toMatch(/\.row a \{[^}]*flex:/)
+    }
+  })
   test('the wordmark is the branding file, both colours, each with its own mask id', () => {
     const logo = (f: string) => fs.readFileSync(path.join(import.meta.dir, '../../editions/trina/branding/logo', f), 'utf8').trim()
     expect(WORDMARK_LIGHT).toBe(logo('wordmark-light.svg'))
@@ -396,6 +410,34 @@ describe('start limits', () => {
       expect(fs.readFileSync(path.join(dir, 'state.json'), 'utf8')).not.toContain('203.0.113')
     } finally { fs.rmSync(dir, { recursive: true, force: true }) }
   })
+  test('a listed address (limits.exemptIpHashes) is never refused for the hour or the day; others still are', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'tdg-state-'))
+    try {
+      const s = new GateState(dir)
+      const office = '203.0.113.7', other = '203.0.113.8'
+      const full = s.hash(office)
+      expect(full).toMatch(/^[0-9a-f]{32}$/)
+      const t0 = Date.now() - 10_000
+      for (let i = 0; i < 10; i++) { s.noteStart(office, t0 + i); s.noteStart(other, t0 + i) }
+      // the full hash and a short prefix both match; refused without the list
+      for (const list of [[full], [full.slice(0, 8)], ['00000000', full.slice(0, 12)]]) {
+        expect(s.isExempt(office, list)).toBe(true)
+        expect(s.startRefusal(office, 3, 6, t0 + 20, list)).toBeNull()
+        expect(s.startRefusal(office, 3, 100, t0 + 20, list)).toBeNull()
+        expect(s.startRefusal(other, 3, 6, t0 + 20, list)).toBe('day')
+        expect(s.startRefusal(other, 3, 100, t0 + 20, list)).toBe('hour')
+      }
+      expect(s.startRefusal(office, 3, 6, t0 + 20)).toBe('day')
+      expect(s.startRefusal(office, 3, 100, t0 + 20, [])).toBe('hour')
+      // a prefix that matches another address's hash does not exempt this one
+      expect(s.isExempt(office, [s.hash(other).slice(0, 8)])).toBe(false)
+      // an entry shorter than 8 never matches, even if the config check were skipped
+      expect(s.isExempt(office, [full.slice(0, 4)])).toBe(false)
+      s.flush()
+      // the stored key is the hash the config names
+      expect(Object.keys(JSON.parse(fs.readFileSync(path.join(dir, 'state.json'), 'utf8')).starts)).toContain(full)
+    } finally { fs.rmSync(dir, { recursive: true, force: true }) }
+  })
   test('the daily token count starts again on a new UTC day', () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'tdg-state-'))
     try {
@@ -417,7 +459,7 @@ describe('config', () => {
     const c = parseConfig(base, '/srv')
     expect(c.ai.mode).toBe('claude-subscription')
     expect(c.pool).toMatchObject({ warmPerLocale: 2, maxLive: 10, ttlHours: 24, locales: ['en', 'ko'], personaKey: 'newHire' })
-    expect(c.limits).toMatchObject({ startsPerHour: 3, startsPerDay: 6, livePerIp: 2, maxStreams: 4 })
+    expect(c.limits).toMatchObject({ startsPerHour: 3, startsPerDay: 6, livePerIp: 2, maxStreams: 4, exemptIpHashes: [], exemptLivePerIp: 6 })
     expect(c.publicOrigin).toBe('https://demo.trina.app')
   })
   test('refuses what would break or leak', () => {
@@ -433,6 +475,14 @@ describe('config', () => {
     bad({ pool: { ...base.pool, runAs: { uid: 'demo' } } })
     bad({ ai: { credentialFile: 'cred', models: ['claude-sonnet-5-5'], defaultModel: 'claude-opus-4-8' } })
     bad({ ai: { credentialFile: 'cred', models: [] } })
+  })
+  test('limits.exemptIpHashes: hex keyed hashes or prefixes of at least 8 characters, never a raw address', () => {
+    const lim = (limits: Record<string, unknown>) => parseConfig({ ...base, limits }, '/srv').limits
+    expect(lim({ exemptIpHashes: ['0123ABCD', 'a'.repeat(32)], exemptLivePerIp: 4 })).toMatchObject({ exemptIpHashes: ['0123abcd', 'a'.repeat(32)], exemptLivePerIp: 4 })
+    for (const bad of [['0123abc'], ['203.0.113.7'], ['2001:db8::/64'], ['xyz12345'], ['a'.repeat(33)], [''], [12345678], 'abcdef01']) {
+      expect(() => lim({ exemptIpHashes: bad }), JSON.stringify(bad)).toThrow(ConfigError)
+    }
+    expect(() => lim({ exemptLivePerIp: -1 })).toThrow(ConfigError)
   })
   test('the instance user: never the gate\'s own, unless allowSameUser (tests)', () => {
     const c = (pool: Record<string, unknown>) => parseConfig({ ...base, pool: { ...base.pool, ...pool } }, '/srv')

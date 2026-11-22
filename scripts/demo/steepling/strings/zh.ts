@@ -145,5 +145,6 @@ export const zh: FreeRoamStrings = {
     { label: '写下周的社媒文案', prompt: '帮我给下周社媒日历里的两个空档写初稿' },
     { label: '汇总客户评价', prompt: '整理一下最近两个月的客户评价' },
     { label: 'Chris 回复了吗？', prompt: 'Chris 回我的邮件了吗？帮我看看 Gmail' },
+    { label: '给我看管理层的文件夹', prompt: '给我看看管理层的文件夹' },
   ],
 }

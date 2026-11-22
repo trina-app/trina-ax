@@ -432,7 +432,7 @@ describe('tools', () => {
       const chat = await newChat()
       const r = await ask(h, alice, 'alice', chat.id, fake({ echo: 'tools' }, { say: ' | ' }, { tool: 'web_fetch', args: { url: 'https://example.com' }, sayResult: true }))
       // set_title: the first message of a new chat (chat/title.ts)
-      expect(r.done.content.split(' | ')[0]).toBe('ask_user,change_folder_access,change_project_members,connect_service,delete_files,edit,edit_files,find_skills,forget,glob,grep,list,looking_at,move_skill,post_to_room,read,remember,room_file,room_read,rooms,save_room_file,set_title,share_folder,share_with_person,shared_with_me,skill,skill_files,stop_sharing,todo_write,web_fetch,who_can_open,write')
+      expect(r.done.content.split(' | ')[0]).toBe('ask_user,change_folder_access,change_project_members,connect_service,delete_files,edit,edit_files,find_skills,forget,glob,grep,list,looking_at,move_skill,my_folders,post_to_room,read,remember,room_file,room_read,rooms,save_room_file,set_title,share_folder,share_with_person,shared_with_me,skill,skill_files,stop_sharing,todo_write,web_fetch,who_can_open,write')
       expect(r.done.content).toContain(`fetched https://example.com for alice in ${chat.id}`)
       const audit = h.ctx.db.query("SELECT tool, ok FROM tool_events WHERE turn_id = ? AND tool = 'web_fetch'").all(r.started.turnId)
       expect(audit).toEqual([{ tool: 'web_fetch', ok: 1 }])
@@ -481,6 +481,10 @@ describe('tools', () => {
 })
 
 describe('memories', () => {
+  // these are the switch-off paths (today's behaviour before auto memory: docs/decisions/20261122-auto-memory.md); auto
+  // memory has its own tests (auto-memory.test.ts)
+  beforeAll(() => { h.ctx.db.query("UPDATE users SET prefs = json_set(COALESCE(prefs, '{}'), '$.autoMemory', 'off') WHERE id = 'alice'").run() })
+  afterAll(() => { h.ctx.db.query("UPDATE users SET prefs = json_remove(COALESCE(prefs, '{}'), '$.autoMemory') WHERE id = 'alice'").run() })
   test('remember in a clean chat: saved as "ai", chip step, memory.changed; next turn sees it in the instructions; forget removes it', async () => {
     const chat = await newChat()
     const r = await ask(h, alice, 'alice', chat.id, fake({ tool: 'remember', args: { text: 'Prefers short answers' }, sayResult: true }))
@@ -612,7 +616,7 @@ describe('instructions', () => {
     expect(LANGUAGE_RULE).toContain('when the answer is in another language')
     // what the person asks for in another language (an English email in a Korean chat), code, file names and quotes
     // are content, not narration
-    expect(LANGUAGE_RULE).toContain('Content the user asks for in another language (an email, a translation), code, file names and quotes stay as they are.')
+    expect(LANGUAGE_RULE).toContain('Content the user asks for in another language (an email, a translation), code, names of existing files and quotes stay as they are.')
   })
 
   // asked for a file that is there, the AI wrote a new one or asked where it was (docs/AGENTS/plan/20261111-0843-find-

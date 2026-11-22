@@ -55,6 +55,11 @@ export const UserPrefs = z.object({
   goalCard: z.literal('hidden').optional().catch(undefined),
   /** 'hidden': the person hid "Ready in your team" on Home (its "Hide"); Settings › Profile's "Show it again" clears it */
   preparedCard: z.literal('hidden').optional().catch(undefined),
+  /** 'off': the person turned off "자동으로 기억하기" (Settings › Memory): the AI keeps only what they ask it to keep,
+   * as before 2026-11-22. Absent = on (docs/decisions/20261122-auto-memory.md) */
+  autoMemory: z.literal('off').optional().catch(undefined),
+  /** 'seen': the one-time line under the first memory the AI kept on its own was shown */
+  autoMemoryNotice: z.literal('seen').optional().catch(undefined),
 })
 export type UserPrefs = z.infer<typeof UserPrefs>
 
@@ -353,6 +358,12 @@ export const Chat = z.object({
     people: z.array(UserRef).max(CHAT_PEOPLE_SHOWN).optional(),
     /** how many other people wrote in it (with `people`) */
     peopleCount: z.number().int().nonnegative().optional(),
+    /** a chat shared with people, for someone it names by name (not its creator): they may leave it ("Leave this
+     * chat", POST /api/chats/:id/leave). Absent: in it through a group only, its creator, or another kind of chat. */
+    named: z.literal(true).optional(),
+    /** a chat shared with people whose creator's account is gone, for the others in it (QA TC-7431): deleted (`until`:
+     * when the chat goes for good, auth/sweeper.ts) or switched off. Absent: their account is there (or it is mine). */
+    byGone: z.discriminatedUnion('state', [z.object({ state: z.literal('deleted'), until: IsoTime }), z.object({ state: z.literal('disabled') })]).optional(),
   }).optional(),
 })
 export type Chat = z.infer<typeof Chat>
@@ -472,6 +483,9 @@ export type StepFix = z.infer<typeof StepFix>
 export const RunStepFixResult = z.object({ state: z.enum(['open', 'done', 'gone']), doneCount: z.number().int().min(0).optional(), left: z.number().int().min(0).optional() })
 export type RunStepFixResult = z.infer<typeof RunStepFixResult>
 
+/** Folders a my_folders step keeps for its card (Step.folders); the rest is a count (Step.moreFolders). */
+export const MY_FOLDERS_MAX = 30
+
 /** messages.steps[]: what the AI did ("파일 검색 중"). Shown as a collapsible list under the answer. */
 export const StepKind = z.enum(['tool', 'thinking', 'web_search', 'browser', 'artifact', 'ask_user'])
 export const Step = z.object({
@@ -507,6 +521,12 @@ export const Step = z.object({
   /** a share_with_person or stop_sharing step: what it did, for its card (api/share-card.ts). Only for the person whose
    * turn it was; absent for every other viewer of a shared chat */
   shared: StepShared.optional(),
+  /** a my_folders step (server/src/chat/my-folders.ts; docs/decisions/20261122-demo-permission-scene.md): the folders
+   * the person's AI could see when it ran, each with its access, for the card "Folders your AI can see". Only folders
+   * they can open, never one hidden from them; only the person whose turn it was gets it (ChatStore.viewSteps) */
+  folders: z.array(z.object({ path: z.string().max(4096), access: z.enum(['edit', 'view']) })).max(MY_FOLDERS_MAX).optional(),
+  /** how many more folders the person can open than `folders` lists */
+  moreFolders: z.number().int().min(1).optional(),
   /** next steps the server offers under this step (server/src/files/share-fixes.ts; docs/decisions/
    * 20261116-ai-share-who-can-open.md): "3 people in #Sales can't open it yet" with one button. Written by the server
    * from its own records, never from the AI's text; only the person whose turn it was gets them */
@@ -517,6 +537,17 @@ export const Step = z.object({
   /** a step a sub-agent took: the id of its sub-task step (tool 'agent'). Apps without this field show it in the flat
    * list (docs/DECISIONS.md "Sub-agents") */
   parentId: z.string().max(100).optional(),
+  /** a remember or forget step that changed one of the person's memories (chat/tools.ts): which, how, its text and,
+   * for a change, the text before, for the step's 되돌리기 (through the memory routes). Only for the person whose turn it
+   * was (stripped for every other viewer, as `detail` is) */
+  memory: z.object({
+    id: z.string().max(64),
+    change: z.enum(['created', 'updated', 'forgotten']),
+    text: z.string().max(1000),
+    before: z.string().max(1000).optional(),
+    /** the first memory the AI kept on its own for this person: the step shows the one-time line under it */
+    first: z.literal(true).optional(),
+  }).optional(),
   /** a sub-task step (tool 'agent'): the sub-agent's tool calls and working time so far, and how many of its earliest
    * steps were not kept with the answer (`hidden`; the most recent ones are) */
   subtask: z.object({ toolUses: z.number().int().min(0).optional(), ms: z.number().int().min(0).optional(), hidden: z.number().int().min(0).optional() }).optional(),
@@ -666,6 +697,10 @@ export const Message = z.object({
   branch: z.object({ index: z.number().int().nonnegative(), count: z.number().int().positive(), siblingIds: z.array(Uuid7) }),
   /** answers only: the answer paused at a per-answer limit (TurnStopReason); absent or null: it ended normally */
   stopReason: TurnStopReason.nullable().optional(),
+  /** an answer stopped because its requester's account was deleted ('requester_removed') or switched off
+   * ('requester_disabled'): who, by name, so the people still in a shared chat read why it stopped (QA TC-7431;
+   * messages.stopped_for, migration 435). Absent: any other end. */
+  stoppedFor: z.object({ reason: z.enum(['requester_removed', 'requester_disabled']), name: z.string() }).optional(),
   /** answers only: the AI got only the recent part of this conversation (the history a fresh engine session gets is
    * cut at 40,000 characters, and a session resumed from such a start keeps that); absent: all of it */
   historyTrimmed: z.boolean().optional(),

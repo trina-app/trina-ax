@@ -31,12 +31,26 @@ export class PushError extends Error {
   }
 }
 
+/** An installed web app's icon badge goes with the account. From the window only: a Chromium that exposes clearAppBadge to
+ * service workers without a handler for it kills the worker's process, and the open tab with it (QA TC-7344: "Target
+ * crashed" right after an account was switched off). Not the desktop or phone apps (store/sessionMarkers.ts badgeApi). */
+function clearWebBadge() {
+  try {
+    if (isDesktop() || mobileApp() || typeof navigator === 'undefined') return
+    const nav = navigator as unknown as { clearAppBadge?: () => Promise<void> }
+    if (typeof nav.clearAppBadge === 'function') void Promise.resolve(nav.clearAppBadge()).catch(() => {})
+  } catch { /* the badge is a nicety */ }
+}
+
 /** Retire pending subscriptions and worker deliveries as soon as the account changes. */
 export function setPushSession(next: string | null) {
   if (next === session) return
   const previous = session, generation = ++epoch
   session = next
-  if (!previous || !pushSupported()) return
+  if (!previous) return
+  // a dot or count on the icon was the account's: cleared from the window, never the worker (QA TC-7344)
+  clearWebBadge()
+  if (!pushSupported()) return
   navigator.serviceWorker.controller?.postMessage({ type: 'push.invalidate' })
   void navigator.serviceWorker.getRegistration('/').then(async registration => {
     registration?.active?.postMessage({ type: 'push.invalidate' })

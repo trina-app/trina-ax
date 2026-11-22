@@ -19,6 +19,9 @@ export type PageKind =
   | 'team_offline_cloud'
   /** F2: the hosted team's server sleeps (stopped) and the control plane starts it now; the page reloads the same address */
   | 'team_waking'
+  /** F2: the control plane has no server room to wake the hosted team now (wake answer busy + reason no_room); it keeps
+   *  trying and emails the owners when it is up. Sent as x-relay-error team_busy (+ x-relay-detail: no_room). */
+  | 'team_no_room'
 type Lang = 'ko' | 'en' | 'id' | 'ja' | 'es' | 'zh'
 
 /** Name of the cookie the web app writes with the language on screen (web/src/i18n/index.ts). */
@@ -125,6 +128,14 @@ const TEXT: Record<PageKind, Record<Lang, { title: string; body: string }>> = {
     es: { title: 'Reanudando su equipo…', body: 'El servidor de su equipo estaba en pausa porque nadie lo usó durante un tiempo. Se está reanudando; tarda alrededor de un minuto. Esta página se abrirá sola cuando esté lista.' },
     zh: { title: '正在恢复你的团队…', body: '由于一段时间没有人使用，团队服务器已暂停。现在正在恢复，大约需要一分钟。准备好后此页面会自动打开。' },
   },
+  team_no_room: {
+    en: { title: 'Your team will be back soon', body: "There is not enough server room right now. We will wake your team as soon as room frees up and let the team's owners know by email. You can close this page; if you leave it open, it checks again by itself." },
+    ko: { title: '팀을 곧 다시 켤게요', body: '지금 서버 자리가 잠깐 모자라요. 자리가 나는 대로 바로 깨워서 팀 관리자에게 이메일로 알려 드려요. 이 페이지는 닫아도 되고, 열어 두면 알아서 다시 확인해요.' },
+    id: { title: 'Tim Anda akan segera aktif lagi', body: 'Ruang server sedang penuh untuk sementara. Kami akan mengaktifkan tim Anda begitu ada ruang dan memberi tahu pemilik tim lewat email. Halaman ini boleh ditutup; jika dibiarkan terbuka, halaman ini memeriksa lagi dengan sendirinya.' },
+    ja: { title: 'チームの再開をお待ちください', body: 'ただいまサーバーの空きが一時的に足りません。空きができしだいチームを再開し、チームのオーナーにメールでお知らせします。このページは閉じてもかまいません。開いたままにすると自動で再確認します。' },
+    es: { title: 'Su equipo volverá pronto', body: 'Ahora mismo no hay espacio suficiente en los servidores. Reanudaremos su equipo en cuanto haya espacio y avisaremos por correo a los propietarios del equipo. Puede cerrar esta página; si la deja abierta, volverá a comprobarlo sola.' },
+    zh: { title: '团队很快就会恢复', body: '目前服务器空间暂时不足。一有空间我们就会立即恢复你的团队，并通过电子邮件通知团队所有者。可以关闭此页面；如果保持打开，它会自动再次检查。' },
+  },
 }
 
 /** Hosts the cloud pages point to (RELAY_ACCOUNT_HOST / RELAY_STATUS_HOST). */
@@ -157,7 +168,8 @@ export function htmlPage(kind: PageKind, lang: Lang, offlineForMs: number | null
   const title = pageMessage(kind, lang, offlineForMs)
   // team_waking: reload the same address (path and query, e.g. an OAuth callback's code) without echoing it in the page
   const waking = kind === 'team_waking'
-  const reload = kind === 'team_waking' ? `<meta http-equiv="refresh" content="${wakingRefreshSec(refreshSec)}">` : ''
+  const reload = kind === 'team_waking' ? `<meta http-equiv="refresh" content="${wakingRefreshSec(refreshSec)}">`
+    : kind === 'team_no_room' ? `<meta http-equiv="refresh" content="${noRoomRetrySec(refreshSec)}">` : ''
   return `<!doctype html><html lang="${lang}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex">${reload}<title>${esc(t.title)}</title>
 <style>body{font-family:-apple-system,BlinkMacSystemFont,"Apple SD Gothic Neo","Segoe UI",sans-serif;background:#f6f7f6;color:#1d2420;margin:0;display:flex;min-height:100vh;align-items:center;justify-content:center;padding:16px;box-sizing:border-box}main{max-width:520px}h1{font-size:22px;margin:0 0 12px}p{line-height:1.6;color:#4a554f;margin:0}${waking ? WAKING_CSS : ''}@media (prefers-color-scheme:dark){body{background:#151816;color:#e8ece9}p{color:#a9b3ad}}</style></head>
 <body><main>${waking ? '<div class="sp" role="progressbar" aria-label="' + esc(title) + '"></div>' : ''}<h1>${esc(title)}</h1><p>${esc(t.body)}</p>${waking ? '<p class="w" id="w" role="timer" hidden></p>' + wakingScript(WAITED[lang]) : ''}</main></body></html>`
@@ -170,12 +182,27 @@ export function wakingRefreshSec(retryAfterSec: number | null | undefined): numb
   return Math.min(20, Math.max(3, n))
 }
 
+/** team_no_room: the page reloads (and Retry-After is) the control plane's retryAfterSec kept to 60-300 s: the control
+ *  plane retries by itself every 5 minutes and emails the owners, so the page never hammers it */
+export const NO_ROOM_MIN_SEC = 60
+export const NO_ROOM_MAX_SEC = 300
+export function noRoomRetrySec(retryAfterSec: number | null | undefined): number {
+  const n = Number.isFinite(retryAfterSec) ? Math.round(retryAfterSec as number) : NO_ROOM_MIN_SEC
+  return Math.min(NO_ROOM_MAX_SEC, Math.max(NO_ROOM_MIN_SEC, n))
+}
+
+/** Page kinds that are a variant of another: x-relay-error (and the JSON reason) keep the other's code, so the apps,
+ *  which match x-relay-error (shared/src/team-link.ts relayAnswer), treat them alike; PAGE_DETAIL says which variant. */
+export const RELAY_ERROR_OF: Partial<Record<PageKind, PageKind>> = { team_no_room: 'team_busy' }
+export const PAGE_DETAIL: Partial<Record<PageKind, string>> = { team_no_room: 'no_room' }
+
 export const PAGE_STATUS: Record<PageKind, number> = {
   team_offline: 503, team_unknown: 404, team_suspended: 403, team_busy: 503, team_timeout: 504, team_connection_lost: 502, bad_gateway: 502, not_found: 404,
   bad_request: 400, request_timeout: 408, team_suspended_billing: 403, team_maintenance: 503, team_offline_cloud: 503, team_waking: 503,
+  team_no_room: 503,
 }
 /** Retry-After of the 503 pages: an update takes a minute or two */
-export const PAGE_RETRY_AFTER: Partial<Record<PageKind, number>> = { team_offline: 5, team_busy: 5, team_offline_cloud: 5, team_maintenance: 30, team_waking: 3 }
+export const PAGE_RETRY_AFTER: Partial<Record<PageKind, number>> = { team_offline: 5, team_busy: 5, team_offline_cloud: 5, team_maintenance: 30, team_waking: 3, team_no_room: NO_ROOM_MIN_SEC }
 
 // ---------------------------------------------------------------- request head too big
 

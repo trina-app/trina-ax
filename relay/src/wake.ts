@@ -3,7 +3,7 @@
 // sig=… (Ed25519 over wakeSigningString by the relay's wake key; the control plane pins its public key).
 // Limits: one call per team per TEAM_GAP_MS (callers in that time share the answer), GLOBAL_PER_MIN calls per minute in
 // all, 5 s timeout. A failed call is "unknown" for this request; the next request after the gap asks again.
-// The log holds the team id and the answer state only.
+// The log holds the team id, the answer state and the busy hint (no_room) only.
 import crypto from 'node:crypto'
 import fs from 'node:fs'
 import { WAKE_API_PATH, wakeAuthorizationHeader, wakeSigningString, type OpsWakeResponse } from '@mycel/shared/cloud-protocol/relay-ops'
@@ -75,8 +75,10 @@ export class WakeClient {
         return { state: 'error', retryAfterSec: 10 }
       }
       const retryAfterSec = Number.isInteger(j.retryAfterSec) && j.retryAfterSec! >= 0 ? Math.min(j.retryAfterSec!, 3600) : 5
-      this.o.log.info('wake', { team: teamId, state: j.state })
-      return { state: j.state as OpsWakeResponse['state'], retryAfterSec }
+      // the optional hint (contract: only no_room, only with busy); anything else is a plain answer, as before
+      const noRoom = j.state === 'busy' && j.reason === 'no_room'
+      this.o.log.info('wake', { team: teamId, state: j.state, ...(noRoom ? { reason: 'no_room' } : {}) })
+      return { state: j.state as OpsWakeResponse['state'], retryAfterSec, ...(noRoom ? { reason: 'no_room' as const } : {}) }
     } catch (e) {
       this.counters.wakeErrors++
       this.o.log.warn('wake_failed', { team: teamId, error: (e as Error).name })
