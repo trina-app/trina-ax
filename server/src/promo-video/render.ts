@@ -66,7 +66,8 @@ function rowFor(ctx: AppContext, userId: string, id: string): Row {
   const d = (JSON.parse(r.spec) as StoredSpec).doc
   for (const p of [d.logo, d.promise.picture, d.work.picture, d.proof.picture]) {
     if (!p) continue
-    try { authorize(ctx.files.fx, ctx.files.rules(), user, teamPathOf(p.src), 'read', { mustExist: true }) } catch { throw new HttpError('not_found') }
+    // (mustExist false: a picture gone since is left out of the owner's render too, never a reason to refuse)
+    try { authorize(ctx.files.fx, ctx.files.rules(), user, teamPathOf(p.src), 'read', { mustExist: false }) } catch { throw new HttpError('not_found') }
   }
   return r
 }

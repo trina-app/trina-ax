@@ -349,6 +349,10 @@ describe('the promo_video tool and the MP4 (a real app, the fake engine)', () =>
     expect((await h.req('alice', `/api/promo-videos/${art.id}`)).status).toBe(404)
     expect((await h.req('alice', `/api/promo-videos/${art.id}/mp4`)).status).toBe(404)
     expect((await h.req('dana', `/api/promo-videos/${art.id}`)).status).toBe(200)
+    // a picture gone since (the owner's render leaves it out too): no reason to refuse
+    spec.doc.logo = { ...spec.doc.logo, src: '/shared/Brand/Images/gone.png' }
+    h.ctx.db.query('UPDATE promo_videos SET spec = ? WHERE artifact_id = ?').run(JSON.stringify(spec), art.id)
+    expect((await h.req('alice', `/api/promo-videos/${art.id}`)).status).toBe(200)
     // shared no more: not found again
     h.ctx.db.query('UPDATE promo_videos SET spec = ? WHERE artifact_id = ?').run(row.spec, art.id)
     h.ctx.db.query('DELETE FROM chat_audience WHERE chat_id = ?').run(chat.id)

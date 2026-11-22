@@ -82,7 +82,7 @@ import { capBlankLines } from '../../lib/blankLines'
 
 /** One tile per file in an answer (QA rerun E: the same file showed as three identical tiles when the AI attached it
  * again, once per change): the same attachment id, or a tile that would look the same (name, size and kind), once, the
- * last one kept (the newest). */
+ * last one kept (the newest). A chat file has no path, so two versions of the same name and size are one tile too. */
 export function uniqueTiles<A extends { id: string; name: string; size: number; kind: string }>(list: readonly A[]): A[] {
   const key = (a: A) => `${a.name}\u0000${a.size}\u0000${a.kind}`
   const lastId = new Map<string, number>()

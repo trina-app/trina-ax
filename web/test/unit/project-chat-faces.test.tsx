@@ -4,7 +4,7 @@
 // leaves me out), the most recent first, overlapping, at most 3 and then "+N" (2 on a phone); on a project page one
 // other person with the name. Nobody else yet: the people icon, no face. The pictures say nothing to a screen reader:
 // the row reads "공유 채팅 · 내가 시작함 · 참여: Bob, Alex" (who started it first: the writers alone read as its owner,
-// QA TC-r2a-10; "Bob 님이 시작함" alone when he is the only other writer); on a computer the shared tooltip lists the names on the faces, and while the
+// QA TC-r2a-10; "Bob님이 시작함" alone when he is the only other writer); on a computer the shared tooltip lists the names on the faces, and while the
 // row has keyboard focus. A private chat has no face and no icon. In the Trina list's rows no name shows, and the faces
 // take the project tag's place (the project is said after the names).
 import { afterAll, afterEach, beforeAll, expect, test } from 'bun:test'
@@ -99,7 +99,7 @@ test('one other person: their face and their name on a computer, no people icon;
     // a phone keeps the face only (the name cut to "B.." said nothing; QA TC-1081); a screen reader reads the label
     expect(page.get('project-chat-by').className).toContain('max-md:hidden')
     expect(page.get('project-chat-by').getAttribute('aria-hidden')).toBe('true')
-    expect(label(link)).toBe('공유 채팅 · Bob 님이 시작함')
+    expect(label(link)).toBe('공유 채팅 · Bob님이 시작함')
     // the letter on its tile, decorative
     expect(link.querySelectorAll('[aria-hidden="true"]').map((e) => e.textContent)).toContain('B')
     expect(page.find('project-chat-more')).toBeNull()
@@ -254,7 +254,7 @@ test('a Trina list row: the others\' faces in place of the people icon, no name;
     expect(faces.every((f) => f.cls.includes('ring-subtle'))).toBe(true)
     expect(li.querySelector('[data-testid="shared-icon"]')).toBeNull()
     expect(li.querySelector('[data-testid="chat-row-by"]')).toBeNull()
-    expect(label(li, 'chat-row')).toBe('공유 채팅 · Bob 님이 시작함 · 참여: Eve, Dev, Cho 외 1명')
+    expect(label(li, 'chat-row')).toBe('공유 채팅 · Bob님이 시작함 · 참여: Eve, Dev, Cho 외 1명')
     // the pictures say nothing; each name is read once (in the label)
     expect(li.querySelector('[data-testid="chat-row-people"]')!.getAttribute('aria-hidden')).toBe('true')
     expect(li.textContent.match(/Eve/g)).toHaveLength(1)

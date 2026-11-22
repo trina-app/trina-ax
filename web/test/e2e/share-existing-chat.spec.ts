@@ -103,7 +103,7 @@ for (const vp of [{ name: '1440', phone: false, use: { viewport: { width: 1440, 
       const b = await bob(browser)
       await b.goto(`/projects/${id}`)
       const row = b.getByTestId('project-chats').getByRole('link', { name: /출시 일정/ })
-      await expect(row.getByTestId('project-chat-people-label')).toHaveText('공유 채팅 · Olga 님이 시작함')
+      await expect(row.getByTestId('project-chat-people-label')).toHaveText('공유 채팅 · Olga님이 시작함')
       await expect(row.getByTestId('shared-icon')).toHaveCount(0)
       await row.click()
       await expect(b.getByTestId('user-message')).toHaveCount(1)

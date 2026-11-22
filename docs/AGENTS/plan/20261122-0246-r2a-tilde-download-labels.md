@@ -29,7 +29,7 @@
    with the other folder labels in `shared/src/folder-labels.ts`.)
 4. TC-r2a-10: the faces on a shared chat's row are the other people who wrote in it, most recent first, by decision
    ("Faces in every chat list"). That stays. Its label and tooltip read "공유 채팅 · 김민지", which looks like the owner.
-   Fix: the label starts with who started it ("내가 시작함" / "한지우 님이 시작함"), then "참여: …"; the writers alone
+   Fix: the label starts with who started it ("내가 시작함" / "한지우님이 시작함"), then "참여: …"; the writers alone
    are left out when the only one is the starter.
 5. Rerun E: ko/id `projects.guestsOff` had "{n}" inside a plural form, which the formatter cannot read, so the raw
    template showed; now "#". A unit test reads every plural of every language.

@@ -59,7 +59,8 @@ function rowFor(ctx: AppContext, userId: string, id: string): Row {
   const user = ctx.files.principal(userId)
   const doc = (JSON.parse(r.spec) as StoredDeck).doc
   for (const src of new Set([...Object.keys(doc.pics), ...(doc.logo ? [doc.logo.src] : [])])) {
-    try { authorize(ctx.files.fx, ctx.files.rules(), user, src, 'read', { mustExist: true }) } catch { throw new HttpError('not_found') }
+    // (mustExist false: a picture gone since turns its slide type-only for the owner too, never a reason to refuse)
+    try { authorize(ctx.files.fx, ctx.files.rules(), user, src, 'read', { mustExist: false }) } catch { throw new HttpError('not_found') }
   }
   return r
 }

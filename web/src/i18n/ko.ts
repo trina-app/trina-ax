@@ -1492,7 +1492,7 @@ export const ko = {
   'chat.sharedLabel': "공유 채팅",
   'chat.sharedBy': "{name}님이 공유",
   'chat.share.facesLabel': "공유 채팅 · {names}",
-  'chat.share.startedBy': "{name} 님이 시작함",
+  'chat.share.startedBy': "{name}님이 시작함",
   'chat.share.startedByMe': "내가 시작함",
   'chat.share.wroteHere': "참여: {names}",
   "chat.shared": "공유 채팅 · {n}명이 볼 수 있어요",
