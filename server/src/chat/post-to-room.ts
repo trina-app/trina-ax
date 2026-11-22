@@ -492,7 +492,11 @@ export function postToRoomTool(exec: TurnExec): Tool {
         const prepared = pendingTo ? null : first as PreparedShare
         const planFor = async (attached: ReadonlySet<string>): Promise<ViewPlan | null> => {
           if (!prepared) return null
-          try { return shareFixes.viewPlan(spec.userId, await fileGapsOf(exec, prepared, attached, roomId)) } catch (e) { rt.log.warn('post_to_room: who could open the files not worked out', { err: e }); return null }
+          // a Send that carries copies grants no source file: what the people asked for goes as the copy, and a source
+          // (what the chat that made it read: a business card photo, another chat's page) was never named on this card,
+          // yet its share notice named it in place of the file that was posted (QA TC-r2u-29). Such a source keeps the
+          // provenance line here and the "Let them view" button after the post (fixesAfterPost)
+          try { return shareFixes.viewPlan(spec.userId, await fileGapsOf(exec, prepared, attached, roomId, { sources: attached.size === 0 })) } catch (e) { rt.log.warn('post_to_room: who could open the files not worked out', { err: e }); return null }
         }
         const viewNone = await planFor(new Set())
         const viewAll = all ? await planFor(copies) : null
