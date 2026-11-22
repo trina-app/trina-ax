@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-22 06:55
 - Branch: `docs/google-signin-guide`
-- Status: in progress
+- Status: done
 - Where: `docs/site/` (the public docs at ax.trina.app/docs). Why: user guide pages live in the docs site (see
   docs/REPOSITORY-RULES.md).
 - Version impact: none, docs only (no code, no behaviour change).
@@ -49,4 +49,7 @@ text still works when a picture is out of date. No real account, project or clie
 
 ## Result
 
-Filled in at the end.
+Built as planned: both guides in six languages, 9 Google Cloud pictures (`cloud-*.webp`) and the warning crops per
+language (`connect/google-warning-{1,2}-<lang>.webp`). Differs: `####` step titles inside `:::steps` have no anchor, so
+the in-page links go to the "Connect a Google app" section instead of the warning step. PR:
+https://github.com/trina-app/trina-ax/pull/361
