@@ -292,7 +292,12 @@ ${turnstile ? `<script src="${TURNSTILE_SCRIPT}" async defer></script>` : ''}
     background:var(--raised); color:var(--text); border-radius:12px; box-shadow:var(--shadow); font-weight:400; line-height:1.5; }
   form { display:flex; flex-direction:column; gap:16px; align-items:center; }
   form .primary { width:100%; }
-  .row { display:flex; gap:12px; flex-wrap:wrap; }
+  /* busy, limit, ended, check and error: one narrower column for the text and the buttons, the buttons stacked at its
+     full width like the landing page's Start (at 1440 px the balanced text sat in a narrow column above a wider row of
+     buttons, so the page looked lopsided) */
+  body:not(.landing) main { max-width:400px; }
+  body:not(.landing) main > p { text-wrap:pretty; }
+  .row { display:flex; flex-direction:column; gap:12px; width:100%; }
   .primary, .secondary { display:inline-flex; justify-content:center; align-items:center; min-height:48px; padding:0 20px; border-radius:12px;
     font:inherit; font-weight:600; text-decoration:none; cursor:pointer; transition:transform .15s cubic-bezier(.2,.8,.2,1), opacity .15s; }
   .primary { background:var(--accent); color:var(--on-accent); border:0; }
@@ -301,7 +306,6 @@ ${turnstile ? `<script src="${TURNSTILE_SCRIPT}" async defer></script>` : ''}
   .secondary { background:transparent; color:var(--text); border:1px solid var(--line); }
   .secondary:hover { border-color:color-mix(in srgb, var(--text) 35%, transparent); }
   :focus-visible { outline:2px solid var(--orange); outline-offset:3px; }
-  .row a { flex:1 1 160px; }
   @media (prefers-reduced-motion: reduce) { .primary, .secondary { transition:none; } }
 </style>
 </head>

@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-22 04:57
 - Branch: `fix/demo-gate-exempt-ips`
-- Status: in progress
+- Status: done
 - Where: demo-gate only (config, state, pool, public, pages, README, example config, tests)
 - Version impact: patch, a demo-gate setting with an empty default and a page layout fix
 
