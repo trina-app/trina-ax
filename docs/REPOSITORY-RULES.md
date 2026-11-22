@@ -8,6 +8,7 @@ PR은 `CHANGELOG.md`를 고치지 않는다. 사용자에게 보이는 변경은
 
 새 설계 결정은 `docs/DECISIONS.md`에 덧붙이지 않고 새 파일 `docs/decisions/<YYYYMMDD>-<topic>.md`에 적는다(머리말: 제목·날짜·상태·대체하는 결정, 규칙: [decisions/README.md](decisions/README.md)). `docs/DECISIONS.md`는 2026-11-16 전 결정의 보관본이다. 절이나 줄을 더한 PR은 `bun run check:docs`에서 실패한다(옛 항목의 오타 고치기는 된다).
 연결 방식(팀 연결, 개인 연결, 팀 추천)이나 그것을 보여 주는 화면을 바꾸는 PR은 같은 PR에서 [CONNECTIONS.md](CONNECTIONS.md)를 고친다.
+사람에게 묻는 것(AI 카드, 확인 창, 앱의 시스템 권한 요청)을 더하거나 바꾸는 PR은 같은 PR에서 [ASKS.md](ASKS.md)에 항목을 적는다: 항상 허용 범위, 설정에서 거두는 길(없으면 이유), Rule A 상태. `tests/unit/ask-registry.test.ts`가 확인한다(결정: [decisions/20261122-ask-registry.md](decisions/20261122-ask-registry.md)).
 
 - 채팅·권한·파일·스킬·휴대폰·AI 연결·사용량·Linux 실행 기반은 Team AX 코어에 먼저 넣는다.
 - 트리나 브랜드는 `editions/trina/branding/`에 둔다. Payple/Paddle·요금제·AWS 리전 선택과 고객 서버 운영·고객 주소·사이트는 비공개 `trina-ax-core`의 `editions/trina/`에 둔다(공개 레포에 넣지 않는다).
