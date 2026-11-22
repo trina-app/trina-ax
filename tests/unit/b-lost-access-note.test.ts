@@ -125,6 +125,8 @@ describe('a place read earlier in this chat, no longer open', () => {
       expect(lostAccessFor(exec('erin'), 'list', false, { path: '/' }, '', new Set())).toContain(LINE)
       expect(lostAccessFor(exec('erin'), 'list', false, { path: 'groups' }, '', new Set())).toContain(LINE)
       expect(lostAccessFor(exec('erin'), 'list', false, { path: 'shared' }, '', new Set())).toBeNull()
+      // a listing inside the place (still open there through a deeper grant) is not the place: nothing
+      expect(lostAccessFor(exec('erin'), 'list', false, { path: `${dir}/sub` }, '', new Set())).toBeNull()
       // another refusal of a search (not "Not searched"), or a refused listing of another kind: nothing
       expect(lostAccessFor(exec('erin'), 'glob', true, { pattern: '*' }, 'pattern too long', new Set())).toBeNull()
       expect(lostAccessFor(exec('erin'), 'list', true, { path: 'groups' }, 'Error: internal error', new Set())).toBeNull()

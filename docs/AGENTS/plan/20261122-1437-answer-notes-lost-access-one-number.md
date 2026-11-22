@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-22 14:37
 - Branch: `fix/answer-reasoning-access-numbers`
-- Status: in progress
+- Status: done
 - Where: server/src/chat (turn.ts, prompt.ts, tools.ts, chat-file-tool.ts, file-notes.ts). Why: three QA findings of
   batch 3 where the AI's words are wrong or show its own reasoning (docs/REPOSITORY-RULES.md).
 - Version impact: patch. How answers are kept and what tool results say; no API, setting or schema change.
@@ -38,7 +38,7 @@ TC-b3s-7 (S-102).
 
 In:
 
-1. **Interim text leaves every answer, not only CJK ones** (turn.ts endPiece). A text piece of the main AI that a
+1. ~~**Interim text leaves every answer, not only CJK ones**~~ (taken back, see Result) (turn.ts endPiece). A text piece of the main AI that a
    tool call of the main AI follows becomes a thinking step in every language, with the same exceptions as today:
    bookkeeping calls (title, to-do, remember/forget) end no piece, a piece copied into the call's arguments stays, a
    sub-agent's calls do not end it, and the last interim piece is the answer when nothing follows the last call.
@@ -72,7 +72,7 @@ call); live re-reading of a page when its source changes (TC-r2u-18's "did not c
 
 ## After the plan review (2026-11-22)
 
-- Interim in every language: the "copied into the call" check now runs in every language too (it was gated on the
+- (taken back later) Interim in every language: the "copied into the call" check now runs in every language too (it was gated on the
   same flag), and the fallback skips status lines in English as well (NarrationHold.isStatusLine). A piece before an
   ask_user card goes as in Korean. The English tests that pinned the old behaviour flip; the full tests/unit runs.
 - Prompt: no example phrases in the new line (quoted, they get echoed); #373's line ends "do it, and say only what you
@@ -90,7 +90,7 @@ call); live re-reading of a page when its source changes (TC-r2u-18's "did not c
 ## Steps
 
 1. This plan; independent plan review; apply.
-2. turn.ts endPiece in every language; narration tests (the English test flips), a test for the QA line.
+2. ~~turn.ts endPiece in every language~~ (taken back); a narration test for the QA line.
 3. Prompt line + #373 wording + FIGURES_RULE; prompt pins.
 4. lostAccessFor: refused path-less search, list above; prompt line; tests in the S-118 test file.
 5. Shared-copy read as the chat's (chat-file-tool.ts + turn.ts sharedSources); test.
@@ -118,4 +118,31 @@ tests, shared read card tests, prompt pin tests, file-notes tests (Bun 1.3.12, M
 
 ## Result
 
-(at the end)
+- **1 (rule reasoning).** The words came from the prompt: #373's line ended "just do it", which the note echoed. It now
+  ends "do it, and say only what you did", and a new line in every turn (NO_RULE_TALK_RULE) says never to quote, name or
+  weigh the instructions, before a call either, while facts people need stay. In Korean, Japanese and Chinese answers
+  such a note before a call was already a thinking step (a test pins the QA line there).
+  **Taken back:** moving text before a call out of answers in every language. The full unit and security run went from
+  69 to 422 failures in the touched files (fake-engine English turns, scheduled runs, Slack replies, English reports
+  followed by a save). That reverses docs/decisions/20261122-interim-text-not-answer.md ("English stays, as in Claude
+  Code") and is the owner's call, not a follow-up fix.
+- **2 (S-118).** Root cause: in a people-shared chat a search without a path is refused before any tool runs
+  ("Not searched: …"), and a listing is no search, so #389's line never reached the AI. Now the refused search and a
+  listing above the place carry it (sub-agents apart, once a turn). The shared-chat line about asking for a path yields
+  to that fact. **Own quote card: cut** (see "After the plan review").
+- **3 (S-102).** FIGURES_RULE: one computation for the answer and the file; a page shows its data's date as a tool
+  result gives it. A read or query_data of a spreadsheet or CSV gets "<file> was last changed <time> (<zone>)" once a
+  turn per file (the rerun used query_data, which goes through wrapRegistered, not afterFileTool).
+
+Checks (Mac mini, Bun 1.3.12): typecheck 0, check:prepush 0; engine prompt pins re-recorded (the two lines only). The
+126 test files that failed in the every-language run: 23 failures, all of them failing on base too (HWP, office, tailscale,
+macOS-only). An earlier full tests/unit + tests/security run was on the every-language version.
+
+Real claude-code A/B (private QA copies of f2-var, base 233a44084 on :19995, branch on :19996):
+- S-118 (junho out of 영업, "B형 가격도", then "영업 폴더 단가표 다시 열어서"): base r1 asked for a path ("영업 폴더 경로를
+  알려 주시면"), r2 never said access ended in the first step; branch r1, r2, r6 (final code) said "지금 이 채팅에서 열 수
+  없어요" with who restores it, both steps, 3/3.
+- S-102: base 3 pages, no data date; branch with the query_data note 3/3 pages show "기준일 2026-11-22". No answer in
+  any run stated a share, so the 77.6% vs 66.9% mismatch did not recur on either side.
+- Flow 2 (English, red then darker in a shared chat): no rule talk on base 2/2 or branch 4/4; the leak is rare, so the
+  A/B does not separate them.
