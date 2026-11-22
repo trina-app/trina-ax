@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-22 14:34
 - Branch: `fix/chat-step-memory`
-- Status: in progress
+- Status: done
 - Where: server/src/chat (history for a fresh engine session). Why: a fresh session got earlier answers as text only.
 - Version impact: patch: a fix to what the AI is given; one additive column, no API change.
 
@@ -89,4 +89,13 @@ tool results; sub-agent inner steps (their sub-task line is kept).
 
 ## Result
 
-(at the end)
+Built as planned, plus what the plan review, the code review and the real run found:
+- Plan review: in a shared chat, notes only for answers hidden from nobody who sees the chat now; paths kept aside
+  only when the whole audience may list them; pre-share answers get the others' words; a wider no-result list.
+- Real run: an answer stopped before any text was left out of the history whole (the owner's chat had one); it now
+  stays as a line with its record. Answers without tools no longer use one of the record places (10 in all).
+- Code review: no results from the in-app browser, skills and rooms; typed values as a length; secret shapes hidden;
+  the whole output redacted before it is cut; a fresh note per step id; the window is the text first.
+- Real run on a private QA copy with real Claude Code, a shared project chat of two people, the owner's turn shape
+  (files, edits, a web search, a card and its continuation, a stopped answer, the other person writing in between):
+  every "how did you do it" answer came from a fresh session and named the tools, files, sizes and results exactly.
