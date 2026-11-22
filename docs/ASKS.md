@@ -451,6 +451,7 @@ lines than the row fails the test; fewer passes.
 | `menubar/Sources/App.swift` | 1 | `os.mac.menubar.notify` |
 | `mobile/App.tsx` | 2 | `os.phone.mic`, `not-an-ask` |
 | `mobile/app.config.ts` | 3 | `os.phone.camera`, `os.phone.mic`, `os.phone.photos`, `not-an-ask` |
+| `mobile/modules/dictation/ios/DictationEngine.swift` | 1 | `os.phone.speech` |
 | `mobile/src/photo-io.ts` | 1 | `os.phone.photos` |
 | `mobile/src/push.ts` | 2 | `os.phone.push` |
 | `mobile/src/strings.ts` | 12 | `os.phone.camera`, `os.phone.mic`, `os.phone.photos`, `os.phone.speech` |
