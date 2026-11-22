@@ -200,7 +200,9 @@ for (const locale of STEEPLING_LOCALES) {
       expect(inbox.noticeUnreadCount).toBe(0)
       expect(inbox.roomUnreadCount).toBe(3)
       expect(inbox.unreadCount).toBe(3)
-      expect(inbox.items.every((n) => Date.parse(n.createdAt) < Date.now() - 10 * 60_000)).toBe(true)
+      // (the seed's own member changes raise #335's "added you to '<project>'": read by the seed, dated at the build)
+      expect(inbox.items.filter((n) => n.eventType !== 'project.joined').every((n) => Date.parse(n.createdAt) < Date.now() - 10 * 60_000)).toBe(true)
+      expect(inbox.items.filter((n) => n.eventType === 'project.joined').every((n) => !!n.readAt)).toBe(true)
       // the thread replies are in their threads
       const cv = (await mina.call(API.listRoomMessages, { params: { id: s.rooms['customer-voice']!.id }, query: { limit: 200 } })).items
       expect(cv.reduce((n, m) => n + (m.thread?.replyCount ?? 0), 0)).toBe(2)
