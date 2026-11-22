@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-22 02:04
 - Branch: `fix/room-post-attachment`
-- Status: in progress
+- Status: done
 - Where: server/src/chat (answer-share, post-to-room), server/src/rooms/files.ts, web room page and send-to dialog.
   Why: scenario QA TC-r2b-03 (P1) and TC-r2b-06 (P2).
 - Version impact: patch: a fix of what "대화에 보내기" and post_to_room send; no new feature, no migration.
@@ -63,4 +63,16 @@ files), web unit tests. Real check on a private QA copy (video in a chat → pos
 
 ## Result
 
-(filled in at the end)
+Built as planned, plus QA TC-r2u-21 (S-111), added during the work: after a tool call changes a team file that a room
+message carries as a copy, the tool result says the room keeps the old copy and tells the AI to offer posting the new
+version (server/src/chat/room-copies.ts); post_to_room's result says attached files are copies made at send time. The
+"newer version" hint on the room's file card was left out (an answer's copies keep their team path only inside the
+message's source scope; not cheap). Review fixes: artifact copies go through the sender's redactor, the who-can-open
+filter needs an open/see verb, post_to_room always shows its card when an artifact goes.
+
+Real check (private QA copy, claude-code engine): a promo video made in a chat and sent to #Everyone went as
+"QA-Acme 홍보 영상.html" and played for another member at 1440 and 390; once rendered it went as the .mp4 and played;
+the room showed unread for the other member. A side-chat answer's "지금은 본인만 열 수 있어요." was left out of the
+room copy. With the side chat and a file preview open at 1440 the side chat is a sheet over the room. Editing a file
+posted earlier made the AI ask "고친 회사 소개 파일을 방에 다시 올릴까요?".
+
