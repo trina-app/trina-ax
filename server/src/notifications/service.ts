@@ -298,6 +298,8 @@ export class Notifications {
     const day = at.slice(0, 10)
     const r = this.ctx.db.query(`INSERT INTO chat_lost_notices(id,user_id,event_type,source_id,chat_id,by_user,reason,day,created_at,suppressed)
       VALUES(?,?,'chat.lost',?,?,?,?,?,?,0) ON CONFLICT DO NOTHING`).run(newId(), userId, `${chatId}:${reason}:${day}`, chatId, byUser, reason, day, at)
+    // the unread "shared a chat with you" of that chat would now say "no longer shared" beside this one: read
+    this.ctx.db.query('UPDATE chat_share_notices SET read_at = ? WHERE user_id = ? AND chat_id = ? AND read_at IS NULL').run(at, userId, chatId)
     if (r.changes) this.signal(userId)
   }
   /** A chat came back from the trash: the unread 'deleted' notices about it go (they would say something untrue now). */

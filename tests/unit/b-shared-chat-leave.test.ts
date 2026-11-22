@@ -110,6 +110,8 @@ describe('lost-access notices', () => {
     expect(n[0]!.chatLost).toEqual({ reason: 'stopped', name: 'Alice Kim', title: null })
     expect(n[0]!.link).toBeNull()
     expect(JSON.stringify(n[0])).not.toContain('secret title stop')
+    // the earlier "shared a chat with you" is read now (it would only repeat "no longer shared")
+    expect(db().query("SELECT COUNT(*) AS n FROM chat_share_notices WHERE user_id = 'bob' AND chat_id = ? AND read_at IS NULL").get(id)).toEqual({ n: 0 })
     // shared again: the same notice names the chat and opens it again
     await share('alice', id, [bob])
     const again = (await lost('bob', id))[0]!
