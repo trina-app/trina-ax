@@ -170,6 +170,18 @@ test('a job\'s result in plain words: done, ended with the result unknown (no co
   expect(text(job(null, 'setting'), 'en')).toBe(en('notifications.event.dev_env.jobFailed').replaceAll("'", '&#x27;'))
 })
 
+test('a request whose job ended while its answer ran: "finished" only when the answer finished, else stopped and why (owner 11-22)', () => {
+  const req = (request: NonNullable<InboxNotification['devEnv']>['request']) => notice({ eventType: 'dev_env.job', code: 'dev_env.job', sourceId: 'turn-t1', outcome: null, devEnv: { projectId: '', projectName: '', request } })
+  expect(text(req({ outcome: 'done', chatTitle: '트리숲 홍보영상 제작' }))).toBe('‘<bdi>트리숲 홍보영상 제작</bdi>’에서 부탁한 작업을 트리나가 마쳤어요.')
+  expect(text(req({ outcome: 'stopped', reason: 'limit', chatTitle: '트리숲 홍보영상 제작' }))).toBe('‘<bdi>트리숲 홍보영상 제작</bdi>’에서 부탁한 작업이 멈췄어요 — 한 번에 할 수 있는 단계나 시간 한도에 닿았어요. 채팅에서 이어서 부탁해 보세요.')
+  expect(text(req({ outcome: 'stopped', reason: 'error' }))).toBe('부탁한 작업이 멈췄어요 — 오류가 났어요. 채팅에서 확인해 보세요.')
+  for (const reason of ['limit', 'error', 'stopped', 'restart', 'question'] as const) {
+    const t = text(req({ outcome: 'stopped', reason, chatTitle: 'Launch' }), 'en')
+    expect(t).toContain(en(`notifications.event.dev_env.requestWhy.${reason}`).replaceAll("'", '&#x27;'))
+    expect(t).not.toContain('finished')
+  }
+})
+
 test('"tried to use Trina but it isn\'t set up yet": the name while the account is there, else a team member; the AI accounts page', () => {
   const ask = (o: Partial<InboxNotification> = {}) => notice({ eventType: 'onboarding.ai_request', code: 'onboarding.ai_request', sourceId: 'not-ready:u1', chatId: null, link: 'admin_credentials', outcome: null, ...o })
   expect(text(ask({ notReady: true, requester: { name: 'Mia' } }), 'en')).toBe("Mia tried to use Trina but it isn&#x27;t set up yet.")

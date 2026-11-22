@@ -30,6 +30,7 @@ import { inPeopleAudience, isPeopleRow } from '../chat/chat-audience'
 import { redactorFor } from '../integrations/connections/redact'
 import { FILE_SCAN_VERSION, storedKeyFilesOf } from '../integrations/connections/file-scan'
 import { datedSql } from '../auth/deletion-requests'
+import { REQUEST_SOURCE, requestOutcome } from '../devenv/request-outcome'
 import { CHAT_ANSWER_COALESCE_MS, CHAT_ANSWER_PUSH_DELAY_MS, CHAT_CARD_PUSH_DELAY_MS, chatOpenFor, type ChatAnswerKind } from './chat-answers'
 import { fileSharesOf } from '../files/shares'
 import { accessRequestsOf } from '../chat/access-requests'
@@ -647,6 +648,7 @@ export class Notifications {
    * project it is shown while the person can see the project; with none, projectId and projectName are ''. */
   private devEnvRunOut(row: Row, base: InboxNotification): InboxNotification {
     const db = this.ctx.db
+    if (row.source_id.startsWith(REQUEST_SOURCE)) return this.devEnvRequestOut(row, base)
     const run = db.query('SELECT project_id,name,chat_id,exit_code,end_reason FROM dev_env_runs WHERE id=? AND user_id=?').get(row.source_id, row.user_id) as { project_id: string | null; name: string; chat_id: string | null; exit_code: number | null; end_reason: string } | null
     if (!run) return base
     const project = run.project_id ? db.query('SELECT name,folder_path,trashed_with FROM projects WHERE id=?').get(run.project_id) as { name: string; folder_path: string; trashed_with: string | null } | null : null
@@ -661,6 +663,19 @@ export class Notifications {
     // job's row for the AI of that chat (the people reading Activity are not developers)
     const job = { name: run.name, exitCode: run.exit_code, ...(run.end_reason && run.end_reason !== 'exit' ? { reason: run.end_reason } : {}), ...(chat?.title ? { chatTitle: chat.title } : {}) }
     return { ...base, chatId: chat?.id ?? null, link: chat ? 'chat' : project ? 'project' : null, devEnv: { projectId: project ? run.project_id! : '', projectName: project?.name ?? '', job } }
+  }
+  /** A request whose dev environment jobs ended while its answer ran (devenv/jobs.ts tellHeldJobs): how the answer
+   * ended (done, or stopped and why), in the chat the person asked in while they can open it. The person's own answer
+   * only. */
+  private devEnvRequestOut(row: Row, base: InboxNotification): InboxNotification {
+    const turnId = row.source_id.slice(REQUEST_SOURCE.length)
+    const turn = this.ctx.db.query('SELECT chat_id FROM turns WHERE id=? AND user_id=?').get(turnId, row.user_id) as { chat_id: string } | null
+    const o = turn ? requestOutcome(this.ctx.db, turnId) : null
+    if (!turn || !o) return base
+    const chat = this.ctx.db.query('SELECT id,title FROM chats WHERE id=? AND deleted_at IS NULL').get(turn.chat_id) as { id: string; title: string } | null
+    const open = !!chat && chatOpenFor(this.ctx, row.user_id, chat.id)
+    const request = { ...o, ...(open && chat!.title ? { chatTitle: chat!.title } : {}) }
+    return { ...base, chatId: open ? chat!.id : null, link: open ? 'chat' : null, devEnv: { projectId: '', projectName: '', request } }
   }
   /** `rows`: the Inbox's list, whose room notices are rows (roomRows) with the first line of their newest message; a
    * single notice (what a push opens) has no text. */

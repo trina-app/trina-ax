@@ -19,7 +19,7 @@ import { effectiveLimits, parsePlan, sliceValues, type DevEnvPlan } from '../../
 import { _active, newRunId, readExit, setSrtSystem, teamHosts, WAIT_MAX_MS } from '../../server/src/devenv/srt/runner'
 import { _held, _heldSkills, holdPlaceholders, holdSkillFolders, SRT_DENY_DIRS, SRT_DENY_FILES } from '../../server/src/devenv/srt/placeholders'
 import { cgroupDir, slicePath, type SpawnSpec, type SrtSystem, type UnitInfo } from '../../server/src/devenv/srt/system'
-import { JOB_DONE, JOB_DONE_NO_CHAT, JOB_FAILED, JOB_FAILED_NO_CHAT, JOB_UNKNOWN, pollSrt, runResultsForAI } from '../../server/src/devenv/jobs'
+import { JOB_DONE, JOB_DONE_NO_CHAT, JOB_FAILED, JOB_FAILED_NO_CHAT, JOB_UNKNOWN, pollSrt, REQUEST_DONE, REQUEST_SOURCE, REQUEST_WHY, requestNoticeText, runResultsForAI, tellHeldJobs, type RequestStop } from '../../server/src/devenv/jobs'
 import { mayUseDevEnv, newConsent, saveTeamSetting, teamInForce, teamSetting } from '../../server/src/devenv/setting'
 import { boxLibsText, boxShellTool, sharedShellDescription, srtShellDescription } from '../../server/src/devenv/tool'
 import { _resetUpdateWait, beginUpdateWait, endUpdateWait } from '../../server/src/system/update-wait'
@@ -1875,5 +1875,138 @@ describe('starts that meet (one start at a time)', () => {
   test('the server\'s data folder is hidden from a run even outside the base folder', async () => {
     await alice().call({ command: 'echo x' })
     expect(lastSettings().filesystem.denyRead).toContain(path.resolve(h.ctx.config.dataDir))
+  })
+})
+
+// ---------------- a job inside an answer that is still going (owner's report 11-22) ----------------
+// "‘트리숲 홍보영상 제작’에서 부탁한 작업을 트리나가 마쳤어요." came while the answer went on: the AI's background render
+// (box_shell job: true) had ended, not the request. A job's end tells nothing while its person's answer in that chat is
+// queued or running; the request's notice comes when the answer ends, from how it ended.
+describe('a job that ends while its answer still runs', () => {
+  const TITLE = '트리숲 홍보영상 제작'
+  let n = 0
+  const newTurn = (chatId: string, userId = 'alice', status = 'running') => {
+    const id = `turn-held-${++n}`
+    h.ctx.db.query("INSERT INTO turns (id, chat_id, user_id, engine, status, started_at) VALUES (?, ?, ?, 'claude-code', ?, ?)").run(id, chatId, userId, status, new Date().toISOString())
+    return id
+  }
+  const endTurn = (id: string, status: string, stopReason: string | null = null) =>
+    h.ctx.db.query('UPDATE turns SET status = ?, ended_at = ?, stop_reason = ? WHERE id = ?').run(status, new Date().toISOString(), stopReason, id)
+  const inTurn = (turnId: string, chatId = chatPlain) =>
+    boxShellTool({ ctx: h.ctx, project: null, userId: 'alice', turnId, chatId, signal: new AbortController().signal, confirm: async () => null, redact: (s) => s })
+  const jobNotices = () => publish.filter((p) => p.frame.data.code === 'dev_env_job')
+  const noticeRows = () => h.ctx.db.query("SELECT source_id FROM dev_env_notices WHERE user_id = 'alice' ORDER BY created_at").all() as { source_id: string }[]
+  const said = (f: Record<string, (t: string) => string>) => Object.values(f).map((x) => x(TITLE))
+  beforeEach(() => { h.ctx.db.query('UPDATE chats SET title = ? WHERE id = ?').run(TITLE, chatPlain); h.ctx.db.query("DELETE FROM turns WHERE id LIKE 'turn-held-%'").run() })
+  afterAll(() => { h.ctx.db.query("UPDATE chats SET title = '' WHERE id = ?").run(chatPlain); h.ctx.db.query("DELETE FROM turns WHERE id LIKE 'turn-held-%'").run() })
+
+  test('no "finished" while the answer runs; one notice for the request when it ends, and only once', async () => {
+    const turn = newTurn(chatPlain)
+    await inTurn(turn).call({ command: 'sleep', job: true, log_name: 'hf_render' })
+    finish(runIdOfRow(rows()[0]!), 0, 'render.mp4 written\n')
+    await pollSrt(h.ctx)
+    expect(rows()[0]).toMatchObject({ state: 'ended', exit_code: 0 })
+    // the owner's case: the job ended, the answer goes on: nothing said, nothing in Activity
+    expect(jobNotices()).toHaveLength(0)
+    expect(noticeRows()).toHaveLength(0)
+    // the tracker's poll while the answer still runs: still nothing
+    tellHeldJobs(h.ctx)
+    expect(jobNotices()).toHaveLength(0)
+    // the AI still gets the result in the answer
+    expect(runResultsForAI(h.ctx, 'alice', chatPlain).join('\n')).toContain('Job hf_render ended with exit code 0.')
+    // a second job of the same answer ends too: still one notice at the end
+    await inTurn(turn).call({ command: 'sleep', job: true, log_name: 'hf_render2' })
+    finish(runIdOfRow(rows()[1]!), 0)
+    await pollSrt(h.ctx)
+    expect(jobNotices()).toHaveLength(0)
+    // the answer ends with its final answer: now the request's notice, once
+    endTurn(turn, 'done')
+    tellHeldJobs(h.ctx, chatPlain)
+    tellHeldJobs(h.ctx, chatPlain)
+    tellHeldJobs(h.ctx)
+    expect(jobNotices()).toHaveLength(1)
+    expect(said(REQUEST_DONE)).toContain(jobNotices()[0]!.frame.data.message!)
+    expect(jobNotices()[0]!.frame.data).toMatchObject({ level: 'info', link: `/c/${chatPlain}` })
+    expect(noticeRows()).toEqual([{ source_id: `${REQUEST_SOURCE}${turn}` }])
+    const item = (await h.api('alice').call(API.listNotifications, { query: {} })).items.find((i) => i.code === 'dev_env.job')!
+    expect(item).toMatchObject({ link: 'chat', chatId: chatPlain, devEnv: { request: { outcome: 'done', chatTitle: TITLE } } })
+    expect(item.devEnv!.job).toBeUndefined()
+    // someone else's request row shows nothing of it
+    expect((await h.api('bob').call(API.listNotifications, { query: {} })).items.filter((i) => i.code === 'dev_env.job')).toHaveLength(0)
+  })
+
+  test('an answer that stops says it stopped and why, never "finished"', async () => {
+    const cases: [string, string | null, RequestStop][] = [['error', null, 'error'], ['done', 'tool_limit', 'limit'], ['done', 'time_limit', 'limit'], ['stopped', null, 'stopped']]
+    for (const [status, stopReason, why] of cases) {
+      publish.length = 0
+      const turn = newTurn(chatPlain)
+      await inTurn(turn).call({ command: 'sleep', job: true, log_name: `r-${n}` })
+      finish(runIdOfRow(rows().at(-1)!), 0)
+      await pollSrt(h.ctx)
+      expect(jobNotices()).toHaveLength(0)
+      endTurn(turn, status, stopReason)
+      tellHeldJobs(h.ctx, chatPlain)
+      expect([status, stopReason, jobNotices().length]).toEqual([status, stopReason, 1])
+      const msg = jobNotices()[0]!.frame.data.message!
+      expect(Object.keys(REQUEST_WHY).map((l) => requestNoticeText(l as 'ko', { outcome: 'stopped', reason: why }, TITLE))).toContain(msg)
+      expect(said(JOB_DONE)).not.toContain(msg)
+      expect(jobNotices()[0]!.frame.data).toMatchObject({ level: 'warn' })
+      const item = (await h.api('alice').call(API.listNotifications, { query: {} })).items.find((i) => i.sourceId === `${REQUEST_SOURCE}${turn}`)!
+      expect(item.devEnv!.request).toMatchObject({ outcome: 'stopped', reason: why })
+    }
+    expect(requestNoticeText('ko', { outcome: 'stopped', reason: 'limit' }, TITLE)).toBe(`‘${TITLE}’에서 부탁한 작업이 멈췄어요 — 한 번에 할 수 있는 단계나 시간 한도에 닿았어요. 채팅에서 이어서 부탁해 보세요.`)
+  })
+
+  test('an answer a restart cut off: the tracker\'s poll tells it (stopped: the server restarted)', async () => {
+    const turn = newTurn(chatPlain)
+    await inTurn(turn).call({ command: 'sleep', job: true, log_name: 'cut' })
+    finish(runIdOfRow(rows()[0]!), 0)
+    await pollSrt(h.ctx)
+    expect(jobNotices()).toHaveLength(0)
+    // what chat/runtime.ts does to a running turn at start; no turn end runs
+    endTurn(turn, 'interrupted')
+    tellHeldJobs(h.ctx)
+    expect(jobNotices().map((p) => p.frame.data.message)).toEqual([expect.stringMatching(/./)])
+    expect(Object.keys(REQUEST_WHY).map((l) => requestNoticeText(l as 'ko', { outcome: 'stopped', reason: 'restart' }, TITLE))).toContain(jobNotices()[0]!.frame.data.message!)
+  })
+
+  test('the next answer of the chat still running holds it; an answer that ended on a question says Trina waits', async () => {
+    const first = newTurn(chatPlain)
+    await inTurn(first).call({ command: 'sleep', job: true, log_name: 'q' })
+    finish(runIdOfRow(rows()[0]!), 0)
+    await pollSrt(h.ctx)
+    // the first answer ends on a question card; a second answer of hers is queued in the chat
+    h.ctx.db.query("INSERT INTO messages (id, chat_id, role) VALUES ('msg-held', ?, 'assistant')").run(chatPlain)
+    h.ctx.db.query("INSERT INTO open_questions (request_id, chat_id, message_id, turn_id, user_id, request, created_at) VALUES ('oq-held', ?, 'msg-held', ?, 'alice', '{}', ?)").run(chatPlain, first, new Date().toISOString())
+    endTurn(first, 'done')
+    const second = newTurn(chatPlain, 'alice', 'queued')
+    tellHeldJobs(h.ctx, chatPlain)
+    expect(jobNotices()).toHaveLength(0)
+    endTurn(second, 'done')
+    tellHeldJobs(h.ctx, chatPlain)
+    expect(Object.keys(REQUEST_WHY).map((l) => requestNoticeText(l as 'ko', { outcome: 'stopped', reason: 'question' }, TITLE))).toContain(jobNotices()[0]!.frame.data.message!)
+    h.ctx.db.query("DELETE FROM messages WHERE id = 'msg-held'").run()
+  })
+
+  test('a job that ends after its answer ended keeps its own notice (the AI ended its answer while it ran)', async () => {
+    const turn = newTurn(chatPlain)
+    await inTurn(turn).call({ command: 'sleep', job: true, log_name: 'after' })
+    endTurn(turn, 'done')
+    finish(runIdOfRow(rows()[0]!), 0)
+    await pollSrt(h.ctx)
+    expect(jobNotices()).toHaveLength(1)
+    expect(said(JOB_DONE)).toContain(jobNotices()[0]!.frame.data.message!)
+    expect(noticeRows()).toEqual([{ source_id: String(rows()[0]!.id) }])
+    // and nothing more at the next poll
+    tellHeldJobs(h.ctx)
+    expect(jobNotices()).toHaveLength(1)
+  })
+
+  test('another person\'s answer in a different chat does not hold it', async () => {
+    newTurn(chatErin, 'erin')
+    await alice({ project: null, chat: chatPlain }).call({ command: 'sleep', job: true, log_name: 'free' })
+    finish(runIdOfRow(rows()[0]!), 0)
+    await pollSrt(h.ctx)
+    expect(jobNotices()).toHaveLength(1)
   })
 })

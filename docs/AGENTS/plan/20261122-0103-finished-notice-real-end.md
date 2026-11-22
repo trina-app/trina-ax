@@ -1,6 +1,6 @@
 # "Finished" notice only at the real end of a request
 
-- Date (UTC): 2026-11-22 01:10
+- Date (UTC): 2026-11-22 01:03
 - Branch: `fix/finished-notice-real-end`
 - Status: in progress
 - Where: server (devenv jobs, chat turn end, notifications), shared (inbox schema), web (Activity text). Why: a live bug
