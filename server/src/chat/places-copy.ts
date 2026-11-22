@@ -434,7 +434,7 @@ async function roomCard(exec: TurnExec, files: TurnFiles, person: ToolCtx['perso
 /** Where each of these chat place sources lands in team folder `folder`, by the names copyOne gives them (a chat file
  * by its name, a work file by its last part), or null when any is not a file of this chat or its work folder that can
  * be found now (a folder of the work folder, a hidden or refused one: the card asks). */
-function landingPaths(exec: TurnExec, files: TurnFiles, from: readonly string[], folder: string): string[] | null {
+export function landingPaths(exec: TurnExec, files: TurnFiles, from: readonly string[], folder: string): string[] | null {
   const out: string[] = []
   for (const p of from) {
     const src = parsePlace(p)

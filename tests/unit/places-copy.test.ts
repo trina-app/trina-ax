@@ -570,3 +570,34 @@ describe('after a room read: the side chat makes a chart (QA TC-f2-c02)', () => 
     expect(card?.question).not.toContain('Run a task')
   })
 })
+
+// docs/decisions/20261123-fewer-asks-b5.md, QA of batch 4 r110 ("이 배너 글자만 조금 키워줘" in a shared project chat): the
+// banner the chat's commands made, copied into the person's own folder, asked "AI가 내 개인 폴더를 읽으려고 해요" because the
+// folder was there; reading it back and copying a new one over it are the chat's own file too
+describe('a shared chat: the chat\'s own work file into my own folder (batch 5)', () => {
+  test('no card for the copy, the read back, or a second copy over it; a file I put there myself still asks', async () => {
+    const chat = await shared()
+    await run('alice', chat, copy(['groups/marketing/brief.csv'], 'chat:work/'))
+    const wf = sharedWork(chat)
+    w('users/alice/b5banner/old-note.txt', 'there before')
+    fs.writeFileSync(path.join(wf, 'banner.png'), 'PNG-ONE')
+    const first = await run('alice', chat, copy(['chat:work/banner.png'], 'users/alice/b5banner/'))
+    expect(first.cards).toHaveLength(0)
+    expect(fs.readFileSync(team('users/alice/b5banner/banner.png'), 'utf8')).toBe('PNG-ONE')
+    fs.writeFileSync(path.join(wf, 'banner.png'), 'PNG-TWO')
+    const again = await run('alice', chat, fake({ tool: 'read', args: { file_path: 'users/alice/b5banner/banner.png' } }, { tool: 'copy_files', args: { paths: ['chat:work/banner.png'], to_folder: 'users/alice/b5banner/' }, sayResult: true }))
+    expect(again.cards).toHaveLength(0)
+    expect(fs.readFileSync(team('users/alice/b5banner/banner.png'), 'utf8')).toBe('PNG-TWO')
+    // a third time, over the file the second copy handed over
+    fs.writeFileSync(path.join(wf, 'banner.png'), 'PNG-THREE')
+    const third = await run('alice', chat, fake({ tool: 'read', args: { file_path: 'users/alice/b5banner/banner.png' } }, { tool: 'copy_files', args: { paths: ['chat:work/banner.png'], to_folder: 'users/alice/b5banner/' }, sayResult: true }))
+    expect(third.cards).toHaveLength(0)
+    expect(fs.readFileSync(team('users/alice/b5banner/banner.png'), 'utf8')).toBe('PNG-THREE')
+    // a file of mine there already (not the chat's): the card asks, and a no copies nothing over it
+    w('users/alice/b5banner/mine.png', 'MINE')
+    fs.writeFileSync(path.join(wf, 'mine.png'), 'PNG-W')
+    const mine = await run('alice', chat, copy(['chat:work/mine.png'], 'users/alice/b5banner/'), (c) => c.options?.at(-1)?.value ?? 'skip')
+    expect(mine.cards).toHaveLength(1)
+    expect(fs.readFileSync(team('users/alice/b5banner/mine.png'), 'utf8')).toBe('MINE')
+  })
+})

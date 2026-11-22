@@ -37,6 +37,7 @@ import { foldKey } from '../policy/names'
 import { frequentSkills, matchSkills, resolveSkill, shortDescription, skillTag, skillTitleText, usageScores } from './skill-list'
 import { addSources, audiencePeople, pathAudience, sourceOf, type ReadSource } from './read-scope'
 import { authorize } from '../policy/authorize'
+import { savePathArg } from '../tools/save-target'
 import { atLeast, isStaff, withMoreHiddenFolders, type Principal } from '../policy/access'
 import { walk } from '../policy/resolve'
 import { sideRoomOf } from './side-room'
@@ -70,7 +71,7 @@ import { saveWorkFileTool } from './work-file-tool'
 import { COPY_FILES_TOOL, stagePlaceInput, withPlaces } from './places-copy'
 import { connectService } from './connect-service'
 import { DRAFT_FILE_REFUSAL, draftToolRefusal, draftUrlRefusal } from '../onboarding/draft'
-import { namedPaths, SEARCH_TOOLS, SHARED_TOOLS, WRITE_TARGET_ARGS } from '../rooms/ai-tools'
+import { namedPaths, OUTPUT_PATH_OF, SEARCH_TOOLS, SHARED_TOOLS, WRITE_TARGET_ARGS } from '../rooms/ai-tools'
 import { steerableRun, steerableWriteRefusal } from './shared-run'
 import { SKILL_DRAFT_FILE_REFUSAL } from '../onboarding/skill-draft'
 import { projectRoomOfChat, projectRoomTools, roomReadTools } from './room-tools'
@@ -798,10 +799,10 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
   // ends having done nothing, and the AI is told to end its answer; the next turn runs the call again with the answer
   // (a connected service's tools too: each asks before it reaches the service, docs/decisions/20261122-late-card-answer-
   // resumes.md; not connection_result, whose answer is kept for its own turn only, nor find_tools, which asks nothing)
-  const cardLaterTool = (name: string): boolean => CARD_LATER_TOOLS.has(name) || (serviceTools.has(name) && !NOT_LATER.has(name))
+  const cardLaterTool = (name: string, args: unknown): boolean => (CARD_LATER_TOOLS.has(name) && fileLaterSafe(exec, name, args)) || (serviceTools.has(name) && !NOT_LATER.has(name))
   const once = set.call
   set.call = async (name, args, caller) => {
-    const track = cardLaterTool(name) && (caller?.files ?? exec.files) === exec.files
+    const track = cardLaterTool(name, args) && (caller?.files ?? exec.files) === exec.files
     // each call in its own context: a card raised by another call running beside it is never kept with this one
     // (a test's stand-in turn without runAsCall: no tracking, the card waits inside the call)
     if (!exec.runAsCall) return once(name, args, caller)
@@ -812,7 +813,38 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
     exec.markCallWaiting(name)
     return { ...text(JSON.stringify({ waiting_for_user: true, note: CARD_LATER_NOTE })), summary: `${name} -> waits for the user's card (runs again with their answer)` }
   }
+  // ...and the file tools whose checks and cards run in mcp/protocol.ts (write, edit): the same, for the main AI's own
+  // call (never a file of an edit_files batch: protocol.ts calls this only for a call of its own)
+  set.fileCallLater = async (name, args, caller, run, waiting) => {
+    if (!exec.runAsCall) return run()
+    if (!(CARD_LATER_TOOLS.has(name) && fileLaterSafe(exec, name, args) && (caller?.files ?? exec.files) === exec.files)) return exec.runAsCall(null, run)
+    const call = { name, args, deferred: null as string | null }
+    const out = await exec.runAsCall(call, run)
+    if (!call.deferred) return out
+    exec.markCallWaiting(name)
+    return waiting(JSON.stringify({ waiting_for_user: true, note: CARD_LATER_NOTE }))
+  }
   return set
+}
+
+/**
+ * May this file tool's card wait after the answer ends (docs/decisions/20261123-fewer-asks-b5.md)? A call that runs
+ * again in the next turn runs before the engine resumes its session, so a whole-file replace there has no read of the
+ * file it replaces (files/service.ts readForReplace): write and make_file only for a NEW file (nothing at the path the
+ * tool writes, as the person sees it now); edit always (an edit goes by the chat's earlier read of that very version).
+ * Any other tool of CARD_LATER_TOOLS: yes. A check that fails: no (the card waits inside the call as before).
+ */
+export function fileLaterSafe(exec: TurnExec, name: string, args: unknown): boolean {
+  if (name !== 'write' && name !== 'make_file') return true
+  try {
+    const a = args && typeof args === 'object' && !Array.isArray(args) ? args as Record<string, unknown> : {}
+    const raw = name === 'write' ? a.file_path : a.output
+    if (typeof raw !== 'string' || !raw.trim() || isReservedPlace(raw)) return false
+    const p0 = savePathArg(raw)
+    const out = name === 'make_file' ? [OUTPUT_PATH_OF.make_file!(p0, a)].flat() : [p0]
+    const me = exec.livePrincipal()
+    return out.every((p) => !authorize(exec.rt.files.fx, exec.rt.files.rules(), me, p, 'write', { mustExist: false, createDirs: true }).exists)
+  } catch { return false }
 }
 
 /** Where a call's wider-audience check (below the room card) saves, and the files it copies bytes from: the same

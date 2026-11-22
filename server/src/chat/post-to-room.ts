@@ -55,7 +55,7 @@
 import { askerMessageId, askerSpec, askingAnswerId, madeHere } from './asked-in'
 import { ALWAYS_VALUE, RAN_UNDER_ALWAYS, alwaysHere, withAlways } from './always-allow'
 import { approved, noteApproval } from './card-approvals'
-import { actionOff, asksFor, askerPicks, askerText, asksToSend, fold, fromAsker, guestInShared, mainOnly, namedInFull, namesRecipient as namesPlace, othersWordsIn, soleNames, ownWords, POST_ASK } from './shared-actions'
+import { actionOff, asksFor, askerPicks, askerText, asksToSend, fold, fromAsker, guestInShared, mainOnly, namedInFull, namesRecipient as namesPlace, othersWordsIn, soleNames, ownWords, POST_ASK, unaskedSideShare } from './shared-actions'
 import { broadcastIn, leadingMentions, mentionablesOf, mentionableUser, mentionHead, namesPerson, pickMentions, POST_MENTIONS_MAX, textMentions, withExactNames } from './post-mentions'
 import { readRooms } from './read-rooms'
 import { grantOnly, sameRoomOnly, seenWhy } from './grant-reads'
@@ -245,6 +245,9 @@ export function postToRoomTool(exec: TurnExec): Tool {
         const main = mainOnly(exec, files)
         if (main === 'sub-agent') return no('Nothing was posted: only the main assistant can post to a room, after the user\'s yes on its card. Give the text to post in your result instead.', 'refused: sub-agent')
         if (main === 'disabled') return no('Access denied: this account is disabled.', 'denied: account disabled')
+        // a ✦ side chat: nothing is posted that the person never asked to send (no card for it either)
+        const unasked = unaskedSideShare(exec, 'posted')
+        if (unasked) return no(unasked, 'refused: not asked (side chat)')
         // what this answer read so far joins the chat's read scope first: the check counts every place of it
         exec.noteReads()
         const rooms = roomsOf(ctx)

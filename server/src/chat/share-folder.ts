@@ -43,7 +43,7 @@ import { folderAccessOff } from './folder-access-tool'
 import { findGroups, isGuest, recipientWords } from './share-with-person'
 import { matchOnFile } from './stop-sharing'
 import { seenWhy } from './grant-reads'
-import { actionOff, askerPicks, askerText, asksToSend, attachedPaths, guestInShared, mainOnly, namedInFull, namesFolder, namesRecipient, othersWordsIn, ownWords, saysDont } from './shared-actions'
+import { actionOff, askerPicks, askerText, asksToSend, attachedPaths, guestInShared, mainOnly, namedInFull, namesFolder, namesRecipient, othersWordsIn, ownWords, saysDont, unaskedSideShare } from './shared-actions'
 import { RAN_UNDER_ALWAYS, alwaysHere, withAlways } from './always-allow'
 import type { Tool } from './tools'
 import type { TurnExec } from './turn'
@@ -115,6 +115,9 @@ export function shareFolderTool(exec: TurnExec): Tool {
         const main = mainOnly(exec, files)
         if (main === 'sub-agent') return no('Nothing was changed: only the main assistant can share folders, after the user\'s yes on its card. Name the folder in your result instead.', 'refused: sub-agent')
         if (main === 'disabled') return no('Access denied: this account is disabled.', 'denied: account disabled')
+        // a ✦ side chat: no folder is shared that the person never asked to share (stopping a share is never refused)
+        const unasked = a.data.add.length > 0 ? unaskedSideShare(exec, 'shared') : null
+        if (unasked) return no(unasked, 'refused: not asked (side chat)')
         const me = exec.livePrincipal()
         const shares = fileSharesOf(rt.ctx)
         const adding = a.data.add.length > 0

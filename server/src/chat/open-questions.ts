@@ -59,7 +59,15 @@ export const CARD_LATER_TOOLS: ReadonlySet<string> = new Set(['delete_files', 's
   // since docs/decisions/20261122-late-card-answer-resumes.md: each asks before it changes anything (a room post, members,
   // folder access, a skill's files or place, a scheduled task, a memory). A connected service's tools join by their
   // provider (chat/tools.ts: every tool of the integrations provider but connection_result and find_tools)
-  'post_to_room', 'change_project_members', 'change_folder_access', 'skill_files', 'move_skill', 'schedule_create', 'remember'])
+  'post_to_room', 'change_project_members', 'change_folder_access', 'skill_files', 'move_skill', 'schedule_create', 'remember',
+  // since docs/decisions/20261123-fewer-asks-b5.md: the file tools whose every card (the shared read or save card, the
+  // card after a room read, a skill's, the wider-audience card) comes before they write anything. Not with arguments
+  // over CARD_LATER_ARGS_MAX (TurnExec.cardLater: such a card waits inside the call as before)
+  'write', 'edit', 'make_file'])
+
+/** The largest arguments (as JSON) a waiting call keeps in the database (a write's whole text): a call with more keeps
+ * its card inside the call, with its time limit, as before */
+export const CARD_LATER_ARGS_MAX = 1024 * 1024
 
 /** Turns of these apps keep the card inside the tool call (see the header): null is a turn the server started itself. */
 export const questionsWaitInCall = (clientKind: string | null): boolean => clientKind === null || clientKind === 'schedule' || clientKind === 'slack'
