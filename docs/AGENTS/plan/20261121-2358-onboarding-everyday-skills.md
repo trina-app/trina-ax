@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-21 23:58
 - Branch: `feat/onboarding-everyday-skills`
-- Status: in progress
+- Status: done
 - Where: resources/skill-packs, server/src/onboarding, shared/src/api, web. Why: the owner says the setup's skill list
   (company deck, card news, 18 s video, natural writing) is not what people use every day.
 - Version impact: minor. Four new skills a team can add, and the catalog's API gains a field (`onboarding`); nothing
@@ -63,4 +63,10 @@ available-skills-install.
 
 ## Result
 
-(filled in at the end)
+Built as planned. The four skills are in `resources/skill-packs/work/{ko,en}/` with LICENSE, NOTICE and EXAMPLE.md;
+the catalog carries `onboarding`, and the setup step shows the six setup skills (four checked) while Team skills keeps
+all eight. Differences: the planned "Word, Excel, PowerPoint and PDF need no skill" line was dropped by the owner; the
+intro deck's pack, rendering and example were left untouched (another PR is redesigning them). Each new skill was run
+once per language on the ai-scenarios local server (real Claude Code engine): all eight answers followed their skill
+(one owner and due date per to-do or "not set", no promise beyond what was given, the not-legal-advice line), and the
+examples are taken from those answers. PR: see the pull request that links this plan.
