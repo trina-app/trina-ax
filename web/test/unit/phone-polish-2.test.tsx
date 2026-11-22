@@ -36,9 +36,9 @@ test('TRINA-24: the card the message box answers has no text box of its own and 
     expect(m.find('ask-text')).toBeNull()
     expect(m.find('ask-no-secrets')).toBeNull()
     expect(m.get('ask-in-box').textContent).toBe('Or type your own answer in the message box below.')
-    // the options and [답하기] stay
-    expect(m.html().split('type="radio"').length - 1).toBe(2)
-    expect(m.find('ask-send')).not.toBeNull()
+    // the options stay, each answering when pressed (QA TC-ask1-15); the box's own button sends typed text
+    expect(m.container.querySelectorAll('[data-testid="ask-option"]').length).toBe(2)
+    expect(m.find('ask-send')).toBeNull()
   } finally {
     await m.unmount()
   }

@@ -96,6 +96,27 @@ describe('move_files', () => {
     expect(has('users/alice/to-hide.md')).toBe(true)
   })
 
+  // QA TC-cards-8: the card said "10명이 더", the answer said 11. The result carries the card's own numbers
+  test('the result tells the AI the card\'s own count ("n more than before"), and the total from the same pass', async () => {
+    put('users/alice/one-count.md', 'x')
+    const p = ask(true)
+    const r = await call('alice', 'move_files', { paths: ['users/alice/one-count.md'], to_folder: 'shared/one-count' }, { person: p })
+    expect(r.isError).toBe(false)
+    const shown = Number(/(\d+)명이 더 볼 수 있게 돼요/.exec(p.questions[0]!)?.[1])
+    expect(shown).toBeGreaterThan(0)
+    const said = Number(/(\d+) (?:person|people) more than before/.exec(r.text)?.[1])
+    expect(said).toBe(shown)
+    expect(r.text).toContain('the numbers the user\'s card showed; say these, never a count of your own')
+    // a private file into a folder everyone else can read: the others who now see it are all the others there
+    expect(r.text).toContain(`${shown + 1} people in all can see them in shared/one-count`)
+    // within the same audience there is no card, and no audience line either
+    put('shared/inbox-c/same.md', 'y')
+    const q = ask(true)
+    const r2 = await call('alice', 'move_files', { paths: ['shared/inbox-c/same.md'], to_folder: 'shared/inbox-d' }, { person: q })
+    expect(q.questions).toHaveLength(0)
+    expect(r2.text).not.toContain('more than before')
+  })
+
   // App review 2026-11-01 sweep: "move 1 item(s)", "1 more people will be able to see them"
   test('English and Spanish cards count one item and one person in the singular', async () => {
     put('shared/one-en.md', 'x')

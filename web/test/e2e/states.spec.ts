@@ -77,8 +77,7 @@ test('a chat whose AI waits for an answer shows "?" at the end of its row, and a
   await expect(page).toHaveTitle(/^[^(]/)
   // answered: the "?" goes, and the answer that ends on screen is never "new"
   const card = page.getByTestId('ask-card')
-  await card.getByLabel('4분기').check()
-  await card.getByRole('button', { name: '답하기' }).click()
+  await card.getByRole('button', { name: '4분기', exact: true }).click()
   await expect(page.getByTestId('marker-ask')).toHaveCount(0)
   await expect(page.getByTestId('assistant-message').last()).toHaveAttribute('data-status', 'done', { timeout: 20_000 })
   await expect(page.getByTestId('chat-marker')).toHaveCount(0)

@@ -1,14 +1,16 @@
 // The server's yes/no cards (components/chat/AskCard.tsx): two buttons, the "no" neutral and the "yes" primary, with no
 // radios, no [답하기] and no [건너뛰기]; each sends its own option's value. A server question with more choices (an
-// address with "allow this site", a schedule with "and let it write") keeps its radios and [답하기], unless it says its
-// three choices are buttons (`buttons`: a room's change card), which are then one row of buttons with the line under it.
+// address with "allow this site", a schedule with "and let it write") keeps its radios and [답하기] (one press is for
+// the AI's own questions, QA TC-ask1-15), unless it says its three choices are buttons (`buttons`: a room's change card), which are then one
+// row of buttons with the line under it.
 import { expect, test } from 'bun:test'
 import type { TurnRequest } from '@mycel/shared/api'
 import AskCard from '../../src/components/chat/AskCard'
-import { installDom, mount, removeDom } from './dom-host'
+import { installDom, mount, removeDom, type Mounted } from './dom-host'
 import { ko } from '../../src/i18n/ko'
 
 type Ask = Extract<TurnRequest, { kind: 'ask_user' }>
+const options = (m: Mounted) => m.container.querySelectorAll('[data-testid="ask-option"]')
 const serverCard = (options: Ask['options']): Ask => ({
   kind: 'ask_user', origin: 'server', requestId: 'r1', question: 'Allow it?', multiple: false, allowText: false, options,
   details: [{ label: 'What it would change', fields: [{ name: 'File', value: 'shared/a.txt' }], text: 'hello' }],
@@ -38,14 +40,23 @@ for (const [which, testId, value] of [['no', 'ask-no', 'skip'], ['yes', 'ask-yes
   })
 }
 
-test('three options keep the radios and [답하기]', async () => {
+test('three options from the server keep the radios and [답하기]: a pick alone answers nothing (one press is for the AI\'s own questions)', async () => {
   installDom()
-  const m = await mount(<AskCard req={{ request: serverCard([{ label: 'Open', value: 'allow' }, { label: 'Allow this site', value: 'site' }, { label: "Don't open", value: 'deny' }]) }} onAnswer={async () => {}} />)
+  const answers: unknown[] = []
+  const m = await mount(<AskCard req={{ request: serverCard([{ label: 'Open', value: 'allow' }, { label: 'Allow this site', value: 'site' }, { label: "Don't open", value: 'deny' }]) }} onAnswer={async (_id, body) => void answers.push(body)} />)
   try {
     const html = m.html()
     expect(html.split('type="radio"').length - 1).toBe(3)
+    expect(options(m).length).toBe(0)
     expect(html).toContain('data-testid="ask-send"')
     expect(m.find('ask-yes')).toBeNull()
+    // a browser checks a radio before the click's listeners run, past React's value tracker (this small DOM does not)
+    const radio = m.container.querySelectorAll('input[type="radio"]')[1]!
+    Object.getOwnPropertyDescriptor(Object.getPrototypeOf(radio), 'checked')!.set!.call(radio, true)
+    await m.click(radio)
+    expect(answers).toEqual([])
+    await m.click('ask-send')
+    expect(answers).toEqual([{ kind: 'ask_user', answer: 'site' }])
   } finally {
     await m.unmount()
     removeDom()

@@ -1,8 +1,8 @@
 import { confidentialChat } from "../safe-ops/confidential"
 import { chatFilePath, isReservedPlace, parsePlace } from '@mycel/shared/places'
 import { seesChatFiles } from './chat-files-access'
-import { chatFileCopyOf } from './chat-file-tool'
-import { ALWAYS_VALUE, LIVE_CLIENTS, alwaysHere, keepAlways, withAlways, type AlwaysPlace } from './always-allow'
+import { chatFileCopyOf, chatMadeOwnFile } from './chat-file-tool'
+import { ALWAYS_VALUE, LIVE_CLIENTS, alwaysHere, alwaysNote, keepAlways, withAlways, type AlwaysPlace } from './always-allow'
 import { approvalsFor, approved, clearApprovals, noteApproval } from './card-approvals'
 import { stampOutputOf } from '../tools/stamp-pdf'
 import type { CardAlwaysKind } from '@mycel/shared/api'
@@ -16,9 +16,10 @@ import { safeOpsEnabled } from "../safe-ops/runner"
 import fs from 'node:fs'
 import path from 'node:path'
 import crypto from 'node:crypto'
-import { CLAUDE_AGENT_TOOL_NAMES, FILE_STEP_VERB, FILE_TOOLS, isUuid7, readableToolName, shellWords, STEP_WORDS_OTHER, TEAM_TOOL_PREFIX, type AgentStats, type EngineEvent } from '@mycel/shared'
+import { chatPlaceWords, CLAUDE_AGENT_TOOL_NAMES, FILE_STEP_VERB, FILE_TOOLS, isUuid7, readableToolName, shellKind, shellWords, STEP_WORDS_OTHER, TEAM_TOOL_PREFIX, type AgentStats, type EngineEvent } from '@mycel/shared'
 import { recordSent, webEcho } from '../tools/connection-urls'
 import { carriesAddress, normUrl, rememberUrls } from '../tools/url-gate'
+import { webAllowAll } from '../tools/web-allow-all'
 import { GUEST_ANSWER_STEP_LIMIT, UNATTENDED_ANSWER_STEP_LIMIT } from '@mycel/shared/api'
 import { FILE_SUMMARY_LIST_MAX } from '@mycel/shared/api'
 import type { ApiErrorBody, Attachment, ConfirmDetail as ConfirmDetailT, EngineId, FileChange, FileChangeSummary, Locale, MessageStatus, OpenTurnRequest, Step, TurnRequest, TurnStopReason } from '@mycel/shared/api'
@@ -157,7 +158,8 @@ import { findRoomFile, localTime } from '../rooms/reader'
 import { namedPaths, OWN_CHAT_TEAM_TOOLS, OWN_WORDS_TOOLS, ROOMS_SEEN_BROWSER_READ_TOOLS, ROOMS_SEEN_OWN_CARD_TOOLS, ROOMS_SEEN_READ_ONLY_TOOLS } from '../rooms/ai-tools'
 import { auditOnceUse, authorsWrite, everyoneWrites, folderAudience, folderId, grantFor, grantsOn, readersOf, ruledBetween, within } from '../rooms/ai-grants'
 import { privateToMe, sharedWithAnyoneAt } from '../files/share-readers'
-import { madeInChat } from './shared-actions'
+import { explicitPlaceAsk } from './explicit-place'
+import { madeInChat, wholeSavedInTurn } from './shared-actions'
 import { wouldSeeFrom } from '../rooms/history'
 import { isOwnerOrAdmin, roomRow } from '../rooms/store'
 import { ext } from '../files/extract'
@@ -452,6 +454,9 @@ export class TurnExec {
   /** folders the person allowed to receive content from a narrower read scope, this turn, with the sources they were
    * shown (sourceKey): a source the card did not name (an image make_file embeds later) is asked about again */
   readonly widenAllowed = new Map<string, Set<string>>()
+  /** the wider-audience card's no (or no answer) in this answer, by the folder it asked about: the same folder is not
+   * asked again in this answer (QA TC-f2-a04: one answer never asks twice about the same target); the refusal repeats */
+  private readonly widenRefused = new Map<string, string>()
   readonly done: Promise<void>
   /** the person's sessions were reset while this turn ran (access shrank): the session is not kept at the end */
   sessionRevoked = false
@@ -483,6 +488,10 @@ export class TurnExec {
   private peopleSearch: { path: string } | { refuse: string } | null = null
   /** the places (sourceKey) this person allowed (shared) or refused (refused) on a shared chat's read card in this turn */
   private sharedAllowed = new Set<string>()
+  /** the places a read card of this turn named, as the card named them, with its answer (QA TC-f1x S-108: one "영업"
+   * card three times in one answer, for three folders the card names the same): a card never asks again in this turn
+   * about a place it already named */
+  private sharedPlaceSaid: { label: string; path: string | null; missing: Set<string>; decision: SharedDecision }[] = []
   /** refused places, with why (the card's no, no answer, nobody to ask): a later call says the same reason */
   private sharedRefused = new Map<string, SharedNo>()
   /** a read card already open for the same places (sub-agents at the same time): they wait for that one answer */
@@ -3151,6 +3160,9 @@ export class TurnExec {
     // a tool with its own card asks there alone, every time, with this card's line (ownCard); after the rule above, so a
     // move or copy of a skill or instruction file is still refused
     if (this.ownCard(tool) && !this.readsOnly(tool, input)) return null
+    // a dev-environment command in the person's own chat with no project, a ✦ side chat too
+    // (docs/decisions/20261122-ask-less-side-chat-runs.md, QA TC-f2-c02): no room card
+    if (tool === 'box_shell' && this.ownBoxRun(input)) return null
     let args = ''
     try { args = JSON.stringify(input ?? null) } catch { args = String(input) }
     const key = `${tool}\u0000${args}`
@@ -3212,7 +3224,7 @@ export class TurnExec {
       ...(more ? { names: more.names } : {}),
       next: end === 'unattended'
         ? `a scheduled run that read ${othersSource(this, 'a room')} changes nothing but new files in the user's own folder (nobody is there to answer the card): save it as a new file in users/${this.spec.userId} instead and say so, or the user can do it in a chat, where they answer the card, or start a new chat that does not read ${grantOnly(this) ? 'it' : 'rooms'}`
-        : end === 'declined' ? cardNext(end) : 'the user can ask again in this chat and answer the card',
+        : end === 'declined' || end === 'timeout' ? cardNext(end) : 'the user can ask again in this chat and answer the card',
     })
     // the same call needs the wider-audience card too: that one card, with what the call writes; its yes is the room's
     const need = o.widen && !o.noCover ? this.widenNeed(o.widen.target, o.widen.extra, undefined, o.widen.read) : null
@@ -3297,7 +3309,7 @@ export class TurnExec {
       kind: 'ask_user', origin: 'server', requestId: crypto.randomUUID(), question: question + instruction,
       options: [{ label: tr('roomAiConfirmYes', L), value: 'allow' }, ...(always ? [{ label: tr('cardAlways', L), value: ALWAYS_VALUE }] : []), { label: tr('roomAiConfirmNo', L), value: 'skip' }],
       multiple: false, allowText: false, details,
-      ...(always ? { buttons: true as const, note: tr('cardAlwaysNote', L) } : {}),
+      ...(always ? { buttons: true as const, note: alwaysNote('room_change', L) } : {}),
       expiresAt: new Date(Date.now() + this.rt.askUserTimeoutMs()).toISOString(),
     } as TurnRequest, { timeoutMs: this.rt.askUserTimeoutMs() })
     const v = Array.isArray(answer) && answer.length === 1 ? answer[0] : answer
@@ -3496,6 +3508,45 @@ export class TurnExec {
    * (instructionLike), never in a confidential chat. A file that was there before this answer always asks, and so do save_url (the name it saves
    * under comes from what it downloads), edit_files, moves, copies, renames and every other tool. Fails closed.
    */
+  /**
+   * After a room read, a dev-environment command needs no room card when what it shows and changes reaches nobody but
+   * the person (docs/decisions/20261122-ask-less-side-chat-runs.md): the person's own live chat (a ✦ side chat too), not
+   * shared with anyone, not a restricted or scheduled run, not a confidential chat, and the commands run in the chat's own
+   * work folder (no project: a project folder is the team's, and its dev environment's changes reach its members). Such a
+   * run reads only what the person may open, its output is shown to them alone, and it writes only the chat's work folder
+   * and the person's own folder (a folder they share is read-only in a run, srt/access.ts); a site not allowed yet asks on
+   * its own card (request_sites). The card stays when "Allow all websites" is on for the person (no site card would
+   * stop a command reaching out then) or the command itself uses the network (shellUsesNetwork: curl, wget, ssh…), so a
+   * room message cannot send the person's files out without a card. Fails closed.
+   */
+  private ownBoxRun(input: unknown): boolean {
+    try {
+      const d = this.devEnv
+      if (!d || d.project || d.shared || this.shared || this.restricted || isGuestUser(this.rt.db, this.spec.userId)) return false
+      const command = input && typeof input === 'object' ? (input as { command?: unknown }).command : undefined
+      if (typeof command !== 'string' || shellUsesNetwork(command) || webAllowAll(this.rt.db, this.spec.userId)) return false
+      if (!LIVE_CLIENTS.has(this.spec.clientKind ?? '')) return false
+      return !confidentialChat(this.rt.db, this.spec.chatId)
+    } catch { return false }
+  }
+
+  /**
+   * copy_files of this chat's own places (chat:work/, chat:files/) after a room read (chat/places-copy.ts roomCard, QA
+   * TC-f2-c02): true when every target (`targets`: the paths the copies land at) is a NEW file in the person's own folder
+   * that write's exception lets go without a card (ownFolderPlace: nobody else reads it; never skills, instruction files,
+   * hidden, plugin or project folders, a path the AI put in the trash, a file there already, a confidential chat). The
+   * step then says "내 폴더라 묻지 않고 저장" (`main`: the main AI's own call). Fails closed.
+   */
+  ownFolderCopy(targets: readonly string[], main = true): boolean {
+    try {
+      if (!targets.length || confidentialChat(this.rt.db, this.spec.chatId)) return false
+      // save_work_file: a target that is there already never qualifies (WIDEN_TARGET_TOOLS in ownFolderPlace)
+      if (!targets.every((p) => this.ownFolderPlace('save_work_file', p, true))) return false
+      if (main) this.coverStep('copy_files', 'ownFolderStep')
+      return true
+    } catch { return false }
+  }
+
   private ownFolderTarget(tool: string, input: unknown, widen?: WidenOf): string[] | null {
     try {
       if (confidentialChat(this.rt.db, this.spec.chatId)) return null
@@ -3914,6 +3965,43 @@ export class TurnExec {
   }
 
   /**
+   * A shared chat's search or listing (grep, glob, list) in a folder everyone who sees the chat can open: the places
+   * below it that some of them cannot open (devenv/srt/access.ts sharedHiddenFolders, the shallowest only) are left out
+   * of that one call instead of asking on the read card (QA TC-f1x S-005/S-012: a broad glob while looking for the
+   * folder asked about restricted sub-folders nobody named). The call runs with them hidden (policy/access.ts
+   * withMoreHiddenFolders: the read card's own check and the tool alike), and its result says how many were left out
+   * that the person could have seen, never which. A path that is itself a place some of them cannot open, a file, the
+   * person's own folder, a project chat's "/" (SKIP_OWN: that one asks on the card) or a chat place: null, the read card
+   * as before. Anyone who cannot be loaded or a check that fails: null (the card as before: fails closed).
+   */
+  sharedSearchLeftOut(tool: string, args: unknown): { scope: HiddenFolders; count: number } | null {
+    if (!this.shared || !(SEARCH_TOOLS.has(tool) || tool === 'list') || !args || typeof args !== 'object') return null
+    if (SKIP_OWN.has(args)) return null
+    const a = args as Record<string, unknown>
+    if (a.path !== undefined && typeof a.path !== 'string') return null
+    if (isReservedPlace(a.path)) return null
+    try {
+      const fx = this.rt.files.fx, rules = this.rt.files.rules(), me = this.livePrincipal()
+      const start = typeof a.path === 'string' ? a.path : ''
+      // one place only (a path that walks to another spelling on disk is that one place: roomNames)
+      if (new Set(this.roomNames(start).map((p) => p.normalize('NFC').toLowerCase())).size !== 1) return null
+      const r = authorize(fx, rules, me, start, 'list')
+      if (!r.exists || !r.st?.isDirectory() || r.segs[0] === 'users') return null
+      const ids = this.sharedAudience()
+      const people = ids.map((id) => loadPrincipal(this.rt.db, id))
+      if (!ids.length || people.some((q) => !q)) return null
+      const all = [me, ...(people as Principal[])]
+      if (!all.every((q) => atLeast(rules.access(q, r.segs), 'read'))) return null
+      const folders = sharedHiddenFolders(rules, me, people as Principal[], r.rel)
+      if (!folders.length) return null
+      // what the person would have seen there: a listing shows one level down, a search everything below
+      const parent = (f: string) => f.split('/').slice(0, -1).join('/')
+      const count = folders.filter((f) => (tool !== 'list' || parent(f) === r.rel) && rules.canList(me, f.split('/'))).length
+      return { scope: { userId: me.id, folders }, count }
+    } catch (e) { this.rt.log.warn('shared search scope not worked out', { err: e, turn: this.id }); return null }
+  }
+
+  /**
    * Where a call of a shared chat would read from, before it runs, by what the person's own access lets it show
    * (docs/DECISIONS.md "Shared project chats", the read gate; the rule of a room's names, noteRoomTool):
    *   - every team path it names: content when the person may read it (a file, a folder, or that nothing is there),
@@ -3982,6 +4070,12 @@ export class TurnExec {
       // a copy this chat's save_chat_file made in the person's own folder, untouched since, taken as bytes only: read as
       // the chat's, not as its folder's (chat-file-tool.ts chatFileCopyOf)
       if (!w && chatFileCopyOf(this.rt.ctx, me.id, this.spec.chatId, tool, k, input, v)) { out.push({ type: 'chat', id: this.spec.chatId }); continue }
+      // a file this very answer saved whole and nothing changed since (QA TC-f2-a04: a save card, then a copy card for
+      // the same file in one answer): what it holds came from this answer, so it reads as the chat's, not its folder's
+      if (!w && this.roomNames(v).every((p) => !!p && wholeSavedInTurn(this.rt.db, this.rt.files.fx.root, this.spec.turnId, p))) { out.push({ type: 'chat', id: this.spec.chatId }); continue }
+      // ...and a file this chat's AI made in the person's own folder in any answer of it while shared, untouched since
+      // (QA v2g; chat-file-tool.ts chatMadeOwnFile)
+      if (!w && chatMadeOwnFile(this.rt.ctx, me.id, this.spec.chatId, tool, k, input, v)) { out.push({ type: 'chat', id: this.spec.chatId }); continue }
       const from = out.length
       for (const p of this.roomNames(w ? asWritten(k, v)[0]! : v)) note(p)
       for (const s of out.slice(from)) (writes.has(k) ? written : read).add(sourceKey(s))
@@ -4132,6 +4226,12 @@ export class TurnExec {
       }
       // a save into a place a yes of this turn covered, for a read (more than a save) or a save there
       missing = missing.filter((m) => !this.sharedAllowed.has(m.key) && !(writes.has(m.key) && this.sharedAllowed.has(SAVE_KEY + m.key)))
+      // a place a card of this answer already named (by the card's own words): a yes covers it, a no stands
+      // (reads only: a save card's answer is its own)
+      const said = missing.map((m) => (writes.has(m.key) ? undefined : this.sharedPlaceAnswer(m.source, m.missing)))
+      const saidNo = said.find((d) => d !== undefined && d !== 'shared')
+      if (saidNo) return refuse(saidNo as SharedNo)
+      missing = missing.filter((_, i) => said[i] !== 'shared')
       // the save card (docs/decisions/20261118-shared-save-card-wording.md): every place it would name is one the call
       // only saves into; anything it reads keeps the read card. Its yes and no are its own (SAVE_KEY): a yes to save in
       // a place never lets a read of it through
@@ -4153,9 +4253,49 @@ export class TurnExec {
     const decision = await pending
     const yes = decision === 'shared'
     for (const k of keys) { if (yes) this.sharedAllowed.add(k); else this.sharedRefused.set(k, decision) }
+    if (!kind.save && !skillUse) for (const m of missing) this.notePlaceAnswer(m.source, m.missing, decision)
     if (!yes) return refuse(decision)
     // the card covered the people who saw the chat when it asked (y: a yes covered it)
     return this.noteSharedReads(sources, audience, true) ? null : refuse('failed')
+  }
+
+  /** A team folder's path for the read card's "already answered" check: a folder or a named place (type 'folder' and
+   * 'name'), null for anything else (a person's files, a room, Slack, a connection, the root: their labels are generic
+   * or built from names, "my files", "Slack direct messages", "?", so two of them can share a label and not a place). */
+  private sharedPlacePath(source: ReadSource): string | null {
+    if (source.type === 'name') return source.path.split('/').filter(Boolean).join('/') || null
+    if (source.type !== 'folder') return null
+    try { return (this.rt.db.query('SELECT path FROM folders WHERE id = ?').get(source.id) as { path: string } | null)?.path ?? null } catch { return null }
+  }
+
+  /** What a read card of this answer already said for this place (QA TC-f1x S-108, and the QA-Team3 A/B: a second card
+   * for a subfolder), or undefined to ask: only team folders (sharedPlacePath); the same card label with the same people
+   * who cannot open it, or a folder inside one already answered when those who cannot open it are among the people that
+   * card counted (same or fewer). A yes covers it, a no stands. */
+  private sharedPlaceAnswer(source: ReadSource, missing: readonly string[]): SharedDecision | undefined {
+    const at = this.sharedPlacePath(source)
+    if (at === null || !this.sharedPlaceSaid.length) return undefined
+    const label = this.sharedPlaceLabel(source)
+    const ids = [...new Set(missing)].sort()
+    for (const a of this.sharedPlaceSaid) {
+      const same = a.label === label && ids.length === a.missing.size && ids.every((id) => a.missing.has(id))
+      const inside = !!a.path && (at === a.path || at.startsWith(a.path + '/')) && ids.every((id) => a.missing.has(id))
+      if (same || inside) return a.decision
+    }
+    return undefined
+  }
+
+  private notePlaceAnswer(source: ReadSource, missing: readonly string[], decision: SharedDecision): void {
+    const path = this.sharedPlacePath(source)
+    if (path === null) return
+    this.sharedPlaceSaid.push({ label: this.sharedPlaceLabel(source), path, missing: new Set(missing), decision })
+  }
+
+  /** A place as the read card names it (askSharedRead's words). */
+  private sharedPlaceLabel(source: ReadSource): string {
+    const L = this.spec.locale
+    const labels = { mine: tr('sharedScopeMine', L), root: tr('scopeRoot', L), room: tr('scopeRoom', L), chat: tr('scopeChatFiles', L) }
+    try { return sourceLabel(this.rt.db, source, this.spec.userId, labels, { ownNames: true, place: (p) => this.place(p) }) } catch { return sourceKey(source) }
   }
 
   /** The card itself and its audit row: 'shared' = "읽고 공유하기" (a save card: "저장하기"), else why not. */
@@ -4458,6 +4598,10 @@ export class TurnExec {
     if (isReservedPlace(target)) return this.confirmChatTarget(target, extraSources, read, call?.tool ?? 'make_file', call?.main !== false)
     const need = this.widenNeed(target, extraSources, binding, read)
     if (!need) return null
+    // the person's own message of this turn asked to save there and named the place (docs/decisions/
+    // 20261122-ask-less-explicit-save.md, QA TC-ask2-2, -8, -13): no card, as after any explicit ask. Only the main AI,
+    // never a publication's binding, never where other people's words are in the chat (chat/explicit-place.ts)
+    if (!binding && call && call.main !== false && explicitPlaceAsk(this, need.dir)) return null
     // a scheduled run: its task's card may have said yes to saving there (chat/schedule-cover.ts); `call` is the tool call
     // that saves (its claim on an absent path, its step); only the tools a card may cover (never save_url, a video or
     // anything else that saves)
@@ -4469,7 +4613,12 @@ export class TurnExec {
       const c = cover.save({ key: callKey(call.tool, call.args), tool: call.tool, path, mayBeNew: true, from: extraSources, read: [], main: call.main !== false })
       if (c !== undefined) return c
     }
-    return (await this.askWidening(need, { binding }))?.text ?? null
+    // a no (or no answer) for this folder earlier in this answer stands: no second card for the same place
+    const before = binding ? undefined : this.widenRefused.get(need.dir)
+    if (before) return before
+    const no = await this.askWidening(need, { binding })
+    if (no && !binding && (no.end === 'declined' || no.end === 'timeout')) this.widenRefused.set(need.dir, no.text)
+    return no?.text ?? null
   }
 
   /** A scheduled run's covers (chat/schedule-cover.ts): null in any other turn and in a template's run. */
@@ -5103,6 +5252,9 @@ export class TurnExec {
 
   /** Show a card and wait for the answer; null = skipped / timed out / turn ended. The stall guard pauses meanwhile. */
   waitForPerson(request: TurnRequest, o: { window?: string | null; timeoutMs: number; exclusive?: boolean; askedAt?: number }): Promise<unknown> {
+    // a server card never shows a chat place as a raw path (chat:files/<id>/…, chat:work/…): its words, as a step's
+    // (cardPlaceWords; QA re-smoke: an edit_pdf card in a shared chat named "chat:files/<uuid>/…")
+    request = cardPlaceWords(request, this.spec.locale)
     // when the tool call asked (a card that waits behind another one keeps it): the engine's tool timeout counts from it
     o = { ...o, askedAt: o.askedAt ?? performance.now() }
     if (this.stopReason || this.abort.signal.aborted) { this.cardMissing.set(request.requestId, 'ended'); return Promise.resolve(null) }
@@ -5901,9 +6053,88 @@ export function roomCardWhat(tool: string, input: unknown, L: Locale): string {
   const a = input && typeof input === 'object' && !Array.isArray(input) ? input as Record<string, unknown> : {}
   // the server's own words for the command, never the AI's description: this card is there because other people's words
   // may steer the AI (review of the plain-words change)
-  if (tool === 'box_shell') return shellWords('', typeof a.command === 'string' ? a.command : '', L)
+  if (tool === 'box_shell') return shellCardWords(typeof a.command === 'string' ? a.command : '', L)
   if (CARD_VERB_ONLY.has(tool) && FILE_STEP_VERB[tool]) return FILE_STEP_VERB[tool]![L] ?? FILE_STEP_VERB[tool]!.en
   return stepLabel(tool, input, L, BROWSER_TOOL_NAMES)
+}
+
+/** the kind of a file a command makes, by its extension (shellCardWords) */
+const SHELL_OUT_KIND: Record<string, 'roomShellKindPicture' | 'roomShellKindPdf' | 'roomShellKindVideo' | 'roomShellKindAudio' | 'roomShellKindSheet' | 'roomShellKindDoc'> = {
+  png: 'roomShellKindPicture', jpg: 'roomShellKindPicture', jpeg: 'roomShellKindPicture', gif: 'roomShellKindPicture', webp: 'roomShellKindPicture', svg: 'roomShellKindPicture',
+  pdf: 'roomShellKindPdf',
+  mp4: 'roomShellKindVideo', mov: 'roomShellKindVideo', webm: 'roomShellKindVideo', mkv: 'roomShellKindVideo',
+  mp3: 'roomShellKindAudio', wav: 'roomShellKindAudio', m4a: 'roomShellKindAudio', ogg: 'roomShellKindAudio',
+  csv: 'roomShellKindSheet', xlsx: 'roomShellKindSheet', tsv: 'roomShellKindSheet',
+  docx: 'roomShellKindDoc', pptx: 'roomShellKindDoc', html: 'roomShellKindDoc', md: 'roomShellKindDoc', txt: 'roomShellKindDoc', hwpx: 'roomShellKindDoc',
+}
+/** a program in a command that removes, moves or overwrites files whatever it is given (shellCardWords keeps "파일 바꾸기") */
+const SHELL_DESTRUCTIVE = /(?:^|[\s;&|(`])(?:rm|rmdir|mv|unlink|shred|truncate|dd|rsync|kill|pkill|killall)\s|\bsed\s+(?:-\w*\s+)*-i|\s-delete\b|\bgit\s+(?:push|reset|clean|checkout|rm|mv|restore|rebase|merge)\b/
+
+/** The files a dev-environment command says it makes (their names only, as the command names them): what a picture, a
+ * PDF, a table or a video is saved as (savefig("chart.png"), -o out.mp4, > report.csv, open("x.csv", "w"), ffmpeg's last
+ * name). Only names with a known output extension and no variable in them; at most 20. */
+export function shellOutputs(command: string): string[] {
+  const c = command.slice(0, 20_000)
+  const got: string[] = []
+  const add = (raw: string | undefined) => {
+    const n = (raw ?? '').trim().replace(/^["']|["']$/g, '').split('/').pop() ?? ''
+    const m = /^([^\s${}*?`<>|;&()'"\\]{1,80})\.([A-Za-z0-9]{2,5})$/.exec(n)
+    if (!m || !SHELL_OUT_KIND[m[2]!.toLowerCase()] || got.includes(n) || got.length >= 20) return
+    got.push(n)
+  }
+  const each = (re: RegExp) => { for (const m of c.matchAll(re)) add(m[1]) }
+  each(/\b(?:savefig|save|to_csv|to_excel|to_html|to_json|write_image|write_html|imwrite|write_videofile|write_audiofile|write_pdf|output_pdf|saveas|save_as)\s*\(\s*[rfb]{0,2}["']([^"'\n]{1,200})["']/gi)
+  each(/(?:^|\s)(?:-o|--output|--out|--outfile|-out)(?:\s+|=)["']?([^\s"';|&]{1,200})/gi)
+  each(/(?<![0-9&<>])>>?\s*["']?([^\s"';|&<>]{1,200})/g)
+  each(/\bopen\(\s*[rfb]{0,2}["']([^"'\n]{1,200})["']\s*,\s*[rfb]{0,2}["'][wax]/gi)
+  for (const part of c.split(/&&|\|\||[;|\n]/)) {
+    const ws = part.trim().split(/\s+/)
+    if (ws[0]?.replace(/^.*\//, '') === 'ffmpeg' && ws.length > 2) add(ws.at(-1))
+  }
+  return got
+}
+
+/**
+ * A room card's words for a dev-environment command (QA TC-f2-c02: "작업 실행 · 자세히 953자" told nobody what would
+ * happen), from the command itself, never the AI's description (this card is there because other people's words may
+ * steer the AI): the files it makes, by kind and name ("그림 파일을 만드는 명령 실행: chart.png"); a command that removes,
+ * moves or overwrites files keeps its kind's words first ("파일 바꾸기"); else the kind's words, "명령 실행" for a plain run.
+ */
+export function shellCardWords(command: string, L: Locale): string {
+  const kind = shellKind(command)
+  const { what, byFiles } = shellCardBase(command, kind, L)
+  // what else it does, said too (never hidden behind "makes chart.png"): installs programs, reaches the internet
+  // (the kind's own words say it already when they are the line: "프로그램 설치", "내려받기")
+  const c = command.slice(0, 20_000)
+  const install = (byFiles || kind !== 'install') && SHELL_INSTALL.test(c)
+  const net = (byFiles || (kind !== 'install' && kind !== 'download')) && SHELL_NETWORK.test(c)
+  if (install && net) return tr('roomShellPlusBoth', L, { what })
+  if (install) return tr('roomShellPlusInstall', L, { what })
+  if (net) return tr('roomShellPlusNet', L, { what })
+  return what
+}
+function shellCardBase(command: string, kind: ReturnType<typeof shellKind>, L: Locale): { what: string; byFiles: boolean } {
+  const outs = shellOutputs(command)
+  if (outs.length && !(kind === 'change' && SHELL_DESTRUCTIVE.test(command))) {
+    const files = outs.slice(0, 3).map((n) => (n.length > 40 ? `${n.slice(0, 39)}…` : n)).join(', ') + (outs.length > 3 ? ` +${outs.length - 3}` : '')
+    const kinds = [...new Set(outs.map((n) => SHELL_OUT_KIND[n.split('.').pop()!.toLowerCase()]!))]
+    if (kinds.length !== 1) return { what: tr('roomShellMakesAny', L, { files }), byFiles: true }
+    return { what: tr(outs.length === 1 ? 'roomShellMakesOne' : 'roomShellMakesMany', L, { kind: tr(kinds[0]!, L), files }), byFiles: true }
+  }
+  return { what: kind === 'run' ? tr('roomShellRun', L) : shellWords('', command, L), byFiles: false }
+}
+
+/** a command part that installs programs (npm / pip / apt … install), anywhere in a longer command */
+const SHELL_INSTALL = /(?:^|[\s;&|(`])(?:(?:npm|pnpm|yarn|bun|deno)\s+(?:i|install|add|ci)|(?:pip3?|uv|pipx|poetry)\s+(?:install|add|sync)|python3?\s+-m\s+pip\s+install|uv\s+pip\s+install|(?:apt(?:-get)?|brew|apk|dnf|yum|cargo|gem|go)\s+(?:install|add|get))\b/i
+/** a program that reaches another computer (curl, wget, ssh, scp, sftp, rsync, nc, ftp, telnet, socat, git clone /
+ * pull / fetch / push, python -m http.server), or a script's network library (requests, urllib, http.client, fetch(,
+ * axios, httpx, aiohttp, socket): a command that can send files out or bring things in. Rough on purpose: a false
+ * "yes" only keeps a card. */
+const SHELL_NETWORK = /(?:^|[\s;&|(`/])(?:curl|wget|ssh|scp|sftp|rsync|nc|ncat|netcat|ftp|lftp|telnet|socat|aria2c)(?=\s|$)|\bgit\s+(?:clone|pull|fetch|push|ls-remote)\b|\bpython3?\s+-m\s+http\.server\b|\b(?:requests|urllib|urllib3|httpx|aiohttp|http\.client|socket|axios|smtplib|ftplib|paramiko)\b|\bfetch\s*\(|https?:\/\//i
+/** The command uses the network (SHELL_NETWORK), or installs programs (which downloads them). */
+export function shellUsesNetwork(command: string): boolean {
+  const c = command.slice(0, 20_000)
+  return SHELL_NETWORK.test(c) || SHELL_INSTALL.test(c)
 }
 
 export function roomChangeDetails(tool: string, input: unknown, L: Locale, roomFile: (ref: string, room?: string) => string | null = () => null, place: (path: string) => string = (p) => p, me = '', tree: (p: string) => string[] | null = () => null): { label: string; text: string; fields?: { name: string; value: string }[]; collapsedAt?: number; noSize?: boolean; folded?: true }[] {
@@ -5981,8 +6212,9 @@ export function roomChangeDetails(tool: string, input: unknown, L: Locale, roomF
     case 'box_shell': {
       // what it does in the server's own words (changing files is said first, whatever else it does; never the AI's
       // description); the command itself one click away, except when it names an instruction or skill file
+      // (no size: "자세히 953자" counts a command's characters, which says nothing to a person, QA TC-f2-c02)
       const cmd = str(a.command)
-      return [{ label: tr('roomAiConfirmInput', L), fields: [field('roomAiChangeAction', shellWords('', cmd, L))], text: full(cmd), collapsedAt: ROOM_CHANGE_PREVIEW, ...(INSTRUCTION_IN_TEXT.test(cmd) ? {} : { folded: true as const }) }]
+      return [{ label: tr('roomAiConfirmInput', L), fields: [field('roomAiChangeAction', shellCardWords(cmd, L))], text: full(cmd), collapsedAt: ROOM_CHANGE_PREVIEW, noSize: true, ...(INSTRUCTION_IN_TEXT.test(cmd) ? {} : { folded: true as const }) }]
     }
     case 'save_room_file': {
       // the file by the name the person sees (only a file of this room, or in the person's own chat of the room the call
@@ -6049,4 +6281,34 @@ function rememberedText(label: string): string | null {
     if (label.startsWith(head) && label.endsWith(tail)) return label.slice(head.length, label.length - tail.length)
   }
   return null
+}
+
+/** A chat place in a card's words in place of its raw path (shared/src/step-labels.ts chatPlaceWords: "이 채팅 ›
+ * 견적서.pdf", "작업 폴더 › out › a.png", a file id never shown), also when a path was already cut at " › ". */
+export function cardPlaceText(text: string, L: Locale): string {
+  if (!/chat:(files|work)\b/i.test(text)) return text
+  const id = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+  const worded = chatPlaceWords(text, L).replace(/chat:(files|work)((?:\s*›\s*[^›\s'"`]+)*)/gi, (_all, kind: string, rest: string) =>
+    chatPlaceWords(`chat:${kind}/${rest.split('›').map((x) => x.trim()).filter((x) => x && !id.test(x)).join('/')}`, L).replace(/ › $/, ''))
+  return worded
+}
+
+/** A server card (a safety check the server raises: ask_user with origin 'server') with every chat place in words: its
+ * question, the part of it a tip names, its note, its choices and the labels of its blocks; a list of names (noSize)
+ * too. What goes out exactly as shown (a block's text otherwise, its fields) stays as written. The AI's own questions
+ * are its words and stay as they are. */
+export function cardPlaceWords(request: TurnRequest, L: Locale): TurnRequest {
+  if (request.kind !== 'ask_user' || request.origin !== 'server') return request
+  const w = (t: string) => cardPlaceText(t, L)
+  const r = request
+  const changed = [r.question, r.note ?? '', r.placeTip?.text ?? '', r.placeTip?.title ?? '', ...(r.options ?? []).map((x) => x.label), ...(r.details ?? []).flatMap((d) => [d.label, d.noSize ? d.text : ''])].some((t) => w(t) !== t)
+  if (!changed) return request
+  return {
+    ...r,
+    question: w(r.question),
+    ...(r.note !== undefined ? { note: w(r.note) } : {}),
+    ...(r.placeTip ? { placeTip: { text: w(r.placeTip.text), title: w(r.placeTip.title) } } : {}),
+    ...(r.options ? { options: r.options.map((x) => ({ ...x, label: w(x.label) })) } : {}),
+    ...(r.details ? { details: r.details.map((d) => ({ ...d, label: w(d.label), ...(d.noSize ? { text: w(d.text) } : {}) })) } : {}),
+  }
 }

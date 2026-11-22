@@ -2,8 +2,8 @@
 // components/ShareCopyLink.tsx): one button with the file dialog's words, the line while people are picked and not saved
 // (it names the save button), a project's copy with who opens it (a personal project: only me until it is shared). The
 // address is the team address when there is one, not the page's (the desktop app on the office network is at
-// 192.168.x.x), for a chat, a project and a file; an address on this computer only says so under the button. A copy the
-// browser refuses says so with the link, never "Link copied". From inside the Share dialog a private chat's toast offers
+// 192.168.x.x), for a chat, a project and a file; an address on this computer only says so in the toast of a copy from
+// a Share dialog, not as a fixed line. A copy the browser refuses says so with the link, never "Link copied". From inside the Share dialog a private chat's toast offers
 // no second share flow. The words exist in every language and say the same thing.
 import { afterAll, afterEach, beforeAll, beforeEach, expect, setDefaultTimeout, test } from 'bun:test'
 import { Chat, type Me, type Project } from '@mycel/shared/api'
@@ -101,19 +101,48 @@ test('the button, and the line only while people are picked and not saved', asyn
   }
 })
 
-test('a link on this computer only (127.0.0.1, no team address): the note under the button, as invite links have', async () => {
+test('a link on this computer only (127.0.0.1, no team address): no fixed note in the dialog; the copy\'s toast says it (QA TC-ask1-14)', async () => {
   origin = 'http://127.0.0.1:47820'
   useSession.setState({ status: { kind: 'signed-in', me: meWith(null) } } as never)
   const m = await mount(<ShareCopyLink onCopy={() => {}} testId="x-copy" />)
   try {
-    expect(m.get('local-link-note').textContent).toContain(translate('en', 'system.connection'))
+    expect(m.container.querySelector('[data-testid="local-link-note"]')).toBeNull()
   } finally {
     await m.unmount()
   }
+  const path = [translate('en', 'admin.title'), translate('en', 'admin.system'), translate('en', 'system.connection')].join(' › ')
+  const note = translate('en', 'links.thisComputerOnly', { path })
+  // from a Share dialog: chat, project, file
+  useUi.setState({ toasts: [] } as never)
+  await press((h) => h.chat({ id: CHAT }, { inDialog: true }))
+  expect(lastToast()?.detail).toBe(note)
+  useUi.setState({ toasts: [] } as never)
+  await press((h) => h.project({ id: ID, folderPath: 'projects/launch' }))
+  expect(lastToast()?.text).toBe(translate('en', 'fileLink.copied'))
+  expect(lastToast()?.detail).toBe(note)
+  useUi.setState({ toasts: [] } as never)
+  await press((h) => h.fileInDialog('projects/launch/plan.md'))
+  expect(lastToast()?.detail).toBe(note)
+  // a menu's Copy link (not a Share dialog): no note
+  useUi.setState({ toasts: [] } as never)
+  await press((h) => h.chat({ id: CHAT }))
+  expect(lastToast()?.detail).toBeUndefined()
+  useUi.setState({ toasts: [] } as never)
+  await press((h) => h.file('projects/launch/plan.md'))
+  expect(lastToast()?.detail).toBeUndefined()
+  // the team address: no note anywhere
+  origin = PAGE
+  useSession.setState({ status: { kind: 'signed-in', me: meWith(TEAM) } } as never)
+  useUi.setState({ toasts: [] } as never)
+  await press((h) => h.chat({ id: CHAT }, { inDialog: true }))
+  expect(lastToast()?.detail).toBeUndefined()
+  useUi.setState({ toasts: [] } as never)
+  await press((h) => h.project({ id: ID, folderPath: 'projects/launch' }))
+  expect(lastToast()?.detail).toBeUndefined()
 })
 
-function Probe({ run }: { run: (h: { project: ReturnType<typeof useCopyProjectLink>; chat: ReturnType<typeof useCopyChatLink>; file: ReturnType<typeof useCopyTeamFileLink> }) => Promise<unknown> }) {
-  const h = { project: useCopyProjectLink(), chat: useCopyChatLink(), file: useCopyTeamFileLink() }
+function Probe({ run }: { run: (h: { project: ReturnType<typeof useCopyProjectLink>; chat: ReturnType<typeof useCopyChatLink>; file: ReturnType<typeof useCopyTeamFileLink>; fileInDialog: ReturnType<typeof useCopyTeamFileLink> }) => Promise<unknown> }) {
+  const h = { project: useCopyProjectLink(), chat: useCopyChatLink(), file: useCopyTeamFileLink(), fileInDialog: useCopyTeamFileLink({ inDialog: true }) }
   return <button type="button" data-testid="probe" onClick={() => void run(h)}>copy</button>
 }
 async function press(run: Parameters<typeof Probe>[0]['run'], wait = true) {

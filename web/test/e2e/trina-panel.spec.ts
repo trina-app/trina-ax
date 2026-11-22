@@ -215,7 +215,7 @@ test('opened on 대화 or 파일 first, 트리나 already shows its mark for uns
 })
 
 // UX review S2: the waiting chat sat under six project groups, out of sight
-test('a waiting chat: "답을 기다려요 N" on top of the list and the rail\'s "?" open it; 예약 작업 · 팀 스킬 stay in sight on top', async ({ page }) => {
+test('a waiting chat: the rail\'s "?" opens it, no extra row on top of the list; 예약 작업 · 팀 스킬 stay in sight on top', async ({ page }) => {
   await start(page)
   for (const n of [1, 2, 3, 4, 5, 6]) await chat(page, `Plan ${n}`, await project(page, `Acme ${n}`))
   const waits = await chat(page, 'Which template?')
@@ -232,21 +232,12 @@ test('a waiting chat: "답을 기다려요 N" on top of the list and the rail\'s
   await page.getByTestId('rail-ai').click()
   await expect(page).toHaveURL(new RegExp(`/c/${waits}$`))
   await expect(panel(page).locator(`li[data-chat-id="${waits}"]`)).toBeInViewport()
-  // the one row on top says how many wait and opens the first
+  // no row or group of its own on top (QA TC-ask1-18): the chat stays in its place with its "?"
   await page.goto('/')
-  const row = panel(page).getByTestId('trina-waiting')
-  await expect(row).toBeInViewport()
-  await expect(row).toContainText(t['marker.card'])
-  await expect(row.getByTestId('trina-waiting-count')).toHaveText('1')
-  await row.click()
-  await expect(page).toHaveURL(new RegExp(`/c/${waits}$`))
+  await expect(panel(page).getByTestId('trina-waiting')).toHaveCount(0)
+  await expect(panel(page).locator(`li[data-chat-id="${waits}"]`)).toHaveCount(1)
   // 예약 작업 · 팀 스킬 in the fixed top, without a scroll
   for (const id of ['nav-scheduled', 'nav-skills']) await expect(panel(page).getByTestId(id)).toBeInViewport()
-  // nothing waits: no row
-  await page.unroute('**/api/chats?*')
-  await page.goto('/')
-  await expect(panel(page).getByTestId('trina-list')).toBeVisible()
-  await expect(panel(page).getByTestId('trina-waiting')).toHaveCount(0)
 })
 
 test('트리나에게 묻기 while Home is already on show puts the focus in its box, as from another page; ⇧⌘O too', async ({ page }) => {

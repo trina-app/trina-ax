@@ -77,7 +77,7 @@ export function reasonText(r: RefusalReason): string {
     case 'declined':
       return `${r.who ?? 'the user'} did not allow it: they said no on the confirmation card`
     case 'timeout':
-      return `${r.who ?? 'the user'} did not answer the confirmation card in time, so it closed without a yes. This is not a no; never say they refused`
+      return `${r.who ?? 'the user'} did not answer the confirmation card in time, so it closed without a yes. This is not a no; never say they refused. Do not ask again in this answer whether to do it, in words or with the same card`
     case 'ended':
       return 'the answer stopped before the confirmation card was answered'
     case 'others':
@@ -118,11 +118,17 @@ export function cardEndShort(end: CardEnd): string {
   return end === 'declined' ? 'not allowed by the user' : end === 'timeout' ? 'no answer in time' : end === 'unattended' ? 'nobody to ask (scheduled run)' : 'the answer stopped'
 }
 
-/** The next step for a card that ended without a yes: ask again (a no or no answer), or do it in a chat (nobody to ask). */
+/** The next step after a card that got no answer in time (QA TC-ask1-19: "ask the user whether to post it" brought a
+ * question in words and then the same card again, three asks for one post): no question, one closing line; the user's
+ * yes later brings one fresh card with the state of then. */
+export const TIMEOUT_NEXT = 'end the answer with one short line that it was not done because the card got no answer, and that you will do it when the user says so (their yes then brings one fresh card); ask nothing about it'
+
+/** The next step for a card that ended without a yes: ask what instead (a no), one closing line (no answer in time),
+ * ask again (the answer stopped), or do it in a chat (nobody to ask). */
 export function cardNext(end: CardEnd, where = 'in a chat'): string {
   return end === 'unattended' ? `the user can ask for it ${where}, where they can answer the card` : end === 'declined'
     ? 'ask the user what they want instead; do not try another way that needs the same yes'
-    : 'the user can ask again and answer the card'
+    : end === 'timeout' ? TIMEOUT_NEXT : 'the user can ask again and answer the card'
 }
 
 // ---------------- screen names, as the person's app shows them ----------------

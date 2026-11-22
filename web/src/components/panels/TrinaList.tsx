@@ -1,6 +1,5 @@
 // 트리나's list in the rail's panel and on the phone's 트리나 tab (docs/DECISIONS.md "The Trina list: pinned, recent";
 // "Projects: a place of their own"). In this order, each a section whose label folds it (PanelFrame.tsx PanelSection):
-//   답을 기다려요 N (one quiet row while an AI chat waits on me) ·
 //   고정 (my pinned chats) ·
 //   트리나 기록 (sidebar.aiChats, the history's one name on every screen: QA TC-1085; its "⋯" holds 삭제한 기록; every other chat of mine, newest first, in one flat list: a project's chat with its project's name small
 //   and grey at the row's end, so yesterday's project chat is still one click away; "더 보기" reads the next page).
@@ -8,7 +7,8 @@
 // project ("내 프로젝트") is where a person keeps their own chats together: the owner dropped the Trina list's folders
 // (2026-11-13; the server keeps their tables, and a chat once filed in one is in 최근 기록 like any other).
 // The pinned chats come from the server's one read (store/chatGroups.ts); 최근 기록 is the chat list this window keeps
-// (store/chats.ts, as the filtered history reads it), so its rows and marks are live.
+// (store/chats.ts, as the filtered history reads it), so its rows and marks are live. A chat that waits on me has no row
+// or group of its own on top (QA TC-ask1-18): it stays where it is with its "?", the rail's icon carries the same mark.
 import clsx from 'clsx'
 import { Pin, Trash2 } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
@@ -20,7 +20,6 @@ import { useChats } from '../../store/chats'
 import { loadChatList } from '../../lib/chatListLoad'
 import { accessChanged, chatChanged, navFoldersChanged, reloadAsked } from '../../store/live'
 import { readProjectList } from '../../store/projects'
-import { cardChats, useWaitingChats } from '../../store/sessionMarkers'
 import { MoveToProjectDialog } from '../chat/ChatProject'
 import { isUnused } from '../chat/ChatState'
 import { LoadError } from '../LoadError'
@@ -28,7 +27,7 @@ import { MenuButton } from '../rooms/MenuButton'
 import { ChatItem, type ChatPeek } from '../nav/ChatItem'
 import { foldRuns } from '../nav/TaskRunsRow'
 import { aiName } from '../../lib/tabs'
-import { PanelSection, panelRow, panelRowBox } from './PanelFrame'
+import { PanelSection, panelRowBox } from './PanelFrame'
 
 export { useFolds } from './folds'
 
@@ -117,8 +116,6 @@ export function TrinaList({ peek }: { peek: ChatPeek }) {
 
   return (
     <div ref={listRef} data-testid="trina-list">
-      <WaitingRow />
-
       {groups.pinned.length > 0 && (
         <PanelSection id="trina-pinned" foldKey="trina:pinned" label={t('chat.pinned')} icon={<Pin size={14} className="text-muted" aria-hidden />} count={groups.pinned.length} labelTestId="trina-label" data-testid="trina-pinned">
           <ul>{groups.pinned.map(row)}</ul>
@@ -177,23 +174,3 @@ function RecentMenu() {
   )
 }
 
-/** "? 답을 기다려요 N" on top of the list while any AI chat waits on me (the rail's "?"): one quiet row, no card; it opens
- * the first one that is not on screen already (UX review S2). */
-function WaitingRow() {
-  const t = useT()
-  const requests = useChats((s) => s.requests)
-  const cards = useMemo(() => cardChats(requests), [requests])
-  const navigate = useNavigate()
-  // a question or card that waits for my answer (a stopped run keeps its "?" on its row, not here: the words would be wrong)
-  const waiting = useWaitingChats().filter((c) => c.waiting || cards.has(c.id))
-  const onScreen = /^\/c\/([^/]+)/.exec(useLocation().pathname)?.[1]
-  if (!waiting.length) return null
-  const first = waiting.find((c) => c.id !== onScreen) ?? waiting[0]!
-  return (
-    <button type="button" className={clsx(panelRow, 'mb-1 font-medium')} onClick={() => navigate(`/c/${first.id}`)} data-testid="trina-waiting">
-      <span aria-hidden className="flex size-4 shrink-0 items-center justify-center rounded-full bg-warn text-nano leading-4 font-bold text-canvas">?</span>
-      <span className="min-w-0 flex-1 truncate">{t('marker.card')}</span>
-      <span className="shrink-0 text-meta font-normal text-muted tabular-nums" data-testid="trina-waiting-count">{waiting.length}</span>
-    </button>
-  )
-}

@@ -14,6 +14,7 @@ import { useSession } from '../../store/session'
 import { toast } from '../../store/ui'
 import { mayShareChat, openShareChat } from './ShareChat'
 import { useCopyLink, useTeamOrigin } from '../ShareCopyLink'
+import { localLinkToast } from '../LocalLinkNote'
 import type { MenuItem } from '../rooms/MenuButton'
 
 /** The address of a chat as people open it: the app's own route `/c/<id>` (App.tsx), on `origin` (the team origin:
@@ -24,22 +25,25 @@ export const chatLink = (chatId: string, origin = typeof location === 'undefined
 export type LinkChat = Pick<Chat, 'id'> & Partial<Pick<Chat, 'shared' | 'projectId' | 'confidential' | 'deletedAt' | 'sideRoomId'>>
 
 /** Copies a chat's address (on the team address) and says who can open it; nothing is said copied when the browser
- * refused it. `inDialog`: from the Share dialog itself, so the private-chat toast offers no second share flow over it. */
+ * refused it. `inDialog`: from the Share dialog itself, so the private-chat toast offers no second share flow over it,
+ * and an address on this computer only says so in the toast (components/LocalLinkNote.tsx localLinkToast). */
 export function useCopyChatLink() {
   const t = useT()
   const origin = useTeamOrigin()
   const copy = useCopyLink()
   return async (chat: LinkChat, o: { inDialog?: boolean } = {}) => {
-    if (!(await copy(chatLink(chat.id, origin)))) return
+    const href = chatLink(chat.id, origin)
+    if (!(await copy(href))) return
+    const local = o.inDialog ? localLinkToast(t, href) : {}
     // (a chat shared with a group, to anyone but its creator and admins: how many is not told)
-    if (chat.shared) return void toast({ level: 'success', text: chat.shared.audienceHidden ? t('chat.share.linkCopied') : t('chat.linkCopiedShared', { n: chat.shared.audience }) })
+    if (chat.shared) return void toast({ level: 'success', text: chat.shared.audienceHidden ? t('chat.share.linkCopied') : t('chat.linkCopiedShared', { n: chat.shared.audience }), ...local })
     // a private chat in a team project (the project as this window knows it)
     const project = chat.projectId ? useProjects.getState().byId[chat.projectId] : undefined
     const st = useSession.getState().status
     const safeOps = st.kind === 'signed-in' && !!st.me.server?.allChatsConfidential
     if (project && mayShareChat(chat, project, safeOps))
-      return void toast({ level: 'info', text: t('chat.linkCopiedOnlyMe'), ms: 8000, ...(o.inDialog ? {} : { action: { label: t('chat.linkShareAction'), run: () => openShareChat(chat.id) } }) })
-    toast({ level: 'success', text: t('chat.linkCopiedPrivate') })
+      return void toast({ level: 'info', text: t('chat.linkCopiedOnlyMe'), ms: 8000, ...local, ...(o.inDialog ? {} : { action: { label: t('chat.linkShareAction'), run: () => openShareChat(chat.id) } }) })
+    toast({ level: 'success', text: t('chat.linkCopiedPrivate'), ...local })
   }
 }
 

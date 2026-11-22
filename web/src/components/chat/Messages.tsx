@@ -746,7 +746,8 @@ export function AssistantMessage({
   const queuePos = useQueuePosition(streaming ? m.id : undefined)
   const providerBusy = useProviderBusy(streaming ? m.id : undefined)
   const requests = useChats(useShallow((s) => Object.values(s.requests).filter((r) => r.messageId === m.id)))
-  // while a card asks the person (a question or a connection), the AI is not thinking: it waits for them
+  // while a card asks the person (a question or a connection), the AI is not thinking: it waits for them (the card says
+  // so; no line above it saying it again, QA TC-ask1-18)
   const waitingForYou = streaming && requests.length > 0
   // an intro deck being made (docs/DECISIONS.md "D2", round 2): one block in place of its steps, from the click (the
   // question ran the deck skill) or once the server has its build
@@ -882,8 +883,9 @@ export function AssistantMessage({
           </div>
         )}
         <AnswerImagesShown steps={m.steps}><AnswerBody m={m} chatId={chatId} streaming={streaming} /></AnswerImagesShown>
+        {/* a card appeared: said to screen readers only (the card itself is the one place on screen, QA TC-ask1-18) */}
         {waitingForYou && (
-          <p className="mb-2 text-sm text-muted" role="status" data-testid="waiting-for-you">
+          <p className="sr-only" role="status" data-testid="waiting-for-you">
             {t('chatux.waitingForYou')}
           </p>
         )}
