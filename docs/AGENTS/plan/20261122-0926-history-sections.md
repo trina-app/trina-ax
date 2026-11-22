@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-22 09:26
 - Branch: `feat/history-sections`
-- Status: in progress (plan review: approve with changes, folded in)
+- Status: done
 - Where: web (`components/panels/TrinaList.tsx`, `panels/TrinaPanel.tsx`, `nav/HistoryList.tsx`, `nav/ChatItem.tsx`,
   `nav/SidebarSections.tsx`, `nav/NavFolders.tsx`, `phone/TrinaDrawer.tsx`, `store/navFolders.ts`), shared
   (`api/entities.ts` UserPrefs), server (`chat/nav-folders.ts`, one rule). Why: the Trina list is core, and the
@@ -155,4 +155,14 @@ the menu and by drag, fold, phone sheet), `type-scale.spec.ts` and `session-mark
 
 ## Result
 
-Filled in at the end.
+Built as three PRs in one batch: #385 (A: kind-generic sections, Trina sections, Add chats, Move to section, drag,
+paging), #386 (B: Group by Date default, folding dates, Reset to defaults, `prefs.historyView`) and #387 (C: the owner
+chose to allow every chat my history shows; server rule in `server/src/chat/history-list.ts`, security-reviewed).
+
+Differs from the plan:
+- Open question 1 (project and shared chats): the owner allowed all chats visible in my history (C).
+- Open question 2 (Group by default): the owner chose Date on the computer too (B), superseding 11-14's None.
+- An independent UX review (ui-polish) at 1440/390, light/dark: fixed the phone section header level, the 44px section
+  menu on phones, a one-line empty section on phones and the bare "None" on the filter line. Not taken, to keep one
+  pattern with the Chats sections: removing Skip in Add chats, merging Move/Remove into one row, an inline New section
+  field; merging Last activity into Sort by is out of scope.
