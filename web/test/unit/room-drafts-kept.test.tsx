@@ -179,7 +179,7 @@ describe('a send that did not go (QA TC-374)', () => {
     expect(useRooms.getState().pending[r.id]).toBeUndefined()
   })
 
-  test('one still on its way when the app closed comes back as not sent; the server already had it: Try again gives its message, not a second one', async () => {
+  test('one still on its way when the app closed goes again by itself (QA TC-r2d-06); the server already had it: its message, not a second one', async () => {
     const r = room()
     // the server got it, its answer never came (the app was closed)
     let lose: () => void = () => {}
@@ -191,11 +191,10 @@ describe('a send that did not go (QA TC-374)', () => {
     byClientId.set(p.clientMessageId, message({ roomId: r.id, seq: 3, author: ME, body: 'late ack', clientMessageId: p.clientMessageId }))
     restartApp()
     lose()
-    // not on the newest page (an older one): shown not sent
+    // not on the newest page (an older one): sent again with the same client id
     await openRoom(r.id)
-    expect(useRooms.getState().pending[r.id]).toMatchObject([{ clientMessageId: p.clientMessageId, state: 'failed' }])
-    useRooms.getState().retry(r.id, p.clientMessageId)
     await tick()
+    expect(posts.map((x) => x.clientMessageId)).toEqual([p.clientMessageId])
     expect(byClientId.size).toBe(1)
     expect(useRooms.getState().pending[r.id]).toBeUndefined()
     expect(useRooms.getState().timeline!.messages.filter((m) => m.body === 'late ack')).toHaveLength(1)
