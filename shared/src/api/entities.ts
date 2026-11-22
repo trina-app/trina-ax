@@ -353,6 +353,9 @@ export const Chat = z.object({
     people: z.array(UserRef).max(CHAT_PEOPLE_SHOWN).optional(),
     /** how many other people wrote in it (with `people`) */
     peopleCount: z.number().int().nonnegative().optional(),
+    /** a chat shared with people, for someone it names by name (not its creator): they may leave it ("Leave this
+     * chat", POST /api/chats/:id/leave). Absent: in it through a group only, its creator, or another kind of chat. */
+    named: z.literal(true).optional(),
     /** a chat shared with people whose creator's account is gone, for the others in it (QA TC-7431): deleted (`until`:
      * when the chat goes for good, auth/sweeper.ts) or switched off. Absent: their account is there (or it is mine). */
     byGone: z.discriminatedUnion('state', [z.object({ state: z.literal('deleted'), until: IsoTime }), z.object({ state: z.literal('disabled') })]).optional(),

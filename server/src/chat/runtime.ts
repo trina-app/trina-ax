@@ -693,7 +693,14 @@ export class ChatRuntime {
       const valid = this.db.query(`SELECT 1 FROM turns t JOIN users u ON u.id=t.user_id JOIN chats c ON c.id=t.chat_id
         JOIN messages a ON a.id=t.message_id JOIN messages m ON m.id=t.user_message_id
         WHERE t.id=? AND t.status='queued' AND u.status='active' AND u.deleted_at IS NULL AND c.deleted_at IS NULL`).get(s.turnId)
-      if (!valid) this.stopChat(s.chatId)
+      // only this queued turn goes, never an answer running in that chat for someone else; one of a person whose account
+      // went says why (messages.stopped_for, QA TC-7431)
+      if (!valid) {
+        const i = this.queued.findIndex((x) => x.turnId === s.turnId)
+        if (i < 0) continue
+        const u = this.db.query('SELECT status, deleted_at FROM users WHERE id = ?').get(s.userId) as { status: string; deleted_at: string | null } | null
+        this.dropQueuedAt(i, u?.deleted_at ? 'requester_removed' : u && u.status !== 'active' ? 'requester_disabled' : undefined)
+      }
     }
     // short of memory: the rest wait in the queue and the capacity watcher looks again (system/limits.ts). Turns that
     // wait for a person hold no slot, but their idle engines are in the memory the check reads.

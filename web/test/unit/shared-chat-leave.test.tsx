@@ -22,8 +22,8 @@ const t = ((k: Parameters<typeof translate>[1], v?: Record<string, string | numb
 const me = { user: { id: 'mia', username: 'mia', name: 'Mia', email: null, role: 'member', locale: 'en', localeChoice: null, mustChangePassword: false, prefs: {} },
   groups: [], team: { name: 'Acme', defaultLocale: 'en', chatTrashRetentionDays: 7 }, session: { id: '01900000-0000-7000-8000-00000000000a', client: 'web', expiresAt: '2026-12-04T00:00:00.000Z' },
   server: { version: '0', dev: false, deployment: 'hosted' } } as unknown as Me
-const sharedChat = (by: string) => Chat.parse({ id: CHAT, projectId: null, title: 'Plan', engine: 'claude-code', model: null, createdAt: '2026-11-08T00:00:00.000Z', updatedAt: '2026-11-08T00:00:00.000Z', deletedAt: null, runState: 'idle',
-  shared: { kind: 'people', by: { id: by, name: by === 'mia' ? 'Mia' : 'Bob' }, audience: 3, answering: null, mine: true, canDelete: by === 'mia' } })
+const sharedChat = (by: string, named = by !== 'mia') => Chat.parse({ id: CHAT, projectId: null, title: 'Plan', engine: 'claude-code', model: null, createdAt: '2026-11-08T00:00:00.000Z', updatedAt: '2026-11-08T00:00:00.000Z', deletedAt: null, runState: 'idle',
+  shared: { kind: 'people', by: { id: by, name: by === 'mia' ? 'Mia' : 'Bob' }, audience: 3, answering: null, mine: true, canDelete: by === 'mia', ...(named ? { named: true } : {}) } })
 
 const before = { status: useSession.getState().status, locale: useLocaleStore.getState().locale, engines: useEngines.getState() }
 beforeAll(() => {
@@ -77,7 +77,12 @@ describe('"Leave this chat" in the menus', () => {
     out.ids = useChatMenuItems(c, { testId: 'row', more: createRef<HTMLButtonElement>() }).map((x) => x.testId ?? '')
     return null
   }
-  test('someone it was shared with: Hide and Leave; its creator: neither', async () => {
+  test('someone it was shared with by name: Hide and Leave; through a group only: Hide; its creator: neither', async () => {
+    const out0: { ids?: string[] } = {}
+    const g = await mount(<MemoryRouter><Row c={sharedChat('bob', false)} out={out0} /></MemoryRouter>)
+    expect(out0.ids?.includes('row-hide')).toBe(true)
+    expect(out0.ids?.includes('row-leave')).toBe(false)
+    await g.unmount()
     for (const [by, want] of [['bob', true], ['mia', false]] as const) {
       const out: { ids?: string[] } = {}
       const r = await mount(<MemoryRouter><Row c={sharedChat(by)} out={out} /></MemoryRouter>)

@@ -246,8 +246,8 @@ function ChatView({ chatId, threadRoot }: { chatId: string; threadRoot: string |
   const sharedNames = useSharedWithNames(people && !!shared?.audienceHidden ? chatId : null, shared?.by, me.user.id)
   // someone else's chat shared with me that nobody else sees now (its creator's account is off): it is still theirs,
   // shared with me, never "Only you can see this chat" (QA TC-2263)
-  // who changed its people, between the messages (QA TC-7289): read again when how many see it changes
-  const audienceEvents = useAudienceEvents(people && !chat?.deletedAt ? chatId : null, shared?.audience ?? 0)
+  // who changed its people, between the messages (QA TC-7289): read again when how many see it or the messages change
+  const audienceEvents = useAudienceEvents(people && !chat?.deletedAt ? chatId : null, `${shared?.audience ?? 0}:${thread.messages.length}`)
   const sharedToMeAlone = people && !!shared && !rights.creator && !shared.audienceHidden && (shared.audience ?? 0) <= 1
   const who = chat ? (
     <WhoSeesLine
@@ -792,19 +792,26 @@ function ChatView({ chatId, threadRoot }: { chatId: string; threadRoot: string |
               // who changed its people since the message before (a chat shared with people; nothing before the oldest
               // message read while older ones are still to load)
               const lines = audienceEvents.length ? eventsBetween(audienceEvents, i ? messages[i - 1]!.createdAt : null, m.createdAt).filter(() => i > 0 || !thread.nextCursor) : []
-              const before = lines.length ? <Fragment key={`events-${m.id}`}>{lines.map((e) => <ChatEventLine key={`${e.at}-${e.kind}-${e.actor}`} e={e} />)}</Fragment> : null
+              const before = lines.map((e) => <ChatEventLine key={`${e.at}-${e.kind}-${e.actor}`} e={e} />)
               if (m.role === 'user')
-                return [before,
-                  <ViewerMeta key={m.id} sender={{ kind: 'user', user: m.author ?? (shared ? null : me.user) }} at={m.createdAt}>
-                    <UserMessage m={m} chatId={chatId} busy={rowsBusy} onEdit={onEdit} onSelectBranch={onSelectBranch} showAuthor={!!shared} canEdit={!readOnly && mine(m.author?.id)} sideChat={!!chat?.sideRoomId} />
-                  </ViewerMeta>]
+                return (
+                  <Fragment key={m.id}>
+                    {before}
+                    <ViewerMeta sender={{ kind: 'user', user: m.author ?? (shared ? null : me.user) }} at={m.createdAt}>
+                      <UserMessage m={m} chatId={chatId} busy={rowsBusy} onEdit={onEdit} onSelectBranch={onSelectBranch} showAuthor={!!shared} canEdit={!readOnly && mine(m.author?.id)} sideChat={!!chat?.sideRoomId} />
+                    </ViewerMeta>
+                  </Fragment>
+                )
               const prevAssistant = messages.slice(0, i).reverse().find((x) => x.role === 'assistant')
               const switchedFrom = prevAssistant?.engine && m.engine && prevAssistant.engine !== m.engine ? (prevAssistant.engine as EngineId) : null
-              return [before, (
-                <ViewerMeta key={m.id} sender={{ kind: 'ai' }} at={m.createdAt}>
+              return (
+                <Fragment key={m.id}>
+                {before}
+                <ViewerMeta sender={{ kind: 'ai' }} at={m.createdAt}>
                   <AssistantMessage m={m} chatId={chatId} isLast={i === messages.length - 1} busy={rowsBusy} switchedFrom={switchedFrom} onRegenerate={onRegenerate} retryWith={choose ? { engines, models } : undefined} onSelectBranch={onSelectBranch} onAskOwnFolder={askOwnFolder} onContinue={chat?.deletedAt || readOnly || !mine(askedBy(m)) ? undefined : onContinue} shareable={shareable && mine(askedBy(m))} shareRoomId={chat?.sideRoomId ?? undefined} canRegenerate={!readOnly && mine(askedBy(m))} canSuggest={!shared} onThread={shared && !chat?.sideRoomId ? (focus) => openThread(m.id, focus) : undefined} />
                 </ViewerMeta>
-              )]
+                </Fragment>
+              )
             })}
             {eventsBetween(audienceEvents, messages.at(-1)?.createdAt ?? null, null).filter(() => messages.length || !thread.nextCursor).map((e) => <ChatEventLine key={`${e.at}-${e.kind}-${e.actor}`} e={e} />)}
           </ImageGroup>

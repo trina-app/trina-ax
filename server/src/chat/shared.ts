@@ -407,6 +407,8 @@ export function sharedOf(rt: ChatRuntime, viewer: string, r: ChatRow, aud: Audie
       // a file from the computer is kept with the chat (chat/chat-files.ts), for everyone in it; not while safe operations
       // are on (the chat is read-only then)
       canUpload: !safeOpsEnabled(),
+      // listed by name: they may leave it (a group's people can't: the group is the creator's)
+      ...(!creator && rt.db.query("SELECT 1 FROM chat_audience WHERE chat_id = ? AND subject_type = 'user' AND subject_id = ?").get(r.id, viewer) ? { named: true as const } : {}),
       // its creator's account gone (deleted or switched off): the others read that under the box (QA TC-7431)
       ...(() => { if (creator) return {}; const g = creatorGone(rt.db, r.user_id); return g ? { byGone: g } : {} })(),
     }

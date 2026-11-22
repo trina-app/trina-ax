@@ -8280,13 +8280,15 @@ export class MockServer {
       const chat = sees(c.params.id!, c.user)
       const ps = this.peopleShared.get(chat.id)
       if (!ps || this.sharedChats.get(chat.id)?.by.id === c.user.id) return fail('validation', 400, '직접 시작한 채팅에서는 나갈 수 없어요.', undefined, { reason: 'chat_leave_creator' })
+      // in it through a listed group only: the group is the creator's to take out
+      if (!ps.subjects.some((x) => x.subjectType === 'user' && x.subjectId === c.user.id)) return fail('conflict', 409, '부서를 통해 이 채팅에 들어와 있어요.', undefined, { reason: 'chat_leave_group' })
       this.sharedSend((uid) => (uid === c.user.id ? { type: 'chat.updated', data: { chatId: chat.id, change: 'deleted', chat: null } } : null))
       ps.subjects = ps.subjects.filter((x) => !(x.subjectType === 'user' && x.subjectId === c.user.id))
       this.peopleHidden.delete(`${c.user.id}:${chat.id}`)
       return { ok: true as const }
     }
-    // the delete-account dialog's count: the person's people-shared chats someone else wrote in
-    h.userSharedChats = (c) => ({ sharedChats: [...this.peopleShared.keys()].filter((id) => this.sharedChats.get(id)?.by.id === c.params.id && this.messages.some((m) => m.chatId === id && m.role === 'user' && m.author && m.author.id !== c.params.id)).length })
+    // the delete-account dialog's count: the person's people-shared chats someone else sees
+    h.userSharedChats = (c) => ({ sharedChats: [...this.peopleShared.entries()].filter(([id, ps]) => this.sharedChats.get(id)?.by.id === c.params.id && ps.subjects.length > 0).length })
     // the widening list with a chat as its target: its creator only; POST /__test/widening's items
     over('wideningAnswers', (c, base) => {
       const target = c.body.target as { kind: string; chatId?: string }

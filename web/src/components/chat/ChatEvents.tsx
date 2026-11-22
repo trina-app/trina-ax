@@ -1,7 +1,7 @@
 // Who changed a chat's people, between its messages (docs/decisions/20261122-shared-chat-leave-and-lost-notices.md, QA
 // TC-7289): "{actor} added {names}", "{actor} removed {names}", "{actor} left", in the rooms' event style (a quiet
 // centred line). Read with the chat's audience (GET /api/chats/:id/audience `events`) for a chat shared with people, again
-// whenever how many see it changes.
+// whenever how many see it or how many messages it has changes.
 import { useEffect, useState } from 'react'
 import type { ChatAudience } from '@mycel/shared/api'
 import { api, API } from '../../lib/api'
@@ -15,7 +15,9 @@ export type AudienceEvent = NonNullable<ChatAudience['events']>[number]
 export function useAudienceEvents(chatId: string | null, key: unknown): AudienceEvent[] {
   const [events, setEvents] = useState<AudienceEvent[]>([])
   useEffect(() => {
-    if (!chatId) { setEvents([]); return }
+    // (another chat's lines never stay on screen while this one's are read)
+    setEvents([])
+    if (!chatId) return
     let live = true
     api.call(API.getChatAudience, { params: { id: chatId } }).then((a) => { if (live) setEvents(a.events ?? []) }, () => {})
     return () => { live = false }

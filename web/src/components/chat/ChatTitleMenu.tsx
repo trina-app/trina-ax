@@ -19,7 +19,7 @@ import { PRODUCT } from '@mycel/shared'
 import type { Chat } from '@mycel/shared/api'
 import { useT } from '../../i18n'
 import { useMe } from '../../store/session'
-import { mayHideChat } from '../../lib/sharedChat'
+import { mayHideChat, mayLeaveChat } from '../../lib/sharedChat'
 import { clientKind } from '../../lib/desktop'
 import { platform } from '../../lib/pwa'
 import { chatOpenInAppHref } from '../../lib/team-link'
@@ -49,7 +49,7 @@ export function ChatTitleMenu({ chat, title, compact, onPin, onRename, onMove, o
     ...(onMove ? [{ label: t(moveLabel(chat)), icon: <FolderInput size={14} aria-hidden />, onSelect: onMove, testId: 'chat-project-move' }] : []),
     ...(chat.id && chat.shared && !safeOps && onPrivately ? [{ label: t('chat.continuePrivately'), icon: <Lock size={14} aria-hidden />, onSelect: onPrivately, testId: 'chat-continue-privately' }] : []),
     ...(onHide && me && mayHideChat(chat, me.user.id) ? [{ label: t('chat.hide'), icon: <EyeOff size={14} aria-hidden />, onSelect: onHide, testId: 'chat-hide' }] : []),
-    ...(onLeave && me && mayHideChat(chat, me.user.id) ? [{ label: t('chat.leave'), icon: <LogOut size={14} aria-hidden />, onSelect: onLeave, danger: true, testId: 'chat-leave' }] : []),
+    ...(onLeave && me && mayLeaveChat(chat, me.user.id) ? [{ label: t('chat.leave'), icon: <LogOut size={14} aria-hidden />, onSelect: onLeave, danger: true, testId: 'chat-leave' }] : []),
     ...(onDelete ? [{ label: t('common.delete'), icon: <Trash2 size={14} aria-hidden />, onSelect: onDelete, danger: true, testId: 'chat-delete' }] : []),
   ]
   if (!items.length)

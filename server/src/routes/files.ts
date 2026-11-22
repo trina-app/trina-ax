@@ -238,6 +238,8 @@ export const filesRoutes: RouteModule = {
     kit.handle(API.sharedFolderEntry, ({ c, params, query, auth }) => mapErrors(c.get('locale'), () => folders.entry(auth.user.id, params.id, query.sub, c.get('locale'))))
     kit.handle(API.requestFileAccess, ({ c, params, body, auth }) => mapErrors(c.get('locale'), () => shares.request(auth.user.id, params.id, body.message, c.get('locale'))))
     kit.handle(API.askFileShareFor, ({ c, params, body, auth }) => mapErrors(c.get('locale'), () => {
+      // from the send budget first (429): an ask that adds nobody is no free probe of who can open the file
+      shares.takeToken(auth.user.id)
       const r = shares.requestFor(auth.user.id, params.id, body.people, c.get('locale'), 'dialog')
       return { asked: r.asked.length, already: r.already.length }
     }))

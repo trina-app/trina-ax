@@ -69,6 +69,9 @@ describe('leave', () => {
   test('the creator can\'t leave; someone who would still see it through a listed group is told so and stays', async () => {
     const id = await newChat('alice', 'group stays')
     await share('alice', id, [erin, marketing])
+    // named: erin (also by name), never the creator
+    expect((await h.api('erin').call(API.getChat, { params: { id } })).shared?.named).toBe(true)
+    expect((await h.api('alice').call(API.getChat, { params: { id } })).shared?.named).toBeUndefined()
     expect(await reason(h.api('alice').call(API.leaveChat, { params: { id } }))).toEqual([400, 'chat_leave_creator'])
     const e = await errOf(h.api('erin').call(API.leaveChat, { params: { id } }))
     expect([e.status, e.body.params?.reason]).toEqual([409, 'chat_leave_group'])

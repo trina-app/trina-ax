@@ -771,7 +771,7 @@ export const chatsRoutes: RouteModule = {
       rt.hub.publish(auth.user.id, { type: 'chat.updated', data: { chatId: a.row.id, change: hide ? 'deleted' : 'updated', chat: hide ? null : out } })
       return out
     }
-    // the delete-account dialog's count (admins): the chats this person shared with people that others wrote in
+    // the delete-account dialog's count (admins): the chats this person shared with people that someone else sees
     kit.handle(API.userSharedChats, ({ params }) => ({ sharedChats: peopleSharedChatsOf(ctx, params.id) }))
     kit.handle(API.hideChat, ({ c, params, auth }) => hidden(c, auth, chatOf(rt, c, auth, params.id, 'view'), true))
     // "Leave this chat" (chat/people-share.ts leaveChat): someone it was shared with by name, never its creator

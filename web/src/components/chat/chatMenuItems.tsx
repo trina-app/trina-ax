@@ -10,7 +10,7 @@ import { EyeOff, FolderInput, LogOut, Pencil, Pin, PinOff, Trash2, Users } from 
 import type { RefObject } from 'react'
 import type { Chat } from '@mycel/shared/api'
 import { useT } from '../../i18n'
-import { mayHideChat, sharedRights, shareKindOf } from '../../lib/sharedChat'
+import { mayHideChat, mayLeaveChat, sharedRights, shareKindOf } from '../../lib/sharedChat'
 import { useProjects } from '../../store/projects'
 import { useMeStrict } from '../../store/session'
 import { startShare } from './ChatShareDialog'
@@ -59,7 +59,7 @@ export function useChatMenuItems(chat: Chat, { testId, more, select = (fn) => ()
     ...(share ? [{ label: t('chat.share.menu'), icon: <Users size={14} aria-hidden />, onSelect: select(() => startShare(chat, share)), testId: `${testId}-share` }] : []),
     ...(mayHideChat(chat, me.user.id) ? [{ label: t('chat.hide'), icon: <EyeOff size={14} aria-hidden />, onSelect: select(() => actions.hide(chat, onRemoved)), testId: `${testId}-hide` }] : []),
     // "Leave this chat": out of it for good, until its creator adds me again (QA TC-7651)
-    ...(mayHideChat(chat, me.user.id) ? [{ label: t('chat.leave'), icon: <LogOut size={14} aria-hidden />, danger: true, onSelect: select(() => actions.leave(chat, onRemoved)), testId: `${testId}-leave` }] : []),
+    ...(mayLeaveChat(chat, me.user.id) ? [{ label: t('chat.leave'), icon: <LogOut size={14} aria-hidden />, danger: true, onSelect: select(() => actions.leave(chat, onRemoved)), testId: `${testId}-leave` }] : []),
     ...(rights.canDelete ? [{ label: t('common.delete'), icon: <Trash2 size={14} aria-hidden />, danger: true, onSelect: select(() => actions.remove(chat, (c, trashed) => (trashed ? onRemoved?.(c) : onChanged?.(c)))), testId: `${testId}-delete` }] : []),
   ]
 }
