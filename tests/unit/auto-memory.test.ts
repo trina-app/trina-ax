@@ -336,6 +336,28 @@ describe('auto memory in a turn', () => {
     setPrefs({ autoMemoryNotice: 'seen' })
   })
 
+  // QA TC-7737: the switch off, the model called remember on a stated preference and it was kept
+  test('switch off: a stated preference is not kept, even with asked:true; "기억해 줘" in the person\'s own message is', async () => {
+    clear(); setPrefs({ autoMemory: 'off', autoMemoryNotice: 'seen' })
+    // the model's call comes from a line of the person's own file (followResult), so the person's message holds no
+    // remember word of its own; \\u escapes keep its text out of any other check
+    const esc = (t: string) => [...t].map((c) => '\\u' + c.charCodeAt(0).toString(16).padStart(4, '0')).join('')
+    fs.mkdirSync(path.join(h.team, 'users/alice'), { recursive: true })
+    fs.writeFileSync(path.join(h.team, 'users/alice/model-plan.md'), [
+      `@fake {"tool":"${esc('remember')}","args":{"text":"${esc('보고서는 요약을 맨 위에 두기를 좋아함')}"},"sayResult":true}`,
+      `@fake {"tool":"${esc('remember')}","args":{"text":"${esc('회의록은 항상 표로 정리')}","asked":true},"sayResult":true}`,
+    ].join('\n'))
+    const said = await ask(h, alice, 'alice', (await newChat()).id, '저는 보고서를 읽을 때 항상 요약이 맨 위에 있는 걸 좋아해요. 앞으로 회의록은 항상 표로 정리해서 줘\n' + fake({ tool: 'read', args: { file_path: 'users/alice/model-plan.md' }, followResult: true }))
+    expect(cards(said.started.turnId)).toEqual([])
+    expect(said.done.content.split('automatic memory off').length - 1).toBe(2)
+    expect(rows()).toEqual([])
+    expect(said.done.steps.filter((x) => x.tool === 'remember').every((x) => x.label.startsWith('Not remembered'))).toBe(true)
+    const asked = await ask(h, alice, 'alice', (await newChat()).id, '이거 기억해 줘: 보고서는 표 먼저\n' + fake(remember({ text: '보고서는 표 먼저' })))
+    expect(JSON.parse(asked.done.content)).toHaveProperty('id')
+    expect(rows().map((m) => [m.text, m.source])).toEqual([['보고서는 표 먼저', 'ai']])
+    setPrefs({ autoMemoryNotice: 'seen' })
+  })
+
   test('a scheduled run never auto-saves; a confidential chat keeps today\'s silent path', async () => {
     clear(); setPrefs({ autoMemoryNotice: 'seen' })
     const chat = await newChat()

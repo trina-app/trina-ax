@@ -39,6 +39,9 @@
     outside content; after content the server could not read (a picture or screenshot, the engine's own web search), every address,
     path, #channel or room name in a memory must be the person's own (the lesson itself may be in the AI's words: the
     owner's Daum/Aside case is a screenshot chat); a memory of the AI's own is at most 200 characters; a secret's step never shows it.
+  - The switch off (fix after QA TC-7737): a memory is kept only when the person's own message of the turn asks for it
+    in so many words (a keyword list in the six app languages); the model's `asked` never stands in. Otherwise the
+    call is skipped quietly. An explicit request in a chat with outside content keeps the card it had before.
   - Codex and the API engine get the same tool and rule; the engines' own memory stays off.
 - **Why:** Claude Code's auto memory is the floor (owner: AI should match Claude Code), and it does not ask. A visible,
   reversible step keeps the person in control. Memories are used only in the person's private chats, so saving there

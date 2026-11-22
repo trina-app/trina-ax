@@ -38,6 +38,27 @@ export function autoMemoryOn(db: Database, userId: string): boolean {
   } catch { return true }
 }
 
+/** The words with which a person asks to keep something, in the six app languages (QA TC-7737: with auto memory off,
+ * a memory is kept only when the person's own message asks for it). */
+const ASKS_TO_REMEMBER = new RegExp([
+  // ko
+  '기억\\s*해', '기억\\s*하', '기억해\\s*둬', '기억해\\s*줘', '잊지\\s*마', '잊지\\s*말',
+  // en
+  '\\bremember\\b', '\\bmemori[sz]e\\b', "\\bdon[\\u2019']?t\\s+forget\\b", '\\bdo\\s+not\\s+forget\\b', '\\bkeep\\s+in\\s+mind\\b',
+  // ja
+  '覚えて', '覚えといて', '忘れないで', '記憶して',
+  // zh
+  '记住', '記住', '别忘', '不要忘', '记得',
+  // es
+  '\\brecuerda', '\\brecordar', '\\bno\\s+olvides\\b', '\\bten\\s+en\\s+cuenta\\b',
+  // id
+  '\\bingat(?:lah|kan)?\\b', '\\bjangan\\s+lupa\\b',
+].join('|'), 'iu')
+/** Does the person's own message ask to keep something ("기억해 줘", "remember that", "覚えておいて", "记住" …)? */
+export function asksToRemember(message: string | null | undefined): boolean {
+  return !!message && ASKS_TO_REMEMBER.test(stripInvisible(message).normalize('NFKC'))
+}
+
 /** Is this the first memory the AI keeps on its own for the person (the one-time line under its step)? Marks it seen. */
 export function firstAutoMemory(db: Database, userId: string): boolean {
   try {

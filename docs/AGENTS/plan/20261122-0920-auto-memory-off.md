@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-22 09:20
 - Branch: `fix/auto-memory-off`
-- Status: in progress
+- Status: done
 - Where: server/src/chat (remember, auto-memory checks). Why: the AI and its memories are component B (docs/WORKPLAN.md).
 - Version impact: patch: a bug fix; the switch now does what it says.
 
@@ -40,4 +40,5 @@ behaviour" now means: only on the person's explicit words).
 
 ## Result
 
-Filled in at the end.
+Built as planned: `asksToRemember` (chat/auto-memory.ts) gates remember when the switch is off; tests in
+tests/unit/auto-memory.test.ts (off + preference, off + asked:true, off + "기억해 줘"; the on cases unchanged).
