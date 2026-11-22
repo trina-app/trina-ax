@@ -16,6 +16,7 @@ import { brokerKey, driveBrokerFor, DriveBroker, type BrokerOptions } from './br
 import type { CallbackOutcome } from './callback-page'
 import { CLAIM_MS, GO_PATH, newToken, tokenHash, tokenMatches } from './app-return'
 import type { ClientKind } from '@mycel/shared/api'
+import { googleLoginHint } from '../../auth/login-identities'
 
 /** `broker`: sign in through the hosting service (broker.ts); left out, driveBrokerFor decides (no own client; broker URL set, or a hosted server). */
 export interface DriveDeps { config?: DriveConfig | null; fetch?: DriveFetch; now?: () => number; broker?: BrokerOptions | null }
@@ -155,6 +156,10 @@ export class GoogleDrive {
     const p = this.prepare(user, session, share), cfg = this.config!
     const url = new URL(GOOGLE_AUTH)
     for (const [k, v] of Object.entries({ client_id: cfg.clientId, redirect_uri: cfg.redirectUri, response_type: 'code', scope: DRIVE_SCOPE, access_type: 'offline', prompt: 'consent', state: p.state, code_challenge: challengeOf(p.verifier), code_challenge_method: 'S256' })) url.searchParams.set(k, v)
+    // the person's own Drive with the Google account they sign in with (Sign in with Google): Google skips its account
+    // picker. Not a Drive shared with the team, which is often another account
+    const hint = share ? null : googleLoginHint(this.ctx.db, user)
+    if (hint) url.searchParams.set('login_hint', hint)
     return { flowId: p.id, authorizationUrl: url.href, expiresAt: p.expiresAt }
   }
   /** Start a Google sign-in either way: this server's own client (authorize), or the hosting service's (broker.ts),
