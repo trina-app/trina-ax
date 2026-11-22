@@ -41,7 +41,8 @@ import { stopTurnsIn } from './runtime'
 import { SHARED_LATER, type ChatRow } from './store'
 import { isInternalChat } from './internal-chats'
 import { isPersonalFolder } from './projects'
-import { chatView, type ChatAccess } from './shared'
+import { Audiences, chatView, type ChatAccess } from './shared'
+import { forgetChatNotices } from './message-notices'
 import { chatUse } from './share-chat'
 import { confirmMac } from './answer-share'
 import { checkAudience, findingsState, rulesFingerprint, type AudienceFindings } from './audience-check'
@@ -139,7 +140,10 @@ export function chatAudienceView(ctx: AppContext, rt: ChatRuntime, userId: strin
   // the creator: the files this chat made in my own folder that are not in the chat yet (the already-shared step)
   const made = a.creator ? madeFilesOf(ctx, r) : []
   const files = made.length ? { madeFiles: madeOut(ctx, made, personLocale(db, userId), userId), madeFilesKey: filesKeyOf(ctx, userId, r.id, made) } : {}
-  return { kind: 'people', canEdit: a.creator, by, subjects: rows, ...(!groups || full ? { count: peopleAudience(db, r).length } : {}), ...files }
+  // who the message box may mention (chat/message-notices.ts): the people who see it now but me, as a thread lists them
+  const mentionable = new Audiences(db, ctx.files).ofChat(r).filter((id) => id !== userId).flatMap((id) => { const u = rt.store.userRef(id); return u ? [{ id: u.id, name: u.name }] : [] })
+    .sort((x, y) => x.name.localeCompare(y.name) || x.id.localeCompare(y.id))
+  return { kind: 'people', canEdit: a.creator, by, subjects: rows, ...(!groups || full ? { count: peopleAudience(db, r).length } : {}), ...files, mentionable }
 }
 
 /**
@@ -449,6 +453,8 @@ export async function putChatAudience(ctx: AppContext, rt: ChatRuntime, userId: 
         db.query('DELETE FROM chat_list_hidden WHERE chat_id = ?').run(r.id)
       }
       for (const id of lost) db.query('DELETE FROM chat_list_hidden WHERE chat_id = ? AND user_id = ?').run(r.id, id)
+      // and their notices of its messages and their mute (chat/message-notices.ts): added again later, they start afresh
+      for (const id of lost) forgetChatNotices(db, id, r.id)
       // their waiting asks to add a file of this chat go with them (everyone's when it is mine alone again)
       closeFileAsks(db, r.id, everyone ? null : lost)
       // who saw it, before or after this save: a link of someone who loses it later says why (chat/chat-audience.ts)

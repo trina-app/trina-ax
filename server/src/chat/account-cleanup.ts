@@ -22,6 +22,8 @@ export function registerChatAccountCleanup(ctx: AppContext): void {
       'chat_list_hidden.user_id', 'chat_share_notices.user_id', 'chat_audience_past.user_id',
       // threads on AI answers (chat/threads.ts): what they follow and their notices; their replies stay (KEPT_WITH_ACCOUNT)
       'chat_thread_follows.user_id', 'chat_thread_notices.user_id',
+      // a new message in a chat shared with people (chat/message-notices.ts): their notices and the chats they muted
+      'chat_message_notices.user_id', 'chat_mutes.user_id',
       // "Ask for access" on a chat's or project's link (chat/access-requests.ts): their asks and their Activity rows
       'access_requests.requester_id', 'access_request_notices.user_id',
       // what their AI read in chats (chat/carried-reads.ts): paths and hashes of their turns

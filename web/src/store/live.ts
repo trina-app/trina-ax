@@ -29,6 +29,7 @@ import { usePresence } from './presence'
 import { useTyping } from './typing'
 import { useRooms } from './rooms'
 import { roomMessageSound, startRoomSound, stopRoomSound } from './roomSound'
+import { chatMessageSound } from './roomSound'
 import { useSession } from './session'
 import { isGuestMe } from '../lib/guests'
 import { chatUpdated, roomMessage, roomUpdated, startSessionMarkers, stopSessionMarkers } from './sessionMarkers'
@@ -100,6 +101,8 @@ export function dispatch(ev: ServerEvent, meta: { replay: boolean } = { replay: 
     case 'chat.updated':
       // session markers (store/sessionMarkers.ts): a live change worth it is told, after a wait
       chatUpdated(ev, meta)
+      // a person's message in a chat shared with people that gave me a notice rings as a room's (store/roomSound.ts)
+      chatMessageSound(ev.data.chatId, ev.data.notice, meta.replay)
       useChats.getState().handleEvent(ev)
       chatChanged.emit(ev.data)
       return

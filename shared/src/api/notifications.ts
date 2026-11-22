@@ -81,7 +81,12 @@ export function plainLabel(s: string, max = 80): string {
  * migration 411; docs/decisions/20261116-chat-project-ask-access.md). Listed in Activity always; pushed while the request
  * still waits and the person may still answer it, outside quiet hours, with "File sharing" (fileShares) on, at most
  * FILE_REQUEST_PUSHES_PER_DAY a day together with the file requests. Never the title, the asker or the note. */
-export const PushEventType = z.enum(['schedule.success', 'schedule.failure', 'connection.reconnect', 'room.dm', 'room.mention', 'owner.lead_joined', 'owner.reauth_locked', 'chat.answer_done', 'chat.shared', 'room_app.paused', 'file.shared', 'chat.thread_reply', 'file.access_requested', 'access.requested'])
+/** chat.message: a person's message in a chat shared with people that I see (chat_message_notices with their own
+ * deliveries, chat_message_push_deliveries, migration 436; docs/decisions/20261122-shared-chat-new-message-notices.md).
+ * Every message its own notice and push, as a group chat's in a room; pushed while the room default is not "nothing",
+ * outside quiet hours, the chat not muted and still mine to see. Never listed in Activity: the chat row's number shows
+ * it. */
+export const PushEventType = z.enum(['schedule.success', 'schedule.failure', 'connection.reconnect', 'room.dm', 'room.mention', 'owner.lead_joined', 'owner.reauth_locked', 'chat.answer_done', 'chat.shared', 'room_app.paused', 'file.shared', 'chat.thread_reply', 'file.access_requested', 'access.requested', 'chat.message'])
 /** The room notices among them (server/src/rooms/notices.ts). */
 export const ROOM_PUSH_EVENTS = ['room.dm', 'room.mention'] as const
 export type PushEventType = z.infer<typeof PushEventType>
@@ -124,6 +129,9 @@ export const InboxNotification = z.object({
   createdAt: z.string(), readAt: z.string().nullable(), chatId: z.string().nullable(), link: z.enum(['chat', 'connections', 'skills', 'project', 'integrations', 'admin_credentials', 'room', 'admin_members', 'admin_connectors', 'account_deletion', 'file', 'chat_thread', 'admin_storage', 'sent_files']).nullable(),
   /** scheduled runs only: succeeded / finished with problems / failed (the inbox text follows it; older servers omit it) */
   outcome: ScheduleRunOutcome.nullable().optional(),
+  /** 'chat.message' only (a push's signed-in fetch: these are never listed): the message a tap opens the chat at, while I
+   * still see the chat (link 'chat', chatId). */
+  chatMessage: z.object({ messageId: z.string() }).optional(),
   /** 'storage.filling' only: how full the team's disk was (the plan's view, whole percent) and the files in conversations
    * as last measured then (null: not measured yet). One number for the team, never a name. Link 'admin_storage' (Admin ›
    * System › Storage) while the reader is still the owner or an admin. */

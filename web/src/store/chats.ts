@@ -97,6 +97,8 @@ export interface SendInput {
   model?: string | null
   /** messages that waited for an answer (store/sendQueue.ts): the same messages always go with the same id */
   clientMessageId?: string
+  /** a chat shared with people: the people picked with "@" (ids) */
+  mentions?: string[]
   /** the server still has an answer running in this chat (409): the message is taken back instead of "not sent" */
   onConflict?: (e: ApiError) => void
   /** answer under the newest end of the branch through the last message this page shows (SendMessageBody.after), not
@@ -111,7 +113,7 @@ export interface SendInput {
 }
 
 /** Sends waiting for the network to come back: localId -> body. */
-const outbox = new Map<string, { chatId: string; clientMessageId: string; content: string; attachmentIds: string[]; parentId: string | undefined; after?: string; engine?: EngineId; model?: string | null; firstTry: number; onConflict?: (e: ApiError) => void }>()
+const outbox = new Map<string, { chatId: string; clientMessageId: string; content: string; mentions?: string[]; attachmentIds: string[]; parentId: string | undefined; after?: string; engine?: EngineId; model?: string | null; firstTry: number; onConflict?: (e: ApiError) => void }>()
 /**
  * Events for messages we don't know yet (they raced the POST answer). Bounded: a message that never shows up (another
  * branch, a lost response) must not keep its events forever; the oldest entries go first, and past the per-message
@@ -489,7 +491,7 @@ export const useChats = create<ChatsState>((set, get) => {
         const epoch = queueEpoch
         const started = await api.call(API.sendMessage, {
           params: { id: job.chatId },
-          body: { content: job.content, attachmentIds: job.attachmentIds, parentId: job.parentId, ...(job.after ? { after: job.after } : {}), engine: job.engine, model: job.model, clientMessageId: job.clientMessageId, timeZone: turnTimeZone() },
+          body: { content: job.content, ...(job.mentions?.length ? { mentions: job.mentions } : {}), attachmentIds: job.attachmentIds, parentId: job.parentId, ...(job.after ? { after: job.after } : {}), engine: job.engine, model: job.model, clientMessageId: job.clientMessageId, timeZone: turnTimeZone() },
         })
         if (session !== generation) return
         outbox.delete(localId)
@@ -644,7 +646,7 @@ export const useChats = create<ChatsState>((set, get) => {
       const clientMessageId = o.clientMessageId ?? uuidv7()
       const msg = optimisticUserMessage({ id: localId, chatId, parentId: last?.id ?? null, content: o.content, author: o.author, attachments: o.attachments, clientMessageId, now: new Date().toISOString() })
       setThread(chatId, (th) => ({ ...th, messages: [...th.messages, msg] }))
-      outbox.set(localId, { chatId, clientMessageId, content: o.content, attachmentIds: o.attachments.map((a) => a.id), parentId: o.atEnd ? undefined : last?.id, ...(o.atEnd && last ? { after: last.id } : {}), engine: o.engine, model: o.model, firstTry: Date.now(), onConflict: o.onConflict })
+      outbox.set(localId, { chatId, clientMessageId, content: o.content, ...(o.mentions?.length ? { mentions: o.mentions } : {}), attachmentIds: o.attachments.map((a) => a.id), parentId: o.atEnd ? undefined : last?.id, ...(o.atEnd && last ? { after: last.id } : {}), engine: o.engine, model: o.model, firstTry: Date.now(), onConflict: o.onConflict })
       // the message shows as "sending" right away; a failure turns it into "not sent [send again]"
       const sent = deliverTracked(localId)
       sent.catch(() => {})

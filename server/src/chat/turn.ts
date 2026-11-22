@@ -75,6 +75,7 @@ import { recordSkillUse } from '../admin/skill-usage'
 import { noteGoalRun } from '../onboarding/goal'
 import { notificationsOf, notifyEngineStartFailed } from '../notifications/service'
 import { noteChatAnswer } from '../notifications/chat-answers'
+import { noteSharedAnswer } from './message-notices'
 import { takeAnsweredCalls, answeredNote, CARD_LATER_TOOLS, questionsWaitInCall, sameCard, saveQuestion, type WaitingCall } from './open-questions'
 import type { TurnToolSet } from '../turns'
 import { isLookUpTool, scheduleRunOutcome } from './schedule-outcome'
@@ -5350,6 +5351,12 @@ export class TurnExec {
     // a server stop cut off, a scheduled run or a question from Slack (this.tells), or a turn the server started by
     // itself (no clientKind: skill drafts, merges, file ranking)
     if (!asked && status !== 'stopped' && this.stopReason !== 'shutdown' && this.tells && this.spec.clientKind) noteChatAnswer(this.rt.ctx, { userId: this.spec.userId, chatId: this.spec.chatId, turnId: this.id, kind: status === 'error' ? 'failed' : 'done' })
+    // a chat shared with people: the others get the unread number for this answer, never a push (chat/message-notices.ts)
+    // (the same end as the finished notice above: not one that ended on its question, stopped or cut off by a stop)
+    if (this.shared && status === 'done' && !asked && this.stopReason !== 'shutdown') this.finishStep('shared answer notices', () => {
+      const chat = this.rt.store.chatRow(this.spec.chatId)
+      if (chat) noteSharedAnswer(this.rt.ctx, chat, this.spec.assistantId, this.spec.userId)
+    })
     this.rt.publishChat(this.spec.userId, this.spec.chatId, 'updated', long ? { notify: 'answer' } : {})
   }
 }

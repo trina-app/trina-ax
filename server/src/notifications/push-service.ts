@@ -21,6 +21,7 @@ import { roomAppPushWanted } from '../rooms/apps/notice'
 import { fileSharePushWanted } from '../files/share-push'
 import { accessRequestPushWanted } from '../chat/access-requests'
 import { chatThreadWanted } from '../chat/threads'
+import { chatMessageWanted } from '../chat/message-notices'
 import { readPushConfig, pushConfigKey, type PushConfig } from './push-config'
 import { bounded, createPushTransport, pushFailure, validatePushSubscription, type PushSubscription, type PushTransport } from './push-transport'
 import { pushBadge } from './push-badge'
@@ -77,6 +78,10 @@ const SOURCES=[
   // a reply in a chat thread I follow (migration 408): after its wait (someone with the thread on screen reads it
   // first), while unread, its reply still there, outside my quiet hours and the thread still mine to see (chat/threads.ts)
   {inbox:'chat_thread_notices',deliveries:'chat_thread_push_deliveries',only:'',unread:'read_at IS NULL',wanted:(_db:Database,id:string,now:number,ctx:AppContext)=>chatThreadWanted(ctx,id,now),due:'MAX(?,n.push_at)'},
+  // a person's message in a chat shared with people (migration 436; chat/message-notices.ts): each its own push, as a
+  // group chat's in a room; never an answer of Trina's or one made inside quiet hours (quiet); while unread, the room
+  // default not "nothing", outside quiet hours, the chat not muted and still mine to see
+  {inbox:'chat_message_notices',deliveries:'chat_message_push_deliveries',only:"AND kind='message' AND quiet=0",unread:'read_at IS NULL',wanted:(_db:Database,id:string,now:number,ctx:AppContext)=>chatMessageWanted(ctx,id,now),due:'?'},
 ] as const
 type Source=typeof SOURCES[number]
 export class PushService {

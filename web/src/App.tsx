@@ -391,6 +391,8 @@ function Gate() {
               computer's goes to / (pages/Home.tsx) */}
           <Route path="new" element={<Home />} />
           <Route path="c/:chatId" element={<ChatPage />} />
+          {/* a notification's tap on a message of a chat shared with people (chat/message-notices.ts) */}
+          <Route path="c/:chatId/m/:target" element={<ChatPage />} />
           {/* a thread under a shared chat's answer, beside the chat (docs/decisions/20261116-chat-answer-threads.md) */}
           <Route path="c/:chatId/t/:messageId" element={<ChatPage />} />
           {/* the team chat rooms: the list (the 대화 tab on phones) and one room (the mobile app links here) */}

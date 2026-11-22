@@ -31,6 +31,7 @@ import { OthersText } from './live-answer'
 import { withheldFrom } from './shared-answers'
 import { mayUploadShared } from '../uploads/shared-chat'
 import { inPeopleAudience, isPeopleRow, isSharedChat, isSharedRow, peopleAudience, hiddenByMe, wasInPeopleChat } from './chat-audience'
+import { isMuted, unreadOf } from './message-notices'
 import { isGuest } from '../auth/guests'
 
 // isSharedRow and isSharedChat live in chat-audience.ts (no imports there): always-allow.ts and shared-run.ts need them
@@ -442,7 +443,11 @@ export function chatView(rt: ChatRuntime, viewer: string, r: ChatRow, o: { aud?:
     shared.people = p?.people ?? []
     shared.peopleCount = p?.count ?? 0
   }
-  return { ...c, title: hide(c.title), shared }
+  // a chat shared with people is a conversation: my unread messages there (chat/message-notices.ts) are its row's number
+  // and an unseen mark of my own, and my mute
+  const unread = isPeopleRow(r) ? unreadOf(rt.db, viewer, r.id) : null
+  const muted = isPeopleRow(r) && isMuted(rt.db, viewer, r.id)
+  return { ...c, title: hide(c.title), shared, ...(unread?.n ? { unseen: true as const, unreadCount: unread.n, ...(unread.mention ? { mentioned: true as const } : {}) } : {}), ...(muted ? { muted: true as const } : {}) }
 }
 
 /** Was this shared chat shared after it was made (chat/share-chat.ts marks the turns it had then SHARED_LATER)? An answer

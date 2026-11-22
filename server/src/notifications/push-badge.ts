@@ -6,7 +6,8 @@ import { appBadgeOf, attentionCount, type MarkedChat } from '@mycel/shared/api'
 import type { AppContext } from '../context'
 import { getChatRuntime } from '../chat/runtime'
 import { Audiences, isSharedRow, severalAuthors } from '../chat/shared'
-import { IN_PEOPLE_AUDIENCE_SQL, NOT_HIDDEN_SQL } from '../chat/chat-audience'
+import { IN_PEOPLE_AUDIENCE_SQL, NOT_HIDDEN_SQL, isPeopleRow } from '../chat/chat-audience'
+import { unreadOf } from '../chat/message-notices'
 import { CHAT_COLS, type ChatRow } from '../chat/store'
 import { notInternalChat } from '../chat/internal-chats'
 import { roomsOf } from '../rooms/service'
@@ -39,7 +40,9 @@ function markedChats(ctx: AppContext, userId: string): (MarkedChat & { id: strin
       return { id: r.id, runState, ...(rt.waitsForPerson(r.id) ? { waiting: true as const } : {}), ...answers }
     }
     const waiting = rt.waitsForPerson(r.id, userId)
-    return { id: r.id, runState, ...(waiting ? { waiting: true as const } : {}), ...(r.user_id === userId ? rt.store.answerState(r, userId) : {}) }
+    // a chat shared with people: my unread messages there, as its row shows them (chat/shared.ts chatView)
+    const unread = isPeopleRow(r) ? unreadOf(ctx.db, userId, r.id).n : 0
+    return { id: r.id, runState, ...(waiting ? { waiting: true as const } : {}), ...(r.user_id === userId ? rt.store.answerState(r, userId) : {}), ...(unread ? { unseen: true as const, unreadCount: unread } : {}) }
   })
 }
 

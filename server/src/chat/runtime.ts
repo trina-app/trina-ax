@@ -39,6 +39,7 @@ import { maskStoredTitles, placeholderTitle } from './title'
 import { hideKeysInStoredMemories, redactorFor } from '../integrations/connections/redact'
 import { findKeysInOldFiles } from '../integrations/connections/file-scan'
 import { memoryLines } from './prompt'
+import { noteSharedMessage, type Ring } from './message-notices'
 import { isInternalChat } from './internal-chats'
 import { unsharePeopleChecked } from './people-guard'
 import { Audiences, chatView, chatWriters, isSharedRow, labelledTranscript, peopleFor, messageFor, recordOlderAnswers, severalAuthors, unshareUncheckedChats } from './shared'
@@ -967,7 +968,7 @@ export class ChatRuntime {
     timeZone?: string
     /** `parentId` a function: read inside the admission transaction from the chat `chat()` returned (a scheduled run that
      * continues an existing chat under its newest answer) */
-    user?: { parentId: string | null | ((chat: ChatRow) => string | null); content: string; attachments: Attachment[]; clientMessageId: string }
+    user?: { parentId: string | null | ((chat: ChatRow) => string | null); content: string; attachments: Attachment[]; clientMessageId: string; mentions?: readonly string[] }
     answerTo?: MessageRow
     scheduled?: { id: string; dueAt: string; commit(chatId: string): void }
     /** the user message answers the AI's open questions (chat/open-questions.ts): the engine message names them */
@@ -1038,6 +1039,10 @@ export class ChatRuntime {
     const asSender = (id: string) => messageFor(this, chat, this.store.messageRow(id)!, o.userId, o.locale)
     const userMessage = o.user ? asSender(userMessageId) : null
     const assistantMessage = asSender(assistantId)
+    // a person's message in a chat shared with people tells the others (chat/message-notices.ts), before the chat.updated
+    // below carries their unread number. Only what the person wrote: never a scheduled run's, the answer to the AI's
+    // question or card (`answered`: their pick, written for the AI), or a question asked from Slack
+    const told = o.user && !o.scheduled && !o.answered?.length && o.clientKind !== 'slack' ? noteSharedMessage(this.ctx, chat, userMessageId, o.userId, o.user.mentions) : undefined
     // Admission is already durable. Notification failure must not leave it outside the live queue.
     this.enqueue(spec)
     try {
@@ -1046,7 +1051,7 @@ export class ChatRuntime {
     if (userMessage) this.hub.publish(o.userId, { type: 'message.created', data: { chatId: chat.id, message: userMessage } })
     this.hub.publish(o.userId, { type: 'message.created', data: { chatId: chat.id, message: assistantMessage } })
     } finally { this.schedule() }
-    this.publishChat(o.userId, chat.id, 'updated')
+    this.publishChat(o.userId, chat.id, 'updated', told?.size ? { notices: told } : {})
     return { userMessage, assistantMessage: asSender(assistantId), turnId,
       queuePosition: this.queuePosition(turnId) ?? 0, queueEpoch: this.queueEpoch, queueRevision: this.queueRevision }
   }
@@ -1167,7 +1172,7 @@ export class ChatRuntime {
    * opened, a long answer ended). `window`: to that window only (a card only it shows opened there; the chat itself is
    * the same as everyone's).
    */
-  publishChat(userId: string, chatId: string, change: 'created' | 'updated' | 'deleted' | 'restored' | 'purged', o: { notify?: ChatNotify; window?: string } = {}) {
+  publishChat(userId: string, chatId: string, change: 'created' | 'updated' | 'deleted' | 'restored' | 'purged', o: { notify?: ChatNotify; window?: string; notices?: ReadonlyMap<string, Ring> } = {}) {
     // a draft the server runs for its own work (internal-chats.ts) is not in the person's chat list: no event for it
     if (isInternalChat(this.db, chatId)) return
     const r = change === 'purged' ? null : this.store.chatRow(chatId)
@@ -1188,7 +1193,10 @@ export class ChatRuntime {
       for (const uid of aud.ofChat(r)) {
         if (o.window && uid !== userId) continue
         const people = writers ? new Map([[chatId, peopleFor(writers, uid)]]) : undefined
-        const ev = { type: 'chat.updated' as const, data: { chatId, change, chat: chatView(this, uid, r, { aud, hide, ...(people ? { people } : {}) }), ...(o.notify && uid === userId ? { notify: o.notify } : {}) } }
+        // `notice`: a person's message here gave them a notice that may ring (chat/message-notices.ts): the desktop app
+        // tells it and rings, as for a room's message
+        const notice = o.notices?.get(uid)
+        const ev = { type: 'chat.updated' as const, data: { chatId, change, chat: chatView(this, uid, r, { aud, hide, ...(people ? { people } : {}) }), ...(o.notify && uid === userId ? { notify: o.notify } : {}), ...(notice ? { notice } : {}) } }
         if (o.window) this.hub.publishTo(uid, o.window, ev)
         else this.hub.publish(uid, ev)
       }
