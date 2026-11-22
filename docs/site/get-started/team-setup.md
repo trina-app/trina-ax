@@ -25,24 +25,26 @@ The skills Trina AX prepared, each with **Example**: Company slide deck, Promo c
 **Choose a folder** with company documents. The AI suggests the ones the team can use from the file names, folders and dates only, and you tick what goes up. Nothing is uploaded until you press the button. Afterwards the AI can read them and offer folders to sort them into (**Sort them like this?**). One line says who will see the files.
 
 #### Team tools
-**Tools for your team** is one list: Notion, Slack and, where your server can connect them, Google Drive and Gmail.
+**Tools for your team** is one list: Notion, Higgsfield (AI images and video) and, where your server can connect them,
+Google Drive and Gmail.
 Each row offers one or both of two ways:
 
 - **Connect for the team** (the button on the right). You sign in once with one account, and the whole team uses
-  that one connection, like a shared mailbox everyone in a team can open. Notion opens Notion's own sign-in page in a
-  new window. Slack opens its page in Admin › Connected apps ([Slack](../use/slack.md)). Gmail opens the dialog
+  that one connection, like a shared mailbox everyone in a team can open. Notion and Higgsfield open the service's own
+  sign-in page in a new window; a Higgsfield team connection uses that one account's plan and credits. Gmail opens the dialog
   Admin › Connected apps uses: **Continue with Google**, sign in with the shared Google account (such as
   `sales@acme.com`), then pick who may use it. Google Drive opens a different one, **Share a Google Drive with the
   team**: the same sign-in, and you also choose which of that account's folders the team may use.
-- **Ask everyone to connect their own** (the switch under Notion's and the Google rows' line). Nothing is connected
+- **Ask everyone to connect their own** (the switch under each row's line). Nothing is connected
   now. The tool comes first in everyone's **Settings › Connectors**, marked **Team asks you to connect**, and each
   person signs in with their own account, the way each person adds their own Gmail on their own phone. It blocks
   nothing: anyone may still connect any tool, or none.
 
-![The Tools for your team step: Notion, Slack and Gmail, each with Connect for the team on the right; Notion and Gmail also have the switch Ask everyone to connect their own; Other tools and Do this later at the bottom](../images/setup/tools-step.webp "Tools for your team")
+![The Tools for your team step: Notion, Higgsfield and Gmail, each with Connect for the team on the right and the switch Ask everyone to connect their own under its line; Other tools and Do this later at the bottom](../images/setup/tools-step.webp "Tools for your team")
 
 After a team connection, the row says **Connected** (a Google row also names the shared account and who uses it).
-**Other tools** opens the full list, where each tool's page has the same switch. You change all of this later: team
+**Other tools** opens the full list, where each tool's page has the same switch. Slack is there too, and in
+**Admin › Connected apps** ([Slack](../use/slack.md)): it takes a few more steps, so it is not a row here. You change all of this later: team
 connections in **Admin › Connected apps**, the switch on each tool's page in **Settings › Connectors**. Nobody signs
 in with their own account on this step. On a phone this step is skipped.
 

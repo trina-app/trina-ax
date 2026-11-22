@@ -39,6 +39,7 @@ import { registerFileMoveTools, FILE_MOVE_TOOL_NAMES } from './file-moves'
 import { extractUrls, gateUrl, rememberUrls, TEXT as GATE_TEXT, type WebPageFailure } from './url-gate'
 import { redirectGuard, webEcho } from './connection-urls'
 import { acceptLanguage, precheckTarget, webFetch, wrapExternal, type FetchOptions } from './web-fetch'
+import { renderPage } from './page-render'
 import { teamDefaultLocale } from '../admin/settings'
 import { SAVE_URL_DESCRIPTION, saveUrl, type SaveUrlOptions } from './save-url'
 import { safeOpsEnabled } from '../safe-ops/runner'
@@ -57,7 +58,7 @@ function turnOf(ctx: AppContext, c: ToolCtx): { chatId: string; messageId: strin
   return { chatId: t.chat_id, messageId: t.message_id }
 }
 
-export function registerCTools(ctx: AppContext, o: { fetch?: FetchOptions; saveUrl?: SaveUrlOptions } = {}) {
+export function registerCTools(ctx: AppContext, o: { fetch?: FetchOptions; saveUrl?: SaveUrlOptions; pageRender?: boolean } = {}) {
   const reg = toolRegistry(ctx.files)
   if (reg.has('make_file')) return
   const c = componentC(ctx)
@@ -370,7 +371,11 @@ export function registerCTools(ctx: AppContext, o: { fetch?: FetchOptions; saveU
         } : redirects.check
         const r = await webFetch(a.url, { acceptLanguage: acceptLanguage(t.person?.locale ?? teamDefaultLocale(ctx.db)), ...o.fetch, blockedIps, maxChars: a.maxChars, offset: a.offset, pdftotext: ctx.engineConfig.pdftotext, onRedirect,
           // an Office file or a table from the web: read like a team file's text, the text layer only (no OCR of a stranger's file)
-          extract: (name, bytes) => extractText(name, bytes, { pandoc: ctx.engineConfig.pandoc, pdftotext: ctx.engineConfig.pdftotext, ocr: ctx.engineConfig.ocr, quarantine: ctx.files.quarantine, textLayerOnly: true }, t.signal), ...(t.person?.pages?.wantsHtml ? { keepHtml: true } : {}) })
+          extract: (name, bytes) => extractText(name, bytes, { pandoc: ctx.engineConfig.pandoc, pdftotext: ctx.engineConfig.pdftotext, ocr: ctx.engineConfig.ocr, quarantine: ctx.files.quarantine, textLayerOnly: true }, t.signal), ...(t.person?.pages?.wantsHtml ? { keepHtml: true } : {}),
+          // a company profile draft (the only turn with a scope): a page that shows almost no text without its scripts is
+          // drawn by them in the locked-down browser (tools/page-render.ts), and its sitemap's likely pages are listed.
+          // Not drawn with a test server's fetch hooks unless the test asks (o.pageRender): a browser per test page.
+          ...(scope ? { sitePages: true, ...((o.pageRender ?? !o.fetch?.testAllow) ? { render: (p: { url: string; html: string; contentType: string }) => renderPage({ ...p, acceptLanguage: acceptLanguage(t.person?.locale ?? teamDefaultLocale(ctx.db)), lookup: o.fetch?.lookup, testAllow: o.fetch?.testAllow, insecureTlsForTests: o.fetch?.insecureTlsForTests, blockedIps, workBase: ctx.config.dataDir, signal: t.signal }) } : {}) } : {}) })
         ctx.files.events.emit('external', { turnId: t.turnId, userId: t.user.id, source: 'web_fetch', url: r.url })
         // links on the page may be opened later in this chat without a card (rule ①: "an earlier web_fetch result"),
         // within the link budget, unless one carries what the AI sent before (an echo: always a card)

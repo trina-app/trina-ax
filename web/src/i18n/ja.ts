@@ -5544,7 +5544,6 @@ export const ja: Record<MessageKey, string> = {
   "welcome.tools.googleLine": "共有アカウント 1 つ、または各自のアカウント",
   "welcome.tools.googleTeamOn": "共有アカウント {account} · {who}",
   "welcome.tools.teamConnect": "チームで接続",
-  "welcome.tools.slackLine": "チーム全体でこの接続を一緒に使います · SlackでAIに質問できます",
   "welcome.tools.teamLine": "チーム全体でこの接続を一緒に使います",
   "welcome.tools.mcp": "ほかのツール",
   "welcome.done.makeCardNews": "カードニュースを作ってみる",
