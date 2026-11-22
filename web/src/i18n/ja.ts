@@ -952,6 +952,7 @@ export const ja: Record<MessageKey, string> = {
   'preview.notFound': "ファイルが見つからないか、アクセス権がありません。",
   'preview.tooLarge': "このファイルは大きすぎてプレビューできません（{size}）。ダウンロードして開いてください。",
   'preview.cantPlay': "このファイルはここでは再生できません。ダウンロードして開いてください。",
+  "preview.mediaMissing": "このファイルは開けません。削除されたか、ほかの人のマイファイルにあります。共有した人にチャットへの追加を頼んでください。",
   'preview.unsupported': "この形式はプレビューできません。ダウンロードして開いてください。",
   'preview.truncated': "ファイルの先頭部分のみ表示しています。",
   "preview.empty": "このファイルは空です。",

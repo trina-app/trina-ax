@@ -951,6 +951,7 @@ export const zh: Record<MessageKey, string> = {
   "preview.notFound": "找不到此文件，或你没有访问权限。",
   "preview.tooLarge": "此文件太大，无法预览（{size}）。请下载后打开。",
   'preview.cantPlay': "此文件无法在这里播放。请下载后打开。",
+  "preview.mediaMissing": "无法打开这个文件：它已被删除，或在别人的个人文件里。请让分享的人把它加到对话里。",
   "hwp.disabled": "此团队未开启 HWP 预览。你仍然可以下载原文件，并让 AI 读取其中的文字。",
   "hwp.viewer": "HWP 文档预览",
   "hwp.pages": "翻页",

@@ -7,6 +7,9 @@
 // 1A, moving into a project), Inbox notices (at most one a day per chat and person), "Hide from my list" and the
 // rollback guard. People: alice (marketing) shares; bob (finance) by name; erin is in marketing; carol is an admin and
 // dana the owner, neither in it.
+import fs from 'node:fs'
+import path from 'node:path'
+import crypto from 'node:crypto'
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from 'bun:test'
 import { API, ApiError, type PutChatAudienceResult } from '@mycel/shared/api'
 import { startHarness, type Harness, type TestSocket } from '../lib/b-harness'
@@ -468,6 +471,20 @@ describe('QA scenario P1s (TC-7262, TC-7277, TC-7286)', () => {
     const c = await put('alice', id, [bob])
     if (c.status !== 'confirm') throw new Error('expected a confirm')
     expect((c.check.madeFiles ?? []).map((f) => f.name)).toEqual(['quote.docx'])
+  })
+
+  test('TC-7261: a file the chat handed over from its work folder (a box_shell video) is offered with the chat\'s files', async () => {
+    const id = await newChat('alice', 'promo video')
+    const turn = (db().query('SELECT id FROM turns WHERE chat_id = ? ORDER BY rowid DESC LIMIT 1').get(id) as { id: string }).id
+    const rel = 'users/alice/promo/treesoop-promo-web.mp4'
+    fs.mkdirSync(path.join(h.team, 'users/alice/promo'), { recursive: true })
+    const bytes = Buffer.from('fake mp4 bytes')
+    fs.writeFileSync(path.join(h.team, rel), bytes)
+    db().query("INSERT INTO file_events (turn_id, user_id, path, action, size, sha256, detail, at) VALUES (?, 'alice', ?, 'create', ?, ?, ?, ?)")
+      .run(turn, rel, bytes.length, crypto.createHash('sha256').update(bytes).digest('hex'), JSON.stringify({ tool: 'save_work_file', from: 'work folder' }), new Date().toISOString())
+    const c = await put('alice', id, [bob])
+    if (c.status !== 'confirm') throw new Error('expected a confirm')
+    expect((c.check.madeFiles ?? []).map((f) => f.name)).toContain('treesoop-promo-web.mp4')
   })
 
   test('TC-7286: a My files attachment in a shared chat goes in as a copy everyone opens; a file everyone reads stays a reference', async () => {

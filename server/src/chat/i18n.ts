@@ -622,4 +622,5 @@ export { stepLabel } from '@mycel/shared'
 
 /** Words that name the asker's own folder itself in their message, in every language (chat/turn.ts sharedOutput: a new
  * file stays in their own folder when they asked for it there, QA TC-7279) */
-export const OWN_FOLDER_WORDS: readonly string[] = ['my files', 'my folder', '내 파일', '내 폴더', '내파일', '내폴더', 'マイファイル', '自分のファイル', '我的文件', 'mis archivos', 'mi carpeta', 'file saya', 'folder saya']
+const OWN_FOLDER_TEXT = t('내 파일|내 폴더|내파일|내폴더', 'my files|my folder', 'file saya|folder saya', 'マイファイル|自分のファイル', 'mis archivos|mi carpeta', '我的文件')
+export const OWN_FOLDER_WORDS: readonly string[] = Object.values(OWN_FOLDER_TEXT).flatMap((x) => String(x).split('|'))

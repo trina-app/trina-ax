@@ -973,6 +973,7 @@ export const ko = {
   'preview.notFound': '파일을 찾을 수 없거나 볼 권한이 없어요.',
   'preview.tooLarge': '파일이 커서({size}) 미리 볼 수 없어요. 내려받아서 열어 주세요.',
   'preview.cantPlay': "이 파일은 여기서 재생할 수 없어요. 내려받아서 열어 주세요.",
+  "preview.mediaMissing": "이 파일을 열 수 없어요. 지워졌거나 다른 사람의 내 파일에 있어요. 공유한 사람에게 채팅에 추가해 달라고 요청하세요.",
   'hwp.disabled': "이 팀에서는 한글 미리보기가 켜져 있지 않아요. 원본 다운로드와 AI의 글자 읽기는 계속 쓸 수 있어요.",
   'hwp.viewer': "한글 문서 미리보기",
   'hwp.pages': "페이지 이동",

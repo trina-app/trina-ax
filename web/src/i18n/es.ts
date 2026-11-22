@@ -952,6 +952,7 @@ export const es: Record<MessageKey, string> = {
   'preview.notFound': "No se encuentra el archivo o no tiene acceso a él.",
   'preview.tooLarge': "Este archivo es demasiado grande para la vista previa ({size}). Descárguelo para abrirlo.",
   'preview.cantPlay': "Este archivo no se puede reproducir aquí. Descárguelo para abrirlo.",
+  "preview.mediaMissing": "No puede abrir este archivo: se eliminó o está en los archivos de otra persona. Pida a quien lo compartió que lo añada al chat.",
   'preview.unsupported': "Este formato no admite vista previa. Descárguelo para abrirlo.",
   'preview.truncated': "Solo se muestra el principio del archivo.",
   "preview.empty": "Este archivo está vacío.",

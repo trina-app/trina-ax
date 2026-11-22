@@ -974,6 +974,7 @@ export const id: Record<MessageKey, string> = {
   'preview.notFound': 'File tidak ditemukan atau Anda tidak punya akses.',
   'preview.tooLarge': 'File terlalu besar untuk dipratinjau ({size}). Unduh untuk membukanya.',
   'preview.cantPlay': "File ini tidak bisa diputar di sini. Unduh untuk membukanya.",
+  "preview.mediaMissing": "Anda tidak bisa membuka file ini: file sudah dihapus, atau ada di file milik orang lain. Minta orang yang membagikannya untuk menambahkannya ke obrolan.",
   'hwp.disabled': "Pratinjau Hangul belum diaktifkan untuk tim ini. Anda tetap dapat mengunduh berkas asli dan meminta AI membaca teksnya.",
   'hwp.viewer': "Pratinjau dokumen Hangul",
   'hwp.pages': "Navigasi halaman",

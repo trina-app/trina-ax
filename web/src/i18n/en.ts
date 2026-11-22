@@ -974,6 +974,7 @@ export const en: Record<MessageKey, string> = {
   'preview.notFound': "The file can't be found, or you don't have access to it.",
   'preview.tooLarge': 'This file is too large to preview ({size}). Download it to open it.',
   'preview.cantPlay': "This file can't be played here. Download it to open it.",
+  "preview.mediaMissing": "You can't open this file: it was removed, or it's in someone's own files. Ask the person who shared it to add it to the chat.",
   'hwp.disabled': "Hangul preview is not turned on for this team. You can still download the original and ask AI to read its text.",
   'hwp.viewer': "Hangul document preview",
   'hwp.pages': "Page navigation",

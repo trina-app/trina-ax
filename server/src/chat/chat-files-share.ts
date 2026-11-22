@@ -44,7 +44,7 @@ export type StoredAttachment = Attachment & { fromSha256?: string }
 
 /** (the client's view of a copy: chat/store.ts copyForViewer) */
 export { copyForViewer } from './store'
-import { madeInChat } from './shared-actions'
+import { handedOverInChat, madeInChat } from './shared-actions'
 import { isPeopleRow, peopleAudience } from './chat-audience'
 import { answerRecords, chatNodes, withheldAmong, withheldFrom } from './shared-answers'
 
@@ -142,7 +142,8 @@ export function madeFilesOf(ctx: AppContext, chat: { id: string; user_id: string
       if (!rel.startsWith(own) || rel.split('/').some((s) => !s || s.startsWith('.') || s === '..')) continue
       if (instructionLike(rel)) continue
       if (o.only === undefined && helper(rel)) continue
-      if (!madeInChat(db, chat.id, creator.id, rel)) continue
+      // written by the chat, or handed over from its work folder (a box_shell video: QA TC-7261)
+      if (!madeInChat(db, chat.id, creator.id, rel) && !handedOverInChat(db, chat.id, creator.id, rel)) continue
       const last = db.query("SELECT sha256, size FROM file_events WHERE path = ? AND action IN ('create', 'update') ORDER BY id DESC LIMIT 1").get(rel) as { sha256: string | null; size: number | null } | null
       if (!last?.sha256 || !/^[0-9a-f]{64}$/.test(last.sha256)) continue
       const made = db.query("SELECT id, turn_id FROM file_events WHERE path = ? AND action = 'create' ORDER BY id DESC LIMIT 1").get(rel) as { id: number; turn_id: string | null } | null
