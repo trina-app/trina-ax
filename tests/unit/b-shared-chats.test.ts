@@ -915,10 +915,9 @@ describe('project skills in a shared chat', () => {
       // the skill tool for alice: hers too, after the card
       const four = await askWithCard('alice', chat.id, fake({ tool: 'skill', args: { name: 'brief' }, sayResult: true }), 'share')
       expect(four.done.content).toContain('MARKETING-BRIEF-STEPS')
-      // and move_skill and delete_files are not offered in a shared chat
+      // and move_skill is not offered in a shared chat (delete_files is, for the AI's own files only: QA TC-7332)
       const five = await ask('alice', chat.id, fake({ echo: 'tools' }))
       expect(five.done.content.split(',')).not.toContain('move_skill')
-      expect(five.done.content.split(',')).not.toContain('delete_files')
     } finally {
       fs.rmSync(path.join(h.team, 'groups/marketing/skills'), { recursive: true, force: true })
       fs.rmSync(path.join(h.team, 'projects/falcon/skills'), { recursive: true, force: true })

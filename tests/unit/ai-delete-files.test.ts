@@ -665,8 +665,8 @@ describe('refused up front, before any card', () => {
     for (const [k, text] of Object.entries(DELETE_REFUSAL)) expect({ k, ok: text.startsWith('Nothing was moved to the trash') }).toEqual({ k, ok: true })
   })
 
-  test('never offered where there is no card: rooms, shared chats, confidential chats, sub-agents, the connector', () => {
-    expect(SHARED_TOOLS.has('delete_files')).toBe(false)
+  test('never offered where there is no card: rooms, confidential chats, sub-agents, the connector (a shared chat has it for the AI\'s own files only: ai-scratch-files-shared.test.ts)', () => {
+    expect(SHARED_TOOLS.has('delete_files')).toBe(true)
     expect(localTool('delete_files')).toBe(false)
     expect(PARENT_ONLY_TOOLS.has('delete_files')).toBe(true)
     expect(Object.keys(FILE_TOOLS)).not.toContain('delete_files')
