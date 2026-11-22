@@ -69,7 +69,12 @@ export async function fixesAfterPost(exec: Exec, p: PreparedShare, attached: Rea
   const shared = !!exec.rt.store.chatRow(exec.spec.chatId)?.people_shared_at
   const label = (f: StepFix) => f.kind === 'let_view' ? tr('fixButtonLetView', L) : f.kind === 'ask_owner' && f.owner && !shared ? tr('fixButtonAskOwner', L, { owner: f.owner }) : f.kind === 'ask_owner' && f.owner ? 'the button that asks the file\'s owner' : tr('fixButtonAskAdmin', L)
   const buttons = [...new Set(fixes.map((f) => `"${label(f)}"`))].join(' and ')
-  return { fixes, note: `${n} ${n === 1 ? 'person' : 'people'} there cannot open ${fixes.length === 1 && !fixes[0]!.moreFiles ? 'the file' : 'some of the files'} yet. The user has a button under your answer for it, labelled ${buttons}; tell them so in one short sentence, calling the button by exactly that label, without naming the people who cannot open it.` }
+  // a team-path link that stays a link (an ask to its owner or an admin): the teammates there who cannot open it can ask
+  // for it themselves from the link in the room (rooms/file-ask.ts, QA S-120); a file they have only by its /f/ link,
+  // or a let_view the person grants, needs no such line
+  const selfAsk = fixes.some((f) => f.kind === 'ask_owner') && gaps.some((g) => 'path' in g)
+    ? ' Teammates there who cannot open it can also ask for access themselves: the link in the room offers "Ask to view".' : ''
+  return { fixes, note: `${n} ${n === 1 ? 'person' : 'people'} there cannot open ${fixes.length === 1 && !fixes[0]!.moreFiles ? 'the file' : 'some of the files'} yet. The user has a button under your answer for it, labelled ${buttons}; tell them so in one short sentence, calling the button by exactly that label, without naming the people who cannot open it.${selfAsk}` }
 }
 
 /** The /f/<id> links in a post's text to files the sender opens now, with the room's members (not the sender) who

@@ -82,7 +82,7 @@ import type { TurnExec } from './turn'
 import { cardTextWords, fileWords, formatsSafely, noBoldMarks, othersWordsCard, whyFirst, plainQuote, POST_FILE_DESCRIPTION, POST_NO } from './share-words'
 import { fileGapsOf, fixesAfterPost, grantedLinksCant, grantSourceCant } from './share-next-steps'
 import { shareFixesOf, type ViewPlan } from '../files/share-fixes'
-import { nameOf } from '../files/access-routes'
+import { accessRouteFor, nameOf } from '../files/access-routes'
 import { isStaff, loadPrincipal } from '../policy/access'
 import { fileSharesOf } from '../files/shares'
 import { ownPaste } from './own-paste'
@@ -517,11 +517,19 @@ export function postToRoomTool(exec: TurnExec): Tool {
         // not counted twice
         const covered = new Map(view ? view.paths.map((p, i) => [p, new Set(view.files[i]!.people)]) : [])
         const left = first.check.rows.filter((r) => !(r.rel && attached.has(r.rel))).map((r) => r.unable.filter((u) => !(r.rel && covered.get(r.rel)?.has(u)))).filter((u) => u.length > 0)
-        // names only where saying who cannot open a file tells the asker nothing about someone else's file: every file
-        // concerned is one they may share (the view plan's set), or they are an admin; otherwise a count (review of #1235)
+        // names only where saying who cannot open a file tells the asker nothing about someone else's private choice:
+        // every file concerned is one they may share (the view plan's set), or one in a team folder (shared/, groups/…, a
+        // team project) that the folder's own access lets them read, or they are an admin; otherwise a count (review of
+        // #1235: a teammate's personal file, or one the asker has only through a one-by-one share). Who opens a team
+        // folder is the folder's rule, which the room's member list shows anyway (QA S-120,
+        // docs/decisions/20261122-room-link-ask-and-team-file-names.md)
         // (the staff check every admin rule uses: an active account, a guest never counts: policy/access.ts isStaff)
         const admin = (() => { const me = loadPrincipal(db, spec.userId); return !!me && isStaff(me) })()
-        const nameable = (rels: (string | null)[]) => admin || rels.every((rel) => !!rel && canShareOf(rel))
+        const teamFolderRead = (rel: string) => {
+          if (rel.split('/')[0] === 'users') return false
+          try { const r = accessRouteFor(ctx, spec.userId, rel); return r?.kind === 'folder' || r?.kind === 'staff' } catch { return false }
+        }
+        const nameable = (rels: (string | null)[]) => admin || rels.every((rel) => !!rel && (canShareOf(rel) || teamFolderRead(rel)))
         const names = (ids: Iterable<string>) => [...ids].map((id) => nameOf(ctx, id) ?? '').filter(Boolean)
         const leftRows = first.check.rows.filter((r) => !(r.rel && attached.has(r.rel)) && r.unable.some((u) => !(r.rel && covered.get(r.rel)?.has(u))))
         const leftIds = new Set(left.flat())
