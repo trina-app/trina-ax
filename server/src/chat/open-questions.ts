@@ -433,8 +433,8 @@ const PLACE_COUNTS: readonly RegExp[] = (() => {
   const out = new Map<string, RegExp>()
   for (const L of Object.keys(TEXT.postRoomPlaceFiles) as Locale[]) {
     for (const n of ['1', '2']) {
-      const s = tr('postRoomPlaceFiles', L, { place: '', n })
-      const src = `^${esc(s).replace('', '(.+)').replace(n, '\\d+')}$`
+      const s = tr('postRoomPlaceFiles', L, { place: '\uE000', n })
+      const src = `^${esc(s).replace('\uE000', '(.+)').replace(n, '\\d+')}$`
       out.set(src, new RegExp(src, 'u'))
     }
   }

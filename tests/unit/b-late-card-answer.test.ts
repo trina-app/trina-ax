@@ -329,6 +329,13 @@ describe('the rules, alone', () => {
     const en = (places: string): TurnRequest => ({ ...pressed, question: `Send to Bob Lee in a new 1:1 chat?\n\n1 person there can't see some of the sources of this (${places}).` })
     expect(sameCard(en('My folder, Teams › Sales'), en('1 file in My folder, 3 files in Teams › Sales'))).toBe(true)
     expect(sameCard(en('My folder'), en('1 file in Teams › Sales'))).toBe(false)
+    const ja = (places: string): TurnRequest => ({ ...pressed, question: `送りますか？\n\n1人はこの内容の一部の出典（${places}）を見られません。` })
+    expect(sameCard(ja('自分のフォルダー'), ja('自分のフォルダーのファイル2件'))).toBe(true)
+    expect(sameCard(ja('自分のフォルダー'), ja('チーム › 営業のファイル1件'))).toBe(false)
+    const es = (places: string): TurnRequest => ({ ...pressed, question: `¿Enviar?\n\n1 persona no puede ver parte de las fuentes de esto (${places}).` })
+    expect(sameCard(es('Mi carpeta'), es('1 archivo en Mi carpeta'))).toBe(true)
+    expect(sameCard(es('Mi carpeta'), es('2 archivos en Mi carpeta'))).toBe(true)
+    expect(sameCard(es('Mi carpeta'), es('2 archivos en Ventas'))).toBe(false)
   })
 
   test('the connected-service tools that never wait are the provider\'s own names', () => {
