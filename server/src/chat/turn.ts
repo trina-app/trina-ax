@@ -19,6 +19,8 @@ import crypto from 'node:crypto'
 import { chatPlaceWords, CLAUDE_AGENT_TOOL_NAMES, FILE_STEP_VERB, FILE_TOOLS, isUuid7, readableToolName, shellKind, shellWords, STEP_WORDS_OTHER, TEAM_TOOL_PREFIX, type AgentStats, type EngineEvent } from '@mycel/shared'
 import { recordSent, webEcho } from '../tools/connection-urls'
 import { carriesAddress, normUrl, rememberUrls } from '../tools/url-gate'
+import { webAllowAll } from '../tools/web-allow-all'
+import { ownFolderUndoable } from '../devenv/track'
 import { GUEST_ANSWER_STEP_LIMIT, UNATTENDED_ANSWER_STEP_LIMIT } from '@mycel/shared/api'
 import { FILE_SUMMARY_LIST_MAX } from '@mycel/shared/api'
 import type { ApiErrorBody, Attachment, ConfirmDetail as ConfirmDetailT, EngineId, FileChange, FileChangeSummary, Locale, MessageStatus, OpenTurnRequest, Step, TurnRequest, TurnStopReason } from '@mycel/shared/api'
@@ -3159,13 +3161,28 @@ export class TurnExec {
     // a tool with its own card asks there alone, every time, with this card's line (ownCard); after the rule above, so a
     // move or copy of a skill or instruction file is still refused
     if (this.ownCard(tool) && !this.readsOnly(tool, input)) return null
-    // a dev-environment command keeps this card after a room read, also in the person's own chat and a ✦ side chat: a room
-    // message could steer a command that changes the person's own files, and runs keep no versions of those yet
-    // (docs/decisions/20261122-ask-less-side-chat-runs.md, owner decision 11-22)
     let args = ''
     try { args = JSON.stringify(input ?? null) } catch { args = String(input) }
     const key = `${tool}\u0000${args}`
-    if (this.roomAllowed.has(key)) return null
+    const command = tool === 'box_shell' && input && typeof input === 'object' ? (input as { command?: unknown }).command : undefined
+    if (this.roomAllowed.has(key)) {
+      // the person allowed it on the card: not a command that goes on the promise of undo
+      if (typeof command === 'string' && o.main !== false) this.boxUndo.delete(command)
+      return null
+    }
+    // a dev-environment command in the person's own chat with no project (a ✦ side chat too) whose changes in the own
+    // folder can all be undone (versions, the trash: devenv/track.ts withOwnFolderWindow) goes on without the room card
+    // (docs/decisions/20261122-ask-less-side-chat-runs.md rule 2); its window checks again before it runs and puts back
+    // what the person's AI follows. Anything else keeps the card
+    if (typeof command === 'string' && o.main !== false) {
+      if (this.ownBoxRun(input) && ownFolderUndoable(this.rt.ctx, this.spec.userId).ok) {
+        this.boxUndo.add(command)
+        this.coverStep(tool, 'ownUndoStep')
+        return null
+      }
+      // asked on the card: not a command that went on the promise of undo
+      this.boxUndo.delete(command)
+    }
     // a scheduled run that read a room: what its task's card allowed goes on without the card nobody answers (a new file
     // in its save folder, a send to a pinned connection: chat/schedule-cover.ts); `send` is the connection a call writes
     // to (TurnTool.sendsTo). A new file in the person's own folder is the next rule's, in a run too
@@ -3509,6 +3526,34 @@ export class TurnExec {
    */
 
   /**
+   * After a room read, may a dev-environment command go on without the room card once its own-folder changes can be
+   * undone (docs/decisions/20261122-ask-less-side-chat-runs.md rule 2)? Only where what it shows and changes reaches
+   * nobody but the person: the person's own live chat (a ✦ side chat too), not shared with anyone, not a restricted or
+   * scheduled run, not a guest, not a confidential chat, and the commands run in the chat's own work folder (no project:
+   * a project folder is the team's). Such a run writes only the chat's work folder and the person's own folder. A
+   * foreground command only (a job or a dev server writes after the call's window). The card stays when the command
+   * itself uses the network (shellUsesNetwork) or "Allow all websites" is on for the person, so a room message cannot
+   * send the person's files out without a card; and for the rest of the answer once a command's change to what the AI
+   * follows was put back (boxUndone). Fails closed.
+   */
+  private ownBoxRun(input: unknown): boolean {
+    try {
+      const d = this.devEnv
+      if (!d || d.project || d.shared || this.shared || this.restricted || this.boxUndone || isGuestUser(this.rt.db, this.spec.userId)) return false
+      const a = input && typeof input === 'object' ? input as { command?: unknown; job?: unknown; background?: unknown } : null
+      if (!a || typeof a.command !== 'string' || a.job === true || a.background === true) return false
+      if (shellUsesNetwork(a.command) || webAllowAll(this.rt.db, this.spec.userId)) return false
+      if (!LIVE_CLIENTS.has(this.spec.clientKind ?? '')) return false
+      return !confidentialChat(this.rt.db, this.spec.chatId)
+    } catch { return false }
+  }
+  /** the commands that went on without the room card because their changes can be undone (ownBoxRun); box_shell's
+   * window checks that again (devenv/tool.ts BoxShellHost.mustUndo) */
+  readonly boxUndo = new Set<string>()
+  /** a command that went without the card changed what the AI follows and it was put back: the card for the rest */
+  boxUndone = false
+
+  /**
    * copy_files of this chat's own places (chat:work/, chat:files/) after a room read (chat/places-copy.ts roomCard, QA
    * TC-f2-c02): true when every target (`targets`: the paths the copies land at) is a NEW file in the person's own folder
    * that write's exception lets go without a card (ownFolderPlace: nobody else reads it; never skills, instruction files,
@@ -3699,7 +3744,7 @@ export class TurnExec {
 
   /** The step of a call let through without a card says why ("항상 허용으로 진행", "이번만 허용으로 진행", "내 폴더라 묻지 않고
    * 저장", "이 대화에서 허용한 대로 진행"). */
-  private coverStep(tool: string, why: 'roomGrantStep' | 'roomOnceStep' | 'ownFolderStep' | 'chatOnceStep') {
+  private coverStep(tool: string, why: 'roomGrantStep' | 'roomOnceStep' | 'ownFolderStep' | 'ownUndoStep' | 'chatOnceStep') {
     const said = tr(why, this.spec.locale)
     // a tool that labels its own step patches it once per call (save_room_file): the words go with that patch
     if (SELF_LABELLED_TOOLS.has(tool)) { this.stepSuffixes.set(tool, [...(this.stepSuffixes.get(tool) ?? []), said]); return }

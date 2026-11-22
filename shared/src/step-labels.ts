@@ -243,6 +243,9 @@ export const STEP_TEXT = {
   scheduleCoverStep: t('예약 작업에서 허용', 'allowed on the scheduled task', 'diizinkan di tugas terjadwal', "定期タスクで許可", "permitido en la tarea programada", "已在定时任务中允许"),
   /** the step of a call that made a new file in the person's own folder after a room read, with no card */
   ownFolderStep: t('내 폴더라 묻지 않고 저장', 'saved without asking: your own folder', 'disimpan tanpa bertanya: folder Anda sendiri', "自分のフォルダーなので確認せずに保存", "guardado sin preguntar: su propia carpeta", "未询问直接保存：你自己的文件夹"),
+  /** the step of a dev-environment command after a room read with no card: its changes in the person's own folder keep
+   * versions and go to the trash (server devenv/track.ts withOwnFolderWindow) */
+  ownUndoStep: t('내 폴더 변경은 되돌릴 수 있어 묻지 않고 실행', 'ran without asking: changes in your folder can be undone', 'dijalankan tanpa bertanya: perubahan di folder Anda bisa dibatalkan', "自分のフォルダーの変更は元に戻せるため確認せずに実行", "ejecutado sin preguntar: los cambios en su carpeta se pueden deshacer", "未询问直接运行：你文件夹里的更改可以撤销"),
   /** the step of a call the person allowed on a card for the same file or recipients earlier in this chat
    * (server chat/card-approvals.ts) */
   chatOnceStep: t('이 대화에서 허용한 대로 진행', 'allowed earlier in this chat', 'diizinkan sebelumnya di chat ini', "このチャットで許可済み", "permitido antes en este chat", "已在此聊天中允许过"),
@@ -253,7 +256,7 @@ export type StepTextKey = keyof typeof STEP_TEXT
 const TEXT_STEP_TOOLS = new Set(['ask_user', 'remember', 'forget', 'agent', 'refusal', 'demo_replay', 'engine', 'attachment'])
 
 /** The words that may end any step's line after " · ": why the call went on without a card (STEP_TEXT above). */
-export const COVER_STEP_KEYS = ['roomGrantStep', 'roomOnceStep', 'scheduleCoverStep', 'ownFolderStep', 'chatOnceStep'] as const satisfies readonly StepTextKey[]
+export const COVER_STEP_KEYS = ['roomGrantStep', 'roomOnceStep', 'scheduleCoverStep', 'ownFolderStep', 'ownUndoStep', 'chatOnceStep'] as const satisfies readonly StepTextKey[]
 
 /** The word for a step whose tool has no verb of its own, when only the words of a step may show. */
 export const STEP_WORDS_OTHER: T = t('작업', 'Step', 'Langkah', "ステップ", "Paso", "步骤")
