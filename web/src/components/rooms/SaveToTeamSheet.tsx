@@ -11,6 +11,7 @@ import clsx from 'clsx'
 import { useEffect, useState } from 'react'
 import type { RoomSavePlan } from '@mycel/shared/api'
 import { api, API, errorText } from '../../lib/api'
+import { sendWidening, widenedBy } from '../../lib/bulkFiles'
 import { useFolderWords } from '../../lib/folderLabels'
 import { filesToSave, idsToSend, leaderOf, saveRefusalKey, saveSummary, somePersonal, startFolder, startTicks } from '../../lib/roomSave'
 import { formatSize } from '../../lib/format'
@@ -18,7 +19,7 @@ import { useLocale, useT } from '../../i18n'
 import { useRoomSaves } from '../../store/roomSaves'
 import { toast } from '../../store/ui'
 import FolderPicker from '../FolderPicker'
-import { Button, ErrorNote, Modal, Skeleton } from '../ui'
+import { Button, confirmDialog, ErrorNote, Modal, Skeleton } from '../ui'
 
 type Place = { path: string; why: 'suggested' | 'recent' | 'picked'; outside: number }
 
@@ -84,7 +85,11 @@ function Sheet({ roomId, fileIds }: { roomId: string; fileIds: string[] }) {
     setBusy(true)
     setError(null)
     try {
-      const r = await api.call(API.saveRoomFilesToTeam, { params: { id: roomId }, body: { fileIds: sending, folder: place.path } })
+      // people outside the conversation can see the folder (QA TC-ask2-6): asked once with how many, then sent confirmed
+      const r = await sendWidening(
+        (confirm) => api.call(API.saveRoomFilesToTeam, { params: { id: roomId }, body: { fileIds: sending, folder: place.path, askWiden: true, ...(confirm ? { confirm: true } : {}) } }),
+        (n) => confirmDialog({ title: t('rooms.save.widenTitle'), body: t('rooms.save.widenBody', { n }), confirm: t('common.save') }),
+      )
       useRoomSaves.getState().put(roomId, r.saved)
       // honest about what happened: identical files are one copy, a different file of the name kept its place
       const { same } = saveSummary(r.saved)
@@ -92,6 +97,11 @@ function Sheet({ roomId, fileIds }: { roomId: string; fileIds: string[] }) {
       toast({ level: 'success', text: t('rooms.save.saved', { folder: words.path(place.path, ' › ') }), detail: detail || undefined })
       close()
     } catch (e) {
+      // a no to that question: nothing saved, the sheet stays as it was
+      if (widenedBy(e) !== null) {
+        setBusy(false)
+        return
+      }
       const key = saveRefusalKey(e)
       setError(key ? t(key) : errorText(e, locale, t('rooms.save.failed')))
       setBusy(false)

@@ -331,9 +331,10 @@ describe('a turn on a small local model (fake OpenAI-compatible server)', () => 
 
   test('the request fits the model: instructions, tools and history, with room for the answer; the chat says why', async () => {
     ctx = 32_768
-    // messages of about 2,000 tokens: when the tool list fills its whole share (35%, as on Linux CI, where tools were
-    // left out), a 32k model has about 3,500 tokens for history, so the newest one still fits and all three do not
-    const chat = await chatWithHistory(1_600)
+    // messages of about 1,250 tokens: when the tool list fills its whole share (35%, as on Linux CI, where tools were
+    // left out), a 32k model has room for the newest one and not for all three (2,000-token messages stopped fitting once
+    // the instructions grew in batch 20261122-j)
+    const chat = await chatWithHistory(1_000)
     requests.length = 0
     const { done } = await ask(h, alice, 'alice', chat.id, 'what was the first word?')
     const r = requests.at(-1)!

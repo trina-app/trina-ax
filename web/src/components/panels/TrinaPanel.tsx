@@ -21,7 +21,7 @@ import { aiName } from '../../lib/tabs'
 import { useSkillsWaiting } from '../../store/skillsWaiting'
 import { useUi } from '../../store/ui'
 import { useChatPeek } from '../nav/ChatItem'
-import { HistoryList, RecentsMenu, useRecentsView, viewWords, DEFAULT_RECENTS_VIEW } from '../nav/HistoryList'
+import { HistoryList, RecentsMenu, useRecentsView, viewWords } from '../nav/HistoryList'
 import { CountPill } from '../CountPill'
 import { Tooltip } from '../Tooltip'
 import { TrinaList } from './TrinaList'
@@ -52,7 +52,7 @@ export function TrinaPanel() {
       title={aiName(t)}
       testId="trina-panel"
       onScroll={peek.hide}
-      actions={<RecentsMenu view={view.view} onChange={view.setView} changed={filtered} />}
+      actions={<RecentsMenu view={view.view} onChange={view.setView} changed={filtered} base={view.base} />}
       top={
         <>
           <button type="button" className={`${panelRow} font-medium`} onClick={() => navigate('/')} data-testid="new-chat">
@@ -86,7 +86,7 @@ export function TrinaPanel() {
           <div className={`${headBox} pr-1 pl-3 text-meta text-faint`} data-testid="recents-filter-label">
             <span className="min-w-0 flex-1 truncate">{viewWords(view, t)}</span>
             <Tooltip label={t('sidebar.filter.clear')}>
-              <button type="button" onClick={() => view.setView(DEFAULT_RECENTS_VIEW)} aria-label={t('sidebar.filter.clear')} className="flex size-6 shrink-0 items-center justify-center rounded hover:bg-hover hover:text-ink" data-testid="recents-filter-clear">
+              <button type="button" onClick={() => view.setView(view.base)} aria-label={t('sidebar.filter.clear')} className="flex size-6 shrink-0 items-center justify-center rounded hover:bg-hover hover:text-ink" data-testid="recents-filter-clear">
                 <X size={12} aria-hidden />
               </button>
             </Tooltip>

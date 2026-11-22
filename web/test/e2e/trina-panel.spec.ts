@@ -38,7 +38,7 @@ const labels = (page: Page) => panel(page).getByTestId('trina-label')
 // a row's title (not its project's tag, chat-row-project, which is also cut with "…")
 const rowTitles = (scope: ReturnType<Page['locator']>) => scope.locator('li a[href^="/c/"] .truncate:not([data-testid])')
 
-test('order 고정 · 트리나 기록, one flat list with each project chat\'s project; the filter says "Group by: None" (QA TC-1080, TC-1085)', async ({ page }) => {
+test('order 고정 · 트리나 기록, by date with each project chat\'s project; the filter says "Group by: Date" (QA TC-1080, TC-1085; the owner, 2026-11-22)', async ({ page }) => {
   await start(page)
   const launch = await project(page, 'Acme launch')
   const pinned = await chat(page, 'Pinned plan')
@@ -58,10 +58,12 @@ test('order 고정 · 트리나 기록, one flat list with each project chat\'s 
   await expect(other.getByTestId('chat-row-project')).toHaveText(['Acme launch'])
   await expect(other.locator('li').filter({ hasText: 'Launch plan' }).getByTestId('chat-row-project')).toHaveText('Acme launch')
   await expect(p.getByTestId('history-group')).toHaveCount(0)
-  // the filter's menu says the same: Group by None, nothing changed (no dot)
+  // by date (docs/decisions/20261122-history-view-per-person.md): today's chats under one folding header
+  await expect(other.getByTestId('history-date')).toHaveCount(1)
+  // the filter's menu says the same: Group by Date, nothing changed (no dot)
   await expect(p.getByTestId('recents-filter-dot')).toHaveCount(0)
   await p.getByTestId('recents-filter').click()
-  await expect(page.getByTestId('recents-view-group')).toContainText(t['sidebar.group.none'])
+  await expect(page.getByTestId('recents-view-group')).toContainText(t['sidebar.group.date'])
   await page.keyboard.press('Escape')
   // no folders, no bottom block
   for (const id of ['trina-all-projects', 'trina-new-project', 'trina-folders', 'trina-panel-more', 'ai-chats-all']) await expect(p.getByTestId(id)).toHaveCount(0)
@@ -215,7 +217,7 @@ test('opened on 대화 or 파일 first, 트리나 already shows its mark for uns
 })
 
 // UX review S2: the waiting chat sat under six project groups, out of sight
-test('a waiting chat: "답을 기다려요 N" on top of the list and the rail\'s "?" open it; 예약 작업 · 팀 스킬 stay in sight on top', async ({ page }) => {
+test('a waiting chat: the rail\'s "?" opens it, no extra row on top of the list; 예약 작업 · 팀 스킬 stay in sight on top', async ({ page }) => {
   await start(page)
   for (const n of [1, 2, 3, 4, 5, 6]) await chat(page, `Plan ${n}`, await project(page, `Acme ${n}`))
   const waits = await chat(page, 'Which template?')
@@ -232,21 +234,12 @@ test('a waiting chat: "답을 기다려요 N" on top of the list and the rail\'s
   await page.getByTestId('rail-ai').click()
   await expect(page).toHaveURL(new RegExp(`/c/${waits}$`))
   await expect(panel(page).locator(`li[data-chat-id="${waits}"]`)).toBeInViewport()
-  // the one row on top says how many wait and opens the first
+  // no row or group of its own on top (QA TC-ask1-18): the chat stays in its place with its "?"
   await page.goto('/')
-  const row = panel(page).getByTestId('trina-waiting')
-  await expect(row).toBeInViewport()
-  await expect(row).toContainText(t['marker.card'])
-  await expect(row.getByTestId('trina-waiting-count')).toHaveText('1')
-  await row.click()
-  await expect(page).toHaveURL(new RegExp(`/c/${waits}$`))
+  await expect(panel(page).getByTestId('trina-waiting')).toHaveCount(0)
+  await expect(panel(page).locator(`li[data-chat-id="${waits}"]`)).toHaveCount(1)
   // 예약 작업 · 팀 스킬 in the fixed top, without a scroll
   for (const id of ['nav-scheduled', 'nav-skills']) await expect(panel(page).getByTestId(id)).toBeInViewport()
-  // nothing waits: no row
-  await page.unroute('**/api/chats?*')
-  await page.goto('/')
-  await expect(panel(page).getByTestId('trina-list')).toBeVisible()
-  await expect(panel(page).getByTestId('trina-waiting')).toHaveCount(0)
 })
 
 test('트리나에게 묻기 while Home is already on show puts the focus in its box, as from another page; ⇧⌘O too', async ({ page }) => {

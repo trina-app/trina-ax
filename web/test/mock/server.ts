@@ -7185,6 +7185,10 @@ export class MockServer {
     // GET /api/files/moved (#334, components/FileMoved.tsx): the mock keeps no move history, so nothing is known: 'no'
     // (the panel then shows its usual line)
     h.moved = () => ({ status: 'no' })
+    // GET/POST /api/rooms/:id/messages/:messageId/file-access (QA S-120, components/RoomFileAsk.tsx): the mock keeps no
+    // file requests for room links, so nothing is offered ('no': the panel shows its usual line)
+    h.roomFileAccess = () => ({ status: 'no' })
+    h.requestRoomFile = () => fail('not_found', 404)
     h.chatFileAccess = async (c) => {
       const x = await askable(c, String(c.query.path ?? ''))
       if (!x) return { status: 'no' }
@@ -8356,11 +8360,15 @@ export class MockServer {
       const { folderId: _, ...rest } = x as X & { folderId?: string }
       return (f ? { ...rest, folderId: f } : rest) as X & { folderId?: string }
     }
-    const fileable = (x: Chat) => !x.deletedAt && !x.projectId && !x.sideRoomId
-    const inFolder = (c: Ctx, f: { id: string; kind: string }) =>
-      f.kind === 'chats'
-        ? this.chats.filter((x) => fileable(x) && this.navItems.get(key(c.user.id, x.id)) === f.id && (this.chatOwners.get(x.id) ?? c.user.id) === c.user.id)
-        : this.rooms.filter((r) => !r.hidden && this.navItems.get(key(c.user.id, r.id)) === f.id)
+    // a chat of my history (the viewer's own list, server/src/chat/history-list.ts): a project chat and one shared with me
+    // too (owner 2026-11-22); never a room's side chat
+    const history = (c: Ctx) => new Set((h.listChats!({ ...c, query: {} }) as { items: Chat[] }).items.filter((x) => !x.deletedAt).map((x) => x.id))
+    const fileable = (x: Chat) => !x.deletedAt && !x.sideRoomId
+    const inFolder = (c: Ctx, f: { id: string; kind: string }) => {
+      if (f.kind !== 'chats') return this.rooms.filter((r) => !r.hidden && this.navItems.get(key(c.user.id, r.id)) === f.id)
+      const seen = history(c)
+      return this.chats.filter((x) => fileable(x) && seen.has(x.id) && this.navItems.get(key(c.user.id, x.id)) === f.id)
+    }
     const newest = (list: Chat[]) => [...list].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt) || b.id.localeCompare(a.id))
     const out = (c: Ctx, f: (typeof this.navFolders)[number]) => {
       const items = f.kind === 'chats' ? newest(inFolder(c, f) as Chat[]) : inFolder(c, f)
@@ -8409,8 +8417,8 @@ export class MockServer {
       return { items: mine(c).map((f) => out(c, f)) }
     }
     h.setChatFolder = (c) => {
-      const chat = this.chats.find((x) => x.id === c.params.id && !x.deletedAt && (this.chatOwners.get(x.id) ?? c.user.id) === c.user.id) ?? fail('not_found', 404)
-      if (chat.projectId) fail('conflict', 409, '프로젝트 기록은 프로젝트 안에 있어요. 폴더에는 넣을 수 없어요.', undefined, { reason: 'folder_project_chat' })
+      const chat = this.chats.find((x) => x.id === c.params.id && !x.deletedAt && (this.sharedChats.has(x.id) || (this.chatOwners.get(x.id) ?? c.user.id) === c.user.id)) ?? fail('not_found', 404)
+      if (c.body.folderId && !history(c).has(chat.id)) fail('conflict', 409, '트리나 기록에 있는 채팅만 폴더에 넣을 수 있어요.', undefined, { reason: 'folder_not_in_history' })
       const to = c.body.folderId as string | null
       if (to && folderOf(c, to).kind !== 'chats') fail('not_found', 404)
       if (to) this.navItems.set(key(c.user.id, chat.id), to)
@@ -8451,6 +8459,8 @@ export class MockServer {
           const o = out(c, f)
           return { id: o.id, name: o.name, position: o.position, count: o.count, top: o.top, marked: [] }
         }),
+        // a filed chat is in its section's group, not its project's (server/src/chat/chat-groups.ts place)
+        projects: (g.projects as { top: Chat[]; count: number }[]).map((p) => ({ ...p, top: p.top.filter((x) => !filed(x)), count: p.count - p.top.filter(filed).length })),
         other: { ...g.other, items: g.other.items.filter((x) => !filed(x)) },
       }
     })

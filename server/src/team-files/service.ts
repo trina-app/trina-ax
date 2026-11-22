@@ -929,9 +929,11 @@ export class TeamFiles {
    * For the AI's move_files / copy_files (tools/file-moves.ts), before anything changes: how many other active people
    * could read the items in `toFolder` and cannot read all of them now (added), and, for a move, how many can read one
    * of them now and could not in `toFolder` (lost). Counted once per person, never named. Every path is checked like
-   * the move / copy itself (a path the caller may not use throws: the tool checks them one by one first).
+   * the move / copy itself (a path the caller may not use throws: the tool checks them one by one first). `total`: the
+   * active people other than the caller who can read `toFolder` (the same count, so the card's "n more" and the AI's
+   * "m in all" come from one pass, QA TC-cards-8).
    */
-  audienceChange(userId: string, from: string[], toFolder: string, mode: 'move' | 'copy'): { added: number; lost: number; fingerprint: string; isNew: boolean; folder: string } {
+  audienceChange(userId: string, from: string[], toFolder: string, mode: 'move' | 'copy'): { added: number; lost: number; total: number; fingerprint: string; isNew: boolean; folder: string } {
     const user = this.principal(userId)
     const rules = this.rules()
     const srcs = from.map((f) => authorize(this.fx, rules, user, f, mode === 'move' ? 'write' : 'read', { mustExist: true }).segs)
@@ -940,7 +942,7 @@ export class TeamFiles {
     // new file's folders (docs/DECISIONS.md "move_files and copy_files make the target folder")
     const to = authorize(this.fx, rules, user, toFolder, 'write', { mustExist: false, createDirs: true })
     if (to.exists && !to.st!.isDirectory()) throw new ToolError('not a folder', 'not_folder')
-    let added = 0, lost = 0
+    let added = 0, lost = 0, total = 0
     const audience: string[] = []
     // the folder rules, and a folder share's people (a private file moved into a folder its owner shares: "N more")
     const reads = readerCheck(this.ctx.db, rules)
@@ -948,12 +950,13 @@ export class TeamFiles {
       if (p.id === user.id) continue
       const sees = reads(p, to.segs)
       audience.push(JSON.stringify([p.id, sees, srcs.map(s => reads(p, s))]))
+      if (sees) total++
       if (sees && srcs.some((s) => !reads(p, s))) added++
       if (mode === 'move' && !sees && srcs.some((s) => reads(p, s))) lost++
     }
     // Compare identities as well as counts without exposing reader names to the tool.
     const fingerprint = crypto.createHash('sha256').update(JSON.stringify(audience.sort())).digest('hex')
-    return { added, lost, fingerprint, isNew: !to.exists, folder: to.rel }
+    return { added, lost, total, fingerprint, isNew: !to.exists, folder: to.rel }
   }
 
   /** How many active people other than `userId` can read at least one of `rels` now (the folder rules and folder

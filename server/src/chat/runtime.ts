@@ -42,9 +42,9 @@ import { memoryLines } from './prompt'
 import { noteSharedMessage, unreadByUser, type Ring } from './message-notices'
 import { isInternalChat } from './internal-chats'
 import { unsharePeopleChecked } from './people-guard'
-import { Audiences, chatView, chatWriters, isSharedRow, labelledTranscript, peopleFor, messageFor, recordOlderAnswers, severalAuthors, unshareUncheckedChats } from './shared'
+import { Audiences, chatView, chatWriters, isSharedRow, labelName, labelledTranscript, peopleFor, messageFor, recordOlderAnswers, severalAuthors, unshareUncheckedChats } from './shared'
 import { publishDoneToOthers } from './live-answer'
-import { newAnswerRecord } from './shared-answers'
+import { answerKeptFromSome, newAnswerRecord } from './shared-answers'
 import { OutsideText } from './auto-memory'
 import { SharedWaiting } from './shared-waiting'
 import { answersToSave, answerWords, closeChatQuestions, labelsHidden, hasOpenQuestion, readyAnswers, reopenAnswers, saveAnswered, type AnsweredQuestion } from './open-questions'
@@ -1071,6 +1071,16 @@ export class ChatRuntime {
     })()
     const spec: TurnSpec & QueueTiming = { turnId, chatId: chat.id, userId: o.userId, assistantId, userMessageId, windowId: o.windowId, clientKind: o.clientKind, engine: o.engine, model: o.model, locale: o.locale,
       queueSeq, ...(o.substitutedFrom ? { substitutedFrom: o.substitutedFrom } : {}), ...(o.timeZone ? { timeZone: o.timeZone } : {}) }
+    // a shared chat: other people's questions this message closed before they answered (QA S-125; turn.ts names them).
+    // Not for a scheduled run (nobody watches it to choose) or a regenerate (no new message)
+    // The question's words only when its answer is kept from nobody who sees the chat: an answer with a k or x group
+    // (a connection's, or one whose reads are not all known), or without a readable record, is hidden from some, and
+    // this answer carries no such group (the same rule as chat-file-tool.ts chatMadeOwnFile). Then only who asked
+    const closedOthers = isSharedRow(chat) && o.user && !o.scheduled ? closedQuestions.filter((q) => !q.answered && q.userId !== o.userId && q.question).map((q) => {
+      const name = labelName(this.store, q.userId)
+      return answerKeptFromSome(this.db, q.turnId) ? { name } : { name, question: q.question! }
+    }) : []
+    if (closedOthers.length) spec.closedOthers = closedOthers
     // what the sending window shows at this moment, for looking_at (realtime/looking.ts; never for a scheduled run)
     if (o.windowId && !o.scheduled) this.looking.snapshot(turnId, o.userId, o.windowId)
     // as the person who sent it sees them (a shared chat: chat/shared.ts messageFor)

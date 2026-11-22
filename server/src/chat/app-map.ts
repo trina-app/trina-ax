@@ -86,7 +86,7 @@ export function appMapSection(o: AppMapInput, L: Locale): string {
     'Asked where or how in the app: answer from this map, with its labels; not here: say you are not sure, never that it does not exist, and never describe it as a feature.',
     // where a chat is shared (web HeaderShare in the chat's title row, chatMenuItems "Share"; lib/sharedChat.ts
     // shareKindOf): asked "how do I show this chat to Daniel?", the AI said it did not know where (AI scenario CHT-04.how)
-    `- Chat title menu (its creator): ${q('chat.rename')}; top right ${q('projects.share')} (its starter): with people or groups, who then see it all and can ask (a team project's chat: with its members). A chat's ⋯ in the list: ${q('chat.pin')}, ${q('navFolders.moveTo')}; ${q('navFolders.new')}. Answer: ${q('chat.regenerate')}; own message: ${q('chat.edit')}.`,
+    `- Chat title menu (its creator): ${q('chat.rename')}; top right ${q('projects.share')} (its starter): with people or groups, who then see it all and can ask (a team project's chat: with its members). A chat's ⋯ in the list: ${q('chat.pin')}, ${q('sidebarSections.moveTo')} (my own sections of the history, only I see them; ${q('sidebarSections.new')} is in the history's filter menu). Answer: ${q('chat.regenerate')}; own message: ${q('chat.edit')}.`,
     // a shared chat's own section (prompt.ts sharedSection, after this one) says how the AI reads the thread
     // (share-words.ts answerCommentsLine): there only the labels and who is told
     o.view === 'shared'

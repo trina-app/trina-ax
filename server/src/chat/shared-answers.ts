@@ -117,6 +117,20 @@ export function answerRecord(db: Database, messageId: string): AnswerRecord | nu
   return r ? parseRecord(r.reads, r.left_out) : null
 }
 
+/** May the answer of this turn be kept from some who see its chat? True unless it is a late answer (made from the
+ * cutover on and not before the chat's share: afterCutover, as nodeOf reads it) whose readable record has no k or x
+ * group (a connection's read, or reads not all known). An older answer follows the old rule (groupsHide: hidden from
+ * anyone who cannot read its sources), so it counts as kept too. A check that fails: true. */
+export function answerKeptFromSome(db: Database, turnId: string): boolean {
+  try {
+    const t = db.query(`SELECT t.message_id, m.created_at, c.shared_at FROM turns t JOIN messages m ON m.id = t.message_id
+      JOIN chats c ON c.id = m.chat_id WHERE t.id = ?`).get(turnId) as { message_id: string; created_at: string | null; shared_at: string | null } | null
+    if (!t || !afterCutover(hiddenAnswersCutover(db), t.created_at, t.shared_at)) return true
+    const rec = answerRecord(db, t.message_id)
+    return !rec || rec.reads.some((g) => !!g.k || !!g.x)
+  } catch { return true }
+}
+
 /** Every record of a chat, by answer (a record that cannot be read: absent). */
 export function answerRecords(db: Database, chatId: string): Map<string, AnswerRecord> {
   const out = new Map<string, AnswerRecord>()

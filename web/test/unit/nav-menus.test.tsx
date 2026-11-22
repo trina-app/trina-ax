@@ -411,16 +411,17 @@ describe('a chat row\'s "…"', () => {
     const pin = ['chat-row-pin', ko('chat.pin')]
     const link = ['chat-row-copy-link', ko('rooms.menu.copyLink')]
     try {
-      // no 폴더로 옮기기: the Trina list has no folders (the owner, 2026-11-13); a project keeps chats together
+      // Move to section after Rename (docs/decisions/20261122-trina-history-sections.md); a project's chat has it off
       // a chat of mine outside projects: Share (docs/DECISIONS.md "Chats shared with people and groups")
-      expect(await items(m, '채팅 1')).toEqual([pin, link, ['chat-row-rename', ko('chat.rename')], ['chat-row-move', ko('chat.project.add')], ['chat-row-share', ko('chat.share.menu')], ['chat-row-delete', ko('common.delete')]])
-      expect(await items(m, '채팅 2')).toEqual([pin, link, ['chat-row-rename', ko('chat.rename')], ['chat-row-move', ko('chat.project.change')], ['chat-row-delete', ko('common.delete')]])
+      const section = ['row-section-move', ko('sidebarSections.moveTo')]
+      expect(await items(m, '채팅 1')).toEqual([pin, link, ['chat-row-rename', ko('chat.rename')], section, ['chat-row-move', ko('chat.project.add')], ['chat-row-share', ko('chat.share.menu')], ['chat-row-delete', ko('common.delete')]])
+      expect(await items(m, '채팅 2')).toEqual([pin, link, ['chat-row-rename', ko('chat.rename')], section, ['chat-row-move', ko('chat.project.change')], ['chat-row-delete', ko('common.delete')]])
       // shared project chats stay in their project: mine to rename and delete, an editor's to delete; a pin for anyone
       // and "Mute this chat": a project's shared chat is a conversation (chat/message-notices.ts)
       const mute = ['chat-row-mute', ko('chat.mute')]
-      expect(await items(m, '채팅 3')).toEqual([pin, link, ['chat-row-rename', ko('chat.rename')], mute, ['chat-row-delete', ko('common.delete')]])
-      expect(await items(m, '채팅 4')).toEqual([pin, link, mute, ['chat-row-delete', ko('common.delete')]])
-      expect(await items(m, '채팅 5')).toEqual([['chat-row-unpin', ko('chat.unpin')], link, mute])
+      expect(await items(m, '채팅 3')).toEqual([pin, link, ['chat-row-rename', ko('chat.rename')], section, mute, ['chat-row-delete', ko('common.delete')]])
+      expect(await items(m, '채팅 4')).toEqual([pin, link, section, mute, ['chat-row-delete', ko('common.delete')]])
+      expect(await items(m, '채팅 5')).toEqual([['chat-row-unpin', ko('chat.unpin')], link, section, mute])
     } finally {
       await m.unmount()
     }
@@ -490,7 +491,7 @@ describe('a chat row\'s "…"', () => {
       await m.settle(0)
       const e = new FakeEvent('contextmenu', { bubbles: true, cancelable: true })
       link.dispatchEvent(e)
-      await m.until(() => shown() === 6, 'the menu')
+      await m.until(() => shown() === 7, 'the menu')
       expect(e.defaultPrevented).toBe(true)
       await m.click(row.querySelector(`button[aria-label="${ko('chat.menu')}"]`)!)
       expect(shown()).toBe(0)
@@ -498,7 +499,7 @@ describe('a chat row\'s "…"', () => {
       press('pointerdown')
       await m.settle(600)
       press('pointerup')
-      await m.until(() => shown() === 6, 'the sheet')
+      await m.until(() => shown() === 7, 'the sheet')
       expect(m.get('menu-sheet-title').textContent).toBe('채팅 1')
       // the click that follows the finger lifting is no tap on the row
       await m.click(link)
@@ -515,9 +516,9 @@ describe('a chat row\'s "…"', () => {
       hold('pointerdown')
       await m.settle(600)
       hold('pointerup')
-      await m.until(() => shown() === 6, 'the sheet again')
+      await m.until(() => shown() === 7, 'the sheet again')
       await m.click(more)
-      expect(shown()).toBe(6)
+      expect(shown()).toBe(7)
     } finally {
       await m.unmount()
     }

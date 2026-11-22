@@ -5,7 +5,7 @@
 // only when it differs from the run above it.
 import clsx from 'clsx'
 import type { ReactNode } from 'react'
-import type { Locale, UserRef } from '@mycel/shared/api'
+import type { Locale, RoomMessage, UserRef } from '@mycel/shared/api'
 import { formatDateTime, intlTag } from '../../lib/format'
 import type { MessageRun, RunItem } from '../../lib/rooms'
 import { useLocale, useT } from '../../i18n'
@@ -88,7 +88,7 @@ export function RunFace({ user, ai = false }: { user: UserRef | null; ai?: boole
 
 /** A run's name: the AI's, a person's (it opens their card; their status emoji and the guest tag after it), or "unknown
  * person" for someone gone */
-export function RunName({ user, ai = false }: { user: UserRef | null; ai?: boolean }) {
+export function RunName({ user, ai = false, left }: { user: UserRef | null; ai?: boolean; left?: RoomMessage['authorLeft'] }) {
   const t = useT()
   const nameOf = useNameOf()
   if (ai || !user) return <span className="truncate text-sm font-medium text-ink">{ai ? t('rooms.aiName') : t('rooms.goneUser')}</span>
@@ -96,7 +96,19 @@ export function RunName({ user, ai = false }: { user: UserRef | null; ai?: boole
     <>
       <PersonButton user={user} look="name" className="text-sm font-medium text-ink" boxClassName="flex min-w-0" testId="room-run-name">{nameOf(user)}</PersonButton>
       <StatusEmoji userId={user.id} tap className="relative z-[2] -ml-1 self-center text-sm select-none" />
-      <GuestTagFor userId={user.id} />
+      {/* an account turned off or removed (S-110): "나감", or "게스트 · 나감" for a removed guest, in place of the guest tag */}
+      {left ? <LeftTag guest={left === 'guest'} /> : <GuestTagFor userId={user.id} />}
     </>
+  )
+}
+
+/** The quiet tag by the name of someone whose account is turned off or removed (RoomMessage.authorLeft); the guest
+ * tag's look */
+export function LeftTag({ guest }: { guest: boolean }) {
+  const t = useT()
+  return (
+    <span className="inline-flex shrink-0 items-center self-center rounded-full border border-line px-1.5 text-micro leading-4 font-medium text-muted" data-testid="left-tag">
+      {t(guest ? 'rooms.authorLeftGuest' : 'rooms.authorLeft')}
+    </span>
   )
 }

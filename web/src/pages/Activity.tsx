@@ -20,7 +20,7 @@ import { activityTabHas, type ActivityTab, type InboxNotification } from '@mycel
 import { api, API, errorText } from '../lib/api'
 import { intlTag, localDay } from '../lib/format'
 import { badgeText, isPrivateChannel, isProjectRoom } from '../lib/rooms'
-import { aiName } from '../lib/tabs'
+import { aiName, TAB_ROOT } from '../lib/tabs'
 import { activityInChats, CHATS_ACTIVITY } from '../lib/screens'
 import { keepPendingReads, markAllNoticesRead, markNoticeRead, noticeReadAsked, noticeReadKey, useActivityUnread } from '../store/inbox'
 import { optimisticPending } from '../lib/optimistic'
@@ -29,6 +29,7 @@ import { accessChanged, notificationsChanged, reloadAsked } from '../store/live'
 import { peekCached, rememberCached, useListCache } from '../store/listCache'
 import { FEED_KEY, type KeptFeed } from '../components/panels/ActivityPanel'
 import { useRooms } from '../store/rooms'
+import { unreadRooms } from '../components/rail/railBadges'
 import { Button, EmptyState, ErrorNote, IconButton, Skeleton, inputCls, pageColumn, stickyCls, useMediaQuery } from '../components/ui'
 import { PhoneBarAction } from '../components/phone/PhoneBarAction'
 import { Face, isRoomRow, roomNoticeLink, roomRowText, RoomRowFile, type RoomNotice } from '../components/settings/RoomNoticeRow'
@@ -431,7 +432,12 @@ function ActivityPage({ chats }: { chats: boolean }) {
         {((!items && !error) || waiting) && <Skeleton lines={4} />}
         {/* "nothing here" only when no older page is left */}
         {items && !visible.length && !cursor && (
-          <EmptyState screen icon={<Inbox size={28} />} title={items.some((x) => shows(x, 'all')) && (filter !== 'all' || unreadOnly || q) ? t('feed.emptyFiltered') : chats ? t('feed.chatsEmpty') : t('notifications.empty')} />
+          // DMs: a DM's own messages (with files or without) are in Chats, never a row here (server rooms/inbox.ts
+          // LISTED_SQL): the tab says where they are (QA TC-f2-b02)
+          <EmptyState screen icon={<Inbox size={28} />} title={filter === 'dms' && !unreadOnly && !q ? t('feed.dmsEmpty') : items.some((x) => shows(x, 'all')) && (filter !== 'all' || unreadOnly || q) ? t('feed.emptyFiltered') : chats ? t('feed.chatsEmpty') : t('notifications.empty')}>
+            {/* 대화 has unread conversations (its tab's count, components/rail/railBadges.ts): "nothing here" points there */}
+            {!chats && unreadRooms(rooms) > 0 && <Link to={TAB_ROOT.chats} className="font-medium text-accent-text hover:underline" data-testid="activity-new-in-chats">{t('feed.newInChats')}</Link>}
+          </EmptyState>
         )}
         {groups.map((g, i) => (
           <section key={g.day} aria-labelledby={`activity-day-${g.day}`} data-testid="activity-day">
@@ -547,7 +553,7 @@ function NoticeRow({ item, onRead, onChanged }: { item: InboxNotification; onRea
   const link = noticeLink(item)
   const d = item.devEnv
   // what it is about: a project, or the chat someone shared with me (its title while I still see it)
-  const project = item.link === 'project' && d?.projectName ? d.projectName : item.code === 'chat.shared' && item.chatShared?.title ? item.chatShared.title : item.code === 'chat.lost' && item.chatLost?.title ? item.chatLost.title : null
+  const project = item.link === 'project' && d?.projectName ? d.projectName : item.code === 'chat.shared' && item.chatShared?.title ? item.chatShared.title : item.code === 'chat.lost' && item.chatLost?.title ? item.chatLost.title : item.code === 'chat.left' && item.chatLeft?.title ? item.chatLeft.title : null
   // a member's ask to add an app (an owner or admin): what the row does while it waits, as a button inside the row's link
   // (the row opens the app's setup), and "Added" once members can connect it
   const sr = item.code === 'service.request' ? item.serviceRequest : undefined

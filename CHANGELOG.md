@@ -5,6 +5,44 @@ This file summarizes user-visible changes; it is not a list of every commit.
 
 ## Unreleased
 
+## 0.13.0 — 2026-11-22
+
+- Admin notes: 0.13.0 changes no root file. A Linux server on 0.8.0 or newer takes 0.13.0 as an app update, with no root step. A server still on 0.7.x or older takes it through the root update, as for 0.8.0: the update timer installs it in the team's update window, or run `sudo mycel-ctl update`. No backup is needed: the two new database migrations (439 chat restore and leave notices, 440 web page versions) can be read by older versions and the reader level stays 9. A server still on 0.5.x needs the backup first, as for 0.6.0 (Admin › System › Backups › Back up now).
+- Admin notes, going back: going back to 0.12.0, 0.11.0, 0.10.0, 0.9.0, 0.8.0 or 0.7.0 needs no backup (reader level 9). Going back to 0.5.x still needs the backup taken before 0.6.0.
+- Trina asks less. A clear request ("30초 세로 홍보 영상 만들어줘", "보고서 워드로 만들어줘", "웹페이지 하나 만들어줘") is now done right away with sensible defaults or a sample, and the answer says in one line what was assumed and any tool limit ("영상 도구는 18.5초 고정이라 18.5초로 만들었어요"). Trina asks first only when a choice can't be undone, reaches other people, or has no sensible default, and never asks again what you already answered. Numbers, dates and names nobody gave still show as blanks to fill in.
+- A question card with one choice is answered with one press on the option; Send is only for a typed answer.
+- A waiting question shows on its card and as the chat's mark only: the "Waiting for you" group in the chat list and the "Your message will answer…" line over the message box are gone.
+- When a confirmation card got no answer in time, Trina no longer asks the same thing again in words.
+- Moving files that only you can open to the trash asks nothing; the "moved to the trash · Undo" message stays.
+- The Share dialog of a chat has **Stop sharing**: one press, with Undo. The dialog no longer shows the "this link is this computer's address" note unless you copy such a link, says a finding once, and no longer talks about "commands in the dev environment".
+- The move card's people count and Trina's answer use the same number, and the "Always allow" line under move and room-post cards says what it covers for that action.
+- With **Remember automatically** off, Trina now keeps a memory only when you ask in your own words ("기억해 줘", "remember this", "覚えておいて" …). Before, it could still keep a preference you only mentioned.
+- When a member posts a link to a team-folder file in a room, the card now says how many people there can't open it instead of naming them (admins still see the names), as the Files screen does.
+- A spreadsheet preview with thousands of whole-column formulas no longer freezes the tab: past a limit the remaining formulas show as their text.
+- A Korean, Japanese or Chinese answer no longer opens with the short English note the AI wrote to itself after its last step ("Need a venv.", "Good result. Saving it."). The note stays in the steps list.
+- **Any chat in your Trina history can go in a section**, project chats and chats others shared with you included. Moving a chat into a project keeps it in its section, and a chat you can no longer see leaves your section by itself.
+- **Sections in the Trina history.** Sort your own AI chats into sections, as in the Chats sidebar: New section in the history's filter menu, then Add chats; Move to section in a chat's ⋯, or drag a chat onto a section. Sections fold, show the strongest marker while folded, and only you see them. On a phone they show above 트리나 기록 in the ☰ drawer.
+- The Trina history now groups chats by date by default (Today, Yesterday, This week …), on the computer as on the phone, and each date folds. The filter menu has **Reset to defaults**, and your filter, grouping and sort follow you to every device you sign in on.
+- Phone app: opening the app for a hosted team that sleeps (trial sleep) now shows "Resuming your team…" and opens the team when it is ready (about a minute). It showed "Could not reach your team", and Try again started the wait again. Needs the next app build.
+- Asking the AI to change a web page it made ("make the text bigger", "change the place"), also one made for someone else in a shared chat, now saves a new version of the same page instead of a second page card. The panel shows who asked for each version, and **Restore this version** brings an earlier one back as the newest; nothing is deleted. The AI can also show or bring back an earlier version when asked ("show the version before Junho's change").
+- When the AI makes or changes a web page, the server now opens it in a browser first and tells the AI about errors (for example a script that stops the page) or a blank page, so the AI fixes them before saying it is done. If the page cannot be checked within a few seconds, the AI is told it was not checked.
+- Admin › System › Backups now says how many days this server really keeps its backups (the same number as the Plan part). It always said 14 days, also on a hosted team that keeps 3.
+- Settings › About in the phone app now shows the app's version and build (for example "Phone app 1.0.10 (build 42)") above the team server's version. Needs the next app build.
+- Pictures sent in a department's channel or a project's room show as pictures again, alone and in the gallery. They had shown as a file chip ("image.png 36.2 KB · leads › Chat attachments") because these files are kept in the team folder. Their thumbnails are made from the team file and made again when the file changes.
+- When you have Trina post a link to a team-folder file in a room, the confirm card now names the people there who can't open it (for a teammate's personal file it still gives only how many).
+- Someone in a room who opens a linked file they can't see now gets "You don't have access to this file" with an **Ask to view** button. The file's owner, or an admin, answers in Activity.
+- When someone loses access to a folder in the middle of a chat (for example, moved to another group), Trina now says plainly that the folder can't be opened any more and who can restore access. It no longer asks for a path or takes back figures it already checked. Admin › Groups says that a group change applies at once.
+- Asked to make a quote or a report, Trina first looks in the team folders you can open (a price list, earlier quotes) before asking.
+- The card for sending to an outside guest now says the person is a guest (external). "Send it to Haneul too" goes to Haneul only, never again to the person it was sent to before.
+- In rooms, messages from someone who left now show "Left", or "Guest · Left" for a guest who was removed.
+- Restoring an earlier version of a chat's file now asks first, says whose changes drop out of the newest and who in the chat will see it, and leaves a line in the chat: "Mina restored quote.md to version 1".
+- When someone leaves a chat you shared, you get one notice in Activity and the "left" line stays in the chat, also when it is only yours again. The person who left no longer gets a notice about their own leave.
+- Guests without AI no longer see "Ask Trina" on files.
+- "Archived accounts" shows in your language, and a chat-share notice keeps the sharer's name after their account is gone.
+- When the AI's weekly limit is used up, the message says until when instead of "try again a bit later", and offers no Try again while it lasts. Activity's DMs tab says that DM messages are in Chats.
+- In a shared chat, when two people ask for opposite changes to the same thing ("표지 파란색으로", then "빨간색으로"), the AI now names both people and what each asked and asks which to keep, instead of doing the last one and dropping the other without a word. A message that closes someone else's unanswered question card no longer makes their request disappear: the AI says it is still open. A person changing their own earlier request, or edits that do not touch the same thing, still go ahead without a question.
+- The Excel preview shows the results of formulas in files the AI made (sums, averages, IF, references to other sheets) instead of formula text such as "=SUM(B2:B4)". Point at a cell, or click or tap it, to see its formula. A formula the preview can't calculate stays as its formula, greyed, so it never shows a wrong number.
+
 ## 0.12.0 — 2026-11-22
 
 - Admin notes: 0.12.0 changes no root file. A Linux server on 0.8.0 or newer takes 0.12.0 as an app update, with no root step. A server still on 0.7.x or older takes it through the root update, as for 0.8.0: the update timer installs it in the team's update window, or run `sudo mycel-ctl update`. No backup is needed: the three new database migrations (436–438, chat notices) can be read by older versions and the reader level stays 9. A server still on 0.5.x needs the backup first, as for 0.6.0 (Admin › System › Backups › Back up now).

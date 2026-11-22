@@ -80,16 +80,21 @@ export const MEETINGS_LABEL = { ko: '회의', en: 'Meetings', id: 'Rapat', ja: '
  * (server/src/files/share-places.ts). */
 export const ARCHIVE_DIR = { ko: '보관된 계정', en: 'Archived accounts', id: 'Akun diarsipkan', ja: 'アーカイブ済みアカウント', es: 'Cuentas archivadas', zh: '已归档账号' } as const satisfies T
 
+const ARCHIVE_NAMES = new Set<string>(Object.values(ARCHIVE_DIR))
+
 const isTop = (s: string): s is TopFolder => (TOP_FOLDERS as readonly string[]).includes(s)
 
 /** One folder's name in words: a top folder's label, the person's own folder (`me`: their id) as "내 파일"
- * (ownFolderLabel), else null
+ * (ownFolderLabel), its folders the app made (from this computer, meetings, archived accounts) in the person's language,
+ * else null
  * (its own name is the name). Only the exact disk names: a folder named "Shared" elsewhere is that folder's name. */
 export function folderLabel(path: string, locale: Locale, me?: string | null): string | null {
   if (isTop(path)) return TOP_FOLDER_LABELS[path][locale] ?? TOP_FOLDER_LABELS[path].en
   if (me && path === `users/${me}`) return ownFolderLabel(locale)
   if (me && path === `users/${me}/${FROM_COMPUTER_DIR}`) return FROM_COMPUTER_LABEL[locale] ?? FROM_COMPUTER_LABEL.en
   if (me && path === `users/${me}/${MEETINGS_DIR}`) return MEETINGS_LABEL[locale] ?? MEETINGS_LABEL.en
+  // the removed members' folders handed to me, named in the team's language when it was made: in mine (QA TC-f3-08)
+  if (me && path.startsWith(`users/${me}/`) && ARCHIVE_NAMES.has(path.slice(`users/${me}/`.length))) return ARCHIVE_DIR[locale] ?? ARCHIVE_DIR.en
   return null
 }
 

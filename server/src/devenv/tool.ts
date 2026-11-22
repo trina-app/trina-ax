@@ -41,7 +41,7 @@ import { addTicket, armTicket, commandWaitFor, FULL_MESSAGE, releaseCommand, wai
 import { newId } from '../db'
 import { inOthersSkills } from '../skills/script-copies'
 import { hideProxyLogin } from './srt/proxy-login'
-import { auditBulk, BULK_BYTES, BULK_FILES, bulkFolders, moveToScratch, newBulkState, overBulk, sizeWords, type BulkAsk, type BulkState } from './bulk'
+import { auditBulk, BULK_BYTES, BULK_FILES, bulkFolders, bulkWhoForAi, moveToScratch, newBulkState, overBulk, sizeWords, type BulkAsk, type BulkState } from './bulk'
 
 export const BOX_SHELL_TOOL = 'box_shell'
 
@@ -406,7 +406,7 @@ async function bulkGuard(h: BoxShellHost, o: { space: Space; project: ProjectRef
   if (keep === true) {
     st.kept = true; st.files += created.length; st.bytes += bytes
     auditBulk(h.ctx, { ...base, decision: 'keep', asked: true })
-    o.notes.push(`The person chose to keep the ${created.length} new files (${sizeWords(bytes) ?? 'under 1 KB'}) of this command in the project folder.`)
+    o.notes.push([`The person chose to keep the ${created.length} new files (${sizeWords(bytes) ?? 'under 1 KB'}) of this command in the project folder.`, bulkWhoForAi(ask.shownWho)].filter(Boolean).join(' '))
     return none
   }
   const r = await moveToScratch(h.ctx, { space: o.space, project: o.project.folderPath, created, startedMs: o.startedMs, present: o.present, signal: h.signal })
@@ -418,6 +418,7 @@ async function bulkGuard(h: BoxShellHost, o: { space: Space; project: ProjectRef
     return r.moved
   }
   auditBulk(h.ctx, { ...base, decision: 'move', asked: !h.helper && !!h.keepBulk, moved: r.moved.size, dest: r.dest })
+  if (ask.shownWho) o.notes.push(bulkWhoForAi(ask.shownWho))
   const why = h.helper ? 'a sub-agent cannot ask the person to keep them' : keep === false ? 'the person chose to move them' : 'the person did not say to keep them'
   o.notes.push(`This command added ${created.length} new files (${sizeWords(bytes) ?? 'under 1 KB'}) to the project folder. That is more than one answer may add there without the person's yes, and ${why}, so ${r.moved.size} of them were moved out of the project folder to $TRINA_WORK/${r.dest}/ (chat:work/${r.dest}/ in the file tools), with their folders. Use them from there, keep downloads, tools and previews in $TRINA_WORK, and copy only finished files into the project folder.`)
   return r.moved

@@ -139,7 +139,12 @@ export function chatAudienceView(ctx: AppContext, rt: ChatRuntime, userId: strin
       .sort((x, y) => x.name.localeCompare(y.name) || x.id.localeCompare(y.id))
     return { kind: 'project', canEdit: false, by, subjects: [], mentionable }
   }
-  if (!isPeopleRow(r)) return { kind: 'private', canEdit: a.creator && !r.project_id && !r.side_room_id, by, subjects: [] }
+  // a chat that went back to being only its creator's (the last person left or was taken out): its lines stay for them,
+  // so "{actor} left" shows after the leave too (QA TC-v1a-02)
+  if (!isPeopleRow(r)) {
+    const events = a.creator && !r.project_id && !r.side_room_id ? chatEventsOf(ctx, r.id, userId, true) : []
+    return { kind: 'private', canEdit: a.creator && !r.project_id && !r.side_room_id, by, subjects: [], ...(events.length ? { events } : {}) }
+  }
   const me = loadPrincipal(db, userId)
   // a group's size, and with a group in it the count, only for the creator and admins (S8)
   const full = a.creator || isAdmin(me?.role)
@@ -180,7 +185,7 @@ export function chatAudienceView(ctx: AppContext, rt: ChatRuntime, userId: strin
   const visibleTo = (id: string) => full || named.has(id) || (myGroups.length > 0 && groupsOfIn(db, id, myGroups).length > 0)
   const mentionable = new Audiences(db, ctx.files).ofChat(r).filter((id) => id !== userId && visibleTo(id)).flatMap((id) => { const u = rt.store.userRef(id); return u ? [{ id: u.id, name: u.name }] : [] })
     .sort((x, y) => x.name.localeCompare(y.name) || x.id.localeCompare(y.id))
-  const events = audienceEventsOf(db, r.id, full)
+  const events = chatEventsOf(ctx, r.id, userId, full)
   return { kind: 'people', canEdit: a.creator, by, subjects: rows, ...(!groups || full ? { count: peopleAudience(db, r).length } : {}), ...files, ...(events.length ? { events } : {}), mentionable }
 }
 
@@ -214,6 +219,37 @@ function audienceEventsOf(db: AppContext['db'], chatId: string, full: boolean): 
     out.push({ at: e.at, kind: e.kind, actor, names })
   }
   return out
+}
+
+/** pages of restore lines read at most for one list (chatEventsOf) */
+const EVENT_PAGES = 20
+
+/** The chat's lines for `viewer`, oldest first, the newest AUDIENCE_EVENTS_SHOWN of them: who changed its people
+ * (audienceEventsOf) and who restored a version of a file there, only of a file the viewer may open (its name as the
+ * chain's root has it, read now). The actor is named as audienceEventsOf names people. */
+function chatEventsOf(ctx: AppContext, chatId: string, viewer: string, full: boolean): NonNullable<ChatAudience['events']> {
+  const db = ctx.db
+  const people = audienceEventsOf(db, chatId, full)
+  // newest first, a page at a time, until AUDIENCE_EVENTS_SHOWN lines the viewer may see are found (the visibility is
+  // checked here, not in SQL: a LIMIT first could leave a viewer none while older lines they may see exist). At most
+  // EVENT_PAGES pages are read
+  const page = (offset: number) => db.query("SELECT at, actor_id, file_id, version FROM chat_file_events WHERE chat_id = ? AND kind = 'restored' ORDER BY at DESC, id DESC LIMIT ? OFFSET ?").all(chatId, AUDIENCE_EVENTS_SHOWN, offset) as { at: string; actor_id: string; file_id: string; version: number }[]
+  let rows = page(0)
+  if (!rows.length) return people
+  const seen = new Map(chatFilesOf(ctx).visibleTo(viewer, chatId).map((v) => [v.id, v.root.name]))
+  const files: NonNullable<ChatAudience['events']> = []
+  for (let n = 0; rows.length && files.length < AUDIENCE_EVENTS_SHOWN && n < EVENT_PAGES; n++, rows = rows.length < AUDIENCE_EVENTS_SHOWN ? [] : page(n * AUDIENCE_EVENTS_SHOWN)) {
+    for (const e of rows) {
+      if (files.length >= AUDIENCE_EVENTS_SHOWN) break
+      const name = seen.get(e.file_id)
+      if (!name) continue
+      const u = db.query('SELECT name, status, deleted_at FROM users WHERE id = ?').get(e.actor_id) as { name: string; status: string; deleted_at: string | null } | null
+      if (!u || !(full || (u.status === 'active' && !u.deleted_at))) continue
+      files.push({ at: e.at, kind: 'restored', actor: u.name, names: [name], version: e.version })
+    }
+  }
+  files.reverse()
+  return [...people, ...files].sort((x, y) => (x.at < y.at ? -1 : x.at > y.at ? 1 : 0)).slice(-AUDIENCE_EVENTS_SHOWN)
 }
 
 /** POST /api/chats/:id/leave: someone a chat was shared with by name takes themselves out ("Leave this chat", QA
@@ -258,6 +294,13 @@ export function leaveChat(ctx: AppContext, rt: ChatRuntime, userId: string, a: C
     audit(db, { actor: userId, action: 'chat.leave', target: r.id, detail: { ...(everyone ? { private: true } : {}) } })
   })()
   for (const id of mentionsGone) notificationsOf(ctx).changed(id)
+  // its creator is told once (Activity, never pushed); the person who left reads nothing about their own leave: their
+  // "shared a chat with you" rows of it go (QA TC-v1a-02, TC-v2g-04)
+  try {
+    const n = notificationsOf(ctx)
+    n.chatLeft(r.user_id, r.id, userId, at)
+    n.chatShareNoticesGone(userId, r.id)
+  } catch (e) { ctx.log.warn('chat left notices failed', { err: e }) }
   if (devEnvFlag()) void pollSrt(ctx, { chatId: r.id }).catch(() => {})
   rt.forgetLiveViewers()
   rt.hub.publish(userId, { type: 'chat.updated', data: { chatId: r.id, change: 'deleted', chat: null } })

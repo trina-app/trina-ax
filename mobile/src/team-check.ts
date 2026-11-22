@@ -23,20 +23,26 @@ export interface CheckIo {
 export type TeamCheck = { ok: true; origin: string; renamed: boolean } | { ok: false; reason: 'unreachable' | 'notTeam' | 'unknown' | 'suspended' | 'wakeTimeout' | 'cancelled'; updating?: true }
 
 export async function checkTeamWith(io: CheckIo, origin: string, teamDomain: string | null = null): Promise<TeamCheck> {
+  const c = await checkOnce(io, origin, teamDomain)
+  // a request that the signal stopped answers "unreachable": the person (or the screen) cancelled it
+  return io.signal?.aborted ? { ok: false, reason: 'cancelled' } : c
+}
+
+async function checkOnce(io: CheckIo, origin: string, teamDomain: string | null): Promise<TeamCheck> {
   let renamed = false
-  let h = await health(io.fetch, origin)
+  let h = await health(io.fetch, origin, io.signal)
   if (h.kind === 'redirect') {
     const to = relayRename(origin, h.location, { teamDomain, loopbackHttp: false })
     if (!to) return { ok: false, reason: 'notTeam' }
     origin = to
     renamed = true
-    h = await health(io.fetch, origin)
+    h = await health(io.fetch, origin, io.signal)
     if (h.kind === 'redirect') return { ok: false, reason: 'notTeam' }
   }
   if (h.kind === 'asleep') {
     const at = origin
     const w = await wakeTeam({
-      wake: () => wake(io.fetch, at),
+      wake: () => wake(io.fetch, at, io.signal),
       onWaking: () => io.onWaking?.(),
       sleep: io.sleep ?? (ms => new Promise(r => setTimeout(r, ms))),
       now: io.now ?? Date.now,
@@ -46,7 +52,7 @@ export async function checkTeamWith(io: CheckIo, origin: string, teamDomain: str
     if (w === 'cancelled') return { ok: false, reason: 'cancelled' }
     if (w === 'timeout') return { ok: false, reason: 'wakeTimeout' }
     if (w === 'notAsleep') return { ok: false, reason: 'unreachable' }
-    h = await health(io.fetch, origin)
+    h = await health(io.fetch, origin, io.signal)
   }
   if (h.kind === 'ok') return { ok: true, origin, renamed }
   // (unreachable while Trina is updating: the failure screen says so, QA TC-2260)
@@ -54,8 +60,8 @@ export async function checkTeamWith(io: CheckIo, origin: string, teamDomain: str
 }
 
 type Health = { kind: 'ok' | 'unreachable' | 'notTeam' | 'unknown' | 'suspended' | 'asleep'; updating?: boolean } | { kind: 'redirect'; location: string | null }
-async function health(fetch: Fetch, origin: string): Promise<Health> {
-  const abort = new AbortController(), timer = setTimeout(() => abort.abort(), 8000)
+async function health(fetch: Fetch, origin: string, stop?: AbortSignal): Promise<Health> {
+  const abort = linked(stop), timer = setTimeout(() => abort.abort(), 8000)
   try {
     // never followed by the platform: a redirect is looked at here (a relay rename) and otherwise refused
     const response = await fetch(`${origin}/api/health`, { headers: { accept: 'application/json' }, redirect: 'manual', signal: abort.signal })
@@ -84,12 +90,20 @@ async function health(fetch: Fetch, origin: string): Promise<Health> {
 /** The person's own page load of the team (GET / with Sec-Fetch-Mode: navigate, as a browser opening the link): the
  * request the relay lets wake a sleeping team (relay/src/relay.ts mayWake). Only the status, the relay's x-relay-error
  * and Retry-After are read; the page is not. The relay holds a page load a few seconds; 25 s limit. */
-async function wake(fetch: Fetch, origin: string): Promise<WakeAnswer> {
-  const abort = new AbortController(), timer = setTimeout(() => abort.abort(), 25_000)
+async function wake(fetch: Fetch, origin: string, stop?: AbortSignal): Promise<WakeAnswer> {
+  const abort = linked(stop), timer = setTimeout(() => abort.abort(), 25_000)
   try {
     const r = await fetch(`${origin}/`, { headers: { accept: 'text/html', 'sec-fetch-mode': 'navigate' }, redirect: 'manual', signal: abort.signal })
     const after = Number(r.headers.get('retry-after'))
     void r.body?.cancel().catch(() => {})
     return { status: r.status, relayError: r.headers.get('x-relay-error'), retryAfter: Number.isFinite(after) && after > 0 ? after : null }
   } catch { return null } finally { clearTimeout(timer) }
+}
+
+/** A request's own abort, also aborted by the caller's signal (Cancel, or the failure screen that went away). */
+function linked(stop?: AbortSignal): AbortController {
+  const abort = new AbortController()
+  if (stop?.aborted) abort.abort()
+  else stop?.addEventListener('abort', () => abort.abort(), { once: true })
+  return abort
 }

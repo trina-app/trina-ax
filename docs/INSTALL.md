@@ -743,7 +743,8 @@ The bootstrap can restore the prior app after startup failure (120 seconds witho
 
 **Backups.**
 - Nightly at 03:00 in the team's time zone (or the team's window start on a hosted server), or as soon as the server
-  is on after a night it missed; the first one right after install. Kept 14 days: a full backup every 7 days,
+  is on after a night it missed; the first one right after install. Kept 14 days (a plan file's
+  `localBackupRetentionDays` changes it; Admin › System › Backups says the number): a full backup every 7 days,
   incremental in between.
 - **Back up now** is in Admin → System → Backups.
 - Backups hold the database and the team folder. Restoring one in Admin → System → Backups restores the

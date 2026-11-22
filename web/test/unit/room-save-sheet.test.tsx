@@ -7,6 +7,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, test } from 'bun:tes
 import { ApiError } from '@mycel/shared/api'
 import { translate, useLocaleStore } from '../../src/i18n'
 import { SaveToTeamSheet } from '../../src/components/rooms/SaveToTeamSheet'
+import { DialogHost } from '../../src/components/ui'
 import { fileMenuActions } from '../../src/lib/fileMenu'
 import { filesToSave, folderOfPath, saveRefusalKey, saveSummary, startFolder, startTicks } from '../../src/lib/roomSave'
 import { useUi } from '../../src/store/ui'
@@ -67,7 +68,7 @@ describe('the sheet', () => {
       expect(m.find('room-save-sensitive')).toBeNull()
       await m.click('room-save-confirm')
       await m.until(() => !useRoomSaves.getState().sheet, 'the sheet closed')
-      expect(calls.find((c) => c.url.endsWith('/save-to-team'))?.body).toEqual({ fileIds: [F1], folder: 'shared/acme' })
+      expect(calls.find((c) => c.url.endsWith('/save-to-team'))?.body).toEqual({ fileIds: [F1], folder: 'shared/acme', askWiden: true })
       expect(useRoomSaves.getState().byRoom[ROOM]?.[F1]).toBe('shared/acme/acme-quote.pdf')
     } finally { await m.unmount() }
   })
@@ -97,6 +98,41 @@ describe('the sheet', () => {
   })
 })
 
+describe('QA TC-ask2-6: a save where more people see it asks once', () => {
+  const widened = () => json({ error: { code: 'conflict', message: 'x', params: { reason: 'audience_widened', viewersAdded: 16 } } }, 409)
+  const saves = () => calls.filter((c) => c.url.endsWith('/save-to-team')).map((c) => c.body)
+  test('the 409 asks with how many more; yes sends it again confirmed and saves', async () => {
+    saveAnswer = () => (saves().length === 1 ? widened() : json({ saved: [{ fileId: F1, path: 'shared/acme/acme-quote.pdf', existed: false }] }))
+    const m = await mount(<><SaveToTeamSheet /><DialogHost /></>)
+    try {
+      useRoomSaves.getState().open(ROOM, [F1])
+      await m.until(() => m.find('room-save-place'), 'the folder')
+      await m.click('room-save-confirm')
+      await m.until(() => m.find('dialog-confirm'), 'the question', 2000)
+      expect(document.body.textContent).toContain(translate('en', 'rooms.save.widenBody', { n: 16 }))
+      await m.click('dialog-confirm')
+      await m.until(() => !useRoomSaves.getState().sheet, 'the sheet closed')
+      expect(saves()).toEqual([{ fileIds: [F1], folder: 'shared/acme', askWiden: true }, { fileIds: [F1], folder: 'shared/acme', askWiden: true, confirm: true }])
+    } finally { await m.unmount() }
+  })
+
+  test('no: nothing saved, no error, the sheet stays', async () => {
+    saveAnswer = widened
+    const m = await mount(<><SaveToTeamSheet /><DialogHost /></>)
+    try {
+      useRoomSaves.getState().open(ROOM, [F1])
+      await m.until(() => m.find('room-save-place'), 'the folder')
+      await m.click('room-save-confirm')
+      await m.until(() => m.find('dialog-confirm'), 'the question', 2000)
+      await m.click(m.get('dialog-confirm').parentElement!.querySelector('button')!)
+      await m.until(() => !m.find('dialog-confirm') && !m.get('room-save-confirm').hasAttribute('disabled'), 'back on the sheet', 2000)
+      expect(saves()).toHaveLength(1)
+      expect(useRoomSaves.getState().sheet).not.toBeNull()
+      expect(document.body.textContent).not.toContain(translate('en', 'rooms.save.failed'))
+    } finally { await m.unmount() }
+  })
+})
+
 describe('QA 11-17', () => {
   test('TC-4803: two identical files: the second says it is the same file, both are sent, and the toast says it was saved once', async () => {
     plan = { files: [{ id: F1, name: '계약서_QA.txt', size: 32 }, { id: F2, name: '계약서_QA.txt', size: 32, sameAs: F1 }], suggestion: { path: 'shared', why: 'recent', outside: 0 }, sensitive: false }
@@ -109,7 +145,7 @@ describe('QA 11-17', () => {
       expect(m.get('room-save-files').textContent).toContain(translate('en', 'rooms.save.sameFile'))
       await m.click('room-save-confirm')
       await m.until(() => !useRoomSaves.getState().sheet, 'the sheet closed')
-      expect(calls.find((c) => c.url.endsWith('/save-to-team'))?.body).toEqual({ fileIds: [F1, F2], folder: 'shared' })
+      expect(calls.find((c) => c.url.endsWith('/save-to-team'))?.body).toEqual({ fileIds: [F1, F2], folder: 'shared', askWiden: true })
       const t = useUi.getState().toasts.at(-1)!
       expect(t.detail).toBe(translate('en', 'rooms.save.savedSame', { n: 1 }))
     } finally { await m.unmount() }
@@ -129,7 +165,7 @@ describe('QA 11-17', () => {
       expect(m.get('room-save-files').textContent).toContain(translate('en', 'rooms.save.personal'))
       await m.click('room-save-confirm')
       await m.until(() => !useRoomSaves.getState().sheet, 'the sheet closed')
-      expect(calls.find((c) => c.url.endsWith('/save-to-team'))?.body).toEqual({ fileIds: [F2, F3], folder: 'shared/acme' })
+      expect(calls.find((c) => c.url.endsWith('/save-to-team'))?.body).toEqual({ fileIds: [F2, F3], folder: 'shared/acme', askWiden: true })
     } finally { await m.unmount() }
   })
 
