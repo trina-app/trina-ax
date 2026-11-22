@@ -1270,6 +1270,89 @@ describe('the later steps and the end', () => {
     } finally { await m.unmount() }
   })
 
+  test('the end screen\'s 스킬: ✓ with "회의록 정리 외 2개" when the setup\'s skills are in the team; done with none in: "나중에 하기로 했어요" and 지금 하기', async () => {
+    const pack = (name: string, title: string, inTeam: boolean) => ({ pack: 'work', name, path: `skills/work/${name}/SKILL.md`, title, description: title, inTeam, visual: false, onboarding: 'checked', example: null, locale: 'ko', source: { kind: 'team' } })
+    for (const inTeam of [true, false]) {
+      signIn('owner')
+      progress = ran({ steps: { profile: 'done', result: null, skills: 'done', files: 'done', tools: 'skipped', invite: null } })
+      withGroup()
+      routes['GET /api/onboarding/packs'] = () => json(200, { profile: true, skills: [pack('meeting-notes', '회의록 정리', inTeam), pack('team-report', '주간 보고·공지', inTeam), pack('customer-reply', '고객 답장', inTeam), { ...pack('card-news', '카드뉴스', true), onboarding: null }] })
+      const m = await app()
+      const row = () => m.container.querySelector('[data-testid="welcome-done-row"][data-step="skills"]')!
+      try {
+        await m.until(() => m.find('invite-step-done'), 'the invite')
+        await m.click('invite-step-done')
+        await m.until(() => m.find('welcome-done') && row().getAttribute('data-state') !== 'checking', 'the skills row read')
+        if (inTeam) {
+          // the setup's rows only (카드뉴스 is a Team skills row, not the step's)
+          await m.until(() => row().querySelector('[data-testid="welcome-done-fact"]'), 'the skills fact')
+          expect(row().getAttribute('data-state')).toBe('done')
+          expect(row().textContent).toBe('스킬 · 회의록 정리 외 2개')
+        } else {
+          expect(row().getAttribute('data-state')).toBe('later')
+          expect(row().textContent).toContain('나중에 하기로 했어요')
+          await m.click(row().querySelector('[data-testid="welcome-done-later-open"]')!)
+          await m.until(() => stepOf(m) === 'skills', '내 스킬 again')
+        }
+      } finally {
+        await m.unmount()
+        delete routes['GET /api/onboarding/packs']
+      }
+      useWelcome.getState().reset()
+    }
+  })
+
+  test('the end screen\'s 팀 도구 names only the team connections that work: never one to sign in to, one that needs a check, a personal one or Slack turned off', async () => {
+    signIn('owner')
+    progress = ran({ steps: { profile: 'done', result: null, skills: 'done', files: 'done', tools: 'done', invite: null } })
+    withGroup()
+    const base = { scope: 'team', kind: 'mcp', url: 'https://mcp.example/mcp', auth: 'oauth', authHeader: null, hasSecret: true, account: null, notes: null, writePolicy: 'ask', status: 'connected', lastError: null, tools: [], toolsUpdatedAt: null, access: { everyone: true, groups: [], users: [] }, createdBy: null, createdAt: '2026-11-12T00:00:00.000Z', updatedAt: '2026-11-12T00:00:00.000Z', lastUsedAt: null, canManage: true }
+    routes['GET /api/admin/integrations'] = () => json(200, { items: [
+      { ...base, id: 'i1', name: 'Canva', slug: 'canva' },
+      { ...base, id: 'i2', name: 'Notion', slug: 'notion', status: 'needs_auth' },
+      { ...base, id: 'i3', name: 'Figma', slug: 'figma', hasSecret: false },
+      { ...base, id: 'i4', name: 'Linear', slug: 'linear', status: 'error', lastError: 'Refused' },
+      { ...base, id: 'i5', name: 'Mine', slug: 'mine', scope: 'personal' },
+    ] })
+    routes['GET /api/admin/settings'] = () => json(200, settingsWith([]))
+    const m = await app()
+    const fact = () => m.container.querySelector('[data-testid="welcome-done-row"][data-step="tools"]')?.querySelector('[data-testid="welcome-done-fact"]')?.textContent ?? null
+    try {
+      await m.until(() => m.find('invite-step-done'), 'the invite')
+      await m.click('invite-step-done')
+      await m.until(() => fact(), 'the tools fact')
+      expect(fact()).toBe(' · Canva 팀 연결')
+    } finally {
+      await m.unmount()
+      for (const k of ['GET /api/admin/integrations', 'GET /api/admin/settings']) delete routes[k]
+    }
+  })
+
+  test('after ← 이전, the primary names the step 다음 opens, one step at a time as the bar shows them (QA: "다음: 팀원 초대" on 2/5 while 3/5 was next)', async () => {
+    signIn('owner')
+    progress = ran({ steps: { profile: 'done', result: null, skills: 'done', files: 'done', tools: 'done', invite: null } })
+    withGroup()
+    routes['GET /api/admin/integrations'] = () => json(200, { items: [] })
+    routes['GET /api/admin/settings'] = () => json(200, settingsWith([]))
+    const m = await app()
+    try {
+      await m.until(() => stepOf(m) === 'invite' || null, 'the invite')
+      await m.click('welcome-back')
+      await m.until(() => stepOf(m) === 'tools' || null, '도구 연결')
+      await m.click('welcome-back')
+      await m.until(() => stepOf(m) === 'files' || null, '팀 파일')
+      await m.click('welcome-back')
+      await m.until(() => stepOf(m) === 'skills' || null, '내 스킬')
+      // files and tools are done, and 다음 still opens 팀 파일: the label says so
+      expect((await m.until(() => m.find('skills-primary'), 'the primary')).textContent).toBe(translate('ko', 'welcome.next.files'))
+      await m.click('skills-primary')
+      await m.until(() => stepOf(m) === 'files' || null, '팀 파일 next')
+    } finally {
+      await m.unmount()
+      for (const k of ['GET /api/admin/integrations', 'GET /api/admin/settings']) delete routes[k]
+    }
+  })
+
   test('a shared skill without a title (no AI judged it) is named as words on the end screen and in 바꾸기, never "quote-maker"', async () => {
     signIn('owner')
     const quote = 'skills/quote-maker/SKILL.md', weekly = 'skills/weekly-report/SKILL.md'
@@ -1281,7 +1364,7 @@ describe('the later steps and the end', () => {
       expect(m.get('team-link-landing-change').querySelectorAll('option').map((o: any) => o.textContent)).toEqual(['quote maker', 'weekly report'])
       await m.click('invite-step-done')
       await m.until(() => m.find('welcome-done'), 'the end screen')
-      expect(m.container.querySelector('[data-testid="welcome-done-row"][data-step="skills"]')!.textContent).toContain('quote maker, weekly report')
+      expect(m.container.querySelector('[data-testid="welcome-done-row"][data-step="skills"]')!.textContent).toContain('quote maker 외 1개')
     } finally { await m.unmount() }
   })
 

@@ -314,6 +314,15 @@ was shown"; AI scenario CON-02). Code: `server/src/chat/connect-service.ts` (the
   the AI never sees the password; it does not name whose page it is, since the sign-in server comes from the address's
   own metadata. Done before the card connected anything says so. Google Drive uses its own sign-in
   ([GOOGLE-DRIVE.md](GOOGLE-DRIVE.md)) inside the card, then "done" the same way.
+- **Google for the team** (#253, as the welcome tools step and Admin › Connected apps): an owner's or admin's Drive
+  card also has Connect for the team (`teamOffer`), which opens the same dialog (`DriveShareDialog`, through
+  `web/src/components/integrations/GoogleTeam.tsx`). Gmail, Calendar, Docs and Sheets get a card (`target:
+  'google_app'`) only for an owner or admin, where the app can be connected and is not connected for them
+  (`googleAppTeamCard`): Connect for the team (`GoogleAppTeamDialog`), or their own on the app's page, then "I've
+  connected it". A member keeps their own Drive card and the words for the Google apps. A working team Drive share or
+  the team's shared Google account the person may use counts as connected: no card. "Done" reads the role again; a team
+  connection an admin made that leaves them out ends the card as "connected for the team", with the way to add
+  themselves. Not in the phone app (no Google sign-in there).
 - **Where it is not offered.** Scheduled runs have nobody to finish a card: the tool answers "skipped" at once.
   Sub-agents never get the tool (`PARENT_ONLY_TOOLS`). Confidential chats (Safe operations) do not offer it: it is not a
   local tool, and connected services are not offered there either.

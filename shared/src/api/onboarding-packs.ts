@@ -114,8 +114,15 @@ export const PackExample = z.discriminatedUnion('kind', [
     /** the invented company the picture is made on, when it is not 예시커피 / Example Coffee (the intro deck: 숲틈 /
      * Soopteum), in the picture's language */
     company: z.string().optional(),
+    /** the language of this example when it is not the skill text's (the viewer's own, picked for them) */
+    locale: Locale.optional(),
   }),
-  z.object({ kind: z.literal('text'), markdown: z.string() }),
+  z.object({
+    kind: z.literal('text'),
+    markdown: z.string(),
+    /** the language of this example when it is not the skill text's (the viewer's own, picked for them) */
+    locale: Locale.optional(),
+  }),
 ])
 export type PackExample = z.infer<typeof PackExample>
 
