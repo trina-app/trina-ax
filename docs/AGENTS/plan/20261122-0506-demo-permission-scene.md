@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-22 05:06
 - Branch: `feat/demo-permission-scene`
-- Status: in progress
+- Status: done
 - Where: server/src/chat (a new read-only tool), shared/src (the step record), web/src (the card), scripts/demo/steepling
   (the Home chip). Why: the owner wants the free-roam demo to show the permission scene of the promo film, built as a
   product feature (docs/REPOSITORY-RULES.md: product behaviour lives in the product, the demo only seeds content).
@@ -88,4 +88,12 @@ vs hidden identical), viewSteps, the card (web unit), the Steepling seed (the ch
 
 ## Result
 
-(filled in at the end)
+Built as planned: `my_folders` (server/src/chat/my-folders.ts), `Step.folders` / `Step.moreFolders`, MyFoldersCard
+under the answer, the MY_FOLDERS_RULE instruction, six languages, and the fourth Steepling chip. Differences:
+
+- The list is made in my-folders.ts from the same rules as writableFolders (rule folders, shared/, the own folder,
+  RuleSet.access), not by calling it, so a read-only shared/ is listed too; folders not on disk are left out.
+- The free-roam Home took at most three chips (shared/src/api/demo.ts, lib/freeRoam.ts SUGGESTIONS_MAX); now four,
+  so the chip is added, not swapped for another. On a 390 px phone the four chips wrap to four short rows.
+- The prompt pins (tests/fixtures/engine-prompt-pin) were recorded again for the new tool and its rule.
+- Screenshots come from the web mock (web/test/e2e/demo-permission-scene.spec.ts), not the live demo.

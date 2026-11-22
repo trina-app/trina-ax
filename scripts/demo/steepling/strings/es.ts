@@ -146,5 +146,6 @@ export const es: FreeRoamStrings = {
     { label: 'Publicaciones de la próxima semana', prompt: 'Redacta los dos huecos vacíos del calendario de redes de la próxima semana' },
     { label: 'Resumir las reseñas', prompt: 'Resume las reseñas más recientes de los clientes' },
     { label: '¿Ha respondido Chris?', prompt: '¿Ha respondido Chris a mi correo? Mira en mi Gmail' },
+    { label: 'Ver la carpeta de dirección', prompt: 'Muéstrame la carpeta de dirección' },
   ],
 }

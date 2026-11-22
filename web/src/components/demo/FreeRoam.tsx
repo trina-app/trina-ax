@@ -9,7 +9,7 @@
 //   whose tap or click opens the whole sentence (a tooltip never shows on a touch screen: QA 2026-11-22 F3), and one
 //   quiet "Start free" link at the end. One line on a computer; on a 390 px phone three short rows, 56 px at most (QA
 //   2026-11-22 F9: it was 120 to 145 px tall with the chips).
-// - FreeRoamChips: Home's 2-3 suggestions under the message box (pages/Home.tsx, free roam, not in a project); a tap
+// - FreeRoamChips: Home's 2-4 suggestions under the message box (pages/Home.tsx, free roam, not in a project); a tap
 //   SENDS one as a new chat, as the scripted demo's questions do (DemoQuestions). Nowhere else (owner, 2026-11-22).
 // - DemoLimitDialog: "You've used all your questions", the app's own Modal (a bottom sheet on phones), Start free / Look
 //   around.
@@ -151,7 +151,7 @@ function useAskAsNewChat() {
 }
 
 /** Home's suggestions for a free-roam visitor, by the message box (pages/Home.tsx): round buttons that wrap (at most
- * three, lib/freeRoam.ts SUGGESTIONS_MAX); none once the questions are used up. */
+ * four, lib/freeRoam.ts SUGGESTIONS_MAX); none once the questions are used up. */
 export function FreeRoamChips({ info }: { info: DemoInfo }) {
   const t = useT()
   const out = useDemo((s) => s.out)

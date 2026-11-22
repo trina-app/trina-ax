@@ -2169,6 +2169,20 @@ export class MockServer {
       return Array.isArray(answer) ? answer[0] : answer
     }
     const chatProject = () => this.projects.find((x) => x.id === this.chats.find((c) => c.id === chatId)?.projectId)
+    if (/management folder/i.test(prompt)) {
+      // like server/src/chat/my-folders.ts (docs/decisions/20261122-demo-permission-scene.md): the folder is not found
+      // among the person's ("not found or no access", the same for a missing and a hidden one), then my_folders and its
+      // card (Step.folders: only folders they can open). "… before": the answer as it was before, with no card.
+      const put = (x: Step) => { assistant.steps = [...assistant.steps.filter((y) => y.id !== x.id), x]; pub({ type: 'message.step', data: { chatId, messageId: assistant.id, step: x } }) }
+      const before = /before/i.test(prompt)
+      put(step({ id: 'S1', kind: 'tool', tool: 'list', label: 'List · shared/management', status: 'error', endedAt: now() }))
+      if (!before) put(step({ id: 'S2', kind: 'tool', tool: 'my_folders', label: 'Check the folders open to you', status: 'ok', endedAt: now(), folders: [
+        { path: 'shared', access: 'edit' }, { path: 'groups/Marketing', access: 'edit' }, { path: 'skills', access: 'view' }, { path: `users/${user.id}`, access: 'edit' }] }))
+      finish(before
+        ? 'I couldn\'t find a "management" folder in the files you can open. If it should be there, check the name, or ask whoever manages that folder or an admin whether you should have access.'
+        : 'I can\'t find a "management" folder among the folders open to you. If it exists, ask its owner or an admin to share it with you.')
+      return
+    }
     if (/folderaccess/i.test(prompt)) {
       // like server/src/chat/folder-access-tool.ts (docs/decisions/20261116-sharing-all-integration.md): an admin's
       // change_folder_access card, with "Always allow" (kind folder_access) and its own risk words; "folderaccess": the
