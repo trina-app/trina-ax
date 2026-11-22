@@ -20,7 +20,7 @@ async function safe<T>(fn: () => T | Promise<T>, locale?: Locale): Promise<T> {
   try { return await fn() } catch (e) {
     if (e instanceof HttpError) throw e
     // the claim's refusals say it in words, not as the code (QA: "drive_invalid_code" on screen)
-    if (e instanceof DriveError && locale && (e.reason === 'invalid_code' || e.reason === 'expired')) throw new HttpError('bad_request', msg('driveClaimGone', locale), { status: e.status })
+    if (e instanceof DriveError && locale && (e.reason === 'invalid_code' || e.reason === 'expired')) throw new HttpError('bad_request', msg('claimGone', locale), { status: e.status })
     if (e instanceof DriveError) throw new HttpError(e.status === 404 ? 'not_found' : e.status === 401 ? 'unauthorized' : e.status === 403 ? 'forbidden' : 'bad_request', e.message, { status: e.status })
     throw new HttpError('internal')
   }
