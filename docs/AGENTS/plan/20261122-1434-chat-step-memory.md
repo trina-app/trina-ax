@@ -62,7 +62,7 @@ tool results; sub-agent inner steps (their sub-task line is kept).
 
 ## Steps
 
-1. Migration `441_b_message_step_notes.sql`: `ALTER TABLE messages ADD COLUMN step_notes TEXT`.
+1. Migration `443_b_message_step_notes.sql`: `ALTER TABLE messages ADD COLUMN step_notes TEXT`.
 2. `chat/step-record.ts`: `stepArgs`, `stepResult`, `stepsRecord` (lines + caps), `STEP_RECORD_*` constants.
 3. `turn.ts`: note args on `tool_start`, result on `tool_end` (main AI only), save with the steps, reset on retry.
 4. `runtime.history` / `labelledTranscript`: attach `steps` to eligible answer items (`HistoryItem.steps`).
@@ -81,7 +81,7 @@ tool results; sub-agent inner steps (their sub-task line is kept).
   column, not in `MESSAGE_COLS`).
 - Prompt injection through a stored result: values neutralized, block framed as data.
 - Tokens: capped as above; counted in the history window.
-- Migration 441 (440 is the highest on dev).
+- Migration 443 (440 is the highest on dev; #403 and #404 take 441 and 442).
 
 ## Tests
 
