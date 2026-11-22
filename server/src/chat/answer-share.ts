@@ -76,7 +76,7 @@ import { HISTORY_ROOM_SQL, historyRoom, openHistories } from '../rooms/history'
 import { hashFile } from '../team-files/place'
 import { missingReaders, scopeWithListing, sourceKey, sourceOf, viewersByHistory, type ReadSource } from './read-scope'
 import { confirmMac, confirmSecret } from './confirm-key'
-import { tr } from './i18n'
+import { TEXT, tr } from './i18n'
 import { sharePlaceOf } from './share-places'
 import type { ChatRow, MessageRow } from './store'
 import { WROTE_IT_SQL } from './shared-actions'
@@ -504,11 +504,17 @@ export interface ShareAnswerInput { roomId: string; note?: string; confirm?: num
    * of the people mentioned that the server put before it */
   pasted?: { head: string; text: string } }
 
+/** The server's own line at the end of an API-engine answer about a step that failed (engine/api-honest.ts
+ * failedStepsNote, chat/i18n.ts apiStepFailed / apiStepsFailed, in any language): a note to the person who asked, not
+ * content for the room (QA TC-7238: it was posted to the room with the chart). */
+const STEP_NOTE = new RegExp(`\\n*(?:${(['apiStepFailed', 'apiStepsFailed'] as const).flatMap((k) => Object.values(TEXT[k])).map((x) => x.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace('\\{names\\}', '[^\\n]{1,300}')).join('|')})\\s*$`)
+export const withoutStepNote = (content: string): string => content.replace(STEP_NOTE, '')
+
 /** POST /api/chats/:id/messages/:messageId/share-to-room. `chat` is the caller's own (routes/chats.ts ownChat: not a
  * room's AI session, not deleted) and `message` one of its messages. */
 export async function shareAnswerToRoom(ctx: AppContext, userId: string, chat: ChatRow, message: MessageRow, b: ShareAnswerInput, locale: Locale): Promise<ShareAnswerToRoomResult> {
   if (message.role !== 'assistant') fail('validation', tr('answerShareNotReady', locale), { fields: { 'params.messageId': 'not an answer' } })
-  const content = redactorFor(ctx, userId).hide(message.content ?? '')
+  const content = withoutStepNote(redactorFor(ctx, userId).hide(message.content ?? ''))
   if (message.status !== 'done' || !content.trim()) fail('conflict', tr('answerShareNotReady', locale), { params: { reason: 'answer_not_finished' } })
   // (the share button never carries a paste: that is post_to_room's alone)
   const p = await prepareShare(ctx, userId, chat.id, { messageId: message.id, content }, { ...b, pasted: undefined }, locale)

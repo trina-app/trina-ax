@@ -95,6 +95,8 @@ const REPORT = /\bi (?:can|could|can't|cannot|couldn't|didn't|did not|haven't|ha
  * telegraphic opening ("Only one file.", "No dedicated room", "Matches quote-writer skill.", "Now the PDF, …",
  * "Leaving page out", "Following the existing naming pattern"), or a next step after a sentence ("Seal lands on (인)
  * correctly. Now post to the room.", 2026-11-18 CHT-02.room). */
+/** "Now the PDF.", "Now the SKILL.md.": a next step, in two to five words, with no verb said to people */
+const NOW_NOTE = /^now\s+(?:the|its|this|that|both)\s+\S+(?:\s+\S+){0,2}[.:]?$/i
 const NOTE_MARK = /;|^(?:now|following|existing|leaving|checking|trying|only|no|matches|nine|two|three)\b|[.]\s+now\s+(?:post|send|save|stamp|write|make|put|add|upload|share|attach|print|export|overwrite)\b/i
 /** … or where it will put something, as an order to itself ("Add under section 1.", "Append it at the end of the
  * notes."; 2026-11-18, EDIT-17.project). */
@@ -144,12 +146,15 @@ export function narrationScript(locale: Locale, message: string, previous?: stri
 /** A bracket's inside that is a label in another script, not content: non-ASCII, no Latin letter, no digit, currency
  * or sentence mark ("인", "서명 날인"; not "339,400원", "₩5") */
 const isBracketName = (inner: string) => /[^\x00-\x7F]/.test(inner) && !/[A-Za-z0-9.!?。！？$€£¥₩%]/.test(inner)
-const withoutNames = (s: string) => s.replace(/(?<!`)`[^`\n]+`(?!`)/g, '')
+/** `as`: what a name becomes. '' for the script checks (a Korean file name does not make a line Korean); 'file' for the
+ * work-note checks, where a file name is the work named ("Now the SKILL.md.", 2026-11-22: taken out, it left "Now the ."
+ * which named nothing, and the line led a Korean answer) */
+const withoutNames = (s: string, as = '') => s.replace(/(?<!`)`[^`\n]+`(?!`)/g, as)
   // a short piece of another script in brackets is a name too: a form's own label ("Seal lands on (인) correctly.",
   // 2026-11-18 CHT-02.room); no Latin letter and no sentence mark in it
   .replace(/\(([^()\n]{1,12})\)/g, (m, inner: string) => isBracketName(inner) ? '' : m)
-  .replace(/["“'‘「『][^"”'’」』\n]*\.[A-Za-z0-9]{1,5}["”'’」』]/g, '')
-  .replace(/[^\s()"“”'‘’「」『』]+\.[A-Za-z0-9]{1,5}(?=[\s).,;:!?"”'’」』]|$)/g, '')
+  .replace(/["“'‘「『][^"”'’」』\n]*\.[A-Za-z0-9]{1,5}["”'’」』]/g, as)
+  .replace(/[^\s()"“”'‘’「」『』]+\.[A-Za-z0-9]{1,5}(?=[\s).,;:!?"”'’」』]|$)/g, as)
 
 /** The person's own words in quote marks are a name too (2026-11-18, EDIT-17.project: '"공용 회의록" — likely in shared.
  * Find it.' went out because of the Korean in the quote): a quoted phrase of at most 40 characters found in the
@@ -195,8 +200,11 @@ function mustKeep(piece: string, script: AnswerScript, partial = false, notes = 
   // a work note (2026-11-17) only before a real call, whose arguments were checked (not on thinking, a stop or an error)
   // lead: a first line above the answer's own text (NarrationHold.dropLeadingNote) is only ever a status opening or the
   // AI thinking aloud about its tools (META), never judged by the wider work-note rules (review of #1272)
-  if (lead) return !partial && !STATUS_OPENING.test(t) && !META.test(withoutNames(withoutTheirWords(t, said, false).text))
-  if (!partial && !STATUS_OPENING.test(t) && !STATUS_PLAN.test(t) && !(notes && isWorkNote(withoutNames(withoutTheirWords(t, said, false).text)))) return true
+  const asWork = (x: string) => withoutNames(withoutTheirWords(x, said, false).text, 'file')
+  const nowNote = (x: string) => { const w = asWork(x); return NOW_NOTE.test(w) && WORK_NOUN.test(w) }
+  // ...or "Now the <work thing>." alone on that line (2026-11-22: "Now the SKILL.md." above a Korean answer)
+  if (lead) return !partial && !STATUS_OPENING.test(t) && !META.test(withoutNames(withoutTheirWords(t, said, false).text)) && !nowNote(t)
+  if (!partial && !STATUS_OPENING.test(t) && !STATUS_PLAN.test(t) && !(notes && (isWorkNote(withoutNames(withoutTheirWords(t, said, false).text)) || nowNote(t)))) return true
   return false
 }
 
@@ -277,7 +285,8 @@ export class NarrationHold {
     const m = /^(\s*)([^\n]+)\n/.exec(this.buf)
     if (!m) return
     const rest = this.buf.slice(m[0].length)
-    if (!SCRIPT_LETTER[script].test(rest) || SCRIPT_LETTER[script].test(m[2]!)) return
+    // (a file name in the answer's script does not make the line the answer's: "Now the 견적서.pdf.")
+    if (!SCRIPT_LETTER[script].test(rest) || SCRIPT_LETTER[script].test(withoutNames(m[2]!))) return
     const line = m[2]!
     if (!/[A-Za-z]/.test(line) || mustKeep(line, script, false, false, this.said, true) || copied(line, undefined, this.message)) return
     this.buf = rest.replace(/^\s+/, '')

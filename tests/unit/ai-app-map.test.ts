@@ -328,11 +328,12 @@ describe('size: it is in every turn', () => {
   // (fix/answer-slips, 2026-11-17: the longest form, staff in Korean, about 1,242: 8 to spare)
   // (with fix/catalog-1117g in the same batch, 2026-11-18: about 1,248, 2 to spare; the next line added must cut words or
   // raise the cap with a note)
-  test('at most 20 lines and about 1,250 tokens in its longest form, in every language', () => {
+  // (fix/ai-honesty-qa-1122, 2026-11-22: what a file opened in Files does, QA TC-7391 (P1): cap 1,300)
+  test('at most 20 lines and about 1,300 tokens in its longest form, in every language', () => {
     for (const view of ['staff', 'member', 'shared'] as const) for (const L of ['ko', 'en', 'ja', 'zh', 'es', 'id'] as const) for (const devEnv of [true, false]) for (const managed of [true, false]) for (const pickModel of view === 'shared' ? [undefined] : view === 'staff' ? [true] : [true, false]) {
       const s = appMapSection({ view, managed, devEnv, office: false, pickModel }, L)
       expect({ view, L, devEnv, lines: s.split('\n').length <= 20 }).toEqual({ view, L, devEnv, lines: true })
-      expect({ view, L, devEnv, small: tokens(s) <= 1250 }).toEqual({ view, L, devEnv, small: true })
+      expect({ view, L, devEnv, small: tokens(s) <= 1300 }).toEqual({ view, L, devEnv, small: true })
     }
   })
 })

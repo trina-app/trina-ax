@@ -83,7 +83,7 @@ export function appMapSection(o: AppMapInput, L: Locale): string {
   const here = `this team's ${PRODUCT.displayName}`
   const lines = [
     '## Where things are in the app',
-    'Asked where or how in the app: answer from this map, with its labels; not here: say you are not sure, never that it does not exist.',
+    'Asked where or how in the app: answer from this map, with its labels; not here: say you are not sure, never that it does not exist, and never describe it as a feature.',
     // where a chat is shared (web HeaderShare in the chat's title row, chatMenuItems "Share"; lib/sharedChat.ts
     // shareKindOf): asked "how do I show this chat to Daniel?", the AI said it did not know where (AI scenario CHT-04.how)
     `- Chat title menu (its creator): ${q('chat.rename')}; top right ${q('projects.share')} (its starter): with people or groups, who then see it all and can ask (a team project's chat: with its members). A chat's ⋯ in the list: ${q('chat.pin')}, ${q('navFolders.moveTo')}; ${q('navFolders.new')}. Answer: ${q('chat.regenerate')}; own message: ${q('chat.edit')}.`,
@@ -108,7 +108,8 @@ export function appMapSection(o: AppMapInput, L: Locale): string {
       ? `- ${q('settings.title')}: ${q('settings.profile')} (photo, name), ${q('settings.about')} (version). Own photo menu: ${q('status.set')}, ${q('presence.setAway')}.`
       : `- ${q('settings.title')}: ${q('settings.profile')} (photo, name${o.pickModel === undefined ? '; own AI and model, if allowed' : o.pickModel ? '; own AI and model for new chats' : ''}), ${q('settings.security')} (${q('auth.changePassword')}; ${q('settings.devices')}: sign one out), ${q('integrations.title')} (own Slack, Google…), ${q('settings.apps')} (phone, computer apps), ${q('settings.about')} (version), ${q('aiApps.title')} (team files from Claude or another AI app). Own photo menu: ${q('status.set')}, ${q('presence.setAway')}.`,
     `- ${q('projects.title')} › ${q('projects.new')}: anyone (the team may keep team projects to owners and admins). ${q('sidebar.skills')}: ${q('skills.catalog.more')} (ready-made; owners and admins see it while some are missing); ${q('skills.catalog.bring')} (on a computer; a member's are reviewed).`,
-    `- ${q('sidebar.files')} › ${q('filesPanel.shared')}: files and folders shared with them, newest first. In ${ownFolderLabel(L)}, a folder's ⋯ › ${q('folderAccess.menu')}: view only, later files too; take people off or ${q('fileShare.stop')} anytime, ${q('common.undo')} right after; the team can turn members' sharing off. Team folders: owners and admins share.`,
+    // QA TC-7391: "several people can edit the PPT at once in Files" (web FilePanel.tsx edits plain text only)
+    `- ${q('sidebar.files')}: a file opens to view and download (text files edit there; Word, Excel, PowerPoint, PDF never in the app, and nobody edits live together). ${q('sidebar.files')} › ${q('filesPanel.shared')}: files and folders shared with them, newest first. In ${ownFolderLabel(L)}, a folder's ⋯ › ${q('folderAccess.menu')}: view only, later files too; take people off or ${q('fileShare.stop')} anytime, ${q('common.undo')} right after; the team can turn members' sharing off. Team folders: owners and admins share.`,
     `- ${q('sidebar.files')} › ${ownFolderLabel(L)}, desktop app (not the Mac App Store one): ${q('files.findWork.entryButton')}; in a Mac or Windows browser ${q('openApp.lineLink')} › ${q('openApp.mac')} (or Windows) opens the desktop app signed in, no password (not opened: ${q('openApp.download')}, press again, a new one-time sign-in; not from a phone).`,
   ]
   if (o.freeRoam) {
