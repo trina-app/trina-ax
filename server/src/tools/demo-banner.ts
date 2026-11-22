@@ -52,7 +52,7 @@ export const CHANGE_BANNER_TEXT_DESCRIPTION =
   'text-free photo, so nothing is generated or sent anywhere. The banner\'s words (headline, subline, eyebrow, badge, badge_note, button), its photo (scene) ' +
   `and its sizes are in a small JSON file, ${BANNER_SOURCE_NAME}, in this chat's project folder. To change words: read that file, edit only the words the user named ` +
   'with the edit tool (e.g. "change grey mornings to green mornings": replace grey with green; every other word stays), then call this tool to draw it again. ' +
-  'For a new background, photo or scene use Higgsfield\'s generate_image instead. The result gives the Markdown images to show the banner in your answer.'
+  'For a new background, photo or scene use Higgsfield\'s generate_image instead. The chat shows the saved pictures by itself (each size labelled): never repeat them as Markdown images.'
 
 /** the folder of the chat's project this person may write, else their own folder */
 function defaultFolder(ctx: AppContext, user: Principal, chatId: string | null): string {
@@ -72,6 +72,13 @@ export function bannerSourceFor(ctx: AppContext, user: Principal, chatId: string
   const files = componentC(ctx).files
   try { return { path: p, exists: !!authorize(files.fx, files.rules(), user, p, 'read', { mustExist: false }).exists } } catch { return { path: p, exists: false } }
 }
+
+/** What the result tells the AI about the pictures: the chat shows them already (ToolResult.stepImages), so its
+ * answer says in words what changed and never repeats them as Markdown images or links (a retyped path showed one size
+ * twice, 11-22). */
+export const bannerShownText = (sizes: string[]) =>
+  `The chat already shows ${sizes.length > 1 ? `these ${sizes.length} pictures` : 'this picture'} under this step, each labelled with its size (${sizes.join(', ')}). ` +
+  'Do not write them as Markdown images or links in your answer (that would show a picture twice): say in words what changed.'
 
 /** One line for the step and the audit log: the headline on one line ("작지 않아 큰 햇살이야!") */
 export const oneLine = (s: string) => s.replace(/\s*\n\s*/g, ' ').trim()
@@ -160,16 +167,18 @@ export function registerDemoBanner(ctx: AppContext, reg: ToolRegistry): void {
         }
         const w = first.words
         const view = { saved: saved[0]!.path, files: saved.map((x) => x.path), source: sourceSaved, size: first.size, scene: first.scene, words: { headline: w.headline, subline: w.subline, eyebrow: w.eyebrow, badge: w.badge, badge_note: w.badgeNote, button: w.cta } }
-        const img = (p: string) => `![${p.split('/').pop()}](/api/files/download?path=${encodeURIComponent(p)})`
         const text = `${JSON.stringify(view)}\n` +
           `The banner's words are in ${sourceSaved}: to change them, edit that file (only the words the user named), then call ${DEMO_BANNER_TOOL} again.\n` +
-          `${PREPARED_BANNER}\nShow it in your answer as ${saved.length > 1 ? 'these Markdown images' : 'this Markdown image'}: ${saved.map((x) => img(x.path)).join(' ')}` +
+          `${PREPARED_BANNER}\n${bannerShownText(saved.map((x) => x.size))}` +
           saved.filter((x) => x.conflictCopyOf).map((x) => `\n${x.conflictCopyOf} already existed, so this was saved as a copy next to it.`).join('')
         return {
           text,
           images: [{ type: 'image' as const, mimeType: 'image/png' as const, data: first.png.toString('base64') }],
           summary: `${DEMO_BANNER_TOOL} -> ${saved.map((x) => `${x.path} ${x.bytes}B`).join(', ')} ${first.scene}`,
           structured: { path: saved[0]!.path, size: saved[0]!.bytes, sha256: saved[0]!.sha256, files: saved, banner: view },
+          // the chat shows every saved size under this step itself, each labelled with its size: the AI retyped the
+          // Markdown before and showed the 1080x1080 file twice and the story size never (replay, 11-22)
+          stepImages: saved.map((x) => ({ path: x.path, alt: `banner ${x.size}`, label: x.size })),
         }
       } finally { fs.rmSync(work, { recursive: true, force: true }) }
     },

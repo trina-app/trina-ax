@@ -25,7 +25,7 @@ import { writeSteepling } from '../../scripts/demo/steepling/make'
 import { makeCApp, type CApp } from '../lib/c-app'
 import { integrationsOf } from '../../server/src/integrations/connections/service'
 import { integrationToolProvider } from '../../server/src/integrations/connections/tools'
-import { bannerSourceFor, CHANGE_BANNER_TEXT_DESCRIPTION, ChangeBannerTextInput, DEMO_BANNER_TOOL } from '../../server/src/tools/demo-banner'
+import { bannerShownText, bannerSourceFor, CHANGE_BANNER_TEXT_DESCRIPTION, ChangeBannerTextInput, DEMO_BANNER_TOOL } from '../../server/src/tools/demo-banner'
 import { steepling } from '../../scripts/demo/steepling/make'
 import { toolRegistry } from '../../server/src/tools/registry'
 import { TurnFiles } from '../../server/src/files/service'
@@ -365,15 +365,15 @@ describe('the AI knows the demo\'s services are practice copies', () => {
 
   test('practice Drive files get no drive.google.com link; a scene with no prepared photo gets one line, no retry (QA 11-22 B3, A4)', () => {
     expect(DEMO_FAKES_NOTE).toContain('Practice Drive files have no web address: name the file and its folder, never write a drive.google.com link.')
-    expect(DEMO_FAKES_NOTE).toContain('When a new scene is not among the prepared photos, say so in one line and offer the prepared ones; do not try again.')
+    expect(DEMO_FAKES_NOTE).toContain('or a scene not on this list, answer in ONE short line without calling any tool, offering the listed scenes; do not try again.')
     expect(ChangeBannerTextInput.shape.scene.description).toContain('only when the user asks for another photo')
   })
 
   test('banner words live in a source file the AI reads and edits; words on the banner are a text edit, never a new scene (owner, 11-22)', () => {
     // the demo note: read the source, edit only the named words, then draw again; a named word on the banner is no scene request
-    expect(DEMO_BANNER_NOTE).toContain("read the source file, change only the words the user named with the edit tool")
-    expect(DEMO_BANNER_NOTE).toContain('replace grey with green; every other word stays exactly as it is')
-    expect(DEMO_BANNER_NOTE).toContain('Never rewrite, add or drop words the user did not name.')
+    expect(DEMO_BANNER_NOTE).toContain("read the source file and replace exactly those words with the edit tool")
+    expect(DEMO_BANNER_NOTE).toContain('every other word stays exactly as it is ("change grey mornings to green mornings": replace grey with green)')
+    expect(DEMO_BANNER_NOTE).toContain('in (a) never rewrite, add or drop words the user did not name.')
     expect(DEMO_BANNER_NOTE).toContain('When the user names words that are on the banner, it is a text edit, never a request for a new photo or scene: do not call generate_image for it.')
     expect(CHANGE_BANNER_TEXT_DESCRIPTION).toContain('read that file, edit only the words the user named')
     expect(CHANGE_BANNER_TEXT_DESCRIPTION).toContain(BANNER_SOURCE_NAME)
@@ -409,7 +409,8 @@ describe('the AI knows the demo\'s services are practice copies', () => {
   })
 
   test('a short phrase right after a banner is its new headline: applied at once, undo offered after (owner, 11-22)', () => {
-    expect(DEMO_BANNER_NOTE).toContain('A short phrase sent right after a banner is its new headline: apply it at once without asking, then offer to undo.')
+    expect(DEMO_BANNER_NOTE).toContain('the whole headline becomes exactly that phrase')
+    expect(DEMO_BANNER_NOTE).toContain('apply it at once without asking, then offer to undo.')
   })
 
   test('say the photo is a prepared one, in one short sentence; save and show every picture without being asked (QA TC-6791, TC-6792)', () => {
@@ -417,9 +418,9 @@ describe('the AI knows the demo\'s services are practice copies', () => {
     expect(DEMO_FAKES_NOTE).toContain('one short sentence')
     expect(DEMO_FAKES_NOTE).toContain('without being asked')
     expect(DEMO_FAKES_NOTE).toContain('save_connector_file')
-    // the Markdown image the web draws inline (web/src/lib/markdown.ts classifyImage: /api/files/download?path=)
-    expect(DEMO_FAKES_NOTE).toContain('![<name>](/api/files/download?path=')
-    expect(DEMO_BANNER_NOTE).toContain('change_banner_text saves the banner; show it with the Markdown images its result gives')
+    // the chat shows the saved pictures on the tool's step by itself (#341): no image Markdown from the AI
+    expect(DEMO_FAKES_NOTE).toContain('The saved pictures appear in the chat by themselves, so never write image Markdown for them; mention them in words only.')
+    expect(DEMO_BANNER_NOTE).toContain('the saved pictures appear in the chat by themselves, so never write image Markdown for them; mention them in words only.')
     expect(DEMO_BANNER_NOTE).toContain("demo's prepared photos")
     // one sentence each in the result, no nagging
     for (const line of [PREPARED_PHOTO, PREPARED_BANNER, SAVE_NEXT]) expect(line.length).toBeLessThan(160)
@@ -493,8 +494,10 @@ describe('end to end on a demo server', () => {
     expect(view.words.headline).toBe('작지 않아\n큰 햇살이야!')
     expect(view.words.badge).toBe(kits.ko.words.badge)
     expect(view.saved.startsWith('users/alice/유자 진저/banner-1200x628-')).toBe(true)
-    // shown inline right away (the Markdown image the web draws) and handed to the AI as a picture
-    expect(text).toContain(`](/api/files/download?path=${encodeURIComponent(view.saved)})`)
+    // shown by the chat under the step right away (never retyped by the AI as Markdown) and handed to the AI as a picture
+    expect(out.stepImages?.map((x) => x.path)).toEqual(view.files)
+    expect(text).not.toContain('](/api/files/download?path=')
+    expect(text).toContain(bannerShownText(['1200x628', '1080x1080', '1080x1920']))
     const img = out.content.find((c) => c.type === 'image') as { data: string } | undefined
     expect(img).toBeTruthy()
     const bytes = fs.readFileSync(path.join(A.team, ...view.saved.split('/')))
@@ -550,13 +553,23 @@ describe('end to end on a demo server', () => {
     const k = kits.ko.words
     expect(view.words).toEqual({ headline: '밝은 아침에,\n*작은 햇살 한 잔.*', subline: k.subline, eyebrow: k.eyebrow, badge: k.badge, badge_note: k.badgeNote, button: k.cta })
     expect(view.scene).toBe(kits.ko.defaultScene)
-    // every size drawn and saved next to the source, each shown inline
+    // every size drawn and saved next to the source
     expect(view.files.map((p: string) => p.replace(/-[\w]{6}\.png$/, ''))).toEqual(['1200x628', '1080x1080', '1080x1920'].map((s) => `${folder}/banner-${s}`))
     for (const p of view.files as string[]) {
       const [w, h] = p.match(/banner-(\d+)x(\d+)-/)!.slice(1).map(Number)
       expect(pngSize(fs.readFileSync(path.join(A.team, ...p.split('/'))))).toEqual({ w: w!, h: h! })
-      expect(text).toContain(`](/api/files/download?path=${encodeURIComponent(p)})`)
     }
+    // replay 11-22: the AI retyped the Markdown and its third picture was the 1080x1080 file again. The result carries the
+    // three saved files, each with its own size, for the chat to show under the step; the AI is told they are shown
+    // already and never gets a Markdown image to copy
+    const sizes = ['1200x628', '1080x1080', '1080x1920']
+    expect(out.stepImages).toEqual(sizes.map((size, i) => ({ path: view.files[i], alt: `banner ${size}`, label: size })))
+    expect(new Set(out.stepImages!.map((x) => x.path)).size).toBe(3)
+    for (const [i, im] of out.stepImages!.entries()) expect(im.path).toContain(`banner-${sizes[i]}-`)
+    expect(text).not.toMatch(/!\[[^\]]*\]\(/)
+    expect(text).not.toContain('/api/files/download')
+    expect(text).toContain('The chat already shows these 3 pictures under this step, each labelled with its size (1200x628, 1080x1080, 1080x1920).')
+    expect(text).toContain('Do not write them as Markdown images or links in your answer')
     expect(text).toContain(`The banner's words are in ${source}: to change them, edit that file`)
     // the AI's edit stays in the file as it made it (the render only read it)
     expect(fs.readFileSync(abs, 'utf8')).toBe(read.replace('흐린 아침', '밝은 아침'))
