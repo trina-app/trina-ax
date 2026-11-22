@@ -2,8 +2,9 @@
 // QA TC-4900; the security review of #1328). The fake MCP service offers 230 look-up tools, so the connections are
 // looked up (find_tools, call_tool) rather than offered tool by tool. It marks as read-only a sending tool, a resending
 // one ("resend_invoice", which got past the first name list), a scraper whose verb Trina does not know, and tools with
-// look-alike or invisible letters in their names. Covered: every one of them asks on a card in a shared chat; the
-// scraper's "can't tell" card offers Always in this chat for that tool alone, and the real changes' cards never do.
+// look-alike or invisible letters in their names. Covered: every change asks on a card in a shared chat; the scraper
+// (no change word) runs with no card (docs/decisions/20261122-connector-always-allow.md); a noun-read's read card
+// offers Always allow for that tool alone, and the real changes' cards never do.
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from 'bun:test'
 import { API, type Message } from '@mycel/shared/api'
 import { startHarness, type Harness, type TestSocket } from '../lib/b-harness'
@@ -91,8 +92,9 @@ describe('call_tool and find_tools in a shared chat (security review of #1328)',
     expect(b.tools.some((t) => t.name === TEAM_SEND)).toBe(false)
     const ct = b.tools.find((t) => t.name === 'call_tool')!
     const ro = ct.readOnly as (a: unknown) => boolean
-    for (const n of [TEAM_SEND, T('resend_invoice'), T('scrape_as_markdown'), T('get_invoice')]) expect([n, ro({ name: n })]).toEqual([n, false])
+    for (const n of [TEAM_SEND, T('resend_invoice'), T('list_pull_requests'), T('get_invoice')]) expect([n, ro({ name: n })]).toEqual([n, false])
     expect(ro({ name: TEAM_READ })).toBe(true)
+    expect(ro({ name: T('scrape_as_markdown') })).toBe(true)
     expect(ct.sendsTo!({ name: T('resend_invoice') })).not.toBeNull()
   })
 
@@ -141,26 +143,14 @@ describe('call_tool and find_tools in a shared chat (security review of #1328)',
     expect(callsOf('list_pull_requests')).toBe(n + 2)
   })
 
-  test("a scraper Trina can't tell: its own card, Always in this chat covers that tool only for the next answers", async () => {
+  test('a scraper whose verb Trina does not know (no change word) runs with no card; a change in the same chat still asks', async () => {
     const chat = await newShared()
     const n = callsOf('scrape_as_markdown')
-    const no = await askCards('alice', chat.id, via(T('scrape_as_markdown'), { url: 'https://example.com' }), last)
-    expect(no.cards.length).toBe(1)
-    expect(no.cards[0]!.question).toContain("Bright Data says it only reads, but Trina can’t tell from its name")
-    expect(no.cards[0]!.options.map((o) => [o.label, o.value])).toEqual([['Allow once', 'allow'], ['Always in this chat', 'always'], ['Don’t run', 'deny']])
-    expect(callsOf('scrape_as_markdown')).toBe(n)
-    const yes = await askCards('alice', chat.id, via(T('scrape_as_markdown'), { url: 'https://example.com/a' }), () => 'always')
-    expect(yes.cards.length).toBe(1)
+    const r = await askCards('alice', chat.id, via(T('scrape_as_markdown'), { url: 'https://example.com' }), last)
+    expect(r.cards).toEqual([])
     expect(callsOf('scrape_as_markdown')).toBe(n + 1)
-    const next = await askCards('alice', chat.id, via(T('scrape_as_markdown'), { url: 'https://example.com/b' }), last)
-    expect(next.cards).toEqual([])
-    expect(callsOf('scrape_as_markdown')).toBe(n + 2)
-    // the Always is for that tool: a change in the same chat still asks
     const send = await askCards('alice', chat.id, via(T('resend_invoice'), { to: 'y@example.com' }), last)
     expect(send.cards.length).toBe(1)
-    // and another chat asks again
-    const other = await newShared()
-    const there = await askCards('alice', other.id, via(T('scrape_as_markdown'), { url: 'https://example.com/c' }), last)
-    expect(there.cards.length).toBe(1)
+    expect(send.cards[0]!.options.map((o) => o.value)).not.toContain('always')
   })
 })

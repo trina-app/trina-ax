@@ -37,10 +37,24 @@ export const CardAllowance = z.object({
 })
 export type CardAllowance = z.infer<typeof CardAllowance>
 
-export const AiAllowance = z.discriminatedUnion('kind', [RoomFilesAllowance, CardAllowance])
+/** "항상 허용" on a connector tool's read card (docs/decisions/20261122-connector-always-allow.md): that tool of that
+ * connection reads without the card in every chat. `connection` is the connection's name, `tool` the tool as the card
+ * named it. */
+export const ConnectorToolAllowance = z.object({
+  kind: z.literal('connector_tool'),
+  id: z.string(),
+  connection: z.string(),
+  tool: z.string(),
+  /** the shared chat card's Always: what this connection returns shows to the people in a shared chat (no tool) */
+  shared: z.literal(true).optional(),
+  createdAt: z.string(),
+})
+export type ConnectorToolAllowance = z.infer<typeof ConnectorToolAllowance>
+
+export const AiAllowance = z.discriminatedUnion('kind', [RoomFilesAllowance, CardAllowance, ConnectorToolAllowance])
 export type AiAllowance = z.infer<typeof AiAllowance>
 
 export const AI_ALLOWANCES = {
-  listAiAllowances: endpoint({ method: 'GET', path: '/api/ai-allowances', auth: 'user', owner: 'B', response: z.object({ items: z.array(AiAllowance) }), summary: 'What I allowed the AI in advance ("Always allow" on a kind of card, room folders for new files), newest first.' }),
+  listAiAllowances: endpoint({ method: 'GET', path: '/api/ai-allowances', auth: 'user', owner: 'B', response: z.object({ items: z.array(AiAllowance) }), summary: 'What I allowed the AI in advance ("Always allow" on a kind of card or on a connector tool, room folders for new files), newest first.' }),
   deleteAiAllowance: endpoint({ method: 'DELETE', path: '/api/ai-allowances/:id', auth: 'user', owner: 'B', response: empty, status: 204, summary: 'Take one of my allowances back (404: not mine or not there).' }),
 } as const

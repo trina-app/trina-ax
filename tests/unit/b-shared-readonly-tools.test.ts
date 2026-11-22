@@ -164,15 +164,26 @@ describe('the name check (read-mark.ts)', () => {
     const reads = PROBE.filter((n) => kind(n) === 'read')
     expect(reads).toEqual([])
   })
-  test("most probe names are changes; the rest get the \"can't tell\" card (their verb is not known)", () => {
+  test("most probe names are changes; the rest get the read card (a verb that can write elsewhere)", () => {
     const unsure = PROBE.filter((n) => kind(n) === 'unsure')
-    // none of them holds a change word: they ask on the "can't tell" card, never run with no card
+    // none of them holds a change word: they ask on the read card, never run with no card
     for (const n of unsure) expect([n, namedAsChange(n)]).toEqual([n, false])
     expect(unsure.length).toBeLessThan(PROBE.length / 10)
   })
   test('plain read names are reads; names with no known verb are unsure', () => {
     for (const n of ['search_tasks', 'get_issue', 'list_users', 'github_get_issue', 'read_sheet_values', 'fetch_page', 'query_rows', 'lookup_user', 'describe_table', 'count_rows', 'retrieve_customer', 'view_calendar', 'show_profile', 'getIssue']) expect([n, kind(n)]).toEqual([n, 'read'])
-    for (const n of ['scrape_as_markdown', 'web_data_linkedin_person_profile', 'export_report', 'download_file', 'check_status']) expect([n, kind(n)]).toEqual([n, 'unsure'])
+    // no change word and a verb Trina does not know: a read too (docs/decisions/20261122-connector-always-allow.md)
+    for (const n of ['scrape_as_markdown', 'web_data_linkedin_person_profile', 'extract_page', 'crawl_site']) expect([n, kind(n)]).toEqual([n, 'read'])
+    // a verb that can put the result elsewhere (export, download, check): the read card
+    for (const n of ['export_report', 'download_file', 'check_status', 'acme_export_rows']) expect([n, kind(n)]).toEqual([n, 'unsure'])
+  })
+  test('a tool whose own schema takes a recipient asks on the read card, whatever its name', () => {
+    const withArgs = (name: string, ...keys: string[]) => readKind(true, {}, { name, title: null, readOnly: true, inputSchema: { type: 'object', properties: Object.fromEntries(keys.map((k) => [k, { type: 'string' }])) } })
+    for (const k of ['to', 'cc', 'channel', 'channel_id', 'webhook_url', 'recipients', 'email', 'share_with', 'phone_number']) expect([k, withArgs('scrape_as_markdown', 'url', k)]).toEqual([k, 'unsure'])
+    expect(withArgs('get_issue', 'to')).toBe('unsure')
+    for (const k of ['url', 'link', 'host', 'query', 'format']) expect([k, withArgs('scrape_as_markdown', k)]).toEqual([k, 'read'])
+    // outside a shared chat the mark is taken as it is
+    expect(readKind(false, {}, { name: 'scrape_as_markdown', title: null, readOnly: true, inputSchema: { properties: { to: {} } } })).toBe('read')
   })
   test('a title with a change word, a non-ASCII name, or no read-only mark: a change', () => {
     expect(kind('get_item', 'Send it')).toBe('change')
@@ -183,20 +194,21 @@ describe('the name check (read-mark.ts)', () => {
     expect(readKind(false, {}, { name: 'send_message', title: null, readOnly: true })).toBe('read')
     expect(readKind(true, { google_app: 'gmail' }, { name: 'send_message', title: null, readOnly: true })).toBe('read')
     expect(readsHere(true, {}, { name: 'search_tasks', title: null, readOnly: true })).toBe(true)
-    expect(readsHere(true, {}, { name: 'scrape_as_markdown', title: null, readOnly: true })).toBe(false)
+    expect(readsHere(true, {}, { name: 'scrape_as_markdown', title: null, readOnly: true })).toBe(true)
+    expect(readsHere(true, {}, { name: 'get_post', title: null, readOnly: true })).toBe(false)
   })
   // ordinary look-ups whose change word is only a noun (security review of #1328, second round)
   const NOUN_READS = ['get_post', 'get_posts', 'list_shared_files', 'list_shared_drives', 'get_created_at', 'get_updated_at', 'list_pull_requests', 'list_webhooks', 'get_payment', 'list_charges', 'get_open_issues', 'list_commits', 'get_releases', 'list_deployments', 'get_schedule', 'list_notifications', 'get_attachments', 'list_connections', 'get_assignees', 'list_subscriptions', 'get_saved_searches', 'list_merge_requests', 'get_replies', 'get_invites', 'get_completed_tasks', 'list_installed_apps', 'get_reminders', 'get_reservations', 'get_last_login', 'get_embeddings', 'get_postal_code', 'get_enabled_features', 'get_status_updates', 'list_requests', 'get_post_comments', 'get_draft', 'list_drafts', 'search_by_creator', 'get_sql_schema', 'query_sql']
   // two steps, a second verb, or a verb glued to more letters: they stay changes
   const TWO_STEP = ['fetch_and_post_message', 'get_and_send', 'readAndForward', 'search_and_reply', 'download_and_share', 'fetch_and_merge', 'get_or_create_user', 'getOrCreate', 'find_or_create_contact', 'search_then_reply', 'get_post_and_delete', 'getThenSend', 'lookup_plus_send', 'list_users_to_notify', 'fetch_send_message', 'get_send', 'getsend', 'get_resend', 'get_resend_count', 'read_and_delete_mail', 'get_post_then_publish', 'query_to_update', 'listAndRemove', 'fetch_n_post', 'get_x_send', 'list_delete', 'find_remove_duplicates', 'get_message_send', 'get_postandsend', 'getPostAndSend', 'fetch_post_send', 'get_unsubscribe', 'fetch_create', 'fetchAndUpdate', 'get_pay', 'list_cancel', 'get_post_reply', 'x_get_send', 'slack_get_send_message', 'get_message_to_send', 'get_upsert', 'fetchsend', 'getandpost', 'fetch_postmessage', 'get_sendmessage', 'retrieve_and_publish', 'post_get_comments', 'send_get_status']
 
-  test("40 noun-reads get the \"can't tell\" card (Always in this chat), never a read and never the write card", () => {
+  test("40 noun-reads get the read card (Always allow), never a read and never the write card", () => {
     expect(NOUN_READS.length).toBe(40)
     for (const n of NOUN_READS) expect([n, kind(n)]).toEqual([n, 'unsure'])
   })
   test('no probe name and no two-step or glued name moves: each stays a change', () => {
     for (const n of [...PROBE.filter((x) => x !== 'export_to_drive'), ...TWO_STEP]) expect([n, kind(n)]).toEqual([n, 'change'])
-    // (export_to_drive has no change word and no known verb: the "can't tell" card, as before)
+    // (export_to_drive has no change word and an export verb: the read card, as before)
     expect(kind('export_to_drive')).toBe('unsure')
   })
   test('a title with a change word must pass the same test', () => {

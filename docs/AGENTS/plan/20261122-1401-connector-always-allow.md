@@ -47,6 +47,15 @@ Out: the write card and its per-connection Always (unchanged; persistent already
 chat, by audience; it protects other people, not the asker); the connector page listing per-tool grants (Settings
 lists them; one place is enough).
 
+## Scope added on 2026-11-22 (the owner, three more cards; coordinator)
+
+- Aside's shared chat card ("…5명에게 보여요", radios, 이 채팅에서 항상 허용): its Always is for good per person and
+  connection (not with a guest), one press, no "Aside을(를)".
+- Aside's Repl card (no Always in a shared chat, jargon, raw code): every connector card offers Always; a shared chat's
+  change on the person's own connection or app offers it per tool; sending to others and team connections keep asking.
+  Plain sentence; code, parameters and ids behind "자세히".
+- One rule set for every connector kind (MCP, local app, Google apps, HTTP API), tests for at least three kinds.
+
 ## Steps
 
 1. Migration `441_b_connector_tool_allow.sql`: `connector_tool_allow(user_id, integration_id, tool, url, created_at,

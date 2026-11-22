@@ -938,7 +938,7 @@ describe('connected services after a room read: reads without a card, one card f
     const chat = await afterRoomRead()
     const yes = await answered(chat, fake({ tool: 'my_tasks__create_task', args: { title: 'Minutes of the room' } }, { say: 'done' }), 'allow')
     expect(yes.cards).toHaveLength(1)
-    expect(yes.cards[0]!.question).toStartWith(`${LEAD}\n\nThe AI wants to send this to Tasks: Create a task`)
+    expect(yes.cards[0]!.question).toStartWith(`${LEAD}\n\nCreate a task in Tasks`)
     expect(yes.cards[0]!.details![0]!.text).toBe(JSON.stringify({ title: 'Minutes of the room' }, null, 2))
     expect(created()).toContain('Minutes of the room')
     // the team connection that sends without asking: no card after a room read either (the owner, 2026-11-13)

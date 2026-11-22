@@ -2,7 +2,9 @@ import { confidentialChat } from "../safe-ops/confidential"
 import { chatFilePath, isReservedPlace, parsePlace } from '@mycel/shared/places'
 import { seesChatFiles } from './chat-files-access'
 import { chatFileCopyOf, chatMadeOwnFile } from './chat-file-tool'
-import { ALWAYS_VALUE, LIVE_CLIENTS, alwaysHere, alwaysNote, keepAlways, withAlways, type AlwaysPlace } from './always-allow'
+import { ALWAYS_VALUE, LIVE_CLIENTS, alwaysHere, alwaysNote, keepAlways, teamAllowsAlways, withAlways, type AlwaysPlace } from './always-allow'
+import { keepSharedAllow, sharedAllowed } from '../integrations/connections/tool-allow'
+import { isConfidentialChat } from '../safe-ops/confidential'
 import { approvalsFor, approved, clearApprovals, noteApproval } from './card-approvals'
 import { stampOutputOf } from '../tools/stamp-pdf'
 import type { CardAlwaysKind } from '@mycel/shared/api'
@@ -130,6 +132,7 @@ import { makeHandler } from '../mcp/protocol'
 import { hasCredentialFor, resolveCredential, SOON_MS, type CredEngine } from '../credentials/resolve'
 import { connectionRoute } from '../credentials/access'
 import { isGuestUser } from '../credentials/guest-ai'
+import { steerableRun } from './shared-run'
 import { mayAttachChatFile, mayWriteChatVersion, resolvePlace } from '../files/places'
 import { chatPlaces } from './place-ctx'
 import { situationOf } from './situation'
@@ -4325,7 +4328,7 @@ export class TurnExec {
    * brings in joins the answer's read record first (a record that cannot be written is a refusal) as a k group: someone
    * who sees the chat later and may not use the connection themselves does not see the answer. null: go on.
    */
-  async confirmSharedConnection(c: { id: string; key: string; name: string; sources: ReadSource[] }): Promise<string | null> {
+  async confirmSharedConnection(c: { id: string; key: string; name: string; sources: ReadSource[]; bind?: string }): Promise<string | null> {
     if (!this.shared) return null
     // this answer saved a version of a chat file (everyone who sees the file opens it), so it never becomes one hidden
     // from people added later (noteSharedReads): said as it is, never "could not check" (QA TC-6962)
@@ -4348,6 +4351,9 @@ export class TurnExec {
       // covered: the people the card was answered for (recorded as they were: those who were told)
       const once = this.sharedConnAllowed.get(c.key)
       if (once && covers(once)) return this.noteSharedReads(c.sources, [...once], true, true) ? null : failed()
+      // the person's own Always for good (docs/decisions/20261122-connector-always-allow.md, the owner: "매 대화마다
+      // 해야한다니"): any audience of teammates; a guest (someone outside the team) in the chat still asks
+      if (this.sharedConnForGood(c, audience)) return this.noteSharedReads(c.sources, audience, true, true) ? null : failed()
       const always = approvalsFor(this.rt.db, { chatId: this.spec.chatId, userId: this.spec.userId, kind: 'shared_connection', target: c.key })
         .find((d) => Array.isArray(d.c) && covers(d.c))
       if (always) return this.noteSharedReads(c.sources, (always.c as unknown[]).filter((x): x is string => typeof x === 'string'), true, true) ? null : failed()
@@ -4362,7 +4368,10 @@ export class TurnExec {
         const decision = await made.p
         if (decision !== 'shared' && decision !== 'always') { this.sharedConnRefused.set(c.id, decision); return this.sharedConnText(c.name, decision) }
         this.sharedConnAllowed.set(c.key, new Set(asked))
-        if (decision === 'always') noteApproval(this.rt.db, { chatId: this.spec.chatId, userId: this.spec.userId, kind: 'shared_connection', target: c.key, detail: { c: asked } })
+        if (decision === 'always') {
+          if (this.sharedConnMayKeep(c, asked)) keepSharedAllow(this.rt.db, c.id, this.spec.userId, c.bind!, this.id)
+          else noteApproval(this.rt.db, { chatId: this.spec.chatId, userId: this.spec.userId, kind: 'shared_connection', target: c.key, detail: { c: asked } })
+        }
         continue
       }
       const decision = await pending.p
@@ -4372,10 +4381,25 @@ export class TurnExec {
     return failed()
   }
 
+  /** The person's Always for good on the shared connection card may be kept and used here: a turn they watch from their
+   * own app (or their own scheduled run that no other person's words steer), not a confidential chat, the team's
+   * "Always allow" switch on, and nobody outside the team (a guest) among the people. */
+  private sharedConnMayKeep(c: { bind?: string }, people: readonly string[]): boolean {
+    if (!c.bind || !teamAllowsAlways(this.rt.db) || isConfidentialChat(this.rt.db, this.spec.chatId)) return false
+    const scheduled = this.spec.clientKind === 'schedule'
+    if (scheduled ? steerableRun(this.rt.db, this.id) : !LIVE_CLIENTS.has(this.spec.clientKind ?? '')) return false
+    try { return !people.some((id) => isGuestUser(this.rt.db, id)) } catch { return false }
+  }
+
+  private sharedConnForGood(c: { id: string; bind?: string }, people: readonly string[]): boolean {
+    return this.sharedConnMayKeep(c, people) && sharedAllowed(this.rt.db, c.id, this.spec.userId, c.bind!)
+  }
+
   /** The connection card and its audit row (counts, never who). `asked`: the people it names (a guest among them is
    * said: someone outside the team). */
-  private async askSharedConnection(c: { id: string; name: string }, asked: readonly string[]): Promise<SharedDecision | 'always'> {
+  private async askSharedConnection(c: { id: string; name: string; bind?: string }, asked: readonly string[]): Promise<SharedDecision | 'always'> {
     const L = this.spec.locale
+    const forGood = this.sharedConnMayKeep(c, asked)
     const scheduled = this.spec.clientKind === 'schedule'
     const name = c.name.replace(/\s+/g, ' ').trim().slice(0, 80)
     let guests = 0
@@ -4385,7 +4409,10 @@ export class TurnExec {
       question: guests
         ? tr('sharedConnectionConfirmGuest', L, { service: name, n: String(asked.length), g: String(guests) })
         : tr('sharedConnectionConfirm', L, { service: name, n: String(asked.length) }),
-      options: [{ label: tr('sharedConnectionOnce', L), value: 'once' }, { label: tr('sharedConnectionAlways', L), value: 'always' }, { label: tr('sharedConnectionCancel', L), value: 'cancel' }],
+      // one press (QA TC-ask1-15): three buttons, the main one first. Always is for good where it may be kept (no
+      // guest here: sharedConnMayKeep), with one line saying what it covers; with a guest it stays for this chat
+      options: [{ label: tr('sharedConnectionOnce', L), value: 'once' }, { label: tr(forGood ? 'sharedConnectionAlwaysAll' : 'sharedConnectionAlways', L), value: 'always' }, { label: tr('sharedConnectionCancel', L), value: 'cancel' }],
+      buttons: true, ...(forGood ? { note: tr('sharedConnectionAlwaysNote', L, { service: name }) } : {}),
       multiple: false, allowText: false,
       expiresAt: new Date(Date.now() + this.rt.askUserTimeoutMs()).toISOString(),
     } as TurnRequest, { timeoutMs: this.rt.askUserTimeoutMs() })

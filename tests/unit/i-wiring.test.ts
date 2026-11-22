@@ -272,7 +272,7 @@ describe('external-service connections in a turn', () => {
       const req = card.data.request
       if (req.kind !== 'ask_user') throw new Error(`expected the server's ask_user card, got ${req.kind}`)
       expect(req.origin).toBe('server')
-      expect(req.question).toContain('The AI wants to send this to Tasks: Create a task')
+      expect(req.question).toContain('Create a task in Tasks')
       // everything that is sent travels with the card, in full (docs/DECISIONS.md "Outbound web channels")
       expect(req.details?.[0]?.text).toBe(JSON.stringify({ title: 'Quarterly plan' }, null, 2))
       await h.api('alice').call(API.answerTurn, { params: { id: sent.turnId }, body: { kind: 'ask_user', requestId: req.requestId, answer: 'allow' } })

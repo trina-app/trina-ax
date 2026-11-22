@@ -1,14 +1,15 @@
-// A connection tool's read mark as a shared chat takes it (docs/decisions/20261118-shared-readonly-tools.md, QA TC-4900).
-// The mark is the service's own hint (mcp.ts: readOnlyHint, and never with destructiveHint), and nobody checks it. In a
-// shared chat other people's words can steer the AI, so there the mark counts only when the tool's name also plainly
-// looks: an ASCII name whose verb is a strict read verb and that holds no change word anywhere (name or title). A
-// marked tool whose verb is not known ("scrape_as_markdown") asks on its own "can't tell" card; anything else is a
-// change and asks on the write card. A Google app keeps Trina's own list (google-apps/catalog.ts: a read only when
-// both say so). Outside a shared chat the service's mark is taken as it is.
+// A connection tool's read mark as a shared chat takes it (docs/decisions/20261118-shared-readonly-tools.md, QA TC-4900;
+// narrowed by docs/decisions/20261122-connector-always-allow.md). The mark is the service's own hint (mcp.ts:
+// readOnlyHint, and never with destructiveHint), and nobody checks it. In a shared chat other people's words can steer
+// the AI, so there the mark counts only when the tool's name also does not say it changes something: an ASCII name
+// (and title) with no change word anywhere. Such a tool is a read whatever its verb ("scrape_as_markdown", 11-22 owner:
+// "진짜 의심이 너무 많아"). A look-up whose change words are only nouns ("get_post") asks on its own read card, which the
+// person may allow for good; anything else is a change and asks on the write card. A Google app keeps Trina's own list
+// (google-apps/catalog.ts: a read only when both say so). Outside a shared chat the service's mark is taken as it is.
 import type { RemoteTool } from './mcp'
 
-/** How a call of a tool counts: a read (no card of its own), a read Trina cannot confirm by its name (the "can't tell"
- * card, which may be allowed for the rest of the chat), or a change (the write card, every time in a shared chat). */
+/** How a call of a tool counts: a read (no card of its own), a read whose name holds a change word as a noun (the read
+ * card, which the person may allow for good: tool-allow.ts), or a change (the write card, every time in a shared chat). */
 export type ReadKind = 'read' | 'unsure' | 'change'
 
 /** Strict read verbs: the name's first word, or the first word after a service prefix ("github_get_issue"). Not
@@ -70,12 +71,11 @@ export function readVerb(name: string): boolean {
 
 /**
  * How a call of this tool counts in this turn. Not marked read-only by the service: a change. Outside a shared chat, or
- * a Google app (Trina's own list): the mark. In a shared chat: a read only when the name is plain ASCII after NFKC
- * (a name with invisible characters is a change), its verb is a strict read verb and neither name nor title holds a change word; a
- * marked tool with no change word whose verb is not known, or a look-up whose change words are only nouns (nounRead),
- * is 'unsure'; anything else is a change.
+ * a Google app (Trina's own list): the mark. In a shared chat: a read when the name is plain ASCII after NFKC (a name
+ * with invisible characters is a change) and neither name nor title holds a change word, whatever its verb; a look-up
+ * whose change words are only nouns (nounRead) is 'unsure'; anything else is a change.
  */
-export function readKind(shared: boolean, row: { google_app?: string | null }, t: Pick<RemoteTool, 'name' | 'title' | 'readOnly'>): ReadKind {
+export function readKind(shared: boolean, row: { google_app?: string | null }, t: Pick<RemoteTool, 'name' | 'title' | 'readOnly'> & { inputSchema?: unknown }): ReadKind {
   if (!t.readOnly) return 'change'
   if (!shared || row.google_app) return 'read'
   const name = plainName(t.name)
@@ -88,7 +88,22 @@ export function readKind(shared: boolean, row: { google_app?: string | null }, t
     if (title && namedAsChange(title) && !nounRead(nameWords(title))) return 'change'
     return nounRead(nameWords(name)) ? 'unsure' : 'change'
   }
-  return readVerb(name) ? 'read' : 'unsure'
+  // a verb that can write elsewhere (export, download, check: not strict read verbs), or a tool that takes a recipient
+  // (its own schema has a "to", "channel", "webhook"…): the read card, which the person may allow for good (plan review
+  // of 20261122-connector-always-allow.md). Decided once per tool, never from a call's arguments
+  const w = nameWords(name)
+  if (ELSEWHERE_VERBS.has(w[0] ?? '') || (w.length > 2 && ELSEWHERE_VERBS.has(w[1]!)) || takesRecipient(t.inputSchema)) return 'unsure'
+  return 'read'
+}
+
+/** Verbs that read here but may put the result somewhere else, or change a state while they check */
+const ELSEWHERE_VERBS = new Set(['export', 'download', 'check'])
+/** A top-level argument that names who or where something is sent to (not an address that is read: url, link, host) */
+const SEND_TO = /^(to|cc|bcc|recipients?|emails?|email_?address(es)?|channels?|channel_?(id|name)s?|chat_?id|webhooks?(_?url)?|share_?with|phones?|phone_?numbers?|send_?to|notify)$/i
+/** The tool's input schema names an argument of SEND_TO. */
+export function takesRecipient(schema: unknown): boolean {
+  const props = schema && typeof schema === 'object' ? (schema as { properties?: unknown }).properties : null
+  return !!props && typeof props === 'object' && Object.keys(props as object).some((k) => SEND_TO.test(plainName(k)))
 }
 
 /** Words that join a second step ("fetch_and_post", "get_or_create", "list_users_to_notify"). */
@@ -131,4 +146,4 @@ export function nounRead(w: readonly string[]): boolean {
 }
 
 /** A call that only reads with no card of its own (readKind 'read'). */
-export const readsHere = (shared: boolean, row: { google_app?: string | null }, t: Pick<RemoteTool, 'name' | 'title' | 'readOnly'>): boolean => readKind(shared, row, t) === 'read'
+export const readsHere = (shared: boolean, row: { google_app?: string | null }, t: Pick<RemoteTool, 'name' | 'title' | 'readOnly'> & { inputSchema?: unknown }): boolean => readKind(shared, row, t) === 'read'
