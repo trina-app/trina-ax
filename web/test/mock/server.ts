@@ -3167,6 +3167,15 @@ export class MockServer {
       this.guests.delete(u.id)
       return u
     },
+    // POST /api/rooms (server/src/rooms/service.ts, short): a group chat of me and the people named (a name makes it a
+    // private channel), as Create a channel makes one; other kinds stay with the specs' page.route
+    createRoom: (c) => {
+      if (c.body.kind !== 'group') fail('not_found', 404)
+      const peers = (c.body.userIds as string[]).map((id) => this.users.find((u) => u.id === id && u.status === 'active') ?? fail('validation', 400, 'no such person')).map((u) => ({ id: u.id, name: u.name }))
+      const room = Room.parse({ id: uuidv7(), kind: 'group', name: c.body.name ?? null, canRename: true, managerId: c.user.id, groupId: null, memberCount: peers.length + 1, peers: peers.slice(0, 4), lastSeq: 0, unreadCount: 0, threadsUnread: 0, nextThreadId: null, mentioned: false, lastReadSeq: 0, lastMessage: null, muted: false, createdAt: now(), activityAt: now() })
+      this.rooms.push(room)
+      return { status: 201, body: room }
+    },
     listRoomMembers: (c) => {
       const room = this.rooms.find((r) => r.id === c.params.id) ?? fail('not_found', 404)
       return { items: [{ id: c.user.id, name: c.user.name }, ...room.peers].map((user) => ({ user, joinedAt: room.createdAt })) }
@@ -6617,6 +6626,8 @@ export class MockServer {
         this.projectRooms.set(p!.id, id)
         this.rooms.push(Room.parse({ id, kind: 'group', name: p!.name, canRename: false, managerId: null, groupId: null, memberCount: 0, peers: [], lastSeq: 0, unreadCount: 0, threadsUnread: 0, nextThreadId: null, mentioned: false, lastReadSeq: 0, lastMessage: null, muted: false, notify: { own: null, byDefault: 'mentions', level: 'mentions' }, createdAt: now(), activityAt: now() }))
       }
+      // ?listed=1 (opened on purpose: "New project with", Create a channel's Make it a project): listed from the start
+      if (c.query.listed === '1') this.rooms = this.rooms.map((r) => (r.id === id ? { ...r, listed: true } : r))
       return this.projectRoomFor(this.rooms.find((r) => r.id === id)!, c.user)
     }
     over('listRooms', (c, base) => {
