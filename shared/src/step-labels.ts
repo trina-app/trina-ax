@@ -103,6 +103,8 @@ export const FILE_STEP_VERB: Record<string, T> = {
   shared_with_me: t('공유받은 파일 확인', 'Check files shared with you', 'Periksa berkas yang dibagikan kepada Anda', '共有されたファイルを確認', 'Ver archivos compartidos con usted', '查看共享给你的文件'),
   // the comments under answers in this chat (server/src/chat/answer-comments.ts)
   answer_comments: t('스레드 답글 읽기', 'Read thread replies', 'Baca balasan utas', 'スレッドの返信を読む', 'Leer respuestas del hilo', '读取话题回复'),
+  // the folders the person's AI can see, each with its access (server/src/chat/my-folders.ts): never a hidden one
+  my_folders: t('열 수 있는 폴더 확인', 'Check the folders open to you', 'Periksa folder yang bisa Anda buka', '開けるフォルダーを確認', 'Ver las carpetas que puede abrir', '查看你能打开的文件夹'),
   looking_at: t('열어 둔 화면 확인', 'Check what you have open', 'Periksa yang sedang Anda buka', '開いている画面を確認', 'Ver lo que tiene abierto', '查看你打开的内容'),
   // the AI changes a team project's members after the person's yes on its card (server/src/chat/project-members.ts):
   // "프로젝트 멤버 바꾸기 · 견적"

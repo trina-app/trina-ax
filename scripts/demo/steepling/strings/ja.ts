@@ -145,5 +145,6 @@ export const ja: FreeRoamStrings = {
     { label: '来週のSNS投稿を下書き', prompt: '来週のSNSカレンダーの空いている2枠の投稿を下書きして' },
     { label: 'お客さまの声をまとめる', prompt: '最近のお客さまの声をまとめて' },
     { label: 'クリスさんから返信あった？', prompt: 'クリスさんから私のメールに返信あった？Gmailを確認して' },
+    { label: '経営陣のフォルダーを見せて', prompt: '経営陣のフォルダーを見せて' },
   ],
 }

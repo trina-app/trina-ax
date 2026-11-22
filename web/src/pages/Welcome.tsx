@@ -36,7 +36,9 @@ import { uploadFile, type UploadProgress } from '../lib/upload'
 import { APP_CONNECTORS, CONNECTORS } from '../lib/connectors'
 import { useFolderWords } from '../lib/folderLabels'
 import { builtInName } from '../lib/googleApps'
-import { countedSteps, inviteSkill, markStepsSeen, needsAi, nextStep, offeredHere, phoneSkips, prevStep, putOffSteps, resumeStep, setupReturnStep, skillNameOf, stepDone, stepPosition, wantsTeam } from '../lib/welcome'
+import { connectionRowStatus } from '../lib/integrations'
+import { slackView } from '../lib/slackState'
+import { countedSteps, inviteSkill, markStepsSeen, needsAi, nextStep, offeredHere, phoneSkips, prevStep, putOffSteps, resumeStep, setupReturnStep, skillNameOf, stepAfter, stepDone, stepPosition, wantsTeam } from '../lib/welcome'
 import { useLocale, useT, type MessageKey } from '../i18n'
 import { useAiAccess } from '../store/aiAccess'
 import { isOwner, useMeStrict } from '../store/session'
@@ -45,7 +47,7 @@ import { useWelcome } from '../store/welcome'
 import { ConnectAiButton, ConnectAiPanel } from '../components/onboarding/ConnectAi'
 import { InviteStep, sharedForInvite } from '../components/onboarding/InviteStep'
 import ProfileStep, { shortUrl } from '../components/onboarding/ProfileStep'
-import { SkillsStep } from '../components/onboarding/SkillsStep'
+import { setupRows, SkillsStep } from '../components/onboarding/SkillsStep'
 import { TeamFilesStep } from '../components/onboarding/TeamFilesStep'
 import { ToolsStep } from '../components/onboarding/ToolsStep'
 import { UploadLabel } from '../components/UploadLabel'
@@ -124,6 +126,9 @@ function WelcomeSteps() {
   // a step put off and opened again from the end screen: once it is answered, back to the end screen (which lists what
   // is still put off), not Home (QA TC-206)
   const fromDone = useRef(false)
+  // the owner went back (← 이전, a phone's ‹): 다음 walks forward one step at a time from there, as the stepper shows
+  // them, until the end screen
+  const walkedBack = useRef(false)
 
   // the address as the router has it now (read after awaits)
   const where = useRef(location)
@@ -259,6 +264,8 @@ function WelcomeSteps() {
     setError(null)
     setBrandNote(false)
     fromDone.current = false
+    // ‹, the swipe or Android's Back to an earlier step: 다음 walks forward from there one step at a time
+    if (SCREENS.indexOf(urlStep) < SCREENS.indexOf(step)) walkedBack.current = true
     setStep(urlStep)
   }, [urlStep]) // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -277,6 +284,14 @@ function WelcomeSteps() {
     setError(null)
     try { await fn() } catch (e) { setError(errorText(e, locale, t('error.network'))) } finally { setBusy(false) }
   }
+  /** Where 다음 on `from` goes, and what its label names (one rule for both): back to the end screen when the step was
+   * opened from there; after ← 이전 the step right after it (stepAfter: the steps the stepper and 이전 show); else the
+   * next open step; with none, the end screen the first time, else null (Home). */
+  const whereNext = (p: WelcomeProgress, from: WelcomeStep): Screen | null => {
+    if (fromDone.current) return 'done'
+    const n = walkedBack.current ? stepAfter(from, computer) : nextStep(p, from, computer)
+    return n ?? (p.doneShownAt ? null : 'done')
+  }
   /** on to the next open step; none left after this one: the end screen the first time, else Home ("설정을 마쳤어요"
    * when that finished the setup: 내 스킬 done on a computer after the phone's end screen). A phone walks past 도구
    * 연결 and records it as put off (docs/DECISIONS.md "W6"). False when a phone went to another step while this one was
@@ -289,10 +304,11 @@ function WelcomeSteps() {
     const at = atNow()
     if (at && at !== from) { fromDone.current = false; return false }
     setBrandNote(false)
-    if (fromDone.current) { fromDone.current = false; show('done'); return true }
-    const n = nextStep(p, from, computer)
+    const n = whereNext(p, from)
+    fromDone.current = false
+    // the end screen or Home: the walk back is over
+    if (n === 'done' || n === null) walkedBack.current = false
     if (n) { show(n); return true }
-    if (!p.doneShownAt) { show('done'); return true }
     if (p.finishedAt && !finishedBefore.current) toast({ level: 'success', text: t('welcome.finished') })
     exit('/')
     return true
@@ -353,8 +369,9 @@ function WelcomeSteps() {
   const gate = step === 'ai' || (!aiReady && step !== 'done' && needsAi(step))
   // a computer's "← 이전" (a phone's is the bar's ‹, the history's own Back)
   const back = gate || step === 'done' || !computer ? null : prevStep(step, computer)
+  // the step 다음 opens, by name (the end screen or Home: plain "다음")
   const nextLabel = (from: WelcomeStep) => {
-    const n = nextStep(progress, from, computer)
+    const n = whereNext(progress, from)
     return t(n === 'files' ? 'welcome.next.files' : n === 'tools' ? 'welcome.next.tools' : n === 'invite' ? 'welcome.next.invite' : 'welcome.next.step')
   }
   const at = step === 'done' ? null : progressAt(progress, gate ? 'ai' : step, aiReady, computer)
@@ -365,7 +382,7 @@ function WelcomeSteps() {
       {step !== 'done' && <Progress progress={progress} step={gate ? 'ai' : step} aiReady={aiReady} computer={computer} />}
       {back && (
         <div className="mt-5 -ml-2.5">
-          <Button size="sm" variant="ghost" onClick={() => { setError(null); setBrandNote(false); setStep(back) }} disabled={busy} data-testid="welcome-back">
+          <Button size="sm" variant="ghost" onClick={() => { setError(null); setBrandNote(false); walkedBack.current = true; setStep(back) }} disabled={busy} data-testid="welcome-back">
             <ArrowLeft size={14} aria-hidden /> {t('welcome.back')}
           </Button>
         </div>
@@ -808,10 +825,12 @@ async function countFiles(root: string, skip: ReadonlySet<string>): Promise<numb
 
 /** One short fact per step done, read for the end screen; a fact that cannot be read is left out (the row shows
  * without it), never a count that could mislead. */
-function useDoneFacts(progress: WelcomeProgress, unshown: ReadonlySet<WelcomeStep>): Partial<Record<WelcomeStep, string>> {
+function useDoneFacts(progress: WelcomeProgress, unshown: ReadonlySet<WelcomeStep>): { facts: Partial<Record<WelcomeStep, string>>; skillsIn: number | null } {
   const t = useT()
   const words = useFolderWords()
   const [facts, setFacts] = useState<Partial<Record<WelcomeStep, string>>>({})
+  // how many skills the setup's step left in the team (null: not read yet)
+  const [skillsIn, setSkillsIn] = useState<number | null>(null)
   useEffect(() => {
     let live = true
     const put = (s: WelcomeStep, v: string | null) => { if (live && v) setFacts((f) => ({ ...f, [s]: v })) }
@@ -824,9 +843,19 @@ function useDoneFacts(progress: WelcomeProgress, unshown: ReadonlySet<WelcomeSte
       const inside = g.brandFolder.startsWith(`${home}/`) ? g.brandFolder.slice(home.length + 1).split('/') : [g.brandFolder.slice(g.brandFolder.lastIndexOf('/') + 1)]
       put('profile', t('welcome.done.fact.profile', { place: [words.name(home, home.slice(home.lastIndexOf('/') + 1)), ...inside].join(' › ') }))
     }
-    // 스킬: the names the owner shared, the first three (never a raw folder name)
-    const names = (progress.shared?.skills ?? []).map((x) => skillLabel({ name: skillNameOf(x.path), title: x.title }))
-    if (done('skills') && names.length) put('skills', names.length > 3 ? t('welcome.done.fact.skillsMore', { names: names.slice(0, 3).join(', '), n: names.length - 3 }) : names.join(', '))
+    // 스킬: the setup's skills now in the team (the catalog's rows for the step) and the ones the owner shared, by name
+    // ("회의록 정리 외 2개"; never a raw folder name). None: the row reads as put off, with 지금 하기 (QA: a ✓ with
+    // nothing ticked or installed)
+    const shared = (progress.shared?.skills ?? []).map((x) => skillLabel({ name: skillNameOf(x.path), title: x.title }))
+    if (done('skills')) {
+      api.call(API.listSkillPacks).then((c) => setupRows(c.skills).filter((r) => r.inTeam).map((r) => r.title), () => null).then((inTeam) => {
+        if (!live) return
+        // the catalog not read: what the progress says (a ✓ without a fact, as before, when it names nothing)
+        const names = [...new Set([...(inTeam ?? []), ...shared])]
+        setSkillsIn(inTeam === null && !names.length ? -1 : names.length)
+        if (names.length) put('skills', names.length > 1 ? t('welcome.done.fact.skillsMore', { names: names[0]!, n: names.length - 1 }) : names[0]!)
+      })
+    }
     // 팀 파일: the files in the team's home (teamHome: shared/ since "Team folder basics"), every level, without its
     // notes and brand folders (the setup's own)
     if (done('files') && g && home) {
@@ -837,15 +866,16 @@ function useDoneFacts(progress: WelcomeProgress, unshown: ReadonlySet<WelcomeSte
     // is asked to connect
     if (done('tools')) {
       void Promise.all([
-        api.call(API.listTeamIntegrations).then((r) => r.items.filter((i) => i.status === 'connected').map((i) => i.name), () => null),
-        api.call(SLACK.slackAdmin).then((x) => (x.state === 'connected' ? ['Slack'] : []), () => []),
+        // only what works now, as Connectors' rows say it: never one that needs a sign-in, a check or the desktop app
+        api.call(API.listTeamIntegrations).then((r) => r.items.filter((i) => i.scope === 'team' && connectionRowStatus(i) === 'connected').map((i) => i.name), () => null),
+        api.call(SLACK.slackAdmin).then((x) => (x.state === 'connected' && slackView(x).row === 'on' ? ['Slack'] : []), () => []),
         api.call(API.driveAdminStatus).then((d) => (d.sharesOn ? [builtInName('google-drive')] : []), () => []),
         api.call(API.googleAppsAdminStatus).then((r) => r.apps.filter((a) => a.team?.status === 'connected').map((a) => builtInName(a.id)), () => []),
         api.call(API.settings).then((r) => (r.recommendedTools ?? []).map(toolName), () => null),
       ]).then(([team, slack, drive, gapps, rec]) => {
         const on = [...(team ?? []), ...slack, ...drive, ...gapps]
         const parts = [on.length ? t('welcome.done.fact.toolsTeam', { names: on.join(', ') }) : null, rec?.length ? t('welcome.done.fact.toolsRecommended', { names: rec.join(', ') }) : null].filter(Boolean)
-        put('tools', parts.join(' · '))
+        put('tools', parts.length ? parts.join(' · ') : null)
       })
     }
     // 팀원 초대: the team link (what the step makes), and how many came in with it
@@ -855,7 +885,7 @@ function useDoneFacts(progress: WelcomeProgress, unshown: ReadonlySet<WelcomeSte
     return () => { live = false }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
-  return facts
+  return { facts, skillsIn }
 }
 
 /** a recommended tool's name (Google Drive, Gmail …, a listed service), else its id */
@@ -875,7 +905,7 @@ function DoneStep({ progress, aiReady, computer, putOffHere, onStep, onExit }: {
   // before the finishing save came back with it done (welcome.ts settlePutOff: any working connection, made before the
   // setup). Done for real (on a computer, before): its ✓ and fact.
   const elsewhereOf = (s: WelcomeStep) => !offeredHere(s, computer) && (!stepDone(progress, s) || putOffHere.has(s))
-  const facts = useDoneFacts(progress, new Set(SUMMED.filter(elsewhereOf)))
+  const { facts, skillsIn } = useDoneFacts(progress, new Set(SUMMED.filter(elsewhereOf)))
   useEffect(() => {
     if (!progress.doneShownAt) void useWelcome.getState().update({ doneShown: true }).catch(() => {})
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -890,10 +920,13 @@ function DoneStep({ progress, aiReady, computer, putOffHere, onStep, onExit }: {
           // "컴퓨터에서 할 수 있어요", never "나중에 하기로 했어요", and never a ✓ the setup did not earn (QA: a phone's 4
           // steps ended on "✓ 팀 도구" from a Slack connected before)
           const elsewhere = elsewhereOf(s)
-          const later = elsewhere || !stepDone(progress, s)
+          // 스킬 done with no skill in the team from it: put off, as it reads (QA: a ✓ with nothing ticked or installed);
+          // while that is read the row shows no mark yet
+          const checking = s === 'skills' && !elsewhere && stepDone(progress, s) && skillsIn === null
+          const later = elsewhere || !stepDone(progress, s) || (s === 'skills' && skillsIn === 0)
           return (
-            <li key={s} className="flex items-center gap-3 px-4 py-2.5 text-sm" data-testid="welcome-done-row" data-step={s} data-state={elsewhere ? 'elsewhere' : later ? 'later' : 'done'}>
-              {later ? <span aria-hidden className="size-4 shrink-0 rounded-full border border-line-strong" /> : <Check size={16} className="shrink-0 text-ok" aria-hidden />}
+            <li key={s} className="flex items-center gap-3 px-4 py-2.5 text-sm" data-testid="welcome-done-row" data-step={s} data-state={elsewhere ? 'elsewhere' : later ? 'later' : checking ? 'checking' : 'done'}>
+              {checking ? <span aria-hidden className="size-4 shrink-0" /> : later ? <span aria-hidden className="size-4 shrink-0 rounded-full border border-line-strong" /> : <Check size={16} className="shrink-0 text-ok" aria-hidden />}
               <span className="min-w-0 flex-1">
                 <span className="font-medium text-ink">{t(STEP_LABEL[s]!)}</span>
                 {later ? <span className="text-muted"> · {t(elsewhere ? 'welcome.done.onComputer' : 'welcome.done.laterRow')}</span>

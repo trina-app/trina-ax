@@ -27,6 +27,7 @@ import { integrationsOf } from '../../server/src/integrations/connections/servic
 import { templatesOf } from '../../server/src/integrations/connections/templates'
 import { activeUser } from '../../server/src/integrations/connections/store'
 import { googleDriveOf } from '../../server/src/integrations/google-drive/oauth'
+import { googleAppsOf } from '../../server/src/integrations/google-apps/service'
 import { CONNECT_RULE } from '../../server/src/chat/prompt'
 import { DRIVE_TOOL_NAMES } from '../../server/src/tools/drive'
 
@@ -1130,5 +1131,145 @@ describe('connections waiting for their first sign-in never block the card (QA T
       expect(cards(t.turnId)).toEqual([])
       expect(m.content).toContain('20 working personal connections')
     } finally { clean() }
+  })
+})
+
+// #253 (docs/CONNECTIONS.md mismatch 8): onboarding and Admin › Connected apps connect Google for the whole team; the
+// chat card offers the same to an owner or admin (teamOffer: the web card opens the very same dialog), never to a
+// member, and a team connection a member may use already counts as connected (as on the My setup card).
+describe('Google for the team from a chat (#253)', () => {
+  /** a Drive an admin shares with the team, working, for `who` ('everyone' or one person) */
+  function share(id: string, owner: string, who: string, key: string) {
+    const now = new Date().toISOString()
+    h.ctx.db.query("INSERT INTO drive_team_shares (id, name, owner_user_id, config_key, account, scopes, secret_enc, key_version, folders, status, version, expires_at, created_at, updated_at) VALUES (?, ?, ?, ?, '{}', 'drive.readonly', 'sealed', 1, '[]', 'connected', 1, '2099-01-01', ?, ?)").run(id, `Sales ${id}`, owner, key, now, now)
+    h.ctx.db.query('INSERT INTO drive_team_share_access (share_id, subject_type, subject_id) VALUES (?, ?, ?)').run(id, who === 'everyone' ? 'everyone' : 'user', who === 'everyone' ? '' : who)
+  }
+  const dropShares = () => { h.ctx.db.query('DELETE FROM drive_team_share_access').run(); h.ctx.db.query('DELETE FROM drive_team_shares').run() }
+  async function withDrive(fn: (key: string) => Promise<void>) {
+    const d = googleDriveOf(h.ctx, { config: DRIVE_CONFIG, fetch: new FakeGoogleDrive().fetch }); membersMayConnect(h.ctx.db)
+    try { await fn(d.key) } finally { dropShares(); googleDriveOf(h.ctx, { config: null }) }
+  }
+
+  test('Drive: an owner or admin gets Connect for the team on the card, a member only their own', async () => {
+    await withDrive(async () => {
+      for (const [who, team] of [['carol', true], ['dana', true], ['alice', false]] as const) {
+        const t = await start(who, { name: 'Google Drive', target: 'google_drive' })
+        const card = await cardOf(t.turnId)
+        expect(card).toMatchObject({ target: 'google_drive', name: 'Google Drive', scope: 'personal' })
+        expect(card.teamOffer).toBe(team ? true : undefined)
+        expect((await post(who, t.turnId, { action: 'skip', requestId: card.requestId })).body).toEqual({ state: 'skipped' })
+        await doneOf(t.messageId)
+      }
+    })
+  })
+
+  test('Drive: a member a team share covers is connected, no card and nothing to connect', async () => {
+    await withDrive(async (key) => {
+      share('s-all', 'carol', 'everyone', key)
+      const t = await start('alice', { name: 'Google Drive', target: 'google_drive' })
+      const m = await doneOf(t.messageId)
+      expect(cards(t.turnId)).toEqual([])
+      expect(m.content).toContain('Google Drive is connected for this person through a Drive the team shares with them ("Sales s-all"')
+      expect(m.content).toContain('Do not ask them to connect it')
+      expect(stepOf(m).detail).toBe('Connected')
+      // a share for someone else is not theirs: the card as before
+      dropShares()
+      share('s-bob', 'carol', 'bob', key)
+      const t2 = await start('alice', { name: 'Google Drive', target: 'google_drive' })
+      const card = await cardOf(t2.turnId)
+      expect(card.teamOffer).toBeUndefined()
+      await post('alice', t2.turnId, { action: 'skip', requestId: card.requestId })
+      await doneOf(t2.messageId)
+    })
+  })
+
+  test('Drive: after Connect for the team, done is connected; a share that leaves the admin out is "for the team", only for an admin', async () => {
+    await withDrive(async (key) => {
+      const t = await start('carol', { name: 'Google Drive', target: 'google_drive' })
+      const card = await cardOf(t.turnId)
+      expect((await post('carol', t.turnId, { action: 'done', requestId: card.requestId })).body.state).toBe('retry')
+      // the dialog shared a Drive with Alice only
+      share('s-alice', 'carol', 'alice', key)
+      // the role is read again: no longer an admin, a share that leaves them out is nothing of theirs
+      h.ctx.db.query("UPDATE users SET role = 'member' WHERE id = 'carol'").run()
+      try { expect((await post('carol', t.turnId, { action: 'done', requestId: card.requestId })).body.state).toBe('retry') }
+      finally { h.ctx.db.query("UPDATE users SET role = 'admin' WHERE id = 'carol'").run() }
+      expect((await post('carol', t.turnId, { action: 'done', requestId: card.requestId })).body).toEqual({ state: 'connected' })
+      const m = await doneOf(t.messageId)
+      expect(resultOf(m)).toMatchObject({ connected: true, name: 'Google Drive', status: 'connected for the team' })
+      expect(resultOf(m).note).toContain('this person is not among the people who may use it')
+      expect(stepOf(m).detail).toBe('연결됨') // Carol reads Korean
+      // one for everyone: the owner is covered, connected without a card
+      share('s-all', 'carol', 'everyone', key)
+      const t2 = await start('dana', { name: 'Google Drive', target: 'google_drive' })
+      const m2 = await doneOf(t2.messageId)
+      expect(cards(t2.turnId)).toEqual([])
+      expect(m2.content).toContain('through a Drive the team shares with them')
+    })
+  })
+
+  /** Gmail as this server sees it for the test: set up (reason null), the person's own and the team's account as given */
+  async function withGmail(state: { shared?: 'connected' | 'needs_reconnect'; team?: 'connected' }, fn: () => Promise<void>) {
+    const g = googleAppsOf(h.ctx)
+    const view = g.view.bind(g), admin = g.adminStatus.bind(g)
+    g.view = (user, app) => {
+      const v = view(user, app)
+      return app !== 'gmail' ? v : { ...v, available: true, reason: null, status: 'disconnected', serviceDown: false, shared: state.shared ? { id: 'team-gmail', account: { name: null, email: 'team@acme.example' }, status: state.shared, alwaysAllowed: false } : null }
+    }
+    g.adminStatus = (app) => {
+      const a = admin(app)
+      return app !== 'gmail' || !state.team ? a : { ...a, configured: true, team: { id: 'team-gmail', status: state.team, account: { name: null, email: 'team@acme.example' }, access: { everyone: false, groups: [], users: ['alice'] }, usedBy: 1, connectedBy: null, connectedAt: new Date().toISOString() } }
+    }
+    try { await fn() } finally { g.view = view; g.adminStatus = admin }
+  }
+
+  test('Gmail: an owner or admin gets a card (for the team, or their own on its page); a member the words, as before', async () => {
+    await withGmail({}, async () => {
+      const t = await start('carol', { name: 'Gmail', why: 'to send the invoice' })
+      const card = await cardOf(t.turnId)
+      expect(card).toMatchObject({ target: 'google_app', googleApp: 'gmail', name: 'Gmail', scope: 'personal', teamOffer: true, why: 'to send the invoice' })
+      expect(card.service).toBeUndefined()
+      // nothing goes through the card itself: its own page, or the team's dialog, then done
+      expect((await post('carol', t.turnId, { action: 'connect', requestId: card.requestId })).status).toBe(400)
+      expect((await post('carol', t.turnId, { action: 'done', requestId: card.requestId })).body.state).toBe('retry')
+      await post('carol', t.turnId, { action: 'skip', requestId: card.requestId })
+      expect(resultOf(await doneOf(t.messageId))).toEqual({ skipped: true })
+      const m = await start('alice', { name: 'Gmail' })
+      const said = await doneOf(m.messageId)
+      expect(cards(m.turnId)).toEqual([])
+      expect(said.content).toContain('Gmail is one of the app\'s built-in Google apps')
+    })
+  })
+
+  test('Gmail: the team\'s shared account a person may use is connected for them, no card, whoever asks', async () => {
+    await withGmail({ shared: 'connected' }, async () => {
+      for (const who of ['alice', 'carol']) {
+        const t = await start(who, { name: 'Gmail' })
+        const m = await doneOf(t.messageId)
+        expect(cards(t.turnId)).toEqual([])
+        expect(m.content).toContain("Gmail is connected for this person through the team's shared account")
+        expect(['Connected', '연결됨']).toContain(stepOf(m).detail)
+      }
+    })
+  })
+
+  test('Gmail: done after the team dialog: connected when the team account includes them, else "for the team"', async () => {
+    const state: { shared?: 'connected'; team?: 'connected' } = {}
+    await withGmail(state, async () => {
+      const t = await start('carol', { name: 'Gmail' })
+      const card = await cardOf(t.turnId)
+      // the dialog connected the team's account for Alice only
+      state.team = 'connected'
+      expect((await post('carol', t.turnId, { action: 'done', requestId: card.requestId })).body).toEqual({ state: 'connected' })
+      const m = await doneOf(t.messageId)
+      expect(resultOf(m)).toMatchObject({ connected: true, name: 'Gmail', status: 'connected for the team' })
+      expect(resultOf(m).note).toContain('Admin › Connected apps')
+      // one that includes them: connected, its tools theirs
+      const t2 = await start('carol', { name: 'Gmail' })
+      const card2 = await cardOf(t2.turnId)
+      state.shared = 'connected'
+      expect((await post('carol', t2.turnId, { action: 'done', requestId: card2.requestId })).body).toEqual({ state: 'connected' })
+      expect(resultOf(await doneOf(t2.messageId))).toMatchObject({ connected: true, name: 'Gmail', status: 'connected' })
+    })
   })
 })

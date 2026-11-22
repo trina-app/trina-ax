@@ -81,6 +81,7 @@ import { shareFolderOff, shareFolderTool } from './share-folder'
 import { whoCanOpenOff, whoCanOpenTool } from './who-can-open'
 import { sharedWithMeOff, sharedWithMeTool } from './shared-with-me-tool'
 import { lookingAtOff, lookingAtTool } from './looking-at'
+import { myFoldersOff, myFoldersTool } from './my-folders'
 import { hideUrls } from '../tools/audit-url'
 import { SHARE_JUDGE_REFUSAL } from '../skills/share-judge'
 import { FILE_RANK_REFUSAL } from '../onboarding/file-rank'
@@ -296,6 +297,9 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
   // confidential, guest and draft chats too)
   if (!sharedWithMeOff(exec)) add(sharedWithMeTool(exec))
   if (!lookingAtOff(exec)) add(lookingAtTool(exec))
+  // the folders the person's AI can see, each with its access, as a card under the answer (chat/my-folders.ts): the
+  // same places as looking_at (never a shared chat, a guest, a scheduled, Slack, confidential, template or restricted run)
+  if (!myFoldersOff(exec)) add(myFoldersTool(exec))
   // edit_files is listed here so the engines and the model proxy allow it, but the MCP handler runs it
   // (mcp/protocol.ts editFiles): each file as its own edit call with the checks above. Never offered in confidential
   // chats (add() keeps to the local tools there). Reaching this call() means the handler did not: nothing is changed.
