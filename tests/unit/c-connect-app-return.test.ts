@@ -126,7 +126,8 @@ test('cancel in the app ends a held result: the code is refused afterwards and i
   for (const w of words) expect(w).not.toMatch(/Drive/)
   expect(msg('claimGone', 'en')).toBe('This sign-in link has expired or was already used. Start the connection again from the app.')
   expect(await statusOf(olga, id)).toMatchObject({ hasSecret: false })
-  await Bun.sleep(50)
+  // the revoke runs in the background: wait for it (50 ms was too short on a busy machine)
+  for (let i = 0; i < 100 && fake.revoked.length === 0; i++) await Bun.sleep(50)
   expect(fake.revoked.length).toBeGreaterThan(0)
 })
 
