@@ -236,7 +236,7 @@ export interface TurnSpec extends QueueTiming {
   substitutedFrom?: EngineId
   /** a shared chat: other people's ask_user questions this turn's message closed unanswered (ChatRuntime.createTurn;
    * open-questions.ts closedQuestionNote). Kept in memory only: a turn rebuilt after a restart has none. */
-  closedOthers?: { name: string; question: string }[]
+  closedOthers?: { name: string; question?: string }[]
 }
 
 /** Why a shared chat's read card refused: the person's no, no answer, nobody to ask, the answer stopped, or a check

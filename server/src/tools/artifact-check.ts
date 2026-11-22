@@ -41,7 +41,7 @@ export interface PageCheckRequest {
    * script while `shared` is false */
   asset: (teamPath: string, maxBytes: number, kind: AssetKind) => Buffer | null | Promise<Buffer | null>
   /** this server's /vendor/ library of that name (web/dist/vendor), or null */
-  vendor?: (name: string) => Buffer | null
+  vendor?: (name: string) => Buffer | null | Promise<Buffer | null>
   /** a chat other people see (or one whose kind is not known): no team scripts, and pictures only as placeholders */
   shared: boolean
   workBase?: string
@@ -62,6 +62,18 @@ const MIME: Record<string, [string, AssetKind]> = {
 }
 const VENDOR_MIME: Record<string, string> = { js: 'text/javascript', mjs: 'text/javascript', css: 'text/css', woff2: 'font/woff2', woff: 'font/woff', json: 'application/json', wasm: 'application/wasm' }
 /** the preview's grey box for a picture it may not show (web/src/lib/frame-files.ts PLACEHOLDER) */
+/** Base64 of a file's bytes in pieces, yielding between them, so a large picture or script does not hold the server
+ * while it is encoded (review of batch 3, #379). Pieces are a multiple of 3 bytes: joined, they are the whole's base64. */
+async function base64(b: Buffer): Promise<string> {
+  const PIECE = 3 * 1024 * 1024
+  if (b.length <= PIECE) return b.toString('base64')
+  const out: string[] = []
+  for (let i = 0; i < b.length; i += PIECE) {
+    out.push(b.subarray(i, i + PIECE).toString('base64'))
+    await new Promise((r) => setImmediate(r))
+  }
+  return out.join('')
+}
 const PLACEHOLDER_B64 = Buffer.from("<svg xmlns='http://www.w3.org/2000/svg' width='160' height='120' viewBox='0 0 160 120'><rect width='160' height='120' fill='#e7e5e4'/></svg>").toString('base64')
 const ASSET_BYTES = 10 * 1024 * 1024
 const ASSETS_BYTES = 40 * 1024 * 1024
@@ -167,6 +179,7 @@ async function openPage(cdp: Cdp, race: <T>(x: Promise<T>) => Promise<T>, req: P
   let pageServed = false
   let requests = 0
   let assetBytes = 0
+  let assetChain: Promise<void> = Promise.resolve()
   const webPictures = new Set<string>()
   const life = new Map<string, Set<string>>()
   cdp.on('Page.lifecycleEvent', (e: { name: string; loaderId: string }, sid) => { if (sid !== sessionId) return; const s = life.get(e.loaderId) ?? new Set(); s.add(e.name); life.set(e.loaderId, s) })
@@ -203,10 +216,11 @@ async function openPage(cdp: Cdp, race: <T>(x: Promise<T>) => Promise<T>, req: P
       const dataRequest = e.resourceType === 'XHR' || e.resourceType === 'Fetch' || e.resourceType === 'EventSource' || e.resourceType === 'WebSocket'
       // this server's libraries for pages (/vendor/: the preview's CSP allows them)
       if (at?.vendor) {
-        const b = req.vendor?.(at.path) ?? null
+        let b: Buffer | null = null
+        try { b = (await req.vendor?.(at.path)) ?? null } catch { b = null }
         const mime = VENDOR_MIME[/\.([a-z0-9]+)$/i.exec(at.path)?.[1]?.toLowerCase() ?? '']
         if (!b || !mime) { add(`/vendor/${at.path} does not load: this server has no such library`); return refuse() }
-        return fulfill(mime, b.toString('base64'))
+        return fulfill(mime, await base64(b))
       }
       if (team === null) {
         // the preview loads nothing from the web either: a script, stylesheet or font there is a problem the AI can fix;
@@ -232,15 +246,24 @@ async function openPage(cdp: Cdp, race: <T>(x: Promise<T>) => Promise<T>, req: P
           : `${team} does not load in the preview (only team pictures and script files)`)
         return refuse()
       }
-      let bytes: Buffer | null = null
-      try { bytes = await req.asset(team, ASSET_BYTES, kind!) } catch { bytes = null }
-      if (!bytes || assetBytes + bytes.length > ASSETS_BYTES) {
+      // one read at a time (the reads are async: up to MAX_REQUESTS could otherwise each hold ASSET_BYTES at once), and
+      // never more than what is left of the page's ASSETS_BYTES
+      let bytes = null as Buffer | null
+      const turn = assetChain.then(async () => {
+        const left = Math.min(ASSET_BYTES, ASSETS_BYTES - assetBytes)
+        if (left <= 0) return
+        try { bytes = await req.asset(team, left, kind!) } catch { bytes = null }
+        if (bytes && assetBytes + bytes.length <= ASSETS_BYTES) assetBytes += bytes.length
+        else bytes = null
+      })
+      assetChain = turn.catch(() => {})
+      await turn
+      if (!bytes) {
         if (kind === 'image') return fulfill('image/svg+xml', PLACEHOLDER_B64)
         add(`${team} does not load: it is not in the team folder, or this person cannot open it`)
         return refuse()
       }
-      assetBytes += bytes.length
-      return fulfill(m![0], bytes.toString('base64'))
+      return fulfill(m![0], await base64(bytes))
     }
     answer().catch(() => { void refuse() })
   })

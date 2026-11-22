@@ -212,7 +212,33 @@ describe('formula results in the sheet preview', () => {
     expect(shown('S', 'C2')).toBe('3')
   })
 
-  test('the cell budget is per formula: a long running total is worked out to the end', () => {
+  // (review of batch 3, #374: a budget per formula let thousands of whole-column sums freeze the tab)
+  test('one cell budget for the whole book: the same range read by many formulas costs its reads once', () => {
+    const rows: Cell[][] = [['n', 'sum'], ...Array.from({ length: 4000 }, (_, i) => [1, i < 3000 ? '=SUM(A1:A1048576)' : '=SUM(A:A)'])]
+    const t = performance.now()
+    const { shown, formulas } = preview(aiBook({ R: rows }))
+    expect(performance.now() - t).toBeLessThan(5000)
+    expect(shown('R', 'B2')).toBe('4000')
+    expect(shown('R', 'B3001')).toBe('4000')
+    expect(shown('R', 'B4001')).toBe('4000')
+    expect(formulas.get('R')!.every((f) => f.shown)).toBe(true)
+  })
+
+  test('past the whole book\'s budget the formulas left show as their text, never a number', () => {
+    // each a different million-cell range: the budget runs out after a few; the rest stay formulas
+    const rows: Cell[][] = [['n', 'sum'], ...Array.from({ length: 2000 }, (_, i) => [1, `=SUM(A${i + 1}:A1048576)`])]
+    const t = performance.now()
+    const { shown, formulas } = preview(aiBook({ R: rows }))
+    expect(performance.now() - t).toBeLessThan(5000)
+    expect(shown('R', 'B2')).toBe('2000')
+    expect(shown('R', 'B2001')).toBe('=SUM(A2000:A1048576)')
+    const list = formulas.get('R')!
+    expect(list.find((f) => f.addr === 'B2001')!.shown).toBe(false)
+    // every shown result is the right one
+    for (const f of list.filter((x) => x.shown)) expect(shown('R', f.addr)).toBe(String(2001 - Math.max(Number(f.addr.slice(1)) - 1, 2) + 1))
+  })
+
+  test('a long running total is worked out to the end (within the book\'s budget)', () => {
     const rows: Cell[][] = [['n', 'running'], ...Array.from({ length: 3000 }, (_, i) => [1, `=SUM($A$2:A${i + 2})`])]
     const { shown } = preview(aiBook({ R: rows }))
     expect(shown('R', 'B3001')).toBe('3000')

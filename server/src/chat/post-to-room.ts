@@ -82,7 +82,7 @@ import type { TurnExec } from './turn'
 import { cardTextWords, fileWords, formatsSafely, noBoldMarks, othersWordsCard, whyFirst, plainQuote, POST_FILE_DESCRIPTION, POST_NO } from './share-words'
 import { fileGapsOf, fixesAfterPost, grantedLinksCant, grantSourceCant } from './share-next-steps'
 import { shareFixesOf, type ViewPlan } from '../files/share-fixes'
-import { accessRouteFor, nameOf } from '../files/access-routes'
+import { nameOf } from '../files/access-routes'
 import { isStaff, loadPrincipal } from '../policy/access'
 import { isGuestUser } from '../credentials/guest-ai'
 import { fileSharesOf } from '../files/shares'
@@ -529,20 +529,21 @@ export function postToRoomTool(exec: TurnExec): Tool {
         // not counted twice
         const covered = new Map(view ? view.paths.map((p, i) => [p, new Set(view.files[i]!.people)]) : [])
         const left = first.check.rows.filter((r) => !(r.rel && attached.has(r.rel))).map((r) => r.unable.filter((u) => !(r.rel && covered.get(r.rel)?.has(u)))).filter((u) => u.length > 0)
-        // names only where saying who cannot open a file tells the asker nothing about someone else's private choice:
-        // every file concerned is one they may share (the view plan's set), or one in a team folder (shared/, groups/…, a
-        // team project) that the folder's own access lets them read, or they are an admin; otherwise a count (review of
-        // #1235: a teammate's personal file, or one the asker has only through a one-by-one share). Who opens a team
-        // folder is the folder's rule, which the room's member list shows anyway (QA S-120,
+        // names only where saying who cannot open a file tells the asker nothing about other people: the owner and admins
+        // (who see every folder's access anyway: files/access-routes.ts, the folder access names go only to them), or
+        // every file concerned is the asker's own, in their own personal folder, that they may share. Everyone else gets a
+        // count: a team-folder file (shared/, groups/…, a team project) named people outside its group (review of batch 3,
+        // #389), a teammate's personal file or one reached through a share someone else's private choice (review of #1235;
         // docs/decisions/20261122-room-link-ask-and-team-file-names.md)
         // (the staff check every admin rule uses: an active account, a guest never counts: policy/access.ts isStaff)
         const admin = (() => { const me = loadPrincipal(db, spec.userId); return !!me && isStaff(me) })()
-        const teamFolderRead = (rel: string) => {
+        const ownPersonal = (rel: string) => {
           // (a personal folder by any spelling: a case-insensitive disk opens Users/ as users/)
-          if (rel.normalize('NFC').replace(/^\/+/, '').toLowerCase().split('/')[0] === 'users') return false
-          try { const r = accessRouteFor(ctx, spec.userId, rel); return r?.kind === 'folder' || r?.kind === 'staff' } catch { return false }
+          const segs = rel.normalize('NFC').replace(/^\/+/, '').split('/')
+          segs[0] = segs[0]!.toLowerCase()
+          return segs.length > 2 && segs[0] === 'users' && segs[1] === spec.userId
         }
-        const nameable = (rels: (string | null)[]) => admin || rels.every((rel) => !!rel && (canShareOf(rel) || teamFolderRead(rel)))
+        const nameable = (rels: (string | null)[]) => admin || rels.every((rel) => !!rel && ownPersonal(rel) && canShareOf(rel))
         const names = (ids: Iterable<string>) => [...ids].map((id) => nameOf(ctx, id) ?? '').filter(Boolean)
         const leftRows = first.check.rows.filter((r) => !(r.rel && attached.has(r.rel)) && r.unable.some((u) => !(r.rel && covered.get(r.rel)?.has(u))))
         const leftIds = new Set(left.flat())

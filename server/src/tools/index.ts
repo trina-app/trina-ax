@@ -42,7 +42,7 @@ import { acceptLanguage, precheckTarget, webFetch, wrapExternal, type FetchOptio
 import { renderPage } from './page-render'
 import { checkPage, pageCheckSummary, pageCheckText } from './artifact-check'
 import { isSharedChat, severalAuthors } from '../chat/shared'
-import { readRegular } from '../files/store'
+import { readRegularAsync } from '../files/store'
 import { safeFile } from '../routes/web-static'
 import { REPO_ROOT } from '../app-config'
 import { PRODUCT } from '@mycel/shared'
@@ -319,20 +319,21 @@ export function registerCTools(ctx: AppContext, o: { fetch?: FetchOptions; saveU
   /** the page check's files (tools/artifact-check.ts): a team picture or script the person may read, never one the
    * quarantine holds. The page's script could print what it got into an error the AI reads, so each one counts as read
    * in this turn (the chat's read scope) */
-  const pageAsset = (t: ToolCtx) => (p: string, max: number): Buffer | null => {
+  const pageAsset = (t: ToolCtx) => async (p: string, max: number): Promise<Buffer | null> => {
     try {
       const f = authorize(c.files.fx, c.files.rules(), t.user, p, 'read')
       if (f.st!.isDirectory()) return null
-      const b = readRegular(f.abs, max, f.st).bytes
+      // read without holding the server (review of batch 3, #379: up to 40 MB a page)
+      const b = (await readRegularAsync(f.abs, max, f.st)).bytes
       if (ctx.files.quarantine.hasBytes(b)) return null
       t.files.readPaths.add(f.rel)
       return b
     } catch { return null }
   }
   const webDist = process.env[PRODUCT.envPrefix + 'WEB_DIST'] ?? path.join(REPO_ROOT, 'web', 'dist')
-  const vendorFile = (name: string): Buffer | null => {
+  const vendorFile = async (name: string): Promise<Buffer | null> => {
     const f = safeFile(webDist, `/vendor/${name}`)
-    try { return f ? readRegular(f, 20 * 1024 * 1024).bytes : null } catch { return null }
+    try { return f ? (await readRegularAsync(f, 20 * 1024 * 1024)).bytes : null } catch { return null }
   }
 
   reg.register({
