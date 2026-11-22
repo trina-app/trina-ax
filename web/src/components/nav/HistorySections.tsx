@@ -113,7 +113,7 @@ function HistorySection({ section, rows, row, filtered }: { section: NavFolder; 
       count={count}
       pill={mark ? <span data-testid="history-section-marker"><SessionMarker marker={mark.marker} label={reasonText(mark.marker.reason, t)} /></span> : undefined}
       keep={openRow ? <ul>{row(openRow)}</ul> : undefined}
-      action={<SectionMenu section={section} buttonClassName="size-6" />}
+      action={<SectionMenu section={section} buttonClassName="size-6 max-md:size-11" />}
       labelTestId="trina-label"
       className={clsx('has-[[aria-expanded=true]]:[content-visibility:visible]', drop.over && DROP_OVER)}
       {...drop.props}
@@ -127,7 +127,8 @@ function HistorySection({ section, rows, row, filtered }: { section: NavFolder; 
           {more.busy ? t('common.loading') : t('sidebar.more')}
         </button>
       )}
-      {!rows.length && !left && <SectionEmpty section={section} />}
+      {/* a phone: the words only (Add chats is in the section's "⋯"), so an empty section takes one line (UX review 4) */}
+      {!rows.length && !left && <SectionEmpty section={section} addOnPhone={false} />}
     </PanelSection>
   )
 }

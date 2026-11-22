@@ -324,7 +324,8 @@ export function SectionMenu({ section, className, buttonClassName }: { section: 
 }
 
 /** An empty section's line: how to fill it, and the button that does (a phone has no drag, so its words differ). */
-export function SectionEmpty({ section, className }: { section: NavFolder; className?: string }) {
+/** `addOnPhone` false: no button below 768px (the section's "⋯" has Add chats; the Trina history keeps an empty section to one line) */
+export function SectionEmpty({ section, className, addOnPhone = true }: { section: NavFolder; className?: string; addOnPhone?: boolean }) {
   const t = useT()
   return (
     <div className={clsx('flex flex-col items-start gap-1 px-3 py-1.5', className)} data-testid="section-empty">
@@ -332,7 +333,7 @@ export function SectionEmpty({ section, className }: { section: NavFolder; class
         <span className="max-md:hidden pointer-coarse:hidden">{t(WORDS[section.kind].emptyComputer)}</span>
         <span className="md:pointer-fine:hidden">{t('sidebarSections.emptyPhone')}</span>
       </p>
-      <button type="button" onClick={() => openAddConversations(section)} className="flex items-center gap-1.5 rounded-md text-meta font-medium text-accent-text hover:underline max-md:min-h-11" data-testid="section-empty-add">
+      <button type="button" onClick={() => openAddConversations(section)} className={clsx('flex items-center gap-1.5 rounded-md text-meta font-medium text-accent-text hover:underline max-md:min-h-11', !addOnPhone && 'max-md:hidden')} data-testid="section-empty-add">
         <ListPlus size={14} aria-hidden />
         {t(WORDS[section.kind].add)}
       </button>

@@ -135,8 +135,9 @@ function DrawerBody({ close }: { close: () => void }) {
         data-testid="sidebar-scroll"
       >
         <SetupRow onNavigate={close} />
-        {/* my sections, each a header of its own above 트리나 기록 (docs/decisions/20261122-trina-history-sections.md) */}
-        <HistorySections state={sections} row={(c) => <ChatItem key={c.id} chat={c} onNavigate={close} peek={peek} onMove={setMoving} />} filtered={filtered} className="mt-2" />
+        {/* my sections, each a header of its own above 트리나 기록 (docs/decisions/20261122-trina-history-sections.md), in
+            the same type as 트리나 기록's header (UX review 1: a section is the same level) */}
+        <HistorySections state={sections} row={(c) => <ChatItem key={c.id} chat={c} onNavigate={close} peek={peek} onMove={setMoving} />} filtered={filtered} className="mt-2 [&_h3]:text-sm [&_h3]:text-ink" />
         <div className="flex items-center gap-1 pt-2 pr-1 pl-3" data-testid="recents-head">
           <h2 className="shrink-0 text-sm font-semibold whitespace-nowrap text-ink">
             <button type="button" aria-expanded={recentsOpen} aria-controls={listId} onClick={toggle} className="flex items-center gap-1 rounded py-1 hover:text-muted" data-testid="recents-toggle">
