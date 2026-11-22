@@ -47,8 +47,8 @@ Una persona lo configura todo en el servidor del equipo. La IA de todos lo tiene
 <td colspan="2"><img src="docs/images/readme/v4/connected-apps.webp" alt="Administración › Apps conectadas, para todo el equipo: Google Drive, Gmail, Calendar, Docs y Sheets (se configura una vez y luego cada miembro solo inicia sesión en Google), Slack, Notion, Linear, Atlassian, Canva y Añadir por su dirección"><br><sub>Administración › Apps conectadas: se configura una vez para todo el equipo</sub></td>
 </tr>
 <tr>
-<td width="50%"><img src="docs/images/readme/v4/team-drive.webp" alt="La unidad del equipo: Company-wide, Groups, Projects, Team skills, Personal"><br><sub>Una sola unidad para todo el equipo</sub></td>
-<td width="50%"><img src="docs/images/readme/v4/team-skills.webp" alt="Lista de skills del equipo con el botón Bring my skills"><br><sub>Skills del equipo, o trae las tuyas</sub></td>
+<td width="50%"><img src="docs/images/readme/v4/team-drive-v2.webp" alt="La unidad del equipo: Company-wide, Groups, Projects, Team skills, Personal"><br><sub>Una sola unidad para todo el equipo</sub></td>
+<td width="50%"><img src="docs/images/readme/v4/team-skills-v2.webp" alt="Lista de skills del equipo con el botón Bring my skills"><br><sub>Skills del equipo, o trae las tuyas</sub></td>
 </tr>
 </table>
 
@@ -74,11 +74,11 @@ Una persona lo configura todo en el servidor del equipo. La IA de todos lo tiene
 
 <table>
 <tr>
-<td width="50%"><b>Tareas programadas.</b> Pide algo una vez y Trina lo repite con la frecuencia que elijas, en la zona horaria del equipo.<br><br><img src="docs/images/readme/v4/scheduled-run.webp" alt="El resumen semanal que escribió una tarea programada: lo encontrado, decisiones y trabajo pendiente, guardado como archivo"></td>
+<td width="50%"><b>Tareas programadas.</b> Pide algo una vez y Trina lo repite con la frecuencia que elijas, en la zona horaria del equipo.<br><br><img src="docs/images/readme/v4/scheduled-list.webp" alt="La página de tareas programadas: seis tareas, cada una con lo que hace, cuándo se repite y su última ejecución"></td>
 <td width="50%"><b>Invitados.</b> Invita a personas de fuera de la empresa a un chat de grupo o a un proyecto, y decide si pueden usar la IA.<br><br><img src="docs/images/readme/v4/guest-room.webp" alt="El chat de grupo Launch email con Morgan Reyes, invitado de una agencia: opciones de asunto, una mención y la respuesta de Trina"></td>
 </tr>
 <tr>
-<td width="50%"><b>Uso y límites.</b> Respuestas, tokens y coste estimado por persona. Límites de tokens por persona, grupo o equipo.<br><br><img src="docs/images/readme/v4/usage.webp" alt="La página Uso de Administración: tokens, respuestas y coste estimado por persona"></td>
+<td width="50%"><b>Uso y límites.</b> Respuestas, tokens y coste estimado por persona. Límites de tokens por persona, grupo o equipo.<br><br><img src="docs/images/readme/v4/usage-v2.webp" alt="La página Uso de Administración: tokens, respuestas y coste estimado por persona"></td>
 <td width="50%"><b>Busca en todo.</b> ⌘K en chats, historial, proyectos, archivos, skills y tareas programadas.<br><br><img src="docs/site/images/search/palette.webp" alt="La búsqueda ⌘K en chats, historial, proyectos, archivos, skills y tareas programadas"></td>
 </tr>
 <tr>

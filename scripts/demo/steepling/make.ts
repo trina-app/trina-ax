@@ -30,7 +30,8 @@ import { richId } from './strings/rich.id'
 import { richJa } from './strings/rich.ja'
 import { richKo } from './strings/rich.ko'
 import { richZh } from './strings/rich.zh'
-import { HIGGSFIELD_PICTURE, writeBannerKit } from './banner/kit'
+import { bannerKit, HIGGSFIELD_PICTURE, writeBannerKit } from './banner/kit'
+import { BANNER_SOURCE_NAME, bannerSourceText, launchSource } from '../../../server/src/demo/fakes/banners'
 import { CHATS, CONTACTS, DRIVE, DRIVE_FOLDERS, EVERYONE, FILES, LAUNCH_DAY_ADD, MAIL, MESSAGES, NEW_PEOPLE, OWN_SKILLS, PROJECTS, ROOMS, type ChatId, type DriveId, type FileId, type MailId, type MessageId, type Msg, type NewPerson, type ProjectId, type RichWords, type RoomSlug, type TurnId, type Who } from './rich'
 
 const MINA = path.resolve(import.meta.dir, '..', 'mina')
@@ -139,6 +140,9 @@ export function steepling(locale: SteeplingLocale): Steepling {
     [story]: { asset: `campaign-story.${locale}.jpg` },
     [captions]: `# ${a.captionsTitle}\n\n${a.captions.map((c, i) => `${i + 1}. ${c}`).join('\n')}\n`,
     [photo]: { asset: 'higgsfield-photo.jpg' },
+    // the launch banner's words as a file next to its pictures: the AI edits it and draws the banner again with
+    // change_banner_text (server/src/tools/demo-banner.ts; owner's demo test 11-22)
+    [inProject(BANNER_SOURCE_NAME)]: bannerSourceText(launchSource(bannerKit(locale))),
     ...Object.fromEntries(STEEPLING_SKILLS.map((k) => {
       const own = (OWN_SKILLS as readonly string[]).includes(k)
       const md = fs.readFileSync(path.join(own ? OWN_ASSETS : ASSETS, `skill-${k}.${locale}.md`), 'utf8')

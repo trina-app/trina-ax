@@ -137,7 +137,7 @@ export interface PromptInput {
   devEnvDown?: 'staff' | 'member' | null
   /** a free-roam demo (docs/decisions/20261119-demo-free-roam-a.md): its fictional company's name; the AI is told what
    * the demo leaves out (demoRule) */
-  demo?: { company: string; fakes?: boolean; banner?: boolean } | null
+  demo?: { company: string; fakes?: boolean; banner?: boolean; bannerSource?: { path: string; exists: boolean } | null } | null
   now?: Date
   /** the API engine (docs/decisions/20261120-api-engine-stable-prompt.md): the time line is left out here and goes, to
    * the minute, in a <turn_context> in front of the message (apiTimeContext), so the instructions stay the same from
@@ -871,7 +871,7 @@ function personLines(files: FileService, i: PromptInput, subagent = false): stri
     i.tools.includes('delete_files') ? '' : i.guest ? GUEST_NO_DELETE_RULE : deleteRule(i.locale),
     i.confidential ? confidentialRule(i.confidential) : '',
     !subagent && i.devEnvDown ? devEnvDownRule(i.devEnvDown, i.locale) : '',
-    !subagent && i.demo ? demoRule(i.demo.company, !!i.demo.fakes, !!i.demo.banner) : '',
+    !subagent && i.demo ? demoRule(i.demo.company, !!i.demo.fakes, !!i.demo.banner, i.demo.bannerSource ?? null) : '',
     i.timeInMessage ? '' : timeLine(now, i.timeZone, i.personTimeZone),
     answerLanguageLine(i.locale, subagent),
     // last, after the time line (it changes every minute): the instructions before that line stay as they were
@@ -1122,14 +1122,19 @@ export function teamNameLine(teamName: string | null | undefined): string {
 
 /** A free-roam demo instance (docs/decisions/20261119-demo-free-roam-a.md): what it leaves out, said once and plainly (the demo file's company, e.g. Steepling). The
  * server refuses those tools and endpoints whatever the AI says (demo/guard.ts); this keeps the answer honest. */
-export function demoRule(company: string, fakes = false, banner = false): string {
+export function demoRule(company: string, fakes = false, banner = false, bannerSource: { path: string; exists: boolean } | null = null): string {
   // QA TC-5572: asked how to delete the account or see usage, the AI pointed to "Profile › Delete account" and
   // "Settings › Usage", pages this demo does not have; QA TC-5745: asked to change the name, it sent them to Settings ›
   // Profile, whose name and e-mail the demo keeps (demo/guard.ts freeRoamBody)
   return `This is a public demo of a fictional company (${company}). The dev environment, scheduled tasks, connecting new services and inviting people aren't available in the demo: say so in one sentence and do what you can. ` +
     'Changing or deleting the account, changing their name or email address on their profile, changing the password, usage, costs and billing, and the AI providers (which AI answers, its account or plan) are not available in the demo either: when asked about any of them, say in one sentence that it is not available in the demo, and never point to a page or setting for it (there is no such page here).' +
-    (fakes ? ` ${DEMO_FAKES_NOTE}` : '') + (fakes && banner ? ` ${DEMO_BANNER_NOTE}` : '')
+    (fakes ? ` ${DEMO_FAKES_NOTE}` : '') + (fakes && banner ? ` ${DEMO_BANNER_NOTE}` : '') + (fakes && banner && bannerSource ? ` ${demoBannerSource(bannerSource.path, bannerSource.exists)}` : '')
 }
+/** The banner's source file in this chat (tools/demo-banner.ts bannerSourceFor): the AI reads it before changing words,
+ * so it never guesses them (owner's demo test 11-22: "이전 대화에 원래 제목이 남아 있지 않아서…"). */
+export const demoBannerSource = (file: string, exists: boolean) => exists
+  ? `This chat's banner source is ${file}: read it before you change or talk about the banner's words.`
+  : `This chat's banner source will be ${file} (change_banner_text makes it from the launch banner on its first call; call it once before editing words).`
 /** A demo whose Gmail, Google Drive and Higgsfield are the practice fakes (demo/fakes/; the demo file's `fakes`): the owner
  * found the AI saying it had "shot a new photo with Higgsfield", and then refusing to change a banner's words. Said in
  * the visitor's language like every answer. */
@@ -1147,9 +1152,12 @@ export const DEMO_FAKES_NOTE = 'Gmail, Google Drive and Higgsfield here are prac
  * change_banner_text (tools/demo-banner.ts), never through Higgsfield (owner, 11-22: the visitor got Higgsfield's send
  * card for a headline). A short phrase right after a banner is its new headline: the owner's "작지 않아 큰 햇살이야!"
  * got a clarifying question instead of the banner. */
-export const DEMO_BANNER_NOTE = "Banner words are a text layer drawn here on the server: to change a banner's headline, line, badge or button, call change_banner_text with only the words that change (the others and the photo stay as on the last banner; give scene only when the user asks for another of the prepared photos); nothing is sent to Higgsfield. Use Higgsfield's generate_image only for a new background, photo or scene. " +
+export const DEMO_BANNER_NOTE = "Banner words are a text layer drawn here on the server from the banner's source file (banner.json: headline, subline, eyebrow, badge, badge_note, button, scene, sizes); nothing is sent to Higgsfield. " +
+  // owner's demo test 11-22: "흐린 아침 말고, 밝은 아침으로 해줘" got "데모에는 그 장면 사진이 없어요", then a made-up headline
+  "To change a banner's words: read the source file, change only the words the user named with the edit tool (\"change grey mornings to green mornings\": replace grey with green; every other word stays exactly as it is), then call change_banner_text to draw every size again. Never rewrite, add or drop words the user did not name. " +
+  "When the user names words that are on the banner, it is a text edit, never a request for a new photo or scene: do not call generate_image for it. Use Higgsfield's generate_image only for a new background, photo or scene. " +
   "A short phrase sent right after a banner is its new headline: apply it at once without asking, then offer to undo. " +
-  "change_banner_text saves the banner; show it with the Markdown image its result gives (its photo is one of the demo's prepared photos). Never say the words cannot be changed."
+  "change_banner_text saves the banner; show it with the Markdown images its result gives (its photo is one of the demo's prepared photos). Never say the words cannot be changed."
 
 /** The dev environment is on but broken (QA TC-4924: box_shell was offered, failed every call, and the AI said "try
  * again in a few minutes"). Said once, in plain words; the reason itself is for an admin, on the dev environment page. */
