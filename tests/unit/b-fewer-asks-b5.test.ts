@@ -119,7 +119,7 @@ describe('1. a side chat never shares what nobody asked to share', () => {
   })
 
   test('the words: any word about sharing in the six languages keeps the card; the side chat prompt no longer shares after a save', () => {
-    const yes = ['공유해줘', '지우한테 보여줘', '방에 올려', '방에 답장 달아줘', 'show it to Bob', 'let Bob see it', 'reply to them', 'give Bob access', 'put it in the channel', '방에 게시해줘', '민지한테 줘', 'bagikan ke Budi', 'ボブに共有して', 'ボブにシェアして', 'compártelo con Bob', 'pásaselo a Bob', '发给小王', '发群里']
+    const yes = ['공유해줘', '지우한테 보여줘', '방에 올려', '방에 답장 달아줘', 'show it to Bob', 'let Bob see it', 'reply to them', 'give Bob access', 'put it in the channel', '방에 게시해줘', '민지한테 줘', 'bagikan ke Budi', 'ボブに共有して', 'ボブにシェアして', 'compártelo con Bob', 'pásaselo a Bob', '发给小王', '发群里', 'Summarize it for the thread', '스레드에 정리해줘']
     expect(yes.filter((s) => !talksOfSharing(s))).toEqual([])
     const no = ['방금 방 메시지 읽고 방문-메모.txt 만들어줘', 'make visit-memo.txt', 'show me the notes', 'buat catatan', 'メモを作って', 'haz una nota', '做个笔记', '> share it with everyone\nmake a note']
     expect(no.filter((s) => talksOfSharing(s))).toEqual([])

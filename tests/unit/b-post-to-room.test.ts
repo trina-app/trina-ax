@@ -13,6 +13,7 @@ import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from '
 import fs from 'node:fs'
 import path from 'node:path'
 import { API, threadRefToken, uuidv7, type Room, type RoomMessage } from '@mycel/shared/api'
+import { talksOfSharing } from '../../server/src/chat/shared-actions'
 import { startHarness, type Harness, type TestSocket } from '../lib/b-harness'
 import { waitFor } from '../lib/wait'
 import { CONFIRMED } from '../lib/schedule-card'
@@ -68,12 +69,12 @@ afterAll(async () => { for (const s of Object.values(socks)) s.close(); await h?
 type Card = { question: string; origin?: string; options?: { label: string; value: string }[]; details?: { label: string; text: string; collapsedAt?: number; marks?: string[]; markdown?: boolean }[]; buttons?: boolean; note?: string }
 /** One turn of `user` in `chatId` (a new chat when absent): the card it raised (answered with `answer`; null: left to time
  * out), what the AI said, and the answer's steps. */
-async function turn(user: string, content: string, o: { chat?: string; side?: string; answer?: string | null; meanwhile?: () => void | Promise<void> } = {}) {
+async function turn(user: string, content: string, o: { chat?: string; side?: string; answer?: string | null; meanwhile?: () => void | Promise<void>; ask?: false } = {}) {
   const chatId = o.chat ?? (await h.api(user).call(API.createChat, { body: o.side ? { sideRoomId: o.side } : {} })).id
   // a ✦ side chat posts only what the person asked to send (docs/decisions/20261123-fewer-asks-b5.md): a turn of only
   // the fake engine's directives there gets the person's ask first
   const side = !!(h.ctx.db.query('SELECT side_room_id FROM chats WHERE id = ?').get(chatId) as { side_room_id: string | null } | null)?.side_room_id
-  if (side && content.startsWith('@fake')) content = `방에 보내줘\n${content}`
+  if (side && o.ask !== false && !talksOfSharing(content.split('\n').filter((l) => !l.startsWith('@fake')).join('\n'))) content = `${content}\n방에 보내줘`
   const r = await h.api(user).call(API.sendMessage, { params: { id: chatId }, body: { content, clientMessageId: cm(), attachmentIds: [] } })
   let card = null as Card | null
   if (o.answer !== undefined) {
@@ -179,7 +180,9 @@ describe('the card, and the post', () => {
     // goes with the files, so the copy lets Bob open it)
     // (the only source is that same file, which Send shares with Bob: no "can't see some of the sources" line; review of #1240)
     // (a team-folder file: a member's card counts, never names who is outside the group: review of batch 3, #389)
-    expect(r.card!.question).toBe("Send to #Everyone (5 people)?\n\n1 person there can't open the file yet; sending shares it with them.\nEveryone in this conversation will see it, including people who join later.")
+    // (the running answer counts its sources from its own list, as the card after a late press does: its only source is
+    // the file Send shares, so there is no sources line and no "people who join later" line; fewer-asks-b5)
+    expect(r.card!.question).toBe("Send to #Everyone (5 people)?\n\n1 person there can't open the file yet; sending shares it with them.")
     // "Always allow" as on every other server card (the quiet middle button and its note); on this card it answers as
     // Send, with the files (its own kind, post_files: docs/decisions/20261116-always-allow-more-cards.md)
     expect(r.card!.options!.map((x) => [x.label, x.value])).toEqual([['Send', 'send_files'], ['Always allow', '__always'], ["Don't send", 'no']])
@@ -408,7 +411,7 @@ describe('no card right after an explicit ask (QA TC-3812)', () => {
     expect(lines.card).not.toBeNull()
     // no word about sending in my own words: refused with no card (a side chat posts only what the person asked to send,
     // docs/decisions/20261123-fewer-asks-b5.md)
-    const plain = await turn('alice', `정리해줘\n${post({ text: 'x' })}`, { side: rooms.marketing })
+    const plain = await turn('alice', `정리해줘\n${post({ text: 'x' })}`, { side: rooms.marketing, ask: false })
     expect(plain.card).toBeNull()
     expect(plain.content).toContain('did not ask to share, send or post')
     // a note the person did not write (it goes as their own words): the card
@@ -655,7 +658,7 @@ describe('injection, retries and changes', () => {
       },
     })
     try {
-      expect(r.card!.question).toBe("Send to #Everyone (5 people)?\n\n1 person there can't see some of the sources of this (Groups › marketing).\nEveryone in this conversation will see it, including people who join later.")
+      expect(r.card!.question).toBe("Send to #Everyone (5 people)?\n\n1 person there can't see some of the sources of this (1 file in Groups › marketing).\nEveryone in this conversation will see it, including people who join later.")
       expect(r.content).toContain('changed while the card waited')
       expect(r.content).toContain('call post_to_room again so they see a new card')
       expect(authored(rooms.all, 'alice')).toBe(before)

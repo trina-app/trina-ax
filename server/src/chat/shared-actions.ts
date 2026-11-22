@@ -504,9 +504,9 @@ const SHARE_TALK = re([
   '\\uACF5\\uC720', '\\uBCF4\\uB0B4', '\\uBCF4\\uB0BC', '\\uC62C\\uB824', '\\uC62C\\uB9AC', '\\uC62C\\uB9B4', '\\uC804\\uB2EC', '\\uBCF4\\uC5EC', '\\uBCFC\\s?\\uC218', '\\uC54C\\uB824', '\\uC54C\\uB9AC', '\\uACF5\\uC9C0', '\\uB118\\uACA8', '\\uBFCC\\uB824',
   '\\uB2F5\\uC7A5', '\\uB2F5\\uD574', '\\uB2F5\\uAE00', '\\uB313\\uAE00', '\\uC804\\uD574', '\\uB9C1\\uD06C',
   // 게시, 권한, 초대, 한테 줘 / 에게 줘 / 께 드려
-  '\\uAC8C\\uC2DC', '\\uAD8C\\uD55C', '\\uCD08\\uB300', '(\\uD55C\\uD14C|\\uC5D0\\uAC8C)\\s?(\\uC918|\\uC8FC)', '\\uAED8\\s?\\uB4DC\\uB824',
+  '\\uC2A4\\uB808\\uB4DC\\uC5D0', '\\uBC29\\uC5D0', '\\uAC8C\\uC2DC', '\\uAD8C\\uD55C', '\\uCD08\\uB300', '(\\uD55C\\uD14C|\\uC5D0\\uAC8C)\\s?(\\uC918|\\uC8FC)', '\\uAED8\\s?\\uB4DC\\uB824',
   // en
-  '\\b(share|sharing|shared|send|sending|sent|post|posting|forward|announce|publish|notify|reply|respond|link)\\b', '\\bshow\\b(?!\\s+me\\b)', '\\b(give|invite|access|dm|email|e-mail|mail)\\b', '\\b(put|drop|paste)\\b[^\\n]{0,40}\\b(channel|room|thread|chat|group)\\b', '\\b(tell|answer|update)\\s+(them|him|her|everyone|everybody|the\\s+(room|team|group|channel))\\b', '\\blet\\b[^\\n]{0,40}\\b(see|view|open|know|have)\\b',
+  '\\b(share|sharing|shared|send|sending|sent|post|posting|forward|announce|publish|notify|reply|respond|link)\\b', '\\bshow\\b(?!\\s+me\\b)', '\\b(give|invite|access|dm|email|e-mail|mail)\\b', '\\b(put|drop|paste)\\b[^\\n]{0,40}\\b(channel|room|thread|chat|group)\\b', '\\b(to|for|in|into|on)\\s+(the|this|that)\\s+(thread|room|channel|group chat)\\b', '\\b(tell|answer|update)\\s+(them|him|her|everyone|everybody|the\\s+(room|team|group|channel))\\b', '\\blet\\b[^\\n]{0,40}\\b(see|view|open|know|have)\\b',
   // id
   '\\b(bagi|bagikan|berbagi|kirim|kirimkan|tunjukkan|teruskan|unggah|posting|umumkan|beri\\s?tahu|kasih\\s?tahu|balas|balaskan|tautan)\\b',
   // ja: 共有, 送, 見せ, 投稿, 転送, 伝え, 知らせ, 返信, リンク
