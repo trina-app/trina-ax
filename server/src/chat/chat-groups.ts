@@ -7,17 +7,17 @@
 // chats I wrote in, never a room's AI session or one of the server's own drafts, a shared chat only while I see its
 // project. Each chat is in exactly one place: pinned › one of my folders › its project's group › other. A project I
 // cannot see now is never named (my chats in it are with the other chats, as the chat page shows no project for them);
-// a folder is mine alone (chat/nav-folders.ts, by its one visibility check).
+// a folder is mine alone (chat/nav-folders.ts) and holds any chat of this list (owner decision 2026-11-22), a project
+// chat too: there it is in the folder's group, not its project's.
 import { CHAT_GROUPS_FOLD_DAYS, CHAT_GROUPS_PROJECTS_MAX, CHAT_GROUPS_RECENT_DAYS, CHAT_GROUPS_TOP, markerOf, type Chat, type ChatGroups, type ChatMark } from '@mycel/shared/api'
 import { redactorFor } from '../integrations/connections/redact'
 import type { Principal } from '../policy/access'
 import { notInternalChat } from './internal-chats'
-import { visibleChatItems } from './nav-folders'
+import { historyWhere, inHistory } from './history-list'
 import { pinsOf } from './pins'
 import { canSeeProject } from './projects'
 import type { ChatRuntime } from './runtime'
 import { Audiences, chatPeople, chatView, isSharedRow, type ChatPeople } from './shared'
-import { inPeopleAudienceSql, isPeopleRow, notHiddenSql } from './chat-audience'
 import { CHAT_COLS, PROJECT_COLS, decodeCursor, encodeCursor, type ChatRow, type ProjectRow } from './store'
 import { fail } from '../http/errors'
 
@@ -31,18 +31,20 @@ const newestFirst = (a: ChatRow, b: ChatRow) => b.updated_at.localeCompare(a.upd
 const unused = (rt: ChatRuntime, r: ChatRow) => !r.title && r.created_at === r.updated_at && rt.runState(r.id) === 'idle'
 
 /** The chats of my list I can open now and the projects I can see, read once for one request. */
-function myList(rt: ChatRuntime, me: string, who: Principal | null) {
+function myList(rt: ChatRuntime, me: string, who: Principal | null, aud: Audiences) {
   const db = rt.db
-  const rows = db.query(`SELECT ${CHAT_COLS} FROM chats WHERE room_id IS NULL AND ${notInternalChat(db)} AND deleted_at IS NULL
-      AND (user_id = ?1 OR (shared_at IS NOT NULL AND id IN (SELECT chat_id FROM messages WHERE role = 'user' AND author_id = ?1))
-        OR (${inPeopleAudienceSql('?1')} AND ${notHiddenSql('?1')}))`).all(me) as ChatRow[]
+  // the history's one rule (chat/history-list.ts, as GET /api/chats and my history sections): the SQL part, then a
+  // shared chat only while I see it now (its project; for one shared with me by name or through a group, while I am in it)
+  const h = historyWhere(db, me)
+  const rows = db.query(`SELECT ${CHAT_COLS} FROM chats WHERE ${h.sql}`).all(...h.args) as ChatRow[]
   const projects = new Map<string, ProjectRow>()
   for (const p of db.query(`SELECT ${PROJECT_COLS} FROM projects`).all() as ProjectRow[]) if (who && canSeeProject(rt.files, who, p)) projects.set(p.id, p)
-  // a shared chat only while I see its project now (GET /api/chats does the same); one shared with me by name or
-  // through a group is in my list while I am in it (the query's own condition: chat/chat-audience.ts), unless I hid it
-  const chats = rows.filter((r) => (!isSharedRow(r) || isPeopleRow(r) || projects.has(r.project_id!)) && !unused(rt, r)).sort(newestFirst)
+  const chats = rows.filter((r) => inHistory(aud, me, r) && !unused(rt, r)).sort(newestFirst)
   return { chats, projects }
 }
+/** my list folders' rows (chat id → folder id): only the chats of myList are placed by it, so its rule is theirs */
+const myFolderItems = (rt: ChatRuntime, me: string): Map<string, string> =>
+  new Map((rt.db.query("SELECT chat_id c, folder_id f FROM nav_folder_items WHERE user_id = ? AND kind = 'chats'").all(me) as { c: string; f: string }[]).map((r) => [r.c, r.f]))
 
 /** where a chat of my list goes: pinned › folder › project › other */
 function place(r: ChatRow, pins: Map<string, string>, folderOf: Map<string, string>, projects: Map<string, ProjectRow>): { kind: 'pinned' | 'folder' | 'project' | 'other'; key: string } {
@@ -64,12 +66,11 @@ function principalOf(rt: ChatRuntime, me: string): Principal | null {
 /** GET /api/chats/groups */
 export function chatGroups(rt: ChatRuntime, me: string, now = Date.now()): ChatGroups {
   const db = rt.db
-  const { chats, projects } = myList(rt, me, principalOf(rt, me))
-  const pins = pinsOf(db, me)
-  // my folders' rows by their one check (my own chats, no project, not in the trash, not shared, not a draft)
-  const folderOf = new Map<string, string>()
-  for (const r of db.query(`SELECT i.chat_id c, i.folder_id f FROM ${visibleChatItems(db)}`).all(me) as { c: string; f: string }[]) folderOf.set(r.c, r.f)
   const aud = new Audiences(db, rt.files)
+  const { chats, projects } = myList(rt, me, principalOf(rt, me), aud)
+  const pins = pinsOf(db, me)
+  // my folders' rows: a chat of my list (above) in one of them is in that folder's group, whatever its project
+  const folderOf = myFolderItems(rt, me)
   const hide = redactorFor(rt.ctx, me).hide
   // the other people who wrote in each shared chat this answer returns (the rows' faces; docs/DECISIONS.md "Faces in
   // every chat list"): one query, made below once the returned rows are known (a row viewed only for its marker needs
@@ -153,11 +154,10 @@ function pageOf(rows: ChatRow[], cursor: string | undefined, limit: number): { i
 /** GET /api/chats?other=1: the next pages of the other chats (in no project I can see, in no folder of mine, not pinned). */
 export function otherChats(rt: ChatRuntime, me: string, cursor: string | undefined, limit: number): { items: Chat[]; nextCursor: string | null } {
   const db = rt.db
-  const { chats, projects } = myList(rt, me, principalOf(rt, me))
-  const pins = pinsOf(db, me)
-  const folderOf = new Map<string, string>()
-  for (const r of db.query(`SELECT i.chat_id c, i.folder_id f FROM ${visibleChatItems(db)}`).all(me) as { c: string; f: string }[]) folderOf.set(r.c, r.f)
   const aud = new Audiences(db, rt.files)
+  const { chats, projects } = myList(rt, me, principalOf(rt, me), aud)
+  const pins = pinsOf(db, me)
+  const folderOf = myFolderItems(rt, me)
   const hide = redactorFor(rt.ctx, me).hide
   const rows = chats.filter((r) => place(r, pins, folderOf, projects).kind === 'other')
   // the page first, then the faces of its shared chats (one query)
