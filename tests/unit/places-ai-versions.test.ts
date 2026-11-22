@@ -378,7 +378,7 @@ describe('limits', () => {
 })
 
 describe('edit_office on a chat file', () => {
-  test('without output: a new version of the workbook (the cell changed, the rest as it was); no read, or a team file in a shared chat: refused', async () => {
+  test('without output: a new version of the workbook (the cell changed, the rest as it was); no read: refused (a team file: b-shared-chat-edit-office.test.ts)', async () => {
     const wb = new ExcelJS.Workbook()
     const sheet = wb.addWorksheet('Quote')
     sheet.addRow(['Date', '2026-11-21'])
@@ -404,8 +404,6 @@ describe('edit_office on a chat file', () => {
     const no = await run('bob', chat, fake({ tool: 'edit_office', args: { file_path: p, changes: [{ cell: { ref: 'B2', value: 5 } }] }, sayResult: true }))
     expect(no.content).toMatch(/read .* first|changed after you read it/)
     expect(versionsOf(chat, up.id)).toBe(2)
-    const team = await run('bob', chat, fake({ tool: 'edit_office', args: { file_path: 'shared/budget.xlsx', changes: [{ cell: { ref: 'B2', value: 5 } }] }, sayResult: true }))
-    expect(team.content).toContain('changes only this chat\'s own files')
   })
 })
 
@@ -498,7 +496,7 @@ describe('independent review (PR #252)', () => {
     expect(versionsOf(chat, file)).toBe(2)
   })
 
-  test('edit_office is offered in a chat shared with people, not in a project chat (nothing it could change there)', async () => {
+  test('edit_office is offered in a chat shared with people and in a project chat (its team files: S-028)', async () => {
     const chat = await sharedChat()
     const people = await run('bob', chat, fake({ echo: 'tools' }))
     expect(people.content.split(',')).toContain('edit_office')
@@ -506,7 +504,7 @@ describe('independent review (PR #252)', () => {
     const pc = await h.api('alice').call(API.createChat, { body: { projectId: pr.id } })
     const proj = await run('alice', pc.id, fake({ echo: 'tools' }))
     expect(proj.content.split(',')).toContain('make_file')
-    expect(proj.content.split(',')).not.toContain('edit_office')
+    expect(proj.content.split(',')).toContain('edit_office')
   })
 
   test('the shared chat prompt does not send edit_office output to chat:files/ (refused there: it changes only a chat file in place)', () => {

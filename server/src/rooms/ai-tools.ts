@@ -45,8 +45,10 @@ export const SHARED_TOOLS: ReadonlySet<string> = new Set([
   // Word comments on a team .docx (tools/comment-docx.ts; limits audit 1 #22): a team file in, a new version or a new
   // .docx out, as edit_hwp; the document counts as read (chat/tools.ts), a new file goes through the write gates
   'comment_docx',
-  // a Word, Excel or PowerPoint file of this chat changed in place: a new version of the chat file (P4,
-  // docs/decisions/20261121-ai-edits-chat-files.md); a team file is not changed from a shared chat (chat/tools.ts)
+  // a Word, Excel or PowerPoint file changed in place: a new version of a chat file (P4,
+  // docs/decisions/20261121-ai-edits-chat-files.md) or of a team file the asker may change, as edit_hwp and comment_docx
+  // (S-028, docs/decisions/20261122-shared-chat-team-office-edit.md): the document counts as read, `output` is a write
+  // target, and what the chat read is weighed by confirmSources before it goes into the file
   'edit_office',
   // many renames in one call (tools/file-moves.ts), like rename_file: what each names counts as read (namedPaths)
   'rename_files',
@@ -157,6 +159,14 @@ export function namedPaths(tool: string, input: unknown): { key: string; value: 
       const st = op?.stamp_image as { image?: unknown } | undefined
       if (typeof ins?.file === 'string') out.push({ key: 'insert_pdf.file', value: ins.file })
       if (typeof st?.image === 'string') out.push({ key: 'stamp_image.image', value: st.image })
+    }
+  }
+  // edit_office's replacement pictures (tools/edit-office.ts replace_picture.image): team files whose bytes go into the
+  // document, weighed by a shared chat's read card like the document itself (S-028 plan review)
+  if (tool === 'edit_office' && Array.isArray(a.changes)) {
+    for (const c of a.changes as unknown[]) {
+      const img = c && typeof c === 'object' ? (c as { replace_picture?: { image?: unknown } }).replace_picture?.image : undefined
+      if (typeof img === 'string') out.push({ key: 'replace_picture.image', value: img })
     }
   }
   // rename_files: each listed file or folder, and the folder a pattern renames in (its names are read)
