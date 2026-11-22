@@ -68,7 +68,7 @@ import { skillPlaceholderTitle } from './title'
 import { describeSchedule, scheduledRunBlock, SHARED_RUN_ALLOWANCE, type ScheduleRow } from './schedules'
 import { callKey, COVER_TOOLS, runAllowance, ScheduleCover } from './schedule-cover'
 import { safeModel, type EngineConfs } from './engines'
-import { aiCalled, engineError, stepLabel, tr, turnLimitError } from './i18n'
+import { aiCalled, engineError, OWN_FOLDER_WORDS, stepLabel, tr, turnLimitError } from './i18n'
 import { HELD_MAX_FILES, heldFile, heldFileOk, heldNote, heldPreview, heldRefusal, type HeldFile } from './skill-held'
 import { placeWords } from './place-words'
 import { recordSkillUse } from '../admin/skill-usage'
@@ -87,7 +87,7 @@ import { blankTeamAttachment, stopReasonOf, type MessageRow } from './store'
 import { BROWSER_TOOL_NAMES } from '../realtime/browser-tools'
 import { buildToolSet, widenOf, type ChatToolSet } from './tools'
 import { projectRoomOfChat } from './room-tools'
-import { noSearchPath, PROJECT_SEARCH_NOTE, SKIP_OWN, wholeTeamPath } from './search-path'
+import { globFolderPrefix, noSearchPath, PROJECT_SEARCH_NOTE, SKIP_OWN, wholeTeamPath } from './search-path'
 import type { SharedConnections, ToolCard } from '../services'
 import { ConnectOutcome, type ConnectCard } from './connect-service'
 import { devEnvFlag, mayUseDevEnv } from '../devenv/setting'
@@ -781,8 +781,6 @@ export class TurnExec {
       // 팀 파일's picks among a folder's files: no tool at all either (fails closed the same way)
       this.fileRank = draft || this.skillDraft || this.shareJudge || this.shareMerge ? null : fileRankOf(rt.db, spec.chatId)
     } catch (e) { rt.log.error('profile draft check failed', { err: e, turn: this.id }); this.error = engineError('crash', spec.locale); return }
-    // the chat's engine was switched off by an admin: this answer comes from the team default
-    if (spec.substitutedFrom) this.addStep({ kind: 'tool', tool: 'engine', label: tr('engineOffDefault', spec.locale, { from: ENGINE_LABELS[spec.substitutedFrom], to: ENGINE_LABELS[spec.engine] }), status: 'ok' })
     const confs = rt.engines.get()
     // a Claude Code or Codex turn that no AI connection of this person can answer goes to the other of the two while
     // "다른 AI로 대신 답하기" is on and the team connected that one (a step says so)
@@ -792,6 +790,9 @@ export class TurnExec {
       const managedHere = spec.engine === 'claude-code' ? confs.claude?.authMode === 'managed' && !!confs.claude.modelProxy : spec.engine === 'codex' ? confs.codex?.auth === 'managed' : false
       if (!managedHere) { this.error = engineError('guest_no_ai', spec.locale); return }
     }
+    // the chat's engine was switched off by an admin: this answer comes from the team default (after the guest check: a
+    // guest who gets no answer gets no step about which AI would have answered, QA TC-7050)
+    if (spec.substitutedFrom) this.addStep({ kind: 'tool', tool: 'engine', label: tr('engineOffDefault', spec.locale, { from: ENGINE_LABELS[spec.substitutedFrom], to: ENGINE_LABELS[spec.engine] }), status: 'ok' })
     const route = this.route(confs)
     const engine: EngineId = route === 'claude-code' || route === 'codex' ? route : spec.engine
     const routed = engine !== spec.engine
@@ -3574,7 +3575,7 @@ export class TurnExec {
    */
   private peopleSearchPlace(): { path: string } | { refuse: string } {
     if (this.peopleSearch) return this.peopleSearch
-    const NONE = { refuse: 'Not searched: there is no folder everyone in this chat can open. Name a folder to search.' }
+    const NONE = { refuse: `Not searched: there is no folder everyone in this chat can open. Name a folder to search as the path (${OWN_FOLDER_HINT}).` }
     try {
       const rules = this.rt.files.rules()
       const people = this.sharedAudience().map((id) => loadPrincipal(this.rt.db, id))
@@ -3596,8 +3597,68 @@ export class TurnExec {
       if (out.length === 1) return (this.peopleSearch = { path: out[0]! })
       if (!out.length) return (this.peopleSearch = NONE)
       const names = out.slice(0, 20).map((p) => `"${neutralizeTags(p)}"`).join(', ')
-      return (this.peopleSearch = { refuse: `Not searched: a search in this shared chat needs a folder. Name one of the folders everyone in this chat can open (${names}${out.length > 20 ? ', …' : ''}) as the path and search again.` })
+      return (this.peopleSearch = { refuse: `Not searched: a search in this shared chat needs a folder. Name one of the folders everyone in this chat can open (${names}${out.length > 20 ? ', …' : ''}), or the folder the user means, as the path and search again (${OWN_FOLDER_HINT}).` })
     } catch { return (this.peopleSearch = NONE) }
+  }
+
+  /** A shared chat's glob without a path whose pattern starts with folder names: those folders as its path (search-path.ts
+   * globFolderPrefix, QA TC-7041), before anything else looks at its path (the people chat's refusal, the project
+   * folder default, the read card). Only where the path-less search would not find them: a pattern under users/ (the
+   * person's own folder is never searched without its path), or any folder in a people chat that refuses a search
+   * without a path; a project chat's "reports/*.md" keeps looking in the project folder, and a people chat's one shared
+   * folder keeps matching below it. The arguments to use: the same object when nothing changes. */
+  liftGlobPath(tool: string, args: unknown): unknown {
+    if (!this.shared || tool !== 'glob') return args
+    const lifted = globFolderPrefix(args)
+    if (!lifted) return args
+    const top = lifted.path.split('/')[0]!
+    const users = (this.rt.files.fx.caseInsensitive ? top.toLowerCase() : top) === 'users'
+    if (!users && !(this.shared.kind === 'people' && 'refuse' in this.peopleSearchPlace())) return args
+    return { ...(args as object), ...lifted }
+  }
+
+  /**
+   * A chat shared with people: a produce tool's new file in the asker's own folder goes to the chat instead (QA TC-7261,
+   * TC-7279, TC-7376; docs/decisions/20261122-shared-output-in-code.md). The decision of 2026-11-21 put "a file you make
+   * for the people here goes to this chat" in the instructions only, and the AI kept saving decks, reports and videos to
+   * users/<asker>/, which the others cannot open: a link that is dead for them. So the server moves such an `output` to
+   * `chat:files/<name>` (attached to the answer, where everyone in the chat opens it) before any card weighs the call,
+   * unless the asker's own message of this turn names that folder (its name, or "my files" for the folder itself). Only
+   * the main AI, only where it may attach a chat file (mayAttachChatFile: not a k answer), only a path that is not there
+   * yet (an existing file keeps the save card), only the asker's own folder (a group folder or skills/ keep their own
+   * rules). Returns the arguments to use and a note for the result, or the same object.
+   */
+  sharedOutput(tool: string, args: unknown, main: boolean): { args: unknown; note: string | null } {
+    const key = SHARED_OUTPUT_ARG[tool]
+    if (this.shared?.kind !== 'people' || !main || !key || !args || typeof args !== 'object') return { args, note: null }
+    const a = args as Record<string, unknown>
+    const v = a[key]
+    if (typeof v !== 'string' || !v.trim() || isReservedPlace(v)) return { args, note: null }
+    try {
+      if (mayAttachChatFile({ ...chatPlaces(this, this.files).ctx, main: true }) !== true) return { args, note: null }
+      const fx = this.rt.files.fx, rules = this.rt.files.rules(), me = this.livePrincipal()
+      const f = OUTPUT_PATH_OF[tool]
+      const written = [f ? f(savePathArg(v), a) : savePathArg(v)].flat()
+      const fold = (x: string) => (fx.caseInsensitive ? x.normalize('NFC').toLowerCase() : x.normalize('NFC'))
+      const segsOf = (p: string) => p.split('/').filter((x) => x && x !== '.')
+      const own = (p: string) => { const g = segsOf(p); return g.length >= 3 && fold(g[0]!) === 'users' && fold(g[1]!) === fold(me.id) }
+      if (!written.every(own)) return { args, note: null }
+      const fresh = written.every((p) => {
+        try { return !authorize(fx, rules, me, p, 'write', { mustExist: false, createDirs: true }).exists }
+        catch { return false }
+      })
+      if (!fresh) return { args, note: null }
+      // the asker named the folder in this turn's own message: a sub-folder by its name; the folder itself by "my files"
+      const asked = fold(((this.rt.db.query('SELECT content FROM messages WHERE id = ?').get(this.spec.userMessageId) as { content: string | null } | null)?.content ?? ''))
+      const dir = segsOf(written[0]!).slice(0, -1)
+      // (a whole word: a folder called "ai" is not named by every message with those letters; a Korean particle may
+      // follow it: "QA-SQ에")
+      const word = (w: string) => w.length >= 2 && new RegExp(`(^|[^\\p{L}\\p{N}])${w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}($|[^\\p{L}\\p{N}]|[\\u{AC00}-\\u{D7A3}])`, 'u').test(asked)
+      const named = dir.length > 2 ? word(fold(dir[dir.length - 1]!)) : OWN_FOLDER_WORDS.some((w) => asked.includes(fold(w)))
+      if (named) return { args, note: null }
+      const name = segsOf(written[0]!).pop()!
+      return { args: { ...a, [key]: `chat:files/${name}` }, note: `(Saved to this chat as chat:files/${name}, not in the user's own folder: in a chat shared with people a new file goes to the chat, where everyone here opens it. Say it is attached to this answer.)` }
+    } catch { return { args, note: null } }
   }
 
   /** A people-shared chat's search without a path that cannot run (peopleSearchPlace): the refusal, else null. */
@@ -5489,6 +5550,13 @@ export const ROOM_CHANGE_FULL = 100_000
  * followed (no cover: the card). edit_hwp with an output (any string, an empty one too): the output's extension comes
  * from the document as the file layer resolves it (`source`, as tools/edit-hwp.ts does: "x.hwp/" is x.hwp), so an output
  * that lands on the document itself is seen as the existing file it is; a document that cannot be resolved: null. */
+/** The produce tools whose one new file a people-shared chat moves to chat:files (TurnExec.sharedOutput), by argument */
+const SHARED_OUTPUT_ARG: Readonly<Record<string, string>> = { make_file: 'output', edit_pdf: 'output', merge_pdfs: 'output', stamp_pdf: 'output', comment_docx: 'output', make_zip: 'output', resize_images: 'output' }
+
+/** The people chat's "Not searched" refusals (peopleSearchPlace): the user's own folder is searched by its own path, after
+ * their yes on a card (QA TC-7041: the AI took the refusal for "your folder cannot be used here"). */
+const OWN_FOLDER_HINT = 'the user\'s own folder too: path "users/<their id>"; they are asked on a card first'
+
 /** the PDF tools whose output ownFolderTarget works out itself (ownFolderPdf) */
 const PDF_OUT_TOOLS = new Set(['stamp_pdf', 'edit_pdf', 'merge_pdfs', 'split_pdf'])
 

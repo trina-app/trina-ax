@@ -31,7 +31,7 @@ import { FEED_KEY, type KeptFeed } from '../components/panels/ActivityPanel'
 import { useRooms } from '../store/rooms'
 import { Button, EmptyState, ErrorNote, IconButton, Skeleton, inputCls, pageColumn, stickyCls, useMediaQuery } from '../components/ui'
 import { PhoneBarAction } from '../components/phone/PhoneBarAction'
-import { Face, isRoomRow, roomNoticeLink, roomRowText, type RoomNotice } from '../components/settings/RoomNoticeRow'
+import { Face, isRoomRow, roomNoticeLink, roomRowText, RoomRowFile, type RoomNotice } from '../components/settings/RoomNoticeRow'
 import { noticeLink, noticeText } from '../components/settings/Notifications'
 import { HandoverNoticeExtras } from '../components/handover/HandoverNotice'
 import { FileRequestExtras } from '../components/FileRequestNotice'
@@ -466,7 +466,7 @@ function RoomRow({ item, onOpen }: { item: RoomNotice; onOpen: () => void }) {
   const t = useT()
   const title = useRoomTitle()
   const listed = useRooms((s) => s.rooms.find((r) => r.id === item.room.id) ?? null)
-  const { who, where, line, mark } = roomRowText(item.room, t, listed ? title(listed) : null)
+  const { who, where, line, mark, file } = roomRowText(item.room, t, listed ? title(listed) : null)
   const unread = !item.readAt
   const n = item.room.count ?? 1
   // a private channel (a named group room) has its lock, as in the Chats list
@@ -479,10 +479,10 @@ function RoomRow({ item, onOpen }: { item: RoomNotice; onOpen: () => void }) {
           who={<bdi data-testid="notification-room-who">{who}</bdi>}
           iso={item.room.at ?? item.createdAt}
           unread={unread}
-          line={<span className="line-clamp-2" data-testid="notification-room-line">
+          line={<><span className="line-clamp-2" data-testid="notification-room-line">
             {mark && <><span aria-hidden className="mr-1 font-semibold text-accent-text">@</span><span className="sr-only">{mark}: </span></>}
             <bdi>{line}</bdi>
-          </span>}
+          </span>{file && <RoomRowFile name={file} />}</>}
           context={<><PlaceIcon size={13} aria-hidden className="shrink-0" /><bdi className="truncate" data-testid="notification-room-where">{mark ? t('feed.mentionIn', { where }) : where}</bdi></>}
           count={<span className="rounded-full bg-accent px-1.5 text-micro font-medium text-accent-ink" data-testid="notification-room-count">
             <span aria-hidden>{badgeText(n)}</span><span className="sr-only">{t('rooms.unread', { n })}</span>

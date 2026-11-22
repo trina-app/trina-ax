@@ -331,6 +331,9 @@ export const InboxNotification = z.object({
     ai: z.literal(true).optional(),
     preview: z.string().optional(),
     files: z.number().int().nonnegative().optional(),
+    /** the newest message's first file's name (one plain line), with or without text (QA TC-7049); older servers omit
+     * it and send `files` only for a message without text */
+    fileName: z.string().optional(),
     count: z.number().int().positive().optional(),
     people: z.number().int().positive().optional(),
     at: z.string().optional(),

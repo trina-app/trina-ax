@@ -55,6 +55,7 @@ import { refuseSkillDraftAttachments } from '../onboarding/skill-draft'
 import { refuseShareJudgeAttachments } from '../skills/share-judge'
 import { isPeopleRow } from '../chat/chat-audience'
 import { chatFilesOf } from '../chat/chat-files'
+import { AttachCopyError, copyTeamAttachments, discardCopies } from '../chat/attach-copies'
 import { editState, restoreTo, saveText, tellChatOnAiVersions } from '../chat/chat-file-edit'
 import { streamFile } from '../team-files/download'
 import { SAFE_OPS_TEXT } from '../safe-ops/strings'
@@ -156,6 +157,15 @@ function notifyInstructionsChanged(ctx: AppContext, r: ProjectRowT, by: AuthInfo
     try {
       ctx.services.realtime.publish(u.id, { type: 'notice', data: { level: 'info', code: 'project_instructions_changed', message: tr('projectInstructionsChanged', u.locale ?? 'ko', { name: r.name, by: by.name }) } })
     } catch (e) { ctx.log.warn('project notice failed', { err: e }) }
+  }
+}
+
+/** A chat shared with people: the sender's own files attached go in as copies (chat/attach-copies.ts); one that cannot
+ * is refused in plain words (it would go as a reference the others cannot open). */
+async function attachCopies(ctx: AppContext, chat: ChatRow, userId: string, atts: Attachment[], locale: Locale): Promise<Attachment[]> {
+  try { return await copyTeamAttachments(ctx, chat, userId, atts) } catch (e) {
+    if (e instanceof AttachCopyError) return fail('validation', tr(e.why === 'too_big' ? 'attachCopyTooBig' : 'attachCopyFailed', locale), { params: { reason: 'attach_copy_failed' } })
+    throw e
   }
 }
 
@@ -799,7 +809,7 @@ export const chatsRoutes: RouteModule = {
     })
     kit.handle(API.unhideChat, ({ c, params, auth }) => hidden(c, auth, chatOf(rt, c, auth, params.id, 'view'), false))
 
-    kit.handle(API.sendMessage, ({ c, params, body, auth }) => {
+    kit.handle(API.sendMessage, async ({ c, params, body, auth }) => {
       const a = chatOf(rt, c, auth, params.id, 'continue')
       const chat = a.row
       const again = rt.existingTurn(chat.id, body.clientMessageId, auth.user.id)
@@ -814,11 +824,24 @@ export const chatsRoutes: RouteModule = {
         const p = messageInChat(rt, chat.id, parentId)
         if (p.role !== 'assistant') fail('validation', tr('badParent', c.get('locale')), { fields: { 'body.parentId': 'must be an answer' } })
       }
-      const atts = attachments(ctx, auth, chat.id, body.attachmentIds, c.get('locale'))
+      const picked = attachments(ctx, auth, chat.id, body.attachmentIds, c.get('locale'))
       // a shared chat takes team files only (D3), and a chat shared with people its own files too (chat/chat-files.ts):
       // a computer upload in someone's own folder never reaches it
-      if (a.shared && atts.some((x) => !sharedAttachment(a, x))) fail('conflict', tr('sharedChatUpload', c.get('locale')), { params: { reason: 'shared_chat_upload' } })
+      if (a.shared && picked.some((x) => !sharedAttachment(a, x))) fail('conflict', tr('sharedChatUpload', c.get('locale')), { params: { reason: 'shared_chat_upload' } })
       checkBudget(ctx, auth.user.id, c.get('locale'))
+      // a chat shared with people: a team file some people here cannot open goes in as a copy kept with the chat (QA
+      // TC-7286, chat/attach-copies.ts); the checks again after the copy (nothing may have started meanwhile)
+      const atts = a.kind === 'people' ? await attachCopies(ctx, chat, auth.user.id, picked, c.get('locale')) : picked
+      if (atts !== picked) {
+        // the chat and my place in it again after the copy (removed, unshared or busy meanwhile: no send, no copies left)
+        try {
+          const now = chatOf(rt, c, auth, params.id, 'continue')
+          if (now.kind !== 'people' || now.row.people_shared_at !== chat.people_shared_at) fail('conflict', tr('chatShareBusy', c.get('locale')), { params: { reason: 'chat_busy' } })
+          const again = rt.existingTurn(chat.id, body.clientMessageId, auth.user.id)
+          if (again) { discardCopies(ctx, auth.user.id, picked, atts); return again }
+          busy(now, c.get('locale'), auth.user.id)
+        } catch (e) { discardCopies(ctx, auth.user.id, picked, atts); throw e }
+      }
       const { engine, model, substitutedFrom } = pickEngine(ctx, rt, auth, chat, body, c.get('locale'))
       try {
         const started = rt.createTurn({ chat, userId: auth.user.id, locale: rt.userLocale(auth.user.id), windowId: windowOf(c), clientKind: auth.session.client, engine, model, substitutedFrom, timeZone: turnZone(body.timeZone),
@@ -827,6 +850,7 @@ export const chatsRoutes: RouteModule = {
         if (a.shared && rt.sharedWaiting.sent(chat.id, auth.user.id)) rt.publishChat(auth.user.id, chat.id, 'updated')
         return started
       } catch (e) {
+        discardCopies(ctx, auth.user.id, picked, atts)
         if (isClientIdClash(e)) { const r = rt.existingTurn(chat.id, body.clientMessageId, auth.user.id); if (r) return r }
         throw e
       }
@@ -868,7 +892,7 @@ export const chatsRoutes: RouteModule = {
     })
 
     // a shared chat: one's own messages only
-    kit.handle(API.editMessage, ({ c, params, body, auth }) => {
+    kit.handle(API.editMessage, async ({ c, params, body, auth }) => {
       const a = chatOf(rt, c, auth, params.id, 'continue')
       const chat = a.row
       const again = rt.existingTurn(chat.id, body.clientMessageId, auth.user.id)
@@ -877,14 +901,26 @@ export const chatsRoutes: RouteModule = {
       if (target.role !== 'user') fail('validation', tr('notUserMessage', c.get('locale')))
       if (a.shared && target.author_id !== auth.user.id) fail('forbidden', tr('sharedChatOwnMessages', c.get('locale')), { params: { reason: 'shared_chat_own_messages' } })
       busy(a, c.get('locale'), auth.user.id)
-      const atts = attachments(ctx, auth, chat.id, body.attachmentIds, c.get('locale'))
-      if (a.shared && atts.some((x) => !sharedAttachment(a, x))) fail('conflict', tr('sharedChatUpload', c.get('locale')), { params: { reason: 'shared_chat_upload' } })
+      const picked = attachments(ctx, auth, chat.id, body.attachmentIds, c.get('locale'))
+      if (a.shared && picked.some((x) => !sharedAttachment(a, x))) fail('conflict', tr('sharedChatUpload', c.get('locale')), { params: { reason: 'shared_chat_upload' } })
       checkBudget(ctx, auth.user.id, c.get('locale'))
+      // as a send (QA TC-7286)
+      const atts = a.kind === 'people' ? await attachCopies(ctx, chat, auth.user.id, picked, c.get('locale')) : picked
+      if (atts !== picked) {
+        try {
+          const now = chatOf(rt, c, auth, params.id, 'continue')
+          if (now.kind !== 'people' || now.row.people_shared_at !== chat.people_shared_at) fail('conflict', tr('chatShareBusy', c.get('locale')), { params: { reason: 'chat_busy' } })
+          const again = rt.existingTurn(chat.id, body.clientMessageId, auth.user.id)
+          if (again) { discardCopies(ctx, auth.user.id, picked, atts); return again }
+          busy(now, c.get('locale'), auth.user.id)
+        } catch (e) { discardCopies(ctx, auth.user.id, picked, atts); throw e }
+      }
       const { engine, model, substitutedFrom } = pickEngine(ctx, rt, auth, chat, body, c.get('locale'))
       try {
         return rt.createTurn({ chat, userId: auth.user.id, locale: rt.userLocale(auth.user.id), windowId: windowOf(c), clientKind: auth.session.client, engine, model, substitutedFrom, timeZone: turnZone(body.timeZone),
           user: { parentId: target.parent_id, content: body.content, attachments: atts, clientMessageId: body.clientMessageId } })
       } catch (e) {
+        discardCopies(ctx, auth.user.id, picked, atts)
         if (isClientIdClash(e)) { const r = rt.existingTurn(chat.id, body.clientMessageId, auth.user.id); if (r) return r }
         throw e
       }

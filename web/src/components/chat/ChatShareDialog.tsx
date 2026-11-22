@@ -63,7 +63,8 @@ import { ShareCopyLink } from '../ShareCopyLink'
  * `again`: the save answered with the check instead of saving (no key: the preview failed; or something changed). */
 type Preview =
   | { for: string; state: 'loading' }
-  | { for: string; state: 'ready'; check: ShareCheck; key: string; again?: 'changed' | 'unchecked' }
+  // `list`: the people and groups as sent, which ShareCheck.warnPicks counts in
+  | { for: string; state: 'ready'; check: ShareCheck; key: string; again?: 'changed' | 'unchecked'; list: readonly ProjectParticipant[] }
   | { for: string; state: 'failed' }
 
 /** How long the preview waits after the last change of the picks (as the project dialogs' count). */
@@ -178,7 +179,7 @@ export function ChatShareDialog({ chat, onClose, initial, personal = false, retu
     const asked = setTimeout(() => {
       api.call(API.previewChatAudience, { params: { id: chat.id }, body: { subjects: picks } }).then((r) => {
         if (seq.current !== n) return
-        setPreview({ for: picksKey, state: 'ready', check: r.check, key: r.previewKey })
+        setPreview({ for: picksKey, state: 'ready', check: r.check, key: r.previewKey, list: picks })
       }, (e) => {
         if (seq.current !== n) return
         setPreview({ for: picksKey, state: 'failed' })
@@ -217,7 +218,7 @@ export function ChatShareDialog({ chat, onClose, initial, personal = false, retu
       if (r.status === 'confirm') {
         // not saved: what they would see now, in place; the same Share again saves it
         if (!adding.length) setFilesAgain({ files: r.check.madeFiles ?? [], key: r.confirmKey })
-        else if (audienceKey(picks) === key) setPreview({ for: key, state: 'ready', check: r.check, key: r.confirmKey, again: r.reason ?? 'unchecked' })
+        else if (audienceKey(picks) === key) setPreview({ for: key, state: 'ready', check: r.check, key: r.confirmKey, again: r.reason ?? 'unchecked', list: dirty ? picks : saved })
         return
       }
       const before = useChats.getState().chats.find((c) => c.id === r.chat.id)
@@ -278,7 +279,10 @@ export function ChatShareDialog({ chat, onClose, initial, personal = false, retu
 
   const check = current?.state === 'ready' ? current.check : null
   const stake = !!check && shareAtStake(check)
-  const warnNames = addedNames
+  // the warning names only the picks that bring in someone it is about (ShareCheck.warnPicks: their places in the list
+  // the check was asked for, QA TC-7042: not a person already in the chat through a group); an older server: everyone
+  // being added
+  const warnNames = check?.warnPicks?.length && current?.state === 'ready' ? warnNamesOf(t, current.list, check.warnPicks, nameOf) || addedNames : addedNames
   const warningText = check ? shareWarningLines(t, check, warnNames).join(' ') : ''
   // the one grey line when there is no warning to read first: asking (after a moment), the check failed, or the check's
   const grey = checking ? (slow ? t('share.grey.checking') : null)
@@ -291,6 +295,7 @@ export function ChatShareDialog({ chat, onClose, initial, personal = false, retu
   // again). Only its creator ever gets one
   const stepFiles: ChatMadeFile[] = !editable ? [] : adding.length ? (check?.madeFiles ?? []) : (filesAgain?.files ?? audience?.madeFiles ?? [])
   const filesStep = stepFiles.length > 0 && !removesAll
+  const riskyFiles = stepFiles.some((f) => f.private)
   const filesChanged = adding.length ? current?.state === 'ready' && current.again === 'changed' : !!filesAgain
   const copyButton = <ShareCopyLink onCopy={() => void copyLink(known ?? chat, { inDialog: true })} unsaved={editable && adding.length ? label : null} testId="chat-share-copy-link" />
   return (
@@ -305,7 +310,7 @@ export function ChatShareDialog({ chat, onClose, initial, personal = false, retu
           <IconButton label={t('tabs.back')} onClick={() => setListing(false)} className="-ml-2 shrink-0 touch-hit" data-testid="widening-list-back">
             <ChevronLeft size={18} aria-hidden />
           </IconButton>
-          <span className="min-w-0 break-keep" data-testid="widening-list-title">{t('share.widenList.title', { names: addedNames })}</span>
+          <span className="min-w-0 break-keep" data-testid="widening-list-title">{t('share.widenList.title', { names: warnNames })}</span>
         </span>
       ) : <span className="block min-w-0 truncate" data-testid="chat-share-title">{title}</span>}
       footer={listing ? undefined : personal || !editable ? (
@@ -326,8 +331,9 @@ export function ChatShareDialog({ chat, onClose, initial, personal = false, retu
             <>
               {/* without files: a save of the picks as they are; nothing changed (a chat already shared): just close. A
                   phone: one full-width button a row, the main one first (QA TC-6945) */}
-              <Button disabled={busy || checking} onClick={() => (dirty ? void save() : onClose())} className="max-sm:order-2 max-sm:w-full" data-testid="chat-share-without-files">{t('chat.shareFiles.without')}</Button>
-              <Button variant="primary" busy={busy} disabled={checking} onClick={() => void save(true)} className="max-sm:order-1 max-sm:w-full" data-testid="chat-share-with-files">{t('chat.shareFiles.with')}</Button>
+              {/* a file made from something a person being added can't open (QA TC-7370): "without" is the main button */}
+              <Button variant={riskyFiles ? 'primary' : undefined} busy={riskyFiles ? busy : undefined} disabled={busy || checking} onClick={() => (dirty ? void save() : onClose())} className={riskyFiles ? 'max-sm:order-1 max-sm:w-full' : 'max-sm:order-2 max-sm:w-full'} data-testid="chat-share-without-files">{t('chat.shareFiles.without')}</Button>
+              <Button variant={riskyFiles ? undefined : 'primary'} busy={riskyFiles ? undefined : busy} disabled={riskyFiles ? busy || checking : checking} onClick={() => void save(true)} className={riskyFiles ? 'max-sm:order-2 max-sm:w-full' : 'max-sm:order-1 max-sm:w-full'} data-testid="chat-share-with-files">{t('chat.shareFiles.with')}</Button>
             </>
           ) : (
             <>
@@ -340,7 +346,7 @@ export function ChatShareDialog({ chat, onClose, initial, personal = false, retu
     >
       {listing && audience ? (
         <div ref={body}>
-          <WideningList target={{ kind: 'chat', chatId: chat.id }} add={picks} names={addedNames} phone={phone} oneChat onOpen={phone ? openOnPhone : undefined}
+          <WideningList target={{ kind: 'chat', chatId: chat.id }} add={picks} names={warnNames} phone={phone} oneChat onOpen={phone ? openOnPhone : undefined}
             scroller={scroller} initialScroll={listScroll.current} onScroll={(top) => { listScroll.current = top }} />
         </div>
       ) : personal ? (
@@ -416,6 +422,7 @@ function FilesStep({ files, who, changed }: { files: readonly ChatMadeFile[]; wh
             <span className="min-w-0">
               <span className="block break-all text-ink">{f.name}</span>
               <span className="block truncate text-xs text-muted" title={f.place}>{f.place}</span>
+              {f.private && who && <span className="block text-xs leading-5 break-keep text-warn" data-testid="chat-share-files-private">{t('chat.shareFiles.private', { names: who })}</span>}
             </span>
           </li>
         ))}
@@ -485,4 +492,9 @@ export function useSharedWithNames(chatId: string | null, by: { id: string; name
     return () => { live = false }
   }, [chatId, by?.id, by?.name, me, t])
   return names
+}
+
+/** The names a warning line says (whoNames): the picks at the places `warn` lists, in the list the check was asked for. */
+export function warnNamesOf(t: ReturnType<typeof useT>, list: readonly ProjectParticipant[], warn: readonly number[], nameOf: (x: ProjectParticipant) => string): string {
+  return whoNames(t, warn.flatMap((i) => (list[i] ? [{ subjectType: list[i]!.subjectType, name: nameOf(list[i]!) }] : [])))
 }

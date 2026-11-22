@@ -137,9 +137,31 @@ describe('enforcement', () => {
       expect(done).toMatchObject({ status: 'done', engine: 'claude-code', content: 'now claude' })
       const note = done.steps.find((s) => s.tool === 'engine')
       // no engine names (docs/DECISIONS.md "Plain words in errors, cards and steps")
-      expect(note?.label).toBe("The chosen AI is off; answering with the team's default AI")
+      expect(note?.label).toBe("The AI picked for this chat is turned off, so your team's usual AI is answering")
       expect((await h.api('alice').call(API.getChat, { params: { id: chat.id } })).engine).toBe('claude-code')
     } finally {
+      await h.api('dana').call(API.updateEngines, { body: { enabled: { codex: true } } })
+    }
+  })
+
+  test('a guest the team default cannot answer gets the guest error alone, no step about which AI would answer (QA TC-7050)', async () => {
+    const chat = await h.api('alice').call(API.createChat, { body: {} })
+    h.ctx.db.query("UPDATE chats SET engine = 'codex', model = 'fake-2' WHERE id = ?").run(chat.id)
+    await h.api('dana').call(API.updateEngines, { body: { enabled: { codex: false } } })
+    // alice a guest for this test, with her own sign-in (AI "own"); the team default runs on no managed proxy here
+    const confs = h.rt().engines.get()
+    const proxy = confs.claude?.modelProxy
+    if (confs.claude) confs.claude.modelProxy = undefined
+    h.ctx.db.query('UPDATE users SET guest = 1 WHERE id = ?').run('alice')
+    h.ctx.db.query("INSERT INTO guests (user_id, place_kind, place_id, ai, created_at) VALUES ('alice', 'room', 'r-guest', 'own', ?)").run(new Date().toISOString())
+    try {
+      const { done } = await ask(h, alice, 'alice', chat.id, fake({ say: 'never' }))
+      expect(done.error).toMatchObject({ params: { reason: 'guest_no_ai' } })
+      expect(done.steps.filter((s) => s.tool === 'engine')).toEqual([])
+    } finally {
+      h.ctx.db.query("DELETE FROM guests WHERE user_id = 'alice'").run()
+      h.ctx.db.query('UPDATE users SET guest = 0 WHERE id = ?').run('alice')
+      if (confs.claude) confs.claude.modelProxy = proxy
       await h.api('dana').call(API.updateEngines, { body: { enabled: { codex: true } } })
     }
   })

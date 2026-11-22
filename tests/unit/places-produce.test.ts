@@ -119,6 +119,23 @@ describe('output: chat:files/<name> in a chat shared with people', () => {
     expect(again.attachments.map((a) => a.name)).toContain('plan (2).docx')
   })
 
+  test('QA TC-7279/TC-7261: a new file the AI makes in the asker\'s own folder goes to the chat; a named sub-folder keeps it there', async () => {
+    const { chat } = await sharedChat()
+    const r = await run('alice', chat, fake({ tool: 'make_file', args: { format: 'docx', content: '# Report', output: 'users/alice/q3.docx' }, sayResult: true }))
+    const att = r.attachments.find((a) => a.name === 'q3.docx')
+    expect(att).toMatchObject({ source: 'chat', origin: 'ai' })
+    expect(r.cards).toHaveLength(0)
+    expect(fs.existsSync(path.join(h.team, 'users/alice/q3.docx'))).toBe(false)
+    expect((await h.req('erin', `/api/chats/${chat}/files/${att!.id}`)).status).toBe(200)
+    // the asker names the folder in their own message: saved there, as asked
+    const named = await run('alice', chat, `reports 폴더에 저장해줘\n${fake({ tool: 'make_file', args: { format: 'docx', content: '# Report 2', output: 'users/alice/reports/q4.docx' }, sayResult: true })}`)
+    expect(named.attachments.find((a) => a.name === 'q4.docx')).toBeUndefined()
+    expect(fs.existsSync(path.join(h.team, 'users/alice/reports/q4.docx'))).toBe(true)
+    // a team folder everyone in the chat may open: unchanged
+    const team = await run('alice', chat, fake({ tool: 'make_file', args: { format: 'docx', content: '# Shared', output: 'shared/sq-shared.docx' }, sayResult: true }))
+    expect(team.attachments.find((a) => a.name === 'sq-shared.docx')).toBeUndefined()
+  })
+
   test('a picture only the asker may open asks the shared read card; no = nothing attached', async () => {
     const { chat } = await sharedChat()
     const r = await run('alice', chat, fake({ tool: 'make_file', args: { format: 'docx', content: '# Q\n\n![x](users/alice/private.png)', output: 'chat:files/q.docx' }, sayResult: true }), 'skip')
@@ -191,8 +208,9 @@ describe('sources and pictures resolve through their own place', () => {
     const l = await run('alice', chat, fake({ tool: 'make_file', args: { format: 'docx', content: `# L\n\n![l](/files/view?path=${encodeURIComponent(`chat:files/${logo.id}/logo.png`)})`, output: 'chat:files/linked.docx' }, sayResult: true }))
     const la = l.attachments.find((a) => a.name === 'linked.docx')!
     expect(docxHas(pic, chatFileAbs(chat, la.id))).toBe(true)
-    // into the asker's own folder (fewer people than the chat): no card, a team file
-    const t = await run('alice', chat, fake({ tool: 'make_file', args: { format: 'docx', source: `chat:files/${md.id}/brief.md`, output: 'users/alice/brief.docx' }, sayResult: true }))
+    // into the asker's own folder when they say so (fewer people than the chat): no card, a team file (QA TC-7279: unasked,
+    // it goes to the chat)
+    const t = await run('alice', chat, `내 파일에 저장해줘\n${fake({ tool: 'make_file', args: { format: 'docx', source: `chat:files/${md.id}/brief.md`, output: 'users/alice/brief.docx' }, sayResult: true })}`)
     expect(t.cards).toHaveLength(0)
     expect(fs.existsSync(path.join(h.team, 'users/alice/brief.docx'))).toBe(true)
   })

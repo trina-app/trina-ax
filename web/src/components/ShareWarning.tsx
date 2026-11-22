@@ -27,7 +27,7 @@ export function whoNames(t: T, picks: readonly { subjectType: 'user' | 'group'; 
 
 /** Is anything at stake (the yellow box)? */
 export const shareAtStake = (c: ShareCheck): boolean =>
-  c.memoryAnswers > 0 || c.fileAnswers > 0 || c.accountAnswers > 0 || c.places.length > 0 || c.otherPlaces || c.roomsUnseen
+  c.memoryAnswers > 0 || c.fileAnswers > 0 || c.accountAnswers > 0 || c.places.length > 0 || c.otherPlaces || c.roomsUnseen || (c.devAnswers ?? 0) > 0 || (c.hiddenAnswers ?? 0) > 0
 
 /** The warning's sentences, in order (`names`: who is being added, as picked). */
 export function shareWarningLines(t: T, c: ShareCheck, names: string): string[] {
@@ -35,7 +35,10 @@ export function shareWarningLines(t: T, c: ShareCheck, names: string): string[] 
   return [
     ...(c.memoryAnswers ? [t('share.warn.memories', { n: c.memoryAnswers })] : []),
     ...(c.accountAnswers ? [t('share.warn.accounts', { n: c.accountAnswers })] : []),
-    ...(c.fileAnswers ? [t('share.warn.files', { n: c.fileAnswers, names })] : []),
+    // the files by name and that their content shows (QA TC-7277): the sharer read them, so their names may be told
+    ...(c.fileAnswers ? [c.fileNames?.length ? t('share.warn.filesNamed', { n: c.fileAnswers, names, files: c.fileNames.join(', ') }) : t('share.warn.files', { n: c.fileAnswers, names })] : []),
+    ...(c.devAnswers ? [t('share.warn.dev', { n: c.devAnswers, names })] : []),
+    ...(c.hiddenAnswers ? [t('share.warn.hidden', { n: c.hiddenAnswers, names })] : []),
     ...(places.length ? [t('share.warn.places', { places: places.join(', '), names })] : []),
     ...(c.roomsUnseen ? [t('share.warn.rooms', { names })] : []),
   ]

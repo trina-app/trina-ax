@@ -955,6 +955,11 @@ export const MakeProjectInfo = z.object({
   /** files that will move to {name} › Chat attachments, and those that stay in the conversation only */
   filesMoving: z.number().int().nonnegative(),
   filesStaying: z.number().int().nonnegative(),
+  /** of filesStaying, the copies of files from a folder (they stay so that people added to the project later do not get
+   * them; the rest stay because not everyone here sees them, but filesStayingOther). Older servers omit it (QA TC-7046) */
+  filesStayingCopies: z.number().int().nonnegative().optional(),
+  /** of filesStaying, the ones that stay for another reason (download-only bytes): a plain line without a why */
+  filesStayingOther: z.number().int().nonnegative().optional(),
   /** the hash of the member ids above: sent back with the POST, which answers 409 members_changed when it differs */
   membersHash: z.string().min(1),
   /** for `name` (or the suggestion): its folder under projects/ ("Name-2" when a project already has the name), and

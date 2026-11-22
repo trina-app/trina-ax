@@ -5,11 +5,14 @@
 // title ("민준 · #마케팅 › 스레드") instead, names made one plain line.
 import { afterEach, expect, setDefaultTimeout, test } from 'bun:test'
 import crypto from 'node:crypto'
+import fs from 'node:fs'
+import path from 'node:path'
 import { plainLabel } from '@mycel/shared/api'
 import { updateTeamSettings } from '../../server/src/admin/settings'
 import { notificationsOf } from '../../server/src/notifications/service'
 import { savePreferences } from '../../server/src/notifications/preferences'
 import { roomsOf } from '../../server/src/rooms/service'
+import { roomFilesOf } from '../../server/src/rooms/files'
 import { noticeWanted } from '../../server/src/rooms/alerts'
 import { COUNT_MAX, plainMarkdown, previewLine } from '../../server/src/rooms/inbox'
 import { zonedClock } from '../../shared/src/api/room-alerts'
@@ -113,6 +116,21 @@ test('a row says who, where and why with the first line; the notice a push opens
   expect(rows(nora.id).find((x) => x.room?.message === all.id)?.room).toMatchObject({ reason: 'mention' })
   expect(previewLine('   \n\t ')).toBe('')
   expect(previewLine('x'.repeat(500))).toHaveLength(200)
+})
+
+test('QA TC-7049: a row for a message with text and files names its first file and counts them; deleted, nothing of it', async () => {
+  const { mia, nora, team, send, rows } = await setup()
+  const file = async (name: string) => {
+    const src = path.join(h.ctx.config.dataDir, `upload-${crypto.randomUUID()}`)
+    fs.writeFileSync(src, `content ${name}`)
+    return roomFilesOf(h.ctx).create(mia.id, team.id, name, src, crypto.createHash('sha256').update(`content ${name}`).digest('hex'))
+  }
+  const a = await file('sq-thread-note2.md'), b = await file('second.md')
+  const m = await send(mia.client, team.id, '추가 메모입니다.', { mentions: [nora.id], fileIds: [a.id, b.id] })
+  expect(rows()[0]!.room).toMatchObject({ message: m.id, preview: '추가 메모입니다.', files: 2, fileName: 'sq-thread-note2.md' })
+  // the message deleted: no name of its file
+  await mia.client.call('DELETE', `/api/rooms/${team.id}/messages/${m.id}`)
+  expect(JSON.stringify(rows())).not.toContain('sq-thread-note2')
 })
 
 test('one row per place: a thread\'s mention and replies, a timeline\'s mentions; counted from my place; reading it reads them all', async () => {

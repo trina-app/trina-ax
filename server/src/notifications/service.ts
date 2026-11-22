@@ -79,6 +79,8 @@ export type FileShareEvent = Extract<NotificationEventType, 'file.shared' | 'fil
 const isFileShareEvent = (e: NotificationEventType): e is FileShareEvent => e === 'file.shared' || e === 'file.access_requested' || e === 'file.access_answered' || e === 'file.unshared_by_move'
 export type AccessRequestEvent = Extract<NotificationEventType, 'access.requested' | 'access.answered'>
 const isAccessRequestEvent = (e: NotificationEventType): e is AccessRequestEvent => e === 'access.requested' || e === 'access.answered'
+/** A re-share within this long of a share still unread updates that notice in place (chatShared): no second push. */
+const SHARE_AGAIN_QUIET_MS = 10 * 60_000
 const tableOf = (e: NotificationEventType) => e === 'chat.answer_done' ? 'chat_answer_notices' : isSkillEvent(e) ? 'skill_notices' : isDevEnvEvent(e) ? 'dev_env_notices' : e === 'integration.request' ? 'integration_request_notices' : e === 'onboarding.ai_request' ? 'onboarding_notices' : e === 'team.joined' ? 'team_join_notices' : e === 'onboarding.first_run' ? 'onboarding_goal_notices' : isRoomEvent(e) ? 'room_notices' : e === 'account.deletion_request' ? 'account_deletion_notices' : e === 'account.deletion_due' ? 'account_deletion_due_notices' : isTemplateEvent(e) ? 'integration_template_notices' : e === 'drive.share_reconnect' ? 'drive_share_notices' : e === 'skills.merge_waiting' ? 'skill_merge_notices' : e === 'credential.change' ? 'credential_change_notices' : isHandoverEvent(e) ? 'handover_notices' : e === 'project.joined' ? 'project_notices' : e === 'chat.shared' ? 'chat_share_notices' : e === 'service.closed' ? 'service_request_closed_notices' : e === 'files.stored_key' ? 'stored_key_file_notices' : isServiceRequestEvent(e) ? 'service_request_notices' : e === 'account.reset_link' ? 'reset_link_notices' : isHostingEvent(e) ? 'hosting_notices' : e === 'engine.start_failed' ? 'engine_start_notices' : e === 'storage.filling' || e === 'storage.cleanup' ? 'storage_notices' : e === 'room_app.paused' ? 'room_app_notices' : e === 'room_app.leaver' ? 'room_app_leaver_notices' : isFileShareEvent(e) ? 'file_share_notices' : isAccessRequestEvent(e) ? 'access_request_notices' : e === 'chat.thread_reply' ? 'chat_thread_notices' : 'notification_inbox'
 /** One inbox over the tables: skill notices (migration 211, R2-SKILL-12), dev environment notices (migration 219),
  * requests to connect a service (migration 220), a member's request for an AI connection (migration 231), joins
@@ -278,18 +280,28 @@ export class Notifications {
   }
   /** Someone shared a chat with this person (chat/people-share.ts): by name (`named`) or through a group. The source is
    * the chat.audience audit row's id; the chat and who shared it are kept to name them when the notice is read (only
-   * while the reader still sees the chat). At most one a day per chat and person (re-adds make no second notice). Shown
-   * always. A share by name is also pushed to the person's devices (push-service.ts, notifications/chat-shares.ts) while
-   * their "Chats shared with me" is on; a group's people get the Inbox row alone. The same day's unread row from a group
-   * share becomes a share by name (and its sharer the one who named them) when someone then adds the person by name:
-   * still one notice, now pushed. */
+   * while the reader still sees the chat). One row a day per chat and person. Shown always. A share by name is also
+   * pushed to the person's devices (push-service.ts, notifications/chat-shares.ts) while their "Chats shared with me" is
+   * on; a group's people get the Inbox row alone. It is called only for people who start to see the chat (they did not
+   * just before), so the same day's row is about a share they lost since: a share again replaces it with a new row
+   * (unread, at the top, pushed by the same rule as a first share; its push rows go with the old one), as a first
+   * share would (QA TC-7047: a re-share said nothing new). A row still unread from the last SHARE_AGAIN_QUIET_MS is
+   * brought up to date in place instead (no second push for a quick remove and add). */
   chatShared(userId: string, auditId: string, chatId: string, byUser: string, named: boolean, at = new Date().toISOString()) {
     if (!this.active(userId) || at < this.cutoff()) return
-    const r = this.ctx.db.query(`INSERT INTO chat_share_notices(id,user_id,event_type,source_id,chat_id,by_user,named,day,created_at,suppressed)
-      VALUES(?,?,'chat.shared',?,?,?,?,?,?,0) ON CONFLICT DO NOTHING`).run(newId(), userId, auditId, chatId, byUser, named ? 1 : 0, at.slice(0, 10), at)
-    if (r.changes) { this.signal(userId); return }
-    if (named) this.ctx.db.query(`UPDATE chat_share_notices SET named=1, by_user=? WHERE user_id=? AND chat_id=? AND day=? AND named=0 AND read_at IS NULL AND suppressed=0`)
-      .run(byUser, userId, chatId, at.slice(0, 10))
+    const db = this.ctx.db
+    const day = at.slice(0, 10)
+    db.transaction(() => {
+      const old = db.query("SELECT id, read_at, created_at, suppressed FROM chat_share_notices WHERE user_id=? AND chat_id=? AND day=? AND event_type='chat.shared'").get(userId, chatId, day) as { id: string; read_at: string | null; created_at: string; suppressed: number } | null
+      if (old && !old.read_at && !old.suppressed && Date.parse(at) - Date.parse(old.created_at) < SHARE_AGAIN_QUIET_MS) {
+        db.query('UPDATE chat_share_notices SET source_id=?, by_user=?, named=MAX(named, ?) WHERE id=?').run(auditId, byUser, named ? 1 : 0, old.id)
+        return
+      }
+      if (old) db.query('DELETE FROM chat_share_notices WHERE id=?').run(old.id)
+      db.query(`INSERT INTO chat_share_notices(id,user_id,event_type,source_id,chat_id,by_user,named,day,created_at,suppressed)
+        VALUES(?,?,'chat.shared',?,?,?,?,?,?,0) ON CONFLICT DO NOTHING`).run(newId(), userId, auditId, chatId, byUser, named ? 1 : 0, day, at)
+    })()
+    this.signal(userId)
   }
   /** A member asked to add an app the team has not set up (integrations/service-requests.ts): one notice per owner or
    * admin and app (the source is the app's id). A new ask arms it again (unread, its time now: it moves up and names
@@ -732,7 +744,7 @@ export class Notifications {
       return { id: row.id, eventType: row.event_type, sourceId: row.source_id, code: row.event_type, createdAt: row.created_at, readAt: row.read_at, chatId: null, link: 'admin_credentials', outcome: null, ...(m ? { requester: { name: m.name } } : {}), ...(notReady ? { notReady: true as const } : {}) }
     }
     // a chat shared with me: who shared it, and the chat while I still see it (chatFor's rule for a people-shared chat);
-    // else "no longer shared with you", no title and no link
+    // else "no longer shared with you" with who shared it (QA TC-7047), no title (it may have been renamed since) and no link
     if (row.event_type === 'chat.shared') {
       const n = this.ctx.db.query('SELECT chat_id, by_user FROM chat_share_notices WHERE id = ?').get(row.id) as { chat_id: string; by_user: string | null } | null
       // the sharer while their account is there and switched on (the same rule as the push label, chat-shares.ts sharerName)
