@@ -9,6 +9,11 @@
 // (a window reserved during the click, like Settings > External services: useSignIn), connect with nothing to give,
 // or the Google Drive flow of Settings (useDriveFlow; in the phone app, as there, one line to connect on a computer).
 // A team connection: who may use it, just the admin or everyone.
+// Google for an owner or admin (`teamOffer`, #253): Connect for the team opens the very dialog of Admin › Connected apps
+// and the welcome tools step (integrations/GoogleTeam.tsx: a shared Drive, or the team's shared Google account), beside
+// the person's own Drive sign-in; for Gmail, Calendar, Docs or Sheets (google_app) their own connects on its page in
+// Settings › Connectors, as for everyone, and "I've connected it" then finishes the card. Not in the phone app (no
+// Google sign-in there). Members never get these cards' team way.
 // "Not now" skips. A failed check keeps the card and the box for another key. The card closes when the server sends
 // turn.request.closed, and right away here after a connected or skipped answer. Never answered from the message box.
 // Trust (lib/connectCard.ts cardTrust): a service in the app's list at exactly its official address says so; any other
@@ -18,11 +23,14 @@
 import clsx from 'clsx'
 import { BadgeCheck, Globe, Lock, LogIn, Plug, TriangleAlert } from 'lucide-react'
 import { useId, useState } from 'react'
+import type { GoogleAppId } from '@mycel/shared/api'
 import { adminAllowsDomains } from '@mycel/shared'
 import type { TurnConnectResult } from '@mycel/shared/api'
 import { errorText, isApiError } from '../../lib/api'
 import { cardTrust, connectCase, notOfficialOf, connectWithKey, connectWithoutKey, finishConnect, hostOffName, skipConnect, type ConnectAccess, type ConnectServiceRequest } from '../../lib/connectCard'
-import { builtInName } from '../../lib/googleApps'
+import { builtInName, lineKey, type BuiltInId } from '../../lib/googleApps'
+import { connectorHref } from '../../lib/connectors'
+import { navigateTo } from '../../lib/nav'
 import { signInReturnHost } from '../../lib/integrations'
 import { mobileApp } from '../../lib/mobile'
 import { canSeal } from '../../lib/seal'
@@ -30,6 +38,7 @@ import { useLocale, useT } from '../../i18n'
 import { toast } from '../../store/ui'
 import { reserveSignInWindow, useSignIn } from '../integrations/IntegrationRow'
 import { DriveFlowPanel, useDriveFlow } from '../settings/DriveConnection'
+import { GoogleTeamDialog, googleTeamOn, useGoogleTeam } from '../integrations/GoogleTeam'
 import { Badge, Button, ErrorNote, LinkButton, inputCls } from '../ui'
 
 type Busy = 'connect' | 'done' | 'skip' | null
@@ -49,6 +58,8 @@ export default function ConnectCard({ request: r }: { request: ConnectServiceReq
   const [signInId, setSignInId] = useState<string | null>(null)
   /** signed in / Drive connected but telling the server failed: offer it again */
   const [doneFailed, setDoneFailed] = useState(false)
+  /** google_app: the person opened the app's page to connect their own (the card then offers "I've connected it") */
+  const [ownOpened, setOwnOpened] = useState(false)
   const signIn = useSignIn(() => void finish())
   const drive = useDriveFlow((c) => {
     if (c.status === 'connected') void finish()
@@ -66,6 +77,9 @@ export default function ConnectCard({ request: r }: { request: ConnectServiceReq
   const secure = canSeal()
   const flow = signIn.state
   const working = busy !== null || (!!flow && ['starting', 'pending', 'exchanging'].includes(flow.state))
+  /** the Google tool of a google_drive or google_app card, and whether it offers Connect for the team */
+  const googleId: BuiltInId | null = r.target === 'google_drive' ? 'google-drive' : r.target === 'google_app' && r.googleApp ? r.googleApp : null
+  const teamWay = !!googleId && !!r.teamOffer && !phone
 
   const outcome = (res: TurnConnectResult | null) => {
     if (!res) return
@@ -144,6 +158,9 @@ export default function ConnectCard({ request: r }: { request: ConnectServiceReq
     void run('skip', () => skipConnect(r))
   }
 
+  const teamConnect = teamWay && googleId && !drive.inProgress && (
+    <TeamConnect id={googleId} primary={kase === 'google_app' && !ownOpened} disabled={working} onConnected={() => void finish()} />
+  )
   const primary = doneFailed ? (
     <Button size="sm" variant="primary" busy={busy === 'done'} onClick={() => void finish()} data-testid="connect-finish">
       {t('common.retry')}
@@ -164,6 +181,16 @@ export default function ConnectCard({ request: r }: { request: ConnectServiceReq
     !phone && !drive.inProgress && (
       <Button size="sm" variant="primary" busy={drive.busy} disabled={working} onClick={() => void drive.start()} data-testid="connect-drive">
         {t('drive.connect')}
+      </Button>
+    )
+  ) : kase === 'google_app' ? (
+    ownOpened ? (
+      <Button size="sm" variant="primary" busy={busy === 'done'} disabled={working} onClick={() => void finish()} data-testid="connect-own-done">
+        {t('connect.ownDone')}
+      </Button>
+    ) : r.googleApp && (
+      <Button size="sm" variant={teamWay ? 'secondary' : 'primary'} disabled={working} onClick={() => { setOwnOpened(true); navigateTo(connectorHref(r.googleApp as GoogleAppId)) }} data-testid="connect-own">
+        {t('connect.ownConnect')}
       </Button>
     )
   ) : (
@@ -327,8 +354,16 @@ export default function ConnectCard({ request: r }: { request: ConnectServiceReq
                 {t(r.reconnect ? 'integrations.reconnectOnComputer' : 'integrations.onComputer', { name: builtInName('google-drive') })}
               </p>
             )}
+            {teamWay && !drive.inProgress && <p className="text-muted" data-testid="connect-team-way">{t('connect.teamWay')}</p>}
             {drive.inProgress && drive.flow && <DriveFlowPanel d={drive} flow={drive.flow} />}
             {drive.error && <ErrorNote>{t('drive.failed')}</ErrorNote>}
+          </>
+        )}
+        {kase === 'google_app' && googleId && (
+          <>
+            <p className="text-muted">{t(lineKey(googleId))}</p>
+            {teamWay && <p className="text-muted" data-testid="connect-team-way">{t('connect.teamWay')}</p>}
+            <p className="text-xs text-muted" data-testid="connect-own-where">{t('connect.ownWhere')}</p>
           </>
         )}
 
@@ -398,8 +433,34 @@ export default function ConnectCard({ request: r }: { request: ConnectServiceReq
         <Button size="sm" variant="ghost" disabled={busy !== null} busy={busy === 'skip'} onClick={skip} data-testid="connect-skip">
           {t('connect.notNow')}
         </Button>
+        {/* Drive: the person's own sign-in stays the primary; a Google app: their own is a page away, the team's is here */}
+        {kase !== 'google_app' && teamConnect}
         {primary}
+        {kase === 'google_app' && teamConnect}
       </div>
     </form>
+  )
+}
+
+/** Connect for the team on a Google card (owners and admins): the dialog of Admin › Connected apps; once the team's
+ * shared account works, the card finishes (the server reads it again). Shown only where this server can connect it for
+ * the team (useGoogleTeam's `of`), so a failed read or an older server shows the person's own way alone. */
+function TeamConnect({ id, primary, disabled, onConnected }: { id: BuiltInId; primary: boolean; disabled: boolean; onConnected: () => void }) {
+  const t = useT()
+  const google = useGoogleTeam()
+  const [open, setOpen] = useState(false)
+  if (!google.of(id)) return null
+  const close = async () => {
+    setOpen(false)
+    google.reload()
+    if (await googleTeamOn(id)) onConnected()
+  }
+  return (
+    <>
+      <Button size="sm" variant={primary ? 'primary' : 'secondary'} disabled={disabled} onClick={() => setOpen(true)} data-testid="connect-team">
+        {t('connect.teamConnect')}
+      </Button>
+      {open && <GoogleTeamDialog app={id} google={google} onClose={() => void close()} />}
+    </>
   )
 }

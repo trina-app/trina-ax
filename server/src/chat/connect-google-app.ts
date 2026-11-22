@@ -53,3 +53,12 @@ export function googleAppWay(app: { name: string; status: GoogleAppView['status'
   }
   return { connected: false, text: `${builtIn} Next step: tell the user in one or two plain sentences to open ${page}, press Connect and sign in with their Google account, then ask you again. ${meanwhile}` }
 }
+
+/** An owner or admin asked for one that is not connected for them and can be connected now: a card offers Connect for
+ * the team (the dialog of Admin › Connected apps, a shared Google account) beside their own on its page (#253), as the
+ * welcome tools step does. A member keeps the words above (their own on its page); so does an app that is connected
+ * (for them, or through the team's account they may use), not answering, needing their own new sign-in, or not
+ * available. A team account that needs a new sign-in gets the card too: its dialog signs it in again. */
+export function googleAppTeamCard(app: { status: GoogleAppView['status']; reason: GoogleAppView['reason']; shared?: { status: 'connected' | 'needs_reconnect' } | null }, admin: boolean): boolean {
+  return admin && app.status === 'disconnected' && app.reason === null && app.shared?.status !== 'connected'
+}

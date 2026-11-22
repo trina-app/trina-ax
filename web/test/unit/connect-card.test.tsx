@@ -13,6 +13,8 @@ import { translate, useLocaleStore } from '../../src/i18n'
 import ConnectCard from '../../src/components/chat/ConnectCard'
 import { cardTrust, connectCase, notOfficialOf, connectWithKey, connectWithoutKey, finishConnect, hostOffName, skipConnect, type ConnectServiceRequest } from '../../src/lib/connectCard'
 import { useChats } from '../../src/store/chats'
+import { googleTeamOn } from '../../src/components/integrations/GoogleTeam'
+import { setNavigator } from '../../src/lib/nav'
 import { CHAT } from './fixtures'
 import { installDom, mount, removeDom } from './dom-host'
 import { MOBILE_CAPABILITIES, type MobileConfig } from '../../../mobile/src/protocol'
@@ -710,5 +712,128 @@ describe('the card, clicked', () => {
     expect(said().filter((c) => c === CONNECT)).toHaveLength(3)
     expect(calls.filter((c) => c.path.endsWith('/connect')).map((c) => c.body.action)).toEqual(['connect', 'done', 'done'])
     await m.unmount()
+  })
+})
+
+// #253: Google from a chat, for the team. An owner's or admin's card (teamOffer) also has Connect for the team, the
+// very dialog of Admin › Connected apps (integrations/GoogleTeam.tsx), where this server can connect it for the team; a
+// member's card has their own way only and never reads the admin endpoints. Gmail (google_app): their own connects on
+// its page, then "I've connected it" finishes the card.
+describe('Connect for the team on a Google card (#253)', () => {
+  const localeBefore = useLocaleStore.getState().locale
+  beforeAll(() => {
+    installDom()
+    useLocaleStore.setState({ locale: 'en' })
+  })
+  afterAll(() => {
+    setNavigator(null)
+    removeDom()
+    useLocaleStore.setState({ locale: localeBefore })
+  })
+  const CONNECT = `POST /api/turns/${TURN}/connect`
+  const admin = (o: { shares?: unknown[]; gmailTeam?: unknown } = {}) => {
+    routes['GET /api/admin/google-drive'] = () => json({ configured: true, source: 'service', canSetUp: false, blocked: 'hosted', redirectUri: null, connectedMembers: 0 })
+    routes['GET /api/admin/google-drive/shares'] = () => json({ items: o.shares ?? [] })
+    routes['GET /api/admin/google-apps'] = () => json({ apps: [{ id: 'gmail', configured: true, source: 'service', canSetUp: false, blocked: 'hosted', redirectUri: null, driveAppAvailable: false, apis: [], membersCanConnect: true, connectedMembers: 0, team: o.gmailTeam ?? null }] })
+  }
+  const adminCalls = () => calls.filter((c) => c.path.startsWith('/api/admin/'))
+  const drive = (o: Partial<ConnectServiceRequest> = {}) => card({ target: 'google_drive', name: 'Google Drive', service: undefined, ...o })
+  const gmail = (o: Partial<ConnectServiceRequest> = {}) => card({ target: 'google_app', googleApp: 'gmail', name: 'Gmail', service: undefined, teamOffer: true, ...o })
+
+  test('Drive for an owner or admin: their own sign-in stays the primary, Connect for the team beside it', async () => {
+    admin()
+    const r = drive({ teamOffer: true })
+    open(r)
+    const m = await mount(<ConnectCard request={r} />)
+    await m.until(() => m.find('connect-team'), 'Connect for the team')
+    expect(m.get('connect-team').textContent).toBe(translate('en', 'connect.teamConnect'))
+    expect(m.get('connect-team-way').textContent).toBe(translate('en', 'connect.teamWay'))
+    expect(m.find('connect-drive')).toBeTruthy()
+    expect(m.get('connect-card').getAttribute('data-case')).toBe('google_drive')
+    await m.unmount()
+  })
+
+  test('Drive for a member: no team way, and no admin endpoint is read', async () => {
+    const r = drive()
+    open(r)
+    const m = await mount(<ConnectCard request={r} />)
+    await m.settle(50)
+    expect(m.find('connect-team')).toBeNull()
+    expect(m.find('connect-team-way')).toBeNull()
+    expect(m.find('connect-drive')).toBeTruthy()
+    expect(adminCalls()).toEqual([])
+    await m.unmount()
+  })
+
+  test('where this server cannot connect it for the team (an older server, a failed read), the button is not shown', async () => {
+    // no admin routes: every admin read fails
+    const r = drive({ teamOffer: true })
+    open(r)
+    const m = await mount(<ConnectCard request={r} />)
+    await m.until(() => adminCalls().length > 0, 'the admin read')
+    await m.settle(50)
+    expect(m.find('connect-team')).toBeNull()
+    expect(m.find('connect-drive')).toBeTruthy()
+    await m.unmount()
+  })
+
+  test('Gmail for an owner or admin: Connect for the team, or their own on its page, then "I\'ve connected it" finishes the card', async () => {
+    admin()
+    const went: string[] = []
+    setNavigator((to) => { went.push(to) })
+    routes[CONNECT] = () => json({ state: 'connected' })
+    const r = gmail()
+    open(r)
+    const m = await mount(<ConnectCard request={r} />)
+    await m.until(() => m.find('connect-team'), 'Connect for the team')
+    expect(m.get('connect-card').getAttribute('data-case')).toBe('google_app')
+    expect(m.get('connect-title').textContent).toBe(translate('en', 'connect.title', { name: 'Gmail' }))
+    expect(m.get('connect-card').textContent).toContain(translate('en', 'gapps.gmail.line'))
+    expect(m.get('connect-own-where').textContent).toBe(translate('en', 'connect.ownWhere'))
+    await m.click('connect-own')
+    expect(went).toEqual(['/settings/connectors/gmail'])
+    // nothing was told to the server yet
+    expect(calls.some((c) => c.path.endsWith('/connect'))).toBe(false)
+    await m.click('connect-own-done')
+    await m.until(() => !useChats.getState().requests.c1, 'the card closed')
+    expect(calls.filter((c) => c.path.endsWith('/connect')).map((c) => c.body)).toEqual([{ action: 'done', requestId: 'c1' }])
+    await m.unmount()
+  })
+
+  test('in the phone app: no team way (no Google sign-in there)', async () => {
+    admin()
+    const g = globalThis as Record<string, unknown>
+    const config: MobileConfig = { protocol: 1, appVersion: '1.0.4', platform: 'android', nonce: 'c'.repeat(64), generation: 1, capabilities: MOBILE_CAPABILITIES }
+    const was = { mycelMobile: g.mycelMobile, ReactNativeWebView: g.ReactNativeWebView }
+    g.mycelMobile = { ...config }
+    g.ReactNativeWebView = { postMessage: () => {} }
+    try {
+      for (const r of [drive({ teamOffer: true }), gmail()]) {
+        open(r)
+        const m = await mount(<ConnectCard request={r} />)
+        await m.settle(50)
+        expect(m.find('connect-team')).toBeNull()
+        expect(m.find('connect-team-way')).toBeNull()
+        expect(adminCalls()).toEqual([])
+        await m.unmount()
+      }
+    } finally {
+      g.mycelMobile = was.mycelMobile
+      g.ReactNativeWebView = was.ReactNativeWebView
+    }
+  })
+
+  test('googleTeamOn: a Drive share that works, or the app\'s team account connected; a failed read is false', async () => {
+    const at = new Date().toISOString()
+    const everyone = { everyone: true, groups: [], users: [] }
+    const share = (status: 'connected' | 'needs_reconnect') => ({ id: `s-${status}`, name: 'Sales', account: { name: null, email: 'team@acme.example' }, owner: null, folders: [], wholeDrive: true, access: everyone, status, reason: status === 'connected' ? null : 'signed_out', usedBy: 3, createdAt: at, updatedAt: at })
+    admin({ shares: [share('needs_reconnect')] })
+    expect(await googleTeamOn('google-drive')).toBe(false)
+    admin({ shares: [share('needs_reconnect'), share('connected')], gmailTeam: { id: 't1', status: 'connected', account: { name: null, email: 'team@acme.example' }, access: everyone, usedBy: 3, connectedBy: null, connectedAt: at } })
+    expect(await googleTeamOn('google-drive')).toBe(true)
+    expect(await googleTeamOn('gmail')).toBe(true)
+    expect(await googleTeamOn('calendar')).toBe(false)
+    routes = {}
+    expect(await googleTeamOn('gmail')).toBe(false)
   })
 })
