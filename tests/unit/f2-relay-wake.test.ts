@@ -214,10 +214,10 @@ describe('wake answer: the optional no_room hint (contract)', () => {
     expect([noRoomRetrySec(5), noRoomRetrySec(300), noRoomRetrySec(1800), noRoomRetrySec(null)]).toEqual([60, 300, 300, 60])
     expect([PAGE_STATUS.team_no_room, PAGE_RETRY_AFTER.team_no_room, RELAY_ERROR_OF.team_no_room, PAGE_DETAIL.team_no_room]).toEqual([503, 60, 'team_busy', 'no_room'])
     const ko = htmlPage('team_no_room', 'ko', null, undefined, 5)
-    expect(ko).toContain('지금 서버 자리가 잠깐 모자라요. 자리가 나는 대로 바로 깨워서 이메일로 알려 드릴게요.')
+    expect(ko).toContain('지금 서버 자리가 잠깐 모자라요. 자리가 나는 대로 바로 깨워서 팀 관리자에게 이메일로 알려 드려요.')
     expect(ko).toContain('<meta http-equiv="refresh" content="60">')
     expect(htmlPage('team_no_room', 'en', null, undefined, 900)).toContain('<meta http-equiv="refresh" content="300">')
-    expect(htmlPage('team_no_room', 'en')).toContain('let you know by email')
+    expect(htmlPage('team_no_room', 'en')).toContain('let the team&#39;s owners know by email')
     const titles = new Set<string>()
     for (const lang of ['en', 'ko', 'id', 'ja', 'es', 'zh'] as const) {
       const h = htmlPage('team_no_room', lang, null, undefined, 300)

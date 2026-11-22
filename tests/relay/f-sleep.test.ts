@@ -195,7 +195,7 @@ describe('busy and unknown answers', () => {
     const page = await fetch(teamUrl(PORT, 'roomless', '/'), { headers: { ...NAV, cookie: 'mycel_locale=ko' } })
     expect([page.status, page.headers.get('x-relay-error'), page.headers.get('x-relay-detail'), page.headers.get('retry-after')]).toEqual([503, 'team_busy', 'no_room', '60'])
     const h = await page.text()
-    expect(h).toContain('지금 서버 자리가 잠깐 모자라요. 자리가 나는 대로 바로 깨워서 이메일로 알려 드릴게요.')
+    expect(h).toContain('지금 서버 자리가 잠깐 모자라요. 자리가 나는 대로 바로 깨워서 팀 관리자에게 이메일로 알려 드려요.')
     expect(h).toContain('<meta http-equiv="refresh" content="60">')
     // the API answer: same code and reason as a plain busy, plus the detail
     const api = await fetch(teamUrl(PORT, 'roomless', '/api/me'), { headers: APP })

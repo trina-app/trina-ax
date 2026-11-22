@@ -135,10 +135,10 @@ At most one call per team per 10 s (requests in that time share the answer), 30 
 - `busy` (no room on the host now): `team_busy` with the control plane's Retry-After, at once. `unknown` or an error:
   the cloud offline page as before.
 - `busy` with `"reason": "no_room"` (the control plane keeps trying to wake the team by itself and emails its owners
-  when it is up): a calm "Your team will be back soon" page (page kind `team_no_room`) that says so. Still 503
+  when it is up): a calm "Your team will be back soon" page (page kind `team_no_room`) that says the team's owners get an email. Still 503
   `x-relay-error: team_busy`, plus `x-relay-detail: no_room` (JSON: `reason: "team_busy"`, `detail: "no_room"`), so
-  the apps treat it as before. The page reloads itself, and Retry-After is, the control plane's `retryAfterSec` kept to
-  60-300 s, so an open page never asks more than once a minute. Any other `reason` value is ignored (plain busy).
+  the apps treat it as before. The page reloads itself after the control plane's `retryAfterSec`, kept to 60-300 s,
+  and Retry-After carries the same value, so an open page never asks more than once a minute. Any other `reason` value is ignored (plain busy).
 
 Connector webhooks and callbacks reach a sleeping team the same way (they are requests to its address). Push
 notifications are sent BY the team server, so nothing waits at the relay: the control plane wakes the VM before a due

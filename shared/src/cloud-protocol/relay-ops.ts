@@ -235,8 +235,8 @@ export interface OpsWakeResponse {
    * any other value. */
   reason?: OpsWakeBusyReason
 }
-export type OpsWakeBusyReason = 'no_room'
-export const WAKE_BUSY_REASONS: readonly OpsWakeBusyReason[] = ['no_room']
+export const WAKE_BUSY_REASONS = ['no_room'] as const
+export type OpsWakeBusyReason = (typeof WAKE_BUSY_REASONS)[number]
 
 export function wakeSigningString(pathWithQuery: string, ts: number, body: string): string {
   return `mycel-relay-wake-v1\nPOST\n${pathWithQuery}\n${ts}\n${createHash('sha256').update(body).digest('hex')}`

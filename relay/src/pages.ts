@@ -129,12 +129,12 @@ const TEXT: Record<PageKind, Record<Lang, { title: string; body: string }>> = {
     zh: { title: '正在恢复你的团队…', body: '由于一段时间没有人使用，团队服务器已暂停。现在正在恢复，大约需要一分钟。准备好后此页面会自动打开。' },
   },
   team_no_room: {
-    en: { title: 'Your team will be back soon', body: "There is not enough server room right now. We will wake your team as soon as room frees up and let you know by email. You can close this page; if you leave it open, it checks again by itself." },
-    ko: { title: '팀을 곧 다시 켤게요', body: '지금 서버 자리가 잠깐 모자라요. 자리가 나는 대로 바로 깨워서 이메일로 알려 드릴게요. 이 페이지는 닫아도 되고, 열어 두면 알아서 다시 확인해요.' },
-    id: { title: 'Tim Anda akan segera aktif lagi', body: 'Ruang server sedang penuh untuk sementara. Kami akan mengaktifkan tim Anda begitu ada ruang dan memberi tahu lewat email. Halaman ini boleh ditutup; jika dibiarkan terbuka, halaman ini memeriksa lagi dengan sendirinya.' },
-    ja: { title: 'まもなくチームを再開します', body: 'ただいまサーバーの空きが一時的に足りません。空きができしだいチームを再開し、メールでお知らせします。このページは閉じてもかまいません。開いたままにすると自動で再確認します。' },
-    es: { title: 'Su equipo volverá pronto', body: 'Ahora mismo no hay espacio suficiente en los servidores. Reanudaremos su equipo en cuanto haya espacio y le avisaremos por correo. Puede cerrar esta página; si la deja abierta, volverá a comprobarlo sola.' },
-    zh: { title: '团队很快就会恢复', body: '目前服务器空间暂时不足。一有空间我们就会立即恢复你的团队，并通过电子邮件通知你。可以关闭此页面；如果保持打开，它会自动再次检查。' },
+    en: { title: 'Your team will be back soon', body: "There is not enough server room right now. We will wake your team as soon as room frees up and let the team's owners know by email. You can close this page; if you leave it open, it checks again by itself." },
+    ko: { title: '팀을 곧 다시 켤게요', body: '지금 서버 자리가 잠깐 모자라요. 자리가 나는 대로 바로 깨워서 팀 관리자에게 이메일로 알려 드려요. 이 페이지는 닫아도 되고, 열어 두면 알아서 다시 확인해요.' },
+    id: { title: 'Tim Anda akan segera aktif lagi', body: 'Ruang server sedang penuh untuk sementara. Kami akan mengaktifkan tim Anda begitu ada ruang dan memberi tahu pemilik tim lewat email. Halaman ini boleh ditutup; jika dibiarkan terbuka, halaman ini memeriksa lagi dengan sendirinya.' },
+    ja: { title: 'チームの再開をお待ちください', body: 'ただいまサーバーの空きが一時的に足りません。空きができしだいチームを再開し、チームのオーナーにメールでお知らせします。このページは閉じてもかまいません。開いたままにすると自動で再確認します。' },
+    es: { title: 'Su equipo volverá pronto', body: 'Ahora mismo no hay espacio suficiente en los servidores. Reanudaremos su equipo en cuanto haya espacio y avisaremos por correo a los propietarios del equipo. Puede cerrar esta página; si la deja abierta, volverá a comprobarlo sola.' },
+    zh: { title: '团队很快就会恢复', body: '目前服务器空间暂时不足。一有空间我们就会立即恢复你的团队，并通过电子邮件通知团队所有者。可以关闭此页面；如果保持打开，它会自动再次检查。' },
   },
 }
 
