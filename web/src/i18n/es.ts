@@ -1282,6 +1282,7 @@ export const es: Record<MessageKey, string> = {
   "fileMoved.movedHidden": "{name} movió este archivo a una carpeta que usted no puede abrir ({date}).",
   "fileMoved.trashed": "{name} movió este archivo a la papelera ({date}).",
   "fileMoved.open": "Abrir",
+  "fileMoved.someone": "Alguien",
   "files.bulk.widenSharedBody": "{n, plural, one {# persona más verá} other {# personas más verán}} {count, plural, one {este elemento} other {estos # elementos}}: las personas con quienes comparte esta carpeta.",
   'files.bulk.skipReadOnly': "{n, plural, one {Se omitió # elemento de solo lectura.} other {Se omitieron # elementos de solo lectura.}}",
   'files.bulk.skipFixed': "{n, plural, one {Se omitió # carpeta que no puede mover.} other {Se omitieron # carpetas que no puede mover.}}",

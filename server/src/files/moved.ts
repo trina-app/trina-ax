@@ -13,6 +13,8 @@ import { authorize, type FsCtx } from '../policy/authorize'
 import { atLeast, type Principal, type RuleSet } from '../policy/access'
 import { parseInput } from '../policy/resolve'
 import { selfAndAbove } from './timeline'
+import { chatViewers, missingReaders, sourceOf } from '../chat/read-scope'
+import { activePeople } from '../rooms/project-room'
 
 /** What happened to the file that was at a path: moved (`to`: where the moves lead now) or put in the trash. `by`: the
  * person who did it (their AI's move is theirs), `at`: when (file_events.at). */
@@ -69,9 +71,12 @@ export function whereNow(db: Database, rel: string): WhereNow | null {
 /** What a person may be told about a path that is not there: null when the path is there, cannot be read as a team
  * path, nothing is recorded, or its folder is not one they may list now (a hidden place tells nothing). `to` is given
  * only when they may read the file where it is now; `byName`: the mover's name as the team sees it. */
-export type MovedFact = { kind: 'moved'; to: string | null; by: string; byName: string; at: string } | { kind: 'trashed'; by: string; byName: string; at: string }
+export type MovedFact = { kind: 'moved'; to: string | null; by: string; byName: string; at: string; notForAll?: true } | { kind: 'trashed'; by: string; byName: string; at: string }
 
-export function movedFact(db: Database, fx: FsCtx, rules: RuleSet, user: Principal, input: string, o: { folder?: boolean } = {}): MovedFact | null {
+/** `chatId` (an AI tool call in a chat turn): the new path is named only when everyone who sees that chat may read it
+ * there (a shared chat's answer is read by all of them; code review: a hidden project's folder named to everyone),
+ * else `notForAll` and no path. */
+export function movedFact(db: Database, fx: FsCtx, rules: RuleSet, user: Principal, input: string, o: { folder?: boolean; chatId?: string | null } = {}): MovedFact | null {
   let segs: string[]
   try { segs = parseInput(input).map((s) => s.normalize('NFC')) } catch { return null }
   if (!segs.length) return null
@@ -91,6 +96,11 @@ export function movedFact(db: Database, fx: FsCtx, rules: RuleSet, user: Princip
   if (o.folder ? !st.isDirectory() : !st.isFile()) return null
   let to: string | null = null
   try { const r = authorize(fx, rules, user, w.to, 'read'); if (r.exists) to = r.rel } catch {}
+  if (to && o.chatId) {
+    const people = activePeople(db)
+    const audience = [...chatViewers(db, o.chatId, people, rules)].filter((id) => id !== user.id)
+    if (audience.length && missingReaders(db, rules, [sourceOf(db, rules, to)], audience, user.id).length) return { kind: 'moved', to: null, by: w.by, byName, at: w.at, notForAll: true }
+  }
   return { kind: 'moved', to, by: w.by, byName, at: w.at }
 }
 
@@ -112,11 +122,13 @@ export function movedNoteForAi(f: MovedFact, old: string, o: { folder?: boolean 
   if (o.folder) {
     if (f.kind === 'trashed') return `the folder '${old}' is not there any more: ${who} put it in the trash on ${f.at.slice(0, 16).replace('T', ' ')} UTC. Say exactly that; do not guess anything else`
     if (f.to) return `the folder '${old}' is not there any more: ${who} moved it to '${f.to}' (moved, not deleted). Its files are there now: use '${f.to}/…' paths`
+    if (f.notForAll) return `the folder '${old}' is not there any more: ${who} moved it to a place not everyone in this chat may open, so it is not named here. Say that it was moved (not deleted) and that the person can find it in their Files`
     return `the folder '${old}' is not there any more: ${who} moved it to a place this person cannot open now. Say that; never say it was deleted`
   }
   const when = f.at.slice(0, 16).replace('T', ' ') + ' UTC'
   if (f.kind === 'trashed') return `'${old}' is not there any more: ${who} put it in the trash on ${when}. Say exactly that; do not guess anything else`
   if (f.to) return `'${old}' is not there any more: ${who} moved it to '${f.to}' on ${when} (moved, not deleted). Use '${f.to}' for this file from now on: an edit there saves a new version of it. Tell the person where it is now`
+  if (f.notForAll) return `'${old}' is not there any more: ${who} moved it on ${when} to a place not everyone in this chat may open, so it is not named here. Say that it was moved (not deleted) and that the person can open it from their Files; do not change it from this chat`
   return `'${old}' is not there any more: ${who} moved it on ${when} to a place this person cannot open now. Say that it was moved and that they cannot open it where it is; never say it was deleted`
 }
 
@@ -132,9 +144,18 @@ export function lostAccess(db: Database, fx: FsCtx, rules: RuleSet, user: Princi
   if (atLeast(rules.access(user, segs), 'read')) return false
   const chat = db.query('SELECT chat_id FROM turns WHERE id = ?').get(turnId) as { chat_id: string } | null
   if (!chat) return false
-  return !!db.query(`SELECT 1 FROM message_sources s JOIN messages m ON m.id = s.message_id JOIN turns t ON t.id = m.turn_id
-    WHERE m.chat_id = ? AND t.user_id = ? AND s.path = ? LIMIT 1`).get(chat.chat_id, user.id, segs.join('/'))
+  // the very file that was read: its content then (a file put at the same path later is another file, never confirmed)
+  const read = db.query(`SELECT s.sha256 FROM message_sources s JOIN messages m ON m.id = s.message_id JOIN turns t ON t.id = m.turn_id
+    WHERE m.chat_id = ? AND t.user_id = ? AND s.path = ? AND s.sha256 IS NOT NULL ORDER BY m.created_at DESC LIMIT 1`).get(chat.chat_id, user.id, segs.join('/')) as { sha256: string } | null
+  if (!read) return false
+  const abs = path.join(fx.root, ...segs)
+  try {
+    if (fs.statSync(abs).size > LOST_HASH_MAX) return false
+    return new Bun.CryptoHasher('sha256').update(fs.readFileSync(abs)).digest('hex') === read.sha256
+  } catch { return false }
 }
+/** a closed file larger than this is not hashed to compare it with the one read (the usual refusal stays) */
+const LOST_HASH_MAX = 64 * 1024 ** 2
 
 /** The fact for the AI when the person's access to a file they read in this chat was taken away. */
 export const LOST_ACCESS_NOTE = (old: string) => `'${old}' is still there, but this person can no longer open it: their access to it changed after it was read in this chat. Tell them exactly that (they cannot open the file any more; whoever manages the folder can give access again); never say it was not found or deleted`

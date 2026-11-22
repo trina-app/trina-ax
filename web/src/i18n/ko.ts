@@ -1305,6 +1305,7 @@ export const ko = {
   "fileMoved.movedHidden": "{name}님이 이 파일을 내가 열 수 없는 폴더로 옮겼어요 ({date}).",
   "fileMoved.trashed": "{name}님이 이 파일을 휴지통으로 옮겼어요 ({date}).",
   "fileMoved.open": "열기",
+  "fileMoved.someone": "누군가",
   "files.bulk.widenSharedBody": "옮기는 {count}개를 {n}명이 더 보게 돼요. 이 폴더를 공유받은 사람들이에요.",
   'files.bulk.skipReadOnly': '읽기 전용 {n}개는 건너뛰었어요.',
   'files.bulk.skipFixed': '옮기거나 지울 수 없는 폴더 {n}개는 건너뛰었어요.',

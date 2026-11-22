@@ -1281,6 +1281,7 @@ export const zh: Record<MessageKey, string> = {
   "fileMoved.movedHidden": "{name} 已将此文件移到你无法打开的文件夹（{date}）。",
   "fileMoved.trashed": "{name} 已将此文件移到回收站（{date}）。",
   "fileMoved.open": "打开",
+  "fileMoved.someone": "有人",
   "files.bulk.widenSharedBody": "另外{n, plural, one {#人} other {#人}}将能看到这{count, plural, one {#项} other {#项}}：就是这个文件夹共享给的人。",
   "files.bulk.skipReadOnly": "{n, plural, one {已跳过#个只读项。} other {已跳过#个只读项。}}",
   "files.bulk.skipFixed": "{n, plural, one {已跳过#个你无法移动的文件夹。} other {已跳过#个你无法移动的文件夹。}}",

@@ -84,5 +84,8 @@ folder above may have moved); nothing is told when the place the moves lead to i
 folder trashed after the file left it says nothing about the file; the server answers which names are taken (case and
 Unicode form as it compares them); the bulk move has its own "more people" sentence. Not done: a write to the old path
 of a moved file still makes a new file there (no refusal to explain); the prompt line asks the AI to use the new place.
-In a shared chat the new path is told by the asker's own access (the AI already acts with it).
+Code review findings applied: in a chat others see, the new place is named only when everyone in the chat may open it
+there; a remade work file must keep the chat file's format; a chat file copied into the work folder counts as read for
+the work-file version only (edit tools still read first); "can no longer open it" only for the very bytes that were
+read; a rename in the same folder skips the "more people" count.
 Visual check on a private QA copy (port 19993) at 1440 and 390: `~/qa-mvup-shots/`.

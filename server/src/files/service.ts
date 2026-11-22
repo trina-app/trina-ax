@@ -635,7 +635,8 @@ export class FileService {
     if (!old || /^\s*chat:/i.test(old)) return message
     try {
       const rules = this.rules()
-      const f = movedFact(this.db, this.fx, rules, user, old, { folder: folder !== null })
+      const chatId = turnId ? (this.db.query('SELECT chat_id FROM turns WHERE id = ?').get(turnId) as { chat_id: string } | null)?.chat_id ?? null : null
+      const f = movedFact(this.db, this.fx, rules, user, old, { folder: folder !== null, chatId })
       if (f) return `${message.replace(/\.$/, '')}. ${movedNoteForAi(f, old, { folder: folder !== null })}`
       // still there, read in this chat before, closed to the person now (QA TC-r2u-28)
       if (file !== null && lostAccess(this.db, this.fx, rules, user, old, turnId)) return `${message.replace(/\.$/, '')}. ${LOST_ACCESS_NOTE(old)}`

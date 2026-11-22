@@ -1306,6 +1306,7 @@ export const en: Record<MessageKey, string> = {
   "fileMoved.movedHidden": "{name} moved this file to a folder you can't open ({date}).",
   "fileMoved.trashed": "{name} moved this file to the trash ({date}).",
   "fileMoved.open": "Open",
+  "fileMoved.someone": "Someone",
   "files.bulk.widenSharedBody": "{n, plural, one {# more person} other {# more people}} will see {count, plural, one {this item} other {these # items}}: the people this folder is shared with.",
   'files.bulk.skipReadOnly': '{n, plural, one {Skipped # read-only item.} other {Skipped # read-only items.}}',
   'files.bulk.skipFixed': '{n, plural, one {Skipped # folder you cannot move.} other {Skipped # folders you cannot move.}}',

@@ -26,16 +26,18 @@ export function FileMoved({ path, chatId, fallback }: { path: string; chatId?: s
   if (state.status === 'loading') return <PreviewLoading label={t('common.loading')} />
   if (state.status === 'no') return <p className="p-6 text-sm text-muted" role="alert" data-testid="file-moved-no">{fallback}</p>
   const date = formatDate(state.at, locale)
+  // (an account removed since: its name is gone)
+  const who = state.by.name || t('fileMoved.someone')
   const folder = state.status === 'moved' && state.to ? state.to.slice(0, Math.max(0, state.to.lastIndexOf('/'))) : null
   const to = state.status === 'moved' ? state.to : undefined
   return (
     <div className="flex flex-col items-start gap-3 p-6" data-testid="file-moved" data-state={state.status}>
       <p className="text-sm leading-6 font-medium break-keep text-ink" role="status">
         {state.status === 'trashed'
-          ? t('fileMoved.trashed', { name: state.by.name, date })
+          ? t('fileMoved.trashed', { name: who, date })
           : folder !== null
-            ? t('fileMoved.movedTo', { place: words.path(folder, ' › ') || t('files.root'), name: state.by.name, date })
-            : t('fileMoved.movedHidden', { name: state.by.name, date })}
+            ? t('fileMoved.movedTo', { place: words.path(folder, ' › ') || t('files.root'), name: who, date })
+            : t('fileMoved.movedHidden', { name: who, date })}
       </p>
       {to && (
         <Button variant="primary" onClick={() => openTeamFile(to, null, chatId ?? null)} data-testid="file-moved-open">

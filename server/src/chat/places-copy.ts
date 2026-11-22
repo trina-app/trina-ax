@@ -230,6 +230,11 @@ export async function workToChat(exec: TurnExec, files: TurnFiles, o: { rel: str
   } finally { release(); fs.rmSync(work, { recursive: true, force: true }) }
 }
 
+/** The chat files this answer copied into its work folder to remake, by their chain path, with the head's hash then: only
+ * workToChatVersion takes such a copy as the read (code review: other edit tools still read first). */
+const remakes = new WeakMap<TurnFiles, Map<string, string>>()
+const remakesOf = (files: TurnFiles) => { let m = remakes.get(files); if (!m) { m = new Map(); remakes.set(files, m) }; return m }
+
 /** A work-folder file saved as the newest version of an existing file of this chat (`to`: chat:files/<id>/<name>; QA
  * TC-r2u-10: three people's edits of one video each made a new file, so "go back to Junho's version" could not be done).
  * The rules of a produce tool's new version (files/place-output.ts versionProduced): who may change it here, the same
@@ -250,7 +255,16 @@ export async function workToChatVersion(exec: TurnExec, files: TurnFiles, o: { r
     const tmp = path.join(work, 'file')
     const got = await copyWorkFile(wf, rel, tmp, left, exec.abort.signal, { beforeCopy: assertStorageRoomForAI })
     if (rt.files.quarantine.hasHash(got.sha256)) return { ok: false, text: 'Not saved: the team\'s safety check holds this file.', summary: `${tool} -> held` }
-    const c: ToolCtx = { user: exec.livePrincipal(), turnId: spec.turnId, files, signal: exec.abort.signal, places: chatPlaces(exec, files) }
+    const places = chatPlaces(exec, files)
+    const dest = parsePlace(o.to)
+    const head = places.head(dest?.kind === 'chatFiles' ? dest.id ?? null : null, '')
+    // the same format: a .mov is never saved as a version of a .mp4
+    const ext = (n: string) => { const i = n.lastIndexOf('.'); return i > 0 ? n.slice(i + 1).toLowerCase() : '' }
+    if (ext(got.name) !== ext(head.name)) return { ok: false, text: `Not saved: ${shown} is a .${ext(got.name) || '(no extension)'} file and '${head.name}' is a .${ext(head.name) || '(no extension)'} file; a new version keeps the file's format. Make it in the same format, or attach it as a separate file (to_folder "chat:files/").`, summary: `${tool} -> refused: other format` }
+    // copied into the work folder in this answer to be remade: that copy stands for the read, for this route only
+    const copied = remakesOf(files).get(head.path)
+    if (copied && copied === head.sha256 && !files.readHashes.has(head.path)) files.readHashes.set(head.path, copied)
+    const c: ToolCtx = { user: exec.livePrincipal(), turnId: spec.turnId, files, signal: exec.abort.signal, places }
     const made = await attachProduced(rt.ctx, c, o.to.split('/'), tmp)
     const v = 'chatVersion' in made ? (made as { chatVersion: import('../files/place-output').ChatVersionMade }).chatVersion : null
     if (!v) return { ok: false, text: 'Not saved: name an existing file of this chat (chat:files/<file_id>/<name>).', summary: `${tool} -> refused: not a chat file` }
@@ -440,7 +454,7 @@ async function copyOne(exec: TurnExec, files: TurnFiles, from: string, toFolder:
       source = { kind: 'file', abs: op.abs, name: f.name }
       // copied in to be remade (a video cut again with box_shell): it counts as read, so the remade file can be saved as
       // its newest version (workToChatVersion; the head's hash, as edit_office's read-first rule)
-      try { const head = chatPlaces(exec, files).head(f.id, ''); if (head.sha256 === f.sha256) files.readHashes.set(head.path, head.sha256) } catch { /* not one this person may change here */ }
+      try { const head = chatPlaces(exec, files).head(f.id, ''); if (head.sha256 === f.sha256) remakesOf(files).set(head.path, head.sha256) } catch { /* not one this person may change here */ }
       sources = [{ type: 'chat', id: spec.chatId }]
     } else {
       const team = teamSource(exec, from)

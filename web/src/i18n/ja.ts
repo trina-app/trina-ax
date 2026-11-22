@@ -1282,6 +1282,7 @@ export const ja: Record<MessageKey, string> = {
   "fileMoved.movedHidden": "{name}さんがこのファイルを、あなたが開けないフォルダーに移動しました（{date}）。",
   "fileMoved.trashed": "{name}さんがこのファイルをゴミ箱に移動しました（{date}）。",
   "fileMoved.open": "開く",
+  "fileMoved.someone": "誰か",
   "files.bulk.widenSharedBody": "{count, plural, one {#個の項目} other {#個の項目}}を、このフォルダーを共有している{n, plural, one {#人} other {#人}}が新たに閲覧できるようになります。",
   'files.bulk.skipReadOnly': "{n, plural, one {読み取り専用の#個の項目をスキップしました。} other {読み取り専用の#個の項目をスキップしました。}}",
   'files.bulk.skipFixed': "{n, plural, one {移動・削除できないフォルダー#個をスキップしました。} other {移動・削除できないフォルダー#個をスキップしました。}}",

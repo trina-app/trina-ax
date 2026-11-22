@@ -1306,6 +1306,7 @@ export const id: Record<MessageKey, string> = {
   "fileMoved.movedHidden": "{name} memindahkan file ini ke folder yang tidak bisa Anda buka ({date}).",
   "fileMoved.trashed": "{name} memindahkan file ini ke tempat sampah ({date}).",
   "fileMoved.open": "Buka",
+  "fileMoved.someone": "Seseorang",
   "files.bulk.widenSharedBody": "{n} orang lagi akan melihat {count} item ini: orang yang diberi akses ke folder ini.",
   'files.bulk.skipReadOnly': '{n} item hanya baca dilewati.',
   'files.bulk.skipFixed': '{n} folder yang tidak dapat dipindah dilewati.',

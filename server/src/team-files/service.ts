@@ -575,7 +575,8 @@ export class TeamFiles {
     // asks (askWiden: the Files screen): out of a personal folder, and (QA TC-r2b-02) out of a project or group folder
     // into a company-wide one. Not within one personal folder. The AI's own moves ask on their cards (tools/file-moves.ts)
     let widened = 0
-    if (o.askWiden && !(fr.segs[0] === 'users' && target[0] === 'users' && target[1] === fr.segs[1])) {
+    const sameFolder = fr.segs.length === target.length && fr.segs.slice(0, -1).join('/') === target.slice(0, -1).join('/')
+    if (o.askWiden && !sameFolder && !(fr.segs[0] === 'users' && target[0] === 'users' && target[1] === fr.segs[1])) {
       widened = this.viewersAdded(rules, user.id, fr.segs, target)
       if (widened > 0 && !o.confirm) fileError('conflict', target[0] === 'users' ? 'sharedFolderWidened' : fr.segs[0] === 'users' ? 'audienceWidened' : 'audienceWidenedAny', undefined, { reason: 'audience_widened', viewersAdded: widened })
     }

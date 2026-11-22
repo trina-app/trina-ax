@@ -59,6 +59,23 @@ describe('the AI is told where a moved file went', () => {
     expect(erin.text).not.toContain('Alice')
   })
 
+  test('a chat shared with people: the new place is named only when everyone in it may open it there', async () => {
+    const db = A.ctx.db
+    const f = uniq('deal') + '.md'
+    put(`shared/${f}`, 'deal')
+    // alice moves it into the marketing folder, which bob cannot open
+    svc().move('alice', `shared/${f}`, `groups/marketing/${f}`, 'fail')
+    const chat = A.chat('alice')
+    db.query('UPDATE chats SET people_shared_at = ? WHERE id = ?').run(new Date().toISOString(), chat)
+    db.query("INSERT INTO chat_audience (chat_id, subject_type, subject_id, added_by, added_at) VALUES (?, 'user', 'bob', 'alice', ?)").run(chat, new Date().toISOString())
+    const r = await call('alice', 'read', { file_path: `shared/${f}` }, A.turn('alice', chat))
+    expect(r.text).toContain('not everyone in this chat may open')
+    expect(r.text).not.toContain('groups/marketing')
+    // her own chat: the place is named
+    const own = await call('alice', 'read', { file_path: `shared/${f}` }, A.turn('alice', A.chat('alice')))
+    expect(own.text).toContain(`moved it to 'groups/marketing/${f}'`)
+  })
+
   test('put in the trash: who and when, nothing guessed', async () => {
     const f = `shared/${uniq('old')}.md`
     put(f, 'x')
@@ -115,7 +132,8 @@ describe('access taken away after a read in this chat (QA TC-r2u-28)', () => {
     const t1 = A.turn('alice', chat)
     const msg = crypto.randomUUID()
     db.query("INSERT INTO messages (id, chat_id, role, content, turn_id) VALUES (?,?, 'assistant', 'read it', ?)").run(msg, chat, t1)
-    db.query("INSERT INTO message_sources (message_id, ord, path, via) VALUES (?, 0, ?, 'read')").run(msg, f)
+    const sha = new Bun.CryptoHasher('sha256').update('prices').digest('hex')
+    db.query("INSERT INTO message_sources (message_id, ord, path, sha256, via) VALUES (?, 0, ?, ?, 'read')").run(msg, f, sha)
     // alice leaves the marketing group: the folder closes to her
     db.query("DELETE FROM group_members WHERE group_id = 'marketing' AND user_id = 'alice'").run()
     try {
@@ -129,6 +147,10 @@ describe('access taken away after a read in this chat (QA TC-r2u-28)', () => {
       // bob never read it here
       const bob = await call('bob', 'read', { file_path: f }, A.turn('bob', A.chat('bob')))
       expect(bob.text).not.toContain('can no longer')
+      // another file at that path since (other bytes): never confirmed
+      put(f, 'other prices')
+      const changed = await call('alice', 'read', { file_path: f }, A.turn('alice', chat))
+      expect(changed.text).not.toContain('can no longer')
     } finally {
       db.query("INSERT INTO group_members VALUES ('marketing', 'alice')").run()
     }
