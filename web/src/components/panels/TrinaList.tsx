@@ -1,11 +1,12 @@
 // 트리나's list in the rail's panel and on the phone's 트리나 tab (docs/DECISIONS.md "The Trina list: pinned, recent";
 // "Projects: a place of their own"). In this order, each a section whose label folds it (PanelFrame.tsx PanelSection):
 //   고정 (my pinned chats) ·
-//   트리나 기록 (sidebar.aiChats, the history's one name on every screen: QA TC-1085; its "⋯" holds 삭제한 기록; every other chat of mine, newest first, in one flat list: a project's chat with its project's name small
+//   my sections (nav/HistorySections.tsx; docs/decisions/20261122-trina-history-sections.md), each a section of its own ·
+//   트리나 기록 (sidebar.aiChats, the history's one name on every screen: QA TC-1085; its "⋯" holds 삭제한 기록; every other chat of mine, newest first, by date (Today, Yesterday …, each folding: the menu's default "Group by: Date", the owner 2026-11-22): a project's chat with its project's name small
 //   and grey at the row's end, so yesterday's project chat is still one click away; "더 보기" reads the next page).
-// Projects are not here: they are their own place (the rail's 프로젝트, panels/ProjectsPanel.tsx), and a personal
-// project ("내 프로젝트") is where a person keeps their own chats together: the owner dropped the Trina list's folders
-// (2026-11-13; the server keeps their tables, and a chat once filed in one is in 최근 기록 like any other).
+// Projects are not here: they are their own place (the rail's 프로젝트, panels/ProjectsPanel.tsx). A section is my own
+// way to sort my list (only I see it, it changes nobody's access); a project is a shared place with its own files,
+// instructions and people.
 // The pinned chats come from the server's one read (store/chatGroups.ts); 최근 기록 is the chat list this window keeps
 // (store/chats.ts, as the filtered history reads it), so its rows and marks are live. A chat that waits on me has no row
 // or group of its own on top (QA TC-ask1-18): it stays where it is with its "?", the rail's icon carries the same mark.
@@ -17,7 +18,6 @@ import type { Chat } from '@mycel/shared/api'
 import { useT } from '../../i18n'
 import { chatGroupsChanged, readChatGroups, useChatGroups } from '../../store/chatGroups'
 import { useChats } from '../../store/chats'
-import { loadChatList } from '../../lib/chatListLoad'
 import { accessChanged, chatChanged, navFoldersChanged, reloadAsked } from '../../store/live'
 import { readProjectList } from '../../store/projects'
 import { MoveToProjectDialog } from '../chat/ChatProject'
@@ -25,9 +25,13 @@ import { isUnused } from '../chat/ChatState'
 import { LoadError } from '../LoadError'
 import { MenuButton } from '../rooms/MenuButton'
 import { ChatItem, type ChatPeek } from '../nav/ChatItem'
-import { foldRuns } from '../nav/TaskRunsRow'
 import { aiName } from '../../lib/tabs'
 import { PanelSection, panelRowBox } from './PanelFrame'
+import { HistorySections, useSectionRows } from '../nav/HistorySections'
+import { DateGroups } from '../nav/HistoryList'
+import { DROP_OVER } from '../nav/NavFolders'
+import { leftSectionToast, useSectionDrop } from '../nav/SidebarSections'
+import { loadChatList, loadMoreShown } from '../../lib/chatListLoad'
 
 export { useFolds } from './folds'
 
@@ -104,7 +108,10 @@ export function TrinaList({ peek }: { peek: ChatPeek }) {
 
   // 최근 기록: every chat of my list that is not pinned, newest first (a chat made only to hold attachments is not a
   // conversation yet)
-  const recent = useMemo(() => chats.filter((c) => !isUnused(c) && !c.pinnedAt).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)), [chats])
+  const sections = useSectionRows()
+  const recent = useMemo(() => chats.filter((c) => !isUnused(c) && !c.pinnedAt && !sections.sectioned.has(c.id)).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)), [chats, sections.sectioned])
+  // a chat dragged onto 트리나 기록 leaves its section
+  const dropOut = useSectionDrop(null, 'chats')
 
   if (!groups) {
     if (error) return <LoadError error={error} onRetry={() => void readChatGroups()} what="chats" minor className="mx-1 mt-2" />
@@ -112,7 +119,7 @@ export function TrinaList({ peek }: { peek: ChatPeek }) {
   }
 
   const row = (c: Chat) => <ChatItem key={c.id} chat={live(c)} onNavigate={noop} peek={peek} onMove={setMoving} />
-  const empty = loaded && !groups.pinned.length && !recent.length
+  const empty = loaded && !groups.pinned.length && !recent.length && !sections.sectioned.size
 
   return (
     <div ref={listRef} data-testid="trina-list">
@@ -122,16 +129,17 @@ export function TrinaList({ peek }: { peek: ChatPeek }) {
         </PanelSection>
       )}
 
+      <HistorySections state={sections} row={(c) => <ChatItem key={c.id} chat={live(c)} onNavigate={noop} peek={peek} onMove={setMoving} projectTag />} className="mb-0 [&>section]:mt-4 [&>section:first-child]:mt-4" />
+
       {/* always there once read, empty or not: its "⋯" holds 삭제한 기록 and its "더 보기" the next page (the first page may
           be all pinned chats) */}
       {loaded && (
-        <PanelSection id="trina-recent" foldKey="trina:recent" label={t('sidebar.aiChats', { name: aiName(t) })} action={<RecentMenu />} labelTestId="trina-label" data-testid="trina-other">
+        <PanelSection id="trina-recent" foldKey="trina:recent" label={t('sidebar.aiChats', { name: aiName(t) })} action={<RecentMenu />} labelTestId="trina-label" data-testid="trina-other" className={clsx(dropOut.over && DROP_OVER)} {...dropOut.props} data-drop={dropOut.over ? '' : undefined}>
           {/* nothing yet: said under the section's heading, not above it */}
           {empty && <p className="px-3 py-2 text-sm text-faint" data-testid="trina-empty">{t('sidebar.noChats')}</p>}
-          <ul>
-            {/* the runs of one scheduled task: one row that opens the task (nav/TaskRunsRow.tsx) */}
-            {foldRuns(recent, (c) => <ChatItem chat={c} onNavigate={noop} peek={peek} onMove={setMoving} projectTag />, { projectTag: true, menuSpace: true })}
-          </ul>
+          {/* by date, each date folding, as the menu's default "Group by: Date" (the owner, 2026-11-22); the runs of one
+              scheduled task are one row that opens the task (nav/TaskRunsRow.tsx) */}
+          <DateGroups chats={recent} row={(c) => <ChatItem key={c.id} chat={live(c)} onNavigate={noop} peek={peek} onMove={setMoving} projectTag />} by="date" created={false} projectTag />
           {cursor && (
             <button
               type="button"
@@ -139,7 +147,7 @@ export function TrinaList({ peek }: { peek: ChatPeek }) {
               disabled={moreLoading}
               onClick={() => {
                 setMoreLoading(true)
-                void loadChats(false).catch(() => {}).finally(() => setMoreLoading(false))
+                void loadMoreShown(loadChats, () => useChats.getState().chats.filter((c) => !isUnused(c) && !c.pinnedAt && !sections.sectioned.has(c.id)).length).finally(() => setMoreLoading(false))
               }}
               data-testid="trina-other-more"
             >
@@ -149,7 +157,7 @@ export function TrinaList({ peek }: { peek: ChatPeek }) {
         </PanelSection>
       )}
 
-      {moving && <MoveToProjectDialog chat={moving} onClose={() => setMoving(null)} onMoved={(c) => { useChats.getState().upsertChat(c); chatGroupsChanged() }} />}
+      {moving && <MoveToProjectDialog chat={moving} onClose={() => setMoving(null)} onMoved={(c) => { leftSectionToast(moving, c); useChats.getState().upsertChat(c); chatGroupsChanged() }} />}
     </div>
   )
 }

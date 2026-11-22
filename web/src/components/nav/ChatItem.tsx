@@ -25,17 +25,21 @@ import { MenuButton } from '../rooms/MenuButton'
 import { useRowMenu } from '../rooms/RoomMenu'
 import { useRoomTitle } from '../rooms/RoomIcon'
 import { ListRow } from '../list/List'
+import { dragRow } from './NavFolders'
+import { chatSectionBlock, useSectionRowItems } from './SidebarSections'
 
 /** A row of the AI's history. Its "···" is the rooms' row menu (rooms/MenuButton.tsx): on hover or keyboard focus on a
  * computer and always on a phone; a right-click on the row opens it too, and on a touch screen a long press (a sheet on
  * a phone, the chat's title on top; the finger lifting opens no chat, and starts no text selection). Every row has it:
  * "상단에 고정" / "고정 해제" is anyone's who sees the chat. A pinned row has a pin before its title. */
-export function ChatItem({ chat, onNavigate, peek, onMove, projectTag = false }: { chat: Chat; onNavigate: () => void; peek: ChatPeek; onMove: (c: Chat) => void; projectTag?: boolean }) {
+export function ChatItem({ chat, onNavigate, peek, onMove, projectTag = false, sections = true }: { chat: Chat; onNavigate: () => void; peek: ChatPeek; onMove: (c: Chat) => void; projectTag?: boolean; sections?: boolean }) {
   const t = useT()
   const more = useRef<HTMLButtonElement>(null)
   // a shared chat: the people icon before its title (what its menu holds: components/chat/chatMenuItems.tsx), or the
   // faces of the others who wrote in it at its end (docs/DECISIONS.md "Faces in every chat list")
   const rights = sharedRights(chat, useMeStrict().user.id)
+  // a mouse may drag the row onto one of my sections (nav/HistorySections.tsx) when it can go in one
+  const drag = sections && !chatSectionBlock(chat) && !chat.deletedAt ? dragRow('chats', chat.id, true) : {}
   const faces = rights.shared && !!otherWriters(chat.shared)
   // the row's link: its keyboard focus shows the names on the faces
   const link = useRef<HTMLAnchorElement>(null)
@@ -51,9 +55,11 @@ export function ChatItem({ chat, onNavigate, peek, onMove, projectTag = false }:
   // `projectTag` (트리나's 최근 기록, a flat list): the project the chat is in, small and grey at the row's end, only a
   // project I see now (one I no longer see is never named)
   const project = useProjects((s) => (projectTag && chat.projectId && (!s.listed || s.listed.has(chat.projectId)) ? s.byId[chat.projectId] ?? null : null))
-  // no "폴더로 옮기기": the owner dropped the Trina list's folders (2026-11-13); "프로젝트로 옮기기" is the way to keep
-  // chats together (a personal project for one's own)
-  const items = useChatMenuItems(chat, { testId: 'chat-row', more, onMove })
+  // Move to section / Remove from section after Rename (docs/decisions/20261122-trina-history-sections.md): every chat of
+  // my history, a project chat and a chat shared with me too; none for a room's side chat or where the list says so
+  // (`sections`)
+  const section = useSectionRowItems({ on: sections && !chatSectionBlock(chat) && !chat.deletedAt, kind: 'chats', id: chat.id, folderId: chat.folderId, more })
+  const items = useChatMenuItems(chat, { testId: 'chat-row', more, onMove, extra: section.items })
   // my chat in a team project that only I see: a lock (only its creator ever has it in a list)
   const onlyMine = useProjects((s) => privateInTeamProject(chat, chat.projectId ? s.byId[chat.projectId] : null))
   // the chat on screen (as a NavLink's active: its own page and below)
@@ -66,7 +72,7 @@ export function ChatItem({ chat, onNavigate, peek, onMove, projectTag = false }:
       rowRef={link}
       selected={selected}
       unread={needsMe(marker)}
-      li={{ ref, ...menu.row, onMouseEnter: (e) => peek.soon(chat, e.currentTarget, 400), onMouseLeave: peek.hide, 'data-marker': marker?.kind, 'data-chat-id': chat.id, 'data-pinned': chat.pinnedAt ? '' : undefined }}
+      li={{ ref, ...menu.row, ...drag, onMouseEnter: (e) => peek.soon(chat, e.currentTarget, 400), onMouseLeave: peek.hide, 'data-marker': marker?.kind, 'data-chat-id': chat.id, 'data-pinned': chat.pinnedAt ? '' : undefined }}
       onClick={(e) => {
         menu.guard(e)
         if (e.defaultPrevented) return
@@ -103,7 +109,8 @@ export function ChatItem({ chat, onNavigate, peek, onMove, projectTag = false }:
         )
       }
       menu={
-        // 28 px (WCAG 2.2 target size: it sits on the row's link), 44 px on a phone
+        // 28 px (WCAG 2.2 target size: it sits on the row's link), 44 px on a phone; Move to section's list beside it
+        <>
         <MenuButton
           label={t('chat.menu')}
           items={items}
@@ -115,6 +122,8 @@ export function ChatItem({ chat, onNavigate, peek, onMove, projectTag = false }:
           buttonRef={more}
           testId="chat-row-menu"
         />
+        {section.picker}
+        </>
       }
     />
   )

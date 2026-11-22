@@ -24,3 +24,17 @@ export function loadChatList(): Promise<void> {
   read.then(done, done)
   return read
 }
+
+/** how many rows one "더 보기" should bring at least, and how many pages it reads for them at most */
+const MORE_AT_LEAST = 20
+const MORE_READS_MAX = 5
+/** "더 보기" of a list that leaves some chats out (the Trina history leaves out my sections' chats, which show in their
+ * section: docs/decisions/20261122-trina-history-sections.md): reads the next pages until `shown` (the rows the list
+ * draws now) has grown by a page's worth, the history ends, or MORE_READS_MAX pages were read. */
+export async function loadMoreShown(loadChats: (reset?: boolean) => Promise<void>, shown: () => number): Promise<void> {
+  const from = shown()
+  for (let i = 0; i < MORE_READS_MAX; i++) {
+    if ((await loadChats(false).then(() => true, () => false)) === false) return
+    if (!useChats.getState().chatsCursor || shown() - from >= MORE_AT_LEAST) return
+  }
+}

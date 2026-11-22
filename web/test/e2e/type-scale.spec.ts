@@ -135,7 +135,8 @@ test('panel rows at 1440px: 트리나\'s rows 30px / 14px, its headers and tags 
   const list = page.getByTestId('trina-list')
   const heights = await list.locator('li > a').evaluateAll((els) => els.map((e) => Math.round(e.getBoundingClientRect().height)))
   expect(new Set(heights)).toEqual(new Set([30]))
-  const gaps = await list.locator('ul').last().locator(':scope > li').evaluateAll((els) => els.slice(1).map((e, i) => Math.round(e.getBoundingClientRect().top - els[i]!.getBoundingClientRect().bottom)))
+  // the rows of one date (Today: every chat here), by date as the default (docs/decisions/20261122-history-view-per-person.md)
+  const gaps = await list.getByTestId('history-date').first().locator('ul > li').evaluateAll((els) => els.slice(1).map((e, i) => Math.round(e.getBoundingClientRect().top - els[i]!.getBoundingClientRect().bottom)))
   expect(gaps.length).toBeGreaterThan(0)
   expect(new Set(gaps)).toEqual(new Set([0]))
   const tags = await list.locator('[data-testid="chat-row-project"], [data-testid="task-runs-row"] .text-meta').evaluateAll((els) => els.map((e) => {

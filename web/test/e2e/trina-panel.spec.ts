@@ -38,7 +38,7 @@ const labels = (page: Page) => panel(page).getByTestId('trina-label')
 // a row's title (not its project's tag, chat-row-project, which is also cut with "…")
 const rowTitles = (scope: ReturnType<Page['locator']>) => scope.locator('li a[href^="/c/"] .truncate:not([data-testid])')
 
-test('order 고정 · 트리나 기록, one flat list with each project chat\'s project; the filter says "Group by: None" (QA TC-1080, TC-1085)', async ({ page }) => {
+test('order 고정 · 트리나 기록, by date with each project chat\'s project; the filter says "Group by: Date" (QA TC-1080, TC-1085; the owner, 2026-11-22)', async ({ page }) => {
   await start(page)
   const launch = await project(page, 'Acme launch')
   const pinned = await chat(page, 'Pinned plan')
@@ -58,10 +58,12 @@ test('order 고정 · 트리나 기록, one flat list with each project chat\'s 
   await expect(other.getByTestId('chat-row-project')).toHaveText(['Acme launch'])
   await expect(other.locator('li').filter({ hasText: 'Launch plan' }).getByTestId('chat-row-project')).toHaveText('Acme launch')
   await expect(p.getByTestId('history-group')).toHaveCount(0)
-  // the filter's menu says the same: Group by None, nothing changed (no dot)
+  // by date (docs/decisions/20261122-history-view-per-person.md): today's chats under one folding header
+  await expect(other.getByTestId('history-date')).toHaveCount(1)
+  // the filter's menu says the same: Group by Date, nothing changed (no dot)
   await expect(p.getByTestId('recents-filter-dot')).toHaveCount(0)
   await p.getByTestId('recents-filter').click()
-  await expect(page.getByTestId('recents-view-group')).toContainText(t['sidebar.group.none'])
+  await expect(page.getByTestId('recents-view-group')).toContainText(t['sidebar.group.date'])
   await page.keyboard.press('Escape')
   // no folders, no bottom block
   for (const id of ['trina-all-projects', 'trina-new-project', 'trina-folders', 'trina-panel-more', 'ai-chats-all']) await expect(p.getByTestId(id)).toHaveCount(0)
