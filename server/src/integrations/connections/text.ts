@@ -276,6 +276,20 @@ export const GOOGLE_TOOL_WORDS: Record<string, T> = {
 /** a library tool's own words in `L` (GOOGLE_TOOL_WORDS), or null for a tool not listed there */
 export const googleToolWord = (name: string, L: Locale): string | null =>
   Object.hasOwn(GOOGLE_TOOL_WORDS, name) ? GOOGLE_TOOL_WORDS[name]![L] ?? GOOGLE_TOOL_WORDS[name]!.en : null
+/** What the step and the card call a tool of the demo's Higgsfield (demo/fakes/higgsfield.ts HIGGSFIELD_TOOLS), in the
+ * person's language (demo re-test 11-22: "Higgsfield · Generate image" in a Korean chat). Only on a demo server whose
+ * fakes answer that connection (tools.ts practiceRow); a real Higgsfield connection keeps the service's own titles.
+ * tests/unit/google-tool-titles.test.ts: every fake tool in every language. */
+export const DEMO_HIGGSFIELD_TOOL_WORDS: Record<string, T> = {
+  generate_image: t('이미지 만들기', 'Generate image', 'Buat gambar', '画像を生成', 'Generar imagen', '生成图片'),
+  generate_video: t('영상 만들기', 'Generate video', 'Buat video', '動画を生成', 'Generar video', '生成视频'),
+  job_display: t('작업 보기', 'Get job', 'Lihat pekerjaan', 'ジョブを表示', 'Ver trabajo', '查看任务'),
+  show_generations: t('만든 이미지 보기', 'List generations', 'Lihat hasil buatan', '生成履歴を見る', 'Ver creaciones', '查看生成记录'),
+  balance: t('크레딧 보기', 'Balance', 'Lihat saldo', 'クレジットを見る', 'Ver saldo', '查看余额'),
+}
+/** a demo Higgsfield tool's words in `L` (DEMO_HIGGSFIELD_TOOL_WORDS), or null for a tool not listed there */
+export const demoHiggsfieldToolWord = (name: string, L: Locale): string | null =>
+  Object.hasOwn(DEMO_HIGGSFIELD_TOOL_WORDS, name) ? DEMO_HIGGSFIELD_TOOL_WORDS[name]![L] ?? DEMO_HIGGSFIELD_TOOL_WORDS[name]!.en : null
 /** a reason a connection check failed (integrations.last_error holds "<reason>" or "<reason>:<status>") */
 export type Reason = 'unreachable' | 'timeout' | 'list_timeout' | 'call_idle' | 'call_timeout' | 'private_address' | 'blocked_port' | 'tls' | 'refused' | 'no_secret' | 'sign_in' | 'redirect'
   | 'http_status' | 'not_mcp' | 'too_large' | 'oauth_unsupported' | 'oauth_no_registration' | 'oauth_no_registration_member' | 'oauth_approved_apps_only' | 'oauth_desktop_only' | 'oauth_busy' | 'oauth_failed' | 'key_unsafe' | 'local_offline' | 'local_declined' | 'local_confirm' | 'local_failed'
