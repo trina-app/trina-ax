@@ -74,7 +74,7 @@ export function Rail({ showList }: { showList: boolean }) {
               <Tooltip label={label[item]}>
                 <Link
                   to={to}
-                  state={railLinkState(item, to)}
+                  state={railLinkState(item)}
                   aria-current={lit ? 'page' : undefined}
                   className={clsx('group flex w-full flex-col items-center gap-0.5 rounded-lg py-1 text-micro leading-tight focus-visible:-outline-offset-2', lit ? 'font-semibold text-ink' : 'text-muted hover:text-ink')}
                   data-rail-stop=""

@@ -93,7 +93,9 @@ let kept: { path: string; item: RailItem } | null = null
 export function railHereKept(pathname: string, search = '', state?: unknown): RailItem | null {
   const named = railState(state)
   const item = railHere(pathname, search, state)
-  if (named && item === named) kept = { path: pathname, item }
+  // (only a place other than the address's own needs keeping: a rail press names its own place on every entry, and
+  // 활동's own ?in=chats tidy must still light 대화)
+  if (named && item === named) kept = item !== railOf(pathname, search) ? { path: pathname, item } : null
   else if (kept && kept.path === pathname && railOf(pathname, search)) return kept.item
   else kept = null
   return item
@@ -128,9 +130,10 @@ export function railTarget(item: RailItem, current: RailItem | null, last: Parti
   return last[item] ?? RAIL_ROOT[item]
 }
 
-/** The state a press on a place carries to its target: the place itself, when what was open there belongs to another
- * place's address (a notice's chat kept as what is open in 활동), so 활동 is what lights again. */
-export function railLinkState(item: RailItem, to: string): { [RAIL_STATE_KEY]: RailItem } | undefined {
-  const u = new URL(to, 'http://x')
-  return railOf(u.pathname, u.search) === item ? undefined : { [RAIL_STATE_KEY]: item }
+/** The state a press on a place carries to its target: always the place itself. A notice's chat kept as what is open in
+ * 활동 then lights 활동 again; and a press on 트리나 whose last chat is the one 활동 opened (the same address, which the
+ * router turns into a replace) lights 트리나, where an entry with no state would keep 활동 lit as a page tidying its own
+ * address (railHereKept; the owner, 11-22: 트리나 could not be pressed). */
+export function railLinkState(item: RailItem): { [RAIL_STATE_KEY]: RailItem } {
+  return { [RAIL_STATE_KEY]: item }
 }
