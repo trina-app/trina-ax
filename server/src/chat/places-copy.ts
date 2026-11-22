@@ -184,7 +184,7 @@ export async function workToTeam(exec: TurnExec, files: TurnFiles, o: { rel: str
     })
     if (rt.files.quarantine.hasHash(got.sha256)) return { ok: false, text: 'Not saved: the team\'s safety check holds this file.', summary: `${tool} -> held` }
     const c: ToolCtx = { user: exec.livePrincipal(), turnId: spec.turnId, files, signal: exec.abort.signal, confirmWidening: (t, s, b) => exec.confirmWidening(t, s, b, call, source) }
-    const made = await placeProduced(rt.ctx, componentC(rt.ctx).files, c, to.split('/').filter(Boolean), tmp, tool, undefined, { thisAnswerOnly: true, detail: { from: 'work folder' } })
+    const made = await placeProduced(rt.ctx, componentC(rt.ctx).files, c, to.split('/').filter(Boolean), tmp, tool, undefined, { thisAnswerOnly: true, movedCheck: true, detail: { from: 'work folder' } })
     const note = made.conflictCopyOf ? ` ${made.conflictCopyOf} already existed and was not read in this answer, so this was saved next to it; the original is unchanged.` : ''
     return { ok: true, to: made.path, text: `Saved ${shown} as ${made.path} (${mb(made.size)} MB).${note} Link it in your answer: ${fileLink(made.path)}`, summary: `${tool} -> ${made.path} (${made.size} B)` }
   } catch (e) {

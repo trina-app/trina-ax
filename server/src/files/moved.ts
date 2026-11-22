@@ -96,12 +96,14 @@ export function movedFact(db: Database, fx: FsCtx, rules: RuleSet, user: Princip
   if (o.folder ? !st.isDirectory() : !st.isFile()) return null
   let to: string | null = null
   try { const r = authorize(fx, rules, user, w.to, 'read'); if (r.exists) to = r.rel } catch {}
-  if (to && o.chatId) {
-    const people = activePeople(db)
-    const audience = [...chatViewers(db, o.chatId, people, rules)].filter((id) => id !== user.id)
-    if (audience.length && missingReaders(db, rules, [sourceOf(db, rules, to)], audience, user.id).length) return { kind: 'moved', to: null, by: w.by, byName, at: w.at, notForAll: true }
-  }
+  if (to && o.chatId && !everyoneInChatReads(db, rules, user, o.chatId, to)) return { kind: 'moved', to: null, by: w.by, byName, at: w.at, notForAll: true }
   return { kind: 'moved', to, by: w.by, byName, at: w.at }
+}
+
+/** May everyone who sees chat `chatId` (besides `user`) read `rel`? A place named in an answer there is read by all. */
+export function everyoneInChatReads(db: Database, rules: RuleSet, user: Principal, chatId: string, rel: string): boolean {
+  const audience = [...chatViewers(db, chatId, activePeople(db), rules)].filter((id) => id !== user.id)
+  return !audience.length || !missingReaders(db, rules, [sourceOf(db, rules, rel)], audience, user.id).length
 }
 
 /** The path a "not found" refusal names (policy/authorize.ts: `not found or no access: 'x'`, `not found: 'x'`). */
@@ -159,3 +161,24 @@ const LOST_HASH_MAX = 64 * 1024 ** 2
 
 /** The fact for the AI when the person's access to a file they read in this chat was taken away. */
 export const LOST_ACCESS_NOTE = (old: string) => `'${old}' is still there, but this person can no longer open it: their access to it changed after it was read in this chat. Tell them exactly that (they cannot open the file any more; whoever manages the folder can give access again); never say it was not found or deleted`
+
+/** The file that was at `rel` before a file was made there again (box_shell's new file at a moved file's old place): the
+ * newest move away from exactly `rel` with only one file made there since (the new one), followed to where it is now.
+ * null when nothing moved away from it or more was made there since. `byName`: the mover's name. */
+export function movedAwayBefore(db: Database, rel: string, root?: string): { to: string; by: string; byName: string; at: string } | null {
+  const del = db.query(`SELECT id, user_id, detail, at FROM file_events WHERE path = ? AND action = 'delete' ORDER BY id DESC LIMIT 1`).get(rel) as { id: number; user_id: string; detail: string | null; at: string } | null
+  if (!del) return null
+  let d: { movedTo?: unknown } = {}
+  try { d = del.detail ? JSON.parse(del.detail) : {} } catch {}
+  if (typeof d.movedTo !== 'string') return null
+  const made = (db.query(`SELECT COUNT(*) AS n FROM file_events WHERE path = ? AND id > ? AND action IN ('create', 'upload', 'restore')`).get(rel, del.id) as { n: number }).n
+  if (made > 1) return null
+  // where it is now: its new place, or where later moves took it
+  const later = whereNow(db, d.movedTo)
+  // in the trash since, or not where the moves lead (deleted for good, renamed by a command): nothing is said
+  if (later?.kind === 'trashed') return null
+  const to = later?.kind === 'moved' ? later.to : d.movedTo
+  if (root) { try { if (!fs.lstatSync(path.join(root, ...to.split('/'))).isFile()) return null } catch { return null } }
+  const byName = (db.query('SELECT name FROM users WHERE id = ?').get(del.user_id) as { name: string } | null)?.name ?? ''
+  return { to, by: del.user_id, byName, at: del.at }
+}

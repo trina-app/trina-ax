@@ -14,6 +14,7 @@
 // Before each command the rule of the AI's writes applies (assertStorageRoomForAI). A long command runs as a job: it
 // has an exit status and a log, the person gets a notice when it ends, and each later call gives the AI the results it
 // did not get yet. The AI does not go on by itself when a job ends.
+import { everyoneInChatReads, movedAwayBefore } from '../files/moved'
 import { updateWaitingFor } from '../system/update-wait'
 import { z } from 'zod'
 import type { AppContext } from '../context'
@@ -161,8 +162,10 @@ export function changeLines(changes: Change[], max = 30, links: boolean | ((rel:
   return lines.join('\n')
 }
 
-export function foreignLines(f: { items: ForeignChange[]; total: number }): string {
-  const lines = f.items.map((c) => `  ${c.by.name}${c.background ? ' (a background process)' : ''}: ${c.action} ${c.path} (${c.at})`)
+export function foreignLines(f: { items: ForeignChange[]; total: number }, canSee: (rel: string) => boolean = () => false): string {
+  // a move names its other end only when this person (and, in a shared chat, everyone here) may open it
+  const other = (c: ForeignChange) => c.to !== undefined ? ` to ${canSee(c.to) ? c.to : 'a place not named here'} (moved, not deleted)` : c.from !== undefined ? ` from ${canSee(c.from) ? c.from : 'a place not named here'}` : ''
+  const lines = f.items.map((c) => `  ${c.by.name}${c.background ? ' (a background process)' : ''}: ${c.action} ${c.path}${other(c)} (${c.at})`)
   if (f.total > f.items.length) lines.push(`  ... and ${f.total - f.items.length} more`)
   return lines.join('\n')
 }
@@ -237,7 +240,7 @@ function personCanOpen(h: Pick<BoxShellHost, 'ctx' | 'userId'>, rel: string): bo
 }
 
 /** The answer to the AI after a command ran. */
-function answer(h: BoxShellHost, o: { notes: string[]; head: string; started: number; exit: RunExit; w: Window; background: boolean; what: string }) {
+function answer(h: BoxShellHost, o: { notes: string[]; head: string; started: number; exit: RunExit; w: Window; background: boolean; what: string; space?: Space }) {
   const { notes, head, started, exit: e, w, background, what } = o
   const parts = [...notes, `${head} (${((Date.now() - started) / 1000).toFixed(1)} s)`]
   // srt's proxy login (srt/proxy-login.ts: per run, useless outside it) never reaches the AI, so never a chat; secrets are
@@ -250,10 +253,40 @@ ${clip(h.redact(hideProxyLogin(e.stderr)))}`)
   // a link only for a file the person can open now: the project folder's changes may include a file a teammate's run
   // saved in a sub-folder this person cannot open (a dead link in the answer otherwise)
   if (w.changes.length) parts.push(`Files changed by this command (${w.changes.length}):\n${changeLines(w.changes, 30, (rel) => personCanOpen(h, rel))}`)
+  const left = movedAwayNotes(h, w.changes)
+  if (left.length) parts.push(...left)
   if (w.background.length) parts.push(`Files changed in the background since the last command (${w.background.length}):\n${changeLines(w.background)}`)
   if (w.conflicts.length) parts.push(`Someone saved some of these files while the command ran; their version is kept as: ${w.conflicts.join(', ')}`)
   const failed = e.code !== 0 || (e.signal !== '' && !background)
   return { ...text(h.redact(parts.join('\n')), failed), summary: `${what} -> ${e.signal || 'exit ' + e.code} ${e.ms} ms, ${w.changes.length} files` }
+}
+
+/** A file this command made at the place a file was moved away from (QA TC-7234 in a real claude-code run: the AI
+ * rebuilt the poster with box_shell and copied it to its old path, so the moved poster stayed on the old date and a new
+ * file appeared; then it said it "saved the same file"). Said plainly, with where the moved file is when this person
+ * (and, in a shared chat, everyone here) may open it. */
+/** May the AI name team path `rel` in this answer: the person may open it, and in a chat others see, everyone there may
+ * read it (the chat's audience by the folder rules and shares; not the run's mounts, which in a project chat stop at the
+ * project folder) */
+function nameable(h: BoxShellHost, rel: string): boolean {
+  if (!personCanOpen(h, rel)) return false
+  if (!h.chatId) return !h.shared
+  try { const f = h.ctx.files; return everyoneInChatReads(h.ctx.db, f.rules(), f.principal(h.userId), h.chatId, rel) } catch { return false }
+}
+
+function movedAwayNotes(h: BoxShellHost, changes: readonly { path: string; action: string }[]): string[] {
+  const out: string[] = []
+  for (const c of changes) {
+    if (c.action !== 'create' || out.length >= 5) continue
+    const m = movedAwayBefore(h.ctx.db, c.path, h.ctx.files.fx.root)
+    if (!m) continue
+    const to = m.to && nameable(h, m.to) ? m.to : null
+    const when = m.at.slice(0, 16).replace('T', ' ') + ' UTC'
+    out.push(to
+      ? `Note: ${c.path} is a NEW file this command made. The file that was there was moved by ${m.byName || 'someone on the team'} on ${when} to ${to} (moved, not deleted), and that file did not change. If the person meant that file, put your result there: read ${to}, then copy_files this file (under the same name: rename it first if needed) into its folder, which saves it as a new version of ${to} (its earlier content is kept), and delete this new copy (${c.path}) unless they want two files. Tell the person where the file is; never say you saved the same file.`
+      : `Note: ${c.path} is a NEW file this command made. The file that was there was moved by ${m.byName || 'someone on the team'} on ${when} to a place not named here (moved, not deleted), and that file did not change. Keep this new copy, tell the person the file was moved and that your change is in this new file at the old place, and ask whether that is what they want; never say you saved the same file.`)
+  }
+  return out
 }
 
 type SrtNotes = () => Promise<string[]>
@@ -327,7 +360,7 @@ async function srtShell(h: BoxShellHost, input: BoxShellInput, o: { space: Space
     const head = out.r.state === 'running'
       ? `Started as job ${jobName} (log: $TRINA_LOGS/${jobName}.log). Do not wait for it: when it ends the person gets a notice, and your next box_shell call in this chat gives you the result.`
       : `Queued as job ${jobName}: other jobs of the team run now, so it waits (position ${out.r.position}) and starts by itself. Do not wait for it: when it ends the person gets a notice, and your next box_shell call in this chat gives you the result.`
-    return answer(h, { notes, head, started, exit: empty, w, background: true, what })
+    return answer(h, { notes, head, started, exit: empty, w, background: true, what, space })
   }
   if (out.kind === 'server' && out.r.ok) {
     const log = `$TRINA_LOGS/${input.log_name ?? 'background'}.log`
@@ -341,7 +374,7 @@ async function srtShell(h: BoxShellHost, input: BoxShellInput, o: { space: Space
       : !preview ? `Started in the background (log: ${log}). ${later}`
       : input.port ? `Started in the background (log: ${log}). The person now has a Preview button for port ${input.port} on this step: tell them to press it${h.shared ? ' (everyone in this chat can open it)' : ''}. If the page does not open, read the log. ${later}`
       : `Started in the background (log: ${log}), with no port: the person has no Preview button. Stop it and start it again with port set to the port the dev server listens on.`
-    return answer(h, { notes, head, started, exit: empty, w, background: true, what })
+    return answer(h, { notes, head, started, exit: empty, w, background: true, what, space })
   }
   if (out.kind !== 'exit' || !out.r.ok) throw new Error('unreachable')
   const e = out.r.value
@@ -351,7 +384,7 @@ async function srtShell(h: BoxShellHost, input: BoxShellInput, o: { space: Space
     : e.signal === 'setting' ? 'Stopped: the dev environment setting or your access to this folder changed. Check the access, then try again.'
     : `Exit code ${e.code}.`
   if (e.code !== 0 && networkNow(ctx) === 'open' && (BLOCKED_SITE.test(e.stderr) || BLOCKED_SITE.test(e.stdout))) notes.push(blockedHint({ full: personNetNow(ctx, h.userId).full }))
-  return answer(h, { notes, head, started, exit: e, w, background: false, what })
+  return answer(h, { notes, head, started, exit: e, w, background: false, what, space })
 }
 
 /**
@@ -513,7 +546,7 @@ async function srtCall(h: BoxShellHost, data: BoxShellInput, what: string, first
       if (ok !== 'run') return { ...text('The person did not allow this command after seeing the changes by other people. Do not run it again in this answer.', true), summary: `${what} -> not allowed (changes by others)` }
       markSeen(ctx, tracked.id, h.userId, foreign.lastId)
     } else if (firstCall && foreign.total > 0) {
-      notes.push(`Changed by other people since this person's last command:\n${foreignLines(foreign)}`)
+      notes.push(`Changed by other people since this person's last command:\n${foreignLines(foreign, (rel) => nameable(h, rel))}`)
     }
     // other people's jobs and dev servers (their names): never in a shared chat
     if (firstCall && !h.shared) {

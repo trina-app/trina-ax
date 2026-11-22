@@ -1212,7 +1212,7 @@ export const PARENT_ONLY_WORDS: Readonly<Record<string, string>> = {
   move_skill: 'moving skills', skill_files: 'changing skill folders', delete_files: 'putting files in the trash',
   change_project_members: 'project members', change_folder_access: 'folder access',
   schedule_create: 'schedules', schedule_list: 'schedules', schedule_delete: 'schedules',
-  generate_video: 'videos', promo_video: 'videos', save_promo_video: 'videos', box_shell: 'running commands in the dev environment',
+  generate_video: 'videos', promo_video: 'videos', promo_video_versions: 'videos', save_promo_video: 'videos', box_shell: 'running commands in the dev environment',
   rooms: 'team chat rooms', room_read: 'team chat rooms', room_file: 'team chat rooms', save_room_file: 'team chat rooms', post_to_room: 'posting to a room',
   chat_file: 'files attached to this chat', save_chat_file: 'files attached to this chat', restore_chat_file: 'files attached to this chat', save_work_file: 'running commands in the dev environment', share_with_person: 'sharing with people', stop_sharing: 'sharing with people', share_folder: 'sharing with people',
   who_can_open: 'checking who can open something', shared_with_me: 'files shared with the user', looking_at: 'what the user has open', my_folders: 'the folders the user can open',
@@ -1428,7 +1428,7 @@ export const ROOMS_POST_RULE = 'To post to a room or a thread when the user asks
 
 /** A tool result saying a file was moved or put in the trash (files/moved.ts). QA TC-7234: an edit after a move made a
  * new copy; TC-r2b-01: the AI said someone deleted a file that was moved. */
-export const MOVED_FILE_RULE = "When a tool says a file is not there any more because someone moved it, use the place it names: change the file there (that saves a new version of it, nothing new is made) and tell the person where it is now. When you cannot open or change it where it is now, say that it was moved and where it is (when the tool names the place), and if you saved your changed copy somewhere else, say where that copy is. Never guess why a file is gone: say only what the tool said."
+export const MOVED_FILE_RULE = "When a tool says a file is not there any more because someone moved it, use the place it names: change the file there (that saves a new version of it, nothing new is made) and tell the person where it is now. A picture or other file you remade with commands is put there the same way: read the moved file, then copy_files your new file into its folder under the same name (it replaces it as a new version), and do not leave a second copy at the old place. When you cannot open or change it where it is now, say that it was moved and where it is (when the tool names the place), and if you saved your changed copy somewhere else, say where that copy is. Never guess why a file is gone: say only what the tool said."
 /** buildTurnPrompt's sections, in order (tests read their ids). */
 export function turnPromptSections(files: FileService, i: PromptInput): Section[] {
   const tools = new Set(i.tools)

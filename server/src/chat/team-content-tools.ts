@@ -30,6 +30,8 @@ export function teamContentTools(): ReadonlySet<string> {
   'edit_office',
   // the promo video (promo-video/tool.ts): it reads team files and makes the chat's artifact, nothing from outside
   PROMO_TOOL,
+  // its versions and their slots (promo-video/tool.ts): the chat's own videos
+  'promo_video_versions',
   // the promo video saved as a file (promo-video/save.ts): the same render, placed in the team folder
   'save_promo_video',
   // the demo's banner words (tools/demo-banner.ts): the AI's own words over a prepared photo, saved as a team file

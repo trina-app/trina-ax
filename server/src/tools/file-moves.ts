@@ -16,6 +16,7 @@
 // target folder"); the card says it is new.
 // Skill folders (skills/, a group's, a project's: what people's AI follows) are out of reach here: a skill changes only
 // through write / edit with the person's approval on the card, and moves to another level with move_skill.
+import { readThisAnswer } from '../files/service'
 import { placeWords } from '../chat/place-words'
 import { CopyFilesInput, MoveFilesInput, RENAME_FILES_MAX, RenameFileInput, RenameFilesInput } from '@mycel/shared'
 import type { Locale } from '@mycel/shared/api'
@@ -225,8 +226,13 @@ export function registerFileMoveTools(ctx: AppContext, reg: ToolRegistry) {
           const r = svc.move(tc.user.id, p, join(folder, nameOf(p)), 'rename', { confirm: confirmed && (lost > 0 || added > 0), turnId: tc.turnId, tool })
           done.push({ from: p, to: r.entry.path })
         } else {
-          const r = await svc.copy(tc.user.id, p, join(folder, nameOf(p)), { onExists: 'rename', turnId: tc.turnId, tool, confirm: confirmed && added > 0 })
-          if ('path' in r) done.push({ from: p, to: r.path })
+          // onto a file of that name the AI read in this answer: a new version of it (its old content kept), never a
+          // "(2)" next to it (QA TC-7234 real run: the remade poster could not reach the moved one). A change since the
+          // read keeps both (copy's baseSha256: a conflict copy), as for any save
+          const at = join(folder, nameOf(p))
+          const seen = readThisAnswer(tc.files, at)
+          const r = await svc.copy(tc.user.id, p, at, seen ? { onExists: 'replace', baseSha256: seen, turnId: tc.turnId, tool, confirm: confirmed && added > 0 } : { onExists: 'rename', turnId: tc.turnId, tool, confirm: confirmed && added > 0 })
+          if ('path' in r) done.push({ from: p, to: !seen ? r.path : r.path === at ? `${r.path} (a new version of it; its earlier content is kept)` : `${r.path} (${at} changed after you read it, so it was kept unchanged and this copy was saved next to it; tell the person)` })
         }
       } catch (e) {
         failed.push({ path: p, error: e instanceof ToolError && e.code === 'is_folder' ? 'this is a folder: copy_files copies files only (move_files moves folders)' : why(e, tc) })
@@ -259,7 +265,7 @@ export function registerFileMoveTools(ctx: AppContext, reg: ToolRegistry) {
   reg.register({
     name: 'copy_files',
     description: 'Copy files of any type (PDF, images, Office files) into another folder of the team drive; the originals stay. ' +
-      'Names are kept; " (2)" is added when a name is taken. Files only, not folders, between team folders. A target folder that does not exist yet is made. ' +
+      'Names are kept; " (2)" is added when a name is taken, except over a file you read in this answer: then your copy replaces it as a new version (its earlier content is kept as a version), which is how you change a picture or any file you remade elsewhere in place. Files only, not folders, between team folders. A target folder that does not exist yet is made. ' +
       'When more people can see the target folder than the originals, the user is asked first. ' +
       'In a Trina chat it also copies between the team folder, this chat\'s files (chat:files/…) and this chat\'s work folder (chat:work/…, $TRINA_WORK in box_shell): ' +
       'to_folder "chat:work/in/" brings team files, whole team folders (an HTML file with its images folder) or chat files into the work folder for your commands; ' +

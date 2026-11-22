@@ -161,7 +161,9 @@ export function withChangeWindow<T>(ctx: AppContext, project: { id: string; fold
 // ---------------- "changed by someone else since your last command" (hole 2) ----------------
 const seenKey = (projectId: string, userId: string) => `devEnv.seen.${projectId}.${userId}`
 
-export interface ForeignChange { path: string; action: string; by: { id: string; name: string }; at: string; background: boolean }
+/** `to` / `from`: a move on the Files screen is two events (a delete {movedTo} at the old place, a create {movedFrom} at
+ * the new one): said as a move, never as a delete (QA TC-r2b-01: the AI told people "박준호 deleted the poster") */
+export interface ForeignChange { path: string; action: string; by: { id: string; name: string }; at: string; background: boolean; to?: string; from?: string }
 
 /** Changes in the folder by other people (box or not) since this person's last acknowledged point. */
 export function changesByOthers(ctx: AppContext, project: { id: string; folderPath: string }, userId: string, limit = 50): { items: ForeignChange[]; total: number; lastId: number } {
@@ -171,10 +173,13 @@ export function changesByOthers(ctx: AppContext, project: { id: string; folderPa
   const total = (ctx.db.query(`SELECT COUNT(*) AS n, COALESCE(MAX(e.id), 0) AS m FROM file_events e WHERE ${where}`).get(since, project.folderPath, like, userId) as { n: number; m: number })
   const rows = ctx.db.query(`SELECT e.path, e.action, e.user_id, u.name, e.at, e.detail FROM file_events e LEFT JOIN users u ON u.id = e.user_id WHERE ${where} ORDER BY e.id DESC LIMIT ?`)
     .all(since, project.folderPath, like, userId, limit) as { path: string; action: string; user_id: string; name: string | null; at: string; detail: string | null }[]
-  const items = rows.map((r) => {
-    let bg = false
-    try { bg = !!(r.detail && (JSON.parse(r.detail) as { background?: unknown }).background) } catch {}
-    return { path: r.path, action: r.action, by: { id: r.user_id, name: r.name ?? r.user_id }, at: r.at, background: bg }
+  const items = rows.map((r): ForeignChange => {
+    let d: { background?: unknown; movedTo?: unknown; movedFrom?: unknown } = {}
+    try { d = r.detail ? JSON.parse(r.detail) : {} } catch {}
+    const base = { path: r.path, by: { id: r.user_id, name: r.name ?? r.user_id }, at: r.at, background: !!d.background }
+    if (r.action === 'delete' && typeof d.movedTo === 'string') return { ...base, action: 'moved', to: d.movedTo }
+    if (r.action === 'create' && typeof d.movedFrom === 'string') return { ...base, action: 'moved in', from: d.movedFrom }
+    return { ...base, action: r.action }
   })
   return { items, total: total.n, lastId: total.m }
 }
