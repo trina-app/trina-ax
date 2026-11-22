@@ -1,0 +1,2 @@
+- When you have Trina post a link to a team-folder file in a room, the confirm card now names the people there who can't open it (for a teammate's personal file it still gives only how many).
+- Someone in a room who opens a linked file they can't see now gets "You don't have access to this file" with an **Ask to view** button. The file's owner, or an admin, answers in Activity.
