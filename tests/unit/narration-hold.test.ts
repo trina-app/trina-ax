@@ -256,6 +256,9 @@ describe('NarrationHold', () => {
     expect(run(ko(), [{ text: 'Totals by client:\n\n' + KO_ANSWER }, 'end'])).toBe('Totals by client:\n\n' + KO_ANSWER)
     // a change to its own work as an order to itself (Claude Code, the same day)
     expect(dropped('Shrink the chart a bit so it fits on one page.')).toBe(true)
+    expect(dropped('Encoding is wrapping up.')).toBe(true)
+    expect(dropped('Rendering is still running.')).toBe(true)
+    expect(dropped('Sales is growing fast this quarter, team!')).toBe(false)
     for (const line of ['Now the SKILL.md.', 'Now the 견적서.pdf.', 'Now the PDF.']) {
       expect(dropped(line), line).toBe(true)
       for (const n of [1, 7, 500]) expect(run(ko(), [{ text: line + '\n\n' + KO_ANSWER }, 'end'], n), line).toBe(KO_ANSWER)
