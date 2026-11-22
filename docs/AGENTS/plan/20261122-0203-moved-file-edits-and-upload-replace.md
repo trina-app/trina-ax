@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-22 02:03
 - Branch: `fix/moved-file-edits-and-upload-replace` (on top of PR #318, `fix/scenario-qa-file-versions`)
-- Status: draft
+- Status: done
 - Where: server/src/files, server/src/team-files, server/src/tools, web/src (Files, FileBody), shared/src/api. Why:
   scenario QA TC-7234 (S-018, with rerun rows TC-r2b-01 and TC-r2b-02) and TC-7241 (S-029).
 - Version impact: patch. Fixes to shipped features; one new read-only endpoint and one optional move warning.
@@ -45,6 +45,16 @@ In:
 6. Files screen uploads (picked or dropped files, not folder uploads): taken names are checked against the folder's
    listing; one dialog per taken name (Replace / Keep both / Cancel). en.ts first, then ko, ja, zh, es, id.
 
+Added during the work (coordinator, rerun rows):
+7. TC-r2u-10 (S-007): a video remade with box_shell in a shared chat became a new file each time. copy_files from
+   `chat:work/<file>` to an existing chat file's own path `chat:files/<id>/<name>` now saves a new version of it
+   (versionProduced's rules: who may change it, same name, read first; copying the chat file into the work folder
+   counts as reading it). New AI tool `restore_chat_file` brings back version n as the newest version (the person's
+   Restore already existed). Each AI version records who asked ("Trina for <person>"); the 20-version cap stays.
+8. TC-r2u-28 (S-118): a file the person read in this chat (message_sources of their own turns) and may no longer
+   open: the refusal says they cannot open it any more, never only "not found".
+9. TC-7686 / TC-r2u-26: the same moved-file card as item 4.
+
 Out: an artifact saved with "Save to team folder" keeps no link to its saved copy, so an artifact edit does not update
 that copy (the rerun shows posters are now PNG files, which item 2 covers). Folder uploads, room and chat composer
 uploads (no shared names there) keep today's behaviour.
@@ -69,4 +79,10 @@ none (follows docs/DECISIONS.md "Files from the computer…" and the version rul
 
 ## Result
 
-(filled in at the end)
+Built as planned, plus items 7-9. Plan review findings applied: the old place is judged by the rules, not the disk (a
+folder above may have moved); nothing is told when the place the moves lead to is gone; the newest mover is named; a
+folder trashed after the file left it says nothing about the file; the server answers which names are taken (case and
+Unicode form as it compares them); the bulk move has its own "more people" sentence. Not done: a write to the old path
+of a moved file still makes a new file there (no refusal to explain); the prompt line asks the AI to use the new place.
+In a shared chat the new path is told by the asker's own access (the AI already acts with it).
+Visual check on a private QA copy (port 19993) at 1440 and 390: `~/qa-mvup-shots/`.
