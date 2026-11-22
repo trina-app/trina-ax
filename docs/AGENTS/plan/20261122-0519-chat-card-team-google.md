@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-22 05:19
 - Branch: `fix/253-chat-card-team-google`
-- Status: in progress
+- Status: done
 - Where: server/src/chat (connect_service), shared/src/api/ws.ts (the card), web/src/components/chat (the card).
   Why: the chat card is where people ask; it should offer what onboarding and Admin › Connected apps offer.
 - Version impact: patch, a fix that makes the chat card match the other connection surfaces (only optional card
@@ -53,4 +53,11 @@ role again. Phone app: no Google sign-in there, so no team button on a phone.
 connect-service, web unit tests for the card.
 
 ## Result
+
+Built as planned. Server: `connect-service.ts` (Drive team share = connected, `teamOffer` for owners and admins, the
+`google_app` card, done reads the role again and reports "connected for the team" when the admin is not among the
+users), `connect-google-app.ts` `googleAppTeamCard`. Web: `ConnectCard.tsx` Connect for the team and the google_app
+case, the hook and dialog moved to `components/integrations/GoogleTeam.tsx` (ToolsStep imports them, no change there).
+All four Google apps get the team way, not only Gmail: the same dialog serves them. Tests in
+`tests/unit/connect-service.test.ts`, `tests/unit/connect-google-app.test.ts`, `web/test/unit/connect-card.test.tsx`.
 

@@ -10,13 +10,15 @@ import { useChats } from '../store/chats'
 
 export type ConnectServiceRequest = Extract<TurnRequest, { kind: 'connect_service' }>
 /** key: paste an API key (bearer / header). sign_in: sign in at the service (MCP OAuth). none: nothing to give.
- * google_drive: the person's own Google account. */
-export type ConnectCase = 'key' | 'sign_in' | 'none' | 'google_drive'
+ * google_drive: the person's own Google account. google_app: Gmail, Calendar, Docs or Sheets for an owner or admin, for
+ * the team or their own on its page. */
+export type ConnectCase = 'key' | 'sign_in' | 'none' | 'google_drive' | 'google_app'
 /** who may use a team connection: the admin who adds it, or everyone on the team */
 export type ConnectAccess = 'me' | 'everyone'
 
 export function connectCase(r: ConnectServiceRequest): ConnectCase {
   if (r.target === 'google_drive') return 'google_drive'
+  if (r.target === 'google_app') return 'google_app'
   const auth = r.service?.auth
   return auth === 'bearer' || auth === 'header' ? 'key' : auth === 'oauth' ? 'sign_in' : 'none'
 }
