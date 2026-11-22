@@ -2819,6 +2819,20 @@ cases:
     good: Yes where the team offers it, in a browser. First connect the Google account once in Settings › Security & devices (it asks for the current password), then press Sign in with Google on the sign-in page. Her password keeps working. The desktop app and the phone app have the same button once they are up to date. Google opens in the browser (on the phone, a sign-in sheet), then she is signed in to the app; connecting the Google account still happens once in a browser. If the button is not there, the team, this address or this app version does not offer it; ask an admin. Plain words.
     checks: []
 
+# auth.google-signup (docs/AGENTS/plan/20261122-0756-google-signup.md): invited people can make their account with Google
+# on the invite or team link page, in a browser, without a password; guests make a password.
+- id: ACC-08
+  title: Invite a colleague who joins with Google
+  features: [auth.google-signup]
+  lang: ko
+  context: personal
+  as: minho
+  prompt: 새로 오는 직원한테 초대 링크 보낼 건데, 비밀번호 안 만들고 구글 계정으로 가입하게 할 수 있어?
+  expect:
+    outcome: explain
+    good: Yes where the team offers Google, in a web browser. He sends the invite or the team link as usual; on that page the new person types a name and a username and presses Join with Google instead of making a password, then signs in with Google from then on. A guest invite still asks for a password. In the phone or desktop app the page keeps the password form, so the person opens the link in a browser. If the button is not there, the team or this address does not offer Google. Plain words, no invented settings.
+    checks: []
+
 - id: CHT-13
   title: Talk under an answer (threads)
   features: [chat.threads]

@@ -22,6 +22,7 @@ export const FEATURE_SCOPE: Record<string, Scope> = {
   'auth.team-link': { reach: 'explains' },
   'auth.app-signin': { reach: 'explains' },
   'auth.google': { reach: 'explains' },
+  'auth.google-signup': { reach: 'explains' },
   'auth.devices': { reach: 'explains' },
   'account.profile': { reach: 'explains' },
   'account.status': { reach: 'explains' },

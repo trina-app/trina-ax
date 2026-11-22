@@ -1,0 +1,3 @@
+- **Sign up with Google**: on the setup page, **Start with Google** makes the team and your owner account with your Google account, no password. Your name and username come from Google; change them later in Settings. It shows where the team server can sign in with Google (a hosted team, or a server with its own Google client).
+- Invited people and the team link: **Join with Google** under the form. Type a name and a username, then press it instead of making a password. A guest invite still asks for a password. If someone took the username meanwhile, the page says so and keeps what you typed.
+- An account made with Google has no password: signing in with a password answers like a wrong password. Sign in with Google instead.

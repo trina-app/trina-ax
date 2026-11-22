@@ -159,6 +159,10 @@ export const SPECS: Record<string, Spec> = {
   setupStatus: { build: (c) => c.get('/api/setup'), scope: 'byLevel' },
   setup: { skipPositive: true, build: (c) => c.post('/api/setup', { setupToken: 'x', teamName: 't', owner: { username: 'z', name: 'z', password: 'Zebra-copper-1-kite' } }), scope: 'byLevel',
     check: (r) => { if (r.status === 201) throw new Error('setup created a second owner after the team exists') } },
+  // Start with Google (server/src/auth/google-signup.ts): the team is set up and has no Google client, so nothing starts,
+  // whatever token is sent
+  startGoogleSetup: { skipPositive: true, build: (c) => c.post('/api/setup/google', { setupToken: 'x'.repeat(32), teamName: 't' }), scope: 'byLevel',
+    check: (r, _w, who) => { if (r.status < 300) throw new Error(`${who}: a setup with Google started after the team exists: ${r.text}`) } },
   login: { skipPositive: true, build: (c) => c.post('/api/auth/login', { username: 'nobody', password: 'wrong-pass-xyz' }), scope: 'byLevel' },
   logout: { skipPositive: true, build: (c) => c.post('/api/auth/logout'), scope: 'byLevel' },
   changePassword: { skipPositive: true, build: (c) => c.post('/api/auth/password', { currentPassword: 'wrong', newPassword: 'Totally-new-pass-99-zz' }), scope: 'byLevel' },
@@ -200,6 +204,10 @@ export const SPECS: Record<string, Spec> = {
       inviterOnlyByName(r, w, who, "the invite's info")
     } },
   acceptInvite: { skipPositive: true, build: (c, w) => c.post(`/api/invites/${w.ids.inviteToken}/accept`, { username: 'newbie' + Math.random().toString(36).slice(2, 7), name: 'New Bie', password: 'Fresh-pass-Owl-3321-xy' }), scope: 'byLevel' },
+  // Join with Google from an invite (server/src/auth/google-signup.ts): the token in the body; the test team has no Google
+  // client, so nothing starts and nothing is used up
+  startGoogleInvite: { skipPositive: true, build: (c, w) => c.post('/api/invites/google', { token: w.ids.inviteToken, username: 'gnewbie' + Math.random().toString(36).slice(2, 7), name: 'New Bie' }), scope: 'byLevel',
+    check: (r, _w, who) => { if (r.status < 300) throw new Error(`${who}: a join with Google started without a Google client: ${r.text}`) } },
   passwordResetInfo: { build: (c, w) => c.get(`/api/password-resets/${w.ids.resetToken}`), scope: 'byLevel' },
   // the desktop app's one-time sign-in code (server/src/auth/app-signin.ts): every signed-in person makes their own (a
   // guest is off the list); a made-up code signs nobody in
