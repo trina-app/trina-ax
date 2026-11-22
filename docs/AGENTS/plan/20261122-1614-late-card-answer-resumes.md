@@ -3,7 +3,7 @@
 - Date (UTC): 2026-11-22 16:14
 - Branch: `fix/late-card-answer-resumes` (on `fix/always-allow-holds-everywhere`, PR #403, which holds
   `fix/connector-always-allow`)
-- Status: in progress
+- Status: done
 - Where: server (`server/src/chat`, `server/src/integrations/connections`). Why: the card's wait and its replay are the
   server's (docs/decisions/20261119-safety-cards-wait.md).
 - Version impact: patch. A late answer now does what the card said; no new screen or setting.
@@ -92,4 +92,12 @@ b-post-to-room*, connector tests, always-allow tests, web unit tests; a real che
 
 ## Result
 
-(filled in at the end)
+Built as planned, with the plan review's and the code review's fixes: the explicit-ask and earlier-yes skips are off
+while a call runs again (it always reaches the card the press is checked against); a card may only lose a known reason
+line (rooms read, a file someone shared, a target from the screen) and stay the same card; the "changed" line only on
+the card that was pressed; a kept card closes on an edit, a regenerate or another branch; the room card's hand-made
+Always is kept with its call; the late Always only where it is offered now and never with a guest in the shared chat;
+an older row's asking turn comes from its own turn. The file tools (write, edit, make_file …) still wait inside the
+call. Migration 444 (443 is #409's). A real run on a private QA copy with claude-code passed: a late "항상 허용" on a
+shared chat's share card shared the file and kept Always allow; a late room post posted once; a typed "그냥 해줘" kept
+the delete card and the AI pointed to it.

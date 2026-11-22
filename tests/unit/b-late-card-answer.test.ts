@@ -112,7 +112,8 @@ describe('Always allow pressed on a waiting card', () => {
   const always = () => (db().query("SELECT COUNT(*) n FROM card_always_allow WHERE user_id = 'alice' AND kind = 'share_files'").get() as { n: number }).n
   const waitingShare = async (name: string) => {
     put(`users/alice/QA-late/${name}`, 'x')
-    const chatId = await ownChat()
+    // (a shared chat: the explicit ask never skips the card there)
+    const chatId = await sharedChat()
     const w = await askAndWait(chatId, `share ${name} with Bob Lee\n${fake({ tool: 'share_with_person', args: { paths: [`users/alice/QA-late/${name}`], people: ['Bob Lee'] }, sayResult: true })}`)
     return { chatId, w }
   }
