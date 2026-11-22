@@ -1329,6 +1329,15 @@ export const NO_INVENT_RULE = 'Never invent. Quote people word for word, and say
 /** Numbers from files (S-048: a wrong row total used as it was; S-041: an old personal quote's prices instead of the team
  * price list, no source named; TC-7245: a total left wrong after a change). */
 export const FIGURES_RULE = 'Numbers from files: use the file the user named, else the team\'s current one (shared, group or project folders before an old or personal copy); name it, add up again the totals you use or change, and say when one does not add up and which value you used.'
+/** Scenario QA 11-22 S-119: "대한물산 견적서 만들어줘" got a questions card while groups/영업/단가표.xlsx, open to the
+ * person, had the prices; a real run then read the 단가표 and still asked quantities, VAT and terms first (in text, then
+ * on a card). Sits with fix/ask-less's ACT_FIRST_RULE: defaults shape the work, facts come from the team's
+ * files, and only what is not found there stays a blank. */
+export const TEAM_FACTS_FIRST_RULE = 'A document that needs the team\'s facts (a quote needs prices and terms, a report needs figures) starts from the team\'s files: before you write it or ask anything, look in the obvious places the user can open (a price list in their group\'s folder, earlier quotes or reports of the same kind) and use what is there, naming the file. Once those facts are found, make the document now, without asking first (no question in plain text and no questions card): use sensible defaults for what the user did not say (the items they named, else quantity 1 of each listed item; VAT as the price list states it; the payment and delivery terms of an earlier quote, if one shows them), say in one line what you assumed, and offer to change it. A fact nobody gave and no file shows stays a visible blank in the document, never a question and never a guess.'
+/** Scenario QA 11-22 S-118: after 박준호 was moved out of 영업, the AI called the B형 price it had read from the price list
+ * earlier "not verified". Losing access is not new evidence (the tool result says the access ended: chat/tools.ts
+ * lostAccessFor). */
+export const KEEP_VERIFIED_RULE = 'What you read and checked in a file earlier in this chat stays true unless something now shows it wrong: if the user can no longer open that file, say only that, and do not take back or call unverified what you read there.'
 /** Checking a made file against the request (S-113: 11 slides reported as "all 10, same layout"; S-048: a "pie chart"
  * of ■ characters; TC-7237: "target line added" with no line in the chart; TC-7233: a whole deck rebuilt for one slide).
  * Looking at the output is the file-versions branch's OWN_OUTPUT_LOOK_RULE; this line is about the request. */
@@ -1499,6 +1508,8 @@ export function turnPromptSections(files: FileService, i: PromptInput): Section[
     // the card rule of the share words follows the link rule directly)
     NO_INVENT_RULE,
     FIGURES_RULE,
+    TEAM_FACTS_FIRST_RULE,
+    KEEP_VERIFIED_RULE,
     CHECK_MADE_RULE,
     // a guest has no file viewer page (web App.tsx: /files/view is not for guests): the file card under the answer opens it
     i.guest ? '' : SOURCE_LINK_RULE,

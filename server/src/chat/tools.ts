@@ -47,9 +47,9 @@ import { alwaysHere, withAlways } from './always-allow'
 import { explicitPlaceAsk, explicitPlaceFor } from './explicit-place'
 import { fromAsker, othersWordsIn } from './shared-actions'
 import type { CardAnswer, TurnExec, WidenOf } from './turn'
-import { inProjectOnly, SEARCH_LEFT_OUT, searchLeftOutNote, SKIP_OWN, wholeTeamPath } from './search-path'
+import { globFolderPrefix, inProjectOnly, noSearchPath, SEARCH_LEFT_OUT, searchLeftOutNote, SKIP_OWN, wholeTeamPath } from './search-path'
 import type { StoredStep } from './store'
-import { cardEndShort, endOfText, projectNotFoundNote, readOnlyNote, readOnlySkillLine, type CardOutcome } from '../policy/refusal'
+import { cardEndShort, endOfText, KEEP_READ_LINE, lostAccessNote, regrantLine, projectNotFoundNote, readOnlyNote, readOnlySkillLine, type CardOutcome } from '../policy/refusal'
 import { chatVersionPlace, mayReplace, placeArg, placeWriteRefusal, type TurnFiles } from '../files/service'
 import { extractUrls, gateUrl, type ConfirmExtra, type TurnPerson } from '../tools/url-gate'
 import { ToolError } from '../policy/errors'
@@ -423,6 +423,8 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
   }
   /** this turn's searches that a shared project chat kept in the project folder (beforeFileTool, read by afterFileTool) */
   const projectOnly = new WeakSet<object>()
+  /** the places this turn's searches already said the person lost (lostAccessFor: once a turn each) */
+  const lostNoted = new Set<string>()
   /** one call of a tool of this set (TurnToolSet.call, which adds the state of a chat file a refused in-place change
    * names) */
   const callTool = async (name: string, args: unknown, caller: Parameters<ChatToolSet['call']>[2]): ReturnType<ChatToolSet['call']> => {
@@ -607,6 +609,10 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
       // a read-only refusal: who can give write access, and the person's own folder (B2, policy/refusal.ts); the
       // tool's own text stays as it is (the same for every caller)
       if (isError && text) { const ro = readOnlyFor(exec, text); if (ro) return ro }
+      // a place this person's own earlier answers in this chat read and the folder rules no longer let them read: the
+      // access ended, who can give it again, and what was read stays true (S-118)
+      const lost = lostAccessFor(exec, name, isError, args, text, lostNoted)
+      if (lost && isError) return lost
       // "not found or no access" on a team project the person is not in: they are not a member (the same for a missing
       // project; policy/refusal.ts projectNotFoundNote). A guest's AI says who invited them instead (guestSection).
       if (isError && text && !guest) { const pn = notMemberFor(exec, text); if (pn) return pn }
@@ -636,7 +642,7 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
       // a shared chat's search or listing that left out places some of its people cannot open: how many, never which
       const left = !isError && args && typeof args === 'object' ? SEARCH_LEFT_OUT.get(args)?.count ?? 0 : 0
       const leftNote = left > 0 ? searchLeftOutNote(left) : null
-      return [placed, skillNote, heldNote, rooms, fact, scope, leftNote, audience, trashed, copies].filter(Boolean).join('\n') || undefined
+      return [lost, placed, skillNote, heldNote, rooms, fact, scope, leftNote, audience, trashed, copies].filter(Boolean).join('\n') || undefined
     },
     // edit_files (mcp/protocol.ts): after a room read one card for the whole batch, before its first file
     beforeBatch: async (name, args) => {
@@ -826,6 +832,70 @@ export function readOnlyFor(exec: Pick<TurnExec, 'rt' | 'livePrincipal' | 'spec'
     userId: exec.spec.userId, sees: (segs) => atLeast(rules.access(me, segs), 'read'), button: answerHasButtons(exec),
     nameable: (segs) => !group || !!exec.roomReadable?.(segs.join('/')),
   })
+}
+
+/** The team folder a path is in: groups/<g>, projects/<p>, users/<u>; elsewhere (shared/…) the highest folder on the
+ * path that `closed` says is closed to the person (losing only shared/재무 names shared/재무, not shared, which they
+ * still open), else its first folder */
+const teamPlaceOf = (rel: string, closed: (p: string) => boolean): string => {
+  const segs = rel.split('/').filter((x) => x && x !== '.')
+  const top = segs[0]?.normalize('NFC').toLowerCase()
+  if (top === 'groups' || top === 'projects' || top === 'users') return segs.slice(0, 2).join('/')
+  for (let i = 1; i < segs.length; i++) { const p = segs.slice(0, i).join('/'); if (closed(p)) return p }
+  return segs.slice(0, 1).join('/')
+}
+const placeKey = (p: string) => p.normalize('NFC').toLowerCase()
+const relOf = (p: string) => p.replace(/\\/g, '/').split('/').filter((x) => x && x !== '.').join('/')
+
+/**
+ * S-118: a file tool's answer about a place this person's own earlier answers in this chat read (the chat_reads rows
+ * of their turns on this branch, TurnFiles.carried, and this answer's own reads) that the folder rules no longer let
+ * them read: "not found or no access" on a path in that team folder, or a search (glob, grep) whose scope covers it
+ * (once a turn per place, `noted`). Decided on the rules only, never on whether the path exists. Null otherwise, and
+ * for a guest or a restricted run (no carried reads).
+ */
+export function lostAccessFor(exec: Pick<TurnExec, 'rt' | 'livePrincipal' | 'spec' | 'files'> & Partial<Pick<TurnExec, 'shared' | 'otherAuthors'>>, name: string, isError: boolean, args: unknown, text: string | undefined, noted: Set<string>): string | null {
+  const earlier = [...(exec.files.carried?.hashes.keys() ?? []), ...exec.files.allReads.keys()]
+  if (!earlier.length) return null
+  // other people read this chat's answers: never that a named person's access changed
+  const shared = !!exec.shared || !!exec.otherAuthors
+  let me: Principal
+  try { me = exec.livePrincipal() } catch { return null }
+  const rules = exec.rt.files.rules(), fx = exec.rt.files.fx
+  const real = (segs: string[]) => { const w = walk(fx.root, segs, fx.caseInsensitive); return [...w.actual, ...w.missing] }
+  // (the folder rules, the access a group or folder permission gives; folder shares live only under users/, which is
+  // left out below, and a file shared one by one that the person still opens is not lost)
+  const gone = (rel: string) => { try { return !atLeast(rules.access(me, real(rel.split('/').filter(Boolean))), 'read') } catch { return false } }
+  const granted = (rel: string) => { try { return !!exec.rt.files.shared?.at(me, rel) } catch { return false } }
+  // the earlier reads' places, as their reads named them (the first spelling wins); never a personal folder (users/…:
+  // one's own is never lost, another's is reached only through a share) or a chat place (chat:files/…)
+  const places = new Map<string, string>()
+  for (const r of earlier) {
+    const rel = relOf(r), pl = teamPlaceOf(rel, gone)
+    if (!pl || pl.includes(':') || pl.split('/')[0]!.normalize('NFC').toLowerCase() === 'users' || places.has(placeKey(pl))) continue
+    if (!gone(rel) || granted(rel)) continue
+    places.set(placeKey(pl), pl)
+  }
+  if (isError) {
+    const m = text ? /Access denied: not found or no access: '([^']*)'/.exec(text) : null
+    if (!m) return null
+    const rel = relOf(m[1]!)
+    const place = places.get(placeKey(teamPlaceOf(rel, gone)))
+    if (!rel || !place || !gone(rel) || !gone(place)) return null
+    // the very file, still the version read: the file service already said its access ended (files/moved.ts)
+    // (who can restore it, named: the file service's own line says only "whoever manages the folder")
+    // (in a shared chat the full shared note: it says not to tell others that this person's access changed)
+    if (text!.includes('but this person can no longer open it') && !shared) return `${regrantLine(exec.rt.db, place, exec.spec.locale)} ${KEEP_READ_LINE}`
+    return lostAccessNote(exec.rt.db, [place], exec.spec.locale, { shared })
+  }
+  if (!SEARCH_TOOLS.has(name) || !args || typeof args !== 'object') return null
+  const a = args as { path?: unknown }
+  const scope = !noSearchPath(a.path) && !wholeTeamPath(a.path) ? relOf(String(a.path)) : name === 'glob' ? relOf(globFolderPrefix(args)?.path ?? '') : ''
+  const k = placeKey(scope)
+  const hit = [...places].filter(([pk]) => !noted.has(pk) && (!k || pk === k || pk.startsWith(k + '/') || k.startsWith(pk + '/'))).filter(([, pl]) => gone(pl))
+  if (!hit.length) return null
+  for (const [pk] of hit) noted.add(pk)
+  return lostAccessNote(exec.rt.db, hit.map(([, pl]) => pl), exec.spec.locale, { shared })
 }
 
 /** After "not found or no access" on projects/ or a team project the person cannot read: they are not a member of a

@@ -491,6 +491,10 @@ export const RoomMessage = z.object({
   authorKind: z.enum(['user', 'ai']),
   /** the sender as the server knows them (never taken from the request); null: the AI, or an account that is gone */
   author: UserRef.nullable(),
+  /** the author's account is turned off or removed (they left the team, or a guest was removed): 'guest' for a guest,
+   * 'member' for anyone else; the app shows a quiet "left" tag by the name. Absent: an active account (older servers
+   * never send it) */
+  authorLeft: z.enum(['member', 'guest']).optional(),
   /** an 'ai' message: who asked the AI (null otherwise) */
   askedBy: UserRef.nullable(),
   /** 'room': everyone in the room. 'private' (an unposted preview of an old room AI answer) is never listed since
@@ -1055,6 +1059,32 @@ export const AnswerShareConfirm = z.object({
 })
 export type AnswerShareConfirm = z.infer<typeof AnswerShareConfirm>
 
+/**
+ * GET /api/rooms/:id/messages/:messageId/file-access?path=: what the side panel offers a room member when a team-file
+ * link in that message does not open for them (QA S-120, docs/decisions/20261122-room-link-ask-and-team-file-names.md).
+ * 'ask': they may ask to view it (the file access requests: its owner, or with none the team owner and admins, answer
+ * in Activity); `by`: who answers, by name, only when that is the message's own author (whom the viewer sees anyway),
+ * else null ("the file's owner or an admin"). 'asked': their ask waits (its date). 'open': it opens for them now;
+ * `link`: its /f/<id> link when only a share lets them in. 'no': anything else, for every reason alike (not a member,
+ * a guest, a message they cannot see, a path that is not a link in that message, gone, nobody to ask): it never says
+ * whether the path exists, whose it is or where. Someone not in the room: the room's 404. At most 60 reads a minute (429).
+ */
+export const RoomFileAccess = z.discriminatedUnion('status', [
+  z.object({ status: z.literal('ask'), by: z.string().nullable() }),
+  z.object({ status: z.literal('asked'), askedAt: z.string(), by: z.string().nullable() }),
+  z.object({ status: z.literal('open'), link: z.string().optional() }),
+  z.object({ status: z.literal('no') }),
+])
+export type RoomFileAccess = z.infer<typeof RoomFileAccess>
+export const RoomFileAccessQuery = z.object({ path: z.string().min(1).max(4096) })
+export const RoomFileAccessBody = z.object({ path: z.string().min(1).max(4096) }).strict()
+/** 'sent' or 'already' (theirs still waits: its date); 'open': it opens for them now (nothing asked) */
+export const RoomFileRequestResult = z.discriminatedUnion('status', [
+  z.object({ status: z.enum(['sent', 'already']), askedAt: z.string() }),
+  z.object({ status: z.literal('open'), link: z.string().optional() }),
+])
+export type RoomFileRequestResult = z.infer<typeof RoomFileRequestResult>
+
 export const ROOMS = {
   listRooms: endpoint({ method: 'GET', path: '/api/rooms', auth: 'user', owner: 'B', response: z.object({ items: z.array(Room), alerts: RoomAlertSettings.optional() }), summary: 'The rooms I am in (my team rooms, everyone, DMs, group chats), most recent activity first, with my unread count, the last message, my notification level, my pin (pinnedAt; the app lists my pinned rooms first) and whether I may add apps there (canManageApps, the same rule as the apps routes); alerts: what else decides whether a message rings (thread replies, quiet hours, the team time zone).' }),
   createRoom: endpoint({ method: 'POST', path: '/api/rooms', auth: 'user', owner: 'B', status: 201, body: CreateRoomBody, response: Room, summary: 'Open the DM with a person (the existing one when there is one), or make a group chat with two or more people. Not audited: admins do not learn who talks to whom.' }),
@@ -1067,6 +1097,8 @@ export const ROOMS = {
   recentRoomFiles: endpoint({ method: 'GET', path: '/api/room-files/recent', auth: 'user', owner: 'B', response: RecentRoomFiles, summary: 'The newest files (at most 5) sent in the rooms, 1:1 and group chats I am in now, only those of messages I can see and, for a project room\'s file kept in the team folder, only while I can open it there; with the room of each (⌘K before anything is typed).' }),
   sendRoomMessage: endpoint({ method: 'POST', path: '/api/rooms/:id/messages', auth: 'user', owner: 'B', status: 201, body: SendRoomMessageBody, response: RoomMessage, summary: 'Send a message as myself (never another author), or a reply in a thread, with @mentions (or @everyone, written as the everyone room word of each language: mentionsAll; in the everyone room owners and admins only) and files; DMs, group chats, mentions and followed threads notify.' }),
   listRoomThread: endpoint({ method: 'GET', path: '/api/rooms/:id/messages/:messageId/thread', auth: 'user', owner: 'B', query: ListRoomMessagesQuery, response: RoomThreadPage, summary: 'A thread in a room I am in: its root and the replies I can see (none of it when I cannot see the root).' }),
+  roomFileAccess: endpoint({ method: 'GET', path: '/api/rooms/:id/messages/:messageId/file-access', auth: 'user', owner: 'B', query: RoomFileAccessQuery, response: RoomFileAccess, summary: 'For a team-file link in a room message I can see that does not open for me: ask (I may ask to view it; by: who answers, only when that is the message\'s author), asked (my ask waits), open (it opens now; link: its /f/ link when only a share lets me in) or no, the one answer for every other case (a guest, a message I cannot see, a path not linked in that message, nobody to ask): never whether the path exists, whose it is or where. Not in the room: its 404. At most 60 a minute (429).' }),
+  requestRoomFile: endpoint({ method: 'POST', path: '/api/rooms/:id/messages/:messageId/file-access', auth: 'user', owner: 'B', body: RoomFileAccessBody, response: RoomFileRequestResult, summary: 'Ask to view a team file linked in a room message I can see (a file access request: its owner, or with none the team owner and admins, answer with Share or Decline in Activity). Only where file-access answers ask (else 404, the same for every reason); one waiting ask per person and file; the file requests\' limits (429). open: it opens for me now.' }),
   markRoomThreadRead: endpoint({ method: 'POST', path: '/api/rooms/:id/messages/:messageId/thread/read', auth: 'user', owner: 'B', body: MarkRoomReadBody, response: RoomThreadReadState, summary: 'Move my read position in a thread I follow forward to seq; its notices count as read.' }),
   reactRoomMessage: endpoint({ method: 'PUT', path: '/api/rooms/:id/messages/:messageId/reactions', auth: 'user', owner: 'B', body: ReactRoomMessageBody, response: RoomReactions, summary: `Put a reaction (any one emoji) on a message I can see, or take mine off. A message carries at most ${ROOM_REACTION_EMOJI_MAX} different emoji: a new one past that is refused (409, reason reactions_full). Never notifies.` }),
   editRoomMessage: endpoint({ method: 'PATCH', path: '/api/rooms/:id/messages/:messageId', auth: 'user', owner: 'B', body: EditRoomMessageBody, response: RoomMessage, summary: 'Edit my own message.' }),

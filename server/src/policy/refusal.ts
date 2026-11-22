@@ -310,6 +310,38 @@ export function projectNotFoundNote(text: string, o: { sees: (segs: string[]) =>
   return `Only a project's members see it: the user is not a member of a project called "${oneLine(segs[1]!).replace(/"/g, "'")}" (the same answer whether or not one exists, so do not say whether it does). Next step: say so plainly; if they should be in it, the person who made that project or an admin can add them.`
 }
 
+/**
+ * S-118: a file tool refused a place ("not found or no access", or a search that skipped it) that this person's own
+ * earlier answers in this chat read (chat_reads, chat/carried-reads.ts), and the folder rules no longer let them read
+ * it. They saw it themselves, so saying they could open it before reveals nothing new; whether the path still exists
+ * is never looked at (a deleted and a hidden place read the same). The QA run: the AI said "영업 폴더가 목록에도 보이지
+ * 않았습니다", asked for a path and called a price it had read earlier unverified. `places`: the team folders (or
+ * paths) as the person's own reads named them.
+ */
+/** what earlier answers read stays true (the last part of lostAccessNote; alone after the file service's own lost-access
+ * fact for the very file, files/moved.ts LOST_ACCESS_NOTE) */
+export const KEEP_READ_LINE = 'Do not ask them for a path. What earlier answers read and checked there stays true: do not take it back or call it unverified.'
+/** Who can give access to `place` again, said as the folder rules decide it (writeGranters: the project's creator by
+ * name where the person may see it, else an admin, never by name), with the screen in the user's language; never "whoever
+ * manages the folder", which names nobody (S-118 real run: "영업 폴더를 관리하는 분께"). */
+export function regrantLine(db: Database, place: string, L: Locale): string {
+  const g = writeGranters(db, place, L, () => false)
+  return `Who can give access again: ${g.who} (${g.how}); say exactly that, not "whoever manages the folder" or a guessed person.`
+}
+/** `shared`: other people read this chat's answers (a shared project or people chat, or others wrote in it): then only
+ * that the place cannot be opened from this chat now, never that this person's access changed. */
+export function lostAccessNote(db: Database, places: readonly string[], L: Locale, o: { shared?: boolean } = {}): string {
+  const named = nameList(places.map((p) => `'${oneLine(p)}'`))
+  const it = places.length > 1 ? 'them' : 'it'
+  if (o.shared) {
+    return `Earlier in this chat ${named} could be opened; ${it} cannot be opened from this chat now. This is a fact, not a guess. Other people read this answer: say only that ${it} cannot be opened from this chat now; never say that someone's access or groups changed, and never name whose. ` +
+      `${regrantLine(db, places[0] ?? '', L)} ${KEEP_READ_LINE}`
+  }
+  return `Earlier in this chat this user opened ${named}; access to ${it} has ended for them (their groups or the folder's access changed, or it was moved). This is a fact, not a guess: say it as one, never "seems" or "probably". ` +
+    'Tell them so plainly in their language (e.g. "\uC774 \uD3F4\uB354\uB294 \uC774\uC81C \uC5F4 \uC218 \uC5C6\uC5B4\uC694. \uC811\uADFC \uAD8C\uD55C\uC774 \uB05D\uB0AC\uC5B4\uC694"); do not say it is not among their folders or was never there. ' +
+    `${regrantLine(db, places[0] ?? '', L)} ${KEEP_READ_LINE}`
+}
+
 /** B7: the per-answer write limits (files/service.ts limits, tools/make-file.ts), with their numbers and what to do. */
 export function writeLimitText(kind: 'bytes' | 'files', max: number, path: string): string {
   const limit = kind === 'bytes' ? `at most ${Math.round(max / 1048576)} MB written in one answer` : `at most ${max} files written in one answer`

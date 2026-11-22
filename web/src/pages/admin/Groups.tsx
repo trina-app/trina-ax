@@ -243,6 +243,8 @@ function GroupForm({ group, users, onClose, onSaved }: { group: Group | null; us
         </Field>
         <fieldset>
           <legend className="mb-1.5 text-label font-medium">{t('groups.members')}</legend>
+          {/* S-118: a member moved out of a group loses its folder at once, also in a chat already open */}
+          <p className="mb-1.5 text-xs text-faint" data-testid="group-access-note">{t('groups.accessNote')}</p>
           <div className="max-h-60 space-y-1 overflow-y-auto rounded-lg border border-line p-2">
             {people.map((u) => (
               <label key={u.id} className="flex items-center gap-2 rounded px-1.5 py-1 text-sm hover:bg-hover" data-testid="group-member">

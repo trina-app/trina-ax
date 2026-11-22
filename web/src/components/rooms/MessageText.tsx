@@ -12,11 +12,11 @@ import { useGuestFolderHref } from '../GuestView'
 import { PersonButton } from '../PersonCard'
 import { mentionClass, mentionParts } from '../../lib/rooms'
 import { guestAppHref } from '../../lib/guests'
-import { Fragment, useMemo, useRef, type MouseEvent, type PointerEvent, type ReactNode } from 'react'
+import { Fragment, useContext, useMemo, useRef, type MouseEvent, type PointerEvent, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import { classifyLink } from '../../lib/markdown'
 import { mobileApp } from '../../lib/mobile'
-import { openTeamFile } from '../../lib/sidePanel'
+import { openTeamFile, RoomLinkMessage, type RoomLinkFrom } from '../../lib/sidePanel'
 import { addressPieces, linkParts } from '../../lib/textLinks'
 import { messagePath, ownMessageLink } from '../../lib/messageLinks'
 import { CHIP, MessageLinkChipBody, useLinkHosts, useMessageLinkPreviews } from './MessageLinkChip'
@@ -75,6 +75,8 @@ export function RoomLink({ href, text, oneLine, menu, children }: { href: string
   const own = text !== undefined && previews?.length ? ownMessageLink(href, hosts, origin()) : null
   const preview = own ? previews!.find((p) => p.messageId === own.messageId) : undefined
   const guestFolder = useGuestFolderHref()
+  // the message it is in: a team file that does not open offers to ask to view it (components/RoomFileAsk.tsx)
+  const from = useContext(RoomLinkMessage)
   const l = classifyLink(href, origin())
   // (classifyLink gives no path that starts with "//": the router would open that as another site, in this tab)
   if (!preview && (l.kind === 'blocked' || (l.kind === 'app' && !/^\/(?![/\\])/.test(l.href)))) return <>{children ?? text}</>
@@ -118,7 +120,7 @@ export function RoomLink({ href, text, oneLine, menu, children }: { href: string
   // Files) on this page's host or the team address: a chip with its name for this viewer (AppLinkChip.tsx). A Markdown
   // link with its own words keeps them.
   const app = !preview && (children === undefined || labelIsAddress(children, href)) ? appLinkRef(href, hosts, origin()) : null
-  if (app) return <AppLinkInWords link={app} words={words} props={props} held={held} />
+  if (app) return <AppLinkInWords link={app} words={words} props={props} held={held} from={from} />
   // a chat file is opened from its own chat only (a room message shows its words)
   if (l.kind === 'blocked' || l.kind === 'chat-file') return <>{children ?? text}</>
   // a guest has no 파일 screen (/files goes Home): their project's files screen, else plain text (lib/guests.ts)
@@ -138,7 +140,7 @@ export function RoomLink({ href, text, oneLine, menu, children }: { href: string
         onClick={(e) => {
           if (held(e) || ownClick(e)) return
           e.preventDefault()
-          openTeamFile(l.path, l.at)
+          openTeamFile(l.path, l.at, null, from)
         }}
       >
         {words}
@@ -168,7 +170,7 @@ export function RoomLink({ href, text, oneLine, menu, children }: { href: string
 
 /** RoomLink's chip for a link to something in this app: the same long-press rule as its other links. Where no screen of
  * the viewer's shows it (a guest and a team folder), its words as text, as before. */
-function AppLinkInWords({ link, words, props, held }: { link: AppLinkRef; words: ReactNode; props: { className: string } & Record<string, unknown>; held: (e: MouseEvent) => boolean }) {
+function AppLinkInWords({ link, words, props, held, from }: { link: AppLinkRef; words: ReactNode; props: { className: string } & Record<string, unknown>; held: (e: MouseEvent) => boolean; from: RoomLinkFrom | null }) {
   const t = useT()
   const answer = useAppLinkName(link)
   const { label, named } = useAppLinkLabel(link, answer)
@@ -191,7 +193,7 @@ function AppLinkInWords({ link, words, props, held }: { link: AppLinkRef; words:
         onClick={(e) => {
           if (held(e) || ownClick(e)) return
           e.preventDefault()
-          openTeamFile(link.path ?? link.id, link.at)
+          openTeamFile(link.path ?? link.id, link.at, null, link.path ? from : null)
         }}
       >
         {body}

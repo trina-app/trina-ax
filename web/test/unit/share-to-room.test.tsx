@@ -19,6 +19,7 @@ import ShareToRoom from '../../src/components/chat/ShareToRoom'
 import { RoomMessages } from '../../src/components/rooms/RoomMessages'
 import { translate, useLocaleStore } from '../../src/i18n'
 import { setNavigator } from '../../src/lib/nav'
+import { closeSidePanel, getSidePanel } from '../../src/lib/sidePanel'
 import { aiName } from '../../src/lib/tabs'
 import { useRooms } from '../../src/store/rooms'
 import { useSession } from '../../src/store/session'
@@ -420,13 +421,17 @@ test('in the room: my note, then the answer as a quote headed "<AI> 답변" in M
   expect(html).not.toContain('- first step')
 })
 
-test('the lock says why on a tap or click (touch has no tooltip), and opens nothing', async () => {
-  const m = await mount(<MemoryRouter><RoomMessages roomId={team.id} messages={[sharedMessage({ author: BEN })]} pending={[]} meId={ME.id} members={[ME, BEN, CY]} onThread={() => {}} /></MemoryRouter>)
+// (QA S-120: in a room the tap opens the side panel, which says why and offers "Ask to view" when the server allows
+// one, components/RoomFileAsk.tsx; outside a room message the lock only says why)
+test('the lock in a room message opens the panel for that file with the message it is in (touch has no tooltip)', async () => {
+  const shared = sharedMessage({ author: BEN })
+  const m = await mount(<MemoryRouter><RoomMessages roomId={team.id} messages={[shared]} pending={[]} meId={ME.id} members={[ME, BEN, CY]} onThread={() => {}} /></MemoryRouter>)
   try {
     expect(m.get('team-file-text').getAttribute('type')).toBe('button')
     await m.click('team-file-text')
-    expect(useUi.getState().toasts.at(-1)).toMatchObject({ level: 'info', text: en('rooms.fileNoAccess') })
+    expect(getSidePanel()).toMatchObject({ kind: 'file', file: { source: 'team', path: 'finance/budget.xlsx', room: { roomId: team.id, messageId: shared.id } } })
   } finally {
+    closeSidePanel()
     await m.unmount()
   }
 })

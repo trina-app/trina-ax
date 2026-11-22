@@ -253,14 +253,16 @@ describe('the card\'s words (QA TC-4791)', () => {
     expect(noteOf(other.card)).toContain(SEEN)
   })
 
-  test('a teammate\'s file and a plain Send: no copy, the link only; the card counts who cannot open it and names nobody', async () => {
+  // (a team folder the asker reads: who opens it is the folder's rule, so the card names them since QA S-120,
+  // docs/decisions/20261122-room-link-ask-and-team-file-names.md; a teammate's personal file keeps the count:
+  // b-room-link-ask.test.ts)
+  test('a teammate\'s file in a team folder and a plain Send: no copy, the link only; the card names who cannot open it', async () => {
     put('groups/marketing/erins-plan.md', '# Erin\'s plan')
     wroteIt('erin', 'groups/marketing/erins-plan.md')
     const text = 'Plan: [erins-plan.md](/files/view?path=groups/marketing/erins-plan.md)'
     const r = await turn('alice', [fake({ tool: 'read', args: { file_path: 'groups/marketing/erins-plan.md' } }), post({ room: rooms.all, text })].join('\n'), { answer: 'send' })
     expect(r.card!.options!.map((x) => x.value).filter((v) => v !== '__always')).toEqual(['send', 'no'])
-    expect(r.card!.question).toContain("1 person can't open 1 linked file.")
-    expect(r.card!.question).not.toContain('Bob')
+    expect(r.card!.question).toContain("Bob Lee can't open the linked file.")
     expect(r.card!.details!.map((d) => d.label)).toEqual(['What will be sent'])
     const m = (await messagesAs('alice', rooms.all)).at(-1)!
     expect(m.body).toBe(text)

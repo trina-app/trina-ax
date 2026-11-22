@@ -368,6 +368,8 @@ export const TEXT = {
   postRoomAskThread: t("{room}({n}명)에서 '{quote}' 메시지의 스레드에 보낼까요?", "Send to the thread of '{quote}' in {room} ({n, plural, one {# person} other {# people}})?", "Kirim ke utas pesan '{quote}' di {room} ({n} orang)?", '{room}（{n, plural, one {#人} other {#人}}）の「{quote}」のスレッドに送りますか？', '¿Enviar al hilo de «{quote}» en {room} ({n, plural, one {# persona} other {# personas}})?', '要发送到{room}中“{quote}”的话题（{n, plural, one {#人} other {#人}}）吗？'),
   postRoomAskThreadNoQuote: t('{room}({n}명)의 메시지 스레드에 보낼까요?', 'Send to a message\'s thread in {room} ({n, plural, one {# person} other {# people}})?', 'Kirim ke utas sebuah pesan di {room} ({n} orang)?', '{room}（{n, plural, one {#人} other {#人}}）のメッセージのスレッドに送りますか？', '¿Enviar al hilo de un mensaje en {room} ({n, plural, one {# persona} other {# personas}})?', '要发送到{room}中一条消息的话题（{n, plural, one {#人} other {#人}}）吗？'),
   postRoomAskNewDm: t('{name}님과의 새 1:1 대화로 보낼까요?', 'Send to {name} in a new 1:1 chat?', 'Kirim ke {name} di obrolan 1:1 baru?', '{name}さんとの新しい1:1で送りますか？', '¿Enviar a {name} en un chat 1:1 nuevo?', '要在新的私信中发送给{name}吗？'),
+  // S-119: a card sending to a guest says she is from outside (a 1:1 chat with her, made or not)
+  postRoomGuest: t('{name}님은 게스트(외부)예요. 초대받은 곳만 볼 수 있어요.', '{name} is a guest (from outside). They can see only the places they were invited to.', '{name} adalah tamu (dari luar). Mereka hanya bisa melihat tempat yang mereka diundang.', '{name}さんはゲスト（外部）です。招待された場所だけを見られます。', '{name} es un invitado (externo). Solo puede ver los lugares a los que lo invitaron.', '{name}是访客（外部人员），只能看到受邀加入的地方。'),
   postRoomOwnWords: t('내 메시지', 'Your message', 'Pesan Anda', 'あなたのメッセージ', 'Su mensaje', '你的消息'),
   postRoomMentions: t('알림 받을 사람 (멘션)', 'Mentions (they get a notice)', 'Disebut (mendapat pemberitahuan)', 'メンション（通知が届きます）', 'Menciones (reciben un aviso)', '提及（会收到通知）'),
   postRoomMentionsAll: t('이 방의 모든 사람 ({word})', 'Everyone in this room ({word})', 'Semua orang di percakapan ini ({word})', 'このトークの全員（{word}）', 'Todos en esta conversación ({word})', '此聊天室的所有人（{word}）'),
@@ -418,6 +420,8 @@ export const TEXT = {
    * askAdmin): what the AI is told to point at (chat/share-next-steps.ts) */
   fixButtonLetView: t('볼 수 있게 하기', 'Let them view', 'Izinkan melihat', '見られるようにする', 'Permitir que lo vean', '允许查看'),
   fixButtonAskOwner: t('{owner} 님에게 요청', 'Ask {owner}', 'Minta ke {owner}', '{owner} さんに頼む', 'Pedir a {owner}', '请 {owner} 共享'),
+  // the room link's own button (web roomFileAsk.ask, components/RoomFileAsk.tsx): the AI names it exactly as shown (QA S-120)
+  roomFileAskButton: t('보기 요청', 'Ask to view', 'Minta akses lihat', '閲覧をリクエスト', 'Pedir acceso para ver', '请求查看'),
   fixButtonAskAdmin: t('관리자에게 요청', 'Ask an admin', 'Minta ke admin', '管理者に頼む', 'Pedir a un administrador', '请管理员处理'),
   /** the switch's name as Admin › Team settings shows it (web teamSettings.memberFileShares) */
   fixSwitchName: t('멤버가 자기 파일을 공유할 수 있음', 'Members can share files they own', 'Anggota bisa membagikan file milik mereka', 'メンバーが自分のファイルを共有できる', 'Los miembros pueden compartir sus propios archivos', '成员可以共享自己的文件'),
