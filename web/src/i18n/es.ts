@@ -5678,6 +5678,8 @@ export const es: Record<MessageKey, string> = {
   "rooms.save.pickTitle": "Elegir una carpeta",
   "rooms.save.pick": "Elegir",
   "rooms.save.outside": "{n, plural, one {# persona} other {# personas}} que no están en esta conversación pueden ver esta carpeta.",
+  'rooms.save.widenTitle': '¿Mostrarlo a más personas?',
+  'rooms.save.widenBody': 'Al guardarlo, {n, plural, one {# persona más podrá verlo} other {# personas más podrán verlo}}.',
   "rooms.save.sensitive": "Parece un documento personal, así que no se sugiere ninguna carpeta. Elija la carpeta usted mismo: todas las personas que puedan abrirla verán el archivo.",
   "rooms.save.personal": "Parece personal",
   "rooms.save.sameFile": "El mismo archivo que el de arriba",

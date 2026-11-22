@@ -5653,6 +5653,8 @@ export const zh: Record<MessageKey, string> = {
   "rooms.save.pickTitle": "选择文件夹",
   "rooms.save.pick": "选择",
   "rooms.save.outside": "{n, plural, one {#位} other {#位}}不在此对话中的人也能看到这个文件夹。",
+  'rooms.save.widenTitle': '要让更多人看到吗？',
+  'rooms.save.widenBody': '保存后，将多 {n, plural, one {# 人} other {# 人}}能看到它。',
   "rooms.save.sensitive": "这看起来像个人证件，所以没有推荐。请自己选择文件夹：能打开该文件夹的人都会看到这个文件。",
   "rooms.save.personal": "像是个人文件",
   "rooms.save.sameFile": "与上面的文件相同",

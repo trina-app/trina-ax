@@ -323,6 +323,18 @@ export const TEXT = {
   roomAiConfirmFiles: t('바꿀 파일', 'Files', 'Berkas', "変更するファイル", "Archivos", "文件"),
   roomAiConfirmInput: t('바꿀 내용', 'What it would change', 'Yang akan diubah', "変更する内容", "Lo que cambiaría", "将要修改的内容"),
   roomAiChangeAction: t('하는 일', 'Action', 'Tindakan', "操作", "Acción", "操作"),
+  /** a room card's words for a dev-environment command, from the command itself (chat/turn.ts shellCardWords): the files it
+   * makes by kind and name, else "run a command"; never the AI's description, never the command (behind 자세히) */
+  roomShellMakesOne: t('{kind} 파일을 만드는 명령 실행: {files}', 'Run a command that makes a {kind} file: {files}', 'Jalankan perintah yang membuat file {kind}: {files}', "{kind}ファイルを作るコマンドを実行: {files}", "Ejecutar un comando que crea un archivo de {kind}: {files}", "运行生成{kind}文件的命令：{files}"),
+  roomShellMakesMany: t('{kind} 파일을 만드는 명령 실행: {files}', 'Run a command that makes {kind} files: {files}', 'Jalankan perintah yang membuat file {kind}: {files}', "{kind}ファイルを作るコマンドを実行: {files}", "Ejecutar un comando que crea archivos de {kind}: {files}", "运行生成{kind}文件的命令：{files}"),
+  roomShellMakesAny: t('파일을 만드는 명령 실행: {files}', 'Run a command that makes files: {files}', 'Jalankan perintah yang membuat file: {files}', "ファイルを作るコマンドを実行: {files}", "Ejecutar un comando que crea archivos: {files}", "运行生成文件的命令：{files}"),
+  roomShellRun: t('명령 실행', 'Run a command', 'Jalankan perintah', "コマンドを実行", "Ejecutar un comando", "运行命令"),
+  roomShellKindPicture: t('그림', 'picture', 'gambar', "画像", "imagen", "图片"),
+  roomShellKindPdf: t('PDF', 'PDF', 'PDF', "PDF", "PDF", "PDF"),
+  roomShellKindVideo: t('동영상', 'video', 'video', "動画", "vídeo", "视频"),
+  roomShellKindAudio: t('소리', 'audio', 'audio', "音声", "audio", "音频"),
+  roomShellKindSheet: t('표', 'spreadsheet', 'tabel', "表", "hoja de cálculo", "表格"),
+  roomShellKindDoc: t('문서', 'document', 'dokumen', "文書", "documento", "文档"),
   roomAiChangeFile: t('파일', 'File', 'Berkas', "ファイル", "Archivo", "文件"),
   roomAiChangeFolder: t('넣을 폴더', 'Into folder', 'Ke folder', "移動先のフォルダー", "A la carpeta", "放入文件夹"),
   roomAiChangeNewName: t('새 이름', 'New name', 'Nama baru', "新しい名前", "Nuevo nombre", "新名称"),

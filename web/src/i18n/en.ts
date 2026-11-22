@@ -5724,6 +5724,8 @@ export const en: Record<MessageKey, string> = {
   "rooms.save.pickTitle": "Choose a folder",
   "rooms.save.pick": "Choose",
   "rooms.save.outside": "{n, plural, one {# person} other {# people}} outside this conversation can see this folder.",
+  'rooms.save.widenTitle': 'Show it to more people?',
+  'rooms.save.widenBody': 'After saving, {n, plural, one {# more person} other {# more people}} can see it.',
   "rooms.save.sensitive": "This looks like a personal document, so nothing is suggested. Pick the folder yourself: everyone who can open it will see the file.",
   "rooms.save.personal": "Looks personal",
   "rooms.save.sameFile": "Same file as above",

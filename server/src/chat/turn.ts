@@ -16,7 +16,7 @@ import { safeOpsEnabled } from "../safe-ops/runner"
 import fs from 'node:fs'
 import path from 'node:path'
 import crypto from 'node:crypto'
-import { CLAUDE_AGENT_TOOL_NAMES, FILE_STEP_VERB, FILE_TOOLS, isUuid7, readableToolName, shellWords, STEP_WORDS_OTHER, TEAM_TOOL_PREFIX, type AgentStats, type EngineEvent } from '@mycel/shared'
+import { CLAUDE_AGENT_TOOL_NAMES, FILE_STEP_VERB, FILE_TOOLS, isUuid7, readableToolName, shellKind, shellWords, STEP_WORDS_OTHER, TEAM_TOOL_PREFIX, type AgentStats, type EngineEvent } from '@mycel/shared'
 import { recordSent, webEcho } from '../tools/connection-urls'
 import { carriesAddress, normUrl, rememberUrls } from '../tools/url-gate'
 import { GUEST_ANSWER_STEP_LIMIT, UNATTENDED_ANSWER_STEP_LIMIT } from '@mycel/shared/api'
@@ -475,6 +475,10 @@ export class TurnExec {
   private peopleSearch: { path: string } | { refuse: string } | null = null
   /** the places (sourceKey) this person allowed (shared) or refused (refused) on a shared chat's read card in this turn */
   private sharedAllowed = new Set<string>()
+  /** the places a read card of this turn named, as the card named them, with its answer (QA TC-f1x S-108: one "영업"
+   * card three times in one answer, for three folders the card names the same): a card never asks again in this turn
+   * about a place it already named */
+  private sharedPlaceSaid = new Map<string, SharedDecision>()
   /** refused places, with why (the card's no, no answer, nobody to ask): a later call says the same reason */
   private sharedRefused = new Map<string, SharedNo>()
   /** a read card already open for the same places (sub-agents at the same time): they wait for that one answer */
@@ -3112,6 +3116,9 @@ export class TurnExec {
     // a tool with its own card asks there alone, every time, with this card's line (ownCard); after the rule above, so a
     // move or copy of a skill or instruction file is still refused
     if (this.ownCard(tool) && !this.readsOnly(tool, input)) return null
+    // a dev-environment command in the person's own chat with no project, a ✦ side chat too
+    // (docs/decisions/20261122-ask-less-side-chat-runs.md, QA TC-f2-c02): no room card
+    if (tool === 'box_shell' && this.ownBoxRun()) return null
     let args = ''
     try { args = JSON.stringify(input ?? null) } catch { args = String(input) }
     const key = `${tool}\u0000${args}`
@@ -3457,6 +3464,41 @@ export class TurnExec {
    * (instructionLike), never in a confidential chat. A file that was there before this answer always asks, and so do save_url (the name it saves
    * under comes from what it downloads), edit_files, moves, copies, renames and every other tool. Fails closed.
    */
+  /**
+   * After a room read, a dev-environment command needs no room card when what it shows and changes reaches nobody but
+   * the person (docs/decisions/20261122-ask-less-side-chat-runs.md): the person's own live chat (a ✦ side chat too), not
+   * shared with anyone, not a restricted or scheduled run, not a confidential chat, and the commands run in the chat's own
+   * work folder (no project: a project folder is the team's, and its dev environment's changes reach its members). Such a
+   * run reads only what the person may open, its output is shown to them alone, and it writes only the chat's work folder
+   * and the person's own folder (a folder they share is read-only in a run, srt/access.ts); a site not allowed yet asks on
+   * its own card (request_sites). Fails closed.
+   */
+  private ownBoxRun(): boolean {
+    try {
+      const d = this.devEnv
+      if (!d || d.project || d.shared || this.shared || this.restricted || isGuestUser(this.rt.db, this.spec.userId)) return false
+      if (!LIVE_CLIENTS.has(this.spec.clientKind ?? '')) return false
+      return !confidentialChat(this.rt.db, this.spec.chatId)
+    } catch { return false }
+  }
+
+  /**
+   * copy_files of this chat's own places (chat:work/, chat:files/) after a room read (chat/places-copy.ts roomCard, QA
+   * TC-f2-c02): true when every target (`targets`: the paths the copies land at) is a NEW file in the person's own folder
+   * that write's exception lets go without a card (ownFolderPlace: nobody else reads it; never skills, instruction files,
+   * hidden, plugin or project folders, a path the AI put in the trash, a file there already, a confidential chat). The
+   * step then says "내 폴더라 묻지 않고 저장" (`main`: the main AI's own call). Fails closed.
+   */
+  ownFolderCopy(targets: readonly string[], main = true): boolean {
+    try {
+      if (!targets.length || confidentialChat(this.rt.db, this.spec.chatId)) return false
+      // save_work_file: a target that is there already never qualifies (WIDEN_TARGET_TOOLS in ownFolderPlace)
+      if (!targets.every((p) => this.ownFolderPlace('save_work_file', p, true))) return false
+      if (main) this.coverStep('copy_files', 'ownFolderStep')
+      return true
+    } catch { return false }
+  }
+
   private ownFolderTarget(tool: string, input: unknown, widen?: WidenOf): string[] | null {
     try {
       if (confidentialChat(this.rt.db, this.spec.chatId)) return null
@@ -4099,6 +4141,12 @@ export class TurnExec {
       }
       // a save into a place a yes of this turn covered, for a read (more than a save) or a save there
       missing = missing.filter((m) => !this.sharedAllowed.has(m.key) && !(writes.has(m.key) && this.sharedAllowed.has(SAVE_KEY + m.key)))
+      // a place a card of this answer already named (by the card's own words): a yes covers it, a no stands
+      // (reads only: a save card's answer is its own)
+      const said = missing.map((m) => (writes.has(m.key) ? undefined : this.sharedPlaceSaid.get(this.sharedPlaceLabel(m.source))))
+      const saidNo = said.find((d) => d !== undefined && d !== 'shared')
+      if (saidNo) return refuse(saidNo as SharedNo)
+      missing = missing.filter((_, i) => said[i] !== 'shared')
       // the save card (docs/decisions/20261118-shared-save-card-wording.md): every place it would name is one the call
       // only saves into; anything it reads keeps the read card. Its yes and no are its own (SAVE_KEY): a yes to save in
       // a place never lets a read of it through
@@ -4120,9 +4168,17 @@ export class TurnExec {
     const decision = await pending
     const yes = decision === 'shared'
     for (const k of keys) { if (yes) this.sharedAllowed.add(k); else this.sharedRefused.set(k, decision) }
+    if (!kind.save && !skillUse) for (const m of missing) this.sharedPlaceSaid.set(this.sharedPlaceLabel(m.source), decision)
     if (!yes) return refuse(decision)
     // the card covered the people who saw the chat when it asked (y: a yes covered it)
     return this.noteSharedReads(sources, audience, true) ? null : refuse('failed')
+  }
+
+  /** A place as the read card names it (askSharedRead's words). */
+  private sharedPlaceLabel(source: ReadSource): string {
+    const L = this.spec.locale
+    const labels = { mine: tr('sharedScopeMine', L), root: tr('scopeRoot', L), room: tr('scopeRoom', L), chat: tr('scopeChatFiles', L) }
+    try { return sourceLabel(this.rt.db, source, this.spec.userId, labels, { ownNames: true, place: (p) => this.place(p) }) } catch { return sourceKey(source) }
   }
 
   /** The card itself and its audit row: 'shared' = "읽고 공유하기" (a save card: "저장하기"), else why not. */
@@ -5877,9 +5933,63 @@ export function roomCardWhat(tool: string, input: unknown, L: Locale): string {
   const a = input && typeof input === 'object' && !Array.isArray(input) ? input as Record<string, unknown> : {}
   // the server's own words for the command, never the AI's description: this card is there because other people's words
   // may steer the AI (review of the plain-words change)
-  if (tool === 'box_shell') return shellWords('', typeof a.command === 'string' ? a.command : '', L)
+  if (tool === 'box_shell') return shellCardWords(typeof a.command === 'string' ? a.command : '', L)
   if (CARD_VERB_ONLY.has(tool) && FILE_STEP_VERB[tool]) return FILE_STEP_VERB[tool]![L] ?? FILE_STEP_VERB[tool]!.en
   return stepLabel(tool, input, L, BROWSER_TOOL_NAMES)
+}
+
+/** the kind of a file a command makes, by its extension (shellCardWords) */
+const SHELL_OUT_KIND: Record<string, 'roomShellKindPicture' | 'roomShellKindPdf' | 'roomShellKindVideo' | 'roomShellKindAudio' | 'roomShellKindSheet' | 'roomShellKindDoc'> = {
+  png: 'roomShellKindPicture', jpg: 'roomShellKindPicture', jpeg: 'roomShellKindPicture', gif: 'roomShellKindPicture', webp: 'roomShellKindPicture', svg: 'roomShellKindPicture',
+  pdf: 'roomShellKindPdf',
+  mp4: 'roomShellKindVideo', mov: 'roomShellKindVideo', webm: 'roomShellKindVideo', mkv: 'roomShellKindVideo',
+  mp3: 'roomShellKindAudio', wav: 'roomShellKindAudio', m4a: 'roomShellKindAudio', ogg: 'roomShellKindAudio',
+  csv: 'roomShellKindSheet', xlsx: 'roomShellKindSheet', tsv: 'roomShellKindSheet',
+  docx: 'roomShellKindDoc', pptx: 'roomShellKindDoc', html: 'roomShellKindDoc', md: 'roomShellKindDoc', txt: 'roomShellKindDoc', hwpx: 'roomShellKindDoc',
+}
+/** a program in a command that removes, moves or overwrites files whatever it is given (shellCardWords keeps "파일 바꾸기") */
+const SHELL_DESTRUCTIVE = /(?:^|[\s;&|(`])(?:rm|rmdir|mv|unlink|shred|truncate|dd|rsync|kill|pkill|killall)\s|\bsed\s+(?:-\w*\s+)*-i|\s-delete\b|\bgit\s+(?:push|reset|clean|checkout|rm|mv|restore|rebase|merge)\b/
+
+/** The files a dev-environment command says it makes (their names only, as the command names them): what a picture, a
+ * PDF, a table or a video is saved as (savefig("chart.png"), -o out.mp4, > report.csv, open("x.csv", "w"), ffmpeg's last
+ * name). Only names with a known output extension and no variable in them; at most 20. */
+export function shellOutputs(command: string): string[] {
+  const c = command.slice(0, 20_000)
+  const got: string[] = []
+  const add = (raw: string | undefined) => {
+    const n = (raw ?? '').trim().replace(/^["']|["']$/g, '').split('/').pop() ?? ''
+    const m = /^([^\s${}*?`<>|;&()'"\\]{1,80})\.([A-Za-z0-9]{2,5})$/.exec(n)
+    if (!m || !SHELL_OUT_KIND[m[2]!.toLowerCase()] || got.includes(n) || got.length >= 20) return
+    got.push(n)
+  }
+  const each = (re: RegExp) => { for (const m of c.matchAll(re)) add(m[1]) }
+  each(/\b(?:savefig|save|to_csv|to_excel|to_html|to_json|write_image|write_html|imwrite|write_videofile|write_audiofile|write_pdf|output_pdf|saveas|save_as)\s*\(\s*[rfb]{0,2}["']([^"'\n]{1,200})["']/gi)
+  each(/(?:^|\s)(?:-o|--output|--out|--outfile|-out)(?:\s+|=)["']?([^\s"';|&]{1,200})/gi)
+  each(/(?<![0-9&<>])>>?\s*["']?([^\s"';|&<>]{1,200})/g)
+  each(/\bopen\(\s*[rfb]{0,2}["']([^"'\n]{1,200})["']\s*,\s*[rfb]{0,2}["'][wax]/gi)
+  for (const part of c.split(/&&|\|\||[;|\n]/)) {
+    const ws = part.trim().split(/\s+/)
+    if (ws[0]?.replace(/^.*\//, '') === 'ffmpeg' && ws.length > 2) add(ws.at(-1))
+  }
+  return got
+}
+
+/**
+ * A room card's words for a dev-environment command (QA TC-f2-c02: "작업 실행 · 자세히 953자" told nobody what would
+ * happen), from the command itself, never the AI's description (this card is there because other people's words may
+ * steer the AI): the files it makes, by kind and name ("그림 파일을 만드는 명령 실행: chart.png"); a command that removes,
+ * moves or overwrites files keeps its kind's words first ("파일 바꾸기"); else the kind's words, "명령 실행" for a plain run.
+ */
+export function shellCardWords(command: string, L: Locale): string {
+  const kind = shellKind(command)
+  const outs = shellOutputs(command)
+  if (outs.length && !(kind === 'change' && SHELL_DESTRUCTIVE.test(command))) {
+    const files = outs.slice(0, 3).map((n) => (n.length > 40 ? `${n.slice(0, 39)}…` : n)).join(', ') + (outs.length > 3 ? ` +${outs.length - 3}` : '')
+    const kinds = [...new Set(outs.map((n) => SHELL_OUT_KIND[n.split('.').pop()!.toLowerCase()]!))]
+    if (kinds.length !== 1) return tr('roomShellMakesAny', L, { files })
+    return tr(outs.length === 1 ? 'roomShellMakesOne' : 'roomShellMakesMany', L, { kind: tr(kinds[0]!, L), files })
+  }
+  return kind === 'run' ? tr('roomShellRun', L) : shellWords('', command, L)
 }
 
 export function roomChangeDetails(tool: string, input: unknown, L: Locale, roomFile: (ref: string, room?: string) => string | null = () => null, place: (path: string) => string = (p) => p, me = '', tree: (p: string) => string[] | null = () => null): { label: string; text: string; fields?: { name: string; value: string }[]; collapsedAt?: number; noSize?: boolean; folded?: true }[] {
@@ -5957,8 +6067,9 @@ export function roomChangeDetails(tool: string, input: unknown, L: Locale, roomF
     case 'box_shell': {
       // what it does in the server's own words (changing files is said first, whatever else it does; never the AI's
       // description); the command itself one click away, except when it names an instruction or skill file
+      // (no size: "자세히 953자" counts a command's characters, which says nothing to a person, QA TC-f2-c02)
       const cmd = str(a.command)
-      return [{ label: tr('roomAiConfirmInput', L), fields: [field('roomAiChangeAction', shellWords('', cmd, L))], text: full(cmd), collapsedAt: ROOM_CHANGE_PREVIEW, ...(INSTRUCTION_IN_TEXT.test(cmd) ? {} : { folded: true as const }) }]
+      return [{ label: tr('roomAiConfirmInput', L), fields: [field('roomAiChangeAction', shellCardWords(cmd, L))], text: full(cmd), collapsedAt: ROOM_CHANGE_PREVIEW, noSize: true, ...(INSTRUCTION_IN_TEXT.test(cmd) ? {} : { folded: true as const }) }]
     }
     case 'save_room_file': {
       // the file by the name the person sees (only a file of this room, or in the person's own chat of the room the call

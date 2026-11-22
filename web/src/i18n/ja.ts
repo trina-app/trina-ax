@@ -5678,6 +5678,8 @@ export const ja: Record<MessageKey, string> = {
   "rooms.save.pickTitle": "フォルダーを選ぶ",
   "rooms.save.pick": "選ぶ",
   "rooms.save.outside": "このトークにいない{n, plural, one {#人} other {#人}}もこのフォルダーを見られます。",
+  'rooms.save.widenTitle': 'もっと多くの人に見えるように保存しますか？',
+  'rooms.save.widenBody': '保存すると、さらに{n, plural, one {#人} other {#人}}が見られるようになります。',
   "rooms.save.sensitive": "個人の書類のようなので、おすすめは表示していません。フォルダーをご自分で選んでください。そのフォルダーを開ける人は全員このファイルを見られます。",
   "rooms.save.personal": "個人の書類のようです",
   "rooms.save.sameFile": "上と同じファイル",

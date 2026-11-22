@@ -250,6 +250,19 @@ describe('a person\'s own move to Company-wide (S-018)', () => {
     const ok = await h.api('alice').call(API.move, { body: { ...body, onExists: 'fail' as const, confirm: true, skillsOk: false } })
     expect(ok.entry.path).toBe('shared/s018.md')
   })
+
+  test('out of a members-only team project\'s subfolder (the QA case: projects/<p>/포스터/x.png → shared/마케팅/): asked too', async () => {
+    const p = await h.api('alice').call(API.createProject, { body: { name: 'S018 Launch', participants: [{ subjectType: 'user', subjectId: 'bob' }], instructions: '' } })
+    const from = `${p.folderPath}/포스터/s018-poster.png`
+    put(from)
+    fs.mkdirSync(abs('shared/마케팅'), { recursive: true })
+    const body = { from, to: 'shared/마케팅/s018-poster.png', onExists: 'rename', askWiden: true }
+    const r = await h.req('alice', '/api/files/move', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) })
+    expect(r.status).toBe(409)
+    const raw = await r.json() as { error?: { params?: { reason?: string; viewersAdded?: number } } }
+    expect(raw.error?.params?.reason).toBe('audience_widened')
+    expect(raw.error?.params?.viewersAdded).toBeGreaterThan(0)
+  })
 })
 
 describe('the many-items cards give the AI their own count (S-122)', () => {

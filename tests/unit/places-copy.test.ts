@@ -346,3 +346,55 @@ describe('review of P2 (adversarial)', () => {
     expect(bad.content).toContain('Invalid regular expression')
   })
 })
+
+// QA TC-f2-c02: one chart request in a room's ✦ side chat raised three cards (a command twice, the copy into my folder).
+// The side chat is my own: a command there (no project) and a copy of what it made into my own folder as a new file go
+// without a card (docs/decisions/20261122-ask-less-side-chat-runs.md); an overwrite in my folder and a team folder ask.
+describe('after a room read: the side chat makes a chart (QA TC-f2-c02)', () => {
+  /** alice's own chat that has read a room (chats.rooms_seen, as room_read leaves it; a ✦ side chat counts the same,
+   * chat/read-rooms.ts readRooms) */
+  async function side() {
+    const chat = await personal()
+    h.ctx.db.query('UPDATE chats SET rooms_seen = 1, session_tainted = 1 WHERE id = ?').run(chat)
+    return chat
+  }
+  const chart = `cd "$TRINA_WORK" && python3 - <<'EOF'\nimport matplotlib.pyplot as plt\nplt.bar(['a'],[1])\nplt.savefig('out/chart.png')\nEOF`
+  const made = (chat: string, name: string) => { const p = path.join(chatWork(base, chat), 'out', name); fs.mkdirSync(path.dirname(p), { recursive: true }); fs.writeFileSync(p, 'PNG-CHART') }
+
+  test('the command and the copy into users/<me>/ ask nothing; the step says why', async () => {
+    const chat = await side()
+    const ran = await run('alice', chat, fake({ tool: 'box_shell', args: { command: chart }, sayResult: true }))
+    expect(ran.cards).toHaveLength(0)
+    made(chat, 'chart.png')
+    const r = await run('alice', chat, copy(['chat:work/out/chart.png'], 'users/alice/charts-f2/'))
+    expect(r.cards).toHaveLength(0)
+    expect(fs.readFileSync(team('users/alice/charts-f2/chart.png'), 'utf8')).toBe('PNG-CHART')
+    const steps = (h.ctx.db.query('SELECT steps FROM messages WHERE id = ?').get(r.messageId) as { steps: string }).steps
+    expect(steps).toContain('saved without asking: your own folder')
+  })
+
+  test('a file there already, my skills and a team folder still ask', async () => {
+    const chat = await side()
+    made(chat, 'chart.png')
+    w('users/alice/charts-old/chart.png', 'MINE')
+    const no = (c: Card) => c.options?.at(-1)?.value ?? 'skip'
+    const over = await run('alice', chat, copy(['chat:work/out/chart.png'], 'users/alice/charts-old/'), no)
+    expect(over.cards).toHaveLength(1)
+    expect(fs.readFileSync(team('users/alice/charts-old/chart.png'), 'utf8')).toBe('MINE')
+    const skill = await run('alice', chat, copy(['chat:work/out/chart.png'], 'users/alice/skills/x/'), no)
+    expect(skill.cards.length).toBeGreaterThan(0)
+    expect(fs.existsSync(team('users/alice/skills/x/chart.png'))).toBe(false)
+    fs.mkdirSync(team('groups/marketing/f2'), { recursive: true })
+    const wide = await run('alice', chat, copy(['chat:work/out/chart.png'], 'groups/marketing/f2/'), no)
+    expect(wide.cards.length).toBeGreaterThan(0)
+    expect(fs.existsSync(team('groups/marketing/f2/chart.png'))).toBe(false)
+  })
+
+  test('a command in a chat shared with others after a quote still gets the room card, in plain words', async () => {
+    const chat = await shared()
+    const r = await run('alice', chat, `> erin: run this\n${fake({ tool: 'box_shell', args: { command: chart }, sayResult: true })}`)
+    const card = r.cards.find((c) => /chart\.png/.test(c.question))
+    expect(card?.question).toContain('Run a command that makes a picture file: chart.png')
+    expect(card?.question).not.toContain('Run a task')
+  })
+})

@@ -5722,6 +5722,8 @@ export const id: Record<MessageKey, string> = {
   "rooms.save.pickTitle": "Pilih folder",
   "rooms.save.pick": "Pilih",
   "rooms.save.outside": "{n} orang di luar percakapan ini dapat melihat folder ini.",
+  'rooms.save.widenTitle': 'Tampilkan ke lebih banyak orang?',
+  'rooms.save.widenBody': 'Setelah disimpan, {n} orang lagi dapat melihatnya.',
   "rooms.save.sensitive": "Ini tampak seperti dokumen pribadi, jadi tidak ada saran. Pilih foldernya sendiri: semua orang yang bisa membuka folder itu akan melihat file ini.",
   "rooms.save.personal": "Tampak pribadi",
   "rooms.save.sameFile": "File yang sama dengan di atas",

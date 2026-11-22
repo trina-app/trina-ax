@@ -19,11 +19,11 @@ const input = (extra: Partial<PromptInput> = {}): PromptInput => ({
 
 describe('act first', () => {
   test('says what it must, and stays short (it goes with every turn)', () => {
-    for (const s of ['do it now instead of asking', 'sample rows labelled as samples', 'say in one line what you assumed', 'any tool limit you met',
+    for (const s of ['do it now instead of asking', 'sample rows labelled as samples', 'also for a short request such as "make a web page"', 'say in one line what you assumed', 'any tool limit you met',
       'Ask first only when a choice cannot be undone, reaches other people, or has no sensible default', 'Never ask again what the user already answered', 'Never ask first what a confirmation card will ask anyway'])
       expect(ACT_FIRST_RULE).toContain(s)
-    // about 140 tokens
-    expect(ACT_FIRST_RULE.length).toBeLessThanOrEqual(720)
+    // about 160 tokens
+    expect(ACT_FIRST_RULE.length).toBeLessThanOrEqual(820)
   })
 
   test('agrees with the honesty line: defaults are never facts, a fact nobody gave stays a blank', () => {
@@ -58,5 +58,14 @@ describe('helper files', () => {
   test('a source made only to convert stays in the user\'s own folder (QA TC-f2-a03)', async () => {
     const { makeFileRule } = await import('../../server/src/chat/prompt')
     for (const hangul of [false, true]) expect(makeFileRule(hangul)).toContain('Write a source you make only to convert (Markdown, CSV, HTML, SVG) in the user\'s own folder, never in a shared, group or project place')
+  })
+})
+
+describe('shared chats look only where the request points', () => {
+  test('an attachment is read as attached, and other private places only when needed (QA TC-f1b-05, TC-f1x)', () => {
+    const p = buildTurnPrompt(h.ctx.files, input({ shared: { project: 'Atlas', audience: 3, asker: 'Alice Kim' }, roomReadable: () => true }))
+    expect(p).toContain('Look only where the request points: a file')
+    expect(p).toContain('is read as attached (never search')
+    expect(buildTurnPrompt(h.ctx.files, input())).not.toContain('Look only where the request points')
   })
 })

@@ -5722,6 +5722,8 @@ export const ko = {
   "rooms.save.pickTitle": "폴더 고르기",
   "rooms.save.pick": "고르기",
   "rooms.save.outside": "이 대화에 없는 {n}명도 이 폴더를 볼 수 있어요.",
+  'rooms.save.widenTitle': '더 많은 사람이 보게 저장할까요?',
+  'rooms.save.widenBody': '저장하면 {n}명이 더 보게 돼요.',
   "rooms.save.sensitive": "개인 서류 같아서 추천하지 않았어요. 폴더를 직접 골라 주세요. 그 폴더를 열 수 있는 사람은 모두 이 파일을 볼 수 있어요.",
   "rooms.save.personal": "개인 서류 같음",
   "rooms.save.sameFile": "위와 같은 파일",
