@@ -1,7 +1,7 @@
 // connect_service for the built-in Google apps (server/src/chat/connect-google-app.ts): which calls are one, and what
 // the AI is told for each state of the app (AI scenario CON-01.calendar, 2026-11-17).
 import { describe, expect, test } from 'bun:test'
-import { googleAppAsked, googleAppWay } from '../../server/src/chat/connect-google-app'
+import { googleAppAsked, googleAppTeamCard, googleAppWay } from '../../server/src/chat/connect-google-app'
 
 describe('which call is a built-in Google app', () => {
   test('by name, in any case or spacing, English or Korean', () => {
@@ -66,5 +66,24 @@ describe('what the AI is told', () => {
   })
   test('needs a new sign-in: Reconnect on its page', () => {
     expect(googleAppWay(app('needs_reconnect'), false, 'ko').text).toContain('presses Reconnect in Settings › Connectors › Google Calendar')
+  })
+})
+
+// #253: an owner or admin gets a card with Connect for the team (the team's shared Google account) where the app can be
+// connected and is not connected for them; a member keeps the words above
+describe('who gets the card with Connect for the team', () => {
+  const app = (status: 'connected' | 'disconnected' | 'needs_reconnect', reason: 'not_set_up' | 'unsupported' | 'service_limited' | null = null, shared: 'connected' | 'needs_reconnect' | null = null) => ({ status, reason, shared: shared ? { status: shared } : null })
+  test('an owner or admin, the app set up and not connected for them: the card; a member never', () => {
+    expect(googleAppTeamCard(app('disconnected'), true)).toBe(true)
+    expect(googleAppTeamCard(app('disconnected'), false)).toBe(false)
+  })
+  test('a team account that needs a new sign-in: the card (its dialog signs it in again)', () => {
+    expect(googleAppTeamCard(app('disconnected', null, 'needs_reconnect'), true)).toBe(true)
+  })
+  test('already connected (their own or the team\'s they may use), their own needing a new sign-in, or not available: the words', () => {
+    expect(googleAppTeamCard(app('connected'), true)).toBe(false)
+    expect(googleAppTeamCard(app('disconnected', null, 'connected'), true)).toBe(false)
+    expect(googleAppTeamCard(app('needs_reconnect'), true)).toBe(false)
+    for (const r of ['not_set_up', 'unsupported', 'service_limited'] as const) expect(googleAppTeamCard(app('disconnected', r), true)).toBe(false)
   })
 })

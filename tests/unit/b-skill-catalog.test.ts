@@ -277,8 +277,10 @@ describe('over the API', () => {
       const ko = await h.api('dana').call(API.listSkillPacks)
       expect(ko.skills.map((s) => s.title)).toEqual(['회의록 정리', '주간 보고·공지', '고객 답장', '계약서 검토', '자연스러운 글', '회사 소개서', '카드뉴스', '홍보 영상'])
       expect(ko.skills.map((s) => s.description)).toEqual(CATALOG.map((c) => packSummary(c.name, 'ko')))
-      // what goes in stays the team's language: the same text language and example for both viewers
-      expect(ko.skills.map((s) => [s.name, s.locale, s.example])).toEqual(ja.skills.map((s) => [s.name, s.locale, s.example]))
+      // what goes in stays the team's language: the same text language for both viewers
+      expect(ko.skills.map((s) => [s.name, s.locale])).toEqual(ja.skills.map((s) => [s.name, s.locale]))
+      // the example is the viewer's own (#352): the ko viewer's examples are the Korean ones, marked with their language
+      expect(ko.skills.map((s) => s.example?.locale)).toEqual(ko.skills.map(() => 'ko'))
       expect(ko.skills.map((s) => s.name)).toEqual(CATALOG.map((c) => c.name))
       // an older client: the same fields as before, a string title and description it shows as they are
       for (const s of [...ja.skills, ...ko.skills]) {

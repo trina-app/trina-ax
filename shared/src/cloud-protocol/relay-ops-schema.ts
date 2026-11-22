@@ -4,7 +4,7 @@
 import { z } from 'zod'
 import { IsoTime } from './common.ts'
 import {
-  EXTERNAL_REF_RE, MAX_CLAIM_TTL_SEC, MAX_HOLD_TTL_SEC, OPS_SCOPES, REGION_RE, SUSPEND_REASONS, TEAM_ORIGINS,
+  EXTERNAL_REF_RE, MAX_CLAIM_TTL_SEC, MAX_HOLD_TTL_SEC, OPS_SCOPES, REGION_RE, SUSPEND_REASONS, TEAM_ORIGINS, WAKE_BUSY_REASONS,
 } from './relay-ops.ts'
 
 const B64 = /^[A-Za-z0-9+/]+=*$/
@@ -32,7 +32,9 @@ export const OpsCreateTeamRequestSchema = z.strictObject({
 export const OpsSuspendRequestSchema = z.strictObject({ reason: z.enum(SUSPEND_REASONS) })
 export const OpsSleepRequestSchema = z.strictObject({ sleeping: z.boolean() })
 export const OpsWakeRequestSchema = z.strictObject({ teamId: z.string().regex(/^[A-Za-z0-9_-]{1,64}$/), reason: z.enum(['http', 'ws']) })
-export const OpsWakeResponseSchema = z.object({ state: z.enum(['waking', 'awake', 'busy', 'unknown']), retryAfterSec: z.number().int().nonnegative() })
+// reason: optional and only with state 'busy' (see OpsWakeResponse); absent = a plain busy, as before
+export const OpsWakeResponseSchema = z.object({ state: z.enum(['waking', 'awake', 'busy', 'unknown']), retryAfterSec: z.number().int().nonnegative(), reason: z.enum(WAKE_BUSY_REASONS).optional() })
+  .refine((r) => r.reason === undefined || r.state === 'busy', { message: "reason only with state 'busy'", path: ['reason'] })
 export const OpsMaintenanceRequestSchema = z.strictObject({ untilMs: z.number().int().nullable() })
 export const OpsKeyRequestSchema = z.strictObject({ publicKey: z.string().max(200).regex(B64), newKeySig: z.string().max(200).regex(B64) })
 export const OpsRenameRequestSchema = z.strictObject({ name: Name })

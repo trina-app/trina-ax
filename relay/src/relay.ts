@@ -28,7 +28,7 @@ import { handleRegistryApi } from './api.ts'
 import type { RelayLog } from './log.ts'
 import { renderMetrics, type MetricsSource } from './metrics.ts'
 import { OpsApi } from './ops-api.ts'
-import { DEFAULT_PAGE_LINKS, PAGE_RETRY_AFTER, PAGE_STATUS, headTooBigResponse, htmlPage, pageMessage, wakingRefreshSec, pickLang, type PageKind, type PageLinks } from './pages.ts'
+import { DEFAULT_PAGE_LINKS, PAGE_DETAIL, PAGE_RETRY_AFTER, PAGE_STATUS, RELAY_ERROR_OF, headTooBigResponse, htmlPage, noRoomRetrySec, pageMessage, wakingRefreshSec, pickLang, type PageKind, type PageLinks } from './pages.ts'
 import { ipInRanges, unmapIp, visitorKey } from './proxies.ts'
 import type { KeyRow, Registry, TeamRow } from './registry.ts'
 import { WakeClient, type WakeAnswer } from './wake.ts'
@@ -440,6 +440,8 @@ export class RelayServer {
         this.counters.httpWaking++
         return this.sendPage(req, res, 'team_waking', null, { html: navigation, retryAfter: navigation ? wakingRefreshSec(a?.retryAfterSec) : Math.max(1, Math.min(a?.retryAfterSec ?? 3, 30)) })
       }
+      // busy with the no_room hint: the control plane keeps trying and emails the owners; a calm page, reloads >= 60 s
+      if (a.state === 'busy' && a.reason === 'no_room') { this.counters.httpOffline++; return this.sendPage(req, res, 'team_no_room', null, { html: navigation, retryAfter: noRoomRetrySec(a.retryAfterSec) }) }
       if (a.state === 'busy') { this.counters.httpOffline++; return this.sendPage(req, res, 'team_busy', null, { html: navigation, retryAfter: a.retryAfterSec }) }
     }
     if (!ctl) {
@@ -541,18 +543,20 @@ export class RelayServer {
     const status = PAGE_STATUS[kind]
     // a browser page load asks for text/html; Sec-Fetch-Dest: document covers a navigation whose Accept header was stripped
     const wantsHtml = o.html ?? (!(req.url ?? '').startsWith('/api/') && (/text\/html/.test(req.headers.accept ?? '') || req.headers['sec-fetch-dest'] === 'document'))
-    const extra: Record<string, string> = { 'cache-control': 'no-store', 'x-relay-error': kind }
+    // a page kind that is a variant of another keeps that one's code (RELAY_ERROR_OF: apps match x-relay-error)
+    const relayError = RELAY_ERROR_OF[kind] ?? kind, detail = PAGE_DETAIL[kind]
+    const extra: Record<string, string> = { 'cache-control': 'no-store', 'x-relay-error': relayError, ...(detail ? { 'x-relay-detail': detail } : {}) }
     const retryAfter = status === 503 ? o.retryAfter ?? PAGE_RETRY_AFTER[kind] ?? 5 : null
     if (retryAfter !== null) extra['retry-after'] = String(retryAfter)
     if (this.cfg.hsts && this.teamName(req)) extra['strict-transport-security'] = HSTS
     if (wantsHtml) {
       res.writeHead(status, { 'content-type': 'text/html; charset=utf-8', ...extra })
-      res.end(htmlPage(kind, lang, offlineForMs, this.pageLinks, kind === 'team_waking' ? retryAfter : null))
+      res.end(htmlPage(kind, lang, offlineForMs, this.pageLinks, kind === 'team_waking' || kind === 'team_no_room' ? retryAfter : null))
       return
     }
     // codes from the app's ErrorCode list (shared/src/api/common.ts), so the web client handles relay answers alike
     const code = kind === 'team_unknown' || kind === 'not_found' ? 'not_found' : kind === 'team_suspended' || kind === 'team_suspended_billing' ? 'forbidden' : kind === 'bad_request' || kind === 'request_timeout' ? 'bad_request' : 'unavailable'
-    sendJson(res, status, { error: { code, message: pageMessage(kind, lang, offlineForMs), reason: kind, ...(retryAfter !== null ? { retryAfter } : {}) } }, extra)
+    sendJson(res, status, { error: { code, message: pageMessage(kind, lang, offlineForMs), reason: relayError, ...(detail ? { detail } : {}), ...(retryAfter !== null ? { retryAfter } : {}) } }, extra)
   }
 
   /**

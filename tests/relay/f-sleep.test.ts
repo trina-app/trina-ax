@@ -29,7 +29,7 @@ fs.writeFileSync(wakeKeyFile, wakeKey.privateKey.export({ type: 'pkcs8', format:
 interface WakeCall { teamId: string; reason: string; ts: number; sigOk: boolean }
 const calls: WakeCall[] = []
 /** answer per team id; 'start' = answer waking and start that team's server (the VM resumes) */
-const answers = new Map<string, { state: string; retryAfterSec: number; start?: () => void }>()
+const answers = new Map<string, { state: string; retryAfterSec: number; reason?: string; start?: () => void }>()
 let cpServer: ReturnType<typeof Bun.serve> | null = null
 
 let keys: ReturnType<typeof writeOpsKeys>
@@ -75,7 +75,7 @@ beforeAll(async () => {
       if (!sigOk) return Response.json({ error: { code: 'unauthorized' } }, { status: 401 })
       const a = answers.get(b.value.teamId) ?? { state: 'unknown', retryAfterSec: 0 }
       a.start?.()
-      return Response.json({ state: a.state, retryAfterSec: a.retryAfterSec })
+      return Response.json({ state: a.state, retryAfterSec: a.retryAfterSec, ...(a.reason ? { reason: a.reason } : {}) })
     },
   })
   keys = writeOpsKeys(path.join(dir, 'operator-keys.json'), [{ keyId: 'cp', scopes: ['teams:read', 'teams:write'] }])
@@ -187,6 +187,27 @@ describe('busy and unknown answers', () => {
     const r = await fetch(teamUrl(PORT, 'crowded', '/api/me'), { headers: APP })
     expect(Date.now() - t0).toBeLessThan(3000)
     expect([r.status, r.headers.get('x-relay-error'), r.headers.get('retry-after')]).toEqual([503, 'team_busy', '42'])
+  })
+  test('busy + no_room: the calm page that reloads after 60-300 s; still team_busy for the apps', async () => {
+    const t = await makeTeam('roomless')
+    answers.set(t.id, { state: 'busy', retryAfterSec: 5, reason: 'no_room' })
+    await sleep(t)
+    const page = await fetch(teamUrl(PORT, 'roomless', '/'), { headers: { ...NAV, cookie: 'mycel_locale=ko' } })
+    expect([page.status, page.headers.get('x-relay-error'), page.headers.get('x-relay-detail'), page.headers.get('retry-after')]).toEqual([503, 'team_busy', 'no_room', '60'])
+    const h = await page.text()
+    expect(h).toContain('지금 서버 자리가 잠깐 모자라요. 자리가 나는 대로 바로 깨워서 팀 관리자에게 이메일로 알려 드려요.')
+    expect(h).toContain('<meta http-equiv="refresh" content="60">')
+    // the API answer: same code and reason as a plain busy, plus the detail
+    const api = await fetch(teamUrl(PORT, 'roomless', '/api/me'), { headers: APP })
+    expect([api.status, api.headers.get('x-relay-error'), api.headers.get('x-relay-detail')]).toEqual([503, 'team_busy', 'no_room'])
+    expect(((await api.json()) as { error: unknown }).error).toMatchObject({ code: 'unavailable', reason: 'team_busy', detail: 'no_room', retryAfter: 60 })
+  })
+  test('a hint on another state, or an unknown hint, changes nothing', async () => {
+    const t = await makeTeam('oddhint')
+    answers.set(t.id, { state: 'busy', retryAfterSec: 42, reason: 'something_new' })
+    await sleep(t)
+    const r = await fetch(teamUrl(PORT, 'oddhint', '/api/me'), { headers: APP })
+    expect([r.status, r.headers.get('x-relay-error'), r.headers.get('x-relay-detail'), r.headers.get('retry-after')]).toEqual([503, 'team_busy', null, '42'])
   })
   test('unknown: the usual cloud offline page', async () => {
     const t = await makeTeam('ghost')
