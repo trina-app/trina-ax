@@ -47,10 +47,9 @@
   the connection (20261118-shared-chat-connections.md).
 - **Rule, words and one press:** the question says what happens in plain words; three buttons (Allow / Always allow /
   Don't allow, `buttons: true`), one line under them saying what Always covers and that Settings removes it. The read
-  card: "Bright Data로 이 페이지를 읽어요 · m.blog.naver.com/…" (one web address in the call: host and path, ≤ 60
+  card: "Bright Data에서 이 페이지를 읽어 와요 · m.blog.naver.com/…" (one web address in the call: host and path, ≤ 60
   characters) or "Bright Data에서 읽어 와요: Get post". The shared card: "AI가 Aside에서 가져온 내용을 이 채팅의 5명이
-  함께 봐요." (no particle after a service name). A change on the person's own things: "Tasks에서 할 일 만들기을(를)
-  해요" style ("Create a task in Tasks"). Code an app on the computer runs (Aside's repl, a declared CLI's script): the
+  함께 봐요." (no particle after a service or tool name: a name's particle cannot always be told). A change on the person's own things: "Tasks에서 “할 일 만들기” 작업을 해요" style ("Create a task in Tasks"). Code an app on the computer runs (Aside's repl, a declared CLI's script): the
   generic line with the title the AI gave the call said as the AI's ("Aside에서 작업을 실행해요 · AI 설명: 열린 탭 확인":
   the call carries it, so it is never stated as fact; code review), and the code,
   parameters and ids only behind one "자세히" (`ConfirmDetail.hidden`). A call that reaches other people keeps "send"
