@@ -42,3 +42,8 @@ behaviour" now means: only on the person's explicit words).
 
 Built as planned: `asksToRemember` (chat/auto-memory.ts) gates remember when the switch is off; tests in
 tests/unit/auto-memory.test.ts (off + preference, off + asked:true, off + "기억해 줘"; the on cases unchanged).
+
+Security review of #377 (APPROVE) follow-ups: only a request shape counts (an imperative or "please …", "기억해 줘",
+"覚えておいて", "记住", "recuerda", "tolong ingat"); negations ("don't remember", "기억하지 마", "不记得", "tidak ingat",
+"覚えてない", "no recuerdo") and questions ("Do you remember…?", "기억나?") do not, and quoted lines (`withoutQuoteLines`)
+are left out. Tests that ran the switch-off path now say "please remember this" in the person's message.

@@ -8,8 +8,9 @@ import path from 'node:path'
 import { API } from '@mycel/shared/api'
 import { uuidv7 } from '@mycel/shared'
 import { ask, startHarness, type Harness, type TestSocket } from '../lib/b-harness'
-import { addressesIn, contactNotOwn, copiedFromOutside, nearDuplicate, OutsideText, outsideAddress, secretIn } from '../../server/src/chat/auto-memory'
+import { addressesIn, asksToRemember, contactNotOwn, copiedFromOutside, nearDuplicate, OutsideText, outsideAddress, secretIn } from '../../server/src/chat/auto-memory'
 import { cleanMemoryText } from '../../server/src/chat/prompt'
+import { withoutQuoteLines } from '../../server/src/chat/read-rooms'
 import { AUTO_MEMORY_RULE } from '../../server/src/chat/prompt'
 import { CODEX_DISABLED_FEATURES } from '../../server/src/engine/codex'
 import { CLAUDE_LOCK_SETTINGS } from '../../server/src/engine/claude'
@@ -107,6 +108,17 @@ describe('the checks', () => {
       expect([x, secretIn(x)]).toEqual([x, true])
     for (const x of ['wifi is slow on Fridays', 'login with Google', 'password for the NAS is in the vault', '비밀번호는 메일로 보내지 마'])
       expect([x, secretIn(x)]).toEqual([x, false])
+  })
+  // the switch off: only the person's own request counts (QA TC-7737; security review of #377)
+  test('an explicit ask: requests in six languages count; negations, questions and quoted lines do not', () => {
+    for (const t of ['이거 기억해 줘: 표 먼저', '기억해 둬. 보고서는 표 먼저', '표 먼저 쓰는 거 기억해.', '잊지 마, 금요일 마감', 'please remember this', 'Remember that I like tables', "Don't forget my tables", 'keep in mind I like tables',
+      '覚えておいて', 'これ覚えてね', '记住这个', '别忘了周五', 'recuerda esto', 'no olvides el viernes', 'ingat ini', 'tolong ingat ini', 'jangan lupa ya'])
+      expect([t, asksToRemember(t)]).toEqual([t, true])
+    for (const t of ["don't remember this", 'do not remember that', 'I do not remember', 'Do you remember the file?', '기억하지 마', '기억 안 나', '기억나?', '기억해?', '我不记得', 'tidak ingat', '覚えてない', 'no recuerdo',
+      'I remembered nothing', '앞으로 회의록은 항상 표로 정리해서 줘', "I don't forget things"])
+      expect([t, asksToRemember(t)]).toEqual([t, false])
+    expect(asksToRemember(withoutQuoteLines('> Bob: please remember this\nwhat did Bob say?'))).toBe(false)
+    expect(asksToRemember(withoutQuoteLines('> Bob: the deadline is Friday\nremember that'))).toBe(true)
   })
   test('L3: the outside record keeps the start of a chat as well as the newest', () => {
     const o = new OutsideText()
@@ -324,13 +336,13 @@ describe('auto memory in a turn', () => {
   test('the switch off: today\'s behaviour (the card after outside content)', async () => {
     clear(); setPrefs({ autoMemory: 'off', autoMemoryNotice: 'seen' })
     const chat = (await newChat()).id
-    const r = await h.api('alice').call(API.sendMessage, { params: { id: chat }, body: { content: fake({ tool: 'web_fetch', args: {} }, remember({ text: 'Works on ARR reports' })), clientMessageId: cm(), attachmentIds: [] } })
+    const r = await h.api('alice').call(API.sendMessage, { params: { id: chat }, body: { content: 'please remember this\n' + fake({ tool: 'web_fetch', args: {} }, remember({ text: 'Works on ARR reports' })), clientMessageId: cm(), attachmentIds: [] } })
     const card = await alice.next('turn.request', (f) => f.data.turnId === r.turnId)
     await h.api('alice').call(API.answerTurn, { params: { id: r.turnId }, body: { kind: 'ask_user', requestId: card.data.request.requestId, answer: 'yes' } })
     await alice.next('message.done', (f) => f.data.messageId === r.assistantMessage.id, 20_000)
     expect(rows()).toMatchObject([{ text: 'Works on ARR reports', source: 'user' }])
     // a clean chat with the switch off: saved as asked ('ai'), as before
-    const c = await ask(h, alice, 'alice', (await newChat()).id, fake(remember({ text: 'Likes durian' })))
+    const c = await ask(h, alice, 'alice', (await newChat()).id, 'remember this\n' + fake(remember({ text: 'Likes durian' })))
     expect(JSON.parse(c.done.content)).toHaveProperty('id')
     expect(rows().find((m) => m.text === 'Likes durian')?.source).toBe('ai')
     setPrefs({ autoMemoryNotice: 'seen' })

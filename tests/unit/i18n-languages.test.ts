@@ -110,7 +110,7 @@ const KOREAN_ALLOWED: Record<string, { why: string; also?: RegExp }> = {
   'server/src/files/media-text.ts': { why: 'notes the AI gets about a video or audio read (ko next to en/id/ja/es)' },
   'server/src/files/locations.ts': { why: 'the words of the place labels the AI sees, "시트 \'매출\'", "슬라이드 3" (ko next to en/id/ja/es)' },
   'server/src/files/media.ts': { why: 'a whisper marker dropped from transcripts, and its video-outro inventions a retry may not be (not screen text)', also: /MUSIC\|음악|^const OUTRO = \// },
-  'server/src/chat/auto-memory.ts': { why: 'words that mark a password or a one-time code in a memory, in every language (secret patterns, not screen text)', also: /const SECRET_WORD = |\(\?:is\|was\|은|인증\\s\*번호|와이파이|로그인|골뱅이|"wifi pass is|"로그인|'기억|'잊지/ },
+  'server/src/chat/auto-memory.ts': { why: 'words that mark a password or a one-time code in a memory, in every language (secret patterns, not screen text)', also: /const SECRET_WORD = |\(\?:is\|was\|은|인증\\s\*번호|와이파이|로그인|골뱅이|"wifi pass is|"로그인|기억해|기억하세요|잊지/ },
   'server/src/notifications/text.ts': { why: 'generic push notification texts (ko next to en/id/ja/es)' },
   'server/src/connectors/remote-mcp/upload.ts': { why: "the Korean name of the app's 팀 스킬 page, quoted in English text for an outside AI (not screen text)", also: /\(팀 스킬\)/ },
   'server/src/connectors/remote-mcp/guide.ts': { why: "the Korean name of the app's 팀 스킬 page, quoted in English text for an outside AI (not screen text)", also: /\(팀 스킬\)/ },

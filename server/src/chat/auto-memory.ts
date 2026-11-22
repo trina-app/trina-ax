@@ -38,25 +38,32 @@ export function autoMemoryOn(db: Database, userId: string): boolean {
   } catch { return true }
 }
 
-/** The words with which a person asks to keep something, in the six app languages (QA TC-7737: with auto memory off,
- * a memory is kept only when the person's own message asks for it). */
-const ASKS_TO_REMEMBER = new RegExp([
-  // ko
-  '기억\\s*해', '기억\\s*하', '기억해\\s*둬', '기억해\\s*줘', '잊지\\s*마', '잊지\\s*말',
-  // en
-  '\\bremember\\b', '\\bmemori[sz]e\\b', "\\bdon[\\u2019']?t\\s+forget\\b", '\\bdo\\s+not\\s+forget\\b', '\\bkeep\\s+in\\s+mind\\b',
+/** The request shapes with which a person asks to keep something, in the six app languages (QA TC-7737: with auto
+ * memory off, a memory is kept only when the person's own message asks for it). Only a request counts: a negation
+ * ("don't remember", "기억하지 마", "不记得", "tidak ingat", "覚えてない", "no recuerdo") or a question ("Do you remember…?",
+ * "기억나?") does not (security review of #377). */
+const ASKS_TO_REMEMBER: RegExp[] = [
+  // ko: 기억해 줘 / 둬 / 놔 / 주세요, a bare 기억해 at the end of a sentence, 잊지 마
+  /기억해\s*(?:줘|줄래|둬|놔|놓아|주세요|두세요|놓으세요|주실래요)/u, /기억해\s*[.!~]*$/u, /기억하세요/u, /잊지\s*마(?:세요|요|라)?/u,
+  // en: an imperative at the start of a sentence (after "please", "also" …), "don't forget", "keep in mind"
+  /^(?:(?:please|pls|also|and|so|just|now|ok|okay|hey)[\s,]+)*(?:remember|memori[sz]e|keep\s+in\s+mind)\b/iu,
+  /\b(?:please|pls)\s+(?:remember|memori[sz]e|keep\s+in\s+mind)\b/iu,
+  /(?<!\b(?:i|we)\s)\b(?:don['\u2019]?t|do\s+not)\s+forget\b/iu,
   // ja
-  '覚えて', '覚えといて', '忘れないで', '記憶して',
+  /覚えて(?:おいて|おいてください|ください|ね|て)|覚えといて|忘れないで/u,
   // zh
-  '记住', '記住', '别忘', '不要忘', '记得',
+  /(?<![不没没有])(?:请|要)?记住|(?<![不没])記住|别忘|不要忘|请记得|要记得|记得要/u,
   // es
-  '\\brecuerda', '\\brecordar', '\\bno\\s+olvides\\b', '\\bten\\s+en\\s+cuenta\\b',
+  /^(?:(?:por\s+favor|y|también)[\s,]+)*recuerda(?:lo|me)?\b/iu, /\bpor\s+favor\s+recuerda/iu, /\bno\s+olvides\b/iu, /\bten\s+en\s+cuenta\b/iu,
   // id
-  '\\bingat(?:lah|kan)?\\b', '\\bjangan\\s+lupa\\b',
-].join('|'), 'iu')
-/** Does the person's own message ask to keep something ("기억해 줘", "remember that", "覚えておいて", "记住" …)? */
+  /^(?:(?:tolong|harap|mohon|dan)\s+)*ingat(?:lah|kan)?\b/iu, /\b(?:tolong|harap|mohon)\s+ingat/iu, /\bjangan\s+lupa\b/iu,
+]
+/** Does the person's own message ask to keep something ("기억해 줘", "remember that …", "覚えておいて", "记住" …)? Quoted
+ * lines ("> …", someone else's words) are left out by the caller; a sentence that ends in a question mark never counts. */
 export function asksToRemember(message: string | null | undefined): boolean {
-  return !!message && ASKS_TO_REMEMBER.test(stripInvisible(message).normalize('NFKC'))
+  if (!message) return false
+  const sentences = stripInvisible(message).normalize('NFKC').split(/(?<=[.!?。！？\n])/u).map((x) => x.trim()).filter(Boolean)
+  return sentences.some((s) => !/[?？]$/u.test(s) && ASKS_TO_REMEMBER.some((re) => re.test(s)))
 }
 
 /** Is this the first memory the AI keeps on its own for the person (the one-time line under its step)? Marks it seen. */

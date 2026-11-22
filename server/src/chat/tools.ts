@@ -92,7 +92,7 @@ import { BULK_CARD_MS, bulkCard, type BulkAsk, type BulkWho } from '../devenv/bu
 import { WALK_MAX } from '../files/access-routes'
 import { projectMembersTool } from './project-members'
 import { folderAccessOff, folderAccessTool } from './folder-access-tool'
-import { readRooms } from './read-rooms'
+import { readRooms, withoutQuoteLines } from './read-rooms'
 import { seenWhy } from './grant-reads'
 import { WEB_ACCESS_CHANGED } from '../admin/settings'
 import { isGuestUser } from '../credentials/guest-ai'
@@ -1305,7 +1305,7 @@ function bTools(exec: TurnExec): Tool[] {
         const switchOn = autoMemoryOn(rt.db, spec.userId)
         // the switch off: kept only when the person's own message of this turn asks for it in so many words; the
         // model's `asked` never stands in for them (QA TC-7737). Nothing asks: the call is skipped quietly
-        if (!switchOn && !asksToRemember(rt.store.messageRow(spec.userMessageId)?.content))
+        if (!switchOn && !asksToRemember(withoutQuoteLines(rt.store.messageRow(spec.userMessageId)?.content ?? '')))
           return skip('Not kept: the user turned automatic memory off, so memories are kept only when they ask in their own words. Do not call remember unless they do; they can say "remember this" or add it in Settings › Memory. Do not mention this unless they ask about memory.', 'auto memory off, not asked')
         const auto = switchOn && exec.autoMemoryPlace
         const mine = rt.db.query('SELECT id, text, source FROM memories WHERE user_id = ?').all(spec.userId) as { id: string; text: string; source: string }[]
