@@ -10,6 +10,7 @@
 //
 // Never shared: a chat in a personal project, a chat made while safe operations (1A) are on, a confidential chat
 // (markConfidentialTurn refuses a shared one). While 1A is on, shared chats are read-only.
+import { creatorGone } from './chat-lost'
 import { chatFilePath } from '@mycel/shared/places'
 import type { Database } from 'bun:sqlite'
 import { CHAT_PEOPLE_SHOWN, type Attachment, type AudienceSplit, type Chat, type Locale, type UserRef } from '@mycel/shared/api'
@@ -406,6 +407,8 @@ export function sharedOf(rt: ChatRuntime, viewer: string, r: ChatRow, aud: Audie
       // a file from the computer is kept with the chat (chat/chat-files.ts), for everyone in it; not while safe operations
       // are on (the chat is read-only then)
       canUpload: !safeOpsEnabled(),
+      // its creator's account gone (deleted or switched off): the others read that under the box (QA TC-7431)
+      ...(() => { if (creator) return {}; const g = creatorGone(rt.db, r.user_id); return g ? { byGone: g } : {} })(),
     }
   }
   const project = rt.store.projectRow(r.project_id!)

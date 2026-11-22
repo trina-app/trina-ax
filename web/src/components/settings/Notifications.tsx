@@ -5,7 +5,7 @@ import { fileBatchUrl, fileLinkUrl, isGoogleRequestable, type InboxNotification,
 import { api, API, errorText } from '../../lib/api'
 import { connectionHref, connectorHref, CONNECTORS_HOME } from '../../lib/connectors'
 import { firstRunText } from '../../lib/teamGoal'
-import { formatSize } from '../../lib/format'
+import { formatDate, formatSize } from '../../lib/format'
 import { useLocale, useT } from '../../i18n'
 import { accessChanged, reloadAsked } from '../../store/live'
 import { peekCached, rememberCached } from '../../store/listCache'
@@ -150,6 +150,8 @@ export function noticeText(item: InboxNotification, t: T, locale: Locale): React
   // a chat shared with me (docs/DECISIONS.md "Chats shared with people and groups"): who shared it while their account is
   // there; one I no longer see says so (no title, no link)
   if (item.code === 'chat.shared' && item.chatShared) return item.chatShared.gone ? t('notifications.event.chat.sharedGone') : item.chatShared.name ? t('notifications.event.chat.sharedNamed', { name: item.chatShared.name }) : t('notifications.event.chat.shared')
+  // a chat shared with me that I lost (docs/decisions/20261122-shared-chat-leave-and-lost-notices.md): why, and who
+  if (item.code === 'chat.lost' && item.chatLost) return chatLostText(item.chatLost, t, locale)
   // a reply in a thread I follow under an AI answer of a shared chat: who and which chat while I still see it; else it
   // says so with nothing of it
   // a reply of it mentions me (docs/decisions/20261118-chat-thread-mentions.md): "mentioned you", by who did
@@ -410,4 +412,12 @@ export function Notifications() {
       {freeRoam ? null : isDesktop() ? <DesktopNotifications /> : <PushNotifications />}
     </PrefSection>
   </section>
+}
+
+/** 'chat.lost': who stopped sharing it, moved it to the trash, or left the team (with when the chat goes). */
+export function chatLostText(c: NonNullable<InboxNotification['chatLost']>, t: ReturnType<typeof useT>, locale: Locale): string {
+  if (!c.name) return t('notifications.event.chat.lost')
+  if (c.reason === 'stopped') return t('notifications.event.chat.lostStopped', { name: c.name })
+  if (c.reason === 'deleted') return t('notifications.event.chat.lostDeleted', { name: c.name })
+  return c.until ? t('notifications.event.chat.lostAccount', { name: c.name, date: formatDate(c.until, locale) }) : t('notifications.event.chat.lostAccountNow', { name: c.name })
 }

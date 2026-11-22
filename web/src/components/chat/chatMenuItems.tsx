@@ -3,9 +3,10 @@
 // 프로젝트에 추가 / 프로젝트 변경 where a chat may move (never a shared one), "Share" where sharing is possible (lib/
 // sharedChat.ts shareKindOf: a chat outside projects that is mine, my private chat in a team project, my chat in a
 // personal project, which explains and offers Move; never a shared project chat: docs/DECISIONS.md "Chats shared with
-// people and groups"), "Hide from my list" for a chat someone shared with me (opening it brings it back), 삭제 for its
+// people and groups"), "Hide from my list" for a chat someone shared with me (opening it brings it back) and "Leave this
+// chat" (out of it until its creator adds me again), 삭제 for its
 // creator or an editor of its project (lib/sharedChat.ts sharedRights: the server's own rules).
-import { EyeOff, FolderInput, Pencil, Pin, PinOff, Trash2, Users } from 'lucide-react'
+import { EyeOff, FolderInput, LogOut, Pencil, Pin, PinOff, Trash2, Users } from 'lucide-react'
 import type { RefObject } from 'react'
 import type { Chat } from '@mycel/shared/api'
 import { useT } from '../../i18n'
@@ -57,6 +58,8 @@ export function useChatMenuItems(chat: Chat, { testId, more, select = (fn) => ()
     ...(rights.canMove && onMove ? [{ label: t(moveLabel(chat)), icon: <FolderInput size={14} aria-hidden />, onSelect: () => (more.current?.focus(), onMove(chat)), testId: `${testId}-move` }] : []),
     ...(share ? [{ label: t('chat.share.menu'), icon: <Users size={14} aria-hidden />, onSelect: select(() => startShare(chat, share)), testId: `${testId}-share` }] : []),
     ...(mayHideChat(chat, me.user.id) ? [{ label: t('chat.hide'), icon: <EyeOff size={14} aria-hidden />, onSelect: select(() => actions.hide(chat, onRemoved)), testId: `${testId}-hide` }] : []),
+    // "Leave this chat": out of it for good, until its creator adds me again (QA TC-7651)
+    ...(mayHideChat(chat, me.user.id) ? [{ label: t('chat.leave'), icon: <LogOut size={14} aria-hidden />, danger: true, onSelect: select(() => actions.leave(chat, onRemoved)), testId: `${testId}-leave` }] : []),
     ...(rights.canDelete ? [{ label: t('common.delete'), icon: <Trash2 size={14} aria-hidden />, danger: true, onSelect: select(() => actions.remove(chat, (c, trashed) => (trashed ? onRemoved?.(c) : onChanged?.(c)))), testId: `${testId}-delete` }] : []),
   ]
 }

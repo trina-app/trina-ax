@@ -502,7 +502,7 @@ function NoticeRow({ item, onRead, onChanged }: { item: InboxNotification; onRea
   const link = noticeLink(item)
   const d = item.devEnv
   // what it is about: a project, or the chat someone shared with me (its title while I still see it)
-  const project = item.link === 'project' && d?.projectName ? d.projectName : item.code === 'chat.shared' && item.chatShared?.title ? item.chatShared.title : null
+  const project = item.link === 'project' && d?.projectName ? d.projectName : item.code === 'chat.shared' && item.chatShared?.title ? item.chatShared.title : item.code === 'chat.lost' && item.chatLost?.title ? item.chatLost.title : null
   // a member's ask to add an app (an owner or admin): what the row does while it waits, as a button inside the row's link
   // (the row opens the app's setup), and "Added" once members can connect it
   const sr = item.code === 'service.request' ? item.serviceRequest : undefined

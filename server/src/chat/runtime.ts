@@ -187,15 +187,24 @@ export function resetEngineSessions(ctx: AppContext, userId: string): number {
 
 /** A disabled or deleted account: its running and queued turns stop now (they would otherwise go on with the
  * engine on the owner's subscription until the answer ends; their tool calls are already refused). */
-export function stopTurnsOf(ctx: AppContext, userId: string): number {
-  return runtimes.get(ctx)?.stopUserTurns(userId) ?? 0
+export function stopTurnsOf(ctx: AppContext, userId: string, why?: StoppedFor): number {
+  return runtimes.get(ctx)?.stopUserTurns(userId, why) ?? 0
 }
+
+/** Why an answer was stopped for its requester (messages.stopped_for, migration 435): their account was deleted or
+ * switched off. The people still in a shared chat read it under the answer (Message.stoppedFor, QA TC-7431). */
+export type StoppedFor = 'requester_removed' | 'requester_disabled'
 
 /** Someone stopped seeing these shared chats (their project's members changed: admin/folders.ts afterAccessChange): their
  * running or queued turn in them stops now, so nothing more of it reaches them and it reads nothing more with their
  * access (a shared chat runs one turn at a time; another person's turn there goes on). */
 export function stopTurnsIn(ctx: AppContext, userId: string, chatIds: readonly string[]): number {
   return runtimes.get(ctx)?.stopUserTurnsIn(userId, chatIds) ?? 0
+}
+
+/** Everyone in this chat hears it again as they see it (chat.updated): an account change of its creator (QA TC-7431). */
+export function publishChatChanged(ctx: AppContext, userId: string, chatId: string): void {
+  runtimes.get(ctx)?.publishChat(userId, chatId, 'updated')
 }
 
 /** Any access changed (admin/folders.ts afterAccessChange): every running answer of a shared chat works out who gets its
@@ -585,13 +594,29 @@ export class ChatRuntime {
   /** Every running answer works out who gets its live text again (chat/live-answer.ts). */
   forgetLiveViewers() { for (const e of this.running.values()) e.forgetLiveViewers() }
   /** Stop every running and queued turn of one person (account disabled / deleted). */
-  stopUserTurns(userId: string): number {
+  stopUserTurns(userId: string, why?: StoppedFor): number {
     // (their account is off: nobody's live text reaches them any more)
     this.forgetLiveViewers()
     this.db.query('UPDATE schedules SET pending_due_at=NULL, retry_at=NULL, enabled=0 WHERE user_id=?').run(userId)
-    const chats = new Set([...this.running.values()].map((e) => e.spec).concat(this.queued).filter((s) => s.userId === userId).map((s) => s.chatId))
+    // their own running answers stop (labelled with why), then their queued turns are dropped one by one: a queued turn
+    // of theirs never stops someone else's answer running in that chat (the plan review of QA TC-7431)
     let n = 0
-    for (const chatId of chats) if (this.stopChat(chatId)) n++
+    for (const e of [...this.running.values()]) if (e.spec.userId === userId) {
+      if (why) e.stoppedFor = why
+      if (this.stopChat(e.spec.chatId)) n++
+    }
+    return n + this.dropQueuedOf(userId, null, why)
+  }
+
+  /** Drop this person's queued turns (in these chats; null: anywhere), each as Stop drops a queued one. */
+  private dropQueuedOf(userId: string, chatIds: ReadonlySet<string> | null, why?: StoppedFor): number {
+    // (each drop may start the next turn in line: the place of each is found again)
+    const turns = this.queued.filter((s) => s.userId === userId && (!chatIds || chatIds.has(s.chatId))).map((s) => s.turnId)
+    let n = 0
+    for (const turnId of turns) {
+      const i = this.queued.findIndex((s) => s.turnId === turnId)
+      if (i >= 0) { this.dropQueuedAt(i, why); n++ }
+    }
     return n
   }
 
@@ -602,14 +627,11 @@ export class ChatRuntime {
     const lost = new Set(chatIds)
     // an answer running there for someone else goes on, but its live text no longer reaches them (chat/live-answer.ts)
     for (const e of this.running.values()) if (lost.has(e.spec.chatId)) e.forgetLiveViewers()
-    const chats = new Set([...this.running.values()].map((e) => e.spec).concat(this.queued).filter((s) => s.userId === userId && lost.has(s.chatId)).map((s) => s.chatId))
     let n = 0
-    // (stopChat stops the chat's running turn first: only while that one is theirs, never another person's)
-    for (const chatId of chats) {
-      const runner = [...this.running.values()].find((e) => e.spec.chatId === chatId)
-      if ((!runner || runner.spec.userId === userId) && this.stopChat(chatId)) n++
-    }
-    return n
+    // their running answer there stops (never another person's); their queued turns there are dropped, also while
+    // someone else's answer runs (a leave, a removal: nothing of theirs waits to run there)
+    for (const e of [...this.running.values()]) if (e.spec.userId === userId && lost.has(e.spec.chatId) && this.stopChat(e.spec.chatId)) n++
+    return n + this.dropQueuedOf(userId, lost)
   }
 
   private enqueue(spec: TurnSpec & QueueTiming) {
@@ -932,11 +954,17 @@ export class ChatRuntime {
     }
     const i = this.queued.findIndex((s) => s.chatId === chatId)
     if (i < 0) return null
+    return this.dropQueuedAt(i)
+  }
+
+  /** Stop the queued turn at this place in line (Stop on a queued answer, or the person's own turns dropped). */
+  private dropQueuedAt(i: number, why?: StoppedFor): string {
     const spec = this.queued[i]!
+    const chatId = spec.chatId
     const now = new Date().toISOString()
     this.db.transaction(() => {
       this.db.query("UPDATE turns SET status = 'stopped', ended_at = ?, people_checked = CASE WHEN status = 'queued' THEN 1 ELSE people_checked END, shared_checked = CASE WHEN status = 'queued' AND shared_checked = 0 THEN 1 ELSE shared_checked END WHERE id = ? AND status='queued'").run(now, spec.turnId)
-      this.db.query("UPDATE messages SET status = 'stopped', updated_at = ? WHERE id = ? AND status='streaming'").run(now, spec.assistantId)
+      this.db.query("UPDATE messages SET status = 'stopped', stopped_for = ?, updated_at = ? WHERE id = ? AND status='streaming'").run(why ?? null, now, spec.assistantId)
       this.queueStore.settle(spec.userId)
     })()
     this.queued.splice(i, 1)

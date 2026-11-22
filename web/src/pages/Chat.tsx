@@ -61,6 +61,7 @@ import { LinkAskAccess } from '../components/LinkAskAccess'
 import Composer, { type ComposerHandle, type EngineChoice } from '../components/chat/Composer'
 import { changeChat, trashChat, useChatActions } from '../components/chat/chatActions'
 import { AssistantMessage, UserMessage } from '../components/chat/Messages'
+import { ChatEventLine, eventsBetween, useAudienceEvents } from '../components/chat/ChatEvents'
 import { ImageGroup, ViewerMeta } from '../components/ImageViewer'
 import QueuedMessages from '../components/chat/QueuedMessages'
 import { ChatProjectCrumb, MoveToProjectDialog } from '../components/chat/ChatProject'
@@ -245,14 +246,19 @@ function ChatView({ chatId, threadRoot }: { chatId: string; threadRoot: string |
   const sharedNames = useSharedWithNames(people && !!shared?.audienceHidden ? chatId : null, shared?.by, me.user.id)
   // someone else's chat shared with me that nobody else sees now (its creator's account is off): it is still theirs,
   // shared with me, never "Only you can see this chat" (QA TC-2263)
+  // who changed its people, between the messages (QA TC-7289): read again when how many see it changes
+  const audienceEvents = useAudienceEvents(people && !chat?.deletedAt ? chatId : null, shared?.audience ?? 0)
   const sharedToMeAlone = people && !!shared && !rights.creator && !shared.audienceHidden && (shared.audience ?? 0) <= 1
   const who = chat ? (
     <WhoSeesLine
       shared={shared ? { audience: shared.audience, alone: project?.alone } : null}
       place="chat"
-      text={people && shared?.audienceHidden ? (sharedNames ? t('chat.share.sharedWith', { names: sharedNames }) : t('chat.sharedLabel')) : sharedToMeAlone ? t('chat.share.sharedToMeAlone', { name: shared!.by.name }) : undefined}
-      onOpen={people ? (rights.creator && !chat.deletedAt ? () => openChatShare(chat) : undefined) : shared && project?.membersEditable ? () => setMembers(true) : undefined}
-      openLabel={people ? t('chat.share.changeWho') : undefined}
+      // its creator's account gone: that, in place of who shared it (QA TC-7431; everyone listed still sees it)
+      text={people && shared?.byGone && !rights.creator ? (shared.byGone.state === 'deleted' ? t('chat.share.byGoneDeleted', { name: shared.by.name, date: formatDate(shared.byGone.until, locale) }) : t('chat.share.byGoneDisabled', { name: shared.by.name }))
+        : people && shared?.audienceHidden ? (sharedNames ? t('chat.share.sharedWith', { names: sharedNames }) : t('chat.sharedLabel')) : sharedToMeAlone ? t('chat.share.sharedToMeAlone', { name: shared!.by.name }) : undefined}
+      // everyone in it opens the Share dialog: its creator to change it, anyone else its read-only list (QA TC-7265)
+      onOpen={people ? (!chat.deletedAt ? () => openChatShare(chat) : undefined) : shared && project?.membersEditable ? () => setMembers(true) : undefined}
+      openLabel={people ? t(rights.creator ? 'chat.share.changeWho' : 'chat.share.seeWho') : undefined}
     />
   ) : undefined
   // Share at the top right of the header (docs/DECISIONS.md "Share in the title row"; components/HeaderShare.tsx), the
@@ -269,7 +275,7 @@ function ChatView({ chatId, threadRoot }: { chatId: string; threadRoot: string |
   const faces = projectChat && projectPeople && projectPeople.people.length > 1 ? projectPeople.people : null
   const whoWords = !chat ? null : !shared ? t('chat.whoMe') : shared.audienceHidden ? t('chat.sharedLabel') : t('projects.visibilityPeople', { n: shared.audience })
   const headerWho = faces ? <PeopleStack people={faces} onOpen={() => setMembers(true)} testId="chat-header" />
-    : whoWords ? <WhoSeesWords words={whoWords} onOpen={people && rights.creator && !chat?.deletedAt ? () => openChatShare(chat!) : projectChat && project ? () => setMembers(true) : undefined} testId="chat-who-sees" /> : null
+    : whoWords ? <WhoSeesWords words={whoWords} onOpen={people && !chat?.deletedAt ? () => openChatShare(chat!) : projectChat && project ? () => setMembers(true) : undefined} testId="chat-who-sees" /> : null
   // someone else's chat shared with me: when it can't be opened any more, it says so (QA TC-1405)
   const wasSharedWithMe = useRef(false)
   if (people && shared && shared.by.id !== me.user.id) wasSharedWithMe.current = true
@@ -748,6 +754,7 @@ function ChatView({ chatId, threadRoot }: { chatId: string; threadRoot: string |
               // chat shared with people: Home's box, no project
               onPrivately={shared ? () => (chat.projectId ? askPrivately(navigate, chat.projectId, lastOwnQuestion(chat.id, me?.user.id)) : askPrivatelyHome(navigate, lastOwnQuestion(chat.id, me?.user.id))) : undefined}
               onHide={() => void actions.hide(chat)}
+              onLeave={() => void actions.leave(chat)}
             />
           ) : (
             <h1 className="min-w-0 truncate px-1.5 font-medium text-ink" data-testid="chat-title">
@@ -782,20 +789,24 @@ function ChatView({ chatId, threadRoot }: { chatId: string; threadRoot: string |
           <ChatLinks.Provider value={chatLinks}>
           <ImageGroup>
             {messages.map((m, i) => {
+              // who changed its people since the message before (a chat shared with people; nothing before the oldest
+              // message read while older ones are still to load)
+              const lines = audienceEvents.length ? eventsBetween(audienceEvents, i ? messages[i - 1]!.createdAt : null, m.createdAt).filter(() => i > 0 || !thread.nextCursor) : []
+              const before = lines.length ? <Fragment key={`events-${m.id}`}>{lines.map((e) => <ChatEventLine key={`${e.at}-${e.kind}-${e.actor}`} e={e} />)}</Fragment> : null
               if (m.role === 'user')
-                return (
+                return [before,
                   <ViewerMeta key={m.id} sender={{ kind: 'user', user: m.author ?? (shared ? null : me.user) }} at={m.createdAt}>
                     <UserMessage m={m} chatId={chatId} busy={rowsBusy} onEdit={onEdit} onSelectBranch={onSelectBranch} showAuthor={!!shared} canEdit={!readOnly && mine(m.author?.id)} sideChat={!!chat?.sideRoomId} />
-                  </ViewerMeta>
-                )
+                  </ViewerMeta>]
               const prevAssistant = messages.slice(0, i).reverse().find((x) => x.role === 'assistant')
               const switchedFrom = prevAssistant?.engine && m.engine && prevAssistant.engine !== m.engine ? (prevAssistant.engine as EngineId) : null
-              return (
+              return [before, (
                 <ViewerMeta key={m.id} sender={{ kind: 'ai' }} at={m.createdAt}>
                   <AssistantMessage m={m} chatId={chatId} isLast={i === messages.length - 1} busy={rowsBusy} switchedFrom={switchedFrom} onRegenerate={onRegenerate} retryWith={choose ? { engines, models } : undefined} onSelectBranch={onSelectBranch} onAskOwnFolder={askOwnFolder} onContinue={chat?.deletedAt || readOnly || !mine(askedBy(m)) ? undefined : onContinue} shareable={shareable && mine(askedBy(m))} shareRoomId={chat?.sideRoomId ?? undefined} canRegenerate={!readOnly && mine(askedBy(m))} canSuggest={!shared} onThread={shared && !chat?.sideRoomId ? (focus) => openThread(m.id, focus) : undefined} />
                 </ViewerMeta>
-              )
+              )]
             })}
+            {eventsBetween(audienceEvents, messages.at(-1)?.createdAt ?? null, null).filter(() => messages.length || !thread.nextCursor).map((e) => <ChatEventLine key={`${e.at}-${e.kind}-${e.actor}`} e={e} />)}
           </ImageGroup>
           </ChatLinks.Provider>
           </BoxAnswers.Provider>

@@ -47,13 +47,14 @@ import { roomsOf } from '../rooms/service'
 import { confirmMac } from '../chat/confirm-key'
 import { WIDENING_PAGE } from '../chat/widening'
 import { shareChat } from '../chat/share-chat'
-import { chatAudienceView, chatWidening, checkWideningAdd, hideChat, peopleSharedChatsOf, previewChatAudience, putChatAudience, unhideOnOpen } from '../chat/people-share'
+import { chatAudienceView, chatWidening, checkWideningAdd, hideChat, leaveChat, peopleSharedChatsOf, previewChatAudience, putChatAudience, unhideOnOpen } from '../chat/people-share'
 import { IN_PEOPLE_AUDIENCE_SQL, NOT_HIDDEN_SQL, resolveSubjects } from '../chat/chat-audience'
 import { finishCard } from '../chat/connect-service'
 import { refuseDraftAttachments } from '../onboarding/draft'
 import { refuseSkillDraftAttachments } from '../onboarding/skill-draft'
 import { refuseShareJudgeAttachments } from '../skills/share-judge'
-import { isPeopleRow } from '../chat/chat-audience'
+import { isPeopleRow, peopleAudience } from '../chat/chat-audience'
+import { notificationsOf } from '../notifications/service'
 import { chatFilesOf } from '../chat/chat-files'
 import { editState, restoreTo, saveText, tellChatOnAiVersions } from '../chat/chat-file-edit'
 import { streamFile } from '../team-files/download'
@@ -626,6 +627,9 @@ export const chatsRoutes: RouteModule = {
     kit.handle(API.deleteChat, ({ c, params, auth }) => {
       const a = chatOf(rt, c, auth, params.id, 'manage')
       const chat = a.row
+      // the others in a chat shared with people, read before it goes to the trash: each is told who moved it there
+      // (QA TC-7653; a restore takes the unread notices back)
+      const others = isPeopleRow(chat) ? peopleAudience(ctx.db, chat).filter((id) => id !== auth.user.id) : []
       rt.stopChat(chat.id)
       const now = new Date()
       let unfiled = new Set<string>()
@@ -642,6 +646,7 @@ export const chatsRoutes: RouteModule = {
       rt.forgetLiveViewers()
       if (a.shared && !a.creator) audit(ctx.db, { actor: auth.user.id, action: 'chat.delete', target: chat.id, detail: { shared: true, projectId: chat.project_id } })
       rt.publishChat(auth.user.id, chat.id, 'deleted')
+      if (others.length) { try { const n = notificationsOf(ctx); for (const id of others) n.chatLost(id, chat.id, auth.user.id, 'deleted', now.toISOString()) } catch (e) { c.get('log').warn('chat deleted notices failed', { err: e }) } }
       return { id: chat.id, deletedAt: now.toISOString(), purgeAt: new Date(now.getTime() + rt.chatTrashDays() * 86400_000).toISOString() }
     })
 
@@ -651,6 +656,8 @@ export const chatsRoutes: RouteModule = {
       if (chat.deleted_at) {
         ctx.db.query('UPDATE chats SET deleted_at = NULL, deleted_by = NULL, updated_at = ? WHERE id = ?').run(new Date().toISOString(), chat.id)
         rt.publishChat(auth.user.id, chat.id, 'restored')
+        // back: the "moved to the trash" notices nobody read yet would say something untrue now
+        try { notificationsOf(ctx).chatLostTakenBack(chat.id) } catch (e) { c.get('log').warn('chat deleted notices not taken back', { err: e }) }
       }
       return chatOut(rt, auth.user.id, rt.store.chatRow(chat.id)!)
     })
@@ -767,6 +774,11 @@ export const chatsRoutes: RouteModule = {
     // the delete-account dialog's count (admins): the chats this person shared with people that others wrote in
     kit.handle(API.userSharedChats, ({ params }) => ({ sharedChats: peopleSharedChatsOf(ctx, params.id) }))
     kit.handle(API.hideChat, ({ c, params, auth }) => hidden(c, auth, chatOf(rt, c, auth, params.id, 'view'), true))
+    // "Leave this chat" (chat/people-share.ts leaveChat): someone it was shared with by name, never its creator
+    kit.handle(API.leaveChat, ({ c, params, auth }) => {
+      leaveChat(ctx, rt, auth.user.id, chatOf(rt, c, auth, params.id, 'view'), c.get('locale'))
+      return { ok: true as const }
+    })
     // a file kept with a chat shared with people (chat/chat-files.ts): whoever sees the chat now (its creator in the trash
     // too), else the 404 of a missing chat; a file not sent yet only for its sender. Sent as a room file is (streamFile:
     // nosniff, a sandbox CSP, a page or script type inline as text/plain); one on the download-only list only as a
@@ -1097,7 +1109,7 @@ export const chatsRoutes: RouteModule = {
         return previewAccess(ctx, p, body, null, locale)
       }
       const r = projectFor(p, body.projectId, true)
-      if (!mayManage(ctx, p, r)) fail('forbidden', tr('projectCreatorOnly', locale))
+      if (!mayManage(ctx, p, r)) fail('forbidden', tr('projectPeopleCreatorOnly', locale))
       return previewAccess(ctx, p, body, r, locale)
     })
 
@@ -1177,7 +1189,7 @@ export const chatsRoutes: RouteModule = {
     kit.handle(API.putProjectParticipants, ({ c, params, body, auth }) => {
       const p = principal(ctx, auth)
       const r = projectFor(p, params.id, true)
-      if (!mayManage(ctx, p, r)) fail('forbidden', tr('projectCreatorOnly', c.get('locale')))
+      if (!mayManage(ctx, p, r)) fail('forbidden', tr('projectPeopleCreatorOnly', c.get('locale')))
       return saveParticipants(ctx, r, p, { id: auth.user.id, name: auth.user.name }, body, c.get('locale'))
     })
 
