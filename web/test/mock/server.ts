@@ -4209,19 +4209,21 @@ export class MockServer {
       return { told: true as const, already }
     },
     getCompanyProfile: () => ({ profile: this.companyProfile }),
-    // the kept skills (server/src/onboarding/skill-packs.ts skillPackCatalog, short): every one in CATALOG's order, in
-    // the team's language (Korean, else English), whether the team has it (its path, or a team skill of its name), its
-    // example (the server's own, packExample, unless a test set one)
+    // the kept skills (server/src/onboarding/skill-packs.ts skillPackCatalog, short): every one in CATALOG's order, the
+    // text and example in the team's language (Korean, else English), the name and one line in the viewer's (Korean, else
+    // English), whether the team has it (its path, or a team skill of its name), its example (the server's own,
+    // packExample, unless a test set one)
     listSkillPacks: (c) => {
       if (this.packsFail) fail('internal', 500, '지금은 불러오지 못했어요')
       const ko = this.settings.defaultLocale === 'ko'
+      const viewerKo = (c.user.localeChoice ?? this.settings.defaultLocale) === 'ko'
       const team = this.skillsFor(c.user).filter((x) => x.path.startsWith('skills/'))
       return {
         profile: !!this.companyProfile,
         skills: PACK_CATALOG.map((k) => {
           const path = `skills/${k.pack}/${k.name}/SKILL.md`
           return {
-            pack: k.pack, name: k.name, path, title: ko ? k.ko : k.en, description: ko ? k.lineKo : k.lineEn,
+            pack: k.pack, name: k.name, path, title: viewerKo ? k.ko : k.en, description: viewerKo ? k.lineKo : k.lineEn,
             inTeam: this.files.has(path) || team.some((x) => x.name.toLowerCase() === k.name), visual: k.visual, onboarding: k.onboarding,
             example: Object.hasOwn(this.packExamples, k.name) ? this.packExamples[k.name] ?? null : packExample(ko ? 'ko' : 'en', k.name, this.settings.defaultLocale), locale: ko ? 'ko' : 'en',
             source: packSource(k, ko),
