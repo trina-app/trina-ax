@@ -331,7 +331,6 @@ describe('share_with_person: a file or person that came from looking_at', () => 
     const why = (r.card as unknown as { share: { why?: string } }).share.why!
     expect((['ko', 'en', 'id', 'ja', 'es', 'zh'] as const).some((L) => why === tr('lookedWhy', L))).toBe(true)
     expect(r.card!.question.startsWith(why)).toBe(true)
-    for (const L of ['ko', 'en', 'id', 'ja', 'es', 'zh'] as const) expect(r.card!.question).not.toContain(tr('othersWordsWhy', L))
     expect(r.content).toContain('The user chose not to share them')
     expect(h.ctx.db.query("SELECT 1 FROM file_shares WHERE path = 'users/bob/photo-1.png'").get()).toBeNull()
   })

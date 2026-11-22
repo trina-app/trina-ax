@@ -54,7 +54,7 @@
 // used earlier answers hidden from some member, a text too long for one message and the sending budget.
 import { ALWAYS_VALUE, RAN_UNDER_ALWAYS, alwaysHere, withAlways } from './always-allow'
 import { approved, noteApproval } from './card-approvals'
-import { actionOff, asksFor, askerPicks, askerText, asksToSend, fold, fromAsker, madeInTurn, mainOnly, namedInFull, namesRecipient as namesPlace, othersWordsIn, soleNames, ownWords, POST_ASK } from './shared-actions'
+import { actionOff, asksFor, askerPicks, askerText, asksToSend, fold, fromAsker, guestInShared, madeInTurn, mainOnly, namedInFull, namesRecipient as namesPlace, othersWordsIn, soleNames, ownWords, POST_ASK } from './shared-actions'
 import { broadcastIn, leadingMentions, mentionablesOf, mentionableUser, mentionHead, namesPerson, pickMentions, POST_MENTIONS_MAX, textMentions, withExactNames } from './post-mentions'
 import { readRooms } from './read-rooms'
 import { grantOnly, sameRoomOnly, seenWhy } from './grant-reads'
@@ -79,7 +79,7 @@ import { neutralizeTags } from './prompt'
 import { sideRoomOf } from './side-room'
 import type { Tool } from './tools'
 import type { TurnExec } from './turn'
-import { cardTextWords, fileWords, formatsSafely, noBoldMarks, othersWordsCard, whyFirst, plainQuote, POST_FILE_DESCRIPTION, POST_NO } from './share-words'
+import { cardTextWords, fileWords, formatsSafely, noBoldMarks, whyFirst, plainQuote, POST_FILE_DESCRIPTION, POST_NO } from './share-words'
 import { fileGapsOf, fixesAfterPost, grantedLinksCant, grantSourceCant } from './share-next-steps'
 import { shareFixesOf, type ViewPlan } from '../files/share-fixes'
 import { nameOf } from '../files/access-routes'
@@ -103,7 +103,7 @@ export const POST_TEXT_FOLD = 600
 export function postToRoomOff(exec: Pick<TurnExec, 'restricted' | 'templateRun' | 'spec' | 'rt'> & Partial<Pick<TurnExec, 'alwaysPlace'>>): { text: string; summary: string } | null {
   const button = `"${SIDE_CHAT_SEND.room[exec.spec.locale] ?? SIDE_CHAT_SEND.room.en}"`
   // (the rules every action that reaches others follows: chat/shared-actions.ts)
-  const off = actionOff(exec, 'post_to_room')
+  const off = actionOff(exec, ['post_to_room', 'post_files'])
   if (off === 'schedule') return { text: `Nothing was posted: a scheduled run has nobody to answer the card every post to a room needs. Tell the user to ask for it in one of their own chats, or to share the answer with ${button} under it.`, summary: 'post_to_room -> refused: scheduled run' }
   if (off === 'confidential') return { text: 'Nothing was posted: this is a confidential conversation (safe operations), and nothing of it goes to a room. Tell the user its content stays here; to post something else, they can ask in another chat of theirs.', summary: 'post_to_room -> refused: confidential chat' }
   if (off === 'slack') return { text: 'Nothing was posted: this question came from Slack, where "Post to channel" shares an answer. Tell the user to ask in the app to post to a room.', summary: 'post_to_room -> refused: Slack' }
@@ -589,13 +589,14 @@ export function postToRoomTool(exec: TurnExec): Tool {
         // card, as on every other server card (the same quiet middle button and its note). A card whose Send carries the
         // linked files has its own kind, post_files (docs/decisions/20261116-always-allow-more-cards.md): its "Always allow"
         // answers as that Send (with the files) this time, and later such posts go with their files and no card
-        // The person's choice is final in their own chat, whatever it read (rooms, a teammate's file, a page, a connected
-        // service; the owner 2026-11-13, docs/decisions/20261116-always-allow-final-rule-a.md). A shared chat (QA TC-3091
-        // review): other members' messages are in the AI's context, so "Always allow" counts only for this person's own
-        // ask: their own message of this turn (quoted lines left out) names the place and asks to send or post, brings
-        // every linked file (named or attached it, or the AI made it in this answer), and never for own_words
+        // The person's choice is final in every chat, whatever it read (rooms, a teammate's file, a page, a connected
+        // service; the owner 2026-11-13, docs/decisions/20261116-always-allow-final-rule-a.md), also in a shared chat and
+        // whoever's message named the place (docs/decisions/20261122-always-allow-holds-everywhere.md B4). A shared chat
+        // with a guest among its people (the one limit kept): the choice counts only for this person's own ask there (their
+        // own message names the place and asks to send or post, brings every linked file, never own_words), as before
+        const strict = guestInShared(exec)
         const mineNamed = () => namesPlace(ownWords(askerText(db, spec.userMessageId)), a.data.room, recipientNames(db, spec.userId, mine?.room ?? null, pendingTo))
-        const alwaysOk = !exec.shared || (!plain && mineNamed() && asksToSend(db, spec.userMessageId) && (!all || fromAsker(db, spec, copies)))
+        const alwaysOk = !strict || (!plain && mineNamed() && asksToSend(db, spec.userMessageId) && (!all || fromAsker(db, spec, copies)))
         // where other people's words are in the chat (shared, others write in it, rooms read, content someone else wrote:
         // othersWordsIn) the explicit-ask skip below (our own text match, not the person's choice) never applies
         const marked = othersWordsIn(exec)
@@ -632,16 +633,14 @@ export function postToRoomTool(exec: TurnExec): Tool {
         // (nor when what the answer made goes with it as a file: the card names it)
         const explicit = !marked && !fromLook && spec.clientKind !== 'schedule' && spec.clientKind !== 'slack' && !all && !first.check.artifacts.length && !lines.length && !viewNone && !laterLine && !guestLine && asksFor(POST_ASK, said)
           && (plain ? theirText : !exec.shared && !exec.otherAuthors) && noteOk && mentionsSaid && place
-        // (where the choice counts, the card offers "Always allow" on its first showing; where it does not, the card shows.
-        // Once on it is final, Rule A (#1143): a screen target only stops the explicit-ask skip above)
-        // a post that mentions everyone: the card shows, also under "Always allow", and offers no "Always allow". Room
-        // members it mentions are under the person's own "Always allow" (Rule A, docs/decisions/
-        // 20261116-always-allow-final-rule-a.md: a notice to someone already in the room; docs/decisions/
-        // 20261118-ai-post-real-mentions.md)
-        const alwaysHereOk = alwaysOk && !mentionAll
-        const place1 = alwaysHereOk ? exec.alwaysPlace?.() : null
+        // (the card offers "Always allow" on its first showing. Once on it is final, Rule A (#1143): a screen target only
+        // stops the explicit-ask skip above.) The people it mentions, everyone there too ("@everyone", which only the
+        // person's own message may ask for, above), are under the person's own "Always allow" (Rule A; docs/decisions/
+        // 20261118-ai-post-real-mentions.md; 20261122-always-allow-holds-everywhere.md B5)
+        // (with a guest there, a post that mentions everyone keeps its card, as before)
+        const place1 = alwaysOk && !(strict && mentionAll) ? exec.alwaysPlace?.() : null
         // why the card asks first: one line, the reason that matters most (chat/share-words.ts whyFirst)
-        const whyLine = whyFirst(L, { fromLook, seenLine, others: othersWordsCard(exec, all ? 'post_files' : 'post_to_room', alwaysHereOk) })
+        const whyLine = whyFirst(L, { fromLook, seenLine })
         byAlways = !explicit && alwaysHere(place1, all ? 'post_files' : 'post_to_room') === 'on'
         // the person said [보내기] on this card for this same room or thread earlier in this chat (chat/card-approvals.ts,
         // docs/decisions/20261117-card-approved-once-per-chat.md): a post of the AI's text, with no note, no files to

@@ -200,21 +200,24 @@ const events = (tool: string, since: number) => (db().query('SELECT ok, summary 
 const lastEvent = () => (db().query('SELECT max(rowid) AS n FROM tool_events').get() as { n: number | null }).n ?? 0
 
 describe('security review of #1353', () => {
-  test('H1: after a teammate\'s message, the maker\'s Always allow does not skip the shared read card in a run; with only the maker\'s messages it does', async () => {
+  test('B6 (Rule A, docs/decisions/20261122-always-allow-holds-everywhere.md, was H1): after a teammate\'s message the maker\'s Always allow for the shared read card holds in a run; removed in Settings, the read is skipped', async () => {
     db().query("INSERT OR IGNORE INTO card_always_allow (user_id, kind, created_at) VALUES ('alice', 'shared_read', ?)").run(now())
     try {
       const steered = await chatBobWroteIn()
       const s = task(steered, fake({ tool: 'read', args: { file_path: BRIEF }, sayResult: true }))
       expect(await runIt(s.id)).toBe(steered)
-      expect(answerOf(steered)).not.toContain(CANARY)
-      expect(answerOf(steered)).toContain('Not read (read)')
-      // the same task in a shared chat only alice wrote in: still no standing yes for the shared read card in a run
-      // there (re-review of #1353: that card protects the people who see the chat, not the maker)
+      expect(answerOf(steered)).toContain(CANARY)
+      // a shared chat only alice wrote in: the same
       const solo = (await newShared()).id
       await ask('alice', solo, fake({ say: 'hello' }))
       const own = task(solo, fake({ tool: 'read', args: { file_path: BRIEF }, sayResult: true }))
       expect(await runIt(own.id)).toBe(solo)
-      expect(answerOf(solo)).not.toContain(CANARY)
+      expect(answerOf(solo)).toContain(CANARY)
+      // removed in Settings › Allowed for Trina: the run has nobody to answer the card, so nothing is read
+      await h.api('alice').call(API.deleteAiAllowance, { params: { id: 'card:shared_read' } })
+      expect(await runIt(s.id)).toBe(steered)
+      expect(answerOf(steered)).not.toContain(CANARY)
+      expect(answerOf(steered)).toContain('Not read (read)')
       h.rt().schedules.delete('alice', s.id); h.rt().schedules.delete('alice', own.id)
     } finally { db().query("DELETE FROM card_always_allow WHERE user_id = 'alice'").run() }
   })

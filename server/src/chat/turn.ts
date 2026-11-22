@@ -132,7 +132,6 @@ import { makeHandler } from '../mcp/protocol'
 import { hasCredentialFor, resolveCredential, SOON_MS, type CredEngine } from '../credentials/resolve'
 import { connectionRoute } from '../credentials/access'
 import { isGuestUser } from '../credentials/guest-ai'
-import { steerableRun } from './shared-run'
 import { mayAttachChatFile, mayWriteChatVersion, resolvePlace } from '../files/places'
 import { chatPlaces } from './place-ctx'
 import { situationOf } from './situation'
@@ -4382,12 +4381,12 @@ export class TurnExec {
   }
 
   /** The person's Always for good on the shared connection card may be kept and used here: a turn they watch from their
-   * own app (or their own scheduled run that no other person's words steer), not a confidential chat, the team's
-   * "Always allow" switch on, and nobody outside the team (a guest) among the people. */
+   * own app or their own scheduled run (also one a teammate's words are in: Rule A), not a confidential chat, the
+   * team's "Always allow" switch on, and nobody outside the team (a guest) among the people. */
   private sharedConnMayKeep(c: { bind?: string }, people: readonly string[]): boolean {
     if (!c.bind || !teamAllowsAlways(this.rt.db) || isConfidentialChat(this.rt.db, this.spec.chatId)) return false
     const scheduled = this.spec.clientKind === 'schedule'
-    if (scheduled ? steerableRun(this.rt.db, this.id) : !LIVE_CLIENTS.has(this.spec.clientKind ?? '')) return false
+    if (!scheduled && !LIVE_CLIENTS.has(this.spec.clientKind ?? '')) return false
     try { return !people.some((id) => isGuestUser(this.rt.db, id)) } catch { return false }
   }
 
@@ -5139,7 +5138,20 @@ export class TurnExec {
 
   /** Where this turn raises cards, for "Always allow" (chat/always-allow.ts): the turn's own person and app. */
   alwaysPlace(): AlwaysPlace {
-    return { db: this.rt.db, userId: this.spec.userId, chatId: this.spec.chatId, turnId: this.id, locale: this.spec.locale, clientKind: this.spec.clientKind, restricted: this.restricted }
+    return { db: this.rt.db, userId: this.spec.userId, chatId: this.spec.chatId, turnId: this.id, locale: this.spec.locale, clientKind: this.spec.clientKind, restricted: this.restricted, sharedGuest: () => !!this.shared && this.guestAmong() }
+  }
+
+  /** Someone outside the team (a guest) is in this turn: the person, someone who sees this shared chat, or a member of
+   * the room of this side chat. The one scope limit Rule A keeps (docs/decisions/20261122-always-allow-holds-everywhere.md,
+   * as 20261122-connector-always-allow.md decided for the shared connection card). Fails closed. */
+  guestAmong(): boolean {
+    const db = this.rt.db
+    try {
+      if (isGuestUser(db, this.spec.userId)) return true
+      if (this.shared && this.sharedAudience().some((id) => isGuestUser(db, id))) return true
+      const side = (db.query('SELECT side_room_id FROM chats WHERE id = ?').get(this.spec.chatId) as { side_room_id: string | null } | null)?.side_room_id
+      return !!side && (db.query('SELECT user_id FROM room_members WHERE room_id = ?').all(side) as { user_id: string }[]).some((m) => isGuestUser(db, m.user_id))
+    } catch { return true }
   }
 
   async askPerson(request: TurnRequest, o: { window?: string | null; timeoutMs: number; exclusive?: boolean }): Promise<CardAnswer> {

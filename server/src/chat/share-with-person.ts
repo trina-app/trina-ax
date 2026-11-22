@@ -10,12 +10,12 @@
 // The card offers "Always allow" on its first showing (kind share_files, chat/always-allow.ts; docs/decisions/
 // 20261116-always-allow-more-cards.md, the owner's 11-11 rule): once picked, shares go without the card, also after room
 // reads, after content someone else wrote and in a scheduled run of that person's (actionOff): the choice is final
-// (docs/decisions/20261116-always-allow-final-rule-a.md). In a shared chat the choice counts only when the asker's own
-// message asks and names every recipient (post_to_room's rule, namesRecipient). In a chat someone else wrote in (shared or
-// not, as on dev) each file must be one the asker attached to their message, named in it, or that the AI made in this
-// turn (otherwise another member's message could point the AI at the asker's files), with or without the card; the same
-// file rule holds after a room read while the choice is not on. The explicit-ask skip (no card when the person's
-// own message asked for exactly this share) is our own text match, so it never applies where other people's words are.
+// (docs/decisions/20261116-always-allow-final-rule-a.md), also in a shared chat and whoever's message named the
+// recipient (docs/decisions/20261122-always-allow-holds-everywhere.md B4). While the choice is not on, in a chat with
+// other people's words (shared, someone else wrote in it, rooms read) each file must be one the asker attached to their
+// message, named in it, or that the AI made in this turn (otherwise another member's message could point the AI at the
+// asker's files). The explicit-ask skip (no card when the person's own message asked for exactly this share) is our own
+// text match, so it never applies where other people's words are.
 import { ShareWithPersonInput } from '@mycel/shared'
 import { plainLabel, type Step, type ShareCardFile, type StepShared } from '@mycel/shared/api'
 import { z } from 'zod'
@@ -27,7 +27,7 @@ import { isStaff } from '../policy/access'
 import { isGuestUser } from '../credentials/guest-ai'
 import { tr } from './i18n'
 import { neutralizeTags } from './prompt'
-import { actionOff, askerPicks, askerText, asksToSend, attachedPaths, madeInTurn, mainOnly, namesFile, namesFileCore, namesFileLoose, namedInFull, namesGroup, namesRecipient, ownWords, soleNames, asksFor, SHARE_ASK } from './shared-actions'
+import { actionOff, askerPicks, askerText, asksToSend, attachedPaths, guestInShared, madeInTurn, mainOnly, namesFile, namesFileCore, namesFileLoose, namedInFull, namesGroup, namesRecipient, ownWords, soleNames, asksFor, SHARE_ASK } from './shared-actions'
 import { readRooms } from './read-rooms'
 import { seenWhy } from './grant-reads'
 import { lookedFile, lookedPerson } from './looking-at'
@@ -36,7 +36,7 @@ import type { Tool } from './tools'
 import type { TurnExec } from './turn'
 import { uuidv7 } from '@mycel/shared'
 import type { TurnRequest } from '@mycel/shared/api'
-import { fileWords, othersWordsCard, whyFirst, SAME_NAME_ACT_LINE, SHARE_ALREADY_NOTE, SHARE_FOLDER_DESCRIPTION, SHARE_FOLDER_DESCRIPTION_OPEN, SHARE_NO, shareableIn } from './share-words'
+import { fileWords, whyFirst, SAME_NAME_ACT_LINE, SHARE_ALREADY_NOTE, SHARE_FOLDER_DESCRIPTION, SHARE_FOLDER_DESCRIPTION_OPEN, SHARE_NO, shareableIn } from './share-words'
 import { shareFolderOff } from './share-folder'
 import { CARD_SAYS_IT, cardFile, cardLink, cardOwner, cardPeople } from './share-card'
 import { alreadyOpen, refusedGrantedFixes, refusedShareFixes } from './share-next-steps'
@@ -137,6 +137,9 @@ export function shareWithPersonTool(exec: TurnExec): Tool {
         // the person's own "Always allow" for shares is final (owner 2026-11-13, docs/DECISIONS.md "Always allow on every
         // card"; docs/decisions/20261116-always-allow-final-rule-a.md): the guards below apply only where it is not on
         const on = alwaysHere(exec.alwaysPlace?.(), 'share_files') === 'on'
+        // ...except in a shared chat with a guest among its people (the one limit kept): the old guards hold there
+        const strict = guestInShared(exec)
+        const free = on && !strict
         const asked = others ? askerText(db, spec.userMessageId) : ''
         const attached = others ? attachedPaths(db, spec.userMessageId) : new Set<string>()
         const plan: { path: string; name: string; owner: { id: string; name: string } | null }[] = []
@@ -198,11 +201,12 @@ export function shareWithPersonTool(exec: TurnExec): Tool {
             return no(SHARE_NO.notOwner(fileAi, !exec.shared && v.owner ? neutralizeTags(oneLine(v.owner.name, 40)) : null, fix ? (fix.owner ? 'owner' : 'admin') : null), 'refused: not the owner')
           }
           // another member's message must not pick the asker's files: in a chat others wrote in, a file the asker brought
-          // into this turn only
+          // into this turn only, while the person's "Always allow" for shares is off or a guest is in this shared chat
+          // (on: final, Rule A B4)
           // (a file named only without its date or number, namesFileCore, passes here but always gets the card below)
           const byCore = !(attached.has(v.path) || namesFile(asked, v.path) || madeInTurn(db, spec.turnId, v.path)) && namesFileCore(asked, v.path)
-          if (byCore && (members || (others && !on))) coreNamed = true
-          if ((members || (others && !on)) && !(attached.has(v.path) || namesFile(asked, v.path) || madeInTurn(db, spec.turnId, v.path) || byCore)) {
+          if (byCore && others && !free) coreNamed = true
+          if (others && !free && !(attached.has(v.path) || namesFile(asked, v.path) || madeInTurn(db, spec.turnId, v.path) || byCore)) {
             return no(`Nothing was shared: in a chat other people write in, a file is shared only when the user named it in their own message, attached it, or you made it in this answer. Ask the user to say which file to share.`, 'refused: file not from the asker')
           }
           plan.push({ path: v.path, name: v.path.split('/').pop() ?? v.path, owner: v.owner })
@@ -253,24 +257,19 @@ export function shareWithPersonTool(exec: TurnExec): Tool {
         const whoLine = who.map((w) => w.name).join(', ')
         named = oneLine(whoLine, 60)
 
-        // ---- the card, with "Always allow" (kind share_files); in a chat others wrote in, it counts only when the asker's
-        // own message names every recipient (another member's message must not pick who gets the asker's files) ----
+        // ---- the card, with "Always allow" (kind share_files): once on, final in every chat (Rule A, B4) ----
         const one = who.length === 1 ? who[0]! : null
-        // why the card asks although "Always allow" may be on: rooms or a shared file read here (seenWhy), or content
-        // someone else wrote (othersWordsWhy). One line for one cause: othersWordsCard is never true once rooms were seen
+        // why the card asks although "Always allow" may be on: rooms or a shared file read here (seenWhy)
         const seenLine = exec.roomsSeen ? tr(seenWhy(exec, 'roomsSeenWhy'), L) : ''
         const question = [
           one?.subjectType === 'user' ? tr('fileShareAsk', L, { who: oneLine(one.name, 40), n: String(plan.length) }) : one ? tr('fileShareAskGroup', L, { who: oneLine(one.name, 40), n: String(plan.length) }) : tr('fileShareAskMany', L, { who: oneLine(whoLine, 80), n: String(plan.length) }),
           tr(plan.length === 1 ? 'fileShareViewOne' : 'fileShareView', L),
         ].filter(Boolean).join('\n\n')
-        // "Always allow" (kind share_files) is final for the person's own chat, whatever it read (the owner's rule: once
-        // picked, shares go without the card, also after room reads and outside content). In a shared chat (other members
-        // there now) the choice counts only for this person's own ask: their own message of this turn (quoted lines left
-        // out) asks to share or send and names every recipient (post_to_room's rule on dev, TC-3091; shared chats only)
-        // (the names of the call's other recipients: "to tess and bob", "김대리와 이과장한테" name each in a chain)
         const peersOf = (w: Who) => who.filter((x) => x !== w).flatMap((x) => x.subjectType === 'group' ? [x.name] : recipientWords(db, x))
-        const typed = ownWords(askerText(db, spec.userMessageId))
-        const alwaysOk = !exec.shared || (asksToSend(db, spec.userMessageId)
+        // a shared chat with a guest among its people: the choice counts only for this person's own ask (their own
+        // message of this turn asks to share or send and names every recipient), as before B4
+        const typed = strict ? ownWords(askerText(db, spec.userMessageId)) : ''
+        const alwaysOk = !strict || (asksToSend(db, spec.userMessageId)
           && who.every((w) => w.subjectType === 'group' ? namesGroup(typed, w.name) : namesRecipient(typed, w.ref, { names: recipientWords(db, w), person: true, peers: peersOf(w) })))
         // (a group counts as named only as a group, namesGroup: "the sales report" does not name the group Sales)
         // no card when the asker's own message of this turn asked for exactly this share (docs/decisions/
@@ -294,7 +293,7 @@ export function shareWithPersonTool(exec: TurnExec): Tool {
         const place = alwaysOk && !coreNamed ? exec.alwaysPlace?.() : null
         // why the card asks first, ONE line for the reason that matters most: the target came from the screen, then rooms or a
         // shared file read here, then content someone else wrote (docs/decisions/20261116-ai-sharing-integration.md)
-        const whyLine = whyFirst(L, { fromLook, seenLine, others: othersWordsCard(exec, 'share_files', alwaysOk) })
+        const whyLine = whyFirst(L, { fromLook, seenLine })
         const byAlways = !explicit && alwaysHere(place, 'share_files') === 'on'
         const reply = explicit ? 'share' : await withAlways(place, 'share_files', [{ label: tr('fileShareYes', L), value: 'share' }, { label: tr('fileShareNo', L), value: 'no' }], 'share', (options, more) => exec.waitForPerson({
           kind: 'ask_user', origin: 'server', requestId: uuidv7(), question: whyLine ? `${whyLine}\n\n${question}` : question, multiple: false, allowText: false, options, ...more,
