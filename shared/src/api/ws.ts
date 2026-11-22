@@ -290,8 +290,10 @@ export const ServerEvent = z.discriminatedUnion('type', [
   /** the thread under an AI answer of a shared chat changed (docs/decisions/20261116-chat-answer-threads.md), to each
    * person who sees the chat and the answer now, as they see it: a reply came (`reply`), one was deleted (`replyId`), or
    * I read it on another device (`read`: only to me). `thread`: the summary under the answer for me (null: no replies
-   * left). Replayed after a reconnect only while I still see the thread (realtime/hub.ts stillVisible). */
-  ev('chat.thread', z.object({ chatId: Uuid7, rootId: Uuid7, change: z.enum(['reply', 'deleted', 'read']), reply: ChatThreadReply.optional(), replyId: Uuid7.optional(), thread: ChatThreadSummary.nullable() })),
+   * left). Replayed after a reconnect only while I still see the thread (realtime/hub.ts stillVisible). `notice`: this
+   * reply gave me a notice (chat/threads.ts sendReply: 'mention' when it mentions me, else 'reply' in a thread I
+   * follow), so the desktop app tells it as the Inbox and push do. Absent: no notice for me. */
+  ev('chat.thread', z.object({ chatId: Uuid7, rootId: Uuid7, change: z.enum(['reply', 'deleted', 'read']), reply: ChatThreadReply.optional(), replyId: Uuid7.optional(), thread: ChatThreadSummary.nullable(), notice: z.enum(['mention', 'reply']).optional() })),
   /** my list folders changed (made, renamed, reordered, deleted, a chat or room put in or taken out): read them again
    * (GET /api/nav-folders). Only to me, never to anyone else (docs/DECISIONS.md "List folders"). An older page ignores
    * it (an unknown event). */

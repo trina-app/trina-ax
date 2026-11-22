@@ -129,7 +129,7 @@ export function makeProjectInfo(ctx: AppContext, p: Principal, roomId: string, t
   const files = splitFiles(ctx, room.id)
   return {
     suggestedName: suggested, members: members.map((m) => ({ id: m.id, name: m.name })), guestsBlocked: guestsBlocked(db, members),
-    filesMoving: files.moving.length, filesStaying: files.staying, membersHash: membersHash(members.map((m) => m.id)),
+    filesMoving: files.moving.length, filesStaying: files.staying, ...(files.stayingCopies ? { filesStayingCopies: files.stayingCopies } : {}), ...(files.stayingOther ? { filesStayingOther: files.stayingOther } : {}), membersHash: membersHash(members.map((m) => m.id)),
     folderName, nameTaken: told, ...(err ? { nameError: err } : {}),
   }
 }

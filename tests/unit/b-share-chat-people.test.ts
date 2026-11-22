@@ -7,6 +7,9 @@
 // 1A, moving into a project), Inbox notices (at most one a day per chat and person), "Hide from my list" and the
 // rollback guard. People: alice (marketing) shares; bob (finance) by name; erin is in marketing; carol is an admin and
 // dana the owner, neither in it.
+import fs from 'node:fs'
+import path from 'node:path'
+import crypto from 'node:crypto'
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from 'bun:test'
 import { API, ApiError, type PutChatAudienceResult } from '@mycel/shared/api'
 import { startHarness, type Harness, type TestSocket } from '../lib/b-harness'
@@ -15,6 +18,8 @@ import { roomsOf } from '../../server/src/rooms/service'
 import { unsharePeopleChecked } from '../../server/src/chat/people-guard'
 import { unshareUncheckedChats } from '../../server/src/chat/shared'
 import { noSearchPath } from '../../server/src/chat/turn'
+import { globFolderPrefix } from '../../server/src/chat/search-path'
+import { addSources } from '../../server/src/chat/read-scope'
 import { peopleAudience, peopleChatsLost } from '../../server/src/chat/chat-audience'
 import { buildTurnPrompt, sharedSection } from '../../server/src/chat/prompt'
 import { runAccountCleanups } from '../../server/src/auth/account-removal'
@@ -334,6 +339,234 @@ describe('turns in a people-shared chat', () => {
     } finally {
       for (const r of rows) db().query(`INSERT INTO folder_rules (${Object.keys(r).join(', ')}) VALUES (${Object.keys(r).map(() => '?').join(', ')})`).run(...Object.values(r))
     }
+  })
+})
+
+describe('QA scenario findings (TC-7041, TC-7042, TC-7047)', () => {
+  const cardOf = (user: string, turnId: string) => ws[user]!.next('turn.request', (f) => f.data.turnId === turnId, 15_000)
+  const answer = (user: string, turnId: string, requestId: string, value: 'share' | 'skip') =>
+    h.api(user).call(API.answerTurn, { params: { id: turnId }, body: { kind: 'ask_user', requestId, answer: value } })
+
+  test('the folder pieces of a glob pattern without a path become its path', () => {
+    expect(globFolderPrefix({ pattern: 'users/qa-member/**/*.html' })).toEqual({ path: 'users/qa-member', pattern: '**/*.html' })
+    expect(globFolderPrefix({ pattern: 'users/qa-member/a.html', path: '/' })).toEqual({ path: 'users/qa-member', pattern: 'a.html' })
+    for (const args of [{ pattern: '**/*.md' }, { pattern: '*.md' }, { pattern: 'users/x/', path: '' }, { pattern: './users/x/*.md' }, { pattern: 'a\\*b/*.md' }, { pattern: 'users/x/*.md', path: 'shared' }, { pattern: '/users/x/*.md' }])
+      expect({ args, out: globFolderPrefix(args) }).toEqual({ args, out: null })
+  })
+
+  test("TC-7041: a glob of the asker's own folder named in the pattern asks on the card and runs after yes", async () => {
+    const id = await newChat()
+    await share('alice', id, [bob])
+    const started = await send('alice', id, fake({ tool: 'glob', args: { pattern: 'users/alice/**/*.md' }, sayResult: true }))
+    const card = await cardOf('alice', started.turnId)
+    await answer('alice', started.turnId, card.data.request.requestId, 'share')
+    const done = (await ws.alice!.next('message.done', (f) => f.data.messageId === started.assistantMessage.id, 30_000)).data.message
+    expect(done.content).not.toContain('Not searched')
+    expect(done.content).toContain('newsletter-oct.md')
+    // no: nothing of it
+    const again = await send('alice', id, fake({ tool: 'glob', args: { pattern: 'users/alice/*.md' }, sayResult: true }))
+    const card2 = await cardOf('alice', again.turnId)
+    await answer('alice', again.turnId, card2.data.request.requestId, 'skip')
+    const no = (await ws.alice!.next('message.done', (f) => f.data.messageId === again.assistantMessage.id, 30_000)).data.message
+    expect(no.content).not.toContain('todo.md')
+  })
+
+  test('TC-7041: the people chat lines say the own folder works by its path; the menu is named by its exact label', () => {
+    const s = sharedSection({ project: null, audience: 3, asker: 'Bob Lee' }, 'ko')
+    expect(s).toContain("Bob Lee's own folder (users/<Bob Lee's id>/) works here too")
+    expect(s).toContain('"나만 보는 채팅에서 이어 하기" in the menu that opens from this chat\'s title')
+    expect(s).toContain('untranslated')
+    expect(s).not.toContain("this chat's menu at the top")
+  })
+
+  test("TC-7042: the chat's own files are no place someone added to it misses", async () => {
+    // what a work-folder read or a chat file read records: the chat itself
+    const id = await newChat()
+    addSources(db(), id, [{ type: 'chat', id }])
+    const p = await h.api('alice').call(API.previewChatAudience, { params: { id }, body: { subjects: [bob] } })
+    expect(p.check).toMatchObject({ places: [], otherPlaces: false, fileAnswers: 0, roomsUnseen: false })
+    // another chat's files still count
+    const other = await newChat()
+    const id2 = await newChat()
+    addSources(db(), id2, [{ type: 'chat', id: other }])
+    const q = await h.api('alice').call(API.previewChatAudience, { params: { id: id2 }, body: { subjects: [bob] } })
+    expect(q.check.places.length + (q.check.otherPlaces ? 1 : 0)).toBeGreaterThan(0)
+  })
+
+  test('TC-7042: the warning names only picks that bring in someone it is about', async () => {
+    const id = await newChat()
+    // an answer that read alice's own folder: bob and erin miss it
+    addSources(db(), id, [{ type: 'user', id: 'alice' }])
+    // erin already sees it through marketing; picking her by name with bob: only bob is new
+    await share('alice', id, [marketing])
+    const erin: Sub = { subjectType: 'user', subjectId: 'erin' }
+    const p = await h.api('alice').call(API.previewChatAudience, { params: { id }, body: { subjects: [marketing, erin, bob] } })
+    expect(p.check.places.length + (p.check.otherPlaces ? 1 : 0)).toBeGreaterThan(0)
+    // positions in the list as sent, never ids
+    expect(p.check.warnPicks).toEqual([2])
+    expect(JSON.stringify(p.check)).not.toMatch(/bob|erin/)
+  })
+
+  test('TC-7047: a share again after the chat was taken away is a new notice; a quick remove and add is not', async () => {
+    const id = await newChat('alice', 'reshare me')
+    await share('alice', id, [bob])
+    const first = db().query("SELECT id FROM chat_share_notices WHERE user_id = 'bob' AND chat_id = ?").get(id) as { id: string }
+    // a quick remove and add while it is unread: the same row
+    await share('alice', id, [])
+    await share('alice', id, [bob])
+    expect(db().query("SELECT id FROM chat_share_notices WHERE user_id = 'bob' AND chat_id = ?").all(id)).toEqual([{ id: first.id }])
+    // read (or older than the quiet time): a share again replaces it with a new unread row
+    // read a moment before the removal (the same millisecond on a fast machine would count as read by the removal)
+    db().query("UPDATE chat_share_notices SET read_at = ? WHERE id = ?").run(new Date(Date.now() - 1000).toISOString(), first.id)
+    await share('alice', id, [])
+    const gone = (await h.api('bob').call(API.listNotifications, { query: {} })).items.find((x) => x.code === 'chat.shared' && x.chatId === null && x.id === first.id)
+    expect(gone?.chatShared).toMatchObject({ gone: true, title: null, name: 'Alice Kim' })
+    await share('alice', id, [bob])
+    const rows = db().query("SELECT id, read_at FROM chat_share_notices WHERE user_id = 'bob' AND chat_id = ?").all(id) as { id: string; read_at: string | null }[]
+    expect(rows.length).toBe(1)
+    expect(rows[0]!.id).not.toBe(first.id)
+    expect(rows[0]!.read_at).toBeNull()
+  })
+
+  test('TC-7047: a quick remove and add takes back the lost-access notice and brings the share notice back unread; a real loss is told again', async () => {
+    const id = await newChat('alice', 'quick readd')
+    const lostRows = () => db().query("SELECT id FROM chat_lost_notices WHERE user_id = 'bob' AND chat_id = ? AND reason = 'stopped'").all(id)
+    const shareRows = () => db().query("SELECT id, read_at FROM chat_share_notices WHERE user_id = 'bob' AND chat_id = ?").all(id) as { id: string; read_at: string | null }[]
+    await share('alice', id, [bob])
+    const [first] = shareRows()
+    await share('alice', id, [])
+    expect(lostRows()).toHaveLength(1)
+    expect(shareRows()[0]!.read_at).not.toBeNull()
+    await share('alice', id, [bob])
+    // one notice, the same row, unread: no chat.lost beside it and no new row (so no second push)
+    expect(lostRows()).toHaveLength(0)
+    expect(shareRows()).toEqual([{ id: first!.id, read_at: null }])
+    const items = (await h.api('bob').call(API.listNotifications, { query: {} })).items
+    expect(items.filter((x) => x.code === 'chat.lost' && x.sourceId.startsWith(id))).toHaveLength(0)
+    // taken out again: told again
+    await share('alice', id, [])
+    expect(lostRows()).toHaveLength(1)
+    expect(shareRows()[0]!.read_at).not.toBeNull()
+  })
+})
+
+describe('QA scenario P1s (TC-7262, TC-7277, TC-7286)', () => {
+  const answersOf = (id: string) => (db().query("SELECT id FROM messages WHERE chat_id = ? AND role = 'assistant' ORDER BY rowid").all(id) as { id: string }[]).map((r) => r.id)
+  const withheld = async (user: string, id: string) => (await h.api(user).call(API.listMessages, { params: { id }, query: {} })).items.filter((m) => m.role === 'assistant' && m.withheld).length
+
+  test('TC-7262: a dev environment answer of the private time is told before sharing; only it is kept from people added later', async () => {
+    const id = await newChat('alice', 'video')
+    await ask('alice', id, fake({ say: 'made the video' }))
+    const [first, dev] = answersOf(id)
+    db().query('UPDATE messages SET steps = ? WHERE id = ?').run(JSON.stringify([{ id: 's1', kind: 'tool', tool: 'box_shell', label: 'run', status: 'ok', startedAt: '2026-11-22T00:00:00.000Z', endedAt: '2026-11-22T00:00:01.000Z' }]), dev)
+    const c = await put('alice', id, [bob])
+    expect(c.status).toBe('confirm')
+    if (c.status !== 'confirm') return
+    expect(c.check).toMatchObject({ devAnswers: 1, unchecked: 0 })
+    await put('alice', id, [bob], c.confirmKey)
+    // per answer: the dev environment answer alone is x (what its commands read is not known); bob, in this share, sees both
+    const readsOf = (m: string) => JSON.parse((db().query('SELECT reads FROM shared_answer_reads WHERE message_id = ?').get(m) as { reads: string }).reads)[0]
+    expect(readsOf(first!).x).toBeUndefined()
+    expect(readsOf(dev!)).toMatchObject({ c: ['alice', 'bob'], x: 1 })
+    expect(await withheld('bob', id)).toBe(0)
+    // erin, added later: told it stays hidden, and only that answer is kept from her
+    const later = await put('alice', id, [bob, { subjectType: 'user', subjectId: 'erin' }])
+    if (later.status === 'confirm') expect(later.check.hiddenAnswers).toBe(1)
+    await share('alice', id, [bob, { subjectType: 'user', subjectId: 'erin' }])
+    expect(await withheld('erin', id)).toBe(1)
+  })
+
+  test('a dev environment answer shared with a group stays hidden from someone who joins the group later', async () => {
+    const id = await newChat('alice', 'salary figures')
+    await ask('alice', id, fake({ say: 'the totals are 1, 2, 3' }))
+    const [, dev] = answersOf(id)
+    db().query('UPDATE messages SET steps = ? WHERE id = ?').run(JSON.stringify([{ id: 's1', kind: 'tool', tool: 'box_shell', label: 'run', status: 'ok', startedAt: '2026-11-22T00:00:00.000Z', endedAt: '2026-11-22T00:00:01.000Z' }]), dev)
+    const c = await put('alice', id, [marketing])
+    expect(c.status).toBe('confirm')
+    if (c.status !== 'confirm') return
+    expect(c.check.devAnswers).toBe(1)
+    await put('alice', id, [marketing], c.confirmKey)
+    // erin is in marketing now: she sees it
+    expect(await withheld('erin', id)).toBe(0)
+    // carol joins marketing afterwards: the chat opens for her, the dev environment answer does not
+    db().query("INSERT INTO group_members (group_id, user_id) VALUES ('marketing', 'carol')").run()
+    try {
+      const items = (await h.api('carol').call(API.listMessages, { params: { id }, query: {} })).items
+      const m = items.find((x) => x.id === dev)
+      expect(m?.withheld).toBeTruthy()
+      expect(JSON.stringify(m)).not.toContain('the totals are')
+      expect(await withheld('carol', id)).toBe(1)
+    } finally { db().query("DELETE FROM group_members WHERE group_id = 'marketing' AND user_id = 'carol'").run() }
+  })
+
+  test('a file a dev environment answer made is marked private in the Share with files list', async () => {
+    const id = await newChat('alice', 'deck')
+    const turn = (db().query('SELECT id FROM turns WHERE chat_id = ? ORDER BY rowid DESC LIMIT 1').get(id) as { id: string }).id
+    const [only] = answersOf(id)
+    db().query('UPDATE messages SET steps = ? WHERE id = ?').run(JSON.stringify([{ id: 's1', kind: 'tool', tool: 'box_shell', label: 'run', status: 'ok', startedAt: '2026-11-22T00:00:00.000Z', endedAt: '2026-11-22T00:00:01.000Z' }]), only)
+    const rel = 'users/alice/devdeck/pay-deck.pptx'
+    fs.mkdirSync(path.join(h.team, 'users/alice/devdeck'), { recursive: true })
+    const bytes = Buffer.from('fake pptx bytes')
+    fs.writeFileSync(path.join(h.team, rel), bytes)
+    db().query("INSERT INTO file_events (turn_id, user_id, path, action, size, sha256, detail, at) VALUES (?, 'alice', ?, 'create', ?, ?, ?, ?)")
+      .run(turn, rel, bytes.length, crypto.createHash('sha256').update(bytes).digest('hex'), JSON.stringify({ tool: 'save_work_file', from: 'work folder' }), new Date().toISOString())
+    const c = await put('alice', id, [bob])
+    if (c.status !== 'confirm') throw new Error('expected a confirm')
+    expect((c.check.madeFiles ?? []).find((f) => f.name === 'pay-deck.pptx')?.private).toBe(true)
+  })
+
+  test('TC-7262: a later share says how many earlier answers stay hidden from the person added', async () => {
+    const id = await newChat('alice', 'secret')
+    await share('alice', id, [bob])
+    const [a1] = answersOf(id)
+    db().query('UPDATE shared_answer_reads SET reads = ? WHERE message_id = ?').run(JSON.stringify([{ c: ['alice', 'bob'], s: [], x: 1 }]), a1)
+    const p = await h.api('alice').call(API.previewChatAudience, { params: { id }, body: { subjects: [bob, { subjectType: 'user', subjectId: 'erin' }] } })
+    expect(p.check.hiddenAnswers).toBe(1)
+  })
+
+  test('TC-7277/TC-7240: the warning names the files a new person cannot open, with where they are', async () => {
+    const id = (await h.api('alice').call(API.createChat, { body: {} })).id
+    await ask('alice', id, fake({ tool: 'read', args: { file_path: 'groups/marketing/campaign-brief.md' }, sayResult: true }))
+    const p = await h.api('alice').call(API.previewChatAudience, { params: { id }, body: { subjects: [bob] } })
+    expect(p.check.fileAnswers).toBe(1)
+    expect(p.check.fileNames?.[0]).toMatch(/^campaign-brief\.md · .+$/)
+  })
+
+  test('TC-7269: a helper file a later make_file turned into the result is not offered with the chat\'s files', async () => {
+    const id = (await h.api('alice').call(API.createChat, { body: {} })).id
+    await ask('alice', id, fake({ tool: 'write', args: { file_path: 'users/alice/sq7269/quote.md', content: '# Quote' } }, { tool: 'make_file', args: { format: 'docx', source: 'users/alice/sq7269/quote.md', output: 'users/alice/sq7269/quote.docx' }, sayResult: true }))
+    const c = await put('alice', id, [bob])
+    if (c.status !== 'confirm') throw new Error('expected a confirm')
+    expect((c.check.madeFiles ?? []).map((f) => f.name)).toEqual(['quote.docx'])
+  })
+
+  test('TC-7261: a file the chat handed over from its work folder (a box_shell video) is offered with the chat\'s files', async () => {
+    const id = await newChat('alice', 'promo video')
+    const turn = (db().query('SELECT id FROM turns WHERE chat_id = ? ORDER BY rowid DESC LIMIT 1').get(id) as { id: string }).id
+    const rel = 'users/alice/promo/treesoop-promo-web.mp4'
+    fs.mkdirSync(path.join(h.team, 'users/alice/promo'), { recursive: true })
+    const bytes = Buffer.from('fake mp4 bytes')
+    fs.writeFileSync(path.join(h.team, rel), bytes)
+    db().query("INSERT INTO file_events (turn_id, user_id, path, action, size, sha256, detail, at) VALUES (?, 'alice', ?, 'create', ?, ?, ?, ?)")
+      .run(turn, rel, bytes.length, crypto.createHash('sha256').update(bytes).digest('hex'), JSON.stringify({ tool: 'save_work_file', from: 'work folder' }), new Date().toISOString())
+    const c = await put('alice', id, [bob])
+    if (c.status !== 'confirm') throw new Error('expected a confirm')
+    expect((c.check.madeFiles ?? []).map((f) => f.name)).toContain('treesoop-promo-web.mp4')
+  })
+
+  test('TC-7286: a My files attachment in a shared chat goes in as a copy everyone opens; a file everyone reads stays a reference', async () => {
+    const id = await newChat()
+    await share('alice', id, [bob])
+    const mine = await h.api('alice').call(API.attachTeamFile, { body: { chatId: id, path: 'users/alice/todo.md' } })
+    const pub = await h.api('alice').call(API.attachTeamFile, { body: { chatId: id, path: 'shared/glossary.md' } })
+    const ids = [mine.id, pub.id]
+    const r = await h.api('alice').call(API.sendMessage, { params: { id }, body: { content: fake({ say: 'got it' }), clientMessageId: cm(), attachmentIds: ids } })
+    await ws.alice!.next('message.done', (f) => f.data.messageId === r.assistantMessage.id, 30_000)
+    const q = (await h.api('bob').call(API.listMessages, { params: { id }, query: {} })).items.find((m) => m.id === r.userMessage!.id)!
+    const copy = q.attachments.find((a) => a.name === 'todo.md')!
+    expect(copy.source).toBe('chat')
+    expect((await h.req('bob', `/api/chats/${id}/files/${copy.id}`)).status).toBe(200)
+    expect(q.attachments.find((a) => a.name === 'glossary.md')?.source).toBe('team')
   })
 })
 

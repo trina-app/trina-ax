@@ -26,7 +26,7 @@ const row = (r: Partial<RoomNotice['room']>, o: Partial<InboxNotification> = {})
 test('who and where, the line and the "@" mark, for every reason and kind', () => {
   // a row of replies in a thread: the newest writer and how many others, the room and the thread, the newest line
   expect(roomRowText(row({ reason: 'reply', thread: ROOT, from: '서연', people: 3, count: 3, preview: '금요일까지 공유할게요' }).room, ko))
-    .toEqual({ who: '서연 외 2명', where: '#마케팅 › 스레드', line: '금요일까지 공유할게요', mark: null })
+    .toEqual({ who: '서연 외 2명', where: '#마케팅 › 스레드', line: '금요일까지 공유할게요', mark: null, file: null })
   // a mention, "@전체": the mark, and what it means for a screen reader
   expect(roomRowText(row({ reason: 'mention' }).room, ko)).toMatchObject({ who: '민준', where: '#마케팅', mark: '멘션' })
   expect(roomRowText(row({ reason: 'everyone', kind: 'all', name: null }).room, ko)).toMatchObject({ where: '전체', mark: '@전체' })
@@ -40,6 +40,11 @@ test('who and where, the line and the "@" mark, for every reason and kind', () =
   expect(roomRowText(row({ ai: true, from: null, fromId: null, preview: '**요약**: 두 가지' }).room, ko)).toMatchObject({ who: '트리나', line: '요약: 두 가지' })
   expect(roomRowText(row({ from: null, fromId: null }).room, ko).who).toBe(ko('rooms.goneUser'))
   expect(roomRowText(row({ preview: '', files: 2 }).room, ko).line).toBe('파일 2개')
+  // a message with text and a file (QA TC-7049): the text, then the file's name ("+1" for one more) on its own line;
+  // with only files, the name is the line
+  expect(roomRowText(row({ preview: '추가 메모입니다.', files: 1, fileName: 'note.md' }).room, ko)).toMatchObject({ line: '추가 메모입니다.', file: 'note.md' })
+  expect(roomRowText(row({ preview: '메모', files: 2, fileName: 'note.md' }).room, ko).file).toBe('note.md +1')
+  expect(roomRowText(row({ preview: '', files: 1, fileName: 'note.md' }).room, ko)).toMatchObject({ line: 'note.md', file: null })
   // the single notice a push opens has no text: no line
   expect(roomRowText(row({ preview: undefined }).room, ko).line).toBe('')
   // English

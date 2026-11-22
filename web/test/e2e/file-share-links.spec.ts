@@ -96,14 +96,16 @@ test('Share dialog: one press adds Bob, ✕ asks and removes him; a team file sa
   await shots(page, 'share-dialog-team-file')
 })
 
-test('Share dialog for someone who may not share: who has it and why, Copy link only', async ({ page, browser }) => {
+test('Share dialog for someone who may not share: who has it, who to ask, Copy link', async ({ page, browser }) => {
   await world(page)
   // Olga's team file marketing/plan.md: Bob (a member who did not add it) sees only who owns it
   const bob = await windowOf(browser, page, BOB)
   await bob.goto('/files?path=marketing')
   await rowMenu(bob, 'plan.md', t['folderAccess.menu'])
-  await expect(bob.getByTestId('file-share-why')).toHaveText(t['fileShare.ownerOnly'])
+  // who to ask, by name, and the people to ask Olga for (QA TC-7230); never the owner's own picker
+  await expect(bob.getByTestId('file-share-why')).toHaveText(t['fileShare.ownerOnlyNamed'].replaceAll('{owner}', 'Olga'))
   await expect(bob.getByTestId('file-share-picker-search')).toHaveCount(0)
+  await expect(bob.getByTestId('file-share-ask-picker-search')).toBeVisible()
   await expect(bob.getByTestId('file-share-copy-link')).toBeVisible()
   await shots(bob, 'share-dialog-not-owner')
   await bob.context().close()

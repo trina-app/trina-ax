@@ -32,12 +32,12 @@ import { CHAT_AUDIENCE_MAX } from '@mycel/shared/api'
 import type { AppContext } from '../context'
 import { fail } from '../http/errors'
 import { audit } from '../admin/audit'
-import { loadPrincipal, type Principal } from '../policy/access'
+import { atLeast, loadPrincipal, type Principal } from '../policy/access'
 import { confidentialChat } from '../safe-ops/confidential'
 import { safeOpsEnabled } from '../safe-ops/runner'
 import { roomsOf } from '../rooms/service'
 import type { ChatRuntime } from './runtime'
-import { stopTurnsIn } from './runtime'
+import { publishChatChanged, stopTurnsIn } from './runtime'
 import { SHARED_LATER, type ChatRow } from './store'
 import { isInternalChat } from './internal-chats'
 import { isPersonalFolder } from './projects'
@@ -47,7 +47,7 @@ import { confirmMac } from './answer-share'
 import { checkAudience, findingsState, rulesFingerprint, type AudienceFindings } from './audience-check'
 import { createHash } from 'node:crypto'
 import { sourceKey, sourceOf, type ReadSource } from './read-scope'
-import type { ReadGroup } from './shared-answers'
+import { chatNodes, withheldAmong, type ReadGroup } from './shared-answers'
 import { placeWords } from './place-words'
 import { wideningAnswers, type WideningResult, type WideningSubject } from './widening'
 import { isPeopleRow, peopleAudience, rememberAudience, resolveSubjects, subjectsOf, type AudienceSubject } from './chat-audience'
@@ -62,8 +62,34 @@ import { closeFileAsks, copyMade, discardVerified, madeFilesOf, madeState, readV
 const isAdmin = (role: string | undefined) => role === 'owner' || role === 'admin'
 const subjectKey = (s: AudienceSubject) => `${s.type}:${s.id}`
 /** The Share step's list, in the creator's words (the folder as the Files screen names it). */
-const madeOut = (ctx: AppContext, files: readonly MadeFile[], L: Locale, me: string): ChatMadeFile[] =>
-  files.map((f) => ({ name: f.name, place: placeWords(ctx.db, f.path.slice(0, f.path.lastIndexOf('/')), L, me), size: f.size }))
+const madeOut = (ctx: AppContext, files: readonly MadeFile[], L: Locale, me: string, f?: AudienceFindings): ChatMadeFile[] => {
+  // made by an answer that used something a person being added cannot open (QA TC-7370): marked, and the dialog's
+  // safer "without these files" becomes its first button
+  // (a dev environment answer too: what its commands read is not known)
+  const risky = f ? new Set([...f.fileAnswers, ...f.memoryAnswers, ...f.accountAnswers, ...f.devAnswers]) : new Set<string>()
+  return files.map((x) => ({ name: x.name, place: placeWords(ctx.db, x.path.slice(0, x.path.lastIndexOf('/')), L, me), size: x.size, ...(risky.has(x.messageId) ? { private: true as const } : {}) }))
+}
+/** The files a new person misses (AudienceFindings.missedFiles) that I may read now myself (an answer of someone else
+ * in the chat may have read a place I cannot: never named), each with where it is in the Files screen's words ("원가.xlsx
+ * (영업 › 단가)", QA TC-7240), at most FILE_NAMES_MAX. */
+const FILE_NAMES_MAX = 5
+function fileNamesOf(ctx: AppContext, f: AudienceFindings, me: string, L: Locale, fromMe: ReadonlySet<string>): string[] {
+  const p = loadPrincipal(ctx.db, me)
+  if (!p) return []
+  const rules = ctx.files.rules()
+  const out: string[] = []
+  for (const { path: rel, answers } of f.missedFiles) {
+    if (out.length >= FILE_NAMES_MAX) break
+    // read only by answers kept from me: not named (that would tell me what such an answer used)
+    if (answers.every((id) => fromMe.has(id))) continue
+    if (!atLeast(rules.access(p, rel.split('/').filter(Boolean)), 'read')) continue
+    const dir = rel.slice(0, Math.max(0, rel.lastIndexOf('/')))
+    const name = rel.slice(rel.lastIndexOf('/') + 1)
+    const line = dir ? `${name} · ${placeWords(ctx.db, dir, L, me)}` : name
+    if (!out.includes(line)) out.push(line)
+  }
+  return out
+}
 /** The key of a save with `withFiles` that brings nobody new in (a chat already shared): over the files and their bytes. */
 const filesKeyOf = (ctx: AppContext, userId: string, chatId: string, files: readonly MadeFile[]) =>
   confirmMac(ctx, { kind: 'chat.files', v: 1, userId, chatId, made: madeState(files) })
@@ -139,7 +165,83 @@ export function chatAudienceView(ctx: AppContext, rt: ChatRuntime, userId: strin
   // the creator: the files this chat made in my own folder that are not in the chat yet (the already-shared step)
   const made = a.creator ? madeFilesOf(ctx, r) : []
   const files = made.length ? { madeFiles: madeOut(ctx, made, personLocale(db, userId), userId), madeFilesKey: filesKeyOf(ctx, userId, r.id, made) } : {}
-  return { kind: 'people', canEdit: a.creator, by, subjects: rows, ...(!groups || full ? { count: peopleAudience(db, r).length } : {}), ...files }
+  const events = audienceEventsOf(db, r.id, full)
+  return { kind: 'people', canEdit: a.creator, by, subjects: rows, ...(!groups || full ? { count: peopleAudience(db, r).length } : {}), ...files, ...(events.length ? { events } : {}) }
+}
+
+/** The most lines of who changed a chat's people that GET …/audience gives (the newest). */
+export const AUDIENCE_EVENTS_SHOWN = 50
+
+/** Record who changed a chat's people (chat_audience_events, migration 435): inside the save's or the leave's write. */
+function addAudienceEvent(db: AppContext['db'], chatId: string, actor: string, kind: 'added' | 'removed' | 'left', subjects: readonly AudienceSubject[], at: string): void {
+  db.query('INSERT INTO chat_audience_events (chat_id, at, actor_id, kind, subjects) VALUES (?, ?, ?, ?, ?)')
+    .run(chatId, at, actor, kind, JSON.stringify(subjects.map((x) => ({ t: x.type, id: x.id }))))
+}
+
+/** The chat's lines of who changed its people, oldest first, with names read now. `full` (its creator and admins): people
+ * whose account is off are named too; for anyone else they are left out (as in the audience's list), and a line with
+ * nobody left to name, or whose actor is off, is not shown. A deleted group is left out. */
+function audienceEventsOf(db: AppContext['db'], chatId: string, full: boolean): NonNullable<ChatAudience['events']> {
+  const rows = db.query('SELECT at, actor_id, kind, subjects FROM chat_audience_events WHERE chat_id = ? ORDER BY at DESC, id DESC LIMIT ?').all(chatId, AUDIENCE_EVENTS_SHOWN) as { at: string; actor_id: string; kind: 'added' | 'removed' | 'left'; subjects: string }[]
+  const person = (id: string): string | null => {
+    const u = db.query('SELECT name, status, deleted_at FROM users WHERE id = ?').get(id) as { name: string; status: string; deleted_at: string | null } | null
+    if (!u) return null
+    return full || (u.status === 'active' && !u.deleted_at) ? u.name : null
+  }
+  const out: NonNullable<ChatAudience['events']> = []
+  for (const e of rows.reverse()) {
+    const actor = person(e.actor_id)
+    if (!actor) continue
+    let subjects: { t: string; id: string }[] = []
+    try { subjects = JSON.parse(e.subjects) } catch { subjects = [] }
+    const names = subjects.map((x) => x.t === 'group' ? (db.query('SELECT name FROM groups WHERE id = ?').get(x.id) as { name: string } | null)?.name ?? null : person(x.id)).filter((n): n is string => !!n)
+    if (e.kind !== 'left' && !names.length) continue
+    out.push({ at: e.at, kind: e.kind, actor, names })
+  }
+  return out
+}
+
+/** POST /api/chats/:id/leave: someone a chat was shared with by name takes themselves out ("Leave this chat", QA
+ * TC-7651). Nothing of the chat stays theirs: their running and queued turns there stop, their hide row and waiting file
+ * asks go, and the chat drops out of their windows. Its creator can't (they delete it); someone who would still see it
+ * through a group listed is told so (the group is the creator's to change). The last entry gone makes it its creator's
+ * own again, as a save that takes everyone out. `a`: the chat as chatFor found it ('view'). */
+export function leaveChat(ctx: AppContext, rt: ChatRuntime, userId: string, a: ChatAccess, locale: Locale): void {
+  const db = ctx.db
+  if (a.kind !== 'people') fail('validation', tr('chatLeaveNotShared', locale), { params: { reason: 'chat_leave_not_shared' } })
+  if (a.creator) fail('validation', tr('chatLeaveCreator', locale), { params: { reason: 'chat_leave_creator' } })
+  const r = rt.store.chatRow(a.row.id) ?? fail('not_found')
+  if (r.deleted_at || !isPeopleRow(r)) fail('not_found')
+  const rest = subjectsOf(db, r.id).filter((x) => !(x.type === 'user' && x.id === userId))
+  // still in it after the name goes (a group listed): the group is the creator's to take out
+  if (resolveSubjects(db, rest).includes(userId)) {
+    const groups = groupsOfIn(db, userId, rest.filter((x) => x.type === 'group').map((x) => x.id))
+      .map((g) => (db.query('SELECT name FROM groups WHERE id = ?').get(g) as { name: string } | null)?.name).filter((n): n is string => !!n)
+    const creator = rt.store.userRef(r.user_id)?.name ?? ''
+    fail('conflict', tr('chatLeaveGroup', locale, { groups: groups.join(', '), name: creator }), { params: { reason: 'chat_leave_group' } })
+  }
+  // S7, as a save that removes someone: what runs or waits there for them stops first
+  stopTurnsIn(ctx, userId, [r.id])
+  const at = new Date().toISOString()
+  const everyone = rest.length === 0
+  db.transaction(() => {
+    // the name entry is the only one that held them (checked above, again here: nothing waited in between)
+    if (!db.query("SELECT 1 FROM chat_audience WHERE chat_id = ? AND subject_type = 'user' AND subject_id = ?").get(r.id, userId)) fail('not_found')
+    db.query("DELETE FROM chat_audience WHERE chat_id = ? AND subject_type = 'user' AND subject_id = ?").run(r.id, userId)
+    if (everyone) {
+      db.query('UPDATE chats SET people_shared_at = NULL WHERE id = ?').run(r.id)
+      db.query('DELETE FROM chat_list_hidden WHERE chat_id = ?').run(r.id)
+    } else db.query('DELETE FROM chat_list_hidden WHERE chat_id = ? AND user_id = ?').run(r.id, userId)
+    closeFileAsks(db, r.id, everyone ? null : [userId])
+    rememberAudience(db, r.id, [userId], at)
+    addAudienceEvent(db, r.id, userId, 'left', [], at)
+    // counts only
+    audit(db, { actor: userId, action: 'chat.leave', target: r.id, detail: { ...(everyone ? { private: true } : {}) } })
+  })()
+  if (devEnvFlag()) void pollSrt(ctx, { chatId: r.id }).catch(() => {})
+  rt.forgetLiveViewers()
+  rt.hub.publish(userId, { type: 'chat.updated', data: { chatId: r.id, change: 'deleted', chat: null } })
+  rt.publishChat(r.user_id, r.id, 'updated')
 }
 
 /**
@@ -188,7 +290,8 @@ function gainedBy(ctx: AppContext, chat: ChatRow, add: readonly { subjectType: '
 /** The checks of the last minute (the preview, the widening list): the same list against the same chat, rules and
  * people answers from here, so 60 previews a minute never hash big files 60 times. A save never reads it. */
 const CHECK_CACHE_MS = 60_000
-type Findings = { f: AudienceFindings; earlierFiles: number; made: MadeFile[] }
+/** `hidden`: the earlier answers kept from someone being added (and who: `hiddenFrom`); `fromMe`: the ones kept from me */
+type Findings = { f: AudienceFindings; earlierFiles: number; made: MadeFile[]; hidden: string[]; hiddenFrom: string[]; fromMe: Set<string> }
 const checksOf = new WeakMap<AppContext, Map<string, { at: number; value: Promise<Findings> }>>()
 
 /** What the people `newPeople` (ids) would see that they could not before, with the answers whose records they miss
@@ -206,7 +309,17 @@ async function findingsFor(ctx: AppContext, viewer: Principal, chat: ChatRow, ne
     // the files the chat made in my own folder (the Share step), for its creator only
     // (never a file of an answer hidden from anyone in it or being added: chat/chat-files-share.ts hiddenAnswers)
     const made = viewer.id === chat.user_id ? madeFilesOf(ctx, chat, { audience: newPeople }) : []
-    return { f, earlierFiles, made }
+    // a chat shared already: the earlier answers its records keep from someone being added (QA TC-7262: the dialog said
+    // nothing and every answer was hidden from the newcomer); a first share records them for everyone it adds
+    const hiddenIds = new Set<string>(), hiddenFrom = new Set<string>()
+    let fromMe = new Set<string>()
+    if (isPeopleRow(chat)) {
+      const nodes = chatNodes(db, chat.id)
+      // (not one already hidden from me: nothing of it is told)
+      fromMe = withheldAmong(db, rules, nodes, viewer.id)
+      for (const id of newPeople) for (const m of withheldAmong(db, rules, nodes, id)) if (!fromMe.has(m)) { hiddenIds.add(m); hiddenFrom.add(id) }
+    }
+    return { f, earlierFiles, made, hidden: [...hiddenIds].sort(), hiddenFrom: [...hiddenFrom].sort(), fromMe }
   }
   if (!o.cache) return compute()
   const now = Date.now()
@@ -256,11 +369,24 @@ export async function chatWidening(ctx: AppContext, viewer: Principal, chat: Cha
   return wideningAnswers(db, { now: rules, after: rules }, { kind: 'chat', chatId: chat.id }, gained, viewer, page, { subjects, words, place, extra: f.perAnswer })
 }
 
-/** The dialog's counts of a check. */
-const checkOf = (ctx: AppContext, added: number, x: Findings, L: Locale, me: string): ShareCheck => ({
+/** The positions in the list as sent (`list`) of the entries just added (`added`) that bring in someone a warning is
+ * about (`missing`, among the people they add now): the ones the warning names (QA TC-7042). Positions, never ids:
+ * the check says who only as the sharer picked them. */
+function warnPicksOf(ctx: AppContext, list: readonly { subjectType: 'user' | 'group'; subjectId: string }[], added: readonly AudienceSubject[], newPeople: readonly string[], missing: readonly string[]): number[] {
+  const miss = new Set(missing), now = new Set(newPeople)
+  const warn = new Set(added.filter((s) => resolveSubjects(ctx.db, [s]).some((id) => now.has(id) && miss.has(id))).map(subjectKey))
+  return list.flatMap((x, i) => (warn.has(`${x.subjectType}:${x.subjectId}`) ? [i] : []))
+}
+type Picked = { list: readonly { subjectType: 'user' | 'group'; subjectId: string }[]; added: readonly AudienceSubject[]; people: readonly string[] }
+/** The dialog's counts of a check (`picked`: the list as sent, the entries it adds and the people the check is for). */
+const checkOf = (ctx: AppContext, added: number, x: Findings, L: Locale, me: string, picked?: Picked): ShareCheck => ({
   added, memoryAnswers: x.f.memoryAnswers.length, fileAnswers: x.f.fileAnswers.length, accountAnswers: x.f.accountAnswers.length,
   places: x.f.places, otherPlaces: x.f.otherPlaces, roomsUnseen: x.f.roomsUnseen, unchecked: x.f.unchecked.length, ...(x.earlierFiles ? { earlierFiles: x.earlierFiles } : {}),
-  ...(x.made.length ? { madeFiles: madeOut(ctx, x.made, L, me) } : {}),
+  ...(x.made.length ? { madeFiles: madeOut(ctx, x.made, L, me, x.f) } : {}),
+  ...(x.f.fileAnswers.length ? (() => { const names = fileNamesOf(ctx, x.f, me, L, x.fromMe); return names.length ? { fileNames: names } : {} })() : {}),
+  ...(x.hidden.length ? { hiddenAnswers: x.hidden.length } : {}),
+  ...(x.f.devAnswers.length ? { devAnswers: x.f.devAnswers.length } : {}),
+  ...(picked ? { warnPicks: warnPicksOf(ctx, picked.list, picked.added, picked.people, [...x.f.missing, ...x.hiddenFrom]) } : {}),
 })
 /** A check with nothing in it but the files (a chat already shared: the step on its own). */
 const filesCheck = (ctx: AppContext, made: readonly MadeFile[], L: Locale, me: string): ShareCheck => ({
@@ -270,7 +396,7 @@ const filesCheck = (ctx: AppContext, made: readonly MadeFile[], L: Locale, me: s
 /** The key a save of `wanted` must carry: over the list, the people it brings, every answer id each warning is about
  * (not counts), the places, the earlier uploads and every message of every branch. */
 const keyOf = (ctx: AppContext, userId: string, chatId: string, wanted: readonly AudienceSubject[], x: Findings, messages: readonly string[]) =>
-  confirmMac(ctx, { kind: 'chat.audience', v: 3, userId, chatId, subjects: wanted.map(subjectKey).sort(), ...findingsState(x.f), earlierFiles: x.earlierFiles, made: madeState(x.made), messages })
+  confirmMac(ctx, { kind: 'chat.audience', v: 3, userId, chatId, subjects: wanted.map(subjectKey).sort(), ...findingsState(x.f), earlierFiles: x.earlierFiles, made: madeState(x.made), messages, ...(x.hidden.length ? { hidden: x.hidden } : {}) })
 
 /** The list as asked, without repeats or me (the creator is always in it, never an entry); at most CHAT_AUDIENCE_MAX. */
 function wantedOf(subjects: readonly { subjectType: 'user' | 'group'; subjectId: string }[], userId: string, locale: Locale): { wanted: AudienceSubject[]; seen: Set<string> } {
@@ -326,7 +452,7 @@ export async function previewChatAudience(ctx: AppContext, rt: ChatRuntime, user
   const x = await findingsFor(ctx, me, plan.r, plan.newPeople, { cache: checkCacheKey(ctx, userId, plan.r.id, plan.before, wanted, plan.newPeople) })
   // someone new would see a room it read but for old answers hidden from them: never shown, as a save says
   if (x.f.hidden) fail('conflict', tr('chatShareHidden', locale), { params: { reason: 'share_hidden' } })
-  return { check: checkOf(ctx, plan.newPeople.length, x, locale, userId), previewKey: keyOf(ctx, userId, plan.r.id, wanted, x, plan.before.messages) }
+  return { check: checkOf(ctx, plan.newPeople.length, x, locale, userId, { list: body.subjects, added: plan.added, people: plan.newPeople }), previewKey: keyOf(ctx, userId, plan.r.id, wanted, x, plan.before.messages) }
 }
 
 /** What a save is made against, read synchronously: the chat's entries, the people who see it now and every message of
@@ -388,7 +514,7 @@ export async function putChatAudience(ctx: AppContext, rt: ChatRuntime, userId: 
       // someone new would see a room it read but for old answers hidden from them: never shown, confirmed or not
       if (x.f.hidden) fail('conflict', tr('chatShareHidden', locale), { params: { reason: 'share_hidden' } })
       const key = keyOf(ctx, userId, r.id, wanted, x, before.messages)
-      if (body.confirmKey !== key) confirm = { status: 'confirm', check: checkOf(ctx, newPeople.length, x, locale, userId), confirmKey: key, reason: body.confirmKey === undefined ? 'unchecked' : 'changed' }
+      if (body.confirmKey !== key) confirm = { status: 'confirm', check: checkOf(ctx, newPeople.length, x, locale, userId, { list: body.subjects, added, people: newPeople }), confirmKey: key, reason: body.confirmKey === undefined ? 'unchecked' : 'changed' }
       checked = x.f
       madeSeen = x.made
     } else if (body.withFiles && before.shared) {
@@ -431,12 +557,20 @@ export async function putChatAudience(ctx: AppContext, rt: ChatRuntime, userId: 
         const rules = ctx.files.rules()
         const places = new Map<string, ReadSource>()
         for (const s of [...use.other, ...use.files.map((f) => sourceOf(db, rules, f.path))]) places.set(sourceKey(s), s)
-        // not all known (older answers the scope does not describe, dev environment commands, rooms it does not name, my
-        // memories or personal accounts): someone who sees it later and is not in this group misses it
-        const notAll = checked ? checked.unchecked.length > 0 || checked.accountAnswers.length > 0 || checked.roomsUnseen || checked.memoryAnswers.length > 0 : !use.known || use.roomsUnseen
-        const group: ReadGroup = { c: [...afterPeople].sort(), s: [...places.values()], ...(notAll ? { x: 1 as const } : {}) }
+        // not all known (older answers the scope does not describe, my memories or personal accounts; every answer when
+        // it read rooms it does not name): someone who sees it later and is not in this group misses that answer. Per
+        // answer (QA TC-7262: one dev environment answer kept every answer from people added later). A dev environment
+        // answer is x too: the sharer was told (devAnswers) and pressed Share for the people in this share (in c, so they
+        // see it), but what its commands read is not known, so someone who joins later (a new member of a group shared
+        // with) misses that answer alone, as with project sharing (share-chat.ts)
+        const notAllIds = checked ? new Set([...checked.unchecked, ...checked.accountAnswers, ...checked.memoryAnswers, ...checked.devAnswers]) : null
+        const allNotAll = checked ? checked.roomsUnseen : !use.known || use.roomsUnseen
+        const c = [...afterPeople].sort(), sources = [...places.values()]
         const add = db.query('INSERT OR IGNORE INTO shared_answer_reads (message_id, chat_id, reads) VALUES (?, ?, ?)')
-        for (const id of use.answers) add.run(id, r.id, JSON.stringify([group]))
+        for (const id of use.answers) {
+          const group: ReadGroup = { c, s: sources, ...(allNotAll || notAllIds?.has(id) ? { x: 1 as const } : {}) }
+          add.run(id, r.id, JSON.stringify([group]))
+        }
         audit(db, { actor: userId, action: 'chat.share', target: r.id, detail: { kind: 'people', audience: newPeople.length, answers: checked ? new Set([...checked.fileAnswers, ...checked.memoryAnswers, ...checked.accountAnswers]).size : 0, unchecked: checked?.unchecked.length ?? 0, memories: (checked?.memoryAnswers.length ?? 0) > 0, confirmed: body.confirmKey !== undefined } })
       }
       const ins = db.query('INSERT OR IGNORE INTO chat_audience (chat_id, subject_type, subject_id, added_by, added_at) VALUES (?, ?, ?, ?, ?)')
@@ -449,6 +583,9 @@ export async function putChatAudience(ctx: AppContext, rt: ChatRuntime, userId: 
         db.query('DELETE FROM chat_list_hidden WHERE chat_id = ?').run(r.id)
       }
       for (const id of lost) db.query('DELETE FROM chat_list_hidden WHERE chat_id = ? AND user_id = ?').run(r.id, id)
+      // the chat's own line of who changed its people ("{actor} added {names}", QA TC-7289): ids only, names read when shown
+      if (added.length) addAudienceEvent(db, r.id, userId, 'added', added, at)
+      if (removed.length) addAudienceEvent(db, r.id, userId, 'removed', removed, at)
       // their waiting asks to add a file of this chat go with them (everyone's when it is mine alone again)
       closeFileAsks(db, r.id, everyone ? null : lost)
       // who saw it, before or after this save: a link of someone who loses it later says why (chat/chat-audience.ts)
@@ -492,6 +629,11 @@ export async function putChatAudience(ctx: AppContext, rt: ChatRuntime, userId: 
         for (const id of newPeople) n.chatShared(id, String(auditId), r.id, userId, named.has(id), at)
       } catch (e) { ctx.log.warn('chat share notices failed', { err: e }) }
     }
+    // the people who lost it learn who stopped sharing it with them (QA TC-7272): ids only, the title shown only while
+    // they see it again
+    if (lost.length) {
+      try { const n = notificationsOf(ctx); for (const id of lost) n.chatLost(id, r.id, userId, 'stopped', at) } catch (e) { ctx.log.warn('chat lost notices failed', { err: e }) }
+    }
     // people taken out by name who still see it through a group listed: the creator is told which (QA TC-2264), only
     // through groups they are in themselves (admins: any). Through none of those: nothing is said (that would tell them
     // who is in a group they are not in)
@@ -520,9 +662,39 @@ export function unhideOnOpen(ctx: AppContext, userId: string, chatId: string): b
   return ctx.db.query('DELETE FROM chat_list_hidden WHERE user_id = ? AND chat_id = ?').run(userId, chatId).changes > 0
 }
 
-/** How many chats this person shared with people and groups that hold other people's messages (the admin's delete
- * dialog: deleting the account deletes them for good; disabling it keeps them). */
+/** How many chats this person shared with people and groups that someone else sees now (the admin's delete dialog:
+ * deleting the account deletes them; disabling it keeps them). */
 export function peopleSharedChatsOf(ctx: AppContext, userId: string): number {
-  return (ctx.db.query(`SELECT COUNT(*) AS n FROM chats c WHERE c.user_id = ? AND c.people_shared_at IS NOT NULL AND c.project_id IS NULL
-    AND EXISTS (SELECT 1 FROM messages m WHERE m.chat_id = c.id AND m.role = 'user' AND m.author_id IS NOT NULL AND m.author_id <> c.user_id)`).get(userId) as { n: number }).n
+  // every one shared with someone else now, not only those with others' messages (QA TC-7341: a chat they only read
+  // goes too)
+  return peopleSharedChatIdsOf(ctx, userId).length
+}
+
+/** This person's chats shared with people and groups (not in the trash) that someone else sees now. */
+export function peopleSharedChatIdsOf(ctx: AppContext, userId: string): string[] {
+  const rows = ctx.db.query('SELECT id, user_id FROM chats WHERE user_id = ? AND people_shared_at IS NOT NULL AND project_id IS NULL AND deleted_at IS NULL AND room_id IS NULL').all(userId) as { id: string; user_id: string }[]
+  return rows.filter((c) => resolveSubjects(ctx.db, subjectsOf(ctx.db, c.id)).some((id) => id !== userId)).map((c) => c.id)
+}
+
+/** The creator's account was switched off or deleted: everyone in their chats shared with people reads it under the box
+ * at once (Chat.shared.byGone, QA TC-7431). `ids`: the chats, read before a deletion took the rows away. */
+export function creatorChatsChanged(ctx: AppContext, userId: string, ids: readonly string[] = peopleSharedChatIdsOf(ctx, userId)): void {
+  for (const chatId of ids) { try { publishChatChanged(ctx, userId, chatId) } catch (e) { ctx.log.warn('a shared chat\'s people were not told of its creator\'s account', { err: e }) } }
+}
+
+/** The people in this person's chats shared with others, per chat, read before their account is deleted (the Inbox
+ * notice 'account' then names the chats they lose, QA TC-7341). */
+export function peopleInChatsOf(ctx: AppContext, userId: string): { chatId: string; people: string[] }[] {
+  return peopleSharedChatIdsOf(ctx, userId).map((chatId) => ({ chatId, people: resolveSubjects(ctx.db, subjectsOf(ctx.db, chatId)).filter((id) => id !== userId) }))
+}
+
+/** After an account deletion: each person in its chats shared with others gets the notice 'account' (who, and when the
+ * chat goes), and their windows hear the chat again. */
+export function accountChatsGone(ctx: AppContext, userId: string, before: readonly { chatId: string; people: string[] }[]): void {
+  const at = new Date().toISOString()
+  try {
+    const n = notificationsOf(ctx)
+    for (const c of before) for (const id of c.people) n.chatLost(id, c.chatId, userId, 'account', at)
+  } catch (e) { ctx.log.warn('notices of a deleted account\'s shared chats failed', { err: e }) }
+  creatorChatsChanged(ctx, userId, before.map((c) => c.chatId))
 }

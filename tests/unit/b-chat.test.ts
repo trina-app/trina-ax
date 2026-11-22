@@ -612,7 +612,7 @@ describe('instructions', () => {
     expect(LANGUAGE_RULE).toContain('when the answer is in another language')
     // what the person asks for in another language (an English email in a Korean chat), code, file names and quotes
     // are content, not narration
-    expect(LANGUAGE_RULE).toContain('Content the user asks for in another language (an email, a translation), code, file names and quotes stay as they are.')
+    expect(LANGUAGE_RULE).toContain('Content the user asks for in another language (an email, a translation), code, names of existing files and quotes stay as they are.')
   })
 
   // asked for a file that is there, the AI wrote a new one or asked where it was (docs/AGENTS/plan/20261111-0843-find-

@@ -203,6 +203,47 @@ describe('a failed answer without AI', () => {
   })
 })
 
+describe('a guest whose AI does not answer them (QA TC-7050)', () => {
+  const signInGuest = () => useSession.setState({ status: { kind: 'signed-in', me: {
+    user: { id: 'gina', username: 'gina', name: 'Gina', email: null, role: 'guest', locale: 'ko', localeChoice: null, mustChangePassword: false, prefs: {} },
+    groups: [], team: { name: 'Acme', defaultLocale: 'ko' }, session: { id: '01900000-0000-7000-8000-00000000000a', client: 'web', expiresAt: '2026-12-04T00:00:00.000Z' }, server: { version: '0', dev: true },
+    guest: { places: [{ kind: 'project', id: 'p1', name: 'Acme bid' }], ai: { mode: 'own' } },
+  } } } as never)
+  const guestFailed = () => {
+    const error = { code: CHAT_ERROR_MESSAGES.guest_no_ai.code, message: CHAT_ERROR_MESSAGES.guest_no_ai.ko, params: { reason: 'guest_no_ai' } }
+    return mount(
+      <MemoryRouter>
+        <AssistantMessage m={msg({ role: 'assistant', content: '', status: 'error', error } as never)} chatId={CHAT} isLast busy={false} switchedFrom={null} onRegenerate={() => {}} onSelectBranch={() => {}} onAskOwnFolder={() => {}} />
+      </MemoryRouter>,
+    )
+  }
+  test('while the box under the chat says it: no red error, no Try again, no second notice', async () => {
+    signInGuest()
+    access = { usable: false, action: 'ask_owner', requested: false }
+    useAiAccess.setState({ loaded: true, usable: false, action: 'ask_owner', requested: false })
+    const m = await guestFailed()
+    try {
+      await m.until(() => m.find('assistant-message'), 'the answer')
+      expect(m.find('answer-error')).toBeNull()
+      expect(m.find('retry')).toBeNull()
+      expect(m.find('answer-guest-no-ai')).toBeNull()
+    } finally { await m.unmount() }
+  })
+  test('with nothing below (their own sign-in to make): one calm notice in the guest words, no Try again', async () => {
+    signInGuest()
+    access = { usable: false, action: 'connect_own', requested: false }
+    useAiAccess.setState({ loaded: true, usable: false, action: 'connect_own', requested: false })
+    const m = await guestFailed()
+    try {
+      await m.until(() => m.find('answer-guest-no-ai'), 'the notice')
+      expect(m.get('answer-guest-no-ai').textContent).toContain(ko('guest.noAi'))
+      expect(m.get('answer-guest-no-ai').textContent).not.toContain(CHAT_ERROR_MESSAGES.guest_no_ai.ko)
+      expect(m.find('answer-error')).toBeNull()
+      expect(m.find('retry')).toBeNull()
+    } finally { await m.unmount() }
+  })
+})
+
 describe('a failed answer with AI connected', () => {
   test('the owner reads where to fix it, not the "connect AI" words, and no button (another engine is connected)', async () => {
     signIn('owner')

@@ -5,11 +5,14 @@
 // title ("민준 · #마케팅 › 스레드") instead, names made one plain line.
 import { afterEach, expect, setDefaultTimeout, test } from 'bun:test'
 import crypto from 'node:crypto'
+import fs from 'node:fs'
+import path from 'node:path'
 import { plainLabel } from '@mycel/shared/api'
 import { updateTeamSettings } from '../../server/src/admin/settings'
 import { notificationsOf } from '../../server/src/notifications/service'
 import { savePreferences } from '../../server/src/notifications/preferences'
 import { roomsOf } from '../../server/src/rooms/service'
+import { roomFilesOf } from '../../server/src/rooms/files'
 import { noticeWanted } from '../../server/src/rooms/alerts'
 import { COUNT_MAX, plainMarkdown, previewLine } from '../../server/src/rooms/inbox'
 import { zonedClock } from '../../shared/src/api/room-alerts'
@@ -113,6 +116,30 @@ test('a row says who, where and why with the first line; the notice a push opens
   expect(rows(nora.id).find((x) => x.room?.message === all.id)?.room).toMatchObject({ reason: 'mention' })
   expect(previewLine('   \n\t ')).toBe('')
   expect(previewLine('x'.repeat(500))).toHaveLength(200)
+})
+
+test('QA TC-7049: a row for a message with text and files names its first file and counts them; deleted, nothing of it', async () => {
+  const { mia, nora, team, send, rows } = await setup()
+  const file = async (name: string, roomId: string) => {
+    const src = path.join(h.ctx.config.dataDir, `upload-${crypto.randomUUID()}`)
+    fs.writeFileSync(src, `content ${name}`)
+    return roomFilesOf(h.ctx).create(mia.id, roomId, name, src, crypto.createHash('sha256').update(`content ${name}`).digest('hex'))
+  }
+  // a team room keeps its files in the group folder (room_file_refs): counted, never named (each person sees such a
+  // file by their own access to its path)
+  const ra = await file('team-ref-note.md', team.id), rb = await file('team-ref-second.md', team.id)
+  const inTeam = await send(mia.client, team.id, '팀 메모입니다.', { mentions: [nora.id], fileIds: [ra.id, rb.id] })
+  const teamRow = rows().find((x) => x.room?.message === inTeam.id)!.room!
+  expect(teamRow).toMatchObject({ preview: '팀 메모입니다.', files: 2 })
+  expect(teamRow.fileName).toBeUndefined()
+  // a DM's own files: the first one is named
+  const dm = await mia.client.call('POST', '/api/rooms', { kind: 'dm', userId: nora.id })
+  const a = await file('sq-thread-note2.md', dm.id), b = await file('second.md', dm.id)
+  const m = await send(mia.client, dm.id, '추가 메모입니다.', { mentions: [nora.id], fileIds: [a.id, b.id] })
+  expect(rows().find((x) => x.room?.message === m.id)!.room).toMatchObject({ message: m.id, preview: '추가 메모입니다.', files: 2, fileName: 'sq-thread-note2.md' })
+  // the message deleted: no name of its file
+  await mia.client.call('DELETE', `/api/rooms/${dm.id}/messages/${m.id}`)
+  expect(JSON.stringify(rows())).not.toContain('sq-thread-note2')
 })
 
 test('one row per place: a thread\'s mention and replies, a timeline\'s mentions; counted from my place; reading it reads them all', async () => {

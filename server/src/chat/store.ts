@@ -40,6 +40,8 @@ export interface MessageRow {
   /** migration 213: 1 when the AI got only the recent part of the conversation for this answer */
   history_trimmed: number
   history_small_model: number
+  /** why the answer was stopped for its requester (migration 435): their account deleted or switched off */
+  stopped_for?: string | null
 }
 export interface ProjectRow {
   id: string; name: string; folder_path: string; instructions: string; created_by: string | null; created_at: string
@@ -56,7 +58,7 @@ export interface ProjectRow {
 }
 
 export const CHAT_COLS = 'id, user_id, project_id, title, engine, model, engine_session_id, engine_session_leaf_id, session_tainted, active_leaf_id, created_at, updated_at, deleted_at, title_source, room_id, seen_at, shared_at, side_room_id, people_shared_at'
-export const MESSAGE_COLS = 'id, chat_id, parent_id, role, author_id, content, attachments, steps, status, error, turn_id, engine, model, files, client_message_id, created_at, updated_at, stop_reason, history_trimmed, history_small_model'
+export const MESSAGE_COLS = 'id, chat_id, parent_id, role, author_id, content, attachments, steps, status, error, turn_id, engine, model, files, client_message_id, created_at, updated_at, stop_reason, history_trimmed, history_small_model, stopped_for'
 export const PROJECT_COLS = 'id, name, folder_path, instructions, created_by, created_at, instructions_author, instructions_authored, trashed_with, share_chats, folder_made'
 
 /** SQLite timestamps ("2026-10-21T03:04:05.678Z" from strftime, or ISO from JS) -> ISO with offset. */
@@ -409,6 +411,12 @@ export class ChatStore {
       branch: { index: Math.max(0, siblings.indexOf(r.id)), count: Math.max(1, siblings.length), siblingIds: siblings },
       // only when it paused at a limit: every other message keeps its earlier shape
       ...(r.role === 'assistant' && stopReasonOf(r.stop_reason) ? { stopReason: stopReasonOf(r.stop_reason) } : {}),
+      // stopped because its requester's account went (QA TC-7431): who, so the others read why
+      ...(r.role === 'assistant' && r.status === 'stopped' && (r.stopped_for === 'requester_removed' || r.stopped_for === 'requester_disabled') ? (() => {
+        const t = r.turn_id ? this.db.query('SELECT user_id FROM turns WHERE id = ?').get(r.turn_id) as { user_id: string } | null : null
+        const name = t ? this.userRef(t.user_id)?.name ?? '' : ''
+        return name ? { stoppedFor: { reason: r.stopped_for as 'requester_removed' | 'requester_disabled', name } } : {}
+      })() : {}),
       ...(r.role === 'assistant' && r.history_trimmed === 1 ? { historyTrimmed: true } : {}),
       // cut because the team's AI model reads only a short conversation (chat/history-fit.ts)
       ...(r.role === 'assistant' && r.history_trimmed === 1 && r.history_small_model === 1 ? { historySmallModel: true as const } : {}),

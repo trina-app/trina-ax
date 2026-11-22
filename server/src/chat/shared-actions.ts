@@ -363,6 +363,31 @@ export function madeInChat(db: Database, chatId: string, userId: string, rel: st
   } catch { return false }
 }
 
+/**
+ * This chat handed the file at `rel` over from its own work folder (save_work_file or copy_files of chat:work/…, detail
+ * `from: 'work folder'`; chat/places-copy.ts), in one of the person's own answers of it, and nothing touched it since:
+ * a video or a deck its box_shell commands made (QA TC-7261, the owner's 11-22 promo video). The Share dialog's "Share
+ * with files" offers it like a file the chat wrote (chat/chat-files-share.ts madeFilesOf); madeInChat itself stays as
+ * it is (no own-folder card change). From file_events only; fails closed.
+ */
+export function handedOverInChat(db: Database, chatId: string, userId: string, rel: string): boolean {
+  try {
+    const mine = `SELECT id FROM turns WHERE chat_id = ? AND user_id = ?`
+    const last = db.query("SELECT id FROM file_events WHERE path = ? AND action = 'create' ORDER BY id DESC LIMIT 1").get(rel) as { id: number } | null
+    if (!last) return false
+    const made = db.query(`SELECT e.id FROM file_events e WHERE e.id = ? AND e.user_id = ? AND e.turn_id IN (${mine}) AND e.detail IS NOT NULL AND json_valid(e.detail)
+      AND COALESCE(json_extract(e.detail, '$.tool'), '') IN ('save_work_file', 'copy_files') AND json_extract(e.detail, '$.from') = 'work folder'
+      AND json_extract(e.detail, '$.conflictCopyOf') IS NULL`).get(last.id, userId, chatId, userId) as { id: number } | null
+    if (!made) return false
+    const prev = db.query("SELECT action FROM file_events WHERE path = ? AND id < ? AND action <> 'rejected' ORDER BY id DESC LIMIT 1").get(rel, made.id) as { action: string } | null
+    if (prev && prev.action !== 'delete') return false
+    // anything since but the chat's own writes (madeInChat's rule): not the chat's file any more
+    if (db.query(`SELECT 1 FROM file_events p WHERE p.path = ? AND p.id > ? AND p.action <> 'rejected'
+      AND NOT (p.action = 'update' AND p.user_id = ? AND p.turn_id IN (${mine}) AND ${chatWritingSql('p')}) LIMIT 1`).get(rel, made.id, userId, chatId, userId)) return false
+    return !folderAboveChanged(db, rel, made.id)
+  } catch { return false }
+}
+
 // ---- content written by others (docs/decisions/20261116-always-allow-more-cards.md "Content written by others") ----
 /**
  * Other people's words are in this turn: a shared chat, a chat others wrote in, one that read rooms (a side chat,
