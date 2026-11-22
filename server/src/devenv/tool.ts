@@ -278,13 +278,13 @@ function movedAwayNotes(h: BoxShellHost, changes: readonly { path: string; actio
   const out: string[] = []
   for (const c of changes) {
     if (c.action !== 'create' || out.length >= 5) continue
-    const m = movedAwayBefore(h.ctx.db, c.path)
+    const m = movedAwayBefore(h.ctx.db, c.path, h.ctx.files.fx.root)
     if (!m) continue
     const to = m.to && nameable(h, m.to) ? m.to : null
     const when = m.at.slice(0, 16).replace('T', ' ') + ' UTC'
     out.push(to
       ? `Note: ${c.path} is a NEW file this command made. The file that was there was moved by ${m.byName || 'someone on the team'} on ${when} to ${to} (moved, not deleted), and that file did not change. If the person meant that file, put your result there: read ${to}, then copy_files this file (under the same name: rename it first if needed) into its folder, which saves it as a new version of ${to} (its earlier content is kept), and delete this new copy (${c.path}) unless they want two files. Tell the person where the file is; never say you saved the same file.`
-      : `Note: ${c.path} is a NEW file this command made. The file that was there was moved by ${m.byName || 'someone on the team'} on ${when} to a place not named here (moved, not deleted), and that file did not change. Delete this new copy unless the person wants a new file here, and tell them the file was moved; never say you saved the same file.`)
+      : `Note: ${c.path} is a NEW file this command made. The file that was there was moved by ${m.byName || 'someone on the team'} on ${when} to a place not named here (moved, not deleted), and that file did not change. Keep this new copy, tell the person the file was moved and that your change is in this new file at the old place, and ask whether that is what they want; never say you saved the same file.`)
   }
   return out
 }

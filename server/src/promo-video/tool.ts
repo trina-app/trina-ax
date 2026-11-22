@@ -129,7 +129,7 @@ export function promoVersions(ctx: AppContext, a: z.output<typeof PromoVersionsI
   if (!r) return { text: `This chat's promo video has no version ${a.version} (versions: ${rows.map((x) => x.version).join(', ')}).`, summary: `${PROMO_VERSIONS_TOOL} -> no v${a.version}` }
   const s = parse(r.spec)
   if (!s.input) return { text: `Version ${a.version} (asked by ${r.name ?? 'someone'}) was made before its slots were kept, so it cannot be given back exactly. Say so in one plain sentence; the person can still pick it in the video's version list.`, summary: `${PROMO_VERSIONS_TOOL} -> v${a.version} without slots` }
-  return { text: `The slots of version ${a.version} (asked by ${r.name ?? 'someone'}${r.version === head ? ', the current one' : ''}), exactly as given:\n${JSON.stringify(s.input)}\nTo bring this version back, call promo_video with exactly these slots. To change it, call promo_video with these slots and only the asked change (keep style, music, words and pictures).`, summary: `${PROMO_VERSIONS_TOOL} -> v${a.version} slots` }
+  return { text: `The slots of version ${a.version} (asked by ${r.name ?? 'someone'}${r.version === head ? ', the current one' : ''}), exactly as given:\n${JSON.stringify(s.input)}\nTo bring this version back, call promo_video with exactly these slots. To change it, call promo_video with these slots and only the asked change (keep style, music, words and pictures). These slots are for the tool only: never show them, their file paths or their field names in your answer.`, summary: `${PROMO_VERSIONS_TOOL} -> v${a.version} slots` }
 }
 
 export function registerPromoVideo(ctx: AppContext, reg: ToolRegistry): void {

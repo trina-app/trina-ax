@@ -165,7 +165,7 @@ export const LOST_ACCESS_NOTE = (old: string) => `'${old}' is still there, but t
 /** The file that was at `rel` before a file was made there again (box_shell's new file at a moved file's old place): the
  * newest move away from exactly `rel` with only one file made there since (the new one), followed to where it is now.
  * null when nothing moved away from it or more was made there since. `byName`: the mover's name. */
-export function movedAwayBefore(db: Database, rel: string): { to: string | null; by: string; byName: string; at: string } | null {
+export function movedAwayBefore(db: Database, rel: string, root?: string): { to: string; by: string; byName: string; at: string } | null {
   const del = db.query(`SELECT id, user_id, detail, at FROM file_events WHERE path = ? AND action = 'delete' ORDER BY id DESC LIMIT 1`).get(rel) as { id: number; user_id: string; detail: string | null; at: string } | null
   if (!del) return null
   let d: { movedTo?: unknown } = {}
@@ -175,7 +175,10 @@ export function movedAwayBefore(db: Database, rel: string): { to: string | null;
   if (made > 1) return null
   // where it is now: its new place, or where later moves took it
   const later = whereNow(db, d.movedTo)
-  const to = later?.kind === 'moved' ? later.to : later?.kind === 'trashed' ? null : d.movedTo
+  // in the trash since, or not where the moves lead (deleted for good, renamed by a command): nothing is said
+  if (later?.kind === 'trashed') return null
+  const to = later?.kind === 'moved' ? later.to : d.movedTo
+  if (root) { try { if (!fs.lstatSync(path.join(root, ...to.split('/'))).isFile()) return null } catch { return null } }
   const byName = (db.query('SELECT name FROM users WHERE id = ?').get(del.user_id) as { name: string } | null)?.name ?? ''
   return { to, by: del.user_id, byName, at: del.at }
 }

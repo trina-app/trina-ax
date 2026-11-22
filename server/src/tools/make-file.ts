@@ -33,6 +33,7 @@
 // - pdf from a .pptx `source`: the deck drawn by the server with a page per shown slide (files/pptx-html.ts, in the office
 //   worker), then printed like an HTML page; nothing else here converts a deck (no LibreOffice). Its pictures come
 //   from the deck itself, never from the team folder; the deck is the PDF's only source.
+import { movedFact } from '../files/moved'
 import { addFormulaResults } from './formula-values'
 import fs from 'node:fs'
 import path from 'node:path'
@@ -1062,6 +1063,11 @@ export async function placeProduced(ctx: AppContext, files: TeamFiles, c: ToolCt
   const rel0 = now.rel
   // under skills/ only after the person confirmed this save on the server's card (skills/guard.ts); fail closed
   requireSkillApproval(c, rel0, null)
+  // a new file where a file was moved away from (QA TC-7234, real claude-code run: the remade poster went to its old
+  // place, the moved one stayed on the old date, and the answer said "saved the same file"): said first, once per answer
+  // and place, with where the file is now (when this person, and everyone in the chat, may read it there). A second
+  // call for the same place makes the new file (the person may want one there)
+  if (!now.exists) movedAwayCheck(ctx, c, rel0)
   if (now.exists) {
     const abs = path.join(fx.root, ...segs)
     checkRegular(abs)
@@ -1474,4 +1480,22 @@ export function docResultText(d: FromMarkdown, format: 'pdf' | 'docx'): string {
   const pics = d.pictures ? `${d.pictures} picture${d.pictures === 1 ? '' : 's'}` : 'no pictures'
   const bars = !d.pictures && d.textBars ? ' Bars drawn with block characters (■, █) are text, not a chart: for a chart, draw it as SVG, save it as PNG with make_file and put the picture in; otherwise do not call it a chart.' : ''
   return `The ${format === 'pdf' ? 'PDF' : 'Word file'} has ${pages}${pics}.${bars}`
+}
+
+/** the places this answer was told a file had moved away from (a second save there goes ahead) */
+const movedTold = new WeakMap<object, Set<string>>()
+function movedAwayCheck(ctx: AppContext, c: ToolCtx, rel: string): void {
+  const told = movedTold.get(c.files) ?? new Set<string>()
+  if (told.has(rel)) return
+  let f: ReturnType<typeof movedFact> = null
+  try {
+    const chatId = c.turnId ? (ctx.db.query('SELECT chat_id FROM turns WHERE id = ?').get(c.turnId) as { chat_id: string } | null)?.chat_id ?? null : null
+    f = movedFact(ctx.db, ctx.files.fx, ctx.files.rules(), c.user, rel, { chatId })
+  } catch { f = null }
+  if (!f || f.kind !== 'moved') return
+  told.add(rel); movedTold.set(c.files, told)
+  const who = f.byName || 'someone on the team'
+  throw new ToolError(f.to
+    ? `Nothing was saved: '${rel}' is where a file used to be. ${who} moved that file to '${f.to}' (moved, not deleted), so saving here would make a second, NEW file and leave '${f.to}' unchanged. To change the file the person means, read '${f.to}', then save your result to '${f.to}' itself (or copy it into that folder under the same name): that saves a new version of it. Only if the person wants a separate new file here, call this again with the same path.`
+    : `Nothing was saved: '${rel}' is where a file used to be. ${who} moved that file to a place not named here (moved, not deleted), so saving here would make a second, NEW file. Tell the person the file was moved and ask where it is; only if they want a separate new file here, call this again with the same path.`, 'moved_away')
 }

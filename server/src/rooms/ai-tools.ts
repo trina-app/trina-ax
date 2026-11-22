@@ -203,6 +203,8 @@ export const SEARCH_TOOLS: ReadonlySet<string> = new Set(['grep', 'glob'])
 export const ROOM_READ_ONLY_TOOLS: ReadonlySet<string> = new Set([
   'list', 'glob', 'grep', 'read', 'skill', 'find_skills', 'ask_user', 'todo_write', 'hwp_render', 'share_file', 'artifact', 'web_fetch',
   'room_file',
+  // the chat's promo video versions (promo-video/tool.ts): reads them only
+  'promo_video_versions',
 ])
 
 /**

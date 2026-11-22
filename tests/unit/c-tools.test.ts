@@ -41,7 +41,7 @@ describe('registry', () => {
     // save_promo_video only where this server can render the MP4 (promo-video/render.ts mp4Available: a Mac dev server)
     const offered: string[] = names
     expect(offered.includes('save_promo_video')).toBe(mp4Available(A.ctx))
-    expect(offered.filter((n) => n !== 'save_promo_video')).toEqual(['list', 'glob', 'grep', 'read', 'write', 'edit', 'make_file', 'edit_hwp', 'stamp_pdf', 'edit_pdf', 'merge_pdfs', 'split_pdf', 'resize_images', 'unzip_file', 'make_zip', 'query_data', 'share_file', 'artifact', 'web_fetch', 'save_url', 'comment_docx', 'edit_office', 'move_files', 'copy_files', 'rename_file', 'rename_files', 'schedule_create', 'schedule_list', 'schedule_delete', 'save_connector_file', 'promo_video', 'intro_deck'])
+    expect(offered.filter((n) => n !== 'save_promo_video')).toEqual(['list', 'glob', 'grep', 'read', 'write', 'edit', 'make_file', 'edit_hwp', 'stamp_pdf', 'edit_pdf', 'merge_pdfs', 'split_pdf', 'resize_images', 'unzip_file', 'make_zip', 'query_data', 'share_file', 'artifact', 'web_fetch', 'save_url', 'comment_docx', 'edit_office', 'move_files', 'copy_files', 'rename_file', 'rename_files', 'schedule_create', 'schedule_list', 'schedule_delete', 'save_connector_file', 'promo_video_versions', 'promo_video', 'intro_deck'])
     const mf = r.result.tools.find((t: any) => t.name === 'make_file')
     expect(mf.inputSchema.properties.format.enum).toEqual(['docx', 'pptx', 'xlsx', 'pdf', 'hwpx', 'png'])
     expect(() => toolRegistry(A.ctx.files).register({ name: 'make_file', description: '', input: mf as any, run: () => ({ text: '', summary: '' }) })).toThrow('registered twice')
