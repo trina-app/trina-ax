@@ -5,6 +5,39 @@ This file summarizes user-visible changes; it is not a list of every commit.
 
 ## Unreleased
 
+## 0.14.0 — 2026-11-23
+
+- Admin notes: 0.14.0 changes no root file. A Linux server on 0.8.0 or newer takes 0.14.0 as an app update, with no root step. A server still on 0.7.x or older takes it through the root update, as for 0.8.0: the update timer installs it in the team's update window, or run `sudo mycel-ctl update`. No backup is needed: the four new database migrations (441–444) only add tables and columns, older versions can read them, and the reader level stays 9. A server still on 0.5.x needs the backup first, as for 0.6.0 (Admin › System › Backups › Back up now).
+- Admin notes, going back: going back to 0.13.1 or any release back to 0.7.0 needs no backup (reader level 9). Going back to 0.5.x still needs the backup taken before 0.6.0.
+- In an AI chat shared with people or a project's chat, typing **@** in the main message box no longer opens the member list: that box is for talking to the AI. To mention someone, reply in the thread under an AI answer; they get a notice as before. Everyone still gets the usual new-message notice for main messages. Project chat rooms are unchanged.
+- **Always allow this site** replaces "Allow this site in this conversation" on the web address card: once you pick it, Trina opens other addresses on that site without asking in all your chats and your scheduled tasks. In a shared chat with a guest, the choice still counts for that chat only.
+- Settings › Allowed for Trina now lists the sites you always allowed, both web sites and office-network addresses from the in-app browser, and you can remove each one.
+- Sharing files, sharing a folder and posting to a conversation no longer ask again in shared chats when you chose **Always allow**, also when your message did not name who gets it, when the post mentions @everyone, and in your scheduled tasks in a chat that teammates wrote in.
+- A dev environment command that can use a login, after teammates changed files, now offers **Always allow** on its card. You can remove it in Settings › Allowed for Trina.
+- The AI no longer writes its own reasoning about its instructions (such as whether it should ask first) into answers.
+- In a shared chat, after someone loses access to a folder the AI read earlier in that chat, a search that would have looked there now tells the AI the folder can no longer be opened, so it says that instead of "I couldn't find the folder" and asking for a path.
+- A page, chart or report the AI makes from a spreadsheet now shows the date of its data, and the numbers in the AI's answer come from the same calculation as the file.
+- Restoring an earlier version of a web page now asks first, as a chat file does: it names whose later changes drop out and who in the chat will see it. The chat then shows "{name} restored {page} to version {n}", and everyone who has the chat open sees the change and the line at once.
+- After the AI read a conversation, one answer asks fewer times: running the same command again with other numbers (a bigger font) and renaming a file the answer just made no longer ask again. The question says what happens ("프로그램으로 그림 파일 banner.png 만들기") instead of "a command that makes…".
+- A shared chat's "added"/"removed" lines and an added person's open page now update without a reload.
+- Korean particles after version numbers and file names read right ("버전 2를", "주간 실적.xlsx를").
+- File search steps say the folder and kind of file in words, not a pattern like `매출/**/*`.
+- In English, the side chat's room button reads "Send to chat".
+- In your own side chat after reading a room, a command that runs without asking now has no internet at all. If it needs the internet, Trina asks you first and runs it again.
+- In a shared chat with a guest, read cards and cards for your own connection offer **Always in this chat** only.
+- A file Trina attached to an answer in a shared chat, sent to a teammate with "보내줘", now goes with the message as a file they can open. Before, only a link went, and it did not open for someone outside the chat. A copy is kept in your own downloads folder.
+- The send card shows such a file by its name instead of a raw link.
+- A command that reads a web page no longer says "파일 바꾸기" on its card; it says it runs a command that uses the internet, and asking again with the site it needs asks only about the site.
+- Trina no longer writes "(only you)" in English inside a Korean answer about who can open a saved file.
+- A command the AI runs in the dev environment no longer changes your own files for good: a file it changes keeps its earlier content as a version (File history), and a file it deletes goes to the trash, as when you change or delete a file yourself. Files over 8 MB are the exception, and the AI says so. So after a chat read a chat room, a command in your own chat or a ✦ side chat no longer asks first when everything it could change in your folder can be put back; it still asks when it reaches the internet, runs as a long job, or a file in your folder is too large to keep a copy of.
+- The AI remembers what it did in earlier answers of the same chat: which tools it called, with which files, pages and addresses, and what came back. Before, after some answers (another engine, an edited message, or a shared chat that read something not everyone there may see) it got only the earlier answers' text and could not say how it had done something. In a shared chat it gets only its own steps for the person asking, and only what everyone there may see.
+- Connector cards ask far less. **Always allow** is on every connector card and now holds in every chat, not only the one you were in, until you remove it in Settings › Allowed for Trina. This covers the shared chat card ("what the AI gets from Aside will show to the 5 people in this chat"), read cards, and changes on your own connection or your own app (such as Aside running a task in your browser). Sending to other people, and changes at a team connection, still ask each time in a shared chat.
+- In a shared chat, a connector tool that the service marks read-only and whose name says nothing about changing anything (such as Bright Data's "Scrape as Markdown") now runs with no card, as in your own chat.
+- Cards say what happens in plain words ("Read this page with Bright Data · example.com/…", "In Aside: Check open tabs") with one-press **Allow**, **Always allow** and **Don't allow**. Code, parameters and ids are behind **Details**.
+- A card you answer after Trina's answer has ended now does exactly what it asked, with the same file, people or message, and "Always allow" on it is kept. Before, a late press on a share card in a shared chat was refused because your press named no file.
+- Cards for connected services and room posts now wait as long as it takes, like share and delete cards, instead of closing after 10 minutes.
+- If you type a message instead of pressing a waiting card, the card stays and Trina points you to it. If something changed since you answered, the card asks once more and says so.
+
 ## 0.13.1 — 2026-11-22
 
 - Admin notes: 0.13.1 changes no root file and has no database migration. A Linux server on 0.8.0 or newer takes 0.13.1 as an app update, with no root step; one on 0.7.x or older takes it through the root update, as for 0.8.0. No backup is needed (reader level 9). A server still on 0.5.x needs the backup first, as for 0.6.0.
