@@ -175,6 +175,12 @@ export const STEP_TEXT = {
   notRemembered: t('기억하지 않음: {text}', 'Not remembered: {text}', 'Tidak diingat: {text}', "記憶しませんでした：{text}", "No se recordó: {text}", "未记住：{text}"),
   /** remember while its card waits for the person's yes (a chat that read other people's content) */
   rememberAsking: t('기억할지 묻는 중: {text}', 'Asking whether to remember: {text}', 'Menanyakan apakah perlu diingat: {text}', "記憶するか確認中：{text}", "Preguntando si recordar: {text}", "正在询问是否记住：{text}"),
+  /** remember of a password, key, token or code: never kept, and its value never shown */
+  notRememberedSecret: t('기억하지 않음: 비밀번호나 키 같은 비밀 정보', 'Not remembered: a password, key or other secret', 'Tidak diingat: kata sandi, kunci, atau rahasia lain', "記憶しませんでした：パスワードやキーなどの秘密情報", "No se recordó: una contraseña, clave u otro secreto", "未记住：密码、密钥等机密信息"),
+  /** remember with `replaces`: an existing memory changed in place */
+  rememberUpdated: t('기억 고침: {text}', 'Memory updated: {text}', 'Ingatan diperbarui: {text}', "記憶を更新しました：{text}", "Memoria actualizada: {text}", "已更新记忆：{text}"),
+  /** forget, with the text of the memory it removed */
+  forgotText: t('잊음: {text}', 'Forgot: {text}', 'Dilupakan: {text}', "忘れました：{text}", "Olvidado: {text}", "已忘记：{text}"),
   forgot: t('기억 지움', 'Forgot a memory', 'Ingatan dihapus', "メモリを削除しました", "Se olvidó una memoria", "已删除一条记忆"),
   notAnswered: t('답하지 않음', 'Not answered', 'Tidak dijawab', "未回答", "Sin respuesta", "未回答"),
   /** detail of a connect_service step: the person finished the card (or it was connected already), or did not */
@@ -640,8 +646,8 @@ export function localizeStep(step: { kind: string; tool?: string; label: string;
   else if (tool === 'context') label = retemplate(['contextRecover'], step.label, locale)
   else if (tool === 'agent') label = retemplate(['subtask'], step.label, locale)
   else if (tool === 'ask_user') label = retemplate(['asked'], step.label, locale)
-  else if (tool === 'remember') label = retemplate(['remembered', 'notRemembered', 'rememberAsking'], step.label, locale)
-  else if (tool === 'forget') label = retemplate(['forgot'], step.label, locale)
+  else if (tool === 'remember') label = retemplate(['remembered', 'notRemembered', 'rememberAsking', 'rememberUpdated', 'notRememberedSecret'], step.label, locale)
+  else if (tool === 'forget') label = retemplate(['forgotText', 'forgot'], step.label, locale)
   else if (BROWSER_STEP_VERB[tool] || step.kind === 'browser' || browserTools?.has(tool)) label = reverb(BROWSER_STEP_VERB[tool] ?? BROWSER_STEP_FALLBACK, step.label, locale, LEGACY_VERBS[tool])
   else if (tool === 'read') label = reverb(READ_MEDIA_VERB.video, step.label, locale) ?? reverb(READ_MEDIA_VERB.audio, step.label, locale) ?? reverb(READ_SLIDES_VERB, step.label, locale) ?? reverb(FILE_STEP_VERB.read!, step.label, locale)
   else if (FILE_STEP_VERB[tool]) label = reverb(FILE_STEP_VERB[tool]!, step.label, locale, LEGACY_VERBS[tool])

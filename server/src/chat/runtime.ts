@@ -44,6 +44,7 @@ import { unsharePeopleChecked } from './people-guard'
 import { Audiences, chatView, chatWriters, isSharedRow, labelledTranscript, peopleFor, messageFor, recordOlderAnswers, severalAuthors, unshareUncheckedChats } from './shared'
 import { publishDoneToOthers } from './live-answer'
 import { newAnswerRecord } from './shared-answers'
+import { OutsideText } from './auto-memory'
 import { SharedWaiting } from './shared-waiting'
 import { answersToSave, answerWords, closeChatQuestions, labelsHidden, hasOpenQuestion, readyAnswers, reopenAnswers, saveAnswered, type AnsweredQuestion } from './open-questions'
 
@@ -237,6 +238,8 @@ export class ChatRuntime {
   readonly looking: Looking
   /** who has messages waiting in each shared chat, and since when (shared-waiting.ts): the order they go in */
   readonly sharedWaiting = new SharedWaiting()
+  /** the tool output each chat has seen, in memory only, for auto memory's copy check (chat/auto-memory.ts) */
+  readonly outside = new OutsideText()
   readonly engines: EngineProvider
   /** how long an engine that has the turn may produce nothing before the turn ends (STALL_TIMEOUT_MS; a test may
    * change it). One answer has no time limit (docs/DECISIONS.md "No time limit on one answer"). */
@@ -1139,7 +1142,7 @@ export class ChatRuntime {
     return (this.db.query(`SELECT name FROM groups WHERE id IN (${p.groups.map(() => '?').join(',')}) ORDER BY name`).all(...p.groups) as { name: string }[]).map((r) => r.name)
   }
   memoriesForPrompt(userId: string): { id: string; text: string }[] {
-    return this.db.query(`SELECT id, text FROM memories WHERE user_id = ? ORDER BY created_at DESC, id DESC LIMIT ${MEMORIES_FOR_PROMPT}`).all(userId) as { id: string; text: string }[]
+    return this.db.query(`SELECT id, text FROM memories WHERE user_id = ? ORDER BY (source = 'user') DESC, created_at DESC, id DESC LIMIT ${MEMORIES_FOR_PROMPT}`).all(userId) as { id: string; text: string }[]
   }
   /** The ids of the person's memories the AI gets now: the newest MEMORIES_FOR_PROMPT that fit in the memory block
    * (prompt.ts memoryLines). The others are kept and listed, not given to the AI (Settings › 메모리 says so). */

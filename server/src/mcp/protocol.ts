@@ -100,7 +100,7 @@ export function makeHandler(files: FileService, db: Database, ctx: ToolCtx, extr
     const out = registry?.has(name) ? await registry.call(name, params?.arguments ?? {}, callCtx) : await files.call(name, params?.arguments ?? {}, callCtx)
     audit.run(ctx.turnId, ctx.user.id, name.slice(0, 64), out.summary.slice(0, 1000), out.isError ? 0 : 1)
     let note: string | void = ''
-    try { note = extra?.afterFileTool?.(name, !!out.isError, params?.arguments, out.text, caller) } catch {}
+    try { note = extra?.afterFileTool?.(name, !!out.isError, params?.arguments, out.text, caller, out.images?.length ?? 0) } catch {}
     try { out.beforeDelivery?.() } catch {
       return failed(safeText(db,ctx.user.id,'changed'))
     }

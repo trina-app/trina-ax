@@ -213,18 +213,18 @@ describe('a turn that repeats the stored key', () => {
   })
 
   // QA TC-2981: the step said "Remembered: My key is [hidden key]", the saved memory held the key (Settings › Memory,
-  // the export's memories.csv)
-  test.skipIf(!native)('remember: the saved memory, Settings › Memory and the export have the key hidden', async () => {
+  // the export's memories.csv). Since auto memory (docs/decisions/20261122-auto-memory.md) a memory that held a stored
+  // key is not kept at all: the step says so, with the key hidden, and nothing is saved
+  test.skipIf(!native)('remember: a memory that holds a stored key is not kept; the step says only that it was a secret', async () => {
+    const before = (h.ctx.db.query("SELECT count(*) n FROM memories WHERE user_id = 'alice'").get() as { n: number }).n
     const t = await turn(['remember my key please', fake({ tool: 'remember', args: { text: `My key is ${KEY}` }, sayResult: true }, { say: 'Done.' })].join('\n'))
     const step = t.done.steps.find((s: { tool: string }) => s.tool === 'remember')
-    expect(step.label).toBe(`Remembered: My key is ${HIDDEN}`)
-    const id = String(step.detail).replace('memory:', '')
-    const row = h.ctx.db.query('SELECT text FROM memories WHERE id = ?').get(id) as { text: string }
-    expect(row.text).toBe(`My key is ${HIDDEN}`)
+    // the step never repeats a secret, not even hidden (security review of #332, L1)
+    expect(step.label).toBe('Not remembered: a password, key or other secret')
+    expect((h.ctx.db.query("SELECT count(*) n FROM memories WHERE user_id = 'alice'").get() as { n: number }).n).toBe(before)
     const listed = await h.api('alice').call(API.listMemories, {})
-    expect(listed.items.find((m) => m.id === id)!.text).toBe(`My key is ${HIDDEN}`)
     const rows = h.ctx.db.query("SELECT id, text, created_at, source_chat_id FROM memories WHERE user_id = 'alice'").all() as Parameters<typeof memoriesCsv>[0]
-    expect(leaks(memoriesCsv(rows) + JSON.stringify(listed))).toEqual([])
+    expect(leaks(memoriesCsv(rows) + JSON.stringify(listed) + JSON.stringify(t.done.steps))).toEqual([])
   })
 
   test.skipIf(!native)('schedule_create: the card and the saved task have the key hidden in the title and the prompt', async () => {
