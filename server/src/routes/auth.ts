@@ -14,8 +14,12 @@ import { fail } from '../http/errors'
 import { acceptInvite, changePassword, completeReset, inviteInfo, login, resetInfo, setup, setupStatusFor } from '../auth/accounts'
 import { authOf, installAuth } from '../auth/service'
 import { mintAppSignIn, redeemAppSignIn, voidAppSignInCodes } from '../auth/app-signin'
-import { disconnectGoogle, googleAppLoginAvailable, googleLoginAvailable, myGoogle, startGoogleConnect, startGoogleSignIn } from '../auth/google-login'
+import { disconnectGoogle, finishGoogleBroker, googleAppLoginAvailable, googleLoginAvailable, myGoogle, startGoogleConnect, startGoogleSignIn } from '../auth/google-login'
 import { redeemGoogleApp } from '../auth/google-login-apps'
+import { googleSigninBrokerOf } from '../auth/google-login-broker'
+import { GOOGLE_SIGNIN_TEAM_RETURN_PATH } from '@mycel/shared/cloud-protocol'
+import type { Context } from 'hono'
+import type { AppEnv } from '../http/env'
 import { startSweeper } from '../auth/sweeper'
 import { registerAccountsCleanup } from '../auth/account-removal'
 import { getUser, setUserLocale } from '../auth/users'
@@ -86,6 +90,11 @@ export const authRoutes: RouteModule = {
     kit.handle(API.myGoogle, ({ c, auth }) => myGoogle(c, ctx, auth.user.id))
     kit.handle(API.connectGoogle, ({ c, body }) => startGoogleConnect(c, ctx, body.password))
     kit.handle(API.disconnectGoogle, ({ auth }) => disconnectGoogle(ctx, auth.user.id))
+    // Sign in with Google through the hosting service (hosted teams without a Google client of their own,
+    // auth/google-login-broker.ts): the console sends the browser back here with a one-time handoff. Asked once at
+    // start whether the console serves this team, so the sign-in page knows soon
+    kit.raw('GET', GOOGLE_SIGNIN_TEAM_RETURN_PATH, (c) => finishGoogleBroker(c as unknown as Context<AppEnv>, ctx))
+    googleSigninBrokerOf(ctx)
 
     kit.handle(API.changePassword, async ({ c, body }) => {
       await changePassword(c, ctx, body)

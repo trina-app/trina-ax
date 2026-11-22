@@ -237,6 +237,8 @@ describe('route registry', () => {
       'GET /api/integrations/slack/oauth/callback',
       // "Add to Slack"'s return from the hosting service (the official app; tests/unit/c-slack-official.test.ts; matrix: SLACK_RAW_COVERED)
       'GET /api/integrations/slack/official/callback',
+      // Sign in with Google's return from the hosting service (hosted teams; tests/unit/a-google-login-broker.test.ts; matrix: GOOGLE_SIGNIN_RAW_COVERED)
+      'GET /api/auth/google/return',
       'GET /.well-known/oauth-protected-resource', 'GET /.well-known/oauth-protected-resource/mcp',
       'GET /.well-known/oauth-authorization-server', 'GET /oauth/authorize',
       'POST /oauth/register', 'POST /oauth/token', 'POST /oauth/revoke',

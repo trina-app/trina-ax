@@ -129,6 +129,11 @@ export function expectation(route: string, scope: Scope, who: Who): Exp {
 }
 
 /** The request builders, keyed by API route name. 'self' builders act on the caller's own newly-made data. */
+// GET /api/auth/google/return (Sign in with Google through the hosting service): public by design (the browser comes back
+// from the console without a session); a flow works once, only in the browser that started it, and the id_token is
+// checked against Google's keys (tests/unit/a-google-login-broker.test.ts)
+export const GOOGLE_SIGNIN_RAW_COVERED = ['RAW GET GOOGLE_SIGNIN_TEAM_RETURN_PATH']
+
 export const SPECS: Record<string, Spec> = {
   ...P4_SPECS,
   ...INTEGRATION_SPECS,
