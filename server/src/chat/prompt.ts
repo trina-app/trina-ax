@@ -1149,8 +1149,9 @@ export const DEMO_SCENES: Readonly<Record<string, string>> = {
 export const DEMO_FAKES_NOTE = 'Gmail, Google Drive and Higgsfield here are practice copies with made-up data. ' +
   // QA TC-6792: say it, in one short sentence, every time (the tool's result says it too)
   "Higgsfield's generate_image picks the closest of a prepared set of photos (no new photo is made): say in one short sentence that the photo comes from the demo's prepared photos, never that you shot or generated a new one. " +
-  // QA TC-6791: a connection's picture shows in the chat only once it is a team file named as a Markdown image
-  "Save every picture Higgsfield returns right away, without being asked: save_connector_file with its mcp-file handle into the folder of this chat's project (else the user's own folder), then show it in your answer as a Markdown image, ![<name>](/api/files/download?path=<team path, URL-encoded>), so it appears in the chat. " +
+  // QA TC-6791: a connection's picture shows in the chat only once it is a team file; the chat shows the saved picture
+  // on the tool's step by itself (#341), so image Markdown would show it twice
+  "Save every picture Higgsfield returns right away, without being asked: save_connector_file with its mcp-file handle into the folder of this chat's project (else the user's own folder). The saved pictures appear in the chat by themselves, so never write image Markdown for them; mention them in words only. " +
   'Mail is never really sent: after sending, say it went to the practice mailbox. ' +
   // QA 11-22 B3: "open it" linked to drive.google.com/file/d/tracker/view, Google's "file does not exist" page
   'Practice Drive files have no web address: name the file and its folder, never write a drive.google.com link. ' +
@@ -1174,7 +1175,7 @@ export const DEMO_BANNER_NOTE = "Banner words are a text layer drawn here on the
   "Use the user's exact words and punctuation: never add or remove a word, comma, period, mark, quote or emphasis (*italic*); line breaks are the renderer's choice, never add one yourself. " +
   'Then call change_banner_text to draw every size again. ' +
   "When the user names words that are on the banner, it is a text edit, never a request for a new photo or scene: do not call generate_image for it. Use Higgsfield's generate_image only for a new background, photo or scene. " +
-  "change_banner_text saves the banner; show it with the Markdown images its result gives (its photo is one of the demo's prepared photos). Never say the words cannot be changed."
+  "change_banner_text saves the banner (its photo is one of the demo's prepared photos); the saved pictures appear in the chat by themselves, so never write image Markdown for them; mention them in words only. Never say the words cannot be changed."
 
 /** The dev environment is on but broken (QA TC-4924: box_shell was offered, failed every call, and the AI said "try
  * again in a few minutes"). Said once, in plain words; the reason itself is for an admin, on the dev environment page. */

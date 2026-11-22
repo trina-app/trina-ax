@@ -418,9 +418,9 @@ describe('the AI knows the demo\'s services are practice copies', () => {
     expect(DEMO_FAKES_NOTE).toContain('one short sentence')
     expect(DEMO_FAKES_NOTE).toContain('without being asked')
     expect(DEMO_FAKES_NOTE).toContain('save_connector_file')
-    // the Markdown image the web draws inline (web/src/lib/markdown.ts classifyImage: /api/files/download?path=)
-    expect(DEMO_FAKES_NOTE).toContain('![<name>](/api/files/download?path=')
-    expect(DEMO_BANNER_NOTE).toContain('change_banner_text saves the banner; show it with the Markdown images its result gives')
+    // the chat shows the saved pictures on the tool's step by itself (#341): no image Markdown from the AI
+    expect(DEMO_FAKES_NOTE).toContain('The saved pictures appear in the chat by themselves, so never write image Markdown for them; mention them in words only.')
+    expect(DEMO_BANNER_NOTE).toContain('the saved pictures appear in the chat by themselves, so never write image Markdown for them; mention them in words only.')
     expect(DEMO_BANNER_NOTE).toContain("demo's prepared photos")
     // one sentence each in the result, no nagging
     for (const line of [PREPARED_PHOTO, PREPARED_BANNER, SAVE_NEXT]) expect(line.length).toBeLessThan(160)
