@@ -162,11 +162,14 @@ describe('team folders in words on screen (docs/DECISIONS.md "W2")', () => {
 
   test('anything else stays as it is, without a path', () => {
     for (const [tool, label] of [
-      ['read', 'Read · marketing/plan.md'], ['read', 'Read · groups'], ['list', 'List · /'], ['save_url', 'Download file · https://acme.example/shared/a.pdf'],
+      ['read', 'Read · marketing/plan.md'], ['save_url', 'Download file · https://acme.example/shared/a.pdf'],
       ['skill', 'Use skill · shared/notes'], ['artifact', 'Artifact · groups/Acme/x'], ['read', 'Read'], ['read', 'Read · shared//a.md'],
     ] as const) expect(stepPlace({ tool }, label, 'en')).toEqual({ label })
     expect(stepPlace({}, 'Thinking', 'en')).toEqual({ label: 'Thinking' })
     expect(placeName('https://acme.example/a', 'en')).toBeNull()
+    // the top folders and the whole team folder are in words since batch 5 (QA TC-b4s: "폴더 보기 · groups")
+    expect(stepPlace({ tool: 'read' }, 'Read · groups', 'en')).toEqual({ label: 'Read · Groups', path: 'groups' })
+    expect(stepPlace({ tool: 'list' }, 'List · /', 'en')).toEqual({ label: 'List · Team folder' })
   })
 })
 

@@ -771,7 +771,8 @@ function toolPlace(step: { tool?: string }, label: string, locale: Locale): { la
   const [, path = tail, suffix = ''] = /^(.*?)( \+\d+| #\d+)?$/s.exec(tail) ?? []
   const named = placeName(path, locale)
   // a chat place is the chat's own: no tooltip with its inner path and file id (QA TC-7048)
-  if (named && parsePlace(path)) return { label: `${line.slice(0, at + 3)}${named}${suffix}${cover ?? ''}` }
+  // (nor for the whole team folder: "/" tells nothing more)
+  if (named && (parsePlace(path) || /^\s*\/+\s*$/.test(path))) return { label: `${line.slice(0, at + 3)}${named}${suffix}${cover ?? ''}` }
   if (named) return { label: `${line.slice(0, at + 3)}${named}${suffix}${cover ?? ''}`, path }
   // a chat place the line names some other way (cut short, or after "->"): in words all the same
   const worded = chatPlaceWords(label, locale)
