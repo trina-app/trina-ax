@@ -16,10 +16,11 @@ import { createHash } from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
 import { API, PACK_EXAMPLE_LIMITS, type SkillShare } from '@mycel/shared/api'
-import { startHarness, type Harness } from '../lib/b-harness'
+import { addTestPerson, startHarness, type Harness } from '../lib/b-harness'
 import { waitFor } from '../lib/wait'
 import { getSetting, setSetting } from '../../server/src/admin/settings'
-import { ANTHROPIC_SKILLS_COMMIT, CATALOG, exampleBody, KWP_COMMIT, onVisualSkillInstall, PACK_EXAMPLES, packExample, SKILL_PACKS, skillPackCatalog } from '../../server/src/onboarding/skill-packs'
+import { ANTHROPIC_SKILLS_COMMIT, CATALOG, exampleBody, isPackTitle, KWP_COMMIT, onVisualSkillInstall, PACK_EXAMPLES, packExample, packSummary, packTitle, SKILL_PACKS, skillPackCatalog } from '../../server/src/onboarding/skill-packs'
+import { parseSkill } from '../../server/src/chat/skills'
 import { EXAMPLE_LOCALES } from '../../server/src/onboarding/skill-examples'
 import { WELCOME_SETTING } from '../../server/src/onboarding/welcome'
 
@@ -56,6 +57,23 @@ describe('the catalog (no server)', () => {
       expect(src.kind === 'adapted' && src.url).toMatch(new RegExp(`^https://github\\.com/anthropics/(knowledge-work-plugins/tree/${KWP_COMMIT}|skills/tree/${ANTHROPIC_SKILLS_COMMIT})/`))
     }
     for (const c of CATALOG.filter((x) => x.visual)) for (const l of ['ko', 'en'] as const) expect(c.source(l)).toEqual({ kind: 'team' })
+  })
+
+  test('every kept skill has a name and a one line in all six languages; where a pack has text, the name is its SKILL.md title (QA TC-7962)', () => {
+    for (const c of CATALOG) {
+      for (const l of LOCALES) {
+        expect(packTitle(c.name, l)).not.toBe(c.name)
+        expect(packSummary(c.name, l)).not.toBe('')
+        const text = SKILL_PACKS[c.pack].skills[l]?.[c.name]
+        if (text) expect(parseSkill(text, `skills/${c.pack}/${c.name}/SKILL.md`)?.title).toBe(packTitle(c.name, l))
+      }
+      // the names differ by language (none left in English by mistake)
+      expect(new Set(LOCALES.map((l) => packTitle(c.name, l))).size).toBe(LOCALES.length)
+      expect(isPackTitle(c.name, packTitle(c.name, 'ja'))).toBe(true)
+      expect(isPackTitle(c.name, c.name)).toBe(true)
+      expect(isPackTitle(c.name, 'Our own title')).toBe(false)
+    }
+    expect(packTitle('not-a-kept-skill', 'ja')).toBe('not-a-kept-skill')
   })
 
   test('the adapted skills keep the Apache licence in all six languages: LICENSE and NOTICE next to each, credits in the SKILL.md a team gets; no shell, scripts or connectors', () => {
@@ -188,7 +206,7 @@ describe('over the API', () => {
   const rm = (rel: string) => fs.rmSync(path.join(h.team, rel), { recursive: true, force: true })
   const put = (rel: string, text: string) => { fs.mkdirSync(path.dirname(path.join(h.team, rel)), { recursive: true }); fs.writeFileSync(path.join(h.team, rel), text) }
 
-  test('members get 403; owners and admins the eight kept skills: titles in the team\'s language, the caller\'s line, where the setup puts them, none in the team yet', async () => {
+  test('members get 403; owners and admins the eight kept skills: names and lines in the caller\'s language, where the setup puts them, none in the team yet', async () => {
     expect((await h.req('alice', '/api/onboarding/packs')).status).toBe(403)
     expect((await post('bob', '/api/onboarding/packs/general/install', { skills: ['card-news'] })).status).toBe(403)
     for (const who of ['dana', 'carol']) {
@@ -211,18 +229,19 @@ describe('over the API', () => {
       expect(c.skills[5]!.description).toBe('회사 소개로 6~10장짜리 소개서를 만들어요')
       expect(c.skills[4]!.source).toEqual({ kind: 'team_writing' })
     }
-    // the line in the caller's language, the title in the text the team gets
+    // the name and the line in the caller's language (QA TC-7963), the text and the example in the team's
     const en = skillPackCatalog(h.ctx, 'dana', 'en')
-    expect(en.skills[6]).toMatchObject({ title: '카드뉴스', description: 'Makes 5 square promo cards from the company intro' })
-    expect(en.skills[2]).toMatchObject({ title: '고객 답장', description: 'Drafts polite replies to customer questions and complaints' })
+    expect(en.skills[6]).toMatchObject({ title: 'Promo cards', description: 'Makes 5 square promo cards from the company intro', locale: 'ko' })
+    expect(en.skills[2]).toMatchObject({ title: 'Customer replies', description: 'Drafts polite replies to customer questions and complaints', locale: 'ko' })
   })
 
   test('a Japanese team: the everyday skills in Japanese with their Japanese examples; the others in English, the adapted humanizer\'s source', async () => {
     setSetting(h.ctx.db, 'defaultLocale', 'ja')
     try {
       const c = skillPackCatalog(h.ctx, 'dana', 'ja')
-      // the everyday office skills in Japanese; the others in English
-      expect(c.skills.map((s) => s.title)).toEqual(['議事録まとめ', '週報・お知らせ', 'お客様への返信', '契約書チェック', 'Natural writing', 'Company slide deck', 'Promo cards', 'Promo video'])
+      // every name in Japanese (QA TC-7962), also for the skills whose text the team gets in English
+      expect(c.skills.map((s) => s.title)).toEqual(['議事録まとめ', '週報・お知らせ', 'お客様への返信', '契約書チェック', '自然な文章', '会社紹介資料', '紹介カード', '紹介動画'])
+      // the text: the everyday office skills in Japanese; the others in English
       expect(c.skills.map((s) => s.locale)).toEqual(['ja', 'ja', 'ja', 'ja', 'en', 'en', 'en', 'en'])
       // natural writing comes in English there: offered, not checked
       expect(c.skills.map((s) => s.onboarding)).toEqual(['checked', 'checked', 'checked', 'offered', 'offered', 'offered', null, null])
@@ -242,6 +261,37 @@ describe('over the API', () => {
       expect(c.skills[4]!.source).toMatchObject({ kind: 'adapted', url: 'https://github.com/blader/humanizer' })
       expect(c.skills[4]!.description).toBe('AIが書いたように見える文章を、人が書いたように整えます')
       expect(c.skills[0]!.description).toBe('会議メモや文字起こしから、決定事項と担当・期限つきのToDoをまとめます')
+    } finally { setSetting(h.ctx.db, 'defaultLocale', 'ko') }
+  })
+
+  test('names and lines follow the viewer\'s language, the text the team\'s (QA TC-7962, TC-7963); the answer keeps its shape for an older client', async () => {
+    setSetting(h.ctx.db, 'defaultLocale', 'ja')
+    // the owner's account, read in Japanese
+    addTestPerson('danaja', { id: 'dana', name: 'Dana Choi', role: 'owner', locale: 'ja' })
+    try {
+      // a ja team, a ja account: every name and line in Japanese, natural writing and the deck too
+      const ja = await h.api('danaja').call(API.listSkillPacks)
+      expect(ja.skills.map((s) => s.title)).toEqual(['議事録まとめ', '週報・お知らせ', 'お客様への返信', '契約書チェック', '自然な文章', '会社紹介資料', '紹介カード', '紹介動画'])
+      expect(ja.skills.find((s) => s.name === 'intro-deck')!.description).toBe('会社紹介から6〜10枚の会社紹介資料を作ります')
+      // a ko account on the same ja team: Korean names and Korean lines, never mixed
+      const ko = await h.api('dana').call(API.listSkillPacks)
+      expect(ko.skills.map((s) => s.title)).toEqual(['회의록 정리', '주간 보고·공지', '고객 답장', '계약서 검토', '자연스러운 글', '회사 소개서', '카드뉴스', '홍보 영상'])
+      expect(ko.skills.map((s) => s.description)).toEqual(CATALOG.map((c) => packSummary(c.name, 'ko')))
+      // what goes in stays the team's language: the same text language and example for both viewers
+      expect(ko.skills.map((s) => [s.name, s.locale, s.example])).toEqual(ja.skills.map((s) => [s.name, s.locale, s.example]))
+      expect(ko.skills.map((s) => s.name)).toEqual(CATALOG.map((c) => c.name))
+      // an older client: the same fields as before, a string title and description it shows as they are
+      for (const s of [...ja.skills, ...ko.skills]) {
+        expect(Object.keys(s).sort()).toEqual(['description', 'example', 'inTeam', 'locale', 'name', 'onboarding', 'pack', 'path', 'source', 'title', 'visual'])
+        expect(typeof s.title).toBe('string')
+      }
+      const raw = await (await h.req('dana', '/api/onboarding/packs')).json() as { skills: { title: string }[] }
+      expect(raw.skills.map((s) => s.title)).toEqual(ko.skills.map((s) => s.title))
+      // installed on the ja team: the Japanese text, whoever pressed
+      const w = await h.api('dana').call(API.installSkillPack, { params: { id: 'work' }, body: { skills: ['meeting-notes'] } })
+      expect(w.locale).toBe('ja')
+      expect(fs.readFileSync(path.join(h.team, 'skills/work/meeting-notes/SKILL.md'), 'utf8')).toBe(SKILL_PACKS.work.skills.ja!['meeting-notes']!)
+      rm('skills/work')
     } finally { setSetting(h.ctx.db, 'defaultLocale', 'ko') }
   })
 
