@@ -5,8 +5,11 @@
 //
 // - Never a folder the person cannot open. The list is made like the instructions' folder lines (prompt.ts
 //   writableFolders): the rule folders, shared/ and their own folder, each kept only when RuleSet.access gives them
-//   read or write (another person's folder under users/ never), and only when it is there on disk (their own folder and shared/ always). A folder inside one already
-//   listed at the same or a wider level adds nothing and is left out.
+//   read or write (another person's folder under users/ never), and only when it is there on disk (their own folder and
+//   shared/ always). A folder inside a listed one with the same access adds nothing and is left out; one with less
+//   access stays (shared/ Can edit, shared/policies Read only). A folder a plugin manages (skills/<plugin>,
+//   policy/authorize.ts fx.managed) refuses every write, so it shows as Read only. A team-root rule ('') opens the
+//   top-level folders on disk: each one is a candidate too, checked like the others.
 // - The tool takes no input, so its answer cannot depend on what was asked: a folder that does not exist and one
 //   hidden from the person give the same text and the same card (the file tools' "not found or no access" rule,
 //   docs/DECISIONS.md "권한 없음과 없는 파일은 같은 문구", tests/security/r3-hidden-vs-missing.test.ts).
@@ -21,6 +24,7 @@ import { z } from 'zod'
 import { isGuestUser } from '../credentials/guest-ai'
 import type { FileService } from '../files/service'
 import type { Principal } from '../policy/access'
+import { hiddenEntry } from '../policy/names'
 import { actionOff, mainOnly } from './shared-actions'
 import type { Tool } from './tools'
 import type { TurnExec } from './turn'
@@ -41,14 +45,13 @@ export function myFoldersOff(exec: OffExec): string | null {
   return null
 }
 
-const RANK = { view: 1, edit: 2 } as const
 /** where a folder goes in the list: shared/, groups/, projects/, skills/, any other, the person's own folder last */
 const order = (p: string, own: string) => (p === own || p.startsWith(`${own}/`) ? 9 : p === 'shared' || p.startsWith('shared/') ? 0 : p.startsWith('groups/') ? 1 : p.startsWith('projects/') ? 2 : p === 'skills' || p.startsWith('skills/') ? 3 : 4)
 
 /**
  * The folders `user` can open, each with its access: the rule folders they read or write, shared/ and their own folder
- * (as the instructions' writableFolders), without a folder inside one listed at the same or a wider level, and
- * without one that is not on disk (their own folder and shared/ stay: Files shows them). Sorted shared/, groups/,
+ * (as the instructions' writableFolders), the top-level folders a team-root rule opens and the plugin folders in
+ * skills/ (always Read only), without a folder inside a listed one with the same access, and without one that is not on disk (their own folder and shared/ stay: Files shows them). Sorted shared/, groups/,
  * projects/, skills/, the rest, their own folder last; by path within each.
  */
 export function myFolders(files: FileService, user: Principal): MyFolder[] {
@@ -59,11 +62,31 @@ export function myFolders(files: FileService, user: Principal): MyFolder[] {
     if (p === own || p === 'shared') return true
     try { return fs.lstatSync(path.join(root, ...p.split('/'))).isDirectory() } catch { return false }
   }
-  const all: MyFolder[] = [...new Set([...rules.boundaryFolders(), 'shared', own])]
-    .filter((p) => p && !(p.startsWith('users/') && p !== own && !p.startsWith(`${own}/`)))
-    .flatMap((p): MyFolder[] => { const a = rules.access(user, p.split('/')); return a === 'write' ? [{ path: p, access: 'edit' }] : a === 'read' ? [{ path: p, access: 'view' }] : [] })
+  const managed = files.fx.managed
+  const dirs = (rel: string) => {
+    try {
+      return fs.readdirSync(path.join(root, ...rel.split('/').filter(Boolean)), { withFileTypes: true })
+        .filter((d) => d.isDirectory() && !d.name.startsWith('.') && !hiddenEntry(d.name, rel ? 1 : 0))
+        .map((d) => (rel ? `${rel}/${d.name}` : d.name))
+    } catch { return [] }
+  }
+  const boundary = rules.boundaryFolders()
+  // a team-root rule opens the top-level folders that carry no rule of their own; a plugin's folder skills/<plugin>
+  // carries none either, and is read only even to someone who can edit skills/
+  const extra = [...(boundary.includes('') ? dirs('') : []), ...(managed ? dirs('skills').filter((p) => managed.managerOf(p.split('/'))) : [])]
+  const all: MyFolder[] = [...new Set([...boundary, ...extra, 'shared', own])]
+    .filter((p) => p && p !== 'users' && !(p.startsWith('users/') && p !== own && !p.startsWith(`${own}/`)))
+    .flatMap((p): MyFolder[] => {
+      const segs = p.split('/')
+      const a = rules.access(user, segs)
+      // writes in a plugin's folder are refused for everyone (authorize.ts), so Can edit would be untrue there
+      return a === 'write' && !managed?.managerOf(segs) ? [{ path: p, access: 'edit' }] : a === 'read' || a === 'write' ? [{ path: p, access: 'view' }] : []
+    })
     .filter((f) => there(f.path))
-  const kept = all.filter((f) => !all.some((g) => g !== f && f.path.startsWith(`${g.path}/`) && RANK[g.access] >= RANK[f.access]))
+  // left out: a folder whose nearest listed parent gives the same access (it adds nothing). One with less access than
+  // that parent stays, so the list never says Can edit where a write is refused
+  const parentOf = (f: MyFolder) => all.filter((g) => f.path.startsWith(`${g.path}/`)).sort((a, b) => b.path.length - a.path.length)[0]
+  const kept = all.filter((f) => parentOf(f)?.access !== f.access)
   return kept.sort((a, b) => order(a.path, own) - order(b.path, own) || (a.path < b.path ? -1 : a.path > b.path ? 1 : 0))
 }
 

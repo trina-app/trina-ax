@@ -873,6 +873,10 @@ export class TurnExec {
         else this.devEnv = { project, ...(shared ? { shared } : {}) }
       }
     }
+    // other people's messages in this chat: set before the tool set, which reads it (otherAuthors) to leave out the
+    // tools that are off there (my_folders, looking_at, ...) rather than offer them and refuse them when called
+    const othersWrote = !!rt.db.query("SELECT 1 FROM messages WHERE chat_id = ? AND role = 'user' AND author_id IS NOT NULL AND author_id <> ? LIMIT 1").get(spec.chatId, spec.userId)
+    this.othersWrote = othersWrote
     const toolSet = buildToolSet(this)
     this.toolSet = toolSet
     // let: a service connected on a card during the answer builds the set again (refreshTools, continueAfterConnect)
@@ -885,8 +889,6 @@ export class TurnExec {
     // turn wrote (another person's holds what they read, chat/shared.ts), and in a shared chat only while everyone who
     // sees it now may see what the chat read (the session holds file contents the transcript does not: someone who
     // joined the project since would otherwise be answered from them without a card)
-    const othersWrote = !!rt.db.query("SELECT 1 FROM messages WHERE chat_id = ? AND role = 'user' AND author_id IS NOT NULL AND author_id <> ? LIMIT 1").get(spec.chatId, spec.userId)
-    this.othersWrote = othersWrote
     let resume = !!claude && !!sid && chat.engine_session_leaf_id === userMsg.parent_id && fs.existsSync(stash)
       && (!(this.shared || othersWrote) || stashWrittenBy(rt.db, chat, spec.userId))
       && (!this.shared || !this.scopeHiddenFromAudience())

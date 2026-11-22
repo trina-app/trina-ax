@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-22 05:41
 - Branch: `fix/my-folders-followups` (based on `feat/demo-permission-scene`, PR #353; merges after it)
-- Status: in progress
+- Status: done
 - Where: server/src/chat (my-folders.ts, turn.ts). Why: the security review of #353 left three low findings
 - Version impact: patch, fixes to a tool that is not released yet
 
@@ -45,4 +45,6 @@ b-shared-chat* tests.
 
 ## Result
 
-Filled in at the end.
+Built as planned. Moving `othersWrote` up also keeps `change_folder_access` (folderAccessOff) out of a chat other
+people wrote in, as its comment already said ("not offered ... and refused when reached anyway"). The four new tests
+fail on the #353 head and pass here. PR: the follow-up to #353 on `fix/my-folders-followups`.

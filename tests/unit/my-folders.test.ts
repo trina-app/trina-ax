@@ -10,6 +10,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { myFolders, myFoldersOff, myFoldersText, MY_FOLDERS_DESCRIPTION, MY_FOLDERS_TOOL } from '../../server/src/chat/my-folders'
 import { MY_FOLDERS_RULE } from '../../server/src/chat/prompt'
+import { RuleSet } from '../../server/src/policy/access'
 import { PARENT_ONLY_TOOLS } from '../../server/src/chat/subagents'
 import { ROOMS_SEEN_READ_ONLY_TOOLS } from '../../server/src/rooms/ai-tools'
 import { jsonBody, makeCApp, type CApp } from '../lib/c-app'
@@ -102,5 +103,47 @@ describe('where it is offered', () => {
     expect(myFoldersOff({ ...base, spec: { ...base.spec, clientKind: 'schedule' } } as never)).toBe('a scheduled run')
     expect(myFoldersOff({ ...base, spec: { ...base.spec, clientKind: 'slack' } } as never)).toBe('a question from Slack')
     expect(myFoldersOff({ ...base, restricted: {} as never })).toBe('a run limited to one task')
+  })
+})
+
+describe('the access it shows is the access the person has (review of #353)', () => {
+  test('a folder with less access than the folder it is in stays: shared/ Can edit, shared/policies Read only', async () => {
+    const r = await A.json('/api/admin/folders', { as: 'dana', ...jsonBody({ path: 'shared/policies', create: true, limited: true, rules: [{ subjectType: 'everyone', subjectId: null, access: 'read' }] }) })
+    expect(r.status).toBeLessThan(300)
+    const alice = myFolders(A.ctx.files, P('alice'))
+    expect(alice).toContainEqual({ path: 'shared', access: 'edit' })
+    expect(alice).toContainEqual({ path: 'shared/policies', access: 'view' })
+    expect(myFoldersText(alice, 'users/alice')).toContain('- shared/policies/ (read only)')
+    // a folder inside one with the same access still adds nothing
+    expect(alice.filter((f) => f.path.startsWith('groups/marketing/'))).toEqual([])
+  })
+
+  test('a folder a plugin manages is Read only, even to an admin who can edit skills/', () => {
+    fs.mkdirSync(path.join(A.team, 'skills', 'pack-x'), { recursive: true })
+    const before = A.ctx.files.fx.managed
+    A.ctx.files.fx.managed = { managerOf: (s) => (s[0] === 'skills' && s[1] === 'pack-x' ? 'pack-x' : null), heldBelow: () => null }
+    try {
+      const carol = myFolders(A.ctx.files, P('carol'))
+      expect(carol).toContainEqual({ path: 'skills', access: 'edit' })
+      expect(carol).toContainEqual({ path: 'skills/pack-x', access: 'view' })
+      expect(carol.some((f) => f.path === 'skills/pack-x' && f.access === 'edit')).toBe(false)
+      // a member reads skills/ and the plugin's folder alike: one row
+      const alice = myFolders(A.ctx.files, P('alice'))
+      expect(alice).toContainEqual({ path: 'skills', access: 'view' })
+      expect(alice.map((f) => f.path)).not.toContain('skills/pack-x')
+    } finally { A.ctx.files.fx.managed = before }
+  })
+
+  test('a team-root rule: the top-level folders it opens are listed, a limited one closed to the person is not', () => {
+    fs.mkdirSync(path.join(A.team, 'handbook'), { recursive: true })
+    fs.mkdirSync(path.join(A.team, 'board'), { recursive: true })
+    const w = A.ctx.files.rules().world()
+    const rules = RuleSet.fromWorld({ ...w, rows: [...w.rows, { path: '', subject_type: 'everyone', subject_id: null, access: 'read' }, { path: 'board', subject_type: 'user', subject_id: 'dana', access: 'write' }], limited: [...w.limited, 'board'] })
+    const files = { rules: () => rules, cfg: A.ctx.files.cfg, fx: A.ctx.files.fx } as never as typeof A.ctx.files
+    const alice = myFolders(files, P('alice'))
+    expect(alice).toContainEqual({ path: 'handbook', access: 'view' })
+    expect(alice.map((f) => f.path)).not.toContain('board')
+    expect(alice.some((f) => f.path === 'users' || (f.path.startsWith('users/') && f.path !== 'users/alice'))).toBe(false)
+    expect(myFolders(files, P('dana'))).toContainEqual({ path: 'board', access: 'edit' })
   })
 })
