@@ -5650,7 +5650,7 @@ export const id: Record<MessageKey, string> = {
   "share.warn.files": "{n} jawaban memakai berkas yang tidak bisa dibuka {names}.",
   "share.warn.filesNamed": "{n} jawaban memakai file yang tidak bisa dibuka {names} ({files}). {names} akan melihat isi jawaban itu.",
   "share.warn.seeAnswers": "{names} akan melihat isi jawaban itu.",
-  "share.warn.dev": "{n} jawaban menjalankan perintah di lingkungan dev, yang mungkin memakai file yang hanya bisa Anda buka. {names} dan siapa pun yang ditambahkan nanti akan melihatnya.",
+  "share.warn.dev": "{n} jawaban menjalankan perintah di lingkungan dev, yang mungkin memakai file yang hanya bisa Anda buka. {names} akan melihatnya; orang yang ditambahkan nanti tidak.",
   "share.warn.hidden": "{n} jawaban sebelumnya tetap tersembunyi dari {names}: jawaban itu memakai sesuatu yang hanya bisa dilihat orang yang ada di sini saat itu.",
   "share.warn.places": "Chat ini juga memakai {places}, yang tidak bisa dibuka {names}.",
   "share.warn.rooms": "Chat ini membaca saluran yang mungkin tidak diikuti {names}.",

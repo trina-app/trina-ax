@@ -65,7 +65,8 @@ const subjectKey = (s: AudienceSubject) => `${s.type}:${s.id}`
 const madeOut = (ctx: AppContext, files: readonly MadeFile[], L: Locale, me: string, f?: AudienceFindings): ChatMadeFile[] => {
   // made by an answer that used something a person being added cannot open (QA TC-7370): marked, and the dialog's
   // safer "without these files" becomes its first button
-  const risky = f ? new Set([...f.fileAnswers, ...f.memoryAnswers, ...f.accountAnswers]) : new Set<string>()
+  // (a dev environment answer too: what its commands read is not known)
+  const risky = f ? new Set([...f.fileAnswers, ...f.memoryAnswers, ...f.accountAnswers, ...f.devAnswers]) : new Set<string>()
   return files.map((x) => ({ name: x.name, place: placeWords(ctx.db, x.path.slice(0, x.path.lastIndexOf('/')), L, me), size: x.size, ...(risky.has(x.messageId) ? { private: true as const } : {}) }))
 }
 /** The files a new person misses (AudienceFindings.missedFiles) that I may read now myself (an answer of someone else
@@ -558,9 +559,11 @@ export async function putChatAudience(ctx: AppContext, rt: ChatRuntime, userId: 
         for (const s of [...use.other, ...use.files.map((f) => sourceOf(db, rules, f.path))]) places.set(sourceKey(s), s)
         // not all known (older answers the scope does not describe, my memories or personal accounts; every answer when
         // it read rooms it does not name): someone who sees it later and is not in this group misses that answer. Per
-        // answer (QA TC-7262: one dev environment answer kept every answer from people added later); a dev environment
-        // answer after the gap is not x: the sharer was told (devAnswers) and pressed Share
-        const notAllIds = checked ? new Set([...checked.unchecked, ...checked.accountAnswers, ...checked.memoryAnswers]) : null
+        // answer (QA TC-7262: one dev environment answer kept every answer from people added later). A dev environment
+        // answer is x too: the sharer was told (devAnswers) and pressed Share for the people in this share (in c, so they
+        // see it), but what its commands read is not known, so someone who joins later (a new member of a group shared
+        // with) misses that answer alone, as with project sharing (share-chat.ts)
+        const notAllIds = checked ? new Set([...checked.unchecked, ...checked.accountAnswers, ...checked.memoryAnswers, ...checked.devAnswers]) : null
         const allNotAll = checked ? checked.roomsUnseen : !use.known || use.roomsUnseen
         const c = [...afterPeople].sort(), sources = [...places.values()]
         const add = db.query('INSERT OR IGNORE INTO shared_answer_reads (message_id, chat_id, reads) VALUES (?, ?, ?)')

@@ -5651,7 +5651,7 @@ export const en: Record<MessageKey, string> = {
   "share.warn.files": "{n, plural, one {# answer} other {# answers}} used files {names} can't open.",
   "share.warn.filesNamed": "{n, plural, one {# answer} other {# answers}} used files {names} can't open ({files}). {names} will see what those answers say.",
   "share.warn.seeAnswers": "{names} will see what those answers say.",
-  "share.warn.dev": "{n, plural, one {# answer} other {# answers}} ran commands in the dev environment, which may have used files only you can open. {names} and anyone added later will see those answers.",
+  "share.warn.dev": "{n, plural, one {# answer} other {# answers}} ran commands in the dev environment, which may have used files only you can open. {names} will see those answers; people added later won't.",
   "share.warn.hidden": "{n, plural, one {# earlier answer stays} other {# earlier answers stay}} hidden from {names}: those answers used something only the people here then could see.",
   "share.warn.places": "This chat also used {places}, which {names} can't open.",
   "share.warn.rooms": "This chat read channels {names} may not be in.",

@@ -112,7 +112,13 @@ describe('lost-access notices', () => {
     expect(JSON.stringify(n[0])).not.toContain('secret title stop')
     // the earlier "shared a chat with you" is read now (it would only repeat "no longer shared")
     expect(db().query("SELECT COUNT(*) AS n FROM chat_share_notices WHERE user_id = 'bob' AND chat_id = ? AND read_at IS NULL").get(id)).toEqual({ n: 0 })
-    // shared again: the same notice names the chat and opens it again
+    // shared again a moment later (a quick remove and add): the notice is taken back, the share notice is unread again
+    await share('alice', id, [bob])
+    expect(await lost('bob', id)).toHaveLength(0)
+    expect(db().query("SELECT COUNT(*) AS n FROM chat_share_notices WHERE user_id = 'bob' AND chat_id = ? AND read_at IS NULL").get(id)).toEqual({ n: 1 })
+    // taken out again and shared again only after the quiet time: the notice stays, names the chat and opens it again
+    await share('alice', id, [])
+    db().query("UPDATE chat_lost_notices SET created_at = ? WHERE user_id = 'bob' AND chat_id = ?").run(new Date(Date.now() - 11 * 60_000).toISOString(), id)
     await share('alice', id, [bob])
     const again = (await lost('bob', id))[0]!
     expect(again.chatLost?.title).toBeTruthy()

@@ -295,15 +295,25 @@ export class Notifications {
    * just before), so the same day's row is about a share they lost since: a share again replaces it with a new row
    * (unread, at the top, pushed by the same rule as a first share; its push rows go with the old one), as a first
    * share would (QA TC-7047: a re-share said nothing new). A row still unread from the last SHARE_AGAIN_QUIET_MS is
-   * brought up to date in place instead (no second push for a quick remove and add). */
+   * brought up to date in place instead (no second push for a quick remove and add). A quick remove and add is that too:
+   * the removal's unread 'stopped' chat.lost of the same day (chatLost, which marked this row read) goes, and a row that
+   * was unread until that removal comes back unread in place (not a new row, no second push); a real loss later is told
+   * again (a new chat.lost row). */
   chatShared(userId: string, auditId: string, chatId: string, byUser: string, named: boolean, at = new Date().toISOString()) {
     if (!this.active(userId) || at < this.cutoff()) return
     const db = this.ctx.db
     const day = at.slice(0, 10)
     db.transaction(() => {
       const old = db.query("SELECT id, read_at, created_at, suppressed FROM chat_share_notices WHERE user_id=? AND chat_id=? AND day=? AND event_type='chat.shared'").get(userId, chatId, day) as { id: string; read_at: string | null; created_at: string; suppressed: number } | null
-      if (old && !old.read_at && !old.suppressed && Date.parse(at) - Date.parse(old.created_at) < SHARE_AGAIN_QUIET_MS) {
-        db.query('UPDATE chat_share_notices SET source_id=?, by_user=?, named=MAX(named, ?) WHERE id=?').run(auditId, byUser, named ? 1 : 0, old.id)
+      // taken out a moment ago (the same day's unread 'stopped' notice, within the quiet time): that notice says
+      // something untrue now and goes
+      const lost = db.query("SELECT id, created_at FROM chat_lost_notices WHERE user_id=? AND chat_id=? AND day=? AND reason='stopped' AND read_at IS NULL").get(userId, chatId, day) as { id: string; created_at: string } | null
+      const quick = !!lost && Date.parse(at) - Date.parse(lost.created_at) < SHARE_AGAIN_QUIET_MS
+      if (quick) db.query('DELETE FROM chat_lost_notices WHERE id=?').run(lost!.id)
+      // unread, or read only by that removal (chatLost marks it read at the removal's time)
+      const unread = !!old && (!old.read_at || (quick && old.read_at >= lost!.created_at))
+      if (old && unread && !old.suppressed && Date.parse(at) - Date.parse(old.created_at) < SHARE_AGAIN_QUIET_MS) {
+        db.query('UPDATE chat_share_notices SET source_id=?, by_user=?, named=MAX(named, ?), read_at=NULL WHERE id=?').run(auditId, byUser, named ? 1 : 0, old.id)
         return
       }
       if (old) db.query('DELETE FROM chat_share_notices WHERE id=?').run(old.id)

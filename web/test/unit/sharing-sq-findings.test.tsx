@@ -69,5 +69,5 @@ test('#322 on #320: the lean one-line warning still names the files and where, s
   ])
   // only dev answers at stake: no empty summary line, the dev line says it
   expect(shareWarningSummary(en, { ...base, devAnswers: 1 }, 'Doyoon')).toBe('')
-  expect(shareWarningExtras(en, { ...base, devAnswers: 1 }, 'Doyoon')[0]).toContain('Doyoon and anyone added later will see those answers')
+  expect(shareWarningExtras(en, { ...base, devAnswers: 1 }, 'Doyoon')).toEqual([en('share.warn.dev', { n: 1, names: 'Doyoon' })])
 })

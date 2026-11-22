@@ -5650,7 +5650,7 @@ export const ko = {
   "share.warn.files": "답 {n}개가 {names}이(가) 열 수 없는 파일을 참고했어요.",
   "share.warn.filesNamed": "답 {n}개가 {names}이(가) 열 수 없는 파일({files})을 참고했어요. 그 답의 내용은 {names}에게도 보여요.",
   "share.warn.seeAnswers": "그 답의 내용은 {names}에게도 보여요.",
-  "share.warn.dev": "답 {n}개는 개발 환경에서 명령을 실행했어요. 나만 열 수 있는 파일을 썼을 수 있어요. {names}와(과) 나중에 추가되는 사람에게도 보여요.",
+  "share.warn.dev": "답 {n}개는 개발 환경에서 명령을 실행했어요. 나만 열 수 있는 파일을 썼을 수 있어요. {names}에게는 보이고, 나중에 추가되는 사람에게는 안 보여요.",
   "share.warn.hidden": "예전 답 {n}개는 {names}에게 가려져요. 그때 여기 있던 사람만 볼 수 있는 자료를 썼어요.",
   "share.warn.places": "이 채팅은 {places}도 참고했어요. {names}은(는) 열 수 없는 곳이에요.",
   "share.warn.rooms": "이 채팅은 {names}이(가) 없을 수도 있는 채널을 읽었어요.",

@@ -191,7 +191,8 @@ export async function checkAudience(ctx: AppContext, userId: string, chatId: str
   const accountAnswers = accounts ? gapIds : []
   // the scope gap without personal accounts: nothing to say (grey). A dev environment answer after the gap: what its
   // commands used is not known, so the sharer is told in a line of its own (devAnswers, QA TC-7262) and their press
-  // covers it (it is no longer kept from people added later); one inside the gap stays unchecked
+  // covers the people in that share (a person added later or joining a group later still misses it: x, people-share.ts);
+  // one inside the gap stays unchecked
   const unchecked = ids.filter((id) => gap.has(id) && !accounts)
   const devAnswers = ids.filter((id) => devRan.has(id) && !gap.has(id))
   const everyone = new Set(newPeople)
