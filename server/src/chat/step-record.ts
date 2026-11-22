@@ -15,8 +15,8 @@ import { BROWSER_TOOL_NAMES } from '../realtime/browser-tools'
 export interface StepNote { i?: string; o?: string }
 export type StepNotes = Record<string, StepNote>
 
-/** the newest answers on the branch that get a record (older ones keep their text and the summary's step labels) */
-export const STEP_RECORD_ANSWERS = 6
+/** the newest answers on the branch that get a record (answers that called no tool do not count) (older ones keep their text and the summary's step labels) */
+export const STEP_RECORD_ANSWERS = 10
 /** lines per answer: the first STEP_RECORD_HEAD and the newest ones, a line says how many were left out */
 export const STEP_RECORD_LINES = 40
 const STEP_RECORD_HEAD = 5
@@ -219,7 +219,8 @@ export const STEP_RECORD_MIN_BUDGET = 12_000
 export const STEP_RECORD_TOTAL = 6_000
 
 /**
- * The step records for a fresh session's history: for the newest STEP_RECORD_ANSWERS answers that are the asker's own,
+ * The step records for a fresh session's history: for the newest STEP_RECORD_ANSWERS answers that are the asker's own
+ * and called a tool,
  * within STEP_RECORD_TOTAL characters. Own (as chat/history-summary.ts summaryLines): in a chat several people wrote in,
  * only an answer to the asker's own message whose turn was theirs, and never one hidden from them (`withheld`); in a
  * chat of one person, every answer. Another person's steps (their connections, their cards, what their tools returned)
@@ -240,7 +241,6 @@ export function withStepRecords<T extends RecordItem>(db: Database, items: T[], 
     if (o.several && (row.asked_by !== o.asker || (row.ran_by !== null && row.ran_by !== o.asker))) continue
     let steps: StoredStep[] = []
     try { const v = JSON.parse(row.steps ?? '[]'); if (Array.isArray(v)) steps = v.filter((s) => s && typeof s === 'object' && typeof s.id === 'string' && typeof s.label === 'string') } catch {}
-    left--
     if (!steps.length) continue
     const before = !!o.shared && o.shared.sharedLater(h.id)
     // (fails closed: a check that throws keeps the notes out)
@@ -252,6 +252,7 @@ export function withStepRecords<T extends RecordItem>(db: Database, items: T[], 
     if (o.mapText) text = o.mapText(text)
     if (text.length > room) text = `${text.slice(0, Math.max(0, room - 40)).replace(/\n[^\n]*$/, '')}\n(older steps left out)`
     room -= text.length
+    left--
     out[i] = { ...h, steps: text }
   }
   return out

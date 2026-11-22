@@ -47,7 +47,7 @@ In:
   (`answerHiddenFrom`) or from before the share gives its lines without notes (a pre-share answer: the words the others
   see). Results of content tools (read, grep, fetch, search, list, get, a mail or message read: by name) are not kept;
   memory tools get no line. People chats with copied files: the record's paths as the copies'.
-- Caps: records for the newest 6 eligible answers on the branch, 6,000 characters in all; at most 40 lines and 3,000
+- Caps: records for the newest 10 eligible answers that called a tool on the branch, 6,000 characters in all; at most 40 lines and 3,000
   characters per answer (first 5 and newest steps kept, a line says how many were left out); args 240 and result 200
   characters per step; none when the window is under 12,000 tokens. The block counts toward the history window
   (`historyWindow`) and is dropped before any text is.

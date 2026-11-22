@@ -35,7 +35,7 @@
     person's stored connection secrets. Memory tools keep no line.
   - An answer that ran tools and was stopped or failed before it wrote any text was left out of the history whole
     (steps and all). It now stays, as one line saying so, with its record.
-  - Caps: the newest 6 eligible answers, 40 lines and 3,000 characters per answer (the first steps and the newest),
+  - Caps: the newest 10 eligible answers that called a tool, 40 lines and 3,000 characters per answer (the first steps and the newest),
     6,000 characters in all, none for a model whose window is under 12,000 tokens. The window is made of the text
     first, exactly as before; records go in, newest first, only in what the text leaves of the budget.
   - Chats with an answer that ran tools and wrote no text get one more history line, so their summary is made again
