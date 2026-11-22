@@ -1279,3 +1279,37 @@ describe('dropWhoCanOpen leaves ordinary sentences alone (review)', () => {
     expect(dropWhoCanOpen('이 파일은 다른 사람은 열 수 없어요. 표는 3개예요.')).toBe('표는 3개예요.')
   })
 })
+
+describe('one confirm before a room post, and no failure notes (QA TC-v2f-A3, TC-f2-c03/c04)', () => {
+  test('preview: "confirm" with the text as it goes even when nothing is at stake; nothing posted until the yes', async () => {
+    const a = answer('alice', '요약이에요. 지금은 앨리스 님만 열 수 있어요.')
+    const body = { roomId: rooms.all, clientMessageId: cm() }
+    const before = (await messagesAs('bob', rooms.all)).length
+    const ask = await share('alice', a, { ...body, preview: true })
+    expect(ask.json).toMatchObject({ status: 'confirm', files: [], text: '요약이에요.' })
+    expect((await messagesAs('bob', rooms.all)).length).toBe(before)
+    const sent = await share('alice', a, { ...body, confirmKey: ask.json.confirmKey })
+    expect(sent.json.status).toBe('sent')
+    expect((sent.json.message as RoomMessage).body).toBe('요약이에요.')
+  })
+
+  test('an answer whose last step failed and that made nothing is never posted; one that made a file still goes', async () => {
+    const steps = JSON.stringify([{ id: 's1', kind: 'tool', tool: 'share_with_person', label: 'x', status: 'error', startedAt: '2026-11-22T00:00:00Z', endedAt: '2026-11-22T00:00:01Z' }])
+    const a = answer('alice', '아직 아무것도 공유되지 않았습니다.')
+    h.ctx.db.query('UPDATE messages SET steps = ? WHERE id = ?').run(steps, a.answerId)
+    const r = await share('alice', a, { roomId: rooms.all, preview: true })
+    expect(r.status).toBe(409)
+    expect(r.json.error.params.reason).toBe('answer_failed')
+    const b = answer('alice', `표를 만들었어요: ${link('users/alice/made-fail.md')}`, { saved: [{ path: 'users/alice/made-fail.md', sha256: put('users/alice/made-fail.md', '# t\n') }] })
+    h.ctx.db.query('UPDATE messages SET steps = ? WHERE id = ?').run(steps, b.answerId)
+    expect((await share('alice', b, { roomId: rooms.all, preview: true })).json.status).toBe('confirm')
+    // a failed look-up the answer went on without is not a failure note
+    const c = answer('alice', '검색은 안 됐지만 아는 내용으로 정리했어요.')
+    h.ctx.db.query('UPDATE messages SET steps = ? WHERE id = ?').run(steps.replace('share_with_person', 'web_search'), c.answerId)
+    expect((await share('alice', c, { roomId: rooms.all, preview: true })).json.status).toBe('confirm')
+  })
+
+  test('"<name> 님만 열 수 있어요" is left out too (TC-f2-c03)', () => {
+    expect(dropWhoCanOpen('요약본을 만들었습니다. 내 파일 폴더에 있고 지금은 한지우 님만 열 수 있어요. 확인해 주세요.')).toBe('요약본을 만들었습니다. 확인해 주세요.')
+  })
+})

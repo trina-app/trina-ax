@@ -244,6 +244,17 @@ export const COVER_STEP_KEYS = ['roomGrantStep', 'roomOnceStep', 'scheduleCoverS
 export const STEP_WORDS_OTHER: T = t('작업', 'Step', 'Langkah', "ステップ", "Paso", "步骤")
 
 /**
+ * A tool id that is one of ours with something stuck on its end ("post_to_room_placeholder", a name an engine made up
+ * for a tool it had not loaded yet: QA TC-v2f-A2 showed "Post to room placeholder") reads as that tool's own words.
+ */
+function knownPrefixVerb(tool: string, locale: Locale): string | null {
+  const last = tool.slice(0, 200).split('__').filter(Boolean).at(-1) ?? ''
+  // only a made-up tail on one of our names: an outside tool that merely starts like ours ("list_issues") keeps its own words
+  const m = /^(.+)_(placeholder|stub|dummy|tool|deferred)$/i.exec(last)
+  return m && FILE_STEP_VERB[m[1]!] ? FILE_STEP_VERB[m[1]!]![locale] ?? null : null
+}
+
+/**
  * A tool's id as words, for a tool without words of its own (docs/DECISIONS.md "Plain words in errors, cards and
  * steps"): "create_task" -> "Create task", "getPageText" -> "Get page text", "my_notion__create_page" -> "Create page";
  * an all-capitals word keeps its capitals ("export_PDF" -> "Export PDF"). Never the id as it is; '' when it holds no
@@ -403,7 +414,7 @@ export function stepLabel(tool: string, input: unknown, locale: Locale, browserT
       const name = a.target === 'google_drive' ? 'Google Drive' : shown ? clip(maskSecrets(shown.replace(/(?![\t\n\r\u200d\ufe0e\ufe0f])[\p{Cc}\p{Cf}\p{DI}\p{Co}]/gu, '')), 60) : ''
       return name ? `${verb} · ${name}` : verb!
     }
-    default: return verb ?? (readableToolName(tool) || STEP_WORDS_OTHER[locale])
+    default: return verb ?? knownPrefixVerb(tool, locale) ?? (readableToolName(tool) || STEP_WORDS_OTHER[locale])
   }
 }
 

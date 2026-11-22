@@ -39,7 +39,7 @@ const BTN = 'touch-hit flex items-center gap-1 rounded-md px-1.5 py-0.5 text-xs 
 export const sentKey = (s: Pick<SentHere, 'to' | 'cut'>): 'sideChat.sentThreadCut' | 'sideChat.sentThread' | 'sideChat.sentRoomCut' | 'sideChat.sentRoom' =>
   s.to === 'thread' ? (s.cut ? 'sideChat.sentThreadCut' : 'sideChat.sentThread') : (s.cut ? 'sideChat.sentRoomCut' : 'sideChat.sentRoom')
 
-export function SendHere({ chatId, answerId, roomId, target, onView }: { chatId: string; answerId: string; roomId: string; target: SendTarget | null; onView: (sent: SentHere) => void }) {
+export function SendHere({ chatId, answerId, answer, roomId, target, onView }: { chatId: string; answerId: string; answer: string; roomId: string; target: SendTarget | null; onView: (sent: SentHere) => void }) {
   const t = useT()
   const locale = useLocale()
   const state = useSideChats((s) => s.sends[answerId]) ?? NONE
@@ -80,7 +80,8 @@ export function SendHere({ chatId, answerId, roomId, target, onView }: { chatId:
     const attempt = sends().attempt?.to === key ? sends().attempt! : { to: key, id: uuidv7() }
     patch({ sending: true, attempt, error: null })
     try {
-      const r = await useRooms.getState().shareAnswer(chatId, answerId, { roomId, ...(rootId ? { threadRootId: rootId } : {}), ...(yes ?? {}), clientMessageId: attempt.id })
+      // the first press only asks: one confirm with what goes and who sees it, before anything is posted (QA TC-v2f-A3)
+      const r = await useRooms.getState().shareAnswer(chatId, answerId, { roomId, ...(rootId ? { threadRootId: rootId } : {}), ...(yes ?? { preview: true }), clientMessageId: attempt.id })
       if (r.status === 'confirm') {
         patch({ sending: false })
         return confirm.asked(r, !!yes, { to })
@@ -147,6 +148,8 @@ export function SendHere({ chatId, answerId, roomId, target, onView }: { chatId:
           title={SIDE_CHAT_SEND[confirm.ask.to][locale]}
           target={<Target room={room} thread={confirm.ask.to === 'thread' ? thread : null} />}
           ask={confirm.ask}
+          preview={answer}
+          audience={room?.memberCount}
           others={Math.max(0, (room?.memberCount ?? 1) - 1)}
           later={room?.kind === 'team' || room?.kind === 'all'}
           attach={confirm.attach}

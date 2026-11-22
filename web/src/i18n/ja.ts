@@ -5585,6 +5585,7 @@ export const ja: Record<MessageKey, string> = {
   "shareRoom.quoteHead": "{ai}の回答",
   "shareRoom.madeHead": "この回答で作ったファイル",
   "shareRoom.madeGoes": "メッセージと一緒に送ります。全員が開けます",
+  "shareRoom.audience": "このトークの{n}人全員に表示されます。",
   "shareRoom.filesHead": "リンクされたファイル",
   "shareRoom.fileAll": "全員が開けます",
   "shareRoom.fileSome": "{n, plural, one {#人は開けません} other {#人は開けません}}",

@@ -4,7 +4,7 @@ import { UserId, Uuid7 } from '../ids'
 import { Access, EngineId, IsoTime, PageQuery, QueryBool, RelPath, page } from './common'
 import { endpoint, empty, stream } from './endpoint'
 import { SealedSecret } from './credentials'
-import { AudienceSplit, Chat, ChatFileVersion, ChatThreadReply, MESSAGE_ATTACHMENTS_MAX, MESSAGE_TEXT_MAX, Message, MessageSources, Project, SubjectType, UserRef } from './entities'
+import { AudienceSplit, Chat, type Step, ChatFileVersion, ChatThreadReply, MESSAGE_ATTACHMENTS_MAX, MESSAGE_TEXT_MAX, Message, MessageSources, Project, SubjectType, UserRef } from './entities'
 import { ANSWER_NOTE_MAX, AnswerShareConfirm, AnswerSharePlace, ROOM_FILES_MAX, ROOM_MENTIONS_MAX, ROOM_MESSAGE_MAX, RoomMessage } from './rooms'
 import { IntegrationStatus } from './integrations'
 import { TurnRequest } from './ws'
@@ -54,6 +54,9 @@ export const ShareAnswerToRoomBody = z.object({
   /** the last "confirm"'s `confirmKey`: the person saw that state and said yes. Anything changed since (a member swapped
    * for another, someone lost access, a file moved): "confirm" again with a new key */
   confirmKey: z.string().min(1).max(200).optional(),
+  /** the first press of an app that shows one confirm before anything goes (QA TC-v2f-A3, TC-f2-c04): answer "confirm"
+   * (the files, who cannot open or see what, the key) even when nothing is at stake, and post nothing yet */
+  preview: z.boolean().optional(),
   /** linked files to send with the message as copies (room files): only paths of the last "confirm"'s `files` whose
    * `attach` is 'yes'; my read access is checked again when they are copied */
   attach: z.array(RelPath).max(ROOM_FILES_MAX).optional(),
@@ -776,3 +779,13 @@ export const CHATS = {
   leaveProject: endpoint({ method: 'POST', path: '/api/projects/:id/leave', auth: 'user', owner: 'B', response: LeaveProjectResult, summary: 'Leave a team project in projects/<name> (a member who reads it): their own rule becomes a "no access" rule of their own, recorded as a leave, so a group that holds them keeps it for the others and they stay out until added back by name. Their private chats in it move to their own chats; audited. 409 project_last_member (nobody else reads it), project_personal, project_not_leavable (not in place or in the trash). Anyone else 404.' }),
   deleteProject: endpoint({ method: 'DELETE', path: '/api/projects/:id', auth: 'user', owner: 'B', query: DeleteProjectQuery, response: empty, status: 204, summary: 'Delete the project. A team project in projects/<name> whose folder is in place goes to the trash with its folder first (it stays, inTrash, until restored); a second DELETE, or any other project: for good (the creator or an admin; private chats stay, without project; its shared chats go to their creators\' trash and stop being shared, or are deleted for good when the creator would not see the project).' }),
 } as const
+
+/** Does this answer only report a failure: its last tool step failed (not one the time limit or Stop cut off)? Such an
+ * answer is a note to the person who asked, never something to post to a room (QA TC-v2f-A3): the apps hide "send to a
+ * room" under it, and the server refuses it unless the answer made a file (server/src/chat/answer-share.ts). */
+export function answerEndsInFailure(steps: readonly Pick<Step, 'kind' | 'status' | 'paused' | 'stopped' | 'tool'>[]): boolean {
+  const last = [...steps].reverse().find((s) => s.kind === 'tool')
+  // (a failed look-up the answer went on without, a read, a search, a listing, is not the answer's point)
+  return !!last && last.status === 'error' && !last.paused && !last.stopped && !LOOK_UP.test(last.tool ?? '')
+}
+const LOOK_UP = /(^|__)(read|grep|glob|list|search|find|room_read|rooms|web_fetch|webfetch|web_search|websearch|who_can_open|toolsearch)([_a-z]*)$/i
