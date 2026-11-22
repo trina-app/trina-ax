@@ -256,6 +256,8 @@ export function answerStepCap(team: number, o: { guest: boolean; unattended: boo
 
 /** Tools whose calls get no step under the answer (their tool_end then finds no step and changes nothing). */
 const HIDDEN_STEP_TOOLS = new Set(['set_title', 'todo_write'])
+/** calls after which the text before them stays the answer (chat/turn.ts endPiece): bookkeeping that ends an answer */
+const INTERIM_KEEPS = new Set(['remember', 'forget', 'TodoWrite'])
 /** a file of the person's own folder this big or bigger is not hashed to find who made its bytes (bytesOutsideLevel) */
 const OWN_HASH_MAX = 64 * 1024 * 1024
 /** the bytes of own files hashed for one call (noteOwnReads): more counts as outside, unhashed */
@@ -587,6 +589,12 @@ export class TurnExec {
   /** English status lines before a tool call, held until the call decides them (chat/narration.ts); set once the
    * person's message is read */
   private narration = new NarrationHold(null)
+  /** Interim text (docs/decisions/20261122-interim-text-not-answer.md): where the main AI's current text piece began
+   * in the answer (null: no piece since the last call), the last piece a call ended (the answer when the final text is
+   * empty), and how many pieces left the answer. A piece a tool call follows is the AI's narration, never the answer. */
+  private pieceStart: number | null = null
+  private lastInterim = ''
+  private interimDropped = 0
   /** when the turn left the queue: how long its answer ran (ChatRuntime.longAnswerMs) */
   private readonly startedAt = performance.now()
   /** finish() runs: the cards it closes send nothing on their own (the turn's end sends the chat once) */
@@ -1443,6 +1451,7 @@ export class TurnExec {
           rt.hub.publish(spec.userId, { type: 'notice', data: { level: 'info', code: 'engine_refused_retry', message: tr('refusedRetry', spec.locale, { model: next }) } })
           // the retry answers again from the start: only its answer stays, not the declined partial one (B-W5-2)
           this.discardTextFrom(textStart)
+          this.lastInterim = ''; this.interimDropped = 0
           model = next
           // the declined attempt may have left a half turn in the session: continue on a fresh session with history
           resume = false; sid = crypto.randomUUID()
@@ -1493,7 +1502,7 @@ export class TurnExec {
         // starts fresh from the chat's history instead of resuming a session that cannot fit
         if (err?.code === 'context') this.dropSession()
         // the engine's whole text when none streamed; not when the hold dropped status lines (they are in it)
-        if (!this.writtenText && !this.error && parser.text && !this.narration.dropped) this.appendText(parser.text)
+        if (!this.writtenText && !this.error && parser.text && !this.narration.dropped && !this.interimDropped) this.appendText(parser.text)
         // a service connected on this answer's card: the same answer goes on in this session with the new tools
         // (the AI was told so only while continueMode was 'step': continuations < CONTINUE_MAX)
         if (!err && !crashed && !parser.refused && !this.error && this.connectedSince.length && continuations < CONTINUE_MAX && !this.limitReason && !this.stopReason && !this.budgetHit) {
@@ -2032,7 +2041,7 @@ export class TurnExec {
         // a sub-agent's call leaves the main AI's piece undecided (only the redactor's end goes out)
         if (e.parentId) this.emitText(this.answerText.flush())
         // (a piece copied into the call's arguments is content: a message it posts, a file it writes)
-        else { this.emitText(this.answerText.push(this.fileLinks.push(this.narration.toolStart(e.input)))); this.flushText() }
+        else if (!this.endPiece(e.name, e.input)) { this.emitText(this.answerText.push(this.fileLinks.push(this.narration.toolStart(e.input)))); this.flushText() }
         this.attemptHadOutput = true
         this.attemptCalledTool = true
         this.producedOutput = true
@@ -2192,7 +2201,40 @@ export class TurnExec {
   }
 
   /** Engine text: let out (streamed and saved) through the redactor; the end that could start a secret waits. */
-  appendText(t: string) { this.emitText(this.answerText.push(this.fileLinks.push(this.narration.push(t)))) }
+  appendText(t: string) {
+    // after interim pieces left, the reply's leading separator has nothing above it
+    if (this.interimDropped && !this.writtenText) { t = t.replace(/^\s+/, ''); if (!t) return }
+    if (this.pieceStart === null && t) this.pieceStart = this.writtenText.length
+    this.emitText(this.answerText.push(this.fileLinks.push(this.narration.push(t))))
+  }
+  /** A call of the main AI ends the current text piece: it is interim narration, taken out of the answer (streamed and
+   * saved: the apps get a reset) and kept as a step's detail under the thinking label; the last one is the fallback
+   * answer (endInterimFallback). Both engines' text and calls come through here. */
+  private endPiece(name: string, input: unknown) {
+    // bookkeeping calls (a title, a to-do list, a memory) end no piece: "answer, then remember" keeps its answer (review)
+    const tool = name.startsWith(TEAM_TOOL_PREFIX) ? name.slice(TEAM_TOOL_PREFIX.length) : name
+    if (HIDDEN_STEP_TOOLS.has(tool) || INTERIM_KEEPS.has(tool)) return false
+    const at = this.pieceStart
+    if (at !== null && this.narration.active && this.narration.copiedInto(this.writtenText.slice(at), input)) { this.pieceStart = null; return false }
+    this.pieceStart = null
+    // only where the answer's language is not written in Latin letters and the person did not ask for another one
+    // (narrationScript): there a piece before a call is the AI's own working note; elsewhere the pattern guard decides
+    if (at === null || !this.narration.active) return false
+    const piece = this.writtenText.slice(at)
+    if (!piece.trim()) return false
+    const statusLine = this.narration.wouldDrop(piece)
+    this.discardTextFrom(at)
+    // a status line ("Let me check …") is never the fallback answer
+    if (!statusLine) this.lastInterim = piece.trim()
+    this.interimDropped++
+    this.addStep({ kind: 'thinking', label: tr('thinking', this.spec.locale), status: 'ok', detail: piece.trim() })
+    return true
+  }
+  /** The end: an answer with no text after its last call gets the last interim piece, so it is never blank. */
+  private endInterimFallback() {
+    if (!this.interimDropped) return
+    if (!this.writtenText.trim() && this.lastInterim) { if (this.writtenText) this.discardTextFrom(0); this.appendText(this.lastInterim); this.lastInterim = ''; this.flushText() }
+  }
   /** Everything held back (an undecided piece, the redactor's end), let out now (before a step, a retry's separator,
    * the end). */
   flushText() { this.emitText(this.answerText.push(this.fileLinks.push(this.narration.flush()) + this.fileLinks.flush())); this.emitText(this.answerText.flush()) }
@@ -2212,6 +2254,9 @@ export class TurnExec {
 
   /** Discard the answer text from `at` on (streamed and saved), the part still held back included. */
   private discardTextFrom(at: number) {
+    if (this.pieceStart !== null && this.pieceStart >= at) this.pieceStart = null
+    // a card placed in the cut text sits where the text now ends (review)
+    for (const st of this.steps) if (st.textAt !== undefined && st.textAt > at) st.textAt = at
     this.answerText.clear()
     this.fileLinks.clear()
     this.narration.clear()
@@ -5285,7 +5330,7 @@ export class TurnExec {
   /** The end state in the DB; returns the answer's status. */
   private finishState(): MessageStatus {
     // stopped or failed with a status line held: it is dropped like before a call (anything else goes out)
-    this.finishStep('text', () => { if (this.stopReason || this.error) this.emitText(this.answerText.push(this.fileLinks.push(this.narration.toolStart()))); this.flushText() })
+    this.finishStep('text', () => { if (this.stopReason || this.error) this.emitText(this.answerText.push(this.fileLinks.push(this.narration.toolStart()))); this.flushText(); this.endInterimFallback() })
     if (this.narration.dropped) this.rt.log.info('status lines left out of the answer', { turn: this.id, pieces: this.narration.dropped })
     this.finishStep('held answers', () => this.dropHeldAnswers())
     // the whole answer once more: an escaped or base64 form of a secret cut across two pieces (message.done below
