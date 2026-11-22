@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-22 14:38
 - Branch: `fix/ai-session-no-main-mention`
-- Status: in progress
+- Status: done
 - Where: server/src/chat, server/src/notifications, shared/src/api, web/src. Why: owner decision on how people mention each other in AI chats (see docs/REPOSITORY-RULES.md)
 - Version impact: minor (a visible change: the main box of an AI chat no longer offers "@" people, and its messages no longer list under Mentions)
 
@@ -54,4 +54,8 @@ restore confirm reads it).
 
 ## Result
 
-(filled in at the end)
+Built as planned. Beyond the plan: the chat row's "@" (Chat.mentioned, the marker's `mention`) and the desktop ring's
+`mention` went too (nothing sets them now). A server test of a thread mention stays in b-chat-thread-mentions (this
+file's harness has no finished answer). Gate on the Mac mini (Bun 1.3.12): typecheck, check:prepush, area tests (54),
+web unit tests (4458) green; visual check at 1440/390 on a private QA copy passed; independent review: no blocking
+findings (its nits fixed).
