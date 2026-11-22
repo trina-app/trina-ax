@@ -30,6 +30,6 @@ Out: share_with_person of a chat file (refused as not found, no false claim); li
 
 ## Tests
 
-`tests/unit/b-post-chat-file-copy.test.ts` (the recipient opens the copy byte for byte, one copy on a retry, Send
-without files says cannot_open, card words), `tests/unit/step-labels-shell.test.ts`,
+`tests/unit/b-post-chat-file-copy.test.ts` (the recipient opens the copy byte for byte, one copy on a retry, a link
+to a missing chat file posts nothing, card words), `tests/unit/step-labels-shell.test.ts`,
 `tests/unit/prompt-honesty-qa-1122.test.ts`.

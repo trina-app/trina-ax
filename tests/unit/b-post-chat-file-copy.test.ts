@@ -12,6 +12,7 @@ import { startHarness, type Harness, type TestSocket } from '../lib/b-harness'
 import { roomFilesOf } from '../../server/src/rooms/files'
 import { cardTextWords } from '../../server/src/chat/share-words'
 import { chatFileLinksIn } from '../../server/src/chat/post-chat-files'
+import { chatFilesOf } from '../../server/src/chat/chat-files'
 
 setDefaultTimeout(90_000)
 const fake = (...ds: unknown[]) => ds.map((d) => '@fake ' + JSON.stringify(d)).join('\n')
@@ -50,15 +51,16 @@ async function run(user: string, chatId: string, content: string, answer = 'no')
 }
 
 /** a chat alice shares with erin, and a file the AI attached to an answer there */
-async function chatWithFile(name: string, body: string) {
+async function chatWithFile(name: string, body: string): Promise<{ chat: string; id: string; link: string; bytes: Buffer }> {
   const c = await h.api('alice').call(API.createChat, { body: {} })
   await run('alice', c.id, fake({ say: 'hi' }))
   let r = await put('alice', c.id, [{ subjectType: 'user', subjectId: 'erin' }])
   if (r.status === 'confirm') r = await put('alice', c.id, [{ subjectType: 'user', subjectId: 'erin' }], r.confirmKey)
-  const made = await run('alice', c.id, fake({ tool: 'write', args: { file_path: `chat:files/${name}`, content: body }, sayResult: true }))
+  const made = await run('alice', c.id, fake({ tool: 'make_file', args: { format: 'docx', content: body, output: `chat:files/${name}` }, sayResult: true }))
   const att = made.attachments.find((a) => a.name === name)
   if (!att) throw new Error(`no chat file: ${made.content}`)
-  return { chat: c.id as string, id: att.id, link: `/c/${c.id}?file=${att.id}` }
+  const bytes = fs.readFileSync(chatFilesOf(h.ctx).open('alice', c.id, att.id, false).abs)
+  return { chat: c.id as string, id: att.id, link: `/c/${c.id}?file=${att.id}`, bytes }
 }
 
 const dmOf = (a: string, b: string) => h.ctx.db.query("SELECT id FROM rooms WHERE kind = 'dm' AND dm_key = ?").get([a, b].sort().join('|')) as { id: string } | null
@@ -66,50 +68,52 @@ const dmOf = (a: string, b: string) => h.ctx.db.query("SELECT id FROM rooms WHER
 describe('a chat file sent to a teammate with post_to_room', () => {
   test('the recipient gets a copy they can open, byte for byte, and the card names the file', async () => {
     const body = '# 제안서\n\n한 장짜리 초안입니다.\n'
-    const f = await chatWithFile('proposal.md', body)
-    const r = await run('alice', f.chat, `Send this to Bob\n${fake({ tool: 'post_to_room', args: { room: 'Bob Lee', text: `The one-page proposal: [proposal.md](${f.link})` }, sayResult: true })}`, 'send_files')
+    const f = await chatWithFile('proposal.docx', body)
+    const r = await run('alice', f.chat, `Send this to Bob\n${fake({ tool: 'post_to_room', args: { room: 'Bob Lee', text: `The one-page proposal: [proposal.docx](${f.link})` }, sayResult: true })}`, 'send_files')
     // one card, with the files choice, and the text shows the file's name, never the raw /c/ link
     expect(r.cards).toHaveLength(1)
     expect(r.cards[0]!.options?.map((o) => o.value)).toContain('send_files')
     const shown = JSON.stringify(r.cards[0]!.details ?? [])
     expect(shown).not.toContain('/c/')
-    expect(shown).toContain('proposal.md')
+    expect(shown).toContain('proposal.docx')
     expect(r.content).toContain('"status":"sent"')
     expect(r.content).toContain('chat_files_copied')
     // the copy in alice's own downloads, the chat file unchanged in the chat
-    expect(fs.readFileSync(path.join(h.team, 'users/alice/downloads/proposal.md'), 'utf8')).toBe(body)
+    expect(fs.readFileSync(path.join(h.team, 'users/alice/downloads/proposal.docx')).equals(f.bytes)).toBe(true)
     // the 1:1 chat with bob: the message links the copy, never this chat's link, and carries the file
     const dm = dmOf('alice', 'bob')
     expect(dm).not.toBeNull()
     const m = h.ctx.db.query('SELECT id, body FROM room_messages WHERE room_id = ? ORDER BY seq DESC LIMIT 1').get(dm!.id) as { id: string; body: string }
     expect(m.body).not.toContain('/c/')
     const files = h.ctx.db.query('SELECT id, name FROM room_files WHERE message_id = ?').all(m.id) as { id: string; name: string }[]
-    expect(files.map((x) => x.name)).toEqual(['proposal.md'])
+    expect(files.map((x) => x.name)).toEqual(['proposal.docx'])
     // bob (not in the chat) opens it: the same bytes
     const opened = roomFilesOf(h.ctx).open('bob', dm!.id, files[0]!.id, false)
-    expect(fs.readFileSync(opened.abs, 'utf8')).toBe(body)
+    expect(fs.readFileSync(opened.abs).equals(f.bytes)).toBe(true)
     // and through the API, as the app opens it
     const res = await h.req('bob', `/api/rooms/${dm!.id}/files/${files[0]!.id}?download=1`)
     expect(res.status).toBe(200)
-    expect(await res.text()).toBe(body)
+    expect(Buffer.from(await res.arrayBuffer()).equals(f.bytes)).toBe(true)
   })
 
   test('the same call again (a retry) keeps one copy, no "(1)" next to it', async () => {
     const body = 'notes v1\n'
-    const f = await chatWithFile('notes.md', body)
-    const call = { tool: 'post_to_room', args: { room: 'Bob Lee', text: `Notes: [notes.md](${f.link})` }, sayResult: true }
+    const f = await chatWithFile('notes.docx', body)
+    const call = { tool: 'post_to_room', args: { room: 'Bob Lee', text: `Notes: [notes.docx](${f.link})` }, sayResult: true }
     await run('alice', f.chat, `Send this to Bob\n${fake(call)}`, 'no')
     await run('alice', f.chat, `Send this to Bob\n${fake(call)}`, 'no')
     const names = fs.readdirSync(path.join(h.team, 'users/alice/downloads')).filter((n) => n.startsWith('notes'))
-    expect(names).toEqual(['notes.md'])
+    expect(names).toEqual(['notes.docx'])
   })
 
-  test('Send without the files: the answer is told the recipient cannot open it (never a plain "sent")', async () => {
-    const f = await chatWithFile('memo.md', 'memo\n')
-    const r = await run('alice', f.chat, `Send this to Bob\n${fake({ tool: 'post_to_room', args: { room: 'Bob Lee', text: `Memo: [memo.md](${f.link})` }, sayResult: true })}`, 'send')
-    expect(r.content).toContain('"status":"sent"')
-    expect(r.content).toContain('cannot_open')
-    expect(r.content).toContain('it did not go as a file')
+  test('a link to a file of this chat that is not there: nothing is posted, never a dead link', async () => {
+    const f = await chatWithFile('memo.docx', 'memo')
+    const gone = `/c/${f.chat}?file=01a1fc0c-bb3a-74b5-a134-000000000000`
+    const before = (h.ctx.db.query('SELECT COUNT(*) n FROM room_messages').get() as { n: number }).n
+    const r = await run('alice', f.chat, `Send this to Bob\n${fake({ tool: 'post_to_room', args: { room: 'Bob Lee', text: `Memo: [memo.docx](${gone})` }, sayResult: true })}`, 'send_files')
+    expect(r.cards).toHaveLength(0)
+    expect(r.content).toContain('Nothing was posted')
+    expect((h.ctx.db.query('SELECT COUNT(*) n FROM room_messages').get() as { n: number }).n).toBe(before)
   })
 })
 
@@ -120,9 +124,9 @@ describe('the words', () => {
   })
 
   test('the card shows a chat file\'s link as the file\'s name for someone who sees that chat', async () => {
-    const f = await chatWithFile('plan.md', 'plan\n')
+    const f = await chatWithFile('plan.docx', 'plan\n')
     const text = `Here: [the plan](${f.link})`
-    expect(cardTextWords(h.ctx.db, text, 'en', 'alice')).toBe('Here: plan.md')
+    expect(cardTextWords(h.ctx.db, text, 'en', 'alice')).toBe('Here: plan.docx')
     // someone who does not see the chat: as written
     expect(cardTextWords(h.ctx.db, text, 'en', 'bob')).toBe(text)
   })
