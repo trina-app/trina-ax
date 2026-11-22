@@ -40,6 +40,13 @@ import { extractUrls, gateUrl, rememberUrls, TEXT as GATE_TEXT, type WebPageFail
 import { redirectGuard, webEcho } from './connection-urls'
 import { acceptLanguage, precheckTarget, webFetch, wrapExternal, type FetchOptions } from './web-fetch'
 import { renderPage } from './page-render'
+import { checkPage, pageCheckSummary, pageCheckText } from './artifact-check'
+import { isSharedChat, severalAuthors } from '../chat/shared'
+import { readRegular } from '../files/store'
+import { safeFile } from '../routes/web-static'
+import { REPO_ROOT } from '../app-config'
+import { PRODUCT } from '@mycel/shared'
+import path from 'node:path'
 import { teamDefaultLocale } from '../admin/settings'
 import { SAVE_URL_DESCRIPTION, saveUrl, type SaveUrlOptions } from './save-url'
 import { safeOpsEnabled } from '../safe-ops/runner'
@@ -309,22 +316,52 @@ export function registerCTools(ctx: AppContext, o: { fetch?: FetchOptions; saveU
     },
   })
 
+  /** the page check's files (tools/artifact-check.ts): a team picture or script the person may read, never one the
+   * quarantine holds. The page's script could print what it got into an error the AI reads, so each one counts as read
+   * in this turn (the chat's read scope) */
+  const pageAsset = (t: ToolCtx) => (p: string, max: number): Buffer | null => {
+    try {
+      const f = authorize(c.files.fx, c.files.rules(), t.user, p, 'read')
+      if (f.st!.isDirectory()) return null
+      const b = readRegular(f.abs, max, f.st).bytes
+      if (ctx.files.quarantine.hasBytes(b)) return null
+      t.files.readPaths.add(f.rel)
+      return b
+    } catch { return null }
+  }
+  const webDist = process.env[PRODUCT.envPrefix + 'WEB_DIST'] ?? path.join(REPO_ROOT, 'web', 'dist')
+  const vendorFile = (name: string): Buffer | null => {
+    const f = safeFile(webDist, `/vendor/${name}`)
+    try { return f ? readRegular(f, 20 * 1024 * 1024).bytes : null } catch { return null }
+  }
+
   reg.register({
     name: 'artifact',
-    description: 'Create or change an artifact shown next to the chat (html, react, svg, mermaid, markdown, code). ' +
-      '"create" or "rewrite" with full `content`; "update" with `edits` [{ old, new }] (each `old` must appear exactly once in the latest version). ' +
-      '`key` names the artifact within this chat; every change is a new version. ' +
+    description: 'Create, change, read or restore an artifact shown next to the chat (html, react, svg, mermaid, markdown, code). ' +
+      '"create" or "rewrite" with full `content` (and `type`); "update" with `edits` [{ old, new }] (each `old` must appear exactly once in the newest version); ' +
+      '"read" gives a page\'s content and its versions (who asked for each; `version` for an earlier one); "restore" with `version` brings that version back as the newest. ' +
+      '`key` names the artifact within this chat; every change is a new version, and nothing is deleted. To change a page of this chat, even one someone else asked for, read it and save the change on its key: a new key makes a separate page. ' +
+      'An html page is opened in a browser after each save: the result says which errors it shows or that it is empty, and you fix those before you say it is done. ' +
       'The preview shows only team files, never web addresses: save an image into the team folder first (save_url) and reference it by its team path (<img src="landing/images/hero.png">). ' +
       'The same for JavaScript libraries (Three.js, Chart.js, D3): a CDN address does not run here. Save each file the page loads with save_url into one team folder, with the same relative layout as the package, ' +
       'and every file a module imports (Three.js: build/three.module.js and build/three.core.js, which it imports; an addon such as examples/jsm/controls/OrbitControls.js into addons/controls/). ' +
       'Load a classic file with <script src="<team path>">; load modules from a <script type="module"> with an import map, e.g. {"imports":{"three":"<folder>/three.module.js","three/addons/":"<folder>/addons/"}}. ' +
       'Paths in an artifact start at the team root; in an HTML file they are relative to its folder. Do not fall back to "open the file elsewhere".',
     input: ArtifactInput,
-    describe: (a) => `artifact ${a.action} ${a.key}`,
-    run(a, t) {
+    describe: (a) => `artifact ${a.action} ${a.key}${a.version ? ` v${a.version}` : ''}`,
+    async run(a, t) {
       const turn = turnOf(ctx, t)
+      if (a.action === 'read') return c.artifacts.readText({ userId: t.user.id, ...turn }, a.key, a.version)
       const s = c.artifacts.apply({ userId: t.user.id, ...turn }, a)
-      return { text: `Artifact '${s.key}' saved as version ${s.version} (${human(s.size)}).`, summary: `artifact ${a.action} ${s.key} v${s.version} ${s.size}B`, structured: { key: s.key, version: s.version } }
+      const saved = `Artifact '${s.key}' saved as version ${s.version} (${human(s.size)})${s.restoredFrom ? `: version ${s.restoredFrom} brought back as the newest; the versions in between stay in the list` : ''}.`
+      const base = { summary: `artifact ${a.action} ${s.key} v${s.version} ${s.size}B`, structured: { key: s.key, version: s.version } }
+      if (s.type !== 'html') return { text: saved, ...base }
+      // the page as the panel runs it (tools/artifact-check.ts): a chat other people see (or may have written in) gets
+      // no team scripts and only placeholder pictures, as its preview
+      const content = (ctx.db.query('SELECT content FROM artifacts WHERE id = ?').get(s.id) as { content: string }).content
+      const shared = isSharedChat(ctx.db, turn.chatId) || severalAuthors(ctx.db, turn.chatId)
+      const check = await checkPage({ html: content, shared, asset: pageAsset(t), vendor: vendorFile, workBase: ctx.config.dataDir, signal: t.signal })
+      return { text: `${saved}\n${pageCheckText(check)}`, ...base, summary: `${base.summary} ${pageCheckSummary(check)}` }
     },
   })
 

@@ -422,7 +422,7 @@ export function teamRules(files: FileService, user: Principal, readable?: ((rel:
   return out
 }
 
-const BLOCK_TAGS = ['memories_about_the_user', 'company_profile', 'project_instructions', 'previous_conversation', 'turn_context', 'instructions', 'team_skill', 'skill_hints', 'scheduled_run', 'continuation', 'room_context', 'room_message', 'room_messages', 'room_event', 'room_list', 'room_file', 'chat_file', 'room_refs', 'answer_comments', 'answer_comment', 'attachments', 'document_matches', 'shared_chat', 'shared_chats', 'conversation_summary', 'chat', 'previous_summary', 'answer_so_far', 'answer_text', 'stopped_answer']
+const BLOCK_TAGS = ['memories_about_the_user', 'company_profile', 'project_instructions', 'previous_conversation', 'turn_context', 'instructions', 'team_skill', 'skill_hints', 'scheduled_run', 'continuation', 'room_context', 'room_message', 'room_messages', 'room_event', 'room_list', 'room_file', 'chat_file', 'room_refs', 'answer_comments', 'answer_comment', 'attachments', 'document_matches', 'shared_chat', 'shared_chats', 'conversation_summary', 'chat', 'previous_summary', 'answer_so_far', 'answer_text', 'stopped_answer', 'chat_pages']
 // conversation_summary: the summary inside <previous_conversation> (historyBlock); chat / previous_summary: the data
 // blocks of the summary call (chat/history-summary.ts summaryMessage)
 // document_matches: the removed knowledge graph's block in front of a message (docs/DECISIONS.md, 2026-11-11); a Claude
@@ -1294,7 +1294,7 @@ export function subagentPromptSections(files: FileService, i: PromptInput, tools
     has.has('query_data') ? QUERY_DATA_RULE : '',
     has.has('move_files') ? 'To move, copy or rename files of any type, use move_files, copy_files and rename_file; write only saves text.' : '',
     has.has('move_files') ? SUBAGENT_PLACEMENT_RULE : '',
-    has.has('artifact') ? 'For things the user will look at or reuse (a web page, a diagram, a document draft, code), use the artifact tool. To change one you made in this chat ("make the text bigger"), update or rewrite it with the same key: a new key makes a second, separate card. When the person asks for an image or a picture, make a picture file (an SVG saved as PNG with make_file), not a web page.' : '',
+    has.has('artifact') ? 'For things the user will look at or reuse (a web page, a diagram, a document draft, code), use the artifact tool. To change a page of this chat ("make the text bigger"), also one made for someone else here, read it with the artifact tool and save the change with the same key (update or rewrite): a new key makes a second, separate card. To show an earlier version ("show the version before Junho\'s change"), read it with its version number, say what differs, and tell the person it opens in the page\'s panel with the version arrows; restore it only when they ask to go back to it. A web page is opened in a browser after each save: fix the errors the result names before you say it is done. When the person asks for an image or a picture, make a picture file (an SVG saved as PNG with make_file), not a web page.' : '',
     has.has('save_url') ? SAVE_URL_RULE : '',
   ]
   // the company profile is team knowledge like the team rules (a child writing copy needs it), not a fact about the
@@ -1522,7 +1522,7 @@ export function turnPromptSections(files: FileService, i: PromptInput): Section[
     tools.has('my_folders') ? MY_FOLDERS_RULE : '',
     tools.has('change_project_members') ? PROJECT_MEMBERS_RULE : '',
     tools.has('change_folder_access') ? FOLDER_ACCESS_RULE : '',
-    tools.has('artifact') ? 'For things the user will look at or reuse (a web page, a diagram, a document draft, code), use the artifact tool instead of pasting long code in the answer. To change one you made in this chat ("make the text bigger"), update or rewrite it with the same key: a new key makes a second, separate card. When the person asks for an image or a picture, make a picture file (an SVG saved as PNG with make_file), not a web page.' : '',
+    tools.has('artifact') ? 'For things the user will look at or reuse (a web page, a diagram, a document draft, code), use the artifact tool instead of pasting long code in the answer. To change a page of this chat ("make the text bigger"), also one made for someone else here, read it with the artifact tool and save the change with the same key (update or rewrite): a new key makes a second, separate card. To show an earlier version ("show the version before Junho\'s change"), read it with its version number, say what differs, and tell the person it opens in the page\'s panel with the version arrows; restore it only when they ask to go back to it. A web page is opened in a browser after each save: fix the errors the result names before you say it is done. When the person asks for an image or a picture, make a picture file (an SVG saved as PNG with make_file), not a web page.' : '',
     tools.has('save_url') ? SAVE_URL_RULE : '',
     tools.has('box_shell') ? LOOK_AND_HAND_OVER_RULE : '',
     tools.has('ask_user') ? ASK_USER_RULE : '',
