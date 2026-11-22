@@ -5,6 +5,14 @@ This file summarizes user-visible changes; it is not a list of every commit.
 
 ## Unreleased
 
+## 0.13.1 — 2026-11-22
+
+- Admin notes: 0.13.1 changes no root file and has no database migration. A Linux server on 0.8.0 or newer takes 0.13.1 as an app update, with no root step; one on 0.7.x or older takes it through the root update, as for 0.8.0. No backup is needed (reader level 9). A server still on 0.5.x needs the backup first, as for 0.6.0.
+- Admin notes, going back: going back to 0.13.0 or any release back to 0.7.0 needs no backup.
+- A Trina history section that looked short of its limit could still say it was full (chats you no longer see kept their place). It now makes room from those first, and opening the section list is faster for people with many chats shared with them.
+- A PowerPoint preview in the file panel and in Files shows every slide from slide 1 again. When the panel drew the deck a second time while the first drawing was still on its way (the panel width settling), the first 4 or 8 slides were left out, so a 12-slide deck seemed to begin at slide 5 or 9. A link to a slide still opens at that slide.
+- Hosted teams: the **Resuming your team…** page now opens the team when it is ready also from a setup or invite link. Before, from such a link it kept counting the seconds and never opened. After 3 minutes it says the team is taking longer than usual and offers **Try again**.
+
 ## 0.13.0 — 2026-11-22
 
 - Admin notes: 0.13.0 changes no root file. A Linux server on 0.8.0 or newer takes 0.13.0 as an app update, with no root step. A server still on 0.7.x or older takes it through the root update, as for 0.8.0: the update timer installs it in the team's update window, or run `sudo mycel-ctl update`. No backup is needed: the two new database migrations (439 chat restore and leave notices, 440 web page versions) can be read by older versions and the reader level stays 9. A server still on 0.5.x needs the backup first, as for 0.6.0 (Admin › System › Backups › Back up now).

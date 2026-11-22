@@ -36,7 +36,8 @@ Plan: docs/AGENTS/plan/20261122-0926-history-sections.md (plan review: approve w
     through a group or a project. The server checks it by the history list's own rule
     (`server/src/chat/history-list.ts`, the same for `GET /api/chats`, the history's groups and the sections), and a
     section shows and counts a chat only while it passes that rule: one I lose (taken out of its project or group,
-    unshared, hidden from my list) drops out by itself and comes back with access. A chat the history does not show
+    unshared, hidden from my list) drops out by itself and comes back with access, while the section has room: a full
+    section drops those rows before it refuses, and taking a chat out of a section works even after I lost it. A chat the history does not show
     (a project's shared chat I never wrote in, one I hid) is refused (409 `folder_not_in_history`). Moving a chat into or
     out of a project keeps it in its section; the trash takes it out (restored, it is in no section). My section is
     mine alone: nobody else's copy of a chat carries it. A room's side chat and a task's folded runs have no section
