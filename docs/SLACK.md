@@ -57,7 +57,9 @@ four steps.
 - **Only the owner or admin who pressed it finishes it** (still the owner or an admin when the browser comes back). Slack sends the browser to the hosting service, which sends it back
   only to this team's address it recorded (`/api/integrations/slack/official/callback`) with a one-time handoff (10
   minutes, time to sign in here first) that only this flow's verifier redeems. A browser signed in as someone else is refused; one with no session
-  is asked to sign in first and then goes on. 10 minutes, used once, the newest only.
+  is asked to sign in first and then goes on, except for a flow started in the desktop app: its page hands the app a
+  one-time code and the app finishes it (docs/decisions/20261122-slack-desktop-handoff.md). 10 minutes, used once, the
+  newest only.
 - **Sign in with Slack** to link your own account works the same way through the hosting service (its one redirect
   URL is registered in the app): it checks Slack's answer, revokes your Slack user token at once and says only who
   signed in; this server checks that it is a person of this workspace, as before. No https address is needed here.
@@ -124,8 +126,9 @@ of the old one.
 
 - **Link with "Sign in with Slack"** (Settings › Connectors, its Slack line, or the link page): the button sends your
   browser to Slack; you sign in to Slack (or are signed in already) and come back, linked. From the desktop app Slack
-  opens in your system browser and from the phone app in an in-app browser: if that browser is not signed in here, it
-  asks you to sign in first and then finishes; at the end it says you can go back to the app, whose Settings line shows
+  opens in your system browser: the page then sends you back to the app, which finishes it (no second sign-in). From
+  the phone app it opens in an in-app browser: if that browser is not signed in here, it asks you to sign in first and
+  then finishes; at the end it says you can go back to the app, whose Settings line shows
   the link when you return. Signed in there as someone else, it is refused ("다른 계정으로 로그인돼 있어요"). The Slack account
   you signed in to is the one linked: no e-mail is needed, and nobody else's Slack account can be linked to you, nor
   yours to anybody else. Slack's DM then says which account it is linked to, and every "working…" names the account it
@@ -282,7 +285,9 @@ after 1, 2, 4 … seconds (at most a minute).
   saved. The client id is not a secret.
 - "Sign in with Slack": the state and nonce are random and stored hashed, bound to the person who started it, 10
   minutes, used once; only a browser signed in as that person finishes it (another person's session refuses and ends
-  it; a browser with no session is sent to sign in, and only to the fixed return page with the state and the code). The server exchanges the code itself (`openid.connect.token` with the
+  it; a browser with no session is sent to sign in, and only to the fixed return page with the state and the code; for a
+  flow of a live desktop session it is held instead: Slack's code sealed in the flow, unexchanged, and a one-time code
+  for the app's own link that only the starting session redeems, docs/decisions/20261122-slack-desktop-handoff.md). The server exchanges the code itself (`openid.connect.token` with the
   client secret, over TLS) and checks the id_token's issuer (`https://slack.com`), audience (the client id), time and
   nonce; the Slack user and workspace it names must be of this workspace and a person (`users.info`).
 - Who asked comes from Slack's own event (workspace, organization and user ids), never from the message text. Socket

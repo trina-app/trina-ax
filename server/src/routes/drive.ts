@@ -14,6 +14,7 @@ import { shareView } from '../integrations/google-drive/shares'
 import { DriveError } from '../integrations/google-drive/store'
 import { afterServiceSetup } from '../integrations/service-requests'
 import { googleAppsOf, GoogleAppError } from '../integrations/google-apps/service'
+import { slackOf } from '../integrations/slack/service'
 import { integrationsOf } from '../integrations/connections/service'
 
 async function safe<T>(fn: () => T | Promise<T>, locale?: Locale): Promise<T> {
@@ -47,8 +48,11 @@ export function registerDriveRoutes(kit: RouteKit, ctx: AppContext) {
         if (g instanceof GoogleAppError) throw new HttpError(g.status === 401 ? 'unauthorized' : g.status === 403 ? 'forbidden' : g.status === 404 ? 'not_found' : g.status === 409 ? 'conflict' : g.status >= 500 ? 'unavailable' : 'bad_request', g.message, { status: g.status, params: { reason: g.reason } })
         if (!(g instanceof DriveError) || g.reason !== 'invalid_code') throw g
         const f = await integrationsOf(ctx).claim(auth.user.id, auth.session.id, body.code)
-        if (!f) throw g
-        return { ...f, account: null }
+        if (f) return { ...f, account: null }
+        // then Slack's sign-ins and "Add to Slack" (integrations/slack/service.ts claim)
+        const sl = await slackOf(ctx).claim(auth.user.id, auth.session.id, body.code)
+        if (!sl) throw g
+        return { ...sl, account: null }
       }
     }
   }, c.get('locale')))

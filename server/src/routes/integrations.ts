@@ -1,14 +1,11 @@
 // External-service connections (contract shared/src/api/integrations.ts, docs/INTEGRATIONS.md), registered by the
 // files route module (component C) after the Google Drive routes (their fixed paths win over /api/integrations/:id).
-import crypto from 'node:crypto'
 import { API } from '@mycel/shared/api'
 import type { AppContext } from '../context'
 import type { RouteKit } from '../http/route'
 import type { AppContextC } from '../http/env'
-import { PRODUCT } from '@mycel/shared'
 import { linkBase } from '../auth/accounts'
-import { appLink } from '../integrations/google-drive/app-return'
-import { RETURN_STYLE, RETURN_STYLE_SRC } from '../integrations/google-drive/callback-page'
+import { backToApp, CLOSE_SCRIPT, handedPage, heldPage, returnHeaders, returnPage } from '../integrations/connections/return-page'
 import { integrationsOf, MAX_PERSONAL, type CallbackResult, type FlowFailure } from '../integrations/connections/service'
 import { requestsOf } from '../integrations/connections/requests'
 import { templatesOf } from '../integrations/connections/templates'
@@ -20,9 +17,6 @@ import { say, type TextKey } from '../integrations/connections/text'
 import { CALLBACK_PATH, CLIENT_METADATA_PATH, clientMetadata, documentOriginAt, documentOrigins } from '../integrations/connections/oauth'
 
 export const INTEGRATION_CALLBACK = CALLBACK_PATH
-const CLOSE = 'window.close()'
-const CLOSE_HASH = 'sha256-' + crypto.createHash('sha256').update(CLOSE).digest('base64')
-const esc = (s: string) => s.replace(/[&<>"']/g, (ch) => `&#${ch.charCodeAt(0)};`)
 const viewer = (auth: AuthInfo) => ({ id: auth.user.id, role: auth.user.role })
 /** the desktop window a request came from (its x-mycel-window, from a desktop session only): where an app on the
  * person's computer is checked (integrations/connections/local.ts); null from the web or the phone app */
@@ -100,36 +94,18 @@ export function registerIntegrationRoutes(kit: RouteKit, ctx: AppContext) {
         auth ? { userId: auth.user.id, sessionId: auth.session.id } : undefined)
     } catch {}
     const L = cc.get('locale')
-    const P = { product: PRODUCT.displayName }
-    c.header('Cache-Control', 'no-store'); c.header('Referrer-Policy', 'no-referrer')
-    // only its own style (the Google return page's, by hash), the product mark from this server, and the one script
-    // whose hash is allowed: it tries to close the window (the app watches the sign-in itself)
-    c.header('Content-Security-Policy', `default-src 'none'; style-src ${RETURN_STYLE_SRC}; img-src 'self'; script-src '${CLOSE_HASH}'; frame-ancestors 'none'`)
+    returnHeaders(c)
     const origin = new URL(c.req.url).origin
-    // one card, light or dark as the system is, readable at phone width: a heading, plain words and one next step
-    const page = (o: { title: string; text: string; extra?: string; cta?: { href: string; label: string; testid?: string }; head?: string; tail?: string }) =>
-      `<!doctype html><html lang="${L}"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(say('callbackTitle', L))}</title>${o.head ?? ''}<style>${RETURN_STYLE}</style>`
-      + `<main><img class="logo" src="/favicon.svg" alt="${esc(PRODUCT.displayName)}" width="40" height="40"><h1>${esc(o.title)}</h1><p role="status">${esc(o.text)}</p>${o.extra ?? ''}`
-      + (o.cta ? `<a class="cta" href="${esc(o.cta.href)}"${o.cta.testid ? ` data-testid="${o.cta.testid}"` : ''}>${esc(o.cta.label)}</a>` : '') + `${o.tail ?? ''}</main>`
-    const backToApp = { href: appLink(origin), label: say('callbackBackToApp', L) }
-    // A desktop sign-in held for the app on this computer (service.ts hold): the one-time code only in the FRAGMENT of
-    // the app's own link (no server, proxy or log sees it), opened by itself and by the button. The page names whose
-    // account it joins, so a person who did not start it sees it is not theirs (docs/decisions/20261121-connect-browser-handoff.md)
-    if (r.ok && r.held) {
-      const link = appLink(origin, r.held.code)
-      return c.html(page({
-        head: `<meta http-equiv="refresh" content="0;url=${esc(link)}">`,
-        title: say('callbackHeldTitle', L, P), text: say('callbackHeld', L, { name: r.held.name }),
-        extra: r.held.who.username ? `<ul class="facts" data-testid="held-who"><li>${esc(say('callbackHeldWho', L, { ...P, person: r.held.who.name, username: r.held.who.username }))}</li></ul>` : '',
-        cta: { href: link, label: say('callbackBackToApp', L), testid: 'held-back' },
-        tail: `<p class="note" data-testid="held-own-app">${esc(say('callbackHeldOwnApp', L, P))}</p>`,
-      }), 200)
-    }
-    if (r.ok) return c.html(page({ title: say('callbackOkTitle', L), text: say('callbackOk', L), tail: `<script>${CLOSE}</script>` }), 200)
+    const page = (o: Parameters<typeof returnPage>[1]) => returnPage(L, o)
+    const back = backToApp(L, origin)
+    // A desktop sign-in held for the app on this computer (service.ts hold): the shared held page (return-page.ts)
+    // (docs/decisions/20261121-connect-browser-handoff.md)
+    if (r.ok && r.held) return c.html(heldPage(L, origin, r.held), 200)
+    if (r.ok) return c.html(page({ title: say('callbackOkTitle', L), text: say('callbackOk', L), tail: CLOSE_SCRIPT }), 200)
     // the one next step: back to the desktop app that started it, or Connectors on the web; the phone app gets words only
     // (static text and same-origin or app links only: the code and state never go anywhere else)
-    const next = r.from === 'desktop' ? backToApp : r.from === 'web' ? { href: '/settings/connectors', label: say('callbackOpenConnectors', L) } : undefined
-    if (r.handed) return c.html(page({ title: say('callbackHeldTitle', L, P), text: say('callbackHanded', L), cta: backToApp }), 400)
+    const next = r.from === 'desktop' ? back : r.from === 'web' ? { href: '/settings/connectors', label: say('callbackOpenConnectors', L) } : undefined
+    if (r.handed) return c.html(handedPage(L, origin), 400)
     if (r.otherAccount) return c.html(page({ title: say('callbackOtherTitle', L), text: say('callbackOtherAccount', L), cta: next }), 400)
     return c.html(page({ title: say('callbackNotTitle', L), text: r.reason ? say(FAILED_TEXT[r.reason], L, { n: MAX_PERSONAL }) : say('callbackFail', L), cta: next }), 400)
   })
