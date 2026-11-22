@@ -34,7 +34,7 @@ let sent: { key: string; body: unknown }[] = []
 const realFetch = globalThis.fetch
 const localeBefore = useLocaleStore.getState().locale
 const sessionBefore = useSession.getState().status
-let routes: Record<string, (body: unknown) => Response> = {}
+let routes: Record<string, (body: unknown) => Response | Promise<Response>> = {}
 beforeAll(() => {
   installDom()
   useLocaleStore.setState({ locale: 'en' })
@@ -264,6 +264,37 @@ describe('the save model and every exit', () => {
       expect(put.withFiles).toBe(true)
       expect(put.confirmKey).toBe('pk:bob')
       expect(put.subjects.map((x) => x.subjectId)).toEqual(['bob'])
+    } finally { await m.unmount() }
+  })
+
+  test('a slow check (QA TC-f3-03): Share stays off while it says "Checking…", a press then sends nothing; the first moment Share is on the safe files are already ticked and go with it', async () => {
+    const madeFiles = [{ name: 'banner1.png', place: 'My files › SNS', size: 900 }]
+    routesWith(audience([], { madeFiles, madeFilesKey: 'mk' }))
+    // the check answers only when let go
+    let letGo: () => void = () => {}
+    routes[PREVIEW] = (body) => new Promise<Response>((res) => { letGo = () => res(json(200, { check: { ...NOTHING, madeFiles, warnPicks: [] }, previewKey: keyFor((body as { subjects: { subjectId: string }[] }).subjects) })) })
+    let closed = 0
+    const m = await open(() => closed++)
+    try {
+      await addBob(m)
+      await m.until(() => m.find('chat-share-grey')?.textContent === en('share.grey.checking'), '"Checking…"', 3000)
+      expect(m.get('chat-share-save').hasAttribute('disabled')).toBe(true)
+      // a press while checking: nothing is sent
+      m.get('chat-share-save').click()
+      await new Promise((r) => setTimeout(r, 50))
+      expect(sent.some((x) => x.key === `PUT ${AUD}`)).toBe(false)
+      // (the check is asked after its short wait: let it answer once it was asked)
+      await m.until(() => sent.some((x) => x.key === PREVIEW), 'the check asked', 3000)
+      expect(m.get('chat-share-save').hasAttribute('disabled')).toBe(true)
+      letGo()
+      // the very render that turns Share on has the box ticked (the default is never applied after it)
+      await m.until(() => !m.get('chat-share-save').hasAttribute('disabled'), 'Share on', 3000)
+      expect((m.get('chat-share-files-check') as unknown as { checked: boolean }).checked).toBe(true)
+      m.get('chat-share-save').click()
+      await m.until(() => closed === 1, 'closed', 2000)
+      const puts = sent.filter((x) => x.key === `PUT ${AUD}`)
+      expect(puts).toHaveLength(1)
+      expect(puts[0]!.body).toMatchObject({ withFiles: true, confirmKey: 'pk:bob' })
     } finally { await m.unmount() }
   })
 

@@ -16,12 +16,14 @@
 // who is active, who muted the chat and everyone's preferences in one query each, writes in one transaction, and asks
 // nothing per person but the insert.
 import type { Database } from 'bun:sqlite'
-import { inQuietHours } from '@mycel/shared/api'
+import { inQuietHours, plainLabel, type InboxNotification, type NotificationEventType } from '@mycel/shared/api'
 import type { AppContext } from '../context'
 import { newId } from '../db'
 import { teamTimeZone } from '../admin/settings'
 import { getPreferences, getPreferencesOf, pushEventEnabled, type Preferences } from '../notifications/preferences'
 import { chatOpenFor } from '../notifications/chat-answers'
+import { notificationsOf } from '../notifications/service'
+import { redactorFor } from '../integrations/connections/redact'
 import { isSharedRow } from './chat-audience'
 import { Audiences } from './shared'
 import { AnswerSight } from './shared-answers'
@@ -54,10 +56,12 @@ export function setMuted(ctx: AppContext, userId: string, chatId: string, muted:
   } else ctx.db.query('DELETE FROM chat_mutes WHERE chat_id = ? AND user_id = ?').run(chatId, userId)
 }
 
-/** Someone no longer sees the chat (people-share.ts putChatAudience): their notices there and their mute go. */
-export function forgetChatNotices(db: Database, userId: string, chatId: string) {
-  db.query('DELETE FROM chat_message_notices WHERE user_id = ? AND chat_id = ?').run(userId, chatId)
+/** Someone no longer sees the chat (people-share.ts putChatAudience): their notices there and their mute go. True when
+ * an unread mention went (a Mentions row: the caller tells their Inbox, notificationsOf().changed, after its transaction). */
+export function forgetChatNotices(db: Database, userId: string, chatId: string): boolean {
+  const gone = db.query('DELETE FROM chat_message_notices WHERE user_id = ? AND chat_id = ? RETURNING mention, read_at').all(userId, chatId) as { mention: number; read_at: string | null }[]
   db.query('DELETE FROM chat_mutes WHERE user_id = ? AND chat_id = ?').run(userId, chatId)
+  return gone.some((g) => g.mention === 1 && !g.read_at)
 }
 
 /** My unread notices in this chat (the row's number), whether one of them mentions me (the row's "@") and my mute, in
@@ -82,8 +86,10 @@ export function unreadByUser(db: Database, chatId: string): Map<string, Unread> 
  * something was unread (the caller tells my windows). */
 export function readChatNotices(ctx: AppContext, userId: string, chatId: string): boolean {
   const db = ctx.db
-  const read = db.query('UPDATE chat_message_notices SET read_at = ? WHERE user_id = ? AND chat_id = ? AND read_at IS NULL RETURNING id').all(new Date().toISOString(), userId, chatId) as { id: string }[]
+  const read = db.query('UPDATE chat_message_notices SET read_at = ? WHERE user_id = ? AND chat_id = ? AND read_at IS NULL RETURNING id, kind, mention').all(new Date().toISOString(), userId, chatId) as { id: string; kind: string; mention: number }[]
   if (!read.length) return false
+  // a mention read here is a Mentions row read (QA TC-f3-02): the Inbox reads again
+  if (read.some((r) => r.kind === 'message' && r.mention === 1)) notificationsOf(ctx).changed(userId)
   db.query(`UPDATE chat_message_push_deliveries SET state = 'cancelled', lease_until = NULL WHERE state IN ('pending','sending')
     AND notification_id IN (SELECT id FROM chat_message_notices WHERE user_id = ? AND chat_id = ?)`).run(userId, chatId)
   return true
@@ -112,7 +118,7 @@ function note(ctx: AppContext, chat: ChatIds, messageId: string, by: string, kin
     const tz = teamTimeZone(db), now = Date.now(), at = new Date(now).toISOString()
     const insert = db.query(`INSERT INTO chat_message_notices (id, user_id, event_type, source_id, chat_id, by_user, kind, created_at, suppressed, quiet, mention)
       VALUES (?, ?, 'chat.message', ?, ?, ?, ?, ?, 0, ?, ?) ON CONFLICT DO NOTHING`)
-    const told: string[] = []
+    const told: string[] = [], mentioned: string[] = []
     db.transaction(() => {
       for (const uid of ids) {
         if (!active.has(uid)) continue
@@ -122,13 +128,16 @@ function note(ctx: AppContext, chat: ChatIds, messageId: string, by: string, kin
         const ring = kind === 'message' && mayRing(prefs!.get(uid)!, tz, now)
         const r = insert.run(newId(), uid, messageId, chat.id, kind === 'message' ? by : null, kind, at, ring ? 0 : 1, mention ? 1 : 0)
         if (r.changes && kind === 'message') told.push(uid)
+        if (r.changes && mention) mentioned.push(uid)
         if (r.changes && ring) rings.set(uid, { messageId, ...(mention ? { mention: true as const } : {}) })
       }
       // a person's message brings a chat I hid from my list back (as a room's message brings a hidden room back), so
       // its number is never out of sight; an answer of Trina's does not (one statement for everyone told)
       if (told.length) db.query('DELETE FROM chat_list_hidden WHERE chat_id = ? AND user_id IN (SELECT value FROM json_each(?))').run(chat.id, JSON.stringify(told))
     })()
-    // their Inbox count does not change (these rows are never listed): the chat.updated that follows carries the number
+    // a mention is a row under Mentions (QA TC-f3-02): their Inbox reads again; any other notice is never listed (the
+    // chat.updated that follows carries the number)
+    for (const uid of mentioned) notificationsOf(ctx).changed(uid)
     return rings
   } catch (e) {
     ctx.log.warn('chat message notices deferred', { err: e })
@@ -172,4 +181,22 @@ export function chatMessagePath(ctx: AppContext, notificationId: string): string
 export function chatMessageLink(ctx: AppContext, notificationId: string): { chatId: string; messageId: string } | null {
   const n = noticeOf(ctx.db, notificationId)
   return n && chatOpenFor(ctx, n.user_id, n.chat_id) ? { chatId: n.chat_id, messageId: n.source_id } : null
+}
+
+/** The notice as the Inbox reads it (what a push opens; a mention is also a row under Mentions, QA TC-f3-02): the chat
+ * and the message while I still see the chat and the message is there; a mention also says who (while their account is
+ * there) and the chat's title (a stored connection secret of its creator hidden, one plain line). Else `gone`: no name,
+ * title or link. Never the message's text. */
+export function chatMessageNoticeOut(ctx: AppContext, row: { id: string; user_id: string; event_type: NotificationEventType; source_id: string; created_at: string; read_at: string | null }): InboxNotification {
+  const base = { id: row.id, eventType: row.event_type, sourceId: row.source_id, code: row.event_type, createdAt: row.created_at, readAt: row.read_at, outcome: null }
+  const n = noticeOf(ctx.db, row.id)
+  const there = !!n && !!ctx.db.query('SELECT 1 FROM messages WHERE id = ? AND chat_id = ?').get(n.source_id, n.chat_id)
+  const sees = there && chatOpenFor(ctx, row.user_id, n!.chat_id)
+  const mention = !!n && n.kind === 'message' && n.mention === 1
+  if (!sees) return { ...base, chatId: null, link: null, ...(mention ? { chatMessage: { messageId: null, name: null, title: null, mention: true as const, gone: true as const } } : {}) }
+  if (!mention) return { ...base, chatId: n!.chat_id, link: 'chat', chatMessage: { messageId: n!.source_id } }
+  const c = ctx.db.query('SELECT user_id, title FROM chats WHERE id = ?').get(n!.chat_id) as { user_id: string; title: string } | null
+  const u = n!.by_user ? ctx.db.query("SELECT name FROM users WHERE id = ? AND status = 'active' AND deleted_at IS NULL").get(n!.by_user) as { name: string } | null : null
+  const title = c ? plainLabel(redactorFor(ctx, c.user_id).hide(c.title || '')) : ''
+  return { ...base, chatId: n!.chat_id, link: 'chat', chatMessage: { messageId: n!.source_id, name: u ? plainLabel(u.name, 80) : null, ...(u ? { byId: n!.by_user! } : {}), title: title || null, mention: true } }
 }

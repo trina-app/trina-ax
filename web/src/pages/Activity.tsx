@@ -45,8 +45,11 @@ import { rowName } from '../components/list/List'
 import { Avatar } from '../components/Avatar'
 import { useAvatarOf } from '../store/people'
 
-/** a reply in a thread under a shared AI chat's answer: a conversation row, on 대화's 멘션·스레드 with the rooms' rows */
-export const isChatThreadRow = (item: InboxNotification): boolean => item.code === 'chat.thread_reply'
+/** a reply in a thread under a shared AI chat's answer, or a message that mentions me in a shared chat's main box (QA
+ * TC-f3-02): a conversation row, on 대화's 멘션·스레드 with the rooms' rows */
+export const isChatThreadRow = (item: InboxNotification): boolean => item.code === 'chat.thread_reply' || item.code === 'chat.message'
+/** what a chat conversation row says: who, which chat, a mention, gone */
+const chatRowOf = (item: InboxNotification) => item.chatThread ?? item.chatMessage
 
 type T = ReturnType<typeof useT>
 type Filter = ActivityTab
@@ -281,7 +284,8 @@ function ActivityPage({ chats }: { chats: boolean }) {
       return `${who} ${where} ${line}`
     }
     // a chat thread's row: who and the chat's title (its line is a sentence around them)
-    if (isChatThreadRow(item) && item.chatThread && !item.chatThread.gone) return `${item.chatThread.name ?? ''} ${item.chatThread.title ?? ''}`
+    const th = isChatThreadRow(item) ? chatRowOf(item) : undefined
+    if (th && !th.gone) return `${th.name ?? ''} ${th.title ?? ''}`
     const text = noticeText(item, t, locale)
     return typeof text === 'string' ? text : ''
   }
@@ -507,7 +511,7 @@ function RoomRow({ item, onOpen }: { item: RoomNotice; onOpen: () => void }) {
  * thread. Opens the thread (/c/<chat>/t/<answer>); one I no longer see says so and opens nothing. */
 function ChatThreadRow({ item, onOpen }: { item: InboxNotification; onOpen: () => void }) {
   const t = useT(), locale = useLocale()
-  const th = item.chatThread
+  const th = chatRowOf(item)
   const unread = !item.readAt
   const link = noticeLink(item)
   const user = useAvatarOf(th?.byId && th.name ? { id: th.byId, name: th.name } : null)

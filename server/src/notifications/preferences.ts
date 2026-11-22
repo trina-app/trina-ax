@@ -125,7 +125,7 @@ export function eventEnabled(p: NotificationPreferences, event: NotificationEven
     // a reply in a thread I follow under an AI answer of a shared chat (shown always; its push follows "Replies in threads
     // I'm part of": pushEventEnabled)
     case 'chat.thread_reply': return true
-    // a person's message in a chat shared with people (never listed; chat/message-notices.ts): its push follows the room
+    // a person's message in a chat shared with people (listed only when it mentions me; chat/message-notices.ts): its push follows the room
     // default (pushEventEnabled)
     case 'chat.message': return true
   }

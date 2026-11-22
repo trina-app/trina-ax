@@ -6,7 +6,7 @@ import { ALWAYS_VALUE, LIVE_CLIENTS, alwaysHere, keepAlways, withAlways, type Al
 import { approvalsFor, approved, clearApprovals, noteApproval } from './card-approvals'
 import { stampOutputOf } from '../tools/stamp-pdf'
 import type { CardAlwaysKind } from '@mycel/shared/api'
-import { languageSwitchNote, NarrationHold, narrationScript } from './narration'
+import { includesPiece, languageSwitchNote, NarrationHold, narrationScript, quoteLanguageNote } from './narration'
 import { safeOpsEnabled } from "../safe-ops/runner"
 // One chat turn, end to end (tab 3 "실행 관리", tab 4 "메시지 하나의 처리 순서"):
 // engine choice, session resume or a fresh session with the branch history, system prompt, tools of this turn,
@@ -263,6 +263,21 @@ export function answerStepCap(team: number, o: { guest: boolean; unattended: boo
 const HIDDEN_STEP_TOOLS = new Set(['set_title', 'todo_write'])
 /** calls after which the text before them stays the answer (chat/turn.ts endPiece): bookkeeping that ends an answer */
 const INTERIM_KEEPS = new Set(['remember', 'forget', 'TodoWrite'])
+/** Calls whose arguments are a command or a sub-agent's brief and the step's own label (`description`: "Install
+ * python-docx in a venv", shown in the step list instead of the command): a dev-environment command (devenv/tool.ts),
+ * Claude Code's Bash and its Agent calls. A text piece before one that repeats its label, or shares most words with its
+ * command ("Install python-docx in a venv." before `pip install python-docx`), is the AI narrating the step (QA
+ * TC-f3-05), not text "copied into the call" (narration.ts copied, whose 80%-of-words allowance is for a posted message).
+ * Only a command that holds the piece word for word (a heredoc writing it to a file) still counts. */
+const NO_CONTENT_TOOLS = new Set(['box_shell', 'Bash', ...CLAUDE_AGENT_TOOL_NAMES])
+/** The call's arguments that are content it delivers, for the "copied into the call" check (`piece`: the text before
+ * the call): for NO_CONTENT_TOOLS only a command holding the piece word for word, else nothing. */
+export function deliveredArgs(name: string, input: unknown, piece: string): unknown {
+  const tool = name.startsWith(TEAM_TOOL_PREFIX) ? name.slice(TEAM_TOOL_PREFIX.length) : name
+  if (!NO_CONTENT_TOOLS.has(tool)) return input
+  const command = input && typeof input === 'object' ? (input as { command?: unknown }).command : undefined
+  return typeof command === 'string' && includesPiece(piece, command) ? { command } : {}
+}
 /** a file of the person's own folder this big or bigger is not hashed to find who made its bytes (bytesOutsideLevel) */
 const OWN_HASH_MAX = 64 * 1024 * 1024
 /** the bytes of own files hashed for one call (noteOwnReads): more counts as outside, unhashed */
@@ -1214,7 +1229,8 @@ export class TurnExec {
     if (this.stopReason) return
     const answered = (answeredQ ? `${answeredQ}\n\n` : '') + (ranAgain ? `${ranAgain}\n\n` : '')
     // a message in another script than the one before it: answer in its language (chat/narration.ts, QA TC-7429)
-    const switched = languageSwitchNote(userMsg.content, this.previousUserText(userMsg.parent_id))
+    // ...or a quote above the person's own words (a ✦ side chat's room message): their words decide (QA TC-f1c-01)
+    const switched = languageSwitchNote(userMsg.content, this.previousUserText(userMsg.parent_id)) ?? quoteLanguageNote(userMsg.content)
     const message = skillNotShared + scheduled + continued + answered + (refs ? `${refs}\n\n` : '') + (hints ? `${hints}\n\n` : '') + (invokedBlock ? `${invokedBlock}\n\n` : '') + (switched ? `${switched}\n\n` : '') + composeMessage(asSent, atts)
     // a resumed Claude session keeps its first system prompt: what changes per turn travels with the message, with the
     // skills added, changed or removed since that session's instructions listed them
@@ -2061,7 +2077,7 @@ export class TurnExec {
         // a sub-agent's call leaves the main AI's piece undecided (only the redactor's end goes out)
         if (e.parentId) this.emitText(this.answerText.flush())
         // (a piece copied into the call's arguments is content: a message it posts, a file it writes)
-        else if (!this.endPiece(e.name, e.input)) { this.emitText(this.answerText.push(this.fileLinks.push(this.narration.toolStart(e.input)))); this.flushText() }
+        else if (!this.endPiece(e.name, e.input)) { this.emitText(this.answerText.push(this.fileLinks.push(this.narration.toolStart(deliveredArgs(e.name, e.input, this.narration.held))))); this.flushText() }
         this.attemptHadOutput = true
         this.attemptCalledTool = true
         this.producedOutput = true
@@ -2235,7 +2251,8 @@ export class TurnExec {
     const tool = name.startsWith(TEAM_TOOL_PREFIX) ? name.slice(TEAM_TOOL_PREFIX.length) : name
     if (HIDDEN_STEP_TOOLS.has(tool) || INTERIM_KEEPS.has(tool)) return false
     const at = this.pieceStart
-    if (at !== null && this.narration.active && this.narration.copiedInto(this.writtenText.slice(at), input)) { this.pieceStart = null; return false }
+    // (a command, a sub-agent's brief and a step's label deliver no words: a piece that repeats them is narration)
+    if (at !== null && this.narration.active && this.narration.copiedInto(this.writtenText.slice(at), deliveredArgs(name, input, this.writtenText.slice(at)))) { this.pieceStart = null; return false }
     this.pieceStart = null
     // only where the answer's language is not written in Latin letters and the person did not ask for another one
     // (narrationScript): there a piece before a call is the AI's own working note; elsewhere the pattern guard decides
