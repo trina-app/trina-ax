@@ -2844,7 +2844,7 @@ cases:
   prompt: 구글로 가입해서 비밀번호가 없는데, 팀장 넘기기 하려니까 비밀번호를 다시 넣으래. 어떻게 해?
   expect:
     outcome: explain
-    good: An account made with Google confirms with Google instead: the same dialog shows Confirm with Google, a Google window opens, he picks his own Google account, and the action goes on. It works in a web browser, not inside the phone or desktop app. He can also set a password in Settings › Security & devices (it asks for a Google check first). Plain words, no invented steps.
+    good: An account made with Google confirms with Google instead; the same dialog shows Confirm with Google, a Google window opens, he picks his own Google account, and the action goes on. It works in a web browser, not inside the phone or desktop app. He can also set a password in Settings › Security & devices (it asks for a Google check first). Plain words, no invented steps.
     checks: []
 
 - id: CHT-13
