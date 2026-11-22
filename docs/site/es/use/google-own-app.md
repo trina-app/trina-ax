@@ -52,8 +52,8 @@ Inicie sesión en [Google Cloud](https://console.cloud.google.com/) con una cuen
 #### Cree un proyecto
 Abra [New project](https://console.cloud.google.com/projectcreate). Póngale un **Project name** (nombre del proyecto)
 que reconozca, como "acme-trina". En **Parent resource** (o **Organization**), elija su empresa: la app solo puede ser
-**Internal** si el proyecto pertenece a la organización de su empresa ("No organization" en la imagen es la cuenta
-inventada). Elija **Create** y, antes de los pasos siguientes, asegúrese de que el proyecto nuevo está elegido en la
+**Internal** si el proyecto pertenece a la organización de su empresa ("No organization" en la imagen es la cuenta usada
+para las imágenes). Elija **Create** y, antes de los pasos siguientes, asegúrese de que el proyecto nuevo está elegido en la
 parte superior de la página.
 
 ![La página New Project de Google Cloud: Project name acme-trina, el Project ID debajo, Parent resource y el botón Create](../../images/google-own-app/cloud-new-project.webp "New Project")
@@ -81,7 +81,7 @@ Abra [Google Auth Platform](https://console.cloud.google.com/auth/overview). La 
    ![Get started, App Information: App name Acme Trina, User support email y Next](../../images/google-own-app/cloud-get-started.webp "Get started: App Information")
 
 2. **Audience**: elija **Internal**. Solo las cuentas de su empresa pueden usar la app, y Google no necesita revisarla.
-   (En la imagen **Internal** aparece en gris porque la cuenta inventada no tiene organización. Con una cuenta de su
+   (En la imagen **Internal** aparece en gris porque la cuenta usada para las imágenes no tiene organización. Con una cuenta de su
    empresa se puede elegir).
 
    ![Get started, Audience: Internal, solo disponible para los usuarios de su organización, y External](../../images/google-own-app/cloud-audience.webp "Get started: Audience")

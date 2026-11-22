@@ -46,7 +46,7 @@ description: 在 Google Cloud 中为公司创建一个“内部” Google 应用
 #### 创建项目
 打开[新建项目](https://console.cloud.google.com/projectcreate)。填写一个你认得出的 **Project name**（项目名称），例如
 “acme-trina”。在 **Parent resource**（父级资源，或 **Organization**，组织）下选择你的公司：只有项目属于公司的组织时，应用才能设为
-**Internal**（内部）（截图中的“No organization”是虚构账号的情况）。选择 **Create**（创建），然后在进行后面的步骤之前，确认页面顶部选中的是这个新项目。
+**Internal**（内部）（截图中的“No organization”是因为截图所用的账号没有组织）。选择 **Create**（创建），然后在进行后面的步骤之前，确认页面顶部选中的是这个新项目。
 
 ![Google Cloud 的 New Project 页面：Project name 为 acme-trina，下方是 Project ID、Parent resource，以及 Create 按钮](../../images/google-own-app/cloud-new-project.webp "New Project（新建项目）")
 
@@ -73,7 +73,7 @@ description: 在 Google Cloud 中为公司创建一个“内部” Google 应用
    ![Get started 的 App Information：App name 为 Acme Trina、User support email，以及 Next](../../images/google-own-app/cloud-get-started.webp "Get started：App Information")
 
 2. **受众群体**（Audience）：选择**内部**（Internal）。只有公司的账号可以使用这个应用，Google 也不需要审核它。（截图中的
-   **Internal** 是灰色的，因为虚构账号没有组织。用公司的账号就可以选择它。）
+   **Internal** 是灰色的，因为截图所用的账号没有组织。用公司的账号就可以选择它。）
 
    ![Get started 的 Audience：Internal（仅供组织内的用户使用）和 External](../../images/google-own-app/cloud-audience.webp "Get started：Audience")
 3. **联系信息**（Contact Information）：填写 Google 可能会就这个项目联系你的邮箱地址。

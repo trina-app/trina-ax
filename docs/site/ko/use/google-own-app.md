@@ -46,7 +46,7 @@ Google Workspace가 없는 작은 팀은 **Testing** 상태의 **External** 앱�
 #### 프로젝트 만들기
 [New project](https://console.cloud.google.com/projectcreate)를 열어요. **Project name**에 "acme-trina"처럼 알아보기
 쉬운 이름을 넣어요. **Parent resource**(또는 **Organization**)에서는 회사를 골라요. 프로젝트가 회사 조직에 속해야 앱을
-**Internal**로 만들 수 있어요(그림의 "No organization"은 가상의 계정이라서 그래요). **Create**를 누르고, 다음 단계로
+**Internal**로 만들 수 있어요(그림의 "No organization"은 이 그림을 찍은 계정에 조직이 없어서 그래요). **Create**를 누르고, 다음 단계로
 가기 전에 페이지 맨 위에서 새 프로젝트가 선택돼 있는지 확인해요.
 
 ![Google Cloud의 New Project 페이지: Project name에 acme-trina, 그 아래 Project ID, Parent resource, Create 버튼](../../images/google-own-app/cloud-new-project.webp "New Project")
@@ -74,7 +74,7 @@ Google Workspace가 없는 작은 팀은 **Testing** 상태의 **External** 앱�
    ![Get started의 App Information: App name에 Acme Trina, User support email, Next 버튼](../../images/google-own-app/cloud-get-started.webp "Get started: App Information")
 
 2. **Audience**: **Internal**을 골라요. 회사 계정만 이 앱을 쓸 수 있고, Google 검토도 필요 없어요. (그림에서
-   **Internal**이 흐리게 보이는 건 가상의 계정에 조직이 없어서예요. 회사 계정이면 고를 수 있어요.)
+   **Internal**이 흐리게 보이는 건 이 그림을 찍은 계정에 조직이 없어서예요. 회사 계정이면 고를 수 있어요.)
 
    ![Get started의 Audience: 조직 안의 사용자만 쓸 수 있는 Internal과 External](../../images/google-own-app/cloud-audience.webp "Get started: Audience")
 3. **Contact Information**: 이 프로젝트에 대해 Google이 연락할 이메일 주소.

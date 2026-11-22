@@ -38,7 +38,7 @@ Google Workspace を使っていない小さなチームは、代わりに **Tes
 
 :::steps
 #### プロジェクトを作る
-[New project](https://console.cloud.google.com/projectcreate) を開きます。「acme-trina」など、わかりやすい **Project name**（プロジェクト名）を付けます。**Parent resource**（または **Organization**）では会社を選びます。プロジェクトが会社の組織に属していないと、アプリを **Internal** にできません（画像の「No organization」は架空のアカウントのためです）。**Create** を選び、次の手順に進む前に、ページ上部で新しいプロジェクトが選ばれていることを確かめます。
+[New project](https://console.cloud.google.com/projectcreate) を開きます。「acme-trina」など、わかりやすい **Project name**（プロジェクト名）を付けます。**Parent resource**（または **Organization**）では会社を選びます。プロジェクトが会社の組織に属していないと、アプリを **Internal** にできません（画像の「No organization」はこの画像を撮ったアカウントに組織がないためです）。**Create** を選び、次の手順に進む前に、ページ上部で新しいプロジェクトが選ばれていることを確かめます。
 
 ![Google Cloud の New Project ページ：Project name の acme-trina、その下の Project ID、Parent resource、Create ボタン](../../images/google-own-app/cloud-new-project.webp "New Project")
 
@@ -63,7 +63,7 @@ Google Workspace を使っていない小さなチームは、代わりに **Tes
 
    ![Get started の App Information：App name の Acme Trina、User support email、Next](../../images/google-own-app/cloud-get-started.webp "Get started：App Information")
 
-2. **Audience**：**Internal** を選びます。会社のアカウントだけがアプリを使え、Google の審査も不要です。（画像では **Internal** がグレーになっています。架空のアカウントには組織がないためです。会社のアカウントなら選べます。）
+2. **Audience**：**Internal** を選びます。会社のアカウントだけがアプリを使え、Google の審査も不要です。（画像では **Internal** がグレーになっています。この画像を撮ったアカウントには組織がないためです。会社のアカウントなら選べます。）
 
    ![Get started の Audience：組織内のユーザーだけが使える Internal と、External](../../images/google-own-app/cloud-audience.webp "Get started：Audience")
 3. **Contact Information**：このプロジェクトについて Google から連絡を受けるメールアドレスを入力します。

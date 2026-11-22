@@ -52,7 +52,7 @@ Masuk ke [Google Cloud](https://console.cloud.google.com/) dengan akun perusahaa
 #### Buat proyek
 Buka [New project](https://console.cloud.google.com/projectcreate). Beri **Project name** yang mudah Anda kenali,
 misalnya "acme-trina". Di **Parent resource** (atau **Organization**), pilih perusahaan Anda: aplikasi hanya bisa
-**Internal** jika proyeknya milik organisasi perusahaan Anda ("No organization" di gambar adalah akun rekaan). Pilih
+**Internal** jika proyeknya milik organisasi perusahaan Anda ("No organization" di gambar adalah akun yang dipakai untuk gambar ini). Pilih
 **Create**, lalu pastikan proyek baru itu terpilih di bagian atas halaman sebelum langkah berikutnya.
 
 ![Halaman New Project di Google Cloud: Project name acme-trina, Project ID di bawahnya, Parent resource, dan tombol Create](../../images/google-own-app/cloud-new-project.webp "New Project")
@@ -81,7 +81,7 @@ Buka [Google Auth Platform](https://console.cloud.google.com/auth/overview). Per
    ![Get started, App Information: App name Acme Trina, User support email, dan Next](../../images/google-own-app/cloud-get-started.webp "Get started: App Information")
 
 2. **Audience**: pilih **Internal**. Hanya akun perusahaan Anda yang bisa memakai aplikasi ini, dan Google tidak perlu
-   meninjaunya. (Di gambar, **Internal** berwarna abu-abu karena akun rekaan itu tidak punya organisasi. Dengan akun
+   meninjaunya. (Di gambar, **Internal** berwarna abu-abu karena akun yang dipakai untuk gambar ini tidak punya organisasi. Dengan akun
    perusahaan Anda, pilihan itu bisa dipilih.)
 
    ![Get started, Audience: Internal, hanya tersedia untuk pengguna di organisasi Anda, dan External](../../images/google-own-app/cloud-audience.webp "Get started: Audience")

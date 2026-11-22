@@ -51,8 +51,8 @@ Sign in to [Google Cloud](https://console.cloud.google.com/) with an account of 
 #### Make a project
 Open [New project](https://console.cloud.google.com/projectcreate). Give it a **Project name** you will recognize,
 such as "acme-trina". Under **Parent resource** (or **Organization**), choose your company: the app can only be
-**Internal** when the project belongs to your company's organization ("No organization" in the picture is the made-up
-account). Choose **Create**, then make sure the new project is chosen at the top of the page before the next steps.
+**Internal** when the project belongs to your company's organization ("No organization" in the picture is the account
+used for these pictures). Choose **Create**, then make sure the new project is chosen at the top of the page before the next steps.
 
 ![Google Cloud's New Project page: Project name acme-trina, the Project ID under it, Parent resource, and the Create button](../images/google-own-app/cloud-new-project.webp "New Project")
 
@@ -79,7 +79,7 @@ Open [Google Auth Platform](https://console.cloud.google.com/auth/overview). The
    ![Get started, App Information: App name Acme Trina, User support email, and Next](../images/google-own-app/cloud-get-started.webp "Get started: App Information")
 
 2. **Audience**: choose **Internal**. Only accounts of your company can use the app, and Google does not need to
-   review it. (In the picture **Internal** is greyed out, because the made-up account has no organization. With an
+   review it. (In the picture **Internal** is greyed out, because the account used for these pictures has no organization. With an
    account of your company it can be chosen.)
 
    ![Get started, Audience: Internal, only available to users within your organization, and External](../images/google-own-app/cloud-audience.webp "Get started: Audience")
