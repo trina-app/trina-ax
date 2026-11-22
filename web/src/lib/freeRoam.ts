@@ -80,13 +80,13 @@ export function takeFreshStart(loc: Pick<Location, 'href'> | undefined = globalT
 /** Home's built-in suggestions when the demo file has none of its own (en and ko, the demo's first languages; the
  * others read the English ones through the i18n tables). */
 export const BUILT_IN_SUGGESTIONS: readonly MessageKey[] = ['demo.free.chip.posts', 'demo.free.chip.reply', 'demo.free.chip.assets']
-export const SUGGESTIONS_MAX = 3
+export const SUGGESTIONS_MAX = 4
 
 /** one suggestion: the chip's short label and what it sends */
 export interface FreeRoamSuggestion { label: string; prompt: string }
 
 /**
- * Home's 2-3 suggestions (under the message box): the demo's own (GET /api/demo `freeRoam.suggestions`, from the demo content, in the
+ * Home's 2-4 suggestions (under the message box): the demo's own (GET /api/demo `freeRoam.suggestions`, from the demo content, in the
  * company's language: a label for the chip and the prompt it sends), else the person's questions from the demo file,
  * else the built-in ones (their words are the label and the prompt).
  */

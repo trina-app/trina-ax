@@ -145,5 +145,6 @@ export const ko: FreeRoamStrings = {
     { label: '다음 주 SNS 글 초안', prompt: '다음 주 SNS 캘린더 빈 칸 두 개에 들어갈 글 초안 써 줘' },
     { label: '고객 후기 요약하기', prompt: '10–11월 고객 후기 정리해 줘' },
     { label: '크리스 답장 왔어?', prompt: '크리스님이 내 메일에 답장했어? Gmail 확인해 줘' },
+    { label: '경영진 폴더 보여줘', prompt: '경영진 폴더 보여줘' },
   ],
 }

@@ -67,7 +67,7 @@ export const DemoFile = z.object({
   fakes: z.object({ content: z.string().min(1).max(1000).optional() }).strict().optional(),
   /** free-roam demo: its bar's suggestion chips ("Try anything"), in the demo's language (the content's
    * freeRoam.suggestions; the web reads them from GET /api/demo) */
-  freeRoam: z.object({ suggestions: z.array(DemoSuggestion).max(3) }).strict().optional(),
+  freeRoam: z.object({ suggestions: z.array(DemoSuggestion).max(4) }).strict().optional(),
   /** the snapshot builder only (scripts/demo/free-roam/build-snapshot.ts): the /api/demo/builder/* routes answer, for
    * the owner. Never in a snapshot's demo file. */
   builder: z.boolean().optional(),
@@ -321,8 +321,8 @@ export const DemoContentCompany = z.object({
   fileTimes: z.array(z.object({ path: ContentPath, minutesAgo: MinutesAgo }).strict()).max(200).optional(),
   /** files and folders whose seeding stays out of Files › Recent (the team skills, the company profile) */
   recentHidden: z.array(ContentPath).max(50).optional(),
-  /** the free-roam demo's bar: two or three suggestion chips */
-  freeRoam: z.object({ suggestions: z.array(DemoSuggestion).min(1).max(3),
+  /** the free-roam demo's bar: two to four suggestion chips */
+  freeRoam: z.object({ suggestions: z.array(DemoSuggestion).min(1).max(4),
     /** where "Start free" goes at the demo limit (https) */
     signupUrl: z.string().max(500).regex(/^https:\/\/[^\s]+$/, 'an https:// address').optional() }).strict().optional(),
 }).strict()
