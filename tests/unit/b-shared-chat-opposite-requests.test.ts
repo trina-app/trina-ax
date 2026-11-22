@@ -48,6 +48,19 @@ describe('opposite requests in a shared chat', () => {
     expect(red.content).toContain('make the cover red')
   })
 
+  test('another person\'s safety card (a share, naming a file only they see) or an answered card: no note', async () => {
+    const chat = await h.api('alice').call(API.createChat, { body: { projectId } })
+    const asked = await send('alice', chat.id, 'make the cover blue\n' + fake({ say: 'ok' }))
+    const row = (id: string, request: object, call: string | null, answer: string | null) => h.ctx.db.query('INSERT INTO open_questions (request_id, chat_id, message_id, turn_id, user_id, request, answer, created_at, call_tool, call_args) VALUES (?,?,?,?,?,?,?,?,?,?)')
+      .run(id, chat.id, asked.id, 'turn-x', 'alice', JSON.stringify(request), answer, new Date().toISOString(), call, call ? '{}' : null)
+    row('rq-safety', { kind: 'ask_user', origin: 'server', requestId: 'rq-safety', question: 'Share salary-2026.xlsx with Erin?' }, 'share_with_person', null)
+    row('rq-answered', { kind: 'ask_user', requestId: 'rq-answered', question: 'Which blue?' }, null, '"navy"')
+    const red = await send('bob', chat.id, 'make the cover red\n' + fake({ echo: 'message' }))
+    expect(openRows(chat.id)).toEqual([])
+    expect(red.content).not.toContain('<closed_question>')
+    expect(red.content).not.toContain('salary-2026')
+  })
+
   test('the person\'s own open question (a refinement of their own request): no note', async () => {
     const chat = await h.api('alice').call(API.createChat, { body: { projectId } })
     await send('alice', chat.id, 'make the cover blue\n' + askCard('Which part?'))
@@ -80,6 +93,10 @@ describe('the note and the rule as text', () => {
     expect(n.match(/<\/closed_question>/g)).toHaveLength(1)
     expect(n).toContain('"person":"Alice Kim"')
     expect(n).toContain('Their request is not done.')
+    expect(n).toContain('the "Opposite requests" rule')
+    const two = closedQuestionNote([{ name: 'Alice Kim', question: 'Which blue?' }, { name: 'Erin Park', question: 'Which slide?' }])
+    expect(two).toContain('This message closed questions you had asked')
+    expect(two).toContain('"person":"Erin Park"')
   })
 
   test('sharedSection: opposite requests from different people ask both by name; the same person or other things do not', () => {

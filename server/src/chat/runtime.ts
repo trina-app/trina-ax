@@ -1071,8 +1071,9 @@ export class ChatRuntime {
     })()
     const spec: TurnSpec & QueueTiming = { turnId, chatId: chat.id, userId: o.userId, assistantId, userMessageId, windowId: o.windowId, clientKind: o.clientKind, engine: o.engine, model: o.model, locale: o.locale,
       queueSeq, ...(o.substitutedFrom ? { substitutedFrom: o.substitutedFrom } : {}), ...(o.timeZone ? { timeZone: o.timeZone } : {}) }
-    // a shared chat: other people's questions this message closed before they answered (QA S-125; turn.ts names them)
-    const closedOthers = isSharedRow(chat) && o.user ? closedQuestions.filter((q) => !q.answered && q.userId !== o.userId && q.question).map((q) => ({ name: labelName(this.store, q.userId), question: q.question! })) : []
+    // a shared chat: other people's questions this message closed before they answered (QA S-125; turn.ts names them).
+    // Not for a scheduled run (nobody watches it to choose) or a regenerate (no new message)
+    const closedOthers = isSharedRow(chat) && o.user && !o.scheduled ? closedQuestions.filter((q) => !q.answered && q.userId !== o.userId && q.question).map((q) => ({ name: labelName(this.store, q.userId), question: q.question! })) : []
     if (closedOthers.length) spec.closedOthers = closedOthers
     // what the sending window shows at this moment, for looking_at (realtime/looking.ts; never for a scheduled run)
     if (o.windowId && !o.scheduled) this.looking.snapshot(turnId, o.userId, o.windowId)

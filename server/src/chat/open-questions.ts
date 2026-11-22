@@ -129,15 +129,16 @@ export function recordAnswer(db: Database, requestId: string, value: unknown): {
 }
 
 /** A new turn starts in the chat: every question still there goes (answered ones with their turn, the rest because the
- * conversation went on without them). What the apps are told to close; `question`: an ask_user card's question (null
- * for a safety card), for closedQuestionNote. */
+ * conversation went on without them). What the apps are told to close; `question`: the AI's own ask_user question, for
+ * closedQuestionNote (null for the server's safety cards: delete, share, a site, which name files, people and links
+ * only their asker sees). */
 export function closeChatQuestions(db: Database, chatId: string): { requestId: string; turnId: string; userId: string; answered: boolean; question: string | null }[] {
-  const rows = db.query('SELECT request_id, turn_id, user_id, answer, request FROM open_questions WHERE chat_id = ?').all(chatId) as Pick<Row, 'request_id' | 'turn_id' | 'user_id' | 'answer' | 'request'>[]
+  const rows = db.query('SELECT request_id, turn_id, user_id, answer, request, call_tool FROM open_questions WHERE chat_id = ?').all(chatId) as Pick<Row, 'request_id' | 'turn_id' | 'user_id' | 'answer' | 'request' | 'call_tool'>[]
   if (!rows.length) return []
   db.query('DELETE FROM open_questions WHERE chat_id = ?').run(chatId)
   return rows.map((r) => {
     const card = parse(r.request)
-    return { requestId: r.request_id, turnId: r.turn_id, userId: r.user_id, answered: r.answer !== null, question: card?.kind === 'ask_user' ? card.question : null }
+    return { requestId: r.request_id, turnId: r.turn_id, userId: r.user_id, answered: r.answer !== null, question: card?.kind === 'ask_user' && card.origin !== 'server' && !r.call_tool ? card.question : null }
   })
 }
 
@@ -148,7 +149,7 @@ export function closedQuestionNote(closed: readonly { name: string; question: st
   if (!closed.length) return ''
   // the words inside the block, never a tag of their own (as answeredNote)
   const json = JSON.stringify(closed.map((c) => ({ person: c.name, question: c.question.slice(0, 300) }))).replace(/</g, '\\u003c').replace(/>/g, '\\u003e')
-  return `<closed_question>\nThis message closed ${closed.length > 1 ? 'questions' : 'a question'} you had asked another person here about their own request, still unanswered: ${json}. Their request is not done. If this message asks for something that contradicts it, follow "Shared chat" on opposite requests; otherwise do what this message asks and add one line that their request still waits for their answer here.\n</closed_question>`
+  return `<closed_question>\nThis message closed ${closed.length > 1 ? 'questions' : 'a question'} you had asked another person here about their own request, still unanswered: ${json}. Their request is not done. If this message asks for something that contradicts it, follow the "Opposite requests" rule; otherwise do what this message asks and add one line that their request still needs their answer and they can reply in this chat.\n</closed_question>`
 }
 
 /** Each answer in words: the picked options by their labels (`picked`: as these words instead), a site card's choice in
