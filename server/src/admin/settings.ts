@@ -55,6 +55,9 @@ export const DEFAULT_SETTINGS: TeamSettingsT = {
   speechModel: DEFAULT_SPEECH_MODEL,
   /** not chosen: the default follows the speech provider and the server (shared mediaTranscriptsDefault) */
   aiMediaTranscripts: null,
+  /** Sign in with Google (auth/google-login.ts): on unless an owner or admin turns it off; it works only where this
+   * server has a Google client */
+  googleSignIn: true,
 }
 
 const FIELDS = Object.keys(TeamSettings.shape) as (keyof TeamSettingsT)[]

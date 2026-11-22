@@ -564,6 +564,20 @@ export async function resetPassword(c: Context<AppEnv>, ctx: AppContext, id: str
   return { temporaryPassword: temp, expiresAt, signInUrl: linkBase(c, ctx) }
 }
 
+/** DELETE /api/admin/users/:id/google (Sign in with Google, docs/AGENTS/plan/20261122-0616-google-login-admin.md): the
+ * person's Google account no longer signs them in. The rules of the other actions on people (guard): never the owner or
+ * yourself (your own is in Settings › Security & devices), only the owner acts on admins; checked again inside the
+ * write. Their sessions stay (a reset ends them, and disconnects Google too). Audited without the Google account or its
+ * address; nothing removed, nothing audited. */
+export function disconnectUserGoogle(c: Context<AppEnv>, ctx: AppContext, id: string): void {
+  const auth = c.get('auth')!
+  guard(c, liveUser(ctx, id))
+  ctx.db.transaction(() => {
+    guard(c, liveUser(ctx, id), { actor: actorNow(ctx, auth.user.id) })
+    if (forgetLoginIdentities(ctx.db, id)) audit(ctx.db, { actor: auth.user.id, action: 'user.google_disconnected', target: id })
+  }).immediate()
+}
+
 /** Guard for reset links (the link itself is made in auth/accounts.ts). */
 export function guardResetLink(c: Context<AppEnv>, ctx: AppContext, id: string): UserRow {
   const target = liveUser(ctx, id)
