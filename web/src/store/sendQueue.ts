@@ -130,7 +130,6 @@ export const useSendQueue = create<SendQueueState>((set, get) => {
       put(chatId, { items: q.items.slice(take.length), paused: null, after: null })
       // send() puts the message on screen as "sending" before it returns: from then on the chat is busy and the runner
       // waits (a failure shows "not sent [send again]" on that message, so nothing disappears)
-      // the people the waiting messages mention, each once (store/chats.ts: sent with the message)
       void useChats.getState().send({ chatId, content, attachments, author: take[0]!.author, clientMessageId: combinedClientId(take), atEnd: shared, onConflict: (e) => takeBack(chatId, take, e.body.params?.reason === 'earlier_answer_ending', e.body.params?.reason === 'shared_chat_next') })
         .then((r) => r.sent)
         .catch(() => {})

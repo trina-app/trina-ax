@@ -64,7 +64,7 @@ test('a main message naming someone with "@": the plain notice for everyone, no 
   // the chat row: the unread number, no "@"
   const view = await nora.client.call('GET', `/api/chats/${chat.id}`)
   expect(view.unreadCount).toBeGreaterThan(0)
-  expect(view.mentioned).toBeUndefined()
+  expect(Object.keys(view)).not.toContain('mentioned')
   // the desktop ring is a plain message's
   type Upd = { type: string; data: { chatId: string; notice?: { messageId: string; mention?: true } } }
   const rings = (told as { target: string; data: Upd }[]).filter((e) => e.target === nora.id && e.data?.type === 'chat.updated' && e.data.data.notice?.messageId === msgId)

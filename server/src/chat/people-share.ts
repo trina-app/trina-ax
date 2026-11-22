@@ -659,7 +659,7 @@ export async function putChatAudience(ctx: AppContext, rt: ChatRuntime, userId: 
         newPeople: newPeople.length, lost: lost.length, ...(everyone ? { private: true } : {}), confirmed: body.confirmKey !== undefined,
       } })
     })() } catch (e) { discardVerified(verified); throw e }
-      // a command running in this chat now is checked against its new people at once, not at the next poll
+    // a command running in this chat now is checked against its new people at once, not at the next poll
     // (devenv/srt/runner.ts: any change of a shared chat's people stops its running command)
     if (devEnvFlag()) void pollSrt(ctx, { chatId: r.id }).catch(() => {})
     // the private session's stash (its instructions held the memories): the next turn starts from the visible transcript
