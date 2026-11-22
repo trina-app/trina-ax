@@ -163,6 +163,7 @@ export const TEXT = {
   rememberAsking: STEP_TEXT.rememberAsking,
   forgot: STEP_TEXT.forgot,
   rememberUpdated: STEP_TEXT.rememberUpdated,
+  notRememberedSecret: STEP_TEXT.notRememberedSecret,
   forgotText: STEP_TEXT.forgotText,
   asked: STEP_TEXT.asked,
   notAnswered: STEP_TEXT.notAnswered,

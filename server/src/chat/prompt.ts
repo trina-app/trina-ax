@@ -30,12 +30,14 @@ import { textTokens } from '../files/vision'
 import { AI_NAME, notFoundNext, SCREEN } from '../policy/refusal'
 import { CARD_WORDS_RULE, OTHERS_WORDS_RULE, POST_FILE_RULE, REFUSAL_NEXT_RULE, REFUSAL_NEXT_RULE_FOLDERS, SAME_NAME_RULE, SHARE_FOLDER_RULE, sendNotConnectedRule, answerCommentsLine, WHICH_THREAD_RULE } from './share-words'
 import type { GuestPrompt } from './guest-tools'
+import { stripInvisible } from './auto-memory'
 
 export const MEMORY_ITEM_MAX = MEMORY_TEXT_MAX
 /** A memory's text as it is kept: runs of spaces and line breaks folded into one space, trimmed; refused when empty or
  * longer than MEMORY_ITEM_MAX. The one check for the AI's remember (chat/tools.ts) and the person's own (routes). */
 export function cleanMemoryText(raw: string): { ok: true; text: string } | { ok: false; problem: 'empty' } | { ok: false; problem: 'too_long'; length: number } {
-  const text = raw.replace(/\s+/g, ' ').trim()
+  // invisible characters are deleted first, never turned into spaces (review of #332, H1)
+  const text = stripInvisible(raw).replace(/\s+/g, ' ').trim()
   if (!text) return { ok: false, problem: 'empty' }
   if (text.length > MEMORY_ITEM_MAX) return { ok: false, problem: 'too_long', length: text.length }
   return { ok: true, text }

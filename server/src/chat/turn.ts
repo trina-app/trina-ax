@@ -56,6 +56,7 @@ import { isProjectPlainName, STEP_TEXT } from '@mycel/shared'
 import { saveAudienceNote } from './save-audience'
 import { quotesAppOnBranch, readRooms, ROOM_NAMES_ONLY, withoutQuoteLines } from './read-rooms'
 import { autoMemoryOn, NOT_OUTSIDE_TOOLS } from './auto-memory'
+import { TOOL_OUTPUT_MAX } from '../engine/claude-parse'
 import { formatsSafely } from './share-words'
 import { grantOnly, othersSource, sameRoomOnly, seenWhy } from './grant-reads'
 import { componentC } from '../team-files/component'
@@ -2076,7 +2077,12 @@ export class TurnExec {
         const tool = this.toolNames.get(e.id) ?? ''
         // the engine's own tools (web search, sub-agents): their output is what auto memory's copy check reads (the
         // server's tools give theirs whole: chat/tools.ts noteOutside)
-        if (this.engineToolIds.delete(e.id) && e.output) this.noteOutside(tool, e.output)
+        // (no output, or output cut short: what came in is not all recorded, so auto memory keeps only the person's own
+        // words in this chat for now: review of #332, M3)
+        if (this.engineToolIds.delete(e.id) && !NOT_OUTSIDE_TOOLS.has(tool)) {
+          if (e.output && e.output.length < TOOL_OUTPUT_MAX) this.noteOutside(tool, e.output)
+          else this.rt.outside.markBlind(this.spec.chatId)
+        }
         // a call the person chose not to share in a shared chat did what it should: not a failed step
         const patch: Partial<Step> = { status: e.ok || this.sharedSkipped.has(stepId(e.id)) ? 'ok' : 'error', endedAt: new Date().toISOString() }
         if (ENGINE_TEXT_STEP_KIND(tool) === 'web_search') {
@@ -2408,9 +2414,11 @@ export class TurnExec {
   private engineToolIds = new Set<string>()
   /** A tool's output came into this chat: kept (in memory only) for auto memory's copy and address checks
    * (chat/auto-memory.ts), except the person's own answers and the AI's own bookkeeping. */
-  noteOutside(tool: string, text: string) {
-    if (!text || NOT_OUTSIDE_TOOLS.has(tool)) return
-    this.rt.outside.add(this.spec.chatId, text)
+  noteOutside(tool: string, text: string, images = 0) {
+    if (NOT_OUTSIDE_TOOLS.has(tool)) return
+    // a picture (a screenshot, an image read) is content the server cannot check (review of #332, M3)
+    if (images > 0) this.rt.outside.markBlind(this.spec.chatId)
+    if (text) this.rt.outside.add(this.spec.chatId, text)
   }
   /**
    * May the AI keep memories on its own in this turn (docs/decisions/20261122-auto-memory.md "Where auto-save runs")?
