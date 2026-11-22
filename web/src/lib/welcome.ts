@@ -69,6 +69,14 @@ export function nextStep(p: WelcomeProgress, from: WelcomeStep, computer = true)
   return order.find((s) => openHere(p, s, computer)) ?? null
 }
 
+/** After a step gone back to (← 이전, a phone's ‹): the step right after it that is offered here, answered or not, as the
+ * stepper and 이전 walk them (the onboarding screenshots: "다음: 팀원 초대" on 2/5 while 3/5 was next); null after the
+ * last. */
+export function stepAfter(from: WelcomeStep, computer = true): WelcomeStep | null {
+  const order = from === 'ai' ? ORDER : ORDER.slice(ORDER.indexOf(from) + 1)
+  return order.find((s) => offeredHere(s, computer)) ?? null
+}
+
 /** The step before, skipping one not offered on this device (도구 연결 on a phone). The AI step is never gone back to:
  * it is over once AI answers. 회사 소개 can be gone back to at any time: its "저장하고 계속" only saves and fills in what
  * the brand folder misses. */

@@ -3758,7 +3758,7 @@ export const es: Record<MessageKey, string> = {
   "localApps.state": "En este ordenador",
   "localApps.running": "En ejecución",
   "localApps.stopped": "Detenido",
-  "localApps.status.desktopOnly": "Funciona en la aplicación de escritorio",
+  "localApps.status.desktopOnly": "Solo funciona en la aplicación de escritorio",
   "localApps.status.otherComputer": "En otro ordenador",
   "localApps.stop": "Detener",
   "localApps.settings": "Ajustes en este ordenador",
