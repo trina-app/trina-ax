@@ -25,25 +25,27 @@ Skill yang disiapkan Trina AX, masing-masing dengan **Contoh**: Company slide de
 **Pilih folder** berisi dokumen perusahaan. AI menyarankan file yang bisa dipakai tim hanya dari nama file, folder, dan tanggalnya, lalu Anda mencentang apa yang diunggah. Tidak ada yang diunggah sebelum Anda menekan tombolnya. Setelah itu AI bisa membacanya dan menawarkan folder untuk merapikannya (**Rapikan seperti ini?**). Satu baris menyebutkan siapa yang akan melihat file tersebut.
 
 #### Alat tim
-**Alat untuk tim Anda** adalah satu daftar: Notion, Slack, dan, jika server Anda bisa menghubungkannya, Google Drive dan
-Gmail. Setiap baris menawarkan salah satu atau kedua cara berikut:
+**Alat untuk tim Anda** adalah satu daftar: Notion, Higgsfield (gambar dan video dengan AI), dan, jika server Anda bisa
+menghubungkannya, Google Drive dan Gmail. Setiap baris menawarkan salah satu atau kedua cara berikut:
 
 - **Hubungkan untuk tim** (tombol di kanan). Anda masuk sekali dengan satu akun, dan seluruh tim memakai satu koneksi
-  itu, seperti kotak surat bersama yang bisa dibuka semua orang di satu tim. Notion membuka halaman masuk Notion sendiri
-  di jendela baru. Slack membuka halamannya di Admin › Aplikasi terhubung ([Slack](../use/slack.md)). Gmail membuka
+  itu, seperti kotak surat bersama yang bisa dibuka semua orang di satu tim. Notion dan Higgsfield membuka halaman masuk
+  layanan itu sendiri di jendela baru; koneksi tim Higgsfield memakai paket dan kredit satu akun itu. Gmail membuka
   dialog yang dipakai Admin › Aplikasi terhubung: **Lanjutkan di Google**, masuk dengan akun Google bersama (misalnya
   `sales@acme.com`), lalu pilih siapa yang boleh memakainya. Google Drive membuka dialog lain, **Bagikan Google Drive
   dengan tim**: cara masuknya sama, dan Anda juga memilih folder mana dari akun itu yang boleh dipakai tim.
-- **Minta tiap orang menghubungkan sendiri** (sakelar di bawah keterangan baris Notion dan baris Google). Tidak ada yang
+- **Minta tiap orang menghubungkan sendiri** (sakelar di bawah keterangan setiap baris). Tidak ada yang
   dihubungkan sekarang. Alat itu tampil paling atas di **Pengaturan › Konektor** semua orang, dengan tanda **Tim meminta
   Anda menghubungkan**, dan setiap orang masuk dengan akunnya sendiri, seperti setiap orang menambahkan Gmail-nya sendiri
   di ponselnya sendiri. Ini tidak membatasi apa pun: siapa pun tetap boleh menghubungkan alat apa saja, atau tidak sama
   sekali.
 
-![Langkah Tools for your team: Notion, Slack, dan Gmail, masing-masing dengan Connect for the team di kanan; Notion dan Gmail juga punya sakelar Ask everyone to connect their own; Other tools dan Do this later di bagian bawah](../../images/setup/tools-step.webp "Alat untuk tim Anda")
+![Langkah Alat untuk tim Anda: Notion, Higgsfield, dan Gmail, masing-masing dengan Hubungkan untuk tim di kanan dan sakelar Minta tiap orang menghubungkan sendiri di bawah keterangannya; Alat lainnya dan Nanti saja di bagian bawah](../../images/setup/tools-step.webp "Alat untuk tim Anda")
 
 Setelah koneksi tim, baris itu bertuliskan **Terhubung** (baris Google juga menyebut akun bersama dan siapa yang
-memakainya). **Alat lainnya** membuka daftar lengkap, dan halaman tiap alat punya sakelar yang sama. Semua ini bisa Anda
+memakainya). **Alat lainnya** membuka daftar lengkap, dan halaman tiap alat punya sakelar yang sama. Slack juga ada di
+sana dan di **Admin › Aplikasi terhubung** ([Slack](../use/slack.md)): langkahnya sedikit lebih banyak, jadi Slack
+bukan baris di langkah ini. Semua ini bisa Anda
 ubah nanti: koneksi tim di **Admin › Aplikasi terhubung**, sakelar di halaman tiap alat di **Pengaturan › Konektor**.
 Di langkah ini tidak ada yang masuk dengan akunnya sendiri. Di ponsel, langkah ini dilewati.
 

@@ -26,6 +26,7 @@ import { zipEntries } from '../file-list/sniff'
 import { readAtOf, RefusedKind, settleKind, sniffDownload } from './sniff'
 import { PRODUCT, SOURCE_CODE } from '@mycel/shared'
 import { DEMO_OFFLINE_TEXT, demoOffline } from '../demo/fakes/offline'
+import { pageData, sitemapLocs, sitemapPages, thinText } from './page-data'
 
 export const FETCH_MAX_BYTES = 5 * 1024 * 1024
 /** a slow site (a big public report page) gets 30 s, as long as Claude Code's own fetch waits (limits audit 1 #14) */
@@ -634,6 +635,90 @@ export interface WebFetchCall extends FetchOptions {
   /** keep the page's markup in the result (a company profile draft looks at it for the brand's pictures and colours,
    * onboarding/brand-assets.ts); the AI still gets only the text */
   keepHtml?: boolean
+  /** A page that shows almost no text without its scripts (page-data.ts thinText): draw it with its scripts and read the
+   * drawn markup instead (tools/page-render.ts renderPage; null: not drawn). Only a company profile draft passes it. */
+  render?: (page: { url: string; html: string; contentType: string }) => Promise<string | null>
+  /** For such a page, also list the likely pages of the site's /sitemap.xml (the same host only): a company profile
+   * draft, whose AI may open only addresses it was shown */
+  sitePages?: boolean
+  /** the most bytes read (default and at most FETCH_MAX_BYTES) */
+  maxBytes?: number
+}
+
+/** The extra time a page that shows almost no text may take for its drawing and its sitemap (on top of its own fetch). */
+export const THIN_EXTRA_MS = 15_000
+const SITEMAP_TIMEOUT_MS = 4_000
+const SITEMAP_MAX_BYTES = 1024 * 1024
+/** pages drawn lately, by address, language and markup (at most DRAWN_MAX of 3 MB): a read on of the same page reuses its drawing */
+const drawnPages = new Map<string, { at: number; drawn: string | null }>()
+const DRAWN_MAX = 8
+const DRAWN_TTL_MS = 10 * 60_000
+
+/**
+ * A page that shows almost no text without its scripts: what more can be said about it. The page drawn by its scripts
+ * when `render` is given and works (its text replaces the shell's); else the page's own markup (page-data.ts pageData:
+ * meta description, social card, JSON-LD, embedded data); and with `sitePages`, when the text is still thin, the likely
+ * pages of its sitemap. Every part has its own time limit inside THIN_EXTRA_MS; any failure leaves that part out.
+ */
+async function thinPage(url: URL, html: string, ct: string, text: { title?: string; text: string }, o: WebFetchCall): Promise<{ title?: string; text: string; html?: string }> {
+  const started = Date.now()
+  let out: { title?: string; text: string; html?: string } = text
+  if (o.render) {
+    // a page read on (offset > 0) gets the drawing of its first read, so its parts fit together; never a second drawing
+    const key = `${url.href}\n${o.acceptLanguage ?? ''}\n${html.length}\n${Bun.hash(html).toString(36)}`
+    const now = Date.now()
+    for (const [k, v] of drawnPages) if (now - v.at > DRAWN_TTL_MS) drawnPages.delete(k)
+    let drawn: string | null = drawnPages.get(key)?.drawn ?? null
+    if (!drawnPages.has(key) && !o.offset) {
+      try { drawn = await o.render({ url: url.href, html, contentType: ct }) } catch { drawn = null }
+      if (drawn) drawnPages.set(key, { at: now, drawn })
+      while (drawnPages.size > DRAWN_MAX) drawnPages.delete(drawnPages.keys().next().value!)
+    }
+    if (drawn) {
+      const r = htmlToText(drawn, url)
+      if (r.text.trim().length > text.text.trim().length && !thinText(r.text)) out = { title: r.title ?? text.title, text: r.text, html: drawn }
+    }
+  }
+  if (!thinText(out.text)) return out
+  const parts = [out.text]
+  const data = pageData(html)
+  if (data) parts.push('', '(This page shows almost no text without running its scripts. Below is what its own markup says about it, copied as written.)', data)
+  if (o.sitePages) {
+    const left = THIN_EXTRA_MS - (Date.now() - started)
+    const pages = left > 1000 ? await sitemapList(url, o, Math.min(SITEMAP_TIMEOUT_MS, left)) : []
+    if (pages.length) parts.push('', '## Pages listed in the site\'s sitemap.xml', ...pages.map((p) => `- ${p}`))
+  }
+  return { title: out.title, text: parts.join('\n').trim() }
+}
+
+/** The likely pages of the site's /sitemap.xml (and of the first sitemap of a sitemap index), the same host only; every
+ * redirect stays on that host and passes the caller's own redirect check. [] on any failure. */
+async function sitemapList(base: URL, o: WebFetchCall, timeoutMs: number): Promise<string[]> {
+  const until = Date.now() + timeoutMs
+  const sameHost = async (next: string) => {
+    let u: URL
+    try { u = new URL(next) } catch { throw new ToolError('the sitemap redirected to an invalid address') }
+    if (u.hostname.toLowerCase() !== base.hostname.toLowerCase()) throw new ToolError('the sitemap redirected to another site')
+    await o.onRedirect?.(next)
+  }
+  const read = async (at: string) => {
+    const left = until - Date.now()
+    if (left < 300) return null
+    const r = await webFetch(at, { ...o, render: undefined, sitePages: false, keepHtml: false, offset: 0, onRedirect: sameHost, timeoutMs: left, maxBytes: SITEMAP_MAX_BYTES, maxChars: SITEMAP_MAX_BYTES })
+    return new URL(r.url).hostname.toLowerCase() === base.hostname.toLowerCase() ? r.text : null
+  }
+  try {
+    const xml = await read(new URL('/sitemap.xml', base).href)
+    if (!xml) return []
+    let { index, locs } = sitemapLocs(xml)
+    if (index) {
+      const first = locs.find((l) => { try { return new URL(l).hostname.toLowerCase() === base.hostname.toLowerCase() } catch { return false } })
+      const inner = first ? await read(first) : null
+      if (!inner) return []
+      locs = sitemapLocs(inner).locs
+    }
+    return sitemapPages(locs, base)
+  } catch { return [] }
 }
 
 /** Fetch a page as text. Throws ToolError with a message for the model. */
@@ -642,7 +727,7 @@ export async function webFetch(rawUrl: string, o: WebFetchCall = {}): Promise<We
   let current = rawUrl
   for (let hop = 0; ; hop++) {
     const t = await resolveTarget(current, { ...o, deadline })
-    const r = await pinnedGet(t, { deadline, maxBytes: FETCH_MAX_BYTES, insecureTlsForTests: o.insecureTlsForTests, acceptLanguage: o.acceptLanguage })
+    const r = await pinnedGet(t, { deadline, maxBytes: Math.min(o.maxBytes ?? FETCH_MAX_BYTES, FETCH_MAX_BYTES), insecureTlsForTests: o.insecureTlsForTests, acceptLanguage: o.acceptLanguage })
     if ([301, 302, 303, 307, 308].includes(r.status) && r.headers.location) {
       if (hop >= FETCH_MAX_REDIRECTS) throw new ToolError(`too many redirects (more than ${FETCH_MAX_REDIRECTS})`)
       try { current = new URL(r.headers.location, t.url).href } catch { throw new ToolError('the site redirected to an invalid URL') }
@@ -655,7 +740,7 @@ export async function webFetch(rawUrl: string, o: WebFetchCall = {}): Promise<We
     }
     if (r.status >= 400) throw new ToolError(`the site answered HTTP ${r.status}`)
     if (r.status < 200 || r.status >= 300) throw new ToolError(`unexpected HTTP status ${r.status}`)
-    const { data, truncated: cut } = await decode(r.body, r.headers['content-encoding'], FETCH_MAX_BYTES)
+    const { data, truncated: cut } = await decode(r.body, r.headers['content-encoding'], Math.min(o.maxBytes ?? FETCH_MAX_BYTES, FETCH_MAX_BYTES))
     const ct = (r.headers['content-type'] ?? '').toLowerCase()
     const maxChars = o.maxChars ?? DEFAULT_MAX_CHARS
     let title: string | undefined
@@ -669,7 +754,16 @@ export async function webFetch(rawUrl: string, o: WebFetchCall = {}): Promise<We
       text = p.stdout.toString('utf8')
     } else if (!ct || /^(text\/|application\/(xhtml\+xml|xml|json|ld\+json|rss\+xml|atom\+xml|javascript))/.test(ct)) {
       const s = decodeText(data, charsetOf(ct, data))
-      if (/html/.test(ct) || (!ct && /<html|<!doctype html/i.test(s.slice(0, 2000)))) { ({ title, text } = htmlToText(s, t.url)); if (o.keepHtml) html = s }
+      if (/html/.test(ct) || (!ct && /<html|<!doctype html/i.test(s.slice(0, 2000)))) {
+        ({ title, text } = htmlToText(s, t.url))
+        if (o.keepHtml) html = s
+        // a shell its scripts fill: the page drawn, its markup's own data, its sitemap (thinPage)
+        if (thinText(text)) {
+          const more = await thinPage(t.url, s, ct, { title, text }, o)
+          ;({ title, text } = more)
+          if (o.keepHtml && more.html) html = more.html
+        }
+      }
       else text = s
     } else {
       ({ title, text } = await readDocument(data, ct, t.url, cut || r.truncated, o))

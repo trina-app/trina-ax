@@ -46,7 +46,7 @@ import { Loadable, SettingRow, SettingsSection, useLoad } from './common'
 import { useAdminBar, useUpTo } from './phoneBar'
 import { MemberAsks, useMemberAsks } from '../../components/integrations/MemberAsks'
 import AdminSlack from './Slack'
-import { slackView, useSlackRecheck } from '../../lib/slackState'
+import { showSlackCard, slackAdded, slackView, useSlackRecheck } from '../../lib/slackState'
 import { useAdminGroups, useAdminUsers } from '../../store/adminPeople'
 
 type Open = { kind: 'drive' } | { kind: 'gapp'; id: GoogleAppId } | { kind: 'slack' } | { kind: 'listed'; c: Connector } | { kind: 'team'; id: string }
@@ -54,8 +54,6 @@ type Open = { kind: 'drive' } | { kind: 'gapp'; id: GoogleAppId } | { kind: 'sla
 /** Slack's row on the right: added (on, connecting, off, a problem or a connection that does not come), or removed in
  * Slack (Reconnect: Add to Slack again). The same reading as Slack's page (lib/slackState.ts). */
 export const slackRowStatus = (s: SlackAdmin): RowStatus => slackView(s).row
-/** Slack is in Connected (else a card in Discover): added, or removed in Slack and not added again */
-export const slackAdded = (s: SlackAdmin) => s.tokens || s.lastError === 'removed'
 
 export default function AdminIntegrations() {
   const t = useT()
@@ -267,7 +265,7 @@ export default function AdminIntegrations() {
             onOpen: () => setOpen({ kind: 'listed', c }), onAdd: () => setDialog({ connector: c, toList: true }),
           }))
           // an admin gets the card only where Add to Slack is offered (the team's own app is the owner's to set up)
-          const slackCard: DiscoverItem[] = sl && !slackAdded(sl) && (owner || sl.official)
+          const slackCard: DiscoverItem[] = sl && showSlackCard(sl, { admin: true, owner })
             ? [{ id: SLACK_APP.id, name: SLACK_APP.name, line: slackLine, logo: slackLogo, state: 'available', onOpen: openSlack, onAdd: openSlack }] : []
           // the same apps with their own setup lead Add's list (QA TC-189 review)
           setupFirst.current = [...builtIns.filter((b) => !b.on), ...slackCard].map((b) => ({ id: b.id, name: b.name, logo: b.logo, onPick: b.onAdd }))

@@ -21,6 +21,7 @@ const LOGOS: Record<CatalogServiceId, string> = {
   stripe: 'stripe.svg',
   supabase: 'supabase.svg',
   cloudflare: 'cloudflare.svg',
+  // Higgsfield's own site icon, byte for byte https://higgsfield.ai/apple-icon.png (180 x 180, checked 2026-11-22)
   higgsfield: 'higgsfield.png',
   ahrefs: 'ahrefs.svg',
   airtable: 'airtable.svg',

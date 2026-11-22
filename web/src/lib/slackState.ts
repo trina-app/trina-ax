@@ -7,6 +7,16 @@ import { SLACK_CONNECTING_SLOW_S, type SlackAdmin } from '@mycel/shared/api'
 import type { MessageKey } from '../i18n'
 import type { RowStatus } from '../components/integrations/ConnectorsView'
 
+/** Slack is in Connected (else a card in Discover): added, or removed in Slack and not added again */
+export const slackAdded = (s: Pick<SlackAdmin, 'tokens' | 'lastError'>) => s.tokens || s.lastError === 'removed'
+
+/** Whether a Discover list shows the Slack card (Admin › Connected apps, and Settings › Connectors, where the welcome
+ * steps' "다른 도구 보기" leads): only for an owner or admin (`slack` is null for a member, who cannot read it), while the
+ * team has not added Slack, and for an admin only where Add to Slack is offered (`official`: the team's own app is the
+ * owner's to set up). */
+export const showSlackCard = (slack: Pick<SlackAdmin, 'tokens' | 'lastError' | 'official'> | null, who: { admin: boolean; owner: boolean }) =>
+  !!slack && who.admin && !slackAdded(slack) && (who.owner || slack.official)
+
 export type SlackTone = 'neutral' | 'ok' | 'warn' | 'danger'
 
 export interface SlackView {
