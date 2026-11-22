@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-22 08:10
 - Branch: `fix/final-answer-english-lead`
-- Status: in progress
+- Status: done
 - Where: server/src/chat (narration.ts, turn.ts). Why: the AI's English notes to itself still open Korean answers.
 - Version impact: patch, a bug fix in how the answer text is kept.
 
@@ -35,4 +35,8 @@ docs/decisions/20261122-final-answer-english-lead.md
 
 ## Result
 
-(filled in at the end)
+As planned, plus review fixes: inline code and a command's or query's symbols count as content, a note must end in a
+sentence mark (titles, product names and totals stay), a follow-up to a request for an English draft is off, and a
+card inside the final piece keeps its place. Checks (Mac mini, Bun 1.3.12): typecheck, check:prepush, narration area
+tests (11 files). Real claude-code run on a private QA copy: 3 Korean box_shell requests (python-docx, primes,
+matplotlib PNG), all three answers open in Korean; the English notes between calls are thinking steps.
