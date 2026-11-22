@@ -416,7 +416,8 @@ describe('QA scenario findings (TC-7041, TC-7042, TC-7047)', () => {
     await share('alice', id, [bob])
     expect(db().query("SELECT id FROM chat_share_notices WHERE user_id = 'bob' AND chat_id = ?").all(id)).toEqual([{ id: first.id }])
     // read (or older than the quiet time): a share again replaces it with a new unread row
-    db().query("UPDATE chat_share_notices SET read_at = ? WHERE id = ?").run(new Date().toISOString(), first.id)
+    // read a moment before the removal (the same millisecond on a fast machine would count as read by the removal)
+    db().query("UPDATE chat_share_notices SET read_at = ? WHERE id = ?").run(new Date(Date.now() - 1000).toISOString(), first.id)
     await share('alice', id, [])
     const gone = (await h.api('bob').call(API.listNotifications, { query: {} })).items.find((x) => x.code === 'chat.shared' && x.chatId === null && x.id === first.id)
     expect(gone?.chatShared).toMatchObject({ gone: true, title: null, name: 'Alice Kim' })
