@@ -2833,6 +2833,20 @@ cases:
     good: Yes where the team offers Google, in a web browser. He sends the invite or the team link as usual; on that page the new person types a name and a username and presses Join with Google instead of making a password, then signs in with Google from then on. A guest invite still asks for a password. In the phone or desktop app the page keeps the password form, so the person opens the link in a browser. If the button is not there, the team or this address does not offer Google. Plain words, no invented settings.
     checks: []
 
+# auth.google-reauth (docs/decisions/20261122-google-reauth.md): an account made with Google has no password; where
+# others type their password again, it confirms with Google in a browser, and it can set a first password.
+- id: ACC-09
+  title: No password to type again
+  features: [auth.google-reauth]
+  lang: ko
+  context: personal
+  as: minho
+  prompt: 구글로 가입해서 비밀번호가 없는데, 팀장 넘기기 하려니까 비밀번호를 다시 넣으래. 어떻게 해?
+  expect:
+    outcome: explain
+    good: An account made with Google confirms with Google instead: the same dialog shows Confirm with Google, a Google window opens, he picks his own Google account, and the action goes on. It works in a web browser, not inside the phone or desktop app. He can also set a password in Settings › Security & devices (it asks for a Google check first). Plain words, no invented steps.
+    checks: []
+
 - id: CHT-13
   title: Talk under an answer (threads)
   features: [chat.threads]
