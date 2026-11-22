@@ -46,8 +46,8 @@ The cast, names, company, project, skills, files and pictures come from `scripts
   chat and her ✦ side chat in #Marketing; Leo's and Sara's in the launch project; one in each new project.
 - **Connections**: Mina's Gmail and Google Drive, the team's Higgsfield (auth none). Mina's welcome card says Sara
   invited her.
-- **The bar** (`freeRoam.suggestions`): "Draft next week's posts", "Summarise customer reviews", "Did Chris reply?" (ko:
-  the same in Korean).
+- **Home's suggestions** (`freeRoam.suggestions`, the chips above Home's message box, not in the bar): "Draft next
+  week's posts", "Summarize customer reviews", "Did Chris reply?" (each language: the same in its words).
 - **Dates**: no calendar dates and no launch-month names, not even for the launch (it is "Monday", the offer runs
   "two weeks"): the banners travel as files, so a date in them goes stale. Everything else is relative ("today", "last
   week"), so a snapshot built on another day still reads right. No day of the month either ("the 23rd", 23일, 23日). `tests/unit/demo-story-no-dates.test.ts` checks it.
@@ -106,9 +106,10 @@ matches, with the story's words in English and Korean; `10-`, `20-`, `30-` the b
 - a text-free photo per scene and size (`bg-<scene>-<size>.jpg`; `assets/banner/`, cut by
   `banner/make-backgrounds.py` from Higgsfield photos made once: one glass by the window = the story's photos, two
   glasses, the pouch close up (no square), a café table; the pouch's blank label is printed by the template);
-- the words, `kit.json`: the story's banner words (`scripts/demo/mina/source/banners/copy.<locale>.json`), the first
-  banner's; after that a word change_banner_text is not given, and the photo, stay as on the last banner it made (the state
-  keeps the newest 30 pictures). Each scene's words pick it ("two cups", "두 잔" → two glasses);
+- the words, `kit.json`: the story's banner words (`scripts/demo/mina/source/banners/copy.<locale>.json`), the launch
+  banner's. The project folder also gets `banner.json`, the launch banner's words as a small file next to its pictures
+  (make.ts): the AI reads it, edits the words with the normal file tools and calls change_banner_text, which draws every
+  size from it (owner's demo test 11-22). Each scene's words pick it ("two cups", "두 잔" → two glasses);
 - `fonts/`: Fraunces, Noto Serif KR and Noto Sans KR (SIL Open Font License 1.1, licences beside them), subset to Latin
   and the 2,350 common Hangul syllables; other letters fall back to the server's fonts.
 

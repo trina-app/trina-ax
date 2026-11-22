@@ -21,7 +21,8 @@ import { act } from 'react'
 import { MemoryRouter } from 'react-router-dom'
 import type { PackCatalogSkill, ShareCandidate, SkillShare } from '@mycel/shared/api'
 import { translate, useLocaleStore, useT, type MessageKey } from '../../src/i18n'
-import { preChecked, primaryLabel, SkillsStep } from '../../src/components/onboarding/SkillsStep'
+import { takesEuro } from '../../src/components/skills/SkillExampleViewer'
+import { preChecked, primaryLabel, setupRows, SkillsStep } from '../../src/components/onboarding/SkillsStep'
 import { SkillShareReview } from '../../src/components/onboarding/SkillShareReview'
 import { PackRows } from '../../src/components/skills/PackRows'
 import { BringSkillsSheet, SHARE_CHECK_LIMIT_MS } from '../../src/components/skills/BringSkillsSheet'
@@ -41,10 +42,19 @@ const failed = (message: string) => json(500, { error: { code: 'internal', messa
 const kept = (pack: 'general' | 'work', name: string, title: string, o: Partial<PackCatalogSkill> = {}): PackCatalogSkill => ({
   pack, name, path: `skills/${pack}/${name}/SKILL.md`, title, description: `${title} 한 줄`, inTeam: false, visual: pack === 'general', example: null, locale: 'ko', source: { kind: 'team' }, ...o,
 })
-/** the catalog's four, in its order (server/src/onboarding/skill-packs.ts CATALOG) */
+/** the catalog's four as a server from before `onboarding` sends them (no field: every row shows, the visual ones are
+ * checked with a profile); everydayCatalog below is today's server */
 const catalogOf = (inTeam: string[] = []) => [
   kept('general', 'intro-deck', '회사 소개서'), kept('general', 'card-news', '카드뉴스'), kept('general', 'promo-video', '홍보 영상'),
   kept('work', 'humanizer', '자연스러운 글', { source: { kind: 'team_writing' } }),
+].map((s) => ({ ...s, inTeam: inTeam.includes(s.name) }))
+/** today's catalog (server/src/onboarding/skill-packs.ts CATALOG, docs/decisions/20261122-onboarding-everyday-skills.md):
+ * the six setup skills, then card news and the promo video for Team skills only */
+const everydayCatalog = (inTeam: string[] = []) => [
+  kept('work', 'meeting-notes', '회의록 정리', { onboarding: 'checked' }), kept('work', 'team-report', '주간 보고·공지', { onboarding: 'checked' }),
+  kept('work', 'customer-reply', '고객 답장', { onboarding: 'checked' }), kept('work', 'contract-review', '계약서 검토', { onboarding: 'offered' }),
+  kept('work', 'humanizer', '자연스러운 글', { onboarding: 'checked', source: { kind: 'team_writing' } }), kept('general', 'intro-deck', '회사 소개서', { onboarding: 'offered' }),
+  kept('general', 'card-news', '카드뉴스', { onboarding: null }), kept('general', 'promo-video', '홍보 영상', { onboarding: null }),
 ].map((s) => ({ ...s, inTeam: inTeam.includes(s.name) }))
 
 const OWN = '01900000-0000-7000-8000-0000000007a1'
@@ -183,6 +193,36 @@ describe('the pre-checks and the primary\'s words (no AI decides)', () => {
     expect([...preChecked(rows, { profile: true, done: false })]).toEqual(['intro-deck', 'card-news', 'promo-video'])
     expect([...preChecked(rows, { profile: false, done: false })]).toEqual([])
     expect([...preChecked(rows, { profile: true, done: true })]).toEqual([])
+  })
+
+  test('setupRows and preChecked with today\'s catalog: the six setup skills, the `checked` ones checked with or without a profile; card news and the promo video left for Team skills', () => {
+    const rows = everydayCatalog()
+    expect(setupRows(rows).map((r) => r.name)).toEqual(['meeting-notes', 'team-report', 'customer-reply', 'contract-review', 'humanizer', 'intro-deck'])
+    for (const profile of [true, false]) expect([...preChecked(setupRows(rows), { profile, done: false })]).toEqual(['meeting-notes', 'team-report', 'customer-reply', 'humanizer'])
+    expect([...preChecked(setupRows(rows), { profile: true, done: true })]).toEqual([])
+    // an older server (no field): every row, as before
+    expect(setupRows(catalogOf()).map((r) => r.name)).toEqual(['intro-deck', 'card-news', 'promo-video', 'humanizer'])
+  })
+
+  test('today\'s catalog on the step: six rows in order, four checked, a team skill already in left out; the primary counts them', async () => {
+    computer()
+    catalog = everydayCatalog(['team-report'])
+    const m = await step()
+    try {
+      expect(packRows().map((r) => r.getAttribute('data-name'))).toEqual(['meeting-notes', 'customer-reply', 'contract-review', 'humanizer', 'intro-deck'])
+      expect(checkedNames()).toEqual(['meeting-notes', 'customer-reply', 'humanizer'])
+      expect(text(m, 'skills-primary')).toBe(ko('welcome.skills.putN', { n: 3 }))
+      await m.click('skills-primary')
+      await m.until(() => events.includes('next'), 'on to the next step')
+      expect(posts().map((c) => [c.key, c.body])).toEqual([['POST /api/onboarding/packs/work/install', { skills: ['meeting-notes', 'customer-reply', 'humanizer'] }]])
+    } finally { await m.unmount() }
+    // every setup skill in (card news and the promo video are not): one line and 다음
+    catalog = everydayCatalog(['meeting-notes', 'team-report', 'customer-reply', 'contract-review', 'humanizer', 'intro-deck'])
+    const again = await step()
+    try {
+      expect(again.find('skill-packs-all-in')).not.toBeNull()
+      expect(packRows()).toEqual([])
+    } finally { await again.unmount() }
   })
 
   test('primaryLabel: one skill named; from two on the count ("스킬 3개 넣기", no run-together names); nothing: none', () => {
@@ -470,6 +510,10 @@ describe('the example viewer', () => {
     } finally { await m.unmount() }
   })
 
+  test('the invented company\'s Korean particle follows its last sound: 숲틈·Soopteum·Notion 으로, 예시커피·Example Coffee·Gmail 로', () => {
+    for (const [name, euro] of [['숲틈', true], ['Soopteum', true], ['Notion', true], ['예시커피', false], ['Example Coffee', false], ['Gmail', false], ['서울', false]] as const) expect([name, takesEuro(name)]).toEqual([name, euro])
+  })
+
   test('one example per open (FLOW-v6 §2.4): no stepping to the next row, the arrow keys do nothing; an image loads, then the invented company; Esc closes, the focus back on that row\'s 예시', async () => {
     const m = await rows()
     try {
@@ -510,7 +554,9 @@ describe('the example viewer', () => {
           expect(img.getAttribute('src')).toBe(`/skill-examples/${locale}/${name}.webp`)
           await act(async () => { img.dispatchEvent(new FakeEvent('load')) })
           expect(viewer(m).getAttribute('data-state')).toBe('shown')
-          expect(text(m, 'skill-example-fictional')).toBe(ko('skillPack.fictional', { company: locale === 'ko' ? '예시커피' : 'Example Coffee' }))
+          // the intro deck is made on its own invented company (숲틈 / Soopteum), the rest on 예시커피 / Example Coffee
+          const company = name === 'intro-deck' ? (locale === 'ko' ? '숲틈' : 'Soopteum') : locale === 'ko' ? '예시커피' : 'Example Coffee'
+          expect(text(m, 'skill-example-fictional')).toBe(ko(takesEuro(company) ? 'skillPack.fictionalEuro' : 'skillPack.fictional', { company }))
           expect(viewer(m).textContent).not.toContain(ko('skillPack.preparing'))
           await key(viewer(m), 'Escape')
         }
@@ -524,6 +570,30 @@ describe('the example viewer', () => {
         expect(shown.textContent).toContain('hello@coffee.example')
         expect(shown.textContent).not.toMatch(/skillHash|fictional/)
         expect(viewer(m).textContent).not.toContain(ko('skillPack.preparing'))
+      } finally { await m.unmount() }
+    }
+  })
+
+  test('the invented company in all six languages: an everyday skill on the roaster of its text\'s language, the intro deck on 숲틈 / Soopteum in the team\'s language', async () => {
+    const ROASTER = { ko: '예시커피', en: 'Example Coffee', ja: '見本コーヒー', zh: '示例咖啡', es: 'Café Ejemplo', id: 'Kopi Contoh' } as const
+    for (const team of ['ko', 'en', 'ja', 'zh', 'es', 'id'] as const) {
+      // as the server picks them: the everyday skill in the team's language, the intro deck's text in Korean or English
+      const deck = team === 'ko' ? 'ko' : 'en'
+      const items: PackCatalogSkill[] = everydayCatalog().filter((s) => s.name === 'meeting-notes' || s.name === 'intro-deck')
+        .map((s) => (s.name === 'meeting-notes' ? { ...s, locale: team, example: packExample(team, s.name, team) } : { ...s, locale: deck, example: packExample(deck, s.name, team) }))
+      const m = await rows(items)
+      try {
+        await m.click(exampleOf('meeting-notes'))
+        expect(viewer(m).getAttribute('data-state')).toBe('shown')
+        expect(text(m, 'skill-example-fictional')).toBe(ko(takesEuro(ROASTER[team]) ? 'skillPack.fictionalEuro' : 'skillPack.fictional', { company: ROASTER[team] }))
+        await key(viewer(m), 'Escape')
+        await m.click(exampleOf('intro-deck'))
+        const img = m.get('skill-example-image')
+        expect(img.getAttribute('src')).toBe(`/skill-examples/${team}/intro-deck.webp`)
+        await act(async () => { img.dispatchEvent(new FakeEvent('load')) })
+        const company = team === 'ko' ? '숲틈' : 'Soopteum'
+        expect(text(m, 'skill-example-fictional')).toBe(ko('skillPack.fictionalEuro', { company }))
+        await key(viewer(m), 'Escape')
       } finally { await m.unmount() }
     }
   })

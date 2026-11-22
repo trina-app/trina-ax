@@ -31,7 +31,7 @@ import { audit as auditLog } from '../admin/audit'
 import { HttpError } from '../http/errors'
 import { foldKey } from '../policy/names'
 import { frequentSkills, matchSkills, resolveSkill, shortDescription, skillTag, skillTitleText, usageScores } from './skill-list'
-import { addSources, sourceOf, type ReadSource } from './read-scope'
+import { addSources, audiencePeople, pathAudience, sourceOf, type ReadSource } from './read-scope'
 import { authorize } from '../policy/authorize'
 import { atLeast, isStaff, type Principal } from '../policy/access'
 import { walk } from '../policy/resolve'
@@ -84,8 +84,8 @@ import { SHARE_JUDGE_REFUSAL } from '../skills/share-judge'
 import { FILE_RANK_REFUSAL } from '../onboarding/file-rank'
 import { mergeTargets, SHARE_MERGE_REFUSAL } from '../skills/share-merge'
 import { deleteFilesTool } from './delete-files'
-import { BULK_CARD_MS, bulkCard } from '../devenv/bulk'
-import { placeWords } from './place-words'
+import { BULK_CARD_MS, bulkCard, type BulkAsk, type BulkWho } from '../devenv/bulk'
+import { WALK_MAX } from '../files/access-routes'
 import { projectMembersTool } from './project-members'
 import { folderAccessOff, folderAccessTool } from './folder-access-tool'
 import { readRooms } from './read-rooms'
@@ -237,11 +237,12 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
   }
   for (const t of bTools(exec)) add(t)
   for (const t of skillTools(exec, () => tools.has(BOX_SHELL_TOOL))) add(t)
-  // the team trash behind the server's card (chat/delete-files.ts): not offered in shared, confidential or draft
-  // chats (add() above) nor in an approved template run (its scope is fixed), refused up front everywhere else but the
-  // person's own chat with the person there
+  // the team trash behind the server's card (chat/delete-files.ts): not offered in confidential or draft chats (add()
+  // above) nor in an approved template run (its scope is fixed); in a shared chat (SHARED_TOOLS) only the AI's own files
+  // of this chat go (no card), anything else is refused up front, as everywhere but the person's own chat with the
+  // person there (docs/decisions/20261121-ai-scratch-files.md rule 4, QA TC-7332)
   if (!exec.templateRun) add(deleteFilesTool(exec))
-  // a team project's members behind the server's card (chat/project-members.ts): like delete_files, not offered in
+  // a team project's members behind the server's card (chat/project-members.ts): not offered in
   // shared, confidential or draft chats (add() above) nor in an approved template run, refused up front
   // everywhere else but the person's own chat with the person there
   if (!exec.templateRun) add(projectMembersTool(exec))
@@ -321,7 +322,9 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
       // the bulk card (devenv/bulk.ts): keep many new files in the project folder? "Always allow" keeps them from then
       // on (kind bulk_files); a scheduled run asks nobody (false unless that choice was made)
       keepBulk: async (ask) => {
-        const card = bulkCard(ask, exec.spec.locale, (p) => placeWords(exec.rt.db, p, exec.spec.locale, exec.spec.userId))
+        // the project's name and who sees its folder, from its real rules (QA TC-7335: "the whole team" for a project
+        // only its creator sees, and "My files › projects › <name>" for its name)
+        const card = bulkCard(ask, exec.spec.locale, bulkCardFacts(exec, ask))
         // a short wait: the project's other commands wait while the card is open (no answer: the files move)
         return person.confirm(card.question, card.keep, card.move, { always: 'bulk_files', details: card.details, timeoutMs: BULK_CARD_MS })
       },
@@ -882,6 +885,12 @@ function wrapRegistered(exec: TurnExec, t: TurnTool): Tool {
     ...(t.sendsTo ? { sendsTo: (args: unknown) => { try { return t.sendsTo!(args) } catch { return null } } } : {}),
     async call(args, files) {
       const r = await t.call(args, toolContext(exec, files, { tool: t.name, args }))
+      // pictures the call saved (change_banner_text's sizes): shown under its step by the chat, never retyped by the AI.
+      // The main AI's call only: patchToolStep is first in, first out per tool, and a sub-agent's step is not it
+      if (r.stepImages?.length && !callerOf(files, exec.files).helper) {
+        const shown = r.stepImages
+        exec.patchToolStep(t.name, (s) => ({ images: [...(s.images ?? []).filter((x) => !shown.some((y) => y.path === x.path)), ...shown].slice(-20) }))
+      }
       return { content: r.content, isError: r.isError, ...(r.summary ? { summary: r.summary } : {}) }
     },
   }
@@ -1496,4 +1505,21 @@ export function chatVersionRefusal(exec: TurnExec, files: TurnFiles, place: Extr
     if (e instanceof ToolError) return e.message
     return 'The chat file could not be checked, so nothing was changed. Try again.'
   }
+}
+
+/** The bulk card's facts (devenv/bulk.ts bulkCard): the project's name, and who can see its folder from the folder's real
+ * rules (only the person, the whole team or a count; unsaid on a team past WALK_MAX or when it cannot be worked out). */
+export function bulkCardFacts(exec: Pick<TurnExec, 'rt' | 'spec'>, ask: Pick<BulkAsk, 'project' | 'projectId'>): { name: string | null; who: BulkWho } {
+  const db = exec.rt.db
+  const row = (ask.projectId ? db.query('SELECT name FROM projects WHERE id = ?').get(ask.projectId) : db.query('SELECT name FROM projects WHERE folder_path = ? AND trashed_with IS NULL').get(ask.project)) as { name: string } | null
+  let who: BulkWho = null
+  try {
+    const everyone = audiencePeople(db, WALK_MAX)
+    if (everyone) {
+      const a = pathAudience(db, exec.rt.files.rules(), ask.project.split('/').filter(Boolean), everyone)
+      const n = a.ids.size
+      who = n <= 1 ? { kind: 'only' } : a.wholeTeam ? { kind: 'team' } : { kind: 'some', n }
+    }
+  } catch { who = null }
+  return { name: row?.name ?? null, who }
 }

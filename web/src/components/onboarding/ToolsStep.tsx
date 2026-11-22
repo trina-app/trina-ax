@@ -1,18 +1,18 @@
 // 팀이 쓸 도구, the welcome steps' step between 팀 파일 and 팀원 초대 (docs/decisions/20261120-team-vs-personal-onboarding.md,
 // with docs/decisions/20261121-onboarding-google-team-or-own.md for the Google rows and the switch's name): a team
-// setting like the other steps. One list:
-//  - a team connection, for a tool the team connects once (Notion, a team-scope connection everyone may use; Slack,
-//    its own page in Admin › Connected apps): [팀으로 연결], "팀 전체가 이 연결을 같이 써요". The sign-in is the team
-//    account's, at the service, in the window reserved during the click; never the owner's own connection. Slack shows
-//    연결됨 only while it is connected (else [다시 연결] once added, [팀으로 연결] before).
+// setting like the other steps. One list, in this order: Notion, Higgsfield, Google Drive, Gmail.
+//  - a team connection, for a listed service the team connects once (Notion, Higgsfield: a team-scope connection
+//    everyone may use): [팀으로 연결], "팀 전체가 이 연결을 같이 써요 · <what it does>". The sign-in is the team account's, at the service,
+//    in the window reserved during the click; never the owner's own connection. Slack is not a row since 2026-11-22
+//    (owner: its connection is too complicated for the first steps): it is in "다른 도구 보기" (Settings › Connectors,
+//    its card for an owner or admin) and Admin › Connected apps; a Slack connected there still counts as a working tool.
 //  - a Google tool (Google Drive where this server has it, Gmail where it can be connected; Calendar, Docs and Sheets
 //    stay in "다른 도구 보기" and Admin, to keep the step lean): both ways, on one row (owner, 11-21: "a Google account is added as a team account AND as a
 //    personal account"). [팀으로 연결] on its right opens the very dialog Admin › Connected apps uses
 //    (DriveShares.tsx DriveShareDialog for Drive, GoogleAppTeam.tsx GoogleAppTeamDialog for a Google app: one shared
 //    Google account, then who may use it), where this server can do that (Drive set up; the app set up and the server
 //    sends its team account); once connected the row says which account and who uses it, with 연결됨 like Notion.
-//  - under the line of every row a person can also connect on their own (the Google rows and Notion; not Slack, which
-//    has no own connection) a small switch "각자 연결하도록 권하기" (TeamSettings.recommendedTools,
+//  - under the line of every row a small switch "각자 연결하도록 권하기" (TeamSettings.recommendedTools,
 //    shared/src/api/team-tools.ts): those tools come first in everyone's Settings › Connectors; nothing is gated, anyone
 //    may still connect anything. Saved at once; a failure puts it back and says why on its row.
 // Then one quiet "다른 도구 보기" line: Settings › Connectors, the full list (a tool's page there has the same "각자 연결하도록 권하기"
@@ -25,7 +25,7 @@ import { useNavigate } from 'react-router-dom'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { API, SLACK, type DriveShare, type GoogleAppAdminStatus, type Integration } from '@mycel/shared/api'
 import { api, errorText } from '../../lib/api'
-import { APP_CONNECTORS, appConnectorLogo, connectorLogo, CONNECTORS, CONNECTORS_HOME, servesAt, SLACK_ADMIN_PATH, SLACK_APP, slackLogo, type Connector } from '../../lib/connectors'
+import { APP_CONNECTORS, appConnectorLogo, connectorLogo, CONNECTORS, CONNECTORS_HOME, servesAt, type Connector } from '../../lib/connectors'
 import { lineKey, type BuiltInId } from '../../lib/googleApps'
 import { setupReturnState } from '../../lib/welcome'
 import { useRealPath } from '../../lib/realPath'
@@ -42,8 +42,9 @@ import { isEmptyAccess } from '../../lib/integrations'
 import { useAdminGroups, useAdminUsers } from '../../store/adminPeople'
 
 const quietLink = 'font-medium text-ink underline decoration-line-strong underline-offset-4 hover:decoration-ink disabled:opacity-50'
-/** the listed services the step connects for the team (Notion; the full list is one click away) */
-export const WELCOME_SERVICES = ['notion'] as const
+/** the listed services the step connects for the team, in their order (Notion, Higgsfield; the full list is one click
+ * away) */
+export const WELCOME_SERVICES = ['notion', 'higgsfield'] as const
 /** the Google tools the step offers (for the team, or each person's own), where this server can connect them */
 const RECOMMEND: BuiltInId[] = ['google-drive', 'gmail']
 type GoogleRowId = BuiltInId
@@ -150,31 +151,31 @@ function useRecommendable() {
   return { ids, reload }
 }
 
-/** The team's connections (GET /api/admin/integrations) and its Slack (GET /api/admin/slack, null: not readable): what
- * the team rows show, and whether one works (`anyOn`: a team connection connected, or Slack connected). */
+/** The team's connections (GET /api/admin/integrations) and whether its Slack is connected (GET /api/admin/slack): what
+ * the team rows show, and whether one works (`anyOn`: a team connection connected, or Slack connected in Admin › Connected
+ * apps, which has no row here but is a working team tool all the same). */
 function useTeamConnections() {
   const [items, setItems] = useState<Integration[] | null>(null)
-  const [slack, setSlack] = useState<'connected' | 'added' | 'none' | null>(null)
+  const [slack, setSlack] = useState(false)
   const reload = useCallback(() => {
     api.call(API.listTeamIntegrations).then((r) => setItems(r.items), () => setItems((x) => x ?? []))
-    api.call(SLACK.slackAdmin).then((s) => setSlack(s.state === 'connected' ? 'connected' : s.tokens || s.lastError === 'removed' ? 'added' : 'none'), () => setSlack(null))
+    api.call(SLACK.slackAdmin).then((s) => setSlack(s.state === 'connected'), () => setSlack(false))
   }, [])
   useEffect(reload, [reload])
   useEffect(() => integrationsChanged.on(reload), [reload])
-  return { items, setItems, slack, reload, anyOn: !!items?.some(isOn) || slack === 'connected' }
+  return { items, setItems, reload, anyOn: !!items?.some(isOn) || slack }
 }
 
-/** The team rows: each listed service of WELCOME_SERVICES as one team connection everyone may use, made from the list
- * (its address and sign-in: nothing to type) and signed in at once; then Slack, its own page in Admin › Connected apps. */
+/** The team rows: each listed service of WELCOME_SERVICES, in that order, as one team connection everyone may use, made
+ * from the list (its address and sign-in: nothing to type) and signed in at once. */
 function TeamRows({ team, rec }: { team: ReturnType<typeof useTeamConnections>; rec: ReturnType<typeof useRecommendedTools> }) {
   const t = useT()
   const locale = useLocale()
-  const navigate = useNavigate()
   const [busy, setBusy] = useState<string | null>(null)
   const [errors, setErrors] = useState<Record<string, string>>({})
   const signIn = useSignIn(() => team.reload())
   if (!team.items) return null
-  const services: Connector[] = CONNECTORS.filter((c) => (WELCOME_SERVICES as readonly string[]).includes(c.id))
+  const services: Connector[] = WELCOME_SERVICES.flatMap((id) => CONNECTORS.filter((c) => c.id === id))
   const theirs = (c: Connector) => team.items!.find((i) => servesAt(c, i.url))
   const connect = async (c: Connector) => {
     // the window first, during the click (one opened after the server answers is blocked as a popup)
@@ -203,7 +204,7 @@ function TeamRows({ team, rec }: { team: ReturnType<typeof useTeamConnections>; 
         const on = isOn(i) && !flow
         const line = waiting ? (flow.away ? t('integrations.signIn.notFinished') : t('welcome.tools.signingIn', { name: c.name }))
           : flow ? flow.reason || t('welcome.tools.signInFailed', { name: c.name })
-            : errors[c.id] || (rec.error?.id === c.id ? rec.error.text : '') || t('welcome.tools.teamLine')
+            : errors[c.id] || (rec.error?.id === c.id ? rec.error.text : '') || `${t('welcome.tools.teamLine')} · ${t(`integrations.catalog.${c.id}`)}`
         return (
           <li key={c.id} className={rowCls} data-testid="welcome-tools-service" data-id={c.id} data-kind="team" data-state={on ? 'connected' : waiting ? 'signing-in' : i ? 'needs-sign-in' : 'available'}>
             <LogoTile src={connectorLogo(c)} className={logoCls} />
@@ -229,21 +230,6 @@ function TeamRows({ team, rec }: { team: ReturnType<typeof useTeamConnections>; 
           </li>
         )
       })}
-      {team.slack !== null && (
-        <li className={rowCls} data-testid="welcome-tools-service" data-id={SLACK_APP.id} data-kind="team" data-state={team.slack === 'connected' ? 'connected' : team.slack === 'added' ? 'needs-attention' : 'available'}>
-          <LogoTile src={slackLogo} className={logoCls} />
-          <div className="min-w-0 flex-1 space-y-0.5">
-            <p className="text-sm font-medium text-ink">{SLACK_APP.name}</p>
-            <p className="text-sm break-words text-muted" data-testid="welcome-tools-service-line">{t('welcome.tools.slackLine')}</p>
-          </div>
-          {team.slack === 'connected' ? connected : (
-            <Button size="sm" variant="secondary" className="shrink-0" onClick={() => navigate(SLACK_ADMIN_PATH, { state: setupReturnState('tools') })}
-              aria-label={`${t(team.slack === 'added' ? 'welcome.tools.reconnect' : 'welcome.tools.teamConnect')}: ${SLACK_APP.name}`} data-testid="welcome-tools-team-connect">
-              {t(team.slack === 'added' ? 'welcome.tools.reconnect' : 'welcome.tools.teamConnect')}
-            </Button>
-          )}
-        </li>
-      )}
     </>
   )
 }

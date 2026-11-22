@@ -331,7 +331,7 @@ describe('locked down', () => {
   renders('interception alone, without the OS isolation (MYCEL_ISOLATION=none): nothing reaches this machine\'s TCP listener', () => {
     // a process of its own: the isolation is chosen once per process
     const r = Bun.spawnSync([process.execPath, path.join(import.meta.dir, '..', 'lib', 'html-pdf-interception.ts')], {
-      env: { ...process.env, MYCEL_ISOLATION: 'none', ...(BROWSER ? { MYCEL_HTML_PDF_BROWSER: BROWSER } : {}) }, timeout: 300_000,
+      env: { ...process.env, MYCEL_ISOLATION: 'none', NODE_ENV: 'test', MYCEL_HTML_PDF_TEST_NO_ISOLATION: '1', ...(BROWSER ? { MYCEL_HTML_PDF_BROWSER: BROWSER } : {}) }, timeout: 300_000,
     })
     const line = r.stdout.toString().trim().split('\n').pop()!
     const out = JSON.parse(line) as { isolation: string; cases: Record<string, string[]> }

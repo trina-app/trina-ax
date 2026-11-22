@@ -8,6 +8,9 @@
 // one specific sentence ("3 answers used files Mina can't open") on a line of its own, and "Show answers ›" after them
 // opens the list of those answers. Names come in as picked (whoNames): a person with the language's honorific ("Bob
 // 님"), a group as its people ("Sales 부서 사람들"), never 님 on a group.
+// The chat Share dialog uses its compact look (docs/decisions/20261122-share-dialog-lean.md): one line, "Some answers
+// used places Bob can't open · your personal memories, groups/x/, My files", answers nobody could check as a short
+// second line in the box.
 // Nothing at stake, or only answers nobody could check: no box, at most one grey line. The button never changes:
 // pressing Share is the confirmation.
 import { AlertTriangle, ChevronRight, Info } from 'lucide-react'
@@ -41,6 +44,20 @@ export function shareWarningLines(t: T, c: ShareCheck, names: string): string[] 
   ]
 }
 
+/** The warning as one line (the chat Share dialog's lean look): what is at stake in a few words, then the places
+ * themselves after " · " ("Some answers used places Bob can't open · your personal memories, groups/x/, My files"). */
+export function shareWarningSummary(t: T, c: ShareCheck, names: string): string {
+  const sources = [
+    ...(c.memoryAnswers ? [t('share.src.memories')] : []),
+    ...(c.accountAnswers ? [t('share.src.accounts')] : []),
+    ...(c.fileAnswers ? [t('share.src.files')] : []),
+    ...c.places.map((p) => placeName(t, p)),
+    ...(c.otherPlaces ? [t('share.widenList.placeHidden')] : []),
+    ...(c.roomsUnseen ? [t('share.src.rooms')] : []),
+  ]
+  return `${t('share.warn.summary', { names })} · ${sources.join(', ')}`
+}
+
 /** The one grey line when nothing else needs saying first: answers nobody could check, else `fallback`. */
 export function shareGreyLine(t: T, c: ShareCheck | null, fallback: string | null = null): string | null {
   if (c?.unchecked) return t('share.grey.unchecked', { n: c.unchecked })
@@ -66,15 +83,19 @@ export function GreyLine({ text, testId }: { text: string; testId: string }) {
 /** The warning box (nothing when nothing is at stake) and at most one grey line under it (`grey`: the line when the
  * check has none of its own; false: the caller shows the grey line itself). `onShow`: open the list of the answers it is
  * about (only when it is about answers). */
-export function ShareWarning({ check, names, onShow, grey = null, testId = 'share-warning' }: {
+export function ShareWarning({ check, names, onShow, grey = null, compact = false, testId = 'share-warning' }: {
   check: ShareCheck
   names: string
   onShow?: () => void
   grey?: string | null | false
+  /** one summary line in place of the sentences, and answers nobody could check as a short second line in the same box
+   * (the chat Share dialog; the caller then shows no grey line of its own for them) */
+  compact?: boolean
   testId?: string
 }) {
   const t = useT()
-  const lines = shareWarningLines(t, check, names)
+  const lines = compact ? (shareAtStake(check) ? [shareWarningSummary(t, check, names)] : []) : shareWarningLines(t, check, names)
+  const unchecked = compact && check.unchecked ? t('share.grey.unchecked', { n: check.unchecked }) : null
   const answers = check.memoryAnswers + check.fileAnswers + check.accountAnswers
   const line = grey === false ? null : shareGreyLine(t, check, grey)
   const files = grey === false ? null : shareFilesLine(t, check)
@@ -88,6 +109,7 @@ export function ShareWarning({ check, names, onShow, grey = null, testId = 'shar
             <ul className={clsx(lines.length > 1 && 'list-disc space-y-0.5 pl-4')} data-testid={`${testId}-lines`}>
               {lines.map((l) => <li key={l}>{l}</li>)}
             </ul>
+            {unchecked && <p className="mt-0.5 text-xs leading-5" data-testid={`${testId}-unchecked`}>{unchecked}</p>}
             {onShow && answers > 0 && (
               <button type="button" onClick={onShow} className="touch-hit mt-1 inline-flex items-center font-medium text-accent-text hover:underline" data-testid={`${testId}-show`}>
                 {t('share.widenList.show')}<ChevronRight size={14} aria-hidden />

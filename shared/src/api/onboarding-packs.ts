@@ -10,8 +10,10 @@ import { z } from 'zod'
 import { Locale } from './common'
 import { endpoint } from './endpoint'
 
-/** general: every team's three skills (the intro deck, the card news, the promo video), installed by the welcome steps ·
- * work: natural writing (humanizer). Only skills with a known origin ship (docs/DECISIONS.md "DS3"). */
+/** general: the intro deck, the card news, the promo video (made from the company profile) · work: the everyday office
+ * skills (meeting notes, reports and notices, customer replies, contract review: docs/decisions/
+ * 20261122-onboarding-everyday-skills.md) and natural writing (humanizer). Only skills with a known origin ship
+ * (docs/DECISIONS.md "DS3"). */
 export const SKILL_PACK_IDS = ['general', 'work'] as const
 export const SkillPackId = z.enum(SKILL_PACK_IDS)
 export type SkillPackId = z.infer<typeof SkillPackId>
@@ -19,8 +21,15 @@ export type SkillPackId = z.infer<typeof SkillPackId>
 /** The packs whose skills the catalog offers, in this order (each pack's own order inside: server/src/onboarding/
  * skill-packs.ts CATALOG). */
 export const RECOMMENDED_SKILL_PACKS = ['general', 'work'] as const satisfies readonly SkillPackId[]
-/** How many skills the catalog holds today (the general pack's three and natural writing; a test holds it to the packs). */
-export const RECOMMENDED_PACK_SKILLS = 4
+/** How many skills the catalog holds today (the general pack's three and the work pack's five; a test holds it to the
+ * packs). */
+export const RECOMMENDED_PACK_SKILLS = 8
+
+/** Where the owner's setup step ("팀이 쓸 스킬을 골라 주세요") puts a kept skill: `checked` shown and checked when the step
+ * first shows it, `offered` shown unchecked; a skill with none (null) is only on Team skills' "N개 더" fold
+ * (docs/decisions/20261122-onboarding-everyday-skills.md). */
+export const PackOnboarding = z.enum(['checked', 'offered'])
+export type PackOnboarding = z.infer<typeof PackOnboarding>
 
 /** "카드뉴스": the welcome steps' first result from docs/DECISIONS.md "N" until the promo video ("V"); no longer the
  * first result, still installed for every team: five square cards from the company intro (an uploaded deck, or
@@ -90,15 +99,22 @@ export const PackSkillSource = z.discriminatedUnion('kind', [
 export type PackSkillSource = z.infer<typeof PackSkillSource>
 
 /** Size limits of the examples (EXAMPLES-PLAN, FLOW-v6 §8; a test holds the files to them): an image of at most 90 KB,
- * a text excerpt of at most 900 characters in Korean and 1,200 in English. */
-export const PACK_EXAMPLE_LIMITS = { imageBytes: 90 * 1024, textChars: { ko: 900, en: 1200 } } as const
+ * a text excerpt of at most 900 characters in Korean, Japanese and Chinese and 1,200 in English, Spanish and
+ * Indonesian. */
+export const PACK_EXAMPLE_LIMITS = { imageBytes: 90 * 1024, textChars: { ko: 900, ja: 900, zh: 900, en: 1200, es: 1200, id: 1200 } } as const
 
 /** One example of a kept skill, made on the fictional company 예시커피 / Example Coffee (EXAMPLES-PLAN): an image the
  * web build serves (web/public/skill-examples/<locale>/<name>.webp, loaded only when the viewer opens) for a result that
  * is a picture anyway, or a short before → after text the page draws in its own theme (Markdown, its front matter left
  * out). */
 export const PackExample = z.discriminatedUnion('kind', [
-  z.object({ kind: z.literal('image'), url: z.string() }),
+  z.object({
+    kind: z.literal('image'),
+    url: z.string(),
+    /** the invented company the picture is made on, when it is not 예시커피 / Example Coffee (the intro deck: 숲틈 /
+     * Soopteum), in the picture's language */
+    company: z.string().optional(),
+  }),
   z.object({ kind: z.literal('text'), markdown: z.string() }),
 ])
 export type PackExample = z.infer<typeof PackExample>
@@ -119,6 +135,9 @@ export const PackCatalogSkill = z.object({
   /** made from the company profile (the intro deck, the card news, the promo video): checked on 내 스킬 when a profile
    * is saved, and the brand action runs before it goes in */
   visual: z.boolean(),
+  /** the setup step shows it (checked or not); null: only on Team skills. Optional for a server from before
+   * 2026-11-22 (an app reading such a server shows every row it gets, as before) */
+  onboarding: PackOnboarding.nullable().optional(),
   /** null: none yet (the viewer says it is being made) */
   example: PackExample.nullable(),
   /** the language of its text and example (the team's, or English) */

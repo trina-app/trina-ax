@@ -18,15 +18,16 @@ import { groupFolder } from '../admin/groups'
 import { teamDefaultLocale } from '../admin/settings'
 import { groupSkillsDir, isPersonalSkill, scanSkillsWithShadowed, type Skill } from '../chat/skills'
 import { readCompanyProfile } from '../onboarding/profile'
-import { CATALOG, packExample, packLocale, packSummary, SKILL_PACKS } from '../onboarding/skill-packs'
+import { CATALOG, packExample, packSummary, SKILL_PACKS, skillLocale } from '../onboarding/skill-packs'
 import { landingSkill, readWelcome } from '../onboarding/welcome'
 import { atLeast, type Principal } from '../policy/access'
 import { authorize } from '../policy/authorize'
 import { badSegment, hiddenEntry } from '../policy/names'
 
-/** The kept skills in the order a member meets them (FLOW-v6.3 §4.2): the one for their own text first, then the ones
- * with a topic, the company deck last (회사 소개서 remakes the company's own material). */
-export const MEMBER_ORDER = ['humanizer', 'card-news', 'promo-video', 'intro-deck'] as const
+/** The kept skills in the order a member meets them (FLOW-v6.3 §4.2): the one for their own text first, then the
+ * everyday office skills (docs/decisions/20261122-onboarding-everyday-skills.md), then the ones with a topic, the company
+ * deck last (회사 소개서 remakes the company's own material). */
+export const MEMBER_ORDER = ['humanizer', 'meeting-notes', 'team-report', 'customer-reply', 'contract-review', 'card-news', 'promo-video', 'intro-deck'] as const
 /** Entries the count looks at before it stops (a team folder of many folders and few files stays cheap). */
 export const COUNT_VISIT_MAX = 5000
 
@@ -155,11 +156,11 @@ export function teamPrepared(ctx: AppContext, userId: string, locale: Locale): T
     const at = `skills/${c.pack}/${c.name}/SKILL.md`
     const s = mine.find((x) => fold(x.path) === fold(at))
     if (!s) continue
-    const lang = packLocale(SKILL_PACKS[c.pack], team)
+    const lang = skillLocale(SKILL_PACKS[c.pack], c.name, team)
     // an example that cannot be read leaves the row without 예시, never without the row
     let example
-    try { example = packExample(lang, c.name) ?? undefined } catch { example = undefined }
-    kept.set(s.path, { s, out: { path: s.path, name: s.name, title: skillTitle(s), summary: packSummary(c.name, locale) || lineOf(skillSummary(s)), ...(example ? { example, locale: lang === 'ko' ? 'ko' : 'en' } : {}), source: c.source(lang) } })
+    try { example = packExample(lang, c.name, team) ?? undefined } catch { example = undefined }
+    kept.set(s.path, { s, out: { path: s.path, name: s.name, title: skillTitle(s), summary: packSummary(c.name, locale) || lineOf(skillSummary(s)), ...(example ? { example, locale: lang } : {}), source: c.source(lang) } })
   }
   const others = mine.filter((s) => !kept.has(s.path)).map((s): PreparedSkill => ({ path: s.path, name: s.name, title: skillTitle(s), summary: lineOf(skillSummary(s)) }))
   let landing: string | null = null

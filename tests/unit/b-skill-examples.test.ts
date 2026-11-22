@@ -155,7 +155,7 @@ describe('the team as each person sees it', () => {
     expect(alice.skills[0]).toMatchObject({ name: 'humanizer', title: '자연스러운 글', summary: 'Rewrites text that reads as AI-written so a person seems to have written it' })
     // alice is outside the team group: its skills are not hers
     expect(alice.skills.some((s) => s.path.startsWith(`${folder}/`))).toBe(false)
-    expect(MEMBER_ORDER).toEqual(['humanizer', 'card-news', 'promo-video', 'intro-deck'])
+    expect(MEMBER_ORDER).toEqual(['humanizer', 'meeting-notes', 'team-report', 'customer-reply', 'contract-review', 'card-news', 'promo-video', 'intro-deck'])
   })
 
   test('a personal skill of a kept name takes its place for that person: not listed as Trina\'s for them', async () => {

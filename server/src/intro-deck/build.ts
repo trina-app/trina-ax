@@ -172,7 +172,9 @@ async function drawSlide(ctx: AppContext, t: ToolCtx, id: string, plan: Plan, st
     const tr = st.treat[i] ?? {}
     if (fix && round < 2) {
       if (fix.fix === 'scrim' && tr.scrim !== 'strong') { st.treat[i] = { ...tr, scrim: 'strong' }; out = layoutSlide2(docOf(plan, st, st.notes), i, look); continue }
-      if ((fix.fix === 'ground' || fix.fix === 'scrim') && !tr.noPicture && (plan.stubs[i]!.kind === 'cover' || plan.stubs[i]!.kind === 'opening')) { st.treat[i] = { ...tr, noPicture: true }; out = layoutSlide2(docOf(plan, st, st.notes), i, look); continue }
+      // a picture the type still does not read on after the stronger scrim goes: the cover's and an opening's, and a
+      // spare picture behind the numbers or beside the about and the closing (layout2.ts spares)
+      if ((fix.fix === 'ground' || fix.fix === 'scrim') && !tr.noPicture && ['cover', 'opening', 'numbers', 'about', 'contact'].includes(plan.stubs[i]!.kind)) { st.treat[i] = { ...tr, noPicture: true }; out = layoutSlide2(docOf(plan, st, st.notes), i, look); continue }
     }
     fs.mkdirSync(buildDir(ctx, id), { recursive: true })
     fs.writeFileSync(slidePng(ctx, id, i), r.full[0]!)

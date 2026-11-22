@@ -30,7 +30,8 @@ import { richId } from './strings/rich.id'
 import { richJa } from './strings/rich.ja'
 import { richKo } from './strings/rich.ko'
 import { richZh } from './strings/rich.zh'
-import { writeBannerKit } from './banner/kit'
+import { bannerKit, HIGGSFIELD_PICTURE, writeBannerKit } from './banner/kit'
+import { BANNER_SOURCE_NAME, bannerSourceText, launchSource } from '../../../server/src/demo/fakes/banners'
 import { CHATS, CONTACTS, DRIVE, DRIVE_FOLDERS, EVERYONE, FILES, LAUNCH_DAY_ADD, MAIL, MESSAGES, NEW_PEOPLE, OWN_SKILLS, PROJECTS, ROOMS, type ChatId, type DriveId, type FileId, type MailId, type MessageId, type Msg, type NewPerson, type ProjectId, type RichWords, type RoomSlug, type TurnId, type Who } from './rich'
 
 const MINA = path.resolve(import.meta.dir, '..', 'mina')
@@ -69,9 +70,8 @@ const PEOPLE = ['mina', 'sara', 'leo', 'tom', 'aiko', 'omar'] as const
 export const STEEPLING_SKILLS = ['brand-guide', 'social-posts', 'press-release', 'competitor-roundup', 'handover', 'review-digest'] as const
 const englishName = (id: keyof Strings['people'] | Who) => (id in NEW_PEOPLE ? richEn[`${id as keyof typeof NEW_PEOPLE}.name`] : minaEn.people[id as keyof Strings['people']].name)
 const email = (id: keyof Strings['people'] | Who) => `${englishName(id).toLowerCase().replace(/\s+/g, '.')}@${id === 'chris' ? 'fieldnote' : 'steepling'}.example`
-/** the fake Higgsfield's story picture: `00-` first, so it wins a tie (the picker takes the first), with the story's
- * words in English and Korean. A prompt that shares no word with any picture's name gets no picture (QA 11-22 A4). */
-export const HIGGSFIELD_PICTURE = '00-yuzu-ginger-tea-pouch-iced-glass-frosted-window-morning-light-유자-진저-파우치-아이스-창가-아침-햇살.jpg'
+/** the fake Higgsfield's story picture (banner/kit.ts, where its scene's words in every language are) */
+export { HIGGSFIELD_PICTURE }
 
 /** minutes before the build: the story happened this morning, the rest in the days before */
 const T = {
@@ -140,6 +140,9 @@ export function steepling(locale: SteeplingLocale): Steepling {
     [story]: { asset: `campaign-story.${locale}.jpg` },
     [captions]: `# ${a.captionsTitle}\n\n${a.captions.map((c, i) => `${i + 1}. ${c}`).join('\n')}\n`,
     [photo]: { asset: 'higgsfield-photo.jpg' },
+    // the launch banner's words as a file next to its pictures: the AI edits it and draws the banner again with
+    // change_banner_text (server/src/tools/demo-banner.ts; owner's demo test 11-22)
+    [inProject(BANNER_SOURCE_NAME)]: bannerSourceText(launchSource(bannerKit(locale))),
     ...Object.fromEntries(STEEPLING_SKILLS.map((k) => {
       const own = (OWN_SKILLS as readonly string[]).includes(k)
       const md = fs.readFileSync(path.join(own ? OWN_ASSETS : ASSETS, `skill-${k}.${locale}.md`), 'utf8')

@@ -24,6 +24,8 @@ export const ROOM_FILE_TOOLS: ReadonlySet<string> = new Set([
   'room_file', 'save_room_file',
   // many renames in one call (tools/file-moves.ts), like rename_file
   'rename_files',
+  // the demo's banner words (tools/demo-banner.ts): the AI's own words over a prepared photo, nothing from outside
+  'change_banner_text',
 ])
 
 /**
@@ -81,12 +83,21 @@ export const SHARED_TOOLS: ReadonlySet<string> = new Set([
   // videos (tools/higgsfield.ts behind the asker's card; promo-video/: the chat's artifact, its material and pictures
   // weighed by the read card like any named file, namedPaths)
   'generate_video', 'promo_video', 'save_promo_video',
+  // "delete the files you just made" (chat/delete-files.ts, docs/decisions/20261121-ai-scratch-files.md rule 4): only
+  // the AI's own files of this chat, made by this person's answers here, go to the trash (no card); any other path is
+  // refused up front ('shared'), never a card. Not in a confidential or template chat, never a sub-agent's
+  // (QA TC-7332: left out of this list, the AI said it could not delete in a shared project chat)
+  'delete_files',
+  // the demo's banner words (tools/demo-banner.ts; offered only on a demo with a banner kit): a local tool like make_file,
+  // the banner saved into the project's folder through the write gates (WRITE_TARGET_ARGS, SAVE_CARD_TOOLS). Missing
+  // here, a shared project chat never had it: the AI took 13 steps and saved a junk SVG (demo re-test 11-22)
+  'change_banner_text',
 ])
 
 /** The arguments that name where a call writes, per tool: a shared chat's read card counts them only when something
  * is there already (chat/turn.ts sharedSources); every other path argument counts as a read. */
 export const WRITE_TARGET_ARGS: Readonly<Record<string, readonly string[]>> = {
-  write: ['file_path'], edit: ['file_path'], make_file: ['output'], edit_hwp: ['output'], stamp_pdf: ['output'], edit_pdf: ['output'], merge_pdfs: ['output'], split_pdf: ['output_folder'], resize_images: ['output', 'output_folder'], unzip_file: ['to_folder'], make_zip: ['output'], query_data: ['save_as'], save_url: ['save_as'], change_banner_text: ['save_as'], save_chat_file: ['save_as'], save_work_file: ['save_as'],
+  write: ['file_path'], edit: ['file_path'], make_file: ['output'], edit_hwp: ['output'], stamp_pdf: ['output'], edit_pdf: ['output'], merge_pdfs: ['output'], split_pdf: ['output_folder'], resize_images: ['output', 'output_folder'], unzip_file: ['to_folder'], make_zip: ['output'], query_data: ['save_as'], save_url: ['save_as'], change_banner_text: ['save_as', 'source'], save_chat_file: ['save_as'], save_work_file: ['save_as'],
   move_files: ['to_folder'], copy_files: ['to_folder'], rename_file: ['new_name'],
 
   // (QA TC-4968: its save_as counted as a read, so a save into the asker's own folder raised the read card)
@@ -118,7 +129,7 @@ export const OUTPUT_PATH_OF: Readonly<Record<string, (output: string, args: Reco
  * add their WRITE_TARGET_ARGS entries. */
 export const SAVE_CARD_TOOLS: Readonly<Record<string, 'one' | 'many'>> = {
   write: 'one', make_file: 'one', edit_hwp: 'one', stamp_pdf: 'one', edit_pdf: 'one', merge_pdfs: 'one', comment_docx: 'one', edit_office: 'one',
-  save_url: 'one', change_banner_text: 'one', save_connector_file: 'one', save_room_file: 'one', save_promo_video: 'one', save_chat_file: 'one', save_work_file: 'one', make_zip: 'one',
+  save_url: 'one', change_banner_text: 'many', save_connector_file: 'one', save_room_file: 'one', save_promo_video: 'one', save_chat_file: 'one', save_work_file: 'one', make_zip: 'one',
   split_pdf: 'many', resize_images: 'many', unzip_file: 'many',
   // a query's result as a file, or one file per value with split_by (tools/query-data.ts)
   query_data: 'many',

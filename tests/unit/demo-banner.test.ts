@@ -15,17 +15,18 @@ import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from '
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { bannerTypst, BANNER_SIZES, findTypst, headlineLines, headlineScale, loadBannerKit, NBSP, pickScene, renderBanner, sizeOf, typstString, unbrokenPieces, type BannerKit } from '../../server/src/demo/fakes/banner'
-import { BANNERS_DIR, BANNERS_KEPT, DemoBanners, PREPARED_BANNER, withLineBreaks } from '../../server/src/demo/fakes/banners'
+import { balancedHeadline, bannerTypst, BANNER_SIZES, findTypst, headlineLines, headlineScale, loadBannerKit, NBSP, pickScene, renderBanner, sizeOf, typstString, unbrokenPieces, type BannerKit } from '../../server/src/demo/fakes/banner'
+import { BANNER_SOURCE_NAME, BANNERS_DIR, BANNERS_KEPT, bannerSourceText, DemoBanners, launchSource, parseBannerSource, PREPARED_BANNER, withLineBreaks } from '../../server/src/demo/fakes/banners'
 import { HIGGSFIELD_TOOLS, MAKE_BANNER_MOVED, PREPARED_PHOTO, SAVE_NEXT } from '../../server/src/demo/fakes/higgsfield'
 import { FakeState } from '../../server/src/demo/fakes/state'
 import { demoFakesOf } from '../../server/src/demo/fakes'
-import { DEMO_BANNER_NOTE, DEMO_FAKES_NOTE, demoRule } from '../../server/src/chat/prompt'
+import { DEMO_BANNER_NOTE, DEMO_FAKES_NOTE, demoBannerSource, demoRule } from '../../server/src/chat/prompt'
 import { writeSteepling } from '../../scripts/demo/steepling/make'
 import { makeCApp, type CApp } from '../lib/c-app'
 import { integrationsOf } from '../../server/src/integrations/connections/service'
 import { integrationToolProvider } from '../../server/src/integrations/connections/tools'
-import { CHANGE_BANNER_TEXT_DESCRIPTION, ChangeBannerTextInput, DEMO_BANNER_TOOL } from '../../server/src/tools/demo-banner'
+import { bannerShownText, bannerSourceFor, CHANGE_BANNER_TEXT_DESCRIPTION, ChangeBannerTextInput, DEMO_BANNER_TOOL } from '../../server/src/tools/demo-banner'
+import { steepling } from '../../scripts/demo/steepling/make'
 import { toolRegistry } from '../../server/src/tools/registry'
 import { TurnFiles } from '../../server/src/files/service'
 import { stepLabel } from '../../shared/src/step-labels'
@@ -207,7 +208,8 @@ describe("Steepling's banner kit", () => {
     const ko = bannerTypst(kits.ko, '1200x628', { label: null }, { ...kits.ko.words, headline: '추운 아침에 마시는 작은 햇살 했어요.', subline: '유자 진저 콜드브루. 상큼한 유자에 생강의 따뜻함을 더했어요.' }, 'bg.jpg')
     expect(ko).toContain('#set text(costs: (runt: 500%, orphan: 300%, widow: 300%))')
     expect(ko).toContain('#set par(linebreaks: "optimized")')
-    expect(ko).toContain(`#box(${typstString('추운')}) #box(${typstString('아침에')}) #box(${typstString('마시는')}) #box(${typstString('작은')}) #box(${typstString('햇살 했어요.')})`)
+    // (two even lines since the demo re-test of 11-22: the breaks are chosen in code, balancedHeadline)
+    expect(ko).toContain(`#box(${typstString('추운')}) #box(${typstString('아침에 마시는')})#linebreak()#box(${typstString('작은')}) #box(${typstString('햇살 했어요.')})`)
     expect(ko).toContain(`#box(${typstString('따뜻함을 더했어요.')})`)
     expect(unbrokenPieces('작지 않아', 'ko')).toEqual(['작지', '않아'])
     const en = bannerTypst(kits.en, '1200x628', { label: null }, { ...kits.en.words, subline: 'Bright yuzu and a warm kick of ginger in every cup.' }, 'bg.jpg')
@@ -215,6 +217,50 @@ describe("Steepling's banner kit", () => {
     expect(unbrokenPieces('a b c', 'en')).toEqual(['a', `b${NBSP}c`])
     // Japanese and Chinese break anywhere, as they are written
     expect(unbrokenPieces('小さな 陽だまり', 'ja')).toEqual([])
+  })
+
+  // demo re-test 11-22: "작지 않아 큰 햇살이야!" broke as "작지 / 않아 큰 햇살이야!" (one word alone on the FIRST line)
+  test('a headline of 2 or 3 lines gets even lines, chosen in code; the user\'s own line break stays', () => {
+    expect(balancedHeadline('작지 않아 큰 햇살이야!', 'ko', 56, 520)).toBe('작지 않아\n큰 햇살이야!')
+    expect(balancedHeadline('작은 햇살 두 잔.', 'ko', 78, 560)).toBe('작은 햇살\n두 잔.')
+    // one line: as it is
+    expect(balancedHeadline('작은 햇살 두 잔.', 'ko', 56, 520)).toBe('작은 햇살 두 잔.')
+    expect(balancedHeadline('A little sun for two cups, every single morning.', 'en', 68, 520)).toBe('A little sun for\ntwo cups, every\nsingle morning.')
+    // a *starred* italic run is never split
+    expect(balancedHeadline('A little sun for *two cups.*', 'en', 68, 520)).toBe('A little sun\nfor *two cups.*')
+    // the user's own "\n", Japanese and Chinese: as they are
+    expect(balancedHeadline('작지\n않아 큰 햇살이야!', 'ko', 56, 520)).toBe('작지\n않아 큰 햇살이야!')
+    expect(balancedHeadline('小さくない、大きな陽だまり！', 'ja', 56, 520)).toBe('小さくない、大きな陽だまり！')
+    // never a short word alone on a line when there are 3 words or more
+    for (const [t, l, s, w] of [['작지 않아 큰 햇살이야!', 'ko', 56, 520], ['작은 햇살 두 잔.', 'ko', 78, 560], ['Sun in a cup, all day long for you', 'en', 68, 520], ['오늘도 작은 햇살 한 잔으로 시작하는 우리의 아침', 'ko', 56, 520]] as const) {
+      const lines = balancedHeadline(t, l, s, w).split('\n')
+      expect(lines.filter((x) => !x.includes(' ')), `${t}: ${lines.join(' / ')}`).toEqual([])
+    }
+    // in the banner: the breaks as typst line breaks
+    const doc = bannerTypst(kits.ko, '1200x628', { label: null }, { ...kits.ko.words, headline: '작지 않아 큰 햇살이야!' }, 'bg.jpg')
+    expect(doc).toContain(`#box(${typstString('작지')}) #box(${typstString('않아')})#linebreak()#box(${typstString('큰')}) #box(${typstString('햇살이야!')})`)
+  })
+
+  drawing('drawn: balanced headlines split where chosen (Korean, English and a long one)', async () => {
+    const pdftotext = Bun.which('pdftotext')
+    if (!pdftotext) return
+    const work = fs.mkdtempSync(path.join(tmp, 'balance-'))
+    const draw = (kit: BannerKit, size: (typeof BANNER_SIZES)[number], headline: string) => {
+      const photo = kit.scenes[0]!.photos[size]!
+      fs.copyFileSync(path.join(kit.dir, photo.file), path.join(work, 'bg.jpg'))
+      fs.writeFileSync(path.join(work, 'b.typ'), bannerTypst(kit, size, photo, { ...kit.words, eyebrow: '', subline: '', badge: '', badgeNote: '', cta: '', headline }, 'bg.jpg'))
+      const r = Bun.spawnSync([typst!, 'compile', '--font-path', path.join(kit.dir, 'fonts'), '--root', work, 'b.typ', 'b.pdf'], { cwd: work })
+      expect(r.exitCode, r.stderr.toString()).toBe(0)
+      return Bun.spawnSync([pdftotext, path.join(work, 'b.pdf'), '-']).stdout.toString().split('\n').map((x) => x.trim()).filter(Boolean)
+        // the headline's lines only (the pouch's label is drawn too)
+        .filter((l) => headline.includes(l))
+    }
+    expect(draw(kits.ko, '1200x628', '작지 않아 큰 햇살이야!')).toEqual(['작지 않아', '큰 햇살이야!'])
+    expect(draw(kits.ko, '1080x1080', '작은 햇살 두 잔.')).toEqual(['작은 햇살', '두 잔.'])
+    expect(draw(kits.en, '1200x628', 'A little sun for two cups, every single morning.')).toEqual(['A little sun for', 'two cups, every', 'single morning.'])
+    const long = draw(kits.ko, '1200x628', '오늘도 작은 햇살 한 잔으로 시작하는 우리의 아침')
+    expect(long.join(' ')).toBe('오늘도 작은 햇살 한 잔으로 시작하는 우리의 아침')
+    for (const l of long) expect(l.includes(' '), long.join(' / ')).toBe(true)
   })
 
   drawing('drawn: no line holds only the last word, and no Korean word is cut in two', async () => {
@@ -319,13 +365,52 @@ describe('the AI knows the demo\'s services are practice copies', () => {
 
   test('practice Drive files get no drive.google.com link; a scene with no prepared photo gets one line, no retry (QA 11-22 B3, A4)', () => {
     expect(DEMO_FAKES_NOTE).toContain('Practice Drive files have no web address: name the file and its folder, never write a drive.google.com link.')
-    expect(DEMO_FAKES_NOTE).toContain('When a new scene is not among the prepared photos, say so in one line and offer the prepared ones; do not try again.')
-    expect(DEMO_BANNER_NOTE).toContain('give scene only when the user asks for another of the prepared photos')
-    expect(ChangeBannerTextInput.shape.scene.description).toContain('words alone never change the photo')
+    expect(DEMO_FAKES_NOTE).toContain('or a scene not on this list, answer in ONE short line without calling any tool, offering the listed scenes; do not try again.')
+    expect(ChangeBannerTextInput.shape.scene.description).toContain('only when the user asks for another photo')
+  })
+
+  test('banner words live in a source file the AI reads and edits; words on the banner are a text edit, never a new scene (owner, 11-22)', () => {
+    // the demo note: read the source, edit only the named words, then draw again; a named word on the banner is no scene request
+    expect(DEMO_BANNER_NOTE).toContain("read the source file and replace exactly those words with the edit tool")
+    expect(DEMO_BANNER_NOTE).toContain('every other word stays exactly as it is ("change grey mornings to green mornings": replace grey with green)')
+    expect(DEMO_BANNER_NOTE).toContain('in (a) never rewrite, add or drop words the user did not name.')
+    expect(DEMO_BANNER_NOTE).toContain('When the user names words that are on the banner, it is a text edit, never a request for a new photo or scene: do not call generate_image for it.')
+    expect(CHANGE_BANNER_TEXT_DESCRIPTION).toContain('read that file, edit only the words the user named')
+    expect(CHANGE_BANNER_TEXT_DESCRIPTION).toContain(BANNER_SOURCE_NAME)
+    // the note names this chat's source file (made on the first call when it is not there yet)
+    const file = 'projects/유자 진저 런칭 캠페인/banner.json'
+    expect(demoRule('Steepling', true, true, { path: file, exists: true })).toContain(`This chat's banner source is ${file}: read it before you change or talk about the banner's words.`)
+    expect(demoRule('Steepling', true, true, { path: file, exists: false })).toContain(demoBannerSource(file, false))
+    expect(demoBannerSource(file, false)).toContain('makes it from the launch banner')
+    expect(demoRule('Steepling', true, false, { path: file, exists: true })).not.toContain(file)
+  })
+
+  test('the source file: one field per line, read back the same; a broken one says what to fix, never its text', () => {
+    const src = launchSource(kits.ko)
+    const text = bannerSourceText(src)
+    expect(text.split('\n')[1]).toBe('  "headline": "흐린 아침에,\\n*작은 햇살 한 잔.*",')
+    expect(text).toContain('"badge": "20% 할인"')
+    expect(parseBannerSource(text)).toEqual(src)
+    // an edit of one word, as the edit tool makes it
+    expect(parseBannerSource(text.replace('흐린 아침', '밝은 아침')).words).toEqual({ ...kits.ko.words, headline: '밝은 아침에,\n*작은 햇살 한 잔.*' })
+    expect(() => parseBannerSource('{"headline": "secret words", ')).toThrow('not valid JSON')
+    expect(() => parseBannerSource('{"headline": 3}')).toThrow('headline')
+    try { parseBannerSource('{"headline": "secret words", ') } catch (e) { expect(String(e)).not.toContain('secret words') }
+  })
+
+  test('the seed writes the launch banner\'s source next to its pictures in the project (ko and en)', () => {
+    for (const l of ['ko', 'en'] as const) {
+      const files = steepling(l).files
+      const at = Object.keys(files).find((p) => p.endsWith(`/${BANNER_SOURCE_NAME}`))!
+      expect(at.startsWith('projects/'), l).toBe(true)
+      expect(parseBannerSource(files[at] as string), l).toEqual(launchSource(kits[l]))
+      expect(fs.readFileSync(path.join(content[l], 'files', ...at.split('/')), 'utf8'), l).toBe(files[at] as string)
+    }
   })
 
   test('a short phrase right after a banner is its new headline: applied at once, undo offered after (owner, 11-22)', () => {
-    expect(DEMO_BANNER_NOTE).toContain('A short phrase sent right after a banner is its new headline: apply it at once without asking, then offer to undo.')
+    expect(DEMO_BANNER_NOTE).toContain('the whole headline becomes exactly that phrase')
+    expect(DEMO_BANNER_NOTE).toContain('apply it at once without asking, then offer to undo.')
   })
 
   test('say the photo is a prepared one, in one short sentence; save and show every picture without being asked (QA TC-6791, TC-6792)', () => {
@@ -333,9 +418,9 @@ describe('the AI knows the demo\'s services are practice copies', () => {
     expect(DEMO_FAKES_NOTE).toContain('one short sentence')
     expect(DEMO_FAKES_NOTE).toContain('without being asked')
     expect(DEMO_FAKES_NOTE).toContain('save_connector_file')
-    // the Markdown image the web draws inline (web/src/lib/markdown.ts classifyImage: /api/files/download?path=)
-    expect(DEMO_FAKES_NOTE).toContain('![<name>](/api/files/download?path=')
-    expect(DEMO_BANNER_NOTE).toContain('change_banner_text saves the banner; show it with the Markdown image its result gives')
+    // the chat shows the saved pictures on the tool's step by itself (#341): no image Markdown from the AI
+    expect(DEMO_FAKES_NOTE).toContain('The saved pictures appear in the chat by themselves, so never write image Markdown for them; mention them in words only.')
+    expect(DEMO_BANNER_NOTE).toContain('the saved pictures appear in the chat by themselves, so never write image Markdown for them; mention them in words only.')
     expect(DEMO_BANNER_NOTE).toContain("demo's prepared photos")
     // one sentence each in the result, no nagging
     for (const line of [PREPARED_PHOTO, PREPARED_BANNER, SAVE_NEXT]) expect(line.length).toBeLessThan(160)
@@ -373,6 +458,11 @@ describe('end to end on a demo server', () => {
     const names = built.tools.map((t) => t.name)
     expect(names).toContain('team_higgsfield__generate_image')
     expect(names.filter((n) => /banner/.test(n))).toEqual([])
+    // the step in the person's language (demo re-test 11-22: "Higgsfield · Generate image" in a Korean chat)
+    const gen = built.tools.find((t) => t.name === 'team_higgsfield__generate_image')!
+    expect(gen.label?.({ prompt: 'x' }, 'ko')).toBe('Higgsfield · 이미지 만들기')
+    expect(gen.label?.({ prompt: 'x' }, 'ja')).toBe('Higgsfield · 画像を生成')
+    expect(gen.label?.({ prompt: 'x' }, 'en')).toBe('Higgsfield · Generate image')
     const res = await demoFakesOf(A.ctx)!.higgsfield.answer(new URL('https://mcp.higgsfield.ai/mcp'), { method: 'POST', headers: [], body: Buffer.from(JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'make_banner', arguments: { headline: 'x' } } })) } as any)
     const body = JSON.parse(Buffer.from(res.body as Buffer).toString('utf8'))
     expect(body.result.isError).toBe(true)
@@ -404,8 +494,10 @@ describe('end to end on a demo server', () => {
     expect(view.words.headline).toBe('작지 않아\n큰 햇살이야!')
     expect(view.words.badge).toBe(kits.ko.words.badge)
     expect(view.saved.startsWith('users/alice/유자 진저/banner-1200x628-')).toBe(true)
-    // shown inline right away (the Markdown image the web draws) and handed to the AI as a picture
-    expect(text).toContain(`](/api/files/download?path=${encodeURIComponent(view.saved)})`)
+    // shown by the chat under the step right away (never retyped by the AI as Markdown) and handed to the AI as a picture
+    expect(out.stepImages?.map((x) => x.path)).toEqual(view.files)
+    expect(text).not.toContain('](/api/files/download?path=')
+    expect(text).toContain(bannerShownText(['1200x628', '1080x1080', '1080x1920']))
     const img = out.content.find((c) => c.type === 'image') as { data: string } | undefined
     expect(img).toBeTruthy()
     const bytes = fs.readFileSync(path.join(A.team, ...view.saved.split('/')))
@@ -418,5 +510,92 @@ describe('end to end on a demo server', () => {
     expect([view2.words.headline, view2.words.badge]).toEqual(['작지 않아\n큰 햇살이야!', '30% 할인'])
     expect(view2.saved).not.toBe(view.saved)
     expect(asked).toEqual([])
+    // the source next to the pictures holds what was drawn: the next edit starts there
+    expect(view.source).toBe(`users/alice/유자 진저/${BANNER_SOURCE_NAME}`)
+    expect(parseBannerSource(fs.readFileSync(path.join(A.team, ...view.source.split('/')), 'utf8')).words).toEqual({ ...kits.ko.words, headline: '작지 않아\n큰 햇살이야!', badge: '30% 할인' })
+  })
+
+  /** a chat in a project of its own whose folder holds the seed's launch banner source; the tool and a call of it */
+  const setup = (id: string) => {
+    const chat = A.chat('alice'), turnId = A.turn('alice', chat)
+    const folder = `users/alice/${id}`
+    A.ctx.db.query('INSERT INTO projects (id, name, folder_path) VALUES (?, ?, ?)').run(id, id, folder)
+    A.ctx.db.query('UPDATE chats SET project_id = ? WHERE id = ?').run(id, chat)
+    fs.mkdirSync(path.join(A.team, ...folder.split('/')), { recursive: true })
+    const source = `${folder}/${BANNER_SOURCE_NAME}`
+    const abs = path.join(A.team, ...source.split('/'))
+    fs.writeFileSync(abs, bannerSourceText(launchSource(kits.ko)))
+    const files = { user: A.ctx.files.principal('alice'), turnId, files: new TurnFiles() } as TurnToolContext['files']
+    files.person = { locale: 'ko', async confirm() { return false }, async choose() { return null }, *turnUrls() {}, allSitesHere: () => true }
+    const tc: TurnToolContext = { turnId, chatId: chat, userId: 'alice', messageId: 'm', locale: 'ko', signal: new AbortController().signal, files }
+    const tool = (A.ctx.services.turnTools ?? []).find((t) => t.name === DEMO_BANNER_TOOL) as TurnTool
+    const render = async (args: Record<string, unknown> = {}) => {
+      const out = await tool.call(args, tc)
+      const text = out.content.map((c) => (c.type === 'text' ? c.text : '')).join('')
+      return { out, text, view: out.isError ? null : JSON.parse(text.split('\n')[0]!) }
+    }
+    return { chat, folder, source, abs, render }
+  }
+
+  drawing("the owner's demo test (11-22) in one turn: read the source, edit one phrase, draw; every other word unchanged", async () => {
+    const { chat, source, abs, render, folder } = setup('yuzu-owner')
+    // the demo note names this chat's source, and it is there (the seed's)
+    expect(bannerSourceFor(A.ctx, A.ctx.files.principal('alice'), chat)).toEqual({ path: source, exists: true })
+    // "흐린 아침 말고, 밝은 아침으로 해줘": read → edit (the edit tool's exact replace of a unique string) → render
+    const read = fs.readFileSync(abs, 'utf8')
+    expect(read.split('흐린 아침').length).toBe(2)
+    fs.writeFileSync(abs, read.replace('흐린 아침', '밝은 아침'))
+    const { out, text, view } = await render()
+    expect(out.isError, text).toBeFalsy()
+    expect(view.words.headline).toBe('밝은 아침에,\n*작은 햇살 한 잔.*')
+    expect(oneLineOf(view.words.headline)).toBe('밝은 아침에, 작은 햇살 한 잔.')
+    // every other word, the photo: the launch banner's
+    const k = kits.ko.words
+    expect(view.words).toEqual({ headline: '밝은 아침에,\n*작은 햇살 한 잔.*', subline: k.subline, eyebrow: k.eyebrow, badge: k.badge, badge_note: k.badgeNote, button: k.cta })
+    expect(view.scene).toBe(kits.ko.defaultScene)
+    // every size drawn and saved next to the source
+    expect(view.files.map((p: string) => p.replace(/-[\w]{6}\.png$/, ''))).toEqual(['1200x628', '1080x1080', '1080x1920'].map((s) => `${folder}/banner-${s}`))
+    for (const p of view.files as string[]) {
+      const [w, h] = p.match(/banner-(\d+)x(\d+)-/)!.slice(1).map(Number)
+      expect(pngSize(fs.readFileSync(path.join(A.team, ...p.split('/'))))).toEqual({ w: w!, h: h! })
+    }
+    // replay 11-22: the AI retyped the Markdown and its third picture was the 1080x1080 file again. The result carries the
+    // three saved files, each with its own size, for the chat to show under the step; the AI is told they are shown
+    // already and never gets a Markdown image to copy
+    const sizes = ['1200x628', '1080x1080', '1080x1920']
+    expect(out.stepImages).toEqual(sizes.map((size, i) => ({ path: view.files[i], alt: `banner ${size}`, label: size })))
+    expect(new Set(out.stepImages!.map((x) => x.path)).size).toBe(3)
+    for (const [i, im] of out.stepImages!.entries()) expect(im.path).toContain(`banner-${sizes[i]}-`)
+    expect(text).not.toMatch(/!\[[^\]]*\]\(/)
+    expect(text).not.toContain('/api/files/download')
+    expect(text).toContain('The chat already shows these 3 pictures under this step, each labelled with its size (1200x628, 1080x1080, 1080x1920).')
+    expect(text).toContain('Do not write them as Markdown images or links in your answer')
+    expect(text).toContain(`The banner's words are in ${source}: to change them, edit that file`)
+    // the AI's edit stays in the file as it made it (the render only read it)
+    expect(fs.readFileSync(abs, 'utf8')).toBe(read.replace('흐린 아침', '밝은 아침'))
+    // the next turn starts from the file: "작은 햇살" → "큰 햇살" keeps "밝은 아침에,"
+    fs.writeFileSync(abs, fs.readFileSync(abs, 'utf8').replace('작은 햇살', '큰 햇살'))
+    expect((await render({ size: '1200x628' })).view.words.headline).toBe('밝은 아침에,\n*큰 햇살 한 잔.*')
+  })
+
+  drawing('a project\'s banner is its own: another project starts from the launch words; a broken source says what to fix', async () => {
+    const a = setup('yuzu-a'), b = setup('yuzu-b')
+    fs.writeFileSync(a.abs, fs.readFileSync(a.abs, 'utf8').replace('흐린 아침', '밝은 아침'))
+    expect((await a.render({ size: '1200x628' })).view.words.headline).toBe('밝은 아침에,\n*작은 햇살 한 잔.*')
+    expect((await b.render({ size: '1200x628' })).view.words.headline).toBe(kits.ko.words.headline)
+    // a chat with no source yet: the first call makes it from the launch banner, in the chat's folder
+    fs.rmSync(b.abs)
+    const made = await b.render({ size: '1200x628' })
+    expect(made.view.source).toBe(b.source)
+    expect(parseBannerSource(fs.readFileSync(b.abs, 'utf8'))).toEqual(launchSource(kits.ko))
+    fs.writeFileSync(a.abs, '{"headline": "secret", ')
+    const bad = await a.render()
+    expect(bad.out.isError).toBe(true)
+    expect(bad.text).toContain('not valid JSON')
+    expect(bad.text).not.toContain('secret')
+    // a source must be a .json file
+    expect((await a.render({ source: `${a.folder}/notes.md` })).text).toContain('is a .json file')
   })
 })
+
+const oneLineOf = (s: string) => s.replace(/\*/g, '').replace(/\s*\n\s*/g, ' ').trim()

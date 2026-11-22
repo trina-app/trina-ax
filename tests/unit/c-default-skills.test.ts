@@ -20,7 +20,9 @@ afterEach(async () => { await h?.close() })
 
 const ROOT = path.join(import.meta.dir, '..', '..')
 /** the four skills that ship, by pack */
-const KEPT = { general: ['card-news', 'intro-deck', 'promo-video'], work: ['humanizer'] } as const
+const KEPT = { general: ['card-news', 'intro-deck', 'promo-video'], work: ['humanizer', 'meeting-notes', 'team-report', 'customer-reply', 'contract-review'] } as const
+/** the four kept skills an older seeder knew (the everyday office skills came on 2026-11-22: no older build has them) */
+const KEPT_BEFORE_DS3 = ['card-news', 'intro-deck', 'promo-video', 'humanizer']
 const KEPT_PATHS = Object.entries(KEPT).flatMap(([id, names]) => names.map((n) => `skills/${id}/${n}/SKILL.md`)).sort()
 /** the 18 that went: no known origin */
 const GONE = {
@@ -56,7 +58,12 @@ test('the packs ship the four skills with a known origin, in Korean and English,
       }
     }
   }
-  expect(packSkillNames().sort()).toEqual(['card-news', 'humanizer', 'intro-deck', 'promo-video'])
+  // the everyday office skills in the other four app languages too (the rest falls back to English there)
+  for (const l of ['ja', 'zh', 'es', 'id'] as const) {
+    expect(Object.keys(SKILL_PACKS.work.skills[l]!).sort()).toEqual(['contract-review', 'customer-reply', 'meeting-notes', 'team-report'])
+    expect(SKILL_PACKS.general.skills[l]).toBeUndefined()
+  }
+  expect(packSkillNames().sort()).toEqual(['card-news', 'contract-review', 'customer-reply', 'humanizer', 'intro-deck', 'meeting-notes', 'promo-video', 'team-report'])
   expect(RECOMMENDED_PACK_SKILLS).toBe(RECOMMENDED_SKILL_PACKS.reduce((n, id) => n + Object.keys(SKILL_PACKS[id].skills.en).length, 0))
   // nothing of the deleted skills is left in the repository's packs
   for (const [id, names] of Object.entries(GONE)) for (const n of names) for (const l of ['ko', 'en']) expect(fs.existsSync(path.join(ROOT, 'resources/skill-packs', id, l, n))).toBe(false)
@@ -208,7 +215,9 @@ test('rollback guard: a fresh team\'s row holds all 19 keys of the old seeder as
   expect(LEGACY_DEFAULT_SKILL_KEYS.filter((k) => k.startsWith('marketing/'))).toHaveLength(7)
   expect(LEGACY_DEFAULT_SKILL_KEYS.filter((k) => k.startsWith('work/'))).toHaveLength(7)
   // every name a pack ever shipped (the 22, hr included): an old copy installed before the install mark stays the pack's
-  expect([...LEGACY_PACK_SKILL_NAMES].sort()).toEqual([...Object.values(GONE).flat(), ...Object.values(KEPT).flat()].sort())
+  expect([...LEGACY_PACK_SKILL_NAMES].sort()).toEqual([...Object.values(GONE).flat(), ...KEPT_BEFORE_DS3].sort())
+  // a new pack skill never takes a name an older release shipped (its copy on a team would be read as the new one)
+  for (const n of ['meeting-notes', 'team-report', 'customer-reply', 'contract-review']) expect(LEGACY_PACK_SKILL_NAMES).not.toContain(n)
   expect(Object.isFrozen(LEGACY_PACK_SKILL_NAMES)).toBe(true)
   setupWelcomeTeam(h.ctx, ownerId, 'ko')
   const row = legacyRow()

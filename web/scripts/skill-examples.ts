@@ -12,22 +12,26 @@ import fs from 'node:fs'
 import path from 'node:path'
 
 const ROOT = path.resolve(import.meta.dir, '..', '..')
-const INPUTS = path.join(ROOT, 'examples', 'data', 'example-coffee')
+const EXAMPLES = path.join(ROOT, 'examples', 'data')
 const ORIGIN = 'http://example.test'
 const SKILLS = ['intro-deck', 'card-news', 'promo-video'] as const
 type Skill = (typeof SKILLS)[number]
-/** the three shown (1-based): the deck's cover, numbers and process; the first three cards; the video's hook, work, proof */
-const PICK: Record<Skill, number[]> = { 'intro-deck': [1, 5, 6], 'card-news': [1, 2, 3], 'promo-video': [1, 3, 4] }
+/** the three shown (1-based): the deck's cover, about and numbers; the first three cards; the video's hook, work, proof */
+const PICK: Record<Skill, number[]> = { 'intro-deck': [1, 2, 5], 'card-news': [1, 2, 3], 'promo-video': [1, 3, 4] }
 const LABEL = { ko: '18초 영상', en: '18-second video' } as const
 
 const args = process.argv.slice(2)
-const [skill, file, locale, out] = args as [Skill, string, 'ko' | 'en', string]
-if (!SKILLS.includes(skill) || !file || !(locale === 'ko' || locale === 'en') || !out?.endsWith('.webp')) {
-  console.error('usage: bun scripts/skill-examples.ts <intro-deck|card-news|promo-video> <artifact.html> <ko|en> <out.webp> [--pick 1,5,6]')
+const [skill, file, locale, out] = args as [Skill, string, 'ko' | 'en' | 'ja' | 'zh' | 'es' | 'id', string]
+// the intro deck is made in every app language; the others in Korean and English
+const LANGS = skill === 'intro-deck' ? ['ko', 'en', 'ja', 'zh', 'es', 'id'] : ['ko', 'en']
+if (!SKILLS.includes(skill) || !file || !LANGS.includes(locale) || !out?.endsWith('.webp')) {
+  console.error('usage: bun scripts/skill-examples.ts <intro-deck|card-news|promo-video> <artifact.html> <ko|en (intro-deck: ja|zh|es|id too)> <out.webp> [--pick 1,5,6]')
   process.exit(2)
 }
 const at = args.indexOf('--pick')
 const pick = at >= 0 ? args[at + 1]!.split(',').map(Number) : PICK[skill]
+// the intro deck is made on 숲틈 / Soopteum (its brand pictures in images/), the others on 예시커피 / Example Coffee
+const INPUTS = path.join(EXAMPLES, skill === 'intro-deck' ? 'soopteum' : 'example-coffee')
 const font = path.join(ROOT, 'web', 'dist', 'vendor', 'fonts', 'PretendardVariable.woff2')
 if (!fs.existsSync(font)) { console.error('web/dist has no fonts yet: run `bun run build` in web/ first'); process.exit(1) }
 
@@ -40,8 +44,8 @@ async function open(page: Page, html: string) {
     if (p === '/') return route.fulfill({ status: 200, contentType: 'text/html; charset=utf-8', body: html })
     const vendor = path.join(ROOT, 'web', 'dist', p)
     if (p.startsWith('/vendor/') && vendor.startsWith(path.join(ROOT, 'web', 'dist', 'vendor') + path.sep) && fs.existsSync(vendor)) return route.fulfill({ status: 200, path: vendor })
-    const input = path.join(INPUTS, locale, path.basename(p))
-    if (p.startsWith('/groups/') && fs.existsSync(input)) return route.fulfill({ status: 200, path: input })
+    const input = [path.join(INPUTS, locale, path.basename(p)), path.join(INPUTS, 'images', path.basename(p))].find((f) => fs.existsSync(f))
+    if (p.startsWith('/groups/') && input) return route.fulfill({ status: 200, path: input })
     console.warn(`not found: ${p}`)
     return route.fulfill({ status: 404, body: '' })
   })
@@ -84,7 +88,7 @@ const grid = {
   'promo-video': '.x{grid-template-columns:424px 208px;grid-template-rows:260px 260px}.x>:first-child{grid-row:1/3;height:528px}',
 }[skill]
 const play = '<svg viewBox="0 0 10 12" width="8" height="10" aria-hidden="true"><path d="M0 0l10 6-10 6z" fill="currentColor"/></svg>'
-const tag = skill === 'promo-video' ? `<span class="tag">${play}${LABEL[locale]}</span>` : ''
+const tag = skill === 'promo-video' ? `<span class="tag">${play}${LABEL[locale as "ko" | "en"]}</span>` : ''
 const layout = await browser.newPage({ viewport: { width: 640, height: 600 }, deviceScaleFactor: 2 })
 await layout.setContent(`<!doctype html><html><head><meta charset="utf-8"><style>${face}
 html,body{margin:0;background:transparent}
