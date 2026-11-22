@@ -15,7 +15,7 @@ import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from '
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { bannerTypst, BANNER_SIZES, findTypst, headlineLines, headlineScale, loadBannerKit, NBSP, pickScene, renderBanner, sizeOf, typstString, unbrokenPieces, type BannerKit } from '../../server/src/demo/fakes/banner'
+import { balancedHeadline, bannerTypst, BANNER_SIZES, findTypst, headlineLines, headlineScale, loadBannerKit, NBSP, pickScene, renderBanner, sizeOf, typstString, unbrokenPieces, type BannerKit } from '../../server/src/demo/fakes/banner'
 import { BANNERS_DIR, BANNERS_KEPT, DemoBanners, PREPARED_BANNER, withLineBreaks } from '../../server/src/demo/fakes/banners'
 import { HIGGSFIELD_TOOLS, MAKE_BANNER_MOVED, PREPARED_PHOTO, SAVE_NEXT } from '../../server/src/demo/fakes/higgsfield'
 import { FakeState } from '../../server/src/demo/fakes/state'
@@ -207,7 +207,8 @@ describe("Steepling's banner kit", () => {
     const ko = bannerTypst(kits.ko, '1200x628', { label: null }, { ...kits.ko.words, headline: '추운 아침에 마시는 작은 햇살 했어요.', subline: '유자 진저 콜드브루. 상큼한 유자에 생강의 따뜻함을 더했어요.' }, 'bg.jpg')
     expect(ko).toContain('#set text(costs: (runt: 500%, orphan: 300%, widow: 300%))')
     expect(ko).toContain('#set par(linebreaks: "optimized")')
-    expect(ko).toContain(`#box(${typstString('추운')}) #box(${typstString('아침에')}) #box(${typstString('마시는')}) #box(${typstString('작은')}) #box(${typstString('햇살 했어요.')})`)
+    // (two even lines since the demo re-test of 11-22: the breaks are chosen in code, balancedHeadline)
+    expect(ko).toContain(`#box(${typstString('추운')}) #box(${typstString('아침에 마시는')})#linebreak()#box(${typstString('작은')}) #box(${typstString('햇살 했어요.')})`)
     expect(ko).toContain(`#box(${typstString('따뜻함을 더했어요.')})`)
     expect(unbrokenPieces('작지 않아', 'ko')).toEqual(['작지', '않아'])
     const en = bannerTypst(kits.en, '1200x628', { label: null }, { ...kits.en.words, subline: 'Bright yuzu and a warm kick of ginger in every cup.' }, 'bg.jpg')
@@ -215,6 +216,50 @@ describe("Steepling's banner kit", () => {
     expect(unbrokenPieces('a b c', 'en')).toEqual(['a', `b${NBSP}c`])
     // Japanese and Chinese break anywhere, as they are written
     expect(unbrokenPieces('小さな 陽だまり', 'ja')).toEqual([])
+  })
+
+  // demo re-test 11-22: "작지 않아 큰 햇살이야!" broke as "작지 / 않아 큰 햇살이야!" (one word alone on the FIRST line)
+  test('a headline of 2 or 3 lines gets even lines, chosen in code; the user\'s own line break stays', () => {
+    expect(balancedHeadline('작지 않아 큰 햇살이야!', 'ko', 56, 520)).toBe('작지 않아\n큰 햇살이야!')
+    expect(balancedHeadline('작은 햇살 두 잔.', 'ko', 78, 560)).toBe('작은 햇살\n두 잔.')
+    // one line: as it is
+    expect(balancedHeadline('작은 햇살 두 잔.', 'ko', 56, 520)).toBe('작은 햇살 두 잔.')
+    expect(balancedHeadline('A little sun for two cups, every single morning.', 'en', 68, 520)).toBe('A little sun for\ntwo cups, every\nsingle morning.')
+    // a *starred* italic run is never split
+    expect(balancedHeadline('A little sun for *two cups.*', 'en', 68, 520)).toBe('A little sun\nfor *two cups.*')
+    // the user's own "\n", Japanese and Chinese: as they are
+    expect(balancedHeadline('작지\n않아 큰 햇살이야!', 'ko', 56, 520)).toBe('작지\n않아 큰 햇살이야!')
+    expect(balancedHeadline('小さくない、大きな陽だまり！', 'ja', 56, 520)).toBe('小さくない、大きな陽だまり！')
+    // never a short word alone on a line when there are 3 words or more
+    for (const [t, l, s, w] of [['작지 않아 큰 햇살이야!', 'ko', 56, 520], ['작은 햇살 두 잔.', 'ko', 78, 560], ['Sun in a cup, all day long for you', 'en', 68, 520], ['오늘도 작은 햇살 한 잔으로 시작하는 우리의 아침', 'ko', 56, 520]] as const) {
+      const lines = balancedHeadline(t, l, s, w).split('\n')
+      expect(lines.filter((x) => !x.includes(' ')), `${t}: ${lines.join(' / ')}`).toEqual([])
+    }
+    // in the banner: the breaks as typst line breaks
+    const doc = bannerTypst(kits.ko, '1200x628', { label: null }, { ...kits.ko.words, headline: '작지 않아 큰 햇살이야!' }, 'bg.jpg')
+    expect(doc).toContain(`#box(${typstString('작지')}) #box(${typstString('않아')})#linebreak()#box(${typstString('큰')}) #box(${typstString('햇살이야!')})`)
+  })
+
+  drawing('drawn: balanced headlines split where chosen (Korean, English and a long one)', async () => {
+    const pdftotext = Bun.which('pdftotext')
+    if (!pdftotext) return
+    const work = fs.mkdtempSync(path.join(tmp, 'balance-'))
+    const draw = (kit: BannerKit, size: (typeof BANNER_SIZES)[number], headline: string) => {
+      const photo = kit.scenes[0]!.photos[size]!
+      fs.copyFileSync(path.join(kit.dir, photo.file), path.join(work, 'bg.jpg'))
+      fs.writeFileSync(path.join(work, 'b.typ'), bannerTypst(kit, size, photo, { ...kit.words, eyebrow: '', subline: '', badge: '', badgeNote: '', cta: '', headline }, 'bg.jpg'))
+      const r = Bun.spawnSync([typst!, 'compile', '--font-path', path.join(kit.dir, 'fonts'), '--root', work, 'b.typ', 'b.pdf'], { cwd: work })
+      expect(r.exitCode, r.stderr.toString()).toBe(0)
+      return Bun.spawnSync([pdftotext, path.join(work, 'b.pdf'), '-']).stdout.toString().split('\n').map((x) => x.trim()).filter(Boolean)
+        // the headline's lines only (the pouch's label is drawn too)
+        .filter((l) => headline.includes(l))
+    }
+    expect(draw(kits.ko, '1200x628', '작지 않아 큰 햇살이야!')).toEqual(['작지 않아', '큰 햇살이야!'])
+    expect(draw(kits.ko, '1080x1080', '작은 햇살 두 잔.')).toEqual(['작은 햇살', '두 잔.'])
+    expect(draw(kits.en, '1200x628', 'A little sun for two cups, every single morning.')).toEqual(['A little sun for', 'two cups, every', 'single morning.'])
+    const long = draw(kits.ko, '1200x628', '오늘도 작은 햇살 한 잔으로 시작하는 우리의 아침')
+    expect(long.join(' ')).toBe('오늘도 작은 햇살 한 잔으로 시작하는 우리의 아침')
+    for (const l of long) expect(l.includes(' '), long.join(' / ')).toBe(true)
   })
 
   drawing('drawn: no line holds only the last word, and no Korean word is cut in two', async () => {
@@ -373,6 +418,11 @@ describe('end to end on a demo server', () => {
     const names = built.tools.map((t) => t.name)
     expect(names).toContain('team_higgsfield__generate_image')
     expect(names.filter((n) => /banner/.test(n))).toEqual([])
+    // the step in the person's language (demo re-test 11-22: "Higgsfield · Generate image" in a Korean chat)
+    const gen = built.tools.find((t) => t.name === 'team_higgsfield__generate_image')!
+    expect(gen.label?.({ prompt: 'x' }, 'ko')).toBe('Higgsfield · 이미지 만들기')
+    expect(gen.label?.({ prompt: 'x' }, 'ja')).toBe('Higgsfield · 画像を生成')
+    expect(gen.label?.({ prompt: 'x' }, 'en')).toBe('Higgsfield · Generate image')
     const res = await demoFakesOf(A.ctx)!.higgsfield.answer(new URL('https://mcp.higgsfield.ai/mcp'), { method: 'POST', headers: [], body: Buffer.from(JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'make_banner', arguments: { headline: 'x' } } })) } as any)
     const body = JSON.parse(Buffer.from(res.body as Buffer).toString('utf8'))
     expect(body.result.isError).toBe(true)

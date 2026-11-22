@@ -66,8 +66,9 @@ export class DemoFakes {
     this.state = new FakeState(o.dataDir, warn)
     this.gmail = new FakeGmail(loadGmail(o.content, warn), this.state)
     this.google = new FakeGoogleDrive(loadDrive(o.content, warn))
-    this.higgsfield = new FakeHiggsfield(loadPictures(o.content), this.state)
-    this.banners = new DemoBanners(this.state, loadBannerKit(o.content, warn))
+    const kit = loadBannerKit(o.content, warn)
+    this.higgsfield = new FakeHiggsfield(loadPictures(o.content, kit), this.state, kit?.lang)
+    this.banners = new DemoBanners(this.state, kit)
   }
 
   /** connections/net.ts NetOptions.answer: a Higgsfield address, else null (then refused: the fence is on) */

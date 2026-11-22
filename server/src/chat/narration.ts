@@ -36,12 +36,20 @@ const ASKS_FOR_OTHER_LANGUAGE = new RegExp([
   '[\\u4E00-\\u9FFF\\u30A0-\\u30FF]語(?:で|に|版|訳)', '翻訳', '英語',
   '用[\\u4E00-\\u9FFF]{1,6}[语文語]', '[\\u4E00-\\u9FFF]{1,6}[语文]版', '翻译', '英文', '英语',
   'english', 'translat', 'spanish', 'español', 'indonesian', 'bahasa', 'french', 'german', 'vietnamese', 'japanese',
-  'chinese', 'korean',
-  // text that is often in English though the chat is not: a slogan, copy, a commit message, a button or label
-  '영작', '슬로건', '카피', '문구', '캐치프레이즈', '커밋', 'commit', '버튼', '라벨',
+  '영작', 'commit', 'chinese', 'korean',
   // the message quotes 3 or more Latin words (after ":" or in quotes)
   '[:：]\\s*[A-Za-z]+(?:[\\s,.\'-]+[A-Za-z]+){2,}', '["“\'‘「][A-Za-z]+(?:[\\s,.-]+[A-Za-z]+){2,}',
 ].join('|'), 'i')
+/** Text that is often in English though the chat is not: a slogan, copy, a commit message, a button or label. Such a
+ * message turns the hold off unless it gives the new words in the answer's own script (OWN_SCRIPT_COPY): "배너 문구를
+ * '작지 않아 큰 햇살이야!'로 바꿔 줘" asks for Korean words (demo re-test 11-22: "Try with a full team path." went out at
+ * the top of that Korean answer). */
+const OFTEN_ENGLISH = /슬로건|카피|문구|캐치프레이즈|커밋|버튼|라벨/
+/** the new words in the script: quoted, or right before "(으)로 바꿔/변경/수정/고쳐" ("…큰 햇살이야!로 바꿔 줘") */
+const ownScriptCopy = (m: string, script: AnswerScript) => {
+  for (const q of m.matchAll(/["“'‘「『]([^"”'’」』\n]{1,80})["”'’」』]/g)) if (SCRIPT_LETTER[script].test(q[1]!)) return true
+  return script === 'ko' && /[가-힣][^\s]*\s*(?:으로|로)\s*(?:바꿔|바꾸|변경|수정|고쳐)/.test(m)
+}
 
 /** The longest piece (trimmed) that can be dropped, and at most this many sentences and lines. */
 export const NARRATION_MAX_CHARS = 200
@@ -105,6 +113,9 @@ const PLACE_ORDER = /^(?:add|append|insert|put|place)\s+(?:(?:it|this|that|them|
  * decide", "listed as read-only"). Not "The server checks the token." or "I need to call the vendor." (review of
  * #1272). Checked before REPORT, whose "should" would keep it. */
 const META = /\b(?:i\s+(?:should|must|need\s+to|will|am\s+going\s+to)|i'll|i'm\s+going\s+to|let\s+me)\s+(?:just\s+)?(?:call|try|attempt|use|run)\s+(?:the|this|that)\s+(?:tool|write|edit|save)\b|\blet\s+the\s+server\s+decide\b|\b(?:listed|marked)\s+as\s+read-only\b/i
+/** The AI's next try after a tool error, naming the work ("Try with a full team path.", demo re-test 11-22: it opened a
+ * Korean answer): an order to itself, not to people, when it names a path, a file or a folder (WORK_NOUN) */
+const RETRY_NOTE = /^(?:try|retry)\s+(?:again\s+)?(?:with|using|via|a|an|the|another)\b/i
 /** A note about the work, in no fixed opening (whole piece, names and `code` taken out): an order or plan of its own,
  * "the user", the AI's thoughts about its tools (META), or a short line (100 characters at most) that names the work in
  * a note's shape. */
@@ -113,6 +124,7 @@ const isWorkNote = (t: string) => {
   if (TO_PEOPLE.test(t) || isTitle(t)) return false
   if (META.test(t)) return true
   if (REPORT.test(t)) return false
+  if (RETRY_NOTE.test(t) && WORK_NOUN.test(t) && t.length <= 100) return true
   if (ORDER_TO_PEOPLE.test(t) && !NOTE_ORDER.test(t) && !SELF_ORDER.test(t)) return false
   return SELF_ORDER.test(t) || NOTE_ORDER.test(t) || OWN_PLAN.test(t) || THE_USER.test(t) || ((PLACE_ORDER.test(t) || (WORK_NOUN.test(t) && NOTE_MARK.test(t))) && t.length <= 100)
 }
@@ -133,6 +145,7 @@ const writesLatin = (m: string, script: AnswerScript) => !SCRIPT_LETTER[script].
 export function narrationScript(locale: Locale, message: string, previous?: string | null): AnswerScript | null {
   if (locale !== 'ko' && locale !== 'ja' && locale !== 'zh') return null
   if (ASKS_FOR_OTHER_LANGUAGE.test(message)) return null
+  if (OFTEN_ENGLISH.test(message) && !ownScriptCopy(message, locale)) return null
   if (SCRIPT_LETTER[locale].test(message)) return locale
   if (writesLatin(message, locale)) return null
   if (previous && writesLatin(previous, locale)) return null
