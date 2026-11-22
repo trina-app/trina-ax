@@ -341,6 +341,9 @@ export const id: Record<MessageKey, string> = {
   'setup.subHosted': "Tim Anda sudah siap. Buat akun owner untuk mulai.",
   'setup.fixedHint': "Dipilih saat mendaftar. Anda bisa mengubahnya nanti di Pengaturan tim.",
   'setup.createHosted': "Buat akun dan mulai",
+  "setup.google": "Mulai dengan Google",
+  "setup.googleHint": "Nama dan nama pengguna diambil dari akun Google Anda. Tidak perlu kata sandi.",
+  "setup.google.gone": "Tim ini sudah disiapkan, atau tautan penyiapan ini tidak berlaku lagi.",
 
   'invite.title': 'Undangan',
 
@@ -364,6 +367,8 @@ export const id: Record<MessageKey, string> = {
   'invite.sub': 'Anda diundang sebagai {role}. Link berlaku sampai {date}.',
   "invite.subLead": "Anda diundang sebagai {role}. Setelah Anda bergabung, owner bisa menjadikan Anda owner tim. Link berlaku sampai {date}.",
   'invite.accept': 'Buat akun dan gabung',
+  "invite.google": "Bergabung dengan Google",
+  "invite.googleHint": "Isi nama dan nama pengguna terlebih dahulu. Tidak perlu kata sandi.",
   'invite.browserLanguage': 'Lihat halaman ini dalam {language}',
   'reset.title': "Atur kata sandi baru",
   'reset.invalid': "Link ini sudah kedaluwarsa atau sudah dipakai. Minta link baru ke admin.",
@@ -1547,6 +1552,9 @@ export const id: Record<MessageKey, string> = {
   "auth.google.lostTitle": "Proses masuk ini tidak bisa diselesaikan di sini",
   "auth.google.lost": "Kembali ke halaman masuk di aplikasi, lalu tekan Masuk dengan Google lagi.",
   "auth.google.signIn": "Kembali ke halaman masuk",
+  "auth.google.username_taken": "Nama pengguna itu sudah dipakai orang lain. Pilih yang lain, lalu coba lagi.",
+  "auth.google.gone": "Tautan undangan ini tidak berlaku lagi.",
+  "auth.google.full": "Kursi tim sedang penuh. Beri tahu orang yang mengundang Anda.",
   "settings.google.title": "Akun Google",
   "settings.google.desc": "Setelah terhubung, Anda bisa masuk dengan Google tanpa kata sandi.",
   "settings.google.none": "Belum terhubung",

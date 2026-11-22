@@ -9,6 +9,7 @@ import { toast } from './ui'
 import { browserLocale, loadLocale, pickLocale, t as tNow, recentLocale, storedLocale, storeLocale, storeRecentLocale, useLocaleStore } from '../i18n'
 import { recoveryLocale } from '../i18n/recovery-locale'
 import { forgetSetupToken, keptSetupToken, readSetupLink, rememberSetupToken } from '../lib/setupLink'
+import { googleSignUpDone } from '../lib/googleSignUp'
 import { forgetFileUploads } from '../lib/fileUploads'
 import { forgetFolderUploads } from '../lib/folderRuns'
 import { forgetTeamAttach } from '../lib/teamAttach'
@@ -20,7 +21,8 @@ import { freeRoamNow, useDemo } from './demo'
 
 export type AuthStatus =
   | { kind: 'loading' }
-  | { kind: 'setup'; teamName: string | null }
+  // googleSignUp: the setup page may offer Start with Google (GET /api/setup, server/src/auth/google-signup.ts)
+  | { kind: 'setup'; teamName: string | null; googleSignUp?: true }
   // 'removed': an account taken out of the team. A guest turned off while signed in carries the team's name for the
   // sign-in page's guest line; a removed member (TC-1974, lib/signedOut.ts) has none (pages/Auth.tsx Login)
   // ownerRecoveryUrl: a hosted team's console page where its owner resets a forgotten password (GET /api/setup; the
@@ -407,6 +409,8 @@ async function readMe(get: Get, set: Set): Promise<void> {
   try {
     const me = await api.call(API.me)
     await wordsFor(pickLocale(pendingPick ?? me.user.locale, me.team.defaultLocale))
+    // back from Google signed in after a sign-up started in this tab: the tokens it kept for a retry go (lib/googleSignUp.ts)
+    googleSignUpDone()
     get().signedIn(me)
   } catch (e) {
     if (isApiError(e, 'unauthorized') || (isApiError(e) && e.status === 401)) {
@@ -435,7 +439,7 @@ async function readMe(get: Get, set: Set): Promise<void> {
         useLocaleStore.getState().setLocale(locale)
         // a guest switched off while away: their own screen at once, not a plain sign-in (guest walkthrough S6)
         const g = guestRemoval(e)
-        set({ status: s.needed ? { kind: 'setup', teamName: s.teamName } : withRecovery(g ? guestSignedOut(g) : { kind: 'signed-out', ...(accountRemoved(e) ? { reason: 'removed' as const } : {}) }) })
+        set({ status: s.needed ? { kind: 'setup', teamName: s.teamName, ...(s.googleSignUp ? { googleSignUp: true as const } : {}) } : withRecovery(g ? guestSignedOut(g) : { kind: 'signed-out', ...(accountRemoved(e) ? { reason: 'removed' as const } : {}) }) })
       } catch {
         // a free-roam demo's gate denies GET /api/setup (demo-gate DENY_PATHS): the instance's language comes from
         // GET /api/demo, which the gate lets through (QA TC-6790: a ja instance's sign-in page was English only)

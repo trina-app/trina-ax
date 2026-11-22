@@ -18,7 +18,8 @@ import { googleAuthorization } from '../lib/driveSignIn'
 import { afterGoogleSignIn, appSecretHash, googleSignInWay, keepGoogleSignIn, newAppSecret, readGoogleCode, takeGoogleSignIn, type GoogleSignInWay } from '../lib/googleSignIn'
 import { isTextField } from '../lib/viewport'
 import { clearLocalData } from '../lib/localData'
-import { forgetSetupToken, keptSetupToken, readSetupLink, rememberSetupSite, setupTeamOf } from '../lib/setupLink'
+import { forgetSetupToken, keptSetupToken, readSetupLink, rememberSetupSite, rememberSetupToken, setupSite, setupTeamOf } from '../lib/setupLink'
+import { googleResultOf, keepGoogleSignUp, pendingGoogleSignUp } from '../lib/googleSignUp'
 import { setAfterSetup } from '../lib/welcome'
 import { afterSetupPath, pageOrigin } from '../lib/open-app'
 import { landingPath } from '../lib/tabs'
@@ -389,6 +390,38 @@ function ForgotLine({ url }: { url?: string }) {
 const GOOGLE_RESULT: Record<string, MessageKey> = {
   not_connected: 'auth.google.not_connected', account_off: 'auth.google.account_off', password_first: 'auth.google.password_first',
   cancelled: 'auth.google.cancelled', expired: 'auth.google.expired', failed: 'auth.google.failed',
+  // a sign-up's return (server/src/auth/google-signup.ts): the setup, invite and team link pages
+  username_taken: 'auth.google.username_taken', gone: 'auth.google.gone', full: 'auth.google.full',
+}
+
+/** "Start with Google" / "Join with Google" under a sign-up form (server/src/auth/google-signup.ts): a plain browser
+ * only, where the server's info says so (googleSignUp). Google opens in this window; its return comes back signed in,
+ * or to this page with ?google=<result> (lib/googleSignUp.ts keeps what the page needs to try again). */
+function GoogleSignUpButton({ label, hint, busy, onClick, testId }: { label: string; hint: string; busy: boolean; onClick: (e: React.MouseEvent<HTMLButtonElement>) => void; testId: string }) {
+  const t = useT()
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center gap-3 text-xs text-faint" aria-hidden>
+        <span className="h-px flex-1 bg-line" />
+        {t('auth.or')}
+        <span className="h-px flex-1 bg-line" />
+      </div>
+      <Button type="button" className="w-full" busy={busy} onClick={onClick} data-testid={testId}>
+        {label}
+      </Button>
+      <p className="text-center text-xs text-muted">{hint}</p>
+    </div>
+  )
+}
+
+/** The line a sign-up page shows when Google's return came back to it (?google=<result>), in words; null otherwise. */
+function GoogleBackLine({ text, testId }: { text: string | null; testId: string }) {
+  if (!text) return null
+  return (
+    <p role="alert" className="text-sm text-danger" data-testid={testId}>
+      {text}
+    </p>
+  )
 }
 
 /** "Sign in with Google" under the form, in the way this client can (lib/googleSignIn.ts googleSignInWay).
@@ -647,13 +680,39 @@ export function Setup() {
     if (l && l !== locale) setLocale(l)
   }, []) // once, on arrival
   const set = (k: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement>) => setForm((f) => ({ ...f, [k]: e.target.value }))
-  const { errorOf, check } = useFieldChecks({
+  const { errorOf: formErrorOf, check } = useFieldChecks({
     setupToken: linkToken ? null : requiredCheck(form.setupToken),
     teamName: fixed ? null : requiredCheck(form.teamName),
     name: requiredCheck(form.name),
     username: usernameCheck(form.username),
     password: form.password ? null : 'auth.required',
   })
+  // Start with Google (server/src/auth/google-signup.ts): only the team's part of the form; the owner's name and username
+  // come from Google, and there is no password
+  const google = useFieldChecks({ setupToken: linkToken ? null : requiredCheck(form.setupToken), teamName: fixed ? null : requiredCheck(form.teamName) })
+  const errorOf = (k: 'setupToken' | 'teamName' | 'name' | 'username' | 'password') => formErrorOf(k) ?? (k === 'setupToken' || k === 'teamName' ? google.errorOf(k) : null)
+  const googleOffered = useSession((s) => s.status.kind === 'setup' && !!s.status.googleSignUp) && clientKind() === 'web'
+  const [toGoogle, setToGoogle] = useState(false)
+  // back from Google without a team (?google=<result>): why, until the next try
+  const [googleBack] = useState(() => googleResultOf(window.location.search))
+  const googleLine = googleBack ? t(googleBack === 'gone' ? 'setup.google.gone' : GOOGLE_RESULT[googleBack] ?? 'auth.google.failed') : null
+  const startGoogle = (e: React.MouseEvent<HTMLButtonElement>) => {
+    const formEl = e.currentTarget.form
+    if (formEl && !google.check(formEl)) return
+    void run(async () => {
+      const timeZone = browserTimeZone()
+      const token = form.setupToken.trim()
+      // the link's website, or (back from Google to try again) the one this tab kept from it
+      const site = link.site ?? setupSite()
+      const r = await api.call(API.startGoogleSetup, { body: { setupToken: token, teamName: (fixed?.team ?? form.teamName).trim(), locale: fixedLang ?? locale, ...(timeZone ? { timeZone } : {}), ...(site ? { site } : {}), next: afterSetupPath({ platform: platform(), client: clientKind(), origin: pageOrigin() }) } })
+      // the way back without a team keeps the token and the team for this tab (a link's are kept already)
+      rememberSetupToken(token, fixed)
+      rememberSetupSite(site)
+      keepGoogleSignUp({ page: 'setup' })
+      setToGoogle(true)
+      window.location.assign(r.url)
+    })
+  }
   const submit = (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault()
     if (!check(e.currentTarget)) return
@@ -681,6 +740,7 @@ export function Setup() {
     // is plain where the team ends and the owner's own account begins.
     <AuthFrame title={t(fixed ? 'setup.titleHosted' : 'setup.title')} sub={t(fixed ? 'setup.subHosted' : 'setup.sub')} switcher={!!fixedLang}>
       <form onSubmit={submit} noValidate className="space-y-6">
+        {!error && <GoogleBackLine text={googleLine} testId="setup-google-result" />}
         <FormSection title={t('setup.section.team')} testId="setup-section-team">
           {!linkToken && (
             <Field label={t('setup.token')} hint={t('setup.tokenHint')} error={errorOf('setupToken')}>
@@ -724,6 +784,7 @@ export function Setup() {
             {t(fixed ? 'setup.createHosted' : 'setup.create')}
           </Button>
         </SubmitBar>
+        {googleOffered && <GoogleSignUpButton label={t('setup.google')} hint={t('setup.googleHint')} busy={busy || toGoogle} onClick={startGoogle} testId="setup-google" />}
       </form>
     </AuthFrame>
   )
@@ -736,15 +797,30 @@ export interface JoinValues { name: string; username: string; password: string }
  * the eye button inside the field shows what was typed (PasswordField; the setup form has the same).
  * The same rules as before: the username rule while typing, the length before sending, the server's words after.
  */
-export function JoinForm({ submitLabel, busy, error, onSubmit, onTooShort, initialName }: { submitLabel: string; busy: boolean; error: string | null; onSubmit: (v: JoinValues) => void; onTooShort: () => void
-  /** the Name field's start (a guest invite: the name the inviter typed, InviteInfo.guestName) */
-  initialName?: string }) {
+export function JoinForm({ submitLabel, busy, error, onSubmit, onTooShort, initialName, initialUsername, google, notice }: { submitLabel: string; busy: boolean; error: string | null; onSubmit: (v: JoinValues) => void; onTooShort: () => void
+  /** the Name field's start (a guest invite: the name the inviter typed, InviteInfo.guestName; back from Google: what
+   * the person typed before) */
+  initialName?: string
+  /** the Username field's start (back from Google: what the person typed before, to change when it was taken) */
+  initialUsername?: string
+  /** "Join with Google" under the form (server/src/auth/google-signup.ts): the name and the username, no password */
+  google?: { busy: boolean; onStart: (v: Omit<JoinValues, 'password'>) => void }
+  /** why Google's return came back to this page (?google=<result>), in words */
+  notice?: string | null }) {
   const t = useT()
-  const [form, setForm] = useState({ name: initialName?.slice(0, 100) ?? '', username: '', password: '' })
+  const [form, setForm] = useState({ name: initialName?.slice(0, 100) ?? '', username: initialUsername?.slice(0, 64) ?? '', password: '' })
   const reveal = usePasswordReveal()
   const set = (k: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement>) => setForm((f) => ({ ...f, [k]: e.target.value }))
   // the form checks its own fields (noValidate): errors under the field in the screen language, never a browser popup
-  const { errorOf, check } = useFieldChecks({ name: requiredCheck(form.name), username: usernameCheck(form.username), password: form.password ? null : 'auth.required' })
+  const { errorOf: formErrorOf, check } = useFieldChecks({ name: requiredCheck(form.name), username: usernameCheck(form.username), password: form.password ? null : 'auth.required' })
+  // Join with Google checks only the name and the username
+  const googleChecks = useFieldChecks({ name: requiredCheck(form.name), username: usernameCheck(form.username) })
+  const errorOf = (k: 'name' | 'username' | 'password') => formErrorOf(k) ?? (k === 'password' ? null : googleChecks.errorOf(k))
+  const startGoogle = (e: React.MouseEvent<HTMLButtonElement>) => {
+    const f = e.currentTarget.form
+    if (f && !googleChecks.check(f)) return
+    google?.onStart({ name: form.name.trim(), username: form.username.trim() })
+  }
   const submit = (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault()
     if (!check(e.currentTarget)) return
@@ -753,6 +829,7 @@ export function JoinForm({ submitLabel, busy, error, onSubmit, onTooShort, initi
   }
   return (
     <form onSubmit={submit} noValidate className="space-y-3" data-testid="join-form">
+      {!error && <GoogleBackLine text={notice ?? null} testId="join-google-result" />}
       <Field label={t('auth.name')} error={errorOf('name')}>
         <input className={inputCls} name="name" value={form.name} onChange={set('name')} required autoComplete="name" maxLength={100} data-testid="invite-name" />
       </Field>
@@ -771,6 +848,7 @@ export function JoinForm({ submitLabel, busy, error, onSubmit, onTooShort, initi
           {submitLabel}
         </Button>
       </SubmitBar>
+      {google && <GoogleSignUpButton label={t('invite.google')} hint={t('invite.googleHint')} busy={google.busy} onClick={startGoogle} testId="join-google" />}
     </form>
   )
 }
@@ -815,12 +893,14 @@ function OpenInApp({ path }: { path: string }) {
  * nothing else carries the token into the new app (no fingerprint; the app never reads the clipboard by itself). The
  * form stays behind "Continue in the browser". Computers and our own apps get the form as before.
  */
-function JoinChoices({ path, children, lean = false }: { path: string; children: ReactNode
+function JoinChoices({ path, children, lean = false, browser = false }: { path: string; children: ReactNode
   /** a guest invite: no "Already joined? Sign in" and no "Open in the app" under the form (someone from outside the team
    * has neither an account here nor the app; a used link leads to signing in anyway) */
-  lean?: boolean }) {
+  lean?: boolean
+  /** the form at once (back from Google, ?google=<result>: the person chose the browser already) */
+  browser?: boolean }) {
   const t = useT()
-  const [web, setWeb] = useState(false)
+  const [web, setWeb] = useState(browser)
   // after a tap whose copy was not certain at once: the page stays ('checking'), then says it copied, or shows the
   // link to copy by hand ('failed'); both offer the store as a plain link
   const [manual, setManual] = useState<null | 'checking' | 'copied' | 'failed'>(null)
@@ -982,6 +1062,12 @@ export function AcceptInvite() {
   const [loadFailed, setLoadFailed] = useState<{ e: unknown } | null>(null)
   const [attempt, setAttempt] = useState(0)
   const { busy, error, run, setError } = useSubmit()
+  // back from Google without an account (?google=<result>, through /invite: InviteGoogleBack): why, and what was typed
+  const [googleBack] = useState(() => {
+    const kept = pendingGoogleSignUp('invite')
+    return { result: googleResultOf(window.location.search), kept: kept?.path === `/invite/${token}` ? kept : null }
+  })
+  const [toGoogle, setToGoogle] = useState(false)
   useEffect(() => {
     let live = true
     setLoadFailed(null)
@@ -1012,6 +1098,16 @@ export function AcceptInvite() {
       live = false
     }
   }, [token, attempt])
+  /** a refusal the page shows as its own state (the link stopped working, the guests or seats filled up), else rethrown */
+  const pageRefusal = (e: unknown) => {
+    // the link stopped working while the form was filled in (its maker lost the room, the project went to the
+    // trash; QA TC-2226): the page says why, as when it is opened, instead of an error under the form
+    const reason = isApiError(e, 'gone') ? e.body.params?.reason : undefined
+    if (typeof reason === 'string' && info && info !== 'missing' && (DEAD_REASONS as readonly string[]).includes(reason)) { setInfo({ ...info, valid: false, reason: reason as DeadReason }); return }
+    // the team's guests filled up while the form was filled in: the page says so, as when it is opened (M3)
+    if (isApiError(e, 'plan_limit') && e.body.params?.reason === GUEST_LIMIT && info && info !== 'missing') { setInfo({ ...info, full: true }); return }
+    throw e
+  }
   const submit = (v: JoinValues) =>
     void run(async () => {
       try {
@@ -1021,15 +1117,18 @@ export function AcceptInvite() {
         signedIn(r.me)
         // a guest opens straight into their one place (components/GuestView.tsx)
         navigate(guestPlacePath(r.me) ?? '/', { replace: true })
-      } catch (e) {
-        // the link stopped working while the form was filled in (its maker lost the room, the project went to the
-        // trash; QA TC-2226): the page says why, as when it is opened, instead of an error under the form
-        const reason = isApiError(e, 'gone') ? e.body.params?.reason : undefined
-        if (typeof reason === 'string' && info && info !== 'missing' && (DEAD_REASONS as readonly string[]).includes(reason)) { setInfo({ ...info, valid: false, reason: reason as DeadReason }); return }
-        // the team's guests filled up while the form was filled in: the page says so, as when it is opened (M3)
-        if (isApiError(e, 'plan_limit') && e.body.params?.reason === GUEST_LIMIT && info && info !== 'missing') { setInfo({ ...info, full: true }); return }
-        throw e
-      }
+      } catch (e) { pageRefusal(e) }
+    })
+  // Join with Google (never for a guest invite): the token only in the body; Google's return signs in on Home, or comes
+  // back here through /invite, so this tab keeps this page's address and what was typed
+  const startGoogle = (v: Omit<JoinValues, 'password'>) =>
+    void run(async () => {
+      try {
+        const r = await api.call(API.startGoogleInvite, { body: { token: token!, ...v, locale: storedLocale() ?? undefined } })
+        keepGoogleSignUp({ page: 'invite', path: `/invite/${token}`, ...v })
+        setToGoogle(true)
+        window.location.assign(r.url)
+      } catch (e) { pageRefusal(e) }
     })
   if (info === null)
     return (
@@ -1071,9 +1170,33 @@ export function AcceptInvite() {
     <AuthFrame title={joinTitle(t, info.teamName, info.inviterName)} sub={guest ? <GuestJoinLine place={guest.place} ai={guest.ai} /> : t(info.lead ? 'invite.subLead' : 'invite.sub', { role: t(`role.${info.role}`), date: formatDateTime(info.expiresAt, locale) })}>
       {/* a guest: one language control (the switcher under the card), the name the inviter typed already in */}
       {!guest && <BrowserLanguageOffer />}
-      <JoinChoices path={`/invite/${token}`} lean={!!guest}>
-        <JoinForm submitLabel={t('invite.accept')} busy={busy} error={error} onSubmit={submit} onTooShort={() => setError('auth.passwordRule')} initialName={guest ? info.guestName : undefined} />
+      <JoinChoices path={`/invite/${token}`} lean={!!guest} browser={!!googleBack.result}>
+        <JoinForm submitLabel={t('invite.accept')} busy={busy} error={error} onSubmit={submit} onTooShort={() => setError('auth.passwordRule')}
+          initialName={guest ? info.guestName : googleBack.kept?.name} initialUsername={guest ? undefined : googleBack.kept?.username}
+          google={!guest && info.googleSignUp && clientKind() === 'web' ? { busy: busy || toGoogle, onStart: startGoogle } : undefined}
+          notice={!guest && googleBack.result ? t(GOOGLE_RESULT[googleBack.result] ?? 'auth.google.failed') : null} />
       </JoinChoices>
+    </AuthFrame>
+  )
+}
+
+/**
+ * /invite?google=<result>: Google's return of "Join with Google" that made no account. The server never puts the invite's
+ * token in that address, so the invite page this tab started from (lib/googleSignUp.ts) opens again with the result.
+ * Opened anywhere else (another tab, after a while): the result and a way to sign in.
+ */
+export function InviteGoogleBack() {
+  const t = useT()
+  const navigate = useNavigate()
+  const [back] = useState(() => ({ kept: pendingGoogleSignUp('invite'), result: googleResultOf(window.location.search) }))
+  useEffect(() => {
+    if (back.kept?.path) navigate(`${back.kept.path}${back.result ? `?google=${encodeURIComponent(back.result)}` : ''}`, { replace: true })
+  }, [back, navigate])
+  if (back.kept?.path) return null
+  return (
+    <AuthFrame title={t('invite.title')}>
+      <p className="text-sm text-muted" data-testid="invite-google-back">{t((back.result && GOOGLE_RESULT[back.result]) || 'invite.invalid')}</p>
+      <SignInInstead />
     </AuthFrame>
   )
 }
@@ -1112,6 +1235,9 @@ export function TeamJoin() {
   const [loadFailed, setLoadFailed] = useState<{ e: unknown } | null>(null)
   const [attempt, setAttempt] = useState(0)
   const { busy, error, run, setError } = useSubmit()
+  // back from Google without an account (?google=<result>): why, and what was typed (the link's token is this tab's)
+  const [googleBack] = useState(() => ({ result: googleResultOf(window.location.search), kept: pendingGoogleSignUp('join') }))
+  const [toGoogle, setToGoogle] = useState(false)
   useEffect(() => {
     if (link.cleanUrl) window.history.replaceState(window.history.state, '', link.cleanUrl)
   }, [link])
@@ -1148,6 +1274,15 @@ export function TeamJoin() {
       signedIn(r.me)
       navigate('/', { replace: true })
     })
+  // Join with Google: the token only in the body; Google's return signs in on Home, or comes back here (/join), where
+  // this tab still has the link's token and keeps what was typed
+  const startGoogle = (v: Omit<JoinValues, 'password'>) =>
+    void run(async () => {
+      const r = await api.call(API.startGoogleJoin, { body: { token: link.token!, ...v, locale: storedLocale() ?? undefined } })
+      keepGoogleSignUp({ page: 'join', ...v })
+      setToGoogle(true)
+      window.location.assign(r.url)
+    })
   if (info === null)
     return (
       <AuthFrame title={t('invite.title')}>
@@ -1164,8 +1299,11 @@ export function TeamJoin() {
   return (
     <AuthFrame title={joinTitle(t, info.teamName, info.inviterName)} sub={t('teamLink.joinSub', { date: formatDateTime(info.expiresAt, locale) })}>
       <BrowserLanguageOffer />
-      <JoinChoices path={`/join#t=${link.token}`}>
-        <JoinForm submitLabel={t('invite.accept')} busy={busy} error={error} onSubmit={submit} onTooShort={() => setError('auth.passwordRule')} />
+      <JoinChoices path={`/join#t=${link.token}`} browser={!!googleBack.result}>
+        <JoinForm submitLabel={t('invite.accept')} busy={busy} error={error} onSubmit={submit} onTooShort={() => setError('auth.passwordRule')}
+          initialName={googleBack.kept?.name} initialUsername={googleBack.kept?.username}
+          google={info.googleSignUp && clientKind() === 'web' ? { busy: busy || toGoogle, onStart: startGoogle } : undefined}
+          notice={googleBack.result ? t(GOOGLE_RESULT[googleBack.result] ?? 'auth.google.failed') : null} />
       </JoinChoices>
     </AuthFrame>
   )

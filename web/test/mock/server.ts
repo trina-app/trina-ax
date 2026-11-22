@@ -301,6 +301,11 @@ const TEAM_ICON_CHANGED = { type: 'notice', data: { level: 'info', code: 'team_i
 
 /** an account deletion request's automatic date (server/src/auth/deletion-requests.ts: 7 days after asking) */
 const deletionDue = (at: string) => new Date(Date.parse(at) + ACCOUNT_DELETION_GRACE_DAYS * 86_400_000).toISOString()
+/** a sign-up with Google on its way (server/src/auth/google-signup.ts SignUpExtra): the mock keeps the token (the
+ * server keeps the invite's or link's id) */
+type MockSignUp =
+  | { kind: 'setup'; teamName: string; locale: Locale; timeZone: string | null; site: string | null }
+  | { kind: 'invite' | 'link'; token: string; username: string; name: string; locale: Locale | null }
 export class MockServer {
   setupNeeded = false
   serverVersion = '0.1.0'
@@ -340,9 +345,11 @@ export class MockServer {
   static freshGoogleLogin() {
     return {
       client: null as 'here' | 'elsewhere' | null,
-      account: { sub: '100', email: 'olga@acme.test' },
+      account: { sub: '100', email: 'olga@acme.test' } as { sub: string; email: string; name?: string },
       linked: new Map<string, { sub: string; email: string; connectedAt: string; lastUsedAt: string | null }>(),
-      flows: new Map<string, { intent: 'signin' | 'connect'; userId: string | null; session: string | null; next: string | null; binding: string; used: boolean }>(),
+      // signUp: what a sign-up carries to Google's return (server/src/auth/google-signup.ts): the setup's team, or the
+      // invite or team link the person joins with their username and name
+      flows: new Map<string, { intent: 'signin' | 'connect' | 'setup' | 'join'; userId: string | null; session: string | null; next: string | null; binding: string; used: boolean; signUp?: MockSignUp }>(),
     }
   }
   users: User[] = []
@@ -1726,14 +1733,14 @@ export class MockServer {
 
   /** Sign in with Google's start (server/src/auth/google-login.ts begin): a flow, the browser's binding cookie and
    * Google's address, which comes back to this server's Drive callback address */
-  googleStart(req: Request, intent: 'signin' | 'connect', who: { userId: string; session: string | null } | null, next: string | null) {
+  googleStart(req: Request, intent: 'signin' | 'connect' | 'setup' | 'join', who: { userId: string; session: string | null } | null, next: string | null, signUp?: MockSignUp) {
     const g = this.googleLogin
     if (g.client !== 'here') fail('unavailable', 503, serverMsg('googleSignInOff', this.localeOf(req)))
     const token = () => (uuidv7() + uuidv7()).replace(/-/g, '').slice(0, 43)
     const state = token(), binding = token()
     // a person's earlier connect still open goes, like the server
     if (who) for (const [k, f] of g.flows) if (f.userId === who.userId && !f.used) g.flows.delete(k)
-    g.flows.set(state, { intent, userId: who?.userId ?? null, session: who?.session ?? null, next, binding, used: false })
+    g.flows.set(state, { intent, userId: who?.userId ?? null, session: who?.session ?? null, next, binding, used: false, signUp })
     const url = new URL('https://accounts.google.com/o/oauth2/v2/auth')
     for (const [k, v] of Object.entries({ client_id: 'mock-client.apps.googleusercontent.com', redirect_uri: `${new URL(req.url).origin}/api/integrations/google-drive/callback`, response_type: 'code', scope: 'openid email profile', state, nonce: token(), code_challenge: token(), code_challenge_method: 'S256', prompt: 'select_account' })) url.searchParams.set(k, v)
     return { cookie: `mycel-dev-gsi=${binding}; Path=/; HttpOnly; SameSite=Lax; Max-Age=600`, body: { url: url.href } }
@@ -1744,7 +1751,8 @@ export class MockServer {
   googleReturn(req: Request, url: URL): Response {
     const g = this.googleLogin
     const f = g.flows.get(url.searchParams.get('state') ?? '')!
-    const back = (result: string) => (f.intent === 'connect' ? `/settings/security?google=${result}` : `/login?google=${result}${f.next ? `&next=${encodeURIComponent(f.next)}` : ''}`)
+    // a sign-up comes back to its own page, never with a token (server/src/auth/google-login.ts backTo)
+    const back = (result: string) => (f.intent === 'connect' ? `/settings/security?google=${result}` : f.intent === 'setup' ? `/setup?google=${result}` : f.intent === 'join' ? `${f.next}?google=${result}` : `/login?google=${result}${f.next ? `&next=${encodeURIComponent(f.next)}` : ''}`)
     const headers = new Headers({ 'cache-control': 'no-store' })
     headers.append('set-cookie', 'mycel-dev-gsi=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0')
     const go = (to: string) => { headers.set('location', to); return new Response(null, { status: 302, headers }) }
@@ -1762,6 +1770,16 @@ export class MockServer {
       g.linked.set(u.id, { sub: a.sub, email: a.email, connectedAt: holder?.[1].connectedAt ?? now(), lastUsedAt: holder?.[1].lastUsedAt ?? null })
       return go(back('connected'))
     }
+    // a sign-up (server/src/auth/google-signup.ts): the account, or why not; a Google account already someone's here
+    // signs that person in below, with nothing used up
+    if ((f.intent === 'setup' || f.intent === 'join') && !(f.intent === 'join' && holder)) {
+      const made = this.googleSignUp(f.signUp!, a)
+      if (typeof made === 'string') return go(back(made))
+      g.linked.set(made.id, { sub: a.sub, email: a.email, connectedAt: now(), lastUsedAt: now() })
+      made.lastSeenAt = now()
+      headers.append('set-cookie', this.startSession(made))
+      return go(f.intent === 'setup' ? f.next ?? '/' : '/')
+    }
     const u = holder ? this.users.find((x) => x.id === holder[0]) : undefined
     if (!u || u.role === 'guest') return go(back('not_connected'))
     if (u.status !== 'active') return go(back('account_off'))
@@ -1769,7 +1787,43 @@ export class MockServer {
     holder![1].lastUsedAt = now()
     u.lastSeenAt = now()
     headers.append('set-cookie', this.startSession(u))
-    return go(f.next ?? '/')
+    // a sign-up's `next` is the page it started from, never where a sign-in goes
+    return go(f.intent === 'signin' ? f.next ?? '/' : '/')
+  }
+
+  /** Google's return of a sign-up (server/src/auth/google-signup.ts signUpReturn): the account made with no password,
+   * or why not. The owner's username comes from the Google address, their name from Google. */
+  googleSignUp(s: MockSignUp, a: { sub: string; email: string; name?: string }): User | 'gone' | 'username_taken' | 'full' {
+    const taken = (n: string) => this.users.some((u) => u.username.toLowerCase() === n.toLowerCase())
+    // a user id from a username, like server/src/auth/users.ts deriveUserId (a "." is no id character)
+    const idOf = (n: string) => n.toLowerCase().replace(/[^a-z0-9_-]+/g, '-').replace(/^[-_]+|[-_]+$/g, '') || 'user'
+    if (s.kind === 'setup') {
+      if (!this.setupNeeded) return 'gone'
+      this.setupNeeded = false
+      this.settings.teamName = s.teamName
+      this.settings.defaultLocale = s.locale
+      if (s.timeZone) this.settings.timeZone = s.timeZone
+      const base = a.email.split('@')[0]!.split('+')[0]!.replace(/[^A-Za-z0-9._-]+/g, '').toLowerCase() || 'owner'
+      const u = this.addUser({ id: idOf(base) || 'owner', username: base, name: a.name ?? base, role: 'owner', groupIds: [], email: a.email }, '')
+      this.files.set('users', { type: 'folder', mtime: now() })
+      const at = now()
+      this.welcome ??= this.welcomeSaved({ startedAt: at, updatedAt: at, teamType: null, steps: { profile: null, result: null, skills: null, files: null, tools: null, invite: null }, resultChatId: null, inviteShownAt: null, site: s.site, dismissedAt: null, finishedAt: null }, at)
+      return u
+    }
+    if (taken(s.username)) return 'username_taken'
+    if (s.kind === 'invite') {
+      const i = this.invites.find((x) => x.token === s.token && !x.usedAt)
+      if (!i || (i as { deadReason?: string }).deadReason) return 'gone'
+      const u = this.addUser({ id: idOf(s.username), username: s.username, name: s.name, role: i.role, groupIds: i.groupIds, localeChoice: s.locale, email: a.email }, '')
+      i.usedAt = now()
+      i.usedBy = { id: u.id, name: u.name }
+      return u
+    }
+    const l = this.teamLink?.token === s.token ? this.teamLink : null
+    if (!l || l.uses >= l.maxUses) return 'gone'
+    const u = this.addUser({ id: idOf(s.username), username: s.username, name: s.name, role: 'member', groupIds: l.groupIds, localeChoice: s.locale, email: a.email }, '')
+    l.uses++
+    return u
   }
 
   /** the language of a request's words: the page's header, else the team default */
@@ -2770,7 +2824,16 @@ export class MockServer {
     },
     health: () => ({ ok: true, version: this.serverVersion, schema: { applied: 2, readerLevel: 1 }, uptimeSec: 1, time: now() }),
     // googleSignIn: like server/src/routes/auth.ts, a team that is set up whose Google client returns to this address
-    setupStatus: () => ({ needed: this.setupNeeded, teamName: this.setupNeeded ? null : this.settings.teamName, defaultLocale: this.settings.defaultLocale, ...(!this.setupNeeded && this.googleLogin.client === 'here' ? { googleSignIn: true as const } : {}) }),
+    // googleSignUp: before setup, the same client (server/src/auth/google-signup.ts withSetupGoogle)
+    setupStatus: () => ({ needed: this.setupNeeded, teamName: this.setupNeeded ? null : this.settings.teamName, defaultLocale: this.settings.defaultLocale, ...(!this.setupNeeded && this.googleLogin.client === 'here' ? { googleSignIn: true as const } : {}), ...(this.setupNeeded && this.googleLogin.client === 'here' ? { googleSignUp: true as const } : {}) }),
+    // Start with Google: the setup token as the setup checks it, then Google (server/src/auth/google-signup.ts)
+    startGoogleSetup: (c) => {
+      if (!this.setupNeeded) fail('conflict', 409)
+      if (c.body.setupToken !== 'setup-token-0123456789') fail('forbidden', 403, 'wrong setup token')
+      const site = typeof c.body.site === 'string' ? normalizeWebsite(c.body.site) : null
+      const next = typeof c.body.next === 'string' && c.body.next.startsWith('/') && !c.body.next.startsWith('//') ? c.body.next : null
+      return this.googleStart(c.req, 'setup', null, next, { kind: 'setup', teamName: c.body.teamName, locale: c.body.locale, timeZone: c.body.timeZone ?? null, site })
+    },
     setup: (c) => {
       if (!this.setupNeeded) fail('conflict', 409)
       if (c.body.setupToken !== 'setup-token-0123456789') fail('forbidden', 403, 'wrong setup token')
@@ -2977,7 +3040,9 @@ export class MockServer {
       if (reason) return { teamName: this.settings.teamName, role: i!.role, expiresAt: i!.expiresAt, valid: false, reason: reason as 'used', inviterName: null }
       // a guest link while the guests are full keeps its inviter (guest walkthrough M3)
       const guestsFull = i!.role === 'guest' && this.guestCap !== null && this.users.filter((u) => u.role === 'guest' && u.status === 'active').length >= this.guestCap
-      return { teamName: this.settings.teamName, role: i!.role, expiresAt: i!.expiresAt, valid: !i!.usedAt, ...(guestsFull ? { full: true } : {}), ...(i!.leadFor ? { lead: true } : {}), ...(i!.role === 'guest' ? { inviterName: i!.createdBy?.name ?? null } : {}), ...(named ? { guestPlace: { kind: named.kind, name: named.name } } : {}), ...(named && (i as { guestName?: string }).guestName ? { guestName: (i as { guestName?: string }).guestName } : {}) }
+      // Join with Google: not for a guest invite, and only where the Google client returns (server/src/auth/google-signup.ts)
+      const google = i!.role !== 'guest' && this.googleLogin.client === 'here'
+      return { teamName: this.settings.teamName, role: i!.role, expiresAt: i!.expiresAt, valid: !i!.usedAt, ...(guestsFull ? { full: true } : {}), ...(google ? { googleSignUp: true as const } : {}), ...(i!.leadFor ? { lead: true } : {}), ...(i!.role === 'guest' ? { inviterName: i!.createdBy?.name ?? null } : {}), ...(named ? { guestPlace: { kind: named.kind, name: named.name } } : {}), ...(named && (i as { guestName?: string }).guestName ? { guestName: (i as { guestName?: string }).guestName } : {}) }
     },
     acceptInvite: (c) => {
       const i = this.invites.find((x) => x.token === c.params.token && !x.usedAt)
@@ -3001,6 +3066,14 @@ export class MockServer {
         this.publish({ type: 'notice', data: { level: 'info', code: 'owner_lead_joined', message: `${i!.leadFor}에게 보낸 팀장 링크로 ${u.name}님이 들어왔어요` } })
       }
       return { status: 201, cookie: this.startSession(u), body: { me: this.me(u, '') } }
+    },
+    // Join with Google from an invite: the token in the body, an accept's checks, then Google (guests: a password)
+    startGoogleInvite: (c) => {
+      const i = this.invites.find((x) => x.token === c.body.token && !x.usedAt)
+      if (!i) fail('gone', 410)
+      if (i!.role === 'guest') fail('forbidden', 403, serverMsg('googleGuestJoin', this.localeOf(c.req)), undefined, { reason: 'guest_password_only' })
+      if (this.users.some((u) => u.username.toLowerCase() === c.body.username.toLowerCase())) fail('conflict', 409, '이미 쓰고 있는 아이디예요.', { 'body.username': 'taken' })
+      return this.googleStart(c.req, 'join', null, '/invite', { kind: 'invite', token: c.body.token, username: c.body.username, name: c.body.name, locale: c.body.locale ?? null })
     },
 
     listChats: (c) => {
@@ -4288,7 +4361,15 @@ export class MockServer {
       if (!l) fail('not_found', 404)
       const problem = l!.uses >= l!.maxUses ? 'used_up' : null
       const skill = l!.skillPath ? this.teamLinkSkill(l!.skillPath) : null
-      return { teamName: this.settings.teamName, valid: !problem, problem, expiresAt: l!.expiresAt, skillName: skill?.name ?? null, skillTitle: skill?.title ?? null }
+      return { teamName: this.settings.teamName, valid: !problem, problem, expiresAt: l!.expiresAt, skillName: skill?.name ?? null, skillTitle: skill?.title ?? null, ...(!problem && this.googleLogin.client === 'here' ? { googleSignUp: true as const } : {}) }
+    },
+    // Join with Google from the team link: a join's checks, then Google (server/src/auth/google-signup.ts)
+    startGoogleJoin: (c) => {
+      const l = this.teamLink?.token === c.body.token ? this.teamLink : null
+      if (!l) fail('not_found', 404)
+      if (l!.uses >= l!.maxUses) fail('gone', 410, '이 링크로 들어올 수 있는 인원이 다 찼어요. 링크를 보낸 분께 새 링크를 부탁해 주세요.')
+      if (this.users.some((u) => u.username.toLowerCase() === c.body.username.toLowerCase())) fail('conflict', 409, '이미 쓰고 있는 아이디예요.', { 'body.username': 'taken' })
+      return this.googleStart(c.req, 'join', null, '/join', { kind: 'link', token: c.body.token, username: c.body.username, name: c.body.name, locale: c.body.locale ?? null })
     },
     joinTeamLink: (c) => {
       const l = this.teamLink?.token === c.body.token ? this.teamLink : null

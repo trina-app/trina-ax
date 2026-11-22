@@ -340,6 +340,9 @@ export const ko = {
   'setup.subHosted': "팀이 준비됐어요. 팀장 계정을 만들면 바로 시작할 수 있어요.",
   'setup.fixedHint': "가입할 때 정했어요. 나중에 팀 설정에서 바꿀 수 있어요.",
   'setup.createHosted': "계정 만들고 시작하기",
+  "setup.google": "Google로 시작하기",
+  "setup.googleHint": "이름과 아이디는 Google 계정에서 가져와요. 비밀번호는 필요 없어요.",
+  "setup.google.gone": "이미 설정을 마친 팀이거나, 더 이상 쓸 수 없는 설정 링크예요.",
 
   'invite.title': '초대',
 
@@ -363,6 +366,8 @@ export const ko = {
   'invite.sub': '{role} 역할로 초대받았어요. 링크는 {date}까지 쓸 수 있어요.',
   'invite.subLead': "{role} 역할로 초대받았어요. 들어오면 팀장이 팀장 자리를 넘겨줄 수 있어요. 링크는 {date}까지 쓸 수 있어요.",
   'invite.accept': '계정 만들고 참여하기',
+  "invite.google": "Google로 가입하기",
+  "invite.googleHint": "이름과 아이디를 먼저 적어 주세요. 비밀번호는 필요 없어요.",
   'invite.browserLanguage': '이 페이지를 {language}(으)로 보기',
   'reset.title': "비밀번호 다시 정하기",
   'reset.invalid': "이 링크는 만료됐거나 이미 사용됐어요. 관리자에게 새 링크를 요청해 주세요.",
@@ -1546,6 +1551,9 @@ export const ko = {
   "auth.google.lostTitle": "여기서는 로그인을 마칠 수 없어요",
   "auth.google.lost": "앱의 로그인 화면으로 돌아가서 Google로 로그인을 다시 눌러 주세요.",
   "auth.google.signIn": "로그인 화면으로",
+  "auth.google.username_taken": "그사이 다른 사람이 이 아이디를 썼어요. 다른 아이디를 정하고 다시 해 주세요.",
+  "auth.google.gone": "이 초대 링크는 더 이상 쓸 수 없어요.",
+  "auth.google.full": "지금은 팀 인원이 다 찼어요. 초대한 분께 알려 주세요.",
   "settings.google.title": "Google 계정",
   "settings.google.desc": "연결해 두면 비밀번호 대신 Google로 로그인할 수 있어요.",
   "settings.google.none": "연결 안 됨",

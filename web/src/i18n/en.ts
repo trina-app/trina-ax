@@ -341,6 +341,9 @@ export const en: Record<MessageKey, string> = {
   'setup.subHosted': "Your team is ready. Create the owner account to start.",
   'setup.fixedHint': "Set when you signed up. You can change these later in Team settings.",
   'setup.createHosted': "Create account and start",
+  "setup.google": "Start with Google",
+  "setup.googleHint": "Your name and username come from your Google account. No password needed.",
+  "setup.google.gone": "This team is already set up, or this setup link no longer works.",
 
   'invite.title': 'Invitation',
 
@@ -364,6 +367,8 @@ export const en: Record<MessageKey, string> = {
   'invite.sub': "You're invited as {role}. The link works until {date}.",
   'invite.subLead': "You're invited as {role}. Once you join, the owner can make you the team's owner. The link works until {date}.",
   'invite.accept': 'Create account and join',
+  "invite.google": "Join with Google",
+  "invite.googleHint": "Fill in your name and username first. No password needed.",
   'invite.browserLanguage': 'View this page in {language}',
   'reset.title': "Set a new password",
   'reset.invalid': "This link has expired or was already used. Ask an admin for a new one.",
@@ -1547,6 +1552,9 @@ export const en: Record<MessageKey, string> = {
   "auth.google.lostTitle": "This sign-in can't finish here",
   "auth.google.lost": "Go back to the app's sign-in page and press Sign in with Google again.",
   "auth.google.signIn": "Back to sign-in",
+  "auth.google.username_taken": "Someone took that username in the meantime. Pick another one and try again.",
+  "auth.google.gone": "This invite link no longer works.",
+  "auth.google.full": "The team has no free seats right now. Let the person who invited you know.",
   "settings.google.title": "Google account",
   "settings.google.desc": "Once it is connected, you can sign in with Google instead of your password.",
   "settings.google.none": "Not connected",
