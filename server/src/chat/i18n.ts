@@ -168,6 +168,9 @@ export const TEXT = {
   notAnswered: STEP_TEXT.notAnswered,
   connectConnected: STEP_TEXT.connectConnected,
   connectNotConnected: STEP_TEXT.connectNotConnected,
+  // a path in a tool call that named a file copied into this shared chat was the chat's copy (chat/copy-paths.ts;
+  // review of #355): the AI tells the person, the creator too, that their own team file did not change
+  copyPathMapped: t('이 경로는 이 채팅의 사본이에요. 원본 파일은 그대로예요.', 'This path is this chat\'s copy. The original file is unchanged.', 'Jalur ini adalah salinan di chat ini. File aslinya tidak berubah.', 'このパスはこのチャットのコピーです。元のファイルはそのままです。', 'Esta ruta es la copia de este chat. El archivo original no cambia.', '此路径是此聊天中的副本。原文件保持不变。'),
   browserSite: t('사내망 주소 {host}를 열어도 될까요?', 'May the AI open the office-network address {host}?', 'Bolehkan AI membuka alamat jaringan kantor {host}?', "AIが社内ネットワークのアドレス{host}を開いてもよろしいですか？", "¿Puede la IA abrir la dirección de red interna {host}?", "允许AI打开办公网络地址{host}吗？"),
   /** the wider-audience card (docs/decisions/20261122-widening-card-wording.md; before: 20261117-save-card-plain.md):
    * the question first, with the place as a short name ({file}: the file's name, {area}: its project, group, "My

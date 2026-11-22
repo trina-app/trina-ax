@@ -16,6 +16,11 @@ import { makePng } from '../lib/images'
 import { chatFilesOf } from '../../server/src/chat/chat-files'
 import { sharedCopyMap } from '../../server/src/chat/chat-files-share'
 import { mapCopyPaths, mapCopyText } from '../../server/src/chat/copy-paths'
+import { TEXT } from '../../server/src/chat/i18n'
+
+/** the line after a mapped call, in any of the app's languages (review of #355) */
+const copyLine = Object.values(TEXT.copyPathMapped as Record<string, string>)
+const saysCopy = (t: string) => copyLine.some((l) => t.includes(l))
 
 setDefaultTimeout(90_000)
 const fake = (...ds: unknown[]) => ds.map((d) => '@fake ' + JSON.stringify(d)).join('\n')
@@ -95,6 +100,9 @@ describe('another member edits the shared quote by the answer\'s path', () => {
     // the creator, in the shared chat: the chat's copy, not her original (one file, not two)
     const a = await ask('alice', chatId, fake({ tool: 'read', args: { file_path: orig } }, { tool: 'edit_pdf', args: { file_path: orig, operations: [{ remove_pages: '2' }] }, sayResult: true }))
     expect(a.content).toContain('saved as version 3')
+    // the AI is told that her path was the chat's copy and her team file is unchanged, so it can say so
+    expect(saysCopy(a.content)).toBe(true)
+    expect(saysCopy(r.content)).toBe(true)
     expect(await copyPages('bob', chatId, copy.id)).toBe(1)
     expect(sha(onDisk(orig))).toBe(before)
   })
@@ -114,6 +122,8 @@ describe('another member edits the shared quote by the answer\'s path', () => {
     const r = await ask('alice', chatId, fake({ tool: 'read', args: { file_path: orig } }, { tool: 'edit_pdf', args: { file_path: orig, operations: [{ remove_pages: '3' }] }, sayResult: true }))
     expect(r.content).not.toContain('saved as version')
     expect(r.content).toContain(`${orig} is unchanged`)
+    // nothing was mapped: no copy line
+    expect(saysCopy(r.content)).toBe(false)
     expect(store().chain(copy.id)).toHaveLength(1)
   })
 })

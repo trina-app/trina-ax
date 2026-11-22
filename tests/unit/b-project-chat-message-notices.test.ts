@@ -11,7 +11,8 @@ import { afterAll, beforeAll, beforeEach, describe, expect, setDefaultTimeout, t
 import { API, type ServerFrame } from '@mycel/shared/api'
 import { startHarness, type Harness, type TestSocket } from '../lib/b-harness'
 import { oldProject } from '../lib/legacy-project'
-import { chatMessageWanted, noteSharedMessage } from '../../server/src/chat/message-notices'
+import { chatMessageWanted, noteSharedAnswer, noteSharedMessage, unreadByUser } from '../../server/src/chat/message-notices'
+import { hiddenAnswersCutover, setAnswerReads, setHiddenAnswersCutover } from '../../server/src/chat/shared-answers'
 import { chatThreadWanted } from '../../server/src/chat/threads'
 import { getPreferences, pushEventEnabled, savePreferences } from '../../server/src/notifications/preferences'
 import { pushBadge } from '../../server/src/notifications/push-badge'
@@ -164,6 +165,77 @@ describe('a person\'s message in a project chat', () => {
       db().query("DELETE FROM group_members WHERE user_id LIKE 'p%'").run()
       db().query("DELETE FROM users WHERE id LIKE 'p%' AND username LIKE 'p%'").run()
     }
+  })
+})
+
+describe('the answer\'s notices and the unread read stay bounded (review of #362)', () => {
+  const chatRow = () => h.ctx.db.query('SELECT * FROM chats WHERE id = ?').get(chatId) as Parameters<typeof noteSharedAnswer>[1]
+  const lastAnswer = () => (db().query("SELECT id FROM messages WHERE chat_id = ? AND role = 'assistant' ORDER BY rowid DESC LIMIT 1").get(chatId) as { id: string }).id
+  /** noteSharedAnswer as alice's answer, with every statement it prepares counted and kept */
+  const run = (answer: string) => {
+    const real = db().query.bind(db())
+    const sqls: string[] = []
+    const spy = db() as unknown as { query: (sql: string) => unknown }
+    db().query('DELETE FROM chat_message_notices WHERE source_id = ?').run(answer)
+    spy.query = (sql: string) => { sqls.push(sql); return real(sql) }
+    const t0 = performance.now()
+    try { noteSharedAnswer(h.ctx, chatRow(), answer, 'alice') } finally { spy.query = real as never }
+    return { sqls, ms: performance.now() - t0, told: (db().query('SELECT user_id FROM chat_message_notices WHERE source_id = ?').all(answer) as { user_id: string }[]).map((r) => r.user_id).sort() }
+  }
+  const addPeople = (n: number) => {
+    for (let i = 0; i < n; i++) {
+      db().query("INSERT INTO users (id, username, name, role) VALUES (?, ?, ?, 'member')").run(`q${i}`, `q${i}`, `Q ${i}`)
+      db().query("INSERT INTO group_members (group_id, user_id) VALUES ('finance', ?)").run(`q${i}`)
+    }
+  }
+  const dropPeople = () => {
+    db().query("DELETE FROM chat_message_notices WHERE user_id LIKE 'q%'").run()
+    db().query("DELETE FROM group_members WHERE user_id LIKE 'q%'").run()
+    db().query("DELETE FROM users WHERE id LIKE 'q%' AND username LIKE 'q%'").run()
+  }
+
+  test('a finished answer is judged alone: the same reads for 3 people or 300, never the whole chat per person', async () => {
+    // a long chat: many earlier answers the old fan-out walked once per member
+    for (let i = 0; i < 15; i++) await say('alice', `step ${i}`)
+    const answer = lastAnswer()
+    const small = run(answer)
+    expect(small.told).toEqual(['bob', 'erin'])
+    addPeople(300)
+    try {
+      const large = run(answer)
+      expect(large.told).toHaveLength(302)
+      // no statement per person: the same statements as for two people
+      expect(large.sqls.length).toBe(small.sqls.length)
+      // never a read of every message of the chat (shared-answers.ts chatNodes) nor an account per person
+      expect(large.sqls.some((q) => /WHERE m\.chat_id = \? ORDER BY m\.rowid/.test(q))).toBe(false)
+      expect(large.sqls.filter((q) => /FROM users WHERE id = \?/.test(q))).toHaveLength(0)
+      expect(large.ms).toBeLessThan(2000)
+    } finally { dropPeople() }
+  })
+
+  test('the answer\'s own record still hides it: an x group from the people not in it; before the cutover, all but its runner', async () => {
+    const answer = lastAnswer()
+    // what it read is not all known (x): only the people who saw the chat then (bob) see it
+    setAnswerReads(db(), chatId, answer, [{ c: ['alice', 'bob'], s: [{ type: 'root' }], x: 1 }])
+    expect(run(answer).told).toEqual(['bob'])
+    // an older answer (no cutover: the old rule) without a readable record: hidden from all but its runner
+    const cut = hiddenAnswersCutover(db())
+    db().query('DELETE FROM shared_answer_reads WHERE message_id = ?').run(answer)
+    setHiddenAnswersCutover(db(), null)
+    try { expect(run(answer).told).toEqual([]) } finally { setHiddenAnswersCutover(db(), cut) }
+    setAnswerReads(db(), chatId, answer, [])
+    expect(run(answer).told).toEqual(['bob', 'erin'])
+  })
+
+  test('everyone\'s unread numbers read the unread rows through their partial index (migration 438)', () => {
+    const plan = (db().query(`EXPLAIN QUERY PLAN SELECT user_id, COUNT(*) n, MAX(mention) m FROM chat_message_notices INDEXED BY chat_message_notices_unread_by_chat
+      WHERE chat_id = ? AND read_at IS NULL AND suppressed = 0 GROUP BY user_id`).all(chatId) as { detail: string }[]).map((r) => r.detail).join(' | ')
+    expect(plan).toContain('chat_message_notices_unread_by_chat')
+    expect(plan).not.toContain('TEMP B-TREE')
+    // the function itself: read rows are not counted, unread ones are
+    const u = unreadByUser(db(), chatId)
+    expect(u.get('bob')?.n ?? 0).toBe(unread('bob').length)
+    expect(u.get('alice')?.n ?? 0).toBe(unread('alice').length)
   })
 })
 
