@@ -201,7 +201,7 @@ test('the 트리나 list\'s filter, group and sort like Claude\'s, remembered an
   await expect(menu.getByRole('menuitem')).toHaveText([
     `${t['sidebar.view.status']}${t['sidebar.status.all']}`,
     `${t['sidebar.view.activity']}${t['sidebar.activity.all']}`,
-    `${t['sidebar.view.group']}${t['sidebar.group.none']}`,
+    `${t['sidebar.view.group']}${t['sidebar.group.date']}`,
     `${t['sidebar.view.sort']}${t['sidebar.sort.updated']}`,
     // my sections of the history (docs/decisions/20261122-trina-history-sections.md)
     t['sidebarSections.new'],
@@ -233,9 +233,10 @@ test('the 트리나 list\'s filter, group and sort like Claude\'s, remembered an
     await choose('activity', id)
     await expect(list).toContainText('Weekly notes')
   }
-  // Group by: None by default, the flat list (the owner, 2026-11-14); by date, by project one choice away
+  // Group by: Date by default (the owner, 2026-11-22); the flat list and by project one choice away
+  await choose('group', 'none')
+  await expect(list.getByRole('heading', { level: 3 })).toHaveCount(0)
   await choose('group', 'date')
-  await expect(list.getByRole('heading', { level: 3 })).toHaveText([t['sidebar.today']])
   await choose('group', 'project')
   await expect(list.getByTestId('history-group')).toHaveCount(2)
   // by date again for the sorts (by project the groups set the order)
@@ -248,15 +249,21 @@ test('the 트리나 list\'s filter, group and sort like Claude\'s, remembered an
   // what is not at its default: a dot and a dim label; remembered; reset
   await page.keyboard.press('Escape')
   await expect(side.getByTestId('recents-filter-dot')).toBeVisible()
-  await expect(side.getByTestId('recents-filter-label')).toContainText(t['sidebar.group.date'])
-  await expect(side.getByTestId('recents-filter-label')).toContainText(t['sidebar.sort.created'])
+  await expect(side.getByTestId('recents-filter-label')).toHaveText(t['sidebar.sort.created'])
   await page.reload()
   await expect(side.getByTestId('recents-filter-label')).toContainText(t['sidebar.sort.created'])
   await side.getByTestId('recents-filter-clear').click()
   await expect(side.getByTestId('recents-filter-label')).toHaveCount(0)
   await expect(side.getByTestId('recents-filter-dot')).toHaveCount(0)
-  // back to the 트리나 list, flat
+  // back to the 트리나 list, by date
   await expect(side.getByTestId('trina-list')).toBeVisible()
+  // Reset to defaults in the menu, only while something differs (docs/decisions/20261122-history-view-per-person.md)
+  await side.getByTestId('recents-filter').click()
+  await expect(page.getByTestId('recents-reset')).toHaveCount(0)
+  await page.keyboard.press('Escape')
+  await choose('sort', 'title')
+  await page.getByTestId('recents-reset').click()
+  await expect(side.getByTestId('recents-filter-dot')).toHaveCount(0)
 })
 
 test('the Recents menu with the keyboard: Enter, arrows, → into a choice, ← and Esc back', async ({ page }) => {

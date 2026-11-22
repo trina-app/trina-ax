@@ -3,20 +3,22 @@
 // or in one list, and "더 보기" for the next page. What the list holds and why: docs/DECISIONS.md "Trina history by
 // project", "Pinned chats", "Session markers". The filter's menu (RecentsMenu) and its state (useRecentsView) are here too.
 import clsx from 'clsx'
-import { Check, ChevronRight, ListFilter, ListPlus, Loader2 } from 'lucide-react'
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react'
+import { Check, ChevronDown, ChevronRight, ListFilter, ListPlus, Loader2, RotateCcw } from 'lucide-react'
+import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
-import type { Chat } from '@mycel/shared/api'
+import type { Chat, HistoryViewChoice } from '@mycel/shared/api'
 import { dateBucket, type DateBucket } from '../../lib/format'
 import { useT, type MessageKey } from '../../i18n'
 import { waitingOrRunning, type MarkerView } from '../../lib/sessionMarkers'
 import { useChats } from '../../store/chats'
-import { useMe } from '../../store/session'
+import { useMe, useSession } from '../../store/session'
 import { loadChatList, loadMoreShown } from '../../lib/chatListLoad'
-import { cardChats, useSessionMarkers } from '../../store/sessionMarkers'
+import { cardChats, reasonText, useSessionMarkers } from '../../store/sessionMarkers'
+import { strongestMark } from '../../lib/historyGroups'
+import { useFolds } from '../panels/folds'
+import { isUnused, SessionMarker } from '../chat/ChatState'
 import { useProjects } from '../../store/projects'
 import { MoveToProjectDialog } from '../chat/ChatProject'
-import { isUnused } from '../chat/ChatState'
 import { HistoryGroups, useHistoryGroups, useSeesProject } from '../history/HistoryGroups'
 import { MenuButton, menuBoxCls, menuRowCls, menuSpot, MENU_EDGE } from '../rooms/MenuButton'
 import { useMediaQuery } from '../ui'
@@ -42,9 +44,9 @@ const VIEW = {
 } as const satisfies Record<string, { label: MessageKey; options: Record<string, MessageKey> }>
 type ViewKey = keyof typeof VIEW
 export type RecentsView = { [K in ViewKey]: keyof (typeof VIEW)[K]['options'] }
-/** Group by: None (the owner, 2026-11-14: the Trina list is the flat 트리나 기록, so its menu says so; docs/DECISIONS.md
- * "Trina history: Group by defaults to None") */
-const DEFAULT_VIEW: RecentsView = { status: 'all', activity: 'all', group: 'none', sort: 'updated' }
+/** Group by: Date on every surface, as Claude Code's session sidebar and the phone's drawer (the owner, 2026-11-22:
+ * docs/decisions/20261122-history-view-per-person.md; it was None from 2026-11-14) */
+const DEFAULT_VIEW: RecentsView = { status: 'all', activity: 'all', group: 'date', sort: 'updated' }
 /** what differs from the default only, so a later default reaches everyone who did not choose otherwise */
 const VIEW_KEY = 'mycel.sidebar.historyView.v2'
 /** 2026-11-12 to 11-14 the default was Group by: Project, so what this key kept never held a grouping (the default was
@@ -104,18 +106,36 @@ const remember = (key: string, v: string) => {
 /** my pinned chats, the most recently pinned first (docs/DECISIONS.md "Pinned chats") */
 const pinnedFirst = (list: Chat[]) => list.filter((c) => c.pinnedAt).sort((a, b) => b.pinnedAt!.localeCompare(a.pinnedAt!))
 
-/** The history's filter and sort (four menus), remembered in this browser as what differs from the default. `o`: a list
- * with a default of its own (the phone's ☰ drawer: by date, as before the navigation redesign) and its own key. */
-export function useRecentsView(o: { key?: string; base?: Partial<RecentsView> } = {}) {
+/** a view kept as what differs from `base` (the account's prefs.historyView, this browser's key) */
+const diffOf = (v: RecentsView, base: RecentsView): HistoryViewChoice => Object.fromEntries((Object.keys(VIEW) as ViewKey[]).filter((k) => v[k] !== base[k]).map((k) => [k, v[k]]))
+/** a kept choice over `base` (a value this version does not offer is left out) */
+export const viewFrom = (c: HistoryViewChoice, base: RecentsView): RecentsView => {
+  const out = { ...base }
+  for (const k of Object.keys(VIEW) as ViewKey[]) if (c[k] && c[k]! in VIEW[k].options) (out as Record<string, string>)[k] = c[k]!
+  return out
+}
+
+/** The history's filter and sort (four menus) of one surface (`surface`: the computer's Trina panel, or the phone's ☰
+ * drawer), kept on the person's account (prefs.historyView, PATCH /api/me) as what differs from that surface's default,
+ * so another device has it from its next read of /api/me; this browser keeps a copy (its key), read while the account
+ * has no choice for the surface. `o`: a surface with a default or key of its own. */
+export function useRecentsView(o: { key?: string; base?: Partial<RecentsView>; surface?: 'panel' | 'drawer' } = {}) {
   const key = o.key ?? VIEW_KEY
+  const surface = o.surface ?? 'panel'
   const base = useMemo(() => ({ ...DEFAULT_VIEW, ...o.base }), [o.base?.group, o.base?.sort, o.base?.status, o.base?.activity]) // eslint-disable-line react-hooks/exhaustive-deps
-  const [kept, setViewState] = useState<RecentsView>(() => rememberedView(key, base))
+  const account = useSession((s) => (s.status.kind === 'signed-in' ? s.status.me.user.prefs?.historyView?.[surface] : undefined))
+  const [local, setLocal] = useState<RecentsView>(() => rememberedView(key, base))
+  const kept = useMemo(() => (account ? viewFrom(account, base) : local), [account, base, local])
   const confidential = useConfidentialOption()
   const view = useMemo(() => shownView(kept, confidential), [kept, confidential])
   const setView = useCallback((v: RecentsView) => {
-    setViewState(v)
-    remember(key, JSON.stringify(Object.fromEntries((Object.keys(VIEW) as ViewKey[]).filter((k) => v[k] !== base[k]).map((k) => [k, v[k]]))))
-  }, [key, base])
+    setLocal(v)
+    const diff = diffOf(v, base)
+    remember(key, JSON.stringify(diff))
+    const st = useSession.getState().status
+    const now = st.kind === 'signed-in' ? st.me.user.prefs?.historyView : undefined
+    void useSession.getState().updatePrefs({ historyView: { ...now, [surface]: diff } }).catch(() => { /* this browser's copy keeps it */ })
+  }, [key, base, surface])
   const changed = (Object.keys(VIEW) as ViewKey[]).filter((k) => view[k] !== base[k])
   return { view, setView, changed, base }
 }
@@ -123,6 +143,61 @@ export type RecentsViewState = ReturnType<typeof useRecentsView>
 /** the choices that differ from the default, in words ("Waiting, Title") */
 export const viewWords = (s: RecentsViewState, t: ReturnType<typeof useT>) => s.changed.map((k) => t((VIEW[k].options as Record<string, MessageKey>)[s.view[k]])).join(', ')
 export const DEFAULT_RECENTS_VIEW = DEFAULT_VIEW
+
+/** The history by date (Today, Yesterday, This week, This month, Older; by creation with Sort by: Date created) or in
+ * one list (`by` 'none'), each date a header that folds (kept in the account's folds, `section:trina-date:<bucket>`, as
+ * Claude Code's date groups). Folded, a date keeps the chat on screen drawn and shows its strongest session marker. A
+ * scheduled task's runs are one row (TaskRunsRow). Used by the panel at rest (panels/TrinaList.tsx) and the filtered
+ * list and the drawer (HistoryList). */
+export function DateGroups({ chats, row, by, created, projectTag = false }: { chats: Chat[]; row: (c: Chat) => ReactNode; by: 'date' | 'none'; created: boolean; projectTag?: boolean }) {
+  const t = useT()
+  const groups = useMemo(() => {
+    const g = new Map<string, Chat[]>()
+    for (const c of chats) {
+      const key = by === 'date' ? dateBucket(created ? c.createdAt : c.updatedAt) : ''
+      if (!g.has(key)) g.set(key, [])
+      g.get(key)!.push(c)
+    }
+    return [...g.entries()]
+  }, [chats, by, created])
+  return (
+    <>
+      {groups.map(([key, items]) => {
+        // a date whose chats were all runs of a task whose newest run is in a later date: no empty header
+        const rows = foldRuns(items, row, { pool: chats, menuSpace: true, projectTag })
+        if (!rows.length) return null
+        return key ? <DateGroup key={key} bucket={key as DateBucket} label={t(BUCKET_LABEL[key as DateBucket])} items={items} rows={rows} row={row} /> : <ul key="all">{rows}</ul>
+      })}
+    </>
+  )
+}
+
+function DateGroup({ bucket, label, items, rows, row }: { bucket: DateBucket; label: string; items: Chat[]; rows: ReactNode[]; row: (c: Chat) => ReactNode }) {
+  const t = useT()
+  const { folds, set } = useFolds()
+  const key = `section:trina-date:${bucket}`
+  const folded = folds[key] === 'folded'
+  const bodyId = useId()
+  const requests = useChats((s) => s.requests)
+  const cards = useMemo(() => cardChats(requests), [requests])
+  const here = useSessionMarkers((s) => (s.visible ? s.onScreen : null))
+  const mark = folded ? strongestMark(items, (c) => ({ card: cards.has(c.id), here: c.id === here })) : null
+  const open = /^\/c\/([^/]+)/.exec(useLocation().pathname)?.[1] ?? null
+  const openRow = folded ? items.find((c) => c.id === open) : undefined
+  return (
+    <div className="mb-2" data-testid="history-date" data-bucket={bucket} data-folded={folded ? '' : undefined}>
+      <h3 className="flex items-center pr-2 pl-1 text-meta font-medium text-faint">
+        <button type="button" aria-expanded={!folded} aria-controls={bodyId} onClick={() => set(key, folded ? 'open' : 'folded')} className="flex min-h-7 min-w-0 flex-1 items-center gap-1 rounded-md px-2 pt-1 text-left hover:text-ink max-md:min-h-11 pointer-coarse:min-h-11" data-testid="history-date-fold">
+          <span className="truncate">{label}</span>
+          <ChevronDown size={12} className={clsx('shrink-0 transition-transform motion-reduce:transition-none', folded && '-rotate-90')} aria-hidden />
+          {folded && <span className="ml-auto shrink-0 tabular-nums" data-testid="history-date-count">{items.length}</span>}
+        </button>
+        {mark && <span className="ml-1 flex shrink-0 items-center" data-testid="history-date-marker"><SessionMarker marker={mark.marker} label={reasonText(mark.marker.reason, t)} /></span>}
+      </h3>
+      <ul id={bodyId}>{folded ? (openRow ? row(openRow) : null) : rows}</ul>
+    </div>
+  )
+}
 
 /** My sections' rows as this view filters and sorts the history (Status, Last activity, Sort by). `on`: read them. */
 export function useHistorySections(view: RecentsView, on = true) {
@@ -201,16 +276,6 @@ export function HistoryList({ onNavigate, peek, viewState, caps, sections: outsi
   const groupCaps = useMemo(() => (caps ? { ...caps, open: openChat } : {}), [caps?.projects, caps?.rows, openChat]) // eslint-disable-line react-hooks/exhaustive-deps
   const byProject = useHistoryGroups(groupRows, groupCaps)
   const grouped = byProject.grouped && view.group === 'project'
-  const dateGroups = useMemo(() => {
-    const by = view.group === 'none' ? 'none' : 'date'
-    const g = new Map<string, { label: string | null; items: Chat[] }>()
-    for (const c of filtered) {
-      const key = by === 'date' ? dateBucket(view.sort === 'created' ? c.createdAt : c.updatedAt) : ''
-      if (!g.has(key)) g.set(key, { label: by === 'date' ? t(BUCKET_LABEL[key as DateBucket]) : null, items: [] })
-      g.get(key)!.items.push(c)
-    }
-    return [...g.entries()]
-  }, [filtered, view.group, view.sort, t])
   const row = (c: Chat) => <ChatItem key={c.id} chat={c} onNavigate={onNavigate} peek={peek} onMove={setMoving} />
 
   return (
@@ -232,16 +297,7 @@ export function HistoryList({ onNavigate, peek, viewState, caps, sections: outsi
         )}
         {byProject.ready && !outside && view.group !== 'project' && <HistorySections state={sections} row={row} filtered={viewState.changed.length > 0} />}
         {byProject.ready && grouped && <HistoryGroups state={byProject} row={row} pool={filtered} onNavigate={onNavigate} menuSpace />}
-        {byProject.ready && !grouped && dateGroups.map(([key, { label, items }]) => {
-          // a date whose chats were all runs of a task whose newest run is in a later date: no empty header
-          const rows = foldRuns(items, row, { pool: filtered, menuSpace: true })
-          return rows.length > 0 && (
-            <div key={key || 'all'} className="mb-2">
-              {label && <h3 className="px-3 pt-2 pb-1 text-meta font-medium text-faint">{label}</h3>}
-              <ul>{rows}</ul>
-            </div>
-          )
-        })}
+        {byProject.ready && !grouped && <DateGroups chats={filtered} row={row} by={view.group === 'none' ? 'none' : 'date'} created={view.sort === 'created'} />}
         {cursor && (
           <button
             type="button"
@@ -288,16 +344,17 @@ export function HistoryList({ onNavigate, peek, viewState, caps, sections: outsi
  * choices. Keyboard: Enter opens it, arrows move, → or Enter opens a submenu, ← or Esc goes back, Esc closes. The
  * menus sit in <body> (the list scrolls and would clip them); on a narrow screen a submenu takes the menu's
  * place with a way back. A phone (below 768px): bottom sheets instead (RecentsSheet). */
-export function RecentsMenu(props: { view: RecentsView; onChange: (v: RecentsView) => void; changed: boolean }) {
+export function RecentsMenu(props: { view: RecentsView; onChange: (v: RecentsView) => void; changed: boolean; base: RecentsView }) {
   const phone = useMediaQuery('(max-width: 767.98px)')
   const confidential = useConfidentialOption()
   return phone ? <RecentsSheet {...props} confidential={confidential} /> : <RecentsDropdown {...props} confidential={confidential} />
 }
-type MenuProps = { view: RecentsView; onChange: (v: RecentsView) => void; changed: boolean; confidential: boolean }
+/** `base`: this surface's defaults (Reset to defaults: only the view, never my sections or folds) */
+type MenuProps = { view: RecentsView; onChange: (v: RecentsView) => void; changed: boolean; confidential: boolean; base: RecentsView }
 
 /** A phone: the same four rows as a bottom sheet (rooms/MenuButton.tsx), each with its value; a row opens
  * its choices as a second sheet, the chosen one ticked, instead of a menu beside the menu. */
-function RecentsSheet({ view, onChange, changed, confidential }: MenuProps) {
+function RecentsSheet({ view, onChange, changed, confidential, base }: MenuProps) {
   const t = useT()
   const sections = useSectionActions('chats')
   const [sub, setSub] = useState<ViewKey | null>(null)
@@ -329,6 +386,7 @@ function RecentsSheet({ view, onChange, changed, confidential }: MenuProps) {
             testId: `recents-view-${k}`,
           })),
           { label: t('sidebarSections.new'), icon: <ListPlus size={16} aria-hidden />, onSelect: () => void sections.create({ thenAdd: true }), testId: 'recents-new-section' },
+          ...(changed ? [{ label: t('sidebar.filter.reset'), icon: <RotateCcw size={16} aria-hidden />, onSelect: () => onChange(base), testId: 'recents-reset' }] : []),
         ]}
       />
       {sub && (
@@ -352,7 +410,7 @@ function RecentsSheet({ view, onChange, changed, confidential }: MenuProps) {
   )
 }
 
-function RecentsDropdown({ view, onChange, changed, confidential }: MenuProps) {
+function RecentsDropdown({ view, onChange, changed, confidential, base }: MenuProps) {
   const t = useT()
   const sections = useSectionActions('chats')
   const [open, setOpen] = useState(false)
@@ -521,6 +579,22 @@ function RecentsDropdown({ view, onChange, changed, confidential }: MenuProps) {
                   <ListPlus size={14} className="shrink-0 text-faint" aria-hidden />
                   <span>{t('sidebarSections.new')}</span>
                 </button>
+                {/* only while the view is not this surface's default; my sections and folds stay as they are */}
+                {changed && (
+                  <button
+                    type="button"
+                    role="menuitem"
+                    onClick={() => {
+                      onChange(base)
+                      close(true)
+                    }}
+                    className={clsx(row, 'text-ink')}
+                    data-testid="recents-reset"
+                  >
+                    <RotateCcw size={14} className="shrink-0 text-faint" aria-hidden />
+                    <span>{t('sidebar.filter.reset')}</span>
+                  </button>
+                )}
               </div>
             )}
             {sub && (

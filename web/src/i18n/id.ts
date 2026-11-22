@@ -401,6 +401,7 @@ export const id: Record<MessageKey, string> = {
   'sidebar.filter.active': "Sedang menjawab atau menunggu Anda",
   'sidebar.filter.confidential': "Rahasia",
   'sidebar.filter.clear': "Atur ulang",
+  'sidebar.filter.reset': "Kembalikan ke bawaan",
   'sidebar.filter.none': "Tidak ada riwayat yang cocok dengan pilihan ini.",
   'sidebar.peek.empty': "Belum ada jawaban",
   'settings.search': "Cari pengaturan",

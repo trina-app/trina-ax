@@ -29,9 +29,10 @@ describe('the Status option "Confidential"', () => {
   })
 })
 
-// QA TC-1080: the owner kept the flat list (2026-11-14), so Group by defaults to None; a view kept while Project was the
-// default (never kept itself: only what differed) must not stay grouped
-describe('Group by defaults to None, and kept views move to it', () => {
+// Group by defaults to Date (the owner, 2026-11-22: docs/decisions/20261122-history-view-per-person.md; None from
+// 2026-11-14, QA TC-1080); a view kept while Project was the default (never kept itself: only what differed) must not
+// stay grouped by project
+describe('Group by defaults to Date, and kept views move to it', () => {
   const store = new Map<string, string>()
   const ls = { getItem: (k: string) => store.get(k) ?? null, setItem: (k: string, v: string) => void store.set(k, v), removeItem: (k: string) => void store.delete(k), clear: () => store.clear() }
   const prev = (globalThis as { localStorage?: unknown }).localStorage
@@ -41,12 +42,12 @@ describe('Group by defaults to None, and kept views move to it', () => {
     try { f() } finally { (globalThis as { localStorage?: unknown }).localStorage = prev }
   }
 
-  test('the default is the flat list', () => {
-    expect(DEFAULT_RECENTS_VIEW.group).toBe('none')
+  test('the default is by date', () => {
+    expect(DEFAULT_RECENTS_VIEW.group).toBe('date')
     withStore(() => expect(rememberedView()).toEqual(DEFAULT_RECENTS_VIEW))
   })
 
-  test('a view of the Project-default days keeps its other choices and takes Group by: None', () => {
+  test('a view of the Project-default days keeps its other choices and takes the default grouping', () => {
     withStore(() => {
       store.set('mycel.sidebar.historyView', JSON.stringify({ sort: 'title' }))
       expect(rememberedView()).toEqual({ ...DEFAULT_RECENTS_VIEW, sort: 'title' })

@@ -35,7 +35,7 @@ import { Tooltip } from '../Tooltip'
 export const useTrinaDrawer = create<{ open: boolean; setOpen: (v: boolean) => void }>((set) => ({ open: false, setOpen: (open) => set({ open }) }))
 
 const OPEN_KEY = 'mycel.sidebar.recents'
-const DRAWER_VIEW = { key: 'mycel.drawer.historyView', base: { group: 'date' as const } }
+const DRAWER_VIEW = { key: 'mycel.drawer.historyView', base: { group: 'date' as const }, surface: 'drawer' as const }
 const readOpen = () => {
   try {
     return localStorage.getItem(OPEN_KEY) !== 'closed'
@@ -157,7 +157,7 @@ function DrawerBody({ close }: { close: () => void }) {
             </span>
           )}
           <span className="ml-auto">
-            <RecentsMenu view={view.view} onChange={view.setView} changed={filtered} />
+            <RecentsMenu view={view.view} onChange={view.setView} changed={filtered} base={view.base} />
           </span>
         </div>
         <div id={listId} hidden={!recentsOpen}>
