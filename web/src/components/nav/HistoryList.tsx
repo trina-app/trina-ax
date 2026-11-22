@@ -141,7 +141,11 @@ export function useRecentsView(o: { key?: string; base?: Partial<RecentsView>; s
 }
 export type RecentsViewState = ReturnType<typeof useRecentsView>
 /** the choices that differ from the default, in words ("Waiting, Title") */
-export const viewWords = (s: RecentsViewState, t: ReturnType<typeof useT>) => s.changed.map((k) => t((VIEW[k].options as Record<string, MessageKey>)[s.view[k]])).join(', ')
+/** Group by is said with its name ("Group by: None"): a bare "None" over the list read as an empty list (UX review 3) */
+export const viewWords = (s: RecentsViewState, t: ReturnType<typeof useT>) => s.changed.map((k) => {
+  const value = t((VIEW[k].options as Record<string, MessageKey>)[s.view[k]])
+  return k === 'group' ? `${t(VIEW.group.label)}: ${value}` : value
+}).join(', ')
 export const DEFAULT_RECENTS_VIEW = DEFAULT_VIEW
 
 /** The history by date (Today, Yesterday, This week, This month, Older; by creation with Sort by: Date created) or in
