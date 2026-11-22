@@ -47,8 +47,8 @@ Satu orang mengatur semuanya di server tim. AI setiap orang sudah bisa memakainy
 <td colspan="2"><img src="docs/images/readme/v4/connected-apps.webp" alt="Admin › Aplikasi terhubung, berlaku untuk semua orang di tim: Google Drive, Gmail, Calendar, Docs, dan Sheets (diatur sekali, lalu setiap anggota cukup masuk ke Google), Slack, Notion, Linear, Atlassian, Canva, dan Tambahkan lewat alamatnya"><br><sub>Admin › Aplikasi terhubung: atur sekali untuk semua orang di tim</sub></td>
 </tr>
 <tr>
-<td width="50%"><img src="docs/images/readme/v4/team-drive.webp" alt="Drive tim: Company-wide, Groups, Projects, Team skills, Personal"><br><sub>Satu drive tim</sub></td>
-<td width="50%"><img src="docs/images/readme/v4/team-skills.webp" alt="Daftar skill tim dengan tombol Bring my skills"><br><sub>Skill tim, atau bawa skill Anda sendiri</sub></td>
+<td width="50%"><img src="docs/images/readme/v4/team-drive-v2.webp" alt="Drive tim: Company-wide, Groups, Projects, Team skills, Personal"><br><sub>Satu drive tim</sub></td>
+<td width="50%"><img src="docs/images/readme/v4/team-skills-v2.webp" alt="Daftar skill tim dengan tombol Bring my skills"><br><sub>Skill tim, atau bawa skill Anda sendiri</sub></td>
 </tr>
 </table>
 
@@ -74,11 +74,11 @@ Satu orang mengatur semuanya di server tim. AI setiap orang sudah bisa memakainy
 
 <table>
 <tr>
-<td width="50%"><b>Tugas terjadwal.</b> Minta sekali, lalu Trina mengulanginya sesuai jadwal Anda, di zona waktu tim.<br><br><img src="docs/images/readme/v4/scheduled-run.webp" alt="Ringkasan mingguan yang ditulis tugas terjadwal: temuan, keputusan, dan pekerjaan yang belum selesai, disimpan sebagai file"></td>
+<td width="50%"><b>Tugas terjadwal.</b> Minta sekali, lalu Trina mengulanginya sesuai jadwal Anda, di zona waktu tim.<br><br><img src="docs/images/readme/v4/scheduled-list.webp" alt="Halaman tugas terjadwal: enam tugas, masing-masing dengan isi tugas, jadwal ulang, dan hasil jalan terakhir"></td>
 <td width="50%"><b>Tamu.</b> Undang orang dari luar perusahaan ke obrolan grup atau proyek, dan tentukan apakah mereka boleh memakai AI.<br><br><img src="docs/images/readme/v4/guest-room.webp" alt="Obrolan grup Launch email bersama Morgan Reyes, tamu dari agensi: pilihan subjek email, satu mention, dan jawaban Trina"></td>
 </tr>
 <tr>
-<td width="50%"><b>Pemakaian dan batas.</b> Jawaban, token, dan perkiraan biaya per orang. Batas token per orang, grup, atau tim.<br><br><img src="docs/images/readme/v4/usage.webp" alt="Halaman pemakaian di admin: token, jawaban, dan perkiraan biaya per orang"></td>
+<td width="50%"><b>Pemakaian dan batas.</b> Jawaban, token, dan perkiraan biaya per orang. Batas token per orang, grup, atau tim.<br><br><img src="docs/images/readme/v4/usage-v2.webp" alt="Halaman pemakaian di admin: token, jawaban, dan perkiraan biaya per orang"></td>
 <td width="50%"><b>Cari apa saja.</b> ⌘K di seluruh chat, riwayat, proyek, file, skill, dan tugas terjadwal.<br><br><img src="docs/site/images/search/palette.webp" alt="Pencarian ⌘K di chat, riwayat, proyek, file, skill, dan tugas terjadwal"></td>
 </tr>
 <tr>

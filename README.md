@@ -47,8 +47,8 @@ One person sets things up on the team server. Everyone's AI has it from their fi
 <td colspan="2"><img src="docs/images/readme/v4/connected-apps.webp" alt="Admin › Connected apps, applying to everyone in the team: Google Drive, Gmail, Calendar, Docs and Sheets (one setup, then every member just signs in to Google), Slack, Notion, Linear, Atlassian, Canva, and Add one by its address"><br><sub>Admin › Connected apps: set up once for everyone in the team</sub></td>
 </tr>
 <tr>
-<td width="50%"><img src="docs/images/readme/v4/team-drive.webp" alt="The team drive: Company-wide, Groups, Projects, Team skills, Personal"><br><sub>One team drive</sub></td>
-<td width="50%"><img src="docs/images/readme/v4/team-skills.webp" alt="Team skills list with Bring my skills"><br><sub>Team skills, or bring your own</sub></td>
+<td width="50%"><img src="docs/images/readme/v4/team-drive-v2.webp" alt="The team drive: Company-wide, Groups, Projects, Team skills, Personal"><br><sub>One team drive</sub></td>
+<td width="50%"><img src="docs/images/readme/v4/team-skills-v2.webp" alt="Team skills list with Bring my skills"><br><sub>Team skills, or bring your own</sub></td>
 </tr>
 </table>
 
@@ -74,11 +74,11 @@ One person sets things up on the team server. Everyone's AI has it from their fi
 
 <table>
 <tr>
-<td width="50%"><b>Scheduled tasks.</b> Ask once; Trina repeats it on your schedule, in your team's time zone.<br><br><img src="docs/images/readme/v4/scheduled-run.webp" alt="The weekly summary a scheduled task wrote: what it found, decisions and unfinished work, saved as a file"></td>
+<td width="50%"><b>Scheduled tasks.</b> Ask once; Trina repeats it on your schedule, in your team's time zone.<br><br><img src="docs/images/readme/v4/scheduled-list.webp" alt="The Scheduled tasks page: six tasks, each with what it does, when it repeats and its last run"></td>
 <td width="50%"><b>Guests.</b> Invite people outside the company into a group chat or project, and choose whether they can use the AI.<br><br><img src="docs/images/readme/v4/guest-room.webp" alt="The Launch email group chat with Morgan Reyes, a guest from an agency: subject line options, a mention and Trina's answer"></td>
 </tr>
 <tr>
-<td width="50%"><b>Usage and limits.</b> Answers, tokens and estimated cost per person; token limits per person, group or team.<br><br><img src="docs/images/readme/v4/usage.webp" alt="The admin usage page: tokens, answers and estimated cost per person"></td>
+<td width="50%"><b>Usage and limits.</b> Answers, tokens and estimated cost per person; token limits per person, group or team.<br><br><img src="docs/images/readme/v4/usage-v2.webp" alt="The admin usage page: tokens, answers and estimated cost per person"></td>
 <td width="50%"><b>Search everything.</b> ⌘K across chats, history, projects, files, skills and scheduled tasks.<br><br><img src="docs/site/images/search/palette.webp" alt="The ⌘K search over chats, history, projects, files, skills and scheduled tasks"></td>
 </tr>
 <tr>
