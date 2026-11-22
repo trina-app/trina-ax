@@ -265,7 +265,7 @@ export function registerFileMoveTools(ctx: AppContext, reg: ToolRegistry) {
   reg.register({
     name: 'copy_files',
     description: 'Copy files of any type (PDF, images, Office files) into another folder of the team drive; the originals stay. ' +
-      'Names are kept; " (2)" is added when a name is taken. Files only, not folders, between team folders. A target folder that does not exist yet is made. ' +
+      'Names are kept; " (2)" is added when a name is taken, except over a file you read in this answer: then your copy replaces it as a new version (its earlier content is kept as a version), which is how you change a picture or any file you remade elsewhere in place. Files only, not folders, between team folders. A target folder that does not exist yet is made. ' +
       'When more people can see the target folder than the originals, the user is asked first. ' +
       'In a Trina chat it also copies between the team folder, this chat\'s files (chat:files/…) and this chat\'s work folder (chat:work/…, $TRINA_WORK in box_shell): ' +
       'to_folder "chat:work/in/" brings team files, whole team folders (an HTML file with its images folder) or chat files into the work folder for your commands; ' +
