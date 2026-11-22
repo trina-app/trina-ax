@@ -3791,7 +3791,7 @@ export const ko = {
   "localApps.state": "이 컴퓨터",
   "localApps.running": "실행 중",
   "localApps.stopped": "실행 중 아님",
-  "localApps.status.desktopOnly": "데스크톱 앱에서 쓰여요",
+  "localApps.status.desktopOnly": "데스크톱 앱에서만 쓸 수 있어요",
   "localApps.status.otherComputer": "다른 컴퓨터에 있어요",
   "localApps.stop": "중지",
   "localApps.settings": "이 컴퓨터의 설정",

@@ -20,6 +20,8 @@ import { levelLabel, moveOptions, runMove } from '../skills/move'
 import { teamRuleFiles } from '../chat/prompt'
 import { popularSkills } from '../skills/popular'
 import { teamPrepared } from '../skills/examples'
+import { inViewerLanguage } from '../onboarding/skill-examples'
+import { teamDefaultLocale } from '../admin/settings'
 import { createFromTemplate, SCHEDULE_TEMPLATES } from '../chat/schedule-templates'
 import { installNotifications } from '../notifications/service'
 import { registerNotifications } from './notifications'
@@ -190,7 +192,10 @@ export const memoriesRoutes: RouteModule = {
     // Home's "팀에 준비된 것" (docs/DECISIONS.md "W6.3"): what the team prepared, read as the caller (skills/examples.ts)
     kit.handle(API.skillExamples, ({ c, auth }) => {
       try { ctx.files.principal(auth.user.id) } catch { return fail('forbidden') }
-      return teamPrepared(ctx, auth.user.id, c.get('locale'))
+      // the examples in the caller's own language when there is one, as on the setup's skills step
+      const viewer = c.get('locale')
+      const r = teamPrepared(ctx, auth.user.id, viewer)
+      return { ...r, skills: inViewerLanguage(r.skills, viewer, teamDefaultLocale(ctx.db)) }
     })
     // R2-SKILL-03: the entries that do not load, so the skills and files screens can warn (readable entries only)
     kit.handle(API.listSkillIssues, ({ auth }) => {

@@ -3743,7 +3743,7 @@ export const zh: Record<MessageKey, string> = {
   "localApps.state": "在这台电脑上",
   "localApps.running": "运行中",
   "localApps.stopped": "未运行",
-  "localApps.status.desktopOnly": "在桌面应用中使用",
+  "localApps.status.desktopOnly": "仅可在桌面应用中使用",
   "localApps.status.otherComputer": "在另一台电脑上",
   "localApps.stop": "停止",
   "localApps.settings": "这台电脑上的设置",

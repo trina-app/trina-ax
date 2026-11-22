@@ -125,7 +125,7 @@ import { GOOGLE_APP_IDS as GOOGLE_APP_LIST, MockGoogleApps } from './googleApps'
 import type { GoogleAppId } from '@mycel/shared/api'
 import { isGoogleRequestable, isRequestableService, SERVICE_REQUESTS_PER_DAY, type RequestableService } from '@mycel/shared/api'
 import { catalogAt as catalogAtUrl } from '@mycel/shared'
-import { packExample } from '../../../server/src/onboarding/skill-examples'
+import { packExample, viewerExample } from '../../../server/src/onboarding/skill-examples'
 import { placeholderTitle } from '../../../server/src/chat/title'
 import { planStatus, statusOut } from '../../../server/src/auth/status-plan'
 import { HttpError } from '../../../server/src/http/errors'
@@ -4242,7 +4242,8 @@ export class MockServer {
         const k = PACK_CATALOG.find((x) => x.name === name)!
         const s = mine.find((x) => x.path === `skills/${k.pack}/${k.name}/SKILL.md`)
         if (!s) return []
-        const example = Object.hasOwn(this.packExamples, k.name) ? this.packExamples[k.name] ?? undefined : packExample(ko ? 'ko' : 'en', k.name, this.settings.defaultLocale) ?? undefined
+        // the example in the viewer's own language when there is one (routes/memories.ts inViewerLanguage)
+        const example = Object.hasOwn(this.packExamples, k.name) ? this.packExamples[k.name] ?? undefined : viewerExample(c.user.localeChoice ?? this.settings.defaultLocale, k.name, ko ? 'ko' : 'en', this.settings.defaultLocale) ?? undefined
         const source = packSource(k, ko)
         return [{ path: s.path, name: s.name, title: s.title ?? s.name, summary: c.user.locale === 'ko' ? k.lineKo : k.lineEn, ...(example ? { example, locale: ko ? 'ko' as const : 'en' as const } : {}), source }]
       })

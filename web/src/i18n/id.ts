@@ -3792,7 +3792,7 @@ export const id: Record<MessageKey, string> = {
   "localApps.state": "Di komputer ini",
   "localApps.running": "Berjalan",
   "localApps.stopped": "Tidak berjalan",
-  "localApps.status.desktopOnly": "Berfungsi di aplikasi desktop",
+  "localApps.status.desktopOnly": "Hanya berfungsi di aplikasi desktop",
   "localApps.status.otherComputer": "Di komputer lain",
   "localApps.stop": "Hentikan",
   "localApps.settings": "Pengaturan di komputer ini",
