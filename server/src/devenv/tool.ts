@@ -88,6 +88,7 @@ export const srtShellDescription = (preview: boolean) => 'Run a shell command in
   + 'The command can read the team folders that the person of this chat may open; other folders are not there. '
   + 'It can write only the folder it starts in and the person\'s own folder users/<id>: every other team folder is read-only in a command, also where the person may write. To put a file in another team folder, use copy_files (for a file in $TRINA_WORK its path is chat:work/<path>). '
   + 'A folder in users/<id> that the person shares with other people is read-only in a command too: write the file somewhere else, then move it in with move_files, which asks the person first. '
+  + 'A change a command makes to an existing file in users/<id> or the project folder keeps the earlier content as a file version, and a file it deletes goes to the trash, so the person can restore them (not for a file over 8 MB in users/<id> or 1 MB in a project folder: the answer says when a change cannot be undone). '
   + 'Team folders are under $TRINA_TEAM, with the same paths as in the file tools. '
   + 'In a project chat the command starts in the project folder, and changes there are shared with the team and recorded with your name. '
   + 'It also has this chat\'s own work folder $TRINA_WORK, which only this chat uses and which is not a team folder (chat:work/ in the file tools). '
@@ -269,6 +270,10 @@ ${clip(h.redact(hideProxyLogin(e.stderr)))}`)
   if (w.background.length) parts.push(`Files changed in the background since the last command (${w.background.length}):\n${changeLines(w.background)}`)
   if (w.conflicts.length) parts.push(`Someone saved some of these files while the command ran; their version is kept as: ${w.conflicts.join(', ')}`)
   // what cannot be undone, and what was undone at once, said plainly (the person's earlier content is gone / kept)
+  // what can be put back (QA: the AI told the person a deleted file was gone for good)
+  const gone = new Set((w.lost ?? []).map((c) => c.path))
+  const kept = w.changes.filter((c) => c.action !== 'create' && !gone.has(c.path))
+  if (kept.length) parts.push(`Undo: ${[kept.some((c) => c.action === 'update') ? 'the earlier content of each changed file is kept as a file version (File history)' : '', kept.some((c) => c.action === 'delete') ? 'each deleted file is in the trash' : ''].filter(Boolean).join(', and ')}; the person can restore them there.`)
   const lost = (w.lost ?? []).filter((c) => personCanOpen(h, c.path) || c.action === 'delete')
   if (lost.length) parts.push(`No earlier version was kept of these files (too large to keep a copy of): this change cannot be undone. Tell the person.\n${changeLines(lost, 10)}`)
   if (w.reverted?.length) parts.push(`Undone right away: this chat holds other people's words from the team's chat rooms, so a command that went without asking may not change what the person's AI follows (skills, CLAUDE.md, AGENTS.md) or hidden files in the person's own folder. These changes were put back (the command's file is in the trash):\n${changeLines(w.reverted, 10)}\nIf the person wants them, call box_shell again with the same command after telling them: they are asked first.`)
