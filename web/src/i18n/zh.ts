@@ -2424,6 +2424,7 @@ export const zh: Record<MessageKey, string> = {
   "groups.name": "小组名称",
   "groups.description": "说明",
   "groups.members": "成员",
+  "groups.accessNote": "更改小组后，文件夹访问权限也会立即改变。",
   "groups.none": "还没有小组。",
   "groups.noMembers": "没有成员",
   "groups.deleteTitle": "删除小组“{name}”？",

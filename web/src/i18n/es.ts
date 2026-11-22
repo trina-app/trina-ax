@@ -2427,6 +2427,7 @@ export const es: Record<MessageKey, string> = {
   'groups.name': "Nombre del grupo",
   'groups.description': "Descripción",
   'groups.members': "Miembros",
+  'groups.accessNote': 'Cambiar los grupos cambia el acceso a las carpetas al momento.',
   'groups.none': "Aún no hay grupos.",
   'groups.noMembers': "Sin miembros",
   'groups.deleteTitle': "¿Eliminar el grupo \"{name}\"?",

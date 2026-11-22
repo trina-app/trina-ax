@@ -2427,6 +2427,7 @@ export const ja: Record<MessageKey, string> = {
   'groups.name': "グループ名",
   'groups.description': "説明",
   'groups.members': "メンバー",
+  'groups.accessNote': 'グループを変えると、フォルダーへのアクセスもすぐに変わります。',
   'groups.none': "グループはまだありません。",
   'groups.noMembers': "メンバーなし",
   'groups.deleteTitle': "グループ\"{name}\"を削除しますか？",

@@ -2458,6 +2458,7 @@ export const ko = {
   'groups.name': '부서 이름',
   'groups.description': '설명',
   'groups.members': '구성원',
+  'groups.accessNote': '부서를 바꾸면 폴더 접근도 바로 바뀌어요.',
   'groups.none': '부서가 없어요.',
   'groups.noMembers': '구성원 없음',
   'groups.deleteTitle': '"{name}" 부서를 삭제할까요?',

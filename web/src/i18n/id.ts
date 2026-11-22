@@ -2459,6 +2459,7 @@ export const id: Record<MessageKey, string> = {
   'groups.name': 'Nama grup',
   'groups.description': 'Deskripsi',
   'groups.members': 'Anggota',
+  'groups.accessNote': 'Mengubah grup langsung mengubah akses folder.',
   'groups.none': 'Belum ada grup.',
   'groups.noMembers': 'Belum ada anggota',
   'groups.deleteTitle': 'Hapus grup "{name}"?',

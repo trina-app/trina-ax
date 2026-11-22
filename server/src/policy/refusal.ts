@@ -304,6 +304,25 @@ export function projectNotFoundNote(text: string, o: { sees: (segs: string[]) =>
   return `Only a project's members see it: the user is not a member of a project called "${oneLine(segs[1]!).replace(/"/g, "'")}" (the same answer whether or not one exists, so do not say whether it does). Next step: say so plainly; if they should be in it, the person who made that project or an admin can add them.`
 }
 
+/**
+ * S-118: a file tool refused a place ("not found or no access", or a search that skipped it) that this person's own
+ * earlier answers in this chat read (chat_reads, chat/carried-reads.ts), and the folder rules no longer let them read
+ * it. They saw it themselves, so saying they could open it before reveals nothing new; whether the path still exists
+ * is never looked at (a deleted and a hidden place read the same). The QA run: the AI said "영업 폴더가 목록에도 보이지
+ * 않았습니다", asked for a path and called a price it had read earlier unverified. `places`: the team folders (or
+ * paths) as the person's own reads named them.
+ */
+/** what earlier answers read stays true (the last part of lostAccessNote; alone after the file service's own lost-access
+ * fact for the very file, files/moved.ts LOST_ACCESS_NOTE) */
+export const KEEP_READ_LINE = 'Do not ask them for a path. What earlier answers read and checked there stays true: do not take it back or call it unverified.'
+export function lostAccessNote(db: Database, places: readonly string[], L: Locale): string {
+  const named = nameList(places.map((p) => `'${oneLine(p)}'`))
+  const g = writeGranters(db, places[0] ?? '', L, () => false)
+  return `Earlier in this chat this user opened ${named}; they can no longer open ${places.length > 1 ? 'them' : 'it'} (their groups or the folder's access changed, or it was moved). ` +
+    'Tell them so plainly in their language (e.g. "이 폴더는 더 이상 열 수 없어요 (권한이 바뀌었거나 옮겨졌어요)"); do not say it is not among their folders or was never there. ' +
+    `${g.who[0]!.toUpperCase()}${g.who.slice(1)} can give access again (${g.how}). ${KEEP_READ_LINE}`
+}
+
 /** B7: the per-answer write limits (files/service.ts limits, tools/make-file.ts), with their numbers and what to do. */
 export function writeLimitText(kind: 'bytes' | 'files', max: number, path: string): string {
   const limit = kind === 'bytes' ? `at most ${Math.round(max / 1048576)} MB written in one answer` : `at most ${max} files written in one answer`
