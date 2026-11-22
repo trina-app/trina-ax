@@ -103,7 +103,9 @@ describe('language, shared chats, rooms, who can open', () => {
     expect(WHO_CAN_OPEN_RULE).toContain('A file you just saved: say who can open it from the "Who can open the new file now" line')
     const note = saveAudienceNote(h.ctx.db, h.ctx.files.rules(), ['users/alice/x.md'], 'alice')
     expect(note).toContain('users/alice/x.md: only the user')
-    expect(note).toContain('Say in your answer where it is and who can open it, in these words (only the user: "only you")')
+    expect(note).toContain('Say in your answer where it is and who can open it, in plain words of the language your answer is in')
+    // QA b4s r110: a Korean answer said "나만 열 수 있어요(only you)": the line quotes no English phrase to echo
+    expect(note).not.toContain('"only you"')
   })
 
   test('the app map says what a file view does, and nothing it does not show is a feature (TC-7391)', () => {

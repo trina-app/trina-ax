@@ -481,7 +481,9 @@ export type ShellKind = keyof typeof SHELL_KIND_WORDS
 export function shellKind(command: string): ShellKind {
   const c = command.slice(0, 4000)
   // a redirect into a file (not 2>&1 or > /dev/null), sed -i, find -delete / -exec, tee: it writes
-  const quiet = c.replace(/(?<!\d)\d?>{1,2}\s*(?:\/dev\/null\b|&\d)/g, '')
+  // (a ">" inside quotes is text, not a redirect: grep -o '<title>[^<]*</title>' reads a page, QA b4s S4-E; double quotes
+  // only when nothing in them runs: "$(…)" or `…` can hold a redirect)
+  const quiet = c.replace(/'[^'\n]*'/g, "''").replace(/"[^"\n$`]*"/g, '""').replace(/(?<!\d)\d?>{1,2}\s*(?:\/dev\/null\b|&\d)/g, '')
   if (/>/.test(quiet.replace(/<<-?\s*['"]?\w+['"]?/g, '')) || /(?:^|\s)-(?:delete|exec|execdir|ok|okdir|fprint0?|fprintf|fls)\b/.test(c) || /\bsort\b[^|;&\n]*\s-o\b/.test(c) || /\bsed\s+(?:-\w*\s+)*-i/.test(c)) return 'change'
   const parts = c.split(/&&|\|\||[;|\n]/).map((p) => p.trim()
     // leading VAR=value assignments, export / env / sudo / time / exec in front of the program

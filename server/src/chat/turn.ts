@@ -3235,7 +3235,9 @@ export class TurnExec {
     // move or copy of a skill or instruction file is still refused
     if (this.ownCard(tool) && !this.readsOnly(tool, input)) return null
     let args = ''
-    try { args = JSON.stringify(input ?? null) } catch { args = String(input) }
+    // (box_shell's request_sites is not part of what the room card asked: the same command again with the sites it
+    // needs goes on under the person's yes and asks only the site card; QA b4s S4-E: one curl, three cards)
+    try { args = JSON.stringify(roomCardInput(tool, input) ?? null) } catch { args = String(input) }
     const key = `${tool}\u0000${args}`
     const command = tool === 'box_shell' && input && typeof input === 'object' ? (input as { command?: unknown }).command : undefined
     if (this.roomAllowed.has(key)) {
@@ -6400,6 +6402,8 @@ export function shellCardWords(command: string, L: Locale): string {
   const net = (byFiles || (kind !== 'install' && kind !== 'download')) && SHELL_NETWORK.test(c)
   if (install && net) return tr('roomShellPlusBoth', L, { what })
   if (install) return tr('roomShellPlusInstall', L, { what })
+  // (a plain run whose only other part is the internet: said as one thing, QA b4s S4-E)
+  if (net && !byFiles && kind === 'run') return tr('roomShellNetRun', L)
   if (net) return tr('roomShellPlusNet', L, { what })
   return what
 }
@@ -6421,6 +6425,13 @@ const SHELL_INSTALL = /(?:^|[\s;&|(`])(?:(?:npm|pnpm|yarn|bun|deno)\s+(?:i|insta
  * axios, httpx, aiohttp, socket): a command that can send files out or bring things in. Rough on purpose: a false
  * "yes" only keeps a card. */
 const SHELL_NETWORK = /(?:^|[\s;&|(`/])(?:curl|wget|ssh|scp|sftp|rsync|nc|ncat|netcat|ftp|lftp|telnet|socat|aria2c)(?=\s|$)|\bgit\s+(?:clone|pull|fetch|push|ls-remote)\b|\bpython3?\s+-m\s+http\.server\b|\b(?:requests|urllib|urllib3|httpx|aiohttp|http\.client|socket|axios|smtplib|ftplib|paramiko)\b|\bfetch\s*\(|https?:\/\//i
+/** A call as the room card weighs it: box_shell without request_sites (the sites a command asks for have their own
+ * card, devenv/tool.ts askSites; the command itself is what the room card showed). */
+export function roomCardInput(tool: string, input: unknown): unknown {
+  if (tool !== 'box_shell' || !input || typeof input !== 'object' || Array.isArray(input) || !('request_sites' in input)) return input
+  const { request_sites: _sites, ...rest } = input as Record<string, unknown>
+  return rest
+}
 /** The command uses the network (SHELL_NETWORK), or installs programs (which downloads them). */
 export function shellUsesNetwork(command: string): boolean {
   const c = command.slice(0, 20_000)

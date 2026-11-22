@@ -552,7 +552,7 @@ function workTarget(exec: TurnExec, files: TurnFiles): WorkTarget | null {
 }
 
 /** A chat file a place names, as the person may open it now, or why not (plain words). */
-function chatFileFor(exec: TurnExec, place: Extract<Place, { kind: 'chatFiles' }>): ChatFileRow | string {
+export function chatFileFor(exec: TurnExec, place: Extract<Place, { kind: 'chatFiles' }>): ChatFileRow | string {
   const { rt, spec } = exec
   const name = place.name || place.id || ''
   const notFound = `No file "${oneLine(name, 120)}" sent in this chat.`

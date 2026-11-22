@@ -229,3 +229,26 @@ describe('globLabel', () => {
     expect(stepLabel('glob', { pattern: '매출/**/*' }, 'ko', none)).toBe('파일 찾기 · 매출')
   })
 })
+
+describe('QA b4s S4-E: one curl in a side chat', () => {
+  const curl = "curl -sL https://example.com | grep -o '<title>[^<]*</title>'"
+  test('a ">" inside quotes is no redirect: the card never says "파일 바꾸기" for a read', () => {
+    expect(shellKind(curl)).toBe('run')
+    expect(shellKind(`grep -c "a>b" notes.txt`)).toBe('check')
+    // a real redirect still counts, quoted target or not, and one inside "$(…)" too
+    expect(shellKind("curl -sL https://example.com > 'page.html'")).toBe('change')
+    expect(shellKind('echo "$(cat a > b)"')).toBe('change')
+  })
+  test('a plain run that uses the internet reads as one thing', () => {
+    expect(shellCardWords(curl, 'ko')).toBe('인터넷을 쓰는 명령 실행')
+    expect(shellCardWords(curl, 'en')).toBe('Run a command that uses the internet')
+    for (const l of L) expect(shellCardWords(curl, l)).not.toBe(shellCardWords('python3 a.py', l))
+  })
+  test('the room card weighs box_shell without request_sites: the retry with the site asks only the site card', async () => {
+    const { roomCardInput } = await import('../../server/src/chat/turn')
+    expect(roomCardInput('box_shell', { command: curl, request_sites: ['example.com'] })).toEqual({ command: curl })
+    expect(roomCardInput('box_shell', { command: curl })).toEqual({ command: curl })
+    const w = { path: 'a', content: 'b', request_sites: ['x'] }
+    expect(roomCardInput('write', w)).toBe(w)
+  })
+})
