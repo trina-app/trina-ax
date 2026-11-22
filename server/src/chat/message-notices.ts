@@ -26,7 +26,7 @@ import { notificationsOf } from '../notifications/service'
 import { redactorFor } from '../integrations/connections/redact'
 import { isSharedRow } from './chat-audience'
 import { Audiences } from './shared'
-import { AnswerSight } from './shared-answers'
+import { answerHiddenFrom } from './shared-answers'
 import type { ChatRow } from './store'
 
 type Kind = 'message' | 'answer'
@@ -73,10 +73,11 @@ export function unreadOf(db: Database, userId: string, chatId: string): Unread {
 }
 
 /** Everyone's unread numbers, mentions and mutes in one chat, in two grouped reads (runtime.ts publishChat tells every
- * viewer of a busy project chat at once: no read per person). Someone without a row: nothing unread, not muted. */
+ * viewer of a busy project chat at once: no read per person). The unread rows only, through their partial index
+ * (migration 438), never every notice the chat ever had. Someone without a row: nothing unread, not muted. */
 export function unreadByUser(db: Database, chatId: string): Map<string, Unread> {
   const out = new Map<string, Unread>()
-  const rows = db.query(`SELECT user_id, COUNT(*) n, MAX(mention) m FROM chat_message_notices WHERE chat_id = ? AND read_at IS NULL AND suppressed = 0 GROUP BY user_id`).all(chatId) as { user_id: string; n: number; m: number | null }[]
+  const rows = db.query(`SELECT user_id, COUNT(*) n, MAX(mention) m FROM chat_message_notices INDEXED BY chat_message_notices_unread_by_chat WHERE chat_id = ? AND read_at IS NULL AND suppressed = 0 GROUP BY user_id`).all(chatId) as { user_id: string; n: number; m: number | null }[]
   for (const r of rows) out.set(r.user_id, { n: r.n, mention: r.m === 1, muted: false })
   for (const r of db.query('SELECT user_id FROM chat_mutes WHERE chat_id = ?').all(chatId) as { user_id: string }[]) out.set(r.user_id, { ...(out.get(r.user_id) ?? { n: 0, mention: false }), muted: true })
   return out
@@ -111,10 +112,10 @@ function note(ctx: AppContext, chat: ChatIds, messageId: string, by: string, kin
     const active = new Set((db.query("SELECT id FROM users WHERE id IN (SELECT value FROM json_each(?)) AND status = 'active' AND deleted_at IS NULL").all(list) as { id: string }[]).map((r) => r.id))
     const muted = new Set((db.query('SELECT user_id FROM chat_mutes WHERE chat_id = ?').all(chat.id) as { user_id: string }[]).map((r) => r.user_id))
     const prefs = kind === 'message' ? getPreferencesOf(db, ids.filter((id) => active.has(id))) : null
-    // an answer: who it is hidden from, worked out before the write transaction (it reads the chat and each person's
-    // access; never held inside the write)
-    const sight = kind === 'answer' ? new AnswerSight(db, ctx.files) : null
-    const hiddenFrom = new Set(sight ? ids.filter((uid) => active.has(uid) && (!muted.has(uid)) && sight.withheld(chat.id, uid).has(messageId)) : [])
+    // an answer: who this one answer is hidden from, worked out before the write transaction from its own branch only
+    // (shared-answers.ts answerHiddenFrom: never the whole chat per person; an answer from the cutover on reads nothing
+    // more), never held inside the write
+    const hiddenFrom = kind === 'answer' ? answerHiddenFrom(db, ctx.files, chat.id, messageId, ids.filter((uid) => active.has(uid) && !muted.has(uid))) : new Set<string>()
     const tz = teamTimeZone(db), now = Date.now(), at = new Date(now).toISOString()
     const insert = db.query(`INSERT INTO chat_message_notices (id, user_id, event_type, source_id, chat_id, by_user, kind, created_at, suppressed, quiet, mention)
       VALUES (?, ?, 'chat.message', ?, ?, ?, ?, ?, 0, ?, ?) ON CONFLICT DO NOTHING`)

@@ -561,6 +561,9 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
       if (!exec.files || (caller && caller.files !== exec.files)) return args
       return mapCopyPaths(name, args, copiesHere()).args
     },
+    // after a mapped call (mcp/protocol.ts): the creator's "users/<me>/q.xlsx" edited the chat's copy, never her team
+    // file, so the AI says so (review of #355)
+    mappedNote: () => tr('copyPathMapped', exec.spec.locale),
     hideKeys: (name, args) => {
       // a call to a connected service (an MCP tool, Gmail, Drive, Notion, api_request, Slack): every value, so the
       // card shows exactly what is sent and the service never gets the key (QA TC-3081)
