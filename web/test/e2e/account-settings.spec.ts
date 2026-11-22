@@ -203,8 +203,10 @@ test('the 트리나 list\'s filter, group and sort like Claude\'s, remembered an
     `${t['sidebar.view.activity']}${t['sidebar.activity.all']}`,
     `${t['sidebar.view.group']}${t['sidebar.group.none']}`,
     `${t['sidebar.view.sort']}${t['sidebar.sort.updated']}`,
+    // my sections of the history (docs/decisions/20261122-trina-history-sections.md)
+    t['sidebarSections.new'],
   ])
-  await expect(menu.getByRole('separator')).toHaveCount(1)
+  await expect(menu.getByRole('separator')).toHaveCount(2)
   await expect(side.getByTestId('recents-filter-dot')).toHaveCount(0)
   await page.keyboard.press('Escape')
   const choose = async (key: string, id: string) => {
@@ -311,7 +313,7 @@ test('a recent chat shows its ⋯ menu on hover or focus, and a quick view after
   await row.hover()
   await more.click()
   // the Trina list has no folders any more: no "Move to folder", the project's move instead
-  await expect(row.getByRole('menuitem')).toHaveText([t['chat.pin'], t['rooms.menu.copyLink'], t['chat.rename'], t['chat.project.add'], t['chat.share.menu'], t['common.delete']])
+  await expect(row.getByRole('menuitem')).toHaveText([t['chat.pin'], t['rooms.menu.copyLink'], t['chat.rename'], t['sidebarSections.moveTo'], t['chat.project.add'], t['chat.share.menu'], t['common.delete']])
   await expect(page.getByTestId('row-folder-move')).toHaveCount(0)
 })
 
