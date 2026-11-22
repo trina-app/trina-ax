@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-22 01:56
 - Branch: `fix/step-labels-plain`
-- Status: in progress
+- Status: done
 - Where: shared/src/step-labels.ts, server/src/devenv/tool.ts. Why: the step list is shared display code (see docs/REPOSITORY-RULES.md)
 - Version impact: patch, a display fix of the step list (one optional tool field, no API break)
 
@@ -28,6 +28,10 @@ In:
   the command's kind in the server's own words (never the AI's description: the card exists because other people's
   words may steer the AI); changing or removing files is said first ("파일 바꾸기"). The command, and what a document,
   page or SVG will hold, go behind "자세히" (ConfirmDetail.folded); scripts, settings files and skill files stay open.
+- Developer places (coordinator, QA TC-r2u-09/12/23/30): chat:files/<id>/, chat:work/ and $TRINA_WORK in any tool's
+  step line and on cards read as places in words. $TRINA_TEAM stays as written on cards (a file tool takes it as a
+  folder of that name). Conflict-copy names use plain words ("동시에 고친 사본"); the web app knows old and new words.
+- Not covered: folder names the AI itself made (QA TC-r2u-27 "@@01…"): they are real folders, so a card lists them.
 
 Out: prompt.ts and api-honest.ts (no change), notifications, shared-chat code, mobile apps (they keep the stored line).
 
@@ -53,4 +57,6 @@ tests/unit/step-labels-shell.test.ts; existing step-labels tests updated.
 
 ## Result
 
-(filled in at the end)
+Done as planned plus the room card, developer places and conflict-copy names. Three independent review passes; the
+findings (card wording from the AI, destructive commands called a file check, $TRINA_TEAM named as a team path) were
+fixed. Visual check on a private QA copy with the claude-code engine at 1440 and 390.
