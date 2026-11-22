@@ -4742,7 +4742,7 @@ export const zh: Record<MessageKey, string> = {
   "notifications.roomLevel.all": "所有新消息",
   "notifications.roomLevel.none": "不通知",
   "notifications.roomThreadReplies": "我参与的话题中的回复",
-  "notifications.roomThreadRepliesDesc": "当我发起、回复过或被提及的话题有新回复时，包括聊天和共享对话。",
+  "notifications.roomThreadRepliesDesc": "我发起、回复过或被提及的话题中的每条回复也通知我，包括聊天和共享对话。关闭时只通知提及我的回复，其他回复仍显示在“提及与话题”中。",
   "notifications.messagePreview": "显示消息预览",
   "notifications.askEveryone": "通知所有人前询问",
   "notifications.askEveryoneDesc": "在 {n} 人及以上的对话中，含 @所有人 的消息会在发送前先询问。",

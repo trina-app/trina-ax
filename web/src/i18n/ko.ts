@@ -4799,7 +4799,7 @@ export const ko = {
   "notifications.roomLevel.all": "모든 새 메시지",
   "notifications.roomLevel.none": "받지 않음",
   "notifications.roomThreadReplies": "내가 참여한 스레드의 답글",
-  "notifications.roomThreadRepliesDesc": "내가 쓰거나 답했거나 멘션된 스레드에 답글이 오면 알려요. 대화와 공유 채팅 모두 해당돼요.",
+  "notifications.roomThreadRepliesDesc": "내가 쓰거나 답했거나 멘션된 스레드의 모든 답글도 알려요. 대화와 공유 채팅 모두 해당돼요. 끄면 나를 멘션한 답글만 알리고, 나머지는 멘션·스레드에서 볼 수 있어요.",
   "notifications.messagePreview": "메시지 미리보기 표시",
   "notifications.askEveryone": "전체 알림 전에 묻기",
   "notifications.askEveryoneDesc": "{n}명 이상인 대화방에서 @전체가 들어간 메시지는 보내기 전에 한 번 더 물어봐요.",

@@ -335,10 +335,11 @@ function ChatView({ chatId, threadRoot, focus }: { chatId: string; threadRoot: s
   // for every link to their old place, for everyone (one file, not two); a link that does not open for me offers to ask
   // the creator to add it (components/ChatFileAsk.tsx)
   const peopleChat = isPeopleShared(chat)
-  // a chat shared with people: who the box's "@" may mention (GET …/audience mentionable), read again when who sees it changes
+  // a chat shared with people or a project's shared chat: who the box's "@" may mention (GET …/audience mentionable),
+  // read again when who sees it changes
   const [mentionPeople, setMentionPeople] = useState<UserRef[] | undefined>(undefined)
   // (read again as the chat changes: who sees it may have changed meanwhile; a member is not told the count)
-  const audienceKey = peopleChat ? `${chatId}:${chat?.updatedAt ?? ''}:${shared?.audience ?? 0}` : null
+  const audienceKey = shared && !chat?.deletedAt ? `${chatId}:${chat?.updatedAt ?? ''}:${shared?.audience ?? 0}` : null
   useEffect(() => {
     if (!audienceKey) { setMentionPeople(undefined); return }
     let live = true

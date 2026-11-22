@@ -32,7 +32,7 @@ import { OthersText } from './live-answer'
 import { withheldFrom } from './shared-answers'
 import { mayUploadShared } from '../uploads/shared-chat'
 import { inPeopleAudience, isPeopleRow, isSharedChat, isSharedRow, peopleAudience, hiddenByMe, wasInPeopleChat } from './chat-audience'
-import { unreadOf } from './message-notices'
+import { unreadOf, type Unread } from './message-notices'
 import { isGuest } from '../auth/guests'
 
 // isSharedRow and isSharedChat live in chat-audience.ts (no imports there): always-allow.ts and shared-run.ts need them
@@ -54,8 +54,16 @@ export const sharesNewChats = (p: Pick<ProjectRow, 'folder_path' | 'trashed_with
 
 /** The active accounts as principals. */
 export function activePrincipals(db: Database): Principal[] {
-  const ids = db.query("SELECT id FROM users WHERE status = 'active' AND deleted_at IS NULL ORDER BY id").all() as { id: string }[]
-  return ids.map((r) => loadPrincipal(db, r.id)).filter((p): p is Principal => !!p)
+  // two reads for everyone (loadPrincipal's rule: a guest's role is 'guest'), not two per person: a project chat's
+  // message tells its whole audience (chat/message-notices.ts)
+  const users = db.query("SELECT id, name, CASE WHEN guest = 1 THEN 'guest' ELSE role END AS role FROM users WHERE status = 'active' AND deleted_at IS NULL ORDER BY id").all() as Pick<Principal, 'id' | 'name' | 'role'>[]
+  const groups = new Map<string, string[]>()
+  for (const g of db.query('SELECT user_id, group_id FROM group_members ORDER BY rowid').all() as { user_id: string; group_id: string }[]) {
+    const l = groups.get(g.user_id)
+    if (l) l.push(g.group_id)
+    else groups.set(g.user_id, [g.group_id])
+  }
+  return users.map((u) => ({ id: u.id, name: u.name, role: u.role, groups: groups.get(u.id) ?? [] }))
 }
 
 /**
@@ -433,7 +441,7 @@ export function sharedOf(rt: ChatRuntime, viewer: string, r: ChatRow, aud: Audie
  * marker for anyone else in phase 1), plus Chat.shared. `people`: a chat list (chatPeople) and chat.updated add the
  * other people who wrote in it (a chat absent from the map: nobody else wrote yet). Chat.pinnedAt is the viewer's own pin (chat/pins.ts).
  */
-export function chatView(rt: ChatRuntime, viewer: string, r: ChatRow, o: { aud?: Audiences; hide?: (s: string) => string; people?: Map<string, ChatPeople> } = {}): Chat {
+export function chatView(rt: ChatRuntime, viewer: string, r: ChatRow, o: { aud?: Audiences; hide?: (s: string) => string; people?: Map<string, ChatPeople>; unread?: ReadonlyMap<string, Unread> } = {}): Chat {
   const hide = o.hide ?? redactorFor(rt.ctx, r.user_id).hide
   if (!isSharedRow(r)) {
     // a chat that stopped being shared after others wrote in it: its marker and last outcome are its creator's answers'
@@ -448,9 +456,10 @@ export function chatView(rt: ChatRuntime, viewer: string, r: ChatRow, o: { aud?:
     shared.people = p?.people ?? []
     shared.peopleCount = p?.count ?? 0
   }
-  // a chat shared with people is a conversation: my unread messages there (chat/message-notices.ts) are its row's number
-  // and an unseen mark of my own, and my mute
-  const unread = isPeopleRow(r) ? unreadOf(rt.db, viewer, r.id) : null
+  // a chat shared with people, or a project's shared chat, is a conversation: my unread messages there
+  // (chat/message-notices.ts) are its row's number and an unseen mark of my own, and my mute (`unread`: everyone's, read
+  // once for a chat.updated to all its viewers)
+  const unread = o.unread ? o.unread.get(viewer) ?? null : unreadOf(rt.db, viewer, r.id)
   const muted = !!unread?.muted
   return { ...c, title: hide(c.title), shared, ...(unread?.n ? { unseen: true as const, unreadCount: unread.n, ...(unread.mention ? { mentioned: true as const } : {}) } : {}), ...(muted ? { muted: true as const } : {}) }
 }

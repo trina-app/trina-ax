@@ -7,8 +7,8 @@ import { appBadgeOf, attentionCount, type MarkedChat } from '@mycel/shared/api'
 import type { AppContext } from '../context'
 import { getChatRuntime } from '../chat/runtime'
 import { Audiences, isSharedRow, severalAuthors } from '../chat/shared'
-import { IN_PEOPLE_AUDIENCE_SQL, NOT_HIDDEN_SQL, isPeopleRow } from '../chat/chat-audience'
-import { unreadOf } from '../chat/message-notices'
+import { IN_PEOPLE_AUDIENCE_SQL, NOT_HIDDEN_SQL } from '../chat/chat-audience'
+import { isConversationRow, unreadOf } from '../chat/message-notices'
 import { CHAT_COLS, type ChatRow } from '../chat/store'
 import { notInternalChat } from '../chat/internal-chats'
 import { roomsOf } from '../rooms/service'
@@ -25,12 +25,14 @@ function markedChats(ctx: AppContext, userId: string): (MarkedChat & { id: strin
   let rt: ReturnType<typeof getChatRuntime>
   try { rt = getChatRuntime(ctx) } catch { return [] }
   const where = `room_id IS NULL AND ${notInternalChat(ctx.db)} AND deleted_at IS NULL
-    AND (user_id = ? OR (shared_at IS NOT NULL AND id IN (SELECT chat_id FROM messages WHERE role = 'user' AND author_id = ?)) OR (${IN_PEOPLE_AUDIENCE_SQL} AND ${NOT_HIDDEN_SQL}))`
+    AND (user_id = ? OR (shared_at IS NOT NULL AND id IN (SELECT chat_id FROM messages WHERE role = 'user' AND author_id = ?)) OR (${IN_PEOPLE_AUDIENCE_SQL} AND ${NOT_HIDDEN_SQL})
+      OR id IN (SELECT chat_id FROM chat_message_notices WHERE user_id = ? AND read_at IS NULL AND suppressed = 0))`
+  // (and a project's shared chat with messages I have not read, though I never wrote there: GET /api/chats?unread=1)
   // the list's first page: my pinned chats, then the newest others (routes/chats.ts pinsFirst)
   const pinned = `id IN (SELECT chat_id FROM chat_pins WHERE user_id = ?)`
   const rows = [
-    ...ctx.db.query(`SELECT ${CHAT_COLS} FROM chats WHERE ${where} AND ${pinned}`).all(userId, userId, userId, userId, userId, userId) as ChatRow[],
-    ...ctx.db.query(`SELECT ${CHAT_COLS} FROM chats WHERE ${where} AND NOT ${pinned} ORDER BY updated_at DESC, id DESC LIMIT ?`).all(userId, userId, userId, userId, userId, userId, BADGE_CHATS) as ChatRow[],
+    ...ctx.db.query(`SELECT ${CHAT_COLS} FROM chats WHERE ${where} AND ${pinned}`).all(userId, userId, userId, userId, userId, userId, userId) as ChatRow[],
+    ...ctx.db.query(`SELECT ${CHAT_COLS} FROM chats WHERE ${where} AND NOT ${pinned} ORDER BY updated_at DESC, id DESC LIMIT ?`).all(userId, userId, userId, userId, userId, userId, userId, BADGE_CHATS) as ChatRow[],
   ]
   // a shared chat only while I see its project now, as the list shows it (routes/chats.ts visible())
   const aud = new Audiences(ctx.db, ctx.files)
@@ -42,8 +44,8 @@ function markedChats(ctx: AppContext, userId: string): (MarkedChat & { id: strin
       return { id: r.id, runState, ...(rt.waitsForPerson(r.id) ? { waiting: true as const } : {}), ...answers }
     }
     const waiting = rt.waitsForPerson(r.id, userId)
-    // a chat shared with people: my unread messages there, as its row shows them (chat/shared.ts chatView)
-    const unread = isPeopleRow(r) ? unreadOf(ctx.db, userId, r.id).n : 0
+    // a chat shared with people or a project's shared chat: my unread messages there, as its row shows them (chat/shared.ts chatView)
+    const unread = isConversationRow(r) ? unreadOf(ctx.db, userId, r.id).n : 0
     return { id: r.id, runState, ...(waiting ? { waiting: true as const } : {}), ...(r.user_id === userId ? rt.store.answerState(r, userId) : {}), ...(unread ? { unseen: true as const, unreadCount: unread } : {}) }
   })
 }

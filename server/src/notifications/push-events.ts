@@ -35,10 +35,10 @@ export function cancelDisabledPushDeliveries(ctx: AppContext, userId: string, pr
   // a request to open my chat or project (migration 411): the same switch
   if (!pushEventEnabled(preferences, 'access.requested')) ctx.db.query(`UPDATE access_request_push_deliveries SET state='cancelled',lease_until=NULL WHERE state IN ('pending','sending') AND notification_id IN
     (SELECT id FROM access_request_notices WHERE user_id=?)`).run(userId)
-  // a reply in a chat thread I follow (migration 408): "Replies in threads I'm part of" off stops what waits for a push
-  // (the Inbox row stays)
-  if (!pushEventEnabled(preferences, 'chat.thread_reply')) ctx.db.query(`UPDATE chat_thread_push_deliveries SET state='cancelled',lease_until=NULL WHERE state IN ('pending','sending') AND notification_id IN
-    (SELECT id FROM chat_thread_notices WHERE user_id=?)`).run(userId)
+  // a reply in a chat thread I follow (migration 408): "Replies in threads I'm part of" off stops what waits for a push of
+  // a reply that does not mention me (the Inbox row stays; a mention is pushed whatever the switch)
+  if (!preferences.roomThreadReplies) ctx.db.query(`UPDATE chat_thread_push_deliveries SET state='cancelled',lease_until=NULL WHERE state IN ('pending','sending') AND notification_id IN
+    (SELECT id FROM chat_thread_notices WHERE user_id=? AND mention_id IS NULL)`).run(userId)
   // a person's message in a chat shared with people (migration 436): a room default of "nothing" stops what waits
   if (!pushEventEnabled(preferences, 'chat.message')) ctx.db.query(`UPDATE chat_message_push_deliveries SET state='cancelled',lease_until=NULL WHERE state IN ('pending','sending') AND notification_id IN
     (SELECT id FROM chat_message_notices WHERE user_id=?)`).run(userId)

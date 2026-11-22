@@ -4756,7 +4756,7 @@ export const es: Record<MessageKey, string> = {
   "notifications.roomLevel.all": "Todos los mensajes nuevos",
   "notifications.roomLevel.none": "Nada",
   "notifications.roomThreadReplies": "Respuestas en hilos en los que participo",
-  "notifications.roomThreadRepliesDesc": "Cuando responden en un hilo que inició, en el que respondió o donde lo mencionaron, en conversaciones y chats compartidos.",
+  "notifications.roomThreadRepliesDesc": "Avisarme también de cada respuesta en un hilo que inicié, en el que respondí o donde me mencionaron, en conversaciones y chats compartidos. Desactivado: solo avisa una respuesta que me menciona; las demás siguen en Menciones e hilos.",
   "notifications.messagePreview": "Mostrar vista previa del mensaje",
   "notifications.askEveryone": "Preguntar antes de avisar a todos",
   "notifications.askEveryoneDesc": "Un mensaje con @todos en una conversación de {n} o más personas pregunta antes de enviarse.",

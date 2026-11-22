@@ -88,7 +88,7 @@ export function shouldRing(i: RingInput): boolean {
   // the server's rule for its notices: a mention, a reply in a thread I follow, and at 모든 메시지 any message of the room
   return roomAlert({
     level, mentioned: mentionsMe(m, meId), reply: !!m.threadRootId, alsoInRoom: !!m.alsoInRoom,
-    following: !!m.following, threadReplies: i.alerts?.threadReplies ?? true,
+    following: !!m.following, threadReplies: i.alerts?.threadReplies ?? false,
   }) !== null
 }
 

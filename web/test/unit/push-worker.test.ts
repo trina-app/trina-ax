@@ -281,10 +281,11 @@ test('a reply in a chat thread: the generic line, a click opens the thread from 
   expect(gone.navigated).toEqual(['https://team.example/settings/notifications'])
   const off = worker()
   off.configure({ messages: pushMessages('en') })
+  // the switch is the server's to read per notice (a mention rings with it off): a push it sent is shown
   off.preferences({ roomThreadReplies: false })
   off.item({ id: 'event-1', code: 'chat.thread_reply', readAt: null, link: 'chat_thread', chatId, chatThread: { chatId, rootId, name: null, title: null } })
   await off.push({ ...payload, code: 'chat.thread_reply' })
-  expect(off.shown).toHaveLength(0)
+  expect(off.shown).toHaveLength(1)
 })
 
 test('a file shared with me (docs/decisions/20261116-file-share-everyone.md): the generic line only; a click opens the file or the press\'s list, the id from the signed-in notice, never from the payload', async () => {

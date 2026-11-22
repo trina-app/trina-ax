@@ -193,7 +193,9 @@ const pendingMessage = new Map<string, { timer: ReturnType<typeof setTimeout>; m
  * on another device: nothing) and is not on screen here. The chat's title (a confidential one's never) and the generic
  * line; a click opens the chat at the message. */
 function tellMessage(chatId: string, messageId: string, mention: boolean) {
-  const c = useChats.getState().chats.find((x) => x.id === chatId)
+  // (a project's shared chat I never wrote in is kept with `others` while it has messages for me: store/chats.ts)
+  const st = useChats.getState()
+  const c = st.chats.find((x) => x.id === chatId) ?? st.others[chatId]
   // (a mention reaches me in a chat I muted too)
   if (!c?.unreadCount || (c.muted && !mention) || seenHere(chatId)) return
   const title = plainLabel(c.confidential ? t('sidebar.filter.confidential') : c.title || t('chat.untitled'), 120)
@@ -267,7 +269,7 @@ export function markReadFrom(token: string) {
 function tellRoom(roomId: string, why: RoomWhy, told?: Told) {
   const r = useRooms.getState().rooms.find((x) => x.id === roomId)
   // read meanwhile (here or on another device), or on screen here: nothing
-  if (!r || viewingHere(roomId) || !roomNoticeWanted(r, useRooms.getState().alerts?.threadReplies ?? true)) return
+  if (!r || viewingHere(roomId) || !roomNoticeWanted(r, useRooms.getState().alerts?.threadReplies ?? false)) return
   // people's names in a notice on the computer: one plain line (no control or bidirectional characters), capped
   const title = plainLabel(titleOf(r), 120)
   // the message's first line while my "show message preview" is on (Settings › Notifications), else the generic line
@@ -293,9 +295,9 @@ const threadOnScreen = (chatId: string, rootId: string) =>
   useSessionMarkers.getState().visible && typeof location !== 'undefined' && location.pathname === `/c/${chatId}/t/${rootId}`
 function tellThread(chatId: string, rootId: string, why: 'mention' | 'reply') {
   if (threadOnScreen(chatId, rootId)) return
-  // a plain reply follows "Replies in threads I'm part of" (the server checks it too, with quiet hours, when it sets the
-  // event's notice); a mention is told as a room's mention is
-  if (why === 'reply' && useRooms.getState().alerts?.threadReplies === false) return
+  // a plain reply follows "Replies in threads I'm part of", off by default: a thread rings only on a mention (the server
+  // checks it too, with quiet hours, when it sets the event's notice); a mention is told as a room's mention is
+  if (why === 'reply' && useRooms.getState().alerts?.threadReplies !== true) return
   const c = useChats.getState().chats.find((x) => x.id === chatId)
   const title = plainLabel(c?.confidential ? t('sidebar.filter.confidential') : c?.title || t('chat.untitled'), 120)
   // the Inbox's generic words: never who or the reply's text (the row in 멘션·스레드 says who)
