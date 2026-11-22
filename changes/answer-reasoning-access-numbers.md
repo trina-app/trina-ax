@@ -1,5 +1,4 @@
-- Answers in English (and any language written in Latin letters) no longer show the AI's working notes from between
-  its steps, such as its reasoning about whether to ask; they are under "Thinking" in the steps, as in Korean answers.
+- The AI no longer writes its own reasoning about its instructions (such as whether it should ask first) into answers.
 - In a shared chat, after someone loses access to a folder the AI read earlier in that chat, a search that would have
   looked there now tells the AI the folder can no longer be opened, so it says that instead of "I couldn't find the
   folder" and asking for a path.

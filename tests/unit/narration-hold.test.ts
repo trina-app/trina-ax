@@ -470,49 +470,24 @@ describe('a turn with an English line before a tool call', () => {
     expect(doneEv!.ev.data.message.content).toBe(stored)
   })
 
-  test.skipIf(!native)('English: a piece a call follows is interim too (docs/decisions/20261122-interim-text-every-language.md)', async () => {
+  test.skipIf(!native)('English: the line is kept (interim pieces leave only answers not written in Latin letters)', async () => {
     const t = await turn('en', 'check the price list\n' + fake(
       { say: 'Let me check that the seal printed correctly.' },
       { tool: 'read', args: { file_path: 'shared/missing.txt' } },
       { say: 'Done.' },
     ))
     expect(t.streamed).toBe(t.stored)
-    expect(t.done).toBe(t.stored)
-    expect(t.stored).toBe('Done.')
+    expect(t.stored).toBe('Let me check that the seal printed correctly.\n\nDone.')
   })
 
-  test.skipIf(!native)('English, QA batch 3 flow 2: the AI\'s reasoning about its rules before an edit is a thinking step, not the answer', async () => {
-    const t = await turn('en', 'make the red a bit darker\n' + fake(
-      { tool: 'read', args: { file_path: 'shared/missing.txt' } },
-      { say: 'Same requester (QA Member) changing their own red, so just do it. #c81e1e → darker, e.g. #9b1515 (rgb 155,21,21).' },
-      { tool: 'read', args: { file_path: 'shared/missing.txt' } },
-      { say: 'I made the header bar a darker red: it went from #c81e1e to #9b1515.' },
-    ))
-    expect(t.streamed).toBe(t.stored)
-    expect(t.done).toBe(t.stored)
-    expect(t.stored).toBe('I made the header bar a darker red: it went from #c81e1e to #9b1515.')
-    // in a Korean answer too (the same position rule)
+  test.skipIf(!native)('Korean, QA batch 3 flow 2: the AI\'s reasoning about its rules before an edit is a thinking step, not the answer', async () => {
     const k = await turn('ko', '빨간색 좀 더 진하게\n' + fake(
-      { say: 'Same requester, so just do it.' },
+      { say: 'Same requester (QA Member) changing their own red, so just do it. #c81e1e → darker, e.g. #9b1515 (rgb 155,21,21).' },
       { tool: 'read', args: { file_path: 'shared/missing.txt' } },
       { say: '헤더를 더 진한 빨간색으로 바꿨어요.' },
     ))
+    expect(k.streamed).toBe(k.stored)
     expect(k.stored).toBe('헤더를 더 진한 빨간색으로 바꿨어요.')
-  })
-
-  test.skipIf(!native)('English: no text after the last call: the last piece is the answer; a status line never is; a piece copied into the call stays', async () => {
-    const t = await turn('en', 'check the file\n' + fake({ say: 'The file is empty.' }, { tool: 'read', args: { file_path: 'shared/missing.txt' } }))
-    expect(t.streamed).toBe(t.stored)
-    expect(t.stored).toBe('The file is empty.')
-    const s = await turn('en', 'check the file\n' + fake({ say: 'Let me check the file.' }, { tool: 'read', args: { file_path: 'shared/missing.txt' } }))
-    expect(s.stored).not.toContain('Let me check')
-    // a draft shown, then written to a file word for word: content, kept
-    const d = await turn('en', 'draft the notice\n' + fake(
-      { say: 'Office closed on Friday for maintenance.' },
-      { tool: 'write', args: { file_path: 'users/alice/notice.md', content: 'Office closed on Friday for maintenance.' } },
-      { say: 'Saved.' },
-    ))
-    expect(d.stored.replace(/\s+/g, ' ')).toBe('Office closed on Friday for maintenance. Saved.')
   })
 
   test.skipIf(!native)('no tool call: the text is the answer, unchanged', async () => {

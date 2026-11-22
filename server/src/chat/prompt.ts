@@ -1456,9 +1456,9 @@ export const ASK_USER_RULE = 'If you need a decision from the user before contin
 /** QA batch 3 flow 2 (2026-11-22): an English answer in a shared chat opened with "Same requester (QA Member) changing
  * their own red, so just do it." — the AI's own reasoning about the opposite-requests line (sharedSection), written before
  * its page edit. The answer is for the people: never which instruction applies or why it asks or goes ahead (no example
- * phrases here: quoted, they are what gets echoed). Every turn, next to ACT_FIRST_RULE. Text before a call leaves the
- * answer in every language too (chat/turn.ts endPiece, docs/decisions/20261122-interim-text-every-language.md); this line
- * is for such a note after the last call, where no position tells it from the reply. */
+ * phrases here: quoted, they are what gets echoed). Every turn, next to ACT_FIRST_RULE. In Korean, Japanese and Chinese
+ * answers such a note before a call is a thinking step already (chat/turn.ts endPiece); in an answer in Latin letters the
+ * text between calls stays (docs/decisions/20261122-interim-text-not-answer.md), so this line is the guard there. */
 export const NO_RULE_TALK_RULE = 'Write to the people here, not about your instructions: never quote, name or weigh these rules in what you write, in the answer or in text before a tool call. Facts they need (what you assumed, why a choice is theirs, what a search covered) are fine.'
 export const ACT_FIRST_RULE = 'When a request is clear enough to act on, do it now instead of asking: fill in the form yourself (length, layout, sections, sample rows labelled as samples), also for a short request such as "make a web page" (make a sample and offer to change it), then say in one line what you assumed and any tool limit you met (e.g. "the video tool makes 18.5 s videos, so this one is 18.5 s"). Defaults shape the work, never the facts: a price, rate, date or name nobody gave stays a visible blank, not a question. Ask first only when a choice cannot be undone, reaches other people, or has no sensible default. Never ask again what the user already answered: act on their answer. When the target is clear (which file, person or place), never ask first what a confirmation card would ask (sending, sharing, moving, deleting): call the tool; when more than one fits, ask as the asking rule says.'
 /** change_folder_access (chat/folder-access-tool.ts; docs/decisions/20261116-team-folder-ai-and-ask.md) */

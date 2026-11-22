@@ -295,10 +295,10 @@ export async function ask(h: Harness, sock: TestSocket, user: string, chatId: st
 }
 
 /**
- * Everything the AI wrote in an answer, in order: the thinking steps' details (text a tool call followed is a thinking
- * step in every answer language since docs/decisions/20261122-interim-text-every-language.md, so a fake engine's
- * `say`/`echo`/`sayResult` before another call lands there), then the answer itself. For tests that check what a tool
- * result or a note said, wherever the text ended up; a test about the answer itself reads the message's content.
+ * Everything the AI wrote in an answer, in order: the thinking steps' details (in a Korean, Japanese or Chinese answer
+ * text a tool call followed is a thinking step, docs/decisions/20261122-interim-text-not-answer.md, so a fake engine's
+ * `say`/`sayResult` before another call lands there), then the answer itself. For tests that check what a tool result
+ * or a note said, wherever the text ended up; a test about the answer itself reads the message's content.
  */
 export function spokenText(h: Pick<Harness, 'ctx'>, messageId: string): string {
   const row = h.ctx.db.query('SELECT content, steps FROM messages WHERE id = ?').get(messageId) as { content: string; steps: string | null } | null

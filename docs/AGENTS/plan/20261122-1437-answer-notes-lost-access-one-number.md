@@ -101,8 +101,7 @@ call); live re-reading of a page when its source changes (TC-r2u-18's "did not c
 
 ## Decisions
 
-docs/decisions/20261122-interim-text-every-language.md: text a tool call follows is interim in every answer
-language (narrows 20261122-interim-text-not-answer, which kept English interim text in the answer).
+none (the every-language interim rule was tried and taken back: see Result).
 
 ## Risks
 
