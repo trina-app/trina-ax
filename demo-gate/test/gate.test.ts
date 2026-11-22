@@ -3,6 +3,7 @@
 // (busy, expiry, orphans, code version), IP limits, and the model upstream (path secrets, credential modes, header
 // allowlist, error rewrite, prompt-too-long, weighted counting, daily cap, PAUSE, stream limit).
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from 'bun:test'
+import crypto from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
 import {
@@ -735,6 +736,36 @@ describe.skipIf(skip)('gate: pool', () => {
       for (let i = 0; i < 2; i++) { await warm(g, 1); expect((await startVisit(g, visitor(other))).status).toBe(303) }
       const s = (await g.health()).instances.filter((x: { state: string }) => x.state === 'live')
       expect(s.length).toBe(4)
+    } finally { await g.stop() }
+  })
+
+  test('an exempt address (limits.exemptIpHashes) skips the start limits and gets exemptLivePerIp live copies', async () => {
+    const office = '192.0.2.40', other = '192.0.2.41'
+    // the gate's address key made beforehand, so the test knows the hash it stores
+    const key = crypto.randomBytes(32)
+    const hash = crypto.createHmac('sha256', key).update(office).digest('hex').slice(0, 32)
+    const g = await startGate({
+      upstream: upstream.url, turnstile: turnstile.url, locales: ['en'], pool: { warmPerLocale: 3 },
+      limits: { startsPerHour: 1, startsPerDay: 1, livePerIp: 1, exemptIpHashes: [hash.slice(0, 10)], exemptLivePerIp: 3 },
+      before: ({ instancesDir }) => {
+        const stateDir = path.join(path.dirname(instancesDir), 'state')
+        fs.mkdirSync(stateDir, { recursive: true, mode: 0o700 })
+        fs.writeFileSync(path.join(stateDir, 'ip-key'), key, { mode: 0o600 })
+      },
+    })
+    try {
+      await warm(g, 3)
+      for (let i = 0; i < 3; i++) { await warm(g, 1); expect((await startVisit(g, visitor(office))).status).toBe(303) }
+      await warm(g, 1)
+      const fourth = await startVisit(g, visitor(office))
+      expect(fourth.status).toBe(429) // exemptLivePerIp: 3 live already
+      expect(await fourth.text()).toContain('You can start again tomorrow.')
+      // an address that is not listed keeps the limits
+      expect((await startVisit(g, visitor(other))).status).toBe(303)
+      await warm(g, 1)
+      expect((await startVisit(g, visitor(other))).status).toBe(429)
+      // its starts are still counted under the listed hash (the gate saves state.json half a second later)
+      await until(() => { try { return JSON.parse(fs.readFileSync(path.join(g.root, 'state', 'state.json'), 'utf8')).starts[hash]?.length === 3 || null } catch { return null } }, 5_000, 'state.json')
     } finally { await g.stop() }
   })
 
