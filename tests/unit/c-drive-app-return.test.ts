@@ -264,3 +264,20 @@ test('the held page in every language: whose account, which Google account, keep
     expect(h).not.toContain('Open this link only')
   }
 })
+
+test('a team Drive share started in the desktop app finishes the same way: held, the code, the claim, the share dialog\'s poll sees the account (owner 2026-11-22)', async () => {
+  const desk = await session('olga', OWNER_PW, 'desktop')
+  const f = await desk.call('POST', '/api/admin/google-drive/shares/authorize', {})
+  expect(desktopOpenUrl(f, 'https://acme.trina.app')).toBe(`https://acme.trina.app${f.openPath}`)
+  const page = await bare(cbUrl(fake.authorize(f.authorizationUrl, 'alice')))
+  const code = codeOf(await page.text())!
+  expect(code).toBeTruthy()
+  expect((await desk.call('GET', `${base}/flows/${f.flowId}`)).state).toBe('pending')
+  expect(signInCode(appLink('https://acme.trina.app', code), 'https://acme.trina.app')).toBe(code)
+  const r = await claim(desk, code)
+  expect(r.status).toBe(200); expect(r.body.state).toBe('ready')
+  const flow = await desk.call('GET', `${base}/flows/${f.flowId}`)
+  expect(flow.state).toBe('ready'); expect(flow.account.email).toBe('alice@example.test')
+  const share = await desk.call('POST', `/api/admin/google-drive/shares/flows/${f.flowId}/complete`, { name: 'Company Drive' })
+  expect(share.name).toBe('Company Drive')
+})
