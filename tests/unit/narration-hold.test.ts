@@ -526,11 +526,16 @@ describe('a turn with an English line before a tool call', () => {
 describe('deliveredArgs (QA TC-f3-05)', () => {
   test('a command, a sub-agent\'s brief and a step\'s label deliver no words; every other call\'s arguments do', () => {
     const cmd = { command: 'python3 -m venv .venv && .venv/bin/pip -q install python-docx', description: 'Install python-docx in a venv' }
-    expect(deliveredArgs(TEAM_TOOL_PREFIX + 'box_shell', cmd)).toEqual({})
-    expect(deliveredArgs('Bash', cmd)).toEqual({})
-    expect(deliveredArgs('Agent', { prompt: 'p', description: 'd' })).toEqual({})
+    const line = 'Install python-docx in a venv.'
+    expect(deliveredArgs(TEAM_TOOL_PREFIX + 'box_shell', cmd, line)).toEqual({})
+    expect(deliveredArgs('Bash', cmd, line)).toEqual({})
+    expect(deliveredArgs('Agent', { prompt: 'p', description: 'd' }, line)).toEqual({})
+    // a command that writes the piece word for word (a heredoc to a file): content, kept
+    const report = '매출 보고서: 이번 주 매출은 1,200만 원입니다.'
+    const heredoc = { command: `cat > report.md <<'EOF'\n${report}\nEOF`, description: 'Save the report' }
+    expect(deliveredArgs('Bash', heredoc, report)).toEqual({ command: heredoc.command })
     // a call that delivers words (a post, an event's description) keeps them: a piece copied there stays as content
     const event = { title: 'Launch', description: 'Bring the samples.' }
-    expect(deliveredArgs(TEAM_TOOL_PREFIX + 'calendar_create', event)).toBe(event)
+    expect(deliveredArgs(TEAM_TOOL_PREFIX + 'calendar_create', event, 'Bring the samples.')).toBe(event)
   })
 })

@@ -1084,7 +1084,7 @@ export class Notifications {
     let r: Row | null = null
     for (const table of NOTICE_TABLES) if ((r = update(table))) break
     // a message that mentions me (a Mentions row, or what its push opened): read, and its push that still waits goes
-    if (!r && (r = update('chat_message_notices'))) db.query(`UPDATE chat_message_push_deliveries SET state='cancelled', lease_until=NULL WHERE state IN ('pending','sending') AND notification_id=?`).run(id)
+    if (!r && (r = db.query(`UPDATE chat_message_notices SET read_at=COALESCE(read_at,?) WHERE id=? AND user_id=? AND suppressed=0 AND created_at>=? AND ${MENTION_ROWS} RETURNING *`).get(...args) as Row | null)) db.query(`UPDATE chat_message_push_deliveries SET state='cancelled', lease_until=NULL WHERE state IN ('pending','sending') AND notification_id=?`).run(id)
     if (!r) throw new HttpError('not_found')
     if (row && !row.read_at && row.group.ids.length > 1) db.query(`UPDATE room_notices SET read_at=? WHERE user_id=? AND read_at IS NULL AND id IN (${row.group.ids.map(() => '?').join(',')})`).run(args[0] as string, userId, ...row.group.ids)
     this.signal(userId)

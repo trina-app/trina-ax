@@ -56,10 +56,12 @@ export function setMuted(ctx: AppContext, userId: string, chatId: string, muted:
   } else ctx.db.query('DELETE FROM chat_mutes WHERE chat_id = ? AND user_id = ?').run(chatId, userId)
 }
 
-/** Someone no longer sees the chat (people-share.ts putChatAudience): their notices there and their mute go. */
-export function forgetChatNotices(db: Database, userId: string, chatId: string) {
-  db.query('DELETE FROM chat_message_notices WHERE user_id = ? AND chat_id = ?').run(userId, chatId)
+/** Someone no longer sees the chat (people-share.ts putChatAudience): their notices there and their mute go. True when
+ * an unread mention went (a Mentions row: the caller tells their Inbox, notificationsOf().changed, after its transaction). */
+export function forgetChatNotices(db: Database, userId: string, chatId: string): boolean {
+  const gone = db.query('DELETE FROM chat_message_notices WHERE user_id = ? AND chat_id = ? RETURNING mention, read_at').all(userId, chatId) as { mention: number; read_at: string | null }[]
   db.query('DELETE FROM chat_mutes WHERE user_id = ? AND chat_id = ?').run(userId, chatId)
+  return gone.some((g) => g.mention === 1 && !g.read_at)
 }
 
 /** My unread notices in this chat (the row's number), whether one of them mentions me (the row's "@") and my mute, in
@@ -84,8 +86,10 @@ export function unreadByUser(db: Database, chatId: string): Map<string, Unread> 
  * something was unread (the caller tells my windows). */
 export function readChatNotices(ctx: AppContext, userId: string, chatId: string): boolean {
   const db = ctx.db
-  const read = db.query('UPDATE chat_message_notices SET read_at = ? WHERE user_id = ? AND chat_id = ? AND read_at IS NULL RETURNING id').all(new Date().toISOString(), userId, chatId) as { id: string }[]
+  const read = db.query('UPDATE chat_message_notices SET read_at = ? WHERE user_id = ? AND chat_id = ? AND read_at IS NULL RETURNING id, kind, mention').all(new Date().toISOString(), userId, chatId) as { id: string; kind: string; mention: number }[]
   if (!read.length) return false
+  // a mention read here is a Mentions row read (QA TC-f3-02): the Inbox reads again
+  if (read.some((r) => r.kind === 'message' && r.mention === 1)) notificationsOf(ctx).changed(userId)
   db.query(`UPDATE chat_message_push_deliveries SET state = 'cancelled', lease_until = NULL WHERE state IN ('pending','sending')
     AND notification_id IN (SELECT id FROM chat_message_notices WHERE user_id = ? AND chat_id = ?)`).run(userId, chatId)
   return true

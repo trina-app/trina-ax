@@ -264,6 +264,13 @@ function copied(piece: string, input: unknown, message: string): boolean {
   return words.filter((w) => have.has(w)).length >= 0.8 * words.length
 }
 
+/** The piece, word for word, inside `text` (no 80%-of-words allowance): a command's heredoc that writes the piece's
+ * text to a file (turn.ts deliveredArgs). */
+export function includesPiece(piece: string, text: string): boolean {
+  const p = norm(piece)
+  return p.length >= 8 && norm(text.length > 1_000_000 ? text.slice(0, 1_000_000) : text).includes(p)
+}
+
 /** A whole piece that is a status line: it has Latin letters and nothing marks it as content. */
 const isStatusLine = (piece: string, script: AnswerScript, input: unknown, message: string) =>
   /[A-Za-z]/.test(piece) && !mustKeep(piece, script, false, input !== undefined, norm(message)) && !copied(piece, input, message)

@@ -214,9 +214,12 @@ export function ChatShareDialog({ chat, onClose, initial, personal = false, retu
     if (viaBack) setSheet((n) => n + 1)
   }
 
+  // the files choice of the last press: the save again after an update keeps it (review of TC-f3-03)
+  const lastWithFiles = useRef(false)
   const save = async (withFiles = false) => {
     // (the already-shared step saves the files alone: nothing else to change)
     if ((!dirty && !withFiles) || busy || checking) return
+    lastWithFiles.current = withFiles
     setBusy(true)
     setError(null)
     setUpdating(false)
@@ -264,7 +267,7 @@ export function ChatShareDialog({ chat, onClose, initial, personal = false, retu
   useEffect(() => {
     if (!updating) return
     let live = true
-    void waitForUpdate().then(() => { if (live) void saveRef.current() })
+    void waitForUpdate().then(() => { if (live) void saveRef.current(lastWithFiles.current) })
     return () => { live = false }
   }, [updating])
 

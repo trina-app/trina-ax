@@ -239,6 +239,8 @@ export function leaveChat(ctx: AppContext, rt: ChatRuntime, userId: string, a: C
   stopTurnsIn(ctx, userId, [r.id])
   const at = new Date().toISOString()
   const everyone = rest.length === 0
+  // whose unread Mentions rows of this chat went (their Inbox reads again, after the transaction)
+  const mentionsGone: string[] = []
   db.transaction(() => {
     // the name entry is the only one that held them (checked above, again here: nothing waited in between)
     if (!db.query("SELECT 1 FROM chat_audience WHERE chat_id = ? AND subject_type = 'user' AND subject_id = ?").get(r.id, userId)) fail('not_found')
@@ -250,11 +252,12 @@ export function leaveChat(ctx: AppContext, rt: ChatRuntime, userId: string, a: C
     closeFileAsks(db, r.id, everyone ? null : [userId])
     rememberAudience(db, r.id, [userId], at)
     // and their notices of its messages and their mute (chat/message-notices.ts), as a save that removes them
-    forgetChatNotices(db, userId, r.id)
+    if (forgetChatNotices(db, userId, r.id)) mentionsGone.push(userId)
     addAudienceEvent(db, r.id, userId, 'left', [], at)
     // counts only
     audit(db, { actor: userId, action: 'chat.leave', target: r.id, detail: { ...(everyone ? { private: true } : {}) } })
   })()
+  for (const id of mentionsGone) notificationsOf(ctx).changed(id)
   if (devEnvFlag()) void pollSrt(ctx, { chatId: r.id }).catch(() => {})
   rt.forgetLiveViewers()
   rt.hub.publish(userId, { type: 'chat.updated', data: { chatId: r.id, change: 'deleted', chat: null } })
@@ -561,6 +564,8 @@ export async function putChatAudience(ctx: AppContext, rt: ChatRuntime, userId: 
     const at = new Date().toISOString()
     const first = !before.shared && after.length > 0
     const everyone = after.length === 0
+    // whose unread Mentions rows of this chat went (their Inbox reads again, after the transaction)
+    const mentionsGone: string[] = []
     let auditId = 0
     try { db.transaction(() => {
       // nothing changed since the check (synchronously: no turn can start in between)
@@ -604,7 +609,7 @@ export async function putChatAudience(ctx: AppContext, rt: ChatRuntime, userId: 
       if (added.length) addAudienceEvent(db, r.id, userId, 'added', added, at)
       if (removed.length) addAudienceEvent(db, r.id, userId, 'removed', removed, at)
       // and their notices of its messages and their mute (chat/message-notices.ts): added again later, they start afresh
-      for (const id of lost) forgetChatNotices(db, id, r.id)
+      for (const id of lost) if (forgetChatNotices(db, id, r.id)) mentionsGone.push(id)
       // their waiting asks to add a file of this chat go with them (everyone's when it is mine alone again)
       closeFileAsks(db, r.id, everyone ? null : lost)
       // who saw it, before or after this save: a link of someone who loses it later says why (chat/chat-audience.ts)
@@ -616,6 +621,7 @@ export async function putChatAudience(ctx: AppContext, rt: ChatRuntime, userId: 
         newPeople: newPeople.length, lost: lost.length, ...(everyone ? { private: true } : {}), confirmed: body.confirmKey !== undefined,
       } })
     })() } catch (e) { discardVerified(verified); throw e }
+    for (const id of mentionsGone) notificationsOf(ctx).changed(id)
     // a command running in this chat now is checked against its new people at once, not at the next poll
     // (devenv/srt/runner.ts: any change of a shared chat's people stops its running command)
     if (devEnvFlag()) void pollSrt(ctx, { chatId: r.id }).catch(() => {})
