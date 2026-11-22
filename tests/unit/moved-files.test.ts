@@ -204,6 +204,27 @@ describe('saving where a file was moved away from, and a copy over a file read i
     expect(fs.existsSync(path.join(A.team, ...f.split('/')))).toBe(true)
   })
 
+  test('the moved-place fact comes before the wider-audience card: no card for a save that is not made (re-review of batch 2)', async () => {
+    const f = `projects/falcon/${uniq('sheet')}.xlsx`
+    put(f, 'old')
+    svc().move('alice', f, `shared/${f.split('/').pop()}`, 'fail')
+    const turn = A.turn('alice', A.chat('alice'))
+    const tc = A.toolCtx('alice', turn)
+    let asked = 0
+    tc.confirmWidening = async () => { asked++; return null }
+    const h = makeHandler(A.ctx.files, A.ctx.db, tc)
+    const mk = async () => { const r = await h({ jsonrpc: '2.0', id: ++rpcId, method: 'tools/call', params: { name: 'make_file', arguments: { format: 'xlsx', content: '| a | b |\n|---|---|\n| 1 | 2 |', output: f } } }); return { text: r.result.content[0].text as string, isError: !!r.result.isError } }
+    const first = await mk()
+    expect(first.isError).toBe(true)
+    expect(first.text).toContain('Nothing was saved')
+    expect(asked).toBe(0)
+    // the second call: the card once, then the new file (never "Nothing was saved" after the person approved)
+    const second = await mk()
+    expect(second.isError).toBe(false)
+    expect(asked).toBe(1)
+    expect(fs.existsSync(path.join(A.team, ...f.split('/')))).toBe(true)
+  })
+
   test('copy_files over a file of that name read in this answer replaces it as a new version; unread, a "(2)" copy as before', async () => {
     const d = `shared/${uniq('cp')}`
     put(`${d}/poster.txt`, 'OLD')
