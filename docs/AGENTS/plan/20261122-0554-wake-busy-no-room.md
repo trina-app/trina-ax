@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-22 05:54
 - Branch: `feat/wake-busy-no-room`
-- Status: in progress
+- Status: done
 - Where: `shared/src/cloud-protocol/` (relay wake contract), `relay/`. Why: the relay draws the page a visitor of a
   sleeping hosted team sees, and the wake answer is the relay ↔ control plane contract (docs/REPOSITORY-RULES.md)
 - Version impact: minor. A new optional contract field and a new visitor page; old relays and old control planes keep
@@ -49,3 +49,8 @@ sends the field. Old relays ignore it (the wake client builds a new object from 
 
 ## Result
 
+Built as planned. `OpsWakeResponse.reason?: 'no_room'` (zod: optional, refused on a state other than busy). The relay
+keeps the hint only as `no_room` with `busy`; page kind `team_no_room` (503, `x-relay-error: team_busy`,
+`x-relay-detail: no_room`, meta refresh and Retry-After = `retryAfterSec` kept to 60-300 s). The page text says it
+checks again by itself rather than "every minute", since the control plane may answer 300. trina-cloud follow-up:
+answer `{ "state": "busy", "retryAfterSec": 300, "reason": "no_room" }` once it has synced cloud-protocol.
