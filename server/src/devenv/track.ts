@@ -90,7 +90,7 @@ function record(ctx: AppContext, s: ProjectState, changes: Change[], by: Actor, 
   const root = ctx.files.fx.root
   const out: FileChange[] = []
   const lost: Change[] = []
-  for (const c of changes) {
+  for (const c of changes) try {
     let trashId: string | null = null
     if (c.action !== 'create') {
       const old = c.before ? s.store.blob(c.before) : null
@@ -104,7 +104,7 @@ function record(ctx: AppContext, s: ProjectState, changes: Change[], by: Actor, 
     }
     fileEvent(ctx.db, { turnId: by.turnId, userId: by.userId, path: c.path, action: c.action, ...(c.size !== null ? { size: c.size } : {}), ...(c.after ? { sha256: c.after } : {}), detail: { via: VIA, ...extra, ...(trashId ? { trashId } : {}) } })
     out.push({ path: c.path, action: c.action, by: userRef(ctx.db, by.userId), turnId: by.turnId })
-  }
+  } catch (e) { ctx.log.warn('dev env: a change was not recorded', { err: e, path: c.path }) }
   try { publishChanges(ctx, out) } catch (e) { ctx.log.warn('dev env change publish failed', { err: e }) }
   return lost
 }
@@ -229,10 +229,13 @@ export function markSeen(ctx: AppContext, projectId: string, userId: string, las
 // OWN_CAPS.fileMax is in the person's store before the command starts (the start snapshot re-reads only files whose
 // size, mtime, ctime or inode changed since the last one), and after it a changed file's previous content becomes a
 // file version and a removed file goes to the trash. Changes between commands (the Files screen, a job, a dev server)
-// are not the command's and are not recorded here; the start snapshot only takes them as the new baseline.
+// are not the command's and are not recorded here; the start snapshot only takes them as the new baseline. A
+// foreground command's leftover processes end with it (Linux: the run unit's KillMode=control-group; a Mac team server:
+// run-wrap-mac ends every process of the run's slot account).
 
-/** Why a run's change in the own folder could not be undone now, or null when every change can. */
-export interface OwnUndo { ok: boolean; unkept: string[]; skipped: string[]; truncated: boolean }
+/** Could every change a run makes in the own folder be undone now; what could not be kept, and why. `shared`: files or
+ * folders there that other people (or a link) reach and that a run may still write. */
+export interface OwnUndo { ok: boolean; unkept: string[]; skipped: string[]; truncated: boolean; shared?: string[] }
 const under = (r: string, xs: readonly string[]) => xs.some((x) => r === x || r.startsWith(x + '/'))
 const undoOf = (m: Manifest, exclude: readonly string[] = []): OwnUndo => {
   const unkept = (m.unkept ?? []).filter((r) => !under(r, exclude)), skipped = (m.skipped ?? []).filter((r) => !under(r, exclude))
@@ -242,7 +245,7 @@ const ownFolder = (userId: string) => `users/${userId}`
 const ownThere = (ctx: AppContext, userId: string) => { try { return fs.lstatSync(path.join(ctx.files.fx.root, ownFolder(userId))).isDirectory() } catch { return false } }
 /** the manifest as it is saved: without the report of one snapshot */
 const bare = (m: Manifest): Manifest => ({ at: m.at, files: m.files, truncated: m.truncated })
-const hashesOf = (m: Manifest) => new Set(Object.values(m.files).map((e) => e.sha256).filter((h): h is string => !!h))
+const hashesOf = (m: Manifest | null) => new Set(Object.values(m?.files ?? {}).map((e) => e.sha256).filter((h): h is string => !!h))
 
 /** Folders of the own folder a run cannot write (srt/access.ts): its skills and the folders the person shares. A change
  * there cannot happen, so nothing there keeps the card. */
@@ -252,18 +255,29 @@ export function ownReadOnly(ctx: AppContext, userId: string): string[] {
   return [`${ownFolder(userId)}/skills`, ...shared]
 }
 
+/** Shares in the own folder a run may still write (a file shared on its own, a folder shared by link only): what a
+ * command writes there reaches other people, so a command never goes without the card while one is live. */
+function ownWritableShares(ctx: AppContext, userId: string, readOnly: readonly string[]): string[] {
+  const pre = `${ownFolder(userId)}/`
+  const rows = ctx.db.query("SELECT path FROM file_shares WHERE state = 'live' AND substr(path, 1, length(?)) = ?").all(pre, pre) as { path: string }[]
+  return rows.map((r) => r.path).filter((p) => !under(p, readOnly))
+}
+
 /**
  * Could every change a command makes in the person's own folder be undone now (stat only: nothing is read or kept
  * here; the command's window reads and keeps, and checks again: OwnNotUndoable)? Not when a file there is over
- * OWN_CAPS.fileMax or past the store's total, a folder skipped by name holds something (node_modules, .git, .env*), or
- * the folder has more files than a snapshot lists. Folders a run cannot write are left out. No folder yet: yes (a
- * command can only make new files there). The room card is skipped only on a yes (chat/turn.ts ownBoxRun).
+ * OWN_CAPS.fileMax or past the store's total, a folder skipped by name holds something (node_modules, .git, .env*), the
+ * folder has more files than a snapshot lists, or something there is shared and still writable in a run. Folders a run
+ * cannot write are left out. No folder yet: yes (a command can only make new files there). The room card is skipped
+ * only on a yes (chat/turn.ts ownBoxRun). Fails closed.
  */
 export function ownFolderUndoable(ctx: AppContext, userId: string): OwnUndo {
-  if (!ownThere(ctx, userId)) return { ok: true, unkept: [], skipped: [], truncated: false }
   try {
-    const k = keepable(ctx.files.fx.root, ownFolder(userId), OWN_CAPS, ownReadOnly(ctx, userId))
-    return { ok: !k.truncated && !k.unkept.length && !k.skipped.length, unkept: k.unkept.slice(0, 10), skipped: k.skipped.slice(0, 10), truncated: k.truncated }
+    if (!ownThere(ctx, userId)) return { ok: true, unkept: [], skipped: [], truncated: false }
+    const ro = ownReadOnly(ctx, userId)
+    const shared = ownWritableShares(ctx, userId, ro)
+    const k = keepable(ctx.files.fx.root, ownFolder(userId), OWN_CAPS, ro)
+    return { ok: !k.truncated && !k.unkept.length && !k.skipped.length && !shared.length, unkept: k.unkept.slice(0, 10), skipped: k.skipped.slice(0, 10), truncated: k.truncated, shared: shared.slice(0, 10) }
   } catch (e) {
     ctx.log.warn('dev env: own folder check failed', { err: e })
     return { ok: false, unkept: [], skipped: [], truncated: true }
@@ -276,33 +290,53 @@ export class OwnNotUndoable extends Error {
   constructor(readonly undo: OwnUndo) { super('the own folder cannot be fully kept now') }
 }
 
-/** `reverted`: changes undone right after the command (OwnWindowOptions.mustUndo: an instruction file or a hidden file) */
-export interface OwnWindowResult<T> { value: T; changes: Change[]; lost: Change[]; conflicts: string[]; reverted: Change[] }
+/** `reverted`: changes undone right after the command (OwnWindowOptions.mustUndo: an instruction file or a hidden file);
+ * `unreverted`: such changes that could not be undone (kept as versions or in the trash where they could) */
+export interface OwnWindowResult<T> { value: T; changes: Change[]; lost: Change[]; conflicts: string[]; reverted: Change[]; unreverted: Change[] }
 /** `mustUndo`: the command went without the room card on the promise that its changes can be undone (chat/turn.ts
  * ownBoxRun). `exclude`: team paths inside the own folder another window records (a personal project's folder). */
 export interface OwnWindowOptions { mustUndo?: boolean; exclude?: readonly string[] }
 
 /** What a command let through without the room card may not change in the own folder even though it can be undone:
  * what the person's AI follows (skills, CLAUDE.md, AGENTS.md ...: chat/turn.ts asks with the whole content on the card
- * after a room read) and hidden files and folders (tool settings, hooks). */
-export const ownGuarded = (rel: string, userId: string) => instructionLike(rel) || rel.split('/').slice(2).some((x) => x.startsWith('.'))
+ * after a room read) and hidden files and folders (tool settings, hooks, .git). */
+export const ownGuarded = (rel: string) => instructionLike(rel) || /(^|\/)CLAUDE\.local\.md$/i.test(rel) || rel.split('/').slice(2).some((x) => x.startsWith('.'))
 
-/** Undo one change of a command in the own folder (a guarded path): the command's file goes to the trash, the content
- * before it comes back. False when it cannot be undone (the earlier content is not kept). */
-function revert(ctx: AppContext, s: ProjectState, c: Change, by: Actor): boolean {
+/** The folders above `segs` as real folders under `root` (made where missing, never through a link the box swapped in):
+ * false when one is not a folder. */
+function realParents(root: string, segs: readonly string[]): boolean {
+  let cur = root
+  for (const seg of segs.slice(0, -1)) {
+    cur = path.join(cur, seg)
+    let st: fs.Stats | null = null
+    try { st = fs.lstatSync(cur) } catch {}
+    if (!st) { try { fs.mkdirSync(cur, { mode: 0o700 }) } catch { return false } continue }
+    if (!st.isDirectory()) return false
+  }
+  return true
+}
+
+/** Undo one change of a command in the own folder (a guarded path): the command's file or folder goes to the trash, the
+ * content before it comes back. False when it cannot be undone. */
+function revert(ctx: AppContext, s: ProjectState, c: { path: string; action: Change['action'] | 'folder'; before: string | null }, by: Actor): boolean {
   const root = ctx.files.fx.root
   const segs = c.path.split('/')
   const old = c.before ? s.store.blob(c.before) : null
-  if (c.action !== 'create' && !old) return false
+  if ((c.action === 'update' || c.action === 'delete') && !old) return false
   const days = getTeamSettings(ctx.db).trashRetentionDays
   if (c.action !== 'delete') {
-    // the command's file, kept in the trash (it may be what the person wanted after all)
+    // the command's file or folder, kept in the trash (it may be what the person wanted after all); a rename, so a link
+    // the box put there moves as the link itself
+    if (!realParents(root, segs)) return false
     const st = fs.lstatSync(path.join(root, ...segs))
-    if (!st.isFile()) return false
+    if (c.action === 'folder' ? !st.isDirectory() : !st.isFile()) return false
     const storage = moveIntoTrash(root, segs)
-    trashRow(ctx.db, c.path, storage, st.size, by, days)
+    trashRow(ctx.db, c.path, storage, c.action === 'folder' ? 0 : st.size, by, days, c.action === 'folder' ? 'folder' : 'file')
   }
-  if (old) atomicWrite(root, segs, old, { createDirs: true })
+  if (old) {
+    if (!realParents(root, segs)) return false
+    atomicWrite(root, segs, old, {})
+  }
   return true
 }
 
@@ -312,48 +346,64 @@ function revert(ctx: AppContext, s: ProjectState, c: Change, by: Actor): boolean
  * is thrown; after the command, its changes to guarded paths (ownGuarded) are undone.
  */
 export function withOwnFolderWindow<T>(ctx: AppContext, userId: string, by: Actor, extra: Record<string, unknown>, fn: () => Promise<T>, o: OwnWindowOptions = {}): Promise<OwnWindowResult<T>> {
+  // no own folder yet: nothing there to lose (a command that makes one is the person's new files; the next window takes
+  // them as its baseline). A command let through on the promise of undo gets an empty one first, so its guard holds
+  if (!ownThere(ctx, userId) && o.mustUndo) { try { fs.mkdirSync(path.join(ctx.files.fx.root, ownFolder(userId)), { mode: 0o700 }) } catch {} }
   if (!ownThere(ctx, userId)) {
-    // no own folder yet: nothing there to lose (a command that makes one is the person's new files; the next window
-    // takes them as its baseline)
-    return fn().then((value) => ({ value, changes: [], lost: [], conflicts: [], reverted: [] }))
+    if (o.mustUndo) return Promise.reject(new OwnNotUndoable({ ok: false, unkept: [], skipped: [], truncated: true }))
+    return fn().then((value) => ({ value, changes: [], lost: [], conflicts: [], reverted: [], unreverted: [] }))
   }
   const s = state(ctx, `own:${userId}`, ownFolder(userId), OWN_CAPS)
   const exclude = o.exclude ?? []
   const run = async (): Promise<OwnWindowResult<T>> => {
     const root = ctx.files.fx.root
-    const start = takeSnapshot(root, s.folder, s.store.load(), s.store, { report: true })
+    const prev = s.store.load()
+    // the store keeps what the last manifest names, nothing older (a file replaced on the Files screen meanwhile must
+    // not use up its total)
+    try { s.store.prune(hashesOf(prev)) } catch {}
+    const start = takeSnapshot(root, s.folder, prev, s.store, { report: true })
+    const ro = [...exclude, ...ownReadOnly(ctx, userId)]
     if (o.mustUndo) {
-      const u = undoOf(start, [...exclude, ...ownReadOnly(ctx, userId)])
-      if (!u.ok) { s.store.save(bare(start)); throw new OwnNotUndoable(u) }
+      const u = undoOf(start, ro)
+      const shared = ownWritableShares(ctx, userId, ro)
+      if (!u.ok || shared.length) { s.store.save(bare(start)); throw new OwnNotUndoable({ ...u, ok: false, shared }) }
     }
     const outside = new Map<string, { sha256: string; userId: string; turnId: string | null }>()
     s.outside = outside
     let value: T | undefined, failed: unknown = null, threw = false
     // what the command wrote is there even when it failed or was stopped: recorded either way
     try { value = await fn() } catch (e) { threw = true; failed = e }
-    let end = takeSnapshot(root, s.folder, start, s.store)
-    let changes = diffSnapshots(start, end).filter((c) => !under(c.path, exclude)).filter((c) => { const x = outside.get(c.path); return !x || x.sha256 !== c.after })
+    const diff = (m: Manifest) => diffSnapshots(start, m).filter((c) => !under(c.path, exclude)).filter((c) => { const x = outside.get(c.path); return !x || x.sha256 !== c.after })
+    let end = takeSnapshot(root, s.folder, start, s.store, { report: !!o.mustUndo })
+    let changes = diff(end)
     s.outside = null
-    const reverted: Change[] = []
+    const reverted: Change[] = [], unreverted: Change[] = []
     if (o.mustUndo) {
-      for (const c of changes) {
-        if (!ownGuarded(c.path, userId)) continue
-        try { if (revert(ctx, s, c, by)) reverted.push(c) } catch (e) { ctx.log.warn('dev env: a guarded change was not undone', { err: e, path: c.path }) }
+      // a folder skipped by name (.git, .env, .cache) the command made or filled: not in the snapshot, so moved out whole
+      const before = new Set(start.skipped ?? [])
+      const madeSkipped = (end.skipped ?? []).filter((r) => !before.has(r) && !under(r, ro) && ownGuarded(r))
+      const tries: { c: Change; folder: boolean }[] = [...changes.filter((c) => ownGuarded(c.path)).map((c) => ({ c, folder: false })),
+        ...madeSkipped.map((r) => ({ c: { path: r, action: 'create' as const, before: null, after: null, size: null }, folder: (() => { try { return fs.lstatSync(path.join(root, r)).isDirectory() } catch { return false } })() }))]
+      for (const t of tries) {
+        let ok = false
+        try { ok = revert(ctx, s, { path: t.c.path, action: t.folder ? 'folder' : t.c.action, before: t.c.before }, by) } catch (e) { ctx.log.warn('dev env: a guarded change was not undone', { err: e, path: t.c.path }) }
+        ;(ok ? reverted : unreverted).push(t.c)
       }
-      if (reverted.length) {
-        const back = new Set(reverted.map((c) => c.path))
-        changes = changes.filter((c) => !back.has(c.path))
-        end = takeSnapshot(root, s.folder, end, s.store)
-      }
+      // after any attempt: what is on the disk now decides what is recorded (a half-done undo is a change like any other)
+      if (tries.length) { end = takeSnapshot(root, s.folder, end, s.store); changes = diff(end) }
     }
-    const conflicts = conflictCopies(ctx, s, changes, outside)
-    const lost = record(ctx, s, changes, by, { ...extra, place: 'own' })
-    s.store.save(bare(end))
-    s.lastActor = by
-    // the store keeps only what the newest manifest names: the replaced content is a version or in the trash now
-    try { s.store.prune(hashesOf(end)) } catch {}
+    let conflicts: string[] = [], lost: Change[] = []
+    try {
+      conflicts = conflictCopies(ctx, s, changes, outside)
+      lost = record(ctx, s, changes, by, { ...extra, place: 'own' })
+    } finally {
+      s.store.save(bare(end))
+      s.lastActor = by
+      // the store keeps only what the newest manifest names: the replaced content is a version or in the trash now
+      try { s.store.prune(hashesOf(end)) } catch {}
+    }
     if (threw) throw failed
-    return { value: value as T, changes, lost, conflicts, reverted }
+    return { value: value as T, changes, lost, conflicts, reverted, unreverted }
   }
   const p = s.queue.then(run, run)
   s.queue = p.catch(() => {})

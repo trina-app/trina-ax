@@ -53,8 +53,15 @@ In:
    every file there is kept (no file over 8 MiB, under 256 MiB in all, under the snapshot's file count, no folder the
    snapshot skips by name holding files: node_modules, .git, .env*, dist, build ...). Else the card stays, as today.
    The step says why: "내 폴더 변경은 버전으로 남아 묻지 않음".
+   The card-time check is stat only (`keepable`: nothing is read, kept or saved; plan review must-fix 2); skills and
+   shared folders, read-only in a run, do not count.
 5. Fail closed at the run: a command let through on (4) runs only when the window's own start snapshot is still fully
    kept (a file grew meanwhile: the command does not run and the AI is told to ask; nothing changed).
+5b. (plan review must-fix 4) A command let through on (4) that changes what the AI follows (skills, CLAUDE.md,
+   AGENTS.md ...) or a hidden file in the own folder: the change is put back at once (the command's file to the trash),
+   the AI is told, and the card is back for the rest of the answer (no loop).
+5c. The AI's answer says what can be put back (versions, trash) and what cannot (QA: it told the person a deleted
+   file was gone).
 6. Decision file updated (rule 2 amended); changes/<topic>.md.
 
 Out: jobs and dev servers (their changes land between windows; they keep the card); a run's changes in the background

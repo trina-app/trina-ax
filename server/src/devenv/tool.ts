@@ -220,7 +220,7 @@ export interface BoxShellHost {
   /** this command went without the room card because its changes in the person's own folder can be undone
    * (chat/turn.ts ownBoxRun): its window checks that again before it runs, and undoes guarded changes after it */
   mustUndo?(command: string): boolean
-  /** a command that went without the room card changed what the AI follows and it was put back: the card from now on */
+  /** a command that went without the room card changed what the AI follows (put back, or not), or could not run: the card from now on */
   reverted?(): void
   /** the bulk card (devenv/bulk.ts): keep this command's many new files in the project folder? true: keep (also the
    * person's "Always allow", kind bulk_files); false or null: move them to the chat's scratch folder */
@@ -236,7 +236,7 @@ export const lockedTopsNote = (folders: readonly string[]) => `Note: in this sha
 
 /** `lost`: changes whose earlier content was not kept (cannot be undone); `reverted`: changes undone at once (track.ts
  * ownGuarded, a command let through without the room card) */
-type Window = { changes: Change[]; background: Change[]; conflicts: string[]; lost?: Change[]; reverted?: Change[] }
+type Window = { changes: Change[]; background: Change[]; conflicts: string[]; lost?: Change[]; reverted?: Change[]; unreverted?: Change[] }
 
 /** a command let through without the room card (its changes could be undone) whose own folder could not be kept when
  * it was about to start (a file grew past the limit meanwhile): nothing ran */
@@ -277,6 +277,7 @@ ${clip(h.redact(hideProxyLogin(e.stderr)))}`)
   const lost = (w.lost ?? []).filter((c) => personCanOpen(h, c.path) || c.action === 'delete')
   if (lost.length) parts.push(`No earlier version was kept of these files (too large to keep a copy of): this change cannot be undone. Tell the person.\n${changeLines(lost, 10)}`)
   if (w.reverted?.length) parts.push(`Undone right away: this chat holds other people's words from the team's chat rooms, so a command that went without asking may not change what the person's AI follows (skills, CLAUDE.md, AGENTS.md) or hidden files in the person's own folder. These changes were put back (the command's file is in the trash):\n${changeLines(w.reverted, 10)}\nIf the person wants them, call box_shell again with the same command after telling them: they are asked first.`)
+  if (w.unreverted?.length) parts.push(`This command changed what the person's AI follows or hidden files in their own folder, and these changes could not be put back (an earlier version is kept where there was one): tell the person to check them.\n${changeLines(w.unreverted, 10)}`)
   const failed = e.code !== 0 || (e.signal !== '' && !background)
   return { ...text(h.redact(parts.join('\n')), failed), summary: `${what} -> ${e.signal || 'exit ' + e.code} ${e.ms} ms, ${w.changes.length} files` }
 }
@@ -356,12 +357,14 @@ async function srtShell(h: BoxShellHost, input: BoxShellInput, o: { space: Space
     if (own) {
       const ex = o.tracked && o.tracked.folderPath.startsWith(`users/${h.userId}/`) ? [o.tracked.folderPath] : []
       const ow = await withOwnFolderWindow(ctx, h.userId, by, extra, inner, { mustUndo, exclude: ex })
-      w = { ...ow.value, changes: [...ow.changes, ...ow.value.changes], lost: [...ow.lost, ...(ow.value.lost ?? [])], reverted: ow.reverted }
-      if (ow.reverted.length) h.reverted?.()
+      w = { ...ow.value, changes: [...ow.changes, ...ow.value.changes], lost: [...ow.lost, ...(ow.value.lost ?? [])], reverted: ow.reverted, unreverted: ow.unreverted }
+      if (ow.reverted.length || ow.unreverted.length) h.reverted?.()
     } else w = await inner()
   } catch (e) {
     if (!(e instanceof OwnNotUndoable)) throw e
-    // let through without the room card because its changes could be undone, and now they could not: not run
+    // let through without the room card because its changes could be undone, and now they could not: not run, and the
+    // card is back for the rest of the answer (the AI is told to call again: the person is asked then, no loop)
+    h.reverted?.()
     audit(ctx.db, { actor: h.userId, action: 'dev_env.command', target: space.projectId, detail: { turnId: h.turnId, chatId: space.chatId, command: h.redact(input.command.slice(0, 2000)), cwd, runner: 'srt', result: { error: 'not_undoable' } } })
     return { ...text(h.redact([...notes, NOT_UNDOABLE].join('\n')), true), summary: `${what} -> not run (own folder cannot be kept)` }
   } finally { slot?.release() }

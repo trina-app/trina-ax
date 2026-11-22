@@ -146,10 +146,12 @@ export function takeSnapshot(root: string, folder: string, prev: Manifest | null
       try { st = fs.lstatSync(abs) } catch { continue }
       if (!st.isFile()) continue
       const old = prev?.files[r]
-      if (old && old.size === st.size && old.mtimeMs === st.mtimeMs && old.ctimeMs === st.ctimeMs && old.ino === st.ino) {
-        files[r] = old
-        // the same file as before: its content must still be in the store (report: else it cannot come back)
-        if (o.report && (!old.sha256 || !store?.has(old.sha256))) unkept.push(r)
+      const same = !!old && old.size === st.size && old.mtimeMs === st.mtimeMs && old.ctimeMs === st.ctimeMs && old.ino === st.ino
+      // report: the same file as before is taken as it was only when its content is still in the store (a content the
+      // store could not keep, or lost, is read again: it may fit now)
+      if (same && (!o.report || (old!.sha256 && store?.has(old!.sha256)) || !store || st.size > store.caps.fileMax)) {
+        files[r] = old!
+        if (o.report && (!old!.sha256 || !store?.has(old!.sha256))) unkept.push(r)
         continue
       }
       let h: string | null = null
@@ -185,7 +187,7 @@ export function diffSnapshots(a: Manifest | null, b: Manifest): Change[] {
 /**
  * Could a store with `caps` keep every file of `root/folder` (stat only: nothing is read, kept or saved)? What could
  * not: a file over caps.fileMax, the files past caps.totalMax in all, a name skipped by name that holds something, more
- * files than a snapshot lists (truncated), anything that is not a regular file or a folder (a link, a socket). Paths
+ * files than a snapshot lists (truncated). Links and other entries that are not files are not tracked at all. Paths
  * under `exclude` (team-relative prefixes: folders a run cannot write) are not looked at.
  */
 export function keepable(root: string, folder: string, caps: StoreCaps, exclude: readonly string[] = []): { unkept: string[]; skipped: string[]; truncated: boolean } {

@@ -292,10 +292,10 @@ export function moveToTrash(db: Database, root: string, segs: string[], by: { us
 export function trashBytes(db: Database, root: string, rel: string, bytes: Uint8Array, by: { userId: string; turnId: string | null }, days: number): string {
   return trashRow(db, rel, storeBlob(root, 'trash', bytes), bytes.length, by, days)
 }
-/** The trash_items row of a file whose content is at `storage` (.system/trash/…) already. Returns the trash id. */
-export function trashRow(db: Database, rel: string, storage: string, size: number, by: { userId: string; turnId: string | null }, days: number): string {
+/** The trash_items row of a file (or a folder) whose content is at `storage` (.system/trash/…) already. Returns the trash id. */
+export function trashRow(db: Database, rel: string, storage: string, size: number, by: { userId: string; turnId: string | null }, days: number, kind: 'file' | 'folder' = 'file'): string {
   const id = newId()
-  db.query("INSERT INTO trash_items (id, original_path, storage_path, size, deleted_by, turn_id, purge_at, kind) VALUES (?,?,?,?,?,?,?,'file')")
-    .run(id, rel, storage, size, by.userId, by.turnId, new Date(Date.now() + days * 86400_000).toISOString())
+  db.query('INSERT INTO trash_items (id, original_path, storage_path, size, deleted_by, turn_id, purge_at, kind) VALUES (?,?,?,?,?,?,?,?)')
+    .run(id, rel, storage, size, by.userId, by.turnId, new Date(Date.now() + days * 86400_000).toISOString(), kind)
   return id
 }

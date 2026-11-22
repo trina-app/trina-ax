@@ -162,6 +162,29 @@ describe('a command\'s changes keep what they replaced', () => {
     // the command's CLAUDE.md is kept in the trash
     expect((await trash('alice')).items.some((x) => x.originalPath === 'users/alice/CLAUDE.md')).toBe(true)
   })
+
+  test('let through on the promise of undo: a .git folder it makes (skipped by the snapshot) is moved out whole', async () => {
+    const r = await shell({ mustUndo: true })('mkdir -p "$TRINA_TEAM/users/alice/code/.git/hooks" && echo evil > "$TRINA_TEAM/users/alice/code/.git/hooks/pre-commit" && echo fine > "$TRINA_TEAM/users/alice/code/main.py"')
+    expect(fs.existsSync(abs('users/alice/code/.git'))).toBe(false)
+    expect(read('users/alice/code/main.py')).toBe('fine\n')
+    expect(out(r)).toContain('Undone right away')
+    expect((await trash('alice')).items.some((x) => x.originalPath === 'users/alice/code/.git')).toBe(true)
+  })
+
+  test('a file in my folder shared on its own (others reach what a run writes there): the check says no', async () => {
+    w('users/alice/share/price.csv', 'a,b')
+    const id = uuidv7()
+    h.ctx.db.query("INSERT INTO file_shares (id, path, ino, dev, owner_id, state, created_by, created_at, kind) VALUES (?,?,0,0,'alice','live','alice',?,'file')").run(id, 'users/alice/share/price.csv', new Date().toISOString())
+    try {
+      const u = ownFolderUndoable(h.ctx, 'alice')
+      expect(u.ok).toBe(false)
+      expect(u.shared).toContain('users/alice/share/price.csv')
+      const no = await shell({ mustUndo: true })('echo x > "$TRINA_TEAM/users/alice/share/price.csv"')
+      expect(out(no)).toContain('Not run')
+      expect(read('users/alice/share/price.csv')).toBe('a,b')
+    } finally { h.ctx.db.query('DELETE FROM file_shares WHERE id = ?').run(id) }
+    expect(ownFolderUndoable(h.ctx, 'alice').ok).toBe(true)
+  })
 })
 
 // After a room read (chats.rooms_seen, as a ✦ side chat or room_read leaves it) a command in my own chat goes on without
@@ -214,6 +237,19 @@ describe('after a room read: the card goes when everything is versioned', () => 
       expect(r.cards).toHaveLength(1)
       expect(fs.existsSync(abs('users/alice/big/note.txt'))).toBe(false)
     } finally { fs.rmSync(abs('users/alice/big'), { recursive: true, force: true }) }
+  })
+
+  test('a file the window cannot read: the command does not run, and the next one gets the card (no loop)', async () => {
+    w('users/alice/locked/key.txt', 'K')
+    fs.chmodSync(abs('users/alice/locked/key.txt'), 0)
+    try {
+      const chat = await side()
+      const cmd = (n: number) => fakeTurn({ tool: 'box_shell', args: { command: `echo ${n} > "$TRINA_TEAM/users/alice/locked/n${n}.txt"` }, sayResult: true })
+      const r = await run(chat, `${cmd(1)}\n${cmd(2)}`)
+      expect(fs.existsSync(abs('users/alice/locked/n1.txt'))).toBe(false)
+      expect(r.cards).toHaveLength(1)
+      expect(fs.existsSync(abs('users/alice/locked/n2.txt'))).toBe(false)
+    } finally { fs.chmodSync(abs('users/alice/locked/key.txt'), 0o600); fs.rmSync(abs('users/alice/locked'), { recursive: true, force: true }) }
   })
 
   test('a command that reaches the network keeps the card', async () => {
