@@ -3,8 +3,8 @@
 // laid out by the same code the server uses (layout2.ts), written as the artifact HTML a chat would get. Then
 // web/scripts/skill-examples.ts takes its picture:
 //
-//   bun scripts/intro-deck-example.ts <ko|en> <out.html>
-//   cd web && bun scripts/skill-examples.ts intro-deck <out.html> <ko|en> public/skill-examples/<ko|en>/intro-deck.webp
+//   bun scripts/intro-deck-example.ts <ko|en|ja|zh|es|id> <out.html>
+//   cd web && bun scripts/skill-examples.ts intro-deck <out.html> <locale> public/skill-examples/<locale>/intro-deck.webp
 //
 // Every number in the slides must be written in the intro (`회사 소개.md` / `Company intro.md`), as the tool demands.
 // The brand pictures are `examples/data/soopteum/images/` (sources and licences: images/SOURCES.md); the page names
@@ -19,9 +19,12 @@ import { DECK_FONT_CSS } from '../server/src/intro-deck/theme'
 import { imageSize } from '../server/src/uploads/image'
 import type { DeckPictureNote } from '../shared/src/api'
 
-const [locale, out] = process.argv.slice(2) as ['ko' | 'en', string]
-if (!(locale === 'ko' || locale === 'en') || !out?.endsWith('.html')) {
-  console.error('usage: bun scripts/intro-deck-example.ts <ko|en> <out.html>')
+/** the company intro of each language (the material every number on the slides must be written in) */
+const INTRO = { ko: '회사 소개.md', en: 'Company intro.md', ja: '会社紹介.md', zh: '公司介绍.md', es: 'Presentación de la empresa.md', id: 'Profil perusahaan.md' } as const
+type L = keyof typeof INTRO
+const [locale, out] = process.argv.slice(2) as [L, string]
+if (!Object.hasOwn(INTRO, locale) || !out?.endsWith('.html')) {
+  console.error('usage: bun scripts/intro-deck-example.ts <ko|en|ja|zh|es|id> <out.html>')
   process.exit(2)
 }
 const dir = path.resolve(import.meta.dir, '..', 'examples', 'data', 'soopteum', locale)
@@ -39,7 +42,7 @@ for (const n of spec.pictures ?? []) {
   pics[n.path] = size
   picNotes[n.path] = { lettering: n.lettering, calm: n.calm, tone: n.tone }
 }
-const intro = fs.readFileSync(path.join(dir, locale === 'ko' ? '회사 소개.md' : 'Company intro.md'), 'utf8').normalize('NFKC')
+const intro = fs.readFileSync(path.join(dir, INTRO[locale]), 'utf8').normalize('NFKC')
 const slides = spec.slides.map((s, i) => {
   const r = DeckSlide2.safeParse(s)
   if (!r.success) throw new Error(`slides[${i}]: ${r.error.message}`)

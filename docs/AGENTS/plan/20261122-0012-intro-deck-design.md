@@ -36,6 +36,9 @@ Round 3 (review: still too plain): spare brand pictures behind the numbers and b
 colour block for the pains and the quote; the company's letter as a graphic on drawn covers; titles 72 px, body
 30–32 px; no label over titles (impeccable's ban); four free photos for the example (images/SOURCES.md, NOTICE).
 
+Every language (coordinator: the owner wants all six): the example in ja, zh, es and id too, the catalog picking the
+team's language for the intro deck, and Japanese and Chinese line breaking and fonts in the preview, PDF and PPTX.
+
 ## Decisions
 
 docs/decisions/20261122-intro-deck-design.md (flat grounds, eyebrow, the new cover, figure styles).

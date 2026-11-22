@@ -18,11 +18,9 @@ import { Modal } from '../ui'
 
 /** The invented company the examples are made on (EXAMPLES-PLAN.md §1), by the language of the example. */
 export const EXAMPLE_COMPANY: Record<'ko' | 'en', string> = { ko: '예시커피', en: 'Example Coffee' }
-/** A skill whose example is made on another invented company: the intro deck on 숲틈 / Soopteum, an office plant
- * subscription (examples/data/soopteum/, 2026-11-22: a deck needs a company with services, numbers and a process). */
-export const EXAMPLE_COMPANY_BY_SKILL: Partial<Record<string, Record<'ko' | 'en', string>>> = { 'intro-deck': { ko: '숲틈', en: 'Soopteum' } }
-/** The invented company of one skill's example, by the language of the example. */
-export const exampleCompany = (name: string, locale: 'ko' | 'en') => (EXAMPLE_COMPANY_BY_SKILL[name] ?? EXAMPLE_COMPANY)[locale]
+/** The invented company of an example: the server names it when it is another one (the intro deck: 숲틈 / Soopteum, in
+ * the picture's language), else 예시커피 / Example Coffee by the language of the skill text. */
+export const exampleCompany = (e: PackCatalogSkill['example'], locale: 'ko' | 'en') => (e?.kind === 'image' && e.company) || EXAMPLE_COMPANY[locale]
 
 /** The source line of a kept skill, with its one link out (the open-source original) when it has one. The makers are
  * named as the app names its AI ("트리나 팀이 만들었어요", tabs.ts namedProduct). */
@@ -110,7 +108,7 @@ export function SkillExampleViewer({ skill, onClose, returnTo }: SkillExampleVie
         {body}
         <div className="space-y-1">
           {e && shown !== 'failed' && (
-            <p className="text-label text-muted" data-testid="skill-example-fictional">{t('skillPack.fictional', { company: exampleCompany(skill.name, skill.locale === 'ko' ? 'ko' : 'en') })}</p>
+            <p className="text-label text-muted" data-testid="skill-example-fictional">{t('skillPack.fictional', { company: exampleCompany(e, skill.locale === 'ko' ? 'ko' : 'en') })}</p>
           )}
           <SourceLine skill={skill} />
         </div>

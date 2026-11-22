@@ -44,6 +44,18 @@
   from the intro and laid out by the server's own code (scripts/intro-deck-example.ts). The picture shows the cover,
   the about and the numbers. The other examples stay on 예시커피, and the viewer names the deck's company
   (SkillExampleViewer.tsx `EXAMPLE_COMPANY_BY_SKILL`).
+- **Every language:** the example is made in all six app languages (ko, en, ja, zh, es, id). Each is the same invented
+  company as a local business (Tokyo, Shanghai, Madrid, Jakarta), with local phone formats and invented local names.
+  The catalog sends the picture in the team's language for a skill listed in `EXAMPLE_LOCALES`
+  (server/src/onboarding/skill-examples.ts); other skills keep the ko/en rule. The image example carries its
+  `company`, and the viewer names that company.
+- **Japanese and Chinese type:** these languages have no spaces, so a line may break between any two characters,
+  with kinsoku: never before a closing mark or a small kana, never after an opening bracket. A break inside a word
+  costs a little, so breaks after a particle or a mark win when one is close, and a text may take one more line for
+  it. The preview names Hiragino, Noto Sans JP and Yu Gothic for Japanese, and PingFang, Noto Sans SC and YaHei for
+  Chinese. The PDF turns off typst's automatic space between CJK and Latin and adds Hiragino Sans GB for Chinese on
+  a Mac. The PowerPoint file names Yu Gothic or Microsoft YaHei as the East Asian face, because Pretendard has no kana
+  or hanzi.
 - **Left out:** customer logo rows. The `proof` slide carries names only; logos would need a new slot in the tool's
   schema and SKILL.md, so they are left for a later change. The SKILL.md text is unchanged, so its example hash stays.
 - **Tests:** tests/unit/b-intro-deck-figures.test.ts covers the spare pictures, the cover box and the closing; the

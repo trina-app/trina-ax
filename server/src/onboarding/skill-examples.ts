@@ -35,13 +35,26 @@ export const PACK_EXAMPLES: Record<'ko' | 'en', Partial<Record<string, Registere
   },
 }
 
+/** Pictures made in every app language, not only Korean and English: the team's language picks the picture
+ * (`web/public/skill-examples/<locale>/<name>.webp`), so a Japanese team sees a Japanese deck. The intro deck since
+ * 2026-11-22, made on 숲틈 / Soopteum (examples/data/soopteum/<locale>/). */
+export const EXAMPLE_LOCALES: Partial<Record<string, readonly Locale[]>> = { 'intro-deck': ['ko', 'en', 'ja', 'zh', 'es', 'id'] }
+/** The invented company of a skill's example when it is not 예시커피 / Example Coffee, by the picture's language. */
+export const EXAMPLE_COMPANY_OF: Partial<Record<string, Partial<Record<Locale, string>>>> = {
+  'intro-deck': { ko: '숲틈', en: 'Soopteum', ja: 'Soopteum', zh: 'Soopteum', es: 'Soopteum', id: 'Soopteum' },
+}
+
 /** An EXAMPLE.md without its front matter. */
 export const exampleBody = (text: string): string => text.replace(/^﻿?---[ \t]*\r?\n[\s\S]*?\r?\n---[ \t]*(\r?\n|$)/, '').trim()
 
-/** The example a team whose skill text is in `locale` sees (null: none yet, the viewer says it is being made). */
-export function packExample(locale: Locale, name: string): PackExample | null {
+/** The example a team whose skill text is in `locale` sees (null: none yet, the viewer says it is being made). `team`:
+ * the team's own language, which picks the picture of a skill made in every language (EXAMPLE_LOCALES). */
+export function packExample(locale: Locale, name: string, team?: Locale): PackExample | null {
   const at = locale === 'ko' ? 'ko' : 'en'
   const e = PACK_EXAMPLES[at][name]
   if (!e) return null
-  return e.kind === 'image' ? { kind: 'image', url: `/skill-examples/${at}/${name}.webp` } : { kind: 'text', markdown: exampleBody(e.text) }
+  if (e.kind === 'text') return { kind: 'text', markdown: exampleBody(e.text) }
+  const pic = team && EXAMPLE_LOCALES[name]?.includes(team) ? team : at
+  const company = EXAMPLE_COMPANY_OF[name]?.[pic]
+  return { kind: 'image', url: `/skill-examples/${pic}/${name}.webp`, ...(company ? { company } : {}) }
 }

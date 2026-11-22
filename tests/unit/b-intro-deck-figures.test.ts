@@ -9,7 +9,7 @@ import { fadeAt } from '../../server/src/intro-deck/grounds'
 import type { Item, PathItem, PicInfo, SlideOut, TextItem } from '../../server/src/intro-deck/layout'
 import { layoutDeck2, layoutSlide2, type DeckDoc2 } from '../../server/src/intro-deck/layout2'
 import { fittingThemes2, lookFor2, themeFor2, type G2 } from '../../server/src/intro-deck/look'
-import { width, type Weight } from '../../server/src/intro-deck/text'
+import { fitText, width, type Weight } from '../../server/src/intro-deck/text'
 
 // ── pictures and a document (sizes only matter for the layout) ─────────────────────────────────────────────────────
 const IMG = 'shared/브랜드/이미지/'
@@ -117,6 +117,28 @@ function samples(w: string[]): Record<string, [DeckFigure, DeckFigure]> {
     figures: [{ kind: 'figures', items: [{ number: '340곳', label: w[0]! }, { number: '15년', label: w[1]! }] }, { kind: 'figures', items: [{ number: '340곳', label: w[0]! }, { number: '0.02%', label: w[1]! }, { number: '99.1%', label: w[2]! }, { number: '+30%', label: w[3]! }] }],
   }
 }
+
+describe('Japanese and Chinese lines (round 3)', () => {
+  const role = { size: 64, min: 52, weight: 800 as Weight, tracking: -0.035, lh: 1.2 }
+  const lines = (t: string, w: number, n = 4) => fitText(t, role, w, n)?.lines.map((l) => l.map((r) => r.text).join('')) ?? null
+  test('a text with no spaces breaks between characters, without adding spaces, at a particle or a mark when one is close', () => {
+    const ja = lines('Soopteumはオフィスの植物を選び、届け、枯らさないサブスクリプションです', 840)!
+    expect(ja.join('')).toBe('Soopteumはオフィスの植物を選び、届け、枯らさないサブスクリプションです')
+    expect(ja).toEqual(['Soopteumはオフィスの', '植物を選び、', '届け、枯らさない', 'サブスクリプションです'])
+    expect(lines('办公室植物，摆进来容易，养活难', 640)).toEqual(['办公室植物，', '摆进来容易，养活难'])
+  })
+  test('kinsoku: a closing mark or a small kana never starts a line; an opening bracket never ends one', () => {
+    for (const w of [300, 360, 420, 480, 540]) {
+      const ls = lines('「スプトゥム」は、オフィスの観葉植物をお届けします。ちょっと待って！', w, 8)!
+      for (const l of ls.slice(1)) expect('、。」』）！？ー').not.toContain(l[0]!)
+      for (const l of ls) expect(l.at(-1)).not.toBe('「')
+    }
+  })
+  test('Hangul and Latin still break only at spaces', () => {
+    expect(lines('숲틈은 사무실 식물을 고르고 들이고 살려 두는 구독 서비스예요', 1040)).toEqual(['숲틈은 사무실 식물을 고르고', '들이고 살려 두는 구독 서비스예요'])
+    expect(lines('Offices that stay *green*', 1400)).toEqual(['Offices that stay green'])
+  })
+})
 
 describe('the figures (one drawing language)', () => {
   for (const [lang, words] of [['ko', ko], ['en', en]] as const) {

@@ -98,7 +98,13 @@ export const PACK_EXAMPLE_LIMITS = { imageBytes: 90 * 1024, textChars: { ko: 900
  * is a picture anyway, or a short before → after text the page draws in its own theme (Markdown, its front matter left
  * out). */
 export const PackExample = z.discriminatedUnion('kind', [
-  z.object({ kind: z.literal('image'), url: z.string() }),
+  z.object({
+    kind: z.literal('image'),
+    url: z.string(),
+    /** the invented company the picture is made on, when it is not 예시커피 / Example Coffee (the intro deck: 숲틈 /
+     * Soopteum), in the picture's language */
+    company: z.string().optional(),
+  }),
   z.object({ kind: z.literal('text'), markdown: z.string() }),
 ])
 export type PackExample = z.infer<typeof PackExample>

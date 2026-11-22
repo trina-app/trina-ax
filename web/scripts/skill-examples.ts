@@ -21,9 +21,11 @@ const PICK: Record<Skill, number[]> = { 'intro-deck': [1, 2, 5], 'card-news': [1
 const LABEL = { ko: '18초 영상', en: '18-second video' } as const
 
 const args = process.argv.slice(2)
-const [skill, file, locale, out] = args as [Skill, string, 'ko' | 'en', string]
-if (!SKILLS.includes(skill) || !file || !(locale === 'ko' || locale === 'en') || !out?.endsWith('.webp')) {
-  console.error('usage: bun scripts/skill-examples.ts <intro-deck|card-news|promo-video> <artifact.html> <ko|en> <out.webp> [--pick 1,5,6]')
+const [skill, file, locale, out] = args as [Skill, string, 'ko' | 'en' | 'ja' | 'zh' | 'es' | 'id', string]
+// the intro deck is made in every app language; the others in Korean and English
+const LANGS = skill === 'intro-deck' ? ['ko', 'en', 'ja', 'zh', 'es', 'id'] : ['ko', 'en']
+if (!SKILLS.includes(skill) || !file || !LANGS.includes(locale) || !out?.endsWith('.webp')) {
+  console.error('usage: bun scripts/skill-examples.ts <intro-deck|card-news|promo-video> <artifact.html> <ko|en (intro-deck: ja|zh|es|id too)> <out.webp> [--pick 1,5,6]')
   process.exit(2)
 }
 const at = args.indexOf('--pick')
@@ -86,7 +88,7 @@ const grid = {
   'promo-video': '.x{grid-template-columns:424px 208px;grid-template-rows:260px 260px}.x>:first-child{grid-row:1/3;height:528px}',
 }[skill]
 const play = '<svg viewBox="0 0 10 12" width="8" height="10" aria-hidden="true"><path d="M0 0l10 6-10 6z" fill="currentColor"/></svg>'
-const tag = skill === 'promo-video' ? `<span class="tag">${play}${LABEL[locale]}</span>` : ''
+const tag = skill === 'promo-video' ? `<span class="tag">${play}${LABEL[locale as "ko" | "en"]}</span>` : ''
 const layout = await browser.newPage({ viewport: { width: 640, height: 600 }, deviceScaleFactor: 2 })
 await layout.setContent(`<!doctype html><html><head><meta charset="utf-8"><style>${face}
 html,body{margin:0;background:transparent}

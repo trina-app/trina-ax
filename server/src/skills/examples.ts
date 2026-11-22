@@ -158,7 +158,7 @@ export function teamPrepared(ctx: AppContext, userId: string, locale: Locale): T
     const lang = packLocale(SKILL_PACKS[c.pack], team)
     // an example that cannot be read leaves the row without 예시, never without the row
     let example
-    try { example = packExample(lang, c.name) ?? undefined } catch { example = undefined }
+    try { example = packExample(lang, c.name, team) ?? undefined } catch { example = undefined }
     kept.set(s.path, { s, out: { path: s.path, name: s.name, title: skillTitle(s), summary: packSummary(c.name, locale) || lineOf(skillSummary(s)), ...(example ? { example, locale: lang === 'ko' ? 'ko' : 'en' } : {}), source: c.source(lang) } })
   }
   const others = mine.filter((s) => !kept.has(s.path)).map((s): PreparedSkill => ({ path: s.path, name: s.name, title: skillTitle(s), summary: lineOf(skillSummary(s)) }))
