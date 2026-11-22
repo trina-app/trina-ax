@@ -4,7 +4,7 @@
 import { describe, expect, test } from 'bun:test'
 import { localizeStep, placeName, shellDescription, shellKind, SHELL_KIND_WORDS, shellWords, STEP_TEXT, stepLabel, stepPlace } from '../../shared/src'
 import { answerShellOutputs, commandShape, roomCardWhat, roomChangeDetails, shellCardWords, shellOutputs, shellUsesNetwork } from '../../server/src/chat/turn'
-import { globLabel, pageKeyWords, searchWords } from '../../shared/src/step-labels'
+import { globLabel, pageKeyWords, searchPatternWords } from '../../shared/src/step-labels'
 import { placeWords } from '../../server/src/chat/place-words'
 
 const none = new Set<string>()
@@ -235,12 +235,12 @@ describe('globLabel', () => {
 // QA TC-b4s (TC-b3s-8 left over): developer words in step lines
 describe('step lines in plain words (batch 5)', () => {
   test('a search pattern: alternatives as words, no regular expression', () => {
-    expect(searchWords('A형.{0,40}(원|단가|가격)')).toBe('A형 (원, 단가, 가격)')
-    expect(searchWords('별빛커피|A형')).toBe('별빛커피, A형')
-    expect(searchWords('커피머신|A형|한빛상사')).toBe('커피머신, A형, 한빛상사')
-    expect(searchWords('^\\s*total:\\s*\\d+')).toBe('total:')
-    expect(searchWords('invoice')).toBe('invoice')
-    expect(searchWords('단가표.xlsx')).toBe('단가표.xlsx')
+    expect(searchPatternWords('A형.{0,40}(원|단가|가격)')).toBe('A형 (원, 단가, 가격)')
+    expect(searchPatternWords('별빛커피|A형')).toBe('별빛커피, A형')
+    expect(searchPatternWords('커피머신|A형|한빛상사')).toBe('커피머신, A형, 한빛상사')
+    expect(searchPatternWords('^\\s*total:\\s*\\d+')).toBe('total:')
+    expect(searchPatternWords('invoice')).toBe('invoice')
+    expect(searchPatternWords('단가표.xlsx')).toBe('단가표.xlsx')
     for (const l of L) expect(stepLabel('grep', { pattern: 'A형.{0,40}(원|단가|가격)', path: 'shared' }, l, none)).not.toMatch(/[|{}\\]|\.\{/)
   })
   test('a page by its title, never a slug key', () => {

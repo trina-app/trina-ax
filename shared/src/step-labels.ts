@@ -349,7 +349,7 @@ export function globLabel(verb: string, pattern: unknown, folder: unknown): stri
 
 /** A search pattern in words (QA TC-b4s: "A형.{0,40}(원|단가|가격)"): a regular expression's alternatives as "a, b", its
  * wildcards, anchors, escapes and repeat counts left out; a plain text as it is. */
-export function searchWords(pattern: unknown): string {
+export function searchPatternWords(pattern: unknown): string {
   const p = String(pattern ?? '')
   if (!/[|\\.^$*+?()[\]{}]/.test(p)) return p
   const s = p
@@ -391,7 +391,7 @@ export function stepLabel(tool: string, input: unknown, locale: Locale, browserT
   switch (tool) {
     case 'list': return `${verb} · ${clip(a.path || '/', 80)}`
     case 'glob': return globLabel(verb!, a.pattern, a.path)
-    case 'grep': return `${verb} "${clip(searchWords(a.pattern), 60)}"${a.path ? ` · ${clip(a.path, 50)}` : ''}`
+    case 'grep': return `${verb} "${clip(searchPatternWords(a.pattern), 60)}"${a.path ? ` · ${clip(a.path, 50)}` : ''}`
     case 'read': {
       const k = mediaKind(String(a.file_path ?? ''))
       if (!k && /\.pptx$/i.test(String(a.file_path ?? '').trim()) && (a.pages !== undefined || a.as_images === true)) {
