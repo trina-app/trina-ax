@@ -983,9 +983,9 @@ export function lostAccessFor(exec: Pick<TurnExec, 'rt' | 'livePrincipal' | 'spe
 const LEFT_GROUP_DAYS = 30
 /** The person's latest messages in the chat read for the folder's name: this turn's and the one before it. */
 const LEFT_GROUP_MESSAGES = 2
-/** Korean particles and words that may follow a folder's name in a message ("영업 폴더", "영업의", "영업에서"): a name
- * followed by any other letter is another word ("영업일", "인사말") */
-const AFTER_NAME = /^(?:$|[^\p{L}\p{N}]|폴더|팀|부서|[은는이가을를의에도로와과])/u
+/** Korean particles and words that may follow a folder's name in a message (folder, team, group; the particles 은 는
+ * 이 가 을 를 의 에 도 로 와 과): a name followed by any other letter is another word ("영업일", "인사말") */
+const AFTER_NAME = /^(?:$|[^\p{L}\p{N}]|\uD3F4\uB354|\uD300|\uBD80\uC11C|[\uC740\uB294\uC774\uAC00\uC744\uB97C\uC758\uC5D0\uB3C4\uB85C\uC640\uACFC])/u
 
 /** Is the folder name `own` written as a word of its own in `said` (both NFC lower case)? */
 export function namesFolder(said: string, own: string): boolean {
