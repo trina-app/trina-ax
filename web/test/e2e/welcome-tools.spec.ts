@@ -1,11 +1,11 @@
 // Onboarding v6 in a real browser against the mock (docs/DECISIONS.md "W6 — Onboarding v6"):
 // - the step order AI 연결 (only without AI) → 회사 소개 → 내 스킬 → 팀 파일 → 도구 연결 → 팀원 초대 → 준비 끝, n/5;
-// - 팀이 쓸 도구 (docs/decisions/20261120-team-vs-personal-onboarding.md): one list: Notion as a team connection
-//   ([팀으로 연결], one team connection everyone may use, signed in for the team), Google Drive (where this server has it)
+// - 팀이 쓸 도구 (docs/decisions/20261120-team-vs-personal-onboarding.md): one list: Notion and Higgsfield as team
+//   connections ([팀으로 연결], one team connection everyone may use, signed in for the team), Google Drive (where this server has it)
 //   with a [각자 연결하도록 권하기] switch, saved at once, never a personal sign-in, and [팀으로 연결] (the shared Google
 //   account dialog of Admin › Connectors) where the server can make one; the one "다른 도구 보기" line (Settings ›
 //   Connectors over the step: its close, Esc and Back come back to the step; a tool's page has the same switch); those tools
-//   first in a member's list; 나중에 하기 / 다음 and ← 이전;
+//   first in a member's list; Slack only there and in Admin (no row since 11-22); 나중에 하기 / 다음 and ← 이전;
 // - after the setup the one way back is Settings › 커넥터: the Drive card's owner/admin button names both effects;
 // - 준비 끝: the five steps summed up (✓ and a fact, or 나중에 하기로 했어요 with 지금 하기), "내 설정 시작" to Home.
 // Google is answered by the page's own routes (the mock has no Google client), as in drive.spec.ts.
@@ -84,10 +84,10 @@ test('팀이 쓸 도구 with Drive: the step order (n/5); one list (Notion for t
   await expect(drv.getByTestId('welcome-tools-team-connect')).toHaveCount(0)
   await expect(drv).toContainText('각자 자기 계정으로 연결해요')
   await expect(page.getByTestId('welcome-tools-mcp-add')).toHaveText('다른 도구 보기')
-  // nothing done: no primary, 나중에 하기 only; Higgsfield is not offered
+  // nothing done: no primary, 나중에 하기 only; Slack is not offered (owner, 11-22: Other tools and Admin have it)
   await expect(page.getByTestId('welcome-tools-next')).toHaveCount(0)
   await expect(page.getByTestId('welcome-later')).toBeVisible()
-  await expect(tools).not.toContainText(/Higgsfield|힉스필드/)
+  await expect(tools).not.toContainText(/Slack/)
   // 각자 연결하도록 권하기 on Drive: saved for the team at once, no Google sign-in (the switch's label takes the press, its checkbox
   // sits under the track, as in admin-engines.spec.ts)
   await drv.locator('label').click()
@@ -277,32 +277,50 @@ test('no Drive on this server: Notion and "다른 도구 보기"; that line open
   expect(realErrors(errors)).toEqual([])
 })
 
-test('Slack: 연결됨 only while it is connected, and that counts as the step done (the primary, no 나중에 하기); added but not connected: [다시 연결] to its page; not added: [팀으로 연결]', async ({ page }) => {
+test('Slack is not a row (owner, 11-22): connected in Admin it still counts as the step done; not added, "다른 도구 보기" has its card, which opens its page in Admin with the steps\' way back', async ({ page }) => {
   const errors = watchConsole(page)
   await reset(page)
   await signIn(page)
-  // the mock's Slack is connected: 연결됨, and the team already has a tool
+  // the mock's Slack is connected: no row, but the team already has a tool (the primary, no 나중에 하기)
   await page.goto('/welcome')
   await page.getByTestId('welcome-profile').getByRole('button', { name: '나중에 하기' }).click()
   await page.getByTestId('skills-later').click()
   await page.getByTestId('welcome-later').click()
-  const slack = page.locator('[data-testid="welcome-tools-service"][data-id="slack"]')
-  await expect(slack).toHaveAttribute('data-state', 'connected')
-  await expect(slack.getByTestId('welcome-tools-team-on')).toContainText('연결됨')
   await expect(page.getByTestId('welcome-tools-next')).toHaveText('다음: 팀원 초대')
   await expect(page.getByTestId('welcome-later')).toHaveCount(0)
-  // added, but its connection does not work now: [다시 연결], and not done
-  expect((await page.request.post('/__test/slack', { data: { admin: { state: 'error', lastError: 'invalid_auth' } } })).ok()).toBeTruthy()
-  await page.reload()
-  await expect(slack).toHaveAttribute('data-state', 'needs-attention')
-  await expect(slack.getByTestId('welcome-tools-team-connect')).toHaveText('다시 연결')
-  await expect(page.getByTestId('welcome-later')).toBeVisible()
-  await slack.getByTestId('welcome-tools-team-connect').click()
-  await expect(page).toHaveURL(/\/admin\/connectors\/slack/)
-  // not added: [팀으로 연결]
+  await expect(page.locator('[data-testid="welcome-tools-service"]')).toHaveText([/Notion/, /Higgsfield/])
+  await expect(page.locator('[data-testid="welcome-tools-service"][data-id="slack"]')).toHaveCount(0)
+  // not added: Other tools lists Slack for the owner; its card opens Admin › Connected apps › Slack, and back
   await noSlack(page)
-  await page.goto('/welcome')
-  await expect(slack.getByTestId('welcome-tools-team-connect')).toHaveText('팀으로 연결')
+  await page.reload()
+  await expect(page.getByTestId('welcome-later')).toBeVisible()
+  await page.getByTestId('welcome-tools-mcp-add').click()
+  const settings = page.getByTestId('settings-dialog')
+  const slack = settings.locator('[data-testid="connector-card"][data-id="slack"]')
+  await expect(slack).toContainText('Slack')
+  await slack.getByTestId('connector-open').click()
+  await expect(page).toHaveURL(/\/admin\/connectors\/slack/)
+  await page.getByTestId('setup-return-button').click()
+  await expect(page).toHaveURL(/\/welcome$/)
+  await expect(page.getByTestId('welcome-tools')).toBeVisible()
+  expect(realErrors(errors)).toEqual([])
+})
+
+test('Higgsfield [팀으로 연결]: ONE team connection at Higgsfield\'s official address, for everyone', async ({ page }) => {
+  const errors = watchConsole(page)
+  await reset(page)
+  await signIn(page)
+  await toTools(page)
+  const row = page.locator('[data-testid="welcome-tools-service"][data-id="higgsfield"]')
+  await expect(row).toContainText('팀 전체가 이 연결을 같이 써요 · AI로 이미지와 영상을 만들어요')
+  await expect(row.getByTestId('welcome-tools-recommend')).toBeVisible()
+  const sent = page.waitForRequest((r) => r.url().endsWith('/api/admin/integrations') && r.method() === 'POST')
+  const popup = page.waitForEvent('popup')
+  await row.getByTestId('welcome-tools-team-connect').click()
+  expect((await sent).postDataJSON()).toEqual({ kind: 'mcp', name: 'Higgsfield', url: 'https://mcp.higgsfield.ai/mcp', auth: 'oauth', writePolicy: 'ask', access: { everyone: true, groups: [], users: [] } })
+  await popup
+  await expect(row).toHaveAttribute('data-state', 'connected', { timeout: 10_000 })
+  await expect(page.getByTestId('welcome-tools-next')).toHaveText('다음: 팀원 초대')
   expect(realErrors(errors)).toEqual([])
 })
 
