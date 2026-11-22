@@ -264,13 +264,24 @@ const PROMO_TEXT = '---\nname: promo-video\ndescription: 홍보 영상 — 회�
  * first result since docs/DECISIONS.md "D2"; a member who joins with its invite lands on it */
 const DECK_TEXT = '---\nname: intro-deck\ndescription: 회사 소개서 — 회사 소개 자료나 홈페이지에서 읽은 내용으로 팀 브랜드 폴더의 사진과 브랜드 색을 써서 회사 소개서 슬라이드를 만들어요.\nmetadata:\n  title: 회사 소개서\n  inputs: |\n    [{"name": "topic", "label": "주제", "placeholder": "비워 두면 회사 전체"}, {"name": "audience", "label": "누구에게 보낼까요", "placeholder": "예: 제조업 고객사 · 비워 두면 누구에게나"}, {"name": "files", "label": "자료 파일", "placeholder": "비워 두면 팀 브랜드 폴더의 회사 소개", "advanced": true}]\n---\n# 회사 소개서\n'
 
-/** the kept skills (server/src/onboarding/skill-packs.ts CATALOG, short): their titles and one lines in Korean and English */
+/** the kept skills (server/src/onboarding/skill-packs.ts CATALOG, short): their titles and one lines in Korean and English,
+ * and where the owner's setup step puts them (`onboarding`) */
+const KWP_URL = 'https://github.com/anthropics/knowledge-work-plugins/tree/0e0fcacddcc892eb92a1b7873ff9d68159c47571/'
 const PACK_CATALOG = [
-  { pack: 'general', name: 'intro-deck', visual: true, ko: '회사 소개서', en: 'Company slide deck', lineKo: '회사 소개로 6~10장짜리 소개서를 만들어요', lineEn: 'Makes a 6–10 slide company slide deck from the company intro' },
-  { pack: 'general', name: 'card-news', visual: true, ko: '카드뉴스', en: 'Promo cards', lineKo: '회사 소개로 정사각형 카드 5장을 만들어요', lineEn: 'Makes 5 square promo cards from the company intro' },
-  { pack: 'general', name: 'promo-video', visual: true, ko: '홍보 영상', en: 'Promo video', lineKo: '회사 소개로 18초짜리 세로 영상을 만들어요', lineEn: 'Makes an 18-second vertical video from the company intro' },
-  { pack: 'work', name: 'humanizer', visual: false, ko: '자연스러운 글', en: 'Natural writing', lineKo: 'AI가 쓴 티가 나는 글을 사람이 쓴 것처럼 다듬어요', lineEn: 'Rewrites text that reads as AI-written so a person seems to have written it' },
+  { pack: 'work', name: 'meeting-notes', visual: false, onboarding: 'checked', ko: '회의록 정리', en: 'Meeting notes', lineKo: '회의 메모나 녹음 대본으로 결정 사항과 담당·기한이 붙은 할 일을 정리해요', lineEn: 'Turns meeting notes or a transcript into decisions and to-dos with owners and due dates', url: KWP_URL + 'sales/skills/call-summary', project: 'knowledge-work-plugins' },
+  { pack: 'work', name: 'team-report', visual: false, onboarding: 'checked', ko: '주간 보고·공지', en: 'Reports & announcements', lineKo: '주간 보고, 팀 공지, 장애 보고를 깔끔한 회사 양식으로 써요', lineEn: 'Writes weekly reports, team notices and incident reports in a clean company format', url: 'https://github.com/anthropics/skills/tree/e4bb5d960d87126ff3b3a8af1a104b7db67560ba/skills/internal-comms', project: 'internal-comms' },
+  { pack: 'work', name: 'customer-reply', visual: false, onboarding: 'checked', ko: '고객 답장', en: 'Customer replies', lineKo: '고객 문의나 불만에 보낼 정중한 답장 초안을 써요', lineEn: 'Drafts polite replies to customer questions and complaints', url: KWP_URL + 'customer-support/skills/draft-response', project: 'knowledge-work-plugins' },
+  { pack: 'work', name: 'contract-review', visual: false, onboarding: 'offered', ko: '계약서 검토', en: 'Contract review', lineKo: '계약서의 위험한 조항, 빠진 내용, 물어볼 질문을 짚어요 (법률 자문은 아니에요)', lineEn: 'Points out risky clauses, missing items and questions to ask in a contract (not legal advice)', url: KWP_URL + 'legal/skills/review-contract', project: 'knowledge-work-plugins' },
+  { pack: 'work', name: 'humanizer', visual: false, onboarding: 'checked', ko: '자연스러운 글', en: 'Natural writing', lineKo: 'AI가 쓴 티가 나는 글을 사람이 쓴 것처럼 다듬어요', lineEn: 'Rewrites text that reads as AI-written so a person seems to have written it', url: null, project: null },
+  { pack: 'general', name: 'intro-deck', visual: true, onboarding: 'offered', ko: '회사 소개서', en: 'Company slide deck', lineKo: '회사 소개로 6~10장짜리 소개서를 만들어요', lineEn: 'Makes a 6–10 slide company slide deck from the company intro', url: null, project: null },
+  { pack: 'general', name: 'card-news', visual: true, onboarding: null, ko: '카드뉴스', en: 'Promo cards', lineKo: '회사 소개로 정사각형 카드 5장을 만들어요', lineEn: 'Makes 5 square promo cards from the company intro', url: null, project: null },
+  { pack: 'general', name: 'promo-video', visual: true, onboarding: null, ko: '홍보 영상', en: 'Promo video', lineKo: '회사 소개로 18초짜리 세로 영상을 만들어요', lineEn: 'Makes an 18-second vertical video from the company intro', url: null, project: null },
 ] as const
+
+/** a kept skill's source line (server: CATALOG's `source`) */
+const packSource = (k: (typeof PACK_CATALOG)[number], ko: boolean) =>
+  k.url ? { kind: 'adapted' as const, author: 'Anthropic', project: k.project!, license: 'Apache-2.0', url: k.url }
+    : k.name !== 'humanizer' ? { kind: 'team' as const } : ko ? { kind: 'team_writing' as const } : { kind: 'adapted' as const, author: 'Siqi Chen', project: 'humanizer', license: 'MIT', url: 'https://github.com/blader/humanizer' }
 
 /** like server/src/admin/settings.ts LOCALE_CHANGED */
 const LOCALE_CHANGED = { type: 'notice', data: { level: 'info', code: 'locale_changed', message: '' } } as const
@@ -4211,9 +4222,9 @@ export class MockServer {
           const path = `skills/${k.pack}/${k.name}/SKILL.md`
           return {
             pack: k.pack, name: k.name, path, title: ko ? k.ko : k.en, description: ko ? k.lineKo : k.lineEn,
-            inTeam: this.files.has(path) || team.some((x) => x.name.toLowerCase() === k.name), visual: k.visual,
-            example: Object.hasOwn(this.packExamples, k.name) ? this.packExamples[k.name] ?? null : packExample(ko ? 'ko' : 'en', k.name), locale: ko ? 'ko' : 'en',
-            source: k.name !== 'humanizer' ? { kind: 'team' } : ko ? { kind: 'team_writing' } : { kind: 'adapted', author: 'Siqi Chen', project: 'humanizer', license: 'MIT', url: 'https://github.com/blader/humanizer' },
+            inTeam: this.files.has(path) || team.some((x) => x.name.toLowerCase() === k.name), visual: k.visual, onboarding: k.onboarding,
+            example: Object.hasOwn(this.packExamples, k.name) ? this.packExamples[k.name] ?? null : packExample(ko ? 'ko' : 'en', k.name, this.settings.defaultLocale), locale: ko ? 'ko' : 'en',
+            source: packSource(k, ko),
           }
         }),
       }
@@ -4227,12 +4238,12 @@ export class MockServer {
       if (this.preparedFail) fail('internal', 500, '지금은 불러오지 못했어요')
       const ko = this.settings.defaultLocale === 'ko'
       const mine = this.skillsFor(c.user).filter((x) => !x.personal)
-      const kept = ['humanizer', 'card-news', 'promo-video', 'intro-deck'].flatMap((name) => {
+      const kept = ['humanizer', 'meeting-notes', 'team-report', 'customer-reply', 'contract-review', 'card-news', 'promo-video', 'intro-deck'].flatMap((name) => {
         const k = PACK_CATALOG.find((x) => x.name === name)!
         const s = mine.find((x) => x.path === `skills/${k.pack}/${k.name}/SKILL.md`)
         if (!s) return []
-        const example = Object.hasOwn(this.packExamples, k.name) ? this.packExamples[k.name] ?? undefined : packExample(ko ? 'ko' : 'en', k.name) ?? undefined
-        const source = k.name !== 'humanizer' ? { kind: 'team' as const } : ko ? { kind: 'team_writing' as const } : { kind: 'adapted' as const, author: 'Siqi Chen', project: 'humanizer', license: 'MIT', url: 'https://github.com/blader/humanizer' }
+        const example = Object.hasOwn(this.packExamples, k.name) ? this.packExamples[k.name] ?? undefined : packExample(ko ? 'ko' : 'en', k.name, this.settings.defaultLocale) ?? undefined
+        const source = packSource(k, ko)
         return [{ path: s.path, name: s.name, title: s.title ?? s.name, summary: c.user.locale === 'ko' ? k.lineKo : k.lineEn, ...(example ? { example, locale: ko ? 'ko' as const : 'en' as const } : {}), source }]
       })
       const others = mine.filter((x) => !kept.some((k) => k.path === x.path)).map((x) => ({ path: x.path, name: x.name, title: x.title ?? x.name, summary: x.description.split('\n')[0]!.slice(0, 200) }))

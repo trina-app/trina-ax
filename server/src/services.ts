@@ -135,6 +135,8 @@ export interface TurnToolResult {
   isError?: boolean
   /** audit line for tool_events.summary (default: "<name> -> ok|error") */
   summary?: string
+  /** pictures the call saved, shown under its step by the chat (tools/registry.ts ToolResult.stepImages) */
+  stepImages?: { path: string; alt?: string; label?: string }[]
 }
 /**
  * A tool the engine can call besides the six file tools (as mcp__team__<name>). C registers make_file,

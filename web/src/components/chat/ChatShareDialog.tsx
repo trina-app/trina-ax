@@ -56,7 +56,7 @@ import { answerHref, WideningList } from '../WideningList'
 import { Button, ErrorNote, IconButton, Modal, Skeleton, confirmDialog, menuOpener, useMediaQuery } from '../ui'
 import { CalmNotice } from '../LoadError'
 import { MoveToProjectDialog } from './ChatProject'
-import { GreyLine, ShareWarning, shareAtStake, shareFilesLine, shareGreyLine, shareWarningExtras, shareWarningSummary, whoNames } from '../ShareWarning'
+import { GreyLine, ShareWarning, shareAtStake, shareFilesLine, shareGreyLine, shareWarningSummary, whoNames } from '../ShareWarning'
 import { openShareChat } from './ShareChat'
 import { useCopyChatLink } from './copyChatLink'
 import { useChatActions } from './chatActions'
@@ -293,9 +293,8 @@ export function ChatShareDialog({ chat, onClose, initial, personal = false, retu
   // the check was asked for, QA TC-7042: not a person already in the chat through a group); an older server: everyone
   // being added
   const warnNames = check?.warnPicks?.length && current?.state === 'ready' ? warnNamesOf(t, current.list, check.warnPicks, nameOf) || addedNames : addedNames
-  // the box's one line, #320's facts as short lines under it (what they will see, dev answers, hidden answers), and the
-  // answers nobody could check (read out as shown)
-  const warningText = check && stake ? [shareWarningSummary(t, check, warnNames), ...shareWarningExtras(t, check, warnNames), check.unchecked ? t('share.grey.unchecked', { n: check.unchecked }) : ''].filter(Boolean).join(' ') : ''
+  // the box's one line, and the answers nobody could check as its second line (read out as shown)
+  const warningText = check && stake ? [shareWarningSummary(t, check, warnNames), check.unchecked ? t('share.grey.unchecked', { n: check.unchecked }) : ''].filter(Boolean).join(' ') : ''
   // the one grey line when there is no warning to read first: asking (after a moment), the check failed, or the check's
   // (answers nobody could check: in the box when there is one)
   const futureGroup = groupAdded ? t('chat.share.futureGroup') : null
@@ -308,7 +307,7 @@ export function ChatShareDialog({ chat, onClose, initial, personal = false, retu
   // the files step: while adding people, the check's list; on a chat already shared, the audience's (or the list asked
   // again). Only its creator ever gets one
   const stepFiles: ChatMadeFile[] = !editable ? [] : adding.length ? (check?.madeFiles ?? []) : (filesAgain?.files ?? audience?.madeFiles ?? [])
-  // nobody in it (a chat never shared, nobody picked) or a chat that becomes mine alone: no files box
+  // nobody in it (a chat never shared, nobody picked, or everyone taken out): no files box, nothing to share them with
   const filesStep = stepFiles.length > 0 && picks.length > 0 && !removesAll
   const filesChanged = adding.length ? current?.state === 'ready' && current.again === 'changed' : !!filesAgain
   // the files go only when ticked (and there are files to go)
@@ -388,7 +387,7 @@ export function ChatShareDialog({ chat, onClose, initial, personal = false, retu
               )}
               {check && stake && <ShareWarning check={check} names={warnNames} onShow={() => setListing(true)} grey={false} compact testId="chat-share-warning" />}
               {filesLine && <GreyLine text={filesLine} testId="chat-share-files" />}
-              {filesStep && <FilesStep files={stepFiles} already={!adding.length} changed={!!filesChanged} who={adding.length ? addedNames : null} checked={withFiles} onChange={setWithFiles} />}
+              {filesStep && <FilesStep files={stepFiles} already={!adding.length} who={adding.length ? addedNames : null} changed={!!filesChanged} checked={withFiles} onChange={setWithFiles} />}
               {grey && <GreyLine text={grey} testId="chat-share-grey" />}
               {keepsThrough.map((k) => (
                 <p key={k.id} className="flex items-start gap-2 text-sm leading-6 break-keep text-muted" data-testid="chat-share-keeps-through">
@@ -407,8 +406,8 @@ export function ChatShareDialog({ chat, onClose, initial, personal = false, retu
 
 /** "Share the files too (n)": one checkbox for the files the chat made in my own folder (they go together), each file
  * with its place under it, and one small hint (the copies going with the chat in its tooltip). `already`: a chat
- * already shared (no one being added). */
-function FilesStep({ files, who, already, changed, checked, onChange }: { files: readonly ChatMadeFile[]; who: string | null; already: boolean; changed: boolean; checked: boolean; onChange: (v: boolean) => void }) {
+ * already shared (no one being added). `who`: the people being added, for a file made from files they can't open. */
+function FilesStep({ files, already, who, changed, checked, onChange }: { files: readonly ChatMadeFile[]; already: boolean; who: string | null; changed: boolean; checked: boolean; onChange: (v: boolean) => void }) {
   const t = useT()
   return (
     <section className="space-y-2 rounded-lg border border-line px-3 py-2.5" aria-labelledby="chat-share-files-title" data-testid="chat-share-files-step" data-already={already ? '' : undefined}>

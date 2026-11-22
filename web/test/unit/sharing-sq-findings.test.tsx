@@ -56,18 +56,3 @@ test('TC-7277/TC-7262: the warning names the files and where they are, says what
   expect(shareAtStake({ ...base, hiddenAnswers: 1 })).toBe(true)
   expect(shareAtStake(base)).toBe(false)
 })
-
-test('#322 on #320: the lean one-line warning still names the files and where, says they will see those answers, and keeps the dev and hidden lines', async () => {
-  const { shareWarningSummary, shareWarningExtras } = await import('../../src/components/ShareWarning')
-  const base = { added: 1, memoryAnswers: 0, fileAnswers: 0, accountAnswers: 0, places: [], otherPlaces: false, roomsUnseen: false, unchecked: 0 }
-  const c = { ...base, memoryAnswers: 1, fileAnswers: 1, fileNames: ['cost.xlsx · Sales › Pricing'], devAnswers: 1, hiddenAnswers: 2 }
-  expect(shareWarningSummary(en, c, 'Seoyeon')).toBe("Some answers used places Seoyeon can't open · your personal memories, cost.xlsx · Sales › Pricing")
-  expect(shareWarningExtras(en, c, 'Seoyeon')).toEqual([
-    'Seoyeon will see what those answers say.',
-    en('share.warn.dev', { n: 1, names: 'Seoyeon' }),
-    en('share.warn.hidden', { n: 2, names: 'Seoyeon' }),
-  ])
-  // only dev answers at stake: no empty summary line, the dev line says it
-  expect(shareWarningSummary(en, { ...base, devAnswers: 1 }, 'Doyoon')).toBe('')
-  expect(shareWarningExtras(en, { ...base, devAnswers: 1 }, 'Doyoon')).toEqual([en('share.warn.dev', { n: 1, names: 'Doyoon' })])
-})

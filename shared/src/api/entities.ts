@@ -524,8 +524,9 @@ export const Step = z.object({
    * 20261116-ai-share-who-can-open.md): "3 people in #Sales can't open it yet" with one button. Written by the server
    * from its own records, never from the AI's text; only the person whose turn it was gets them */
   fixes: z.array(z.lazy(() => StepFix)).max(4).optional(),
-  /** screenshot shared from the browser pane / images the AI shows: served via /api/files/download */
-  images: z.array(z.object({ path: RelPath, alt: z.string().optional() })).max(20).optional(),
+  /** screenshot shared from the browser pane / pictures a tool saved and the chat shows itself (change_banner_text's
+   * sizes, a saved connection picture): served via /api/files/download. `label`: words shown under the picture ("1080x1920") */
+  images: z.array(z.object({ path: RelPath, alt: z.string().optional(), label: z.string().max(60).optional() })).max(20).optional(),
   /** a step a sub-agent took: the id of its sub-task step (tool 'agent'). Apps without this field show it in the flat
    * list (docs/DECISIONS.md "Sub-agents") */
   parentId: z.string().max(100).optional(),

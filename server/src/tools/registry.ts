@@ -10,7 +10,12 @@ import { toolErrorText } from '../safe-ops/strings'
 export interface ToolResult extends ToolOutput {
   /** machine-readable result (contract output of the tool) for server-side callers and tests; the engine gets `text` */
   structured?: Record<string, unknown>
+  /** pictures this call saved that the chat shows under its step by itself (Step.images), so the AI never retypes their
+   * paths as Markdown (a mistyped one showed the 1080x1080 banner twice and the story size never, 11-22). Chat turns only */
+  stepImages?: StepImage[]
 }
+/** a saved team picture shown under a step: its path, alt text and the words under it ("1080x1920") */
+export interface StepImage { path: string; alt?: string; label?: string }
 
 export interface ToolDef<I extends z.ZodType = z.ZodType> {
   name: string

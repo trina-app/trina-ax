@@ -105,6 +105,7 @@ describe('server and relay texts', () => {
  */
 const KOREAN_ALLOWED: Record<string, { why: string; also?: RegExp }> = {
   'server/src/safe-ops/strings.ts': { why: 'safe image/PowerPoint workflow messages (ko next to en/id/ja/es)' },
+  'server/src/onboarding/skill-examples.ts': { why: 'the invented company of the intro deck\'s examples by the picture\'s language, 숲틈 (ko next to en/ja/zh/es/id)' },
   'server/src/files/vision-text.ts': { why: 'notes the AI gets instead of an image (ko next to en/id/ja/es)' },
   'server/src/files/media-text.ts': { why: 'notes the AI gets about a video or audio read (ko next to en/id/ja/es)' },
   'server/src/files/locations.ts': { why: 'the words of the place labels the AI sees, "시트 \'매출\'", "슬라이드 3" (ko next to en/id/ja/es)' },
@@ -229,7 +230,7 @@ const KOREAN_ALLOWED: Record<string, { why: string; also?: RegExp }> = {
   'shared/src/api/intro-deck.ts': { why: 'Korean examples in the intro_deck tool\'s slot descriptions the AI reads (not screen text)', also: /\.describe\(|\b(Text|Opt|T|O)\(\d+, '/ },
   'server/src/intro-deck/theme.ts': { why: 'the intro deck\'s theme names (ko next to en/id/ja/es)', also: /^\s*ko: \{ paper: / },
   'server/src/intro-deck/figures.ts': { why: 'the timeline\'s "next" word (ko next to en/id/ja/es), and the Korean time units a bar chart converts to compare durations (not screen text)', also: /^const TIME: / },
-  'server/src/intro-deck/layout2.ts': { why: 'the deck\'s own labels: "회사 소개서" on the cover and the contact ledger\'s labels (ko next to en/id/ja/es)' },
+  'server/src/intro-deck/layout2.ts': { why: 'the deck\'s own labels: "회사 소개서" on the cover and the contact ledger\'s labels (ko next to en/id/ja/es), and the legal forms read off a company name ("(주)", "주식회사") before its letter is drawn (not screen text)', also: /^\s*const LEGAL = \// },
   'server/src/intro-deck/spec2.ts': { why: 'the notes\' source label (ko next to en/id/ja/es)' },
   'server/src/intro-deck/web.ts': { why: 'Korean words that mark a company site\'s about, product, case and news pages (a pattern the server matches, not screen text)', also: /^const WANT = / },
   'server/src/intro-deck/html.ts': { why: 'the deck pager\'s words (ko next to en/id/ja/es)', also: /^\s*ko: \{ slide: / },

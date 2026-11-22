@@ -186,8 +186,18 @@ describe("a page opened from another place's list (phase P3: a notice's chat ope
     const { last } = useRailMemory.getState()
     expect(last).toEqual({ activity: '/c/abc' })
     expect(railTarget('activity', 'ai', last)).toBe('/c/abc')
-    expect(railLinkState('activity', '/c/abc')).toEqual({ rail: 'activity' })
-    expect(railLinkState('activity', '/activity?n=1')).toBeUndefined()
-    expect(railLinkState('ai', '/c/abc')).toBeUndefined()
+    expect(railLinkState('activity')).toEqual({ rail: 'activity' })
+    expect(railLinkState('ai')).toEqual({ rail: 'ai' })
+  })
+
+  test("트리나 pressed on the chat 활동 opened (its last chat too: the same address) lights 트리나 (the owner, 11-22)", () => {
+    expect(railHereKept('/c/abc', '', { rail: 'activity' })).toBe('activity')
+    // the router's replace of the same address, with the press's state
+    expect(railHereKept('/c/abc', '', railLinkState('ai'))).toBe('ai')
+    // the page tidying its own address after that keeps 트리나
+    expect(railHereKept('/c/abc', '', null)).toBe('ai')
+    // 활동 pressed (its own place named), then its line to 멘션·스레드 (the same path, no state) lights 대화
+    expect(railHereKept('/activity', '', railLinkState('activity'))).toBe('activity')
+    expect(railHereKept('/activity', '?in=chats', null)).toBe('chats')
   })
 })

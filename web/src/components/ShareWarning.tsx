@@ -53,25 +53,18 @@ export function shareWarningSummary(t: T, c: ShareCheck, names: string): string 
   const sources = [
     ...(c.memoryAnswers ? [t('share.src.memories')] : []),
     ...(c.accountAnswers ? [t('share.src.accounts')] : []),
-    // the files by name (QA TC-7277, #320): the sharer read them, so their names may be told
+    // the files by name when the server names them (QA TC-7277: the sharer read them, so their names may be told)
     ...(c.fileAnswers ? (c.fileNames?.length ? c.fileNames : [t('share.src.files')]) : []),
     ...c.places.map((p) => placeName(t, p)),
     ...(c.otherPlaces ? [t('share.widenList.placeHidden')] : []),
     ...(c.roomsUnseen ? [t('share.src.rooms')] : []),
   ]
-  // only dev or hidden answers at stake: their own lines say it (shareWarningExtras)
-  return sources.length ? `${t('share.warn.summary', { names })} · ${sources.join(', ')}` : ''
-}
-
-/** The facts the lean box keeps as short lines under its one line (#320): that the people added will see what the
- * answers that used those files say, the answers that ran commands in the dev environment, and the earlier answers that
- * stay hidden from them. */
-export function shareWarningExtras(t: T, c: ShareCheck, names: string): string[] {
-  return [
-    ...(c.fileAnswers ? [t('share.warn.seeAnswers', { names })] : []),
+  // dev environment answers and answers kept hidden are not a place: their own short sentences (QA TC-7262)
+  const more = [
     ...(c.devAnswers ? [t('share.warn.dev', { n: c.devAnswers, names })] : []),
     ...(c.hiddenAnswers ? [t('share.warn.hidden', { n: c.hiddenAnswers, names })] : []),
   ]
+  return [...(sources.length ? [`${t('share.warn.summary', { names })} · ${sources.join(', ')}`] : []), ...more].join(' ')
 }
 
 /** The one grey line when nothing else needs saying first: answers nobody could check, else `fallback`. */
@@ -110,27 +103,21 @@ export function ShareWarning({ check, names, onShow, grey = null, compact = fals
   testId?: string
 }) {
   const t = useT()
-  const summary = compact && shareAtStake(check) ? shareWarningSummary(t, check, names) : ''
-  const lines = compact ? (summary ? [summary] : []) : shareWarningLines(t, check, names)
-  // the compact box's short lines under its one line (what they will see, dev answers, hidden answers)
-  const extras = compact && shareAtStake(check) ? shareWarningExtras(t, check, names) : []
+  const lines = compact ? (shareAtStake(check) ? [shareWarningSummary(t, check, names)] : []) : shareWarningLines(t, check, names)
   const unchecked = compact && check.unchecked ? t('share.grey.unchecked', { n: check.unchecked }) : null
   const answers = check.memoryAnswers + check.fileAnswers + check.accountAnswers
   const line = grey === false ? null : shareGreyLine(t, check, grey)
   const files = grey === false ? null : shareFilesLine(t, check)
   return (
     <>
-      {(lines.length > 0 || extras.length > 0) && (
+      {lines.length > 0 && (
         <div className="flex items-start gap-2 rounded-lg bg-warn-soft px-3 py-2 text-sm leading-6 break-keep [overflow-wrap:anywhere] text-warn" data-testid={testId}>
           <AlertTriangle size={16} className="mt-1 shrink-0" aria-hidden />
           <div className="min-w-0 flex-1">
             {/* one finding per line (a short list when there are several), "Show answers ›" after them */}
-            {lines.length > 0 && (
-              <ul className={clsx(lines.length > 1 && 'list-disc space-y-0.5 pl-4')} data-testid={`${testId}-lines`}>
-                {lines.map((l) => <li key={l}>{l}</li>)}
-              </ul>
-            )}
-            {extras.map((x) => <p key={x} className="mt-0.5 text-xs leading-5" data-testid={`${testId}-extra`}>{x}</p>)}
+            <ul className={clsx(lines.length > 1 && 'list-disc space-y-0.5 pl-4')} data-testid={`${testId}-lines`}>
+              {lines.map((l) => <li key={l}>{l}</li>)}
+            </ul>
             {unchecked && <p className="mt-0.5 text-xs leading-5" data-testid={`${testId}-unchecked`}>{unchecked}</p>}
             {onShow && answers > 0 && (
               <button type="button" onClick={onShow} className="touch-hit mt-1 inline-flex items-center font-medium text-accent-text hover:underline" data-testid={`${testId}-show`}>

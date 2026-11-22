@@ -27,6 +27,7 @@ import type { SourceLoc } from '@mycel/shared/api'
 import { openFilePreview, openTeamFile, type PreviewFile } from '../lib/sidePanel'
 import { baseName } from '../lib/paths'
 import { useT } from '../i18n'
+import { StepShownImages } from '../lib/stepImages'
 import { mobileApp } from '../lib/mobile'
 import { externalImageHintKey } from '../lib/appWording'
 import { toast } from '../store/ui'
@@ -395,8 +396,11 @@ export function TeamImage({ path, alt, className }: { path: string; alt?: string
   const target = useLinkTarget(path)
   const askChat = useAskChat()
   const asLink = useContext(TeamImagesAsLinks)
-  const drawn = target.kind === 'team' && !asLink && isDisplayableImagePath(path) && !failed
+  // a picture one of the answer's steps shows already (lib/stepImages.ts): not drawn a second time in its text
+  const shownAbove = useContext(StepShownImages).has(path)
+  const drawn = target.kind === 'team' && !asLink && !shownAbove && isDisplayableImagePath(path) && !failed
   const viewer = useViewerItem(drawn ? (meta) => teamImageItem(path, alt || baseName(path) || t('md.image'), meta) : null)
+  if (shownAbove) return null
   if (target.kind === 'locked') return <LockedFile>{alt || baseName(path) || t('md.image')}</LockedFile>
   if (target.kind === 'copy') return <TeamFileLink path={path}>{alt || target.copy.name}</TeamFileLink>
   if (asLink) return <TeamFileLink path={path}>{alt || baseName(path) || t('md.image')}</TeamFileLink>
