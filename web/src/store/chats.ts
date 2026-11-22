@@ -101,6 +101,8 @@ export interface SendInput {
   model?: string | null
   /** messages that waited for an answer (store/sendQueue.ts): the same messages always go with the same id */
   clientMessageId?: string
+  /** a chat shared with people: the people picked with "@" (ids) */
+  mentions?: string[]
   /** the server still has an answer running in this chat (409): the message is taken back instead of "not sent" */
   onConflict?: (e: ApiError) => void
   /** answer under the newest end of the branch through the last message this page shows (SendMessageBody.after), not
@@ -116,7 +118,7 @@ export interface SendInput {
 
 /** Sends waiting for the network to come back: localId -> body. Kept on this device per chat as they change (keepUnsent,
  * lib/unsentChats.ts): a reload does not lose them. */
-type OutboxJob = { chatId: string; clientMessageId: string; content: string; attachments: Attachment[]; attachmentIds: string[]; parentId: string | undefined; after?: string; engine?: EngineId; model?: string | null; firstTry: number; onConflict?: (e: ApiError) => void; author: { id: string; name: string }; createdAt: string; failed?: { error?: string } }
+type OutboxJob = { chatId: string; clientMessageId: string; content: string; mentions?: string[]; attachments: Attachment[]; attachmentIds: string[]; parentId: string | undefined; after?: string; engine?: EngineId; model?: string | null; firstTry: number; onConflict?: (e: ApiError) => void; author: { id: string; name: string }; createdAt: string; failed?: { error?: string } }
 const outbox = new Map<string, OutboxJob>()
 /** clientMessageIds of sends this page saw end (sent, let go): never put back from the device, whatever another tab of
  * mine still keeps */
@@ -135,7 +137,7 @@ function keepUnsent(chatId: string) {
   const me = myId()
   if (!me) return
   const mine: KeptChatSend[] = [...outbox.entries()].filter(([, j]) => j.chatId === chatId && j.author.id === me).map(([localId, j]) => ({
-    localId, clientMessageId: j.clientMessageId, content: j.content, attachments: j.attachments.filter((a) => j.attachmentIds.includes(a.id)),
+    localId, clientMessageId: j.clientMessageId, content: j.content, ...(j.mentions?.length ? { mentions: j.mentions } : {}), attachments: j.attachments.filter((a) => j.attachmentIds.includes(a.id)),
     ...(j.parentId ? { parentId: j.parentId } : {}), ...(j.after ? { after: j.after } : {}), ...(j.engine ? { engine: j.engine } : {}), ...(j.model !== undefined ? { model: j.model } : {}),
     author: j.author, createdAt: j.createdAt, ...(j.failed ? { failed: true as const, ...(j.failed.error ? { error: j.failed.error } : {}) } : {}),
   }))
@@ -563,7 +565,7 @@ export const useChats = create<ChatsState>((set, get) => {
         const epoch = queueEpoch
         const started = await api.call(API.sendMessage, {
           params: { id: job.chatId },
-          body: { content: job.content, attachmentIds: job.attachmentIds, parentId: job.parentId, ...(job.after ? { after: job.after } : {}), engine: job.engine, model: job.model, clientMessageId: job.clientMessageId, timeZone: turnTimeZone() },
+          body: { content: job.content, ...(job.mentions?.length ? { mentions: job.mentions } : {}), attachmentIds: job.attachmentIds, parentId: job.parentId, ...(job.after ? { after: job.after } : {}), engine: job.engine, model: job.model, clientMessageId: job.clientMessageId, timeZone: turnTimeZone() },
         })
         if (session !== generation) return
         endSend(localId)
@@ -658,7 +660,7 @@ export const useChats = create<ChatsState>((set, get) => {
     const back: string[] = []
     for (const p of kept) {
       if (have.has(p.clientMessageId) || goneHere.has(p.clientMessageId) || shown.some((m) => m.id === p.localId)) continue
-      const job: OutboxJob = { chatId, clientMessageId: p.clientMessageId, content: p.content, attachments: p.attachments, attachmentIds: p.attachments.map((a) => a.id), parentId: p.parentId, after: p.after, engine: p.engine, model: p.model, firstTry: Date.now(), author: p.author, createdAt: p.createdAt, ...(p.failed ? { failed: { error: p.error } } : {}) }
+      const job: OutboxJob = { chatId, clientMessageId: p.clientMessageId, content: p.content, ...(p.mentions?.length ? { mentions: p.mentions } : {}), attachments: p.attachments, attachmentIds: p.attachments.map((a) => a.id), parentId: p.parentId, after: p.after, engine: p.engine, model: p.model, firstTry: Date.now(), author: p.author, createdAt: p.createdAt, ...(p.failed ? { failed: { error: p.error } } : {}) }
       goesAtEnd(job)
       outbox.set(p.localId, job)
       const msg = optimisticUserMessage({ id: p.localId, chatId, parentId: null, content: p.content, author: p.author, attachments: p.attachments, clientMessageId: p.clientMessageId, now: p.createdAt })
@@ -766,7 +768,7 @@ export const useChats = create<ChatsState>((set, get) => {
       const clientMessageId = o.clientMessageId ?? uuidv7()
       const msg = optimisticUserMessage({ id: localId, chatId, parentId: last?.id ?? null, content: o.content, author: o.author, attachments: o.attachments, clientMessageId, now: new Date().toISOString() })
       setThread(chatId, (th) => ({ ...th, messages: [...th.messages, msg] }))
-      outbox.set(localId, { chatId, clientMessageId, content: o.content, attachments: o.attachments, attachmentIds: o.attachments.map((a) => a.id), parentId: o.atEnd ? undefined : last?.id, ...(o.atEnd && last ? { after: last.id } : {}), engine: o.engine, model: o.model, firstTry: Date.now(), onConflict: o.onConflict, author: o.author, createdAt: msg.createdAt })
+      outbox.set(localId, { chatId, clientMessageId, content: o.content, ...(o.mentions?.length ? { mentions: o.mentions } : {}), attachments: o.attachments, attachmentIds: o.attachments.map((a) => a.id), parentId: o.atEnd ? undefined : last?.id, ...(o.atEnd && last ? { after: last.id } : {}), engine: o.engine, model: o.model, firstTry: Date.now(), onConflict: o.onConflict, author: o.author, createdAt: msg.createdAt })
       keepUnsent(chatId)
       // the message shows as "sending" right away; a failure turns it into "not sent [send again]"
       const sent = deliverTracked(localId)

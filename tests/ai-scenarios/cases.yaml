@@ -2849,6 +2849,19 @@ cases:
     good: The person who asked and everyone who has replied in that thread are told (one notice per thread, a quiet "someone replied in a thread" push); everyone who can see the chat can open the thread; the AI reads the comments under its answers in this chat when someone here asks about them. No names or reply texts invented.
     checks: []
 
+- id: CHT-18
+  title: Who hears about a message in a chat shared with people, and how to mute it
+  features: [chat.message-notices]
+  lang: ko
+  context: personal
+  as: daniel
+  prompt: 사람들이랑 공유한 채팅에 누가 글을 쓰면 나한테 알림이 와? 너무 많이 오면 이 채팅만 끌 수 있어?
+  expect:
+    outcome: explain
+    # docs/decisions/20261122-shared-chat-new-message-notices.md
+    good: Everyone else who can see the chat is told about a person's new message (a number on the chat in the Trina list, a phone or desktop notification); Trina's own answers only add to the number; "Mute this chat" in the chat's ··· menu stops it for that chat (an @mention still reaches); the general notification settings and quiet hours apply. No made-up menu names.
+    checks: []
+
 - id: SWM-01
   title: Read a file a teammate shared with me
   features: [files.shared-with-me]

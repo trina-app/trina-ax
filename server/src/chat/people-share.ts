@@ -41,7 +41,8 @@ import { publishChatChanged, stopTurnsIn } from './runtime'
 import { SHARED_LATER, type ChatRow } from './store'
 import { isInternalChat } from './internal-chats'
 import { isPersonalFolder } from './projects'
-import { chatView, type ChatAccess } from './shared'
+import { Audiences, chatView, type ChatAccess } from './shared'
+import { forgetChatNotices } from './message-notices'
 import { chatUse } from './share-chat'
 import { confirmMac } from './answer-share'
 import { checkAudience, findingsState, rulesFingerprint, type AudienceFindings } from './audience-check'
@@ -165,8 +166,16 @@ export function chatAudienceView(ctx: AppContext, rt: ChatRuntime, userId: strin
   // the creator: the files this chat made in my own folder that are not in the chat yet (the already-shared step)
   const made = a.creator ? madeFilesOf(ctx, r) : []
   const files = made.length ? { madeFiles: madeOut(ctx, made, personLocale(db, userId), userId), madeFilesKey: filesKeyOf(ctx, userId, r.id, made) } : {}
+  // who the message box may mention (chat/message-notices.ts): the people who see it now but me. A group's people only
+  // for the creator and admins (S8, as above) and in the groups I am in myself: anyone else sees the creator, the people
+  // named and their own groups' people, so the list never says who or how many are in someone else's group
+  const named = new Set([r.user_id, ...subjects.filter((s) => s.type === 'user').map((s) => s.id)])
+  const myGroups = subjects.filter((s) => s.type === 'group' && !!me?.groups.includes(s.id)).map((s) => s.id)
+  const visibleTo = (id: string) => full || named.has(id) || (myGroups.length > 0 && groupsOfIn(db, id, myGroups).length > 0)
+  const mentionable = new Audiences(db, ctx.files).ofChat(r).filter((id) => id !== userId && visibleTo(id)).flatMap((id) => { const u = rt.store.userRef(id); return u ? [{ id: u.id, name: u.name }] : [] })
+    .sort((x, y) => x.name.localeCompare(y.name) || x.id.localeCompare(y.id))
   const events = audienceEventsOf(db, r.id, full)
-  return { kind: 'people', canEdit: a.creator, by, subjects: rows, ...(!groups || full ? { count: peopleAudience(db, r).length } : {}), ...files, ...(events.length ? { events } : {}) }
+  return { kind: 'people', canEdit: a.creator, by, subjects: rows, ...(!groups || full ? { count: peopleAudience(db, r).length } : {}), ...files, ...(events.length ? { events } : {}), mentionable }
 }
 
 /** The most lines of who changed a chat's people that GET …/audience gives (the newest). */
@@ -234,6 +243,8 @@ export function leaveChat(ctx: AppContext, rt: ChatRuntime, userId: string, a: C
     } else db.query('DELETE FROM chat_list_hidden WHERE chat_id = ? AND user_id = ?').run(r.id, userId)
     closeFileAsks(db, r.id, everyone ? null : [userId])
     rememberAudience(db, r.id, [userId], at)
+    // and their notices of its messages and their mute (chat/message-notices.ts), as a save that removes them
+    forgetChatNotices(db, userId, r.id)
     addAudienceEvent(db, r.id, userId, 'left', [], at)
     // counts only
     audit(db, { actor: userId, action: 'chat.leave', target: r.id, detail: { ...(everyone ? { private: true } : {}) } })
@@ -586,6 +597,8 @@ export async function putChatAudience(ctx: AppContext, rt: ChatRuntime, userId: 
       // the chat's own line of who changed its people ("{actor} added {names}", QA TC-7289): ids only, names read when shown
       if (added.length) addAudienceEvent(db, r.id, userId, 'added', added, at)
       if (removed.length) addAudienceEvent(db, r.id, userId, 'removed', removed, at)
+      // and their notices of its messages and their mute (chat/message-notices.ts): added again later, they start afresh
+      for (const id of lost) forgetChatNotices(db, id, r.id)
       // their waiting asks to add a file of this chat go with them (everyone's when it is mine alone again)
       closeFileAsks(db, r.id, everyone ? null : lost)
       // who saw it, before or after this save: a link of someone who loses it later says why (chat/chat-audience.ts)

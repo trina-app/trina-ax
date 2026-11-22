@@ -47,6 +47,7 @@ import { roomsOf } from '../rooms/service'
 import { confirmMac } from '../chat/confirm-key'
 import { WIDENING_PAGE } from '../chat/widening'
 import { shareChat } from '../chat/share-chat'
+import { readChatNotices, setMuted } from '../chat/message-notices'
 import { chatAudienceView, chatWidening, checkWideningAdd, hideChat, leaveChat, peopleSharedChatsOf, previewChatAudience, putChatAudience, unhideOnOpen } from '../chat/people-share'
 import { IN_PEOPLE_AUDIENCE_SQL, NOT_HIDDEN_SQL, resolveSubjects } from '../chat/chat-audience'
 import { finishCard } from '../chat/connect-service'
@@ -572,6 +573,8 @@ export const chatsRoutes: RouteModule = {
         const back = chatOut(rt, auth.user.id, chat)
         rt.hub.publish(auth.user.id, { type: 'chat.updated', data: { chatId: chat.id, change: 'updated', chat: back } })
       }
+      // a chat shared with people: my unread messages there are read (chat/message-notices.ts); my windows hear it
+      if (a.kind === 'people' && readChatNotices(ctx, auth.user.id, chat.id)) rt.hub.publish(auth.user.id, { type: 'chat.updated', data: { chatId: chat.id, change: 'updated', chat: chatOut(rt, auth.user.id, chat) } })
       if (a.shared && !a.creator) return chatOut(rt, auth.user.id, chat)
       const was = rt.store.unseen(chat)
       rt.store.markSeen(chat.id)
@@ -789,6 +792,16 @@ export const chatsRoutes: RouteModule = {
       leaveChat(ctx, rt, auth.user.id, chatOf(rt, c, auth, params.id, 'view'), c.get('locale'))
       return { ok: true as const }
     })
+    // "Mute this chat" / "Unmute" (chat/message-notices.ts): a chat shared with people I see; mine only. Anything else: 400
+    const muted = (auth: AuthInfo, a: ChatAccess, mute: boolean): Chat => {
+      if (a.kind !== 'people') fail('validation', undefined, { params: { reason: 'chat_mute_people_only' } })
+      setMuted(ctx, auth.user.id, a.row.id, mute)
+      const out = chatOut(rt, auth.user.id, rt.store.chatRow(a.row.id)!)
+      rt.hub.publish(auth.user.id, { type: 'chat.updated', data: { chatId: a.row.id, change: 'updated', chat: out } })
+      return out
+    }
+    kit.handle(API.muteChat, ({ c, params, auth }) => muted(auth, chatOf(rt, c, auth, params.id, 'view'), true))
+    kit.handle(API.unmuteChat, ({ c, params, auth }) => muted(auth, chatOf(rt, c, auth, params.id, 'view'), false))
     // a file kept with a chat shared with people (chat/chat-files.ts): whoever sees the chat now (its creator in the trash
     // too), else the 404 of a missing chat; a file not sent yet only for its sender. Sent as a room file is (streamFile:
     // nosniff, a sandbox CSP, a page or script type inline as text/plain); one on the download-only list only as a
@@ -857,7 +870,7 @@ export const chatsRoutes: RouteModule = {
       const { engine, model, substitutedFrom } = pickEngine(ctx, rt, auth, chat, body, c.get('locale'))
       try {
         const started = rt.createTurn({ chat, userId: auth.user.id, locale: rt.userLocale(auth.user.id), windowId: windowOf(c), clientKind: auth.session.client, engine, model, substitutedFrom, timeZone: turnZone(body.timeZone),
-          user: { parentId, content: body.content, attachments: atts, clientMessageId: body.clientMessageId } })
+          user: { parentId, content: body.content, attachments: atts, clientMessageId: body.clientMessageId, ...(body.mentions?.length ? { mentions: body.mentions } : {}) } })
         // sent: their place in line is gone (more of theirs waiting go to the back); the others hear how many still wait
         if (a.shared && rt.sharedWaiting.sent(chat.id, auth.user.id)) rt.publishChat(auth.user.id, chat.id, 'updated')
         return started

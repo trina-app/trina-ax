@@ -108,7 +108,7 @@ test.each(Locale.options)('worker displays server-selected %s title and body for
     w.configure({ messages })
     // a request to open a file shows only while the signed-in notice says I may still answer it
     // (and a request to open my chat or project, the same)
-    w.item({ id: 'event-1', code, readAt: null, ...(code === 'file.access_requested' ? { link: 'file', fileShare: { by: null, name: null, linkId: null, state: 'pending', canAnswer: true } } : {}), ...(code === 'access.requested' ? { link: null, accessRequest: { kind: 'chat', by: null, name: null, targetId: null, state: 'pending', canAnswer: true } } : {}) })
+    w.item({ id: 'event-1', code, readAt: null, ...(code === 'file.access_requested' ? { link: 'file', fileShare: { by: null, name: null, linkId: null, state: 'pending', canAnswer: true } } : {}), ...(code === 'access.requested' ? { link: null, accessRequest: { kind: 'chat', by: null, name: null, targetId: null, state: 'pending', canAnswer: true } } : {}), ...(code === 'chat.message' ? { link: 'chat', chatId: 'chat-1', chatMessage: { messageId: 'message-1' } } : {}) })
     await w.push({ ...payload, code, title: 'PRIVATE PROMPT', body: 'PRIVATE FILE', locale: 'en' })
     expect(w.shown).toHaveLength(1)
     expect(w.shown[0]!.title).toBe(messages.title)

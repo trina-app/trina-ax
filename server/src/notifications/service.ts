@@ -34,6 +34,7 @@ import { datedSql } from '../auth/deletion-requests'
 import { REQUEST_SOURCE, parseRequestSource } from '../devenv/request-outcome'
 import { CHAT_ANSWER_COALESCE_MS, CHAT_ANSWER_PUSH_DELAY_MS, CHAT_CARD_PUSH_DELAY_MS, chatOpenFor, type ChatAnswerKind } from './chat-answers'
 import { fileSharesOf } from '../files/shares'
+import { chatMessageLink } from '../chat/message-notices'
 import { accessRequestsOf } from '../chat/access-requests'
 import { CHAT_THREAD_PUSH_DELAY_MS, chatThreadNoticeOut, threadSummaries } from '../chat/threads'
 
@@ -98,7 +99,11 @@ const tableOf = (e: NotificationEventType) => e === 'chat.answer_done' ? 'chat_a
  * have their own tables, because notification_inbox has a fixed event_type CHECK list and tables are never rebuilt. */
 const NOTICE_TABLES = ['notification_inbox', 'skill_notices', 'dev_env_notices', 'integration_request_notices', 'onboarding_notices', 'team_join_notices', 'onboarding_goal_notices', 'room_notices', 'account_deletion_notices', 'account_deletion_due_notices', 'integration_template_notices', 'drive_share_notices', 'skill_merge_notices', 'credential_change_notices', 'handover_notices', 'project_notices', 'service_request_notices', 'service_request_closed_notices', 'stored_key_file_notices', 'reset_link_notices', 'hosting_notices', 'engine_start_notices', 'storage_notices', 'room_app_notices', 'room_app_leaver_notices', 'chat_answer_notices', 'chat_share_notices', 'file_share_notices', 'chat_thread_notices', 'access_request_notices', 'chat_lost_notices'] as const
 const union = (tables: readonly string[]) => `(${tables.map((t) => `SELECT id,user_id,event_type,source_id,created_at,read_at,suppressed FROM ${t}`).join(' UNION ALL ')})`
-const INBOX = union(NOTICE_TABLES)
+/** A person's message in a chat shared with people (chat_message_notices, migration 436; chat/message-notices.ts): read
+ * by id (what a push opens) like every notice, never listed, counted or marked read in Activity: the chat row's number
+ * shows it and reading the chat reads it. */
+const PUSH_ONLY_TABLES = ['chat_message_notices'] as const
+const INBOX = union([...NOTICE_TABLES, ...PUSH_ONLY_TABLES])
 /** What the Inbox lists and counts besides the rooms' notices, newest first: every other notice. The rooms' notices
  * make rows of their own (rooms/inbox.ts roomRows: mentions and replies in threads I follow, one row per place; from
  * 2026-11-05 to then none were listed, docs/DECISIONS.md "알림함의 대화 알림"), merged into the same order by `sort_at`. */
@@ -617,6 +622,7 @@ export class Notifications {
   reconcile(userId?: string) {
     const db = this.ctx.db
     for (const table of NOTICE_TABLES) db.query(`DELETE FROM ${table} WHERE created_at < ?`).run(this.cutoff())
+    for (const table of PUSH_ONLY_TABLES) db.query(`DELETE FROM ${table} WHERE created_at < ?`).run(this.cutoff())
     // a Share press of several files (migration 356) goes with its last notice
     db.query("DELETE FROM file_share_batches WHERE created_at < ? AND NOT EXISTS(SELECT 1 FROM file_share_notices n WHERE n.event_type = 'file.shared' AND n.source_id = 'b:' || file_share_batches.id)").run(this.cutoff())
     this.settleIntegrationRequests(userId)
@@ -747,6 +753,11 @@ export class Notifications {
       const n = this.ctx.db.query('SELECT chat_id FROM chat_answer_notices WHERE id=?').get(row.id) as { chat_id: string } | null
       const open = !!n && chatOpenFor(this.ctx, row.user_id, n.chat_id)
       return { id: row.id, eventType: row.event_type, sourceId: row.source_id, code: row.event_type, createdAt: row.created_at, readAt: row.read_at, chatId: open ? n!.chat_id : null, link: open ? 'chat' : null, outcome: null }
+    }
+    // a person's message in a chat shared with people (what a push opens): the chat and the message while I still see it
+    if (row.event_type === 'chat.message') {
+      const l = chatMessageLink(this.ctx, row.id)
+      return { id: row.id, eventType: row.event_type, sourceId: row.source_id, code: row.event_type, createdAt: row.created_at, readAt: row.read_at, chatId: l?.chatId ?? null, link: l ? 'chat' : null, outcome: null, ...(l ? { chatMessage: { messageId: l.messageId } } : {}) }
     }
     // the handover's: what each row offers is read now (admin/handover-notices.ts)
     if (isHandoverEvent(row.event_type)) return handoverNoticeOut(this.ctx, row)

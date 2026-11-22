@@ -311,6 +311,20 @@ export const SPECS: Record<string, Spec> = {
       if (r.status < 300) throw new Error(`${who} left alice's own chat`)
       if (who !== 'memberIn' && who !== 'anon' && who !== 'pwchange' && r.status !== 404) throw new Error(`${who} learned more than "not found" about alice's chat: ${r.status}`)
     } },
+  // "Mute this chat" (chat/message-notices.ts): only a chat shared with people that I see; alice's own chat is not one
+  // (400 for her), everyone else gets "not found"
+  muteChat: { build: (c, w) => c.post(`/api/chats/${w.ids.chatA}/mute`), scope: 'own-alice-chat',
+    check: (r, _w, who) => {
+      if (r.status < 300) throw new Error(`${who} muted alice's own chat`)
+      if (who === 'memberIn' && r.json?.error?.params?.reason !== 'chat_mute_people_only') throw new Error(`alice was refused for another reason: ${r.text}`)
+      if (who !== 'memberIn' && who !== 'anon' && who !== 'pwchange' && r.status !== 404) throw new Error(`${who} learned more than "not found" about alice's chat: ${r.status}`)
+    } },
+  unmuteChat: { build: (c, w) => c.del(`/api/chats/${w.ids.chatA}/mute`), scope: 'own-alice-chat',
+    check: (r, _w, who) => {
+      if (r.status < 300) throw new Error(`${who} unmuted alice's own chat`)
+      if (who === 'memberIn' && r.json?.error?.params?.reason !== 'chat_mute_people_only') throw new Error(`alice was refused for another reason: ${r.text}`)
+      if (who !== 'memberIn' && who !== 'anon' && who !== 'pwchange' && r.status !== 404) throw new Error(`${who} learned more than "not found" about alice's chat: ${r.status}`)
+    } },
   // the delete-account dialog's count: the owner and admins only, a number and nothing else
   userSharedChats: { build: (c) => c.get('/api/admin/users/alice/shared-chats'), scope: 'byLevel',
     check: (r) => { if (r.status < 300 && (typeof r.json?.sharedChats !== 'number' || Object.keys(r.json).length !== 1)) throw new Error(`more than a count: ${r.text}`) } },

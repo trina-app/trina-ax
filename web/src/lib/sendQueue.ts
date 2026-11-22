@@ -26,6 +26,8 @@ export interface QueuedMessage {
   /** what goes on top of the text when it is sent, kept as it was when it was queued (a room's side chat: the thread line
    * or the quoted message the box showed then); not part of what is edited */
   lead?: string
+  /** a chat shared with people: the people picked with "@" (their ids), sent with it (the server keeps who may see it) */
+  mentions?: string[]
 }
 /** stopped: the person stopped the answer; error: the answer or a send failed; away: the answer ended while this
  * page was not open (or something else happened in the chat since). Each waits for "Send now". */
