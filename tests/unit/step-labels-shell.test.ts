@@ -251,6 +251,7 @@ describe('step lines in plain words (batch 5)', () => {
     expect(pageKeyWords('oct-sales-dashboard')).toBe('')
     expect(pageKeyWords('sales_top3')).toBe('')
     expect(pageKeyWords('송년회 안내')).toBe('송년회 안내')
+    expect(pageKeyWords('event')).toBe('event')
     expect(stepLabel('artifact', { action: 'read', key: 'year-end-party' }, 'ko', none)).toBe('화면 보기')
     expect(stepLabel('artifact', { action: 'update', key: 'year-end-party', title: '송년회 안내' }, 'ko', none)).toBe('화면 고치기 · 송년회 안내')
     expect(stepLabel('artifact', { action: 'restore', key: 'sales-top3', version: 2 }, 'en', none)).toBe('Restore a page · v2')

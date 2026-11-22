@@ -4636,12 +4636,16 @@ export class TurnExec {
 
   /** An artifact call that names its page by key only ("read", "update", "restore"): with the title of the newest
    * version of that page in this chat, so its step says the page's name, never its key (QA TC-b3s-8, TC-b4s
-   * "화면 보기 · year-end-party"). Anything else as it is. */
+   * "화면 보기 · year-end-party"), as this person may see it: the newest version not hidden from them. Anything else as
+   * it is. */
   private artifactTitled(input: unknown): unknown {
     const a = input && typeof input === 'object' ? input as { key?: unknown; title?: unknown } : null
     if (!a || (typeof a.title === 'string' && a.title.trim()) || typeof a.key !== 'string' || !a.key) return input
     try {
-      const r = this.rt.db.query('SELECT title FROM artifacts WHERE chat_id = ? AND key = ? AND title IS NOT NULL ORDER BY version DESC LIMIT 1').get(this.spec.chatId, a.key) as { title: string } | null
+      // (never from a version hidden from this person: an answer of a shared chat they may not see, Artifacts.hiddenVersions)
+      const hidden = componentC(this.rt.ctx).artifacts.hiddenVersions(this.spec.userId, this.spec.chatId)
+      const rows = this.rt.db.query('SELECT id, title FROM artifacts WHERE chat_id = ? AND key = ? ORDER BY version DESC').all(this.spec.chatId, a.key) as { id: string; title: string | null }[]
+      const r = rows.find((x) => !hidden.has(x.id) && !!x.title?.trim())
       return r?.title?.trim() ? { ...a, title: r.title } : input
     } catch { return input }
   }

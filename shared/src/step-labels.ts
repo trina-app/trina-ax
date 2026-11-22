@@ -374,11 +374,12 @@ export function searchPatternWords(pattern: unknown): string {
   return s
 }
 
-/** A page's key as a step may show it: a key in people's words ("송년회 안내") as it is; a developer's slug
+/** A page's key as a step may show it: a key in people's words ("송년회 안내", "event") as it is; a developer's slug
  * ("year-end-party", "sales_top3", "oct-sales-dashboard") is no word for a person, so nothing (the verb alone). */
 export function pageKeyWords(key: unknown): string {
   const k = typeof key === 'string' ? key.trim() : ''
-  return !k || /^[a-z0-9]+(?:[-_.][a-z0-9]+)*$/i.test(k) ? '' : k
+  // (words joined by - _ or .: one plain word, "event", reads as itself)
+  return !k || /^[a-z0-9]+(?:[-_.][a-z0-9]+)+$/i.test(k) ? '' : k
 }
 
 /** Short human label of a tool step ('Search "invoice" · finance/'). Never the raw input. */
