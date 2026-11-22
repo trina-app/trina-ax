@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-22 08:17
 - Branch: `feat/page-versions-render-check` (off `batch/20261122-i` cc98820f1)
-- Status: in progress
+- Status: done
 - Where: server (tools/artifact.ts, tools/index.ts, a new tools/artifact-check.ts, chat/turn.ts, chat/prompt.ts,
   routes, migration), shared (ArtifactInput, ArtifactSummary, step labels), web (ArtifactPanel). Why: scenario QA
   S-033 and S-102 (cases-v2.md).
@@ -44,7 +44,7 @@ In:
    - `type` becomes optional in the schema; create and rewrite still need it (ToolError).
    - Hidden versions (chat/shared-answers.ts via `hiddenVersions`) stay hidden: read and restore of a version hidden
      from the runner answer "no such version", like update does today.
-2. **Who asked** (migration `439_b_artifact_versions.sql`): `artifacts.asked_by TEXT` (the person: the turn's user for
+2. **Who asked** (migration `440_b_artifact_versions.sql`): `artifacts.asked_by TEXT` (the person: the turn's user for
    an AI version, the person for a restore in the panel) and `restored_from INTEGER`. Older rows fall back to the turn of
    their message. `ArtifactSummary` gains optional `byName`, `ai` (true: the AI made it at that person's request) and
    `restoredFrom` (older clients ignore them).
@@ -108,7 +108,7 @@ version, nothing is deleted, restore brings one back as the newest).
 
 ## Risks
 
-- Migration 439 (dev's highest is 435, batch/20261122-i has 436-438): checked again before the PR.
+- Migration 440 (dev's highest is 435, batch/20261122-i has 436-438, open PR #375 takes 439).
 - Security: the check runs AI-written JavaScript in the same locked-down browser as page-render (no network, isolation,
   limits, killed after). It serves only files the person may read and, in a shared chat, no team scripts (as the
   preview). Restore follows the same visibility as GET; hidden versions stay hidden for read, restore, list and events.
@@ -124,4 +124,22 @@ version, nothing is deleted, restore brings one back as the newest).
 
 ## Result
 
-(filled in at the end)
+Built as planned, with what the plan review added:
+- `hiddenVersions` takes a panel restore's person (`asked_by`) as its runner, so a restore is never hidden from the
+  person who made it.
+- The check serves exactly what the panel's preview gives a page: team pictures (in a shared chat only a grey
+  placeholder, so a page's script cannot copy another person's picture into an error the AI repeats), team scripts
+  outside shared chats, this server's /vendor/ libraries; a team stylesheet or font, a web address or a data request is
+  reported as a problem ("does not load in the preview"), as the preview's CSP blocks them.
+- The person's restore route checks "may continue the chat" (chat/shared.ts chatFor: not in the trash, not read-only
+  under safe operations) and allows 30 restores per person per minute; a security matrix case and docs/features.ts
+  entry were added.
+- A read gives at most 60,000 characters (a small API model's window); update and rewrite show as "Edit a page".
+- Kept as is: a sub-agent may call read and restore (a restore deletes nothing); other people see the AI's new version
+  when its answer ends (message.done), as before.
+- Real check on a private QA copy (Linux container, claude-code engine, non-root with bwrap): S-033 end to end gave one
+  page with v1 (이서연), v2 (박준호: read, then update), v3 (최도윤), and "the version before 준호" was read and
+  described as v1; the panel showed "버전 1 · 이서연님 대신 트리나" with Restore, which made v4. A dashboard asked to
+  start a classic script with `let top = 3;` was saved as v1 with "check errors 1" (Identifier 'top' has already been
+  declared), fixed as v2 ("check ok"), and the answer said why. Each check took about 0.7 s in the container.
+- Not folded: S-102's "기준: 엑셀 ○월 ○일 버전" line; checking React artifacts.

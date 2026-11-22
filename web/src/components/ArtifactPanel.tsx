@@ -1,4 +1,5 @@
-// An artifact next to the chat: live preview in the isolated frame or code, versions (‹ v2 / 3 ›), copy, download,
+// An artifact next to the chat: live preview in the isolated frame or code, versions (‹ v2 / 3 ›, with who asked for
+// the one shown and [Restore this version] on an earlier one: POST /api/artifacts/:id/restore), copy, download,
 // "save to the team folder", and when it fails at runtime or cannot be built (unsupported import, compile error)
 // "ask the AI to fix it". While the AI is still writing it,
 // the code shows as it arrives. Ported from Saram / chat-proto ArtifactPanel.
@@ -7,13 +8,15 @@
 // "intro-deck", "D2") pages through its slides in the frame; its header offers one [받기 ▾] (PowerPoint, and PDF where
 // the server can make it) and no "save to the team folder": the deck never becomes team material by accident.
 import clsx from 'clsx'
-import { AlertTriangle, ChevronDown, ChevronLeft, ChevronRight, Download, FileText, FolderInput, Loader2, Presentation, Shapes, X } from 'lucide-react'
+import { AlertTriangle, ChevronDown, ChevronLeft, ChevronRight, Download, FileText, FolderInput, History, Loader2, Presentation, RotateCcw, Shapes, X } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react'
-import { DECK_ARTIFACT_KEY, PROMO_ARTIFACT_KEY, type ArtifactType, type IntroDeckInfo, type PromoVideoInfo } from '@mycel/shared/api'
+import { DECK_ARTIFACT_KEY, PROMO_ARTIFACT_KEY, type ArtifactSummary, type ArtifactType, type IntroDeckInfo, type PromoVideoInfo } from '@mycel/shared/api'
 import { api, API, errorText, saveBlob, startDownload } from '../lib/api'
 import { artifactFailure, artifactFileName, buildArtifactDocument, fixPromptError, fixPromptWords, FRAME_TYPES, staticSource, sucraseCompile, type CompileFn, type FrameDoc } from '../lib/artifacts'
 import { useFrameScripts, useSharedChat } from '../lib/confidential'
 import { joinPath } from '../lib/paths'
+import { versionBy } from '../lib/chatFileVersions'
+import { formatRelative } from '../lib/format'
 import { useArtifactContent, useChatArtifacts } from '../lib/useArtifacts'
 import { useLocale, useT } from '../i18n'
 import { useChats } from '../store/chats'
@@ -49,6 +52,7 @@ export default function ArtifactPanel({ chatId, artifactKey, versionId, onClose 
   const [runtimeError, setRuntimeError] = useState<string | null>(null)
   const [asked, setAsked] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
+  const [restoring, setRestoring] = useState<string | null>(null)
   const [pickFolder, setPickFolder] = useState(false)
   // a confidential chat outside the desktop app: shown without scripts (lib/artifacts.ts frameRunsScripts)
   const scripts = useFrameScripts(chatId)
@@ -115,6 +119,21 @@ export default function ArtifactPanel({ chatId, artifactKey, versionId, onClose 
       toast({ level: 'error', text: errorText(e, locale, t('error.network')) })
     } finally {
       setSaving(false)
+    }
+  }
+
+  // an earlier version back as the newest (nothing is deleted); the panel then follows the newest, which the server's
+  // artifact.updated brings
+  const restore = async (v: ArtifactSummary) => {
+    setRestoring(v.id)
+    try {
+      await api.call(API.restoreArtifact, { params: { id: v.id } })
+      setPicked(null)
+      toast({ level: 'success', text: t('chatFile.restored', { n: v.version }) })
+    } catch (e) {
+      toast({ level: 'error', text: errorText(e, locale, t('error.network')) })
+    } finally {
+      setRestoring(null)
     }
   }
 
@@ -212,6 +231,9 @@ export default function ArtifactPanel({ chatId, artifactKey, versionId, onClose 
           </IconButton>
         </div>
       </header>
+      {versions.length > 1 && summary && !writing && !ours && (
+        <VersionStrip version={summary} newest={index === versions.length - 1} restoring={restoring === summary.id} onRestore={() => void restore(summary)} onNewest={() => setPicked(null)} />
+      )}
       {type && type !== 'code' && !writing && !ours && (
         <div className="flex gap-1 border-b border-line px-3 py-1.5" role="tablist" aria-label={t('artifact.view')}>
           {(['preview', 'code'] as const).map((x) => (
@@ -268,6 +290,29 @@ export default function ArtifactPanel({ chatId, artifactKey, versionId, onClose 
       </div>
       <FolderPicker open={pickFolder} title={t(isGuestMe(me) ? 'artifact.saveToYours' : 'artifact.saveToTeam')} confirmLabel={t('artifact.saveHere')} onPick={saveTo} onClose={() => setPickFolder(false)} />
     </aside>
+  )
+}
+
+/** Which version is shown and who asked for it ("Version 2 · Trina for Junho · 3 minutes ago"); on an earlier one,
+ * [Restore this version] and [Back to newest] (the chat files' words, components/FilePanel.tsx). */
+export function VersionStrip({ version, newest, restoring, onRestore, onNewest }: { version: ArtifactSummary; newest: boolean; restoring: boolean; onRestore: () => void; onNewest: () => void }) {
+  const t = useT()
+  const locale = useLocale()
+  const when = formatRelative(version.createdAt, locale)
+  const line = version.byName ? t('chatFile.viewing', { n: version.version, by: versionBy(t, { byName: version.byName, ...(version.ai ? { ai: true as const } : {}) }), when }) : `${t('chatFile.versionN', { n: version.version })} · ${when}`
+  return (
+    <div className={clsx('flex flex-wrap items-center gap-2 border-b border-line px-3 py-1.5 text-xs', !newest && 'bg-accent-soft/40')} data-testid="artifact-version-strip">
+      <History size={14} className="shrink-0 text-faint" aria-hidden />
+      <span className={clsx('min-w-0 flex-1 break-words', newest ? 'text-muted' : 'text-ink')} data-testid="artifact-version-by">{line}</span>
+      {!newest && (
+        <>
+          <Button size="sm" variant="primary" busy={restoring} onClick={onRestore} data-testid="artifact-version-restore">
+            <RotateCcw size={13} aria-hidden /> {t('chatFile.restore')}
+          </Button>
+          <Button size="sm" variant="ghost" onClick={onNewest} data-testid="artifact-version-newest">{t('chatFile.backToNewest')}</Button>
+        </>
+      )}
+    </div>
   )
 }
 

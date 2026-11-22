@@ -1238,7 +1238,11 @@ export class TurnExec {
     // a message in another script than the one before it: answer in its language (chat/narration.ts, QA TC-7429)
     // ...or a quote above the person's own words (a ✦ side chat's room message): their words decide (QA TC-f1c-01)
     const switched = languageSwitchNote(userMsg.content, this.previousUserText(userMsg.parent_id)) ?? quoteLanguageNote(userMsg.content)
-    const message = skillNotShared + scheduled + continued + answered + (refs ? `${refs}\n\n` : '') + (hints ? `${hints}\n\n` : '') + (invokedBlock ? `${invokedBlock}\n\n` : '') + (switched ? `${switched}\n\n` : '') + composeMessage(asSent, atts)
+    // the pages of this chat (artifact keys) as this person sees them: a turn that did not make a page changes it by its
+    // key instead of making a second one (scenario QA S-033; tools/artifact.ts pagesBlock)
+    let pages = ''
+    if (toolSet.has('artifact') && !this.restricted) { try { pages = componentC(rt.ctx).artifacts.pagesBlock(spec.userId, spec.chatId) } catch (e) { rt.log.warn('chat pages block failed', { err: e, turn: this.id }) } }
+    const message = skillNotShared + scheduled + continued + answered + (refs ? `${refs}\n\n` : '') + (hints ? `${hints}\n\n` : '') + (invokedBlock ? `${invokedBlock}\n\n` : '') + (switched ? `${switched}\n\n` : '') + (pages ? `${pages}\n\n` : '') + composeMessage(asSent, atts)
     // a resumed Claude session keeps its first system prompt: what changes per turn travels with the message, with the
     // skills added, changed or removed since that session's instructions listed them
     const claudeMessage = (resumed: boolean, sessionId: string) => {
