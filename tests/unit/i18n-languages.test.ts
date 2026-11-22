@@ -140,6 +140,7 @@ const KOREAN_ALLOWED: Record<string, { why: string; also?: RegExp }> = {
   'server/src/auth/messages.ts': { why: 'auth messages (ko next to en/id/ja/es)' },
   'server/src/devenv/messages.ts': { why: 'dev environment refusals in the team settings (ko next to en/id/ja/es)' },
   'server/src/chat/i18n.ts': { why: 'chat texts (ko next to en/id/ja/es)' },
+  'server/src/chat/who-can-open.ts': { why: 'patterns of the AI\'s "only you can open it" sentences left out of an answer\'s room copy, in each language (not screen text)', also: /^\s*\/.*\/i?,$/ },
   'server/src/chat/access-request-text.ts': { why: 'refusals of Ask for access on a chat or project link (ko next to en/id/ja/es)' },
   'server/src/files/share-text.ts': { why: 'refusals of files shared one by one (ko next to en/id/ja/es)' },
   'server/src/rooms/apps/text.ts': { why: 'the cards and lines of apps posting in rooms (ko next to en/id/ja/es)' },
