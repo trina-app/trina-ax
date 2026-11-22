@@ -58,7 +58,7 @@ database and answer through POST /api/turns/:id/answer.
 
 ## Steps
 
-1. Migration 443: `open_questions.call_meta` (JSON: asking turn and message, Always kind, earlier answers of the call).
+1. Migration 444: `open_questions.call_meta` (JSON: asking turn and message, Always kind, earlier answers of the call).
 2. open-questions.ts: save and read the meta; closeChatQuestions keeps unanswered call cards (and answered siblings of
    one); `waitingCardsNote`; `declined`; sameCard tolerates a dropped reason paragraph.
 3. always-allow.ts: AlwaysPlace.offering, so the card being raised carries its kind.
@@ -78,7 +78,7 @@ nothing, a new message keeps the card, the asking turn's context).
 
 ## Risks
 
-- Migration 443: 442 is the highest on #403 and dev's B range is 440; additive (reader 1).
+- Migration 444: 442 is the highest on #403, 443 is taken by open #409; additive (reader 1).
 - Security: the replay reads the asking message only for the call that message asked for, with the person's own press;
   every other check runs as the person is now. A no never runs. The explicit-ask skip can only skip a card for a yes.
 - A card that stays open across new messages may be pressed much later: every check runs again then, and a card that

@@ -5,6 +5,6 @@
 --     message" and "made in this answer" read these, not the button's words of the answer message)
 --   always: the kind of the card's "Always allow" (kept when the person picked it, even if the replay ends before that card)
 --   prior: the answers the call's earlier cards already took (a call with two cards never asks the first one again)
--- 443: 442 (user_allowed_sites, fix/always-allow-holds-everywhere) is the highest on dev and the open branches.
+-- 444: 442 (user_allowed_sites, #403) is the highest on dev and #403; 443 is taken by #409 (message_step_notes).
 -- Additive only (reader 1): an older build ignores the column and replays as before.
 ALTER TABLE open_questions ADD COLUMN call_meta TEXT;

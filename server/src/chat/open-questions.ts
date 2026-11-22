@@ -31,7 +31,7 @@ interface Row { request_id: string; chat_id: string; message_id: string; turn_id
 export interface AskedIn { turnId: string; userMessageId: string; assistantId: string }
 /** one earlier card of the same call and the answer it took (a call with two cards never asks the first again) */
 export interface PriorAnswer { card: TurnRequest; answer: unknown }
-/** what a waiting call keeps besides its tool and arguments (open_questions.call_meta, migration 443) */
+/** what a waiting call keeps besides its tool and arguments (open_questions.call_meta, migration 444) */
 export interface CallMeta {
   asked?: AskedIn
   /** the kind of the card's "Always allow" (chat/always-allow.ts): kept when the person picked it */

@@ -13,7 +13,7 @@ Plan: docs/AGENTS/plan/20261122-1614-late-card-answer-resumes.md.
   words, which names no file: the share was refused and "항상 허용" was never kept. Answering a card at any time must
   run exactly the waiting call with its arguments and apply the choice, Always allow included; never become a
   free-text message that loses the target.
-- **The asking turn:** a waiting call keeps the turn that asked for it (`open_questions.call_meta`, migration 443: its
+- **The asking turn:** a waiting call keeps the turn that asked for it (`open_questions.call_meta`, migration 444: its
   turn, user message and answer; a card re-raised while the call runs again keeps the first). While it runs again
   (`TurnExec.askedIn`, chat/asked-in.ts), the checks of "the asker's own message" (a file or recipient they named or
   attached, a share or post they asked for), "made in this answer" and the answer a post's text came from read the
