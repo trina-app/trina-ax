@@ -4595,6 +4595,7 @@ export const es: Record<MessageKey, string> = {
   "rooms.notConfirmed": "No sabemos si se envió. Reintentar no lo enviará dos veces.",
   "rooms.discard": "Descartar",
   "rooms.openImage": "Abrir {name}",
+  "rooms.playVideo": "Reproducir {name}",
   "rooms.empty": "Todavía no hay mensajes. Envíe el primero.",
   "rooms.emptyReadOnly": "No hay mensajes.",
   "rooms.notFound": "No se encuentra esta conversación",

@@ -4595,6 +4595,7 @@ export const ja: Record<MessageKey, string> = {
   "rooms.notConfirmed": "送信できたか確認できませんでした。再試行しても二重には送られません。",
   "rooms.discard": "破棄",
   "rooms.openImage": "{name}を開く",
+  "rooms.playVideo": "{name}を再生",
   "rooms.empty": "まだメッセージはありません。最初のメッセージを送りましょう。",
   "rooms.emptyReadOnly": "メッセージはありません。",
   "rooms.notFound": "このトークが見つかりません",

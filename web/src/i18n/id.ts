@@ -4639,6 +4639,7 @@ export const id: Record<MessageKey, string> = {
   "rooms.notConfirmed": "Belum pasti terkirim. Mencoba lagi tidak akan mengirimnya dua kali.",
   "rooms.discard": "Buang",
   "rooms.openImage": "Buka {name}",
+  "rooms.playVideo": "Putar {name}",
   "rooms.empty": "Belum ada pesan. Kirim pesan pertama.",
   "rooms.emptyReadOnly": "Tidak ada pesan.",
   "rooms.notFound": "Percakapan ini tidak ditemukan",

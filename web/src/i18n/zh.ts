@@ -4581,6 +4581,7 @@ export const zh: Record<MessageKey, string> = {
   "rooms.notConfirmed": "不确定是否已发送。重试不会重复发送。",
   "rooms.discard": "放弃",
   "rooms.openImage": "打开{name}",
+  "rooms.playVideo": "播放{name}",
   "rooms.empty": "还没有消息。发送第一条吧。",
   "rooms.emptyReadOnly": "没有消息。",
   "rooms.notFound": "找不到此聊天",

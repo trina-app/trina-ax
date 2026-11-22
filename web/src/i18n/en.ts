@@ -4640,6 +4640,7 @@ export const en: Record<MessageKey, string> = {
   "rooms.notConfirmed": "Not sure this was sent. Trying again won't send it twice.",
   "rooms.discard": "Discard",
   "rooms.openImage": "Open {name}",
+  "rooms.playVideo": "Play {name}",
   "rooms.empty": "No messages yet. Send the first one.",
   "rooms.emptyReadOnly": "No messages.",
   "rooms.notFound": "This conversation can't be found",
