@@ -362,7 +362,7 @@ export default function Steps({ steps: all, streaming, failed = false, receipt }
       <button type="button" aria-expanded={open} onClick={() => setOpen((v) => !v)} className="touch-hit flex items-center gap-1 rounded px-1 py-0.5 text-label text-faint select-none hover:bg-hover hover:text-ink">
         {open ? <ChevronDown size={13} aria-hidden /> : <ChevronRight size={13} aria-hidden />}
         {receiptText ? <span data-testid="steps-receipt">{receiptText}</span> : t('steps.summary', { n: top.length })}
-        {showsFailures(steps, failed, marks.gotPast) && <span title={t('steps.someFailed')} className="inline-flex"><CircleAlert size={13} className="text-danger" aria-label={t('steps.someFailed')} data-testid="steps-failed" /></span>}
+        {showsFailures(steps, failed, marks.gotPast) && <Tooltip label={t('steps.someFailed')}><CircleAlert size={13} className="text-danger" aria-label={t('steps.someFailed')} role="img" data-testid="steps-failed" /></Tooltip>}
       </button>
       {open && (
         <ul className="mt-1 space-y-0.5" aria-label={t('steps.label')}>
