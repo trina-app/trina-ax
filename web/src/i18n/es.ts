@@ -5543,7 +5543,6 @@ export const es: Record<MessageKey, string> = {
   "welcome.tools.googleLine": "Una cuenta compartida, o cada persona la suya",
   "welcome.tools.googleTeamOn": "Cuenta compartida {account} · {who}",
   "welcome.tools.teamConnect": "Conectar para el equipo",
-  "welcome.tools.slackLine": "Todo el equipo comparte esta conexión · pregunte a la IA en Slack",
   "welcome.tools.teamLine": "Todo el equipo comparte esta conexión",
   "welcome.tools.mcp": "Otras herramientas",
   "welcome.done.makeCardNews": "Crear tarjetas promocionales",

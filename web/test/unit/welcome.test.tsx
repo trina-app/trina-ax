@@ -1301,7 +1301,7 @@ describe('the later steps and the end', () => {
     useWelcome.getState().reset()
   })
 
-  test('팀이 쓸 도구 (docs/decisions/20261120-team-vs-personal-onboarding.md): one list: Notion as a team connection ("팀 전체가 이 연결을 같이 써요" [팀으로 연결]), Drive and Gmail (각자 연결하도록 권하기) where they can be connected, "다른 도구 보기" last; nothing done: 나중에 하기 puts it off → the invite; ← 이전 → 팀 파일', async () => {
+  test('팀이 쓸 도구 (docs/decisions/20261120-team-vs-personal-onboarding.md): one list: Notion and Higgsfield as team connections ("팀 전체가 이 연결을 같이 써요 · …" [팀으로 연결]), never Slack, Drive and Gmail (각자 연결하도록 권하기) where they can be connected, "다른 도구 보기" last; nothing done: 나중에 하기 puts it off → the invite; ← 이전 → 팀 파일', async () => {
     signIn('owner')
     progress = ran({ steps: { profile: 'done', result: null, skills: 'done', files: 'done', tools: null, invite: null } })
     routes['GET /api/integrations/google-drive'] = () => json(200, { configured: false, status: 'disabled', account: null, scopes: [], expiresAt: null, personalAllowed: true, teamShares: [] })
@@ -1317,10 +1317,14 @@ describe('the later steps and the end', () => {
       expect(m.get('welcome-tools').textContent).toContain('팀이 같이 쓸 도구는 여기서 한 번 연결하고, 각자 자기 계정으로 쓸 도구는 연결하도록 권해 두세요. 팀 연결은 관리자 › 연결한 서비스에서, 권하기는 커넥터의 각 도구 페이지에서 바꿀 수 있어요.')
       await m.until(() => called('GET /api/integrations/google-drive').length > 0, 'the Drive read')
       const services = await m.until(() => { const x = m.container.querySelectorAll('[data-testid="welcome-tools-service"]'); return x.length ? x : null }, 'the rows')
-      // Notion for the team only (no Drive on this server; Gmail cannot be connected here; no Slack answer)
-      expect([...services].map((x: any) => `${x.getAttribute('data-id')}:${x.getAttribute('data-kind')}`)).toEqual(['notion:team'])
-      expect(services[0]!.querySelector('[data-testid="welcome-tools-service-line"]')!.textContent).toBe('팀 전체가 이 연결을 같이 써요')
+      // Notion and Higgsfield for the team (no Drive on this server; Gmail cannot be connected here); Slack is not a row
+      // (owner, 11-22: its connection is too complicated for the first steps; Other tools and Admin have it)
+      expect([...services].map((x: any) => `${x.getAttribute('data-id')}:${x.getAttribute('data-kind')}`)).toEqual(['notion:team', 'higgsfield:team'])
+      expect(services[0]!.querySelector('[data-testid="welcome-tools-service-line"]')!.textContent).toBe('팀 전체가 이 연결을 같이 써요 · 페이지와 데이터베이스를 찾고 읽고 고쳐요')
       expect(services[0]!.querySelector('[data-testid="welcome-tools-team-connect"]')!.textContent).toBe('팀으로 연결')
+      expect(services[1]!.querySelector('p')!.textContent).toBe('Higgsfield')
+      expect(services[1]!.querySelector('[data-testid="welcome-tools-service-line"]')!.textContent).toBe('팀 전체가 이 연결을 같이 써요 · AI로 이미지와 영상을 만들어요')
+      expect(services[1]!.querySelector('[data-testid="welcome-tools-team-connect"]')!.getAttribute('aria-label')).toBe('팀으로 연결: Higgsfield')
       expect(m.get('welcome-tools-mcp-add').textContent?.trim()).toBe('다른 도구 보기')
       // nothing done: no primary, 나중에 하기 alone
       expect(m.find('welcome-tools-next')).toBeNull()
@@ -1368,7 +1372,7 @@ describe('the later steps and the end', () => {
     }
     try {
       await m.until(() => row('google-drive') && row('gmail') && row('notion'), 'the rows')
-      expect([...m.container.querySelectorAll('[data-testid="welcome-tools-service"]')].map((x: any) => `${x.getAttribute('data-id')}:${x.getAttribute('data-kind')}`)).toEqual(['notion:team', 'google-drive:google', 'gmail:google'])
+      expect([...m.container.querySelectorAll('[data-testid="welcome-tools-service"]')].map((x: any) => `${x.getAttribute('data-id')}:${x.getAttribute('data-kind')}`)).toEqual(['notion:team', 'higgsfield:team', 'google-drive:google', 'gmail:google'])
       expect(row('google-drive')!.querySelector('[data-testid="welcome-tools-service-line"]')!.textContent).toBe(`각자 자기 계정으로 연결해요 · ${translate('ko', 'gapps.drive.line')}`)
       expect(row('google-drive')!.textContent).toContain('각자 연결하도록 권하기')
       // no team Google account here (the admin Google reads do not answer): no 팀으로 연결 on the Google rows
@@ -1471,10 +1475,12 @@ describe('the later steps and the end', () => {
       expect(row('gmail')!.querySelector('[data-testid="welcome-tools-team-on"]')!.textContent).toContain('연결됨')
       expect(row('gmail')!.querySelector('[data-testid="welcome-tools-team-connect"]')).toBeNull()
       expect(row('gmail')!.querySelector('[data-testid="welcome-tools-recommend"]')).not.toBeNull()
-      // Notion: [팀으로 연결] and the same switch (a person may connect their own Notion too); Slack has no own connection
-      expect(row('notion')!.querySelector('[data-testid="welcome-tools-team-connect"]')).not.toBeNull()
-      expect(row('notion')!.querySelector('[data-testid="welcome-tools-recommend"]')).not.toBeNull()
-      expect([...m.container.querySelectorAll('[data-testid="welcome-tools-service"]')].map((x: any) => x.getAttribute('data-id'))).toEqual(['notion', 'google-drive', 'gmail'])
+      // Notion and Higgsfield: [팀으로 연결] and the same switch (a person may connect their own too); no Slack row
+      for (const id of ['notion', 'higgsfield']) {
+        expect(row(id)!.querySelector('[data-testid="welcome-tools-team-connect"]')).not.toBeNull()
+        expect(row(id)!.querySelector('[data-testid="welcome-tools-recommend"]')).not.toBeNull()
+      }
+      expect([...m.container.querySelectorAll('[data-testid="welcome-tools-service"]')].map((x: any) => x.getAttribute('data-id'))).toEqual(['notion', 'higgsfield', 'google-drive', 'gmail'])
       // Calendar, Docs and Sheets stay out of the step (lean: 다른 도구 보기 and Admin have them)
       expect(row('calendar')).toBeNull()
       // a team account that works counts as done: the primary

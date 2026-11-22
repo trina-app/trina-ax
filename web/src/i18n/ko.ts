@@ -5587,7 +5587,6 @@ export const ko = {
   "welcome.tools.googleLine": "공유 계정 하나, 또는 각자 자기 계정",
   "welcome.tools.googleTeamOn": "공유 계정 {account} · {who}",
   "welcome.tools.teamConnect": "팀으로 연결",
-  "welcome.tools.slackLine": "팀 전체가 이 연결을 같이 써요 · Slack에서 AI에게 물어봐요",
   "welcome.tools.teamLine": "팀 전체가 이 연결을 같이 써요",
   "welcome.tools.mcp": "다른 도구 보기",
   "welcome.done.makeCardNews": "카드뉴스 만들어 보기",
