@@ -398,9 +398,10 @@ describe('a turn with an English line before a tool call', () => {
     const started = await h.api('alice').call(API.sendMessage, { params: { id: chat.id }, body: { content, clientMessageId: 'cm-' + crypto.randomUUID(), attachmentIds: [] } })
     const id = started.assistantMessage.id
     const doneEv = await waitFor(() => published.find((p) => p.ev.type === 'message.done' && p.ev.data.messageId === id), { timeoutMs: 40_000, what: 'message.done' })
-    const deltas = published.filter((p) => p.ev.type === 'message.delta' && p.ev.data.messageId === id).map((p) => p.ev.data as { offset: number; text: string })
+    const deltas = published.filter((p) => p.ev.type === 'message.delta' && p.ev.data.messageId === id).map((p) => p.ev.data as { offset: number; text: string; reset?: boolean })
     let streamed = ''
-    for (const d of deltas) { expect(d.offset).toBe(streamed.length); streamed += d.text }
+    // a reset takes text out from its offset (an interim piece a call ended)
+    for (const d of deltas) { if (d.reset) { streamed = streamed.slice(0, d.offset); continue } expect(d.offset).toBe(streamed.length); streamed += d.text }
     const stored = (h.ctx.db.query('SELECT content FROM messages WHERE id = ?').get(id) as { content: string }).content
     return { streamed, stored, done: doneEv!.ev.data.message.content as string }
   }
@@ -416,7 +417,8 @@ describe('a turn with an English line before a tool call', () => {
     expect(t.streamed).toBe(t.stored)
     expect(t.done).toBe(t.stored)
     expect(t.stored).not.toContain('Let me check')
-    expect(t.stored).toBe('단가표를 확인했어요. \n\nDear Mr. Smith, thank you for your order.')
+    // 2026-11-22 (structural): every piece a call follows is interim; only the text after the last call is the answer
+    expect(t.stored.trim()).toBe('Dear Mr. Smith, thank you for your order.')
   })
 
   test.skipIf(!native)('Korean: a work note in no fixed opening is dropped; one copied into the call is kept (11-17)', async () => {
@@ -429,7 +431,7 @@ describe('a turn with an English line before a tool call', () => {
     ))
     expect(t.streamed).toBe(t.stored)
     expect(t.done).toBe(t.stored)
-    expect(t.stored).toBe('Only one file; read it.\n\n단가표가 없어요.')
+    expect(t.stored.trim()).toBe('단가표가 없어요.')
   })
 
   test.skipIf(!native)('Korean, ending on a tool call: the dropped line does not come back as the whole text', async () => {
@@ -445,7 +447,7 @@ describe('a turn with an English line before a tool call', () => {
       { say: '두 폴더 다 확인했어요.' },
     ))
     expect(t.streamed).toBe(t.stored)
-    expect(t.stored).toBe('두 폴더 다 확인했어요.')
+    expect(t.stored.trim()).toBe('두 폴더 다 확인했어요.')
   })
 
   test.skipIf(!native)('Korean, stopped with a status line held: it is dropped; the stream and the saved answer agree', async () => {
@@ -458,20 +460,44 @@ describe('a turn with an English line before a tool call', () => {
     await h.api('alice').call(API.stop, { params: { id: chat.id } })
     const doneEv = await waitFor(() => published.find((p) => p.ev.type === 'message.done' && p.ev.data.messageId === id), { timeoutMs: 30_000, what: 'message.done' })
     let streamed = ''
-    for (const d of published.filter((p) => p.ev.type === 'message.delta' && p.ev.data.messageId === id).map((p) => p.ev.data)) streamed += d.text
+    for (const d of published.filter((p) => p.ev.type === 'message.delta' && p.ev.data.messageId === id).map((p) => p.ev.data)) streamed = d.reset ? streamed.slice(0, d.offset) : streamed + d.text
     const stored = (h.ctx.db.query('SELECT content FROM messages WHERE id = ?').get(id) as { content: string }).content
     expect(stored).toBe('먼저 볼게요.')
     expect(streamed).toBe(stored)
     expect(doneEv!.ev.data.message.content).toBe(stored)
   })
 
-  test.skipIf(!native)('English: the same line is kept', async () => {
+  test.skipIf(!native)('English: a piece a call follows is interim there too; the final reply is the answer', async () => {
     const t = await turn('en', 'check the price list\n' + fake(
       { say: 'Let me check that the seal printed correctly.' },
       { tool: 'read', args: { file_path: 'shared/missing.txt' } },
       { say: 'Done.' },
     ))
     expect(t.streamed).toBe(t.stored)
-    expect(t.stored).toBe('Let me check that the seal printed correctly.\n\nDone.')
+    expect(t.stored.trim()).toBe('Done.')
+  })
+
+  test.skipIf(!native)('no tool call: the text is the answer, unchanged', async () => {
+    const t = await turn('ko', '안녕\n' + fake({ say: '안녕하세요. 무엇을 도와드릴까요?' }))
+    expect(t.streamed).toBe(t.stored)
+    expect(t.stored).toBe('안녕하세요. 무엇을 도와드릴까요?')
+  })
+
+  test.skipIf(!native)('no text after the last call: the last interim piece is the answer, so it is never blank', async () => {
+    const t = await turn('ko', '파일 확인해줘\n' + fake({ say: '파일을 확인했고 내용은 비어 있어요.' }, { tool: 'read', args: { file_path: 'shared/없는-파일.txt' } }))
+    expect(t.streamed).toBe(t.stored)
+    expect(t.stored.trim()).toBe('파일을 확인했고 내용은 비어 있어요.')
+  })
+
+  test.skipIf(!native)('Korean with English pieces between calls: only the Korean final reply is saved, the pieces are thinking steps', async () => {
+    const t = await turn('ko', '보고서 만들어줘\n' + fake(
+      { say: 'Good result. Saving it.' },
+      { tool: 'read', args: { file_path: 'shared/없는-파일.txt' } },
+      { say: 'The working directory is set.' },
+      { tool: 'read', args: { file_path: 'shared/없는-파일.txt' } },
+      { say: '보고서를 만들었어요.' },
+    ))
+    expect(t.streamed).toBe(t.stored)
+    expect(t.stored.trim()).toBe('보고서를 만들었어요.')
   })
 })

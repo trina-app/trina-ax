@@ -337,6 +337,9 @@ export class NarrationHold {
     return out
   }
 
+  /** Is this whole piece a status line this hold would drop before a call (the turn's interim fallback skips those)? */
+  wouldDrop(piece: string, input?: unknown): boolean { return !!this.script && isStatusLine(piece, this.script, input, this.message) }
+
   /** The end (of the answer, or of an attempt): everything held goes out as it was. */
   flush(): string {
     const out = this.release()
