@@ -68,6 +68,7 @@ import { Tooltip } from '../Tooltip'
 import { useViewerItem, useViewerMeta, ViewerMeta } from '../ImageViewer'
 import { roomFileItem, roomItem, type ViewerItem, type ViewerMetaValue } from '../../lib/imageViewer'
 import { itemImage, itemLink } from '../../lib/fileMenu'
+import { GALLERY_GAP_PX, GALLERY_PX, galleryRows } from '../../lib/imageGallery'
 import { askTrinaInRoom, fileSeed } from '../../lib/sideChatAsk'
 import { useFileMenu } from '../FileMenu'
 import type { SideSeed } from './SideChatPanel'
@@ -132,6 +133,19 @@ function RoomThumb({ f, src }: { f: RoomFile; src: string }) {
       }}
       className={clsx('block max-h-60 max-w-full object-cover', !loaded && 'bg-subtle')}
     />
+  )
+}
+
+/** A gallery tile's thumbnail: it fills the tile (cropped), the soft box only until it loads. Out of the flow, so the
+ * picture's own size never stretches the tile past its ratio. */
+function TileThumb({ src }: { src: string }) {
+  const [loaded, setLoaded] = useState(false)
+  return (
+    <>
+      <img src={src} alt="" loading="lazy" onLoad={() => setLoaded(true)} className={clsx('absolute inset-0 block h-full w-full object-cover', !loaded && 'bg-subtle')} />
+      {/* the picture's hairline over it: a border on the tile would add to its width and not to its height */}
+      <span aria-hidden className="pointer-events-none absolute inset-0 rounded-lg border border-line" />
+    </>
   )
 }
 
@@ -646,17 +660,45 @@ function Quote({ q, onJump }: { q: RoomQuote; onJump?: () => void }) {
 }
 
 function Files({ roomId, files }: { roomId: string; files: RoomFile[] }) {
+  // two or more pictures: an even gallery first, like Slack's (lib/imageGallery.ts), then the other files as chips
+  const pictures = files.filter((f) => !f.state && f.kind === 'image' && f.thumb)
+  const gallery = pictures.length > 1
+  const chips = gallery ? files.filter((f) => !pictures.includes(f)) : files
   return (
-    <div className="mt-1 mb-0.5 flex flex-wrap items-start gap-2">
-      {files.map((f) =>
-        f.state ? (
-          <GoneFile key={f.id} state={f.state} />
-        ) : f.kind === 'image' && f.thumb ? (
-          <RoomPicture key={f.id} roomId={roomId} f={f} siblings={files} />
-        ) : (
-          <FileChip key={f.id} roomId={roomId} f={f} siblings={files} />
-        ),
+    <>
+      {gallery && <PictureGallery roomId={roomId} pictures={pictures} siblings={files} />}
+      {chips.length > 0 && (
+        <div className="mt-1 mb-0.5 flex flex-wrap items-start gap-2">
+          {chips.map((f) =>
+            f.state ? (
+              <GoneFile key={f.id} state={f.state} />
+            ) : f.kind === 'image' && f.thumb ? (
+              <RoomPicture key={f.id} roomId={roomId} f={f} siblings={files} />
+            ) : (
+              <FileChip key={f.id} roomId={roomId} f={f} siblings={files} />
+            ),
+          )}
+        </div>
       )}
+    </>
+  )
+}
+
+/** A message's pictures (two or more) in rows of one height, each cropped to fill its tile, both edges lined up
+ * (lib/imageGallery.ts). As wide as the column up to GALLERY_PX, so a phone scales it down. Each tile is the picture's
+ * own button: the viewer with the whole picture and ← →, its menu, its label. "Only in this conversation" once under it
+ * when every picture is kept in the room (a mix: in each tile's label). */
+function PictureGallery({ roomId, pictures, siblings }: { roomId: string; pictures: RoomFile[]; siblings: readonly RoomFile[] }) {
+  const t = useT()
+  const rows = useMemo(() => galleryRows(pictures), [pictures])
+  return (
+    <div className="mt-1 mb-0.5 flex w-full flex-col" style={{ maxWidth: GALLERY_PX, gap: GALLERY_GAP_PX }} data-testid="room-gallery" data-count={pictures.length}>
+      {rows.map((row, i) => (
+        <div key={i} className="flex items-start" style={{ gap: GALLERY_GAP_PX }} data-testid="room-gallery-row">
+          {row.map(({ file, ratio }) => <RoomPicture key={file.id} roomId={roomId} f={file} siblings={siblings} ratio={ratio} />)}
+        </div>
+      ))}
+      {pictures.every((f) => f.roomOnly) && <span className="text-xs text-faint" aria-hidden data-testid="room-image-room-only">{t('rooms.file.roomOnly')}</span>}
     </div>
   )
 }
@@ -674,21 +716,36 @@ function GoneFile({ state }: { state: 'deleted' | 'unavailable' }) {
   )
 }
 
-/** A photo under a message: its thumbnail opens the image viewer, with the original read through the room. */
-function RoomPicture({ roomId, f, siblings }: { roomId: string; f: RoomFile; siblings: readonly RoomFile[] }) {
+/** A photo under a message: its thumbnail opens the image viewer, with the original read through the room. `ratio`: a
+ * tile of a gallery (PictureGallery), that wide for its height, the thumbnail cropped to fill it. */
+function RoomPicture({ roomId, f, siblings, ratio }: { roomId: string; f: RoomFile; siblings: readonly RoomFile[]; ratio?: number }) {
   const t = useT()
   const make = (meta: ViewerMetaValue) => roomItem(roomId, f, meta)
   const viewer = useViewerItem(make)
   // a picture has no icons of its own: "Save to team folder" is in its menu (right-click, long press)
   const fileMenu = useRoomFileMenu(f, make(useViewerMeta()), useRoomFileSave(roomId, f, siblings))
   const label = f.roomOnly ? `${t('rooms.openImage', { name: f.name })} · ${t('rooms.file.roomOnly')}` : t('rooms.openImage', { name: f.name })
+  const tile = ratio !== undefined
+  const src = roomFileUrl(roomId, f.id, { thumb: '1' })
   const picture = (
     <Tooltip label={label}>
-      <button type="button" ref={viewer.ref} onClick={(e) => !fileMenu.guard(e) && viewer.open()} {...fileMenu.bind} aria-label={label} className="overflow-hidden rounded-lg border border-line" data-testid="room-image" data-file-name={f.name} data-room-only={f.roomOnly ? '' : undefined}>
-        <RoomThumb f={f} src={roomFileUrl(roomId, f.id, { thumb: '1' })} />
+      <button
+        type="button"
+        ref={viewer.ref}
+        onClick={(e) => !fileMenu.guard(e) && viewer.open()}
+        {...fileMenu.bind}
+        aria-label={label}
+        className={clsx('overflow-hidden rounded-lg', tile ? 'relative min-w-0' : 'border border-line')}
+        style={tile ? { aspectRatio: ratio, flexGrow: ratio, flexBasis: 0 } : undefined}
+        data-testid="room-image"
+        data-file-name={f.name}
+        data-room-only={f.roomOnly ? '' : undefined}
+      >
+        {tile ? <TileThumb src={src} /> : <RoomThumb f={f} src={src} />}
       </button>
     </Tooltip>
   )
+  if (tile) return <>{picture}{fileMenu.menu}</>
   return (
     <>
       {/* a picture kept in the room where files otherwise go to a team folder: "Only in this conversation" in its name
