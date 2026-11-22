@@ -187,7 +187,9 @@ function boxShellQueueStep(exec: TurnExec): (run: NonNullable<Step['devEnvRun']>
 
 /** What steerableWriteRefusal weighs (chat/shared-run.ts): the write targets of each tool, and the tools that change in
  * place the files they name (Office edits, Word comments; save_promo_video's save_as) */
-const RUN_WRITES = { writeArgs: { ...WRITE_TARGET_ARGS, edit_hwp: ['output'], save_promo_video: ['save_as'], generate_video: ['save_as'] }, named: namedPaths,
+// (edit_office's replacement pictures are only read: never weighed as places an in-place edit writes to)
+const RUN_WRITES = { writeArgs: { ...WRITE_TARGET_ARGS, edit_hwp: ['output'], save_promo_video: ['save_as'], generate_video: ['save_as'] },
+  named: (tool: string, input: unknown) => namedPaths(tool, input).filter((n) => n.key !== 'replace_picture.image'),
   inPlace: new Set(['edit_office', 'comment_docx', 'edit_hwp', 'edit_files', 'edit_pdf']) } as const
 
 export function buildToolSet(exec: TurnExec): ChatToolSet {
@@ -229,9 +231,6 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
     // docs/decisions/20261118-shared-chat-connections.md)
     // (and a project's shared chat reads its own chat room: projectRoomTools, scoped to that one room)
     if (exec.shared && !SHARED_TOOLS.has(t.name) && !o.connection && !o.projectRoom) return false
-    // edit_office in a shared chat changes only the chat's own files (a new version); a project chat's chat files are
-    // read-only and its team files are not changed from a shared chat, so there it could do nothing
-    if (t.name === 'edit_office' && exec.shared?.kind === 'project') return false
     if (t.name in FILE_TOOLS || tools.has(t.name)) { exec.rt.log.warn('turn tool name taken, skipped', { tool: t.name }); return false }
     tools.set(t.name, t)
     if (t.label) labels.set(t.name, t.label.bind(t))
@@ -442,9 +441,9 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
     // edit_office or edit_pdf on a chat file without output saves a new version of it (P4, QA TC-7044): who may,
     // checked before any card
     const versionAt = name === 'edit_office' || name === 'edit_pdf' ? officeVersionPlace(args, name) : null
-    // a shared chat offers edit_office for its own chat files only (a team Office file is not changed from here yet:
-    // docs/decisions/20261121-ai-edits-chat-files.md)
-    if (name === 'edit_office' && exec.shared && !versionAt) return { ...text(`Not done (${name}): in a shared chat edit_office changes only this chat's own files (file_path chat:files/<file_id>/<name>, without output), as a new version. A team Office file is not changed from here: make a changed copy with make_file, or ask again in a chat only you see.`, true), summary: `${name} -> refused: team file in a shared chat` }
+    // a team Office file in a shared chat is changed like edit_hwp and comment_docx there (S-028,
+    // docs/decisions/20261122-shared-chat-team-office-edit.md): the asker's own access, the read card for the document,
+    // the save card for an output, and confirmSources in the tool for what the chat read
     if (versionAt) {
       const no = chatVersionRefusal(exec, files, versionAt)
       if (no) return { ...text(`Not done (${name}): ${no}`, true), summary: `${name} -> refused: chat file not changed here` }
