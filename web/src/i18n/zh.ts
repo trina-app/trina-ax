@@ -6068,6 +6068,7 @@ export const zh: Record<MessageKey, string> = {
   "rail.showList": "显示列表",
   "rail.searchChats": "搜索聊天",
   "rail.unreadRooms": "{n, plural, one {#个有未读消息的聊天} other {#个有未读消息的聊天}}",
+  "rail.unreadProjects": "{n, plural, one {#个有未读提及或消息的项目} other {#个有未读提及或消息的项目}}",
   "rail.pickConversation": "从列表中选择一个聊天，或点击 + 开始新聊天。",
   "rail.pickConversationOnly": "从列表中选择一个聊天。",
   "trinaList.folders": "文件夹",

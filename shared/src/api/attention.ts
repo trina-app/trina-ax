@@ -105,8 +105,10 @@ type CountedRoom = Parameters<typeof roomWantsMe>[0]
  * the chats is a "?"; `chats` and `chatAsk`: the AI chats' part of it (the mark on 트리나 in the rail and the phone tabs).
  * `unread`: some other room has unread messages n does not count, in a room I did not turn off or hide (roomLightsDot:
  * a plain message in a team room at its default), the app icon's dot while n is 0 (iconBadge). `here`: the chat on
- * screen in a visible window; `cards`: the chats with a card open in this window. */
-export function attentionCount(chats: readonly CountedChat[], rooms: readonly CountedRoom[], o: { here?: string | null; cards?: ReadonlySet<string> } = {}): { n: number; ask: boolean; chats: number; chatAsk: boolean; unread: boolean } {
+ * screen in a visible window; `cards`: the chats with a card open in this window. `mentions`: my unread thread mentions
+ * under the AI chats' answers (each mentioned thread once, the 프로젝트 list's counts), added to n as a room's mention is
+ * (never to `chats`: 트리나's mark is the AI's). */
+export function attentionCount(chats: readonly CountedChat[], rooms: readonly CountedRoom[], o: { here?: string | null; cards?: ReadonlySet<string>; mentions?: number } = {}): { n: number; ask: boolean; chats: number; chatAsk: boolean; unread: boolean } {
   let chatsN = 0, chatAsk = false
   for (const c of chats) {
     const m = markerOf(c, { here: c.id === o.here, card: o.cards?.has(c.id) })
@@ -115,7 +117,7 @@ export function attentionCount(chats: readonly CountedChat[], rooms: readonly Co
     chatsN += m!.count ?? 1
     if (m!.kind === 'ask') chatAsk = true
   }
-  let n = chatsN, unread = false
+  let n = chatsN + Math.max(0, Math.floor(o.mentions ?? 0)), unread = false
   for (const r of rooms) {
     if (roomWantsMe(r)) n += levelOf(r) === 'all' ? Math.max(1, roomCounts(r).number) : 1
     else if (roomLightsDot(r)) unread = true

@@ -6141,6 +6141,7 @@ export const id: Record<MessageKey, string> = {
   "rail.showList": "Tampilkan daftar",
   "rail.searchChats": "Cari percakapan",
   "rail.unreadRooms": "{n} percakapan belum dibaca",
+  "rail.unreadProjects": "{n} proyek dengan sebutan atau pesan belum dibaca",
   "rail.pickConversation": "Pilih percakapan dari daftar, atau mulai yang baru dengan +.",
   "rail.pickConversationOnly": "Pilih percakapan dari daftar.",
   "trinaList.folders": "Folder",

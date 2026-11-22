@@ -49,7 +49,7 @@ import { useLocale, useT } from '../i18n'
 import { chatEnd, chatPlace, keepChatPlace, showThrough, useChats } from '../store/chats'
 import { freshDraft, useWideningDraft } from '../store/wideningDraft'
 import { useSessionMarkers } from '../store/sessionMarkers'
-import { readChatMentions } from '../store/chatMentions'
+import { readChatMentions, useChatMentions } from '../store/chatMentions'
 import { useEngines } from '../store/engines'
 import { canChooseEngine, isAdmin, useMeStrict } from '../store/session'
 import { useRooms } from '../store/rooms'
@@ -141,8 +141,11 @@ function ChatView({ chatId, threadRoot, focus }: { chatId: string; threadRoot: s
     }
   }, [chatId])
   // my unread mentions in this chat's threads (the counts on its row in the 프로젝트 panel and on its project's page) count
-  // as read once it is open, in both places (store/chatMentions.ts)
-  useEffect(() => void readChatMentions(chatId), [chatId])
+  // as read once it is open, in both places and on the rail's and the phone tab's 프로젝트 mark (store/chatMentions.ts);
+  // also when they arrive after it opened (a reload straight into the chat reads them after the page is up, a new one
+  // while it is on screen)
+  const mentionedHere = useChatMentions((s) => s.byChat.has(chatId))
+  useEffect(() => { if (mentionedHere) void readChatMentions(chatId) }, [chatId, mentionedHere])
   const announce = useAnnounce()
   const navigate = useNavigate()
   const backLink = useBackLink()

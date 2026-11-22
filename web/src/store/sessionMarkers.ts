@@ -19,7 +19,8 @@
 //    the Dock or taskbar of a computer, an iPhone's Home Screen): the exact n; at 0 a plain dot while some room I did
 //    not turn off or hide has unread messages n does not count (lib/sessionMarkers.ts iconBadge, as Slack and Discord), else
 //    cleared (the service worker's dot from a push while no window was open turns into it). A normal tab: the browser
-//    ignores it. The phone app has its own (native) badge.
+//    ignores it. The phone app has its own (native) badge. n adds my unread thread mentions (store/chatMentions.ts, read
+//    while the rail or the phone's tab bar is mounted), as the server's push badge does (push-badge.ts).
 import { create } from 'zustand'
 import { useMemo } from 'react'
 import { API, plainLabel, type Chat, type Room, type RoomMessage, type ServerEvent } from '@mycel/shared/api'
@@ -30,6 +31,7 @@ import { mobileApp, setAppBadge } from '../lib/mobile'
 import { slideUrl } from '../lib/deckProgress'
 import { navigateTo } from '../lib/nav'
 import { plainLine, roomNoticeWanted, roomTitle } from '../lib/rooms'
+import { mentionCount, useChatMentions } from './chatMentions'
 import { attentionCount, iconBadge, markerOf, NOTIFY_DELAY_MS, stillWorthTelling, type IconBadge, type MarkerReason } from '../lib/sessionMarkers'
 import { t, type MessageKey } from '../i18n'
 import { useChats, type OpenRequest } from './chats'
@@ -374,7 +376,7 @@ export function startSessionMarkers() {
       // the dot: n 0 and a flag (an older desktop app ignores it and shows nothing, as before)
       if (b !== shown) { shown = b; app.setBadgeCount!(b === 'dot' ? 0 : b, b === 'dot') }
     }
-    offs.push(useChats.subscribe(badge), useRooms.subscribe(badge), useSessionMarkers.subscribe(badge))
+    offs.push(useChats.subscribe(badge), useRooms.subscribe(badge), useSessionMarkers.subscribe(badge), useChatMentions.subscribe(badge))
     badge()
   }
   // an installed web app: the same n (or dot) on its icon, set once when it changes (a burst waits WEB_BADGE_MS), and at
@@ -388,7 +390,7 @@ export function startSessionMarkers() {
       if (b !== shown) { shown = b; setWebBadge(nav, b) }
     }
     const later = () => { if (timer === undefined) timer = setTimeout(apply, WEB_BADGE_MS) }
-    offs.push(useChats.subscribe(later), useRooms.subscribe(later), useSessionMarkers.subscribe(later), () => clearTimeout(timer))
+    offs.push(useChats.subscribe(later), useRooms.subscribe(later), useSessionMarkers.subscribe(later), useChatMentions.subscribe(later), () => clearTimeout(timer))
     apply()
   }
   // the phone app: its bridge may come after this starts (at the page's load end), so the number is kept from the start
@@ -403,7 +405,7 @@ export function startSessionMarkers() {
       if (n !== shown) { shown = n; setAppBadge(n) }
     }
     const later = () => { if (timer === undefined) timer = setTimeout(apply, WEB_BADGE_MS) }
-    offs.push(useChats.subscribe(later), useRooms.subscribe(later), useSessionMarkers.subscribe(later), () => clearTimeout(timer))
+    offs.push(useChats.subscribe(later), useRooms.subscribe(later), useSessionMarkers.subscribe(later), useChatMentions.subscribe(later), () => clearTimeout(timer))
     apply()
   }
 }
@@ -433,7 +435,7 @@ export function stopSessionMarkers() {
 export const currentCount = () => {
   const s = useSessionMarkers.getState()
   const chats = useChats.getState(), rooms = useRooms.getState()
-  return attentionCount(chats.chats, rooms.rooms, { here: s.visible ? s.onScreen : null, cards: cardChats(chats.requests) })
+  return attentionCount(chats.chats, rooms.rooms, { here: s.visible ? s.onScreen : null, cards: cardChats(chats.requests), mentions: mentionCount(useChatMentions.getState().byChat) })
 }
 
 /** n, whether any is a "?", the AI chats' part (tab title, the rail's and the phone tab's mark) and other unread rooms; re-renders when the
@@ -443,7 +445,8 @@ export function useAttention(): ReturnType<typeof attentionCount> {
   const requests = useChats((s) => s.requests)
   const rooms = useRooms((s) => s.rooms)
   const here = useSessionMarkers((s) => (s.visible ? s.onScreen : null))
-  return useMemo(() => attentionCount(chats, rooms, { here, cards: cardChats(requests) }), [chats, rooms, here, requests])
+  const mentions = useChatMentions((s) => mentionCount(s.byChat))
+  return useMemo(() => attentionCount(chats, rooms, { here, cards: cardChats(requests), mentions }), [chats, rooms, here, requests, mentions])
 }
 
 /** The AI chats whose row shows "?" now (a question waits on me, or a run stopped and wants a look), in the chat list's
