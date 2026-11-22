@@ -83,6 +83,11 @@ export const SHARED_TOOLS: ReadonlySet<string> = new Set([
   // videos (tools/higgsfield.ts behind the asker's card; promo-video/: the chat's artifact, its material and pictures
   // weighed by the read card like any named file, namedPaths)
   'generate_video', 'promo_video', 'save_promo_video',
+  // "delete the files you just made" (chat/delete-files.ts, docs/decisions/20261121-ai-scratch-files.md rule 4): only
+  // the AI's own files of this chat, made by this person's answers here, go to the trash (no card); any other path is
+  // refused up front ('shared'), never a card. Not in a confidential or template chat, never a sub-agent's
+  // (QA TC-7332: left out of this list, the AI said it could not delete in a shared project chat)
+  'delete_files',
   // the demo's banner words (tools/demo-banner.ts; offered only on a demo with a banner kit): a local tool like make_file,
   // the banner saved into the project's folder through the write gates (WRITE_TARGET_ARGS, SAVE_CARD_TOOLS). Missing
   // here, a shared project chat never had it: the AI took 13 steps and saved a junk SVG (demo re-test 11-22)

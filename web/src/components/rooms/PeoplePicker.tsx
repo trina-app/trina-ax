@@ -7,16 +7,24 @@
 // bottom sheet on phones (Modal), the action in its footer. Its first row is "Invite a guest" for everyone but a guest:
 // in a group chat's add list for that chat, in "New conversation" it picks the group chat or project first
 // (components/GuestInviteChoice.tsx GuestInviteFlow; docs/DECISIONS.md "Guests from Invite people").
+// Create a channel has one more row under its name for whoever may make team projects: "Make it a project"
+// (docs/decisions/20261121-create-channel-as-project.md). Ticked, the people picked get a new team project at once, made
+// as "New project with" makes one (POST /api/projects scope team with them, then its room opened listed, ?listed=1),
+// never a channel converted afterwards; the name follows the project rules (a reserved name, the "-2" hint when a team
+// project I see has the folder), and guests the project rules (one in another project is greyed out; a private channel
+// takes none).
 import clsx from 'clsx'
 import { Check, Hash, Search } from 'lucide-react'
-import { Fragment, useEffect, useMemo, useState } from 'react'
+import { Fragment, useEffect, useId, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { ROOM_GROUP_MAX, ROOM_NAME_MAX } from '@mycel/shared/api'
 import { api, API, errorText } from '../../lib/api'
 import { useLocale, useT } from '../../i18n'
 import { usePeople, usePeopleList } from '../../store/people'
+import { navigateTo } from '../../lib/nav'
+import { readProjectList, useProjects } from '../../store/projects'
 import { useRooms } from '../../store/rooms'
-import { useMe } from '../../store/session'
+import { mayMakeTeamProject, useMe } from '../../store/session'
 import { toast } from '../../store/ui'
 import { Avatar } from '../Avatar'
 import { ListRow } from '../list/List'
@@ -29,6 +37,7 @@ import { isAdmin } from '../../store/session'
 import { useFreeRoam } from '../../store/demo'
 import { useRoomTitle } from './RoomIcon'
 import { isPrivateChannel, isProjectRoom } from '../../lib/rooms'
+import { projectNameProblem, steppedProjectFolder } from './MakeProjectDialog'
 
 /** `new`: New message (no name: one person opens the DM, two or more the group DM of those people, made or reopened);
  * `channel`: Create a channel (a name is required: a private channel); `invite`: add people to a room
@@ -104,6 +113,25 @@ function PeopleDialog({ onClose, mode }: { onClose: () => void; mode: PickerMode
   // "New conversation" (no room yet): the same row, which picks the group chat or project first (GuestInviteFlow)
   const mayInviteGuestAnywhere = !freeRoam && !inviting && !isGuestMe(me)
   const roomTitle = useRoomTitle()
+  // Create a channel: "Make it a project" (off by default), for whoever may make team projects
+  const mayProject = channel && !freeRoam && mayMakeTeamProject(me)
+  const [asProject, setAsProject] = useState(false)
+  const project = mayProject && asProject
+  // the team projects I see, for the taken-name hint: read afresh each time it is ticked (one made a moment ago counts)
+  useEffect(() => {
+    if (project) void readProjectList().catch(() => {})
+  }, [project])
+  const projectsById = useProjects((s) => s.byId)
+  const projectsListed = useProjects((s) => s.listed)
+  const typedName = name.normalize('NFC').trim()
+  const nameProblem = project && typedName ? projectNameProblem(typedName) : null
+  // (a channel's name is at most ROOM_NAME_MAX, under a project's limit: only a reserved name is refused)
+  const nameError = nameProblem === 'nameReserved' ? t('rooms.makeProject.nameReserved') : undefined
+  const nameNoteId = useId()
+  const steppedFolder = useMemo(
+    () => (project && typedName && !nameProblem ? steppedProjectFolder(typedName, Object.values(projectsById).filter((p) => projectsListed?.has(p.id)).map((p) => p.folderPath)) : null),
+    [project, typedName, nameProblem, projectsById, projectsListed],
+  )
 
   // who may be picked: active people (the directory has no one else), never me, never someone already in the room
   const taken = useMemo(() => new Set([meId, ...(inRoom ?? []).map((m) => m.user.id)]), [meId, inRoom])
@@ -142,16 +170,39 @@ function PeopleDialog({ onClose, mode }: { onClose: () => void; mode: PickerMode
   // a guest starts 1:1 chats only (a group chat would be a second place: the server refuses it)
   const max = inviting ? ROOM_GROUP_MAX - (room?.memberCount ?? 1) : isGuestMe(me) ? 1 : ROOM_GROUP_MAX - 1
   const over = picked.length > max
-  // a new group with a guest in it (ticked first, then someone else): the guest's one place is elsewhere already
-  const groupWithGuest = !inviting && (channel || picked.length >= 2) && picked.some((id) => personIsGuest(people?.find((p) => p.id === id)))
+  // a new group with a guest in it (ticked first, then someone else): the guest's one place is elsewhere already (a
+  // project instead: a guest whose project place is free may be picked; one in another project is greyed out below)
+  const groupWithGuest = !inviting && !project && (channel || picked.length >= 2) && picked.some((id) => personIsGuest(people?.find((p) => p.id === id)))
+  // ticked "Make it a project" with a guest picked who is in another project: not picked any more (the row greys out)
+  useEffect(() => {
+    if (!project || !people) return
+    const away = (id: string) => { const p = people.find((x) => x.id === id); return !!p && !!guestElsewhere(p, { kind: 'project' }) }
+    setPicked((l) => (l.some(away) ? l.filter((id) => !away(id)) : l))
+  }, [project, people])
   const toggle = (id: string) => { setOnePlace(null); setPicked((l) => (l.includes(id) ? l.filter((x) => x !== id) : [...l, id])) }
   const allIn = (ids: string[]) => ids.every((id) => picked.includes(id))
   const toggleGroup = (ids: string[]) => setPicked((l) => (allIn(ids) ? l.filter((x) => !ids.includes(x)) : [...l, ...ids.filter((x) => !l.includes(x))]))
 
+  const blocked = !picked.length || over || groupWithGuest || (channel && !name.trim()) || !!nameError
   const go = async () => {
-    if (busy || !picked.length || over || groupWithGuest || (channel && !name.trim())) return
+    if (busy || blocked) return
     setBusy(true)
     try {
+      if (project) {
+        // as "New project with" makes one: the team project with the people picked, then its room, listed
+        const p = await api.call(API.createProject, { body: { name: typedName, scope: 'team', instructions: '', participants: picked.map((id) => ({ subjectType: 'user' as const, subjectId: id })) } })
+        useProjects.getState().see(p)
+        toast({ level: 'success', text: t('rooms.makeProject.made', { name: p.name }) })
+        onClose()
+        // the project is made: its room opens, or, when that fails, the project page; never a second project
+        try {
+          const room = await useRooms.getState().openProjectRoom(p.id, true)
+          navigateTo(`/rooms/${room.id}`)
+        } catch {
+          navigateTo(`/projects/${p.id}`)
+        }
+        return
+      }
       if (inviting) {
         await useRooms.getState().invite(inviting, picked)
         onClose()
@@ -172,13 +223,13 @@ function PeopleDialog({ onClose, mode }: { onClose: () => void; mode: PickerMode
   if (guestInvite && room) return <GuestInviteDialog place={{ kind: 'room', id: room.id, name: roomTitle(room), privateChannel: isPrivateChannel(room) }} onClose={onClose} onCancel={() => setGuestInvite(false)} />
   if (guestInvite && !inviting) return <GuestInviteFlow onClose={onClose} onCancel={() => setGuestInvite(false)} />
 
-  const action = inviting ? t(room && isPrivateChannel(room) ? 'rooms.info.invitePrivate' : 'rooms.info.addPeople') : channel ? t('rooms.picker.createPrivate') : t('rooms.picker.start')
+  const action = inviting ? t(room && isPrivateChannel(room) ? 'rooms.info.invitePrivate' : 'rooms.info.addPeople') : project ? t('rooms.picker.createProject') : channel ? t('rooms.picker.createPrivate') : t('rooms.picker.start')
   const footer = (
     <>
       <p className={clsx('mr-auto text-sm', over || groupWithGuest ? 'text-danger' : 'text-muted')} role={over || groupWithGuest ? 'alert' : undefined} data-testid="picker-count">
         {over ? t('rooms.picker.tooMany', { max: ROOM_GROUP_MAX }) : groupWithGuest ? t('guest.onePlaceShort') : picked.length > 0 ? t('rooms.picker.selected', { n: picked.length }) : ''}
       </p>
-      <Button variant="primary" disabled={!picked.length || over || groupWithGuest || (channel && !name.trim())} busy={busy} onClick={() => void go()} data-testid="picker-go">
+      <Button variant="primary" disabled={blocked} busy={busy} onClick={() => void go()} data-testid="picker-go">
         {action}
       </Button>
     </>
@@ -191,9 +242,27 @@ function PeopleDialog({ onClose, mode }: { onClose: () => void; mode: PickerMode
       <div className="-mx-5 -mt-5 border-b border-line px-5 py-3 max-sm:-mx-4 max-sm:px-4">
         {/* Create a channel: its name first, labelled and required (a group DM has none: New message), then the people */}
         {channel && (
-          <label className="mb-3 block">
-            <span className="mb-1 block text-sm font-medium text-ink">{t('rooms.info.nameLabelChannel')}</span>
-            <input autoFocus data-autofocus value={name} onChange={(e) => setName(e.target.value)} maxLength={ROOM_NAME_MAX} required aria-required className={inputCls} data-testid="picker-name" />
+          <div className="mb-3">
+            <label className="block">
+              <span className="mb-1 block text-sm font-medium text-ink">{t('rooms.info.nameLabelChannel')}</span>
+              <input autoFocus data-autofocus value={name} onChange={(e) => setName(e.target.value)} maxLength={ROOM_NAME_MAX} required aria-required aria-invalid={nameError ? true : undefined} aria-describedby={nameError || steppedFolder ? nameNoteId : undefined} className={inputCls} data-testid="picker-name" />
+            </label>
+            {nameError ? (
+              <p id={nameNoteId} role="alert" className="mt-1 text-xs text-danger" data-testid="picker-name-error">{nameError}</p>
+            ) : steppedFolder ? (
+              // the folder's name is never broken at its "-2" (a word joiner after each hyphen)
+              <p id={nameNoteId} className="mt-1 text-xs break-keep text-faint" data-testid="picker-name-taken">{t('rooms.makeProject.nameTaken', { name: typedName, folder: steppedFolder.replace(/-/g, '-\u2060') })}</p>
+            ) : null}
+          </div>
+        )}
+        {/* "Make it a project": the people get a shared folder and Trina; off by default */}
+        {mayProject && (
+          <label className="mb-3 flex cursor-pointer items-start gap-2.5 text-sm" data-testid="picker-as-project">
+            <input type="checkbox" className="mt-0.5 size-4 shrink-0" checked={asProject} disabled={busy} onChange={(e) => { setOnePlace(null); setAsProject(e.target.checked) }} data-testid="picker-as-project-tick" />
+            <span className="min-w-0 flex-1 break-keep">
+              <span className="block font-medium text-ink">{t('rooms.picker.asProject')}</span>
+              <span className="block text-muted">{t('rooms.picker.asProjectHint')}</span>
+            </span>
           </label>
         )}
         <label className="relative block">
@@ -248,7 +317,8 @@ function PeopleDialog({ onClose, mode }: { onClose: () => void; mode: PickerMode
                 // group chat and one project at most): greyed out with where they are, no tick; the owner and admins
                 // get "Make team member". A new chat: a guest can be in a 1:1 chat, and in a new group only while they
                 // are in no group chat, so once someone else is picked
-                const away = inviting ? guestElsewhere(p, { kind: 'room', id: inviting }) : picked.length && !picked.includes(p.id) ? guestElsewhere(p, { kind: 'room' }) : null
+                // ("Make it a project" ticked: a guest in another project, picked or not, as a new project's people list)
+                const away = inviting ? guestElsewhere(p, { kind: 'room', id: inviting }) : project ? guestElsewhere(p, { kind: 'project' }) : picked.length && !picked.includes(p.id) ? guestElsewhere(p, { kind: 'room' }) : null
                 if (away)
                   return (
                     <ListRow
