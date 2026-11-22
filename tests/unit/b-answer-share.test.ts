@@ -1329,3 +1329,9 @@ describe('the video: MP4 when ready, else its page said so; content lines about 
     expect(dropWhoCanOpen('저장했어요. 이 파일은 지금 박준호 님만 볼 수 있습니다.')).toBe('저장했어요.')
   })
 })
+
+describe('the name pattern after review', () => {
+  test('"지금 <name> 님만 볼 수 있어요." goes too', () => {
+    expect(dropWhoCanOpen('저장했어요. 지금 박준호 님만 볼 수 있어요.')).toBe('저장했어요.')
+  })
+})

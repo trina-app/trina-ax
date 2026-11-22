@@ -521,6 +521,8 @@ function withVideoFile(ctx: AppContext, userId: string, a: ShareArtifact): Share
   try {
     // started now, when the person first sees the confirm, so the MP4 is usually there by their yes (the queue renders
     // one at a time on the server: review of #363)
+    // (a render that failed is not started again by every look: the page goes, as the confirm then says)
+    if (promoVideoInfo(ctx, userId, a.id).mp4.state === 'failed') return a
     const i = renderPromoVideo(ctx, userId, a.id)
     if (i.mp4.state === 'done') { const f = promoVideoFile(ctx, userId, a.id); return { ...a, name: f.name, video: f.abs } }
     const title = i.title.replace(/[\\/:*?"<>|\u0000-\u001f]+/g, ' ').trim() || 'promo'
@@ -551,6 +553,8 @@ export async function waitForRenders(ctx: AppContext, userId: string, ids: reado
   const until = Date.now() + RENDER_WAIT_MS
   for (const id of ids) {
     try {
+      // (not started yet, a press that posts at once: started here; one that failed is not started again)
+      if (promoVideoInfo(ctx, userId, id).mp4.state === 'none') renderPromoVideo(ctx, userId, id)
       while (promoVideoInfo(ctx, userId, id).mp4.state === 'rendering' && Date.now() < until) await Bun.sleep(renderPollMs)
     } catch { /* not this person's video: nothing to wait for */ }
   }
@@ -647,14 +651,15 @@ export async function shareAnswerToRoom(ctx: AppContext, userId: string, chat: C
   // who asked, never a post (QA TC-v2f-A3: "아직 아무것도 공유되지 않았습니다 … " went to a room of 4 under their name)
   if (answerEndsInFailure(parseSteps(message.steps)) && !madeFiles(ctx.db, message.id)) fail('conflict', tr('answerShareFailed', locale), { params: { reason: 'answer_failed' } })
   // (the share button never carries a paste: that is post_to_room's alone)
-  // the yes: an MP4 still rendering is waited for first, and everything is checked after the wait
-  if (b.confirmKey !== undefined) await waitForAnswerRenders(ctx, userId, message.id)
+  // (the person's own "Always allow" for room posts is final, Rule A: it goes at once as before, below)
+  const alwaysPost = alwaysOn(ctx.db, userId, 'post_files') || alwaysOn(ctx.db, userId, 'post_to_room')
+  // anything but the confirm's first look may post: an MP4 still rendering is waited for first, and everything is
+  // checked after the wait (the confirm's first look starts the render: withVideoFile)
+  if (!(b.preview && !alwaysPost && b.confirmKey === undefined && b.confirm === undefined)) await waitForAnswerRenders(ctx, userId, message.id)
   const p = await prepareShare(ctx, userId, chat.id, { messageId: message.id, content }, { ...b, pasted: undefined }, locale)
   if (p.status === 'sent') return p
   // the app's first press shows one confirm with what goes and who sees it, whatever is at stake (QA TC-v2f-A3, TC-f2-c04:
   // one click posted to a whole room, and a chart asked while an Excel file went without a word)
-  // (the person's own "Always allow" for room posts is final, Rule A: it goes at once as before, below)
-  const alwaysPost = alwaysOn(ctx.db, userId, 'post_files') || alwaysOn(ctx.db, userId, 'post_to_room')
   if (b.preview && !alwaysPost && b.confirmKey === undefined && b.confirm === undefined) return { ...(await confirmOf(p.check, p.shown, p.key)), text: p.body.slice(p.at) } as ShareAnswerToRoomResult
   // the button's first press (no key yet): when what holds it back is only linked files the answer itself made, and
   // with them attached nobody misses anything, they go as copies with no dialog (docs/decisions/
