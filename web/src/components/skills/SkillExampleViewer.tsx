@@ -20,8 +20,9 @@ import { Modal } from '../ui'
  * office skills have one in each app language: docs/decisions/20261122-onboarding-everyday-skills.md). */
 export const EXAMPLE_COMPANY: Record<Locale, string> = { ko: '예시커피', en: 'Example Coffee', ja: '見本コーヒー', zh: '示例咖啡', es: 'Café Ejemplo', id: 'Kopi Contoh' }
 /** The invented company of an example: the server names it when it is another one (the intro deck: 숲틈 / Soopteum, in
- * the picture's language), else the coffee roaster of the skill text's language (예시커피 / Example Coffee / 見本コーヒー …). */
-export const exampleCompany = (e: PackCatalogSkill['example'], locale: Locale) => (e?.kind === 'image' && e.company) || EXAMPLE_COMPANY[locale]
+ * the picture's language), else the coffee roaster of the example's language (its own `locale` when the server picked
+ * the viewer's, else the skill text's: 예시커피 / Example Coffee / 見本コーヒー …). */
+export const exampleCompany = (e: PackCatalogSkill['example'], locale: Locale) => (e?.kind === 'image' && e.company) || EXAMPLE_COMPANY[e?.locale ?? locale]
 
 /** "가상의 회사 '…'로 / '…'으로 만든 예시예요": the Korean particle chosen from the name's last sound (koRo: 으로 after a
  * final consonant other than ㄹ, 로 after a vowel or ㄹ; 숲틈 → 으로, 예시커피 → 로); the other languages read the same either way. */

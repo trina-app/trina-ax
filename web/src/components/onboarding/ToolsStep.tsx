@@ -23,7 +23,7 @@
 import { Check, Plus } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { API, SLACK, type DriveShare, type GoogleAppAdminStatus, type Integration } from '@mycel/shared/api'
+import { API, SLACK, type Integration } from '@mycel/shared/api'
 import { api, errorText } from '../../lib/api'
 import { APP_CONNECTORS, appConnectorLogo, connectorLogo, CONNECTORS, CONNECTORS_HOME, servesAt, type Connector } from '../../lib/connectors'
 import { lineKey, type BuiltInId } from '../../lib/googleApps'
@@ -36,10 +36,7 @@ import { Button, Switch, WaitLine } from '../ui'
 import { SIGN_IN_WAIT_MINUTES } from '../../lib/signInWait'
 import { LogoTile } from '../integrations/ConnectorsView'
 import { reserveSignInWindow, useSignIn } from '../integrations/IntegrationRow'
-import { DriveShareDialog } from '../integrations/DriveShares'
-import { GoogleAppTeamDialog } from '../integrations/GoogleAppTeam'
-import { isEmptyAccess } from '../../lib/integrations'
-import { useAdminGroups, useAdminUsers } from '../../store/adminPeople'
+import { GoogleTeamDialog, useGoogleTeam } from '../integrations/GoogleTeam'
 
 const quietLink = 'font-medium text-ink underline decoration-line-strong underline-offset-4 hover:decoration-ink disabled:opacity-50'
 /** the listed services the step connects for the team, in their order (Notion, Higgsfield; the full list is one click
@@ -252,51 +249,6 @@ function connectedMark(t: ReturnType<typeof useT>) {
       <Check size={14} className="text-ok" aria-hidden /> {t('drive.status.connected')}
     </span>
   )
-}
-
-/** The team's shared Google accounts, as Admin › Connected apps reads them (owners and admins): Google Drive's shares
- * (GET /api/admin/google-drive, then its shares once it is set up) and each Google app's team account
- * (GET /api/admin/google-apps). `of(id)`: null where the team way cannot be offered here (not set up, an older server,
- * a failed read); else the account shown (the first share that works, else the first) and who uses it. */
-function useGoogleTeam() {
-  const t = useT()
-  const [shares, setShares] = useState<DriveShare[] | null>(null)
-  const [apps, setApps] = useState<GoogleAppAdminStatus[]>([])
-  const reload = useCallback(() => {
-    api.call(API.driveAdminStatus).then((d) => d.configured ? api.call(API.listDriveShares).then((r) => setShares(r.items)) : setShares(null))
-      .catch(() => setShares(null))
-    api.call(API.googleAppsAdminStatus).then((r) => setApps(r.apps), () => setApps([]))
-  }, [])
-  useEffect(reload, [reload])
-  const share = shares?.find((x) => x.status === 'connected') ?? shares?.[0] ?? null
-  const app = (id: string) => apps.find((a) => a.id === id)
-  const who = (x: { access: DriveShare['access']; usedBy: number }) => (isEmptyAccess(x.access) ? t('driveShare.nobody') : t('driveShare.usedBy', { count: x.usedBy }))
-  const email = (a: DriveShare['account']) => a.email ?? a.name ?? ''
-  const of = (id: GoogleRowId) => {
-    if (id === 'google-drive') return shares === null ? null : { account: share ? email(share.account) : null, ok: share?.status === 'connected', who: share ? who(share) : '' }
-    const a = app(id)
-    if (!a?.configured || a.team === undefined) return null
-    return { account: a.team ? email(a.team.account) : null, ok: a.team?.status === 'connected', who: a.team ? who(a.team) : '' }
-  }
-  const setApp = (st: GoogleAppAdminStatus) => setApps((xs) => xs.map((a) => (a.id === st.id ? st : a)))
-  return { of, share, app, setApp, reload, anyOn: share?.status === 'connected' || apps.some((a) => a.team?.status === 'connected') }
-}
-
-/** The dialog Admin › Connected apps opens for a shared Google account: Drive's share (sign in, folders, who), or a Google
- * app's team account (Gmail, Calendar, Docs, Sheets: sign in, who); a new sign-in for one that needs it. */
-function GoogleTeamDialog({ app, google, onClose }: { app: GoogleRowId; google: ReturnType<typeof useGoogleTeam>; onClose: () => void }) {
-  const groups = useAdminGroups()
-  const users = useAdminUsers()
-  // what there was when the dialog opened, kept while it is open (as Admin does): a sign-in made here sets the app's
-  // team account at once (onStatus), and the dialog must still treat it as new, so its Cancel or ✕ removes it again
-  const [share] = useState(() => google.share)
-  const [isNew] = useState(() => !google.app(app)?.team)
-  if (app === 'google-drive') {
-    return <DriveShareDialog share={share ?? undefined} reconnect={!!share} groups={groups.data ?? []} users={users.data ?? []} onClose={onClose} onSaved={onClose} />
-  }
-  const st = google.app(app)
-  if (!st) return null
-  return <GoogleAppTeamDialog app={st.id} team={st.team ?? null} step="connect" isNew={isNew} onStatus={google.setApp} onClose={onClose} />
 }
 
 /** "다른 도구 보기": Settings › Connectors, the full list (Settings is a dialog over the step; its close comes back). */

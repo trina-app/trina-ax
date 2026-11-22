@@ -15,9 +15,12 @@
 // (docs/DECISIONS.md "The chat's connect card trusts the app's list"). A
 // service the person already uses is not connected twice: a working one is said, their own that needs a sign-in or a
 // new key gets a card for that same connection (`reconnect`).
+// Google for the team (#253, docs/CONNECTIONS.md): an owner's or admin's Google Drive card, and their card for Gmail,
+// Calendar, Docs or Sheets (google_app; a member gets words for these, connect-google-app.ts), carry `teamOffer`: the web
+// card opens Admin's dialog for the team's shared account. A team connection the person may use is "connected", no card.
 import { z } from 'zod'
 import { addressHasSecret, CATALOG_AUTH, CATALOG_KIND, officialService, posesAsListed, sameListedService, ConnectServiceInput, hasSecret, stepLabel, trustedServiceName, uuidv7, type CatalogService } from '@mycel/shared'
-import { IntegrationInput, type Integration, type IntegrationAccess, type IntegrationPatch, type Locale, type TurnConnectBody, type TurnConnectResult, type TurnRequest } from '@mycel/shared/api'
+import { GoogleAppId, IntegrationInput, type Integration, type IntegrationAccess, type IntegrationPatch, type Locale, type TurnConnectBody, type TurnConnectResult, type TurnRequest } from '@mycel/shared/api'
 import type { AppContext } from '../context'
 import type { AuthInfo } from '../services'
 import type { McpContent } from '../turns'
@@ -32,7 +35,8 @@ import { say } from '../integrations/connections/text'
 import { googleDriveOf } from '../integrations/google-drive/oauth'
 import { googleAppsOf } from '../integrations/google-apps/service'
 import { APP_NAMES } from '../integrations/google-apps/catalog'
-import { googleAppAsked, googleAppWay } from './connect-google-app'
+import { driveAdminStatus } from '../integrations/google-drive/admin-setup'
+import { googleAppAsked, googleAppTeamCard, googleAppWay } from './connect-google-app'
 import { getTemplate, templatesOf } from '../integrations/connections/templates'
 import { DRIVE_TOOL_NAMES } from '../tools/drive'
 import { tr } from './i18n'
@@ -65,7 +69,10 @@ const KEY_MAX = 8000
 /** How a connect_service card ended, from the card's route only (TurnExec.answer refuses anything else). */
 export const ConnectOutcome = z.union([
   z.strictObject({ outcome: z.literal('connected'), integrationId: z.string().min(1) }),
-  z.strictObject({ outcome: z.literal('connected'), drive: z.literal(true) }),
+  // teamOnly: an owner or admin connected it for the team on the card (Connect for the team), and the people it is
+  // for do not include them, so it is not theirs to use
+  z.strictObject({ outcome: z.literal('connected'), drive: z.literal(true), teamOnly: z.literal(true).optional() }),
+  z.strictObject({ outcome: z.literal('connected'), googleApp: GoogleAppId, teamOnly: z.literal(true).optional() }),
   z.strictObject({ outcome: z.literal('skipped') }),
 ])
 export type ConnectOutcome = z.infer<typeof ConnectOutcome>
@@ -112,6 +119,12 @@ function connectedResult(exec: TurnExec, out: { name: string; status: string; to
   exec.patchToolStep(CONNECT_TOOL, (st) => ({ detail: tr('connectConnected', exec.spec.locale), ...(label ? relabel(st.label, label) : {}) }))
   const next = drive ? null : CONNECTED_NEXT[exec.noteConnected(out.name) ?? 'next']
   return { content: json({ connected: true, ...out, ...(next ? { next } : {}) }), summary: `${CONNECT_TOOL} -> connected` }
+}
+/** the card's Connect for the team made a team connection that the person who made it is not among the users of */
+function teamOnlyResult(exec: TurnExec, name: string, L: Locale, label: string): ToolOut {
+  exec.patchToolStep(CONNECT_TOOL, (st) => ({ detail: tr('connectConnected', exec.spec.locale), ...relabel(st.label, label) }))
+  const note = `${name} is connected for the team, but this person is not among the people who may use it, so its tools are not theirs. Say so in one sentence: they can add themselves in ${SCREEN.adminMcp(L)} › ${name} (who may use it), or connect their own in ${SCREEN.connectors(L, name)}.`
+  return { content: json({ connected: true, name, status: 'connected for the team', note }), summary: `${CONNECT_TOOL} -> connected for the team` }
 }
 /** the step's label set to the card's (a label that already starts with it keeps what was added after it) */
 const relabel = (current: string, label: string) => current === label || current.startsWith(`${label} · `) ? {} : { label }
@@ -190,13 +203,17 @@ export async function connectService(exec: TurnExec, args: unknown): Promise<Too
   if (target === 'service' && isSlack(a.data.name, a.data.url)) return early(`No card: Slack is not connected with connect_service. ${slackWay(db, spec.userId)}`, 'slack')
   // Gmail, Google Calendar, Docs and Sheets are built in: their own page, never an address (AI scenario CON-01.calendar)
   const gApp = target === 'service' && !a.data.connection && !a.data.template ? googleAppAsked(a.data.name, a.data.url) : null
+  /** an owner or admin gets a card for it (Connect for the team, or their own on its page); everyone else the words */
+  let gAppCard = false
   if (gApp) {
     let way: ReturnType<typeof googleAppWay>
     try {
       const v = googleAppsOf(rt.ctx).view(viewer.id, gApp)
-      way = googleAppWay({ name: APP_NAMES[gApp], status: v.status, reason: v.reason, serviceDown: v.serviceDown, shared: v.shared ?? null }, isAdmin(viewer.role), L)
+      const app = { name: APP_NAMES[gApp], status: v.status, reason: v.reason, serviceDown: v.serviceDown, shared: v.shared ?? null }
+      way = googleAppWay(app, isAdmin(viewer.role), L)
+      gAppCard = googleAppTeamCard(app, isAdmin(viewer.role))
     } catch { way = { connected: false, text: `${APP_NAMES[gApp]} cannot be connected for this account now.` } }
-    return early(way.text, way.connected ? 'google app connected' : 'google app', !way.connected)
+    if (!gAppCard) return early(way.text, way.connected ? 'google app connected' : 'google app', !way.connected)
   }
   // the person approves what the card shows, and the name and notes reach the AI in later chats: no character they
   // cannot see or that turns the text around (hiddenText)
@@ -219,7 +236,11 @@ export async function connectService(exec: TurnExec, args: unknown): Promise<Too
   /** the AI's address for a listed service, which the card did not use */
   let note: string | undefined
 
-  if (a.data.connection) {
+  if (gApp && gAppCard) {
+    // Gmail, Calendar, Docs or Sheets for an owner or admin (#253): the card offers the team's shared Google account
+    // (the dialog of Admin › Connected apps) and their own on the app's page, as the welcome tools step does
+    card = { kind: 'connect_service', requestId: uuidv7(), target: 'google_app', googleApp: gApp, name: APP_NAMES[gApp], scope: 'personal', teamOffer: true, ...(why ? { why } : {}), expiresAt: expiresAt() }
+  } else if (a.data.connection) {
     // the person's own connection that needs a new sign-in or key: anyone else's is the same as none
     const r = getRow(db, a.data.connection)
     if (!r || r.scope !== 'personal' || r.owner_user_id !== viewer.id) return early('No card: there is no such connection of this person. Use the id listed under "Connected services".', 'no connection')
@@ -244,7 +265,10 @@ export async function connectService(exec: TurnExec, args: unknown): Promise<Too
     try { d = googleDriveOf(rt.ctx).status(spec.userId) } catch { return early('Google Drive cannot be connected for this account now.', 'drive unavailable') }
     if (!d.configured) return early('Google Drive is not set up for this team yet: the team\'s owner or an admin has to set it up first (docs/INTEGRATIONS.md). No card was shown: tell the person in plain words that Drive cannot be connected yet and who can set it up; do not say a card is or will be shown.', 'drive not configured')
     if (d.status === 'connected') return early(`Google Drive is already connected for this person. Its tools (${DRIVE_TOOL_NAMES.join(', ')}) are yours in this chat; if you do not have them now, from the person's next message.`, 'drive connected', false)
-    card = { kind: 'connect_service', requestId: uuidv7(), target, name: 'Google Drive', scope: 'personal', ...(why ? { why } : {}), expiresAt: expiresAt() }
+    // a Drive the team shares with this person counts as connected, as on the My setup card (myTools.ts): nothing to ask
+    if (d.teamShares?.length) return early(`Google Drive is connected for this person through ${d.teamShares.length === 1 ? 'a Drive' : `${d.teamShares.length} Drives`} the team shares with them (${d.teamShares.map((x) => `"${oneLine(x.name)}"`).join(', ')}; only the folders shared there). Its tools (${DRIVE_TOOL_NAMES.join(', ')}) are yours in this chat; if you do not have them now, from the person's next message. Do not ask them to connect it. They can also connect their own Drive in ${SCREEN.connectors(L, 'Google Drive')}.`, 'drive team share', false)
+    // an owner or admin may also share a Drive with the team from the card (the dialog of Admin › Connected apps)
+    card = { kind: 'connect_service', requestId: uuidv7(), target, name: 'Google Drive', scope: 'personal', ...(isAdmin(viewer.role) ? { teamOffer: true } : {}), ...(why ? { why } : {}), expiresAt: expiresAt() }
   } else {
     // a service in the app's list (shared/src/service-catalog.ts), compared by how its name looks ("Nоtion" with a
     // Cyrillic о, "노션"): at its official address, or under its own name at its official host (another path, or no
@@ -360,7 +384,14 @@ export async function connectService(exec: TurnExec, args: unknown): Promise<Too
   // never "skipped" for a connection that then appears
   if (kept.running) await kept.running.catch(() => {})
   const o = ConnectOutcome.safeParse(answer)
-  if (o.success && o.data.outcome === 'connected' && 'drive' in o.data) return connectedResult(exec, { name: 'Google Drive', status: 'connected', tools: [...DRIVE_TOOL_NAMES] }, true, shownLabel)
+  if (o.success && o.data.outcome === 'connected' && 'drive' in o.data) {
+    return o.data.teamOnly ? teamOnlyResult(exec, 'Google Drive', L, shownLabel) : connectedResult(exec, { name: 'Google Drive', status: 'connected', tools: [...DRIVE_TOOL_NAMES] }, true, shownLabel)
+  }
+  if (o.success && o.data.outcome === 'connected' && 'googleApp' in o.data) {
+    const name = APP_NAMES[o.data.googleApp]
+    return o.data.teamOnly ? teamOnlyResult(exec, name, L, shownLabel)
+      : connectedResult(exec, { name, status: 'connected', note: "Its tools are yours in this chat; if you do not have them now, from the person's next message." }, true, shownLabel)
+  }
   // the connection the card made, as it is now (the card's own id, not one the outcome names)
   let made = kept.integrationId ? getRow(db, kept.integrationId) : null
   // changed or removed in Settings › Connectors or Admin while the card was open: not the connection the card showed, so not "connected"
@@ -499,11 +530,31 @@ async function connect(ctx: AppContext, exec: TurnExec, viewer: Viewer, body: Ex
 }
 
 async function done(ctx: AppContext, exec: TurnExec, viewer: Viewer, requestId: string, card: Card, kept: ConnectCard, L: Locale): Promise<TurnConnectResult> {
+  // connected for this person (their own, or a team connection they may use), or, after the card's Connect for the
+  // team (an owner or admin, read again now), a team connection that does not include them
+  const forTeam = !!card.teamOffer && isAdmin(viewer.role)
   if (card.target === 'google_drive') {
-    let connected = false
-    try { connected = googleDriveOf(ctx).status(viewer.id).status === 'connected' } catch {}
-    if (!connected) return { state: 'retry', lastError: tr('connectNotYet', L) }
-    closeConnected(exec, requestId, { outcome: 'connected', drive: true })
+    let mine = false, team = false
+    try {
+      const d = googleDriveOf(ctx).status(viewer.id)
+      mine = d.status === 'connected' || !!d.teamShares?.length
+      team = !mine && forTeam && (driveAdminStatus(ctx).sharesOn ?? 0) > 0
+    } catch {}
+    if (!mine && !team) return { state: 'retry', lastError: tr('connectNotYet', L) }
+    closeConnected(exec, requestId, { outcome: 'connected', drive: true, ...(team ? { teamOnly: true as const } : {}) })
+    return { state: 'connected' }
+  }
+  if (card.target === 'google_app') {
+    const app = card.googleApp
+    let mine = false, team = false
+    try {
+      const g = googleAppsOf(ctx)
+      const v = app ? g.view(viewer.id, app) : null
+      mine = !!v && (v.status === 'connected' || v.shared?.status === 'connected')
+      team = !mine && forTeam && !!app && g.adminStatus(app).team?.status === 'connected'
+    } catch {}
+    if (!app || (!mine && !team)) return { state: 'retry', lastError: tr('connectNotYet', L) }
+    closeConnected(exec, requestId, { outcome: 'connected', googleApp: app, ...(team ? { teamOnly: true as const } : {}) })
     return { state: 'connected' }
   }
   const row = current(ctx, card, kept, L)

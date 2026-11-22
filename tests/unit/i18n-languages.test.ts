@@ -89,7 +89,7 @@ describe('server and relay texts', () => {
     checkTable('export words', Object.fromEntries(Object.keys(MD_WORDS.en).map((k) => [k, Object.fromEntries(Object.entries(MD_WORDS).map(([l, w]) => [l, (w as Record<string, string>)[k]]))])), 2)
   })
   test('relay pages', () => {
-    const kinds: PageKind[] = ['team_offline', 'team_unknown', 'team_suspended', 'team_busy', 'team_timeout', 'team_connection_lost', 'bad_gateway', 'bad_request', 'request_timeout']
+    const kinds: PageKind[] = ['team_offline', 'team_unknown', 'team_suspended', 'team_busy', 'team_no_room', 'team_timeout', 'team_connection_lost', 'bad_gateway', 'bad_request', 'request_timeout']
     for (const k of kinds) for (const l of ['en', 'id', 'ja', 'es', 'zh'] as const) expect({ k, l, korean: HANGUL.test(pageMessage(k, l, 120_000)) }).toEqual({ k, l, korean: false })
   })
   test('language pickers name each language in its own language', () => {

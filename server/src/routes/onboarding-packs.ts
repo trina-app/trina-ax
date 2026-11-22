@@ -13,6 +13,8 @@ import type { AppContext } from '../context'
 import { fail } from '../http/errors'
 import { installSkillPack, onVisualSkillInstall, skillPackCatalog } from '../onboarding/skill-packs'
 import { ensureBrand } from '../onboarding/welcome-result'
+import { inViewerLanguage } from '../onboarding/skill-examples'
+import { teamDefaultLocale } from '../admin/settings'
 import { readWelcome, updateWelcome, welcomeOpened } from '../onboarding/welcome'
 import type { RouteModule } from './module'
 
@@ -40,7 +42,10 @@ export const onboardingPacksRoutes: RouteModule = {
     onVisualSkillInstall(brandBeforeVisual)
     kit.handle(API.listSkillPacks, ({ c, auth }) => {
       try { ctx.files.principal(auth.user.id) } catch { return fail('forbidden') }
-      return skillPackCatalog(ctx, auth.user.id, c.get('locale'))
+      // the examples in the caller's own language when there is one (the text the team gets stays the team's)
+      const viewer = c.get('locale')
+      const catalog = skillPackCatalog(ctx, auth.user.id, viewer)
+      return { ...catalog, skills: inViewerLanguage(catalog.skills, viewer, teamDefaultLocale(ctx.db)) }
     })
     kit.handle(API.installSkillPack, ({ params, body, auth }) => {
       const id = SkillPackId.safeParse(params.id)
