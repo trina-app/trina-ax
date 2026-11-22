@@ -3943,6 +3943,7 @@ export const ja: Record<MessageKey, string> = {
   "skillPack.exampleTitle": "「{title}」の例",
   "skillPack.exampleAlt": "「{title}」の例",
   "skillPack.fictional": "架空の会社「{company}」で作った例です。チームの資料で使うと、結果も自分の会社のものになります。",
+  "skillPack.fictionalEuro": "架空の会社「{company}」で作った例です。チームの資料で使うと、結果も自分の会社のものになります。",
   "skillPack.preparing": "例を準備しています",
   "skillPack.exampleFailed": "例を読み込めませんでした",
   "skillPack.source.team": "{product}チームが作りました",

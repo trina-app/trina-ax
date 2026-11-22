@@ -304,7 +304,7 @@ export function skillPackCatalog(ctx: AppContext, userId: string, locale: Locale
     const path = `skills/${c.pack}/${c.name}/SKILL.md`
     return [{
       pack: c.pack, name: c.name, path, title: parseSkill(text, path)?.title ?? c.name, description: packSummary(c.name, locale),
-      inTeam: inTeam(ctx, path, c.name, teamSkills), visual: c.visual, onboarding: setupMark(c.onboarding, at, team), example: packExample(at, c.name), locale: at, source: c.source(at),
+      inTeam: inTeam(ctx, path, c.name, teamSkills), visual: c.visual, onboarding: setupMark(c.onboarding, at, team), example: packExample(at, c.name, team), locale: at, source: c.source(at),
     }]
   })
   return { skills, profile: !!readCompanyProfile(ctx.files, me) }

@@ -3987,6 +3987,7 @@ export const id: Record<MessageKey, string> = {
   "skillPack.exampleTitle": "Contoh '{title}'",
   "skillPack.exampleAlt": "Contoh '{title}'",
   "skillPack.fictional": "Contoh ini dibuat untuk perusahaan fiktif '{company}'. Dengan materi tim Anda, hasilnya tentang perusahaan Anda.",
+  "skillPack.fictionalEuro": "Contoh ini dibuat untuk perusahaan fiktif '{company}'. Dengan materi tim Anda, hasilnya tentang perusahaan Anda.",
   "skillPack.preparing": "Contohnya sedang disiapkan",
   "skillPack.exampleFailed": "Contoh tidak dapat dimuat",
   "skillPack.source.team": "Dibuat oleh tim {product}",

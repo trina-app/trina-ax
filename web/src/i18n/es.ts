@@ -3943,6 +3943,7 @@ export const es: Record<MessageKey, string> = {
   "skillPack.exampleTitle": "Ejemplo de '{title}'",
   "skillPack.exampleAlt": "Ejemplo de '{title}'",
   "skillPack.fictional": "Hecho para la empresa ficticia '{company}'. Con el material de su equipo, el resultado será de su empresa.",
+  "skillPack.fictionalEuro": "Hecho para la empresa ficticia '{company}'. Con el material de su equipo, el resultado será de su empresa.",
   "skillPack.preparing": "Estamos preparando el ejemplo",
   "skillPack.exampleFailed": "No se pudo cargar el ejemplo",
   "skillPack.source.team": "Hecho por el equipo de {product}",

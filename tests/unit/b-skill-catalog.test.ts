@@ -20,6 +20,7 @@ import { startHarness, type Harness } from '../lib/b-harness'
 import { waitFor } from '../lib/wait'
 import { getSetting, setSetting } from '../../server/src/admin/settings'
 import { ANTHROPIC_SKILLS_COMMIT, CATALOG, exampleBody, KWP_COMMIT, onVisualSkillInstall, PACK_EXAMPLES, packExample, SKILL_PACKS, skillPackCatalog } from '../../server/src/onboarding/skill-packs'
+import { EXAMPLE_LOCALES } from '../../server/src/onboarding/skill-examples'
 import { WELCOME_SETTING } from '../../server/src/onboarding/welcome'
 
 setDefaultTimeout(60_000)
@@ -73,7 +74,11 @@ describe('the catalog (no server)', () => {
 
   test('an example: an image is the web build\'s file, a text loses its front matter; Korean or English (id, ja, es: English); a name without one: none', () => {
     expect(packExample('ko', 'card-news')).toEqual({ kind: 'image', url: '/skill-examples/ko/card-news.webp' })
-    expect(packExample('en', 'intro-deck')).toEqual({ kind: 'image', url: '/skill-examples/en/intro-deck.webp' })
+    expect(packExample('en', 'intro-deck')).toEqual({ kind: 'image', url: '/skill-examples/en/intro-deck.webp', company: 'Soopteum' })
+    expect(packExample('ko', 'intro-deck')).toEqual({ kind: 'image', url: '/skill-examples/ko/intro-deck.webp', company: '숲틈' })
+    // the intro deck's picture is made in every app language: the team's language picks it (English skill text)
+    for (const l of ['ja', 'zh', 'es', 'id'] as const) expect(packExample('en', 'intro-deck', l)).toEqual({ kind: 'image', url: `/skill-examples/${l}/intro-deck.webp`, company: 'Soopteum' })
+    expect(packExample('en', 'card-news', 'ja')).toEqual({ kind: 'image', url: '/skill-examples/en/card-news.webp' })
     for (const l of ['id', 'ja', 'es'] as const) {
       expect(packExample(l, 'promo-video')).toEqual({ kind: 'image', url: '/skill-examples/en/promo-video.webp' })
       expect(packExample(l, 'humanizer')).toEqual(packExample('en', 'humanizer'))
@@ -127,7 +132,18 @@ describe('the catalog (no server)', () => {
       // nothing else in the web build's example folder (a picture no skill names would ship unseen)
       expect(fs.readdirSync(path.join(ROOT, 'web/public/skill-examples', locale)).sort()).toEqual(CATALOG.filter((c) => c.visual).map((c) => `${c.name}.webp`).sort())
     }
-    expect(fs.readdirSync(path.join(ROOT, 'web/public/skill-examples')).sort()).toEqual(['en', 'ko'])
+    // the other app languages hold only the pictures made in every language (EXAMPLE_LOCALES), each within the limits
+    const more = [...new Set(Object.values(EXAMPLE_LOCALES).flat())].filter((l) => l && l !== 'ko' && l !== 'en') as string[]
+    expect(fs.readdirSync(path.join(ROOT, 'web/public/skill-examples')).sort()).toEqual(['en', 'ko', ...more].sort())
+    for (const l of more) {
+      const names = Object.entries(EXAMPLE_LOCALES).filter(([, ls]) => ls!.includes(l as never)).map(([n]) => `${n}.webp`).sort()
+      expect(fs.readdirSync(path.join(ROOT, 'web/public/skill-examples', l)).sort()).toEqual(names)
+      for (const n of names) {
+        const bytes = fs.readFileSync(path.join(ROOT, 'web/public/skill-examples', l, n))
+        expect(bytes.length).toBeLessThanOrEqual(PACK_EXAMPLE_LIMITS.imageBytes)
+        expect(webpWidth(bytes)).toBe(1280)
+      }
+    }
     // the everyday office skills: their own text and example in ja, zh, es and id too, each on a local fictional company;
     // the other skills fall back to English there
     for (const locale of ['ja', 'zh', 'es', 'id'] as const) {
@@ -184,7 +200,7 @@ describe('over the API', () => {
         ['work', 'customer-reply', 'skills/work/customer-reply/SKILL.md', '고객 답장', false, false, 'checked', packExample('ko', 'customer-reply'), 'ko'],
         ['work', 'contract-review', 'skills/work/contract-review/SKILL.md', '계약서 검토', false, false, 'offered', packExample('ko', 'contract-review'), 'ko'],
         ['work', 'humanizer', 'skills/work/humanizer/SKILL.md', '자연스러운 글', false, false, 'checked', packExample('ko', 'humanizer'), 'ko'],
-        ['general', 'intro-deck', 'skills/general/intro-deck/SKILL.md', '회사 소개서', false, true, 'offered', { kind: 'image', url: '/skill-examples/ko/intro-deck.webp' }, 'ko'],
+        ['general', 'intro-deck', 'skills/general/intro-deck/SKILL.md', '회사 소개서', false, true, 'offered', { kind: 'image', url: '/skill-examples/ko/intro-deck.webp', company: '숲틈' }, 'ko'],
         ['general', 'card-news', 'skills/general/card-news/SKILL.md', '카드뉴스', false, true, null, { kind: 'image', url: '/skill-examples/ko/card-news.webp' }, 'ko'],
         ['general', 'promo-video', 'skills/general/promo-video/SKILL.md', '홍보 영상', false, true, null, { kind: 'image', url: '/skill-examples/ko/promo-video.webp' }, 'ko'],
       ])
@@ -210,8 +226,10 @@ describe('over the API', () => {
       expect(c.skills.map((s) => s.locale)).toEqual(['ja', 'ja', 'ja', 'ja', 'en', 'en', 'en', 'en'])
       // natural writing comes in English there: offered, not checked
       expect(c.skills.map((s) => s.onboarding)).toEqual(['checked', 'checked', 'checked', 'offered', 'offered', 'offered', null, null])
-      // the examples in the text's language: Japanese ones on 見本コーヒー, the English ones on "Example Coffee"
-      expect(c.skills.map((s) => (s.example?.kind === 'image' ? s.example.url : s.example?.kind))).toEqual(['text', 'text', 'text', 'text', 'text', '/skill-examples/en/intro-deck.webp', '/skill-examples/en/card-news.webp', '/skill-examples/en/promo-video.webp'])
+      // the examples in the text's language: Japanese ones on 見本コーヒー, the English ones on "Example Coffee"; the intro
+      // deck's picture in the team's own language (Japanese), on Soopteum
+      expect(c.skills.map((s) => (s.example?.kind === 'image' ? s.example.url : s.example?.kind))).toEqual(['text', 'text', 'text', 'text', 'text', '/skill-examples/ja/intro-deck.webp', '/skill-examples/en/card-news.webp', '/skill-examples/en/promo-video.webp'])
+      expect(c.skills[5]!.example).toEqual({ kind: 'image', url: '/skill-examples/ja/intro-deck.webp', company: 'Soopteum' })
       expect(c.skills[0]!.example).toEqual(packExample('ja', 'meeting-notes'))
       expect(c.skills[0]!.example).not.toEqual(packExample('en', 'meeting-notes'))
       // a Japanese team gets the Japanese text, natural writing the English one

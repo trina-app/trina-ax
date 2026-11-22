@@ -3988,6 +3988,7 @@ export const en: Record<MessageKey, string> = {
   "skillPack.exampleTitle": "'{title}' example",
   "skillPack.exampleAlt": "Example of '{title}'",
   "skillPack.fictional": "Made for the fictional company '{company}'. With your team's material, the result is about your company.",
+  "skillPack.fictionalEuro": "Made for the fictional company '{company}'. With your team's material, the result is about your company.",
   "skillPack.preparing": "The example is being made",
   "skillPack.exampleFailed": "The example could not be loaded",
   "skillPack.source.team": "Made by the {product} team",

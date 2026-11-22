@@ -1,0 +1,198 @@
+{
+  "title": "Soopteum 公司介绍",
+  "company": "Soopteum",
+  "website": "https://soopteum.example",
+  "brand": "#1f5c45",
+  "theme": "brand",
+  "pattern": "none",
+  "sections": [
+    "封面",
+    "公司介绍",
+    "痛点",
+    "服务",
+    "数据",
+    "流程",
+    "客户评价",
+    "联系我们"
+  ],
+  "pictures": [
+    {
+      "path": "groups/Soopteum/品牌/图片/desk-plant.jpg",
+      "subject": "a succulent on a wooden office table",
+      "lettering": false,
+      "calm": "left",
+      "tone": "mixed"
+    },
+    {
+      "path": "groups/Soopteum/品牌/图片/meeting-table.jpg",
+      "subject": "potted succulents and pencils on a meeting table",
+      "lettering": false,
+      "calm": "top",
+      "tone": "light"
+    },
+    {
+      "path": "groups/Soopteum/品牌/图片/workspace.jpg",
+      "subject": "a person working at a window seat among plants",
+      "lettering": false,
+      "calm": "top",
+      "tone": "dark"
+    },
+    {
+      "path": "groups/Soopteum/品牌/图片/office.jpg",
+      "subject": "an office desk with a potted tree",
+      "lettering": false,
+      "calm": "right",
+      "tone": "light"
+    }
+  ],
+  "slides": [
+    {
+      "kind": "cover",
+      "headline": "让办公室\n*绿*起来",
+      "sub": "从植物布置到隔周养护，办公室植物订阅服务",
+      "picture": "groups/Soopteum/品牌/图片/desk-plant.jpg"
+    },
+    {
+      "kind": "about",
+      "statement": "Soopteum为办公室挑选、摆放并养护植物，一份订阅全包",
+      "facts": [
+        {
+          "label": "成立",
+          "value": "2019年"
+        },
+        {
+          "label": "所在地",
+          "value": "上海·静安"
+        },
+        {
+          "label": "团队",
+          "value": "18人"
+        },
+        {
+          "label": "服务区域",
+          "value": "上海·苏州"
+        }
+      ]
+    },
+    {
+      "kind": "needs",
+      "title": "办公室植物，摆进来容易，养活难",
+      "figure": {
+        "kind": "grid",
+        "items": [
+          {
+            "icon": "droplet",
+            "head": "没人浇水",
+            "body": "负责人一换，植物就被遗忘"
+          },
+          {
+            "icon": "sprout",
+            "head": "枯萎的盆栽越积越多",
+            "body": "清理也落到行政头上"
+          },
+          {
+            "icon": "search",
+            "head": "不知道选什么植物",
+            "body": "光照和空调决定能否存活"
+          }
+        ]
+      }
+    },
+    {
+      "kind": "offer",
+      "title": "从挑选到养护，全部交给我们",
+      "sub": "签一份合同，植物的事交给Soopteum",
+      "figure": {
+        "kind": "grid",
+        "items": [
+          {
+            "icon": "compass",
+            "head": "空间诊断",
+            "body": "测量光照、温度和动线后定位"
+          },
+          {
+            "icon": "leaf",
+            "head": "植物布置",
+            "body": "花盆和底座一次到位"
+          },
+          {
+            "icon": "calendar-sync",
+            "head": "隔周养护",
+            "body": "浇水、修剪、清洁叶面"
+          },
+          {
+            "icon": "refresh-cw",
+            "head": "更换保障",
+            "body": "枯萎的植物免费更换"
+          }
+        ]
+      }
+    },
+    {
+      "kind": "numbers",
+      "title": "340家办公室选择了Soopteum",
+      "note": "截至2026年10月",
+      "figure": {
+        "kind": "figures",
+        "items": [
+          {
+            "number": "340家",
+            "label": "客户办公室"
+          },
+          {
+            "number": "12,000盆",
+            "label": "养护中的盆栽"
+          },
+          {
+            "number": "96%",
+            "label": "续约率"
+          }
+        ]
+      }
+    },
+    {
+      "kind": "process",
+      "title": "从第一次联系到首次养护只需两周",
+      "figure": {
+        "kind": "flow",
+        "steps": [
+          {
+            "icon": "clipboard-check",
+            "head": "上门诊断",
+            "body": "测量空间并拍照"
+          },
+          {
+            "icon": "palette",
+            "head": "方案报价",
+            "body": "发送方案和报价"
+          },
+          {
+            "icon": "truck",
+            "head": "布置",
+            "body": "一天内完成"
+          },
+          {
+            "icon": "calendar-check",
+            "head": "定期养护",
+            "body": "固定日期上门"
+          }
+        ]
+      }
+    },
+    {
+      "kind": "proof",
+      "quote": {
+        "text": "我们没有专人管植物，但办公室一年四季都是绿的",
+        "who": "王静 · 行政经理"
+      }
+    },
+    {
+      "kind": "contact",
+      "line": "为您的办公室\n推荐合适的植物",
+      "offer": "预约免费上门诊断",
+      "email": "hello@soopteum.example",
+      "phone": "021-6000-0142",
+      "website": "soopteum.example"
+    }
+  ]
+}

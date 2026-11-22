@@ -340,7 +340,7 @@ test('Team skills (owner): a catalog that does not load says so with 다시 시�
   await expect(viewer).toHaveAttribute('data-state', 'shown')
   await expect(viewer.getByTestId('skill-example-image')).toBeVisible()
   await expect(viewer.getByTestId('skill-example-image')).toHaveAttribute('src', '/skill-examples/ko/intro-deck.webp')
-  await expect(viewer.getByTestId('skill-example-fictional')).toHaveText("가상의 회사 '예시커피'로 만든 예시예요. 우리 팀 자료로 쓰면 결과도 우리 회사 것으로 나와요.")
+  await expect(viewer.getByTestId('skill-example-fictional')).toHaveText("가상의 회사 '숲틈'으로 만든 예시예요. 우리 팀 자료로 쓰면 결과도 우리 회사 것으로 나와요.")
   await page.keyboard.press('Escape')
   await packRow(fold, 'card-news').getByTestId('skill-pack-example').click()
   await expect(viewer).toHaveAttribute('data-name', 'card-news')
@@ -400,6 +400,30 @@ test('Team skills, an English team: the English examples (Example Coffee); 자�
   await expect(viewer.getByTestId('skill-example-image')).toHaveAttribute('src', '/skill-examples/en/promo-video.webp')
   await expect(viewer.getByTestId('skill-example-source')).toHaveAttribute('data-kind', 'team')
   await expect(viewer.getByTestId('skill-example-original')).toHaveCount(0)
+  await page.keyboard.press('Escape')
+  // the intro deck: made on its own invented company, Soopteum
+  await packRow(fold, 'intro-deck').getByTestId('skill-pack-example').click()
+  await expect(viewer).toHaveAttribute('data-state', 'shown')
+  await expect(viewer.getByTestId('skill-example-image')).toHaveAttribute('src', '/skill-examples/en/intro-deck.webp')
+  await expect(viewer.getByTestId('skill-example-fictional')).toContainText('Soopteum')
+  expect(realErrors(errors)).toEqual([])
+})
+
+test('Team skills, a team in Japanese, Chinese, Spanish or Indonesian: the intro deck example in the team\'s own language, on Soopteum', async ({ page }) => {
+  const errors = watchConsole(page)
+  for (const team of ['ja', 'zh', 'es', 'id'] as const) {
+    await reset(page, { teamLocale: team })
+    await signIn(page)
+    await page.goto('/skills')
+    await page.getByTestId('skill-catalog-toggle').click()
+    const fold = page.getByTestId('skill-catalog')
+    await packRow(fold, 'intro-deck').getByTestId('skill-pack-example').click()
+    const viewer = page.getByTestId('skill-example')
+    await expect(viewer).toHaveAttribute('data-state', 'shown')
+    await expect(viewer.getByTestId('skill-example-image')).toHaveAttribute('src', `/skill-examples/${team}/intro-deck.webp`)
+    await expect(viewer.getByTestId('skill-example-fictional')).toContainText('Soopteum')
+    await page.keyboard.press('Escape')
+  }
   expect(realErrors(errors)).toEqual([])
 })
 

@@ -3986,6 +3986,7 @@ export const ko = {
   "skillPack.exampleTitle": "'{title}' 예시",
   "skillPack.exampleAlt": "'{title}' 예시 화면",
   "skillPack.fictional": "가상의 회사 '{company}'로 만든 예시예요. 우리 팀 자료로 쓰면 결과도 우리 회사 것으로 나와요.",
+  "skillPack.fictionalEuro": "가상의 회사 '{company}'으로 만든 예시예요. 우리 팀 자료로 쓰면 결과도 우리 회사 것으로 나와요.",
   "skillPack.preparing": "예시를 준비하고 있어요",
   "skillPack.exampleFailed": "예시를 불러오지 못했어요",
   "skillPack.source.team": "{product} 팀이 만들었어요",
