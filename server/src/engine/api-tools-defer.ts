@@ -52,7 +52,7 @@ export function moreToolsNote(deferred: readonly ApiTool[]): string {
   const lines = deferred.map((t) => `- ${t.function.name}: ${firstSentence(oneLine(t.function.description), LINE_MAX)}`)
   return [
     '## More tools',
-    `These tools are not loaded yet. When a request needs one, call ${LOAD_TOOLS} with its name (several at once is fine), then call it. Never say you cannot do something one of them does: load it first. The rules above that name them apply once loaded.`,
+    `These tools are not loaded yet. When a request needs one, call ${LOAD_TOOLS} with its name (several at once is fine), then call it. Never say you cannot do something one of them does: load it first. The rules above that name them apply once loaded. These names are for you: in an answer, say what a tool does, never its name.`,
     ...lines,
   ].join('\n')
 }

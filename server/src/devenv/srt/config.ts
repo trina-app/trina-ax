@@ -464,7 +464,7 @@ export const BOX_FONTS_CONF = `<?xml version="1.0"?>
 <!-- Written by the Trina server for the dev environment's commands (server/src/devenv/srt/config.ts). -->
 <fontconfig>
 ${[['sans-serif', 'Noto Sans CJK KR'], ['sans', 'Noto Sans CJK KR'], ['serif', 'Noto Serif CJK KR'], ['monospace', 'Noto Sans Mono CJK KR']]
-    .map(([g, f]) => `  <alias binding="strong"><family>${g}</family><prefer><family>${f}</family><family>Noto Sans CJK KR</family></prefer></alias>`).join('\n')}
+    .map(([g, f]) => `  <alias binding="strong"><family>${g}</family><prefer><family>${f}</family>${f === 'Noto Sans CJK KR' ? '' : '<family>Noto Sans CJK KR</family>'}</prefer></alias>`).join('\n')}
   <include ignore_missing="yes">/etc/fonts/fonts.conf</include>
 </fontconfig>
 `
