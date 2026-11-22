@@ -135,7 +135,7 @@ describe('room card for a command: what it makes (QA TC-f2-c02)', () => {
     expect(shellOutputs(`plt.savefig(f'{name}.png')`)).toEqual([])
     expect(shellOutputs('cat > make.py <<E\nE\npython3 make.py 2>/dev/null')).toEqual([])
     expect(shellCardWords('python3 a.py -o x.png && ffmpeg -i x.png y.mp4', 'ko')).toBe('파일 x.png, y.mp4 만들기')
-    expect(shellCardWords('ffmpeg -i a.png b.png && ffmpeg -i b.png c.png', 'en')).toBe('Run a command that makes picture files: b.png, c.png')
+    expect(shellCardWords('ffmpeg -i a.png b.png && ffmpeg -i b.png c.png', 'en')).toBe('Make the picture files b.png, c.png')
   })
   test('an install or the network in the same command is said too, never hidden behind the file it makes', () => {
     expect(shellCardWords(`pip install -q matplotlib && python3 -c "import matplotlib; plt.savefig('c.png')"`, 'ko')).toBe('그림 파일 c.png 만들기 (프로그램 설치도 해요)')

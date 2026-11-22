@@ -455,12 +455,16 @@ describe('after a room read: the side chat makes a chart (QA TC-f2-c02)', () => 
     w('groups/marketing/b3s/older.txt', 'old')
     const older = await run('alice', await side(), fake({ tool: 'rename_file', args: { path: 'groups/marketing/b3s/older.txt', new_name: 'older-2.txt' }, sayResult: true }))
     expect(older.cards).toHaveLength(1)
-    for (const name of ['CLAUDE.md', 'run.sh']) {
-      const r = await run('alice', await side(), fake(
-        { tool: 'write', args: { file_path: `groups/marketing/b3s/n-${name}.txt`, content: 'x' }, sayResult: true },
-        { tool: 'rename_file', args: { path: `groups/marketing/b3s/n-${name}.txt`, new_name: name }, sayResult: true }), yes)
-      expect([name, r.cards.length]).toEqual([name, 2])
-    }
+    // a script name: its own card again
+    const sh = await run('alice', await side(), fake(
+      { tool: 'write', args: { file_path: 'groups/marketing/b3s/n-run.txt', content: 'x' }, sayResult: true },
+      { tool: 'rename_file', args: { path: 'groups/marketing/b3s/n-run.txt', new_name: 'run.sh' }, sayResult: true }), yes)
+    expect(sh.cards).toHaveLength(2)
+    // an instruction file: never renamed into place after a room read (refused: its content is not on a card)
+    await run('alice', await side(), fake(
+      { tool: 'write', args: { file_path: 'groups/marketing/b3s/n-claude.txt', content: 'x' }, sayResult: true },
+      { tool: 'rename_file', args: { path: 'groups/marketing/b3s/n-claude.txt', new_name: 'CLAUDE.md' }, sayResult: true }), yes)
+    expect(fs.existsSync(team('groups/marketing/b3s/CLAUDE.md'))).toBe(false)
   })
 
   test('a command in a chat shared with others after a quote still gets the room card, in plain words', async () => {
