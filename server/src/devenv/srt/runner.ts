@@ -1009,7 +1009,10 @@ export function runProblem(ctx: AppContext): string | null {
 /** A foreground command: the call waits for it. The answer is a RunExit (srt/types.ts), which tool.ts reads. */
 export async function runCommand(ctx: AppContext, o: { space: Space; cwd: string; command: string; shown?: string; timeoutMs: number; signal?: AbortSignal; once?: readonly string[]; redact?: (s: string) => string
   /** a copy into the work folder (devenv/work-write.ts): its stage folder, read-only in this run */
-  stage?: string }): Promise<{ ok: true; value: RunExit } | { ok: false; message: string }> {
+  stage?: string
+  /** no network at all for this run, whatever the team and the person allow (devenv/tool.ts: a command that went
+   * without the room card, chat/turn.ts ownBoxRun) */
+  offline?: boolean }): Promise<{ ok: true; value: RunExit } | { ok: false; message: string }> {
   const c = srtConfig()
   const lim = limitsFor(ctx)
   if (!lim.ok) return lim
@@ -1030,7 +1033,7 @@ export async function runCommand(ctx: AppContext, o: { space: Space; cwd: string
     let oom = false
     try {
       const sp = await spawnRun(ctx, c, {
-        runId, space: o.space, cwd: o.cwd, command: o.command, network: lim.l.network, once: o.once ?? [],
+        runId, space: o.space, cwd: o.cwd, command: o.command, network: o.offline ? 'offline' : lim.l.network, once: o.offline ? [] : o.once ?? [],
         limits: lim.l, runtimeMaxSec: Math.ceil(o.timeoutMs / 1000) + 30, stdoutFile: out, stderrFile: err, ...(o.stage ? { stage: o.stage } : {}),
       })
       a.pid = sp.pid

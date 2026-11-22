@@ -3609,14 +3609,18 @@ export class TurnExec {
    * foreground command only (a job or a dev server writes after the call's window). The card stays when the command
    * itself uses the network (shellUsesNetwork) or "Allow all websites" is on for the person, so a room message cannot
    * send the person's files out without a card; and for the rest of the answer once a command's change to what the AI
-   * follows was put back (boxUndone). Fails closed.
+   * follows was put back (boxUndone). The words of a command never show all it reaches (git -C . push, a script written
+   * by one command and run by the next), so such a run also has no network at all (devenv/tool.ts mustUndo): one that
+   * failed asks the card when the AI calls it again (boxOffline), and so does a call that asks for sites. Fails closed.
    */
   private ownBoxRun(input: unknown): boolean {
     try {
       const d = this.devEnv
       if (!d || d.project || d.shared || this.shared || this.restricted || this.boxUndone || isGuestUser(this.rt.db, this.spec.userId)) return false
-      const a = input && typeof input === 'object' ? input as { command?: unknown; job?: unknown; background?: unknown } : null
-      if (!a || typeof a.command !== 'string' || a.job === true || a.background === true) return false
+      const a = input && typeof input === 'object' ? input as { command?: unknown; job?: unknown; background?: unknown; request_sites?: unknown } : null
+      if (!a || typeof a.command !== 'string' || a.job === true || a.background === true || this.boxOffline.has(a.command)) return false
+      // a call that asks for sites wants the network, which a run without the card never has (devenv/tool.ts)
+      if (Array.isArray(a.request_sites) && a.request_sites.length) return false
       if (shellUsesNetwork(a.command) || webAllowAll(this.rt.db, this.spec.userId)) return false
       if (!LIVE_CLIENTS.has(this.spec.clientKind ?? '')) return false
       return !confidentialChat(this.rt.db, this.spec.chatId)
@@ -3627,6 +3631,9 @@ export class TurnExec {
   readonly boxUndo = new Set<string>()
   /** a command that went without the card changed what the AI follows and it was put back: the card for the rest */
   boxUndone = false
+  /** the commands that went without the card (so with no network: devenv/tool.ts) and failed: the card next time, and
+   * then the network the person allows */
+  readonly boxOffline = new Set<string>()
 
   /**
    * copy_files of this chat's own places (chat:work/, chat:files/) after a room read (chat/places-copy.ts roomCard, QA

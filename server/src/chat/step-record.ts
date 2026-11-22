@@ -223,7 +223,8 @@ export const STEP_RECORD_TOTAL = 6_000
  * and called a tool,
  * within STEP_RECORD_TOTAL characters. Own (as chat/history-summary.ts summaryLines): in a chat several people wrote in,
  * only an answer to the asker's own message whose turn was theirs, and never one hidden from them (`withheld`); in a
- * chat of one person, every answer. Another person's steps (their connections, their cards, what their tools returned)
+ * chat of one person, every answer whose turn was theirs (an answer another person regenerated while the chat was
+ * shared stays out after it is private again). Another person's steps (their connections, their cards, what their tools returned)
  * never reach this asker's AI. In a shared chat the notes (arguments, results) of an answer hidden from anyone who sees
  * the chat now, or from before the chat was shared, stay out: its lines say only what everyone there may read.
  */
@@ -238,7 +239,10 @@ export function withStepRecords<T extends RecordItem>(db: Database, items: T[], 
       FROM messages m LEFT JOIN messages p ON p.id = m.parent_id LEFT JOIN turns t ON t.id = m.turn_id WHERE m.id = ?`).get(h.id) as
       { steps: string | null; step_notes: string | null; asked_by: string | null; ran_by: string | null } | null
     if (!row) continue
-    if (o.several && (row.asked_by !== o.asker || (row.ran_by !== null && row.ran_by !== o.asker))) continue
+    // another person's turn (B regenerated an answer on A's message), also in a chat that is no longer shared: their
+    // steps are theirs
+    if (row.ran_by !== null && row.ran_by !== o.asker) continue
+    if (o.several && row.asked_by !== o.asker) continue
     let steps: StoredStep[] = []
     try { const v = JSON.parse(row.steps ?? '[]'); if (Array.isArray(v)) steps = v.filter((s) => s && typeof s === 'object' && typeof s.id === 'string' && typeof s.label === 'string') } catch {}
     if (!steps.length) continue

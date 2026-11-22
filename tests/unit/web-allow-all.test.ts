@@ -436,6 +436,39 @@ describe('the real rule of which turns use it (chat/tools.ts turnPerson allSites
     expect(looked('draft-scope.example')).toBe(0)
   })
 
+  // review of #403: the one limit Rule A keeps (docs/decisions/20261122-always-allow-holds-everywhere.md): with a guest
+  // among the people and another person's words on the run's branch, the switch does not hold in a scheduled run
+  test('a scheduled run in a chat shared with a guest, where another person wrote: the switch does not hold; without the guest it does', async () => {
+    on()
+    const id = (await h.api('alice').call(API.createChat, { body: {} })).id as string
+    const first = await h.api('alice').call(API.sendMessage, { params: { id }, body: { content: fake({ say: 'hi' }), clientMessageId: 'cm-' + crypto.randomUUID(), attachmentIds: [] } })
+    await doneOf(first.turnId)
+    let r = await h.api('alice').call(API.putChatAudience, { params: { id }, body: { subjects: [{ subjectType: 'user', subjectId: 'bob' }] } })
+    if (r.status === 'confirm') r = await h.api('alice').call(API.putChatAudience, { params: { id }, body: { subjects: [{ subjectType: 'user', subjectId: 'bob' }], confirmKey: r.confirmKey } })
+    expect(r.status).toBe('saved')
+    // bob's words on the branch (a message of his, as he would write it)
+    const leaf = h.rt().store.chatRow(id)!.active_leaf_id
+    const bobMsg = uuidv7()
+    db().query("INSERT INTO messages (id, chat_id, parent_id, role, author_id, content, status) VALUES (?, ?, ?, 'user', 'bob', 'look up the price list', 'done')").run(bobMsg, id, leaf)
+    db().query('UPDATE chats SET active_leaf_id = ? WHERE id = ?').run(bobMsg, id)
+    const scheduled = (url: string) => {
+      const row = h.rt().store.chatRow(id)!
+      return h.rt().createTurn({ chat: row, userId: 'alice', locale: 'en', windowId: null, clientKind: 'schedule', engine: row.engine as 'claude-code', model: null,
+        user: { parentId: row.active_leaf_id, content: fake({ tool: 'web_fetch', args: { url } }, { say: 'done' }), attachments: [], clientMessageId: 'cm-' + crypto.randomUUID() } })
+    }
+    db().query("UPDATE users SET guest = 1 WHERE id = 'bob'").run()
+    try {
+      const g = await scheduled('https://kind-guest-run.example/a')
+      await doneOf(g.turnId)
+      expect(summaries(g.turnId)).toContain('does not apply in a run the user does not answer step by step')
+      expect(looked('kind-guest-run.example')).toBe(0)
+    } finally { db().query("UPDATE users SET guest = 0 WHERE id = 'bob'").run() }
+    const t = await scheduled('https://kind-team-run.example/a')
+    await doneOf(t.turnId)
+    expect(summaries(t.turnId)).not.toContain('does not apply in a run the user does not answer step by step')
+    expect(looked('kind-team-run.example')).toBeGreaterThan(0)
+  })
+
   test('web_fetch of a turn by someone who does not own the chat uses that person\'s switch (t.user.id)', async () => {
     const chat = await chatOf('alice')
     const fetchAs = (user: string, url: string, p: TurnPerson) => {

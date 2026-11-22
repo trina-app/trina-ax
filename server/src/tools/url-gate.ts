@@ -195,8 +195,9 @@ export interface TurnPerson {
    * of docs/decisions/20261122-connector-always-allow.md: then a site counts for this chat only). Absent: never */
   sitesForGood?(): boolean
   /** the person's own scheduled run: their "Allow all websites" (①d) holds there too (Rule A, docs/decisions/
-   * 20261122-always-allow-holds-everywhere.md) */
-  scheduledRun?: boolean
+   * 20261122-always-allow-holds-everywhere.md), except while a guest is among the people and another person's words
+   * can steer the run (read at every call) */
+  scheduledRun?(): boolean
 }
 
 /** How a yes / no card of `person` ended (policy/refusal.ts CardOutcome): an unattended run is not asked at all
@@ -492,7 +493,7 @@ function plainAddress(site: string | null, marks: readonly string[], userinfo: b
  * chats and chats that read rooms are included (the owner's call, 2026-11-11). */
 function allSitesChat(db: Database, chatId: string | null, userId: string | null | undefined, person: TurnPerson | null): boolean {
   // (the person's own scheduled run too: Rule A, docs/decisions/20261122-always-allow-holds-everywhere.md; never a draft)
-  if (!chatId || !userId || !person || !(person.scheduledRun || (!person.unattended && person.allSitesHere?.()))) return false
+  if (!chatId || !userId || !person || !(person.scheduledRun?.() || (!person.unattended && person.allSitesHere?.()))) return false
   return !!db.query('SELECT 1 FROM chats WHERE id = ?').get(chatId) && !isConfidentialChat(db, chatId)
 }
 
@@ -873,7 +874,7 @@ export async function gateUrl(db: Database, chatId: string | null, rawUrl: strin
           : 'this address did not appear in the conversation and nobody can confirm it here, so it was not opened')
       // the person's "Allow all websites" does not reach a draft: say so, so nobody expects it to (it holds in their own
       // scheduled run, for a plain address)
-      + (person && !person.scheduledRun && webAllowAll(db, o.userId) ? ' (the user\'s "Allow all websites" setting does not apply in a run the user does not answer step by step, such as a draft)' : ''))
+      + (person && !person.scheduledRun?.() && webAllowAll(db, o.userId) ? ' (the user\'s "Allow all websites" setting does not apply in a run the user does not answer step by step, such as a draft)' : ''))
   }
   const L = person.locale
   // a function, so "$&" or "$`" in an address is shown as written (a string replacement would expand them)

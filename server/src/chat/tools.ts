@@ -70,7 +70,7 @@ import { COPY_FILES_TOOL, stagePlaceInput, withPlaces } from './places-copy'
 import { connectService } from './connect-service'
 import { DRAFT_FILE_REFUSAL, draftToolRefusal, draftUrlRefusal } from '../onboarding/draft'
 import { namedPaths, SEARCH_TOOLS, SHARED_TOOLS, WRITE_TARGET_ARGS } from '../rooms/ai-tools'
-import { steerableWriteRefusal } from './shared-run'
+import { steerableRun, steerableWriteRefusal } from './shared-run'
 import { SKILL_DRAFT_FILE_REFUSAL } from '../onboarding/skill-draft'
 import { projectRoomOfChat, projectRoomTools, roomReadTools } from './room-tools'
 import { hintsHere, roomHint } from './room-hint'
@@ -332,6 +332,7 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
       // the command went without the room card on the promise that its own-folder changes can be undone (chat/turn.ts ownBoxRun)
       mustUndo: (command) => exec.boxUndo.has(command),
       reverted: () => { exec.boxUndone = true },
+      offlineFailed: (command) => { exec.boxOffline.add(command) },
       // the bulk card (devenv/bulk.ts): keep many new files in the project folder? "Always allow" keeps them from then
       // on (kind bulk_files); a scheduled run asks nobody (false unless that choice was made)
       keepBulk: async (ask) => {
@@ -346,11 +347,14 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
       // `always`: the login card's "Always allow" (kind dev_login: Rule A, docs/decisions/
       // 20261122-always-allow-holds-everywhere.md M2), through the same yes / no card as every server card
       alwaysOn: (kind) => alwaysHere(exec.alwaysPlace?.(), kind) === 'on',
-      confirm: async (question, options, details, o) => (o?.always
-        ? (await person.confirm(question, options[0]!.label, options[1]!.label, { always: o.always, details: [{ label: 'Changes', text: details.join('\n') }] })) ? options[0]!.value : null
-        : person.choose
-          ? person.choose(question, options, { details: [{ label: 'Changes', text: details.join('\n') }] })
-          : (await person.confirm(question, options[0]!.label, options[1]!.label, { details: [{ label: 'Changes', text: details.join('\n') }] })) ? options[0]!.value : null),
+      confirm: async (question, options, details, o) => {
+        const shown = [{ label: tr('devLoginChanges', person.locale), text: details.join('\n') }]
+        return o?.always
+          ? (await person.confirm(question, options[0]!.label, options[1]!.label, { always: o.always, details: shown })) ? options[0]!.value : null
+          : person.choose
+            ? person.choose(question, options, { details: shown })
+            : (await person.confirm(question, options[0]!.label, options[1]!.label, { details: shown })) ? options[0]!.value : null
+      },
       // the site card: a server card for the person who owns the turn, in each of her windows (not only the one that
       // sent the turn); a scheduled run gets no card (waitForPerson answers null = not allowed)
       askSite: async (host, command) => {
@@ -1029,8 +1033,9 @@ export function turnPerson(exec: TurnExec): TurnPerson {
     // "이 사이트 항상 허용" for good (tools/url-gate.ts ①b): a turn the person asks from their app or their own scheduled
     // run, not a draft or a Slack question, and no guest in it (then the site counts for this chat only)
     sitesForGood: () => (LIVE_CLIENTS.has(exec.spec.clientKind ?? '') || exec.spec.clientKind === 'schedule') && !exec.restricted && !(typeof exec.guestAmong === 'function' && exec.guestAmong()),
-    // their "Allow all websites" holds in their own scheduled run too (Rule A)
-    scheduledRun: exec.spec.clientKind === 'schedule' && !exec.restricted,
+    // their "Allow all websites" holds in their own scheduled run too (Rule A), except while a guest is among the people
+    // and another person's words can steer the run (the one limit Rule A keeps, as the connector cards: steerableRun)
+    scheduledRun: () => exec.spec.clientKind === 'schedule' && !exec.restricted && !(typeof exec.guestAmong === 'function' && exec.guestAmong() && steerableRun(exec.rt.db, exec.id)),
     ...(exec.profileDraft ? { unattendedLabel: 'company profile draft answer', scope: (url: string) => draftUrlRefusal(exec.profileDraft!.scope, url), ...(exec.profileDraft.pages ? { pages: exec.profileDraft.pages } : {}) } : {}),
   }
 }

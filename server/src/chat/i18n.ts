@@ -606,10 +606,13 @@ export const TEXT = {
     'AI 从{service}获取的内容会显示给这个对话里的{n}人，其中包括{g}位访客（团队以外的人）。'),
   sharedConnectionOnce: t('허용', 'Allow', 'Izinkan', "許可", "Permitir", "允许"),
   /** with a guest in the chat: Always holds for this chat only */
+  // the dev environment's login card (devenv/tool.ts: a command that can use a login after teammates changed files):
+  // the label of its list of those changes (chat/tools.ts boxShellTool confirm)
+  devLoginChanges: t('바뀐 파일', 'Changes', 'Perubahan', "変更されたファイル", "Cambios", "更改的文件"),
   sharedConnectionAlways: t('이 채팅에서 항상 허용', 'Always in this chat', 'Selalu di obrolan ini', "このチャットでは常に許可", "Siempre en este chat", "在这个对话中始终允许"),
   /** Always for good (docs/decisions/20261122-connector-always-allow.md): every shared chat, until removed in Settings */
   sharedConnectionAlwaysAll: t('항상 허용', 'Always allow', 'Selalu izinkan', "常に許可", "Permitir siempre", "始终允许"),
-  sharedConnectionAlwaysNote: t('항상 허용: 앞으로 공유 채팅에서 {service}에서 가져온 내용을 묻지 않고 함께 보는 사람들에게 보여 줘요. 설정에서 지울 수 있어요.',
+  sharedConnectionAlwaysNote: t('항상 허용: 앞으로 공유 채팅에서는 {service} 내용을 묻지 않고 함께 보여 줘요. 설정에서 지울 수 있어요.',
     'Always allow: from now on, in shared chats, what the AI gets from {service} shows to the people in the chat without asking. You can remove it in Settings.',
     'Selalu izinkan: mulai sekarang, di obrolan bersama, apa yang AI ambil dari {service} terlihat oleh orang di obrolan tanpa bertanya. Anda bisa menghapusnya di Pengaturan.',
     "常に許可：今後は共有チャットで、AIが{service}から取得した内容を確認なしでチャットの人に表示します。設定で削除できます。",

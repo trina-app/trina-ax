@@ -212,4 +212,23 @@ describe('a fresh session gets its own earlier steps', () => {
     // the note never leaves the server: not in any message the app lists
     expect(JSON.stringify(await h.api('bob').call(API.listMessages, { params: { id: chat.id }, query: {} }))).not.toContain('pattern="ALICEPATTERN')
   })
+
+  // review of #409: an answer bob regenerated on alice's message while the chat was shared is bob's turn (his
+  // connections, his cards, what his tools returned); once the chat is private again (one writer: `several` false) its
+  // steps still never reach alice's AI
+  test('a chat no longer shared: an answer another person regenerated on my message gets no record', async () => {
+    const chat = await h.api('alice').call(API.createChat, { body: {} })
+    const a = await ask('alice', chat.id, 'look around\n' + fake({ tool: 'glob', args: { pattern: 'REGENPATTERN*', path: 'users/alice' } }, { say: 'Looked.' }))
+    expect(a.done.status).toBe('done')
+    const items: RecordItem[] = [{ id: a.started.userMessage!.id, role: 'user', content: 'look around' }, { id: a.done.id, role: 'assistant', content: 'Looked.' }]
+    const view = { asker: 'alice', several: false, canList: () => true }
+    expect(withStepRecords(h.ctx.db, items, view)[1]!.steps).toContain('REGENPATTERN')
+    // the same answer as bob's turn (he pressed regenerate on alice's message)
+    const turn = (h.ctx.db.query('SELECT turn_id FROM messages WHERE id = ?').get(a.done.id) as { turn_id: string }).turn_id
+    h.ctx.db.query("UPDATE turns SET user_id = 'bob' WHERE id = ?").run(turn)
+    try {
+      expect(withStepRecords(h.ctx.db, items, view)[1]!.steps).toBeUndefined()
+      expect(withStepRecords(h.ctx.db, items, { ...view, several: true })[1]!.steps).toBeUndefined()
+    } finally { h.ctx.db.query("UPDATE turns SET user_id = 'alice' WHERE id = ?").run(turn) }
+  })
 })

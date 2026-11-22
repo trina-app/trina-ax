@@ -35,14 +35,19 @@
   "Aside · Show what it returns in shared chats"). It counts only while the connection has the address it had when
   chosen and is signed in to the same account (`sharedBind`; a stale row is removed when Settings lists them), while the team's "Always allow" switch is on (`roomAlwaysAllow`;
   off: rows are ignored and no card offers Always), in a turn the person watches from their own app or their own
-  scheduled run that no other person's words steer (`steerableRun`), never in a confidential chat or on a demo server.
+  scheduled run (also one another person's words steer: Rule A; since #403 a scheduled run is left out only while a
+  guest is among the people and another person's words steer it, `steerableRun`), never in a confidential chat, in a
+  shared chat with a guest among its people (below) or on a demo server.
   It goes when the account is disabled or removed, and when a team connection's rule no longer includes the person
   (`pruneMemberAllows`). Rule A: once given it is final, also when more teammates join the chat.
 - **Rule, what keeps asking:** a call that reaches other people asks every time in a shared chat, with no Always: a
   tool whose name or title says it sends, posts, mails, messages, replies, shares, invites, publishes, notifies,
   schedules or changes access, or is not plain ASCII, or whose schema or call takes a recipient (`ownActTool`), a Google
   app's sending tool, every HTTP API request (some APIs act on a GET), a change at a team connection's service (other people's things are there), and any call with team
-  files. The shared chat card with a guest (someone outside the team) in the chat keeps "Always in this chat" only.
+  files. With a guest (someone outside the team) among the people of a shared chat, the shared chat card, the read card
+  and the card of a change on the person's own things offer and keep "Always in this chat" only (for the people who see
+  it then: someone new asks again), and an Always for good given elsewhere is not used there (review of #404;
+  `chatAlwaysPlaceOf`, `chat_card_approvals` kinds `shared_unsure_tool` and `shared_own_act`).
   The card goes to the asker only, and the answer's read record still hides it from a later joiner who may not use
   the connection (20261118-shared-chat-connections.md).
 - **Rule, words and one press:** the question says what happens in plain words; three buttons (Allow / Always allow /
