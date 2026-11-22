@@ -5,7 +5,7 @@ import { ClientKind, DEFAULT_LOCALE, GuestDetail, EngineId, IsoTime, Locale, Ok,
 import { endpoint, empty } from './endpoint'
 import { TEAM_ICON_VERSION_RE } from '../team-icon'
 import { NAME_FORBIDDEN, NAME_FORBIDDEN_FIELD } from '../name-chars'
-import { ListFolds, Session, UserPrefs, UserRef } from './entities'
+import { HistoryView, ListFolds, Session, UserPrefs, UserRef } from './entities'
 import { MyStatus } from './status-message'
 
 export const Username = z.string().min(2).max(64).regex(/^[A-Za-z0-9._@-]+$/, 'letters, digits, ".", "_", "@", "-"')
@@ -354,7 +354,7 @@ export const UpdateMeBody = z.object({
   email: z.email().nullable().optional(),
   /** engine / model null = back to the team default ("내 기본 엔진/모델"); ignored for people who may not pick */
   /** `away` is not set here (PUT /api/me/away tells the team at once); one sent is dropped */
-  prefs: UserPrefs.omit({ away: true }).extend({ textSize: TextSize.optional(), engine: EngineId.nullable().optional(), model: z.string().max(100).nullable().optional(), listFolds: ListFolds.nullable().optional(), mentionAllAsk: z.literal('off').nullable().optional(), goalCard: z.literal('hidden').nullable().optional(), preparedCard: z.literal('hidden').nullable().optional(), autoMemory: z.literal('off').nullable().optional() }).optional(),
+  prefs: UserPrefs.omit({ away: true }).extend({ textSize: TextSize.optional(), engine: EngineId.nullable().optional(), model: z.string().max(100).nullable().optional(), listFolds: ListFolds.nullable().optional(), historyView: HistoryView.nullable().optional(), mentionAllAsk: z.literal('off').nullable().optional(), goalCard: z.literal('hidden').nullable().optional(), preparedCard: z.literal('hidden').nullable().optional(), autoMemory: z.literal('off').nullable().optional() }).optional(),
 })
 
 /** PUT /api/me/web-access: my "Allow all websites" for the AI's web reads. Turning it on needs the version of the risk

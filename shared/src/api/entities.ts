@@ -20,6 +20,20 @@ export const ListFoldKey = z.string().min(1).max(120).regex(/^[a-z][a-z-]*:[A-Za
 export const ListFolds = z.record(ListFoldKey, z.enum(['open', 'folded'])).refine((o) => Object.keys(o).length <= LIST_FOLDS_MAX, { message: `at most ${LIST_FOLDS_MAX} folds` })
 export type ListFolds = z.infer<typeof ListFolds>
 
+/** One surface's history view, as the person chose it (web nav/HistoryList.tsx): only what differs from that surface's
+ * default (a later default reaches everyone who did not choose otherwise); a value this version does not know reads as
+ * absent (docs/decisions/20261122-history-view-per-person.md). */
+export const HistoryViewChoice = z.object({
+  status: z.enum(['all', 'waiting', 'project', 'noProject', 'confidential']).optional().catch(undefined),
+  activity: z.enum(['all', 'today', 'week', 'month']).optional().catch(undefined),
+  group: z.enum(['none', 'date', 'project']).optional().catch(undefined),
+  sort: z.enum(['updated', 'created', 'title']).optional().catch(undefined),
+})
+export type HistoryViewChoice = z.infer<typeof HistoryViewChoice>
+/** The Trina history's filter, group and sort, per surface: the computer's Trina panel and the phone's ☰ drawer. */
+export const HistoryView = z.object({ panel: HistoryViewChoice.optional().catch(undefined), drawer: HistoryViewChoice.optional().catch(undefined) })
+export type HistoryView = z.infer<typeof HistoryView>
+
 export const UserPrefs = z.object({
   theme: Theme.optional(),
   /** the person's text size on every device they sign in on (Settings > Profile); absent = default. A stored value this
@@ -47,6 +61,8 @@ export const UserPrefs = z.object({
   devEnvOffer: z.literal('seen').optional().catch(undefined),
   /** my lists' folds (ListFolds); a stored value that does not read reads as absent, never hiding the other preferences */
   listFolds: ListFolds.optional().catch(undefined),
+  /** the Trina history's filter, group and sort on every device I sign in on (HistoryView); absent = the defaults */
+  historyView: HistoryView.optional().catch(undefined),
   /** 'off': a room message with "@전체" goes without the question first ("Don't ask again" on that question; Settings ›
    * Notifications › "Ask before notifying everyone" turns it back on). One choice for every room; absent = ask. */
   mentionAllAsk: z.literal('off').optional().catch(undefined),
@@ -756,7 +772,15 @@ export const Artifact = z.object({
   createdAt: IsoTime,
 })
 export type Artifact = z.infer<typeof Artifact>
-export const ArtifactSummary = Artifact.omit({ content: true }).extend({ size: z.number().int().nonnegative() })
+export const ArtifactSummary = Artifact.omit({ content: true }).extend({
+  size: z.number().int().nonnegative(),
+  /** who asked for this version (absent: not known, an older server); with `ai` the AI made it at their request, without
+   * it they restored it themselves in the panel */
+  byName: z.string().optional(),
+  ai: z.literal(true).optional(),
+  /** a restore: the version it brought back */
+  restoredFrom: z.number().int().positive().optional(),
+})
 export type ArtifactSummary = z.infer<typeof ArtifactSummary>
 
 export const Memory = z.object({

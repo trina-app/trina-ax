@@ -33,6 +33,7 @@ import { OthersText } from './live-answer'
 import { withheldFrom } from './shared-answers'
 import { mayUploadShared } from '../uploads/shared-chat'
 import { inPeopleAudience, isPeopleRow, isSharedChat, isSharedRow, peopleAudience, hiddenByMe, wasInPeopleChat } from './chat-audience'
+import { inHistory } from './history-list'
 import { unreadOf, type Unread } from './message-notices'
 import { isGuest } from '../auth/guests'
 
@@ -451,7 +452,11 @@ export function chatView(rt: ChatRuntime, viewer: string, r: ChatRow, o: { aud?:
   }
   const runner = rt.activeTurnUser(r.id)
   const c = rt.store.toChat(r, rt.runState(r.id), rt.waitsForPerson(r.id, viewer), { answersOf: r.user_id === viewer ? viewer : null, viewer, ending: rt.endingUnconfirmed(r.id), waitingForPlace: runner === viewer && rt.waitsForPlace(r.id) })
-  const shared = sharedOf(rt, viewer, r, o.aud ?? new Audiences(rt.db, rt.files))
+  const aud = o.aud ?? new Audiences(rt.db, rt.files)
+  const shared = sharedOf(rt, viewer, r, aud)
+  // my history section holds a shared chat only while I see it (chat/history-list.ts inHistory; the SQL part is
+  // ChatStore.folderOf's)
+  if (c.folderId && !inHistory(aud, viewer, r)) delete c.folderId
   if (o.people) {
     const p = o.people.get(r.id)
     shared.people = p?.people ?? []

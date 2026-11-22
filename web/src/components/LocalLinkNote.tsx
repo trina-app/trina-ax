@@ -11,14 +11,27 @@ export function isThisComputerOnly(url: string): boolean {
   return host === 'localhost' || host.endsWith('.localhost') || /^127(\.\d{1,3}){3}$/.test(host) || host === '[::1]' || host === '::1'
 }
 
+/** The note's words for `url`, or null when the link opens elsewhere too. The Share dialogs say it only in the toast of a
+ * link really copied there (localLinkToast), not as a fixed line (QA TC-ask1-14). */
+export function localLinkText(t: ReturnType<typeof useT>, url: string): string | null {
+  if (!isThisComputerOnly(url)) return null
+  return t('links.thisComputerOnly', { path: [t('admin.title'), t('admin.system'), t('system.connection')].join(' › ') })
+}
+
+/** What a "Link copied" toast adds for a link on this computer only: the note as its second line, and longer to read. */
+export function localLinkToast(t: ReturnType<typeof useT>, url: string): { detail?: string; ms?: number } {
+  const detail = localLinkText(t, url)
+  return detail ? { detail, ms: 15_000 } : {}
+}
+
 export function LocalLinkNote({ url, className = '' }: { url: string; className?: string }) {
   const t = useT()
-  if (!isThisComputerOnly(url)) return null
-  const path = [t('admin.title'), t('admin.system'), t('system.connection')].join(' › ')
+  const text = localLinkText(t, url)
+  if (!text) return null
   return (
     <p role="note" className={`flex items-start gap-1.5 text-xs text-warn ${className}`} data-testid="local-link-note">
       <AlertTriangle size={14} className="mt-px shrink-0" aria-hidden />
-      <span>{t('links.thisComputerOnly', { path })}</span>
+      <span>{text}</span>
     </p>
   )
 }

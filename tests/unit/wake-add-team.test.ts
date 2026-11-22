@@ -7,6 +7,7 @@ import * as shared from '../../shared/src/team-link'
 import * as phone from '../../mobile/src/team-link'
 import { checkTeam, healthVerdict, type HealthAnswer, TEAM_DOMAIN } from '../../desktop/src/common/address'
 import { checkTeamWith } from '../../mobile/src/team-check'
+import { httpFailure, probeAnswer } from '../../mobile/src/reconnect'
 import { stringsFor } from '../../mobile/src/strings'
 import { t } from '../../desktop/src/common/i18n'
 import { mayWake } from '../../relay/src/relay'
@@ -155,10 +156,68 @@ describe('phone: the add-team check', () => {
     expect(r).toEqual({ ok: false, reason: 'cancelled' })
     expect(f.seen.filter((x) => x.path === '/').length).toBe(2)
   })
+  test('a stop that comes while a request is on its way aborts that request too, and answers "cancelled"', async () => {
+    const stop = new AbortController()
+    const fetch = (async (_url: string, init: { signal: AbortSignal }) => {
+      stop.abort()
+      if (init.signal.aborted) throw new Error('aborted')
+      return new Response('{"ok":true}', { status: 200 })
+    }) as unknown as Parameters<typeof checkTeamWith>[0]['fetch']
+    expect(await checkTeamWith({ fetch, ...clock(), signal: stop.signal }, ORIGIN)).toEqual({ ok: false, reason: 'cancelled' })
+  })
   test('the words, in the phone\'s three languages', () => {
     expect(stringsFor('en').waking).toBe('Resuming your team…')
     expect(stringsFor('en').wakeTimeout).toBe("Your team didn't start. Try again in a minute, or contact support.")
     expect(stringsFor('ko').waking).toBe('팀을 다시 켜고 있어요…')
     expect(stringsFor('zh').wakingDetail).toBe('大约需要一分钟。准备好后会自动打开。')
+  })
+})
+
+// QA TC-1952: a saved hosted team that sleeps. The phone app's cold start opens the team page; the relay holds it about
+// 2.5 s and answers 503 with its own waking page (team_waking). The app showed "Could not reach your team" and Try again
+// (every 5xx was a failure), and Try again started the wait again. Now a 503 makes the app check the team at once: the
+// check wakes it and waits, with "Resuming your team…" on screen, and the page loads when the team answers.
+describe('phone: a saved team that sleeps (the team page answered 503)', () => {
+  test('a 503 asks the team; other 5xx stay "Could not reach your team"; 4xx is not a failure', () => {
+    expect(httpFailure(503)).toBe('check')
+    for (const s of [500, 502, 504, 520]) expect(httpFailure(s)).toBe('unreachable')
+    for (const s of [200, 302, 403, 404, 429]) expect(httpFailure(s)).toBeNull()
+  })
+  test('the page load woke it already (team_waking): told once, page loads when the team answers', async () => {
+    const c = clock()
+    const f = fakeFetch({ '/api/health': [waking, healthy], '/': [waking, waking, { status: 200, body: '<html>app</html>' }] })
+    let told = 0
+    const r = await checkTeamWith({ fetch: f.fetch, onWaking: () => told++, ...c }, ORIGIN, TEAM_DOMAIN)
+    expect(r).toEqual({ ok: true, origin: ORIGIN, renamed: false })
+    expect(probeAnswer(r)).toBe('load')
+    expect(told).toBe(1)
+    for (const w of f.seen.filter((x) => x.path === '/')) expect(mayWake({ method: 'GET', url: '/', headers: w.headers })).toBe(true)
+  })
+  test('still asleep (team_offline_cloud): the check wakes it', async () => {
+    const f = fakeFetch({ '/api/health': [offlineCloud, healthy], '/': [waking, { status: 200, body: '<html>app</html>' }] })
+    let told = 0
+    const r = await checkTeamWith({ fetch: f.fetch, onWaking: () => told++, ...clock() }, ORIGIN, TEAM_DOMAIN)
+    expect(probeAnswer(r)).toBe('load')
+    expect(told).toBe(1)
+  })
+  test('other 503s are not woken: Trina updating says so, a self-hosted team that is off keeps trying', async () => {
+    const maintenance = fakeFetch({ '/api/health': [{ status: 503, headers: { 'x-relay-error': 'team_maintenance' } }], '/': [waking] })
+    let told = 0
+    const r = await checkTeamWith({ fetch: maintenance.fetch, onWaking: () => told++, ...clock() }, ORIGIN)
+    expect(r).toEqual({ ok: false, reason: 'unreachable', updating: true })
+    expect(probeAnswer(r)).toBe('updating')
+    expect(maintenance.seen.map((x) => x.path)).toEqual(['/api/health'])
+    const updating = await checkTeamWith({ fetch: fakeFetch({ '/api/health': [{ status: 503, headers: { 'x-mycel-updating': '1' } }] }).fetch, ...clock() }, ORIGIN)
+    expect(probeAnswer(updating)).toBe('updating')
+    const off = await checkTeamWith({ fetch: fakeFetch({ '/api/health': [{ status: 503, headers: { 'x-relay-error': 'team_offline' } }] }).fetch, onWaking: () => told++, ...clock() }, ORIGIN)
+    expect(probeAnswer(off)).toBe('wait')
+    expect(told).toBe(0)
+  })
+  test('what a check means for the failure screen', () => {
+    expect(probeAnswer({ ok: true, origin: ORIGIN, renamed: false })).toBe('load')
+    expect(probeAnswer({ ok: false, reason: 'cancelled' })).toBe('wait')
+    expect(probeAnswer({ ok: false, reason: 'unreachable' })).toBe('wait')
+    // the relay's own page explains these, or the page asks again (a wake that took too long)
+    for (const reason of ['unknown', 'suspended', 'notTeam', 'wakeTimeout'] as const) expect(probeAnswer({ ok: false, reason })).toBe('load')
   })
 })

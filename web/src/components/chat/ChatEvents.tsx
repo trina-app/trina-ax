@@ -1,6 +1,6 @@
 // Who changed a chat's people, between its messages (docs/decisions/20261122-shared-chat-leave-and-lost-notices.md, QA
-// TC-7289): "{actor} added {names}", "{actor} removed {names}", "{actor} left", in the rooms' event style (a quiet
-// centred line). Read with the chat's audience (GET /api/chats/:id/audience `events`) for a chat shared with people, again
+// TC-7289): "{actor} added {names}", "{actor} removed {names}", "{actor} left", and who restored a file's version ("{actor}
+// restored {file} to version {n}", QA TC-v1c-01), in the rooms' event style (a quiet centred line). Read with the chat's audience (GET /api/chats/:id/audience `events`) for a chat shared with people, again
 // whenever how many see it or how many messages it has changes.
 import { useEffect, useState } from 'react'
 import type { ChatAudience } from '@mycel/shared/api'
@@ -34,6 +34,8 @@ export function ChatEventLine({ e }: { e: AudienceEvent }) {
   const t = useT()
   const locale = useLocale()
   const names = e.names.join(t('rooms.nameSep'))
-  const text = e.kind === 'left' ? t('chat.event.left', { actor: e.actor }) : t(e.kind === 'added' ? 'chat.event.added' : 'chat.event.removed', { actor: e.actor, names })
+  const text = e.kind === 'left' ? t('chat.event.left', { actor: e.actor })
+    : e.kind === 'restored' ? t('chat.event.restored', { actor: e.actor, file: e.names[0] ?? '', n: e.version ?? 1 })
+    : t(e.kind === 'added' ? 'chat.event.added' : 'chat.event.removed', { actor: e.actor, names })
   return <p className="text-center text-xs break-words text-faint" title={formatDateTime(e.at, locale)} data-testid="chat-event" data-kind={e.kind}>{text}</p>
 }

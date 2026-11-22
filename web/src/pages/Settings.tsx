@@ -1017,9 +1017,12 @@ function About() {
   const t = useT()
   const info = useServerSource()
   const { version } = info
+  // the phone app: its own version and build first, then the team server's, so the two are told apart (QA TC-8071)
+  const app = mobileApp()
   return (
     <Section title={t('settings.about')} page>
-      {version && <p className="text-sm" data-testid="about-version">{t('about.version', { version })}</p>}
+      {app && <p className="text-sm" data-testid="about-app-version">{app.appBuild ? t('about.appVersionBuild', { version: app.appVersion, build: app.appBuild }) : t('about.appVersion', { version: app.appVersion })}</p>}
+      {version && <p className={app ? 'mt-1 text-sm' : 'text-sm'} data-testid="about-version">{app ? t('about.serverVersion', { version }) : t('about.version', { version })}</p>}
       <p className="mt-2 text-sm text-muted">{t('about.license')}</p>
       <SourceCodeLinks info={info} className="mt-3 inline-block text-sm text-accent-text underline" />
     </Section>

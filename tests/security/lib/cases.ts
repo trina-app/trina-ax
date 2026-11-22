@@ -643,6 +643,9 @@ export const SPECS: Record<string, Spec> = {
   // ---- artifacts / jobs (own chat / own job) ----
   listChatArtifacts: { build: (c, w) => c.get(`/api/chats/${w.ids.chatA}/artifacts`), scope: 'own-alice-chat' },
   getArtifact: { build: (c, w) => c.get(`/api/artifacts/${w.ids.artifact}`), scope: 'own-alice' },
+  // a person's restore of a page version (POST /api/artifacts/:id/restore): whoever may continue alice's chat, so only
+  // alice; everyone else gets the 404 of a missing one, the owner and admins included
+  restoreArtifact: { build: (c, w) => c.post(`/api/artifacts/${w.ids.artifact}/restore`), scope: 'own-alice' },
   getJob: { build: (c, w) => c.get(`/api/jobs/${w.ids.jobAlice}`), scope: 'own-alice' },
   cancelJob: { build: (c, w) => c.post(`/api/jobs/${w.ids.jobAlice}/cancel`), scope: 'own-alice' },
   transcribe: { build: (c, w) => c.req('POST', '/api/transcribe', undefined, { form: tform(w.ids.chatA) }), scope: 'own-alice-chat' },

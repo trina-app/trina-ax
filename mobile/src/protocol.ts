@@ -145,6 +145,9 @@ export interface PushToken { platform: PushPlatform; token: string; environment:
 export interface MobileConfig {
   protocol: 1; appVersion: string; platform: 'ios' | 'android'; generation: number; nonce: string;
   capabilities: readonly string[]
+  /** the store build number (iOS CFBundleVersion, Android versionCode), shown in Settings › About (QA TC-8071); older
+   * apps send none */
+  appBuild?: string
 }
 export interface Envelope { v: 1; generation: number; nonce: string; id: string }
 export type FileMessage = Envelope & (
@@ -308,6 +311,7 @@ export function tappedNotificationPath(data: unknown, date: unknown, teamSince: 
 export function validConfig(v: unknown): v is MobileConfig {
   return object(v) && v.protocol === MOBILE_PROTOCOL && (v.platform === 'ios' || v.platform === 'android')
     && typeof v.appVersion === 'string' && v.appVersion.length <= 40 && generation(v.generation) && nonce(v.nonce)
+    && (v.appBuild === undefined || (typeof v.appBuild === 'string' && /^[0-9A-Za-z.]{1,20}$/.test(v.appBuild)))
     && Array.isArray(v.capabilities) && MOBILE_CAPABILITIES.every(c => (v.capabilities as unknown[]).includes(c))
 }
 

@@ -23,12 +23,12 @@ test('the message box answers the open question with the typed text; files attac
   const card = page.getByTestId('ask-card')
   await expect(card).toContainText('어느 분기를 볼까요?')
   const input = page.getByTestId('composer-input')
-  // the box says that sending answers the question, and which one
+  // the box says that sending answers the question; the card right above names it, so no second line does (QA TC-ask1-18)
   await expect(input).toHaveAttribute('placeholder', 'AI의 질문에 답해 주세요')
-  await expect(page.getByTestId('composer-answering')).toHaveText('보내면 이 질문의 답이 돼요: 어느 분기를 볼까요?')
+  await expect(page.getByTestId('composer-answering')).toHaveCount(0)
   // the typed answer goes to the AI: the same line as under the card's own text box
   await expect(page.getByTestId('composer-no-secrets')).toHaveText('비밀번호·인증 코드는 AI에게 알려 주지 마세요.')
-  await expect(input).toHaveAccessibleDescription('보내면 이 질문의 답이 돼요: 어느 분기를 볼까요? 비밀번호·인증 코드는 AI에게 알려 주지 마세요.')
+  await expect(input).toHaveAccessibleDescription('비밀번호·인증 코드는 AI에게 알려 주지 마세요.')
   await page.getByTestId('file-input').setInputFiles({ name: 'notes.txt', mimeType: 'text/plain', buffer: Buffer.from('q3 numbers') })
   await expect(page.getByTestId('attachment-chip')).toContainText('notes.txt')
   await expect(page.getByTestId('send-answer')).toHaveCount(0)
@@ -45,7 +45,6 @@ test('the message box answers the open question with the typed text; files attac
   // an answer, not a new message: nothing waits and the conversation still has one question
   await expect(page.getByTestId('outbox')).toHaveCount(0)
   await expect(page.getByTestId('user-message')).toHaveCount(1)
-  await expect(page.getByTestId('composer-answering')).toHaveCount(0)
   await expect(page.getByTestId('composer-no-secrets')).toHaveCount(0)
   // the attached file was not part of the answer: it is still in the box for the next message
   await expect(page.getByTestId('attachment-chip')).toContainText('notes.txt')
@@ -97,7 +96,7 @@ test('a server safety check is never answered from the box: the message waits an
   await expect(card).toHaveAttribute('data-origin', 'server')
   const input = page.getByTestId('composer-input')
   await expect(input).toHaveAttribute('placeholder', '먼저 위에서 골라 주세요')
-  await expect(page.getByTestId('composer-answering')).toHaveCount(0)
+  await expect(page.getByTestId('composer-no-secrets')).toHaveCount(0)
   let answers = 0
   page.on('request', (r) => {
     if (isAnswer(r)) answers++
@@ -122,13 +121,13 @@ test('answered in another window: the card and the answering box close here too,
   const other = await page.context().newPage()
   await other.goto(page.url())
   await expect(other.getByTestId('ask-card')).toContainText('어느 분기를 볼까요?')
-  await expect(other.getByTestId('composer-answering')).toBeVisible()
+  await expect(other.getByTestId('composer-no-secrets')).toBeVisible()
   await other.getByTestId('composer-input').fill('나중에 쓸 메모')
   await page.getByTestId('composer-input').fill('4분기요')
   await page.getByTestId('composer-input').press('Enter')
   await expect(page.getByTestId('ask-card')).toHaveCount(0)
   await expect(other.getByTestId('ask-card')).toHaveCount(0)
-  await expect(other.getByTestId('composer-answering')).toHaveCount(0)
+  await expect(other.getByTestId('composer-no-secrets')).toHaveCount(0)
   await expect(other.getByTestId('composer-input')).toHaveValue('나중에 쓸 메모')
   await expect(lastAnswer(page)).toContainText('You chose "4분기요"')
   await other.close()

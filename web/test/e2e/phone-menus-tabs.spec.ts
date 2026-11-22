@@ -305,6 +305,8 @@ for (const lang of ['ko', 'en'] as const) {
         // the drawer: by date by default, as before the redesign (docs/DECISIONS.md "Phones: the 트리나 tab as before")
         `${t['sidebar.view.group']}· ${t['sidebar.group.date']}`,
         `${t['sidebar.view.sort']}· ${t['sidebar.sort.updated']}`,
+        // my sections of the history (docs/decisions/20261122-trina-history-sections.md)
+        t['sidebarSections.new'],
       ])
       await shot(page, `${lang}-drawer-filter`)
       await sheet.getByTestId('recents-view-sort').click()

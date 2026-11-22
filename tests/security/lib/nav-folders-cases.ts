@@ -27,6 +27,45 @@ const pwGate = (who: Who, r: { status: number; json: any }) => who === 'pwchange
 /** a new chat of `c`'s person with no project */
 const ownChat = async (c: Client) => (await c.ok('POST', '/api/chats', {})).id as string
 
+const fake = (d: unknown) => '@fake ' + JSON.stringify(d)
+/** erin (a member of Team plan) files its shared chat: refused while she never wrote in it (it is not in her history,
+ * 409 folder_not_in_history), filed once she did; alice's copy never carries erin's folder, nor erin's alice's */
+async function otherFilesSharedChat(w: World) {
+  const erin = w.as.other, alice = w.as.memberIn
+  const mineF = (await erin.ok('POST', '/api/nav-folders', { kind: 'chats', name: `erin ${crypto.randomUUID().slice(0, 8)}` })).id as string
+  const chat = (await alice.ok('POST', '/api/chats', { title: 'team chat to file', projectId: w.ids.projTeam })).id as string
+  const before = await erin.req('PUT', `/api/chats/${chat}/folder`, { folderId: mineF })
+  if (before.status !== 409 || before.json?.error?.params?.reason !== 'folder_not_in_history') throw new Error(`erin filed a shared chat she never wrote in: ${before.status}`)
+  const sent = await erin.ok('POST', `/api/chats/${chat}/messages`, { clientMessageId: 'cm-' + crypto.randomUUID(), attachmentIds: [], content: fake({ say: 'ok' }) })
+  await w.sockets.erin.next('message.done', (f: any) => f.data.messageId === sent.assistantMessage.id, 30_000)
+  const put = await erin.req('PUT', `/api/chats/${chat}/folder`, { folderId: mineF })
+  if (put.status !== 200 || put.json?.folderId !== mineF) throw new Error(`erin could not file a shared chat she wrote in: ${put.status} ${put.text.slice(0, 200)}`)
+  const aliceF = await aliceFolder(w, 'chats')
+  await alice.ok('PUT', `/api/chats/${chat}/folder`, { folderId: aliceF })
+  const a = await alice.ok('GET', `/api/chats/${chat}`), e = await erin.ok('GET', `/api/chats/${chat}`)
+  if (a.folderId !== aliceF || e.folderId !== mineF) throw new Error(`a shared chat carried another person's folder: alice ${a.folderId}, erin ${e.folderId}`)
+  for (const p of ['/api/chats', '/api/chats/groups', '/api/nav-folders']) {
+    const t = (await erin.req('GET', p)).text
+    if (t.includes(aliceF) || t.includes(NAV_FOLDER_CANARY)) throw new Error(`erin's ${p} showed alice's folder`)
+  }
+}
+/** alice shares a chat with carol (an admin) by name and files it: carol's copy, list and groups never carry the folder */
+async function adminSeesNoFolder(w: World) {
+  const alice = w.as.memberIn, carol = w.as.admin
+  const chat = (await alice.ok('POST', '/api/chats', { title: 'shared with carol' })).id as string
+  const subjects = [{ subjectType: 'user', subjectId: 'carol' }]
+  const pv = await alice.ok('POST', `/api/chats/${chat}/audience/preview`, { subjects })
+  await alice.ok('PUT', `/api/chats/${chat}/audience`, { subjects, confirmKey: pv.previewKey })
+  const f = await aliceFolder(w, 'chats')
+  await alice.ok('PUT', `/api/chats/${chat}/folder`, { folderId: f })
+  const got = await carol.ok('GET', `/api/chats/${chat}`)
+  if (got.folderId !== undefined) throw new Error(`the admin saw alice's folder on a chat shared with them: ${got.folderId}`)
+  for (const p of ['/api/chats', '/api/chats/groups', `/api/chats/${chat}`]) {
+    const t = (await carol.req('GET', p)).text
+    if (t.includes(f) || t.includes(NAV_FOLDER_CANARY)) throw new Error(`the admin's ${p} showed alice's folder`)
+  }
+}
+
 export const NAV_FOLDER_SPECS: Record<string, Spec> = {
   // my own folders only: the list never names alice's to anyone else
   listNavFolders: {
@@ -77,7 +116,9 @@ export const NAV_FOLDER_SPECS: Record<string, Spec> = {
     },
   },
   // taking a chat out of my folder: the chat's person only (alice's chat in her project). Then: her own chat with no
-  // project goes into her folder, her project chat is refused (409), and anyone else's own chat cannot go into hers (404)
+  // project goes into her folder, and so does her project chat (any chat of her history, owner 2026-11-22; taken out
+  // again after), and anyone else's own chat cannot go into hers (404). erin files a shared project chat once she wrote
+  // in it (otherFilesSharedChat); an admin's copy of a chat in alice's folder carries none (adminSeesNoFolder)
   setChatFolder: {
     build: (c, w) => c.put(`/api/chats/${w.ids.chatA}/folder`, { folderId: null }), scope: 'own-alice-chat',
     check: async (r, w, who) => {
@@ -90,10 +131,13 @@ export const NAV_FOLDER_SPECS: Record<string, Spec> = {
         if (put.status !== 200 || put.json?.folderId !== folder) throw new Error(`alice could not file her own chat: ${put.status} ${put.text.slice(0, 200)}`)
         await me.ok('DELETE', `/api/chats/${chat}`)
         const project = await me.req('PUT', `/api/chats/${w.ids.chatA}/folder`, { folderId: folder })
-        if (project.status !== 409) throw new Error(`a project chat went into a folder: ${project.status}`)
+        if (project.status !== 200 || project.json?.folderId !== folder) throw new Error(`alice could not file her project chat: ${project.status} ${project.text.slice(0, 200)}`)
+        await me.ok('PUT', `/api/chats/${w.ids.chatA}/folder`, { folderId: null })
         return
       }
       if (r.status === 403 && !pwGate(who, r)) throw new Error(`${who}: alice's chat answered 403, not 404`)
+      if (who === 'other') await otherFilesSharedChat(w)
+      if (who === 'admin') await adminSeesNoFolder(w)
       const chat = await ownChat(me).catch(() => null)
       if (!chat) return
       const put = await me.req('PUT', `/api/chats/${chat}/folder`, { folderId: folder })

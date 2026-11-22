@@ -186,7 +186,7 @@ describe('the same person, the same checks', () => {
     // the switch off (today's card); auto memory skips copies instead (auto-memory.test.ts)
     h.ctx.db.query("UPDATE users SET prefs = json_set(COALESCE(prefs, '{}'), '$.autoMemory', 'off') WHERE id = 'alice'").run()
     const chat = await newChat()
-    const r = await h.api('alice').call(API.sendMessage, { params: { id: chat.id }, body: { content: fake({ agents: [{ id: 'toolu_T1', steps: [read('shared/glossary.md')] }] }, { tool: 'remember', args: { text: 'Likes glossaries' }, sayResult: true }), clientMessageId: cm(), attachmentIds: [] } })
+    const r = await h.api('alice').call(API.sendMessage, { params: { id: chat.id }, body: { content: 'please remember this\n' + fake({ agents: [{ id: 'toolu_T1', steps: [read('shared/glossary.md')] }] }, { tool: 'remember', args: { text: 'Likes glossaries' }, sayResult: true }), clientMessageId: cm(), attachmentIds: [] } })
     const card = await alice.next('turn.request', (f) => f.data.turnId === r.turnId, 15_000)
     expect(card.data.request).toMatchObject({ kind: 'ask_user', question: expect.stringContaining('Likes glossaries') })
     await h.api('alice').call(API.answerTurn, { params: { id: r.turnId }, body: { kind: 'ask_user', requestId: card.data.request.requestId, answer: 'no' } })

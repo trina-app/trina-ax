@@ -1,13 +1,15 @@
 // List folders (docs/DECISIONS.md "List folders"). Owner: B (server/src/chat/nav-folders.ts, registered by
 // server/src/routes/nav-folders.ts; migration 289).
 //
-// A person's own folders for sorting their lists: kind 'chats' holds their own AI chats (the Trina list), kind 'rooms'
-// holds rooms, DMs and group chats they are in (the 대화 list). Only the maker sees them: nobody else, owners and admins
+// A person's own folders for sorting their lists: kind 'chats' holds AI chats of their Trina history (its sections:
+// their own chats, project chats included, and the chats shared with them that the history shows), kind 'rooms' holds
+// rooms, DMs and group chats they are in (the 대화 list). Only the maker sees them: nobody else, owners and admins
 // included, can list, name, count or change them, and no response to anyone else carries one. A folder holds no files,
 // instructions or permissions and never changes who sees a chat or a room. It never shows something its maker cannot
-// open now: a chat in the trash or in a project, a room they left, an archived room or one they hide is not listed and
-// not counted (a hidden room comes back to its folder when it shows again). A project chat stays in its project and
-// cannot be filed. Deleting a folder only lets its chats and rooms go back to their usual place.
+// open now: a chat their history does not show now (the trash, a project they left, a chat no longer shared with them
+// or hidden from their list), a room they left, an archived room or one they hide is not listed and not counted (each
+// comes back to its folder when it shows again). Moving a chat into or out of a project keeps it in its folder.
+// Deleting a folder only lets its chats and rooms go back to their usual place.
 //
 // Not to be confused with a person's own files folder ("내 폴더", users/<name>/) or the team drive's folders.
 import { z } from 'zod'
@@ -85,7 +87,7 @@ export const NAV_FOLDERS = {
   orderNavFolders: endpoint({ method: 'PUT', path: '/api/nav-folders/order', auth: 'user', owner: 'B', body: OrderNavFoldersBody, response: NavFolderList,
     summary: 'Put my folders of one kind in this order: the ids given first, in that order, then the rest in their order before (ids that are not my folders of that kind are ignored, so two devices never refuse each other). Returns all my folders.' }),
   setChatFolder: endpoint({ method: 'PUT', path: '/api/chats/:id/folder', auth: 'user', owner: 'B', body: SetFolderBody, response: Chat,
-    summary: 'Put my own chat in one of my chat folders (moving it from another), or take it out (null). Never a project chat (409 folder_project_chat): it stays in its project. A chat I cannot open, in the trash or the server\'s own draft: 404. A full folder: 409 nav_folder_full.' }),
+    summary: 'Put a chat of my Trina history (mine, a project chat too, or one shared with me that my history shows) in one of my chat folders (moving it from another), or take it out (null). One my history does not show (a project\'s shared chat I never wrote in, one I hid from my list): 409 folder_not_in_history. A chat I cannot open, in the trash or the server\'s own draft: 404. A full folder: 409 nav_folder_full.' }),
   setRoomFolder: endpoint({ method: 'PUT', path: '/api/rooms/:id/folder', auth: 'user', owner: 'B', body: SetFolderBody, response: Room,
     summary: 'Put a room I am in in one of my conversation folders (moving it from another), or take it out (null). Nobody else is told. A room I am not in or an archived one: 404; a hidden one: 409 room_hidden (show it first). A full folder: 409 nav_folder_full.' }),
 } as const

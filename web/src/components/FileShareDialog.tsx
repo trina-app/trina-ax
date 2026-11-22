@@ -33,6 +33,7 @@ import { Avatar } from './Avatar'
 import { ListHeading, ListRow } from './list/List'
 import { ParticipantPicker, participantKey, useParticipantOptions, type ParticipantOption } from './ProjectParticipants'
 import { ShareCopyLink, useCopyLink, useTeamOrigin } from './ShareCopyLink'
+import { localLinkToast } from './LocalLinkNote'
 import { EveryoneLine, useWithEveryone } from './ShareEveryone'
 import { Button, ErrorNote, IconButton, Modal, Skeleton, confirmDialog, menuOpener } from './ui'
 
@@ -54,7 +55,7 @@ export async function fileLinkHref(path: string, origin = location.origin): Prom
  * Copy link for a team file (not a folder): its /f/<id> link, and a toast true for the case. One's own personal file
  * not shared with anyone yet: only they can open it until they share it, with "Share…" to do that.
  */
-export function useCopyTeamFileLink() {
+export function useCopyTeamFileLink(o: { inDialog?: boolean } = {}) {
   const t = useT()
   const locale = useLocale()
   const me = useMe()
@@ -66,8 +67,10 @@ export function useCopyTeamFileLink() {
       const [href, shares] = await Promise.all([fileLinkHref(path, origin), own ? api.call(API.fileShares, { query: { path } }) : Promise.resolve(null)])
       // refused by the browser: its own toast with the link, never "Link copied"
       if (!(await copy(href))) return
-      if (shares && !shares.people.length) toast({ level: 'success', text: t('fileLink.copiedOnlyYou'), ms: 10_000, action: { label: t('fileLink.shareAction'), run: () => openFileShare(path) } })
-      else toast({ level: 'success', text: t('fileLink.copied') })
+      // from the Share dialog: an address on this computer only says so here (components/LocalLinkNote.tsx localLinkToast)
+      const local = o.inDialog ? localLinkToast(t, href) : {}
+      if (shares && !shares.people.length) toast({ level: 'success', text: t('fileLink.copiedOnlyYou'), ms: 10_000, ...local, action: { label: t('fileLink.shareAction'), run: () => openFileShare(path) } })
+      else toast({ level: 'success', text: t('fileLink.copied'), ...local })
     } catch (e) {
       toast({ level: 'error', text: refusal(e, locale, t('error.network')) })
     }
@@ -88,7 +91,7 @@ export function FileShareDialog({ path, onClose, returnTo }: { path: string; onC
   const [picks, setPicks] = useState<ProjectParticipant[]>([])
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const copyLink = useCopyTeamFileLink()
+  const copyLink = useCopyTeamFileLink({ inDialog: true })
 
   const load = useCallback(() => {
     setLoadError(null)

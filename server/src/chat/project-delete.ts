@@ -59,8 +59,8 @@ export function deleteProjectForGood(ctx: AppContext, rt: ChatRuntime, r: Projec
     for (const x of purged) rt.purgeChat(x.id)
     // one already in the trash keeps its time there (and who put it there)
     for (const x of kept) ctx.db.query('UPDATE chats SET shared_at = NULL, project_id = NULL, deleted_at = COALESCE(deleted_at, ?), deleted_by = CASE WHEN deleted_at IS NULL THEN ? ELSE deleted_by END WHERE id = ?').run(now, actorId, x.id)
-    // in the trash: nobody's pin of them stays (chat/pins.ts), nor a list folder's row (none should be there: a
-    // project chat is never filed)
+    // in the trash: nobody's pin of them stays (chat/pins.ts), nor anyone's history-section row (chat/nav-folders.ts;
+    // the project's other chats, now without a project, stay in their sections)
     dropChatPins(ctx.db, kept.map((x) => x.id))
     dropChatFolderItems(ctx.db, kept.map((x) => x.id))
     ctx.db.query('UPDATE chats SET project_id = NULL WHERE project_id = ?').run(r.id)

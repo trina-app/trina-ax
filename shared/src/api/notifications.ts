@@ -123,7 +123,7 @@ export type PushEventType = z.infer<typeof PushEventType>
  * (room_app_notices; a push too: PushEventType), and room_app.leaver to the people who may manage an app in a room
  * when someone who was shown its address can no longer manage it (room_app_leaver_notices, migration 352; docs/DECISIONS.md
  * "Apps posting in rooms"). */
-export const NotificationEventType = z.enum([...PushEventType.options, 'skill.suggested', 'skill.reviewed', 'dev_env.job', 'dev_env.box', 'integration.request', 'onboarding.ai_request', 'team.joined', 'onboarding.first_run', 'account.deletion_request', 'integration.template', 'integration.template_reconnect', 'drive.share_reconnect', 'skills.merge_waiting', 'credential.change', 'owner.transferred', 'project.joined', 'service.request', 'service.ready', 'service.closed', 'files.stored_key', 'account.reset_link', 'hosting.key_copied', 'hosting.exported', 'relay.address_moved', 'engine.start_failed', 'storage.filling', 'storage.cleanup', 'account.deletion_due', 'room_app.leaver', 'file.access_answered', 'file.unshared_by_move', 'access.answered', 'chat.lost', 'account.google_connected'])
+export const NotificationEventType = z.enum([...PushEventType.options, 'skill.suggested', 'skill.reviewed', 'dev_env.job', 'dev_env.box', 'integration.request', 'onboarding.ai_request', 'team.joined', 'onboarding.first_run', 'account.deletion_request', 'integration.template', 'integration.template_reconnect', 'drive.share_reconnect', 'skills.merge_waiting', 'credential.change', 'owner.transferred', 'project.joined', 'service.request', 'service.ready', 'service.closed', 'files.stored_key', 'account.reset_link', 'hosting.key_copied', 'hosting.exported', 'relay.address_moved', 'engine.start_failed', 'storage.filling', 'storage.cleanup', 'account.deletion_due', 'room_app.leaver', 'file.access_answered', 'file.unshared_by_move', 'access.answered', 'chat.lost', 'chat.left', 'account.google_connected'])
 export type NotificationEventType = z.infer<typeof NotificationEventType>
 export const InboxNotification = z.object({
   id: z.string(), eventType: NotificationEventType, sourceId: z.string(), code: NotificationEventType,
@@ -263,6 +263,10 @@ export const InboxNotification = z.object({
    * (a deleted account's too: the tombstone keeps it); `title` only while I still see the chat (link 'chat' then opens
    * it). Never stored text. Older servers omit it */
   chatLost: z.object({ reason: z.enum(['stopped', 'deleted', 'account']), name: z.string().nullable(), title: z.string().nullable(), until: IsoTime.optional() }).optional(),
+  /** 'chat.left' only (docs/decisions/20261122-qa-ux-followups-1122.md; chat_left_notices): someone left a chat I shared with
+   * them. `name`: who, by display name (a deleted account's too: the tombstone keeps it); `title`: the chat's title while
+   * I still have it (link 'chat' then opens it). Never stored text. Older servers omit it */
+  chatLeft: z.object({ name: z.string().nullable(), title: z.string().nullable() }).optional(),
   /** 'chat.thread_reply' only (docs/decisions/20261116-chat-answer-threads.md; chat_thread_notices): someone replied in a
    * thread I follow under an AI answer of a shared chat. Read now, while I still see that chat and answer (link
    * 'chat_thread' then opens /c/<chatId>/t/<rootId>): `name`, the newest replier by display name while their account is

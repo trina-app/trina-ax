@@ -1210,6 +1210,7 @@ function EditMember({ user, groups, canChangeRole, onClose, onSaved }: { user: U
         </Field>
         <div>
           <p className="mb-1.5 text-label font-medium">{t('admin.groups')}</p>
+          <p className="mb-1.5 text-xs text-faint" data-testid="member-groups-access-note">{t('groups.accessNote')}</p>
           <GroupChecks groups={groups} value={groupIds} onChange={setGroupIds} />
         </div>
       </div>

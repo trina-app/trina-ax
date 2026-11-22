@@ -13,7 +13,7 @@ import { CARD_ALWAYS_KINDS, type CardAllowance, type CardAlwaysKind, type Locale
 import { audit } from '../admin/audit'
 import { getTeamSettings } from '../admin/settings'
 import { isConfidentialChat } from '../safe-ops/confidential'
-import { tr } from './i18n'
+import { ALWAYS_WHAT, tr } from './i18n'
 
 /** The apps a person asks from and watches the answer in. */
 export const LIVE_CLIENTS: ReadonlySet<string> = new Set(['web', 'desktop', 'mobile'])
@@ -88,12 +88,23 @@ export function dropAlways(db: Database, userId: string, id: string): boolean {
 export type AlwaysLabel = 'cardAlways' | 'cardAlwaysSkills'
 
 /** A kind whose "Always allow" risk is said in its own words on the card (the folder cards). */
-const KIND_NOTE: Partial<Record<CardAlwaysKind, 'cardAlwaysNoteShareFolder' | 'cardAlwaysNoteFolderAccess' | 'cardAlwaysNotePostFiles' | 'cardAlwaysNoteSaveWider'>> = {
+const KIND_NOTE: Partial<Record<CardAlwaysKind, 'cardAlwaysNoteShareFolder' | 'cardAlwaysNoteFolderAccess' | 'cardAlwaysNotePostFiles' | 'cardAlwaysNoteSaveWider' | 'cardAlwaysNoteMoveFiles' | 'cardAlwaysNotePostToRoom'>> = {
   share_folder: 'cardAlwaysNoteShareFolder', folder_access: 'cardAlwaysNoteFolderAccess',
   // the wider-audience card: a shorter line (docs/decisions/20261122-widening-card-wording.md)
   save_wider: 'cardAlwaysNoteSaveWider',
   // a room post whose Send carries copies of the linked files (chat/post-to-room.ts): what Always allow lets go later
   post_files: 'cardAlwaysNotePostFiles',
+  // the move / copy card and the room post card: what Always allow lets go later, not the generic line (QA TC-cards-8)
+  move_files: 'cardAlwaysNoteMoveFiles', post_to_room: 'cardAlwaysNotePostToRoom',
+}
+
+/** The line under a card's "Always allow" for `kind`: what it covers, in that kind's own words (KIND_NOTE), or the one
+ * line with the kind's {what} (ALWAYS_WHAT; QA TC-ask2-15), never a line that does not say which cards stop. */
+export function alwaysNote(kind: CardAlwaysKind, L: Locale): string {
+  const own = KIND_NOTE[kind]
+  if (own) return tr(own, L)
+  const what = (ALWAYS_WHAT as Partial<Record<CardAlwaysKind, Record<Locale, string>>>)[kind]
+  return what ? tr('cardAlwaysNoteKind', L, { what: what[L] ?? what.en }) : tr('cardAlwaysNote', L)
 }
 
 /** For a tool result when the person's own "Always allow" let the call run without its card (QA, integrate/sharing-all
@@ -116,7 +127,7 @@ export async function withAlways(p: AlwaysPlace | null | undefined, kind: CardAl
   if (here !== 'offer' || options.length < 2) return ask(options, {})
   if (!p) return ask(options, {})
   const opts = [...options.slice(0, -1), { label: tr(label, p.locale), value: ALWAYS_VALUE }, options.at(-1)!]
-  const answer = await ask(opts, { ...(opts.length === 3 ? { buttons: true as const } : {}), note: tr(KIND_NOTE[kind] ?? 'cardAlwaysNote', p.locale) })
+  const answer = await ask(opts, { ...(opts.length === 3 ? { buttons: true as const } : {}), note: alwaysNote(kind, p.locale) })
   const v = Array.isArray(answer) && answer.length === 1 ? answer[0] : answer
   if (v === ALWAYS_VALUE) {
     keepAlways(p.db, p.userId, kind, p.turnId)

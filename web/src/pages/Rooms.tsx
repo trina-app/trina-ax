@@ -84,7 +84,7 @@ export default function Rooms() {
   const computer = useMediaQuery('(min-width: 768px)')
   const titleOf = useRoomTitle()
   const locale = useLocale()
-  const folders = useSections(!computer)
+  const folders = useSections('rooms', !computer)
   if (resuming) return <div className="h-full" />
   const hidden = everyRoom.filter((r) => r.hidden)
   if (noChats && guestHome) return <Navigate to={guestHome} replace />

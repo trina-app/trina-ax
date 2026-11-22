@@ -20,6 +20,7 @@ import { mapErrors } from '../team-files/errors'
 import { savedFiles, savePlan, saveToTeam } from '../rooms/save-to-team'
 import { assertRoomUpload } from '../rooms/project-room'
 import { roomFileMovesOf } from '../rooms/file-moves'
+import { requestRoomFile, roomFileAccess } from '../rooms/file-ask'
 
 export const roomsRoutes: RouteModule = {
   name: 'rooms',
@@ -81,6 +82,9 @@ export const roomsRoutes: RouteModule = {
     kit.handle(API.hideRoomLinkPreview, ({ auth, params, body }) => rooms.hidePreview(auth.user.id, params.id, params.messageId, body.linkedMessageId))
     // threads and reactions (docs/DECISIONS.md "스레드와 반응"): a reply is a send with threadRootId
     kit.handle(API.listRoomThread, ({ c, auth, params, query }) => { c.header('Cache-Control', 'no-store'); return rooms.thread(auth.user.id, params.id, params.messageId, query) })
+    // "Ask to view" on a team-file link in a message I see that does not open for me (rooms/file-ask.ts, QA S-120)
+    kit.handle(API.roomFileAccess, ({ c, auth, params, query }) => { c.header('Cache-Control', 'no-store'); return roomFileAccess(ctx, auth.user.id, params.id, params.messageId, query.path) })
+    kit.handle(API.requestRoomFile, ({ c, auth, params, body }) => requestRoomFile(ctx, auth.user.id, params.id, params.messageId, body.path, c.get('locale')))
     kit.handle(API.markRoomThreadRead, ({ auth, params, body }) => rooms.markThreadRead(auth.user.id, params.id, params.messageId, body.seq))
     kit.handle(API.reactRoomMessage, ({ c, auth, params, body }) => rooms.react(auth.user.id, params.id, params.messageId, body.emoji, body.on, c.get('locale')))
     kit.handle(API.editRoomMessage, ({ c, auth, params, body }) => rooms.edit(auth.user.id, params.id, params.messageId, body, c.get('locale')))
@@ -140,9 +144,11 @@ export const roomsRoutes: RouteModule = {
     // room_file's read checks and, for the copy, the AI's byte save (write access again, never an overwrite)
     kit.handle(API.roomSavedFiles, ({ c, auth, params }) => { c.header('Cache-Control', 'no-store'); return savedFiles(ctx, auth.user.id, params.id) })
     kit.handle(API.roomSavePlan, ({ c, auth, params, body }) => mapErrors(c.get('locale'), () => savePlan(ctx, auth.user.id, params.id, body.fileIds, body.folder), 'body.folder'))
-    kit.handle(API.saveRoomFilesToTeam, ({ c, auth, params, body }) => mapErrors(c.get('locale'), () => saveToTeam(ctx, auth.user.id, params.id, body.fileIds, body.folder), 'body.folder'))
-    kit.handle(API.roomFile, ({ c, auth, params, query }) => {
-      const f = files.open(auth.user.id, params.id, params.fileId, !!query.thumb)
+    kit.handle(API.saveRoomFilesToTeam, ({ c, auth, params, body }) => mapErrors(c.get('locale'), () => saveToTeam(ctx, auth.user.id, params.id, body.fileIds, body.folder, { askWiden: body.askWiden, confirm: body.confirm }), 'body.folder'))
+    kit.handle(API.roomFile, async ({ c, auth, params, query }) => {
+      // a picture kept in the team folder (a project room's, a group channel's): its thumbnail is made from the team file
+      // after the same read checks (rooms/files.ts openThumb, rooms/team-thumbs.ts)
+      const f = query.thumb ? await files.openThumb(auth.user.id, params.id, params.fileId) : files.open(auth.user.id, params.id, params.fileId, false)
       // a file on the safety check's download-only list (docs/SAFE-OPS-1A.md) goes only as a download (download=1): no
       // thumbnail and no inline read, which is what the preview panel reads, and never into a picture, a frame, a player
       // or a script of a page (Fetch Metadata's destination). Unlike a team file's download, a fetch (destination empty)
@@ -154,7 +160,8 @@ export const roomsRoutes: RouteModule = {
       // above ran first. Anything else (an inline read, a download) is never kept, nor a file on the download-only list,
       // nor a project room's file kept in the team folder (its bytes are the team file's now, and may change)
       const cache = query.thumb && !query.download && !f.quarantined && !f.teamFile ? keptMediaCache(ctx.db, auth.session, query.k) ?? undefined : undefined
-      return streamFile({ abs: f.abs, name: f.name, req: c.req.raw, disposition: query.download ? 'attachment' : 'inline', via: c.get('info')?.via, cache })
+      // a team file is streamed only while it is the very file the read check saw (seen)
+      return streamFile({ abs: f.abs, seen: f.seen, name: f.name, req: c.req.raw, disposition: query.download ? 'attachment' : 'inline', via: c.get('info')?.via, cache })
     })
     // a Hangul file's pages from the HWP Preview plugin (files/hwp-preview.ts: the team file preview's renderer, limits,
     // isolation and cache). The inline read's checks run on every request, before the cache and the render and again

@@ -24,7 +24,10 @@ import { fillPlurals } from '@mycel/shared/plural'
 import type { AppContext } from '../context'
 import type { ToolCtx } from '../files/service'
 import { teamDefaultLocale } from '../admin/settings'
+import fs from 'node:fs'
+import { createHash } from 'node:crypto'
 import { atLeast } from '../policy/access'
+import { authorize } from '../policy/authorize'
 import { Denied, ToolError } from '../policy/errors'
 import { badSegment } from '../policy/names'
 import { cardNext, cardReason, readOnlyNote, refusal, SCREEN } from '../policy/refusal'
@@ -34,6 +37,24 @@ import { FileError } from '../team-files/errors'
 import type { ToolRegistry } from './registry'
 import { askConfirm } from './url-gate'
 import { instructionLike, patternName } from './rename-pattern'
+
+
+const persons = (n: number) => `${n} ${n === 1 ? 'person' : 'people'}`
+/** Who can see the moved or copied items now, for the AI, in the card's own numbers (QA TC-cards-8: the card said 10 more
+ * people, the answer said 11): `added` and `lost` are the very values the card was filled with (TEXT.added / TEXT.lost),
+ * `total` the same pass's count of others who can read the target folder. '' when nobody's access changed. */
+export function audienceResult(added: number, lost: number, total: number, mode: 'move' | 'copy', where: string): string {
+  if (!added && !lost) return ''
+  const change = [added ? `${persons(added)} more than before` : '', lost ? `${persons(lost)} fewer than before` : ''].filter(Boolean).join(', ')
+  return `Who can see ${mode === 'move' ? 'them' : 'the copies'} now (the numbers the user's card showed; say these, never a count of your own): ${change}; ${persons(total + 1)} in all can see them in ${where}, the user included.`
+}
+
+/** The many-items card's own count for the AI, after the person's yes on it (QA S-122: the card said 17 people, the
+ * answer counted 19): '' when no such card was shown in this call. */
+export function bulkResult(people: number | undefined): string {
+  if (people === undefined) return ''
+  return `The card the user said yes to told them ${persons(people)} other than them can see these places; when you say how many people, say this number, never a count of your own.`
+}
 
 export const FILE_MOVE_TOOL_NAMES = ['move_files', 'copy_files', 'rename_file', 'rename_files'] as const
 
@@ -108,17 +129,19 @@ export function registerFileMoveTools(ctx: AppContext, reg: ToolRegistry) {
     const shared = target ? [...paths] : svc.readByOthers(tc.user.id, paths)
     if (!shared.length) return null
     const extra = folder !== undefined ? [folder] : []
-    return { b, shared, ask: b.done + shared.length > BULK_CHANGE_FREE, people: () => svc.othersReading(tc.user.id, [...shared, ...extra]) }
+    return { b, shared, ask: b.done + shared.length > BULK_CHANGE_FREE, people: () => svc.othersReading(tc.user.id, [...shared, ...extra]), said: undefined as number | undefined }
   }
   /** The card for many moves or renames; null on a yes (the rest of the answer goes on without it), else the refusal. */
   async function bulkAsk(tc: ToolCtx, plan: NonNullable<ReturnType<typeof bulkPlan>>, lines: string[], o: { move?: { to: string } }): Promise<string | null> {
     const L = tc.person!.locale ?? teamDefaultLocale(ctx.db)
     const n = lines.length
-    const lead = o.move ? fill(TEXT.bulkMove[L], { n, people: plan.people(), to: o.move.to }, L) : fill(TEXT.bulkRename[L], { n, people: plan.people() }, L)
+    // one count, shown on the card and given back to the AI (QA S-122: the card said 17 people, the answer 19)
+    const people = plan.people()
+    const lead = o.move ? fill(TEXT.bulkMove[L], { n, people, to: o.move.to }, L) : fill(TEXT.bulkRename[L], { n, people }, L)
     const question = [lead, plan.b.done ? fill(TEXT.bulkEarlier[L], { n: plan.b.done }, L) : '', TEXT.bulkRest[L]].filter(Boolean).join(' ')
     const text = lines.slice(0, BULK_LINES_MAX).join('\n') + (n > BULK_LINES_MAX ? `\n${fill(TEXT.more[L], { n: n - BULK_LINES_MAX }, L)}` : '')
     const end = await askConfirm(tc.person!, question, TEXT.bulkYes[L], TEXT.no[L], { always: 'move_files', details: [{ label: TEXT.bulkList[L], text, noSize: true }] })
-    if (end === 'yes') { plan.b.approved = true; return null }
+    if (end === 'yes') { plan.b.approved = true; plan.said = people; return null }
     const verb = o.move ? 'moved' : 'renamed'
     return refusal({
       done: end === 'declined' ? `The user did not allow this, so nothing was ${verb}.` : `Nothing was ${verb}.`,
@@ -143,6 +166,22 @@ export function registerFileMoveTools(ctx: AppContext, reg: ToolRegistry) {
     return e instanceof ToolError || e instanceof FileError ? e.message : 'internal error'
   }
 
+  /** The file `to` when the person can read it and it holds exactly what `from` holds (both files, same size, same
+   * sha256); null otherwise, also on any error (the copy goes on as before). */
+  async function sameFileThere(tc: ToolCtx, from: string, to: string): Promise<string | null> {
+    try {
+      const rules = ctx.files.rules()
+      const a = authorize(ctx.files.fx, rules, tc.user, from, 'read')
+      const b = authorize(ctx.files.fx, rules, tc.user, to, 'read')
+      if (!a.exists || !b.exists || !a.st?.isFile() || !b.st?.isFile() || a.abs === b.abs || a.st.size !== b.st.size) return null
+      const sha = (abs: string) => new Promise<string>((res, rej) => {
+        const h = createHash('sha256')
+        fs.createReadStream(abs).on('data', (c) => h.update(c)).on('end', () => res(h.digest('hex'))).on('error', rej)
+      })
+      return (await sha(a.abs)) === (await sha(b.abs)) ? b.rel : null
+    } catch { return null }
+  }
+
   async function batch(mode: Mode, a: { paths: string[]; to_folder: string }, tc: ToolCtx) {
     const tool = mode === 'move' ? 'move_files' : 'copy_files'
     const verb = mode === 'move' ? 'moved' : 'copied'
@@ -158,11 +197,26 @@ export function registerFileMoveTools(ctx: AppContext, reg: ToolRegistry) {
       try { audiences.set(p, svc.audienceChange(tc.user.id, [p], folder, mode).fingerprint); ok.push(p) } catch (e) { failed.push({ path: p, error: why(e, tc) }) }
     }
     const lines = (rows: { path: string; error: string }[]) => rows.map((f) => `- ${f.path}: ${f.error}`).join('\n')
+    // a copy whose target folder already holds the same file (its name, the same bytes: sha256) is already there: no
+    // card, nothing written, the result says so (QA S-018: "복사할까요? 15명이 더 볼 수 있게 돼요" for a file that was
+    // there, then a duplicate " (2)")
+    const there: { from: string; to: string }[] = []
+    if (mode === 'copy') {
+      for (const p of [...ok]) {
+        const to = await sameFileThere(tc, p, join(folder, nameOf(p)))
+        if (to) { there.push({ from: p, to }); ok.splice(ok.indexOf(p), 1) }
+      }
+    }
+    const thereText = there.length ? `Already there (the same file, same name and content), nothing copied:\n${there.map((d) => `- ${d.from} = ${d.to}`).join('\n')}` : ''
+    if (!ok.length && there.length) {
+      const text = [thereText, failed.length ? `Not ${verb}:\n${lines(failed)}` : ''].filter(Boolean).join('\n\n')
+      return { text, summary: `${tool} 0/${there.length + failed.length} -> ${folder} (${there.length} already there)`, structured: { copied: [], already: there, failed } }
+    }
     if (!ok.length) throw new ToolError(`nothing was ${verb}:\n${lines(failed)}`)
 
     // who can see them: one question for the whole call, on the server's card; after a room read this card stands in
     // for the room card, so it asks even when nobody's access changes (TurnPerson.roomsSeen)
-    const { added, lost, isNew } = svc.audienceChange(tc.user.id, ok, folder, mode)
+    const { added, lost, total, isNew } = svc.audienceChange(tc.user.id, ok, folder, mode)
     const L = tc.person?.locale ?? teamDefaultLocale(ctx.db)
     const where = `${folder || 'the team root'}${isNew ? ' (a new folder)' : ''}`
     const change = `this would change who can see ${ok.length === 1 ? 'it' : 'these files'} in ${where}: ${added} more, ${lost} fewer people`
@@ -170,7 +224,13 @@ export function registerFileMoveTools(ctx: AppContext, reg: ToolRegistry) {
     // many moves where other people look (QA TC-r2u-25; not copies: the originals stay): one card for the rest of the
     // answer; when the card below asks anyway, its yes (which lists them too) stands for it
     const bulk = mode === 'move' ? bulkPlan(tc, ok, folder) : null
-    const audienceCard = added > 0 || lost > 0 || !!tc.person?.roomsSeen
+    // the person's own message of this turn asked to save, move or copy there and named the place (docs/decisions/
+    // 20261122-ask-less-explicit-save.md, QA TC-ask2-8): a card that would only say more people can see them there is
+    // skipped. Never when someone loses access (a move out of a shared place), after a room read, or under the many-items
+    // card (that one still asks); the person's words alone, never other people's (TurnPerson.explicitPlace), and the
+    // files the person's too: named, attached or made in this answer (a place they named does not cover files the AI chose)
+    const asked = added > 0 && !lost && !tc.person?.roomsSeen && !tc.person?.unattended && !(bulk?.ask) && !!tc.person?.explicitPlace?.(folder, ok)
+    const audienceCard = !asked && (added > 0 || lost > 0 || !!tc.person?.roomsSeen)
     if (bulk?.ask && !audienceCard) {
       const no = await bulkAsk(tc, bulk, ok.map(nameOf), { move: { to: placeWords(ctx.db, folder, L, tc.user.id) } })
       if (no) throw new ToolError(no)
@@ -203,6 +263,7 @@ export function registerFileMoveTools(ctx: AppContext, reg: ToolRegistry) {
       confirmed = true
       if (bulk?.ask) bulk.b.approved = true
     }
+    if (asked) confirmed = true
     // (counted before they run: an item that then fails still counts, so the card comes sooner, never later)
     if (bulk) bulk.b.done += bulk.shared.length
     // a new target folder: made now (after the yes), then filled; recorded once something went in, else taken away
@@ -245,9 +306,12 @@ export function registerFileMoveTools(ctx: AppContext, reg: ToolRegistry) {
     const text = [
       made.length ? `Made the new folder ${made.at(-1)}.` : '',
       done.length ? `${mode === 'move' ? 'Moved' : 'Copied'} ${done.length} to ${folder || 'the team root'}:\n${done.map((d) => `- ${d.from} -> ${d.to}`).join('\n')}` : `Nothing was ${verb}.`,
+      thereText,
       failed.length ? `Not ${verb}:\n${lines(failed)}` : '',
+      done.length ? audienceResult(added, lost, total, mode, where) : '',
+      done.length ? bulkResult(bulk?.said) : '',
     ].filter(Boolean).join('\n\n')
-    const summary = `${tool} ${done.length}/${done.length + failed.length} -> ${folder}${confirmed ? ` (confirmed by the user: +${added} -${lost})` : ''}`
+    const summary = `${tool} ${done.length}/${done.length + failed.length + there.length} -> ${folder}${asked ? ` (asked for in the user's message: +${added})` : confirmed ? ` (confirmed by the user: +${added} -${lost})` : ''}`
     if (!done.length) return { text, isError: true, summary }
     return { text, summary, structured: mode === 'move' ? { moved: done, failed } : { copied: done, failed } }
   }
@@ -304,16 +368,16 @@ export function registerFileMoveTools(ctx: AppContext, reg: ToolRegistry) {
   }
 
   /** Many renames where other people look (QA TC-r2u-25): null to go on, else the refusal. Counts this call's items. */
-  async function renameBulk(items: { path: string; new_name: string }[], tc: ToolCtx): Promise<string | null> {
+  async function renameBulk(items: { path: string; new_name: string }[], tc: ToolCtx): Promise<{ no: string } | { said?: number } | null> {
     const plan = bulkPlan(tc, items.map((it) => it.path))
     if (!plan) return null
     if (plan.ask) {
       const shared = new Set(plan.shared)
       const no = await bulkAsk(tc, plan, items.filter((it) => shared.has(it.path)).map((it) => `${nameOf(it.path)} → ${it.new_name.normalize('NFC')}`), {})
-      if (no) return no
+      if (no) return { no }
     }
     plan.b.done += plan.shared.length
-    return null
+    return plan.said === undefined ? null : { said: plan.said }
   }
 
   /** rename_files: a list of renames, or a find/replace on the names directly inside one folder; each item on its own
@@ -340,8 +404,8 @@ export function registerFileMoveTools(ctx: AppContext, reg: ToolRegistry) {
       items = all.slice(0, RENAME_FILES_MAX)
       left = all.length - items.length
     }
-    const no = await renameBulk(items, tc)
-    if (no) return { text: no, isError: true, summary: `rename_files 0/${items.length} (not allowed)` }
+    const bulk = await renameBulk(items, tc)
+    if (bulk && 'no' in bulk) return { text: bulk.no, isError: true, summary: `rename_files 0/${items.length} (not allowed)` }
     const done: { from: string; to: string }[] = []
     const failed: { path: string; error: string }[] = []
     for (const it of items) {
@@ -356,6 +420,7 @@ export function registerFileMoveTools(ctx: AppContext, reg: ToolRegistry) {
     const text = [
       done.length ? `Renamed ${done.length}${where ? ` in ${where}` : ''}:\n${done.map((d) => `- ${d.from} -> ${nameOf(d.to)}`).join('\n')}` : 'Nothing was renamed.',
       failed.length ? `Not renamed:\n${failed.map((f) => `- ${f.path}: ${f.error}`).join('\n')}` : '',
+      done.length ? bulkResult(bulk && 'said' in bulk ? bulk.said : undefined) : '',
       left ? `${left} more name${left === 1 ? '' : 's'} match: at most ${RENAME_FILES_MAX} are renamed per call. Call rename_files again with the same folder and find for the rest (a name renamed above is changed again only if its new name still matches).` : '',
     ].filter(Boolean).join('\n\n')
     const summary = `rename_files ${done.length}/${done.length + failed.length}${where ? ` in ${a.folder}` : ''}${left ? ` (${left} left)` : ''}`
@@ -371,11 +436,11 @@ export function registerFileMoveTools(ctx: AppContext, reg: ToolRegistry) {
     async run(a, tc) {
       const p = clean(a.path)
       // one at a time counts too: the fourth rename in this answer where other people look asks (QA TC-r2u-25)
-      const no = await renameBulk([{ path: p, new_name: a.new_name }], tc)
-      if (no) throw new ToolError(no)
+      const bulk = await renameBulk([{ path: p, new_name: a.new_name }], tc)
+      if (bulk && 'no' in bulk) throw new ToolError(bulk.no)
       try {
         const to = renameOne(p, a.new_name, tc, 'rename_file')
-        return { text: `Renamed ${p} to ${to}.`, summary: `rename_file ${p} -> ${to}`, structured: { path: to } }
+        return { text: [`Renamed ${p} to ${to}.`, bulkResult(bulk && 'said' in bulk ? bulk.said : undefined)].filter(Boolean).join('\n\n'), summary: `rename_file ${p} -> ${to}`, structured: { path: to } }
       } catch (e) {
         // an admin-only folder names the admins (B14); a read-only place says who can give write access (B2)
         if (e instanceof FileError) throw new ToolError(why(e, tc))

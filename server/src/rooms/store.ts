@@ -169,6 +169,16 @@ export function refsOf(db: Database, ids: Iterable<string | null>): Map<string, 
   return out
 }
 
+/** Of these authors, the ones whose account is turned off or removed (RoomMessage.authorLeft): 'guest' or 'member' */
+export function leftOf(db: Database, ids: Iterable<string | null>): Map<string, 'member' | 'guest'> {
+  const want = [...new Set([...ids].filter((x): x is string => !!x))]
+  const out = new Map<string, 'member' | 'guest'>()
+  if (!want.length) return out
+  for (const r of db.query(`SELECT id, guest FROM users WHERE id IN (${want.map(() => '?').join(',')}) AND (status <> 'active' OR deleted_at IS NOT NULL)`).all(...want) as { id: string; guest: number }[]) out.set(r.id, r.guest ? 'guest' : 'member')
+  return out
+}
+const leftField = (left: Map<string, 'member' | 'guest'>, authorId: string | null) => { const l = authorId ? left.get(authorId) : undefined; return l ? { authorLeft: l } : {} }
+
 const excerpt = (s: string, max: number) => (s.length > max ? s.slice(0, max - 1) + '…' : s)
 /** A long message for the AI: its start and its end, the middle said to be left out (a request at the end of a long
  * paste, "…위 내용으로 견적서 만들어줘", stays in). `head`: the start's share of `max`. */
@@ -285,7 +295,8 @@ export function messagesOut(db: Database, all: readonly MessageRow[], viewer: Me
   if (!withheld.size) return out
   const shown = new Map(out.map((m) => [m.id, m]))
   const people = refsOf(db, all.filter((r) => withheld.has(r.id)).flatMap((r) => [r.author_kind === 'ai' ? null : r.author_id, r.asked_by]))
-  return all.map((r) => shown.get(r.id) ?? withheldOut(db, r, viewer, people))
+  const left = leftOf(db, all.filter((r) => withheld.has(r.id) && r.author_kind !== 'ai').map((r) => r.author_id))
+  return all.map((r) => shown.get(r.id) ?? { ...withheldOut(db, r, viewer, people), ...(r.author_kind === 'ai' ? {} : leftField(left, r.author_id)) })
 }
 
 /** One hidden answer as the viewer gets it: who wrote or asked it and when; an AI answer keeps the question it answers
@@ -331,6 +342,8 @@ function shownOut(db: Database, rows: readonly MessageRow[], viewer: MemberRow, 
   const replyRoots = [...new Set(rows.map((r) => r.thread_root_id).filter((x): x is string => !!x))]
   const followed = new Set(replyRoots.length ? (db.query(`SELECT root_id FROM room_thread_follows WHERE user_id = ? AND root_id IN (${replyRoots.map(() => '?').join(',')})`).all(viewer.user_id, ...replyRoots) as { root_id: string }[]).map((r) => r.root_id) : [])
   const people = refsOf(db, [...rows.flatMap((r) => [r.author_id, r.asked_by]), ...[...quotes.values()].map((q) => q.author_id), ...[...events.values()].flatMap(eventUserIds)])
+  // (S-110: a removed guest's old messages read "정하늘 · 게스트 · 나감", not a plain name)
+  const left = leftOf(db, rows.filter((r) => !r.event).map((r) => r.author_id))
   // the projects the page's project lines name, as they are now for this viewer (one resolver: eventProjectsFor)
   const linkIds = [...events.values()].flatMap((e) => ('projectId' in e ? [e.projectId] : []))
   const projects = linkIds.length ? eventProjectsFor(db, linkIds, viewer.user_id) : undefined
@@ -372,6 +385,7 @@ function shownOut(db: Database, rows: readonly MessageRow[], viewer: MemberRow, 
     return {
       id: r.id, roomId: r.room_id, seq: r.seq, authorKind: r.author_kind,
       author: r.author_id ? people.get(r.author_id) ?? null : null,
+      ...(r.author_id && people.has(r.author_id) ? leftField(left, r.author_id) : {}),
       askedBy: r.asked_by ? people.get(r.asked_by) ?? null : null,
       visibility: r.visibility,
       body: r.deleted_at ? '' : r.body,

@@ -143,6 +143,12 @@ export const READ_MEDIA_VERB: Record<MediaKind, T> = {
 /** A read of a deck's slides as pictures (read with pages or as_images of a .pptx) says which slides: "View slides 3–5 ·
  * launch.pptx", as a video read says "Watch video" (QA TC-6943). The numbers follow the verb in every language. */
 export const READ_SLIDES_VERB: T = t('슬라이드 보기', 'View slides', 'Lihat slide', "スライドを見る", "Ver diapositivas", "查看幻灯片")
+/** The artifact tool's change, read and restore of a page (server/src/tools/artifact.ts), instead of "Make a page" */
+export const ARTIFACT_ACTION_VERB: Record<'edit' | 'read' | 'restore', T> = {
+  edit: t('화면 고치기', 'Edit a page', 'Ubah halaman', "画面を編集", "Editar una página", "编辑页面"),
+  read: t('화면 보기', 'View a page', 'Lihat halaman', "画面を見る", "Ver una página", "查看页面"),
+  restore: t('화면 되돌리기', 'Restore a page', 'Pulihkan halaman', "画面を戻す", "Restaurar una página", "恢复页面"),
+}
 
 /** Was this stored read step a look at a deck's slides (by its verb, in any language)? The web app's icon. */
 export function slidesStep(step: { tool?: string; label: string }): boolean {
@@ -370,7 +376,10 @@ export function stepLabel(tool: string, input: unknown, locale: Locale, browserT
       const paths = Array.isArray(a.paths) ? [...new Set(a.paths)] : []
       return paths.length ? `${verb} · ${clip(paths[0], 80)}${paths.length > 1 ? ` +${paths.length - 1}` : ''}` : verb!
     }
-    case 'artifact': return `${verb} · ${clip(a.title ?? a.key, 80)}`
+    case 'artifact': {
+      const act = a.action === 'read' || a.action === 'restore' ? ARTIFACT_ACTION_VERB[a.action][locale] : a.action === 'update' || a.action === 'rewrite' ? ARTIFACT_ACTION_VERB.edit[locale] : verb
+      return `${act} · ${clip(a.title ?? a.key, 80)}${a.action === 'restore' && typeof a.version === 'number' ? ` · v${a.version}` : ''}`
+    }
     case 'web_fetch': return `${verb} · ${clip(a.url, 80)}`
     case 'save_url': return `${verb} · ${clip(a.save_as || a.url, 80)}`
     case 'save_connector_file': return a.save_as ? `${verb} · ${clip(a.save_as, 80)}` : verb!
@@ -771,6 +780,7 @@ export function localizeStep(step: { kind: string; tool?: string; label: string;
   else if (tool === 'forget') label = retemplate(['forgotText', 'forgot'], step.label, locale)
   else if (BROWSER_STEP_VERB[tool] || step.kind === 'browser' || browserTools?.has(tool)) label = reverb(BROWSER_STEP_VERB[tool] ?? BROWSER_STEP_FALLBACK, step.label, locale, LEGACY_VERBS[tool])
   else if (tool === 'read') label = reverb(READ_MEDIA_VERB.video, step.label, locale) ?? reverb(READ_MEDIA_VERB.audio, step.label, locale) ?? reverb(READ_SLIDES_VERB, step.label, locale) ?? reverb(FILE_STEP_VERB.read!, step.label, locale)
+  else if (tool === 'artifact') label = reverb(ARTIFACT_ACTION_VERB.edit, step.label, locale) ?? reverb(ARTIFACT_ACTION_VERB.read, step.label, locale) ?? reverb(ARTIFACT_ACTION_VERB.restore, step.label, locale) ?? reverb(FILE_STEP_VERB.artifact!, step.label, locale, LEGACY_VERBS[tool])
   else if (tool !== 'box_shell' && FILE_STEP_VERB[tool]) label = reverb(FILE_STEP_VERB[tool]!, step.label, locale, LEGACY_VERBS[tool])
   const details: StepTextKey[] = tool === 'connect_service' ? ['connectConnected', 'connectNotConnected'] : ['notAnswered', 'webSearchRefused']
   let detail = step.detail !== undefined ? (retemplate(details, step.detail, locale) ?? step.detail) : undefined

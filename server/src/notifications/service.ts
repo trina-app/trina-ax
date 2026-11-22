@@ -83,7 +83,7 @@ export type AccessRequestEvent = Extract<NotificationEventType, 'access.requeste
 const isAccessRequestEvent = (e: NotificationEventType): e is AccessRequestEvent => e === 'access.requested' || e === 'access.answered'
 /** A re-share within this long of a share still unread updates that notice in place (chatShared): no second push. */
 const SHARE_AGAIN_QUIET_MS = 10 * 60_000
-const tableOf = (e: NotificationEventType) => e === 'chat.answer_done' ? 'chat_answer_notices' : isSkillEvent(e) ? 'skill_notices' : isDevEnvEvent(e) ? 'dev_env_notices' : e === 'integration.request' ? 'integration_request_notices' : e === 'onboarding.ai_request' ? 'onboarding_notices' : e === 'team.joined' ? 'team_join_notices' : e === 'onboarding.first_run' ? 'onboarding_goal_notices' : isRoomEvent(e) ? 'room_notices' : e === 'account.deletion_request' ? 'account_deletion_notices' : e === 'account.deletion_due' ? 'account_deletion_due_notices' : isTemplateEvent(e) ? 'integration_template_notices' : e === 'drive.share_reconnect' ? 'drive_share_notices' : e === 'skills.merge_waiting' ? 'skill_merge_notices' : e === 'credential.change' ? 'credential_change_notices' : isHandoverEvent(e) ? 'handover_notices' : e === 'project.joined' ? 'project_notices' : e === 'chat.shared' ? 'chat_share_notices' : e === 'service.closed' ? 'service_request_closed_notices' : e === 'files.stored_key' ? 'stored_key_file_notices' : isServiceRequestEvent(e) ? 'service_request_notices' : e === 'account.reset_link' ? 'reset_link_notices' : e === 'account.google_connected' ? 'google_connect_notices' : isHostingEvent(e) ? 'hosting_notices' : e === 'engine.start_failed' ? 'engine_start_notices' : e === 'storage.filling' || e === 'storage.cleanup' ? 'storage_notices' : e === 'room_app.paused' ? 'room_app_notices' : e === 'room_app.leaver' ? 'room_app_leaver_notices' : isFileShareEvent(e) ? 'file_share_notices' : isAccessRequestEvent(e) ? 'access_request_notices' : e === 'chat.thread_reply' ? 'chat_thread_notices' : e === 'chat.lost' ? 'chat_lost_notices' : 'notification_inbox'
+const tableOf = (e: NotificationEventType) => e === 'chat.answer_done' ? 'chat_answer_notices' : isSkillEvent(e) ? 'skill_notices' : isDevEnvEvent(e) ? 'dev_env_notices' : e === 'integration.request' ? 'integration_request_notices' : e === 'onboarding.ai_request' ? 'onboarding_notices' : e === 'team.joined' ? 'team_join_notices' : e === 'onboarding.first_run' ? 'onboarding_goal_notices' : isRoomEvent(e) ? 'room_notices' : e === 'account.deletion_request' ? 'account_deletion_notices' : e === 'account.deletion_due' ? 'account_deletion_due_notices' : isTemplateEvent(e) ? 'integration_template_notices' : e === 'drive.share_reconnect' ? 'drive_share_notices' : e === 'skills.merge_waiting' ? 'skill_merge_notices' : e === 'credential.change' ? 'credential_change_notices' : isHandoverEvent(e) ? 'handover_notices' : e === 'project.joined' ? 'project_notices' : e === 'chat.shared' ? 'chat_share_notices' : e === 'service.closed' ? 'service_request_closed_notices' : e === 'files.stored_key' ? 'stored_key_file_notices' : isServiceRequestEvent(e) ? 'service_request_notices' : e === 'account.reset_link' ? 'reset_link_notices' : e === 'account.google_connected' ? 'google_connect_notices' : isHostingEvent(e) ? 'hosting_notices' : e === 'engine.start_failed' ? 'engine_start_notices' : e === 'storage.filling' || e === 'storage.cleanup' ? 'storage_notices' : e === 'room_app.paused' ? 'room_app_notices' : e === 'room_app.leaver' ? 'room_app_leaver_notices' : isFileShareEvent(e) ? 'file_share_notices' : isAccessRequestEvent(e) ? 'access_request_notices' : e === 'chat.thread_reply' ? 'chat_thread_notices' : e === 'chat.lost' ? 'chat_lost_notices' : e === 'chat.left' ? 'chat_left_notices' : 'notification_inbox'
 /** One inbox over the tables: skill notices (migration 211, R2-SKILL-12), dev environment notices (migration 219),
  * requests to connect a service (migration 220), a member's request for an AI connection (migration 231), joins
  * through the team invite link (migration 111), a member's first run of a team skill during the 7-day team goal
@@ -98,7 +98,7 @@ const tableOf = (e: NotificationEventType) => e === 'chat.answer_done' ? 'chat_a
  * that could not start on this server (migration 127), the team's disk filling up (migration 702), and an
  * app in a room that paused for the day (migration 299) and someone who left who still knows an app's address (migration 352)
  * have their own tables, because notification_inbox has a fixed event_type CHECK list and tables are never rebuilt. */
-const NOTICE_TABLES = ['notification_inbox', 'skill_notices', 'dev_env_notices', 'integration_request_notices', 'onboarding_notices', 'team_join_notices', 'onboarding_goal_notices', 'room_notices', 'account_deletion_notices', 'account_deletion_due_notices', 'integration_template_notices', 'drive_share_notices', 'skill_merge_notices', 'credential_change_notices', 'handover_notices', 'project_notices', 'service_request_notices', 'service_request_closed_notices', 'stored_key_file_notices', 'reset_link_notices', 'hosting_notices', 'engine_start_notices', 'storage_notices', 'room_app_notices', 'room_app_leaver_notices', 'chat_answer_notices', 'chat_share_notices', 'file_share_notices', 'chat_thread_notices', 'access_request_notices', 'chat_lost_notices', 'google_connect_notices'] as const
+const NOTICE_TABLES = ['notification_inbox', 'skill_notices', 'dev_env_notices', 'integration_request_notices', 'onboarding_notices', 'team_join_notices', 'onboarding_goal_notices', 'room_notices', 'account_deletion_notices', 'account_deletion_due_notices', 'integration_template_notices', 'drive_share_notices', 'skill_merge_notices', 'credential_change_notices', 'handover_notices', 'project_notices', 'service_request_notices', 'service_request_closed_notices', 'stored_key_file_notices', 'reset_link_notices', 'hosting_notices', 'engine_start_notices', 'storage_notices', 'room_app_notices', 'room_app_leaver_notices', 'chat_answer_notices', 'chat_share_notices', 'file_share_notices', 'chat_thread_notices', 'access_request_notices', 'chat_lost_notices', 'chat_left_notices', 'google_connect_notices'] as const
 const union = (tables: readonly string[]) => `(${tables.map((t) => `SELECT id,user_id,event_type,source_id,created_at,read_at,suppressed FROM ${t}`).join(' UNION ALL ')})`
 /** A person's message in a chat shared with people (chat_message_notices, migration 436; chat/message-notices.ts): read
  * by id (what a push opens) like every notice; the chat row's number shows it and reading the chat reads it. Only a
@@ -351,6 +351,22 @@ export class Notifications {
       VALUES(?,?,'chat.lost',?,?,?,?,?,?,0) ON CONFLICT DO NOTHING`).run(newId(), userId, `${chatId}:${reason}:${day}`, chatId, byUser, reason, day, at)
     // the unread "shared a chat with you" of that chat would now say "no longer shared" beside this one: read
     this.ctx.db.query('UPDATE chat_share_notices SET read_at = ? WHERE user_id = ? AND chat_id = ? AND read_at IS NULL').run(at, userId, chatId)
+    if (r.changes) this.signal(userId)
+  }
+  /** Someone left a chat this person (its creator) shared with them (chat/people-share.ts leaveChat;
+   * docs/decisions/20261122-qa-ux-followups-1122.md): one row per chat, person who left and day. Ids only; who and the title
+   * are read when it is shown. Shown always; never pushed. */
+  chatLeft(userId: string, chatId: string, byUser: string, at = new Date().toISOString()) {
+    if (!this.active(userId) || at < this.cutoff()) return
+    const day = at.slice(0, 10)
+    const r = this.ctx.db.query(`INSERT INTO chat_left_notices(id,user_id,event_type,source_id,chat_id,by_user,day,created_at,suppressed)
+      VALUES(?,?,'chat.left',?,?,?,?,?,0) ON CONFLICT DO NOTHING`).run(newId(), userId, `${chatId}:${byUser}:${day}`, chatId, byUser, day, at)
+    if (r.changes) this.signal(userId)
+  }
+  /** The person left a chat shared with them: their own "shared a chat with you" rows of it go (they would read "no
+   * longer shared with you" about their own leave, QA TC-v2g-04). */
+  chatShareNoticesGone(userId: string, chatId: string) {
+    const r = this.ctx.db.query('DELETE FROM chat_share_notices WHERE user_id = ? AND chat_id = ?').run(userId, chatId)
     if (r.changes) this.signal(userId)
   }
   /** A chat came back from the trash: the unread 'deleted' notices about it go (they would say something untrue now). */
@@ -812,8 +828,9 @@ export class Notifications {
     // else "no longer shared with you" with who shared it (QA TC-7047), no title (it may have been renamed since) and no link
     if (row.event_type === 'chat.shared') {
       const n = this.ctx.db.query('SELECT chat_id, by_user FROM chat_share_notices WHERE id = ?').get(row.id) as { chat_id: string; by_user: string | null } | null
-      // the sharer while their account is there and switched on (the same rule as the push label, chat-shares.ts sharerName)
-      const u = n?.by_user ? this.ctx.db.query("SELECT name FROM users WHERE id=? AND status='active' AND deleted_at IS NULL").get(n.by_user) as { name: string } | null : null
+      // the sharer by name, also once their account is off or deleted (the tombstone keeps it: QA TC-f3-08); the push label
+      // keeps its own rule (chat-shares.ts sharerName)
+      const u = n?.by_user ? this.ctx.db.query('SELECT name FROM users WHERE id=?').get(n.by_user) as { name: string } | null : null
       const c = n ? this.ctx.db.query('SELECT id, user_id, title, project_id, people_shared_at, deleted_at, room_id FROM chats WHERE id = ?').get(n.chat_id) as { id: string; user_id: string; title: string; project_id: string | null; people_shared_at: string | null; deleted_at: string | null; room_id: string | null } | null : null
       const sees = !!c && !c.deleted_at && !c.room_id && isPeopleRow(c) && inPeopleAudience(this.ctx.db, c, row.user_id)
       const title = sees ? plainLabel(redactorFor(this.ctx, c!.user_id).hide(c!.title || '')) : null
@@ -831,6 +848,16 @@ export class Notifications {
       const until = n?.reason === 'account' && c ? chatGoneAt(this.ctx, c.user_id) : null
       return { id: row.id, eventType: row.event_type, sourceId: row.source_id, code: row.event_type, createdAt: row.created_at, readAt: row.read_at, chatId: sees ? c!.id : null, link: sees ? 'chat' : null, outcome: null,
         ...(n ? { chatLost: { reason: n.reason, name: u?.name ?? null, title: title || null, ...(until ? { until } : {}) } } : {}) }
+    }
+    // someone left a chat I shared: who (the tombstone keeps a deleted account's name), and the chat while it is mine
+    if (row.event_type === 'chat.left') {
+      const n = this.ctx.db.query('SELECT chat_id, by_user FROM chat_left_notices WHERE id = ?').get(row.id) as { chat_id: string; by_user: string | null } | null
+      const u = n?.by_user ? this.ctx.db.query('SELECT name FROM users WHERE id=?').get(n.by_user) as { name: string } | null : null
+      const c = n ? this.ctx.db.query('SELECT id, user_id, title, deleted_at, room_id FROM chats WHERE id = ?').get(n.chat_id) as { id: string; user_id: string; title: string; deleted_at: string | null; room_id: string | null } | null : null
+      const mine = !!c && !c.deleted_at && !c.room_id && c.user_id === row.user_id
+      const title = mine ? plainLabel(redactorFor(this.ctx, c!.user_id).hide(c!.title || '')) : null
+      return { id: row.id, eventType: row.event_type, sourceId: row.source_id, code: row.event_type, createdAt: row.created_at, readAt: row.read_at, chatId: mine ? c!.id : null, link: mine ? 'chat' : null, outcome: null,
+        ...(n ? { chatLeft: { name: u?.name ?? null, title: title || null } } : {}) }
     }
     // a reply in a thread I follow under an AI answer of a shared chat: who and which chat, read now while I still see the
     // thread (chat/threads.ts); else no name, title or link

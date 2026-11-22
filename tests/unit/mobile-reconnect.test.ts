@@ -136,10 +136,75 @@ test('a team that answers health but fails the page is not reloaded every 2 s: t
 
 test('App.tsx: the failure screen starts and stops it, the foreground wakes it, a loaded page resets it', () => {
   const app = fs.readFileSync(path.join(import.meta.dir, '../../mobile/App.tsx'), 'utf8')
-  expect(app).toContain("return c.ok || c.reason !== 'unreachable'")
-  expect(app).toContain('if (failed) again.start(); else again.stop()')
+  expect(app).toContain('const answer = probeAnswer(c)')
+  expect(app).toContain("return answer === 'load'")
+  expect(app).toContain('if (!failed) { again.stop(); setStarting(null); return }\n    again.start()')
   expect(app).toContain("if (state === 'active') again.wake(); else again.pause()")
   expect(app).toContain('reconnect.current?.reset()')
   // Try again stays
   expect(app).toContain('onPress={() => setFailed(null)} testID="retry"')
+})
+
+test('now(): a probe at once, the backoff after it; not in the background; after a probe that was being stopped', async () => {
+  const c = clock(), net = network(c)
+  const r = new Reconnect(net.probe, () => {}, c.timers)
+  r.now()
+  expect(net.probes).toEqual([])
+  r.start(); r.now()
+  await flush()
+  expect(net.probes).toEqual([0])
+  // the backoff goes on after it (its first step was taken by start)
+  await c.elapse(4_000)
+  expect(net.probes).toEqual([0, 4_000])
+  r.pause(); r.now()
+  await flush()
+  expect(net.probes.length).toBe(2)
+  r.stop()
+  // a probe on its way when the screen goes and comes back (Try again, the page 503s again): the next one right after it
+  let answer: (v: boolean) => void = () => {}
+  const seen: AbortSignal[] = []
+  let probes = 0
+  const slow = new Reconnect(signal => { probes++; seen.push(signal); return new Promise<boolean>(resolve => { answer = resolve }) }, () => {}, c.timers)
+  slow.start(); slow.now()
+  await flush()
+  expect(probes).toBe(1)
+  slow.stop()
+  expect(seen[0]!.aborted).toBe(true)
+  slow.start(); slow.now()
+  answer(true)
+  await flush()
+  expect(probes).toBe(2)
+  expect(seen[1]!.aborted).toBe(false)
+})
+
+test('stop() and pause() abort the probe on its way (a wake waits up to 3 minutes); its answer then loads nothing', async () => {
+  const c = clock()
+  let back = 0, answer: (v: boolean) => void = () => {}
+  const seen: AbortSignal[] = []
+  const r = new Reconnect(signal => { seen.push(signal); return new Promise<boolean>(resolve => { answer = resolve }) }, () => { back++ }, c.timers)
+  r.start(); r.now()
+  await flush()
+  r.pause()
+  expect(seen[0]!.aborted).toBe(true)
+  answer(true)
+  await flush()
+  expect(back).toBe(0)
+  expect(r.waiting).toBe(false)
+  // back in the foreground: asks again
+  r.wake()
+  await flush()
+  expect(seen.length).toBe(2)
+  answer(true)
+  await flush()
+  expect(back).toBe(1)
+})
+
+test('App.tsx: a 503 asks the team at once and shows the waking note; other 5xx as before', () => {
+  const app = fs.readFileSync(path.join(import.meta.dir, '../../mobile/App.tsx'), 'utf8')
+  expect(app).toContain('const step = httpFailure(event.nativeEvent.statusCode)')
+  expect(app).toContain("if (step === 'check') { checkNow.current = true; setStarting('check') }")
+  expect(app).toContain('if (checkNow.current) { checkNow.current = false; again.now() }')
+  expect(app).toContain("checkTeam(address.origin, service.teamDomain, () => { if (!signal.aborted) setStarting('waking') }, signal)")
+  expect(app).toMatch(/if \(failed && starting\) return <Center>\n\s*\{starting === 'waking' \? <WakingNote \/>/)
+  expect(app).not.toContain('statusCode >= 500) fail(')
 })

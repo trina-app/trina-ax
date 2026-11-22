@@ -77,7 +77,7 @@ export function reasonText(r: RefusalReason): string {
     case 'declined':
       return `${r.who ?? 'the user'} did not allow it: they said no on the confirmation card`
     case 'timeout':
-      return `${r.who ?? 'the user'} did not answer the confirmation card in time, so it closed without a yes. This is not a no; never say they refused`
+      return `${r.who ?? 'the user'} did not answer the confirmation card in time, so it closed without a yes. This is not a no; never say they refused. Do not ask again in this answer whether to do it, in words or with the same card`
     case 'ended':
       return 'the answer stopped before the confirmation card was answered'
     case 'others':
@@ -118,11 +118,17 @@ export function cardEndShort(end: CardEnd): string {
   return end === 'declined' ? 'not allowed by the user' : end === 'timeout' ? 'no answer in time' : end === 'unattended' ? 'nobody to ask (scheduled run)' : 'the answer stopped'
 }
 
-/** The next step for a card that ended without a yes: ask again (a no or no answer), or do it in a chat (nobody to ask). */
+/** The next step after a card that got no answer in time (QA TC-ask1-19: "ask the user whether to post it" brought a
+ * question in words and then the same card again, three asks for one post): no question, one closing line; the user's
+ * yes later brings one fresh card with the state of then. */
+export const TIMEOUT_NEXT = 'end the answer with one short line that it was not done because the card got no answer, and that you will do it when the user says so (their yes then brings one fresh card); ask nothing about it'
+
+/** The next step for a card that ended without a yes: ask what instead (a no), one closing line (no answer in time),
+ * ask again (the answer stopped), or do it in a chat (nobody to ask). */
 export function cardNext(end: CardEnd, where = 'in a chat'): string {
   return end === 'unattended' ? `the user can ask for it ${where}, where they can answer the card` : end === 'declined'
     ? 'ask the user what they want instead; do not try another way that needs the same yes'
-    : 'the user can ask again and answer the card'
+    : end === 'timeout' ? TIMEOUT_NEXT : 'the user can ask again and answer the card'
 }
 
 // ---------------- screen names, as the person's app shows them ----------------
@@ -302,6 +308,38 @@ export function projectNotFoundNote(text: string, o: { sees: (segs: string[]) =>
   if (segs.length === 1) return o.lists() ? null : "The user is a member of no team project: only a project's members see it. Next step: say so plainly; if they should be in one, the person who made it or an admin can add them."
   if (o.sees(segs.slice(0, 2))) return null
   return `Only a project's members see it: the user is not a member of a project called "${oneLine(segs[1]!).replace(/"/g, "'")}" (the same answer whether or not one exists, so do not say whether it does). Next step: say so plainly; if they should be in it, the person who made that project or an admin can add them.`
+}
+
+/**
+ * S-118: a file tool refused a place ("not found or no access", or a search that skipped it) that this person's own
+ * earlier answers in this chat read (chat_reads, chat/carried-reads.ts), and the folder rules no longer let them read
+ * it. They saw it themselves, so saying they could open it before reveals nothing new; whether the path still exists
+ * is never looked at (a deleted and a hidden place read the same). The QA run: the AI said "영업 폴더가 목록에도 보이지
+ * 않았습니다", asked for a path and called a price it had read earlier unverified. `places`: the team folders (or
+ * paths) as the person's own reads named them.
+ */
+/** what earlier answers read stays true (the last part of lostAccessNote; alone after the file service's own lost-access
+ * fact for the very file, files/moved.ts LOST_ACCESS_NOTE) */
+export const KEEP_READ_LINE = 'Do not ask them for a path. What earlier answers read and checked there stays true: do not take it back or call it unverified.'
+/** Who can give access to `place` again, said as the folder rules decide it (writeGranters: the project's creator by
+ * name where the person may see it, else an admin, never by name), with the screen in the user's language; never "whoever
+ * manages the folder", which names nobody (S-118 real run: "영업 폴더를 관리하는 분께"). */
+export function regrantLine(db: Database, place: string, L: Locale): string {
+  const g = writeGranters(db, place, L, () => false)
+  return `Who can give access again: ${g.who} (${g.how}); say exactly that, not "whoever manages the folder" or a guessed person.`
+}
+/** `shared`: other people read this chat's answers (a shared project or people chat, or others wrote in it): then only
+ * that the place cannot be opened from this chat now, never that this person's access changed. */
+export function lostAccessNote(db: Database, places: readonly string[], L: Locale, o: { shared?: boolean } = {}): string {
+  const named = nameList(places.map((p) => `'${oneLine(p)}'`))
+  const it = places.length > 1 ? 'them' : 'it'
+  if (o.shared) {
+    return `Earlier in this chat ${named} could be opened; ${it} cannot be opened from this chat now. This is a fact, not a guess. Other people read this answer: say only that ${it} cannot be opened from this chat now; never say that someone's access or groups changed, and never name whose. ` +
+      `${regrantLine(db, places[0] ?? '', L)} ${KEEP_READ_LINE}`
+  }
+  return `Earlier in this chat this user opened ${named}; access to ${it} has ended for them (their groups or the folder's access changed, or it was moved). This is a fact, not a guess: say it as one, never "seems" or "probably". ` +
+    'Tell them so plainly in their language (e.g. "\uC774 \uD3F4\uB354\uB294 \uC774\uC81C \uC5F4 \uC218 \uC5C6\uC5B4\uC694. \uC811\uADFC \uAD8C\uD55C\uC774 \uB05D\uB0AC\uC5B4\uC694"); do not say it is not among their folders or was never there. ' +
+    `${regrantLine(db, places[0] ?? '', L)} ${KEEP_READ_LINE}`
 }
 
 /** B7: the per-answer write limits (files/service.ts limits, tools/make-file.ts), with their numbers and what to do. */

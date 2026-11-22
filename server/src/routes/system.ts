@@ -34,6 +34,7 @@ import { dismissAfterUpdate, pendingAfterUpdate } from '../system/after-update'
 import type { RouteModule } from './module'
 import { feature, isHosted } from '../system/deployment'
 import { noticesFor, planStatus } from '../system/managed'
+import { backupRetentionDays } from '../system/limits'
 import { setApiEnginePublicOnly } from '../system/egress'
 import { askCleanup } from '../system/storage-cleanup'
 
@@ -223,7 +224,9 @@ export const systemRoutes: RouteModule = {
       return { jobId }
     })
 
-    kit.handle(API.listBackups, () => ({ items: ops().backups.list(), lastRestore: lastRestore(ctx.db) }))
+    // retentionDays: what the server really keeps (the plan's localBackupRetentionDays, else 14), so the Backups card and
+    // the Plan part say one number (QA TC-8037)
+    kit.handle(API.listBackups, () => ({ items: ops().backups.list(), lastRestore: lastRestore(ctx.db), retentionDays: backupRetentionDays() }))
 
     kit.handle(API.startBackup, ({ c, body, auth }) => {
       const locale = c.get('locale')

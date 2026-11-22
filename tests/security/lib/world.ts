@@ -254,7 +254,7 @@ export async function buildWorld(inst: Instance, options: { sharedSubscriptions?
   const aliceRef = (await alice.ok('POST', '/api/attachments/team-file', { chatId: chatA, path: `users/alice/${C.aliceFileName}.md` })).id
   inst.ctx.db.query("UPDATE users SET prefs = json_set(COALESCE(prefs, '{}'), '$.autoMemory', 'off') WHERE id = 'alice' OR username = 'alice'").run()
   const sent = await alice.ok('POST', `/api/chats/${chatA}/messages`, {
-    clientMessageId: cm(), attachmentIds: [att.id], content: `${C.aliceMsg}\n` + fake(
+    clientMessageId: cm(), attachmentIds: [att.id], content: `${C.aliceMsg}\nplease remember this\n` + fake(
       { tool: 'artifact', args: { action: 'create', key: 'k1', type: 'html', title: 'secret artifact', content: `<p>${C.aliceArtifact}</p>` } },
       { tool: 'remember', args: { text: C.aliceMemory } },
       { say: C.aliceAnswer },

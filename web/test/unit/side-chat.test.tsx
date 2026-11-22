@@ -478,6 +478,21 @@ test('a name with a line break (saved before the rule) stays inside the quote: e
   expect(file.split('\n\n')[0].split('\n').every((l) => l.startsWith('> '))).toBe(true)
 })
 
+test('a quoted message with a file link shows the link as its name, never its address (TC-ask2-4)', async () => {
+  signIn()
+  serve(null)
+  const seed = { key: 'k-link', author: 'acme', at: at(1), text: 'Draft quote: [deal-2026-11-22.docx](/files/view?path=users%2Fjunho%2Fdeal-2026-11-22.docx) **ready**' }
+  const m = await mount(<MemoryRouter><SideChatPanel roomId={team.id} roomTitle="Marketing" seed={seed} onClose={() => {}} /></MemoryRouter>)
+  try {
+    await m.until(() => !!m.find('side-chat-quote'), 'the message quoted')
+    const shown = m.get('side-chat-quote-text').textContent!
+    expect(shown).toBe('Draft quote: deal-2026-11-22.docx ready')
+    expect(shown).not.toContain('/files/view')
+  } finally {
+    await m.unmount()
+  }
+})
+
 test('"Ask Trina about this": the panel opens with the message quoted; a quick button sends it with its question (a failed send keeps the quote); ✕ takes the quote off', async () => {
   signIn()
   const { made } = serve(null)
