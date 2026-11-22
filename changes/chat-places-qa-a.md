@@ -1,7 +1,0 @@
-- A chat file link from a chat you were taken out of no longer opens an empty "can't be previewed" viewer: the page says the chat is no longer shared, and a file you can't open gets one plain line, with no Download.
-- When the people in a shared chat change, the AI now says its work folder is a new, empty one for the people there now, whichever way it names the folder, instead of blaming the dev environment.
-- Step lines say "Work folder › frame1.png" instead of `$TRINA_WORK/frame1.png`, also in commands, and looking at slides says which ones ("View slides 3–5").
-- An answer whose file was made another way after a refused save no longer ends with "One step didn't work: Save."
-- The card for copying your files into a shared chat's work folder names the files and says everyone in the chat can see that folder. In Korean it reads "내 개인 폴더를", not "폴더을(를)".
-- A Word file made by the AI shows on a normal page with margins in the preview.
-- A guest on a team whose AI is not for guests reads "AI isn't available for guests in this team."
