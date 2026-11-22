@@ -615,7 +615,7 @@ describe('every chat of my history: shared project chats and chats shared with m
     expect(await inFolder('bob', f.id)).toEqual([shared.id])
   })
 
-  test('a full section keeps the rows of chats I hid or lost (they count, as a hidden room does); only the trash makes room', async () => {
+  test('a full section: the trash makes room first (rows of chats I hid or lost stay); still full, those rows go before a 409', async () => {
     const f = await section('bob', 'full')
     const hidden = await sharedWith('kept hidden', [{ subjectType: 'user', subjectId: 'bob' }])
     const lost = await sharedWith('kept lost', [{ subjectType: 'user', subjectId: 'bob' }])
@@ -628,20 +628,50 @@ describe('every chat of my history: shared project chats and chats shared with m
     const put = db.query("INSERT INTO nav_folder_items (folder_id, user_id, kind, chat_id, room_id, added_at) VALUES (?, 'bob', 'chats', ?, NULL, ?)")
     const made: string[] = []
     db.transaction(() => { for (let i = 0; i < NAV_FOLDER_ITEMS_MAX - 2; i++) { const id = newId(); ins.run(id, now, now); put.run(f.id, id, now); made.push(id) } })()
-    const extra = await b.api('bob').call(API.createChat, { body: { title: 'one more' } })
-    expect(await reason(file('bob', extra.id, f.id))).toEqual([409, 'nav_folder_full'])
-    // the hidden and the lost chat's rows are still there
     const rowsOf = (id: string) => (db.query('SELECT COUNT(*) n FROM nav_folder_items WHERE chat_id = ?').get(id) as { n: number }).n
-    expect([rowsOf(hidden.id), rowsOf(lost.id)]).toEqual([1, 1])
-    // one of bob's own goes to the trash behind the folder's back: its row makes room, the other two stay
+    // one of bob's own goes to the trash behind the folder's back: its row makes room, the hidden and lost rows stay
     db.query('UPDATE chats SET deleted_at = ? WHERE id = ?').run(now, made[0]!)
+    const extra = await b.api('bob').call(API.createChat, { body: { title: 'one more' } })
     expect((await file('bob', extra.id, f.id)).folderId).toBe(f.id)
     expect([rowsOf(hidden.id), rowsOf(lost.id), rowsOf(made[0]!)]).toEqual([1, 1, 0])
-    // shown again, the hidden one is back in its section
-    // (only what shows counts: the lost chat's row is kept, not counted)
-    expect((await mine('bob', f.id)).count).toBe(NAV_FOLDER_ITEMS_MAX - 2)
-    await b.api('bob').call(API.unhideChat, { params: { id: hidden.id } })
-    expect((await b.api('bob').call(API.getChat, { params: { id: hidden.id } })).folderId).toBe(f.id)
+    // full again with nothing in the trash: the rows of the chats bob hid or lost go (he sees fewer than the limit, so
+    // the section is not full to him: review of #387), never a row of a chat he sees
+    const more = await b.api('bob').call(API.createChat, { body: { title: 'and one more' } })
+    expect((await file('bob', more.id, f.id)).folderId).toBe(f.id)
+    expect([rowsOf(hidden.id), rowsOf(lost.id), rowsOf(extra.id), rowsOf(made[1]!)]).toEqual([0, 0, 1, 1])
     expect((await mine('bob', f.id)).count).toBe(NAV_FOLDER_ITEMS_MAX - 1)
+    // a section full of chats bob sees: 409
+    const last = await b.api('bob').call(API.createChat, { body: { title: 'the last' } })
+    expect((await file('bob', last.id, f.id)).folderId).toBe(f.id)
+    const over = await b.api('bob').call(API.createChat, { body: { title: 'over' } })
+    expect(await reason(file('bob', over.id, f.id))).toEqual([409, 'nav_folder_full'])
+  })
+
+  test('taking out the row of a chat I lost: my row goes, and the answer is the same 404 as for any chat I cannot open', async () => {
+    const f = await section('bob', 'lost rows')
+    const lost = await sharedWith('lost one', [{ subjectType: 'user', subjectId: 'bob' }])
+    await file('bob', lost.id, f.id)
+    await b.api('alice').call(API.putChatAudience, { params: { id: lost.id }, body: { subjects: [] } })
+    const db = b.ctx.db
+    const rowsOf = (id: string) => (db.query("SELECT COUNT(*) n FROM nav_folder_items WHERE chat_id = ? AND user_id = 'bob'").get(id) as { n: number }).n
+    expect(rowsOf(lost.id)).toBe(1)
+    const out = await b.req('bob', `/api/chats/${lost.id}/folder`, { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ folderId: null }) })
+    expect(out.status).toBe(404)
+    expect(rowsOf(lost.id)).toBe(0)
+    // the answer never says whether a row was there: the same chat again (no row now) answers the same; a chat that
+    // never had one and one that does not exist answer 404 as before
+    const body = async (r: Response) => { const j = (await r.json()) as { error?: Record<string, unknown> }; delete j.error?.requestId; return j }
+    const again = await b.req('bob', `/api/chats/${lost.id}/folder`, { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ folderId: null }) })
+    expect(again.status).toBe(404)
+    expect(await body(again)).toEqual(await body(out))
+    const never = await b.api('alice').call(API.createChat, { body: { title: 'never filed' } })
+    const a = await b.req('bob', `/api/chats/${never.id}/folder`, { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ folderId: null }) })
+    const none = await b.req('bob', `/api/chats/${newId()}/folder`, { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ folderId: null }) })
+    expect([a.status, none.status]).toEqual([404, 404])
+    // alice's own rows are never touched by bob's request
+    const af = await section('alice', 'alice keeps')
+    await file('alice', never.id, af.id)
+    await b.req('bob', `/api/chats/${never.id}/folder`, { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ folderId: null }) })
+    expect((await mine('alice', af.id)).count).toBe(1)
   })
 })
