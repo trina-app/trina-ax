@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-22 00:25
 - Branch: `feat/demo-landing-lean` (off `dev`)
-- Status: in progress
+- Status: done
 - Where: demo-gate/src/pages.ts (the gate's own pages), demo-gate/test/unit.test.ts. Why: the owner on demo.trina.app's
   landing: "주저리 주저리 텍스트가 너무 많음. UI 디자인해" (too much text, design it)
 - Version impact: patch, the demo gate's landing look and words; no API, data or behaviour change
@@ -42,3 +42,10 @@ none
 ## Tests
 
 typecheck, check:prepush, check:i18n, `bun test demo-gate/test`, tests/unit demo tests.
+
+## Result
+
+Done. The landing is the wordmark, a heading, one line, three facts with drawn icons, the browser check and Start; the
+practice sentence opens from the third fact. The other gate pages get the wordmark and the same frame (no card).
+Checked at 1440 and 390, light and dark (en, ko, es, id; ko and en with the practice note open). Bun 1.3.12:
+typecheck, check:i18n, check:prepush, `bun test demo-gate/test` (130) and the demo tests in tests/unit (72) pass.
