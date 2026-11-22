@@ -35,7 +35,10 @@ export const EngineEvent = z.discriminatedUnion('type', [
    * goes on after this call (it asked for a tool, or it was a sub-agent's; Claude Code, the API engine), so a used-up budget may stop it there */
   z.object({ type: z.literal('usage'), inputTokens: z.number(), outputTokens: z.number(), costUsd: z.number().optional(), costUnknown: z.boolean().optional(), requestId: z.string().optional(), running: z.boolean().optional(), continues: z.boolean().optional() }),
   /** status: the provider's HTTP status, when there was one */
-  z.object({ type: z.literal('error'), code: EngineErrorCode, message: z.string(), status: z.number().int().optional() }),
+  /** retryAt: a limit's reset time as the engine itself told it (Claude Code's rate_limit_event resetsAt, "limit
+   * reached|<epoch>"), server/src/chat/turn.ts limitError; weekly: the engine said a weekly (or longer) limit without a
+   * time. Absent: not known. */
+  z.object({ type: z.literal('error'), code: EngineErrorCode, message: z.string(), status: z.number().int().optional(), retryAt: z.string().optional(), weekly: z.literal(true).optional() }),
   /** the engine stopped at the per-answer limit of tool rounds (Claude Code --max-turns: the team's answerStepLimit;
    * the API engine's rounds):
    * not an error, the answer so far stands and the person may continue (server/src/chat/turn.ts stopReason) */

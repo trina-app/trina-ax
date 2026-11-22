@@ -927,8 +927,9 @@ export function AssistantMessage({
               <span className="ml-auto flex flex-wrap justify-end gap-2">
                 {isNoAiReason(reason) && (!guest || guestOwn) && <AiAccessButton />}
                 {reason === 'engine_missing' && <NotReadyButton role={role} />}
-                {/* used up until a later time: the same AI is refused until then, so only "another model" (when there is one) */}
-                {!(usageUntil && Date.parse(usageUntil) > Date.now()) && (
+                {/* used up until a later time (or for a week, the time not told): the same AI is refused until then, so
+                    only "another model" (when there is one), never "Try again" (QA TC-f3-01) */}
+                {!(reason === 'usage_used_up' && (!usageUntil || Date.parse(usageUntil) > Date.now())) && (
                   <Button size="sm" variant="secondary" disabled={busy} onClick={() => onRegenerate(m)} data-testid="retry">
                     <RotateCcw size={13} aria-hidden /> {t('common.retry')}
                   </Button>

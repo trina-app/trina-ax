@@ -253,7 +253,12 @@ function ChatView({ chatId, threadRoot, focus }: { chatId: string; threadRoot: s
   // someone else's chat shared with me that nobody else sees now (its creator's account is off): it is still theirs,
   // shared with me, never "Only you can see this chat" (QA TC-2263)
   // who changed its people, between the messages (QA TC-7289): read again when how many see it or the messages change
-  const audienceEvents = useAudienceEvents(people && !chat?.deletedAt ? chatId : null, `${shared?.audience ?? 0}:${thread.messages.length}`)
+  // and again when a file of the chat gets a new version (a restore's line: QA TC-v1c-01). My own chat outside projects
+  // reads them once too: one that went back to being only mine keeps its lines ("{actor} left", QA TC-v1a-02); nothing
+  // new comes to it while nobody else is in it
+  const filesAt = useMemo(() => thread.messages.reduce((at, m) => (m.attachments ?? []).reduce((x, a) => (a.updated && a.updated.at > x ? a.updated.at : x), at), ''), [thread.messages])
+  const ownLines = !!chat && !chat.shared && !chat.projectId && !chat.sideRoomId
+  const audienceEvents = useAudienceEvents((people || ownLines) && chat && !chat.deletedAt ? chatId : null, people ? `${shared?.audience ?? 0}:${thread.messages.length}:${filesAt}` : 'own')
   const sharedToMeAlone = people && !!shared && !rights.creator && !shared.audienceHidden && (shared.audience ?? 0) <= 1
   const who = chat ? (
     <WhoSeesLine
