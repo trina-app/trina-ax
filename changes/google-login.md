@@ -1,0 +1,2 @@
+- **Sign in with Google**: connect your Google account once in Settings › Security & devices (it asks for your current password), then press **Sign in with Google** on the sign-in page. It works in a browser, on a team server with its own Google client, at the address that client was set up for. Your password keeps working.
+- Settings › Security & devices shows the connected Google account, when it last signed you in, and **Disconnect**. A temporary password or a reset link from an admin disconnects it.
