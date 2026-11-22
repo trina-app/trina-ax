@@ -102,6 +102,8 @@ const STYLE = `
 *{box-sizing:border-box}
 html,body{margin:0;background:#fff}
 body{font-family:"Pretendard Web","Pretendard","Apple SD Gothic Neo","Noto Sans KR","Noto Sans CJK KR","Malgun Gothic",sans-serif;-webkit-font-smoothing:antialiased;font-synthesis:none}
+html:lang(ja) body{font-family:"Pretendard Web","Pretendard","Hiragino Sans","Hiragino Kaku Gothic ProN","Noto Sans JP","Noto Sans CJK JP","Yu Gothic",Meiryo,sans-serif}
+html:lang(zh) body{font-family:"Pretendard Web","Pretendard","PingFang SC","Noto Sans SC","Noto Sans CJK SC","Microsoft YaHei",sans-serif}
 .dk{max-width:1280px;margin:0 auto;padding:12px 12px 10px}
 .st{position:relative;width:100%;aspect-ratio:16/9;border-radius:8px;overflow:hidden;background:#111;box-shadow:0 1px 2px rgba(0,0,0,.08),0 8px 28px rgba(0,0,0,.10);touch-action:pan-y;user-select:none;-webkit-user-select:none;opacity:0;transition:opacity .2s}
 .ready .st{opacity:1}

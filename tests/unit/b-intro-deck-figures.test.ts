@@ -7,9 +7,9 @@ import { BAND_BOTTOM, BAND_TOP, Canvas, CW, H, ML, W } from '../../server/src/in
 import { drawFigure, FIGURE_BAND, parseNum, comparable, type FigEnv } from '../../server/src/intro-deck/figures'
 import { fadeAt } from '../../server/src/intro-deck/grounds'
 import type { Item, PathItem, PicInfo, SlideOut, TextItem } from '../../server/src/intro-deck/layout'
-import { layoutDeck2, layoutSlide2, type DeckDoc2 } from '../../server/src/intro-deck/layout2'
+import { glyphOf, layoutDeck2, layoutSlide2, type DeckDoc2 } from '../../server/src/intro-deck/layout2'
 import { fittingThemes2, lookFor2, themeFor2, type G2 } from '../../server/src/intro-deck/look'
-import { width, type Weight } from '../../server/src/intro-deck/text'
+import { fitText, width, type Weight } from '../../server/src/intro-deck/text'
 
 // ── pictures and a document (sizes only matter for the layout) ─────────────────────────────────────────────────────
 const IMG = 'shared/브랜드/이미지/'
@@ -117,6 +117,46 @@ function samples(w: string[]): Record<string, [DeckFigure, DeckFigure]> {
     figures: [{ kind: 'figures', items: [{ number: '340곳', label: w[0]! }, { number: '15년', label: w[1]! }] }, { kind: 'figures', items: [{ number: '340곳', label: w[0]! }, { number: '0.02%', label: w[1]! }, { number: '99.1%', label: w[2]! }, { number: '+30%', label: w[3]! }] }],
   }
 }
+
+describe('the company letter on drawn covers (round 3)', () => {
+  test('the first letter or digit after a legal form written before the name; none when there is no letter', () => {
+    const cases: [string, string | null][] = [['(주)아크메정밀', '아'], ['㈜숲틈', '숲'], ['주식회사 숲틈', '숲'], ['( 유 ) 오름', '오'], ['유한회사 오름', '오'], ['(株)ソープ', 'ソ'], ['株式会社テスト', 'テ'], ['Inc. Acme', 'A'], ['Ltd. Acme', 'A'], ['3M', '3'], ['Soopteum', 'S'], ['***', null], ['(주)', null], ['', null]]
+    for (const [name, want] of cases) expect([name, glyphOf(name)]).toEqual([name, want])
+  })
+  test('a cover with no letter to draw draws no graphic', () => {
+    const slides: DeckSlide2[] = [{ kind: 'cover', headline: '정밀 부품을\n제때 만드는 회사' }, { kind: 'about', statement: '정밀 부품을 만듭니다' }, { kind: 'contact', line: '연락 주세요' }]
+    const graphic = (company: string) => layoutSlide2(doc(slides, { company, logo: null }), 0).items.find((it) => it.t === 'text' && it.role === 'graphic') as TextItem | undefined
+    expect(graphic('(주)아크메정밀')!.lines[0]![0]!.text).toBe('아')
+    expect(graphic('(주)')).toBeUndefined()
+  })
+  test('a long Japanese or Chinese text that cannot fit stops early (the line limit ends the fill)', () => {
+    const t0 = performance.now()
+    expect(fitText('办公室的植物'.repeat(27), { size: 72, min: 60, weight: 800, tracking: -0.03, lh: 1.2 }, 1560, 2)).toBeNull()
+    expect(performance.now() - t0).toBeLessThan(100)
+  })
+})
+
+describe('Japanese and Chinese lines (round 3)', () => {
+  const role = { size: 64, min: 52, weight: 800 as Weight, tracking: -0.035, lh: 1.2 }
+  const lines = (t: string, w: number, n = 4) => fitText(t, role, w, n)?.lines.map((l) => l.map((r) => r.text).join('')) ?? null
+  test('a text with no spaces breaks between characters, without adding spaces, at a particle or a mark when one is close', () => {
+    const ja = lines('Soopteumはオフィスの植物を選び、届け、枯らさないサブスクリプションです', 840)!
+    expect(ja.join('')).toBe('Soopteumはオフィスの植物を選び、届け、枯らさないサブスクリプションです')
+    expect(ja).toEqual(['Soopteumはオフィスの', '植物を選び、', '届け、枯らさない', 'サブスクリプションです'])
+    expect(lines('办公室植物，摆进来容易，养活难', 640)).toEqual(['办公室植物，', '摆进来容易，养活难'])
+  })
+  test('kinsoku: a closing mark or a small kana never starts a line; an opening bracket never ends one', () => {
+    for (const w of [300, 360, 420, 480, 540]) {
+      const ls = lines('「スプトゥム」は、オフィスの観葉植物をお届けします。ちょっと待って！', w, 8)!
+      for (const l of ls.slice(1)) expect('、。」』）！？ー').not.toContain(l[0]!)
+      for (const l of ls) expect(l.at(-1)).not.toBe('「')
+    }
+  })
+  test('Hangul and Latin still break only at spaces', () => {
+    expect(lines('숲틈은 사무실 식물을 고르고 들이고 살려 두는 구독 서비스예요', 1040)).toEqual(['숲틈은 사무실 식물을 고르고', '들이고 살려 두는 구독 서비스예요'])
+    expect(lines('Offices that stay *green*', 1400)).toEqual(['Offices that stay green'])
+  })
+})
 
 describe('the figures (one drawing language)', () => {
   for (const [lang, words] of [['ko', ko], ['en', en]] as const) {
@@ -305,7 +345,9 @@ describe('the compositions', () => {
     }
     const right = at([cover({ picture: IMG + 'wide.jpg' }), contact], 0, { picNotes: { [IMG + 'wide.jpg']: { lettering: false, calm: 'right', tone: 'dark' } } })
     expect(right.out.variant).toBe('A')
-    expect(texts(right.out.items).find((t) => t.role === 'headline')!.x).toBe(W - ML - 1000)
+    // the headline box ends at the right margin (1,400 px wide when it fits at the cover size, else 1,000)
+    const rh = texts(right.out.items).find((t) => t.role === 'headline')!
+    expect(rh.x + rh.w).toBe(W - ML)
     // lettering where the type would sit: the picture becomes a panel beside the type, never under it
     const lettered = at([cover({ picture: IMG + 'wide.jpg' }), contact], 0, { picNotes: { [IMG + 'wide.jpg']: { lettering: true, calm: 'left', tone: 'dark' } } })
     expect(lettered.out.variant).not.toBe('A')
@@ -360,7 +402,8 @@ describe('the compositions', () => {
     expect(cmp.out.variant).toBe('compare')
     const figs = one({ kind: 'about', statement: '정밀 부품을 만듭니다', figure: { kind: 'figures', items: [{ number: '340곳', label: '고객사' }, { number: '15년', label: '업력' }] } })
     expect(figs.problems).toEqual([])
-    const alone = one({ kind: 'about', statement: '반도체 장비와 의료기기에 들어가는 *정밀 가공 부품*을 만듭니다', facts: [{ label: '설립', value: '2009년' }, { label: '직원', value: '48명' }] })
+    // (no spare brand picture here: with one the about is a half, tested under "spare pictures")
+    const alone = one({ kind: 'about', statement: '반도체 장비와 의료기기에 들어가는 *정밀 가공 부품*을 만듭니다', facts: [{ label: '설립', value: '2009년' }, { label: '직원', value: '48명' }] }, { picNotes: {} })
     expect(alone.problems).toEqual([])
     expect(alone.out.variant).toBe('statement')
   })
@@ -377,8 +420,35 @@ describe('the compositions', () => {
     expect(one({ kind: 'proof', title: '고객', names: ['아크메전자', '아크메테크', '아크메기계'], quote: { text: '좋아요', who: '아크메' } }).problems.join('\n')).toContain('give exactly one of quote, names or a compare figure')
   })
 
+  test('spare pictures (round 3): noted brand pictures no slide uses go behind the numbers (dark first, wide only), then to the about and the closing as halves; never a planned, lettered or logo picture', () => {
+    const numbers: DeckSlide2 = { kind: 'numbers', title: '숫자로 보는 회사', figure: { kind: 'figures', items: [{ number: '340곳', label: '고객사' }, { number: '0.02%', label: '불량률' }] } }
+    const about: DeckSlide2 = { kind: 'about', statement: '정밀 부품을 만듭니다', facts: [{ label: '설립', value: '2009년' }] }
+    const slides = [cover(), about, numbers, contact]
+    const notes = { [IMG + 'wide.jpg']: { lettering: false, calm: 'left', tone: 'dark' }, [IMG + 'square.jpg']: { lettering: false, calm: 'left', tone: 'light' }, [IMG + 'portrait.jpg']: { lettering: false, calm: 'none', tone: 'light' } } as const
+    const d = doc(slides, { picNotes: notes })
+    const img = (i: number) => layoutSlide2(d, i).items.filter((it) => it.t === 'image' && !it.logo).map((it) => (it as { src: string }).src)
+    expect(img(2)).toEqual([IMG + 'wide.jpg'])
+    expect(layoutSlide2(d, 2).variant).toBe('photo')
+    expect(img(1)).toEqual([IMG + 'portrait.jpg'])
+    expect(layoutSlide2(d, 1).variant).toBe('half')
+    expect(img(3)).toEqual([IMG + 'square.jpg'])
+    expect(layoutSlide2(d, 3).variant).toBe('half')
+    // a picture the outline planned for a slide, one with lettering and the logo are never spare
+    const none = doc(slides, { picNotes: { ...notes, [IMG + 'portrait.jpg']: { lettering: true, calm: 'none', tone: 'light' } }, planned: [IMG + 'wide.jpg', IMG + 'square.jpg'] })
+    expect(layoutSlide2(none, 1).variant).toBe('statement')
+    expect(layoutSlide2(none, 2).variant).not.toBe('photo')
+    expect(layoutSlide2(none, 3).variant).not.toBe('half')
+    // behind the numbers only a picture with a calm side (the type covers all of it)
+    const busy = doc(slides, { picNotes: { ...notes, [IMG + 'wide.jpg']: { lettering: false, calm: 'none', tone: 'dark' } } })
+    expect(layoutSlide2(busy, 2).variant).not.toBe('photo')
+    // every spare slide still fits (no problems), and the numbers' type stays white over the picture
+    const problems: string[] = []
+    for (let i = 0; i < slides.length; i++) layoutSlide2(d, i, undefined, problems)
+    expect(problems).toEqual([])
+  })
+
   test('the closing: one line, an action pill, a ledger of contacts, the accent on the drawn ground; page number only', () => {
-    const d = doc([cover(), { kind: 'about', statement: '정밀 부품을 만듭니다' }, contact], { accents: { 2: ACCENT } })
+    const d = doc([cover(), { kind: 'about', statement: '정밀 부품을 만듭니다' }, contact], { accents: { 2: ACCENT }, picNotes: {} })
     const problems: string[] = []
     const out = layoutSlide2(d, 2, undefined, problems)
     expect(problems).toEqual([])

@@ -1,0 +1,29 @@
+Reports & announcements / 주간 보고·공지 (Trina AX skill pack)
+
+This skill (SKILL.md in this folder) is a modified version of work by
+Anthropic, PBC, licensed under the Apache License, Version 2.0:
+
+- skills/internal-comms/SKILL.md, with its examples/3p-updates.md and examples/general-comms.md
+  from https://github.com/anthropics/skills at commit e4bb5d960d87126ff3b3a8af1a104b7db67560ba
+- operations/skills/status-report/SKILL.md
+  from https://github.com/anthropics/knowledge-work-plugins at commit 0e0fcacddcc892eb92a1b7873ff9d68159c47571
+
+Licensed under the Apache License, Version 2.0 (the "License"); you may not use
+this file except in compliance with the License. A copy of the License is in the
+LICENSE file next to this NOTICE, and at https://www.apache.org/licenses/LICENSE-2.0.
+Unless required by applicable law or agreed to in writing, software distributed
+under the License is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR
+CONDITIONS OF ANY KIND, either express or implied.
+
+Changes by the Trina AX team (2026-11-22): merged into one skill for weekly
+reports, team notices, incident reports and project status; the Slack, Drive,
+email, calendar and tracker steps and the example files were removed; the text
+was written in six languages (Korean, English, Japanese, Chinese, Spanish and
+Indonesian).
+
+The upstream text was read at the commits above and rewritten, not copied
+whole. The upstream LICENSE files are kept as they were, except that the
+trailing lines after the end of the Apache License text in the
+knowledge-work-plugins LICENSE (not part of the licence) are left out. Only
+SKILL.md is installed into a team; it ends with a section that names the
+source, the commit and the License.

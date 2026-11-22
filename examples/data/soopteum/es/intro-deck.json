@@ -1,0 +1,198 @@
+{
+  "title": "Soopteum: presentación corporativa",
+  "company": "Soopteum",
+  "website": "https://soopteum.example",
+  "brand": "#1f5c45",
+  "theme": "brand",
+  "pattern": "none",
+  "sections": [
+    "Portada",
+    "Empresa",
+    "Problema",
+    "Qué hacemos",
+    "Cifras",
+    "Proceso",
+    "Clientes",
+    "Contacto"
+  ],
+  "pictures": [
+    {
+      "path": "groups/Soopteum/Marca/Imágenes/desk-plant.jpg",
+      "subject": "a succulent on a wooden office table",
+      "lettering": false,
+      "calm": "left",
+      "tone": "mixed"
+    },
+    {
+      "path": "groups/Soopteum/Marca/Imágenes/meeting-table.jpg",
+      "subject": "potted succulents and pencils on a meeting table",
+      "lettering": false,
+      "calm": "top",
+      "tone": "light"
+    },
+    {
+      "path": "groups/Soopteum/Marca/Imágenes/workspace.jpg",
+      "subject": "a person working at a window seat among plants",
+      "lettering": false,
+      "calm": "top",
+      "tone": "dark"
+    },
+    {
+      "path": "groups/Soopteum/Marca/Imágenes/office.jpg",
+      "subject": "an office desk with a potted tree",
+      "lettering": false,
+      "calm": "right",
+      "tone": "light"
+    }
+  ],
+  "slides": [
+    {
+      "kind": "cover",
+      "headline": "Oficinas que\nsiguen *verdes*",
+      "sub": "Plantas para oficinas por suscripción, con cuidado incluido",
+      "picture": "groups/Soopteum/Marca/Imágenes/desk-plant.jpg"
+    },
+    {
+      "kind": "about",
+      "statement": "Soopteum elige, instala y mantiene vivas las plantas de tu oficina con una suscripción",
+      "facts": [
+        {
+          "label": "Fundada",
+          "value": "2019"
+        },
+        {
+          "label": "Sede",
+          "value": "Madrid, Chamberí"
+        },
+        {
+          "label": "Equipo",
+          "value": "18 personas"
+        },
+        {
+          "label": "Zona",
+          "value": "Madrid y Toledo"
+        }
+      ]
+    },
+    {
+      "kind": "needs",
+      "title": "Traer plantas es fácil. Mantenerlas vivas, no",
+      "figure": {
+        "kind": "grid",
+        "items": [
+          {
+            "icon": "droplet",
+            "head": "Nadie las riega",
+            "body": "Si cambia el responsable, se olvidan"
+          },
+          {
+            "icon": "sprout",
+            "head": "Macetas secas",
+            "body": "Retirarlas acaba en manos de administración"
+          },
+          {
+            "icon": "search",
+            "head": "Especie equivocada",
+            "body": "La luz y el aire acondicionado deciden"
+          }
+        ]
+      }
+    },
+    {
+      "kind": "offer",
+      "title": "Desde elegirlas hasta mantenerlas vivas",
+      "sub": "Un contrato, y las plantas son cosa nuestra",
+      "figure": {
+        "kind": "grid",
+        "items": [
+          {
+            "icon": "compass",
+            "head": "Estudio del espacio",
+            "body": "Medimos luz, temperatura y paso"
+          },
+          {
+            "icon": "leaf",
+            "head": "Instalación",
+            "body": "Plantas, macetas y soportes en una visita"
+          },
+          {
+            "icon": "calendar-sync",
+            "head": "Cuidado quincenal",
+            "body": "Riego, poda y limpieza de hojas"
+          },
+          {
+            "icon": "refresh-cw",
+            "head": "Reposición",
+            "body": "Si una planta se seca, la cambiamos gratis"
+          }
+        ]
+      }
+    },
+    {
+      "kind": "numbers",
+      "title": "340 oficinas trabajan con Soopteum",
+      "note": "Datos de octubre de 2026",
+      "figure": {
+        "kind": "figures",
+        "items": [
+          {
+            "number": "340",
+            "label": "Oficinas clientes"
+          },
+          {
+            "number": "12.000",
+            "label": "Plantas a nuestro cargo"
+          },
+          {
+            "number": "96%",
+            "label": "Tasa de renovación"
+          }
+        ]
+      }
+    },
+    {
+      "kind": "process",
+      "title": "Dos semanas del primer contacto a la primera visita",
+      "figure": {
+        "kind": "flow",
+        "steps": [
+          {
+            "icon": "clipboard-check",
+            "head": "Visita",
+            "body": "Medimos y fotografiamos el espacio"
+          },
+          {
+            "icon": "palette",
+            "head": "Propuesta",
+            "body": "Plan y presupuesto"
+          },
+          {
+            "icon": "truck",
+            "head": "Instalación",
+            "body": "En un solo día"
+          },
+          {
+            "icon": "calendar-check",
+            "head": "Cuidado",
+            "body": "El mismo día, cada dos semanas"
+          }
+        ]
+      }
+    },
+    {
+      "kind": "proof",
+      "quote": {
+        "text": "Aquí nadie se encarga de las plantas y la oficina está verde todo el año",
+        "who": "Lucía Martín · Responsable de oficina"
+      }
+    },
+    {
+      "kind": "contact",
+      "line": "Te proponemos plantas\npara tu oficina",
+      "offer": "Pide una visita gratuita",
+      "email": "hello@soopteum.example",
+      "phone": "+34 910 000 142",
+      "website": "soopteum.example"
+    }
+  ]
+}

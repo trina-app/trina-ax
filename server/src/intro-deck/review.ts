@@ -289,7 +289,8 @@ function under(items: Item[], at: number, spans: Span[]): { picture: boolean; sc
  * then only the layout checks run). */
 export function reviewSlide(slide: SlideOut, index: number, renders: { full?: Rgba | null; ground?: Rgba | null } = {}): Finding[] {
   const out: Finding[] = []
-  const texts = slide.items.map((it, i) => ({ it, i })).filter((x): x is { it: TextItem; i: number } => x.it.t === 'text')
+  // the company's letter set as a graphic (role "graphic") is a shape, not type to read
+  const texts = slide.items.map((it, i) => ({ it, i })).filter((x): x is { it: TextItem; i: number } => x.it.t === 'text' && x.it.role !== 'graphic')
   const spans = new Map<TextItem, Span[]>(texts.map(({ it }) => [it, textSpans(it)]))
   // type under the floor
   for (const { it } of texts) {

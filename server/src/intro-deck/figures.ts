@@ -56,8 +56,30 @@ function numWidth(n: Num, size: number): number {
   return textW(n.digits, { ...R2.year, tracking: -0.045 }, size) + (n.pre ? textW(n.pre, R2.label, small) : 0) + (n.unit ? textW(n.unit, { ...R2.label, tracking: -0.01 }, small) + size * 0.06 : 0)
 }
 
-// ── flow: chevrons in order, icons above, bodies under ─────────────────────────────────────────────────────────────
+// ── flow: numbered steps on one rule (2026-11-22 design pass; the chevrons read as an old template) ───────────────
 function flow(e: FigEnv, f: F<'flow'>, o: Box) {
+  const { cv, c } = e, g = cv.g
+  const n = f.steps.length, gap = 56, cw = (o.w - gap * (n - 1)) / n
+  const key = clampKey(f.key, n, n - 1)
+  const heads = f.steps.map((s, i) => fit(c, `figure.steps[${i}].head`, s.head, { ...R2.headL, size: n >= 5 ? 36 : 44, min: 32 }, cw - 16, 1))
+  const bodies = f.steps.map((s, i) => fit(c, `figure.steps[${i}].body`, s.body, { ...R2.body, size: n >= 5 ? 26 : 30, min: 24 }, cw - 16, 3))
+  const numS = 120, ruleGap = 40, headGap = 48
+  const block = numS + ruleGap + headGap + Math.max(...heads.map((h) => linesH(h))) + (bodies.some(Boolean) ? 16 + Math.max(...bodies.map((b) => linesH(b))) : 0)
+  const y = Math.round(o.y + Math.max(0, (o.h - block) / 2))
+  const ry = y + numS + ruleGap
+  cv.line(o.x, ry, o.x + o.w, ry, g.line, 2)
+  f.steps.forEach((s, i) => {
+    const x = o.x + i * (cw + gap), hot = i === key
+    cv.runs(x, y, cw, numS, 800, -0.045, [{ text: String(i + 1).padStart(2, '0'), color: hot ? g.mark : g.lineStrong }], { role: 'numeral' })
+    cv.icon(s.icon, x + cw - 56, y + numS - 56, 48, hot ? g.mark : g.dim, 1.5)
+    cv.path(polyD([[x, ry - 2], [x + Math.min(cw, 120), ry - 2], [x + Math.min(cw, 120), ry + 2], [x, ry + 2]]), { fill: hot ? g.mark : g.text, role: 'step' })
+    let yy = ry + headGap
+    yy += cv.text(heads[i]!, x, yy, cw - 16, g.text, { role: 'head' })
+    if (bodies[i]) cv.text(bodies[i], x, yy + 16, cw - 16, g.dim, { role: 'body' })
+  })
+}
+/** The chevron flow of round 2 (kept for reference; not drawn since the 2026-11-22 design pass). */
+export function chevronFlow(e: FigEnv, f: F<'flow'>, o: Box) {
   const { cv, c } = e, g = cv.g
   const n = f.steps.length, notch = 40, gap = 10, h = 136
   const sw = (o.w - gap * (n - 1) + notch * (n - 1)) / n
@@ -315,7 +337,86 @@ function merge(e: FigEnv, f: F<'merge'>, o: Box) {
 }
 
 // ── grid: offerings with icons, hairlines, no boxes ────────────────────────────────────────────────────────────────
-function grid(e: FigEnv, f: F<'grid'>, o: Box) {
+/** How a grid is set: `statements` (a slide of pains: the icon, a short rule and the words set large, no boxes and no
+ * numbers, since pains have no order), `panels` (what the company does: tinted panels with the icon on a tile, the
+ * words at the panel's foot), or the hairline grid of round 2. */
+export type GridStyle = 'statements' | 'panels' | 'lines'
+function grid(e: FigEnv, f: F<'grid'>, o: Box, style: GridStyle = 'lines') {
+  const tagged = f.items.some((it) => it.tags?.length)
+  if (style === 'statements' && f.items.length <= 4 && !tagged) return statementGrid(e, f, o)
+  if (style === 'panels' && f.items.length <= 6) return panelGrid(e, f, o)
+  return lineGrid(e, f, o)
+}
+function statementGrid(e: FigEnv, f: F<'grid'>, o: Box) {
+  const { cv, c } = e, g = cv.g
+  const n = f.items.length, gap = 72, cw = (o.w - gap * (n - 1)) / n
+  const heads = f.items.map((it, i) => fit(c, `figure.items[${i}].head`, it.head, { ...R2.headL, size: n >= 4 ? 40 : 44, min: 36 }, cw, 2))
+  const bodies = f.items.map((it, i) => fit(c, `figure.items[${i}].body`, it.body, R2.body, cw, 3))
+  const icon = 64
+  const block = icon + 36 + 40 + Math.max(...heads.map((h) => linesH(h))) + (bodies.some(Boolean) ? 20 + Math.max(...bodies.map((b) => linesH(b))) : 0)
+  const y = Math.round(o.y + Math.max(0, (o.h - block) / 2))
+  f.items.forEach((it, i) => {
+    const x = o.x + i * (cw + gap), hot = f.key === i
+    cv.icon(it.icon, x, y, icon, hot ? g.mark : g.text, 1.5)
+    cv.path(polyD([[x, y + icon + 34], [x + 56, y + icon + 34], [x + 56, y + icon + 38], [x, y + icon + 38]]), { fill: hot ? g.mark : g.lineStrong, role: 'rule' })
+    let yy = y + icon + 36 + 40
+    yy += cv.text(heads[i]!, x, yy, cw, g.text, { role: 'head' })
+    if (bodies[i]) cv.text(bodies[i], x, yy + 20, cw, g.dim, { role: 'body' })
+  })
+}
+function panelGrid(e: FigEnv, f: F<'grid'>, o: Box) {
+  // what the company does, round 3: open columns (no boxes), each a tinted tile with the icon, a rule, the name large
+  // and its line; two columns for four, three for three, five or six
+  const { cv, c } = e, g = cv.g
+  const n = f.items.length
+  const cols = n === 4 ? 2 : n <= 3 ? n : 3, rows = Math.ceil(n / cols)
+  const gapX = 96, gapY = rows > 1 ? 72 : 0
+  const cw = (o.w - gapX * (cols - 1)) / cols
+  const two = cols === 2
+  const tile = rows > 2 ? 64 : 96
+  const iconX = two ? tile + 40 : 0
+  const tw = cw - iconX
+  type Tag = { f: NonNullable<ReturnType<typeof fit>>; w: number }
+  const cells = f.items.map((it, i) => {
+    const hd = fit(c, `figure.items[${i}].head`, it.head, { ...R2.headL, size: rows > 2 ? 36 : 48, min: 32 }, tw, 1)
+    const bd = fit(c, `figure.items[${i}].body`, it.body, { ...R2.body, size: rows > 2 ? 26 : 32, min: 24 }, tw, 2)
+    const tags: Tag[] = []
+    for (const t of it.tags ?? []) { const tf = fit(c, `figure.items[${i}].tags`, t, R2.tag, tw - 40, 1); if (tf) tags.push({ f: tf, w: Math.ceil(widest(tf) * 1.1 + 32) }) }
+    const tagRows: Tag[][] = [[]]
+    let lw = 0
+    for (const t of tags) { if (lw + t.w > tw && tagRows[tagRows.length - 1]!.length) { tagRows.push([]); lw = 0 } tagRows[tagRows.length - 1]!.push(t); lw += t.w + 8 }
+    return { hd, bd, tags: tagRows.filter((r) => r.length) }
+  })
+  const textH = (cl: (typeof cells)[number]) => linesH(cl.hd) + (cl.bd ? 14 + linesH(cl.bd) : 0) + (cl.tags.length ? 22 + cl.tags.length * 46 : 0)
+  const cellH = Math.max(...cells.map((cl) => (two ? 44 + Math.max(tile, textH(cl)) : 44 + tile + 32 + textH(cl))))
+  const total = cellH * rows + gapY * (rows - 1)
+  const y0 = Math.round(o.y + Math.max(0, (o.h - total) / 2))
+  f.items.forEach((it, i) => {
+    const col = i % cols, r = Math.floor(i / cols), x = o.x + col * (cw + gapX), y = y0 + r * (cellH + gapY), hot = f.key === i
+    cv.line(x, y, x + cw, y, g.lineStrong, 2)
+    const ty = y + 44
+    cv.path(roundRectD(x, ty, tile, tile, Math.round(tile * 0.26)), { fill: hot ? g.mark : g.t10, role: 'tile' })
+    cv.icon(it.icon, x + tile * 0.22, ty + tile * 0.22, Math.round(tile * 0.56), hot ? g.onMark : g.accent, 1.7)
+    const cl = cells[i]!
+    let yy = two ? ty : ty + tile + 32
+    const tx = x + iconX
+    yy += cv.text(cl.hd, tx, yy, tw, g.text, { role: 'head' })
+    if (cl.bd) yy += 14 + cv.text(cl.bd, tx, yy + 14, tw, g.dim, { role: 'body' })
+    if (cl.tags.length) {
+      yy += 22
+      for (const row of cl.tags) {
+        let gx = tx
+        for (const t of row) {
+          cv.path(roundRectD(gx, yy, t.w, 36, 18), { stroke: { color: g.lineStrong, width: 1.5 } })
+          cv.text(t.f, gx + 16, yy + 18 - linesH(t.f) / 2, t.w - 32, g.dim, { role: 'tag' })
+          gx += t.w + 8
+        }
+        yy += 46
+      }
+    }
+  })
+}
+function lineGrid(e: FigEnv, f: F<'grid'>, o: Box) {
   const { cv, c } = e, g = cv.g
   const n = f.items.length
   const cols = n <= 3 ? n : n === 4 ? (f.items.some((it) => it.tags?.length) ? 2 : 4) : n <= 6 ? 3 : 4
@@ -485,7 +586,7 @@ function figures(e: FigEnv, f: F<'figures'>, o: Box, ink?: ChartInk) {
   const fitsRow = (cols: number, size: number) => { const gap = cols >= 4 ? 64 : 96, cw = (o.w - (cols - 1) * gap) / cols; return nums.every((v) => !v || numWidth(v, size) * 1.1 <= cw) }
   const cols = k <= 2 || fitsRow(k, k >= 4 ? 88 : 96) ? k : 2
   const rowsN = Math.ceil(k / cols), gap = cols >= 4 ? 64 : 96, cw = (o.w - (cols - 1) * gap) / cols
-  const cands = rowsN > 1 ? [128, 112, 96, 88] : cols >= 4 ? [128, 112, 96, 88] : cols === 3 ? [150, 128, 112, 96] : [168, 150, 128, 112]
+  const cands = rowsN > 1 ? [128, 112, 96, 88] : cols >= 4 ? [136, 120, 104, 88] : cols === 3 ? [184, 164, 150, 128, 112] : [200, 176, 150, 128]
   let size = cands[cands.length - 1]!
   for (const sz of cands) { if (nums.every((v) => !v || numWidth(v, sz) * 1.1 <= cw)) { size = sz; break } }
   nums.forEach((v, i) => { if (v && numWidth(v, size) * 1.1 > cw) c.problems.push(`${c.where} figure.items[${i}].number "${f.items[i]!.number}" is too long to show large; give only the number and its unit as written`) })
@@ -503,7 +604,7 @@ function figures(e: FigEnv, f: F<'figures'>, o: Box, ink?: ChartInk) {
 }
 
 /** Draw a figure into its box (the composition chose the box). */
-export function drawFigure(e: FigEnv, f: DeckFigure, o: Box, ink?: ChartInk): void {
+export function drawFigure(e: FigEnv, f: DeckFigure, o: Box, ink?: ChartInk, style?: GridStyle): void {
   switch (f.kind) {
     case 'flow': return flow(e, f, o)
     case 'cycle': return cycle(e, f, o)
@@ -513,7 +614,7 @@ export function drawFigure(e: FigEnv, f: DeckFigure, o: Box, ink?: ChartInk): vo
     case 'compare': return compare(e, f, o)
     case 'funnel': return funnel(e, f, o)
     case 'merge': return merge(e, f, o)
-    case 'grid': return grid(e, f, o)
+    case 'grid': return grid(e, f, o, style)
     case 'cards': return cards(e, f, o)
     case 'donut': return donut(e, f, o, ink)
     case 'bars': return bars(e, f, o, ink)
