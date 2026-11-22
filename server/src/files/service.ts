@@ -19,6 +19,7 @@ import { audit } from '../admin/audit'
 import { atLeast, isStaff, loadPrincipal, RuleSet, setProjectsCaseInsensitive, type Principal } from '../policy/access'
 import { authorize, type Authorized, type FsCtx } from '../policy/authorize'
 import { Denied, ToolError } from '../policy/errors'
+import { movedFact, movedNoteForAi, refusedFolder, refusedPath } from './moved'
 import { shareReaders } from './share-readers'
 import { writeLimitText } from '../policy/refusal'
 import { badSegment, hiddenEntry } from '../policy/names'
@@ -616,12 +617,26 @@ export class FileService {
       const p = typeof (rawArgs as any)?.file_path === 'string' ? (rawArgs as any).file_path : typeof (rawArgs as any)?.path === 'string' ? (rawArgs as any).path : ''
       if (e instanceof Denied) {
         if (tool === 'write' || tool === 'edit') fileEvent(this.db, { turnId: ctx.turnId, userId: ctx.user.id, path: String(p).slice(0, 500), action: 'rejected', detail: { tool, reason: e.message } })
-        return { text: 'Access denied: ' + e.message, isError: true, summary: `${tool} ${short(p)} -> denied: ${e.message}` }
+        return { text: 'Access denied: ' + this.withMovedNote(ctx.user, e.message), isError: true, summary: `${tool} ${short(p)} -> denied: ${e.message}` }
       }
       if (e?.name === 'ZodError') return { text: 'Invalid input: ' + e.issues.map((i: any) => `${i.path.join('.')}: ${i.message}`).join('; '), isError: true, summary: `${tool} -> invalid input` }
-      if (e instanceof ToolError) return { text: 'Error: ' + toolErrorText(this.db,ctx.user.id,e), isError: true, summary: `${tool} ${short(p)} -> error: ${e.message}` }
+      if (e instanceof ToolError) return { text: 'Error: ' + this.withMovedNote(ctx.user, toolErrorText(this.db,ctx.user.id,e)), isError: true, summary: `${tool} ${short(p)} -> error: ${e.message}` }
       return { text: 'Error: internal error', isError: true, summary: `${tool} ${short(p)} -> internal: ${String(e?.message ?? e).slice(0, 200)}` }
     }
+  }
+
+  /** A "not found" refusal of a team path that was moved or put in the trash, with that fact (files/moved.ts; QA
+   * TC-r2b-01: the AI guessed "someone deleted it"). Only what the person may know: nothing for a hidden place, the new
+   * path only where they may read it. Any other message is returned as it is. */
+  withMovedNote(user: Principal, message: string): string {
+    const file = refusedPath(message)
+    const folder = file === null ? refusedFolder(message) : null
+    const old = file ?? folder
+    if (!old || /^\s*chat:/i.test(old)) return message
+    try {
+      const f = movedFact(this.db, this.fx, this.rules(), user, old, { folder: folder !== null })
+      return f ? `${message.replace(/\.$/, '')}. ${movedNoteForAi(f, old, { folder: folder !== null })}` : message
+    } catch { return message }
   }
 
   /**

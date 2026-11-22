@@ -105,6 +105,10 @@ export const filesRoutes: RouteModule = {
     kit.handle(API.tree, ({ c, query, auth }) => mapErrors(c.get('locale'), () => svc.tree(auth.user.id, query.path, query.cursor, query.limit)))
     // who can see a folder (a count only where the caller can write; team-files/service.ts audience)
     kit.handle(API.folderAudience, ({ c, query, auth }) => mapErrors(c.get('locale'), () => svc.audience(auth.user.id, query.path)))
+    // where a file that is not at its path any more went (files/moved.ts; QA TC-r2b-02)
+    kit.handle(API.moved, ({ c, query, auth }) => mapErrors(c.get('locale'), () => svc.moved(auth.user.id, query.path)))
+    // which names an upload would take (QA TC-7241: Replace or keep both is asked first)
+    kit.handle(API.namesTaken, ({ c, body, auth }) => mapErrors(c.get('locale'), () => svc.namesTaken(auth.user.id, body.folder, body.names)))
 
     kit.handle(API.content, ({ c, query, auth }) => mapErrors(c.get('locale'), async () => {
       const r = await svc.content(auth.user.id, query.path, query.maxBytes)

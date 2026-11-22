@@ -4,7 +4,7 @@
 import { markTeamShares } from '../chat/team-shares'
 import fs from 'node:fs'
 import path from 'node:path'
-import type { FileChange, FileContent, FileEntry, FileHistoryEvent, FileVersion, FolderAudience, Page, SaveResult, TrashItem, TreeResponse, UserRef } from '@mycel/shared/api'
+import type { FileChange, FileContent, FileEntry, FileHistoryEvent, FileVersion, FileMoved, FolderAudience, NamesTaken, Page, SaveResult, TrashItem, TreeResponse, UserRef } from '@mycel/shared/api'
 import type { AppContext } from '../context'
 import { teamDefaultLocale, teamTimeZone } from '../admin/settings'
 import { forgetLiveViewers, resetEngineSessions } from '../chat/runtime'
@@ -13,6 +13,7 @@ import { newId } from '../db'
 import { ext, isOffice } from '../files/extract'
 import { atomicWrite, conflictCopyName, fileEvent, readRegular, recordConflictCopy, saveVersion, sha256 } from '../files/store'
 import { CONTENT_KINDS, fileTimeline, placeNow } from '../files/timeline'
+import { movedFact } from '../files/moved'
 import { HttpError } from '../http/errors'
 import { atLeast, inPlace, inProjectZone, isProjectsTop, isStaff, RuleSet, splitOf, SYSTEM_PRINCIPAL, type Principal } from '../policy/access'
 import { authorize, siblingVisible, type Authorized } from '../policy/authorize'
@@ -204,6 +205,16 @@ export class TeamFiles {
   }
 
   // ---------------- audience: who can see a folder, as far as the caller may know ----------------
+  /** GET /api/files/moved: where the file that was at `rel` went (files/moved.ts movedFact: told only to someone who
+   * may open the folder it was in; the new path only where they may read it). */
+  moved(userId: string, rel: string): FileMoved {
+    const user = this.principal(userId)
+    const f = movedFact(this.ctx.db, this.fx, this.rules(), user, rel)
+    if (!f) return { status: 'no' }
+    const by = { id: f.by, name: f.byName }
+    return f.kind === 'trashed' ? { status: 'trashed', by, at: f.at } : { status: 'moved', by, at: f.at, ...(f.to ? { to: f.to } : {}) }
+  }
+
   /**
    * GET /api/files/audience (docs/DECISIONS.md "Who can see a folder, in place"). The tree's own check and answers for
    * the path, then a folder the caller can only pass through answers like one they cannot see. The count only where a
@@ -560,12 +571,13 @@ export class TeamFiles {
       // (the move confirm also says how many people have files here by their link: files/shares.ts)
       if (narrowed > 0 && !o.confirm) { const linked = linkPeopleIn(this.ctx.db, fr.rel); fileError('conflict', 'audienceNarrowed', undefined, { reason: 'audience_narrowed', lostViewers: narrowed, ...(linked ? { linkPeople: linked } : {}) }) }
     }
-    // the other way (QA TC-115): an item out of a personal folder to where more people can read it must be confirmed
-    // too, when the client asks (askWiden: the Files screen). The AI's own moves ask on their cards (tools/file-moves.ts)
+    // the other way (QA TC-115): an item moved to where more people can read it must be confirmed too, when the client
+    // asks (askWiden: the Files screen): out of a personal folder, and (QA TC-r2b-02) out of a project or group folder
+    // into a company-wide one. Not within one personal folder. The AI's own moves ask on their cards (tools/file-moves.ts)
     let widened = 0
-    if (o.askWiden && fr.segs[0] === 'users' && !(target[0] === 'users' && target[1] === fr.segs[1])) {
+    if (o.askWiden && !(fr.segs[0] === 'users' && target[0] === 'users' && target[1] === fr.segs[1])) {
       widened = this.viewersAdded(rules, user.id, fr.segs, target)
-      if (widened > 0 && !o.confirm) fileError('conflict', 'audienceWidened', undefined, { reason: 'audience_widened', viewersAdded: widened })
+      if (widened > 0 && !o.confirm) fileError('conflict', target[0] === 'users' ? 'sharedFolderWidened' : fr.segs[0] === 'users' ? 'audienceWidened' : 'audienceWidenedAny', undefined, { reason: 'audience_widened', viewersAdded: widened })
     }
     // into a folder the owner shares (files/folder-shares.ts), from where its people could not open it (another of the
     // owner's folders, a hidden folder inside it, a rename of a hidden name to a plain one): confirmed whatever the
@@ -2324,6 +2336,26 @@ export class TeamFiles {
     }
     sharesPurged(db, t.id)
     db.query('DELETE FROM trash_items WHERE id = ?').run(t.id)
+  }
+
+  /** POST /api/files/names-taken: of `names`, those `folder` (one the person may write) holds already, as the upload's
+   * rename would see them (foldKey; a name hidden from the person counts as free), with the name on disk. */
+  namesTaken(userId: string, folder: string, names: string[]): NamesTaken {
+    const user = this.principal(userId)
+    const rules = this.rules()
+    const fr = authorize(this.fx, rules, user, folder, 'write', { mustExist: true })
+    if (!fr.st!.isDirectory()) throw new ToolError('not a folder', 'not_folder')
+    const here = new Map<string, string>()
+    for (const n of fs.readdirSync(fr.abs)) if (siblingVisible(this.fx, rules, user, fr.segs, n)) here.set(foldKey(n), n)
+    const taken: NamesTaken['taken'] = []
+    for (const name of names) {
+      const existing = here.get(foldKey(name.normalize('NFC')))
+      if (existing === undefined) continue
+      let dir = false
+      try { dir = fs.lstatSync(path.join(fr.abs, existing)).isDirectory() } catch { continue }
+      taken.push({ name, existing, type: dir ? 'folder' : 'file' })
+    }
+    return { taken }
   }
 
   // ---------------- uploads (small and chunked end here) ----------------
