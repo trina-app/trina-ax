@@ -281,7 +281,7 @@ export class PushService {
     db.query(`INSERT INTO ${src.deliveries}(notification_id,subscription_id,next_at,expires_at)
       SELECT n.id,s.id,${src.due},strftime('%Y-%m-%dT%H:%M:%fZ',n.created_at,'+1 day') FROM ${src.inbox} n JOIN push_subscriptions s ON s.user_id=n.user_id
       JOIN push_preferences p ON p.user_id=n.user_id AND p.enabled=1
-      WHERE n.suppressed=0 AND ${src.unread.replace(/read_at|event_type/g,(c)=>`n.${c}`)} ${src.only.replace(/quiet|named/g,(c)=>`n.${c}`)} AND n.created_at>=s.created_at AND n.created_at>=p.enabled_at AND n.created_at>? AND s.config_key IN (?,?)
+      WHERE n.suppressed=0 AND ${src.unread.replace(/read_at|event_type/g,(c)=>`n.${c}`)} ${src.only.replace(/quiet|named|\bkind\b/g,(c)=>`n.${c}`)} AND n.created_at>=s.created_at AND n.created_at>=p.enabled_at AND n.created_at>? AND s.config_key IN (?,?)
       AND NOT EXISTS(SELECT 1 FROM ${src.deliveries} d WHERE d.notification_id=n.id AND d.subscription_id=s.id)
       ORDER BY n.created_at,n.id LIMIT 500 ON CONFLICT(notification_id,subscription_id) DO NOTHING`).run(now,this.iso(this.o.now()-TTL_MS),keys[0]??'',keys[1]??'')
     }

@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-22 02:22
 - Branch: `fix/shared-chat-new-message-notices`
-- Status: in progress
+- Status: done
 - Where: server (chat, notifications), shared (api), web (markers, sound, chat menu). Why: a people-shared chat is a
   conversation, and today nobody hears about a teammate's message there (scenario QA TC-7406, TC-r2b-07, TC-r2a-01)
 - Version impact: minor. A new notice kind, a new menu item and a migration (additive).
@@ -73,4 +73,11 @@ tests. Visual check on a private QA copy with two users at 1440 and 390.
 
 ## Result
 
-(at the end)
+Built as planned, plus two asks that came during the work: TC-r2a-01 (same gap) and TC-r2d-05 (@mention a person in
+the main box: the rooms' mention picker over the people who see the chat, `SendMessageBody.mentions`, a mention notice
+that reaches a muted chat, "@" on the row). Changes after the plan review: no phone label (the gateway asks for words
+only for room codes and chat.shared), the count shows before a running answer's ring, card answers and Slack questions
+tell nobody, a person's message brings a hidden chat back, someone taken out loses their notices. After the code
+review: the service worker's first gate lets chat.message through, the @ list keeps S8 (a group's people only for the
+creator, admins and its own members), one read per row for the number and mute. Mute is lean (no grey count). The PR
+link is in the PR; tests: tests/unit/b-shared-chat-message-notices.test.ts, web/test/unit/shared-chat-message-marker.test.tsx.
