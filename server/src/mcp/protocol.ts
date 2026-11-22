@@ -62,14 +62,15 @@ export function makeHandler(files: FileService, db: Database, ctx: ToolCtx, extr
     // AI is told after the call
     // what the AI is told after the call when something was hidden (null: nothing was)
     let hidden: string | null = null
-    // the call named a file copied into this shared chat: the AI is told it was the chat's copy (in success and failure)
+    // the call named a file copied into this shared chat: the AI is told it was the chat's copy (a result or a refusal)
     let copyLine: string | null = null
     // a chat shared with people "with files": a path to a file copied into it means the chat's copy, for everyone
     // (chat/copy-paths.ts); fails closed: a lookup that throws runs nothing
     if (extra?.mapPaths) {
       try {
-        const mapped = extra.mapPaths(name, params?.arguments ?? {}, caller)
-        if (mapped !== (params?.arguments ?? {})) { params = { ...params, arguments: mapped }; copyLine = extra.mappedNote?.() ?? null }
+        const before = params?.arguments ?? {}
+        const mapped = extra.mapPaths(name, before, caller)
+        if (mapped !== before) { params = { ...params, arguments: mapped }; copyLine = extra.mappedNote?.() ?? null }
       } catch {
         audit.run(ctx.turnId, ctx.user.id, name.slice(0, 64), `${name} -> not run (the chat's copies could not be looked up)`, 0)
         return failed('The files of this chat could not be looked up, so nothing was done. Try again.')
@@ -111,7 +112,7 @@ export function makeHandler(files: FileService, db: Database, ctx: ToolCtx, extr
       // a wider-audience refusal: the audit line says how its card ended (a scheduled run asked nobody)
       const r = typeof refusal === 'string' ? { refusal, summary: `${name} -> ${((e) => (e === 'failed' ? 'the check failed' : cardEndShort(e)))(endOfText(refusal))} (wider audience)` } : refusal
       audit.run(ctx.turnId, ctx.user.id, name.slice(0, 64), r.summary.slice(0, 1000), 0)
-      return failed(r.refusal)
+      return withNote(failed(r.refusal))
     }
     const out = registry?.has(name) ? await registry.call(name, params?.arguments ?? {}, callCtx) : await files.call(name, params?.arguments ?? {}, callCtx)
     audit.run(ctx.turnId, ctx.user.id, name.slice(0, 64), out.summary.slice(0, 1000), out.isError ? 0 : 1)

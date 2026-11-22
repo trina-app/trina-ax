@@ -220,14 +220,15 @@ export function withheldAmong(db: Database, rules: RuleSet, nodes: readonly Node
  */
 export const withheldFrom = (db: Database, rules: RuleSet, chatId: string, viewer: string): Set<string> => withheldAmong(db, rules, chatNodes(db, chatId), viewer)
 
-/** One answer's branch (it and every message above it, root first) with their turns' person and records: one read of
+/** One answer's branch (it and every message above it, in the chat's order) with their turns' person and records: one read of
  * the branch only, never the whole chat (an answer's verdict depends only on what is above it). */
 export function branchNodes(db: Database, chatId: string, messageId: string): Node[] {
-  const rows = db.query(`WITH RECURSIVE up(id, depth) AS (SELECT ?2, 0 UNION SELECT m.parent_id, up.depth + 1 FROM messages m JOIN up ON m.id = up.id
-      WHERE m.chat_id = ?1 AND m.parent_id IS NOT NULL AND up.depth < 100000)
+  // UNION on the id alone: a broken parent loop ends at its first repeat
+  const rows = db.query(`WITH RECURSIVE up(id) AS (SELECT ?2 UNION SELECT m.parent_id FROM messages m JOIN up ON m.id = up.id
+      WHERE m.chat_id = ?1 AND m.parent_id IS NOT NULL)
     SELECT m.id, m.parent_id, m.role, t.user_id AS runner, r.reads, r.left_out, m.created_at, c.shared_at FROM up JOIN messages m ON m.id = up.id AND m.chat_id = ?1
     JOIN chats c ON c.id = m.chat_id LEFT JOIN turns t ON t.id = m.turn_id LEFT JOIN shared_answer_reads r ON r.message_id = m.id
-    ORDER BY up.depth DESC`).all(chatId, messageId) as NodeRow[]
+    ORDER BY m.rowid`).all(chatId, messageId) as NodeRow[]
   const cutover = hiddenAnswersCutover(db)
   return rows.map((m) => nodeOf(m, cutover))
 }
@@ -242,9 +243,9 @@ export function answerHiddenFrom(db: Database, files: FileService, chatId: strin
   const out = new Set<string>()
   if (!viewers.length) return out
   const branch = branchNodes(db, chatId, messageId)
-  const me = branch[branch.length - 1]
+  const me = branch.find((n) => n.id === messageId)
   // not there (deleted meanwhile) or not an answer: nothing of it to hide
-  if (!me || me.id !== messageId || !me.answer) return out
+  if (!me || !me.answer) return out
   if (me.late && !(me.rec?.reads.some((g) => g.x || g.k))) return out
   // only x groups: who is in them decides, no account or rule is read
   if (me.late && !me.rec!.reads.some((g) => g.k)) {
