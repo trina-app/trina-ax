@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-22 05:01
 - Branch: `fix/projects-rail-badge` (stacked on #339 `fix/shared-chat-new-message-notices`; compatible with #321)
-- Status: in progress
+- Status: done
 - Where: web (rail, phone tab bar, session markers), shared (attention count), server (push badge). Why: the Projects
   list showed an unread "1" on a team project while the rail's Projects icon had no mark (the owner, 11-22: "팀프로젝트에
   알림이 있는데, 프로젝트 아이콘에 알림이 없는게 이상한듯"; "모바일도 잘 생각해줘").
@@ -53,4 +53,10 @@ web e2e for the rail.
 
 ## Result
 
-(filled in at the end)
+Built as planned, plus one fix found in the QA copy: a chat opened straight by its address (a reload, a link) mounted
+before the mentions were read, so it never read them and the rail kept its mark; pages/Chat.tsx now reads them once
+they are known. Checked in a copy of the local QA team (1440 and 390, light and dark; a second window cleared without a
+reload): shots in the shared shots-projbadge folder. Unit: rail-badges, session-markers, b-chat-thread-mentions (push
+badge); e2e: projects-rail-mark.spec.ts with the rail, session-markers and phone-tab specs.
+Found, not this branch's: tests/unit/b-shared-chat-message-push.test.ts fails on #339's head too (badge [2, 4], not
+[1, 2]), with the mention count turned off.
