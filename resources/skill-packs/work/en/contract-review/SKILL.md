@@ -74,7 +74,7 @@ Our side: [side, or "assumed: …"] · Basis: general business practice, not a c
 > have a lawyer review it before signing.
 ```
 - Keep the always-present last line. Say plainly when a clause depends on the law of a country you cannot judge.
-- Write in the language of the contract or the request.
+- Answer in the language the person writes in. Quote clauses as they are written in the contract.
 - Never change the original file. Suggested wording goes in the answer; save a review file only when asked, after the
   person confirms the folder.
 

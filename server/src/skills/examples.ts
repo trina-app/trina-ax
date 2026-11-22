@@ -18,7 +18,7 @@ import { groupFolder } from '../admin/groups'
 import { teamDefaultLocale } from '../admin/settings'
 import { groupSkillsDir, isPersonalSkill, scanSkillsWithShadowed, type Skill } from '../chat/skills'
 import { readCompanyProfile } from '../onboarding/profile'
-import { CATALOG, packExample, packLocale, packSummary, SKILL_PACKS } from '../onboarding/skill-packs'
+import { CATALOG, packExample, packSummary, SKILL_PACKS, skillLocale } from '../onboarding/skill-packs'
 import { landingSkill, readWelcome } from '../onboarding/welcome'
 import { atLeast, type Principal } from '../policy/access'
 import { authorize } from '../policy/authorize'
@@ -156,11 +156,11 @@ export function teamPrepared(ctx: AppContext, userId: string, locale: Locale): T
     const at = `skills/${c.pack}/${c.name}/SKILL.md`
     const s = mine.find((x) => fold(x.path) === fold(at))
     if (!s) continue
-    const lang = packLocale(SKILL_PACKS[c.pack], team)
+    const lang = skillLocale(SKILL_PACKS[c.pack], c.name, team)
     // an example that cannot be read leaves the row without 예시, never without the row
     let example
     try { example = packExample(lang, c.name) ?? undefined } catch { example = undefined }
-    kept.set(s.path, { s, out: { path: s.path, name: s.name, title: skillTitle(s), summary: packSummary(c.name, locale) || lineOf(skillSummary(s)), ...(example ? { example, locale: lang === 'ko' ? 'ko' : 'en' } : {}), source: c.source(lang) } })
+    kept.set(s.path, { s, out: { path: s.path, name: s.name, title: skillTitle(s), summary: packSummary(c.name, locale) || lineOf(skillSummary(s)), ...(example ? { example, locale: lang } : {}), source: c.source(lang) } })
   }
   const others = mine.filter((s) => !kept.has(s.path)).map((s): PreparedSkill => ({ path: s.path, name: s.name, title: skillTitle(s), summary: lineOf(skillSummary(s)) }))
   let landing: string | null = null

@@ -32,8 +32,14 @@
   reply, a contract) is a reason to start; the skills also fix the shape (one owner and a date per to-do, "not set"
   instead of a guess, nothing promised to a customer that the person did not give, a fixed not-legal-advice line), which
   the 11-20 test saw as more consistent output.
-- **Sources and licences (DS3: known origin only).** Each skill is text only, rewritten in Korean (해요체) and English
-  from Anthropic's Apache-2.0 skills, read at pinned commits:
+- **All six app languages (the owner, 2026-11-22).** The four skills are written in Korean (해요체), English, Japanese,
+  Chinese, Spanish and Indonesian, each in that language's own office register, not translated line by line. A team gets
+  the text in its language (onboarding/skill-packs.ts `skillLocale`, now per skill: natural writing stays Korean and
+  English, card news, the promo video and the deck stay as they were). Each SKILL.md tells the AI to answer in the
+  language the person writes in (a customer reply's draft in the customer's language; a contract's clauses quoted as
+  written).
+- **Sources and licences (DS3: known origin only).** Each skill is text only, rewritten in the six languages from
+  Anthropic's Apache-2.0 skills, read at pinned commits:
   - meeting-notes: knowledge-work-plugins `sales/skills/call-summary` and `legal/skills/meeting-briefing`
   - team-report: anthropics/skills `skills/internal-comms` (its LICENSE.txt, Apache-2.0) and knowledge-work-plugins
     `operations/skills/status-report`
@@ -50,8 +56,12 @@
   The catalog's source line links to the upstream folder at the commit ("원본 보기").
 - **Names:** new skill names never take an old pack name (onboarding/retired-skills.ts LEGACY_PACK_SKILL_NAMES has
   `meeting-summary` and `weekly-team-report`), so an older release's copy on a team is never read as the new skill.
-- **Examples:** each new skill has a text example in Korean and English on the fictional 예시커피 / Example Coffee, made by
-  running the skill once on the ai-scenarios local server (real Claude Code engine, 2026-11-22).
+  Like every pack name, the four are reserved from now on: a person's own skill brought in with the name
+  `meeting-notes` (a common one) goes in as `meeting-notes-2`, so "/meeting-notes" never runs two skills.
+- **Examples:** each new skill has a text example in each language on a fictional local roaster (예시커피, Example Coffee,
+  見本コーヒー, 示例咖啡, Café Ejemplo, Kopi Contoh), made by running the skill once per language on the ai-scenarios local
+  server (real Claude Code engine, 2026-11-22). The EXAMPLE.md holds the start of the input and the start of the answer,
+  cut at whole blocks to the size limit (900 characters in Korean, Japanese and Chinese; 1,200 in the others).
 - **Left out:** HR, sales follow-up, expense and other packs (a later list can add rows; the catalog shows them on Team
   skills), audio transcription (the skill asks for a transcript when only a recording is given).
 - **Tests:** tests/unit/b-skill-catalog (order, `onboarding`, sources, LICENSE and NOTICE, examples),

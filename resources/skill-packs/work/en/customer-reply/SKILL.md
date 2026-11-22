@@ -53,7 +53,8 @@ and promises nothing the company has not agreed to.
 - [facts or promises to confirm, `[to confirm]` items, anything sensitive]
 ```
 - Then offer one line of options: shorter, warmer, more formal, or a version for a manager to review.
-- Write in the customer's language unless asked otherwise.
+- Talk to the person in the language they write in. The draft itself is in the language the customer wrote in, unless
+  the person asks for another.
 - Do not send anything yourself. Save to a file only when asked, after the person confirms the folder.
 
 ## Credits

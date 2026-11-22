@@ -99,8 +99,9 @@ export const PackSkillSource = z.discriminatedUnion('kind', [
 export type PackSkillSource = z.infer<typeof PackSkillSource>
 
 /** Size limits of the examples (EXAMPLES-PLAN, FLOW-v6 §8; a test holds the files to them): an image of at most 90 KB,
- * a text excerpt of at most 900 characters in Korean and 1,200 in English. */
-export const PACK_EXAMPLE_LIMITS = { imageBytes: 90 * 1024, textChars: { ko: 900, en: 1200 } } as const
+ * a text excerpt of at most 900 characters in Korean, Japanese and Chinese and 1,200 in English, Spanish and
+ * Indonesian. */
+export const PACK_EXAMPLE_LIMITS = { imageBytes: 90 * 1024, textChars: { ko: 900, ja: 900, zh: 900, en: 1200, es: 1200, id: 1200 } } as const
 
 /** One example of a kept skill, made on the fictional company 예시커피 / Example Coffee (EXAMPLES-PLAN): an image the
  * web build serves (web/public/skill-examples/<locale>/<name>.webp, loaded only when the viewer opens) for a result that

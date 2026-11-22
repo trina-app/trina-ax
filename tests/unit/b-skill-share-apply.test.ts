@@ -158,7 +158,9 @@ describe('skill shares over the API', () => {
       expect(applied.candidates.map((c) => [c.name, c.applied])).toEqual([
         ['weekly-report', { status: 'added', path: 'skills/weekly-report/SKILL.md', chatId: null, error: null }],
         ['quote-draft', { status: 'added', path: 'skills/quote/SKILL.md', chatId: null, error: null }],
-        ['meeting-notes', { status: 'added', path: 'skills/meeting-notes/SKILL.md', chatId: null, error: null }],
+        // "meeting-notes" is a kept skill's name since 2026-11-22 (docs/decisions/20261122-onboarding-everyday-skills.md):
+        // a brought skill of that name takes the next free one, as for any pack name
+        ['meeting-notes', { status: 'added', path: 'skills/meeting-notes-2/SKILL.md', chatId: null, error: null }],
       ])
       expect(applied.landing).toBe('skills/weekly-report/SKILL.md')
       expect(parseSkill(fs.readFileSync(path.join(h.team, 'skills/weekly-report/SKILL.md'), 'utf8'), 'skills/weekly-report/SKILL.md')).toMatchObject({ name: 'weekly-report', title: '주간 업무 보고' })
@@ -173,17 +175,17 @@ describe('skill shares over the API', () => {
       expect(t).toMatchObject({ kind: 'mcp', name: 'Notion', url: 'https://mcp.notion.example/mcp', auth: 'oauth', created_by: 'dana' })
       // the file layer's own record: made by dana; the skills/ change log; our audit without content
       const ev = h.ctx.db.query("SELECT path, user_id, action FROM file_events WHERE path LIKE 'skills/%' AND user_id = 'dana' ORDER BY id").all() as { path: string; user_id: string; action: string }[]
-      expect(ev.map((e) => `${e.action} ${e.path}`)).toEqual(['create skills/weekly-report/SKILL.md', 'create skills/meeting-notes/SKILL.md', 'create skills/quote/templates/quote.md', 'create skills/quote/SKILL.md', 'create skills/일하는-방식.md'])
+      expect(ev.map((e) => `${e.action} ${e.path}`)).toEqual(['create skills/weekly-report/SKILL.md', 'create skills/meeting-notes-2/SKILL.md', 'create skills/quote/templates/quote.md', 'create skills/quote/SKILL.md', 'create skills/일하는-방식.md'])
       expect((h.ctx.db.query("SELECT COUNT(*) n FROM audit_log WHERE action = 'skills.change' AND target LIKE 'skills/%'").get() as { n: number }).n).toBeGreaterThanOrEqual(5)
       const a = h.ctx.db.query("SELECT actor_id, detail FROM audit_log WHERE action = 'skills.share_apply' AND target = ?").get(s.id) as { actor_id: string; detail: string }
       expect(a.actor_id).toBe('dana')
-      expect(JSON.parse(a.detail)).toMatchObject({ added: ['skills/weekly-report/SKILL.md', 'skills/meeting-notes/SKILL.md', 'skills/quote/SKILL.md'], rule: 'skills/일하는-방식.md', tools: 1, status: 'applied' })
+      expect(JSON.parse(a.detail)).toMatchObject({ added: ['skills/weekly-report/SKILL.md', 'skills/meeting-notes-2/SKILL.md', 'skills/quote/SKILL.md'], rule: 'skills/일하는-방식.md', tools: 1, status: 'applied' })
       expect(a.detail).not.toContain('1. Read the notes.')
       // the staged files are gone once applied
       expect(fs.existsSync(stageDir(h.ctx, s.id))).toBe(false)
       // the welcome steps: the shared skills in order, the invite opens the first recommended one
       expect(getSetting<{ shared: unknown }>(h.ctx.db, WELCOME_SETTING)!.shared).toMatchObject({
-        skills: [{ path: 'skills/weekly-report/SKILL.md', title: '주간 업무 보고' }, { path: 'skills/meeting-notes/SKILL.md', title: '회의록 정리' }, { path: 'skills/quote/SKILL.md', title: '견적서 초안' }],
+        skills: [{ path: 'skills/weekly-report/SKILL.md', title: '주간 업무 보고' }, { path: 'skills/meeting-notes-2/SKILL.md', title: '회의록 정리' }, { path: 'skills/quote/SKILL.md', title: '견적서 초안' }],
         landing: 'skills/weekly-report/SKILL.md',
       })
       // a member uses them like any team skill

@@ -82,7 +82,7 @@ Leave out a section that would be empty, except Problems / Risks, which say "non
 ## Answering
 - Give the finished text first, ready to paste into email or chat. Then, only if needed, a short list of the
   `[to confirm]` items.
-- Write in the language of the request unless asked otherwise.
+- Answer in the language the person writes in, whatever language the material is in, unless they ask for another.
 - Never change the original files. Save only when asked, after the person confirms the folder; make a Word file with
   make_file if they want .docx.
 

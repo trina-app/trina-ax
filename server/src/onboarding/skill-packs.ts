@@ -47,11 +47,38 @@ import koCustomerReply from '../../../resources/skill-packs/work/ko/customer-rep
 import enCustomerReply from '../../../resources/skill-packs/work/en/customer-reply/SKILL.md' with { type: 'text' }
 import koContractReview from '../../../resources/skill-packs/work/ko/contract-review/SKILL.md' with { type: 'text' }
 import enContractReview from '../../../resources/skill-packs/work/en/contract-review/SKILL.md' with { type: 'text' }
+import jaMeetingNotes from '../../../resources/skill-packs/work/ja/meeting-notes/SKILL.md' with { type: 'text' }
+import jaTeamReport from '../../../resources/skill-packs/work/ja/team-report/SKILL.md' with { type: 'text' }
+import jaCustomerReply from '../../../resources/skill-packs/work/ja/customer-reply/SKILL.md' with { type: 'text' }
+import jaContractReview from '../../../resources/skill-packs/work/ja/contract-review/SKILL.md' with { type: 'text' }
+import zhMeetingNotes from '../../../resources/skill-packs/work/zh/meeting-notes/SKILL.md' with { type: 'text' }
+import zhTeamReport from '../../../resources/skill-packs/work/zh/team-report/SKILL.md' with { type: 'text' }
+import zhCustomerReply from '../../../resources/skill-packs/work/zh/customer-reply/SKILL.md' with { type: 'text' }
+import zhContractReview from '../../../resources/skill-packs/work/zh/contract-review/SKILL.md' with { type: 'text' }
+import esMeetingNotes from '../../../resources/skill-packs/work/es/meeting-notes/SKILL.md' with { type: 'text' }
+import esTeamReport from '../../../resources/skill-packs/work/es/team-report/SKILL.md' with { type: 'text' }
+import esCustomerReply from '../../../resources/skill-packs/work/es/customer-reply/SKILL.md' with { type: 'text' }
+import esContractReview from '../../../resources/skill-packs/work/es/contract-review/SKILL.md' with { type: 'text' }
+import idMeetingNotes from '../../../resources/skill-packs/work/id/meeting-notes/SKILL.md' with { type: 'text' }
+import idTeamReport from '../../../resources/skill-packs/work/id/team-report/SKILL.md' with { type: 'text' }
+import idCustomerReply from '../../../resources/skill-packs/work/id/customer-reply/SKILL.md' with { type: 'text' }
+import idContractReview from '../../../resources/skill-packs/work/id/contract-review/SKILL.md' with { type: 'text' }
 
 export interface SkillPack {
-  /** skill name → its SKILL.md text, per language the pack is written in (English always) */
+  /** skill name → its SKILL.md text, per language (English always, with every skill; another language may hold only
+   * some skills: skillLocale picks per skill) */
   skills: Partial<Record<Locale, Record<string, string>>> & { en: Record<string, string> }
 }
+
+/** The everyday office skills in the other app languages (natural writing stays Korean and English: its patterns are
+ * language-specific). Spread into the work pack, so the pack is not read as a table that needs every skill in every
+ * language (scripts/check-i18n.ts). */
+const EVERYDAY_OTHER_LOCALES = {
+  ja: { 'meeting-notes': jaMeetingNotes, 'team-report': jaTeamReport, 'customer-reply': jaCustomerReply, 'contract-review': jaContractReview },
+  zh: { 'meeting-notes': zhMeetingNotes, 'team-report': zhTeamReport, 'customer-reply': zhCustomerReply, 'contract-review': zhContractReview },
+  es: { 'meeting-notes': esMeetingNotes, 'team-report': esTeamReport, 'customer-reply': esCustomerReply, 'contract-review': esContractReview },
+  id: { 'meeting-notes': idMeetingNotes, 'team-report': idTeamReport, 'customer-reply': idCustomerReply, 'contract-review': idContractReview },
+} satisfies Partial<Record<Locale, Record<string, string>>>
 
 export const SKILL_PACKS: Record<SkillPackId, SkillPack> = {
   // the intro deck, the card news and the promo video, each calling a tool of its own and made from the company profile
@@ -72,12 +99,16 @@ export const SKILL_PACKS: Record<SkillPackId, SkillPack> = {
     skills: {
       ko: { humanizer: koWorkHumanizer, 'meeting-notes': koMeetingNotes, 'team-report': koTeamReport, 'customer-reply': koCustomerReply, 'contract-review': koContractReview },
       en: { humanizer: enWorkHumanizer, 'meeting-notes': enMeetingNotes, 'team-report': enTeamReport, 'customer-reply': enCustomerReply, 'contract-review': enContractReview },
+      ...EVERYDAY_OTHER_LOCALES,
     },
   },
 }
 
-/** The language of a pack's skill text for a team: the team's own, or English. */
-export const packLocale = (pack: SkillPack, team: Locale): Locale => (pack.skills[team] ? team : 'en')
+/** The language of one skill's text for a team: the team's own when the pack has that skill in it, or English (the work
+ * pack has the everyday skills in all six languages, natural writing in Korean and English only). */
+export const skillLocale = (pack: SkillPack, name: string, team: Locale): Locale => (pack.skills[team]?.[name] ? team : 'en')
+/** One skill's text for a team (undefined: not a skill of the pack). */
+const skillText = (pack: SkillPack, name: string, team: Locale): string | undefined => pack.skills[skillLocale(pack, name, team)]?.[name]
 
 /** The texts an earlier release of the pack wrote for this one: the same file without its metadata `title` line (the
  * titles came after the first install on some teams), without its `recurring` line (docs/DECISIONS.md "S"), or without
@@ -134,8 +165,8 @@ export function placeSkill(ctx: AppContext, userId: string, rel: string, name: s
  * file, a team skill of the same name elsewhere blocks it, written as the person through the file layer. */
 export function installPackSkill(ctx: AppContext, userId: string, id: SkillPackId, name: string): { path: string; status: PackItemStatus; sameNameAs?: string } {
   const pack = SKILL_PACKS[id]
-  const locale = packLocale(pack, teamDefaultLocale(ctx.db))
-  const text = pack.skills[locale]![name]
+  const locale = skillLocale(pack, name, teamDefaultLocale(ctx.db))
+  const text = skillText(pack, name, locale)
   if (!text) throw new Error(`no skill ${name} in pack ${id}`)
   const teamSkills = listTeamSkills(ctx.files, ctx.files.principal(userId)).map((s) => ({ path: s.path, name: s.name }))
   const r = placeSkill(ctx, userId, `skills/${id}/${name}/SKILL.md`, name, text, teamSkills)
@@ -149,17 +180,18 @@ export function installPackSkill(ctx: AppContext, userId: string, id: SkillPackI
 export function installSkillPack(ctx: AppContext, userId: string, id: SkillPackId, only?: readonly string[]): SkillPackInstallResult {
   const pack = SKILL_PACKS[id]
   const team = teamDefaultLocale(ctx.db)
-  const locale = packLocale(pack, team)
-  const texts = pack.skills[locale]!
-  const names = only ? [...new Set(only)] : Object.keys(texts)
-  const unknown = names.findIndex((n) => !Object.hasOwn(texts, n))
+  // every skill of the pack is in English; each goes in in the team's language when the pack has it in that one
+  const names = only ? [...new Set(only)] : Object.keys(pack.skills.en)
+  const unknown = names.findIndex((n) => !Object.hasOwn(pack.skills.en, n))
   if (unknown >= 0) fail('validation', undefined, { fields: { [`body.skills.${unknown}`]: 'not a skill of this pack' } })
   if (names.some((n) => VISUAL.has(n))) visualInstallHooks().forEach((fn) => {
     try { fn(ctx, userId) } catch (err) { ctx.log.warn('before a visual skill install: a hook failed', { err }) }
   })
   // the team skills as the admin sees them (owners and admins read every team folder), personal ones left out
   const teamSkills = listTeamSkills(ctx.files, ctx.files.principal(userId)).map((s) => ({ path: s.path, name: s.name }))
-  const skills = names.map((name) => ({ name, ...placeSkill(ctx, userId, `skills/${id}/${name}/SKILL.md`, name, texts[name]!, teamSkills) }))
+  const skills = names.map((name) => ({ name, ...placeSkill(ctx, userId, `skills/${id}/${name}/SKILL.md`, name, skillText(pack, name, team)!, teamSkills) }))
+  // the result's language: the team's when at least one skill went in in it, else English
+  const locale: Locale = names.some((n) => skillLocale(pack, n, team) === team) ? team : 'en'
   const count = (s: string) => skills.filter((x) => x.status === s).length
   audit(ctx.db, { actor: userId, action: 'onboarding.pack_install', target: `skills/${id}`, detail: { pack: id, locale, ...(only ? { skills: names } : {}), created: count('created'), present: count('present'), kept: count('kept'), blocked: count('blocked') } })
   return { pack: id, locale, skills }
@@ -262,7 +294,7 @@ export function skillPackCatalog(ctx: AppContext, userId: string, locale: Locale
   const teamSkills = listTeamSkills(ctx.files, me).map((s) => ({ path: s.path, name: s.name }))
   const skills: PackCatalogSkill[] = CATALOG.flatMap((c) => {
     const pack = SKILL_PACKS[c.pack]
-    const at = packLocale(pack, team)
+    const at = skillLocale(pack, c.name, team)
     const text = pack.skills[at]?.[c.name]
     if (!text) return []
     const path = `skills/${c.pack}/${c.name}/SKILL.md`

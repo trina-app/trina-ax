@@ -69,4 +69,7 @@ all eight. Differences: the planned "Word, Excel, PowerPoint and PDF need no ski
 intro deck's pack, rendering and example were left untouched (another PR is redesigning them). Each new skill was run
 once per language on the ai-scenarios local server (real Claude Code engine): all eight answers followed their skill
 (one owner and due date per to-do or "not set", no promise beyond what was given, the not-legal-advice line), and the
-examples are taken from those answers. PR: see the pull request that links this plan.
+examples are taken from those answers. Later the same day (the owner) the four skills were added in Japanese, Chinese,
+Spanish and Indonesian too, with per-skill language selection (`skillLocale`), an answer-in-the-user's-language line in
+every SKILL.md, and examples made the same way in all six languages (24 runs). PR: see the pull request that links this
+plan.

@@ -2,5 +2,7 @@
   (decisions and to-dos with owners and due dates), **Reports & announcements** (weekly reports, team notices, incident
   reports), **Customer replies**, **Contract review** (risky clauses and questions to ask; not legal advice), **Natural
   writing** and the **Company intro deck**. The first ones come checked. Each has an example.
+- The four new skills come in all six app languages (Korean, English, Japanese, Chinese, Spanish, Indonesian), each
+  with its own example, and they answer in the language you write in.
 - Card news and the promo video are no longer in the setup list. They are still on **Team skills › Skills prepared by
   Trina · N more**, and teams that added them keep them.

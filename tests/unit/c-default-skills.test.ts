@@ -58,6 +58,11 @@ test('the packs ship the four skills with a known origin, in Korean and English,
       }
     }
   }
+  // the everyday office skills in the other four app languages too (the rest falls back to English there)
+  for (const l of ['ja', 'zh', 'es', 'id'] as const) {
+    expect(Object.keys(SKILL_PACKS.work.skills[l]!).sort()).toEqual(['contract-review', 'customer-reply', 'meeting-notes', 'team-report'])
+    expect(SKILL_PACKS.general.skills[l]).toBeUndefined()
+  }
   expect(packSkillNames().sort()).toEqual(['card-news', 'contract-review', 'customer-reply', 'humanizer', 'intro-deck', 'meeting-notes', 'promo-video', 'team-report'])
   expect(RECOMMENDED_PACK_SKILLS).toBe(RECOMMENDED_SKILL_PACKS.reduce((n, id) => n + Object.keys(SKILL_PACKS[id].skills.en).length, 0))
   // nothing of the deleted skills is left in the repository's packs

@@ -41,10 +41,12 @@ Make its example again in the same PR, the same way, and record the new `skillHa
 
 ## The everyday office skills (2026-11-22)
 
-`resources/skill-packs/work/<ko|en>/{meeting-notes,team-report,customer-reply,contract-review}/EXAMPLE.md` were made
-the same day the skills were written: the ai-scenarios local server (`AISCEN_HOME=<short folder> bun run ai:scenarios
-up --no-relay`, real Claude Code engine, no web search), the work pack installed in Korean, then in English (team
-language switched, the Korean copies removed first), and each skill run once in a new chat with its form's first
-choice and a short invented input about 예시커피 / Example Coffee (a meeting memo, the week's notes, a late-delivery
-complaint, a six-clause bean supply agreement draft). The input is quoted in part, then the first part of the answer,
-within 900 / 1,200 characters. The customer reply names 이지훈 / Jihoon Lee as the sender because the input said so.
+`resources/skill-packs/work/<ko|en|ja|zh|es|id>/{meeting-notes,team-report,customer-reply,contract-review}/EXAMPLE.md`
+were made the same day the skills were written: the ai-scenarios local server (`AISCEN_HOME=<short folder> bun run
+ai:scenarios up --no-relay`, real Claude Code engine, no web search), the work pack installed in each language in turn
+(team language switched, the other language's copies removed first), and each skill run once in a new chat with its
+form's first choice and a short invented input (a meeting memo, the week's notes, a late-delivery complaint, a
+six-clause bean supply agreement draft) about a fictional roaster per language: 예시커피, Example Coffee, 見本コーヒー,
+示例咖啡, Café Ejemplo, Kopi Contoh, with invented local names. The input is quoted in part, then the start of the answer,
+cut at whole blocks within 900 characters (ko, ja, zh) or 1,200 (en, es, id). Those companies, people and amounts are
+invented like 예시커피's.

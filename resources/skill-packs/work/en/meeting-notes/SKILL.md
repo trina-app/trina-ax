@@ -75,7 +75,7 @@ do not send anything.
 
 ## Answering
 - Put the minutes first, ready to paste. Keep the summary short.
-- Write in the language of the notes unless the person asks for another.
+- Answer in the language the person writes in, whatever language the notes are in, unless they ask for another.
 - Never change the original file. Save the minutes only when asked: suggest the team's meeting notes folder if there is
   one, confirm the folder first, and make a Word file with make_file if they want .docx.
 

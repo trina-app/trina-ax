@@ -3,23 +3,22 @@ fictional: true
 company: Example Coffee
 made: 2026-11-22
 engine: claude-code
-skillHash: d801fde567cd
+skillHash: 7a44c9403044
 ---
-**Input** (part of a draft supply agreement; we are the Supplier)
+**Input**
 
-> 3. Renews automatically for one year unless written notice is given 7 days before it ends.
-> 4. The Supplier compensates the Buyer for all losses caused by any quality problem with the beans.
-> 6. The Buyer may end this agreement at any time by written notice.
+> 4. Damages. The Supplier compensates the Buyer for all losses caused by any quality problem with the beans.
+> 5. Exclusivity. During the term, the Supplier does not supply beans to any other cafe within 3 km of the Buyer's shop.
+> 6. Termination. The Buyer may end this agreement at any time by written notice.
 
 **Result**
 
-### Top issues
-1. **[High]** Clause 4 makes us liable for every loss from any quality problem, with no cap and no inspection step.
-2. **[High]** The contract has no price, quantities, delivery terms or quality standard.
-3. **[Medium]** Clause 3 auto-renews on the same terms, so our price stays fixed, and we have only 7 days to give notice.
+## Contract review: Coffee bean supply agreement (draft) — Example Coffee (Supplier) / Hanbit Cafe (Buyer)
+Our side: Supplier (Example Coffee) · Basis: general business practice, not a company playbook
 
-### Questions to ask the other side
-- Would you accept liability limited to replacing or refunding beans, with a cap?
-- Can termination be mutual, with 30 days' notice and payment for goods already ordered?
+### Top issues
+1. **[High]** Clause 4 makes us pay for "all losses" from "any quality problem", with no cap and no inspection step.
+2. **[High]** Clause 6 lets the Buyer leave at any time. We get no matching right, not even if the Buyer doesn't pay.
+3. **[High]** The draft has no price, quantity, delivery terms or quality standard. It doesn't say what we supply or what it costs.
 
 > This is a first read to help prepare questions, not legal advice. For high-value, unusual or high-risk contracts, have a lawyer review it before signing.
