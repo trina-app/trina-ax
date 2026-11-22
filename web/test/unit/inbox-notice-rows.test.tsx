@@ -69,6 +69,11 @@ test('someone joined a project I am in (docs/DECISIONS.md "Project contents only
   expect(text(joined({ name: null, project: acme }))).toBe("누군가 &#x27;Acme launch&#x27; 프로젝트에 들어왔어요.")
   expect(text(joined({ name: null, project: acme }), 'en')).toBe('Someone joined &#x27;Acme launch&#x27;.')
   expect(text(joined({ name: null, project: null }), 'en')).toBe(en('notifications.event.project.joined'))
+  // I was the one added (QA TC-r2u-03): who added me, and where
+  expect(text(joined({ name: 'Bo', project: acme, you: true, by: 'Dana' }))).toBe("Dana님이 &#x27;Acme launch&#x27; 프로젝트에 나를 추가했어요.")
+  expect(text(joined({ name: 'Bo', project: acme, you: true, by: 'Dana' }), 'en')).toBe('Dana added you to &#x27;Acme launch&#x27;.')
+  expect(text(joined({ name: 'Bo', project: acme, you: true, by: null }), 'en')).toBe('You were added to &#x27;Acme launch&#x27;.')
+  expect(text(joined({ name: 'Bo', project: null, you: true, by: 'Dana' }), 'en')).toBe('You were added to a project.')
   // an older server without the details: the line of its kind
   expect(text(notice({ eventType: 'project.joined', code: 'project.joined', link: null, chatId: null, outcome: null }), 'en')).toBe('Someone joined a project.')
   expect(noticeLink(joined({ name: 'Dana', project: acme }))).toEqual({ to: '/projects/p1', testId: 'notification-project-link' })

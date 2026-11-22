@@ -8,6 +8,7 @@
 import clsx from 'clsx'
 import type { Chat } from '@mycel/shared/api'
 import { useT } from '../../i18n'
+import { CountPill } from '../CountPill'
 import { markerOf, type Marker } from '../../lib/sessionMarkers'
 import { useChats } from '../../store/chats'
 import { cardQuestion, reasonText, useSessionMarkers } from '../../store/sessionMarkers'
@@ -15,7 +16,7 @@ import { cardQuestion, reasonText, useSessionMarkers } from '../../store/session
 /** never sent in and never named: created for the attachments of a draft (the composer, "Ask AI about this") */
 export const isUnused = (c: Pick<Chat, 'title' | 'createdAt' | 'updatedAt' | 'runState'>) => !c.title && c.createdAt === c.updatedAt && c.runState === 'idle'
 
-type Marked = Pick<Chat, 'id' | 'runState' | 'waiting' | 'unseen' | 'lastOutcome' | 'confidential'>
+type Marked = Pick<Chat, 'id' | 'runState' | 'waiting' | 'unseen' | 'lastOutcome' | 'confidential'> & Partial<Pick<Chat, 'unreadCount' | 'mentioned'>>
 /** A chat's marker and its reason in words, as this window shows them: the AI's question itself when this window has
  * its card (not for a confidential chat), else the marker's words. */
 export function useChatMarker(chat: Marked): { marker: Marker | null; reason: string } {
@@ -37,5 +38,7 @@ export function SessionMarker({ marker, label, className }: { marker: Marker; la
     )
   if (marker.kind === 'running')
     return <span role="img" aria-label={label} className={clsx('size-3 shrink-0 animate-spin rounded-full border-[1.5px] border-faint border-r-transparent motion-reduce:animate-none', className)} data-testid="marker-running" data-reason={marker.reason} />
+  // a chat shared with people: its unread messages as a number, the rooms' count pill (nav/RoomsList.tsx UnreadBadge)
+  if (marker.count) return <CountPill text={marker.mention ? '@' : marker.count > 99 ? '99+' : String(marker.count)} label={`${label} ${marker.count}`} className={className} testId="marker-count" />
   return <span role="img" aria-label={label} className={clsx('size-2 shrink-0 rounded-full bg-accent', className)} data-testid="marker-new" />
 }

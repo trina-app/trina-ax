@@ -19,7 +19,8 @@
 //    the Dock or taskbar of a computer, an iPhone's Home Screen): the exact n; at 0 a plain dot while some room I did
 //    not turn off or hide has unread messages n does not count (lib/sessionMarkers.ts iconBadge, as Slack and Discord), else
 //    cleared (the service worker's dot from a push while no window was open turns into it). A normal tab: the browser
-//    ignores it. The phone app has its own (native) badge.
+//    ignores it. The phone app has its own (native) badge. n adds my unread thread mentions (store/chatMentions.ts, read
+//    while the rail or the phone's tab bar is mounted), as the server's push badge does (push-badge.ts).
 import { create } from 'zustand'
 import { useMemo } from 'react'
 import { API, plainLabel, type Chat, type Room, type RoomMessage, type ServerEvent } from '@mycel/shared/api'
@@ -30,6 +31,7 @@ import { mobileApp, setAppBadge } from '../lib/mobile'
 import { slideUrl } from '../lib/deckProgress'
 import { navigateTo } from '../lib/nav'
 import { plainLine, roomNoticeWanted, roomTitle } from '../lib/rooms'
+import { mentionCount, useChatMentions } from './chatMentions'
 import { attentionCount, iconBadge, markerOf, NOTIFY_DELAY_MS, stillWorthTelling, type IconBadge, type MarkerReason } from '../lib/sessionMarkers'
 import { t, type MessageKey } from '../i18n'
 import { useChats, type OpenRequest } from './chats'
@@ -140,7 +142,7 @@ const pendingTell = new Map<string, { timer: ReturnType<typeof setTimeout>; noti
 export const tellTiming = { delayMs: NOTIFY_DELAY_MS }
 
 const REASON: Record<MarkerReason, MessageKey> = {
-  card: 'marker.card', error: 'marker.error', paused: 'marker.paused', running: 'marker.running', queued: 'marker.queued', new: 'marker.new',
+  card: 'marker.card', error: 'marker.error', paused: 'marker.paused', running: 'marker.running', queued: 'marker.queued', new: 'marker.new', message: 'marker.message',
 }
 /** The AI's own open question in this chat as one line, when this window has the card (a server's safety check is
  * "waiting for you": its first line is a long explanation). */
@@ -184,6 +186,22 @@ function tell(chatId: string, notify: 'card' | 'answer') {
   }
 }
 
+// ---------------- a new message in a chat shared with people ----------------
+/** a person's message waiting to be told, per chat: a newer one replaces it (one notification per chat, as a room's) */
+const pendingMessage = new Map<string, { timer: ReturnType<typeof setTimeout>; messageId: string; mention: boolean }>()
+/** After the wait: tell it in the desktop app while the chat still has unread messages for me (read meanwhile, here or
+ * on another device: nothing) and is not on screen here. The chat's title (a confidential one's never) and the generic
+ * line; a click opens the chat at the message. */
+function tellMessage(chatId: string, messageId: string, mention: boolean) {
+  // (a project's shared chat I never wrote in is kept with `others` while it has messages for me: store/chats.ts)
+  const st = useChats.getState()
+  const c = st.chats.find((x) => x.id === chatId) ?? st.others[chatId]
+  // (a mention reaches me in a chat I muted too)
+  if (!c?.unreadCount || (c.muted && !mention) || seenHere(chatId)) return
+  const title = plainLabel(c.confidential ? t('sidebar.filter.confidential') : c.title || t('chat.untitled'), 120)
+  desktop()?.notify({ title, body: t(mention ? 'rooms.mentionedYou' : 'rooms.newMessage'), tag: `chat-${chatId}`, open: `/c/${chatId}/m/${messageId}` })
+}
+
 /** A chat.updated, before the chat store applies it (store/live.ts): a live change worth telling is told after the
  * wait (a newer one for the same chat replaces it); a chat that went is told nothing. */
 export function chatUpdated(ev: Extract<ServerEvent, { type: 'chat.updated' }>, meta: { replay: boolean }) {
@@ -191,7 +209,19 @@ export function chatUpdated(ev: Extract<ServerEvent, { type: 'chat.updated' }>, 
   if (!chat || ev.data.change === 'deleted' || ev.data.change === 'purged') {
     clearTimeout(pendingTell.get(chatId)?.timer)
     pendingTell.delete(chatId)
+    clearTimeout(pendingMessage.get(chatId)?.timer)
+    pendingMessage.delete(chatId)
     return
+  }
+  // a person's message in a chat shared with people that gave me a notice (the server decided my settings, quiet hours
+  // and mute): told in the desktop app after the wait, as a room's message
+  const notice = ev.data.notice
+  if (notice && !meta.replay && desktop() && !seenHere(chatId)) {
+    const was = pendingMessage.get(chatId)
+    clearTimeout(was?.timer)
+    // a mention stays a mention when a plain message follows before it is told
+    const mention = !!notice.mention || !!was?.mention
+    pendingMessage.set(chatId, { messageId: notice.messageId, mention, timer: setTimeout(() => { pendingMessage.delete(chatId); tellMessage(chatId, notice.messageId, mention) }, tellTiming.delayMs) })
   }
   if (!notify || meta.replay || seenHere(chatId)) return
   // an answer that ended after a card: the answer's news; a card after an answer: the card's (it waits on me)
@@ -239,6 +269,7 @@ export function markReadFrom(token: string) {
 function tellRoom(roomId: string, why: RoomWhy, told?: Told) {
   const r = useRooms.getState().rooms.find((x) => x.id === roomId)
   // read meanwhile (here or on another device), or on screen here: nothing
+  // (the server told it only for what my settings ask; settings not read yet: as it said)
   if (!r || viewingHere(roomId) || !roomNoticeWanted(r, useRooms.getState().alerts?.threadReplies ?? true)) return
   // people's names in a notice on the computer: one plain line (no control or bidirectional characters), capped
   const title = plainLabel(titleOf(r), 120)
@@ -265,8 +296,9 @@ const threadOnScreen = (chatId: string, rootId: string) =>
   useSessionMarkers.getState().visible && typeof location !== 'undefined' && location.pathname === `/c/${chatId}/t/${rootId}`
 function tellThread(chatId: string, rootId: string, why: 'mention' | 'reply') {
   if (threadOnScreen(chatId, rootId)) return
-  // a plain reply follows "Replies in threads I'm part of" (the server checks it too, with quiet hours, when it sets the
-  // event's notice); a mention is told as a room's mention is
+  // a plain reply follows "Replies in threads I'm part of", off by default: a thread rings only on a mention (the server
+  // decides it, with quiet hours, when it sets the event's notice: a `reply` notice comes only with the switch on; this
+  // window drops it once it knows the switch went off since); a mention is told as a room's mention is
   if (why === 'reply' && useRooms.getState().alerts?.threadReplies === false) return
   const c = useChats.getState().chats.find((x) => x.id === chatId)
   const title = plainLabel(c?.confidential ? t('sidebar.filter.confidential') : c?.title || t('chat.untitled'), 120)
@@ -348,7 +380,7 @@ export function startSessionMarkers() {
       // the dot: n 0 and a flag (an older desktop app ignores it and shows nothing, as before)
       if (b !== shown) { shown = b; app.setBadgeCount!(b === 'dot' ? 0 : b, b === 'dot') }
     }
-    offs.push(useChats.subscribe(badge), useRooms.subscribe(badge), useSessionMarkers.subscribe(badge))
+    offs.push(useChats.subscribe(badge), useRooms.subscribe(badge), useSessionMarkers.subscribe(badge), useChatMentions.subscribe(badge))
     badge()
   }
   // an installed web app: the same n (or dot) on its icon, set once when it changes (a burst waits WEB_BADGE_MS), and at
@@ -362,7 +394,7 @@ export function startSessionMarkers() {
       if (b !== shown) { shown = b; setWebBadge(nav, b) }
     }
     const later = () => { if (timer === undefined) timer = setTimeout(apply, WEB_BADGE_MS) }
-    offs.push(useChats.subscribe(later), useRooms.subscribe(later), useSessionMarkers.subscribe(later), () => clearTimeout(timer))
+    offs.push(useChats.subscribe(later), useRooms.subscribe(later), useSessionMarkers.subscribe(later), useChatMentions.subscribe(later), () => clearTimeout(timer))
     apply()
   }
   // the phone app: its bridge may come after this starts (at the page's load end), so the number is kept from the start
@@ -377,7 +409,7 @@ export function startSessionMarkers() {
       if (n !== shown) { shown = n; setAppBadge(n) }
     }
     const later = () => { if (timer === undefined) timer = setTimeout(apply, WEB_BADGE_MS) }
-    offs.push(useChats.subscribe(later), useRooms.subscribe(later), useSessionMarkers.subscribe(later), () => clearTimeout(timer))
+    offs.push(useChats.subscribe(later), useRooms.subscribe(later), useSessionMarkers.subscribe(later), useChatMentions.subscribe(later), () => clearTimeout(timer))
     apply()
   }
 }
@@ -387,7 +419,8 @@ export function startSessionMarkers() {
 let phoneBadge = false
 export function stopSessionMarkers() {
   for (const off of offs.splice(0)) off()
-  for (const p of [...pendingTell.values(), ...pendingRoom.values(), ...pendingThread.values()]) clearTimeout(p.timer)
+  for (const p of [...pendingTell.values(), ...pendingRoom.values(), ...pendingThread.values(), ...pendingMessage.values()]) clearTimeout(p.timer)
+  pendingMessage.clear()
   pendingTell.clear()
   pendingRoom.clear()
   pendingThread.clear()
@@ -402,11 +435,20 @@ export function stopSessionMarkers() {
   started = false
 }
 
+/** the unread messages of shared chats kept outside my list (`others`: a project's shared chat I never wrote in, store/
+ * chats.ts loadChats): they add to n as the server's push badge counts them, never to the Trina mark's part */
+const othersUnread = (chats: readonly Chat[], others: Record<string, Chat>, here: string | null): number => {
+  let n = 0
+  for (const c of Object.values(others)) if (c.unreadCount && !c.muted && !c.deletedAt && c.id !== here && !chats.some((x) => x.id === c.id)) n += c.unreadCount
+  return n
+}
+
 /** the one count n, as this window shows it */
 export const currentCount = () => {
   const s = useSessionMarkers.getState()
   const chats = useChats.getState(), rooms = useRooms.getState()
-  return attentionCount(chats.chats, rooms.rooms, { here: s.visible ? s.onScreen : null, cards: cardChats(chats.requests) })
+  const here = s.visible ? s.onScreen : null
+  return attentionCount(chats.chats, rooms.rooms, { here, cards: cardChats(chats.requests), mentions: mentionCount(useChatMentions.getState().byChat) + othersUnread(chats.chats, chats.others, here) })
 }
 
 /** n, whether any is a "?", the AI chats' part (tab title, the rail's and the phone tab's mark) and other unread rooms; re-renders when the
@@ -416,7 +458,9 @@ export function useAttention(): ReturnType<typeof attentionCount> {
   const requests = useChats((s) => s.requests)
   const rooms = useRooms((s) => s.rooms)
   const here = useSessionMarkers((s) => (s.visible ? s.onScreen : null))
-  return useMemo(() => attentionCount(chats, rooms, { here, cards: cardChats(requests) }), [chats, rooms, here, requests])
+  const others = useChats((s) => s.others)
+  const mentions = useChatMentions((s) => mentionCount(s.byChat))
+  return useMemo(() => attentionCount(chats, rooms, { here, cards: cardChats(requests), mentions: mentions + othersUnread(chats, others, here) }), [chats, others, rooms, here, requests, mentions])
 }
 
 /** The AI chats whose row shows "?" now (a question waits on me, or a run stopped and wants a look), in the chat list's

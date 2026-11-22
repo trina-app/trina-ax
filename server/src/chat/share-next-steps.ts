@@ -33,14 +33,17 @@ type Exec = Pick<TurnExec, 'rt' | 'spec'>
 /** The files of a post that some people in the room cannot open, each with those people: by path (a file the sender
  * reads by the folder rules) or by link id (one they have only through a share). What fixesAfterPost offers after the
  * post, and what post_to_room's card works out before it (ShareFixes.viewPlan). */
-export async function fileGapsOf(exec: Exec, p: PreparedShare, attached: ReadonlySet<string>, roomId: string): Promise<({ path: string; people: string[] } | { share: string; people: string[] })[]> {
+export async function fileGapsOf(exec: Exec, p: PreparedShare, attached: ReadonlySet<string>, roomId: string, o: { sources?: boolean } = {}): Promise<({ path: string; people: string[] } | { share: string; people: string[] })[]> {
   const by = new Map<string, Set<string>>()
   const add = (path: string, people: readonly string[]) => { const s = by.get(path) ?? by.set(path, new Set()).get(path)!; for (const id of people) s.add(id) }
   // a linked file that did not go as a copy and some member cannot open
   for (const r of p.check.rows) if (r.rel && !attached.has(r.rel) && r.unable.length) add(r.rel, r.unable)
-  // a file the text came from that some member cannot open (not covered by a copy everyone can open)
-  const prov = await p.check.provenance(attached)
-  for (const c of prov.counted ?? []) for (const f of c.files) if (!attached.has(f)) add(f, c.missing)
+  // a file the text came from that some member cannot open (not covered by a copy everyone can open); `sources: false`
+  // leaves them out (post_to_room's Send that carries copies: see fileGapsOf's caller there)
+  if (o.sources !== false) {
+    const prov = await p.check.provenance(attached)
+    for (const c of prov.counted ?? []) for (const f of c.files) if (!attached.has(f)) add(f, c.missing)
+  }
   // a file someone shared with the sender, linked as /f/<id> (shared_with_me gives those links): the members of the room
   // who cannot open it (the room check reads only team-path links; docs/decisions/20261116-ai-sharing-integration.md)
   const byLink = new Map<string, string[]>()

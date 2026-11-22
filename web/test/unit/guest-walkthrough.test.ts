@@ -85,6 +85,36 @@ describe('a guest whose sign-in ended with their account (S5, S6)', () => {
     }
   })
 
+  test("a removed member's sign-in page speaks their browser's language too, not the team's (QA rerun E)", async () => {
+    const nav = Object.getOwnPropertyDescriptor(globalThis, 'navigator')
+    Object.defineProperty(globalThis, 'navigator', { configurable: true, value: { languages: ['ko-KR', 'en-US'], language: 'ko-KR' } })
+    try {
+      useLocaleStore.getState().setLocale('en')
+      let n = 0
+      mockFetch(async () => (n++ === 0 ? unauthorized({ reason: 'account_removed' })() : Response.json({ needed: false, teamName: null, defaultLocale: 'en' })))
+      await session().load()
+      await settle()
+      expect(status()).toEqual({ kind: 'signed-out', reason: 'removed' })
+      expect(useLocaleStore.getState().locale).toBe('ko')
+      // the live link ends a member: the same
+      useLocaleStore.getState().setLocale('en')
+      mockFetch(unauthorized({ reason: 'account_removed' }))
+      session().signedOut('removed')
+      await settle()
+      expect(useLocaleStore.getState().locale).toBe('ko')
+      // a plain sign-out keeps the team's language
+      useLocaleStore.getState().setLocale('en')
+      mockFetch(unauthorized())
+      session().signedOut('ended')
+      await settle()
+      expect(useLocaleStore.getState().locale).toBe('en')
+    } finally {
+      if (nav) Object.defineProperty(globalThis, 'navigator', nav)
+      else Reflect.deleteProperty(globalThis, 'navigator')
+      useLocaleStore.getState().setLocale('en')
+    }
+  })
+
   test('a removed member keeps the plain removed line', async () => {
     mockFetch(unauthorized({ reason: 'account_removed' }))
     session().signedOut('removed')

@@ -1,0 +1,62 @@
+# Plain step labels for dev-environment commands
+
+- Date (UTC): 2026-11-22 01:56
+- Branch: `fix/step-labels-plain`
+- Status: done
+- Where: shared/src/step-labels.ts, server/src/devenv/tool.ts. Why: the step list is shared display code (see docs/REPOSITORY-RULES.md)
+- Version impact: patch, a display fix of the step list (one optional tool field, no API break)
+
+## Goal
+
+The step list under an answer shows raw shell lines ("개발 환경 명령 · cd $TRINA_WORK/hf/promo && export NODE_…").
+People are not developers. Each box_shell step should read as a short plain sentence in the screen's language
+("영상 프레임 만들기", "프로그램 설치"); the command shows only when the person opens the step.
+
+## Scope
+
+In:
+- box_shell gets an optional `description` field: one line in its schema asks the AI for a short plain sentence of what
+  the command does, in the person's language. Both engines call the same box_shell (Claude Code's own Bash is denied).
+- The stored line becomes `<description or the old verb> · <command>` (+ job / background ending), so older apps still
+  show something sensible.
+- The web app (localizeStep) shows only the words: the AI's description, or, for a step without one (every chat
+  before this change too), a plain word by the command's kind: install, make (render / build), download, check files,
+  wait, or "run a task". The command moves to the step's opened part.
+- The words never show `$TRINA_WORK` paths, env assignments or anything that looks like a command.
+
+- Room permission card (added on the coordinator's request after QA TC-r2b-04): the question and the Action row say
+  the command's kind in the server's own words (never the AI's description: the card exists because other people's
+  words may steer the AI); changing or removing files is said first ("파일 바꾸기"). The command, and what a document,
+  page or SVG will hold, go behind "자세히" (ConfirmDetail.folded); scripts, settings files and skill files stay open.
+- Developer places (coordinator, QA TC-r2u-09/12/23/30): chat:files/<id>/, chat:work/ and $TRINA_WORK in any tool's
+  step line and on cards read as places in words. $TRINA_TEAM stays as written on cards (a file tool takes it as a
+  folder of that name). Conflict-copy names use plain words ("동시에 고친 사본"); the web app knows old and new words.
+- Not covered: folder names the AI itself made (QA TC-r2u-27 "@@01…"): they are real folders, so a card lists them.
+
+Out: prompt.ts and api-honest.ts (no change), notifications, shared-chat code, mobile apps (they keep the stored line).
+
+## Steps
+
+1. shared: `shellStepWords` (description clean-up + kind fallback), box_shell case of stepLabel, box_shell branch of
+   localizeStep (label = words, detail = command + any earlier detail).
+2. server: `description` in BoxShellInput.
+3. Unit tests in tests/unit; web unit tests; visual check on a private QA copy at 1440 and 390.
+
+## Decisions
+
+None (display only).
+
+## Risks
+
+- A description written in one language stays in it after a language switch (the fallback words are translated).
+- Shared chats: the command moves from the line into the opened part on the same viewer's screen; nothing new is sent.
+
+## Tests
+
+tests/unit/step-labels-shell.test.ts; existing step-labels tests updated.
+
+## Result
+
+Done as planned plus the room card, developer places and conflict-copy names. Three independent review passes; the
+findings (card wording from the AI, destructive commands called a file check, $TRINA_TEAM named as a team path) were
+fixed. Visual check on a private QA copy with the claude-code engine at 1440 and 390.

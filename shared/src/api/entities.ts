@@ -305,6 +305,13 @@ export const Chat = z.object({
   schedule: z.object({ id: z.string(), title: z.string(), templateId: z.string().nullable(), outcome: z.enum(['succeeded', 'problems', 'failed']).nullable() }).optional(),
   /** an answer finished here after I last had the chat on screen (POST /api/chats/:id/seen; migration 252). Absent = no. */
   unseen: z.literal(true).optional(),
+  /** a chat shared with people: the messages of others (and Trina's answers to them) I have not read here yet
+   * (server/src/chat/message-notices.ts; `unseen` is set with it). Absent = none. */
+  unreadCount: z.number().int().positive().optional(),
+  /** a chat shared with people that I muted ("Mute this chat"): nothing there tells me. Absent = not muted. */
+  muted: z.literal(true).optional(),
+  /** a chat shared with people: one of my unread messages there mentions me (the row shows "@"). Absent = no. */
+  mentioned: z.literal(true).optional(),
   /** how the newest finished answer ended when it did not end well (docs/DECISIONS.md "Session markers"): 'error' (it
    * failed, a server stop included) or 'paused' (it stopped at the per-answer limit of tool rounds or working time,
    * Message.stopReason). Absent = it finished normally (or the person stopped it), or no answer finished yet. With

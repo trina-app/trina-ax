@@ -133,7 +133,10 @@ describe('replies', () => {
     const row = inbox.items.find((i) => i.eventType === 'chat.thread_reply')!
     expect(row).toMatchObject({ link: 'chat_thread', chatId, chatThread: { chatId, rootId: answerId, name: 'Bob Lee' } })
     expect(JSON.stringify(row)).not.toContain('Legal said')
-    // the push: wanted (the setting on, outside quiet hours) and its path is the thread
+    // the push of a plain reply: off by default (a thread rings only on a mention); wanted with the setting on, outside
+    // quiet hours, and its path is the thread
+    expect(chatThreadWanted(h.ctx, first.id)).toBe(false)
+    savePreferences(db(), 'alice', { roomThreadReplies: true })
     expect(chatThreadWanted(h.ctx, first.id)).toBe(true)
     expect(pushPathOf(h.ctx, 'chat.thread_reply', first.id)).toBe(`/c/${chatId}/t/${answerId}`)
     expect(chatThreadPath(h.ctx, first.id)).toBe(`/c/${chatId}/t/${answerId}`)

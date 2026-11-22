@@ -106,6 +106,9 @@ export function scrub(base: string): void {
       db.exec('PRAGMA foreign_keys = ON')
       const tables = new Set((db.query("SELECT name FROM sqlite_master WHERE type = 'table'").all() as { name: string }[]).map((t) => t.name))
       for (const t of SIGN_IN_TABLES) if (tables.has(t)) db.exec(`DELETE FROM ${t}`)
+      // "<who> added you to '<project>'" and "<who> joined '<project>'" (project_notices, #335): raised by the seed's own
+      // member changes at the build's time, not part of the story (the people were in their projects long before)
+      if (tables.has('project_notices')) db.exec('DELETE FROM project_notices')
       db.exec('PRAGMA wal_checkpoint(TRUNCATE)')
       // one self-contained file (the server turns WAL on again when it opens it)
       db.exec('PRAGMA journal_mode = DELETE')

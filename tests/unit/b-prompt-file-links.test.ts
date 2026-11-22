@@ -4,6 +4,7 @@
 // folder is named by a link with the name the Files screen shows; Slack, where the app's cards do not show, keeps the
 // path. A folder link opens the Files screen there (web/test/unit/markdown.test.ts classifyLink).
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
+import { personFolderLabel } from '@mycel/shared'
 import { buildSubagentPrompt, buildTurnContext, buildTurnPrompt, ENVIRONMENT, environmentSection, FIND_FILE_RULE, GUEST_ENVIRONMENT, sharedOwnFolderLine, SOURCE_LINK_RULE, type PromptInput } from '../../server/src/chat/prompt'
 import { situationSection, type Situation } from '../../server/src/chat/situation'
 import { startHarness, type Harness } from '../lib/b-harness'
@@ -48,7 +49,17 @@ describe('files and folders are named by a link with their name', () => {
   test('a shared chat: the asker\'s own folder is theirs by name, not "내 폴더" (that is each reader\'s own)', () => {
     const shared = { project: 'Atlas', audience: 3, asker: 'Alice Kim' }
     const line = sharedOwnFolderLine('Alice Kim', 'ko')
-    expect(line).toBe('Others see this chat: in your answer, call Alice Kim\'s own folder Alice Kim\'s folder (in the answer\'s language), not "내 폴더".')
+    // in the reader's words, never an English possessive in a Korean answer ("김민지's folder", QA TC-r2a-05)
+    expect(line).toBe('Others see this chat: in your answer, call Alice Kim\'s own folder "Alice Kim 님 폴더" (said in the answer\'s language when it is another one; never an English "\'s" in a sentence of another language), not "내 폴더".')
+    expect(sharedOwnFolderLine('김민지', 'ko')).toContain('"김민지 님 폴더"')
+    expect(sharedOwnFolderLine('김민지', 'ko')).not.toContain('김민지\'s folder')
+    expect(sharedOwnFolderLine('Mina', 'en')).toContain('"Mina\'s folder"')
+    expect(sharedOwnFolderLine('ミナ', 'ja')).toContain('"ミナさんのフォルダー"')
+    expect(sharedOwnFolderLine('Mina', 'es')).toContain('"la carpeta de Mina"')
+    expect(sharedOwnFolderLine('Mina', 'id')).toContain('"folder Mina"')
+    expect(sharedOwnFolderLine('米娜', 'zh')).toContain('"米娜的文件夹"')
+    // a name with "$&" stays the name
+    expect(personFolderLabel('A$&B', 'ko')).toBe('A$&B 님 폴더')
     expect(buildTurnPrompt(h.ctx.files, input({ shared, roomReadable: () => true }))).toContain(line)
     // the turn context too, so a chat shared after it started gets it
     expect(buildTurnContext(h.ctx.files, input({ shared, roomReadable: () => true }))).toContain(line)

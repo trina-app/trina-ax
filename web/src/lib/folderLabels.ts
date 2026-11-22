@@ -1,7 +1,7 @@
 // The team's top folders in words on screen (docs/DECISIONS.md "Team folder basics"; the table is shared with the AI's
 // instructions: shared/src/folder-labels.ts). Only what is shown changes: links, API calls, drag and drop and tooltips
 // that show a path keep the disk path.
-import { folderLabel, labeledPath, TOP_FOLDER_LABELS, TOP_FOLDERS } from '@mycel/shared'
+import { chatFilesWord, folderLabel, labeledPath, TOP_FOLDER_LABELS, TOP_FOLDERS } from '@mycel/shared'
 import { useLocale, useT } from '../i18n'
 import { useMe } from '../store/session'
 
@@ -27,14 +27,15 @@ export function folderWords(locale: Parameters<typeof folderLabel>[1], me: strin
     return parts
       .map((seg, i) => {
         const at = parts.slice(0, i + 1).join('/')
-        return { name: label(at) ?? seg, path: at }
+        // (a chat attachments folder in my language, whatever language it was made in: chatFilesWord)
+        return { name: label(at) ?? chatFilesWord(seg, locale), path: at }
       })
       .filter((c) => !(own && c.path === 'users' && (p === own || p.startsWith(`${own}/`))))
   }
   return {
-    name: (p, name) => label(p) ?? name,
+    name: (p, name) => label(p) ?? chatFilesWord(name, locale),
     // the person's own folder and its projects in words; any other path as the shared table says it
-    path: (p, sep = '/') => (own && (p === own || p.startsWith(`${own}/`)) ? crumbs(p).map((c) => c.name).join(sep) : labeledPath(p, locale, me, sep)),
+    path: (p, sep = '/') => (own && (p === own || p.startsWith(`${own}/`)) ? crumbs(p).map((c) => c.name).join(sep) : labeledPath(p.split('/').map((s) => chatFilesWord(s, locale)).join('/'), locale, me, sep)),
     crumbs,
   }
 }

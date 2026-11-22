@@ -33,7 +33,7 @@ describe('every conflict copy is announced and kept in the history', () => {
     A.hub.clear()
     const c2 = await A.json('/api/files/copy', { as: 'alice', ...jsonBody({ from: 'users/alice/report.md', to: 'groups/marketing/report.md', onExists: 'replace', baseSha256: base }) })
     expect(c2.status).toBe(201)
-    expect(c2.body.path).toMatch(/^groups\/marketing\/report \(conflict copy - Alice Kim .*\)\.md$/)
+    expect(c2.body.path).toMatch(/^groups\/marketing\/report \(edited at the same time - Alice Kim .*\)\.md$/)
     const n = notices()
     expect(n.map((e) => e.to).sort()).toEqual(['alice', 'erin'])
     for (const e of n) expect(e.data).toEqual({ path: 'groups/marketing/report.md', copyPath: c2.body.path, by: { id: 'alice', name: 'Alice Kim' } })
@@ -48,7 +48,7 @@ describe('every conflict copy is announced and kept in the history', () => {
     const r2 = await tool('alice', 'make_file', { content: '# Deck\nalice\n', format: 'docx', output: 'groups/marketing/deck.docx' })
     expect(r2.isError).toBe(false)
     const copy = /saved as '([^']+)'/.exec(r2.text)?.[1]
-    expect(copy).toMatch(/^groups\/marketing\/deck \(conflict copy - Alice Kim .*\)\.docx$/)
+    expect(copy).toMatch(/^groups\/marketing\/deck \(edited at the same time - Alice Kim .*\)\.docx$/)
     expect(notices().map((e) => e.to).sort()).toEqual(['alice', 'erin'])
     for (const e of notices()) expect(e.data.copyPath).toBe(copy!)
     expect((await history('alice', 'groups/marketing/deck.docx')).filter((v) => v.kind === 'conflict_copy').map((v) => v.conflictPath)).toEqual([copy!])

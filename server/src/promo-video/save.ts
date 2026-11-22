@@ -61,7 +61,9 @@ export async function savePromoVideo(ctx: AppContext, a: z.output<typeof SavePro
   if (!turn) throw new ToolError('unknown turn')
   if (turn.user_id !== t.user.id) throw new Denied('turn belongs to another person')
   if (!mp4Available(ctx)) throw new ToolError('This server cannot save the promo video as a file (only the preview next to the chat is made here). Nothing was saved. Tell the person so in one plain sentence.')
-  const row = ctx.db.query('SELECT artifact_id, spec FROM promo_videos WHERE chat_id = ? ORDER BY created_at DESC, rowid DESC LIMIT 1').get(turn.chat_id) as { artifact_id: string; spec: string } | null
+  // the newest version this person may see (never one an answer hidden from them made: Artifacts.hiddenVersions)
+  const hidden = componentC(ctx).artifacts.hiddenVersions(t.user.id, turn.chat_id)
+  const row = (ctx.db.query('SELECT artifact_id, spec FROM promo_videos WHERE chat_id = ? ORDER BY created_at DESC, rowid DESC').all(turn.chat_id) as { artifact_id: string; spec: string }[]).find((r) => !hidden.has(r.artifact_id)) ?? null
   if (!row) throw new ToolError('There is no promo video in this chat yet: make it with promo_video first.')
   const spec = JSON.parse(row.spec) as StoredSpec
   // where: the person's own folder unless they named a place; never a skills folder (skills/guard.ts)
@@ -72,10 +74,11 @@ export async function savePromoVideo(ctx: AppContext, a: z.output<typeof SavePro
   if (segs.some((s) => badSegment(s))) throw new ToolError(`'${target}' is not a valid file name`)
   if (inSkills(segs.join('/'))) throw new ToolError('videos cannot be saved in a skills folder (skills/, a group\'s or a project\'s: skills and rules people\'s AI follows); pick another folder')
   // the render (or the finished one), waited for within this answer
-  // only the person whose chat it is can render its video (render.ts ownRow): anyone else gets plain words
+  // the person whose chat it is, or someone it is shared with who may open every picture in it (render.ts rowFor):
+  // anyone else gets plain words
   let info: ReturnType<typeof renderPromoVideo>
   try { info = renderPromoVideo(ctx, t.user.id, row.artifact_id) } catch (e) {
-    if (e instanceof HttpError) throw new ToolError('Only the person whose chat this is can save its promo video as a file. Nothing was saved.')
+    if (e instanceof HttpError) throw new ToolError('This person cannot save this promo video as a file: it shows pictures they cannot open. Nothing was saved. The person whose chat this is can save it.')
     throw e
   }
   const until = Date.now() + WAIT_MS

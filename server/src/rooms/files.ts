@@ -425,6 +425,33 @@ export class RoomFiles {
     try { return await this.create(userId, roomId, name, tmp, sha, { roomStorage: true, origin: o.origin ?? 'answer_copy' }) } finally { fs.rmSync(tmp, { force: true }) }
   }
 
+  /**
+   * A room copy of something an answer made beside the chat (an artifact's page, or a promo video's rendered MP4) that goes
+   * with that answer sent to a room (chat/answer-share.ts sendShare): written to a temp file, hashed, then create() with
+   * the same limits as any upload (the storage check, the person's size limit), kept in room storage like fromTeamFile's
+   * copies. `src`: the bytes, or a file of the server's own (never a team path).
+   */
+  async fromMade(userId: string, roomId: string, name: string, src: { bytes: Uint8Array } | { abs: string }): Promise<RoomFile> {
+    this.member(userId, roomId)
+    const tmpDir = path.join(this.ctx.config.dataDir, 'uploads', 'tmp')
+    const tmp = path.join(tmpDir, `${PRODUCT.tmpPrefix}room-${randomBytes(8).toString('hex')}`)
+    let sha: string
+    try {
+      const size = 'bytes' in src ? src.bytes.byteLength : fs.statSync(src.abs).size
+      this.assertSize(userId, size)
+      assertStorageRoom(size)
+      fs.mkdirSync(tmpDir, { recursive: true, mode: 0o700 })
+      if ('bytes' in src) fs.writeFileSync(tmp, src.bytes, { mode: 0o600, flag: 'wx' })
+      else await fs.promises.copyFile(src.abs, tmp, fs.constants.COPYFILE_EXCL)
+      fs.chmodSync(tmp, 0o600)
+      sha = 'bytes' in src ? createHash('sha256').update(src.bytes).digest('hex') : await hashTemp(tmp)
+    } catch (e) {
+      fs.rmSync(tmp, { force: true })
+      throw e
+    }
+    try { return await this.create(userId, roomId, name, tmp, sha, { roomStorage: true, origin: 'answer_copy' }) } finally { fs.rmSync(tmp, { force: true }) }
+  }
+
   /** The team file `rel` as `userId` may read it now: a regular file they may open (anything else 404, like a missing
    * one), its real path, name and stat. */
   private teamSource(userId: string, rel: string): { abs: string; name: string; rel: string; st: fs.Stats } {
@@ -858,6 +885,13 @@ export class RoomFiles {
     if (failed) this.ctx.log.warn('some files of archived conversations could not be removed', { failed })
     return out
   }
+}
+
+/** A file's sha256, read in parts (never whole in memory). */
+async function hashTemp(abs: string): Promise<string> {
+  const h = createHash('sha256')
+  for await (const chunk of fs.createReadStream(abs)) h.update(chunk as Buffer)
+  return h.digest('hex')
 }
 
 export function roomFilesOf(ctx: AppContext): RoomFiles {

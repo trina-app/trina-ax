@@ -92,6 +92,11 @@ export const TEXT = {
     en: 'Someone replied in a thread.',
     id: 'Seseorang membalas di utas.', ja: 'スレッドに返信がありました。', es: 'Alguien respondió en un hilo.', zh: '有人在话题中回复了。',
   },
+  // a person's message in a chat shared with people (chat/message-notices.ts): the push gateway's generic message line
+  // (push-gateway/src/text.ts MESSAGE_TEXT, which it picks for any chat.* code it has no text of), never who or what
+  'chat.message': {
+    ko: '새 메시지가 있어요', en: 'You have a new message', id: 'Ada pesan baru', ja: '新しいメッセージがあります', es: 'Tienes un mensaje nuevo', zh: '你有一条新消息',
+  },
 } satisfies Record<'title' | PushEventType, Record<Locale, string>>
 /** The line under the sharer's name (the title) when an iPhone's notification extension names them
  * (notifications/chat-shares.ts chatShareLabel). Never the chat's title. */
@@ -148,5 +153,6 @@ export function pushMessages(locale: Locale) {
     'chat.thread_reply': TEXT['chat.thread_reply'][locale],
     'file.access_requested': TEXT['file.access_requested'][locale],
     'access.requested': TEXT['access.requested'][locale],
+    'chat.message': TEXT['chat.message'][locale],
   }, markRead: MARK_READ[locale], chatSharedBy: CHAT_SHARED_BY[locale] }
 }

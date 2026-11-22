@@ -9,6 +9,7 @@ import { api, API, errorText } from '../lib/api'
 import { formatDate } from '../lib/format'
 import { openFilePreview } from '../lib/sidePanel'
 import { useLocale, useT } from '../i18n'
+import { FileMoved } from './FileMoved'
 import { Button, PreviewLoading } from './ui'
 
 export function ChatFileAsk({ chatId, path, fallback }: { chatId: string; path: string; fallback: string }) {
@@ -32,8 +33,8 @@ export function ChatFileAsk({ chatId, path, fallback }: { chatId: string; path: 
     return () => { live = false }
   }, [chatId, path])
   if (state.status === 'loading') return <PreviewLoading label={t('common.loading')} />
-  if (state.status === 'no' || state.status === 'copy')
-    return <p className="p-6 text-sm text-muted" role="alert" data-testid="chat-file-ask-no">{fallback}</p>
+  // nothing to ask for: a file someone moved or put in the trash says so (components/FileMoved.tsx), else the usual line
+  if (state.status === 'no' || state.status === 'copy') return <FileMoved path={path} chatId={chatId} fallback={fallback} />
   const send = async () => {
     setBusy(true)
     setError(null)

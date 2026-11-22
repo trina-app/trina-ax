@@ -20,7 +20,7 @@ import clsx from 'clsx'
 import { AlertTriangle, BookmarkPlus, Check, ChevronDown, ChevronLeft, ChevronRight, CirclePause, Copy, History, Info, Loader2, MessageSquareReply, MessageSquareShare, MessagesSquare, Paperclip, Pencil, Play, RotateCcw, Shapes, Square } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useShallow } from 'zustand/react/shallow'
-import { DECK_ARTIFACT_KEY, PROMO_ARTIFACT_KEY, chatErrorReason, ERROR_MESSAGES, hideThreadRef, isDefaultErrorMessage, sideQuoteOf, skillLabel, type Attachment, type EngineId, type SideQuote, type Step, type UserRef } from '@mycel/shared/api'
+import { DECK_ARTIFACT_KEY, PROMO_ARTIFACT_KEY, answerEndsInFailure, chatErrorReason, ERROR_MESSAGES, hideThreadRef, isDefaultErrorMessage, sideQuoteOf, skillLabel, type Attachment, type EngineId, type SideQuote, type Step, type UserRef } from '@mycel/shared/api'
 import { chatFileUrl, fileUrl, startDownload, thumbnailUrl } from '../../lib/api'
 import { answerHtml } from '../LazyMarkdown'
 import { formAnswers } from '../../lib/skillForm'
@@ -81,6 +81,17 @@ import { itemImage, teamFileLink } from '../../lib/fileMenu'
 import { useFileMenu } from '../FileMenu'
 import { ThreadLine } from '../ThreadLine'
 import { capBlankLines } from '../../lib/blankLines'
+
+/** One tile per file in an answer (QA rerun E: the same file showed as three identical tiles when the AI attached it
+ * again, once per change): the same attachment id, or a tile that would look the same (name, size and kind), once, the
+ * last one kept (the newest). A chat file has no path, so two versions of the same name and size are one tile too. */
+export function uniqueTiles<A extends { id: string; name: string; size: number; kind: string }>(list: readonly A[]): A[] {
+  const key = (a: A) => `${a.name}\u0000${a.size}\u0000${a.kind}`
+  const lastId = new Map<string, number>()
+  const lastLook = new Map<string, number>()
+  list.forEach((a, i) => { lastId.set(a.id, i); lastLook.set(key(a), i) })
+  return list.filter((a, i) => lastId.get(a.id) === i && lastLook.get(key(a)) === i)
+}
 
 export { ENGINE_LABEL }
 
@@ -731,7 +742,7 @@ export function AssistantMessage({
   const locale = useLocale()
   const streaming = m.status === 'streaming'
   // a chat file the AI attached (never a blank tile for one this person may not open: the server leaves it out)
-  const answerAttachments = (m.attachments ?? []).filter((a) => a.source === 'chat' && !a.unavailable)
+  const answerAttachments = uniqueTiles((m.attachments ?? []).filter((a) => a.source === 'chat' && !a.unavailable))
   const queuePos = useQueuePosition(streaming ? m.id : undefined)
   const providerBusy = useProviderBusy(streaming ? m.id : undefined)
   const requests = useChats(useShallow((s) => Object.values(s.requests).filter((r) => r.messageId === m.id)))
@@ -805,7 +816,9 @@ export function AssistantMessage({
   const limitNow = atLimit && (!resetsAt || Date.parse(resetsAt) > Date.now())
   const canRetry = !(m.status === 'error' && isLast) && !limitNow && canRegenerate
   const finished = !!m.content && m.status === 'done'
-  const sendHereOn = !!sendHere && shareable && finished
+  // an answer that only says something failed is never offered for a room (QA TC-v2f-A3; the server refuses it too)
+  const sendable = finished && !(answerEndsInFailure(m.steps ?? []) && !m.files)
+  const sendHereOn = !!sendHere && shareable && sendable
   // an answer that can have a thread: finished (done or stopped), not hidden from me
   const threadable = !!onThread && !m.withheld && (m.status === 'done' || m.status === 'stopped')
   const pressItems: MenuItem[] = pressMenu && !streaming ? [
@@ -969,7 +982,7 @@ export function AssistantMessage({
                 to its room or the asked message's thread with one click (SendHere), in sight in its panel on a phone too */}
             {sendHereOn && (
               <span className={clsx('flex items-center md:contents', untilTap && !pressMenu && UNTIL_TAP)} data-testid="answer-actions-send">
-                <SendHere chatId={chatId} answerId={m.id} roomId={sendHere!.roomId} target={sendHere!.target} onView={sendHere!.onView} />
+                <SendHere chatId={chatId} answerId={m.id} answer={m.content} roomId={sendHere!.roomId} target={sendHere!.target} onView={sendHere!.onView} />
               </span>
             )}
             <span className={clsx('flex items-center gap-1 max-md:gap-0 md:contents', untilTap && UNTIL_TAP)} data-testid="answer-actions-tap-more">
@@ -978,7 +991,7 @@ export function AssistantMessage({
                   <MessageSquareReply size={13} />
                 </IconButton>
               )}
-              {shareable && finished && !sendHere && (
+              {shareable && sendable && !sendHere && (
                 <IconButton label={t('chat.shareToRoom')} onClick={() => setSharing(true)} className="touch-hit" data-testid="share-to-room">
                   <MessageSquareShare size={13} />
                 </IconButton>

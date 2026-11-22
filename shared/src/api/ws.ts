@@ -153,6 +153,10 @@ export const ConfirmDetail = z.object({
    * "제목"), and `text` is its exact form (the call's JSON): the card shows the fields and puts the text one click away
    * ("보내는 내용 그대로 보기"), the marks highlighted in both. A client that does not know this shows the text as before. */
   exact: z.literal(true).optional(),
+  /** the text is code or a file's content a non-developer need not read to decide (a dev-environment command, what a
+   * file will hold): the card shows its label, the fields and its size, and the text behind "자세히". A client that does
+   * not know this shows the text as before. */
+  folded: z.literal(true).optional(),
   /** `text` is a list of names (files to delete, move or attach), not text that goes out: the card shows no size
    * (QA TC-091: "23 characters" counted the letters of a path) */
   noSize: z.boolean().optional(),
@@ -294,7 +298,11 @@ export const ServerEvent = z.discriminatedUnion('type', [
    * AI opened (to the windows that show it); 'answer', an answer that ran about a minute or longer ended. Never for an
    * answer the person stopped, a server stop, a scheduled run or a turn asked from Slack. Absent: show it, tell nothing.
    * 'deleted' with no chat: a shared project chat this person no longer sees (they lost its project): drop it. */
-  ev('chat.updated', z.object({ chatId: Uuid7, change: z.enum(['created', 'updated', 'deleted', 'restored', 'purged']), chat: Chat.nullable(), notify: z.enum(['card', 'answer']).optional() })),
+  ev('chat.updated', z.object({ chatId: Uuid7, change: z.enum(['created', 'updated', 'deleted', 'restored', 'purged']), chat: Chat.nullable(), notify: z.enum(['card', 'answer']).optional(),
+    /** a person's message in a chat shared with people gave me a notice that may ring (server/src/chat/message-notices.ts:
+     * my settings, quiet hours and mute already decided): the desktop app tells it and the room sound rings, unless the
+     * chat is on screen. `mention`: the message mentions me. Older pages ignore it. */
+    notice: z.object({ messageId: Uuid7, mention: z.literal(true).optional() }).optional() })),
   /** the thread under an AI answer of a shared chat changed (docs/decisions/20261116-chat-answer-threads.md), to each
    * person who sees the chat and the answer now, as they see it: a reply came (`reply`), one was deleted (`replyId`), or
    * I read it on another device (`read`: only to me). `thread`: the summary under the answer for me (null: no replies

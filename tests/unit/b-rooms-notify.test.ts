@@ -68,7 +68,8 @@ test('preferences: the room default, thread replies and quiet hours; strict; the
   const got = await nora.client.call('GET', '/api/notification-preferences')
   expect(got).toEqual({
     scheduleSuccess: true, scheduleFailure: true, connectionReconnect: true, skillSuggestions: true,
-    roomMessages: true, roomLevel: 'direct', roomThreadReplies: true, messagePreview: true, quietHours: { on: false, start: '22:00', end: '08:00', weekends: false },
+    // replies in threads: off by default since 2026-11-22 (a thread rings only on a mention, migration 437)
+    roomMessages: true, roomLevel: 'direct', roomThreadReplies: false, messagePreview: true, quietHours: { on: false, start: '22:00', end: '08:00', weekends: false },
     chatAnswers: true, phoneWhen: 'away', chatShares: true, fileShares: true,
   })
   // the message preview (default on) is saved like the rest
@@ -117,7 +118,7 @@ test('migration 255: someone who had turned room messages off is 받지 않음; 
 test('a room\'s own level: PATCH notifyLevel (members only, strict), muted in step, what the list and the events say', async () => {
   const { owner, ada, nora, otto, hub, rooms, dm, team, chat, level } = await setup()
   const list = await nora.client.call('GET', '/api/rooms')
-  expect(list.alerts).toEqual({ threadReplies: true, quietHours: { on: false, start: '22:00', end: '08:00', weekends: false }, timeZone: expect.any(String), messagePreview: true })
+  expect(list.alerts).toEqual({ threadReplies: false, quietHours: { on: false, start: '22:00', end: '08:00', weekends: false }, timeZone: expect.any(String), messagePreview: true })
   const of = (id: string) => list.items.find((r: any) => r.id === id)
   expect(of(dm.id).notify).toEqual({ own: null, byDefault: 'all', level: 'all' })
   expect(of(chat.id).notify).toEqual({ own: null, byDefault: 'all', level: 'all' })
@@ -208,16 +209,20 @@ test('notices: replies in threads I follow (and the switch for them), mentions i
   const threadNotices = (roomId: string, uid = nora.id) => (h.ctx.db.query('SELECT n.event_type FROM room_notices n JOIN room_messages m ON m.id = n.source_id WHERE n.user_id = ? AND n.room_id = ? AND n.read_at IS NULL AND m.thread_root_id IS NOT NULL').all(uid, roomId) as { event_type: string }[]).map((r) => r.event_type)
   const readThread = async (roomId: string, rootId: string, c: Client = nora.client) => c.call('POST', `/api/rooms/${roomId}/messages/${rootId}/thread/read`, { seq: 999 })
   // nora wrote the root: she follows its thread
+  const quiet = (roomId: string, uid = nora.id) => (h.ctx.db.query('SELECT n.event_type, n.quiet FROM room_notices n JOIN room_messages m ON m.id = n.source_id WHERE n.user_id = ? AND n.room_id = ? AND n.read_at IS NULL AND m.thread_root_id IS NOT NULL ORDER BY n.event_type').all(uid, roomId) as { event_type: string; quiet: number }[]).map((r) => `${r.event_type}:${r.quiet}`)
   const root = await send(nora.client, team.id, 'root by nora')
+  // the switch on: a followed reply rings (a notice that may be pushed)
+  await prefs(nora.client, { roomThreadReplies: true })
   await reply(mia.client, team.id, root.id, 'first reply')
-  expect(threadNotices(team.id)).toEqual(['room.dm'])
+  expect(quiet(team.id)).toEqual(['room.dm:0'])
   await readThread(team.id, root.id)
-  // the switch off: a followed reply is quiet, a mention in a reply is not
+  // the switch off (its default since 2026-11-22): a followed reply is still a row in Mentions & threads, quiet (never
+  // pushed or rung); a mention in a reply rings
   await prefs(nora.client, { roomThreadReplies: false })
   await reply(mia.client, team.id, root.id, 'second reply')
-  expect(threadNotices(team.id)).toEqual([])
+  expect(quiet(team.id)).toEqual(['room.dm:1'])
   await reply(mia.client, team.id, root.id, '@NORA look', { mentions: [nora.id] })
-  expect(threadNotices(team.id)).toEqual(['room.mention'])
+  expect(quiet(team.id)).toEqual(['room.dm:1', 'room.mention:0'])
   await readThread(team.id, root.id)
   await prefs(nora.client, { roomThreadReplies: true })
   // the room at 끄기: no reply notifies

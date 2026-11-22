@@ -427,7 +427,7 @@ async function openEditor(page: Page, base: string, path: string) {
   return panel
 }
 
-const conflictRows = (page: Page) => page.getByTestId('file-row').filter({ hasText: 'team-notes (충돌 사본' })
+const conflictRows = (page: Page) => page.getByTestId('file-row').filter({ hasText: 'team-notes (동시에 고친 사본' })
 
 test('step 5a: two people edit the same shared file at once: the later save becomes a conflict copy in Files', async ({ browser }) => {
   const st = readState()
@@ -444,13 +444,13 @@ test('step 5a: two people edit the same shared file at once: the later save beco
 
   await op.getByTestId('file-editor').fill(oText.replace('Next meeting: Monday', 'Next meeting: Tuesday'))
   await op.getByTestId('file-save').click()
-  await expect(o.page.getByText(/충돌 사본\(shared\/team-notes \(충돌 사본 - Olga/)).toBeVisible()
+  await expect(o.page.getByText(/충돌 사본\(shared\/team-notes \(동시에 고친 사본 - Olga/)).toBeVisible()
   await expect(op).toContainText('Next meeting: Tuesday')
 
   // both see the copy in Files (live update for alice: files.changed), the original kept alice's version
   await expect(conflictRows(o.page)).toHaveCount(before + 1)
   await a.page.goto(`${RELAYED}/files?path=shared`)
-  await expect(conflictRows(a.page).first()).toContainText('충돌 사본')
+  await expect(conflictRows(a.page).first()).toContainText('동시에 고친 사본')
   const orig = await api<{ content: string }>(a.page.request, RELAYED, 'GET', `/api/files/content?path=${encodeURIComponent(NOTES)}`)
   expect(orig.content).toContain('Status: in review')
   expect(orig.content).toContain('Next meeting: Monday')
@@ -463,7 +463,7 @@ test('step 5b: alice\'s AI edits the note it read while the owner saves it: the 
   const o = await as(browser, DIRECT, st.owner)
   const a = await as(browser, RELAYED, st.alice)
   await a.page.goto(`${RELAYED}/files?path=shared`)
-  const aiCopies = a.page.getByTestId('file-row').filter({ hasText: 'team-notes (충돌 사본 - Alice' })
+  const aiCopies = a.page.getByTestId('file-row').filter({ hasText: 'team-notes (동시에 고친 사본 - Alice' })
   const copiesBefore = await aiCopies.count()
   const op = await openEditor(o.page, DIRECT, NOTES)
   const text = await op.getByTestId('file-editor').inputValue()
@@ -486,10 +486,10 @@ test('step 5b: alice\'s AI edits the note it read while the owner saves it: the 
 
   expect(await waitAnswer(a.page, null)).toBe('done')
   const summary = lastAnswer(a.page).getByTestId('file-summary')
-  await expect(summary).toContainText('충돌 사본')
+  await expect(summary).toContainText('동시에 고친 사본')
   // the summary under the answer links the copy: it has the AI's change on top of the owner's version
   await summary.getByRole('button').first().click()
-  await summary.getByRole('button', { name: /team-notes \(충돌 사본 - Alice/ }).click()
+  await summary.getByRole('button', { name: /team-notes \(동시에 고친 사본 - Alice/ }).click()
   await expect(a.page.getByTestId('file-panel')).toContainText(wanted)
   await expect(a.page.getByTestId('file-panel')).toContainText('Next meeting: Wednesday')
   // the original kept the owner's save

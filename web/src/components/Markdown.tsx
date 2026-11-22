@@ -504,11 +504,13 @@ const COMPONENTS_ANSWER: Components = {
 }
 
 // cjk-friendly: "**마일스톤(◆)**으로" is bold (CommonMark ends emphasis only before punctuation or a space, and Korean
-// particles follow the closing ** directly); remarkCapDepth: nothing nested deeper than lib/messageMarkdown.ts MAX_NEST
-export const REMARK = [remarkGfm, remarkCjkFriendly, mathRemark as never, remarkCapDepth as never]
+// particles follow the closing ** directly); remarkCapDepth: nothing nested deeper than lib/messageMarkdown.ts MAX_NEST;
+// strike only between double tildes ("~~old~~"): a single "~" is a range in Korean, Japanese and Chinese answers
+// ("3~12초 … 1~2개" was struck through, QA TC-r2a-02), so it stays a word, as in people's messages (REMARK_PERSON)
+export const REMARK = [[remarkGfm, { singleTilde: false }] as never, remarkCjkFriendly, mathRemark as never, remarkCapDepth as never]
 /** REMARK for a text whose footnotes would take seconds to read (lib/messageMarkdown.ts footnotesTooHeavy): GFM
  * without footnotes, their marks as words. */
-const REMARK_NO_FOOTNOTES = [remarkGfmNoFootnotes as never, remarkCjkFriendly, mathRemark as never, remarkCapDepth as never, remarkFootnotesAsText as never]
+const REMARK_NO_FOOTNOTES = [[remarkGfmNoFootnotes, { singleTilde: false }] as never, remarkCjkFriendly, mathRemark as never, remarkCapDepth as never, remarkFootnotesAsText as never]
 /** The remark steps for an AI's answer (or a file) of this text. */
 export const remarkFor = (text: string) => (footnotesTooHeavy(text) ? REMARK_NO_FOOTNOTES : REMARK)
 

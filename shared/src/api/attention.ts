@@ -7,10 +7,11 @@ import type { Room } from './rooms'
 
 export type MarkerKind = 'ask' | 'running' | 'new'
 /** why: the first line of the hover peek and the row's label */
-export type MarkerReason = 'card' | 'error' | 'paused' | 'running' | 'queued' | 'new'
-export interface Marker { kind: MarkerKind; reason: MarkerReason }
+export type MarkerReason = 'card' | 'error' | 'paused' | 'running' | 'queued' | 'new' | 'message'
+/** `count`: a chat shared with people, its unread messages (the row shows the number, as a group chat's) */
+export interface Marker { kind: MarkerKind; reason: MarkerReason; count?: number; mention?: boolean }
 
-export type MarkedChat = Pick<Chat, 'runState' | 'waiting' | 'unseen' | 'lastOutcome'>
+export type MarkedChat = Pick<Chat, 'runState' | 'waiting' | 'unseen' | 'lastOutcome'> & Partial<Pick<Chat, 'unreadCount' | 'mentioned'>>
 /** How this window sees a chat: `here`, it is on screen and the window is visible; `card`, a card of it is open in this
  * window (a card one desktop window shows alone is in no list). */
 export interface MarkerView { here?: boolean; card?: boolean }
@@ -18,6 +19,9 @@ export interface MarkerView { here?: boolean; card?: boolean }
 /** The chat's one marker (null: nothing). */
 export function markerOf(c: MarkedChat, v: MarkerView = {}): Marker | null {
   if (c.waiting || v.card) return { kind: 'ask', reason: 'card' }
+  // a chat shared with people: messages of others I have not read (docs/decisions/20261122-shared-chat-new-message-notices.md),
+  // their number before the ring of an answer running (someone's message there starts one: the number is the news)
+  if (c.unreadCount && c.unseen && !v.here) return { kind: 'new', reason: 'message', count: c.unreadCount, ...(c.mentioned ? { mention: true } : {}) }
   if (c.runState === 'running') return { kind: 'running', reason: 'running' }
   if (c.runState === 'queued') return { kind: 'running', reason: 'queued' }
   if (!c.unseen || v.here) return null
@@ -101,16 +105,19 @@ type CountedRoom = Parameters<typeof roomWantsMe>[0]
  * the chats is a "?"; `chats` and `chatAsk`: the AI chats' part of it (the mark on 트리나 in the rail and the phone tabs).
  * `unread`: some other room has unread messages n does not count, in a room I did not turn off or hide (roomLightsDot:
  * a plain message in a team room at its default), the app icon's dot while n is 0 (iconBadge). `here`: the chat on
- * screen in a visible window; `cards`: the chats with a card open in this window. */
-export function attentionCount(chats: readonly CountedChat[], rooms: readonly CountedRoom[], o: { here?: string | null; cards?: ReadonlySet<string> } = {}): { n: number; ask: boolean; chats: number; chatAsk: boolean; unread: boolean } {
+ * screen in a visible window; `cards`: the chats with a card open in this window. `mentions`: my unread thread mentions
+ * under the AI chats' answers (each mentioned thread once, the 프로젝트 list's counts), added to n as a room's mention is
+ * (never to `chats`: 트리나's mark is the AI's). */
+export function attentionCount(chats: readonly CountedChat[], rooms: readonly CountedRoom[], o: { here?: string | null; cards?: ReadonlySet<string>; mentions?: number } = {}): { n: number; ask: boolean; chats: number; chatAsk: boolean; unread: boolean } {
   let chatsN = 0, chatAsk = false
   for (const c of chats) {
     const m = markerOf(c, { here: c.id === o.here, card: o.cards?.has(c.id) })
     if (!needsMe(m)) continue
-    chatsN++
+    // a chat shared with people counts its unread messages, as a group chat in a room does (push-every-message)
+    chatsN += m!.count ?? 1
     if (m!.kind === 'ask') chatAsk = true
   }
-  let n = chatsN, unread = false
+  let n = chatsN + Math.max(0, Math.floor(o.mentions ?? 0)), unread = false
   for (const r of rooms) {
     if (roomWantsMe(r)) n += levelOf(r) === 'all' ? Math.max(1, roomCounts(r).number) : 1
     else if (roomLightsDot(r)) unread = true

@@ -45,8 +45,10 @@ export const SHARED_TOOLS: ReadonlySet<string> = new Set([
   // Word comments on a team .docx (tools/comment-docx.ts; limits audit 1 #22): a team file in, a new version or a new
   // .docx out, as edit_hwp; the document counts as read (chat/tools.ts), a new file goes through the write gates
   'comment_docx',
-  // a Word, Excel or PowerPoint file of this chat changed in place: a new version of the chat file (P4,
-  // docs/decisions/20261121-ai-edits-chat-files.md); a team file is not changed from a shared chat (chat/tools.ts)
+  // a Word, Excel or PowerPoint file changed in place: a new version of a chat file (P4,
+  // docs/decisions/20261121-ai-edits-chat-files.md) or of a team file the asker may change, as edit_hwp and comment_docx
+  // (S-028, docs/decisions/20261122-shared-chat-team-office-edit.md): the document counts as read, `output` is a write
+  // target, and what the chat read is weighed by confirmSources before it goes into the file
   'edit_office',
   // many renames in one call (tools/file-moves.ts), like rename_file: what each names counts as read (namedPaths)
   'rename_files',
@@ -55,7 +57,7 @@ export const SHARED_TOOLS: ReadonlySet<string> = new Set([
   'save_connector_file',
   // a file sent from the computer in a chat shared with people (chat/chat-file-tool.ts), and its copy into the team
   // folder behind the wider-audience card
-  'chat_file', 'save_chat_file',
+  'chat_file', 'save_chat_file', 'restore_chat_file',
   // a command's finished file attached to the answer for everyone here (chat/work-file-tool.ts, chat mode): offered
   // only in a chat shared with people whose commands run in its own work folder
   'save_work_file',
@@ -82,7 +84,7 @@ export const SHARED_TOOLS: ReadonlySet<string> = new Set([
   'schedule_create', 'schedule_list', 'schedule_delete',
   // videos (tools/higgsfield.ts behind the asker's card; promo-video/: the chat's artifact, its material and pictures
   // weighed by the read card like any named file, namedPaths)
-  'generate_video', 'promo_video', 'save_promo_video',
+  'generate_video', 'promo_video', 'promo_video_versions', 'save_promo_video',
   // "delete the files you just made" (chat/delete-files.ts, docs/decisions/20261121-ai-scratch-files.md rule 4): only
   // the AI's own files of this chat, made by this person's answers here, go to the trash (no card); any other path is
   // refused up front ('shared'), never a card. Not in a confidential or template chat, never a sub-agent's
@@ -159,6 +161,14 @@ export function namedPaths(tool: string, input: unknown): { key: string; value: 
       if (typeof st?.image === 'string') out.push({ key: 'stamp_image.image', value: st.image })
     }
   }
+  // edit_office's replacement pictures (tools/edit-office.ts replace_picture.image): team files whose bytes go into the
+  // document, weighed by a shared chat's read card like the document itself (S-028 plan review)
+  if (tool === 'edit_office' && Array.isArray(a.changes)) {
+    for (const c of a.changes as unknown[]) {
+      const img = c && typeof c === 'object' ? (c as { replace_picture?: { image?: unknown } }).replace_picture?.image : undefined
+      if (typeof img === 'string') out.push({ key: 'replace_picture.image', value: img })
+    }
+  }
   // rename_files: each listed file or folder, and the folder a pattern renames in (its names are read)
   if (tool === 'rename_files') {
     if (Array.isArray(a.renames)) for (const r of a.renames as unknown[]) { const p = r && typeof r === 'object' ? (r as { path?: unknown }).path : undefined; if (typeof p === 'string') out.push({ key: 'path', value: p }) }
@@ -193,6 +203,8 @@ export const SEARCH_TOOLS: ReadonlySet<string> = new Set(['grep', 'glob'])
 export const ROOM_READ_ONLY_TOOLS: ReadonlySet<string> = new Set([
   'list', 'glob', 'grep', 'read', 'skill', 'find_skills', 'ask_user', 'todo_write', 'hwp_render', 'share_file', 'artifact', 'web_fetch',
   'room_file',
+  // the chat's promo video versions (promo-video/tool.ts): reads them only
+  'promo_video_versions',
 ])
 
 /**

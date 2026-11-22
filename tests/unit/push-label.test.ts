@@ -73,9 +73,11 @@ test('a DM, a mention and a thread reply: the browser push\'s title and body, in
   const mentionNotice = await w.pushed(mention.id)
   expect(w.ask(mentionNotice)).toEqual({ title: 'MIA · #design', body: TEXT['room.mention'].ko, roomId: w.team.id })
 
-  // a reply in a thread nora follows (she wrote its root); in English for an English account
+  // a reply in a thread nora follows (she wrote its root), with "Replies in threads I'm part of" on (off by default: a
+  // thread rings only on a mention); in English for an English account
   const root = await w.send(w.nora.client, w.team.id, 'nora asks')
   setUserLocale(h.ctx.db, w.nora.id, 'en')
+  savePreferences(h.ctx.db, w.nora.id, { roomThreadReplies: true })
   const reply = await w.send(w.mia.client, w.team.id, 'the answer is QZXWV-SECRET', { threadRootId: root.id })
   const replyNotice = await w.pushed(reply.id)
   const r = w.ask(replyNotice)

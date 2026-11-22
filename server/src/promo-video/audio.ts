@@ -40,6 +40,8 @@ const r3 = (n: number) => Math.round(n * 1000) / 1000
 /** When the sounds play: the music from frame 0, each effect peaking on its hit (the template's beats). */
 export function audioCues(doc: Pick<VideoDoc, 'music' | 'hook' | 'proof'>): AudioCue[] {
   const at = (file: string, hit: number, volume: number, id: string): AudioCue => ({ id, file, start: r3(Math.max(0, hit - (byName.get(file)?.peak ?? 0))), volume })
+  // no music: a silent video, in the player and the MP4 alike (the player plays nothing without a bed)
+  if (doc.music === 'none') return []
   const cues: AudioCue[] = [{ id: 'bed', file: `bed-${doc.music}`, start: 0, volume: 0.8 }]
   cues.push(doc.hook.mode === 'strike' ? at('hit', 2.0, 0.5, 'sfx-slam') : at('click', 1.5, 0.45, 'sfx-swap'))
   cues.push(at('whoosh', STARTS[1], 0.35, 'sfx-seam1'), at('whoosh-short', STARTS[2], 0.32, 'sfx-seam2'), at('whoosh-short', STARTS[3], 0.22, 'sfx-seam3'))

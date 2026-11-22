@@ -5,7 +5,8 @@
 // on screen in ink and medium weight. Each label takes at most two lines (a long word may break), cut with "…" after
 // the second when a language's words do not fit a fifth of a narrow phone at a large text size. Each unread thing counted once (QA TC-256): on 대화 the rail's own mark
 // (rail/railBadges.ts chatsMark: how many conversations have something unread, a dot when only a mention/thread notice
-// is, the same number the computer shows), on 나 the unread Inbox notices that are not about a
+// is, the same number the computer shows), on 프로젝트 the rail's own mark (rail/useProjectsMark.ts: how many projects
+// have an unread mention of me or unread messages), on 나 the unread Inbox notices that are not about a
 // conversation (store/inbox.ts useNoticeUnread), on 트리나 the AI chats' mark (a dot, amber while a chat waits on me, else
 // the accent for a new answer: store/sessionMarkers.ts). Not shown inside a conversation (a room, an AI chat):
 // their message box needs the bottom. 트리나's icon is Trina's own star (TrinaStar, as the room header's ✦, the AI's
@@ -35,6 +36,7 @@ import { useAttention } from '../store/sessionMarkers'
 import { useRooms } from '../store/rooms'
 import { useMe } from '../store/session'
 import { chatsMark } from './rail/railBadges'
+import { useProjectsMark } from './rail/useProjectsMark'
 import { settingsOpenedFrom } from './settings/SettingsDialog'
 import { TrinaStar } from './TrinaStar'
 
@@ -53,6 +55,8 @@ export function BottomTabs() {
   const rooms = useRooms((s) => s.rooms)
   const roomNotices = useRoomNoticeUnread()
   const chats = chatsMark(rooms, roomNotices)
+  // 프로젝트's mark is the rail's too (rail/useProjectsMark.ts): projects with an unread mention of me or unread messages
+  const projects = useProjectsMark()
   const inbox = useNoticeUnread()
   const user = useMe()?.user.id ?? ''
   const attention = useAttention()
@@ -102,7 +106,11 @@ export function BottomTabs() {
         )}
       </TabLink>
       )}
-      {!guestHidden.has('projects') && <TabLink to={TAB_ROOT.projects} active={current === 'projects'} icon={<SquareKanban size={22} aria-hidden />} label={t('projects.title')} testId="tab-projects" onClick={go('projects')} />}
+      {!guestHidden.has('projects') && (
+      <TabLink to={TAB_ROOT.projects} active={current === 'projects'} icon={<SquareKanban size={22} aria-hidden />} label={t('projects.title')} testId="tab-projects" onClick={go('projects')}>
+        {projects?.kind === 'count' && <Count n={projects.n} label={t('rail.unreadProjects', { n: projects.n })} testId="tab-projects-unread" />}
+      </TabLink>
+      )}
       {!guestHidden.has('files') && <TabLink to={TAB_ROOT.files} active={current === 'files'} icon={<FolderOpen size={22} aria-hidden />} label={t('sidebar.files')} testId="tab-files" onClick={go('files')} />}
       <TabLink to={TAB_ROOT.me} active={current === 'me'} icon={<UserRound size={22} aria-hidden />} label={t('tabs.me')} testId="tab-me" onClick={(e) => { settingsOpenedFrom(e.currentTarget); go('me')(e) }}>
         {inbox > 0 && <Count n={inbox} label={t('notifications.unread', { count: inbox })} testId="tab-me-unread" />}

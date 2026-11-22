@@ -250,7 +250,7 @@ const body = (m: Mounted) => m.container.ownerDocument!.body
 const active = (m: Mounted) => m.container.ownerDocument!.activeElement
 const dialogTitle = (m: Mounted) => body(m).querySelector('[role="dialog"]')!.querySelector('h2')!.textContent
 
-test('no thread: "Send to room" sends at once; then "✓ Sent to room · View", the focus on View, said; View opens it; no toast', async () => {
+test('no thread: "Send to room" asks the server first (preview: one confirm when it asks); then "✓ Sent to room · View", the focus on View, said; View opens it; no toast', async () => {
   serve()
   answers = [{ body: sent() }]
   const { m, views } = await answerWith(null)
@@ -262,7 +262,7 @@ test('no thread: "Send to room" sends at once; then "✓ Sent to room · View", 
     await m.click('send-here-room')
     await m.until(() => m.find('send-here-sent'), 'the sent line')
     expect(calls).toHaveLength(1)
-    expect(calls[0]!.body).toEqual({ roomId: team.id, clientMessageId: expect.any(String) })
+    expect(calls[0]!.body).toEqual({ roomId: team.id, preview: true, clientMessageId: expect.any(String) })
     expect(m.get('send-here-sent').textContent).toBe(`${en('sideChat.sentRoom')}·${en('sideChat.view')}`)
     expect(m.get('send-here-status').getAttribute('role')).toBe('status')
     expect(m.get('send-here-status').textContent).toBe(en('sideChat.sentRoom'))
@@ -289,7 +289,7 @@ test('a thread: "Send to thread" sends there; cut says so; ▾ has one item, "Se
     await m.click('send-here-thread')
     await m.settle()
     expect(calls).toHaveLength(1)
-    expect(calls[0]!.body).toEqual({ roomId: team.id, threadRootId: ROOT, clientMessageId: expect.any(String) })
+    expect(calls[0]!.body).toEqual({ roomId: team.id, threadRootId: ROOT, preview: true, clientMessageId: expect.any(String) })
     release()
     await m.until(() => m.find('send-here-sent'), 'the sent line')
     expect(m.get('send-here-sent').getAttribute('data-to')).toBe('thread')
@@ -307,7 +307,7 @@ test('a thread: "Send to thread" sends there; cut says so; ▾ has one item, "Se
     expect(items.map((i) => i.textContent)).toEqual([SIDE_CHAT_SEND.room.en])
     await r.m.click('send-here-room-item')
     await r.m.until(() => r.m.find('send-here-sent'), 'the sent line')
-    expect(calls[0]!.body).toEqual({ roomId: team.id, clientMessageId: expect.any(String) })
+    expect(calls[0]!.body).toEqual({ roomId: team.id, preview: true, clientMessageId: expect.any(String) })
     expect(r.m.get('send-here-sent').getAttribute('data-to')).toBe('room')
     expect(r.m.get('send-here-sent').textContent).toContain(en('sideChat.sentRoomCut'))
   } finally {
@@ -330,6 +330,9 @@ test('the server asks first: only the confirm step, with the thread\'s message; 
     expect(m.get('share-room-thread').textContent).toBe('Ben · Nov 5, 9:00 AMlogo drafts by Friday?')
     expect(m.get('share-room-confirm-send').textContent).toBe(en('shareRoom.sendAttached'))
     expect(active(m)).toBe(m.get('share-room-confirm-send'))
+    // what goes (the server's copy when it gives one, else the answer) and who will see it (QA TC-v2f-A3)
+    expect(m.get('share-room-preview').textContent).toContain('Wednesday, two drafts.')
+    expect(m.get('share-room-audience').textContent).toContain(String(team.memberCount))
     // 취소: closed, the focus back on the control, nothing sent
     await m.click('share-room-back')
     expect(body(m).querySelector('[data-testid="share-room-confirm"]')).toBeNull()
@@ -381,7 +384,7 @@ test('a thread that is gone: one line under the answer, the room offered instead
     expect(useUi.getState().toasts).toEqual([])
     await m.click('send-here-room')
     await m.until(() => m.find('send-here-sent'), 'sent to the room')
-    expect(calls[1]!.body).toEqual({ roomId: team.id, clientMessageId: expect.any(String) })
+    expect(calls[1]!.body).toEqual({ roomId: team.id, preview: true, clientMessageId: expect.any(String) })
     expect(calls[1]!.body.clientMessageId).not.toBe(calls[0]!.body.clientMessageId)
     expect(m.find('send-here-error')).toBeNull()
   } finally {

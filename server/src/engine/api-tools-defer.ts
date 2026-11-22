@@ -10,7 +10,7 @@ import type { ApiTool } from './api-tools-fit'
 
 /** sent only when loaded: decks and videos, PDF and Office editing, zip, schedules, access changes, skill files */
 export const API_DEFERRED_TOOLS: ReadonlySet<string> = new Set([
-  'intro_deck', 'promo_video', 'save_promo_video',
+  'intro_deck', 'promo_video', 'promo_video_versions', 'save_promo_video',
   'edit_pdf', 'stamp_pdf', 'merge_pdfs', 'split_pdf', 'edit_office', 'comment_docx',
   'resize_images', 'unzip_file', 'make_zip',
   'schedule_create', 'schedule_list', 'schedule_delete',

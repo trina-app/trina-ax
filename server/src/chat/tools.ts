@@ -4,7 +4,7 @@ import { confidentialChat, localTool } from "../safe-ops/confidential"
 // share_file, artifact, web_fetch). Served over the same MCP connection as the file tools (mcp__team__<name>).
 import { trashHint } from './trash-hint'
 import { isReservedPlace, parsePlace, type Place } from '@mycel/shared/places'
-import { chatPlaces } from './place-ctx'
+import { chatKindOf, chatPlaces } from './place-ctx'
 import { chatFilesOf } from './chat-files'
 import { PLACE_WORDS } from '../files/places'
 import { PLACE_PRODUCE_TOOLS } from '../files/place-output'
@@ -13,7 +13,7 @@ import { freeRoamToolCallRefused, freeRoamToolFenced } from '../demo/guard'
 import { stampOutputOf } from '../tools/stamp-pdf'
 import { commentDocxOutput } from '../tools/comment-docx'
 import { editOfficeOutput } from '../tools/edit-office'
-import { chatFileOffered, chatFileTool, chatPlaceHooks, saveChatFileTool } from './chat-file-tool'
+import { chatFileOffered, chatFileTool, chatPlaceHooks, restoreChatFileTool, saveChatFileTool } from './chat-file-tool'
 import { answerCommentsOff, answerCommentsTool } from './answer-comments'
 import path from 'node:path'
 import { z } from 'zod'
@@ -100,6 +100,8 @@ import { GUEST_ROOM_TOOLS, GUEST_TURN_TOOLS, guestToolDescription } from './gues
 import { guestPlace } from '../auth/guests'
 import type { GuestPlace } from '@mycel/shared/api'
 import { hideAllArgs, hideKeysInArgs, KEY_HIDING_TOOLS, KeyRefusal, UNCHECKED_REFUSAL } from '../integrations/connections/hide-args'
+import { mapCopyPaths } from './copy-paths'
+import { sharedCopyMap } from './chat-files-share'
 import { completeRedactorFor } from '../integrations/connections/redact'
 
 export interface Tool {
@@ -189,7 +191,9 @@ function boxShellQueueStep(exec: TurnExec): (run: NonNullable<Step['devEnvRun']>
 
 /** What steerableWriteRefusal weighs (chat/shared-run.ts): the write targets of each tool, and the tools that change in
  * place the files they name (Office edits, Word comments; save_promo_video's save_as) */
-const RUN_WRITES = { writeArgs: { ...WRITE_TARGET_ARGS, edit_hwp: ['output'], save_promo_video: ['save_as'], generate_video: ['save_as'] }, named: namedPaths,
+// (edit_office's replacement pictures are only read: never weighed as places an in-place edit writes to)
+const RUN_WRITES = { writeArgs: { ...WRITE_TARGET_ARGS, edit_hwp: ['output'], save_promo_video: ['save_as'], generate_video: ['save_as'] },
+  named: (tool: string, input: unknown) => namedPaths(tool, input).filter((n) => n.key !== 'replace_picture.image'),
   inPlace: new Set(['edit_office', 'comment_docx', 'edit_hwp', 'edit_files', 'edit_pdf']) } as const
 
 export function buildToolSet(exec: TurnExec): ChatToolSet {
@@ -231,9 +235,6 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
     // docs/decisions/20261118-shared-chat-connections.md)
     // (and a project's shared chat reads its own chat room: projectRoomTools, scoped to that one room)
     if (exec.shared && !SHARED_TOOLS.has(t.name) && !o.connection && !o.projectRoom) return false
-    // edit_office in a shared chat changes only the chat's own files (a new version); a project chat's chat files are
-    // read-only and its team files are not changed from a shared chat, so there it could do nothing
-    if (t.name === 'edit_office' && exec.shared?.kind === 'project') return false
     if (t.name in FILE_TOOLS || tools.has(t.name)) { exec.rt.log.warn('turn tool name taken, skipped', { tool: t.name }); return false }
     tools.set(t.name, t)
     if (t.label) labels.set(t.name, t.label.bind(t))
@@ -268,7 +269,7 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
   // see the chat; only where the chat holds such files or is shared with people. save_chat_file copies one into the team
   // folder behind the wider-audience card (docs/decisions/20261118-chat-files-full-read-and-save.md)
   if (chatFileOffered(exec)) {
-    add(chatFileTool(exec)); add(saveChatFileTool(exec))
+    add(chatFileTool(exec)); add(saveChatFileTool(exec)); add(restoreChatFileTool(exec))
     // the same files as the chat place chat:files/ of read, list, glob and grep (shared/src/places.ts): the main AI
     // only (a sub-agent's view of the turn has no chatPlace)
     exec.files.chatPlace = chatPlaceHooks(exec)
@@ -447,9 +448,9 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
     // edit_office or edit_pdf on a chat file without output saves a new version of it (P4, QA TC-7044): who may,
     // checked before any card
     const versionAt = name === 'edit_office' || name === 'edit_pdf' ? officeVersionPlace(args, name) : null
-    // a shared chat offers edit_office for its own chat files only (a team Office file is not changed from here yet:
-    // docs/decisions/20261121-ai-edits-chat-files.md)
-    if (name === 'edit_office' && exec.shared && !versionAt) return { ...text(`Not done (${name}): in a shared chat edit_office changes only this chat's own files (file_path chat:files/<file_id>/<name>, without output), as a new version. A team Office file is not changed from here: make a changed copy with make_file, or ask again in a chat only you see.`, true), summary: `${name} -> refused: team file in a shared chat` }
+    // a team Office file in a shared chat is changed like edit_hwp and comment_docx there (S-028,
+    // docs/decisions/20261122-shared-chat-team-office-edit.md): the asker's own access, the read card for the document,
+    // the save card for an output, and confirmSources in the tool for what the chat read
     if (versionAt) {
       const no = chatVersionRefusal(exec, files, versionAt)
       if (no) return { ...text(`Not done (${name}): ${no}`, true), summary: `${name} -> refused: chat file not changed here` }
@@ -530,12 +531,17 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
     // who can open what it saved, from the real folder (chat/save-audience.ts); the main AI's own call, not a guest's,
     // and only where who_can_open is offered (no confidential chat, scheduled run, Slack question or template run)
     const audience = exec.audienceNote(files === exec.files && !guest && !whoCanOpenOff(exec))
-    const note = [placed, skillNote, audience].filter(Boolean).join('\n')
+    // a changed file that a room carries as a copy sent earlier: the room keeps the old one (chat/room-copies.ts)
+    const copies = exec.roomCopies(files === exec.files && !guest)
+    const note = [placed, skillNote, audience, copies].filter(Boolean).join('\n')
     // the audit line (tool_events) never repeats a stored connection secret (integrations/connections/redact.ts), and
     // in a chat that read team chat rooms keeps of an address only its site (tools/audit-url.ts): admins read it
     const summary = exec.redact(out.summary ?? `${name} -> ${out.isError ? 'error' : 'ok'}`)
     return { content: note ? [...out.content, { type: 'text', text: note }] : out.content, isError: out.isError, summary: exec.roomsSeen ? hideUrls(summary) : summary, ...(out.beforeDelivery ? { beforeDelivery: out.beforeDelivery } : {}) }
   }
+  /** the files copied into this chat by its creator, by the path they came from (chat-files-share.ts sharedCopyMap):
+   * only in a chat shared with people now (not a project chat, not one made private again), else none */
+  const copiesHere = () => (chatKindOf(exec) === 'people' ? sharedCopyMap(exec.rt.ctx, exec.spec.chatId, exec.spec.userId) : new Map() as ReturnType<typeof sharedCopyMap>)
   const set: ChatToolSet = {
     prompt,
     seen,
@@ -551,6 +557,16 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
     // the person's stored connection keys in what a tool saves (a file, an artifact, a name): hidden before every
     // other check, card and write (integrations/connections/hide-args.ts; QA TC-3041). write keeps a form the file it
     // overwrites already holds
+    // a chat shared with people with its creator's files copied in: a path to such an original is the chat's copy for
+    // everyone here, the creator too (chat/copy-paths.ts; plan 20261122-0503-shared-chat-copy-paths.md). The main AI
+    // only: a sub-agent has no chat places (files/places.ts). Looked up again at every call (a share, a new copy)
+    mapPaths: (name, args, caller) => {
+      if (!exec.files || (caller && caller.files !== exec.files)) return args
+      return mapCopyPaths(name, args, copiesHere()).args
+    },
+    // after a mapped call (mcp/protocol.ts): the creator's "users/<me>/q.xlsx" edited the chat's copy, never her team
+    // file, so the AI says so (review of #355)
+    mappedNote: () => tr('copyPathMapped', exec.spec.locale),
     hideKeys: (name, args) => {
       // a call to a connected service (an MCP tool, Gmail, Drive, Notion, api_request, Slack): every value, so the
       // card shows exactly what is sent and the service never gets the key (QA TC-3081)
@@ -612,7 +628,9 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
       const audience = exec.audienceNote(main && !guest && !whoCanOpenOff(exec))
       // a search that found nothing while a file of that name is in the person's trash (chat/trash-hint.ts, QA TC-7242)
       const trashed = name === 'glob' && !isError && main && !guest && !exec.shared && !exec.restricted && !exec.templateRun && !exec.otherAuthors && hintsHere(exec, true) && text?.startsWith('No files found') ? trashHint(exec.rt.ctx, exec.spec.userId, (args as { pattern?: unknown } | null)?.pattern, exec.spec.locale) : null
-      return [placed, skillNote, heldNote, rooms, fact, scope, audience, trashed].filter(Boolean).join('\n') || undefined
+      // a changed file that a room carries as a copy sent earlier: the room keeps the old one (chat/room-copies.ts)
+      const copies = exec.roomCopies(main && !guest)
+      return [placed, skillNote, heldNote, rooms, fact, scope, audience, trashed, copies].filter(Boolean).join('\n') || undefined
     },
     // edit_files (mcp/protocol.ts): after a room read one card for the whole batch, before its first file
     beforeBatch: async (name, args) => {
@@ -910,7 +928,9 @@ export function toolContext(exec: TurnExec, files: TurnFiles, call?: { tool: str
     files: {
       signal: exec.abort.signal,
       // after a room read, a tool with its own card asks there alone, with the room card's line (chat/turn.ts ownCard)
-      user: exec.livePrincipal(), turnId: exec.spec.turnId, files, person: call && exec.ownCard(call.tool) ? roomLinePerson(exec, turnPerson(exec), call) : turnPerson(exec),
+      // (any other call after a room read gets the room card first, every time: confirmRoomChange; roomCardEach tells a
+      // tool's own "many items" card not to ask a second time, tools/file-moves.ts)
+      user: exec.livePrincipal(), turnId: exec.spec.turnId, files, person: call && exec.ownCard(call.tool) ? roomLinePerson(exec, turnPerson(exec), call) : call && readRooms(exec) ? { ...turnPerson(exec), roomCardEach: true } : turnPerson(exec),
       // files a tool copies bytes from (make_file's embedded images and template), checked before the new file is placed
       // a save a scheduled task's card covered: checked again right before the file is placed (after a conversion)
       ...(call ? { beforePlace: () => { const no = exec.scheduleCover?.recheck(callKey(call.tool, call.args)); if (no) throw new ToolError(no) } } : {}),

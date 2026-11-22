@@ -13,7 +13,7 @@ import { API_GROUNDING_RULES } from '../../server/src/engine/api-agent'
 import { appMapSection } from '../../server/src/chat/app-map'
 import { saveAudienceNote } from '../../server/src/chat/save-audience'
 import { withoutStepNote } from '../../server/src/chat/answer-share'
-import { languageSwitchNote } from '../../server/src/chat/narration'
+import { languageSwitchNote, ownWords, quoteLanguageNote } from '../../server/src/chat/narration'
 import { docResultText, imageCount, textBars } from '../../server/src/tools/make-file'
 import { trashHint } from '../../server/src/chat/trash-hint'
 import { componentC } from '../../server/src/team-files/component'
@@ -59,6 +59,18 @@ describe('language, shared chats, rooms, who can open', () => {
     expect(languageSwitchNote('이거 요약해 줘요', 'Make a one-page summary PDF please')).not.toBeNull()
     for (const [m, p] of [['이거 요약해 줘요', '다니엘 님 검토 부탁해요'], ['ok', '다니엘 님 검토 부탁해요'], ['Make a summary PDF please', 'Check the quote again today'], ['요약 PDF 만들어줘', null]] as const)
       expect(languageSwitchNote(m, p)).toBeNull()
+  })
+
+  test('a ✦ side chat question under a quoted room message: the person\'s own words decide the language, never the quote (TC-f1c-01)', () => {
+    // as SideChatPanel quoteLead sends it: the app's English labels and someone else's words above the question
+    const asked = '> 박준호 · 오후 3:10 (thread_id 01a2 in this room)\n> 📎 autumn-menu-2.png (file_id 01a3 in this room)\n\n배경만 흰색으로 바꿔줘'
+    expect(quoteLanguageNote(asked)).toContain("answer in the language of the user's own words")
+    expect(ownWords(asked).trim()).toBe('배경만 흰색으로 바꿔줘')
+    // a quote in English and a Korean question after a Korean one is no switch (the quote is not the person's words)
+    expect(languageSwitchNote('> Mina · 10:02\n> Please send the final deck by Friday, thanks a lot\n\n이거 요약해 줘요', '다니엘 님 검토 부탁해요')).toBeNull()
+    // no quote, or no words of the person's own: nothing
+    expect(quoteLanguageNote('배경만 흰색으로 바꿔줘')).toBeNull()
+    expect(quoteLanguageNote('> 📎 a.png (file_id 01a3 in this room)')).toBeNull()
   })
 
   test('the latest message decides the language, not earlier messages or tool results (TC-7429)', () => {

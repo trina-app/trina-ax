@@ -5,6 +5,57 @@ This file summarizes user-visible changes; it is not a list of every commit.
 
 ## Unreleased
 
+## 0.12.0 — 2026-11-22
+
+- Admin notes: 0.12.0 changes no root file. A Linux server on 0.8.0 or newer takes 0.12.0 as an app update, with no root step. A server still on 0.7.x or older takes it through the root update, as for 0.8.0: the update timer installs it in the team's update window, or run `sudo mycel-ctl update`. No backup is needed: the three new database migrations (436–438, chat notices) can be read by older versions and the reader level stays 9. A server still on 0.5.x needs the backup first, as for 0.6.0 (Admin › System › Backups › Back up now).
+- Admin notes, going back: going back to 0.11.0, 0.10.0, 0.9.0, 0.8.0 or 0.7.0 needs no backup (reader level 9). Going back to 0.5.x still needs the backup taken before 0.6.0.
+- In a chat shared "with files", when Trina opens or edits a file by its original path, it now says that this is the chat's copy and the original file is unchanged.
+- Before the AI moves or renames more than three files or folders in one answer where other people can see them, it now asks once on a card that lists them; your yes covers the rest of that answer. Before, it could rename and move a whole shared folder without asking. "Always allow" for moves still goes without the card.
+- Posting a file to a conversation with **Send** no longer also shares the files the AI read to make it (a business card photo, a page from another chat). The "shared a file" notice then named that other file instead of the one posted. Those files can still be shared with the **Let them view** button under the answer.
+- When someone adds you to a project, you now get a notice: "Alice added you to 'Launch kit'".
+- An @mention in a shared chat's message box now shows under **Mentions**, with who mentioned you and in which chat, as thread mentions do. Before, it rang and marked the chat but the Mentions tab stayed empty.
+- A Korean, Japanese or Chinese answer no longer starts with the English line the AI wrote before running a command ("Install python-docx in a venv.").
+- Asking Trina about a room message in the ✦ side chat now answers in the language you wrote your question in, not in English because of the quoted message.
+- Sharing a chat with its files while Trina was updating now keeps the files when it saves again by itself.
+- When a file the AI made was moved to another folder, the AI now says where it went and changes it there as a new version. Before, it made a new copy, or said someone had deleted the file. If the person can't open the new place, the AI says that the file was moved.
+- A chat link to a file that was moved now says where it went, with an **Open** button. Before, it said the file could not be found. A file moved to the trash says so too.
+- Moving a file out of a project or group folder into a folder more people can see now asks first, the same as a move out of your personal folder.
+- Uploading a file whose name is already in the folder now asks first: **Replace** (the old file is kept as a version) or **Keep both**. Before, the upload became "name (2)" without asking.
+- In a shared chat, a video or other file the AI remakes with commands is now saved as a new version of the same chat file, and the AI can bring back an earlier version ("go back to Junho's version"). Each version shows who asked for it.
+- When someone's access to a file was taken away after the AI read it in a chat, the AI now says they can no longer open it, instead of saying it could not find the file.
+- A message sent while offline, in a chat or a room, now stays "Sending…", is kept over a reload, and goes by itself when the connection is back. It turned into "Not sent" after 30 seconds offline, and a chat's was lost on reload.
+- A team project's chat now tells its people about a new message from a teammate, as a chat shared with people does: an unread number on the chat and on Projects, the app icon, a phone notification and, in the desktop app, a notification with the conversation sound. Trina's answers only add to the number. "Mute this chat" and "@" mentions work there too.
+- Thread replies no longer notify you unless they mention you, in conversations, shared chats and project chats. They still show in Mentions & threads. To be notified of every reply again, turn on "Replies in threads I'm part of" in Settings › Notifications.
+- The **Projects** icon on the left rail and the phone's **Projects** tab now show a number when a project has something for you: how many projects hold an unread thread mention of you (the number a project's row shows in the list) or unread messages in a chat you did not mute. Opening the chat or the thread clears it at once, on every device. Before, a project's row showed "1" while the Projects icon showed nothing.
+- The app icon's number (the Mac Dock, an installed web app, the phone app and a push's badge) now counts your unread thread mentions too.
+- Answers keep ranges as typed: "3~12초", "1~2개" are no longer struck through. Strikethrough needs two tildes (`~~like this~~`).
+- In a chat shared with you, you can now download its promo video and its intro deck, like its owner, when you can open the pictures in it.
+- A shared chat's row in the lists now says who started it, then who else wrote ("내가 시작함 · 참여: 김민지").
+- In a shared chat the AI names a person's folder in your language ("김민지 님 폴더", not "김민지's folder").
+- A chat attachments folder shows in your language ("채팅 첨부" on a Korean screen) wherever its place is shown.
+- One file attached to an answer more than once shows as one tile.
+- Removing guests from a project: the confirm line no longer shows raw `{n, plural, …}` text in Korean and Indonesian.
+- A member removed from the team sees the sign-in page in their browser's language.
+- An answer sent to a room (대화에 보내기, or Trina posting it for you) now carries what the answer made beside the chat: a promo video goes as its video file (or as its page where the server cannot make the video file), a page or picture as its file, and everyone in the room can open and play it. Before, only the text arrived. If the file cannot be attached, nothing is sent and you are told why.
+- The room copy of an answer no longer says "only I can open this file": that was true in your chat, not in the room.
+- With a thread or the side chat open and a file preview beside the room, the panel now opens over the room instead of squeezing the room's messages to one letter per line.
+- When someone moves a picture the AI made and asks for a change, the AI now changes the moved file as a new version and says where it is. Before, it made a new copy at the old place and could say the file was deleted.
+- Promo videos: each person's edit keeps the video's look, "go back to Junho's version" works, and "no music" is now possible. The AI sees who asked for each version.
+- Sending an answer to a conversation (대화에 보내기, also from the ✦ side chat) now always asks once first: it shows the message as it will go, who will see it and the files that go with it. Before, the side chat posted at once.
+- An answer that only says something did not work can no longer be sent to a conversation.
+- A promo video sent to a conversation goes as a video file (MP4) where the server can make one, not as a web page.
+- The room copy no longer says "only <name> can open it".
+- In a chat shared with its files, asking the AI to change one of those files now always saves a new version of the chat's copy, for everyone in the chat, the person who shared it too. Before, the AI sometimes followed the link to the original in the sharer's My files, could not open it and made a separate new file instead.
+- The Share dialog now ticks **Share the files too** by default when every listed file is safe to share (the chat's own outputs, nothing the people being added can't open). It stays unticked when a file was made from something they can't open.
+- In a chat shared with people, a teammate's new message now tells everyone else in the chat, as a group chat does: an unread number on the chat in the Trina list, the app icon and tab count, a phone notification and, in the desktop app, a notification with the conversation sound. Several messages in a row each count, grouped under the chat. Tapping the notification opens the chat at that message. Trina's answer to someone else adds to the number but never rings; the person who asked still gets the "finished" notice.
+- "Mute this chat" in a shared chat's ··· menu stops these notices for you (Unmute brings them back).
+- You can @mention people in a shared chat's message box: type "@" and pick someone who can see the chat. They are told even if they muted the chat, and the chat shows "@" for them.
+- In a chat shared with people, or a shared project chat, the AI now changes a Word, Excel or PowerPoint file in a team folder when the person asking may edit it ("fix this spreadsheet"). It saves a new version, and the earlier one stays in the file's history. Before, it refused and offered a copy or a chat only you see. As before, a file some people in the chat cannot open asks the person first on a card only they see, and a read-only folder stays read-only.
+- The step list under an answer no longer shows raw shell commands such as "cd $TRINA_WORK/… && export …". A dev-environment step reads as a short plain phrase in your language ("영상 프레임 만들기", "프로그램 설치", "파일 확인"); open the step to see the exact command. Older answers read the same way.
+- Permission cards for a command or a file change ask in plain words ("파일 수정", "파일 바꾸기"); the command or the file's new content (an SVG, a page) is behind "자세히". Scripts, settings files and skill files stay open.
+- Step lines and cards no longer show "chat:files/<id>/…", "chat:work/…" or "$TRINA_WORK": they say "이 채팅 ›" or "작업 폴더 ›" instead.
+- A copy saved when two people changed a file at the same time is now named "… (동시에 고친 사본 - 이름 날짜).확장자" ("edited at the same time" in English) instead of "충돌 사본" / "conflict copy". Older copies keep their names.
+
 ## 0.11.0 — 2026-11-22
 
 - Admin notes: 0.11.0 changes no root file. A Linux server on 0.8.0, 0.9.0 or 0.10.0 takes 0.11.0 as an app update, with no root step. A server still on 0.7.x or older takes it through the root update, as for 0.8.0: the update timer installs it in the team's update window, or run `sudo mycel-ctl update`. No backup is needed: the one new database migration (435, chat leave and lost-access notices) can be read by older versions and the reader level stays 9. A server still on 0.5.x needs the backup first, as for 0.6.0 (Admin › System › Backups › Back up now).
