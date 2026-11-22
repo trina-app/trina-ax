@@ -3635,8 +3635,9 @@ export class TurnExec {
       if (Array.isArray(a.request_sites) && a.request_sites.length) return false
       if (shellUsesNetwork(a.command) || webAllowAll(this.rt.db, this.spec.userId)) return false
       if (!LIVE_CLIENTS.has(this.spec.clientKind ?? '')) return false
-      // a job or dev server of this chat runs with the network: a command could change the code it runs (a hot reload)
-      if (chatRunsLive(this.rt.ctx, this.spec.chatId)) return false
+      // a job or dev server of this chat or of the person runs (or waits) with the network: a command could change the
+      // code it runs (a hot reload, files in the person's own folder)
+      if (chatRunsLive(this.rt.ctx, this.spec.chatId, this.spec.userId)) return false
       return !confidentialChat(this.rt.db, this.spec.chatId)
     } catch { return false }
   }
