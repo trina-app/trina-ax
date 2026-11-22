@@ -211,6 +211,27 @@ describe('a room post card', () => {
     expect(count()).toBe(1)
     expect(cardsOf(next.turnId)).toEqual([])
   })
+
+  // QA of #414 (qa.trina.app): the answer read b4-note.txt and sent b4-sum.pdf to a teammate; the first card said
+  // "(my files)", the run after the press "(1 file in my files)" (the same source, now counted from the answer's saved
+  // list), and the card was asked again with "Something changed". The same post to the same person with the same file
+  // takes the press
+  test('a source counted file by file after the press is the same card: the press sends it, no second card', async () => {
+    put('users/alice/QA-late/note.txt', 'alpha 3, beta 5\n')
+    put('users/alice/QA-late/sum.pdf', '%PDF-1.4 sum\n')
+    const chatId = await ownChat()
+    const dmHas = () => (db().query("SELECT COUNT(*) n FROM room_messages m JOIN rooms r ON r.id = m.room_id WHERE r.kind = 'dm' AND m.author_id = 'alice' AND m.body LIKE '%sum of the note%'").get() as { n: number }).n
+    const text = 'The sum of the note is 8: [sum.pdf](/files/view?path=users%2Falice%2FQA-late%2Fsum.pdf)'
+    const w = await askAndWait(chatId, `Send the sum to Bob\n${fake({ tool: 'read', args: { file_path: 'users/alice/QA-late/note.txt' } }, { tool: 'post_to_room', args: { room: 'Bob Lee', text }, sayResult: true })}`)
+    expect(w.card.question).toContain("can't see some of the sources")
+    expect(dmHas()).toBe(0)
+    await Bun.sleep(1800)
+    expect((await post(w.turnId, w.card.requestId, w.card.options![0]!.value)).status).toBe(204)
+    const next = await nextTurn(chatId, w.answerId)
+    expect(next.done.status).toBe('done')
+    expect(cardsOf(next.turnId)).toEqual([])
+    expect(dmHas()).toBe(1)
+  })
 })
 
 describe('never a free-text message that loses the target', () => {
@@ -293,6 +314,21 @@ describe('the rules, alone', () => {
     expect(sameCard(base, q(`${why}\n\nShare 1 file with Bob?\n\nThey can view it.`))).toBe(false)
     expect(sameCard(base, q(`${why}\n\nPractice mode: nothing really goes out.\n\nShare 1 file with Carol?\n\nThey can view it.`))).toBe(false)
     expect(sameCard(base, q(`${why}\n\nPractice mode: nothing really goes out.\n\nShare 1 file with Bob?`))).toBe(false)
+  })
+
+  test('the same card: a source place with or without its file count is the same; another place or another number of people is not', () => {
+    // the two cards of the QA run of #414 (qa.trina.app), word for word
+    const card = (line: string): TurnRequest => ({ kind: 'ask_user', origin: 'server', requestId: crypto.randomUUID(), question: `QA Admin님과의 1:1 대화(2명)에 보낼까요?\n\nQA Admin 님은 아직 파일을 열 수 없어요. 보내면 함께 공유돼요.\n${line}`, options: [{ label: '보내기', value: 'send_files' }, { label: '보내지 않기', value: 'no' }] })
+    const pressed = card('1명은 이 내용의 일부 출처(내 파일)를 볼 수 없어요.')
+    expect(sameCard(pressed, card('1명은 이 내용의 일부 출처(내 파일의 파일 1개)를 볼 수 없어요.'))).toBe(true)
+    expect(sameCard(card('1명은 이 내용의 일부 출처(내 파일의 파일 2개)를 볼 수 없어요.'), pressed)).toBe(true)
+    expect(sameCard(pressed, card('2명은 이 내용의 일부 출처(내 파일의 파일 1개)를 볼 수 없어요.'))).toBe(false)
+    expect(sameCard(pressed, card('1명은 이 내용의 일부 출처(내 파일의 파일 1개, 부서 › 영업)를 볼 수 없어요.'))).toBe(false)
+    expect(sameCard(pressed, card('1명은 이 내용의 일부 출처(부서 › 영업의 파일 1개)를 볼 수 없어요.'))).toBe(false)
+    // every language (English puts the count first)
+    const en = (places: string): TurnRequest => ({ ...pressed, question: `Send to Bob Lee in a new 1:1 chat?\n\n1 person there can't see some of the sources of this (${places}).` })
+    expect(sameCard(en('My folder, Teams › Sales'), en('1 file in My folder, 3 files in Teams › Sales'))).toBe(true)
+    expect(sameCard(en('My folder'), en('1 file in Teams › Sales'))).toBe(false)
   })
 
   test('the connected-service tools that never wait are the provider\'s own names', () => {
