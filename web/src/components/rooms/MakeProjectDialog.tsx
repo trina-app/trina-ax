@@ -63,6 +63,23 @@ export function projectNameProblem(name: string): 'nameLong' | 'nameReserved' | 
   return null
 }
 
+/** A name as the server compares folder names (server/src/policy/names.ts foldKey). */
+const foldKey = (s: string) => s.normalize('NFKC').toLowerCase().normalize('NFKC')
+
+/** The folder a new team project called `name` gets when a project the person sees has projects/<name> already: the
+ * "-2" one, stepped as the server steps it (server/src/chat/projects.ts projectFolderName), over `folders` (the
+ * projects/ folders of the team projects the person sees); null when none of them has it. A folder of a project they
+ * cannot see may step it too, unsaid, as the make-project read keeps it (server/src/rooms/make-project.ts). */
+export function steppedProjectFolder(name: string, folders: readonly string[]): string | null {
+  const base = clean(name)
+  if (!base) return null
+  const used = new Set(folders.map((p) => p.split('/')).filter((s) => s.length === 2 && foldKey(s[0]!) === 'projects').map((s) => foldKey(s[1]!)))
+  if (!used.has(foldKey(base))) return null
+  let out = base
+  for (let i = 2; used.has(foldKey(out)); i++) out = `${base}-${i}`
+  return out
+}
+
 /** The Chat attachments folder's name in the team's language (the folder the server makes). */
 function useChatFolder() {
   const team = useMe()?.team.defaultLocale

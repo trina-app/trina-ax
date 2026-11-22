@@ -2,7 +2,7 @@
 // GET /api/demo answers like a free-roam instance (kind "freeRoam", used, cap, signupUrl) and GET /api/me like one too:
 // `server.dev` false and the feature row all off (server/src/system/deployment.ts FREE_ROAM_OFF), so the app finds the
 // demo without the dev flag. At 1440 and 390, light and dark: the sign-in page's one action, the bar (in the page's flow,
-// never over the message box; at most two lines on a 390 px phone in every language), its quiet Start free and its
+// never over the message box; three rows within 56 px on a 390 px phone in every language), its quiet Start free and its
 // practice label (a tap opens the whole sentence), the suggestions under Home's box (not in the bar), the count in
 // questions to the end, the limit dialog (a bottom sheet on a phone, opened on Start free) and the message box that
 // stops after it, a new visitor's `?fresh=1` (the previous visitor's drafts go), the hidden sections (AI accounts,
@@ -151,6 +151,12 @@ for (const width of [1440, 390] as const) {
           else expect(r.height).toBeGreaterThanOrEqual(32)
         }
         await shot(page, `${at}-2-bar`)
+        // the phone keyboard up (lib/viewport.ts sets .keyboard-open): the chips above the docked box go, so the box and
+        // what is typed stay in view (review of #293)
+        await page.evaluate(() => document.documentElement.classList.add('keyboard-open'))
+        await expect(page.getByTestId('free-roam-chips')).toBeHidden()
+        await page.evaluate(() => document.documentElement.classList.remove('keyboard-open'))
+        await expect(page.getByTestId('free-roam-chips')).toBeVisible()
         // another screen: no chips there
         await page.goto('/files')
         await expect(page.getByTestId('free-roam-bar')).toBeVisible()
