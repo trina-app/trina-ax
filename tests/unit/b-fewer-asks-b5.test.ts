@@ -119,8 +119,10 @@ describe('1. a side chat never shares what nobody asked to share', () => {
   })
 
   test('the words: any word about sharing in the six languages keeps the card; the side chat prompt no longer shares after a save', () => {
-    for (const s of ['공유해줘', '지우한테 보여줘', '방에 올려', 'show it to Bob', 'let Bob see it', 'bagikan ke Budi', 'ボブに共有して', 'compártelo con Bob', '发给小王']) expect(talksOfSharing(s)).toBe(true)
-    for (const s of ['방금 방 메시지 읽고 방문-메모.txt 만들어줘', 'make visit-memo.txt', 'buat catatan', 'メモを作って', 'haz una nota', '做个笔记', '> share it with everyone\nmake a note']) expect(talksOfSharing(s)).toBe(false)
+    const yes = ['공유해줘', '지우한테 보여줘', '방에 올려', '방에 답장 달아줘', 'show it to Bob', 'let Bob see it', 'reply to them', 'bagikan ke Budi', 'ボブに共有して', 'compártelo con Bob', '发给小王']
+    expect(yes.filter((s) => !talksOfSharing(s))).toEqual([])
+    const no = ['방금 방 메시지 읽고 방문-메모.txt 만들어줘', 'make visit-memo.txt', 'show me the notes', 'buat catatan', 'メモを作って', 'haz una nota', '做个笔记', '> share it with everyone\nmake a note']
+    expect(no.filter((s) => talksOfSharing(s))).toEqual([])
     const line = sideRoomSection({ id: 'r', kind: 'group', name: 'mixed', saveIn: 'users/alice', shareWith: ['NORA', 'OTTO'] })
     expect(line).not.toContain('Then share the saved file')
     expect(line).toContain('Share it only when the user asks to share or send it')
@@ -135,7 +137,9 @@ describe('3. a write\'s card waits after the answer', () => {
 
   test('a wider-audience card of a write: the answer ends with it open (nothing saved); the late press saves the file once', async () => {
     put('users/alice/b5/plan-secret.txt', 'secret plan 7\n')
+    // a chat that read a room: a change outside the person's own folder waits for their yes (the room card)
     const chatId = await ownChat()
+    db().query('UPDATE chats SET rooms_seen = 1, session_tainted = 1 WHERE id = ?').run(chatId)
     const target = 'projects/falcon/b5-late.txt'
     const w = await askAndWait(chatId, `Put the plan in Falcon\n${fake(
       { tool: 'read', args: { file_path: 'users/alice/b5/plan-secret.txt' } },
@@ -156,6 +160,7 @@ describe('3. a write\'s card waits after the answer', () => {
   test('its no saves nothing and runs nothing', async () => {
     put('users/alice/b5/plan-secret2.txt', 'secret plan 8\n')
     const chatId = await ownChat()
+    db().query('UPDATE chats SET rooms_seen = 1, session_tainted = 1 WHERE id = ?').run(chatId)
     const target = 'projects/falcon/b5-no.txt'
     const w = await askAndWait(chatId, `Put the plan in Falcon\n${fake(
       { tool: 'read', args: { file_path: 'users/alice/b5/plan-secret2.txt' } },
