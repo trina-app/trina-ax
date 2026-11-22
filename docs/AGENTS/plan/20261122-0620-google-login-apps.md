@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-22 06:20
 - Branch: `feat/google-login-apps` (parts C and D of [the umbrella plan](20261122-0454-google-login.md))
-- Status: in progress
+- Status: done
 - Where: trina-ax (`server/src/auth/google-login.ts`, `shared/src/api/auth.ts`, `web/src/pages/Auth.tsx`, `desktop/`,
   `mobile/`). Why: the Google step must run in the system browser (Google refuses embedded windows with
   `disallowed_useragent`), and the result has to come back into the app's own sign-in.
@@ -108,10 +108,21 @@ Out:
 
 `tests/unit/a-google-login-apps.test.ts` (redeem per client, wrong secret, replay, late, wrong client, other person,
 bad-code counting, phone redirect, desktop page, account changes), `tests/unit/e-desktop-common.test.ts` (link reader),
-`tests/unit/mobile-bridge.test.ts` (capability, message), web unit tests for the per-client decision and the return
+`tests/unit/mobile-security.test.ts` (capability, message, return address), web unit tests for the per-client decision and the return
 page; `bun run typecheck`, `bun run check:i18n`, `bun run check:docs`, mobile `typecheck` and `test`,
 `bun run check:prepush`.
 
 ## Result
 
-Filled in at the end.
+Built as planned, in this branch (not pushed, no PR yet):
+- Server: `server/src/auth/google-login-apps.ts` (code, redeem, return page/redirect, sweep), A1's
+  `google-login.ts` takes `client`/`appSecretHash` at the start and returns a `Settled` result so app flows skip
+  the cookie binding and get a code; `GET /api/setup` adds `googleAppSignIn`; migration 133.
+- Web: `web/src/lib/googleSignIn.ts`, `GoogleSignIn` per client and `GoogleReturn` (`/login/google`) in
+  `pages/Auth.tsx`, `googleSignInInApp` in `lib/mobile.ts`, seven new strings in six languages.
+- Desktop: bridge flag `googleSignIn`, `googleSignInCode` link reader, `openGoogleReturn` in the team window,
+  resume guard. Phone: `google-signin-v1` in protocol, receiver and App (`openAuthSessionAsync`).
+- Differs from the plan: none in behaviour. Connect from inside the apps stays web-only (as planned). The AI scenario
+  ACC-07's expected answer now mentions the apps.
+- Not done here (needs a person or a store): a real phone (Custom Tabs redirect to the scheme, iOS auth session),
+  App Review 4.8, the desktop build on a real Mac/Windows, QA on qa.trina.app.
