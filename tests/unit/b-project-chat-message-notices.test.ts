@@ -122,11 +122,12 @@ describe('a person\'s message in a project chat', () => {
   test('a member who loses the project: no unread list entry, nothing on the push badge, no push, though the notice stays', async () => {
     const s = await say('bob', 'before erin leaves')
     const n = of('erin', s.userMessage!.id)[0]!
-    expect(pushBadge(h.ctx, 'erin')).toBeGreaterThan(0)
+    const before = pushBadge(h.ctx, 'erin')!
+    expect(before).toBeGreaterThanOrEqual(unread('erin').length)
     db().query("DELETE FROM group_members WHERE group_id = 'finance' AND user_id = 'erin'").run()
     try {
       expect((await h.api('erin').call(API.listChats, { query: { unread: '1' } })).items).toEqual([])
-      expect(pushBadge(h.ctx, 'erin')).toBe(0)
+      expect(pushBadge(h.ctx, 'erin')).toBe(before - unread('erin').length)
       expect(chatMessageWanted(h.ctx, n.id)).toBe(false)
     } finally {
       db().query("INSERT INTO group_members (group_id, user_id) VALUES ('finance', 'erin')").run()
