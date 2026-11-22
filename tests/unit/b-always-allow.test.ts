@@ -11,6 +11,7 @@ import { API, CARD_ALWAYS_KINDS, type TurnRequest } from '@mycel/shared/api'
 import { startHarness, type Harness, type TestSocket } from '../lib/b-harness'
 import { ALWAYS_VALUE, alwaysHere, alwaysOn, dropAlways, keepAlways, listAlways, withAlways, type AlwaysPlace } from '../../server/src/chat/always-allow'
 import { updateTeamSettings } from '../../server/src/admin/settings'
+import { tr } from '../../server/src/chat/i18n'
 import { deleteFilesRefusal } from '../../server/src/chat/delete-files'
 import { postToRoomOff } from '../../server/src/chat/post-to-room'
 import { skillFilesRefusal } from '../../server/src/chat/skill-files'
@@ -96,7 +97,8 @@ describe('the card', () => {
     expect(seen).toHaveLength(1)
     expect(seen[0]!.options).toEqual([{ label: 'Yes', value: 'yes' }, { label: 'Always allow', value: ALWAYS_VALUE }, { label: 'No', value: 'no' }])
     expect(seen[0]!.extra.buttons).toBe(true)
-    expect(seen[0]!.extra.note).toContain("Trina won't ask about this kind of change again")
+    // the note says what it covers for this kind (QA TC-ask2-15), not "this kind of change"
+    expect(seen[0]!.extra.note).toContain('Trina no longer asks before it moves files to the trash')
     const audits = () => h.ctx.db.query("SELECT detail FROM audit_log WHERE action = 'ai.always_allow' AND actor_id = 'alice'").all() as { detail: string }[]
     expect(audits().filter((a) => JSON.parse(a.detail).kind === 'delete_files' && JSON.parse(a.detail).on === true)).toHaveLength(1)
     // the next card of this kind: not raised; another kind's still is; another person's still is
@@ -109,6 +111,21 @@ describe('the card', () => {
     // keeping it again adds no second audit row
     keepAlways(h.ctx.db, 'alice', 'delete_files', null)
     expect(audits().filter((a) => JSON.parse(a.detail).kind === 'delete_files' && JSON.parse(a.detail).on === true)).toHaveLength(1)
+  })
+
+  test('the move and send cards say what Always allow covers for them, in every language (TC-cards-8)', async () => {
+    clear()
+    try {
+      for (const [kind, key] of [['move_files', 'cardAlwaysNoteMoveFiles'], ['post_to_room', 'cardAlwaysNotePostToRoom']] as const) {
+        let note: string | undefined
+        await withAlways(place(), kind, YES_NO, 'yes', async (_o, extra) => { note = extra.note; return 'no' })
+        expect(note).toBe(tr(key, 'en'))
+        expect(note).not.toContain('web pages')
+        for (const L of ['ko', 'en', 'id', 'ja', 'es', 'zh'] as const) expect(tr(key, L)).not.toBe(tr('cardAlwaysNote', L))
+      }
+      expect(tr('cardAlwaysNoteMoveFiles', 'ko')).toContain('파일이나 메시지가 시켜도 마찬가지예요. 설정 › 트리나에게 허용한 것에서 되돌릴 수 있어요.')
+      expect(tr('cardAlwaysNotePostToRoom', 'en')).toContain('even when a file or message tells it to. Undo it in Settings › Allowed for Trina.')
+    } finally { clear() }
   })
 
   test('the card\'s own answers stay as they were: yes, no and no answer pass through; four answers are not buttons', async () => {

@@ -25,7 +25,7 @@ import { splitFrontMatter } from '../lib/markdown'
 import { parentPath } from '../lib/paths'
 import { PAGE_FIT_QUERY } from '../lib/pageFit'
 import { decodePreviewText, languageOf, numberColumns, previewKind, previewLimit, PREVIEW_TEXT_MAX, roomHwpPreview, serverPreview, type PreviewKind, type PreviewLimit } from '../lib/preview'
-import type { PreviewFile } from '../lib/sidePanel'
+import type { PreviewFile, RoomLinkFrom } from '../lib/sidePanel'
 import type { SourceLoc } from '@mycel/shared/api'
 import { useLocale, useT } from '../i18n'
 import { aiName } from '../lib/tabs'
@@ -39,6 +39,7 @@ import { Button, PreviewLoading, useMediaQuery } from './ui'
 import { Tooltip } from './Tooltip'
 import { useViewerItem } from './ImageViewer'
 import { ChatFileAsk } from './ChatFileAsk'
+import { RoomFileAsk } from './RoomFileAsk'
 import { FileMoved } from './FileMoved'
 
 const HwpView = lazy(() => import('./viewers/HwpView'))
@@ -245,6 +246,9 @@ export default function FileBody({ file, loaded, width, download, onRetry, openP
   // a file link of a chat shared with people that does not open for me: maybe its creator can add it to the chat
   if (renderer === 'error' && error?.kind === 'missing' && file.source === 'team' && file.chatId)
     return <ChatFileAsk chatId={file.chatId} path={file.path} fallback={error.text} />
+  // a team-file link in a room message that does not open for me: maybe I may ask to view it (QA S-120)
+  if (renderer === 'error' && error?.kind === 'missing' && file.source === 'team' && file.room)
+    return <RoomFileAsk room={file.room} path={file.path} fallback={error.text} />
   // a team file someone moved or put in the trash: where it went (QA TC-r2b-02)
   if (renderer === 'error' && error?.kind === 'missing' && file.source === 'team')
     return <FileMoved path={file.path} fallback={error.text} />
@@ -278,7 +282,7 @@ function Viewer({ renderer, kind, source, width, name, at, path, download, file,
     // `download`: a PDF that pdf.js cannot read shows a Download button in place of the pages
     return <PdfView source={source} width={width} startPage={at?.kind === 'page' ? at.page : undefined} download={download} thumbnails={thumbnails} />
   if (renderer === 'media')
-    return <MediaView kind={kind === 'audio' ? 'audio' : 'video'} source={source} name={name} download={download} ask={file.source === 'team' && file.chatId ? { chatId: file.chatId, path: file.path } : undefined} />
+    return <MediaView kind={kind === 'audio' ? 'audio' : 'video'} source={source} name={name} download={download} ask={file.source === 'team' && file.chatId ? { chatId: file.chatId, path: file.path } : undefined} roomAsk={file.source === 'team' && !file.chatId && file.room ? { room: file.room, path: file.path } : undefined} />
   if (typeof source === 'string') return null
   const blob = source
   switch (renderer) {
@@ -348,7 +352,7 @@ function DownloadNotice({ text, download, testId, children }: { text: string; do
  * paper a document is drawn on. A video is centred both ways and as large as fits, keeping its shape: its width is the
  * smaller of the stage's and the stage's height times its shape (container units of the stage's inner box), so the
  * player's own controls stay on the picture; a sound's player is centred, as wide as a readable bar. */
-function MediaView({ kind, source, name, download, ask }: { kind: 'audio' | 'video'; source: Blob | string; name: string; download: () => void; ask?: { chatId: string; path: string } }) {
+function MediaView({ kind, source, name, download, ask, roomAsk }: { kind: 'audio' | 'video'; source: Blob | string; name: string; download: () => void; ask?: { chatId: string; path: string }; roomAsk?: { room: RoomLinkFrom; path: string } }) {
   const t = useT()
   // the player failed on an address: asked once whether the address itself refuses me (gone, or not mine to open: a file
   // of a shared chat's creator, QA TC-7261), so the notice never offers a Download that fails the same way
@@ -370,7 +374,7 @@ function MediaView({ kind, source, name, download, ask }: { kind: 'audio' | 'vid
     return () => { live = false }
   }, [failed, source, url])
   if (failed && refused)
-    return ask ? <ChatFileAsk chatId={ask.chatId} path={ask.path} fallback={t('preview.mediaMissing')} /> : <p className="p-6 text-sm text-muted" role="alert" data-testid="preview-media-missing">{t('preview.mediaMissing')}</p>
+    return ask ? <ChatFileAsk chatId={ask.chatId} path={ask.path} fallback={t('preview.mediaMissing')} /> : roomAsk ? <RoomFileAsk room={roomAsk.room} path={roomAsk.path} fallback={t('preview.mediaMissing')} /> : <p className="p-6 text-sm text-muted" role="alert" data-testid="preview-media-missing">{t('preview.mediaMissing')}</p>
   if (failed)
     return (
       <DownloadNotice text={t('preview.cantPlay')} download={download} testId="preview-cant-play" />

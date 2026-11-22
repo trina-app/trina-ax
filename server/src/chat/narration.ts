@@ -405,3 +405,76 @@ export function quoteLanguageNote(message: string): string | null {
   if (!/^\s*>/m.test(message) || !writtenIn(ownWords(message))) return null
   return '<turn_context>\nThe lines that start with ">" quote a message (other people\'s words and the app\'s own labels such as "thread_id … in this room"): answer in the language of the user\'s own words, the lines without ">".\n</turn_context>'
 }
+
+/** The person's own words (quote lines left out) are mostly Latin script: more letters of Latin words than twice the
+ * Hangul, kana and CJK characters (one of those carries about as much as two or three Latin letters). */
+const mostlyLatin = (m: string) => {
+  const own = ownWords(m)
+  const latin = (own.match(/[A-Za-z]{2,}/g) ?? []).join('').length
+  const cjk = (own.match(new RegExp(NON_LATIN.source, 'g')) ?? []).length
+  return latin > 2 * cjk
+}
+
+/** The script whose final answers lose an English lead (finalAnswerLead), or null: the same detection as the interim
+ * rule (narrationScript) on the person's own words (ownWords: a quote above them does not count), and off when those
+ * words are mostly Latin letters. */
+export function leadScript(locale: Locale, message: string, previous?: string | null): AnswerScript | null {
+  if (mostlyLatin(message)) return null
+  // a follow-up to a request for another language ("영어 이메일 써줘", then "좀 더 짧게"): the draft is still in it (review)
+  if (previous && ASKS_FOR_OTHER_LANGUAGE.test(ownWords(previous))) return null
+  return narrationScript(locale, ownWords(message), previous ? ownWords(previous) : previous)
+}
+
+/** The longest paragraph (trimmed) the lead rule takes out of a final answer. */
+export const LEAD_MAX_CHARS = 160
+/** Markers of a paragraph that is content, by its shape: code (a block, indented, inline, or a command's or query's
+ * symbols), a link or address, a quote, a list item, a table row, a heading (Markdown or a line in bold alone), or a
+ * file name alone. */
+const LEAD_CONTENT = /```|~~~|`|[{}<>=*$\\]|\s--?[a-z]|https?:\/\/|www\.|\]\(|^\s*(?:>|[-*+•]\s|\d+[.)]\s|\||#{1,6}\s)|^ {4}|^\t/m
+/** A note is a sentence: it ends in a sentence mark. A title, a product name, "Total: USD 1,234" or "*Note*" does not. */
+const SENTENCE_END = /[.!?:…]["')\]]?$/
+const BOLD_ALONE = /^\s*(?:\*\*|__)[^\n]+(?:\*\*|__)\s*$/
+const FILE_ALONE = /^\s*`?[^\s`]+\.[A-Za-z0-9]{1,5}`?\s*$/
+
+/**
+ * A final answer that opens with the AI's own working notes in Latin letters, above an answer in the person's script
+ * (2026-11-22, owner: "Need a venv.", "Good result. Saving it." at the top of Korean answers, after the last call).
+ * Structural, no phrase list: the answer's leading paragraphs (split on blank lines) that hold no Hangul, kana or CJK
+ * at all, are short (under LEAD_MAX_CHARS), have a Latin word, end in a sentence mark (not "Hi Tom," nor a title) and
+ * are no code, link, quote, list item, table row, heading or file name alone. They are returned as `notes`, the rest as
+ * `rest`; null when nothing leads, when the rest would be empty, or when the rest has none of the script (an English
+ * answer stays whole). said: the person's message (a paragraph taken from it is content).
+ */
+export function finalAnswerLead(answer: string, script: AnswerScript | null, said = ''): { notes: string; rest: string } | null {
+  if (!script) return null
+  const saidNorm = norm(said)
+  // (only blank lines part paragraphs: a paragraph keeps its indent, so indented code is seen as code)
+  const re = /\n[ \t]*\n(?:[ \t]*\n)*/g
+  let start = /^(?:[ \t]*\n)*/.exec(answer)![0].length
+  let cut = -1
+  const notes: string[] = []
+  while (start < answer.length) {
+    re.lastIndex = start
+    const m = re.exec(answer)
+    const end = m ? m.index : answer.length
+    const para = answer.slice(start, end)
+    const t = para.trim()
+    if (!t || !isLeadNote(para, t, saidNorm)) break
+    notes.push(t)
+    cut = m ? re.lastIndex : answer.length
+    if (!m) break
+    start = re.lastIndex
+  }
+  if (cut < 0) return null
+  const rest = answer.slice(cut)
+  if (!rest.trim() || !SCRIPT_LETTER[script].test(rest)) return null
+  return { notes: notes.join('\n\n'), rest }
+}
+
+function isLeadNote(para: string, t: string, said: string): boolean {
+  if (NON_LATIN.test(t) || t.length >= LEAD_MAX_CHARS) return false
+  if (!/[A-Za-z]{2,}/.test(t) || !SENTENCE_END.test(t)) return false
+  if (LEAD_CONTENT.test(para) || BOLD_ALONE.test(t) || FILE_ALONE.test(t)) return false
+  const n = norm(t)
+  return !(n.length >= 8 && said.includes(n))
+}

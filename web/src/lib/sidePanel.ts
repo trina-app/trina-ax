@@ -1,6 +1,6 @@
 // The one panel on the right of the chat: a file preview, an artifact, or the desktop app's Browser pane.
 // On phones (< 768 px) it becomes a full-screen sheet.
-import { useSyncExternalStore } from 'react'
+import { createContext, useSyncExternalStore } from 'react'
 import type { SourceLoc } from '@mycel/shared/api'
 
 /** A file to preview: a team file (by path; `at`: the page, sheet or slide to open it at, from an answer's sources or
@@ -10,7 +10,9 @@ import type { SourceLoc } from '@mycel/shared/api'
 export type PreviewFile =
   /** `chatId`: opened from a file link of a chat shared with people (components/Markdown.tsx ChatLinks): a file that does
    * not open for me offers to ask the chat's creator to add it (components/ChatFileAsk.tsx) */
-  | { source: 'team'; path: string; name: string; at?: SourceLoc; chatId?: string }
+  /** `room`: opened from a link in that room message: a file that does not open for me offers to ask to view it
+   * (components/RoomFileAsk.tsx, QA S-120) */
+  | { source: 'team'; path: string; name: string; at?: SourceLoc; chatId?: string; room?: RoomLinkFrom }
   | { source: 'room'; roomId: string; fileId: string; name: string }
   /** `version`: an earlier version of the chat's file (its number), opened from the panel's versions list; absent: the
    * newest (components/FilePanel.tsx) */
@@ -121,7 +123,11 @@ export function escapeAction(s: { dialog: boolean; expanded: boolean }): 'none' 
 
 let seq = 0
 export const openFilePreview = (file: PreviewFile) => setSidePanel({ kind: 'file', file, key: ++seq })
-export const openTeamFile = (path: string, at?: SourceLoc | null, chatId?: string | null) => openFilePreview({ source: 'team', path, name: path.slice(path.lastIndexOf('/') + 1), ...(at ? { at } : {}), ...(chatId ? { chatId } : {}) })
+export const openTeamFile = (path: string, at?: SourceLoc | null, chatId?: string | null, room?: RoomLinkFrom | null) => openFilePreview({ source: 'team', path, name: path.slice(path.lastIndexOf('/') + 1), ...(at ? { at } : {}), ...(chatId ? { chatId } : {}), ...(room ? { room } : {}) })
+/** The room message a team-file link is in (components/rooms/RoomMessages.tsx sets it around a message's words): the
+ * panel's "Ask to view" for a file that does not open (components/RoomFileAsk.tsx) */
+export type RoomLinkFrom = { roomId: string; messageId: string }
+export const RoomLinkMessage = createContext<RoomLinkFrom | null>(null)
 /** A file sent in a room, as the preview panel opens it. */
 export const roomPreview = (roomId: string, f: { id: string; name: string }): PreviewFile => ({ source: 'room', roomId, fileId: f.id, name: f.name })
 export const openArtifact = (chatId: string, artifactKey: string, versionId?: string) => setSidePanel({ kind: 'artifact', chatId, artifactKey, versionId })

@@ -471,8 +471,10 @@ export const ChatAudience = z.object({
   madeFilesKey: z.string().optional(),
   /** a chat shared with people: who changed its people, oldest first, at most the newest 50 (chat_audience_events,
    * docs/decisions/20261122-shared-chat-leave-and-lost-notices.md): "{actor} added {names}", "{actor} removed {names}",
-   * "{actor} left". Names read now; people whose account is off only for its creator and admins. Absent: none. */
-  events: z.array(z.object({ at: IsoTime, kind: z.enum(['added', 'removed', 'left']), actor: z.string(), names: z.array(z.string()) })).optional(),
+   * "{actor} left", and "{actor} restored {file} to version {n}" (`names`: the file, `version`; chat_file_events, only of
+   * a file I may open: docs/decisions/20261122-qa-ux-followups-1122.md). Names read now; people whose account is off only for
+   * its creator and admins. A chat that went back to being only its creator's keeps its lines for them. Absent: none. */
+  events: z.array(z.object({ at: IsoTime, kind: z.enum(['added', 'removed', 'left', 'restored']), actor: z.string(), names: z.array(z.string()), version: z.number().int().positive().optional() })).optional(),
   /** a chat shared with people or a project's shared chat: who the message box may mention ("@"): everyone who sees it
    * now but me (its creator, its people and its groups' people; a project's: its people, as a thread's reply box lists
    * them), sorted by name */

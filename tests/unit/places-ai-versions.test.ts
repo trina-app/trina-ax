@@ -29,6 +29,7 @@ import { EDIT_OFFICE_DESCRIPTION } from '../../server/src/tools/edit-office'
 import { PDFDocument } from 'pdf-lib'
 import { makePagedPdf } from '../lib/pdf'
 
+import { expectNoRawPlace } from '../lib/card-places'
 setDefaultTimeout(90_000)
 const fake = (...ds: unknown[]) => ds.map((d) => '@fake ' + JSON.stringify(d)).join('\n')
 const cm = () => 'cm-' + crypto.randomUUID()
@@ -70,6 +71,7 @@ async function run(user: string, chatId: string, content: string, attachmentIds:
     if (f && f.type === 'turn.request') {
       const c = f.data.request as unknown as Card
       cards.push(c)
+      expectNoRawPlace(c)
       await h.api(user).call(API.answerTurn, { params: { id: r.turnId }, body: { kind: 'ask_user', requestId: c.requestId, answer: 'skip' } })
       continue
     }

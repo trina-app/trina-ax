@@ -19,10 +19,12 @@ import { listTime } from '../../lib/format'
 import { ACTIVITY_OPENED_KEY } from '../../lib/localData'
 import { RAIL_STATE_KEY, useRailHere } from '../../lib/rail'
 import { CHATS_ACTIVITY } from '../../lib/screens'
-import { aiName } from '../../lib/tabs'
+import { aiName, TAB_ROOT } from '../../lib/tabs'
 import { accessChanged, notificationsChanged, reloadAsked } from '../../store/live'
 import { keepPendingReads, markAllNoticesRead, markNoticeRead } from '../../store/inbox'
 import { peekCached, rememberCached } from '../../store/listCache'
+import { useRooms } from '../../store/rooms'
+import { unreadRooms } from '../rail/railBadges'
 import { isAdmin, useMe } from '../../store/session'
 import { SetupRow } from '../onboarding/SetupRow'
 import { noticeLink, noticeText } from '../settings/Notifications'
@@ -119,6 +121,7 @@ export const FEED_KEY = 'feed:panel'
 export function ActivityPanel() {
   const t = useT(), locale = useLocale()
   const admin = isAdmin(useMe())
+  const newInChats = useRooms((s) => unreadRooms(s.rooms) > 0)
   const [chip, setChip] = useState<ActivityChip>('all')
   // the list as this window last showed it (store/listCache.ts): 활동 again shows it at once and reads it behind it
   const [kept] = useState(() => peekCached<KeptFeed>(FEED_KEY))
@@ -279,6 +282,8 @@ export function ActivityPanel() {
       {error && <p role="alert" className="px-3 py-2 text-meta text-danger">{error}</p>}
       {!items && !error && <div className="mx-auto mt-4 size-4 animate-spin rounded-full border-2 border-line border-t-faint" role="status" aria-label={t('common.loading')} />}
       {items && !shown.length && !cursor && <p className="px-3 py-2 text-sm text-faint" data-testid="activity-panel-empty">{shownChip === 'all' ? t('notifications.empty') : t('feed.emptyFiltered')}</p>}
+      {/* 대화 has unread conversations (the rail's count): "nothing here" points there */}
+      {items && !shown.length && !cursor && newInChats && <Link to={TAB_ROOT.chats} className="block px-3 pb-2 text-sm font-medium text-accent-text hover:underline" data-testid="activity-new-in-chats">{t('feed.newInChats')}</Link>}
       {fresh.length > 0 && <ul aria-label={t('notifications.unread', { count: fresh.length })} data-testid="activity-panel-unread">{fresh.map(row)}</ul>}
       {old.length > 0 && (
         <PanelSection id="activity-panel-read" foldKey="activity:read" label={t('activity.read')} count={old.length} labelTestId="activity-panel-label" data-testid="activity-panel-read">
@@ -317,7 +322,7 @@ function NoticeRow({ item, open, onOpen }: { item: InboxNotification; open: bool
       name={noticeText(item, t, locale)}
       nameTestId="activity-panel-text"
       // a chat shared with me: its title under the words, while I still see it
-      meta={<>{item.code === 'chat.shared' && item.chatShared?.title ? <><bdi data-testid="activity-panel-chat">{item.chatShared.title}</bdi> · </> : item.code === 'chat.lost' && item.chatLost?.title ? <><bdi data-testid="activity-panel-chat">{item.chatLost.title}</bdi> · </> : null}<time dateTime={item.createdAt}>{listTime(item.createdAt, locale, t('sidebar.yesterday'))}</time></>}
+      meta={<>{item.code === 'chat.shared' && item.chatShared?.title ? <><bdi data-testid="activity-panel-chat">{item.chatShared.title}</bdi> · </> : item.code === 'chat.lost' && item.chatLost?.title ? <><bdi data-testid="activity-panel-chat">{item.chatLost.title}</bdi> · </> : item.code === 'chat.left' && item.chatLeft?.title ? <><bdi data-testid="activity-panel-chat">{item.chatLeft.title}</bdi> · </> : null}<time dateTime={item.createdAt}>{listTime(item.createdAt, locale, t('sidebar.yesterday'))}</time></>}
       end={
         unread && (
           <span className="mt-1.5 size-2 shrink-0 rounded-full bg-accent max-md:mt-0" data-testid="activity-panel-dot">

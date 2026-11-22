@@ -32,7 +32,9 @@ export interface BulkState { files: number; bytes: number; kept: boolean }
 export const newBulkState = (): BulkState => ({ files: 0, bytes: 0, kept: false })
 
 /** The card's facts: the new files of this command, their size, the folders (project-relative) that hold most of them. */
-export interface BulkAsk { files: number; bytes: number; folders: { path: string; files: number }[]; project: string; projectId?: string }
+/** `shownWho`: who the card said can see the folder, set by whoever showed it (chat/tools.ts keepBulk), so the AI's note
+ * gives that same count back (QA S-122: the card said 17 people, the answer 19) */
+export interface BulkAsk { files: number; bytes: number; folders: { path: string; files: number }[]; project: string; projectId?: string; shownWho?: BulkWho }
 
 export const mb = (n: number) => (n / 1024 ** 2 >= 10 ? Math.round(n / 1024 ** 2).toString() : (n / 1024 ** 2).toFixed(1))
 
@@ -179,6 +181,12 @@ export function sizeWords(bytes: number): string | null {
 
 /** Who sees the project folder: only the person, the whole team, a count of people, or not known (left unsaid). */
 export type BulkWho = { kind: 'only' } | { kind: 'team' } | { kind: 'some'; n: number } | null
+/** The card's own words for who sees the folder, for the AI ('' when the card said nothing about it). */
+export function bulkWhoForAi(who: BulkWho | undefined): string {
+  if (!who) return ''
+  const said = who.kind === 'only' ? 'only the person can see the project folder' : who.kind === 'team' ? 'the whole team can see the project folder' : `${who.n} people can see the project folder (the person included)`
+  return `The card the person answered said ${said}; when you say who can see it, say that, never a count of your own.`
+}
 
 /** The card's question and its details, in the person's language. `name`: the project's name (the folder path when
  * there is none); `who`: who sees its folder. */

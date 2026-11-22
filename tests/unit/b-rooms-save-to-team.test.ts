@@ -363,3 +363,26 @@ describe('QA 11-17', () => {
     expect((await planOf('erin', rooms.marketing, both)).suggestion).toBeNull()
   })
 })
+
+// QA TC-ask2-6 (S-027): a private room's file saved to Company-wide gave no question. With askWiden the save asks once,
+// as a move or a restore does: 409 audience_widened with the plan's `outside` count, then saved with confirm. A client
+// that sends neither saves as before.
+describe('askWiden: the save asks when people outside the conversation can see the folder', () => {
+  test('409 with the count, saved with confirm; inside the room\'s own people, or without askWiden, no question', async () => {
+    const { fileId } = await sendFile('alice', rooms.marketing, 'tc-ask2-6.md', 'private notes')
+    const r = await h.req('alice', `/api/rooms/${rooms.marketing}/save-to-team`, json({ fileIds: [fileId], folder: 'shared', askWiden: true }))
+    expect(r.status).toBe(409)
+    const e = ((await r.json()) as { error: { code: string; params: { reason: string; viewersAdded: number } } }).error
+    expect(e).toMatchObject({ code: 'conflict', params: { reason: 'audience_widened', viewersAdded: 3 } })
+    expect(fs.existsSync(team('shared/tc-ask2-6.md'))).toBe(false)
+    const ok = await h.req('alice', `/api/rooms/${rooms.marketing}/save-to-team`, json({ fileIds: [fileId], folder: 'shared', askWiden: true, confirm: true }))
+    expect(ok.status).toBe(200)
+    expect(fs.existsSync(team('shared/tc-ask2-6.md'))).toBe(true)
+    // the everyone room: nobody is outside it, so no question
+    const all = await sendFile('alice', rooms.all, 'tc-ask2-6-all.md', 'for all')
+    expect((await h.req('alice', `/api/rooms/${rooms.all}/save-to-team`, json({ fileIds: [all.fileId], folder: 'shared', askWiden: true }))).status).toBe(200)
+    // an older client (no askWiden): saves as before
+    const old = await sendFile('alice', rooms.marketing, 'tc-ask2-6-old.md', 'old client')
+    expect((await save('alice', rooms.marketing, [old.fileId], 'shared')).status).toBe(200)
+  })
+})

@@ -391,7 +391,7 @@ async function copyPlaces(exec: TurnExec, team: Tool, files: TurnFiles, paths: s
   // (as the team copy does: TurnPerson.roomsSeen)
   const chatOnes = uniq.filter((p) => !dest ? isReservedPlace(p) : true)
   if (!dest && chatOnes.length) {
-    const asked = await roomCard(exec, personOf(files, { tool, args }), chatOnes, clean(toFolder))
+    const asked = await roomCard(exec, files, personOf(files, { tool, args }), chatOnes, clean(toFolder))
     if (asked) return { ...text([...extra, asked].filter(Boolean).join('\n\n'), true), summary: `${tool} -> refused (after a room read)` }
   }
   for (const p of chatOnes) {
@@ -416,14 +416,43 @@ async function copyPlaces(exec: TurnExec, team: Tool, files: TurnFiles, paths: s
 
 /** After a room read in the person's own chat: the copy card before chat files or work files go to a team folder.
  * Null to go on, or the refusal. */
-async function roomCard(exec: TurnExec, person: ToolCtx['person'], from: string[], folder: string): Promise<string | null> {
+async function roomCard(exec: TurnExec, files: TurnFiles, person: ToolCtx['person'], from: string[], folder: string): Promise<string | null> {
+  const main = files === exec.files
   if (!exec.ownCard(COPY_FILES_TOOL) || !person?.roomsSeen) return null
+  // this chat's own files (what its commands made, what was sent or made here) as NEW files in the person's own folder:
+  // no card, as write's exception for a new file there (QA TC-f2-c02; chat/turn.ts ownFolderCopy)
+  const landing = landingPaths(exec, files, from, folder)
+  if (landing && exec.ownFolderCopy(landing, main)) return null
   const L: Locale = person.locale ?? exec.spec.locale
   const fill = (s: string, v: Record<string, string | number>) => fillPlurals(s, v, L).replace(/\{(\w+)\}/g, (_, k) => String(v[k]))
   const question = [fill(MOVE_TEXT.copy[L], { n: from.length, to: placeWords(exec.rt.db, folder, L, exec.spec.userId) }), fill(MOVE_TEXT.askCopy[L], { count: from.length })].join(' ') + '\n\n' + from.slice(0, 10).map((p) => p.split('/').pop()).join('\n')
   const end = await askConfirm(person, question, MOVE_TEXT.yesCopy[L], MOVE_TEXT.no[L], { always: 'move_files' })
   if (end === 'yes') return null
   return refusal({ done: end === 'declined' ? 'The user did not allow this, so nothing was copied.' : 'Nothing was copied.', why: cardReason(end), next: end === 'declined' ? 'ask the user what they want' : cardNext(end), names: [folder || '/'] })
+}
+
+/** Where each of these chat place sources lands in team folder `folder`, by the names copyOne gives them (a chat file
+ * by its name, a work file by its last part), or null when any is not a file of this chat or its work folder that can
+ * be found now (a folder of the work folder, a hidden or refused one: the card asks). */
+function landingPaths(exec: TurnExec, files: TurnFiles, from: readonly string[], folder: string): string[] | null {
+  const out: string[] = []
+  for (const p of from) {
+    const src = parsePlace(p)
+    let name: string
+    if (src?.kind === 'chatFiles') {
+      const f = chatFileFor(exec, src)
+      if (typeof f === 'string') return null
+      name = f.name.normalize('NFC').replace(/[/\\\u0000-\u001f]+/g, '_').trim() || 'file'
+    } else if (src?.kind === 'work') {
+      if (!src.rel) return null
+      const wf = files.workFolder?.() ?? null
+      if (!wf) return null
+      try { if (!fs.lstatSync(path.join(wf.real, src.rel)).isFile()) return null } catch { return null }
+      name = src.rel.split('/').pop()!
+    } else return null
+    out.push(folder ? `${folder}/${name}` : name)
+  }
+  return out
 }
 
 /** One source of a places copy: to the work folder, to this chat's files, or to a team folder. */

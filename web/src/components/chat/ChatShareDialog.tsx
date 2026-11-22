@@ -20,7 +20,9 @@
 // with "Check this, then press Share again", as it does when something changed since the preview. Taking everyone out
 // says the chat and its files become mine alone again, and then nothing else: no fixed note, no Copy link (QA TC-6951).
 // One short line under the people list says what sharing means (added people see the whole chat and ask its AI); the ✕
-// on each row already says they can be taken out.
+// on each row already says they can be taken out. "Stop sharing" (QA TC-ask1-15): a shared chat's creator, nothing
+// unsaved, takes everyone out in one press; the dialog closes and the toast's Undo puts the same people back through the
+// usual check (stopSharing below; the dialog opens with them picked when the server asks to confirm).
 //
 // "Share the files too" (docs/decisions/20261121-share-chat-files.md; lean look docs/AGENTS/plan/
 // 20261122-0300-share-dialog-lean.md): when the chat made files in my own folder that the people in it can't open (the
@@ -77,7 +79,7 @@ export const SHARE_PREVIEW_DEBOUNCE_MS = 400
 export const audienceKey = (subjects: readonly ProjectParticipant[]) => subjects.map(participantKey).sort().join(',')
 const subjectsOf = (a: ChatAudience): ProjectParticipant[] => a.subjects.map(({ subjectType, subjectId }) => ({ subjectType, subjectId }))
 
-export function ChatShareDialog({ chat, onClose, initial, personal = false, returnTo }: {
+export function ChatShareDialog({ chat, onClose, initial, personal = false, returnTo, pick }: {
   chat: Pick<Chat, 'id' | 'title'> & Partial<Pick<Chat, 'projectId' | 'shared'>>
   onClose: () => void
   /** where focus goes when it closes (the control that opened it: a menu's trigger once the menu item is gone; QA
@@ -87,6 +89,8 @@ export function ChatShareDialog({ chat, onClose, initial, personal = false, retu
   initial?: WideningDraft
   /** a chat of mine in a personal project: the dialog explains and offers Move */
   personal?: boolean
+  /** people to pick at once (Undo of Stop sharing that needs the check: the usual check shows for them) */
+  pick?: readonly ProjectParticipant[]
 }) {
   const t = useT()
   const locale = useLocale()
@@ -110,6 +114,7 @@ export function ChatShareDialog({ chat, onClose, initial, personal = false, retu
   const [listing, setListing] = useState(false)
   const listScroll = useRef(initial?.scroll ?? 0)
   const restore = useRef(initial)
+  const picked = useRef(pick)
   // the sheet made again after a phone's Back was answered "Keep editing": its Back entry is back (lib/backCloses.ts)
   const [sheet, setSheet] = useState(0)
   const [moving, setMoving] = useState(false)
@@ -129,7 +134,10 @@ export function ChatShareDialog({ chat, onClose, initial, personal = false, retu
     // back from an answer on a phone: the picks and the list, unless who sees it changed meanwhile or it is too old
     const d = restore.current
     restore.current = undefined
+    const p = picked.current
+    picked.current = undefined
     if (d && freshDraft(d) && d.chatId === chat.id && d.rulesHash === audienceKey(saved)) { setPicks(d.participants); setListing(true) }
+    else if (p?.length && a.canEdit) { setPicks(mergePicks(saved, p)); listScroll.current = 0 }
     else { setPicks(saved); listScroll.current = 0 }
     if (d) useWideningDraft.getState().drop()
   }
@@ -262,6 +270,35 @@ export function ChatShareDialog({ chat, onClose, initial, personal = false, retu
     }
   }
 
+  // Stop sharing: everyone out in one press (the PUT a save of no one makes), then the toast's Undo
+  const stop = async () => {
+    if (busy || dirty || !saved.length) return
+    setBusy(true)
+    setError(null)
+    const before = saved
+    try {
+      const r = await api.call(API.putChatAudience, { params: { id: chat.id }, body: { subjects: [] } })
+      if (r.status === 'confirm') {
+        // not saved: the dialog stays open with "only me" picked as an unsaved change, and its Save goes the usual
+        // way (save(): the server's check in place, then Save again), never a silent nothing
+        setPicks([])
+        return
+      }
+      const was = useChats.getState().chats.find((c) => c.id === r.chat.id)
+      useChats.getState().upsertChat(keepFaces(was, r.chat))
+      setAudience(r.audience)
+      onClose()
+      toast({ level: 'success', text: t('chat.share.stopped'), ms: 10_000, action: { label: t('common.undo'), run: () => void undoStop({ id: chat.id, title: chat.title, projectId: r.chat.projectId }, before, r.chat.updatedAt, t, locale) } })
+    } catch (e) {
+      // (nothing changed: the people stay; Trina updating or offline says try again)
+      setError(e instanceof ApiError && !isConnectionError(e) && e.status < 500 ? errorText(e, locale, t('error.network')) : t('error.network'))
+    } finally {
+      setBusy(false)
+    }
+  }
+  // Stop sharing only for its creator, on a shared chat, with nothing unsaved (a change is saved with Save)
+  const canStop = editable && saved.length > 0 && !dirty
+
   const saveRef = useRef(save)
   saveRef.current = save
   useEffect(() => {
@@ -350,6 +387,8 @@ export function ChatShareDialog({ chat, onClose, initial, personal = false, retu
           {updating && !error && <CalmNotice className="mr-auto w-full" testId="chat-share-updating" state="updating" icon={<Loader2 size={16} className="animate-spin" />} title={t('chat.share.updating')} />}
           {/* no link for a chat that becomes mine alone (QA TC-6951) */}
           {!removesAll && copyButton}
+          {/* one press: only me again, Undo on the toast. A phone: a row of its own under the buttons */}
+          {canStop && <Button variant="ghost" disabled={busy} onClick={() => void stop()} className="text-danger max-sm:order-last max-sm:w-full" data-testid="chat-share-stop">{t('chat.share.stop')}</Button>}
           {/* a visible way out besides ✕ (asks first with unsaved changes, as ✕ does); a phone: Cancel as wide as its
               word, the main button the rest. The files checkbox decides whether the files go with the save */}
           <Button variant="ghost" disabled={busy} onClick={() => void close()} className="max-sm:shrink-0" data-testid="chat-share-cancel">{t('common.cancel')}</Button>
@@ -396,7 +435,7 @@ export function ChatShareDialog({ chat, onClose, initial, personal = false, retu
               )}
               {check && stake && <ShareWarning check={check} names={warnNames} onShow={() => setListing(true)} grey={false} compact testId="chat-share-warning" />}
               {filesLine && <GreyLine text={filesLine} testId="chat-share-files" />}
-              {filesStep && <FilesStep files={stepFiles} already={!adding.length} who={adding.length ? addedNames : null} changed={!!filesChanged} checked={withFiles} onChange={setWithFiles} />}
+              {filesStep && <FilesStep files={stepFiles} already={!adding.length} who={adding.length && !stake ? addedNames : null} changed={!!filesChanged} checked={withFiles} onChange={setWithFiles} />}
               {grey && <GreyLine text={grey} testId="chat-share-grey" />}
               {keepsThrough.map((k) => (
                 <p key={k.id} className="flex items-start gap-2 text-sm leading-6 break-keep text-muted" data-testid="chat-share-keeps-through">
@@ -415,7 +454,8 @@ export function ChatShareDialog({ chat, onClose, initial, personal = false, retu
 
 /** "Share the files too (n)": one checkbox for the files the chat made in my own folder (they go together), each file
  * with its place under it, and one small hint (the copies going with the chat in its tooltip). `already`: a chat
- * already shared (no one being added). `who`: the people being added, for a file made from files they can't open. */
+ * already shared (no one being added). `who`: the people being added, for a file made from files they can't open (null
+ * while the warning box is shown: it said so once already). */
 function FilesStep({ files, already, who, changed, checked, onChange }: { files: readonly ChatMadeFile[]; already: boolean; who: string | null; changed: boolean; checked: boolean; onChange: (v: boolean) => void }) {
   const t = useT()
   return (
@@ -446,6 +486,36 @@ function FilesStep({ files, already, who, changed, checked, onChange }: { files:
   )
 }
 
+/** The saved people with the picks added (no one twice). */
+const mergePicks = (saved: readonly ProjectParticipant[], add: readonly ProjectParticipant[]): ProjectParticipant[] => {
+  const keys = new Set(saved.map(participantKey))
+  return [...saved, ...add.filter((x) => !keys.has(participantKey(x)))]
+}
+
+/** Undo of Stop sharing: the same people back with the usual check's key (POST preview, then the save with its key).
+ * Never shared again silently: when the server asks to confirm, or the chat has answers since it stopped and the check
+ * finds something at stake, the Share dialog opens with them picked and the check in place. */
+export async function undoStop(chat: Pick<Chat, 'id' | 'title'> & Partial<Pick<Chat, 'projectId'>>, subjects: readonly ProjectParticipant[], stoppedAt: string, t: ReturnType<typeof useT>, locale: ReturnType<typeof useLocale>) {
+  const reopen = () => openChatShare(chat, { pick: subjects })
+  try {
+    const p = await api.call(API.previewChatAudience, { params: { id: chat.id }, body: { subjects: [...subjects] } })
+    const now = useChats.getState().chats.find((c) => c.id === chat.id)
+    // something at stake and the chat not known to be as it was when it stopped (changed since, or not in this
+    // window's list): the dialog with the check, never a silent share
+    if (shareAtStake(p.check) && (!now || now.updatedAt !== stoppedAt)) return reopen()
+    const r = await api.call(API.putChatAudience, { params: { id: chat.id }, body: { subjects: [...subjects], confirmKey: p.previewKey } })
+    if (r.status === 'confirm') return reopen()
+    const was = useChats.getState().chats.find((c) => c.id === r.chat.id)
+    useChats.getState().upsertChat(keepFaces(was, r.chat))
+    const others = r.audience.count !== undefined ? r.audience.count - 1 : null
+    toast({ level: 'success', text: others ? t('chat.share.done', { n: others }) : t('chat.share.saved') })
+  } catch (e) {
+    // a refusal in the server's words, then the dialog with them picked to try again; offline: try again
+    toast({ level: 'error', text: e instanceof ApiError && !isConnectionError(e) && e.status < 500 ? errorText(e, locale, t('error.network')) : t('error.network') })
+    if (e instanceof ApiError && !isConnectionError(e) && e.status < 500) reopen()
+  }
+}
+
 /** Share again on a chat that just moved (out of a personal project): the Share dialog outside projects, the project
  * members' share in a team project, nothing in another personal one. */
 function shareAgain(c: Chat) {
@@ -463,14 +533,14 @@ export function startShare(chat: Target['chat'], kind: ShareKind) {
 
 /** What the Share items open, from anywhere (the title menu, every row's "⋯", the line under the box, the move dialog
  * after a move): one dialog for the app (ChatShareHost, App.tsx). */
-type Target = { chat: Pick<Chat, 'id' | 'title'> & Partial<Pick<Chat, 'projectId' | 'shared'>>; personal: boolean; seq: number; returnTo: HTMLElement | null }
+type Target = { chat: Pick<Chat, 'id' | 'title'> & Partial<Pick<Chat, 'projectId' | 'shared'>>; personal: boolean; seq: number; returnTo: HTMLElement | null; pick?: readonly ProjectParticipant[] }
 const useChatShareHost = create<{ open: Target | null; seq: number }>(() => ({ open: null, seq: 0 }))
-export const openChatShare = (chat: Target['chat'], o: { personal?: boolean } = {}) => {
+export const openChatShare = (chat: Target['chat'], o: { personal?: boolean; pick?: readonly ProjectParticipant[] } = {}) => {
   // the control that opened it, found now: a menu item goes with its menu, so focus returns to the menu's trigger
   // (QA TC-2271); else whatever had focus (the line under the box)
   const active = typeof document === 'undefined' ? null : document.activeElement
   const returnTo = menuOpener() ?? (active instanceof HTMLElement && active !== document.body ? active : null)
-  useChatShareHost.setState((s) => ({ open: { chat, personal: !!o.personal, seq: s.seq + 1, returnTo }, seq: s.seq + 1 }))
+  useChatShareHost.setState((s) => ({ open: { chat, personal: !!o.personal, seq: s.seq + 1, returnTo, ...(o.pick?.length ? { pick: o.pick } : {}) }, seq: s.seq + 1 }))
 }
 
 export function ChatShareHost() {
@@ -485,7 +555,7 @@ export function ChatShareHost() {
     else if (at.current.key !== here.key) useChatShareHost.setState({ open: null })
   }, [open, here.key])
   if (!open) return null
-  return <ChatShareDialog key={open.seq} chat={open.chat} personal={open.personal} returnTo={open.returnTo} onClose={() => useChatShareHost.setState({ open: null })} />
+  return <ChatShareDialog key={open.seq} chat={open.chat} personal={open.personal} returnTo={open.returnTo} pick={open.pick} onClose={() => useChatShareHost.setState({ open: null })} />
 }
 
 /** The names a chat shared with people and groups is shared with ("Sam, Sales"), for someone not told how many see it

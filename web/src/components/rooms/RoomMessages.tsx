@@ -44,7 +44,7 @@ import { ALL_MENTION_ID, allMentionNames, eventProjectOf, eventText, groupRuns, 
 import { aiName } from '../../lib/tabs'
 import { Markdown, PersonMarkdown } from '../LazyMarkdown'
 import { AppCardText } from './AppCard'
-import { roomPreview, type PreviewFile } from '../../lib/sidePanel'
+import { roomPreview, RoomLinkMessage, type PreviewFile } from '../../lib/sidePanel'
 import { previewKind, roomFileOpens } from '../../lib/preview'
 import { useLocale, useT } from '../../i18n'
 import { useNameOf, usePeople } from '../../store/people'
@@ -232,7 +232,7 @@ export function RoomMessages({ roomId, messages, pending, meId, members, onThrea
             <RunShell
               face={first.app ? <AppTile service={serviceOf(first.app)} app={first.app} size="face" className="mt-0.5" /> : <RunFace user={first.author} ai={first.authorKind === 'ai'} />}
               // an app's message: its name (who set it up, a tap away) and the "App" tag, never a person
-              name={first.app ? <AppSender roomId={roomId} app={first.app} /> : <RunName user={first.author} ai={first.authorKind === 'ai'} />}
+              name={first.app ? <AppSender roomId={roomId} app={first.app} /> : <RunName user={first.author} ai={first.authorKind === 'ai'} left={first.authorLeft} />}
               at={first.createdAt}
               repeat={repeats[i]}
             >
@@ -402,6 +402,7 @@ function MessageRow({ roomId, m, mine, names, members, meId, editing, inBox = fa
   const t = useT()
   const locale = useLocale()
   const deleted = !!m.deletedAt
+  const linkFrom = useMemo(() => ({ roomId, messageId: m.id }), [roomId, m.id])
   const ai = m.authorKind === 'ai'
   const me = useMe()
   const app = m.app ?? null
@@ -516,6 +517,8 @@ function MessageRow({ roomId, m, mine, names, members, meId, editing, inBox = fa
       {ai ? <AskedBy m={m} onJump={onJump} /> : m.replyTo && <Quote q={m.replyTo} onJump={onJump} />}
       {/* the pictures in it say who sent them and when in the image viewer's bar, and its column shows their thread (a
           reply's thread, or the message's own; one that cannot have a thread, alone) */}
+      {/* its team-file links: a file that does not open offers to ask to view it (components/RoomFileAsk.tsx) */}
+      <RoomLinkMessage.Provider value={linkFrom}>
       <ViewerMeta sender={ai ? { kind: 'ai' } : { kind: 'user', user: m.author }} at={m.createdAt} messageId={m.id} rootId={m.threadRootId ?? m.id} threadable={!!m.threadRootId || (m.visibility === 'room' && !m.event)}>
       {ai && !deleted ? (
         <Markdown text={m.body} className={clsx('min-w-0', WORDS, ANSWER_QUOTES)} openable={openable} />
@@ -542,6 +545,7 @@ function MessageRow({ roomId, m, mine, names, members, meId, editing, inBox = fa
         </>
       )}
       </ViewerMeta>
+      </RoomLinkMessage.Provider>
       {!deleted && <ReactionChips roomId={roomId} m={m} />}
       {variant === 'timeline' && onThread && !m.threadRootId && <ThreadLine summary={m.thread} onOpen={() => onThread(m.id)} testId="room-thread-line" />}
       {/* computers: the hover bar (reactions, reply in thread, ⋮); touch screens and phones: a long press opens the same

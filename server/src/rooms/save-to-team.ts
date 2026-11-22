@@ -225,7 +225,7 @@ export async function savePlan(ctx: AppContext, userId: string, roomId: string, 
 }
 
 /** POST /api/rooms/:id/save-to-team: copy the files into `folder`, each next to what is there, never over it. */
-export async function saveToTeam(ctx: AppContext, userId: string, roomId: string, fileIds: readonly string[], folder: string): Promise<RoomSaveResult> {
+export async function saveToTeam(ctx: AppContext, userId: string, roomId: string, fileIds: readonly string[], folder: string, o: { askWiden?: boolean; confirm?: boolean } = {}): Promise<RoomSaveResult> {
   noGuests(ctx, userId)
   const files = componentC(ctx).files
   const rooms = roomFilesOf(ctx)
@@ -239,6 +239,13 @@ export async function saveToTeam(ctx: AppContext, userId: string, roomId: string
     if (f.file.size > SMALL_UPLOAD_MAX) throw new HttpError('payload_too_large', 'Larger than 50 MB: download it and upload it on the Files screen.', { params: { reason: 'too_large' } })
     const target = `${at}/${f.file.name}`
     if (badSegment(f.file.name) !== null || instructionLike(target)) throw new HttpError('validation', 'A file with this name is not saved from a conversation.', { params: { reason: 'instruction_file' } })
+  }
+  // more people than the conversation's can see the folder (QA TC-ask2-6: a private room's file saved to Company-wide,
+  // 17 people, no question): with askWiden, the person's yes first (409 audience_widened with how many), as a move or a
+  // restore asks (team-files/service.ts). Files already saved there count too: one question for the whole save
+  if (o.askWiden && !o.confirm) {
+    const n = outsideRoom(ctx, files.rules(), roomId, at)
+    if (n > 0) throw new HttpError('conflict', undefined, { params: { reason: 'audience_widened', viewersAdded: n } })
   }
   const saved: RoomSaveResult['saved'] = []
   for (const f of found) {

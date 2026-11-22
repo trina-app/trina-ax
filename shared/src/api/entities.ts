@@ -772,7 +772,15 @@ export const Artifact = z.object({
   createdAt: IsoTime,
 })
 export type Artifact = z.infer<typeof Artifact>
-export const ArtifactSummary = Artifact.omit({ content: true }).extend({ size: z.number().int().nonnegative() })
+export const ArtifactSummary = Artifact.omit({ content: true }).extend({
+  size: z.number().int().nonnegative(),
+  /** who asked for this version (absent: not known, an older server); with `ai` the AI made it at their request, without
+   * it they restored it themselves in the panel */
+  byName: z.string().optional(),
+  ai: z.literal(true).optional(),
+  /** a restore: the version it brought back */
+  restoredFrom: z.number().int().positive().optional(),
+})
 export type ArtifactSummary = z.infer<typeof ArtifactSummary>
 
 export const Memory = z.object({

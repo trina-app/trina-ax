@@ -8,7 +8,8 @@
 //               the trash, safe operations off, not on the download-only list, at most CHAT_FILE_EDIT_MAX; canRestore
 //               (Restore) the same without the text name and size (any file type, QA TC-7040)
 //   saveText    a person's save: the whole text as putVersion's bytes; `beside` when someone saved after baseVersion
-//   restoreTo   version n's bytes as a new head (ChatFiles.restore); at the cap the oldest after the first goes (pruned)
+//   restoreTo   version n's bytes as a new head (ChatFiles.restore); at the cap the oldest after the first goes (pruned);
+//               the chat's line "{actor} restored {file} to version {n}" (chat_file_events)
 //   tellChat    the carrying messages' tiles again, to each person with a window open, as they may see them (never an
 //               answer hidden from them): their "Updated by" line and size follow at once. The AI's saves reach it
 //               through chat/chat-file-version-hook.ts (tellChatOnAiVersions)
@@ -120,8 +121,18 @@ export async function restoreTo(rt: ChatRuntime, userId: string, chat: ChatRowLi
   const root = assertEditable(rt, userId, chat, fileId, 'restore')
   stillPeopleChat(rt, userId, chat.id)
   const r = await chatFilesOf(rt.ctx).restore(userId, chat.id, root.id, n, { recheck: () => stillPeopleChat(rt, userId, chat.id) })
+  // the chat's line "{actor} restored {file} to version {n}" (S-032): written after the version is in, best effort (the
+  // restore stands either way)
+  try { addFileRestoreEvent(rt.db, chat.id, userId, root.id, n, r.row.created_at) } catch (e) { rt.log.warn('chat file restore line not written', { err: e, chat: chat.id }) }
   tellChat(rt, chat.id, root.id)
   return saved(rt, r)
+}
+
+/** Record a restore of a chat file's version (chat_file_events, migration 439): "{actor} restored {file} to version {n}"
+ * between the chat's messages (S-032; read by chat/people-share.ts chatEventsOf). `rootId`: the chain's root, so the
+ * line shows only to people who may open it. */
+export function addFileRestoreEvent(db: ChatRuntime['db'], chatId: string, actor: string, rootId: string, version: number, at = new Date().toISOString()): void {
+  db.query("INSERT INTO chat_file_events (chat_id, at, actor_id, kind, file_id, version) VALUES (?, ?, ?, 'restored', ?, ?)").run(chatId, at, actor, rootId, version)
 }
 
 /** The AI's new versions (chat/place-ctx.ts, through chat/chat-file-version-hook.ts) tell the chat as a person's save

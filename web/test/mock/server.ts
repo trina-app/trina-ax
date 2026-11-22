@@ -7185,6 +7185,10 @@ export class MockServer {
     // GET /api/files/moved (#334, components/FileMoved.tsx): the mock keeps no move history, so nothing is known: 'no'
     // (the panel then shows its usual line)
     h.moved = () => ({ status: 'no' })
+    // GET/POST /api/rooms/:id/messages/:messageId/file-access (QA S-120, components/RoomFileAsk.tsx): the mock keeps no
+    // file requests for room links, so nothing is offered ('no': the panel shows its usual line)
+    h.roomFileAccess = () => ({ status: 'no' })
+    h.requestRoomFile = () => fail('not_found', 404)
     h.chatFileAccess = async (c) => {
       const x = await askable(c, String(c.query.path ?? ''))
       if (!x) return { status: 'no' }
