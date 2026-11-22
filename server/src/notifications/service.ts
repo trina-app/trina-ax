@@ -34,7 +34,7 @@ import { datedSql } from '../auth/deletion-requests'
 import { REQUEST_SOURCE, parseRequestSource } from '../devenv/request-outcome'
 import { CHAT_ANSWER_COALESCE_MS, CHAT_ANSWER_PUSH_DELAY_MS, CHAT_CARD_PUSH_DELAY_MS, chatOpenFor, type ChatAnswerKind } from './chat-answers'
 import { fileSharesOf } from '../files/shares'
-import { chatMessageNoticeOut } from '../chat/message-notices'
+import { chatMessageNoticeOut, tellChatsRead } from '../chat/message-notices'
 import { accessRequestsOf } from '../chat/access-requests'
 import { CHAT_THREAD_PUSH_DELAY_MS, chatThreadNoticeOut, threadSummaries } from '../chat/threads'
 
@@ -1084,10 +1084,16 @@ export class Notifications {
     let r: Row | null = null
     for (const table of NOTICE_TABLES) if ((r = update(table))) break
     // a message that mentions me (a Mentions row, or what its push opened): read, and its push that still waits goes
-    if (!r && (r = db.query(`UPDATE chat_message_notices SET read_at=COALESCE(read_at,?) WHERE id=? AND user_id=? AND suppressed=0 AND created_at>=? AND ${MENTION_ROWS} RETURNING *`).get(...args) as Row | null)) db.query(`UPDATE chat_message_push_deliveries SET state='cancelled', lease_until=NULL WHERE state IN ('pending','sending') AND notification_id=?`).run(id)
+    let mentionChat: string | null = null
+    if (!r && (r = db.query(`UPDATE chat_message_notices SET read_at=COALESCE(read_at,?) WHERE id=? AND user_id=? AND suppressed=0 AND created_at>=? AND ${MENTION_ROWS} RETURNING *`).get(...args) as Row | null)) {
+      db.query(`UPDATE chat_message_push_deliveries SET state='cancelled', lease_until=NULL WHERE state IN ('pending','sending') AND notification_id=?`).run(id)
+      mentionChat = (r as Row & { chat_id: string }).chat_id
+    }
     if (!r) throw new HttpError('not_found')
     if (row && !row.read_at && row.group.ids.length > 1) db.query(`UPDATE room_notices SET read_at=? WHERE user_id=? AND read_at IS NULL AND id IN (${row.group.ids.map(() => '?').join(',')})`).run(args[0] as string, userId, ...row.group.ids)
     this.signal(userId)
+    // the chat's row: its unread number and "@" drop in my windows now (chat.updated)
+    if (mentionChat) tellChatsRead(this.ctx, userId, [mentionChat])
     return this.out(r)
   }
   /** Activity's "Mark all as read" for a tab (activityTabHas, the page's own rule): All reads every unread notice of
@@ -1102,6 +1108,7 @@ export class Notifications {
     if (!this.active(userId)) return { read: 0 }
     const db = this.ctx.db, cutoff = this.cutoff(), now = new Date().toISOString()
     const threads: { chatId: string; rootId: string }[] = []
+    const mentionChats = new Set<string>()
     // one transaction, and the rooms' own per-row "notifications changed" signals held back: one signal at the end
     const read = rooms.hold(userId, () => db.transaction(() => {
       let n = 0
@@ -1127,7 +1134,9 @@ export class Notifications {
       }
       // a message that mentions me in a chat (a Mentions row, MENTION_ROWS): All and Mentions read it, its waiting push goes
       if (o.only !== 'notices' && (o.tab === 'all' || o.tab === 'mentions')) {
-        const ids = (db.query(`UPDATE chat_message_notices SET read_at=? WHERE user_id=? AND ${MENTION_ROWS} AND read_at IS NULL AND suppressed=0 AND created_at>=? RETURNING id`).all(now, userId, cutoff) as { id: string }[]).map((r) => r.id)
+        const got = db.query(`UPDATE chat_message_notices SET read_at=? WHERE user_id=? AND ${MENTION_ROWS} AND read_at IS NULL AND suppressed=0 AND created_at>=? RETURNING id, chat_id`).all(now, userId, cutoff) as { id: string; chat_id: string }[]
+        const ids = got.map((r) => r.id)
+        for (const g of got) mentionChats.add(g.chat_id)
         if (ids.length) db.query(`UPDATE chat_message_push_deliveries SET state='cancelled', lease_until=NULL WHERE state IN ('pending','sending') AND notification_id IN (SELECT value FROM json_each(?))`).run(JSON.stringify(ids))
         n += ids.length
       }
@@ -1144,6 +1153,8 @@ export class Notifications {
       return n
     })())
     if (read) this.signal(userId)
+    // the chats whose mentions were read: their rows' numbers drop in my windows now (chat.updated)
+    if (mentionChats.size) tellChatsRead(this.ctx, userId, mentionChats)
     // my other windows hear each thread read, as the thread's own read tells them (chat/threads.ts markRead)
     for (const th of threads) {
       try { this.ctx.services.realtime.publish(userId, { type: 'chat.thread', data: { chatId: th.chatId, rootId: th.rootId, change: 'read', thread: threadSummaries(db, [th.rootId], userId).get(th.rootId) ?? null } }) }

@@ -25,7 +25,8 @@ import { chatOpenFor } from '../notifications/chat-answers'
 import { notificationsOf } from '../notifications/service'
 import { redactorFor } from '../integrations/connections/redact'
 import { isSharedRow } from './chat-audience'
-import { Audiences } from './shared'
+import { Audiences, chatView } from './shared'
+import { getChatRuntime } from './runtime'
 import { answerHiddenFrom } from './shared-answers'
 import type { ChatRow } from './store'
 
@@ -200,4 +201,18 @@ export function chatMessageNoticeOut(ctx: AppContext, row: { id: string; user_id
   const u = n!.by_user ? ctx.db.query("SELECT name FROM users WHERE id = ? AND status = 'active' AND deleted_at IS NULL").get(n!.by_user) as { name: string } | null : null
   const title = c ? plainLabel(redactorFor(ctx, c.user_id).hide(c.title || '')) : ''
   return { ...base, chatId: n!.chat_id, link: 'chat', chatMessage: { messageId: n!.source_id, name: u ? plainLabel(u.name, 80) : null, ...(u ? { byId: n!.by_user! } : {}), title: title || null, mention: true } }
+}
+
+/** A mention of mine read in the Inbox (notifications/service.ts read, readAll): my windows hear each chat again as I see
+ * it (chat.updated), so its row's unread number and "@" drop now, as opening the chat does (routes/chats.ts seen).
+ * Never throws: the read stands either way. */
+export function tellChatsRead(ctx: AppContext, userId: string, chatIds: Iterable<string>) {
+  let rt: ReturnType<typeof getChatRuntime>
+  try { rt = getChatRuntime(ctx) } catch { return }
+  for (const id of new Set(chatIds)) {
+    try {
+      const r = rt.store.chatRow(id)
+      if (r && !r.deleted_at) rt.hub.publish(userId, { type: 'chat.updated', data: { chatId: id, change: 'updated', chat: chatView(rt, userId, r) } })
+    } catch { ctx.log.warn('chat read not told') }
+  }
 }

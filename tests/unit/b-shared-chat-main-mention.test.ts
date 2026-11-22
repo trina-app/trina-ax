@@ -73,8 +73,15 @@ test('a main-box @mention: a Mentions row for the person picked and a push; noth
   expect(pushed).toHaveLength(1)
 
   // Mentions' "Mark all as read" reads it (and only the mention row: the plain message's notice stays for the chat row)
+  // (the chat row's own number and "@" drop with it: a chat.updated for nora with the chat as she sees it now)
+  type Upd = { type: string; data: { chatId: string; chat: { unreadCount?: number; mentioned?: true } | null } }
+  const chatUpdates = (from: number) => (h.hub.events.slice(from) as { target: string; data: Upd }[]).filter((e) => e.target === nora.id && e.data?.type === 'chat.updated' && e.data.data.chatId === chat.id)
+  const mark = h.hub.events.length
   const read = await nora.client.call('POST', '/api/notifications/read', { tab: 'mentions', only: 'rooms' })
   expect(read.read).toBe(1)
+  const told = chatUpdates(mark)
+  expect(told.length).toBeGreaterThan(0)
+  expect(told.at(-1)!.data.data.chat?.mentioned).toBeUndefined()
   const after = await rows(nora.client)
   expect(chatRows(after)[0]!.readAt).not.toBeNull()
   expect(after.roomUnreadCount).toBe(before.roomUnreadCount)
@@ -82,6 +89,10 @@ test('a main-box @mention: a Mentions row for the person picked and a push; noth
   await owner.call('POST', `/api/chats/${chat.id}/messages`, { content: '@NORA again', mentions: [nora.id], attachmentIds: [], clientMessageId: cm() })
   await ended()
   const second = chatRows(await rows(nora.client)).find((i) => !i.readAt)!
+  const mark2 = h.hub.events.length
   const opened = await nora.client.call('POST', `/api/notifications/${second.id}/read`)
   expect(opened.readAt).not.toBeNull()
+  const told2 = chatUpdates(mark2)
+  expect(told2.length).toBeGreaterThan(0)
+  expect(told2.at(-1)!.data.data.chat?.mentioned).toBeUndefined()
 })

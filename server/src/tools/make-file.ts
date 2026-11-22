@@ -491,6 +491,7 @@ export class MakeFile {
         if (bad) throw new ToolError(bad)
       }
       // only now are all the files known whose bytes are in the output (images come out of pandoc's tree)
+      this.movedFirst(c, out)
       await this.checkWidening(c, out.rel, out.segs, sources)
       const made = await this.place(c, out.segs, produced, sources)
       const extra = { ...(conditional ? { conditional } : {}), ...(svgPictures ? { svgPictures } : {}), ...(linksRemoved.length ? { linksRemoved } : {}), ...(doc ? { doc } : {}) }
@@ -517,6 +518,7 @@ export class MakeFile {
     try {
       const produced = path.join(work, 'out.pdf')
       fs.writeFileSync(produced, printed.pdf, { flag: 'wx', mode: 0o600 })
+      this.movedFirst(c, out)
       await this.checkWidening(c, out.rel, out.segs, printed.sources)
       // the audit line names every team file whose bytes are in the PDF (the page's pictures, stylesheets, fonts)
       const made = await placeProduced(this.ctx, this.files, c, out.segs, produced, 'make_file', undefined, { movedCheck: true, detail: { from: printed.source, pages: printed.pages, files: printed.sources.slice(1, 51), fileCount: printed.sources.length - 1 } })
@@ -558,6 +560,7 @@ export class MakeFile {
     try {
       const produced = path.join(work, 'out.pdf')
       fs.writeFileSync(produced, printed.pdf, { flag: 'wx', mode: 0o600 })
+      this.movedFirst(c, out)
       await this.checkWidening(c, out.rel, out.segs, [src.rel])
       const made = await placeProduced(this.ctx, this.files, c, out.segs, produced, 'make_file', undefined, { movedCheck: true, detail: { from: src.rel, pages: printed.pages, slides: drawn.pages } })
       return { ...made, html: { pages: printed.pages, blocked: [], blockedCount: 0, scripts: false, deck: { slides: drawn.pages, hidden: drawn.hidden, notDrawn: drawn.notDrawn } } }
@@ -743,6 +746,7 @@ export class MakeFile {
       const png = await svgToPng(this.conv, svg, work, 'picture', pdfFonts(pdfLanguage(text, teamDefaultLocale(this.ctx.db))), c.signal)
       const produced = path.join(work, freshName(work, 'out', 'png'))
       fs.writeFileSync(produced, png, { flag: 'wx', mode: 0o600 })
+      this.movedFirst(c, out)
       await this.checkWidening(c, out.rel, out.segs, sources)
       return await this.place(c, out.segs, produced, sources)
     } finally { fs.rmSync(work, { recursive: true, force: true }) }
@@ -753,6 +757,13 @@ export class MakeFile {
    * into account), and when more people can read the output than those files (or what the chat read), the chat turn
    * asks the person first. No chat turn (nobody to ask): refused. Runs before anything is placed.
    */
+  /** A new file where a file was moved away from (movedAwayCheck, said once per answer and place) is said before the
+   * wider-audience card: else the person approves the card, then hears "Nothing was saved", and a retry asks the card
+   * again (re-review of batch 2). placeProduced's own check then lets the second call through. */
+  private movedFirst(c: ToolCtx, out: { rel: string; exists: boolean }) {
+    if (!out.exists && c.turnId && !isReservedPlace(out.rel)) movedAwayCheck(this.ctx, c, out.rel)
+  }
+
   private checkWidening(c: ToolCtx, target: string, targetSegs: string[], sources: string[], binding?: string) {
     return confirmSources(this.ctx, this.files, c, target, targetSegs, sources, binding)
   }
