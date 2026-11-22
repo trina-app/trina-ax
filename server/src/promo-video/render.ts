@@ -11,6 +11,7 @@
 // again until the video changes. It goes when its chat is purged (chat/forget.ts → forgetPromoVideos).
 // The CLI runs in a process group of its own; at the time limit, and when the server shuts down, that group and the
 // group of every process under it (Chrome starts in its own) are killed by process id, never by a name pattern.
+import { componentC } from '../team-files/component'
 import { spawn, type ChildProcess } from 'node:child_process'
 import { killTree } from '../system/kill-tree'
 import fs from 'node:fs'
@@ -60,6 +61,9 @@ function rowFor(ctx: AppContext, userId: string, id: string): Row {
   const r = ctx.db.query(`SELECT p.artifact_id, p.chat_id, p.user_id, c.user_id AS owner_id, p.spec, p.mp4_state, p.mp4_ms, p.mp4_bytes, p.created_at
     FROM promo_videos p JOIN chats c ON c.id = p.chat_id WHERE p.artifact_id = ? AND c.deleted_at IS NULL`).get(id) as Row | null
   if (!r) throw new HttpError('not_found')
+  // a version an answer hidden from this person made (Artifacts.hiddenVersions; review of batch 2): not theirs to play
+  // or save, the chat's owner included (a shared chat's later member's hidden answer)
+  if (componentC(ctx).artifacts.hiddenVersions(userId, r.chat_id).has(r.artifact_id)) throw new HttpError('not_found')
   if (r.owner_id === userId) return r
   try { chatFor(getChatRuntime(ctx), userId, r.chat_id, 'view') } catch { throw new HttpError('not_found') }
   const user = ctx.files.principal(userId)

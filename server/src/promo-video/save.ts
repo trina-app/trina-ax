@@ -61,7 +61,9 @@ export async function savePromoVideo(ctx: AppContext, a: z.output<typeof SavePro
   if (!turn) throw new ToolError('unknown turn')
   if (turn.user_id !== t.user.id) throw new Denied('turn belongs to another person')
   if (!mp4Available(ctx)) throw new ToolError('This server cannot save the promo video as a file (only the preview next to the chat is made here). Nothing was saved. Tell the person so in one plain sentence.')
-  const row = ctx.db.query('SELECT artifact_id, spec FROM promo_videos WHERE chat_id = ? ORDER BY created_at DESC, rowid DESC LIMIT 1').get(turn.chat_id) as { artifact_id: string; spec: string } | null
+  // the newest version this person may see (never one an answer hidden from them made: Artifacts.hiddenVersions)
+  const hidden = componentC(ctx).artifacts.hiddenVersions(t.user.id, turn.chat_id)
+  const row = (ctx.db.query('SELECT artifact_id, spec FROM promo_videos WHERE chat_id = ? ORDER BY created_at DESC, rowid DESC').all(turn.chat_id) as { artifact_id: string; spec: string }[]).find((r) => !hidden.has(r.artifact_id)) ?? null
   if (!row) throw new ToolError('There is no promo video in this chat yet: make it with promo_video first.')
   const spec = JSON.parse(row.spec) as StoredSpec
   // where: the person's own folder unless they named a place; never a skills folder (skills/guard.ts)
