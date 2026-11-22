@@ -30,15 +30,15 @@
 import { Check, Plus, Search } from 'lucide-react'
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from 'react'
 import { Navigate, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
-import { isRecommendable, isRecommended, isRequestableService, recommendedFirst, type Integration, type IntegrationList, type MyIntegrationTemplate } from '@mycel/shared/api'
+import { isRecommendable, isRecommended, isRequestableService, recommendedFirst, SLACK, type Integration, type IntegrationList, type MyIntegrationTemplate, type SlackAdmin } from '@mycel/shared/api'
 import { api, API, errorText } from '../lib/api'
-import { connectionHref, connectorAuth, connectorFor, connectorHref, connectorLogo, CONNECTORS, CONNECTORS_HOME, customConnectorAction, isConnected, servesAt, type Connector } from '../lib/connectors'
+import { connectionHref, connectorAuth, connectorFor, connectorHref, connectorLogo, CONNECTORS, CONNECTORS_HOME, customConnectorAction, isConnected, servesAt, SLACK_ADMIN_PATH, SLACK_APP, slackLogo, type Connector } from '../lib/connectors'
 import { aboutKey, builtInLogo, builtInName, BUILT_IN_ORDER, driveCardState, DRIVE_TOOL_LIST, fits, GOOGLE, GOOGLE_PRIVACY, GOOGLE_TERMS, googleAppCardState, isGoogleApp, lineKey, unavailableKeys, type BuiltInId } from '../lib/googleApps'
 import { connectionRowStatus, emptyForm, splitByScope, toInput } from '../lib/integrations'
 import { useLocale, useT } from '../i18n'
 import { putCached, readIntegrations, SHARED, useCachedRead } from '../store/listCache'
 import { integrationsChanged, notificationsChanged, reloadAsked } from '../store/live'
-import { isAdmin, useMe } from '../store/session'
+import { isAdmin, isOwner, useMe } from '../store/session'
 import { useFreeRoam } from '../store/demo'
 import { Button, EmptyState, ErrorNote, Skeleton, Switch, inputCls } from '../components/ui'
 import { useRecommendedTools } from '../lib/teamTools'
@@ -212,6 +212,19 @@ function useSetupReturnState() {
   return step ? setupReturnState(step) : undefined
 }
 
+/** The team's Slack as Admin › Connected apps reads it (GET /api/admin/slack), for an owner or admin; null: not read
+ * (a member, a failed read, an older server). */
+function useSlackAdmin(admin: boolean) {
+  const [slack, setSlack] = useState<SlackAdmin | null>(null)
+  useEffect(() => {
+    if (!admin) return
+    let live = true
+    api.call(SLACK.slackAdmin).then((s) => { if (live) setSlack(s) }, () => {})
+    return () => { live = false }
+  }, [admin])
+  return slack
+}
+
 /** Settings › Connectors: the list */
 function ConnectorsHome() {
   const t = useT()
@@ -222,6 +235,8 @@ function ConnectorsHome() {
   const freeRoam = useFreeRoam()
   // opened from the welcome steps' "Connect another tool": "Set up" (to Admin) carries their way back
   const fromStep = useSetupReturnState()
+  const owner = isOwner(useMe())
+  const slack = useSlackAdmin(admin)
   const [query, setQuery] = useState('')
   const [all, setAll] = useState(false)
   const [params, setParams] = useSearchParams()
@@ -307,11 +322,18 @@ function ConnectorsHome() {
     ...(desk ? {} : { offLine: t('localApps.status.desktopOnly') }),
     onOpen: () => navigate(connectorHref(a.id)), onAdd: () => { navigate(connectorHref(a.id)); local.connect(a) },
   })) : []
+  // Slack (a team tool only, set up in Admin › Connected apps › Slack): for an owner or admin whose team has not added it,
+  // a card after the Google ones that opens that page, as Admin's own card does (an admin only where Add to Slack is
+  // offered: the team's own app is the owner's to set up). The welcome steps' "다른 도구 보기" leads here, so Slack is
+  // one click away from them (it left their rows on 2026-11-22)
+  const openSlack = () => navigate(SLACK_ADMIN_PATH, { state: fromStep })
+  const slackCard: Card[] = admin && slack && !(slack.tokens || slack.lastError === 'removed') && (owner || slack.official)
+    ? [{ id: SLACK_APP.id, name: SLACK_APP.name, line: t('slack.admin.desc'), logo: slackLogo, state: 'available', onOpen: openSlack, onAdd: openSlack }] : []
   // "각자 연결하도록 권하기" (was "팀 추천") (shared/src/api/team-tools.ts): the tools the team recommends come first, with the words on their line;
   // nothing is hidden or gated (docs/decisions/20261120-team-vs-personal-onboarding.md)
   const recommended = list.data?.recommendedTools
   const tag = (c: Card): Card => (isRecommended(recommended, c.id) ? { ...c, line: `${t('connectors.recommendedTag')} · ${c.line}` } : c)
-  const cards = freeRoam ? [] : recommendedFirst([...builtIns.map((c) => { const offLine = offLineOf(c); return offLine ? { ...c, offLine } : c }), ...localCards, ...listed, ...askable].map(tag), recommended)
+  const cards = freeRoam ? [] : recommendedFirst([...builtIns.map((c) => { const offLine = offLineOf(c); return offLine ? { ...c, offLine } : c }), ...slackCard, ...localCards, ...listed, ...askable].map(tag), recommended)
     .filter((c) => c.state === 'available' || (c.state === 'off' && (c.setUp || !!c.offLine)))
     .filter((c) => fits(q, c.name, c.line))
   const shownCards = q || all ? cards : cards.slice(0, POPULAR_FIRST)

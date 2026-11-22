@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-22 00:19
 - Branch: `feat/onboarding-tools-higgsfield`
-- Status: in progress
+- Status: done
 - Where: web (onboarding ToolsStep, Settings › Connectors), docs. Why: the owner finds Slack's connection too
   complicated for the first steps; Higgsfield (AI images and video) connects with one sign-in.
 - Version impact: patch. The welcome step shows a different listed tool; no API, data or setting changes.
@@ -62,4 +62,8 @@ None in data or permissions. Higgsfield's tool list is large (about 1 MB); conne
 
 ## Result
 
-(filled in at the end)
+Built as planned. Also: each team row's line now says what the tool does ("팀 전체가 이 연결을 같이 써요 · AI로 이미지와
+영상을 만들어요"), because Higgsfield is less known than Notion; `welcome.tools.slackLine` is gone. Higgsfield was already a
+listed service with its logo and descriptions, so no catalog change was needed beyond recording the logo's source.
+Settings › Connectors had no Slack card for a team without Slack, so "다른 도구 보기" would not have reached Slack; the card
+was added. The screenshot shows Notion, Higgsfield and Gmail (the mock has no Google Drive).

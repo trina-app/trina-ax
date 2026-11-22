@@ -5574,7 +5574,6 @@ export const en: Record<MessageKey, string> = {
   "welcome.tools.googleLine": "One shared account, or each person their own",
   "welcome.tools.googleTeamOn": "Shared account {account} · {who}",
   "welcome.tools.teamConnect": "Connect for the team",
-  "welcome.tools.slackLine": "The whole team shares this connection · ask the AI in Slack",
   "welcome.tools.teamLine": "The whole team shares this connection",
   "welcome.tools.mcp": "Other tools",
   "welcome.done.makeCardNews": "Make promo cards",
