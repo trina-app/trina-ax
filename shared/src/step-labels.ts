@@ -526,9 +526,6 @@ const NOTES_NAMES = nfcSet(NOTES_FOLDER)
  * (a web address, a folder these words do not name). The folder names match in any language, as a team's folders are
  * named in the team's language and the screen may be in another. */
 export function placeName(path: string, locale: Locale): string | null {
-  // box_shell's spelling of the team folder ($TRINA_TEAM/…): the team path it names
-  const team = /^\s*(?:\$TRINA_TEAM|\$\{TRINA_TEAM\})\/(.*)$/i.exec(path)
-  if (team) return placeName(team[1]!, locale) ?? team[1]!
   // a chat place (chat:files/<id>/<name>, chat:work/<path>): its words, never the file id; $TRINA_WORK/… (box_shell's
   // spelling of the work folder) reads the same as chat:work/… (QA TC-6937)
   const place = parsePlace(WORK_VAR.test(path.trim()) ? `chat:work${path.trim().replace(WORK_VAR, '')}` : path)
@@ -588,15 +585,15 @@ export function stepPlace(step: { tool?: string }, label: string, locale: Locale
   return TEXT_STEP_TOOLS.has(step.tool ?? '') ? r : { ...r, label: plainPlaces(r.label, locale) }
 }
 
-/** chat:files/<id>/, chat:work/, $TRINA_WORK and $TRINA_TEAM/ inside a step line, in words. */
+/** chat:files/<id>/, chat:work/ and $TRINA_WORK inside a step line, in words. ($TRINA_TEAM is not: a file tool takes it as
+ * a folder of that name, so a line shows it as written.) */
 function plainPlaces(label: string, locale: Locale): string {
-  if (!/chat:|\$\{?TRINA_/i.test(label)) return label
+  if (!/chat:|\$\{?TRINA_WORK/i.test(label)) return label
   const files = STEP_PLACE.chatFiles[locale] ?? STEP_PLACE.chatFiles.en
   const work = STEP_PLACE.work[locale] ?? STEP_PLACE.work.en
   return shellWorkWords(label
     .replace(/\bchat:files\/(?:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\/?)?/gi, `${files} › `)
-    .replace(/\bchat:work\/?/gi, `${work} › `)
-    .replace(/(?:\$TRINA_TEAM|\$\{TRINA_TEAM\})\/?/gi, ''), locale)
+    .replace(/\bchat:work\/?/gi, `${work} › `), locale)
     .replace(/ › (?=\s|$)/g, '')
 }
 

@@ -124,12 +124,11 @@ describe('no developer places in a step line (QA TC-r2u-09/12/23/30)', () => {
       ['read', `파일 읽기 · chat:files/${id}/index.html`],
       ['make_file', '파일 만들기 · chat:files/연말 고객 초청 행사 (인쇄용 A4).pdf'],
       ['read', '파일 읽기 · $TRINA_WORK/out/result.png'],
-      ['read', '파일 읽기 · $TRINA_TEAM/shared/a.png'],
       ['chat_file', `채팅 파일 · chat:files/${id}/a.pdf`],
       ['copy_files', '파일 복사 · chat:work/out'],
     ] as const) {
       const out = shown(tool, label)
-      expect([label, out]).not.toEqual([label, expect.stringMatching(/chat:|TRINA_|[0-9a-f]{8}-[0-9a-f]{4}/)])
+      expect([label, out]).not.toEqual([label, expect.stringMatching(/chat:|TRINA_WORK|[0-9a-f]{8}-[0-9a-f]{4}/)])
     }
     expect(shown('query_data', `데이터 계산 · chat:files/${id}/거래내역-20만행.xlsx`)).toBe('데이터 계산 · 이 채팅 › 거래내역-20만행.xlsx')
   })
@@ -137,9 +136,11 @@ describe('no developer places in a step line (QA TC-r2u-09/12/23/30)', () => {
     expect(stepPlace({ tool: 'ask_user' }, '질문: chat:files 가 뭐예요?', 'ko').label).toBe('질문: chat:files 가 뭐예요?')
   })
   test('a card names a chat place and the team variable in words', () => {
-    expect(placeName('$TRINA_TEAM/shared/a.png', 'ko')).not.toContain('TRINA')
+    // $TRINA_TEAM is a folder of that name to a file tool: shown as written, never as the team path
+    expect(placeName('$TRINA_TEAM/users/u1/x.md', 'ko')).toBeNull()
     const db = null as unknown as Parameters<typeof placeWords>[0]
     expect(placeWords(db, 'chat:work/out/분기보고.pptx', 'ko', 'u1')).toBe('작업 폴더 › out › 분기보고.pptx')
     expect(placeWords(db, '$TRINA_WORK/out/a.png', 'ko', 'u1')).toBe('작업 폴더 › out › a.png')
+    expect(placeWords(db, '$TRINA_TEAM/users/u1/x.md', 'ko', 'u1')).toContain('$TRINA_TEAM')
   })
 })

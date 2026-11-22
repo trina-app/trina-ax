@@ -26,10 +26,9 @@ const isPlaceWord = (w: string) => PLACE_WORDS.has(norm(w)) || (ownFolderWord() 
 const otherFolder = new RegExp(Object.values(TEXT.placeOther).map((w) => `^${w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace('\\{name\\}', '.+')}$`).join('|'))
 
 export function placeWords(db: Database, path: string, L: Locale, me: string): string {
-  // a box_shell spelling of the team folder ($TRINA_TEAM/…): the team path it names
-  const team = /^\s*(?:\$TRINA_TEAM|\$\{TRINA_TEAM\})\/(.*)$/i.exec(path)
-  if (team) return placeWords(db, team[1]!, L, me)
-  // a chat place (chat:files/…, chat:work/…) or the work folder ($TRINA_WORK/…) in words, never the id or the variable
+  // a chat place (chat:files/…, chat:work/…) or the work folder ($TRINA_WORK/…, which the file tools read as chat:work)
+  // in words, never the id or the variable. Not $TRINA_TEAM: a file tool takes it as a folder of that name, so a card
+  // shows it as written (review)
   // (QA TC-r2u-30: "chat:work > out > 분기보고.pptx" on a card)
   if (/^\s*(?:chat:|\$TRINA_WORK\b|\$\{TRINA_WORK\})/i.test(path)) { const w = placeName(path, L); if (w) return w }
   const segs = path.normalize('NFC').split('/').filter(Boolean)
