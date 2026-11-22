@@ -104,7 +104,8 @@ export type PushEventType = z.infer<typeof PushEventType>
  * closed without the app (an admin's Dismiss, or the 30 days; service_request_closed_notices), files.stored_key to a
  * person when files the AI saved for them earlier still hold one of their stored connection keys (stored_key_file_notices,
  * migration 354; server/src/integrations/connections/file-scan.ts), and account.reset_link to a person when a password reset link
- * was made for their account, on the server or by an admin (reset_link_notices), and things done to the team from
+ * was made for their account, on the server or by an admin (reset_link_notices), and account.google_connected to a person when a
+ * Google account was connected to their account to sign in with (google_connect_notices, migration 132; Sign in with Google), and things done to the team from
  * outside it (hosting_notices): hosting.key_copied and hosting.exported to the owners when the hosting service copied
  * the AI connections' key or took a full export, relay.address_moved to the owners and admins when the relay stopped
  * taking this server's key because the team address was moved to another key, engine.start_failed to the owners and
@@ -117,7 +118,7 @@ export type PushEventType = z.infer<typeof PushEventType>
  * (room_app_notices; a push too: PushEventType), and room_app.leaver to the people who may manage an app in a room
  * when someone who was shown its address can no longer manage it (room_app_leaver_notices, migration 352; docs/DECISIONS.md
  * "Apps posting in rooms"). */
-export const NotificationEventType = z.enum([...PushEventType.options, 'skill.suggested', 'skill.reviewed', 'dev_env.job', 'dev_env.box', 'integration.request', 'onboarding.ai_request', 'team.joined', 'onboarding.first_run', 'account.deletion_request', 'integration.template', 'integration.template_reconnect', 'drive.share_reconnect', 'skills.merge_waiting', 'credential.change', 'owner.transferred', 'project.joined', 'service.request', 'service.ready', 'service.closed', 'files.stored_key', 'account.reset_link', 'hosting.key_copied', 'hosting.exported', 'relay.address_moved', 'engine.start_failed', 'storage.filling', 'storage.cleanup', 'account.deletion_due', 'room_app.leaver', 'file.access_answered', 'file.unshared_by_move', 'access.answered', 'chat.lost'])
+export const NotificationEventType = z.enum([...PushEventType.options, 'skill.suggested', 'skill.reviewed', 'dev_env.job', 'dev_env.box', 'integration.request', 'onboarding.ai_request', 'team.joined', 'onboarding.first_run', 'account.deletion_request', 'integration.template', 'integration.template_reconnect', 'drive.share_reconnect', 'skills.merge_waiting', 'credential.change', 'owner.transferred', 'project.joined', 'service.request', 'service.ready', 'service.closed', 'files.stored_key', 'account.reset_link', 'hosting.key_copied', 'hosting.exported', 'relay.address_moved', 'engine.start_failed', 'storage.filling', 'storage.cleanup', 'account.deletion_due', 'room_app.leaver', 'file.access_answered', 'file.unshared_by_move', 'access.answered', 'chat.lost', 'account.google_connected'])
 export type NotificationEventType = z.infer<typeof NotificationEventType>
 export const InboxNotification = z.object({
   id: z.string(), eventType: NotificationEventType, sourceId: z.string(), code: NotificationEventType,
@@ -230,6 +231,11 @@ export const InboxNotification = z.object({
    * null after); `open` while the link is unused, not replaced and not expired (changing the password ends it). Never
    * the token or the link. Older servers omit it */
   resetLink: z.object({ server: z.boolean(), by: z.string().nullable(), open: z.boolean() }).optional(),
+  /** 'account.google_connected' only: a Google account was connected to this account to sign in with (Sign in with
+   * Google, server/src/auth/google-login.ts). `connected` while that same connection is still there (read now: the row
+   * then says what to do if it wasn't them and opens Settings › Security & devices). Never the Google account or its
+   * address. Older servers omit it */
+  googleConnected: z.object({ connected: z.boolean() }).optional(),
   /** 'skills.merge_waiting' only (the owner, at the end of the welcome steps): how many skills wait to be merged into
    * team skills; link 'chat' opens the one merge chat (chatId); older servers omit it */
   merges: z.object({ n: z.number().int().positive() }).optional(),
