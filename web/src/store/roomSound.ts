@@ -118,6 +118,14 @@ export function roomMessageSound(roomId: string, message: RoomMessage, replay: b
   void sound.message(roomId, message, room, st.kind === 'signed-in' ? st.me.user.id : null, replay, useRooms.getState().alerts).catch(() => {})
 }
 
+/** A chat.thread event that gave me a notice (store/live.ts dispatch): the room sound, unless this window shows that
+ * thread while I look at it. */
+export function chatThreadSound(ev: { chatId: string; rootId: string; reply?: { id: string }; notice?: 'mention' | 'reply' }, replay: boolean) {
+  if (!sound || !ev.notice || !ev.reply) return
+  const onScreen = () => lookingAt() && typeof location !== 'undefined' && location.pathname === `/c/${ev.chatId}/t/${ev.rootId}`
+  void sound.notice(ev.reply.id, onScreen, replay).catch(() => {})
+}
+
 // ---------------- the switch ----------------
 const listeners = new Set<() => void>()
 const subscribe = (fn: () => void) => {

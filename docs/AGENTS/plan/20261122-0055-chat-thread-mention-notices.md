@@ -18,7 +18,10 @@ person got nothing they could see. Reproduced on a QA copy: the server stores th
 1. the notice is listed only with the app's own notices (`only=notices`, 활동 beside the rail on a computer), never in
    대화's 멘션·스레드 (`only=rooms`), and its Mentions / Threads tabs never hold it (`activityTabHas` knows only room
    rows); the 대화 mark and the 멘션·스레드 row do not count it;
-2. the desktop app tells a room mention as a system notification (`room.message` `notice`), never a chat-thread one.
+2. the desktop app tells a room mention as a system notification and with the room sound (`room.message` `notice`),
+   never a chat-thread one. The owner's second screenshot (the receiver's 활동 shows the row, unread) confirms what
+   failed: "알림이 안 울려". And because the receiver was at the computer, the phone push was cancelled by design
+   (notifications/away.ts: "the computer showed it"), while the computer had shown nothing but a quiet row.
 
 After this change a chat-thread reply notice is a conversation row like a room thread reply: in 멘션·스레드 (All, Threads,
 and Mentions when it mentions me), counted on 대화 (not on 활동), read by "Mark all as read" there, and told by the desktop
@@ -36,7 +39,9 @@ In:
    page ignores it). "Mark all as read" of these rows also tells my other windows the thread is read and cancels its
    pending push.
 4. web: `pages/Activity.tsx` shows the chat-thread rows on 대화's page; `store/inbox.ts` counts them as conversation
-   rows; `store/sessionMarkers.ts` tells them in the desktop app (the generic words of the Inbox, the chat's title).
+   rows; `store/sessionMarkers.ts` tells them in the desktop app (the generic words of the Inbox, the chat's title);
+   `store/roomSound.ts` / `lib/roomSound.ts` ring the room sound for them (one tab per device, not while the thread is
+   on screen, the device's sound switch).
 5. Tests: unit (server list / tabs / read all / event notice; web tab rule and the desktop tell).
 
 Out: the people who see the thread (`threadPeople`, `Audiences`) and who follows it: TC-7406 (a person added later)
