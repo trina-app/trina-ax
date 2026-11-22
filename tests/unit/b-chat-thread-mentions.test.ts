@@ -113,16 +113,16 @@ describe('a project chat', () => {
     expect(row.chatThread?.mention).toBeUndefined()
   })
 
-  test('the push follows "Replies in threads I\'m part of", as every thread notice', async () => {
+  test('a mention is pushed whatever "Replies in threads I\'m part of" says (off by default: a thread rings only on a mention)', async () => {
     await reply('alice', chatId, root, '@Bob Lee push?', ['bob'])
     const n = notice('bob', root)!
     const row = (await h.api('bob').call(API.listNotifications, { query: {} })).items.find((i) => i.id === n.id)!
     expect(row.chatThread?.mention).toBe(true)
     const due = Date.now() + 60_000
     expect(chatThreadWanted(h.ctx, n.id, due)).toBe(true)
-    savePreferences(db(), 'bob', { roomThreadReplies: false })
-    try { expect(chatThreadWanted(h.ctx, n.id, due)).toBe(false) }
-    finally { savePreferences(db(), 'bob', { roomThreadReplies: true }) }
+    savePreferences(db(), 'bob', { roomThreadReplies: true })
+    try { expect(chatThreadWanted(h.ctx, n.id, due)).toBe(true) }
+    finally { savePreferences(db(), 'bob', { roomThreadReplies: false }) }
   })
 
   // the owner 11-22: the 프로젝트 list showed "1" and nothing else did; the app icon's number counts it too (push-badge.ts)
