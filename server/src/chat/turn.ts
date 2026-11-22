@@ -2204,7 +2204,9 @@ export class TurnExec {
   private endPiece() {
     const at = this.pieceStart
     this.pieceStart = null
-    if (at === null) return false
+    // only where the answer's language is not written in Latin letters and the person did not ask for another one
+    // (narrationScript): there a piece before a call is the AI's own working note; elsewhere the pattern guard decides
+    if (at === null || !this.narration.active) return false
     const piece = this.writtenText.slice(at)
     if (!piece.trim()) return false
     const statusLine = this.narration.wouldDrop(piece)

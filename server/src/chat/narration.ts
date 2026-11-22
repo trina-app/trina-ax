@@ -337,6 +337,8 @@ export class NarrationHold {
     return out
   }
 
+  /** The answer's script needs no Latin narration (narrationScript is set): the turn treats pieces a call follows as interim */
+  get active(): boolean { return !!this.script }
   /** Is this whole piece a status line this hold would drop before a call (the turn's interim fallback skips those)? */
   wouldDrop(piece: string, input?: unknown): boolean { return !!this.script && isStatusLine(piece, this.script, input, this.message) }
 

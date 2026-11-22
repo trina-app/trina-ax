@@ -467,14 +467,14 @@ describe('a turn with an English line before a tool call', () => {
     expect(doneEv!.ev.data.message.content).toBe(stored)
   })
 
-  test.skipIf(!native)('English: a piece a call follows is interim there too; the final reply is the answer', async () => {
+  test.skipIf(!native)('English: the line is kept (interim pieces leave only answers not written in Latin letters)', async () => {
     const t = await turn('en', 'check the price list\n' + fake(
       { say: 'Let me check that the seal printed correctly.' },
       { tool: 'read', args: { file_path: 'shared/missing.txt' } },
       { say: 'Done.' },
     ))
     expect(t.streamed).toBe(t.stored)
-    expect(t.stored.trim()).toBe('Done.')
+    expect(t.stored).toBe('Let me check that the seal printed correctly.\n\nDone.')
   })
 
   test.skipIf(!native)('no tool call: the text is the answer, unchanged', async () => {
