@@ -1,7 +1,7 @@
 // My sections in the Trina history (docs/decisions/20261122-trina-history-sections.md; nav/HistorySections.tsx): the
 // Chats sidebar's sections over my AI chats. Made from the history's menu (New section, then Add chats), filled by a
 // row's "⋯" › Move to section and by dragging, taken out by dragging onto 트리나 기록 (with Undo); a chat shows in one
-// place; a project's chat cannot go in one and says why; a folded section keeps its marker; a section's "⋯" deletes it
+// place; a project's chat can go in one too and keeps its project tag; a folded section keeps its marker; a section's "⋯" deletes it
 // (its chats go back to 트리나 기록). The same on a phone's ☰ drawer, where the sections are headers above 트리나 기록.
 import { expect, test, type Page } from '@playwright/test'
 import { CSRF_HEADER } from '@mycel/shared/api'
@@ -57,9 +57,9 @@ test('a computer (1440): New section from the menu › Add chats › Move to sec
   await expect(p.getByTestId('history-sections')).toHaveCount(0)
   await expect(p).not.toContainText('폴더')
 
-  // New section from the history's menu, then Add chats (a project's chat is not offered)
+  // New section from the history's menu, then Add chats (a project's chat is offered too: every chat of my history)
   await newSectionFromMenu(page, 'Clients')
-  await expect(page.getByTestId('add-conversations-row').filter({ hasText: 'Launch plan' })).toHaveCount(0)
+  await expect(page.getByTestId('add-conversations-row').filter({ hasText: 'Launch plan' })).toHaveCount(1)
   await tick(page, 'Budget')
   await page.getByTestId('add-conversations-add').click()
   const clients = section(p, 'Clients')
@@ -78,22 +78,24 @@ test('a computer (1440): New section from the menu › Add chats › Move to sec
   await expect(titles(clients)).toHaveText(['Budget', 'QA notes'])
   await expect(page.getByTestId('toast').last()).toContainText(t['sidebarSections.moved'].replace('{name}', 'Clients'))
 
-  // a project's chat: Move to section is off and says why
+  // a project's chat can be moved in too (owner 2026-11-22), and there it still names its project
   const lp = p.getByTestId('trina-other').locator('li').filter({ hasText: 'Launch plan' })
   await lp.hover()
   await lp.getByTestId('chat-row-menu').click()
-  await expect(page.getByTestId('row-section-move')).toBeDisabled()
-  await expect(page.getByTestId('row-section-why')).toHaveText(t['sidebarSections.chats.projectChat'])
-  await page.keyboard.press('Escape')
+  await page.getByTestId('row-section-move').click()
+  await page.getByRole('menuitemradio', { name: 'Clients' }).click()
+  await expect(titles(clients)).toHaveText(['Budget', 'QA notes', 'Launch plan'])
+  await expect(clients.locator('li').filter({ hasText: 'Launch plan' }).getByTestId('chat-row-project')).toHaveText('Acme launch')
+  await expect(titles(p.getByTestId('trina-other'))).toHaveText(['Weekly notes'])
 
   // dragged in, then dragged out onto 트리나 기록, then Undo puts it back
   await p.getByTestId('trina-other').locator('li').filter({ hasText: 'Weekly notes' }).locator('a').dragTo(clients.getByTestId('trina-label'))
-  await expect(titles(clients)).toHaveText(['Weekly notes', 'Budget', 'QA notes'])
+  await expect(titles(clients)).toHaveText(['Weekly notes', 'Budget', 'QA notes', 'Launch plan'])
   await clients.locator('li').filter({ hasText: 'Budget' }).locator('a').dragTo(p.getByTestId('trina-other').getByTestId('trina-label'))
-  await expect(titles(clients)).toHaveText(['Weekly notes', 'QA notes'])
+  await expect(titles(clients)).toHaveText(['Weekly notes', 'QA notes', 'Launch plan'])
   await expect(titles(p.getByTestId('trina-other'))).toContainText(['Budget'])
   await page.getByTestId('toast').last().getByRole('button', { name: t['common.undo'] }).click()
-  await expect(titles(clients)).toHaveText(['Weekly notes', 'Budget', 'QA notes'])
+  await expect(titles(clients)).toHaveText(['Weekly notes', 'Budget', 'QA notes', 'Launch plan'])
 
   // folds, and stays folded after a reload (the account's folds)
   await clients.getByTestId('panel-section-fold').click()
@@ -105,7 +107,7 @@ test('a computer (1440): New section from the menu › Add chats › Move to sec
   // delete: asks with how many it holds; its chats go back to 트리나 기록
   await section(p, 'Clients').getByTestId('section-menu').click()
   await page.getByTestId('section-menu-delete').click()
-  await expect(page.getByRole('dialog')).toContainText(translate('ko', 'sidebarSections.chats.deleteBody', { n: 3 }))
+  await expect(page.getByRole('dialog')).toContainText(translate('ko', 'sidebarSections.chats.deleteBody', { n: 4 }))
   await page.getByRole('dialog').getByRole('button', { name: t['sidebarSections.delete'] }).click()
   await expect(p.getByTestId('history-sections')).toHaveCount(0)
   await expect(titles(p.getByTestId('trina-other'))).toHaveText(['Weekly notes', 'Budget', 'QA notes', 'Launch plan'])

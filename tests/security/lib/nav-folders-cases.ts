@@ -77,7 +77,8 @@ export const NAV_FOLDER_SPECS: Record<string, Spec> = {
     },
   },
   // taking a chat out of my folder: the chat's person only (alice's chat in her project). Then: her own chat with no
-  // project goes into her folder, her project chat is refused (409), and anyone else's own chat cannot go into hers (404)
+  // project goes into her folder, and so does her project chat (any chat of her history, owner 2026-11-22; taken out
+  // again after), and anyone else's own chat cannot go into hers (404)
   setChatFolder: {
     build: (c, w) => c.put(`/api/chats/${w.ids.chatA}/folder`, { folderId: null }), scope: 'own-alice-chat',
     check: async (r, w, who) => {
@@ -90,7 +91,8 @@ export const NAV_FOLDER_SPECS: Record<string, Spec> = {
         if (put.status !== 200 || put.json?.folderId !== folder) throw new Error(`alice could not file her own chat: ${put.status} ${put.text.slice(0, 200)}`)
         await me.ok('DELETE', `/api/chats/${chat}`)
         const project = await me.req('PUT', `/api/chats/${w.ids.chatA}/folder`, { folderId: folder })
-        if (project.status !== 409) throw new Error(`a project chat went into a folder: ${project.status}`)
+        if (project.status !== 200 || project.json?.folderId !== folder) throw new Error(`alice could not file her project chat: ${project.status} ${project.text.slice(0, 200)}`)
+        await me.ok('PUT', `/api/chats/${w.ids.chatA}/folder`, { folderId: null })
         return
       }
       if (r.status === 403 && !pwGate(who, r)) throw new Error(`${who}: alice's chat answered 403, not 404`)

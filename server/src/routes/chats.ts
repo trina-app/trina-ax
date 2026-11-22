@@ -49,7 +49,8 @@ import { WIDENING_PAGE } from '../chat/widening'
 import { shareChat } from '../chat/share-chat'
 import { readChatNotices, setMuted } from '../chat/message-notices'
 import { chatAudienceView, chatWidening, checkWideningAdd, hideChat, leaveChat, peopleSharedChatsOf, previewChatAudience, putChatAudience, unhideOnOpen } from '../chat/people-share'
-import { IN_PEOPLE_AUDIENCE_SQL, NOT_HIDDEN_SQL, resolveSubjects } from '../chat/chat-audience'
+import { resolveSubjects } from '../chat/chat-audience'
+import { historyWhere } from '../chat/history-list'
 import { finishCard } from '../chat/connect-service'
 import { refuseDraftAttachments } from '../onboarding/draft'
 import { refuseSkillDraftAttachments } from '../onboarding/skill-draft'
@@ -387,9 +388,9 @@ export const chatsRoutes: RouteModule = {
         where.push('deleted_at IS NOT NULL', '(user_id = ? OR (deleted_by = ? AND shared_at IS NOT NULL AND project_id IS NOT NULL))'); args.push(me, me)
         if (query.projectId) { where.push('project_id = ?'); args.push(query.projectId) }
       } else if (query.folderId) {
-        // one of my list folders (chat/nav-folders.ts): my own chats in it with no project; another person's folder 404
+        // one of my list folders (chat/nav-folders.ts): the chats of my history in it; another person's folder 404
         if (query.projectId) fail('validation', undefined, { fields: { 'query.folderId': 'not with projectId' } })
-        const f = folderChatFilter(ctx.db, me, query.folderId)
+        const f = folderChatFilter(rt, me, query.folderId)
         where.push('deleted_at IS NULL', f.where); args.push(...f.args)
       } else if (query.projectId) {
         // a project's page: my chats there and every shared chat of it (each only while I see the project, below)
@@ -397,9 +398,10 @@ export const chatsRoutes: RouteModule = {
       } else {
         // my chat list: my chats, the shared project chats I wrote in (docs/DECISIONS.md "Shared project chats": no
         // section of their own) and the chats shared with me by name or through a group ("Chats shared with people and
-        // groups"), but those I hid from my list ("Hide from my list"; a search still finds them)
-        where.push('deleted_at IS NULL', `(user_id = ? OR (shared_at IS NOT NULL AND id IN (SELECT chat_id FROM messages WHERE role = 'user' AND author_id = ?)) OR (${IN_PEOPLE_AUDIENCE_SQL}${query.q?.trim() ? '' : ` AND ${NOT_HIDDEN_SQL}`}))`)
-        args.push(me, me, me, me, ...(query.q?.trim() ? [] : [me]))
+        // groups"), but those I hid from my list ("Hide from my list"; a search still finds them). The one rule of the
+        // history (chat/history-list.ts), with visible() below as its per-row part
+        const h = historyWhere(ctx.db, me, { hidden: !!query.q?.trim() })
+        where.push(h.sql); args.push(...h.args)
       }
       // a room's side panel (✦ Trina): my own chats opened from it (never a shared chat)
       if (query.sideRoomId) { where.push('side_room_id = ?', 'user_id = ?'); args.push(query.sideRoomId, me) }
@@ -634,17 +636,12 @@ export const chatsRoutes: RouteModule = {
       if (body.engine !== undefined) { sets.push('engine = ?'); args.push(body.engine) }
       if (body.model !== undefined) { sets.push('model = ?'); args.push(body.model) }
       else if (body.engine !== undefined && body.engine !== chat.engine) sets.push('model = NULL')
-      let unfiled = new Set<string>()
       if (sets.length) {
         sets.push('updated_at = ?'); args.push(new Date().toISOString())
-        ctx.db.transaction(() => {
-          ctx.db.query(`UPDATE chats SET ${sets.join(', ')} WHERE id = ?`).run(...args, chat.id)
-          // into a project: out of every list folder (chat/nav-folders.ts), so a project chat (perhaps shared later) is
-          // never kept in a folder; the only way a chat gets a project
-          if (body.projectId) unfiled = dropChatFolderItems(ctx.db, [chat.id])
-        })()
+        // into a project or out of one, the chat stays in its history section (chat/nav-folders.ts: a section shows a
+        // chat while it is in its person's history; owner decision 2026-11-22)
+        ctx.db.query(`UPDATE chats SET ${sets.join(', ')} WHERE id = ?`).run(...args, chat.id)
         rt.publishChat(auth.user.id, chat.id, 'updated')
-        chatFoldersChanged(ctx, unfiled)
       }
       return chatOut(rt, auth.user.id, rt.store.chatRow(chat.id)!)
     })
