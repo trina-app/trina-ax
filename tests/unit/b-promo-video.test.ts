@@ -327,6 +327,34 @@ describe('the promo_video tool and the MP4 (a real app, the fake engine)', () =>
     expect(grey).toContain('so the server used "mono"')
   })
 
+  test('a chat shared with a person: they may get its video too, while they may open every picture in it (QA TC-r2a-06)', async () => {
+    const chat = await h.api('dana').call(API.createChat, { body: {} })
+    await send('dana', chat.id, fake({ tool: 'promo_video', args: slots(), sayResult: true }))
+    const art = h.ctx.db.query('SELECT id FROM artifacts WHERE chat_id = ?').get(chat.id) as { id: string }
+    // not shared yet: not found for alice
+    expect((await h.req('alice', `/api/promo-videos/${art.id}`)).status).toBe(404)
+    h.ctx.db.query("UPDATE chats SET people_shared_at = datetime('now') WHERE id = ?").run(chat.id)
+    h.ctx.db.query("INSERT INTO chat_audience (chat_id, subject_type, subject_id, added_by, added_at) VALUES (?, 'user', 'alice', 'dana', datetime('now'))").run(chat.id)
+    const info = await h.api('alice').call(API.getPromoVideo, { params: { id: art.id } })
+    expect(info).toMatchObject({ artifactId: art.id, chatId: chat.id, mp4: { available: false, state: 'none' } })
+    // someone it is not shared with: still not found
+    expect((await h.req('erin', `/api/promo-videos/${art.id}`)).status).toBe(404)
+    // a picture only dana may open (her own folder): not alice's to get, the owner's still
+    fs.mkdirSync(path.join(h.team, 'users/dana'), { recursive: true })
+    fs.writeFileSync(path.join(h.team, 'users/dana/logo.png'), png(600, 160))
+    const row = h.ctx.db.query('SELECT spec FROM promo_videos WHERE artifact_id = ?').get(art.id) as { spec: string }
+    const spec = JSON.parse(row.spec)
+    spec.doc.logo = { ...spec.doc.logo, src: '/users/dana/logo.png' }
+    h.ctx.db.query('UPDATE promo_videos SET spec = ? WHERE artifact_id = ?').run(JSON.stringify(spec), art.id)
+    expect((await h.req('alice', `/api/promo-videos/${art.id}`)).status).toBe(404)
+    expect((await h.req('alice', `/api/promo-videos/${art.id}/mp4`)).status).toBe(404)
+    expect((await h.req('dana', `/api/promo-videos/${art.id}`)).status).toBe(200)
+    // shared no more: not found again
+    h.ctx.db.query('UPDATE promo_videos SET spec = ? WHERE artifact_id = ?').run(row.spec, art.id)
+    h.ctx.db.query('DELETE FROM chat_audience WHERE chat_id = ?').run(chat.id)
+    expect((await h.req('alice', `/api/promo-videos/${art.id}`)).status).toBe(404)
+  })
+
   test('without a brand colour from the AI, the saved profile\'s first colour (the website reading\'s) chooses the style', async () => {
     await h.api('dana').call(API.saveCompanyProfile, { body: { website: 'acme.example', oneLine: 'Factory energy', products: '', audience: '', tone: [], avoid: '', sources: [], colors: ['#1f3a93', '#cad3fb'] } })
     const chat = await h.api('dana').call(API.createChat, { body: {} })

@@ -6,7 +6,7 @@
 //  + <previous_conversation> when a new engine session starts (tab 3 "이어가기 실패·엔진 교체").
 import fs from 'node:fs'
 import path from 'node:path'
-import { ARCHIVE_FOLDER, ownFolderLabel, PRODUCT, TEAM_TOOL_PREFIX, TEMPLATES_FOLDER, TOP_FOLDER_LABELS } from '@mycel/shared'
+import { ARCHIVE_FOLDER, ownFolderLabel, personFolderLabel, PRODUCT, TEAM_TOOL_PREFIX, TEMPLATES_FOLDER, TOP_FOLDER_LABELS } from '@mycel/shared'
 import { MEMORY_TEXT_MAX, roomRefsByIdOnly, SIDE_CHAT_SEND, type EngineId, type Locale } from '@mycel/shared/api'
 import { TOOL_OUTPUT_MAX as API_TOOL_OUTPUT_MAX } from '../engine/api-output'
 import type { FileService } from '../files/service'
@@ -880,7 +880,7 @@ function personLines(files: FileService, i: PromptInput, subagent = false): stri
 }
 
 /** In a shared chat the asker's own folder is theirs by name, not "내 폴더" (the reader's own folder). */
-export const sharedOwnFolderLine = (asker: string, locale: Locale) => `Others see this chat: in your answer, call ${asker}'s own folder ${asker}'s folder (in the answer's language), not ${JSON.stringify(ownFolderLabel(locale))}.`
+export const sharedOwnFolderLine = (asker: string, locale: Locale) => `Others see this chat: in your answer, call ${asker}'s own folder ${JSON.stringify(personFolderLabel(asker, locale))} (said in the answer's language when it is another one; never an English "'s" in a sentence of another language), not ${JSON.stringify(ownFolderLabel(locale))}.`
 
 /** The chat's project as a skill listing takes it (its own skills join), or null. */
 const chatProjectOf = (i: PromptInput): ChatProject | null => (i.project?.id ? { id: i.project.id, name: i.project.name, folderPath: i.project.folderPath } : null)

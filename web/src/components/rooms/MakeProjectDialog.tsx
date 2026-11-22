@@ -15,7 +15,7 @@
 import { useEffect, useId, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { CHAT_FILES_FOLDER } from '@mycel/shared'
-import { DEFAULT_LOCALE, isFileListName, type MakeProjectInfo, type UserRef } from '@mycel/shared/api'
+import { isFileListName, type MakeProjectInfo, type UserRef } from '@mycel/shared/api'
 import { create } from 'zustand'
 import { api, API, ApiError, errorText } from '../../lib/api'
 import { navigateTo } from '../../lib/nav'
@@ -80,10 +80,10 @@ export function steppedProjectFolder(name: string, folders: readonly string[]): 
   return out
 }
 
-/** The Chat attachments folder's name in the team's language (the folder the server makes). */
+/** The Chat attachments folder's name in my language (the server makes it in the team's; the screen shows it in mine
+ * everywhere: chatFilesWord). */
 function useChatFolder() {
-  const team = useMe()?.team.defaultLocale
-  return CHAT_FILES_FOLDER[team ?? DEFAULT_LOCALE]
+  return CHAT_FILES_FOLDER[useLocale()] ?? CHAT_FILES_FOLDER.en
 }
 
 export function MakeProjectDialog({ roomId, onClose }: { roomId: string; onClose: () => void }) {

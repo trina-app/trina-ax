@@ -102,7 +102,7 @@ export type PromoVideoInfo = z.infer<typeof PromoVideoInfo>
 
 export const PROMO_VIDEO = {
   getPromoVideo: endpoint({ method: 'GET', path: '/api/promo-videos/:id', auth: 'user', owner: 'B', response: PromoVideoInfo,
-    summary: 'A promo video of one of the caller\'s chats, by its artifact id: its style and length, and whether an MP4 can be made here and how far it is.' }),
+    summary: 'A promo video of a chat the caller may open (their own, or one shared with them, when they may open every picture it shows; else 404), by its artifact id: its style and length, and whether an MP4 can be made here and how far it is.' }),
   renderPromoVideo: endpoint({ method: 'POST', path: '/api/promo-videos/:id/mp4', auth: 'user', owner: 'B', response: PromoVideoInfo, status: 202,
     summary: 'Make the MP4 of a promo video (one at a time on this server; an MP4 made before is kept). 404 where this server cannot make one.' }),
   downloadPromoVideo: endpoint({ method: 'GET', path: '/api/promo-videos/:id/mp4', auth: 'user', owner: 'B', response: stream(false),
