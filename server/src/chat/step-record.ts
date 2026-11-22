@@ -9,6 +9,7 @@ import type { Database } from 'bun:sqlite'
 import type { StoredStep } from './store'
 import { neutralizeTags } from './prompt'
 import { knownStepTool, stepWords } from '@mycel/shared'
+import { BROWSER_TOOL_NAMES } from '../realtime/browser-tools'
 
 /** a step's note: `i` its key arguments, `o` the start of its result (both plain text, already capped and redacted) */
 export interface StepNote { i?: string; o?: string }
@@ -33,8 +34,13 @@ const CONTENT_TOOLS: ReadonlySet<string> = new Set(['read', 'grep', 'glob', 'Rea
 /** a tool whose result is mostly what it read (a file, a mail, a page, a message list): its arguments are kept, its
  * result not (read again; a person may have lost access to it since). By name: a connection's own read tools too
  * (gmail_read_message, slack_read_channel, search_files, get_page, fetch, list_events, ...) */
-const CONTENT_NAME = /(^|_)(read|reads|get|fetch|search|find|list|lookup|query|grep|glob|cat|open|download|export|view|show|recall)(_|$)/i
-export const contentTool = (tool: string): boolean => CONTENT_TOOLS.has(tool) || CONTENT_NAME.test(tool.replace(/^.*__/, ''))
+const CONTENT_NAME = /(^|_)(read|reads|get|fetch|search|find|list|lookup|query|grep|glob|cat|open|download|export|view|show|recall|history|context|tabs|page|pages|screenshot|snapshot|scrape|crawl|inbox|messages|thread|threads)(_|$)/i
+/** a tool's own name as words joined by "_": "mcp__x__getJiraIssue" and "notion-fetch" as get_jira_issue, notion_fetch */
+const nameWords = (tool: string): string => tool.replace(/^.*__/, '').replace(/([a-z0-9])([A-Z])/g, '$1_$2').replace(/[-.\s]+/g, '_').toLowerCase()
+/** the in-app browser's own tools (what a signed-in page showed or ran: a cookie, a token, an open tab) and the tools
+ * that show a skill's or a room's text: their results are never kept */
+const NO_RESULT_TOOLS: ReadonlySet<string> = new Set([...BROWSER_TOOL_NAMES, 'skill', 'rooms', 'tabs_context', 'javascript_tool'])
+export const contentTool = (tool: string): boolean => CONTENT_TOOLS.has(tool) || NO_RESULT_TOOLS.has(tool) || NO_RESULT_TOOLS.has(tool.replace(/^.*__/, '')) || CONTENT_NAME.test(nameWords(tool))
 /** steps that are server notes, not the AI's work */
 const NOTE_TOOLS: ReadonlySet<string> = new Set(['engine', 'refusal', 'demo_replay', 'attachment', 'history_summary', 'todo_write', 'context',
   // a memory's words: the person may have forgotten it since (Settings › 메모리); the memory list is the place for them
@@ -48,10 +54,24 @@ const BODY_ARG = /^(content|contents|body|html|markdown|new_string|old_string|da
 const oneLine = (s: string): string => s.replace(/data:[a-z0-9.+/-]+;base64,[A-Za-z0-9+/=]+/gi, '[data]').replace(/[A-Za-z0-9+/=]{200,}/g, '[data]').replace(/\s+/g, ' ').trim()
 const clip = (s: string, n: number): string => (s.length > n ? `${s.slice(0, n - 1)}…` : s)
 
-function argValue(key: string, v: unknown): string | null {
+/** what was typed into a page or a form (a code, a card number): its length only */
+const TYPED_ARG = /^(value|text|keys|input|otp|code_value|password|passcode|pin)$/i
+
+/** Strings that look like secrets in what a call took or gave back (a token, a key, a cookie, a password field),
+ * hidden whatever the person stored: the record must never let the AI repeat one. */
+export function scrubSecrets(s: string): string {
+  return s
+    .replace(/\beyJ[\w-]{8,}\.[\w-]{8,}\.[\w-]{4,}/g, '[hidden]')
+    .replace(/\b(sk|pk|rk)-[A-Za-z0-9_-]{12,}/g, '[hidden]')
+    .replace(/\b(ghp|gho|ghs|ghu|github_pat|xox[abpsr]|AKIA|ASIA|AIza|ya29)[A-Za-z0-9_.-]{8,}/g, '[hidden]')
+    .replace(/\b(bearer|basic)\s+[A-Za-z0-9._~+/=-]{8,}/gi, '$1 [hidden]')
+    .replace(/(["']?\b(?:password|passwd|pwd|secret|token|access_token|refresh_token|api[_-]?key|apikey|session(?:id)?|cookie|set-cookie|authorization|auth|otp|pin)\b["']?\s*[:=]\s*)("[^"]*"|'[^']*'|[^\s,;&}]+)/gi, '$1[hidden]')
+}
+
+function argValue(key: string, v: unknown, typed = false): string | null {
   if (v === null || v === undefined) return null
   if (typeof v === 'string') {
-    if (BODY_ARG.test(key)) return `(${v.length} characters)`
+    if (BODY_ARG.test(key) || (typed && TYPED_ARG.test(key))) return `(${v.length} characters)`
     // code and commands keep more of their start: they are what the call did
     return JSON.stringify(clip(oneLine(v), /^(code|script|command|cmd)$/i.test(key) ? 200 : 120))
   }
@@ -67,8 +87,10 @@ function argValue(key: string, v: unknown): string | null {
 
 /** A call's key arguments in one short line: `path="a/b.pdf" url="https://…"`. The keys that say what the call did come
  * first; body text (a file's content, a mail's body) only as its length; nested objects once, one level down. */
-export function stepArgs(input: unknown, max = STEP_ARGS_CHARS): string {
+export function stepArgs(input: unknown, max = STEP_ARGS_CHARS, tool = ''): string {
   if (!input || typeof input !== 'object' || Array.isArray(input)) return ''
+  // a browser tool that types (form_input, computer, javascript_tool ...): what it typed only as its length
+  const typed = !!tool && (NO_RESULT_TOOLS.has(tool) || NO_RESULT_TOOLS.has(tool.replace(/^.*__/, '')))
   const entries = Object.entries(input as Record<string, unknown>)
   const flat: [string, unknown][] = []
   for (const [k, v] of entries) {
@@ -81,20 +103,20 @@ export function stepArgs(input: unknown, max = STEP_ARGS_CHARS): string {
   const parts: string[] = []
   let used = 0
   for (const [k, v] of ordered) {
-    const val = argValue(keyOf(k), v)
+    const val = argValue(keyOf(k), v, typed)
     if (val === null) continue
     const part = `${k}=${val}`
     if (used + part.length > max) { if (!parts.length) parts.push(clip(part, max)); break }
     parts.push(part)
     used += part.length + 1
   }
-  return parts.join(' ')
+  return scrubSecrets(parts.join(' '))
 }
 
 /** The start of a call's result in one line, pictures and base64 left out. Empty for a content tool or no output. */
 export function stepResult(tool: string, output: string | undefined, max = STEP_RESULT_CHARS): string {
   if (!output || contentTool(tool)) return ''
-  const line = oneLine(output)
+  const line = scrubSecrets(oneLine(output))
   if (!line) return ''
   return line.length > max ? `${line.slice(0, max - 1)}… (${output.length} characters in all)` : line
 }

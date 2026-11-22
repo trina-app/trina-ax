@@ -513,24 +513,34 @@ export function historyWindow(history: { role: 'user' | 'assistant'; content: st
   // no room at all (a model whose context the instructions fill): every message is left out, none half-cut
   if (budget < 1) return { parts: [], omitted: history.length, cut: false }
   const parts: string[] = []
+  // the window is made of the text alone (a record never leaves a message out or cuts one); then the records of the
+  // answers in it, newest first, in what the text leaves of the budget (chat/step-record.ts; their values are
+  // neutralized there, the block's own tags stay)
+  const kept: number[] = []
   let used = 0
   let cut = false
   let i = history.length - 1
   for (; i >= 0; i--) {
     const h = history[i]!
-    const text = `${h.role === 'user' ? 'User' : 'Assistant'}: ${neutralizeTags(h.content)}`
-    // an earlier answer of the asker's own: the steps it ran, as the server recorded them (chat/step-record.ts; its
-    // values are neutralized there, the block's own tags stay). It goes first when the message does not fit with it:
-    // the text is never left out or cut for a record
-    let s = h.steps ? `${text}\n<steps_record>\n${neutralizeTags(h.steps)}\n</steps_record>` : text
-    if (s !== text && used + estimateTokens(s) > budget) s = text
+    const s = `${h.role === 'user' ? 'User' : 'Assistant'}: ${neutralizeTags(h.content)}`
     const t = estimateTokens(s)
     if (used + t > budget) {
       if (!parts.length) { parts.unshift(tailWithin(s, budget)); used = budget; cut = true; i-- }
       break
     }
     parts.unshift(s)
+    kept.unshift(i)
     used += t + 1
+  }
+  for (let k = kept.length - 1; k >= 0; k--) {
+    const steps = history[kept[k]!]!.steps
+    if (!steps) continue
+    const block = `\n<steps_record>\n${neutralizeTags(steps)}\n</steps_record>`
+    const t = estimateTokens(block)
+    if (used + t > budget) continue
+    // (parts and kept line up; a cut newest message is the only part then, with nothing kept and no record)
+    parts[k] += block
+    used += t
   }
   return { parts, omitted: i + 1, cut }
 }

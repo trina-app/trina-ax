@@ -6,9 +6,10 @@ import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from '
 import { API } from '@mycel/shared/api'
 import { startHarness, type Harness, type TestSocket } from '../lib/b-harness'
 import { oldProject } from '../lib/legacy-project'
-import { stepArgs, stepResult, stepsRecord, STEP_RECORD_CHARS, STEP_RECORD_LINES, withStepRecords, type RecordItem } from '../../server/src/chat/step-record'
-import { historyBlock } from '../../server/src/chat/prompt'
+import { contentTool, scrubSecrets, stepArgs, stepResult, stepsRecord, STEP_RECORD_CHARS, STEP_RECORD_LINES, withStepRecords, type RecordItem } from '../../server/src/chat/step-record'
+import { historyBlock, historyWindow } from '../../server/src/chat/prompt'
 import type { StoredStep } from '../../server/src/chat/store'
+import { BROWSER_TOOL_NAMES } from '../../server/src/realtime/browser-tools'
 
 setDefaultTimeout(60_000)
 const fake = (...ds: unknown[]) => ds.map((d) => '@fake ' + JSON.stringify(d)).join('\n')
@@ -38,6 +39,24 @@ describe('the record of one answer', () => {
     const long = stepResult('box_shell', 'x '.repeat(400))
     expect(long.length).toBeLessThan(260)
     expect(long).toContain('(800 characters in all)')
+  })
+
+  test('no result for the in-app browser, skills, rooms or a connection\'s reads, whatever the name\'s style', () => {
+    for (const t of [...BROWSER_TOOL_NAMES, 'javascript_tool', 'tabs_context', 'skill', 'rooms', 'web_fetch', 'my_gmail__search_gmail_messages',
+      'team_notion__notion-fetch', 'team_jira__getJiraIssue', 'my_slack__slack_conversations_history', 'my_cal__listEvents']) expect([t, contentTool(t)]).toEqual([t, true])
+    for (const t of ['write', 'make_file', 'box_shell', 'my_aside__repl', 'share_file', 'my_gmail__send_message']) expect([t, contentTool(t)]).toEqual([t, false])
+    expect(stepResult('javascript_tool', 'document.cookie = sid=abc')).toBe('')
+  })
+
+  test('what a page was typed into is its length; secrets in arguments and results are hidden', () => {
+    expect(stepArgs({ ref: 'r1', value: '123456' }, undefined, 'form_input')).toBe('value=(6 characters) ref="r1"')
+    expect(stepArgs({ value: 'shown' }, undefined, 'my_tool__set')).toBe('value="shown"')
+    for (const secret of ['eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTYifQ.abcdefghijk', 'sk-ant-oat01-ABCDEFGHIJKLMNOP', 'ghp_ABCDEFGHIJKLMNOPQRST', 'Bearer abcdefghijklmnop'])
+      expect(scrubSecrets(`got ${secret} ok`)).not.toContain(secret.split(' ').pop()!.slice(4, 14))
+    expect(scrubSecrets('password=hunter22 user=kim')).toBe('password=[hidden] user=kim')
+    expect(scrubSecrets('{"token": "abc123xyz", "ok": true}')).toBe('{"token": [hidden], "ok": true}')
+    expect(stepResult('my_aside__repl', 'uploaded; session=abcdef123456')).toBe('uploaded; session=[hidden]')
+    expect(stepArgs({ url: 'https://x.example/cb?access_token=SECRETVALUE1&x=1' })).not.toContain('SECRETVALUE1')
   })
 
   test('one line per tool step: no thinking, no sub-agent inner steps, failures and stops said', () => {
@@ -90,16 +109,20 @@ describe('the record of one answer', () => {
     expect(historyBlock([{ role: 'user', content: 'go' }, { role: 'assistant', content: 'done' }])).not.toContain('steps_record')
   })
 
-  test('the record counts toward the history window, and goes before any text does', () => {
+  test('the window is the text first; records only in what the text leaves, newest first', () => {
     const big = 'x'.repeat(4000)
     const h = Array.from({ length: 40 }, (_, i) => ({ role: (i % 2 ? 'assistant' : 'user') as 'user' | 'assistant', content: `m${i}`, ...(i % 2 ? { steps: big } : {}) }))
     const block = historyBlock(h, null, 5000)
     // every message's text is there; only the newest records that fit
     expect(block).not.toContain('omitted')
-    for (let i = 0; i < 40; i++) expect(block).toContain(`: m${i}\n`.replace('\n', i === 39 ? '' : '\n'))
     expect(block.match(/<steps_record>\n/g)!.length).toBe(4)
     expect(block).toContain('Assistant: m39\n<steps_record>')
     expect(block).toContain('Assistant: m1\n\nUser: m2')
+    // a record never leaves out text that fits without it: the same window as with no records at all
+    const long = Array.from({ length: 30 }, (_, i) => ({ role: (i % 2 ? 'assistant' : 'user') as 'user' | 'assistant', content: '가'.repeat(300), ...(i % 2 ? { steps: big } : {}) }))
+    const plain = long.map(({ steps: _s, ...rest }) => rest)
+    expect(historyWindow(long, 5000).omitted).toBe(historyWindow(plain, 5000).omitted)
+    expect(historyWindow(long, 5000).omitted).toBeGreaterThan(0)
   })
 })
 

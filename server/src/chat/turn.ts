@@ -2169,7 +2169,8 @@ export class TurnExec {
         const step = this.addStep({ id: e.id, kind, tool, ...(work !== null ? { label } : this.sharedStep(tool, e.input, label)), status: 'running', ...(e.parentId ? { parentId: e.parentId } : {}) })
         // the call's key arguments, for the next fresh session's record of this answer (chat/step-record.ts); a read
         // of the work folder by the path the step shows, never the server's own
-        if (!e.parentId) this.noteStep(step.id, { i: stepArgs(this.redactValues(work !== null ? { ...(e.input as object), ...(tool === 'read' ? { file_path: work } : { path: work }) } : e.input)) })
+        // (set whole: an engine that numbers its calls again in a relaunch reuses an id, never the old call's note)
+        if (!e.parentId) this.noteStep(step.id, { i: stepArgs(this.redactValues(work !== null ? { ...(e.input as object), ...(tool === 'read' ? { file_path: work } : { path: work }) } : e.input), undefined, tool) }, true)
         const waiting = e.parentId ? undefined : this.pendingPatches.get(tool)?.shift()
         if (waiting) { this.patched.add(step.id); this.updateStep(step.id, waiting(step)) }
         this.noteTaint(tool, e.input)
@@ -2218,7 +2219,7 @@ export class TurnExec {
         this.updateStep(e.id, patch)
         if (patch.sources) this.rememberSearchResults(e.id)
         // the start of its result, for the same record (secrets hidden before it is cut)
-        if (this.stepNotes[stepId(e.id)] && e.output) this.noteStep(stepId(e.id), { o: stepResult(tool, this.redact(e.output.slice(0, 4000))) })
+        if (this.stepNotes[stepId(e.id)] && e.output) this.noteStep(stepId(e.id), { o: stepResult(tool, this.redact(e.output)) })
         return
       }
       case 'agent_progress':
@@ -2543,9 +2544,9 @@ export class TurnExec {
   /** what each of the main AI's tool steps was called with and the start of what came back (chat/step-record.ts):
    * saved with the answer (messages.step_notes), never sent to an app */
   private stepNotes: StepNotes = {}
-  private noteStep(id: string, note: { i?: string; o?: string }) {
-    const cur = this.stepNotes[id]
-    if (!cur && Object.keys(this.stepNotes).length >= STEP_NOTES_MAX) return
+  private noteStep(id: string, note: { i?: string; o?: string }, fresh = false) {
+    const cur = fresh ? undefined : this.stepNotes[id]
+    if (!this.stepNotes[id] && Object.keys(this.stepNotes).length >= STEP_NOTES_MAX) return
     const next = { ...cur }
     if (note.i) next.i = note.i
     if (note.o) next.o = note.o

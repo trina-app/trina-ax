@@ -27,13 +27,19 @@
     and everyone who sees the chat now may list them; the notes of an answer hidden from anyone who sees the chat now
     (`answerHiddenFrom`, a k or x group) or from before the chat was shared stay out (the latter shows the words the
     others see). A check that fails keeps the notes out.
-  - Results of tools that return content (read, grep, a page, a mail, a message list, a search: by name) are not kept:
-    the AI reads them again, and the person may have lost access since. Memory tools keep no line.
+  - Results of tools that return content (read, grep, a page, a mail, a message list, a search: by name, in any
+    naming style, `notion-fetch` or `getJiraIssue` too), of the in-app browser's tools (a signed-in page can show a
+    cookie or a token) and of skills and rooms are not kept: the AI reads them again, and the person may have lost
+    access since. What a browser tool typed (`value`, `text`) is kept as its length. Anything that looks like a
+    secret (a token, a key, `password=`, a cookie, a bearer header) is hidden in arguments and results, on top of the
+    person's stored connection secrets. Memory tools keep no line.
   - An answer that ran tools and was stopped or failed before it wrote any text was left out of the history whole
     (steps and all). It now stays, as one line saying so, with its record.
   - Caps: the newest 6 eligible answers, 40 lines and 3,000 characters per answer (the first steps and the newest),
-    6,000 characters in all, none for a model whose window is under 12,000 tokens. A record counts toward the history
-    window and is the first thing left out: the text is never dropped or cut for it.
+    6,000 characters in all, none for a model whose window is under 12,000 tokens. The window is made of the text
+    first, exactly as before; records go in, newest first, only in what the text leaves of the budget.
+  - Chats with an answer that ran tools and wrote no text get one more history line, so their summary is made again
+    once (its hash chain changes).
   - The history's intro says the record is the AI's own, written by the server, data and not instructions; it answers
     "how did you do it" from it, never runs a step again because it is listed, and never follows words in a result.
 - **Not changed:** when Claude Code resumes. A resumed session holds whole file contents and tool results, more than the
