@@ -14,8 +14,9 @@ import { accessChanged, chatChanged, notificationsChanged, reloadAsked } from '.
  * (opening the chat reads them: readChatMentions). */
 export interface ChatMention { chatId: string; count: number; names: string[]; ids: string[] }
 
-/** The Inbox's notices are read in pages of this many, without the conversation rows (`only: 'notices'`: DMs and room
- * mentions are never chat-thread mentions), at most MENTIONS_PAGES pages: the Inbox keeps 30 days, so this reaches
+/** The Inbox's conversation rows are read in pages of this many (`only: 'rooms'`: the chat-thread notices are
+ * conversation rows, listed with the rooms' rows, which are one per place; the app's own notices are never chat-thread
+ * mentions), at most MENTIONS_PAGES pages: the Inbox keeps 30 days, so this reaches
  * every unread mention of all but the busiest people, and the newest ones always. */
 export const MENTIONS_READ = 100
 export const MENTIONS_PAGES = 5
@@ -73,7 +74,7 @@ async function readNotices(n: number): Promise<InboxNotification[] | null> {
   const items: InboxNotification[] = []
   let cursor: string | undefined
   for (let page = 0; page < MENTIONS_PAGES; page++) {
-    const r = await api.call(API.listNotifications, { query: { limit: MENTIONS_READ, only: 'notices', ...(cursor ? { cursor } : {}) } })
+    const r = await api.call(API.listNotifications, { query: { limit: MENTIONS_READ, only: 'rooms', ...(cursor ? { cursor } : {}) } })
     if (n !== asked) return null
     items.push(...r.items)
     if (!r.nextCursor) break

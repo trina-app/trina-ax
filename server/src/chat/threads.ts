@@ -251,7 +251,7 @@ export function listThread(rt: ChatRuntime, userId: string, chatId: string, root
  * whether they may delete the reply). The audience is worked out now (Audiences.ofChat; for a chat no longer shared,
  * its creator while they still see the thread); an answer hidden from someone tells them nothing.
  */
-function fanOut(ctx: AppContext, rt: ChatRuntime, row: ChatRow, root: MessageRow, ev: { change: 'reply' | 'deleted'; reply?: ReplyRow; replyId?: string }) {
+function fanOut(ctx: AppContext, rt: ChatRuntime, row: ChatRow, root: MessageRow, ev: { change: 'reply' | 'deleted'; reply?: ReplyRow; replyId?: string; notices?: ReadonlyMap<string, 'mention' | 'reply'> }) {
   const aud = new Audiences(rt.db, rt.files)
   let ids = aud.ofChat(row)
   if (!ids.length) ids = threadVisibleTo(ctx, row.user_id, row.id, root.id) ? [row.user_id] : []
@@ -261,7 +261,9 @@ function fanOut(ctx: AppContext, rt: ChatRuntime, row: ChatRow, root: MessageRow
     if (uid !== asker && sight.withheld(row.id, uid).has(root.id)) continue
     const thread = summaryOf(rt.db, root.id, uid)
     const reply = ev.reply ? replyOut(rt, ev.reply, uid, moderates(rt, row, uid)) : undefined
-    rt.hub.publish(uid, { type: 'chat.thread', data: { chatId: row.id, rootId: root.id, change: ev.change, ...(reply ? { reply } : {}), ...(ev.replyId ? { replyId: ev.replyId } : {}), thread } })
+    // `notice`: this reply gave them a notice (sendReply), so the desktop app may tell it as the Inbox and push do
+    const notice = ev.notices?.get(uid)
+    rt.hub.publish(uid, { type: 'chat.thread', data: { chatId: row.id, rootId: root.id, change: ev.change, ...(reply ? { reply } : {}), ...(ev.replyId ? { replyId: ev.replyId } : {}), thread, ...(notice ? { notice } : {}) } })
   }
 }
 
@@ -304,13 +306,23 @@ export function sendReply(ctx: AppContext, rt: ChatRuntime, userId: string, chat
     for (const id of mentioned) join.run(r.root_id, id, r.chat_id, prev, at)
   })()
   const followers = db.query('SELECT user_id FROM chat_thread_follows WHERE root_id = ? AND user_id <> ?').all(r.root_id, userId) as { user_id: string }[]
+  // who the desktop app tells (the chat.thread event's `notice`), as a room tells (rooms/service.ts notify): once per
+  // unread run (a new notice, or its first mention), outside quiet hours, a plain reply only while "Replies in threads
+  // I'm part of" is on (the push's own rules: chatThreadWanted)
+  const notices = new Map<string, 'mention' | 'reply'>()
+  const tz = teamTimeZone(db), now = Date.parse(at)
   for (const f of followers) {
     // checked now, not only when the push goes: someone who lost the chat gets no notice at all
     if (!threadVisibleTo(ctx, f.user_id, r.chat_id, r.root_id)) continue
-    try { notificationsOf(ctx).chatThreadReply(f.user_id, { chatId: r.chat_id, rootId: r.root_id, replyId: r.id, by: userId, mention: mentioned.includes(f.user_id) }) }
-    catch { ctx.log.warn('chat thread notice deferred') }
+    const mention = mentioned.includes(f.user_id)
+    try {
+      const made = notificationsOf(ctx).chatThreadReply(f.user_id, { chatId: r.chat_id, rootId: r.root_id, replyId: r.id, by: userId, mention })
+      const prefs = getPreferences(db, f.user_id)
+      const tell = made === 'new' || (made === 'mention' && mention)
+      if (tell && !inQuietHours(prefs.quietHours, tz, now) && (mention || prefs.roomThreadReplies)) notices.set(f.user_id, mention ? 'mention' : 'reply')
+    } catch { ctx.log.warn('chat thread notice deferred') }
   }
-  fanOut(ctx, rt, g.a.row, g.root, { change: 'reply', reply: r })
+  fanOut(ctx, rt, g.a.row, g.root, { change: 'reply', reply: r, notices })
   return replyOut(rt, r, userId, g.moderator)
 }
 
@@ -417,7 +429,7 @@ export function chatThreadNoticeOut(ctx: AppContext, row: { id: string; user_id:
   const by = mention ? mention.by : n!.by_user
   const u = by ? ctx.db.query("SELECT name FROM users WHERE id = ? AND status = 'active' AND deleted_at IS NULL").get(by) as { name: string } | null : null
   const title = c ? plainLabel(redactorFor(ctx, c.user_id).hide(c.title || '')) : ''
-  return { ...base, chatId: n!.chat_id, link: 'chat_thread', chatThread: { chatId: n!.chat_id, rootId: n!.source_id, name: u ? plainLabel(u.name, 80) : null, title: title || null, ...(mention ? { mention: true as const } : {}) } }
+  return { ...base, chatId: n!.chat_id, link: 'chat_thread', chatThread: { chatId: n!.chat_id, rootId: n!.source_id, name: u ? plainLabel(u.name, 80) : null, ...(u && by ? { byId: by } : {}), title: title || null, ...(mention ? { mention: true as const } : {}) } }
 }
 
 /** The people who follow a thread, for a test or a check: the asker and the repliers. */
