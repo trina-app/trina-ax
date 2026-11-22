@@ -29,7 +29,7 @@ cuándo, y qué sigue abierto. Trabaje solo con las notas recibidas.
 1. **La reunión:** tema, fecha y asistentes, en la medida en que las notas lo digan. Deje fuera lo que no digan.
 2. **Decisiones:** lo acordado, una frase cada una. Solo lo que de verdad se decidió; una idea que alguien propuso no es
    una decisión.
-3. **Tareas:** una fila por tarea, concreta ("Enviar el presupuesto revisado a Distribuciones Sur", no "hacer
+3. **Tareas:** una fila por tarea, concreta ("Enviar el presupuesto revisado a Distribuciones Ejemplo", no "hacer
    seguimiento").
    - **Responsable:** exactamente una persona. Si las notas nombran un grupo o a nadie, escriba "sin asignar". Nunca
      elija a alguien.

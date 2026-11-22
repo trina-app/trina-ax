@@ -3,7 +3,7 @@ fictional: true
 company: Example Coffee
 made: 2026-11-22
 engine: claude-code
-skillHash: e610b2fe8353
+skillHash: fe7c74b3cfff
 ---
 **Input**
 
@@ -19,13 +19,13 @@ skillHash: e610b2fe8353
 Attendees: Mina Kim, Jihoon Lee, Sua Park
 
 ### Summary
-At the weekly check-in, the team noted 3 new office subscription customers for December and agreed to move delivery to Thursdays from 1 December. They also set work on winter blend samples and a customer notice email. The box supplier change, the website order page bug and the bean price increase are still open.
+At the weekly meeting the team planned for 3 new office subscription customers starting in December. Everyone agreed to move delivery to Thursday from 1 December. Next steps are winter blend samples and a customer notice email. The box supplier change and the bean price increase are still open, and nobody has taken the website order page bug yet.
 
 ### Decisions
-- Delivery moves to Thursday, starting 1 December (everyone agreed).
+- Delivery moves to Thursday, starting 1 December. Everyone agreed.
 
 ### To-dos
 | # | Task | Owner | Due |
 |---|---|---|---|
-| 1 | Roast 50 bags of winter blend samples | Jihoon Lee | 20 November 2026 ("by Friday") |
-| 2 | Draft the customer notice email | Sua Park | 23 November 2026 ("by next Monday") |
+| 1 | Roast 50 bags of winter blend samples | Jihoon Lee | 20 November 2026 (by Friday) |
+| 2 | Draft the customer notice email | Sua Park | 23 November 2026 (by next Monday) |

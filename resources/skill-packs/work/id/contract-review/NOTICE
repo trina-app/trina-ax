@@ -14,9 +14,10 @@ under the License is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR
 CONDITIONS OF ANY KIND, either express or implied.
 
 Changes by the Trina AX team (2026-11-22): rewritten as a plain-language first
-read for business teams without a legal playbook, with a fixed
-not-legal-advice line; the playbook, CLM, redline and connector steps were
-removed; an Indonesian version was written.
+read for business teams without a legal playbook, with a fixed not-legal-
+advice line; the playbook, CLM, redline and connector steps were removed; the
+text was written in six languages (Korean, English, Japanese, Chinese, Spanish
+and Indonesian).
 
 The upstream text was read at the commits above and rewritten, not copied
 whole. The upstream LICENSE files are kept as they were, except that the

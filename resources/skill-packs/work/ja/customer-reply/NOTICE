@@ -15,8 +15,8 @@ CONDITIONS OF ANY KIND, either express or implied.
 
 Changes by the Trina AX team (2026-11-22): shortened for everyday customer
 replies by email, chat and review; the CRM, support platform, knowledge base
-and connector steps and the template set were removed; a Japanese version was
-written.
+and connector steps and the template set were removed; the text was written in
+six languages (Korean, English, Japanese, Chinese, Spanish and Indonesian).
 
 The upstream text was read at the commits above and rewritten, not copied
 whole. The upstream LICENSE files are kept as they were, except that the

@@ -29,7 +29,7 @@ still open. Work only from the notes you were given.
 1. **The meeting:** title or topic, date, and who took part, as far as the notes say. Leave out what they do not say.
 2. **Decisions:** what was agreed, in one sentence each. Only what was actually decided; an idea someone raised is not a
    decision.
-3. **To-dos:** one row per task. Each task is concrete ("Send the revised quote to Daehan Foods", not "follow up").
+3. **To-dos:** one row per task. Each task is concrete ("Send the revised quote to Sample Trading Co.", not "follow up").
    - **Owner:** exactly one person. If the notes name a group or nobody, write "not set". Never pick someone.
    - **Due:** the date the notes give. Turn "Friday" or "next week" into a date only when the meeting date is known,
      and keep the original words in brackets. No date in the notes: "not set". Never invent one.

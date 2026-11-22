@@ -16,6 +16,9 @@
   5. 자연스러운 글 / Natural writing (`work/humanizer`), checked
   6. 회사 소개서 / Company intro deck (`general/intro-deck`), not checked
 
+  A checked skill whose text the team gets in another language comes unchecked (`setupMark`): natural writing is
+  Korean and English only, so a Japanese, Chinese, Spanish or Indonesian team sees it unchecked.
+
   Card news and the promo video leave the setup list. They stay in the catalog: Team skills › "트리나가 준비한 스킬 ·
   N개 더" lists every kept skill as before. The catalog entry says where the setup puts a skill (`onboarding:
   'checked' | 'offered' | null`, server/src/onboarding/skill-packs.ts CATALOG); a server from before the field sends

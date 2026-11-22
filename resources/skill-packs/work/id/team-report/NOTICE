@@ -17,8 +17,9 @@ CONDITIONS OF ANY KIND, either express or implied.
 
 Changes by the Trina AX team (2026-11-22): merged into one skill for weekly
 reports, team notices, incident reports and project status; the Slack, Drive,
-email, calendar and tracker steps and the example files were removed; an Indonesian
-version was written.
+email, calendar and tracker steps and the example files were removed; the text
+was written in six languages (Korean, English, Japanese, Chinese, Spanish and
+Indonesian).
 
 The upstream text was read at the commits above and rewritten, not copied
 whole. The upstream LICENSE files are kept as they were, except that the

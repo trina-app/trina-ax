@@ -208,6 +208,8 @@ describe('over the API', () => {
       // the everyday office skills in Japanese; the others in English
       expect(c.skills.map((s) => s.title)).toEqual(['議事録まとめ', '週報・お知らせ', 'お客様への返信', '契約書チェック', 'Natural writing', 'Company slide deck', 'Promo cards', 'Promo video'])
       expect(c.skills.map((s) => s.locale)).toEqual(['ja', 'ja', 'ja', 'ja', 'en', 'en', 'en', 'en'])
+      // natural writing comes in English there: offered, not checked
+      expect(c.skills.map((s) => s.onboarding)).toEqual(['checked', 'checked', 'checked', 'offered', 'offered', 'offered', null, null])
       // the examples in the text's language: Japanese ones on 見本コーヒー, the English ones on "Example Coffee"
       expect(c.skills.map((s) => (s.example?.kind === 'image' ? s.example.url : s.example?.kind))).toEqual(['text', 'text', 'text', 'text', 'text', '/skill-examples/en/intro-deck.webp', '/skill-examples/en/card-news.webp', '/skill-examples/en/promo-video.webp'])
       expect(c.skills[0]!.example).toEqual(packExample('ja', 'meeting-notes'))

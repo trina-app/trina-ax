@@ -286,6 +286,10 @@ function inTeam(ctx: AppContext, rel: string, name: string, team: { path: string
   return team.some((s) => fold(s.path) === fold(rel) || sameSkillName(s.name, name))
 }
 
+/** Where the setup puts a skill for this team: a `checked` skill whose text the team gets in another language (English
+ * for a team in a language it has no text in: natural writing on a Japanese team) is offered unchecked. */
+export const setupMark = (mark: PackOnboarding | null, at: Locale, team: Locale): PackOnboarding | null => (mark === 'checked' && at !== team ? 'offered' : mark)
+
 /** The catalog as `userId` (an owner or admin) sees it: every kept skill, in CATALOG's order, in the team's language
  * (`locale`: the caller's, for the one line). */
 export function skillPackCatalog(ctx: AppContext, userId: string, locale: Locale): PackCatalog {
@@ -300,7 +304,7 @@ export function skillPackCatalog(ctx: AppContext, userId: string, locale: Locale
     const path = `skills/${c.pack}/${c.name}/SKILL.md`
     return [{
       pack: c.pack, name: c.name, path, title: parseSkill(text, path)?.title ?? c.name, description: packSummary(c.name, locale),
-      inTeam: inTeam(ctx, path, c.name, teamSkills), visual: c.visual, onboarding: c.onboarding, example: packExample(at, c.name), locale: at, source: c.source(at),
+      inTeam: inTeam(ctx, path, c.name, teamSkills), visual: c.visual, onboarding: setupMark(c.onboarding, at, team), example: packExample(at, c.name), locale: at, source: c.source(at),
     }]
   })
   return { skills, profile: !!readCompanyProfile(ctx.files, me) }
