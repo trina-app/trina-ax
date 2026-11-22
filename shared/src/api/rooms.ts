@@ -491,6 +491,10 @@ export const RoomMessage = z.object({
   authorKind: z.enum(['user', 'ai']),
   /** the sender as the server knows them (never taken from the request); null: the AI, or an account that is gone */
   author: UserRef.nullable(),
+  /** the author's account is turned off or removed (they left the team, or a guest was removed): 'guest' for a guest,
+   * 'member' for anyone else; the app shows a quiet "left" tag by the name. Absent: an active account (older servers
+   * never send it) */
+  authorLeft: z.enum(['member', 'guest']).optional(),
   /** an 'ai' message: who asked the AI (null otherwise) */
   askedBy: UserRef.nullable(),
   /** 'room': everyone in the room. 'private' (an unposted preview of an old room AI answer) is never listed since

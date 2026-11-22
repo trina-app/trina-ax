@@ -4486,6 +4486,8 @@ export const ja: Record<MessageKey, string> = {
   "rooms.deleted": "このメッセージは削除されました",
   "rooms.edited": "（編集済み）",
   "rooms.goneUser": "不明なユーザー",
+  "rooms.authorLeft": "退出済み",
+  "rooms.authorLeftGuest": "ゲスト · 退出済み",
   "rooms.peerGone": "{name}さんはチームを離れました。このトークは読めますが、メッセージは送れません。",
   "rooms.you": "自分",
   "person.open": "{name}さんについて",

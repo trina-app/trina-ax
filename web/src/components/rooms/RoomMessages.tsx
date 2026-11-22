@@ -232,7 +232,7 @@ export function RoomMessages({ roomId, messages, pending, meId, members, onThrea
             <RunShell
               face={first.app ? <AppTile service={serviceOf(first.app)} app={first.app} size="face" className="mt-0.5" /> : <RunFace user={first.author} ai={first.authorKind === 'ai'} />}
               // an app's message: its name (who set it up, a tap away) and the "App" tag, never a person
-              name={first.app ? <AppSender roomId={roomId} app={first.app} /> : <RunName user={first.author} ai={first.authorKind === 'ai'} />}
+              name={first.app ? <AppSender roomId={roomId} app={first.app} /> : <RunName user={first.author} ai={first.authorKind === 'ai'} left={first.authorLeft} />}
               at={first.createdAt}
               repeat={repeats[i]}
             >

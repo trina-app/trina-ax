@@ -4472,6 +4472,8 @@ export const zh: Record<MessageKey, string> = {
   "rooms.deleted": "此消息已删除",
   "rooms.edited": "（已编辑）",
   "rooms.goneUser": "未知人员",
+  "rooms.authorLeft": "已离开",
+  "rooms.authorLeftGuest": "访客 · 已离开",
   "rooms.peerGone": "{name}已离开团队。你仍可以查看此聊天，但无法发送消息。",
   "rooms.you": "你",
   "person.open": "关于{name}",

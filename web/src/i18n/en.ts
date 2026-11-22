@@ -4531,6 +4531,8 @@ export const en: Record<MessageKey, string> = {
   "rooms.deleted": "This message was deleted",
   "rooms.edited": "(edited)",
   "rooms.goneUser": "Unknown person",
+  "rooms.authorLeft": "Left",
+  "rooms.authorLeftGuest": "Guest · Left",
   "rooms.peerGone": "{name} left the team. You can still read this conversation, but not write in it.",
   "rooms.you": "You",
   "person.open": "About {name}",

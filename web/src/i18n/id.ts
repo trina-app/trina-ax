@@ -4530,6 +4530,8 @@ export const id: Record<MessageKey, string> = {
   "rooms.deleted": "Pesan ini sudah dihapus",
   "rooms.edited": "(diedit)",
   "rooms.goneUser": "Orang tidak dikenal",
+  "rooms.authorLeft": "Keluar",
+  "rooms.authorLeftGuest": "Tamu · Keluar",
   "rooms.peerGone": "{name} sudah keluar dari tim. Anda masih bisa membaca percakapan ini, tetapi tidak bisa menulis di dalamnya.",
   "rooms.you": "Anda",
   "person.open": "Tentang {name}",

@@ -4529,6 +4529,8 @@ export const ko = {
   "rooms.deleted": "삭제된 메시지예요",
   "rooms.edited": "(수정됨)",
   "rooms.goneUser": "알 수 없는 사용자",
+  "rooms.authorLeft": "나감",
+  "rooms.authorLeftGuest": "게스트 · 나감",
   "rooms.peerGone": "{name}님은 팀을 떠났어요. 대화는 읽을 수 있지만 메시지는 보낼 수 없어요.",
   "rooms.you": "나",
   "person.open": "{name} 님 정보",
