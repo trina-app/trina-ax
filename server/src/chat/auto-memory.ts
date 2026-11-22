@@ -108,20 +108,6 @@ export function copiedFromOutside(memory: string, outside: string, own: string):
   return false
 }
 
-/**
- * After a tool result the server could not read (a picture or screenshot, the engine's own web search or page open, an
- * engine result cut short): every run of COPY_RUN_WORDS words of the memory must be in the person's own words, and a
- * memory shorter than that must be found whole there (review of #332, M3). Otherwise it could have come from what was
- * not recorded.
- */
-export function notAllOwn(memory: string, own: string): boolean {
-  const w = words(cleanOutside(memory)), mine = ` ${fold(own)} `
-  if (!w.length) return false
-  if (w.length < COPY_RUN_WORDS) return !mine.includes(` ${w.join(' ')} `)
-  for (let i = 0; i + COPY_RUN_WORDS <= w.length; i++) if (!mine.includes(` ${w.slice(i, i + COPY_RUN_WORDS).join(' ')} `)) return true
-  return false
-}
-
 const ADDRESS_PATTERNS: RegExp[] = [
   /[\p{L}\p{N}._%+-]+@[\p{L}\p{N}.-]+\.[\p{L}]{2,}/gu, // e-mail
   /\bhttps?:\/\/[^\s<>"')]+/gi, // web address

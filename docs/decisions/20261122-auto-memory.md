@@ -36,8 +36,9 @@
   - After the security review (all silent): invisible and tag characters, HTML and emphasis never hide a copy; an
     e-mail, web address, domain, phone or @handle needs the person's own words; every save without a card counts
     toward the caps; a silent change never rewrites the person's own memory; `forget` stops at 2 per answer after
-    outside content; after content the server could not read (a picture, the engine's own web search), only the
-    person's own words are kept; a memory of the AI's own is at most 200 characters; a secret's step never shows it.
+    outside content; after content the server could not read (a picture or screenshot, the engine's own web search), every address,
+    path, #channel or room name in a memory must be the person's own (the lesson itself may be in the AI's words: the
+    owner's Daum/Aside case is a screenshot chat); a memory of the AI's own is at most 200 characters; a secret's step never shows it.
   - Codex and the API engine get the same tool and rule; the engines' own memory stays off.
 - **Why:** Claude Code's auto memory is the floor (owner: AI should match Claude Code), and it does not ask. A visible,
   reversible step keeps the person in control. Memories are used only in the person's private chats, so saving there

@@ -24,7 +24,7 @@ import { newId } from '../db'
 import { PANE_TOOLS, scriptsOf, urlsOf } from '../realtime/browser-tools'
 import { browserUrl, isPrivateHost, staticPrivateHost } from '../realtime/private-net'
 import { cleanMemoryText, MEMORY_ITEM_MAX, memoryLines, neutralizeTags, skillBlock, SKILL_TOOL_LIMIT } from './prompt'
-import { addressesIn, AUTO_PER_ANSWER, AUTO_TEXT_MAX, autoCapReached, autoMemoryOn, contactNotOwn, copiedFromOutside, firstAutoMemory, fold, FORGET_PER_ANSWER, nearDuplicate, notAllOwn, outsideAddress, ownWords, resultText, secretIn } from './auto-memory'
+import { addressesIn, AUTO_PER_ANSWER, AUTO_TEXT_MAX, autoCapReached, autoMemoryOn, contactNotOwn, copiedFromOutside, firstAutoMemory, fold, FORGET_PER_ANSWER, nearDuplicate, outsideAddress, ownWords, resultText, secretIn } from './auto-memory'
 import { isGroupSkill, isPersonalSkill, isProjectSkill, listSkills, ownPersonalSkill, readSkill, sameSkillName, skillAlias, skillFolder, skillIssues, type Skill, otherGroupSkills } from './skills'
 import { changeLine, editorsLine, levelFor, levelLabel, levelRef, levelsOf, MOVE_MAX_BYTES, MOVE_MAX_FILES, MOVE_TEXT_MAX, peopleNames, peopleText, planMove, raisesTrust, runCopy, runMove, seesWho, skillAt, type Level, type MovePlan } from '../skills/move'
 import { st as skillText } from '../skills/text'
@@ -1275,10 +1275,11 @@ function bTools(exec: TurnExec): Tool[] {
           // an e-mail, web address, domain, phone number or @handle only when the person wrote it in this chat, however
           // tool output may have spelled it (review of #332, H2)
           if (contactNotOwn(value, own)) return skip(`Not kept: it names an e-mail, web address, domain, phone number or handle the user did not write in this chat. Keep the lesson without it, or: ${notFromHere}`, 'contact not in the user\'s words')
-          // a tool result the server could not read (a picture, the engine's own web search, a result cut short): every
-          // part of the memory must be the person's own words, and so must every path or channel in it (M3)
-          if (rt.outside.blind(spec.chatId) && (notAllOwn(value, own) || addressesIn(value).some((x) => !own.replace(/[\s().-]/g, '').toLowerCase().includes(x))))
-            return skip(`Not kept: this chat saw content the server could not check (a picture or a web result), so only the user's own words can be kept. ${notFromHere}`, 'unchecked content in this chat')
+          // a tool result the server could not read (a picture, a screenshot, the engine's own web search, a result cut
+          // short): every address, path, #channel or room name in the memory must be in the person's own words (M3, as
+          // the owner relaxed it: the lesson itself, in the AI's words, may be kept, as the Daum/Aside case needs)
+          if (rt.outside.blind(spec.chatId) && addressesIn(value).some((x) => !own.replace(/[\s().-]/g, '').toLowerCase().includes(x)))
+            return skip(`Not kept: this chat saw content the server could not check (a picture or a web result), and the memory names an address, path or channel the user did not write. Keep the lesson without it, or: ${notFromHere}`, 'address after unchecked content')
           const outside = rt.outside.of(spec.chatId)
           if (outside) {
             if (copiedFromOutside(value, outside, own)) return skip(`Not kept: its words come from tool output. ${notFromHere}`, 'copied from tool output')
