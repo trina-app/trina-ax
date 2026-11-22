@@ -81,7 +81,7 @@ export function roomWantsMe(r: CountedRoomFields & Pick<Room, 'mentioned'> & Par
 
 /** Is a new message of this room still worth the desktop app's notice: it wants me (roomWantsMe), or it is a reply in a
  * thread I follow with "내가 참여한 스레드의 답글" on (`threadReplies`), still unread. Notices only: no number. */
-export function roomNoticeWanted(r: CountedRoomFields & Pick<Room, 'mentioned'> & Partial<Pick<Room, 'hidden'>>, threadReplies = false): boolean {
+export function roomNoticeWanted(r: CountedRoomFields & Pick<Room, 'mentioned'> & Partial<Pick<Room, 'hidden'>>, threadReplies = true): boolean {
   if (roomWantsMe(r)) return true
   return !r.hidden && levelOf(r) !== 'off' && threadReplies && (r.threadsUnread ?? 0) > 0
 }
