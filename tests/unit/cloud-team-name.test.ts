@@ -206,7 +206,7 @@ test('on a hosted server a name the hosting service would refuse fails the save 
   for (let n = 0; n < 50 && cp.names.length === 0; n++) await Bun.sleep(2)
   expect(cp.names).toEqual(['Café Team'])
   // setup: the same rule before anything is made
-  const owner = { username: 'newowner', name: 'New Owner', password: 'a-long-enough-password-1', locale: 'en' as const }
+  const owner = { username: 'newowner', name: 'New Owner', credential: { password: 'a-long-enough-password-1' }, locale: 'en' as const }
   await expect(bootstrapOwner(a.ctx, { ...owner, teamName: HIDDEN.hangulFiller! })).rejects.toMatchObject({ status: 400 })
   await expect(bootstrapOwner(a.ctx, { ...owner, teamName: 'Fine name' })).rejects.toMatchObject({ status: 409 }) // set up already
 })

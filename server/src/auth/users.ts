@@ -48,6 +48,18 @@ export function usernameTaken(db: Database, username: string): boolean {
   return !!db.query('SELECT 1 FROM users WHERE lower(username) = lower(?)').get(username)
 }
 
+/** A free username from an e-mail address's part before @ (the first owner made with Google, auth/google-signup.ts):
+ * a "+tag" dropped, only the characters of the Username rule (letters, digits, ".", "_", "-"; never "@"), lower case,
+ * 2–60 characters, then made unique with -2, -3, …; `fallback` when nothing is left. The person can change it later. */
+export function usernameFromEmail(db: Database, email: string | null | undefined, fallback = 'owner'): string {
+  const local = (email ?? '').split('@')[0]!.split('+')[0]!
+  let base = local.normalize('NFKD').replace(/[^A-Za-z0-9._-]+/g, '').replace(/^[._-]+|[._-]+$/g, '').toLowerCase().slice(0, 60)
+  if (base.length < 2) base = fallback
+  if (!usernameTaken(db, base)) return base
+  for (let i = 2; i < 10_000; i++) if (!usernameTaken(db, `${base}-${i}`)) return `${base}-${i}`
+  throw new Error('no free username')
+}
+
 export function userGroupIds(db: Database, id: string): string[] {
   return (db.query('SELECT group_id FROM group_members WHERE user_id = ? ORDER BY group_id').all(id) as { group_id: string }[]).map((r) => r.group_id)
 }
@@ -111,7 +123,9 @@ export interface NewUser {
   username: string
   name: string
   email?: string | null
-  passwordHash: string
+  /** null: an account made with Google (auth/google-signup.ts), which signs in only with it until the person sets a
+   * password; a password sign-in answers it like a wrong password (passwords.ts verifyPassword) */
+  passwordHash: string | null
   role: Role
   /** own language, or null = follow the team default */
   locale: Locale | null

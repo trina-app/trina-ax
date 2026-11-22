@@ -10,6 +10,23 @@ export function forgetLoginIdentities(db: Database, userId: string): number {
   return db.query('DELETE FROM login_identities WHERE user_id = ?').run(userId).changes
 }
 
+/** A Google account Google just proved (google-login.ts GoogleClaims): only `sub` finds the person later; the address
+ * and the Workspace domain are shown, never matched. */
+export interface GoogleIdentity { sub: string; email: string | null; hd: string | null }
+
+/** The person this Google account signs in here, or null: one Google account per team. Read inside the write that would
+ * make an account with it (auth/accounts.ts joinWithInvite, auth/team-links.ts joinWithLink): it signs that person in
+ * instead (auth/google-signup.ts). */
+export function googleHolder(db: Database, sub: string): string | null {
+  return (db.query("SELECT user_id FROM login_identities WHERE provider = 'google' AND subject = ?").get(sub) as { user_id: string } | null)?.user_id ?? null
+}
+
+/** An account made with Google (auth/google-signup.ts): its Google account, connected and used now. Inside the write
+ * that makes the account. */
+export function addLoginIdentity(db: Database, userId: string, g: GoogleIdentity, now: string): void {
+  db.query("INSERT INTO login_identities (user_id, provider, subject, email, hd, linked_at, last_used_at) VALUES (?, 'google', ?, ?, ?, ?, ?)").run(userId, g.sub, g.email, g.hd, now, now)
+}
+
 /** The people who connected a Google account (Admin › Members' "Google"; part A2): ids only. */
 export function googleConnectedUsers(db: Database): string[] {
   return (db.query("SELECT user_id FROM login_identities WHERE provider = 'google' ORDER BY user_id").all() as { user_id: string }[]).map((r) => r.user_id)

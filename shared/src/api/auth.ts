@@ -186,6 +186,10 @@ export const InviteInfo = z.object({
   /** a guest invite: the AI choice the inviter made (none, the team's, or the guest's own sign-in), only while the link works:
    * the page tells a guest who must connect their own account before they open it. Absent from an older server */
   guestAi: z.enum(['none', 'team', 'own']).optional(),
+  /** the page may offer "Join with Google" (startGoogleInvite; server/src/auth/google-signup.ts): the invite works, it
+   * is not a guest invite (guests join with a password), and Google can sign in at this address (the rule of
+   * SetupStatus.googleSignIn). Absent: no button */
+  googleSignUp: z.literal(true).optional(),
 })
 export type InviteInfo = z.infer<typeof InviteInfo>
 export const AcceptInviteBody = z.object({
@@ -216,6 +220,10 @@ export const SetupStatus = z.object({
    * server has a Google client and it is no demo. Any address: an app's flow is bound to a secret the app keeps, not
    * to a cookie of this address. Each app shows it only when it can open Google outside its window (its bridge flag). */
   googleAppSignIn: z.literal(true).optional(),
+  /** the setup page may offer "Start with Google" (startGoogleSetup; server/src/auth/google-signup.ts): only while
+   * `needed` is true for this visitor, and Google can sign in at this address (the rule of googleSignIn). Absent: the
+   * password form only */
+  googleSignUp: z.literal(true).optional(),
 })
 export const SetupBody = z.object({
   /** one-time token written by the installer / printed by the dev server; proves local access to the Mac */
@@ -293,6 +301,26 @@ export const RedeemGoogleSignInBody = z.object({
   appSecret: z.string().min(1).max(200),
   client: z.enum(['desktop', 'mobile']),
   tokenMode: z.enum(['cookie']).default('cookie'),
+})
+/** Sign up with Google (server/src/auth/google-signup.ts; docs/decisions/20261122-google-signup.md): the first owner
+ * with the setup token, and the team name, language and time zone typed on the setup page. They travel sealed in the
+ * flow; Google's return makes the team and the owner (no password; the username comes from the Google address, the
+ * name from Google) and signs in, then opens `next`. The answer is Google's address to open in this window. */
+export const GoogleSetupBody = SetupBody.pick({ setupToken: true, teamName: true, locale: true, timeZone: true, site: true }).extend({
+  /** the page to open after the team is made (the setup page's welcome steps or "continue in the app"); a path of this
+   * site, anything else is dropped */
+  next: z.string().max(500).optional(),
+})
+/** Join with Google from an invite or the team link (server/src/auth/google-signup.ts): the token in the body (never in
+ * an address), and the username, name and language the person picked. The flow keeps the invite's or link's id, not the
+ * token. Google's return makes the account (no password) or, when this Google account is already someone's here, signs
+ * that person in and leaves the invite unused. Guest invites join with a password only. */
+export const GoogleJoinBody = z.object({
+  token: z.string().min(16).max(200),
+  username: Username,
+  name: PersonName,
+  /** the language the person picked on the page; omitted = follow the team default */
+  locale: Locale.optional(),
 })
 export const ConnectGoogleBody = z.object({ password: z.string().min(1).max(256) })
 export const MyGoogle = z.object({
@@ -377,6 +405,10 @@ export const AUTH = {
   // the desktop and phone apps (docs/decisions/20261122-google-login-apps.md): the code Google's return gave the app,
   // with the secret whose hash the start got. Never signs in the system browser that did the Google step
   redeemGoogleSignIn: endpoint({ method: 'POST', path: '/api/auth/google/redeem', auth: 'public', owner: 'A', body: RedeemGoogleSignInBody, response: LoginResponse, summary: 'Sign the desktop or phone app in with the one-time code from a Google sign-in (once, within 5 minutes, only with the app\'s secret). Sets the session cookie.' }),
+  // Sign up with Google (server/src/auth/google-signup.ts): the setup token and the invite token only in the body; the
+  // start checks them as the password forms do, Google's return makes the account (team links: TEAM_LINKS.startGoogleJoin)
+  startGoogleSetup: endpoint({ method: 'POST', path: '/api/setup/google', auth: 'public', owner: 'A', body: GoogleSetupBody, response: GoogleStart, summary: 'Start making the team and its owner with Google (only while no user exists; needs the setup token): Google\'s address to open.' }),
+  startGoogleInvite: endpoint({ method: 'POST', path: '/api/invites/google', auth: 'public', owner: 'A', body: GoogleJoinBody, response: GoogleStart, summary: 'Start joining with an invite and a Google account instead of a password (not for guest invites): Google\'s address to open.' }),
   myGoogle: endpoint({ method: 'GET', path: '/api/me/google', auth: 'user', owner: 'A', response: MyGoogle, summary: 'My connected Google account, and whether one can be connected here.' }),
   // not allowWhilePasswordChange (a temporary-password session cannot connect one), not for guests (GUEST_ENDPOINTS)
   connectGoogle: endpoint({ method: 'POST', path: '/api/me/google/connect', auth: 'user', owner: 'A', body: ConnectGoogleBody, response: GoogleStart, summary: 'Start connecting my Google account (needs my current password): Google\'s address to open.' }),

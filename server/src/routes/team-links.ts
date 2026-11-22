@@ -5,12 +5,15 @@ import { API } from '@mycel/shared/api'
 import type { AppContext } from '../context'
 import type { RouteKit } from '../http/route'
 import { createTeamLink, getTeamLink, joinTeamLink, revokeTeamLink, teamLinkInfo, updateTeamLink } from '../auth/team-links'
+import { startGoogleJoin, withTeamLinkGoogle } from '../auth/google-signup'
 
 export function registerTeamLinkRoutes(kit: RouteKit, ctx: AppContext): void {
   kit.handle(API.getTeamLink, ({ c }) => getTeamLink(c, ctx))
   kit.handle(API.createTeamLink, ({ c, body }) => createTeamLink(c, ctx, body))
   kit.handle(API.updateTeamLink, ({ c, body }) => updateTeamLink(c, ctx, body))
   kit.handle(API.revokeTeamLink, ({ c }) => revokeTeamLink(c, ctx))
-  kit.handle(API.teamLinkInfo, ({ c, body }) => teamLinkInfo(c, ctx, body.token))
+  kit.handle(API.teamLinkInfo, ({ c, body }) => withTeamLinkGoogle(c, ctx, teamLinkInfo(c, ctx, body.token)))
   kit.handle(API.joinTeamLink, ({ c, body }) => joinTeamLink(c, ctx, body))
+  // Join with Google (auth/google-signup.ts): the join's checks, then Google; its return makes the account
+  kit.handle(API.startGoogleJoin, ({ c, body }) => startGoogleJoin(c, ctx, body))
 }

@@ -143,6 +143,13 @@ export class RateLimiter {
     this.db.query('DELETE FROM login_attempts WHERE key = ?').run(keyStr(k))
   }
 
+  /** Take back the newest counted attempt of this key: what hold().release() does inside one request, for an attempt
+   * whose end comes in a later one (a Google join counted at its start, its account made at Google's return:
+   * auth/google-signup.ts). */
+  forgive(k: LimitKey): void {
+    this.db.query('DELETE FROM login_attempts WHERE id = (SELECT id FROM login_attempts WHERE key = ? ORDER BY at DESC, id DESC LIMIT 1)').run(keyStr(k))
+  }
+
   /** Clear every counter of an account, in every scope (password reset by an admin or a reset link). */
   clearAccount(username: string): void {
     const k = keyStr(accountKey(username))

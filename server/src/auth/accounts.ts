@@ -24,7 +24,7 @@ import { createGuestInvite, inviteMakerOk, openGuestLinks, parseGuestAi, guestPl
 import { assertGuestFree, guestLimit, guestsUsed, placeName, projectFolder } from './guests'
 import { getTeamSettings, updateTeamSettings } from '../admin/settings'
 import { msg, weakPasswordMessage } from './messages'
-import { forgetLoginIdentities } from './login-identities'
+import { addLoginIdentity, forgetLoginIdentities, googleHolder, type GoogleIdentity } from './login-identities'
 import { hashPassword, hashToken, newToken, passwordProblem, safeEqual, verifyPassword } from './passwords'
 import { accountKey, ipKeys, limitIp, netIpKeys, tokenIpKeys, type AccountScope } from './rate-limit'
 import { fromOutside, isLoopback } from '../http/tunnel'
@@ -35,7 +35,7 @@ import { isHosted } from '../system/deployment'
 import { HOSTED_BROKER_ORIGIN } from '../integrations/google-drive/broker'
 import { isManaged } from '../app-config'
 import { resolveLayout } from '../system/layout'
-import { deriveUserId, ensurePersonalFolder, existingGroups, getUser, getUserByUsername, insertUser, usernameTaken, userRef, type UserRow } from './users'
+import { deriveUserId, ensurePersonalFolder, existingGroups, getUser, getUserByUsername, insertUser, usernameTaken, userRef, type NewUser, type UserRow } from './users'
 import { notifyResetLink, notifyTeamJoined, notifyTemplateOffers } from '../notifications/service'
 import { roomsOf } from '../rooms/service'
 import { recordJoin } from '../onboarding/member-welcome'
@@ -143,19 +143,28 @@ function withToken(c: Context<AppEnv>, ctx: AppContext, s: ReturnType<typeof set
   return { ...s, needed: false }
 }
 
-export interface OwnerInput { username: string; name: string; password: string; email?: string | null; teamName: string; locale: Locale
+export interface OwnerInput { username: string; name: string; email?: string | null; teamName: string; locale: Locale
+  /** how the owner signs in: a password (POST /api/setup, the server CLI) or the Google account Google just proved
+   * (auth/google-signup.ts: no password) */
+  credential: { password: string } | { google: GoogleIdentity }
   /** IANA zone (the setup page sends the browser's); unknown or absent = the server's default (system/time-zone.ts) */
   timeZone?: string | null }
 
+/** The team name as it will be kept, or a 400 (a hosted team's name must be one the hosting service takes,
+ * system/cloud-team-name.ts). The Google start checks it too, so a setup never fails over it only after Google. */
+export function ownerTeamName(ctx: AppContext, teamName: string, locale: Locale): string {
+  const named = hostedTeamName(ctx, teamName)
+  return 'name' in named ? named.name : fail('validation', msg('teamNameInvalid', locale), { fields: { 'body.teamName': named.problem } })
+}
+
 /**
  * Create the team and its owner. Only while no user exists (checked inside an immediate transaction, so two
- * concurrent setups cannot both win). Used by POST /api/setup and the server CLI.
+ * concurrent setups cannot both win). Used by POST /api/setup, the server CLI and Google's return of a setup started
+ * with Google (auth/google-signup.ts).
  */
 export async function bootstrapOwner(ctx: AppContext, o: OwnerInput): Promise<string> {
-  // a hosted team's name must be one the hosting service takes (system/cloud-team-name.ts)
-  const named = hostedTeamName(ctx, o.teamName)
-  o = { ...o, teamName: 'name' in named ? named.name : fail('validation', msg('teamNameInvalid', o.locale), { fields: { 'body.teamName': named.problem } }) }
-  const passwordHash = await hashPassword(o.password)
+  o = { ...o, teamName: ownerTeamName(ctx, o.teamName, o.locale) }
+  const cred: NewCredential = 'password' in o.credential ? { passwordHash: await hashPassword(o.credential.password) } : { google: o.credential.google }
   const id = deriveUserId(ctx.db, o.username, ctx.files.fx.root)
   const created = ctx.db.transaction(() => {
     if (userCount(ctx.db) > 0) return false
@@ -164,9 +173,10 @@ export async function bootstrapOwner(ctx: AppContext, o: OwnerInput): Promise<st
     // sign-up; the host's backup window is in that zone) — the owner can still change it in Admin > Settings.
     const keepCpZone = isHosted(ctx.config) && isValidTimeZone(process.env.MYCEL_TEAM_TZ)
     updateTeamSettings(ctx.db, { teamName: o.teamName, defaultLocale: o.locale, ...(isValidTimeZone(o.timeZone) && !keepCpZone ? { timeZone: o.timeZone } : {}) })
-    insertUser(ctx.db, { id, username: o.username, name: o.name, email: o.email ?? null, passwordHash, role: 'owner', locale: null, mustChangePassword: false })
+    insertAccount(ctx.db, { id, username: o.username, name: o.name, email: o.email ?? null, role: 'owner', locale: null, mustChangePassword: false }, cred, new Date(authOf(ctx).now()).toISOString())
     createDefaultFolders(ctx)
-    audit(ctx.db, { actor: id, action: 'setup', target: id, detail: { teamName: o.teamName } })
+    // with Google: that it was Google, never the address
+    audit(ctx.db, { actor: id, action: 'setup', target: id, detail: { teamName: o.teamName, ...('google' in cred ? { method: 'google' } : {}) } })
     return true
   }).immediate()
   if (!created) fail('conflict', msg('setupDone', o.locale))
@@ -181,7 +191,9 @@ export async function bootstrapOwner(ctx: AppContext, o: OwnerInput): Promise<st
   return id
 }
 
-export async function setup(c: Context<AppEnv>, ctx: AppContext, b: In<typeof SetupBody>): Promise<LoginResponse> {
+/** The setup token as the first-run setup checks it: POST /api/setup, and the start of a setup with Google
+ * (auth/google-signup.ts), which must refuse exactly what the password form refuses. */
+export function checkSetupToken(c: Context<AppEnv>, ctx: AppContext, token: string): void {
   const locale = c.get('locale')
   // the office public address (internet): the owner account is made on the Mac itself or from an office desk, never
   // from the internet, whatever token is sent (http/tunnel.ts). Checked first, so the answer (403) is the same before
@@ -196,10 +208,15 @@ export async function setup(c: Context<AppEnv>, ctx: AppContext, b: In<typeof Se
   if (!relay && userCount(ctx.db) > 0) fail('conflict', msg('setupDone', locale))
   const guard = tokenGuard(ctx, info.ip)
   const expected = ctx.config.setupToken
-  if (!expected || !safeEqual(b.setupToken, expected)) { guard.fail(); fail('forbidden', msg('setupTokenWrong', locale)) }
+  if (!expected || !safeEqual(token, expected)) { guard.fail(); fail('forbidden', msg('setupTokenWrong', locale)) }
   if (relay && userCount(ctx.db) > 0) fail('conflict', msg('setupDone', locale))
+}
+
+export async function setup(c: Context<AppEnv>, ctx: AppContext, b: In<typeof SetupBody>): Promise<LoginResponse> {
+  const locale = c.get('locale')
+  checkSetupToken(c, ctx, b.setupToken)
   checkNewPassword(b.owner.password, b.owner.username, locale, 'body.owner.password')
-  const id = await bootstrapOwner(ctx, { username: b.owner.username, name: b.owner.name, password: b.owner.password, email: b.owner.email ?? null, teamName: b.teamName, locale: b.locale, timeZone: b.timeZone ?? null })
+  const id = await bootstrapOwner(ctx, { username: b.owner.username, name: b.owner.name, credential: { password: b.owner.password }, email: b.owner.email ?? null, teamName: b.teamName, locale: b.locale, timeZone: b.timeZone ?? null })
   // the owner's welcome steps start now, with the link's website: the desktop app resumes them too (/open-app)
   startWelcomeAtSetup(ctx, b.site)
   return authOf(ctx).signIn(c, id, 'web', 'cookie')
@@ -461,48 +478,107 @@ export async function acceptInvite(c: Context<AppEnv>, ctx: AppContext, token: s
   if (usernameTaken(ctx.db, b.username)) fail('conflict', msg('usernameTaken', locale), { fields: { 'body.username': 'taken' } })
   checkNewPassword(b.password, b.username, locale, 'body.password')
   const passwordHash = await hashPassword(b.password)
-  const groups = existingGroups(ctx.db, parseIds(r!.group_ids))
-  let id = ''
-  const tx = ctx.db.transaction(() => {
-    const now = new Date(a.now()).toISOString()
-    if (usernameTaken(ctx.db, b.username)) throw new UsernameTaken()
-    // derived inside the transaction so a concurrent sign-up cannot take the same id
-    id = deriveUserId(ctx.db, b.username, ctx.files.fx.root)
-    // checked again inside the write: the maker may have been demoted, disabled or deleted during the (slow) hash
-    const fresh = ctx.db.query(`SELECT ${INVITE_COLS} FROM invites WHERE id = ?`).get(r!.id) as InviteRow | null
-    if (!fresh || !inviteValid(ctx.db, fresh, a.now())) return 'gone'
-    // the plan's seats, inside the write: two accepts at once cannot both take the last one (409, nothing used up). The
-    // person accepting is not on the team yet: they are told to let whoever invited them know, never the admin's
+  const done = joinWithInvite(ctx, r!.id, { username: b.username, name: b.name, locale: b.locale ?? null }, { passwordHash })
+  if (!done.ok) {
+    if (done.why === 'taken') fail('conflict', msg('usernameTaken', locale), { fields: { 'body.username': 'taken' } })
+    // the person accepting is not on the team yet: they are told to let whoever invited them know, never the admin's
     // "disable an account or change the plan" with the billing link (QA TC-489)
-    if (seatsFull(ctx.db)) fail('plan_limit', msg('inviteTeamFull', locale), { params: { reason: 'seat_limit', limit: seatLimit() ?? 0 } })
-    // one use only, even with concurrent accepts
-    const res = ctx.db.query('UPDATE invites SET used_at = ?, used_by = ? WHERE id = ? AND used_at IS NULL AND revoked_at IS NULL AND expires_at > ?').run(now, id, r!.id, now)
-    if (res.changes !== 1) return 'gone'
-    insertUser(ctx.db, { id, username: b.username, name: b.name, passwordHash, role: r!.role, locale: b.locale ?? null, mustChangePassword: false, groupIds: groups })
-    audit(ctx.db, { actor: id, action: 'invite.accept', target: r!.id, detail: { userId: id, role: r!.role, groupIds: groups, ...(fresh.lead_hint ? { leadHint: true } : {}) } })
-    return 'ok'
-  })
-  let ok: string
-  try { ok = tx.immediate() } catch (e) {
-    if (e instanceof UsernameTaken) fail('conflict', msg('usernameTaken', locale), { fields: { 'body.username': 'taken' } })
-    throw e
+    if (done.why === 'full') fail('plan_limit', msg('inviteTeamFull', locale), { params: { reason: 'seat_limit', limit: seatLimit() ?? 0 } })
+    failDead(ctx.db, r!, a.now(), locale)
   }
-  if (ok! === 'gone') failDead(ctx.db, r!, a.now(), locale)
+  afterInviteJoin(ctx, done.invite, done.id, done.groups)
+  return a.signIn(c, done.id, b.client, b.tokenMode)
+}
+
+/** How a new account signs in: a password (its argon2id hash), or a Google account Google just proved, with no password
+ * (auth/google-signup.ts: a password sign-in then answers like a wrong password, passwords.ts verifyPassword). */
+export type NewCredential = { passwordHash: string } | { google: GoogleIdentity }
+/** What the person picked on an invite or team link page */
+export interface Joiner { username: string; name: string; locale: Locale | null }
+/** How the write that makes an account from an invite or the team link ended: made; refused (`taken`: the username,
+ * else why the invite or link does not let anyone in now); or `connected`: the Google account already signs someone in
+ * here, so nothing was made or used up and that person signs in instead (auth/google-signup.ts). */
+export type JoinEnd<Ok, Why extends string> = ({ ok: true; id: string; groups: string[] } & Ok) | { ok: false; why: Why | 'taken' } | { ok: false; why: 'connected'; userId: string }
+
+/** Inside the write that makes an account: its row and, made with Google, its connected Google account (no password). */
+export function insertAccount(db: Database, u: Omit<NewUser, 'passwordHash'>, cred: NewCredential, now: string): void {
+  insertUser(db, { ...u, passwordHash: 'passwordHash' in cred ? cred.passwordHash : null })
+  if ('google' in cred) addLoginIdentity(db, u.id, cred.google, now)
+}
+
+/** With Google, inside the write: the person this Google account already signs in, or null. They sign in instead, with
+ * nothing made, used up or changed (an admin invite opened by a member does not make them an admin); two tabs with one
+ * Google account meet here, the second finds the account the first made. */
+export function joinedBefore(db: Database, cred: NewCredential): { ok: false; why: 'connected'; userId: string } | null {
+  const holder = 'google' in cred ? googleHolder(db, cred.google.sub) : null
+  return holder ? { ok: false, why: 'connected', userId: holder } : null
+}
+
+/**
+ * The one write that makes an account from a member or admin invite: acceptInvite with a password, Google's return of
+ * a join started with Google (auth/google-signup.ts). Inside it: an already connected Google account (joinedBefore), a
+ * free username, the invite still works and its maker could still make it (they may have been demoted, disabled or
+ * deleted during the slow hash or the trip to Google), a free seat (two accepts at once cannot both take the last one;
+ * nothing used up), then the invite used once even with concurrent accepts, the account and its groups as the invite
+ * has them now. Guest invites never come here (acceptGuestInvite). What follows the join runs after the commit
+ * (afterInviteJoin).
+ */
+export function joinWithInvite(ctx: AppContext, inviteId: string, who: Joiner, cred: NewCredential): JoinEnd<{ invite: InviteRow }, 'gone' | 'full'> {
+  const a = authOf(ctx)
+  return ctx.db.transaction((): JoinEnd<{ invite: InviteRow }, 'gone' | 'full'> => {
+    const before = joinedBefore(ctx.db, cred)
+    if (before) return before
+    const now = new Date(a.now()).toISOString()
+    if (usernameTaken(ctx.db, who.username)) return { ok: false, why: 'taken' }
+    // derived inside the transaction so a concurrent sign-up cannot take the same id
+    const id = deriveUserId(ctx.db, who.username, ctx.files.fx.root)
+    const fresh = ctx.db.query(`SELECT ${INVITE_COLS} FROM invites WHERE id = ?`).get(inviteId) as InviteRow | null
+    if (!fresh || fresh.role === 'guest' || !inviteValid(ctx.db, fresh, a.now())) return { ok: false, why: 'gone' }
+    if (seatsFull(ctx.db)) return { ok: false, why: 'full' }
+    if (ctx.db.query('UPDATE invites SET used_at = ?, used_by = ? WHERE id = ? AND used_at IS NULL AND revoked_at IS NULL AND expires_at > ?').run(now, id, inviteId, now).changes !== 1) return { ok: false, why: 'gone' }
+    const groups = existingGroups(ctx.db, parseIds(fresh.group_ids))
+    insertAccount(ctx.db, { id, username: who.username, name: who.name, email: 'google' in cred ? cred.google.email : null, role: fresh.role, locale: who.locale, mustChangePassword: false, groupIds: groups }, cred, now)
+    // with Google: that it was Google, never the address
+    audit(ctx.db, { actor: id, action: 'invite.accept', target: inviteId, detail: { userId: id, role: fresh.role, groupIds: groups, ...(fresh.lead_hint ? { leadHint: true } : {}), ...('google' in cred ? { method: 'google' } : {}) } })
+    return { ok: true, id, groups, invite: fresh }
+  }).immediate()
+}
+
+/** After joinWithInvite's commit: the personal folder, the welcome card, project joins, notices, the everyone room. */
+export function afterInviteJoin(ctx: AppContext, invite: Pick<InviteRow, 'id' | 'created_by'>, id: string, groups: string[]): void {
   ensurePersonalFolder(ctx.files.fx.root, id)
   // who invited them, for their welcome card on Home; first, so the template notice below waits for Connected apps
   // (onboarding/member-welcome.ts)
-  recordJoin(ctx, { userId: id, via: 'invite', invitedBy: r!.created_by })
+  recordJoin(ctx, { userId: id, via: 'invite', invitedBy: invite.created_by })
   // team projects this new person sees through their groups: audited, their members told (chat/project-joins.ts)
   if (groups.length) projectJoinsOfNewAccount(ctx, id, id, captureState(ctx.db))
   notifyTemplateOffers(ctx, { userId: id })
   // a lead invite: the owner who flagged it gets the card's notice (only a hint: the role stays member)
-  afterLeadJoin(ctx, r!.id)
+  afterLeadJoin(ctx, invite.id)
   // told as a join with the team link is: the owners and whoever made the invite (Activity), and one line in the
   // everyone room for the rest of the team (QA 2026-11-11: a member who joined with an invite was told to nobody)
   const owners = (ctx.db.query("SELECT id FROM users WHERE role = 'owner' AND status = 'active' AND deleted_at IS NULL").all() as { id: string }[]).map((u) => u.id)
-  notifyTeamJoined(ctx, r!.created_by ? [...owners, r!.created_by] : owners, id)
+  notifyTeamJoined(ctx, invite.created_by ? [...owners, invite.created_by] : owners, id)
   roomsOf(ctx).memberJoined(id)
-  return a.signIn(c, id, b.client, b.tokenMode)
+}
+
+/**
+ * POST /api/invites/google's checks before Google (auth/google-signup.ts), the accept's own: a known token (unknown
+ * ones count per address), an invite that works now (410 with its reason), not a guest invite (guests join with a
+ * password), a free username and a free seat. Google's return checks them all again in joinWithInvite. Only the
+ * invite's id goes on with the flow, never its token.
+ */
+export function inviteForGoogle(c: Context<AppEnv>, ctx: AppContext, token: string, username: string): { id: string } {
+  const a = authOf(ctx)
+  const locale = c.get('locale')
+  const guard = tokenGuard(ctx, c.get('info').ip)
+  const r = inviteByToken(ctx.db, token)
+  if (!r) { guard.fail(); return fail('not_found') }
+  if (!inviteValid(ctx.db, r, a.now())) failDead(ctx.db, r, a.now(), locale)
+  if (r.role === 'guest') fail('forbidden', msg('googleGuestJoin', locale), { params: { reason: 'guest_password_only' } })
+  if (usernameTaken(ctx.db, username)) fail('conflict', msg('usernameTaken', locale), { fields: { 'body.username': 'taken' } })
+  if (seatsFull(ctx.db)) fail('plan_limit', msg('inviteTeamFull', locale), { params: { reason: 'seat_limit', limit: seatLimit() ?? 0 } })
+  return { id: r.id }
 }
 class UsernameTaken extends Error {}
 

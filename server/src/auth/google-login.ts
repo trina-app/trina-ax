@@ -48,6 +48,7 @@ import { googleStartKeys, tokenIpKeys } from './rate-limit'
 import { authOf } from './service'
 import { getUser } from './users'
 import { googleAppReturn, googleSignInRefusal, holdGoogleCode, type GoogleAppClient } from './google-login-apps'
+import { signUpPage, signUpReturn, type SignUpExtra } from './google-signup'
 
 export const GOOGLE_FLOW_TTL_MS = 10 * 60_000
 /** open flows at once, for the whole server: a flood of starts from many addresses stops here, not at the disk */
@@ -61,15 +62,20 @@ const GOOGLE_ISSUERS = new Set(['https://accounts.google.com', 'accounts.google.
 /** How a Google return ended, for the page it goes back to (?google=<result>): the sign-in page or Settings › Security
  * says it in words. A sign-in that worked opens `next` instead. */
 export type GoogleResult = 'connected' | 'not_connected' | 'account_off' | 'password_first' | 'in_use' | 'cancelled' | 'expired' | 'failed'
+  // sign-up (auth/google-signup.ts): the username was taken meanwhile, the invite, link or setup no longer works, every
+  // seat is taken
+  | 'username_taken' | 'gone' | 'full'
 
 /** binding_hash: the browser's binding cookie's hash ('web'), or the hash of the secret the app keeps ('desktop',
  * 'mobile': auth/google-login-apps.ts, migration 133) */
 interface FlowRow {
-  id: string; binding_hash: string; intent: 'signin' | 'connect'; user_id: string | null; session_id: string | null
+  id: string; binding_hash: string; intent: 'signin' | 'connect' | 'setup' | 'join'; user_id: string | null; session_id: string | null
   config_key: string; next: string | null; secret_enc: string | null; key_version: number; status: 'pending' | 'used'; expires_at: string
   client: 'web' | GoogleAppClient
 }
-export interface GoogleClaims { sub: string; email: string | null; hd: string | null }
+/** `name`: Google's `name` claim (the first owner made with Google is named so, auth/google-signup.ts); absent when Google
+ * sends none */
+export interface GoogleClaims { sub: string; email: string | null; hd: string | null; name?: string }
 /** How a return ended: a result for the page, a web sign-in's address to open, or an app's one-time code */
 type Settled = { row: FlowRow | null; result: GoogleResult } | { row: FlowRow; next: string } | { row: FlowRow; code: string; who: { name: string; username: string } }
 /** what binds a new flow: the browser's cookie, or the secret an app keeps (only its hash comes here) */
@@ -145,11 +151,14 @@ export function googleAppLoginAvailable(ctx: AppContext): boolean {
 
 /** The flow row, the binding (a cookie for a browser; for an app, the hash of its secret) and Google's address (direct:
  * built here; broker: the console's start answer, its client id kept in the flow). Each start counts against the
- * caller's address, connect too. */
-async function begin(c: Context<AppEnv>, ctx: AppContext, intent: FlowRow['intent'], who: { userId: string; sessionId: string } | null, next: string | null, bind: Binding = { client: 'web' }): Promise<{ url: string }> {
+ * caller's address, connect too; a sign-up's start (setup, join: auth/google-signup.ts) instead counts where its
+ * password form would (the setup token, the invite or link and its limit), so an office joining from one address is
+ * not stopped by the per-address start limit. `extra`: what a sign-up carries to Google's return (the team name, the
+ * username the person picked, the invite's id, …), sealed with the verifier and the nonce, never in plain columns. */
+export async function begin(c: Context<AppEnv>, ctx: AppContext, intent: FlowRow['intent'], who: { userId: string; sessionId: string } | null, next: string | null, bind: Binding = { client: 'web' }, extra: SignUpExtra | null = null): Promise<{ url: string }> {
   const a = authOf(ctx)
   const locale = c.get('locale')
-  const hold = a.limiter.hold(googleStartKeys(c.get('info').ip))
+  const hold = intent === 'setup' || intent === 'join' ? { wait: 0 } : a.limiter.hold(googleStartKeys(c.get('info').ip))
   if (hold.wait > 0) fail('rate_limited', msg('tooManyAttempts', locale), { retryAfter: hold.wait })
   const mode = bind.client === 'web' ? googleLoginMode(ctx, c.req.url) : googleClientMode(ctx)
   if (!mode) fail('unavailable', msg('googleSignInOff', locale))
@@ -177,7 +186,7 @@ async function begin(c: Context<AppEnv>, ctx: AppContext, intent: FlowRow['inten
   }
   const now = a.now()
   let sealed: { enc: string; keyVersion: number }
-  try { sealed = drive.store.seal(SEAL_CONTEXT, id, { verifier, nonce }) } catch { return fail('unavailable', msg('googleSignInOff', locale)) }
+  try { sealed = drive.store.seal(SEAL_CONTEXT, id, { verifier, nonce, ...(extra ? { extra } : {}) }) } catch { return fail('unavailable', msg('googleSignInOff', locale)) }
   ctx.db.transaction(() => {
     // a person's earlier connect still open goes: the binding cookie below replaces its cookie anyway
     if (who) ctx.db.query("DELETE FROM google_signin_flows WHERE user_id = ? AND status = 'pending'").run(who.userId)
@@ -248,6 +257,9 @@ async function finish(c: Context<AppEnv>, ctx: AppContext, mode: 'direct' | 'bro
 
 function backTo(row: FlowRow | null, result: GoogleResult): string {
   if (row?.intent === 'connect') return `/settings/security?google=${result}`
+  // a sign-up comes back to its own page, which keeps its token in this tab (never in an address or the flow):
+  // /setup, /invite (the page finds the invite it started from) or /join
+  if (row?.intent === 'setup' || row?.intent === 'join') return `${signUpPage(row.intent, row.next)}?google=${result}`
   return `/login?google=${result}${row?.next ? `&next=${encodeURIComponent(row.next)}` : ''}`
 }
 
@@ -282,7 +294,7 @@ async function settle(c: Context<AppEnv>, ctx: AppContext, mode: 'direct' | 'bro
   if (!proof || (mode === 'broker' ? !broker || !TOKEN_RE.test(proof)
     // the client changed since the start (an admin replaced it): its code is for the other one
     : !cfg || brokerClient || configKey(cfg) !== row.config_key || proof.length > 4096)) return end('failed')
-  let secret: { verifier: string; nonce: string }
+  let secret: { verifier: string; nonce: string; extra?: SignUpExtra }
   try { secret = drive.store.open({ id: row.id, user_id: SEAL_CONTEXT, secret_enc: row.secret_enc, key_version: row.key_version }) } catch { return end('failed') }
   ctx.db.query('UPDATE google_signin_flows SET secret_enc = NULL WHERE id = ?').run(row.id)
   let claims: GoogleClaims | null = null
@@ -301,7 +313,14 @@ async function settle(c: Context<AppEnv>, ctx: AppContext, mode: 'direct' | 'bro
     }
   } catch { claims = null }
   if (!claims) return end('failed')
-  return row.intent === 'connect' ? end(connect(c, ctx, row, claims)) : signInWith(c, ctx, row, claims)
+  if (row.intent === 'connect') return end(connect(c, ctx, row, claims))
+  if (row.intent === 'setup' || row.intent === 'join') {
+    // a sign-up (auth/google-signup.ts): the account made and signed in, refused, or this Google account already signs
+    // someone in here, who signs in instead
+    const s = await signUpReturn(c, ctx, row, claims, secret.extra)
+    return 'existing' in s ? signInWith(c, ctx, row, claims) : { row, ...s }
+  }
+  return signInWith(c, ctx, row, claims)
 }
 
 /** The id_token's claims when it is Google's, for this client, live, for this flow (nonce) and its address verified;
@@ -320,12 +339,13 @@ export function googleClaims(idToken: unknown, clientId: string, nonce: string, 
   if (typeof p.nonce !== 'string' || !safeEqual(p.nonce, nonce)) return null
   if (p.email_verified !== true && p.email_verified !== 'true') return null
   if (typeof p.sub !== 'string' || !/^[\x21-\x7e]{1,255}$/.test(p.sub)) return null
-  return { sub: p.sub, email: clean(p.email, 320), hd: clean(p.hd, 255) }
+  const name = clean(p.name, 200)
+  return { sub: p.sub, email: clean(p.email, 320), hd: clean(p.hd, 255), ...(name ? { name } : {}) }
 }
 
 /** A sign-in Google answered: a browser's is signed in here; an app's gets a one-time code for the app's secret
  * (auth/google-login-apps.ts holdGoogleCode), redeemed in the app's own window. */
-function signInWith(c: Context<AppEnv>, ctx: AppContext, row: FlowRow, g: GoogleClaims): Settled {
+export function signInWith(c: Context<AppEnv>, ctx: AppContext, row: FlowRow, g: GoogleClaims): Settled {
   const a = authOf(ctx)
   const info = c.get('info')
   const linked = ctx.db.query("SELECT user_id FROM login_identities WHERE provider = 'google' AND subject = ?").get(g.sub) as { user_id: string } | null
@@ -347,7 +367,8 @@ function signInWith(c: Context<AppEnv>, ctx: AppContext, row: FlowRow, g: Google
   ctx.db.query("UPDATE login_identities SET email = ?, hd = ?, last_used_at = ? WHERE user_id = ? AND provider = 'google'").run(g.email, g.hd, new Date(a.now()).toISOString(), u.id)
   audit(ctx.db, { actor: u.id, action: 'auth.login', target: u.id, detail: { ...detail, client: 'web' } })
   a.signIn(c, u.id, 'web', 'cookie')
-  return { row, next: row.next ?? '/' }
+  // `next` of a sign-up is the page it started from (google-signup.ts), never where a sign-in goes
+  return { row, next: (row.intent === 'signin' ? row.next : null) ?? '/' }
 }
 
 function connect(c: Context<AppEnv>, ctx: AppContext, row: FlowRow, g: GoogleClaims): GoogleResult {

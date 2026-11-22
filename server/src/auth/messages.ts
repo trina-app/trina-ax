@@ -120,6 +120,8 @@ export const AUTH_MESSAGES = {
   // Sign in with Google (auth/google-login.ts): no Google client here, or this page is not at the address Google returns to
   googleSignInOff: { ko: '여기서는 Google로 로그인할 수 없어요.', en: "Signing in with Google isn't available here.", id: 'Masuk dengan Google tidak tersedia di sini.', ja: 'ここではGoogleでログインできません。', es: 'Aquí no se puede iniciar sesión con Google.', zh: '这里无法使用 Google 登录。' },
   googleGuest: { ko: '게스트는 Google 계정을 연결할 수 없어요.', en: "Guests can't connect a Google account.", id: 'Tamu tidak bisa menghubungkan akun Google.', ja: 'ゲストはGoogleアカウントを連携できません。', es: 'Los invitados no pueden conectar una cuenta de Google.', zh: '访客无法关联 Google 账号。' },
+  // Join with Google from a guest invite (auth/accounts.ts inviteForGoogle): guests make a password
+  googleGuestJoin: { ko: '게스트는 비밀번호를 만들어 들어와요.', en: 'Guests join with a password.', id: 'Tamu bergabung dengan kata sandi.', ja: 'ゲストはパスワードを作って参加します。', es: 'Los invitados se unen con una contraseña.', zh: '访客需要设置密码加入。' },
   // Sign in with Google from the desktop and phone apps (auth/google-login-apps.ts): the system browser's page after
   // Google ({product}, {name}, {username} are filled in there), and the redeem's refusals
   googleAppTitle: { ko: '{product} 앱으로 돌아가서 로그인을 마쳐 주세요', en: 'Go back to {product} to finish signing in', id: 'Kembali ke {product} untuk menyelesaikan proses masuk', ja: '{product} に戻ってログインを完了してください', es: 'Vuelva a {product} para terminar de iniciar sesión', zh: '回到 {product} 完成登录' },

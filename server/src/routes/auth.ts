@@ -16,6 +16,7 @@ import { authOf, installAuth } from '../auth/service'
 import { mintAppSignIn, redeemAppSignIn, voidAppSignInCodes } from '../auth/app-signin'
 import { disconnectGoogle, finishGoogleBroker, googleAppLoginAvailable, googleLoginAvailable, myGoogle, startGoogleConnect, startGoogleSignIn } from '../auth/google-login'
 import { redeemGoogleApp } from '../auth/google-login-apps'
+import { startGoogleInvite, startGoogleSetup, withInviteGoogle, withSetupGoogle } from '../auth/google-signup'
 import { googleSigninBrokerOf } from '../auth/google-login-broker'
 import { GOOGLE_SIGNIN_TEAM_RETURN_PATH } from '@mycel/shared/cloud-protocol'
 import type { Context } from 'hono'
@@ -61,11 +62,15 @@ export const authRoutes: RouteModule = {
     kit.handle(API.setupStatus, ({ c }) => {
       const s = setupStatusFor(c, ctx)
       // Sign in with Google (auth/google-login.ts): only on a team that is set up, in a browser at the address Google
-      // returns to; in the desktop and phone apps at any address (auth/google-login-apps.ts)
-      if (s.needed || !googleAppLoginAvailable(ctx)) return s
+      // returns to; in the desktop and phone apps at any address (auth/google-login-apps.ts). Before setup, Start with
+      // Google (auth/google-signup.ts) only to a visitor told that setup is needed, in a browser at that address
+      if (s.needed) return withSetupGoogle(c, ctx, s)
+      if (!googleAppLoginAvailable(ctx)) return s
       return { ...s, googleAppSignIn: true as const, ...(googleLoginAvailable(ctx, c.req.url) ? { googleSignIn: true as const } : {}) }
     })
     kit.handle(API.setup, ({ c, body }) => setup(c, ctx, body))
+    // Sign up with Google (auth/google-signup.ts): the setup token checked as POST /api/setup does, then Google
+    kit.handle(API.startGoogleSetup, ({ c, body }) => startGoogleSetup(c, ctx, body))
     kit.handle(API.login, ({ c, body }) => login(c, ctx, body))
 
     kit.handle(API.logout, ({ c, auth }) => {
@@ -176,8 +181,10 @@ export const authRoutes: RouteModule = {
       if (params.id === auth.session.id && auth.via === 'cookie') a().clearCookie(c)
     })
 
-    kit.handle(API.inviteInfo, ({ c, params }) => inviteInfo(c, ctx, params.token))
+    kit.handle(API.inviteInfo, ({ c, params }) => withInviteGoogle(c, ctx, inviteInfo(c, ctx, params.token)))
     kit.handle(API.acceptInvite, ({ c, params, body }) => acceptInvite(c, ctx, params.token, body))
+    // Join with Google (auth/google-signup.ts): the token in the body, checked as an accept checks it, then Google
+    kit.handle(API.startGoogleInvite, ({ c, body }) => startGoogleInvite(c, ctx, body))
     kit.handle(API.passwordResetInfo, ({ c, params }) => resetInfo(c, ctx, params.token))
     kit.handle(API.completePasswordReset, ({ c, params, body }) => completeReset(c, ctx, params.token, body))
     registerAccountDeletionRoutes(kit, ctx)
