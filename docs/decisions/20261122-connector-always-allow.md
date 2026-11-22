@@ -35,9 +35,10 @@
   "Aside · Show what it returns in shared chats"). It counts only while the connection has the address it had when
   chosen and is signed in to the same account (`sharedBind`; a stale row is removed when Settings lists them), while the team's "Always allow" switch is on (`roomAlwaysAllow`;
   off: rows are ignored and no card offers Always), in a turn the person watches from their own app or their own
-  scheduled run (also one another person's words steer: Rule A; since #403 a scheduled run is left out only while a
-  guest is among the people and another person's words steer it, `steerableRun`), never in a confidential chat, in a
-  shared chat with a guest among its people (below) or on a demo server.
+  scheduled run (also one another person's words steer: Rule A), never in a confidential chat, in a shared chat with
+  a guest among its people (below) or on a demo server. (Since #403 the same holds for "Allow all websites" in a
+  scheduled run, tools/url-gate.ts: it is left out only while a guest is among the people and another person's words
+  steer the run, `steerableRun`.)
   It goes when the account is disabled or removed, and when a team connection's rule no longer includes the person
   (`pruneMemberAllows`). Rule A: once given it is final, also when more teammates join the chat.
 - **Rule, what keeps asking:** a call that reaches other people asks every time in a shared chat, with no Always: a

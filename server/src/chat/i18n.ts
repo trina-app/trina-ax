@@ -605,10 +605,10 @@ export const TEXT = {
     "Lo que la IA obtenga de {service} se mostrará a {n, plural, one {la # persona} other {las # personas}} de este chat, {g, plural, one {incluido un invitado (alguien de fuera del equipo)} other {incluidos # invitados (personas de fuera del equipo)}}.",
     'AI 从{service}获取的内容会显示给这个对话里的{n}人，其中包括{g}位访客（团队以外的人）。'),
   sharedConnectionOnce: t('허용', 'Allow', 'Izinkan', "許可", "Permitir", "允许"),
-  /** with a guest in the chat: Always holds for this chat only */
   // the dev environment's login card (devenv/tool.ts: a command that can use a login after teammates changed files):
   // the label of its list of those changes (chat/tools.ts boxShellTool confirm)
   devLoginChanges: t('바뀐 파일', 'Changes', 'Perubahan', "変更されたファイル", "Cambios", "更改的文件"),
+  /** with a guest in the chat: Always holds for this chat only */
   sharedConnectionAlways: t('이 채팅에서 항상 허용', 'Always in this chat', 'Selalu di obrolan ini', "このチャットでは常に許可", "Siempre en este chat", "在这个对话中始终允许"),
   /** Always for good (docs/decisions/20261122-connector-always-allow.md): every shared chat, until removed in Settings */
   sharedConnectionAlwaysAll: t('항상 허용', 'Always allow', 'Selalu izinkan', "常に許可", "Permitir siempre", "始终允许"),

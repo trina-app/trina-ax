@@ -177,7 +177,8 @@ describe('a guest in the shared chat: Always holds for this chat only (#404)', (
       // another shared chat with the guest: both ask again
       const other = await newShared('bob')
       const there = await askCards('alice', other.id, fake({ tool: MINE_READ, args: { url: 'https://example.com/p/3' }, sayResult: true }, { tool: MINE_WRITE, args: { title: 'elsewhere' }, sayResult: true }), (c) => c.options.at(-1)!.value)
-      expect(there.cards.length).toBeGreaterThan(0)
+      const own = there.cards.filter((c) => !c.question.startsWith('What the AI gets'))
+      expect(own.map((c) => c.question.startsWith('Read this page with Alice Mail') || c.question.includes('Create a task in Alice Mail'))).toEqual([true, true])
     } finally { guestOff() }
   })
 

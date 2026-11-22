@@ -502,9 +502,23 @@ describe('after a room read: the side chat makes a chart (QA TC-f2-c02)', () => 
     expect(nets[0]!.allowedDomains).toHaveLength(0)
     // after the person's yes: the team's sites (GitHub among them)
     expect(nets[1]!.allowedDomains).toContain('github.com')
-    // a call that asks for sites wants the network: the card
+    // a call that asks for sites wants the network: the room card (the site card is a server request of its own kind)
     const s = await run('alice', await side(), fake({ tool: 'box_shell', args: { command: 'node build.js', request_sites: ['api.example.com'] }, sayResult: true }), () => 'skip')
-    expect(s.cards.length).toBeGreaterThan(0)
+    // (the run collects ask_user cards only: the site card is a dev_env_site request)
+    expect(s.cards).toHaveLength(1)
+  })
+
+  // review of #401: a job or dev server of this chat has the network, and a command could change the code it runs (a hot
+  // reload): while one runs, commands keep the card
+  test('while a job of this chat runs, a command keeps the room card', async () => {
+    const chat = await side()
+    const id = crypto.randomUUID()
+    h.ctx.db.query("INSERT INTO dev_env_runs (id, user_id, chat_id, project_id, turn_id, kind, name, command, root, cwd, state, started_at) VALUES (?, 'alice', ?, NULL, 't0', 'server', 'dev', 'npm run dev', ?, '', 'running', ?)")
+      .run(id, chat, chatWork(base, chat), new Date().toISOString())
+    try {
+      const r = await run('alice', chat, fake({ tool: 'box_shell', args: { command: chart }, sayResult: true }), () => 'skip')
+      expect(r.cards).toHaveLength(1)
+    } finally { h.ctx.db.query('DELETE FROM dev_env_runs WHERE id = ?').run(id) }
   })
 
   // a project chat's command keeps the network the team and the person allow (it asked the card)

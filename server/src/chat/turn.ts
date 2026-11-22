@@ -101,7 +101,7 @@ import { globFolderPrefix, noSearchPath, PROJECT_SEARCH_NOTE, SKIP_OWN, wholeTea
 import type { SharedConnections, ToolCard } from '../services'
 import { ConnectOutcome, type ConnectCard } from './connect-service'
 import { devEnvFlag, mayUseDevEnv } from '../devenv/setting'
-import { devEnvDownReason } from '../devenv/srt/runner'
+import { chatRunsLive, devEnvDownReason } from '../devenv/srt/runner'
 import type { SharedRun } from '../devenv/srt/runner'
 import { addSources, clearScope, sourceKey, sourceLabel, sourceOf, sourceViewerCount, widening, type ReadSource } from './read-scope'
 import { authorize } from '../policy/authorize'
@@ -3611,7 +3611,8 @@ export class TurnExec {
    * send the person's files out without a card; and for the rest of the answer once a command's change to what the AI
    * follows was put back (boxUndone). The words of a command never show all it reaches (git -C . push, a script written
    * by one command and run by the next), so such a run also has no network at all (devenv/tool.ts mustUndo): one that
-   * failed asks the card when the AI calls it again (boxOffline), and so does a call that asks for sites. Fails closed.
+   * failed asks the card when the AI calls it again (boxOffline), and so does a call that asks for sites; and while a job
+   * or dev server of this chat runs (it has the network, and a command could change its code). Fails closed.
    */
   private ownBoxRun(input: unknown): boolean {
     try {
@@ -3623,6 +3624,8 @@ export class TurnExec {
       if (Array.isArray(a.request_sites) && a.request_sites.length) return false
       if (shellUsesNetwork(a.command) || webAllowAll(this.rt.db, this.spec.userId)) return false
       if (!LIVE_CLIENTS.has(this.spec.clientKind ?? '')) return false
+      // a job or dev server of this chat runs with the network: a command could change the code it runs (a hot reload)
+      if (chatRunsLive(this.rt.ctx, this.spec.chatId)) return false
       return !confidentialChat(this.rt.db, this.spec.chatId)
     } catch { return false }
   }
