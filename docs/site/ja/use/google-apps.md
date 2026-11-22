@@ -27,8 +27,21 @@ Google Drive、Gmail、Google カレンダー、Google ドキュメント、Goog
 ![メンバーの設定 › コネクターにある Gmail のページ：自分だけ（Just for you）、コネクター › Gmail、右上の接続（Connect）ボタン、AI が Gmail でできること、そのツール](../../images/connect/google-member-connect.webp "接続する前の Gmail")
 
 #### 接続を選ぶ
-新しいウィンドウで Google 自身のログインページが開きます（デスクトップアプリではブラウザーで開きます）。複数の Google
+新しいウィンドウが開きます（デスクトップアプリではブラウザーで開きます）。Trina がホストするチームでは、まず Trina の開始ページが表示されます。チームの名前と、Trina AX に許可する内容が載っているので、**Google に進む** を選びます。続いて Google 自身のログインページが開きます。複数の Google
 アカウントにログインしているときは、どのアカウントか Google が尋ねるので、使うアカウントを選びます。
+
+#### Google の警告を通過する
+Google が Trina の Google アプリを審査している間は、権限の画面の前に **このアプリは Google で確認されていません** と表示されます。これは審査中であることを知らせる Google の表示で、あなたのアカウントの問題ではありません。2 回クリックすれば進めます。
+
+1. 文章の下にある **詳細** を選びます。
+
+   ![Google の警告ページ：このアプリは Google で確認されていません、詳細のリンクに印がある](../../images/connect/google-warning-1-ja.webp "1 回目のクリック：詳細")
+
+2. 開いた文章のいちばん下にある **Trina AX（安全ではないページ）に移動** を選びます。
+
+   ![詳細の下に開いた文章：リスクを理解したうえで続行するよう求める説明と、印のついた Trina AX（安全ではないページ）に移動のリンク](../../images/connect/google-warning-2-ja.webp "2 回目のクリック：Trina AX（安全ではないページ）に移動")
+
+Google Workspace を使う会社は、会社独自の Google アプリを使えば、全員がこの警告を見ずに済みます。下の [どの Google ログインを使うか](#どの-google-ログインを使うか) を見てください。
 
 #### すべての項目にチェックを入れたままにする
 Google が Trina AX の名前と、許可する内容を 1 つの権限につき 1 行で表示します（「メールの閲覧、作成、送信」など）。
@@ -119,9 +132,18 @@ https://<your team address>/api/integrations/google-apps/callback
 
 Gmail、カレンダー、ドキュメント、スプレッドシートのアプリは Linux サーバーで動きます。Mac アプリでは、これらのページに「このチームのサーバーではまだ使えません」と表示されます。
 
-## Google の画面に会社名を表示する
+## どの Google ログインを使うか
 
-Google Workspace を使う会社は、すべての Google アプリのログインに会社独自の Google アプリを使えます。そうすると、Google の画面に会社名が表示され、警告も出ません。[会社独自の Google アプリを使う](google-own-app.md) を見てください。
+Google でログインする方法は 2 つあります。チームは 5 つの Google アプリすべてで、そのどちらか 1 つを使います。
+
+| | Trina のログイン | 会社独自の Google アプリ |
+|---|---|---|
+| つなげる人 | どの Google アカウントでも：会社の Google Workspace アカウントまたは個人の Gmail アカウント | 会社の Google Workspace のアカウントだけ |
+| 設定 | Trina がホストするチームでは不要 | IT 管理者が 1 回、15 分ほど：[会社独自の Google アプリを使う](google-own-app.md) |
+| Google の画面 | Google が Trina のアプリを審査している間は **このアプリは Google で確認されていません**：[2 回のクリック](#google-アプリをつなぐ全員) | 会社のアプリの名前、警告なし |
+| 使える人数 | 審査中は Google が制限 | 上限なし |
+
+まずは Trina のログインを使ってください。会社が Google Workspace を使っていて警告をなくしたいとき、またはアプリが上限に達したと Google に表示されたときは、会社独自のアプリに切り替えます。そのあと、各自が Google を 1 回つなぎ直します。
 
 ## 困ったとき
 
@@ -131,6 +153,7 @@ Google Workspace を使う会社は、すべての Google アプリのログイ�
 | **Googleから再ログインを求められています。** | アプリのページで **再接続** を選んでください。パスワードを変えたあとや、会社の管理者がアクセスを取り消したときに起こります。 |
 | Google のページに **`redirect_uri_mismatch`**（自分で運用するサーバー） | Google Cloud の戻り先アドレスが、Trina AX の表示と違います。**設定** ダイアログからもう一度コピーしてください。 |
 | **「このアプリはブロックされています」**（This app is blocked）または **`admin_policy_enforced`** | 会社の Google 管理者が、Google アカウントを使えるアプリを制限しています。アプリを信頼済みにするよう頼んでください。[管理コンソールでアプリを信頼する](google-own-app.md#任意管理コンソールでアプリを信頼する) を見てください。 |
-| **このアプリは Google で確認されていません**（Google hasn't verified this app） | テスト中の External アプリです。管理者が作ったアプリの場合に限り **詳細** › **…（安全ではないページ）に移動**（Advanced › Go to …）を選んでください。または、会社独自のアプリに切り替えるよう管理者に頼んでください。 |
+| **このアプリは Google で確認されていません**（Google hasn't verified this app） | Trina のログインの場合：**詳細** を選び、続けて **Trina AX（安全ではないページ）に移動** を選んでください（[画像](#google-アプリをつなぐ全員)）。管理者が作ったテスト中のアプリの場合：管理者が作ったアプリに限り **詳細** › **…（安全ではないページ）に移動**（Advanced › Go to …）を選んでください。または、アプリを **Internal** にするよう管理者に頼んでください。 |
+| **アクセスがブロックされました**（Access blocked）、またはアプリがユーザー数の上限に達したと Google に表示される | 審査中の Google の上限に Trina のログインが達しています。管理者がチームを [会社独自の Google アプリ](google-own-app.md) に切り替えます。 |
 
 開発者と運用担当者向けの詳しい情報：[Google apps](../../../GOOGLE-APPS.md)（英語）、[Google Drive](../../../GOOGLE-DRIVE.md)（英語）。

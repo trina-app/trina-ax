@@ -18,7 +18,7 @@ Google Drive、Gmail、Google カレンダー、Google ドキュメント、Goog
 :::
 
 :::note
-このページのスクリーンショットには、架空のチーム「Acme」を使っています。Google Cloud の画面はよく変わるので載せていません。代わりに Google の表示名を引用し、Google Cloud の各ページへのリンクを付けています。
+このページのスクリーンショットには、架空のチーム「Acme」と、架空の Google Cloud プロジェクト「acme-trina」を使っています。Google のコンソールはときどき変わります。画面が違って見えるときは、本文で引用している表示名と、Google Cloud のページへのリンクに沿って進めてください。
 :::
 
 ## 対象となる人
@@ -38,7 +38,9 @@ Google Workspace を使っていない小さなチームは、代わりに **Tes
 
 :::steps
 #### プロジェクトを作る
-[New project](https://console.cloud.google.com/projectcreate) を開きます。「acme-trina」など、わかりやすい名前を付け、**Organization** は会社のままにして **Create** を選びます。次の手順に進む前に、ページ上部で新しいプロジェクトが選ばれていることを確かめます。
+[New project](https://console.cloud.google.com/projectcreate) を開きます。「acme-trina」など、わかりやすい **Project name**（プロジェクト名）を付けます。**Parent resource**（または **Organization**）では会社を選びます。プロジェクトが会社の組織に属していないと、アプリを **Internal** にできません（画像の「No organization」は架空のアカウントのためです）。**Create** を選び、次の手順に進む前に、ページ上部で新しいプロジェクトが選ばれていることを確かめます。
+
+![Google Cloud の New Project ページ：Project name の acme-trina、その下の Project ID、Parent resource、Create ボタン](../../images/google-own-app/cloud-new-project.webp "New Project")
 
 #### 5 つの API を有効にする
 下のページを 1 つずつ開き、**Enable** を選びます。
@@ -49,20 +51,34 @@ Google Workspace を使っていない小さなチームは、代わりに **Tes
 - [Google Docs API](https://console.cloud.google.com/apis/library/docs.googleapis.com)
 - [Google Sheets API](https://console.cloud.google.com/apis/library/sheets.googleapis.com)
 
-今は一部の Google アプリしか使っていなくても、5 つすべてを有効にしてください。
+今は一部の Google アプリしか使っていなくても、5 つすべてを有効にしてください。有効になった API のページには、**Enable** の代わりに **Manage** と **API Enabled** が表示されます。
+
+![Google Cloud の Gmail API のページと Enable ボタン](../../images/google-own-app/cloud-enable-api.webp "Gmail API：Enable")
 
 #### アプリに名前を付けて Internal にする
 [Google Auth Platform](https://console.cloud.google.com/auth/overview) を開きます。初回は **Get started** が表示されます。
 
 1. **App Information**：「Acme Trina」など、みんながわかる **App name** と、**User support email** を入力します。
-2. **Audience**：**Internal** を選びます。会社のアカウントだけがアプリを使え、Google の審査も不要です。
+   **Next（次へ）** を選びます。
+
+   ![Get started の App Information：App name の Acme Trina、User support email、Next](../../images/google-own-app/cloud-get-started.webp "Get started：App Information")
+
+2. **Audience**：**Internal** を選びます。会社のアカウントだけがアプリを使え、Google の審査も不要です。（画像では **Internal** がグレーになっています。架空のアカウントには組織がないためです。会社のアカウントなら選べます。）
+
+   ![Get started の Audience：組織内のユーザーだけが使える Internal と、External](../../images/google-own-app/cloud-audience.webp "Get started：Audience")
 3. **Contact Information**：このプロジェクトについて Google から連絡を受けるメールアドレスを入力します。
 4. **Finish**：Google のポリシーに同意して **Create** を選びます。
 
 これらはあとから [Branding](https://console.cloud.google.com/auth/branding) と [Audience](https://console.cloud.google.com/auth/audience) で変更できます。
 
 #### 権限を追加する
-[Data access](https://console.cloud.google.com/auth/scopes) を開き、**Add or remove scopes** を選びます。**Manually add scopes** に下のブロックを丸ごと貼り付け、**Add to table**、**Update**、**Save** の順に選びます。
+[Data access](https://console.cloud.google.com/auth/scopes) を開き、**Add or remove scopes** を選びます。
+
+![Data Access のページと Add or remove scopes ボタン](../../images/google-own-app/cloud-data-access.webp "Data Access")
+
+右にパネルが開きます。その下のほうにある **Manually add scopes** に下のブロックを丸ごと貼り付け、**Add to table**、**Update** の順に選び、最後にページの **Save** を選びます。
+
+![パネルの Manually add scopes の欄に権限を貼り付けた状態と、Add to table ボタン](../../images/google-own-app/cloud-manual-scopes.webp "Manually add scopes")
 
 ```
 openid
@@ -91,7 +107,10 @@ https://www.googleapis.com/auth/spreadsheets.readonly
 [Clients](https://console.cloud.google.com/auth/clients) を開き、**Create client** を選びます。
 
 1. **Application type**：**Web application**。
-2. **Name**：「Trina AX」など、何でもかまいません。
+2. **Name**：「Trina AX」など、何でもかまいません。ほかの人には表示されません。
+
+   ![Create OAuth client ID：Application type の Web application と Name の Trina AX](../../images/google-own-app/cloud-client-type.webp "Create client：種類と名前")
+
 3. **Authorized redirect URIs** で **Add URI** を 2 回選び、2 つの戻り先アドレスを貼り付けます。アドレスは Trina AX からコピーします（次のパートのダイアログに、それぞれ **コピー** 付きで表示されます）。チームのアドレスが入った、次のような形です。
 
    ```
@@ -99,7 +118,11 @@ https://www.googleapis.com/auth/spreadsheets.readonly
    https://<your team address>/api/integrations/google-apps/callback
    ```
 
+   ![Authorized redirect URIs に、架空のチーム acme.trina.app の 2 つの戻り先アドレスが入った状態](../../images/google-own-app/cloud-client-redirects.webp "Authorized redirect URIs")
+
 4. **Create** を選びます。**OAuth client created** で **Download JSON** を選び、ファイルを保管します。シークレットが表示されるのはこのときだけです。なくした場合は、クライアントに新しいシークレットを作ります。
+
+   ![OAuth client created：画像ではクライアント ID とシークレットを隠してあり、Download JSON ボタンがある](../../images/google-own-app/cloud-client-created.webp "OAuth client created：Download JSON")
 :::
 
 ## Trina AX で
