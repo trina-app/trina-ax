@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-22 05:25
 - Branch: `fix/project-chat-notices-threads-mention-only` (on `batch/20261122-i`, which holds #339 and #350)
-- Status: in progress
+- Status: done
 - Where: server/src/chat (message notices, threads), server/src/rooms (thread reply notices), notifications
   preferences, web (chat menu, composer mentions, thread switch default). Why: owner decision 2026-11-22
   ("ㅇㅇ 그게 맞지. 스레드는 원래 멘션 없으면 안오는거임").
@@ -85,4 +85,16 @@ b-chat-answer-threads, b-rooms-threads, b-push-every-message and web room-sound 
 
 ## Result
 
-(filled in at the end)
+Built as planned, plus what the reviews and the QA copy found:
+- Plan review: the push gate (`pushEventEnabled`) and the service worker both blocked a thread mention with the switch
+  off; both now leave it to `chatThreadWanted` (a reply that still mentions the person, or the switch on). A mention on
+  an open notice is re-dated and its finished deliveries go, so it is pushed anew.
+- A member who never wrote in a project chat: `GET /api/chats?unread=1` (kept in the web store's `others`, counted in n
+  as the push badge counts them) and the push badge reach it. Project rows are bold and their chat rows show the
+  number. "Mute this chat" is in the chat's title menu too.
+- QA copy: opening a chat put the store's older copy back over the newer chat.updated (the Projects mark stayed);
+  pages/Chat.tsx upserts only a copy it read now.
+- Code review: the badge and the unread list keep a project chat only while it is one and I see it (filtered before
+  the page); an answer's hidden-from check runs before the write.
+- Left as is: notices of someone who lost a project stay until read or 30 days (never pushed, never shown).
+Checked in a private QA copy (3 people in a project, 1440 and 390): shots in ~/qa-projnotice-shots/.
