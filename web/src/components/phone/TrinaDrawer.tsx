@@ -9,7 +9,7 @@ import { useFreeRoam } from '../../store/demo'
 import { isGuestMe } from '../../lib/guests'
 import clsx from 'clsx'
 import { BookMarked, CalendarClock, ChevronDown, Search, Smile, Trash2, X } from 'lucide-react'
-import { useEffect, useId, useState } from 'react'
+import { useEffect, useId, useMemo, useState } from 'react'
 import { Link, useLocation } from 'react-router-dom'
 import { create } from 'zustand'
 import { useT } from '../../i18n'
@@ -18,8 +18,13 @@ import { badgeText } from '../../lib/rooms'
 import { aiName } from '../../lib/tabs'
 import { useSkillsWaiting } from '../../store/skillsWaiting'
 import { useUi } from '../../store/ui'
-import { useChatPeek } from '../nav/ChatItem'
-import { HistoryList, RecentsMenu, useRecentsView, viewWords } from '../nav/HistoryList'
+import { HistoryList, RecentsMenu, useHistorySections, useRecentsView, viewWords } from '../nav/HistoryList'
+import { ChatItem, useChatPeek } from '../nav/ChatItem'
+import { HistorySections } from '../nav/HistorySections'
+import { leftSectionToast } from '../nav/SidebarSections'
+import { MoveToProjectDialog } from '../chat/ChatProject'
+import { useChats } from '../../store/chats'
+import type { Chat } from '@mycel/shared/api'
 import { SetupRow } from '../onboarding/SetupRow'
 import { CountPill } from '../CountPill'
 import { ListRow } from '../list/List'
@@ -77,6 +82,10 @@ function DrawerBody({ close }: { close: () => void }) {
   // by date by default, as the drawer was before the navigation redesign (Today, Yesterday …); its own choice, apart
   // from the computer's 트리나 panel
   const view = useRecentsView(DRAWER_VIEW)
+  // my sections, filtered and sorted as the drawer's view says (with Group by Project the projects stand alone)
+  const sectionState = useHistorySections(view.view)
+  const sections = useMemo(() => (view.view.group === 'project' ? { ...sectionState, sections: [] } : sectionState), [sectionState, view.view.group])
+  const [moving, setMoving] = useState<Chat | null>(null)
   const listId = useId()
   const [recentsOpen, setRecentsOpen] = useState(readOpen)
   const toggle = () =>
@@ -126,6 +135,8 @@ function DrawerBody({ close }: { close: () => void }) {
         data-testid="sidebar-scroll"
       >
         <SetupRow onNavigate={close} />
+        {/* my sections, each a header of its own above 트리나 기록 (docs/decisions/20261122-trina-history-sections.md) */}
+        <HistorySections state={sections} row={(c) => <ChatItem key={c.id} chat={c} onNavigate={close} peek={peek} onMove={setMoving} />} filtered={filtered} className="mt-2" />
         <div className="flex items-center gap-1 pt-2 pr-1 pl-3" data-testid="recents-head">
           <h2 className="shrink-0 text-sm font-semibold whitespace-nowrap text-ink">
             <button type="button" aria-expanded={recentsOpen} aria-controls={listId} onClick={toggle} className="flex items-center gap-1 rounded py-1 hover:text-muted" data-testid="recents-toggle">
@@ -149,10 +160,11 @@ function DrawerBody({ close }: { close: () => void }) {
           </span>
         </div>
         <div id={listId} hidden={!recentsOpen}>
-          {recentsOpen && <HistoryList onNavigate={close} peek={peek} viewState={view} />}
+          {recentsOpen && <HistoryList onNavigate={close} peek={peek} viewState={view} sections={view.view.group === 'project' ? undefined : sections} />}
         </div>
       </div>
       {peek.card}
+      {moving && <MoveToProjectDialog chat={moving} onClose={() => setMoving(null)} onMoved={(c) => { leftSectionToast(moving, c); useChats.getState().upsertChat(c) }} />}
       {/* my status (the computer's account menu has it) and 삭제한 기록, at the end of the history */}
       <ul className="border-t border-line p-2">
         <StatusRow onOpen={close} />

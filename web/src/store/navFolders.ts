@@ -11,7 +11,7 @@ import { NAV_FOLDER_ITEMS_MAX, NAV_FOLDERS_MAX, uuidv7, type Chat, type NavFolde
 import { api, API, ApiError, errorText } from '../lib/api'
 import { currentLocale, t } from '../i18n'
 import { optimistic, optimisticEdits, optimisticPending, optimisticPendingKeys, type OptimisticResult } from '../lib/optimistic'
-import { readChatGroups } from './chatGroups'
+import { readChatGroups, useChatGroups } from './chatGroups'
 import { useChats } from './chats'
 import { navFoldersChanged } from './live'
 import { useRooms, withRoom } from './rooms'
@@ -122,21 +122,26 @@ const madeId = async (id: string): Promise<string> => {
   if (!real) throw new NotMade('folder not made')
   return real
 }
-/** A refusal about my room folders in the Chats list's own words: there they are sections, never folders
- * (docs/decisions/20261121-personal-sidebar-sections.md). The server's words say "folder" (server/src/chat/i18n.ts
- * navFolders*), so its reasons are said again here; anything else as the server said it. */
-export function roomFolderErrorText(e: unknown): string {
+/** A refusal about my list folders in the lists' own words: on screen they are sections in both lists, never folders
+ * (docs/decisions/20261121-personal-sidebar-sections.md, docs/decisions/20261122-trina-history-sections.md). The
+ * server's words say "folder" (server/src/chat/i18n.ts navFolder*), so each of its reasons is said again here; anything
+ * else as the server said it. `kind`: whose words ("conversations" in Chats, "chats" in the Trina history). */
+export function sectionErrorText(e: unknown, kind: NavFolderKind = 'rooms'): string {
   const reason = e instanceof ApiError ? e.body.params?.reason : undefined
   if (reason === 'nav_folders_full') return t('sidebarSections.full', { n: NAV_FOLDERS_MAX })
   if (reason === 'nav_folder_name_taken') return t('sidebarSections.nameTaken')
-  if (reason === 'nav_folder_full') return t('sidebarSections.sectionFull', { n: NAV_FOLDER_ITEMS_MAX })
+  if (reason === 'nav_folder_full') return t(kind === 'chats' ? 'sidebarSections.chats.sectionFull' : 'sidebarSections.sectionFull', { n: NAV_FOLDER_ITEMS_MAX })
   if (reason === 'room_hidden') return t('sidebarSections.hiddenRoom')
+  if (reason === 'folder_project_chat') return t('sidebarSections.chats.projectChat')
+  if (reason === 'folder_shared_chat') return t('sidebarSections.chats.sharedChat')
   if (e instanceof ApiError && e.code === 'not_found') return t('sidebarSections.gone')
   return errorText(e, currentLocale(), t('error.network'))
 }
+/** the Chats list's refusals (kept under its old name for its callers) */
+export const roomFolderErrorText = (e: unknown): string => sectionErrorText(e, 'rooms')
 
-/** the words of a refusal: a room folder's in the section words (roomFolderErrorText) */
-const failureText = (kind: NavFolderKind, e: unknown) => (kind === 'rooms' ? roomFolderErrorText(e) : errorText(e, currentLocale(), t('error.network')))
+/** the words of a refusal, in section words for both kinds */
+const failureText = (kind: NavFolderKind, e: unknown) => sectionErrorText(e, kind)
 
 /** a refusal of the newest change, in the person's language (not for a folder whose making was refused) */
 function sayFailure(r: OptimisticResult<unknown>, kind: NavFolderKind) {
@@ -245,11 +250,10 @@ const withFolder = <T extends { folderId?: string }>(x: T, folderId: string | nu
 
 /** Put my chat in a folder of mine, or out of it (null): at once in my lists, then on the server; a refusal puts it
  * back with one toast. */
-export async function fileChat(chatId: string, folderId: string | null): Promise<OptimisticResult<Chat>> {
-  const was = useChats.getState().chats.find((c) => c.id === chatId)
+export async function fileChat(chatId: string, folderId: string | null, o: { quiet?: boolean } = {}): Promise<OptimisticResult<Chat>> {
   const r = await optimistic<string | null, Chat>({
     key: `chat:${chatId}:folder`,
-    from: was?.folderId ?? null,
+    from: chatFolderOf(chatId),
     to: folderId,
     show: (id) => {
       const c = useChats.getState().chats.find((x) => x.id === chatId)
@@ -263,12 +267,20 @@ export async function fileChat(chatId: string, folderId: string | null): Promise
     },
     failText: false,
   })
-  sayFailure(r, 'chats')
+  if (!o.quiet) sayFailure(r, 'chats')
   if (r.ok) {
     void readNavFolders()
     void readChatGroups()
   }
   return r
+}
+
+/** The section a chat of mine is in now: the chats store's copy, else the Trina list's last read (a chat in a section
+ * that no page of the list has brought yet: GET /api/chats/groups `folders[].top`). null: none. */
+export function chatFolderOf(chatId: string): string | null {
+  const c = useChats.getState().chats.find((x) => x.id === chatId)
+  if (c) return c.folderId ?? null
+  return useChatGroups.getState().groups?.folders.find((f) => f.top.some((x) => x.id === chatId))?.id ?? null
 }
 
 const roomFolderKey = (roomId: string) => `room:${roomId}:folder`

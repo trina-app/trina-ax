@@ -4,7 +4,7 @@
 export const APP_MAP_KEYS = [
   'settings.title', 'admin.title', 'sidebar.files', 'sidebar.skills', 'rooms.aiName', 'inbox.title', 'projects.title', 'projects.new',
   // chats
-  'chat.rename', 'chat.pin', 'navFolders.new', 'navFolders.moveTo', 'chat.regenerate', 'chat.edit', 'projects.share',
+  'chat.rename', 'chat.pin', 'sidebarSections.new', 'sidebarSections.moveTo', 'chat.regenerate', 'chat.edit', 'projects.share',
   // account: Settings › Profile and Security & devices, the status from the account menu
   'settings.security', 'auth.changePassword', 'settings.devices', 'status.set', 'presence.setAway',
   // cards and allowances (the card's own "Always allow" is the server's: chat/i18n.ts cardAlways)

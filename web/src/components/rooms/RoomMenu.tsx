@@ -185,7 +185,7 @@ export function RoomMenu({ room, onNotify, onInvite, onSearch, openSignal, openR
   const base = useRoomMenuItems(room, onNotify ?? (() => setNotify((n) => n + 1)), phone, onInvite, onSearch)
   // `folders` (a row of the Chats list, its phone long-press sheet, the conversation's header): Move to section and
   // Remove from section second, under Pin (docs/decisions/20261121-personal-sidebar-sections.md); a hidden one has none
-  const folder = useSectionRowItems({ on: folders && canSection(room), room, more })
+  const folder = useSectionRowItems({ on: folders && canSection(room), id: room.id, folderId: room.folderId, more })
   const pinAt = base.findIndex((it) => it.testId === 'room-menu-pin' || it.testId === 'room-menu-unpin')
   const items = folder.items.length ? [...base.slice(0, pinAt + 1), ...folder.items, ...base.slice(pinAt + 1)] : base
   return (
