@@ -420,14 +420,19 @@ const mostlyLatin = (m: string) => {
  * words are mostly Latin letters. */
 export function leadScript(locale: Locale, message: string, previous?: string | null): AnswerScript | null {
   if (mostlyLatin(message)) return null
+  // a follow-up to a request for another language ("영어 이메일 써줘", then "좀 더 짧게"): the draft is still in it (review)
+  if (previous && ASKS_FOR_OTHER_LANGUAGE.test(ownWords(previous))) return null
   return narrationScript(locale, ownWords(message), previous ? ownWords(previous) : previous)
 }
 
 /** The longest paragraph (trimmed) the lead rule takes out of a final answer. */
 export const LEAD_MAX_CHARS = 160
-/** Markers of a paragraph that is content, by its shape: a code block or indented code, a link or address, a quote, a
- * list item, a table row, a heading (Markdown or a line in bold alone), or a file name alone. */
-const LEAD_CONTENT = /```|~~~|https?:\/\/|www\.|\]\(|^\s*(?:>|[-*+•]\s|\d+[.)]\s|\||#{1,6}\s)|^ {4}|^\t/m
+/** Markers of a paragraph that is content, by its shape: code (a block, indented, inline, or a command's or query's
+ * symbols), a link or address, a quote, a list item, a table row, a heading (Markdown or a line in bold alone), or a
+ * file name alone. */
+const LEAD_CONTENT = /```|~~~|`|[{}<>=*$\\]|\s--?[a-z]|https?:\/\/|www\.|\]\(|^\s*(?:>|[-*+•]\s|\d+[.)]\s|\||#{1,6}\s)|^ {4}|^\t/m
+/** A note is a sentence: it ends in a sentence mark. A title, a product name, "Total: USD 1,234" or "*Note*" does not. */
+const SENTENCE_END = /[.!?:…]["')\]]?$/
 const BOLD_ALONE = /^\s*(?:\*\*|__)[^\n]+(?:\*\*|__)\s*$/
 const FILE_ALONE = /^\s*`?[^\s`]+\.[A-Za-z0-9]{1,5}`?\s*$/
 
@@ -435,8 +440,8 @@ const FILE_ALONE = /^\s*`?[^\s`]+\.[A-Za-z0-9]{1,5}`?\s*$/
  * A final answer that opens with the AI's own working notes in Latin letters, above an answer in the person's script
  * (2026-11-22, owner: "Need a venv.", "Good result. Saving it." at the top of Korean answers, after the last call).
  * Structural, no phrase list: the answer's leading paragraphs (split on blank lines) that hold no Hangul, kana or CJK
- * at all, are short (under LEAD_MAX_CHARS), have a Latin word, do not end in "," (a greeting: "Hi Tom,") and are no
- * code, link, quote, list item, table row, heading or file name alone. They are returned as `notes`, the rest as
+ * at all, are short (under LEAD_MAX_CHARS), have a Latin word, end in a sentence mark (not "Hi Tom," nor a title) and
+ * are no code, link, quote, list item, table row, heading or file name alone. They are returned as `notes`, the rest as
  * `rest`; null when nothing leads, when the rest would be empty, or when the rest has none of the script (an English
  * answer stays whole). said: the person's message (a paragraph taken from it is content).
  */
@@ -468,7 +473,7 @@ export function finalAnswerLead(answer: string, script: AnswerScript | null, sai
 
 function isLeadNote(para: string, t: string, said: string): boolean {
   if (NON_LATIN.test(t) || t.length >= LEAD_MAX_CHARS) return false
-  if (!/[A-Za-z]{2,}/.test(t) || /,\s*$/.test(t)) return false
+  if (!/[A-Za-z]{2,}/.test(t) || !SENTENCE_END.test(t)) return false
   if (LEAD_CONTENT.test(para) || BOLD_ALONE.test(t) || FILE_ALONE.test(t)) return false
   const n = norm(t)
   return !(n.length >= 8 && said.includes(n))

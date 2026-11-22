@@ -47,6 +47,9 @@ describe('finalAnswerLead', () => {
       '```\npip install python-docx\n```', 'https://example.com/report', '> Need a venv.', '- Need a venv.', '1. Install it.',
       '| Name | Price |', '## Summary', '**Summary**', 'report-q3.docx', '`report-q3.docx`', 'Hi Tom,',
     ]) expect(left(`${lead}\n\n${KO_ANSWER}`), lead).toBe(`${lead}\n\n${KO_ANSWER}`)
+    // inline code, a command's or a query's symbols, a title or a total with no sentence mark (review)
+    for (const lead of ['`pip install -r requirements.txt`', 'SELECT * FROM users;', 'python3 -m venv .venv --clear.', 'Seamless Onboarding', 'Total: USD 1,234', '*Note*'])
+      expect(left(`${lead}\n\n${KO_ANSWER}`), lead).toBe(`${lead}\n\n${KO_ANSWER}`)
     // a long paragraph is content too
     const long = 'This paragraph is long enough to be real content rather than a short note that the model wrote to itself while it worked through all of the many steps of the whole job.'
     expect(long.length).toBeGreaterThanOrEqual(160)
@@ -71,6 +74,9 @@ describe('finalAnswerLead', () => {
     }
     expect(leadScript('en', '보고서 만들어 줘')).toBeNull()
     expect(left(a, '보고서 만들어 줘', 'en')).toBe(a)
+    // a follow-up to a request for an English draft ("영어 이메일 써줘", then "좀 더 짧게"): the draft stays (review)
+    expect(leadScript('ko', '좀 더 짧게 해줘', '거래처에 보낼 영어 이메일 써줘')).toBeNull()
+    expect(leadScript('ko', '좀 더 짧게 해줘', '보고서 만들어 줘')).toBe('ko')
     // a quote above the person's own words does not decide (#364): its English is someone else's
     expect(leadScript('ko', '> Please send the final deck by Friday, thanks a lot everyone\n이거 요약해줘')).toBe('ko')
   })

@@ -2285,13 +2285,17 @@ export class TurnExec {
     const piece = this.writtenText.slice(at)
     const cut = finalAnswerLead(piece, this.lead.script, this.lead.said)
     if (!cut) return
-    const sep = /^\s*/.exec(piece)![0]
+    // the piece's own separator stays (the answer above it, if any); at the very top nothing leads
+    const kept = (at > 0 ? /^\s*/.exec(piece)![0] : '') + cut.rest
+    // a card placed inside the piece (a bookkeeping call ends no piece) keeps its place in the text that stays (review)
+    const cards = this.steps.filter((st) => st.textAt !== undefined && st.textAt > at).map((st) => [st, st.textAt!] as const)
     this.discardTextFrom(at)
     this.interimDropped++
     this.addStep({ kind: 'thinking', label: tr('thinking', this.spec.locale), status: 'ok', detail: cut.notes })
-    // the piece's own separator stays (the answer above it, if any); at the very top nothing leads
-    this.emitText(this.answerText.push(this.fileLinks.push((at > 0 ? sep : '') + cut.rest)))
+    this.emitText(this.answerText.push(this.fileLinks.push(kept)))
     this.flushText()
+    const removed = piece.length - kept.length
+    for (const [st, textAt] of cards) st.textAt = Math.max(at, textAt - removed)
   }
   /** Everything held back (an undecided piece, the redactor's end), let out now (before a step, a retry's separator,
    * the end). */
