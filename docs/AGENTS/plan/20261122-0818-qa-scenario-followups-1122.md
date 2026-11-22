@@ -26,7 +26,7 @@ TC-v1d-06 and TC-f4-09 (S-110).
 
 In:
 
-- **S-120 viewer: "Ask to add it" in a room.** The #320 chat-file ask (components/ChatFileAsk.tsx, chat/access-requests.ts
+- (superseded in part by "After the plan review" below) **S-120 viewer: "Ask to add it" in a room.** The #320 chat-file ask (components/ChatFileAsk.tsx, chat/access-requests.ts
   fileView / fileRequest / answer) gets a room twin. The viewer is a room member (not a guest) who cannot read a
   team-path link in a room message. The message's author can still read the file. The viewer then sees "이 파일은
   {name}님만 방에 추가할 수 있어요" and **[추가 요청]**. The ask goes to the author's Activity. **[방에 추가]** checks
@@ -63,6 +63,29 @@ In:
 
 Out: the file panel's "made by" line for a removed guest (TC-f4-09's file half), the ICU text in the guest-removal
 dialog (TC-v1d-05), ask-less's own rules (another branch).
+
+## After the plan review (2026-11-22)
+
+The review changed three things:
+
+- **No copy past the folder rule.** A copy (card or viewer) goes only for a file the asker may share
+  (`FileShares.view(...).canShare`). A team-folder file they only read stays a link, as decided in 20261117. So the
+  first fix is the root cause: why 한지우's own AI-made file in `groups/영업/` counted as "not hers to share". If she is its
+  owner, today's card already names 최도윤 and lets him view it. For a file she really may not share, the card now still
+  **names** the room members who can't open it, and the post's step offers the existing "Ask <owner> / Ask an admin".
+- **The viewer's ask uses the file requests** (`file_access_requests`, files/shares.ts request / answer, Share or Decline
+  by the file's owner or admins). There is no new kind and no edit to the posted message. The new route is
+  `POST /api/rooms/:id/messages/:messageId/file-access` (+ GET). It answers only for a team path that is a link in that
+  message and that the viewer can see (`canSee`, thread, history), so it can't be used to probe paths. Everything else
+  gets the one generic "no". Guests never ask. The web panel shows "볼 권한이 없어요 · [보기 요청]", or "요청했어요 …".
+- S-118 uses `chat_reads` (this person's own reads on this branch). The note fires on an earlier read plus a refusal,
+  never on whether the path exists, and reads "더 이상 열 수 없어요 (권한이 바뀌었거나 옮겨졌어요)". The search line is
+  added only when the search's scope covers a folder this person read earlier.
+- S-119: share_with_person tells the AI when the only match is a guest, instead of dropping her silently. The
+  named-person guard refuses only when the asker's own message names another active teammate and not this one. Any
+  doubt shows the card.
+- S-110: "나감" for any turned-off account (a member who left the team too), "게스트 · 나감" for a guest. Guests viewing
+  see it as well.
 
 ## Steps
 
