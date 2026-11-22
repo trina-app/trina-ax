@@ -1,6 +1,7 @@
 // Recommended skill packs (docs/DECISIONS.md "C. Onboarding: marketing skill pack and skill forms", "DS3 — Only skills
-// with a known origin ship; no auto-add", "W6 — Onboarding v6: skills catalog and 내 스킬"): general (the intro deck, the
-// card news, the promo video) and work (natural writing). A new team has no skills. The catalog (skillPackCatalog: GET
+// with a known origin ship; no auto-add", "W6 — Onboarding v6: skills catalog and 내 스킬";
+// docs/decisions/20261122-onboarding-everyday-skills.md): general (the intro deck, the card news, the promo video) and
+// work (meeting notes, reports and notices, customer replies, contract review, natural writing). A new team has no skills. The catalog (skillPackCatalog: GET
 // /api/onboarding/packs) lists the kept skills with their one line, example and source, and whether the team has each;
 // the owner's 내 스킬 step and the Team skills page's "트리나가 준비한 스킬 · N개 더" (owners and admins) install what a
 // person checked (POST /api/onboarding/packs/:id/install with `skills`): plain files under skills/<pack>/<name>/SKILL.md
@@ -18,7 +19,7 @@
 // The pack text is in resources/skill-packs/<pack>/<locale>/<name>/SKILL.md, imported as text so a release bundle
 // carries it inside the server code (no extra resource files to list or verify). The examples follow the same rule
 // (skill-examples.ts PACK_EXAMPLES).
-import type { Locale, PackCatalog, PackCatalogSkill, PackItemStatus, PackSkillSource, SkillPackId, SkillPackInstallResult } from '@mycel/shared/api'
+import type { Locale, PackCatalog, PackCatalogSkill, PackItemStatus, PackOnboarding, PackSkillSource, SkillPackId, SkillPackInstallResult } from '@mycel/shared/api'
 import type { AppContext } from '../context'
 import { audit } from '../admin/audit'
 import { teamDefaultLocale } from '../admin/settings'
@@ -38,6 +39,14 @@ import koIntroDeck from '../../../resources/skill-packs/general/ko/intro-deck/SK
 import enIntroDeck from '../../../resources/skill-packs/general/en/intro-deck/SKILL.md' with { type: 'text' }
 import koWorkHumanizer from '../../../resources/skill-packs/work/ko/humanizer/SKILL.md' with { type: 'text' }
 import enWorkHumanizer from '../../../resources/skill-packs/work/en/humanizer/SKILL.md' with { type: 'text' }
+import koMeetingNotes from '../../../resources/skill-packs/work/ko/meeting-notes/SKILL.md' with { type: 'text' }
+import enMeetingNotes from '../../../resources/skill-packs/work/en/meeting-notes/SKILL.md' with { type: 'text' }
+import koTeamReport from '../../../resources/skill-packs/work/ko/team-report/SKILL.md' with { type: 'text' }
+import enTeamReport from '../../../resources/skill-packs/work/en/team-report/SKILL.md' with { type: 'text' }
+import koCustomerReply from '../../../resources/skill-packs/work/ko/customer-reply/SKILL.md' with { type: 'text' }
+import enCustomerReply from '../../../resources/skill-packs/work/en/customer-reply/SKILL.md' with { type: 'text' }
+import koContractReview from '../../../resources/skill-packs/work/ko/contract-review/SKILL.md' with { type: 'text' }
+import enContractReview from '../../../resources/skill-packs/work/en/contract-review/SKILL.md' with { type: 'text' }
 
 export interface SkillPack {
   /** skill name → its SKILL.md text, per language the pack is written in (English always) */
@@ -55,10 +64,14 @@ export const SKILL_PACKS: Record<SkillPackId, SkillPack> = {
   // "humanizer" (natural writing, docs/DECISIONS.md "DS2"). Korean: written by the company from the Korean writing skill
   // it used itself. English: adapted from the open-source "humanizer" skill (Siqi Chen, MIT), rewritten with examples of
   // our own; it keeps its MIT notice (and LICENSE next to it in resources/).
+  // The everyday office skills (docs/decisions/20261122-onboarding-everyday-skills.md): meeting notes, reports and
+  // notices, customer replies, contract review. Text only, rewritten in both languages from Anthropic's Apache-2.0
+  // skills (anthropics/skills internal-comms, anthropics/knowledge-work-plugins) at pinned commits; each SKILL.md ends
+  // with its credits, and LICENSE and NOTICE sit next to it in resources/.
   work: {
     skills: {
-      ko: { humanizer: koWorkHumanizer },
-      en: { humanizer: enWorkHumanizer },
+      ko: { humanizer: koWorkHumanizer, 'meeting-notes': koMeetingNotes, 'team-report': koTeamReport, 'customer-reply': koCustomerReply, 'contract-review': koContractReview },
+      en: { humanizer: enWorkHumanizer, 'meeting-notes': enMeetingNotes, 'team-report': enTeamReport, 'customer-reply': enCustomerReply, 'contract-review': enContractReview },
     },
   },
 }
@@ -154,15 +167,25 @@ export function installSkillPack(ctx: AppContext, userId: string, id: SkillPackI
 
 // ---------------------------------------------------------------- the catalog (docs/DECISIONS.md "W6")
 
+/** The upstream commits the adapted skills were read at (their NOTICE files and SKILL.md credits name them too). */
+export const KWP_COMMIT = '0e0fcacddcc892eb92a1b7873ff9d68159c47571'
+export const ANTHROPIC_SKILLS_COMMIT = 'e4bb5d960d87126ff3b3a8af1a104b7db67560ba'
+const KWP = (path: string) => ({ kind: 'adapted' as const, author: 'Anthropic', project: 'knowledge-work-plugins', license: 'Apache-2.0', url: `https://github.com/anthropics/knowledge-work-plugins/tree/${KWP_COMMIT}/${path}` })
 /** The kept skills in the order the catalog shows them (내 스킬's rows, the Team skills fold): every skill of every pack
  * is here once (a test holds it to SKILL_PACKS), so a skill shipped later only adds a row. `visual`: made from the company
- * profile (checked on 내 스킬 when a profile is saved; the brand action runs before it goes in). */
-export const CATALOG: readonly { pack: SkillPackId; name: string; visual: boolean; source: (locale: Locale) => PackSkillSource }[] = [
-  { pack: 'general', name: 'intro-deck', visual: true, source: () => ({ kind: 'team' }) },
-  { pack: 'general', name: 'card-news', visual: true, source: () => ({ kind: 'team' }) },
-  { pack: 'general', name: 'promo-video', visual: true, source: () => ({ kind: 'team' }) },
-  // the Korean text is the company's own; the English one is Siqi Chen's MIT "humanizer" rewritten (DS2), its only link out
-  { pack: 'work', name: 'humanizer', visual: false, source: (l) => (l === 'ko' ? { kind: 'team_writing' } : { kind: 'adapted', author: 'Siqi Chen', project: 'humanizer', license: 'MIT', url: 'https://github.com/blader/humanizer' }) },
+ * profile (the brand action runs before it goes in). `onboarding` (docs/decisions/20261122-onboarding-everyday-skills.md):
+ * the owner's setup step "팀이 쓸 스킬을 골라 주세요" shows the skill, checked (`checked`) or not (`offered`); null: only on
+ * Team skills › "트리나가 준비한 스킬 · N개 더" (card news, promo video). */
+export const CATALOG: readonly { pack: SkillPackId; name: string; visual: boolean; onboarding: PackOnboarding | null; source: (locale: Locale) => PackSkillSource }[] = [
+  { pack: 'work', name: 'meeting-notes', visual: false, onboarding: 'checked', source: () => KWP('sales/skills/call-summary') },
+  { pack: 'work', name: 'team-report', visual: false, onboarding: 'checked', source: () => ({ kind: 'adapted', author: 'Anthropic', project: 'internal-comms', license: 'Apache-2.0', url: `https://github.com/anthropics/skills/tree/${ANTHROPIC_SKILLS_COMMIT}/skills/internal-comms` }) },
+  { pack: 'work', name: 'customer-reply', visual: false, onboarding: 'checked', source: () => KWP('customer-support/skills/draft-response') },
+  { pack: 'work', name: 'contract-review', visual: false, onboarding: 'offered', source: () => KWP('legal/skills/review-contract') },
+  // the Korean text is the company's own; the English one is Siqi Chen's MIT "humanizer" rewritten (DS2)
+  { pack: 'work', name: 'humanizer', visual: false, onboarding: 'checked', source: (l) => (l === 'ko' ? { kind: 'team_writing' } : { kind: 'adapted', author: 'Siqi Chen', project: 'humanizer', license: 'MIT', url: 'https://github.com/blader/humanizer' }) },
+  { pack: 'general', name: 'intro-deck', visual: true, onboarding: 'offered', source: () => ({ kind: 'team' }) },
+  { pack: 'general', name: 'card-news', visual: true, onboarding: null, source: () => ({ kind: 'team' }) },
+  { pack: 'general', name: 'promo-video', visual: true, onboarding: null, source: () => ({ kind: 'team' }) },
 ]
 const VISUAL = new Set(CATALOG.filter((c) => c.visual).map((c) => c.name))
 
@@ -185,6 +208,30 @@ const SUMMARY: Record<string, Record<Locale, string>> = {
     id: 'Membuat video vertikal 18 detik dari info perusahaan', ja: '会社紹介から18秒の縦長の動画を作ります',
     es: 'Crea un vídeo vertical de 18 segundos con la información de la empresa',
     zh: '根据公司介绍制作18秒的竖版视频',
+  },
+  'meeting-notes': {
+    ko: '회의 메모나 녹음 대본으로 결정 사항과 담당·기한이 붙은 할 일을 정리해요', en: 'Turns meeting notes or a transcript into decisions and to-dos with owners and due dates',
+    id: 'Merangkum catatan atau transkrip rapat jadi keputusan dan tugas lengkap dengan penanggung jawab dan tenggat', ja: '会議メモや文字起こしから、決定事項と担当・期限つきのToDoをまとめます',
+    es: 'Convierte notas o transcripciones de reuniones en decisiones y tareas con responsable y fecha',
+    zh: '把会议记录或录音文字稿整理成决定事项和带负责人、期限的待办',
+  },
+  'team-report': {
+    ko: '주간 보고, 팀 공지, 장애 보고를 깔끔한 회사 양식으로 써요', en: 'Writes weekly reports, team notices and incident reports in a clean company format',
+    id: 'Menulis laporan mingguan, pengumuman tim, dan laporan insiden dengan format kantor yang rapi', ja: '週報、チームへのお知らせ、障害報告を整った社内の書式で書きます',
+    es: 'Redacta informes semanales, avisos al equipo e informes de incidencias con un formato claro de empresa',
+    zh: '用规范的公司格式写周报、团队通知和故障报告',
+  },
+  'customer-reply': {
+    ko: '고객 문의나 불만에 보낼 정중한 답장 초안을 써요', en: 'Drafts polite replies to customer questions and complaints',
+    id: 'Menyusun draf balasan yang sopan untuk pertanyaan dan keluhan pelanggan', ja: 'お客様の問い合わせや苦情への丁寧な返信の下書きを書きます',
+    es: 'Redacta borradores de respuestas amables a preguntas y quejas de clientes',
+    zh: '为客户咨询和投诉起草礼貌的回复',
+  },
+  'contract-review': {
+    ko: '계약서의 위험한 조항, 빠진 내용, 물어볼 질문을 짚어요 (법률 자문은 아니에요)', en: 'Points out risky clauses, missing items and questions to ask in a contract (not legal advice)',
+    id: 'Menandai klausul berisiko, hal yang kurang, dan pertanyaan yang perlu diajukan dalam kontrak (bukan nasihat hukum)', ja: '契約書のリスクのある条項、抜けている点、確認すべき質問を指摘します(法的助言ではありません)',
+    es: 'Señala cláusulas de riesgo, lo que falta y qué preguntar en un contrato (no es asesoría legal)',
+    zh: '指出合同中的风险条款、遗漏内容和需要问的问题(不构成法律意见)',
   },
   humanizer: {
     ko: 'AI가 쓴 티가 나는 글을 사람이 쓴 것처럼 다듬어요', en: 'Rewrites text that reads as AI-written so a person seems to have written it',
@@ -221,7 +268,7 @@ export function skillPackCatalog(ctx: AppContext, userId: string, locale: Locale
     const path = `skills/${c.pack}/${c.name}/SKILL.md`
     return [{
       pack: c.pack, name: c.name, path, title: parseSkill(text, path)?.title ?? c.name, description: packSummary(c.name, locale),
-      inTeam: inTeam(ctx, path, c.name, teamSkills), visual: c.visual, example: packExample(at, c.name), locale: at, source: c.source(at),
+      inTeam: inTeam(ctx, path, c.name, teamSkills), visual: c.visual, onboarding: c.onboarding, example: packExample(at, c.name), locale: at, source: c.source(at),
     }]
   })
   return { skills, profile: !!readCompanyProfile(ctx.files, me) }

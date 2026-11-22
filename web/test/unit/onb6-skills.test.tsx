@@ -21,7 +21,7 @@ import { act } from 'react'
 import { MemoryRouter } from 'react-router-dom'
 import type { PackCatalogSkill, ShareCandidate, SkillShare } from '@mycel/shared/api'
 import { translate, useLocaleStore, useT, type MessageKey } from '../../src/i18n'
-import { preChecked, primaryLabel, SkillsStep } from '../../src/components/onboarding/SkillsStep'
+import { preChecked, primaryLabel, setupRows, SkillsStep } from '../../src/components/onboarding/SkillsStep'
 import { SkillShareReview } from '../../src/components/onboarding/SkillShareReview'
 import { PackRows } from '../../src/components/skills/PackRows'
 import { BringSkillsSheet, SHARE_CHECK_LIMIT_MS } from '../../src/components/skills/BringSkillsSheet'
@@ -41,10 +41,19 @@ const failed = (message: string) => json(500, { error: { code: 'internal', messa
 const kept = (pack: 'general' | 'work', name: string, title: string, o: Partial<PackCatalogSkill> = {}): PackCatalogSkill => ({
   pack, name, path: `skills/${pack}/${name}/SKILL.md`, title, description: `${title} 한 줄`, inTeam: false, visual: pack === 'general', example: null, locale: 'ko', source: { kind: 'team' }, ...o,
 })
-/** the catalog's four, in its order (server/src/onboarding/skill-packs.ts CATALOG) */
+/** the catalog's four as a server from before `onboarding` sends them (no field: every row shows, the visual ones are
+ * checked with a profile); everydayCatalog below is today's server */
 const catalogOf = (inTeam: string[] = []) => [
   kept('general', 'intro-deck', '회사 소개서'), kept('general', 'card-news', '카드뉴스'), kept('general', 'promo-video', '홍보 영상'),
   kept('work', 'humanizer', '자연스러운 글', { source: { kind: 'team_writing' } }),
+].map((s) => ({ ...s, inTeam: inTeam.includes(s.name) }))
+/** today's catalog (server/src/onboarding/skill-packs.ts CATALOG, docs/decisions/20261122-onboarding-everyday-skills.md):
+ * the six setup skills, then card news and the promo video for Team skills only */
+const everydayCatalog = (inTeam: string[] = []) => [
+  kept('work', 'meeting-notes', '회의록 정리', { onboarding: 'checked' }), kept('work', 'team-report', '주간 보고·공지', { onboarding: 'checked' }),
+  kept('work', 'customer-reply', '고객 답장', { onboarding: 'checked' }), kept('work', 'contract-review', '계약서 검토', { onboarding: 'offered' }),
+  kept('work', 'humanizer', '자연스러운 글', { onboarding: 'checked', source: { kind: 'team_writing' } }), kept('general', 'intro-deck', '회사 소개서', { onboarding: 'offered' }),
+  kept('general', 'card-news', '카드뉴스', { onboarding: null }), kept('general', 'promo-video', '홍보 영상', { onboarding: null }),
 ].map((s) => ({ ...s, inTeam: inTeam.includes(s.name) }))
 
 const OWN = '01900000-0000-7000-8000-0000000007a1'
@@ -183,6 +192,36 @@ describe('the pre-checks and the primary\'s words (no AI decides)', () => {
     expect([...preChecked(rows, { profile: true, done: false })]).toEqual(['intro-deck', 'card-news', 'promo-video'])
     expect([...preChecked(rows, { profile: false, done: false })]).toEqual([])
     expect([...preChecked(rows, { profile: true, done: true })]).toEqual([])
+  })
+
+  test('setupRows and preChecked with today\'s catalog: the six setup skills, the `checked` ones checked with or without a profile; card news and the promo video left for Team skills', () => {
+    const rows = everydayCatalog()
+    expect(setupRows(rows).map((r) => r.name)).toEqual(['meeting-notes', 'team-report', 'customer-reply', 'contract-review', 'humanizer', 'intro-deck'])
+    for (const profile of [true, false]) expect([...preChecked(setupRows(rows), { profile, done: false })]).toEqual(['meeting-notes', 'team-report', 'customer-reply', 'humanizer'])
+    expect([...preChecked(setupRows(rows), { profile: true, done: true })]).toEqual([])
+    // an older server (no field): every row, as before
+    expect(setupRows(catalogOf()).map((r) => r.name)).toEqual(['intro-deck', 'card-news', 'promo-video', 'humanizer'])
+  })
+
+  test('today\'s catalog on the step: six rows in order, four checked, a team skill already in left out; the primary counts them', async () => {
+    computer()
+    catalog = everydayCatalog(['team-report'])
+    const m = await step()
+    try {
+      expect(packRows().map((r) => r.getAttribute('data-name'))).toEqual(['meeting-notes', 'customer-reply', 'contract-review', 'humanizer', 'intro-deck'])
+      expect(checkedNames()).toEqual(['meeting-notes', 'customer-reply', 'humanizer'])
+      expect(text(m, 'skills-primary')).toBe(ko('welcome.skills.putN', { n: 3 }))
+      await m.click('skills-primary')
+      await m.until(() => events.includes('next'), 'on to the next step')
+      expect(posts().map((c) => [c.key, c.body])).toEqual([['POST /api/onboarding/packs/work/install', { skills: ['meeting-notes', 'customer-reply', 'humanizer'] }]])
+    } finally { await m.unmount() }
+    // every setup skill in (card news and the promo video are not): one line and 다음
+    catalog = everydayCatalog(['meeting-notes', 'team-report', 'customer-reply', 'contract-review', 'humanizer', 'intro-deck'])
+    const again = await step()
+    try {
+      expect(again.find('skill-packs-all-in')).not.toBeNull()
+      expect(packRows()).toEqual([])
+    } finally { await again.unmount() }
   })
 
   test('primaryLabel: one skill named; from two on the count ("스킬 3개 넣기", no run-together names); nothing: none', () => {

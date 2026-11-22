@@ -38,13 +38,15 @@ test('the setup walk: the skills step offers only the skills Trina prepared; one
   for (const id of ['skills-own', 'skills-find', 'skills-hint', 'skills-promise', 'skills-cc', 'skills-cc-toggle']) await expect(page.getByTestId(id)).toHaveCount(0)
   await expect(step).not.toContainText('.claude')
   await expect(step).not.toContainText('내 스킬 가져오기')
-  // no company profile: nothing checked, so no primary yet (나중에 하기 stands in)
+  // no company profile: the everyday four still come checked (docs/decisions/20261122-onboarding-everyday-skills.md);
+  // the primary counts them, 나중에 하기 beside it
   const packs = page.getByTestId('skill-packs')
-  await expect(packs.getByRole('checkbox', { checked: true })).toHaveCount(0)
+  await expect(packs.getByRole('checkbox', { checked: true })).toHaveCount(4)
   const primary = page.getByTestId('skills-primary')
-  await expect(primary).toHaveCount(0)
+  await expect(primary).toHaveText('스킬 4개 넣기')
   await expect(page.getByTestId('skills-later')).toBeVisible()
-  await packs.locator('[data-testid="skill-pack-row"][data-name="humanizer"]').getByTestId('skill-pack-check').check()
+  // three unchecked: the one left is named
+  for (const n of ['meeting-notes', 'team-report', 'customer-reply']) await packs.locator(`[data-testid="skill-pack-row"][data-name="${n}"]`).getByTestId('skill-pack-check').uncheck()
   await expect(primary).toHaveText('자연스러운 글 넣기')
   await primary.click()
   // all in: a toast and on to 3/5 팀 파일; the server recorded the step done

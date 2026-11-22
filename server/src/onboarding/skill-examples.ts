@@ -16,6 +16,14 @@
 import type { Locale, PackExample } from '@mycel/shared/api'
 import koHumanizerExample from '../../../resources/skill-packs/work/ko/humanizer/EXAMPLE.md' with { type: 'text' }
 import enHumanizerExample from '../../../resources/skill-packs/work/en/humanizer/EXAMPLE.md' with { type: 'text' }
+import koMeetingNotesExample from '../../../resources/skill-packs/work/ko/meeting-notes/EXAMPLE.md' with { type: 'text' }
+import enMeetingNotesExample from '../../../resources/skill-packs/work/en/meeting-notes/EXAMPLE.md' with { type: 'text' }
+import koTeamReportExample from '../../../resources/skill-packs/work/ko/team-report/EXAMPLE.md' with { type: 'text' }
+import enTeamReportExample from '../../../resources/skill-packs/work/en/team-report/EXAMPLE.md' with { type: 'text' }
+import koCustomerReplyExample from '../../../resources/skill-packs/work/ko/customer-reply/EXAMPLE.md' with { type: 'text' }
+import enCustomerReplyExample from '../../../resources/skill-packs/work/en/customer-reply/EXAMPLE.md' with { type: 'text' }
+import koContractReviewExample from '../../../resources/skill-packs/work/ko/contract-review/EXAMPLE.md' with { type: 'text' }
+import enContractReviewExample from '../../../resources/skill-packs/work/en/contract-review/EXAMPLE.md' with { type: 'text' }
 
 export type RegisteredExample = { kind: 'image'; skillHash: string } | { kind: 'text'; text: string }
 
@@ -26,12 +34,20 @@ export const PACK_EXAMPLES: Record<'ko' | 'en', Partial<Record<string, Registere
     'card-news': { kind: 'image', skillHash: '65f4638c14b7' },
     'promo-video': { kind: 'image', skillHash: 'b5561aed57bc' },
     humanizer: { kind: 'text', text: koHumanizerExample },
+    'meeting-notes': { kind: 'text', text: koMeetingNotesExample },
+    'team-report': { kind: 'text', text: koTeamReportExample },
+    'customer-reply': { kind: 'text', text: koCustomerReplyExample },
+    'contract-review': { kind: 'text', text: koContractReviewExample },
   },
   en: {
     'intro-deck': { kind: 'image', skillHash: '2b8cf1b31e35' },
     'card-news': { kind: 'image', skillHash: 'fd16b67cef75' },
     'promo-video': { kind: 'image', skillHash: 'd63330fdbb71' },
     humanizer: { kind: 'text', text: enHumanizerExample },
+    'meeting-notes': { kind: 'text', text: enMeetingNotesExample },
+    'team-report': { kind: 'text', text: enTeamReportExample },
+    'customer-reply': { kind: 'text', text: enCustomerReplyExample },
+    'contract-review': { kind: 'text', text: enContractReviewExample },
   },
 }
 

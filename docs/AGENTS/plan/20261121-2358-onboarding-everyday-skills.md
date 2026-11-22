@@ -12,7 +12,7 @@
 
 The owner's "팀이 쓸 스킬을 골라 주세요" step offers the work people do every week: meeting notes, reports and notices,
 customer replies, contract review, natural writing and the company deck. Card news and the promo video leave that list
-but stay on Team skills › "트리나가 준비한 스킬 · N개 더". A quiet line says Word, Excel, PowerPoint and PDF need no skill.
+but stay on Team skills › "트리나가 준비한 스킬 · N개 더".
 
 ## Scope
 
@@ -37,7 +37,8 @@ Out: deleting or changing installed skills on any team (never), file-format skil
 
 1. Fetch the upstream SKILL.md files at pinned SHAs; write the ko and en skills.
 2. Server: SKILL_PACKS, CATALOG (+ `onboarding`), SUMMARY, PACK_EXAMPLES, MEMBER_ORDER; shared API field and count.
-3. Web: SkillsStep filters and pre-checks by `onboarding`; the office-files line; i18n ×6; the mock server.
+3. Web: SkillsStep filters and pre-checks by `onboarding`; i18n ×6 (the one lines); the mock server. (The owner
+   dropped the planned "Word, Excel, PowerPoint and PDF need no skill" line on 2026-11-22.)
 4. Run each new skill once on a short fictional input through the local AI path; keep the outputs as the examples.
 5. Tests (catalog, pack install, web unit), typecheck, check:prepush, check:docs; decision, changes, notices.
 

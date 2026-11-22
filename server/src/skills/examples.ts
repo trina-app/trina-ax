@@ -24,9 +24,10 @@ import { atLeast, type Principal } from '../policy/access'
 import { authorize } from '../policy/authorize'
 import { badSegment, hiddenEntry } from '../policy/names'
 
-/** The kept skills in the order a member meets them (FLOW-v6.3 §4.2): the one for their own text first, then the ones
- * with a topic, the company deck last (회사 소개서 remakes the company's own material). */
-export const MEMBER_ORDER = ['humanizer', 'card-news', 'promo-video', 'intro-deck'] as const
+/** The kept skills in the order a member meets them (FLOW-v6.3 §4.2): the one for their own text first, then the
+ * everyday office skills (docs/decisions/20261122-onboarding-everyday-skills.md), then the ones with a topic, the company
+ * deck last (회사 소개서 remakes the company's own material). */
+export const MEMBER_ORDER = ['humanizer', 'meeting-notes', 'team-report', 'customer-reply', 'contract-review', 'card-news', 'promo-video', 'intro-deck'] as const
 /** Entries the count looks at before it stops (a team folder of many folders and few files stays cheap). */
 export const COUNT_VISIT_MAX = 5000
 

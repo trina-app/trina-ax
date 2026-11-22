@@ -19,7 +19,7 @@ import { API, PACK_EXAMPLE_LIMITS, type SkillShare } from '@mycel/shared/api'
 import { startHarness, type Harness } from '../lib/b-harness'
 import { waitFor } from '../lib/wait'
 import { getSetting, setSetting } from '../../server/src/admin/settings'
-import { CATALOG, exampleBody, onVisualSkillInstall, PACK_EXAMPLES, packExample, SKILL_PACKS, skillPackCatalog } from '../../server/src/onboarding/skill-packs'
+import { ANTHROPIC_SKILLS_COMMIT, CATALOG, exampleBody, KWP_COMMIT, onVisualSkillInstall, PACK_EXAMPLES, packExample, SKILL_PACKS, skillPackCatalog } from '../../server/src/onboarding/skill-packs'
 import { WELCOME_SETTING } from '../../server/src/onboarding/welcome'
 
 setDefaultTimeout(60_000)
@@ -31,13 +31,39 @@ describe('the catalog (no server)', () => {
   test('every skill of every pack is in the catalog once, in the order 내 스킬 shows them; the visual ones are the general pack', () => {
     const packed = Object.entries(SKILL_PACKS).flatMap(([id, p]) => Object.keys(p.skills.en).map((n) => `${id}/${n}`)).sort()
     expect(CATALOG.map((c) => `${c.pack}/${c.name}`).sort()).toEqual(packed)
-    expect(CATALOG.map((c) => c.name)).toEqual(['intro-deck', 'card-news', 'promo-video', 'humanizer'])
+    expect(CATALOG.map((c) => c.name)).toEqual(['meeting-notes', 'team-report', 'customer-reply', 'contract-review', 'humanizer', 'intro-deck', 'card-news', 'promo-video'])
     expect(CATALOG.filter((c) => c.visual).map((c) => c.name)).toEqual(['intro-deck', 'card-news', 'promo-video'])
-    // only the English humanizer links out (its MIT original); the Korean one is the company's own
+    // the setup step (docs/decisions/20261122-onboarding-everyday-skills.md): six rows, four checked; card news and the
+    // promo video only on Team skills
+    expect(CATALOG.filter((c) => c.onboarding).map((c) => [c.name, c.onboarding])).toEqual([
+      ['meeting-notes', 'checked'], ['team-report', 'checked'], ['customer-reply', 'checked'], ['contract-review', 'offered'], ['humanizer', 'checked'], ['intro-deck', 'offered'],
+    ])
+    expect(CATALOG.filter((c) => !c.onboarding).map((c) => c.name)).toEqual(['card-news', 'promo-video'])
+    // the English humanizer links to its MIT original; the Korean one is the company's own
     const humanizer = CATALOG.find((c) => c.name === 'humanizer')!
     expect(humanizer.source('ko')).toEqual({ kind: 'team_writing' })
     expect(humanizer.source('en')).toEqual({ kind: 'adapted', author: 'Siqi Chen', project: 'humanizer', license: 'MIT', url: 'https://github.com/blader/humanizer' })
-    for (const c of CATALOG.filter((x) => x.name !== 'humanizer')) for (const l of ['ko', 'en'] as const) expect(c.source(l)).toEqual({ kind: 'team' })
+    // the everyday skills link to their Apache-2.0 originals at the pinned commit, in both languages
+    for (const name of ['meeting-notes', 'team-report', 'customer-reply', 'contract-review']) for (const l of ['ko', 'en'] as const) {
+      const src = CATALOG.find((c) => c.name === name)!.source(l)
+      expect(src).toMatchObject({ kind: 'adapted', author: 'Anthropic', license: 'Apache-2.0' })
+      expect(src.kind === 'adapted' && src.url).toMatch(new RegExp(`^https://github\\.com/anthropics/(knowledge-work-plugins/tree/${KWP_COMMIT}|skills/tree/${ANTHROPIC_SKILLS_COMMIT})/`))
+    }
+    for (const c of CATALOG.filter((x) => x.visual)) for (const l of ['ko', 'en'] as const) expect(c.source(l)).toEqual({ kind: 'team' })
+  })
+
+  test('the adapted skills keep the Apache licence: LICENSE and NOTICE next to each, credits in the SKILL.md a team gets; no shell, scripts or connectors', () => {
+    for (const name of ['meeting-notes', 'team-report', 'customer-reply', 'contract-review']) for (const l of ['ko', 'en'] as const) {
+      const dir = path.join(ROOT, 'resources/skill-packs/work', l, name)
+      expect(fs.readFileSync(path.join(dir, 'LICENSE'), 'utf8')).toContain('Apache License\n                           Version 2.0, January 2004')
+      const notice = fs.readFileSync(path.join(dir, 'NOTICE'), 'utf8')
+      expect(notice).toContain('Apache License, Version 2.0')
+      expect(notice).toMatch(new RegExp(`${KWP_COMMIT}|${ANTHROPIC_SKILLS_COMMIT}`))
+      const skill = SKILL_PACKS.work.skills[l]![name]!
+      expect(skill).toMatch(/Apache\s+License/)
+      expect(skill).toMatch(new RegExp(`${KWP_COMMIT}|${ANTHROPIC_SKILLS_COMMIT}`))
+      expect(skill).not.toMatch(/\bbash\b|scripts\/|CONNECTORS\.md|~~|\$ARGUMENTS|legal\.local\.md/i)
+    }
   })
 
   test('an example: an image is the web build\'s file, a text loses its front matter; Korean or English (id, ja, es: English); a name without one: none', () => {
@@ -121,38 +147,47 @@ describe('over the API', () => {
   const rm = (rel: string) => fs.rmSync(path.join(h.team, rel), { recursive: true, force: true })
   const put = (rel: string, text: string) => { fs.mkdirSync(path.dirname(path.join(h.team, rel)), { recursive: true }); fs.writeFileSync(path.join(h.team, rel), text) }
 
-  test('members get 403; owners and admins the four kept skills: titles in the team\'s language, the caller\'s line, none in the team yet', async () => {
+  test('members get 403; owners and admins the eight kept skills: titles in the team\'s language, the caller\'s line, where the setup puts them, none in the team yet', async () => {
     expect((await h.req('alice', '/api/onboarding/packs')).status).toBe(403)
     expect((await post('bob', '/api/onboarding/packs/general/install', { skills: ['card-news'] })).status).toBe(403)
     for (const who of ['dana', 'carol']) {
       const c = await h.api(who).call(API.listSkillPacks)
       expect(c.profile).toBe(false)
-      expect(c.skills.map((s) => [s.pack, s.name, s.path, s.title, s.inTeam, s.visual, s.example, s.locale])).toEqual([
-        ['general', 'intro-deck', 'skills/general/intro-deck/SKILL.md', '회사 소개서', false, true, { kind: 'image', url: '/skill-examples/ko/intro-deck.webp' }, 'ko'],
-        ['general', 'card-news', 'skills/general/card-news/SKILL.md', '카드뉴스', false, true, { kind: 'image', url: '/skill-examples/ko/card-news.webp' }, 'ko'],
-        ['general', 'promo-video', 'skills/general/promo-video/SKILL.md', '홍보 영상', false, true, { kind: 'image', url: '/skill-examples/ko/promo-video.webp' }, 'ko'],
-        ['work', 'humanizer', 'skills/work/humanizer/SKILL.md', '자연스러운 글', false, false, packExample('ko', 'humanizer'), 'ko'],
+      expect(c.skills.map((s) => [s.pack, s.name, s.path, s.title, s.inTeam, s.visual, s.onboarding, s.example, s.locale])).toEqual([
+        ['work', 'meeting-notes', 'skills/work/meeting-notes/SKILL.md', '회의록 정리', false, false, 'checked', packExample('ko', 'meeting-notes'), 'ko'],
+        ['work', 'team-report', 'skills/work/team-report/SKILL.md', '주간 보고·공지', false, false, 'checked', packExample('ko', 'team-report'), 'ko'],
+        ['work', 'customer-reply', 'skills/work/customer-reply/SKILL.md', '고객 답장', false, false, 'checked', packExample('ko', 'customer-reply'), 'ko'],
+        ['work', 'contract-review', 'skills/work/contract-review/SKILL.md', '계약서 검토', false, false, 'offered', packExample('ko', 'contract-review'), 'ko'],
+        ['work', 'humanizer', 'skills/work/humanizer/SKILL.md', '자연스러운 글', false, false, 'checked', packExample('ko', 'humanizer'), 'ko'],
+        ['general', 'intro-deck', 'skills/general/intro-deck/SKILL.md', '회사 소개서', false, true, 'offered', { kind: 'image', url: '/skill-examples/ko/intro-deck.webp' }, 'ko'],
+        ['general', 'card-news', 'skills/general/card-news/SKILL.md', '카드뉴스', false, true, null, { kind: 'image', url: '/skill-examples/ko/card-news.webp' }, 'ko'],
+        ['general', 'promo-video', 'skills/general/promo-video/SKILL.md', '홍보 영상', false, true, null, { kind: 'image', url: '/skill-examples/ko/promo-video.webp' }, 'ko'],
       ])
-      expect(c.skills[3]!.example).toMatchObject({ kind: 'text', markdown: expect.stringContaining('11월 25일까지 hello@coffee.example') })
-      expect(c.skills[0]!.description).toBe('회사 소개로 6~10장짜리 소개서를 만들어요')
-      expect(c.skills[3]!.source).toEqual({ kind: 'team_writing' })
+      expect(c.skills[4]!.example).toMatchObject({ kind: 'text', markdown: expect.stringContaining('11월 25일까지 hello@coffee.example') })
+      for (const s of c.skills.slice(0, 4)) expect(s.example?.kind).toBe('text')
+      expect(c.skills[0]!.description).toBe('회의 메모나 녹음 대본으로 결정 사항과 담당·기한이 붙은 할 일을 정리해요')
+      expect(c.skills[3]!.description).toContain('법률 자문은 아니에요')
+      expect(c.skills[5]!.description).toBe('회사 소개로 6~10장짜리 소개서를 만들어요')
+      expect(c.skills[4]!.source).toEqual({ kind: 'team_writing' })
     }
     // the line in the caller's language, the title in the text the team gets
     const en = skillPackCatalog(h.ctx, 'dana', 'en')
-    expect(en.skills[1]).toMatchObject({ title: '카드뉴스', description: 'Makes 5 square promo cards from the company intro' })
+    expect(en.skills[6]).toMatchObject({ title: '카드뉴스', description: 'Makes 5 square promo cards from the company intro' })
+    expect(en.skills[2]).toMatchObject({ title: '고객 답장', description: 'Drafts polite replies to customer questions and complaints' })
   })
 
   test('a team in a language the packs do not have: the English titles and the adapted humanizer\'s source', async () => {
     setSetting(h.ctx.db, 'defaultLocale', 'ja')
     try {
       const c = skillPackCatalog(h.ctx, 'dana', 'ja')
-      expect(c.skills.map((s) => s.title)).toEqual(['Company slide deck', 'Promo cards', 'Promo video', 'Natural writing'])
+      expect(c.skills.map((s) => s.title)).toEqual(['Meeting notes', 'Reports & announcements', 'Customer replies', 'Contract review', 'Natural writing', 'Company slide deck', 'Promo cards', 'Promo video'])
       expect(c.skills.every((s) => s.locale === 'en')).toBe(true)
       // the English examples, made on "Example Coffee"
-      expect(c.skills.map((s) => (s.example?.kind === 'image' ? s.example.url : s.example?.kind))).toEqual(['/skill-examples/en/intro-deck.webp', '/skill-examples/en/card-news.webp', '/skill-examples/en/promo-video.webp', 'text'])
-      expect(c.skills[3]!.example).toMatchObject({ markdown: expect.stringContaining('hello@coffee.example') })
-      expect(c.skills[3]!.source).toMatchObject({ kind: 'adapted', url: 'https://github.com/blader/humanizer' })
-      expect(c.skills[3]!.description).toBe('AIが書いたように見える文章を、人が書いたように整えます')
+      expect(c.skills.map((s) => (s.example?.kind === 'image' ? s.example.url : s.example?.kind))).toEqual(['text', 'text', 'text', 'text', 'text', '/skill-examples/en/intro-deck.webp', '/skill-examples/en/card-news.webp', '/skill-examples/en/promo-video.webp'])
+      expect(c.skills[4]!.example).toMatchObject({ markdown: expect.stringContaining('hello@coffee.example') })
+      expect(c.skills[4]!.source).toMatchObject({ kind: 'adapted', url: 'https://github.com/blader/humanizer' })
+      expect(c.skills[4]!.description).toBe('AIが書いたように見える文章を、人が書いたように整えます')
+      expect(c.skills[0]!.description).toBe('会議メモや文字起こしから、決定事項と担当・期限つきのToDoをまとめます')
     } finally { setSetting(h.ctx.db, 'defaultLocale', 'ko') }
   })
 
@@ -167,7 +202,7 @@ describe('over the API', () => {
     // another team skill named "humanizer": the catalog counts it in, and an install is blocked with its path
     put('skills/mine/humanizer/SKILL.md', md('humanizer'))
     const c = await h.api('dana').call(API.listSkillPacks)
-    expect(c.skills.filter((s) => s.inTeam).map((s) => s.name)).toEqual(['card-news', 'humanizer'])
+    expect(c.skills.filter((s) => s.inTeam).map((s) => s.name)).toEqual(['humanizer', 'card-news'])
     const w = await h.api('dana').call(API.installSkillPack, { params: { id: 'work' }, body: { skills: ['humanizer'] } })
     expect(w.skills).toEqual([{ name: 'humanizer', path: 'skills/work/humanizer/SKILL.md', status: 'blocked', sameNameAs: 'skills/mine/humanizer/SKILL.md' }])
     // a skill the team deleted earlier goes in again on a press that names it
