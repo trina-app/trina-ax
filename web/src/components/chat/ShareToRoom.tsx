@@ -124,6 +124,8 @@ export default function ShareToRoom({ chatId, messageId, answer, onClose, roomId
       onClose()
       const files = r.message.files.length
       toast({ level: 'success', text: files ? t('shareRoom.sentFiles', { room: label(to), n: files }) : t('shareRoom.sent', { room: label(to) }), action: { label: t('shareRoom.open'), run: () => navigateTo(`/rooms/${to.id}`) } })
+      // the video's MP4 was not ready: it went as its page (review of #363)
+      if (r.videoAsPage) toast({ level: 'info', text: t('shareRoom.videoAsPage') })
     } catch (e) {
       toast({ level: 'error', text: errorText(e, locale, t('error.network')) })
       setBusy(false)

@@ -519,36 +519,51 @@ function withVideoFile(ctx: AppContext, userId: string, a: ShareArtifact): Share
   try { const f = promoVideoFile(ctx, userId, a.id); return { ...a, name: f.name, video: f.abs } } catch { /* not rendered */ }
   if (!mp4Available(ctx)) return a
   try {
-    const i = promoVideoInfo(ctx, userId, a.id)
-    if (i.mp4.state === 'done') return a
+    // started now, when the person first sees the confirm, so the MP4 is usually there by their yes (the queue renders
+    // one at a time on the server: review of #363)
+    const i = renderPromoVideo(ctx, userId, a.id)
+    if (i.mp4.state === 'done') { const f = promoVideoFile(ctx, userId, a.id); return { ...a, name: f.name, video: f.abs } }
     const title = i.title.replace(/[\\/:*?"<>|\u0000-\u001f]+/g, ' ').trim() || 'promo'
     return { ...a, name: `${title}.mp4`, render: { page: a.name } }
   } catch { return a }
 }
 
-/** the wait for a render started when the message goes (the render's own limit is 4 minutes) */
-// (under the HTTP server's 120 s idle limit: a longer render sends the page, and says so on the confirm's name only)
+/** how long the yes waits for an MP4 still rendering, before its check runs again (under the HTTP server's 120 s idle
+ * limit; past it the page goes, and the result says so) */
 const RENDER_WAIT_MS = 100_000
 let renderPollMs = 1000
 /** Tests poll faster (null: back to one second). */
 export function setShareRenderPollForTests(ms: number | null) { renderPollMs = ms ?? 1000 }
 
-/** Render a promo video's MP4 now and wait for it; the artifact as it then goes (the MP4, or its page when the render
- * failed or took too long). */
-async function renderedNow(ctx: AppContext, userId: string, a: ShareArtifact): Promise<ShareArtifact> {
+/**
+ * Before the yes is checked (shareAnswerToRoom with a key): wait, up to RENDER_WAIT_MS, for the MP4s of this answer's
+ * promo videos that are rendering, so the check that follows sees them done. The check runs after the wait, so who is in
+ * the room and what they may open are as they are when the message goes (review of #363).
+ */
+export async function waitForAnswerRenders(ctx: AppContext, userId: string, messageId: string): Promise<void> {
+  if (!mp4Available(ctx)) return
+  await waitForRenders(ctx, userId, (ctx.db.query('SELECT id FROM artifacts WHERE message_id = ? AND key = ? ORDER BY version DESC LIMIT 1').all(messageId, PROMO_ARTIFACT_KEY) as { id: string }[]).map((r) => r.id))
+}
+
+/** The same wait for these promo videos (post_to_room: the artifacts its check listed, before the yes is checked again). */
+export async function waitForRenders(ctx: AppContext, userId: string, ids: readonly string[]): Promise<void> {
+  if (!ids.length || !mp4Available(ctx)) return
+  const until = Date.now() + RENDER_WAIT_MS
+  for (const id of ids) {
+    try {
+      while (promoVideoInfo(ctx, userId, id).mp4.state === 'rendering' && Date.now() < until) await Bun.sleep(renderPollMs)
+    } catch { /* not this person's video: nothing to wait for */ }
+  }
+}
+
+/** The artifact as it goes now: the MP4 when the render is done, else its page (`asPage`: a video that goes as its page,
+ * which the result says). Never waits. */
+export function renderedNow(ctx: AppContext, userId: string, a: ShareArtifact): ShareArtifact & { asPage?: true } {
   if (!a.render) return a
-  const page = { ...a, name: a.render.page, render: undefined }
   try {
-    let info = renderPromoVideo(ctx, userId, a.id)
-    const until = Date.now() + RENDER_WAIT_MS
-    while (info.mp4.state === 'rendering' && Date.now() < until) {
-      await Bun.sleep(renderPollMs)
-      info = promoVideoInfo(ctx, userId, a.id)
-    }
-    if (info.mp4.state !== 'done') return page
-    const f = promoVideoFile(ctx, userId, a.id)
-    return { ...a, name: f.name, video: f.abs, render: undefined }
-  } catch (e) { ctx.log.warn('answer share: the promo video was not rendered', { err: e }); return page }
+    if (promoVideoInfo(ctx, userId, a.id).mp4.state === 'done') { const f = promoVideoFile(ctx, userId, a.id); return { ...a, name: f.name, video: f.abs, render: undefined } }
+  } catch (e) { ctx.log.warn('answer share: the promo video was not rendered', { err: e }) }
+  return { ...a, name: a.render.page, render: undefined, asPage: true }
 }
 
 /** What goes into the room for an artifact: the MP4 found by the check (withVideoFile), else the artifact's page or text
@@ -632,6 +647,8 @@ export async function shareAnswerToRoom(ctx: AppContext, userId: string, chat: C
   // who asked, never a post (QA TC-v2f-A3: "아직 아무것도 공유되지 않았습니다 … " went to a room of 4 under their name)
   if (answerEndsInFailure(parseSteps(message.steps)) && !madeFiles(ctx.db, message.id)) fail('conflict', tr('answerShareFailed', locale), { params: { reason: 'answer_failed' } })
   // (the share button never carries a paste: that is post_to_room's alone)
+  // the yes: an MP4 still rendering is waited for first, and everything is checked after the wait
+  if (b.confirmKey !== undefined) await waitForAnswerRenders(ctx, userId, message.id)
   const p = await prepareShare(ctx, userId, chat.id, { messageId: message.id, content }, { ...b, pasted: undefined }, locale)
   if (p.status === 'sent') return p
   // the app's first press shows one confirm with what goes and who sees it, whatever is at stake (QA TC-v2f-A3, TC-f2-c04:
@@ -848,8 +865,10 @@ export async function sendShare(ctx: AppContext, userId: string, p: PreparedShar
     // what the answer made beside the chat (a video, a page): its files go with the message, or nothing goes (QA
     // TC-r2b-03: "sent" with the text alone, the video nowhere). A failure says which file could not be attached
     if (fileIds.length + c.artifacts.length > ROOM_FILES_MAX) fail('conflict', tr('answerShareArtifactFailed', locale, { name: c.artifacts[0]!.name }), { params: { reason: 'artifact_attach' } })
+    let videoAsPage = false
     for (const listed of c.artifacts) {
-      const a = await renderedNow(ctx, userId, listed)
+      const a = renderedNow(ctx, userId, listed)
+      if (a.asPage) videoAsPage = true
       try {
         const made = artifactSource(ctx, userId, a)
         fileIds.push((await files.fromMade(userId, room.id, made.name, made.src)).id)
@@ -863,7 +882,7 @@ export async function sendShare(ctx: AppContext, userId: string, p: PreparedShar
     // audited with the message (Rooms.send: room.answer_share); the copies and the links they stand for are kept with it
     const kept: AnswerScopeKept = { ...(await c.provenance(new Set(attach))).kept, ...(copies.length ? { attached: copies } : {}) }
     const m = rooms.send(userId, room.id, { body, mentions: o.via === 'ai' ? [...(o.mentions ?? [])] : [], ...(o.via === 'ai' && o.mentionsAll ? { mentionsAll: true } : {}), fileIds, clientMessageId: b.clientMessageId, threadRootId: b.threadRootId ?? null }, { locale }, { at, cut, people, confirmed: confirmed || o.confirmed === true, scope: JSON.stringify(kept), ...(o.via ? { via: o.via } : {}), ...(p.plain ? { plain: true } : {}), ...(o.openedDm ? { openedDm: true } : {}), ...(o.always ? { always: true } : {}) })
-    return { status: 'sent', message: m, cut }
+    return { status: 'sent', message: m, cut, ...(videoAsPage ? { videoAsPage: true as const } : {}) }
   } finally {
     // copies that did not go (a failure, or the same request sent twice at once): not left behind
     files.discardUnsent(userId, room.id, fileIds)

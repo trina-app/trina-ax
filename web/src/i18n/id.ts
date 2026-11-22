@@ -5648,6 +5648,7 @@ export const id: Record<MessageKey, string> = {
   "shareRoom.madeHead": "Dibuat di jawaban ini",
   "shareRoom.madeGoes": "Ikut dikirim bersama pesan. Semua orang di sana bisa membukanya",
   "shareRoom.audience": "{n} orang di percakapan ini akan melihatnya.",
+  "shareRoom.videoAsPage": "File video belum siap, jadi video dikirim sebagai halaman. Tetap bisa diputar di percakapan.",
   "shareRoom.filesHead": "File yang ditautkan",
   "shareRoom.fileAll": "Semua bisa membuka",
   "shareRoom.fileSome": "{n} orang tidak bisa membuka",

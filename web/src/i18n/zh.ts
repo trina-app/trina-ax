@@ -5579,6 +5579,7 @@ export const zh: Record<MessageKey, string> = {
   "shareRoom.madeHead": "这个回答里做的文件",
   "shareRoom.madeGoes": "随消息一起发送。那里的每个人都能打开",
   "shareRoom.audience": "{n, plural, one {这个聊天里的#个人会看到。} other {这个聊天里的#个人都会看到。}}",
+  "shareRoom.videoAsPage": "视频文件还没准备好，所以以页面形式发送了视频。在聊天里照样可以播放。",
   "shareRoom.filesHead": "关联的文件",
   "shareRoom.fileAll": "所有人都能打开",
   "shareRoom.fileSome": "{n, plural, one {#人无法打开} other {#人无法打开}}",

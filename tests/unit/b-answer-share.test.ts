@@ -19,7 +19,7 @@ import { API, ROOM_MESSAGE_MAX, SMALL_UPLOAD_MAX, uuidv7, type AnswerShareFile, 
 import { startHarness, type Harness, type TestSocket } from '../lib/b-harness'
 import { roomsOf, SEND_BURST } from '../../server/src/rooms/service'
 import { roomFilesOf } from '../../server/src/rooms/files'
-import { answerCutLine, dropWhoCanOpen, prepareShare, sendShare, shareChoice } from '../../server/src/chat/answer-share'
+import { answerCutLine, dropWhoCanOpen, prepareShare, renderedNow, sendShare, shareChoice } from '../../server/src/chat/answer-share'
 import { HttpError } from '../../server/src/http/errors'
 import { readMigrations } from '../../server/src/db'
 import { addSources, type ReadSource } from '../../server/src/chat/read-scope'
@@ -1311,5 +1311,21 @@ describe('one confirm before a room post, and no failure notes (QA TC-v2f-A3, TC
 
   test('"<name> 님만 열 수 있어요" is left out too (TC-f2-c03)', () => {
     expect(dropWhoCanOpen('요약본을 만들었습니다. 내 파일 폴더에 있고 지금은 한지우 님만 열 수 있어요. 확인해 주세요.')).toBe('요약본을 만들었습니다. 확인해 주세요.')
+  })
+})
+
+describe('the video: MP4 when ready, else its page said so; content lines about one person stay (review of #363)', () => {
+  test('an MP4 not ready when the message goes: its page, marked asPage (the result and the toast say so)', () => {
+    const a = renderedNow(h.ctx, 'alice', { id: uuidv7(), key: 'promo-video', type: 'html', name: '영상.mp4', render: { page: '영상.html' } })
+    expect(a).toMatchObject({ name: '영상.html', asPage: true })
+    expect(a.render).toBeUndefined()
+    // nothing to render: as it is, not marked
+    expect(renderedNow(h.ctx, 'alice', { id: uuidv7(), key: 'chart', type: 'svg', name: 'c.svg' })).toEqual({ id: expect.any(String), key: 'chart', type: 'svg', name: 'c.svg' })
+  })
+
+  test('"<name>님만 볼 수 있는 자료" is content and stays; the AI\'s own note about a file goes', () => {
+    for (const keep of ['김대리님만 볼 수 있는 자료입니다.', '- 김대리님만 볼 수 있는 자료', '이 문서는 팀장님만 볼 수 있는 보고서를 요약했어요.'])
+      expect(dropWhoCanOpen(keep)).toBe(keep)
+    expect(dropWhoCanOpen('저장했어요. 이 파일은 지금 박준호 님만 볼 수 있습니다.')).toBe('저장했어요.')
   })
 })
