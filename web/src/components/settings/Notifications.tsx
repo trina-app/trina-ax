@@ -171,6 +171,8 @@ export function noticeText(item: InboxNotification, t: T, locale: Locale): React
   // says so with nothing of it
   // a reply of it mentions me (docs/decisions/20261118-chat-thread-mentions.md): "mentioned you", by who did
   if (item.code === 'chat.thread_reply' && item.chatThread?.mention && !item.chatThread.gone) return item.chatThread.name && item.chatThread.title ? isolate(locale, 'notifications.event.chat.thread_mentionNamed', { name: item.chatThread.name, title: item.chatThread.title }, ['name', 'title']) : t('notifications.event.chat.thread_mention')
+  // a message that mentions me in a shared chat's main box (QA TC-f3-02): "mentioned you", by who did, in which chat
+  if (item.code === 'chat.message' && item.chatMessage?.mention) return item.chatMessage.gone ? t('notifications.event.chat.thread_replyGone') : item.chatMessage.name && item.chatMessage.title ? isolate(locale, 'notifications.event.chat.message_mentionNamed', { name: item.chatMessage.name, title: item.chatMessage.title }, ['name', 'title']) : t('notifications.event.chat.message_mention')
   if (item.code === 'chat.thread_reply') return !item.chatThread || item.chatThread.gone ? t('notifications.event.chat.thread_replyGone') : item.chatThread.name && item.chatThread.title ? isolate(locale, 'notifications.event.chat.thread_replyNamed', { name: item.chatThread.name, title: item.chatThread.title }, ['name', 'title']) : t('notifications.event.chat.thread_reply')
   if (item.code.startsWith('file.')) return fileShareText(item, t)
   if (item.code === 'access.requested' || item.code === 'access.answered') return accessRequestText(item, t)
@@ -275,6 +277,8 @@ export function accessRequestText(item: InboxNotification, t: T): string {
 /** Where a notice of the app's own opens, with its link's test id: the result chat of a scheduled run, the page of the
  * rest. Null: nowhere (a source I may no longer read, a notice that only tells), and its row is no link. */
 export function noticeLink(item: InboxNotification): { to: string; testId: string } | null {
+  // a message in a shared chat (a mention's row): the chat at that message
+  if (item.link === 'chat' && item.chatId && item.code === 'chat.message' && item.chatMessage?.messageId) return { to: `/c/${encodeURIComponent(item.chatId)}/m/${encodeURIComponent(item.chatMessage.messageId)}`, testId: 'notification-chat-link' }
   if (item.link === 'chat' && item.chatId) return { to: `/c/${encodeURIComponent(item.chatId)}`, testId: 'notification-chat-link' }
   // a chat thread's reply opens the thread (/c/<chat>/t/<answer>) while I still see it
   if (item.link === 'chat_thread' && item.chatThread?.chatId && item.chatThread.rootId && !item.chatThread.gone) return { to: `/c/${encodeURIComponent(item.chatThread.chatId)}/t/${encodeURIComponent(item.chatThread.rootId)}`, testId: 'notification-chat-thread-link' }

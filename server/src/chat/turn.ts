@@ -263,6 +263,18 @@ export function answerStepCap(team: number, o: { guest: boolean; unattended: boo
 const HIDDEN_STEP_TOOLS = new Set(['set_title', 'todo_write'])
 /** calls after which the text before them stays the answer (chat/turn.ts endPiece): bookkeeping that ends an answer */
 const INTERIM_KEEPS = new Set(['remember', 'forget', 'TodoWrite'])
+/** Calls that deliver no words to anyone: a dev-environment command (devenv/tool.ts), Claude Code's Bash and its Agent
+ * calls. Their arguments are a command or a sub-agent's brief and the step's own label (`description`: "Install
+ * python-docx in a venv", shown in the step list instead of the command), never a message, a file's text or anything
+ * else the person gets. A text piece before one that repeats its label, or names the words of its command ("Install
+ * python-docx in a venv." before `pip install python-docx`), is the AI narrating the step (QA TC-f3-05): it is never
+ * "copied into the call" (narration.ts copied), so it does not stay in the answer as content. */
+const NO_CONTENT_TOOLS = new Set(['box_shell', 'Bash', ...CLAUDE_AGENT_TOOL_NAMES])
+/** The call's arguments that are content it delivers, for the "copied into the call" check: none for NO_CONTENT_TOOLS. */
+export function deliveredArgs(name: string, input: unknown): unknown {
+  const tool = name.startsWith(TEAM_TOOL_PREFIX) ? name.slice(TEAM_TOOL_PREFIX.length) : name
+  return NO_CONTENT_TOOLS.has(tool) ? {} : input
+}
 /** a file of the person's own folder this big or bigger is not hashed to find who made its bytes (bytesOutsideLevel) */
 const OWN_HASH_MAX = 64 * 1024 * 1024
 /** the bytes of own files hashed for one call (noteOwnReads): more counts as outside, unhashed */
@@ -2059,7 +2071,7 @@ export class TurnExec {
         // a sub-agent's call leaves the main AI's piece undecided (only the redactor's end goes out)
         if (e.parentId) this.emitText(this.answerText.flush())
         // (a piece copied into the call's arguments is content: a message it posts, a file it writes)
-        else if (!this.endPiece(e.name, e.input)) { this.emitText(this.answerText.push(this.fileLinks.push(this.narration.toolStart(e.input)))); this.flushText() }
+        else if (!this.endPiece(e.name, e.input)) { this.emitText(this.answerText.push(this.fileLinks.push(this.narration.toolStart(deliveredArgs(e.name, e.input))))); this.flushText() }
         this.attemptHadOutput = true
         this.attemptCalledTool = true
         this.producedOutput = true
@@ -2233,7 +2245,8 @@ export class TurnExec {
     const tool = name.startsWith(TEAM_TOOL_PREFIX) ? name.slice(TEAM_TOOL_PREFIX.length) : name
     if (HIDDEN_STEP_TOOLS.has(tool) || INTERIM_KEEPS.has(tool)) return false
     const at = this.pieceStart
-    if (at !== null && this.narration.active && this.narration.copiedInto(this.writtenText.slice(at), input)) { this.pieceStart = null; return false }
+    // (a command, a sub-agent's brief and a step's label deliver no words: a piece that repeats them is narration)
+    if (at !== null && this.narration.active && this.narration.copiedInto(this.writtenText.slice(at), deliveredArgs(name, input))) { this.pieceStart = null; return false }
     this.pieceStart = null
     // only where the answer's language is not written in Latin letters and the person did not ask for another one
     // (narrationScript): there a piece before a call is the AI's own working note; elsewhere the pattern guard decides

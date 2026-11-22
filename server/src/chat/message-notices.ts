@@ -16,12 +16,13 @@
 // who is active, who muted the chat and everyone's preferences in one query each, writes in one transaction, and asks
 // nothing per person but the insert.
 import type { Database } from 'bun:sqlite'
-import { inQuietHours } from '@mycel/shared/api'
+import { inQuietHours, plainLabel, type InboxNotification, type NotificationEventType } from '@mycel/shared/api'
 import type { AppContext } from '../context'
 import { newId } from '../db'
 import { teamTimeZone } from '../admin/settings'
 import { getPreferences, getPreferencesOf, pushEventEnabled, type Preferences } from '../notifications/preferences'
 import { chatOpenFor } from '../notifications/chat-answers'
+import { redactorFor } from '../integrations/connections/redact'
 import { isSharedRow } from './chat-audience'
 import { Audiences } from './shared'
 import { AnswerSight } from './shared-answers'
@@ -172,4 +173,22 @@ export function chatMessagePath(ctx: AppContext, notificationId: string): string
 export function chatMessageLink(ctx: AppContext, notificationId: string): { chatId: string; messageId: string } | null {
   const n = noticeOf(ctx.db, notificationId)
   return n && chatOpenFor(ctx, n.user_id, n.chat_id) ? { chatId: n.chat_id, messageId: n.source_id } : null
+}
+
+/** The notice as the Inbox reads it (what a push opens; a mention is also a row under Mentions, QA TC-f3-02): the chat
+ * and the message while I still see the chat and the message is there; a mention also says who (while their account is
+ * there) and the chat's title (a stored connection secret of its creator hidden, one plain line). Else `gone`: no name,
+ * title or link. Never the message's text. */
+export function chatMessageNoticeOut(ctx: AppContext, row: { id: string; user_id: string; event_type: NotificationEventType; source_id: string; created_at: string; read_at: string | null }): InboxNotification {
+  const base = { id: row.id, eventType: row.event_type, sourceId: row.source_id, code: row.event_type, createdAt: row.created_at, readAt: row.read_at, outcome: null }
+  const n = noticeOf(ctx.db, row.id)
+  const there = !!n && !!ctx.db.query('SELECT 1 FROM messages WHERE id = ? AND chat_id = ?').get(n.source_id, n.chat_id)
+  const sees = there && chatOpenFor(ctx, row.user_id, n!.chat_id)
+  const mention = !!n && n.kind === 'message' && n.mention === 1
+  if (!sees) return { ...base, chatId: null, link: null, ...(mention ? { chatMessage: { messageId: null, name: null, title: null, mention: true as const, gone: true as const } } : {}) }
+  if (!mention) return { ...base, chatId: n!.chat_id, link: 'chat', chatMessage: { messageId: n!.source_id } }
+  const c = ctx.db.query('SELECT user_id, title FROM chats WHERE id = ?').get(n!.chat_id) as { user_id: string; title: string } | null
+  const u = n!.by_user ? ctx.db.query("SELECT name FROM users WHERE id = ? AND status = 'active' AND deleted_at IS NULL").get(n!.by_user) as { name: string } | null : null
+  const title = c ? plainLabel(redactorFor(ctx, c.user_id).hide(c.title || '')) : ''
+  return { ...base, chatId: n!.chat_id, link: 'chat', chatMessage: { messageId: n!.source_id, name: u ? plainLabel(u.name, 80) : null, ...(u ? { byId: n!.by_user! } : {}), title: title || null, mention: true } }
 }

@@ -7131,6 +7131,8 @@ export const zh: Record<MessageKey, string> = {
   "notifications.event.chat.thread_replyGone": "你已无法查看此内容。",
   "notifications.event.chat.thread_mention": "有人在话题中提到了你。",
   "notifications.event.chat.thread_mentionNamed": "{name}在“{title}”的话题中提到了你。",
+  "notifications.event.chat.message_mention": "有人在聊天中提到了你。",
+  "notifications.event.chat.message_mentionNamed": "{name}在“{title}”中提到了你。",
   "audit.act.chat.thread_reply_deleted": "删除了对话话题中的回复",
   "fileShare.holdsFiles": "{n, plural, one {# 个文件} other {# 个文件}}",
   "fileShare.holdsFolders": "{n, plural, one {# 个文件夹} other {# 个文件夹}}",
