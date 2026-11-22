@@ -318,7 +318,7 @@ describe('the rules, alone', () => {
 
   test('the same card: a source place with or without its file count is the same; another place or another number of people is not', () => {
     // the two cards of the QA run of #414 (qa.trina.app), word for word
-    const card = (line: string): TurnRequest => ({ kind: 'ask_user', origin: 'server', requestId: crypto.randomUUID(), question: `QA Admin님과의 1:1 대화(2명)에 보낼까요?\n\nQA Admin 님은 아직 파일을 열 수 없어요. 보내면 함께 공유돼요.\n${line}`, options: [{ label: '보내기', value: 'send_files' }, { label: '보내지 않기', value: 'no' }] })
+    const card = (line: string): Extract<TurnRequest, { kind: 'ask_user' }> => ({ kind: 'ask_user', origin: 'server', requestId: crypto.randomUUID(), question: `QA Admin님과의 1:1 대화(2명)에 보낼까요?\n\nQA Admin 님은 아직 파일을 열 수 없어요. 보내면 함께 공유돼요.\n${line}`, options: [{ label: '보내기', value: 'send_files' }, { label: '보내지 않기', value: 'no' }] })
     const pressed = card('1명은 이 내용의 일부 출처(내 파일)를 볼 수 없어요.')
     expect(sameCard(pressed, card('1명은 이 내용의 일부 출처(내 파일의 파일 1개)를 볼 수 없어요.'))).toBe(true)
     expect(sameCard(card('1명은 이 내용의 일부 출처(내 파일의 파일 2개)를 볼 수 없어요.'), pressed)).toBe(true)
