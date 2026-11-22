@@ -23,6 +23,7 @@ import { newId, nowIso } from '../db'
 import { fail } from '../http/errors'
 import { roomsOf } from '../rooms/service'
 import { tr } from './i18n'
+import { isPeopleRow } from './chat-audience'
 import { historyWhere, inHistory } from './history-list'
 import { isInternalChat, notInternalChat } from './internal-chats'
 import type { ChatRuntime } from './runtime'
@@ -49,8 +50,16 @@ export function visibleChatItems(rt: Pick<ChatRuntime, 'db' | 'files'>, userId: 
   const rows = rt.db.query(`SELECT i.folder_id AS i_folder_id, ${CHAT_COLS.split(', ').map((x) => `c.${x}`).join(', ')} FROM nav_folder_items i JOIN chats c ON c.id = i.chat_id
       WHERE i.user_id = ? AND i.kind = 'chats'${folderId ? ' AND i.folder_id = ?' : ''} AND ${h.sql} ORDER BY c.updated_at DESC, c.id DESC`)
     .all(userId, ...(folderId ? [folderId] : []), ...h.args) as (ChatRow & { i_folder_id: string })[]
+  // a people-shared row passed its audience in the SQL already (by name or a group, or mine): what is left of Audiences'
+  // rule for it is about me alone (active, and not a guest unless it is my own chat), read once per call, not a
+  // people audience per row (15k rows held the event loop ~500 ms: review of #387). Project-shared rows keep the
+  // per-project audience (read once per project for the call).
+  const meRow = rt.db.query("SELECT guest FROM users WHERE id = ? AND status = 'active' AND deleted_at IS NULL").get(userId) as { guest: number } | null
   const out: FiledChat[] = []
-  for (const { i_folder_id, ...row } of rows) if (inHistory(aud, userId, row)) out.push({ folderId: i_folder_id, row })
+  for (const { i_folder_id, ...row } of rows) {
+    const ok = isPeopleRow(row) ? !!meRow && (row.user_id === userId || meRow.guest !== 1) : inHistory(aud, userId, row)
+    if (ok) out.push({ folderId: i_folder_id, row })
+  }
   return out
 }
 /** Is this one chat in my history now (the rule of visibleChatItems, for one row)? */
@@ -193,7 +202,7 @@ export function orderNavFolders(rt: ChatRuntime, userId: string, kind: NavFolder
  * row left. Chats: rows of a chat in the trash, a room's AI session or a server draft; a chat I hid or lost keeps its
  * row and counts (it comes back). Rooms: rows of rooms
  * I left or that are archived, or filed before I joined again; a hidden room's row stays (it comes back) and counts. */
-function makeRoom(db: Database, userId: string, f: FolderRow, locale: Locale) {
+function makeRoom(db: Database, userId: string, f: FolderRow, locale: Locale, visible?: () => string[]) {
   const total = () => (db.query('SELECT COUNT(*) n FROM nav_folder_items WHERE folder_id = ? AND user_id = ?').get(f.id, userId) as { n: number }).n
   if (total() < NAV_FOLDER_ITEMS_MAX) return
   // chats: only rows that can never show again go (a chat in the trash, a room's AI session, a server draft); a chat I
@@ -203,6 +212,10 @@ function makeRoom(db: Database, userId: string, f: FolderRow, locale: Locale) {
   else db.query(`DELETE FROM nav_folder_items WHERE folder_id = ?2 AND user_id = ?1 AND rowid NOT IN (SELECT i.rowid FROM nav_folder_items i
       JOIN room_members m ON m.room_id = i.room_id AND m.user_id = i.user_id JOIN rooms r ON r.id = i.room_id
       WHERE i.user_id = ?1 AND i.folder_id = ?2 AND r.archived_at IS NULL AND i.added_at >= m.joined_at)`).run(userId, f.id)
+  // still full: the rows of chats I hid or lost go before anything is refused, so a section never says it is full while
+  // it shows fewer (review of #387); they would come back with access, but only while there is room
+  if (f.kind === 'chats' && visible && total() >= NAV_FOLDER_ITEMS_MAX)
+    db.query("DELETE FROM nav_folder_items WHERE folder_id = ? AND user_id = ? AND kind = 'chats' AND chat_id NOT IN (SELECT value FROM json_each(?))").run(f.id, userId, JSON.stringify(visible()))
   if (total() >= NAV_FOLDER_ITEMS_MAX) fail('conflict', tr('navFolderFull', locale, { n: String(NAV_FOLDER_ITEMS_MAX) }), { params: { reason: 'nav_folder_full' } })
 }
 
@@ -222,17 +235,16 @@ function chatChanged(rt: ChatRuntime, userId: string, chatId: string): Chat | nu
  * folders, or take it out (null). Only my row changes and only I am told: nobody else learns of my folders. */
 export function setChatFolder(rt: ChatRuntime, userId: string, chatId: string, folderId: string | null, locale: Locale): Chat {
   const db = rt.db
+  // out of my folder: my own row goes first, by my id and the chat's, whatever the chat is now (one I lost access to
+  // keeps a row I could not take out otherwise: review of #387). The answer stays the same as before for every chat
+  // (404 below for one I cannot open), so it tells nothing about a chat
+  const removed = folderId === null && db.query('DELETE FROM nav_folder_items WHERE user_id = ? AND chat_id = ?').run(userId, chatId).changes > 0
+  if (removed) changed(rt.ctx, userId, 'chats')
   // a chat I cannot open, one in the trash, a room's AI session: 404 (chatFor), and so is a draft the server runs for its
   // own work (it is in no list)
   const a = chatFor(rt, userId, chatId, 'view', { locale })
   if (isInternalChat(db, a.row.id)) return fail('not_found')
-  if (folderId === null) {
-    if (db.query('DELETE FROM nav_folder_items WHERE user_id = ? AND chat_id = ?').run(userId, a.row.id).changes) {
-      changed(rt.ctx, userId, 'chats')
-      return chatChanged(rt, userId, a.row.id) ?? chatView(rt, userId, a.row)
-    }
-    return chatView(rt, userId, a.row)
-  }
+  if (folderId === null) return (removed && chatChanged(rt, userId, a.row.id)) || chatView(rt, userId, a.row)
   // only a chat my history shows (the history's own rule): not a project's shared chat I never wrote in (it is on the
   // project's page only), not one I hid from my list
   if (!chatInHistory(rt, userId, a.row)) fail('conflict', tr('navFolderNotInHistory', locale), { params: { reason: 'folder_not_in_history' } })
@@ -240,7 +252,7 @@ export function setChatFolder(rt: ChatRuntime, userId: string, chatId: string, f
   const now = db.query('SELECT folder_id FROM nav_folder_items WHERE user_id = ? AND chat_id = ?').get(userId, a.row.id) as { folder_id: string } | null
   if (now?.folder_id === f.id) return chatView(rt, userId, a.row)
   db.transaction(() => {
-    makeRoom(db, userId, f, locale)
+    makeRoom(db, userId, f, locale, () => visibleChatItems(rt, userId, f.id).map((x) => x.row.id))
     db.query('DELETE FROM nav_folder_items WHERE user_id = ? AND chat_id = ?').run(userId, a.row.id)
     db.query("INSERT INTO nav_folder_items (folder_id, user_id, kind, chat_id, room_id, added_at) VALUES (?, ?, 'chats', ?, NULL, ?)").run(f.id, userId, a.row.id, nowIso())
   })()
