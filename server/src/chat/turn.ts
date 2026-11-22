@@ -6,7 +6,7 @@ import { ALWAYS_VALUE, LIVE_CLIENTS, alwaysHere, keepAlways, withAlways, type Al
 import { approvalsFor, approved, clearApprovals, noteApproval } from './card-approvals'
 import { stampOutputOf } from '../tools/stamp-pdf'
 import type { CardAlwaysKind } from '@mycel/shared/api'
-import { includesPiece, languageSwitchNote, NarrationHold, narrationScript, quoteLanguageNote } from './narration'
+import { finalAnswerLead, includesPiece, languageSwitchNote, leadScript, NarrationHold, narrationScript, quoteLanguageNote, type AnswerScript } from './narration'
 import { safeOpsEnabled } from "../safe-ops/runner"
 // One chat turn, end to end (tab 3 "실행 관리", tab 4 "메시지 하나의 처리 순서"):
 // engine choice, session resume or a fresh session with the branch history, system prompt, tools of this turn,
@@ -617,6 +617,9 @@ export class TurnExec {
   private pieceStart: number | null = null
   private lastInterim = ''
   private interimDropped = 0
+  /** The final answer's English lead (docs/decisions/20261122-final-answer-english-lead.md): the script whose final
+   * answers lose leading working notes in Latin letters (chat/narration.ts leadScript; null: off) and the person's message */
+  private lead: { script: AnswerScript | null; said: string } = { script: null, said: '' }
   /** when the turn left the queue: how long its answer ran (ChatRuntime.longAnswerMs) */
   private readonly startedAt = performance.now()
   /** finish() runs: the cards it closes send nothing on their own (the turn's end sends the chat once) */
@@ -856,6 +859,7 @@ export class TurnExec {
     const userMsg = rt.store.messageRow(spec.userMessageId)
     if (!chat || !userMsg) { this.error = engineError('crash', spec.locale); return }
     this.narration = new NarrationHold(narrationScript(spec.locale, userMsg.content, this.previousUserText(userMsg.parent_id)), userMsg.content)
+    this.lead = { script: leadScript(spec.locale, userMsg.content, this.previousUserText(userMsg.parent_id)), said: userMsg.content }
     if (this.oldRoomSession) { this.error = engineError('crash', spec.locale); return }
     // a shared project chat is never confidential (read-only while safe operations are on), and runs only while its
     // person still sees its project (access may have gone while the turn waited in the queue)
@@ -2271,6 +2275,23 @@ export class TurnExec {
   private endInterimFallback() {
     if (!this.interimDropped) return
     if (!this.writtenText.trim() && this.lastInterim) { if (this.writtenText) this.discardTextFrom(0); this.appendText(this.lastInterim); this.lastInterim = ''; this.flushText() }
+  }
+  /** The end: the final piece's leading paragraphs that are the AI's working notes in Latin letters above an answer in
+   * the person's script (chat/narration.ts finalAnswerLead) leave the answer, streamed and saved, as a thinking step,
+   * like an interim piece (endPiece). Never the whole answer. */
+  private dropFinalLead() {
+    const at = this.pieceStart
+    if (at === null || !this.lead.script) return
+    const piece = this.writtenText.slice(at)
+    const cut = finalAnswerLead(piece, this.lead.script, this.lead.said)
+    if (!cut) return
+    const sep = /^\s*/.exec(piece)![0]
+    this.discardTextFrom(at)
+    this.interimDropped++
+    this.addStep({ kind: 'thinking', label: tr('thinking', this.spec.locale), status: 'ok', detail: cut.notes })
+    // the piece's own separator stays (the answer above it, if any); at the very top nothing leads
+    this.emitText(this.answerText.push(this.fileLinks.push((at > 0 ? sep : '') + cut.rest.replace(/^\s+/, ''))))
+    this.flushText()
   }
   /** Everything held back (an undecided piece, the redactor's end), let out now (before a step, a retry's separator,
    * the end). */
@@ -5381,7 +5402,7 @@ export class TurnExec {
   /** The end state in the DB; returns the answer's status. */
   private finishState(): MessageStatus {
     // stopped or failed with a status line held: it is dropped like before a call (anything else goes out)
-    this.finishStep('text', () => { if (this.stopReason || this.error) this.emitText(this.answerText.push(this.fileLinks.push(this.narration.toolStart()))); this.flushText(); this.endInterimFallback() })
+    this.finishStep('text', () => { if (this.stopReason || this.error) this.emitText(this.answerText.push(this.fileLinks.push(this.narration.toolStart()))); this.flushText(); this.endInterimFallback(); this.dropFinalLead() })
     if (this.narration.dropped) this.rt.log.info('status lines left out of the answer', { turn: this.id, pieces: this.narration.dropped })
     this.finishStep('held answers', () => this.dropHeldAnswers())
     // the whole answer once more: an escaped or base64 form of a secret cut across two pieces (message.done below
