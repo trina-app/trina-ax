@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-22 05:03
 - Branch: `fix/shared-chat-copy-paths`
-- Status: in progress
+- Status: done
 - Where: server/src/chat, server/src/mcp, web/src/components/chat. Why: a gap left by #320 (QA TC-v1b-*, QA-D flow 4,
   TC-v1d-02)
 - Version impact: patch (a fix of shared-chat file edits and the share dialog's default, no new feature)
@@ -31,7 +31,9 @@ In:
    (newest copy of each path), leaving out a copy on an answer hidden from the viewer (same rule as copyOf).
 2. Tools, deterministic: a new TurnToolSet hook `mapPaths(name, args, agent)` that mcp/protocol.ts callTool runs first
    on every tool call of a chat turn. In a chat shared with people (not a project chat), for the main AI only, each
-   path argument (rooms/ai-tools.ts namedPaths keys, top level and arrays, edit_pdf's nested files) that names a
+   source or in-place path argument (file_path, path, source, template, from, file_paths, paths, sources, images,
+   image, merge_pdfs' files, edit_pdf/edit_office's output, edit_pdf's nested files; never a destination, and never
+   for delete, move, rename, who-can-open or share tools) that names a
    copied original (trimmed, NFC, no leading "/" or "./") becomes the copy's chat place path
    `chat:files/<id>/<name>`. Everything after that (read, edit, write, edit_office, edit_pdf, the version rules,
    cards) is the existing chat-file path: an edit by anyone is a new version of the copy (putVersion), and the original
@@ -40,9 +42,10 @@ In:
 3. Context, deterministic: the transcript of a shared chat replaces, in each answer's text that the runner sees, every
    occurrence of a copied original path (as written, and URL-encoded) with the copy's chat place path. The
    `<chat_files>` note names that path too. Never more of the original than the text already showed.
-4. Share dialog (TC-v1d-02): "Share the files too" is ticked by default when every listed file is safe (no file marked
-   private and no warnPicks in the check); unticked by default (the #320 rule) otherwise. A person's own tick or untick
-   wins until the picks change. #322's one box and one button stay.
+4. Share dialog (TC-v1d-02): while adding people, "Share the files too" is ticked by default when the check of those
+   picks says every listed file is safe (no file marked private, no warnPicks, nothing at stake); unticked by default
+   (the #320 rule) otherwise, and on a chat already shared (its list has no check of anyone). A person's own tick or
+   untick wins until the picks change. #322's one box and one button stay.
 
 Out: rewriting the stored answer text; a web map of paths for people other than the creator (their links already
 open the copy through the file-access lookup); room messages.
@@ -65,4 +68,15 @@ open the copy through the file-access lookup); room messages.
 
 ## Result
 
-(filled in at the end)
+- chat/copy-paths.ts (mapCopyPaths, mapCopyText), chat-files-share.ts sharedCopyMap, TurnToolSet.mapPaths run first in
+  mcp/protocol.ts callTool and once at the top of edit_files; the transcript maps the same paths (same chat kind check).
+- Plan review: narrowed the mapped arguments and tools, edit_files mapped once, the "chat made private again" check
+  in the caller. Code review: an already-shared chat keeps the box unticked (its list has no per-person check), `$` in
+  names, a sentence's ".", encoded links stay encoded, the same chat kind for the transcript.
+- Tests: tests/unit/shared-copy-paths.test.ts (private PDF → share with files → bob's AI edits by the original path →
+  version 2 of the copy, original bytes and file events unchanged; alice's own edit too; transcript; made private
+  again; the pure mapping), web/test/unit/chat-share-dialog.test.tsx (both defaults).
+- Real UI check on a private QA-Acme copy, claude-code engine with this Mac's login: S-002's order three times, each a
+  new version of the chat's copy.
+- Seen, not fixed here: a file made by edit_pdf with an output is not counted as made by the chat (shared-actions.ts
+  CHAT_MADE_TOOLS), so "Share with files" does not offer it.
