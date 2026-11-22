@@ -7436,6 +7436,25 @@ export class MockServer {
       for (const id of to) this.note(id, { kind: 'file_share', code: 'file.access_requested', requestId: r.id })
       return { status: 'sent', askedAt: r.at }
     }
+    // the Share dialog's "Ask <owner>": a waiting request per person, answered by the owner as any other
+    h.askFileShareFor = (c) => {
+      if (c.user.role === 'guest') fail('not_found', 404)
+      const path = this.fileLinks.get(c.params.id!)
+      if (!path || !this.files.has(path)) fail('not_found', 404)
+      if (this.canShareFile(path!, c.user)) fail('conflict', 409, 'You can share this file yourself.', undefined, { reason: 'file_request_can_share' })
+      const ownerId = this.fileOwner(path!)
+      let asked = 0, already = 0
+      for (const userId of new Set<string>(c.body.people)) {
+        if (userId === c.user.id || !this.users.some((u) => u.id === userId && u.role !== 'guest')) continue
+        if (this.fileRequests.some((r) => r.path === path && r.userId === userId && r.state === 'pending')) { already++; continue }
+        const r = { id: uuidv7(), linkId: c.params.id!, path: path!, userId, ownerId, note: null, at: now(), state: 'pending' as const }
+        this.fileRequests.push(r)
+        asked++
+        const to = ownerId ? [ownerId] : this.users.filter((u) => u.role === 'owner' || u.role === 'admin').map((u) => u.id)
+        for (const id of to) this.note(id, { kind: 'file_share', code: 'file.access_requested', requestId: r.id })
+      }
+      return { asked, already }
+    }
     h.answerFileRequest = (c) => {
       const r = this.fileRequests.find((x) => x.id === c.params.id) ?? fail('not_found', 404)
       if (r.state !== 'pending') return { state: r.state }

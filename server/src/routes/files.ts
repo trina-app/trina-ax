@@ -237,6 +237,10 @@ export const filesRoutes: RouteModule = {
     kit.handle(API.sharedFolderList, ({ c, params, query, auth }) => mapErrors(c.get('locale'), () => folders.list(auth.user.id, params.id, query.sub, query.cursor, query.limit, c.get('locale'))))
     kit.handle(API.sharedFolderEntry, ({ c, params, query, auth }) => mapErrors(c.get('locale'), () => folders.entry(auth.user.id, params.id, query.sub, c.get('locale'))))
     kit.handle(API.requestFileAccess, ({ c, params, body, auth }) => mapErrors(c.get('locale'), () => shares.request(auth.user.id, params.id, body.message, c.get('locale'))))
+    kit.handle(API.askFileShareFor, ({ c, params, body, auth }) => mapErrors(c.get('locale'), () => {
+      const r = shares.requestFor(auth.user.id, params.id, body.people, c.get('locale'), 'dialog')
+      return { asked: r.asked.length, already: r.already.length }
+    }))
     kit.handle(API.answerFileRequest, ({ c, params, body, auth }) => mapErrors(c.get('locale'), () => shares.answer(auth.user.id, params.id, body.answer, c.get('locale'))))
     // one-tap next steps under an AI step (files/share-fixes.ts), and a path link opened through a share
     kit.handle(API.runShareFix, ({ c, params, auth }) => mapErrors(c.get('locale'), () => shareFixesOf(ctx).run(auth.user.id, params.id, c.get('locale'))))

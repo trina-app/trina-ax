@@ -278,6 +278,9 @@ export const InboxNotification = z.object({
      * the reader cannot open it). `by` is then who shared it, while their account is there; never the file's name.
      * Older servers omit it */
     why: z.enum(['stopped', 'deleted', 'moved']).optional(),
+    /** file.access_requested while the viewer may answer it: 'project' when the file is in a team project the person
+     * who would get it cannot open (the card says its other files stay hidden). Older servers omit it */
+    outside: z.literal('project').optional(),
   }).optional(),
   /** 'access.requested' and 'access.answered' (docs/decisions/20261116-chat-project-ask-access.md, access_request_notices).
    * access.requested (to whoever answers it): `by` asked to open the chat or project `name` (its title now), their
