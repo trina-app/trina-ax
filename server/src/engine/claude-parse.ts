@@ -22,7 +22,8 @@ export function classifyError(msg: string): EngineErrorCode {
   // error that named a context ("execution context destroyed", a tool's "context" field) and ended the answer as full.
   // Before the limit check: a token count such as "214290 tokens" holds "429"
   if (contextFull(m)) return 'context'
-  if (/rate.?limit|\b429\b|overloaded|usage limit|quota/.test(m) || PER_MINUTE.test(m)) return 'rate_limit'
+  // (Claude Code's own subscription words too: "You've hit your weekly limit · resets …", "5-hour limit reached")
+  if (/rate.?limit|\b429\b|overloaded|usage limit|quota|hit your [\w -]*limit|\blimit reached\b/.test(m) || PER_MINUTE.test(m)) return 'rate_limit'
   if (/refus/.test(m)) return 'refused'
   if (/timed? ?out|timeout/.test(m)) return 'timeout'
   return 'crash'
