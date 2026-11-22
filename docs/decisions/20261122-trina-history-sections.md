@@ -30,10 +30,17 @@ Plan: docs/AGENTS/plan/20261122-0926-history-sections.md (plan review: approve w
   - **Create:** New section in the history's filter menu (then Add chats), and New section… in every Move to section.
   - **Fill:** Move to section / Remove from section in a chat's "⋯" (the row, the phone's long-press sheet), drag onto a
     section (out: onto 트리나 기록), or Add chats (after New section, from an empty section's line, from its "⋯"). Every
-    move says where it went in a toast with Undo. Move to project of a chat in a section says it left the section.
-  - **Who can go in:** by the server's own rule (`setChatFolder`): my own chats; a people-shared chat by its creator;
-    not a project's chat or one shared through a project, and not a chat someone shared with me (the item is off and says
-    why); a room's side chat and a task's folded runs have no section items.
+    move says where it went in a toast with Undo. Move to project of a chat in a section keeps it in its section.
+  - **Who can go in (owner, 2026-11-22: "allow all chats visible in my history"):** every chat my Trina history shows:
+    my own chats (project and team-project chats too), a shared project chat I wrote in, a chat shared with me by name,
+    through a group or a project. The server checks it by the history list's own rule
+    (`server/src/chat/history-list.ts`, the same for `GET /api/chats`, the history's groups and the sections), and a
+    section shows and counts a chat only while it passes that rule: one I lose (taken out of its project or group,
+    unshared, hidden from my list) drops out by itself and comes back with access. A chat the history does not show
+    (a project's shared chat I never wrote in, one I hid) is refused (409 `folder_not_in_history`). Moving a chat into or
+    out of a project keeps it in its section; the trash takes it out (restored, it is in no section). My section is
+    mine alone: nobody else's copy of a chat carries it. A room's side chat and a task's folded runs have no section
+    items.
   - **Folded:** remembered on every device (the account's folds); a folded section shows its strongest session marker
     and keeps the chat on screen drawn.
   - **More:** a section shows the server's first rows and "더 보기" pages through `GET /api/chats?folderId=`; 트리나 기록's

@@ -132,8 +132,7 @@ export function sectionErrorText(e: unknown, kind: NavFolderKind = 'rooms'): str
   if (reason === 'nav_folder_name_taken') return t('sidebarSections.nameTaken')
   if (reason === 'nav_folder_full') return t(kind === 'chats' ? 'sidebarSections.chats.sectionFull' : 'sidebarSections.sectionFull', { n: NAV_FOLDER_ITEMS_MAX })
   if (reason === 'room_hidden') return t('sidebarSections.hiddenRoom')
-  if (reason === 'folder_project_chat') return t('sidebarSections.chats.projectChat')
-  if (reason === 'folder_shared_chat') return t('sidebarSections.chats.sharedChat')
+  if (reason === 'folder_not_in_history') return t('sidebarSections.chats.notInHistory')
   if (e instanceof ApiError && e.code === 'not_found') return t('sidebarSections.gone')
   return errorText(e, currentLocale(), t('error.network'))
 }

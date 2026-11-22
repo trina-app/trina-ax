@@ -18,7 +18,7 @@
 // filed, its words), so there is one sections system and one name in both lists (nav/HistorySections.tsx draws them).
 import clsx from 'clsx'
 import { ArrowDown, ArrowUp, Hash, ListMinus, ListPlus, MoveRight, Pencil, Plus, Search, Trash2 } from 'lucide-react'
-import { useId, useMemo, useState, type ReactNode, type RefObject } from 'react'
+import { useMemo, useState, type ReactNode, type RefObject } from 'react'
 import { create } from 'zustand'
 import { graphemeCount, NAV_FOLDER_NAME_MAX, NavFolderName, type Chat, type NavFolder, type NavFolderKind, type Room } from '@mycel/shared/api'
 import { t, useT, type MessageKey } from '../../i18n'
@@ -32,7 +32,6 @@ import { toast } from '../../store/ui'
 import { Button, confirmDialog, inputCls, Modal, promptDialog } from '../ui'
 import { MenuButton, type MenuItem } from '../rooms/MenuButton'
 import { RoomIcon, useRoomTitle } from '../rooms/RoomIcon'
-import { useMeStrict } from '../../store/session'
 import { SectionAddButton, useDropTarget, useFolders } from './NavFolders'
 
 type T = ReturnType<typeof useT>
@@ -44,16 +43,11 @@ export const useSections = (kind: NavFolderKind = 'rooms', on = true): NavFolder
 /** a conversation that can go in a section now: one in my list (not hidden) */
 export const canSection = (room: Room): boolean => !room.hidden && listedRoom(room)
 
-/** Why an AI chat of my list cannot go in a section, by the server's own rule (server/src/chat/nav-folders.ts
- * setChatFolder): 'side' (a room's side chat: no section items at all), 'shared' (someone else shared it with me by
- * name or group; its creator may file it), 'project' (it is in a project, or shared through one). null: it can. */
-export type ChatSectionBlock = 'side' | 'shared' | 'project' | null
-export function chatSectionBlock(chat: Pick<Chat, 'sideRoomId' | 'projectId' | 'shared'>, me: string): ChatSectionBlock {
-  if (chat.sideRoomId) return 'side'
-  if (chat.shared?.kind === 'people' && chat.shared.by.id !== me) return 'shared'
-  if (chat.projectId || (chat.shared && chat.shared.kind !== 'people')) return 'project'
-  return null
-}
+/** Why an AI chat of my history cannot go in a section: 'side' (a room's side chat: no section items at all). null: it
+ * can, a project chat and a chat shared with me too (every chat of my history, by the server's own rule:
+ * server/src/chat/history-list.ts; owner decision 2026-11-22). */
+export type ChatSectionBlock = 'side' | null
+export const chatSectionBlock = (chat: Pick<Chat, 'sideRoomId'>): ChatSectionBlock => (chat.sideRoomId ? 'side' : null)
 
 /** The words that differ between the lists: "conversations" in Chats, "chats" in the Trina history. */
 const WORDS = {
@@ -214,14 +208,13 @@ export function AddConversationsDialog({ section, onClose }: { section: NavFolde
 export function AddChatsDialog({ section, onClose }: { section: NavFolder; onClose: () => void }) {
   const t = useT()
   const chats = useChats((s) => s.chats)
-  const me = useMeStrict().user.id
   const candidates = useMemo(
     () =>
       chats
-        .filter((c) => !isUnused(c) && !c.deletedAt && !chatSectionBlock(c, me) && c.folderId !== section.id)
+        .filter((c) => !isUnused(c) && !c.deletedAt && !chatSectionBlock(c) && c.folderId !== section.id)
         .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
         .map((c): Candidate => ({ id: c.id, title: c.title || t('chat.untitled'), folderId: c.folderId })),
-    [chats, me, section.id, t],
+    [chats, section.id, t],
   )
   return <AddDialog kind="chats" section={section} candidates={candidates} onClose={onClose} />
 }
@@ -374,23 +367,15 @@ export function ChannelsAddMenu({ canMakeChannel, onNewChannel }: { canMakeChann
 
 /** A conversation's or chat's section items for its "⋯" (Move to section; Remove from section when it is in one) and
  * the list they open (`picker`, drawn beside the "⋯"): my sections of that list, the current one ticked, then New
- * section…. `on`: none at all (a hidden conversation, a side chat, a task's folded runs). `blocked`: why it cannot go
- * in one (the server's own reason, chatSectionBlock): the item is shown off, and `footer` says why under the menu.
- * `more`: the "⋯", where the keyboard goes back from the list. */
-export function useSectionRowItems(o: { on: boolean; kind?: NavFolderKind; id: string; folderId?: string | null; blocked?: 'shared' | 'project' | null; more: RefObject<HTMLButtonElement | null> }): { items: MenuItem[]; picker: ReactNode; footer?: ReactNode } {
+ * section…. `on`: none at all (a hidden conversation, a side chat, a task's folded runs). `more`: the "⋯", where the
+ * keyboard goes back from the list. */
+export function useSectionRowItems(o: { on: boolean; kind?: NavFolderKind; id: string; folderId?: string | null; more: RefObject<HTMLButtonElement | null> }): { items: MenuItem[]; picker: ReactNode } {
   const t = useT()
   const kind = o.kind ?? 'rooms'
-  const footerId = useId()
   const sections = useSections(kind, o.on)
   const act = useSectionActions(kind)
   const [pick, setPick] = useState(0)
   if (!o.on) return { items: [], picker: null }
-  if (o.blocked)
-    return {
-      items: [{ label: t('sidebarSections.moveTo'), icon: <MoveRight size={14} aria-hidden />, onSelect: () => {}, disabled: true, describedBy: footerId, testId: 'row-section-move' }],
-      footer: <p id={footerId} className="max-w-56 px-2 pt-1 pb-1.5 text-xs text-muted max-md:px-3 max-md:pb-2" data-testid="row-section-why">{t(o.blocked === 'shared' ? 'sidebarSections.chats.sharedChat' : 'sidebarSections.chats.projectChat')}</p>,
-      picker: null,
-    }
   const current = sections.find((f) => f.id === o.folderId) ?? null
   const items: MenuItem[] = [
     { label: t('sidebarSections.moveTo'), icon: <MoveRight size={14} aria-hidden />, onSelect: () => setPick((n) => n + 1), testId: 'row-section-move' },

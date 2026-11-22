@@ -8,7 +8,7 @@ import { newId } from '../db'
 import { cardAnswerOf } from './open-questions'
 import { storedRunOutcome } from './schedule-outcome'
 import { isConfidentialChat } from '../safe-ops/confidential'
-import { isInternalChat } from './internal-chats'
+import { historyWhere } from './history-list'
 import { isTeamFilePath, sourceCount, teamSourcePaths } from '../files/sources'
 import { skillMakerName } from '../skills/author'
 
@@ -326,12 +326,17 @@ export class ChatStore {
     return (this.db.query('SELECT pinned_at FROM chat_pins WHERE user_id = ? AND chat_id = ?').get(userId, chatId) as { pinned_at: string } | null)?.pinned_at ?? null
   }
   /** The list folder `viewer` keeps this chat in (Chat.folderId; chat/nav-folders.ts), only while that folder may show
-   * it: their own chat, not in the trash, with no project, not shared, not a room's and not a server draft (the same
-   * rule as nav-folders.ts visibleChatItems). */
-  folderOf(viewer: string, r: Pick<ChatRow, 'id' | 'user_id' | 'deleted_at' | 'project_id' | 'shared_at' | 'room_id'>): string | null {
-    if (r.user_id !== viewer || r.deleted_at || r.project_id || r.shared_at || r.room_id) return null
+   * it: the chat is in their Trina history (chat/history-list.ts historyWhere: not in the trash, not a room's, not a
+   * server draft, theirs or shared with them and not hidden). The rule's per-row part (a shared chat only while they see
+   * it) is chatView's (chat/shared.ts), which has the people who see it. Never another person's folder: the row is the
+   * viewer's own. */
+  folderOf(viewer: string, r: Pick<ChatRow, 'id' | 'deleted_at' | 'room_id'>): string | null {
+    if (r.deleted_at || r.room_id) return null
     const row = this.db.query("SELECT folder_id FROM nav_folder_items WHERE user_id = ? AND chat_id = ? AND kind = 'chats'").get(viewer, r.id) as { folder_id: string } | null
-    return row && !isInternalChat(this.db, r.id) ? row.folder_id : null
+    if (!row) return null
+    // this one chat by id, the rule checked on it alone (historyWhere `on`: never the viewer's whole history)
+    const h = historyWhere(this.db, viewer, { on: 'chats' })
+    return this.db.query(`SELECT 1 FROM chats WHERE chats.id = ? AND ${h.sql}`).get(r.id, ...h.args) ? row.folder_id : null
   }
   /** An answer finished after the person last had the chat on screen (answerState). */
   unseen(r: Pick<ChatRow, 'id' | 'seen_at' | 'created_at'>): boolean { return !!this.answerState(r).unseen }

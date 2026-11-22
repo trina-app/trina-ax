@@ -39,7 +39,7 @@ export function ChatItem({ chat, onNavigate, peek, onMove, projectTag = false, s
   // faces of the others who wrote in it at its end (docs/DECISIONS.md "Faces in every chat list")
   const rights = sharedRights(chat, useMeStrict().user.id)
   // a mouse may drag the row onto one of my sections (nav/HistorySections.tsx) when it can go in one
-  const drag = sections && !chatSectionBlock(chat, useMeStrict().user.id) && !chat.deletedAt ? dragRow('chats', chat.id, true) : {}
+  const drag = sections && !chatSectionBlock(chat) && !chat.deletedAt ? dragRow('chats', chat.id, true) : {}
   const faces = rights.shared && !!otherWriters(chat.shared)
   // the row's link: its keyboard focus shows the names on the faces
   const link = useRef<HTMLAnchorElement>(null)
@@ -55,11 +55,10 @@ export function ChatItem({ chat, onNavigate, peek, onMove, projectTag = false, s
   // `projectTag` (트리나's 최근 기록, a flat list): the project the chat is in, small and grey at the row's end, only a
   // project I see now (one I no longer see is never named)
   const project = useProjects((s) => (projectTag && chat.projectId && (!s.listed || s.listed.has(chat.projectId)) ? s.byId[chat.projectId] ?? null : null))
-  // Move to section / Remove from section after Rename (docs/decisions/20261122-trina-history-sections.md), off with the
-  // server's reason where the chat cannot go in one; none for a room's side chat or where the list says so (`sections`)
-  const me = useMeStrict().user.id
-  const block = chatSectionBlock(chat, me)
-  const section = useSectionRowItems({ on: sections && block !== 'side' && !chat.deletedAt, kind: 'chats', id: chat.id, folderId: chat.folderId, blocked: block === 'side' ? null : block, more })
+  // Move to section / Remove from section after Rename (docs/decisions/20261122-trina-history-sections.md): every chat of
+  // my history, a project chat and a chat shared with me too; none for a room's side chat or where the list says so
+  // (`sections`)
+  const section = useSectionRowItems({ on: sections && !chatSectionBlock(chat) && !chat.deletedAt, kind: 'chats', id: chat.id, folderId: chat.folderId, more })
   const items = useChatMenuItems(chat, { testId: 'chat-row', more, onMove, extra: section.items })
   // my chat in a team project that only I see: a lock (only its creator ever has it in a list)
   const onlyMine = useProjects((s) => privateInTeamProject(chat, chat.projectId ? s.byId[chat.projectId] : null))
@@ -121,7 +120,6 @@ export function ChatItem({ chat, onNavigate, peek, onMove, projectTag = false, s
           openRequest={menu.openRequest}
           sheetTitle={title}
           buttonRef={more}
-          footer={section.footer}
           testId="chat-row-menu"
         />
         {section.picker}
