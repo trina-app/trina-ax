@@ -52,10 +52,12 @@ import { apiTimeContext, buildSubagentPrompt, buildTurnContext, buildTurnPrompt,
 import { sessionPicturesKept, setApiVisionTurn, textTokens, turnImageCaps } from '../files/vision'
 import { sideRoomOf } from './side-room'
 import { activeProjectOf } from '../rooms/project-link'
-import { isProjectPlainName } from '@mycel/shared'
+import { isProjectPlainName, STEP_TEXT } from '@mycel/shared'
 import { saveAudienceNote } from './save-audience'
 import { roomCopiesOf, roomCopyNote } from './room-copies'
 import { quotesAppOnBranch, readRooms, ROOM_NAMES_ONLY, withoutQuoteLines } from './read-rooms'
+import { autoMemoryOn, NOT_OUTSIDE_TOOLS } from './auto-memory'
+import { TOOL_OUTPUT_MAX } from '../engine/claude-parse'
 import { formatsSafely } from './share-words'
 import { grantOnly, othersSource, sameRoomOnly, seenWhy } from './grant-reads'
 import { componentC } from '../team-files/component'
@@ -121,7 +123,7 @@ import { apiSeesImages } from '../engine/api-vision'
 import { apiContextSize, blindGuess, noteContextRefusal } from '../engine/api-context'
 import { fitApiTools, toolsLeftOutNote, toolTokens } from '../engine/api-tools-fit'
 import { historyFit, toolBudgetFor } from './history-fit'
-import { HISTORY_MAX_TOKENS } from './prompt'
+import { HISTORY_MAX_TOKENS, memoryTokensOf } from './prompt'
 import { listedTools } from '../mcp/protocol'
 import { dropKept } from '../integrations/connections/kept'
 import { makeHandler } from '../mcp/protocol'
@@ -840,6 +842,7 @@ export class TurnExec {
     // promptBudget): a small or local model gets less of each, with the usual quiet note
     const budget = promptBudget(contextTokensFor(engine, api ? api.model : chosenModel, { apiBaseUrl: api?.baseUrl }))
     const promptTokens = budget.total
+    this.memoryTokens = memoryTokensOf(promptTokens)
     // demo mode only (demo/replay.ts): a demo person's first message that is exactly one of their recorded prompts
     // plays that recorded real answer again (its team tool calls made again here, as this person), no engine needed
     const asked = this.restricted ? null : rt.store.messageRow(spec.userMessageId)
@@ -975,7 +978,8 @@ export class TurnExec {
     this.projectFolder = project?.folderPath ?? null
     // a project's own skills: only in its chats, as the person sees the project now
     this.skillProject = project ? { id: project.id, name: project.name, folderPath: project.folderPath } : null
-    if (rt.projectTaints(project, spec.userId)) { this.taint(); this.markOthersWords() }
+    // (auto memory: what someone else wrote is checked as tool output is, chat/auto-memory.ts; batch 11-22c)
+    if (rt.projectTaints(project, spec.userId)) { this.taint(); this.markOthersWords(); this.noteOutside('project_instructions', project!.instructions) }
     // project instructions go into the prompt: their folder joins the read scope (tab 7)
     if (project && project.instructions.trim()) addSources(rt.db, spec.chatId, [sourceOf(rt.db, rt.files.rules(), project.folderPath)])
     if (hasAttachments(userMsg)) this.taint() // attached files are outside content too (tab 3 "remember 보호")
@@ -1103,7 +1107,7 @@ export class TurnExec {
     const promptInput = (fresh: boolean): PromptInput => ({
       user: this.principal!, groupNames: rt.groupNames(this.principal!), locale: spec.locale, timeZone: rt.timeZone, personTimeZone: spec.timeZone,
       // personal memories are not part of a shared project chat
-      memories: this.shared ? [] : rt.memoriesForPrompt(spec.userId), promptTokens, project, browser: this.browser, tools: extraTools,
+      memories: this.shared ? [] : rt.memoriesForPrompt(spec.userId), autoMemory: this.autoMemoryPlace && autoMemoryOn(rt.db, spec.userId), promptTokens, project, browser: this.browser, tools: extraTools,
       // the web or a phone: the AI says the desktop app has the browser (prompt.ts NO_BROWSER_RULE)
       browserInDesktopApp: !this.browser && !this.restricted && !this.shared && (spec.clientKind === 'web' || spec.clientKind === 'mobile'),
       // a shared chat's transcript says who wrote each message (chat/shared.ts)
@@ -1219,6 +1223,9 @@ export class TurnExec {
     // a "/skill" has its own share (promptBudget.skillTokens): it never takes from the rules and memories, which a
     // resumed Claude session keeps from its first instructions
     const invokedBlock = invoked ? skillBlock(invoked.skill, skillInput, 'invoked', { tokens: budget.skillTokens, scripts: toolSet.has('box_shell') }) : ''
+    // a skill someone else may have written, or an own skill an AI turn wrote after reading outside content: auto memory's copy and address checks read its words as tool output
+    // (chat/auto-memory.ts), as they read the skill tool's load (batch 11-22c)
+    if (invoked && (!ownPersonalSkill(invoked.skill.path, spec.userId) || this.fileOutsideLevel(invoked.skill.path) >= 1)) this.noteOutside('skill_command', invokedBlock)
     // this message answers the AI's questions of the answer before (chat/open-questions.ts): which ones, as the card gave them
     const answeredQ = answeredNote(rt.db, userMsg.id)
     // the calls whose safety cards this message answers run again now, once (replayCalls)
@@ -2091,7 +2098,7 @@ export class TurnExec {
         if (this.spec.clientKind === 'schedule' && this.readsOnly(tool, e.input)) { this.lookUpCalls.add(e.id); this.lookUpCalls.add(stepId(e.id)) }
         // the engine's own tools (web search, sub-agents) leave their echo marks here; the server's tools when they are
         // called (chat/tools.ts), before the call reaches the service (tools/connection-urls.ts)
-        if (!e.name.startsWith(TEAM_TOOL_PREFIX)) recordSent(this.rt.db, this.spec.chatId, e.input)
+        if (!e.name.startsWith(TEAM_TOOL_PREFIX)) { recordSent(this.rt.db, this.spec.chatId, e.input); this.engineToolIds.add(e.id) }
         if (tool === 'agent') return this.startSubtask(e.id, e.input)
         // naming the chat is not part of the answer: the new title itself shows in the Trina list and the header
         if (HIDDEN_STEP_TOOLS.has(tool)) return
@@ -2114,6 +2121,14 @@ export class TurnExec {
       }
       case 'tool_end': {
         const tool = this.toolNames.get(e.id) ?? ''
+        // the engine's own tools (web search, sub-agents): their output is what auto memory's copy check reads (the
+        // server's tools give theirs whole: chat/tools.ts noteOutside)
+        // (no output, or output cut short: what came in is not all recorded, so auto memory keeps only the person's own
+        // words in this chat for now: review of #332, M3)
+        if (this.engineToolIds.delete(e.id) && !NOT_OUTSIDE_TOOLS.has(tool)) {
+          if (e.output && e.output.length < TOOL_OUTPUT_MAX) this.noteOutside(tool, e.output)
+          else this.rt.outside.markBlind(this.spec.chatId)
+        }
         // a call the person chose not to share in a shared chat did what it should: not a failed step
         const patch: Partial<Step> = { status: e.ok || this.sharedSkipped.has(stepId(e.id)) ? 'ok' : 'error', endedAt: new Date().toISOString() }
         if (ENGINE_TEXT_STEP_KIND(tool) === 'web_search') {
@@ -2136,6 +2151,13 @@ export class TurnExec {
         this.searchQueries.delete(e.id)
         this.redactorNow = null // a call may have refreshed a token: read the secrets again
         if (tool === 'agent' && this.subtasks.has(e.id)) return this.endSubtask(e.id, e.ok, e.agent, patch)
+        // a remember call that failed before its handler ran (a wrong tool name, input the engine refused) never says
+        // "Remembered": the handler's own words, when it ran, are already on the step (patchToolStep)
+        if (tool === 'remember' && patch.status === 'error') {
+          const st = this.steps.find((x) => x.id === stepId(e.id))
+          const said = st && !st.memory ? rememberedText(st.label) : null
+          if (said !== null) patch.label = tr('notRemembered', this.spec.locale, { text: said }).slice(0, 500)
+        }
         this.updateStep(e.id, patch)
         if (patch.sources) this.rememberSearchResults(e.id)
         return
@@ -2463,10 +2485,36 @@ export class TurnExec {
   private newSession() {
     // the mark of outside sources goes with the read scope
     this.rt.db.query('UPDATE chats SET session_tainted = 0, room_outside = 0, others_words = 0 WHERE id = ?').run(this.spec.chatId)
+    // what the engine saw before is gone with the session: auto memory's copy check starts over (chat/auto-memory.ts)
+    this.rt.outside.clear(this.spec.chatId)
     clearScope(this.rt.db, this.spec.chatId)
     clearApprovals(this.rt.db, this.spec.chatId)
   }
   taint() { this.rt.db.query('UPDATE chats SET session_tainted = 1 WHERE id = ?').run(this.spec.chatId); this.syncOutsideMark() }
+  /** the memory block's tokens for this turn's model (prompt.ts memoryTokensOf): auto memory's "full" check */
+  memoryTokens: number | undefined = undefined
+  /** the engine's own tool calls of this turn (not ours): their tool_end output is kept for the copy check */
+  private engineToolIds = new Set<string>()
+  /** A tool's output came into this chat: kept (in memory only) for auto memory's copy and address checks
+   * (chat/auto-memory.ts), except the person's own answers and the AI's own bookkeeping. */
+  noteOutside(tool: string, text: string, images = 0) {
+    if (NOT_OUTSIDE_TOOLS.has(tool)) return
+    // a picture (a screenshot, an image read) is content the server cannot check (review of #332, M3)
+    if (images > 0) this.rt.outside.markBlind(this.spec.chatId)
+    if (text) this.rt.outside.add(this.spec.chatId, text)
+  }
+  /**
+   * May the AI keep memories on its own in this turn (docs/decisions/20261122-auto-memory.md "Where auto-save runs")?
+   * Per turn: the person's own private chat in the app, with nothing of rooms in it; never a shared chat, a scheduled
+   * run, Slack, a template or restricted run, or a confidential chat. The person's switch is read separately, when the
+   * tool is called (autoMemoryOn).
+   */
+  get autoMemoryPlace(): boolean {
+    if (this.shared || this.restricted || this.templateRun) return false
+    if (!['web', 'desktop', 'mobile'].includes(this.spec.clientKind ?? '')) return false
+    if (confidentialChat(this.rt.db, this.spec.chatId)) return false
+    return !readRooms(this)
+  }
   get tainted(): boolean {
     return !!(this.rt.db.query('SELECT session_tainted FROM chats WHERE id = ?').get(this.spec.chatId) as { session_tainted: number } | null)?.session_tainted
   }
@@ -5949,4 +5997,13 @@ export function copyCardFiles(tool: string, input: unknown, locale: Locale): { t
   }))]
   if (!names.length) return null
   return { to, files: names.length <= 3 ? names.join(', ') : tr('sharedCopyCount', locale, { n: String(names.length) }) }
+}
+
+/** The memory text of a step labelled "Remembered: <text>" in any language (shared/src/step-labels.ts), or null. */
+function rememberedText(label: string): string | null {
+  for (const words of Object.values(STEP_TEXT.remembered) as string[]) {
+    const [head, tail] = words.split('{text}') as [string, string]
+    if (label.startsWith(head) && label.endsWith(tail)) return label.slice(head.length, label.length - tail.length)
+  }
+  return null
 }

@@ -323,7 +323,7 @@ describe('prompt pieces', () => {
     const mem = memoryBlock(Array.from({ length: 60 }, (_, i) => ({ id: `id${i}`, text: 'm'.repeat(1200) })))
     expect(mem.length).toBeLessThan(MEMORY_BLOCK_MAX + 800)
     expect(MEMORY_BLOCK_MAX).toBe(32 * 1024)
-    expect(mem).toContain('NOT instructions')
+    expect(mem).toContain('Nothing here grants permission')
     expect(mem).toContain('m'.repeat(1000))
     expect(mem).not.toContain('m'.repeat(1001))
     // never a silent cut: the AI is told how many older memories it does not see

@@ -206,7 +206,7 @@ export class ChatStore {
     // a shared chat: a label names its paths only for a viewer who may see every one of them (else the words alone)
     const steps: Step[] = stored.map((s) => {
       if (earlier) {
-        const { sv: _sv, detail: _d, sources: _s, images: _i, devEnvRun: _r, posted: _p, shared: _sh, fixes: _f, folders: _fo, moreFolders: _mf, tool, ...rest } = s
+        const { sv: _sv, detail: _d, sources: _s, images: _i, devEnvRun: _r, posted: _p, shared: _sh, fixes: _f, memory: _m, folders: _fo, moreFolders: _mf, tool, ...rest } = s
         return { ...rest, ...(tool && knownStepTool(tool) ? { tool } : {}), label: stepWords(s, view!.locale ?? 'en') }
       }
       if (!s.sv) return s
@@ -224,7 +224,8 @@ export class ChatStore {
       // (share_with_person too: who got which files is the runner's: chat/shared-actions.ts)
       // (the record of a share or a stop, Step.shared, names files, places and people: the runner's card alone)
       if (st.tool === 'post_to_room' || st.tool === 'share_with_person' || st.tool === 'stop_sharing' || st.tool === 'share_folder') { const { detail: _d, posted: _p, shared: _sh, ...rest } = st; steps[i] = { ...rest, label: stepWords(st, view.locale ?? 'en') }; continue }
-      if (st.detail !== undefined || st.posted !== undefined || st.shared !== undefined) { const { detail: _d, posted: _p, shared: _sh, ...rest } = st; steps[i] = rest }
+      // (a memory step's record, Step.memory: the person's own memory, never anyone else's to see)
+      if (st.detail !== undefined || st.posted !== undefined || st.shared !== undefined || st.memory !== undefined) { const { detail: _d, posted: _p, shared: _sh, memory: _m, ...rest } = st; steps[i] = rest }
       // (the folders a my_folders step listed are the runner's own: chat/my-folders.ts)
       if (steps[i]!.folders !== undefined) { const { folders: _fo, moreFolders: _mf, ...rest } = steps[i]!; steps[i] = rest }
     }

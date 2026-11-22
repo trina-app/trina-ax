@@ -381,7 +381,11 @@ describe('after sharing', () => {
     const other = { id: 's3', kind: 'tool', tool: 'gmail_search', label: 'Gmail · from:boss', status: 'ok', startedAt: at(), endedAt: at() }
     const id = dbChat('alice', { scope: [] })
     const a = dbAnswer(id, 'alice', null, 'done', { steps: [step, remembered, other] })
-    expect((await share('alice', id)).status).toBe('shared')
+    // an answer with a remember step is weighed as one written with a memory (docs/decisions/20261122-auto-memory.md):
+    // the share asks first; confirmed, it goes
+    const asked = confirmOf(await share('alice', id))
+    expect(asked.check.memoryAnswers).toBe(1)
+    expect((await share('alice', id, asked.confirmKey)).status).toBe('shared')
     const forBob = (await messages('bob', id)).find((m) => m.id === a.answerId)!
     expect(forBob.steps.map((s) => s.label)).toEqual(['파일 읽기', '기억하기', '작업'])
     // a tool of ours keeps its name; a connection's tool (named after the connection) loses it
