@@ -5585,7 +5585,7 @@ export const es: Record<MessageKey, string> = {
   "share.warn.accounts": "{n, plural, one {# respuesta anterior puede haber usado} other {# respuestas anteriores pueden haber usado}} sus cuentas personales.",
   "share.warn.files": "{n, plural, one {# respuesta usó} other {# respuestas usaron}} archivos que {names} no pueden abrir.",
   "share.warn.filesNamed": "{n, plural, one {# respuesta usó} other {# respuestas usaron}} archivos que {names} no puede abrir ({files}). {names} verá lo que dicen esas respuestas.",
-  "share.warn.dev": "{n, plural, one {# respuesta ejecutó} other {# respuestas ejecutaron}} comandos en el entorno de desarrollo, que pueden haber usado archivos que solo usted puede abrir. {names} y quien se añada más tarde verán esas respuestas.",
+  "share.warn.dev": "{n, plural, one {# respuesta ejecutó} other {# respuestas ejecutaron}} comandos en el entorno de desarrollo, que pueden haber usado archivos que solo usted puede abrir. {names} verán esas respuestas; quien se añada más tarde, no.",
   "share.warn.hidden": "{n, plural, one {# respuesta anterior queda oculta} other {# respuestas anteriores quedan ocultas}} para {names}: esas respuestas usaron algo que solo veían las personas que estaban aquí entonces.",
   "share.warn.places": "Este chat también usó {places}, que {names} no pueden abrir.",
   "share.warn.rooms": "Este chat leyó canales en los que {names} puede que no estén.",

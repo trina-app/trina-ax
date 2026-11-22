@@ -426,13 +426,34 @@ describe('QA scenario findings (TC-7041, TC-7042, TC-7047)', () => {
     expect(rows[0]!.id).not.toBe(first.id)
     expect(rows[0]!.read_at).toBeNull()
   })
+
+  test('TC-7047: a quick remove and add takes back the lost-access notice and brings the share notice back unread; a real loss is told again', async () => {
+    const id = await newChat('alice', 'quick readd')
+    const lostRows = () => db().query("SELECT id FROM chat_lost_notices WHERE user_id = 'bob' AND chat_id = ? AND reason = 'stopped'").all(id)
+    const shareRows = () => db().query("SELECT id, read_at FROM chat_share_notices WHERE user_id = 'bob' AND chat_id = ?").all(id) as { id: string; read_at: string | null }[]
+    await share('alice', id, [bob])
+    const [first] = shareRows()
+    await share('alice', id, [])
+    expect(lostRows()).toHaveLength(1)
+    expect(shareRows()[0]!.read_at).not.toBeNull()
+    await share('alice', id, [bob])
+    // one notice, the same row, unread: no chat.lost beside it and no new row (so no second push)
+    expect(lostRows()).toHaveLength(0)
+    expect(shareRows()).toEqual([{ id: first!.id, read_at: null }])
+    const items = (await h.api('bob').call(API.listNotifications, { query: {} })).items
+    expect(items.filter((x) => x.code === 'chat.lost' && x.sourceId.startsWith(id))).toHaveLength(0)
+    // taken out again: told again
+    await share('alice', id, [])
+    expect(lostRows()).toHaveLength(1)
+    expect(shareRows()[0]!.read_at).not.toBeNull()
+  })
 })
 
 describe('QA scenario P1s (TC-7262, TC-7277, TC-7286)', () => {
   const answersOf = (id: string) => (db().query("SELECT id FROM messages WHERE chat_id = ? AND role = 'assistant' ORDER BY rowid").all(id) as { id: string }[]).map((r) => r.id)
   const withheld = async (user: string, id: string) => (await h.api(user).call(API.listMessages, { params: { id }, query: {} })).items.filter((m) => m.role === 'assistant' && m.withheld).length
 
-  test('TC-7262: a dev environment answer of the private time is told before sharing and not kept from people added later', async () => {
+  test('TC-7262: a dev environment answer of the private time is told before sharing; only it is kept from people added later', async () => {
     const id = await newChat('alice', 'video')
     await ask('alice', id, fake({ say: 'made the video' }))
     const [first, dev] = answersOf(id)
@@ -442,10 +463,55 @@ describe('QA scenario P1s (TC-7262, TC-7277, TC-7286)', () => {
     if (c.status !== 'confirm') return
     expect(c.check).toMatchObject({ devAnswers: 1, unchecked: 0 })
     await put('alice', id, [bob], c.confirmKey)
-    // no x on any answer: erin, added later, sees them all
-    for (const m of [first, dev]) expect(JSON.parse((db().query('SELECT reads FROM shared_answer_reads WHERE message_id = ?').get(m) as { reads: string }).reads)[0].x).toBeUndefined()
+    // per answer: the dev environment answer alone is x (what its commands read is not known); bob, in this share, sees both
+    const readsOf = (m: string) => JSON.parse((db().query('SELECT reads FROM shared_answer_reads WHERE message_id = ?').get(m) as { reads: string }).reads)[0]
+    expect(readsOf(first!).x).toBeUndefined()
+    expect(readsOf(dev!)).toMatchObject({ c: ['alice', 'bob'], x: 1 })
+    expect(await withheld('bob', id)).toBe(0)
+    // erin, added later: told it stays hidden, and only that answer is kept from her
+    const later = await put('alice', id, [bob, { subjectType: 'user', subjectId: 'erin' }])
+    if (later.status === 'confirm') expect(later.check.hiddenAnswers).toBe(1)
     await share('alice', id, [bob, { subjectType: 'user', subjectId: 'erin' }])
+    expect(await withheld('erin', id)).toBe(1)
+  })
+
+  test('a dev environment answer shared with a group stays hidden from someone who joins the group later', async () => {
+    const id = await newChat('alice', 'salary figures')
+    await ask('alice', id, fake({ say: 'the totals are 1, 2, 3' }))
+    const [, dev] = answersOf(id)
+    db().query('UPDATE messages SET steps = ? WHERE id = ?').run(JSON.stringify([{ id: 's1', kind: 'tool', tool: 'box_shell', label: 'run', status: 'ok', startedAt: '2026-11-22T00:00:00.000Z', endedAt: '2026-11-22T00:00:01.000Z' }]), dev)
+    const c = await put('alice', id, [marketing])
+    expect(c.status).toBe('confirm')
+    if (c.status !== 'confirm') return
+    expect(c.check.devAnswers).toBe(1)
+    await put('alice', id, [marketing], c.confirmKey)
+    // erin is in marketing now: she sees it
     expect(await withheld('erin', id)).toBe(0)
+    // carol joins marketing afterwards: the chat opens for her, the dev environment answer does not
+    db().query("INSERT INTO group_members (group_id, user_id) VALUES ('marketing', 'carol')").run()
+    try {
+      const items = (await h.api('carol').call(API.listMessages, { params: { id }, query: {} })).items
+      const m = items.find((x) => x.id === dev)
+      expect(m?.withheld).toBeTruthy()
+      expect(JSON.stringify(m)).not.toContain('the totals are')
+      expect(await withheld('carol', id)).toBe(1)
+    } finally { db().query("DELETE FROM group_members WHERE group_id = 'marketing' AND user_id = 'carol'").run() }
+  })
+
+  test('a file a dev environment answer made is marked private in the Share with files list', async () => {
+    const id = await newChat('alice', 'deck')
+    const turn = (db().query('SELECT id FROM turns WHERE chat_id = ? ORDER BY rowid DESC LIMIT 1').get(id) as { id: string }).id
+    const [only] = answersOf(id)
+    db().query('UPDATE messages SET steps = ? WHERE id = ?').run(JSON.stringify([{ id: 's1', kind: 'tool', tool: 'box_shell', label: 'run', status: 'ok', startedAt: '2026-11-22T00:00:00.000Z', endedAt: '2026-11-22T00:00:01.000Z' }]), only)
+    const rel = 'users/alice/devdeck/pay-deck.pptx'
+    fs.mkdirSync(path.join(h.team, 'users/alice/devdeck'), { recursive: true })
+    const bytes = Buffer.from('fake pptx bytes')
+    fs.writeFileSync(path.join(h.team, rel), bytes)
+    db().query("INSERT INTO file_events (turn_id, user_id, path, action, size, sha256, detail, at) VALUES (?, 'alice', ?, 'create', ?, ?, ?, ?)")
+      .run(turn, rel, bytes.length, crypto.createHash('sha256').update(bytes).digest('hex'), JSON.stringify({ tool: 'save_work_file', from: 'work folder' }), new Date().toISOString())
+    const c = await put('alice', id, [bob])
+    if (c.status !== 'confirm') throw new Error('expected a confirm')
+    expect((c.check.madeFiles ?? []).find((f) => f.name === 'pay-deck.pptx')?.private).toBe(true)
   })
 
   test('TC-7262: a later share says how many earlier answers stay hidden from the person added', async () => {

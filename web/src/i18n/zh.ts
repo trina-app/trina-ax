@@ -5560,7 +5560,7 @@ export const zh: Record<MessageKey, string> = {
   "share.warn.accounts": "之前的{n, plural, one {#个回答} other {#个回答}}可能用到了你的个人账号。",
   "share.warn.files": "{n, plural, one {#个回答} other {#个回答}}用到了{names}打不开的文件。",
   "share.warn.filesNamed": "{n, plural, one {# 个回答} other {# 个回答}}用到了{names}打不开的文件（{files}）。{names}会看到这些回答的内容。",
-  "share.warn.dev": "{n, plural, one {# 个回答} other {# 个回答}}在开发环境里运行了命令，可能用到了只有你能打开的文件。{names}和之后加入的人也会看到这些回答。",
+  "share.warn.dev": "{n, plural, one {# 个回答} other {# 个回答}}在开发环境里运行了命令，可能用到了只有你能打开的文件。{names}会看到这些回答，之后加入的人看不到。",
   "share.warn.hidden": "{n, plural, one {# 个之前的回答} other {# 个之前的回答}}对{names}隐藏：这些回答用到了只有当时在这里的人能看到的内容。",
   "share.warn.places": "这个对话还用到了{places}，{names}打不开。",
   "share.warn.rooms": "这个对话读取了{names}可能不在的频道。",

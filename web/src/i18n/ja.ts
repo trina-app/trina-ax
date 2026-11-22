@@ -5585,7 +5585,7 @@ export const ja: Record<MessageKey, string> = {
   "share.warn.accounts": "以前の{n, plural, one {#件の回答} other {#件の回答}}があなたの個人アカウントを使った可能性があります。",
   "share.warn.files": "{n, plural, one {#件の回答} other {#件の回答}}が、{names}が開けないファイルを使っています。",
   "share.warn.filesNamed": "{n, plural, one {#件の回答} other {#件の回答}}が、{names}が開けないファイル（{files}）を参照しました。その回答の内容は{names}にも表示されます。",
-  "share.warn.dev": "{n, plural, one {#件の回答} other {#件の回答}}は開発環境でコマンドを実行しました。あなただけが開けるファイルを使った可能性があります。{names}や、あとから追加される人にもその回答が表示されます。",
+  "share.warn.dev": "{n, plural, one {#件の回答} other {#件の回答}}は開発環境でコマンドを実行しました。あなただけが開けるファイルを使った可能性があります。{names}にはその回答が表示されますが、あとから追加される人には表示されません。",
   "share.warn.hidden": "{n, plural, one {以前の回答#件} other {以前の回答#件}}は{names}には表示されません。当時ここにいた人だけが見られるものを使ったためです。",
   "share.warn.places": "このチャットは{places}も使っています。{names}は開けません。",
   "share.warn.rooms": "このチャットは、{names}が参加していない可能性のあるチャンネルを読みました。",
