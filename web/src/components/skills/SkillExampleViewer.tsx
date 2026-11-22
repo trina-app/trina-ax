@@ -9,15 +9,33 @@
 import clsx from 'clsx'
 import { ExternalLink, ImageOff } from 'lucide-react'
 import { useState } from 'react'
-import type { PackCatalogSkill } from '@mycel/shared/api'
-import { useT } from '../../i18n'
+import type { Locale, PackCatalogSkill } from '@mycel/shared/api'
+import { koRo, useT } from '../../i18n'
 import { namedProduct } from '../../lib/tabs'
 import { Markdown } from '../LazyMarkdown'
 import { quietLink } from '../onboarding/SkillShareReview'
 import { Modal } from '../ui'
 
-/** The invented company the examples are made on (EXAMPLES-PLAN.md §1), by the language of the example. */
-export const EXAMPLE_COMPANY: Record<'ko' | 'en', string> = { ko: '예시커피', en: 'Example Coffee' }
+/** The invented company the examples are made on (EXAMPLES-PLAN.md §1), by the language of the example (the everyday
+ * office skills have one in each app language: docs/decisions/20261122-onboarding-everyday-skills.md). */
+export const EXAMPLE_COMPANY: Record<Locale, string> = { ko: '예시커피', en: 'Example Coffee', ja: '見本コーヒー', zh: '示例咖啡', es: 'Café Ejemplo', id: 'Kopi Contoh' }
+/** The invented company of an example: the server names it when it is another one (the intro deck: 숲틈 / Soopteum, in
+ * the picture's language), else the coffee roaster of the skill text's language (예시커피 / Example Coffee / 見本コーヒー …). */
+export const exampleCompany = (e: PackCatalogSkill['example'], locale: Locale) => (e?.kind === 'image' && e.company) || EXAMPLE_COMPANY[locale]
+
+/** "가상의 회사 '…'로 / '…'으로 만든 예시예요": the Korean particle chosen from the name's last sound (koRo: 으로 after a
+ * final consonant other than ㄹ, 로 after a vowel or ㄹ; 숲틈 → 으로, 예시커피 → 로); the other languages read the same either way. */
+export const fictionalLine = (t: ReturnType<typeof useT>, company: string) => t(takesEuro(company) ? 'skillPack.fictionalEuro' : 'skillPack.fictional', { company })
+/** Does the name read with a final consonant (not ㄹ)? Hangul and digits by koRo; a Latin name koRo cannot tell by its last
+ * letter: a consonant other than l, r, w and y reads as one ("Soopteum", "Notion"), else not ("Example Coffee", "Gmail"). */
+export function takesEuro(name: string): boolean {
+  const r = koRo(name)
+  if (r === EURO) return true
+  if (r !== '(\uc73c)\ub85c') return false
+  return /[bcdfghjkmnpqstvxz]$/i.test(name.trim())
+}
+/** "으로" (written as code points: this file holds no Korean screen text) */
+const EURO = '\uc73c\ub85c'
 
 /** The source line of a kept skill, with its one link out (the open-source original) when it has one. The makers are
  * named as the app names its AI ("트리나 팀이 만들었어요", tabs.ts namedProduct). */
@@ -105,7 +123,7 @@ export function SkillExampleViewer({ skill, onClose, returnTo }: SkillExampleVie
         {body}
         <div className="space-y-1">
           {e && shown !== 'failed' && (
-            <p className="text-label text-muted" data-testid="skill-example-fictional">{t('skillPack.fictional', { company: EXAMPLE_COMPANY[skill.locale === 'ko' ? 'ko' : 'en'] })}</p>
+            <p className="text-label text-muted" data-testid="skill-example-fictional">{fictionalLine(t, exampleCompany(e, skill.locale))}</p>
           )}
           <SourceLine skill={skill} />
         </div>

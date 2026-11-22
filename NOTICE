@@ -67,6 +67,11 @@ machine only (scripts/promo-video/).
 The promo video's music and sound effects are CC0 1.0 or public domain; their
 sources and licences are listed in resources/promo-video/audio/SOURCES.md.
 
+The intro deck's example (web/public/skill-examples/*/intro-deck.webp) and its inputs
+(examples/data/soopteum/images/) use photos from Wikimedia Commons: three under CC0 1.0 and
+"Modern office space with green plants and minimalist furniture" by Shixart1985 under CC BY 2.0
+(resized and recompressed). Sources and authors: examples/data/soopteum/images/SOURCES.md.
+
 The intro deck draws a subset of the Lucide icons (from lucide-react, the icon
 set the web app uses), converted to path data in server/src/intro-deck/icons.ts
 by scripts/gen-deck-icons.ts. Lucide is ISC, Copyright (c) 2026 Lucide Icons and

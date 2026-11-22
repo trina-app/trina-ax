@@ -1,7 +1,8 @@
 // Copy link in the Share dialogs (docs/decisions/20261116-chat-share-copy-link.md, QA TC-3933): bottom left of a chat's
 // Share dialog and a project's Share / Members dialog, as in the file's. It copies the chat's /c/<id> (the project's
-// /projects/<id>) with the toast that says who opens it; with people picked and not saved, one line says they open it
-// after the save; after the save the toast offers Copy link again. Someone who can't see it gets Ask for access
+// /projects/<id>) with the toast that says who opens it; with people picked and not saved, a project's dialog says in one
+// line that they open it after the save (a chat's dialog keeps to its one short note: docs/AGENTS/plan/
+// 20261122-0300-share-dialog-lean.md); after the save the toast offers Copy link again. Someone who can't see it gets Ask for access
 // (docs/decisions/20261116-chat-project-ask-access.md), with no title and no name. At 1440 and 390, light and dark, as
 // owner, member and guest; SHOT_DIR keeps screenshots.
 import { expect, test, type Browser, type Page } from '@playwright/test'
@@ -80,10 +81,12 @@ for (const width of [1440, 390]) {
       expect(await clipboard(olga)).toBe(`${origin}/c/${chatId}`)
       await expect(olga.getByTestId('toast').filter({ hasText: 'Link copied · only you can open it' })).toBeVisible()
 
-      // Bob picked, not saved: one line by the button
+      // Bob picked, not saved: Copy link stays, no extra line by the buttons (the lean chat dialog)
       await olga.getByTestId('chat-share-picker-search').fill('Bob')
       await olga.getByTestId('participant-add-user-bob').click()
-      await expect(dialog.getByTestId('chat-share-copy-link-unsaved')).toHaveText('People you add can open the link after you press Share.')
+      await expect(dialog.getByTestId('participant-user-bob')).toHaveAttribute('data-state', 'new')
+      await expect(dialog.getByTestId('chat-share-copy-link')).toBeVisible()
+      await expect(dialog.getByTestId('chat-share-copy-link-unsaved')).toHaveCount(0)
       await expect(dialog.getByTestId('chat-share-save')).toBeEnabled()
       expect(await noSideScroll(olga)).toBe(true)
       await shots(olga, `chat-share-unsaved-${width}`)
