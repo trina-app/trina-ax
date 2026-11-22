@@ -3,7 +3,7 @@
 - Date (UTC): 2026-11-22 06:16
 - Branch: `feat/google-login-admin` (part A2 of [the umbrella plan](20261122-0454-google-login.md); built on A1,
   `feat/google-login`)
-- Status: in progress
+- Status: done
 - Where: trina-ax (`server/src/auth/`, `server/src/admin/`, `server/src/notifications/`, the Google Drive and Google apps
   authorize code, `shared/src/api/`, Admin › Team settings and Members, Settings › Security & devices, the Inbox,
   `docs/site/`). Why: the team switch, the members' label and the connect notice belong to the sign-in feature, which
@@ -49,8 +49,9 @@ In:
    connector pages (only the ones not connected yet).
 5. **Docs page** `docs/site/use/sign-in-with-google.md` (English), in the nav's "Your account" group (every language's
    nav lists it; the others link to the English page).
-6. The guards: `docs/features.ts` (the new endpoints under `auth.google`), `tests/security/lib/cases.ts` (a case per
-   new route), `bun run docs:api`, `changes/google-login-admin.md`, a decision file.
+6. The guards: `docs/features.ts` (the new endpoints under a new feature `admin.google-sign-in`, with its AI scope and
+   scenario), `tests/security/lib/cases.ts` (a case per new route), `bun run docs:api`, `changes/google-login-admin.md`,
+   a decision file.
 
 Out: the hosting service's client (B), the apps (C, D), a notice when an admin disconnects someone's Google account,
 ending sessions when Google is disconnected (a reset does that), Google Workspace suspension (said in the docs).
@@ -87,4 +88,17 @@ for the notice words; `bun run check:prepush`.
 
 ## Result
 
-Filled in at the end.
+Built as planned, no PR yet (A1 is still open; this branch is merged after it).
+
+- Server: `TeamSettings.googleSignIn` and `server/src/auth/google-login-admin.ts` (the switch, `GET /api/admin/google-login`);
+  `disconnectUserGoogle` in `server/src/admin/users.ts`; `google` in the users list; migration
+  `132_a_google_connect_notices.sql` and `Notifications.googleConnected`; `login_hint` in the Drive and Google apps
+  authorize. A1 files changed: `google-login.ts` (the switch in `googleLoginAvailable` and at the return, the notice after
+  a new connection) and `login-identities.ts` (two readers added at the end).
+- Web: the row in Team settings › Members and AI, the Members label and Disconnect Google, the Activity words, the
+  Drive and Gmail line in `GoogleAccount.tsx`.
+- Differs from the plan: the admin side got its own feature id, `admin.google-sign-in` (scenario ADM-08), rather than
+  more endpoints under A1's `auth.google`, so the two branches do not edit the same line.
+- Tests: `tests/unit/a-google-login-admin.test.ts`, `tests/unit/a-google-login-hint.test.ts`,
+  `web/test/unit/google-sign-in-admin.test.tsx`, `web/test/unit/google-account-offer.test.tsx`, a case in
+  `web/test/unit/inbox-notice-rows.test.tsx`.
