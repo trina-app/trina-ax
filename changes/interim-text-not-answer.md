@@ -1,1 +1,0 @@
-- In a Korean, Japanese or Chinese answer, what the AI writes to itself between steps no longer stays in the answer: it moves into the steps, and only the reply after the last step is the answer.
