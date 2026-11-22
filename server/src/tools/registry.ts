@@ -77,7 +77,7 @@ export class ToolRegistry {
       return await t.run(parsed.data, ctx)
     } catch (e) {
       // a file that was moved or put in the trash: the refusal says so (files/moved.ts), never only "not found"
-      const moved = (m: string) => this.files ? this.files.withMovedNote(ctx.user, m) : m
+      const moved = (m: string) => this.files ? this.files.withMovedNote(ctx.user, m, ctx.turnId) : m
       if (e instanceof Denied) return { text: 'Access denied: ' + moved(e.message), isError: true, summary: `${what} -> denied: ${e.message}`.slice(0, 1000) }
       if (e instanceof ToolError) return { text: 'Error: ' + moved(this.files?toolErrorText(this.files.db,ctx.user.id,e):e.message), isError: true, summary: `${what} -> error: ${e.message}`.slice(0, 1000) }
       return { text: 'Error: internal error', isError: true, summary: `${what} -> internal: ${String((e as Error)?.message ?? e).slice(0, 200)}` }

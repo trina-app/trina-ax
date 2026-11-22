@@ -672,3 +672,20 @@ describe('one version per answer (owner, 2026-11-21)', () => {
     expect(files.bytesWritten).toBe('AI one'.length + 'AI two'.length + 'AI three'.length)
   })
 })
+
+describe('restore_chat_file (QA TC-r2u-10: "go back to Junho\'s version")', () => {
+  test('bob\'s AI brings back version 1 as the newest version, by "Trina for bob"; nothing is lost; a project chat or a hidden file refuses', async () => {
+    const { chat, file, path: p } = await sent('promo.txt', 'LOOK A\n')
+    await run('erin', chat, readThenEdit(p, 'LOOK A', 'LOOK B'))
+    expect(await fileText('alice', chat, file)).toBe('LOOK B\n')
+    const r = await run('bob', chat, fake({ tool: 'restore_chat_file', args: { file: p, version: 1 }, sayResult: true }))
+    expect(r.content).toContain('saved as version 3')
+    expect(await fileText('alice', chat, file)).toBe('LOOK A\n')
+    const vs = store().versions('alice', chat, file)
+    expect(vs.map((v) => [v.version, v.by, !!v.ai])).toEqual([[1, 'alice', false], [2, 'erin', true], [3, 'bob', true]])
+    // a version that is not there: nothing changes
+    const no = await run('bob', chat, fake({ tool: 'restore_chat_file', args: { file: p, version: 9 }, sayResult: true }))
+    expect(no.content).toContain('Nothing was restored')
+    expect(versionsOf(chat, file)).toBe(3)
+  })
+})

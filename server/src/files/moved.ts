@@ -119,3 +119,22 @@ export function movedNoteForAi(f: MovedFact, old: string, o: { folder?: boolean 
   if (f.to) return `'${old}' is not there any more: ${who} moved it to '${f.to}' on ${when} (moved, not deleted). Use '${f.to}' for this file from now on: an edit there saves a new version of it. Tell the person where it is now`
   return `'${old}' is not there any more: ${who} moved it on ${when} to a place this person cannot open now. Say that it was moved and that they cannot open it where it is; never say it was deleted`
 }
+
+/** A file still at `input` that this person may not open now but read earlier in this same chat, in an answer to them
+ * (message_sources of their own turns; QA TC-r2u-28: after their access was cut the AI said only "not found"). Telling
+ * them it is there tells nothing new: they had it open in this chat. False for anything else. */
+export function lostAccess(db: Database, fx: FsCtx, rules: RuleSet, user: Principal, input: string, turnId: string | null): boolean {
+  if (!turnId) return false
+  let segs: string[]
+  try { segs = parseInput(input).map((s) => s.normalize('NFC')) } catch { return false }
+  if (!segs.length) return false
+  try { if (!fs.lstatSync(path.join(fx.root, ...segs)).isFile()) return false } catch { return false }
+  if (atLeast(rules.access(user, segs), 'read')) return false
+  const chat = db.query('SELECT chat_id FROM turns WHERE id = ?').get(turnId) as { chat_id: string } | null
+  if (!chat) return false
+  return !!db.query(`SELECT 1 FROM message_sources s JOIN messages m ON m.id = s.message_id JOIN turns t ON t.id = m.turn_id
+    WHERE m.chat_id = ? AND t.user_id = ? AND s.path = ? LIMIT 1`).get(chat.chat_id, user.id, segs.join('/'))
+}
+
+/** The fact for the AI when the person's access to a file they read in this chat was taken away. */
+export const LOST_ACCESS_NOTE = (old: string) => `'${old}' is still there, but this person can no longer open it: their access to it changed after it was read in this chat. Tell them exactly that (they cannot open the file any more; whoever manages the folder can give access again); never say it was not found or deleted`

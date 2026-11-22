@@ -529,6 +529,12 @@ export const ChatFileInput = z.strictObject({
 })
 
 const saveAs = z.string().max(300).optional().describe('Team path to save to, e.g. "shared/photos/receipt.jpg"; a path ending in "/" keeps the file\'s own name ("shared/"). Default: users/<you>/downloads/.')
+/** restore_chat_file: an earlier version of a file of this chat brought back as its newest version (QA TC-r2u-10: "go
+ * back to Junho's version"; server/src/chat/chat-file-tool.ts) */
+export const RestoreChatFileInput = z.strictObject({
+  file: z.string().min(1).max(300).describe('The file: its path chat:files/<file_id>/<name>, or its file_id.'),
+  version: z.number().int().min(1).describe('The version to bring back, by its number from read with versions: true (each version says who saved it; "Trina for <person>" is that person\'s request).'),
+})
 /** save_room_file in a person's own chat: a copy of a file sent in one of their rooms put into the team folder */
 export const SaveRoomFileInput = z.strictObject({
   room: z.string().min(1).max(200).describe('The room the file was sent in (its room_id, best, or its name, as for room_read).'),

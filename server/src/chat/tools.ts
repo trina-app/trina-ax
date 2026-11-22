@@ -12,7 +12,7 @@ import { freeRoamToolCallRefused, freeRoamToolFenced } from '../demo/guard'
 import { stampOutputOf } from '../tools/stamp-pdf'
 import { commentDocxOutput } from '../tools/comment-docx'
 import { editOfficeOutput } from '../tools/edit-office'
-import { chatFileOffered, chatFileTool, chatPlaceHooks, saveChatFileTool } from './chat-file-tool'
+import { chatFileOffered, chatFileTool, chatPlaceHooks, restoreChatFileTool, saveChatFileTool } from './chat-file-tool'
 import { answerCommentsOff, answerCommentsTool } from './answer-comments'
 import path from 'node:path'
 import { z } from 'zod'
@@ -264,7 +264,7 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
   // see the chat; only where the chat holds such files or is shared with people. save_chat_file copies one into the team
   // folder behind the wider-audience card (docs/decisions/20261118-chat-files-full-read-and-save.md)
   if (chatFileOffered(exec)) {
-    add(chatFileTool(exec)); add(saveChatFileTool(exec))
+    add(chatFileTool(exec)); add(saveChatFileTool(exec)); add(restoreChatFileTool(exec))
     // the same files as the chat place chat:files/ of read, list, glob and grep (shared/src/places.ts): the main AI
     // only (a sub-agent's view of the turn has no chatPlace)
     exec.files.chatPlace = chatPlaceHooks(exec)

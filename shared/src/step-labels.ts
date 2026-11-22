@@ -86,6 +86,7 @@ export const FILE_STEP_VERB: Record<string, T> = {
   room_file: t('대화 파일 읽기', 'Read conversation file', 'Baca berkas percakapan', "トークのファイルを読む", "Leer archivo de conversación", "读取聊天文件"),
   chat_file: t('채팅 파일 읽기', 'Read chat file', 'Baca berkas obrolan', 'チャットのファイルを読む', 'Leer archivo del chat', '读取对话文件'),
   save_room_file: t('대화 파일 저장', 'Save conversation file', 'Simpan berkas percakapan', "トークのファイルを保存", "Guardar archivo de conversación", "保存聊天文件"),
+  restore_chat_file: t('채팅 파일 되돌리기', 'Restore chat file', 'Pulihkan berkas obrolan', 'チャットのファイルを戻す', 'Restaurar archivo del chat', '恢复对话文件'),
   save_chat_file: t('채팅 파일 저장', 'Save chat file', 'Simpan berkas obrolan', 'チャットのファイルを保存', 'Guardar archivo del chat', '保存对话文件'),
   // a finished file from the chat's work folder into the team folder (server/src/chat/work-file-tool.ts)
   save_work_file: t('작업 결과 저장', 'Save work file', 'Simpan berkas kerja', '作業ファイルを保存', 'Guardar archivo de trabajo', '保存工作文件'),

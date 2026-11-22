@@ -216,6 +216,7 @@ function placesFor(kind: ResolveCtx['chatKind'], o: { main?: boolean; hidden?: b
     names: () => new Set(),
     head() { throw new ToolError('not found', 'not_found') },
     async version() { throw new Error('not here') },
+    async restore() { throw new Error('not here') },
   }
 }
 const ctxWith = (places?: ChatPlaces): ToolCtx => ({ user: h.ctx.files.principal('alice'), turnId: null, files: new TurnFiles(), ...(places ? { places } : {}) })

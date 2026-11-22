@@ -20,8 +20,8 @@ const svc = () => componentC(A.ctx).files
 let n = 0
 const uniq = (s: string) => `${s}-${++n}`
 let rpcId = 0
-async function call(user: Person, name: string, args: unknown) {
-  const tc = A.toolCtx(user, null)
+async function call(user: Person, name: string, args: unknown, turnId: string | null = null) {
+  const tc = A.toolCtx(user, turnId)
   const h = makeHandler(A.ctx.files, A.ctx.db, tc)
   const r = await h({ jsonrpc: '2.0', id: ++rpcId, method: 'tools/call', params: { name, arguments: args } })
   return { text: r.result.content[0].text as string, isError: !!r.result.isError }
@@ -103,6 +103,35 @@ describe('the AI is told where a moved file went', () => {
     fs.rmSync(path.join(A.team, ...`${f}.2`.split('/')))
     const r = await call('alice', 'read', { file_path: f })
     expect(r.text).not.toContain('moved')
+  })
+})
+
+describe('access taken away after a read in this chat (QA TC-r2u-28)', () => {
+  test('the AI is told the person cannot open it any more, not "not found"; another chat, or another person, hears nothing', async () => {
+    const db = A.ctx.db
+    const f = `groups/marketing/${uniq('price')}.md`
+    put(f, 'prices')
+    const chat = A.chat('alice')
+    const t1 = A.turn('alice', chat)
+    const msg = crypto.randomUUID()
+    db.query("INSERT INTO messages (id, chat_id, role, content, turn_id) VALUES (?,?, 'assistant', 'read it', ?)").run(msg, chat, t1)
+    db.query("INSERT INTO message_sources (message_id, ord, path, via) VALUES (?, 0, ?, 'read')").run(msg, f)
+    // alice leaves the marketing group: the folder closes to her
+    db.query("DELETE FROM group_members WHERE group_id = 'marketing' AND user_id = 'alice'").run()
+    try {
+      const t2 = A.turn('alice', chat)
+      const r = await call('alice', 'read', { file_path: f }, t2)
+      expect(r.isError).toBe(true)
+      expect(r.text).toContain('can no longer open it')
+      // another chat of hers: the usual refusal only
+      const other = await call('alice', 'read', { file_path: f }, A.turn('alice', A.chat('alice')))
+      expect(other.text).not.toContain('can no longer')
+      // bob never read it here
+      const bob = await call('bob', 'read', { file_path: f }, A.turn('bob', A.chat('bob')))
+      expect(bob.text).not.toContain('can no longer')
+    } finally {
+      db.query("INSERT INTO group_members VALUES ('marketing', 'alice')").run()
+    }
   })
 })
 
