@@ -36,7 +36,15 @@ const Words = z.object({
 export type BannerWords = z.infer<typeof Words>
 const Box = z.tuple([z.number().min(0).max(1), z.number().min(0).max(1), z.number().min(0).max(1), z.number().min(0).max(1)])
 const Photo = z.object({ file: z.string().regex(/^[\w.-]+\.(jpg|jpeg|png)$/), label: Box.nullable() })
-const Scene = z.object({ id: z.string().regex(/^[\w-]{1,40}$/), words: z.array(z.string().max(40)).max(60), photos: z.partialRecord(z.enum(BANNER_SIZES), Photo) })
+const Scene = z.object({
+  id: z.string().regex(/^[\w-]{1,40}$/),
+  /** what a prompt is matched against, here and for generate_image's photo of this scene (higgsfield.ts loadPictures):
+   * every demo language's words (scripts/demo/steepling/banner/kit.ts SCENE_WORDS) */
+  words: z.array(z.string().max(40)).max(80),
+  photos: z.partialRecord(z.enum(BANNER_SIZES), Photo),
+  /** the file name of this scene's generate_image photo in <content>/higgsfield/ (a kit from before 11-22 has none) */
+  picture: z.string().min(1).max(300).refine((n) => !/[\\/]/.test(n) && !n.startsWith('.'), 'a file name').optional(),
+})
 export const BannerKitFile = z.object({
   lang: z.enum(['en', 'ko', 'ja', 'zh', 'es', 'id']),
   brand: z.string().max(60),
@@ -183,6 +191,52 @@ export function headlineLines(text: string, lang: string, size: number, width: n
   }
   return Math.max(1, n)
 }
+/** Headlines of this many lines get their breaks chosen here (balancedHeadline); a longer one is left to typst */
+const BALANCE_LINES = [2, 3]
+/** a word of at most this width (Latin letters) is never left alone on a line of a headline of 3 words or more */
+const LONE_WORD_MAX = 8
+/** A headline's words for breaking: split at spaces, a *starred* span kept whole (it is one italic run) */
+function headlineWords(line: string): string[] {
+  const out: string[] = []
+  for (const w of line.split(/\s+/).filter(Boolean)) {
+    const last = out[out.length - 1]
+    if (last !== undefined && (last.match(/\*/g) ?? []).length % 2 === 1) out[out.length - 1] = `${last} ${w}`
+    else out.push(w)
+  }
+  return out
+}
+/**
+ * The headline with its line breaks chosen in code (demo re-test 11-22: "작지 않아 큰 햇살이야!" broke as "작지 / 않아 큰
+ * 햇살이야!", one word alone on the first line; typst does not balance lines by itself). When the words take 2 or 3
+ * lines at `size` pt in a `width` pt block (headlineLines), the breaks between words that make the lines' widths most
+ * even, every line fitting the block; a short word (LONE_WORD_MAX) is never alone on a line when there are 3 words or
+ * more and another split can avoid it. A headline with the user's own "\n", one line, a longer one, and Japanese and
+ * Chinese (they break anywhere) are returned as they are.
+ */
+export function balancedHeadline(text: string, lang: string, size: number, width: number): string {
+  if (lang === 'ja' || lang === 'zh' || text.includes('\n')) return text
+  const lines = headlineLines(text, lang, size, width)
+  if (!BALANCE_LINES.includes(lines)) return text
+  const w = headlineWords(text.trim())
+  if (w.length < lines) return text
+  const unit = (latin(lang) ? 0.42 : 0.5) * size
+  const len = (ws: string[]) => visualLength(ws.join(' ').replace(/\*/g, ''))
+  let best: { cost: number; cut: number[] } | null = null
+  const cuts = (from: number, left: number): number[][] => (left === 1 ? [[]] : Array.from({ length: w.length - from - left + 1 }, (_, i) => from + 1 + i).flatMap((c) => cuts(c, left - 1).map((r) => [c, ...r])))
+  for (const cut of cuts(0, lines)) {
+    const parts = [0, ...cut, w.length].slice(0, -1).map((a, i) => w.slice(a, [...cut, w.length][i]))
+    const widths = parts.map(len)
+    if (widths.some((x) => x * unit > width)) continue
+    const lone = w.length >= 3 ? parts.filter((p) => p.length === 1 && len(p) <= LONE_WORD_MAX).length : 0
+    const mean = widths.reduce((a, b) => a + b, 0) / widths.length
+    const cost = lone * 1e6 + widths.reduce((a, x) => a + (x - mean) ** 2, 0) + Math.max(...widths) / 1000
+    if (!best || cost < best.cost) best = { cost, cut }
+  }
+  if (!best) return text
+  const ends = [...best.cut, w.length]
+  return [0, ...best.cut].map((a, i) => w.slice(a, ends[i]).join(' ')).join('\n')
+}
+
 /** The headline's type scale: the layout's size (so changing the words keeps the size of the last banner's headline)
  * unless the words would take more room than HEADLINE_LINES lines of it; then the largest scale that fits, at least 0.3.
  * Before 11-22 any headline longer than the launch one got smaller (QA A3: a slightly longer line shrank the title). */
@@ -263,7 +317,7 @@ export function bannerTypst(kit: BannerKitFile, size: BannerSize, photo: { label
   const lead = isLatin ? 0.02 : 0.16
   const parts: string[] = []
   if (words.eyebrow.trim()) parts.push(`text(size: ${L.eyebrow}pt, weight: 700, tracking: ${isLatin ? '0.2em' : '0.12em'}, fill: green.transparentize(15%), upper(${typstString(words.eyebrow.trim())}))`, `v(${L.h1Gap}pt)`)
-  if (words.headline.trim()) parts.push(`block(par(leading: ${lead}em, text(size: ${h1}pt, ${h1Font}, fill: deep, ${edges}, [${headlineContent(words.headline, lang)}])))`)
+  if (words.headline.trim()) parts.push(`block(par(leading: ${lead}em, text(size: ${h1}pt, ${h1Font}, fill: deep, ${edges}, [${headlineContent(balancedHeadline(words.headline, lang, h1, L.copy.w), lang)}])))`)
   if (words.subline.trim()) parts.push(`v(${L.subGap + 4}pt)`, `block(width: ${L.subW}pt, par(leading: 0.55em, text(size: ${sub}pt, weight: 500, fill: ink.transparentize(18%), [${linesContent(words.subline, lang)}])))`)
   // the badge and the button
   const r0 = L.row
