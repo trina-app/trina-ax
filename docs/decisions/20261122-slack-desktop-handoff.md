@@ -35,12 +35,28 @@ No desktop or web change, no migration, no contract change.
     ("This connection is waiting for the app"). A return after the app finished says how it ended (linked / added,
     while that is still so).
   - Cancel in the app, a new try (only the newest flow works) or 5 minutes end a held flow; its code is refused.
+  - Once a held flow stops waiting (claimed, cancelled, replaced, run out), Slack's code or the handoff and the
+    claim's hash are dropped from it: the sealed value keeps only the PKCE verifier (hosting-service flows; "Add to
+    Slack"'s column is NOT NULL), and an own-app sign-in keeps nothing (security review of #310, Low 1).
   - The phone app's in-app browser still signs in first (the phone app does not read a code from a link yet).
 - **Security:** the properties of #279. Single use; bound to the starter's session (the claim needs it) and team (the
   code is only in this server's database); a phished victim's code reaches the victim's own app, whose session is not
   the starter's.
-- **Residual risk:** as #279: a person who forwards the page's link to someone within 5 minutes hands over their
-  Slack sign-in; the page says not to.
+- **Residual risk:**
+  - As #279: a person who forwards the page's link to someone within 5 minutes hands over their Slack sign-in; the
+    page says not to.
+  - **Reverse linking with a leaked state** (security review of #310, Low 2): someone who has the `state` of a
+    desktop sign-in that is still waiting (it is in Slack's sign-in address the app opened, so it leaks only if that
+    address leaks: a shared screen, a pasted link, browser history on a shared computer) can open the return in a
+    browser with no session with **their own** Slack code (or handoff) and get the held page. If they then get the
+    starter to open that page's link on the starter's computer within 5 minutes, the starter's app claims it and
+    **their Slack account is linked to the starter's Trina account**: their Slack questions would run as the starter.
+    Before this change the same leak ended at "signed in as someone else" or a sign-in page. Accepted for now, as for
+    #279's connections (the same property): it needs both the leaked state and the starter's click on a page that
+    names the starter's account, and the result shows: Settings › Connectors shows the linked Slack name, Slack DMs
+    the linked account which Trina account it now asks as, and the starter can unlink it at once. A stronger fix
+    (show the Slack account and ask the starter to confirm in the app before linking, as the Google apps' confirm
+    step does) is a follow-up.
 - **Tests:** `tests/unit/c-slack.test.ts` (own app), `tests/unit/c-slack-official.test.ts` (hosting service sign-in,
   Add to Slack, an admin demoted before the claim), `tests/security/slack-desktop-handoff.test.ts` (attacks A and B,
   replay, reload, another session, a late code, an unknown code, another team).

@@ -616,6 +616,7 @@ export class SlackConnector {
 
   private sweep() {
     const now = this.now()
+    this.expireHeld()
     this.db.query('DELETE FROM slack_link_tokens WHERE expires_at < ?').run(iso(now - 86_400_000))
     this.db.query('DELETE FROM slack_events WHERE seen_at < ?').run(iso(now - 86_400_000))
     this.db.query("DELETE FROM slack_requests WHERE state != 'waiting' AND created_at < ?").run(iso(now - KEEP_MS))
@@ -790,12 +791,14 @@ export class SlackConnector {
     const recent = (this.db.query('SELECT count(*) n FROM slack_signin_flows WHERE user_id = ? AND created_at > ?').get(userId, iso(now - 3600_000)) as { n: number }).n
     if (recent >= 20) throw new SlackError('ratelimited', 'rate_limited')
     const state = crypto.randomBytes(32).toString('base64url'), nonce = crypto.randomBytes(32).toString('base64url')
+    const replaced = this.heldRows('signin', 'user_id = ?', [userId])
     this.db.transaction(() => {
       // only the newest flow of this person works
       this.db.query("UPDATE slack_signin_flows SET state = 'failed', reason = 'superseded' WHERE user_id = ? AND state = 'pending'").run(userId)
       this.db.query("INSERT INTO slack_signin_flows (id, user_id, session_id, state_hash, nonce_hash, redirect_uri, client, state, created_at, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?)")
         .run(newId(), userId, sessionId, sha(state), sha(nonce), redirect, client === 'desktop' || client === 'mobile' ? client : 'web', iso(now), iso(now + LINK_TTL_MS))
     })()
+    this.unhold('signin', replaced)
     const u = new URL(SLACK_AUTHORIZE)
     // `team`: this workspace (an app that is not distributed signs in to its own workspace only)
     for (const [k, v] of Object.entries({ response_type: 'code', scope: 'openid profile', client_id: cfg.client_id, state, nonce, redirect_uri: redirect, team: cfg.team_id! })) u.searchParams.set(k, v)
@@ -808,6 +811,7 @@ export class SlackConnector {
    * any other is sent to sign in first, and the flow waits (`signin_needed`). `client`: where the flow started. */
   async finishSignIn(input: { state?: string; code?: string; handoff?: string; error?: string }, browser: { userId: string } | null): Promise<SlackReturn> {
     if (!input.state || !STATE.test(input.state)) return { result: 'signin_expired', client: 'web' }
+    this.expireHeld()
     const f = this.db.query('SELECT * FROM slack_signin_flows WHERE state_hash = ?').get(sha(input.state)) as SigninFlowRow | null
     // cancelled in the app (cancelFlows): nothing is linked, and the window says so
     if (f?.state === 'failed' && f.reason === CANCELLED_HERE) return { result: 'signin_cancelled_here', client: f.client }
@@ -895,12 +899,14 @@ export class SlackConnector {
     const id = newId(), state = crypto.randomBytes(32).toString('base64url'), verifier = crypto.randomBytes(48).toString('base64url')
     let sealed: { enc: string; keyVersion: number }
     try { sealed = this.box.seal(`slack:signin-flow:${id}`, { verifier }) } catch { throw new SlackError('key_unsafe', 'unavailable') }
+    const replaced = this.heldRows('signin', 'user_id = ?', [userId])
     this.db.transaction(() => {
       this.db.query("UPDATE slack_signin_flows SET state = 'failed', reason = 'superseded' WHERE user_id = ? AND state = 'pending'").run(userId)
       this.db.query(`INSERT INTO slack_signin_flows (id, user_id, session_id, state_hash, nonce_hash, redirect_uri, client, state, created_at, expires_at, via, verifier_enc, verifier_key_version)
         VALUES (?, ?, ?, ?, '', ?, ?, 'pending', ?, ?, 'broker', ?, ?)`)
         .run(id, userId, sessionId, sha(state), `${cfg.link_origin ?? ''}${SLACK_CALLBACK_PATH}`, client === 'desktop' || client === 'mobile' ? client : 'web', iso(now), iso(now + LINK_TTL_MS), sealed.enc, sealed.keyVersion)
     })()
+    this.unhold('signin', replaced)
     try { return { authorizationUrl: await this.broker.startSignIn(state, challengeOf(verifier)) } } catch (e) {
       this.db.query("UPDATE slack_signin_flows SET state = 'failed', reason = 'broker' WHERE id = ?").run(id)
       throw brokerRefusal(e)
@@ -955,6 +961,7 @@ export class SlackConnector {
    * the code is used up at once (atomic), then the same finish as a return in their browser (the role of "Add to
    * Slack" checked again). A code this does not know: null. A late one ends its flow. */
   async claim(userId: string, sessionId: string, code: string): Promise<SlackClaimed | null> {
+    this.expireHeld()
     for (const kind of ['signin', 'install'] as const) {
       const table = kind === 'signin' ? 'slack_signin_flows' : 'slack_install_flows'
       const rows = this.db.query(`SELECT * FROM ${table} WHERE user_id = ? AND session_id = ? AND state = 'pending' AND reason = ? AND verifier_enc IS NOT NULL`).all(userId, sessionId, HELD) as (SigninFlowRow & InstallFlowRow)[]
@@ -972,11 +979,54 @@ export class SlackConnector {
           try { if (kind === 'signin') await this.signedIn(f, held); else await this.installed(f, held.handoff ?? '') }
           catch (e) { this.log.warn('slack claim failed', { err: e instanceof Error ? e.name : 'unknown' }); fail(kind === 'signin' ? 'signin_failed' : 'install_failed') }
         }
+        // claimed (done or not): Slack's code or the handoff is no longer kept
+        this.unhold(kind, [f])
         const now = this.db.query(`SELECT state, reason, expires_at FROM ${table} WHERE id = ?`).get(f.id) as { state: string; reason: string | null; expires_at: string }
         return { flowId: f.id, state: now.state === 'done' ? 'completed' : 'failed', expiresAt: now.expires_at, reason: now.state === 'done' ? null : now.reason }
       }
     }
     return null
+  }
+
+  /** The rows of a table held for the app that match `where` (to scrub after they stop waiting) */
+  private heldRows(kind: 'signin' | 'install', where: string, args: (string | number)[]): (SigninFlowRow & InstallFlowRow)[] {
+    const table = kind === 'signin' ? 'slack_signin_flows' : 'slack_install_flows'
+    return this.db.query(`SELECT * FROM ${table} WHERE state = 'pending' AND reason = '${HELD}' AND verifier_enc IS NOT NULL AND ${where}`).all(...args) as (SigninFlowRow & InstallFlowRow)[]
+  }
+
+  /** Flows that no longer wait for the app (claimed, cancelled, replaced, run out): the sealed value keeps only the
+   * verifier (the hosting service's flows; "Add to Slack" always has one, its column is NOT NULL); an own-app sign-in
+   * had none and keeps nothing. Slack's code or the handoff and the claim's hash are gone, as connections drop
+   * secret_enc. */
+  private unhold(kind: 'signin' | 'install', rows: (SigninFlowRow | InstallFlowRow)[]) {
+    const table = kind === 'signin' ? 'slack_signin_flows' : 'slack_install_flows'
+    const keyCol = kind === 'signin' ? 'verifier_key_version' : 'key_version'
+    for (const f of rows) {
+      if (!f.verifier_enc) continue
+      const aad = `slack:${kind}-flow:${f.id}`
+      let blob: { held?: Held; verifier?: string }
+      try { blob = this.box.open<{ held?: Held; verifier?: string }>(aad, f.verifier_enc, (kind === 'signin' ? (f as SigninFlowRow).verifier_key_version : (f as InstallFlowRow).key_version) ?? 0) } catch { continue }
+      if (!blob.held) continue
+      if (!blob.verifier) {
+        if (kind === 'signin') this.db.query('UPDATE slack_signin_flows SET verifier_enc = NULL, verifier_key_version = NULL WHERE id = ?').run(f.id)
+        continue
+      }
+      let sealed: { enc: string; keyVersion: number }
+      try { sealed = this.box.seal(aad, { verifier: blob.verifier }) } catch { continue }
+      this.db.query(`UPDATE ${table} SET verifier_enc = ?, ${keyCol} = ? WHERE id = ?`).run(sealed.enc, sealed.keyVersion, f.id)
+    }
+  }
+
+  /** Held flows whose 5 minutes ran out: ended, and their sealed code or handoff dropped (unhold) */
+  private expireHeld() {
+    const now = iso(this.now())
+    for (const kind of ['signin', 'install'] as const) {
+      const rows = this.heldRows(kind, 'expires_at <= ?', [now])
+      if (!rows.length) continue
+      const table = kind === 'signin' ? 'slack_signin_flows' : 'slack_install_flows'
+      for (const f of rows) this.db.query(`UPDATE ${table} SET state = 'failed', reason = ? WHERE id = ? AND state = 'pending' AND reason = ?`).run(kind === 'signin' ? 'signin_expired' : 'install_expired', f.id, HELD)
+      this.unhold(kind, rows)
+    }
   }
 
   cancel(userId: string, token: string) {
@@ -1024,11 +1074,13 @@ export class SlackConnector {
     const id = newId(), state = crypto.randomBytes(32).toString('base64url'), verifier = crypto.randomBytes(48).toString('base64url')
     let sealed: { enc: string; keyVersion: number }
     try { sealed = this.box.seal(`slack:install-flow:${id}`, { verifier }) } catch { throw new SlackError('key_unsafe', 'unavailable') }
+    const replaced = this.heldRows('install', '1 = 1', [])
     this.db.transaction(() => {
       this.db.query("UPDATE slack_install_flows SET state = 'failed', reason = 'superseded' WHERE state = 'pending'").run()
       this.db.query("INSERT INTO slack_install_flows (id, user_id, session_id, state_hash, verifier_enc, key_version, link_origin, client, state, created_at, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?)")
         .run(id, userId, sessionId, sha(state), sealed.enc, sealed.keyVersion, origin, client === 'desktop' || client === 'mobile' ? client : 'web', iso(now), iso(now + LINK_TTL_MS))
     })()
+    this.unhold('install', replaced)
     try { return { authorizationUrl: await this.broker.startInstall(state, challengeOf(verifier)) } } catch (e) {
       this.db.query("UPDATE slack_install_flows SET state = 'failed', reason = 'broker' WHERE id = ?").run(id)
       throw brokerRefusal(e)
@@ -1040,7 +1092,9 @@ export class SlackConnector {
    * everyone's links). One already being finished is not stopped. */
   cancelFlows(kind: 'signin' | 'install', userId: string, session: string) {
     const table = kind === 'signin' ? 'slack_signin_flows' : 'slack_install_flows'
+    const held = this.heldRows(kind, 'user_id = ? AND session_id = ?', [userId, session])
     this.db.query(`UPDATE ${table} SET state = 'failed', reason = ? WHERE user_id = ? AND session_id = ? AND state = 'pending'`).run(CANCELLED_HERE, userId, session)
+    this.unhold(kind, held)
   }
 
   /** The hosting service sent the browser back after Slack's "Add to Slack": only a browser signed in as the owner
@@ -1049,6 +1103,7 @@ export class SlackConnector {
    * that request), which Slack itself must confirm (auth.test) before it is kept. */
   async finishInstall(input: { state?: string; handoff?: string; error?: string }, browser: { userId: string } | null): Promise<SlackReturn> {
     if (!input.state || !STATE.test(input.state)) return { result: 'install_expired', client: 'web' }
+    this.expireHeld()
     const f = this.db.query('SELECT * FROM slack_install_flows WHERE state_hash = ?').get(sha(input.state)) as InstallFlowRow | null
     // cancelled in the app (cancelFlows): nothing is added (no other workspace replaces this one), and the window says so
     if (f?.state === 'failed' && f.reason === CANCELLED_HERE) return { result: 'install_cancelled_here', client: f.client }

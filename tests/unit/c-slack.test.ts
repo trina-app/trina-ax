@@ -456,6 +456,9 @@ describe('Sign in with Slack: the person proves the Slack account, no e-mail nee
     expect(await ok.json()).toMatchObject({ state: 'completed', reason: null, account: null })
     expect(h.ctx.db.query("SELECT slack_user_id FROM slack_links WHERE user_id = 'erin'").get()).toEqual({ slack_user_id: 'U0ERIN' })
     expect(fake.of('openid.connect.token').length).toBe(tokenCalls + 1)
+    // claimed: Slack's code and the claim's hash are no longer kept (an own-app sign-in had no verifier: nothing is)
+    const sealedOf = () => (h.ctx.db.query("SELECT verifier_enc FROM slack_signin_flows WHERE user_id = 'erin' ORDER BY created_at DESC").get() as { verifier_enc: string | null }).verifier_enc
+    expect(sealedOf()).toBeNull()
     // replay: refused, nothing more
     expect((await claim('desktop', code)).status).toBe(400)
     // opened again after it finished: says it is linked (the real state), no code
@@ -473,13 +476,35 @@ describe('Sign in with Slack: the person proves the Slack account, no e-mail nee
       expect([200, 400]).toContain(lr.status)
       expect(h.ctx.db.query("SELECT 1 FROM slack_links WHERE user_id = 'erin'").get()).toBeNull()
       expect((await claim('desktop', late)).status).toBe(400)
+      expect(sealedOf()).toBeNull()
+    } finally { skew = 0 }
+    // run out with no claim at all: ended and dropped by the next sweep or return
+    const pX = await startDesk()
+    fake.codes['code-erin-runout'] = { user: 'U0ERIN', nonce: pX.nonce! }
+    expect(codeOf(await (await bare({ state: pX.state!, code: 'code-erin-runout' })).text())).toBeTruthy()
+    expect(sealedOf()).not.toBeNull()
+    skew = 5 * 60_000 + 1000
+    try {
+      expect((await claim('desktop', 'z'.repeat(43))).status).toBe(400)
+      expect(sealedOf()).toBeNull()
+      expect((h.ctx.db.query("SELECT state, reason FROM slack_signin_flows WHERE user_id = 'erin' ORDER BY created_at DESC").get())).toEqual({ state: 'failed', reason: 'signin_expired' })
     } finally { skew = 0 }
     // Cancel in the app ends a held sign-in too: its code is refused afterwards
     const p3 = await startDesk()
     fake.codes['code-erin-cancel'] = { user: 'U0ERIN', nonce: p3.nonce! }
     const cancelled = codeOf(await (await bare({ state: p3.state!, code: 'code-erin-cancel' })).text())!
+    expect(sealedOf()).not.toBeNull()
     expect((await h.req('erin', '/api/slack/signin/flow', { method: 'DELETE', client: 'desktop' })).status).toBe(204)
+    expect(sealedOf()).toBeNull()
     expect((await claim('desktop', cancelled)).status).toBe(400)
+    // replaced by a new try: dropped too
+    const p4 = await startDesk()
+    fake.codes['code-erin-replaced'] = { user: 'U0ERIN', nonce: p4.nonce! }
+    expect(codeOf(await (await bare({ state: p4.state!, code: 'code-erin-replaced' })).text())).toBeTruthy()
+    const heldId = (h.ctx.db.query("SELECT id FROM slack_signin_flows WHERE user_id = 'erin' ORDER BY created_at DESC").get() as { id: string }).id
+    await startDesk()
+    expect(h.ctx.db.query('SELECT state, reason, verifier_enc FROM slack_signin_flows WHERE id = ?').get(heldId)).toEqual({ state: 'failed', reason: 'superseded', verifier_enc: null })
+    expect((await h.req('erin', '/api/slack/signin/flow', { method: 'DELETE', client: 'desktop' })).status).toBe(204)
     expect(h.ctx.db.query("SELECT 1 FROM slack_links WHERE user_id = 'erin'").get()).toBeNull()
   })
 

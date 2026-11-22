@@ -189,6 +189,9 @@ describe('Add to Slack from the desktop app', () => {
     expect(await ok.json()).toMatchObject({ state: 'completed', reason: null })
     expect(broker.of('redeem').length).toBe(redeems + 1)
     expect(cfg()).toMatchObject({ mode: 'official', install_id: broker.install!.installId })
+    // claimed: the sealed value keeps only the verifier (the handoff and the claim's hash are gone)
+    const row = h.ctx.db.query("SELECT id, verifier_enc, key_version FROM slack_install_flows WHERE user_id = 'dana' ORDER BY created_at DESC").get() as { id: string; verifier_enc: string; key_version: number }
+    expect(Object.keys(slackOf(h.ctx).box.open<Record<string, unknown>>(`slack:install-flow:${row.id}`, row.verifier_enc, row.key_version))).toEqual(['verifier'])
     expect((await claim('dana', 'desktop', code)).status).toBe(400)
     // opened again after it finished: says it is added
     expect(await open(null, back)).toBe('/slack/done?slack=installed')
@@ -280,6 +283,8 @@ describe('Sign in with Slack through the hosting service, from the desktop app',
     const ok = await claim('erin', 'desktop', code)
     expect(await ok.json()).toMatchObject({ state: 'completed' })
     expect(h.ctx.db.query("SELECT slack_user_id FROM slack_links WHERE user_id = 'erin'").get()).toEqual({ slack_user_id: 'U0ERIN' })
+    const row = h.ctx.db.query("SELECT id, verifier_enc, verifier_key_version FROM slack_signin_flows WHERE user_id = 'erin' ORDER BY created_at DESC").get() as { id: string; verifier_enc: string; verifier_key_version: number }
+    expect(Object.keys(slackOf(h.ctx).box.open<Record<string, unknown>>(`slack:signin-flow:${row.id}`, row.verifier_enc, row.verifier_key_version))).toEqual(['verifier'])
     expect((await claim('erin', 'desktop', code)).status).toBe(400)
     h.ctx.db.query("DELETE FROM slack_links WHERE user_id = 'erin'").run()
   })
