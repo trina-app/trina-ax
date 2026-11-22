@@ -25,7 +25,7 @@ import { writeSteepling } from '../../scripts/demo/steepling/make'
 import { makeCApp, type CApp } from '../lib/c-app'
 import { integrationsOf } from '../../server/src/integrations/connections/service'
 import { integrationToolProvider } from '../../server/src/integrations/connections/tools'
-import { bannerSourceFor, CHANGE_BANNER_TEXT_DESCRIPTION, ChangeBannerTextInput, DEMO_BANNER_TOOL } from '../../server/src/tools/demo-banner'
+import { bannerShownText, bannerSourceFor, CHANGE_BANNER_TEXT_DESCRIPTION, ChangeBannerTextInput, DEMO_BANNER_TOOL } from '../../server/src/tools/demo-banner'
 import { steepling } from '../../scripts/demo/steepling/make'
 import { toolRegistry } from '../../server/src/tools/registry'
 import { TurnFiles } from '../../server/src/files/service'
@@ -493,8 +493,10 @@ describe('end to end on a demo server', () => {
     expect(view.words.headline).toBe('작지 않아\n큰 햇살이야!')
     expect(view.words.badge).toBe(kits.ko.words.badge)
     expect(view.saved.startsWith('users/alice/유자 진저/banner-1200x628-')).toBe(true)
-    // shown inline right away (the Markdown image the web draws) and handed to the AI as a picture
-    expect(text).toContain(`](/api/files/download?path=${encodeURIComponent(view.saved)})`)
+    // shown by the chat under the step right away (never retyped by the AI as Markdown) and handed to the AI as a picture
+    expect(out.stepImages?.map((x) => x.path)).toEqual(view.files)
+    expect(text).not.toContain('](/api/files/download?path=')
+    expect(text).toContain(bannerShownText(['1200x628', '1080x1080', '1080x1920']))
     const img = out.content.find((c) => c.type === 'image') as { data: string } | undefined
     expect(img).toBeTruthy()
     const bytes = fs.readFileSync(path.join(A.team, ...view.saved.split('/')))
@@ -550,13 +552,23 @@ describe('end to end on a demo server', () => {
     const k = kits.ko.words
     expect(view.words).toEqual({ headline: '밝은 아침에,\n*작은 햇살 한 잔.*', subline: k.subline, eyebrow: k.eyebrow, badge: k.badge, badge_note: k.badgeNote, button: k.cta })
     expect(view.scene).toBe(kits.ko.defaultScene)
-    // every size drawn and saved next to the source, each shown inline
+    // every size drawn and saved next to the source
     expect(view.files.map((p: string) => p.replace(/-[\w]{6}\.png$/, ''))).toEqual(['1200x628', '1080x1080', '1080x1920'].map((s) => `${folder}/banner-${s}`))
     for (const p of view.files as string[]) {
       const [w, h] = p.match(/banner-(\d+)x(\d+)-/)!.slice(1).map(Number)
       expect(pngSize(fs.readFileSync(path.join(A.team, ...p.split('/'))))).toEqual({ w: w!, h: h! })
-      expect(text).toContain(`](/api/files/download?path=${encodeURIComponent(p)})`)
     }
+    // replay 11-22: the AI retyped the Markdown and its third picture was the 1080x1080 file again. The result carries the
+    // three saved files, each with its own size, for the chat to show under the step; the AI is told they are shown
+    // already and never gets a Markdown image to copy
+    const sizes = ['1200x628', '1080x1080', '1080x1920']
+    expect(out.stepImages).toEqual(sizes.map((size, i) => ({ path: view.files[i], alt: `banner ${size}`, label: size })))
+    expect(new Set(out.stepImages!.map((x) => x.path)).size).toBe(3)
+    for (const [i, im] of out.stepImages!.entries()) expect(im.path).toContain(`banner-${sizes[i]}-`)
+    expect(text).not.toMatch(/!\[[^\]]*\]\(/)
+    expect(text).not.toContain('/api/files/download')
+    expect(text).toContain('The chat already shows these 3 pictures under this step, each labelled with its size (1200x628, 1080x1080, 1080x1920).')
+    expect(text).toContain('Do not write them as Markdown images or links in your answer')
     expect(text).toContain(`The banner's words are in ${source}: to change them, edit that file`)
     // the AI's edit stays in the file as it made it (the render only read it)
     expect(fs.readFileSync(abs, 'utf8')).toBe(read.replace('흐린 아침', '밝은 아침'))

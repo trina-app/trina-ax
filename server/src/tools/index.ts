@@ -83,7 +83,7 @@ export function registerCTools(ctx: AppContext, o: { fetch?: FetchOptions; saveU
         const places = PLACE_PRODUCE_TOOLS.has(name) ? t.files.places : undefined
         const kind = places?.ctx.chatKind
         const text = places?.ctx.chatId ? chatLinksInText(r.text, places.ctx.chatId, kind === 'people' || kind === 'project') : r.text
-        return { content: [{ type: 'text', text }, ...(r.images ?? [])], ...(r.isError ? { isError: true } : {}), summary: r.summary }
+        return { content: [{ type: 'text', text }, ...(r.images ?? [])], ...(r.isError ? { isError: true } : {}), summary: r.summary, ...(r.stepImages?.length ? { stepImages: r.stepImages } : {}) }
       },
     })
   }
