@@ -196,11 +196,14 @@ export async function shareMany(items: readonly FileEntry[], folder: string, o: 
  * and then an Undo toast were two asks): a file in the person's own folder (users/<me>/…) that the listing does not mark
  * shared (FileEntry.shared: people of its own, or a shared folder above it) and that is in no project folder but one
  * only the person sees (Project.audience 1). The client cannot know what a folder holds deeper (a file in it may be
- * shared one by one), nor anything while the projects list is not read, so a folder, or an unknown, still asks. The
- * "moved to the trash · Undo" toast comes either way.
+ * shared one by one), nor anything while the projects list is not read, so a folder, or an unknown, still asks. An
+ * entry's `shared` is filled only in a listing of the person's own folder (GET /api/files/tree): a row from anywhere
+ * else (a search, recent files, a link) has it undefined whether or not it is shared, so only rows the caller says came
+ * from such a listing (`fromListing`) may go without the question. The "moved to the trash · Undo" toast comes either
+ * way.
  */
-export function trashAsksFirst(items: readonly Pick<FileEntry, 'path' | 'type' | 'shared'>[], myId: string, projects: readonly { folderPath: string; audience?: number }[] | null): boolean {
-  if (!projects) return true
+export function trashAsksFirst(items: readonly Pick<FileEntry, 'path' | 'type' | 'shared'>[], myId: string, projects: readonly { folderPath: string; audience?: number }[] | null, o: { fromListing?: boolean } = {}): boolean {
+  if (!o.fromListing || !projects) return true
   const key = (p: string) => p.normalize('NFC').toLowerCase()
   const shared = projects.filter((p) => p.audience !== 1).map((p) => key(p.folderPath))
   return items.some((e) => {

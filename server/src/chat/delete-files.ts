@@ -226,7 +226,16 @@ export function deleteFilesTool(exec: DeleteExec): Tool {
     const svc = componentC(rt.ctx).files
     const user = exec.livePrincipal()
     // the history again right before the move: the plan was made a moment ago, a teammate may have saved since
-    if (!ownMade(rt.db, rt.files.fx.root, { userId: user.id, chatId: spec.chatId }, plan).own && !emptyOwn(user.id, plan)) return result(`${NONE}: these files changed since; ask again with one call.`, 'changed')
+    // an empty folder this chat made: planned again now (what is in it, on disk), never the plan of a moment ago
+    if (!ownMade(rt.db, rt.files.fx.root, { userId: user.id, chatId: spec.chatId }, plan).own) {
+      let fresh: AiTrashPlan | null = null
+      try {
+        const planned = svc.planAiTrash(user.id, plan.items.map((i) => i.rel), { noHistory: true })
+        if (!('refused' in planned) && emptyOwn(user.id, planned.plan)) fresh = planned.plan
+      } catch { fresh = null }
+      if (!fresh) return result(`${NONE}: these files changed since; ask again with one call.`, 'changed')
+      plan = fresh
+    }
     const base = { paths: plan.items.map((i) => i.rel), entries: plan.entries, lost: plan.lost, noRestore: plan.noRestore, retentionDays: plan.retentionDays, others: plan.others.length, requestId: null, own: true }
     const target = plan.items[0]!.rel
     let done

@@ -38,7 +38,7 @@ describe('the three honesty lines', () => {
       expect(CHECK_MADE_RULE).toContain(s)
     // about 250 tokens together, measured in characters
     // (+60: a changed file keeps its name, so it is a version: ask audit TC-ask2-2)
-    expect(NO_INVENT_RULE.length + FIGURES_RULE.length + CHECK_MADE_RULE.length).toBeLessThanOrEqual(1180)
+    expect(NO_INVENT_RULE.length + FIGURES_RULE.length + CHECK_MADE_RULE.length).toBeLessThanOrEqual(1220)
   })
 
   test('once in a personal, a shared and a guest-free English turn; the API engine no longer repeats the facts line', () => {

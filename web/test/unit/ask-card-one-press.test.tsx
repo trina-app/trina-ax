@@ -66,3 +66,23 @@ test('several choices: checkboxes, nothing sent on a tick, [답하기] sends the
     await m.unmount()
   }
 })
+
+test('a server card with more choices keeps its radios and [답하기]: a pick alone answers nothing', async () => {
+  const answers: unknown[] = []
+  const four = [{ label: 'A', value: 'a' }, { label: 'B', value: 'b' }, { label: 'C', value: 'c' }, { label: 'D', value: 'd' }]
+  const m = await mount(<AskCard req={{ request: aiAsk({ origin: 'server', allowText: false, options: four } as Partial<Ask>) }} onAnswer={async (_id, body) => void answers.push(body)} />)
+  try {
+    expect(options(m)).toHaveLength(0)
+    const radios = m.container.querySelectorAll('input[type="radio"]')
+    expect(radios).toHaveLength(4)
+    // a browser checks a radio before the click's listeners run, past React's value tracker (this small DOM does not)
+    const radio = radios[2]!
+    Object.getOwnPropertyDescriptor(Object.getPrototypeOf(radio), 'checked')!.set!.call(radio, true)
+    await m.click(radio)
+    expect(answers).toEqual([])
+    await m.click('ask-send')
+    expect(answers).toEqual([{ kind: 'ask_user', answer: 'c' }])
+  } finally {
+    await m.unmount()
+  }
+})

@@ -7,10 +7,10 @@
 // ([허용 안 함] [이번만 허용]) with what they let happen as plain lines; a server card that says its three choices are
 // buttons (`buttons`: a room's change card) shows them in one row in the same order, the main one last
 // ([허용 안 함] [이 방에서는 항상 허용] [이번만 허용]; stacked on a phone, the main one on top and first in the page: ChoiceRow,
-// as the address and dev-environment cards) with its one line under them (`note`). Any other question that takes one
-// choice: a press on an option answers it (one click per decision, QA TC-ask1-15), the options being buttons; while
-// the card's own box holds typed text they are off (nothing typed is lost) and [답하기] sends the text. A question
-// that takes several keeps its checkboxes and [답하기].
+// as the address and dev-environment cards) with its one line under them (`note`). The AI's own question that takes
+// one choice: a press on an option answers it (one click per decision, QA TC-ask1-15), the options being buttons; while
+// the card's own box holds typed text they are off (nothing typed is lost) and [답하기] sends the text. A server card
+// with more choices keeps its radios and [답하기]; a question that takes several keeps its checkboxes and [답하기].
 import clsx from 'clsx'
 import { Globe, MessageCircleQuestion, ShieldAlert } from 'lucide-react'
 import { type ReactNode, useContext, useEffect, useId, useRef, useState } from 'react'
@@ -136,6 +136,9 @@ export default function AskCard({ req, onAnswer }: { req: Pick<OpenRequest, 'req
   const allowText = (r.allowText ?? options.length === 0) && !inBox
   const value: string | string[] | null = r.multiple ? [...picked, ...(text.trim() ? [text.trim()] : [])] : (picked[0] ?? (text.trim() || null))
   const ready = Array.isArray(value) ? value.length > 0 : !!value
+  // one press answers only the AI's own single-choice question; a server card's choices (more than its two-button and
+  // three-button forms above) keep radios and [답하기]: the press there is a decision the card weighs
+  const onePress = !fromServer && !r.multiple
   const toggle = (v: string) => setPicked((p) => (r.multiple ? (p.includes(v) ? p.filter((x) => x !== v) : [...p, v]) : [v]))
 
   // the server's yes/no (a change in a room, saving where more people see it, a team skill, an address, a send): two
@@ -229,8 +232,9 @@ export default function AskCard({ req, onAnswer }: { req: Pick<OpenRequest, 'req
           <legend className="mb-2.5 whitespace-pre-wrap text-sm font-medium [overflow-wrap:anywhere]">{fromServer ? <QuestionText r={r} /> : r.question}</legend>
           {fromServer && r.preview && <SkillPreview p={r.preview} />}
           {fromServer && r.details?.length ? <Details items={r.details} full={full} /> : null}
-          {/* one choice: each option is a button that answers at once; off while the card's own box holds typed text */}
-          {options.length > 0 && !r.multiple && (
+          {/* the AI's own question with one choice: each option is a button that answers at once; off while the card's
+              own box holds typed text. A server card's choices (a decision with a card's weight) are picked, then sent */}
+          {options.length > 0 && onePress && (
             <div className="flex flex-col gap-1.5">
               {options.map((o) => (
                 <button
@@ -250,11 +254,11 @@ export default function AskCard({ req, onAnswer }: { req: Pick<OpenRequest, 'req
               ))}
             </div>
           )}
-          {options.length > 0 && r.multiple && (
+          {options.length > 0 && !onePress && (
             <div className="flex flex-col gap-1.5">
               {options.map((o) => (
                 <label key={o.value} className={clsx('flex cursor-pointer items-center gap-2 rounded-lg border px-3 py-2 text-sm', picked.includes(o.value) ? 'border-accent bg-accent-soft' : 'border-line hover:bg-hover')}>
-                  <input type="checkbox" name={name} value={o.value} checked={picked.includes(o.value)} onChange={() => toggle(o.value)} className="accent-[var(--c-accent)]" />
+                  <input type={r.multiple ? 'checkbox' : 'radio'} name={name} value={o.value} checked={picked.includes(o.value)} onChange={() => toggle(o.value)} className="accent-[var(--c-accent)]" />
                   {o.label}
                 </label>
               ))}
@@ -314,7 +318,7 @@ export default function AskCard({ req, onAnswer }: { req: Pick<OpenRequest, 'req
         </Button>
         {/* ticks to send, or text typed here; one choice is sent by its own button, and typing in the message box by
             that box's button */}
-        {((r.multiple && options.length > 0) || allowText) && (
+        {((!onePress && options.length > 0) || allowText) && (
           <Button size="sm" variant="primary" type="submit" disabled={!ready} busy={busy} data-testid="ask-send">
             {t('ask.send')}
           </Button>

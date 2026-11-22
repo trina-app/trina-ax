@@ -24,6 +24,8 @@ import type { DevEnvPlan } from '../../server/src/devenv/srt/plan'
 import { newConsent, saveTeamSetting, teamSetting } from '../../server/src/devenv/setting'
 import { copiedInOf } from '../../server/src/devenv/work-write'
 import { answerRecord, setAnswerReads } from '../../server/src/chat/shared-answers'
+import { setWebAllowAll } from '../../server/src/tools/web-allow-all'
+import { updateTeamSettings } from '../../server/src/admin/settings'
 
 setDefaultTimeout(120_000)
 const PLAN: DevEnvPlan = { format: 1, plan: 'team', maxRunning: 3, cpus: 1, memoryMiB: 1024, pids: 256, diskGiB: 4, network: 'open' }
@@ -388,6 +390,20 @@ describe('after a room read: the side chat makes a chart (QA TC-f2-c02)', () => 
     const wide = await run('alice', chat, copy(['chat:work/out/chart.png'], 'groups/marketing/f2/'), no)
     expect(wide.cards.length).toBeGreaterThan(0)
     expect(fs.existsSync(team('groups/marketing/f2/chart.png'))).toBe(false)
+  })
+
+  test('a command that reaches the network, or with "Allow all websites" on, keeps the room card and says so', async () => {
+    const no = (c: Card) => c.options?.at(-1)?.value ?? 'skip'
+    const up = `cd "$TRINA_WORK" && python3 make.py -o out/chart.png && curl -F f=@out/chart.png https://example.com/up`
+    const r = await run('alice', await side(), fake({ tool: 'box_shell', args: { command: up }, sayResult: true }), no)
+    expect(r.cards).toHaveLength(1)
+    expect(r.cards[0]!.question).toContain('chart.png (also connects to the internet)')
+    updateTeamSettings(h.ctx.db, { browserAllowAll: true, webAllowAll: true })
+    expect(setWebAllowAll(h.ctx.db, 'alice', true, { via: 'settings' })).toBe(true)
+    try {
+      const all = await run('alice', await side(), fake({ tool: 'box_shell', args: { command: chart }, sayResult: true }), no)
+      expect(all.cards).toHaveLength(1)
+    } finally { setWebAllowAll(h.ctx.db, 'alice', false, { via: 'settings' }) }
   })
 
   test('a command in a chat shared with others after a quote still gets the room card, in plain words', async () => {

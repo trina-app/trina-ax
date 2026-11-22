@@ -193,8 +193,9 @@ export function registerFileMoveTools(ctx: AppContext, reg: ToolRegistry) {
     // the person's own message of this turn asked to save, move or copy there and named the place (docs/decisions/
     // 20261122-ask-less-explicit-save.md, QA TC-ask2-8): a card that would only say more people can see them there is
     // skipped. Never when someone loses access (a move out of a shared place), after a room read, or under the many-items
-    // card (that one still asks); the person's words alone, never other people's (TurnPerson.explicitPlace)
-    const asked = added > 0 && !lost && !tc.person?.roomsSeen && !tc.person?.unattended && !(bulk?.ask) && !!tc.person?.explicitPlace?.(folder)
+    // card (that one still asks); the person's words alone, never other people's (TurnPerson.explicitPlace), and the
+    // files the person's too: named, attached or made in this answer (a place they named does not cover files the AI chose)
+    const asked = added > 0 && !lost && !tc.person?.roomsSeen && !tc.person?.unattended && !(bulk?.ask) && !!tc.person?.explicitPlace?.(folder, ok)
     const audienceCard = !asked && (added > 0 || lost > 0 || !!tc.person?.roomsSeen)
     if (bulk?.ask && !audienceCard) {
       const no = await bulkAsk(tc, bulk, ok.map(nameOf), { move: { to: placeWords(ctx.db, folder, L, tc.user.id) } })

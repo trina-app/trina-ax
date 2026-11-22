@@ -20,10 +20,10 @@ const input = (extra: Partial<PromptInput> = {}): PromptInput => ({
 describe('act first', () => {
   test('says what it must, and stays short (it goes with every turn)', () => {
     for (const s of ['do it now instead of asking', 'sample rows labelled as samples', 'also for a short request such as "make a web page"', 'say in one line what you assumed', 'any tool limit you met',
-      'Ask first only when a choice cannot be undone, reaches other people, or has no sensible default', 'Never ask again what the user already answered', 'Never ask first what a confirmation card will ask anyway'])
+      'Ask first only when a choice cannot be undone, reaches other people, or has no sensible default', 'Never ask again what the user already answered', 'When the target is clear (which file, person or place), never ask first what a confirmation card would ask', 'when more than one fits, ask as the asking rule says'])
       expect(ACT_FIRST_RULE).toContain(s)
-    // about 160 tokens
-    expect(ACT_FIRST_RULE.length).toBeLessThanOrEqual(820)
+    // about 180 tokens
+    expect(ACT_FIRST_RULE.length).toBeLessThanOrEqual(900)
   })
 
   test('agrees with the honesty line: defaults are never facts, a fact nobody gave stays a blank', () => {

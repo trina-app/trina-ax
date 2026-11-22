@@ -9,7 +9,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { API, CARD_ALWAYS_KINDS, LOCALE_ORDER, uuidv7, type Locale } from '@mycel/shared/api'
 import { startHarness, type Harness } from '../lib/b-harness'
-import { asksToPlaceIn, explicitPlaceAsk, placeFacts } from '../../server/src/chat/explicit-place'
+import { asksToPlaceIn, explicitPlaceAsk, explicitPlaceFor, placeFacts } from '../../server/src/chat/explicit-place'
 import { alwaysNote } from '../../server/src/chat/always-allow'
 import { TEXT, tr } from '../../server/src/chat/i18n'
 import { deleteFilesTool, type DeleteExec } from '../../server/src/chat/delete-files'
@@ -73,6 +73,48 @@ describe('asksToPlaceIn: the words', () => {
   })
 })
 
+describe('asksToPlaceIn: same clause, seeing phrases, topics (review fixes)', () => {
+  const shared = { names: ['전사 공유', 'Company-wide'], everyone: true }
+  const proj = { names: ['신제품-출시'], project: true }
+  test('false positives: an everyone-word that is not about seeing, "make it in", a topic, the place in another sentence', () => {
+    expect(asksToPlaceIn('다들 뭐라고 했는지 정리해서 만들어줘', shared)).toBe(false)
+    expect(asksToPlaceIn('Make a summary in Markdown of what everyone said', shared)).toBe(false)
+    expect(asksToPlaceIn('make it in English', { names: ['English'], everyone: false })).toBe(true) // a folder named English: a place
+    expect(asksToPlaceIn('make it in English', { names: ['Reports'] })).toBe(false)
+    expect(asksToPlaceIn('프로젝트에 대해 만들어줘', proj)).toBe(false)
+    expect(asksToPlaceIn('프로젝트에 관한 요약 만들어줘', proj)).toBe(false)
+    expect(asksToPlaceIn('make a summary about the project', proj)).toBe(false)
+    expect(asksToPlaceIn('마케팅에 대해 보고서 만들어줘', { names: ['마케팅'] })).toBe(false)
+    expect(asksToPlaceIn('전사에 대한 요약을 만들어줘', shared)).toBe(false)
+    // the place in one sentence, the request in another
+    expect(asksToPlaceIn('팀원들도 볼 수 있게 하고 싶어요. 그런데 일단 내 폴더에 요약 만들어줘', shared)).toBe(false)
+    expect(asksToPlaceIn('The project is late.\nMake a summary of the notes', proj)).toBe(false)
+    // far apart in one long sentence
+    expect(asksToPlaceIn('save a long summary of every meeting we had with the vendor over the past three quarters including the budget to Company-wide', shared)).toBe(false)
+  })
+  test('true cases still pass', () => {
+    expect(asksToPlaceIn('모두가 볼 수 있게 저장해줘', shared)).toBe(true)
+    expect(asksToPlaceIn('팀원들도 볼 수 있게 저장해줘', shared)).toBe(true)
+    expect(asksToPlaceIn('전사 공유에 저장해줘', shared)).toBe(true)
+    expect(asksToPlaceIn('save it for everyone to see', shared)).toBe(true)
+    expect(asksToPlaceIn('copy the report to Company-wide', shared)).toBe(true)
+    expect(asksToPlaceIn('회의록 정리해서 프로젝트에 만들어줘', proj)).toBe(true)
+    expect(asksToPlaceIn('make a summary about the launch in the project folder', proj)).toBe(true)
+  })
+})
+
+describe('placeFacts: a folder name more than one visible folder has', () => {
+  test('two folders named the same that alice can see: the name does not count; one: it does', () => {
+    fs.mkdirSync(abs('shared/dup-a/보고서함'), { recursive: true })
+    fs.mkdirSync(abs('shared/dup-b/보고서함'), { recursive: true })
+    fs.mkdirSync(abs('shared/dup-c/유일함'), { recursive: true })
+    const seen = { files: h.ctx.files, userId: 'alice' }
+    expect(placeFacts(h.ctx.db, chatOf('alice'), 'shared/dup-a/보고서함', seen).names).toEqual([])
+    expect(placeFacts(h.ctx.db, chatOf('alice'), 'shared/dup-c/유일함', seen).names).toEqual(['유일함'])
+    expect(asksToPlaceIn('보고서함에 저장해줘', placeFacts(h.ctx.db, chatOf('alice'), 'shared/dup-a/보고서함', seen))).toBe(false)
+  })
+})
+
 describe('placeFacts and explicitPlaceAsk: the place and the exclusions', () => {
   test('Company-wide by its shown names and "everyone"; a project folder is the chat\'s own only in its chat', () => {
     const pid = uuidv7()
@@ -106,6 +148,13 @@ describe('placeFacts and explicitPlaceAsk: the place and the exclusions', () => 
     // a skill folder or a hidden one never
     expect(explicitPlaceAsk(execOf('skills에 저장해줘'), 'skills')).toBe(false)
     expect(explicitPlaceAsk(execOf("'.system'에 저장해줘"), '.system')).toBe(false)
+  })
+  test('a move or copy: the files must be the asker\'s too (named, attached or made in this answer), else the card stays', () => {
+    const said = 'q3-report.md 전사 공유에 옮겨줘'
+    expect(explicitPlaceFor(execOf(said), 'shared', ['users/alice/r/q3-report.md'])).toBe(true)
+    expect(explicitPlaceFor(execOf(said), 'shared', ['users/alice/r/q3-report.md', 'users/alice/r/salaries.xlsx'])).toBe(false)
+    expect(explicitPlaceFor(execOf('전사 공유에 옮겨줘'), 'shared', ['users/alice/r/salaries.xlsx'])).toBe(false)
+    expect(explicitPlaceFor(execOf(said), 'shared', [])).toBe(false)
   })
 })
 
@@ -186,6 +235,22 @@ describe('delete_files of an empty folder this chat made (TC-ask2-12)', () => {
     expect(asked).toHaveLength(0)
     expect(r.isError, JSON.stringify(r.content)).toBeUndefined()
     expect(fs.existsSync(abs('shared/ai-empty'))).toBe(false)
+  })
+
+  test('a file put into the folder between the check and the trash: planned again, nothing goes', async () => {
+    const chatId = chatOf('alice')
+    const t = turnIn(chatId, 'alice')
+    put('users/alice/em4/a.md')
+    await move(t, ['users/alice/em4/a.md'], 'shared/ai-race')
+    await move(t, ['shared/ai-race/a.md'], 'users/alice/em4')
+    const { exec, main } = execOf(chatId)
+    const tool = deleteFilesTool(exec)
+    // the up-front check plans it (an empty folder this chat made) and keeps that plan a moment
+    expect(tool.refuse?.({ paths: ['shared/ai-race'] }) ?? null).toBeNull()
+    // a teammate makes a folder in it on the Files screen (their own file history)
+    componentC(h.ctx).files.mkdir('bob', 'shared/ai-race/bobs')
+    const r = await tool.call({ paths: ['shared/ai-race'] }, main)
+    expect(fs.existsSync(abs('shared/ai-race/bobs')), JSON.stringify(r.content)).toBe(true)
   })
 
   test('the card stays: an empty folder made on the Files screen, one made in another chat, one with a file in it', async () => {

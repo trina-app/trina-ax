@@ -883,6 +883,12 @@ export function AssistantMessage({
           </div>
         )}
         <AnswerImagesShown steps={m.steps}><AnswerBody m={m} chatId={chatId} streaming={streaming} /></AnswerImagesShown>
+        {/* a card appeared: said to screen readers only (the card itself is the one place on screen, QA TC-ask1-18) */}
+        {waitingForYou && (
+          <p className="sr-only" role="status" data-testid="waiting-for-you">
+            {t('chatux.waitingForYou')}
+          </p>
+        )}
         {/* what the AI did for the person, from the server's record on the step (a share, a stop, a post): where its
             confirmation card was, so that card reads as turning into this one */}
         {m.steps.map((s) => (s.shared?.teamFolder && !s.parentId ? <TeamFolderCard key={s.id} shared={s.shared} folder={s.shared.teamFolder} /> : s.shared && !s.parentId ? <ShareCard key={s.id} shared={s.shared} fixes={s.fixes} /> : s.posted && !s.parentId ? <PostedCard key={s.id} posted={s.posted} /> : s.folders?.length && !s.parentId ? <MyFoldersCard key={s.id} folders={s.folders} more={s.moreFolders} /> : null))}

@@ -278,7 +278,12 @@ export function ChatShareDialog({ chat, onClose, initial, personal = false, retu
     const before = saved
     try {
       const r = await api.call(API.putChatAudience, { params: { id: chat.id }, body: { subjects: [] } })
-      if (r.status !== 'saved') return
+      if (r.status === 'confirm') {
+        // not saved: the dialog stays open with "only me" picked as an unsaved change, and its Save goes the usual
+        // way (save(): the server's check in place, then Save again), never a silent nothing
+        setPicks([])
+        return
+      }
       const was = useChats.getState().chats.find((c) => c.id === r.chat.id)
       useChats.getState().upsertChat(keepFaces(was, r.chat))
       setAudience(r.audience)
@@ -495,7 +500,9 @@ export async function undoStop(chat: Pick<Chat, 'id' | 'title'> & Partial<Pick<C
   try {
     const p = await api.call(API.previewChatAudience, { params: { id: chat.id }, body: { subjects: [...subjects] } })
     const now = useChats.getState().chats.find((c) => c.id === chat.id)
-    if (shareAtStake(p.check) && now && now.updatedAt !== stoppedAt) return reopen()
+    // something at stake and the chat not known to be as it was when it stopped (changed since, or not in this
+    // window's list): the dialog with the check, never a silent share
+    if (shareAtStake(p.check) && (!now || now.updatedAt !== stoppedAt)) return reopen()
     const r = await api.call(API.putChatAudience, { params: { id: chat.id }, body: { subjects: [...subjects], confirmKey: p.previewKey } })
     if (r.status === 'confirm') return reopen()
     const was = useChats.getState().chats.find((c) => c.id === r.chat.id)

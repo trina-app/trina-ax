@@ -329,6 +329,10 @@ export const TEXT = {
   roomShellMakesMany: t('{kind} 파일을 만드는 명령 실행: {files}', 'Run a command that makes {kind} files: {files}', 'Jalankan perintah yang membuat file {kind}: {files}', "{kind}ファイルを作るコマンドを実行: {files}", "Ejecutar un comando que crea archivos de {kind}: {files}", "运行生成{kind}文件的命令：{files}"),
   roomShellMakesAny: t('파일을 만드는 명령 실행: {files}', 'Run a command that makes files: {files}', 'Jalankan perintah yang membuat file: {files}', "ファイルを作るコマンドを実行: {files}", "Ejecutar un comando que crea archivos: {files}", "运行生成文件的命令：{files}"),
   roomShellRun: t('명령 실행', 'Run a command', 'Jalankan perintah', "コマンドを実行", "Ejecutar un comando", "运行命令"),
+  /** what else the command does, after its words (shellCardWords): installs programs, reaches the internet */
+  roomShellPlusInstall: t('{what} (프로그램 설치도 해요)', '{what} (also installs programs)', '{what} (juga memasang program)', "{what}（プログラムのインストールもします）", "{what} (también instala programas)", "{what}（还会安装程序）"),
+  roomShellPlusNet: t('{what} (인터넷에도 연결해요)', '{what} (also connects to the internet)', '{what} (juga terhubung ke internet)', "{what}（インターネットにも接続します）", "{what} (también se conecta a internet)", "{what}（还会连接互联网）"),
+  roomShellPlusBoth: t('{what} (프로그램 설치와 인터넷 연결도 해요)', '{what} (also installs programs and connects to the internet)', '{what} (juga memasang program dan terhubung ke internet)', "{what}（プログラムのインストールとインターネット接続もします）", "{what} (también instala programas y se conecta a internet)", "{what}（还会安装程序并连接互联网）"),
   roomShellKindPicture: t('그림', 'picture', 'gambar', "画像", "imagen", "图片"),
   roomShellKindPdf: t('PDF', 'PDF', 'PDF', "PDF", "PDF", "PDF"),
   roomShellKindVideo: t('동영상', 'video', 'video', "動画", "vídeo", "视频"),

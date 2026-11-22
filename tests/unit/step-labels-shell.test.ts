@@ -3,7 +3,7 @@
 // when the step is opened. The room card asks in the same words and keeps the command behind "자세히".
 import { describe, expect, test } from 'bun:test'
 import { localizeStep, placeName, shellDescription, shellKind, SHELL_KIND_WORDS, shellWords, STEP_TEXT, stepLabel, stepPlace } from '../../shared/src'
-import { roomCardWhat, roomChangeDetails, shellCardWords, shellOutputs } from '../../server/src/chat/turn'
+import { roomCardWhat, roomChangeDetails, shellCardWords, shellOutputs, shellUsesNetwork } from '../../server/src/chat/turn'
 import { placeWords } from '../../server/src/chat/place-words'
 
 const none = new Set<string>()
@@ -135,6 +135,17 @@ describe('room card for a command: what it makes (QA TC-f2-c02)', () => {
     expect(shellOutputs('cat > make.py <<E\nE\npython3 make.py 2>/dev/null')).toEqual([])
     expect(shellCardWords('python3 a.py -o x.png && ffmpeg -i x.png y.mp4', 'ko')).toBe('파일을 만드는 명령 실행: x.png, y.mp4')
     expect(shellCardWords('ffmpeg -i a.png b.png && ffmpeg -i b.png c.png', 'en')).toBe('Run a command that makes picture files: b.png, c.png')
+  })
+  test('an install or the network in the same command is said too, never hidden behind the file it makes', () => {
+    expect(shellCardWords(`pip install -q matplotlib && python3 -c "import matplotlib; plt.savefig('c.png')"`, 'ko')).toBe('그림 파일을 만드는 명령 실행: c.png (프로그램 설치도 해요)')
+    expect(shellCardWords('python3 a.py -o x.png && curl -F f=@x.png https://example.com', 'en')).toBe('Run a command that makes a picture file: x.png (also connects to the internet)')
+    expect(shellCardWords('npm i sharp && python3 a.py -o x.png && scp x.png me@host:', 'en')).toBe('Run a command that makes a picture file: x.png (also installs programs and connects to the internet)')
+    expect(shellCardWords('pip install pillow', 'en')).not.toContain('also')
+    expect(shellCardWords('python3 a.py -o x.png', 'en')).toBe('Run a command that makes a picture file: x.png')
+    for (const l of L) expect(shellCardWords('python3 a.py && wget https://e.com/x', l)).not.toBe(shellCardWords('python3 a.py', l))
+    expect(shellUsesNetwork('python3 -c "import requests; requests.post(u)"')).toBe(true)
+    expect(shellUsesNetwork('ssh host ls')).toBe(true)
+    expect(shellUsesNetwork('python3 plot.py && ls out')).toBe(false)
   })
   test('a plain run says "명령 실행"; a command that removes files keeps "파일 바꾸기"', () => {
     expect(shellCardWords('python3 analyze.py', 'ko')).toBe('명령 실행')

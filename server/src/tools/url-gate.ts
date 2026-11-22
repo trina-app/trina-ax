@@ -164,8 +164,9 @@ export interface TurnPerson {
   othersWords?(): boolean
   /** the person's own message of this turn asked to save, move or copy into the team folder `dir` and named it, with
    * nobody else's words in the chat (chat/explicit-place.ts explicitPlaceAsk): a card that only says more people will see
-   * it there is skipped. Absent (a sub-agent, a call outside a chat): never */
-  explicitPlace?(dir: string): boolean
+   * it there is skipped. With `paths` (a move or a copy), the files must be the asker's too (named, attached or made in
+   * this answer: chat/explicit-place.ts explicitPlaceFor). Absent (a sub-agent, a call outside a chat): never */
+  explicitPlace?(dir: string, paths?: readonly string[]): boolean
   /** how a refusal names an unattended run that is not a scheduled task (a company profile draft's answer) */
   unattendedLabel?: string
   /** a narrower set of addresses this turn may open at all (a company profile draft: the typed site, onboarding/

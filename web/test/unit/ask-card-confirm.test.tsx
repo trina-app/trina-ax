@@ -1,7 +1,7 @@
 // The server's yes/no cards (components/chat/AskCard.tsx): two buttons, the "no" neutral and the "yes" primary, with no
 // radios, no [답하기] and no [건너뛰기]; each sends its own option's value. A server question with more choices (an
-// address with "allow this site", a schedule with "and let it write") is a list of options, a press on one answering
-// it (QA TC-ask1-15), unless it says its three choices are buttons (`buttons`: a room's change card), which are then one
+// address with "allow this site", a schedule with "and let it write") keeps its radios and [답하기] (one press is for
+// the AI's own questions, QA TC-ask1-15), unless it says its three choices are buttons (`buttons`: a room's change card), which are then one
 // row of buttons with the line under it.
 import { expect, test } from 'bun:test'
 import type { TurnRequest } from '@mycel/shared/api'
@@ -40,17 +40,22 @@ for (const [which, testId, value] of [['no', 'ask-no', 'skip'], ['yes', 'ask-yes
   })
 }
 
-test('three options: a list, a press on one answers with its value, no [답하기]', async () => {
+test('three options from the server keep the radios and [답하기]: a pick alone answers nothing (one press is for the AI\'s own questions)', async () => {
   installDom()
   const answers: unknown[] = []
   const m = await mount(<AskCard req={{ request: serverCard([{ label: 'Open', value: 'allow' }, { label: 'Allow this site', value: 'site' }, { label: "Don't open", value: 'deny' }]) }} onAnswer={async (_id, body) => void answers.push(body)} />)
   try {
     const html = m.html()
-    expect(html).not.toContain('type="radio"')
-    expect(options(m).length).toBe(3)
-    expect(html).not.toContain('data-testid="ask-send"')
+    expect(html.split('type="radio"').length - 1).toBe(3)
+    expect(options(m).length).toBe(0)
+    expect(html).toContain('data-testid="ask-send"')
     expect(m.find('ask-yes')).toBeNull()
-    await m.click(options(m)[1]!)
+    // a browser checks a radio before the click's listeners run, past React's value tracker (this small DOM does not)
+    const radio = m.container.querySelectorAll('input[type="radio"]')[1]!
+    Object.getOwnPropertyDescriptor(Object.getPrototypeOf(radio), 'checked')!.set!.call(radio, true)
+    await m.click(radio)
+    expect(answers).toEqual([])
+    await m.click('ask-send')
     expect(answers).toEqual([{ kind: 'ask_user', answer: 'site' }])
   } finally {
     await m.unmount()
@@ -58,13 +63,13 @@ test('three options: a list, a press on one answers with its value, no [답하�
   }
 })
 
-test('four choices from the server (the team folder card asking about file shares, with Always allow): options, and the line under them shown', async () => {
+test('four choices from the server (the team folder card asking about file shares, with Always allow): radios, and the line under them shown', async () => {
   installDom()
   const note = '1 person has files in it shared one by one.\n\nFrom now on Trina changes who can open team folders without asking.'
   const card: Ask = { ...serverCard([{ label: 'Change and remove file shares', value: 'change_remove' }, { label: 'Change, keep file shares', value: 'change_keep' }, { label: 'Always allow', value: '__always' }, { label: 'Cancel', value: 'no' }]), buttons: true, note }
   const m = await mount(<AskCard req={{ request: card }} onAnswer={async () => {}} />)
   try {
-    expect(options(m).length).toBe(4)
+    expect(m.html().split('type="radio"').length - 1).toBe(4)
     expect(m.get('ask-note').textContent).toBe(note)
   } finally {
     await m.unmount()

@@ -19,6 +19,7 @@ import crypto from 'node:crypto'
 import { CLAUDE_AGENT_TOOL_NAMES, FILE_STEP_VERB, FILE_TOOLS, isUuid7, readableToolName, shellKind, shellWords, STEP_WORDS_OTHER, TEAM_TOOL_PREFIX, type AgentStats, type EngineEvent } from '@mycel/shared'
 import { recordSent, webEcho } from '../tools/connection-urls'
 import { carriesAddress, normUrl, rememberUrls } from '../tools/url-gate'
+import { webAllowAll } from '../tools/web-allow-all'
 import { GUEST_ANSWER_STEP_LIMIT, UNATTENDED_ANSWER_STEP_LIMIT } from '@mycel/shared/api'
 import { FILE_SUMMARY_LIST_MAX } from '@mycel/shared/api'
 import type { ApiErrorBody, Attachment, ConfirmDetail as ConfirmDetailT, EngineId, FileChange, FileChangeSummary, Locale, MessageStatus, OpenTurnRequest, Step, TurnRequest, TurnStopReason } from '@mycel/shared/api'
@@ -478,7 +479,7 @@ export class TurnExec {
   /** the places a read card of this turn named, as the card named them, with its answer (QA TC-f1x S-108: one "영업"
    * card three times in one answer, for three folders the card names the same): a card never asks again in this turn
    * about a place it already named */
-  private sharedPlaceSaid = new Map<string, SharedDecision>()
+  private sharedPlaceSaid: { label: string; path: string | null; missing: Set<string>; decision: SharedDecision }[] = []
   /** refused places, with why (the card's no, no answer, nobody to ask): a later call says the same reason */
   private sharedRefused = new Map<string, SharedNo>()
   /** a read card already open for the same places (sub-agents at the same time): they wait for that one answer */
@@ -3118,7 +3119,7 @@ export class TurnExec {
     if (this.ownCard(tool) && !this.readsOnly(tool, input)) return null
     // a dev-environment command in the person's own chat with no project, a ✦ side chat too
     // (docs/decisions/20261122-ask-less-side-chat-runs.md, QA TC-f2-c02): no room card
-    if (tool === 'box_shell' && this.ownBoxRun()) return null
+    if (tool === 'box_shell' && this.ownBoxRun(input)) return null
     let args = ''
     try { args = JSON.stringify(input ?? null) } catch { args = String(input) }
     const key = `${tool}\u0000${args}`
@@ -3471,12 +3472,16 @@ export class TurnExec {
    * work folder (no project: a project folder is the team's, and its dev environment's changes reach its members). Such a
    * run reads only what the person may open, its output is shown to them alone, and it writes only the chat's work folder
    * and the person's own folder (a folder they share is read-only in a run, srt/access.ts); a site not allowed yet asks on
-   * its own card (request_sites). Fails closed.
+   * its own card (request_sites). The card stays when "Allow all websites" is on for the person (no site card would
+   * stop a command reaching out then) or the command itself uses the network (shellUsesNetwork: curl, wget, ssh…), so a
+   * room message cannot send the person's files out without a card. Fails closed.
    */
-  private ownBoxRun(): boolean {
+  private ownBoxRun(input: unknown): boolean {
     try {
       const d = this.devEnv
       if (!d || d.project || d.shared || this.shared || this.restricted || isGuestUser(this.rt.db, this.spec.userId)) return false
+      const command = input && typeof input === 'object' ? (input as { command?: unknown }).command : undefined
+      if (typeof command !== 'string' || shellUsesNetwork(command) || webAllowAll(this.rt.db, this.spec.userId)) return false
       if (!LIVE_CLIENTS.has(this.spec.clientKind ?? '')) return false
       return !confidentialChat(this.rt.db, this.spec.chatId)
     } catch { return false }
@@ -3987,7 +3992,7 @@ export class TurnExec {
       if (!w && chatFileCopyOf(this.rt.ctx, me.id, this.spec.chatId, tool, k, input, v)) { out.push({ type: 'chat', id: this.spec.chatId }); continue }
       // a file this very answer saved whole and nothing changed since (QA TC-f2-a04: a save card, then a copy card for
       // the same file in one answer): what it holds came from this answer, so it reads as the chat's, not its folder's
-      if (!w && this.roomNames(v).every((p) => !!p && wholeSavedInTurn(this.rt.db, this.spec.turnId, p))) { out.push({ type: 'chat', id: this.spec.chatId }); continue }
+      if (!w && this.roomNames(v).every((p) => !!p && wholeSavedInTurn(this.rt.db, this.rt.files.fx.root, this.spec.turnId, p))) { out.push({ type: 'chat', id: this.spec.chatId }); continue }
       // ...and a file this chat's AI made in the person's own folder in any answer of it while shared, untouched since
       // (QA v2g; chat-file-tool.ts chatMadeOwnFile)
       if (!w && chatMadeOwnFile(this.rt.ctx, me.id, this.spec.chatId, tool, k, input, v)) { out.push({ type: 'chat', id: this.spec.chatId }); continue }
@@ -4143,7 +4148,7 @@ export class TurnExec {
       missing = missing.filter((m) => !this.sharedAllowed.has(m.key) && !(writes.has(m.key) && this.sharedAllowed.has(SAVE_KEY + m.key)))
       // a place a card of this answer already named (by the card's own words): a yes covers it, a no stands
       // (reads only: a save card's answer is its own)
-      const said = missing.map((m) => (writes.has(m.key) ? undefined : this.sharedPlaceSaid.get(this.sharedPlaceLabel(m.source))))
+      const said = missing.map((m) => (writes.has(m.key) ? undefined : this.sharedPlaceAnswer(m.source, m.missing)))
       const saidNo = said.find((d) => d !== undefined && d !== 'shared')
       if (saidNo) return refuse(saidNo as SharedNo)
       missing = missing.filter((_, i) => said[i] !== 'shared')
@@ -4168,10 +4173,42 @@ export class TurnExec {
     const decision = await pending
     const yes = decision === 'shared'
     for (const k of keys) { if (yes) this.sharedAllowed.add(k); else this.sharedRefused.set(k, decision) }
-    if (!kind.save && !skillUse) for (const m of missing) this.sharedPlaceSaid.set(this.sharedPlaceLabel(m.source), decision)
+    if (!kind.save && !skillUse) for (const m of missing) this.notePlaceAnswer(m.source, m.missing, decision)
     if (!yes) return refuse(decision)
     // the card covered the people who saw the chat when it asked (y: a yes covered it)
     return this.noteSharedReads(sources, audience, true) ? null : refuse('failed')
+  }
+
+  /** A team folder's path for the read card's "already answered" check: a folder or a named place (type 'folder' and
+   * 'name'), null for anything else (a person's files, a room, Slack, a connection, the root: their labels are generic
+   * or built from names, "my files", "Slack direct messages", "?", so two of them can share a label and not a place). */
+  private sharedPlacePath(source: ReadSource): string | null {
+    if (source.type === 'name') return source.path.split('/').filter(Boolean).join('/') || null
+    if (source.type !== 'folder') return null
+    try { return (this.rt.db.query('SELECT path FROM folders WHERE id = ?').get(source.id) as { path: string } | null)?.path ?? null } catch { return null }
+  }
+
+  /** What a read card of this answer already said for this place (QA TC-f1x S-108, and the QA-Team3 A/B: a second card
+   * for a subfolder), or undefined to ask: only team folders (sharedPlacePath); the same card label with the same people
+   * who cannot open it, or a folder inside one already answered when those who cannot open it are among the people that
+   * card counted (same or fewer). A yes covers it, a no stands. */
+  private sharedPlaceAnswer(source: ReadSource, missing: readonly string[]): SharedDecision | undefined {
+    const at = this.sharedPlacePath(source)
+    if (at === null || !this.sharedPlaceSaid.length) return undefined
+    const label = this.sharedPlaceLabel(source)
+    const ids = [...new Set(missing)].sort()
+    for (const a of this.sharedPlaceSaid) {
+      const same = a.label === label && ids.length === a.missing.size && ids.every((id) => a.missing.has(id))
+      const inside = !!a.path && (at === a.path || at.startsWith(a.path + '/')) && ids.every((id) => a.missing.has(id))
+      if (same || inside) return a.decision
+    }
+    return undefined
+  }
+
+  private notePlaceAnswer(source: ReadSource, missing: readonly string[], decision: SharedDecision): void {
+    const path = this.sharedPlacePath(source)
+    if (path === null) return
+    this.sharedPlaceSaid.push({ label: this.sharedPlaceLabel(source), path, missing: new Set(missing), decision })
   }
 
   /** A place as the read card names it (askSharedRead's words). */
@@ -5982,14 +6019,39 @@ export function shellOutputs(command: string): string[] {
  */
 export function shellCardWords(command: string, L: Locale): string {
   const kind = shellKind(command)
+  const { what, byFiles } = shellCardBase(command, kind, L)
+  // what else it does, said too (never hidden behind "makes chart.png"): installs programs, reaches the internet
+  // (the kind's own words say it already when they are the line: "프로그램 설치", "내려받기")
+  const c = command.slice(0, 20_000)
+  const install = (byFiles || kind !== 'install') && SHELL_INSTALL.test(c)
+  const net = (byFiles || (kind !== 'install' && kind !== 'download')) && SHELL_NETWORK.test(c)
+  if (install && net) return tr('roomShellPlusBoth', L, { what })
+  if (install) return tr('roomShellPlusInstall', L, { what })
+  if (net) return tr('roomShellPlusNet', L, { what })
+  return what
+}
+function shellCardBase(command: string, kind: ReturnType<typeof shellKind>, L: Locale): { what: string; byFiles: boolean } {
   const outs = shellOutputs(command)
   if (outs.length && !(kind === 'change' && SHELL_DESTRUCTIVE.test(command))) {
     const files = outs.slice(0, 3).map((n) => (n.length > 40 ? `${n.slice(0, 39)}…` : n)).join(', ') + (outs.length > 3 ? ` +${outs.length - 3}` : '')
     const kinds = [...new Set(outs.map((n) => SHELL_OUT_KIND[n.split('.').pop()!.toLowerCase()]!))]
-    if (kinds.length !== 1) return tr('roomShellMakesAny', L, { files })
-    return tr(outs.length === 1 ? 'roomShellMakesOne' : 'roomShellMakesMany', L, { kind: tr(kinds[0]!, L), files })
+    if (kinds.length !== 1) return { what: tr('roomShellMakesAny', L, { files }), byFiles: true }
+    return { what: tr(outs.length === 1 ? 'roomShellMakesOne' : 'roomShellMakesMany', L, { kind: tr(kinds[0]!, L), files }), byFiles: true }
   }
-  return kind === 'run' ? tr('roomShellRun', L) : shellWords('', command, L)
+  return { what: kind === 'run' ? tr('roomShellRun', L) : shellWords('', command, L), byFiles: false }
+}
+
+/** a command part that installs programs (npm / pip / apt … install), anywhere in a longer command */
+const SHELL_INSTALL = /(?:^|[\s;&|(`])(?:(?:npm|pnpm|yarn|bun|deno)\s+(?:i|install|add|ci)|(?:pip3?|uv|pipx|poetry)\s+(?:install|add|sync)|python3?\s+-m\s+pip\s+install|uv\s+pip\s+install|(?:apt(?:-get)?|brew|apk|dnf|yum|cargo|gem|go)\s+(?:install|add|get))\b/i
+/** a program that reaches another computer (curl, wget, ssh, scp, sftp, rsync, nc, ftp, telnet, socat, git clone /
+ * pull / fetch / push, python -m http.server), or a script's network library (requests, urllib, http.client, fetch(,
+ * axios, httpx, aiohttp, socket): a command that can send files out or bring things in. Rough on purpose: a false
+ * "yes" only keeps a card. */
+const SHELL_NETWORK = /(?:^|[\s;&|(`/])(?:curl|wget|ssh|scp|sftp|rsync|nc|ncat|netcat|ftp|lftp|telnet|socat|aria2c)(?=\s|$)|\bgit\s+(?:clone|pull|fetch|push|ls-remote)\b|\bpython3?\s+-m\s+http\.server\b|\b(?:requests|urllib|urllib3|httpx|aiohttp|http\.client|socket|axios|smtplib|ftplib|paramiko)\b|\bfetch\s*\(|https?:\/\//i
+/** The command uses the network (SHELL_NETWORK), or installs programs (which downloads them). */
+export function shellUsesNetwork(command: string): boolean {
+  const c = command.slice(0, 20_000)
+  return SHELL_NETWORK.test(c) || SHELL_INSTALL.test(c)
 }
 
 export function roomChangeDetails(tool: string, input: unknown, L: Locale, roomFile: (ref: string, room?: string) => string | null = () => null, place: (path: string) => string = (p) => p, me = '', tree: (p: string) => string[] | null = () => null): { label: string; text: string; fields?: { name: string; value: string }[]; collapsedAt?: number; noSize?: boolean; folded?: true }[] {

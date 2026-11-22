@@ -20,6 +20,7 @@ import { DialogHost } from '../../src/components/ui'
 import { usePeople } from '../../src/store/people'
 import { useSession } from '../../src/store/session'
 import { useUi } from '../../src/store/ui'
+import { useChats } from '../../src/store/chats'
 import { installDom, mount, removeDom, type Mounted } from './dom-host'
 
 const C1 = '01900000-0000-7000-8000-0000000000c1'
@@ -790,6 +791,42 @@ describe('one fact once, and Stop sharing', () => {
       await m.until(() => useUi.getState().toasts.at(-1)?.text === en('chat.share.done', { n: 1 }), 'shared again', 3000)
       expect((sent.find((x) => x.key === PREVIEW)!.body as { subjects: unknown[] }).subjects).toEqual([{ subjectType: 'user', subjectId: 'sora' }])
       expect(sent.filter((x) => x.key === `PUT ${AUD}`).at(-1)!.body).toEqual({ subjects: [{ subjectType: 'user', subjectId: 'sora' }], confirmKey: 'pk:sora' })
+    } finally { await m.unmount() }
+  })
+
+  test('Stop sharing when the server asks to confirm: the dialog stays open with "only me" as a change to Save, nothing silent', async () => {
+    routesWith(audience([SORA]), () => json(200, { status: 'confirm', check: NOTHING, confirmKey: 'x', reason: 'changed' }))
+    useUi.setState({ toasts: [] })
+    let closed = 0
+    const m = await open(() => closed++)
+    try {
+      await m.until(() => m.find('participant-user-sora'), 'Sora', 2000)
+      await m.click('chat-share-stop')
+      await m.until(() => m.find('participant-user-sora')?.getAttribute('data-state') !== null && !m.get('chat-share-save').hasAttribute('disabled'), 'Save on', 2000)
+      expect(closed).toBe(0)
+      expect(useUi.getState().toasts).toHaveLength(0)
+    } finally { await m.unmount() }
+  })
+
+  test('Undo with something at stake and the chat not in this window\'s list: the dialog opens, nothing saved', async () => {
+    const { shared: _, ...mine } = chatOut
+    let puts = 0
+    routesWith(audience([SORA]), (body) => {
+      puts++
+      return json(200, { status: 'saved', chat: mine, audience: (body as { subjects: unknown[] }).subjects.length ? audience([SORA]) : audience() })
+    }, () => ({ ...NOTHING, fileAnswers: 1, places: [{ kind: 'mine' }] }))
+    useUi.setState({ toasts: [] })
+    openChatShare(chat)
+    const m = await mount(<MemoryRouter initialEntries={[`/c/${C1}`]}><ChatShareHost /><DialogHost /></MemoryRouter>)
+    try {
+      await m.until(() => m.find('participant-user-sora'), 'Sora', 2000)
+      await m.click('chat-share-stop')
+      await m.until(() => !m.find('chat-share-dialog'), 'closed', 2000)
+      routes[`GET ${AUD}`] = () => json(200, audience())
+      useChats.setState({ chats: useChats.getState().chats.filter((c) => c.id !== C1) })
+      useUi.getState().toasts.at(-1)!.action!.run()
+      await m.until(() => m.find('participant-user-sora')?.getAttribute('data-state') === 'new', 'Sora picked again', 3000)
+      expect(puts).toBe(1)
     } finally { await m.unmount() }
   })
 

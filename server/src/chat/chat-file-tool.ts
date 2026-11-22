@@ -35,7 +35,7 @@ import { CHAT_FILE_MAX, CHAT_FILE_VERSIONS_KEPT, chainIdOf, chatFilesOf, chatFil
 import { chatFileWriteHooks } from './chat-file-write'
 import { neutralizeTags } from './prompt'
 import { answerRecord } from './shared-answers'
-import { madeInChat } from './shared-actions'
+import { madeInChat, sameBytesAsEvent } from './shared-actions'
 import { addSources, type ReadSource } from './read-scope'
 import type { Tool } from './tools'
 import { instructionLike, type TurnExec, type WidenOf } from './turn'
@@ -260,6 +260,9 @@ export function chatMadeOwnFile(ctx: TurnExec['rt']['ctx'], userId: string, chat
     const r = authorize(ctx.files.fx, ctx.files.rules(), ctx.files.principal(userId), p, 'read')
     if (r.segs[0] !== 'users' || r.segs[1] !== userId || r.segs.length < 3 || r.segs[2] === '.attachments' || !r.st?.isFile()) return false
     if (!madeInChat(ctx.db, chatId, userId, r.rel)) return false
+    // its bytes are still the ones the last event recorded (a change outside the app logs no event)
+    const last = ctx.db.query("SELECT sha256 FROM file_events WHERE path = ? AND action <> 'rejected' ORDER BY id DESC LIMIT 1").get(r.rel) as { sha256: string | null } | null
+    if (!sameBytesAsEvent(ctx.files.fx.root, r.rel, last?.sha256 ?? null)) return false
     const chat = ctx.db.query('SELECT COALESCE(shared_at, people_shared_at) AS since FROM chats WHERE id = ?').get(chatId) as { since: string | null } | null
     if (!chat?.since) return false
     const since = Date.parse(chat.since)

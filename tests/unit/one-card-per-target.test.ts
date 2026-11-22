@@ -8,6 +8,8 @@ import path from 'node:path'
 import { API } from '@mycel/shared/api'
 import { startHarness, type Harness, type TestSocket } from '../lib/b-harness'
 import { oldProject } from '../lib/legacy-project'
+import { ensureFolderRow, writeFolderAccess } from '../../server/src/admin/folders'
+import { wholeSavedInTurn } from '../../server/src/chat/shared-actions'
 
 setDefaultTimeout(60_000)
 const fake = (...ds: unknown[]) => ds.map((d) => '@fake ' + JSON.stringify(d)).join('\n')
@@ -93,6 +95,28 @@ describe('a shared project chat', () => {
   })
 })
 
+describe('a team folder answered once covers its subfolders (QA A/B: QA-Team3, then QA-Team3 › 예산)', () => {
+  const limit = (rel: string) => writeFolderAccess(h.ctx.db, ensureFolderRow(h.ctx.db, rel).id, { rules: [{ subjectType: 'user', subjectId: 'alice', access: 'write' }], limited: true }, null)
+  test('a yes for a folder: a read of its subfolder with its own rules, which the same people cannot open, asks no second card', async () => {
+    put('shared/qa3/minutes.md', 'm'); put('shared/qa3/budget/plan.md', 'b')
+    limit('shared/qa3'); limit('shared/qa3/budget')
+    const r = await run(await projectChat(), fake(
+      { tool: 'read', args: { file_path: 'shared/qa3/minutes.md' } },
+      { tool: 'read', args: { file_path: 'shared/qa3/budget/plan.md' } },
+      { say: 'done' }), 'share')
+    expect(r.cards).toHaveLength(1)
+  })
+  test('two folders side by side (not inside one another) keep a card each', async () => {
+    put('shared/qa4a/x.md', 'x'); put('shared/qa4b/y.md', 'y')
+    limit('shared/qa4a'); limit('shared/qa4b')
+    const r = await run(await projectChat(), fake(
+      { tool: 'read', args: { file_path: 'shared/qa4a/x.md' } },
+      { tool: 'read', args: { file_path: 'shared/qa4b/y.md' } },
+      { say: 'done' }), 'share')
+    expect(r.cards).toHaveLength(2)
+  })
+})
+
 describe('a file this chat\'s AI made in the person\'s folder, read in a later answer of the same shared chat (QA v2g)', () => {
   test('no read card in the same chat; another chat of the project keeps the card; an edit by the person brings it back', async () => {
     const chat = await projectChat()
@@ -108,6 +132,29 @@ describe('a file this chat\'s AI made in the person\'s folder, read in a later a
     h.ctx.db.query("INSERT INTO file_events (path, action, user_id, at, detail) VALUES ('users/alice/made-here.md', 'update', 'alice', ?, '{\"tool\":\"file-screen\"}')").run(new Date().toISOString())
     const r4 = await run(chat, fake({ tool: 'read', args: { file_path: 'users/alice/made-here.md' } }, { say: 'done' }), 'share')
     expect(r4.cards).toHaveLength(1)
+  })
+})
+
+describe('bytes changed outside the app (no file event): not the chat\'s file any more', () => {
+  test('a file this chat made, changed on disk since: the read card asks again', async () => {
+    const chat = await projectChat()
+    await run(chat, fake({ tool: 'write', args: { file_path: 'users/alice/made-disk.md', content: 'made here' } }, { say: 'done' }), 'share')
+    expect((await run(chat, fake({ tool: 'read', args: { file_path: 'users/alice/made-disk.md' } }, { say: 'done' }), 'share')).cards).toHaveLength(0)
+    put('users/alice/made-disk.md', 'changed by a sync, no event')
+    expect((await run(chat, fake({ tool: 'read', args: { file_path: 'users/alice/made-disk.md' } }, { say: 'done' }), 'share')).cards).toHaveLength(1)
+  })
+  test('wholeSavedInTurn: the newest event is this turn\'s write, but the bytes on disk differ', () => {
+    const root = h.ctx.files.fx.root
+    const chat = crypto.randomUUID()
+    h.ctx.db.query('INSERT INTO chats (id, user_id, title) VALUES (?,?,?)').run(chat, 'alice', 'c')
+    const turn = crypto.randomUUID()
+    h.ctx.db.query("INSERT INTO turns (id, chat_id, user_id, engine, status) VALUES (?,?,?, 'claude-code', 'running')").run(turn, chat, 'alice')
+    put('users/alice/whole.md', 'saved')
+    const sha = new Bun.CryptoHasher('sha256').update('saved').digest('hex')
+    h.ctx.db.query("INSERT INTO file_events (turn_id, user_id, path, action, size, sha256, detail) VALUES (?, 'alice', 'users/alice/whole.md', 'create', 5, ?, '{\"tool\":\"write\"}')").run(turn, sha)
+    expect(wholeSavedInTurn(h.ctx.db, root, turn, 'users/alice/whole.md')).toBe(true)
+    put('users/alice/whole.md', 'other bytes')
+    expect(wholeSavedInTurn(h.ctx.db, root, turn, 'users/alice/whole.md')).toBe(false)
   })
 })
 

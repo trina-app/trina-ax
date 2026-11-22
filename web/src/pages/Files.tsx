@@ -612,13 +612,13 @@ function Files() {
   }
 
   /** Trash the selection, after one question when someone else could open one of them (lib/bulkFiles.ts
-   * trashAsksFirst); "Undo" brings all of them back. */
+   * trashAsksFirst; the rows are this folder's listing, GET /api/files/tree); "Undo" brings all of them back. */
   const bulkDelete = async () => {
     const items = movable
     if (!items.length) return
     const skipped = chosen.length - items.length - fixedChosen
     const body = [t('files.deleteBody'), skipped ? t('files.bulk.readOnlyLeft', { n: skipped }) : null, fixedChosen ? t('files.bulk.fixedLeft', { n: fixedChosen }) : null].filter(Boolean).join(' ')
-    if (trashAsksFirst(items, me.user.id, listed ? projects : null) && !(await confirmDialog({ title: t('files.bulk.deleteTitle', { n: items.length }), body, confirm: t('files.moveToTrash'), danger: true }))) return
+    if (trashAsksFirst(items, me.user.id, listed ? projects : null, { fromListing: true }) && !(await confirmDialog({ title: t('files.bulk.deleteTitle', { n: items.length }), body, confirm: t('files.moveToTrash'), danger: true }))) return
     const each = leaveAtOnce(items)
     setRunning('delete')
     try {
@@ -840,10 +840,11 @@ function Files() {
       ),
     ).then(() => void onScreen.current?.load())
 
-  /** To the trash, asked first only when someone else could open it (lib/bulkFiles.ts trashAsksFirst); the toast's Undo
+  /** To the trash, asked first only when someone else could open it (lib/bulkFiles.ts trashAsksFirst; a row of this
+   * folder's listing, GET /api/files/tree); the toast's Undo
    * brings it back either way. */
   const remove = async (e: FileEntry) => {
-    if (trashAsksFirst([e], me.user.id, listed ? projects : null) && !(await confirmDialog({ title: t('files.deleteTitle', { name: e.name }), body: t('files.deleteBody'), confirm: t('files.moveToTrash'), danger: true }))) return
+    if (trashAsksFirst([e], me.user.id, listed ? projects : null, { fromListing: true }) && !(await confirmDialog({ title: t('files.deleteTitle', { name: e.name }), body: t('files.deleteBody'), confirm: t('files.moveToTrash'), danger: true }))) return
     // out of the listing at once; "moved to the trash" with its Undo comes with the server's answer
     const r = await placeEntry({ key: fileChangeKey(e.path), from: e, to: null, send: () => api.call(API.remove, { query: { path: e.path } }) })
     void onScreen.current?.load()
