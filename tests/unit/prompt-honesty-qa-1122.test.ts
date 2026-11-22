@@ -39,7 +39,8 @@ describe('the three honesty lines', () => {
     // about 250 tokens together, measured in characters
     // (+60: a changed file keeps its name, so it is a version: ask audit TC-ask2-2)
     // (+280: one computed number for the answer and the file, and the data's date on a page: TC-b3s-7 / S-102)
-    expect(NO_INVENT_RULE.length + FIGURES_RULE.length + CHECK_MADE_RULE.length).toBeLessThanOrEqual(1500)
+    // (+20: that S-102 line came out at 1515 after its review fixes; batch 20261123-a keeps the prompt as reviewed)
+    expect(NO_INVENT_RULE.length + FIGURES_RULE.length + CHECK_MADE_RULE.length).toBeLessThanOrEqual(1520)
     for (const s of ['compute it once', 'never a second calculation in your head', "shows its data's date by the source, as a tool result gives it (none given: no date)"]) expect(FIGURES_RULE).toContain(s)
   })
 
