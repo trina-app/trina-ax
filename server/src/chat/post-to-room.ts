@@ -72,7 +72,7 @@ import { findPeople, findRoom, localTime, PERSON_REF, titleOf, type Teammate } f
 import { roomsOf } from '../rooms/service'
 import { groupName, isOwnerOrAdmin, roomRow, type MemberRow, type RoomRow } from '../rooms/store'
 import { historyRoom } from '../rooms/history'
-import { keyRoomOf, keyRoomOfPair, preparePendingDm, prepareShare, sendShare, SHARE_ARTIFACTS_MAX, shareChoice, type PendingShare, type PreparedShare } from './answer-share'
+import { keyRoomOf, keyRoomOfPair, preparePendingDm, prepareShare, sendShare, SHARE_ARTIFACTS_MAX, shareChoice, waitForRenders, type PendingShare, type PreparedShare } from './answer-share'
 import { scopeWithListing, sourceKey, sourceOf } from './read-scope'
 import { tr } from './i18n'
 import { neutralizeTags } from './prompt'
@@ -438,7 +438,7 @@ export function postToRoomTool(exec: TurnExec): Tool {
               ...(menAll ? { mentioned_everyone: true } : {}),
               note: again
                 ? `Already posted earlier in this answer (the same text to the same place); nothing was posted twice.`
-                : `Posted to ${titleAi}${opened ? ' (a new 1:1 chat, made now)' : ''}${threadRootId ? ' as a reply in the thread' : ''} as the user's message, ${plain ? 'in their own words (no AI quote)' : 'your text quoted as the AI\'s answer'}${fileCount ? `, with ${fileCount} file${fileCount === 1 ? '' : 's'} attached: ${fileNames}; each is a copy made now, so a later change to a file does not reach the room (offer to post the new version then)` : ''}.${tagged}${untagged}${byAlways ? ` ${RAN_UNDER_ALWAYS}` : ''}`,
+                : `Posted to ${titleAi}${opened ? ' (a new 1:1 chat, made now)' : ''}${threadRootId ? ' as a reply in the thread' : ''} as the user's message, ${plain ? 'in their own words (no AI quote)' : 'your text quoted as the AI\'s answer'}${fileCount ? `, with ${fileCount} file${fileCount === 1 ? '' : 's'} attached: ${fileNames}; each is a copy made now, so a later change to a file does not reach the room (offer to post the new version then)` : ''}.${r.videoAsPage ? ' The video\'s MP4 file was not ready, so the video went as its web page (it plays in the room): say so plainly.' : ''}${tagged}${untagged}${byAlways ? ` ${RAN_UNDER_ALWAYS}` : ''}`,
             })),
             summary: `post_to_room -> ${again ? 'already sent' : 'sent'}${threadRootId ? ' (thread)' : ''}${fileCount ? `, ${fileCount} files` : ''}`,
           }
@@ -663,6 +663,8 @@ export function postToRoomTool(exec: TurnExec): Tool {
 
         // ---- yes: checked again, then sent with the key of the line the person saw for that choice ----
         const withFiles = v === 'send_files' && !!all
+        // a promo video's MP4 still rendering (started by the check before the card): waited for, then checked again
+        await waitForRenders(ctx, spec.userId, first.check.artifacts.filter((x) => x.render).map((x) => x.id))
         const again = await prepare()
         if ('refused' in again) return again.refused
         if (again.status === 'sent') return sent(again, true)

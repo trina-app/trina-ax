@@ -5604,6 +5604,7 @@ export const ja: Record<MessageKey, string> = {
   "shareRoom.madeHead": "この回答で作ったファイル",
   "shareRoom.madeGoes": "メッセージと一緒に送ります。全員が開けます",
   "shareRoom.audience": "{n, plural, one {このトークの#人に表示されます。} other {このトークの#人全員に表示されます。}}",
+  "shareRoom.videoAsPage": "動画ファイルがまだ用意できていないため、動画の代わりにページとして送りました。トークでそのまま再生できます。",
   "shareRoom.filesHead": "リンクされたファイル",
   "shareRoom.fileAll": "全員が開けます",
   "shareRoom.fileSome": "{n, plural, one {#人は開けません} other {#人は開けません}}",

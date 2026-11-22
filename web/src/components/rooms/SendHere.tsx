@@ -24,6 +24,7 @@ import { useLocale, useT } from '../../i18n'
 import { errorText, isApiError } from '../../lib/api'
 import type { SendTarget } from '../../lib/sideChatSend'
 import { useRooms } from '../../store/rooms'
+import { toast } from '../../store/ui'
 import { useSideChats, type SendHereState } from '../../store/sideChats'
 import { RoomOptionLabel } from '../chat/RoomRefMenu'
 import { ShareConfirm, useConfirmStep, type ConfirmAsk } from '../chat/ShareToRoom'
@@ -90,6 +91,8 @@ export function SendHere({ chatId, answerId, answer, roomId, target, onView }: {
       justSent.current = focusHere()
       confirm.close()
       setSaid(t(sentKey(sent)))
+      // the video's MP4 was not ready: it went as its page (review of #363)
+      if (r.videoAsPage) toast({ level: 'info', text: t('shareRoom.videoAsPage') })
       patch({ sent, sending: false, attempt: null })
     } catch (e) {
       // refused (4xx): nothing went, the next click is a new one; no answer or a server failure: it may have gone, so

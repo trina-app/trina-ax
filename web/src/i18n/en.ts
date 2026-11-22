@@ -5649,6 +5649,7 @@ export const en: Record<MessageKey, string> = {
   "shareRoom.madeHead": "Made in this answer",
   "shareRoom.madeGoes": "Goes with the message. Everyone there can open it",
   "shareRoom.audience": "{n, plural, one {The # person} other {All # people}} in this conversation will see it.",
+  "shareRoom.videoAsPage": "The video file wasn't ready yet, so the video went as a page. It plays in the conversation all the same.",
   "shareRoom.filesHead": "Linked files",
   "shareRoom.fileAll": "Everyone can open",
   "shareRoom.fileSome": "{n, plural, one {# can't open} other {# can't open}}",

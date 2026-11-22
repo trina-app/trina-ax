@@ -5604,6 +5604,7 @@ export const es: Record<MessageKey, string> = {
   "shareRoom.madeHead": "Hecho en esta respuesta",
   "shareRoom.madeGoes": "Va con el mensaje. Todos allí pueden abrirlo",
   "shareRoom.audience": "{n, plural, one {La # persona} other {Las # personas}} de esta conversación lo verán.",
+  "shareRoom.videoAsPage": "El archivo de vídeo aún no estaba listo, así que el vídeo se envió como página. Se reproduce igual en la conversación.",
   "shareRoom.filesHead": "Archivos enlazados",
   "shareRoom.fileAll": "Todos pueden abrirlo",
   "shareRoom.fileSome": "{n, plural, one {# persona no puede abrirlo} other {# personas no pueden abrirlo}}",

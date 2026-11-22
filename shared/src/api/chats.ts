@@ -68,7 +68,8 @@ export const ShareAnswerToRoomBody = z.object({
   clientMessageId: z.string().min(8).max(64),
 }).strict()
 export const ShareAnswerToRoomResult = z.discriminatedUnion('status', [
-  z.object({ status: z.literal('sent'), message: RoomMessage, cut: z.boolean() }),
+  /** `videoAsPage`: a promo video went as its page, its MP4 was not ready (the apps say so) */
+  z.object({ status: z.literal('sent'), message: RoomMessage, cut: z.boolean(), videoAsPage: z.literal(true).optional() }),
   AnswerShareConfirm,
 ])
 export type ShareAnswerToRoomResult = z.infer<typeof ShareAnswerToRoomResult>
