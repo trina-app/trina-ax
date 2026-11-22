@@ -1,10 +1,10 @@
-# Demo banner: the AI sees the banner's current words and changes only the part asked for
+# Demo banner: the words are a file the AI reads and edits, the tool draws from it
 
 - Date (UTC): 2026-11-22 00:51
 - Branch: `fix/demo-banner-current-words`
-- Status: in progress
-- Where: server (demo fakes, change_banner_text, the demo note in the AI's instructions). Why: the owner's live ko demo
-  test of 11-22 (see docs/REPOSITORY-RULES.md)
+- Status: done
+- Where: server (demo fakes, change_banner_text, the demo note in the AI's instructions) and the Steepling seed. Why:
+  the owner's live ko demo test of 11-22 (see docs/REPOSITORY-RULES.md)
 - Version impact: patch, a demo-only fix of the AI's banner edits
 
 ## Goal
@@ -14,35 +14,33 @@ In the 유자 진저 project chat the launch banner says "흐린 아침에, 작�
 words, then said it did not know the original words. It took four messages to get "밝은 아침에, 작은 햇살 한 잔.".
 After this change the first message gives that headline.
 
-Root cause: the AI never sees the banner's current words (only the tool result of the turn that drew it, which a later
-turn may not keep), and change_banner_text can only replace a whole field. So a partial edit means retyping words it
-does not know. The last banner was also one per demo instance, not per chat or project.
+Root cause: the AI never saw the banner's current words. They lived only in the server's state and in an earlier tool
+result. change_banner_text took whole fields as arguments, so a partial edit meant retyping words it did not know.
 
 ## Scope
 
-In:
-- The current words of the last banner in this chat's project (else this chat), or the launch words, go into the demo
-  note of every turn (prompt.ts DEMO_BANNER_NOTE + a "current banner" line built from the kit and the saved state).
-- change_banner_text gets `replace: [{ from, to }]`: a phrase replaced in the current words, everything else kept. A
-  `from` that is not on the banner fails with the current words listed.
-- Every result says these are now the banner's full current words (headline, line, badge, button, size, photo).
-- The last banner is kept per project (else per chat): a banner made in a chat of another project does not change
-  this one.
-- Instructions: "X 말고 Y", "change X to Y", "X → Y" → replace; words the user did not name stay as they are; words
-  that are on the banner make a text edit, never a new-scene request.
+In (owner's direction, 11-22: do it the way plain Claude Code would, read the file, edit the words, render):
+- Each banner has a small text source next to its pictures: `<project folder>/banner.json` (headline, subline,
+  eyebrow, badge, badge_note, button, scene, sizes; one field per line). The seed writes the launch banner's.
+- The AI changes words with the normal read and edit tools on that file; "흐린 아침 말고 밝은 아침" is a one-word edit.
+- change_banner_text draws every size from the source and saves the pictures next to it. With no source yet, it makes
+  one from the launch banner. The old word arguments still work: they are written into the source first.
+- The demo note names this chat's source file (the project's, else the person's own folder) and says to read it
+  before changing words. It also says that words on the banner make a text edit, never a new-scene request.
 
-Out: the hosted demo itself (deployed separately), Higgsfield's generate_image scene matcher (the prompt rule routes
-banner words away from it).
+Out: the hosted demo itself (deployed separately). The first version of this plan's `replace` mode was dropped for
+the source file.
 
 ## Steps
 
-1. State: `banner.scope` on a saved banner; DemoBanners.current(scope) and make(args, scope).
-2. replace mode in banners.ts (exact match first, then one that ignores spaces, line breaks and *stars*).
-3. Tool: input `replace`, the scope from the turn's chat (project id, else chat id), the result line "current words".
-4. prompt.ts: the demo input carries the current words; the demo note says how to use them and replace.
-5. turn.ts passes the current words for the chat's scope.
-6. Tests: replace (incl. not found), the words in the instructions, the 4-message transcript as tool calls, per-project
-   state.
+1. banners.ts: the source format (BannerSourceFile, bannerSourceText, parseBannerSource, launchSource); a scene id
+   in `scene` picks that scene.
+2. tools/demo-banner.ts: read the source (or make it), draw every size, save, update the source when arguments changed
+   it; bannerSourceFor for the note.
+3. prompt.ts DEMO_BANNER_NOTE + demoBannerSource; turn.ts passes the source path.
+4. Seed: steepling make.ts writes `projects/<project>/banner.json`.
+5. rooms/ai-tools.ts: change_banner_text writes several files ('many') and `source` is a write target too.
+6. Tests: the owner's transcript as read → edit → render in one turn; per-project source; broken source; seed; note.
 
 ## Decisions
 
@@ -50,14 +48,14 @@ none
 
 ## Risks
 
-Demo only (the tool and the note exist only on a demo server with a banner kit). The demo note now changes after a
-banner edit, so a demo turn's instructions differ from the previous turn's; that is only on demo servers.
+Demo only (the tool and the note exist only on a demo server with a banner kit). A demo already seeded has no
+banner.json: the first call makes it from the launch banner.
 
 ## Tests
 
-`bun run typecheck`, `bun run check:prepush`, `bun run check:i18n`, tests/unit/*demo*.test.ts, b-shared-save-card,
-the prompt tests.
+`bun run typecheck`, `bun run check:prepush`, `bun run check:i18n`, tests/unit/*demo*.test.ts,
+b-shared-save-card, the prompt tests.
 
 ## Result
 
-(filled in at the end)
+Built as above. One render draws all three sizes, saves them next to the source, and shows them inline.
