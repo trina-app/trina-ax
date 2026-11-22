@@ -8249,7 +8249,7 @@ export class MockServer {
     h.leaveChat = (c) => {
       const chat = sees(c.params.id!, c.user)
       const ps = this.peopleShared.get(chat.id)
-      if (!ps || this.sharedChats.get(chat.id)?.by.id === c.user.id) fail('validation', 400, '직접 시작한 채팅에서는 나갈 수 없어요.', undefined, { reason: 'chat_leave_creator' })
+      if (!ps || this.sharedChats.get(chat.id)?.by.id === c.user.id) return fail('validation', 400, '직접 시작한 채팅에서는 나갈 수 없어요.', undefined, { reason: 'chat_leave_creator' })
       this.sharedSend((uid) => (uid === c.user.id ? { type: 'chat.updated', data: { chatId: chat.id, change: 'deleted', chat: null } } : null))
       ps.subjects = ps.subjects.filter((x) => !(x.subjectType === 'user' && x.subjectId === c.user.id))
       this.peopleHidden.delete(`${c.user.id}:${chat.id}`)
