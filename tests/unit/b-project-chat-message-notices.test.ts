@@ -119,6 +119,21 @@ describe('a person\'s message in a project chat', () => {
     } finally { db().query('UPDATE users SET guest = 0 WHERE id = ?').run('erin') }
   })
 
+  test('a member who loses the project: no unread list entry, nothing on the push badge, no push, though the notice stays', async () => {
+    const s = await say('bob', 'before erin leaves')
+    const n = of('erin', s.userMessage!.id)[0]!
+    expect(pushBadge(h.ctx, 'erin')).toBeGreaterThan(0)
+    db().query("DELETE FROM group_members WHERE group_id = 'finance' AND user_id = 'erin'").run()
+    try {
+      expect((await h.api('erin').call(API.listChats, { query: { unread: '1' } })).items).toEqual([])
+      expect(pushBadge(h.ctx, 'erin')).toBe(0)
+      expect(chatMessageWanted(h.ctx, n.id)).toBe(false)
+    } finally {
+      db().query("INSERT INTO group_members (group_id, user_id) VALUES ('finance', 'erin')").run()
+      await h.api('erin').call(API.markChatSeen, { params: { id: chatId } })
+    }
+  })
+
   test('the fan-out reads the same number of times for 3 people or 33 (no read per person)', () => {
     const chat = h.ctx.db.query('SELECT * FROM chats WHERE id = ?').get(chatId) as Parameters<typeof noteSharedMessage>[1]
     const msg = (db().query("SELECT id FROM messages WHERE chat_id = ? AND role = 'user' ORDER BY id DESC LIMIT 1").get(chatId) as { id: string }).id

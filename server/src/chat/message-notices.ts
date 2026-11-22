@@ -105,7 +105,10 @@ function note(ctx: AppContext, chat: ChatIds, messageId: string, by: string, kin
     const active = new Set((db.query("SELECT id FROM users WHERE id IN (SELECT value FROM json_each(?)) AND status = 'active' AND deleted_at IS NULL").all(list) as { id: string }[]).map((r) => r.id))
     const muted = new Set((db.query('SELECT user_id FROM chat_mutes WHERE chat_id = ?').all(chat.id) as { user_id: string }[]).map((r) => r.user_id))
     const prefs = kind === 'message' ? getPreferencesOf(db, ids.filter((id) => active.has(id))) : null
+    // an answer: who it is hidden from, worked out before the write transaction (it reads the chat and each person's
+    // access; never held inside the write)
     const sight = kind === 'answer' ? new AnswerSight(db, ctx.files) : null
+    const hiddenFrom = new Set(sight ? ids.filter((uid) => active.has(uid) && (!muted.has(uid)) && sight.withheld(chat.id, uid).has(messageId)) : [])
     const tz = teamTimeZone(db), now = Date.now(), at = new Date(now).toISOString()
     const insert = db.query(`INSERT INTO chat_message_notices (id, user_id, event_type, source_id, chat_id, by_user, kind, created_at, suppressed, quiet, mention)
       VALUES (?, ?, 'chat.message', ?, ?, ?, ?, ?, 0, ?, ?) ON CONFLICT DO NOTHING`)
@@ -115,7 +118,7 @@ function note(ctx: AppContext, chat: ChatIds, messageId: string, by: string, kin
         if (!active.has(uid)) continue
         const mention = kind === 'message' && mentions.includes(uid)
         if (!mention && muted.has(uid)) continue
-        if (sight?.withheld(chat.id, uid).has(messageId)) continue
+        if (hiddenFrom.has(uid)) continue
         const ring = kind === 'message' && mayRing(prefs!.get(uid)!, tz, now)
         const r = insert.run(newId(), uid, messageId, chat.id, kind === 'message' ? by : null, kind, at, ring ? 0 : 1, mention ? 1 : 0)
         if (r.changes && kind === 'message') told.push(uid)

@@ -26,8 +26,9 @@ function markedChats(ctx: AppContext, userId: string): (MarkedChat & { id: strin
   try { rt = getChatRuntime(ctx) } catch { return [] }
   const where = `room_id IS NULL AND ${notInternalChat(ctx.db)} AND deleted_at IS NULL
     AND (user_id = ? OR (shared_at IS NOT NULL AND id IN (SELECT chat_id FROM messages WHERE role = 'user' AND author_id = ?)) OR (${IN_PEOPLE_AUDIENCE_SQL} AND ${NOT_HIDDEN_SQL})
-      OR id IN (SELECT chat_id FROM chat_message_notices WHERE user_id = ? AND read_at IS NULL AND suppressed = 0))`
-  // (and a project's shared chat with messages I have not read, though I never wrote there: GET /api/chats?unread=1)
+      OR (shared_at IS NOT NULL AND project_id IS NOT NULL AND id IN (SELECT chat_id FROM chat_message_notices WHERE user_id = ? AND read_at IS NULL AND suppressed = 0)))`
+  // (and a project's shared chat with messages I have not read, though I never wrote there: GET /api/chats?unread=1; only
+  // while it is a project's shared chat, and visible() below keeps it only while I see that project now)
   // the list's first page: my pinned chats, then the newest others (routes/chats.ts pinsFirst)
   const pinned = `id IN (SELECT chat_id FROM chat_pins WHERE user_id = ?)`
   const rows = [

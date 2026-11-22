@@ -366,11 +366,13 @@ export const chatsRoutes: RouteModule = {
       // the shared chats with messages I have not read (chat/message-notices.ts): a project's shared chat I never wrote in
       // is in no list of mine, so the rail's Projects mark, the app icon and the desktop notice read it here after a reload
       if (query.unread) {
-        if (query.q || query.projectId || query.folderId || query.sideRoomId || query.trash || query.cursor) fail('validation', undefined, { fields: { 'query.unread': 'alone' } })
+        if (query.q || query.projectId || query.folderId || query.sideRoomId || query.trash || query.cursor || query.other) fail('validation', undefined, { fields: { 'query.unread': 'alone' } })
+        // every such chat is read (one indexed read of my unread notices), then only the ones I see now are kept, then
+        // the page: a chat I lost (its notices stay until read) never pushes one I see out of it
         const rows = ctx.db.query(`SELECT ${CHAT_COLS} FROM chats WHERE room_id IS NULL AND deleted_at IS NULL AND ${notInternalChat(ctx.db)}
-          AND id IN (SELECT chat_id FROM chat_message_notices WHERE user_id = ? AND read_at IS NULL AND suppressed = 0) ORDER BY updated_at DESC, id DESC LIMIT ?`).all(me, limit) as ChatRow[]
+          AND id IN (SELECT chat_id FROM chat_message_notices WHERE user_id = ? AND read_at IS NULL AND suppressed = 0) ORDER BY updated_at DESC, id DESC`).all(me) as ChatRow[]
         const aud = new Audiences(ctx.db, ctx.files)
-        const seen = rows.filter((r) => isSharedRow(r) && aud.seesChat(me, r))
+        const seen = rows.filter((r) => isSharedRow(r) && aud.seesChat(me, r)).slice(0, limit)
         const people = chatPeople(ctx.db, seen.map((r) => r.id), me)
         return { items: seen.map((r) => chatOut(rt, me, r, { aud, people })), nextCursor: null }
       }

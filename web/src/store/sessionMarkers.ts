@@ -435,11 +435,20 @@ export function stopSessionMarkers() {
   started = false
 }
 
+/** the unread messages of shared chats kept outside my list (`others`: a project's shared chat I never wrote in, store/
+ * chats.ts loadChats): they add to n as the server's push badge counts them, never to the Trina mark's part */
+const othersUnread = (chats: readonly Chat[], others: Record<string, Chat>, here: string | null): number => {
+  let n = 0
+  for (const c of Object.values(others)) if (c.unreadCount && !c.muted && !c.deletedAt && c.id !== here && !chats.some((x) => x.id === c.id)) n += c.unreadCount
+  return n
+}
+
 /** the one count n, as this window shows it */
 export const currentCount = () => {
   const s = useSessionMarkers.getState()
   const chats = useChats.getState(), rooms = useRooms.getState()
-  return attentionCount(chats.chats, rooms.rooms, { here: s.visible ? s.onScreen : null, cards: cardChats(chats.requests), mentions: mentionCount(useChatMentions.getState().byChat) })
+  const here = s.visible ? s.onScreen : null
+  return attentionCount(chats.chats, rooms.rooms, { here, cards: cardChats(chats.requests), mentions: mentionCount(useChatMentions.getState().byChat) + othersUnread(chats.chats, chats.others, here) })
 }
 
 /** n, whether any is a "?", the AI chats' part (tab title, the rail's and the phone tab's mark) and other unread rooms; re-renders when the
@@ -449,8 +458,9 @@ export function useAttention(): ReturnType<typeof attentionCount> {
   const requests = useChats((s) => s.requests)
   const rooms = useRooms((s) => s.rooms)
   const here = useSessionMarkers((s) => (s.visible ? s.onScreen : null))
+  const others = useChats((s) => s.others)
   const mentions = useChatMentions((s) => mentionCount(s.byChat))
-  return useMemo(() => attentionCount(chats, rooms, { here, cards: cardChats(requests), mentions }), [chats, rooms, here, requests, mentions])
+  return useMemo(() => attentionCount(chats, rooms, { here, cards: cardChats(requests), mentions: mentions + othersUnread(chats, others, here) }), [chats, others, rooms, here, requests, mentions])
 }
 
 /** The AI chats whose row shows "?" now (a question waits on me, or a run stopped and wants a look), in the chat list's
